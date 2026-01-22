@@ -1,0 +1,19 @@
+[package]
+name = "nuwax-agent"
+version = "0.0.0"
+authors = ["soddy <soddygo@qq.com>"]
+edition = "2024"
+description = "nuwax agent"
+repository = "https://github.com/soddygo/nuwax-agent"
+license = "Apache"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+[dev-dependencies]
+
+[[bin]]
+path = "src/main.rs"
+name = "nuwax_agent-cli"
+

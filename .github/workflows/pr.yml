@@ -1,0 +1,27 @@
+name: Lint PR
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - synchronize
+
+permissions: read-all
+
+jobs:
+  check:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Validate PR title
+        run: |
+          python .github/scripts/commits.py "${{ github.event.pull_request.title }}"
