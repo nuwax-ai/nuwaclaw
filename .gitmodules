@@ -1,0 +1,18 @@
+[submodule "vendors/nuwax-rustdesk"]
+	path = vendors/nuwax-rustdesk
+	url = https://github.com/nuwax-ai/nuwax-rustdesk.git
+[submodule "vendors/rcoder"]
+	path = vendors/rcoder
+	url = https://github.com/nuwax-ai/rcoder.git
+[submodule "vendors/mcp-proxy"]
+	path = vendors/mcp-proxy
+	url = https://github.com/nuwax-ai/mcp-proxy.git
+[submodule "vendors/cargo-packager"]
+	path = vendors/cargo-packager
+	url = https://github.com/crabnebula-dev/cargo-packager.git
+[submodule "vendors/enigo"]
+	path = vendors/enigo
+	url = https://github.com/enigo-rs/enigo.git
+[submodule "vendors/rustdesk-server"]
+	path = vendors/rustdesk-server
+	url = https://github.com/rustdesk/rustdesk-server.git
