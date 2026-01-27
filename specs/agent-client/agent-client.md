@@ -91,6 +91,81 @@ UI界面通过 `gpui-component` 来实现,本地参考源码： vendors/gpui-com
   cargo build --release
   ```
 
+#### Agent 自动安装功能
+
+* **Agent 运行环境自动安装** (功能优先级高)
+  - 客户端需要自动检测并安装 Agent 运行所需的依赖环境
+  - **隔离安装原则**：所有安装的工具和依赖都安装到客户端应用数据目录，不污染用户的全局环境
+    - 安装目录为各平台标准的应用数据目录（客户端内部管理，用户不可修改）：
+      - macOS: `~/Library/Application Support/nuwax-agent/tools/`
+      - Windows: `%LOCALAPPDATA%\nuwax-agent\tools\`（即 `C:\Users\<user>\AppData\Local\nuwax-agent\tools\`）
+      - Linux: `~/.local/share/nuwax-agent/tools/`（遵循 XDG 规范）
+    - 避免覆盖用户已有的全局安装（如用户自己安装的 node、npm、opencode 等）
+  - 参考 Zed 编辑器安装 ACP 协议 Agent 的做法
+
+* **Node.js 环境自动安装**
+  - 检测本地是否已有可用的 Node.js 环境（优先使用隔离目录内的版本）
+  - 如果没有，自动下载并安装到隔离目录：`<APP_DATA_DIR>/tools/node/`
+  - 推荐使用 Node.js 的预编译二进制包，避免编译安装
+  - 支持的平台：
+    - Windows: `node-vXX.XX.X-win-x64.zip`
+    - macOS (Intel): `node-vXX.XX.X-darwin-x64.tar.gz`
+    - macOS (Apple Silicon): `node-vXX.XX.X-darwin-arm64.tar.gz`
+    - Linux: `node-vXX.XX.X-linux-x64.tar.xz`
+  - 版本管理：记录安装的 Node.js 版本，支持后续升级
+
+* **Agent 工具自动安装（通过 npm）**
+  - 使用隔离目录内的 npm 进行安装，不使用全局 npm
+  - npm 安装目录：`<APP_DATA_DIR>/tools/npm-global/`
+  - 支持安装的 Agent 工具：
+    - `opencode`：通过 `npm install -g opencode` 安装到隔离目录
+    - `@anthropic-ai/claude-code`：Claude Code CLI
+    - 其他支持 ACP 协议的 Agent 工具
+  - 安装流程：
+    1. 检查 Agent 是否已安装且版本符合要求
+    2. 如未安装或版本过旧，自动执行安装/升级
+    3. 安装完成后验证 Agent 可用性（如执行 `opencode --version`）
+
+* **环境变量和 PATH 管理**
+  - 客户端运行时动态设置 PATH，优先使用隔离目录内的工具
+  - PATH 顺序：`<APP_DATA_DIR>/tools/node/bin` > `<APP_DATA_DIR>/tools/npm-global/bin` > 系统 PATH
+  - 不修改用户的 shell 配置文件（如 `.bashrc`、`.zshrc`）
+  - 仅在客户端进程及其子进程中生效
+
+* **安装状态和 UI 反馈**
+  - 在设置界面或专门的"Agent 管理"界面显示：
+    - 已安装的 Agent 列表及版本
+    - Node.js 版本
+    - 安装状态（已安装/未安装/安装中/安装失败）
+  - 支持手动触发安装/更新/卸载操作
+  - 安装过程中显示进度条和日志
+  - 安装失败时提供错误信息和重试选项
+
+* **安装目录结构示例**
+  - `<APP_DATA_DIR>` 为各平台应用数据目录（见上文）
+  ```
+  <APP_DATA_DIR>/                  # 客户端应用数据目录
+  ├── tools/
+  │   ├── node/                    # Node.js 安装目录
+  │   │   ├── bin/
+  │   │   │   ├── node
+  │   │   │   └── npm
+  │   │   └── lib/
+  │   ├── npm-global/              # npm 全局安装目录（隔离）
+  │   │   ├── bin/
+  │   │   │   ├── opencode
+  │   │   │   └── claude
+  │   │   └── lib/
+  │   └── versions.json            # 已安装工具的版本记录
+  ├── config/                      # 配置文件
+  ├── logs/                        # 日志文件
+  └── cache/                       # 缓存文件（下载的安装包等）
+  ```
+  - 各平台实际路径：
+    - macOS: `~/Library/Application Support/nuwax-agent/`
+    - Windows: `%LOCALAPPDATA%\nuwax-agent\`
+    - Linux: `~/.local/share/nuwax-agent/`
+
 
 
 
