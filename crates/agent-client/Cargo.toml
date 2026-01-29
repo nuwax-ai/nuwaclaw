@@ -64,9 +64,9 @@ argon2 = { workspace = true }
 aes-gcm = { workspace = true }
 rand = { workspace = true }
 
-# UI 框架 - 使用 workspace 统一的 gpui 版本
-gpui = { workspace = true }
-gpui-component = { version = "0.5" }
+# UI 框架 - crates.io 版本
+gpui = "0.2.2"
+gpui-component = "0.5"
 # 强制使用 core-text 21.0.0 避免 core-graphics 冲突
 core-text = { workspace = true }
 
