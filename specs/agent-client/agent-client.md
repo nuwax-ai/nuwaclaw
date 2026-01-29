@@ -34,18 +34,20 @@
 
 * 跟随系统自动启动 (Auto Launch)
   - 推荐库：[`auto-launch`](https://crates.io/crates/auto-launch), github仓库地址： https://github.com/zzzgydi/auto-launch.git
-  - 参考源码位置： vendors/auto-launch
+  - **参考文档**: [@vendorsdoc/auto-launch.md](vendorsdoc/auto-launch.md)
+  - 本地参考源码位置： vendors/auto-launch
   - 这是目前 Rust 社区最主流的跨平台自启库（Tauri 也在用它）。它会根据不同系统写入配置（Windows 注册表、macOS LaunchAgents、Linux .config/autostart）。
 
 * 系统托盘菜单 (System Tray)
   - 推荐库：[`tray-icon`](https://crates.io/crates/tray-icon) + [`muda`](https://crates.io/crates/muda)
   - github仓库地址： https://github.com/tauri-apps/tray-icon.git
+  - **参考文档**: [@vendorsdoc/tray-icon.md](vendorsdoc/tray-icon.md)
   - 本地参考源码位置： vendors/tray-icon
   - 这两个库是 Tauri 团队从 Tauri 核心剥离出来的通用库：
     - `tray-icon`: 负责在系统栏显示图标。
     - `muda`: 负责创建原生的跨平台菜单（右键菜单）。
 
-* UI界面使用 `gpui-component` 来实现,本地参考源码： vendors/gpui-component。
+* UI界面使用 `gpui-component` 来实现,**参考文档**: [@vendorsdoc/gpui-component.md](vendorsdoc/gpui-component.md)
 
 
 ### `agent-client`客户端功能要求
@@ -66,6 +68,7 @@ UI界面通过 `gpui-component` 来实现,本地参考源码： vendors/gpui-com
 * 可以构建多平台客户端，这里使用`cargo-packager`来进行打包。 (功能优先级高)
 * 客户端升级。 (功能优先级低)
 * 客户端有tab卡片切换的方式（或者类似的功能），可以打开对应界面，比如设置界面，agent联调界面，About关于界面，客户端的唯一ID和密码界面等。 (功能优先级高)
+* **Agent 进程状态显示**，在状态栏显示当前有几个 agent 进程在运行（如 claude-code、opencode），以及各进程的执行状态。 (功能优先级中)
 * 权限设置界面，因为需要远程桌面，需要系统有对应的权限授权，才能截图，访问对应磁盘目录等操作，需要有提示用户操作授权的界面，可以参考 rustdesk 如何实现的。 (功能优先级高)
 * 客户端可以设置主题，语言，工作目录（比如服务器传输文件给客户端，默认传输到此目录上，或者这个目录也可以给agent使用的目录）等。 (功能优先级低)
 
@@ -212,18 +215,31 @@ UI界面通过 `gpui-component` 来实现,本地参考源码： vendors/gpui-com
 
 
 
+
+
 #### 可以参考的项目源码
-*  vendors/nuwax-rustdesk 这个是我fork出来 rustdesk 项目
-*  vendors/rustdesk-server 也是我fork官方的配套项目，作为 rustdesk的server端来使用
-*  vendors/rcoder 是我的agent项目，这个项目里的rcoder模块，接受http请求，然后通过agent client protocol 协议来调用agent，agent可以是支持ACP协议就行，比如 opencode（opencode acp 开启acp协议），kimi等agent都可以，我不关注具体的agent，只要agent支持ACP协议，我作为acp协议客户端来使用就行。
-agent逻辑,我想的是尽量复用 rcoder项目中的"crates/agent_runner"模块,来作为我们的agent操作代理使用,通过"crates/agent_runner"模块来操作agent(这个模块内部有agent闲置一定时间后,自动销毁等逻辑)
-* vendors/mcp-proxy 这个是我开发的mcp 透明代理的项目，本地可能需要mcp服务，来使用我们管理端的mcp服务。
-* vendors/enigo 是统一架构的输入项目，我看 rustdesk也使用的 enigo 这个库。
-* vendors/cargo-packager 是跨平台打包项目，从tauri中拆分出来的，我们可以用打包我们的跨平台项目。
-* vendors/gpui-component 是rust生态的UI组件库,我们可以用这个库,来进行客户端UI的开发。
+
+**核心通信库**:
+* [@vendorsdoc/nuwax-rustdesk.md](vendorsdoc/nuwax-rustdesk.md) - 远程桌面客户端核心库，提供双向通信、文件传输、远程控制能力
+* [@vendorsdoc/rustdesk-server.md](vendorsdoc/rustdesk-server.md) - 服务器端（data-server），提供信令和中继服务
+
+**AI Agent 运行时**:
+* [@vendorsdoc/rcoder.md](vendorsdoc/rcoder.md) - AI 代理开发平台，提供 agent_runner 模块用于管理 agent 生命周期
+
+**MCP 服务**:
+* [@vendorsdoc/mcp-proxy.md](vendorsdoc/mcp-proxy.md) - MCP 代理服务，支持管理端的 MCP 工具调用
+
+**基础组件库**:
+* [@vendorsdoc/enigo.md](vendorsdoc/enigo.md) - 跨平台键盘鼠标输入模拟
+* [@vendorsdoc/auto-launch.md](vendorsdoc/auto-launch.md) - 开机自启动
+* [@vendorsdoc/tray-icon.md](vendorsdoc/tray-icon.md) - 系统托盘图标
+* [@vendorsdoc/cargo-packager.md](vendorsdoc/cargo-packager.md) - 跨平台打包工具
+* [@vendorsdoc/gpui-component.md](vendorsdoc/gpui-component.md) - GPUI UI 组件库
 
 
-
+#### 项目审查
+* 借鉴TDD的思路，应该有很好的测试用例，来进行测试验证功能点
+* 代码设计应该易于测试
 
 
 
