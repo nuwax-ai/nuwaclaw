@@ -7,6 +7,35 @@
 
 ---
 
+## 开发阶段说明
+
+### 阶段一：核心通信与 UI（当前优先级）
+
+**目标**：验证 `agent-server-admin` 与 `agent-client` 之间的双向通信能力，确保 `data-server` 的 P2P/TCP/WebSocket 通信正常工作。
+
+**包含 Phase**：
+- Phase 1：基础框架（UI、脚手架、托盘、自启动）
+- Phase 2：核心功能（连接管理、业务通道、设置界面、客户端信息）
+- Phase 3：依赖管理（Node.js、npm 工具）
+
+**验证里程碑**：
+- [ ] 客户端可在 macOS/Windows/Linux 打包安装
+- [ ] 客户端能连接 data-server（获取 ID）
+- [ ] 管理端能发现并连接客户端
+- [ ] 双向通信正常
+- [ ] 支持 P2P/Relay 模式
+
+### 阶段二：Agent 运行时集成（后续开发）
+
+**目标**：集成 agent_runner，实现 Agent 任务执行等功能。
+
+**包含 Phase**：
+- Phase 4：Agent 运行时（AgentManager、任务执行、进度回传）
+- Phase 5：增强功能（权限管理、日志、文件传输、远程桌面）
+- Phase 6：收尾完善（关于、聊天、升级、国际化）
+
+---
+
 ## 文档说明
 
 本文档是 agent-client 技术设计的深度实现计划，专注于回答"如何实现"的问题，包含：
@@ -23,10 +52,13 @@
 2. [Phase 1：基础框架](#phase-1基础框架p0)
 3. [Phase 2：核心功能](#phase-2核心功能p0)
 4. [Phase 3：依赖管理](#phase-3依赖管理p0)
-5. [Phase 4：Agent 运行时](#phase-4agent-运行时p1)
-6. [Phase 5：增强功能](#phase-5增强功能p1)
-7. [Phase 6：收尾完善](#phase-6收尾完善p2)
-8. [验收标准](#验收标准)
+5. [Phase 4：Agent 运行时](#phase-4agent-运行时p1) *后续开发*
+6. [Phase 5：增强功能](#phase-5增强功能p1) *后续开发*
+7. [Phase 6：收尾完善](#phase-6收尾完善p2) *后续开发*
+8. [安全与网络实现](#8安全与网络实现)
+9. [国际化与会话管理](#9国际化与会话管理)
+10. [系统集成](#10系统集成)
+11. [验收标准](#验收标准)
 
 ---
 
@@ -3749,7 +3781,1090 @@ impl BuildInfo {
 
 ---
 
-## 验收标准
+## 8. 安全与网络实现
+
+### 8.1 密码存储与认证
+
+```rust
+// crates/agent-client/src/core/security/password.rs
+
+use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use rand::rngs::OsRng;
+use rand::RngCore;
+use std::sync::Arc;
+use thiserror::Error;
+
+/// 密码存储错误
+#[derive(Error, Debug)]
+pub enum PasswordError {
+    #[error("密码哈希失败")]
+    HashError(#[from] argon2::Error),
+    #[error("密码验证失败")]
+    VerificationError,
+    #[error("密码强度不足")]
+    WeakPassword,
+}
+
+/// 密码强度
+pub enum PasswordStrength {
+    Weak,      // < 8 字符，红色
+    Medium,    // >= 8 字符，无特殊字符，黄色
+    Strong,    // >= 8 字符 + 特殊字符，绿色
+}
+
+/// 密码管理器
+pub struct PasswordManager {
+    /// Argon2 实例
+    argon2: Arc<Argon2<'static>>,
+    /// 密码盐长度
+    salt_len: usize,
+}
+
+impl PasswordManager {
+    pub fn new() -> Self {
+        Self {
+            argon2: Arc::new(Argon2::default()),
+            salt_len: 16,
+        }
+    }
+
+    /// 生成密码盐
+    fn generate_salt(&self) -> Vec<u8> {
+        let mut salt = vec![0u8; self.salt_len];
+        OsRng.fill_bytes(&mut salt);
+        salt
+    }
+
+    /// 哈希密码
+    pub fn hash_password(&self, password: &str) -> Result<String, PasswordError> {
+        let salt = self.generate_salt();
+
+        let hash = argon2::Argon2::default()
+            .hash_password_into(
+                password.as_bytes(),
+                &salt,
+                &mut [0u8; 32],  // 32 字节输出
+            )
+            .map_err(PasswordError::HashError)?;
+
+        // 格式: $argon2id$v=19$m=65536,t=3,p=4$salt$hash
+        Ok(format!(
+            "${}$v=19$m=65536,t=3,p=4${}${}$hash",
+            argon2::Algorithm::Argon2id.variant_name().unwrap(),
+            base64::encode(&salt),
+            base64::encode(&hash)
+        ))
+    }
+
+    /// 验证密码
+    pub fn verify_password(&self, password: &str, hash: &str) -> Result<bool, PasswordError> {
+        let parsed_hash = PasswordHash::new(hash)
+            .map_err(PasswordError::HashError)?;
+
+        self.argon2
+            .verify_password(password.as_bytes(), &parsed_hash)
+            .map(|_| true)
+            .map_err(|_| PasswordError::VerificationError)
+    }
+
+    /// 检查密码强度
+    pub fn check_strength(&self, password: &str) -> PasswordStrength {
+        let has_letter = password.chars().any(|c| c.is_alphabetic());
+        let has_digit = password.chars().any(|c| c.is_digit(10));
+        let has_special = password.chars().any(|c| !c.is_alphanumeric());
+
+        if password.len() < 8 {
+            PasswordStrength::Weak
+        } else if has_letter && has_digit && has_special {
+            PasswordStrength::Strong
+        } else {
+            PasswordStrength::Medium
+        }
+    }
+}
+
+/// Token 管理器
+pub struct TokenManager {
+    /// Token 有效期（秒）
+    const TOKEN_TTL_SECS: u64 = 86400;  // 24 小时
+    /// 刷新提前量（秒）
+    const REFRESH_AHEAD_SECS: u64 = 3600;  // 1 小时
+
+    /// 密钥（用于 HMAC）
+    secret_key: [u8; 32],
+    /// 已发放的 Token
+    active_tokens: DashMap<String, TokenData>,
+}
+
+struct TokenData {
+    client_id: String,
+    expires_at: DateTime<Utc>,
+}
+
+impl TokenManager {
+    pub fn new() -> Self {
+        Self {
+            secret_key: Self::generate_secret_key(),
+            active_tokens: DashMap::new(),
+        }
+    }
+
+    fn generate_secret_key() -> [u8; 32] {
+        let mut key = [0u8; 32];
+        OsRng.fill_bytes(&mut key);
+        key
+    }
+
+    /// 生成 Token
+    pub fn generate_token(&self, client_id: &str) -> String {
+        let now = Utc::now();
+        let expires_at = now + Duration::seconds(Self::TOKEN_TTL_SECS as i64);
+
+        let payload = json!({
+            "client_id": client_id,
+            "exp": expires_at.timestamp(),
+            "iat": now.timestamp(),
+        });
+
+        let token = base64::encode(payload.to_string());
+        let signature = self.sign(&token);
+
+        format!("{}.{}", token, signature)
+    }
+
+    /// 签名
+    fn sign(&self, data: &str) -> String {
+        use hmac::{Hmac, Mac};
+        type HmacSha256 = Hmac<Sha256>;
+
+        let mut mac = HmacSha256::new_from_slice(&self.secret_key)
+            .expect("HMAC initialization failed");
+        mac.update(data.as_bytes());
+        let result = mac.finalize().into_bytes();
+
+        base64::encode(result)
+    }
+
+    /// 验证 Token
+    pub fn validate_token(&self, token: &str) -> Option<(String, DateTime<Utc>)> {
+        let parts: Vec<&str> = token.split('.').collect();
+        if parts.len() != 2 {
+            return None;
+        }
+
+        let signature = self.sign(parts[0]);
+        if signature != parts[1] {
+            return None;
+        }
+
+        let payload: serde_json::Value = serde_json::from_str(
+            &base64::decode(parts[0]).ok()?.to_string()
+        ).ok()?;
+
+        let client_id = payload["client_id"].as_str()?.to_string();
+        let expires_at = Utc.timestamp_opt(payload["exp"].as_i64()?, 0).single()?;
+
+        if Utc::now() > expires_at {
+            return None;
+        }
+
+        Some((client_id, expires_at))
+    }
+}
+```
+
+### 8.2 重连机制实现
+
+```rust
+// crates/agent-client/src/core/connection/reconnect.rs
+
+use tokio::time::{sleep, Duration};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+/// 重连策略配置
+#[derive(Clone)]
+pub struct ReconnectConfig {
+    /// 初始延迟（毫秒）
+    pub initial_delay_ms: u64,
+    /// 最大延迟（毫秒）
+    pub max_delay_ms: u64,
+    /// 指数退避基数
+    pub backoff_base: f64,
+    /// 最大重试次数（0 表示无限）
+    pub max_retries: u32,
+    /// 是否随机抖动
+    pub jitter: bool,
+}
+
+impl Default for ReconnectConfig {
+    fn default() -> Self {
+        Self {
+            initial_delay_ms: 1000,
+            max_delay_ms: 30000,
+            backoff_base: 2.0,
+            max_retries: 0,  // 无限重试
+            jitter: true,
+        }
+    }
+}
+
+/// 重连管理器
+pub struct ReconnectManager {
+    config: ReconnectConfig,
+    retry_count: Arc<RwLock<u32>>,
+    last_attempt: Arc<RwLock<DateTime<Utc>>>,
+}
+
+impl ReconnectManager {
+    pub fn new(config: Option<ReconnectConfig>) -> Self {
+        Self {
+            config: config.unwrap_or_default(),
+            retry_count: Arc::new(RwLock::new(0)),
+            last_attempt: Arc::new(RwLock::new(Utc::now())),
+        }
+    }
+
+    /// 计算重连延迟
+    async fn calculate_delay(&self) -> Duration {
+        let count = *self.retry_count.read().await;
+        let mut delay = (self.config.initial_delay_ms as f64)
+            * (self.config.backoff_base.powi(count as i32)) as u64;
+
+        // 限制最大延迟
+        if delay > self.config.max_delay_ms {
+            delay = self.config.max_delay_ms;
+        }
+
+        // 添加随机抖动
+        if self.config.jitter {
+            let jitter_range = (delay as f64 * 0.1) as u64;
+            let jitter = rand::thread_rng().gen_range(0..jitter_range);
+            delay += jitter;
+        }
+
+        Duration::from_millis(delay)
+    }
+
+    /// 等待重连
+    pub async fn wait_for_reconnect<F, Fut>(&self, mut connect_fn: F) -> bool
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Result<bool, ()>>,
+    {
+        loop {
+            // 检查是否达到最大重试次数
+            {
+                let count = *self.retry_count.read().await;
+                if self.config.max_retries > 0 && count >= self.config.max_retries {
+                    warn!("已达到最大重试次数 {}，停止重连", count);
+                    return false;
+                }
+            }
+
+            // 计算并等待延迟
+            let delay = self.calculate_delay();
+            sleep(delay).await;
+
+            // 更新重试计数
+            {
+                let mut count = self.retry_count.write().await;
+                *count += 1;
+                *self.last_attempt.write().await = Utc::now();
+            }
+
+            info!("尝试重连（第 {} 次）", self.retry_count.read().await);
+
+            // 尝试连接
+            match connect_fn().await {
+                Ok(true) => {
+                    info!("重连成功");
+                    // 重置重试计数
+                    *self.retry_count.write().await = 0;
+                    return true;
+                }
+                Ok(false) | Err(()) => {
+                    warn!("重连失败，继续重试...");
+                }
+            }
+        }
+    }
+
+    /// 重置重试计数
+    pub fn reset(&self) {
+        *self.retry_count.write().await = 0;
+    }
+
+    /// 获取当前重试次数
+    pub fn retry_count(&self) -> u32 {
+        *self.retry_count.blocking_read()
+    }
+}
+
+/// 离线消息队列
+pub struct OfflineMessageQueue {
+    /// 队列容量
+    capacity: usize,
+    /// 消息保留时间
+    ttl: Duration,
+    /// 待发送消息
+    pending: Arc<RwLock<Vec<QueuedMessage>>>,
+}
+
+struct QueuedMessage {
+    /// 消息内容
+    payload: Vec<u8>,
+    /// 消息类型
+    message_type: u32,
+    /// 入队时间
+    enqueued_at: DateTime<Utc>,
+    /// 重试次数
+    retry_count: u32,
+}
+
+impl OfflineMessageQueue {
+    pub fn new(capacity: usize, ttl_hours: u64) -> Self {
+        Self {
+            capacity,
+            ttl: Duration::hours(ttl_hours as i64),
+            pending: Arc::new(RwLock::new(Vec::new())),
+        }
+    }
+
+    /// 入队
+    pub async fn enqueue(&self, message_type: u32, payload: Vec<u8>) -> bool {
+        let mut queue = self.pending.write().await;
+
+        if queue.len() >= self.capacity {
+            warn!("离线消息队列已满，丢弃消息");
+            return false;
+        }
+
+        queue.push(QueuedMessage {
+            payload,
+            message_type,
+            enqueued_at: Utc::now(),
+            retry_count: 0,
+        });
+
+        true
+    }
+
+    /// 出队
+    pub async fn dequeue(&self) -> Option<QueuedMessage> {
+        let mut queue = self.pending.write().await;
+
+        // 移除过期消息
+        let now = Utc::now();
+        queue.retain(|msg| now.signed_duration_since(msg.enqueued_at) < self.ttl);
+
+        // 按重试次数排序（优先发送重试次数少的）
+        queue.sort_by_key(|msg| msg.retry_count);
+
+        queue.pop()
+    }
+
+    /// 增加重试次数
+    pub async fn increment_retry(&self, index: usize) {
+        let mut queue = self.pending.write().await;
+        if let Some(msg) = queue.get_mut(index) {
+            msg.retry_count += 1;
+        }
+    }
+
+    /// 清空队列
+    pub async fn clear(&self) {
+        self.pending.write().await.clear();
+    }
+
+    /// 获取队列长度
+    pub async fn len(&self) -> usize {
+        self.pending.read().await.len()
+    }
+}
+```
+
+### 8.3 审计日志
+
+```rust
+// crates/agent-client/src/core/audit.rs
+
+use serde_json::Value;
+
+/// 审计日志结构
+pub struct AuditLog {
+    pub timestamp: DateTime<Utc>,
+    pub event_type: AuditEventType,
+    pub client_id: String,
+    pub user_id: String,
+    pub action: String,
+    pub details: Value,
+    pub ip_address: Option<String>,
+    pub result: AuditResult,
+}
+
+pub enum AuditEventType {
+    Connection,
+    Authentication,
+    TaskExecution,
+    FileTransfer,
+    ConfigChange,
+    SecurityEvent,
+}
+
+pub enum AuditResult {
+    Success,
+    Failure(String),
+}
+
+/// 审计日志管理器
+pub struct AuditManager {
+    /// 审计日志文件路径
+    log_path: PathBuf,
+    /// 当前日志文件
+    current_file: RwLock<Option<File>>,
+}
+
+impl AuditManager {
+    pub fn new(log_dir: &Path) -> Result<Self> {
+        let log_path = log_dir.to_path_buf();
+        std::fs::create_dir_all_all(&log_path)?;
+
+        Ok(Self {
+            log_path,
+            current_file: RwLock::new(None),
+        })
+    }
+
+    /// 记录审计日志
+    pub async fn log(&self, audit: AuditLog) -> Result<()> {
+        let timestamp = audit.timestamp.to_rfc3339();
+        let event_type = format!("{:?}", audit.event_type);
+        let result = match &audit.result {
+            AuditResult::Success => "success".to_string(),
+            AuditResult::Failure(e) => format!("failure: {}", e),
+        };
+
+        let log_line = format!(
+            r#"{{"timestamp":"{}","event_type":"{}","client_id":"{}","user_id":"{}","action":"{}","details":{},"ip_address":{:?},"result":"{}"}}"#,
+            timestamp,
+            event_type,
+            audit.client_id,
+            audit.user_id,
+            audit.action,
+            audit.details,
+            audit.ip_address,
+            result
+        );
+
+        // 写入文件
+        self.write_to_file(&log_line).await?;
+
+        // 同时发送到服务器
+        self.send_to_server(&audit).await?;
+
+        Ok(())
+    }
+
+    async fn write_to_file(&self, line: &str) -> Result<()> {
+        let mut file = self.current_file.write().await;
+        let date = Utc::now().format("%Y-%m-%d").to_string();
+        let filename = format!("audit_{}.log", date);
+        let filepath = self.log_path.join(&filename);
+
+        let mut open_options = OpenOptions::new();
+        open_options.create(true).append(true).write(true);
+
+        if let Some(ref mut f) = *file {
+            // 检查是否需要切换文件
+            let current_metadata = f.metadata()?;
+            if current_metadata.len() > 10 * 1024 * 1024 {  // 10MB
+                drop(file);
+                let mut new_file = open_options.open(&filepath)?;
+                new_file.write_all(line.as_bytes())?;
+                new_file.write_all(b"\n")?;
+                *file = Some(new_file);
+                return Ok(());
+            }
+        } else {
+            *file = Some(open_options.open(&filepath)?);
+        }
+
+        if let Some(ref mut f) = *file {
+            f.write_all(line.as_bytes())?;
+            f.write_all(b"\n")?;
+        }
+
+        Ok(())
+    }
+}
+
+/// 敏感信息脱敏
+pub struct SensitiveDataRedactor;
+
+impl SensitiveDataRedactor {
+    /// 脱敏敏感数据
+    pub fn redact(data: &str) -> String {
+        let patterns = [
+            (r"(?i)password\s*[:=]\s*([^\s,}]+)", "password: ******"),
+            (r"(?i)token\s*[:=]\s*([^\s,}]+)", |caps| {
+                let token = caps.get(1).unwrap().as_str();
+                if token.len() > 8 {
+                    format!("token: {}...{}", &token[..4], &token[token.len()-4..])
+                } else {
+                    "token: ******".to_string()
+                }
+            }),
+            (r"(?i)api[_-]?key\s*[:=]\s*([^\s,}]+)", |caps| {
+                let key = caps.get(1).unwrap().as_str();
+                if key.len() > 8 {
+                    format!("api_key: {}...{}", &key[..4], &key[key.len()-4..])
+                } else {
+                    "api_key: ******".to_string()
+                }
+            }),
+            (r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "***.***.***.***"),
+        ];
+
+        let mut result = data.to_string();
+        for pattern in &patterns {
+            result = regex::Regex::new(pattern.0)
+                .unwrap()
+                .replace_all(&result, |caps: &regex::Captures| {
+                    match pattern.1 {
+                        regex::Replacer::Static(s) => s.to_string(),
+                        regex::Replacer::Fn(f) => f(caps).to_string(),
+                    }
+                })
+                .to_string();
+        }
+
+        result
+    }
+}
+```
+
+---
+
+## 9. 国际化与会话管理
+
+### 9.1 国际化基础设施
+
+```rust
+// crates/agent-client/src/i18n/mod.rs
+
+use serde::Deserialize;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+/// 支持的语言
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Language {
+    ZhCN,
+    EnUS,
+    JaJP,
+}
+
+impl Language {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Language::ZhCN => "zh-CN",
+            Language::EnUS => "en-US",
+            Language::JaJP => "ja-JP",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<Self> {
+        match code {
+            "zh-CN" | "zh" => Some(Language::ZhCN),
+            "en-US" | "en" => Some(Language::EnUS),
+            "ja-JP" | "ja" => Some(Language::JaJP),
+            _ => None,
+        }
+    }
+}
+
+/// 国际化资源
+#[derive(Deserialize, Default)]
+struct MessageResource {
+    #[serde(flatten)]
+    entries: HashMap<String, String>,
+}
+
+impl MessageResource {
+    fn get(&self, key: &str) -> Option<&str> {
+        self.entries.get(key).map(|s| s.as_str())
+    }
+}
+
+/// 国际化管理器
+pub struct I18nManager {
+    /// 当前语言
+    current_lang: RwLock<Language>,
+    /// 语言资源缓存
+    resources: RwLock<HashMap<Language, MessageResource>>,
+    /// 资源文件目录
+    resource_dir: PathBuf,
+}
+
+impl I18nManager {
+    pub fn new(resource_dir: &Path) -> Self {
+        Self {
+            current_lang: RwLock::new(Language::ZhCN),  // 默认中文
+            resources: RwLock::new(HashMap::new()),
+            resource_dir: resource_dir.to_path_buf(),
+        }
+    }
+
+    /// 加载语言资源
+    pub async fn load_language(&self, lang: Language) -> Result<()> {
+        let resource_file = self.resource_dir.join(format!("{}/messages.toml", lang.code()));
+
+        if !resource_file.exists() {
+            warn!("语言资源文件不存在: {:?}", resource_file);
+            return Ok(());
+        }
+
+        let content = tokio::fs::read_to_string(&resource_file).await?;
+        let resource: MessageResource = toml::from_str(&content)?;
+
+        self.resources.write().await.insert(lang, resource);
+
+        Ok(())
+    }
+
+    /// 设置当前语言
+    pub async fn set_language(&self, lang: Language) {
+        *self.current_lang.write().await = lang;
+        self.load_language(lang).await.ok();
+    }
+
+    /// 获取翻译
+    pub fn t(&self, key: &str) -> String {
+        let lang = *self.current_lang.blocking_read();
+        self.resources
+            .blocking_read()
+            .get(&lang)
+            .and_then(|r| r.get(key))
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| key.to_string())
+    }
+
+    /// 格式化带参数的消息
+    pub fn t_with_args(&self, key: &str, args: &[(&str, &str)]) -> String {
+        let mut result = self.t(key);
+        for (name, value) in args {
+            result = result.replace(&format!("{{{}}}", name), value);
+        }
+        result
+    }
+}
+
+/// 区域格式化器
+pub struct LocaleFormatter {
+    locale: Language,
+}
+
+impl LocaleFormatter {
+    pub fn new(locale: Language) -> Self {
+        Self { locale }
+    }
+
+    /// 格式化日期
+    pub fn format_date(&self, date: &DateTime<Utc>) -> String {
+        match self.locale {
+            Language::ZhCN => date.format("%Y年%m月%d日").to_string(),
+            Language::JaJP => date.format("%Y年%m月%d日").to_string(),
+            _ => date.format("%B %d, %Y").to_string(),
+        }
+    }
+
+    /// 格式化时间
+    pub fn format_time(&self, time: &DateTime<Utc>) -> String {
+        match self.locale {
+            Language::ZhCN | Language::JaJP => time.format("%H:%M:%S").to_string(),
+            _ => time.format("%H:%M:%S").to_string(),
+        }
+    }
+
+    /// 格式化文件大小
+    pub fn format_file_size(&self, bytes: u64) -> String {
+        const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+        let mut size = bytes as f64;
+        let mut unit_index = 0;
+
+        while size >= 1024.0 && unit_index < UNITS.len() - 1 {
+            size /= 1024.0;
+            unit_index += 1;
+        }
+
+        match self.locale {
+            Language::ZhCN => format!("{:.1} {}", size, UNITS[unit_index]),
+            _ => format!("{} {:.1} {}", size, UNITS[unit_index]),
+        }
+    }
+}
+```
+
+### 9.2 会话管理
+
+```rust
+// crates/agent-client/src/core/session.rs
+
+/// Agent 任务会话状态
+pub enum AgentSessionState {
+    /// 空闲
+    Idle,
+    /// 等待中
+    Pending {
+        received_at: DateTime<Utc>,
+        task_id: String,
+    },
+    /// 执行中
+    Active {
+        started_at: DateTime<Utc>,
+        session_id: String,
+        task_id: String,
+    },
+    /// 正在停止
+    Terminating {
+        started_at: DateTime<Utc>,
+        reason: String,
+    },
+    /// 出错
+    Error {
+        error_type: ErrorType,
+        message: String,
+    },
+}
+
+pub enum ErrorType {
+    Timeout,
+    PermissionDenied,
+    WorkerStopped,
+    Unknown,
+}
+
+/// 会话管理器
+pub struct SessionManager {
+    /// 任务超时
+    task_timeout: Duration,
+    /// 空闲超时
+    idle_timeout: Duration,
+    /// 最大并发任务数
+    max_concurrent: usize,
+    /// 活跃会话
+    active_sessions: DashMap<String, AgentSessionState>,
+    /// 等待队列
+    waiting_queue: Arc<RwLock<Vec<TaskRequest>>>,
+}
+
+impl SessionManager {
+    pub fn new(
+        task_timeout_mins: u64,
+        idle_timeout_mins: u64,
+        max_concurrent: usize,
+    ) -> Self {
+        Self {
+            task_timeout: Duration::minutes(task_timeout_mins as i64),
+            idle_timeout: Duration::minutes(idle_timeout_mins as i64),
+            max_concurrent,
+            active_sessions: DashMap::new(),
+            waiting_queue: Arc::new(RwLock::new(Vec::new())),
+        }
+    }
+
+    /// 提交任务
+    pub async fn submit(&self, request: TaskRequest) -> Result<SubmissionResult> {
+        let running_count = self.active_sessions
+            .iter()
+            .filter(|(_, state)| matches!(state, AgentSessionState::Active { .. }))
+            .count();
+
+        if running_count >= self.max_concurrent {
+            self.waiting_queue.write().await.push(request);
+            return Ok(SubmissionResult::Queued);
+        }
+
+        self.start_session(request).await?;
+        Ok(SubmissionResult::Accepted)
+    }
+
+    /// 开始会话
+    async fn start_session(&self, request: TaskRequest) -> Result<()> {
+        let session_id = self.generate_session_id();
+        let state = AgentSessionState::Active {
+            started_at: Utc::now(),
+            session_id: session_id.clone(),
+            task_id: request.task_id.clone(),
+        };
+
+        self.active_sessions.insert(session_id.clone(), state);
+
+        // TODO: 启动实际的任务执行
+        Ok(())
+    }
+
+    fn generate_session_id(&self) -> String {
+        uuid::Uuid::new_v4().to_string()
+    }
+
+    /// 完成任务
+    pub fn complete_session(&self, session_id: &str) {
+        self.active_sessions.remove(session_id);
+
+        // 检查等待队列
+        let next = self.waiting_queue.write().await.pop();
+        if let Some(request) = next {
+            tokio::spawn(async move {
+                // self.start_session(request).await?;
+                Ok(())
+            });
+        }
+    }
+
+    /// 检查超时
+    pub fn check_timeouts(&self) -> Vec<String> {
+        let mut timed_out = Vec::new();
+        let now = Utc::now();
+
+        for (session_id, state) in self.active_sessions.iter() {
+            if let AgentSessionState::Active { started_at, .. } = state {
+                if now.signed_duration_since(*started_at) > self.task_timeout {
+                    timed_out.push(session_id.clone());
+                }
+            }
+        }
+
+        timed_out
+    }
+}
+
+pub enum SubmissionResult {
+    Accepted,
+    Queued,
+}
+
+pub struct TaskRequest {
+    pub task_id: String,
+    pub prompt: String,
+    pub attachments: Vec<String>,
+    pub timeout: Duration,
+}
+```
+
+---
+
+## 10. 系统集成
+
+### 10.1 全局快捷键
+
+```rust
+// crates/agent-client/src/system/shortcuts.rs
+
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+/// 快捷键定义
+pub struct Shortcut {
+    pub modifiers: Vec<ModifierKey>,
+    pub key_code: KeyCode,
+}
+
+pub enum ModifierKey {
+    Ctrl,
+    Alt,
+    Shift,
+    Cmd,  // macOS Command, Windows Meta
+}
+
+pub enum KeyCode {
+    A, B, C, D, E, F, G, H, I, J, K, L, M,
+    N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
+    Function(u8),  // F1-F12
+    Escape,
+    Enter,
+    Space,
+}
+
+/// 全局快捷键管理器
+pub struct GlobalShortcutManager {
+    /// 快捷键注册表
+    shortcuts: Arc<RwLock<HashMap<Shortcut, ShortcutHandler>>>,
+    /// 平台特定实现
+    platform_impl: Box<dyn PlatformShortcut + Send + Sync>,
+}
+
+impl GlobalShortcutManager {
+    pub fn new() -> Result<Self> {
+        Ok(Self {
+            shortcuts: Arc::new(RwLock::new(HashMap::new())),
+            platform_impl: create_platform_impl()?,
+        })
+    }
+
+    /// 注册快捷键
+    pub fn register(
+        &self,
+        shortcut: Shortcut,
+        handler: ShortcutHandler,
+    ) -> Result<()> {
+        self.platform_impl.register(&shortcut)?;
+        self.shortcuts.write().await.insert(shortcut, handler);
+        Ok(())
+    }
+
+    /// 取消注册
+    pub fn unregister(&self, shortcut: &Shortcut) -> Result<()> {
+        self.platform_impl.unregister(shortcut)?;
+        self.shortcuts.write().await.remove(shortcut);
+        Ok(())
+    }
+}
+
+/// 默认快捷键
+pub const DEFAULT_SHORTCUTS: &[(Shortcut, &str)] = &[
+    (
+        Shortcut {
+            modifiers: vec![ModifierKey::Ctrl, ModifierKey::Alt],
+            key_code: KeyCode::S,
+        },
+        "show_window",
+    ),
+    (
+        Shortcut {
+            modifiers: vec![ModifierKey::Ctrl, ModifierKey::Alt],
+            key_code: KeyCode::H,
+        },
+        "hide_window",
+    ),
+    (
+        Shortcut {
+            modifiers: vec![ModifierKey::Ctrl, ModifierKey::Alt],
+            key_code: KeyCode::Q,
+        },
+        "quick_connect",
+    ),
+];
+```
+
+### 10.2 系统通知
+
+```rust
+// crates/agent-client/src/system/notification.rs
+
+use std::path::PathBuf;
+
+/// 系统通知管理器
+pub struct SystemNotificationManager {
+    /// 平台特定实现
+    platform_impl: Box<dyn PlatformNotification + Send + Sync>,
+}
+
+impl SystemNotificationManager {
+    pub fn new() -> Result<Self> {
+        Ok(Self {
+            platform_impl: create_platform_notification()?,
+        })
+    }
+
+    /// 发送通知
+    pub async fn send(&self, request: NotificationRequest) -> Result<NotificationId> {
+        self.platform_impl.send(request).await
+    }
+
+    /// 取消通知
+    pub async fn cancel(&self, id: NotificationId) {
+        self.platform_impl.cancel(id).await;
+    }
+}
+
+pub struct NotificationRequest {
+    pub title: String,
+    pub body: String,
+    pub icon: Option<PathBuf>,
+    pub urgency: NotificationUrgency,
+    pub timeout: Duration,
+    pub actions: Vec<NotificationAction>,
+}
+
+pub enum NotificationUrgency {
+    Low,
+    Normal,
+    Critical,
+}
+
+pub struct NotificationAction {
+    pub id: String,
+    pub label: String,
+}
+
+/// 通知 ID 类型
+pub struct NotificationId(u32);
+```
+
+### 10.3 系统事件处理
+
+```rust
+// crates/agent-client/src/system/events.rs
+
+/// 系统事件监听器
+#[async_trait::async_trait]
+pub trait SystemEventListener: Send + Sync {
+    async fn on_shutdown(&self);
+    async fn on_sleep(&self);
+    async fn on_wake(&self);
+    async fn on_screen_lock(&self);
+    async fn on_screen_unlock(&self);
+    async fn on_network_change(&self, status: NetworkStatus);
+}
+
+/// 系统事件管理器
+pub struct SystemEventManager {
+    /// 事件监听器
+    listeners: Arc<RwLock<Vec<Arc<dyn SystemEventListener>>>>>,
+}
+
+impl SystemEventManager {
+    pub fn new() -> Self {
+        Self {
+            listeners: Arc::new(RwLock::new(Vec::new())),
+        }
+    }
+
+    /// 添加监听器
+    pub fn add_listener(&self, listener: Arc<dyn SystemEventListener>) {
+        self.listeners.write().push(listener);
+    }
+
+    /// 广播关机事件
+    pub async fn broadcast_shutdown(&self) {
+        for listener in self.listeners.read().iter() {
+            listener.on_shutdown().await;
+        }
+    }
+
+    /// 广播睡眠事件
+    pub async fn broadcast_sleep(&self) {
+        for listener in self.listeners.read().iter() {
+            listener.on_sleep().await;
+        }
+    }
+
+    /// 广播唤醒事件
+    pub async fn broadcast_wake(&self) {
+        for listener in self.listeners.read().iter() {
+            listener.on_wake().await;
+        }
+    }
+}
+```
+
+---
+
+## 11. 验收标准
 
 ### P0 功能（必须实现）
 
