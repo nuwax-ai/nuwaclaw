@@ -1,0 +1,38 @@
+# crates/agent-server-admin/Cargo.toml
+[package]
+name = "agent-server-admin"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Agent 服务器管理端"
+repository.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "agent-server-admin"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace 依赖
+agent-protocol = { path = "../agent-protocol" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+dashmap = { workspace = true }
+tokio-stream = { workspace = true }
+futures = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# Web 框架
+axum = { workspace = true }
+tower-http = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.10"

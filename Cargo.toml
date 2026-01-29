@@ -1,19 +1,98 @@
-[package]
-name = "nuwax-agent"
-version = "0.0.0"
-authors = ["soddy <soddygo@qq.com>"]
-edition = "2024"
-description = "nuwax agent"
-repository = "https://github.com/soddygo/nuwax-agent"
-license = "Apache"
+# Cargo.toml - Workspace 配置
+[workspace]
+members = [
+    "crates/agent-client",
+    "crates/agent-server-admin",
+    "crates/data-server",
+    "crates/agent-protocol",
+]
+resolver = "2"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# 排除不需要构建的目录
+exclude = [
+    "vendors",
+    "specs",
+    "assets",
+]
 
-[dependencies]
+# 统一 gpui 版本 - 使用 zed git 仓库
+[workspace.dependencies.gpui]
+git = "https://github.com/zed-industries/zed"
 
-[dev-dependencies]
+# 强制锁定 core-text 版本，避免 core-graphics 版本冲突
+# core-text 21.0.0 依赖 core-graphics ^0.24
+# core-text 21.1.0 依赖 core-graphics ^0.25 (导致冲突)
+[workspace.dependencies.core-text]
+version = "=21.0.0"
 
-[[bin]]
-path = "src/main.rs"
-name = "nuwax_agent-cli"
+# 统一版本管理
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["nuwax <dev@nuwax.com>"]
+repository = "https://github.com/nuwax/nuwax-agent"
+license = "Apache-2.0"
 
+# 依赖版本锁定
+[workspace.dependencies]
+# Async 运行时
+tokio = { version = "1.38", features = ["full"] }
+async-trait = "0.1"
+
+# 序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# 错误处理
+thiserror = "2.0"
+anyhow = "1.0"
+
+# 日志
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+
+# 工具库
+dirs = "5.0"
+url = "2.5"
+uuid = { version = "1.10", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1.10"
+semver = "1.0"
+base64 = "0.22"
+
+# 并发
+dashmap = "6.1"
+tokio-stream = "0.1"
+futures = "0.3"
+
+# 网络
+reqwest = { version = "0.12", features = ["json"] }
+axum = "0.7"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# 加密
+argon2 = "0.5"
+aes-gcm = "0.10"
+rand = "0.8"
+
+# Protobuf
+prost = "0.13"
+prost-types = "0.13"
+bytes = "1.7"
+
+# 压缩
+zip = "2.2"
+flate2 = "1.0"
+
+# Profiles - 在 workspace root 定义
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.dev]
+debug = true

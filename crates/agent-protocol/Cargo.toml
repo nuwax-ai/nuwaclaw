@@ -1,0 +1,33 @@
+# crates/agent-protocol/Cargo.toml
+[package]
+name = "agent-protocol"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Agent 客户端通信协议定义"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+prost = { workspace = true }
+prost-types = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+bytes = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+semver = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.10"
+
+[build-dependencies]
+prost-build = "0.13"
+
+[features]
+default = []
+# 开发模式：包含测试数据生成
+dev-mode = []
