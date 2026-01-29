@@ -1,0 +1,594 @@
+# Agent Client 任务分解文档
+
+> 版本：v1.0.0
+> 创建日期：2026-01-29
+> 基于文档：
+> - `agent-client-spec.md`（技术设计规格）
+> - `agent-client-plan.md`（深度实现计划）
+
+---
+
+## 文档说明
+
+本文档是 agent-client 项目的任务分解文档，专注于回答"AI 需要完成哪些步骤"的问题。
+
+### 任务 ID 规则
+
+```
+P-M.T
+| | |
+| | └── 任务序号 (1, 2, 3...)
+| └──── 模块序号 (1=基础框架, 2=核心功能, 3=依赖管理...)
+└────── 阶段序号 (P0=必须, P1=应该, P2=可选)
+```
+
+### 优先级说明
+
+| 优先级 | 说明 | 含义 |
+|--------|------|------|
+| P0 | 必须实现 | MVP 必备功能，阻塞发布 |
+| P1 | 应该实现 | 重要功能，影响体验 |
+| P2 | 可选实现 | 锦上添花，不阻塞发布 |
+
+---
+
+## 任务清单总览
+
+### Phase 1：基础框架（P0）
+
+| ID | 任务名称 | 预估工时 | 优先级 | 状态 |
+|----|----------|----------|--------|------|
+| P0-1.1.1 | 创建 Workspace 配置 | 1h | P0 | ☐ |
+| P0-1.1.2 | 创建 agent-protocol 协议模块 | 2h | P0 | ☐ |
+| P0-1.1.3 | 配置 Feature Flags | 0.5h | P0 | ☐ |
+| P0-1.1.4 | 配置 vendors 路径依赖 | 0.5h | P0 | ☐ |
+| P0-1.2.1 | 实现 main.rs 程序入口 | 2h | P0 | ☐ |
+| P0-1.2.2 | 实现 lib.rs 库入口 | 1h | P0 | ☐ |
+| P0-1.2.3 | 实现 App 应用状态管理 | 3h | P0 | ☐ |
+| P0-1.2.4 | 实现 Root 根组件 | 4h | P0 | ☐ |
+| P0-1.2.5 | 实现 StatusBar 状态栏 | 3h | P0 | ☐ |
+| P0-1.3.1 | 实现 TrayManager 托盘管理器 | 4h | P0 | ☐ |
+| P0-1.3.2 | 实现托盘菜单 | 2h | P0 | ☐ |
+| P0-1.4.1 | 实现 AutoLaunchManager | 3h | P0 | ☐ |
+| P0-1.4.2 | 集成自启动到设置界面 | 2h | P0 | ☐ |
+
+**Phase 1 预估总工时：28h**
+
+### Phase 2：核心功能（P0）
+
+| ID | 任务名称 | 预估工时 | 优先级 | 状态 |
+|----|----------|----------|--------|------|
+| P0-2.1.1 | 集成 nuwax-rustdesk ConnectionManager | 6h | P0 | ☐ |
+| P0-2.1.2 | 实现连接状态管理 | 3h | P0 | ☐ |
+| P0-2.1.3 | 实现心跳保活机制 | 2h | P0 | ☐ |
+| P0-2.1.4 | 实现重连逻辑 | 3h | P0 | ☐ |
+| P0-2.2.1 | 实现 BusinessChannel 模块 | 4h | P0 | ☐ |
+| P0-2.2.2 | 修改 nuwax-rustdesk 导出模块 | 2h | P0 | ☐ |
+| P0-2.3.1 | 实现 Settings 主组件 | 4h | P0 | ☐ |
+| P0-2.3.2 | 实现服务器配置子页面 | 3h | P0 | ☐ |
+| P0-2.3.3 | 实现安全设置子页面（密码修改） | 3h | P0 | ☐ |
+| P0-2.3.4 | 实现常规/外观/日志子页面 | 3h | P0 | ☐ |
+| P0-2.4.1 | 实现 ClientInfo 组件（ID/密码） | 4h | P0 | ☐ |
+| P0-2.4.2 | 实现剪贴板复制功能 | 1h | P0 | ☐ |
+
+**Phase 2 预估总工时：38h**
+
+### Phase 3：依赖管理（P0）
+
+| ID | 任务名称 | 预估工时 | 优先级 | 状态 |
+|----|----------|----------|--------|------|
+| P0-3.1.1 | 实现跨平台目录管理（dirs） | 2h | P0 | ☐ |
+| P0-3.1.2 | 实现 NodeDetector 系统检测 | 4h | P0 | ☐ |
+| P0-3.1.3 | 实现 NodeInstaller 下载安装 | 6h | P0 | ☐ |
+| P0-3.1.4 | 实现 npm 工具安装器 | 4h | P0 | ☐ |
+| P0-3.2.1 | 实现 DependencyManager 核心 | 3h | P0 | ☐ |
+| P0-3.2.2 | 实现依赖状态 UI 组件 | 4h | P0 | ☐ |
+| P0-3.2.3 | 实现手动安装指引界面 | 2h | P0 | ☐ |
+| P0-3.2.4 | 实现安装进度显示 | 2h | P0 | ☐ |
+
+**Phase 3 预估总工时：27h**
+
+### Phase 4：Agent 运行时（P1）
+
+| ID | 任务名称 | 预估工时 | 优先级 | 状态 |
+|----|----------|----------|--------|------|
+| P1-4.1.1 | 集成 agent_runner 依赖 | 2h | P1 | ☐ |
+| P1-4.1.2 | 实现 AgentManager 核心 | 4h | P1 | ☐ |
+| P1-4.1.3 | 实现消息转换层 | 3h | P1 | ☐ |
+| P1-4.1.4 | 实现任务执行流程 | 4h | P1 | ☐ |
+| P1-4.1.5 | 实现进度回传机制 | 3h | P1 | ☐ |
+| P1-4.1.6 | 实现任务取消功能 | 2h | P1 | ☐ |
+| P1-4.2.1 | 实现状态栏 Agent 状态显示 | 2h | P1 | ☐ |
+
+**Phase 4 预估总工时：20h**
+
+### Phase 5：增强功能（P1）
+
+| ID | 任务名称 | 预估工时 | 优先级 | 状态 |
+|----|----------|----------|--------|------|
+| P1-5.1.1 | 实现 PermissionManager 核心 | 4h | P1 | ☐ |
+| P1-5.1.2 | 实现 macOS 权限检测 | 3h | P1 | ☐ |
+| P1-5.1.3 | 实现 Windows 权限检测 | 3h | P1 | ☐ |
+| P1-5.1.4 | 实现权限设置 UI | 3h | P1 | ☐ |
+| P1-5.2.1 | 实现日志系统（tracing） | 3h | P1 | ☐ |
+| P1-5.2.2 | 实现日志导出功能 | 2h | P1 | ☐ |
+| P1-5.3.1 | 实现文件传输核心 | 4h | P1 | ☐ |
+| P1-5.3.2 | 实现文件发送 UI | 3h | P1 | ☐ |
+| P1-5.3.3 | 实现文件接收提示 | 2h | P1 | ☐ |
+| P1-5.4.1 | 实现 RemoteDesktop 组件 | 6h | P1 | ☐ |
+| P1-5.4.2 | 集成 enigo 输入模拟 | 3h | P1 | ☐ |
+
+**Phase 5 预估总工时：36h**
+
+### Phase 6：收尾完善（P2）
+
+| ID | 任务名称 | 预估工时 | 优先级 | 状态 |
+|----|----------|----------|--------|------|
+| P2-6.1.1 | 实现 About 组件 | 2h | P2 | ☐ |
+| P2-6.1.2 | 实现版本信息显示 | 1h | P2 | ☐ |
+| P2-6.2.1 | 实现 Chat 聊天界面 | 6h | P2 | ☐ |
+| P2-6.2.2 | 实现聊天记录管理 | 3h | P2 | ☐ |
+| P2-6.3.1 | 实现客户端升级检查 | 4h | P2 | ☐ |
+| P2-6.3.2 | 实现升级下载安装 | 4h | P2 | ☐ |
+| P2-6.4.1 | 国际化支持（中/英） | 4h | P2 | ☐ |
+| P2-6.4.2 | 主题切换功能 | 2h | P2 | ☐ |
+
+**Phase 6 预估总工时：26h**
+
+---
+
+## 详细任务说明
+
+## Phase 1：基础框架（P0）
+
+### P0-1.1.1 创建 Workspace 配置
+
+**任务描述**：创建项目根目录的 Cargo.toml，配置 workspace 成员和共享依赖
+
+**实现文件**：
+- `crates/agent-client/Cargo.toml`
+
+**验收标准**：
+- [ ] workspace 包含 `crates/agent-client` 和 `crates/agent-protocol` 等成员
+- [ ] 共享依赖版本在 workspace.dependencies 中统一定义
+- [ ] `cargo check --workspace` 通过
+
+**相关文档**：
+- spec: 7. 目录结构
+- plan: 1.2 Workspace Cargo.toml 完整配置
+
+---
+
+### P0-1.1.2 创建 agent-protocol 协议模块
+
+**任务描述**：创建协议定义 crate，包含 protobuf 消息定义和编译脚本
+
+**实现文件**：
+- `crates/agent-protocol/Cargo.toml`
+- `crates/agent-protocol/build.rs`
+- `crates/agent-protocol/src/lib.rs`
+- `crates/agent-protocol/src/proto/message.proto`
+
+**验收标准**：
+- [ ] proto 文件包含 HandshakeRequest/Response, AgentTaskRequest/Response 等消息定义
+- [ ] build.rs 正确编译 proto 文件
+- [ ] 生成的 Rust 代码可被 agent-client 引用
+- [ ] 单元测试通过
+
+**相关文档**：
+- spec: 5. 通信协议设计
+- plan: 1.4 agent-protocol/Cargo.toml 完整配置
+
+---
+
+### P0-1.2.1 实现 main.rs 程序入口
+
+**任务描述**：实现应用入口，包含日志初始化、配置加载、信号处理、主循环
+
+**实现文件**：
+- `crates/agent-client/src/main.rs`
+
+**验收标准**：
+- [ ] 程序启动时初始化日志系统
+- [ ] 加载配置文件
+- [ ] 处理 Ctrl+C 和 terminate 信号
+- [ ] 正确创建 App 实例并运行
+- [ ] 优雅关闭（清理资源）
+
+**代码参考**：
+- plan: 1.6.1 main.rs 完整实现
+
+---
+
+### P0-1.2.4 实现 Root 根组件
+
+**任务描述**：实现主窗口根组件，包含标题栏、Tab 面板、内容区、状态栏
+
+**实现文件**：
+- `crates/agent-client/src/components/root.rs`
+
+**验收标准**：
+- [ ] 顶部显示应用名称和图标
+- [ ] Tab 面板可切换不同功能页面
+- [ ] 根据 feature 过滤不可用的 Tab（remote-desktop, chat-ui）
+- [ ] 底部显示状态栏
+- [ ] 主题适配（深色/浅色）
+
+**代码参考**：
+- plan: 1.8.1 Root 组件完整实现
+
+---
+
+### P0-1.3.1 实现 TrayManager 托盘管理器
+
+**任务描述**：实现系统托盘图标显示和菜单功能
+
+**实现文件**：
+- `crates/agent-client/src/tray/mod.rs`
+- `crates/agent-client/src/tray/menu.rs`
+- `crates/agent-client/src/tray/icon.rs`
+
+**验收标准**：
+- [ ] 启动时在系统托盘显示图标
+- [ ] 左键点击显示主窗口
+- [ ] 右键点击显示菜单（显示窗口、设置、依赖管理、关于、退出）
+- [ ] 菜单项可点击响应
+- [ ] 支持跨平台（macOS/Windows/Linux）
+
+**代码参考**：
+- plan: 1.9.1 TrayManager 完整实现
+
+---
+
+## Phase 2：核心功能（P0）
+
+### P0-2.1.1 集成 nuwax-rustdesk ConnectionManager
+
+**任务描述**：集成 nuwax-rustdesk 的 RendezvousMediator，实现与 data-server 的连接
+
+**实现文件**：
+- `crates/agent-client/src/core/connection.rs`
+
+**验收标准**：
+- [ ] 可配置 hbbs 和 hbbr 服务器地址
+- [ ] 连接到 hbbs 获取客户端 ID
+- [ ] 连接到 hbbr 准备中继
+- [ ] 根据网络情况自动选择 P2P 或 Relay 模式
+- [ ] 返回连接延迟（latency）
+
+**代码参考**：
+- plan: 2.1.1 ConnectionManager 完整实现
+
+---
+
+### P0-2.2.1 实现 BusinessChannel 模块
+
+**任务描述**：在 nuwax-rustdesk 基础上实现业务数据通道，用于传输 Agent 任务数据
+
+**实现文件**：
+- `crates/agent-client/src/core/business_channel.rs`
+- `vendors/nuwax-rustdesk/src/business_channel.rs`
+
+**验收标准**：
+- [ ] 复用 nuwax-rustdesk 的底层 Stream
+- [ ] 创建独立的业务通道（channel_id = 0xBIZ）
+- [ ] 支持发送/接收业务消息
+- [ ] 支持消息订阅机制
+- [ ] 消息格式正确（message_type + payload）
+
+**代码参考**：
+- plan: 2.2 业务数据通道
+
+---
+
+### P0-2.4.1 实现 ClientInfo 组件
+
+**任务描述**：实现客户端信息 Tab，显示 ID 和密码
+
+**实现文件**：
+- `crates/agent-client/src/components/client_info.rs`
+
+**验收标准**：
+- [ ] 显示 8 位客户端 ID（只读）
+- [ ] 显示连接密码，可切换显示/隐藏
+- [ ] 点击复制按钮复制到剪贴板
+- [ ] 点击"修改密码"跳转到设置页的安全子页面
+- [ ] 显示密码强度提示
+
+**代码参考**：
+- spec: 2.2 客户端信息 Tab
+
+---
+
+## Phase 3：依赖管理（P0）
+
+### P0-3.1.2 实现 NodeDetector 系统检测
+
+**任务描述**：检测系统中已安装的 Node.js，优先使用系统全局安装
+
+**实现文件**：
+- `crates/agent-client/src/core/dependency/node.rs`
+
+**验收标准**：
+- [ ] 检测 PATH 中的 node 命令
+- [ ] 检测 macOS 特定路径（/usr/local/bin/node）
+- [ ] 检测 Windows 特定路径（Program Files）
+- [ ] 获取版本号并验证是否 >= 18.0.0
+- [ ] 区分系统全局和客户端目录安装
+
+**代码参考**：
+- plan: 3.1.1 NodeDetector 完整实现
+
+---
+
+### P0-3.1.3 实现 NodeInstaller 下载安装
+
+**任务描述**：自动下载并安装 Node.js 到客户端隔离目录
+
+**实现文件**：
+- `crates/agent-client/src/core/dependency/node_installer.rs`
+
+**验收标准**：
+- [ ] 下载对应平台的 Node.js 预编译包
+- [ ] 显示下载进度
+- [ ] 解压到隔离目录（`<APP_DATA>/tools/node/`）
+- [ ] 设置可执行权限
+- [ ] 验证安装成功
+- [ ] 支持断点续传（可选）
+
+**代码参考**：
+- plan: 3.1.2 NodeInstaller 完整实现
+
+---
+
+### P0-3.2.2 实现依赖状态 UI 组件
+
+**任务描述**：实现依赖管理 Tab 的 UI，显示依赖列表和状态
+
+**实现文件**：
+- `crates/agent-client/src/components/dependency_manager.rs`
+
+**验收标准**：
+- [ ] 显示依赖列表（Node.js, npm, opencode, claude-code 等）
+- [ ] 每行显示：名称、版本、来源、状态、操作按钮
+- [ ] 状态使用颜色区分（绿色=正常，红色=缺失，黄色=可更新）
+- [ ] 支持一键安装所有缺失依赖
+- [ ] 支持手动刷新状态
+
+**代码参考**：
+- spec: 2.4 依赖管理 Tab
+
+---
+
+## Phase 4：Agent 运行时（P1）
+
+### P1-4.1.2 实现 AgentManager 核心
+
+**任务描述**：实现 Agent 任务管理器，直接调用 agent_runner 内部函数
+
+**实现文件**：
+- `crates/agent-client/src/core/agent.rs`
+
+**验收标准**：
+- [ ] 通过 path 依赖调用 agent_runner（不使用 gRPC）
+- [ ] 启动 Agent 任务（start_agent）
+- [ ] 取消正在执行的任务（cancel_agent）
+- [ ] 查询任务状态（get_agent_status）
+- [ ] 管理多个并发任务
+- [ ] 使用 DashMap 保证线程安全
+
+**代码参考**：
+- plan: 4.1 AgentManager 完整实现
+
+---
+
+## Phase 5：增强功能（P1）
+
+### P1-5.1.1 实现 PermissionManager 核心
+
+**任务描述**：实现跨平台权限检测和管理
+
+**实现文件**：
+- `crates/agent-client/src/core/platform/permissions.rs`
+
+**验收标准**：
+- [ ] 检测辅助功能权限（Accessibility）
+- [ ] 检测屏幕录制权限（ScreenRecording）
+- [ ] 检测磁盘访问权限（FullDiskAccess）
+- [ ] 打开系统设置页面
+- [ ] macOS 使用 TCC 检查
+- [ ] Windows 使用注册表检查
+
+**代码参考**：
+- plan: 5.1.1 PermissionManager 完整实现
+
+---
+
+## Phase 6：收尾完善（P2）
+
+### P2-6.1.1 实现 About 组件
+
+**任务描述**：实现关于界面，显示版本信息和链接
+
+**实现文件**：
+- `crates/agent-client/src/components/about.rs`
+
+**验收标准**：
+- [ ] 显示应用图标
+- [ ] 显示版本号（1.0.0）和构建信息
+- [ ] 显示 Git commit SHA
+- [ ] 提供文档、问题反馈、官网链接
+- [ ] 提供导出日志按钮
+
+**代码参考**：
+- plan: 6.1 About 组件完整实现
+
+---
+
+## 任务依赖关系
+
+```
+Phase 1 (基础框架)
+├── P0-1.1.1 (Workspace) ───┐
+├── P0-1.1.2 (Protocol) ────┤
+├── P0-1.1.3 (Features) ────┤
+├── P0-1.1.4 (Dependencies) ─┤
+└── P0-1.2.x (UI) ──────────┤
+    └── P0-1.3.x (Tray) ────┤
+        └── P0-1.4.x (AutoLaunch)
+                            │
+Phase 2 (核心功能) ──────────┤
+├── P0-2.1.x (Connection) ←─┘
+├── P0-2.2.x (BusinessChannel) ← P0-1.1.2
+└── P0-2.3.x (Settings) ←─────┤
+    └── P0-2.4.x (ClientInfo) ← P0-2.1.x (Connection)
+                                │
+Phase 3 (依赖管理) ←────────────┤
+├── P0-3.1.x (Node.js) ←───────┤
+└── P0-3.2.x (UI) ←────────────┘
+
+Phase 4 (Agent) ←──────────────┤
+├── P1-4.1.x (AgentManager) ← P0-1.1.2 (Protocol)
+└── P1-4.2.x (UI) ←────────────┘
+
+Phase 5 (增强) ←───────────────┤
+├── P1-5.1.x (Permissions) ←───┤
+├── P1-5.2.x (Logging) ←───────┤
+├── P1-5.3.x (FileTransfer) ←──┤
+└── P1-5.4.x (RemoteDesktop) ←─┘
+
+Phase 6 (收尾) ←────────────────┤
+├── P2-6.1.x (About) ←─────────┤
+├── P2-6.2.x (Chat) ←─────────┤
+├── P2-6.3.x (Update) ←───────┤
+└── P2-6.4.x (i18n) ←─────────┘
+```
+
+---
+
+## 开发顺序建议
+
+### 第一批（MVP 最小可运行版本）
+
+1. P0-1.1.1 ~ P0-1.1.4：项目脚手架
+2. P0-1.2.1 ~ P0-1.2.3：基础 UI 框架
+3. P0-1.3.1 ~ P0-1.3.2：托盘功能
+4. P0-1.4.1 ~ P0-1.4.2：开机自启动
+5. P0-2.1.1 ~ P0-2.1.4：连接管理
+6. P0-2.4.1：客户端信息显示
+
+**预计工时：~40h**
+
+### 第二批（依赖管理）
+
+1. P0-3.1.1 ~ P0-3.1.3：Node.js 检测和安装
+2. P0-3.1.4：npm 工具安装
+3. P0-3.2.1 ~ P0-3.2.4：依赖管理 UI
+
+**预计工时：~27h**
+
+### 第三批（Agent 功能）
+
+1. P1-4.1.1 ~ P1-4.1.6：Agent 管理器
+2. P1-4.2.1：状态栏显示
+
+**预计工时：~20h**
+
+### 第四批（增强功能）
+
+1. P1-5.1.x：权限管理
+2. P1-5.2.x：日志系统
+3. P1-5.3.x：文件传输
+4. P1-5.4.x：远程桌面
+
+**预计工时：~36h**
+
+### 第五批（收尾完善）
+
+1. P2-6.1.x：关于界面
+2. P2-6.2.x：聊天界面
+3. P2-6.3.x：自动升级
+4. P2-6.4.x：国际化
+
+**预计工时：~26h**
+
+---
+
+## 里程碑
+
+### Milestone 1：骨架完成
+- [ ] 完成 Phase 1 所有任务
+- [ ] 应用可启动，显示 UI
+- [ ] 系统托盘图标正常
+- [ ] 开机自启动可配置
+
+**达成条件**：编译运行成功，UI 可交互
+
+### Milestone 2：核心通信
+- [ ] 完成 Phase 2 所有任务
+- [ ] 可连接到 data-server
+- [ ] 显示连接状态和延迟
+- [ ] 客户端 ID 和密码功能正常
+
+**达成条件**：可与服务器建立双向通信
+
+### Milestone 3：依赖就绪
+- [ ] 完成 Phase 3 所有任务
+- [ ] 自动检测系统 Node.js
+- [ ] 可自动安装 Node.js
+- [ ] 依赖管理 UI 完整
+
+**达成条件**：Agent 运行环境准备就绪
+
+### Milestone 4：Agent 可用
+- [ ] 完成 Phase 4 所有任务
+- [ ] 可执行 Agent 任务
+- [ ] 进度实时回传
+- [ ] 可取消任务
+
+**达成条件**：Agent 任务完整流程可用
+
+### Milestone 5：功能完整
+- [ ] 完成 Phase 5 所有任务
+- [ ] 权限检测和引导
+- [ ] 日志导出
+- [ ] 文件传输
+- [ ] 远程桌面
+
+**达成条件**：所有 P0/P1 功能可用
+
+### Milestone 6：发布就绪
+- [ ] 完成 Phase 6 所有任务
+- [ ] 所有 P2 功能完成
+- [ ] 国际化支持
+- [ ] 文档完善
+
+**达成条件**：可发布正式版本
+
+---
+
+## 风险与注意事项
+
+### 技术风险
+
+| 风险 | 可能性 | 影响 | 缓解措施 |
+|------|--------|------|----------|
+| nuwax-rustdesk API 变化 | 低 | 高 | 封装隔离层，减少直接依赖 |
+| gpui API 变化 | 中 | 中 | 锁定 git commit，使用 wrapper |
+| 跨平台兼容性问题 | 中 | 中 | 条件编译，CI 测试覆盖 |
+
+### 阻塞风险
+
+| 阻塞项 | 依赖任务 | 缓解措施 |
+|--------|----------|----------|
+| nuwax-rustdesk 未完成 business_channel | P0-2.2.1 | 先使用模拟实现，后续替换 |
+| agent_runner 函数接口未导出 | P1-4.1.1 | 确认接口，或直接调用内部函数 |
+| gpui-component 组件不完整 | 多个 UI 任务 | 使用基础 gpui 替代，编写 wrapper |
+
+---
+
+## 变更记录
+
+| 版本 | 日期 | 变更内容 | 作者 |
+|------|------|----------|------|
+| v1.0.0 | 2026-01-29 | 初始版本 | - |

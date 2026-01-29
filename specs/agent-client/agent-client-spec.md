@@ -24,6 +24,11 @@
 3. [组件选型与使用](#3-组件选型与使用)
 4. [核心模块设计](#4-核心模块设计)
 5. [通信协议设计](#5-通信协议设计)
+   - [5.10 安全设计](#510-安全设计)
+   - [5.11 网络策略](#511-网络策略)
+   - [5.12 国际化方案](#512-国际化方案)
+   - [5.13 会话管理](#513-会话管理)
+   - [5.14 系统集成](#514-系统集成)
 6. [系统架构](#6-系统架构)
 7. [目录结构](#7-目录结构)
 
@@ -2648,6 +2653,839 @@ message FileChunk {
 | 协议重大升级 | 版本号递增，拒绝不兼容的旧版本 |
 | 字段删除 | 保留字段编号，标记为 deprecated |
 | 字段类型变更 | 新增字段，逐步迁移 |
+
+---
+
+### 5.10 安全设计
+
+#### 5.10.1 认证机制
+
+| 认证方式 | 说明 | 适用场景 |
+|----------|------|----------|
+| 密码认证 | 客户端连接密码（8位以上字母+数字） | 基础认证方式 |
+| Token 认证 | 临时 Token（24小时有效期） | API 调用认证 |
+| Session 认证 | Session ID + 过期时间 | 管理端会话保持 |
+
+**密码存储**：
+```rust
+/// 密码存储策略
+trait PasswordStorage {
+    /// 使用 Argon2 加密存储密码
+    fn hash_password(password: &str) -> Result<String>;
+    /// 验证密码
+    fn verify_password(password: &str, hash: &str) -> bool;
+    /// 密码强度检查
+    fn check_strength(password: &str) -> PasswordStrength;
+}
+```
+
+**Token 管理**：
+```rust
+/// Token 管理器
+struct TokenManager {
+    /// Token 有效期（24小时）
+    const TOKEN_TTL_HOURS: u64 = 24;
+    /// 刷新提前量（1小时）
+    const REFRESH_AHEAD_HOURS: u64 = 1;
+
+    /// 生成新 Token
+    fn generate_token(&self, client_id: &str) -> Token;
+    /// 验证 Token
+    fn validate_token(&self, token: &Token) -> bool;
+    /// 刷新 Token
+    fn refresh_token(&self, old_token: &Token) -> Result<Token>;
+}
+```
+
+#### 5.10.2 传输安全
+
+**TLS 配置要求**：
+| 配置项 | 要求 |
+|--------|------|
+| 最低 TLS 版本 | TLS 1.2 |
+| 推荐 TLS 版本 | TLS 1.3 |
+| 密码套件 | 仅支持前向安全的套件 |
+| 证书验证 | 必须验证服务器证书 |
+
+**数据加密**：
+```rust
+/// 敏感数据加密
+trait SensitiveDataEncryption {
+    /// 加密敏感配置（密码、Token 等）
+    fn encrypt_sensitive(&self, data: &[u8]) -> Vec<u8>;
+    /// 解密敏感配置
+    fn decrypt_sensitive(&self, encrypted: &[u8]) -> Vec<u8>;
+    /// 敏感信息脱敏（日志输出时）
+    fn redact_sensitive(&self, data: &str) -> String;
+}
+```
+
+#### 5.10.3 审计日志
+
+**审计事件类型**：
+| 事件类型 | 说明 | 记录内容 |
+|----------|------|----------|
+| 连接事件 | 客户端连接/断开 | 时间、客户端ID、连接类型、IP地址 |
+| 认证事件 | 登录成功/失败 | 时间、客户端ID、认证方式、结果 |
+| 任务事件 | Agent 任务开始/完成/失败 | 时间、任务ID、任务内容摘要 |
+| 文件事件 | 文件传输开始/完成 | 时间、文件ID、文件名、大小 |
+| 配置变更 | 密码修改等配置变更 | 时间、变更类型、变更结果 |
+
+```rust
+/// 审计日志结构
+struct AuditLog {
+    timestamp: DateTime<Utc>,
+    event_type: AuditEventType,
+    client_id: String,
+    user_id: String,
+    action: String,
+    details: serde_json::Value,
+    ip_address: Option<String>,
+    result: AuditResult,
+}
+
+enum AuditEventType {
+    Connection,
+    Authentication,
+    TaskExecution,
+    FileTransfer,
+    ConfigChange,
+    SecurityEvent,
+}
+```
+
+#### 5.10.4 敏感信息脱敏规则
+
+| 数据类型 | 脱敏规则 | 示例 |
+|----------|----------|------|
+| 密码 | 替换为 `******` | `******` |
+| Token | 保留首尾字符 | `sk-abc...xyz` |
+| API Key | 保留前4后4位 | `abcd...wxyz` |
+| 文件路径 | 提取文件名 | `C:\...\file.txt` → `file.txt` |
+| IP 地址 | 部分隐藏 | `192.168.**.**` |
+
+---
+
+### 5.11 网络策略
+
+#### 5.11.1 重连机制
+
+**重连策略**：
+| 参数 | 默认值 | 可配置范围 |
+|------|--------|------------|
+| 初始重连延迟 | 1秒 | 1-10秒 |
+| 最大重连延迟 | 30秒 | 10-300秒 |
+| 重连指数基数 | 2 | 1.5-3.0 |
+| 最大重试次数 | 0（无限） | 0-100 |
+
+```rust
+/// 重连策略配置
+struct ReconnectConfig {
+    /// 初始延迟（毫秒）
+    initial_delay_ms: u64,
+    /// 最大延迟（毫秒）
+    max_delay_ms: u64,
+    /// 指数退避基数
+    backoff_base: f64,
+    /// 最大重试次数（0 表示无限）
+    max_retries: u32,
+    /// 是否随机抖动
+    jitter: bool,
+}
+
+impl Default for ReconnectConfig {
+    fn default() -> Self {
+        Self {
+            initial_delay_ms: 1000,
+            max_delay_ms: 30000,
+            backoff_base: 2.0,
+            max_retries: 0,  // 无限重试
+            jitter: true,
+        }
+    }
+}
+```
+
+**重连流程**：
+```
+连接断开
+    │
+    ▼
+检查是否达到最大重试次数？
+    │
+    ├── 是 ───► 进入离线模式，缓存消息
+    │
+    └── 否
+        │
+        ▼
+    计算延迟时间（指数退避 + 随机抖动）
+        │
+        ▼
+    等待延迟时间
+        │
+        ▼
+    尝试重连
+        │
+        ├── 成功 ───► 重置重试计数，恢复消息队列
+        │
+        └── 失败 ───► 返回步骤 2
+```
+
+#### 5.11.2 离线消息队列
+
+**队列配置**：
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| 最大队列大小 | 1000 条 | 离线消息最大缓存数量 |
+| 消息保留时间 | 24 小时 | 消息过期时间 |
+| 单消息最大大小 | 1 MB | 超过则拒绝入队 |
+
+```rust
+/// 离线消息队列
+struct OfflineMessageQueue {
+    /// 队列容量
+    capacity: usize,
+    /// 消息保留时间
+    ttl: Duration,
+    /// 待发送消息
+    pending: Arc<RwLock<Vec<QueuedMessage>>>,
+}
+
+struct QueuedMessage {
+    /// 消息内容
+    payload: Vec<u8>,
+    /// 消息类型
+    message_type: u32,
+    /// 入队时间
+    enqueued_at: DateTime<Utc>,
+    /// 重试次数
+    retry_count: u32,
+}
+```
+
+#### 5.11.3 带宽控制
+
+**带宽配置**：
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| 最大上传速度 | 10 MB/s | 仅远程桌面/文件传输 |
+| 最大下载速度 | 10 MB/s | 仅远程桌面/文件传输 |
+| 心跳间隔 | 30 秒 | 心跳包发送间隔 |
+| 连接超时 | 10 秒 | TCP 连接超时 |
+
+```rust
+/// 带宽管理器
+struct BandwidthManager {
+    /// 最大上传速度（字节/秒）
+    max_upload: u64,
+    /// 最大下载速度（字节/秒）
+    max_download: u64,
+    /// 令牌桶
+    upload_bucket: TokenBucket,
+    download_bucket: TokenBucket,
+}
+
+struct TokenBucket {
+    capacity: u64,
+    tokens: f64,
+    refill_rate: f64,  // 令牌填充速度
+}
+```
+
+**动态带宽调整**：
+```rust
+impl BandwidthManager {
+    /// 根据网络状况动态调整带宽
+    async fn adapt_to_network(&self, latency_ms: u64, loss_rate: f64) {
+        match (latency_ms, loss_rate) {
+            (latency, loss) if latency > 500 || loss > 0.05 => {
+                // 高延迟或高丢包，降低带宽
+                self.set_limit(1024 * 1024, 1024 * 1024).await;  // 1 MB/s
+            }
+            (latency, loss) if latency > 200 || loss > 0.02 => {
+                // 中等延迟或丢包，中等带宽
+                self.set_limit(5 * 1024 * 1024, 5 * 1024 * 1024).await;  // 5 MB/s
+            }
+            _ => {
+                // 正常网络，使用全带宽
+                self.set_limit(self.max_upload, self.max_download).await;
+            }
+        }
+    }
+}
+```
+
+#### 5.11.4 网络状态监听
+
+```rust
+/// 网络状态监听器
+trait NetworkStatusListener {
+    /// 网络状态变化回调
+    fn on_status_change(&self, status: NetworkStatus);
+
+    /// 延迟变化回调
+    fn on_latency_change(&self, latency_ms: u64);
+
+    /// 连接质量评估
+    fn evaluate_quality(&self) -> ConnectionQuality {
+        // 基于延迟和丢包率评估
+    }
+}
+
+enum NetworkStatus {
+    Connected(ConnectionType),     // P2P 或 Relay
+    Connecting,
+    Disconnected,
+    Offline,
+}
+
+enum ConnectionQuality {
+    Excellent,  // < 50ms, < 1% loss
+    Good,       // < 150ms, < 2% loss
+    Fair,       // < 300ms, < 5% loss
+    Poor,       // > 300ms 或 > 5% loss
+}
+```
+
+---
+
+### 5.12 国际化方案
+
+#### 5.12.1 字符串资源结构
+
+```
+i18n/
+├── en-US/
+│   └── messages.toml
+├── zh-CN/
+│   └── messages.toml
+├── ja-JP/
+│   └── messages.toml
+└── fallback.toml
+```
+
+**资源文件格式**：
+```toml
+# en-US/messages.toml
+
+[common]
+ok = "OK"
+cancel = "Cancel"
+save = "Save"
+close = "Close"
+settings = "Settings"
+about = "About"
+
+[status]
+connected = "Connected"
+disconnected = "Disconnected"
+connecting = "Connecting..."
+
+[client_info]
+title = "Client Information"
+client_id = "Client ID"
+password = "Password"
+copy_id = "Copy ID"
+copy_password = "Copy Password"
+change_password = "Change Password"
+```
+
+```toml
+# zh-CN/messages.toml
+
+[common]
+ok = "确定"
+cancel = "取消"
+save = "保存"
+close = "关闭"
+settings = "设置"
+about = "关于"
+
+[status]
+connected = "已连接"
+disconnected = "已断开"
+connecting = "连接中..."
+
+[client_info]
+title = "客户端信息"
+client_id = "客户端 ID"
+password = "连接密码"
+copy_id = "复制 ID"
+copy_password = "复制密码"
+change_password = "修改密码"
+```
+
+#### 5.12.2 i18n 基础设施
+
+```rust
+/// 国际化管理器
+struct I18nManager {
+    /// 当前语言
+    current_lang: RwLock<Language>,
+    /// 语言资源
+    resources: DashMap<Language, ResourceBundle>,
+    /// 回退资源
+    fallback: ResourceBundle,
+}
+
+impl I18nManager {
+    /// 加载语言资源
+    async fn load_language(&self, lang: Language) -> Result<()> {
+        let resource = ResourceBundle::from_file(format!("i18n/{}/messages.toml", lang.code())).await?;
+        self.resources.insert(lang, resource);
+        Ok(())
+    }
+
+    /// 获取翻译字符串
+    fn t(&self, key: &str) -> String {
+        let lang = *self.current_lang.read();
+        self.resources.get(&lang)
+            .or(Some(&self.fallback))
+            .and_then(|r| r.get(key))
+            .unwrap_or_else(|| key.to_string())
+    }
+
+    /// 格式化带参数的字符串
+    fn t_with_args(&self, key: &str, args: &[(&str, &str)]) -> String {
+        let mut result = self.t(key);
+        for (name, value) in args {
+            result = result.replace(&format!("{{{name}}}"), value);
+        }
+        result
+    }
+}
+```
+
+#### 5.12.3 日期/时间/数字格式化
+
+```rust
+/// 区域格式化器
+struct LocaleFormatter {
+    locale: Language,
+}
+
+impl LocaleFormatter {
+    /// 格式化日期
+    fn format_date(&self, date: &DateTime<Utc>) -> String {
+        match self.locale {
+            Language::ZhCN => date.format("%Y年%m月%d日").to_string(),
+            Language::JaJP => date.format("%Y年%m月%d日").to_string(),
+            _ => date.format("%B %d, %Y").to_string(),
+        }
+    }
+
+    /// 格式化时间
+    fn format_time(&self, time: &DateTime<Utc>) -> String {
+        match self.locale {
+            Language::ZhCN => time.format("%H:%M:%S").to_string(),
+            Language::JaJP => time.format("%H:%M:%S").to_string(),
+            _ => time.format("%H:%M:%S").to_string(),
+        }
+    }
+
+    /// 格式化文件大小
+    fn format_file_size(&self, bytes: u64) -> String {
+        const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+        let mut size = bytes as f64;
+        let mut unit_index = 0;
+
+        while size >= 1024.0 && unit_index < UNITS.len() - 1 {
+            size /= 1024.0;
+            unit_index += 1;
+        }
+
+        match self.locale {
+            Language::ZhCN => format!("{:.1} {}", size, UNITS[unit_index]),
+            _ => format!("{} {:.1} {}", size, UNITS[unit_index]),
+        }
+    }
+}
+```
+
+#### 5.12.4 UI 文本动态切换
+
+```rust
+/// 支持动态切换语言的 UI 组件
+trait LocalizedComponent {
+    /// 更新所有文本
+    fn update_localization(&mut self, cx: &mut Cx, lang: Language);
+
+    /// 获取当前语言
+    fn current_language(&self) -> Language;
+}
+
+/// 状态栏语言显示示例
+struct StatusBar {
+    language: Language,
+}
+
+impl Render for StatusBar {
+    fn render(&mut self, cx: &mut Cx) {
+        // 根据语言显示对应文本
+        let lang_text = match self.language {
+            Language::ZhCN => "中文",
+            Language::EnUS => "English",
+            Language::JaJP => "日本語",
+        };
+        Label::new(cx, lang_text);
+    }
+}
+```
+
+---
+
+### 5.13 会话管理
+
+#### 5.13.1 任务会话状态
+
+```rust
+/// Agent 任务会话状态
+enum AgentSessionState {
+    /// 空闲（无任务）
+    Idle,
+    /// 等待中（任务已接收，等待执行）
+    Pending {
+        received_at: DateTime<Utc>,
+        task_id: String,
+    },
+    /// 执行中
+    Active {
+        started_at: DateTime<Utc>,
+        session_id: String,
+        task_id: String,
+    },
+    /// 正在停止
+    Terminating {
+        started_at: DateTime<Utc>,
+        reason: String,
+    },
+    /// 执行出错
+    Error {
+        error_type: ErrorType,
+        message: String,
+    },
+}
+
+enum ErrorType {
+    Timeout,
+    PermissionDenied,
+    WorkerStopped,
+    Unknown,
+}
+```
+
+#### 5.13.2 会话超时策略
+
+| 会话类型 | 超时时间 | 可配置范围 | 处理方式 |
+|----------|----------|------------|----------|
+| 任务执行超时 | 30 分钟 | 5-120 分钟 | 自动取消 |
+| 空闲超时（无操作） | 2 小时 | 30 分钟 - 24 小时 | 断开连接 |
+| Token 过期 | 24 小时 | 1-72 小时 | 刷新 Token |
+| 消息确认超时 | 30 秒 | 10-120 秒 | 重试 3 次 |
+
+```rust
+/// 超时管理器
+struct TimeoutManager {
+    /// 任务执行超时
+    task_timeout: Duration,
+    /// 空闲超时
+    idle_timeout: Duration,
+    /// Token 过期时间
+    token_ttl: Duration,
+    /// 消息确认超时
+    ack_timeout: Duration,
+}
+
+impl TimeoutManager {
+    /// 检查任务是否超时
+    fn is_task_timed_out(&self, session: &AgentSessionState) -> bool {
+        if let AgentSessionState::Active { started_at, .. } = session {
+            let elapsed = Utc::now().signed_duration_since(*started_at);
+            elapsed > self.task_timeout
+        } else {
+            false
+        }
+    }
+
+    /// 检查空闲超时
+    fn is_idle_timed_out(&self, last_activity: &DateTime<Utc>) -> bool {
+        let elapsed = Utc::now().signed_duration_since(*last_activity);
+        elapsed > self.idle_timeout
+    }
+}
+```
+
+#### 5.13.3 并发控制
+
+```rust
+/// 并发任务管理器
+struct ConcurrencyManager {
+    /// 最大并发任务数
+    max_concurrent: usize,
+    /// 当前运行的任务
+    running_tasks: Arc<RwLock<HashMap<String, AgentSessionState>>>,
+    /// 等待队列
+    waiting_queue: Arc<RwLock<Vec<TaskRequest>>>,
+}
+
+impl ConcurrencyManager {
+    /// 提交任务
+    async fn submit(&self, request: TaskRequest) -> Result<SubmissionResult> {
+        let running_count = self.running_tasks.read().len();
+
+        if running_count >= self.max_concurrent {
+            // 加入等待队列
+            self.waiting_queue.write().push(request);
+            Ok(SubmissionResult::Queued)
+        } else {
+            // 直接执行
+            self.start_task(request).await?;
+            Ok(SubmissionResult::Accepted)
+        }
+    }
+
+    /// 任务完成回调
+    fn on_task_completed(&self, task_id: &str) {
+        // 从运行中移除
+        self.running_tasks.write().remove(task_id);
+
+        // 检查等待队列，启动下一个任务
+        if let Some(next_task) = self.waiting_queue.write().pop() {
+            tokio::spawn(async move {
+                self.start_task(next_task).await;
+            });
+        }
+    }
+}
+```
+
+#### 5.13.4 僵尸会话检测与清理
+
+```rust
+/// 会话清理策略
+struct SessionCleanupPolicy {
+    /// 清理间隔
+    cleanup_interval: Duration,
+    /// 僵尸判定时间（超过此时间无活动视为僵尸）
+    zombie_threshold: Duration,
+    /// 保留历史记录时间
+    history_retention: Duration,
+}
+
+impl SessionCleanupPolicy {
+    /// 执行清理
+    async fn cleanup(&self, sessions: &DashMap<String, AgentSessionState>) -> CleanupResult {
+        let mut zombie_sessions = Vec::new();
+        let now = Utc::now();
+
+        for (session_id, session) in sessions.iter() {
+            if let Some(last_activity) = self.get_last_activity(session).await {
+                let elapsed = now.signed_duration_since(last_activity);
+                if elapsed > self.zombie_threshold {
+                    zombie_sessions.push(session_id.clone());
+                }
+            }
+        }
+
+        // 清理僵尸会话
+        for session_id in &zombie_sessions {
+            sessions.remove(session_id);
+        }
+
+        CleanupResult {
+            cleaned_count: zombie_sessions.len(),
+            timestamp: now,
+        }
+    }
+}
+```
+
+---
+
+### 5.14 系统集成
+
+#### 5.14.1 全局快捷键
+
+```rust
+/// 全局快捷键管理器
+struct GlobalShortcutManager {
+    /// 快捷键注册表
+    shortcuts: Arc<RwLock<HashMap<Shortcut, ShortcutHandler>>>,
+}
+
+impl GlobalShortcutManager {
+    /// 注册全局快捷键
+    fn register(&self, shortcut: Shortcut, handler: ShortcutHandler) -> Result<()> {
+        match current_platform() {
+            Platform::MacOS => {
+                // 使用 CGEventTap 或 MASShortcutBundle
+            }
+            Platform::Windows => {
+                // 使用 RegisterHotKey
+            }
+            Platform::Linux => {
+                // 使用 X11 GrabKey 或 GTK AccelGroup
+            }
+        }
+        self.shortcuts.write().insert(shortcut, handler);
+        Ok(())
+    }
+}
+
+/// 默认快捷键
+const DEFAULT_SHORTCUTS: &[Shortcut] = &[
+    Shortcut::new(vec![ModifierKey::Ctrl, ModifierKey::Alt], KeyCode::A),
+    // 显示窗口
+    Shortcut::new(vec![ModifierKey::Ctrl, ModifierKey::Alt], KeyCode::S),
+    // 隐藏窗口
+    Shortcut::new(vec![ModifierKey::Ctrl, ModifierKey::Alt], KeyCode::H),
+    // 快速连接
+    Shortcut::new(vec![ModifierKey::Ctrl, ModifierKey::Alt], KeyCode::C),
+];
+```
+
+#### 5.14.2 系统通知集成
+
+```rust
+/// 系统通知管理器
+trait SystemNotification {
+    /// 发送通知
+    async fn send(&self, notification: NotificationRequest) -> Result<NotificationId>;
+
+    /// 取消通知
+    async fn cancel(&self, id: NotificationId);
+
+    /// 设置通知回调
+    fn set_callback(&self, callback: NotificationCallback);
+}
+
+struct NotificationRequest {
+    title: String,
+    body: String,
+    icon: Option<PathBuf>,
+    urgency: NotificationUrgency,
+    timeout: Duration,
+    actions: Vec<NotificationAction>,
+    /// 点击通知时的回调
+    on_click: Option<CallbackTarget>,
+}
+
+enum NotificationUrgency {
+    Low,
+    Normal,
+    Critical,
+}
+
+struct NotificationAction {
+    id: String,
+    label: String,
+    icon: Option<PathBuf>,
+}
+```
+
+#### 5.14.3 系统事件处理
+
+```rust
+/// 系统事件监听器
+trait SystemEventListener {
+    /// 关机事件
+    fn on_shutdown(&self);
+
+    /// 睡眠事件
+    fn on_sleep(&self);
+
+    /// 唤醒事件
+    fn on_wake(&self);
+
+    /// 屏幕锁定事件
+    fn on_screen_lock(&self);
+
+    /// 屏幕解锁事件
+    fn on_screen_unlock(&self);
+
+    /// 网络状态变化事件
+    fn on_network_change(&self, status: NetworkStatus);
+}
+
+impl SystemEventListener for App {
+    fn on_shutdown(&self) {
+        // 保存状态
+        // 清理资源
+        // 断开连接
+        info!("System shutdown, saving state and disconnecting...");
+    }
+
+    fn on_sleep(&self) {
+        // 暂停远程桌面流
+        // 保存临时数据
+        info!("System going to sleep, pausing operations...");
+    }
+
+    fn on_wake(&self) {
+        // 恢复远程桌面流
+        // 检查连接状态
+        info!("System woke up, resuming operations...");
+    }
+}
+```
+
+#### 5.14.4 系统集成配置
+
+```rust
+/// 系统集成配置
+struct SystemIntegrationConfig {
+    /// 是否启用全局快捷键
+    enable_global_shortcuts: bool,
+    /// 是否启用系统通知
+    enable_system_notifications: bool,
+    /// 通知优先级
+    notification_priority: NotificationPriority,
+    /// 系统事件处理
+    handle_shutdown: bool,
+    handle_sleep: bool,
+    handle_network_change: bool,
+}
+
+impl Default for SystemIntegrationConfig {
+    fn default() -> Self {
+        Self {
+            enable_global_shortcuts: true,
+            enable_system_notifications: true,
+            notification_priority: NotificationPriority::Normal,
+            handle_shutdown: true,
+            handle_sleep: true,
+            handle_network_change: true,
+        }
+    }
+}
+```
+
+#### 5.14.5 开机自启动与系统托盘集成
+
+```rust
+/// 启动行为配置
+struct StartupBehavior {
+    /// 启动时最小化到托盘
+    minimize_to_tray_on_startup: bool,
+    /// 关闭窗口时最小化到托盘（不退出）
+    minimize_to_tray_on_close: bool,
+    /// 托盘双击显示窗口
+    show_window_on_tray_double_click: bool,
+    /// 退出时确认
+    confirm_on_quit: bool,
+}
+
+impl Default for StartupBehavior {
+    fn default() -> Self {
+        Self {
+            minimize_to_tray_on_startup: false,
+            minimize_to_tray_on_close: true,
+            show_window_on_tray_double_click: true,
+            confirm_on_quit: false,
+        }
+    }
+}
+```
 
 ---
 
