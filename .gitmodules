@@ -9,3 +9,6 @@
 [submodule "vendors/tray-icon"]
 	path = vendors/tray-icon
 	url = https://github.com/tauri-apps/tray-icon.git
+[submodule "vendors/zed"]
+	path = vendors/zed
+	url = https://github.com/zed-industries/zed.git
