@@ -4,7 +4,8 @@
 
 use gpui::*;
 use gpui_component::{
-    button::Button, h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable,
+    button::{Button, ButtonVariants},
+    h_flex, v_flex, ActiveTheme, Icon, IconName, Selectable, Sizable,
 };
 
 /// 设置子页面
@@ -94,18 +95,19 @@ impl SettingsView {
 
     /// 渲染侧边导航
     fn render_nav(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let _theme = cx.theme();
         let current = self.current_page;
 
         v_flex()
             .w(px(180.0))
             .gap_1()
             .children(SettingsPage::all().into_iter().map(|page| {
-                let _is_active = page == current;
+                let is_active = page == current;
 
                 Button::new(SharedString::from(page.label()))
                     .label(page.label())
                     .icon(Icon::new(page.icon()).small())
+                    .ghost()
+                    .selected(is_active)
                     .w_full()
                     .on_click(cx.listener(move |this, _, _window, cx| {
                         this.switch_page(page, cx);

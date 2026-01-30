@@ -43,8 +43,10 @@ fn main() -> anyhow::Result<()> {
 
     // 3. 启动 gpui 应用（阻塞调用）
     // gpui 有自己的事件循环，不能在 async main 中运行
+    // 传入 tokio runtime handle 以便在 gpui 中启动 async 任务
     info!("Starting UI application...");
-    if let Err(e) = Application::run(config_manager.clone()) {
+    let runtime_handle = runtime.handle().clone();
+    if let Err(e) = Application::run(config_manager.clone(), runtime_handle) {
         error!("Application error: {:?}", e);
         return Err(e);
     }

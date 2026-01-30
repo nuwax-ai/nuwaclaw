@@ -118,9 +118,38 @@ impl RootView {
         let dependency_view = cx.new(|_cx| DependencyManagerView::new());
 
         // 订阅应用状态事件
+        let client_info_for_sub = client_info_view.clone();
+        let status_bar_for_sub = status_bar.clone();
         let subscriptions = vec![cx.subscribe_in(&app_state, window, {
-            move |_this, _state, event: &AppEvent, _window, cx| match event {
-                AppEvent::ConnectionStateChanged | AppEvent::TaskStateChanged => {
+            move |_this, state, event: &AppEvent, _window, cx| match event {
+                AppEvent::ConnectionStateChanged => {
+                    // 更新 ClientInfoView 的客户端 ID
+                    let state_ref = state.read(cx);
+                    let client_id = state_ref.client_id.clone();
+                    let is_connected = state_ref.is_connected;
+                    client_info_for_sub.update(cx, |view, cx| {
+                        view.set_client_id(client_id, cx);
+                    });
+                    // 更新 StatusBar 连接状态
+                    status_bar_for_sub.update(cx, |view, cx| {
+                        if is_connected {
+                            view.set_connection_state(
+                                super::status_bar::ConnectionState::Connected(
+                                    super::status_bar::ConnectionMode::P2P,
+                                    0,
+                                ),
+                                cx,
+                            );
+                        } else {
+                            view.set_connection_state(
+                                super::status_bar::ConnectionState::Disconnected,
+                                cx,
+                            );
+                        }
+                    });
+                    cx.notify();
+                }
+                AppEvent::TaskStateChanged => {
                     cx.notify();
                 }
                 _ => {}

@@ -187,15 +187,19 @@ impl ConfigManager {
             let content = tokio::fs::read_to_string(&config_path).await?;
             toml::from_str(&content)?
         } else {
-            // 创建默认配置
-            let config = AppConfig::default();
-            let content = toml::to_string_pretty(&config).unwrap();
+            // 尝试从默认配置文件加载
+            let config = if let Some(default_config) = Self::load_default_config().await {
+                tracing::info!("Using default config template");
+                default_config
+            } else {
+                AppConfig::default()
+            };
 
-            // 确保目录存在
+            // 保存为用户配置
+            let content = toml::to_string_pretty(&config).unwrap();
             if let Some(parent) = config_path.parent() {
                 tokio::fs::create_dir_all(parent).await?;
             }
-
             tokio::fs::write(&config_path, content).await?;
             config
         };
@@ -208,6 +212,19 @@ impl ConfigManager {
             config_path,
             secure_config,
         })
+    }
+
+    /// 尝试加载默认配置文件（可执行文件同目录下的 default-config.toml）
+    async fn load_default_config() -> Option<AppConfig> {
+        let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+        let default_path = exe_dir.join("default-config.toml");
+
+        if default_path.exists() {
+            let content = tokio::fs::read_to_string(&default_path).await.ok()?;
+            toml::from_str(&content).ok()
+        } else {
+            None
+        }
     }
 
     /// 保存配置
