@@ -34,5 +34,8 @@ chrono = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }
 
+# 通信库 - nuwax-rustdesk
+librustdesk = { package = "rustdesk", path = "../../vendors/nuwax-rustdesk", features = ["agent-client"] }
+
 [dev-dependencies]
 tempfile = "3.10"

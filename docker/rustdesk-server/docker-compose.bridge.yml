@@ -1,0 +1,48 @@
+# RustDesk Server Docker Compose (Bridge 模式)
+# 适用于 macOS / Windows 开发环境
+#
+# 使用方法:
+#   docker compose -f docker-compose.bridge.yml up -d
+
+services:
+  # hbbs - 信令服务器 (ID Server)
+  hbbs:
+    container_name: rustdesk-hbbs
+    image: rustdesk/rustdesk-server:latest
+    command: hbbs
+    volumes:
+      - ./data:/root
+    ports:
+      - "21115:21115"
+      - "21116:21116"
+      - "21116:21116/udp"
+      - "21118:21118"
+    environment:
+      # - ALWAYS_USE_RELAY=Y
+      # - ENCRYPTED_ONLY=1
+      - TZ=Asia/Shanghai
+    depends_on:
+      - hbbr
+    restart: unless-stopped
+    networks:
+      - rustdesk-net
+
+  # hbbr - 中继服务器 (Relay Server)
+  hbbr:
+    container_name: rustdesk-hbbr
+    image: rustdesk/rustdesk-server:latest
+    command: hbbr
+    volumes:
+      - ./data:/root
+    ports:
+      - "21117:21117"
+      - "21119:21119"
+    environment:
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    networks:
+      - rustdesk-net
+
+networks:
+  rustdesk-net:
+    driver: bridge

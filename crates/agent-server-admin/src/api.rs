@@ -14,15 +14,23 @@ use axum::{
 use futures::stream::{self, Stream};
 use serde::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
-use tracing::{info, debug};
+use tracing::{info, debug, warn};
 
-use crate::state::{AppState, ClientInfo, ServerEvent};
+use crate::state::{AppState, ClientInfo, ClientRegistration, PendingMessage, ServerEvent};
 
 /// 创建路由
 pub fn create_router(state: AppState) -> Router {
     Router::new()
+        // 健康检查
         .route("/health", get(health_check))
+        // 客户端注册和心跳（供 agent-client 调用）
+        .route("/api/register", post(register_client))
+        .route("/api/heartbeat", post(client_heartbeat))
+        .route("/api/poll", post(poll_messages))
+        .route("/api/report", post(report_message))
+        // 管理端 API
         .route("/api/clients", get(list_clients))
+        .route("/api/clients/online", get(list_online_clients))
         .route("/api/clients/:id", get(get_client))
         .route("/api/clients/:id/connect", post(connect_client))
         .route("/api/clients/:id/message", post(send_message))
@@ -45,6 +53,172 @@ async fn health_check() -> Json<HealthResponse> {
     })
 }
 
+// ============================================================================
+// 客户端 API（供 agent-client 调用）
+// ============================================================================
+
+/// 注册响应
+#[derive(Serialize)]
+struct RegisterResponse {
+    success: bool,
+    message: String,
+    client_info: Option<ClientInfo>,
+}
+
+/// 客户端注册
+async fn register_client(
+    State(state): State<AppState>,
+    Json(req): Json<ClientRegistration>,
+) -> Json<RegisterResponse> {
+    info!("Client registration: id={}, os={}", req.client_id, req.os);
+
+    let client = state.register_client(req);
+
+    Json(RegisterResponse {
+        success: true,
+        message: "Registered successfully".to_string(),
+        client_info: Some(client),
+    })
+}
+
+/// 心跳请求
+#[derive(Deserialize)]
+struct HeartbeatRequest {
+    client_id: String,
+    #[serde(default)]
+    latency_ms: Option<u32>,
+}
+
+/// 心跳响应
+#[derive(Serialize)]
+struct HeartbeatResponse {
+    success: bool,
+    pending_messages: usize,
+}
+
+/// 客户端心跳
+async fn client_heartbeat(
+    State(state): State<AppState>,
+    Json(req): Json<HeartbeatRequest>,
+) -> Result<Json<HeartbeatResponse>, StatusCode> {
+    if !state.update_heartbeat(&req.client_id) {
+        // 客户端未注册，需要先注册
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    // 更新延迟
+    if let Some(latency) = req.latency_ms {
+        if let Some(mut client) = state.clients.get_mut(&req.client_id) {
+            client.latency = Some(latency);
+        }
+    }
+
+    let pending = state.pending_message_count(&req.client_id);
+
+    Ok(Json(HeartbeatResponse {
+        success: true,
+        pending_messages: pending,
+    }))
+}
+
+/// 轮询请求
+#[derive(Deserialize)]
+struct PollRequest {
+    client_id: String,
+    #[serde(default)]
+    max_messages: Option<usize>,
+}
+
+/// 轮询响应
+#[derive(Serialize)]
+struct PollResponse {
+    messages: Vec<PendingMessage>,
+}
+
+/// 客户端轮询消息
+async fn poll_messages(
+    State(state): State<AppState>,
+    Json(req): Json<PollRequest>,
+) -> Result<Json<PollResponse>, StatusCode> {
+    // 验证客户端存在
+    if state.get_client(&req.client_id).is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    // 更新心跳
+    state.update_heartbeat(&req.client_id);
+
+    // 获取待发送消息
+    let mut messages = state.drain_pending_messages(&req.client_id);
+
+    // 限制数量
+    if let Some(max) = req.max_messages {
+        if messages.len() > max {
+            // 将多余的放回队列
+            let overflow: Vec<_> = messages.drain(max..).collect();
+            for msg in overflow.into_iter().rev() {
+                state.enqueue_message(&req.client_id, msg);
+            }
+        }
+    }
+
+    debug!("Client {} polled {} messages", req.client_id, messages.len());
+
+    Ok(Json(PollResponse { messages }))
+}
+
+/// 客户端上报消息请求
+#[derive(Deserialize)]
+struct ReportRequest {
+    client_id: String,
+    message_type: String,
+    payload: serde_json::Value,
+    /// 响应的消息 ID（如果是对某个消息的响应）
+    #[serde(default)]
+    in_reply_to: Option<String>,
+}
+
+/// 客户端上报消息响应
+#[derive(Serialize)]
+struct ReportResponse {
+    success: bool,
+    message_id: String,
+}
+
+/// 客户端上报消息（任务完成、状态更新等）
+async fn report_message(
+    State(state): State<AppState>,
+    Json(req): Json<ReportRequest>,
+) -> Result<Json<ReportResponse>, StatusCode> {
+    // 验证客户端存在
+    if state.get_client(&req.client_id).is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let message_id = uuid::Uuid::new_v4().to_string();
+
+    info!(
+        "Client {} reported message: type={}, reply_to={:?}",
+        req.client_id, req.message_type, req.in_reply_to
+    );
+
+    // 发送事件
+    state.emit_event(ServerEvent::MessageReceived {
+        client_id: req.client_id,
+        message_type: req.message_type,
+        payload: req.payload.to_string(),
+    });
+
+    Ok(Json(ReportResponse {
+        success: true,
+        message_id,
+    }))
+}
+
+// ============================================================================
+// 管理端 API
+// ============================================================================
+
 /// 客户端列表响应
 #[derive(Serialize)]
 struct ClientListResponse {
@@ -55,6 +229,13 @@ struct ClientListResponse {
 /// 获取客户端列表
 async fn list_clients(State(state): State<AppState>) -> Json<ClientListResponse> {
     let clients = state.list_clients();
+    let total = clients.len();
+    Json(ClientListResponse { clients, total })
+}
+
+/// 获取在线客户端列表
+async fn list_online_clients(State(state): State<AppState>) -> Json<ClientListResponse> {
+    let clients = state.list_online_clients();
     let total = clients.len();
     Json(ClientListResponse { clients, total })
 }
@@ -104,7 +285,17 @@ async fn connect_client(
     let mode = req.mode.unwrap_or_else(|| "auto".to_string());
     info!("Connecting to client {} with mode: {}", id, mode);
 
-    // TODO: 实际连接逻辑
+    // 确保桥接层已启动
+    if !state.bridge.is_running() {
+        if let Err(e) = state.start_bridge().await {
+            return Ok(Json(ConnectResponse {
+                success: false,
+                message: format!("Failed to start bridge: {}", e),
+                connection_id: None,
+            }));
+        }
+    }
+
     let connection_id = uuid::Uuid::new_v4().to_string();
 
     Ok(Json(ConnectResponse {
@@ -122,6 +313,7 @@ struct MessageRequest {
     /// 消息负载
     payload: serde_json::Value,
     /// 超时时间 (ms)
+    #[serde(default)]
     timeout: Option<u64>,
 }
 
@@ -130,7 +322,7 @@ struct MessageRequest {
 struct MessageResponse {
     success: bool,
     message_id: String,
-    response: Option<serde_json::Value>,
+    queued: bool,
     error: Option<String>,
 }
 
@@ -142,31 +334,31 @@ async fn send_message(
 ) -> Result<Json<MessageResponse>, StatusCode> {
     let client = state.get_client(&id).ok_or(StatusCode::NOT_FOUND)?;
 
+    let message_id = uuid::Uuid::new_v4().to_string();
+
     if !client.online {
-        return Ok(Json(MessageResponse {
-            success: false,
-            message_id: "".to_string(),
-            response: None,
-            error: Some("Client is offline".to_string()),
-        }));
+        warn!("Client {} is offline, queueing message {}", id, message_id);
     }
 
-    let message_id = uuid::Uuid::new_v4().to_string();
     debug!(
         "Sending message {} to client {}: type={}",
         message_id, id, req.message_type
     );
 
-    // TODO: 实际消息发送逻辑
-    // 这里模拟一个响应
+    // 将消息加入待发送队列
+    let pending = PendingMessage {
+        message_id: message_id.clone(),
+        message_type: req.message_type,
+        payload: req.payload,
+        created_at: chrono::Utc::now(),
+    };
+
+    state.enqueue_message(&id, pending);
 
     Ok(Json(MessageResponse {
         success: true,
         message_id,
-        response: Some(serde_json::json!({
-            "status": "received",
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        })),
+        queued: true,
         error: None,
     }))
 }
@@ -175,7 +367,7 @@ async fn send_message(
 async fn sse_events(
     State(state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let mut rx = state.subscribe_events();
+    let rx = state.subscribe_events();
 
     let stream = stream::unfold(rx, |mut rx| async move {
         match rx.recv().await {

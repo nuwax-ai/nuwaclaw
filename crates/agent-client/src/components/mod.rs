@@ -6,5 +6,7 @@ pub mod settings;
 pub mod client_info;
 pub mod dependency_manager;
 pub mod about;
+#[cfg(feature = "remote-desktop")]
+pub mod remote_desktop;
 #[cfg(feature = "chat-ui")]
 pub mod chat;

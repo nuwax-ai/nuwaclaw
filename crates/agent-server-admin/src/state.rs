@@ -6,10 +6,12 @@ use tokio::sync::broadcast;
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
 
+use crate::rustdesk_bridge::RustDeskBridge;
+
 /// 客户端信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientInfo {
-    /// 客户端 ID
+    /// 客户端 ID (RustDesk ID)
     pub id: String,
     /// 客户端名称
     pub name: Option<String>,
@@ -31,6 +33,8 @@ pub struct ClientInfo {
     pub connection_mode: String,
     /// 延迟 (ms)
     pub latency: Option<u32>,
+    /// 管理服务器地址（客户端用于回连）
+    pub admin_endpoint: Option<String>,
 }
 
 impl ClientInfo {
@@ -48,8 +52,57 @@ impl ClientInfo {
             connected_at: Utc::now(),
             connection_mode: "P2P".to_string(),
             latency: Some(15),
+            admin_endpoint: None,
         }
     }
+
+    /// 从注册请求创建
+    pub fn from_registration(req: &ClientRegistration) -> Self {
+        Self {
+            id: req.client_id.clone(),
+            name: req.name.clone(),
+            os: req.os.clone(),
+            os_version: req.os_version.clone(),
+            arch: req.arch.clone(),
+            client_version: req.client_version.clone(),
+            online: true,
+            last_heartbeat: Utc::now(),
+            connected_at: Utc::now(),
+            connection_mode: "Registered".to_string(),
+            latency: None,
+            admin_endpoint: None,
+        }
+    }
+}
+
+/// 客户端注册请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientRegistration {
+    /// RustDesk 客户端 ID
+    pub client_id: String,
+    /// 客户端名称
+    pub name: Option<String>,
+    /// 操作系统
+    pub os: String,
+    /// 操作系统版本
+    pub os_version: String,
+    /// 架构
+    pub arch: String,
+    /// 客户端版本
+    pub client_version: String,
+}
+
+/// 待发送给客户端的消息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingMessage {
+    /// 消息 ID
+    pub message_id: String,
+    /// 消息类型
+    pub message_type: String,
+    /// 消息负载
+    pub payload: serde_json::Value,
+    /// 创建时间
+    pub created_at: DateTime<Utc>,
 }
 
 /// 服务器事件
@@ -72,30 +125,73 @@ pub enum ServerEvent {
 pub struct AppState {
     /// 客户端列表
     pub clients: Arc<DashMap<String, ClientInfo>>,
+    /// 待发送消息队列（按客户端 ID 分组）
+    pub pending_messages: Arc<DashMap<String, Vec<PendingMessage>>>,
     /// 事件广播通道
     pub event_tx: broadcast::Sender<ServerEvent>,
+    /// RustDesk 桥接层
+    pub bridge: Arc<RustDeskBridge>,
+    /// 管理服务器自身的监听地址
+    pub admin_addr: String,
 }
 
 impl AppState {
     /// 创建新的应用状态
     pub fn new() -> Self {
+        Self::with_config("localhost:21116", "0.0.0.0:8080")
+    }
+
+    /// 使用指定配置创建
+    pub fn with_config(hbbs_addr: &str, admin_addr: &str) -> Self {
         let (event_tx, _) = broadcast::channel(100);
         let clients = Arc::new(DashMap::new());
-
-        // 添加一些测试客户端
-        clients.insert("12345678".to_string(), ClientInfo::mock("12345678"));
-        clients.insert("87654321".to_string(), ClientInfo::mock("87654321"));
+        let pending_messages = Arc::new(DashMap::new());
+        let bridge = Arc::new(RustDeskBridge::new(hbbs_addr));
 
         Self {
             clients,
+            pending_messages,
             event_tx,
+            bridge,
+            admin_addr: admin_addr.to_string(),
         }
+    }
+
+    /// 启动 RustDesk 桥接层
+    pub async fn start_bridge(&self) -> anyhow::Result<()> {
+        self.bridge.start().await
+    }
+
+    /// 注册客户端
+    pub fn register_client(&self, registration: ClientRegistration) -> ClientInfo {
+        let client = ClientInfo::from_registration(&registration);
+        let id = client.id.clone();
+
+        // 检查是否已存在
+        let is_new = !self.clients.contains_key(&id);
+
+        self.clients.insert(id.clone(), client.clone());
+
+        if is_new {
+            let _ = self.event_tx.send(ServerEvent::ClientOnline(id));
+        }
+
+        client
     }
 
     /// 获取客户端列表
     pub fn list_clients(&self) -> Vec<ClientInfo> {
         self.clients
             .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    /// 获取在线客户端列表
+    pub fn list_online_clients(&self) -> Vec<ClientInfo> {
+        self.clients
+            .iter()
+            .filter(|entry| entry.value().online)
             .map(|entry| entry.value().clone())
             .collect()
     }
@@ -120,16 +216,56 @@ impl AppState {
     }
 
     /// 更新客户端心跳
-    pub fn update_heartbeat(&self, id: &str) {
+    pub fn update_heartbeat(&self, id: &str) -> bool {
         if let Some(mut client) = self.clients.get_mut(id) {
             client.last_heartbeat = Utc::now();
             client.online = true;
+            true
+        } else {
+            false
         }
+    }
+
+    /// 设置客户端离线
+    pub fn set_client_offline(&self, id: &str) {
+        if let Some(mut client) = self.clients.get_mut(id) {
+            client.online = false;
+            let _ = self.event_tx.send(ServerEvent::ClientOffline(id.to_string()));
+        }
+    }
+
+    /// 添加待发送消息
+    pub fn enqueue_message(&self, client_id: &str, message: PendingMessage) {
+        self.pending_messages
+            .entry(client_id.to_string())
+            .or_insert_with(Vec::new)
+            .push(message);
+    }
+
+    /// 获取并清空客户端的待发送消息
+    pub fn drain_pending_messages(&self, client_id: &str) -> Vec<PendingMessage> {
+        self.pending_messages
+            .get_mut(client_id)
+            .map(|mut entry| std::mem::take(entry.value_mut()))
+            .unwrap_or_default()
+    }
+
+    /// 获取待发送消息数量
+    pub fn pending_message_count(&self, client_id: &str) -> usize {
+        self.pending_messages
+            .get(client_id)
+            .map(|entry| entry.value().len())
+            .unwrap_or(0)
     }
 
     /// 订阅事件
     pub fn subscribe_events(&self) -> broadcast::Receiver<ServerEvent> {
         self.event_tx.subscribe()
+    }
+
+    /// 发送事件
+    pub fn emit_event(&self, event: ServerEvent) {
+        let _ = self.event_tx.send(event);
     }
 }
 

@@ -4,7 +4,9 @@
 
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
-use tracing::info;
+use tracing::{info, warn, error};
+
+use super::adapter::{RustDeskAdapter, AdapterEvent};
 
 /// 连接模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +57,8 @@ pub struct ConnectionManager {
     event_tx: broadcast::Sender<ConnectionEvent>,
     /// 服务器配置
     config: ConnectionConfig,
+    /// RustDesk 适配层
+    adapter: Arc<RwLock<Option<RustDeskAdapter>>>,
 }
 
 /// 连接配置
@@ -83,6 +87,7 @@ impl ConnectionManager {
             state: Arc::new(RwLock::new(ConnectionState::Disconnected)),
             event_tx,
             config,
+            adapter: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -106,27 +111,84 @@ impl ConnectionManager {
         }
     }
 
-    /// 开始连接
+    /// 开始连接 — 通过 RustDeskAdapter 连接到 data-server
     pub async fn connect(&self) -> anyhow::Result<()> {
         self.set_state(ConnectionState::Connecting).await;
 
-        // TODO: 实际连接逻辑，需要集成 nuwax-rustdesk
-        // 目前使用模拟实现
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        // 创建并配置适配层
+        let adapter = RustDeskAdapter::new();
+        adapter.configure_server(&self.config.hbbs_addr, &self.config.hbbr_addr);
 
-        // 模拟连接成功
-        self.set_state(ConnectionState::Connected {
-            mode: ConnectionMode::P2P,
-            latency_ms: 25,
-            client_id: "12345678".to_string(),
-        })
-        .await;
+        // 获取事件接收器（在 start 之前）
+        let event_rx = adapter.event_receiver();
+
+        // 启动适配层
+        if let Err(e) = adapter.start().await {
+            let msg = format!("Failed to start RustDeskAdapter: {}", e);
+            error!("{}", msg);
+            self.set_state(ConnectionState::Error(msg)).await;
+            return Err(e);
+        }
+
+        // 保存适配层引用
+        *self.adapter.write().await = Some(adapter);
+
+        // 启动事件处理循环
+        let state = self.state.clone();
+        let event_tx = self.event_tx.clone();
+        tokio::spawn(async move {
+            let mut rx = event_rx.lock().await;
+            while let Some(event) = rx.recv().await {
+                match event {
+                    AdapterEvent::Registered { client_id } => {
+                        info!("Registered with client_id: {}", client_id);
+                        let new_state = ConnectionState::Connected {
+                            mode: ConnectionMode::P2P,
+                            latency_ms: 0,
+                            client_id,
+                        };
+                        let mut current = state.write().await;
+                        *current = new_state.clone();
+                        let _ = event_tx.send(ConnectionEvent::StateChanged(new_state));
+                    }
+                    AdapterEvent::LatencyUpdated { latency_ms } => {
+                        let mut current = state.write().await;
+                        if let ConnectionState::Connected {
+                            latency_ms: ref mut lat, ..
+                        } = *current
+                        {
+                            *lat = latency_ms;
+                            let _ = event_tx.send(ConnectionEvent::LatencyUpdated(latency_ms));
+                        }
+                    }
+                    AdapterEvent::Disconnected { reason } => {
+                        warn!("Adapter disconnected: {}", reason);
+                        let mut current = state.write().await;
+                        *current = ConnectionState::Disconnected;
+                        let _ = event_tx.send(ConnectionEvent::StateChanged(ConnectionState::Disconnected));
+                    }
+                    AdapterEvent::Error { message } => {
+                        error!("Adapter error: {}", message);
+                        let new_state = ConnectionState::Error(message);
+                        let mut current = state.write().await;
+                        *current = new_state.clone();
+                        let _ = event_tx.send(ConnectionEvent::StateChanged(new_state));
+                    }
+                    AdapterEvent::PunchHoleReceived { peer_id } => {
+                        info!("Punch hole received from peer: {}", peer_id);
+                    }
+                }
+            }
+        });
 
         Ok(())
     }
 
     /// 断开连接
     pub async fn disconnect(&self) {
+        if let Some(adapter) = self.adapter.read().await.as_ref() {
+            adapter.stop().await;
+        }
         self.set_state(ConnectionState::Disconnected).await;
     }
 

@@ -7,6 +7,11 @@ use gpui::prelude::FluentBuilder as _;
 use gpui_component::{
     button::Button, h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable,
 };
+use std::sync::Arc;
+
+use crate::core::dependency::manager::DependencyManager as CoreDependencyManager;
+use crate::core::dependency::manager::DependencyStatus as CoreDependencyStatus;
+use crate::core::dependency::node::NodeSource;
 
 /// 依赖状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +31,18 @@ pub enum DependencyStatus {
 }
 
 impl DependencyStatus {
+    /// 从核心状态转换
+    fn from_core(status: &CoreDependencyStatus) -> Self {
+        match status {
+            CoreDependencyStatus::Ok => Self::Installed,
+            CoreDependencyStatus::Missing => Self::NotInstalled,
+            CoreDependencyStatus::Outdated => Self::Outdated,
+            CoreDependencyStatus::Checking => Self::Checking,
+            CoreDependencyStatus::Installing => Self::Installing,
+            CoreDependencyStatus::Error(_) => Self::Failed,
+        }
+    }
+
     /// 获取状态标签
     pub fn label(&self) -> &'static str {
         match self {
@@ -85,15 +102,20 @@ pub struct DependencyManagerView {
     _checking: bool,
     /// 是否正在安装
     _installing: bool,
+    /// 核心依赖管理器
+    core_manager: Arc<CoreDependencyManager>,
 }
 
 impl DependencyManagerView {
     /// 创建新的依赖管理视图
     pub fn new() -> Self {
+        let core_manager = Arc::new(CoreDependencyManager::new());
+
         let mut view = Self {
             dependencies: Vec::new(),
             _checking: false,
             _installing: false,
+            core_manager,
         };
         view.init_dependencies();
         view
@@ -112,33 +134,112 @@ impl DependencyManagerView {
     /// 刷新依赖状态
     fn refresh_status(&mut self, cx: &mut Context<Self>) {
         self._checking = true;
-        // TODO: 实际检测逻辑
-        // 模拟一些状态
-        if let Some(node) = self.dependencies.iter_mut().find(|d| d.name == "Node.js") {
-            node.status = DependencyStatus::Installed;
-            node.version = Some("20.11.0".to_string());
-            node.source = Some("系统全局".to_string());
-        }
-        if let Some(npm) = self.dependencies.iter_mut().find(|d| d.name == "npm") {
-            npm.status = DependencyStatus::Installed;
-            npm.version = Some("10.2.4".to_string());
-            npm.source = Some("系统全局".to_string());
-        }
-        if let Some(opencode) = self.dependencies.iter_mut().find(|d| d.name == "opencode") {
-            opencode.status = DependencyStatus::NotInstalled;
-        }
-        if let Some(claude) = self.dependencies.iter_mut().find(|d| d.name == "claude-code") {
-            claude.status = DependencyStatus::NotInstalled;
-        }
-        self._checking = false;
         cx.notify();
+
+        let core_manager = self.core_manager.clone();
+
+        cx.spawn(async move |view, cx| {
+            // 调用核心检测逻辑
+            core_manager.check_all().await;
+
+            // 获取检测结果
+            let core_deps = core_manager.get_all().await;
+            let node_info = core_manager.get_node_info().await;
+
+            // 更新 UI
+            cx.update(|cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |view, cx| {
+                        // 更新 Node.js 状态
+                        if let Some(node_dep) = core_deps.iter().find(|d| d.name == "nodejs") {
+                            if let Some(ui_dep) = view.dependencies.iter_mut().find(|d| d.name == "Node.js") {
+                                ui_dep.status = DependencyStatus::from_core(&node_dep.status);
+                                ui_dep.version = node_dep.version.clone();
+                                if let Some(ref info) = node_info {
+                                    ui_dep.source = Some(match info.source {
+                                        NodeSource::System => "系统全局".to_string(),
+                                        NodeSource::Local => "客户端目录".to_string(),
+                                    });
+                                }
+                            }
+                        }
+
+                        // 更新 npm 状态
+                        if let Some(npm_dep) = core_deps.iter().find(|d| d.name == "npm") {
+                            if let Some(ui_dep) = view.dependencies.iter_mut().find(|d| d.name == "npm") {
+                                ui_dep.status = DependencyStatus::from_core(&npm_dep.status);
+                                ui_dep.version = npm_dep.version.clone();
+                                ui_dep.source = Some("系统全局".to_string());
+                            }
+                        }
+
+                        // 更新 opencode 状态
+                        if let Some(opencode_dep) = core_deps.iter().find(|d| d.name == "opencode") {
+                            if let Some(ui_dep) = view.dependencies.iter_mut().find(|d| d.name == "opencode") {
+                                ui_dep.status = DependencyStatus::from_core(&opencode_dep.status);
+                                ui_dep.version = opencode_dep.version.clone();
+                            }
+                        }
+
+                        // 更新 claude-code 状态
+                        if let Some(claude_dep) = core_deps.iter().find(|d| d.name == "@anthropic-ai/claude-code") {
+                            if let Some(ui_dep) = view.dependencies.iter_mut().find(|d| d.name == "claude-code") {
+                                ui_dep.status = DependencyStatus::from_core(&claude_dep.status);
+                                ui_dep.version = claude_dep.version.clone();
+                            }
+                        }
+
+                        view._checking = false;
+                        cx.notify();
+                    });
+                }
+            })
+        })
+        .detach();
     }
 
     /// 安装所有缺失依赖
     fn install_all(&mut self, cx: &mut Context<Self>) {
         self._installing = true;
-        // TODO: 实际安装逻辑
         cx.notify();
+
+        let core_manager = self.core_manager.clone();
+
+        cx.spawn(async move |view, cx| {
+            // 检查是否需要安装 Node.js
+            let node_info = core_manager.get_node_info().await;
+            if node_info.is_none() {
+                #[cfg(feature = "dependency-management")]
+                {
+                    if let Err(e) = core_manager.install_nodejs(|progress, msg| {
+                        tracing::info!("Node.js install progress: {:.0}% - {}", progress * 100.0, msg);
+                    }).await {
+                        tracing::error!("Failed to install Node.js: {}", e);
+                    }
+                }
+            }
+
+            // 安装 npm 工具
+            let deps = core_manager.get_all().await;
+            for dep in deps {
+                if dep.status == CoreDependencyStatus::Missing && dep.name != "nodejs" && dep.name != "npm" {
+                    if let Err(e) = core_manager.install_npm_tool(&dep.name).await {
+                        tracing::error!("Failed to install npm tool '{}': {}", dep.name, e);
+                    }
+                }
+            }
+
+            // 刷新状态
+            cx.update(|cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |view, cx| {
+                        view._installing = false;
+                        view.refresh_status(cx);
+                    });
+                }
+            })
+        })
+        .detach();
     }
 
     /// 安装单个依赖
@@ -146,8 +247,42 @@ impl DependencyManagerView {
         if let Some(dep) = self.dependencies.iter_mut().find(|d| d.name == name) {
             dep.status = DependencyStatus::Installing;
         }
-        // TODO: 实际安装逻辑
         cx.notify();
+
+        let core_manager = self.core_manager.clone();
+        let display_name = name.to_string();
+        let tool_name = match name {
+            "Node.js" => "nodejs".to_string(),
+            "claude-code" => "@anthropic-ai/claude-code".to_string(),
+            _ => name.to_string(),
+        };
+
+        cx.spawn(async move |view, cx| {
+            if tool_name == "nodejs" {
+                #[cfg(feature = "dependency-management")]
+                {
+                    if let Err(e) = core_manager.install_nodejs(|progress, msg| {
+                        tracing::info!("Node.js install progress: {:.0}% - {}", progress * 100.0, msg);
+                    }).await {
+                        tracing::error!("Failed to install Node.js: {}", e);
+                    }
+                }
+            } else if tool_name != "npm" {
+                if let Err(e) = core_manager.install_npm_tool(&tool_name).await {
+                    tracing::error!("Failed to install '{}': {}", display_name, e);
+                }
+            }
+
+            // 刷新状态
+            cx.update(|cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |view: &mut DependencyManagerView, cx| {
+                        view.refresh_status(cx);
+                    });
+                }
+            })
+        })
+        .detach();
     }
 
     /// 获取缺失依赖数量

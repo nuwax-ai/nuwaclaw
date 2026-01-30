@@ -3,7 +3,8 @@
 //! 简易聊天 UI，用于管理端与客户端间的文本通信
 
 use gpui::*;
-use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable};
+use gpui::prelude::FluentBuilder as _;
+use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable, Size};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -105,18 +106,16 @@ impl ChatView {
     fn render_message(&self, message: &ChatMessage, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let time_str = message.timestamp.format("%H:%M").to_string();
+        let is_self = message.is_self;
 
-        let (align, bg, text_color) = if message.is_self {
-            (FlexDirection::RowReverse, theme.primary, theme.primary_foreground)
-        } else {
-            (FlexDirection::Row, theme.surface, theme.foreground)
-        };
+        let bg = if is_self { theme.primary } else { theme.sidebar };
+        let text_color = if is_self { theme.primary_foreground } else { theme.foreground };
+        let muted = theme.muted_foreground;
 
-        div()
-            .w_full()
-            .flex()
-            .flex_dir(align)
-            .child(
+        let base = div().w_full().flex();
+        let base = if is_self { base.flex_row_reverse() } else { base.flex_row() };
+
+        base.child(
                 v_flex()
                     .max_w(px(400.0))
                     .gap(px(2.0))
@@ -126,13 +125,13 @@ impl ChatView {
                             .child(
                                 div()
                                     .text_xs()
-                                    .text_color(theme.muted_foreground)
+                                    .text_color(muted)
                                     .child(message.sender.clone()),
                             )
                             .child(
                                 div()
                                     .text_xs()
-                                    .text_color(theme.muted_foreground)
+                                    .text_color(muted)
                                     .child(time_str),
                             ),
                     )
@@ -158,7 +157,7 @@ impl ChatView {
             .child(
                 div()
                     .text_color(theme.muted_foreground)
-                    .child(Icon::new(IconName::Inbox).custom_size(px(48.0))),
+                    .child(Icon::new(IconName::Inbox).with_size(Size::Size(px(48.0)))),
             )
             .child(
                 div()
@@ -171,31 +170,31 @@ impl ChatView {
 
 impl Render for ChatView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
+        // Clone theme colors to avoid borrow conflicts
+        let border = cx.theme().border;
+        let sidebar = cx.theme().sidebar;
+        let muted_foreground = cx.theme().muted_foreground;
+        let primary = cx.theme().primary;
+
+        let message_area = if self.state.messages.is_empty() {
+            div().size_full().child(self.render_empty_state(cx))
+        } else {
+            let msgs: Vec<_> = self.state.messages.iter()
+                .map(|msg| self.render_message(msg, cx).into_any_element())
+                .collect();
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .overflow_hidden()
+                .p_4()
+                .gap_3()
+                .children(msgs)
+        };
 
         v_flex()
             .size_full()
-            .child(
-                // 消息区域
-                if self.state.messages.is_empty() {
-                    div().size_full().child(self.render_empty_state(cx))
-                } else {
-                    div()
-                        .size_full()
-                        .flex()
-                        .flex_col()
-                        .overflow_y_scroll()
-                        .p_4()
-                        .gap_3()
-                        .children(
-                            self.state
-                                .messages
-                                .iter()
-                                .map(|msg| self.render_message(msg, cx).into_any_element())
-                                .collect::<Vec<_>>(),
-                        )
-                },
-            )
+            .child(message_area)
             .child(
                 // 输入区域
                 h_flex()
@@ -204,18 +203,18 @@ impl Render for ChatView {
                     .gap_2()
                     .items_center()
                     .border_t_1()
-                    .border_color(theme.border)
-                    .bg(theme.surface)
+                    .border_color(border)
+                    .bg(sidebar)
                     .child(
                         div()
                             .flex_1()
                             .text_sm()
-                            .text_color(theme.muted_foreground)
+                            .text_color(muted_foreground)
                             .child("输入消息..."),
                     )
                     .child(
                         div()
-                            .text_color(theme.primary)
+                            .text_color(primary)
                             .child(Icon::new(IconName::ArrowUp).small()),
                     ),
             )

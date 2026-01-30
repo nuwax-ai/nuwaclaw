@@ -7,6 +7,9 @@ use gpui_component::{
     button::Button, h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable,
 };
 
+use crate::core::crypto::CryptoManager;
+use crate::core::password::PasswordManager;
+
 /// 客户端信息组件
 pub struct ClientInfoView {
     /// 客户端 ID
@@ -20,10 +23,132 @@ pub struct ClientInfoView {
 impl ClientInfoView {
     /// 创建新的客户端信息视图
     pub fn new() -> Self {
+        // 从配置加载密码，如果不存在则生成新密码
+        let password = Self::load_or_generate_password();
+
         Self {
             client_id: None,
-            password: "password123".to_string(), // TODO: 从配置加载
+            password,
             show_password: false,
+        }
+    }
+
+    /// 从配置加载或生成新密码
+    fn load_or_generate_password() -> String {
+        // 尝试从配置文件加载
+        let config_dir = dirs::config_local_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("nuwax-agent");
+
+        let password_file = config_dir.join("client_password.enc");
+
+        // 尝试初始化加密管理器
+        let crypto = match CryptoManager::new() {
+            Ok(c) => Some(c),
+            Err(e) => {
+                tracing::warn!("Failed to initialize crypto manager: {}", e);
+                None
+            }
+        };
+
+        // 尝试从加密文件加载
+        if password_file.exists() {
+            if let Ok(encrypted_content) = std::fs::read_to_string(&password_file) {
+                let encrypted_content = encrypted_content.trim();
+                if !encrypted_content.is_empty() {
+                    if let Some(ref crypto) = crypto {
+                        match crypto.decrypt_string(encrypted_content) {
+                            Ok(password) if !password.is_empty() => {
+                                return password;
+                            }
+                            Ok(_) => {
+                                tracing::warn!("Decrypted password is empty, generating new one");
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to decrypt password: {}, generating new one", e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 检查是否存在旧的明文密码文件并迁移
+        let legacy_password_file = config_dir.join("client_password");
+        if legacy_password_file.exists() {
+            if let Ok(plain_password) = std::fs::read_to_string(&legacy_password_file) {
+                let plain_password = plain_password.trim();
+                if !plain_password.is_empty() {
+                    tracing::info!("Migrating legacy plaintext password to encrypted storage");
+                    // 保存加密版本
+                    Self::save_password_encrypted(&config_dir, &password_file, plain_password, crypto.as_ref());
+                    // 删除旧的明文文件
+                    if let Err(e) = std::fs::remove_file(&legacy_password_file) {
+                        tracing::warn!("Failed to remove legacy password file: {}", e);
+                    }
+                    return plain_password.to_string();
+                }
+            }
+        }
+
+        // 生成新密码
+        let new_password = PasswordManager::generate_password(12);
+
+        // 保存加密后的密码
+        Self::save_password_encrypted(&config_dir, &password_file, &new_password, crypto.as_ref());
+
+        new_password
+    }
+
+    /// 保存加密后的密码到文件
+    fn save_password_encrypted(
+        config_dir: &std::path::Path,
+        password_file: &std::path::Path,
+        password: &str,
+        crypto: Option<&CryptoManager>,
+    ) {
+        // 创建配置目录
+        if let Err(e) = std::fs::create_dir_all(config_dir) {
+            tracing::warn!("Failed to create config dir: {}", e);
+            return;
+        }
+
+        // 加密密码
+        let content_to_save = if let Some(crypto) = crypto {
+            match crypto.encrypt_string(password) {
+                Ok(encrypted) => encrypted,
+                Err(e) => {
+                    tracing::warn!("Failed to encrypt password: {}, storing with base64 encoding", e);
+                    // Fallback: 至少做 base64 编码，不存明文
+                    base64::Engine::encode(
+                        &base64::engine::general_purpose::STANDARD,
+                        password.as_bytes(),
+                    )
+                }
+            }
+        } else {
+            // 没有加密管理器时，至少做 base64 编码
+            tracing::warn!("Crypto manager not available, storing with base64 encoding");
+            base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                password.as_bytes(),
+            )
+        };
+
+        // 保存文件
+        if let Err(e) = std::fs::write(password_file, &content_to_save) {
+            tracing::warn!("Failed to save password: {}", e);
+            return;
+        }
+
+        // 设置文件权限 (Unix only: 0600)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let permissions = std::fs::Permissions::from_mode(0o600);
+            if let Err(e) = std::fs::set_permissions(password_file, permissions) {
+                tracing::warn!("Failed to set password file permissions: {}", e);
+            }
         }
     }
 

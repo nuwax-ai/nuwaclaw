@@ -1,5 +1,6 @@
 //! 核心逻辑模块
 
+pub mod admin_client;
 pub mod agent;
 #[cfg(feature = "auto-launch")]
 pub mod auto_launch;
@@ -16,9 +17,11 @@ pub mod password;
 pub mod permissions;
 pub mod platform;
 pub mod protocol;
+pub mod remote_input;
 pub mod theme;
 pub mod upgrade;
 
+pub use admin_client::{AdminClient, AdminConfig, AdminClientEvent, PendingMessage, RegistrationRequest};
 pub use agent::{AgentManager, AgentTask, TaskStatus, TaskProgress, TaskResult, AgentEvent};
 #[cfg(feature = "auto-launch")]
 pub use auto_launch::AutoLaunchManager;
