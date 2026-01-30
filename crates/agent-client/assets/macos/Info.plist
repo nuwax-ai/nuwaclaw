@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+
+    <key>CFBundleDisplayName</key>
+    <string>Nuwax Agent</string>
+
+    <key>CFBundleExecutable</key>
+    <string>nuwax-agent</string>
+
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+
+    <key>CFBundleIdentifier</key>
+    <string>com.nuwax.agent</string>
+
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+
+    <key>CFBundleName</key>
+    <string>Nuwax Agent</string>
+
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+
+    <key>CFBundleVersion</key>
+    <string>1</string>
+
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
+
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+
+    <key>NSHighResolutionCapable</key>
+    <true/>
+
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright 2024 nuwax. All rights reserved.</string>
+
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+
+    <!-- 辅助功能权限说明 -->
+    <key>NSAccessibilityUsageDescription</key>
+    <string>Nuwax Agent 需要辅助功能权限以支持远程控制功能。</string>
+
+    <!-- 屏幕录制权限说明 -->
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Nuwax Agent 需要屏幕录制权限以支持远程桌面功能。</string>
+
+    <!-- 网络权限说明 -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Nuwax Agent 需要本地网络访问权限以连接到服务器。</string>
+</dict>
+</plist>

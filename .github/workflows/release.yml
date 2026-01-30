@@ -1,58 +1,120 @@
+# Release workflow for building and publishing release artifacts
 name: Release
 
 on:
   push:
     tags:
-      - "*"
+      - 'v*'
   workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 permissions:
   contents: write
 
 jobs:
   release:
-    name: Release
+    name: Build Release (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-musl
-            container: ghcr.io/cross-rs/aarch64-unknown-linux-musl:edge
-          - os: macOS-latest
-            target: x86_64-apple-darwin
-          - os: macOS-latest
-            target: aarch64-apple-darwin
-    runs-on: ${{ matrix.os }}
-    container: ${{ matrix.container }}
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact_name: nuwax-agent-macos-x64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact_name: nuwax-agent-macos-arm64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact_name: nuwax-agent-windows-x64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact_name: nuwax-agent-linux-x64
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          target: ${{ matrix.target }}
-      - name: Install musl tools
-        if: matrix.target == 'x86_64-unknown-linux-musl'
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Linux dependencies
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
         run: |
-          sudo apt install -y musl-tools
-      - name: cargo fetch
-        run: cargo fetch --target ${{ matrix.target }}
-      - name: Release build
-        run: cargo build --release --target ${{ matrix.target }}
-      - name: Package
-        shell: bash
-        env:
-          NAME: nuwax-agent
-          TARGET: ${{ matrix.target }}
-        run: .github/scripts/package.sh
-      - name: Publish
-        uses: softprops/action-gh-release@v1
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+
+      - name: Build agent-client
+        run: cargo build --package nuwax-agent --release --target ${{ matrix.target }}
+
+      - name: Build agent-server-admin
+        run: cargo build --package agent-server-admin --release --target ${{ matrix.target }}
+
+      - name: Build data-server
+        run: cargo build --package data-server --release --target ${{ matrix.target }}
+
+      # Package for macOS
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p release/${{ matrix.artifact_name }}
+          cp target/${{ matrix.target }}/release/nuwax-agent release/${{ matrix.artifact_name }}/
+          cp target/${{ matrix.target }}/release/agent-server-admin release/${{ matrix.artifact_name }}/
+          cp target/${{ matrix.target }}/release/data-server release/${{ matrix.artifact_name }}/
+          cd release && tar czf ${{ matrix.artifact_name }}.tar.gz ${{ matrix.artifact_name }}
+
+      # Package for Windows
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        run: |
+          New-Item -ItemType Directory -Force -Path release/${{ matrix.artifact_name }}
+          Copy-Item target/${{ matrix.target }}/release/nuwax-agent.exe release/${{ matrix.artifact_name }}/
+          Copy-Item target/${{ matrix.target }}/release/agent-server-admin.exe release/${{ matrix.artifact_name }}/
+          Copy-Item target/${{ matrix.target }}/release/data-server.exe release/${{ matrix.artifact_name }}/
+          Compress-Archive -Path release/${{ matrix.artifact_name }} -DestinationPath release/${{ matrix.artifact_name }}.zip
+
+      # Package for Linux
+      - name: Package Linux
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p release/${{ matrix.artifact_name }}
+          cp target/${{ matrix.target }}/release/nuwax-agent release/${{ matrix.artifact_name }}/
+          cp target/${{ matrix.target }}/release/agent-server-admin release/${{ matrix.artifact_name }}/
+          cp target/${{ matrix.target }}/release/data-server release/${{ matrix.artifact_name }}/
+          cd release && tar czf ${{ matrix.artifact_name }}.tar.gz ${{ matrix.artifact_name }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          draft: false
-          files: "nuwax-agent*"
+          name: ${{ matrix.artifact_name }}
+          path: |
+            release/*.tar.gz
+            release/*.zip
+
+  publish:
+    name: Create GitHub Release
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

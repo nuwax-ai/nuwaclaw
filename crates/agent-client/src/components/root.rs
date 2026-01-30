@@ -9,6 +9,9 @@ use gpui_component::{
 };
 
 use crate::app::{AppEvent, AppState};
+use crate::components::client_info::ClientInfoView;
+use crate::components::dependency_manager::DependencyManagerView;
+use crate::components::settings::SettingsView;
 use crate::components::status_bar::StatusBarView;
 
 /// Tab 页面类型
@@ -89,6 +92,12 @@ pub struct RootView {
     active_tab: TabPage,
     /// 状态栏视图
     status_bar: Entity<StatusBarView>,
+    /// 客户端信息视图
+    client_info_view: Entity<ClientInfoView>,
+    /// 设置视图
+    settings_view: Entity<SettingsView>,
+    /// 依赖管理视图
+    dependency_view: Entity<DependencyManagerView>,
     /// 订阅（需要保持存活）
     _subscriptions: Vec<Subscription>,
 }
@@ -102,8 +111,11 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        // 创建状态栏视图
+        // 创建子视图
         let status_bar = cx.new(|_cx| StatusBarView::new());
+        let client_info_view = cx.new(|_cx| ClientInfoView::new());
+        let settings_view = cx.new(|_cx| SettingsView::new());
+        let dependency_view = cx.new(|_cx| DependencyManagerView::new());
 
         // 订阅应用状态事件
         let subscriptions = vec![cx.subscribe_in(&app_state, window, {
@@ -119,6 +131,9 @@ impl RootView {
             app_state,
             active_tab: TabPage::ClientInfo,
             status_bar,
+            client_info_view,
+            settings_view,
+            dependency_view,
             _subscriptions: subscriptions,
         }
     }
@@ -192,100 +207,28 @@ impl RootView {
             .p_4()
             .bg(theme.background)
             .child(match self.active_tab {
-                TabPage::ClientInfo => self.render_client_info_page(window, cx).into_any_element(),
-                TabPage::Settings => self.render_settings_page(window, cx).into_any_element(),
-                TabPage::Dependencies => {
-                    self.render_dependencies_page(window, cx).into_any_element()
-                }
+                TabPage::ClientInfo => self.client_info_view.clone().into_any_element(),
+                TabPage::Settings => self.settings_view.clone().into_any_element(),
+                TabPage::Dependencies => self.dependency_view.clone().into_any_element(),
                 #[cfg(feature = "remote-desktop")]
                 TabPage::RemoteDesktop => {
-                    self.render_remote_desktop_page(window, cx).into_any_element()
+                    self.render_placeholder_page("远程桌面", "远程桌面功能正在开发中...", cx)
+                        .into_any_element()
                 }
                 #[cfg(feature = "chat-ui")]
-                TabPage::Chat => self.render_chat_page(window, cx).into_any_element(),
+                TabPage::Chat => {
+                    self.render_placeholder_page("聊天", "聊天功能正在开发中...", cx)
+                        .into_any_element()
+                }
                 TabPage::About => self.render_about_page(window, cx).into_any_element(),
             })
     }
 
-    /// 渲染客户端信息页
-    fn render_client_info_page(
+    /// 渲染占位页面
+    fn render_placeholder_page(
         &self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let theme = cx.theme();
-        let client_id = self.app_state.read(cx).client_id.clone();
-
-        v_flex()
-            .gap_4()
-            .child(
-                div()
-                    .text_xl()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(theme.foreground)
-                    .child("客户端信息"),
-            )
-            .child(
-                v_flex()
-                    .gap_2()
-                    .p_4()
-                    .rounded_lg()
-                    .bg(theme.sidebar)
-                    .border_1()
-                    .border_color(theme.border)
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(theme.muted_foreground)
-                                    .child("客户端 ID"),
-                            )
-                            .child(
-                                div()
-                                    .text_base()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme.foreground)
-                                    .child(client_id.unwrap_or_else(|| "未连接".to_string())),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(theme.muted_foreground)
-                                    .child("连接密码"),
-                            )
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .child(
-                                        div()
-                                            .text_base()
-                                            .text_color(theme.foreground)
-                                            .child("••••••••"),
-                                    )
-                                    .child(
-                                        Button::new("copy-password")
-                                            .label("复制")
-                                            .small()
-                                            .on_click(cx.listener(|_this, _, _window, _cx| {
-                                                // TODO: 复制密码到剪贴板
-                                                tracing::info!("Copy password clicked");
-                                            })),
-                                    ),
-                            ),
-                    ),
-            )
-    }
-
-    /// 渲染设置页
-    fn render_settings_page(
-        &self,
-        _window: &mut Window,
+        title: &str,
+        message: &str,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
@@ -297,90 +240,13 @@ impl RootView {
                     .text_xl()
                     .font_weight(FontWeight::BOLD)
                     .text_color(theme.foreground)
-                    .child("设置"),
+                    .child(title.to_string()),
             )
             .child(
                 div()
                     .text_base()
                     .text_color(theme.muted_foreground)
-                    .child("设置页面正在开发中..."),
-            )
-    }
-
-    /// 渲染依赖管理页
-    fn render_dependencies_page(
-        &self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let theme = cx.theme();
-
-        v_flex()
-            .gap_4()
-            .child(
-                div()
-                    .text_xl()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(theme.foreground)
-                    .child("依赖管理"),
-            )
-            .child(
-                div()
-                    .text_base()
-                    .text_color(theme.muted_foreground)
-                    .child("依赖管理页面正在开发中..."),
-            )
-    }
-
-    /// 渲染远程桌面页
-    #[cfg(feature = "remote-desktop")]
-    fn render_remote_desktop_page(
-        &self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let theme = cx.theme();
-
-        v_flex()
-            .gap_4()
-            .child(
-                div()
-                    .text_xl()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(theme.foreground)
-                    .child("远程桌面"),
-            )
-            .child(
-                div()
-                    .text_base()
-                    .text_color(theme.muted_foreground)
-                    .child("远程桌面功能正在开发中..."),
-            )
-    }
-
-    /// 渲染聊天页
-    #[cfg(feature = "chat-ui")]
-    fn render_chat_page(
-        &self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let theme = cx.theme();
-
-        v_flex()
-            .gap_4()
-            .child(
-                div()
-                    .text_xl()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(theme.foreground)
-                    .child("聊天"),
-            )
-            .child(
-                div()
-                    .text_base()
-                    .text_color(theme.muted_foreground)
-                    .child("聊天功能正在开发中..."),
+                    .child(message.to_string()),
             )
     }
 
@@ -415,6 +281,68 @@ impl RootView {
                     .text_sm()
                     .text_color(theme.muted_foreground)
                     .child("跨平台 Agent 客户端"),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .mt_4()
+                    .p_4()
+                    .rounded_lg()
+                    .bg(theme.sidebar)
+                    .border_1()
+                    .border_color(theme.border)
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(
+                                div().text_sm().text_color(theme.muted_foreground).child("协议版本"),
+                            )
+                            .child(
+                                div().text_sm().text_color(theme.foreground).child(
+                                    crate::core::protocol::PROTOCOL_VERSION,
+                                ),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(
+                                div().text_sm().text_color(theme.muted_foreground).child("平台"),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.foreground)
+                                    .child(format!("{}/{}", std::env::consts::OS, std::env::consts::ARCH)),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(
+                                div().text_sm().text_color(theme.muted_foreground).child("许可证"),
+                            )
+                            .child(
+                                div().text_sm().text_color(theme.foreground).child("Apache-2.0"),
+                            ),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .mt_4()
+                    .child(
+                        Button::new("export-logs")
+                            .label("导出日志")
+                            .icon(Icon::new(IconName::ExternalLink).small())
+                            .small(),
+                    )
+                    .child(
+                        Button::new("open-website")
+                            .label("官网")
+                            .icon(Icon::new(IconName::Globe).small())
+                            .small(),
+                    ),
             )
     }
 }

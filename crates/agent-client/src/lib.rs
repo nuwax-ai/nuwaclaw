@@ -5,6 +5,7 @@
 pub mod app;
 pub mod components;
 pub mod core;
+pub mod i18n;
 pub mod message;
 pub mod tray;
 pub mod utils;

@@ -66,6 +66,7 @@ base64 = "0.22"
 # 并发
 dashmap = "6.1"
 tokio-stream = "0.1"
+tokio-util = "0.7"
 futures = "0.3"
 
 # 网络
@@ -86,6 +87,7 @@ bytes = "1.7"
 # 压缩
 zip = "2.2"
 flate2 = "1.0"
+tar = "0.4"
 
 # Profiles - 在 workspace root 定义
 [profile.release]

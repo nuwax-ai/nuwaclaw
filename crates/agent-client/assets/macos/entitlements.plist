@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Allow app to run with hardened runtime -->
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+
+    <!-- Allow network client connections (outbound) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Allow network server connections (inbound) -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <!-- Allow AppleEvents (for scripting) -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+
+    <!-- Allow reading user-selected files -->
+    <key>com.apple.security.files.user-selected.read-only</key>
+    <true/>
+
+    <!-- Allow writing user-selected files -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+
+    <!-- Allow JIT compilation (for JavaScript engines) -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!-- Allow unsigned executable memory (for some dependencies) -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- Disable library validation (for loading non-Apple libraries) -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

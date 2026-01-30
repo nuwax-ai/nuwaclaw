@@ -1,0 +1,73 @@
+# Packager Configuration for nuwax-agent
+# https://github.com/crabnebula-dev/cargo-packager
+
+[package]
+name = "nuwax-agent"
+identifier = "com.nuwax.agent"
+version = "0.1.0"
+description = "跨平台 Agent 客户端，支持远程桌面和 Agent 任务执行"
+authors = ["nuwax <dev@nuwax.com>"]
+publisher = "nuwax"
+homepage = "https://github.com/nuwax/nuwax-agent"
+license-file = "../../LICENSE"
+
+# 可执行文件配置
+binaries = [
+    { path = "nuwax-agent", main = true }
+]
+
+# 资源文件
+resources = [
+    # 图标文件会在打包时自动包含
+]
+
+# 排除的文件
+file-associations = []
+
+# macOS 配置
+[package.macos]
+app-category = "public.app-category.utilities"
+minimum-system-version = "11.0"
+signing-identity = "-"
+hardened-runtime = true
+entitlements = "assets/macos/entitlements.plist"
+frameworks = []
+
+# macOS DMG 配置
+[package.dmg]
+background = "assets/macos/dmg-background.png"
+app-x = 180
+app-y = 170
+eula = "../../LICENSE"
+window-size = { width = 660, height = 400 }
+
+# Windows 配置
+[package.windows]
+allow-downgrades = false
+
+# Windows NSIS 安装程序配置
+[package.nsis]
+license = "../../LICENSE"
+header-image = "assets/windows/header.bmp"
+sidebar-image = "assets/windows/sidebar.bmp"
+installer-icon = "assets/windows/icon.ico"
+languages = ["SimpChinese", "English"]
+display-language-selector = true
+compression = "lzma"
+
+# Windows WiX MSI 配置
+[package.wix]
+license = "../../LICENSE"
+language = ["zh-CN", "en-US"]
+# Upgrade GUID (生成新的以避免冲突)
+# upgrade-guid = "GENERATE-NEW-GUID"
+
+# Linux 配置
+[package.deb]
+depends = ["libgtk-3-0 (>= 3.20)", "libwebkit2gtk-4.0-37"]
+section = "utils"
+priority = "optional"
+files = {}
+
+[package.appimage]
+categories = ["Utility", "RemoteAccess"]
