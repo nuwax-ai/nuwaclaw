@@ -29,9 +29,16 @@ impl ClientInfoView {
     /// 设置客户端 ID
     pub fn set_client_id(&mut self, id: Option<String>, cx: &mut Context<Self>) {
         let vm = self.view_model.clone();
-        cx.spawn(|_, mut cx: &mut Context<Self>| async move {
-            vm.set_client_id(id).await;
-            cx.notify();
+        let id_for_task = id.clone();
+        cx.spawn(async move |view, cx| {
+            vm.set_client_id(id_for_task).await;
+            cx.update(|cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |_view, cx| {
+                        cx.notify();
+                    });
+                }
+            });
         })
         .detach();
     }
@@ -39,9 +46,15 @@ impl ClientInfoView {
     /// 切换密码显示
     fn toggle_password_visibility(&mut self, cx: &mut Context<Self>) {
         let vm = self.view_model.clone();
-        cx.spawn(|_, mut cx: &mut Context<Self>| async move {
+        cx.spawn(async move |view, cx| {
             vm.toggle_password_visibility().await;
-            cx.notify();
+            cx.update(|cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |_view, cx| {
+                        cx.notify();
+                    });
+                }
+            });
         })
         .detach();
     }

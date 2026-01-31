@@ -24,9 +24,16 @@ impl StatusBarView {
     /// 更新连接状态
     pub fn set_connection_state(&mut self, state: UIConnectionState, cx: &mut Context<Self>) {
         let vm = self.view_model.clone();
-        cx.spawn(|_, mut cx: &mut Context<Self>| async move {
-            vm.set_connection_state(state).await;
-            cx.notify();
+        let state_for_task = state;
+        cx.spawn(async move |view, cx| {
+            vm.set_connection_state(state_for_task).await;
+            cx.update(|cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |_view, cx| {
+                        cx.notify();
+                    });
+                }
+            });
         })
         .detach();
     }
@@ -34,9 +41,16 @@ impl StatusBarView {
     /// 更新 Agent 状态
     pub fn set_agent_state(&mut self, state: UIAgentState, cx: &mut Context<Self>) {
         let vm = self.view_model.clone();
-        cx.spawn(|_, mut cx: &mut Context<Self>| async move {
-            vm.set_agent_state(state).await;
-            cx.notify();
+        let state_for_task = state;
+        cx.spawn(async move |view, cx| {
+            vm.set_agent_state(state_for_task).await;
+            cx.update(|cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |_view, cx| {
+                        cx.notify();
+                    });
+                }
+            });
         })
         .detach();
     }
@@ -44,9 +58,16 @@ impl StatusBarView {
     /// 更新依赖状态
     pub fn set_dependency_ok(&mut self, ok: bool, cx: &mut Context<Self>) {
         let vm = self.view_model.clone();
-        cx.spawn(|_, mut cx: &mut Context<Self>| async move {
-            vm.set_dependency_ok(ok).await;
-            cx.notify();
+        let ok_for_task = ok;
+        cx.spawn(async move |view, cx| {
+            vm.set_dependency_ok(ok_for_task).await;
+            cx.update(|cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |_view, cx| {
+                        cx.notify();
+                    });
+                }
+            });
         })
         .detach();
     }

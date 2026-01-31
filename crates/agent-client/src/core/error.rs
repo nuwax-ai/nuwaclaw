@@ -30,21 +30,6 @@ pub enum CoreError {
     #[error(transparent)]
     IoError(#[from] std::io::Error),
 
-    /// 配置文件错误
-    #[cfg(feature = "config")]
-    #[error(transparent)]
-    ConfigError(#[from] super::config::ConfigError),
-
-    /// 加密相关错误
-    #[cfg(feature = "crypto")]
-    #[error(transparent)]
-    CryptoError(#[from] super::crypto::CryptoError),
-
-    /// 协议相关错误
-    #[cfg(feature = "protocol")]
-    #[error(transparent)]
-    ProtocolError(#[from] super::protocol::ProtocolError),
-
     /// 文件传输错误
     #[cfg(feature = "file-transfer")]
     #[error(transparent)]
@@ -55,23 +40,8 @@ pub enum CoreError {
     #[error(transparent)]
     AutoLaunchError(#[from] super::auto_launch::AutoLaunchError),
 
-    /// 业务通道错误
-    #[cfg(feature = "business-channel")]
-    #[error(transparent)]
-    BusinessChannelError(#[from] super::business_channel::BusinessChannelError),
-
     /// 升级相关错误
-    #[cfg(feature = "upgrade")]
+    #[cfg(feature = "remote-desktop")]
     #[error(transparent)]
     UpgradeError(#[from] super::upgrade::UpgradeError),
-
-    /// 密码管理错误
-    #[cfg(feature = "password")]
-    #[error(transparent)]
-    PasswordError(#[from] super::password::PasswordError),
-
-    /// 日志相关错误
-    #[cfg(feature = "logger")]
-    #[error(transparent)]
-    LoggerError(#[from] super::logger::LoggerError),
 }

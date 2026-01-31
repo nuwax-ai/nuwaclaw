@@ -38,9 +38,15 @@ impl PermissionsView {
     pub fn new(view_model: Arc<PermissionsViewModel>, cx: &mut Context<Self>) -> Self {
         // 初始化时刷新权限状态
         let vm = view_model.clone();
-        cx.spawn(|_, mut cx: &mut Context<Self>| async move {
+        cx.spawn(async move |view, cx| {
             vm.initialize().await;
-            cx.notify();
+            cx.update(|cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |_view, cx| {
+                        cx.notify();
+                    });
+                }
+            });
         })
         .detach();
 
@@ -50,10 +56,16 @@ impl PermissionsView {
     /// 刷新权限状态
     fn refresh(&mut self, cx: &mut Context<Self>) {
         let vm = self.view_model.clone();
-        cx.spawn(|_, mut cx: &mut Context<Self>| async move {
+        cx.spawn(async move |view, cx| {
             vm.handle_action(PermissionsAction::Refresh).await;
-            cx.emit(PermissionsEvent::Refreshed);
-            cx.notify();
+            cx.update(|cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |_view, cx| {
+                        cx.emit(PermissionsEvent::Refreshed);
+                        cx.notify();
+                    });
+                }
+            });
         })
         .detach();
     }
@@ -61,9 +73,16 @@ impl PermissionsView {
     /// 打开系统设置进行授权
     fn open_settings(&self, permission_type: crate::core::permissions::PermissionType, cx: &mut Context<Self>) {
         let vm = self.view_model.clone();
-        cx.spawn(|_, mut cx: &mut Context<Self>| async move {
-            vm.handle_action(PermissionsAction::OpenSettings(permission_type)).await;
-            cx.notify();
+        let pt = permission_type;
+        cx.spawn(async move |view, cx| {
+            vm.handle_action(PermissionsAction::OpenSettings(pt)).await;
+            cx.update(|cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |_view, cx| {
+                        cx.notify();
+                    });
+                }
+            });
         })
         .detach();
     }
