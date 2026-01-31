@@ -3,9 +3,7 @@
 //! 显示客户端 ID 和密码信息
 
 use gpui::*;
-use gpui_component::{
-    button::Button, h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable,
-};
+use gpui_component::{ActiveTheme, Icon, IconName, Sizable, button::Button, h_flex, v_flex};
 
 use crate::core::crypto::CryptoManager;
 use crate::core::password::PasswordManager;
@@ -65,7 +63,10 @@ impl ClientInfoView {
                                 tracing::warn!("Decrypted password is empty, generating new one");
                             }
                             Err(e) => {
-                                tracing::warn!("Failed to decrypt password: {}, generating new one", e);
+                                tracing::warn!(
+                                    "Failed to decrypt password: {}, generating new one",
+                                    e
+                                );
                             }
                         }
                     }
@@ -81,7 +82,12 @@ impl ClientInfoView {
                 if !plain_password.is_empty() {
                     tracing::info!("Migrating legacy plaintext password to encrypted storage");
                     // 保存加密版本
-                    Self::save_password_encrypted(&config_dir, &password_file, plain_password, crypto.as_ref());
+                    Self::save_password_encrypted(
+                        &config_dir,
+                        &password_file,
+                        plain_password,
+                        crypto.as_ref(),
+                    );
                     // 删除旧的明文文件
                     if let Err(e) = std::fs::remove_file(&legacy_password_file) {
                         tracing::warn!("Failed to remove legacy password file: {}", e);
@@ -118,7 +124,10 @@ impl ClientInfoView {
             match crypto.encrypt_string(password) {
                 Ok(encrypted) => encrypted,
                 Err(e) => {
-                    tracing::warn!("Failed to encrypt password: {}, storing with base64 encoding", e);
+                    tracing::warn!(
+                        "Failed to encrypt password: {}, storing with base64 encoding",
+                        e
+                    );
                     // Fallback: 至少做 base64 编码，不存明文
                     base64::Engine::encode(
                         &base64::engine::general_purpose::STANDARD,
@@ -188,7 +197,10 @@ impl Default for ClientInfoView {
 impl Render for ClientInfoView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let client_id = self.client_id.clone().unwrap_or_else(|| "--------".to_string());
+        let client_id = self
+            .client_id
+            .clone()
+            .unwrap_or_else(|| "--------".to_string());
         let password_display = if self.show_password {
             self.password.clone()
         } else {
@@ -273,23 +285,30 @@ impl Render for ClientInfoView {
                                             .gap_1()
                                             .child(
                                                 Button::new("toggle-password")
-                                                    .icon(Icon::new(if show_password {
-                                                        IconName::EyeOff
-                                                    } else {
-                                                        IconName::Eye
-                                                    }).small())
+                                                    .icon(
+                                                        Icon::new(if show_password {
+                                                            IconName::EyeOff
+                                                        } else {
+                                                            IconName::Eye
+                                                        })
+                                                        .small(),
+                                                    )
                                                     .small()
-                                                    .on_click(cx.listener(|this, _, _window, cx| {
-                                                        this.toggle_password_visibility(cx);
-                                                    })),
+                                                    .on_click(cx.listener(
+                                                        |this, _, _window, cx| {
+                                                            this.toggle_password_visibility(cx);
+                                                        },
+                                                    )),
                                             )
                                             .child(
                                                 Button::new("copy-password")
                                                     .icon(Icon::new(IconName::Copy).small())
                                                     .small()
-                                                    .on_click(cx.listener(|this, _, _window, cx| {
-                                                        this.copy_password(cx);
-                                                    })),
+                                                    .on_click(cx.listener(
+                                                        |this, _, _window, cx| {
+                                                            this.copy_password(cx);
+                                                        },
+                                                    )),
                                             ),
                                     ),
                             ),

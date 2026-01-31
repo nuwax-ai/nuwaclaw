@@ -3,7 +3,6 @@
 //! 简易聊天 UI，用于管理端与客户端间的文本通信
 
 use gpui::*;
-use gpui::prelude::FluentBuilder as _;
 use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable, Size};
 
 use chrono::{DateTime, Utc};
@@ -54,7 +53,8 @@ impl ChatState {
         self.messages.push(message);
         // 保持消息数量限制
         if self.messages.len() > self.max_messages {
-            self.messages.drain(0..self.messages.len() - self.max_messages);
+            self.messages
+                .drain(0..self.messages.len() - self.max_messages);
         }
     }
 
@@ -108,44 +108,51 @@ impl ChatView {
         let time_str = message.timestamp.format("%H:%M").to_string();
         let is_self = message.is_self;
 
-        let bg = if is_self { theme.primary } else { theme.sidebar };
-        let text_color = if is_self { theme.primary_foreground } else { theme.foreground };
+        let bg = if is_self {
+            theme.primary
+        } else {
+            theme.sidebar
+        };
+        let text_color = if is_self {
+            theme.primary_foreground
+        } else {
+            theme.foreground
+        };
         let muted = theme.muted_foreground;
 
         let base = div().w_full().flex();
-        let base = if is_self { base.flex_row_reverse() } else { base.flex_row() };
+        let base = if is_self {
+            base.flex_row_reverse()
+        } else {
+            base.flex_row()
+        };
 
         base.child(
-                v_flex()
-                    .max_w(px(400.0))
-                    .gap(px(2.0))
-                    .child(
-                        h_flex()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(muted)
-                                    .child(message.sender.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(muted)
-                                    .child(time_str),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .px_3()
-                            .py_2()
-                            .rounded_lg()
-                            .bg(bg)
-                            .text_color(text_color)
-                            .text_sm()
-                            .child(message.content.clone()),
-                    ),
-            )
+            v_flex()
+                .max_w(px(400.0))
+                .gap(px(2.0))
+                .child(
+                    h_flex()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(muted)
+                                .child(message.sender.clone()),
+                        )
+                        .child(div().text_xs().text_color(muted).child(time_str)),
+                )
+                .child(
+                    div()
+                        .px_3()
+                        .py_2()
+                        .rounded_lg()
+                        .bg(bg)
+                        .text_color(text_color)
+                        .text_sm()
+                        .child(message.content.clone()),
+                ),
+        )
     }
 
     fn render_empty_state(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -179,7 +186,10 @@ impl Render for ChatView {
         let message_area = if self.state.messages.is_empty() {
             div().size_full().child(self.render_empty_state(cx))
         } else {
-            let msgs: Vec<_> = self.state.messages.iter()
+            let msgs: Vec<_> = self
+                .state
+                .messages
+                .iter()
                 .map(|msg| self.render_message(msg, cx).into_any_element())
                 .collect();
             div()
@@ -192,31 +202,28 @@ impl Render for ChatView {
                 .children(msgs)
         };
 
-        v_flex()
-            .size_full()
-            .child(message_area)
-            .child(
-                // 输入区域
-                h_flex()
-                    .h(px(56.0))
-                    .px_4()
-                    .gap_2()
-                    .items_center()
-                    .border_t_1()
-                    .border_color(border)
-                    .bg(sidebar)
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_sm()
-                            .text_color(muted_foreground)
-                            .child("输入消息..."),
-                    )
-                    .child(
-                        div()
-                            .text_color(primary)
-                            .child(Icon::new(IconName::ArrowUp).small()),
-                    ),
-            )
+        v_flex().size_full().child(message_area).child(
+            // 输入区域
+            h_flex()
+                .h(px(56.0))
+                .px_4()
+                .gap_2()
+                .items_center()
+                .border_t_1()
+                .border_color(border)
+                .bg(sidebar)
+                .child(
+                    div()
+                        .flex_1()
+                        .text_sm()
+                        .text_color(muted_foreground)
+                        .child("输入消息..."),
+                )
+                .child(
+                    div()
+                        .text_color(primary)
+                        .child(Icon::new(IconName::ArrowUp).small()),
+                ),
+        )
     }
 }

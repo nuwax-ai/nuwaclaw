@@ -1,7 +1,7 @@
 //! 状态栏组件
 
 use gpui::*;
-use gpui_component::{h_flex, ActiveTheme, Icon, IconName, Sizable};
+use gpui_component::{ActiveTheme, Icon, IconName, Sizable, h_flex};
 
 /// 连接状态
 #[derive(Debug, Clone, PartialEq)]
@@ -92,9 +92,7 @@ impl StatusBarView {
     fn render_connection_indicator(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let (icon, color, text) = match &self.status.connection_state {
-            ConnectionState::Disconnected => {
-                (IconName::Globe, theme.danger, "未连接".to_string())
-            }
+            ConnectionState::Disconnected => (IconName::Globe, theme.danger, "未连接".to_string()),
             ConnectionState::Connecting => {
                 (IconName::Loader, theme.warning, "连接中...".to_string())
             }
@@ -109,9 +107,7 @@ impl StatusBarView {
                     format!("{} ({}ms)", mode_text, latency),
                 )
             }
-            ConnectionState::Error(msg) => {
-                (IconName::CircleX, theme.danger, msg.clone())
-            }
+            ConnectionState::Error(msg) => (IconName::CircleX, theme.danger, msg.clone()),
         };
 
         h_flex()
@@ -131,9 +127,7 @@ impl StatusBarView {
         let theme = cx.theme();
         let (icon, color, text) = match &self.status.agent_state {
             AgentState::Idle => (IconName::Dash, theme.muted_foreground, "空闲".to_string()),
-            AgentState::Active(count) => {
-                (IconName::Bot, theme.accent, format!("活跃 ({})", count))
-            }
+            AgentState::Active(count) => (IconName::Bot, theme.accent, format!("活跃 ({})", count)),
             AgentState::Executing(current, total) => (
                 IconName::Loader,
                 theme.success,

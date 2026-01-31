@@ -2,11 +2,9 @@
 //!
 //! 显示依赖列表和状态，支持安装操作
 
-use gpui::*;
 use gpui::prelude::FluentBuilder as _;
-use gpui_component::{
-    button::Button, h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable,
-};
+use gpui::*;
+use gpui_component::{ActiveTheme, Icon, IconName, Sizable, button::Button, h_flex, v_flex};
 use std::sync::Arc;
 
 use crate::core::dependency::manager::DependencyManager as CoreDependencyManager;
@@ -152,7 +150,9 @@ impl DependencyManagerView {
                     view.update(cx, |view, cx| {
                         // 更新 Node.js 状态
                         if let Some(node_dep) = core_deps.iter().find(|d| d.name == "nodejs") {
-                            if let Some(ui_dep) = view.dependencies.iter_mut().find(|d| d.name == "Node.js") {
+                            if let Some(ui_dep) =
+                                view.dependencies.iter_mut().find(|d| d.name == "Node.js")
+                            {
                                 ui_dep.status = DependencyStatus::from_core(&node_dep.status);
                                 ui_dep.version = node_dep.version.clone();
                                 if let Some(ref info) = node_info {
@@ -166,7 +166,9 @@ impl DependencyManagerView {
 
                         // 更新 npm 状态
                         if let Some(npm_dep) = core_deps.iter().find(|d| d.name == "npm") {
-                            if let Some(ui_dep) = view.dependencies.iter_mut().find(|d| d.name == "npm") {
+                            if let Some(ui_dep) =
+                                view.dependencies.iter_mut().find(|d| d.name == "npm")
+                            {
                                 ui_dep.status = DependencyStatus::from_core(&npm_dep.status);
                                 ui_dep.version = npm_dep.version.clone();
                                 ui_dep.source = Some("系统全局".to_string());
@@ -174,16 +176,26 @@ impl DependencyManagerView {
                         }
 
                         // 更新 opencode 状态
-                        if let Some(opencode_dep) = core_deps.iter().find(|d| d.name == "opencode") {
-                            if let Some(ui_dep) = view.dependencies.iter_mut().find(|d| d.name == "opencode") {
+                        if let Some(opencode_dep) = core_deps.iter().find(|d| d.name == "opencode")
+                        {
+                            if let Some(ui_dep) =
+                                view.dependencies.iter_mut().find(|d| d.name == "opencode")
+                            {
                                 ui_dep.status = DependencyStatus::from_core(&opencode_dep.status);
                                 ui_dep.version = opencode_dep.version.clone();
                             }
                         }
 
                         // 更新 claude-code 状态
-                        if let Some(claude_dep) = core_deps.iter().find(|d| d.name == "@anthropic-ai/claude-code") {
-                            if let Some(ui_dep) = view.dependencies.iter_mut().find(|d| d.name == "claude-code") {
+                        if let Some(claude_dep) = core_deps
+                            .iter()
+                            .find(|d| d.name == "@anthropic-ai/claude-code")
+                        {
+                            if let Some(ui_dep) = view
+                                .dependencies
+                                .iter_mut()
+                                .find(|d| d.name == "claude-code")
+                            {
                                 ui_dep.status = DependencyStatus::from_core(&claude_dep.status);
                                 ui_dep.version = claude_dep.version.clone();
                             }
@@ -211,9 +223,16 @@ impl DependencyManagerView {
             if node_info.is_none() {
                 #[cfg(feature = "dependency-management")]
                 {
-                    if let Err(e) = core_manager.install_nodejs(|progress, msg| {
-                        tracing::info!("Node.js install progress: {:.0}% - {}", progress * 100.0, msg);
-                    }).await {
+                    if let Err(e) = core_manager
+                        .install_nodejs(|progress, msg| {
+                            tracing::info!(
+                                "Node.js install progress: {:.0}% - {}",
+                                progress * 100.0,
+                                msg
+                            );
+                        })
+                        .await
+                    {
                         tracing::error!("Failed to install Node.js: {}", e);
                     }
                 }
@@ -222,7 +241,10 @@ impl DependencyManagerView {
             // 安装 npm 工具
             let deps = core_manager.get_all().await;
             for dep in deps {
-                if dep.status == CoreDependencyStatus::Missing && dep.name != "nodejs" && dep.name != "npm" {
+                if dep.status == CoreDependencyStatus::Missing
+                    && dep.name != "nodejs"
+                    && dep.name != "npm"
+                {
                     if let Err(e) = core_manager.install_npm_tool(&dep.name).await {
                         tracing::error!("Failed to install npm tool '{}': {}", dep.name, e);
                     }
@@ -261,9 +283,16 @@ impl DependencyManagerView {
             if tool_name == "nodejs" {
                 #[cfg(feature = "dependency-management")]
                 {
-                    if let Err(e) = core_manager.install_nodejs(|progress, msg| {
-                        tracing::info!("Node.js install progress: {:.0}% - {}", progress * 100.0, msg);
-                    }).await {
+                    if let Err(e) = core_manager
+                        .install_nodejs(|progress, msg| {
+                            tracing::info!(
+                                "Node.js install progress: {:.0}% - {}",
+                                progress * 100.0,
+                                msg
+                            );
+                        })
+                        .await
+                    {
                         tracing::error!("Failed to install Node.js: {}", e);
                     }
                 }
@@ -289,7 +318,9 @@ impl DependencyManagerView {
     fn missing_count(&self) -> usize {
         self.dependencies
             .iter()
-            .filter(|d| d.status == DependencyStatus::NotInstalled || d.status == DependencyStatus::Outdated)
+            .filter(|d| {
+                d.status == DependencyStatus::NotInstalled || d.status == DependencyStatus::Outdated
+            })
             .count()
     }
 }
@@ -328,16 +359,13 @@ impl Render for DependencyManagerView {
                 h_flex()
                     .justify_between()
                     .items_center()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child(if missing > 0 {
-                                format!("{} 个依赖需要安装", missing)
-                            } else {
-                                "所有依赖已就绪".to_string()
-                            }),
-                    )
+                    .child(div().text_sm().text_color(theme.muted_foreground).child(
+                        if missing > 0 {
+                            format!("{} 个依赖需要安装", missing)
+                        } else {
+                            "所有依赖已就绪".to_string()
+                        },
+                    ))
                     .child(
                         h_flex()
                             .gap_2()
@@ -364,103 +392,104 @@ impl Render for DependencyManagerView {
                     ),
             )
             // Dependency list
-            .child(
-                v_flex()
-                    .gap_2()
-                    .children(deps.into_iter().map(|dep| {
-                        let name = dep.name.clone();
-                        let status = dep.status;
-                        let status_color = match status {
-                            DependencyStatus::Installed => theme.success,
-                            DependencyStatus::NotInstalled | DependencyStatus::Failed => theme.danger,
-                            DependencyStatus::Outdated => theme.warning,
-                            _ => theme.muted_foreground,
-                        };
+            .child(v_flex().gap_2().children(deps.into_iter().map(|dep| {
+                let name = dep.name.clone();
+                let status = dep.status;
+                let status_color = match status {
+                    DependencyStatus::Installed => theme.success,
+                    DependencyStatus::NotInstalled | DependencyStatus::Failed => theme.danger,
+                    DependencyStatus::Outdated => theme.warning,
+                    _ => theme.muted_foreground,
+                };
 
+                h_flex()
+                    .justify_between()
+                    .items_center()
+                    .p_3()
+                    .rounded_md()
+                    .bg(theme.sidebar)
+                    .border_1()
+                    .border_color(theme.border)
+                    .child(
                         h_flex()
-                            .justify_between()
+                            .gap_3()
                             .items_center()
-                            .p_3()
-                            .rounded_md()
-                            .bg(theme.sidebar)
-                            .border_1()
-                            .border_color(theme.border)
                             .child(
-                                h_flex()
-                                    .gap_3()
-                                    .items_center()
+                                div()
+                                    .text_color(status_color)
+                                    .child(Icon::new(status.icon()).small()),
+                            )
+                            .child(
+                                v_flex()
                                     .child(
-                                        div()
-                                            .text_color(status_color)
-                                            .child(Icon::new(status.icon()).small()),
-                                    )
-                                    .child(
-                                        v_flex()
+                                        h_flex()
+                                            .gap_2()
                                             .child(
-                                                h_flex()
-                                                    .gap_2()
-                                                    .child(
-                                                        div()
-                                                            .text_sm()
-                                                            .font_weight(FontWeight::MEDIUM)
-                                                            .text_color(theme.foreground)
-                                                            .child(dep.name.clone()),
-                                                    )
-                                                    .when(dep.required, |this| {
-                                                        this.child(
-                                                            div()
-                                                                .text_xs()
-                                                                .px_1()
-                                                                .rounded(px(2.0))
-                                                                .bg(theme.primary)
-                                                                .text_color(theme.primary_foreground)
-                                                                .child("必需"),
-                                                        )
-                                                    }),
+                                                div()
+                                                    .text_sm()
+                                                    .font_weight(FontWeight::MEDIUM)
+                                                    .text_color(theme.foreground)
+                                                    .child(dep.name.clone()),
                                             )
-                                            .child(
-                                                h_flex()
-                                                    .gap_2()
-                                                    .child(
-                                                        div()
-                                                            .text_xs()
-                                                            .text_color(status_color)
-                                                            .child(status.label()),
-                                                    )
-                                                    .when_some(dep.version.clone(), |this, v| {
-                                                        this.child(
-                                                            div()
-                                                                .text_xs()
-                                                                .text_color(theme.muted_foreground)
-                                                                .child(format!("v{}", v)),
-                                                        )
-                                                    })
-                                                    .when_some(dep.source.clone(), |this, s| {
-                                                        this.child(
-                                                            div()
-                                                                .text_xs()
-                                                                .text_color(theme.muted_foreground)
-                                                                .child(format!("({})", s)),
-                                                        )
-                                                    }),
-                                            ),
-                                    ),
-                            )
-                            .when(
-                                status == DependencyStatus::NotInstalled || status == DependencyStatus::Outdated,
-                                |this| {
-                                    this.child(
-                                        Button::new(SharedString::from(format!("install-{}", name)))
-                                            .label(if status == DependencyStatus::Outdated { "更新" } else { "安装" })
-                                            .small()
-                                            .on_click(cx.listener(move |this, _, _window, cx| {
-                                                this.install_dependency(&name, cx);
-                                            })),
+                                            .when(dep.required, |this| {
+                                                this.child(
+                                                    div()
+                                                        .text_xs()
+                                                        .px_1()
+                                                        .rounded(px(2.0))
+                                                        .bg(theme.primary)
+                                                        .text_color(theme.primary_foreground)
+                                                        .child("必需"),
+                                                )
+                                            }),
                                     )
-                                },
+                                    .child(
+                                        h_flex()
+                                            .gap_2()
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(status_color)
+                                                    .child(status.label()),
+                                            )
+                                            .when_some(dep.version.clone(), |this, v| {
+                                                this.child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(theme.muted_foreground)
+                                                        .child(format!("v{}", v)),
+                                                )
+                                            })
+                                            .when_some(dep.source.clone(), |this, s| {
+                                                this.child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(theme.muted_foreground)
+                                                        .child(format!("({})", s)),
+                                                )
+                                            }),
+                                    ),
+                            ),
+                    )
+                    .when(
+                        status == DependencyStatus::NotInstalled
+                            || status == DependencyStatus::Outdated,
+                        |this| {
+                            this.child(
+                                Button::new(SharedString::from(format!("install-{}", name)))
+                                    .label(if status == DependencyStatus::Outdated {
+                                        "更新"
+                                    } else {
+                                        "安装"
+                                    })
+                                    .small()
+                                    .on_click(cx.listener(move |this, _, _window, cx| {
+                                        this.install_dependency(&name, cx);
+                                    })),
                             )
-                    })),
-            )
+                        },
+                    )
+            })))
             // Manual install guide
             .child(
                 v_flex()

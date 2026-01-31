@@ -4,13 +4,16 @@
 
 use gpui::*;
 use gpui_component::{
-    button::Button, h_flex, tab::Tab, tab::TabBar, v_flex, ActiveTheme, Icon, IconName,
-    Selectable, Sizable,
+    ActiveTheme, Icon, IconName, Selectable, Sizable, button::Button, h_flex, tab::Tab,
+    tab::TabBar, v_flex,
 };
 
 use crate::app::{AppEvent, AppState};
 use crate::components::client_info::ClientInfoView;
 use crate::components::dependency_manager::DependencyManagerView;
+use crate::components::permissions::PermissionsView;
+#[cfg(feature = "remote-desktop")]
+use crate::components::remote_desktop::RemoteDesktopView;
 use crate::components::settings::SettingsView;
 use crate::components::status_bar::StatusBarView;
 
@@ -23,6 +26,8 @@ pub enum TabPage {
     Settings,
     /// 依赖管理
     Dependencies,
+    /// 权限设置
+    Permissions,
     /// 远程桌面（需要 remote-desktop feature）
     #[cfg(feature = "remote-desktop")]
     RemoteDesktop,
@@ -36,7 +41,12 @@ pub enum TabPage {
 impl TabPage {
     /// 获取所有可用的 Tab 页面
     pub fn all() -> Vec<Self> {
-        let mut tabs = vec![Self::ClientInfo, Self::Settings, Self::Dependencies];
+        let mut tabs = vec![
+            Self::ClientInfo,
+            Self::Settings,
+            Self::Dependencies,
+            Self::Permissions,
+        ];
 
         #[cfg(feature = "remote-desktop")]
         tabs.push(Self::RemoteDesktop);
@@ -54,6 +64,7 @@ impl TabPage {
             Self::ClientInfo => "客户端",
             Self::Settings => "设置",
             Self::Dependencies => "依赖",
+            Self::Permissions => "权限",
             #[cfg(feature = "remote-desktop")]
             Self::RemoteDesktop => "远程桌面",
             #[cfg(feature = "chat-ui")]
@@ -68,6 +79,7 @@ impl TabPage {
             Self::ClientInfo => IconName::LayoutDashboard,
             Self::Settings => IconName::Settings,
             Self::Dependencies => IconName::Folder,
+            Self::Permissions => IconName::Eye,
             #[cfg(feature = "remote-desktop")]
             Self::RemoteDesktop => IconName::Maximize,
             #[cfg(feature = "chat-ui")]
@@ -98,6 +110,11 @@ pub struct RootView {
     settings_view: Entity<SettingsView>,
     /// 依赖管理视图
     dependency_view: Entity<DependencyManagerView>,
+    /// 权限设置视图
+    permissions_view: Entity<PermissionsView>,
+    /// 远程桌面视图
+    #[cfg(feature = "remote-desktop")]
+    remote_desktop_view: Entity<RemoteDesktopView>,
     /// 订阅（需要保持存活）
     _subscriptions: Vec<Subscription>,
 }
@@ -106,16 +123,15 @@ impl EventEmitter<RootEvent> for RootView {}
 
 impl RootView {
     /// 创建新的根组件
-    pub fn new(
-        app_state: Entity<AppState>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(app_state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         // 创建子视图
         let status_bar = cx.new(|_cx| StatusBarView::new());
         let client_info_view = cx.new(|_cx| ClientInfoView::new());
         let settings_view = cx.new(|_cx| SettingsView::new());
         let dependency_view = cx.new(|_cx| DependencyManagerView::new());
+        let permissions_view = cx.new(|cx| PermissionsView::new(cx));
+        #[cfg(feature = "remote-desktop")]
+        let remote_desktop_view = cx.new(|cx| RemoteDesktopView::new(window, cx));
 
         // 订阅应用状态事件
         let client_info_for_sub = client_info_view.clone();
@@ -163,6 +179,9 @@ impl RootView {
             client_info_view,
             settings_view,
             dependency_view,
+            permissions_view,
+            #[cfg(feature = "remote-desktop")]
+            remote_desktop_view,
             _subscriptions: subscriptions,
         }
     }
@@ -239,16 +258,13 @@ impl RootView {
                 TabPage::ClientInfo => self.client_info_view.clone().into_any_element(),
                 TabPage::Settings => self.settings_view.clone().into_any_element(),
                 TabPage::Dependencies => self.dependency_view.clone().into_any_element(),
+                TabPage::Permissions => self.permissions_view.clone().into_any_element(),
                 #[cfg(feature = "remote-desktop")]
-                TabPage::RemoteDesktop => {
-                    self.render_placeholder_page("远程桌面", "远程桌面功能正在开发中...", cx)
-                        .into_any_element()
-                }
+                TabPage::RemoteDesktop => self.remote_desktop_view.clone().into_any_element(),
                 #[cfg(feature = "chat-ui")]
-                TabPage::Chat => {
-                    self.render_placeholder_page("聊天", "聊天功能正在开发中...", cx)
-                        .into_any_element()
-                }
+                TabPage::Chat => self
+                    .render_placeholder_page("聊天", "聊天功能正在开发中...", cx)
+                    .into_any_element(),
                 TabPage::About => self.render_about_page(window, cx).into_any_element(),
             })
     }
@@ -280,11 +296,7 @@ impl RootView {
     }
 
     /// 渲染关于页
-    fn render_about_page(
-        &self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render_about_page(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let version = env!("CARGO_PKG_VERSION");
 
@@ -324,35 +336,47 @@ impl RootView {
                         h_flex()
                             .justify_between()
                             .child(
-                                div().text_sm().text_color(theme.muted_foreground).child("协议版本"),
-                            )
-                            .child(
-                                div().text_sm().text_color(theme.foreground).child(
-                                    crate::core::protocol::PROTOCOL_VERSION,
-                                ),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(
-                                div().text_sm().text_color(theme.muted_foreground).child("平台"),
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground)
+                                    .child("协议版本"),
                             )
                             .child(
                                 div()
                                     .text_sm()
                                     .text_color(theme.foreground)
-                                    .child(format!("{}/{}", std::env::consts::OS, std::env::consts::ARCH)),
+                                    .child(crate::core::protocol::PROTOCOL_VERSION),
                             ),
                     )
                     .child(
                         h_flex()
                             .justify_between()
                             .child(
-                                div().text_sm().text_color(theme.muted_foreground).child("许可证"),
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground)
+                                    .child("平台"),
+                            )
+                            .child(div().text_sm().text_color(theme.foreground).child(format!(
+                                "{}/{}",
+                                std::env::consts::OS,
+                                std::env::consts::ARCH
+                            ))),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground)
+                                    .child("许可证"),
                             )
                             .child(
-                                div().text_sm().text_color(theme.foreground).child("Apache-2.0"),
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.foreground)
+                                    .child("Apache-2.0"),
                             ),
                     ),
             )
