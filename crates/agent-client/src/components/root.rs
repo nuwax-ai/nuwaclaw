@@ -18,7 +18,7 @@ use crate::components::permissions::PermissionsView;
 use crate::components::remote_desktop::RemoteDesktopView;
 use crate::components::settings::SettingsView;
 use crate::components::status_bar::StatusBarView;
-use crate::viewmodels::DependencyViewModel;
+use crate::viewmodels::{ClientInfoViewModel, DependencyViewModel, PermissionsViewModel, SettingsViewModel, StatusBarViewModel, UIConnectionMode, UIConnectionState};
 
 /// Tab 页面类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -128,14 +128,18 @@ impl RootView {
     /// 创建新的根组件
     pub fn new(app_state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         // 创建 ViewModel
+        let client_info_view_model = Arc::new(ClientInfoViewModel::new());
         let dependency_view_model = Arc::new(DependencyViewModel::with_default_manager());
+        let permissions_view_model = Arc::new(PermissionsViewModel::with_default_manager());
+        let settings_view_model = Arc::new(SettingsViewModel::new());
+        let status_bar_view_model = Arc::new(StatusBarViewModel::new());
 
         // 创建子视图
-        let status_bar = cx.new(|_cx| StatusBarView::new());
-        let client_info_view = cx.new(|_cx| ClientInfoView::new());
-        let settings_view = cx.new(|_cx| SettingsView::new());
+        let status_bar = cx.new(|_cx| StatusBarView::new(status_bar_view_model.clone()));
+        let client_info_view = cx.new(|_cx| ClientInfoView::new(client_info_view_model.clone()));
+        let settings_view = cx.new(|_cx| SettingsView::new(settings_view_model));
         let dependency_view = cx.new(|_cx| DependencyManagerView::new(dependency_view_model));
-        let permissions_view = cx.new(|cx| PermissionsView::new(cx));
+        let permissions_view = cx.new(|cx| PermissionsView::new(permissions_view_model, cx));
         #[cfg(feature = "remote-desktop")]
         let remote_desktop_view = cx.new(|cx| RemoteDesktopView::new(window, cx));
 
@@ -156,17 +160,11 @@ impl RootView {
                     status_bar_for_sub.update(cx, |view, cx| {
                         if is_connected {
                             view.set_connection_state(
-                                super::status_bar::ConnectionState::Connected(
-                                    super::status_bar::ConnectionMode::P2P,
-                                    0,
-                                ),
+                                UIConnectionState::Connected(UIConnectionMode::P2P, 0),
                                 cx,
                             );
                         } else {
-                            view.set_connection_state(
-                                super::status_bar::ConnectionState::Disconnected,
-                                cx,
-                            );
+                            view.set_connection_state(UIConnectionState::Disconnected, cx);
                         }
                     });
                     cx.notify();

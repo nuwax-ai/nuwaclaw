@@ -7,7 +7,14 @@ use std::sync::Arc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
-use gpui_component::{ActiveTheme, Icon, IconName, Sizable, button::Button, h_flex, v_flex};
+use gpui_component::{
+    alert::Alert,
+    button::{Button, ButtonVariants},
+    h_flex, v_flex,
+    spinner::Spinner,
+    tag::Tag,
+    ActiveTheme, Disableable, Icon, IconName, Sizable, Size,
+};
 
 use crate::viewmodels::dependency::{
     DependencyAction, DependencyViewModel, DependencyViewModelState, UIDependencyItem,
@@ -127,21 +134,53 @@ impl DependencyManagerView {
         let name = item.display_name.clone();
 
         // 提取需要的数据为 owned 值，避免生命周期问题
-        let status_label = item.status.label().to_string();
-        let status_icon = item.status.icon();
-        let is_outdated = matches!(item.status, UIDependencyStatus::Outdated);
+        let status = item.status.clone();
+        let version = item.version.clone();
+        let source = item.source.clone();
         let error_msg = item.status.error_message().map(|s| s.to_string());
 
-        let status_color = match &item.status {
-            UIDependencyStatus::Ok => theme.success,
-            UIDependencyStatus::Missing | UIDependencyStatus::Error(_) => theme.danger,
-            UIDependencyStatus::Outdated => theme.warning,
-            _ => theme.muted_foreground,
+        // 根据状态选择 Tag 变体
+        let status_tag: Tag = match &item.status {
+            UIDependencyStatus::Ok => Tag::success(),
+            UIDependencyStatus::Missing | UIDependencyStatus::Error(_) => Tag::danger(),
+            UIDependencyStatus::Outdated => Tag::warning(),
+            UIDependencyStatus::Installing => Tag::info(),
+            UIDependencyStatus::Checking => Tag::secondary(),
         };
 
-        h_flex()
-            .justify_between()
-            .items_center()
+        // 必需标签
+        let required_tag: Tag = if item.required {
+            Tag::danger().outline()
+        } else {
+            Tag::secondary().outline()
+        };
+
+        // 安装按钮样式
+        let install_button = if item.can_install {
+            let label = match item.status {
+                UIDependencyStatus::Outdated => "更新",
+                _ => "安装",
+            };
+            // 克隆 name 供按钮使用（闭包会 move 捕获 name）
+            let name_for_button = name.clone();
+            Some(
+                Button::new(SharedString::from(format!("install-{}", name_for_button)))
+                    .label(label)
+                    .small()
+                    .primary()
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        this.install_dependency(&name, cx);
+                    })),
+            )
+        } else {
+            None
+        };
+
+        // 状态标签文字
+        let status_label = item.status.label();
+
+        v_flex()
+            .gap_2()
             .p_3()
             .rounded_md()
             .bg(theme.sidebar)
@@ -149,84 +188,63 @@ impl DependencyManagerView {
             .border_color(theme.border)
             .child(
                 h_flex()
-                    .gap_3()
+                    .justify_between()
                     .items_center()
                     .child(
-                        div()
-                            .text_color(status_color)
-                            .child(Icon::new(status_icon).small()),
-                    )
-                    .child(
-                        v_flex()
+                        h_flex()
+                            .gap_3()
+                            .items_center()
                             .child(
-                                h_flex()
-                                    .gap_2()
+                                v_flex()
                                     .child(
-                                        div()
-                                            .text_sm()
-                                            .font_weight(FontWeight::MEDIUM)
-                                            .text_color(theme.foreground)
-                                            .child(item.display_name.clone()),
+                                        h_flex()
+                                            .gap_2()
+                                            .items_center()
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .font_weight(FontWeight::MEDIUM)
+                                                    .text_color(theme.foreground)
+                                                    .child(name.clone()),
+                                            )
+                                            .child(required_tag.child(if item.required { "必需" } else { "可选" })),
                                     )
-                                    .when(item.required, |this| {
-                                        this.child(
-                                            div()
-                                                .text_xs()
-                                                .px_1()
-                                                .rounded(px(2.0))
-                                                .bg(theme.primary)
-                                                .text_color(theme.primary_foreground)
-                                                .child("必需"),
-                                        )
-                                    }),
-                            )
-                            .child(
-                                h_flex()
-                                    .gap_2()
                                     .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(status_color)
-                                            .child(status_label),
+                                        h_flex()
+                                            .gap_2()
+                                            .items_center()
+                                            .child(status_tag.child(status_label))
+                                            .when_some(version, |this, v| {
+                                                this.child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(theme.muted_foreground)
+                                                        .child(format!("v{}", v)),
+                                                )
+                                            })
+                                            .when_some(source, |this, s| {
+                                                this.child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(theme.muted_foreground)
+                                                        .child(format!("({})", s)),
+                                                )
+                                            }),
                                     )
-                                    .when_some(item.version.clone(), |this, v| {
-                                        this.child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(theme.muted_foreground)
-                                                .child(format!("v{}", v)),
-                                        )
-                                    })
-                                    .when_some(item.source.clone(), |this, s| {
-                                        this.child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(theme.muted_foreground)
-                                                .child(format!("({})", s)),
-                                        )
-                                    })
                                     // 显示错误信息
                                     .when_some(error_msg, |this, msg| {
                                         this.child(
                                             div()
+                                                .mt_1()
                                                 .text_xs()
                                                 .text_color(theme.danger)
                                                 .child(msg),
                                         )
                                     }),
                             ),
-                    ),
+                    )
+                    .when_some(install_button, |this, btn| this.child(btn)),
             )
-            .when(item.can_install, |this| {
-                this.child(
-                    Button::new(SharedString::from(format!("install-{}", name)))
-                        .label(if is_outdated { "更新" } else { "安装" })
-                        .small()
-                        .on_click(cx.listener(move |this, _, _window, cx| {
-                            this.install_dependency(&name, cx);
-                        })),
-                )
-            })
     }
 }
 
@@ -234,68 +252,87 @@ impl Render for DependencyManagerView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let missing = self.state.missing_count();
+        let is_loading = self.state.is_loading;
+        let is_installing = self.state.is_installing;
 
         // Clone items to avoid borrow issues
         let items: Vec<_> = self.state.items.clone();
 
-        // Clone theme colors for use in closures
-        let sidebar_color = theme.sidebar;
-        let border_color = theme.border;
-        let foreground_color = theme.foreground;
-        let muted_foreground_color = theme.muted_foreground;
-
         v_flex()
             .gap_4()
-            .child(
-                div()
-                    .text_xl()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(foreground_color)
-                    .child("依赖管理"),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(muted_foreground_color)
-                    .child("管理 Agent 运行所需的依赖环境"),
-            )
-            // Action bar
             .child(
                 h_flex()
                     .justify_between()
                     .items_center()
-                    .child(div().text_sm().text_color(muted_foreground_color).child(
-                        if missing > 0 {
-                            format!("{} 个依赖需要安装", missing)
-                        } else {
-                            "所有依赖已就绪".to_string()
-                        },
-                    ))
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xl()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(theme.foreground)
+                                    .child("依赖管理"),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground)
+                                    .child("管理 Agent 运行所需的依赖环境"),
+                            ),
+                    )
                     .child(
                         h_flex()
                             .gap_2()
+                            .items_center()
                             .child(
                                 Button::new("refresh")
                                     .label("刷新")
                                     .icon(Icon::new(IconName::Redo).small())
                                     .small()
+                                    .ghost()
+                                    .disabled(is_loading)
                                     .on_click(cx.listener(|this, _, _window, cx| {
                                         this.refresh_status(cx);
                                     })),
                             )
-                            .when(missing > 0, |this| {
+                            .when(is_loading, |this| this.child(Spinner::new().with_size(Size::Small)))
+                            .when(missing > 0 && !is_installing, |this| {
                                 this.child(
                                     Button::new("install-all")
                                         .label("安装全部")
                                         .icon(Icon::new(IconName::ArrowDown).small())
                                         .small()
+                                        .primary()
                                         .on_click(cx.listener(|this, _, _window, cx| {
                                             this.install_all(cx);
                                         })),
                                 )
+                            })
+                            .when(is_installing, |this| {
+                                this.child(
+                                    h_flex()
+                                        .gap_2()
+                                        .items_center()
+                                        .child(Spinner::new().with_size(Size::Small))
+                                        .child(div().text_sm().text_color(theme.muted_foreground).child("安装中...")),
+                                )
                             }),
                     ),
             )
+            // 依赖状态摘要 Alert
+            .when(missing > 0, |this| {
+                this.child(
+                    Alert::warning("dependency-warning", format!("{} 个依赖需要安装", missing))
+                        .title("依赖缺失"),
+                )
+            })
+            .when(missing == 0 && !items.is_empty(), |this| {
+                this.child(
+                    Alert::success("dependency-ready", "所有依赖已安装就绪")
+                        .title("就绪"),
+                )
+            })
             // Dependency list
             .child(v_flex().gap_2().children(items.iter().map(|item| {
                 self.render_dependency_item(item, cx)
@@ -306,20 +343,20 @@ impl Render for DependencyManagerView {
                     .gap_2()
                     .p_4()
                     .rounded_lg()
-                    .bg(sidebar_color)
+                    .bg(theme.sidebar)
                     .border_1()
-                    .border_color(border_color)
+                    .border_color(theme.border)
                     .child(
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(foreground_color)
+                            .text_color(theme.foreground)
                             .child("手动安装指引"),
                     )
                     .child(
                         div()
                             .text_xs()
-                            .text_color(muted_foreground_color)
+                            .text_color(theme.muted_foreground)
                             .child("如果自动安装失败，您可以手动安装："),
                     )
                     .child(
@@ -328,13 +365,13 @@ impl Render for DependencyManagerView {
                             .child(
                                 div()
                                     .text_xs()
-                                    .text_color(muted_foreground_color)
+                                    .text_color(theme.muted_foreground)
                                     .child("1. Node.js: 从 https://nodejs.org 下载安装"),
                             )
                             .child(
                                 div()
                                     .text_xs()
-                                    .text_color(muted_foreground_color)
+                                    .text_color(theme.muted_foreground)
                                     .child("2. npm 工具: npm install -g <tool-name>"),
                             ),
                     ),

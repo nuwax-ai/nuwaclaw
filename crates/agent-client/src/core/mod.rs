@@ -22,6 +22,9 @@ pub mod remote_input;
 pub mod theme;
 pub mod upgrade;
 
+// 统一错误类型
+pub mod error;
+
 pub use admin_client::{AdminClient, AdminConfig, AdminClientEvent, PendingMessage, RegistrationRequest};
 pub use agent::{AgentManager, AgentTask, TaskStatus, TaskProgress, TaskResult, AgentEvent};
 #[cfg(feature = "auto-launch")]
@@ -39,6 +42,9 @@ pub use permissions::PermissionManager;
 pub use protocol::ProtocolManager;
 pub use theme::ThemeManager;
 pub use upgrade::UpgradeManager;
+
+// 统一错误类型导出
+pub use error::CoreError;
 
 #[cfg(feature = "dependency-management")]
 pub use dependency::DependencyManager;

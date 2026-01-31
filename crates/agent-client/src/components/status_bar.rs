@@ -1,178 +1,109 @@
 //! 状态栏组件
 
+use std::sync::Arc;
+
 use gpui::*;
-use gpui_component::{ActiveTheme, Icon, IconName, Sizable, h_flex};
+use gpui_component::{tag::Tag, ActiveTheme, Icon, IconName, Sizable, h_flex};
 
-/// 连接状态
-#[derive(Debug, Clone, PartialEq)]
-pub enum ConnectionState {
-    /// 已断开
-    Disconnected,
-    /// 连接中
-    Connecting,
-    /// 已连接（模式，延迟 ms）
-    Connected(ConnectionMode, u32),
-    /// 错误
-    Error(String),
-}
-
-/// 连接模式
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConnectionMode {
-    P2P,
-    Relay,
-}
-
-/// Agent 状态
-#[derive(Debug, Clone, PartialEq)]
-pub enum AgentState {
-    /// 空闲
-    Idle,
-    /// 运行中（活跃任务数）
-    Active(usize),
-    /// 执行中（当前/总数）
-    Executing(usize, usize),
-    /// 错误
-    Error,
-}
-
-/// 状态栏数据
-pub struct StatusBar {
-    /// 连接状态
-    pub connection_state: ConnectionState,
-    /// Agent 状态
-    pub agent_state: AgentState,
-    /// 依赖是否正常
-    pub dependency_ok: bool,
-}
-
-impl Default for StatusBar {
-    fn default() -> Self {
-        Self {
-            connection_state: ConnectionState::Disconnected,
-            agent_state: AgentState::Idle,
-            dependency_ok: true,
-        }
-    }
-}
+use crate::viewmodels::{
+    StatusBarAction, StatusBarViewModel, UIAgentState, UIConnectionMode, UIConnectionState,
+};
 
 /// 状态栏视图组件
 pub struct StatusBarView {
-    /// 状态数据
-    status: StatusBar,
+    /// ViewModel
+    view_model: Arc<StatusBarViewModel>,
 }
 
 impl StatusBarView {
     /// 创建新的状态栏视图
-    pub fn new() -> Self {
-        Self {
-            status: StatusBar::default(),
-        }
+    pub fn new(view_model: Arc<StatusBarViewModel>) -> Self {
+        Self { view_model }
     }
 
     /// 更新连接状态
-    pub fn set_connection_state(&mut self, state: ConnectionState, cx: &mut Context<Self>) {
-        self.status.connection_state = state;
-        cx.notify();
+    pub fn set_connection_state(&mut self, state: UIConnectionState, cx: &mut Context<Self>) {
+        let vm = self.view_model.clone();
+        cx.spawn(|_, mut cx| async move {
+            vm.set_connection_state(state).await;
+            cx.notify();
+        })
+        .detach();
     }
 
     /// 更新 Agent 状态
-    pub fn set_agent_state(&mut self, state: AgentState, cx: &mut Context<Self>) {
-        self.status.agent_state = state;
-        cx.notify();
+    pub fn set_agent_state(&mut self, state: UIAgentState, cx: &mut Context<Self>) {
+        let vm = self.view_model.clone();
+        cx.spawn(|_, mut cx| async move {
+            vm.set_agent_state(state).await;
+            cx.notify();
+        })
+        .detach();
     }
 
     /// 更新依赖状态
     pub fn set_dependency_ok(&mut self, ok: bool, cx: &mut Context<Self>) {
-        self.status.dependency_ok = ok;
-        cx.notify();
+        let vm = self.view_model.clone();
+        cx.spawn(|_, mut cx| async move {
+            vm.set_dependency_ok(ok).await;
+            cx.notify();
+        })
+        .detach();
     }
 
     /// 渲染连接状态指示器
     fn render_connection_indicator(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let (icon, color, text) = match &self.status.connection_state {
-            ConnectionState::Disconnected => (IconName::Globe, theme.danger, "未连接".to_string()),
-            ConnectionState::Connecting => {
-                (IconName::Loader, theme.warning, "连接中...".to_string())
+        let state = futures::executor::block_on(self.view_model.connection_state());
+        let (tag, text): (Tag, String) = match &state {
+            UIConnectionState::Disconnected => (Tag::danger(), "未连接".to_string()),
+            UIConnectionState::Connecting => (Tag::warning(), "连接中...".to_string()),
+            UIConnectionState::Connected(mode, latency) => {
+                let mode_text = mode.label();
+                (Tag::success(), format!("{} ({}ms)", mode_text, latency))
             }
-            ConnectionState::Connected(mode, latency) => {
-                let mode_text = match mode {
-                    ConnectionMode::P2P => "P2P",
-                    ConnectionMode::Relay => "中继",
-                };
-                (
-                    IconName::Globe,
-                    theme.success,
-                    format!("{} ({}ms)", mode_text, latency),
-                )
-            }
-            ConnectionState::Error(msg) => (IconName::CircleX, theme.danger, msg.clone()),
+            UIConnectionState::Error(msg) => (Tag::danger(), msg.clone()),
         };
 
         h_flex()
             .gap_1()
             .items_center()
-            .child(Icon::new(icon).small().text_color(color))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(text),
-            )
+            .child(tag.child(text))
     }
 
     /// 渲染 Agent 状态指示器
     fn render_agent_indicator(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let (icon, color, text) = match &self.status.agent_state {
-            AgentState::Idle => (IconName::Dash, theme.muted_foreground, "空闲".to_string()),
-            AgentState::Active(count) => (IconName::Bot, theme.accent, format!("活跃 ({})", count)),
-            AgentState::Executing(current, total) => (
-                IconName::Loader,
-                theme.success,
-                format!("执行中 ({}/{})", current, total),
-            ),
-            AgentState::Error => (IconName::TriangleAlert, theme.danger, "错误".to_string()),
+        let state = futures::executor::block_on(self.view_model.agent_state());
+
+        // 根据状态选择 Tag 变体
+        let tag: Tag = match state {
+            UIAgentState::Idle => Tag::secondary(),
+            UIAgentState::Active(_) => Tag::info(),
+            UIAgentState::Executing(_, _) => Tag::success(),
+            UIAgentState::Error => Tag::danger(),
         };
 
         h_flex()
             .gap_1()
             .items_center()
-            .child(Icon::new(icon).small().text_color(color))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(text),
-            )
+            .child(tag.child(state.label()))
     }
 
     /// 渲染依赖状态指示器
     fn render_dependency_indicator(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let (icon, color, text) = if self.status.dependency_ok {
-            (IconName::CircleCheck, theme.success, "依赖正常")
-        } else {
-            (IconName::CircleX, theme.warning, "依赖缺失")
-        };
+        let dependency_ok = futures::executor::block_on(self.view_model.dependency_ok());
+
+        let tag: Tag = if dependency_ok { Tag::success() } else { Tag::warning() };
 
         h_flex()
             .gap_1()
             .items_center()
-            .child(Icon::new(icon).small().text_color(color))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(text),
-            )
+            .child(tag.child(if dependency_ok { "依赖正常" } else { "依赖缺失" }))
     }
 }
 
 impl Default for StatusBarView {
     fn default() -> Self {
-        Self::new()
+        Self::new(Arc::new(StatusBarViewModel::new()))
     }
 }
 

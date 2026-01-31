@@ -10,7 +10,7 @@ use tokio::sync::{broadcast, RwLock};
 
 use crate::components::root::RootView;
 use crate::core::config::ConfigManager;
-use crate::core::connection::RustDeskAdapter;
+use crate::core::connection::{adapter::ConnectionAdapter, RustDeskAdapter};
 use crate::utils::notification::Notification;
 
 /// 应用状态变化事件
@@ -164,7 +164,7 @@ impl Application {
                 loop {
                     // 从 adapter 获取客户端 ID（在 tokio 上下文中执行）
                     let adapter_ref = adapter_for_poll.clone();
-                    let id = rt_for_poll.spawn(async move {
+                    let id: String = rt_for_poll.spawn(async move {
                         adapter_ref.get_client_id().await
                     }).await.unwrap_or_default();
 

@@ -488,12 +488,6 @@ impl AdminClient<ReqwestClient> {
     }
 }
 
-impl<H: HttpClient> Drop for AdminClient<H> {
-    fn drop(&mut self) {
-        self.stop_background_tasks();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::http_client::mock::{MockHttpClient, MockResponse};
