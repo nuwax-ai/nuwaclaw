@@ -6,7 +6,7 @@
 # ============================================================================
 
 # vcpkg 路径（可通过环境变量覆盖）
-VCPKG_ROOT ?= /tmp/vcpkg
+VCPKG_ROOT ?= $(HOME)/vcpkg
 
 # 默认目标平台
 UNAME_S := $(shell uname -s)

@@ -142,7 +142,8 @@ impl RemoteDesktopSession {
         self.peer_connection.connect().await?;
 
         // 等待连接成功或超时
-        let mut event_rx = self.peer_connection.event_receiver().lock().await;
+        let event_rx_arc = self.peer_connection.event_receiver();
+        let mut event_rx = event_rx_arc.lock().await;
         let timeout = tokio::time::Duration::from_secs(30);
         let start = tokio::time::Instant::now();
 
