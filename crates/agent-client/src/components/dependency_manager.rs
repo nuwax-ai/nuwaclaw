@@ -104,7 +104,7 @@ impl DependencyManagerView {
         let view_model = self.view_model.clone();
         let name = name.to_string();
 
-        cx.spawn(async move |view, cx| {
+        cx.spawn(async move |view: &mut Entity<Self>, cx: &mut AppContext| {
             // 调用 ViewModel 安装
             view_model.handle_action(DependencyAction::Install(name)).await;
 
@@ -131,7 +131,10 @@ impl DependencyManagerView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
-        let name = item.display_name.clone();
+        // 克隆 name 供闭包内使用（闭包会 move 捕获）
+        let name_for_install = item.display_name.clone();
+        // 克隆 name 供 UI 渲染使用
+        let name_for_display = item.display_name.clone();
 
         // 提取需要的数据为 owned 值，避免生命周期问题
         let status = item.status.clone();
@@ -161,15 +164,13 @@ impl DependencyManagerView {
                 UIDependencyStatus::Outdated => "更新",
                 _ => "安装",
             };
-            // 克隆 name 供按钮使用（闭包会 move 捕获 name）
-            let name_for_button = name.clone();
             Some(
-                Button::new(SharedString::from(format!("install-{}", name_for_button)))
+                Button::new(SharedString::from(format!("install-{}", name_for_install)))
                     .label(label)
                     .small()
                     .primary()
                     .on_click(cx.listener(move |this, _, _window, cx| {
-                        this.install_dependency(&name, cx);
+                        this.install_dependency(&name_for_install, cx);
                     })),
             )
         } else {
@@ -177,7 +178,11 @@ impl DependencyManagerView {
         };
 
         // 状态标签文字
-        let status_label = item.status.label();
+        let status_label = item.status.label().to_string();
+
+        // 克隆 version 和 source 供闭包使用
+        let version_clone = version.clone();
+        let source_clone = source.clone();
 
         v_flex()
             .gap_2()
@@ -205,7 +210,7 @@ impl DependencyManagerView {
                                                     .text_sm()
                                                     .font_weight(FontWeight::MEDIUM)
                                                     .text_color(theme.foreground)
-                                                    .child(name.clone()),
+                                                    .child(name_for_display.clone()),
                                             )
                                             .child(required_tag.child(if item.required { "必需" } else { "可选" })),
                                     )
@@ -214,7 +219,7 @@ impl DependencyManagerView {
                                             .gap_2()
                                             .items_center()
                                             .child(status_tag.child(status_label))
-                                            .when_some(version, |this, v| {
+                                            .when_some(version_clone, |this, v| {
                                                 this.child(
                                                     div()
                                                         .text_xs()
@@ -222,7 +227,7 @@ impl DependencyManagerView {
                                                         .child(format!("v{}", v)),
                                                 )
                                             })
-                                            .when_some(source, |this, s| {
+                                            .when_some(source_clone, |this, s| {
                                                 this.child(
                                                     div()
                                                         .text_xs()
@@ -335,7 +340,7 @@ impl Render for DependencyManagerView {
             })
             // Dependency list
             .child(v_flex().gap_2().children(items.iter().map(|item| {
-                self.render_dependency_item(item, cx)
+                Self::render_dependency_item(self, item, cx)
             })))
             // Manual install guide
             .child(

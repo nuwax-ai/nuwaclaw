@@ -24,7 +24,7 @@ impl StatusBarView {
     /// 更新连接状态
     pub fn set_connection_state(&mut self, state: UIConnectionState, cx: &mut Context<Self>) {
         let vm = self.view_model.clone();
-        cx.spawn(|_, mut cx| async move {
+        cx.spawn(|_, mut cx: &mut Context<Self>| async move {
             vm.set_connection_state(state).await;
             cx.notify();
         })
@@ -34,7 +34,7 @@ impl StatusBarView {
     /// 更新 Agent 状态
     pub fn set_agent_state(&mut self, state: UIAgentState, cx: &mut Context<Self>) {
         let vm = self.view_model.clone();
-        cx.spawn(|_, mut cx| async move {
+        cx.spawn(|_, mut cx: &mut Context<Self>| async move {
             vm.set_agent_state(state).await;
             cx.notify();
         })
@@ -44,7 +44,7 @@ impl StatusBarView {
     /// 更新依赖状态
     pub fn set_dependency_ok(&mut self, ok: bool, cx: &mut Context<Self>) {
         let vm = self.view_model.clone();
-        cx.spawn(|_, mut cx| async move {
+        cx.spawn(|_, mut cx: &mut Context<Self>| async move {
             vm.set_dependency_ok(ok).await;
             cx.notify();
         })

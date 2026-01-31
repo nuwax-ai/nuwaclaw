@@ -137,7 +137,7 @@ impl RootView {
         // 创建子视图
         let status_bar = cx.new(|_cx| StatusBarView::new(status_bar_view_model.clone()));
         let client_info_view = cx.new(|_cx| ClientInfoView::new(client_info_view_model.clone()));
-        let settings_view = cx.new(|_cx| SettingsView::new(settings_view_model));
+        let settings_view = cx.new(|_cx| SettingsView::new());
         let dependency_view = cx.new(|_cx| DependencyManagerView::new(dependency_view_model));
         let permissions_view = cx.new(|cx| PermissionsView::new(permissions_view_model, cx));
         #[cfg(feature = "remote-desktop")]
