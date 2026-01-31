@@ -10,6 +10,8 @@ port = 21116
 # relay = "your-relay-server:21117"
 # 密钥文件路径（用于加密通信）
 # key_file = "config/key.pem"
+# 认证密钥（"-" 表示自动生成，空字符串表示不使用）
+key = "-"
 
 [hbbr]
 # 中继服务监听地址
@@ -18,6 +20,8 @@ host = "0.0.0.0"
 port = 21117
 # 最大同时连接数
 max_connections = 1000
+# 认证密钥（与 hbbs 保持一致）
+key = "-"
 
 [logging]
 # 日志级别: trace, debug, info, warn, error

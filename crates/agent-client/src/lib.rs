@@ -9,6 +9,7 @@ pub mod i18n;
 pub mod message;
 pub mod tray;
 pub mod utils;
+pub mod viewmodels;
 
 // 导出公共 API
 pub use app::App;

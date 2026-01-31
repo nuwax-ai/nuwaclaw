@@ -56,6 +56,12 @@ pub struct HbbsConfig {
     /// 密钥文件路径
     #[serde(default)]
     pub key_file: Option<String>,
+    /// 认证密钥 (如果为空或"-"则自动生成)
+    #[serde(default = "default_key")]
+    pub key: String,
+    /// UDP 接收缓冲区大小
+    #[serde(default)]
+    pub rmem: usize,
 }
 
 fn default_hbbs_host() -> String {
@@ -66,6 +72,10 @@ fn default_hbbs_port() -> u16 {
     21116
 }
 
+fn default_key() -> String {
+    "-".to_string()
+}
+
 impl Default for HbbsConfig {
     fn default() -> Self {
         Self {
@@ -73,6 +83,8 @@ impl Default for HbbsConfig {
             port: default_hbbs_port(),
             relay: None,
             key_file: None,
+            key: default_key(),
+            rmem: 0,
         }
     }
 }
@@ -89,6 +101,9 @@ pub struct HbbrConfig {
     /// 最大连接数
     #[serde(default = "default_max_connections")]
     pub max_connections: usize,
+    /// 认证密钥 (与 hbbs 保持一致)
+    #[serde(default = "default_key")]
+    pub key: String,
 }
 
 fn default_hbbr_host() -> String {
@@ -109,6 +124,7 @@ impl Default for HbbrConfig {
             host: default_hbbr_host(),
             port: default_hbbr_port(),
             max_connections: default_max_connections(),
+            key: default_key(),
         }
     }
 }

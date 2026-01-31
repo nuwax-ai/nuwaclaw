@@ -16,7 +16,8 @@ services:
   # hbbs - 信令服务器 (ID Server)
   hbbs:
     container_name: rustdesk-hbbs
-    image: rustdesk/rustdesk-server:latest
+    # image: rustdesk/rustdesk-server:latest
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/rustdesk/rustdesk-server:latest
     command: hbbs
     volumes:
       - ./data:/root
@@ -36,7 +37,8 @@ services:
   # hbbr - 中继服务器 (Relay Server)
   hbbr:
     container_name: rustdesk-hbbr
-    image: rustdesk/rustdesk-server:latest
+    # image: rustdesk/rustdesk-server:latest
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/rustdesk/rustdesk-server:latest
     command: hbbr
     volumes:
       - ./data:/root

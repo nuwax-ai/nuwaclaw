@@ -12,6 +12,7 @@ pub mod crypto;
 pub mod dependency;
 #[cfg(feature = "file-transfer")]
 pub mod file_transfer;
+pub mod http_client;
 pub mod logger;
 pub mod password;
 pub mod permissions;
@@ -31,6 +32,7 @@ pub use connection::{ConnectionManager, ConnectionState, ConnectionMode};
 pub use config::{ConfigManager, AppConfig};
 #[cfg(feature = "file-transfer")]
 pub use file_transfer::FileTransferManager;
+pub use http_client::{HttpClient, HttpError, HttpResponse, ReqwestClient};
 pub use logger::Logger;
 pub use password::PasswordManager;
 pub use permissions::PermissionManager;

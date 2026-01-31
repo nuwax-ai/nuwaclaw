@@ -7,6 +7,8 @@ use std::process::Command;
 use thiserror::Error;
 use tracing::{info, warn};
 
+use super::detector::{InstallerError, ToolInfo, ToolInstaller};
+
 /// npm 工具错误
 #[derive(Error, Debug)]
 pub enum NpmToolError {
@@ -18,7 +20,7 @@ pub enum NpmToolError {
     CommandFailed(String),
 }
 
-/// npm 工具信息
+/// npm 工具信息（向后兼容）
 #[derive(Debug, Clone)]
 pub struct NpmToolInfo {
     /// 工具名称
@@ -27,6 +29,26 @@ pub struct NpmToolInfo {
     pub version: Option<String>,
     /// 是否已安装
     pub installed: bool,
+}
+
+impl From<NpmToolInfo> for ToolInfo {
+    fn from(info: NpmToolInfo) -> Self {
+        ToolInfo {
+            name: info.name,
+            version: info.version,
+            installed: info.installed,
+        }
+    }
+}
+
+impl From<ToolInfo> for NpmToolInfo {
+    fn from(info: ToolInfo) -> Self {
+        NpmToolInfo {
+            name: info.name,
+            version: info.version,
+            installed: info.installed,
+        }
+    }
 }
 
 /// npm 工具安装器
@@ -66,7 +88,7 @@ impl NpmToolInstaller {
         }
     }
 
-    /// 检查工具是否已安装
+    /// 检查工具是否已安装（返回 NpmToolInfo，向后兼容）
     pub fn check_tool(&self, tool_name: &str) -> Result<NpmToolInfo, NpmToolError> {
         let npm_path = self.get_npm_path();
 
@@ -121,7 +143,7 @@ impl NpmToolInstaller {
         Err(NpmToolError::CommandFailed("Version not found".to_string()))
     }
 
-    /// 安装工具
+    /// 安装工具（返回 NpmToolInfo，向后兼容）
     pub fn install_tool(&self, tool_name: &str) -> Result<NpmToolInfo, NpmToolError> {
         let npm_path = self.get_npm_path();
 
@@ -190,6 +212,50 @@ impl Default for NpmToolInstaller {
     }
 }
 
+// ============================================================================
+// ToolInstaller trait implementation
+// ============================================================================
+
+impl ToolInstaller for NpmToolInstaller {
+    fn check_tool(&self, name: &str) -> Result<ToolInfo, InstallerError> {
+        NpmToolInstaller::check_tool(self, name)
+            .map(|info| info.into())
+            .map_err(|e| match e {
+                NpmToolError::NpmNotFound => InstallerError::NotFound("npm".to_string()),
+                NpmToolError::InstallFailed(msg) => InstallerError::InstallFailed(msg),
+                NpmToolError::CommandFailed(msg) => InstallerError::CommandFailed(msg),
+            })
+    }
+
+    fn install_tool(&self, name: &str) -> Result<ToolInfo, InstallerError> {
+        NpmToolInstaller::install_tool(self, name)
+            .map(|info| info.into())
+            .map_err(|e| match e {
+                NpmToolError::NpmNotFound => InstallerError::NotFound("npm".to_string()),
+                NpmToolError::InstallFailed(msg) => InstallerError::InstallFailed(msg),
+                NpmToolError::CommandFailed(msg) => InstallerError::CommandFailed(msg),
+            })
+    }
+
+    fn uninstall_tool(&self, name: &str) -> Result<(), InstallerError> {
+        NpmToolInstaller::uninstall_tool(self, name).map_err(|e| match e {
+            NpmToolError::NpmNotFound => InstallerError::NotFound("npm".to_string()),
+            NpmToolError::InstallFailed(msg) => InstallerError::InstallFailed(msg),
+            NpmToolError::CommandFailed(msg) => InstallerError::CommandFailed(msg),
+        })
+    }
+
+    fn update_tool(&self, name: &str) -> Result<ToolInfo, InstallerError> {
+        NpmToolInstaller::update_tool(self, name)
+            .map(|info| info.into())
+            .map_err(|e| match e {
+                NpmToolError::NpmNotFound => InstallerError::NotFound("npm".to_string()),
+                NpmToolError::InstallFailed(msg) => InstallerError::InstallFailed(msg),
+                NpmToolError::CommandFailed(msg) => InstallerError::CommandFailed(msg),
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,5 +265,19 @@ mod tests {
         let installer = NpmToolInstaller::new(None);
         // 只测试创建
         assert!(installer.node_path.is_none());
+    }
+
+    #[test]
+    fn test_tool_info_conversion() {
+        let npm_info = NpmToolInfo {
+            name: "test".to_string(),
+            version: Some("1.0.0".to_string()),
+            installed: true,
+        };
+
+        let tool_info: ToolInfo = npm_info.into();
+        assert_eq!(tool_info.name, "test");
+        assert_eq!(tool_info.version, Some("1.0.0".to_string()));
+        assert!(tool_info.installed);
     }
 }

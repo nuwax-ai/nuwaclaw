@@ -2,11 +2,13 @@
 //!
 //! 检测系统中已安装的 Node.js，支持自动下载安装
 
+use semver::Version;
 use std::path::PathBuf;
 use std::process::Command;
-use semver::Version;
 use thiserror::Error;
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
+
+use super::detector::{DependencyDetector, DetectionResult, DetectorError};
 
 /// Node.js 最低要求版本
 pub const MIN_NODE_VERSION: &str = "18.0.0";
@@ -68,40 +70,6 @@ impl NodeDetector {
         Self {
             min_version: Version::parse(MIN_NODE_VERSION).unwrap(),
         }
-    }
-
-    /// 检测 Node.js
-    pub fn detect(&self) -> Result<NodeInfo, NodeError> {
-        // 1. 检测 PATH 中的 node
-        if let Ok(info) = self.detect_from_path() {
-            if self.check_version(&info.version)? {
-                return Ok(info);
-            }
-        }
-
-        // 2. 检测平台特定路径
-        #[cfg(target_os = "macos")]
-        if let Ok(info) = self.detect_macos_paths() {
-            if self.check_version(&info.version)? {
-                return Ok(info);
-            }
-        }
-
-        #[cfg(target_os = "windows")]
-        if let Ok(info) = self.detect_windows_paths() {
-            if self.check_version(&info.version)? {
-                return Ok(info);
-            }
-        }
-
-        // 3. 检测客户端目录
-        if let Ok(info) = self.detect_local() {
-            if self.check_version(&info.version)? {
-                return Ok(info);
-            }
-        }
-
-        Err(NodeError::NotFound)
     }
 
     /// 从 PATH 检测
@@ -247,7 +215,9 @@ impl NodeDetector {
             .map_err(|e| NodeError::CommandFailed(e.to_string()))?;
 
         if !output.status.success() {
-            return Err(NodeError::CommandFailed("node --version failed".to_string()));
+            return Err(NodeError::CommandFailed(
+                "node --version failed".to_string(),
+            ));
         }
 
         let version = String::from_utf8_lossy(&output.stdout)
@@ -260,8 +230,8 @@ impl NodeDetector {
 
     /// 检查版本是否满足要求
     fn check_version(&self, version: &str) -> Result<bool, NodeError> {
-        let parsed = Version::parse(version)
-            .map_err(|_| NodeError::ParseError(version.to_string()))?;
+        let parsed =
+            Version::parse(version).map_err(|_| NodeError::ParseError(version.to_string()))?;
 
         if parsed < self.min_version {
             warn!(
@@ -291,6 +261,94 @@ impl NodeDetector {
         {
             data_dir.join("node.exe")
         }
+    }
+}
+
+// ============================================================================
+// DependencyDetector trait implementation
+// ============================================================================
+
+impl DependencyDetector for NodeDetector {
+    fn name(&self) -> &str {
+        "nodejs"
+    }
+
+    fn display_name(&self) -> &str {
+        "Node.js"
+    }
+
+    fn detect(&self) -> Result<DetectionResult, DetectorError> {
+        match self.detect_node() {
+            Ok(info) => {
+                let source = match info.source {
+                    NodeSource::System => "system",
+                    NodeSource::Local => "local",
+                };
+                Ok(DetectionResult::found(info.version, info.path, source))
+            }
+            // NotFound 不是错误，而是"未找到"的正常结果
+            Err(NodeError::NotFound) => Ok(DetectionResult::not_found()),
+            // 版本过低是检测器层面的错误
+            Err(NodeError::VersionTooLow { min, actual }) => {
+                Err(DetectorError::VersionTooLow { min, actual })
+            }
+            // 命令执行和解析错误直接转换
+            Err(NodeError::CommandFailed(msg)) => Err(DetectorError::CommandFailed(msg)),
+            Err(NodeError::ParseError(msg)) => Err(DetectorError::ParseError(msg)),
+            // 其他错误（DownloadFailed, InstallFailed, IoError）统一转为 IoError
+            // 这些错误在检测阶段不应该发生，如果发生则视为 IO 问题
+            Err(e) => Err(DetectorError::IoError(e.to_string())),
+        }
+    }
+
+    fn is_required(&self) -> bool {
+        true
+    }
+
+    fn description(&self) -> &str {
+        "JavaScript 运行时"
+    }
+}
+
+impl NodeDetector {
+    /// 内部检测方法，返回 NodeInfo（供 trait 实现使用）
+    fn detect_node(&self) -> Result<NodeInfo, NodeError> {
+        // 复用原有的 detect 逻辑，但重命名以避免与 trait 方法冲突
+        // 1. 检测 PATH 中的 node
+        if let Ok(info) = self.detect_from_path() {
+            if self.check_version(&info.version)? {
+                return Ok(info);
+            }
+        }
+
+        // 2. 检测平台特定路径
+        #[cfg(target_os = "macos")]
+        if let Ok(info) = self.detect_macos_paths() {
+            if self.check_version(&info.version)? {
+                return Ok(info);
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        if let Ok(info) = self.detect_windows_paths() {
+            if self.check_version(&info.version)? {
+                return Ok(info);
+            }
+        }
+
+        // 3. 检测客户端目录
+        if let Ok(info) = self.detect_local() {
+            if self.check_version(&info.version)? {
+                return Ok(info);
+            }
+        }
+
+        Err(NodeError::NotFound)
+    }
+
+    /// 获取 NodeInfo（便捷方法，供需要完整信息的调用方使用）
+    pub fn detect_with_info(&self) -> Result<NodeInfo, NodeError> {
+        self.detect_node()
     }
 }
 
@@ -345,8 +403,8 @@ impl NodeInstaller {
         &self,
         progress_callback: impl Fn(f32, &str),
     ) -> Result<NodeInfo, NodeError> {
-        use tokio::io::AsyncWriteExt;
         use futures::StreamExt;
+        use tokio::io::AsyncWriteExt;
 
         let url = self.get_download_url();
         info!("Downloading Node.js from: {}", url);
@@ -382,7 +440,10 @@ impl NodeInstaller {
 
             if total_size > 0 {
                 let progress = (downloaded as f32 / total_size as f32) * 0.5;
-                progress_callback(progress, &format!("下载中... {}%", (progress * 200.0) as u32));
+                progress_callback(
+                    progress,
+                    &format!("下载中... {}%", (progress * 200.0) as u32),
+                );
             }
         }
 

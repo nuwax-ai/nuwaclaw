@@ -2,6 +2,8 @@
 //!
 //! 主窗口的根布局容器，包含标题栏、Tab 面板、内容区、状态栏
 
+use std::sync::Arc;
+
 use gpui::*;
 use gpui_component::{
     ActiveTheme, Icon, IconName, Selectable, Sizable, button::Button, h_flex, tab::Tab,
@@ -16,6 +18,7 @@ use crate::components::permissions::PermissionsView;
 use crate::components::remote_desktop::RemoteDesktopView;
 use crate::components::settings::SettingsView;
 use crate::components::status_bar::StatusBarView;
+use crate::viewmodels::DependencyViewModel;
 
 /// Tab 页面类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -124,11 +127,14 @@ impl EventEmitter<RootEvent> for RootView {}
 impl RootView {
     /// 创建新的根组件
     pub fn new(app_state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        // 创建 ViewModel
+        let dependency_view_model = Arc::new(DependencyViewModel::with_default_manager());
+
         // 创建子视图
         let status_bar = cx.new(|_cx| StatusBarView::new());
         let client_info_view = cx.new(|_cx| ClientInfoView::new());
         let settings_view = cx.new(|_cx| SettingsView::new());
-        let dependency_view = cx.new(|_cx| DependencyManagerView::new());
+        let dependency_view = cx.new(|_cx| DependencyManagerView::new(dependency_view_model));
         let permissions_view = cx.new(|cx| PermissionsView::new(cx));
         #[cfg(feature = "remote-desktop")]
         let remote_desktop_view = cx.new(|cx| RemoteDesktopView::new(window, cx));

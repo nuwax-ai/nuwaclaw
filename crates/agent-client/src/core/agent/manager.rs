@@ -1,230 +1,20 @@
-//! Agent 管理模块
-//!
-//! 管理 Agent 任务的生命周期，包括：
-//! - 任务创建、执行、取消
-//! - 进度回传
-//! - 消息转换（BusinessChannel <-> AgentTask）
-//! - 并发任务管理（使用 DashMap）
+//! Agent 管理器核心逻辑
 
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 use crate::core::business_channel::{BusinessChannel, BusinessMessage, MessageType};
 
-/// Agent 错误
-#[derive(Error, Debug)]
-pub enum AgentError {
-    #[error("任务不存在: {0}")]
-    TaskNotFound(String),
-    #[error("任务已在运行: {0}")]
-    TaskAlreadyRunning(String),
-    #[error("任务执行失败: {0}")]
-    ExecutionFailed(String),
-    #[error("任务已被取消")]
-    TaskCancelled,
-    #[error("消息转换失败: {0}")]
-    ConversionFailed(String),
-    #[error("通道错误: {0}")]
-    ChannelError(String),
-    #[error("达到最大并发任务数: {0}")]
-    MaxConcurrencyReached(usize),
-}
-
-/// 任务状态
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TaskStatus {
-    /// 等待执行
-    Pending,
-    /// 正在执行
-    Running,
-    /// 已完成
-    Completed,
-    /// 执行失败
-    Failed,
-    /// 已取消
-    Cancelled,
-}
-
-impl TaskStatus {
-    /// 是否为终态
-    pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
-    }
-}
-
-/// 任务优先级
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum TaskPriority {
-    Low = 0,
-    Normal = 1,
-    High = 2,
-    Critical = 3,
-}
-
-impl Default for TaskPriority {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
-
-/// Agent 任务
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentTask {
-    /// 任务 ID
-    pub id: String,
-    /// 任务类型
-    pub task_type: String,
-    /// 任务负载（JSON 序列化的参数）
-    pub payload: Vec<u8>,
-    /// 优先级
-    pub priority: TaskPriority,
-    /// 来源（admin 的 ID）
-    pub source_id: String,
-    /// 创建时间
-    pub created_at: DateTime<Utc>,
-    /// 超时时间（毫秒）
-    pub timeout_ms: Option<u64>,
-}
-
-impl AgentTask {
-    /// 创建新任务
-    pub fn new(task_type: impl Into<String>, payload: Vec<u8>, source_id: impl Into<String>) -> Self {
-        Self {
-            id: uuid::Uuid::new_v4().to_string(),
-            task_type: task_type.into(),
-            payload,
-            priority: TaskPriority::default(),
-            source_id: source_id.into(),
-            created_at: Utc::now(),
-            timeout_ms: None,
-        }
-    }
-
-    /// 设置优先级
-    pub fn with_priority(mut self, priority: TaskPriority) -> Self {
-        self.priority = priority;
-        self
-    }
-
-    /// 设置超时
-    pub fn with_timeout(mut self, timeout_ms: u64) -> Self {
-        self.timeout_ms = Some(timeout_ms);
-        self
-    }
-
-    /// 从 BusinessMessage 转换
-    pub fn from_business_message(message: &BusinessMessage) -> Result<Self, AgentError> {
-        serde_json::from_slice(&message.payload)
-            .map_err(|e| AgentError::ConversionFailed(format!("反序列化 AgentTask 失败: {}", e)))
-    }
-
-    /// 转换为 BusinessMessage
-    pub fn to_business_message(&self) -> Result<BusinessMessage, AgentError> {
-        let payload = serde_json::to_vec(self)
-            .map_err(|e| AgentError::ConversionFailed(format!("序列化 AgentTask 失败: {}", e)))?;
-        let mut msg = BusinessMessage::new(MessageType::AgentTaskRequest, payload);
-        msg.target_id = Some(self.source_id.clone());
-        Ok(msg)
-    }
-}
-
-/// 任务进度
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskProgress {
-    /// 任务 ID
-    pub task_id: String,
-    /// 进度百分比 (0-100)
-    pub percentage: u8,
-    /// 进度描述
-    pub message: String,
-    /// 阶段名称
-    pub stage: Option<String>,
-    /// 时间戳
-    pub timestamp: DateTime<Utc>,
-}
-
-impl TaskProgress {
-    /// 创建进度更新
-    pub fn new(task_id: impl Into<String>, percentage: u8, message: impl Into<String>) -> Self {
-        Self {
-            task_id: task_id.into(),
-            percentage: percentage.min(100),
-            message: message.into(),
-            stage: None,
-            timestamp: Utc::now(),
-        }
-    }
-
-    /// 设置阶段
-    pub fn with_stage(mut self, stage: impl Into<String>) -> Self {
-        self.stage = Some(stage.into());
-        self
-    }
-
-    /// 转换为 BusinessMessage
-    pub fn to_business_message(&self) -> Result<BusinessMessage, AgentError> {
-        let payload = serde_json::to_vec(self)
-            .map_err(|e| AgentError::ConversionFailed(format!("序列化进度失败: {}", e)))?;
-        Ok(BusinessMessage::new(MessageType::TaskProgress, payload))
-    }
-}
-
-/// 任务结果
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskResult {
-    /// 任务 ID
-    pub task_id: String,
-    /// 是否成功
-    pub success: bool,
-    /// 结果数据
-    pub data: Option<Vec<u8>>,
-    /// 错误信息
-    pub error: Option<String>,
-    /// 完成时间
-    pub completed_at: DateTime<Utc>,
-    /// 执行耗时（毫秒）
-    pub duration_ms: u64,
-}
-
-impl TaskResult {
-    /// 创建成功结果
-    pub fn success(task_id: impl Into<String>, data: Option<Vec<u8>>, duration_ms: u64) -> Self {
-        Self {
-            task_id: task_id.into(),
-            success: true,
-            data,
-            error: None,
-            completed_at: Utc::now(),
-            duration_ms,
-        }
-    }
-
-    /// 创建失败结果
-    pub fn failure(task_id: impl Into<String>, error: impl Into<String>, duration_ms: u64) -> Self {
-        Self {
-            task_id: task_id.into(),
-            success: false,
-            data: None,
-            error: Some(error.into()),
-            completed_at: Utc::now(),
-            duration_ms,
-        }
-    }
-
-    /// 转换为 BusinessMessage
-    pub fn to_business_message(&self) -> Result<BusinessMessage, AgentError> {
-        let payload = serde_json::to_vec(self)
-            .map_err(|e| AgentError::ConversionFailed(format!("序列化结果失败: {}", e)))?;
-        Ok(BusinessMessage::new(MessageType::AgentTaskResponse, payload))
-    }
-}
+use super::converter::CancelRequest;
+use super::error::AgentError;
+use super::event::{AgentEvent, AgentManagerState};
+use super::executor::{DefaultTaskExecutor, TaskExecutor};
+use super::task::{AgentTask, TaskProgress, TaskResult, TaskStatus};
 
 /// 任务运行时信息（内部跟踪）
 struct TaskRuntime {
@@ -240,92 +30,6 @@ struct TaskRuntime {
     started_at: Option<DateTime<Utc>>,
     /// 结果
     result: Option<TaskResult>,
-}
-
-/// Agent 事件
-#[derive(Debug, Clone)]
-pub enum AgentEvent {
-    /// 任务已创建
-    TaskCreated(String),
-    /// 任务已开始
-    TaskStarted(String),
-    /// 任务进度更新
-    TaskProgress(TaskProgress),
-    /// 任务已完成
-    TaskCompleted(TaskResult),
-    /// 任务已取消
-    TaskCancelled(String),
-    /// Agent 状态变更
-    StateChanged(AgentManagerState),
-}
-
-/// AgentManager 状态
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentManagerState {
-    /// 空闲（无活跃任务）
-    Idle,
-    /// 忙碌（有活跃任务）
-    Busy(usize),
-    /// 停止
-    Stopped,
-}
-
-/// Agent 任务执行器 trait
-///
-/// 实现此 trait 以支持不同的执行后端：
-/// - 本地子进程执行
-/// - gRPC 连接到 agent_runner
-/// - 模拟执行（测试用）
-#[async_trait::async_trait]
-pub trait TaskExecutor: Send + Sync {
-    /// 执行任务
-    async fn execute(
-        &self,
-        task: &AgentTask,
-        progress_tx: mpsc::Sender<TaskProgress>,
-        cancel_token: CancellationToken,
-    ) -> Result<TaskResult, AgentError>;
-}
-
-/// 默认任务执行器（模拟执行，用于开发/测试）
-pub struct DefaultTaskExecutor;
-
-#[async_trait::async_trait]
-impl TaskExecutor for DefaultTaskExecutor {
-    async fn execute(
-        &self,
-        task: &AgentTask,
-        progress_tx: mpsc::Sender<TaskProgress>,
-        cancel_token: CancellationToken,
-    ) -> Result<TaskResult, AgentError> {
-        info!("Executing task: {} (type: {})", task.id, task.task_type);
-        let start = std::time::Instant::now();
-
-        // 模拟分阶段执行
-        let stages = ["初始化", "处理中", "完成"];
-        for (i, stage) in stages.iter().enumerate() {
-            // 检查取消
-            if cancel_token.is_cancelled() {
-                return Err(AgentError::TaskCancelled);
-            }
-
-            let percentage = ((i + 1) * 100 / stages.len()) as u8;
-            let progress = TaskProgress::new(&task.id, percentage, format!("阶段: {}", stage))
-                .with_stage(stage.to_string());
-            let _ = progress_tx.send(progress).await;
-
-            // 模拟执行时间
-            tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
-                _ = cancel_token.cancelled() => {
-                    return Err(AgentError::TaskCancelled);
-                }
-            }
-        }
-
-        let duration_ms = start.elapsed().as_millis() as u64;
-        Ok(TaskResult::success(&task.id, None, duration_ms))
-    }
 }
 
 /// Agent 管理器
@@ -644,62 +348,10 @@ impl Default for AgentManager {
     }
 }
 
-/// 取消请求
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CancelRequest {
-    pub task_id: String,
-}
-
-/// 消息转换工具
-pub struct MessageConverter;
-
-impl MessageConverter {
-    /// 将 AgentTask 转换为 BusinessMessage
-    pub fn task_to_message(task: &AgentTask) -> Result<BusinessMessage, AgentError> {
-        task.to_business_message()
-    }
-
-    /// 将 BusinessMessage 转换为 AgentTask
-    pub fn message_to_task(message: &BusinessMessage) -> Result<AgentTask, AgentError> {
-        AgentTask::from_business_message(message)
-    }
-
-    /// 将 TaskProgress 转换为 BusinessMessage
-    pub fn progress_to_message(progress: &TaskProgress) -> Result<BusinessMessage, AgentError> {
-        progress.to_business_message()
-    }
-
-    /// 将 TaskResult 转换为 BusinessMessage
-    pub fn result_to_message(result: &TaskResult) -> Result<BusinessMessage, AgentError> {
-        result.to_business_message()
-    }
-
-    /// 从 BusinessMessage 解析 TaskProgress
-    pub fn message_to_progress(message: &BusinessMessage) -> Result<TaskProgress, AgentError> {
-        serde_json::from_slice(&message.payload)
-            .map_err(|e| AgentError::ConversionFailed(format!("解析进度失败: {}", e)))
-    }
-
-    /// 从 BusinessMessage 解析 TaskResult
-    pub fn message_to_result(message: &BusinessMessage) -> Result<TaskResult, AgentError> {
-        serde_json::from_slice(&message.payload)
-            .map_err(|e| AgentError::ConversionFailed(format!("解析结果失败: {}", e)))
-    }
-
-    /// 创建取消请求消息
-    pub fn cancel_to_message(task_id: &str) -> Result<BusinessMessage, AgentError> {
-        let req = CancelRequest {
-            task_id: task_id.to_string(),
-        };
-        let payload = serde_json::to_vec(&req)
-            .map_err(|e| AgentError::ConversionFailed(e.to_string()))?;
-        Ok(BusinessMessage::new(MessageType::TaskCancel, payload))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::agent::task::TaskPriority;
 
     #[test]
     fn test_task_creation() {
@@ -772,6 +424,7 @@ mod tests {
 
     #[test]
     fn test_message_converter_task_roundtrip() {
+        use crate::core::agent::converter::MessageConverter;
         let task = AgentTask::new("test", vec![42], "admin");
         let msg = MessageConverter::task_to_message(&task).unwrap();
         assert_eq!(msg.message_type, MessageType::AgentTaskRequest);
@@ -782,6 +435,7 @@ mod tests {
 
     #[test]
     fn test_message_converter_progress() {
+        use crate::core::agent::converter::MessageConverter;
         let progress = TaskProgress::new("task-1", 75, "Almost done");
         let msg = MessageConverter::progress_to_message(&progress).unwrap();
         assert_eq!(msg.message_type, MessageType::TaskProgress);
@@ -792,6 +446,7 @@ mod tests {
 
     #[test]
     fn test_message_converter_result() {
+        use crate::core::agent::converter::MessageConverter;
         let result = TaskResult::success("task-1", None, 100);
         let msg = MessageConverter::result_to_message(&result).unwrap();
         assert_eq!(msg.message_type, MessageType::AgentTaskResponse);
@@ -802,6 +457,8 @@ mod tests {
 
     #[test]
     fn test_message_converter_cancel() {
+        use crate::core::agent::converter::MessageConverter;
+        use crate::core::agent::converter::CancelRequest;
         let msg = MessageConverter::cancel_to_message("task-123").unwrap();
         assert_eq!(msg.message_type, MessageType::TaskCancel);
         let req: CancelRequest = serde_json::from_slice(&msg.payload).unwrap();

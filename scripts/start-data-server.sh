@@ -60,4 +60,4 @@ echo "Press Ctrl+C to stop"
 echo "========================================"
 echo ""
 
-RUST_LOG="${RUST_LOG:-info}" cargo run --package data-server -- --config "$CONFIG_FILE"
+RUST_LOG="${RUST_LOG:-info}" DATABASE_URL="${DATABASE_URL:-sqlite://db_v2.sqlite3}" cargo run --package data-server -- --config "$CONFIG_FILE"

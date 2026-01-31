@@ -23,8 +23,7 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 # rustdesk-server 封装
-# hbbs = { path = "../../vendors/rustdesk-server/hbbs" }
-# hbbr = { path = "../../vendors/rustdesk-server/hbbr" }
+hbbs = { package = "hbbs", path = "../../vendors/rustdesk-server" }
 
 [dev-dependencies]
 tempfile = "3.10"
