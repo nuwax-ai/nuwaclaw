@@ -153,16 +153,18 @@ impl SettingsView {
         self.test_result = None;
         cx.notify();
 
-        // 模拟测试连接（实际实现应该进行真正的网络测试）
+        // 测试连接模拟
+        // 注意：cx.spawn 的闭包内不能直接使用 tokio::time::sleep
+        // 这里使用简单的模拟延迟，实际应该使用网络请求
         cx.spawn(async move |view, cx| {
-            // 模拟网络延迟
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            // 模拟网络延迟（使用同步延时，实际网络测试应该用真实的 TCP 连接）
+            std::thread::sleep(std::time::Duration::from_millis(500));
 
             cx.update(|cx| {
                 if let Some(view) = view.upgrade() {
                     view.update(cx, |view, cx| {
                         view.is_testing = false;
-                        // TODO: 实际测试连接逻辑
+                        // TODO: 实际测试连接逻辑（使用 TCP 连接测试服务器可达性）
                         view.test_result = Some((true, "连接测试成功".to_string()));
                         cx.notify();
                     });
@@ -176,6 +178,11 @@ impl SettingsView {
     fn switch_page(&mut self, page: SettingsPage, cx: &mut Context<Self>) {
         self.current_page = page;
         cx.notify();
+    }
+
+    /// 设置当前页面（公开方法，用于外部导航）
+    pub fn set_active_page(&mut self, page: SettingsPage, cx: &mut Context<Self>) {
+        self.switch_page(page, cx);
     }
 
     /// 渲染侧边导航

@@ -11,12 +11,12 @@ use gpui_component::{
 };
 
 use crate::app::{AppEvent, AppState};
-use crate::components::client_info::ClientInfoView;
+use crate::components::client_info::{ClientInfoEvent, ClientInfoView};
 use crate::components::dependency_manager::DependencyManagerView;
 use crate::components::permissions::PermissionsView;
 #[cfg(feature = "remote-desktop")]
 use crate::components::remote_desktop::RemoteDesktopView;
-use crate::components::settings::SettingsView;
+use crate::components::settings::{SettingsPage, SettingsView};
 use crate::components::status_bar::StatusBarView;
 use crate::viewmodels::{ClientInfoViewModel, DependencyViewModel, PermissionsViewModel, SettingsViewModel, StatusBarViewModel, UIConnectionMode, UIConnectionState};
 
@@ -136,7 +136,7 @@ impl RootView {
 
         // 创建子视图
         let status_bar = cx.new(|_cx| StatusBarView::new(status_bar_view_model.clone()));
-        let client_info_view = cx.new(|_cx| ClientInfoView::new(client_info_view_model.clone()));
+        let client_info_view = cx.new(|cx| ClientInfoView::new(client_info_view_model.clone(), cx));
         let settings_view = cx.new(|_cx| SettingsView::new());
         let dependency_view = cx.new(|_cx| DependencyManagerView::new(dependency_view_model));
         let permissions_view = cx.new(|cx| PermissionsView::new(permissions_view_model, cx));
@@ -146,35 +146,49 @@ impl RootView {
         // 订阅应用状态事件
         let client_info_for_sub = client_info_view.clone();
         let status_bar_for_sub = status_bar.clone();
-        let subscriptions = vec![cx.subscribe_in(&app_state, window, {
-            move |_this, state, event: &AppEvent, _window, cx| match event {
-                AppEvent::ConnectionStateChanged => {
-                    // 更新 ClientInfoView 的客户端 ID
-                    let state_ref = state.read(cx);
-                    let client_id = state_ref.client_id.clone();
-                    let is_connected = state_ref.is_connected;
-                    client_info_for_sub.update(cx, |view, cx| {
-                        view.set_client_id(client_id, cx);
-                    });
-                    // 更新 StatusBar 连接状态
-                    status_bar_for_sub.update(cx, |view, cx| {
-                        if is_connected {
-                            view.set_connection_state(
-                                UIConnectionState::Connected(UIConnectionMode::P2P, 0),
-                                cx,
-                            );
-                        } else {
-                            view.set_connection_state(UIConnectionState::Disconnected, cx);
-                        }
-                    });
-                    cx.notify();
+        let settings_view_for_sub = settings_view.clone();
+        let subscriptions = vec![
+            cx.subscribe_in(&app_state, window, {
+                move |_this, state, event: &AppEvent, _window, cx| match event {
+                    AppEvent::ConnectionStateChanged => {
+                        // 更新 ClientInfoView 的客户端 ID
+                        let state_ref = state.read(cx);
+                        let client_id = state_ref.client_id.clone();
+                        let is_connected = state_ref.is_connected;
+                        let _ = client_info_for_sub.update(cx, |view, cx| {
+                            view.set_client_id(client_id, cx);
+                        });
+                        // 更新 StatusBar 连接状态
+                        let _ = status_bar_for_sub.update(cx, |view, cx| {
+                            if is_connected {
+                                view.set_connection_state(
+                                    UIConnectionState::Connected(UIConnectionMode::P2P, 0),
+                                    cx,
+                                );
+                            } else {
+                                view.set_connection_state(UIConnectionState::Disconnected, cx);
+                            }
+                        });
+                        cx.notify();
+                    }
+                    AppEvent::TaskStateChanged => {
+                        cx.notify();
+                    }
+                    _ => {}
                 }
-                AppEvent::TaskStateChanged => {
-                    cx.notify();
+            }),
+            // 订阅 ClientInfoView 事件
+            cx.subscribe_in(&client_info_view, window, {
+                move |_this, _state, event: &ClientInfoEvent, _window, cx| match event {
+                    ClientInfoEvent::NavigateToSecurity => {
+                        // 切换到设置页面并导航到安全子页面
+                        let _ = settings_view_for_sub.update(cx, |view, cx| {
+                            view.set_active_page(SettingsPage::Security, cx);
+                        });
+                    }
                 }
-                _ => {}
-            }
-        })];
+            }),
+        ];
 
         Self {
             app_state,
@@ -199,37 +213,18 @@ impl RootView {
         }
     }
 
-    /// 渲染标题栏
-    fn render_title_bar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-
-        h_flex()
-            .w_full()
-            .h(px(48.0))
-            .px_4()
-            .items_center()
-            .justify_between()
-            .bg(theme.title_bar)
-            .border_b_1()
-            .border_color(theme.border)
-            .child(
-                // 左侧：Logo 和标题
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(Icon::new(IconName::Bot).text_color(theme.accent))
-                    .child(
-                        div()
-                            .text_base()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme.foreground)
-                            .child("NuWax Agent"),
-                    ),
-            )
-            .child(
-                // 右侧：窗口控制按钮（可选）
-                h_flex().gap_1(),
-            )
+    /// 切换到设置 Tab 的指定子页面
+    pub fn switch_to_settings_page(&mut self, page: SettingsPage, cx: &mut Context<Self>) {
+        // 先切换到设置 Tab
+        if self.active_tab != TabPage::Settings {
+            self.active_tab = TabPage::Settings;
+        }
+        // 切换到指定子页面
+        self.settings_view.update(cx, |view, cx| {
+            view.set_active_page(page, cx);
+        });
+        cx.emit(RootEvent::TabChanged(TabPage::Settings));
+        cx.notify();
     }
 
     /// 渲染 Tab 栏
@@ -411,7 +406,6 @@ impl Render for RootView {
         v_flex()
             .size_full()
             .bg(theme.background)
-            .child(self.render_title_bar(window, cx))
             .child(self.render_tab_bar(window, cx))
             .child(self.render_content(window, cx))
             .child(self.status_bar.clone())
