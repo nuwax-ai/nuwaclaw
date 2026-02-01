@@ -3,10 +3,10 @@
 use std::sync::Arc;
 
 use gpui::*;
-use gpui_component::{tag::Tag, ActiveTheme, Icon, IconName, Sizable, h_flex};
+use gpui_component::{tag::Tag, ActiveTheme, h_flex};
 
 use crate::viewmodels::{
-    StatusBarAction, StatusBarViewModel, UIAgentState, UIConnectionMode, UIConnectionState,
+    StatusBarViewModel, UIAgentState, UIConnectionState,
 };
 
 /// 状态栏视图组件
@@ -27,7 +27,7 @@ impl StatusBarView {
         let state_for_task = state;
         cx.spawn(async move |view, cx| {
             vm.set_connection_state(state_for_task).await;
-            cx.update(|cx| {
+            let _ = cx.update(|cx| {
                 if let Some(view) = view.upgrade() {
                     view.update(cx, |_view, cx| {
                         cx.notify();
@@ -44,7 +44,7 @@ impl StatusBarView {
         let state_for_task = state;
         cx.spawn(async move |view, cx| {
             vm.set_agent_state(state_for_task).await;
-            cx.update(|cx| {
+            let _ = cx.update(|cx| {
                 if let Some(view) = view.upgrade() {
                     view.update(cx, |_view, cx| {
                         cx.notify();
@@ -61,7 +61,7 @@ impl StatusBarView {
         let ok_for_task = ok;
         cx.spawn(async move |view, cx| {
             vm.set_dependency_ok(ok_for_task).await;
-            cx.update(|cx| {
+            let _ = cx.update(|cx| {
                 if let Some(view) = view.upgrade() {
                     view.update(cx, |_view, cx| {
                         cx.notify();
@@ -73,7 +73,7 @@ impl StatusBarView {
     }
 
     /// 渲染连接状态指示器
-    fn render_connection_indicator(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_connection_indicator(&self, _cx: &mut Context<Self>) -> impl IntoElement {
         let state = futures::executor::block_on(self.view_model.connection_state());
         let (tag, text): (Tag, String) = match &state {
             UIConnectionState::Disconnected => (Tag::danger(), "未连接".to_string()),
@@ -92,7 +92,7 @@ impl StatusBarView {
     }
 
     /// 渲染 Agent 状态指示器
-    fn render_agent_indicator(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_agent_indicator(&self, _cx: &mut Context<Self>) -> impl IntoElement {
         let state = futures::executor::block_on(self.view_model.agent_state());
 
         // 根据状态选择 Tag 变体
@@ -110,7 +110,7 @@ impl StatusBarView {
     }
 
     /// 渲染依赖状态指示器
-    fn render_dependency_indicator(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_dependency_indicator(&self, _cx: &mut Context<Self>) -> impl IntoElement {
         let dependency_ok = futures::executor::block_on(self.view_model.dependency_ok());
 
         let tag: Tag = if dependency_ok { Tag::success() } else { Tag::warning() };

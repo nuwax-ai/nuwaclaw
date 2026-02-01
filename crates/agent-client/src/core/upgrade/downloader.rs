@@ -19,7 +19,7 @@ impl Downloader {
 
         let file_name = version_info.download_url
             .split('/')
-            .last()
+            .next_back()
             .unwrap_or("update-package");
         let file_path = temp_dir.join(file_name);
 
@@ -47,7 +47,7 @@ impl Downloader {
             }
 
             info!("Download complete: {}", file_path.display());
-            return Ok(file_path);
+            Ok(file_path)
         }
 
         #[cfg(not(feature = "dependency-management"))]

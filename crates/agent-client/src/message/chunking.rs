@@ -95,7 +95,7 @@ impl MessageChunker {
         }
 
         let total_size = data.len();
-        let total_chunks = ((total_size + self.chunk_size - 1) / self.chunk_size) as u32;
+        let total_chunks = total_size.div_ceil(self.chunk_size) as u32;
 
         debug!(
             "Chunking message {} ({} bytes) into {} chunks",

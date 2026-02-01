@@ -6,10 +6,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::broadcast;
 use tracing::{debug, info};
 
-use crate::core::business_channel::{BusinessMessage, MessageType};
 
 /// 文件传输错误
 #[derive(Error, Debug)]

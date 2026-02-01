@@ -21,9 +21,11 @@ pub enum I18nError {
 
 /// 支持的语言
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum Language {
     /// 简体中文
     #[serde(rename = "zh")]
+    #[default]
     Chinese,
     /// 英文
     #[serde(rename = "en")]
@@ -62,11 +64,6 @@ impl Language {
     }
 }
 
-impl Default for Language {
-    fn default() -> Self {
-        Self::Chinese
-    }
-}
 
 /// 翻译条目
 type Translations = HashMap<String, String>;

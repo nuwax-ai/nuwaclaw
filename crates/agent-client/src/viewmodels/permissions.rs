@@ -127,6 +127,7 @@ impl PermissionsSummary {
 
 /// 权限管理 ViewModel 状态
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct PermissionsViewModelState {
     /// 权限项列表
     pub items: Vec<UIPermissionItem>,
@@ -136,15 +137,6 @@ pub struct PermissionsViewModelState {
     pub summary: PermissionsSummary,
 }
 
-impl Default for PermissionsViewModelState {
-    fn default() -> Self {
-        Self {
-            items: Vec::new(),
-            is_refreshing: false,
-            summary: PermissionsSummary::default(),
-        }
-    }
-}
 
 /// 权限管理 ViewModel
 ///

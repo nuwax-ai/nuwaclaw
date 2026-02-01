@@ -112,7 +112,7 @@ impl DependencyManagerView {
         let name_for_display = item.display_name.clone();
 
         // 提取需要的数据为 owned 值，避免生命周期问题
-        let status = item.status.clone();
+        let _status = item.status.clone();
         let version = item.version.clone();
         let source = item.source.clone();
         let error_msg = item.status.error_message().map(|s| s.to_string());
@@ -214,7 +214,7 @@ impl DependencyManagerView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
-        Self::render_dependency_item_inner(item, &theme)
+        Self::render_dependency_item_inner(item, theme)
     }
 }
 

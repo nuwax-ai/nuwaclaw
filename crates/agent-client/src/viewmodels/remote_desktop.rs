@@ -35,9 +35,11 @@ macro_rules! not_enabled {
 
 /// 远程桌面连接信息（UI 友好格式）
 #[derive(Debug, Clone, Display)]
+#[derive(Default)]
 pub enum RemoteDesktopUIState {
     /// 未连接
     #[display("未连接")]
+    #[default]
     Disconnected,
 
     /// 连接中
@@ -67,11 +69,6 @@ pub enum RemoteDesktopUIState {
     },
 }
 
-impl Default for RemoteDesktopUIState {
-    fn default() -> Self {
-        Self::Disconnected
-    }
-}
 
 impl RemoteDesktopUIState {
     /// 检查是否已连接

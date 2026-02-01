@@ -6,12 +6,14 @@ use serde::{Deserialize, Serialize};
 
 /// 主题模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ThemeMode {
     /// 浅色主题
     Light,
     /// 深色主题
     Dark,
     /// 跟随系统
+    #[default]
     System,
 }
 
@@ -49,11 +51,6 @@ impl ThemeMode {
     }
 }
 
-impl Default for ThemeMode {
-    fn default() -> Self {
-        Self::System
-    }
-}
 
 /// 主题管理器
 pub struct ThemeManager {

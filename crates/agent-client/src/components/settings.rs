@@ -7,7 +7,7 @@ use gpui::*;
 use gpui_component::{
     button::{Button, ButtonVariants},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{Input, InputState},
     radio::{Radio, RadioGroup},
     v_flex, ActiveTheme, Disableable, Icon, IconName, Selectable, Sizable, Theme, ThemeMode,
 };
@@ -473,7 +473,7 @@ impl SettingsView {
     /// 渲染外观设置页
     fn render_appearance_page(
         &mut self,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();

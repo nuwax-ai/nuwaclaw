@@ -134,7 +134,7 @@ impl NpmToolInstaller {
         // 解析版本，格式如：└── tool@1.0.0
         for line in stdout.lines() {
             if line.contains(tool_name) {
-                if let Some(version_part) = line.split('@').last() {
+                if let Some(version_part) = line.split('@').next_back() {
                     return Ok(version_part.trim().to_string());
                 }
             }

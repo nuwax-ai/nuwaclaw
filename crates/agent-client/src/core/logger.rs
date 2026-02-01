@@ -23,9 +23,11 @@ pub enum LogError {
 
 /// 日志级别
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum LogLevel {
     Trace,
     Debug,
+    #[default]
     Info,
     Warn,
     Error,
@@ -43,11 +45,6 @@ impl LogLevel {
     }
 }
 
-impl Default for LogLevel {
-    fn default() -> Self {
-        Self::Info
-    }
-}
 
 /// 日志配置
 pub struct LogConfig {
@@ -187,7 +184,7 @@ impl Logger {
         let log_files: Vec<_> = std::fs::read_dir(&log_dir)?
             .filter_map(|entry| entry.ok())
             .filter(|entry| {
-                entry.path().extension().map_or(false, |ext| ext == "log")
+                entry.path().extension().is_some_and(|ext| ext == "log")
             })
             .collect();
 
@@ -237,7 +234,7 @@ impl Logger {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().map_or(false, |ext| ext == "log") {
+            if path.extension().is_some_and(|ext| ext == "log") {
                 if let Ok(metadata) = entry.metadata() {
                     if let Ok(modified) = metadata.modified() {
                         let modified: chrono::DateTime<chrono::Utc> = modified.into();
@@ -266,7 +263,7 @@ impl Logger {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().map_or(false, |ext| ext == "log") {
+            if path.extension().is_some_and(|ext| ext == "log") {
                 if let Ok(metadata) = entry.metadata() {
                     files.push(LogFileInfo {
                         name: path.file_name()

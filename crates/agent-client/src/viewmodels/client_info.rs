@@ -23,6 +23,7 @@ pub enum ClientInfoAction {
 
 /// 客户端信息 ViewModel 状态
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct ClientInfoViewModelState {
     /// 客户端 ID
     pub client_id: Option<String>,
@@ -32,15 +33,6 @@ pub struct ClientInfoViewModelState {
     pub show_password: bool,
 }
 
-impl Default for ClientInfoViewModelState {
-    fn default() -> Self {
-        Self {
-            client_id: None,
-            password: String::new(),
-            show_password: false,
-        }
-    }
-}
 
 /// 客户端信息 ViewModel
 ///

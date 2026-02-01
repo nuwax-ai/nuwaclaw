@@ -22,8 +22,10 @@ pub enum ConnectionMode {
 
 /// 连接状态
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum ConnectionState {
     /// 已断开
+    #[default]
     Disconnected,
     /// 连接中
     Connecting,
@@ -37,11 +39,6 @@ pub enum ConnectionState {
     Error(String),
 }
 
-impl Default for ConnectionState {
-    fn default() -> Self {
-        Self::Disconnected
-    }
-}
 
 /// 连接状态变化事件
 #[derive(Debug, Clone)]
@@ -97,7 +94,7 @@ pub struct ConnectionManager<A: ConnectionAdapter = RustDeskAdapter> {
 impl ConnectionManager<RustDeskAdapter> {
     /// 创建新的连接管理器（生产环境，使用 RustDeskAdapter）
     pub fn new(config: ConnectionConfig) -> Self {
-        Self::with_adapter_factory(config, || RustDeskAdapter::new())
+        Self::with_adapter_factory(config, RustDeskAdapter::new)
     }
 }
 

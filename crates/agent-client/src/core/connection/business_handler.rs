@@ -212,7 +212,7 @@ impl BusinessMessageHandler {
     pub async fn send_progress(&self, progress: &TaskProgress) -> anyhow::Result<()> {
         if let Some(ref tx) = self.response_tx {
             let payload = serde_json::to_vec(progress)?;
-            let self_id = self.self_id.read().await.clone().unwrap_or_default();
+            let _self_id = self.self_id.read().await.clone().unwrap_or_default();
 
             let envelope = self.create_response(
                 &uuid::Uuid::new_v4().to_string(),

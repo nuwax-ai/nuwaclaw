@@ -56,7 +56,7 @@ impl VersionChecker {
             // 查找当前平台对应的资产
             let (download_url, file_size, sha256) = self.find_platform_asset(&release)?;
 
-            return Ok(VersionInfo {
+            Ok(VersionInfo {
                 version: tag_name,
                 release_notes: body,
                 download_url,
@@ -64,7 +64,7 @@ impl VersionChecker {
                 release_date: published_at,
                 mandatory: false,
                 sha256,
-            });
+            })
         }
 
         #[cfg(not(feature = "dependency-management"))]

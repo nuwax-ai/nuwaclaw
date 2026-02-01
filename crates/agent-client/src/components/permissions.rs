@@ -116,7 +116,7 @@ impl PermissionsView {
     ) -> impl IntoElement {
         let theme = cx.theme();
         let permission_type = perm.permission_type;
-        let status = perm.status.clone();
+        let status = perm.status;
         let is_granted = status.is_granted();
         let is_required = perm.is_required;
         let can_grant = perm.can_grant;
@@ -214,7 +214,7 @@ impl PermissionsView {
         total: usize,
         granted: usize,
         has_missing_required: bool,
-        cx: &mut Context<Self>,
+        _cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let message = if has_missing_required {
             format!(

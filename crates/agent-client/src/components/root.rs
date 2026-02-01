@@ -131,7 +131,7 @@ impl RootView {
         let client_info_view_model = Arc::new(ClientInfoViewModel::new());
         let dependency_view_model = Arc::new(DependencyViewModel::with_default_manager());
         let permissions_view_model = Arc::new(PermissionsViewModel::with_default_manager());
-        let settings_view_model = Arc::new(SettingsViewModel::new());
+        let _settings_view_model = Arc::new(SettingsViewModel::new());
         let status_bar_view_model = Arc::new(StatusBarViewModel::new());
 
         // 创建子视图

@@ -25,7 +25,7 @@ pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
             anyhow::bail!("pbcopy failed with status: {}", status);
         }
 
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "windows")]

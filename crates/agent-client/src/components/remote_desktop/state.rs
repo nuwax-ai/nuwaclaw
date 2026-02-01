@@ -2,8 +2,10 @@
 
 /// 远程桌面连接状态
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub enum RemoteDesktopState {
     /// 未连接
+    #[default]
     Disconnected,
     /// 连接中
     Connecting,
@@ -17,11 +19,6 @@ pub enum RemoteDesktopState {
     Error(String),
 }
 
-impl Default for RemoteDesktopState {
-    fn default() -> Self {
-        Self::Disconnected
-    }
-}
 
 /// 远程桌面事件
 #[derive(Debug, Clone)]

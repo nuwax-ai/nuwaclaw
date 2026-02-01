@@ -88,7 +88,7 @@ impl RemoteInputManager {
 
         #[cfg(feature = "remote-desktop")]
         {
-            use enigo::{Axis, Button, Coordinate, Direction, Keyboard, Mouse};
+            use enigo::{Axis, Coordinate, Direction, Keyboard, Mouse};
 
             let Some(ref mut enigo) = self.enigo else {
                 warn!("Enigo not initialized, cannot handle input event");

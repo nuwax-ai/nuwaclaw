@@ -27,6 +27,7 @@ pub enum ConfigError {
 
 /// 应用配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct AppConfig {
     /// 服务器配置
     #[serde(default)]
@@ -42,16 +43,6 @@ pub struct AppConfig {
     pub logging: LoggingConfig,
 }
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            security: SecurityConfig::default(),
-            general: GeneralConfig::default(),
-            logging: LoggingConfig::default(),
-        }
-    }
-}
 
 /// 服务器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]

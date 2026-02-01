@@ -271,10 +271,7 @@ impl GeneralSettingsViewModel {
 
     /// 处理常规设置操作
     pub async fn handle_general_action(&self, action: SettingsAction) {
-        match action {
-            SettingsAction::ToggleAutoLaunch => self.toggle_auto_launch().await,
-            _ => {}
-        }
+        if let SettingsAction::ToggleAutoLaunch = action { self.toggle_auto_launch().await }
     }
 }
 
@@ -320,10 +317,7 @@ impl AppearanceSettingsViewModel {
 
     /// 处理外观设置操作
     pub async fn handle_appearance_action(&self, action: SettingsAction) {
-        match action {
-            SettingsAction::UpdateTheme(theme) => self.update_theme(theme).await,
-            _ => {}
-        }
+        if let SettingsAction::UpdateTheme(theme) = action { self.update_theme(theme).await }
     }
 }
 
