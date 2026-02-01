@@ -16,6 +16,8 @@ use crate::components::dependency_manager::DependencyManagerView;
 use crate::components::permissions::PermissionsView;
 #[cfg(feature = "remote-desktop")]
 use crate::components::remote_desktop::RemoteDesktopView;
+#[cfg(feature = "chat-ui")]
+use crate::components::chat::ChatView;
 use crate::components::settings::{SettingsPage, SettingsView};
 use crate::components::status_bar::StatusBarView;
 use crate::utils::notification::Notification;
@@ -124,6 +126,9 @@ pub struct RootView {
     /// 远程桌面视图
     #[cfg(feature = "remote-desktop")]
     remote_desktop_view: Entity<RemoteDesktopView>,
+    /// 聊天视图
+    #[cfg(feature = "chat-ui")]
+    chat_view: Entity<ChatView>,
     /// 订阅（需要保持存活）
     _subscriptions: Vec<Subscription>,
 }
@@ -148,6 +153,9 @@ impl RootView {
         let permissions_view = cx.new(|cx| PermissionsView::new(permissions_view_model, cx));
         #[cfg(feature = "remote-desktop")]
         let remote_desktop_view = cx.new(|cx| RemoteDesktopView::new(window, cx));
+
+        #[cfg(feature = "chat-ui")]
+        let chat_view = cx.new(|cx| ChatView::new(cx));
 
         // 订阅应用状态事件
         let client_info_for_sub = client_info_view.clone();
@@ -206,6 +214,8 @@ impl RootView {
             permissions_view,
             #[cfg(feature = "remote-desktop")]
             remote_desktop_view,
+            #[cfg(feature = "chat-ui")]
+            chat_view,
             _subscriptions: subscriptions,
         }
     }
@@ -273,9 +283,7 @@ impl RootView {
                 #[cfg(feature = "remote-desktop")]
                 TabPage::RemoteDesktop => self.remote_desktop_view.clone().into_any_element(),
                 #[cfg(feature = "chat-ui")]
-                TabPage::Chat => self
-                    .render_placeholder_page("聊天", "聊天功能正在开发中...", cx)
-                    .into_any_element(),
+                TabPage::Chat => self.chat_view.clone().into_any_element(),
                 TabPage::About => self.render_about_page(window, cx).into_any_element(),
                 TabPage::Debug => self.render_debug_page(window, cx).into_any_element(),
             })

@@ -1,49 +1,94 @@
 //! 聊天界面组件
 //!
-//! 简易聊天 UI，用于管理端与客户端间的文本通信
+//! 完整的聊天 UI，支持消息列表、输入区域、加载状态和消息操作
+//!
+//! # TODO 后续扩展
+//! - [ ] 集成真实的 InputState 实现多行输入（当前使用简化的 div 显示）
+//! - [ ] 完善剪贴板复制功能（当前 TODO: 复制到剪贴板）
+//! - [ ] 添加 Markdown 渲染支持
+//! - [ ] 实现流式响应更新（打字指示器替换为真实内容更新）
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::*;
-use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable, Size};
-
-use chrono::{DateTime, Utc};
+use gpui_component::ActiveTheme;
+use gpui_component::avatar::Avatar;
+use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::h_flex;
+use gpui_component::scroll::ScrollableElement as _;
+use gpui_component::v_flex;
 use serde::{Deserialize, Serialize};
+use gpui_component::{Disableable, Sizable};
+
+use chrono::{DateTime, Local};
+
+/// 消息角色
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MessageRole {
+    /// 用户消息
+    User,
+    /// 助手/Agent 消息
+    Assistant,
+}
 
 /// 聊天消息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     /// 消息 ID
     pub id: String,
-    /// 发送者
-    pub sender: String,
+    /// 发送者角色
+    pub role: MessageRole,
     /// 内容
     pub content: String,
-    /// 时间
-    pub timestamp: DateTime<Utc>,
-    /// 是否为本机发送
-    pub is_self: bool,
+    /// 时间戳
+    pub timestamp: DateTime<Local>,
 }
 
-/// 聊天状态
-pub struct ChatState {
+impl ChatMessage {
+    /// 创建用户消息
+    pub fn user_message(content: String) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: MessageRole::User,
+            content,
+            timestamp: Local::now(),
+        }
+    }
+
+    /// 创建助手消息
+    pub fn assistant_message(content: String) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: MessageRole::Assistant,
+            content,
+            timestamp: Local::now(),
+        }
+    }
+}
+
+/// 聊天视图状态
+pub struct ChatViewState {
     /// 消息列表
     messages: Vec<ChatMessage>,
     /// 输入内容
     input_text: String,
+    /// 是否正在生成响应
+    is_generating: bool,
     /// 最大消息数
     max_messages: usize,
 }
 
-impl Default for ChatState {
+impl Default for ChatViewState {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ChatState {
+impl ChatViewState {
     pub fn new() -> Self {
         Self {
             messages: Vec::new(),
             input_text: String::new(),
+            is_generating: false,
             max_messages: 500,
         }
     }
@@ -51,16 +96,45 @@ impl ChatState {
     /// 添加消息
     pub fn add_message(&mut self, message: ChatMessage) {
         self.messages.push(message);
-        // 保持消息数量限制
         if self.messages.len() > self.max_messages {
             self.messages
                 .drain(0..self.messages.len() - self.max_messages);
         }
     }
 
-    /// 获取消息列表
+    /// 获取消息列表引用
     pub fn messages(&self) -> &[ChatMessage] {
         &self.messages
+    }
+
+    /// 获取消息列表可变引用
+    pub fn messages_mut(&mut self) -> &mut Vec<ChatMessage> {
+        &mut self.messages
+    }
+
+    /// 设置输入文本
+    pub fn set_input_text(&mut self, text: String) {
+        self.input_text = text;
+    }
+
+    /// 获取输入文本
+    pub fn input_text(&self) -> &str {
+        &self.input_text
+    }
+
+    /// 清空输入
+    pub fn clear_input(&mut self) {
+        self.input_text.clear();
+    }
+
+    /// 设置生成状态
+    pub fn set_generating(&mut self, generating: bool) {
+        self.is_generating = generating;
+    }
+
+    /// 是否正在生成
+    pub fn is_generating(&self) -> bool {
+        self.is_generating
     }
 
     /// 清空消息
@@ -74,22 +148,26 @@ impl ChatState {
     }
 }
 
-/// 聊天视图
-pub struct ChatView {
-    state: ChatState,
+/// 聊天视图事件
+#[derive(Debug, Clone)]
+pub enum ChatViewEvent {
+    /// 发送消息
+    SendMessage(String),
 }
 
-impl Default for ChatView {
-    fn default() -> Self {
-        Self::new()
-    }
+/// 聊天视图
+pub struct ChatView {
+    state: ChatViewState,
 }
 
 impl ChatView {
-    pub fn new() -> Self {
-        Self {
-            state: ChatState::new(),
-        }
+    /// 创建新视图
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        let mut state = ChatViewState::new();
+        state.add_message(ChatMessage::assistant_message(
+            "你好！我是 NuWax Agent 助手。\n\n我可以帮助你完成各种任务，比如：\n- 编写代码\n- 分析问题\n- 执行系统操作\n\n请告诉我你需要什么帮助？".to_string(),
+        ));
+        Self { state }
     }
 
     /// 添加消息
@@ -103,58 +181,132 @@ impl ChatView {
         self.state.count()
     }
 
-    fn render_message(&self, message: &ChatMessage, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let time_str = message.timestamp.format("%H:%M").to_string();
-        let is_self = message.is_self;
+    /// 获取状态
+    pub fn state(&self) -> &ChatViewState {
+        &self.state
+    }
 
-        let bg = if is_self {
-            theme.primary
+    /// 获取可变状态
+    pub fn state_mut(&mut self) -> &mut ChatViewState {
+        &mut self.state
+    }
+
+    /// 渲染单条消息
+    fn render_message(
+        &self,
+        message: &ChatMessage,
+        _index: usize,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let theme = cx.theme();
+        let is_user = message.role == MessageRole::User;
+        let time_str = message.timestamp.format("%H:%M").to_string();
+        let message_id = message.id.clone();
+
+        // 头像
+        let avatar = if is_user {
+            Avatar::new()
+                .name("U")
+                .small()
+                .bg(theme.primary)
+                .text_color(theme.primary_foreground)
         } else {
-            theme.sidebar
+            Avatar::new()
+                .name("AI")
+                .small()
+                .bg(theme.accent)
+                .text_color(theme.accent_foreground)
         };
-        let text_color = if is_self {
+
+        // 消息气泡样式
+        let bubble_bg = if is_user { theme.primary } else { theme.sidebar };
+        let bubble_text = if is_user {
             theme.primary_foreground
         } else {
             theme.foreground
         };
-        let muted = theme.muted_foreground;
 
-        let base = div().w_full().flex();
-        let base = if is_self {
-            base.flex_row_reverse()
+        // 发送者名称
+        let sender_name = if is_user { "你" } else { "助手" };
+
+        // 操作按钮
+        let copy_btn = Button::new(SharedString::from(format!("copy-{}", message_id)))
+            .icon(gpui_component::Icon::new(gpui_component::IconName::Copy))
+            .ghost()
+            .tooltip("复制")
+            .small()
+            .on_click(cx.listener(move |_, _, _, _cx| {
+                // TODO: 复制到剪贴板
+            }));
+
+        let delete_btn = Button::new(SharedString::from(format!("delete-{}", message_id)))
+            .icon(gpui_component::Icon::new(gpui_component::IconName::Delete))
+            .ghost()
+            .tooltip("删除")
+            .small()
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.state_mut()
+                    .messages_mut()
+                    .retain(|m| m.id != message_id);
+                cx.notify();
+            }));
+
+        // 消息容器
+        let container = if is_user {
+            h_flex().flex_row_reverse()
         } else {
-            base.flex_row()
+            h_flex().flex_row()
         };
 
-        base.child(
-            v_flex()
-                .max_w(px(400.0))
-                .gap(px(2.0))
-                .child(
-                    h_flex()
-                        .gap_1()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted)
-                                .child(message.sender.clone()),
+        container
+            .w_full()
+            .p_3()
+            .gap_3()
+            .child(avatar)
+            .child(
+                v_flex()
+                    .max_w(px(500.0))
+                    .gap_1()
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .items_center()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .child(sender_name),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .child(time_str),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .p_3()
+                            .rounded_lg()
+                            .bg(bubble_bg)
+                            .text_color(bubble_text)
+                            .text_sm()
+                            .child(div().text_sm().text_color(bubble_text).child(message.content.clone())),
+                    )
+                    .when(!is_user, |this| {
+                        this.child(
+                            h_flex()
+                                .gap_1()
+                                .mt_1()
+                                .child(copy_btn)
+                                .child(delete_btn),
                         )
-                        .child(div().text_xs().text_color(muted).child(time_str)),
-                )
-                .child(
-                    div()
-                        .px_3()
-                        .py_2()
-                        .rounded_lg()
-                        .bg(bg)
-                        .text_color(text_color)
-                        .text_sm()
-                        .child(message.content.clone()),
-                ),
-        )
+                    }),
+            )
     }
 
+    /// 渲染空状态
     fn render_empty_state(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         v_flex()
@@ -164,66 +316,135 @@ impl ChatView {
             .child(
                 div()
                     .text_color(theme.muted_foreground)
-                    .child(Icon::new(IconName::Inbox).with_size(Size::Size(px(48.0)))),
+                    .child(gpui_component::Icon::new(gpui_component::IconName::Bot)),
             )
             .child(
                 div()
                     .text_sm()
                     .text_color(theme.muted_foreground)
-                    .child("暂无消息"),
+                    .mt_4()
+                    .child("暂无消息，开始对话吧"),
+            )
+    }
+
+    /// 渲染打字指示器
+    fn render_typing_indicator(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        h_flex()
+            .gap_3()
+            .p_3()
+            .bg(theme.sidebar)
+            .rounded_lg()
+            .child(
+                h_flex()
+                    .gap_1()
+                    .child(div().size(px(8.0)).rounded_full().bg(theme.muted_foreground))
+                    .child(div().size(px(8.0)).rounded_full().bg(theme.muted_foreground))
+                    .child(div().size(px(8.0)).rounded_full().bg(theme.muted_foreground)),
             )
     }
 }
 
+impl EventEmitter<ChatViewEvent> for ChatView {}
+
 impl Render for ChatView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Clone theme colors to avoid borrow conflicts
-        let border = cx.theme().border;
-        let sidebar = cx.theme().sidebar;
-        let muted_foreground = cx.theme().muted_foreground;
-        let primary = cx.theme().primary;
+        let is_generating = self.state.is_generating();
+        let input_text = self.state.input_text().to_string();
+        let can_send = !input_text.trim().is_empty();
+        let theme = cx.theme().clone();
 
-        let message_area = if self.state.messages.is_empty() {
-            div().size_full().child(self.render_empty_state(cx))
+        // 消息列表项
+        let message_items: Vec<_> = self
+            .state
+            .messages
+            .iter()
+            .enumerate()
+            .map(|(index, msg)| self.render_message(msg, index, cx))
+            .collect();
+
+        // 打字指示器
+        let typing_indicator = if is_generating {
+            Some(self.render_typing_indicator(cx))
         } else {
-            let msgs: Vec<_> = self
-                .state
-                .messages
-                .iter()
-                .map(|msg| self.render_message(msg, cx).into_any_element())
-                .collect();
-            div()
-                .size_full()
-                .flex()
-                .flex_col()
-                .overflow_hidden()
-                .p_4()
-                .gap_3()
-                .children(msgs)
+            None
         };
 
-        v_flex().size_full().child(message_area).child(
+        v_flex()
+            .size_full()
+            .bg(theme.background)
+            // Header
+            .child(
+                h_flex()
+                    .h(px(48.0))
+                    .px_4()
+                    .items_center()
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .bg(theme.sidebar)
+                    .child(
+                        div()
+                            .text_base()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme.foreground)
+                            .child("聊天"),
+                    ),
+            )
+            // 消息列表
+            .child(
+                div()
+                    .flex_1()
+                    .overflow_y_scrollbar()
+                    .child(
+                        v_flex()
+                            .p_4()
+                            .gap_3()
+                            .children(message_items)
+                            .when_some(typing_indicator, |this, indicator| this.child(indicator)),
+                    ),
+            )
             // 输入区域
-            h_flex()
-                .h(px(56.0))
-                .px_4()
-                .gap_2()
-                .items_center()
-                .border_t_1()
-                .border_color(border)
-                .bg(sidebar)
-                .child(
-                    div()
-                        .flex_1()
-                        .text_sm()
-                        .text_color(muted_foreground)
-                        .child("输入消息..."),
-                )
-                .child(
-                    div()
-                        .text_color(primary)
-                        .child(Icon::new(IconName::ArrowUp).small()),
-                ),
-        )
+            .child(
+                h_flex()
+                    .h(px(100.0))
+                    .bg(theme.sidebar)
+                    .border_t_1()
+                    .border_color(theme.border)
+                    .p_3()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .h_full()
+                            .bg(theme.background)
+                            .rounded_md()
+                            .p_2()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground)
+                                    .when(input_text.is_empty(), |this| {
+                                        this.child("输入消息...")
+                                    })
+                                    .when(!input_text.is_empty(), |this| {
+                                        this.child(input_text.clone())
+                                    }),
+                            ),
+                    )
+                    .child(
+                        Button::new("send-btn")
+                            .label("发送")
+                            .icon(gpui_component::Icon::new(gpui_component::IconName::ArrowUp))
+                            .primary()
+                            .disabled(!can_send)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if !this.state.input_text().trim().is_empty() {
+                                    let text = this.state.input_text().to_string();
+                                    this.state.clear_input();
+                                    cx.emit(ChatViewEvent::SendMessage(text));
+                                }
+                            })),
+                    ),
+            )
     }
 }
