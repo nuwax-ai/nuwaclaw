@@ -43,9 +43,9 @@ help:
 	@echo "  build-all-release - 构建所有功能 (release)"
 	@echo ""
 	@echo "=== 运行 ==="
-	@echo "  run            - 运行客户端 (debug)"
-	@echo "  run-release    - 运行客户端 (release)"
-	@echo "  run-dev        - 运行客户端 (开发模式，详细日志)"
+	@echo "  run            - 运行客户端 (debug, 所有功能)"
+	@echo "  run-release    - 运行客户端 (release, 所有功能)"
+	@echo "  run-dev        - 运行客户端 (开发模式)"
 	@echo ""
 	@echo "=== 测试 ==="
 	@echo "  test           - 运行单元测试"
@@ -124,23 +124,18 @@ build-workspace:
 
 .PHONY: run
 run:
-	@echo ">>> 运行客户端 (debug)..."
-	$(CARGO) run -p $(CLIENT)
+	@echo ">>> 运行客户端 (debug, 所有功能)..."
+	$(CARGO) run -p $(CLIENT) --all-features
 
 .PHONY: run-release
 run-release:
 	@echo ">>> 运行客户端 (release)..."
-	$(CARGO) run -p $(CLIENT) $(RELEASE_FLAGS)
+	$(CARGO) run -p $(CLIENT) --all-features $(RELEASE_FLAGS)
 
 .PHONY: run-dev
 run-dev:
 	@echo ">>> 运行客户端 (开发模式)..."
-	RUST_LOG=debug $(CARGO) run -p $(CLIENT) --features dev-mode
-
-.PHONY: run-all-features
-run-all-features:
-	@echo ">>> 运行客户端 - 所有功能..."
-	$(CARGO) run -p $(CLIENT) --all-features
+	RUST_LOG=debug $(CARGO) run -p $(CLIENT) --all-features
 
 # ============================================================================
 # 测试目标
