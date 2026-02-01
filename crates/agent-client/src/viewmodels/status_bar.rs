@@ -10,7 +10,7 @@ use super::{
         AgentStatusAction, AgentStatusViewModel, AgentStatusViewModelState, UIAgentState,
     },
     connection_status::{
-        ConnectionStatusAction, ConnectionStatusViewModel, ConnectionStatusViewModelState, UIConnectionState,
+        ConnectionStatusAction, ConnectionStatusViewModel, ConnectionStatusViewModelState, UIConnectionMode, UIConnectionState,
     },
 };
 

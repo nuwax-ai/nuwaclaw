@@ -162,10 +162,8 @@ impl DependencyManager {
             self.check_detector(detector.as_ref()).await;
         }
 
-        // 如果 Node.js 存在，检测 npm 工具
-        if self.node_info.read().await.is_some() {
-            self.check_npm_tools().await;
-        }
+        // 检测 npm 工具（独立于 Node.js 检测结果）
+        self.check_npm_tools().await;
     }
 
     /// 使用检测器检测依赖
@@ -232,10 +230,10 @@ impl DependencyManager {
             }
         }
 
-        // 检测 opencode
+        // 检测 opencode（使用多源检测）
         self.update_status("opencode", DependencyStatus::Checking)
             .await;
-        match self.installer.check_tool("opencode") {
+        match self.check_tool_with_fallback("opencode") {
             Ok(info) if info.installed => {
                 self.update_dependency("opencode", info.version, DependencyStatus::Ok)
                     .await;
@@ -246,10 +244,10 @@ impl DependencyManager {
             }
         }
 
-        // 检测 claude-code
+        // 检测 claude-code（使用多源检测）
         self.update_status("@anthropic-ai/claude-code", DependencyStatus::Checking)
             .await;
-        match self.installer.check_tool("@anthropic-ai/claude-code") {
+        match self.check_tool_with_fallback("@anthropic-ai/claude-code") {
             Ok(info) if info.installed => {
                 self.update_dependency(
                     "@anthropic-ai/claude-code",
@@ -263,6 +261,24 @@ impl DependencyManager {
                     .await;
             }
         }
+    }
+
+    /// 使用多源检测工具（支持 npm、brew、PATH 等多种安装方式）
+    fn check_tool_with_fallback(&self, tool_name: &str) -> Result<super::npm_tools::NpmToolInfo, super::npm_tools::NpmToolError> {
+        // 尝试向下转型到 NpmToolInstaller 以访问高级功能
+        let npm_installer = self.installer.clone().as_ref() as *const dyn ToolInstaller
+            as *const super::npm_tools::NpmToolInstaller;
+
+        unsafe {
+            if !npm_installer.is_null() {
+                return (*npm_installer).check_tool_with_fallback(tool_name);
+            }
+        }
+
+        // 回退到标准检测
+        self.installer.check_tool(tool_name)
+            .map(|info| info.into())
+            .map_err(|e| super::npm_tools::NpmToolError::CommandFailed(e.to_string()))
     }
 
     /// 更新依赖状态

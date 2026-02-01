@@ -149,13 +149,11 @@ mod tests {
 
     #[test]
     fn test_ui_agent_state_icon() {
-        assert_eq!(UIAgentState::Idle.icon(), gpui_component::IconName::Dash);
-        assert_eq!(UIAgentState::Active(1).icon(), gpui_component::IconName::Bot);
-        assert_eq!(
-            UIAgentState::Executing(1, 2).icon(),
-            gpui_component::IconName::Loader
-        );
-        assert_eq!(UIAgentState::Error.icon(), gpui_component::IconName::TriangleAlert);
+        // IconName doesn't implement PartialEq, so we compare variants by discriminant
+        assert!(matches!(UIAgentState::Idle.icon(), gpui_component::IconName::Dash));
+        assert!(matches!(UIAgentState::Active(1).icon(), gpui_component::IconName::Bot));
+        assert!(matches!(UIAgentState::Executing(1, 2).icon(), gpui_component::IconName::Loader));
+        assert!(matches!(UIAgentState::Error.icon(), gpui_component::IconName::TriangleAlert));
     }
 
     #[test]

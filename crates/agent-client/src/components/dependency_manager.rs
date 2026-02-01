@@ -31,11 +31,31 @@ pub struct DependencyManagerView {
 
 impl DependencyManagerView {
     /// 创建新的依赖管理视图
-    pub fn new(view_model: Arc<DependencyViewModel>) -> Self {
-        Self {
-            view_model,
+    pub fn new(view_model: Arc<DependencyViewModel>, cx: &mut Context<Self>) -> Self {
+        let this = Self {
+            view_model: view_model.clone(),
             state: DependencyViewModelState::default(),
-        }
+        };
+
+        // 启动时自动刷新依赖状态
+        let view_model = view_model.clone();
+        let this_weak = cx.entity().downgrade();
+        cx.spawn(async move |_view, _cx| {
+            // 调用 ViewModel 刷新
+            view_model.handle_action(DependencyAction::Refresh).await;
+
+            // 获取更新后的状态
+            let new_state = view_model.get_state().await;
+
+            // 同步状态并通知 UI 刷新
+            let _ = this_weak.update(_cx, |view, cx| {
+                view.state = new_state;
+                cx.notify();
+            });
+        })
+        .detach();
+
+        this
     }
 
     /// 刷新依赖状态
@@ -44,15 +64,21 @@ impl DependencyManagerView {
         cx.notify();
 
         let view_model = self.view_model.clone();
+        let this = cx.entity().downgrade();
 
         cx.spawn(async move |_view, _cx| {
             // 调用 ViewModel 刷新
             view_model.handle_action(DependencyAction::Refresh).await;
 
             // 获取更新后的状态
-            let _new_state = view_model.get_state().await;
+            let new_state = view_model.get_state().await;
 
-            // 状态更新通过 ViewModel 的观察者模式处理
+            // 同步状态并通知 UI 刷新
+            let _ = this.update(_cx, |view, cx| {
+                view.state = new_state;
+                cx.notify();
+            });
+
             tracing::debug!("Dependency refresh completed");
         })
         .detach();
@@ -64,15 +90,21 @@ impl DependencyManagerView {
         cx.notify();
 
         let view_model = self.view_model.clone();
+        let this = cx.entity().downgrade();
 
         cx.spawn(async move |_view, _cx| {
             // 调用 ViewModel 安装全部
             view_model.handle_action(DependencyAction::InstallAll).await;
 
             // 获取更新后的状态
-            let _new_state = view_model.get_state().await;
+            let new_state = view_model.get_state().await;
 
-            // 状态更新通过 ViewModel 的观察者模式处理
+            // 同步状态并通知 UI 刷新
+            let _ = this.update(_cx, |view, cx| {
+                view.state = new_state;
+                cx.notify();
+            });
+
             tracing::debug!("Dependency install all completed");
         })
         .detach();
@@ -89,15 +121,21 @@ impl DependencyManagerView {
 
         let view_model = self.view_model.clone();
         let name = name.to_string();
+        let this = cx.entity().downgrade();
 
         cx.spawn(async move |_view, _cx| {
             // 调用 ViewModel 安装
             view_model.handle_action(DependencyAction::Install(name)).await;
 
             // 获取更新后的状态
-            let _new_state = view_model.get_state().await;
+            let new_state = view_model.get_state().await;
 
-            // 状态更新通过 ViewModel 的观察者模式处理
+            // 同步状态并通知 UI 刷新
+            let _ = this.update(_cx, |view, cx| {
+                view.state = new_state;
+                cx.notify();
+            });
+
             tracing::debug!("Dependency installation completed");
         })
         .detach();
@@ -233,6 +271,7 @@ impl Render for DependencyManagerView {
         }).collect();
 
         v_flex()
+            .size_full()
             .gap_4()
             .child(
                 h_flex()

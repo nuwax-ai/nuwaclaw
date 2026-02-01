@@ -56,14 +56,14 @@ impl EventEmitter<AppEvent> for AppState {}
 
 impl AppState {
     /// 创建新的应用状态
-    pub fn new(config: Arc<RwLock<ConfigManager>>) -> Self {
+    pub fn new(config: Arc<RwLock<ConfigManager>>, client_id: Option<String>) -> Self {
         let (notifications, _) = broadcast::channel(100);
         Self {
             config,
             notifications,
             active_tasks: Vec::new(),
             is_connected: false,
-            client_id: None,
+            client_id,
         }
     }
 
@@ -137,12 +137,19 @@ impl Application {
         // 创建 gpui 应用
         let app = gpui::Application::new();
 
+        // 在进入 gpui 事件循环前读取配置（恢复 client_id）
+        let client_id = runtime_handle.block_on(async {
+            config.read().await.get_client_id().map(|s| s.to_string())
+        });
+
         app.run(move |cx| {
             // 初始化 gpui-component 主题和资源
             init_ui(cx);
 
-            // 创建应用状态
-            let app_state = cx.new(|_cx| AppState::new(config.clone()));
+            // 创建应用状态（从配置恢复 client_id）
+            let app_state = cx.new(|cx| {
+                AppState::new(config.clone(), client_id.clone())
+            });
 
             // 创建主窗口
             let window_options = WindowOptions {

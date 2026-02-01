@@ -20,8 +20,7 @@ pub enum I18nError {
 }
 
 /// 支持的语言
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum Language {
     /// 简体中文
     #[serde(rename = "zh")]
@@ -160,8 +159,14 @@ impl I18nManager {
         t.insert("tab.client_info".into(), "客户端信息".into());
         t.insert("tab.settings".into(), "设置".into());
         t.insert("tab.dependencies".into(), "依赖管理".into());
+        t.insert("tab.permissions".into(), "权限设置".into());
         t.insert("tab.about".into(), "关于".into());
         t.insert("tab.chat".into(), "聊天".into());
+
+        // 侧边栏分组
+        t.insert("sidebar.navigation".into(), "导航".into());
+        t.insert("sidebar.tools".into(), "工具".into());
+        t.insert("sidebar.about".into(), "关于".into());
 
         // 设置页
         t.insert("settings.server".into(), "服务器配置".into());
@@ -219,8 +224,14 @@ impl I18nManager {
         t.insert("tab.client_info".into(), "Client Info".into());
         t.insert("tab.settings".into(), "Settings".into());
         t.insert("tab.dependencies".into(), "Dependencies".into());
+        t.insert("tab.permissions".into(), "Permissions".into());
         t.insert("tab.about".into(), "About".into());
         t.insert("tab.chat".into(), "Chat".into());
+
+        // Sidebar groups
+        t.insert("sidebar.navigation".into(), "Navigation".into());
+        t.insert("sidebar.tools".into(), "Tools".into());
+        t.insert("sidebar.about".into(), "About".into());
 
         // Settings page
         t.insert("settings.server".into(), "Server Config".into());

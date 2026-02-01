@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Icon, IconName, Selectable, Sizable, button::Button, h_flex, tab::Tab,
-    tab::TabBar, v_flex,
+    ActiveTheme, Icon, IconName, Side, Sizable, button::{Button, ButtonVariants}, h_flex,
+    scroll::ScrollableElement as _, sidebar::{Sidebar, SidebarGroup, SidebarMenu, SidebarMenuItem}, v_flex,
 };
 
 use crate::app::{AppEvent, AppState};
@@ -18,6 +18,7 @@ use crate::components::permissions::PermissionsView;
 use crate::components::remote_desktop::RemoteDesktopView;
 use crate::components::settings::{SettingsPage, SettingsView};
 use crate::components::status_bar::StatusBarView;
+use crate::utils::notification::Notification;
 use crate::viewmodels::{ClientInfoViewModel, DependencyViewModel, PermissionsViewModel, SettingsViewModel, StatusBarViewModel, UIConnectionMode, UIConnectionState};
 
 /// Tab 页面类型
@@ -39,6 +40,8 @@ pub enum TabPage {
     Chat,
     /// 关于
     About,
+    /// 调试
+    Debug,
 }
 
 impl TabPage {
@@ -58,6 +61,7 @@ impl TabPage {
         tabs.push(Self::Chat);
 
         tabs.push(Self::About);
+        tabs.push(Self::Debug);
         tabs
     }
 
@@ -73,6 +77,7 @@ impl TabPage {
             #[cfg(feature = "chat-ui")]
             Self::Chat => "聊天",
             Self::About => "关于",
+            Self::Debug => "调试",
         }
     }
 
@@ -88,6 +93,7 @@ impl TabPage {
             #[cfg(feature = "chat-ui")]
             Self::Chat => IconName::Inbox,
             Self::About => IconName::Info,
+            Self::Debug => IconName::SquareTerminal,
         }
     }
 }
@@ -138,7 +144,7 @@ impl RootView {
         let status_bar = cx.new(|_cx| StatusBarView::new(status_bar_view_model.clone()));
         let client_info_view = cx.new(|cx| ClientInfoView::new(client_info_view_model.clone(), cx));
         let settings_view = cx.new(|_cx| SettingsView::new());
-        let dependency_view = cx.new(|_cx| DependencyManagerView::new(dependency_view_model));
+        let dependency_view = cx.new(|cx| DependencyManagerView::new(dependency_view_model, cx));
         let permissions_view = cx.new(|cx| PermissionsView::new(permissions_view_model, cx));
         #[cfg(feature = "remote-desktop")]
         let remote_desktop_view = cx.new(|cx| RemoteDesktopView::new(window, cx));
@@ -227,21 +233,27 @@ impl RootView {
         cx.notify();
     }
 
-    /// 渲染 Tab 栏
-    fn render_tab_bar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let tabs = TabPage::all();
+    /// 渲染侧边栏
+    fn render_sidebar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let active_tab = self.active_tab;
 
-        TabBar::new("main-tabs").children(tabs.into_iter().map(|tab| {
-            let is_active = tab == active_tab;
-            Tab::new()
-                .label(tab.label())
-                .selected(is_active)
-                .prefix(Icon::new(tab.icon()).small())
-                .on_click(cx.listener(move |this, _, _window, cx| {
-                    this.switch_tab(tab, cx);
-                }))
-        }))
+        Sidebar::new(Side::Left)
+            .w(px(140.0))
+            .child(
+                SidebarGroup::new("导航").child(
+                    SidebarMenu::new().children(
+                        TabPage::all().into_iter().map(|tab| {
+                            let is_active = tab == active_tab;
+                            SidebarMenuItem::new(tab.label())
+                                .icon(Icon::new(tab.icon()).small())
+                                .active(is_active)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.switch_tab(tab, cx);
+                                }))
+                        }),
+                    ),
+                ),
+            )
     }
 
     /// 渲染内容区
@@ -250,7 +262,7 @@ impl RootView {
 
         v_flex()
             .flex_1()
-            .w_full()
+            .size_full()
             .p_4()
             .bg(theme.background)
             .child(match self.active_tab {
@@ -265,6 +277,7 @@ impl RootView {
                     .render_placeholder_page("聊天", "聊天功能正在开发中...", cx)
                     .into_any_element(),
                 TabPage::About => self.render_about_page(window, cx).into_any_element(),
+                TabPage::Debug => self.render_debug_page(window, cx).into_any_element(),
             })
     }
 
@@ -397,17 +410,205 @@ impl RootView {
                     ),
             )
     }
+
+    /// 渲染调试页
+    fn render_debug_page(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+
+        v_flex()
+            .size_full()
+            .gap_4()
+            .child(
+                div()
+                    .text_xl()
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(theme.foreground)
+                    .p_4()
+                    .child("调试"),
+            )
+            .child(
+                v_flex()
+                    .gap_4()
+                    .flex_1()
+                    .p_4()
+                    .pt_0()
+                    .overflow_y_scrollbar()
+                    .child(
+                        v_flex()
+                            .gap_4()
+                            .p_4()
+                            .rounded_lg()
+                            .bg(theme.sidebar)
+                            .border_1()
+                            .border_color(theme.border)
+                            .child(
+                                div()
+                                    .text_base()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme.foreground)
+                                    .child("日志操作"),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground)
+                                    .child("导出或上报日志用于问题排查"),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .mt_2()
+                                    .child(
+                                        Button::new("export-logs")
+                                            .label("导出日志")
+                                            .icon(Icon::new(IconName::ExternalLink).small())
+                                            .small()
+                                            .on_click(cx.listener(|this, _, _window, cx| {
+                                                this.export_logs(cx);
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("report-logs")
+                                            .label("上报日志")
+                                            .icon(Icon::new(IconName::ArrowUp).small())
+                                            .small()
+                                            .primary()
+                                            .on_click(cx.listener(|this, _, _window, cx| {
+                                                this.upload_logs(cx);
+                                            })),
+                                    ),
+                            ),
+                    ),
+            )
+    }
+
+    /// 导出日志
+    fn export_logs(&self, cx: &mut Context<Self>) {
+        let app_state = self.app_state.clone();
+        cx.spawn(async move |_view, cx| {
+            let logs = Self::read_log_file().await;
+
+            match logs {
+                Ok(log_content) => {
+                    let _ = cx.update(|cx| {
+                        app_state.update(cx, |state, _cx| {
+                            state.show_notification(Notification::success(
+                                "日志导出功能开发中",
+                            ));
+                        });
+                    });
+                    tracing::info!("Logs exported, size: {} bytes", log_content.len());
+                }
+                Err(e) => {
+                    let _ = cx.update(|cx| {
+                        app_state.update(cx, |state, _cx| {
+                            state.show_notification(Notification::error(format!(
+                                "无法读取日志文件: {}",
+                                e
+                            )));
+                        });
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// 上报日志
+    fn upload_logs(&self, cx: &mut Context<Self>) {
+        let app_state = self.app_state.clone();
+        cx.spawn(async move |_view, cx| {
+            let logs = Self::read_log_file().await;
+
+            match logs {
+                Ok(log_content) => {
+                    let _ = cx.update(|cx| {
+                        app_state.update(cx, |state, _cx| {
+                            state.show_notification(Notification::info("正在上传日志..."));
+                        });
+                    });
+
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+                    let _ = cx.update(|cx| {
+                        app_state.update(cx, |state, _cx| {
+                            state.show_notification(Notification::success(
+                                "日志上报功能开发中",
+                            ));
+                        });
+                    });
+                    tracing::info!("Log upload triggered, size: {} bytes", log_content.len());
+                }
+                Err(e) => {
+                    let _ = cx.update(|cx| {
+                        app_state.update(cx, |state, _cx| {
+                            state.show_notification(Notification::error(format!(
+                                "无法读取日志文件: {}",
+                                e
+                            )));
+                        });
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// 读取日志文件内容
+    async fn read_log_file() -> Result<String, String> {
+        let log_dir = dirs::data_dir()
+            .ok_or_else(|| "无法获取数据目录".to_string())?
+            .join("nuwax-agent");
+
+        let entries = std::fs::read_dir(&log_dir)
+            .map_err(|e| format!("无法读取日志目录: {}", e))?;
+
+        let mut log_files: Vec<_> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path().is_file() &&
+                    e.file_name().to_string_lossy().starts_with("nuwax-agent")
+            })
+            .collect();
+
+        if log_files.is_empty() {
+            return Err("未找到日志文件".to_string());
+        }
+
+        log_files.sort_by_key(|e| e.path());
+        if let Some(latest_log) = log_files.last() {
+            let log_path = latest_log.path();
+            std::fs::read_to_string(&log_path)
+                .map_err(|e| format!("无法读取日志文件: {}", e))
+        } else {
+            Err("未找到日志文件".to_string())
+        }
+    }
 }
 
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
 
-        v_flex()
+        // 使用 Flex 布局：侧边栏 + 内容区，状态栏固定在底部（整行）
+        div()
             .size_full()
             .bg(theme.background)
-            .child(self.render_tab_bar(window, cx))
-            .child(self.render_content(window, cx))
-            .child(self.status_bar.clone())
+            .child(
+                v_flex()
+                    .size_full()
+                    .child(
+                        h_flex()
+                            .flex_1()
+                            .overflow_hidden()
+                            .child(self.render_sidebar(window, cx))
+                            .child(self.render_content(window, cx)),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .child(self.status_bar.clone()),
+                    ),
+            )
     }
 }

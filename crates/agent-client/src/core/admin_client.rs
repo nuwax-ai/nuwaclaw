@@ -51,7 +51,7 @@ pub struct RegistrationRequest {
 }
 
 /// 注册响应
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistrationResponse {
     pub success: bool,
     pub message: String,
@@ -65,7 +65,7 @@ struct HeartbeatRequest {
 }
 
 /// 心跳响应
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct HeartbeatResponse {
     success: bool,
     pending_messages: usize,
@@ -79,7 +79,7 @@ struct PollRequest {
 }
 
 /// 待处理消息
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PendingMessage {
     pub message_id: String,
     pub message_type: String,
@@ -88,7 +88,7 @@ pub struct PendingMessage {
 }
 
 /// 轮询响应
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct PollResponse {
     messages: Vec<PendingMessage>,
 }
@@ -104,10 +104,30 @@ struct ReportRequest {
 }
 
 /// 上报响应
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ReportResponse {
     success: bool,
     message_id: String,
+}
+
+/// 日志上报请求
+#[derive(Debug, Clone, Serialize)]
+struct LogUploadRequest {
+    client_id: String,
+    client_version: String,
+    os: String,
+    arch: String,
+    logs: String,
+    timestamp: i64,
+}
+
+/// 日志上传响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LogUploadResponse {
+    success: bool,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ticket_id: Option<String>,
 }
 
 /// 管理客户端事件
@@ -353,6 +373,77 @@ impl<H: HttpClient + 'static> AdminClient<H> {
             .map_err(|e| format!("Failed to parse report response: {}", e))?;
 
         Ok(resp.message_id)
+    }
+
+    /// 对日志内容进行脱敏处理，过滤敏感信息
+    fn sanitize_logs(logs: &str) -> String {
+        let mut sanitized = logs.to_string();
+
+        // 定义敏感信息模式（按优先级排序，长模式优先）
+        let patterns: [(regex::Regex, &str); 6] = [
+            // API Keys
+            (regex::Regex::new(r"(?i)(api[_-]?key[^\s:]*\s*[:=]\s*)([a-zA-Z0-9_\-]{20,})").unwrap(), "$1[REDACTED]"),
+            // Tokens
+            (regex::Regex::new(r"(?i)(token[^\s:]*\s*[:=]\s*)([a-zA-Z0-9_\-\.]{20,})").unwrap(), "$1[REDACTED]"),
+            // Bearer token
+            (regex::Regex::new(r"(?i)(bearer\s+)([a-zA-Z0-9_\-\.]{20,})").unwrap(), "$1[REDACTED]"),
+            // Password
+            (regex::Regex::new(r"(?i)(password[^\s:]*\s*[:=]\s*)([^\s]{4,})").unwrap(), "$1[REDACTED]"),
+            // Private key
+            (regex::Regex::new(r"-----BEGIN\s+(?:RSA\s+)?PRIVATE KEY-----[\s\S]*?-----END\s+(?:RSA\s+)?PRIVATE KEY-----").unwrap(), "[PRIVATE KEY REDACTED]"),
+            // Auth token
+            (regex::Regex::new(r"(?i)(auth[_-]?token[^\s:]*\s*[:=]\s*)([a-zA-Z0-9_\-]{20,})").unwrap(), "$1[REDACTED]"),
+        ];
+
+        for (re, replacement) in &patterns {
+            sanitized = re.replace_all(&sanitized, *replacement).to_string();
+        }
+
+        sanitized
+    }
+
+    /// 上报日志
+    pub async fn upload_log(&self, logs: String) -> Result<String, String> {
+        let client_id = self
+            .client_id
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| "Client ID not set".to_string())?;
+
+        // 对日志进行脱敏处理
+        let sanitized_logs = Self::sanitize_logs(&logs);
+
+        let url = format!("{}/api/logs/upload", self.config.admin_url);
+
+        let req = LogUploadRequest {
+            client_id,
+            client_version: env!("CARGO_PKG_VERSION").to_string(),
+            os: std::env::consts::OS.to_string(),
+            arch: std::env::consts::ARCH.to_string(),
+            logs: sanitized_logs,
+            timestamp: chrono::Utc::now().timestamp(),
+        };
+
+        let response = self
+            .http_client
+            .post(&url, &req)
+            .await
+            .map_err(|e| format!("Log upload request failed: {}", e))?;
+
+        if !response.is_success() {
+            return Err(format!("Log upload failed: {}", response.status));
+        }
+
+        let resp: LogUploadResponse = response
+            .json()
+            .map_err(|e| format!("Failed to parse log upload response: {}", e))?;
+
+        if resp.success {
+            Ok(resp.ticket_id.unwrap_or_default())
+        } else {
+            Err(resp.message)
+        }
     }
 
     /// 停止后台任务

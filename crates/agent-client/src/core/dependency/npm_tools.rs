@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use thiserror::Error;
 use tracing::{info, warn};
+use which::which;
 
 use super::detector::{InstallerError, ToolInfo, ToolInstaller};
 
@@ -61,6 +62,130 @@ impl NpmToolInstaller {
     /// 创建新的安装器
     pub fn new(node_path: Option<PathBuf>) -> Self {
         Self { node_path }
+    }
+
+    /// 使用 tty-which 检测可执行文件是否在 PATH 中
+    fn detect_in_path(executable: &str) -> bool {
+        which(executable).is_ok()
+    }
+
+    /// 检测 Homebrew 安装的工具 (macOS)
+    fn detect_brew_tool(executable: &str) -> bool {
+        if cfg!(target_os = "macos") {
+            // 方式 1: 直接检测可执行文件
+            if Self::detect_in_path(executable) {
+                return true;
+            }
+
+            // 方式 2: 使用 brew --prefix 检测
+            let output = Command::new("brew")
+                .args(["--prefix", executable])
+                .output();
+
+            match output {
+                Ok(output) if output.status.success() => {
+                    let prefix = String::from_utf8_lossy(&output.stdout);
+                    !prefix.trim().is_empty() && std::path::Path::new(prefix.trim().trim_end_matches('/')).exists()
+                }
+                _ => false,
+            }
+        } else {
+            Self::detect_in_path(executable)
+        }
+    }
+
+    /// 检测 Claude Code 安装（支持多种安装方式）
+    fn detect_claude_code(&self) -> Result<NpmToolInfo, NpmToolError> {
+        // 方式 1: 检测 claude CLI (Homebrew 或手动安装)
+        if Self::detect_brew_tool("claude") {
+            let version = self.get_claude_version();
+            return Ok(NpmToolInfo {
+                name: "@anthropic-ai/claude-code".to_string(),
+                version,
+                installed: true,
+            });
+        }
+
+        // 方式 2: 检测 npm 全局安装
+        if let Ok(info) = self.check_npm_global("@anthropic-ai/claude-code") {
+            return Ok(info);
+        }
+
+        // 方式 3: 检测手动安装路径 (macOS)
+        if cfg!(target_os = "macos") {
+            let home = std::env::var("HOME").unwrap_or_default();
+            let app_path = format!("{}/Applications/Claude.app", home);
+            if std::path::Path::new(&app_path).exists() {
+                return Ok(NpmToolInfo {
+                    name: "@anthropic-ai/claude-code".to_string(),
+                    version: None,
+                    installed: true,
+                });
+            }
+        }
+
+        Ok(NpmToolInfo {
+            name: "@anthropic-ai/claude-code".to_string(),
+            version: None,
+            installed: false,
+        })
+    }
+
+    /// 获取 Claude CLI 版本
+    fn get_claude_version(&self) -> Option<String> {
+        let output = Command::new("claude")
+            .args(["--version"])
+            .output();
+
+        match output {
+            Ok(output) if output.status.success() => {
+                let version = String::from_utf8_lossy(&output.stdout);
+                Some(version.trim().to_string())
+            }
+            _ => None,
+        }
+    }
+
+    /// 检测 OpenCode 安装（支持多种安装方式）
+    fn detect_opencode(&self) -> Result<NpmToolInfo, NpmToolError> {
+        // 方式 1: 检测 opencode CLI (Homebrew)
+        if Self::detect_brew_tool("opencode") {
+            return Ok(NpmToolInfo {
+                name: "opencode".to_string(),
+                version: None,
+                installed: true,
+            });
+        }
+
+        // 方式 2: 检测 npm 全局安装
+        self.check_npm_global("opencode")
+    }
+
+    /// 检测 npm 全局安装的工具
+    fn check_npm_global(&self, tool_name: &str) -> Result<NpmToolInfo, NpmToolError> {
+        let npm_path = self.get_npm_path();
+
+        let output = Command::new(&npm_path)
+            .args(["list", "-g", tool_name, "--depth=0", "--json"])
+            .output()
+            .map_err(|e| NpmToolError::CommandFailed(e.to_string()))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        if stdout.contains(tool_name) {
+            let version = self.get_tool_version(tool_name).ok();
+            Ok(NpmToolInfo {
+                name: tool_name.to_string(),
+                version,
+                installed: true,
+            })
+        } else {
+            Ok(NpmToolInfo {
+                name: tool_name.to_string(),
+                version: None,
+                installed: false,
+            })
+        }
     }
 
     /// 获取 npm 路径
@@ -141,6 +266,32 @@ impl NpmToolInstaller {
         }
 
         Err(NpmToolError::CommandFailed("Version not found".to_string()))
+    }
+
+    /// 检测工具（支持多种安装方式）
+    ///
+    /// 优先使用 npm 全局检测，失败后回退到 CLI 命令检测
+    pub fn check_tool_with_fallback(&self, tool_name: &str) -> Result<NpmToolInfo, NpmToolError> {
+        // 特殊处理 Claude Code 和 OpenCode（支持多种安装方式）
+        match tool_name {
+            "@anthropic-ai/claude-code" => return self.detect_claude_code(),
+            "opencode" => return self.detect_opencode(),
+            _ => {
+                // 首先尝试 npm 全局检测
+                if let Ok(info) = self.check_npm_global(tool_name) {
+                    if info.installed {
+                        return Ok(info);
+                    }
+                }
+
+                // 其他工具不支持回退检测
+                Ok(NpmToolInfo {
+                    name: tool_name.to_string(),
+                    version: None,
+                    installed: false,
+                })
+            }
+        }
     }
 
     /// 安装工具（返回 NpmToolInfo，向后兼容）

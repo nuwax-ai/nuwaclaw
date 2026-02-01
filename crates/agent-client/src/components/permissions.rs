@@ -4,11 +4,13 @@
 
 use std::sync::Arc;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
     alert::Alert,
     button::{Button, ButtonVariants},
     h_flex, v_flex,
+    scroll::ScrollableElement as _,
     spinner::Spinner,
     tag::Tag,
     ActiveTheme, Disableable, Icon, IconName, Sizable, Size,
@@ -279,7 +281,10 @@ impl Render for PermissionsView {
             header = header.child(Spinner::new().with_size(Size::Small));
         }
 
+        // 使用 flex 布局确保滚动容器正确计算高度
         v_flex()
+            .flex_1()
+            .size_full()
             .gap_4()
             .child(header)
             .child(self.render_summary(
@@ -289,11 +294,19 @@ impl Render for PermissionsView {
                 cx,
             ))
             .child(
-                v_flex().gap_3().children(
-                    permissions
-                        .iter()
-                        .map(|perm| self.render_permission_card(perm, cx).into_any_element()),
-                ),
+                div()
+                    .overflow_y_scrollbar()
+                    .flex_1()
+                    .w_full()
+                    .pr_2()
+                    .pb_4()
+                    .child(
+                        v_flex().gap_3().children(
+                            permissions
+                                .iter()
+                                .map(|perm| self.render_permission_card(perm, cx).into_any_element()),
+                        ),
+                    ),
             )
     }
 }
