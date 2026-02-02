@@ -2,6 +2,7 @@
 [workspace]
 members = [
     "crates/agent-gpui-client",
+    "crates/agent-tauri-client/src-tauri",
     "crates/agent-server-admin",
     "crates/data-server",
     "crates/agent-protocol",
