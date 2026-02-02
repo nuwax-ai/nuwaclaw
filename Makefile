@@ -76,6 +76,7 @@ help:
 	@echo "  package-deb    - 打包 Linux DEB"
 	@echo ""
 	@echo "=== 依赖 ==="
+	@echo "  setup-repo     - 初始化 Git 子模块（含嵌套的 hbb_common）"
 	@echo "  setup-vcpkg    - 安装 vcpkg 和依赖"
 	@echo "  update-deps    - 更新 Cargo 依赖"
 	@echo ""
@@ -287,6 +288,15 @@ endif
 # ============================================================================
 # 依赖管理
 # ============================================================================
+
+.PHONY: setup-repo
+setup-repo:
+	@echo ">>> 初始化 Git 子模块..."
+	@echo ">>> 1/2 拉取顶层子模块 (nuwax-rustdesk, rcoder, 等)..."
+	git submodule update --init
+	@echo ">>> 2/2 拉取 nuwax-rustdesk 的嵌套子模块 (hbb_common)..."
+	git submodule update --init --recursive vendors/nuwax-rustdesk
+	@echo ">>> 子模块初始化完成 (注: 未递归 rcoder 等，避免 temp/duckdb 等可选子模块错误)"
 
 .PHONY: setup-vcpkg
 setup-vcpkg:
