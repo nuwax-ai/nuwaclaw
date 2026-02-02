@@ -5,9 +5,13 @@
 use std::sync::Arc;
 
 use gpui::*;
+use gpui::{
+    SharedString,
+};
 use gpui_component::{
     alert::Alert,
     button::{Button, ButtonVariants},
+    Disableable,
     h_flex, v_flex,
     scroll::ScrollableElement as _,
     tag::Tag,
@@ -23,6 +27,8 @@ use crate::viewmodels::{
 pub enum PermissionsEvent {
     /// 权限状态刷新
     Refreshed,
+    /// 打开设置
+    OpenSettings(String),
 }
 
 /// 权限设置视图
@@ -35,7 +41,14 @@ impl EventEmitter<PermissionsEvent> for PermissionsView {}
 
 impl PermissionsView {
     /// 创建新的权限视图
-    pub fn new(view_model: Arc<PermissionsViewModel>, _cx: &mut Context<Self>) -> Self {
+    pub fn new(view_model: Arc<PermissionsViewModel>, cx: &mut Context<Self>) -> Self {
+        // 初始化时立即刷新权限状态
+        let vm = view_model.clone();
+        cx.spawn(async move |_view, _cx| {
+            vm.handle_action(PermissionsAction::Refresh).await;
+        })
+        .detach();
+
         Self { view_model }
     }
 
@@ -60,6 +73,7 @@ impl PermissionsView {
     fn permission_usage(permission_name: &str) -> &'static str {
         match permission_name {
             "screen_recording" => "用于远程桌面实时画面传输",
+            "input_monitoring" => "用于远程控制时拦截本地键盘鼠标事件",
             "accessibility" => "用于远程控制时模拟键盘鼠标输入",
             "camera" => "用于视频通话功能",
             "microphone" => "用于语音通话功能",
@@ -76,7 +90,15 @@ impl PermissionsView {
         let theme = cx.theme();
         let status = perm.status;
         let is_granted = matches!(status, UIPermissionStatus::Granted);
-        let is_required = perm.modifiable; // 使用 modifiable 作为必需标志
+        let can_grant = perm.can_grant;
+
+        tracing::debug!(
+            "渲染权限卡片: name={}, display_name={}, status={:?}, can_grant={}",
+            perm.name,
+            perm.display_name,
+            status,
+            can_grant
+        );
 
         // 根据状态选择 Tag 变体
         let status_tag: Tag = match status {
@@ -84,13 +106,7 @@ impl PermissionsView {
             UIPermissionStatus::Denied => Tag::danger(),
             UIPermissionStatus::Pending => Tag::warning(),
             UIPermissionStatus::Unknown => Tag::secondary(),
-        };
-
-        // 必需标签
-        let required_tag: Tag = if is_required {
-            Tag::danger().outline()
-        } else {
-            Tag::secondary().outline()
+            UIPermissionStatus::Unavailable => Tag::secondary(),
         };
 
         let mut card = v_flex()
@@ -99,7 +115,7 @@ impl PermissionsView {
             .rounded_lg()
             .bg(theme.sidebar)
             .border_1()
-            .border_color(if !is_granted && is_required {
+            .border_color(if !is_granted && can_grant {
                 theme.warning
             } else {
                 theme.border
@@ -121,7 +137,13 @@ impl PermissionsView {
                                 .text_color(theme.foreground)
                                 .child(perm.display_name.clone()),
                         )
-                        .child(required_tag.child("权限")),
+                        .child(
+                            if can_grant {
+                                Tag::danger().outline().child("需授权")
+                            } else {
+                                Tag::secondary().outline().child("已授权")
+                            }
+                        ),
                 )
                 .child(status_tag.child(status.label())),
         );
@@ -132,6 +154,52 @@ impl PermissionsView {
                 .text_xs()
                 .text_color(theme.muted_foreground)
                 .child(Self::permission_usage(&perm.name)),
+        );
+
+        // 操作按钮行
+        // 预先克隆权限名称，避免闭包生命周期问题
+        let perm_name = perm.name.clone();
+        let perm_name_revoke = perm.name.clone();
+        // 使用 SharedString 确保按钮 ID 生命周期有效
+        let grant_button_id: SharedString = format!("grant-{}", perm_name).into();
+        let revoke_button_id: SharedString = format!("revoke-{}", perm_name_revoke).into();
+
+        card = card.child(
+            h_flex()
+                .justify_end()
+                .gap_2()
+                .child(
+                    if can_grant {
+                        Button::new(grant_button_id)
+                            .label("去授权")
+                            .small()
+                            .primary()
+                            .on_click(cx.listener(move |_, _, _window, cx| {
+                                tracing::info!("点击去授权按钮: {}", perm_name);
+                                cx.emit(PermissionsEvent::OpenSettings(perm_name.clone()));
+                            }))
+                    } else if is_granted {
+                        Button::new(revoke_button_id)
+                            .label("撤销")
+                            .small()
+                            .ghost()
+                            .on_click(cx.listener(move |this, _, _window, cx| {
+                                let name = perm_name_revoke.clone();
+                                let vm = this.view_model.clone();
+                                cx.spawn(async move |_view, _cx| {
+                                    vm.handle_action(PermissionsAction::Revoke(name)).await;
+                                })
+                                .detach();
+                            }))
+                    } else {
+                        let unavailable_button_id: SharedString = format!("unavailable-{}", perm.name).into();
+                        Button::new(unavailable_button_id)
+                            .label("不可用")
+                            .small()
+                            .ghost()
+                            .disabled(true)
+                    }
+                ),
         );
 
         card
@@ -204,7 +272,8 @@ impl Render for PermissionsView {
                     .flex_1()
                     .w_full()
                     .pr_2()
-                    .pb_4()
+                    // 底部预留足够空间，避免被状态栏遮挡
+                    .pb_48()
                     .child(
                         v_flex().gap_3().children(
                             state

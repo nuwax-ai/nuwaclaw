@@ -5,8 +5,12 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use async_trait::async_trait;
+
+use super::super::api::traits::ClientInfoApi;
+
 /// 客户端信息状态
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct ClientInfoViewModelState {
     /// 客户端 ID
     pub client_id: Option<String>,
@@ -118,6 +122,31 @@ impl ClientInfoViewModel {
                 // 复制到剪贴板的操作由 UI 层处理
             }
         }
+    }
+}
+
+#[async_trait]
+impl ClientInfoApi for ClientInfoViewModel {
+    type State = ClientInfoViewModelState;
+
+    async fn state(&self) -> Self::State {
+        self.get_state().await
+    }
+
+    fn state_snapshot(&self) -> Self::State {
+        futures::executor::block_on(self.get_state())
+    }
+
+    async fn set_client_id(&self, id: Option<String>) {
+        self.state.write().await.client_id = id;
+    }
+
+    async fn set_connected(&self, connected: bool) {
+        self.state.write().await.is_connected = connected;
+    }
+
+    async fn update_connection_addr(&self, addr: Option<String>) {
+        self.state.write().await.connection_addr = addr;
     }
 }
 

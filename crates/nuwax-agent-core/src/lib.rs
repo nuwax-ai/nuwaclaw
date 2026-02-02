@@ -72,11 +72,13 @@ pub use file_transfer::FileTransferManager;
 pub mod message;
 pub mod utils;
 pub mod i18n;
+pub mod api;
 pub mod viewmodels;
 
 pub use message::*;
 pub use utils::*;
 pub use i18n::{I18nManager, Language, I18nError};
+pub use api::*;
 pub use viewmodels::*;
 
 // ============================================================================

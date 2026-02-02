@@ -2,9 +2,9 @@
 //!
 //! 管理客户端的系统权限
 
-use std::sync::Arc;
 use thiserror::Error;
 use tracing::debug;
+use open;
 
 /// 权限错误
 #[derive(Error, Debug)]
@@ -64,6 +64,46 @@ impl PermissionManager {
         Self { permissions }
     }
 
+    /// 打开系统权限设置页面
+    #[cfg(target_os = "macos")]
+    pub fn open_settings(permission: &str) -> Result<(), PermissionError> {
+        let url = match permission {
+            "screen_recording" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+            "accessibility" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+            "input_monitoring" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+            "camera" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+            "microphone" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+            _ => {
+                tracing::error!("不支持的权限类型: {}", permission);
+                return Err(PermissionError::UnsupportedPermission(permission.to_string()));
+            }
+        };
+
+        tracing::info!("打开系统设置 URL: {}", url);
+
+        open::that(url).map_err(|e| PermissionError::RequestFailed(e.to_string()))
+    }
+
+    /// 打开系统权限设置页面 (非 macOS 平台)
+    #[cfg(not(target_os = "macos"))]
+    pub fn open_settings(permission: &str) -> Result<(), PermissionError> {
+        let url = match permission {
+            "screen_recording" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+            "accessibility" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+            "input_monitoring" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+            "camera" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+            "microphone" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+            _ => {
+                tracing::error!("不支持的权限类型: {}", permission);
+                return Err(PermissionError::UnsupportedPermission(permission.to_string()));
+            }
+        };
+
+        tracing::info!("打开系统设置 URL: {}", url);
+
+        open::that(url).map_err(|e| PermissionError::RequestFailed(e.to_string()))
+    }
+
     /// 默认权限列表
     fn default_permissions() -> Vec<PermissionItem> {
         vec![
@@ -71,6 +111,13 @@ impl PermissionManager {
                 name: "screen_recording".to_string(),
                 display_name: "屏幕录制".to_string(),
                 description: "允许应用程序捕获屏幕内容用于远程桌面功能".to_string(),
+                status: PermissionStatus::Unknown,
+                requested: false,
+            },
+            PermissionItem {
+                name: "input_monitoring".to_string(),
+                display_name: "输入监控".to_string(),
+                description: "允许应用程序监控输入事件，用于远程控制时拦截本地键盘鼠标操作".to_string(),
                 status: PermissionStatus::Unknown,
                 requested: false,
             },

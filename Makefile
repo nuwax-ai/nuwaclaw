@@ -24,7 +24,7 @@ endif
 CARGO := VCPKG_ROOT=$(VCPKG_ROOT) cargo
 
 # 客户端 crate 名称
-CLIENT := nuwax-agent
+CLIENT := nuwax-gpui-agent
 
 # 构建模式
 RELEASE_FLAGS := --release

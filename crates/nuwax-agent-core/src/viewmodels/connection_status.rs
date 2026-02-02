@@ -5,45 +5,11 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-/// 连接状态枚举（UI 层使用）
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum UIConnectionState {
-    /// 断开连接
-    #[default]
-    Disconnected,
-    /// 正在连接
-    Connecting,
-    /// 已连接
-    Connected,
-    /// 错误
-    Error,
-}
+use async_trait::async_trait;
 
-/// 连接模式枚举（UI 层使用）
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UIConnectionMode {
-    /// 直连
-    Direct,
-    /// 中继
-    Relay,
-    /// P2P
-    P2P,
-}
-
-/// 连接状态 ViewModel 状态
-#[derive(Debug, Clone, Default)]
-pub struct ConnectionStatusViewModelState {
-    /// 连接状态
-    pub state: UIConnectionState,
-    /// 连接模式
-    pub mode: Option<UIConnectionMode>,
-    /// 远程 ID
-    pub remote_id: Option<String>,
-    /// 连接质量
-    pub quality: Option<String>,
-    /// 错误信息
-    pub error_message: Option<String>,
-}
+pub use super::super::api::traits::connection_status::{
+    ConnectionStatusApi, ConnectionStatusViewModelState, UIConnectionState, UIConnectionMode,
+};
 
 /// 连接操作
 #[derive(Debug, Clone)]
@@ -171,6 +137,47 @@ impl ConnectionStatusViewModel {
             UIConnectionState::Connecting => "连接中...",
             UIConnectionState::Connected => "已连接",
             UIConnectionState::Error => "连接错误",
+        }
+    }
+}
+
+#[async_trait]
+impl ConnectionStatusApi for ConnectionStatusViewModel {
+    type State = ConnectionStatusViewModelState;
+
+    async fn state(&self) -> Self::State {
+        self.state.read().await.clone()
+    }
+
+    fn state_snapshot(&self) -> Self::State {
+        futures::executor::block_on(self.get_state())
+    }
+
+    async fn set_state(&self, state: UIConnectionState) {
+        let mut s = self.state.write().await;
+        s.state = state;
+        if state != UIConnectionState::Error {
+            s.error_message = None;
+        }
+    }
+
+    async fn set_mode(&self, mode: UIConnectionMode) {
+        self.state.write().await.mode = Some(mode);
+    }
+
+    async fn set_remote_id(&self, id: Option<String>) {
+        self.state.write().await.remote_id = id;
+    }
+
+    async fn set_quality(&self, quality: Option<String>) {
+        self.state.write().await.quality = quality;
+    }
+
+    async fn set_error(&self, message: Option<String>) {
+        let mut s = self.state.write().await;
+        s.error_message = message.clone();
+        if message.is_some() {
+            s.state = UIConnectionState::Error;
         }
     }
 }

@@ -23,6 +23,27 @@
 //! └─────────────────────────────────────────────────────────┘
  //! ```
 
+// 导出 API traits（由 API 层重新导出，这里也导出方便使用）
+pub use super::api::traits::{
+    AgentStatusApi, AppearanceSettingsApi, ClientInfoApi, ConnectionStatusApi, DependencyApi,
+    GeneralSettingsApi, JsonConfigApi, PermissionsApi, ServerConfigApi, SettingsApi, StatusBarApi,
+};
+
+// 导出共享类型（从子模块重新导出）
+pub use super::api::traits::status_bar::StatusBarViewModelState as StatusBarState;
+pub use super::api::traits::connection_status::ConnectionStatusViewModelState as ConnectionStatusState;
+
+// 从 connection_status 重新导出类型（供外部使用）
+pub use connection_status::{
+    ConnectionStatusAction, ConnectionStatusViewModel, ConnectionStatusViewModelState,
+    UIConnectionMode, UIConnectionState,
+};
+
+// 从 agent_status 重新导出类型（供外部使用）
+pub use agent_status::{
+    AgentStatusAction, AgentStatusViewModel, AgentStatusViewModelState, UIAgentState,
+};
+
 // 导出图标名称类型
 pub use settings::UIIconName as IconName;
 
@@ -36,17 +57,6 @@ pub mod remote_desktop;
 pub mod settings;
 pub mod status_bar;
 
-// 连接状态
-pub use connection_status::{
-    ConnectionStatusAction, ConnectionStatusViewModel, ConnectionStatusViewModelState,
-    UIConnectionMode, UIConnectionState,
-};
-
-// Agent 状态
-pub use agent_status::{
-    AgentStatusAction, AgentStatusViewModel, AgentStatusViewModelState, UIAgentState,
-};
-
 pub use client_info::{ClientInfoAction, ClientInfoViewModel, ClientInfoViewModelState};
 pub use dependency::{
     DependencyAction, DependencyViewModel, DependencyViewModelState, UIDependencyItem,
@@ -56,6 +66,9 @@ pub use permissions::{
     PermissionsAction, PermissionsSummary, PermissionsViewModel, PermissionsViewModelState,
     UIPermissionItem, UIPermissionStatus,
 };
+
+#[cfg(feature = "remote-desktop")]
+pub use super::api::traits::RemoteDesktopApi;
 
 #[cfg(feature = "remote-desktop")]
 pub use remote_desktop::{
@@ -82,5 +95,5 @@ pub use settings::{
     SettingsAction, SettingsViewModel, UISettingsPage,
 };
 pub use status_bar::{
-    StatusBarAction, StatusBarViewModel, StatusBarViewModelState,
+    StatusBarAction, StatusBarViewModel,
 };

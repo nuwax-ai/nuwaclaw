@@ -13,15 +13,16 @@ use gpui_component::{
 use crate::app::{AppEvent, AppState};
 use crate::components::client_info::{ClientInfoEvent, ClientInfoView};
 use crate::components::dependency_manager::DependencyManagerView;
-use crate::components::permissions::PermissionsView;
+use crate::components::permissions::{PermissionsEvent, PermissionsView};
 #[cfg(feature = "remote-desktop")]
 use crate::components::remote_desktop::RemoteDesktopView;
 #[cfg(feature = "chat-ui")]
 use crate::components::chat::ChatView;
 use crate::components::settings::{SettingsPage, SettingsView};
 use crate::components::status_bar::StatusBarView;
+use nuwax_agent_core::permissions::PermissionManager;
 use nuwax_agent_core::utils::notification::Notification;
-use crate::viewmodels::{ClientInfoViewModel, DependencyViewModel, PermissionsViewModel, SettingsViewModel, StatusBarViewModel};
+use crate::viewmodels::{ClientInfoViewModel, DependencyViewModel, PermissionsViewModel, SettingsViewModel, StatusBarViewModel, UIConnectionState};
 
 /// Tab 页面类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -165,6 +166,7 @@ impl RootView {
         let client_info_vm = client_info_view_model.clone();
         let status_bar_vm = status_bar_view_model.clone();
         let settings_view_for_sub = settings_view.clone();
+        let app_state_clone = app_state.clone();
         let subscriptions = vec![
             cx.subscribe_in(&app_state, window, {
                 move |_this, state, event: &AppEvent, _window, cx| match event {
@@ -183,12 +185,12 @@ impl RootView {
                             client_info_vm.set_connected(is_connected).await;
 
                             // 更新状态栏
-                            let connection_text = if is_connected {
-                                "已连接".to_string()
+                            let connection_state = if is_connected {
+                                UIConnectionState::Connected
                             } else {
-                                "未连接".to_string()
+                                UIConnectionState::Disconnected
                             };
-                            status_bar_vm.update_connection(connection_text).await;
+                            status_bar_vm.update_connection(connection_state).await;
                         });
                         cx.notify();
                     }
@@ -206,6 +208,29 @@ impl RootView {
                         let _ = settings_view_for_sub.update(cx, |view, cx| {
                             view.set_active_page(SettingsPage::Security, cx);
                         });
+                    }
+                }
+            }),
+            // 订阅 PermissionsView 事件
+            cx.subscribe_in(&permissions_view, window, {
+                move |_this, _state, event: &PermissionsEvent, _window, cx| match event {
+                    PermissionsEvent::OpenSettings(permission_name) => {
+                        // 打开系统设置页面
+                        if let Err(e) = PermissionManager::open_settings(&permission_name) {
+                            let message = format!("打开系统设置失败: {}", e);
+                            let app_state_inner = app_state_clone.clone();
+                            cx.spawn(async move |_view, cx| {
+                                let _ = cx.update(|cx| {
+                                    app_state_inner.update(cx, |state, _cx| {
+                                        state.show_notification(Notification::error(message));
+                                    });
+                                });
+                            })
+                            .detach();
+                        }
+                    }
+                    PermissionsEvent::Refreshed => {
+                        cx.notify();
                     }
                 }
             }),

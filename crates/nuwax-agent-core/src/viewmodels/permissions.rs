@@ -5,11 +5,15 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use async_trait::async_trait;
+
 use super::super::permissions::PermissionManager;
 use super::super::permissions::PermissionStatus as CorePermissionStatus;
+use super::super::permissions::PermissionError;
+use super::super::api::traits::PermissionsApi;
 
 /// 权限状态枚举（UI 层使用）
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum UIPermissionStatus {
     /// 未知
     Unknown,
@@ -17,6 +21,8 @@ pub enum UIPermissionStatus {
     Granted,
     /// 被拒绝
     Denied,
+    /// 不可用
+    Unavailable,
     /// 待确认
     Pending,
 }
@@ -28,13 +34,14 @@ impl UIPermissionStatus {
             UIPermissionStatus::Unknown => "未知",
             UIPermissionStatus::Granted => "已授权",
             UIPermissionStatus::Denied => "已拒绝",
+            UIPermissionStatus::Unavailable => "不可用",
             UIPermissionStatus::Pending => "待确认",
         }
     }
 }
 
 /// UI 权限项
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct UIPermissionItem {
     /// 权限名称
     pub name: String,
@@ -44,12 +51,14 @@ pub struct UIPermissionItem {
     pub description: String,
     /// 状态
     pub status: UIPermissionStatus,
-    /// 是否可修改
-    pub modifiable: bool,
+    /// 是否可以授权（未授权状态可以授权）
+    pub can_grant: bool,
+    /// 授权说明
+    pub grant_instructions: Option<String>,
 }
 
 /// 权限摘要
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct PermissionsSummary {
     /// 总权限数
     pub total: usize,
@@ -70,6 +79,8 @@ pub enum PermissionsAction {
     Request(String),
     /// 撤销权限
     Revoke(String),
+    /// 打开系统设置
+    OpenSettings(String),
 }
 
 /// 权限管理 ViewModel
@@ -117,19 +128,27 @@ impl PermissionsViewModel {
         state.items.clear();
         state.items.extend(core_perms.into_iter().map(|p| {
             let status = self.core_to_ui_status(&p.status);
-            // 根据状态决定是否可修改 - 已授权的可以撤销
-            let modifiable = matches!(p.status, CorePermissionStatus::Granted);
+            // can_grant = status 不是已授权
+            let can_grant = !matches!(p.status, CorePermissionStatus::Granted);
+            tracing::debug!(
+                "刷新权限: name={}, status={:?}, can_grant={}",
+                p.name,
+                status,
+                can_grant
+            );
             UIPermissionItem {
                 name: p.name.clone(),
                 display_name: p.display_name.clone(),
                 description: p.description.clone(),
                 status,
-                modifiable,
+                can_grant,
+                grant_instructions: None,
             }
         }));
 
         // 更新摘要
         state.summary = Self::calculate_summary(&state.items);
+        tracing::debug!("权限刷新完成, 共 {} 项", state.items.len());
     }
 
     /// 请求权限
@@ -160,6 +179,12 @@ impl PermissionsViewModel {
             PermissionsAction::Revoke(name) => {
                 self.revoke(&name).await;
             }
+            PermissionsAction::OpenSettings(name) => {
+                // 打开系统设置页面
+                if let Err(e) = PermissionManager::open_settings(&name) {
+                    tracing::error!("打开系统设置失败: {}", e);
+                }
+            }
         }
     }
 
@@ -182,7 +207,7 @@ impl PermissionsViewModel {
                 UIPermissionStatus::Granted => summary.granted += 1,
                 UIPermissionStatus::Denied => summary.denied += 1,
                 UIPermissionStatus::Pending => summary.pending += 1,
-                UIPermissionStatus::Unknown => {}
+                UIPermissionStatus::Unknown | UIPermissionStatus::Unavailable => {}
             }
         }
         summary
@@ -190,12 +215,51 @@ impl PermissionsViewModel {
 }
 
 /// 权限管理 ViewModel 状态
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct PermissionsViewModelState {
     /// 权限项列表
     pub items: Vec<UIPermissionItem>,
     /// 权限摘要
     pub summary: PermissionsSummary,
+}
+
+#[async_trait]
+impl PermissionsApi for PermissionsViewModel {
+    type State = PermissionsViewModelState;
+
+    async fn state(&self) -> Self::State {
+        self.get_state().await
+    }
+
+    fn state_snapshot(&self) -> Self::State {
+        futures::executor::block_on(self.get_state())
+    }
+
+    async fn refresh(&self) {
+        self.refresh().await
+    }
+
+    async fn request(&self, permission: &str) -> bool {
+        let result = self.core_manager.request(permission).await;
+        if result {
+            self.refresh().await;
+        }
+        result
+    }
+
+    async fn revoke(&self, permission: &str) -> bool {
+        let result = self.core_manager.revoke(permission).await;
+        if result {
+            self.refresh().await;
+        }
+        result
+    }
+
+    async fn open_settings(&self, permission: &str) {
+        if let Err(e) = PermissionManager::open_settings(permission) {
+            tracing::error!("打开系统设置失败: {}", e);
+        }
+    }
 }
 
 #[cfg(test)]

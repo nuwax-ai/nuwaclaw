@@ -5,24 +5,9 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-/// Agent 状态枚举（UI 层使用）
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UIAgentState {
-    /// 空闲
-    Idle,
-    /// 正在连接
-    Connecting,
-    /// 执行中
-    Executing,
-    /// 暂停
-    Paused,
-    /// 完成
-    Completed,
-    /// 错误
-    Error,
-    /// 离线
-    Offline,
-}
+use async_trait::async_trait;
+
+pub use super::super::api::traits::agent_status::{AgentStatusApi, UIAgentState};
 
 /// Agent 状态 ViewModel
 #[derive(Clone)]
@@ -116,6 +101,32 @@ pub enum AgentStatusAction {
 
 /// Agent 状态 ViewModel
 pub type AgentStatusViewModelState = UIAgentState;
+
+#[async_trait]
+impl AgentStatusApi for AgentStatusViewModel {
+    type State = UIAgentState;
+
+    async fn state(&self) -> Self::State {
+        *self.state.read().await
+    }
+
+    fn state_snapshot(&self) -> Self::State {
+        futures::executor::block_on(self.state())
+    }
+
+    async fn set_state(&self, state: UIAgentState) {
+        *self.state.write().await = state;
+    }
+
+    async fn increment_task_count(&self) {
+        let mut count = self.task_count.write().await;
+        *count += 1;
+    }
+
+    async fn reset_task_count(&self) {
+        *self.task_count.write().await = 0;
+    }
+}
 
 #[cfg(test)]
 mod tests {

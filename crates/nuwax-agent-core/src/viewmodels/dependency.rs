@@ -5,17 +5,19 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use tokio::sync::{Mutex, RwLock};
 
 use super::super::dependency::manager::DependencyManager as CoreDependencyManager;
 use super::super::dependency::manager::DependencyStatus as CoreDependencyStatus;
 use super::super::dependency::node::NodeSource;
+use super::super::api::traits::DependencyApi;
 
 /// UI 图标名称类型
 ///
 /// 使用字符串而非特定 UI 框架的图标类型
 /// 允许不同 UI 层自行映射到对应的图标实现
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum UIIconName {
     Globe,
     Eye,
@@ -88,7 +90,7 @@ const DEPENDENCY_MAPPINGS: &[DependencyNameMapping] = &[
 ];
 
 /// UI 层的依赖状态（与 core::DependencyStatus 解耦）
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum UIDependencyStatus {
     /// 检查中
     Checking,
@@ -159,7 +161,7 @@ impl UIDependencyStatus {
 }
 
 /// UI 层的依赖项（与 core::DependencyItem 解耦）
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct UIDependencyItem {
     /// 内部名称（用于操作）
     pub name: String,
@@ -214,7 +216,7 @@ pub enum DependencyAction {
 }
 
 /// 依赖管理 ViewModel 状态
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct DependencyViewModelState {
     /// 依赖项列表
     pub items: Vec<UIDependencyItem>,
@@ -498,6 +500,7 @@ impl DependencyViewModel {
     }
 
     /// 判断依赖是否可安装
+    #[cfg(feature = "dependency-management")]
     fn is_installable(name: &str) -> bool {
         match name {
             "nodejs" => {
@@ -516,6 +519,32 @@ impl DependencyViewModel {
     }
 }
 
+#[async_trait]
+impl DependencyApi for DependencyViewModel {
+    type State = DependencyViewModelState;
+
+    async fn state(&self) -> Self::State {
+        self.get_state().await
+    }
+
+    fn state_snapshot(&self) -> Self::State {
+        futures::executor::block_on(self.get_state())
+    }
+
+    async fn refresh(&self) {
+        self.refresh().await
+    }
+
+    async fn install(&self, name: &str) {
+        self.install(name).await
+    }
+
+    async fn install_all(&self) {
+        self.install_all().await
+    }
+}
+
+#[cfg(feature = "dependency-management")]
 #[cfg(test)]
 mod tests {
     use super::*;

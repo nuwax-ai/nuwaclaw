@@ -5,7 +5,12 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use tokio::sync::RwLock;
+
+use super::super::api::traits::{
+    AppearanceSettingsApi, GeneralSettingsApi, JsonConfigApi, ServerConfigApi, SettingsApi,
+};
 
 /// UI 图标名称类型
 ///
@@ -50,7 +55,7 @@ impl UIIconName {
 }
 
 /// UI 设置页面
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum UISettingsPage {
     /// 服务器配置
     Server,
@@ -105,7 +110,7 @@ impl UISettingsPage {
 }
 
 /// 服务器配置状态
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct ServerConfigState {
     /// HBBS 服务器地址
     pub hbbs_addr: String,
@@ -120,7 +125,7 @@ pub struct ServerConfigState {
 }
 
 /// 常规设置状态
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct GeneralSettingsState {
     /// 是否开机自启动
     pub auto_launch: bool,
@@ -129,14 +134,14 @@ pub struct GeneralSettingsState {
 }
 
 /// 外观设置状态
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct AppearanceSettingsState {
     /// 主题
     pub theme: String,
 }
 
 /// JSON 配置状态
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct JsonConfigState {
     /// JSON 内容
     pub json_content: String,
@@ -602,6 +607,111 @@ impl SettingsViewModel {
 impl Default for SettingsViewModel {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[async_trait]
+impl SettingsApi for SettingsViewModel {
+    type State = UISettingsPage;
+
+    async fn state(&self) -> Self::State {
+        self.current_page().await
+    }
+
+    fn state_snapshot(&self) -> Self::State {
+        futures::executor::block_on(self.state())
+    }
+
+    async fn switch_page(&self, page: Self::State) {
+        *self.current_page.write().await = page;
+    }
+}
+
+#[async_trait]
+impl ServerConfigApi for ServerConfigViewModel {
+    type State = ServerConfigState;
+
+    async fn state(&self) -> Self::State {
+        self.get_state().await
+    }
+
+    fn state_snapshot(&self) -> Self::State {
+        futures::executor::block_on(self.get_state())
+    }
+
+    async fn update_hbbs_addr(&self, addr: String) {
+        self.state.write().await.hbbs_addr = addr;
+    }
+
+    async fn update_hbbr_addr(&self, addr: String) {
+        self.state.write().await.hbbr_addr = addr;
+    }
+
+    async fn save_config(&self) {
+        self.handle_server_action(SettingsAction::SaveServerConfig).await
+    }
+
+    async fn test_connection(&self) {
+        self.handle_server_action(SettingsAction::TestConnection).await
+    }
+}
+
+#[async_trait]
+impl GeneralSettingsApi for GeneralSettingsViewModel {
+    type State = GeneralSettingsState;
+
+    async fn state(&self) -> Self::State {
+        self.get_state().await
+    }
+
+    fn state_snapshot(&self) -> Self::State {
+        futures::executor::block_on(self.get_state())
+    }
+
+    async fn toggle_auto_launch(&self) {
+        self.handle_general_action(SettingsAction::ToggleAutoLaunch).await
+    }
+}
+
+#[async_trait]
+impl AppearanceSettingsApi for AppearanceSettingsViewModel {
+    type State = AppearanceSettingsState;
+
+    async fn state(&self) -> Self::State {
+        self.get_state().await
+    }
+
+    fn state_snapshot(&self) -> Self::State {
+        futures::executor::block_on(self.get_state())
+    }
+
+    async fn update_theme(&self, theme: String) {
+        self.update_theme(theme).await
+    }
+}
+
+#[async_trait]
+impl JsonConfigApi for JsonConfigViewModel {
+    type State = JsonConfigState;
+
+    async fn state(&self) -> Self::State {
+        self.get_state().await
+    }
+
+    fn state_snapshot(&self) -> Self::State {
+        futures::executor::block_on(self.get_state())
+    }
+
+    async fn update_json_content(&self, content: String) {
+        self.update_json_content(content).await
+    }
+
+    async fn apply_config(&self) {
+        self.apply_config().await
+    }
+
+    async fn reload_config(&self) {
+        self.handle_json_config_action(SettingsAction::ReloadJsonConfig).await
     }
 }
 

@@ -5,8 +5,12 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use async_trait::async_trait;
+
+use super::super::api::traits::RemoteDesktopApi;
+
 /// 远程桌面 UI 状态
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct RemoteDesktopViewModelState {
     /// 是否已连接
     pub is_connected: bool,
@@ -117,6 +121,33 @@ impl RemoteDesktopViewModel {
                 state.quality = Some(quality);
             }
         }
+    }
+}
+
+#[async_trait]
+impl RemoteDesktopApi for RemoteDesktopViewModel {
+    type State = RemoteDesktopViewModelState;
+
+    async fn state(&self) -> Self::State {
+        self.get_state().await
+    }
+
+    fn state_snapshot(&self) -> Self::State {
+        futures::executor::block_on(self.get_state())
+    }
+
+    async fn connect(&self, remote_id: String) {
+        let mut state = self.state.write().await;
+        state.is_connecting = true;
+        state.remote_id = Some(remote_id);
+        state.is_connected = false;
+    }
+
+    async fn disconnect(&self) {
+        let mut state = self.state.write().await;
+        state.is_connecting = false;
+        state.is_connected = false;
+        state.remote_id = None;
     }
 }
 

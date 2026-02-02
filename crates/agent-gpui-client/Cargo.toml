@@ -4,7 +4,7 @@
 # 依赖 nuwax-agent-core 提供核心业务逻辑
 
 [package]
-name = "nuwax-agent"
+name = "nuwax-gpui-agent"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,11 +14,11 @@ repository.workspace = true
 license.workspace = true
 
 [lib]
-name = "nuwax_agent"
+name = "nuwax_gpui_agent"
 crate-type = ["rlib"]
 
 [[bin]]
-name = "nuwax-agent"
+name = "nuwax-gpui-agent"
 path = "src/main.rs"
 
 # Feature 控制表（与 nuwax-agent-core 保持一致）
