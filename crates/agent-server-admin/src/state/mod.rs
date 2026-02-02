@@ -54,7 +54,7 @@ pub struct AppState {
 impl AppState {
     /// 创建新的应用状态
     pub fn new() -> Self {
-        Self::with_config("localhost:21116", "0.0.0.0:8080")
+        Self::with_config("47.109.204.125:21116", "0.0.0.0:8080")
     }
 
     /// 使用指定配置创建

@@ -60,8 +60,8 @@ pub struct ConnectionConfig {
 impl Default for ConnectionConfig {
     fn default() -> Self {
         Self {
-            hbbs_addr: "localhost:21116".to_string(),
-            hbbr_addr: "localhost:21117".to_string(),
+            hbbs_addr: "47.109.204.125:21116".to_string(),
+            hbbr_addr: "47.109.204.125:21117".to_string(),
         }
     }
 }
