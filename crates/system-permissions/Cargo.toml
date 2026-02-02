@@ -1,0 +1,63 @@
+# Cargo.toml - 系统权限管理库
+
+[package]
+name = "system-permissions"
+description = "跨平台系统权限管理库，提供统一的接口获取 macOS/Windows/Linux 系统权限"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+
+warning = "warn"
+
+[features]
+default = ["chrono"]
+
+# 启用时间戳支持
+chrono = ["dep:chrono"]
+
+# 启用序列化支持
+serde = ["dep:serde"]
+
+[dependencies]
+# Async 运行时
+tokio = { workspace = true, features = ["full"] }
+async-trait = { workspace = true }
+
+# 序列化 (可选)
+serde = { workspace = true, optional = true }
+
+# 时间处理
+chrono = { workspace = true, optional = true }
+
+# 错误处理
+thiserror = { workspace = true }
+
+# macOS 特定依赖
+[target."cfg(target_os = \"macos\")".dependencies]
+objc = "0.2.7"
+cocoa = "0.24"
+core-foundation = "0.10"
+core-graphics = "0.24"
+core-text = { workspace = true }
+
+# Windows 特定依赖
+[target."cfg(target_os = \"windows\")".dependencies]
+windows = "0.57"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
+
+[lib]
+# 检查未知 lint
+check-cfg = { level = "warn", configure = [{lint = "unnameable_types", level = "warn"}] }
+
+[[test]]
+name = "unit"
+path = "tests/unit.rs"
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
