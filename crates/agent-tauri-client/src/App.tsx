@@ -57,7 +57,6 @@ import {
   onLogChange,
 } from './services';
 
-const { Header, Content, Sider } = Layout;
 import { Typography } from 'antd';
 const { Title, Text, Paragraph } = Typography;
 
