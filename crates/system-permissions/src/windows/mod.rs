@@ -1,8 +1,22 @@
 //! Windows 权限管理器实现
 //!
-//! 使用系统工具检查和请求各种系统权限
+//! 使用 Windows API 检查和请求各种系统权限
 
 use async_trait::async_trait;
+use chrono::Utc;
+use std::process::Command;
+
+#[cfg(target_family = "windows")]
+use windows::{
+    core::PCWSTR,
+    Win32::{
+        Foundation::{BOOL, HANDLE, LSTATUS, ERROR_SUCCESS},
+        Security::{
+            Advanced::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY},
+        },
+        System::Threading::{OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION},
+    },
+};
 
 use crate::{
     LocationMode, PermissionError, PermissionManager, PermissionState, PermissionStatus,
@@ -21,35 +35,53 @@ impl WindowsPermissionManager {
         Self
     }
 
-    /// 检查管理员权限
+    /// 检查管理员权限 (UAC)
     async fn check_admin(&self) -> PermissionState {
+        let is_admin = check_is_admin();
+
         PermissionState {
             permission: SystemPermission::Accessibility,
-            status: PermissionStatus::NotDetermined,
+            status: if is_admin {
+                PermissionStatus::Authorized
+            } else {
+                PermissionStatus::Denied
+            },
             location_mode: None,
-            granted_at: None,
+            granted_at: if is_admin { Some(Utc::now()) } else { None },
             can_request: true,
         }
     }
 
     /// 检查麦克风权限
     async fn check_microphone(&self) -> PermissionState {
+        let allowed = check_privacy_setting("microphone");
+
         PermissionState {
             permission: SystemPermission::Microphone,
-            status: PermissionStatus::NotDetermined,
+            status: if allowed {
+                PermissionStatus::Authorized
+            } else {
+                PermissionStatus::Denied
+            },
             location_mode: None,
-            granted_at: None,
+            granted_at: if allowed { Some(Utc::now()) } else { None },
             can_request: true,
         }
     }
 
     /// 检查相机权限
     async fn check_camera(&self) -> PermissionState {
+        let allowed = check_privacy_setting("camera");
+
         PermissionState {
             permission: SystemPermission::Camera,
-            status: PermissionStatus::NotDetermined,
+            status: if allowed {
+                PermissionStatus::Authorized
+            } else {
+                PermissionStatus::Denied
+            },
             location_mode: None,
-            granted_at: None,
+            granted_at: if allowed { Some(Utc::now()) } else { None },
             can_request: true,
         }
     }
@@ -67,11 +99,21 @@ impl WindowsPermissionManager {
 
     /// 检查位置权限
     async fn check_location(&self) -> PermissionState {
+        let allowed = check_privacy_setting("location");
+
         PermissionState {
             permission: SystemPermission::Location,
-            status: PermissionStatus::NotDetermined,
-            location_mode: Some(LocationMode::Off),
-            granted_at: None,
+            status: if allowed {
+                PermissionStatus::Authorized
+            } else {
+                PermissionStatus::Denied
+            },
+            location_mode: if allowed {
+                Some(LocationMode::WhileUsing)
+            } else {
+                Some(LocationMode::Off)
+            },
+            granted_at: if allowed { Some(Utc::now()) } else { None },
             can_request: true,
         }
     }
@@ -87,20 +129,65 @@ impl WindowsPermissionManager {
         }
     }
 
-    /// 检查 NuwaxCode / Claude Code / 文件系统 / 剪贴板 / 键盘监控 / 网络 等权限
-    /// Windows 上多为 UAC 或应用能力声明，此处返回未决定
-    async fn check_ide_and_extra(&self, permission: SystemPermission) -> PermissionState {
+    /// 检查剪贴板权限
+    async fn check_clipboard(&self) -> PermissionState {
         PermissionState {
-            permission,
-            status: PermissionStatus::NotDetermined,
+            permission: SystemPermission::Clipboard,
+            status: PermissionStatus::Authorized,
             location_mode: None,
-            granted_at: None,
-            can_request: true,
+            granted_at: Some(Utc::now()),
+            can_request: false,
+        }
+    }
+
+    /// 检查 NuwaxCode / Claude Code / 文件系统 / 键盘监控 / 网络 等权限
+    async fn check_ide_and_extra(&self, permission: SystemPermission) -> PermissionState {
+        match permission {
+            SystemPermission::Network => PermissionState {
+                permission,
+                status: PermissionStatus::Authorized,
+                location_mode: None,
+                granted_at: Some(Utc::now()),
+                can_request: false,
+            },
+            SystemPermission::FileSystemRead | SystemPermission::FileSystemWrite => {
+                PermissionState {
+                    permission,
+                    status: PermissionStatus::NotDetermined,
+                    location_mode: None,
+                    granted_at: None,
+                    can_request: true,
+                }
+            }
+            SystemPermission::KeyboardMonitoring => PermissionState {
+                permission,
+                status: PermissionStatus::NotDetermined,
+                location_mode: None,
+                granted_at: None,
+                can_request: true,
+            },
+            _ => PermissionState {
+                permission,
+                status: PermissionStatus::NotDetermined,
+                location_mode: None,
+                granted_at: None,
+                can_request: true,
+            },
         }
     }
 
     /// 请求管理员权限
-    async fn request_admin(&self, _options: RequestOptions) -> RequestResult {
+    async fn request_admin(&self, options: RequestOptions) -> RequestResult {
+        if options.interactive {
+            // 尝试以管理员身份重新运行
+            let _ = Command::new("powershell")
+                .args(&[
+                    "-Command",
+                    "Start-Process -FilePath '$env:ComSpec' -ArgumentList '/c','echo Admin rights required' -Verb RunAs",
+                ])
+                .spawn();
+        }
+
         RequestResult {
             permission: SystemPermission::Accessibility,
             granted: false,
@@ -111,34 +198,68 @@ impl WindowsPermissionManager {
     }
 
     /// 请求麦克风权限
-    async fn request_microphone(&self, _options: RequestOptions) -> RequestResult {
-        open_privacy_settings("microphone");
+    async fn request_microphone(&self, options: RequestOptions) -> RequestResult {
+        if options.interactive {
+            open_privacy_settings("microphone");
+        }
+
+        let granted = check_privacy_setting("microphone");
 
         RequestResult {
             permission: SystemPermission::Microphone,
-            granted: false,
-            status: PermissionStatus::NotDetermined,
-            error_message: Some("Please enable microphone access in Windows Settings".to_string()),
-            settings_guide: Some("Settings > Privacy > Microphone".to_string()),
+            granted,
+            status: if granted {
+                PermissionStatus::Authorized
+            } else {
+                PermissionStatus::Denied
+            },
+            error_message: if granted {
+                None
+            } else {
+                Some("Please enable microphone access in Windows Settings".to_string())
+            },
+            settings_guide: if granted {
+                None
+            } else {
+                Some("Settings > Privacy > Microphone".to_string())
+            },
         }
     }
 
     /// 请求相机权限
-    async fn request_camera(&self, _options: RequestOptions) -> RequestResult {
-        open_privacy_settings("camera");
+    async fn request_camera(&self, options: RequestOptions) -> RequestResult {
+        if options.interactive {
+            open_privacy_settings("camera");
+        }
+
+        let granted = check_privacy_setting("camera");
 
         RequestResult {
             permission: SystemPermission::Camera,
-            granted: false,
-            status: PermissionStatus::NotDetermined,
-            error_message: Some("Please enable camera access in Windows Settings".to_string()),
-            settings_guide: Some("Settings > Privacy > Camera".to_string()),
+            granted,
+            status: if granted {
+                PermissionStatus::Authorized
+            } else {
+                PermissionStatus::Denied
+            },
+            error_message: if granted {
+                None
+            } else {
+                Some("Please enable camera access in Windows Settings".to_string())
+            },
+            settings_guide: if granted {
+                None
+            } else {
+                Some("Settings > Privacy > Camera".to_string())
+            },
         }
     }
 
     /// 请求通知权限
-    async fn request_notifications(&self, _options: RequestOptions) -> RequestResult {
-        open_privacy_settings("notifications");
+    async fn request_notifications(&self, options: RequestOptions) -> RequestResult {
+        if options.interactive {
+            open_privacy_settings("notifications");
+        }
 
         RequestResult {
             permission: SystemPermission::Notifications,
@@ -150,15 +271,57 @@ impl WindowsPermissionManager {
     }
 
     /// 请求位置权限
-    async fn request_location(&self, _options: RequestOptions) -> RequestResult {
-        open_privacy_settings("location");
+    async fn request_location(&self, options: RequestOptions) -> RequestResult {
+        if options.interactive {
+            open_privacy_settings("location");
+        }
+
+        let granted = check_privacy_setting("location");
 
         RequestResult {
             permission: SystemPermission::Location,
+            granted,
+            status: if granted {
+                PermissionStatus::Authorized
+            } else {
+                PermissionStatus::Denied
+            },
+            error_message: if granted {
+                None
+            } else {
+                Some("Please enable location access in Windows Settings".to_string())
+            },
+            settings_guide: if granted {
+                None
+            } else {
+                Some("Settings > Privacy > Location".to_string())
+            },
+        }
+    }
+
+    /// 请求屏幕录制权限
+    async fn request_screen_recording(&self, options: RequestOptions) -> RequestResult {
+        if options.interactive {
+            open_privacy_settings("graphics");
+        }
+
+        RequestResult {
+            permission: SystemPermission::ScreenRecording,
             granted: false,
             status: PermissionStatus::NotDetermined,
-            error_message: Some("Please enable location access in Windows Settings".to_string()),
-            settings_guide: Some("Settings > Privacy > Location".to_string()),
+            error_message: Some("Screen recording requires graphics settings".to_string()),
+            settings_guide: Some("Settings > Privacy > Graphics".to_string()),
+        }
+    }
+
+    /// 请求剪贴板权限
+    async fn request_clipboard(&self, _options: RequestOptions) -> RequestResult {
+        RequestResult {
+            permission: SystemPermission::Clipboard,
+            granted: true,
+            status: PermissionStatus::Authorized,
+            error_message: None,
+            settings_guide: None,
         }
     }
 }
@@ -173,11 +336,11 @@ impl PermissionManager for WindowsPermissionManager {
             SystemPermission::Camera,
             SystemPermission::Notifications,
             SystemPermission::Location,
+            SystemPermission::Clipboard,
             SystemPermission::NuwaxCode,
             SystemPermission::ClaudeCode,
             SystemPermission::FileSystemRead,
             SystemPermission::FileSystemWrite,
-            SystemPermission::Clipboard,
             SystemPermission::KeyboardMonitoring,
             SystemPermission::Network,
         ]
@@ -191,11 +354,11 @@ impl PermissionManager for WindowsPermissionManager {
             SystemPermission::Camera => self.check_camera().await,
             SystemPermission::Notifications => self.check_notifications().await,
             SystemPermission::Location => self.check_location().await,
+            SystemPermission::Clipboard => self.check_clipboard().await,
             SystemPermission::NuwaxCode
             | SystemPermission::ClaudeCode
             | SystemPermission::FileSystemRead
             | SystemPermission::FileSystemWrite
-            | SystemPermission::Clipboard
             | SystemPermission::KeyboardMonitoring
             | SystemPermission::Network => self.check_ide_and_extra(permission).await,
             _ => PermissionState::unavailable(permission),
@@ -217,21 +380,21 @@ impl PermissionManager for WindowsPermissionManager {
     ) -> RequestResult {
         match permission {
             SystemPermission::Accessibility => self.request_admin(options).await,
-            SystemPermission::ScreenRecording => {
-                RequestResult::granted(permission, PermissionStatus::Authorized)
-            }
+            SystemPermission::ScreenRecording => self.request_screen_recording(options).await,
             SystemPermission::Microphone => self.request_microphone(options).await,
             SystemPermission::Camera => self.request_camera(options).await,
             SystemPermission::Notifications => self.request_notifications(options).await,
             SystemPermission::Location => self.request_location(options).await,
+            SystemPermission::Clipboard => self.request_clipboard(options).await,
             SystemPermission::NuwaxCode
             | SystemPermission::ClaudeCode
             | SystemPermission::FileSystemRead
             | SystemPermission::FileSystemWrite
-            | SystemPermission::Clipboard
             | SystemPermission::KeyboardMonitoring
             | SystemPermission::Network => {
-                let _ = self.open_settings(permission).await;
+                if options.interactive {
+                    let _ = self.open_settings(permission).await;
+                }
                 RequestResult::denied(
                     permission,
                     Some("Please enable the permission in Windows Settings".to_string()),
@@ -250,14 +413,19 @@ impl PermissionManager for WindowsPermissionManager {
             SystemPermission::Camera => "privacy-webcam",
             SystemPermission::Notifications => "notifications",
             SystemPermission::Location => "privacy-location",
+            SystemPermission::Clipboard | SystemPermission::KeyboardMonitoring => {
+                "privacy-accessibility"
+            }
             SystemPermission::NuwaxCode
             | SystemPermission::ClaudeCode
             | SystemPermission::FileSystemRead
             | SystemPermission::FileSystemWrite => "privacy-apps",
-            SystemPermission::Clipboard
-            | SystemPermission::KeyboardMonitoring => "privacy-accessibility",
             SystemPermission::Network => "privacy-apps",
-            _ => return Err(PermissionError::Unsupported { permission: permission.name() }),
+            _ => {
+                return Err(PermissionError::Unsupported {
+                    permission: permission.name(),
+                })
+            }
         };
 
         open_privacy_settings(settings_page);
@@ -277,9 +445,102 @@ impl PermissionManager for WindowsPermissionManager {
     }
 }
 
+/// 检查 Windows 隐私设置
+fn check_privacy_setting(category: &str) -> bool {
+    // 读取注册表检查隐私设置
+    // HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore
+
+    let key_path = format!(
+        r"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\{}",
+        category
+    );
+
+    // 检查 Value 字段
+    #[cfg(target_family = "windows")]
+    {
+        use windows::Win32::Registry::{HKEY_CURRENT_USER, RegGetValueW, KEY_READ, REG_SZ};
+
+        let mut value: [u16; 256] = [0; 256];
+        let mut data_size: u32 = std::mem::size_of::<u16>() as u32 * 256;
+
+        let result = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                PCWSTR::from_raw(key_path.encode_utf16().collect::<Vec<u16>>().as_ptr()),
+                PCWSTR::from_raw("Value".encode_utf16().collect::<Vec<u16>>().as_ptr()),
+                RRF_RT_REG_SZ,
+                std::ptr::null_mut(),
+                value.as_mut_ptr() as *mut std::ffi::c_void,
+                &mut data_size,
+            )
+        };
+
+        if result == 0 {
+            // 读取成功，检查值是否为 "Allow"
+            let value_str = String::from_utf16_lossy(&value[..(data_size / 2) as usize]);
+            return value_str.trim_end_matches('\0') == "Allow";
+        }
+    }
+
+    // 如果读取失败，保守返回 false
+    false
+}
+
 /// 打开 Windows 隐私设置页面
 fn open_privacy_settings(category: &str) {
-    let _ = std::process::Command::new("cmd")
+    let _ = Command::new("cmd")
         .args(&["/c", &format!("start ms-settings:{}", category)])
         .spawn();
+}
+
+// Windows API 辅助函数
+
+/// 获取进程令牌信息
+#[cfg(target_family = "windows")]
+fn get_process_elevated() -> bool {
+    unsafe {
+        let mut token_handle: HANDLE = HANDLE::default();
+        
+        if OpenProcessToken(
+            PROCESS_QUERY_LIMITED_INFORMATION,
+            TOKEN_QUERY.0 as _,
+            &mut token_handle,
+        ) == FALSE
+        {
+            return false;
+        }
+
+        let mut elevation = TOKEN_ELEVATION::default();
+        let mut return_length: u32 = std::mem::size_of::<TOKEN_ELEVATION>() as u32;
+        
+        let result = GetTokenInformation(
+            token_handle,
+            TokenElevation,
+            Some(&mut elevation as *mut _ as *mut std::ffi::c_void),
+            return_length,
+            &mut return_length,
+        );
+
+        if result == FALSE {
+            return false;
+        }
+
+        elevation.TokenIsElevated != 0
+    }
+}
+
+#[cfg(not(target_family = "windows"))]
+fn get_process_elevated() -> bool {
+    false
+}
+
+/// 检查当前用户是否是管理员
+#[cfg(target_family = "windows")]
+fn check_is_admin() -> bool {
+    get_process_elevated()
+}
+
+#[cfg(not(target_family = "windows"))]
+fn check_is_admin() -> bool {
+    false
 }

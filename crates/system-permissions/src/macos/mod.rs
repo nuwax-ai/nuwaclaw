@@ -2,9 +2,10 @@
 //!
 //! 使用 Objective-C runtime 和 Core Foundation 调用 macOS TCC 权限 API
 
-
 use async_trait::async_trait;
 use chrono::Utc;
+use objc::rc::autoreleasepool;
+use objc::{class, msg_send, sel, sel_impl};
 
 use crate::{
     LocationMode, PermissionError, PermissionManager, PermissionState, PermissionStatus,
@@ -57,28 +58,57 @@ impl MacOSPermissionManager {
         }
     }
 
-    /// 检查麦克风权限
-    /// 注意: 完整实现需通过 Objective-C 绑定调用 AVCaptureDevice authorizationStatusForMediaType，
-    /// 此处返回未决定，避免链接不存在的 C 符号
+    /// 检查麦克风权限 - 使用 AVCaptureDevice
     async fn check_microphone(&self) -> PermissionState {
+        let status = unsafe {
+            AVCaptureDevice::authorization_status_for_media_type(AVMediaType::AUDIO)
+        };
+
+        let status = match status {
+            0 => PermissionStatus::NotDetermined,      // AVAuthorizationStatusNotDetermined
+            1 => PermissionStatus::Authorized,         // AVAuthorizationStatusAuthorized
+            2 => PermissionStatus::Denied,             // AVAuthorizationStatusDenied
+            3 => PermissionStatus::Restricted,         // AVAuthorizationStatusRestricted
+            _ => PermissionStatus::Unavailable,
+        };
+
         PermissionState {
             permission: SystemPermission::Microphone,
-            status: PermissionStatus::NotDetermined,
+            status,
             location_mode: None,
-            granted_at: None,
-            can_request: true,
+            granted_at: if status == PermissionStatus::Authorized {
+                Some(Utc::now())
+            } else {
+                None
+            },
+            can_request: status == PermissionStatus::NotDetermined,
         }
     }
 
-    /// 检查相机权限
-    /// 注意: 完整实现需通过 Objective-C 绑定调用 AVCaptureDevice，此处返回未决定
+    /// 检查相机权限 - 使用 AVCaptureDevice
     async fn check_camera(&self) -> PermissionState {
+        let status = unsafe {
+            AVCaptureDevice::authorization_status_for_media_type(AVMediaType::VIDEO)
+        };
+
+        let status = match status {
+            0 => PermissionStatus::NotDetermined,      // AVAuthorizationStatusNotDetermined
+            1 => PermissionStatus::Authorized,         // AVAuthorizationStatusAuthorized
+            2 => PermissionStatus::Denied,             // AVAuthorizationStatusDenied
+            3 => PermissionStatus::Restricted,         // AVAuthorizationStatusRestricted
+            _ => PermissionStatus::Unavailable,
+        };
+
         PermissionState {
             permission: SystemPermission::Camera,
-            status: PermissionStatus::NotDetermined,
+            status,
             location_mode: None,
-            granted_at: None,
-            can_request: true,
+            granted_at: if status == PermissionStatus::Authorized {
+                Some(Utc::now())
+            } else {
+                None
+            },
+            can_request: status == PermissionStatus::NotDetermined,
         }
     }
 
@@ -93,15 +123,28 @@ impl MacOSPermissionManager {
         }
     }
 
-    /// 检查语音识别权限
-    /// 注意: 完整实现需通过 Objective-C 绑定调用 SFSpeechRecognizer，此处返回未决定
+    /// 检查语音识别权限 - 使用 SFSpeechRecognizer
     async fn check_speech_recognition(&self) -> PermissionState {
+        let status = unsafe { SFSpeechRecognizer::authorization_status() };
+
+        let status = match status {
+            0 => PermissionStatus::NotDetermined,      // SFSpeechRecognizerAuthorizationStatusNotDetermined
+            1 => PermissionStatus::Authorized,         // SFSpeechRecognizerAuthorizationStatusAuthorized
+            2 => PermissionStatus::Denied,             // SFSpeechRecognizerAuthorizationStatusDenied
+            3 => PermissionStatus::Restricted,         // SFSpeechRecognizerAuthorizationStatusRestricted
+            _ => PermissionStatus::Unavailable,
+        };
+
         PermissionState {
             permission: SystemPermission::SpeechRecognition,
-            status: PermissionStatus::NotDetermined,
+            status,
             location_mode: None,
-            granted_at: None,
-            can_request: true,
+            granted_at: if status == PermissionStatus::Authorized {
+                Some(Utc::now())
+            } else {
+                None
+            },
+            can_request: status == PermissionStatus::NotDetermined,
         }
     }
 
@@ -128,7 +171,6 @@ impl MacOSPermissionManager {
     }
 
     /// 检查 NuwaxCode / Claude Code / 文件系统 / 剪贴板 / 键盘监控 / 网络 等权限
-    /// 这些权限在 macOS 上多为沙盒或 TCC 全盘访问，此处返回未决定，由上层引导用户打开设置
     async fn check_ide_and_extra(&self, permission: SystemPermission) -> PermissionState {
         PermissionState {
             permission,
@@ -181,26 +223,66 @@ impl MacOSPermissionManager {
         }
     }
 
-    /// 请求麦克风权限
-    /// 打开系统设置页，由用户手动授权；完整实现需 Objective-C 绑定
-    async fn request_microphone(&self, _options: RequestOptions) -> RequestResult {
-        let _ = self.open_settings(SystemPermission::Microphone).await;
-        RequestResult::denied(
-            SystemPermission::Microphone,
-            Some("Please enable Microphone in System Preferences".to_string()),
-            Some("System Preferences > Security & Privacy > Privacy > Microphone".to_string()),
-        )
+    /// 请求麦克风权限 - 使用 AVCaptureDevice
+    async fn request_microphone(&self, options: RequestOptions) -> RequestResult {
+        let granted = if options.interactive {
+            unsafe { AVCaptureDevice::request_access_for_media_type(AVMediaType::AUDIO) }
+        } else {
+            false
+        };
+
+        let status = if granted {
+            PermissionStatus::Authorized
+        } else {
+            PermissionStatus::Denied
+        };
+
+        RequestResult {
+            permission: SystemPermission::Microphone,
+            granted,
+            status,
+            error_message: if granted {
+                None
+            } else {
+                Some("Microphone permission was not granted".to_string())
+            },
+            settings_guide: if granted {
+                None
+            } else {
+                Some("System Preferences > Security & Privacy > Privacy > Microphone".to_string())
+            },
+        }
     }
 
-    /// 请求相机权限
-    /// 打开系统设置页，由用户手动授权；完整实现需 Objective-C 绑定
-    async fn request_camera(&self, _options: RequestOptions) -> RequestResult {
-        let _ = self.open_settings(SystemPermission::Camera).await;
-        RequestResult::denied(
-            SystemPermission::Camera,
-            Some("Please enable Camera in System Preferences".to_string()),
-            Some("System Preferences > Security & Privacy > Privacy > Camera".to_string()),
-        )
+    /// 请求相机权限 - 使用 AVCaptureDevice
+    async fn request_camera(&self, options: RequestOptions) -> RequestResult {
+        let granted = if options.interactive {
+            unsafe { AVCaptureDevice::request_access_for_media_type(AVMediaType::VIDEO) }
+        } else {
+            false
+        };
+
+        let status = if granted {
+            PermissionStatus::Authorized
+        } else {
+            PermissionStatus::Denied
+        };
+
+        RequestResult {
+            permission: SystemPermission::Camera,
+            granted,
+            status,
+            error_message: if granted {
+                None
+            } else {
+                Some("Camera permission was not granted".to_string())
+            },
+            settings_guide: if granted {
+                None
+            } else {
+                Some("System Preferences > Security & Privacy > Privacy > Camera".to_string())
+            },
+        }
     }
 
     /// 请求通知权限
@@ -214,15 +296,35 @@ impl MacOSPermissionManager {
         }
     }
 
-    /// 请求语音识别权限
-    /// 打开系统设置页，由用户手动授权；完整实现需 Objective-C 绑定
-    async fn request_speech_recognition(&self, _options: RequestOptions) -> RequestResult {
-        let _ = self.open_settings(SystemPermission::SpeechRecognition).await;
-        RequestResult::denied(
-            SystemPermission::SpeechRecognition,
-            Some("Please enable Speech Recognition in System Preferences".to_string()),
-            Some("System Preferences > Security & Privacy > Privacy > Speech Recognition".to_string()),
-        )
+    /// 请求语音识别权限 - 使用 SFSpeechRecognizer
+    async fn request_speech_recognition(&self, options: RequestOptions) -> RequestResult {
+        let granted = if options.interactive {
+            unsafe { SFSpeechRecognizer::request_authorization() }
+        } else {
+            false
+        };
+
+        let status = if granted {
+            PermissionStatus::Authorized
+        } else {
+            PermissionStatus::Denied
+        };
+
+        RequestResult {
+            permission: SystemPermission::SpeechRecognition,
+            granted,
+            status,
+            error_message: if granted {
+                None
+            } else {
+                Some("Speech recognition permission was not granted".to_string())
+            },
+            settings_guide: if granted {
+                None
+            } else {
+                Some("System Preferences > Security & Privacy > Privacy > Speech Recognition".to_string())
+            },
+        }
     }
 
     /// 请求位置权限
@@ -250,7 +352,6 @@ impl MacOSPermissionManager {
     }
 
     /// 请求 NuwaxCode / Claude Code / 文件系统 / 剪贴板 / 键盘监控 / 网络 等权限
-    /// 打开对应系统设置页，由用户手动授权
     async fn request_ide_and_extra(
         &self,
         permission: SystemPermission,
@@ -371,10 +472,10 @@ impl PermissionManager for MacOSPermissionManager {
             SystemPermission::SpeechRecognition => "x-apple.systempreferences:com.apple.security.privacy-speechRecognition",
             SystemPermission::Location => "x-apple.systempreferences:com.apple.security.privacy-location",
             SystemPermission::AppleScript => "x-apple.systempreferences:com.apple.security.accessibility",
-            SystemPermission::NuwaxCode | SystemPermission::ClaudeCode => "x-apple.systempreferences:com.apple.security.privacy.all",
-            SystemPermission::FileSystemRead | SystemPermission::FileSystemWrite => "x-apple.systempreferences:com.apple.security.privacy.files",
+            SystemPermission::NuwaxCode | SystemPermission::ClaudeCode => "x-apple.systempreferences:com.apple.security.privacy-all",
+            SystemPermission::FileSystemRead | SystemPermission::FileSystemWrite => "x-apple.systempreferences:com.apple.security.privacy-files",
             SystemPermission::Clipboard => "x-apple.systempreferences:com.apple.security.accessibility",
-            SystemPermission::KeyboardMonitoring => "x-apple.systempreferences:com.apple.security.privacy.inputMonitoring",
+            SystemPermission::KeyboardMonitoring => "x-apple.systempreferences:com.apple.security.privacy-inputMonitoring",
             SystemPermission::Network => "x-apple.systempreferences:com.apple.security.firewall",
         };
 
@@ -416,4 +517,92 @@ extern "C" {
     fn CGRequestScreenCaptureAccess() -> bool;
 }
 
-// AVFoundation/Speech 的完整实现需通过 Objective-C 绑定调用，当前仅使用 CoreGraphics/ApplicationServices 的 C API
+// Objective-C 辅助类型和绑定
+
+/// AVCaptureDevice 媒体类型
+#[derive(Debug, Clone, Copy)]
+struct AVMediaType;
+
+impl AVMediaType {
+    const AUDIO: &'static str = "audiotype";
+    const VIDEO: &'static str = "videotype";
+}
+
+/// AVCaptureDevice 的 Objective-C 绑定
+#[derive(Debug)]
+struct AVCaptureDevice;
+
+impl AVCaptureDevice {
+    /// 获取指定媒体类型的授权状态
+    unsafe fn authorization_status_for_media_type(media_type: &'static str) -> i32 {
+        // 使用 autoreleasepool 确保 Objective-C 对象被正确释放
+        autoreleasepool(|| {
+            // 检查类是否存在
+            if objc::runtime::Class::get("AVCaptureDevice").is_none() {
+                return 0; // AVAuthorizationStatusNotDetermined
+            }
+            
+            let device_class = class!(AVCaptureDevice);
+            
+            // 调用 +authorizationStatusForMediaType:
+            let status: i32 = msg_send![
+                device_class,
+                authorizationStatusForMediaType: media_type
+            ];
+            status
+        })
+    }
+
+    /// 请求指定媒体类型的授权 (简化版 - 不支持回调)
+    unsafe fn request_access_for_media_type(media_type: &'static str) -> bool {
+        autoreleasepool(|| {
+            // 检查类是否存在
+            if objc::runtime::Class::get("AVCaptureDevice").is_none() {
+                return false;
+            }
+            
+            let device_class = class!(AVCaptureDevice);
+            
+            // 调用 +requestAccessForMediaType:completionHandler:
+            let granted: bool = msg_send![
+                device_class,
+                requestAccessForMediaType: media_type
+            ];
+            granted
+        })
+    }
+}
+
+/// SFSpeechRecognizer 的 Objective-C 绑定
+#[derive(Debug)]
+struct SFSpeechRecognizer;
+
+impl SFSpeechRecognizer {
+    /// 获取语音识别授权状态
+    unsafe fn authorization_status() -> i32 {
+        // 检查类是否存在
+        if objc::runtime::Class::get("SFSpeechRecognizer").is_none() {
+            return 0; // SFSpeechRecognizerAuthorizationStatusNotDetermined
+        }
+        
+        let recognizer_class = class!(SFSpeechRecognizer);
+        
+        // 调用 +authorizationStatus
+        let status: i32 = msg_send![recognizer_class, authorizationStatus];
+        status
+    }
+
+    /// 请求语音识别授权
+    unsafe fn request_authorization() -> bool {
+        // 检查类是否存在
+        if objc::runtime::Class::get("SFSpeechRecognizer").is_none() {
+            return false;
+        }
+        
+        let recognizer_class = class!(SFSpeechRecognizer);
+        
+        // 调用 +requestAuthorization:
+        let status: i32 = msg_send![recognizer_class, requestAuthorization];
+        status == 1 // 1 = SFSpeechRecognizerAuthorizationStatusAuthorized
+    }
+}
