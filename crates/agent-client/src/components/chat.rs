@@ -3,7 +3,6 @@
 //! 完整的聊天 UI，支持消息列表、输入区域、加载状态和消息操作
 //!
 //! # TODO 后续扩展
-//! - [ ] 集成真实的 InputState 实现多行输入（当前使用简化的 div 显示）
 //! - [ ] 完善剪贴板复制功能（当前 TODO: 复制到剪贴板）
 //! - [ ] 添加 Markdown 渲染支持
 //! - [ ] 实现流式响应更新（打字指示器替换为真实内容更新）
@@ -14,6 +13,8 @@ use gpui_component::ActiveTheme;
 use gpui_component::avatar::Avatar;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::h_flex;
+use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::popover::Popover;
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::v_flex;
 use serde::{Deserialize, Serialize};
@@ -69,8 +70,6 @@ impl ChatMessage {
 pub struct ChatViewState {
     /// 消息列表
     messages: Vec<ChatMessage>,
-    /// 输入内容
-    input_text: String,
     /// 是否正在生成响应
     is_generating: bool,
     /// 最大消息数
@@ -87,7 +86,6 @@ impl ChatViewState {
     pub fn new() -> Self {
         Self {
             messages: Vec::new(),
-            input_text: String::new(),
             is_generating: false,
             max_messages: 500,
         }
@@ -112,21 +110,6 @@ impl ChatViewState {
         &mut self.messages
     }
 
-    /// 设置输入文本
-    pub fn set_input_text(&mut self, text: String) {
-        self.input_text = text;
-    }
-
-    /// 获取输入文本
-    pub fn input_text(&self) -> &str {
-        &self.input_text
-    }
-
-    /// 清空输入
-    pub fn clear_input(&mut self) {
-        self.input_text.clear();
-    }
-
     /// 设置生成状态
     pub fn set_generating(&mut self, generating: bool) {
         self.is_generating = generating;
@@ -148,6 +131,44 @@ impl ChatViewState {
     }
 }
 
+/// 聊天输入状态
+pub struct ChatInputState {
+    /// 输入状态实体
+    pub input: Entity<InputState>,
+}
+
+impl ChatInputState {
+    /// 创建新的输入状态
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .multi_line(true)
+                .auto_grow(2, 6)
+                .placeholder("输入消息... (Enter 发送，Shift+Enter 换行)")
+        });
+        Self { input }
+    }
+
+    /// 获取输入值
+    pub fn value(&self, cx: &App) -> String {
+        self.input.read(cx).value().to_string()
+    }
+
+    /// 清空输入
+    pub fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.input.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+        });
+    }
+
+    /// 聚焦输入框
+    pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.input.update(cx, |state, cx| {
+            state.focus(window, cx);
+        });
+    }
+}
+
 /// 聊天视图事件
 #[derive(Debug, Clone)]
 pub enum ChatViewEvent {
@@ -158,16 +179,32 @@ pub enum ChatViewEvent {
 /// 聊天视图
 pub struct ChatView {
     state: ChatViewState,
+    input_state: Entity<ChatInputState>,
 }
 
 impl ChatView {
     /// 创建新视图
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut state = ChatViewState::new();
         state.add_message(ChatMessage::assistant_message(
             "你好！我是 NuWax Agent 助手。\n\n我可以帮助你完成各种任务，比如：\n- 编写代码\n- 分析问题\n- 执行系统操作\n\n请告诉我你需要什么帮助？".to_string(),
         ));
-        Self { state }
+        let input_state = cx.new(|cx| ChatInputState::new(window, cx));
+
+        // 订阅输入状态事件
+        let input_entity = input_state.read(cx).input.clone();
+        let _subscriptions = vec![
+            cx.subscribe_in(&input_entity, window, {
+                move |this: &mut ChatView, _, ev: &InputEvent, window, cx| match ev {
+                    InputEvent::PressEnter { secondary: false } if !this.state.is_generating() => {
+                        this.send_message(window, cx);
+                    }
+                    _ => {}
+                }
+            }),
+        ];
+
+        Self { state, input_state }
     }
 
     /// 添加消息
@@ -189,6 +226,33 @@ impl ChatView {
     /// 获取可变状态
     pub fn state_mut(&mut self) -> &mut ChatViewState {
         &mut self.state
+    }
+
+    /// 获取输入状态
+    pub fn input_state<'a>(&self, cx: &'a App) -> &'a ChatInputState {
+        self.input_state.read(cx)
+    }
+
+    /// 检查是否可以发送消息
+    pub fn can_send(&self, cx: &App) -> bool {
+        !self.input_state.read(cx).value(cx).trim().is_empty()
+    }
+
+    /// 发送消息
+    fn send_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.input_state.read(cx).value(cx);
+        if !text.trim().is_empty() {
+            // 添加用户消息
+            self.add_message(ChatMessage::user_message(text.clone()), cx);
+            // 清空输入 - update the inner InputState
+            self.input_state.update(cx, |chat_input, cx| {
+                chat_input.input.update(cx, |state, cx| {
+                    state.set_value("", window, cx);
+                });
+            });
+            // 发送事件
+            cx.emit(ChatViewEvent::SendMessage(text));
+        }
     }
 
     /// 渲染单条消息
@@ -348,10 +412,9 @@ impl ChatView {
 impl EventEmitter<ChatViewEvent> for ChatView {}
 
 impl Render for ChatView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let is_generating = self.state.is_generating();
-        let input_text = self.state.input_text().to_string();
-        let can_send = !input_text.trim().is_empty();
+        let can_send = self.can_send(cx);
         let theme = cx.theme().clone();
 
         // 消息列表项
@@ -369,6 +432,9 @@ impl Render for ChatView {
         } else {
             None
         };
+
+        // 获取输入组件的引用
+        let input_entity = self.input_state.read(cx).input.clone();
 
         v_flex()
             .size_full()
@@ -406,43 +472,72 @@ impl Render for ChatView {
             // 输入区域
             .child(
                 h_flex()
-                    .h(px(100.0))
+                    .min_h(px(120.0))
+                    .max_h(px(300.0))
                     .bg(theme.sidebar)
                     .border_t_1()
                     .border_color(theme.border)
                     .p_3()
                     .gap_2()
+                    .items_end()
+                    // 附件按钮
+                    .child(
+                        Popover::new("attachment-popover")
+                            .trigger(
+                                Button::new("attach-btn")
+                                    .icon(gpui_component::Icon::new(gpui_component::IconName::Plus))
+                                    .ghost()
+                                    .tooltip("附件"),
+                            )
+                            .content(|_, _, _| {
+                                v_flex()
+                                    .w(px(140.0))
+                                    .gap_1()
+                                    .p_1()
+                                    .rounded_md()
+                                    .shadow_lg()
+                                    .child(
+                                        Button::new("screenshot-btn")
+                                            .label("截图")
+                                            .ghost()
+                                            .w_full()
+                                            .text_left(),
+                                    )
+                                    .child(
+                                        Button::new("image-btn")
+                                            .label("图片")
+                                            .ghost()
+                                            .w_full()
+                                            .text_left(),
+                                    )
+                                    .child(
+                                        Button::new("file-btn")
+                                            .label("文件")
+                                            .ghost()
+                                            .w_full()
+                                            .text_left(),
+                                    )
+                                    .into_any_element()
+                            }),
+                    )
+                    // 输入框
                     .child(
                         div()
                             .flex_1()
-                            .h_full()
+                            .min_h(px(40.0))
+                            .max_h(px(240.0))
                             .bg(theme.background)
                             .rounded_md()
-                            .p_2()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(theme.muted_foreground)
-                                    .when(input_text.is_empty(), |this| {
-                                        this.child("输入消息...")
-                                    })
-                                    .when(!input_text.is_empty(), |this| {
-                                        this.child(input_text.clone())
-                                    }),
-                            ),
+                            .child(Input::new(&input_entity).appearance(false).h_full()),
                     )
+                    // 发送按钮
                     .child(
                         Button::new("send-btn")
-                            .label("发送")
                             .icon(gpui_component::Icon::new(gpui_component::IconName::ArrowUp))
                             .primary()
-                            .disabled(!can_send)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                if !this.state.input_text().trim().is_empty() {
-                                    let text = this.state.input_text().to_string();
-                                    this.state.clear_input();
-                                    cx.emit(ChatViewEvent::SendMessage(text));
-                                }
+                            .disabled(!can_send || is_generating)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.send_message(window, cx);
                             })),
                     ),
             )

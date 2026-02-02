@@ -155,7 +155,7 @@ impl RootView {
         let remote_desktop_view = cx.new(|cx| RemoteDesktopView::new(window, cx));
 
         #[cfg(feature = "chat-ui")]
-        let chat_view = cx.new(|cx| ChatView::new(cx));
+        let chat_view = cx.new(|cx| ChatView::new(window, cx));
 
         // 订阅应用状态事件
         let client_info_for_sub = client_info_view.clone();
