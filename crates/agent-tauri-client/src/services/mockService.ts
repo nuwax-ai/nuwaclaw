@@ -1,6 +1,9 @@
 // Mock 数据服务 - 模拟后端 API
 // 用于前端开发和调试，无需启动后端服务
 
+import { checkAllPermissions, openSystemSettings } from './permissions';
+import type { PermissionCategory } from './permissions';
+
 // Agent 状态
 export type AgentStatus = 'idle' | 'starting' | 'running' | 'busy' | 'error' | 'stopped';
 
@@ -22,6 +25,33 @@ export interface TaskInfo {
   status: 'running' | 'waiting' | 'completed';
   progress: number;
 }
+
+// 权限状态类型
+export type PermissionStatus = 'granted' | 'denied' | 'pending' | 'unknown';
+
+// 权限项接口
+export interface PermissionItem {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string;
+  status: PermissionStatus;
+  required: boolean;  // 是否必需权限
+}
+
+// 权限统计摘要
+export interface PermissionsSummary {
+  total: number;
+  granted: number;
+}
+
+// 权限状态数据
+export interface PermissionsState {
+  items: PermissionItem[];
+  summary: PermissionsSummary;
+}
+
+// 权限数据改为使用 permissions 服务的完整列表（含平台过滤），保证权限菜单与配置一致
 
 // 模拟数据
 const mockLogs: LogEntry[] = [
@@ -96,6 +126,30 @@ class MockService {
     };
   }
 
+  // 获取权限状态：使用 permissions 服务的完整列表与平台检测，保证权限菜单全部接入
+  async getPermissions(): Promise<PermissionsState> {
+    const state = await checkAllPermissions();
+    return {
+      items: state.items,
+      summary: {
+        total: state.summary.total,
+        granted: state.summary.granted,
+      },
+    };
+  }
+
+  // 刷新权限状态
+  async refreshPermissions(): Promise<PermissionsState> {
+    await this.delay(300);
+    return this.getPermissions();
+  }
+
+  // 打开系统偏好设置：委托给 permissions 服务，使用正确的系统设置 URL
+  async openSystemPreferences(permissionId: string): Promise<boolean> {
+    this.addLog('info', `正在打开系统偏好设置: ${permissionId}`);
+    return openSystemSettings(permissionId as PermissionCategory);
+  }
+
   // 添加日志
   private addLog(level: LogEntry['level'], message: string) {
     const log: LogEntry = {
@@ -147,5 +201,8 @@ export const stopAgent = () => mockService.stopAgent();
 export const getLogs = () => mockService.getLogs();
 export const getTasks = () => mockService.getTasks();
 export const getConnectionInfo = () => mockService.getConnectionInfo();
+export const getPermissions = () => mockService.getPermissions();
+export const refreshPermissions = () => mockService.refreshPermissions();
+export const openSystemPreferences = (permissionId: string) => mockService.openSystemPreferences(permissionId);
 export const onStatusChange = (cb: Function) => mockService.on('statusChange', cb);
 export const onLogChange = (cb: Function) => mockService.on('logChange', cb);
