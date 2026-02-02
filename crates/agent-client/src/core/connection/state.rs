@@ -6,10 +6,9 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
 use tracing::{debug, error, info, warn};
 
-use librustdesk::hbb_common::message_proto::BusinessEnvelope;
-
 use super::adapter::{AdapterEvent, ConnectionAdapter, RustDeskAdapter};
 use super::business_handler::BusinessMessageHandler;
+use crate::core::business_channel::BusinessEnvelope;
 
 /// 连接模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

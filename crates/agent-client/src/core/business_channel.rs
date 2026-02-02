@@ -12,7 +12,141 @@ use serde::{Serialize, Deserialize};
 /// 业务通道 ID
 pub const BUSINESS_CHANNEL_ID: u32 = 0xB1F;
 
-/// 消息类型
+/// 业务消息类型（用于 BusinessEnvelope）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum BusinessMessageType {
+    /// 未知类型（默认值）
+    BUSINESS_UNKNOWN = 0,
+    /// Agent 任务请求
+    AGENT_TASK_REQUEST = 1,
+    /// Agent 任务响应
+    AGENT_TASK_RESPONSE = 2,
+    /// 任务进度更新
+    TASK_PROGRESS = 3,
+    /// 任务取消
+    TASK_CANCEL = 4,
+    /// 心跳
+    HEARTBEAT = 10,
+    /// 系统通知
+    SYSTEM_NOTIFY = 20,
+    /// 自定义
+    BUSINESS_CUSTOM = 99,
+}
+
+impl Default for BusinessMessageType {
+    fn default() -> Self {
+        BusinessMessageType::BUSINESS_UNKNOWN
+    }
+}
+
+impl From<BusinessMessageType> for i32 {
+    fn from(val: BusinessMessageType) -> Self {
+        val as i32
+    }
+}
+
+impl From<i32> for BusinessMessageType {
+    fn from(val: i32) -> Self {
+        match val {
+            1 => BusinessMessageType::AGENT_TASK_REQUEST,
+            2 => BusinessMessageType::AGENT_TASK_RESPONSE,
+            3 => BusinessMessageType::TASK_PROGRESS,
+            4 => BusinessMessageType::TASK_CANCEL,
+            10 => BusinessMessageType::HEARTBEAT,
+            20 => BusinessMessageType::SYSTEM_NOTIFY,
+            99 => BusinessMessageType::BUSINESS_CUSTOM,
+            _ => BusinessMessageType::BUSINESS_UNKNOWN,
+        }
+    }
+}
+
+/// 业务消息信封（用于 P2P 传输）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BusinessEnvelope {
+    /// 消息 ID
+    #[serde(default = "String::new")]
+    pub message_id: String,
+    /// 消息类型
+    #[serde(default)]
+    pub type_: BusinessMessageType,
+    /// 消息负载
+    #[serde(default)]
+    pub payload: Vec<u8>,
+    /// 时间戳
+    #[serde(default)]
+    pub timestamp: i64,
+    /// 来源 ID
+    #[serde(default = "String::new")]
+    pub source_id: String,
+    /// 目标 ID
+    #[serde(default = "String::new")]
+    pub target_id: String,
+}
+
+impl Default for BusinessEnvelope {
+    fn default() -> Self {
+        Self {
+            message_id: String::new(),
+            type_: BusinessMessageType::BUSINESS_UNKNOWN,
+            payload: Vec::new(),
+            timestamp: 0,
+            source_id: String::new(),
+            target_id: String::new(),
+        }
+    }
+}
+
+impl BusinessEnvelope {
+    /// 创建新的 BusinessEnvelope
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 设置消息 ID
+    pub fn with_message_id(mut self, id: String) -> Self {
+        self.message_id = id;
+        self
+    }
+
+    /// 设置消息类型
+    pub fn with_type(mut self, type_: BusinessMessageType) -> Self {
+        self.type_ = type_;
+        self
+    }
+
+    /// 设置负载
+    pub fn with_payload(mut self, payload: Vec<u8>) -> Self {
+        self.payload = payload;
+        self
+    }
+
+    /// 设置来源 ID
+    pub fn with_source_id(mut self, id: String) -> Self {
+        self.source_id = id;
+        self
+    }
+
+    /// 设置目标 ID
+    pub fn with_target_id(mut self, id: String) -> Self {
+        self.target_id = id;
+        self
+    }
+
+    /// 序列化为字节
+    pub fn to_bytes(&self) -> Result<Vec<u8>, ChannelError> {
+        serde_json::to_vec(self)
+            .map_err(|e| ChannelError::SerializationFailed(e.to_string()))
+    }
+
+    /// 从字节反序列化
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ChannelError> {
+        serde_json::from_slice(bytes)
+            .map_err(|e| ChannelError::DeserializationFailed(e.to_string()))
+    }
+}
+
+/// 消息类型（内部使用）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MessageType {
     /// Agent 任务请求

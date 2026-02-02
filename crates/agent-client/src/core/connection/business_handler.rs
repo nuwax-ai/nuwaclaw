@@ -8,12 +8,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
-use librustdesk::hbb_common::message_proto::{
-    BusinessEnvelope, BusinessMessageType,
-};
-
 use crate::core::agent::{AgentManager, AgentTask, TaskProgress, TaskResult};
-use crate::core::business_channel::{BusinessMessage, MessageType};
+use crate::core::business_channel::{BusinessEnvelope, BusinessMessage, BusinessMessageType, MessageType};
 
 /// 业务消息处理事件
 #[derive(Debug, Clone)]
@@ -75,7 +71,7 @@ impl BusinessMessageHandler {
     /// 处理接收到的业务消息
     pub async fn handle_message(&self, envelope: BusinessEnvelope) -> anyhow::Result<()> {
         let message_id = envelope.message_id.clone();
-        let message_type = envelope.type_.enum_value().unwrap_or(BusinessMessageType::BUSINESS_UNKNOWN);
+        let message_type = envelope.type_;
 
         debug!(
             "Handling business message: id={}, type={:?}",
@@ -260,36 +256,34 @@ impl BusinessMessageHandler {
     ) -> BusinessEnvelope {
         let self_id = self.self_id.read().await.clone().unwrap_or_default();
 
-        let mut envelope = BusinessEnvelope::new();
-        envelope.message_id = message_id.to_string();
-        envelope.type_ = message_type.into();
-        envelope.payload = payload.into();
-        envelope.timestamp = chrono::Utc::now().timestamp_millis();
-        envelope.source_id = self_id;
-        envelope.target_id = target_id.to_string();
-        envelope
+        BusinessEnvelope {
+            message_id: message_id.to_string(),
+            type_: message_type,
+            payload,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            source_id: self_id,
+            target_id: target_id.to_string(),
+        }
     }
 
     /// 将 BusinessMessage（内部格式）转换为 BusinessEnvelope（protobuf格式）
     pub fn business_message_to_envelope(msg: &BusinessMessage) -> BusinessEnvelope {
-        let mut envelope = BusinessEnvelope::new();
-        envelope.message_id = msg.id.clone();
-        envelope.type_ = Self::message_type_to_business_type(msg.message_type).into();
-        envelope.payload = msg.payload.clone().into();
-        envelope.timestamp = msg.timestamp;
-        envelope.source_id = msg.source_id.clone().unwrap_or_default();
-        envelope.target_id = msg.target_id.clone().unwrap_or_default();
-        envelope
+        BusinessEnvelope {
+            message_id: msg.id.clone(),
+            type_: Self::message_type_to_business_type(msg.message_type),
+            payload: msg.payload.clone(),
+            timestamp: msg.timestamp,
+            source_id: msg.source_id.clone().unwrap_or_default(),
+            target_id: msg.target_id.clone().unwrap_or_default(),
+        }
     }
 
     /// 将 BusinessEnvelope（protobuf格式）转换为 BusinessMessage（内部格式）
     pub fn envelope_to_business_message(envelope: &BusinessEnvelope) -> BusinessMessage {
         BusinessMessage {
             id: envelope.message_id.clone(),
-            message_type: Self::business_type_to_message_type(
-                envelope.type_.enum_value().unwrap_or(BusinessMessageType::BUSINESS_UNKNOWN)
-            ),
-            payload: envelope.payload.to_vec(),
+            message_type: Self::business_type_to_message_type(envelope.type_),
+            payload: envelope.payload.clone(),
             timestamp: envelope.timestamp,
             source_id: if envelope.source_id.is_empty() { None } else { Some(envelope.source_id.clone()) },
             target_id: if envelope.target_id.is_empty() { None } else { Some(envelope.target_id.clone()) },
@@ -318,6 +312,7 @@ impl BusinessMessageHandler {
             BusinessMessageType::TASK_CANCEL => MessageType::TaskCancel,
             BusinessMessageType::HEARTBEAT => MessageType::Heartbeat,
             BusinessMessageType::SYSTEM_NOTIFY => MessageType::SystemNotify,
+            BusinessMessageType::BUSINESS_CUSTOM => MessageType::Custom,
             BusinessMessageType::BUSINESS_UNKNOWN => MessageType::Custom,
         }
     }
@@ -341,13 +336,14 @@ mod tests {
 
     #[test]
     fn test_envelope_to_business_message() {
-        let mut envelope = BusinessEnvelope::new();
-        envelope.message_id = "test-123".to_string();
-        envelope.type_ = BusinessMessageType::HEARTBEAT.into();
-        envelope.payload = b"hello".to_vec().into();
-        envelope.timestamp = 1234567890;
-        envelope.source_id = "admin-1".to_string();
-        envelope.target_id = "client-1".to_string();
+        let envelope = BusinessEnvelope {
+            message_id: "test-123".to_string(),
+            type_: BusinessMessageType::HEARTBEAT,
+            payload: b"hello".to_vec(),
+            timestamp: 1234567890,
+            source_id: "admin-1".to_string(),
+            target_id: "client-1".to_string(),
+        };
 
         let msg = BusinessMessageHandler::envelope_to_business_message(&envelope);
         assert_eq!(msg.id, "test-123");
@@ -370,8 +366,8 @@ mod tests {
 
         let envelope = BusinessMessageHandler::business_message_to_envelope(&msg);
         assert_eq!(envelope.message_id, "msg-456");
-        assert_eq!(envelope.type_.enum_value().unwrap(), BusinessMessageType::TASK_PROGRESS);
-        assert_eq!(envelope.payload.as_ref(), b"progress data");
+        assert_eq!(envelope.type_, BusinessMessageType::TASK_PROGRESS);
+        assert_eq!(envelope.payload, b"progress data");
         assert_eq!(envelope.source_id, "client-1");
         assert_eq!(envelope.target_id, "admin-1");
     }

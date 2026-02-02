@@ -11,8 +11,16 @@ VCPKG_ROOT ?= $(HOME)/vcpkg
 # 默认目标平台
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
+# scrap 期望的 vcpkg triplet：macOS arm64 -> arm64-osx，x86_64 -> x64-osx
+ifeq ($(UNAME_S),Darwin)
+  ifeq ($(UNAME_M),arm64)
+    VCPKG_TRIPLET ?= arm64-osx
+  else
+    VCPKG_TRIPLET ?= x64-osx
+  endif
+endif
 
-# Cargo 命令
+# Cargo 命令（必须带 VCPKG_ROOT，否则 scrap 会退回到 Homebrew 找 libyuv 并失败）
 CARGO := VCPKG_ROOT=$(VCPKG_ROOT) cargo
 
 # 客户端 crate 名称
@@ -289,8 +297,13 @@ setup-vcpkg:
 	else \
 		echo "vcpkg 已存在于 $(VCPKG_ROOT)"; \
 	fi
-	@echo ">>> 安装 vcpkg 依赖..."
-	cd $(VCPKG_ROOT) && ./vcpkg install libvpx libyuv opus aom
+	@echo ">>> 安装 vcpkg 依赖 (triplet: $(VCPKG_TRIPLET))..."
+	@if [ -z "$(VCPKG_TRIPLET)" ]; then \
+		cd $(VCPKG_ROOT) && ./vcpkg install libvpx libyuv opus aom; \
+	else \
+		cd $(VCPKG_ROOT) && ./vcpkg install libvpx libyuv opus aom --triplet $(VCPKG_TRIPLET); \
+	fi
+	@echo ">>> 完成。请用 make build 构建（不要直接 cargo build，否则 VCPKG_ROOT 未设置会报错）"
 
 .PHONY: update-deps
 update-deps:
