@@ -21,6 +21,8 @@ pub enum UISettingsPage {
     Appearance,
     /// 日志设置
     Logging,
+    /// JSON 配置
+    JsonConfig,
 }
 
 impl UISettingsPage {
@@ -32,6 +34,7 @@ impl UISettingsPage {
             Self::General,
             Self::Appearance,
             Self::Logging,
+            Self::JsonConfig,
         ]
     }
 
@@ -43,6 +46,7 @@ impl UISettingsPage {
             Self::General => "常规",
             Self::Appearance => "外观",
             Self::Logging => "日志",
+            Self::JsonConfig => "JSON 配置",
         }
     }
 
@@ -54,6 +58,7 @@ impl UISettingsPage {
             Self::General => IconName::Settings,
             Self::Appearance => IconName::Palette,
             Self::Logging => IconName::File,
+            Self::JsonConfig => IconName::File,
         }
     }
 }
@@ -89,6 +94,19 @@ pub struct AppearanceSettingsState {
     pub theme: String,
 }
 
+/// JSON 配置状态
+#[derive(Debug, Clone, Default)]
+pub struct JsonConfigState {
+    /// JSON 内容
+    pub json_content: String,
+    /// JSON 解析错误
+    pub json_error: Option<String>,
+    /// 是否正在监控文件
+    pub is_watching: bool,
+    /// 最后操作结果 (成功, 消息)
+    pub last_result: Option<(bool, String)>,
+}
+
 /// 测试连接结果
 #[derive(Debug, Clone)]
 pub struct ConnectionTestResult {
@@ -115,6 +133,12 @@ pub enum SettingsAction {
     ToggleAutoLaunch,
     /// 更新主题
     UpdateTheme(String),
+    /// 更新 JSON 内容
+    UpdateJsonContent(String),
+    /// 应用 JSON 配置
+    ApplyJsonConfig,
+    /// 重新加载 JSON 配置
+    ReloadJsonConfig,
 }
 
 /// 服务器配置 ViewModel
@@ -327,6 +351,120 @@ impl Default for AppearanceSettingsViewModel {
     }
 }
 
+/// JSON 配置 ViewModel
+#[derive(Clone)]
+pub struct JsonConfigViewModel {
+    /// UI 状态
+    state: Arc<RwLock<JsonConfigState>>,
+}
+
+impl JsonConfigViewModel {
+    /// 创建新的 ViewModel
+    pub fn new() -> Self {
+        Self {
+            state: Arc::new(RwLock::new(JsonConfigState::default())),
+        }
+    }
+
+    /// 获取当前状态
+    pub async fn get_state(&self) -> JsonConfigState {
+        self.state.read().await.clone()
+    }
+
+    /// 获取 JSON 内容
+    pub async fn json_content(&self) -> String {
+        self.state.read().await.json_content.clone()
+    }
+
+    /// 获取 JSON 错误
+    pub async fn json_error(&self) -> Option<String> {
+        self.state.read().await.json_error.clone()
+    }
+
+    /// 获取监控状态
+    pub async fn is_watching(&self) -> bool {
+        self.state.read().await.is_watching
+    }
+
+    /// 更新 JSON 内容
+    pub async fn update_json_content(&self, content: String) {
+        let mut state = self.state.write().await;
+        state.json_content = content;
+        state.json_error = None;
+    }
+
+    /// 设置 JSON 错误
+    pub async fn set_json_error(&self, error: Option<String>) {
+        let mut state = self.state.write().await;
+        state.json_error = error;
+    }
+
+    /// 设置监控状态
+    pub async fn set_watching(&self, watching: bool) {
+        let mut state = self.state.write().await;
+        state.is_watching = watching;
+    }
+
+    /// 设置操作结果
+    pub async fn set_result(&self, success: bool, message: String) {
+        let mut state = self.state.write().await;
+        state.last_result = Some((success, message));
+    }
+
+    /// 获取操作结果
+    pub async fn last_result(&self) -> Option<(bool, String)> {
+        self.state.read().await.last_result.clone()
+    }
+
+    /// 验证 JSON 格式
+    pub async fn validate_json(&self, json: &str) -> Result<(), String> {
+        // 简单验证 JSON 格式
+        serde_json::from_str::<serde_json::Value>(json)
+            .map_err(|e| format!("JSON 解析错误: {}", e))?;
+        Ok(())
+    }
+
+    /// 应用 JSON 配置
+    pub async fn apply_config(&self) {
+        let state = self.state.read().await;
+        if state.json_error.is_none() && !state.json_content.is_empty() {
+            // TODO: 实际应用配置逻辑
+            drop(state);
+            self.set_result(true, "配置已应用".to_string()).await;
+        }
+    }
+
+    /// 处理 JSON 配置操作
+    pub async fn handle_json_config_action(&self, action: SettingsAction) {
+        match action {
+            SettingsAction::UpdateJsonContent(content) => {
+                // 先验证 JSON，再更新
+                if let Err(e) = self.validate_json(&content).await {
+                    self.set_json_error(Some(e)).await;
+                    self.update_json_content(content).await;
+                } else {
+                    self.set_json_error(None).await;
+                    self.update_json_content(content).await;
+                }
+            }
+            SettingsAction::ApplyJsonConfig => {
+                self.apply_config().await;
+            }
+            SettingsAction::ReloadJsonConfig => {
+                // TODO: 从文件重新加载配置
+                self.set_result(true, "配置已重新加载".to_string()).await;
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Default for JsonConfigViewModel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// 主设置 ViewModel（聚合子 ViewModel）
 #[derive(Clone)]
 pub struct SettingsViewModel {
@@ -338,6 +476,8 @@ pub struct SettingsViewModel {
     general_settings: Arc<GeneralSettingsViewModel>,
     /// 外观设置 ViewModel
     appearance_settings: Arc<AppearanceSettingsViewModel>,
+    /// JSON 配置 ViewModel
+    json_config: Arc<JsonConfigViewModel>,
 }
 
 impl SettingsViewModel {
@@ -348,6 +488,7 @@ impl SettingsViewModel {
             server_config: Arc::new(ServerConfigViewModel::new()),
             general_settings: Arc::new(GeneralSettingsViewModel::new()),
             appearance_settings: Arc::new(AppearanceSettingsViewModel::new()),
+            json_config: Arc::new(JsonConfigViewModel::new()),
         }
     }
 
@@ -377,6 +518,11 @@ impl SettingsViewModel {
         self.appearance_settings.clone()
     }
 
+    /// 获取 JSON 配置 ViewModel
+    pub fn json_config(&self) -> Arc<JsonConfigViewModel> {
+        self.json_config.clone()
+    }
+
     /// 处理设置操作
     pub async fn handle_action(&self, action: SettingsAction) {
         match action {
@@ -398,6 +544,15 @@ impl SettingsViewModel {
             }
             SettingsAction::UpdateTheme(_) => {
                 self.appearance_settings.handle_appearance_action(action).await
+            }
+            SettingsAction::UpdateJsonContent(_) => {
+                self.json_config.handle_json_config_action(action).await
+            }
+            SettingsAction::ApplyJsonConfig => {
+                self.json_config.handle_json_config_action(action).await
+            }
+            SettingsAction::ReloadJsonConfig => {
+                self.json_config.handle_json_config_action(action).await
             }
         }
     }

@@ -13,6 +13,7 @@ pub mod dependency;
 #[cfg(feature = "file-transfer")]
 pub mod file_transfer;
 pub mod http_client;
+pub mod json_config;
 pub mod logger;
 pub mod password;
 pub mod permissions;
@@ -36,6 +37,7 @@ pub use config::{ConfigManager, AppConfig};
 #[cfg(feature = "file-transfer")]
 pub use file_transfer::FileTransferManager;
 pub use http_client::{HttpClient, HttpError, HttpResponse, ReqwestClient};
+pub use json_config::{JsonConfigManager, JsonConfigError, EditableConfig};
 pub use logger::Logger;
 pub use password::PasswordManager;
 pub use permissions::PermissionManager;

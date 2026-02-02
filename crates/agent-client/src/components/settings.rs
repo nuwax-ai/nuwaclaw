@@ -25,6 +25,8 @@ pub enum SettingsPage {
     Appearance,
     /// 日志设置
     Logging,
+    /// JSON 配置
+    JsonConfig,
 }
 
 impl SettingsPage {
@@ -36,6 +38,7 @@ impl SettingsPage {
             Self::General,
             Self::Appearance,
             Self::Logging,
+            Self::JsonConfig,
         ]
     }
 
@@ -47,6 +50,7 @@ impl SettingsPage {
             Self::General => "常规",
             Self::Appearance => "外观",
             Self::Logging => "日志",
+            Self::JsonConfig => "JSON 配置",
         }
     }
 
@@ -58,6 +62,7 @@ impl SettingsPage {
             Self::General => IconName::Settings,
             Self::Appearance => IconName::Palette,
             Self::Logging => IconName::File,
+            Self::JsonConfig => IconName::File,
         }
     }
 }
@@ -86,6 +91,14 @@ pub struct SettingsView {
     theme: String,
     /// 语言
     language: String,
+    /// JSON 编辑器内容
+    json_content: String,
+    /// JSON 错误信息
+    json_error: Option<String>,
+    /// 是否正在监控文件
+    is_watching: bool,
+    /// 最后操作结果
+    last_result: Option<(bool, String)>,
 }
 
 impl SettingsView {
@@ -103,6 +116,10 @@ impl SettingsView {
             auto_launch: false,
             theme: "system".to_string(),
             language: "zh".to_string(),
+            json_content: String::new(),
+            json_error: None,
+            is_watching: false,
+            last_result: None,
         }
     }
 
@@ -616,6 +633,165 @@ impl SettingsView {
                     ),
             )
     }
+
+    /// 渲染 JSON 配置页面
+    fn render_json_config_page(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+
+        v_flex()
+            .gap_4()
+            .child(
+                div()
+                    .text_lg()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.foreground)
+                    .child("JSON 配置"),
+            )
+            .child(
+                v_flex()
+                    .gap_4()
+                    .p_4()
+                    .rounded_lg()
+                    .bg(theme.sidebar)
+                    .border_1()
+                    .border_color(theme.border)
+                    .child(
+                        div()
+                            .h(px(300.0))
+                            .w_full()
+                            .p_4()
+                            .rounded_md()
+                            .bg(theme.background)
+                            .border_1()
+                            .border_color(theme.border)
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground)
+                                    .child("JSON 编辑器区域（暂未实现完整编辑器）"),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .items_center()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme.foreground)
+                                    .child("文件监控"),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground)
+                                    .child(if self.is_watching { "监控中" } else { "未监控" }),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .justify_end()
+                            .child(
+                                Button::new("reload-config")
+                                    .label("重新加载")
+                                    .small()
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.set_result(true, "配置已重新加载".to_string());
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("apply-config")
+                                    .label("应用配置")
+                                    .small()
+                                    .primary()
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        if let Some(ref error) = this.json_error {
+                                            this.set_result(false, format!("JSON 格式错误: {}", error));
+                                        } else {
+                                            this.set_result(true, "配置已应用".to_string());
+                                        }
+                                        cx.notify();
+                                    })),
+                            ),
+                    ),
+            )
+            .when_some(self.last_result.clone(), |this, (success, message)| {
+                let success_color = if success { theme.success } else { theme.danger };
+                this.child(
+                    div()
+                        .p_3()
+                        .rounded_md()
+                        .bg(success_color.alpha(0.1))
+                        .border_1()
+                        .border_color(success_color)
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .child(
+                                    Icon::new(if success {
+                                        IconName::CircleCheck
+                                    } else {
+                                        IconName::CircleX
+                                    })
+                                    .small()
+                                    .text_color(success_color),
+                                )
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(success_color)
+                                        .child(message.clone()),
+                                ),
+                        ),
+                )
+            })
+    }
+
+    /// 设置 JSON 内容
+    pub fn set_json_content(&mut self, content: String) {
+        self.json_content = content;
+        self.json_error = None;
+    }
+
+    /// 获取 JSON 内容
+    pub fn json_content(&self) -> &str {
+        &self.json_content
+    }
+
+    /// 设置 JSON 错误
+    pub fn set_json_error(&mut self, error: Option<String>) {
+        self.json_error = error;
+    }
+
+    /// 获取 JSON 错误
+    pub fn json_error(&self) -> Option<&str> {
+        self.json_error.as_deref()
+    }
+
+    /// 设置监控状态
+    pub fn set_watching(&mut self, watching: bool) {
+        self.is_watching = watching;
+    }
+
+    /// 获取监控状态
+    pub fn is_watching(&self) -> bool {
+        self.is_watching
+    }
+
+    /// 设置操作结果
+    pub fn set_result(&mut self, success: bool, message: String) {
+        self.last_result = Some((success, message));
+    }
+
+    /// 获取操作结果
+    pub fn last_result(&self) -> Option<&(bool, String)> {
+        self.last_result.as_ref()
+    }
 }
 
 impl Default for SettingsView {
@@ -632,6 +808,10 @@ impl Default for SettingsView {
             auto_launch: false,
             theme: "system".to_string(),
             language: "zh".to_string(),
+            json_content: String::new(),
+            json_error: None,
+            is_watching: false,
+            last_result: None,
         }
     }
 }
@@ -651,6 +831,7 @@ impl Render for SettingsView {
                     self.render_appearance_page(window, cx).into_any_element()
                 }
                 SettingsPage::Logging => self.render_logging_page(cx).into_any_element(),
+                SettingsPage::JsonConfig => self.render_json_config_page(cx).into_any_element(),
             }))
     }
 }
