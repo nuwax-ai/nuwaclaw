@@ -1,10 +1,11 @@
 # Cargo.toml - Workspace 配置
 [workspace]
 members = [
-    "crates/agent-client",
+    "crates/agent-gpui-client",
     "crates/agent-server-admin",
     "crates/data-server",
     "crates/agent-protocol",
+    "crates/nuwax-agent-core",
 ]
 resolver = "2"
 

@@ -1,0 +1,94 @@
+# nuwax-agent-core - 公共核心库
+#
+# 无 UI 依赖的纯业务逻辑库，可被不同 UI 框架复用
+
+[package]
+name = "nuwax-agent-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "跨平台 Agent 核心库，无 UI 依赖"
+repository.workspace = true
+license.workspace = true
+
+[lib]
+name = "nuwax_agent_core"
+crate-type = ["rlib", "cdylib"]
+
+# Feature 控制表
+[features]
+default = ["auto-launch", "dependency-management"]
+# 开机自启动
+auto-launch = ["dep:auto-launch"]
+# 依赖管理功能
+dependency-management = ["dep:reqwest", "dep:flate2", "dep:tar"]
+# 远程桌面功能
+remote-desktop = ["dep:enigo"]
+# 文件传输
+file-transfer = []
+# 开发者模式日志
+dev-mode = []
+
+[dependencies]
+# Workspace 依赖
+agent-protocol = { path = "../agent-protocol" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+dashmap = { workspace = true }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+futures = { workspace = true }
+dirs = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+regex = { workspace = true }
+semver = { workspace = true }
+base64 = { workspace = true }
+
+# 加密
+argon2 = { workspace = true }
+aes-gcm = { workspace = true }
+rand = { workspace = true }
+sha2 = "0.10"
+
+# 派生宏
+derive_more = { version = "1.0", features = ["display"] }
+
+# 通信库 - nuwax-rustdesk (package name: rustdesk, lib name: librustdesk)
+librustdesk = { package = "rustdesk", path = "../../vendors/nuwax-rustdesk", features = ["agent-client"] }
+
+# 远程桌面
+enigo = { version = "0.6.1", optional = true }
+
+# 依赖管理
+reqwest = { workspace = true, optional = true, features = ["stream"] }
+flate2 = { workspace = true, optional = true }
+zip = { workspace = true }
+tar = { version = "0.4", optional = true }
+
+# 系统信息
+os_info = "3.9"
+gethostname = "0.5"
+
+# 可执行文件检测（跨平台）
+which = "6.0"
+
+# 开机自启动 (可选)
+auto-launch = { version = "0.6.0", optional = true }
+
+[dev-dependencies]
+tempfile = "3.10"
+rstest = "0.23"
+
+[build-dependencies]
+vergen-gitcl = { version = "1.0", features = ["build"] }

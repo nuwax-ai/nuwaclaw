@@ -4131,6 +4131,16 @@ dependencies = [
 
 [[package]]
 name = "gethostname"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc3655aa6818d65bc620d6911f05aa7b6aeb596291e1e9f79e52df85583d1e30"
+dependencies = [
+ "rustix 0.38.44",
+ "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "gethostname"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1bd49230192a3797a9a4d6abe9b3eed6f7fa4c8a8a4947977c6f80025f92cbd8"
@@ -7529,6 +7539,42 @@ dependencies = [
 name = "nuwax-agent"
 version = "0.1.0"
 dependencies = [
+ "agent-protocol",
+ "anyhow",
+ "async-trait",
+ "auto-launch",
+ "base64 0.22.1",
+ "chrono",
+ "core-text 21.0.0",
+ "dashmap",
+ "dirs 5.0.1",
+ "enigo 0.6.1",
+ "futures",
+ "gpui",
+ "gpui-component",
+ "image 0.25.9",
+ "muda",
+ "nuwax-agent-core",
+ "regex",
+ "semver",
+ "serde 1.0.228",
+ "serde_json 1.0.149",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+ "tracing-appender",
+ "tray-icon 0.21.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "uuid",
+ "vergen-gitcl",
+]
+
+[[package]]
+name = "nuwax-agent-core"
+version = "0.1.0"
+dependencies = [
  "aes-gcm",
  "agent-protocol",
  "anyhow",
@@ -7537,17 +7583,13 @@ dependencies = [
  "auto-launch",
  "base64 0.22.1",
  "chrono",
- "core-text 21.0.0",
  "dashmap",
  "derive_more 1.0.0",
  "dirs 5.0.1",
  "enigo 0.6.1",
  "flate2",
  "futures",
- "gpui",
- "gpui-component",
- "image 0.25.9",
- "muda",
+ "gethostname 0.5.0",
  "os_info",
  "rand 0.8.5",
  "regex",
@@ -7568,7 +7610,6 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
- "tray-icon 0.21.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "url",
  "uuid",
  "vergen-gitcl",
@@ -14897,7 +14938,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9993aa5be5a26815fe2c3eacfc1fde061fc1a1f094bf1ad2a18bf9c495dd7414"
 dependencies = [
  "as-raw-xcb-connection",
- "gethostname",
+ "gethostname 1.1.0",
  "libc",
  "libloading 0.8.9",
  "once_cell",
