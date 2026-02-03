@@ -229,6 +229,27 @@ class DependencyService {
   }
 
   /**
+   * 卸载依赖
+   */
+  async uninstallDependency(name: string): Promise<boolean> {
+    message.loading(`正在卸载 ${name}...`, 0);
+
+    try {
+      if (!this.useMockData) {
+        await invoke('uninstall_dependency', { name });
+      } else {
+        await this.delay(1500);
+      }
+
+      message.success(`${name} 已卸载！`);
+      return true;
+    } catch (error: any) {
+      message.error(error.message || `${name} 卸载失败`);
+      return false;
+    }
+  }
+
+  /**
    * 检查单个依赖
    */
   async checkDependency(name: string): Promise<DependencyItem | null> {
@@ -305,3 +326,4 @@ export const getDependencySummary = () => dependencyService.getSummary();
 export const installDependency = (name: string) => dependencyService.installDependency(name);
 export const refreshDependencies = () => dependencyService.refresh();
 export const installAllDependencies = () => dependencyService.installAll();
+export const uninstallDependency = (name: string) => dependencyService.uninstallDependency(name);

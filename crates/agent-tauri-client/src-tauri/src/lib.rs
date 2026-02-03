@@ -308,6 +308,14 @@ async fn install_all_dependencies() -> Result<bool, String> {
     Ok(true)
 }
 
+/// 卸载指定依赖
+#[tauri::command]
+async fn uninstall_dependency(name: String) -> Result<bool, String> {
+    let manager = CoreDependencyManager::new();
+    manager.uninstall(&name).await.map_err(|e| format!("卸载失败: {}", e))?;
+    Ok(true)
+}
+
 /// 检查单个依赖状态
 #[tauri::command]
 async fn check_dependency(name: String) -> Result<Option<DependencyItemDto>, String> {
@@ -337,6 +345,7 @@ pub fn run() {
             get_dependency_summary,
             install_dependency,
             install_all_dependencies,
+            uninstall_dependency,
             check_dependency,
         ])
         .run(tauri::generate_context!())

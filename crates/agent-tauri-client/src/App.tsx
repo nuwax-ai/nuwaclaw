@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Space,
   Badge,
@@ -20,6 +20,7 @@ import {
   Col,
   Tooltip,
   Avatar,
+  Modal,
 } from 'antd';
 import {
   RobotOutlined,
@@ -45,6 +46,7 @@ import {
   CodeOutlined,
   UploadOutlined,
   RedoOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import {
   AgentStatus,
@@ -64,9 +66,11 @@ import {
 import LoginForm from './components/LoginForm';
 import {
   DependencyItem,
+  DependencyStatus,
   getDependencies,
   installDependency,
   installAllDependencies,
+  uninstallDependency,
 } from './services/dependencies';
 
 import { Typography } from 'antd';
@@ -398,6 +402,21 @@ function App() {
     await loadDependencies();
   };
 
+  // 卸载依赖
+  const handleUninstallDependency = async (name: string) => {
+    Modal.confirm({
+      title: '确认卸载',
+      content: `确定要卸载 ${name} 吗？`,
+      okText: '卸载',
+      okType: 'danger',
+      cancelText: '取消',
+      async onOk() {
+        await uninstallDependency(name);
+        await loadDependencies();
+      },
+    });
+  };
+
   // 获取状态标签
   const getStatusTag = (status: DependencyStatus) => {
     const config: Record<DependencyStatus, { color: string; text: string }> = {
@@ -414,27 +433,47 @@ function App() {
   // 渲染依赖项
   const renderDependencyItem = (item: DependencyItem) => {
     const status = getStatusTag(item.status);
+    const isNpmPackage = item.name.startsWith('@') || item.name.includes('-');
+    
+    // 构建操作按钮
+    const actions: React.ReactNode[] = [
+      <Tag color={status.color}>{status.text}</Tag>,
+    ];
+    
+    if (item.status === 'missing' && !item.required) {
+      actions.push(
+        <Button
+          type="primary"
+          size="small"
+          onClick={() => handleInstallDependency(item.name)}
+        >
+          安装
+        </Button>
+      );
+    }
+    
+    if (item.status === 'installed' && !item.required) {
+      actions.push(
+        <Button
+          danger
+          size="small"
+          icon={<DeleteOutlined />}
+          onClick={() => handleUninstallDependency(item.name)}
+        >
+          卸载
+        </Button>
+      );
+    }
+    
     return (
-      <List.Item
-        actions={[
-          <Tag color={status.color}>{status.text}</Tag>,
-          {item.status === 'missing' && (
-            <Button
-              type="primary"
-              size="small"
-              onClick={() => handleInstallDependency(item.name)}
-            >
-              安装
-            </Button>
-          )}
-        ]}
-      >
+      <List.Item actions={actions}>
         <List.Item.Meta
           avatar={<Avatar icon={<CodeOutlined />} style={{ backgroundColor: item.required ? '#1890ff' : '#52c41a' }} />}
           title={
             <Space>
               <span>{item.displayName}</span>
-              {item.required && <Tag color="red" size="small">必需</Tag>}
+              {item.required && <Tag color="red">必需</Tag>}
+              {isNpmPackage && <Tag color="orange">npm</Tag>}
             </Space>
           }
           description={
