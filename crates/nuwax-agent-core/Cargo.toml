@@ -29,6 +29,8 @@ remote-desktop = ["dep:enigo"]
 file-transfer = ["dep:enigo"]
 # 开发者模式日志
 dev-mode = []
+# HTTP 服务（嵌入客户端）
+http-server = ["dep:axum", "dep:tower-http"]
 
 [dependencies]
 # Workspace 依赖
@@ -88,6 +90,10 @@ auto-launch = { version = "0.6.0", optional = true }
 
 # 打开系统 URL (用于打开系统设置页面)
 open = "5"
+
+# HTTP Server (可选)
+axum = { version = "0.7", optional = true, features = ["json", "macros"] }
+tower-http = { version = "0.5", optional = true }
 
 [dev-dependencies]
 tempfile = "3.10"

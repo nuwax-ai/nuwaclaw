@@ -4,7 +4,6 @@
 //! 客户端没有 Docker 容器，只实现核心会话管理接口。
 
 use chrono::{DateTime, Utc};
-use futures::Stream;
 use serde::{Deserialize, Serialize};
 
 /// Agent 状态（UI 层使用）
@@ -232,7 +231,7 @@ pub struct ProgressMessage {
 /// 定义 Agent Runner 的所有可用操作。
 /// 客户端没有 Docker 容器，只实现核心会话管理接口。
 #[async_trait::async_trait]
-pub trait AgentRunnerApi {
+pub trait AgentRunnerApi: Send + Sync {
     /// 发送聊天请求
     ///
     /// # 参数
@@ -249,12 +248,12 @@ pub trait AgentRunnerApi {
     /// - session_id: 会话 ID
     ///
     /// # 返回
-    /// - Ok(impl Stream): 进度消息流
+    /// - Ok(Receiver<ProgressMessage>): 进度消息接收器
     /// - Err(error): 错误信息
     async fn subscribe_progress(
         &self,
         session_id: &str,
-    ) -> Result<impl Stream<Item = ProgressMessage>, String>;
+    ) -> Result<tokio::sync::mpsc::Receiver<ProgressMessage>, String>;
 
     /// 取消会话
     ///
