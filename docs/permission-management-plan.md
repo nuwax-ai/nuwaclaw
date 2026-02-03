@@ -236,13 +236,13 @@ export const PermissionCheck: React.FC = () => {
 
 ### 已下载的开源项目
 
-| 项目 | GitHub | 本地路径 | 参考内容 |
-|------|--------|----------|----------|
-| **untu-tip** | [TencentCloudADP/youtu-tip](https://github.com/TencentCloudADP/youtu-tip) | `../../youtu-tip/` | macOS 权限处理、pyautogui 截图 |
-| **Agent-S** | [simular-ai/Agent-S](https://github.com/simular-ai/Agent-S) | `../../Agent-S/` | Windows 自动化 (WAA) |
-| **Open-AutoGLM** | [zai-org/Open-AutoGLM](https://github.com/zai-org/Open-AutoGLM) | `../../Open-AutoGLM/` | iOS/Android 自动化 |
-| **UI-TARS-desktop** | [bytedance/UI-TARS-desktop](https://github.com/bytedance/UI-TARS-desktop) | `../../UI-TARS-desktop/` | 浏览器截图工具 |
-| **OpenClaw** | [openclaw/openclaw](https://github.com/openclaw/openclaw) | `../../openclaw-source/` | TCC 权限管理文档 |
+| 项目 | GitHub | 参考内容 |
+|------|--------|----------|
+| **untu-tip** | [TencentCloudADP/youtu-tip](https://github.com/TencentCloudADP/youtu-tip) | macOS 权限处理、pyautogui 截图 |
+| **Agent-S** | [simular-ai/Agent-S](https://github.com/simular-ai/Agent-S) | Windows 自动化 (WAA) |
+| **Open-AutoGLM** | [zai-org/Open-AutoGLM](https://github.com/zai-org/Open-AutoGLM) | iOS/Android 自动化 |
+| **UI-TARS-desktop** | [bytedance/UI-TARS-desktop](https://github.com/bytedance/UI-TARS-desktop) | 浏览器截图工具 |
+| **OpenClaw** | [openclaw/openclaw](https://github.com/openclaw/openclaw) | TCC 权限管理文档 |
 
 ### 关键代码文件
 
@@ -251,9 +251,9 @@ export const PermissionCheck: React.FC = () => {
 youtu-tip/python/app/gui_agent/local_env.py
 
 # OpenClaw TCC 权限文档
-openclaw-source/docs/platforms/mac/permissions.md
-openclaw-source/docs/platforms/windows.md
-openclaw-source/docs/platforms/linux.md
+openclaw/docs/platforms/mac/permissions.md
+openclaw/docs/platforms/windows.md
+openclaw/docs/platforms/linux.md
 ```
 
 ---
