@@ -117,6 +117,7 @@ dependencies = [
 name = "agent-tauri-client"
 version = "0.1.0"
 dependencies = [
+ "nuwax-agent-core",
  "serde 1.0.228",
  "serde_json 1.0.149",
  "tauri",

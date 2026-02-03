@@ -235,6 +235,89 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+// ========== 依赖管理命令 ==========
+
+use nuwax_agent_core::dependency::manager::DependencyManager as CoreDependencyManager;
+use nuwax_agent_core::dependency::DependencyStatus as CoreDependencyStatus;
+
+// 依赖项 DTO（用于 Tauri IPC）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DependencyItemDto {
+    pub name: String,
+    pub display_name: String,
+    pub version: Option<String>,
+    pub status: String,
+    pub required: bool,
+    pub description: String,
+}
+
+// 依赖统计 DTO
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DependencySummaryDto {
+    pub total: usize,
+    pub installed: usize,
+    pub missing: usize,
+}
+
+impl From<&nuwax_agent_core::dependency::DependencyItem> for DependencyItemDto {
+    fn from(item: &nuwax_agent_core::dependency::DependencyItem) -> Self {
+        Self {
+            name: item.name.clone(),
+            display_name: item.display_name.clone(),
+            version: item.version.clone(),
+            status: format!("{:?}", item.status),
+            required: item.required,
+            description: item.description.clone(),
+        }
+    }
+}
+
+/// 获取所有依赖列表
+#[tauri::command]
+async fn get_dependencies() -> Result<Vec<DependencyItemDto>, String> {
+    let manager = CoreDependencyManager::new();
+    let dependencies = manager.get_all_dependencies().await;
+    Ok(dependencies.iter().map(DependencyItemDto::from).collect())
+}
+
+/// 获取依赖统计
+#[tauri::command]
+async fn get_dependency_summary() -> Result<DependencySummaryDto, String> {
+    let manager = CoreDependencyManager::new();
+    let summary = manager.get_summary().await;
+    Ok(DependencySummaryDto {
+        total: summary.total,
+        installed: summary.installed,
+        missing: summary.missing,
+    })
+}
+
+/// 安装指定依赖
+#[tauri::command]
+async fn install_dependency(name: String) -> Result<bool, String> {
+    let manager = CoreDependencyManager::new();
+    manager.install(&name).await.map_err(|e| format!("安装失败: {}", e))?;
+    Ok(true)
+}
+
+/// 安装所有缺失依赖
+#[tauri::command]
+async fn install_all_dependencies() -> Result<bool, String> {
+    let manager = CoreDependencyManager::new();
+    manager.install_all_missing().await.map_err(|e| format!("安装失败: {}", e))?;
+    Ok(true)
+}
+
+/// 检查单个依赖状态
+#[tauri::command]
+async fn check_dependency(name: String) -> Result<Option<DependencyItemDto>, String> {
+    let manager = CoreDependencyManager::new();
+    match manager.check(&name).await {
+        Some(item) => Ok(Some(DependencyItemDto::from(&item))),
+        None => Ok(None),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -248,7 +331,13 @@ pub fn run() {
             open_settings,
             get_all_permissions,
             start_permission_monitor,
-            stop_permission_monitor
+            stop_permission_monitor,
+            // 依赖管理命令
+            get_dependencies,
+            get_dependency_summary,
+            install_dependency,
+            install_all_dependencies,
+            check_dependency,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

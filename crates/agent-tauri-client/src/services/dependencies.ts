@@ -1,9 +1,10 @@
 /**
  * 依赖管理服务
- * 获取依赖状态，支持安装操作
+ * 通过 Tauri invoke 调用 Rust 后端执行 node 命令检测/安装依赖
  */
 
 import { message } from 'antd';
+import { invoke } from '@tauri-apps/api/core';
 
 // 依赖状态
 export type DependencyStatus = 'checking' | 'installed' | 'missing' | 'outdated' | 'installing' | 'error';
@@ -25,10 +26,9 @@ export interface DependencySummary {
   total: number;
   installed: number;
   missing: number;
-  outdated: number;
 }
 
-// Mock 数据
+// 模拟数据（后端 API 未就绪时使用）
 const mockDependencies: DependencyItem[] = [
   {
     name: 'nodejs',
@@ -130,31 +130,53 @@ const mockDependencies: DependencyItem[] = [
   },
 ];
 
-// 依赖服务类
+// 是否使用后端 API
+const USE_BACKEND_API = true;
+
+/**
+ * 依赖服务类
+ */
 class DependencyService {
-  private dependencies: DependencyItem[] = [...mockDependencies];
+  private useMockData = !USE_BACKEND_API;
 
   /**
    * 获取所有依赖
    */
   async getDependencies(): Promise<DependencyItem[]> {
-    // TODO: 替换为真实的后端 API 调用
-    // return invoke('get_dependencies');
-    await this.delay(300);
-    return [...this.dependencies];
+    if (this.useMockData) {
+      return this.getMockDependencies();
+    }
+
+    try {
+      // 调用 Rust 后端
+      const deps = await invoke<any[]>('get_dependencies');
+      return deps.map(this.mapDependencyDto);
+    } catch (error) {
+      console.error('获取依赖列表失败，使用模拟数据:', error);
+      this.useMockData = true;
+      return this.getMockDependencies();
+    }
   }
 
   /**
    * 获取依赖统计
    */
   async getSummary(): Promise<DependencySummary> {
-    const deps = await this.getDependencies();
-    return {
-      total: deps.length,
-      installed: deps.filter(d => d.status === 'installed').length,
-      missing: deps.filter(d => d.status === 'missing').length,
-      outdated: deps.filter(d => d.status === 'outdated').length,
-    };
+    if (this.useMockData) {
+      return this.getMockSummary();
+    }
+
+    try {
+      const summary = await invoke<any>('get_dependency_summary');
+      return {
+        total: summary.total,
+        installed: summary.installed,
+        missing: summary.missing,
+      };
+    } catch (error) {
+      console.error('获取依赖统计失败，使用模拟数据:', error);
+      return this.getMockSummary();
+    }
   }
 
   /**
@@ -162,27 +184,65 @@ class DependencyService {
    */
   async installDependency(name: string): Promise<boolean> {
     message.loading(`正在安装 ${name}...`, 0);
-    
+
     try {
-      // TODO: 替换为真实的后端 API 调用
-      // await invoke('install_dependency', { name });
-      await this.delay(2000);
-      
-      // 更新本地状态
-      const index = this.dependencies.findIndex(d => d.name === name);
-      if (index !== -1) {
-        this.dependencies[index] = {
-          ...this.dependencies[index],
-          status: 'installed',
-          version: 'v1.0.0', // Mock 版本
-        };
+      if (!this.useMockData) {
+        await invoke('install_dependency', { name });
+      } else {
+        // 模拟安装
+        await this.delay(2000);
       }
-      
+
       message.success(`${name} 安装成功！`);
       return true;
     } catch (error: any) {
       message.error(error.message || `${name} 安装失败`);
       return false;
+    }
+  }
+
+  /**
+   * 安装所有缺失依赖
+   */
+  async installAll(): Promise<boolean> {
+    const missing = (await this.getSummary()).missing;
+    if (missing === 0) {
+      message.info('没有需要安装的依赖');
+      return true;
+    }
+
+    message.loading(`正在安装 ${missing} 个依赖...`, 0);
+
+    try {
+      if (!this.useMockData) {
+        await invoke('install_all_dependencies');
+      } else {
+        await this.delay(3000);
+      }
+
+      message.success('所有依赖安装完成！');
+      return true;
+    } catch (error: any) {
+      message.error(error.message || '安装失败');
+      return false;
+    }
+  }
+
+  /**
+   * 检查单个依赖
+   */
+  async checkDependency(name: string): Promise<DependencyItem | null> {
+    if (this.useMockData) {
+      const deps = await this.getMockDependencies();
+      return deps.find(d => d.name === name) || null;
+    }
+
+    try {
+      const result = await invoke<any>('check_dependency', { name });
+      return result ? this.mapDependencyDto(result) : null;
+    } catch (error) {
+      console.error('检查依赖失败:', error);
+      return null;
     }
   }
 
@@ -196,32 +256,39 @@ class DependencyService {
     return this.getDependencies();
   }
 
-  /**
-   * 安装所有缺失的依赖
-   */
-  async installAll(): Promise<boolean> {
-    const missing = this.dependencies.filter(d => d.status === 'missing');
-    if (missing.length === 0) {
-      message.info('没有需要安装的依赖');
-      return true;
-    }
+  // ========== Mock 数据方法 ==========
 
-    message.loading(`正在安装 ${missing.length} 个依赖...`, 0);
-    
-    for (const dep of missing) {
-      await this.installDependency(dep.name);
-    }
-    
-    message.success('所有依赖安装完成！');
-    return true;
+  private async getMockDependencies(): Promise<DependencyItem[]> {
+    await this.delay(300);
+    return [...mockDependencies];
   }
 
-  /**
-   * 检查依赖状态
-   */
-  async checkDependency(name: string): Promise<DependencyItem | null> {
-    await this.delay(100);
-    return this.dependencies.find(d => d.name === name) || null;
+  private async getMockSummary(): Promise<DependencySummary> {
+    const deps = await this.getMockDependencies();
+    return {
+      total: deps.length,
+      installed: deps.filter(d => d.status === 'installed').length,
+      missing: deps.filter(d => d.status === 'missing').length,
+    };
+  }
+
+  private mapDependencyDto(dto: any): DependencyItem {
+    const statusMap: Record<string, DependencyStatus> = {
+      'Ok': 'installed',
+      'Missing': 'missing',
+      'Outdated': 'outdated',
+      'Checking': 'checking',
+      'Installing': 'installing',
+    };
+
+    return {
+      name: dto.name,
+      displayName: dto.display_name || dto.name,
+      version: dto.version,
+      status: statusMap[dto.status] || 'installed',
+      required: dto.required,
+      description: dto.description,
+    };
   }
 
   private delay(ms: number): Promise<void> {
