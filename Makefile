@@ -243,7 +243,7 @@ lint: fmt-check clippy
 package: build-release
 	@echo ">>> 打包客户端..."
 	@if command -v cargo-packager >/dev/null 2>&1; then \
-		cd crates/agent-client && cargo packager --release; \
+		cargo packager --config crates/agent-gpui-client/packager.toml --release; \
 	else \
 		echo "错误: 请先安装 cargo-packager: cargo install cargo-packager"; \
 		exit 1; \
@@ -253,7 +253,7 @@ package: build-release
 package-dmg: build-release
 	@echo ">>> 打包 macOS DMG..."
 ifeq ($(UNAME_S),Darwin)
-	cd crates/agent-client && cargo packager --release --formats dmg
+	cd crates/agent-gpui-client && cargo packager --release --formats dmg
 else
 	@echo "错误: DMG 打包仅支持 macOS"
 	@exit 1
@@ -263,13 +263,13 @@ endif
 package-msi: build-release
 	@echo ">>> 打包 Windows MSI..."
 	@echo "注意: MSI 打包需要在 Windows 环境下执行"
-	cd crates/agent-client && cargo packager --release --formats msi
+	cd crates/agent-gpui-client && cargo packager --release --formats msi
 
 .PHONY: package-deb
 package-deb: build-release
 	@echo ">>> 打包 Linux DEB..."
 ifeq ($(UNAME_S),Linux)
-	cd crates/agent-client && cargo packager --release --formats deb
+	cd crates/agent-gpui-client && cargo packager --release --formats deb
 else
 	@echo "错误: DEB 打包仅支持 Linux"
 	@exit 1
@@ -279,7 +279,7 @@ endif
 package-appimage: build-release
 	@echo ">>> 打包 Linux AppImage..."
 ifeq ($(UNAME_S),Linux)
-	cd crates/agent-client && cargo packager --release --formats appimage
+	cd crates/agent-gpui-client && cargo packager --release --formats appimage
 else
 	@echo "错误: AppImage 打包仅支持 Linux"
 	@exit 1
@@ -313,7 +313,8 @@ setup-vcpkg:
 	else \
 		cd $(VCPKG_ROOT) && ./vcpkg install libvpx libyuv opus aom --triplet $(VCPKG_TRIPLET); \
 	fi
-	@echo ">>> 完成。请用 make build 构建（不要直接 cargo build，否则 VCPKG_ROOT 未设置会报错）"
+	@if [ ! -e vcpkg ]; then ln -s "$(VCPKG_ROOT)" vcpkg && echo ">>> 已创建软链接 vcpkg -> $(VCPKG_ROOT)，cargo build 可直接使用"; fi
+	@echo ">>> 完成。可使用 make build 或 cargo build 构建"
 
 .PHONY: update-deps
 update-deps:

@@ -35,7 +35,10 @@ impl TaskExecutor for DefaultTaskExecutor {
         progress_tx: mpsc::Sender<TaskProgress>,
         cancel_token: CancellationToken,
     ) -> Result<TaskResult, AgentError> {
-        info!("Executing task: {} (type: {})", task.id, task.task_type);
+        let task_id = task.id.clone();
+        let task_type = task.task_type.clone();
+
+        info!("Executing task: {} (type: {})", task_id, task_type);
         let start = std::time::Instant::now();
 
         // 模拟分阶段执行
@@ -47,7 +50,7 @@ impl TaskExecutor for DefaultTaskExecutor {
             }
 
             let percentage = ((i + 1) * 100 / stages.len()) as u8;
-            let progress = TaskProgress::new(&task.id, percentage, format!("阶段: {}", stage))
+            let progress = TaskProgress::new(&task_id, percentage, format!("阶段: {}", stage))
                 .with_stage(stage.to_string());
             let _ = progress_tx.send(progress).await;
 
@@ -61,6 +64,6 @@ impl TaskExecutor for DefaultTaskExecutor {
         }
 
         let duration_ms = start.elapsed().as_millis() as u64;
-        Ok(TaskResult::success(&task.id, None, duration_ms))
+        Ok(TaskResult::success(&task_id, None, duration_ms))
     }
 }

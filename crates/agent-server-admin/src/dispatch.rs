@@ -19,7 +19,7 @@ use serde::Serialize;
 use tokio::sync::RwLock;
 use tracing::info;
 
-use librustdesk::hbb_common::message_proto::BusinessMessageType;
+use nuwax_agent_core::business_channel::BusinessMessageType;
 
 use crate::peer_connection::{PeerConnectionManager, RustDeskTransport, Transport};
 

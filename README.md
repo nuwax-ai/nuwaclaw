@@ -61,29 +61,33 @@ nuwax-agent/
 
 ### 安装 vcpkg 依赖
 
-```bash
-# 克隆 vcpkg
-git clone https://github.com/microsoft/vcpkg /tmp/vcpkg
-cd /tmp/vcpkg && ./bootstrap-vcpkg.sh
+推荐使用 Makefile 安装（默认安装到 `$HOME/vcpkg`）。安装完成后会自动在项目根创建软链接 `vcpkg`，之后 `make build` 与 `cargo build` 均可直接使用：
 
-# 安装依赖 (macOS)
-./vcpkg install libvpx libyuv opus aom
+```bash
+make setup-vcpkg
+```
+
+本仓库通过 `.cargo/config.toml` 将构建时的 VCPKG_ROOT 设为项目根下的 `vcpkg`；若你已自行设置环境变量 VCPKG_ROOT，则不会被覆盖。
+
+也可手动克隆并安装依赖（将路径替换为你的 vcpkg 目录，并在项目根创建软链接 `vcpkg` 指向该目录）：
+
+```bash
+git clone https://github.com/microsoft/vcpkg /path/to/vcpkg
+cd /path/to/vcpkg && ./bootstrap-vcpkg.sh
+# macOS: ./vcpkg install libvpx libyuv opus aom --triplet arm64-osx 或 x64-osx
 ```
 
 ### 编译运行
 
 ```bash
-# 设置 vcpkg 环境变量
-export VCPKG_ROOT=/tmp/vcpkg
+# 方式一：使用 make（自动设置 VCPKG_ROOT）
+make build
+make run
 
-# 编译客户端
-cargo build -p nuwax-agent
-
-# 运行客户端
-cargo run -p nuwax-agent
-
-# 运行测试
-cargo test -p nuwax-agent
+# 方式二：直接使用 cargo（需已执行 ln -s $HOME/vcpkg vcpkg 或已设置 export VCPKG_ROOT=...）
+cargo build -p nuwax-gpui-agent
+cargo run -p nuwax-gpui-agent
+cargo test -p nuwax-gpui-agent
 ```
 
 ### 打包发布

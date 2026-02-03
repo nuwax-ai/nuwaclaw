@@ -10,7 +10,7 @@ use dashmap::DashMap;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-use librustdesk::hbb_common::message_proto::{BusinessEnvelope, BusinessMessageType};
+use nuwax_agent_core::business_channel::{BusinessEnvelope, BusinessMessageType};
 
 use super::rustdesk_transport::RustDeskTransport;
 use super::transport::{ConnectionInfo, Transport};

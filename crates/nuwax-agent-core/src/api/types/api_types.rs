@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn test_api_response_error() {
-        let response = ApiResponse::error("error message".to_string());
+        let response: ApiResponse<String> = ApiResponse::error("error message".to_string());
 
         assert!(!response.is_success());
         assert!(response.data().is_none());
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn test_api_response_empty_success() {
-        let response = ApiResponse::empty_success();
+        let response: ApiResponse<()> = ApiResponse::empty_success();
 
         assert!(response.is_success());
         assert!(response.data().is_none());
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn test_api_response_from_result_error() {
-        let response = ApiResponse::from_result(Err("error from result".to_string()));
+        let response: ApiResponse<String> = ApiResponse::from_result(Err("error from result".to_string()));
 
         assert!(!response.is_success());
         assert_eq!(response.error_message(), Some("error from result"));
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_api_response_into_error() {
-        let response = ApiResponse::error("error msg".to_string());
+        let response: ApiResponse<()> = ApiResponse::error("error msg".to_string());
         let error = response.into_error();
 
         assert_eq!(error, Some("error msg".to_string()));

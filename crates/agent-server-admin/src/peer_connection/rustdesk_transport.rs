@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
 use librustdesk::client_api::Client;
-use librustdesk::hbb_common::message_proto::BusinessEnvelope;
+use nuwax_agent_core::business_channel::BusinessEnvelope;
 use librustdesk::hbb_common::rendezvous_proto::ConnType;
 use librustdesk::hbb_common::Stream;
 

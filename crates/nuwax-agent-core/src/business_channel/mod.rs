@@ -26,6 +26,18 @@ pub enum BusinessMessageType {
     TASK_PROGRESS = 3,
     /// 任务取消
     TASK_CANCEL = 4,
+    /// 文件传输请求（发送文件到远程）
+    FILE_TRANSFER_REQUEST = 100,
+    /// 文件传输响应（接收方确认）
+    FILE_TRANSFER_RESPONSE = 101,
+    /// 文件数据块
+    FILE_BLOCK = 102,
+    /// 文件传输取消
+    FILE_TRANSFER_CANCEL = 103,
+    /// 文件传输完成确认
+    FILE_TRANSFER_DONE = 104,
+    /// 文件传输错误
+    FILE_TRANSFER_ERROR = 105,
     /// 心跳
     HEARTBEAT = 10,
     /// 系统通知
@@ -53,6 +65,12 @@ impl From<i32> for BusinessMessageType {
             2 => BusinessMessageType::AGENT_TASK_RESPONSE,
             3 => BusinessMessageType::TASK_PROGRESS,
             4 => BusinessMessageType::TASK_CANCEL,
+            100 => BusinessMessageType::FILE_TRANSFER_REQUEST,
+            101 => BusinessMessageType::FILE_TRANSFER_RESPONSE,
+            102 => BusinessMessageType::FILE_BLOCK,
+            103 => BusinessMessageType::FILE_TRANSFER_CANCEL,
+            104 => BusinessMessageType::FILE_TRANSFER_DONE,
+            105 => BusinessMessageType::FILE_TRANSFER_ERROR,
             10 => BusinessMessageType::HEARTBEAT,
             20 => BusinessMessageType::SYSTEM_NOTIFY,
             99 => BusinessMessageType::BUSINESS_CUSTOM,
@@ -157,6 +175,18 @@ pub enum MessageType {
     TaskProgress = 3,
     /// 任务取消
     TaskCancel = 4,
+    /// 文件传输请求
+    FileTransferRequest = 100,
+    /// 文件传输响应
+    FileTransferResponse = 101,
+    /// 文件数据块
+    FileBlock = 102,
+    /// 文件传输取消
+    FileTransferCancel = 103,
+    /// 文件传输完成
+    FileTransferDone = 104,
+    /// 文件传输错误
+    FileTransferError = 105,
     /// 心跳
     Heartbeat = 10,
     /// 系统通知

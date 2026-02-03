@@ -17,7 +17,7 @@ use dashmap::DashMap;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{error, info, warn};
 
-use librustdesk::hbb_common::message_proto::BusinessMessageType;
+use nuwax_agent_core::business_channel::BusinessMessageType;
 
 use crate::dispatch::{MessageDispatcher, P2PDispatcher};
 use crate::peer_connection::PeerConnectionManager;

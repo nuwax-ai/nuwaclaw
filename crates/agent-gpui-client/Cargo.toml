@@ -35,7 +35,7 @@ remote-desktop = ["nuwax-agent-core/remote-desktop", "dep:enigo"]
 # 聊天界面
 chat-ui = []
 # 文件传输
-file-transfer = []
+file-transfer = ["nuwax-agent-core/file-transfer", "dep:enigo"]
 # 开发者模式日志
 dev-mode = []
 

@@ -1,0 +1,507 @@
+//!
+//! 独立单元测试文件
+//!
+//! 测试不依赖 remote-desktop/file-transfer 特性时可直接运行的核心功能
+
+#[cfg(test)]
+mod standalone_tests {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+    use tokio::time::Duration;
+    use dashmap::DashMap;
+
+    // ========================================================================
+    // BusinessMessageType Tests
+    // ========================================================================
+
+    mod business_message_type_tests {
+        use crate::business_channel::BusinessMessageType;
+
+        #[test]
+        fn test_message_type_from_i32() {
+            assert_eq!(BusinessMessageType::from(1), BusinessMessageType::AGENT_TASK_REQUEST);
+            assert_eq!(BusinessMessageType::from(2), BusinessMessageType::AGENT_TASK_RESPONSE);
+            assert_eq!(BusinessMessageType::from(3), BusinessMessageType::TASK_PROGRESS);
+            assert_eq!(BusinessMessageType::from(4), BusinessMessageType::TASK_CANCEL);
+            assert_eq!(BusinessMessageType::from(10), BusinessMessageType::HEARTBEAT);
+            assert_eq!(BusinessMessageType::from(20), BusinessMessageType::SYSTEM_NOTIFY);
+            assert_eq!(BusinessMessageType::from(99), BusinessMessageType::BUSINESS_CUSTOM);
+            assert_eq!(BusinessMessageType::from(100), BusinessMessageType::FILE_TRANSFER_REQUEST);
+            assert_eq!(BusinessMessageType::from(101), BusinessMessageType::FILE_TRANSFER_RESPONSE);
+            assert_eq!(BusinessMessageType::from(102), BusinessMessageType::FILE_BLOCK);
+            assert_eq!(BusinessMessageType::from(103), BusinessMessageType::FILE_TRANSFER_CANCEL);
+            assert_eq!(BusinessMessageType::from(104), BusinessMessageType::FILE_TRANSFER_DONE);
+            assert_eq!(BusinessMessageType::from(105), BusinessMessageType::FILE_TRANSFER_ERROR);
+            assert_eq!(BusinessMessageType::from(999), BusinessMessageType::BUSINESS_UNKNOWN);
+        }
+
+        #[test]
+        fn test_message_type_into_i32() {
+            assert_eq!(i32::from(BusinessMessageType::AGENT_TASK_REQUEST), 1);
+            assert_eq!(i32::from(BusinessMessageType::AGENT_TASK_RESPONSE), 2);
+            assert_eq!(i32::from(BusinessMessageType::HEARTBEAT), 10);
+            assert_eq!(i32::from(BusinessMessageType::FILE_TRANSFER_REQUEST), 100);
+            assert_eq!(i32::from(BusinessMessageType::FILE_TRANSFER_DONE), 104);
+        }
+
+        #[test]
+        fn test_message_type_default() {
+            let default: BusinessMessageType = Default::default();
+            assert_eq!(default, BusinessMessageType::BUSINESS_UNKNOWN);
+        }
+    }
+
+    // ========================================================================
+    // BusinessEnvelope Tests
+    // ========================================================================
+
+    mod business_envelope_tests {
+        use crate::business_channel::{BusinessEnvelope, BusinessMessageType};
+
+        #[test]
+        fn test_envelope_new() {
+            let envelope = BusinessEnvelope::new();
+            assert!(envelope.message_id.is_empty());
+            assert_eq!(envelope.type_, BusinessMessageType::BUSINESS_UNKNOWN);
+            assert!(envelope.payload.is_empty());
+            assert_eq!(envelope.timestamp, 0);
+            assert!(envelope.source_id.is_empty());
+            assert!(envelope.target_id.is_empty());
+        }
+
+        #[test]
+        fn test_envelope_builder_pattern() {
+            let envelope = BusinessEnvelope::new()
+                .with_message_id("msg-123".to_string())
+                .with_type(BusinessMessageType::AGENT_TASK_REQUEST)
+                .with_payload(vec![1, 2, 3])
+                .with_source_id("admin-1".to_string())
+                .with_target_id("agent-1".to_string());
+
+            assert_eq!(envelope.message_id, "msg-123");
+            assert_eq!(envelope.type_, BusinessMessageType::AGENT_TASK_REQUEST);
+            assert_eq!(envelope.payload, vec![1, 2, 3]);
+            assert_eq!(envelope.source_id, "admin-1");
+            assert_eq!(envelope.target_id, "agent-1");
+        }
+
+        #[test]
+        fn test_envelope_serialization() {
+            let envelope = BusinessEnvelope::new()
+                .with_message_id("msg-456".to_string())
+                .with_type(BusinessMessageType::FILE_TRANSFER_REQUEST)
+                .with_payload(vec![0x01, 0x02, 0x03])
+                .with_source_id("server".to_string())
+                .with_target_id("client".to_string());
+
+            let bytes = envelope.to_bytes().unwrap();
+            let decoded = BusinessEnvelope::from_bytes(&bytes).unwrap();
+
+            assert_eq!(envelope.message_id, decoded.message_id);
+            assert_eq!(envelope.type_, decoded.type_);
+            assert_eq!(envelope.payload, decoded.payload);
+            assert_eq!(envelope.source_id, decoded.source_id);
+            assert_eq!(envelope.target_id, decoded.target_id);
+        }
+
+        #[test]
+        fn test_envelope_default() {
+            let default: BusinessEnvelope = Default::default();
+            assert!(default.message_id.is_empty());
+            assert_eq!(default.type_, BusinessMessageType::BUSINESS_UNKNOWN);
+        }
+    }
+
+    // ========================================================================
+    // BusinessMessage Tests
+    // ========================================================================
+
+    mod business_message_tests {
+        use crate::business_channel::{BusinessMessage, MessageType};
+
+        #[test]
+        fn test_message_new() {
+            let message = BusinessMessage::new(MessageType::AgentTaskRequest, vec![1, 2, 3]);
+
+            assert!(!message.id.is_empty());
+            assert_eq!(message.message_type, MessageType::AgentTaskRequest);
+            assert_eq!(message.payload, vec![1, 2, 3]);
+            assert!(message.timestamp > 0);
+            assert!(message.source_id.is_none());
+            assert!(message.target_id.is_none());
+        }
+
+        #[test]
+        fn test_message_with_source_target() {
+            let message = BusinessMessage::new(MessageType::SystemNotify, vec![])
+                .with_source("client-1".to_string())
+                .with_target("client-2".to_string());
+
+            assert_eq!(message.source_id, Some("client-1".to_string()));
+            assert_eq!(message.target_id, Some("client-2".to_string()));
+        }
+
+        #[test]
+        fn test_message_serialization() {
+            let message = BusinessMessage::new(MessageType::FileTransferRequest, vec![1, 2, 3, 4, 5])
+                .with_source("sender".to_string())
+                .with_target("receiver".to_string());
+
+            let bytes = message.to_bytes().unwrap();
+            let decoded = BusinessMessage::from_bytes(&bytes).unwrap();
+
+            assert_eq!(message.id, decoded.id);
+            assert_eq!(message.message_type, decoded.message_type);
+            assert_eq!(message.payload, decoded.payload);
+            assert_eq!(message.source_id, decoded.source_id);
+            assert_eq!(message.target_id, decoded.target_id);
+        }
+    }
+
+    // ========================================================================
+    // ChannelError Tests
+    // ========================================================================
+
+    mod channel_error_tests {
+        use crate::business_channel::ChannelError;
+
+        #[test]
+        fn test_channel_error_messages() {
+            let error = ChannelError::NotConnected;
+            assert!(error.to_string().contains("未连接"));
+
+            let error = ChannelError::SendFailed("test".to_string());
+            assert!(error.to_string().contains("发送失败"));
+
+            let error = ChannelError::ReceiveFailed("test".to_string());
+            assert!(error.to_string().contains("接收失败"));
+
+            let error = ChannelError::Timeout;
+            assert!(error.to_string().contains("超时"));
+
+            let error = ChannelError::ChannelClosed;
+            assert!(error.to_string().contains("已关闭"));
+        }
+    }
+
+    // ========================================================================
+    // DashMap Concurrent Map Tests
+    // ========================================================================
+
+    mod dashmap_tests {
+        use std::sync::Arc;
+        use dashmap::DashMap;
+
+        #[test]
+        fn test_dashmap_basic_operations() {
+            let map = DashMap::new();
+
+            // Insert
+            map.insert(1, "one".to_string());
+            map.insert(2, "two".to_string());
+
+            // Read
+            let val = map.get(&1);
+            assert_eq!(val.as_deref(), Some(&"one".to_string()));
+
+            // Update
+            let old = map.insert(1, "ONE".to_string());
+            assert_eq!(old.unwrap(), "one");
+
+            // Remove
+            let removed = map.remove(&2);
+            assert_eq!(removed.unwrap().1, "two");
+        }
+
+        #[test]
+        fn test_dashmap_concurrent_insert() {
+            let map = Arc::new(DashMap::new());
+            let handles: Vec<_> = (0..4)
+                .map(|i| {
+                    let map = map.clone();
+                    std::thread::spawn(move || {
+                        for j in 0..100 {
+                            map.insert(i * 100 + j, format!("value-{}", j));
+                        }
+                    })
+                })
+                .collect();
+
+            for handle in handles {
+                handle.join().unwrap();
+            }
+
+            assert_eq!(map.len(), 400);
+        }
+
+        #[test]
+        fn test_dashmap_entry_api() {
+            let map = DashMap::new();
+
+            // Using entry API
+            map.entry(1)
+                .or_insert_with(|| "one".to_string());
+
+            map.entry(1)
+                .and_modify(|s| s.push_str("-modified"));
+
+            let val = map.get(&1).unwrap();
+            assert_eq!(val.as_str(), "one-modified");
+        }
+    }
+
+    // ========================================================================
+    // LogLevel Tests
+    // ========================================================================
+
+    mod log_level_tests {
+        use crate::logger::LogLevel;
+
+        #[test]
+        fn test_log_level_as_str() {
+            assert_eq!(LogLevel::Trace.as_str(), "trace");
+            assert_eq!(LogLevel::Debug.as_str(), "debug");
+            assert_eq!(LogLevel::Info.as_str(), "info");
+            assert_eq!(LogLevel::Warn.as_str(), "warn");
+            assert_eq!(LogLevel::Error.as_str(), "error");
+        }
+
+        #[test]
+        fn test_log_level_default() {
+            assert_eq!(LogLevel::default(), LogLevel::Info);
+        }
+    }
+
+    // ========================================================================
+    // LogConfig Tests
+    // ========================================================================
+
+    mod log_config_tests {
+        use crate::logger::LogConfig;
+
+        #[test]
+        fn test_log_config_default() {
+            let config = LogConfig::default();
+            assert_eq!(config.app_name, "nuwax-agent");
+            assert!(config.file_output);
+            assert!(config.console_output);
+            assert_eq!(config.max_files, 7);
+        }
+
+        #[test]
+        fn test_log_config_custom() {
+            let config = LogConfig {
+                app_name: "test-app".to_string(),
+                level: crate::logger::LogLevel::Debug,
+                file_output: false,
+                console_output: true,
+                log_dir: Some(std::path::PathBuf::from("/tmp/logs")),
+                max_files: 3,
+            };
+
+            assert_eq!(config.app_name, "test-app");
+            assert!(!config.file_output);
+            assert!(config.console_output);
+            assert_eq!(config.max_files, 3);
+        }
+    }
+
+    // ========================================================================
+    // Logger Tests
+    // ========================================================================
+
+    mod logger_tests {
+        use crate::logger::Logger;
+
+        #[test]
+        fn test_default_log_dir() {
+            let dir = Logger::default_log_dir();
+            assert!(dir.to_string_lossy().contains("nuwax-agent"));
+        }
+
+        #[test]
+        fn test_get_log_dir() {
+            let dir = Logger::get_log_dir();
+            assert!(dir.to_string_lossy().contains("nuwax-agent"));
+        }
+
+        #[test]
+        fn test_list_log_files() {
+            // 即使没有日志文件也不应该报错
+            let result = Logger::list_log_files();
+            assert!(result.is_ok());
+        }
+    }
+
+    // ========================================================================
+    // Password Manager Tests
+    // ========================================================================
+
+    mod password_tests {
+        use crate::password::PasswordManager;
+        use crate::password::PasswordStrength;
+
+        #[test]
+        fn test_password_strength_very_weak() {
+            let manager = PasswordManager::new();
+            let strength = manager.check_strength("123");
+            assert_eq!(strength, PasswordStrength::VeryWeak);
+        }
+
+        #[test]
+        fn test_password_strength_weak() {
+            let manager = PasswordManager::new();
+            let strength = manager.check_strength("password");
+            assert_eq!(strength, PasswordStrength::VeryWeak);
+
+            let strength = manager.check_strength("Password1");
+            assert_eq!(strength, PasswordStrength::Weak);
+        }
+
+        #[test]
+        fn test_password_strength_medium() {
+            let manager = PasswordManager::new();
+            let strength = manager.check_strength("Password1!");
+            assert_eq!(strength, PasswordStrength::Medium);
+        }
+
+        #[test]
+        fn test_password_strength_strong() {
+            let manager = PasswordManager::new();
+            let strength = manager.check_strength("MySecure!@#Password123");
+            assert_eq!(strength, PasswordStrength::Strong);
+        }
+
+        #[test]
+        fn test_password_strength_description() {
+            assert_eq!(PasswordStrength::VeryWeak.description(), "非常弱");
+            assert_eq!(PasswordStrength::Weak.description(), "弱");
+            assert_eq!(PasswordStrength::Medium.description(), "中等");
+            assert_eq!(PasswordStrength::Strong.description(), "强");
+            assert_eq!(PasswordStrength::VeryStrong.description(), "非常强");
+        }
+
+        #[test]
+        fn test_password_strength_is_acceptable() {
+            assert!(!PasswordStrength::VeryWeak.is_acceptable());
+            assert!(!PasswordStrength::Weak.is_acceptable());
+            assert!(PasswordStrength::Medium.is_acceptable());
+            assert!(PasswordStrength::Strong.is_acceptable());
+            assert!(PasswordStrength::VeryStrong.is_acceptable());
+        }
+
+        #[test]
+        fn test_generate_password() {
+            let password = PasswordManager::generate_password(16);
+            assert_eq!(password.len(), 16);
+
+            let manager = PasswordManager::new();
+            let strength = manager.check_strength(&password);
+            assert!(strength.is_acceptable());
+        }
+    }
+
+    // ========================================================================
+    // Protocol Manager Tests
+    // ========================================================================
+
+    mod protocol_tests {
+        use crate::protocol::ProtocolManager;
+        use semver::Version;
+
+        #[test]
+        fn test_protocol_manager_new() {
+            let manager = ProtocolManager::new();
+            let version = manager.version();
+            assert!(!version.to_string().is_empty());
+        }
+
+        #[test]
+        fn test_protocol_version_format() {
+            let manager = ProtocolManager::new();
+            let version = manager.version_string();
+
+            // Version should be in format x.y.z
+            let parsed = Version::parse(&version).unwrap();
+            assert!(parsed.major >= 1);
+        }
+
+        #[test]
+        fn test_client_info() {
+            let info = crate::ClientInfo::new();
+            assert!(!info.os.is_empty());
+            assert!(!info.os_version.is_empty());
+            assert!(!info.arch.is_empty());
+            assert!(!info.client_version.is_empty());
+        }
+
+        #[test]
+        fn test_compatibility_check_same_version() {
+            let manager = ProtocolManager::new();
+
+            // Same version should be compatible
+            let result = manager.check_compatibility("1.0.0").unwrap();
+            assert!(!result.upgrade_recommended);
+        }
+
+        #[test]
+        fn test_compatibility_check_newer_server() {
+            let manager = ProtocolManager::new();
+
+            // Newer server version should suggest upgrade
+            let result = manager.check_compatibility("1.1.0").unwrap();
+            assert!(result.upgrade_recommended);
+        }
+
+        #[test]
+        fn test_incompatible_version() {
+            let manager = ProtocolManager::new();
+
+            // Very old version should be incompatible
+            let result = manager.check_compatibility("0.1.0");
+            assert!(result.is_err());
+        }
+    }
+
+    // ========================================================================
+    // AppConfig Tests
+    // ========================================================================
+
+    mod app_config_tests {
+        use crate::AppConfig;
+
+        #[test]
+        fn test_app_config_default() {
+            let config = AppConfig::default();
+            assert!(config.server.hbbs_addr.contains("localhost"));
+            assert!(config.server.hbbr_addr.contains("localhost"));
+            assert!(!config.general.language.is_empty());
+            assert_eq!(config.general.theme, "system");
+        }
+
+        #[test]
+        fn test_server_config_default() {
+            let server = crate::config::ServerConfig::default();
+            assert_eq!(server.hbbs_addr, "localhost:21116");
+            assert_eq!(server.hbbr_addr, "localhost:21117");
+            assert!(server.api_addr.is_none());
+        }
+
+        #[test]
+        fn test_security_config_default() {
+            let security = crate::config::SecurityConfig::default();
+            assert!(security.password_hash.is_none());
+            assert!(!security.enable_tls);
+        }
+
+        #[test]
+        fn test_general_config_default() {
+            let general = crate::config::GeneralConfig::default();
+            assert!(!general.auto_launch);
+            assert!(general.minimize_to_tray);
+            assert_eq!(general.language, "zh");
+            assert_eq!(general.theme, "system");
+        }
+    }
+}

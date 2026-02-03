@@ -1,53 +1,46 @@
 # Packager Configuration for nuwax-agent
 # https://github.com/crabnebula-dev/cargo-packager
 
-[package]
 name = "nuwax-agent"
-identifier = "com.nuwax.agent"
 version = "0.1.0"
 description = "跨平台 Agent 客户端，支持远程桌面和 Agent 任务执行"
-authors = ["nuwax <dev@nuwax.com>"]
-publisher = "nuwax"
 homepage = "https://github.com/nuwax/nuwax-agent"
+authors = ["nuwax <dev@nuwax.com>"]
+identifier = "com.nuwax.agent"
+publisher = "nuwax"
+product-name = "Nuwax Agent"
 license-file = "../../LICENSE"
+copyright = "Copyright 2024 nuwax"
 
-# 可执行文件配置
+# 打包的二进制文件
 binaries = [
-    { path = "nuwax-agent", main = true }
+    { path = "nuwax-gpui-agent", main = true }
 ]
 
-# 资源文件
-resources = [
-    # 图标文件会在打包时自动包含
-]
+# 打包格式
+formats = ["dmg"]
 
-# 排除的文件
-file-associations = []
+# 输出目录
+out-dir = "../../dist"
 
-# macOS 配置
-[package.macos]
-app-category = "public.app-category.utilities"
-minimum-system-version = "11.0"
-signing-identity = "-"
-hardened-runtime = true
+# 二进制文件所在目录
+binaries-dir = "../../target/release"
+
+[macos]
 entitlements = "assets/macos/entitlements.plist"
-frameworks = []
+signing-identity = "-"
+minimum-system-version = "11.0"
 
-# macOS DMG 配置
-[package.dmg]
+[dmg]
 background = "assets/macos/dmg-background.png"
-app-x = 180
-app-y = 170
-eula = "../../LICENSE"
-window-size = { width = 660, height = 400 }
+[dmg.window-size]
+width = 660
+height = 400
+[dmg.app-position]
+x = 180
+y = 170
 
-# Windows 配置
-[package.windows]
-allow-downgrades = false
-
-# Windows NSIS 安装程序配置
-[package.nsis]
-license = "../../LICENSE"
+[nsis]
 header-image = "assets/windows/header.bmp"
 sidebar-image = "assets/windows/sidebar.bmp"
 installer-icon = "assets/windows/icon.ico"
@@ -55,19 +48,14 @@ languages = ["SimpChinese", "English"]
 display-language-selector = true
 compression = "lzma"
 
-# Windows WiX MSI 配置
-[package.wix]
-license = "../../LICENSE"
-language = ["zh-CN", "en-US"]
-# Upgrade GUID (生成新的以避免冲突)
-# upgrade-guid = "GENERATE-NEW-GUID"
+[wix]
+languages = ["zh-CN", "en-US"]
 
-# Linux 配置
-[package.deb]
-depends = ["libgtk-3-0 (>= 3.20)", "libwebkit2gtk-4.0-37"]
+[linux]
+generate-desktop-entry = true
+
+[deb]
 section = "utils"
 priority = "optional"
-files = {}
 
-[package.appimage]
-categories = ["Utility", "RemoteAccess"]
+[appimage]

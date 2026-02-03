@@ -18,7 +18,7 @@ crate-type = ["rlib", "cdylib"]
 
 # Feature 控制表
 [features]
-default = ["auto-launch", "dependency-management"]
+default = ["auto-launch", "dependency-management", "async-trait"]
 # 开机自启动
 auto-launch = ["dep:auto-launch"]
 # 依赖管理功能
@@ -26,7 +26,7 @@ dependency-management = ["dep:reqwest", "dep:flate2", "dep:tar"]
 # 远程桌面功能
 remote-desktop = ["dep:enigo"]
 # 文件传输
-file-transfer = []
+file-transfer = ["dep:enigo"]
 # 开发者模式日志
 dev-mode = []
 
@@ -34,7 +34,6 @@ dev-mode = []
 # Workspace 依赖
 agent-protocol = { path = "../agent-protocol" }
 tokio = { workspace = true }
-async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
@@ -69,6 +68,7 @@ librustdesk = { package = "rustdesk", path = "../../vendors/nuwax-rustdesk", fea
 
 # 远程桌面
 enigo = { version = "0.6.1", optional = true }
+async-trait = { workspace = true, optional = true }
 
 # 依赖管理
 reqwest = { workspace = true, optional = true, features = ["stream"] }

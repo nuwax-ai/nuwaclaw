@@ -7,7 +7,7 @@ use axum::{
 };
 use tracing::info;
 
-use librustdesk::hbb_common::message_proto::BusinessMessageType;
+use nuwax_agent_core::business_channel::BusinessMessageType;
 
 use crate::state::{AppState, TaskStatus};
 

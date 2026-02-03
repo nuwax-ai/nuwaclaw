@@ -60,10 +60,26 @@ pub mod auto_launch;
 #[cfg(feature = "auto-launch")]
 pub use auto_launch::AutoLaunchManager;
 
-#[cfg(feature = "file-transfer")]
+#[cfg(any(feature = "file-transfer", feature = "remote-desktop"))]
 pub mod file_transfer;
-#[cfg(feature = "file-transfer")]
+#[cfg(any(feature = "file-transfer", feature = "remote-desktop"))]
 pub use file_transfer::FileTransferManager;
+
+// ============================================================================
+// 测试模块（仅在测试模式下编译）
+// ============================================================================
+
+// 独立测试 - 不依赖任何特性
+#[cfg(test)]
+mod standalone_tests;
+
+// 文件传输测试 - 需要 file-transfer 或 remote-desktop 特性
+#[cfg(all(test, any(feature = "file-transfer", feature = "remote-desktop")))]
+mod file_transfer_tests;
+
+// 业务通道测试 - 需要 async-trait 特性
+#[cfg(all(test, feature = "async-trait"))]
+mod business_channel_tests;
 
 // ============================================================================
 // 通用模块
@@ -131,9 +147,9 @@ pub enum CoreError {
     #[error(transparent)]
     IoError(#[from] std::io::Error),
 
-    #[cfg(feature = "file-transfer")]
+    #[cfg(any(feature = "file-transfer", feature = "remote-desktop"))]
     #[error(transparent)]
-    FileTransferError(#[from] file_transfer::FileTransferError),
+    FileTransferError(#[from] file_transfer::FileTransferManagerError),
 
     #[cfg(feature = "auto-launch")]
     #[error(transparent)]

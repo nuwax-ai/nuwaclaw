@@ -3,7 +3,9 @@
 //! 封装 P2P/Relay 连接，专门用于业务消息传输
 //! 不涉及远程桌面功能（视频、音频、输入等）
 
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 use async_trait::async_trait;
 use tokio::sync::{mpsc, RwLock};
@@ -14,12 +16,24 @@ use librustdesk::client_api::{
     handle_hash, handle_login_error, handle_login_from_ui, handle_test_delay,
 };
 use librustdesk::hbb_common::message_proto::{
-    message::Union as MessageUnion, BusinessEnvelope, BusinessMessageType, Hash, Message,
-    PeerInfo, TestDelay, WindowsSession,
+    message::Union as MessageUnion, Hash, Message,
+    PeerInfo, TestDelay, WindowsSession, FileTransferBlock, FileTransferSendRequest,
+    FileEntry, FileTransferSendConfirmRequest, FileTransferCancel, BusinessMessage,
 };
 use librustdesk::hbb_common::protobuf::Message as ProtobufMessage;
 use librustdesk::hbb_common::rendezvous_proto::ConnType;
+use librustdesk::hbb_common::fs::{TransferJob, JobType, DataSource, get_next_job_id};
 use librustdesk::hbb_common::Stream;
+
+use nuwax_agent_core::business_channel::{BusinessEnvelope, BusinessMessageType};
+
+/// 生成唯一的传输 ID
+static NEXT_TRANSFER_ID: AtomicI32 = AtomicI32::new(1);
+
+/// 获取下一个传输 ID
+fn get_next_transfer_id() -> i32 {
+    NEXT_TRANSFER_ID.fetch_add(1, Ordering::SeqCst)
+}
 
 /// 业务连接状态
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,7 +148,16 @@ impl BusinessConnection {
 
         // 构建 RustDesk Message
         let mut msg = Message::new();
-        msg.union = Some(MessageUnion::Business(envelope.clone()));
+        let business_msg = BusinessMessage {
+            message_id: envelope.message_id.clone(),
+            type_: envelope.type_.into(),
+            payload: envelope.payload.clone().into(),
+            timestamp: envelope.timestamp,
+            source_id: envelope.source_id.clone(),
+            target_id: envelope.target_id.clone(),
+            ..Default::default()
+        };
+        msg.union = Some(MessageUnion::BusinessMessage(business_msg));
 
         // 序列化并发送
         let msg_bytes = msg.write_to_bytes()?;
@@ -198,7 +221,16 @@ impl BusinessConnection {
                         // 解析消息
                         match Message::parse_from_bytes(&bytes) {
                             Ok(msg) => {
-                                if let Some(MessageUnion::Business(envelope)) = msg.union {
+                                if let Some(MessageUnion::BusinessMessage(business_msg)) = msg.union {
+                                    // 转换为 BusinessEnvelope
+                                    let envelope = BusinessEnvelope {
+                                        message_id: business_msg.message_id,
+                                        type_: BusinessMessageType::from(business_msg.type_),
+                                        payload: business_msg.payload.to_vec(),
+                                        timestamp: business_msg.timestamp,
+                                        source_id: business_msg.source_id,
+                                        target_id: business_msg.target_id,
+                                    };
                                     debug!(
                                         "Received business message from {}: type={:?}",
                                         peer_id, envelope.type_
@@ -257,6 +289,144 @@ impl BusinessConnection {
                 reason: "Closed by user".to_string(),
             })
             .await;
+    }
+
+    // ============================================================================
+    // 文件传输相关方法
+    // ============================================================================
+
+    /// 发送文件到远程端
+    ///
+    /// # 参数
+    /// - `files`: 要发送的文件路径列表
+    /// - `remote_path`: 远程保存路径
+    ///
+    /// # 返回
+    /// 传输任务 ID
+    pub async fn send_file(
+        &self,
+        files: Vec<PathBuf>,
+        remote_path: &str,
+    ) -> anyhow::Result<i32> {
+        let transfer_id = get_next_transfer_id();
+
+        // 构建文件列表
+        let mut file_entries = Vec::new();
+        for path in &files {
+            if !path.exists() {
+                return Err(anyhow::anyhow!("File not found: {:?}", path));
+            }
+            if let Ok(meta) = std::fs::metadata(path) {
+                let entry = FileEntry {
+                    name: path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("unknown")
+                        .to_string(),
+                    size: meta.len(),
+                    ..Default::default()
+                };
+                file_entries.push(entry);
+            }
+        }
+
+        // 构建文件传输请求
+        let mut request = FileTransferSendRequest::default();
+        request.id = transfer_id;
+        request.path = remote_path.to_string();
+        request.include_hidden = false;
+        request.file_num = file_entries.len() as i32;
+
+        // 序列化请求
+        let mut payload = Vec::new();
+        request.write_to_vec(&mut payload)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize request: {}", e))?;
+
+        // 发送请求
+        let envelope = Self::create_envelope(
+            BusinessMessageType::FILE_TRANSFER_REQUEST,
+            payload,
+            &self.peer_id, // source is actually this side
+            &self.peer_id, // target will be set by connection layer
+        );
+
+        self.send_message(envelope).await?;
+
+        info!("File transfer initiated: id={}, files={}", transfer_id, files.len());
+        Ok(transfer_id)
+    }
+
+    /// 处理接收到的文件块
+    pub async fn handle_file_block(&self, block: FileTransferBlock) -> anyhow::Result<()> {
+        info!("Received file block: id={}, file_num={}, size={}",
+              block.id, block.file_num, block.data.len());
+
+        // 将文件块发送到远程端
+        let mut payload = Vec::new();
+        block.write_to_vec(&mut payload)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize block: {}", e))?;
+
+        let envelope = Self::create_envelope(
+            BusinessMessageType::FILE_BLOCK,
+            payload,
+            "",
+            &self.peer_id,
+        );
+
+        self.send_message(envelope).await?;
+        Ok(())
+    }
+
+    /// 取消文件传输
+    pub async fn cancel_file_transfer(&self, transfer_id: i32) -> anyhow::Result<()> {
+        let mut cancel = FileTransferCancel::default();
+        cancel.id = transfer_id;
+
+        let mut payload = Vec::new();
+        cancel.write_to_vec(&mut payload)?;
+
+        let envelope = Self::create_envelope(
+            BusinessMessageType::FILE_TRANSFER_CANCEL,
+            payload,
+            "",
+            &self.peer_id,
+        );
+
+        self.send_message(envelope).await?;
+        info!("File transfer cancelled: id={}", transfer_id);
+        Ok(())
+    }
+
+    /// 确认文件传输（响应 FILE_TRANSFER_REQUEST）
+    pub async fn confirm_file_transfer(
+        &self,
+        transfer_id: i32,
+        file_num: i32,
+        skip: bool,
+        offset_blk: Option<u32>,
+    ) -> anyhow::Result<()> {
+        let mut confirm = FileTransferSendConfirmRequest::default();
+        confirm.id = transfer_id;
+        confirm.file_num = file_num;
+
+        if skip {
+            confirm.set_skip(true);
+        } else if let Some(offset) = offset_blk {
+            confirm.set_offset_blk(offset);
+        }
+
+        let mut payload = Vec::new();
+        confirm.write_to_vec(&mut payload)?;
+
+        let envelope = Self::create_envelope(
+            BusinessMessageType::FILE_TRANSFER_RESPONSE,
+            payload,
+            "",
+            &self.peer_id,
+        );
+
+        self.send_message(envelope).await?;
+        info!("File transfer confirmed: id={}, file_num={}", transfer_id, file_num);
+        Ok(())
     }
 }
 

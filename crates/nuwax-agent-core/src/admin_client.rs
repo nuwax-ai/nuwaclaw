@@ -220,7 +220,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_admin_client_registration() {
-        let mut client = AdminClient::with_config(AdminConfig::new("http://localhost:8080"));
+        let mut client: AdminClient<MockHttpClient> = AdminClient::with_config(AdminConfig::new("http://localhost:8080"));
 
         // Mock 注册响应
         let mock_http = MockHttpClient::new()

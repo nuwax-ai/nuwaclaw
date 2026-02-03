@@ -290,17 +290,12 @@ impl AgentManager {
             // 执行任务
             let result = if let Some(timeout_ms) = task.timeout_ms {
                 let timeout = std::time::Duration::from_millis(timeout_ms);
-                match tokio::time::timeout(
-                    timeout,
-                    executor.execute(&task, progress_tx, cancel_token),
-                )
-                .await
-                {
+                match tokio::time::timeout(timeout, executor.execute(&task, progress_tx.clone(), cancel_token.clone())).await {
                     Ok(r) => r,
                     Err(_) => Err(AgentError::ExecutionFailed("任务执行超时".to_string())),
                 }
             } else {
-                executor.execute(&task, progress_tx, cancel_token).await
+                executor.execute(&task, progress_tx.clone(), cancel_token.clone()).await
             };
 
             // 等待进度转发完成

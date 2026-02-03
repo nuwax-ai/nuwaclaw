@@ -146,8 +146,8 @@ impl RemoteDesktopSession {
     }
 
     /// 获取屏幕分辨率
-    pub async fn get_resolution(&self) -> (u32, u32) {
-        self.peer_connection.get_resolution().await
+    pub fn get_resolution(&self) -> (u32, u32) {
+        self.peer_connection.get_resolution()
     }
 
     /// 发送鼠标移动事件

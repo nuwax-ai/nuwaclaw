@@ -1,0 +1,4 @@
+# 供 scrap/nuwax-rustdesk 的 build.rs 查找 libvpx、libyuv、aom
+# 路径相对项目根；若已设置 VCPKG_ROOT 则不会覆盖（默认不 force）
+[env]
+VCPKG_ROOT = { value = "vcpkg", relative = true }

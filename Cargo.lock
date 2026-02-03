@@ -99,6 +99,7 @@ dependencies = [
  "chrono",
  "dashmap",
  "futures",
+ "nuwax-agent-core",
  "rustdesk",
  "serde 1.0.228",
  "serde_json 1.0.149",

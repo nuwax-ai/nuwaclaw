@@ -4,7 +4,7 @@
 //! 遵循依赖倒置原则（DIP）：高层模块不依赖低层模块，二者依赖抽象。
 
 use async_trait::async_trait;
-use librustdesk::hbb_common::message_proto::BusinessEnvelope;
+use nuwax_agent_core::business_channel::BusinessEnvelope;
 
 /// 连接信息
 #[derive(Debug, Clone)]
