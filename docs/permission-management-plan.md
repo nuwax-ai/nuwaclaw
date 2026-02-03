@@ -236,19 +236,19 @@ export const PermissionCheck: React.FC = () => {
 
 ### 已下载的开源项目
 
-| 项目 | 路径 | 参考内容 |
-|------|------|----------|
-| unyou-tip | `/Users/louis/workspace/youtu-tip/` | macOS 权限处理、pyautogui 截图 |
-| Agent-S | `/Users/louis/workspace/Agent-S/` | Windows 自动化 (WAA) |
-| Open-AutoGLM | `/Users/louis/workspace/Open-AutoGLM/` | iOS/Android 自动化 |
-| UI-TARS-desktop | `/Users/louis/workspace/UI-TARS-desktop/` | 浏览器截图工具 |
-| OpenClaw | `/Users/louis/workspace/openclaw-source/` | TCC 权限管理文档 |
+| 项目 | GitHub | 本地路径 | 参考内容 |
+|------|--------|----------|----------|
+| **untu-tip** | [TencentCloudADP/youtu-tip](https://github.com/TencentCloudADP/youtu-tip) | `../../youtu-tip/` | macOS 权限处理、pyautogui 截图 |
+| **Agent-S** | [simular-ai/Agent-S](https://github.com/simular-ai/Agent-S) | `../../Agent-S/` | Windows 自动化 (WAA) |
+| **Open-AutoGLM** | [zai-org/Open-AutoGLM](https://github.com/zai-org/Open-AutoGLM) | `../../Open-AutoGLM/` | iOS/Android 自动化 |
+| **UI-TARS-desktop** | [bytedance/UI-TARS-desktop](https://github.com/bytedance/UI-TARS-desktop) | `../../UI-TARS-desktop/` | 浏览器截图工具 |
+| **OpenClaw** | [openclaw/openclaw](https://github.com/openclaw/openclaw) | `../../openclaw-source/` | TCC 权限管理文档 |
 
 ### 关键代码文件
 
 ```bash
 # unyou-tip 权限处理参考
-ytu-tip/python/app/gui_agent/local_env.py
+youtu-tip/python/app/gui_agent/local_env.py
 
 # OpenClaw TCC 权限文档
 openclaw-source/docs/platforms/mac/permissions.md
