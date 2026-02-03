@@ -62,6 +62,12 @@ import {
   onLogChange,
 } from './services';
 import LoginForm from './components/LoginForm';
+import {
+  DependencyItem,
+  getDependencies,
+  installDependency,
+  installAllDependencies,
+} from './services/dependencies';
 
 import { Typography } from 'antd';
 const { Title, Text, Paragraph } = Typography;
@@ -352,35 +358,138 @@ function App() {
     </div>
   );
 
-  // 依赖管理页面（含运行环境与编辑器集成）
-  const renderDependenciesPage = () => (
-    <Card title="依赖管理">
-      <List
-        dataSource={[
-          { name: 'Node.js', version: 'v18.19.0', status: 'installed' },
-          { name: 'npm', version: 'v10.2.4', status: 'installed' },
-          { name: 'pnpm', version: 'v8.15.0', status: 'installed' },
-          { name: 'Python', version: 'v3.11.0', status: 'missing' },
-          { name: 'NuwaxCode', version: '编辑器集成', status: 'installed', desc: 'NuwaxCode IDE 集成与自动化' },
-          { name: 'Claude Code', version: '编辑器集成', status: 'installed', desc: 'Claude Code IDE 集成与自动化' },
+  // 依赖管理页面
+  const [dependencies, setDependencies] = useState<DependencyItem[]>([]);
+  const [depLoading, setDepLoading] = useState(false);
+
+  // 加载依赖数据
+  const loadDependencies = useCallback(async () => {
+    setDepLoading(true);
+    try {
+      const data = await getDependencies();
+      setDependencies(data);
+    } catch (error) {
+      message.error('加载依赖数据失败');
+    } finally {
+      setDepLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadDependencies();
+  }, [loadDependencies]);
+
+  // 获取依赖统计
+  const depSummary = {
+    total: dependencies.length,
+    installed: dependencies.filter(d => d.status === 'installed').length,
+    missing: dependencies.filter(d => d.status === 'missing').length,
+  };
+
+  // 安装依赖
+  const handleInstallDependency = async (name: string) => {
+    await installDependency(name);
+    await loadDependencies();
+  };
+
+  // 安装所有缺失依赖
+  const handleInstallAll = async () => {
+    await installAllDependencies();
+    await loadDependencies();
+  };
+
+  // 获取状态标签
+  const getStatusTag = (status: DependencyStatus) => {
+    const config: Record<DependencyStatus, { color: string; text: string }> = {
+      installed: { color: 'green', text: '已安装' },
+      missing: { color: 'red', text: '未安装' },
+      outdated: { color: 'orange', text: '需更新' },
+      installing: { color: 'blue', text: '安装中...' },
+      checking: { color: 'processing', text: '检查中...' },
+      error: { color: 'red', text: '错误' },
+    };
+    return config[status] || { color: 'default', text: '未知' };
+  };
+
+  // 渲染依赖项
+  const renderDependencyItem = (item: DependencyItem) => {
+    const status = getStatusTag(item.status);
+    return (
+      <List.Item
+        actions={[
+          <Tag color={status.color}>{status.text}</Tag>,
+          {item.status === 'missing' && (
+            <Button
+              type="primary"
+              size="small"
+              onClick={() => handleInstallDependency(item.name)}
+            >
+              安装
+            </Button>
+          )}
         ]}
-        renderItem={(item) => (
-          <List.Item
-            actions={[
-              <Tag color={item.status === 'installed' ? 'green' : item.status === 'optional' ? 'blue' : 'red'}>
-                {item.status === 'installed' ? '已安装' : item.status === 'optional' ? '可选' : '未安装'}
-              </Tag>
-            ]}
+      >
+        <List.Item.Meta
+          avatar={<Avatar icon={<CodeOutlined />} style={{ backgroundColor: item.required ? '#1890ff' : '#52c41a' }} />}
+          title={
+            <Space>
+              <span>{item.displayName}</span>
+              {item.required && <Tag color="red" size="small">必需</Tag>}
+            </Space>
+          }
+          description={
+            <Space direction="vertical" size={0}>
+              <Text type="secondary">{item.description}</Text>
+              {item.version && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  版本: {item.version}
+                  {item.source && ` | 来源: ${item.source}`}
+                </Text>
+              )}
+            </Space>
+          }
+        />
+      </List.Item>
+    );
+  };
+
+  const renderDependenciesPage = () => (
+    <div style={{ maxWidth: 900 }}>
+      {/* 统计卡片 */}
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Space split="|">
+          <Text>共 {depSummary.total} 个依赖</Text>
+          <Text type="success">已安装 {depSummary.installed}</Text>
+          <Text type="danger">缺失 {depSummary.missing}</Text>
+        </Space>
+        {depSummary.missing > 0 && (
+          <Button
+            type="primary"
+            size="small"
+            style={{ marginLeft: 16 }}
+            onClick={handleInstallAll}
           >
-            <List.Item.Meta
-              avatar={<Avatar icon={<CodeOutlined />} />}
-              title={item.name}
-              description={item.desc ?? `版本: ${item.version}`}
-            />
-          </List.Item>
+            安装全部缺失依赖
+          </Button>
         )}
-      />
-    </Card>
+      </Card>
+
+      {/* 依赖列表 */}
+      <Card
+        title="依赖列表"
+        extra={
+          <Button icon={<RedoOutlined />} onClick={loadDependencies} loading={depLoading}>
+            刷新
+          </Button>
+        }
+      >
+        <List
+          loading={depLoading}
+          dataSource={dependencies}
+          renderItem={renderDependencyItem}
+        />
+      </Card>
+    </div>
   );
 
   // 权限页面
