@@ -61,6 +61,7 @@ import {
   onStatusChange,
   onLogChange,
 } from './services';
+import LoginForm from './components/LoginForm';
 
 import { Typography } from 'antd';
 const { Title, Text, Paragraph } = Typography;
@@ -174,6 +175,12 @@ function App() {
   // 客户端页面
   const renderClientPage = () => (
     <div style={{ maxWidth: 900 }}>
+      {/* 登录表单 */}
+      <LoginForm onLoginSuccess={() => {
+        // 登录成功后刷新数据
+        initData();
+      }} />
+
       {/* 状态卡片 */}
       <Card
         title={
