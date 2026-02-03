@@ -63,10 +63,28 @@ pub struct DependencyManager {
 impl DependencyManager {
     /// 创建新的依赖管理器（生产环境）
     pub fn new() -> Self {
-        Self::with_dependencies(
-            vec![Arc::new(NodeDetector::new()) as Arc<dyn DependencyDetector>],
-            Arc::new(NpmToolInstaller::new(None)),
-        )
+        use super::{GitDetector, PythonDetector, DockerDetector};
+        use super::cli_tools::{
+            create_ffmpeg_detector, create_pandoc_detector, create_rust_detector,
+            create_curl_detector, create_jq_detector,
+        };
+
+        let detectors: Vec<Arc<dyn DependencyDetector>> = vec![
+            // 核心依赖
+            Arc::new(NodeDetector::new()) as Arc<dyn DependencyDetector>,
+            Arc::new(GitDetector::new()) as Arc<dyn DependencyDetector>,
+            // 可选依赖
+            Arc::new(PythonDetector::new()) as Arc<dyn DependencyDetector>,
+            Arc::new(DockerDetector::new()) as Arc<dyn DependencyDetector>,
+            // CLI 工具
+            Arc::new(create_curl_detector()) as Arc<dyn DependencyDetector>,
+            Arc::new(create_jq_detector()) as Arc<dyn DependencyDetector>,
+            Arc::new(create_pandoc_detector()) as Arc<dyn DependencyDetector>,
+            Arc::new(create_ffmpeg_detector()) as Arc<dyn DependencyDetector>,
+            Arc::new(create_rust_detector()) as Arc<dyn DependencyDetector>,
+        ];
+
+        Self::with_dependencies(detectors, Arc::new(NpmToolInstaller::new(None)))
     }
 }
 

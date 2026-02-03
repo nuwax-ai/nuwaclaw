@@ -44,14 +44,19 @@ import {
   GlobalOutlined,
   CodeOutlined,
   UploadOutlined,
+  RedoOutlined,
 } from '@ant-design/icons';
 import {
   AgentStatus,
   LogEntry,
+  PermissionItem,
   getAgentStatus,
   startAgent,
   stopAgent,
   getLogs,
+  getPermissions,
+  refreshPermissions,
+  openSystemPreferences,
   getConnectionInfo,
   onStatusChange,
   onLogChange,
@@ -340,7 +345,7 @@ function App() {
     </div>
   );
 
-  // 依赖管理页面
+  // 依赖管理页面（含运行环境与编辑器集成）
   const renderDependenciesPage = () => (
     <Card title="依赖管理">
       <List
@@ -349,19 +354,21 @@ function App() {
           { name: 'npm', version: 'v10.2.4', status: 'installed' },
           { name: 'pnpm', version: 'v8.15.0', status: 'installed' },
           { name: 'Python', version: 'v3.11.0', status: 'missing' },
+          { name: 'NuwaxCode', version: '编辑器集成', status: 'installed', desc: 'NuwaxCode IDE 集成与自动化' },
+          { name: 'Claude Code', version: '编辑器集成', status: 'installed', desc: 'Claude Code IDE 集成与自动化' },
         ]}
         renderItem={(item) => (
           <List.Item
             actions={[
-              <Tag color={item.status === 'installed' ? 'green' : 'red'}>
-                {item.status === 'installed' ? '已安装' : '未安装'}
+              <Tag color={item.status === 'installed' ? 'green' : item.status === 'optional' ? 'blue' : 'red'}>
+                {item.status === 'installed' ? '已安装' : item.status === 'optional' ? '可选' : '未安装'}
               </Tag>
             ]}
           >
             <List.Item.Meta
               avatar={<Avatar icon={<CodeOutlined />} />}
               title={item.name}
-              description={`版本: ${item.version}`}
+              description={item.desc ?? `版本: ${item.version}`}
             />
           </List.Item>
         )}
@@ -370,32 +377,142 @@ function App() {
   );
 
   // 权限页面
+  const [permissions, setPermissions] = useState<PermissionItem[]>([]);
+  const [permissionsLoading, setPermissionsLoading] = useState(false);
+
+  // 加载权限数据
+  const loadPermissions = useCallback(async () => {
+    setPermissionsLoading(true);
+    try {
+      const data = await getPermissions();
+      setPermissions(data.items);
+    } catch (error) {
+      message.error('加载权限数据失败');
+    } finally {
+      setPermissionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPermissions();
+  }, [loadPermissions]);
+
+  // 刷新权限
+  const handleRefreshPermissions = async () => {
+    message.loading('正在刷新权限状态...', 1);
+    const data = await refreshPermissions();
+    setPermissions(data.items);
+    message.success('权限状态已刷新');
+  };
+
+  // 打开系统偏好设置
+  const handleOpenSettings = async (permissionId: string) => {
+    await openSystemPreferences(permissionId);
+    message.info('请在系统偏好设置中完成权限授权');
+  };
+
+  // 获取权限状态对应的颜色和标签
+  const getStatusConfig = (status: string, required: boolean) => {
+    const baseConfig: Record<string, { color: string; text: string }> = {
+      granted: { color: 'success', text: '已授权' },
+      denied: { color: 'error', text: '已拒绝' },
+      pending: { color: 'warning', text: '待授权' },
+      unknown: { color: 'default', text: '未知' },
+    };
+    return baseConfig[status] || baseConfig.unknown;
+  };
+
+  // 计算权限统计
+  const grantedCount = permissions.filter((p) => p.status === 'granted').length;
+  const totalCount = permissions.length;
+  const allGranted = grantedCount === totalCount;
+
+  // 权限页面
   const renderPermissionsPage = () => (
-    <Card title="权限设置">
-      <List
-        dataSource={[
-          { name: '屏幕录制', desc: '用于远程桌面功能', granted: true },
-          { name: '辅助功能', desc: '用于控制键盘鼠标', granted: false },
-          { name: '文件访问', desc: '用于文件传输', granted: true },
-          { name: '网络访问', desc: '用于通信连接', granted: true },
-        ]}
-        renderItem={(item) => (
-          <List.Item
-            actions={[
-              <Tag color={item.granted ? 'green' : 'orange'}>
-                {item.granted ? '已授权' : '未授权'}
-              </Tag>
-            ]}
-          >
-            <List.Item.Meta
-              avatar={<Avatar icon={<SafetyOutlined />} />}
-              title={item.name}
-              description={item.desc}
-            />
-          </List.Item>
-        )}
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* 标题栏 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <Title level={4} style={{ margin: 0 }}>权限设置</Title>
+        <Button icon={<RedoOutlined />} onClick={handleRefreshPermissions} loading={permissionsLoading}>
+          刷新
+        </Button>
+      </div>
+
+      {/* 权限状态摘要 */}
+      <Alert
+        message={allGranted ? '权限正常' : '权限提醒'}
+        description={
+          allGranted
+            ? `所有权限已授权 (${grantedCount}/${totalCount})`
+            : `已授权 ${grantedCount}/${totalCount} 个权限`
+        }
+        type={allGranted ? 'success' : 'warning'}
+        showIcon
+        style={{ marginBottom: 16 }}
       />
-    </Card>
+
+      {/* 权限列表 */}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        <List
+          loading={permissionsLoading}
+          dataSource={permissions}
+          renderItem={(item) => {
+            const statusConfig = getStatusConfig(item.status, item.required);
+            return (
+              <List.Item
+                style={{
+                  background: item.required && item.status !== 'granted' ? '#fffbe6' : undefined,
+                  borderRadius: 8,
+                  marginBottom: 8,
+                  padding: '12px 16px',
+                }}
+                actions={[
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => handleOpenSettings(item.id)}
+                  >
+                    前往设置
+                  </Button>,
+                ]}
+              >
+                <List.Item.Meta
+                  avatar={
+                    <Avatar
+                      icon={<SafetyOutlined />}
+                      style={{
+                        backgroundColor:
+                          item.status === 'granted'
+                            ? '#52c41a'
+                            : item.required
+                            ? '#faad14'
+                            : '#d9d9d9',
+                      }}
+                    />
+                  }
+                  title={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span>{item.displayName}</span>
+                      {item.required && (
+                        <Tag color="red" style={{ fontSize: 12 }}>
+                          必需
+                        </Tag>
+                      )}
+                    </div>
+                  }
+                  description={
+                    <div>
+                      <div style={{ color: '#666', marginBottom: 4 }}>{item.description}</div>
+                      <Tag color={statusConfig.color}>{statusConfig.text}</Tag>
+                    </div>
+                  }
+                />
+              </List.Item>
+            );
+          }}
+        />
+      </div>
+    </div>
   );
 
   // 关于页面
