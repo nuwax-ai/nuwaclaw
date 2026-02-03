@@ -37,11 +37,12 @@ thiserror = { workspace = true }
 
 # macOS 特定依赖
 [target."cfg(target_os = \"macos\")".dependencies]
-objc = "0.2.7"
-cocoa = "0.24"
+objc2 = "0.5"
+objc2-foundation = { version = "0.2", features = ["NSString"] }
+objc2-app-kit = "0.2" 
 core-foundation = "0.10"
 core-graphics = "0.24"
-core-text = { workspace = true }
+
 
 # Windows 特定依赖
 [target."cfg(target_os = \"windows\")".dependencies]

@@ -1,7 +1,20 @@
 // 跨平台权限管理服务
 // 支持 macOS、Windows、Linux 的系统权限检测和请求
+// 优先使用 Rust 后端 system-permissions，fallback 到本地检测
 
 import { message } from 'antd';
+import {
+  checkPermission as rustCheckPermission,
+  checkAllPermissions as rustCheckAllPermissions,
+  openSystemSettings as rustOpenSettings,
+  getStatusColor as rustGetStatusColor,
+  getStatusLabel as rustGetStatusLabel,
+  startPermissionMonitor,
+  stopPermissionMonitor,
+  onPermissionChange,
+  type PermissionChangeEvent,
+  type UnlistenFn,
+} from './permissionsRust';
 
 // ============================================
 // 权限类型定义
@@ -183,97 +196,20 @@ const PERMISSION_CONFIGS: Record<PermissionCategory, Omit<PermissionItem, 'statu
   },
 };
 
-// ============================================
-// 平台特定的权限检测（模拟实现）
-// 在实际项目中，这些应该通过 Tauri Rust 后端调用系统 API
-// ============================================
-
-// macOS 权限检测（参考 clawdbot 的 PermissionManager.swift）
-async function checkMacOSPermission(category: PermissionCategory): Promise<PermissionStatus> {
-  // 模拟检测逻辑
-  // 实际实现应该调用 Rust 后端
-  switch (category) {
-    case 'accessibility':
-      // 在 macOS 上使用 AXIsProcessTrusted() 检测
-      return Math.random() > 0.5 ? 'granted' : 'pending';
-    case 'screen_recording':
-      // CGPreflightScreenCaptureAccess() (macOS 10.15+)
-      return Math.random() > 0.3 ? 'granted' : 'pending';
-    case 'microphone':
-      // AVCaptureDevice.authorizationStatus(for: .audio)
+// 将 Rust 权限状态转换为前端状态
+function rustStatusToFrontend(status: string): PermissionStatus {
+  switch (status) {
+    case 'Authorized':
       return 'granted';
-    case 'camera':
-      // AVCaptureDevice.authorizationStatus(for: .video)
-      return 'granted';
-    case 'notifications':
-      // UNUserNotificationCenter.current().notificationSettings()
-      return 'granted';
-    case 'location':
-      // CLLocationManager.authorizationStatus
+    case 'Denied':
+      return 'denied';
+    case 'Restricted':
+      return 'denied';
+    case 'Unavailable':
+      return 'unknown';
+    case 'NotDetermined':
+    default:
       return 'pending';
-    case 'file_access':
-    case 'network':
-    case 'clipboard':
-    case 'nuwaxcode':
-    case 'claude_code':
-    case 'keyboard_monitoring':
-      return Math.random() > 0.4 ? 'granted' : 'pending';
-    default:
-      return 'unknown';
-  }
-}
-
-// Windows 权限检测
-async function checkWindowsPermission(category: PermissionCategory): Promise<PermissionStatus> {
-  switch (category) {
-    case 'accessibility':
-      // Windows 是否有窗口监控权限
-      return Math.random() > 0.4 ? 'granted' : 'pending';
-    case 'screen_recording':
-      // Windows Graphics Capture API
-      return 'granted';
-    case 'microphone':
-      // Windows 麦克风隐私设置
-      return 'granted';
-    case 'camera':
-      // Windows 相机隐私设置
-      return 'granted';
-    case 'location':
-    case 'notifications':
-    case 'file_access':
-    case 'network':
-    case 'clipboard':
-    case 'speech':
-    case 'nuwaxcode':
-    case 'claude_code':
-    case 'keyboard_monitoring':
-      return Math.random() > 0.4 ? 'granted' : 'pending';
-    default:
-      return 'unknown';
-  }
-}
-
-// Linux 权限检测
-async function checkLinuxPermission(category: PermissionCategory): Promise<PermissionStatus> {
-  switch (category) {
-    case 'accessibility':
-      // Linux AT-SPI accessibility
-      return Math.random() > 0.6 ? 'granted' : 'pending';
-    case 'screen_recording':
-      // Linux 屏幕录制通常需要 pipewire 或 x11 权限
-      return Math.random() > 0.5 ? 'granted' : 'pending';
-    case 'microphone':
-    case 'camera':
-    case 'location':
-    case 'file_access':
-    case 'network':
-    case 'clipboard':
-    case 'nuwaxcode':
-    case 'claude_code':
-    case 'keyboard_monitoring':
-      return Math.random() > 0.5 ? 'granted' : 'pending';
-    default:
-      return 'unknown';
   }
 }
 
@@ -286,9 +222,23 @@ class PermissionsService {
   private permissionCache: Map<PermissionCategory, PermissionStatus> = new Map();
   private cacheTimestamp: number = 0;
   private readonly cacheDuration = 5000; // 缓存 5 秒
+  private useRustBackend: boolean = true; // 是否使用 Rust 后端
 
   constructor() {
     this.platform = getCurrentPlatform();
+    // 检查 Rust 后端是否可用（通过尝试调用）
+    this.checkRustBackend();
+  }
+
+  // 检查 Rust 后端是否可用
+  private async checkRustBackend(): Promise<void> {
+    try {
+      await rustCheckAllPermissions();
+      this.useRustBackend = true;
+    } catch (error) {
+      console.warn('Rust backend not available, using local detection');
+      this.useRustBackend = false;
+    }
   }
 
   // 获取当前平台
@@ -304,20 +254,20 @@ class PermissionsService {
       if (cached) return cached;
     }
 
-    // 平台特定检测
     let status: PermissionStatus;
-    switch (this.platform) {
-      case 'macos':
-        status = await checkMacOSPermission(category);
-        break;
-      case 'windows':
-        status = await checkWindowsPermission(category);
-        break;
-      case 'linux':
-        status = await checkLinuxPermission(category);
-        break;
-      default:
-        status = 'unknown';
+
+    if (this.useRustBackend) {
+      // 使用 Rust 后端获取真实权限状态
+      try {
+        const rustState = await rustCheckPermission(category);
+        status = rustStatusToFrontend(rustState.status);
+      } catch (error) {
+        console.error(`Failed to check permission ${category} from Rust:`, error);
+        status = 'pending';
+      }
+    } else {
+      // Fallback 到本地检测（模拟实现）
+      status = await this.localCheckPermission(category);
     }
 
     // 更新缓存
@@ -325,6 +275,29 @@ class PermissionsService {
     this.cacheTimestamp = Date.now();
 
     return status;
+  }
+
+  // 本地权限检测（fallback，当 Rust 后端不可用时使用）
+  private async localCheckPermission(category: PermissionCategory): Promise<PermissionStatus> {
+    // 简化的本地检测逻辑
+    switch (category) {
+      case 'accessibility':
+      case 'screen_recording':
+      case 'microphone':
+      case 'camera':
+      case 'notifications':
+      case 'location':
+      case 'file_access':
+      case 'network':
+      case 'clipboard':
+      case 'speech':
+      case 'nuwaxcode':
+      case 'claude_code':
+      case 'keyboard_monitoring':
+        return Math.random() > 0.5 ? 'granted' : 'pending';
+      default:
+        return 'unknown';
+    }
   }
 
   // 批量检测权限
@@ -359,13 +332,23 @@ class PermissionsService {
     };
   }
 
-  // 打开系统设置（参考 clawdbot 的 openSystemPreferences）
+  // 打开系统设置（使用 Rust 后端或本地 URL）
   async openSystemSettings(category: PermissionCategory): Promise<boolean> {
     message.loading('正在打开系统设置...', 1);
 
-    // 在实际实现中，应该通过 Tauri 的 open API 打开系统设置
-    // 参考 clawdbot: https://github.com/openclaw/openclaw/blob/main/apps/macos/Sources/OpenClaw/PermissionManager.swift
+    if (this.useRustBackend) {
+      // 使用 Rust 后端的 opener 插件
+      try {
+        await rustOpenSettings(category);
+        message.info('请在系统设置中完成权限授权');
+        return true;
+      } catch (error) {
+        console.error('Failed to open settings via Rust:', error);
+        // Fallback 到本地打开
+      }
+    }
 
+    // 本地打开系统设置
     const settingsUrls: Record<PermissionCategory, string> = {
       accessibility: 'x-apple.systempreferences:com.apple.security.accessibility',
       screen_recording: 'x-apple.systempreferences:com.apple.security.screenRecording',
@@ -384,14 +367,14 @@ class PermissionsService {
 
     const url = settingsUrls[category];
     if (url) {
-      // 在实际项目中，使用 Tauri 的 open API:
-      // import { open } from '@tauri-apps/api/shell';
-      // await open(url);
-
-      // 模拟打开
-      console.log(`[Permissions] Opening system settings: ${url}`);
-      message.info(`请在系统设置中完成权限授权`);
-      return true;
+      try {
+        const { openUrl } = await import('@tauri-apps/plugin-opener');
+        await openUrl(url);
+        message.info('请在系统设置中完成权限授权');
+        return true;
+      } catch (error) {
+        console.error('Failed to open system settings:', error);
+      }
     }
 
     message.warning('无法打开系统设置，请手动前往系统偏好设置');
@@ -412,6 +395,17 @@ class PermissionsService {
 
   // 获取权限状态配置
   getStatusConfig(status: PermissionStatus, required: boolean) {
+    // 优先使用 Rust 后端的配置
+    if (this.useRustBackend) {
+      const color = rustGetStatusColor(status === 'granted' ? 'Authorized' : 'Denied');
+      const text = rustGetStatusLabel(status === 'granted' ? 'Authorized' : 'Denied');
+      return {
+        color: color as 'success' | 'error' | 'warning' | 'default',
+        text,
+        icon: status === 'granted' ? 'check-circle' : 'close-circle',
+      };
+    }
+
     const config: Record<PermissionStatus, { color: string; text: string; icon: string }> = {
       granted: {
         color: 'success',
@@ -436,6 +430,75 @@ class PermissionsService {
     };
     return config[status];
   }
+
+  // ============================================
+  // 权限监控方法
+  // ============================================
+
+  private monitorUnlisten: UnlistenFn | null = null;
+  private changeCallbacks: Set<(category: PermissionCategory, status: PermissionStatus) => void> = new Set();
+
+  /**
+   * 启动权限监控
+   * 当权限状态变化时，自动更新缓存并通知回调
+   */
+  async startMonitoring(): Promise<void> {
+    if (!this.useRustBackend) {
+      console.warn('Permission monitoring requires Rust backend');
+      return;
+    }
+
+    if (this.monitorUnlisten) {
+      // 已经在监控
+      return;
+    }
+
+    try {
+      await startPermissionMonitor();
+
+      this.monitorUnlisten = await onPermissionChange((event: PermissionChangeEvent) => {
+        const category = event.permission as PermissionCategory;
+        const status = rustStatusToFrontend(event.status);
+
+        // 更新缓存
+        this.permissionCache.set(category, status);
+        this.cacheTimestamp = Date.now();
+
+        // 通知回调
+        this.changeCallbacks.forEach((cb) => cb(category, status));
+      });
+    } catch (error) {
+      console.error('Failed to start permission monitoring:', error);
+    }
+  }
+
+  /**
+   * 停止权限监控
+   */
+  async stopMonitoring(): Promise<void> {
+    if (this.monitorUnlisten) {
+      this.monitorUnlisten();
+      this.monitorUnlisten = null;
+    }
+
+    try {
+      await stopPermissionMonitor();
+    } catch (error) {
+      console.error('Failed to stop permission monitoring:', error);
+    }
+  }
+
+  /**
+   * 订阅权限变化事件
+   * @param callback 权限变化回调
+   * @returns 取消订阅函数
+   */
+  onPermissionChange(callback: (category: PermissionCategory, status: PermissionStatus) => void): () => void {
+    this.changeCallbacks.add(callback);
+    return () => {
+      this.changeCallbacks.delete(callback);
+    };
+  }
 }
 
 // ============================================
@@ -452,3 +515,10 @@ export const openSystemSettings = (category: PermissionCategory) => permissionsS
 export const refreshPermissions = () => permissionsService.refresh();
 export const getStatusConfig = (status: PermissionStatus, required: boolean) =>
   permissionsService.getStatusConfig(status, required);
+
+// 监控相关便捷函数
+export const startMonitoring = () => permissionsService.startMonitoring();
+export const stopMonitoring = () => permissionsService.stopMonitoring();
+export const subscribePermissionChange = (
+  callback: (category: PermissionCategory, status: PermissionStatus) => void
+) => permissionsService.onPermissionChange(callback);

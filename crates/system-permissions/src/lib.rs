@@ -50,23 +50,25 @@
 //! ```
 
 // 重新导出公共 API
+pub use crate::error::{PermissionError, PermissionResult};
+pub use crate::factory::{create_permission_manager, create_permission_monitor};
+pub use crate::monitor::PollingPermissionMonitor;
+pub use crate::permissions_trait::{
+    PermissionChangeCallback, PermissionManager, PermissionMonitor, RequestBuilder,
+};
 pub use crate::types::{
     CheckResult, LocationMode, PermissionState, PermissionStatus, RequestOptions, RequestResult,
     SystemPermission,
 };
-pub use crate::error::{PermissionError, PermissionResult};
-pub use crate::permissions_trait::{
-    PermissionChangeCallback, PermissionManager, RequestBuilder,
-};
-pub use crate::factory::create_permission_manager;
 
 // 模块声明
-pub mod macos;
-pub mod windows;
 pub mod linux;
+pub mod macos;
+pub mod monitor;
+pub mod windows;
 
 // 内部模块
-mod types;
-mod permissions_trait;
 mod error;
 mod factory;
+mod permissions_trait;
+mod types;
