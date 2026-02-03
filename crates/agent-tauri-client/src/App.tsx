@@ -47,6 +47,9 @@ import {
   UploadOutlined,
   RedoOutlined,
   DeleteOutlined,
+  EnvironmentOutlined,
+  DesktopOutlined,
+  PlusOutlined,
 } from '@ant-design/icons';
 import {
   AgentStatus,
@@ -64,6 +67,8 @@ import {
   onLogChange,
 } from './services';
 import LoginForm from './components/LoginForm';
+import SceneSwitcher from './components/SceneSwitcher';
+import ConfigEditor from './components/ConfigEditor';
 import {
   DependencyItem,
   DependencyStatus,
@@ -72,6 +77,14 @@ import {
   installAllDependencies,
   uninstallDependency,
 } from './services/dependencies';
+import {
+  getAllScenes,
+  getCurrentScene,
+  switchScene,
+  deleteCustomScene,
+  resetConfig,
+  SceneConfig,
+} from './services/config';
 
 import { Typography } from 'antd';
 const { Title, Text, Paragraph } = Typography;
@@ -85,14 +98,22 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [filterLevel, setFilterLevel] = useState<string>('all');
-  const [serverUrl, setServerUrl] = useState('http://localhost:8080');
   const [autoConnect, setAutoConnect] = useState(true);
   const [notifications, setNotifications] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
+  
+  // 场景配置状态
+  const [scenes, setScenes] = useState<SceneConfig[]>([]);
+  const [currentScene, setCurrentScene] = useState<SceneConfig>(getCurrentScene());
+  const [configEditorVisible, setConfigEditorVisible] = useState(false);
+  const [editingScene, setEditingScene] = useState<SceneConfig | null>(null);
+  const [isNewConfig, setIsNewConfig] = useState(false);
 
-  // 初始化
+  // 初始化场景配置
   useEffect(() => {
-    initData();
+    setScenes(getAllScenes());
+    setCurrentScene(getCurrentScene());
+  }, []);
 
     onStatusChange((newStatus: AgentStatus) => {
       setStatus(newStatus);
@@ -185,11 +206,18 @@ function App() {
   // 客户端页面
   const renderClientPage = () => (
     <div style={{ maxWidth: 900 }}>
+      {/* 场景切换 */}
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Space justify="space-between" style={{ width: '100%' }}>
+          <Space>
+            <RobotOutlined style={{ fontSize: 16, color: '#1890ff' }} />
+            <span style={{ fontWeight: 500 }}>NuWax Agent</span>
+          </Space>
+          <SceneSwitcher showLabel={false} size="small" />
+        </Space>
+      </Card>
+
       {/* 登录表单 */}
-      <LoginForm onLoginSuccess={() => {
-        // 登录成功后刷新数据
-        initData();
-      }} />
 
       {/* 状态卡片 */}
       <Card
@@ -319,22 +347,176 @@ function App() {
     </div>
   );
 
+  // 场景配置管理
+  const handleSwitchScene = async (sceneId: string) => {
+    await switchScene(sceneId);
+    setCurrentScene(getCurrentScene());
+    setScenes(getAllScenes());
+  };
+
+  const handleAddConfig = () => {
+    setIsNewConfig(true);
+    setEditingScene(null);
+    setConfigEditorVisible(true);
+  };
+
+  const handleEditConfig = (scene: SceneConfig) => {
+    setIsNewConfig(false);
+    setEditingScene(scene);
+    setConfigEditorVisible(true);
+  };
+
+  const handleDeleteConfig = (sceneId: string, sceneName: string) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除配置 "${sceneName}" 吗？`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk() {
+        deleteCustomScene(sceneId);
+        setScenes(getAllScenes());
+      },
+    });
+  };
+
+  const handleResetConfig = () => {
+    Modal.confirm({
+      title: '重置配置',
+      content: '确定要重置为默认配置吗？所有自定义配置将被删除。',
+      okText: '重置',
+      okType: 'warning',
+      cancelText: '取消',
+      onOk() {
+        resetConfig();
+        setScenes(getAllScenes());
+        setCurrentScene(getCurrentScene());
+      },
+    });
+  };
+
   // 设置页面
   const renderSettingsPage = () => (
-    <div style={{ maxWidth: 600 }}>
-      <Card title="服务器配置">
-        <Form layout="vertical">
-          <Form.Item label="API 服务器地址">
-            <Input
-              value={serverUrl}
-              onChange={(e) => setServerUrl(e.target.value)}
-              placeholder="http://localhost:8080"
-              prefix={<GlobalOutlined />}
-            />
-          </Form.Item>
-        </Form>
+    <div style={{ maxWidth: 900 }}>
+      {/* 场景切换 */}
+      <Card 
+        title={
+          <Space>
+            <CloudServerOutlined />
+            <span>部署环境</span>
+          </Space>
+        }
+        extra={
+          <Space>
+            <Button icon={<RedoOutlined />} onClick={handleResetConfig}>
+              重置
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleAddConfig}>
+              添加配置
+            </Button>
+          </Space>
+        }
+        style={{ marginBottom: 16 }}
+      >
+        <List
+          dataSource={scenes}
+          renderItem={(scene) => (
+            <List.Item
+              actions={[
+                scene.id === currentScene.id ? (
+                  <Tag color="green">当前</Tag>
+                ) : (
+                  <Button 
+                    size="small"
+                    onClick={() => handleSwitchScene(scene.id)}
+                  >
+                    切换
+                  </Button>
+                ),
+                !scene.isDefault && scene.id !== currentScene.id && (
+                  <>
+                    <Button 
+                      size="small"
+                      onClick={() => handleEditConfig(scene)}
+                    >
+                      编辑
+                    </Button>
+                    <Button 
+                      size="small" 
+                      danger
+                      onClick={() => handleDeleteConfig(scene.id, scene.name)}
+                    >
+                      删除
+                    </Button>
+                  </>
+                ),
+              ].filter(Boolean)}
+            >
+              <List.Item.Meta
+                avatar={
+                  <Avatar 
+                    icon={<EnvironmentOutlined />} 
+                    style={{ 
+                      backgroundColor: scene.id === currentScene.id ? '#1890ff' : '#52c41a' 
+                    }}
+                  />
+                }
+                title={
+                  <Space>
+                    <span>{scene.name}</span>
+                    {scene.isDefault && <Tag color="blue">默认</Tag>}
+                  </Space>
+                }
+                description={
+                  <Space direction="vertical" size={0}>
+                    <Text type="secondary">{scene.description || '无描述'}</Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      API: {scene.server.apiUrl}
+                    </Text>
+                  </Space>
+                }
+              />
+            </List.Item>
+          )}
+        />
       </Card>
 
+      {/* 当前场景详情 */}
+      <Card 
+        title={
+          <Space>
+            <SettingOutlined />
+            <span>当前配置详情</span>
+          </Space>
+        }
+        size="small"
+        style={{ marginBottom: 16 }}
+      >
+        <Row gutter={16}>
+          <Col span={12}>
+            <Descriptions column={1} size="small">
+              <Descriptions.Item label="场景名称">{currentScene.name}</Descriptions.Item>
+              <Descriptions.Item label="API 服务器">{currentScene.server.apiUrl}</Descriptions.Item>
+              <Descriptions.Item label="超时时间">{currentScene.server.timeout}ms</Descriptions.Item>
+            </Descriptions>
+          </Col>
+          <Col span={12}>
+            <Descriptions column={1} size="small">
+              <Descriptions.Item label="Agent">
+                {currentScene.local.agent.host}:{currentScene.local.agent.port}
+              </Descriptions.Item>
+              <Descriptions.Item label="VNC">
+                {currentScene.local.vnc.host}:{currentScene.local.vnc.port}
+              </Descriptions.Item>
+              <Descriptions.Item label="文件服务">
+                {currentScene.local.fileServer.host}:{currentScene.local.fileServer.port}
+              </Descriptions.Item>
+            </Descriptions>
+          </Col>
+        </Row>
+      </Card>
+
+      {/* 连接设置 */}
       <Card title="连接设置" style={{ marginTop: 16 }}>
         <Form layout="vertical">
           <Form.Item label="开机自启动">
@@ -344,22 +526,25 @@ function App() {
             <Switch checked={notifications} onChange={setNotifications} />
           </Form.Item>
           <Form.Item label="自动重连">
-            <Switch />
-          </Form.Item>
-        </Form>
-      </Card>
-
-      <Card title="安全设置" style={{ marginTop: 16 }}>
-        <Form layout="vertical">
-          <Form.Item label="加密通信">
-            <Switch defaultChecked />
-          </Form.Item>
-          <Form.Item label="身份验证">
             <Switch defaultChecked />
           </Form.Item>
         </Form>
       </Card>
     </div>
+  );
+
+  // 配置编辑弹窗
+  const configEditor = (
+    <ConfigEditor
+      visible={configEditorVisible}
+      onCancel={() => setConfigEditorVisible(false)}
+      scene={editingScene}
+      isNew={isNewConfig}
+      onSave={() => {
+        setScenes(getAllScenes());
+        setCurrentScene(getCurrentScene());
+      }}
+    />
   );
 
   // 依赖管理页面
