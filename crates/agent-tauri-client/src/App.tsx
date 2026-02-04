@@ -65,6 +65,8 @@ import {
   getConnectionInfo,
   onStatusChange,
   onLogChange,
+  syncConfigToServer,
+  getOnlineStatus,
 } from './services';
 import LoginForm from './components/LoginForm';
 import SceneSwitcher from './components/SceneSwitcher';
@@ -102,6 +104,7 @@ function App() {
   const [autoConnect, setAutoConnect] = useState(true);
   const [notifications, setNotifications] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
+  const [onlineStatus, setOnlineStatus] = useState<boolean | null>(null);
   
   // 场景配置状态
   const [scenes, setScenes] = useState<SceneConfig[]>([]);
@@ -114,6 +117,11 @@ function App() {
   useEffect(() => {
     setScenes(getAllScenes());
     setCurrentScene(getCurrentScene());
+  }, []);
+
+  // 初始化连接状态
+  useEffect(() => {
+    setOnlineStatus(getOnlineStatus());
   }, []);
 
   // 监听 Agent 状态和日志变化
@@ -265,8 +273,8 @@ function App() {
                 <Text code>{sessionId || '-'}</Text>
               </Descriptions.Item>
               <Descriptions.Item label="连接状态">
-                <Tag color={isConnected ? 'green' : 'red'}>
-                  {isConnected ? '已连接' : '未连接'}
+                <Tag color={onlineStatus === true ? 'green' : onlineStatus === false ? 'red' : 'default'}>
+                  {onlineStatus === true ? '在线' : onlineStatus === false ? '离线' : '未知'}
                 </Tag>
               </Descriptions.Item>
             </Descriptions>
@@ -323,30 +331,44 @@ function App() {
 
       {/* 连接信息卡片 */}
       <Card title="连接信息" style={{ marginTop: 16 }}>
-        <Row gutter={16}>
-          <Col span={12}>
-            <Descriptions column={1} size="small">
-              <Descriptions.Item label="客户端 ID">
-                <Text code copyable>{connectionInfo.id}</Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="服务器">
-                <Text copyable>{connectionInfo.server}</Text>
-              </Descriptions.Item>
-            </Descriptions>
-          </Col>
-          <Col span={12}>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Progress
-                percent={status === 'running' ? 100 : 0}
-                status={status === 'running' ? 'success' : 'exception'}
-                size="small"
-              />
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {status === 'running' ? '已连接到服务器' : '未连接'}
-              </Text>
-            </Space>
-          </Col>
-        </Row>
+        {!connectionInfo.id ? (
+          // 空状态：未连接时显示提示
+          <Space direction="vertical" style={{ width: '100%' }} align="center">
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              启动 Agent 后显示连接信息
+            </Text>
+          </Space>
+        ) : (
+          // 有连接时显示详细信息
+          <Row gutter={16}>
+            <Col span={12}>
+              <Descriptions column={1} size="small">
+                <Descriptions.Item label="客户端 ID">
+                  <Text code copyable>
+                    {connectionInfo.id}
+                  </Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="服务器">
+                  <Text copyable>
+                    {connectionInfo.server}
+                  </Text>
+                </Descriptions.Item>
+              </Descriptions>
+            </Col>
+            <Col span={12}>
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Progress
+                  percent={status === 'running' ? 100 : 0}
+                  status={status === 'running' ? 'success' : 'exception'}
+                  size="small"
+                />
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {status === 'running' ? '已连接到服务器' : '未连接'}
+                </Text>
+              </Space>
+            </Col>
+          </Row>
+        )}
       </Card>
     </div>
   );
@@ -547,6 +569,8 @@ function App() {
       onSave={() => {
         setScenes(getAllScenes());
         setCurrentScene(getCurrentScene());
+        // 同步配置到后端
+        syncConfigToServer();
       }}
     />
   );

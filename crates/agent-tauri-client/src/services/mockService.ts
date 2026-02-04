@@ -119,8 +119,16 @@ class MockService {
 
   // 获取连接信息
   getConnectionInfo() {
+    // 如果没有 session，返回空状态
+    if (!this.sessionId) {
+      return {
+        id: '',
+        server: '',
+        status: 'disconnected',
+      };
+    }
     return {
-      id: this.sessionId || 'ABC-123-XYZ',
+      id: this.sessionId,
       server: 'localhost:21116',
       status: this.status === 'running' ? 'connected' : 'disconnected',
     };
