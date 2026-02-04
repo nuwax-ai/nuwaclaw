@@ -1,6 +1,7 @@
 /**
  * 认证服务
  * 管理用户登录状态、Token/ConfigKey 存储
+ * 使用 Tauri Store 替代 localStorage
  */
 
 import { message } from 'antd';
@@ -11,164 +12,127 @@ import {
   SandboxValue,
 } from './api';
 import { getAgentUrl, getVncUrl, getFileServerUrl } from './config';
+import { authStorage, initStore, STORAGE_KEYS, remove, type AuthUserInfo } from './store';
 
-// 存储 Key 定义
-const STORAGE_KEYS = {
-  USER_INFO: 'nuwax_agent_user_info',
-  CONFIG_KEY: 'nuwax_agent_config_key',
-  SAVED_KEY: 'nuwax_agent_saved_key', // 用于注册时传递的 savedKey
-  USERNAME: 'nuwax_agent_username',
-  PASSWORD: 'nuwax_agent_password',
-  ONLINE_STATUS: 'nuwax_agent_online_status',
-} as const;
+// 导出 AuthUserInfo 类型以保持向后兼容
+export type { AuthUserInfo };
+
+// ========== 初始化 ==========
+
+/**
+ * 初始化存储服务
+ * 需要在应用启动时调用
+ */
+export async function initAuthStore(): Promise<void> {
+  await initStore();
+}
 
 // ========== 用户信息类型 ==========
 
 /**
- * 用户信息接口
+ * 用户信息接口（在 store.ts 中定义，此处导出）
  */
-export interface AuthUserInfo {
-  username: string;
-  displayName?: string;
-  avatar?: string;
-  email?: string;      // 邮箱（用于识别登录方式）
-  phone?: string;     // 手机号（用于识别登录方式）
-}
 
-// ========== 存储管理 ==========
+// ========== 存储管理（使用新的 Store 服务）==========
 
 /**
  * 获取保存的用户名
  */
-export function getSavedUsername(): string | null {
-  try {
-    return localStorage.getItem(STORAGE_KEYS.USERNAME);
-  } catch {
-    return null;
-  }
+export function getSavedUsername(): Promise<string | null> {
+  return authStorage.getUsername();
 }
 
 /**
  * 保存用户名
  */
-export function saveUsername(username: string): void {
-  localStorage.setItem(STORAGE_KEYS.USERNAME, username);
+export function saveUsername(username: string): Promise<void> {
+  return authStorage.setUsername(username);
 }
 
 /**
  * 获取保存的密码
  */
-export function getSavedPassword(): string | null {
-  try {
-    return localStorage.getItem(STORAGE_KEYS.PASSWORD);
-  } catch {
-    return null;
-  }
+export function getSavedPassword(): Promise<string | null> {
+  return authStorage.getPassword();
 }
 
 /**
  * 保存密码
  * 注意：实际项目中应该加密存储
  */
-export function savePassword(password: string): void {
-  localStorage.setItem(STORAGE_KEYS.PASSWORD, password);
+export function savePassword(password: string): Promise<void> {
+  return authStorage.setPassword(password);
 }
 
 /**
  * 获取保存的 ConfigKey（当前客户端的唯一标识）
  */
-export function getSavedConfigKey(): string | null {
-  try {
-    return localStorage.getItem(STORAGE_KEYS.CONFIG_KEY);
-  } catch {
-    return null;
-  }
+export function getSavedConfigKey(): Promise<string | null> {
+  return authStorage.getConfigKey();
 }
 
 /**
  * 保存 ConfigKey（当前客户端的唯一标识）
  */
-export function saveConfigKey(configKey: string): void {
-  localStorage.setItem(STORAGE_KEYS.CONFIG_KEY, configKey);
+export function saveConfigKey(configKey: string): Promise<void> {
+  return authStorage.setConfigKey(configKey);
 }
 
 /**
  * 获取保存的 SavedKey（用于下次注册时传递给服务端）
  */
-export function getSavedKey(): string | null {
-  try {
-    return localStorage.getItem(STORAGE_KEYS.SAVED_KEY);
-  } catch {
-    return null;
-  }
+export function getSavedKey(): Promise<string | null> {
+  return authStorage.getSavedKey();
 }
 
 /**
  * 保存 SavedKey
  * 这个值会在下次登录时作为 savedKey 参数传递给服务端
  */
-export function saveSavedKey(key: string): void {
-  localStorage.setItem(STORAGE_KEYS.SAVED_KEY, key);
+export function saveSavedKey(key: string): Promise<void> {
+  return authStorage.setSavedKey(key);
 }
 
 /**
  * 清除所有认证信息
  */
-export function clearAuthInfo(): void {
-  localStorage.removeItem(STORAGE_KEYS.USERNAME);
-  localStorage.removeItem(STORAGE_KEYS.PASSWORD);
-  localStorage.removeItem(STORAGE_KEYS.CONFIG_KEY);
-  localStorage.removeItem(STORAGE_KEYS.SAVED_KEY);
-  localStorage.removeItem(STORAGE_KEYS.USER_INFO);
+export async function clearAuthInfo(): Promise<void> {
+  await authStorage.clear();
 }
-
-// ========== 用户信息管理 ==========
 
 /**
  * 获取用户信息
  */
-export function getUserInfo(): AuthUserInfo | null {
-  try {
-    const info = localStorage.getItem(STORAGE_KEYS.USER_INFO);
-    return info ? JSON.parse(info) : null;
-  } catch {
-    return null;
-  }
+export function getUserInfo(): Promise<AuthUserInfo | null> {
+  return authStorage.getUserInfo();
 }
 
 /**
  * 保存用户信息
  */
-export function saveUserInfo(info: AuthUserInfo): void {
-  localStorage.setItem(STORAGE_KEYS.USER_INFO, JSON.stringify(info));
+export function saveUserInfo(info: AuthUserInfo): Promise<void> {
+  return authStorage.setUserInfo(info);
 }
-
-// ========== 连接状态管理 ==========
 
 /**
  * 获取连接状态
  */
-export function getOnlineStatus(): boolean | null {
-  try {
-    const status = localStorage.getItem(STORAGE_KEYS.ONLINE_STATUS);
-    return status ? status === 'true' : null;
-  } catch {
-    return null;
-  }
+export function getOnlineStatus(): Promise<boolean | null> {
+  return authStorage.getOnlineStatus();
 }
 
 /**
  * 保存连接状态
  */
-export function saveOnlineStatus(online: boolean): void {
-  localStorage.setItem(STORAGE_KEYS.ONLINE_STATUS, String(online));
+export function saveOnlineStatus(online: boolean): Promise<void> {
+  return authStorage.setOnlineStatus(online);
 }
 
 /**
  * 清除连接状态
  */
-export function clearOnlineStatus(): void {
-  localStorage.removeItem(STORAGE_KEYS.ONLINE_STATUS);
+export async function clearOnlineStatus(): Promise<void> {
+  await remove(STORAGE_KEYS.AUTH_ONLINE_STATUS);
 }
 
 // ========== 错误码定义 ==========
@@ -178,12 +142,12 @@ export function clearOnlineStatus(): void {
  */
 export const AUTH_ERROR_CODES = {
   SUCCESS: '0000',
-  USER_NOT_FOUND: '1001',      // 用户不存在
-  PASSWORD_ERROR: '1002',      // 密码错误
-  USER_DISABLED: '1003',       // 用户已被禁用
-  CLIENT_NOT_FOUND: '2001',    // 客户端不存在
-  CLIENT_DISABLED: '2002',     // 客户端已被禁用
-  CONFIG_NOT_FOUND: '2003',    // 配置不存在
+  USER_NOT_FOUND: '1001', // 用户不存在
+  PASSWORD_ERROR: '1002', // 密码错误
+  USER_DISABLED: '1003', // 用户已被禁用
+  CLIENT_NOT_FOUND: '2001', // 客户端不存在
+  CLIENT_DISABLED: '2002', // 客户端已被禁用
+  CONFIG_NOT_FOUND: '2003', // 配置不存在
 } as const;
 
 /**
@@ -264,7 +228,7 @@ export async function loginAndRegister(
   password: string
 ): Promise<ClientRegisterResponse> {
   // 获取保存的 savedKey（用于标识是否为老用户）
-  const savedKey = getSavedKey();
+  const savedKey = await getSavedKey();
 
   // 构建注册参数
   const params: ClientRegisterParams = {
@@ -283,24 +247,24 @@ export async function loginAndRegister(
 
     // ========== 重要：保存认证信息 ==========
     // 1. 保存用户名和密码（用于自动登录和重新注册）
-    saveUsername(username);
-    savePassword(password);
+    await saveUsername(username);
+    await savePassword(password);
 
     // 2. 保存 configKey（当前客户端的唯一标识）
-    saveConfigKey(response.configKey);
+    await saveConfigKey(response.configKey);
 
     // 3. 保存 savedKey（下次注册时使用，实现用户识别）
     // 这个值会作为下次登录时的 savedKey 参数
-    saveSavedKey(response.configKey);
+    await saveSavedKey(response.configKey);
 
     // 4. 保存用户信息
-    saveUserInfo({
+    await saveUserInfo({
       username,
       displayName: response.name,
     });
 
     // 5. 保存连接状态
-    saveOnlineStatus(response.online);
+    await saveOnlineStatus(response.online);
 
     // 关闭 loading 并显示成功提示
     message.success({ content: '登录成功！', key: loadingKey });
@@ -329,30 +293,31 @@ export async function loginAndRegister(
 /**
  * 检查是否已登录
  */
-export function isLoggedIn(): boolean {
-  const username = getSavedUsername();
-  const configKey = getSavedConfigKey();
+export async function isLoggedIn(): Promise<boolean> {
+  const username = await getSavedUsername();
+  const configKey = await getSavedConfigKey();
   return !!(username && configKey);
 }
 
 /**
  * 获取当前登录信息
  */
-export function getCurrentAuth(): {
+export async function getCurrentAuth(): Promise<{
   username: string | null;
   configKey: string | null;
   userInfo: AuthUserInfo | null;
   isLoggedIn: boolean;
-} {
-  const username = getSavedUsername();
-  const configKey = getSavedConfigKey();
-  const userInfo = getUserInfo();
+}> {
+  const username = await getSavedUsername();
+  const configKey = await getSavedConfigKey();
+  const userInfo = await getUserInfo();
+  const isLogged = !!(username && configKey);
 
   return {
     username,
     configKey,
     userInfo,
-    isLoggedIn: !!(username && configKey),
+    isLoggedIn: isLogged,
   };
 }
 
@@ -361,8 +326,8 @@ export function getCurrentAuth(): {
  * 在应用启动或网络重连时调用，保持客户端在线状态
  */
 export async function reRegisterClient(): Promise<ClientRegisterResponse | null> {
-  const username = getSavedUsername();
-  const password = getSavedPassword();
+  const username = await getSavedUsername();
+  const password = await getSavedPassword();
 
   if (!username || !password) {
     console.warn('[Auth] 未保存凭证，无法重新注册');
@@ -384,9 +349,9 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
  * 退出登录
  * 清除所有本地认证信息
  */
-export function logout(): void {
-  clearAuthInfo();
-  clearOnlineStatus();
+export async function logout(): Promise<void> {
+  await clearAuthInfo();
+  await clearOnlineStatus();
   message.info('已退出登录');
 }
 
@@ -423,10 +388,10 @@ export function stopHeartbeat(): void {
 /**
  * 获取当前的沙箱配置值（从当前场景配置）
  */
-export function getCurrentSandboxValue(): SandboxValue {
-  const agentUrl = getAgentUrl();
-  const vncUrl = getVncUrl();
-  const fileServerUrl = getFileServerUrl();
+export async function getCurrentSandboxValue(): Promise<SandboxValue> {
+  const agentUrl = await getAgentUrl();
+  const vncUrl = await getVncUrl();
+  const fileServerUrl = await getFileServerUrl();
 
   // 从 URL 中解析 hostWithScheme 和端口
   const parseUrl = (url: string) => {
@@ -460,9 +425,9 @@ export function getCurrentSandboxValue(): SandboxValue {
  * 当用户修改了本地服务配置后调用，更新后端终端配置
  */
 export async function syncConfigToServer(): Promise<ClientRegisterResponse | null> {
-  const username = getSavedUsername();
-  const password = getSavedPassword();
-  const configKey = getSavedConfigKey();
+  const username = await getSavedUsername();
+  const password = await getSavedPassword();
+  const configKey = await getSavedConfigKey();
 
   if (!username || !password) {
     console.warn('[SyncConfig] 未登录，无法同步配置');
@@ -473,7 +438,7 @@ export async function syncConfigToServer(): Promise<ClientRegisterResponse | nul
     username,
     password,
     savedKey: configKey || undefined,
-    sandboxConfigValue: getCurrentSandboxValue(),
+    sandboxConfigValue: await getCurrentSandboxValue(),
   };
 
   const loadingKey = 'syncConfigLoading';
@@ -483,9 +448,9 @@ export async function syncConfigToServer(): Promise<ClientRegisterResponse | nul
     const response = await registerClient(params);
 
     // 更新保存的 configKey、savedKey 和连接状态
-    saveConfigKey(response.configKey);
-    saveSavedKey(response.configKey);
-    saveOnlineStatus(response.online);
+    await saveConfigKey(response.configKey);
+    await saveSavedKey(response.configKey);
+    await saveOnlineStatus(response.online);
 
     message.success({ content: '配置同步成功！', key: loadingKey });
     console.log('[SyncConfig] 配置同步成功:', {

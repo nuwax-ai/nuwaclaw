@@ -6,7 +6,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Form, Input, Button, Card, message, Avatar, Space, Typography } from 'antd';
 import { UserOutlined, LockOutlined, LogoutOutlined, CheckCircleOutlined, MailOutlined, PhoneOutlined } from '@ant-design/icons';
-import { loginAndRegister, logout, getCurrentAuth, AuthUserInfo } from '../services/auth';
+import { loginAndRegister, logout, getCurrentAuth, initAuthStore } from '../services/auth';
+import type { AuthUserInfo } from '../services/store';
 
 const { Text, Title } = Typography;
 
@@ -23,14 +24,25 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
   const [userInfo, setUserInfo] = useState<AuthUserInfo | null>(null);
   const [loginMethod, setLoginMethod] = useState<LoginMethod>('username');
   const [form] = Form.useForm();
+  const [initialized, setInitialized] = useState(false);
 
   // 初始化时检查登录状态
   useEffect(() => {
-    const auth = getCurrentAuth();
-    if (auth.isLoggedIn && auth.userInfo) {
-      setIsLogged(true);
-      setUserInfo(auth.userInfo);
-    }
+    const init = async () => {
+      try {
+        await initAuthStore();
+        const auth = await getCurrentAuth();
+        if (auth.isLoggedIn && auth.userInfo) {
+          setIsLogged(true);
+          setUserInfo(auth.userInfo);
+        }
+      } catch (error) {
+        console.error('初始化认证状态失败:', error);
+      } finally {
+        setInitialized(true);
+      }
+    };
+    init();
   }, []);
 
   /**
@@ -127,7 +139,7 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
     try {
       await loginAndRegister(values.username, values.password);
       // 重新获取用户信息
-      const auth = getCurrentAuth();
+      const auth = await getCurrentAuth();
       if (auth.userInfo) {
         setUserInfo(auth.userInfo);
       }
@@ -144,13 +156,18 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
   /**
    * 退出登录
    */
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     setIsLogged(false);
     setUserInfo(null);
     form.resetFields();
     message.info('已退出登录');
   };
+
+  // 显示加载中状态
+  if (!initialized) {
+    return null;
+  }
 
   // 已登录状态展示
   if (isLogged && userInfo) {

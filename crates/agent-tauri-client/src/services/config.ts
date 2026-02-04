@@ -1,9 +1,15 @@
 /**
  * 配置管理服务
  * 支持多场景配置切换，包括服务端和本地服务配置
+ * 使用 Tauri Store 替代 localStorage
  */
 
 import { message } from 'antd';
+import {
+  configStorage,
+  initStore,
+  type CustomScene,
+} from './store';
 
 // ========== 类型定义 ==========
 
@@ -23,29 +29,29 @@ export interface SceneConfig {
  * 服务端配置
  */
 export interface ServerConfig {
-  apiUrl: string;       // API 服务器地址
-  apiKey?: string;       // API 密钥
-  timeout?: number;      // 请求超时（毫秒）
+  apiUrl: string; // API 服务器地址
+  apiKey?: string; // API 密钥
+  timeout?: number; // 请求超时（毫秒）
 }
 
 /**
  * 本地服务配置
  */
 export interface LocalServicesConfig {
-  agent: ServiceEndpoint;       // Agent 服务
-  vnc: ServiceEndpoint;         // VNC 服务
-  fileServer: ServiceEndpoint;   // 文件服务
-  websocket: ServiceEndpoint;   // WebSocket 服务
+  agent: ServiceEndpoint; // Agent 服务
+  vnc: ServiceEndpoint; // VNC 服务
+  fileServer: ServiceEndpoint; // 文件服务
+  websocket: ServiceEndpoint; // WebSocket 服务
 }
 
 /**
  * 服务端点配置
  */
 export interface ServiceEndpoint {
-  host: string;       // 主机地址
-  port: number;       // 端口
-  scheme?: string;    // 协议（http/https）
-  path?: string;      // 路径前缀
+  host: string; // 主机地址
+  port: number; // 端口
+  scheme?: string; // 协议（http/https）
+  path?: string; // 路径前缀
 }
 
 /**
@@ -126,20 +132,87 @@ export const DEFAULT_SCENES: SceneConfig[] = [
   },
 ];
 
-// ========== 配置存储键 ==========
+/**
+ * 转换为 CustomScene 类型（用于存储）
+ */
+function toCustomScene(scene: SceneConfig): CustomScene {
+  return {
+    id: scene.id,
+    name: scene.name,
+    description: scene.description,
+    isDefault: scene.isDefault,
+    server: {
+      apiUrl: scene.server.apiUrl,
+      apiKey: scene.server.apiKey,
+      timeout: scene.server.timeout,
+    },
+    local: scene.local as CustomScene['local'],
+  };
+}
 
-const STORAGE_KEY = 'nuwax_config';
-const STORAGE_VERSION = '1';
+/**
+ * 从 CustomScene 转换为 SceneConfig
+ */
+function fromCustomScene(custom: CustomScene): SceneConfig {
+  return {
+    id: custom.id,
+    name: custom.name,
+    description: custom.description,
+    isDefault: custom.isDefault,
+    server: {
+      apiUrl: custom.server.apiUrl,
+      apiKey: custom.server.apiKey,
+      timeout: custom.server.timeout,
+    },
+    local: custom.local as LocalServicesConfig,
+  };
+}
+
+// ========== 配置存储服务类 ==========
 
 /**
  * 配置服务类
+ * 使用 Tauri Store 进行持久化存储
  */
 class ConfigService {
   private currentSceneId: string = 'local';
-  private customScenes: Map<string, SceneConfig> = new Map();
+  private customScenes: Map<string, CustomScene> = new Map();
+  private initialized: boolean = false;
 
-  constructor() {
-    this.loadFromStorage();
+  /**
+   * 初始化配置服务
+   * 需要在应用启动时调用
+   */
+  async init(): Promise<void> {
+    if (this.initialized) {
+      return;
+    }
+
+    // 初始化存储
+    await initStore();
+    await configStorage.init();
+
+    // 加载自定义场景
+    const storedCustomScenes = await configStorage.getCustomScenes();
+    this.customScenes = new Map(storedCustomScenes.map((s) => [s.id, s]));
+
+    // 加载当前场景 ID
+    const storedSceneId = await configStorage.getCurrentSceneId();
+    if (storedSceneId) {
+      this.currentSceneId = storedSceneId;
+    }
+
+    this.initialized = true;
+    console.log('[ConfigService] 初始化完成，自定义场景数量:', this.customScenes.size);
+  }
+
+  /**
+   * 确保服务已初始化
+   */
+  private async ensureInit(): Promise<void> {
+    if (!this.initialized) {
+      await this.init();
+    }
   }
 
   // ========== 场景管理 ==========
@@ -147,49 +220,54 @@ class ConfigService {
   /**
    * 获取所有场景
    */
-  getAllScenes(): SceneConfig[] {
+  async getAllScenes(): Promise<SceneConfig[]> {
+    await this.ensureInit();
     const custom = Array.from(this.customScenes.values());
-    return [...DEFAULT_SCENES, ...custom];
+    return [...DEFAULT_SCENES, ...custom.map(fromCustomScene)];
   }
 
   /**
    * 获取当前场景
    */
-  getCurrentScene(): SceneConfig {
-    return this.getScene(this.currentSceneId) || this.getDefaultScene();
+  async getCurrentScene(): Promise<SceneConfig> {
+    await this.ensureInit();
+    return (await this.getScene(this.currentSceneId)) || (await this.getDefaultScene());
   }
 
   /**
    * 获取指定场景
    */
-  getScene(id: string): SceneConfig | undefined {
+  async getScene(id: string): Promise<SceneConfig | undefined> {
+    await this.ensureInit();
     // 先查找自定义场景
     if (this.customScenes.has(id)) {
-      return this.customScenes.get(id);
+      return fromCustomScene(this.customScenes.get(id)!);
     }
     // 再查找默认场景
-    return DEFAULT_SCENES.find(s => s.id === id);
+    return DEFAULT_SCENES.find((s) => s.id === id);
   }
 
   /**
    * 获取默认场景
    */
-  getDefaultScene(): SceneConfig {
-    return DEFAULT_SCENES.find(s => s.isDefault) || DEFAULT_SCENES[0];
+  async getDefaultScene(): Promise<SceneConfig> {
+    await this.ensureInit();
+    return DEFAULT_SCENES.find((s) => s.isDefault) || DEFAULT_SCENES[0];
   }
 
   /**
    * 切换场景
    */
   async switchScene(sceneId: string): Promise<boolean> {
-    const scene = this.getScene(sceneId);
+    await this.ensureInit();
+    const scene = await this.getScene(sceneId);
     if (!scene) {
       message.error(`场景不存在: ${sceneId}`);
       return false;
     }
 
     this.currentSceneId = sceneId;
-    this.saveToStorage();
+    await configStorage.setCurrentSceneId(sceneId);
     message.success(`已切换到: ${scene.name}`);
     return true;
   }
@@ -197,42 +275,51 @@ class ConfigService {
   /**
    * 添加自定义场景
    */
-  addCustomScene(scene: Omit<SceneConfig, 'id'>): string {
+  async addCustomScene(scene: Omit<SceneConfig, 'id'>): Promise<string> {
+    await this.ensureInit();
     const id = `custom_${Date.now()}`;
-    const newScene: SceneConfig = {
-      ...scene,
+    const newCustomScene: CustomScene = {
+      ...toCustomScene(scene as SceneConfig),
       id,
     };
-    this.customScenes.set(id, newScene);
-    this.saveToStorage();
+    this.customScenes.set(id, newCustomScene);
+    await configStorage.addCustomScene(newCustomScene);
     return id;
   }
 
   /**
    * 更新自定义场景
    */
-  updateCustomScene(id: string, updates: Partial<SceneConfig>): boolean {
+  async updateCustomScene(id: string, updates: Partial<SceneConfig>): Promise<boolean> {
+    await this.ensureInit();
     if (!this.customScenes.has(id)) {
       return false;
     }
-    const scene = this.customScenes.get(id)!;
-    this.customScenes.set(id, { ...scene, ...updates });
-    this.saveToStorage();
+    const current = this.customScenes.get(id)!;
+    const updated: CustomScene = {
+      ...current,
+      ...toCustomScene(updates as SceneConfig),
+    };
+    this.customScenes.set(id, updated);
+    await configStorage.updateCustomScene(id, updated);
     return true;
   }
 
   /**
    * 删除自定义场景
    */
-  deleteCustomScene(id: string): boolean {
+  async deleteCustomScene(id: string): Promise<boolean> {
+    await this.ensureInit();
     if (!this.customScenes.has(id)) {
       return false;
     }
     this.customScenes.delete(id);
     if (this.currentSceneId === id) {
-      this.currentSceneId = this.getDefaultScene().id;
+      const defaultScene = await this.getDefaultScene();
+      this.currentSceneId = defaultScene.id;
+      await configStorage.setCurrentSceneId(defaultScene.id);
     }
-    this.saveToStorage();
+    await configStorage.deleteCustomScene(id);
     return true;
   }
 
@@ -241,96 +328,67 @@ class ConfigService {
   /**
    * 获取 API 地址
    */
-  getApiUrl(): string {
-    return this.getCurrentScene().server.apiUrl;
+  async getApiUrl(): Promise<string> {
+    const scene = await this.getCurrentScene();
+    return scene.server.apiUrl;
   }
 
   /**
    * 获取 Agent 服务地址
    */
-  getAgentUrl(): string {
-    const { agent } = this.getCurrentScene().local;
+  async getAgentUrl(): Promise<string> {
+    const scene = await this.getCurrentScene();
+    const { agent } = scene.local;
     return `${agent.scheme || 'http'}://${agent.host}:${agent.port}${agent.path || ''}`;
   }
 
   /**
    * 获取 VNC 连接地址
    */
-  getVncUrl(): string {
-    const { vnc } = this.getCurrentScene().local;
+  async getVncUrl(): Promise<string> {
+    const scene = await this.getCurrentScene();
+    const { vnc } = scene.local;
     return `${vnc.scheme || 'vnc'}://${vnc.host}:${vnc.port}`;
   }
 
   /**
    * 获取文件服务地址
    */
-  getFileServerUrl(): string {
-    const { fileServer } = this.getCurrentScene().local;
+  async getFileServerUrl(): Promise<string> {
+    const scene = await this.getCurrentScene();
+    const { fileServer } = scene.local;
     return `${fileServer.scheme || 'http'}://${fileServer.host}:${fileServer.port}${fileServer.path || ''}`;
   }
 
   /**
    * 获取 WebSocket 地址
    */
-  getWebSocketUrl(): string {
-    const { websocket } = this.getCurrentScene().local;
+  async getWebSocketUrl(): Promise<string> {
+    const scene = await this.getCurrentScene();
+    const { websocket } = scene.local;
     return `${websocket.scheme || 'ws'}://${websocket.host}:${websocket.port}${websocket.path || ''}`;
   }
 
   // ========== 持久化 ==========
 
   /**
-   * 保存到本地存储
-   */
-  private saveToStorage(): void {
-    try {
-      const data = {
-        version: STORAGE_VERSION,
-        currentSceneId: this.currentSceneId,
-        customScenes: Array.from(this.customScenes.values()),
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch (error) {
-      console.error('保存配置失败:', error);
-    }
-  }
-
-  /**
-   * 从本地存储加载
-   */
-  private loadFromStorage(): void {
-    try {
-      const data = localStorage.getItem(STORAGE_KEY);
-      if (data) {
-        const parsed = JSON.parse(data);
-        if (parsed.version === STORAGE_VERSION) {
-          this.currentSceneId = parsed.currentSceneId || 'local';
-          if (parsed.customScenes) {
-            this.customScenes = new Map(parsed.customScenes.map((s: SceneConfig) => [s.id, s]));
-          }
-        }
-      }
-    } catch (error) {
-      console.error('加载配置失败:', error);
-    }
-  }
-
-  /**
    * 重置为默认配置
    */
-  resetToDefaults(): void {
-    this.currentSceneId = this.getDefaultScene().id;
+  async resetToDefaults(): Promise<void> {
+    await this.ensureInit();
+    this.currentSceneId = (await this.getDefaultScene()).id;
     this.customScenes.clear();
-    this.saveToStorage();
+    await configStorage.clear();
+    await configStorage.init();
     message.success('已重置为默认配置');
   }
 
   /**
    * 导出配置
    */
-  exportConfig(): string {
+  async exportConfig(): Promise<string> {
+    await this.ensureInit();
     const data = {
-      version: STORAGE_VERSION,
       currentSceneId: this.currentSceneId,
       customScenes: Array.from(this.customScenes.values()),
     };
@@ -340,42 +398,118 @@ class ConfigService {
   /**
    * 导入配置
    */
-  importConfig(json: string): boolean {
+  async importConfig(json: string): Promise<boolean> {
+    await this.ensureInit();
     try {
       const data = JSON.parse(json);
-      if (data.version !== STORAGE_VERSION) {
-        message.warning('配置版本不兼容');
-        return false;
-      }
-      this.currentSceneId = data.currentSceneId || 'local';
       if (data.customScenes) {
-        this.customScenes = new Map(data.customScenes.map((s: SceneConfig) => [s.id, s]));
+        this.customScenes = new Map(data.customScenes.map((s: CustomScene) => [s.id, s]));
+        await configStorage.setCustomScenes(data.customScenes);
       }
-      this.saveToStorage();
+      if (data.currentSceneId) {
+        this.currentSceneId = data.currentSceneId;
+        await configStorage.setCurrentSceneId(data.currentSceneId);
+      }
       message.success('配置导入成功');
       return true;
-    } catch (error) {
+    } catch {
       message.error('配置导入失败');
       return false;
     }
   }
 }
 
-// 单例导出
-export const configService = new ConfigService();
+// 单例实例
+let configService: ConfigService | null = null;
 
-// 便捷函数
-export const getAllScenes = () => configService.getAllScenes();
-export const getCurrentScene = () => configService.getCurrentScene();
-export const switchScene = (id: string) => configService.switchScene(id);
-export const getApiUrl = () => configService.getApiUrl();
-export const getAgentUrl = () => configService.getAgentUrl();
-export const getVncUrl = () => configService.getVncUrl();
-export const getFileServerUrl = () => configService.getFileServerUrl();
-export const getWebSocketUrl = () => configService.getWebSocketUrl();
-export const addCustomScene = (scene: Omit<SceneConfig, 'id'>) => configService.addCustomScene(scene);
-export const updateCustomScene = (id: string, updates: Partial<SceneConfig>) => configService.updateCustomScene(id, updates);
-export const deleteCustomScene = (id: string) => configService.deleteCustomScene(id);
-export const resetConfig = () => configService.resetToDefaults();
-export const exportConfig = () => configService.exportConfig();
-export const importConfig = (json: string) => configService.importConfig(json);
+/**
+ * 获取配置服务实例
+ */
+function getConfigService(): ConfigService {
+  if (!configService) {
+    configService = new ConfigService();
+  }
+  return configService;
+}
+
+// ========== 便捷导出 ==========
+
+/**
+ * 初始化配置存储
+ */
+export async function initConfigStore(): Promise<void> {
+  const service = getConfigService();
+  await service.init();
+}
+
+/**
+ * 获取所有场景
+ */
+export const getAllScenes = () => getConfigService().getAllScenes();
+
+/**
+ * 获取当前场景
+ */
+export const getCurrentScene = () => getConfigService().getCurrentScene();
+
+/**
+ * 切换场景
+ */
+export const switchScene = (id: string) => getConfigService().switchScene(id);
+
+/**
+ * 获取 API 地址
+ */
+export const getApiUrl = () => getConfigService().getApiUrl();
+
+/**
+ * 获取 Agent 服务地址
+ */
+export const getAgentUrl = () => getConfigService().getAgentUrl();
+
+/**
+ * 获取 VNC 连接地址
+ */
+export const getVncUrl = () => getConfigService().getVncUrl();
+
+/**
+ * 获取文件服务地址
+ */
+export const getFileServerUrl = () => getConfigService().getFileServerUrl();
+
+/**
+ * 获取 WebSocket 地址
+ */
+export const getWebSocketUrl = () => getConfigService().getWebSocketUrl();
+
+/**
+ * 添加自定义场景
+ */
+export const addCustomScene = (scene: Omit<SceneConfig, 'id'>) =>
+  getConfigService().addCustomScene(scene);
+
+/**
+ * 更新自定义场景
+ */
+export const updateCustomScene = (id: string, updates: Partial<SceneConfig>) =>
+  getConfigService().updateCustomScene(id, updates);
+
+/**
+ * 删除自定义场景
+ */
+export const deleteCustomScene = (id: string) => getConfigService().deleteCustomScene(id);
+
+/**
+ * 重置配置
+ */
+export const resetConfig = () => getConfigService().resetToDefaults();
+
+/**
+ * 导出配置
+ */
+export const exportConfig = () => getConfigService().exportConfig();
+
+/**
+ * 导入配置
+ */
+export const importConfig = (json: string) => getConfigService().importConfig(json);

@@ -59,8 +59,8 @@ rustup default stable
 # pnpm
 npm install -g pnpm
 
-# Tauri CLI
-pnpm add -g @tauri-apps/cli
+# Tauri CLI（使用 cargo 安装）
+cargo install tauri-cli
 ```
 
 ### 开发命令
@@ -69,17 +69,39 @@ pnpm add -g @tauri-apps/cli
 # 安装依赖
 pnpm install
 
-# 开发模式（前端 + Tauri）
-pnpm tauri dev
+# 方法1：使用 Makefile（推荐，自动处理路径和环境变量）
+unset CI && make tauri-dev
 
-# 或仅启动前端开发服务器
+# 方法2：手动进入目录运行
+cd crates/agent-tauri-client/src-tauri
+unset CI && cargo tauri dev
+
+# 仅启动前端开发服务器（不运行 Tauri）
+cd crates/agent-tauri-client
 pnpm dev
 
 # 构建前端
 pnpm build
 
-# 构建 Tauri 应用
-pnpm tauri build
+# 构建 Tauri 应用（release 模式）
+unset CI && make tauri-bundle
+
+# 查看 Tauri 环境信息
+cd crates/agent-tauri-client/src-tauri
+cargo tauri info
+```
+
+### Makefile 命令
+
+在项目根目录（`/Users/apple/workspace/nuwax-agent`）使用：
+
+| 命令 | 说明 | 示例输出位置 |
+|------|------|-------------|
+| `make tauri-dev` | 开发模式运行（热重载） | 窗口运行 |
+| `make tauri-bundle` | 打包当前平台应用 | `target/release/bundle/macos/` |
+| `make tauri-bundle-all` | 打包所有平台应用 | `target/release/bundle/` |
+
+**注意**：由于 `CI=1` 环境变量会导致 Tauri CLI 参数错误，建议运行前先执行 `unset CI`。
 ```
 
 ### 快速启动

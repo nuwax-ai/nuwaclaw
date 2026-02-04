@@ -1,74 +1,54 @@
+/**
+ * NuWax Agent 主应用入口
+ * 
+ * 职责：
+ * - 初始化向导状态管理
+ * - Tab 导航切换
+ * - 布局结构
+ * - 状态管理和事件监听
+ */
+
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Space,
   Badge,
   Menu,
-  Card,
-  Button,
-  Descriptions,
-  Tag,
-  List,
-  Switch,
-  Form,
-  Alert,
-  message,
-  Progress,
-  Divider,
-  Row,
-  Col,
-  Tooltip,
-  Avatar,
   Modal,
+  Spin,
+  message,
 } from 'antd';
 import {
   RobotOutlined,
   FileTextOutlined,
   SettingOutlined,
-  PlayCircleOutlined,
-  StopOutlined,
-  CloudServerOutlined,
-  ApiOutlined,
-  BellOutlined,
   DashboardOutlined,
   SafetyOutlined,
   FolderOutlined,
   InfoCircleOutlined,
-  BugOutlined,
-  CodeOutlined,
-  UploadOutlined,
-  RedoOutlined,
-  DeleteOutlined,
-  EnvironmentOutlined,
-  PlusOutlined,
 } from '@ant-design/icons';
 import {
   AgentStatus,
   LogEntry,
-  PermissionItem,
   startAgent,
   stopAgent,
-  getPermissions,
-  refreshPermissions,
-  openSystemPreferences,
   getConnectionInfo,
   onStatusChange,
   onLogChange,
   syncConfigToServer,
   getOnlineStatus,
 } from './services';
-import LoginForm from './components/LoginForm';
-import SceneSwitcher from './components/SceneSwitcher';
+import SetupWizard from './components/SetupWizard';
 import ConfigEditor from './components/ConfigEditor';
 import LogViewer from './components/LogViewer';
 import {
-  DependencyItem,
-  DependencyStatus,
-  getDependencies,
-  installDependency,
-  installAllDependencies,
-  uninstallDependency,
-} from './services/dependencies';
+  ClientPage,
+  SettingsPage,
+  DependenciesPage,
+  PermissionsPage,
+  AboutPage,
+} from './pages';
 import {
+  initConfigStore,
   getAllScenes,
   getCurrentScene,
   switchScene,
@@ -76,284 +56,197 @@ import {
   resetConfig,
   SceneConfig,
 } from './services/config';
+import { initAuthStore } from './services/auth';
+import { isSetupCompleted } from './services/setup';
 
-import { Typography } from 'antd';
-const { Title, Text, Paragraph } = Typography;
+// Tab 类型定义
+type TabType = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'about';
 
-type TabType = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'about' | 'debug';
-
+/**
+ * 主应用组件
+ */
 function App() {
-  const [status, setStatus] = useState<AgentStatus>('idle');
-  const [sessionId, setSessionId] = useState<string>('');
+  // ============================================
+  // 初始化向导状态
+  // ============================================
+  const [setupCompleted, setSetupCompleted] = useState<boolean | null>(null);
+
+  // ============================================
+  // 核心状态
+  // ============================================
   const [activeTab, setActiveTab] = useState<TabType>('client');
   const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<AgentStatus>('idle');
+  const [sessionId, setSessionId] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [autoConnect, setAutoConnect] = useState(true);
-  const [notifications, setNotifications] = useState(true);
   const [onlineStatus, setOnlineStatus] = useState<boolean | null>(null);
   
   // 场景配置状态
   const [scenes, setScenes] = useState<SceneConfig[]>([]);
-  const [currentScene, setCurrentScene] = useState<SceneConfig>(getCurrentScene());
+  const [currentScene, setCurrentScene] = useState<SceneConfig | null>(null);
   const [configEditorVisible, setConfigEditorVisible] = useState(false);
   const [editingScene, setEditingScene] = useState<SceneConfig | null>(null);
   const [isNewConfig, setIsNewConfig] = useState(false);
+  const [storeInitialized, setStoreInitialized] = useState(false);
 
-  // 初始化场景配置
+  // 连接信息
+  const [connectionInfo, setConnectionInfo] = useState<{ id: string; server: string }>({
+    id: '',
+    server: '',
+  });
+
+  // ============================================
+  // 检查初始化向导状态
+  // ============================================
   useEffect(() => {
-    setScenes(getAllScenes());
-    setCurrentScene(getCurrentScene());
+    const checkSetup = async () => {
+      try {
+        const completed = await isSetupCompleted();
+        setSetupCompleted(completed);
+      } catch (error) {
+        console.error('检查初始化状态失败:', error);
+        // 如果检查失败，假设已完成（避免阻塞用户）
+        setSetupCompleted(true);
+      }
+    };
+    checkSetup();
   }, []);
 
-  // 初始化连接状态
+  // ============================================
+  // 初始化存储服务和场景配置（仅在初始化向导完成后执行）
+  // ============================================
   useEffect(() => {
-    setOnlineStatus(getOnlineStatus());
-  }, []);
+    // 只有在初始化向导完成后才加载主界面数据
+    if (setupCompleted !== true) {
+      return;
+    }
+    
+    const init = async () => {
+      try {
+        // 初始化认证存储
+        await initAuthStore();
+        // 初始化配置存储
+        await initConfigStore();
+        // 加载场景数据
+        const [scenesData, current] = await Promise.all([
+          getAllScenes(),
+          getCurrentScene(),
+        ]);
+        setScenes(scenesData);
+        setCurrentScene(current);
+        // 加载在线状态
+        const status = await getOnlineStatus();
+        setOnlineStatus(status);
+        setStoreInitialized(true);
+      } catch (error) {
+        console.error('初始化存储服务失败:', error);
+        // 即使失败也标记为已初始化，使用默认配置
+        setStoreInitialized(true);
+      }
+    };
+    init();
+  }, [setupCompleted]);
 
-  // 监听 Agent 状态和日志变化
+  // ============================================
+  // 状态监听
+  // ============================================
   useEffect(() => {
+    // 订阅状态变化
     onStatusChange((newStatus: AgentStatus) => {
       setStatus(newStatus);
       if (newStatus === 'running') {
-        message.success('Agent 已启动');
-      } else if (newStatus === 'idle' || newStatus === 'stopped') {
-        setSessionId('');
+        setIsConnected(true);
+      } else if (newStatus === 'stopped' || newStatus === 'error') {
+        setIsConnected(false);
       }
     });
 
-    onLogChange((log: LogEntry) => {
-      setLogs(prev => [log, ...prev].slice(0, 100));
+    // 订阅日志变化
+    onLogChange((newLog: LogEntry) => {
+      setLogs((prev) => [...prev, newLog]);
     });
   }, []);
 
-  const handleStart = useCallback(async () => {
-    if (loading) return;
+  // ============================================
+  // 连接信息更新
+  // ============================================
+  useEffect(() => {
+    if (status === 'running') {
+      const info = getConnectionInfo();
+      setConnectionInfo({ id: info.id, server: info.server });
+    } else {
+      setConnectionInfo({ id: '', server: '' });
+    }
+  }, [status]);
+
+  // ============================================
+  // Agent 控制方法
+  // ============================================
+  const handleStart = async () => {
     setLoading(true);
     try {
-      await startAgent();
-      setIsConnected(true);
+      const success = await startAgent();
+      if (success) {
+        // 状态会通过 onStatusChange 回调更新
+        // 获取连接信息中的 session id
+        const info = getConnectionInfo();
+        setSessionId(info.id || '');
+        message.success('Agent 启动成功');
+      } else {
+        message.error('启动失败');
+      }
+    } catch (error) {
+      message.error('启动失败');
     } finally {
       setLoading(false);
     }
-  }, [loading]);
+  };
 
-  const handleStop = useCallback(async () => {
-    if (loading) return;
+  const handleStop = async () => {
     setLoading(true);
     try {
       await stopAgent();
+      setStatus('stopped');
       message.success('Agent 已停止');
+    } catch (error) {
+      message.error('停止失败');
     } finally {
       setLoading(false);
     }
-  }, [loading]);
+  };
 
-  const getStatusBadge = () => {
-    const config: Record<AgentStatus, { status: 'success' | 'processing' | 'warning' | 'error' | 'default'; text: string; color: string }> = {
-      running: { status: 'success', text: '运行中', color: '#52c41a' },
-      starting: { status: 'processing', text: '启动中...', color: '#1890ff' },
-      busy: { status: 'warning', text: '忙碌中', color: '#faad14' },
-      error: { status: 'error', text: '错误', color: '#ff4d4f' },
-      stopped: { status: 'default', text: '已停止', color: '#d9d9d9' },
-      idle: { status: 'default', text: '已停止', color: '#d9d9d9' },
+  // ============================================
+  // 状态徽章配置
+  // ============================================
+  const getBadgeConfig = () => {
+    const config: Record<AgentStatus, { status: 'success' | 'processing' | 'error' | 'default' | 'warning'; text: string }> = {
+      idle: { status: 'default', text: '就绪' },
+      starting: { status: 'processing', text: '启动中' },
+      running: { status: 'success', text: '运行中' },
+      busy: { status: 'warning', text: '繁忙' },
+      stopped: { status: 'default', text: '已停止' },
+      error: { status: 'error', text: '错误' },
     };
-    return config[status];
+    return config[status] || config.idle;
   };
 
-  const badge = getStatusBadge();
-  const connectionInfo = getConnectionInfo();
+  const badge = getBadgeConfig();
 
-  const menuItems = [
-    { key: 'client', icon: <DashboardOutlined />, label: '客户端' },
-    { key: 'settings', icon: <SettingOutlined />, label: '设置' },
-    { key: 'dependencies', icon: <FolderOutlined />, label: '依赖' },
-    { key: 'permissions', icon: <SafetyOutlined />, label: '权限' },
-    { key: 'logs', icon: <FileTextOutlined />, label: '日志' },
-    { key: 'about', icon: <InfoCircleOutlined />, label: '关于' },
-    { key: 'debug', icon: <BugOutlined />, label: '调试' },
-  ];
+  // ============================================
+  // 场景配置管理方法
+  // ============================================
 
-  // 过滤后的日志（目前不需要前端过滤，依赖后端过滤）
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _filteredLogs = logs.filter(
-    (log) => true // 占位，始终返回所有日志
-  );
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _getLogColor = (level: string) => {
-    switch (level) {
-      case 'success': return 'green';
-      case 'warning': return 'orange';
-      case 'error': return 'red';
-      default: return 'blue';
-    }
-  };
-
-  // 客户端页面
-  const renderClientPage = () => (
-    <div style={{ maxWidth: 900 }}>
-      {/* 场景切换 */}
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Space style={{ width: '100%', display: 'flex', justifyContent: 'space-between' }}>
-          <Space>
-            <RobotOutlined style={{ fontSize: 16, color: '#1890ff' }} />
-            <span style={{ fontWeight: 500 }}>NuWax Agent</span>
-          </Space>
-          <SceneSwitcher showLabel={false} size="small" />
-        </Space>
-      </Card>
-
-      {/* 登录表单 */}
-      <LoginForm onLoginSuccess={() => {}} />
-
-      {/* 状态卡片 */}
-      <Card
-        title={
-          <Space>
-            <RobotOutlined />
-            <span>Agent 状态</span>
-          </Space>
-        }
-        extra={
-          <Space>
-            {status === 'idle' || status === 'stopped' ? (
-              <Button
-                type="primary"
-                icon={<PlayCircleOutlined />}
-                onClick={handleStart}
-                loading={loading}
-              >
-                启动
-              </Button>
-            ) : (
-              <Button
-                danger
-                icon={<StopOutlined />}
-                onClick={handleStop}
-                loading={loading}
-              >
-                停止
-              </Button>
-            )}
-          </Space>
-        }
-      >
-        <Row gutter={16}>
-          <Col span={8}>
-            <Descriptions column={1} size="small">
-              <Descriptions.Item label="状态">
-                <Badge status={badge.status} text={badge.text} />
-              </Descriptions.Item>
-              <Descriptions.Item label="会话 ID">
-                <Text code>{sessionId || '-'}</Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="连接状态">
-                <Tag color={onlineStatus === true ? 'green' : onlineStatus === false ? 'red' : 'default'}>
-                  {onlineStatus === true ? '在线' : onlineStatus === false ? '离线' : '未知'}
-                </Tag>
-              </Descriptions.Item>
-            </Descriptions>
-          </Col>
-          <Col span={8}>
-            <Descriptions column={1} size="small">
-              <Descriptions.Item label="运行时间">
-                {status === 'running' ? '00:00:00' : '-'}
-              </Descriptions.Item>
-              <Descriptions.Item label="任务队列">
-                {status === 'running' ? `${logs.length} 条日志` : '-'}
-              </Descriptions.Item>
-              <Descriptions.Item label="平台">
-                macOS / arm64
-              </Descriptions.Item>
-            </Descriptions>
-          </Col>
-          <Col span={8}>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Button icon={<ApiOutlined />} block>执行命令</Button>
-              <Button icon={<FileTextOutlined />} block>查看日志</Button>
-            </Space>
-          </Col>
-        </Row>
-
-        {status === 'idle' && (
-          <Alert
-            message="就绪"
-            description="点击启动按钮开始运行 Agent"
-            type="info"
-            showIcon
-            style={{ marginTop: 16 }}
-          />
-        )}
-      </Card>
-
-      {/* 快速操作 */}
-      <Card title="快速操作" style={{ marginTop: 16 }}>
-        <Space wrap>
-          <Tooltip title="连接管理">
-            <Button icon={<CloudServerOutlined />}>连接管理</Button>
-          </Tooltip>
-          <Tooltip title="消息中心">
-            <Button icon={<BellOutlined />}>消息中心</Button>
-          </Tooltip>
-          <Tooltip title="依赖管理">
-            <Button icon={<FolderOutlined />}>依赖管理</Button>
-          </Tooltip>
-          <Tooltip title="权限设置">
-            <Button icon={<SafetyOutlined />}>权限设置</Button>
-          </Tooltip>
-        </Space>
-      </Card>
-
-      {/* 连接信息卡片 */}
-      <Card title="连接信息" style={{ marginTop: 16 }}>
-        {!connectionInfo.id ? (
-          // 空状态：未连接时显示提示
-          <Space direction="vertical" style={{ width: '100%' }} align="center">
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              启动 Agent 后显示连接信息
-            </Text>
-          </Space>
-        ) : (
-          // 有连接时显示详细信息
-          <Row gutter={16}>
-            <Col span={12}>
-              <Descriptions column={1} size="small">
-                <Descriptions.Item label="客户端 ID">
-                  <Text code copyable>
-                    {connectionInfo.id}
-                  </Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="服务器">
-                  <Text copyable>
-                    {connectionInfo.server}
-                  </Text>
-                </Descriptions.Item>
-              </Descriptions>
-            </Col>
-            <Col span={12}>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Progress
-                  percent={status === 'running' ? 100 : 0}
-                  status={status === 'running' ? 'success' : 'exception'}
-                  size="small"
-                />
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {status === 'running' ? '已连接到服务器' : '未连接'}
-                </Text>
-              </Space>
-            </Col>
-          </Row>
-        )}
-      </Card>
-    </div>
-  );
-
-  // 场景配置管理
   const handleSwitchScene = async (sceneId: string) => {
-    await switchScene(sceneId);
-    setCurrentScene(getCurrentScene());
-    setScenes(getAllScenes());
+    const success = await switchScene(sceneId);
+    if (success) {
+      const [scenesData, current] = await Promise.all([
+        getAllScenes(),
+        getCurrentScene(),
+      ]);
+      setScenes(scenesData);
+      setCurrentScene(current);
+    }
   };
 
   const handleAddConfig = () => {
@@ -368,559 +261,97 @@ function App() {
     setConfigEditorVisible(true);
   };
 
-  const handleDeleteConfig = (sceneId: string, sceneName: string) => {
+  const handleDeleteConfig = async (sceneId: string, sceneName: string) => {
     Modal.confirm({
       title: '确认删除',
       content: `确定要删除配置 "${sceneName}" 吗？`,
       okText: '删除',
       okType: 'danger',
       cancelText: '取消',
-      onOk() {
-        deleteCustomScene(sceneId);
-        setScenes(getAllScenes());
+      onOk: async () => {
+        const success = await deleteCustomScene(sceneId);
+        if (success) {
+          const [scenesData, current] = await Promise.all([
+            getAllScenes(),
+            getCurrentScene(),
+          ]);
+          setScenes(scenesData);
+          setCurrentScene(current);
+        }
       },
     });
   };
 
-  const handleResetConfig = () => {
+  const handleResetConfig = async () => {
     Modal.confirm({
       title: '重置配置',
       content: '确定要重置为默认配置吗？所有自定义配置将被删除。',
       okText: '重置',
       okType: 'danger',
       cancelText: '取消',
-      onOk() {
-        resetConfig();
-        setScenes(getAllScenes());
-        setCurrentScene(getCurrentScene());
+      onOk: async () => {
+        await resetConfig();
+        const [scenesData, current] = await Promise.all([
+          getAllScenes(),
+          getCurrentScene(),
+        ]);
+        setScenes(scenesData);
+        setCurrentScene(current);
       },
     });
   };
 
-  // 设置页面
-  const renderSettingsPage = () => (
-    <div style={{ maxWidth: 900 }}>
-      {/* 场景切换 */}
-      <Card 
-        title={
-          <Space>
-            <CloudServerOutlined />
-            <span>部署环境</span>
-          </Space>
-        }
-        extra={
-          <Space>
-            <Button icon={<RedoOutlined />} onClick={handleResetConfig}>
-              重置
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleAddConfig}>
-              添加配置
-            </Button>
-          </Space>
-        }
-        style={{ marginBottom: 16 }}
-      >
-        <List
-          dataSource={scenes}
-          renderItem={(scene) => (
-            <List.Item
-              actions={[
-                scene.id === currentScene.id ? (
-                  <Tag color="green">当前</Tag>
-                ) : (
-                  <Button 
-                    size="small"
-                    onClick={() => handleSwitchScene(scene.id)}
-                  >
-                    切换
-                  </Button>
-                ),
-                !scene.isDefault && scene.id !== currentScene.id && (
-                  <>
-                    <Button 
-                      size="small"
-                      onClick={() => handleEditConfig(scene)}
-                    >
-                      编辑
-                    </Button>
-                    <Button 
-                      size="small" 
-                      danger
-                      onClick={() => handleDeleteConfig(scene.id, scene.name)}
-                    >
-                      删除
-                    </Button>
-                  </>
-                ),
-              ].filter(Boolean)}
-            >
-              <List.Item.Meta
-                avatar={
-                  <Avatar 
-                    icon={<EnvironmentOutlined />} 
-                    style={{ 
-                      backgroundColor: scene.id === currentScene.id ? '#1890ff' : '#52c41a' 
-                    }}
-                  />
-                }
-                title={
-                  <Space>
-                    <span>{scene.name}</span>
-                    {scene.isDefault && <Tag color="blue">默认</Tag>}
-                  </Space>
-                }
-                description={
-                  <Space direction="vertical" size={0}>
-                    <Text type="secondary">{scene.description || '无描述'}</Text>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      API: {scene.server.apiUrl}
-                    </Text>
-                  </Space>
-                }
-              />
-            </List.Item>
-          )}
-        />
-      </Card>
+  // ============================================
+  // 菜单配置
+  // ============================================
+  const menuItems = [
+    { key: 'client', icon: <DashboardOutlined />, label: '客户端' },
+    { key: 'settings', icon: <SettingOutlined />, label: '设置' },
+    { key: 'dependencies', icon: <FolderOutlined />, label: '依赖' },
+    { key: 'permissions', icon: <SafetyOutlined />, label: '权限' },
+    { key: 'logs', icon: <FileTextOutlined />, label: '日志' },
+    { key: 'about', icon: <InfoCircleOutlined />, label: '关于' },
+  ];
 
-      {/* 当前场景详情 */}
-      <Card 
-        title={
-          <Space>
-            <SettingOutlined />
-            <span>当前配置详情</span>
-          </Space>
-        }
-        size="small"
-        style={{ marginBottom: 16 }}
-      >
-        <Row gutter={16}>
-          <Col span={12}>
-            <Descriptions column={1} size="small">
-              <Descriptions.Item label="场景名称">{currentScene.name}</Descriptions.Item>
-              <Descriptions.Item label="API 服务器">{currentScene.server.apiUrl}</Descriptions.Item>
-              <Descriptions.Item label="超时时间">{currentScene.server.timeout}ms</Descriptions.Item>
-            </Descriptions>
-          </Col>
-          <Col span={12}>
-            <Descriptions column={1} size="small">
-              <Descriptions.Item label="Agent">
-                {currentScene.local.agent.host}:{currentScene.local.agent.port}
-              </Descriptions.Item>
-              <Descriptions.Item label="VNC">
-                {currentScene.local.vnc.host}:{currentScene.local.vnc.port}
-              </Descriptions.Item>
-              <Descriptions.Item label="文件服务">
-                {currentScene.local.fileServer.host}:{currentScene.local.fileServer.port}
-              </Descriptions.Item>
-            </Descriptions>
-          </Col>
-        </Row>
-      </Card>
-
-      {/* 连接设置 */}
-      <Card title="连接设置" style={{ marginTop: 16 }}>
-        <Form layout="vertical">
-          <Form.Item label="开机自启动">
-            <Switch checked={autoConnect} onChange={setAutoConnect} />
-          </Form.Item>
-          <Form.Item label="桌面通知">
-            <Switch checked={notifications} onChange={setNotifications} />
-          </Form.Item>
-          <Form.Item label="自动重连">
-            <Switch defaultChecked />
-          </Form.Item>
-        </Form>
-      </Card>
-    </div>
-  );
-
-  // 配置编辑弹窗
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _renderConfigEditor = () => (
-    <ConfigEditor
-      visible={configEditorVisible}
-      onCancel={() => setConfigEditorVisible(false)}
-      scene={editingScene}
-      isNew={isNewConfig}
-      onSave={() => {
-        setScenes(getAllScenes());
-        setCurrentScene(getCurrentScene());
-        // 同步配置到后端
-        syncConfigToServer();
-      }}
-    />
-  );
-
-  // 依赖管理页面
-  const [dependencies, setDependencies] = useState<DependencyItem[]>([]);
-  const [depLoading, setDepLoading] = useState(false);
-
-  // 加载依赖数据
-  const loadDependencies = useCallback(async () => {
-    setDepLoading(true);
-    try {
-      const data = await getDependencies();
-      setDependencies(data);
-    } catch (error) {
-      message.error('加载依赖数据失败');
-    } finally {
-      setDepLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadDependencies();
-  }, [loadDependencies]);
-
-  // 获取依赖统计
-  const depSummary = {
-    total: dependencies.length,
-    installed: dependencies.filter(d => d.status === 'installed').length,
-    missing: dependencies.filter(d => d.status === 'missing').length,
-  };
-
-  // 安装依赖
-  const handleInstallDependency = async (name: string) => {
-    await installDependency(name);
-    await loadDependencies();
-  };
-
-  // 安装所有缺失依赖
-  const handleInstallAll = async () => {
-    await installAllDependencies();
-    await loadDependencies();
-  };
-
-  // 卸载依赖
-  const handleUninstallDependency = async (name: string) => {
-    Modal.confirm({
-      title: '确认卸载',
-      content: `确定要卸载 ${name} 吗？`,
-      okText: '卸载',
-      okType: 'danger',
-      cancelText: '取消',
-      async onOk() {
-        await uninstallDependency(name);
-        await loadDependencies();
-      },
-    });
-  };
-
-  // 获取状态标签
-  const getStatusTag = (status: DependencyStatus) => {
-    const config: Record<DependencyStatus, { color: string; text: string }> = {
-      installed: { color: 'green', text: '已安装' },
-      missing: { color: 'red', text: '未安装' },
-      outdated: { color: 'orange', text: '需更新' },
-      installing: { color: 'blue', text: '安装中...' },
-      checking: { color: 'processing', text: '检查中...' },
-      error: { color: 'red', text: '错误' },
-    };
-    return config[status] || { color: 'default', text: '未知' };
-  };
-
-  // 渲染依赖项
-  const renderDependencyItem = (item: DependencyItem) => {
-    const status = getStatusTag(item.status);
-    const isNpmPackage = item.name.startsWith('@') || item.name.includes('-');
-    
-    // 构建操作按钮
-    const actions: React.ReactNode[] = [
-      <Tag color={status.color}>{status.text}</Tag>,
-    ];
-    
-    if (item.status === 'missing' && !item.required) {
-      actions.push(
-        <Button
-          type="primary"
-          size="small"
-          onClick={() => handleInstallDependency(item.name)}
-        >
-          安装
-        </Button>
-      );
-    }
-    
-    if (item.status === 'installed' && !item.required) {
-      actions.push(
-        <Button
-          danger
-          size="small"
-          icon={<DeleteOutlined />}
-          onClick={() => handleUninstallDependency(item.name)}
-        >
-          卸载
-        </Button>
-      );
-    }
-    
+  // ============================================
+  // 渲染：加载中
+  // ============================================
+  if (setupCompleted === null) {
     return (
-      <List.Item actions={actions}>
-        <List.Item.Meta
-          avatar={<Avatar icon={<CodeOutlined />} style={{ backgroundColor: item.required ? '#1890ff' : '#52c41a' }} />}
-          title={
-            <Space>
-              <span>{item.displayName}</span>
-              {item.required && <Tag color="red">必需</Tag>}
-              {isNpmPackage && <Tag color="orange">npm</Tag>}
-            </Space>
+      <div className="app-loading">
+        <Spin size="large" />
+        <div style={{ marginTop: 16, color: '#666' }}>正在加载...</div>
+        <style>{`
+          .app-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%);
           }
-          description={
-            <Space direction="vertical" size={0}>
-              <Text type="secondary">{item.description}</Text>
-              {item.version && (
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  版本: {item.version}
-                  {item.source && ` | 来源: ${item.source}`}
-                </Text>
-              )}
-            </Space>
-          }
-        />
-      </List.Item>
+        `}</style>
+      </div>
     );
-  };
+  }
 
-  const renderDependenciesPage = () => (
-    <div style={{ maxWidth: 900 }}>
-      {/* 统计卡片 */}
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Space split="|">
-          <Text>共 {depSummary.total} 个依赖</Text>
-          <Text type="success">已安装 {depSummary.installed}</Text>
-          <Text type="danger">缺失 {depSummary.missing}</Text>
-        </Space>
-        {depSummary.missing > 0 && (
-          <Button
-            type="primary"
-            size="small"
-            style={{ marginLeft: 16 }}
-            onClick={handleInstallAll}
-          >
-            安装全部缺失依赖
-          </Button>
-        )}
-      </Card>
-
-      {/* 依赖列表 */}
-      <Card
-        title="依赖列表"
-        extra={
-          <Button icon={<RedoOutlined />} onClick={loadDependencies} loading={depLoading}>
-            刷新
-          </Button>
-        }
-      >
-        <List
-          loading={depLoading}
-          dataSource={dependencies}
-          renderItem={renderDependencyItem}
-        />
-      </Card>
-    </div>
-  );
-
-  // 权限页面
-  const [permissions, setPermissions] = useState<PermissionItem[]>([]);
-  const [permissionsLoading, setPermissionsLoading] = useState(false);
-
-  // 加载权限数据
-  const loadPermissions = useCallback(async () => {
-    setPermissionsLoading(true);
-    try {
-      const data = await getPermissions();
-      setPermissions(data.items);
-    } catch (error) {
-      message.error('加载权限数据失败');
-    } finally {
-      setPermissionsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadPermissions();
-  }, [loadPermissions]);
-
-  // 刷新权限
-  const handleRefreshPermissions = async () => {
-    message.loading('正在刷新权限状态...', 1);
-    const data = await refreshPermissions();
-    setPermissions(data.items);
-    message.success('权限状态已刷新');
-  };
-
-  // 打开系统偏好设置
-  const handleOpenSettings = async (permissionId: string) => {
-    await openSystemPreferences(permissionId);
-    message.info('请在系统偏好设置中完成权限授权');
-  };
-
-  // 获取权限状态对应的颜色和标签
-  const getStatusConfig = (status: string) => {
-    const baseConfig: Record<string, { color: string; text: string }> = {
-      granted: { color: 'success', text: '已授权' },
-      denied: { color: 'error', text: '已拒绝' },
-      pending: { color: 'warning', text: '待授权' },
-      unknown: { color: 'default', text: '未知' },
-    };
-    return baseConfig[status] || baseConfig.unknown;
-  };
-
-  // 计算权限统计
-  const grantedCount = permissions.filter((p) => p.status === 'granted').length;
-  const totalCount = permissions.length;
-  const allGranted = grantedCount === totalCount;
-
-  // 权限页面
-  const renderPermissionsPage = () => (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* 标题栏 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>权限设置</Title>
-        <Button icon={<RedoOutlined />} onClick={handleRefreshPermissions} loading={permissionsLoading}>
-          刷新
-        </Button>
-      </div>
-
-      {/* 权限状态摘要 */}
-      <Alert
-        message={allGranted ? '权限正常' : '权限提醒'}
-        description={
-          allGranted
-            ? `所有权限已授权 (${grantedCount}/${totalCount})`
-            : `已授权 ${grantedCount}/${totalCount} 个权限`
-        }
-        type={allGranted ? 'success' : 'warning'}
-        showIcon
-        style={{ marginBottom: 16 }}
+  // ============================================
+  // 渲染：初始化向导
+  // ============================================
+  if (!setupCompleted) {
+    return (
+      <SetupWizard
+        onComplete={() => setSetupCompleted(true)}
       />
+    );
+  }
 
-      {/* 权限列表 */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
-        <List
-          loading={permissionsLoading}
-          dataSource={permissions}
-          renderItem={(item) => {
-            const statusConfig = getStatusConfig(item.status);
-            return (
-              <List.Item
-                style={{
-                  background: item.required && item.status !== 'granted' ? '#fffbe6' : undefined,
-                  borderRadius: 8,
-                  marginBottom: 8,
-                  padding: '12px 16px',
-                }}
-                actions={[
-                  <Button
-                    type="link"
-                    size="small"
-                    onClick={() => handleOpenSettings(item.id)}
-                  >
-                    前往设置
-                  </Button>,
-                ]}
-              >
-                <List.Item.Meta
-                  avatar={
-                    <Avatar
-                      icon={<SafetyOutlined />}
-                      style={{
-                        backgroundColor:
-                          item.status === 'granted'
-                            ? '#52c41a'
-                            : item.required
-                            ? '#faad14'
-                            : '#d9d9d9',
-                      }}
-                    />
-                  }
-                  title={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span>{item.displayName}</span>
-                      {item.required && (
-                        <Tag color="red" style={{ fontSize: 12 }}>
-                          必需
-                        </Tag>
-                      )}
-                    </div>
-                  }
-                  description={
-                    <div>
-                      <div style={{ color: '#666', marginBottom: 4 }}>{item.description}</div>
-                      <Tag color={statusConfig.color}>{statusConfig.text}</Tag>
-                    </div>
-                  }
-                />
-              </List.Item>
-            );
-          }}
-        />
-      </div>
-    </div>
-  );
-
-  // 关于页面
-  const renderAboutPage = () => (
-    <Card>
-      <div style={{ textAlign: 'center', padding: '20px 0' }}>
-        <Avatar size={80} icon={<RobotOutlined />} style={{ backgroundColor: '#1890ff' }} />
-        <Title level={3} style={{ marginTop: 16 }}>NuWax Agent</Title>
-        <Text type="secondary">版本 v0.1.0</Text>
-        <Paragraph type="secondary" style={{ marginTop: 8 }}>
-          跨平台 Agent 客户端
-        </Paragraph>
-
-        <Divider />
-
-        <Descriptions column={1} style={{ textAlign: 'left', maxWidth: 400, margin: '0 auto' }}>
-          <Descriptions.Item label="框架">Tauri 2.0 + React 18 + Ant Design 5</Descriptions.Item>
-          <Descriptions.Item label="协议版本">v1.0.0</Descriptions.Item>
-          <Descriptions.Item label="平台">macOS / arm64</Descriptions.Item>
-          <Descriptions.Item label="许可证">Apache-2.0</Descriptions.Item>
-        </Descriptions>
-
-        <Space style={{ marginTop: 24 }}>
-          <Button>导出日志</Button>
-          <Button type="primary">官网</Button>
-        </Space>
-      </div>
-    </Card>
-  );
-
-  // 调试页面
-  const renderDebugPage = () => (
-    <Card title="调试">
-      <Space direction="vertical" style={{ width: '100%' }}>
-        <Alert
-          message="日志操作"
-          description="导出或上报日志用于问题排查"
-          type="info"
-          showIcon
-        />
-        <Space>
-          <Button icon={<FileTextOutlined />}>导出日志</Button>
-          <Button type="primary" icon={<UploadOutlined />}>上报日志</Button>
-        </Space>
-      </Space>
-    </Card>
-  );
-
-  // 日志页面
-  const renderLogsPage = () => (
-    <LogViewer
-      maxHeight={600}
-      showSource={true}
-      enableRealtime={true}
-      autoScrollDefault={true}
-    />
-  );
-
+  // ============================================
+  // 渲染：主界面
+  // ============================================
   return (
-    // 最外层容器 - 100vh
     <div className="app-container">
-      
-      {/* 顶部栏 - 固定高度 56px */}
+      {/* 顶部栏 */}
       <div className="app-header">
         <div className="app-header-logo">
           <RobotOutlined style={{ fontSize: 20, color: '#1890ff' }} />
@@ -931,10 +362,9 @@ function App() {
         </div>
       </div>
 
-      {/* 主体部分 - flex:1，flex-row */}
+      {/* 主体部分 */}
       <div className="app-body">
-        
-        {/* 左侧边栏 - 固定宽度 160px */}
+        {/* 左侧边栏 */}
         <div className="app-sider">
           <Menu
             theme="dark"
@@ -949,17 +379,64 @@ function App() {
           />
         </div>
 
-        {/* 主内容区 - 自动填充剩余空间 */}
+        {/* 主内容区 */}
         <div className="app-content">
-          {activeTab === 'client' && renderClientPage()}
-          {activeTab === 'settings' && renderSettingsPage()}
-          {activeTab === 'dependencies' && renderDependenciesPage()}
-          {activeTab === 'permissions' && renderPermissionsPage()}
-          {activeTab === 'about' && renderAboutPage()}
-          {activeTab === 'debug' && renderDebugPage()}
-          {activeTab === 'logs' && renderLogsPage()}
+          {activeTab === 'client' && (
+            <ClientPage
+              status={status}
+              sessionId={sessionId}
+              onlineStatus={onlineStatus}
+              logs={logs}
+              connectionInfo={connectionInfo}
+              badge={badge}
+              loading={loading}
+              onStart={handleStart}
+              onStop={handleStop}
+              onNavigate={setActiveTab}
+            />
+          )}
+          {activeTab === 'settings' && (
+            <SettingsPage
+              scenes={scenes}
+              currentScene={currentScene}
+              onSwitchScene={handleSwitchScene}
+              onAddConfig={handleAddConfig}
+              onEditConfig={handleEditConfig}
+              onDeleteConfig={handleDeleteConfig}
+              onResetConfig={handleResetConfig}
+            />
+          )}
+          {activeTab === 'dependencies' && <DependenciesPage />}
+          {activeTab === 'permissions' && <PermissionsPage />}
+          {activeTab === 'logs' && (
+            <LogViewer
+              maxHeight={600}
+              showSource={true}
+              enableRealtime={true}
+              autoScrollDefault={true}
+            />
+          )}
+          {activeTab === 'about' && <AboutPage />}
         </div>
       </div>
+
+      {/* 配置编辑弹窗 */}
+      <ConfigEditor
+        visible={configEditorVisible}
+        onCancel={() => setConfigEditorVisible(false)}
+        scene={editingScene}
+        isNew={isNewConfig}
+        onSave={async () => {
+          const [scenesData, current] = await Promise.all([
+            getAllScenes(),
+            getCurrentScene(),
+          ]);
+          setScenes(scenesData);
+          setCurrentScene(current);
+          // 同步配置到后端
+          await syncConfigToServer();
+        }}
+      />
     </div>
   );
 }

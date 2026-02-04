@@ -85,6 +85,18 @@
 
 ### 变更 [change]
 
+#### 存储服务 [storage]
+- 使用 Tauri Store 插件替代 localStorage
+- 新增统一存储服务 `store.ts`
+  - 类型安全的键值存储
+  - 认证信息存储（用户名、密码、configKey）
+  - 配置存储（场景配置、当前场景）
+  - 应用设置存储（开机自启动、通知）
+- 认证服务迁移到异步 Store API
+- 配置服务迁移到异步 Store API
+- Rust 后端可共享访问存储数据
+- 添加 `@tauri-apps/plugin-store` 依赖
+
 #### 配置管理 [config]
 - 重构设置页面，使用新的配置服务
 - 更新依赖页面真实数据服务

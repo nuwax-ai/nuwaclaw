@@ -327,3 +327,348 @@ export const installDependency = (name: string) => dependencyService.installDepe
 export const refreshDependencies = () => dependencyService.refresh();
 export const installAllDependencies = () => dependencyService.installAll();
 export const uninstallDependency = (name: string) => dependencyService.uninstallDependency(name);
+
+// ========== 初始化向导依赖管理 ==========
+
+/**
+ * npm 镜像源（国内加速）
+ */
+export const NPM_REGISTRY = 'https://registry.npmmirror.com/';
+
+/**
+ * 依赖类型
+ */
+export type LocalDependencyType = 'system' | 'npm-local';
+
+/**
+ * 本地依赖配置
+ */
+export interface LocalDependencyConfig {
+  name: string;              // 包名
+  displayName: string;       // 显示名称
+  type: LocalDependencyType; // 类型: system=系统依赖, npm-local=本地npm包
+  description: string;       // 描述
+  required: boolean;         // 是否必需
+  minVersion?: string;       // 最低版本要求 (仅 system 类型)
+  installUrl?: string;       // 安装链接 (仅 system 类型)
+  binName?: string;          // 可执行文件名 (仅 npm-local 类型)
+}
+
+/**
+ * 本地依赖项状态
+ */
+export interface LocalDependencyItem extends LocalDependencyConfig {
+  status: DependencyStatus;
+  version?: string;          // 已安装版本
+  binPath?: string;          // 可执行文件完整路径
+  errorMessage?: string;     // 错误信息
+  meetsRequirement?: boolean; // 版本是否满足要求 (仅 system 类型)
+}
+
+/**
+ * 初始化向导必需依赖配置
+ */
+export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
+  {
+    name: 'nodejs',
+    displayName: 'Node.js',
+    type: 'system',
+    description: 'JavaScript 运行时环境，用于运行 npm 包和服务',
+    required: true,
+    minVersion: '22.0.0',
+    installUrl: 'https://nodejs.org',
+  },
+  {
+    name: 'nuwax-file-server',
+    displayName: 'Nuwax File Server',
+    type: 'npm-local',
+    description: 'NuWax 文件服务 - AI Agent 文件传输服务',
+    required: true,
+    binName: 'nuwax-file-server',
+  },
+  {
+    name: 'nuwaxcode',
+    displayName: 'NuwaxCode',
+    type: 'npm-local',
+    description: 'NuWax VSCode 扩展 - AI 编程助手集成',
+    required: true,
+    binName: 'nuwaxcode',
+  },
+  {
+    name: 'claude-code-acp',
+    displayName: 'Claude Code (ACP)',
+    type: 'npm-local',
+    description: 'Claude Code AI 编程助手 (ACP 版本)',
+    required: true,
+    binName: 'claude-code-acp',
+  },
+];
+
+/**
+ * Node.js 版本检测结果
+ */
+export interface NodeVersionResult {
+  installed: boolean;
+  version?: string;
+  meetsRequirement: boolean;
+}
+
+/**
+ * npm 包检测结果
+ */
+export interface NpmPackageResult {
+  installed: boolean;
+  version?: string;
+  binPath?: string;
+}
+
+/**
+ * npm 包安装结果
+ */
+export interface InstallResult {
+  success: boolean;
+  version?: string;
+  binPath?: string;
+  error?: string;
+}
+
+// ========== 本地依赖管理服务 ==========
+
+/**
+ * 获取应用数据目录路径
+ * @returns 应用数据目录（如 ~/Library/Application Support/com.nuwax.agent）
+ */
+export async function getAppDataDir(): Promise<string> {
+  try {
+    return await invoke<string>('get_app_data_dir');
+  } catch (error) {
+    console.error('[Dependencies] 获取应用数据目录失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 获取 node_modules 目录路径
+ * @returns $APP_DATA_DIR/node_modules
+ */
+export async function getNodeModulesDir(): Promise<string> {
+  const appDir = await getAppDataDir();
+  return `${appDir}/node_modules`;
+}
+
+/**
+ * 初始化本地 npm 环境
+ * 在应用数据目录下创建 package.json
+ */
+export async function initLocalNpmEnv(): Promise<boolean> {
+  try {
+    return await invoke<boolean>('init_local_npm_env');
+  } catch (error) {
+    console.error('[Dependencies] 初始化 npm 环境失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 检测 Node.js 版本
+ * @returns Node.js 版本信息
+ */
+export async function checkNodeVersion(): Promise<NodeVersionResult> {
+  try {
+    const result = await invoke<NodeVersionResult>('detect_node_version');
+    console.log('[Dependencies] Node.js 检测结果:', result);
+    return result;
+  } catch (error) {
+    console.error('[Dependencies] 检测 Node.js 失败:', error);
+    return {
+      installed: false,
+      meetsRequirement: false,
+    };
+  }
+}
+
+/**
+ * 检测本地 npm 包是否已安装
+ * @param packageName - 包名
+ * @returns 安装状态和版本信息
+ */
+export async function checkLocalNpmPackage(packageName: string): Promise<NpmPackageResult> {
+  try {
+    const result = await invoke<NpmPackageResult>('check_local_npm_package', { packageName });
+    console.log(`[Dependencies] ${packageName} 检测结果:`, result);
+    return result;
+  } catch (error) {
+    console.error(`[Dependencies] 检测 ${packageName} 失败:`, error);
+    return {
+      installed: false,
+    };
+  }
+}
+
+/**
+ * 安装 npm 包到本地目录
+ * @param packageName - 包名
+ * @returns 安装结果
+ */
+export async function installLocalNpmPackage(packageName: string): Promise<InstallResult> {
+  try {
+    console.log(`[Dependencies] 开始安装 ${packageName}...`);
+    const result = await invoke<InstallResult>('install_local_npm_package', { packageName });
+    
+    if (result.success) {
+      console.log(`[Dependencies] ${packageName} 安装成功:`, result);
+    } else {
+      console.error(`[Dependencies] ${packageName} 安装失败:`, result.error);
+    }
+    
+    return result;
+  } catch (error) {
+    console.error(`[Dependencies] 安装 ${packageName} 失败:`, error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * 获取本地安装的包的可执行文件路径
+ * @param binName - 可执行文件名
+ * @returns 完整路径
+ */
+export async function getLocalBinPath(binName: string): Promise<string> {
+  const appDir = await getAppDataDir();
+  return `${appDir}/node_modules/.bin/${binName}`;
+}
+
+/**
+ * 检测所有必需依赖状态
+ * @returns 依赖状态列表
+ */
+export async function checkAllSetupDependencies(): Promise<LocalDependencyItem[]> {
+  const results: LocalDependencyItem[] = [];
+  
+  for (const config of SETUP_REQUIRED_DEPENDENCIES) {
+    const item: LocalDependencyItem = {
+      ...config,
+      status: 'checking',
+    };
+    
+    try {
+      if (config.type === 'system') {
+        // 系统依赖 (Node.js)
+        if (config.name === 'nodejs') {
+          const nodeResult = await checkNodeVersion();
+          item.status = nodeResult.installed
+            ? (nodeResult.meetsRequirement ? 'installed' : 'outdated')
+            : 'missing';
+          item.version = nodeResult.version;
+          item.meetsRequirement = nodeResult.meetsRequirement;
+          
+          if (!nodeResult.meetsRequirement && nodeResult.installed) {
+            item.errorMessage = `版本 ${nodeResult.version} 低于要求的 ${config.minVersion}`;
+          }
+        }
+      } else {
+        // npm-local 包
+        const pkgResult = await checkLocalNpmPackage(config.name);
+        item.status = pkgResult.installed ? 'installed' : 'missing';
+        item.version = pkgResult.version;
+        item.binPath = pkgResult.binPath;
+      }
+    } catch (error) {
+      item.status = 'error';
+      item.errorMessage = error instanceof Error ? error.message : '检测失败';
+    }
+    
+    results.push(item);
+  }
+  
+  return results;
+}
+
+/**
+ * 安装所有必需的 npm 包
+ * @param onProgress - 进度回调
+ * @returns 安装结果
+ */
+export async function installAllRequiredPackages(
+  onProgress?: (current: string, index: number, total: number) => void
+): Promise<{ success: boolean; failedPackage?: string; error?: string }> {
+  // 获取所有 npm-local 类型的依赖
+  const npmPackages = SETUP_REQUIRED_DEPENDENCIES.filter(d => d.type === 'npm-local');
+  const total = npmPackages.length;
+  
+  // 初始化 npm 环境
+  try {
+    await initLocalNpmEnv();
+  } catch (error) {
+    return {
+      success: false,
+      error: '初始化 npm 环境失败: ' + (error instanceof Error ? error.message : String(error)),
+    };
+  }
+  
+  // 依次安装
+  for (let i = 0; i < npmPackages.length; i++) {
+    const pkg = npmPackages[i];
+    
+    // 进度回调
+    if (onProgress) {
+      onProgress(pkg.displayName, i + 1, total);
+    }
+    
+    // 检查是否已安装
+    const checkResult = await checkLocalNpmPackage(pkg.name);
+    if (checkResult.installed) {
+      console.log(`[Dependencies] ${pkg.name} 已安装，跳过`);
+      continue;
+    }
+    
+    // 安装
+    const installResult = await installLocalNpmPackage(pkg.name);
+    if (!installResult.success) {
+      return {
+        success: false,
+        failedPackage: pkg.name,
+        error: installResult.error,
+      };
+    }
+  }
+  
+  return { success: true };
+}
+
+/**
+ * 重启所有服务
+ * TODO: 后续专门实现
+ */
+export async function restartAllServices(): Promise<void> {
+  try {
+    await invoke('restart_all_services');
+    console.log('[Dependencies] 服务启动命令已发送');
+  } catch (error) {
+    console.error('[Dependencies] 重启服务失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 获取依赖安装统计
+ */
+export async function getSetupDependencySummary(): Promise<{
+  total: number;
+  installed: number;
+  missing: number;
+  nodeReady: boolean;
+}> {
+  const deps = await checkAllSetupDependencies();
+  const nodeDep = deps.find(d => d.name === 'nodejs');
+  
+  return {
+    total: deps.length,
+    installed: deps.filter(d => d.status === 'installed').length,
+    missing: deps.filter(d => d.status === 'missing' || d.status === 'outdated').length,
+    nodeReady: nodeDep?.status === 'installed' && nodeDep?.meetsRequirement === true,
+  };
+}
