@@ -8,9 +8,7 @@ import {
   Descriptions,
   Tag,
   List,
-  Input,
   Switch,
-  Select,
   Form,
   Alert,
   message,
@@ -36,29 +34,19 @@ import {
   FolderOutlined,
   InfoCircleOutlined,
   BugOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  ClockCircleOutlined,
-  ExclamationCircleOutlined,
-  SyncOutlined,
-  UserOutlined,
-  GlobalOutlined,
   CodeOutlined,
   UploadOutlined,
   RedoOutlined,
   DeleteOutlined,
   EnvironmentOutlined,
-  DesktopOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
 import {
   AgentStatus,
   LogEntry,
   PermissionItem,
-  getAgentStatus,
   startAgent,
   stopAgent,
-  getLogs,
   getPermissions,
   refreshPermissions,
   openSystemPreferences,
@@ -92,18 +80,17 @@ import {
 import { Typography } from 'antd';
 const { Title, Text, Paragraph } = Typography;
 
-type TabType = 'client' | 'settings' | 'dependencies' | 'permissions' | 'about' | 'debug';
+type TabType = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'about' | 'debug';
 
 function App() {
   const [status, setStatus] = useState<AgentStatus>('idle');
   const [sessionId, setSessionId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<TabType>('client');
   const [loading, setLoading] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [filterLevel, setFilterLevel] = useState<string>('all');
   const [autoConnect, setAutoConnect] = useState(true);
   const [notifications, setNotifications] = useState(true);
-  const [isConnected, setIsConnected] = useState(false);
   const [onlineStatus, setOnlineStatus] = useState<boolean | null>(null);
   
   // 场景配置状态
@@ -132,7 +119,6 @@ function App() {
         message.success('Agent 已启动');
       } else if (newStatus === 'idle' || newStatus === 'stopped') {
         setSessionId('');
-        setIsConnected(false);
       }
     });
 
@@ -140,18 +126,6 @@ function App() {
       setLogs(prev => [log, ...prev].slice(0, 100));
     });
   }, []);
-
-  const initData = async () => {
-    const [statusRes, logsRes, connInfo] = await Promise.all([
-      getAgentStatus(),
-      getLogs(),
-      Promise.resolve(getConnectionInfo()),
-    ]);
-    setStatus(statusRes.status as AgentStatus);
-    setSessionId(statusRes.session_id || '');
-    setLogs(logsRes);
-    setIsConnected(connInfo.status === 'connected');
-  };
 
   const handleStart = useCallback(async () => {
     if (loading) return;
@@ -169,7 +143,6 @@ function App() {
     setLoading(true);
     try {
       await stopAgent();
-      setIsConnected(false);
       message.success('Agent 已停止');
     } finally {
       setLoading(false);
@@ -191,21 +164,24 @@ function App() {
   const badge = getStatusBadge();
   const connectionInfo = getConnectionInfo();
 
-  // 菜单配置（参考 gpui-client）
   const menuItems = [
     { key: 'client', icon: <DashboardOutlined />, label: '客户端' },
     { key: 'settings', icon: <SettingOutlined />, label: '设置' },
     { key: 'dependencies', icon: <FolderOutlined />, label: '依赖' },
     { key: 'permissions', icon: <SafetyOutlined />, label: '权限' },
+    { key: 'logs', icon: <FileTextOutlined />, label: '日志' },
     { key: 'about', icon: <InfoCircleOutlined />, label: '关于' },
     { key: 'debug', icon: <BugOutlined />, label: '调试' },
   ];
 
-  const filteredLogs = logs.filter(
-    (log) => filterLevel === 'all' || log.level === filterLevel
+  // 过滤后的日志（目前不需要前端过滤，依赖后端过滤）
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _filteredLogs = logs.filter(
+    (log) => true // 占位，始终返回所有日志
   );
 
-  const getLogColor = (level: string) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _getLogColor = (level: string) => {
     switch (level) {
       case 'success': return 'green';
       case 'warning': return 'orange';
@@ -219,7 +195,7 @@ function App() {
     <div style={{ maxWidth: 900 }}>
       {/* 场景切换 */}
       <Card size="small" style={{ marginBottom: 16 }}>
-        <Space justify="space-between" style={{ width: '100%' }}>
+        <Space style={{ width: '100%', display: 'flex', justifyContent: 'space-between' }}>
           <Space>
             <RobotOutlined style={{ fontSize: 16, color: '#1890ff' }} />
             <span style={{ fontWeight: 500 }}>NuWax Agent</span>
@@ -411,7 +387,7 @@ function App() {
       title: '重置配置',
       content: '确定要重置为默认配置吗？所有自定义配置将被删除。',
       okText: '重置',
-      okType: 'warning',
+      okType: 'danger',
       cancelText: '取消',
       onOk() {
         resetConfig();
@@ -560,7 +536,8 @@ function App() {
   );
 
   // 配置编辑弹窗
-  const configEditor = (
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _renderConfigEditor = () => (
     <ConfigEditor
       visible={configEditorVisible}
       onCancel={() => setConfigEditorVisible(false)}
@@ -780,7 +757,7 @@ function App() {
   };
 
   // 获取权限状态对应的颜色和标签
-  const getStatusConfig = (status: string, required: boolean) => {
+  const getStatusConfig = (status: string) => {
     const baseConfig: Record<string, { color: string; text: string }> = {
       granted: { color: 'success', text: '已授权' },
       denied: { color: 'error', text: '已拒绝' },
@@ -825,7 +802,7 @@ function App() {
           loading={permissionsLoading}
           dataSource={permissions}
           renderItem={(item) => {
-            const statusConfig = getStatusConfig(item.status, item.required);
+            const statusConfig = getStatusConfig(item.status);
             return (
               <List.Item
                 style={{

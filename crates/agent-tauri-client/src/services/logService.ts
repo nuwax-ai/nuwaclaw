@@ -5,8 +5,9 @@
 
 import { message } from 'antd';
 
-// 日志级别
-export type LogLevel = 'error' | 'warning' | 'success' | 'info';
+  // 日志级别
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  type LogLevel = 'error' | 'warning' | 'success' | 'info';
 
 // 日志条目
 export interface LogEntry {

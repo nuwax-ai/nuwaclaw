@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { Form, Input, Button, Card, message, Avatar, Space, Typography, InputNumber } from 'antd';
+import { Form, Input, Button, Card, message, Avatar, Space, Typography } from 'antd';
 import { UserOutlined, LockOutlined, LogoutOutlined, CheckCircleOutlined, MailOutlined, PhoneOutlined } from '@ant-design/icons';
 import { loginAndRegister, logout, getCurrentAuth, AuthUserInfo } from '../services/auth';
 
@@ -95,33 +95,28 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
    * 根据登录方式动态验证
    */
   const getUsernameRules = () => {
-    const rules = [{ required: true, message: '请输入登录账号' }];
+    const baseRules: Array<{ required: boolean; message: string }> = [{ required: true, message: '请输入登录账号' }];
 
     switch (loginMethod) {
       case 'email':
-        // 邮箱格式验证
-        rules.push({
-          type: 'email' as const,
-          message: '请输入有效的邮箱地址',
-        });
-        break;
+        // 邮箱格式验证 - 使用内置 type: 'email'
+        return [
+          ...baseRules,
+          { type: 'email' as const, message: '请输入有效的邮箱地址' },
+        ];
       case 'phone':
-        // 手机号格式验证（中国大陆手机号11位，其他至少7位数字）
-        rules.push({
-          pattern: /^\d{7,11}$/,
-          message: '请输入有效的手机号码（7-11位数字）',
-        });
-        break;
+        // 手机号格式验证 - 使用正则 pattern
+        return [
+          ...baseRules,
+          { pattern: /^\d{7,11}$/, message: '请输入有效的手机号码（7-11位数字）' },
+        ];
       default:
-        // 用户名验证（3-20位，可包含字母、数字、下划线）
-        rules.push({
-          pattern: /^[a-zA-Z0-9_]{3,20}$/,
-          message: '用户名应为3-20位字母、数字或下划线',
-        });
-        break;
+        // 用户名验证 - 使用正则 pattern
+        return [
+          ...baseRules,
+          { pattern: /^[a-zA-Z0-9_]{3,20}$/, message: '用户名应为3-20位字母、数字或下划线' },
+        ];
     }
-
-    return rules;
   };
 
   /**

@@ -118,9 +118,9 @@ export default function LogViewer({
 
   // 处理级别点击过滤
   const handleLevelClick = useCallback((level: string) => {
-    setFilter(prev => ({
+    setFilter((prev: LogFilter) => ({
       ...prev,
-      level: level === prev.level ? 'all' : level,
+      level: (level === prev.level ? 'all' : level) as LogFilter['level'],
     }));
   }, []);
 
@@ -148,9 +148,11 @@ export default function LogViewer({
       }
       extra={
         <Space>
-          <Tooltip title="刷新" onClick={handleRefresh}>
-            <ReloadOutlined spin={loading} style={{ cursor: 'pointer', fontSize: 16 }} />
-          </Tooltip>
+          <span onClick={handleRefresh} style={{ cursor: 'pointer' }}>
+            <Tooltip title="刷新">
+              <ReloadOutlined spin={loading} style={{ cursor: 'pointer', fontSize: 16 }} />
+            </Tooltip>
+          </span>
         </Space>
       }
       style={{ height: '100%' }}

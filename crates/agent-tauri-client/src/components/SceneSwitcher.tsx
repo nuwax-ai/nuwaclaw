@@ -4,11 +4,9 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Select, Space, Tooltip, Tag, Button, Typography, Badge } from 'antd';
-import { 
-  EnvironmentOutlined, 
-  CloudServerOutlined, 
-  SettingOutlined,
+import { Select, Space, Tooltip, Tag, Typography, Badge } from 'antd';
+import {
+  EnvironmentOutlined,
   SwapOutlined,
 } from '@ant-design/icons';
 import { 

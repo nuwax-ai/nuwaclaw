@@ -4,37 +4,27 @@
  */
 
 import { useState, useEffect } from 'react';
-import { 
-  Modal, 
-  Form, 
-  Input, 
-  InputNumber, 
-  Button, 
-  Space, 
-  Card, 
-  Typography,
-  Divider,
-  Select,
+import {
+  Modal,
+  Form,
+  Input,
+  InputNumber,
+  Space,
+  Card,
   message,
   Alert,
 } from 'antd';
-import { 
-  GlobalOutlined, 
-  DesktopOutlined, 
-  ApiOutlined,
-  SaveOutlined,
-  PlusOutlined,
+import {
+  GlobalOutlined,
+  DesktopOutlined,
 } from '@ant-design/icons';
-import { 
-  addCustomScene, 
+import {
+  addCustomScene,
   updateCustomScene,
   SceneConfig,
   ServerConfig,
   LocalServicesConfig,
-  ServiceEndpoint,
 } from '../services/config';
-
-const { Text, Title } = Typography;
 
 interface ConfigEditorProps {
   visible: boolean;

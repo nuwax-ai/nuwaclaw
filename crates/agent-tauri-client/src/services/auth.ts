@@ -9,7 +9,6 @@ import {
   ClientRegisterParams,
   ClientRegisterResponse,
   SandboxValue,
-  ApiResponse,
 } from './api';
 import { getAgentUrl, getVncUrl, getFileServerUrl } from './config';
 

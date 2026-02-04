@@ -1,8 +1,13 @@
 // 权限服务 Rust 后端桥接
 // 通过 Tauri invoke 调用 Rust system-permissions 库
+// 注意：SETTINGS_URLS 用于系统设置 URL 映射，虽然当前未直接使用，但保留以备将来需要
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+
+// 为了避免未使用变量警告，在开发时可以使用以下方式引用
+// 如果需要使用，直接取消下面的注释即可
+// console.log('Settings URLs:', SETTINGS_URLS);
 
 // 权限状态类型（与 Rust PermissionStatus 对齐）
 export type PermissionStatus =

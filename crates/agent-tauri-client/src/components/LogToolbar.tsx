@@ -17,7 +17,6 @@ import {
 } from 'antd';
 import {
   SearchOutlined,
-  FilterOutlined,
   DownloadOutlined,
   DeleteOutlined,
   ReloadOutlined,

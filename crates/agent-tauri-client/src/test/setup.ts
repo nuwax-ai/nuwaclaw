@@ -1,5 +1,6 @@
 // Vitest 测试设置
 import '@testing-library/jest-dom';
+import { vi } from 'vitest';
 
 // Mock localStorage
 const localStorageMock = {
@@ -9,14 +10,14 @@ const localStorageMock = {
   clear: vi.fn(),
 };
 
-global.localStorage = localStorageMock as unknown as Storage;
+globalThis.localStorage = localStorageMock as unknown as Storage;
 
 // Mock window.matchMedia
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
-  value: vi.fn().mockImplementation((query) => ({
+  value: vi.fn().mockImplementation((_query: string) => ({
     matches: false,
-    media: query,
+    media: '',
     onchange: null,
     addListener: vi.fn(),
     removeListener: vi.fn(),
@@ -32,4 +33,4 @@ class MockResizeObserver {
   unobserve() {}
   disconnect() {}
 }
-global.ResizeObserver = MockResizeObserver as any;
+globalThis.ResizeObserver = MockResizeObserver as any;
