@@ -17,6 +17,7 @@
     "@ant-design/icons": "^5.6.1",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-opener": "^2.5.3",
+    "@tauri-apps/plugin-store": "^2.4.2",
     "antd": "^5.29.3",
     "dayjs": "^1.11.19",
     "react": "^18.3.1",

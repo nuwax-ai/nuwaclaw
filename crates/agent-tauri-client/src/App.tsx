@@ -69,6 +69,7 @@ import {
   uninstallDependency,
 } from './services/dependencies';
 import {
+  initConfigStore,
   getAllScenes,
   getCurrentScene,
   switchScene,
@@ -76,6 +77,7 @@ import {
   resetConfig,
   SceneConfig,
 } from './services/config';
+import { initAuthStore } from './services/auth';
 
 import { Typography } from 'antd';
 const { Title, Text, Paragraph } = Typography;
@@ -95,20 +97,38 @@ function App() {
   
   // 场景配置状态
   const [scenes, setScenes] = useState<SceneConfig[]>([]);
-  const [currentScene, setCurrentScene] = useState<SceneConfig>(getCurrentScene());
+  const [currentScene, setCurrentScene] = useState<SceneConfig | null>(null);
   const [configEditorVisible, setConfigEditorVisible] = useState(false);
   const [editingScene, setEditingScene] = useState<SceneConfig | null>(null);
   const [isNewConfig, setIsNewConfig] = useState(false);
+  const [storeInitialized, setStoreInitialized] = useState(false);
 
-  // 初始化场景配置
+  // 初始化存储服务和场景配置
   useEffect(() => {
-    setScenes(getAllScenes());
-    setCurrentScene(getCurrentScene());
-  }, []);
-
-  // 初始化连接状态
-  useEffect(() => {
-    setOnlineStatus(getOnlineStatus());
+    const init = async () => {
+      try {
+        // 初始化认证存储
+        await initAuthStore();
+        // 初始化配置存储
+        await initConfigStore();
+        // 加载场景数据
+        const [scenesData, current] = await Promise.all([
+          getAllScenes(),
+          getCurrentScene(),
+        ]);
+        setScenes(scenesData);
+        setCurrentScene(current);
+        // 加载在线状态
+        const status = await getOnlineStatus();
+        setOnlineStatus(status);
+        setStoreInitialized(true);
+      } catch (error) {
+        console.error('初始化存储服务失败:', error);
+        // 即使失败也标记为已初始化，使用默认配置
+        setStoreInitialized(true);
+      }
+    };
+    init();
   }, []);
 
   // 监听 Agent 状态和日志变化
@@ -126,6 +146,32 @@ function App() {
       setLogs(prev => [log, ...prev].slice(0, 100));
     });
   }, []);
+
+  // 获取当前场景（如果未初始化则返回默认场景）
+  const getEffectiveScene = useCallback((): SceneConfig => {
+    if (currentScene) {
+      return currentScene;
+    }
+    // 返回默认场景
+    return {
+      id: 'local',
+      name: '本地开发',
+      isDefault: true,
+      server: { apiUrl: 'http://localhost:8080', timeout: 30000 },
+      local: {
+        agent: { host: '127.0.0.1', port: 8080, scheme: 'http', path: '/api' },
+        vnc: { host: '127.0.0.1', port: 5900, scheme: 'vnc' },
+        fileServer: { host: '127.0.0.1', port: 8081, scheme: 'http', path: '/files' },
+        websocket: { host: '127.0.0.1', port: 8080, scheme: 'ws', path: '/ws' },
+      },
+    };
+  }, [currentScene]);
+
+  // 检查是否为当前场景
+  const isCurrentScene = useCallback((sceneId: string): boolean => {
+    const scene = getEffectiveScene();
+    return sceneId === scene.id;
+  }, [getEffectiveScene]);
 
   const handleStart = useCallback(async () => {
     if (loading) return;
@@ -171,7 +217,7 @@ function App() {
     { key: 'permissions', icon: <SafetyOutlined />, label: '权限' },
     { key: 'logs', icon: <FileTextOutlined />, label: '日志' },
     { key: 'about', icon: <InfoCircleOutlined />, label: '关于' },
-    { key: 'debug', icon: <BugOutlined />, label: '调试' },
+    // { key: 'debug', icon: <BugOutlined />, label: '调试' },
   ];
 
   // 过滤后的日志（目前不需要前端过滤，依赖后端过滤）
@@ -351,9 +397,15 @@ function App() {
 
   // 场景配置管理
   const handleSwitchScene = async (sceneId: string) => {
-    await switchScene(sceneId);
-    setCurrentScene(getCurrentScene());
-    setScenes(getAllScenes());
+    const success = await switchScene(sceneId);
+    if (success) {
+      const [scenesData, current] = await Promise.all([
+        getAllScenes(),
+        getCurrentScene(),
+      ]);
+      setScenes(scenesData);
+      setCurrentScene(current);
+    }
   };
 
   const handleAddConfig = () => {
@@ -368,31 +420,42 @@ function App() {
     setConfigEditorVisible(true);
   };
 
-  const handleDeleteConfig = (sceneId: string, sceneName: string) => {
+  const handleDeleteConfig = async (sceneId: string, sceneName: string) => {
     Modal.confirm({
       title: '确认删除',
       content: `确定要删除配置 "${sceneName}" 吗？`,
       okText: '删除',
       okType: 'danger',
       cancelText: '取消',
-      onOk() {
-        deleteCustomScene(sceneId);
-        setScenes(getAllScenes());
+      onOk: async () => {
+        const success = await deleteCustomScene(sceneId);
+        if (success) {
+          const [scenesData, current] = await Promise.all([
+            getAllScenes(),
+            getCurrentScene(),
+          ]);
+          setScenes(scenesData);
+          setCurrentScene(current);
+        }
       },
     });
   };
 
-  const handleResetConfig = () => {
+  const handleResetConfig = async () => {
     Modal.confirm({
       title: '重置配置',
       content: '确定要重置为默认配置吗？所有自定义配置将被删除。',
       okText: '重置',
       okType: 'danger',
       cancelText: '取消',
-      onOk() {
-        resetConfig();
-        setScenes(getAllScenes());
-        setCurrentScene(getCurrentScene());
+      onOk: async () => {
+        await resetConfig();
+        const [scenesData, current] = await Promise.all([
+          getAllScenes(),
+          getCurrentScene(),
+        ]);
+        setScenes(scenesData);
+        setCurrentScene(current);
       },
     });
   };
@@ -425,26 +488,26 @@ function App() {
           renderItem={(scene) => (
             <List.Item
               actions={[
-                scene.id === currentScene.id ? (
+                isCurrentScene(scene.id) ? (
                   <Tag color="green">当前</Tag>
                 ) : (
-                  <Button 
+                  <Button
                     size="small"
                     onClick={() => handleSwitchScene(scene.id)}
                   >
                     切换
                   </Button>
                 ),
-                !scene.isDefault && scene.id !== currentScene.id && (
+                !scene.isDefault && !isCurrentScene(scene.id) && (
                   <>
-                    <Button 
+                    <Button
                       size="small"
                       onClick={() => handleEditConfig(scene)}
                     >
                       编辑
                     </Button>
-                    <Button 
-                      size="small" 
+                    <Button
+                      size="small"
                       danger
                       onClick={() => handleDeleteConfig(scene.id, scene.name)}
                     >
@@ -456,10 +519,10 @@ function App() {
             >
               <List.Item.Meta
                 avatar={
-                  <Avatar 
-                    icon={<EnvironmentOutlined />} 
-                    style={{ 
-                      backgroundColor: scene.id === currentScene.id ? '#1890ff' : '#52c41a' 
+                  <Avatar
+                    icon={<EnvironmentOutlined />}
+                    style={{
+                      backgroundColor: isCurrentScene(scene.id) ? '#1890ff' : '#52c41a'
                     }}
                   />
                 }
@@ -484,7 +547,7 @@ function App() {
       </Card>
 
       {/* 当前场景详情 */}
-      <Card 
+      <Card
         title={
           <Space>
             <SettingOutlined />
@@ -497,21 +560,21 @@ function App() {
         <Row gutter={16}>
           <Col span={12}>
             <Descriptions column={1} size="small">
-              <Descriptions.Item label="场景名称">{currentScene.name}</Descriptions.Item>
-              <Descriptions.Item label="API 服务器">{currentScene.server.apiUrl}</Descriptions.Item>
-              <Descriptions.Item label="超时时间">{currentScene.server.timeout}ms</Descriptions.Item>
+              <Descriptions.Item label="场景名称">{getEffectiveScene().name}</Descriptions.Item>
+              <Descriptions.Item label="API 服务器">{getEffectiveScene().server.apiUrl}</Descriptions.Item>
+              <Descriptions.Item label="超时时间">{getEffectiveScene().server.timeout}ms</Descriptions.Item>
             </Descriptions>
           </Col>
           <Col span={12}>
             <Descriptions column={1} size="small">
               <Descriptions.Item label="Agent">
-                {currentScene.local.agent.host}:{currentScene.local.agent.port}
+                {getEffectiveScene().local.agent.host}:{getEffectiveScene().local.agent.port}
               </Descriptions.Item>
               <Descriptions.Item label="VNC">
-                {currentScene.local.vnc.host}:{currentScene.local.vnc.port}
+                {getEffectiveScene().local.vnc.host}:{getEffectiveScene().local.vnc.port}
               </Descriptions.Item>
               <Descriptions.Item label="文件服务">
-                {currentScene.local.fileServer.host}:{currentScene.local.fileServer.port}
+                {getEffectiveScene().local.fileServer.host}:{getEffectiveScene().local.fileServer.port}
               </Descriptions.Item>
             </Descriptions>
           </Col>
@@ -543,11 +606,15 @@ function App() {
       onCancel={() => setConfigEditorVisible(false)}
       scene={editingScene}
       isNew={isNewConfig}
-      onSave={() => {
-        setScenes(getAllScenes());
-        setCurrentScene(getCurrentScene());
+      onSave={async () => {
+        const [scenesData, current] = await Promise.all([
+          getAllScenes(),
+          getCurrentScene(),
+        ]);
+        setScenes(scenesData);
+        setCurrentScene(current);
         // 同步配置到后端
-        syncConfigToServer();
+        await syncConfigToServer();
       }}
     />
   );
@@ -956,7 +1023,7 @@ function App() {
           {activeTab === 'dependencies' && renderDependenciesPage()}
           {activeTab === 'permissions' && renderPermissionsPage()}
           {activeTab === 'about' && renderAboutPage()}
-          {activeTab === 'debug' && renderDebugPage()}
+          {/* {activeTab === 'debug' && renderDebugPage()} */}
           {activeTab === 'logs' && renderLogsPage()}
         </div>
       </div>
