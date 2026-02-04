@@ -41,6 +41,12 @@ import {
   DeleteOutlined,
   EnvironmentOutlined,
   PlusOutlined,
+  CloudDownloadOutlined,
+  ReloadOutlined,
+  CheckCircleOutlined,
+  ExclamationCircleOutlined,
+  LoadingOutlined,
+  CloseCircleOutlined,
 } from '@ant-design/icons';
 import {
   AgentStatus,
@@ -63,12 +69,14 @@ import ConfigEditor from './components/ConfigEditor';
 import LogViewer from './components/LogViewer';
 import SetupWizard from './components/SetupWizard';
 import {
-  DependencyItem,
   DependencyStatus,
-  getDependencies,
-  installDependency,
-  installAllDependencies,
-  uninstallDependency,
+  checkNodeVersion,
+  checkAllSetupDependencies,
+  initLocalNpmEnv,
+  checkLocalNpmPackage,
+  installLocalNpmPackage,
+  type LocalDependencyItem,
+  type NodeVersionResult,
 } from './services/dependencies';
 import {
   initConfigStore,
@@ -645,174 +653,341 @@ function App() {
     />
   );
 
-  // 依赖管理页面
-  const [dependencies, setDependencies] = useState<DependencyItem[]>([]);
+  // 依赖管理页面状态
+  const [nodeResult, setNodeResult] = useState<NodeVersionResult | null>(null);
+  const [localDeps, setLocalDeps] = useState<LocalDependencyItem[]>([]);
   const [depLoading, setDepLoading] = useState(false);
+  const [depInstalling, setDepInstalling] = useState(false);
+  const [currentInstallingDep, setCurrentInstallingDep] = useState<string>('');
 
-  // 加载依赖数据
+  // 加载依赖数据（Node.js + npm 包）
   const loadDependencies = useCallback(async () => {
     setDepLoading(true);
     try {
-      const data = await getDependencies();
-      setDependencies(data);
+      // 检测 Node.js 版本
+      const nodeRes = await checkNodeVersion();
+      setNodeResult(nodeRes);
+      
+      // 检测所有依赖状态，只保留 npm-local 类型
+      const deps = await checkAllSetupDependencies();
+      const npmDeps = deps.filter(d => d.type === 'npm-local');
+      setLocalDeps(npmDeps);
     } catch (error) {
+      console.error('加载依赖数据失败:', error);
       message.error('加载依赖数据失败');
     } finally {
       setDepLoading(false);
     }
   }, []);
 
+  // 依赖页面激活时加载数据
   useEffect(() => {
-    loadDependencies();
-  }, [loadDependencies]);
+    if (activeTab === 'dependencies') {
+      loadDependencies();
+    }
+  }, [activeTab, loadDependencies]);
 
   // 获取依赖统计
   const depSummary = {
-    total: dependencies.length,
-    installed: dependencies.filter(d => d.status === 'installed').length,
-    missing: dependencies.filter(d => d.status === 'missing').length,
+    total: localDeps.length,
+    installed: localDeps.filter(d => d.status === 'installed').length,
+    missing: localDeps.filter(d => d.status === 'missing').length,
   };
 
-  // 安装依赖
-  const handleInstallDependency = async (name: string) => {
-    await installDependency(name);
-    await loadDependencies();
+  // 安装单个依赖
+  const handleInstallSingleDep = async (packageName: string, displayName: string) => {
+    setDepInstalling(true);
+    setCurrentInstallingDep(displayName);
+    
+    // 更新状态为 installing
+    setLocalDeps(prev => prev.map(d => 
+      d.name === packageName ? { ...d, status: 'installing' as const } : d
+    ));
+    
+    try {
+      await initLocalNpmEnv();
+      const result = await installLocalNpmPackage(packageName);
+      
+      if (result.success) {
+        // 更新状态为 installed
+        setLocalDeps(prev => prev.map(d => 
+          d.name === packageName 
+            ? { ...d, status: 'installed' as const, version: result.version, binPath: result.binPath }
+            : d
+        ));
+        message.success(`${displayName} 安装成功`);
+      } else {
+        // 更新状态为 error
+        setLocalDeps(prev => prev.map(d => 
+          d.name === packageName 
+            ? { ...d, status: 'error' as const, errorMessage: result.error }
+            : d
+        ));
+        message.error(`${displayName} 安装失败: ${result.error}`);
+      }
+    } catch (error) {
+      setLocalDeps(prev => prev.map(d => 
+        d.name === packageName 
+          ? { ...d, status: 'error' as const, errorMessage: String(error) }
+          : d
+      ));
+      message.error(`安装失败: ${error}`);
+    } finally {
+      setDepInstalling(false);
+      setCurrentInstallingDep('');
+    }
   };
 
   // 安装所有缺失依赖
-  const handleInstallAll = async () => {
-    await installAllDependencies();
-    await loadDependencies();
+  const handleInstallAllDeps = async () => {
+    const missingDeps = localDeps.filter(d => d.status === 'missing' || d.status === 'error');
+    if (missingDeps.length === 0) {
+      message.info('没有需要安装的依赖');
+      return;
+    }
+    
+    setDepInstalling(true);
+    
+    try {
+      await initLocalNpmEnv();
+      
+      for (const dep of missingDeps) {
+        setCurrentInstallingDep(dep.displayName);
+        
+        // 更新状态为 installing
+        setLocalDeps(prev => prev.map(d => 
+          d.name === dep.name ? { ...d, status: 'installing' as const } : d
+        ));
+        
+        // 检查是否已安装
+        const checkResult = await checkLocalNpmPackage(dep.name);
+        if (checkResult.installed) {
+          setLocalDeps(prev => prev.map(d => 
+            d.name === dep.name 
+              ? { ...d, status: 'installed' as const, version: checkResult.version, binPath: checkResult.binPath }
+              : d
+          ));
+          continue;
+        }
+        
+        // 安装
+        const result = await installLocalNpmPackage(dep.name);
+        if (result.success) {
+          setLocalDeps(prev => prev.map(d => 
+            d.name === dep.name 
+              ? { ...d, status: 'installed' as const, version: result.version, binPath: result.binPath }
+              : d
+          ));
+        } else {
+          setLocalDeps(prev => prev.map(d => 
+            d.name === dep.name 
+              ? { ...d, status: 'error' as const, errorMessage: result.error }
+              : d
+          ));
+          message.error(`${dep.displayName} 安装失败: ${result.error}`);
+        }
+      }
+      
+      message.success('依赖安装完成');
+    } catch (error) {
+      message.error(`安装失败: ${error}`);
+    } finally {
+      setDepInstalling(false);
+      setCurrentInstallingDep('');
+    }
   };
 
-  // 卸载依赖
-  const handleUninstallDependency = async (name: string) => {
-    Modal.confirm({
-      title: '确认卸载',
-      content: `确定要卸载 ${name} 吗？`,
-      okText: '卸载',
-      okType: 'danger',
-      cancelText: '取消',
-      async onOk() {
-        await uninstallDependency(name);
-        await loadDependencies();
-      },
-    });
-  };
-
-  // 获取状态标签
-  const getStatusTag = (status: DependencyStatus) => {
-    const config: Record<DependencyStatus, { color: string; text: string }> = {
-      installed: { color: 'green', text: '已安装' },
-      missing: { color: 'red', text: '未安装' },
-      outdated: { color: 'orange', text: '需更新' },
-      installing: { color: 'blue', text: '安装中...' },
-      checking: { color: 'processing', text: '检查中...' },
-      error: { color: 'red', text: '错误' },
+  // 获取状态标签配置
+  const getDepStatusTag = (status: DependencyStatus) => {
+    const config: Record<string, { color: string; text: string }> = {
+      installed: { color: 'success', text: '已安装' },
+      missing: { color: 'warning', text: '待安装' },
+      installing: { color: 'processing', text: '安装中' },
+      checking: { color: 'default', text: '检测中' },
+      error: { color: 'error', text: '错误' },
+      outdated: { color: 'orange', text: '版本过低' },
     };
-    return config[status] || { color: 'default', text: '未知' };
+    return config[status] || config.checking;
   };
 
-  // 渲染依赖项
-  const renderDependencyItem = (item: DependencyItem) => {
-    const status = getStatusTag(item.status);
-    const isNpmPackage = item.name.startsWith('@') || item.name.includes('-');
-    
-    // 构建操作按钮
-    const actions: React.ReactNode[] = [
-      <Tag color={status.color}>{status.text}</Tag>,
-    ];
-    
-    if (item.status === 'missing' && !item.required) {
-      actions.push(
-        <Button
-          type="primary"
-          size="small"
-          onClick={() => handleInstallDependency(item.name)}
-        >
-          安装
-        </Button>
+  // 获取状态图标
+  const getDepStatusIcon = (status: DependencyStatus) => {
+    switch (status) {
+      case 'installed':
+        return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
+      case 'missing':
+        return <ExclamationCircleOutlined style={{ color: '#faad14' }} />;
+      case 'installing':
+        return <LoadingOutlined style={{ color: '#1890ff' }} />;
+      case 'error':
+        return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
+      default:
+        return <LoadingOutlined />;
+    }
+  };
+
+  // 渲染依赖页面
+  const renderDependenciesPage = () => {
+    // 加载中
+    if (depLoading && !nodeResult) {
+      return (
+        <div style={{ maxWidth: 900, textAlign: 'center', padding: 40 }}>
+          <Spin size="large" />
+          <div style={{ marginTop: 16 }}>正在检测依赖状态...</div>
+        </div>
       );
     }
-    
-    if (item.status === 'installed' && !item.required) {
-      actions.push(
-        <Button
-          danger
-          size="small"
-          icon={<DeleteOutlined />}
-          onClick={() => handleUninstallDependency(item.name)}
-        >
-          卸载
-        </Button>
-      );
-    }
-    
+
     return (
-      <List.Item actions={actions}>
-        <List.Item.Meta
-          avatar={<Avatar icon={<CodeOutlined />} style={{ backgroundColor: item.required ? '#1890ff' : '#52c41a' }} />}
-          title={
+      <div style={{ maxWidth: 900 }}>
+        {/* Node.js 状态卡片（只读） */}
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space direction="vertical" style={{ width: '100%' }}>
             <Space>
-              <span>{item.displayName}</span>
-              {item.required && <Tag color="red">必需</Tag>}
-              {isNpmPackage && <Tag color="orange">npm</Tag>}
+              <CodeOutlined style={{ fontSize: 20, color: '#1890ff' }} />
+              <Text strong>Node.js 运行环境</Text>
+              {nodeResult?.installed ? (
+                nodeResult.meetsRequirement ? (
+                  <Tag color="success">已安装</Tag>
+                ) : (
+                  <Tag color="warning">版本过低</Tag>
+                )
+              ) : (
+                <Tag color="error">未安装</Tag>
+              )}
             </Space>
-          }
-          description={
-            <Space direction="vertical" size={0}>
-              <Text type="secondary">{item.description}</Text>
-              {item.version && (
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  版本: {item.version}
-                  {item.source && ` | 来源: ${item.source}`}
-                </Text>
+            {nodeResult?.installed && (
+              <Text type="secondary" style={{ marginLeft: 28 }}>
+                当前版本: v{nodeResult.version}
+                {!nodeResult.meetsRequirement && (
+                  <Text type="danger"> (需要 &gt;= 22.0.0，请手动升级)</Text>
+                )}
+              </Text>
+            )}
+            {!nodeResult?.installed && (
+              <Text type="secondary" style={{ marginLeft: 28 }}>
+                请先安装 Node.js 22 或更高版本
+              </Text>
+            )}
+          </Space>
+        </Card>
+
+        {/* 统计信息 */}
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space split={<Divider type="vertical" />}>
+            <Text>本地 npm 包: {depSummary.total} 个</Text>
+            <Text type="success">已安装: {depSummary.installed}</Text>
+            <Text type="warning">待安装: {depSummary.missing}</Text>
+          </Space>
+        </Card>
+
+        {/* npm 包列表 */}
+        <Card
+          title="本地 npm 包"
+          extra={
+            <Space>
+              <Button 
+                icon={<ReloadOutlined />} 
+                onClick={loadDependencies} 
+                loading={depLoading}
+              >
+                刷新
+              </Button>
+              {depSummary.missing > 0 && (
+                <Button
+                  type="primary"
+                  icon={<CloudDownloadOutlined />}
+                  onClick={handleInstallAllDeps}
+                  loading={depInstalling}
+                  disabled={!nodeResult?.meetsRequirement}
+                >
+                  安装全部
+                </Button>
               )}
             </Space>
           }
-        />
-      </List.Item>
+        >
+          <List
+            loading={depLoading}
+            dataSource={localDeps}
+            renderItem={(item) => {
+              const statusConfig = getDepStatusTag(item.status);
+              const isInstalling = item.status === 'installing';
+              const canInstall = (item.status === 'missing' || item.status === 'error') && 
+                                 nodeResult?.meetsRequirement && 
+                                 !depInstalling;
+
+              return (
+                <List.Item
+                  actions={[
+                    <Tag color={statusConfig.color}>{statusConfig.text}</Tag>,
+                    canInstall && (
+                      <Button
+                        type="primary"
+                        size="small"
+                        icon={<CloudDownloadOutlined />}
+                        onClick={() => handleInstallSingleDep(item.name, item.displayName)}
+                      >
+                        安装
+                      </Button>
+                    ),
+                  ].filter(Boolean)}
+                >
+                  <List.Item.Meta
+                    avatar={getDepStatusIcon(item.status)}
+                    title={
+                      <Space>
+                        <span>{item.displayName}</span>
+                        <Tag color="purple">npm</Tag>
+                        {item.required && <Tag color="blue">必需</Tag>}
+                      </Space>
+                    }
+                    description={
+                      <Space direction="vertical" size={0}>
+                        <Text type="secondary">{item.description}</Text>
+                        {item.version && (
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            版本: {item.version}
+                          </Text>
+                        )}
+                        {item.binPath && (
+                          <Text type="secondary" style={{ fontSize: 12 }} copyable={{ text: item.binPath }}>
+                            路径: {item.binPath}
+                          </Text>
+                        )}
+                        {item.errorMessage && (
+                          <Text type="danger" style={{ fontSize: 12 }}>
+                            错误: {item.errorMessage}
+                          </Text>
+                        )}
+                        {isInstalling && currentInstallingDep === item.displayName && (
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            <LoadingOutlined style={{ marginRight: 4 }} />
+                            正在安装...
+                          </Text>
+                        )}
+                      </Space>
+                    }
+                  />
+                </List.Item>
+              );
+            }}
+          />
+        </Card>
+
+        {/* Node.js 未满足要求时的提示 */}
+        {nodeResult && !nodeResult.meetsRequirement && (
+          <Alert
+            message="Node.js 环境不满足要求"
+            description="请先安装或升级 Node.js 到 22.0.0 或更高版本后才能安装 npm 包"
+            type="warning"
+            showIcon
+            style={{ marginTop: 16 }}
+          />
+        )}
+      </div>
     );
   };
-
-  const renderDependenciesPage = () => (
-    <div style={{ maxWidth: 900 }}>
-      {/* 统计卡片 */}
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Space split="|">
-          <Text>共 {depSummary.total} 个依赖</Text>
-          <Text type="success">已安装 {depSummary.installed}</Text>
-          <Text type="danger">缺失 {depSummary.missing}</Text>
-        </Space>
-        {depSummary.missing > 0 && (
-          <Button
-            type="primary"
-            size="small"
-            style={{ marginLeft: 16 }}
-            onClick={handleInstallAll}
-          >
-            安装全部缺失依赖
-          </Button>
-        )}
-      </Card>
-
-      {/* 依赖列表 */}
-      <Card
-        title="依赖列表"
-        extra={
-          <Button icon={<RedoOutlined />} onClick={loadDependencies} loading={depLoading}>
-            刷新
-          </Button>
-        }
-      >
-        <List
-          loading={depLoading}
-          dataSource={dependencies}
-          renderItem={renderDependencyItem}
-        />
-      </Card>
-    </div>
-  );
 
   // 权限页面
   const [permissions, setPermissions] = useState<PermissionItem[]>([]);
