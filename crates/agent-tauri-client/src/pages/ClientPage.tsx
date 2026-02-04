@@ -29,9 +29,9 @@ import {
   StopOutlined,
   CloudServerOutlined,
   ApiOutlined,
-  BellOutlined,
   FolderOutlined,
   SafetyOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { Typography } from 'antd';
 import { AgentStatus, LogEntry } from '../services';
@@ -45,6 +45,9 @@ interface ConnectionInfo {
   id: string;
   server: string;
 }
+
+// Tab 类型
+type TabType = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'about';
 
 interface ClientPageProps {
   /** Agent 状态 */
@@ -65,6 +68,8 @@ interface ClientPageProps {
   onStart: () => void;
   /** 停止 Agent */
   onStop: () => void;
+  /** 导航到其他 Tab */
+  onNavigate?: (tab: TabType) => void;
 }
 
 /**
@@ -80,6 +85,7 @@ export default function ClientPage({
   loading,
   onStart,
   onStop,
+  onNavigate,
 }: ClientPageProps) {
   return (
     <div style={{ maxWidth: 900 }}>
@@ -161,7 +167,13 @@ export default function ClientPage({
           <Col span={8}>
             <Space direction="vertical" style={{ width: '100%' }}>
               <Button icon={<ApiOutlined />} block>执行命令</Button>
-              <Button icon={<FileTextOutlined />} block>查看日志</Button>
+              <Button 
+                icon={<FileTextOutlined />} 
+                block
+                onClick={() => onNavigate?.('logs')}
+              >
+                查看日志
+              </Button>
             </Space>
           </Col>
         </Row>
@@ -180,17 +192,37 @@ export default function ClientPage({
       {/* 快速操作 */}
       <Card title="快速操作" style={{ marginTop: 16 }}>
         <Space wrap>
-          <Tooltip title="连接管理">
-            <Button icon={<CloudServerOutlined />}>连接管理</Button>
-          </Tooltip>
-          <Tooltip title="消息中心">
-            <Button icon={<BellOutlined />}>消息中心</Button>
+          <Tooltip title="服务配置">
+            <Button 
+              icon={<SettingOutlined />} 
+              onClick={() => onNavigate?.('settings')}
+            >
+              服务配置
+            </Button>
           </Tooltip>
           <Tooltip title="依赖管理">
-            <Button icon={<FolderOutlined />}>依赖管理</Button>
+            <Button 
+              icon={<FolderOutlined />} 
+              onClick={() => onNavigate?.('dependencies')}
+            >
+              依赖管理
+            </Button>
           </Tooltip>
           <Tooltip title="权限设置">
-            <Button icon={<SafetyOutlined />}>权限设置</Button>
+            <Button 
+              icon={<SafetyOutlined />} 
+              onClick={() => onNavigate?.('permissions')}
+            >
+              权限设置
+            </Button>
+          </Tooltip>
+          <Tooltip title="查看日志">
+            <Button 
+              icon={<FileTextOutlined />} 
+              onClick={() => onNavigate?.('logs')}
+            >
+              查看日志
+            </Button>
           </Tooltip>
         </Space>
       </Card>

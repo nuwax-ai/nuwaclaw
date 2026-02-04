@@ -392,6 +392,7 @@ function App() {
               loading={loading}
               onStart={handleStart}
               onStop={handleStop}
+              onNavigate={setActiveTab}
             />
           )}
           {activeTab === 'settings' && (
