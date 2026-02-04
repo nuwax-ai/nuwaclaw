@@ -22,8 +22,8 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-# rustdesk-server 封装
-hbbs = { package = "hbbs", path = "../../vendors/rustdesk-server" }
+# rustdesk-server 封装 (包名为 hbbs)
+hbbs = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.10"

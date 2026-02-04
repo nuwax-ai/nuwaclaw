@@ -66,7 +66,7 @@ sha2 = "0.10"
 derive_more = { version = "1.0", features = ["display"] }
 
 # 通信库 - nuwax-rustdesk (package name: rustdesk, lib name: librustdesk)
-librustdesk = { package = "rustdesk", path = "../../vendors/nuwax-rustdesk", features = ["agent-client"] }
+librustdesk = { workspace = true, features = ["agent-client"] }
 
 # 远程桌面
 enigo = { version = "0.6.1", optional = true }

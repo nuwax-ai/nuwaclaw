@@ -1,6 +1,3 @@
-[submodule "vendors/nuwax-rustdesk"]
-	path = vendors/nuwax-rustdesk
-	url = https://github.com/nuwax-ai/nuwax-rustdesk.git
 [submodule "vendors/rcoder"]
 	path = vendors/rcoder
 	url = https://github.com/nuwax-ai/rcoder.git
@@ -13,10 +10,6 @@
 [submodule "vendors/enigo"]
 	path = vendors/enigo
 	url = https://github.com/enigo-rs/enigo.git
-[submodule "vendors/rustdesk-server"]
-	path = vendors/rustdesk-server
-	url = https://github.com/rustdesk/rustdesk-server.git
-	branch = master
 [submodule "vendors/gpui-component"]
 	path = vendors/gpui-component
 	url = https://github.com/longbridge/gpui-component.git
