@@ -49,6 +49,16 @@
 - 危险操作二次确认
 - Tauri + React + Ant Design 客户端 UI ([d923976](https://github.com/nuwax-ai/nuwax-agent/commit/d923976))
 
+#### 日志功能 [2614890](https://github.com/nuwax-ai/nuwax-agent/commit/2614890)
+- 完整日志查看器组件（实时订阅、搜索过滤）
+- 日志工具栏（导出 JSON/CSV/TXT、清空）
+- 日志统计展示（按级别分类统计）
+- 单条日志展示（时间、级别、来源、详情）
+- 日志服务（logService.ts, 21 tests）
+- 支持实时日志流订阅
+- 支持关键词搜索和级别过滤
+- 支持一键导出多种格式
+
 #### 权限管理
 - macOS 权限请求类型和 UI 设计 ([cba1ffd](https://github.com/nuwax-ai/nuwax-agent/commit/cba1ffd))
 - 系统权限监控 ([11d6560](https://github.com/nuwax-ai/nuwax-agent/commit/11d6560))
@@ -98,7 +108,8 @@
 - 添加配置服务单元测试 (16 tests)
 - 添加依赖管理单元测试 (27 tests)
 - 添加认证服务单元测试 (16 tests)
-- 总计 59 个测试全部通过
+- 添加日志服务单元测试 (21 tests)
+- 总计 80 个测试全部通过
 - 添加测试运行脚本 (pnpm test / pnpm test:coverage)
 
 ### 文档
