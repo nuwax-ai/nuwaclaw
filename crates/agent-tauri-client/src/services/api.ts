@@ -1,0 +1,195 @@
+/**
+ * NuWax Agent API 请求封装
+ * 统一处理请求、响应、错误码
+ */
+
+import { message } from 'antd';
+
+// 错误码定义
+export const SUCCESS_CODE = '0000';
+export const ERROR_CODES = {
+  USER_NO_LOGIN: '4010',
+  REDIRECT_LOGIN: '4011',
+  CLIENT_NOT_FOUND: '1001',
+} as const;
+
+// 错误码对应的消息
+export const ERROR_MESSAGES: Record<string, string> = {
+  '0000': '操作成功',
+  '4010': '用户未登录，请重新登录',
+  '4011': '登录已过期，请重新登录',
+  '1001': '客户端不存在或已下架',
+  '9999': '系统错误，请稍后重试',
+};
+
+// 响应类型定义
+export interface ApiResponse<T = any> {
+  code: string;
+  displayCode?: string;
+  message: string;
+  success: boolean;
+  data: T;
+  tid?: string;
+}
+
+// 请求配置
+export interface RequestConfig {
+  baseUrl?: string;
+  timeout?: number;
+  headers?: Record<string, string>;
+}
+
+// 默认配置
+const DEFAULT_CONFIG: RequestConfig = {
+  baseUrl: 'https://test-nvwa-api.xspaceagi.com',
+  timeout: 30000,
+};
+
+/**
+ * 统一的 API 请求函数
+ */
+export async function apiRequest<T>(
+  url: string,
+  options: {
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+    data?: any;
+    params?: Record<string, any>;
+    headers?: Record<string, string>;
+    showError?: boolean;
+    baseUrl?: string;
+  } = {}
+): Promise<T> {
+  const config = { ...DEFAULT_CONFIG, ...options };
+  const fullUrl = `${config.baseUrl}${url}`;
+  
+  const fetchOptions: RequestInit = {
+    method: options.method || 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...config.headers,
+    },
+  };
+
+  if (options.data) {
+    fetchOptions.body = JSON.stringify(options.data);
+  }
+
+  let finalUrl = fullUrl;
+  if (options.params) {
+    const searchParams = new URLSearchParams();
+    Object.entries(options.params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        searchParams.append(key, String(value));
+      }
+    });
+    const queryString = searchParams.toString();
+    if (queryString) {
+      finalUrl = `${fullUrl}?${queryString}`;
+    }
+  }
+
+  try {
+    const response = await fetch(finalUrl, fetchOptions);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result: ApiResponse<T> = await response.json();
+
+    // 统一错误处理
+    if (result.code !== SUCCESS_CODE) {
+      const errorMsg = result.message || ERROR_MESSAGES[result.code] || '请求失败';
+      
+      if (options.showError !== false) {
+        message.error(errorMsg);
+      }
+      
+      throw new Error(errorMsg);
+    }
+
+    return result.data;
+  } catch (error: any) {
+    console.error('API Request Error:', error);
+    
+    if (options.showError !== false && error.message) {
+      message.error(error.message);
+    }
+    
+    throw error;
+  }
+}
+
+// ========== 客户端注册接口 ==========
+
+/**
+ * 沙箱配置值
+ */
+export interface SandboxValue {
+  hostWithScheme: string;
+  agentPort: number;
+  vncPort: number;
+  fileServerPort: number;
+  apiKey?: string;
+}
+
+/**
+ * 客户端注册请求参数
+ */
+export interface ClientRegisterParams {
+  username: string;
+  password: string;
+  savedKey?: string;
+  sandboxValue: SandboxValue;
+}
+
+/**
+ * 客户端注册响应数据
+ */
+export interface ClientRegisterResponse {
+  id: number;
+  scope: string;
+  userId: number;
+  name: string;
+  configKey: string;
+  configValue: SandboxValue & {
+    maxUsers?: number | null;
+  };
+  description: string;
+  isActive: boolean;
+  online: boolean;
+  created: string;
+  modified: string;
+}
+
+/**
+ * 注册客户端
+ * 
+ * @param params 注册参数
+ * @returns 注册响应数据
+ */
+export async function registerClient(
+  params: ClientRegisterParams
+): Promise<ClientRegisterResponse> {
+  return apiRequest<ClientRegisterResponse>('/api/sandbox/config/reg', {
+    method: 'POST',
+    data: params,
+    showError: true,
+  });
+}
+
+// ========== 工具函数 ==========
+
+/**
+ * 延迟函数
+ */
+export function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * 检查字符串是否为空
+ */
+export function isEmpty(str: string | null | undefined): boolean {
+  return str === null || str === undefined || str.trim() === '';
+}

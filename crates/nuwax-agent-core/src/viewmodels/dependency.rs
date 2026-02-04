@@ -67,9 +67,15 @@ struct DependencyNameMapping {
 
 /// 预定义的依赖映射表
 const DEPENDENCY_MAPPINGS: &[DependencyNameMapping] = &[
+    // 必需依赖
     DependencyNameMapping {
         core_name: "nodejs",
         display_name: "Node.js",
+        required: true,
+    },
+    DependencyNameMapping {
+        core_name: "git",
+        display_name: "Git",
         required: true,
     },
     DependencyNameMapping {
@@ -77,14 +83,52 @@ const DEPENDENCY_MAPPINGS: &[DependencyNameMapping] = &[
         display_name: "npm",
         required: true,
     },
+    // 可选依赖
+    DependencyNameMapping {
+        core_name: "python",
+        display_name: "Python",
+        required: false,
+    },
+    DependencyNameMapping {
+        core_name: "docker",
+        display_name: "Docker",
+        required: false,
+    },
+    DependencyNameMapping {
+        core_name: "rust",
+        display_name: "Rust/Cargo",
+        required: false,
+    },
+    // CLI 工具
+    DependencyNameMapping {
+        core_name: "curl",
+        display_name: "cURL",
+        required: false,
+    },
+    DependencyNameMapping {
+        core_name: "jq",
+        display_name: "jq",
+        required: false,
+    },
+    DependencyNameMapping {
+        core_name: "pandoc",
+        display_name: "Pandoc",
+        required: false,
+    },
+    DependencyNameMapping {
+        core_name: "ffmpeg",
+        display_name: "FFmpeg",
+        required: false,
+    },
+    // npm 工具
     DependencyNameMapping {
         core_name: "opencode",
-        display_name: "opencode",
+        display_name: "OpenCode",
         required: false,
     },
     DependencyNameMapping {
         core_name: "@anthropic-ai/claude-code",
-        display_name: "claude-code",
+        display_name: "Claude Code",
         required: false,
     },
 ];

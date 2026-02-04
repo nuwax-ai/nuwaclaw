@@ -1,116 +1,180 @@
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
+/* 全局样式重置 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafb);
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
 }
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
 
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+    'Noto Color Emoji';
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
 }
 
-.container {
-  margin: 0;
-  padding-top: 10vh;
+/* 主布局容器 */
+.app-container {
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  text-align: center;
+  overflow: hidden;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
+/* 顶部栏 */
+.app-header {
+  height: 56px;
+  background: #001529;
+  padding: 0 24px;
   display: flex;
-  justify-content: center;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  z-index: 100;
 }
 
-a {
+.app-header-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-header-title {
+  color: #fff;
+  font-size: 16px;
   font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+  margin: 0 !important;
 }
 
-a:hover {
-  color: #535bf2;
+/* 主体区域 */
+.app-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
 }
 
-h1 {
-  text-align: center;
+/* 左侧边栏 */
+.app-sider {
+  width: 160px;
+  background: #001529;
+  overflow-y: auto;
+  flex-shrink: 0;
 }
 
-input,
-button {
+.app-sider .ant-menu {
+  border-right: 0;
+}
+
+/* 主内容区 */
+.app-content {
+  flex: 1;
+  padding: 16px;
+  background: #f0f2f5;
+  overflow-y: auto;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f0f0f0;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* 菜单样式 */
+.ant-menu-dark {
+  background: transparent;
+}
+
+.ant-menu-dark .ant-menu-item-selected {
+  background: #1890ff;
+}
+
+/* 卡片悬停效果 */
+.ant-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* 按钮动画 */
+.ant-btn {
+  transition: all 0.3s;
+}
+
+.ant-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.4);
+}
+
+/* 徽章样式 */
+.ant-badge-status-text {
+  font-size: 14px;
+}
+
+/* 表单标签 */
+.ant-form-item-label > label {
+  font-weight: 500;
+}
+
+/* 列表项悬停 */
+.ant-list-item {
+  transition: background-color 0.3s;
+}
+
+.ant-list-item:hover {
+  background-color: #f5f5f5;
+}
+
+/* 标签样式 */
+.ant-tag {
+  margin-right: 0;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* 警告框样式 */
+.ant-alert {
   border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
 }
 
-button {
-  cursor: pointer;
+/* 描述列表样式 */
+.ant-descriptions-item-label {
+  color: #666;
 }
 
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
+/* 开关样式 */
+.ant-switch-checked {
+  background-color: #1890ff;
 }
 
-input,
-button {
-  outline: none;
+/* 选择器样式 */
+.ant-select-selector {
+  border-radius: 6px !important;
 }
 
-#greet-input {
-  margin-right: 5px;
+/* 输入框样式 */
+.ant-input,
+.ant-input-affix-wrapper {
+  border-radius: 6px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
+/* Progress 样式 */
+.ant-progress-text {
+  font-size: 12px;
 }
