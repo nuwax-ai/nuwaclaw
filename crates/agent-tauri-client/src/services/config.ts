@@ -99,7 +99,7 @@ export const DEFAULT_SCENES: SceneConfig[] = [
     name: '测试环境',
     description: '测试服务器',
     server: {
-      apiUrl: 'https://test-nvwa-api.xspaceagi.com',
+      apiUrl: 'https://testagent.xspaceagi.com',
       timeout: 30000,
     },
     local: {

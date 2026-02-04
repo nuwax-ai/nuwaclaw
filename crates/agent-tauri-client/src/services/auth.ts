@@ -168,7 +168,10 @@ export async function loginAndRegister(
     message.success('登录成功！');
     return response;
   } catch (error: any) {
-    message.error(error.message || '登录失败');
+    // 优先使用错误消息，其次使用响应中的 message，最后使用默认消息
+    const errorMessage = error?.message || error?.data?.message || '登录失败';
+    console.error('登录失败:', error);
+    message.error(errorMessage);
     throw error;
   }
 }

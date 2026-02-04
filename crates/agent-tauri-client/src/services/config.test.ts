@@ -24,7 +24,7 @@ describe('ConfigService', () => {
       const testScene = DEFAULT_SCENES.find(s => s.id === 'test');
       expect(testScene).toBeDefined();
       expect(testScene?.name).toBe('测试环境');
-      expect(testScene?.server.apiUrl).toBe('https://test-nvwa-api.xspaceagi.com');
+      expect(testScene?.server.apiUrl).toBe('https://testagent.xspaceagi.com');
     });
 
     it('应该包含生产环境场景', () => {

@@ -221,6 +221,7 @@ function App() {
       </Card>
 
       {/* 登录表单 */}
+      <LoginForm onLoginSuccess={() => {}} />
 
       {/* 状态卡片 */}
       <Card

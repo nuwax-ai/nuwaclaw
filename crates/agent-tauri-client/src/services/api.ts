@@ -41,7 +41,7 @@ export interface RequestConfig {
 
 // 默认配置
 const DEFAULT_CONFIG: RequestConfig = {
-  baseUrl: 'https://test-nvwa-api.xspaceagi.com',
+  baseUrl: 'https://testagent.xspaceagi.com',
   timeout: 30000,
 };
 
@@ -99,7 +99,9 @@ export async function apiRequest<T>(
 
     // 统一错误处理
     if (result.code !== SUCCESS_CODE) {
-      const errorMsg = result.message || ERROR_MESSAGES[result.code] || '请求失败';
+      const errorMsg = result.message || ERROR_MESSAGES[result.code] || `请求失败 (错误码: ${result.code})`;
+      
+      console.error('API Error:', result);
       
       if (options.showError !== false) {
         message.error(errorMsg);
