@@ -23,7 +23,6 @@ import {
   ReloadOutlined,
   FileOutlined,
   FileTextOutlined,
-  FileJsonOutlined,
 } from '@ant-design/icons';
 import { LogFilter, ExportFormat, exportLogs, downloadLogs, clearLogs } from '../services/logService';
 
@@ -69,7 +68,7 @@ export default function LogToolbar({
     items: [
       {
         key: 'json',
-        icon: <FileJsonOutlined />,
+        icon: <FileTextOutlined />,
         label: 'JSON 格式',
         onClick: () => handleExport('json'),
       },

@@ -3,12 +3,11 @@
  * 显示各级别日志数量
  */
 
-import { Space, Tag, Badge } from 'antd';
+import { Space, Badge } from 'antd';
 import {
   CheckCircleOutlined,
   WarningOutlined,
   CloseCircleOutlined,
-  InfoCircleOutlined,
   FileTextOutlined,
 } from '@ant-design/icons';
 import { LogStats } from '../services/logService';
@@ -19,11 +18,12 @@ interface LogStatsProps {
   onFilterClick?: (level: string) => void;
 }
 
-export default function LogStatsComponent({ 
-  stats, 
+export default function LogStatsComponent({
+  stats,
   currentFilter,
   onFilterClick,
 }: LogStatsProps) {
+  // 日志级别配置
   const items = [
     {
       key: 'total',
@@ -57,33 +57,37 @@ export default function LogStatsComponent({
 
   return (
     <Space split="|" size={16}>
-      {items.map(item => (
+      {items.map((item) => (
         <Badge
           key={item.key}
           count={item.count}
           showZero
-          style={{ 
+          style={{
             backgroundColor: currentFilter === item.key ? item.color : '#f0f0f0',
             color: currentFilter === item.key ? '#fff' : item.color,
           }}
           onClick={() => onFilterClick?.(item.key)}
           className={onFilterClick ? 'log-stats-item' : ''}
         >
-          <span style={{ 
-            color: item.color, 
-            marginRight: 4,
-            cursor: onFilterClick ? 'pointer' : 'default',
-          }}>
+          <span
+            style={{
+              color: item.color,
+              marginRight: 4,
+              cursor: onFilterClick ? 'pointer' : 'default',
+            }}
+          >
             {item.icon}
           </span>
-          <span style={{ 
-            fontWeight: currentFilter === item.key ? 600 : 400,
-            cursor: onFilterClick ? 'pointer' : 'default',
-          }}>
+          <span
+            style={{
+              fontWeight: currentFilter === item.key ? 600 : 400,
+              cursor: onFilterClick ? 'pointer' : 'default',
+            }}
+          >
             {item.label}
           </span>
-        </span>
-      </Badge>
+        </Badge>
+      ))}
     </Space>
   );
 }
