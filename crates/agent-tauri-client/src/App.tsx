@@ -69,6 +69,7 @@ import {
 import LoginForm from './components/LoginForm';
 import SceneSwitcher from './components/SceneSwitcher';
 import ConfigEditor from './components/ConfigEditor';
+import LogViewer from './components/LogViewer';
 import {
   DependencyItem,
   DependencyStatus,
@@ -903,46 +904,12 @@ function App() {
 
   // 日志页面
   const renderLogsPage = () => (
-    <Card
-      title={
-        <Space>
-          <FileTextOutlined />
-          <span>操作日志</span>
-        </Space>
-      }
-      extra={
-        <Select
-          value={filterLevel}
-          onChange={setFilterLevel}
-          style={{ width: 120 }}
-          options={[
-            { value: 'all', label: '全部' },
-            { value: 'info', label: '信息' },
-            { value: 'success', label: '成功' },
-            { value: 'warning', label: '警告' },
-            { value: 'error', label: '错误' },
-          ]}
-        />
-      }
-    >
-      <List
-        dataSource={filteredLogs}
-        renderItem={(log) => (
-          <List.Item>
-            <List.Item.Meta
-              avatar={
-                <Tag color={getLogColor(log.level)}>
-                  {log.level.toUpperCase()}
-                </Tag>
-              }
-              title={<Text code>{log.timestamp}</Text>}
-              description={log.message}
-            />
-          </List.Item>
-        )}
-        locale={{ emptyText: '暂无日志' }}
-      />
-    </Card>
+    <LogViewer
+      maxHeight={600}
+      showSource={true}
+      enableRealtime={true}
+      autoScrollDefault={true}
+    />
   );
 
   return (
