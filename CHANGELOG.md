@@ -92,6 +92,15 @@
 
 - 待实现：心跳机制用于会话保持
 
+### 测试
+
+- 添加 Vitest 测试框架 ([3546d6b](https://github.com/nuwax-ai/nuwax-agent/commit/3546d6b))
+- 添加配置服务单元测试 (16 tests)
+- 添加依赖管理单元测试 (27 tests)
+- 添加认证服务单元测试 (16 tests)
+- 总计 59 个测试全部通过
+- 添加测试运行脚本 (pnpm test / pnpm test:coverage)
+
 ### 文档
 
 - 添加项目指南文档和进程记录 ([8c9919a](https://github.com/nuwax-ai/nuwax-agent/commit/8c9919a))
