@@ -39,6 +39,7 @@ import {
   PoweroffOutlined,
 } from '@ant-design/icons';
 import { Typography } from 'antd';
+import { invoke } from '@tauri-apps/api/core';
 import {
   getStep1Config,
   saveStep1Config,
@@ -112,10 +113,24 @@ export default function SettingsPage({
     }
   }, [form]);
 
-  // 组件挂载时加载配置
+  /**
+   * 加载开机自启动状态
+   */
+  const loadAutoLaunchState = useCallback(async () => {
+    try {
+      const enabled = await invoke<boolean>('get_auto_launch');
+      setAutoLaunch(enabled);
+    } catch (error) {
+      console.error('获取开机自启动状态失败:', error);
+      // 获取失败时保持默认 false 状态
+    }
+  }, []);
+
+  // 组件挂载时加载配置和自启动状态
   useEffect(() => {
     loadConfig();
-  }, [loadConfig]);
+    loadAutoLaunchState();
+  }, [loadConfig, loadAutoLaunchState]);
 
   /**
    * 选择工作区目录
@@ -186,17 +201,19 @@ export default function SettingsPage({
 
   /**
    * 开机自启动设置变更
-   * TODO: 需要调用系统 API 设置开机自启动
+   * 调用 Rust 后端实现跨平台开机自启动
    */
   const handleAutoLaunchChange = async (checked: boolean) => {
     try {
-      // TODO: 调用 Tauri 命令设置开机自启动
-      // await invoke('set_auto_launch', { enabled: checked });
+      // 调用 Tauri 命令设置开机自启动
+      await invoke('set_auto_launch', { enabled: checked });
       setAutoLaunch(checked);
       message.success(checked ? '已开启开机自启动' : '已关闭开机自启动');
     } catch (error) {
       console.error('设置开机自启动失败:', error);
       message.error('设置开机自启动失败，请在系统设置中手动配置');
+      // 恢复 UI 状态
+      setAutoLaunch(!checked);
     }
   };
 

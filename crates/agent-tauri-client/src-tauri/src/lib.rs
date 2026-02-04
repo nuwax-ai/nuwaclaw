@@ -561,6 +561,92 @@ async fn restart_all_services() -> Result<(), String> {
     Ok(())
 }
 
+// ========== 开机自启动命令 ==========
+
+use auto_launch::AutoLaunchBuilder;
+
+/// 创建 AutoLaunch 实例
+/// 根据当前运行的应用信息构建
+fn create_auto_launch(app: &tauri::AppHandle) -> Result<auto_launch::AutoLaunch, String> {
+    // 获取应用名称
+    let app_name = "Nuwax Agent";
+    
+    // 获取应用可执行文件路径
+    let exe_path = std::env::current_exe()
+        .map_err(|e| format!("获取应用路径失败: {}", e))?;
+    
+    // macOS 上需要获取 .app bundle 路径，而不是内部的可执行文件路径
+    #[cfg(target_os = "macos")]
+    let app_path = {
+        // 路径格式: /Applications/xxx.app/Contents/MacOS/xxx
+        // 需要回退到 .app 目录
+        let path_str = exe_path.to_string_lossy().to_string();
+        if path_str.contains(".app/Contents/MacOS") {
+            // 找到 .app 的位置并截取
+            if let Some(idx) = path_str.find(".app/") {
+                path_str[..idx + 4].to_string() // 包含 .app
+            } else {
+                path_str
+            }
+        } else {
+            path_str
+        }
+    };
+    
+    #[cfg(not(target_os = "macos"))]
+    let app_path = exe_path.to_string_lossy().to_string();
+    
+    // 获取 bundle identifier
+    let bundle_id = app.config().identifier.clone();
+    
+    // 构建 AutoLaunch
+    let mut builder = AutoLaunchBuilder::new();
+    builder
+        .set_app_name(app_name)
+        .set_app_path(&app_path)
+        .set_args(&["--minimized"]); // 启动时最小化
+    
+    // macOS 特定设置
+    #[cfg(target_os = "macos")]
+    {
+        builder.set_bundle_identifiers(&[&bundle_id]);
+        builder.set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent);
+    }
+    
+    // Windows 特定设置：仅当前用户
+    #[cfg(target_os = "windows")]
+    {
+        builder.set_windows_enable_mode(auto_launch::WindowsEnableMode::CurrentUser);
+    }
+    
+    builder.build().map_err(|e| format!("创建 AutoLaunch 失败: {}", e))
+}
+
+/// 设置开机自启动
+#[tauri::command]
+async fn set_auto_launch(app: tauri::AppHandle, enabled: bool) -> Result<bool, String> {
+    let auto_launch = create_auto_launch(&app)?;
+    
+    if enabled {
+        auto_launch.enable().map_err(|e| format!("启用开机自启动失败: {}", e))?;
+        log::info!("[set_auto_launch] 已启用开机自启动");
+    } else {
+        auto_launch.disable().map_err(|e| format!("禁用开机自启动失败: {}", e))?;
+        log::info!("[set_auto_launch] 已禁用开机自启动");
+    }
+    
+    Ok(enabled)
+}
+
+/// 获取开机自启动状态
+#[tauri::command]
+async fn get_auto_launch(app: tauri::AppHandle) -> Result<bool, String> {
+    let auto_launch = create_auto_launch(&app)?;
+    let enabled = auto_launch.is_enabled().map_err(|e| format!("获取开机自启动状态失败: {}", e))?;
+    log::info!("[get_auto_launch] 当前状态: {}", enabled);
+    Ok(enabled)
+}
+
 /// 选择目录对话框
 #[tauri::command]
 async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
@@ -673,6 +759,9 @@ pub fn run() {
             install_local_npm_package,
             restart_all_services,
             select_directory,
+            // 开机自启动命令
+            set_auto_launch,
+            get_auto_launch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
