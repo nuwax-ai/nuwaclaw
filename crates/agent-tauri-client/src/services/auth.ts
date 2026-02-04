@@ -126,6 +126,7 @@ function getLocalSandboxValue(): SandboxValue {
     vncPort: 9099,
     fileServerPort: 60000,
     apiKey: '',
+    maxUsers: 1,
   };
 }
 
@@ -146,10 +147,12 @@ export async function loginAndRegister(
     username,
     password,
     savedKey: savedConfigKey || undefined,
-    sandboxValue: getLocalSandboxValue(),
+    sandboxConfigValue: getLocalSandboxValue(),
   };
 
-  message.loading('正在登录...', 0);
+  // 启动 loading（不会自动关闭，需要手动销毁）
+  const loadingKey = 'loginLoading';
+  message.loading({ content: '正在登录...', key: loadingKey, duration: 0 });
 
   try {
     const response = await registerClient(params);
@@ -165,13 +168,15 @@ export async function loginAndRegister(
       displayName: response.name,
     });
 
-    message.success('登录成功！');
+    // 关闭 loading 并显示成功
+    message.success({ content: '登录成功！', key: loadingKey });
     return response;
   } catch (error: any) {
     // 优先使用错误消息，其次使用响应中的 message，最后使用默认消息
     const errorMessage = error?.message || error?.data?.message || '登录失败';
     console.error('登录失败:', error);
-    message.error(errorMessage);
+    // 关闭 loading 并显示错误
+    message.error({ content: errorMessage, key: loadingKey });
     throw error;
   }
 }

@@ -127,12 +127,16 @@ export async function apiRequest<T>(
 /**
  * 沙箱配置值
  */
+/**
+ * 沙盒配置值
+ */
 export interface SandboxValue {
   hostWithScheme: string;
   agentPort: number;
   vncPort: number;
   fileServerPort: number;
   apiKey?: string;
+  maxUsers?: number;
 }
 
 /**
@@ -142,11 +146,11 @@ export interface ClientRegisterParams {
   username: string;
   password: string;
   savedKey?: string;
-  sandboxValue: SandboxValue;
+  sandboxConfigValue: SandboxValue;
 }
 
 /**
- * 客户端注册响应数据
+ * 客户端注册响应数据 (SandboxConfigDto)
  */
 export interface ClientRegisterResponse {
   id: number;
@@ -154,9 +158,7 @@ export interface ClientRegisterResponse {
   userId: number;
   name: string;
   configKey: string;
-  configValue: SandboxValue & {
-    maxUsers?: number | null;
-  };
+  configValue: SandboxValue;
   description: string;
   isActive: boolean;
   online: boolean;
