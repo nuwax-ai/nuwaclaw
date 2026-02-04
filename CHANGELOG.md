@@ -7,6 +7,15 @@
 
 ## [待发布]
 
+### 修复
+
+- 修复 App.tsx 中缺失的 useEffect 声明
+- 修复 LogViewer.tsx 中重复导入问题
+- 修复 LogStats.tsx 中 JSX 标签不匹配问题
+- 修复 vendors/nuwax-rustdesk 中不存在的 BusinessMessage 导出
+- 修复 LogToolbar.tsx 中不存在的 FileJsonOutlined 图标
+- 从 workspace 排除 data-server 模块避免 hbb_common 包冲突
+
 ## [0.1.0] - 2026-02-04
 
 ### 新增功能

@@ -116,6 +116,8 @@ function App() {
     setCurrentScene(getCurrentScene());
   }, []);
 
+  // 监听 Agent 状态和日志变化
+  useEffect(() => {
     onStatusChange((newStatus: AgentStatus) => {
       setStatus(newStatus);
       if (newStatus === 'running') {

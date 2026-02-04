@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Card, Empty, Spin, Typography, Space } from 'antd';
+import { Card, Empty, Spin, Typography, Space, Tooltip, Button } from 'antd';
 import { 
   FileTextOutlined, 
   ReloadOutlined,
@@ -215,5 +215,4 @@ export default function LogViewer({
   );
 }
 
-// 引入 Tooltip
-import { Tooltip, Button, Empty } from 'antd';
+// 日志列表为空时的显示组件
