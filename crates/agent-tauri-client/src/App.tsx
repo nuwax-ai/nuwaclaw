@@ -993,6 +993,12 @@ function App() {
   const [permissions, setPermissions] = useState<PermissionItem[]>([]);
   const [permissionsLoading, setPermissionsLoading] = useState(false);
 
+  // 关键权限列表（只显示需要系统授权的权限）
+  const KEY_PERMISSIONS = ['accessibility', 'file_access'];
+
+  // 过滤后的权限列表
+  const filteredPermissions = permissions.filter(p => KEY_PERMISSIONS.includes(p.id));
+
   // 加载权限数据
   const loadPermissions = useCallback(async () => {
     setPermissionsLoading(true);
@@ -1035,29 +1041,41 @@ function App() {
     return baseConfig[status] || baseConfig.unknown;
   };
 
-  // 计算权限统计
-  const grantedCount = permissions.filter((p) => p.status === 'granted').length;
-  const totalCount = permissions.length;
-  const allGranted = grantedCount === totalCount;
+  // 获取权限图标
+  const getPermissionIcon = (permissionId: string) => {
+    switch (permissionId) {
+      case 'accessibility':
+        return <ApiOutlined />;
+      case 'file_access':
+        return <FolderOutlined />;
+      default:
+        return <SafetyOutlined />;
+    }
+  };
+
+  // 计算权限统计（只统计关键权限）
+  const grantedCount = filteredPermissions.filter((p) => p.status === 'granted').length;
+  const totalCount = filteredPermissions.length;
+  const allGranted = grantedCount === totalCount && totalCount > 0;
 
   // 权限页面
   const renderPermissionsPage = () => (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ maxWidth: 900 }}>
       {/* 标题栏 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>权限设置</Title>
-        <Button icon={<RedoOutlined />} onClick={handleRefreshPermissions} loading={permissionsLoading}>
-          刷新
+        <Title level={4} style={{ margin: 0 }}>系统权限</Title>
+        <Button icon={<ReloadOutlined />} onClick={handleRefreshPermissions} loading={permissionsLoading}>
+          刷新状态
         </Button>
       </div>
 
       {/* 权限状态摘要 */}
       <Alert
-        message={allGranted ? '权限正常' : '权限提醒'}
+        message={allGranted ? '权限正常' : '需要授权'}
         description={
           allGranted
-            ? `所有权限已授权 (${grantedCount}/${totalCount})`
-            : `已授权 ${grantedCount}/${totalCount} 个权限`
+            ? '所有关键权限已授权，客户端可正常工作'
+            : `已授权 ${grantedCount}/${totalCount} 个关键权限，请完成剩余权限授权`
         }
         type={allGranted ? 'success' : 'warning'}
         showIcon
@@ -1065,66 +1083,72 @@ function App() {
       />
 
       {/* 权限列表 */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <Card title="关键权限">
         <List
           loading={permissionsLoading}
-          dataSource={permissions}
+          dataSource={filteredPermissions}
           renderItem={(item) => {
             const statusConfig = getStatusConfig(item.status);
+            const isGranted = item.status === 'granted';
+            
             return (
               <List.Item
                 style={{
-                  background: item.required && item.status !== 'granted' ? '#fffbe6' : undefined,
+                  background: !isGranted ? '#fffbe6' : undefined,
                   borderRadius: 8,
                   marginBottom: 8,
                   padding: '12px 16px',
                 }}
                 actions={[
-                  <Button
-                    type="link"
-                    size="small"
-                    onClick={() => handleOpenSettings(item.id)}
-                  >
-                    前往设置
-                  </Button>,
-                ]}
+                  <Tag color={statusConfig.color}>{statusConfig.text}</Tag>,
+                  !isGranted && (
+                    <Button
+                      type="primary"
+                      size="small"
+                      onClick={() => handleOpenSettings(item.id)}
+                    >
+                      前往授权
+                    </Button>
+                  ),
+                ].filter(Boolean)}
               >
                 <List.Item.Meta
                   avatar={
                     <Avatar
-                      icon={<SafetyOutlined />}
+                      icon={getPermissionIcon(item.id)}
                       style={{
-                        backgroundColor:
-                          item.status === 'granted'
-                            ? '#52c41a'
-                            : item.required
-                            ? '#faad14'
-                            : '#d9d9d9',
+                        backgroundColor: isGranted ? '#52c41a' : '#faad14',
                       }}
                     />
                   }
                   title={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Space>
                       <span>{item.displayName}</span>
-                      {item.required && (
-                        <Tag color="red" style={{ fontSize: 12 }}>
-                          必需
-                        </Tag>
-                      )}
-                    </div>
+                      <Tag color="blue">必需</Tag>
+                    </Space>
                   }
                   description={
-                    <div>
-                      <div style={{ color: '#666', marginBottom: 4 }}>{item.description}</div>
-                      <Tag color={statusConfig.color}>{statusConfig.text}</Tag>
-                    </div>
+                    <Text type="secondary">{item.description}</Text>
                   }
                 />
               </List.Item>
             );
           }}
         />
-      </div>
+      </Card>
+
+      {/* 提示信息 */}
+      <Alert
+        message="权限说明"
+        description={
+          <ul style={{ margin: 0, paddingLeft: 20 }}>
+            <li><strong>辅助功能</strong>：用于远程控制时模拟键盘鼠标输入（macOS 需要在系统设置中授权）</li>
+            <li><strong>文件访问</strong>：用于文件传输和本地文件操作</li>
+          </ul>
+        }
+        type="info"
+        style={{ marginTop: 16 }}
+      />
     </div>
   );
 
