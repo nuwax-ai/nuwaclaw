@@ -75,6 +75,11 @@ help:
 	@echo "  package-msi    - 打包 Windows MSI"
 	@echo "  package-deb    - 打包 Linux DEB"
 	@echo ""
+	@echo "=== Tauri 应用打包 ==="
+	@echo "  tauri-bundle       - 打包 Tauri 应用 (当前平台)"
+	@echo "  tauri-bundle-all   - 打包 Tauri 所有平台 (macOS/Windows/Linux)"
+	@echo "  tauri-dev          - 运行 Tauri 开发模式"
+	@echo ""
 	@echo "=== 依赖 ==="
 	@echo "  setup-repo     - 初始化 Git 子模块（含嵌套的 hbb_common）"
 	@echo "  setup-vcpkg    - 安装 vcpkg 和依赖"
@@ -267,7 +272,7 @@ package-msi: build-release
 
 .PHONY: package-deb
 package-deb: build-release
-	@echo ">>> 打包 Linux DEB..."
+	@echo "打包 Linux DEB..."
 ifeq ($(UNAME_S),Linux)
 	cd crates/agent-gpui-client && cargo packager --release --formats deb
 else
@@ -284,6 +289,41 @@ else
 	@echo "错误: AppImage 打包仅支持 Linux"
 	@exit 1
 endif
+
+# ============================================================================
+# Tauri 应用打包目标
+# ============================================================================
+
+# Tauri 客户端 crate 名称
+TAURI_CLIENT := agent-tauri-client
+
+.PHONY: tauri-build
+tauri-build:
+	@echo ">>> 构建 Tauri 应用..."
+	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build -- $(RELEASE_FLAGS)
+
+.PHONY: tauri-bundle
+tauri-bundle: tauri-build
+	@echo ">>> 打包 Tauri 应用 (当前平台)..."
+	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri bundle -- $(RELEASE_FLAGS)
+
+.PHONY: tauri-bundle-all
+tauri-bundle-all: tauri-build
+	@echo ">>> 打包 Tauri 应用 (所有平台)..."
+ifeq ($(UNAME_S),Darwin)
+	@echo "注意: 交叉编译需要安装工具链 (brew install mingw-w64 cargo-xar)" || true
+endif
+	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build --bundles all -- $(RELEASE_FLAGS)
+
+.PHONY: tauri-dev
+tauri-dev:
+	@echo ">>> 运行 Tauri 开发模式..."
+	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri dev
+
+.PHONY: tauri-info
+tauri-info:
+	@echo ">>> Tauri 应用信息..."
+	@cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri info
 
 # ============================================================================
 # 依赖管理

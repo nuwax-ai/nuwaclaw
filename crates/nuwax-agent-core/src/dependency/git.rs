@@ -156,10 +156,11 @@ impl GitDetector {
             if path_buf.exists() {
                 if let Ok(version) = self.get_version_from_path(&path_buf) {
                     debug!("Found Git at {}: v{}", path, version);
+                    let source = self.detect_source(&path_buf);
                     return Ok(GitInfo {
                         version,
                         path: path_buf,
-                        source: self.detect_source(&path_buf),
+                        source,
                     });
                 }
             }

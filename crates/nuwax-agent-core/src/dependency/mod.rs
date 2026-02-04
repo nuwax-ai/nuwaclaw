@@ -12,7 +12,7 @@ pub mod docker;
 pub mod cli_tools;
 
 pub use detector::{DependencyDetector, DetectionResult, DetectorError, InstallerError, ToolInfo, ToolInstaller};
-pub use manager::{DependencyManager, DependencyStatus, DependencyItem};
+pub use manager::{DependencyManager, DependencyStatus, DependencyItem, DependencySummary};
 pub use node::{NodeDetector, NodeInfo, NodeInstaller};
 pub use npm_tools::NpmToolInstaller;
 pub use python::{PythonDetector, PythonInfo};

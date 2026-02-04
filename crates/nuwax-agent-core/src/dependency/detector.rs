@@ -89,6 +89,8 @@ pub enum InstallerError {
     NotFound(String),
     #[error("命令执行失败: {0}")]
     CommandFailed(String),
+    #[error("工具不支持安装: {0}")]
+    ToolNotFound(String),
 }
 
 /// 工具信息

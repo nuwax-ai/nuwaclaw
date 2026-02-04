@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
-use super::detector::{DependencyDetector, DetectorError, ToolInstaller};
+use super::detector::{DependencyDetector, DetectorError, InstallerError, ToolInstaller};
 use super::node::{NodeDetector, NodeError, NodeInfo};
 use super::npm_tools::NpmToolInstaller;
 
@@ -43,6 +43,17 @@ pub struct DependencyItem {
     pub required: bool,
     /// 描述
     pub description: String,
+}
+
+/// 依赖统计信息
+#[derive(Debug, Clone)]
+pub struct DependencySummary {
+    /// 总数
+    pub total: usize,
+    /// 已安装数量
+    pub installed: usize,
+    /// 缺失数量
+    pub missing: usize,
 }
 
 /// 依赖管理器
@@ -329,6 +340,81 @@ impl DependencyManager {
     /// 获取指定依赖
     pub async fn get(&self, name: &str) -> Option<DependencyItem> {
         self.dependencies.read().await.get(name).cloned()
+    }
+
+    /// 获取所有依赖（别名方法，兼容旧代码）
+    pub async fn get_all_dependencies(&self) -> Vec<DependencyItem> {
+        self.get_all().await
+    }
+
+    /// 检查单个依赖状态
+    pub async fn check(&self, name: &str) -> Option<DependencyItem> {
+        self.get(name).await
+    }
+
+    /// 获取依赖统计信息
+    pub async fn get_summary(&self) -> DependencySummary {
+        let deps = self.dependencies.read().await;
+        let total = deps.len();
+        let installed = deps.values().filter(|d| d.status == DependencyStatus::Ok).count();
+        let missing = deps.values().filter(|d| d.status == DependencyStatus::Missing).count();
+        DependencySummary {
+            total,
+            installed,
+            missing,
+        }
+    }
+
+    /// 安装指定依赖
+    #[cfg(feature = "dependency-management")]
+    pub async fn install(&self, name: &str) -> Result<(), InstallerError> {
+        match name {
+            "nodejs" => {
+                self.install_nodejs(|_, _| {})
+                    .await
+                    .map_err(|e| InstallerError::InstallFailed(e.to_string()))?;
+                Ok(())
+            }
+            "npm" | "opencode" | "@anthropic-ai/claude-code" => {
+                self.install_npm_tool(name)
+                    .await
+                    .map_err(|e| InstallerError::InstallFailed(e.to_string()))?;
+                Ok(())
+            }
+            _ => Err(InstallerError::ToolNotFound(name.to_string())),
+        }
+    }
+
+    /// 安装所有缺失的依赖
+    #[cfg(feature = "dependency-management")]
+    pub async fn install_all_missing(&self) -> Result<(), InstallerError> {
+        let missing_deps: Vec<String> = {
+            let deps = self.dependencies.read().await;
+            deps.values()
+                .filter(|d| d.status == DependencyStatus::Missing)
+                .map(|d| d.name.clone())
+                .collect()
+        };
+
+        for name in missing_deps {
+            if let Err(e) = self.install(&name).await {
+                warn!("Failed to install {}: {:?}", name, e);
+            }
+        }
+        Ok(())
+    }
+
+    /// 卸载指定依赖
+    #[cfg(feature = "dependency-management")]
+    pub async fn uninstall(&self, name: &str) -> Result<(), InstallerError> {
+        // 目前主要支持 npm 工具的卸载
+        match self.installer.uninstall_tool(name) {
+            Ok(_) => {
+                self.update_status(name, DependencyStatus::Missing).await;
+                Ok(())
+            }
+            Err(e) => Err(InstallerError::CommandFailed(e.to_string())),
+        }
     }
 
     /// 检查所有必需依赖是否就绪
