@@ -80,8 +80,6 @@ function App() {
   const [sessionId, setSessionId] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [autoConnect, setAutoConnect] = useState(true);
-  const [notifications, setNotifications] = useState(true);
   const [onlineStatus, setOnlineStatus] = useState<boolean | null>(null);
   
   // 场景配置状态
@@ -238,25 +236,6 @@ function App() {
   // ============================================
   // 场景配置管理方法
   // ============================================
-  const isCurrentScene = (sceneId: string) => currentScene?.id === sceneId;
-
-  const getEffectiveScene = (): SceneConfig => {
-    return currentScene || scenes[0] || {
-      id: 'local',
-      name: '本地开发',
-      isDefault: true,
-      description: '本地开发环境',
-      server: {
-        apiUrl: 'http://127.0.0.1:8080',
-        timeout: 30000,
-      },
-      local: {
-        agent: { host: '127.0.0.1', port: 8080 },
-        vnc: { host: '127.0.0.1', port: 5900 },
-        fileServer: { host: '127.0.0.1', port: 8081 },
-      },
-    };
-  };
 
   const handleSwitchScene = async (sceneId: string) => {
     const success = await switchScene(sceneId);
@@ -419,16 +398,11 @@ function App() {
             <SettingsPage
               scenes={scenes}
               currentScene={currentScene}
-              autoConnect={autoConnect}
-              notifications={notifications}
               onSwitchScene={handleSwitchScene}
               onAddConfig={handleAddConfig}
               onEditConfig={handleEditConfig}
               onDeleteConfig={handleDeleteConfig}
               onResetConfig={handleResetConfig}
-              onAutoConnectChange={setAutoConnect}
-              onNotificationsChange={setNotifications}
-              getEffectiveScene={getEffectiveScene}
             />
           )}
           {activeTab === 'dependencies' && <DependenciesPage />}
