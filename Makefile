@@ -300,12 +300,12 @@ TAURI_CLIENT := agent-tauri-client
 .PHONY: tauri-build
 tauri-build:
 	@echo ">>> 构建 Tauri 应用..."
-	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build -- $(RELEASE_FLAGS)
+	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build
 
 .PHONY: tauri-bundle
 tauri-bundle: tauri-build
 	@echo ">>> 打包 Tauri 应用 (当前平台)..."
-	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri bundle -- $(RELEASE_FLAGS)
+	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri bundle
 
 .PHONY: tauri-bundle-all
 tauri-bundle-all: tauri-build
@@ -313,7 +313,7 @@ tauri-bundle-all: tauri-build
 ifeq ($(UNAME_S),Darwin)
 	@echo "注意: 交叉编译需要安装工具链 (brew install mingw-w64 cargo-xar)" || true
 endif
-	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build --bundles all -- $(RELEASE_FLAGS)
+	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build --bundles all
 
 .PHONY: tauri-dev
 tauri-dev:
