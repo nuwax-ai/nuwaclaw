@@ -5,7 +5,7 @@ members = [
     "crates/agent-tauri-client/src-tauri",
     "crates/agent-server-admin",
     "crates/system-permissions",
-    # "crates/data-server",  # TODO 暂时排除，避免 hbb_common 冲突
+    "crates/data-server",
     "crates/agent-protocol",
     "crates/nuwax-agent-core",
 ]
