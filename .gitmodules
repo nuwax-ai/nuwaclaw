@@ -16,6 +16,7 @@
 [submodule "vendors/rustdesk-server"]
 	path = vendors/rustdesk-server
 	url = https://github.com/rustdesk/rustdesk-server.git
+	branch = master
 [submodule "vendors/gpui-component"]
 	path = vendors/gpui-component
 	url = https://github.com/longbridge/gpui-component.git
