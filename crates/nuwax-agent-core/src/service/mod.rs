@@ -277,6 +277,29 @@ impl ServiceManager {
         self.start_lanproxy().await
     }
 
+    /// 使用指定配置启动 nuwax-lanproxy
+    pub async fn start_lanproxy_with_config(&self, config: NuwaxLanproxyConfig) -> Result<(), String> {
+        info!("Starting nuwax-lanproxy with config...");
+
+        let child: Box<dyn process_wrap::tokio::ChildWrapper> = process_wrap::tokio::CommandWrap::with_new(
+            "nuwax-lanproxy",
+            |cmd| {
+                cmd.arg("-s").arg(&config.server_ip);
+                cmd.arg("-p").arg(config.server_port.to_string());
+                cmd.arg("-k").arg(&config.client_key);
+            },
+        )
+        .wrap(process_wrap::tokio::ProcessGroup::leader())
+        .spawn()
+        .map_err(|e| format!("Failed to start nuwax-lanproxy: {}", e))?;
+
+        let mut guard = self.lanproxy.lock().await;
+        *guard = Some(child);
+
+        info!("nuwax-lanproxy started successfully");
+        Ok(())
+    }
+
     /// 启动 HTTP Server
     pub async fn start_rcoder(&self, port: u16, agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>) -> Result<(), String> {
         info!("Starting HTTP Server (rcoder) on port {}...", port);

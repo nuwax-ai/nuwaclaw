@@ -1,4 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+#[macro_use]
+extern crate log;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use system_permissions::{
@@ -7,7 +9,59 @@ use system_permissions::{
 };
 use tauri::{Emitter, State, Window};
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_store::StoreExt;
 use tokio::sync::Mutex;
+
+// ========== AgentRunnerApi 最小实现 ==========
+
+use async_trait::async_trait;
+use nuwax_agent_core::api::traits::agent_runner::{
+    AgentRunnerApi, AgentInfo, AgentStatus, AgentStatusResult, ChatRequest, ChatResponse,
+    ProgressMessage,
+};
+
+/// AgentRunnerApi 的最小实现（用于启动 HTTP Server）
+///
+/// 完整功能需要在 agent-tauri 中实现
+#[derive(Clone)]
+struct MinimalAgentRunnerApi;
+
+#[async_trait]
+impl AgentRunnerApi for MinimalAgentRunnerApi {
+    async fn chat(&self, _request: ChatRequest) -> Result<ChatResponse, String> {
+        Err("AgentRunnerApi 未完整实现".to_string())
+    }
+
+    async fn subscribe_progress(
+        &self,
+        _session_id: &str,
+    ) -> Result<tokio::sync::mpsc::Receiver<ProgressMessage>, String> {
+        Err("AgentRunnerApi 未完整实现".to_string())
+    }
+
+    async fn cancel_session(&self, _session_id: &str, _project_id: &str) -> Result<(), String> {
+        Err("AgentRunnerApi 未完整实现".to_string())
+    }
+
+    async fn get_status(
+        &self,
+        _session_id: &str,
+        _project_id: &str,
+    ) -> Result<AgentStatusResult, String> {
+        Err("AgentRunnerApi 未完整实现".to_string())
+    }
+
+    async fn stop_agent(&self, _project_id: &str) -> Result<(), String> {
+        Err("AgentRunnerApi 未完整实现".to_string())
+    }
+
+    async fn get_all_agents(&self) -> Result<Vec<AgentInfo>, String> {
+        Err("AgentRunnerApi 未完整实现".to_string())
+    }
+}
+
+/// AgentRunnerApi 的 Arc 智能指针类型别名
+type DynAgentRunnerApi = Arc<dyn AgentRunnerApi>;
 
 /// 权限管理状态（使用延迟初始化避免启动时崩溃）
 struct PermissionsState {
@@ -326,19 +380,48 @@ async fn check_dependency(name: String) -> Result<Option<DependencyItemDto>, Str
     }
 }
 
+/// 从 store 读取字符串配置
+fn read_store_string(app: &tauri::AppHandle, key: &str) -> Option<String> {
+    app.store("nuwax_store.bin").ok()?.get(key)?.as_str().map(|s| s.to_string())
+}
+
+/// 从 store 读取 i64 配置
+fn read_store_i64(app: &tauri::AppHandle, key: &str) -> Option<i64> {
+    app.store("nuwax_store.bin").ok()?.get(key)?.as_i64()
+}
+
+/// 从 store 读取端口配置（i64 转 u16）
+fn read_store_port(app: &tauri::AppHandle, key: &str) -> Option<u16> {
+    read_store_i64(app, key).map(|v| v as u16)
+}
+
 /// 启动 nuwax-lanproxy 客户端
 ///
-/// TODO: 从 Tauri store 读取配置
-/// 需要前端定义 store 中的配置字段名，如:
-/// - nuwax-lanproxy.server_ip: 服务器 IP
-/// - nuwax-lanproxy.server_port: 服务器端口
-/// - nuwax-lanproxy.client_key: 客户端密钥
+/// 从 Tauri store 读取配置:
+/// - setup.server_host: 服务器 IP
+/// - setup.proxy_port: 服务器端口
+/// - auth.saved_key: 客户端密钥
 #[tauri::command]
 async fn start_nuwax_lanproxy(
+    app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
+    // 从 store 读取配置
+    let server_ip = read_store_string(&app, "setup.server_host")
+        .ok_or_else(|| "配置缺失: setup.server_host (服务器域名)".to_string())?;
+    let server_port = read_store_port(&app, "setup.proxy_port")
+        .ok_or_else(|| "配置缺失: setup.proxy_port (代理服务端口)".to_string())?;
+    let client_key = read_store_string(&app, "auth.saved_key")
+        .ok_or_else(|| "配置缺失: auth.saved_key (客户端密钥)".to_string())?;
+
+    let lanproxy_config = nuwax_agent_core::NuwaxLanproxyConfig {
+        server_ip,
+        server_port,
+        client_key,
+    };
+
     let manager = state.manager.lock().await;
-    manager.start_lanproxy().await?;
+    manager.start_lanproxy_with_config(lanproxy_config).await?;
     Ok(true)
 }
 
@@ -353,12 +436,25 @@ async fn stop_nuwax_lanproxy(
 }
 
 /// 重启 nuwax-lanproxy 客户端
+///
+/// 从 Tauri store 读取配置:
+/// - setup.server_host: 服务器 IP
+/// - setup.proxy_port: 服务器端口
+/// - auth.saved_key: 客户端密钥
 #[tauri::command]
 async fn restart_nuwax_lanproxy(
+    app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
-    let manager = state.manager.lock().await;
-    manager.restart_lanproxy().await?;
+    // 先停止
+    {
+        let manager = state.manager.lock().await;
+        manager.stop_lanproxy().await?;
+    }
+    // 等待端口释放
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    // 重新启动（使用相同的 store 配置）
+    start_nuwax_lanproxy(app, state).await?;
     Ok(true)
 }
 
@@ -385,16 +481,16 @@ impl From<ServiceInfo> for ServiceInfoDto {
 }
 
 /// 服务管理器状态
+///
+/// 注意：服务配置在启动时从 Tauri store 动态读取，
+/// 不在此处设置默认配置
 struct ServiceManagerState {
     manager: Mutex<ServiceManager>,
 }
 
 impl Default for ServiceManagerState {
     fn default() -> Self {
-        // TODO: 从 Tauri store 读取配置
-        // let server_ip: String = store.get("nuwax-lanproxy.server_ip").unwrap_or_default();
-        // let server_port: u16 = store.get("nuwax-lanproxy.server_port").unwrap_or_default();
-        // let client_key: String = store.get("nuwax-lanproxy.client_key").unwrap_or_default();
+        // 使用默认配置初始化，运行时通过 start_*_with_config 方法传入实际配置
         let lanproxy_config = nuwax_agent_core::NuwaxLanproxyConfig::default();
         Self {
             manager: Mutex::new(ServiceManager::new(None, Some(lanproxy_config))),
@@ -428,19 +524,20 @@ async fn restart_nuwax_file_server(state: tauri::State<'_, ServiceManagerState>)
 
 /// 启动 HTTP Server (rcoder)
 ///
-/// TODO: 从 Tauri store 读取端口配置
-/// 需要前端定义 store 中的配置字段名，如:
-/// - rcoder.port: HTTP Server 端口
+/// 从 Tauri store 读取配置:
+/// - setup.agent_port: HTTP Server 端口 (默认 9086)
 #[tauri::command]
 async fn start_rcoder(
-    _state: tauri::State<'_, ServiceManagerState>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
-    // TODO: 从 store 读取端口
-    // let port: u16 = store.get("rcoder.port").unwrap_or_default();
-    // 临时使用假端口，后续改为从 store 读取
-    let port: u16 = 8080;
-    let _ = port;
-    Err("TODO: 等待前端定义 store 配置字段后实现".to_string())
+    // 从 store 读取端口
+    let port = read_store_port(&app, "setup.agent_port")
+        .ok_or_else(|| "配置缺失: setup.agent_port (Agent 服务端口)".to_string())?;
+
+    let manager = state.manager.lock().await;
+    manager.start_rcoder(port, Arc::new(MinimalAgentRunnerApi)).await?;
+    Ok(true)
 }
 
 /// 停止 HTTP Server (rcoder)
@@ -453,19 +550,23 @@ async fn stop_rcoder(state: tauri::State<'_, ServiceManagerState>) -> Result<boo
 
 /// 重启 HTTP Server (rcoder)
 ///
-/// TODO: 从 Tauri store 读取端口配置
-/// 需要前端定义 store 中的配置字段名，如:
-/// - rcoder.port: HTTP Server 端口
+/// 从 Tauri store 读取配置:
+/// - setup.agent_port: HTTP Server 端口 (默认 9086)
 #[tauri::command]
 async fn restart_rcoder(
-    _state: tauri::State<'_, ServiceManagerState>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
-    // TODO: 从 store 读取端口
-    // let port: u16 = store.get("rcoder.port").unwrap_or_default();
-    // 临时使用假端口，后续改为从 store 读取
-    let port: u16 = 8080;
-    let _ = port;
-    Err("TODO: 等待前端定义 store 配置字段后实现".to_string())
+    // 先停止
+    {
+        let manager = state.manager.lock().await;
+        manager.stop_rcoder().await?;
+    }
+    // 等待端口释放
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    // 重新启动
+    start_rcoder(app, state).await?;
+    Ok(true)
 }
 
 /// 停止所有服务
@@ -477,23 +578,66 @@ async fn stop_all_services(state: tauri::State<'_, ServiceManagerState>) -> Resu
 }
 
 /// 重启所有服务
+/// 重启所有服务
 ///
-/// TODO: 从 Tauri store 读取端口配置
-/// 需要前端定义 store 中的配置字段名，如:
-/// - rcoder.port: HTTP Server 端口
-/// - nuwax-file-server.port: 文件服务端口
+/// 从 Tauri store 读取配置:
+/// - setup.agent_port: Agent 服务端口 (默认 9086)
+/// - setup.proxy_port: 代理服务端口 (默认 9099)
+/// - setup.server_host: 服务器域名
+/// - auth.saved_key: 客户端密钥
+/// - setup.file_server_port: 文件服务端口 (默认 60000)
 #[tauri::command]
 async fn restart_all_services(
-    _state: tauri::State<'_, ServiceManagerState>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
-    // TODO: 从 store 读取端口
-    // let rcoder_port: u16 = store.get("rcoder.port").unwrap_or_default();
-    // let file_server_port: u16 = store.get("nuwax-file-server.port").unwrap_or_default();
-    // 临时使用假端口，后续改为从 store 读取
-    let rcoder_port: u16 = 8080;
-    let file_server_port: u16 = 8081;
-    let _ = (rcoder_port, file_server_port);
-    Err("TODO: 等待前端定义 store 配置字段后实现".to_string())
+    info!("Restarting all services with store config...");
+
+    // 停止所有服务
+    {
+        let manager = state.manager.lock().await;
+        manager.stop_all().await?;
+    }
+
+    // 等待端口释放
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // 重新启动所有服务（依次调用各个启动命令）
+    // rcoder
+    {
+        let manager = state.manager.lock().await;
+        let port = read_store_port(&app, "setup.agent_port")
+            .ok_or_else(|| "配置缺失: setup.agent_port (Agent 服务端口)".to_string())?;
+        manager.start_rcoder(port, Arc::new(MinimalAgentRunnerApi)).await?;
+    }
+
+    // file_server
+    {
+        let manager = state.manager.lock().await;
+        manager.start_nuwax_file_server().await?;
+    }
+
+    // lanproxy - 需要读取配置并调用 start_lanproxy_with_config
+    {
+        let server_ip = read_store_string(&app, "setup.server_host")
+            .ok_or_else(|| "配置缺失: setup.server_host (服务器域名)".to_string())?;
+        let server_port = read_store_port(&app, "setup.proxy_port")
+            .ok_or_else(|| "配置缺失: setup.proxy_port (代理服务端口)".to_string())?;
+        let client_key = read_store_string(&app, "auth.saved_key")
+            .ok_or_else(|| "配置缺失: auth.saved_key (客户端密钥)".to_string())?;
+
+        let lanproxy_config = nuwax_agent_core::NuwaxLanproxyConfig {
+            server_ip,
+            server_port,
+            client_key,
+        };
+
+        let manager = state.manager.lock().await;
+        manager.start_lanproxy_with_config(lanproxy_config).await?;
+    }
+
+    info!("All services restarted successfully");
+    Ok(true)
 }
 
 /// 获取所有服务状态
