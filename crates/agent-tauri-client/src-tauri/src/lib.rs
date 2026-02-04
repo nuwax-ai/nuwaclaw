@@ -6,6 +6,7 @@ use system_permissions::{
     SystemPermission,
 };
 use tauri::{Emitter, State, Window};
+use tauri_plugin_shell::ShellExt;
 use tokio::sync::Mutex;
 
 /// 权限管理状态（使用延迟初始化避免启动时崩溃）
@@ -238,7 +239,6 @@ fn greet(name: &str) -> String {
 // ========== 依赖管理命令 ==========
 
 use nuwax_agent_core::dependency::manager::DependencyManager as CoreDependencyManager;
-use nuwax_agent_core::dependency::DependencyStatus as CoreDependencyStatus;
 
 // 依赖项 DTO（用于 Tauri IPC）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -326,10 +326,39 @@ async fn check_dependency(name: String) -> Result<Option<DependencyItemDto>, Str
     }
 }
 
+/// 启动 nuwax-lanproxy 客户端
+#[tauri::command]
+async fn start_nuwax_client(
+    app: tauri::AppHandle,
+    server_ip: String,
+    server_port: u16,
+    client_key: String,
+) -> Result<(), String> {
+    let sidecar_command = app
+        .shell()
+        .sidecar("nuwax-lanproxy")
+        .map_err(|e| e.to_string())?
+        .args([
+            "-s", &server_ip,
+            "-p", &server_port.to_string(),
+            "-k", &client_key,
+        ]);
+
+    let output = sidecar_command.output().await
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
         .manage(PermissionsState::default())
         .manage(MonitorState::default())
         .invoke_handler(tauri::generate_handler![
@@ -347,6 +376,8 @@ pub fn run() {
             install_all_dependencies,
             uninstall_dependency,
             check_dependency,
+            // nuwax-lanproxy 命令
+            start_nuwax_client,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
