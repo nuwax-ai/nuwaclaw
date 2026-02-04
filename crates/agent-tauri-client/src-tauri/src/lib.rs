@@ -327,31 +327,210 @@ async fn check_dependency(name: String) -> Result<Option<DependencyItemDto>, Str
 }
 
 /// 启动 nuwax-lanproxy 客户端
+///
+/// TODO: 从 Tauri store 读取配置
+/// 需要前端定义 store 中的配置字段名，如:
+/// - nuwax-lanproxy.server_ip: 服务器 IP
+/// - nuwax-lanproxy.server_port: 服务器端口
+/// - nuwax-lanproxy.client_key: 客户端密钥
 #[tauri::command]
-async fn start_nuwax_client(
-    app: tauri::AppHandle,
-    server_ip: String,
-    server_port: u16,
-    client_key: String,
-) -> Result<(), String> {
-    let sidecar_command = app
-        .shell()
-        .sidecar("nuwax-lanproxy")
-        .map_err(|e| e.to_string())?
-        .args([
-            "-s", &server_ip,
-            "-p", &server_port.to_string(),
-            "-k", &client_key,
-        ]);
+async fn start_nuwax_lanproxy(
+    state: tauri::State<'_, ServiceManagerState>,
+) -> Result<bool, String> {
+    let manager = state.manager.lock().await;
+    manager.start_lanproxy().await?;
+    Ok(true)
+}
 
-    let output = sidecar_command.output().await
-        .map_err(|e| e.to_string())?;
+/// 停止 nuwax-lanproxy 客户端
+#[tauri::command]
+async fn stop_nuwax_lanproxy(
+    state: tauri::State<'_, ServiceManagerState>,
+) -> Result<bool, String> {
+    let manager = state.manager.lock().await;
+    manager.stop_lanproxy().await?;
+    Ok(true)
+}
 
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+/// 重启 nuwax-lanproxy 客户端
+#[tauri::command]
+async fn restart_nuwax_lanproxy(
+    state: tauri::State<'_, ServiceManagerState>,
+) -> Result<bool, String> {
+    let manager = state.manager.lock().await;
+    manager.restart_lanproxy().await?;
+    Ok(true)
+}
+
+// ========== 服务管理命令 ==========
+
+use nuwax_agent_core::service::{ServiceManager, ServiceInfo};
+
+/// 服务状态 DTO
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceInfoDto {
+    pub service_type: String,
+    pub state: String,
+    pub pid: Option<u32>,
+}
+
+impl From<ServiceInfo> for ServiceInfoDto {
+    fn from(info: ServiceInfo) -> Self {
+        Self {
+            service_type: format!("{:?}", info.service_type),
+            state: format!("{:?}", info.state),
+            pid: info.pid,
+        }
     }
+}
 
-    Ok(())
+/// 服务管理器状态
+struct ServiceManagerState {
+    manager: Mutex<ServiceManager>,
+}
+
+impl Default for ServiceManagerState {
+    fn default() -> Self {
+        // TODO: 从 Tauri store 读取配置
+        // let server_ip: String = store.get("nuwax-lanproxy.server_ip").unwrap_or_default();
+        // let server_port: u16 = store.get("nuwax-lanproxy.server_port").unwrap_or_default();
+        // let client_key: String = store.get("nuwax-lanproxy.client_key").unwrap_or_default();
+        let lanproxy_config = nuwax_agent_core::NuwaxLanproxyConfig::default();
+        Self {
+            manager: Mutex::new(ServiceManager::new(None, Some(lanproxy_config))),
+        }
+    }
+}
+
+/// 启动 nuwax-file-server
+#[tauri::command]
+async fn start_nuwax_file_server(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
+    let manager = state.manager.lock().await;
+    manager.start_nuwax_file_server().await?;
+    Ok(true)
+}
+
+/// 停止 nuwax-file-server
+#[tauri::command]
+async fn stop_nuwax_file_server(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
+    let manager = state.manager.lock().await;
+    manager.stop_nuwax_file_server().await?;
+    Ok(true)
+}
+
+/// 重启 nuwax-file-server
+#[tauri::command]
+async fn restart_nuwax_file_server(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
+    let manager = state.manager.lock().await;
+    manager.restart_nuwax_file_server().await?;
+    Ok(true)
+}
+
+/// 启动 HTTP Server (rcoder)
+///
+/// TODO: 从 Tauri store 读取端口配置
+/// 需要前端定义 store 中的配置字段名，如:
+/// - rcoder.port: HTTP Server 端口
+#[tauri::command]
+async fn start_rcoder(
+    _state: tauri::State<'_, ServiceManagerState>,
+) -> Result<bool, String> {
+    // TODO: 从 store 读取端口
+    // let port: u16 = store.get("rcoder.port").unwrap_or_default();
+    // 临时使用假端口，后续改为从 store 读取
+    let port: u16 = 8080;
+    let _ = port;
+    Err("TODO: 等待前端定义 store 配置字段后实现".to_string())
+}
+
+/// 停止 HTTP Server (rcoder)
+#[tauri::command]
+async fn stop_rcoder(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
+    let manager = state.manager.lock().await;
+    manager.stop_rcoder().await?;
+    Ok(true)
+}
+
+/// 重启 HTTP Server (rcoder)
+///
+/// TODO: 从 Tauri store 读取端口配置
+/// 需要前端定义 store 中的配置字段名，如:
+/// - rcoder.port: HTTP Server 端口
+#[tauri::command]
+async fn restart_rcoder(
+    _state: tauri::State<'_, ServiceManagerState>,
+) -> Result<bool, String> {
+    // TODO: 从 store 读取端口
+    // let port: u16 = store.get("rcoder.port").unwrap_or_default();
+    // 临时使用假端口，后续改为从 store 读取
+    let port: u16 = 8080;
+    let _ = port;
+    Err("TODO: 等待前端定义 store 配置字段后实现".to_string())
+}
+
+/// 停止所有服务
+#[tauri::command]
+async fn stop_all_services(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
+    let manager = state.manager.lock().await;
+    manager.stop_all().await?;
+    Ok(true)
+}
+
+/// 重启所有服务
+///
+/// TODO: 从 Tauri store 读取端口配置
+/// 需要前端定义 store 中的配置字段名，如:
+/// - rcoder.port: HTTP Server 端口
+/// - nuwax-file-server.port: 文件服务端口
+#[tauri::command]
+async fn restart_all_services(
+    _state: tauri::State<'_, ServiceManagerState>,
+) -> Result<bool, String> {
+    // TODO: 从 store 读取端口
+    // let rcoder_port: u16 = store.get("rcoder.port").unwrap_or_default();
+    // let file_server_port: u16 = store.get("nuwax-file-server.port").unwrap_or_default();
+    // 临时使用假端口，后续改为从 store 读取
+    let rcoder_port: u16 = 8080;
+    let file_server_port: u16 = 8081;
+    let _ = (rcoder_port, file_server_port);
+    Err("TODO: 等待前端定义 store 配置字段后实现".to_string())
+}
+
+/// 获取所有服务状态
+#[tauri::command]
+async fn get_all_services_status(state: tauri::State<'_, ServiceManagerState>) -> Result<Vec<ServiceInfoDto>, String> {
+    let manager = state.manager.lock().await;
+    let statuses = manager.get_all_status().await;
+    Ok(statuses.into_iter().map(|s| s.into()).collect())
+}
+
+// ========== npm 依赖管理命令 ==========
+
+/// 安装 npm 依赖
+#[tauri::command]
+async fn install_npm_dependency(name: String) -> Result<bool, String> {
+    let manager = CoreDependencyManager::new();
+    manager.install(&name).await.map_err(|e| format!("安装失败: {}", e))?;
+    Ok(true)
+}
+
+/// 查询 npm 依赖版本
+#[tauri::command]
+async fn query_npm_version(name: String) -> Result<Option<String>, String> {
+    let manager = CoreDependencyManager::new();
+    match manager.check(&name).await {
+        Some(item) => Ok(item.version),
+        None => Ok(None),
+    }
+}
+
+/// 重新安装 npm 依赖
+#[tauri::command]
+async fn reinstall_npm_dependency(name: String) -> Result<bool, String> {
+    let manager = CoreDependencyManager::new();
+    manager.uninstall(&name).await.map_err(|e| format!("卸载失败: {}", e))?;
+    manager.install(&name).await.map_err(|e| format!("安装失败: {}", e))?;
+    Ok(true)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -361,6 +540,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(PermissionsState::default())
         .manage(MonitorState::default())
+        .manage(ServiceManagerState::default())
         .invoke_handler(tauri::generate_handler![
             greet,
             check_permission,
@@ -377,7 +557,23 @@ pub fn run() {
             uninstall_dependency,
             check_dependency,
             // nuwax-lanproxy 命令
-            start_nuwax_client,
+            start_nuwax_lanproxy,
+            stop_nuwax_lanproxy,
+            restart_nuwax_lanproxy,
+            // 服务管理命令
+            start_nuwax_file_server,
+            stop_nuwax_file_server,
+            restart_nuwax_file_server,
+            start_rcoder,
+            stop_rcoder,
+            restart_rcoder,
+            stop_all_services,
+            restart_all_services,
+            get_all_services_status,
+            // npm 依赖管理命令
+            install_npm_dependency,
+            query_npm_version,
+            reinstall_npm_dependency,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

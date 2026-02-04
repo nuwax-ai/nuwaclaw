@@ -19,7 +19,7 @@ pub async fn computer_stop(
     Json(request): Json<ComputerAgentStopRequest>,
 ) -> Result<HttpResult<StopResponse>, AppError> {
     agent_runner_api
-        .stop_agent(&request.project_id, request.force)
+        .stop_agent(&request.project_id)
         .await?;
 
     Ok(HttpResult::success(StopResponse {

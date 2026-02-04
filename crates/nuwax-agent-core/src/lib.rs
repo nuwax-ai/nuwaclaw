@@ -123,6 +123,13 @@ pub mod json_config;
 pub use json_config::{JsonConfigManager, JsonConfigError, EditableConfig};
 
 // ============================================================================
+// 服务管理模块
+// ============================================================================
+
+pub mod service;
+pub use service::{ServiceManager, ServiceType, ServiceState, ServiceInfo, NuwaxFileServerConfig, NuwaxLanproxyConfig};
+
+// ============================================================================
 // 统一错误类型
 // ============================================================================
 

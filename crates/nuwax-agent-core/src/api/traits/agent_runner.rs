@@ -196,6 +196,19 @@ pub struct AgentStatusResult {
     pub is_found: bool,
 }
 
+/// Agent 信息（用于列表展示）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentInfo {
+    /// 项目 ID
+    pub project_id: String,
+    /// 会话 ID
+    pub session_id: String,
+    /// Agent 状态
+    pub status: AgentStatus,
+    /// 最后活动时间
+    pub last_active_at: DateTime<Utc>,
+}
+
 /// 进度消息类型
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -285,10 +298,16 @@ pub trait AgentRunnerApi: Send + Sync {
     ///
     /// # 参数
     /// - project_id: 项目 ID
-    /// - force: 是否强制停止
     ///
     /// # 返回
     /// - Ok(()): 成功
     /// - Err(error): 错误信息
-    async fn stop_agent(&self, project_id: &str, force: bool) -> Result<(), String>;
+    async fn stop_agent(&self, project_id: &str) -> Result<(), String>;
+
+    /// 获取所有活跃的 Agent 列表
+    ///
+    /// # 返回
+    /// - Ok(Vec<AgentInfo>): 活跃 agent 列表
+    /// - Err(error): 错误信息
+    async fn get_all_agents(&self) -> Result<Vec<AgentInfo>, String>;
 }

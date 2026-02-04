@@ -16,6 +16,74 @@ use axum::{
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
+use tracing::info;
+
+/// HTTP 服务器内部状态
+#[derive(Clone)]
+struct HttpServerInner {
+    /// 取消令牌
+    cancel_token: CancellationToken,
+    /// 服务器地址
+    addr: SocketAddr,
+}
+
+/// HTTP 服务器实例
+#[derive(Clone)]
+pub struct HttpServer {
+    /// 内部状态
+    inner: Arc<HttpServerInner>,
+}
+
+impl HttpServer {
+    /// 创建新的 HTTP 服务器实例
+    pub fn new(port: u16) -> Self {
+        Self {
+            inner: Arc::new(HttpServerInner {
+                cancel_token: CancellationToken::new(),
+                addr: SocketAddr::from(([0, 0, 0, 0], port)),
+            }),
+        }
+    }
+
+    /// 获取服务器地址
+    pub fn addr(&self) -> SocketAddr {
+        self.inner.addr
+    }
+
+    /// 启动 HTTP 服务
+    ///
+    /// # 参数
+    /// * `agent_runner_api` - AgentRunnerApi 实现
+    ///
+    /// # 返回
+    /// Result<(), anyhow::Error>
+    pub async fn start(
+        &self,
+        agent_runner_api: Arc<dyn AgentRunnerApi>,
+    ) -> Result<(), anyhow::Error> {
+        let addr = self.inner.addr;
+        let cancel_token = self.inner.cancel_token.clone();
+
+        let listener = TcpListener::bind(addr).await?;
+
+        info!("HTTP server listening on {}", addr);
+
+        // 使用 graceful shutdown
+        axum::serve(listener, router(agent_runner_api))
+            .with_graceful_shutdown(async move {
+                cancel_token.cancelled().await;
+            })
+            .await?;
+
+        Ok(())
+    }
+
+    /// 停止 HTTP 服务
+    pub fn stop(&self) {
+        self.inner.cancel_token.cancel();
+    }
+}
 
 /// 健康检查 Handler
 async fn health_handler() -> &'static str {
@@ -38,26 +106,4 @@ pub fn router(agent_runner_api: Arc<dyn AgentRunnerApi>) -> Router {
         .route("/computer/agent/session/cancel", post(handlers::computer_cancel))
         .route("/computer/progress/:session_id", get(handlers::computer_progress))
         .with_state(agent_runner_api)
-}
-
-/// 启动 HTTP 服务
-///
-/// # 参数
-/// * `port` - 监听端口
-/// * `agent_runner_api` - AgentRunnerApi 实现
-///
-/// # 返回
-/// Result<(), anyhow::Error>
-pub async fn start(
-    port: u16,
-    agent_runner_api: Arc<dyn AgentRunnerApi>,
-) -> Result<(), anyhow::Error> {
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    let listener = TcpListener::bind(addr).await?;
-
-    tracing::info!("HTTP server listening on {}", addr);
-
-    axum::serve(listener, router(agent_runner_api)).await?;
-
-    Ok(())
 }

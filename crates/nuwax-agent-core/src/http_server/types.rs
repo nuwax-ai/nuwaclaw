@@ -39,8 +39,6 @@ pub struct ChatResponse {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ComputerAgentStopRequest {
     pub project_id: String,
-    #[serde(default)]
-    pub force: bool,
 }
 
 /// Computer Agent Stop 响应
@@ -82,4 +80,10 @@ pub struct CancelResponse {
 pub struct HealthResponse {
     pub status: &'static str,
     pub version: &'static str,
+}
+
+/// Computer Agent List 响应
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentListResponse {
+    pub agents: Vec<super::super::api::traits::agent_runner::AgentInfo>,
 }
