@@ -118,7 +118,7 @@ dependencies = [
 name = "agent-tauri-client"
 version = "0.1.0"
 dependencies = [
- "auto-launch 0.6.0",
+ "auto-launch",
  "log",
  "nuwax-agent-core",
  "serde 1.0.228",
@@ -890,18 +890,6 @@ dependencies = [
  "hermit-abi 0.1.19",
  "libc",
  "winapi",
-]
-
-[[package]]
-name = "auto-launch"
-version = "0.6.0"
-dependencies = [
- "dirs 6.0.0",
- "os_info",
- "smappservice-rs",
- "thiserror 2.0.18",
- "windows-registry 0.6.1",
- "windows-result 0.4.1",
 ]
 
 [[package]]
@@ -8028,7 +8016,7 @@ dependencies = [
  "anyhow",
  "argon2",
  "async-trait",
- "auto-launch 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "auto-launch",
  "axum 0.7.9",
  "base64 0.22.1",
  "chrono",
@@ -8076,7 +8064,7 @@ dependencies = [
  "agent-protocol",
  "anyhow",
  "async-trait",
- "auto-launch 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "auto-launch",
  "base64 0.22.1",
  "chrono",
  "core-text 21.0.0",

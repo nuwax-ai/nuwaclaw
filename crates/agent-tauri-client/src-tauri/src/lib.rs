@@ -724,22 +724,6 @@ async fn install_local_npm_package(
     }
 }
 
-/// 重启所有服务
-/// TODO: 后续专门实现，当前仅占位
-#[tauri::command]
-async fn restart_all_services() -> Result<(), String> {
-    // TODO: 后续专门实现服务管理功能
-    // 计划实现内容:
-    // 1. 停止所有正在运行的服务进程
-    // 2. 获取各服务的 bin 路径 (nuwax-file-server, nuwaxcode, claude-code-acp)
-    // 3. 按顺序启动服务，传入配置参数（端口等）
-    // 4. 监控服务状态，处理异常退出
-    // 5. 记录服务 PID，支持单独停止/重启
-
-    log::info!("[restart_all_services] TODO: 服务启动功能待实现");
-    Ok(())
-}
-
 // ========== 开机自启动命令 ==========
 
 use auto_launch::AutoLaunchBuilder;
@@ -947,14 +931,12 @@ pub fn run() {
             install_npm_dependency,
             query_npm_version,
             reinstall_npm_dependency,
-            start_nuwax_client,
             // 初始化向导命令
             get_app_data_dir,
             init_local_npm_env,
             detect_node_version,
             check_local_npm_package,
             install_local_npm_package,
-            restart_all_services,
             select_directory,
             // 开机自启动命令
             set_auto_launch,
