@@ -354,12 +354,298 @@ async fn start_nuwax_client(
     Ok(())
 }
 
+// ========== 初始化向导命令 ==========
+
+use std::process::Command;
+use tauri::Manager;
+
+/// Node.js 版本检测结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeVersionResult {
+    pub installed: bool,
+    pub version: Option<String>,
+    pub meets_requirement: bool,
+}
+
+/// npm 包检测结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NpmPackageResult {
+    pub installed: bool,
+    pub version: Option<String>,
+    pub bin_path: Option<String>,
+}
+
+/// npm 包安装结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallResult {
+    pub success: bool,
+    pub version: Option<String>,
+    pub bin_path: Option<String>,
+    pub error: Option<String>,
+}
+
+/// 获取应用数据目录路径
+#[tauri::command]
+fn get_app_data_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let path = app.path().app_data_dir()
+        .map_err(|e| e.to_string())?;
+    
+    // 确保目录存在
+    if !path.exists() {
+        std::fs::create_dir_all(&path)
+            .map_err(|e| format!("创建应用数据目录失败: {}", e))?;
+    }
+    
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// 初始化本地 npm 环境（创建 package.json）
+#[tauri::command]
+async fn init_local_npm_env(app: tauri::AppHandle) -> Result<bool, String> {
+    let app_dir = get_app_data_dir(app)?;
+    let package_json_path = std::path::Path::new(&app_dir).join("package.json");
+    
+    // 检查是否已存在
+    if package_json_path.exists() {
+        return Ok(true);
+    }
+    
+    // 创建 package.json
+    let content = r#"{
+  "name": "nuwax-agent-deps",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NuWax Agent 本地依赖"
+}"#;
+    
+    std::fs::write(&package_json_path, content)
+        .map_err(|e| format!("创建 package.json 失败: {}", e))?;
+    
+    Ok(true)
+}
+
+/// 检测 Node.js 版本
+#[tauri::command]
+async fn detect_node_version() -> Result<NodeVersionResult, String> {
+    let output = Command::new("node")
+        .arg("--version")
+        .output();
+    
+    match output {
+        Ok(out) if out.status.success() => {
+            let version_str = String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .trim_start_matches('v')
+                .to_string();
+            
+            // 检查版本是否 >= 22.0.0
+            let meets = check_version_meets_requirement(&version_str, "22.0.0");
+            
+            Ok(NodeVersionResult {
+                installed: true,
+                version: Some(version_str),
+                meets_requirement: meets,
+            })
+        }
+        _ => Ok(NodeVersionResult {
+            installed: false,
+            version: None,
+            meets_requirement: false,
+        })
+    }
+}
+
+/// 检测本地 npm 包是否已安装
+#[tauri::command]
+async fn check_local_npm_package(
+    app: tauri::AppHandle,
+    package_name: String,
+) -> Result<NpmPackageResult, String> {
+    let app_dir = get_app_data_dir(app)?;
+    let node_modules = std::path::Path::new(&app_dir).join("node_modules");
+    let package_dir = node_modules.join(&package_name);
+    
+    // 检查包目录是否存在
+    if !package_dir.exists() {
+        return Ok(NpmPackageResult {
+            installed: false,
+            version: None,
+            bin_path: None,
+        });
+    }
+    
+    // 读取 package.json 获取版本
+    let pkg_json_path = package_dir.join("package.json");
+    let version = if pkg_json_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&pkg_json_path) {
+            serde_json::from_str::<serde_json::Value>(&content)
+                .ok()
+                .and_then(|v| v["version"].as_str().map(String::from))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
+    // 获取 bin 路径
+    let bin_path = get_package_bin_path(&app_dir, &package_name);
+    
+    Ok(NpmPackageResult {
+        installed: true,
+        version,
+        bin_path,
+    })
+}
+
+/// 安装 npm 包到本地目录（使用 npmmirror）
+#[tauri::command]
+async fn install_local_npm_package(
+    app: tauri::AppHandle,
+    package_name: String,
+) -> Result<InstallResult, String> {
+    let app_dir = get_app_data_dir(app.clone())?;
+    let registry = "https://registry.npmmirror.com/";
+    
+    // 确保 npm 环境已初始化
+    init_local_npm_env(app.clone()).await?;
+    
+    // 执行 npm install
+    let output = Command::new("npm")
+        .args([
+            "install",
+            &package_name,
+            "--prefix", &app_dir,
+            "--registry", registry,
+        ])
+        .output()
+        .map_err(|e| format!("执行 npm install 失败: {}", e))?;
+    
+    if output.status.success() {
+        // 获取安装的版本
+        let result = check_local_npm_package(app, package_name.clone()).await?;
+        
+        Ok(InstallResult {
+            success: true,
+            version: result.version,
+            bin_path: result.bin_path,
+            error: None,
+        })
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        Ok(InstallResult {
+            success: false,
+            version: None,
+            bin_path: None,
+            error: Some(stderr),
+        })
+    }
+}
+
+/// 重启所有服务
+/// TODO: 后续专门实现，当前仅占位
+#[tauri::command]
+async fn restart_all_services() -> Result<(), String> {
+    // TODO: 后续专门实现服务管理功能
+    // 计划实现内容:
+    // 1. 停止所有正在运行的服务进程
+    // 2. 获取各服务的 bin 路径 (nuwax-file-server, nuwaxcode, claude-code-acp)
+    // 3. 按顺序启动服务，传入配置参数（端口等）
+    // 4. 监控服务状态，处理异常退出
+    // 5. 记录服务 PID，支持单独停止/重启
+    
+    log::info!("[restart_all_services] TODO: 服务启动功能待实现");
+    Ok(())
+}
+
+/// 选择目录对话框
+#[tauri::command]
+async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    use tokio::sync::oneshot;
+    
+    // 使用 oneshot channel 接收回调结果
+    let (tx, rx) = oneshot::channel();
+    
+    app.dialog()
+        .file()
+        .pick_folder(move |result| {
+            // FilePath 实现了 Display trait，使用 to_string() 或 into_path()
+            let path = result.map(|p| p.to_string());
+            let _ = tx.send(path);
+        });
+    
+    // 等待回调结果
+    match rx.await {
+        Ok(path) => Ok(path),
+        Err(_) => Err("目录选择被取消".to_string()),
+    }
+}
+
+// ========== 辅助函数 ==========
+
+/// 获取包的可执行文件路径
+fn get_package_bin_path(app_dir: &str, package_name: &str) -> Option<String> {
+    // 从包名推断 bin 名称
+    // 例如: @anthropic-ai/claude-code-acp -> claude-code-acp
+    let bin_name = package_name
+        .split('/')
+        .last()
+        .unwrap_or(package_name);
+    
+    let bin_path = std::path::Path::new(app_dir)
+        .join("node_modules")
+        .join(".bin")
+        .join(bin_name);
+    
+    if bin_path.exists() {
+        Some(bin_path.to_string_lossy().to_string())
+    } else {
+        None
+    }
+}
+
+/// 检查版本是否满足最低要求
+/// 例如: "22.21.1" >= "22.0.0" 应返回 true
+fn check_version_meets_requirement(current: &str, required: &str) -> bool {
+    let parse_version = |v: &str| -> (u32, u32, u32) {
+        let parts: Vec<&str> = v.split('.').collect();
+        let major = parts.get(0)
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(0);
+        let minor = parts.get(1)
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(0);
+        let patch = parts.get(2)
+            .and_then(|s| {
+                // 处理可能带有后缀的版本号，如 "22.0.0-beta"
+                let numeric_part: String = s.chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect();
+                numeric_part.parse().ok()
+            })
+            .unwrap_or(0);
+        (major, minor, patch)
+    };
+    
+    let (cur_major, cur_minor, cur_patch) = parse_version(current);
+    let (req_major, req_minor, req_patch) = parse_version(required);
+    
+    // 比较版本号：先比较 major，再比较 minor，最后比较 patch
+    // 使用元组比较，更简洁可靠
+    (cur_major, cur_minor, cur_patch) >= (req_major, req_minor, req_patch)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .manage(PermissionsState::default())
         .manage(MonitorState::default())
         .invoke_handler(tauri::generate_handler![
@@ -379,6 +665,14 @@ pub fn run() {
             check_dependency,
             // nuwax-lanproxy 命令
             start_nuwax_client,
+            // 初始化向导命令
+            get_app_data_dir,
+            init_local_npm_env,
+            detect_node_version,
+            check_local_npm_package,
+            install_local_npm_package,
+            restart_all_services,
+            select_directory,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -56,6 +56,21 @@ export const STORAGE_KEYS = {
   // 应用设置
   SETTINGS_AUTO_CONNECT: 'settings.auto_connect',
   SETTINGS_NOTIFICATIONS: 'settings.notifications',
+
+  // 初始化向导状态
+  SETUP_COMPLETED: 'setup.completed',           // 是否完成初始化
+  SETUP_CURRENT_STEP: 'setup.current_step',     // 当前步骤 (1/2/3)
+
+  // 基础设置（步骤1）
+  SETUP_SERVER_HOST: 'setup.server_host',       // 服务域名
+  SETUP_AGENT_PORT: 'setup.agent_port',         // Agent 端口
+  SETUP_FILE_SERVER_PORT: 'setup.file_server_port', // 文件服务端口
+  SETUP_PROXY_PORT: 'setup.proxy_port',         // 代理服务端口
+  SETUP_WORKSPACE_DIR: 'setup.workspace_dir',   // 工作区目录
+
+  // 依赖安装（步骤3）
+  DEPS_INSTALL_DIR: 'deps.install_dir',         // npm 包安装目录（应用数据目录）
+  DEPS_NODE_MODULES_PATH: 'deps.node_modules_path', // node_modules 完整路径
 } as const;
 
 // 配置版本号
@@ -89,6 +104,32 @@ export interface CustomScene {
     websocket: { host: string; port: number; scheme?: string; path?: string };
   };
 }
+
+/**
+ * 初始化向导状态
+ */
+export interface SetupState {
+  completed: boolean;        // 是否完成初始化
+  currentStep: number;       // 当前步骤 (1/2/3)
+  serverHost: string;        // 服务域名
+  agentPort: number;         // Agent 端口
+  fileServerPort: number;    // 文件服务端口
+  proxyPort: number;         // 代理服务端口
+  workspaceDir: string;      // 工作区目录
+}
+
+/**
+ * 初始化向导默认配置
+ */
+export const DEFAULT_SETUP_STATE: SetupState = {
+  completed: false,
+  currentStep: 1,
+  serverHost: 'https://nvwa-api.xspaceagi.com',
+  agentPort: 9086,
+  fileServerPort: 60000,
+  proxyPort: 9099,
+  workspaceDir: '',
+};
 
 /**
  * 通用存储操作
@@ -421,5 +462,181 @@ export const settingsStorage = {
    */
   async setNotifications(value: boolean): Promise<void> {
     await setBoolean(STORAGE_KEYS.SETTINGS_NOTIFICATIONS, value);
+  },
+};
+
+/**
+ * 初始化向导存储操作
+ */
+export const setupStorage = {
+  /**
+   * 检查是否完成初始化
+   */
+  async isCompleted(): Promise<boolean> {
+    const completed = await getBoolean(STORAGE_KEYS.SETUP_COMPLETED);
+    return completed === true;
+  },
+
+  /**
+   * 设置完成状态
+   */
+  async setCompleted(value: boolean): Promise<void> {
+    await setBoolean(STORAGE_KEYS.SETUP_COMPLETED, value);
+    await save();
+  },
+
+  /**
+   * 获取当前步骤
+   */
+  async getCurrentStep(): Promise<number> {
+    const step = await getNumber(STORAGE_KEYS.SETUP_CURRENT_STEP);
+    return step ?? 1;
+  },
+
+  /**
+   * 设置当前步骤
+   */
+  async setCurrentStep(step: number): Promise<void> {
+    await setNumber(STORAGE_KEYS.SETUP_CURRENT_STEP, step);
+    await save();
+  },
+
+  /**
+   * 获取完整的初始化状态
+   */
+  async getState(): Promise<SetupState> {
+    const [completed, currentStep, serverHost, agentPort, fileServerPort, proxyPort, workspaceDir] =
+      await Promise.all([
+        getBoolean(STORAGE_KEYS.SETUP_COMPLETED),
+        getNumber(STORAGE_KEYS.SETUP_CURRENT_STEP),
+        getString(STORAGE_KEYS.SETUP_SERVER_HOST),
+        getNumber(STORAGE_KEYS.SETUP_AGENT_PORT),
+        getNumber(STORAGE_KEYS.SETUP_FILE_SERVER_PORT),
+        getNumber(STORAGE_KEYS.SETUP_PROXY_PORT),
+        getString(STORAGE_KEYS.SETUP_WORKSPACE_DIR),
+      ]);
+
+    return {
+      completed: completed ?? DEFAULT_SETUP_STATE.completed,
+      currentStep: currentStep ?? DEFAULT_SETUP_STATE.currentStep,
+      serverHost: serverHost ?? DEFAULT_SETUP_STATE.serverHost,
+      agentPort: agentPort ?? DEFAULT_SETUP_STATE.agentPort,
+      fileServerPort: fileServerPort ?? DEFAULT_SETUP_STATE.fileServerPort,
+      proxyPort: proxyPort ?? DEFAULT_SETUP_STATE.proxyPort,
+      workspaceDir: workspaceDir ?? DEFAULT_SETUP_STATE.workspaceDir,
+    };
+  },
+
+  /**
+   * 保存初始化状态
+   */
+  async setState(state: Partial<SetupState>): Promise<void> {
+    const promises: Promise<void>[] = [];
+
+    if (state.completed !== undefined) {
+      promises.push(setBoolean(STORAGE_KEYS.SETUP_COMPLETED, state.completed));
+    }
+    if (state.currentStep !== undefined) {
+      promises.push(setNumber(STORAGE_KEYS.SETUP_CURRENT_STEP, state.currentStep));
+    }
+    if (state.serverHost !== undefined) {
+      promises.push(setString(STORAGE_KEYS.SETUP_SERVER_HOST, state.serverHost));
+    }
+    if (state.agentPort !== undefined) {
+      promises.push(setNumber(STORAGE_KEYS.SETUP_AGENT_PORT, state.agentPort));
+    }
+    if (state.fileServerPort !== undefined) {
+      promises.push(setNumber(STORAGE_KEYS.SETUP_FILE_SERVER_PORT, state.fileServerPort));
+    }
+    if (state.proxyPort !== undefined) {
+      promises.push(setNumber(STORAGE_KEYS.SETUP_PROXY_PORT, state.proxyPort));
+    }
+    if (state.workspaceDir !== undefined) {
+      promises.push(setString(STORAGE_KEYS.SETUP_WORKSPACE_DIR, state.workspaceDir));
+    }
+
+    await Promise.all(promises);
+    await save();
+  },
+
+  /**
+   * 保存步骤1配置（基础设置）
+   */
+  async saveStep1(config: {
+    serverHost: string;
+    agentPort: number;
+    fileServerPort: number;
+    proxyPort: number;
+    workspaceDir: string;
+  }): Promise<void> {
+    await this.setState({
+      ...config,
+      currentStep: 2,
+    });
+  },
+
+  /**
+   * 保存步骤2完成状态（账号登录）
+   */
+  async completeStep2(): Promise<void> {
+    await this.setCurrentStep(3);
+  },
+
+  /**
+   * 完成初始化
+   */
+  async complete(): Promise<void> {
+    await this.setState({
+      completed: true,
+      currentStep: 3,
+    });
+  },
+
+  /**
+   * 重置初始化状态
+   */
+  async reset(): Promise<void> {
+    await Promise.all([
+      remove(STORAGE_KEYS.SETUP_COMPLETED),
+      remove(STORAGE_KEYS.SETUP_CURRENT_STEP),
+      remove(STORAGE_KEYS.SETUP_SERVER_HOST),
+      remove(STORAGE_KEYS.SETUP_AGENT_PORT),
+      remove(STORAGE_KEYS.SETUP_FILE_SERVER_PORT),
+      remove(STORAGE_KEYS.SETUP_PROXY_PORT),
+      remove(STORAGE_KEYS.SETUP_WORKSPACE_DIR),
+      remove(STORAGE_KEYS.DEPS_INSTALL_DIR),
+      remove(STORAGE_KEYS.DEPS_NODE_MODULES_PATH),
+    ]);
+    await save();
+  },
+
+  /**
+   * 获取依赖安装目录
+   */
+  async getDepsInstallDir(): Promise<string | null> {
+    return getString(STORAGE_KEYS.DEPS_INSTALL_DIR);
+  },
+
+  /**
+   * 设置依赖安装目录
+   */
+  async setDepsInstallDir(dir: string): Promise<void> {
+    await setString(STORAGE_KEYS.DEPS_INSTALL_DIR, dir);
+    await save();
+  },
+
+  /**
+   * 获取 node_modules 路径
+   */
+  async getNodeModulesPath(): Promise<string | null> {
+    return getString(STORAGE_KEYS.DEPS_NODE_MODULES_PATH);
+  },
+
+  /**
+   * 设置 node_modules 路径
+   */
+  async setNodeModulesPath(path: string): Promise<void> {
+    await setString(STORAGE_KEYS.DEPS_NODE_MODULES_PATH, path);
+    await save();
   },
 };

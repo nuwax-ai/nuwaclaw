@@ -23,9 +23,12 @@ export {
   STORAGE_KEYS,
   type AuthUserInfo as StorageAuthUserInfo,
   type CustomScene,
+  type SetupState as StorageSetupState,
+  DEFAULT_SETUP_STATE,
   authStorage,
   configStorage,
   settingsStorage,
+  setupStorage,
   getString,
   setString,
   getBoolean,
@@ -50,3 +53,22 @@ export {
   type PermissionItem as PermissionItemFromService,
   type PermissionsState as PermissionsStateFromService,
 } from './permissions';
+
+// 初始化向导服务
+export {
+  isSetupCompleted,
+  getSetupState,
+  getCurrentStep,
+  saveStep1Config,
+  getStep1Config,
+  completeStep2,
+  completeStep3,
+  completeSetup,
+  resetSetup,
+  getAppDataDir,
+  selectDirectory,
+  saveStepProgress,
+  goToStep,
+  type SetupState,
+  type Step1Config,
+} from './setup';

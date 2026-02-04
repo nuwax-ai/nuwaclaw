@@ -19,6 +19,7 @@ import {
   Tooltip,
   Avatar,
   Modal,
+  Spin,
 } from 'antd';
 import {
   RobotOutlined,
@@ -60,6 +61,7 @@ import LoginForm from './components/LoginForm';
 import SceneSwitcher from './components/SceneSwitcher';
 import ConfigEditor from './components/ConfigEditor';
 import LogViewer from './components/LogViewer';
+import SetupWizard from './components/SetupWizard';
 import {
   DependencyItem,
   DependencyStatus,
@@ -78,6 +80,7 @@ import {
   SceneConfig,
 } from './services/config';
 import { initAuthStore } from './services/auth';
+import { isSetupCompleted } from './services/setup';
 
 import { Typography } from 'antd';
 const { Title, Text, Paragraph } = Typography;
@@ -85,6 +88,9 @@ const { Title, Text, Paragraph } = Typography;
 type TabType = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'about' | 'debug';
 
 function App() {
+  // 初始化向导状态
+  const [setupCompleted, setSetupCompleted] = useState<boolean | null>(null);
+  
   const [status, setStatus] = useState<AgentStatus>('idle');
   const [sessionId, setSessionId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<TabType>('client');
@@ -103,8 +109,28 @@ function App() {
   const [isNewConfig, setIsNewConfig] = useState(false);
   const [storeInitialized, setStoreInitialized] = useState(false);
 
-  // 初始化存储服务和场景配置
+  // 检查初始化向导状态
   useEffect(() => {
+    const checkSetup = async () => {
+      try {
+        const completed = await isSetupCompleted();
+        setSetupCompleted(completed);
+      } catch (error) {
+        console.error('检查初始化状态失败:', error);
+        // 如果检查失败，假设已完成（避免阻塞用户）
+        setSetupCompleted(true);
+      }
+    };
+    checkSetup();
+  }, []);
+
+  // 初始化存储服务和场景配置（仅在初始化向导完成后执行）
+  useEffect(() => {
+    // 只有在初始化向导完成后才加载主界面数据
+    if (setupCompleted !== true) {
+      return;
+    }
+    
     const init = async () => {
       try {
         // 初始化认证存储
@@ -129,7 +155,7 @@ function App() {
       }
     };
     init();
-  }, []);
+  }, [setupCompleted]);
 
   // 监听 Agent 状态和日志变化
   useEffect(() => {
@@ -983,6 +1009,36 @@ function App() {
     />
   );
 
+  // 正在检查初始化状态
+  if (setupCompleted === null) {
+    return (
+      <div className="app-loading">
+        <Spin size="large" />
+        <div style={{ marginTop: 16, color: '#666' }}>正在加载...</div>
+        <style>{`
+          .app-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%);
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  // 未完成初始化，显示向导
+  if (!setupCompleted) {
+    return (
+      <SetupWizard
+        onComplete={() => setSetupCompleted(true)}
+      />
+    );
+  }
+
+  // 已完成初始化，显示主界面
   return (
     // 最外层容器 - 100vh
     <div className="app-container">
