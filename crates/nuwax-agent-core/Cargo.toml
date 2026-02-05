@@ -37,6 +37,7 @@ rcoder = ["dep:agent_runner", "dep:shared_types", "dep:agent_abstraction"]
 [dependencies]
 # Workspace 依赖
 agent-protocol = { path = "../agent-protocol" }
+nuwax-platform = { path = "../nuwax-platform" }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -51,6 +52,8 @@ tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 futures = { workspace = true }
 dirs = { workspace = true }
+xdg = { workspace = true }
+home = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }

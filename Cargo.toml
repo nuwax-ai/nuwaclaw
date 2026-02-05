@@ -8,6 +8,7 @@ members = [
     "crates/data-server",
     "crates/agent-protocol",
     "crates/nuwax-agent-core",
+    "crates/nuwax-platform",
 ]
 resolver = "2"
 
@@ -92,6 +93,10 @@ tar = "0.4"
 librustdesk = { package = "rustdesk", git = "https://github.com/nuwax-ai/nuwax-rustdesk.git", features = ["agent-client"] }
 # rustdesk-server (hbbs) - 使用 git 依赖
 hbbs = { git = "https://github.com/nuwax-ai/nuwax-rustdesk-server.git" }
+
+# 跨平台抽象库
+xdg = "2.5"
+home = "0.5"
 
 # Profiles - 在 workspace root 定义
 [profile.release]
