@@ -120,7 +120,7 @@ export const DEFAULT_SCENES: SceneConfig[] = [
     name: '生产环境',
     description: '生产服务器',
     server: {
-      apiUrl: 'https://nvwa-api.xspaceagi.com',
+      apiUrl: 'https://agent.nuwax.com',
       timeout: 30000,
     },
     local: {

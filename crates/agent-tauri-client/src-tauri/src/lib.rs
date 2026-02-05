@@ -715,9 +715,9 @@ fn get_lanproxy_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
 /// 启动 nuwax-lanproxy 客户端
 ///
 /// 从 Tauri store 读取配置:
-/// - setup.server_host: 服务器 IP
-/// - setup.proxy_port: 服务器端口
-/// - auth.saved_key: 客户端密钥
+/// - lanproxy.server_host: lanproxy 服务器地址 (从 API 返回的 serverHost)
+/// - lanproxy.server_port: lanproxy 服务器端口 (从 API 返回的 serverPort)
+/// - auth.saved_key: 客户端密钥 (configKey)
 ///
 /// # 错误信息说明
 /// 详细的错误信息会帮助定位配置问题，可能的错误包括:
@@ -731,19 +731,20 @@ async fn lanproxy_start(
 ) -> Result<bool, String> {
     info!("[Lanproxy] 开始读取启动配置...");
 
-    // 从 store 读取 server_host
-    let server_host = match read_store_string(&app, "setup.server_host") {
+    // 从 store 读取 lanproxy server_host (API 返回的 serverHost，如 testagent.xspaceagi.com)
+    let server_host = match read_store_string(&app, "lanproxy.server_host") {
         Ok(Some(host)) => {
             info!("[Lanproxy] 找到 server_host: {}", host);
             host
         }
         Ok(None) => {
-            let err = "配置缺失: setup.server_host (服务器域名) - 请在步骤1中保存服务器地址";
+            let err =
+                "配置缺失: lanproxy.server_host (lanproxy服务器地址) - 请先登录以获取服务器配置";
             error!("[Lanproxy] {}", err);
             return Err(err.to_string());
         }
         Err(e) => {
-            let err = format!("读取 setup.server_host 失败: {}", e);
+            let err = format!("读取 lanproxy.server_host 失败: {}", e);
             error!("[Lanproxy] {}", err);
             return Err(err);
         }
@@ -751,19 +752,20 @@ async fn lanproxy_start(
     let server_ip = strip_host_from_url(&server_host);
     info!("[Lanproxy] 处理后的服务器地址: {}", server_ip);
 
-    // 从 store 读取 server_port
-    let server_port = match read_store_port(&app, "setup.proxy_port") {
+    // 从 store 读取 lanproxy server_port (API 返回的 serverPort，如 6443)
+    let server_port = match read_store_port(&app, "lanproxy.server_port") {
         Ok(Some(port)) => {
-            info!("[Lanproxy] 找到 proxy_port: {}", port);
+            info!("[Lanproxy] 找到 server_port: {}", port);
             port
         }
         Ok(None) => {
-            let err = "配置缺失: setup.proxy_port (代理服务端口) - 请在步骤1中保存端口配置";
+            let err =
+                "配置缺失: lanproxy.server_port (lanproxy服务器端口) - 请先登录以获取服务器配置";
             error!("[Lanproxy] {}", err);
             return Err(err.to_string());
         }
         Err(e) => {
-            let err = format!("读取 setup.proxy_port 失败: {}", e);
+            let err = format!("读取 lanproxy.server_port 失败: {}", e);
             error!("[Lanproxy] {}", err);
             return Err(err);
         }
@@ -1000,10 +1002,10 @@ async fn services_stop_all(state: tauri::State<'_, ServiceManagerState>) -> Resu
 ///
 /// 从 Tauri store 读取配置:
 /// - setup.agent_port: Agent 服务端口 (默认 9086)
-/// - setup.proxy_port: 代理服务端口 (默认 9099)
-/// - setup.server_host: 服务器域名
-/// - auth.saved_key: 客户端密钥
 /// - setup.file_server_port: 文件服务端口 (默认 60000)
+/// - lanproxy.server_host: lanproxy 服务器地址 (从 API 返回)
+/// - lanproxy.server_port: lanproxy 服务器端口 (从 API 返回)
+/// - auth.saved_key: 客户端密钥
 #[tauri::command]
 async fn services_restart_all(
     app: tauri::AppHandle,
@@ -1083,19 +1085,19 @@ async fn services_restart_all(
     // lanproxy - 需要读取配置并调用 lanproxy_start_with_config
     info!("[Services] 4/4 启动代理服务 (nuwax-lanproxy)...");
     {
-        // 读取 server_host
-        let server_host = match read_store_string(&app, "setup.server_host") {
+        // 读取 lanproxy server_host (从 API 返回)
+        let server_host = match read_store_string(&app, "lanproxy.server_host") {
             Ok(Some(host)) => {
-                info!("[Services]   - 找到 server_host: {}", host);
+                info!("[Services]   - 找到 lanproxy.server_host: {}", host);
                 host
             }
             Ok(None) => {
-                let err = "配置缺失: setup.server_host (服务器域名)";
+                let err = "配置缺失: lanproxy.server_host (lanproxy服务器地址) - 请先登录以获取服务器配置";
                 error!("[Services]   - {}", err);
                 return Err(err.to_string());
             }
             Err(e) => {
-                let err = format!("读取 setup.server_host 失败: {}", e);
+                let err = format!("读取 lanproxy.server_host 失败: {}", e);
                 error!("[Services]   - {}", err);
                 return Err(err);
             }
@@ -1103,30 +1105,19 @@ async fn services_restart_all(
         let server_ip = strip_host_from_url(&server_host);
         info!("[Services]   - 处理后的服务器地址: {}", server_ip);
 
-        // 优先使用 server_port（从 reg 接口返回），如果没有则使用 proxy_port
-        let server_port = match read_store_port(&app, "setup.server_port") {
+        // 读取 lanproxy server_port (从 API 返回)
+        let server_port = match read_store_port(&app, "lanproxy.server_port") {
             Ok(Some(port)) => {
-                info!("[Services]   - 找到 server_port (优先): {}", port);
+                info!("[Services]   - 找到 lanproxy.server_port: {}", port);
                 port
             }
-            Ok(None) => match read_store_port(&app, "setup.proxy_port") {
-                Ok(Some(port)) => {
-                    info!("[Services]   - 找到 proxy_port: {}", port);
-                    port
-                }
-                Ok(None) => {
-                    let err = "配置缺失: setup.server_port 和 setup.proxy_port";
-                    error!("[Services]   - {}", err);
-                    return Err(err.to_string());
-                }
-                Err(e) => {
-                    let err = format!("读取 setup.proxy_port 失败: {}", e);
-                    error!("[Services]   - {}", err);
-                    return Err(err);
-                }
-            },
+            Ok(None) => {
+                let err = "配置缺失: lanproxy.server_port (lanproxy服务器端口) - 请先登录以获取服务器配置";
+                error!("[Services]   - {}", err);
+                return Err(err.to_string());
+            }
             Err(e) => {
-                let err = format!("读取 setup.server_port 失败: {}", e);
+                let err = format!("读取 lanproxy.server_port 失败: {}", e);
                 error!("[Services]   - {}", err);
                 return Err(err);
             }

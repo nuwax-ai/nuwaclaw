@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error, info, warn};
 
 use super::http_server::HttpServer;
 
@@ -128,7 +128,10 @@ pub struct ServiceManager {
 
 impl ServiceManager {
     /// 创建新的服务管理器
-    pub fn new(config: Option<NuwaxFileServerConfig>, lanproxy_config: Option<NuwaxLanproxyConfig>) -> Self {
+    pub fn new(
+        config: Option<NuwaxFileServerConfig>,
+        lanproxy_config: Option<NuwaxLanproxyConfig>,
+    ) -> Self {
         Self {
             nuwax_file_server: Arc::new(Mutex::new(None)),
             config: Arc::new(config.unwrap_or_default()),
@@ -142,24 +145,39 @@ impl ServiceManager {
     pub async fn file_server_start(&self) -> Result<(), String> {
         info!("Starting nuwax-file-server...");
 
-        let mut cmd = process_wrap::tokio::CommandWrap::with_new(
-            "nuwax-file-server",
-            |cmd| {
-                cmd.arg("start")
-                    .arg("--env")
-                    .arg(&self.config.env)
-                    .arg("--port")
-                    .arg(self.config.port.to_string())
-                    .arg(format!("INIT_PROJECT_NAME={}", &self.config.init_project_name))
-                    .arg(format!("INIT_PROJECT_DIR={}", &self.config.init_project_dir))
-                    .arg(format!("UPLOAD_PROJECT_DIR={}", &self.config.upload_project_dir))
-                    .arg(format!("PROJECT_SOURCE_DIR={}", &self.config.project_source_dir))
-                    .arg(format!("DIST_TARGET_DIR={}", &self.config.dist_target_dir))
-                    .arg(format!("LOG_BASE_DIR={}", &self.config.log_base_dir))
-                    .arg(format!("COMPUTER_WORKSPACE_DIR={}", &self.config.computer_workspace_dir))
-                    .arg(format!("COMPUTER_LOG_DIR={}", &self.config.computer_log_dir));
-            },
-        );
+        let mut cmd = process_wrap::tokio::CommandWrap::with_new("nuwax-file-server", |cmd| {
+            cmd.arg("start")
+                .arg("--env")
+                .arg(&self.config.env)
+                .arg("--port")
+                .arg(self.config.port.to_string())
+                .arg(format!(
+                    "INIT_PROJECT_NAME={}",
+                    &self.config.init_project_name
+                ))
+                .arg(format!(
+                    "INIT_PROJECT_DIR={}",
+                    &self.config.init_project_dir
+                ))
+                .arg(format!(
+                    "UPLOAD_PROJECT_DIR={}",
+                    &self.config.upload_project_dir
+                ))
+                .arg(format!(
+                    "PROJECT_SOURCE_DIR={}",
+                    &self.config.project_source_dir
+                ))
+                .arg(format!("DIST_TARGET_DIR={}", &self.config.dist_target_dir))
+                .arg(format!("LOG_BASE_DIR={}", &self.config.log_base_dir))
+                .arg(format!(
+                    "COMPUTER_WORKSPACE_DIR={}",
+                    &self.config.computer_workspace_dir
+                ))
+                .arg(format!(
+                    "COMPUTER_LOG_DIR={}",
+                    &self.config.computer_log_dir
+                ));
+        });
 
         // 跨平台条件编译：Unix 使用进程组，Windows 使用 JobObject
         #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -192,15 +210,18 @@ impl ServiceManager {
                 warn!("Failed to send kill signal, process may have exited: {}", e);
             }
 
-            use tokio::time::timeout;
             use std::time::Duration;
+            use tokio::time::timeout;
 
             match timeout(Duration::from_secs(5), child.wait()).await {
                 Ok(Ok(status)) => {
                     if status.success() {
                         info!("nuwax-file-server stopped gracefully");
                     } else {
-                        info!("nuwax-file-server stopped with exit code: {:?}", status.code());
+                        info!(
+                            "nuwax-file-server stopped with exit code: {:?}",
+                            status.code()
+                        );
                     }
                 }
                 Ok(Err(e)) => {
@@ -233,24 +254,39 @@ impl ServiceManager {
     pub async fn file_server_start_with_port(&self, port: u16) -> Result<(), String> {
         info!("Starting nuwax-file-server on port {}...", port);
 
-        let mut cmd = process_wrap::tokio::CommandWrap::with_new(
-            "nuwax-file-server",
-            |cmd| {
-                cmd.arg("start")
-                    .arg("--env")
-                    .arg(&self.config.env)
-                    .arg("--port")
-                    .arg(port.to_string())
-                    .arg(format!("INIT_PROJECT_NAME={}", &self.config.init_project_name))
-                    .arg(format!("INIT_PROJECT_DIR={}", &self.config.init_project_dir))
-                    .arg(format!("UPLOAD_PROJECT_DIR={}", &self.config.upload_project_dir))
-                    .arg(format!("PROJECT_SOURCE_DIR={}", &self.config.project_source_dir))
-                    .arg(format!("DIST_TARGET_DIR={}", &self.config.dist_target_dir))
-                    .arg(format!("LOG_BASE_DIR={}", &self.config.log_base_dir))
-                    .arg(format!("COMPUTER_WORKSPACE_DIR={}", &self.config.computer_workspace_dir))
-                    .arg(format!("COMPUTER_LOG_DIR={}", &self.config.computer_log_dir));
-            },
-        );
+        let mut cmd = process_wrap::tokio::CommandWrap::with_new("nuwax-file-server", |cmd| {
+            cmd.arg("start")
+                .arg("--env")
+                .arg(&self.config.env)
+                .arg("--port")
+                .arg(port.to_string())
+                .arg(format!(
+                    "INIT_PROJECT_NAME={}",
+                    &self.config.init_project_name
+                ))
+                .arg(format!(
+                    "INIT_PROJECT_DIR={}",
+                    &self.config.init_project_dir
+                ))
+                .arg(format!(
+                    "UPLOAD_PROJECT_DIR={}",
+                    &self.config.upload_project_dir
+                ))
+                .arg(format!(
+                    "PROJECT_SOURCE_DIR={}",
+                    &self.config.project_source_dir
+                ))
+                .arg(format!("DIST_TARGET_DIR={}", &self.config.dist_target_dir))
+                .arg(format!("LOG_BASE_DIR={}", &self.config.log_base_dir))
+                .arg(format!(
+                    "COMPUTER_WORKSPACE_DIR={}",
+                    &self.config.computer_workspace_dir
+                ))
+                .arg(format!(
+                    "COMPUTER_LOG_DIR={}",
+                    &self.config.computer_log_dir
+                ));
+        });
 
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         let cmd = cmd.wrap(process_wrap::tokio::ProcessGroup::leader());
@@ -293,14 +329,13 @@ impl ServiceManager {
         let lanproxy_bin = &self.lanproxy_config.bin_path;
         info!("[Lanproxy] 使用可执行文件路径: {}", lanproxy_bin);
 
-        let mut cmd = process_wrap::tokio::CommandWrap::with_new(
-            lanproxy_bin.as_str(),
-            |cmd| {
-                cmd.arg("-s").arg(&self.lanproxy_config.server_ip);
-                cmd.arg("-p").arg(self.lanproxy_config.server_port.to_string());
-                cmd.arg("-k").arg(&self.lanproxy_config.client_key);
-            },
-        );
+        let mut cmd = process_wrap::tokio::CommandWrap::with_new(lanproxy_bin.as_str(), |cmd| {
+            cmd.arg("-s").arg(&self.lanproxy_config.server_ip);
+            cmd.arg("-p")
+                .arg(self.lanproxy_config.server_port.to_string());
+            cmd.arg("-k").arg(&self.lanproxy_config.client_key);
+            cmd.arg("--ssl=true");
+        });
 
         // 跨平台条件编译：Unix 使用进程组，Windows 使用 JobObject
         #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -338,8 +373,8 @@ impl ServiceManager {
             }
 
             // 等待进程退出，带超时
-            use tokio::time::timeout;
             use std::time::Duration;
+            use tokio::time::timeout;
 
             match timeout(Duration::from_secs(5), child.wait()).await {
                 Ok(Ok(status)) => {
@@ -371,23 +406,42 @@ impl ServiceManager {
     }
 
     /// 使用指定配置启动 nuwax-lanproxy
-    pub async fn lanproxy_start_with_config(&self, config: NuwaxLanproxyConfig) -> Result<(), String> {
+    pub async fn lanproxy_start_with_config(
+        &self,
+        config: NuwaxLanproxyConfig,
+    ) -> Result<(), String> {
         info!("[Lanproxy] ========== 启动代理服务 ==========");
         info!("[Lanproxy] 可执行文件路径: {}", config.bin_path);
-        info!("[Lanproxy] 服务器地址: {}:{}", config.server_ip, config.server_port);
-        info!("[Lanproxy] 客户端密钥: {}****{}",
-            &config.client_key[..config.client_key.len().saturating_sub(4).min(config.client_key.len())],
-            if config.client_key.len() > 4 { &config.client_key[config.client_key.len()-4..] } else { "****" }
+        info!(
+            "[Lanproxy] 服务器地址: {}:{}",
+            config.server_ip, config.server_port
+        );
+        info!(
+            "[Lanproxy] 客户端密钥: {}****{}",
+            &config.client_key[..config
+                .client_key
+                .len()
+                .saturating_sub(4)
+                .min(config.client_key.len())],
+            if config.client_key.len() > 4 {
+                &config.client_key[config.client_key.len() - 4..]
+            } else {
+                "****"
+            }
         );
 
-        let mut cmd = process_wrap::tokio::CommandWrap::with_new(
-            config.bin_path.as_str(),
-            |cmd| {
-                cmd.arg("-s").arg(&config.server_ip);
-                cmd.arg("-p").arg(config.server_port.to_string());
-                cmd.arg("-k").arg(&config.client_key);
-            },
+        // 打印完整启动命令
+        info!(
+            "[Lanproxy] 启动命令: {} -s {} -p {} -k {} --ssl=true",
+            config.bin_path, config.server_ip, config.server_port, config.client_key
         );
+
+        let mut cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
+            cmd.arg("-s").arg(&config.server_ip);
+            cmd.arg("-p").arg(config.server_port.to_string());
+            cmd.arg("-k").arg(&config.client_key);
+            cmd.arg("--ssl=true");
+        });
 
         // 跨平台条件编译：Unix 使用进程组，Windows 使用 JobObject
         #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -412,7 +466,11 @@ impl ServiceManager {
     }
 
     /// 启动 HTTP Server
-    pub async fn rcoder_start(&self, port: u16, agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>) -> Result<(), String> {
+    pub async fn rcoder_start(
+        &self,
+        port: u16,
+        agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>,
+    ) -> Result<(), String> {
         info!("Starting HTTP Server (rcoder) on port {}...", port);
 
         let server = super::http_server::HttpServer::new(port);
@@ -439,7 +497,8 @@ impl ServiceManager {
     pub async fn rcoder_stop(&self) -> Result<(), String> {
         info!("Stopping HTTP Server (rcoder)...");
 
-        let mut guard: tokio::sync::MutexGuard<'_, Option<HttpServer>> = self.http_server.lock().await;
+        let mut guard: tokio::sync::MutexGuard<'_, Option<HttpServer>> =
+            self.http_server.lock().await;
         if let Some(server) = guard.take() {
             drop(guard);
             server.stop();
@@ -452,7 +511,11 @@ impl ServiceManager {
     }
 
     /// 重启 HTTP Server
-    pub async fn rcoder_restart(&self, port: u16, agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>) -> Result<(), String> {
+    pub async fn rcoder_restart(
+        &self,
+        port: u16,
+        agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>,
+    ) -> Result<(), String> {
         self.rcoder_stop().await?;
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         self.rcoder_start(port, agent_runner_api).await
@@ -461,7 +524,7 @@ impl ServiceManager {
     /// 停止所有服务
     pub async fn services_stop_all(&self) -> Result<(), String> {
         info!("[Services] ========== 停止所有服务 ==========");
-        
+
         info!("[Services] 1/3 停止 Agent 服务 (rcoder)...");
         if let Err(e) = self.rcoder_stop().await {
             warn!("[Services]   - Agent 服务停止失败: {}", e);
@@ -488,7 +551,11 @@ impl ServiceManager {
     }
 
     /// 重启所有服务
-    pub async fn services_restart_all(&self, port: u16, agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>) -> Result<(), String> {
+    pub async fn services_restart_all(
+        &self,
+        port: u16,
+        agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>,
+    ) -> Result<(), String> {
         info!("Restarting all services...");
 
         self.services_stop_all().await?;

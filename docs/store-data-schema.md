@@ -119,7 +119,8 @@ interface CustomScene {
 |------|------|------|--------|
 | `setup.completed` | `boolean` | 是否完成初始化向导 | `false` |
 | `setup.current_step` | `number` | 当前向导步骤（1/2/3） | `1` |
-| `setup.server_host` | `string` | 服务域名 | `"https://nvwa-api.xspaceagi.com"` |
+| `setup.server_host` | `string` | 服务域名 | `"https://agent.nuwax.com"` |
+| `setup.server_port` | `number` | 服务 HTTPS 端口 | `443` |
 | `setup.agent_port` | `number` | Agent 服务端口 | `9086` |
 | `setup.file_server_port` | `number` | 文件服务端口 | `60000` |
 | `setup.proxy_port` | `number` | 代理服务端口 | `9099` |
@@ -132,6 +133,7 @@ interface SetupState {
   completed: boolean;      // 是否完成初始化
   currentStep: number;     // 当前步骤 (1/2/3)
   serverHost: string;      // 服务域名
+  serverPort: number;      // 服务 HTTPS 端口
   agentPort: number;       // Agent 端口
   fileServerPort: number;  // 文件服务端口
   proxyPort: number;       // 代理服务端口
@@ -224,6 +226,7 @@ pub struct SetupState {
     pub completed: bool,
     pub current_step: i32,
     pub server_host: String,
+    pub server_port: i32,
     pub agent_port: i32,
     pub file_server_port: i32,
     pub proxy_port: i32,
@@ -315,7 +318,8 @@ pub fn get_setup_state(app: &tauri::AppHandle) -> SetupState {
         completed: read_bool(app, "setup.completed").unwrap_or(false),
         current_step: read_number(app, "setup.current_step").unwrap_or(1) as i32,
         server_host: read_string(app, "setup.server_host")
-            .unwrap_or_else(|| "https://nvwa-api.xspaceagi.com".to_string()),
+            .unwrap_or_else(|| "https://agent.nuwax.com".to_string()),
+        server_port: read_number(app, "setup.server_port").unwrap_or(443) as i32,
         agent_port: read_number(app, "setup.agent_port").unwrap_or(9086) as i32,
         file_server_port: read_number(app, "setup.file_server_port").unwrap_or(60000) as i32,
         proxy_port: read_number(app, "setup.proxy_port").unwrap_or(9099) as i32,
@@ -326,18 +330,18 @@ pub fn get_setup_state(app: &tauri::AppHandle) -> SetupState {
 // 使用示例
 fn start_services(app: &tauri::AppHandle) {
     let config = get_setup_state(app);
-    
+
     if !config.completed {
         log::warn!("初始化未完成，跳过服务启动");
         return;
     }
-    
-    log::info!("服务配置: host={}, agent_port={}, file_port={}", 
+
+    log::info!("服务配置: host={}, agent_port={}, file_port={}",
         config.server_host, config.agent_port, config.file_server_port);
-    
+
     // 启动 Agent 服务
     // start_agent_service(&config.server_host, config.agent_port);
-    
+
     // 启动文件服务
     // start_file_service(config.file_server_port);
 }
@@ -367,12 +371,12 @@ fn connect_to_server(app: &tauri::AppHandle) {
         log::warn!("用户未登录");
         return;
     }
-    
+
     if let Some(config_key) = get_config_key(app) {
         log::info!("使用 ConfigKey 连接服务器");
         // connect_with_key(&config_key);
     }
-    
+
     if let Some(user) = get_auth_info(app) {
         log::info!("当前用户: {}", user.username);
     }
@@ -430,7 +434,7 @@ pub fn get_local_bin_path(app: &tauri::AppHandle, package_name: &str) -> Option<
     let bin_path = std::path::Path::new(&node_modules)
         .join(".bin")
         .join(package_name);
-    
+
     if bin_path.exists() {
         Some(bin_path.to_string_lossy().to_string())
     } else {
@@ -444,7 +448,7 @@ fn start_nuwax_services(app: &tauri::AppHandle) {
     let file_server_bin = get_local_bin_path(app, "nuwax-file-server");
     let nuwaxcode_bin = get_local_bin_path(app, "nuwaxcode");
     let claude_code_bin = get_local_bin_path(app, "claude-code-acp");
-    
+
     if let Some(bin) = file_server_bin {
         log::info!("文件服务路径: {}", bin);
         // std::process::Command::new(&bin).spawn();
@@ -465,26 +469,26 @@ pub fn on_app_ready(app: &tauri::AppHandle) {
         log::info!("等待用户完成初始化向导");
         return;
     }
-    
+
     // 2. 检查登录状态
     if !is_logged_in(app) {
         log::info!("等待用户登录");
         return;
     }
-    
+
     // 3. 获取配置
     let config_key = get_config_key(app);
     let workspace = &setup.workspace_dir;
-    
+
     log::info!("工作区目录: {}", workspace);
     log::info!("Agent 端口: {}", setup.agent_port);
     log::info!("文件服务端口: {}", setup.file_server_port);
-    
+
     // 4. 获取依赖路径
     if let Some(deps_dir) = get_deps_install_dir(app) {
         log::info!("依赖安装目录: {}", deps_dir);
     }
-    
+
     // 5. 启动服务
     // start_all_services(app, &setup, config_key);
 }
@@ -575,7 +579,8 @@ console.log('初始化状态:', setupState);
 {
   completed: false,
   currentStep: 1,
-  serverHost: 'https://nvwa-api.xspaceagi.com',
+  serverHost: 'https://agent.nuwax.com',
+  serverPort: 443,
   agentPort: 9086,
   fileServerPort: 60000,
   proxyPort: 9099,
@@ -1022,6 +1027,7 @@ await clear();
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| 1.3 | 2026-02-05 | 更新默认域名：生产环境为 agent.nuwax.com，新增 server_port 字段 |
 | 1.2 | 2026-02-04 | Rust 示例精简为只读操作，明确前后端职责划分 |
 | 1.1 | 2026-02-04 | 添加 Rust 和 TypeScript 调用示例 |
 | 1.0 | 2026-02-04 | 初始版本，包含认证、配置、设置、向导、依赖管理 |

@@ -4,13 +4,13 @@
  * 提供键值存储、类型安全的读写接口
  */
 
-import { Store, load } from '@tauri-apps/plugin-store';
+import { Store, load } from "@tauri-apps/plugin-store";
 
 // Store 实例（单例）
 let storeInstance: Store | null = null;
 
 // 存储文件名称
-const STORE_FILE = 'nuwax_store.bin';
+const STORE_FILE = "nuwax_store.bin";
 
 /**
  * 初始化存储服务
@@ -31,7 +31,7 @@ export async function initStore(): Promise<Store> {
  */
 export function getStore(): Store {
   if (!storeInstance) {
-    throw new Error('Store 未初始化，请先调用 initStore()');
+    throw new Error("Store 未初始化，请先调用 initStore()");
   }
   return storeInstance;
 }
@@ -41,41 +41,45 @@ export function getStore(): Store {
  */
 export const STORAGE_KEYS = {
   // 认证信息
-  AUTH_USERNAME: 'auth.username',
-  AUTH_PASSWORD: 'auth.password',
-  AUTH_CONFIG_KEY: 'auth.config_key',
-  AUTH_SAVED_KEY: 'auth.saved_key',
-  AUTH_USER_INFO: 'auth.user_info',
-  AUTH_ONLINE_STATUS: 'auth.online_status',
+  AUTH_USERNAME: "auth.username",
+  AUTH_PASSWORD: "auth.password",
+  AUTH_CONFIG_KEY: "auth.config_key",
+  AUTH_SAVED_KEY: "auth.saved_key",
+  AUTH_USER_INFO: "auth.user_info",
+  AUTH_ONLINE_STATUS: "auth.online_status",
 
   // 配置信息
-  CONFIG_CURRENT_SCENE: 'config.current_scene',
-  CONFIG_CUSTOM_SCENES: 'config.custom_scenes',
-  CONFIG_VERSION: 'config.version',
+  CONFIG_CURRENT_SCENE: "config.current_scene",
+  CONFIG_CUSTOM_SCENES: "config.custom_scenes",
+  CONFIG_VERSION: "config.version",
 
   // 应用设置
-  SETTINGS_AUTO_CONNECT: 'settings.auto_connect',
-  SETTINGS_NOTIFICATIONS: 'settings.notifications',
+  SETTINGS_AUTO_CONNECT: "settings.auto_connect",
+  SETTINGS_NOTIFICATIONS: "settings.notifications",
 
   // 初始化向导状态
-  SETUP_COMPLETED: 'setup.completed',           // 是否完成初始化
-  SETUP_CURRENT_STEP: 'setup.current_step',     // 当前步骤 (1/2/3)
+  SETUP_COMPLETED: "setup.completed", // 是否完成初始化
+  SETUP_CURRENT_STEP: "setup.current_step", // 当前步骤 (1/2/3)
 
-  // 基础设置（步骤1）
-  SETUP_SERVER_HOST: 'setup.server_host',       // 服务域名
-  SETUP_SERVER_PORT: 'setup.server_port',       // 服务端口 (HTTPS 端口)
-  SETUP_AGENT_PORT: 'setup.agent_port',         // Agent 端口
-  SETUP_FILE_SERVER_PORT: 'setup.file_server_port', // 文件服务端口
-  SETUP_PROXY_PORT: 'setup.proxy_port',         // 代理服务端口
-  SETUP_WORKSPACE_DIR: 'setup.workspace_dir',   // 工作区目录
+  // 基础设置（步骤1）- API 服务器配置
+  SETUP_SERVER_HOST: "setup.server_host", // API 服务域名 (如 https://nvwa-api.xspaceagi.com)
+  SETUP_SERVER_PORT: "setup.server_port", // API 服务端口 (HTTPS 端口，如 443)
+  SETUP_AGENT_PORT: "setup.agent_port", // Agent 端口
+  SETUP_FILE_SERVER_PORT: "setup.file_server_port", // 文件服务端口
+  SETUP_PROXY_PORT: "setup.proxy_port", // 代理服务端口 (本地)
+  SETUP_WORKSPACE_DIR: "setup.workspace_dir", // 工作区目录
+
+  // Lanproxy 服务器配置（从 API 返回）
+  LANPROXY_SERVER_HOST: "lanproxy.server_host", // lanproxy 服务器地址 (如 testagent.xspaceagi.com)
+  LANPROXY_SERVER_PORT: "lanproxy.server_port", // lanproxy 服务器端口 (如 6443)
 
   // 依赖安装（步骤3）
-  DEPS_INSTALL_DIR: 'deps.install_dir',         // npm 包安装目录（应用数据目录）
-  DEPS_NODE_MODULES_PATH: 'deps.node_modules_path', // node_modules 完整路径
+  DEPS_INSTALL_DIR: "deps.install_dir", // npm 包安装目录（应用数据目录）
+  DEPS_NODE_MODULES_PATH: "deps.node_modules_path", // node_modules 完整路径
 } as const;
 
 // 配置版本号
-const CONFIG_VERSION = '1';
+const CONFIG_VERSION = "1";
 
 /**
  * 类型定义
@@ -110,14 +114,14 @@ export interface CustomScene {
  * 初始化向导状态
  */
 export interface SetupState {
-  completed: boolean;        // 是否完成初始化
-  currentStep: number;       // 当前步骤 (1/2/3)
-  serverHost: string;        // 服务域名
-  serverPort: number;        // 服务端口 (HTTPS 端口)
-  agentPort: number;         // Agent 端口
-  fileServerPort: number;    // 文件服务端口
-  proxyPort: number;         // 代理服务端口
-  workspaceDir: string;       // 工作区目录
+  completed: boolean; // 是否完成初始化
+  currentStep: number; // 当前步骤 (1/2/3)
+  serverHost: string; // 服务域名
+  serverPort: number; // 服务端口 (HTTPS 端口)
+  agentPort: number; // Agent 端口
+  fileServerPort: number; // 文件服务端口
+  proxyPort: number; // 代理服务端口
+  workspaceDir: string; // 工作区目录
 }
 
 /**
@@ -126,12 +130,12 @@ export interface SetupState {
 export const DEFAULT_SETUP_STATE: SetupState = {
   completed: false,
   currentStep: 1,
-  serverHost: 'https://nvwa-api.xspaceagi.com',
+  serverHost: "https://agent.nuwax.com",
   serverPort: 443,
   agentPort: 9086,
   fileServerPort: 60000,
   proxyPort: 9099,
-  workspaceDir: '',
+  workspaceDir: "",
 };
 
 /**
@@ -143,7 +147,7 @@ export const DEFAULT_SETUP_STATE: SetupState = {
  */
 export async function getString(key: string): Promise<string | null> {
   try {
-    return await getStore().get<string>(key) ?? null;
+    return (await getStore().get<string>(key)) ?? null;
   } catch {
     return null;
   }
@@ -161,7 +165,7 @@ export async function setString(key: string, value: string): Promise<void> {
  */
 export async function getBoolean(key: string): Promise<boolean | null> {
   try {
-    return await getStore().get<boolean>(key) ?? null;
+    return (await getStore().get<boolean>(key)) ?? null;
   } catch {
     return null;
   }
@@ -179,7 +183,7 @@ export async function setBoolean(key: string, value: boolean): Promise<void> {
  */
 export async function getNumber(key: string): Promise<number | null> {
   try {
-    return await getStore().get<number>(key) ?? null;
+    return (await getStore().get<number>(key)) ?? null;
   } catch {
     return null;
   }
@@ -197,7 +201,7 @@ export async function setNumber(key: string, value: number): Promise<void> {
  */
 export async function getObject<T>(key: string): Promise<T | null> {
   try {
-    return await getStore().get<T>(key) ?? null;
+    return (await getStore().get<T>(key)) ?? null;
   } catch {
     return null;
   }
@@ -368,7 +372,9 @@ export const configStorage = {
    * 获取自定义场景列表
    */
   async getCustomScenes(): Promise<CustomScene[]> {
-    return (await getObject<CustomScene[]>(STORAGE_KEYS.CONFIG_CUSTOM_SCENES)) || [];
+    return (
+      (await getObject<CustomScene[]>(STORAGE_KEYS.CONFIG_CUSTOM_SCENES)) || []
+    );
   },
 
   /**
@@ -390,7 +396,10 @@ export const configStorage = {
   /**
    * 更新自定义场景
    */
-  async updateCustomScene(id: string, updates: Partial<CustomScene>): Promise<boolean> {
+  async updateCustomScene(
+    id: string,
+    updates: Partial<CustomScene>,
+  ): Promise<boolean> {
     const scenes = await this.getCustomScenes();
     const index = scenes.findIndex((s) => s.id === id);
     if (index === -1) {
@@ -508,17 +517,25 @@ export const setupStorage = {
    * 获取完整的初始化状态
    */
   async getState(): Promise<SetupState> {
-    const [completed, currentStep, serverHost, serverPort, agentPort, fileServerPort, proxyPort, workspaceDir] =
-      await Promise.all([
-        getBoolean(STORAGE_KEYS.SETUP_COMPLETED),
-        getNumber(STORAGE_KEYS.SETUP_CURRENT_STEP),
-        getString(STORAGE_KEYS.SETUP_SERVER_HOST),
-        getNumber(STORAGE_KEYS.SETUP_SERVER_PORT),
-        getNumber(STORAGE_KEYS.SETUP_AGENT_PORT),
-        getNumber(STORAGE_KEYS.SETUP_FILE_SERVER_PORT),
-        getNumber(STORAGE_KEYS.SETUP_PROXY_PORT),
-        getString(STORAGE_KEYS.SETUP_WORKSPACE_DIR),
-      ]);
+    const [
+      completed,
+      currentStep,
+      serverHost,
+      serverPort,
+      agentPort,
+      fileServerPort,
+      proxyPort,
+      workspaceDir,
+    ] = await Promise.all([
+      getBoolean(STORAGE_KEYS.SETUP_COMPLETED),
+      getNumber(STORAGE_KEYS.SETUP_CURRENT_STEP),
+      getString(STORAGE_KEYS.SETUP_SERVER_HOST),
+      getNumber(STORAGE_KEYS.SETUP_SERVER_PORT),
+      getNumber(STORAGE_KEYS.SETUP_AGENT_PORT),
+      getNumber(STORAGE_KEYS.SETUP_FILE_SERVER_PORT),
+      getNumber(STORAGE_KEYS.SETUP_PROXY_PORT),
+      getString(STORAGE_KEYS.SETUP_WORKSPACE_DIR),
+    ]);
 
     return {
       completed: completed ?? DEFAULT_SETUP_STATE.completed,
@@ -542,25 +559,35 @@ export const setupStorage = {
       promises.push(setBoolean(STORAGE_KEYS.SETUP_COMPLETED, state.completed));
     }
     if (state.currentStep !== undefined) {
-      promises.push(setNumber(STORAGE_KEYS.SETUP_CURRENT_STEP, state.currentStep));
+      promises.push(
+        setNumber(STORAGE_KEYS.SETUP_CURRENT_STEP, state.currentStep),
+      );
     }
     if (state.serverHost !== undefined) {
-      promises.push(setString(STORAGE_KEYS.SETUP_SERVER_HOST, state.serverHost));
+      promises.push(
+        setString(STORAGE_KEYS.SETUP_SERVER_HOST, state.serverHost),
+      );
     }
     if (state.serverPort !== undefined) {
-      promises.push(setNumber(STORAGE_KEYS.SETUP_SERVER_PORT, state.serverPort));
+      promises.push(
+        setNumber(STORAGE_KEYS.SETUP_SERVER_PORT, state.serverPort),
+      );
     }
     if (state.agentPort !== undefined) {
       promises.push(setNumber(STORAGE_KEYS.SETUP_AGENT_PORT, state.agentPort));
     }
     if (state.fileServerPort !== undefined) {
-      promises.push(setNumber(STORAGE_KEYS.SETUP_FILE_SERVER_PORT, state.fileServerPort));
+      promises.push(
+        setNumber(STORAGE_KEYS.SETUP_FILE_SERVER_PORT, state.fileServerPort),
+      );
     }
     if (state.proxyPort !== undefined) {
       promises.push(setNumber(STORAGE_KEYS.SETUP_PROXY_PORT, state.proxyPort));
     }
     if (state.workspaceDir !== undefined) {
-      promises.push(setString(STORAGE_KEYS.SETUP_WORKSPACE_DIR, state.workspaceDir));
+      promises.push(
+        setString(STORAGE_KEYS.SETUP_WORKSPACE_DIR, state.workspaceDir),
+      );
     }
 
     await Promise.all(promises);

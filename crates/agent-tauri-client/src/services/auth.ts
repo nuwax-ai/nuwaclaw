@@ -4,15 +4,25 @@
  * 使用 Tauri Store 替代 localStorage
  */
 
-import { message } from 'antd';
+import { message } from "antd";
+import { invoke } from "@tauri-apps/api/core";
 import {
   registerClient,
   ClientRegisterParams,
   ClientRegisterResponse,
   SandboxValue,
-} from './api';
-import { getAgentUrl, getVncUrl, getFileServerUrl } from './config';
-import { authStorage, initStore, STORAGE_KEYS, remove, type AuthUserInfo, setupStorage } from './store';
+} from "./api";
+import { getAgentUrl, getVncUrl, getFileServerUrl } from "./config";
+import {
+  authStorage,
+  initStore,
+  STORAGE_KEYS,
+  remove,
+  setString,
+  setNumber,
+  type AuthUserInfo,
+  setupStorage,
+} from "./store";
 
 // 导出 AuthUserInfo 类型以保持向后兼容
 export type { AuthUserInfo };
@@ -136,15 +146,16 @@ export async function clearOnlineStatus(): Promise<void> {
 }
 
 /**
- * 保存服务器配置（从 reg 接口返回）
- * 用于客户端连接服务器
+ * 保存 lanproxy 服务器配置（从 reg 接口返回）
+ * 用于客户端连接 lanproxy 服务器
  */
-export async function saveServerConfig(serverHost: string, serverPort: number): Promise<void> {
-  await setupStorage.setState({
-    serverHost,
-    serverPort,
-  });
-  console.log('[Auth] 服务器配置已保存:', { serverHost, serverPort });
+export async function saveServerConfig(
+  serverHost: string,
+  serverPort: number,
+): Promise<void> {
+  await setString(STORAGE_KEYS.LANPROXY_SERVER_HOST, serverHost);
+  await setNumber(STORAGE_KEYS.LANPROXY_SERVER_PORT, serverPort);
+  console.log("[Auth] lanproxy 服务器配置已保存:", { serverHost, serverPort });
 }
 
 // ========== 错误码定义 ==========
@@ -153,29 +164,29 @@ export async function saveServerConfig(serverHost: string, serverPort: number): 
  * 业务错误码定义
  */
 export const AUTH_ERROR_CODES = {
-  SUCCESS: '0000',
-  USER_NOT_FOUND: '1001', // 用户不存在
-  PASSWORD_ERROR: '1002', // 密码错误
-  USER_DISABLED: '1003', // 用户已被禁用
-  CLIENT_NOT_FOUND: '2001', // 客户端不存在
-  CLIENT_DISABLED: '2002', // 客户端已被禁用
-  CONFIG_NOT_FOUND: '2003', // 配置不存在
+  SUCCESS: "0000",
+  USER_NOT_FOUND: "1001", // 用户不存在
+  PASSWORD_ERROR: "1002", // 密码错误
+  USER_DISABLED: "1003", // 用户已被禁用
+  CLIENT_NOT_FOUND: "2001", // 客户端不存在
+  CLIENT_DISABLED: "2002", // 客户端已被禁用
+  CONFIG_NOT_FOUND: "2003", // 配置不存在
 } as const;
 
 /**
  * 错误码对应的中文提示信息
  */
 export const AUTH_ERROR_MESSAGES: Record<string, string> = {
-  '0000': '操作成功',
-  '1001': '用户不存在，请检查输入',
-  '1002': '密码错误，请重新输入',
-  '1003': '账户已被禁用，请联系管理员',
-  '2001': '客户端不存在或已下架',
-  '2002': '客户端已被禁用',
-  '2003': '配置不存在，请重新登录',
-  '4010': '登录已过期，请重新登录',
-  '4011': '登录已过期，请重新登录',
-  '9999': '系统错误，请稍后重试',
+  "0000": "操作成功",
+  "1001": "用户不存在，请检查输入",
+  "1002": "密码错误，请重新输入",
+  "1003": "账户已被禁用，请联系管理员",
+  "2001": "客户端不存在或已下架",
+  "2002": "客户端已被禁用",
+  "2003": "配置不存在，请重新登录",
+  "4010": "登录已过期，请重新登录",
+  "4011": "登录已过期，请重新登录",
+  "9999": "系统错误，请稍后重试",
 };
 
 /**
@@ -199,17 +210,17 @@ export function getAuthErrorMessage(error: any): string {
 
   // HTTP 状态码处理
   if (error?.status === 403) {
-    return '没有权限执行此操作';
+    return "没有权限执行此操作";
   }
   if (error?.status === 404) {
-    return '请求的资源不存在';
+    return "请求的资源不存在";
   }
   if (error?.status === 500) {
-    return '服务器错误，请稍后重试';
+    return "服务器错误，请稍后重试";
   }
 
   // 默认错误信息
-  return '登录失败，请检查网络连接';
+  return "登录失败，请检查网络连接";
 }
 
 // ========== 客户端注册 ==========
@@ -219,11 +230,11 @@ export function getAuthErrorMessage(error: any): string {
  */
 function getLocalSandboxValue(): SandboxValue {
   return {
-    hostWithScheme: 'http://127.0.0.1',
+    hostWithScheme: "http://127.0.0.1",
     agentPort: 9086,
     vncPort: 9099,
     fileServerPort: 60000,
-    apiKey: '',
+    apiKey: "",
     maxUsers: 1,
   };
 }
@@ -237,7 +248,7 @@ function getLocalSandboxValue(): SandboxValue {
  */
 export async function loginAndRegister(
   username: string,
-  password: string
+  password: string,
 ): Promise<ClientRegisterResponse> {
   // 获取保存的 savedKey（用于标识是否为老用户）
   const savedKey = await getSavedKey();
@@ -251,8 +262,8 @@ export async function loginAndRegister(
   };
 
   // 启动 loading 提示
-  const loadingKey = 'loginLoading';
-  message.loading({ content: '正在登录...', key: loadingKey, duration: 0 });
+  const loadingKey = "loginLoading";
+  message.loading({ content: "正在登录...", key: loadingKey, duration: 0 });
 
   try {
     const response = await registerClient(params);
@@ -279,15 +290,33 @@ export async function loginAndRegister(
     await saveOnlineStatus(response.online);
 
     // 6. 保存服务器配置（用于客户端连接）
+    console.log("[Auth] API 返回的 lanproxy 配置:", {
+      serverHost: response.serverHost,
+      serverPort: response.serverPort,
+    });
     if (response.serverHost && response.serverPort) {
       await saveServerConfig(response.serverHost, response.serverPort);
+    } else {
+      console.warn(
+        "[Auth] API 未返回 serverHost/serverPort，lanproxy 配置未更新",
+      );
+    }
+
+    // 7. 重启所有服务（使用新的 lanproxy 配置）
+    try {
+      console.log("[Auth] 正在重启所有服务...");
+      await invoke("services_restart_all");
+      console.log("[Auth] 服务重启完成");
+    } catch (restartError) {
+      console.error("[Auth] 服务重启失败:", restartError);
+      // 不阻止登录流程，只记录错误
     }
 
     // 关闭 loading 并显示成功提示
-    message.success({ content: '登录成功！', key: loadingKey });
+    message.success({ content: "登录成功！", key: loadingKey });
 
     // 打印调试信息
-    console.log('[Auth] 登录成功:', {
+    console.log("[Auth] 登录成功:", {
       configKey: response.configKey,
       name: response.name,
       online: response.online,
@@ -300,7 +329,7 @@ export async function loginAndRegister(
   } catch (error: any) {
     // 获取友好的错误信息
     const errorMessage = getAuthErrorMessage(error);
-    console.error('[Auth] 登录失败:', error);
+    console.error("[Auth] 登录失败:", error);
 
     // 关闭 loading 并显示错误信息
     message.error({ content: errorMessage, key: loadingKey });
@@ -349,17 +378,17 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
   const password = await getSavedPassword();
 
   if (!username || !password) {
-    console.warn('[Auth] 未保存凭证，无法重新注册');
+    console.warn("[Auth] 未保存凭证，无法重新注册");
     return null;
   }
 
   try {
-    console.log('[Auth] 重新注册客户端...');
+    console.log("[Auth] 重新注册客户端...");
     const response = await loginAndRegister(username, password);
-    console.log('[Auth] 重新注册成功');
+    console.log("[Auth] 重新注册成功");
     return response;
   } catch (error) {
-    console.error('[Auth] 重新注册失败:', error);
+    console.error("[Auth] 重新注册失败:", error);
     return null;
   }
 }
@@ -371,7 +400,7 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
 export async function logout(): Promise<void> {
   await clearAuthInfo();
   await clearOnlineStatus();
-  message.info('已退出登录');
+  message.info("已退出登录");
 }
 
 // ========== 心跳机制 (TODO) ==========
@@ -384,7 +413,7 @@ export async function logout(): Promise<void> {
  * 3. 需要停止心跳的场景: 退出登录、程序关闭
  */
 export async function startHeartbeat(): Promise<void> {
-  console.log('[Heartbeat] TODO: 实现心跳机制');
+  console.log("[Heartbeat] TODO: 实现心跳机制");
   // 实现思路：
   // 1. 使用 setInterval 创建定时任务
   // 2. 定期调用 reRegisterClient
@@ -396,7 +425,7 @@ export async function startHeartbeat(): Promise<void> {
  * 停止心跳 (TODO)
  */
 export function stopHeartbeat(): void {
-  console.log('[Heartbeat] TODO: 实现停止心跳');
+  console.log("[Heartbeat] TODO: 实现停止心跳");
   // 实现思路：
   // 1. 清除定时器
   // 2. 重置心跳状态
@@ -418,10 +447,10 @@ export async function getCurrentSandboxValue(): Promise<SandboxValue> {
       const u = new URL(url);
       return {
         hostWithScheme: `${u.protocol}//${u.hostname}`,
-        port: parseInt(u.port || (u.protocol === 'https:' ? '443' : '80'), 10),
+        port: parseInt(u.port || (u.protocol === "https:" ? "443" : "80"), 10),
       };
     } catch {
-      return { hostWithScheme: 'http://127.0.0.1', port: 0 };
+      return { hostWithScheme: "http://127.0.0.1", port: 0 };
     }
   };
 
@@ -434,7 +463,7 @@ export async function getCurrentSandboxValue(): Promise<SandboxValue> {
     agentPort: agent.port,
     vncPort: vnc.port,
     fileServerPort: fileServer.port,
-    apiKey: '',
+    apiKey: "",
     maxUsers: 1,
   };
 }
@@ -449,7 +478,7 @@ export async function syncConfigToServer(): Promise<ClientRegisterResponse | nul
   const configKey = await getSavedConfigKey();
 
   if (!username || !password) {
-    console.warn('[SyncConfig] 未登录，无法同步配置');
+    console.warn("[SyncConfig] 未登录，无法同步配置");
     return null;
   }
 
@@ -460,8 +489,8 @@ export async function syncConfigToServer(): Promise<ClientRegisterResponse | nul
     sandboxConfigValue: await getCurrentSandboxValue(),
   };
 
-  const loadingKey = 'syncConfigLoading';
-  message.loading({ content: '正在同步配置...', key: loadingKey, duration: 0 });
+  const loadingKey = "syncConfigLoading";
+  message.loading({ content: "正在同步配置...", key: loadingKey, duration: 0 });
 
   try {
     const response = await registerClient(params);
@@ -471,15 +500,15 @@ export async function syncConfigToServer(): Promise<ClientRegisterResponse | nul
     await saveSavedKey(response.configKey);
     await saveOnlineStatus(response.online);
 
-    message.success({ content: '配置同步成功！', key: loadingKey });
-    console.log('[SyncConfig] 配置同步成功:', {
+    message.success({ content: "配置同步成功！", key: loadingKey });
+    console.log("[SyncConfig] 配置同步成功:", {
       configKey: response.configKey,
       online: response.online,
     });
     return response;
   } catch (error: any) {
     const errorMessage = getAuthErrorMessage(error);
-    console.error('[SyncConfig] 配置同步失败:', error);
+    console.error("[SyncConfig] 配置同步失败:", error);
     message.error({ content: errorMessage, key: loadingKey });
     return null;
   }
