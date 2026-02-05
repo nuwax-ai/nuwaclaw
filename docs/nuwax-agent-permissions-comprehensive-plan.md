@@ -30,10 +30,10 @@
 |-----------|------|
 | `PermissionsState` | 延迟初始化管理器 |
 | `MonitorState` | 权限监控状态 |
-| `check_permission` | 检查单个权限 |
-| `request_permission` | 请求权限（交互式） |
-| `open_settings` | 打开系统设置 |
-| `get_all_permissions` | 批量获取所有权限 |
+| `permission_check` | 检查单个权限 |
+| `permission_request` | 请求权限（交互式） |
+| `permission_open_settings` | 打开系统设置 |
+| `permission_list` | 批量获取所有权限 |
 | `start_permission_monitor` | 启动权限变化监控 |
 | `stop_permission_monitor` | 停止监控 |
 | `PermissionChangeEvent` | 权限变化事件 DTO |

@@ -30,10 +30,10 @@
 |-----------|------|------|
 | `PermissionsState` | 延迟初始化管理器 | ✅ |
 | `MonitorState` | 权限监控状态 | ✅ |
-| `check_permission` | 检查单个权限 | ✅ |
-| `request_permission` | 请求权限（交互式） | ✅ |
-| `open_settings` | 打开系统设置 | ✅ |
-| `get_all_permissions` | 批量获取所有权限 | ✅ |
+| `permission_check` | 检查单个权限 | ✅ |
+| `permission_request` | 请求权限（交互式） | ✅ |
+| `permission_open_settings` | 打开系统设置 | ✅ |
+| `permission_list` | 批量获取所有权限 | ✅ |
 | `start_permission_monitor` | 启动权限变化监控 | ✅ |
 | `stop_permission_monitor` | 停止监控 | ✅ |
 | `PermissionChangeEvent` | 权限变化事件 DTO | ✅ |
@@ -113,13 +113,13 @@ crates/agent-tauri-client/
 │   ├── MonitorState                  # 监控状态
 │   ├── PermissionStateDto            # IPC 序列化
 │   ├── RequestResultDto              # IPC 序列化
-│   ├── check_permission              # 命令
-│   ├── request_permission            # 命令
-│   ├── open_settings                 # 命令
-│   ├── get_all_permissions           # 命令
+│   ├── permission_check              # 命令
+│   ├── permission_request            # 命令
+│   ├── permission_open_settings                 # 命令
+│   ├── permission_list           # 命令
 │   ├── start_permission_monitor      # 命令
 │   ├── stop_permission_monitor       # 命令
-│   └── greet                         # 示例命令
+│   └── system_greet                         # 示例命令
 │
 ├── src/services/
 │   ├── permissionsRust.ts            # ✅ Rust 桥接 (200行)

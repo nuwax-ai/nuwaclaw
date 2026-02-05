@@ -183,7 +183,7 @@ export default function AgentPanel() {
 /// # 返回
 /// 权限状态 DTO
 #[tauri::command]
-async fn check_permission(
+async fn permission_check(
     state: State<'_, PermissionsState>,
     permission: String,
 ) -> Result<PermissionStateDto, String> {
@@ -205,10 +205,10 @@ async fn check_permission(
 
 **Rust 后端**: `src-tauri/src/lib.rs`
 
-- `check_permission` - 检查权限状态
-- `request_permission` - 请求权限
-- `open_settings` - 打开系统设置
-- `get_all_permissions` - 批量获取权限
+- `permission_check` - 检查权限状态
+- `permission_request` - 请求权限
+- `permission_open_settings` - 打开系统设置
+- `permission_list` - 批量获取权限
 
 **支持的权限类型**：
 
@@ -255,11 +255,11 @@ async fn check_permission(
 
 | 命令 | 参数 | 返回 | 说明 |
 |------|------|------|------|
-| `check_permission` | permission: String | PermissionStateDto | 检查权限状态 |
-| `request_permission` | permission: String, interactive: bool | RequestResultDto | 请求权限 |
-| `open_settings` | permission: String | () | 打开系统设置 |
-| `get_all_permissions` | - | PermissionStateDto[] | 批量获取权限 |
-| `greet` | name: String | String | 欢迎测试命令 |
+| `permission_check` | permission: String | PermissionStateDto | 检查权限状态 |
+| `permission_request` | permission: String, interactive: bool | RequestResultDto | 请求权限 |
+| `permission_open_settings` | permission: String | () | 打开系统设置 |
+| `permission_list` | - | PermissionStateDto[] | 批量获取权限 |
+| `system_greet` | name: String | String | 欢迎测试命令 |
 
 ### 前端服务函数
 
