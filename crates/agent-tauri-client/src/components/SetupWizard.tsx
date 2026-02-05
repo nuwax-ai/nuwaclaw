@@ -1,27 +1,32 @@
 /**
  * 初始化向导组件
- * 
+ *
  * 管理客户端首次启动的配置流程:
  * 1. 基础设置 - 服务器配置、端口、工作区
  * 2. 账号登录 - 网络权限检查、用户登录
  * 3. 依赖安装 - Node.js 检测、npm 包安装
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Steps, Card, Typography, Space, Button, Result, Spin } from 'antd';
+import React, { useState, useEffect, useCallback } from "react";
+import { Steps, Card, Typography, Space, Button, Result, Spin } from "antd";
 import {
   SettingOutlined,
   UserOutlined,
   CloudDownloadOutlined,
   CheckCircleOutlined,
   RobotOutlined,
-} from '@ant-design/icons';
-import { listen } from '@tauri-apps/api/event';
-import { getCurrentStep, completeSetup } from '../services/setup';
-import { restartAllServices } from '../services/dependencies';
-import SetupStep1 from './SetupStep1';
-import SetupStep2 from './SetupStep2';
-import SetupStep3 from './SetupStep3';
+  LeftOutlined,
+} from "@ant-design/icons";
+import { listen } from "@tauri-apps/api/event";
+import {
+  getCurrentStep,
+  saveStepProgress,
+  completeSetup,
+} from "../services/setup";
+import { restartAllServices } from "../services/dependencies";
+import SetupStep1 from "./SetupStep1";
+import SetupStep2 from "./SetupStep2";
+import SetupStep3 from "./SetupStep3";
 
 const { Title, Text } = Typography;
 
@@ -29,21 +34,21 @@ const { Title, Text } = Typography;
 const WIZARD_STEPS = [
   {
     key: 1,
-    title: '基础设置',
+    title: "基础设置",
     icon: <SettingOutlined />,
-    description: '配置服务器和工作区',
+    description: "",
   },
   {
     key: 2,
-    title: '账号登录',
+    title: "账号登录",
     icon: <UserOutlined />,
-    description: '登录您的账号',
+    description: "",
   },
   {
     key: 3,
-    title: '依赖安装',
+    title: "依赖安装",
     icon: <CloudDownloadOutlined />,
-    description: '安装必需组件',
+    description: "",
   },
 ];
 
@@ -73,9 +78,9 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       try {
         const step = await getCurrentStep();
         setCurrentStep(step);
-        console.log('[SetupWizard] 当前步骤:', step);
+        console.log("[SetupWizard] 当前步骤:", step);
       } catch (error) {
-        console.error('[SetupWizard] 加载步骤失败:', error);
+        console.error("[SetupWizard] 加载步骤失败:", error);
         setCurrentStep(1);
       } finally {
         setLoading(false);
@@ -90,8 +95,8 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
    */
   useEffect(() => {
     const setupListener = async () => {
-      const unlisten = await listen('tauri://focus', async () => {
-        console.log('[SetupWizard] 应用激活，重新检测状态');
+      const unlisten = await listen("tauri://focus", async () => {
+        console.log("[SetupWizard] 应用激活，重新检测状态");
         // 如果在步骤3，重新检测依赖状态由 SetupStep3 组件处理
       });
       return unlisten;
@@ -99,7 +104,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
     const unlistenPromise = setupListener();
     return () => {
-      unlistenPromise.then(unlisten => unlisten());
+      unlistenPromise.then((unlisten) => unlisten());
     };
   }, []);
 
@@ -108,6 +113,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
    */
   const handleStep1Complete = useCallback(() => {
     setCurrentStep(2);
+    saveStepProgress(2);
   }, []);
 
   /**
@@ -115,29 +121,55 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
    */
   const handleStep2Complete = useCallback(() => {
     setCurrentStep(3);
+    saveStepProgress(3);
   }, []);
+
+  /**
+   * 返回上一步
+   */
+  const handleGoBack = useCallback(() => {
+    if (currentStep > 1) {
+      const newStep = currentStep - 1;
+      setCurrentStep(newStep);
+      saveStepProgress(newStep);
+    }
+  }, [currentStep]);
+
+  /**
+   * 点击步骤条切换步骤（只能切换到已完成的步骤）
+   */
+  const handleStepClick = useCallback(
+    (step: number) => {
+      // 只能回退到之前的步骤
+      if (step < currentStep) {
+        setCurrentStep(step + 1); // Steps 的 current 是从 0 开始的
+        saveStepProgress(step + 1);
+      }
+    },
+    [currentStep],
+  );
 
   /**
    * 步骤3完成回调
    */
   const handleStep3Complete = useCallback(async () => {
     setStartingServices(true);
-    
+
     try {
       // 调用启动服务 (TODO: 实际启动逻辑后续实现)
       await restartAllServices();
-      
+
       // 标记初始化完成
       await completeSetup();
-      
+
       setCompleted(true);
-      
+
       // 延迟后进入主界面
       setTimeout(() => {
         onComplete();
       }, 2000);
     } catch (error) {
-      console.error('[SetupWizard] 完成初始化失败:', error);
+      console.error("[SetupWizard] 完成初始化失败:", error);
       // 即使启动服务失败，也标记为完成
       await completeSetup();
       setCompleted(true);
@@ -157,7 +189,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     if (completed) {
       return (
         <Result
-          icon={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
+          icon={<CheckCircleOutlined style={{ color: "#52c41a" }} />}
           title="初始化完成"
           subTitle="正在进入主界面..."
           extra={<Spin />}
@@ -181,9 +213,13 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       case 1:
         return <SetupStep1 onComplete={handleStep1Complete} />;
       case 2:
-        return <SetupStep2 onComplete={handleStep2Complete} />;
+        return (
+          <SetupStep2 onComplete={handleStep2Complete} onBack={handleGoBack} />
+        );
       case 3:
-        return <SetupStep3 onComplete={handleStep3Complete} />;
+        return (
+          <SetupStep3 onComplete={handleStep3Complete} onBack={handleGoBack} />
+        );
       default:
         return <SetupStep1 onComplete={handleStep1Complete} />;
     }
@@ -206,7 +242,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       {/* 头部 */}
       <div className="setup-wizard-header">
         <Space>
-          <RobotOutlined style={{ fontSize: 22, color: '#1890ff' }} />
+          <RobotOutlined style={{ fontSize: 22, color: "#1890ff" }} />
           <Title level={4} style={{ margin: 0 }}>
             NuWax Agent 初始化向导
           </Title>
@@ -221,19 +257,21 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         <Steps
           current={currentStep - 1}
           size="small"
-          items={WIZARD_STEPS.map(step => ({
+          onChange={handleStepClick}
+          items={WIZARD_STEPS.map((step) => ({
             title: step.title,
-            description: currentStep === step.key ? step.description : undefined,
+            description:
+              currentStep === step.key ? step.description : undefined,
             icon: step.icon,
+            disabled: step.key > currentStep, // 只能点击已完成或当前步骤
+            style: step.key < currentStep ? { cursor: "pointer" } : undefined,
           }))}
         />
       </div>
 
       {/* 内容区 */}
       <div className="setup-wizard-content">
-        <Card variant="borderless">
-          {renderStepContent()}
-        </Card>
+        <Card variant="borderless">{renderStepContent()}</Card>
       </div>
 
       {/* 底部 */}
@@ -252,7 +290,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
           background: linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%);
           padding: 16px;
         }
-        
+
         .setup-wizard-loading {
           display: flex;
           flex-direction: column;
@@ -260,16 +298,16 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
           justify-content: center;
           height: 100%;
         }
-        
+
         .setup-wizard-header {
           text-align: center;
           margin-bottom: 12px;
         }
-        
+
         .setup-wizard-header .ant-space {
           margin-bottom: 4px;
         }
-        
+
         .setup-wizard-steps {
           max-width: 720px;
           margin: 0 auto 12px;
@@ -291,7 +329,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         .setup-wizard-steps .ant-steps-item {
           padding-inline-start: 4px;
         }
-        
+
         .setup-wizard-content {
           flex: 1;
           max-width: 720px;
@@ -299,11 +337,11 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
           margin: 0 auto;
           overflow-y: auto;
         }
-        
+
         .setup-wizard-content .ant-card {
           min-height: 280px;
         }
-        
+
         .setup-wizard-footer {
           text-align: center;
           margin-top: 8px;

@@ -37,9 +37,6 @@ import {
   getStep1Config,
   selectDirectory,
   type Step1Config,
-  getRecentWorkspaces,
-  addRecentWorkspace,
-  clearRecentWorkspaces,
 } from '../services/setup';
 import { DEFAULT_SETUP_STATE } from '../services/store';
 
@@ -59,7 +56,6 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
   const [selectingDir, setSelectingDir] = useState(false);
   const [statusHint, setStatusHint] = useState<string>('');
   const [statusType, setStatusType] = useState<'info' | 'error'>('info');
-  const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
 
   const showStatus = (text: string, type: 'info' | 'error' = 'info') => {
     setStatusHint(text);
@@ -75,8 +71,6 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
       try {
         const config = await getStep1Config();
         form.setFieldsValue(config);
-        const recent = await getRecentWorkspaces();
-        setRecentWorkspaces(recent);
       } catch (error) {
         console.error('[SetupStep1] 加载配置失败:', error);
         // 使用默认值
@@ -103,8 +97,6 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
       if (dir) {
         form.setFieldValue('workspaceDir', dir);
         showStatus('已选择目录');
-        await addRecentWorkspace(dir);
-        setRecentWorkspaces(await getRecentWorkspaces());
       }
     } catch (error) {
       console.error('[SetupStep1] 选择目录失败:', error);
@@ -124,10 +116,6 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
     try {
       await saveStep1Config(values);
       showStatus('设置已保存');
-      if (values.workspaceDir) {
-        await addRecentWorkspace(values.workspaceDir);
-        setRecentWorkspaces(await getRecentWorkspaces());
-      }
       onComplete();
     } catch (error) {
       console.error('[SetupStep1] 保存配置失败:', error);
@@ -135,6 +123,13 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
       showStatus('保存配置失败', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSubmitFailed = (errorInfo: { errorFields?: { errors?: string[] }[] }) => {
+    const firstError = errorInfo.errorFields?.[0]?.errors?.[0];
+    if (firstError) {
+      showStatus(firstError, 'error');
     }
   };
 
@@ -159,9 +154,6 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
           <SettingOutlined style={{ marginRight: 8 }} />
           基础设置
         </Title>
-        <Text type="secondary">
-          配置服务器连接和本地工作目录
-        </Text>
       </div>
 
       <Divider />
@@ -180,6 +172,7 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
         layout="vertical"
         size="middle"
         onFinish={handleSubmit}
+        onFinishFailed={handleSubmitFailed}
         initialValues={{
           serverHost: DEFAULT_SETUP_STATE.serverHost,
           agentPort: DEFAULT_SETUP_STATE.agentPort,
@@ -214,10 +207,26 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
 
         {/* 端口配置 */}
         <div className="port-group">
-          <Text strong style={{ display: 'block', marginBottom: 8 }}>
-            <ApiOutlined style={{ marginRight: 8 }} />
-            端口配置
-          </Text>
+          <div className="port-header">
+            <Text strong>
+              <ApiOutlined style={{ marginRight: 8 }} />
+              端口配置
+            </Text>
+            <Button
+              type="link"
+              size="small"
+              onClick={() => {
+                form.setFieldsValue({
+                  agentPort: DEFAULT_SETUP_STATE.agentPort,
+                  fileServerPort: DEFAULT_SETUP_STATE.fileServerPort,
+                  proxyPort: DEFAULT_SETUP_STATE.proxyPort,
+                });
+                showStatus('已恢复默认端口');
+              }}
+            >
+              恢复默认
+            </Button>
+          </div>
           
           <Space wrap size={8} style={{ width: '100%' }}>
             {/* Agent 端口 */}
@@ -293,13 +302,43 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
               </Tooltip>
             </Space>
           }
-          rules={[{ required: true, message: '请选择工作区目录' }]}
+          rules={[
+            { required: true, message: '请选择工作区目录' },
+            {
+              validator: (_, value) => {
+                if (!value) {
+                  return Promise.resolve();
+                }
+                if (typeof value === 'string' && value.startsWith('/')) {
+                  return Promise.resolve();
+                }
+                return Promise.reject(new Error('请输入有效的绝对路径'));
+              },
+            },
+          ]}
         >
           <Input
             prefix={<FileOutlined />}
             placeholder="选择本地目录..."
             size="middle"
-            readOnly
+            onBlur={(e) => {
+              const raw = e.target.value || '';
+              const trimmed = raw.trim().replace(/^["']|["']$/g, '');
+              const normalized = trimmed.endsWith('/') && trimmed.length > 1
+                ? trimmed.replace(/\/+$/, '')
+                : trimmed;
+              if (normalized !== raw) {
+                form.setFieldValue('workspaceDir', normalized);
+              }
+            }}
+            onPaste={(e) => {
+              const text = e.clipboardData.getData('text');
+              if (text) {
+                const trimmed = text.trim().replace(/^["']|["']$/g, '');
+                form.setFieldValue('workspaceDir', trimmed);
+                e.preventDefault();
+              }
+            }}
             addonAfter={
               <Button
                 type="link"
@@ -313,37 +352,6 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
           />
         </Form.Item>
 
-        {recentWorkspaces.length > 0 && (
-          <div className="recent-workspaces">
-            <div className="recent-header">
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                最近使用
-              </Text>
-              <Button
-                type="link"
-                size="small"
-                onClick={async () => {
-                  await clearRecentWorkspaces();
-                  setRecentWorkspaces([]);
-                  showStatus('已清空最近记录');
-                }}
-              >
-                清除
-              </Button>
-            </div>
-            <Space wrap size={6} style={{ marginTop: 6 }}>
-              {recentWorkspaces.map(dir => (
-                <Button
-                  key={dir}
-                  size="small"
-                  onClick={() => form.setFieldValue('workspaceDir', dir)}
-                >
-                  {dir}
-                </Button>
-              ))}
-            </Space>
-          </div>
-        )}
 
         <Divider />
 
@@ -402,28 +410,19 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
           padding-bottom: 4px;
         }
 
+        .setup-step1 .port-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 8px;
+        }
+
         .setup-step1 .step-hint {
           margin-bottom: 12px;
           padding: 6px 10px;
           font-size: 12px;
         }
 
-        .setup-step1 .recent-workspaces {
-          margin-top: -4px;
-          margin-bottom: 10px;
-        }
-
-        .setup-step1 .recent-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
-
-        .setup-step1 .recent-workspaces .ant-btn {
-          max-width: 220px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
       `}</style>
     </div>
   );

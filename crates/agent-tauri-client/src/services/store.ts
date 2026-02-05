@@ -77,6 +77,8 @@ export const STORAGE_KEYS = {
   // 依赖安装（步骤3）
   DEPS_INSTALL_DIR: "deps.install_dir", // npm 包安装目录（应用数据目录）
   DEPS_NODE_MODULES_PATH: "deps.node_modules_path", // node_modules 完整路径
+  SETUP_DEPS_FILTER: "setup.deps_filter", // 依赖筛选（all/system/npm-local）
+  SETUP_DEPS_SHOW_ALL: "setup.deps_show_all", // 是否展开全部依赖
 } as const;
 
 // 配置版本号
@@ -642,6 +644,8 @@ export const setupStorage = {
       remove(STORAGE_KEYS.SETUP_PROXY_PORT),
       remove(STORAGE_KEYS.SETUP_WORKSPACE_DIR),
       remove(STORAGE_KEYS.SETUP_RECENT_WORKSPACES),
+      remove(STORAGE_KEYS.SETUP_DEPS_FILTER),
+      remove(STORAGE_KEYS.SETUP_DEPS_SHOW_ALL),
       remove(STORAGE_KEYS.DEPS_INSTALL_DIR),
       remove(STORAGE_KEYS.DEPS_NODE_MODULES_PATH),
     ]);
@@ -706,6 +710,36 @@ export const setupStorage = {
    */
   async setNodeModulesPath(path: string): Promise<void> {
     await setString(STORAGE_KEYS.DEPS_NODE_MODULES_PATH, path);
+    await save();
+  },
+
+  /**
+   * 获取依赖筛选条件
+   */
+  async getDepsFilter(): Promise<string | null> {
+    return getString(STORAGE_KEYS.SETUP_DEPS_FILTER);
+  },
+
+  /**
+   * 设置依赖筛选条件
+   */
+  async setDepsFilter(value: string): Promise<void> {
+    await setString(STORAGE_KEYS.SETUP_DEPS_FILTER, value);
+    await save();
+  },
+
+  /**
+   * 获取是否展开全部依赖
+   */
+  async getDepsShowAll(): Promise<boolean | null> {
+    return getBoolean(STORAGE_KEYS.SETUP_DEPS_SHOW_ALL);
+  },
+
+  /**
+   * 设置是否展开全部依赖
+   */
+  async setDepsShowAll(value: boolean): Promise<void> {
+    await setBoolean(STORAGE_KEYS.SETUP_DEPS_SHOW_ALL, value);
     await save();
   },
 };

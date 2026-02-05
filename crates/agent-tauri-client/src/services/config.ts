@@ -4,12 +4,32 @@
  * 使用 Tauri Store 替代 localStorage
  */
 
-import { message } from 'antd';
-import {
-  configStorage,
-  initStore,
-  type CustomScene,
-} from './store';
+import { message } from "antd";
+import { configStorage, initStore, type CustomScene } from "./store";
+
+// ========== 构建环境配置 ==========
+
+/**
+ * 获取构建时环境
+ * - 'test': 测试环境 (testagent.xspaceagi.com)
+ * - 'prod': 生产环境 (agent.nuwax.com)
+ * - 'local': 本地开发环境
+ */
+export function getBuildEnv(): "test" | "prod" | "local" {
+  // __BUILD_ENV__ 由 vite.config.ts 在构建时注入
+  if (typeof __BUILD_ENV__ !== "undefined") {
+    return __BUILD_ENV__;
+  }
+  // 回退到测试环境
+  return "test";
+}
+
+/**
+ * 获取默认场景 ID（基于构建环境）
+ */
+export function getDefaultSceneId(): string {
+  return getBuildEnv();
+}
 
 // ========== 类型定义 ==========
 
@@ -59,78 +79,99 @@ export interface ServiceEndpoint {
  */
 export const DEFAULT_LOCAL_SERVICES: LocalServicesConfig = {
   agent: {
-    host: '127.0.0.1',
+    host: "127.0.0.1",
     port: 8080,
-    scheme: 'http',
-    path: '/api',
+    scheme: "http",
+    path: "/api",
   },
   vnc: {
-    host: '127.0.0.1',
+    host: "127.0.0.1",
     port: 5900,
-    scheme: 'vnc',
+    scheme: "vnc",
   },
   fileServer: {
-    host: '127.0.0.1',
+    host: "127.0.0.1",
     port: 8081,
-    scheme: 'http',
-    path: '/files',
+    scheme: "http",
+    path: "/files",
   },
   websocket: {
-    host: '127.0.0.1',
+    host: "127.0.0.1",
     port: 8080,
-    scheme: 'ws',
-    path: '/ws',
+    scheme: "ws",
+    path: "/ws",
   },
 };
 
 // ========== 预设场景 ==========
 
 /**
- * 默认场景配置
+ * 获取默认场景配置
+ * 根据构建环境动态设置 isDefault
  */
-export const DEFAULT_SCENES: SceneConfig[] = [
-  {
-    id: 'local',
-    name: '本地开发',
-    description: '本地开发环境',
-    isDefault: true,
-    server: {
-      apiUrl: 'http://localhost:8080',
-      timeout: 30000,
+export function getDefaultScenes(): SceneConfig[] {
+  const buildEnv = getBuildEnv();
+
+  return [
+    {
+      id: "local",
+      name: "本地开发",
+      description: "本地开发环境",
+      isDefault: buildEnv === "local",
+      server: {
+        apiUrl: "http://localhost:8080",
+        timeout: 30000,
+      },
+      local: DEFAULT_LOCAL_SERVICES,
     },
-    local: DEFAULT_LOCAL_SERVICES,
-  },
-  {
-    id: 'test',
-    name: '测试环境',
-    description: '测试服务器',
-    server: {
-      apiUrl: 'https://testagent.xspaceagi.com',
-      timeout: 30000,
+    {
+      id: "test",
+      name: "测试环境",
+      description: "测试服务器 (testagent.xspaceagi.com)",
+      isDefault: buildEnv === "test",
+      server: {
+        apiUrl: "https://testagent.xspaceagi.com",
+        timeout: 30000,
+      },
+      local: {
+        agent: { host: "test-nvwa.xspaceagi.com", port: 8080, scheme: "http" },
+        vnc: { host: "test-nvwa.xspaceagi.com", port: 5900, scheme: "vnc" },
+        fileServer: {
+          host: "test-nvwa.xspaceagi.com",
+          port: 8081,
+          scheme: "http",
+        },
+        websocket: {
+          host: "test-nvwa.xspaceagi.com",
+          port: 8080,
+          scheme: "ws",
+        },
+      },
     },
-    local: {
-      agent: { host: 'test-nvwa.xspaceagi.com', port: 8080, scheme: 'http' },
-      vnc: { host: 'test-nvwa.xspaceagi.com', port: 5900, scheme: 'vnc' },
-      fileServer: { host: 'test-nvwa.xspaceagi.com', port: 8081, scheme: 'http' },
-      websocket: { host: 'test-nvwa.xspaceagi.com', port: 8080, scheme: 'ws' },
+    {
+      id: "prod",
+      name: "生产环境",
+      description: "生产服务器 (agent.nuwax.com)",
+      isDefault: buildEnv === "prod",
+      server: {
+        apiUrl: "https://agent.nuwax.com",
+        timeout: 30000,
+      },
+      local: {
+        agent: { host: "nvwa.xspaceagi.com", port: 8080, scheme: "http" },
+        vnc: { host: "nvwa.xspaceagi.com", port: 5900, scheme: "vnc" },
+        fileServer: { host: "nvwa.xspaceagi.com", port: 8081, scheme: "http" },
+        websocket: { host: "nvwa.xspaceagi.com", port: 8080, scheme: "ws" },
+      },
     },
-  },
-  {
-    id: 'prod',
-    name: '生产环境',
-    description: '生产服务器',
-    server: {
-      apiUrl: 'https://agent.nuwax.com',
-      timeout: 30000,
-    },
-    local: {
-      agent: { host: 'nvwa.xspaceagi.com', port: 8080, scheme: 'http' },
-      vnc: { host: 'nvwa.xspaceagi.com', port: 5900, scheme: 'vnc' },
-      fileServer: { host: 'nvwa.xspaceagi.com', port: 8081, scheme: 'http' },
-      websocket: { host: 'nvwa.xspaceagi.com', port: 8080, scheme: 'ws' },
-    },
-  },
-];
+  ];
+}
+
+/**
+ * 默认场景配置（静态，兼容旧代码）
+ * @deprecated 使用 getDefaultScenes() 代替
+ */
+export const DEFAULT_SCENES: SceneConfig[] = getDefaultScenes();
 
 /**
  * 转换为 CustomScene 类型（用于存储）
@@ -146,7 +187,7 @@ function toCustomScene(scene: SceneConfig): CustomScene {
       apiKey: scene.server.apiKey,
       timeout: scene.server.timeout,
     },
-    local: scene.local as CustomScene['local'],
+    local: scene.local as CustomScene["local"],
   };
 }
 
@@ -175,7 +216,7 @@ function fromCustomScene(custom: CustomScene): SceneConfig {
  * 使用 Tauri Store 进行持久化存储
  */
 class ConfigService {
-  private currentSceneId: string = 'local';
+  private currentSceneId: string = getDefaultSceneId();
   private customScenes: Map<string, CustomScene> = new Map();
   private initialized: boolean = false;
 
@@ -196,14 +237,23 @@ class ConfigService {
     const storedCustomScenes = await configStorage.getCustomScenes();
     this.customScenes = new Map(storedCustomScenes.map((s) => [s.id, s]));
 
-    // 加载当前场景 ID
+    // 加载当前场景 ID，如果没有保存过则使用构建环境默认值
     const storedSceneId = await configStorage.getCurrentSceneId();
     if (storedSceneId) {
       this.currentSceneId = storedSceneId;
+    } else {
+      this.currentSceneId = getDefaultSceneId();
     }
 
     this.initialized = true;
-    console.log('[ConfigService] 初始化完成，自定义场景数量:', this.customScenes.size);
+    console.log(
+      "[ConfigService] 初始化完成，构建环境:",
+      getBuildEnv(),
+      "，当前场景:",
+      this.currentSceneId,
+      "，自定义场景数量:",
+      this.customScenes.size,
+    );
   }
 
   /**
@@ -231,7 +281,10 @@ class ConfigService {
    */
   async getCurrentScene(): Promise<SceneConfig> {
     await this.ensureInit();
-    return (await this.getScene(this.currentSceneId)) || (await this.getDefaultScene());
+    return (
+      (await this.getScene(this.currentSceneId)) ||
+      (await this.getDefaultScene())
+    );
   }
 
   /**
@@ -275,7 +328,7 @@ class ConfigService {
   /**
    * 添加自定义场景
    */
-  async addCustomScene(scene: Omit<SceneConfig, 'id'>): Promise<string> {
+  async addCustomScene(scene: Omit<SceneConfig, "id">): Promise<string> {
     await this.ensureInit();
     const id = `custom_${Date.now()}`;
     const newCustomScene: CustomScene = {
@@ -290,7 +343,10 @@ class ConfigService {
   /**
    * 更新自定义场景
    */
-  async updateCustomScene(id: string, updates: Partial<SceneConfig>): Promise<boolean> {
+  async updateCustomScene(
+    id: string,
+    updates: Partial<SceneConfig>,
+  ): Promise<boolean> {
     await this.ensureInit();
     if (!this.customScenes.has(id)) {
       return false;
@@ -339,7 +395,7 @@ class ConfigService {
   async getAgentUrl(): Promise<string> {
     const scene = await this.getCurrentScene();
     const { agent } = scene.local;
-    return `${agent.scheme || 'http'}://${agent.host}:${agent.port}${agent.path || ''}`;
+    return `${agent.scheme || "http"}://${agent.host}:${agent.port}${agent.path || ""}`;
   }
 
   /**
@@ -348,7 +404,7 @@ class ConfigService {
   async getVncUrl(): Promise<string> {
     const scene = await this.getCurrentScene();
     const { vnc } = scene.local;
-    return `${vnc.scheme || 'vnc'}://${vnc.host}:${vnc.port}`;
+    return `${vnc.scheme || "vnc"}://${vnc.host}:${vnc.port}`;
   }
 
   /**
@@ -357,7 +413,7 @@ class ConfigService {
   async getFileServerUrl(): Promise<string> {
     const scene = await this.getCurrentScene();
     const { fileServer } = scene.local;
-    return `${fileServer.scheme || 'http'}://${fileServer.host}:${fileServer.port}${fileServer.path || ''}`;
+    return `${fileServer.scheme || "http"}://${fileServer.host}:${fileServer.port}${fileServer.path || ""}`;
   }
 
   /**
@@ -366,7 +422,7 @@ class ConfigService {
   async getWebSocketUrl(): Promise<string> {
     const scene = await this.getCurrentScene();
     const { websocket } = scene.local;
-    return `${websocket.scheme || 'ws'}://${websocket.host}:${websocket.port}${websocket.path || ''}`;
+    return `${websocket.scheme || "ws"}://${websocket.host}:${websocket.port}${websocket.path || ""}`;
   }
 
   // ========== 持久化 ==========
@@ -380,7 +436,7 @@ class ConfigService {
     this.customScenes.clear();
     await configStorage.clear();
     await configStorage.init();
-    message.success('已重置为默认配置');
+    message.success("已重置为默认配置");
   }
 
   /**
@@ -403,17 +459,19 @@ class ConfigService {
     try {
       const data = JSON.parse(json);
       if (data.customScenes) {
-        this.customScenes = new Map(data.customScenes.map((s: CustomScene) => [s.id, s]));
+        this.customScenes = new Map(
+          data.customScenes.map((s: CustomScene) => [s.id, s]),
+        );
         await configStorage.setCustomScenes(data.customScenes);
       }
       if (data.currentSceneId) {
         this.currentSceneId = data.currentSceneId;
         await configStorage.setCurrentSceneId(data.currentSceneId);
       }
-      message.success('配置导入成功');
+      message.success("配置导入成功");
       return true;
     } catch {
-      message.error('配置导入失败');
+      message.error("配置导入失败");
       return false;
     }
   }
@@ -485,7 +543,7 @@ export const getWebSocketUrl = () => getConfigService().getWebSocketUrl();
 /**
  * 添加自定义场景
  */
-export const addCustomScene = (scene: Omit<SceneConfig, 'id'>) =>
+export const addCustomScene = (scene: Omit<SceneConfig, "id">) =>
   getConfigService().addCustomScene(scene);
 
 /**
@@ -497,7 +555,8 @@ export const updateCustomScene = (id: string, updates: Partial<SceneConfig>) =>
 /**
  * 删除自定义场景
  */
-export const deleteCustomScene = (id: string) => getConfigService().deleteCustomScene(id);
+export const deleteCustomScene = (id: string) =>
+  getConfigService().deleteCustomScene(id);
 
 /**
  * 重置配置
@@ -512,4 +571,5 @@ export const exportConfig = () => getConfigService().exportConfig();
 /**
  * 导入配置
  */
-export const importConfig = (json: string) => getConfigService().importConfig(json);
+export const importConfig = (json: string) =>
+  getConfigService().importConfig(json);

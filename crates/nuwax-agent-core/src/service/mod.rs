@@ -98,6 +98,144 @@ pub fn is_process_running(process_name: &str) -> bool {
     find_processes_by_name(process_name).is_some()
 }
 
+/// 检测 nuwax-file-server 是否正在运行
+///
+/// nuwax-file-server 是 Node.js 服务，它使用 PID 文件管理进程
+/// PID 文件位置: /tmp/nuwax-file-server/server.pid (Unix) 或 %TEMP%\nuwax-file-server\server.pid (Windows)
+pub fn is_file_server_running() -> bool {
+    // 读取 PID 文件
+    let pid_file = std::path::Path::new("/tmp/nuwax-file-server/server.pid");
+
+    #[cfg(target_os = "windows")]
+    let pid_file = {
+        let temp = std::env::var("TEMP").unwrap_or_else(|_| "C:\\Temp".to_string());
+        std::path::PathBuf::from(temp)
+            .join("nuwax-file-server")
+            .join("server.pid")
+    };
+
+    if !pid_file.exists() {
+        return false;
+    }
+
+    // 读取 PID 文件内容 (JSON 格式)
+    if let Ok(content) = std::fs::read_to_string(&pid_file) {
+        // 尝试解析 JSON 获取 PID
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(pid) = json.get("pid").and_then(|v| v.as_u64()) {
+                // 检查进程是否存在
+                return is_pid_running(pid as u32);
+            }
+        }
+    }
+
+    false
+}
+
+/// 检查指定 PID 的进程是否存在
+fn is_pid_running(pid: u32) -> bool {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        // 使用 kill -0 检查进程是否存在（通过 shell 命令）
+        let output = std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .output();
+
+        match output {
+            Ok(o) => o.status.success(),
+            Err(_) => false,
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let output = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
+            .output();
+
+        if let Ok(output) = output {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            !stdout.contains("No tasks") && stdout.contains(&pid.to_string())
+        } else {
+            false
+        }
+    }
+}
+
+/// 检测指定进程名（支持模糊匹配）是否正在运行
+///
+/// 用于开发模式下检测带平台后缀的二进制文件
+/// 如 `nuwax-lanproxy` 可以匹配 `nuwax-lanproxy-aarch64-apple-darwin`
+///
+/// # Arguments
+/// * `process_prefix` - 进程名前缀
+///
+/// # Returns
+/// * `bool` - 如果匹配的进程存在返回 true
+pub fn is_process_running_fuzzy(process_prefix: &str) -> bool {
+    find_processes_by_prefix(process_prefix).is_some()
+}
+
+/// 通过进程名前缀查找进程（模糊匹配）
+///
+/// # Arguments
+/// * `process_prefix` - 进程名前缀
+///
+/// # Returns
+/// * `Option<Vec<u32>>` - 如果进程存在，返回 PID 列表；否则返回 None
+pub fn find_processes_by_prefix(process_prefix: &str) -> Option<Vec<u32>> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        // 使用 pgrep -f 进行模糊匹配
+        let output = std::process::Command::new("pgrep")
+            .arg("-f")
+            .arg(process_prefix)
+            .output()
+            .ok()?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let pids: Vec<u32> = stdout
+                .lines()
+                .filter_map(|line| line.trim().parse::<u32>().ok())
+                .collect();
+            if !pids.is_empty() {
+                return Some(pids);
+            }
+        }
+        None
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Windows: 使用 tasklist 然后过滤
+        let output = std::process::Command::new("tasklist")
+            .args(["/FO", "CSV", "/NH"])
+            .output()
+            .ok()?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let pids: Vec<u32> = stdout
+                .lines()
+                .filter(|line| line.to_lowercase().contains(&process_prefix.to_lowercase()))
+                .filter_map(|line| {
+                    let parts: Vec<&str> = line.split(',').collect();
+                    if parts.len() >= 2 {
+                        parts[1].trim_matches('"').parse::<u32>().ok()
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if !pids.is_empty() {
+                return Some(pids);
+            }
+        }
+        None
+    }
+}
+
 /// 终止指定名称的所有进程
 ///
 /// # Arguments
@@ -287,6 +425,12 @@ impl ServiceManager {
     pub async fn file_server_start(&self) -> Result<(), String> {
         info!("Starting nuwax-file-server...");
 
+        // 检测是否已有实例在运行（通过 PID 文件检测 Node.js 服务）
+        if is_file_server_running() {
+            warn!("[FileServer] 检测到已有 nuwax-file-server 进程在运行");
+            return Err("nuwax-file-server 已在运行中，请先停止现有实例".to_string());
+        }
+
         let mut cmd = process_wrap::tokio::CommandWrap::with_new("nuwax-file-server", |cmd| {
             cmd.arg("start")
                 .arg("--env")
@@ -396,6 +540,12 @@ impl ServiceManager {
     pub async fn file_server_start_with_port(&self, port: u16) -> Result<(), String> {
         info!("Starting nuwax-file-server on port {}...", port);
 
+        // 检测是否已有实例在运行（通过 PID 文件检测 Node.js 服务）
+        if is_file_server_running() {
+            warn!("[FileServer] 检测到已有 nuwax-file-server 进程在运行");
+            return Err("nuwax-file-server 已在运行中，请先停止现有实例".to_string());
+        }
+
         let mut cmd = process_wrap::tokio::CommandWrap::with_new("nuwax-file-server", |cmd| {
             cmd.arg("start")
                 .arg("--env")
@@ -461,6 +611,12 @@ impl ServiceManager {
     /// - nuwax-lanproxy.client_key: 客户端密钥
     pub async fn lanproxy_start(&self) -> Result<(), String> {
         info!("Starting nuwax-lanproxy...");
+
+        // 检测是否已有实例在运行（支持开发模式带平台后缀的二进制名）
+        if is_process_running_fuzzy("nuwax-lanproxy") {
+            warn!("[Lanproxy] 检测到已有 nuwax-lanproxy 进程在运行");
+            return Err("nuwax-lanproxy 已在运行中，请先停止现有实例".to_string());
+        }
 
         // TODO: 从 store 读取配置
         // let server_ip: String = store.get("nuwax-lanproxy.server_ip").unwrap_or_default();
@@ -553,6 +709,13 @@ impl ServiceManager {
         config: NuwaxLanproxyConfig,
     ) -> Result<(), String> {
         info!("[Lanproxy] ========== 启动代理服务 ==========");
+
+        // 检测是否已有实例在运行（支持开发模式带平台后缀的二进制名）
+        if is_process_running_fuzzy("nuwax-lanproxy") {
+            warn!("[Lanproxy] 检测到已有 nuwax-lanproxy 进程在运行");
+            return Err("nuwax-lanproxy 已在运行中，请先停止现有实例".to_string());
+        }
+
         info!("[Lanproxy] 可执行文件路径: {}", config.bin_path);
         info!(
             "[Lanproxy] 服务器地址: {}:{}",

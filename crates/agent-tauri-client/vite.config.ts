@@ -4,9 +4,18 @@ import react from "@vitejs/plugin-react";
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
+// 构建环境: 'test' | 'prod' | 'local' (默认 'test' 用于开发)
+// @ts-expect-error process is a nodejs global
+const buildEnv = process.env.VITE_BUILD_ENV || "test";
+
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react()],
+
+  // 定义全局环境变量
+  define: {
+    __BUILD_ENV__: JSON.stringify(buildEnv),
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

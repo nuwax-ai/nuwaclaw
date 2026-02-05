@@ -76,7 +76,9 @@ help:
 	@echo "  package-deb    - 打包 Linux DEB"
 	@echo ""
 	@echo "=== Tauri 应用打包 ==="
-	@echo "  tauri-bundle       - 打包 Tauri 应用 (当前平台)"
+	@echo "  tauri-bundle       - 打包 Tauri 应用 (默认生产环境)"
+	@echo "  tauri-bundle-test  - 打包 Tauri 应用 (测试环境)"
+	@echo "  tauri-bundle-prod  - 打包 Tauri 应用 (生产环境)"
 	@echo "  tauri-bundle-all   - 打包 Tauri 所有平台 (macOS/Windows/Linux)"
 	@echo "  tauri-dev          - 运行 Tauri 开发模式"
 	@echo ""
@@ -297,15 +299,30 @@ endif
 # Tauri 客户端 crate 名称
 TAURI_CLIENT := agent-tauri-client
 
+# 构建环境: prod (默认) 或 test
+BUILD_ENV ?= prod
+
 .PHONY: tauri-build
 tauri-build:
-	@echo ">>> 构建 Tauri 应用..."
-	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build
+	@echo ">>> 构建 Tauri 应用 (环境: $(BUILD_ENV))..."
+	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
+	cd crates/$(TAURI_CLIENT)/src-tauri && cargo build --release
 
 .PHONY: tauri-bundle
-tauri-bundle: tauri-build
-	@echo ">>> 打包 Tauri 应用 (当前平台)..."
-	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri bundle
+tauri-bundle:
+	@echo ">>> 打包 Tauri 应用 (环境: $(BUILD_ENV))..."
+	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
+	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build
+
+.PHONY: tauri-bundle-test
+tauri-bundle-test:
+	@echo ">>> 打包 Tauri 应用 (测试环境)..."
+	$(MAKE) tauri-bundle BUILD_ENV=test
+
+.PHONY: tauri-bundle-prod
+tauri-bundle-prod:
+	@echo ">>> 打包 Tauri 应用 (生产环境)..."
+	$(MAKE) tauri-bundle BUILD_ENV=prod
 
 .PHONY: tauri-bundle-all
 tauri-bundle-all: tauri-build
@@ -317,8 +334,8 @@ endif
 
 .PHONY: tauri-dev
 tauri-dev:
-	@echo ">>> 运行 Tauri 开发模式..."
-	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri dev
+	@echo ">>> 运行 Tauri 开发模式 (环境: $(BUILD_ENV))..."
+	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) cargo tauri dev
 
 .PHONY: tauri-info
 tauri-info:

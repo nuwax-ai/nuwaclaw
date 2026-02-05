@@ -145,6 +145,56 @@ export async function clearRecentWorkspaces(): Promise<void> {
   }
 }
 
+/**
+ * 获取依赖筛选条件
+ */
+export async function getDepsFilter(): Promise<string | null> {
+  try {
+    await initStore();
+    return await setupStorage.getDepsFilter();
+  } catch (error) {
+    console.error('[Setup] 获取依赖筛选失败:', error);
+    return null;
+  }
+}
+
+/**
+ * 设置依赖筛选条件
+ */
+export async function setDepsFilter(value: string): Promise<void> {
+  try {
+    await initStore();
+    await setupStorage.setDepsFilter(value);
+  } catch (error) {
+    console.error('[Setup] 保存依赖筛选失败:', error);
+  }
+}
+
+/**
+ * 获取是否展开全部依赖
+ */
+export async function getDepsShowAll(): Promise<boolean | null> {
+  try {
+    await initStore();
+    return await setupStorage.getDepsShowAll();
+  } catch (error) {
+    console.error('[Setup] 获取依赖显示状态失败:', error);
+    return null;
+  }
+}
+
+/**
+ * 设置是否展开全部依赖
+ */
+export async function setDepsShowAll(value: boolean): Promise<void> {
+  try {
+    await initStore();
+    await setupStorage.setDepsShowAll(value);
+  } catch (error) {
+    console.error('[Setup] 保存依赖显示状态失败:', error);
+  }
+}
+
 // ========== 步骤2: 账号登录 ==========
 
 /**
