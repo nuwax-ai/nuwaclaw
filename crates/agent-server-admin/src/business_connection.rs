@@ -610,10 +610,10 @@ mod tests {
 
         assert!(!envelope.message_id.is_empty());
         assert_eq!(
-            envelope.type_.enum_value().unwrap(),
-            BusinessMessageType::AGENT_TASK_REQUEST
+            envelope.type_ as i32,
+            BusinessMessageType::AGENT_TASK_REQUEST as i32
         );
-        assert_eq!(envelope.payload.as_ref(), b"test");
+        assert_eq!(envelope.payload.as_slice(), b"test");
         assert_eq!(envelope.source_id, "admin-1");
         assert_eq!(envelope.target_id, "client-1");
     }
