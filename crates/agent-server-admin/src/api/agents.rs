@@ -66,7 +66,7 @@ pub async fn stop_agent(
     // 发送停止命令给客户端（Fail Fast，忽略发送失败）
     let stop_payload = serde_json::json!({
         "command": "stop_agent",
-        "force": req.force.unwrap_or(false),
+        "force": req.force.unwrap_or(false), // 客户端接口已移除 force，但服务端保留用于向后兼容
         "reason": req.reason,
     });
 

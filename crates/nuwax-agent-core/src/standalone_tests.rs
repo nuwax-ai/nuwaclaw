@@ -503,5 +503,331 @@ mod standalone_tests {
             assert_eq!(general.language, "zh");
             assert_eq!(general.theme, "system");
         }
+
+        #[test]
+        fn test_logging_config_default() {
+            let logging = crate::config::LoggingConfig::default();
+            assert_eq!(logging.level, "info");
+            assert!(logging.save_to_file);
+            assert_eq!(logging.max_files, 7);
+        }
+
+        #[test]
+        fn test_logging_config_custom() {
+            let logging = crate::config::LoggingConfig {
+                level: "debug".to_string(),
+                save_to_file: false,
+                max_files: 14,
+            };
+            assert_eq!(logging.level, "debug");
+            assert!(!logging.save_to_file);
+            assert_eq!(logging.max_files, 14);
+        }
+
+        #[test]
+        fn test_secure_config_default() {
+            let secure = crate::config::SecureConfig::default();
+            assert!(secure.password.is_none());
+            assert!(secure.client_id.is_none());
+            assert!(secure.api_token.is_none());
+        }
+
+        #[test]
+        fn test_secure_config_with_values() {
+            let secure = crate::config::SecureConfig {
+                password: Some("test_password".to_string()),
+                client_id: Some("test-client-id".to_string()),
+                api_token: Some("test-token".to_string()),
+            };
+            assert_eq!(secure.password.unwrap(), "test_password");
+            assert_eq!(secure.client_id.unwrap(), "test-client-id");
+            assert_eq!(secure.api_token.unwrap(), "test-token");
+        }
+
+        #[test]
+        fn test_config_error_variants() {
+            use crate::config::ConfigError;
+            use std::path::PathBuf;
+
+            // Test NotFound variant
+            let not_found = ConfigError::NotFound(PathBuf::from("/nonexistent/config.toml"));
+            assert!(not_found.to_string().contains("配置文件不存在"));
+
+            // Test IoError variant
+            let io_error = ConfigError::IoError(std::io::Error::new(std::io::ErrorKind::NotFound, "file not found"));
+            assert!(io_error.to_string().contains("IO 错误"));
+
+            // Test JsonError variant - construct via from_slice
+            let json_bytes = b"{invalid json";
+            let json_error = serde_json::from_slice::<serde_json::Value>(json_bytes)
+                .unwrap_err();
+            let config_error = ConfigError::JsonError(json_error);
+            assert!(config_error.to_string().contains("JSON 解析错误"));
+        }
+    }
+
+    // ========================================================================
+    // AdminClient Tests
+    // ========================================================================
+
+    mod admin_client_tests {
+        use crate::admin_client::{AdminConfig, PendingMessage, AdminClient};
+        use crate::http_client::mock::{MockHttpClient, MockResponse};
+        use crate::http_client::HttpClient;
+        use crate::admin_client::RegistrationResponse;
+        use chrono::Utc;
+
+        #[test]
+        fn test_admin_config_default() {
+            // Default derive macro sets fields to their default values
+            let config = AdminConfig::default();
+            assert!(config.server_addr.is_empty());
+            assert!(config.api_key.is_none());
+            assert_eq!(config.timeout_secs, 0); // Default u64 is 0
+        }
+
+        #[test]
+        fn test_admin_config_default_values() {
+            // Test that default timeout is 30
+            let config = AdminConfig::new("http://localhost");
+            assert_eq!(config.timeout_secs, 30);
+        }
+
+        #[test]
+        fn test_admin_config_new() {
+            let config = AdminConfig::new("http://localhost:8080");
+            assert_eq!(config.server_addr, "http://localhost:8080");
+            assert!(config.api_key.is_none());
+            assert_eq!(config.timeout_secs, 30);
+        }
+
+        #[test]
+        fn test_admin_config_with_api_key() {
+            let config = AdminConfig::new("http://localhost:8080")
+                .with_api_key("test-api-key");
+            assert_eq!(config.server_addr, "http://localhost:8080");
+            assert_eq!(config.api_key, Some("test-api-key".to_string()));
+        }
+
+        #[test]
+        fn test_admin_config_base_url() {
+            let config = AdminConfig::new("http://localhost:8080");
+            assert_eq!(config.base_url(), "http://localhost:8080/api/v1");
+        }
+
+        #[test]
+        fn test_admin_config_base_url_with_port() {
+            let config = AdminConfig::new("http://localhost:9000");
+            assert_eq!(config.base_url(), "http://localhost:9000/api/v1");
+        }
+
+        #[test]
+        fn test_pending_message_new() {
+            let message = PendingMessage {
+                message_type: "test_type".to_string(),
+                payload: vec![1, 2, 3],
+                created_at: Utc::now(),
+            };
+            assert_eq!(message.message_type, "test_type");
+            assert_eq!(message.payload, vec![1, 2, 3]);
+        }
+
+        #[test]
+        fn test_pending_message_with_empty_payload() {
+            let message = PendingMessage {
+                message_type: "heartbeat".to_string(),
+                payload: vec![],
+                created_at: Utc::now(),
+            };
+            assert!(message.payload.is_empty());
+        }
+
+        #[tokio::test]
+        async fn test_admin_client_is_registered_initial() {
+            let client: AdminClient<MockHttpClient> = AdminClient::new();
+            assert!(!client.is_registered());
+        }
+
+        #[tokio::test]
+        async fn test_admin_client_with_config() {
+            let config = AdminConfig::new("http://admin.example.com:8080")
+                .with_api_key("my-key");
+            let client: AdminClient<MockHttpClient> = AdminClient::with_config(config);
+            assert!(!client.is_registered());
+        }
+
+        #[tokio::test]
+        async fn test_admin_client_config_access() {
+            let config = AdminConfig::new("http://admin.example.com:8080")
+                .with_api_key("my-key");
+            let client: AdminClient<MockHttpClient> = AdminClient::with_config(config);
+            let client_config = client.config();
+            assert_eq!(client_config.server_addr, "http://admin.example.com:8080");
+            assert_eq!(client_config.api_key, Some("my-key".to_string()));
+        }
+    }
+
+    // ========================================================================
+    // Service Tests
+    // ========================================================================
+
+    mod service_tests {
+        use crate::service::{
+            ServiceType, ServiceState, ServiceInfo,
+            NuwaxFileServerConfig, NuwaxLanproxyConfig, ServiceManager
+        };
+
+        #[test]
+        fn test_service_type_equality() {
+            assert_eq!(ServiceType::NuwaxFileServer, ServiceType::NuwaxFileServer);
+            assert_eq!(ServiceType::NuwaxLanproxy, ServiceType::NuwaxLanproxy);
+            assert_eq!(ServiceType::Rcoder, ServiceType::Rcoder);
+            assert_ne!(ServiceType::NuwaxFileServer, ServiceType::NuwaxLanproxy);
+        }
+
+        #[test]
+        fn test_service_type_ne() {
+            assert_ne!(ServiceType::NuwaxFileServer, ServiceType::Rcoder);
+            assert_ne!(ServiceType::NuwaxLanproxy, ServiceType::Rcoder);
+        }
+
+        #[test]
+        fn test_service_state_stopped() {
+            let state = ServiceState::Stopped;
+            assert_eq!(state, ServiceState::Stopped);
+        }
+
+        #[test]
+        fn test_service_state_running() {
+            let state = ServiceState::Running;
+            assert_eq!(state, ServiceState::Running);
+        }
+
+        #[test]
+        fn test_service_state_starting() {
+            let state = ServiceState::Starting;
+            assert_eq!(state, ServiceState::Starting);
+        }
+
+        #[test]
+        fn test_service_state_stopping() {
+            let state = ServiceState::Stopping;
+            assert_eq!(state, ServiceState::Stopping);
+        }
+
+        #[test]
+        fn test_service_state_error() {
+            let error_msg = "Connection refused".to_string();
+            let state = ServiceState::Error(error_msg.clone());
+            match state {
+                ServiceState::Error(msg) => assert_eq!(msg, error_msg),
+                _ => panic!("Expected Error variant"),
+            }
+        }
+
+        #[test]
+        fn test_service_state_error_equality() {
+            let state1 = ServiceState::Error("test error".to_string());
+            let state2 = ServiceState::Error("test error".to_string());
+            assert_eq!(state1, state2);
+        }
+
+        #[test]
+        fn test_service_info_new() {
+            let info = ServiceInfo {
+                service_type: ServiceType::NuwaxFileServer,
+                state: ServiceState::Stopped,
+                pid: None,
+            };
+            assert_eq!(info.service_type, ServiceType::NuwaxFileServer);
+            assert_eq!(info.state, ServiceState::Stopped);
+            assert!(info.pid.is_none());
+        }
+
+        #[test]
+        fn test_service_info_with_pid() {
+            let info = ServiceInfo {
+                service_type: ServiceType::NuwaxLanproxy,
+                state: ServiceState::Running,
+                pid: Some(12345),
+            };
+            assert_eq!(info.service_type, ServiceType::NuwaxLanproxy);
+            assert_eq!(info.state, ServiceState::Running);
+            assert_eq!(info.pid, Some(12345));
+        }
+
+        #[test]
+        fn test_nuwax_file_server_config_default() {
+            let config = NuwaxFileServerConfig::default();
+            assert_eq!(config.port, 60000);
+            assert_eq!(config.env, "production");
+            assert_eq!(config.init_project_name, "nuwax-template");
+            assert_eq!(config.init_project_dir, "/data/init");
+            assert_eq!(config.upload_project_dir, "/data/zips");
+            assert_eq!(config.project_source_dir, "/data/workspace");
+            assert_eq!(config.dist_target_dir, "/var/www/nginx");
+            assert_eq!(config.log_base_dir, "/var/logs/project_logs");
+            assert_eq!(config.computer_workspace_dir, "/data/computer");
+            assert_eq!(config.computer_log_dir, "/var/logs/computer");
+        }
+
+        #[test]
+        fn test_nuwax_file_server_config_custom() {
+            let config = NuwaxFileServerConfig {
+                port: 50000,
+                env: "development".to_string(),
+                init_project_name: "my-project".to_string(),
+                init_project_dir: "/custom/init".to_string(),
+                upload_project_dir: "/custom/uploads".to_string(),
+                project_source_dir: "/custom/source".to_string(),
+                dist_target_dir: "/custom/dist".to_string(),
+                log_base_dir: "/custom/logs".to_string(),
+                computer_workspace_dir: "/custom/workspace".to_string(),
+                computer_log_dir: "/custom/computer-logs".to_string(),
+            };
+            assert_eq!(config.port, 50000);
+            assert_eq!(config.env, "development");
+        }
+
+        #[test]
+        fn test_nuwax_lanproxy_config_default() {
+            let config = NuwaxLanproxyConfig::default();
+            assert_eq!(config.server_ip, "127.0.0.1");
+            assert_eq!(config.server_port, 9000);
+            assert_eq!(config.client_key, "test_key");
+        }
+
+        #[test]
+        fn test_nuwax_lanproxy_config_custom() {
+            let config = NuwaxLanproxyConfig {
+                server_ip: "192.168.1.100".to_string(),
+                server_port: 8080,
+                client_key: "my-secret-key".to_string(),
+            };
+            assert_eq!(config.server_ip, "192.168.1.100");
+            assert_eq!(config.server_port, 8080);
+            assert_eq!(config.client_key, "my-secret-key");
+        }
+
+        #[tokio::test]
+        async fn test_service_manager_get_all_status_empty() {
+            let manager = ServiceManager::new(None, None);
+            let statuses = manager.get_all_status().await;
+
+            // All services should be stopped initially
+            assert_eq!(statuses.len(), 3);
+
+            let file_server = &statuses[0];
+            assert_eq!(file_server.service_type, ServiceType::NuwaxFileServer);
+            assert_eq!(file_server.state, ServiceState::Stopped);
+
+            let lanproxy = &statuses[1];
+            assert_eq!(lanproxy.service_type, ServiceType::NuwaxLanproxy);
+            assert_eq!(lanproxy.state, ServiceState::Stopped);
+
+            let rcoder = &statuses[2];
+            assert_eq!(rcoder.service_type, ServiceType::Rcoder);
+            assert_eq!(rcoder.state, ServiceState::Stopped);
+        }
     }
 }
