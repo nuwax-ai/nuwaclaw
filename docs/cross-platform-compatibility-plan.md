@@ -82,6 +82,36 @@
 - CI 跨平台验证：
   - 当前方案需要落地多平台构建+最小 smoke test。
 
+## 权限实现对齐与后续计划
+
+本节仅聚焦“权限相关能力”，同步当前已实现内容与后续需要补齐的工作。
+
+### 已完成（现有实现）
+
+- 权限命令接口（后端）：
+  - `permission_check / permission_request / permission_open_settings / permission_list / permission_monitor_start / permission_monitor_stop`
+  - 位置：`crates/agent-tauri-client/src-tauri/src/lib.rs`
+- macOS 完全磁盘访问检测：
+  - `check_disk_access`（通过访问 `~/Library/Application Support` 判断）
+  - 位置：`crates/agent-tauri-client/src-tauri/src/lib.rs`
+- 统一权限抽象依赖：
+  - `system_permissions` crate 提供 `PermissionManager / PermissionMonitor`
+  - 位置：`crates/system-permissions`
+
+### 后续需要处理（补齐与落地）
+
+- 前端权限引导流程：
+  - 在 UI 中串联 `permission_list -> permission_request -> permission_open_settings` 的引导路径。
+  - 对不可交互申请的权限给出明确提示与“前往系统设置”按钮。
+- macOS 权限细化文档：
+  - 明确辅助功能、屏幕录制、输入监听、麦克风/摄像头的申请路径与失败提示。
+- Windows 权限与防火墙引导：
+  - UAC 提权时机与提示文案；必要时引导用户放行防火墙规则。
+- Linux 权限与 Wayland/X11 兼容说明：
+  - 无统一权限系统时的替代路径与风险提示。
+- 权限状态订阅与前端联动：
+  - 订阅 `permission_change` 事件，刷新 UI 状态并提示用户重试。
+
 ## 兼容性分析
 
 以下为“必须关注”的差异点，影响构建、运行、权限、安全与分发。
