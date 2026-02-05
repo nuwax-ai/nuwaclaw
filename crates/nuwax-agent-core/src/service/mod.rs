@@ -162,6 +162,86 @@ fn is_pid_running(pid: u32) -> bool {
     }
 }
 
+/// 通过 PID 文件强制终止 file-server 残留进程
+fn kill_file_server_by_pid() {
+    let pid_file = std::path::Path::new("/tmp/nuwax-file-server/server.pid");
+
+    #[cfg(target_os = "windows")]
+    let pid_file = {
+        let temp = std::env::var("TEMP").unwrap_or_else(|_| "C:\\Temp".to_string());
+        std::path::PathBuf::from(temp)
+            .join("nuwax-file-server")
+            .join("server.pid")
+    };
+
+    if let Ok(content) = std::fs::read_to_string(&pid_file) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(pid) = json.get("pid").and_then(|v| v.as_u64()) {
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
+                {
+                    let _ = std::process::Command::new("kill")
+                        .arg("-9")
+                        .arg(pid.to_string())
+                        .output();
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/F", "/PID", &pid.to_string()])
+                        .output();
+                }
+            }
+        }
+        // 清理 PID 文件
+        let _ = std::fs::remove_file(&pid_file);
+    }
+}
+
+/// 检测并清理残留的 lanproxy 进程，确保只有一个实例运行
+async fn kill_stale_lanproxy_processes() {
+    if is_process_running_fuzzy("nuwax-lanproxy") {
+        warn!("[Lanproxy] 检测到残留 nuwax-lanproxy 进程，正在终止");
+        if let Some(pids) = find_processes_by_prefix("nuwax-lanproxy") {
+            for pid in &pids {
+                info!("[Lanproxy] 终止残留进程 PID: {}", pid);
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
+                {
+                    let _ = std::process::Command::new("kill")
+                        .arg("-9")
+                        .arg(pid.to_string())
+                        .output();
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/F", "/PID", &pid.to_string()])
+                        .output();
+                }
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+    }
+}
+
+/// 检测并清理残留的 file-server 进程，确保只有一个实例运行
+async fn kill_stale_file_server_processes() {
+    if is_file_server_running() {
+        warn!("[FileServer] 检测到残留 nuwax-file-server 进程，正在终止");
+        // 先尝试优雅停止
+        let _ = std::process::Command::new("nuwax-file-server")
+            .arg("stop")
+            .output();
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        // 如果还在运行，强制 kill
+        if is_file_server_running() {
+            warn!("[FileServer] 优雅停止失败，强制终止");
+            kill_file_server_by_pid();
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+    }
+}
+
 /// 检测指定进程名（支持模糊匹配）是否正在运行
 ///
 /// 用于开发模式下检测带平台后缀的二进制文件
@@ -425,11 +505,8 @@ impl ServiceManager {
     pub async fn file_server_start(&self) -> Result<(), String> {
         info!("Starting nuwax-file-server...");
 
-        // 检测是否已有实例在运行（通过 PID 文件检测 Node.js 服务）
-        if is_file_server_running() {
-            warn!("[FileServer] 检测到已有 nuwax-file-server 进程在运行");
-            return Err("nuwax-file-server 已在运行中，请先停止现有实例".to_string());
-        }
+        // 检测并清理残留进程
+        kill_stale_file_server_processes().await;
 
         let mut cmd = process_wrap::tokio::CommandWrap::with_new("nuwax-file-server", |cmd| {
             cmd.arg("start")
@@ -540,11 +617,8 @@ impl ServiceManager {
     pub async fn file_server_start_with_port(&self, port: u16) -> Result<(), String> {
         info!("Starting nuwax-file-server on port {}...", port);
 
-        // 检测是否已有实例在运行（通过 PID 文件检测 Node.js 服务）
-        if is_file_server_running() {
-            warn!("[FileServer] 检测到已有 nuwax-file-server 进程在运行");
-            return Err("nuwax-file-server 已在运行中，请先停止现有实例".to_string());
-        }
+        // 检测并清理残留进程
+        kill_stale_file_server_processes().await;
 
         let mut cmd = process_wrap::tokio::CommandWrap::with_new("nuwax-file-server", |cmd| {
             cmd.arg("start")
@@ -612,11 +686,8 @@ impl ServiceManager {
     pub async fn lanproxy_start(&self) -> Result<(), String> {
         info!("Starting nuwax-lanproxy...");
 
-        // 检测是否已有实例在运行（支持开发模式带平台后缀的二进制名）
-        if is_process_running_fuzzy("nuwax-lanproxy") {
-            warn!("[Lanproxy] 检测到已有 nuwax-lanproxy 进程在运行");
-            return Err("nuwax-lanproxy 已在运行中，请先停止现有实例".to_string());
-        }
+        // 检测并清理残留进程
+        kill_stale_lanproxy_processes().await;
 
         // TODO: 从 store 读取配置
         // let server_ip: String = store.get("nuwax-lanproxy.server_ip").unwrap_or_default();
@@ -710,11 +781,8 @@ impl ServiceManager {
     ) -> Result<(), String> {
         info!("[Lanproxy] ========== 启动代理服务 ==========");
 
-        // 检测是否已有实例在运行（支持开发模式带平台后缀的二进制名）
-        if is_process_running_fuzzy("nuwax-lanproxy") {
-            warn!("[Lanproxy] 检测到已有 nuwax-lanproxy 进程在运行");
-            return Err("nuwax-lanproxy 已在运行中，请先停止现有实例".to_string());
-        }
+        // 检测并清理残留进程
+        kill_stale_lanproxy_processes().await;
 
         info!("[Lanproxy] 可执行文件路径: {}", config.bin_path);
         info!(
