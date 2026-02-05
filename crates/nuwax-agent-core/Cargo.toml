@@ -18,7 +18,7 @@ crate-type = ["rlib", "cdylib"]
 
 # Feature 控制表
 [features]
-default = ["auto-launch", "dependency-management", "async-trait", "http-server"]
+default = ["auto-launch", "dependency-management", "async-trait", "http-server", "rcoder"]
 # 开机自启动
 auto-launch = ["dep:auto-launch"]
 # 依赖管理功能
@@ -31,6 +31,8 @@ file-transfer = ["dep:enigo"]
 dev-mode = []
 # HTTP 服务（嵌入客户端）
 http-server = ["dep:axum", "dep:tower-http"]
+# rcoder agent_runner 集成 (本地模式)
+rcoder = ["dep:agent_runner", "dep:shared_types", "dep:agent_abstraction"]
 
 [dependencies]
 # Workspace 依赖
@@ -55,6 +57,17 @@ chrono = { workspace = true }
 regex = { workspace = true }
 semver = { workspace = true }
 base64 = { workspace = true }
+
+# rcoder agent_runner (通过 git 依赖)
+# 使用 git URL 依赖确保独立仓库也能编译
+# 分支: nuwax-client (开发阶段)
+agent_runner = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client", optional = true }
+
+# rcoder shared_types (用于类型转换)
+shared_types = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client", optional = true }
+
+# rcoder agent_abstraction (用于 PromptMessage)
+agent_abstraction = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client", optional = true }
 
 # 加密
 argon2 = { workspace = true }

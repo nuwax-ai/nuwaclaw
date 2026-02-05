@@ -69,6 +69,10 @@ pub use file_transfer::FileTransferManager;
 #[cfg(feature = "http-server")]
 pub mod http_server;
 
+/// Agent Runner 模块（可选，用于 rcoder 集成）
+#[cfg(feature = "rcoder")]
+pub mod agent_runner;
+
 // ============================================================================
 // 测试模块（仅在测试模式下编译）
 // ============================================================================
