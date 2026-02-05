@@ -1,6 +1,8 @@
 /**
- * 配置编辑模态框
+ * 开发工具 - 配置编辑模态框
  * 编辑场景配置（服务端 + 本地服务）
+ * 
+ * 注意：此组件仅在开发环境下加载
  */
 
 import { useState, useEffect } from 'react';
@@ -24,9 +26,9 @@ import {
   SceneConfig,
   ServerConfig,
   LocalServicesConfig,
-} from '../services/config';
+} from '../../services/config';
 
-interface ConfigEditorProps {
+interface DevConfigEditorProps {
   visible: boolean;
   onCancel: () => void;
   scene?: SceneConfig | null;
@@ -34,13 +36,16 @@ interface ConfigEditorProps {
   onSave?: () => void;
 }
 
-export default function ConfigEditor({ 
+/**
+ * 开发配置编辑器组件
+ */
+export default function DevConfigEditor({ 
   visible, 
   onCancel, 
   scene,
   isNew = false,
   onSave,
-}: ConfigEditorProps) {
+}: DevConfigEditorProps) {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
@@ -133,7 +138,7 @@ export default function ConfigEditor({
       onCancel();
       onSave?.();
     } catch (error) {
-      console.error('验证失败:', error);
+      console.error('[DevConfigEditor] 验证失败:', error);
     } finally {
       setLoading(false);
     }

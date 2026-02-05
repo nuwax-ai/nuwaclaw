@@ -8,12 +8,10 @@
  * - 状态管理和事件监听
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Space,
   Badge,
   Menu,
-  Modal,
   Spin,
   message,
 } from 'antd';
@@ -34,11 +32,9 @@ import {
   getConnectionInfo,
   onStatusChange,
   onLogChange,
-  syncConfigToServer,
   getOnlineStatus,
 } from './services';
 import SetupWizard from './components/SetupWizard';
-import ConfigEditor from './components/ConfigEditor';
 import LogViewer from './components/LogViewer';
 import {
   ClientPage,
@@ -47,15 +43,7 @@ import {
   PermissionsPage,
   AboutPage,
 } from './pages';
-import {
-  initConfigStore,
-  getAllScenes,
-  getCurrentScene,
-  switchScene,
-  deleteCustomScene,
-  resetConfig,
-  SceneConfig,
-} from './services/config';
+import { initConfigStore } from './services/config';
 import { initAuthStore } from './services/auth';
 import { isSetupCompleted } from './services/setup';
 
@@ -81,13 +69,6 @@ function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [onlineStatus, setOnlineStatus] = useState<boolean | null>(null);
-  
-  // 场景配置状态
-  const [scenes, setScenes] = useState<SceneConfig[]>([]);
-  const [currentScene, setCurrentScene] = useState<SceneConfig | null>(null);
-  const [configEditorVisible, setConfigEditorVisible] = useState(false);
-  const [editingScene, setEditingScene] = useState<SceneConfig | null>(null);
-  const [isNewConfig, setIsNewConfig] = useState(false);
   const [storeInitialized, setStoreInitialized] = useState(false);
 
   // 连接信息
@@ -114,7 +95,7 @@ function App() {
   }, []);
 
   // ============================================
-  // 初始化存储服务和场景配置（仅在初始化向导完成后执行）
+  // 初始化存储服务（仅在初始化向导完成后执行）
   // ============================================
   useEffect(() => {
     // 只有在初始化向导完成后才加载主界面数据
@@ -128,13 +109,6 @@ function App() {
         await initAuthStore();
         // 初始化配置存储
         await initConfigStore();
-        // 加载场景数据
-        const [scenesData, current] = await Promise.all([
-          getAllScenes(),
-          getCurrentScene(),
-        ]);
-        setScenes(scenesData);
-        setCurrentScene(current);
         // 加载在线状态
         const status = await getOnlineStatus();
         setOnlineStatus(status);
@@ -234,74 +208,6 @@ function App() {
   const badge = getBadgeConfig();
 
   // ============================================
-  // 场景配置管理方法
-  // ============================================
-
-  const handleSwitchScene = async (sceneId: string) => {
-    const success = await switchScene(sceneId);
-    if (success) {
-      const [scenesData, current] = await Promise.all([
-        getAllScenes(),
-        getCurrentScene(),
-      ]);
-      setScenes(scenesData);
-      setCurrentScene(current);
-    }
-  };
-
-  const handleAddConfig = () => {
-    setIsNewConfig(true);
-    setEditingScene(null);
-    setConfigEditorVisible(true);
-  };
-
-  const handleEditConfig = (scene: SceneConfig) => {
-    setIsNewConfig(false);
-    setEditingScene(scene);
-    setConfigEditorVisible(true);
-  };
-
-  const handleDeleteConfig = async (sceneId: string, sceneName: string) => {
-    Modal.confirm({
-      title: '确认删除',
-      content: `确定要删除配置 "${sceneName}" 吗？`,
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
-        const success = await deleteCustomScene(sceneId);
-        if (success) {
-          const [scenesData, current] = await Promise.all([
-            getAllScenes(),
-            getCurrentScene(),
-          ]);
-          setScenes(scenesData);
-          setCurrentScene(current);
-        }
-      },
-    });
-  };
-
-  const handleResetConfig = async () => {
-    Modal.confirm({
-      title: '重置配置',
-      content: '确定要重置为默认配置吗？所有自定义配置将被删除。',
-      okText: '重置',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
-        await resetConfig();
-        const [scenesData, current] = await Promise.all([
-          getAllScenes(),
-          getCurrentScene(),
-        ]);
-        setScenes(scenesData);
-        setCurrentScene(current);
-      },
-    });
-  };
-
-  // ============================================
   // 菜单配置
   // ============================================
   const menuItems = [
@@ -395,17 +301,7 @@ function App() {
               onNavigate={setActiveTab}
             />
           )}
-          {activeTab === 'settings' && (
-            <SettingsPage
-              scenes={scenes}
-              currentScene={currentScene}
-              onSwitchScene={handleSwitchScene}
-              onAddConfig={handleAddConfig}
-              onEditConfig={handleEditConfig}
-              onDeleteConfig={handleDeleteConfig}
-              onResetConfig={handleResetConfig}
-            />
-          )}
+          {activeTab === 'settings' && <SettingsPage />}
           {activeTab === 'dependencies' && <DependenciesPage />}
           {activeTab === 'permissions' && <PermissionsPage />}
           {activeTab === 'logs' && (
@@ -419,24 +315,6 @@ function App() {
           {activeTab === 'about' && <AboutPage />}
         </div>
       </div>
-
-      {/* 配置编辑弹窗 */}
-      <ConfigEditor
-        visible={configEditorVisible}
-        onCancel={() => setConfigEditorVisible(false)}
-        scene={editingScene}
-        isNew={isNewConfig}
-        onSave={async () => {
-          const [scenesData, current] = await Promise.all([
-            getAllScenes(),
-            getCurrentScene(),
-          ]);
-          setScenes(scenesData);
-          setCurrentScene(current);
-          // 同步配置到后端
-          await syncConfigToServer();
-        }}
-      />
     </div>
   );
 }

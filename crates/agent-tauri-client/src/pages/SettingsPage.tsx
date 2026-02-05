@@ -4,20 +4,16 @@
  * 功能：
  * - 服务配置管理（服务域名、端口、工作区）
  * - 开机自启动设置
- * - 部署环境管理（仅开发模式可见）
+ * - 开发工具（仅开发模式，通过 DevToolsPanel 动态加载）
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import {
   Space,
   Card,
   Button,
-  Tag,
-  List,
   Switch,
   Form,
-  Avatar,
-  Descriptions,
   Row,
   Col,
   Input,
@@ -28,11 +24,7 @@ import {
   Spin,
 } from 'antd';
 import {
-  CloudServerOutlined,
   SettingOutlined,
-  RedoOutlined,
-  PlusOutlined,
-  EnvironmentOutlined,
   FolderOutlined,
   SaveOutlined,
   EditOutlined,
@@ -47,42 +39,14 @@ import {
   type Step1Config,
 } from '../services/setup';
 import { restartAllServices } from '../services/dependencies';
-import { SceneConfig } from '../services/config';
+import { IS_DEV, DevToolsPanel } from '../components/dev';
 
-const { Text, Title } = Typography;
-
-// 是否为开发模式
-const IS_DEV = import.meta.env.DEV;
-
-interface SettingsPageProps {
-  /** 场景列表（开发模式用） */
-  scenes?: SceneConfig[];
-  /** 当前场景（开发模式用） */
-  currentScene?: SceneConfig | null;
-  /** 切换场景（开发模式用） */
-  onSwitchScene?: (sceneId: string) => void;
-  /** 添加配置（开发模式用） */
-  onAddConfig?: () => void;
-  /** 编辑配置（开发模式用） */
-  onEditConfig?: (scene: SceneConfig) => void;
-  /** 删除配置（开发模式用） */
-  onDeleteConfig?: (sceneId: string, sceneName: string) => void;
-  /** 重置配置（开发模式用） */
-  onResetConfig?: () => void;
-}
+const { Text } = Typography;
 
 /**
  * 设置页面组件
  */
-export default function SettingsPage({
-  scenes = [],
-  currentScene = null,
-  onSwitchScene,
-  onAddConfig,
-  onEditConfig,
-  onDeleteConfig,
-  onResetConfig,
-}: SettingsPageProps) {
+export default function SettingsPage() {
   // 配置表单
   const [form] = Form.useForm<Step1Config>();
   // 加载状态
@@ -216,11 +180,6 @@ export default function SettingsPage({
       setAutoLaunch(!checked);
     }
   };
-
-  /**
-   * 判断是否为当前场景（开发模式用）
-   */
-  const isCurrentScene = (sceneId: string) => currentScene?.id === sceneId;
 
   // 加载中
   if (loading) {
@@ -368,96 +327,16 @@ export default function SettingsPage({
         </Form>
       </Card>
 
-      {/* 开发模式：部署环境管理 */}
-      {IS_DEV && scenes.length > 0 && (
-        <Card 
-          title={
-            <Space>
-              <CloudServerOutlined />
-              <span>部署环境</span>
-              <Tag color="orange">开发模式</Tag>
-            </Space>
-          }
-          extra={
-            <Space>
-              <Button icon={<RedoOutlined />} onClick={onResetConfig}>
-                重置
-              </Button>
-              <Button type="primary" icon={<PlusOutlined />} onClick={onAddConfig}>
-                添加配置
-              </Button>
-            </Space>
-          }
-          style={{ marginBottom: 16 }}
-        >
-          <Alert
-            message="此功能仅在开发模式下可见"
-            type="warning"
-            showIcon
-            style={{ marginBottom: 16 }}
-          />
-          <List
-            dataSource={scenes}
-            renderItem={(scene) => (
-              <List.Item
-                actions={[
-                  isCurrentScene(scene.id) ? (
-                    <Tag color="green">当前</Tag>
-                  ) : (
-                    <Button
-                      size="small"
-                      onClick={() => onSwitchScene?.(scene.id)}
-                    >
-                      切换
-                    </Button>
-                  ),
-                  !scene.isDefault && !isCurrentScene(scene.id) && (
-                    <>
-                      <Button
-                        size="small"
-                        onClick={() => onEditConfig?.(scene)}
-                      >
-                        编辑
-                      </Button>
-                      <Button
-                        size="small"
-                        danger
-                        onClick={() => onDeleteConfig?.(scene.id, scene.name)}
-                      >
-                        删除
-                      </Button>
-                    </>
-                  ),
-                ].filter(Boolean)}
-              >
-                <List.Item.Meta
-                  avatar={
-                    <Avatar
-                      icon={<EnvironmentOutlined />}
-                      style={{
-                        backgroundColor: isCurrentScene(scene.id) ? '#1890ff' : '#52c41a'
-                      }}
-                    />
-                  }
-                  title={
-                    <Space>
-                      <span>{scene.name}</span>
-                      {scene.isDefault && <Tag color="blue">默认</Tag>}
-                    </Space>
-                  }
-                  description={
-                    <Space direction="vertical" size={0}>
-                      <Text type="secondary">{scene.description || '无描述'}</Text>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        API: {scene.server.apiUrl}
-                      </Text>
-                    </Space>
-                  }
-                />
-              </List.Item>
-            )}
-          />
-        </Card>
+      {/* 开发工具面板 - 仅开发环境动态加载 */}
+      {IS_DEV && DevToolsPanel && (
+        <Suspense fallback={
+          <Card size="small" style={{ textAlign: 'center', padding: 20 }}>
+            <Spin />
+            <div style={{ marginTop: 8 }}>加载开发工具...</div>
+          </Card>
+        }>
+          <DevToolsPanel />
+        </Suspense>
       )}
     </div>
   );
