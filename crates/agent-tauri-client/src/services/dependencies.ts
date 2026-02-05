@@ -702,6 +702,90 @@ export async function restartAllServices(): Promise<void> {
   }
 }
 
+// ========== 服务状态管理 ==========
+
+/**
+ * 服务类型枚举
+ */
+export type ServiceType = 'NuwaxFileServer' | 'NuwaxLanproxy' | 'Rcoder';
+
+/**
+ * 服务状态枚举
+ */
+export type ServiceState = 'Stopped' | 'Running' | 'Starting' | 'Stopping' | 'Error';
+
+/**
+ * 服务信息接口
+ */
+export interface ServiceInfo {
+  serviceType: ServiceType;
+  state: ServiceState;
+  pid?: number;
+}
+
+/**
+ * 服务显示名称映射
+ */
+export const SERVICE_DISPLAY_NAMES: Record<ServiceType, string> = {
+  NuwaxFileServer: '文件服务',
+  NuwaxLanproxy: '代理服务',
+  Rcoder: 'Agent 服务',
+};
+
+/**
+ * 服务图标颜色映射
+ */
+export const SERVICE_STATE_COLORS: Record<ServiceState, string> = {
+  Running: '#52c41a',
+  Stopped: '#ff4d4f',
+  Starting: '#1890ff',
+  Stopping: '#faad14',
+  Error: '#ff4d4f',
+};
+
+/**
+ * 获取所有服务状态
+ */
+export async function getServicesStatus(): Promise<ServiceInfo[]> {
+  try {
+    const result = await invoke<Array<{ service_type: string; state: string; pid?: number }>>('services_status_all');
+    console.log('[Services] ========== 获取到服务状态 ==========');
+    
+    // 转换后端返回的数据格式
+    const services = result.map((item, index) => {
+      const service: ServiceInfo = {
+        serviceType: item.service_type as ServiceType,
+        state: item.state as ServiceState,
+        pid: item.pid,
+      };
+      console.log(`[Services] ${index + 1}. ${SERVICE_DISPLAY_NAMES[service.serviceType]}: ${service.state}${service.pid ? ` (PID: ${service.pid})` : ''}`);
+      return service;
+    });
+    
+    const runningCount = services.filter(s => s.state === 'Running').length;
+    console.log(`[Services] 运行中: ${runningCount}/${services.length}`);
+    console.log('[Services] ======================================');
+    
+    return services;
+  } catch (error) {
+    console.error('[Services] 获取服务状态失败:', error);
+    return [];
+  }
+}
+
+/**
+ * 停止所有服务
+ */
+export async function stopAllServices(): Promise<void> {
+  try {
+    await invoke('services_stop_all');
+    console.log('[Services] 所有服务已停止');
+  } catch (error) {
+    console.error('[Services] 停止服务失败:', error);
+    throw error;
+  }
+}
+
 /**
  * 获取依赖安装统计
  */

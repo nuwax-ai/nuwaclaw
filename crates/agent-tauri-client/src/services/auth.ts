@@ -12,7 +12,7 @@ import {
   SandboxValue,
 } from './api';
 import { getAgentUrl, getVncUrl, getFileServerUrl } from './config';
-import { authStorage, initStore, STORAGE_KEYS, remove, type AuthUserInfo } from './store';
+import { authStorage, initStore, STORAGE_KEYS, remove, type AuthUserInfo, setupStorage } from './store';
 
 // 导出 AuthUserInfo 类型以保持向后兼容
 export type { AuthUserInfo };
@@ -133,6 +133,18 @@ export function saveOnlineStatus(online: boolean): Promise<void> {
  */
 export async function clearOnlineStatus(): Promise<void> {
   await remove(STORAGE_KEYS.AUTH_ONLINE_STATUS);
+}
+
+/**
+ * 保存服务器配置（从 reg 接口返回）
+ * 用于客户端连接服务器
+ */
+export async function saveServerConfig(serverHost: string, serverPort: number): Promise<void> {
+  await setupStorage.setState({
+    serverHost,
+    serverPort,
+  });
+  console.log('[Auth] 服务器配置已保存:', { serverHost, serverPort });
 }
 
 // ========== 错误码定义 ==========
@@ -266,6 +278,11 @@ export async function loginAndRegister(
     // 5. 保存连接状态
     await saveOnlineStatus(response.online);
 
+    // 6. 保存服务器配置（用于客户端连接）
+    if (response.serverHost && response.serverPort) {
+      await saveServerConfig(response.serverHost, response.serverPort);
+    }
+
     // 关闭 loading 并显示成功提示
     message.success({ content: '登录成功！', key: loadingKey });
 
@@ -274,6 +291,8 @@ export async function loginAndRegister(
       configKey: response.configKey,
       name: response.name,
       online: response.online,
+      serverHost: response.serverHost,
+      serverPort: response.serverPort,
       isNewUser: !savedKey, // 如果没有 savedKey，说明是新用户
     });
 

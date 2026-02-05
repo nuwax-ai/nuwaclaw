@@ -164,6 +164,10 @@ export interface ClientRegisterResponse {
   online: boolean;
   created: string;
   modified: string;
+  /** 服务器地址（客户端连接用） */
+  serverHost?: string;
+  /** 服务器端口（客户端连接用） */
+  serverPort?: number;
 }
 
 /**

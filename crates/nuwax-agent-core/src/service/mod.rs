@@ -6,7 +6,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use tokio::process::Command;
 use tokio::sync::Mutex;
-use tracing::{info, warn, error};
+use tracing::{debug, info, warn, error};
 
 use super::http_server::HttpServer;
 
@@ -317,7 +317,12 @@ impl ServiceManager {
 
     /// 使用指定配置启动 nuwax-lanproxy
     pub async fn lanproxy_start_with_config(&self, config: NuwaxLanproxyConfig) -> Result<(), String> {
-        info!("Starting nuwax-lanproxy with config...");
+        info!("[Lanproxy] ========== 启动代理服务 ==========");
+        info!("[Lanproxy] 服务器地址: {}:{}", config.server_ip, config.server_port);
+        info!("[Lanproxy] 客户端密钥: {}****{}", 
+            &config.client_key[..config.client_key.len().saturating_sub(4).min(config.client_key.len())], 
+            if config.client_key.len() > 4 { &config.client_key[config.client_key.len()-4..] } else { "****" }
+        );
 
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = process_wrap::tokio::CommandWrap::with_new(
             "nuwax-lanproxy",
@@ -329,12 +334,15 @@ impl ServiceManager {
         )
         .wrap(process_wrap::tokio::ProcessGroup::leader())
         .spawn()
-        .map_err(|e| format!("Failed to start nuwax-lanproxy: {}", e))?;
+        .map_err(|e| {
+            error!("[Lanproxy] 启动失败: {}", e);
+            format!("Failed to start nuwax-lanproxy: {}", e)
+        })?;
 
         let mut guard = self.lanproxy.lock().await;
         *guard = Some(child);
 
-        info!("nuwax-lanproxy started successfully");
+        info!("[Lanproxy] 进程已启动，等待运行状态...");
         Ok(())
     }
 
@@ -387,13 +395,30 @@ impl ServiceManager {
 
     /// 停止所有服务
     pub async fn services_stop_all(&self) -> Result<(), String> {
-        info!("Stopping all services...");
+        info!("[Services] ========== 停止所有服务 ==========");
+        
+        info!("[Services] 1/3 停止 Agent 服务 (rcoder)...");
+        if let Err(e) = self.rcoder_stop().await {
+            warn!("[Services]   - Agent 服务停止失败: {}", e);
+        } else {
+            info!("[Services]   - Agent 服务已停止");
+        }
 
-        self.rcoder_stop().await?;
-        self.file_server_stop().await?;
-        self.lanproxy_stop().await?;
+        info!("[Services] 2/3 停止文件服务 (nuwax-file-server)...");
+        if let Err(e) = self.file_server_stop().await {
+            warn!("[Services]   - 文件服务停止失败: {}", e);
+        } else {
+            info!("[Services]   - 文件服务已停止");
+        }
 
-        info!("All services stopped");
+        info!("[Services] 3/3 停止代理服务 (nuwax-lanproxy)...");
+        if let Err(e) = self.lanproxy_stop().await {
+            warn!("[Services]   - 代理服务停止失败: {}", e);
+        } else {
+            info!("[Services]   - 代理服务已停止");
+        }
+
+        info!("[Services] ========== 所有服务停止完成 ==========");
         Ok(())
     }
 
@@ -417,28 +442,67 @@ impl ServiceManager {
         let mut statuses = Vec::new();
 
         // nuwax-file-server 状态
-        let nuwax_running = self.nuwax_file_server.lock().await.is_some();
-        statuses.push(ServiceInfo {
-            service_type: ServiceType::NuwaxFileServer,
-            state: if nuwax_running { ServiceState::Running } else { ServiceState::Stopped },
-            pid: None,
-        });
+        {
+            let guard = self.nuwax_file_server.lock().await;
+            if let Some(child) = &*guard {
+                let pid = child.id();
+                statuses.push(ServiceInfo {
+                    service_type: ServiceType::NuwaxFileServer,
+                    state: ServiceState::Running,
+                    pid,
+                });
+                debug!("[Services] 文件服务运行中, PID: {:?}", pid);
+            } else {
+                statuses.push(ServiceInfo {
+                    service_type: ServiceType::NuwaxFileServer,
+                    state: ServiceState::Stopped,
+                    pid: None,
+                });
+                debug!("[Services] 文件服务已停止");
+            }
+        }
 
         // nuwax-lanproxy 状态
-        let lanproxy_running = self.lanproxy.lock().await.is_some();
-        statuses.push(ServiceInfo {
-            service_type: ServiceType::NuwaxLanproxy,
-            state: if lanproxy_running { ServiceState::Running } else { ServiceState::Stopped },
-            pid: None,
-        });
+        {
+            let guard = self.lanproxy.lock().await;
+            if let Some(child) = &*guard {
+                // process_wrap::tokio::ChildWrapper.id() 返回 Option<u32>
+                let pid = child.id();
+                statuses.push(ServiceInfo {
+                    service_type: ServiceType::NuwaxLanproxy,
+                    state: ServiceState::Running,
+                    pid,
+                });
+                debug!("[Services] 代理服务运行中, PID: {:?}", pid);
+            } else {
+                statuses.push(ServiceInfo {
+                    service_type: ServiceType::NuwaxLanproxy,
+                    state: ServiceState::Stopped,
+                    pid: None,
+                });
+                debug!("[Services] 代理服务已停止");
+            }
+        }
 
         // HTTP Server 状态
-        let http_running: bool = self.http_server.lock().await.is_some();
-        statuses.push(ServiceInfo {
-            service_type: ServiceType::Rcoder,
-            state: if http_running { ServiceState::Running } else { ServiceState::Stopped },
-            pid: None,
-        });
+        {
+            let guard = self.http_server.lock().await;
+            if guard.is_some() {
+                statuses.push(ServiceInfo {
+                    service_type: ServiceType::Rcoder,
+                    state: ServiceState::Running,
+                    pid: None, // HTTP Server 是内嵌的，没有独立 PID
+                });
+                debug!("[Services] Agent 服务运行中");
+            } else {
+                statuses.push(ServiceInfo {
+                    service_type: ServiceType::Rcoder,
+                    state: ServiceState::Stopped,
+                    pid: None,
+                });
+                debug!("[Services] Agent 服务已停止");
+            }
+        }
 
         statuses
     }

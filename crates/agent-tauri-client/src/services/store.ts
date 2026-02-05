@@ -63,6 +63,7 @@ export const STORAGE_KEYS = {
 
   // 基础设置（步骤1）
   SETUP_SERVER_HOST: 'setup.server_host',       // 服务域名
+  SETUP_SERVER_PORT: 'setup.server_port',       // 服务端口 (HTTPS 端口)
   SETUP_AGENT_PORT: 'setup.agent_port',         // Agent 端口
   SETUP_FILE_SERVER_PORT: 'setup.file_server_port', // 文件服务端口
   SETUP_PROXY_PORT: 'setup.proxy_port',         // 代理服务端口
@@ -112,10 +113,11 @@ export interface SetupState {
   completed: boolean;        // 是否完成初始化
   currentStep: number;       // 当前步骤 (1/2/3)
   serverHost: string;        // 服务域名
+  serverPort: number;        // 服务端口 (HTTPS 端口)
   agentPort: number;         // Agent 端口
   fileServerPort: number;    // 文件服务端口
   proxyPort: number;         // 代理服务端口
-  workspaceDir: string;      // 工作区目录
+  workspaceDir: string;       // 工作区目录
 }
 
 /**
@@ -125,6 +127,7 @@ export const DEFAULT_SETUP_STATE: SetupState = {
   completed: false,
   currentStep: 1,
   serverHost: 'https://nvwa-api.xspaceagi.com',
+  serverPort: 443,
   agentPort: 9086,
   fileServerPort: 60000,
   proxyPort: 9099,
@@ -505,11 +508,12 @@ export const setupStorage = {
    * 获取完整的初始化状态
    */
   async getState(): Promise<SetupState> {
-    const [completed, currentStep, serverHost, agentPort, fileServerPort, proxyPort, workspaceDir] =
+    const [completed, currentStep, serverHost, serverPort, agentPort, fileServerPort, proxyPort, workspaceDir] =
       await Promise.all([
         getBoolean(STORAGE_KEYS.SETUP_COMPLETED),
         getNumber(STORAGE_KEYS.SETUP_CURRENT_STEP),
         getString(STORAGE_KEYS.SETUP_SERVER_HOST),
+        getNumber(STORAGE_KEYS.SETUP_SERVER_PORT),
         getNumber(STORAGE_KEYS.SETUP_AGENT_PORT),
         getNumber(STORAGE_KEYS.SETUP_FILE_SERVER_PORT),
         getNumber(STORAGE_KEYS.SETUP_PROXY_PORT),
@@ -520,6 +524,7 @@ export const setupStorage = {
       completed: completed ?? DEFAULT_SETUP_STATE.completed,
       currentStep: currentStep ?? DEFAULT_SETUP_STATE.currentStep,
       serverHost: serverHost ?? DEFAULT_SETUP_STATE.serverHost,
+      serverPort: serverPort ?? DEFAULT_SETUP_STATE.serverPort,
       agentPort: agentPort ?? DEFAULT_SETUP_STATE.agentPort,
       fileServerPort: fileServerPort ?? DEFAULT_SETUP_STATE.fileServerPort,
       proxyPort: proxyPort ?? DEFAULT_SETUP_STATE.proxyPort,
@@ -541,6 +546,9 @@ export const setupStorage = {
     }
     if (state.serverHost !== undefined) {
       promises.push(setString(STORAGE_KEYS.SETUP_SERVER_HOST, state.serverHost));
+    }
+    if (state.serverPort !== undefined) {
+      promises.push(setNumber(STORAGE_KEYS.SETUP_SERVER_PORT, state.serverPort));
     }
     if (state.agentPort !== undefined) {
       promises.push(setNumber(STORAGE_KEYS.SETUP_AGENT_PORT, state.agentPort));
@@ -600,6 +608,7 @@ export const setupStorage = {
       remove(STORAGE_KEYS.SETUP_COMPLETED),
       remove(STORAGE_KEYS.SETUP_CURRENT_STEP),
       remove(STORAGE_KEYS.SETUP_SERVER_HOST),
+      remove(STORAGE_KEYS.SETUP_SERVER_PORT),
       remove(STORAGE_KEYS.SETUP_AGENT_PORT),
       remove(STORAGE_KEYS.SETUP_FILE_SERVER_PORT),
       remove(STORAGE_KEYS.SETUP_PROXY_PORT),

@@ -591,42 +591,63 @@ async fn services_restart_all(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
-    info!("Restarting all services with store config...");
+    info!("[Services] ========== 开始重启所有服务 ==========");
 
     // 停止所有服务
+    info!("[Services] 1/4 停止所有服务...");
     {
         let manager = state.manager.lock().await;
         manager.services_stop_all().await?;
     }
+    info!("[Services] 所有服务已停止");
 
     // 等待端口释放
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    info!("[Services] 等待端口释放完成");
 
     // 重新启动所有服务（依次调用各个启动命令）
     // rcoder
+    info!("[Services] 2/4 启动 Agent 服务 (rcoder)...");
     {
-        let manager = state.manager.lock().await;
         let port = read_store_port(&app, "setup.agent_port")
             .ok_or_else(|| "配置缺失: setup.agent_port (Agent 服务端口)".to_string())?;
+        info!("[Services]   - Agent 端口: {}", port);
+        let manager = state.manager.lock().await;
         manager.rcoder_start(port, Arc::new(MinimalAgentRunnerApi)).await?;
+        info!("[Services]   - Agent 服务启动命令已发送");
     }
 
     // file_server - 读取端口配置
+    info!("[Services] 3/4 启动文件服务 (nuwax-file-server)...");
     {
         let port = read_store_port(&app, "setup.file_server_port")
             .unwrap_or(60000); // 默认端口 60000
+        info!("[Services]   - 文件服务端口: {}", port);
         let manager = state.manager.lock().await;
         manager.file_server_start_with_port(port).await?;
+        info!("[Services]   - 文件服务启动命令已发送");
     }
 
     // lanproxy - 需要读取配置并调用 lanproxy_start_with_config
+    info!("[Services] 4/4 启动代理服务 (nuwax-lanproxy)...");
     {
         let server_ip = read_store_string(&app, "setup.server_host")
             .ok_or_else(|| "配置缺失: setup.server_host (服务器域名)".to_string())?;
-        let server_port = read_store_port(&app, "setup.proxy_port")
-            .ok_or_else(|| "配置缺失: setup.proxy_port (代理服务端口)".to_string())?;
+        
+        // 优先使用 serverPort（从 reg 接口返回），如果没有则使用 proxy_port
+        let server_port = read_store_port(&app, "setup.server_port")
+            .or(read_store_port(&app, "setup.proxy_port"))
+            .ok_or_else(|| "配置缺失: setup.server_port 和 setup.proxy_port".to_string())?;
+        
         let client_key = read_store_string(&app, "auth.saved_key")
             .ok_or_else(|| "配置缺失: auth.saved_key (客户端密钥)".to_string())?;
+
+        // 打印关键配置信息（注意脱敏）
+        info!("[Services]   - 服务器地址: {}:{}", server_ip, server_port);
+        info!("[Services]   - 客户端密钥: {}****{}", 
+            &client_key[..client_key.len().saturating_sub(4).min(client_key.len())], 
+            if client_key.len() > 4 { &client_key[client_key.len()-4..] } else { "****" }
+        );
 
         let lanproxy_config = nuwax_agent_core::NuwaxLanproxyConfig {
             server_ip,
@@ -636,9 +657,10 @@ async fn services_restart_all(
 
         let manager = state.manager.lock().await;
         manager.lanproxy_start_with_config(lanproxy_config).await?;
+        info!("[Services]   - 代理服务启动命令已发送");
     }
 
-    info!("All services restarted successfully");
+    info!("[Services] ========== 所有服务重启命令已发送 ==========");
     Ok(true)
 }
 
