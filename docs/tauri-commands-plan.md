@@ -23,18 +23,20 @@
 ## 3. 命令命名规范
 
 - 命令命名采用 `commands::<domain>_<action>` 风格
-- `<domain>` 对应服务或业务模块，例如 `agent`、`computer_agent`、`dependency`、`file_server`
+- `<domain>` 对应服务或业务模块，例如 `agent`、`dependency`、`file_server`、`rcoder`
 - `<action>` 为动词或动宾短语，尽量语义明确：`start`、`stop`、`restart`、`status`、`query_version`
 
 ## 4. API 草稿（与服务同学沟通版）
 
 以下是已约定的接口草稿，将作为“第一期落地”目标：
 
-### 4.1 Agent 服务
+### 4.1 Agent 服务（以 rcoder 作为对照）
 
-- `commands::computer_agent_stop`
-- `commands::computer_agent_cancel_session`
-- `commands::computer_agent_status`
+统一以 rcoder 服务命令作为对照：  
+- `commands::rcoder_start()`  
+- `commands::rcoder_stop()`  
+- `commands::rcoder_restart()`  
+- 状态查询请使用 `commands::services_status_all()`（统一从服务状态集合读取）
 
 ### 4.2 配置
 
@@ -69,13 +71,12 @@
 
 为了提升可维护性，建议在正式实现中做如下归类：
 
-### 5.1 Agent 域
+### 5.1 Agent 域（以 rcoder 对照）
 
-- `computer_agent_status`：查询运行状态
-- `computer_agent_stop`：停止 Agent
-- `computer_agent_cancel_session`：取消当前会话
-- （可选补充）`computer_agent_start`
-- （可选补充）`computer_agent_logs` / `computer_agent_events`
+- `rcoder_start`：启动 rcoder（Agent HTTP Server）
+- `rcoder_stop`：停止 rcoder
+- `rcoder_restart`：重启 rcoder
+- `services_status_all`：统一读取服务状态
 
 ### 5.2 配置域
 

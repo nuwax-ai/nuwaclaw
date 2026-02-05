@@ -7,10 +7,10 @@
 
 当前 crates/agent-tauri-client/src-tauri/src/lib.rs  中,涉及的服务,我知道的有: 
 ```
-  start_rcoder,
-            stop_rcoder,
-            restart_rcoder,
-            stop_all_services,
-            restart_all_services,
-            get_all_services_status,
+  rcoder_start,
+  rcoder_stop,
+  rcoder_restart,
+  services_stop_all,
+  services_restart_all,
+  services_status_all,
 ```

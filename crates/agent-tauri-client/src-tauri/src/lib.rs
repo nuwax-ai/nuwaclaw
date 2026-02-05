@@ -169,7 +169,7 @@ async fn permission_open_settings(
 ) -> Result<(), String> {
     let perm = parse_permission(&permission)?;
     let manager = state.get_manager().await;
-    manager.permission_open_settings(perm).await.map_err(|e| e.to_string())
+    manager.open_settings(perm).await.map_err(|e| e.to_string())
 }
 
 /// 批量获取所有权限状态
@@ -421,7 +421,7 @@ async fn lanproxy_start(
     };
 
     let manager = state.manager.lock().await;
-    manager.start_lanproxy_with_config(lanproxy_config).await?;
+    manager.lanproxy_start_with_config(lanproxy_config).await?;
     Ok(true)
 }
 
@@ -431,7 +431,7 @@ async fn lanproxy_stop(
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
     let manager = state.manager.lock().await;
-    manager.stop_lanproxy().await?;
+    manager.lanproxy_stop().await?;
     Ok(true)
 }
 
@@ -449,7 +449,7 @@ async fn lanproxy_restart(
     // 先停止
     {
         let manager = state.manager.lock().await;
-        manager.stop_lanproxy().await?;
+        manager.lanproxy_stop().await?;
     }
     // 等待端口释放
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -573,7 +573,7 @@ async fn rcoder_restart(
 #[tauri::command]
 async fn services_stop_all(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
     let manager = state.manager.lock().await;
-    manager.stop_all().await?;
+    manager.services_stop_all().await?;
     Ok(true)
 }
 
@@ -596,7 +596,7 @@ async fn services_restart_all(
     // 停止所有服务
     {
         let manager = state.manager.lock().await;
-        manager.stop_all().await?;
+        manager.services_stop_all().await?;
     }
 
     // 等待端口释放
@@ -617,7 +617,7 @@ async fn services_restart_all(
         manager.file_server_start().await?;
     }
 
-    // lanproxy - 需要读取配置并调用 start_lanproxy_with_config
+    // lanproxy - 需要读取配置并调用 lanproxy_start_with_config
     {
         let server_ip = read_store_string(&app, "setup.server_host")
             .ok_or_else(|| "配置缺失: setup.server_host (服务器域名)".to_string())?;
@@ -633,7 +633,7 @@ async fn services_restart_all(
         };
 
         let manager = state.manager.lock().await;
-        manager.start_lanproxy_with_config(lanproxy_config).await?;
+        manager.lanproxy_start_with_config(lanproxy_config).await?;
     }
 
     info!("All services restarted successfully");
@@ -644,7 +644,7 @@ async fn services_restart_all(
 #[tauri::command]
 async fn services_status_all(state: tauri::State<'_, ServiceManagerState>) -> Result<Vec<ServiceInfoDto>, String> {
     let manager = state.manager.lock().await;
-    let statuses = manager.get_all_status().await;
+    let statuses = manager.services_status_all().await;
     Ok(statuses.into_iter().map(|s| s.into()).collect())
 }
 

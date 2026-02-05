@@ -2,3 +2,8 @@
 # 路径相对项目根；若已设置 VCPKG_ROOT 则不会覆盖（默认不 force）
 [env]
 VCPKG_ROOT = { value = "vcpkg", relative = true }
+
+# 使用系统 git 拉取依赖，以便走本机已配置的 HTTPS 凭据（credential.helper / gh auth 等）
+# 解决 nuwax-ai/rcoder 等私有 git 依赖的认证与 revision 缓存问题
+[net]
+git-fetch-with-cli = true

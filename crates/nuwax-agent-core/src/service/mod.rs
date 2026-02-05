@@ -138,7 +138,7 @@ impl ServiceManager {
     }
 
     /// 启动 nuwax-file-server
-    pub async fn start_nuwax_file_server(&self) -> Result<(), String> {
+    pub async fn file_server_start(&self) -> Result<(), String> {
         info!("Starting nuwax-file-server...");
 
         let mut cmd = Command::new("nuwax-file-server");
@@ -171,7 +171,7 @@ impl ServiceManager {
     }
 
     /// 停止 nuwax-file-server
-    pub async fn stop_nuwax_file_server(&self) -> Result<(), String> {
+    pub async fn file_server_stop(&self) -> Result<(), String> {
         info!("Stopping nuwax-file-server...");
 
         let mut guard = self.nuwax_file_server.lock().await;
@@ -186,10 +186,10 @@ impl ServiceManager {
     }
 
     /// 重启 nuwax-file-server
-    pub async fn restart_nuwax_file_server(&self) -> Result<(), String> {
-        self.stop_nuwax_file_server().await?;
+    pub async fn file_server_restart(&self) -> Result<(), String> {
+        self.file_server_stop().await?;
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        self.start_nuwax_file_server().await
+        self.file_server_start().await
     }
 
     /// 启动 nuwax-lanproxy
@@ -201,7 +201,7 @@ impl ServiceManager {
     /// - nuwax-lanproxy.server_ip: 服务器 IP
     /// - nuwax-lanproxy.server_port: 服务器端口
     /// - nuwax-lanproxy.client_key: 客户端密钥
-    pub async fn start_lanproxy(&self) -> Result<(), String> {
+    pub async fn lanproxy_start(&self) -> Result<(), String> {
         info!("Starting nuwax-lanproxy...");
 
         // TODO: 从 store 读取配置
@@ -229,7 +229,7 @@ impl ServiceManager {
     }
 
     /// 停止 nuwax-lanproxy
-    pub async fn stop_lanproxy(&self) -> Result<(), String> {
+    pub async fn lanproxy_stop(&self) -> Result<(), String> {
         info!("Stopping nuwax-lanproxy...");
 
         let mut guard = self.lanproxy.lock().await;
@@ -271,14 +271,14 @@ impl ServiceManager {
     }
 
     /// 重启 nuwax-lanproxy
-    pub async fn restart_lanproxy(&self) -> Result<(), String> {
-        self.stop_lanproxy().await?;
+    pub async fn lanproxy_restart(&self) -> Result<(), String> {
+        self.lanproxy_stop().await?;
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        self.start_lanproxy().await
+        self.lanproxy_start().await
     }
 
     /// 使用指定配置启动 nuwax-lanproxy
-    pub async fn start_lanproxy_with_config(&self, config: NuwaxLanproxyConfig) -> Result<(), String> {
+    pub async fn lanproxy_start_with_config(&self, config: NuwaxLanproxyConfig) -> Result<(), String> {
         info!("Starting nuwax-lanproxy with config...");
 
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = process_wrap::tokio::CommandWrap::with_new(
@@ -301,7 +301,7 @@ impl ServiceManager {
     }
 
     /// 启动 HTTP Server
-    pub async fn start_rcoder(&self, port: u16, agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>) -> Result<(), String> {
+    pub async fn rcoder_start(&self, port: u16, agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>) -> Result<(), String> {
         info!("Starting HTTP Server (rcoder) on port {}...", port);
 
         let server = super::http_server::HttpServer::new(port);
@@ -325,7 +325,7 @@ impl ServiceManager {
     }
 
     /// 停止 HTTP Server
-    pub async fn stop_rcoder(&self) -> Result<(), String> {
+    pub async fn rcoder_stop(&self) -> Result<(), String> {
         info!("Stopping HTTP Server (rcoder)...");
 
         let mut guard: tokio::sync::MutexGuard<'_, Option<HttpServer>> = self.http_server.lock().await;
@@ -341,41 +341,41 @@ impl ServiceManager {
     }
 
     /// 重启 HTTP Server
-    pub async fn restart_rcoder(&self, port: u16, agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>) -> Result<(), String> {
-        self.stop_rcoder().await?;
+    pub async fn rcoder_restart(&self, port: u16, agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>) -> Result<(), String> {
+        self.rcoder_stop().await?;
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        self.start_rcoder(port, agent_runner_api).await
+        self.rcoder_start(port, agent_runner_api).await
     }
 
     /// 停止所有服务
-    pub async fn stop_all(&self) -> Result<(), String> {
+    pub async fn services_stop_all(&self) -> Result<(), String> {
         info!("Stopping all services...");
 
-        self.stop_rcoder().await?;
-        self.stop_nuwax_file_server().await?;
-        self.stop_lanproxy().await?;
+        self.rcoder_stop().await?;
+        self.file_server_stop().await?;
+        self.lanproxy_stop().await?;
 
         info!("All services stopped");
         Ok(())
     }
 
     /// 重启所有服务
-    pub async fn restart_all(&self, port: u16, agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>) -> Result<(), String> {
+    pub async fn services_restart_all(&self, port: u16, agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>) -> Result<(), String> {
         info!("Restarting all services...");
 
-        self.stop_all().await?;
+        self.services_stop_all().await?;
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-        self.start_rcoder(port, agent_runner_api.clone()).await?;
-        self.start_nuwax_file_server().await?;
-        self.start_lanproxy().await?;
+        self.rcoder_start(port, agent_runner_api.clone()).await?;
+        self.file_server_start().await?;
+        self.lanproxy_start().await?;
 
         info!("All services restarted");
         Ok(())
     }
 
     /// 获取所有服务状态
-    pub async fn get_all_status(&self) -> Vec<ServiceInfo> {
+    pub async fn services_status_all(&self) -> Vec<ServiceInfo> {
         let mut statuses = Vec::new();
 
         // nuwax-file-server 状态
