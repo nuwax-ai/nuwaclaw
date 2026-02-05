@@ -96,22 +96,13 @@ export default function PermissionsPage() {
       // 更新权限列表
       setPermissions(currentPermissions);
 
-      // 如果有权限变为已授权，显示提示
-      const newlyGranted = changedPermissions.filter(
-        (p) => p.status === "granted",
-      );
-      if (newlyGranted.length > 0) {
-        message.success(
-          `权限已授权: ${newlyGranted.map((p) => p.displayName).join(", ")}`,
-        );
-      }
-
       // 检查所有关键权限是否都已授权
       const keyPermissions = currentPermissions.filter((p) =>
         KEY_PERMISSIONS.includes(p.id),
       );
       const allGranted = keyPermissions.every((p) => p.status === "granted");
 
+      // 只有从"等待授权"状态变为全部授权时才提示
       if (allGranted && waitingForAuth) {
         message.success("所有关键权限已授权");
         stopPermissionPolling();
@@ -204,7 +195,6 @@ export default function PermissionsPage() {
     data.items.forEach((p) => {
       lastPermissionsRef.current.set(p.id, p.status);
     });
-    message.success("权限状态已刷新");
   };
 
   /**
@@ -214,7 +204,6 @@ export default function PermissionsPage() {
     await openFullDiskAccessPanel();
     // 打开面板后启动轮询检测权限状态变化
     startPermissionPolling();
-    message.info("请在系统设置中勾选本应用，完成后返回将自动更新状态");
   };
 
   /**
@@ -229,7 +218,6 @@ export default function PermissionsPage() {
       await openSystemPreferences(permissionId);
       // 启动轮询检测权限状态变化
       startPermissionPolling();
-      message.info("请在系统设置中授权，完成后返回将自动更新状态");
     }
   };
 

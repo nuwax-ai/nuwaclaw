@@ -3,8 +3,6 @@
 // 提供 macOS/Windows/Linux 平台的完全磁盘访问权限管理
 // ============================================
 
-import { message } from "antd";
-
 // 导入类型和配置函数
 import type {
   PermissionStatus,
@@ -109,7 +107,6 @@ async function openMacOSFullDiskAccessPanel(): Promise<void> {
 async function openWindowsFullDiskAccessPanel(): Promise<void> {
   // Windows 没有 macOS 那样的"完全磁盘访问"概念
   // 通常通过 UAC 和应用清单来处理
-  message.info("请在应用设置中确保已授予文件访问权限");
 }
 
 /**
@@ -122,7 +119,6 @@ async function openWindowsFullDiskAccessPanel(): Promise<void> {
  */
 async function openLinuxFullDiskAccessPanel(): Promise<void> {
   // Linux 权限通常通过 Polkit 或 AppArmor 管理
-  message.info("请确保应用已获得必要的文件访问权限");
 }
 
 // ============================================
@@ -155,7 +151,8 @@ export async function openFullDiskAccessPanel(): Promise<void> {
       await openLinuxFullDiskAccessPanel();
       break;
     default:
-      message.warning("当前平台不支持自动打开设置面板");
+      // 未知平台，静默处理
+      break;
   }
 }
 

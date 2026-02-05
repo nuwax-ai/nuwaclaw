@@ -328,13 +328,10 @@ class PermissionsService {
    * // 打开麦克风权限设置页面
    */
   async openSystemSettings(category: PermissionCategory): Promise<boolean> {
-    message.loading("正在打开系统设置...", 1);
-
     // 1. 优先使用 Rust 后端
     if (this.useRustBackend) {
       try {
         await rustOpenSettings(category);
-        message.info("请在系统设置中完成权限授权");
         return true;
       } catch (error) {
         console.error("Failed to open settings via Rust:", error);
@@ -348,14 +345,13 @@ class PermissionsService {
       try {
         const { openUrl } = await import("@tauri-apps/plugin-opener");
         await openUrl(url);
-        message.info("请在系统设置中完成权限授权");
         return true;
       } catch (error) {
         console.error("Failed to open system settings:", error);
       }
     }
 
-    message.warning("无法打开系统设置，请手动前往系统偏好设置");
+    console.warn("无法打开系统设置，请手动前往系统偏好设置");
     return false;
   }
 
