@@ -2,9 +2,7 @@
 //!
 //! 管理 nuwax-file-server, nuwax-lanproxy 和 HTTP Server 服务的启动、停止、重启
 
-use std::process::Stdio;
 use std::sync::Arc;
-use tokio::process::Command;
 use tokio::sync::Mutex;
 use tracing::{info, warn, error};
 
@@ -113,8 +111,8 @@ impl Default for NuwaxLanproxyConfig {
 /// 服务管理器
 #[derive(Clone)]
 pub struct ServiceManager {
-    /// nuwax-file-server 进程
-    nuwax_file_server: Arc<Mutex<Option<tokio::process::Child>>>,
+    /// nuwax-file-server 进程（统一使用 process_wrap）
+    nuwax_file_server: Arc<Mutex<Option<Box<dyn process_wrap::tokio::ChildWrapper>>>>,
     /// nuwax-file-server 配置
     config: Arc<NuwaxFileServerConfig>,
     /// nuwax-lanproxy 进程（使用 process_wrap 进程组）
@@ -141,25 +139,34 @@ impl ServiceManager {
     pub async fn file_server_start(&self) -> Result<(), String> {
         info!("Starting nuwax-file-server...");
 
-        let mut cmd = Command::new("nuwax-file-server");
-        cmd
-            .arg("start")
-            .arg("--env")
-            .arg(&self.config.env)
-            .arg("--port")
-            .arg(self.config.port.to_string())
-            .arg(format!("INIT_PROJECT_NAME={}", &self.config.init_project_name))
-            .arg(format!("INIT_PROJECT_DIR={}", &self.config.init_project_dir))
-            .arg(format!("UPLOAD_PROJECT_DIR={}", &self.config.upload_project_dir))
-            .arg(format!("PROJECT_SOURCE_DIR={}", &self.config.project_source_dir))
-            .arg(format!("DIST_TARGET_DIR={}", &self.config.dist_target_dir))
-            .arg(format!("LOG_BASE_DIR={}", &self.config.log_base_dir))
-            .arg(format!("COMPUTER_WORKSPACE_DIR={}", &self.config.computer_workspace_dir))
-            .arg(format!("COMPUTER_LOG_DIR={}", &self.config.computer_log_dir))
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        let mut cmd = process_wrap::tokio::CommandWrap::with_new(
+            "nuwax-file-server",
+            |cmd| {
+                cmd.arg("start")
+                    .arg("--env")
+                    .arg(&self.config.env)
+                    .arg("--port")
+                    .arg(self.config.port.to_string())
+                    .arg(format!("INIT_PROJECT_NAME={}", &self.config.init_project_name))
+                    .arg(format!("INIT_PROJECT_DIR={}", &self.config.init_project_dir))
+                    .arg(format!("UPLOAD_PROJECT_DIR={}", &self.config.upload_project_dir))
+                    .arg(format!("PROJECT_SOURCE_DIR={}", &self.config.project_source_dir))
+                    .arg(format!("DIST_TARGET_DIR={}", &self.config.dist_target_dir))
+                    .arg(format!("LOG_BASE_DIR={}", &self.config.log_base_dir))
+                    .arg(format!("COMPUTER_WORKSPACE_DIR={}", &self.config.computer_workspace_dir))
+                    .arg(format!("COMPUTER_LOG_DIR={}", &self.config.computer_log_dir));
+            },
+        );
 
-        let child = cmd
+        // 跨平台条件编译：Unix 使用进程组，Windows 使用 JobObject
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let cmd = cmd.wrap(process_wrap::tokio::ProcessGroup::leader());
+        #[cfg(target_os = "windows")]
+        let cmd = cmd.wrap(process_wrap::tokio::JobObject::new());
+
+        // 双重保障：KillOnDrop 确保进程被正确终止
+        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
+            .wrap(process_wrap::tokio::KillOnDrop)
             .spawn()
             .map_err(|e| format!("Failed to start nuwax-file-server: {}", e))?;
 
@@ -175,9 +182,31 @@ impl ServiceManager {
         info!("Stopping nuwax-file-server...");
 
         let mut guard = self.nuwax_file_server.lock().await;
-        if let Some(mut child) = guard.take() {
-            child.kill().await.map_err(|e| format!("Failed to stop nuwax-file-server: {}", e))?;
-            info!("nuwax-file-server stopped");
+        if let Some(child) = guard.take() {
+            let mut child = child;
+
+            if let Err(e) = child.start_kill() {
+                warn!("Failed to send kill signal, process may have exited: {}", e);
+            }
+
+            use tokio::time::timeout;
+            use std::time::Duration;
+
+            match timeout(Duration::from_secs(5), child.wait()).await {
+                Ok(Ok(status)) => {
+                    if status.success() {
+                        info!("nuwax-file-server stopped gracefully");
+                    } else {
+                        info!("nuwax-file-server stopped with exit code: {:?}", status.code());
+                    }
+                }
+                Ok(Err(e)) => {
+                    warn!("Error waiting for nuwax-file-server: {}", e);
+                }
+                Err(_) => {
+                    warn!("nuwax-file-server stop timed out");
+                }
+            }
         } else {
             warn!("nuwax-file-server is not running");
         }
@@ -195,6 +224,9 @@ impl ServiceManager {
     /// 启动 nuwax-lanproxy
     ///
     /// 使用 process_wrap 进程组方式启动，确保子进程不会成为僵尸进程
+    /// - Unix/Linux/macOS: 使用 ProcessGroup::leader()
+    /// - Windows: 使用 JobObject::new()
+    /// - 双重保障: kill_on_drop 确保进程被正确终止
     ///
     /// TODO: 从 Tauri store 读取配置
     /// 需要前端定义 store 中的配置字段名，如:
@@ -209,17 +241,26 @@ impl ServiceManager {
         // let server_port: u16 = store.get("nuwax-lanproxy.server_port").unwrap_or_default();
         // let client_key: String = store.get("nuwax-lanproxy.client_key").unwrap_or_default();
 
-        let child: Box<dyn process_wrap::tokio::ChildWrapper> = process_wrap::tokio::CommandWrap::with_new(
+        let mut cmd = process_wrap::tokio::CommandWrap::with_new(
             "nuwax-lanproxy",
             |cmd| {
                 cmd.arg("-s").arg(&self.lanproxy_config.server_ip);
                 cmd.arg("-p").arg(self.lanproxy_config.server_port.to_string());
                 cmd.arg("-k").arg(&self.lanproxy_config.client_key);
             },
-        )
-        .wrap(process_wrap::tokio::ProcessGroup::leader())
-        .spawn()
-        .map_err(|e| format!("Failed to start nuwax-lanproxy: {}", e))?;
+        );
+
+        // 跨平台条件编译：Unix 使用进程组，Windows 使用 JobObject
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let cmd = cmd.wrap(process_wrap::tokio::ProcessGroup::leader());
+        #[cfg(target_os = "windows")]
+        let cmd = cmd.wrap(process_wrap::tokio::JobObject::new());
+
+        // 双重保障：KillOnDrop 确保进程被正确终止
+        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
+            .wrap(process_wrap::tokio::KillOnDrop)
+            .spawn()
+            .map_err(|e| format!("Failed to start nuwax-lanproxy: {}", e))?;
 
         let mut guard = self.lanproxy.lock().await;
         *guard = Some(child);
@@ -281,17 +322,26 @@ impl ServiceManager {
     pub async fn lanproxy_start_with_config(&self, config: NuwaxLanproxyConfig) -> Result<(), String> {
         info!("Starting nuwax-lanproxy with config...");
 
-        let child: Box<dyn process_wrap::tokio::ChildWrapper> = process_wrap::tokio::CommandWrap::with_new(
+        let mut cmd = process_wrap::tokio::CommandWrap::with_new(
             "nuwax-lanproxy",
             |cmd| {
                 cmd.arg("-s").arg(&config.server_ip);
                 cmd.arg("-p").arg(config.server_port.to_string());
                 cmd.arg("-k").arg(&config.client_key);
             },
-        )
-        .wrap(process_wrap::tokio::ProcessGroup::leader())
-        .spawn()
-        .map_err(|e| format!("Failed to start nuwax-lanproxy: {}", e))?;
+        );
+
+        // 跨平台条件编译：Unix 使用进程组，Windows 使用 JobObject
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let cmd = cmd.wrap(process_wrap::tokio::ProcessGroup::leader());
+        #[cfg(target_os = "windows")]
+        let cmd = cmd.wrap(process_wrap::tokio::JobObject::new());
+
+        // 双重保障：KillOnDrop 确保进程被正确终止
+        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
+            .wrap(process_wrap::tokio::KillOnDrop)
+            .spawn()
+            .map_err(|e| format!("Failed to start nuwax-lanproxy: {}", e))?;
 
         let mut guard = self.lanproxy.lock().await;
         *guard = Some(child);
