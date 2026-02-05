@@ -191,7 +191,7 @@ export default function ClientPage({
   return (
     <div style={{ maxWidth: 900 }}>
       {/* 场景切换 */}
-      <Card size="small" style={{ marginBottom: 16 }}>
+      {/* <Card size="small" style={{ marginBottom: 16 }}>
         <Space style={{ width: '100%', display: 'flex', justifyContent: 'space-between' }}>
           <Space>
             <RobotOutlined style={{ fontSize: 16, color: '#1890ff' }} />
@@ -199,7 +199,7 @@ export default function ClientPage({
           </Space>
           <SceneSwitcher showLabel={false} size="small" />
         </Space>
-      </Card>
+      </Card> */}
 
       {/* 登录表单 */}
       <LoginForm onLoginSuccess={() => {}} />
@@ -268,7 +268,8 @@ export default function ClientPage({
               <List.Item
                 actions={[
                   getServiceStateTag(service.state),
-                  service.pid ? <Text type="secondary">PID: {service.pid}</Text> : null,
+                  null,
+                  // service.pid ? <Text type="secondary">PID: {service.pid}</Text> : null,
                 ].filter(Boolean)}
               >
                 <List.Item.Meta

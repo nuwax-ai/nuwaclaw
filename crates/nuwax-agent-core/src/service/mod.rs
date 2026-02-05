@@ -579,16 +579,17 @@ impl ServiceManager {
         let mut statuses = Vec::new();
 
         // nuwax-file-server 状态
+        // 注意：nuwax-file-server 是 daemon 模式，start 命令会 fork 出独立进程后退出
+        // 所以这里不返回 PID（实际 daemon 的 PID 需要通过 nuwax-file-server status 获取）
         {
             let guard = self.nuwax_file_server.lock().await;
-            if let Some(child) = &*guard {
-                let pid = child.id();
+            if guard.is_some() {
                 statuses.push(ServiceInfo {
                     service_type: ServiceType::NuwaxFileServer,
                     state: ServiceState::Running,
-                    pid,
+                    pid: None, // daemon 模式不返回启动命令的 PID
                 });
-                debug!("[Services] 文件服务运行中, PID: {:?}", pid);
+                debug!("[Services] 文件服务运行中");
             } else {
                 statuses.push(ServiceInfo {
                     service_type: ServiceType::NuwaxFileServer,

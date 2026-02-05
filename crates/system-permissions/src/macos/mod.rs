@@ -315,22 +315,56 @@ impl MacOSPermissionManager {
         RequestResult::denied(permission, None, None)
     }
 
-    async fn open_settings(&self, _permission: SystemPermission) -> Result<(), PermissionError> {
-        // 使用 osascript 打开系统设置，这在 macOS 13+ 上更可靠
-        eprintln!("[SystemPermissions] Opening System Settings with osascript");
-        let output = std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(r#"tell application "System Settings" to activate"#)
+    async fn open_settings(&self, permission: SystemPermission) -> Result<(), PermissionError> {
+        // 根据权限类型构建对应的系统设置 URL
+        let url = match permission {
+            SystemPermission::ScreenRecording => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+            }
+            SystemPermission::Accessibility => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+            }
+            SystemPermission::Microphone => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+            }
+            SystemPermission::Camera => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"
+            }
+            SystemPermission::SpeechRecognition => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition"
+            }
+            SystemPermission::Location => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
+            }
+            SystemPermission::Notifications => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Notifications"
+            }
+            _ => {
+                // 其他权限类型打开通用隐私设置页面
+                "x-apple.systempreferences:com.apple.preference.security?Privacy"
+            }
+        };
+
+        eprintln!("[SystemPermissions] Opening settings URL: {}", url);
+
+        // 使用 open 命令打开 URL
+        let output = std::process::Command::new("open")
+            .arg(url)
             .output()
             .map_err(|e| PermissionError::SettingsOpenFailed {
                 reason: e.to_string(),
             })?;
 
-        eprintln!(
-            "[SystemPermissions] osascript result: {:?}, stderr: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
+        if !output.status.success() {
+            eprintln!(
+                "[SystemPermissions] open command failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return Err(PermissionError::SettingsOpenFailed {
+                reason: String::from_utf8_lossy(&output.stderr).to_string(),
+            });
+        }
+
         Ok(())
     }
 }
