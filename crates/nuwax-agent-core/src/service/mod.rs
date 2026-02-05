@@ -426,6 +426,11 @@ impl ServiceManager {
 
     /// 获取所有服务状态
     pub async fn services_status_all(&self) -> Vec<ServiceInfo> {
+        self.get_all_status().await
+    }
+
+    /// 获取所有服务状态（别名方法）
+    pub async fn get_all_status(&self) -> Vec<ServiceInfo> {
         let mut statuses = Vec::new();
 
         // nuwax-file-server 状态
