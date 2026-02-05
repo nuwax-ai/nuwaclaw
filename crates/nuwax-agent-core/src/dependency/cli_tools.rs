@@ -212,9 +212,8 @@ pub fn create_rust_detector() -> CliToolDetector {
 
 /// Tar 检测器（macOS 常用）
 pub fn create_tar_detector() -> CliToolDetector {
-    CliToolDetector::new("tar", "tar", |output: &[u8]| {
-        // tar 通常没有 --version 或输出不固定
-        // 检查是否存在即可
+    CliToolDetector::new("tar", "tar", |_output: &[u8]| {
+        // tar 通常没有 --version 或输出不固定，仅检查是否存在即可
         Ok("available".to_string())
     })
     .description("归档工具")

@@ -230,25 +230,32 @@ impl ServiceManager {
     pub async fn file_server_start_with_port(&self, port: u16) -> Result<(), String> {
         info!("Starting nuwax-file-server on port {}...", port);
 
-        let mut cmd = Command::new("nuwax-file-server");
-        cmd
-            .arg("start")
-            .arg("--env")
-            .arg(&self.config.env)
-            .arg("--port")
-            .arg(port.to_string())
-            .arg(format!("INIT_PROJECT_NAME={}", &self.config.init_project_name))
-            .arg(format!("INIT_PROJECT_DIR={}", &self.config.init_project_dir))
-            .arg(format!("UPLOAD_PROJECT_DIR={}", &self.config.upload_project_dir))
-            .arg(format!("PROJECT_SOURCE_DIR={}", &self.config.project_source_dir))
-            .arg(format!("DIST_TARGET_DIR={}", &self.config.dist_target_dir))
-            .arg(format!("LOG_BASE_DIR={}", &self.config.log_base_dir))
-            .arg(format!("COMPUTER_WORKSPACE_DIR={}", &self.config.computer_workspace_dir))
-            .arg(format!("COMPUTER_LOG_DIR={}", &self.config.computer_log_dir))
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        let mut cmd = process_wrap::tokio::CommandWrap::with_new(
+            "nuwax-file-server",
+            |cmd| {
+                cmd.arg("start")
+                    .arg("--env")
+                    .arg(&self.config.env)
+                    .arg("--port")
+                    .arg(port.to_string())
+                    .arg(format!("INIT_PROJECT_NAME={}", &self.config.init_project_name))
+                    .arg(format!("INIT_PROJECT_DIR={}", &self.config.init_project_dir))
+                    .arg(format!("UPLOAD_PROJECT_DIR={}", &self.config.upload_project_dir))
+                    .arg(format!("PROJECT_SOURCE_DIR={}", &self.config.project_source_dir))
+                    .arg(format!("DIST_TARGET_DIR={}", &self.config.dist_target_dir))
+                    .arg(format!("LOG_BASE_DIR={}", &self.config.log_base_dir))
+                    .arg(format!("COMPUTER_WORKSPACE_DIR={}", &self.config.computer_workspace_dir))
+                    .arg(format!("COMPUTER_LOG_DIR={}", &self.config.computer_log_dir));
+            },
+        );
 
-        let child = cmd
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let cmd = cmd.wrap(process_wrap::tokio::ProcessGroup::leader());
+        #[cfg(target_os = "windows")]
+        let cmd = cmd.wrap(process_wrap::tokio::JobObject::new());
+
+        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
+            .wrap(process_wrap::tokio::KillOnDrop)
             .spawn()
             .map_err(|e| format!("Failed to start nuwax-file-server on port {}: {}", port, e))?;
 
