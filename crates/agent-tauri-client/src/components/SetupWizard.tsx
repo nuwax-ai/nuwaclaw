@@ -206,12 +206,12 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       {/* 头部 */}
       <div className="setup-wizard-header">
         <Space>
-          <RobotOutlined style={{ fontSize: 28, color: '#1890ff' }} />
-          <Title level={3} style={{ margin: 0 }}>
+          <RobotOutlined style={{ fontSize: 22, color: '#1890ff' }} />
+          <Title level={4} style={{ margin: 0 }}>
             NuWax Agent 初始化向导
           </Title>
         </Space>
-        <Text type="secondary">
+        <Text type="secondary" style={{ fontSize: 12 }}>
           首次使用需要完成以下配置
         </Text>
       </div>
@@ -220,6 +220,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       <div className="setup-wizard-steps">
         <Steps
           current={currentStep - 1}
+          size="small"
           items={WIZARD_STEPS.map(step => ({
             title: step.title,
             description: step.description,
@@ -249,7 +250,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
           flex-direction: column;
           height: 100vh;
           background: linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%);
-          padding: 24px;
+          padding: 16px;
         }
         
         .setup-wizard-loading {
@@ -262,34 +263,42 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         
         .setup-wizard-header {
           text-align: center;
-          margin-bottom: 24px;
+          margin-bottom: 12px;
         }
         
         .setup-wizard-header .ant-space {
-          margin-bottom: 8px;
+          margin-bottom: 4px;
         }
         
         .setup-wizard-steps {
-          max-width: 800px;
-          margin: 0 auto 24px;
-          padding: 0 24px;
+          max-width: 720px;
+          margin: 0 auto 12px;
+          padding: 0 8px;
+        }
+
+        .setup-wizard-steps .ant-steps-item-title {
+          font-size: 13px;
+        }
+
+        .setup-wizard-steps .ant-steps-item-description {
+          font-size: 12px;
         }
         
         .setup-wizard-content {
           flex: 1;
-          max-width: 800px;
+          max-width: 720px;
           width: 100%;
           margin: 0 auto;
           overflow-y: auto;
         }
         
         .setup-wizard-content .ant-card {
-          min-height: 400px;
+          min-height: 280px;
         }
         
         .setup-wizard-footer {
           text-align: center;
-          margin-top: 16px;
+          margin-top: 8px;
         }
       `}</style>
     </div>

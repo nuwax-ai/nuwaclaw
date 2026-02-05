@@ -169,7 +169,7 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
           type="info"
           icon={<Spin size="small" />}
           showIcon
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 12 }}
         />
       );
     }
@@ -193,7 +193,7 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
           type="error"
           icon={<DisconnectOutlined />}
           showIcon
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 12 }}
         />
       );
     }
@@ -204,7 +204,7 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
         type="success"
         icon={<WifiOutlined />}
         showIcon
-        style={{ marginBottom: 16 }}
+        style={{ marginBottom: 12 }}
       />
     );
   };
@@ -218,7 +218,7 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
       title="登录成功"
       subTitle="您已成功登录，可以继续下一步"
       extra={
-        <Button type="primary" size="large" onClick={handleContinue}>
+        <Button type="primary" size="middle" onClick={handleContinue}>
           下一步
         </Button>
       }
@@ -243,7 +243,7 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
         <Input
           prefix={<UserOutlined />}
           placeholder="用户名 / 手机号 / 邮箱"
-          size="large"
+          size="middle"
           autoComplete="username"
         />
       </Form.Item>
@@ -256,17 +256,17 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
         <Input.Password
           prefix={<LockOutlined />}
           placeholder="请输入密码"
-          size="large"
+          size="middle"
           autoComplete="current-password"
         />
       </Form.Item>
 
-      <Form.Item style={{ marginBottom: 0, marginTop: 24 }}>
+      <Form.Item style={{ marginBottom: 0, marginTop: 12 }}>
         <Button
           type="primary"
           htmlType="submit"
           loading={loading}
-          size="large"
+          size="middle"
           block
           disabled={networkStatus !== 'connected'}
         >
@@ -317,15 +317,15 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
       {/* 内联样式 */}
       <style>{`
         .setup-step2 {
-          padding: 16px 0;
+          padding: 8px 0;
         }
         
         .step-header {
-          margin-bottom: 8px;
+          margin-bottom: 6px;
         }
         
         .step-header .ant-typography {
-          margin-bottom: 4px;
+          margin-bottom: 2px;
         }
         
         .step-loading {
@@ -333,7 +333,15 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          padding: 60px 0;
+          padding: 36px 0;
+        }
+
+        .setup-step2 .ant-form-item {
+          margin-bottom: 12px;
+        }
+
+        .setup-step2 .ant-divider {
+          margin: 12px 0;
         }
       `}</style>
     </div>

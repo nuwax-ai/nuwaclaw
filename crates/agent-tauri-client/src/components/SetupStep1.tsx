@@ -173,13 +173,13 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
           <Input
             prefix={<CloudServerOutlined />}
             placeholder="https://nvwa-api.xspaceagi.com"
-            size="large"
+            size="middle"
           />
         </Form.Item>
 
         {/* 端口配置 */}
         <div className="port-group">
-          <Text strong style={{ display: 'block', marginBottom: 12 }}>
+          <Text strong style={{ display: 'block', marginBottom: 8 }}>
             <ApiOutlined style={{ marginRight: 8 }} />
             端口配置
           </Text>
@@ -260,7 +260,7 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
           <Input
             prefix={<FileOutlined />}
             placeholder="选择本地目录..."
-            size="large"
+            size="middle"
             readOnly
             addonAfter={
               <Button
@@ -287,7 +287,7 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
               type="primary"
               htmlType="submit"
               loading={loading}
-              size="large"
+              size="middle"
             >
               下一步
             </Button>
@@ -298,25 +298,32 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
       {/* 内联样式 */}
       <style>{`
         .setup-step1 {
-          padding: 16px 0;
+          padding: 8px 0;
         }
         
         .step-header {
-          margin-bottom: 8px;
+          margin-bottom: 6px;
         }
         
         .step-header .ant-typography {
-          margin-bottom: 4px;
+          margin-bottom: 2px;
         }
         
         .port-group {
           background: #f5f5f5;
-          padding: 16px;
+          padding: 10px 12px;
           border-radius: 8px;
-          margin-bottom: 16px;
+          margin-bottom: 12px;
+        }
+
+        .setup-step1 .ant-form-item {
+          margin-bottom: 12px;
+        }
+
+        .setup-step1 .ant-divider {
+          margin: 12px 0;
         }
       `}</style>
     </div>
   );
 }
-

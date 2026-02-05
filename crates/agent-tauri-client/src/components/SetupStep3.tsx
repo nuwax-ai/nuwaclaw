@@ -494,7 +494,7 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
           </Tag>
         </Space>
       }
-      style={{ marginBottom: 16 }}
+      style={{ marginBottom: 12 }}
     >
       <List
         size="small"
@@ -510,8 +510,8 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
                            item.status === 'error' ? '#fff2f0' :
                            item.status === 'installing' ? '#e6f7ff' : '#fffbe6',
                 borderRadius: 6,
-                marginBottom: 8,
-                padding: '12px 16px',
+                marginBottom: 6,
+                padding: '8px 12px',
               }}
               actions={[
                 getStatusTag(item),
@@ -629,7 +629,7 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
             description={installError}
             type="error"
             showIcon
-            style={{ marginBottom: 16 }}
+            style={{ marginBottom: 12 }}
           />
           
           <div className="step-actions">
@@ -650,11 +650,11 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
     return (
       <>
         {/* 统计信息 */}
-        <Alert
-          message={
-            <Space>
-              <span>依赖检测结果</span>
-              <Tag color={stats.systemAllReady ? 'success' : 'warning'}>
+          <Alert
+            message={
+              <Space>
+                <span>依赖检测结果</span>
+                <Tag color={stats.systemAllReady ? 'success' : 'warning'}>
                 系统依赖 {stats.systemReady}/{stats.systemTotal}
               </Tag>
               <Tag color={stats.npmReady === stats.npmTotal ? 'success' : 'processing'}>
@@ -671,7 +671,7 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
           }
           type={stats.systemAllReady ? (stats.allReady ? 'success' : 'info') : 'warning'}
           showIcon
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 12 }}
         />
 
         {/* 安装目录提示 */}
@@ -691,7 +691,7 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
             }
             type="info"
             showIcon
-            style={{ marginBottom: 16 }}
+            style={{ marginBottom: 12 }}
           />
         )}
 
@@ -717,7 +717,7 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
                 type="primary"
                 icon={<CloudDownloadOutlined />}
                 onClick={handleStartInstall}
-                size="large"
+                size="middle"
               >
                 开始安装 ({stats.npmTotal - stats.npmReady} 个)
               </Button>
@@ -747,15 +747,15 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
       {/* 内联样式 */}
       <style>{`
         .setup-step3 {
-          padding: 16px 0;
+          padding: 8px 0;
         }
         
         .step-header {
-          margin-bottom: 8px;
+          margin-bottom: 6px;
         }
         
         .step-header .ant-typography {
-          margin-bottom: 4px;
+          margin-bottom: 2px;
         }
         
         .step-loading {
@@ -763,19 +763,23 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          padding: 60px 0;
+          padding: 36px 0;
         }
         
         .install-progress {
-          padding: 24px;
+          padding: 12px;
           background: #f5f5f5;
           border-radius: 8px;
-          margin-top: 16px;
+          margin-top: 12px;
         }
         
         .step-actions {
           display: flex;
           justify-content: flex-end;
+        }
+
+        .setup-step3 .ant-divider {
+          margin: 12px 0;
         }
       `}</style>
     </div>
