@@ -4,7 +4,7 @@
  * 功能：
  * - 显示关键系统权限状态
  * - 提供权限授权入口
- * - 自动检测权限状态变化
+ * - 通过事件监听实时检测权限变化
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -17,19 +17,18 @@ import {
   SettingOutlined,
 } from "@ant-design/icons";
 import { Typography } from "antd";
-import { listen } from "@tauri-apps/api/event";
 import {
   PermissionItem,
   getPermissions,
   refreshPermissions,
   openSystemPreferences,
   openFullDiskAccessPanel,
+  startMonitoring,
+  stopMonitoring,
+  subscribePermissionChange,
 } from "../services";
 
 const { Title, Text } = Typography;
-
-// 权限轮询间隔（毫秒）
-const POLLING_INTERVAL = 2000;
 
 /**
  * 权限管理页面组件
@@ -39,12 +38,12 @@ export default function PermissionsPage() {
   const [permissions, setPermissions] = useState<PermissionItem[]>([]);
   // 加载状态
   const [permissionsLoading, setPermissionsLoading] = useState(false);
-  // 是否正在等待授权（启动轮询）
+  // 是否正在等待授权
   const [waitingForAuth, setWaitingForAuth] = useState(false);
-  // 轮询定时器引用
-  const pollingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // 上一次的权限状态（用于检测变化）
   const lastPermissionsRef = useRef<Map<string, string>>(new Map());
+  // 取消订阅函数
+  const unsubscribeRef = useRef<(() => void) | null>(null);
 
   // 关键权限列表（只显示需要系统授权的权限）
   const KEY_PERMISSIONS = ["accessibility", "screen_recording", "file_access"];
@@ -72,58 +71,10 @@ export default function PermissionsPage() {
   }, []);
 
   /**
-   * 检测权限状态变化
+   * 启动权限状态监听
    */
-  const checkPermissionChanges = useCallback(async () => {
-    try {
-      const data = await getPermissions();
-      const currentPermissions = data.items;
-
-      // 检查是否有权限状态变化
-      const changedPermissions: PermissionItem[] = [];
-
-      for (const perm of currentPermissions) {
-        const lastStatus = lastPermissionsRef.current.get(perm.id);
-        if (lastStatus && lastStatus !== perm.status) {
-          console.log(
-            `[PermissionsPage] 权限状态变化: ${perm.id} ${lastStatus} -> ${perm.status}`,
-          );
-          changedPermissions.push(perm);
-        }
-        lastPermissionsRef.current.set(perm.id, perm.status);
-      }
-
-      // 更新权限列表
-      setPermissions(currentPermissions);
-
-      // 检查所有关键权限是否都已授权
-      const keyPermissions = currentPermissions.filter((p) =>
-        KEY_PERMISSIONS.includes(p.id),
-      );
-      const allGranted = keyPermissions.every((p) => p.status === "granted");
-
-      // 只有从"等待授权"状态变为全部授权时才提示
-      if (allGranted && waitingForAuth) {
-        message.success("所有关键权限已授权");
-        stopPermissionPolling();
-      }
-
-      return changedPermissions;
-    } catch (error) {
-      console.error("[PermissionsPage] 检测权限变化失败:", error);
-      return [];
-    }
-  }, [waitingForAuth]);
-
-  /**
-   * 启动权限状态轮询
-   */
-  const startPermissionPolling = useCallback(() => {
-    if (pollingTimerRef.current) {
-      return; // 已经在轮询中
-    }
-
-    console.log("[PermissionsPage] 启动权限状态轮询");
+  const startPermissionListening = useCallback(() => {
+    console.log("[PermissionsPage] 启动权限状态监听");
     setWaitingForAuth(true);
 
     // 记录当前权限状态作为基准
@@ -131,25 +82,43 @@ export default function PermissionsPage() {
       lastPermissionsRef.current.set(p.id, p.status);
     });
 
-    // 启动定时轮询
-    pollingTimerRef.current = setInterval(() => {
-      checkPermissionChanges();
-    }, POLLING_INTERVAL);
-  }, [permissions, checkPermissionChanges]);
+    // 订阅权限变化事件
+    unsubscribeRef.current = subscribePermissionChange((category, status) => {
+      console.log(`[PermissionsPage] 权限变化: ${category} -> ${status}`);
+      
+      // 更新本地状态
+      setPermissions((prev) =>
+        prev.map((p) =>
+          p.id === category ? { ...p, status } : p
+        )
+      );
+
+      // 检查所有关键权限是否都已授权
+      const keyPermissions = permissions.filter((p) =>
+        KEY_PERMISSIONS.includes(p.id),
+      );
+      const allGranted = keyPermissions.every((p) => p.status === "granted");
+
+      if (allGranted && waitingForAuth) {
+        message.success("所有关键权限已授权");
+        setWaitingForAuth(false);
+      }
+    });
+  }, [permissions, waitingForAuth]);
 
   /**
-   * 停止权限状态轮询
+   * 停止权限状态监听
    */
-  const stopPermissionPolling = useCallback(() => {
-    if (pollingTimerRef.current) {
-      console.log("[PermissionsPage] 停止权限状态轮询");
-      clearInterval(pollingTimerRef.current);
-      pollingTimerRef.current = null;
+  const stopPermissionListening = useCallback(() => {
+    if (unsubscribeRef.current) {
+      console.log("[PermissionsPage] 停止权限状态监听");
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
     }
     setWaitingForAuth(false);
   }, []);
 
-  // 组件挂载时加载数据
+  // 组件挂载时加载数据并启动监听
   useEffect(() => {
     loadPermissions().then((items) => {
       // 初始化权限状态记录
@@ -158,31 +127,18 @@ export default function PermissionsPage() {
       });
     });
 
-    // 组件卸载时停止轮询
+    // 启动权限监控
+    startMonitoring().then(() => {
+      // 启动事件监听
+      startPermissionListening();
+    });
+
+    // 组件卸载时停止监听
     return () => {
-      stopPermissionPolling();
+      stopPermissionListening();
+      stopMonitoring();
     };
-  }, [loadPermissions, stopPermissionPolling]);
-
-  // 监听应用焦点事件：获得焦点时检查权限变化
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-
-    const setupFocusListener = async () => {
-      unlisten = await listen("tauri://focus", () => {
-        console.log("[PermissionsPage] 应用获得焦点，检查权限状态");
-        checkPermissionChanges();
-      });
-    };
-
-    setupFocusListener();
-
-    return () => {
-      if (unlisten) {
-        unlisten();
-      }
-    };
-  }, [checkPermissionChanges]);
+  }, [loadPermissions, startPermissionListening, stopPermissionListening]);
 
   /**
    * 刷新权限状态
@@ -202,8 +158,8 @@ export default function PermissionsPage() {
    */
   const handleOpenFullDiskAccessPanel = async () => {
     await openFullDiskAccessPanel();
-    // 打开面板后启动轮询检测权限状态变化
-    startPermissionPolling();
+    // 打开面板后启动事件监听检测权限状态变化
+    startPermissionListening();
   };
 
   /**
@@ -216,8 +172,8 @@ export default function PermissionsPage() {
     } else {
       // 其他权限使用通用方法
       await openSystemPreferences(permissionId);
-      // 启动轮询检测权限状态变化
-      startPermissionPolling();
+      // 启动事件监听检测权限状态变化
+      startPermissionListening();
     }
   };
 

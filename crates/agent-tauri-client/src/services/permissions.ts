@@ -11,6 +11,13 @@ import type {
   PermissionsSummary,
   PermissionsState,
 } from "./permissions/config";
+export type {
+  PermissionStatus,
+  PermissionCategory,
+  PermissionItem,
+  PermissionsSummary,
+  PermissionsState,
+};
 import {
   getFullDiskAccessUrl,
   getCurrentPlatform,
