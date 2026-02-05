@@ -3,9 +3,10 @@
  * 
  * 功能:
  * - 检测 Node.js 版本 (>= 22.0.0)
+ * - 检测 uv 版本 (>= 0.5.0)
  * - 安装本地 npm 包
- * - 显示安装进度
- * - 支持重试和手动检测
+ * - 显示完整依赖列表和安装进度
+ * - 所有依赖就绪后自动跳转到客户端页面
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -21,7 +22,7 @@ import {
   Spin,
   Result,
   message,
-  Tooltip,
+  Card,
 } from 'antd';
 import {
   CloudDownloadOutlined,
@@ -32,8 +33,9 @@ import {
   ReloadOutlined,
   LinkOutlined,
   NodeIndexOutlined,
-  CodeOutlined,
   FolderOutlined,
+  ThunderboltOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import {
@@ -49,32 +51,47 @@ import {
   type UvVersionResult,
 } from '../services/dependencies';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 interface SetupStep3Props {
   /** 完成回调 */
   onComplete: () => void;
 }
 
-// 安装状态
-type InstallPhase = 'checking' | 'node-missing' | 'uv-missing' | 'system-deps-missing' | 'ready' | 'installing' | 'completed' | 'error';
+// 安装阶段
+type InstallPhase = 'checking' | 'system-deps-missing' | 'ready' | 'installing' | 'completed' | 'error';
+
+// 统一的依赖项接口（用于完整列表展示）
+interface UnifiedDependencyItem {
+  name: string;
+  displayName: string;
+  type: 'system' | 'npm-local';
+  description: string;
+  status: 'checking' | 'installed' | 'missing' | 'outdated' | 'installing' | 'error';
+  version?: string;
+  requiredVersion?: string;
+  errorMessage?: string;
+  installUrl?: string;
+  installCommand?: string;
+}
 
 /**
  * 步骤3: 依赖安装组件
  */
 export default function SetupStep3({ onComplete }: SetupStep3Props) {
-  // Node.js 状态
+  // 统一的依赖列表（系统依赖 + npm 包）
+  const [allDependencies, setAllDependencies] = useState<UnifiedDependencyItem[]>([]);
+  
+  // Node.js 状态（用于逻辑判断）
   const [nodeResult, setNodeResult] = useState<NodeVersionResult | null>(null);
-  const [checkingNode, setCheckingNode] = useState(true);
   
-  // uv 状态
+  // uv 状态（用于逻辑判断）
   const [uvResult, setUvResult] = useState<UvVersionResult | null>(null);
-  const [checkingUv, setCheckingUv] = useState(true);
   
-  // 依赖状态
-  const [dependencies, setDependencies] = useState<LocalDependencyItem[]>([]);
+  // npm 依赖状态
+  const [npmDependencies, setNpmDependencies] = useState<LocalDependencyItem[]>([]);
   
-  // 安装状态
+  // 安装阶段
   const [installPhase, setInstallPhase] = useState<InstallPhase>('checking');
   const [installProgress, setInstallProgress] = useState(0);
   const [currentInstalling, setCurrentInstalling] = useState<string>('');
@@ -84,14 +101,104 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
   const [appDir, setAppDir] = useState<string>('');
 
   /**
-   * 检测系统依赖（Node.js 和 uv）
+   * 构建统一的依赖列表
+   * 将系统依赖和 npm 依赖合并到一个列表中展示
    */
-  const checkSystemDeps = useCallback(async () => {
-    setCheckingNode(true);
-    setCheckingUv(true);
+  const buildUnifiedDependencies = useCallback((
+    nodeRes: NodeVersionResult | null,
+    uvRes: UvVersionResult | null,
+    npmDeps: LocalDependencyItem[]
+  ): UnifiedDependencyItem[] => {
+    const unified: UnifiedDependencyItem[] = [];
+    
+    // 1. Node.js 系统依赖
+    const nodeStatus = !nodeRes 
+      ? 'checking' 
+      : nodeRes.installed 
+        ? (nodeRes.meetsRequirement ? 'installed' : 'outdated')
+        : 'missing';
+    
+    unified.push({
+      name: 'nodejs',
+      displayName: 'Node.js',
+      type: 'system',
+      description: 'JavaScript 运行时环境',
+      status: nodeStatus,
+      version: nodeRes?.version,
+      requiredVersion: '>= 22.0.0',
+      installUrl: 'https://nodejs.org',
+      errorMessage: nodeStatus === 'outdated' 
+        ? `版本 ${nodeRes?.version} 低于要求的 22.0.0` 
+        : undefined,
+    });
+    
+    // 2. uv 系统依赖
+    const uvStatus = !uvRes
+      ? 'checking'
+      : uvRes.installed
+        ? (uvRes.meetsRequirement ? 'installed' : 'outdated')
+        : 'missing';
+    
+    unified.push({
+      name: 'uv',
+      displayName: 'uv',
+      type: 'system',
+      description: '高性能 Python 包管理器',
+      status: uvStatus,
+      version: uvRes?.version,
+      requiredVersion: '>= 0.5.0',
+      installUrl: 'https://docs.astral.sh/uv/getting-started/installation/',
+      installCommand: 'curl -LsSf https://astral.sh/uv/install.sh | sh',
+      errorMessage: uvStatus === 'outdated'
+        ? `版本 ${uvRes?.version} 低于要求的 0.5.0`
+        : undefined,
+    });
+    
+    // 3. npm 本地依赖
+    npmDeps.forEach(dep => {
+      unified.push({
+        name: dep.name,
+        displayName: dep.displayName,
+        type: 'npm-local',
+        description: dep.description,
+        status: dep.status as UnifiedDependencyItem['status'],
+        version: dep.version,
+        requiredVersion: dep.minVersion ? `>= ${dep.minVersion}` : undefined,
+        errorMessage: dep.errorMessage,
+      });
+    });
+    
+    return unified;
+  }, []);
+
+  /**
+   * 检测所有依赖（系统依赖 + npm 包）
+   */
+  const checkAllDeps = useCallback(async () => {
+    setInstallPhase('checking');
+    
+    // 初始化统一列表（检测中状态）
+    setAllDependencies([
+      {
+        name: 'nodejs',
+        displayName: 'Node.js',
+        type: 'system',
+        description: 'JavaScript 运行时环境',
+        status: 'checking',
+        requiredVersion: '>= 22.0.0',
+      },
+      {
+        name: 'uv',
+        displayName: 'uv',
+        type: 'system',
+        description: '高性能 Python 包管理器',
+        status: 'checking',
+        requiredVersion: '>= 0.5.0',
+      },
+    ]);
     
     try {
-      // 并行检测 Node.js 和 uv
+      // 并行检测系统依赖
       const [nodeRes, uvRes] = await Promise.all([
         checkNodeVersion(),
         checkUvVersion(),
@@ -103,43 +210,30 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
       const nodeReady = nodeRes.installed && nodeRes.meetsRequirement;
       const uvReady = uvRes.installed && uvRes.meetsRequirement;
       
-      if (!nodeReady && !uvReady) {
-        // 两个都缺失
-        setInstallPhase('system-deps-missing');
-      } else if (!nodeReady) {
-        // 只缺 Node.js
-        setInstallPhase('node-missing');
-      } else if (!uvReady) {
-        // 只缺 uv
-        setInstallPhase('uv-missing');
-      } else {
-        // 系统依赖都满足，检测其他依赖
-        await checkDependencies();
-      }
-    } catch (error) {
-      console.error('[SetupStep3] 检测系统依赖失败:', error);
-      setInstallPhase('system-deps-missing');
-    } finally {
-      setCheckingNode(false);
-      setCheckingUv(false);
-    }
-  }, []);
-
-  /**
-   * 检测所有依赖状态
-   * 只显示 npm-local 类型的包（Node.js 状态单独显示）
-   */
-  const checkDependencies = useCallback(async () => {
-    try {
+      // 获取 npm 依赖列表
       const deps = await checkAllSetupDependencies();
-      // 过滤只显示 npm 包（不显示 nodejs，因为已在上方单独展示）
       const npmDeps = deps.filter(d => d.type === 'npm-local');
-      setDependencies(npmDeps);
+      setNpmDependencies(npmDeps);
       
-      // 检查是否所有 npm 依赖都已安装
-      const allInstalled = npmDeps.every(d => d.status === 'installed');
-      if (allInstalled) {
+      // 构建统一列表
+      const unified = buildUnifiedDependencies(nodeRes, uvRes, npmDeps);
+      setAllDependencies(unified);
+      
+      // 判断系统依赖是否满足
+      if (!nodeReady || !uvReady) {
+        setInstallPhase('system-deps-missing');
+        return;
+      }
+      
+      // 检查所有依赖是否已就绪
+      const allReady = unified.every(d => d.status === 'installed');
+      if (allReady) {
+        // 所有依赖都已安装，直接完成
         setInstallPhase('completed');
+        message.success('所有依赖已就绪，正在启动服务...');
+        setTimeout(() => {
+          onComplete();
+        }, 1500);
       } else {
         setInstallPhase('ready');
       }
@@ -148,7 +242,7 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
       setInstallPhase('error');
       setInstallError('检测依赖状态失败');
     }
-  }, []);
+  }, [buildUnifiedDependencies, onComplete]);
 
   /**
    * 获取应用目录
@@ -167,8 +261,8 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
    */
   useEffect(() => {
     loadAppDir();
-    checkSystemDeps();
-  }, [checkSystemDeps, loadAppDir]);
+    checkAllDeps();
+  }, [checkAllDeps, loadAppDir]);
 
   /**
    * 打开 Node.js 官网
@@ -195,15 +289,15 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
   };
 
   /**
-   * 重新检测系统依赖
+   * 重新检测所有依赖
    */
-  const handleRetrySystemCheck = async () => {
-    await checkSystemDeps();
+  const handleRetryCheck = async () => {
+    await checkAllDeps();
   };
 
   /**
    * 开始安装依赖
-   * 逐个安装 npm 包，实时更新每个包的状态
+   * 逐个安装 npm 包，实时更新统一依赖列表的状态
    */
   const handleStartInstall = async () => {
     setInstallPhase('installing');
@@ -211,9 +305,20 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
     setInstallError('');
     
     try {
-      // 获取需要安装的 npm 包列表
-      const npmPackages = dependencies.filter(d => d.type === 'npm-local');
+      // 获取需要安装的 npm 包列表（状态不是 installed 的）
+      const npmPackages = npmDependencies.filter(d => d.status !== 'installed');
       const total = npmPackages.length;
+      
+      if (total === 0) {
+        // 没有需要安装的包
+        setInstallProgress(100);
+        setInstallPhase('completed');
+        message.success('所有依赖已就绪，正在启动服务...');
+        setTimeout(() => {
+          onComplete();
+        }, 1500);
+        return;
+      }
       
       // 初始化 npm 环境
       await initLocalNpmEnv();
@@ -224,8 +329,8 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
         setCurrentInstalling(pkg.displayName);
         setInstallProgress(Math.round((i / total) * 100));
         
-        // 更新当前包状态为 installing
-        setDependencies(prev => prev.map(d => 
+        // 更新统一列表中当前包状态为 installing
+        setAllDependencies(prev => prev.map(d => 
           d.name === pkg.name ? { ...d, status: 'installing' as const } : d
         ));
         
@@ -233,9 +338,9 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
         const checkResult = await checkLocalNpmPackage(pkg.name);
         if (checkResult.installed) {
           // 已安装，更新状态
-          setDependencies(prev => prev.map(d => 
+          setAllDependencies(prev => prev.map(d => 
             d.name === pkg.name 
-              ? { ...d, status: 'installed' as const, version: checkResult.version, binPath: checkResult.binPath }
+              ? { ...d, status: 'installed' as const, version: checkResult.version }
               : d
           ));
           continue;
@@ -245,14 +350,14 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
         const installResult = await installLocalNpmPackage(pkg.name);
         if (installResult.success) {
           // 安装成功，更新状态
-          setDependencies(prev => prev.map(d => 
+          setAllDependencies(prev => prev.map(d => 
             d.name === pkg.name 
-              ? { ...d, status: 'installed' as const, version: installResult.version, binPath: installResult.binPath }
+              ? { ...d, status: 'installed' as const, version: installResult.version }
               : d
           ));
         } else {
           // 安装失败
-          setDependencies(prev => prev.map(d => 
+          setAllDependencies(prev => prev.map(d => 
             d.name === pkg.name 
               ? { ...d, status: 'error' as const, errorMessage: installResult.error }
               : d
@@ -268,10 +373,10 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
       setInstallPhase('completed');
       message.success('所有依赖安装完成，正在启动服务...');
       
-      // 自动触发完成回调（调用 restart_all_services）
+      // 自动触发完成回调（调用 restart_all_services，然后跳转到客户端页面）
       setTimeout(() => {
         onComplete();
-      }, 1000);
+      }, 1500);
       
     } catch (error) {
       console.error('[SetupStep3] 安装失败:', error);
@@ -290,250 +395,180 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
   /**
    * 获取状态图标
    */
-  const getStatusIcon = (status: string) => {
-    switch (status) {
+  const getStatusIcon = (item: UnifiedDependencyItem) => {
+    // 类型图标
+    if (item.type === 'system') {
+      if (item.name === 'nodejs') {
+        return <NodeIndexOutlined style={{ color: item.status === 'installed' ? '#52c41a' : '#faad14' }} />;
+      }
+      if (item.name === 'uv') {
+        return <ThunderboltOutlined style={{ color: item.status === 'installed' ? '#52c41a' : '#faad14' }} />;
+      }
+    }
+    
+    // 状态图标
+    switch (item.status) {
       case 'installed':
         return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
       case 'missing':
         return <ExclamationCircleOutlined style={{ color: '#faad14' }} />;
+      case 'outdated':
+        return <ExclamationCircleOutlined style={{ color: '#fa8c16' }} />;
       case 'installing':
         return <LoadingOutlined style={{ color: '#1890ff' }} />;
       case 'error':
         return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
+      case 'checking':
       default:
-        return <LoadingOutlined />;
+        return <LoadingOutlined style={{ color: '#1890ff' }} />;
     }
   };
 
   /**
    * 获取状态标签
    */
-  const getStatusTag = (item: LocalDependencyItem) => {
+  const getStatusTag = (item: UnifiedDependencyItem) => {
     const config: Record<string, { color: string; text: string }> = {
-      installed: { color: 'success', text: '已安装' },
-      missing: { color: 'warning', text: '待安装' },
+      installed: { color: 'success', text: '已就绪' },
+      missing: { color: 'warning', text: '未安装' },
+      outdated: { color: 'orange', text: '版本过低' },
       installing: { color: 'processing', text: '安装中' },
       checking: { color: 'default', text: '检测中' },
       error: { color: 'error', text: '错误' },
-      outdated: { color: 'orange', text: '版本过低' },
     };
     const c = config[item.status] || config.checking;
     return <Tag color={c.color}>{c.text}</Tag>;
   };
 
   /**
-   * 渲染 Node.js 缺失提示
+   * 获取类型标签
    */
-  const renderNodeMissing = () => (
-    <Result
-      icon={<NodeIndexOutlined style={{ color: '#faad14' }} />}
-      title={nodeResult?.installed ? 'Node.js 版本过低' : 'Node.js 未安装'}
-      subTitle={
-        nodeResult?.installed
-          ? `当前版本 ${nodeResult.version}，需要 >= 22.0.0`
-          : '请先安装 Node.js 22 或更高版本'
-      }
-      extra={
-        <Space direction="vertical" align="center">
-          <Space>
-            <Button
-              type="primary"
-              icon={<LinkOutlined />}
-              onClick={handleOpenNodejs}
-            >
-              打开 nodejs.org
-            </Button>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={handleRetrySystemCheck}
-            >
-              重新检测
-            </Button>
-          </Space>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            安装完成后点击"重新检测"继续
-          </Text>
-        </Space>
-      }
-    />
-  );
-
-  /**
-   * 渲染 uv 缺失提示
-   */
-  const renderUvMissing = () => (
-    <Result
-      icon={<CodeOutlined style={{ color: '#faad14' }} />}
-      title={uvResult?.installed ? 'uv 版本过低' : 'uv 未安装'}
-      subTitle={
-        uvResult?.installed
-          ? `当前版本 ${uvResult.version}，需要 >= 0.5.0`
-          : '请先安装 uv (高性能 Python 包管理器)'
-      }
-      extra={
-        <Space direction="vertical" align="center">
-          <Space>
-            <Button
-              type="primary"
-              icon={<LinkOutlined />}
-              onClick={handleOpenUv}
-            >
-              查看安装说明
-            </Button>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={handleRetrySystemCheck}
-            >
-              重新检测
-            </Button>
-          </Space>
-          <Paragraph style={{ fontSize: 12, color: '#666', marginTop: 8 }}>
-            <Text strong>快速安装命令:</Text>
-            <br />
-            <Text code>curl -LsSf https://astral.sh/uv/install.sh | sh</Text>
-          </Paragraph>
-        </Space>
-      }
-    />
-  );
-
-  /**
-   * 渲染多个系统依赖缺失提示
-   */
-  const renderSystemDepsMissing = () => {
-    const nodeMissing = !nodeResult?.installed || !nodeResult?.meetsRequirement;
-    const uvMissing = !uvResult?.installed || !uvResult?.meetsRequirement;
-    
-    return (
-      <Result
-        icon={<ExclamationCircleOutlined style={{ color: '#faad14' }} />}
-        title="系统依赖未就绪"
-        subTitle="请安装以下系统依赖后继续"
-        extra={
-          <Space direction="vertical" align="center" style={{ width: '100%' }}>
-            {/* Node.js 状态 */}
-            <div style={{ 
-              padding: '12px 16px', 
-              background: nodeMissing ? '#fffbe6' : '#f6ffed', 
-              borderRadius: 8,
-              width: '100%',
-              maxWidth: 400,
-              textAlign: 'left'
-            }}>
-              <Space>
-                {nodeMissing 
-                  ? <ExclamationCircleOutlined style={{ color: '#faad14' }} />
-                  : <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                }
-                <Text strong>Node.js</Text>
-                {nodeResult?.version && <Tag>{nodeResult.version}</Tag>}
-                {nodeMissing 
-                  ? <Tag color="warning">{nodeResult?.installed ? '版本过低' : '未安装'}</Tag>
-                  : <Tag color="success">已就绪</Tag>
-                }
-              </Space>
-              {nodeMissing && (
-                <div style={{ marginTop: 8 }}>
-                  <Button size="small" type="link" onClick={handleOpenNodejs}>
-                    <LinkOutlined /> 打开 nodejs.org
-                  </Button>
-                </div>
-              )}
-            </div>
-            
-            {/* uv 状态 */}
-            <div style={{ 
-              padding: '12px 16px', 
-              background: uvMissing ? '#fffbe6' : '#f6ffed', 
-              borderRadius: 8,
-              width: '100%',
-              maxWidth: 400,
-              textAlign: 'left'
-            }}>
-              <Space>
-                {uvMissing 
-                  ? <ExclamationCircleOutlined style={{ color: '#faad14' }} />
-                  : <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                }
-                <Text strong>uv</Text>
-                {uvResult?.version && <Tag>{uvResult.version}</Tag>}
-                {uvMissing 
-                  ? <Tag color="warning">{uvResult?.installed ? '版本过低' : '未安装'}</Tag>
-                  : <Tag color="success">已就绪</Tag>
-                }
-              </Space>
-              {uvMissing && (
-                <div style={{ marginTop: 8 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    <Text code copyable>curl -LsSf https://astral.sh/uv/install.sh | sh</Text>
-                  </Text>
-                  <Button size="small" type="link" onClick={handleOpenUv}>
-                    <LinkOutlined /> 查看文档
-                  </Button>
-                </div>
-              )}
-            </div>
-            
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={handleRetrySystemCheck}
-              style={{ marginTop: 8 }}
-            >
-              重新检测
-            </Button>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              安装完成后点击"重新检测"继续
-            </Text>
-          </Space>
-        }
-      />
-    );
+  const getTypeTag = (item: UnifiedDependencyItem) => {
+    if (item.type === 'system') {
+      return <Tag color="blue">系统依赖</Tag>;
+    }
+    return <Tag color="purple">npm 包</Tag>;
   };
 
   /**
-   * 渲染依赖列表
+   * 计算依赖统计信息
+   */
+  const getDependencyStats = () => {
+    const total = allDependencies.length;
+    const ready = allDependencies.filter(d => d.status === 'installed').length;
+    const systemDeps = allDependencies.filter(d => d.type === 'system');
+    const systemReady = systemDeps.filter(d => d.status === 'installed').length;
+    const npmDeps = allDependencies.filter(d => d.type === 'npm-local');
+    const npmReady = npmDeps.filter(d => d.status === 'installed').length;
+    
+    // 只有当有依赖项且都已安装时才算全部就绪
+    const allReady = total > 0 && total === ready;
+    const systemAllReady = systemDeps.length > 0 && systemDeps.length === systemReady;
+    
+    return {
+      total,
+      ready,
+      systemTotal: systemDeps.length,
+      systemReady,
+      npmTotal: npmDeps.length,
+      npmReady,
+      allReady,
+      systemAllReady,
+    };
+  };
+
+  const stats = getDependencyStats();
+
+  /**
+   * 渲染完整依赖列表（系统依赖 + npm 包）
    */
   const renderDependencyList = () => (
-    <List
-      dataSource={dependencies}
-      renderItem={(item) => (
-        <List.Item>
-          <List.Item.Meta
-            avatar={getStatusIcon(item.status)}
-            title={
-              <Space>
-                <span>{item.displayName}</span>
-                {item.type === 'system' && <Tag color="blue">系统</Tag>}
-                {item.type === 'npm-local' && <Tag color="purple">npm</Tag>}
-              </Space>
-            }
-            description={
-              <Space direction="vertical" size={2}>
-                <Text type="secondary">{item.description}</Text>
-                {item.version && (
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    版本: {item.version}
-                  </Text>
-                )}
-                {item.binPath && (
-                  <Tooltip title={item.binPath}>
+    <Card 
+      size="small"
+      title={
+        <Space>
+          <AppstoreOutlined />
+          <span>依赖清单</span>
+          <Tag color={stats.allReady ? 'success' : 'processing'}>
+            {stats.ready}/{stats.total}
+          </Tag>
+        </Space>
+      }
+      style={{ marginBottom: 16 }}
+    >
+      <List
+        size="small"
+        dataSource={allDependencies}
+        renderItem={(item) => {
+          const isSystemDep = item.type === 'system';
+          const needsAction = item.status === 'missing' || item.status === 'outdated';
+          
+          return (
+            <List.Item
+              style={{
+                background: item.status === 'installed' ? '#f6ffed' : 
+                           item.status === 'error' ? '#fff2f0' :
+                           item.status === 'installing' ? '#e6f7ff' : '#fffbe6',
+                borderRadius: 6,
+                marginBottom: 8,
+                padding: '12px 16px',
+              }}
+              actions={[
+                getStatusTag(item),
+                // 系统依赖显示安装链接
+                isSystemDep && needsAction && item.installUrl && (
+                  <Button 
+                    size="small" 
+                    type="link"
+                    icon={<LinkOutlined />}
+                    onClick={() => openUrl(item.installUrl!)}
+                  >
+                    安装说明
+                  </Button>
+                ),
+              ].filter(Boolean)}
+            >
+              <List.Item.Meta
+                avatar={getStatusIcon(item)}
+                title={
+                  <Space>
+                    <Text strong>{item.displayName}</Text>
+                    {getTypeTag(item)}
+                    {item.version && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        v{item.version}
+                      </Text>
+                    )}
+                  </Space>
+                }
+                description={
+                  <Space direction="vertical" size={2}>
                     <Text type="secondary" style={{ fontSize: 12 }}>
-                      路径: {item.binPath.length > 40 ? '...' + item.binPath.slice(-40) : item.binPath}
+                      {item.description}
+                      {item.requiredVersion && (
+                        <span> (要求 {item.requiredVersion})</span>
+                      )}
                     </Text>
-                  </Tooltip>
-                )}
-                {item.errorMessage && (
-                  <Text type="danger" style={{ fontSize: 12 }}>
-                    {item.errorMessage}
-                  </Text>
-                )}
-              </Space>
-            }
-          />
-          {getStatusTag(item)}
-        </List.Item>
-      )}
-    />
+                    {/* 系统依赖的安装命令 */}
+                    {isSystemDep && needsAction && item.installCommand && (
+                      <Text code copyable style={{ fontSize: 11 }}>
+                        {item.installCommand}
+                      </Text>
+                    )}
+                    {/* 错误信息 */}
+                    {item.errorMessage && (
+                      <Text type="danger" style={{ fontSize: 12 }}>
+                        {item.errorMessage}
+                      </Text>
+                    )}
+                  </Space>
+                }
+              />
+            </List.Item>
+          );
+        }}
+      />
+    </Card>
   );
 
   /**
@@ -556,96 +591,91 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
    */
   const renderContent = () => {
     // 检测中
-    if (checkingNode || checkingUv) {
+    if (installPhase === 'checking') {
       return (
         <div className="step-loading">
           <Spin size="large" />
-          <Text style={{ marginTop: 16 }}>正在检测系统依赖环境...</Text>
+          <Text style={{ marginTop: 16 }}>正在检测依赖环境...</Text>
         </div>
       );
-    }
-
-    // 多个系统依赖缺失
-    if (installPhase === 'system-deps-missing') {
-      return renderSystemDepsMissing();
-    }
-
-    // Node.js 缺失
-    if (installPhase === 'node-missing') {
-      return renderNodeMissing();
-    }
-
-    // uv 缺失
-    if (installPhase === 'uv-missing') {
-      return renderUvMissing();
     }
 
     // 安装完成
     if (installPhase === 'completed') {
       return (
-        <Result
-          icon={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
-          title="依赖安装完成"
-          subTitle="所有必需组件已就绪，正在启动服务..."
-          extra={<Spin size="large" />}
-        />
+        <>
+          {/* 显示完整依赖列表（全部已就绪） */}
+          {renderDependencyList()}
+          
+          <Result
+            icon={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
+            title="所有依赖已就绪"
+            subTitle="正在启动服务，即将进入客户端页面..."
+            extra={<Spin size="large" />}
+          />
+        </>
       );
     }
 
     // 安装错误
     if (installPhase === 'error') {
       return (
-        <Result
-          status="error"
-          title="安装失败"
-          subTitle={installError}
-          extra={
+        <>
+          {/* 显示依赖列表（含错误状态） */}
+          {renderDependencyList()}
+          
+          <Alert
+            message="安装失败"
+            description={installError}
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+          
+          <div className="step-actions">
             <Space>
               <Button type="primary" onClick={handleRetryInstall}>
                 重试安装
               </Button>
-              <Button onClick={checkDependencies}>
+              <Button onClick={handleRetryCheck}>
                 重新检测
               </Button>
             </Space>
-          }
-        />
+          </div>
+        </>
       );
     }
 
-    // 正常状态
+    // 系统依赖未就绪 或 准备安装
     return (
       <>
-        {/* 系统依赖检测成功提示 */}
+        {/* 统计信息 */}
         <Alert
-          message="系统依赖检测通过"
-          description={
-            <Space direction="vertical" size={4}>
-              {/* Node.js 状态 */}
-              {nodeResult?.installed && nodeResult?.meetsRequirement && (
-                <Text>
-                  <CheckCircleOutlined style={{ color: '#52c41a', marginRight: 8 }} />
-                  <Text strong>Node.js</Text>: v{nodeResult.version}
-                  <Text type="secondary"> (需要 &gt;= 22.0.0)</Text>
-                </Text>
-              )}
-              {/* uv 状态 */}
-              {uvResult?.installed && uvResult?.meetsRequirement && (
-                <Text>
-                  <CheckCircleOutlined style={{ color: '#52c41a', marginRight: 8 }} />
-                  <Text strong>uv</Text>: v{uvResult.version}
-                  <Text type="secondary"> (需要 &gt;= 0.5.0)</Text>
-                </Text>
-              )}
+          message={
+            <Space>
+              <span>依赖检测结果</span>
+              <Tag color={stats.systemAllReady ? 'success' : 'warning'}>
+                系统依赖 {stats.systemReady}/{stats.systemTotal}
+              </Tag>
+              <Tag color={stats.npmReady === stats.npmTotal ? 'success' : 'processing'}>
+                npm 包 {stats.npmReady}/{stats.npmTotal}
+              </Tag>
             </Space>
           }
-          type="success"
+          description={
+            !stats.systemAllReady 
+              ? '请先安装所有系统依赖，然后点击"重新检测"继续'
+              : stats.allReady
+                ? '所有依赖已就绪'
+                : '系统依赖已就绪，点击"开始安装"安装 npm 包'
+          }
+          type={stats.systemAllReady ? (stats.allReady ? 'success' : 'info') : 'warning'}
           showIcon
           style={{ marginBottom: 16 }}
         />
 
         {/* 安装目录提示 */}
-        {appDir && (
+        {appDir && stats.systemAllReady && (
           <Alert
             message="本地安装目录"
             description={
@@ -665,7 +695,7 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
           />
         )}
 
-        {/* 依赖列表 */}
+        {/* 完整依赖列表 */}
         {renderDependencyList()}
 
         {/* 安装进度 */}
@@ -674,24 +704,25 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
         {/* 操作按钮 */}
         <Divider />
         <div className="step-actions">
-          {installPhase === 'ready' && (
-            <Space>
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={checkDependencies}
-              >
-                重新检测
-              </Button>
+          <Space>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={handleRetryCheck}
+            >
+              重新检测
+            </Button>
+            {/* 只有系统依赖都就绪才能安装 npm 包 */}
+            {stats.systemAllReady && !stats.allReady && installPhase !== 'installing' && (
               <Button
                 type="primary"
                 icon={<CloudDownloadOutlined />}
                 onClick={handleStartInstall}
                 size="large"
               >
-                开始安装
+                开始安装 ({stats.npmTotal - stats.npmReady} 个)
               </Button>
-            </Space>
-          )}
+            )}
+          </Space>
         </div>
       </>
     );
@@ -705,26 +736,11 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
           依赖安装
         </Title>
         <Text type="secondary">
-          安装运行所需的必要组件
+          检测并安装运行所需的系统依赖和 npm 包
         </Text>
       </div>
 
       <Divider />
-
-      {/* Node.js 状态 */}
-      {nodeResult && nodeResult.installed && nodeResult.meetsRequirement && (
-        <Alert
-          message={
-            <Space>
-              <NodeIndexOutlined />
-              <span>Node.js {nodeResult.version}</span>
-            </Space>
-          }
-          type="success"
-          showIcon={false}
-          style={{ marginBottom: 16 }}
-        />
-      )}
 
       {renderContent()}
 
