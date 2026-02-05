@@ -62,13 +62,12 @@ export default function LogItem({ log, showSource = true, onCopy }: LogItemProps
   };
 
   return (
-    <div className="log-item" style={{ padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+    <div className="log-item" style={{ padding: '8px', borderBottom: '1px solid #f0f0f0' }}>
+      <div style={{ display: 'flex', alignItems: 'middle',gap: 12 }}>
         {/* 时间 */}
         <Text 
           code 
           style={{ 
-            minWidth: 80, 
             fontSize: 12,
             color: '#8c8c8c',
             whiteSpace: 'nowrap',
@@ -80,13 +79,9 @@ export default function LogItem({ log, showSource = true, onCopy }: LogItemProps
         {/* 级别标签 */}
         <Tag 
           color={log.level}
-          style={{ 
-            margin: 0,
-            minWidth: 50,
-            textAlign: 'center',
-          }}
+          style={{ padding: '0 4px'}}
         >
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
             {config.icon}
             {config.label}
           </span>
@@ -94,7 +89,7 @@ export default function LogItem({ log, showSource = true, onCopy }: LogItemProps
 
         {/* 来源 */}
         {showSource && log.source && (
-          <Tag style={{ margin: 0 }}>
+          <Tag style={{ padding: '0 4px', fontSize: 12 }}>
             {log.source}
           </Tag>
         )}

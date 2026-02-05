@@ -60,7 +60,6 @@ export default function LogStatsComponent({
       {items.map((item) => (
         <Badge
           key={item.key}
-          count={item.count}
           showZero
           style={{
             backgroundColor: currentFilter === item.key ? item.color : '#f0f0f0',
@@ -84,7 +83,7 @@ export default function LogStatsComponent({
               cursor: onFilterClick ? 'pointer' : 'default',
             }}
           >
-            {item.label}
+            {item.label} {item.count}
           </span>
         </Badge>
       ))}

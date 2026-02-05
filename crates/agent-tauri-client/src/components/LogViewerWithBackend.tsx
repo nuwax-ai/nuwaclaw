@@ -186,12 +186,6 @@ export default function LogViewerWithBackend({
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Card
-        title={
-          <Space>
-            <FileTextOutlined />
-            <span>日志</span>
-          </Space>
-        }
         style={{ flex: 1, overflow: 'hidden' }}
         bodyStyle={{
           height: '100%',
@@ -204,7 +198,7 @@ export default function LogViewerWithBackend({
         <Tabs
           activeKey={activeTab}
           onChange={(key) => setActiveTab(key as 'operation' | 'backend')}
-          style={{ height: '100%' }}
+          style={{ height: '100%', flex:1, display:'flex', flexDirection:'column' }}
           items={[
             {
               key: 'operation',
@@ -215,7 +209,7 @@ export default function LogViewerWithBackend({
                 </span>
               ),
               children: (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', height:'400px', overflow:'hidden', }}>
                   <LogToolbar
                     filter={filter}
                     onFilterChange={handleFilterChange}
@@ -234,9 +228,10 @@ export default function LogViewerWithBackend({
                     style={{
                       flex: 1,
                       overflow: 'auto',
-                      padding: '8px 12px',
+              
                       background: '#fafafa',
                       borderRadius: 4,
+                      height:'100%',
                       border: '1px solid #f0f0f0',
                     }}
                   >
@@ -247,7 +242,7 @@ export default function LogViewerWithBackend({
                     ) : logs.length === 0 ? (
                       <Empty description="暂无日志" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                     ) : (
-                      <div className="log-list">
+                      <div className="log-list" style={{ flex:1 ,height:'100%', overflow:'auto' }}>
                         {logs.map((log) => (
                           <LogItem
                             key={log.id}
