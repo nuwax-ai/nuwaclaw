@@ -1,89 +1,125 @@
+// ============================================
 // 权限服务 Rust 后端桥接
 // 通过 Tauri invoke 调用 Rust system-permissions 库
-// 注意：SETTINGS_URLS 用于系统设置 URL 映射，虽然当前未直接使用，但保留以备将来需要
+// 遵循 Tauri 官方 API 模式：invoke + 类型定义
+// ============================================
 
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-// 为了避免未使用变量警告，在开发时可以使用以下方式引用
-// 如果需要使用，直接取消下面的注释即可
-// console.log('Settings URLs:', SETTINGS_URLS);
+// ============================================
+// Rust 命令名称常量
+// 与 src-tauri/src/lib.rs 中的命令名保持一致
+// ============================================
 
-// 权限状态类型（与 Rust PermissionStatus 对齐）
-export type PermissionStatus =
-  | 'NotDetermined'
-  | 'Authorized'
-  | 'Denied'
-  | 'Restricted'
-  | 'Unavailable';
+const COMMANDS = {
+  CHECK: "permission_check",
+  LIST: "permission_list",
+  REQUEST: "permission_request",
+  OPEN_SETTINGS: "permission_open_settings",
+  MONITOR_START: "permission_monitor_start",
+  MONITOR_STOP: "permission_monitor_stop",
+} as const;
 
-// 权限状态信息
-export interface PermissionState {
+// ============================================
+// 类型定义（与 Rust PermissionStatus 对齐）
+// ============================================
+
+/**
+ * Rust 端定义的权限状态枚举
+ */
+export type RustPermissionStatus =
+  | "NotDetermined" // 尚未请求
+  | "Authorized" // 已授权
+  | "Denied" // 已拒绝
+  | "Restricted" // 受限制
+  | "Unavailable"; // 不可用
+
+/**
+ * Rust 返回的权限状态信息
+ */
+export interface RustPermissionState {
   permission: string;
-  status: PermissionStatus;
+  status: RustPermissionStatus;
   can_request: boolean;
   granted_at: string | null;
 }
 
-// 权限请求结果
-export interface RequestResult {
+/**
+ * 权限请求结果
+ */
+export interface RustRequestResult {
   permission: string;
   granted: boolean;
-  status: PermissionStatus;
+  status: RustPermissionStatus;
   error_message: string | null;
   settings_guide: string | null;
 }
 
-// 系统设置 URL 映射
-const SETTINGS_URLS: Record<string, string> = {
-  accessibility: 'x-apple.systempreferences:com.apple.security.accessibility',
-  screen_recording: 'x-apple.systempreferences:com.apple.security.screenRecording',
-  microphone: 'x-apple.systempreferences:com.apple.security.privacy-microphone',
-  camera: 'x-apple.systempreferences:com.apple.security.privacy-camera',
-  notifications: 'x-apple.systempreferences:com.apple.security.privacy-notifications',
-  speech_recognition: 'x-apple.systempreferences:com.apple.security.privacy-speechRecognition',
-  location: 'x-apple.systempreferences:com.apple.security.privacy-location',
-  nuwaxcode: 'x-apple.systempreferences:com.apple.security.privacy.all',
-  claude_code: 'x-apple.systempreferences:com.apple.security.privacy.all',
-  file_system_read: 'x-apple.systempreferences:com.apple.security.privacy.files',
-  file_system_write: 'x-apple.systempreferences:com.apple.security.privacy.files',
-  clipboard: 'x-apple.systempreferences:com.apple.security.accessibility',
-  keyboard_monitoring: 'x-apple.systempreferences:com.apple.security.privacy.inputMonitoring',
-  network: 'x-apple.systempreferences:com.apple.security.firewall',
-};
+/**
+ * 权限变化事件负载（从 Rust 事件推送）
+ */
+export interface PermissionChangeEvent {
+  permission: string;
+  status: string;
+  can_request: boolean;
+}
 
+// ============================================
 // 权限名称映射（前端 ID -> Rust 枚举名）
+// ============================================
+
 const PERMISSION_MAPPING: Record<string, string> = {
-  accessibility: 'accessibility',
-  screen_recording: 'screen_recording',
-  microphone: 'microphone',
-  camera: 'camera',
-  notifications: 'notifications',
-  speech: 'speech',
-  location: 'location',
-  nuwaxcode: 'nuwaxcode',
-  claude_code: 'claude_code',
-  file_access: 'file_system_read',
-  network: 'network',
-  clipboard: 'clipboard',
-  keyboard_monitoring: 'keyboard_monitoring',
+  accessibility: "accessibility",
+  screen_recording: "screen_recording",
+  microphone: "microphone",
+  camera: "camera",
+  notifications: "notifications",
+  speech: "speech",
+  location: "location",
+  nuwaxcode: "nuwaxcode",
+  claude_code: "claude_code",
+  file_access: "file_system_read",
+  network: "network",
+  clipboard: "clipboard",
+  keyboard_monitoring: "keyboard_monitoring",
 };
 
 /**
- * 检查单个权限状态（调用 Rust 后端）
+ * 将前端权限 ID 转换为 Rust 枚举名
  */
-export async function checkPermission(permissionId: string): Promise<PermissionState> {
-  const rustPerm = PERMISSION_MAPPING[permissionId] || permissionId;
+function toRustPermission(permissionId: string): string {
+  return PERMISSION_MAPPING[permissionId] || permissionId;
+}
+
+// ============================================
+// Tauri 命令调用封装
+// ============================================
+
+/**
+ * 检查单个权限状态
+ *
+ * @param permissionId - 前端权限 ID
+ * @returns 权限状态信息
+ *
+ * @example
+ * const state = await checkPermission('accessibility');
+ * console.log(state.status); // 'Authorized' | 'Denied' | ...
+ */
+export async function checkPermission(
+  permissionId: string,
+): Promise<RustPermissionState> {
+  const rustPerm = toRustPermission(permissionId);
   try {
-    const result = await invoke<PermissionState>('permission_check', {
+    return await invoke<RustPermissionState>(COMMANDS.CHECK, {
       permission: rustPerm,
     });
-    return result;
   } catch (error) {
     console.error(`Failed to check permission ${permissionId}:`, error);
+    // 返回默认值，避免上层处理错误
     return {
       permission: permissionId,
-      status: 'NotDetermined',
+      status: "NotDetermined",
       can_request: true,
       granted_at: null,
     };
@@ -92,37 +128,49 @@ export async function checkPermission(permissionId: string): Promise<PermissionS
 
 /**
  * 批量检查所有权限状态
+ *
+ * @returns 权限状态数组
+ *
+ * @example
+ * const states = await checkAllPermissions();
+ * console.log(states.length);
  */
-export async function checkAllPermissions(): Promise<PermissionState[]> {
+export async function checkAllPermissions(): Promise<RustPermissionState[]> {
   try {
-    const results = await invoke<PermissionState[]>('permission_list');
-    return results;
+    return await invoke<RustPermissionState[]>(COMMANDS.LIST);
   } catch (error) {
-    console.error('Failed to get all permissions:', error);
+    console.error("Failed to get all permissions:", error);
     return [];
   }
 }
 
 /**
  * 请求权限（交互式）
+ *
+ * @param permissionId - 前端权限 ID
+ * @param interactive - 是否交互式请求（弹出系统对话框）
+ * @returns 请求结果
+ *
+ * @example
+ * const result = await requestPermission('accessibility', true);
+ * console.log(result.granted);
  */
 export async function requestPermission(
   permissionId: string,
-  interactive: boolean = true
-): Promise<RequestResult> {
-  const rustPerm = PERMISSION_MAPPING[permissionId] || permissionId;
+  interactive: boolean = true,
+): Promise<RustRequestResult> {
+  const rustPerm = toRustPermission(permissionId);
   try {
-    const result = await invoke<RequestResult>('permission_request', {
+    return await invoke<RustRequestResult>(COMMANDS.REQUEST, {
       permission: rustPerm,
       interactive,
     });
-    return result;
   } catch (error) {
     console.error(`Failed to request permission ${permissionId}:`, error);
     return {
       permission: permissionId,
       granted: false,
-      status: 'Denied',
+      status: "Denied",
       error_message: String(error),
       settings_guide: null,
     };
@@ -131,11 +179,17 @@ export async function requestPermission(
 
 /**
  * 打开系统设置页面
+ *
+ * @param permissionId - 前端权限 ID
+ * @returns 是否成功打开
+ *
+ * @example
+ * await openSystemSettings('accessibility');
  */
 export async function openSystemSettings(permissionId: string): Promise<boolean> {
-  const rustPerm = PERMISSION_MAPPING[permissionId] || permissionId;
+  const rustPerm = toRustPermission(permissionId);
   try {
-    await invoke('permission_open_settings', { permission: rustPerm });
+    await invoke(COMMANDS.OPEN_SETTINGS, { permission: rustPerm });
     return true;
   } catch (error) {
     console.error(`Failed to open system settings for ${permissionId}:`, error);
@@ -143,40 +197,56 @@ export async function openSystemSettings(permissionId: string): Promise<boolean>
   }
 }
 
+// ============================================
+// UI 辅助函数（状态显示配置）
+// ============================================
+
 /**
  * 获取权限状态对应的显示标签
+ *
+ * @param status - Rust 权限状态
+ * @returns 中文显示文本
+ *
+ * @example
+ * getStatusLabel('Authorized'); // '已授权'
  */
-export function getStatusLabel(status: PermissionStatus): string {
+export function getStatusLabel(status: RustPermissionStatus): string {
   switch (status) {
-    case 'Authorized':
-      return '已授权';
-    case 'Denied':
-      return '已拒绝';
-    case 'Restricted':
-      return '受限制';
-    case 'Unavailable':
-      return '不可用';
-    case 'NotDetermined':
+    case "Authorized":
+      return "已授权";
+    case "Denied":
+      return "已拒绝";
+    case "Restricted":
+      return "受限制";
+    case "Unavailable":
+      return "不可用";
+    case "NotDetermined":
     default:
-      return '未授权';
+      return "未授权";
   }
 }
 
 /**
- * 获取权限状态对应的颜色
+ * 获取权限状态对应的 UI 颜色
+ *
+ * @param status - Rust 权限状态
+ * @returns Ant Design 颜色标识
+ *
+ * @example
+ * getStatusColor('Authorized'); // 'success'
  */
-export function getStatusColor(status: PermissionStatus): string {
+export function getStatusColor(status: RustPermissionStatus): string {
   switch (status) {
-    case 'Authorized':
-      return 'success';
-    case 'Denied':
-    case 'Unavailable':
-      return 'error';
-    case 'Restricted':
-      return 'warning';
-    case 'NotDetermined':
+    case "Authorized":
+      return "success";
+    case "Denied":
+    case "Unavailable":
+      return "error";
+    case "Restricted":
+      return "warning";
+    case "NotDetermined":
     default:
-      return 'default';
+      return "default";
   }
 }
 
@@ -185,50 +255,58 @@ export function getStatusColor(status: PermissionStatus): string {
 // ============================================
 
 /**
- * 权限变化事件（从 Rust 后端推送）
- */
-export interface PermissionChangeEvent {
-  permission: string;
-  status: string;
-  can_request: boolean;
-}
-
-/**
  * 启动权限监控
- * 开始后会通过 Tauri 事件推送权限变化
+ *
+ * 开始监听权限变化事件。
+ *
+ * @throws {Error} 启动失败时抛出异常
+ *
+ * @example
+ * await startPermissionMonitor();
  */
 export async function startPermissionMonitor(): Promise<void> {
   try {
-    await invoke('permission_monitor_start');
+    await invoke(COMMANDS.MONITOR_START);
   } catch (error) {
-    console.error('Failed to start permission monitor:', error);
+    console.error("Failed to start permission monitor:", error);
     throw error;
   }
 }
 
 /**
  * 停止权限监控
+ *
+ * @example
+ * await stopPermissionMonitor();
  */
 export async function stopPermissionMonitor(): Promise<void> {
   try {
-    await invoke('permission_monitor_stop');
+    await invoke(COMMANDS.MONITOR_STOP);
   } catch (error) {
-    console.error('Failed to stop permission monitor:', error);
+    console.error("Failed to stop permission monitor:", error);
   }
 }
 
 /**
  * 监听权限变化事件
- * @param callback 权限变化时的回调函数
+ *
+ * @param callback - 权限变化时的回调函数
  * @returns 取消监听的函数
+ *
+ * @example
+ * const unlisten = await onPermissionChange((event) => {
+ *   console.log(`${event.permission} changed to ${event.status}`);
+ * });
+ * // 稍后...
+ * unlisten();
  */
 export async function onPermissionChange(
-  callback: (event: PermissionChangeEvent) => void
+  callback: (event: PermissionChangeEvent) => void,
 ): Promise<UnlistenFn> {
-  return listen<PermissionChangeEvent>('permission_change', (event) => {
+  return listen<PermissionChangeEvent>("permission_change", (event) => {
     callback(event.payload);
   });
 }
 
 // Re-export UnlistenFn for convenience
-export type { UnlistenFn } from '@tauri-apps/api/event';
+export type { UnlistenFn } from "@tauri-apps/api/event";

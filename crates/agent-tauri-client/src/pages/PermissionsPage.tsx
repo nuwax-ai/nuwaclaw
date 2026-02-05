@@ -289,7 +289,6 @@ export default function PermissionsPage() {
           系统权限
         </Title>
         <Space>
-          {waitingForAuth && <Tag color="processing">正在检测权限变化...</Tag>}
           <Button
             icon={<ReloadOutlined />}
             onClick={handleRefreshPermissions}
@@ -313,47 +312,8 @@ export default function PermissionsPage() {
         style={{ marginBottom: 16 }}
       />
 
-      {/* 完全磁盘访问权限专用入口 */}
-      <Card
-        title="完全磁盘访问权限"
-        extra={
-          <Button
-            type="primary"
-            icon={<FolderOutlined />}
-            onClick={handleOpenFullDiskAccessPanel}
-          >
-            打开面板授权
-          </Button>
-        }
-        style={{ marginBottom: 16 }}
-      >
-        <Alert
-          message="需要完全磁盘访问权限"
-          description={
-            <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
-              <li>点击「打开面板授权」按钮</li>
-              <li>在系统设置中勾选本应用</li>
-              <li>返回本应用后权限将自动更新</li>
-            </ul>
-          }
-          type="info"
-          showIcon
-        />
-      </Card>
-
       {/* 权限列表 */}
-      <Card
-        title="关键权限"
-        extra={
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={handleRefreshPermissions}
-            loading={permissionsLoading}
-          >
-            刷新状态
-          </Button>
-        }
-      >
+      <Card title="关键权限">
         <List
           loading={permissionsLoading}
           dataSource={filteredPermissions}

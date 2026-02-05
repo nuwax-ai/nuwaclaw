@@ -107,10 +107,6 @@ body {
   background: #1890ff;
 }
 
-/* 卡片悬停效果 */
-.ant-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
 
 /* 按钮动画 */
 .ant-btn {

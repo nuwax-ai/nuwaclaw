@@ -31,7 +31,9 @@ impl MacOSPermissionManager {
             status: if trusted {
                 PermissionStatus::Authorized
             } else {
-                PermissionStatus::Denied
+                // AXIsProcessTrusted 无法区分"从未授权"和"已拒绝"，
+                // 统一返回 NotDetermined，前端显示为"待授权"
+                PermissionStatus::NotDetermined
             },
             location_mode: None,
             granted_at: if trusted { Some(Utc::now()) } else { None },
@@ -353,6 +355,9 @@ impl MacOSPermissionManager {
             }
             SystemPermission::Notifications => {
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_Notifications"
+            }
+            SystemPermission::FileSystemRead | SystemPermission::FileSystemWrite => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
             }
             _ => {
                 // 其他权限类型打开通用隐私设置页面

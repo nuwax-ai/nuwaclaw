@@ -1,613 +1,257 @@
-// 跨平台权限管理服务
-// 支持 macOS、Windows、Linux 的系统权限检测和请求
-// 优先使用 Rust 后端 system-permissions，fallback 到本地检测
-
-import { message } from 'antd';
-import {
-  checkPermission as rustCheckPermission,
-  checkAllPermissions as rustCheckAllPermissions,
-  openSystemSettings as rustOpenSettings,
-  getStatusColor as rustGetStatusColor,
-  getStatusLabel as rustGetStatusLabel,
-  startPermissionMonitor,
-  stopPermissionMonitor,
-  onPermissionChange,
-  type PermissionChangeEvent,
-  type UnlistenFn,
-} from './permissionsRust';
-
-// ============================================
-// 权限类型定义
-// ============================================
-
-// 权限状态
-export type PermissionStatus = 'granted' | 'denied' | 'pending' | 'unknown';
-
-// 权限类别（与 Rust system-permissions 的 SystemPermission 对齐）
-export type PermissionCategory =
-  | 'accessibility'     // 辅助功能（键盘鼠标控制）
-  | 'screen_recording'  // 屏幕录制
-  | 'microphone'       // 麦克风
-  | 'camera'           // 摄像头
-  | 'location'         // 位置信息
-  | 'notifications'    // 通知
-  | 'file_access'      // 文件访问
-  | 'network'          // 网络访问
-  | 'clipboard'        // 剪贴板
-  | 'speech'           // 语音识别
-  | 'nuwaxcode'        // NuwaxCode 编辑器集成
-  | 'claude_code'      // Claude Code 编辑器集成
-  | 'keyboard_monitoring'; // 键盘监控（全局快捷键）
-
-// 权限项接口
-export interface PermissionItem {
-  id: PermissionCategory;
-  name: string;
-  displayName: string;
-  description: string;
-  status: PermissionStatus;
-  required: boolean;      // 是否必需权限
-  platform: string[];     // 支持的平台
-}
-
-// 权限统计摘要
-export interface PermissionsSummary {
-  total: number;
-  granted: number;
-  requiredGranted: number;
-  requiredTotal: number;
-}
-
-// 权限状态数据
-export interface PermissionsState {
-  items: PermissionItem[];
-  summary: PermissionsSummary;
-}
-
-// ============================================
-// 平台检测
-// ============================================
-
-type Platform = 'macos' | 'windows' | 'linux' | 'unknown';
-
-function getCurrentPlatform(): Platform {
-  const platform = navigator.platform.toLowerCase();
-  if (platform.includes('mac') || platform.includes('darwin')) {
-    return 'macos';
-  }
-  if (platform.includes('win')) {
-    return 'windows';
-  }
-  if (platform.includes('linux')) {
-    return 'linux';
-  }
-  return 'unknown';
-}
-
-// ============================================
-// 权限配置定义
-// ============================================
-
-// 所有支持的权限配置
-const PERMISSION_CONFIGS: Record<PermissionCategory, Omit<PermissionItem, 'status'>> = {
-  accessibility: {
-    id: 'accessibility',
-    name: 'accessibility',
-    displayName: '辅助功能',
-    description: '用于远程控制时模拟键盘鼠标输入',
-    required: true,
-    platform: ['macos', 'windows', 'linux'],
-  },
-  screen_recording: {
-    id: 'screen_recording',
-    name: 'screen_recording',
-    displayName: '屏幕录制',
-    description: '用于远程桌面实时画面传输',
-    required: true,
-    platform: ['macos', 'windows', 'linux'],
-  },
-  microphone: {
-    id: 'microphone',
-    name: 'microphone',
-    displayName: '麦克风',
-    description: '用于语音通话和音频输入',
-    required: false,
-    platform: ['macos', 'windows', 'linux'],
-  },
-  camera: {
-    id: 'camera',
-    name: 'camera',
-    displayName: '摄像头',
-    description: '用于视频通话功能',
-    required: false,
-    platform: ['macos', 'windows', 'linux'],
-  },
-  location: {
-    id: 'location',
-    name: 'location',
-    displayName: '位置信息',
-    description: '用于定位相关功能',
-    required: false,
-    platform: ['macos', 'windows', 'linux'],
-  },
-  notifications: {
-    id: 'notifications',
-    name: 'notifications',
-    displayName: '通知',
-    description: '用于发送系统通知',
-    required: false,
-    platform: ['macos', 'windows'],
-  },
-  file_access: {
-    id: 'file_access',
-    name: 'file_access',
-    displayName: '文件访问',
-    description: '用于文件传输和本地文件操作',
-    required: true,
-    platform: ['macos', 'windows', 'linux'],
-  },
-  network: {
-    id: 'network',
-    name: 'network',
-    displayName: '网络访问',
-    description: '用于与服务器建立通信连接',
-    required: true,
-    platform: ['macos', 'windows', 'linux'],
-  },
-  clipboard: {
-    id: 'clipboard',
-    name: 'clipboard',
-    displayName: '剪贴板',
-    description: '用于跨设备剪贴板同步',
-    required: false,
-    platform: ['macos', 'windows'],
-  },
-  speech: {
-    id: 'speech',
-    name: 'speech',
-    displayName: '语音识别',
-    description: '用于语音命令输入',
-    required: false,
-    platform: ['macos', 'windows'],
-  },
-  nuwaxcode: {
-    id: 'nuwaxcode',
-    name: 'nuwaxcode',
-    displayName: 'NuwaxCode',
-    description: '用于 NuwaxCode 编辑器集成与自动化',
-    required: false,
-    platform: ['macos', 'windows', 'linux'],
-  },
-  claude_code: {
-    id: 'claude_code',
-    name: 'claude_code',
-    displayName: 'Claude Code',
-    description: '用于 Claude Code 编辑器集成与自动化',
-    required: false,
-    platform: ['macos', 'windows', 'linux'],
-  },
-  keyboard_monitoring: {
-    id: 'keyboard_monitoring',
-    name: 'keyboard_monitoring',
-    displayName: '键盘监控',
-    description: '用于全局快捷键监听',
-    required: false,
-    platform: ['macos', 'windows', 'linux'],
-  },
-};
-
-// 将 Rust 权限状态转换为前端状态
-function rustStatusToFrontend(status: string): PermissionStatus {
-  switch (status) {
-    case 'Authorized':
-      return 'granted';
-    case 'Denied':
-      return 'denied';
-    case 'Restricted':
-      return 'denied';
-    case 'Unavailable':
-      return 'unknown';
-    case 'NotDetermined':
-    default:
-      return 'pending';
-  }
-}
-
-// ============================================
-// 权限服务实现
-// ============================================
-
-class PermissionsService {
-  private platform: Platform;
-  private permissionCache: Map<PermissionCategory, PermissionStatus> = new Map();
-  private cacheTimestamp: number = 0;
-  private readonly cacheDuration = 5000; // 缓存 5 秒
-  private useRustBackend: boolean = true; // 是否使用 Rust 后端
-
-  constructor() {
-    this.platform = getCurrentPlatform();
-    // 检查 Rust 后端是否可用（通过尝试调用）
-    this.checkRustBackend();
-  }
-
-  // 检查 Rust 后端是否可用
-  private async checkRustBackend(): Promise<void> {
-    try {
-      await rustCheckAllPermissions();
-      this.useRustBackend = true;
-    } catch (error) {
-      console.warn('Rust backend not available, using local detection');
-      this.useRustBackend = false;
-    }
-  }
-
-  // 获取当前平台
-  getPlatform(): Platform {
-    return this.platform;
-  }
-
-  // 检测权限状态
-  async checkPermission(category: PermissionCategory): Promise<PermissionStatus> {
-    // 检查缓存
-    if (this.isCacheValid()) {
-      const cached = this.permissionCache.get(category);
-      if (cached) return cached;
-    }
-
-    let status: PermissionStatus;
-
-    if (this.useRustBackend) {
-      // 使用 Rust 后端获取真实权限状态
-      try {
-        const rustState = await rustCheckPermission(category);
-        status = rustStatusToFrontend(rustState.status);
-      } catch (error) {
-        console.error(`Failed to check permission ${category} from Rust:`, error);
-        status = 'pending';
-      }
-    } else {
-      // Fallback 到本地检测（模拟实现）
-      status = await this.localCheckPermission(category);
-    }
-
-    // 更新缓存
-    this.permissionCache.set(category, status);
-    this.cacheTimestamp = Date.now();
-
-    return status;
-  }
-
-  // 本地权限检测（fallback，当 Rust 后端不可用时使用）
-  private async localCheckPermission(category: PermissionCategory): Promise<PermissionStatus> {
-    // 简化的本地检测逻辑
-    switch (category) {
-      case 'accessibility':
-      case 'screen_recording':
-      case 'microphone':
-      case 'camera':
-      case 'notifications':
-      case 'location':
-      case 'file_access':
-      case 'network':
-      case 'clipboard':
-      case 'speech':
-      case 'nuwaxcode':
-      case 'claude_code':
-      case 'keyboard_monitoring':
-        return Math.random() > 0.5 ? 'granted' : 'pending';
-      default:
-        return 'unknown';
-    }
-  }
-
-  // 批量检测权限
-  async checkAllPermissions(): Promise<PermissionsState> {
-    const platform = getCurrentPlatform();
-    const items: PermissionItem[] = [];
-
-    for (const [category, config] of Object.entries(PERMISSION_CONFIGS)) {
-      // 只检测当前平台支持的权限
-      if (!config.platform.includes(platform)) continue;
-
-      const status = await this.checkPermission(category as PermissionCategory);
-      items.push({
-        ...config,
-        status,
-      });
-    }
-
-    // 计算统计
-    const granted = items.filter((p) => p.status === 'granted').length;
-    const requiredGranted = items.filter((p) => p.required && p.status === 'granted').length;
-    const requiredTotal = items.filter((p) => p.required).length;
-
-    return {
-      items,
-      summary: {
-        total: items.length,
-        granted,
-        requiredGranted,
-        requiredTotal,
-      },
-    };
-  }
-
-  // 打开系统设置（使用 Rust 后端或本地 URL）
-  async openSystemSettings(category: PermissionCategory): Promise<boolean> {
-    message.loading('正在打开系统设置...', 1);
-
-    if (this.useRustBackend) {
-      // 使用 Rust 后端的 opener 插件
-      try {
-        await rustOpenSettings(category);
-        message.info('请在系统设置中完成权限授权');
-        return true;
-      } catch (error) {
-        console.error('Failed to open settings via Rust:', error);
-        // Fallback 到本地打开
-      }
-    }
-
-    // 本地打开系统设置
-    const settingsUrls: Record<PermissionCategory, string> = {
-      accessibility: 'x-apple.systempreferences:com.apple.security.accessibility',
-      screen_recording: 'x-apple.systempreferences:com.apple.security.screenRecording',
-      microphone: 'x-apple.systempreferences:com.apple.security.privacy-microphone',
-      camera: 'x-apple.systempreferences:com.apple.security.privacy-camera',
-      location: 'x-apple.systempreferences:com.apple.security.privacy-location',
-      notifications: 'x-apple.systempreferences:com.apple.security.privacy-notifications',
-      file_access: 'x-apple.systempreferences:com.apple.security.privacy.files',
-      network: 'x-apple.systempreferences:com.apple.security.firewall',
-      clipboard: 'x-apple.systempreferences:com.apple.security.accessibility',
-      speech: 'x-apple.systempreferences:com.apple.security.privacy-speechRecognition',
-      nuwaxcode: 'x-apple.systempreferences:com.apple.security.privacy.all',
-      claude_code: 'x-apple.systempreferences:com.apple.security.privacy.all',
-      keyboard_monitoring: 'x-apple.systempreferences:com.apple.security.privacy.inputMonitoring',
-    };
-
-    const url = settingsUrls[category];
-    if (url) {
-      try {
-        const { openUrl } = await import('@tauri-apps/plugin-opener');
-        await openUrl(url);
-        message.info('请在系统设置中完成权限授权');
-        return true;
-      } catch (error) {
-        console.error('Failed to open system settings:', error);
-      }
-    }
-
-    message.warning('无法打开系统设置，请手动前往系统偏好设置');
-    return false;
-  }
-
-  // 刷新权限状态
-  async refresh(): Promise<PermissionsState> {
-    this.permissionCache.clear();
-    this.cacheTimestamp = 0;
-    return this.checkAllPermissions();
-  }
-
-  // 检查缓存是否有效
-  private isCacheValid(): boolean {
-    return Date.now() - this.cacheTimestamp < this.cacheDuration;
-  }
-
-  // 获取权限状态配置
-  getStatusConfig(status: PermissionStatus, required: boolean) {
-    // 优先使用 Rust 后端的配置
-    if (this.useRustBackend) {
-      const color = rustGetStatusColor(status === 'granted' ? 'Authorized' : 'Denied');
-      const text = rustGetStatusLabel(status === 'granted' ? 'Authorized' : 'Denied');
-      return {
-        color: color as 'success' | 'error' | 'warning' | 'default',
-        text,
-        icon: status === 'granted' ? 'check-circle' : 'close-circle',
-      };
-    }
-
-    const config: Record<PermissionStatus, { color: string; text: string; icon: string }> = {
-      granted: {
-        color: 'success',
-        text: '已授权',
-        icon: 'check-circle',
-      },
-      denied: {
-        color: 'error',
-        text: '已拒绝',
-        icon: 'close-circle',
-      },
-      pending: {
-        color: 'warning',
-        text: required ? '待授权' : '未授权',
-        icon: 'clock-circle',
-      },
-      unknown: {
-        color: 'default',
-        text: '未知',
-        icon: 'question-circle',
-      },
-    };
-    return config[status];
-  }
-
-  // ============================================
-  // 权限监控方法
-  // ============================================
-
-  private monitorUnlisten: UnlistenFn | null = null;
-  private changeCallbacks: Set<(category: PermissionCategory, status: PermissionStatus) => void> = new Set();
-
-  /**
-   * 启动权限监控
-   * 当权限状态变化时，自动更新缓存并通知回调
-   */
-  async startMonitoring(): Promise<void> {
-    if (!this.useRustBackend) {
-      console.warn('Permission monitoring requires Rust backend');
-      return;
-    }
-
-    if (this.monitorUnlisten) {
-      // 已经在监控
-      return;
-    }
-
-    try {
-      await startPermissionMonitor();
-
-      this.monitorUnlisten = await onPermissionChange((event: PermissionChangeEvent) => {
-        const category = event.permission as PermissionCategory;
-        const status = rustStatusToFrontend(event.status);
-
-        // 更新缓存
-        this.permissionCache.set(category, status);
-        this.cacheTimestamp = Date.now();
-
-        // 通知回调
-        this.changeCallbacks.forEach((cb) => cb(category, status));
-      });
-    } catch (error) {
-      console.error('Failed to start permission monitoring:', error);
-    }
-  }
-
-  /**
-   * 停止权限监控
-   */
-  async stopMonitoring(): Promise<void> {
-    if (this.monitorUnlisten) {
-      this.monitorUnlisten();
-      this.monitorUnlisten = null;
-    }
-
-    try {
-      await stopPermissionMonitor();
-    } catch (error) {
-      console.error('Failed to stop permission monitoring:', error);
-    }
-  }
-
-  /**
-   * 订阅权限变化事件
-   * @param callback 权限变化回调
-   * @returns 取消订阅函数
-   */
-  onPermissionChange(callback: (category: PermissionCategory, status: PermissionStatus) => void): () => void {
-    this.changeCallbacks.add(callback);
-    return () => {
-      this.changeCallbacks.delete(callback);
-    };
-  }
-}
-
-// ============================================
-// 导出单例
-// ============================================
-
-export const permissionsService = new PermissionsService();
-
-// 便捷函数
-export const getPlatform = () => permissionsService.getPlatform();
-export const checkPermission = (category: PermissionCategory) => permissionsService.checkPermission(category);
-export const checkAllPermissions = () => permissionsService.checkAllPermissions();
-export const openSystemSettings = (category: PermissionCategory) => permissionsService.openSystemSettings(category);
-export const refreshPermissions = () => permissionsService.refresh();
-export const getStatusConfig = (status: PermissionStatus, required: boolean) =>
-  permissionsService.getStatusConfig(status, required);
-
-// 监控相关便捷函数
-export const startMonitoring = () => permissionsService.startMonitoring();
-export const stopMonitoring = () => permissionsService.stopMonitoring();
-export const subscribePermissionChange = (
-  callback: (category: PermissionCategory, status: PermissionStatus) => void
-) => permissionsService.onPermissionChange(callback);
-
 // ============================================
 // 完全磁盘访问权限专用函数
+// 提供 macOS/Windows/Linux 平台的完全磁盘访问权限管理
+// ============================================
+
+import { message } from "antd";
+
+// 导入类型和配置函数
+import type {
+  PermissionStatus,
+  PermissionCategory,
+  PermissionItem,
+  PermissionsSummary,
+  PermissionsState,
+} from "./permissions/config";
+import {
+  getFullDiskAccessUrl,
+  getCurrentPlatform,
+} from "./permissions/config";
+
+// 导入核心服务（用于便捷函数）
+import { permissionsService } from "./permissions/service";
+
+// ============================================
+// 跨平台完全磁盘访问检测
+// ============================================
+
+/**
+ * 检测应用是否已获得完全磁盘访问权限
+ *
+ * 通过尝试访问受保护目录来判断。
+ * macOS: ~/Library/Application Support
+ * Windows: AppData 目录
+ * Linux: ~/.config
+ *
+ * @returns {Promise<boolean>} 返回 true 表示已获得权限，false 表示未获得
+ *
+ * @example
+ * const hasAccess = await checkFullDiskAccessPermission();
+ * if (!hasAccess) {
+ *   await openFullDiskAccessPanel();
+ * }
+ */
+export async function checkFullDiskAccessPermission(): Promise<boolean> {
+  try {
+    // 使用 Tauri 的 invoke 直接调用 Rust 后端进行检测
+    const { invoke } = await import("@tauri-apps/api/core");
+
+    // 调用 Rust 后端的检测命令
+    const hasPermission = (await invoke("check_disk_access")) as boolean;
+    return hasPermission;
+  } catch (error) {
+    console.warn(
+      "[Permissions] 完全磁盘访问权限检查失败（可能是权限不足）:",
+      error,
+    );
+    return false;
+  }
+}
+
+// ============================================
+// 平台专用函数
 // ============================================
 
 /**
  * 打开 macOS 完全磁盘访问权限面板
  *
- * 该功能用于帮助用户快速授权应用访问磁盘的权限。
- * 打开的是系统偏好设置中的安全性与隐私 -> 完全磁盘访问权限 面板。
+ * 使用系统偏好设置 URL Scheme 直接打开对应面板。
+ * 优先使用 Rust 端实现，fallback 到 URL Scheme。
+ *
+ * @throws {Error} 当无法打开面板时抛出异常
+ *
+ * @example
+ * await openMacOSFullDiskAccessPanel();
+ */
+async function openMacOSFullDiskAccessPanel(): Promise<void> {
+  // 方案1：使用 Rust 端的 permission_open_settings
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("permission_open_settings", {
+      permission: "file_system_read",
+    });
+    console.log("[Permissions] 已通过 Rust 打开完全磁盘访问面板");
+    return;
+  } catch (error) {
+    console.warn("[Permissions] Rust 打开失败，尝试 URL Scheme:", error);
+  }
+
+  // 方案2：使用 URL Scheme 直接打开
+  const url = getFullDiskAccessUrl();
+  try {
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await openUrl(url);
+    console.log("[Permissions] 已通过 URL Scheme 打开完全磁盘访问面板");
+  } catch (error) {
+    console.error("[Permissions] 无法自动打开完全磁盘访问面板:", error);
+    throw error;
+  }
+}
+
+/**
+ * 打开 Windows 完全磁盘访问权限面板
+ *
+ * Windows 使用文件选择器访问模式，逻辑与 macOS 不同。
+ *
+ * @example
+ * await openWindowsFullDiskAccessPanel();
+ */
+async function openWindowsFullDiskAccessPanel(): Promise<void> {
+  // Windows 没有 macOS 那样的"完全磁盘访问"概念
+  // 通常通过 UAC 和应用清单来处理
+  message.info("请在应用设置中确保已授予文件访问权限");
+}
+
+/**
+ * 打开 Linux 完全磁盘访问权限面板
+ *
+ * Linux 桌面环境通常使用 Polkit 管理权限。
+ *
+ * @example
+ * await openLinuxFullDiskAccessPanel();
+ */
+async function openLinuxFullDiskAccessPanel(): Promise<void> {
+  // Linux 权限通常通过 Polkit 或 AppArmor 管理
+  message.info("请确保应用已获得必要的文件访问权限");
+}
+
+// ============================================
+// 通用入口函数
+// ============================================
+
+/**
+ * 打开完全磁盘访问权限面板
+ *
+ * 根据当前平台调用对应的面板打开函数。
+ * 这是跨平台统一的入口点。
  *
  * @returns {Promise<void>}
- * @throws {Error} 当无法打开面板时抛出异常
  *
  * @example
  * await openFullDiskAccessPanel();
  * console.log('面板已打开');
  */
 export async function openFullDiskAccessPanel(): Promise<void> {
-  // macOS 完全磁盘访问权限面板的 URL Scheme
-  // 注意：macOS 系统偏好设置的不同版本可能有不同的 URL Scheme
-  const fullDiskAccessUrls = [
-    'x-apple.systempreferences:com.apple.security.privacy.fullDiskAccess', // macOS Ventura+
-    'x-apple.systempreferences:com.apple.Security偏好设置', // 中文系统
-    'x-apple.systempreferences:', // 兜底：打开系统偏好设置主界面
-  ];
+  const platform = getCurrentPlatform();
 
-  let lastError: Error | null = null;
-
-  for (const url of fullDiskAccessUrls) {
-    try {
-      console.log(`[Permissions] 尝试打开系统设置: ${url}`);
-      const { openUrl } = await import('@tauri-apps/plugin-opener');
-      await openUrl(url);
-      console.log('[Permissions] 已成功打开系统设置面板');
-      message.info('请在系统设置中勾选本应用以授予完全磁盘访问权限');
-      return;
-    } catch (error) {
-      console.warn(`[Permissions] 打开失败 (${url}):`, error);
-      lastError = error instanceof Error ? error : new Error(String(error));
-      // 继续尝试下一个 URL
-    }
-  }
-
-  // 所有方式都失败，提供手动操作指引
-  console.error('[Permissions] 无法自动打开完全磁盘访问面板:', lastError);
-  message.warning({
-    content: '无法自动打开系统设置，请手动操作：打开「系统偏好设置」→「安全性与隐私」→「隐私」标签页，勾选「完全磁盘访问权限」中的本应用',
-    duration: 8,
-  });
-}
-
-/**
- * 检查应用是否已获得完全磁盘访问权限
- *
- * 通过尝试访问用户主目录下的 Library/Application Support 目录来判断。
- * 如果没有完全磁盘访问权限，该目录将被拒绝访问。
- *
- * @returns {Promise<boolean>} 返回 true 表示已获得权限，false 表示未获得
- */
-export async function checkFullDiskAccessPermission(): Promise<boolean> {
-  try {
-    // 使用 Tauri 的 fs API 检查是否有权限访问受保护目录
-    // 这里使用 invoke 直接调用 Rust 后端进行检测
-    const { invoke } = await import('@tauri-apps/api/core');
-
-    // 调用 Rust 后端的检测命令
-    const hasPermission = await invoke('check_disk_access') as boolean;
-    return hasPermission;
-  } catch (error) {
-    console.warn('[Permissions] 完全磁盘访问权限检查失败（可能是权限不足）:', error);
-    return false;
+  switch (platform) {
+    case "macos":
+      await openMacOSFullDiskAccessPanel();
+      break;
+    case "windows":
+      await openWindowsFullDiskAccessPanel();
+      break;
+    case "linux":
+      await openLinuxFullDiskAccessPanel();
+      break;
+    default:
+      message.warning("当前平台不支持自动打开设置面板");
   }
 }
 
 /**
- * 打开完全磁盘访问权限面板，并在打开后启动权限状态轮询
+ * 打开完全磁盘访问权限面板，并在打开后执行回调
  *
- * 该函数封装了打开面板的操作，并在用户完成授权后提供便捷的状态刷新。
+ * 该函数封装了打开面板的操作，并支持在用户完成授权后执行自定义逻辑。
  *
- * @param onPanelOpened - 面板打开后的回调函数，可用于启动轮询或显示提示
+ * @param {Function} onPanelOpened - 面板打开后的回调函数
  * @returns {Promise<void>}
+ *
+ * @example
+ * await openFullDiskAccessPanelWithCallback(() => {
+ *   console.log('用户已完成授权设置');
+ *   refreshPermissions();
+ * });
  */
 export async function openFullDiskAccessPanelWithCallback(
-  onPanelOpened?: () => void
+  onPanelOpened?: () => void,
 ): Promise<void> {
   await openFullDiskAccessPanel();
   onPanelOpened?.();
 }
+
+// ============================================
+// 辅助函数
+// ============================================
+
+/**
+ * 检查当前平台是否需要完全磁盘访问权限
+ *
+ * @returns {boolean} 是否需要
+ */
+export function isFullDiskAccessNeeded(): boolean {
+  const platform = getCurrentPlatform();
+  // macOS 最需要完全磁盘访问
+  return platform === "macos";
+}
+
+/**
+ * 获取完全磁盘访问权限的说明文本
+ *
+ * 根据平台返回不同的说明信息。
+ *
+ * @returns {string} 说明文本
+ */
+export function getFullDiskAccessHelpText(): string {
+  const platform = getCurrentPlatform();
+
+  switch (platform) {
+    case "macos":
+      return "打开「系统设置」→「隐私与安全性」→「完全磁盘访问权限」，勾选本应用";
+    case "windows":
+      return "请确保应用已通过 Windows 权限检查";
+    case "linux":
+      return "请确保应用已获得必要的文件系统访问权限";
+    default:
+      return "请在系统设置中授予文件访问权限";
+  }
+}
+
+// ============================================
+// 从子模块 re-export
+// ============================================
+
+// 配置函数
+export {
+  getCurrentPlatform,
+  getPlatformPermissionConfigs,
+  getAllPermissionConfigs,
+  getSettingsUrl,
+  getFullDiskAccessUrl,
+} from "./permissions/config";
+
+// 状态转换工具
+export { rustStatusToFrontend } from "./permissions/service";
+
+// 核心服务（已在顶部导入）
+// 重新导出以保持 API 兼容性
+export { permissionsService } from "./permissions/service";
+
+// 便捷函数
+export const getPlatform = () => permissionsService.getPlatform();
+export const checkPermission = (category: PermissionCategory) =>
+  permissionsService.checkPermission(category);
+export const checkAllPermissions = () =>
+  permissionsService.checkAllPermissions();
+export const openSystemSettings = (category: PermissionCategory) =>
+  permissionsService.openSystemSettings(category);
+export const refreshPermissions = () => permissionsService.refresh();
+export const getStatusConfig = (status: PermissionStatus, required: boolean) =>
+  permissionsService.getStatusConfig(status, required);
+
+// 监控相关
+export const startMonitoring = () => permissionsService.startMonitoring();
+export const stopMonitoring = () => permissionsService.stopMonitoring();
+export const subscribePermissionChange = (
+  callback: (category: PermissionCategory, status: PermissionStatus) => void,
+) => permissionsService.onPermissionChange(callback);
