@@ -8,6 +8,148 @@ use tracing::{debug, error, info, warn};
 
 use super::http_server::HttpServer;
 
+// ========== 进程检测辅助函数 ==========
+
+/// 通过进程名称检测进程是否正在运行
+///
+/// 跨平台实现：
+/// - macOS/Linux: 使用 `pgrep -x <name>` 精确匹配进程名
+/// - Windows: 使用 `tasklist /FI "IMAGENAME eq <name>.exe"`
+///
+/// # Arguments
+/// * `process_name` - 进程名称（不含路径）
+///
+/// # Returns
+/// * `Option<Vec<u32>>` - 如果进程存在，返回 PID 列表；否则返回 None
+pub fn find_processes_by_name(process_name: &str) -> Option<Vec<u32>> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        // 使用 pgrep -x 精确匹配进程名
+        let output = std::process::Command::new("pgrep")
+            .arg("-x")
+            .arg(process_name)
+            .output()
+            .ok()?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let pids: Vec<u32> = stdout
+                .lines()
+                .filter_map(|line| line.trim().parse::<u32>().ok())
+                .collect();
+            if !pids.is_empty() {
+                return Some(pids);
+            }
+        }
+        None
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Windows: 使用 tasklist 查询进程
+        let exe_name = if process_name.ends_with(".exe") {
+            process_name.to_string()
+        } else {
+            format!("{}.exe", process_name)
+        };
+
+        let output = std::process::Command::new("tasklist")
+            .args([
+                "/FI",
+                &format!("IMAGENAME eq {}", exe_name),
+                "/FO",
+                "CSV",
+                "/NH",
+            ])
+            .output()
+            .ok()?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let pids: Vec<u32> = stdout
+                .lines()
+                .filter(|line| !line.trim().is_empty() && !line.contains("No tasks"))
+                .filter_map(|line| {
+                    // CSV 格式: "process.exe","PID","Session Name","Session#","Mem Usage"
+                    let parts: Vec<&str> = line.split(',').collect();
+                    if parts.len() >= 2 {
+                        parts[1].trim_matches('"').parse::<u32>().ok()
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if !pids.is_empty() {
+                return Some(pids);
+            }
+        }
+        None
+    }
+}
+
+/// 检测指定进程名是否正在运行
+///
+/// # Arguments
+/// * `process_name` - 进程名称（不含路径）
+///
+/// # Returns
+/// * `bool` - 如果进程存在返回 true
+pub fn is_process_running(process_name: &str) -> bool {
+    find_processes_by_name(process_name).is_some()
+}
+
+/// 终止指定名称的所有进程
+///
+/// # Arguments
+/// * `process_name` - 进程名称（不含路径）
+///
+/// # Returns
+/// * `Result<u32, String>` - 成功返回终止的进程数量
+pub fn kill_processes_by_name(process_name: &str) -> Result<u32, String> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        // 使用 pkill -x 精确匹配并终止进程
+        let output = std::process::Command::new("pkill")
+            .arg("-x")
+            .arg(process_name)
+            .output()
+            .map_err(|e| format!("Failed to run pkill: {}", e))?;
+
+        // pkill 返回 0 表示至少终止了一个进程
+        if output.status.success() {
+            // 获取实际终止的数量
+            if let Some(pids) = find_processes_by_name(process_name) {
+                Ok(0) // 进程仍存在，可能需要 SIGKILL
+            } else {
+                Ok(1) // 假设至少终止了 1 个
+            }
+        } else {
+            // 返回码 1 表示没有匹配的进程
+            Ok(0)
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let exe_name = if process_name.ends_with(".exe") {
+            process_name.to_string()
+        } else {
+            format!("{}.exe", process_name)
+        };
+
+        let output = std::process::Command::new("taskkill")
+            .args(["/F", "/IM", &exe_name])
+            .output()
+            .map_err(|e| format!("Failed to run taskkill: {}", e))?;
+
+        if output.status.success() {
+            Ok(1)
+        } else {
+            Ok(0)
+        }
+    }
+}
+
 /// 服务类型
 #[derive(Debug, Clone, PartialEq)]
 pub enum ServiceType {

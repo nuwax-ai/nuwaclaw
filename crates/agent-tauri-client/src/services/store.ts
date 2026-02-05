@@ -68,6 +68,7 @@ export const STORAGE_KEYS = {
   SETUP_FILE_SERVER_PORT: "setup.file_server_port", // 文件服务端口
   SETUP_PROXY_PORT: "setup.proxy_port", // 代理服务端口 (本地)
   SETUP_WORKSPACE_DIR: "setup.workspace_dir", // 工作区目录
+  SETUP_RECENT_WORKSPACES: "setup.recent_workspaces", // 最近使用的工作区目录
 
   // Lanproxy 服务器配置（从 API 返回）
   LANPROXY_SERVER_HOST: "lanproxy.server_host", // lanproxy 服务器地址 (如 testagent.xspaceagi.com)
@@ -640,10 +641,42 @@ export const setupStorage = {
       remove(STORAGE_KEYS.SETUP_FILE_SERVER_PORT),
       remove(STORAGE_KEYS.SETUP_PROXY_PORT),
       remove(STORAGE_KEYS.SETUP_WORKSPACE_DIR),
+      remove(STORAGE_KEYS.SETUP_RECENT_WORKSPACES),
       remove(STORAGE_KEYS.DEPS_INSTALL_DIR),
       remove(STORAGE_KEYS.DEPS_NODE_MODULES_PATH),
     ]);
     await save();
+  },
+
+  /**
+   * 获取最近使用的工作区目录
+   */
+  async getRecentWorkspaces(): Promise<string[]> {
+    return (await getObject<string[]>(STORAGE_KEYS.SETUP_RECENT_WORKSPACES)) || [];
+  },
+
+  /**
+   * 保存最近使用的工作区目录
+   */
+  async setRecentWorkspaces(dirs: string[]): Promise<void> {
+    await setObject(STORAGE_KEYS.SETUP_RECENT_WORKSPACES, dirs);
+    await save();
+  },
+
+  /**
+   * 添加最近使用的工作区目录（去重 + 限制数量）
+   */
+  async addRecentWorkspace(dir: string): Promise<void> {
+    const current = await this.getRecentWorkspaces();
+    const next = [dir, ...current.filter(d => d !== dir)].slice(0, 5);
+    await this.setRecentWorkspaces(next);
+  },
+
+  /**
+   * 清除最近使用的工作区目录
+   */
+  async clearRecentWorkspaces(): Promise<void> {
+    await this.setRecentWorkspaces([]);
   },
 
   /**

@@ -249,7 +249,9 @@ function getLocalSandboxValue(): SandboxValue {
 export async function loginAndRegister(
   username: string,
   password: string,
+  options?: { suppressToast?: boolean },
 ): Promise<ClientRegisterResponse> {
+  const suppressToast = options?.suppressToast === true;
   // 获取保存的 savedKey（用于标识是否为老用户）
   const savedKey = await getSavedKey();
 
@@ -263,7 +265,9 @@ export async function loginAndRegister(
 
   // 启动 loading 提示
   const loadingKey = "loginLoading";
-  message.loading({ content: "正在登录...", key: loadingKey, duration: 0 });
+  if (!suppressToast) {
+    message.loading({ content: "正在登录...", key: loadingKey, duration: 0 });
+  }
 
   try {
     const response = await registerClient(params);
@@ -313,7 +317,9 @@ export async function loginAndRegister(
     }
 
     // 关闭 loading 并显示成功提示
-    message.success({ content: "登录成功！", key: loadingKey });
+    if (!suppressToast) {
+      message.success({ content: "登录成功！", key: loadingKey });
+    }
 
     // 打印调试信息
     console.log("[Auth] 登录成功:", {
@@ -332,7 +338,9 @@ export async function loginAndRegister(
     console.error("[Auth] 登录失败:", error);
 
     // 关闭 loading 并显示错误信息
-    message.error({ content: errorMessage, key: loadingKey });
+    if (!suppressToast) {
+      message.error({ content: errorMessage, key: loadingKey });
+    }
 
     throw error;
   }

@@ -108,6 +108,43 @@ export async function getStep1Config(): Promise<Step1Config> {
   };
 }
 
+/**
+ * 获取最近使用的工作区目录
+ */
+export async function getRecentWorkspaces(): Promise<string[]> {
+  try {
+    await initStore();
+    return await setupStorage.getRecentWorkspaces();
+  } catch (error) {
+    console.error('[Setup] 获取最近工作区失败:', error);
+    return [];
+  }
+}
+
+/**
+ * 添加最近使用的工作区目录
+ */
+export async function addRecentWorkspace(dir: string): Promise<void> {
+  try {
+    await initStore();
+    await setupStorage.addRecentWorkspace(dir);
+  } catch (error) {
+    console.error('[Setup] 保存最近工作区失败:', error);
+  }
+}
+
+/**
+ * 清除最近使用的工作区目录
+ */
+export async function clearRecentWorkspaces(): Promise<void> {
+  try {
+    await initStore();
+    await setupStorage.clearRecentWorkspaces();
+  } catch (error) {
+    console.error('[Setup] 清除最近工作区失败:', error);
+  }
+}
+
 // ========== 步骤2: 账号登录 ==========
 
 /**

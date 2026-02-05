@@ -223,7 +223,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
           size="small"
           items={WIZARD_STEPS.map(step => ({
             title: step.title,
-            description: step.description,
+            description: currentStep === step.key ? step.description : undefined,
             icon: step.icon,
           }))}
         />
@@ -282,6 +282,14 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
         .setup-wizard-steps .ant-steps-item-description {
           font-size: 12px;
+        }
+
+        .setup-wizard-steps .ant-steps-item-icon {
+          transform: scale(0.9);
+        }
+
+        .setup-wizard-steps .ant-steps-item {
+          padding-inline-start: 4px;
         }
         
         .setup-wizard-content {

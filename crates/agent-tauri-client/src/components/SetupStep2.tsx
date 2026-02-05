@@ -54,16 +54,26 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
   const [networkStatus, setNetworkStatus] = useState<NetworkStatus>('checking');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [statusHint, setStatusHint] = useState<string>('');
+  const [statusType, setStatusType] = useState<'info' | 'error'>('info');
 
   /**
    * 检查网络连接（通过 navigator.onLine 和尝试 fetch）
    */
+  const showStatus = (text: string, type: 'info' | 'error' = 'info') => {
+    setStatusHint(text);
+    setStatusType(type);
+    setTimeout(() => setStatusHint(''), 1500);
+  };
+
   const checkNetworkConnection = useCallback(async () => {
     setNetworkStatus('checking');
+    showStatus('正在检查网络连接...');
     
     // 首先检查 navigator.onLine
     if (!navigator.onLine) {
       setNetworkStatus('disconnected');
+      showStatus('网络连接不可用', 'error');
       return;
     }
     
@@ -81,11 +91,13 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
       
       clearTimeout(timeoutId);
       setNetworkStatus('connected');
+      showStatus('网络连接正常');
     } catch (error) {
       console.warn('[SetupStep2] 网络连接检测:', error);
       // 即使 fetch 失败，如果 navigator.onLine 为 true，也假设网络可用
       // 因为 no-cors 模式下可能会有各种原因导致失败
       setNetworkStatus('connected');
+      showStatus('网络连接正常');
     }
   }, []);
 
@@ -94,11 +106,13 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
    */
   const checkLoginStatus = useCallback(async () => {
     setCheckingAuth(true);
+    showStatus('正在检查登录状态...');
     try {
       await initAuthStore();
       const auth = await getCurrentAuth();
       if (auth.isLoggedIn) {
         setIsLoggedIn(true);
+        showStatus('已登录');
       }
     } catch (error) {
       console.error('[SetupStep2] 检查登录状态失败:', error);
@@ -130,9 +144,10 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
    */
   const handleSubmit = async (values: { username: string; password: string }) => {
     setLoading(true);
+    showStatus('正在登录...');
     try {
       await loginAndRegister(values.username, values.password);
-      message.success('登录成功');
+      showStatus('登录成功');
       
       // 登录成功后自动进入下一步
       await completeStep2();
@@ -141,6 +156,8 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
       // 错误已在 auth.ts 中处理
       console.error('[SetupStep2] 登录失败:', error);
       setLoading(false);
+      message.error('登录失败');
+      showStatus('登录失败', 'error');
     }
   };
 
@@ -149,6 +166,7 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
    */
   const handleContinue = async () => {
     try {
+      showStatus('正在进入下一步...');
       await completeStep2();
       onComplete();
     } catch (error) {
@@ -199,13 +217,12 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
     }
 
     return (
-      <Alert
-        message="网络连接正常"
-        type="success"
-        icon={<WifiOutlined />}
-        showIcon
-        style={{ marginBottom: 12 }}
-      />
+      <div className="network-compact">
+        <Space size={6}>
+          <WifiOutlined />
+          <Text type="secondary">网络连接正常</Text>
+        </Space>
+      </div>
     );
   };
 
@@ -213,16 +230,18 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
    * 渲染登录成功状态
    */
   const renderLoggedIn = () => (
-    <Result
-      icon={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
-      title="登录成功"
-      subTitle="您已成功登录，可以继续下一步"
-      extra={
-        <Button type="primary" size="middle" onClick={handleContinue}>
-          下一步
-        </Button>
-      }
-    />
+    <div className="logged-in-compact">
+      <Result
+        icon={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
+        title="登录成功"
+        subTitle="您已成功登录，可以继续下一步"
+        extra={
+          <Button type="primary" size="middle" onClick={handleContinue}>
+            下一步
+          </Button>
+        }
+      />
+    </div>
   );
 
   /**
@@ -232,6 +251,7 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
     <Form
       form={form}
       layout="vertical"
+      size="middle"
       onFinish={handleSubmit}
       initialValues={{ username: '', password: '' }}
     >
@@ -308,6 +328,15 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
 
       <Divider />
 
+      {statusHint && (
+        <Alert
+          message={statusHint}
+          type={statusType}
+          showIcon
+          className="step-hint"
+        />
+      )}
+
       {/* 网络权限检查 */}
       {!isLoggedIn && renderNetworkCheck()}
 
@@ -342,6 +371,40 @@ export default function SetupStep2({ onComplete }: SetupStep2Props) {
 
         .setup-step2 .ant-divider {
           margin: 12px 0;
+        }
+
+        .setup-step2 .ant-form-item-label > label {
+          font-size: 12px;
+        }
+
+        .setup-step2 .ant-form-item-label {
+          padding-bottom: 4px;
+        }
+
+        .setup-step2 .step-hint {
+          margin-bottom: 12px;
+          padding: 6px 10px;
+          font-size: 12px;
+        }
+
+        .setup-step2 .network-compact {
+          margin-bottom: 10px;
+          padding: 6px 8px;
+          background: #f6ffed;
+          border-radius: 6px;
+          font-size: 12px;
+        }
+
+        .setup-step2 .logged-in-compact .ant-result {
+          padding: 8px 0 0;
+        }
+
+        .setup-step2 .logged-in-compact .ant-result-title {
+          font-size: 16px;
+        }
+
+        .setup-step2 .logged-in-compact .ant-result-subtitle {
+          font-size: 12px;
         }
       `}</style>
     </div>

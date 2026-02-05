@@ -20,6 +20,7 @@ import {
   Divider,
   message,
   Tooltip,
+  Alert,
 } from 'antd';
 import {
   GlobalOutlined,
@@ -36,6 +37,9 @@ import {
   getStep1Config,
   selectDirectory,
   type Step1Config,
+  getRecentWorkspaces,
+  addRecentWorkspace,
+  clearRecentWorkspaces,
 } from '../services/setup';
 import { DEFAULT_SETUP_STATE } from '../services/store';
 
@@ -53,6 +57,15 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
   const [form] = Form.useForm<Step1Config>();
   const [loading, setLoading] = useState(false);
   const [selectingDir, setSelectingDir] = useState(false);
+  const [statusHint, setStatusHint] = useState<string>('');
+  const [statusType, setStatusType] = useState<'info' | 'error'>('info');
+  const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
+
+  const showStatus = (text: string, type: 'info' | 'error' = 'info') => {
+    setStatusHint(text);
+    setStatusType(type);
+    setTimeout(() => setStatusHint(''), 1500);
+  };
 
   /**
    * 加载已保存的配置
@@ -62,6 +75,8 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
       try {
         const config = await getStep1Config();
         form.setFieldsValue(config);
+        const recent = await getRecentWorkspaces();
+        setRecentWorkspaces(recent);
       } catch (error) {
         console.error('[SetupStep1] 加载配置失败:', error);
         // 使用默认值
@@ -82,15 +97,19 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
    */
   const handleSelectDir = async () => {
     setSelectingDir(true);
+    showStatus('正在打开目录选择器...');
     try {
       const dir = await selectDirectory();
       if (dir) {
         form.setFieldValue('workspaceDir', dir);
-        message.success('已选择目录');
+        showStatus('已选择目录');
+        await addRecentWorkspace(dir);
+        setRecentWorkspaces(await getRecentWorkspaces());
       }
     } catch (error) {
       console.error('[SetupStep1] 选择目录失败:', error);
       message.error('选择目录失败');
+      showStatus('选择目录失败', 'error');
     } finally {
       setSelectingDir(false);
     }
@@ -101,13 +120,19 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
    */
   const handleSubmit = async (values: Step1Config) => {
     setLoading(true);
+    showStatus('正在保存设置...');
     try {
       await saveStep1Config(values);
-      message.success('设置已保存');
+      showStatus('设置已保存');
+      if (values.workspaceDir) {
+        await addRecentWorkspace(values.workspaceDir);
+        setRecentWorkspaces(await getRecentWorkspaces());
+      }
       onComplete();
     } catch (error) {
       console.error('[SetupStep1] 保存配置失败:', error);
       message.error('保存配置失败');
+      showStatus('保存配置失败', 'error');
     } finally {
       setLoading(false);
     }
@@ -124,7 +149,7 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
       proxyPort: DEFAULT_SETUP_STATE.proxyPort,
       workspaceDir: '',
     });
-    message.info('已重置为默认值');
+    showStatus('已重置为默认值');
   };
 
   return (
@@ -141,9 +166,19 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
 
       <Divider />
 
+      {statusHint && (
+        <Alert
+          message={statusHint}
+          type={statusType}
+          showIcon
+          className="step-hint"
+        />
+      )}
+
       <Form
         form={form}
         layout="vertical"
+        size="middle"
         onFinish={handleSubmit}
         initialValues={{
           serverHost: DEFAULT_SETUP_STATE.serverHost,
@@ -184,7 +219,7 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
             端口配置
           </Text>
           
-          <Space wrap style={{ width: '100%' }}>
+          <Space wrap size={8} style={{ width: '100%' }}>
             {/* Agent 端口 */}
             <Form.Item
               name="agentPort"
@@ -199,7 +234,8 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
                 min={1}
                 max={65535}
                 placeholder="9086"
-                style={{ width: 150 }}
+                size="middle"
+                style={{ width: 130 }}
               />
             </Form.Item>
 
@@ -217,7 +253,8 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
                 min={1}
                 max={65535}
                 placeholder="60000"
-                style={{ width: 150 }}
+                size="middle"
+                style={{ width: 130 }}
               />
             </Form.Item>
 
@@ -235,7 +272,8 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
                 min={1}
                 max={65535}
                 placeholder="9099"
-                style={{ width: 150 }}
+                size="middle"
+                style={{ width: 130 }}
               />
             </Form.Item>
           </Space>
@@ -274,6 +312,38 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
             }
           />
         </Form.Item>
+
+        {recentWorkspaces.length > 0 && (
+          <div className="recent-workspaces">
+            <div className="recent-header">
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                最近使用
+              </Text>
+              <Button
+                type="link"
+                size="small"
+                onClick={async () => {
+                  await clearRecentWorkspaces();
+                  setRecentWorkspaces([]);
+                  showStatus('已清空最近记录');
+                }}
+              >
+                清除
+              </Button>
+            </div>
+            <Space wrap size={6} style={{ marginTop: 6 }}>
+              {recentWorkspaces.map(dir => (
+                <Button
+                  key={dir}
+                  size="small"
+                  onClick={() => form.setFieldValue('workspaceDir', dir)}
+                >
+                  {dir}
+                </Button>
+              ))}
+            </Space>
+          </div>
+        )}
 
         <Divider />
 
@@ -322,6 +392,37 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
 
         .setup-step1 .ant-divider {
           margin: 12px 0;
+        }
+
+        .setup-step1 .ant-form-item-label > label {
+          font-size: 12px;
+        }
+
+        .setup-step1 .ant-form-item-label {
+          padding-bottom: 4px;
+        }
+
+        .setup-step1 .step-hint {
+          margin-bottom: 12px;
+          padding: 6px 10px;
+          font-size: 12px;
+        }
+
+        .setup-step1 .recent-workspaces {
+          margin-top: -4px;
+          margin-bottom: 10px;
+        }
+
+        .setup-step1 .recent-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+
+        .setup-step1 .recent-workspaces .ant-btn {
+          max-width: 220px;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
       `}</style>
     </div>

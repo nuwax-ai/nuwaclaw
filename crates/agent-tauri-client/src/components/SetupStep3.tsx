@@ -99,6 +99,7 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
   
   // 应用目录
   const [appDir, setAppDir] = useState<string>('');
+  const [showAllDependencies, setShowAllDependencies] = useState(false);
 
   /**
    * 构建统一的依赖列表
@@ -230,7 +231,6 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
       if (allReady) {
         // 所有依赖都已安装，直接完成
         setInstallPhase('completed');
-        message.success('所有依赖已就绪，正在启动服务...');
         setTimeout(() => {
           onComplete();
         }, 1500);
@@ -313,7 +313,6 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
         // 没有需要安装的包
         setInstallProgress(100);
         setInstallPhase('completed');
-        message.success('所有依赖已就绪，正在启动服务...');
         setTimeout(() => {
           onComplete();
         }, 1500);
@@ -371,7 +370,6 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
       // 全部安装成功
       setInstallProgress(100);
       setInstallPhase('completed');
-      message.success('所有依赖安装完成，正在启动服务...');
       
       // 自动触发完成回调（调用 restart_all_services，然后跳转到客户端页面）
       setTimeout(() => {
@@ -494,14 +492,29 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
           </Tag>
         </Space>
       }
+      extra={
+        <Button
+          type="link"
+          size="small"
+          onClick={() => setShowAllDependencies(prev => !prev)}
+        >
+          {showAllDependencies ? '仅显示问题' : '展开全部'}
+        </Button>
+      }
       style={{ marginBottom: 12 }}
     >
       <List
         size="small"
-        dataSource={allDependencies}
+        dataSource={
+          showAllDependencies
+            ? allDependencies
+            : allDependencies.filter(item => item.status !== 'installed')
+        }
+        locale={{ emptyText: '暂无问题项' }}
         renderItem={(item) => {
           const isSystemDep = item.type === 'system';
           const needsAction = item.status === 'missing' || item.status === 'outdated';
+          const isProblem = item.status !== 'installed';
           
           return (
             <List.Item
@@ -542,26 +555,32 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
                   </Space>
                 }
                 description={
-                  <Space direction="vertical" size={2}>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {item.description}
-                      {item.requiredVersion && (
-                        <span> (要求 {item.requiredVersion})</span>
+                  isProblem ? (
+                    <Space direction="vertical" size={2}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {item.description}
+                        {item.requiredVersion && (
+                          <span> (要求 {item.requiredVersion})</span>
+                        )}
+                      </Text>
+                      {/* 系统依赖的安装命令 */}
+                      {isSystemDep && needsAction && item.installCommand && (
+                        <Text code copyable style={{ fontSize: 11 }}>
+                          {item.installCommand}
+                        </Text>
                       )}
+                      {/* 错误信息 */}
+                      {item.errorMessage && (
+                        <Text type="danger" style={{ fontSize: 12 }}>
+                          {item.errorMessage}
+                        </Text>
+                      )}
+                    </Space>
+                  ) : (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      已就绪
                     </Text>
-                    {/* 系统依赖的安装命令 */}
-                    {isSystemDep && needsAction && item.installCommand && (
-                      <Text code copyable style={{ fontSize: 11 }}>
-                        {item.installCommand}
-                      </Text>
-                    )}
-                    {/* 错误信息 */}
-                    {item.errorMessage && (
-                      <Text type="danger" style={{ fontSize: 12 }}>
-                        {item.errorMessage}
-                      </Text>
-                    )}
-                  </Space>
+                  )
                 }
               />
             </List.Item>
@@ -575,14 +594,19 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
    * 渲染安装进度
    */
   const renderInstallProgress = () => (
-    <div className="install-progress">
+    <div className="install-progress compact-status">
+      <Space size={8} align="center">
+        <Spin size="small" />
+        <Text>
+          {currentInstalling ? `正在安装 ${currentInstalling}` : '准备安装'}
+        </Text>
+      </Space>
       <Progress
+        size="small"
         percent={installProgress}
         status={installPhase === 'error' ? 'exception' : 'active'}
+        style={{ marginTop: 6 }}
       />
-      <Text style={{ marginTop: 8, display: 'block', textAlign: 'center' }}>
-        {currentInstalling ? `正在安装 ${currentInstalling}...` : '准备安装...'}
-      </Text>
     </div>
   );
 
@@ -593,9 +617,11 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
     // 检测中
     if (installPhase === 'checking') {
       return (
-        <div className="step-loading">
-          <Spin size="large" />
-          <Text style={{ marginTop: 16 }}>正在检测依赖环境...</Text>
+        <div className="compact-status">
+          <Space size={8} align="center">
+            <Spin size="small" />
+            <Text>正在检测依赖环境...</Text>
+          </Space>
         </div>
       );
     }
@@ -767,10 +793,18 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
         }
         
         .install-progress {
-          padding: 12px;
+          padding: 8px 10px;
           background: #f5f5f5;
           border-radius: 8px;
-          margin-top: 12px;
+          margin-top: 10px;
+        }
+
+        .compact-status {
+          padding: 8px 10px;
+          background: #f5f5f5;
+          border-radius: 8px;
+          margin-bottom: 12px;
+          font-size: 12px;
         }
         
         .step-actions {
