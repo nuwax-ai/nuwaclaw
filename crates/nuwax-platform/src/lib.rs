@@ -1,12 +1,14 @@
 //! 跨平台抽象层
 //!
-//! 提供统一的平台能力抽象：路径、自动启动、托盘、权限等
+//! 提供统一的平台能力抽象：路径、自动启动等
 //! 通过 trait 和 platform-specific 实现支持 macOS/Windows/Linux
+
+use thiserror::Error;
 
 pub mod paths;
 pub mod autostart;
-pub mod tray;
-pub mod permissions;
+// pub mod tray; // TODO: 托盘模块需要 Tauri 集成，暂时禁用
+// pub mod permissions; // 权限模块请使用 system-permissions crate
 
 /// 平台类型枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,10 +40,20 @@ pub trait PlatformModule {
     fn is_available(&self) -> bool;
 
     /// 初始化模块
-    fn initialize(&self) -> crate::Result<()> {
+    fn initialize(&self) -> Result<(), Error> {
         Ok(())
     }
 }
 
 /// 统一错误类型
-pub use crate::Error;
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("Platform error: {0}")]
+    Platform(String),
+
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Configuration error: {0}")]
+    Config(String),
+}

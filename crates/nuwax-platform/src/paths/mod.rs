@@ -10,6 +10,7 @@
 //! | Windows | %APPDATA%\nuwax-agent | %APPDATA%\nuwax-agent\logs | %LOCALAPPDATA%\nuwax-agent\cache | %APPDATA%\nuwax-agent |
 //! | Linux | ~/.config/nuwax-agent | ~/.config/nuwax-agent/logs | ~/.cache/nuwax-agent | ~/.local/share/nuwax-agent |
 
+use dirs::home_dir;
 use std::path::PathBuf;
 
 /// 应用标识符
@@ -47,7 +48,7 @@ impl PathProvider for PlatformPaths {
         match path_type {
             #[cfg(target_os = "macos")]
             PathType::Config => {
-                let mut path = home::home_dir().unwrap_or_default();
+                let mut path = home_dir().unwrap_or_default();
                 path.push("Library/Application Support/");
                 path.push(APP_ID);
                 path
@@ -87,7 +88,7 @@ impl PathProvider for PlatformPaths {
             // Cache paths
             #[cfg(target_os = "macos")]
             PathType::Cache => {
-                let mut path = home::home_dir().unwrap_or_default();
+                let mut path = home_dir().unwrap_or_default();
                 path.push("Library/Caches/");
                 path.push(APP_ID);
                 path
@@ -95,7 +96,7 @@ impl PathProvider for PlatformPaths {
 
             #[cfg(target_os = "windows")]
             PathType::Cache => {
-                let mut path = dirs::cache_dir().unwrap_or_default();
+                let mut path = cache_dir().unwrap_or_default();
                 path.push(APP_ID);
                 path
             }
@@ -124,7 +125,7 @@ impl PathProvider for PlatformPaths {
             // Runtime paths
             #[cfg(target_os = "macos")]
             PathType::Runtime => {
-                let mut path = home::home_dir().unwrap_or_default();
+                let mut path = home_dir().unwrap_or_default();
                 path.push("Library/Caches/");
                 path.push(APP_ID);
                 path.push("runtime");
@@ -155,7 +156,7 @@ impl PathProvider for PlatformPaths {
                     .ok()
                     .and_then(|p| p.parent().map(|p| p.to_path_buf()))
                     .unwrap_or_else(|| {
-                        let mut path = home::home_dir().unwrap_or_default();
+                        let mut path = home_dir().unwrap_or_default();
                         path.push(".cargo/bin");
                         path
                     })
