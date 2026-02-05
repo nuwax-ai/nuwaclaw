@@ -23,8 +23,8 @@
 ## 3. 命令命名规范
 
 - 命令命名采用 `commands::<domain>_<action>` 风格
-- `<domain>` 对应服务或业务模块，例如 `computer_agent`、`config`、`dependency`
-- `<action>` 为动词，尽量语义明确：`start`、`stop`、`restart`、`status`、`query`、`update`
+- `<domain>` 对应服务或业务模块，例如 `agent`、`computer_agent`、`dependency`、`file_server`
+- `<action>` 为动词或动宾短语，尽量语义明确：`start`、`stop`、`restart`、`status`、`query_version`
 
 ## 4. API 草稿（与服务同学沟通版）
 
@@ -33,7 +33,7 @@
 ### 4.1 Agent 服务
 
 - `commands::computer_agent_stop`
-- `commands::computer_agent_session_cancel`
+- `commands::computer_agent_cancel_session`
 - `commands::computer_agent_status`
 
 ### 4.2 配置
@@ -46,16 +46,22 @@
 当前依赖安装实现（除去系统级 Node/uv）走 **本地 npm 包安装**，真实包名如下：  
 `nuwax-file-server`、`nuwaxcode`、`claude-code-acp`。
 
-建议命令样例（以真实包名为准）：\n+\n+- `commands::install_dependency(\"nuwax-file-server\")`\n+- `commands::query_version(\"nuwaxcode\")`\n+- `commands::reinstall_dependency(\"claude-code-acp\")`
+建议命令样例（以真实包名为准，命名遵循 `<domain>_<action>`）：  
+- `commands::dependency_npm_install("nuwax-file-server")`  
+- `commands::dependency_npm_query_version("nuwaxcode")`  
+- `commands::dependency_npm_reinstall("claude-code-acp")`
 
 ### 4.4 服务重启
 
-- `commands::restart_nuwax-file-server()`
-- `commands::stop_nuwax-file-server()`
-- `commands::stop_rcoder()`
-- `commands::restart_rcoder()`
-- `commands::stop_all()`
-- `commands::restart_all()`
+- `commands::file_server_start()`
+- `commands::file_server_stop()`
+- `commands::file_server_restart()`
+- `commands::rcoder_start()`
+- `commands::rcoder_stop()`
+- `commands::rcoder_restart()`
+- `commands::services_stop_all()`
+- `commands::services_restart_all()`
+- `commands::services_status_all()`
 
 > 注：VNC 相关命令暂定为 TODO，后续补充。
 
@@ -67,28 +73,32 @@
 
 - `computer_agent_status`：查询运行状态
 - `computer_agent_stop`：停止 Agent
-- `computer_agent_session_cancel`：取消当前会话
+- `computer_agent_cancel_session`：取消当前会话
 - （可选补充）`computer_agent_start`
 - （可选补充）`computer_agent_logs` / `computer_agent_events`
 
 ### 5.2 配置域
 
-- `queryConfig`：读取配置
-- `updateConfig`：更新配置
-- （可选补充）`validateConfig`
+- 配置读写改为 **Tauri Store**（见 `docs/store-data-schema.md`）  
+- Rust 后端仅需读取或监听，无需 `command` 读写
 
 ### 5.3 依赖域
 
-- `install_dependency`：安装依赖
-- `query_version`：查询依赖版本
-- `reinstall_dependency`：重装依赖
-- （可选补充）`check_dependency`、`list_dependencies`
+- `dependency_list`：获取依赖列表
+- `dependency_summary`：依赖统计
+- `dependency_install`：安装依赖（通用）
+- `dependency_install_all`：安装全部缺失依赖（通用）
+- `dependency_uninstall`：卸载依赖（通用）
+- `dependency_check`：检查单个依赖（通用）
+- `dependency_npm_install`：安装 npm 依赖（本地包）
+- `dependency_npm_query_version`：查询 npm 依赖版本
+- `dependency_npm_reinstall`：重装 npm 依赖（本地包）
 
 ### 5.4 服务域
 
-- `restart_nuwax-file-server`、`stop_nuwax-file-server`
-- `restart_rcoder`、`stop_rcoder`
-- `restart_all`、`stop_all`
+- `file_server_start`、`file_server_stop`、`file_server_restart`
+- `rcoder_start`、`rcoder_stop`、`rcoder_restart`
+- `services_restart_all`、`services_stop_all`、`services_status_all`
 
 ### 5.5 VNC 域（预留）
 
@@ -116,19 +126,8 @@ interface CommandResult<T = any> {
 
 ## 7. 配置对象草案
 
-`updateConfig` / `queryConfig` 返回的配置对象建议包含：
-
-```ts
-interface AgentConfig {
-  serverHost: string;   // 服务域名
-  agentPort: number;    // Agent 服务端口
-  fileServerPort: number; // 文件服务端口
-  proxyPort: number;    // 代理端口
-  workspaceDir: string; // 工作区目录
-}
-```
-
-（后续可扩展：token、环境标识、日志级别等）
+配置结构以 `docs/store-data-schema.md` 为准，此处不再重复列举。  
+后续如需新增字段，优先在 Store Schema 中扩展并同步版本号。
 
 ## 8. 前端调用流程（建议）
 
@@ -141,10 +140,21 @@ interface AgentConfig {
 
 1. 命令命名需与 Rust `tauri::command` 同步，避免大小写不一致
 2. 依赖安装属于高权限操作，需明确安全限制
-3. `stop_all` / `restart_all` 影响范围大，需加确认提示
+3. `services_stop_all` / `services_restart_all` 影响范围大，需加确认提示
 4. 后续与服务团队协作时，需要统一数据结构版本
 
-## 10. 下一步建议
+## 10. 已实现命令（命名对齐说明）
+
+以下为当前 Rust 侧已实现的基础命令命名风格（节选），用于校验命名是否符合 `<domain>_<action>` 规范：
+
+- 权限：`permission_check`、`permission_request`、`permission_open_settings`、`permission_list`、`permission_monitor_start`、`permission_monitor_stop`
+- 依赖：`dependency_list`、`dependency_summary`、`dependency_install`、`dependency_install_all`、`dependency_uninstall`、`dependency_check`
+- npm 依赖：`dependency_npm_install`、`dependency_npm_query_version`、`dependency_npm_reinstall`
+- 服务：`file_server_start`、`file_server_stop`、`file_server_restart`、`rcoder_start`、`rcoder_stop`、`rcoder_restart`、`services_stop_all`、`services_restart_all`、`services_status_all`
+- lanproxy：`lanproxy_start`、`lanproxy_stop`、`lanproxy_restart`
+- 系统：`app_data_dir_get`、`dialog_select_directory`、`autolaunch_set`、`autolaunch_get`
+
+## 11. 下一步建议
 
 1. 与服务侧确认命令命名、参数、返回结构最终版
 2. 在 Rust 侧完成对应命令框架（仅接口，不含业务实现）

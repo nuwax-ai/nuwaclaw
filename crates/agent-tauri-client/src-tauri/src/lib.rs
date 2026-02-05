@@ -122,7 +122,7 @@ pub struct RequestResultDto {
 
 /// 检查权限状态
 #[tauri::command]
-async fn check_permission(
+async fn permission_check(
     state: State<'_, PermissionsState>,
     permission: String,
 ) -> Result<PermissionStateDto, String> {
@@ -139,7 +139,7 @@ async fn check_permission(
 
 /// 请求权限
 #[tauri::command]
-async fn request_permission(
+async fn permission_request(
     state: State<'_, PermissionsState>,
     permission: String,
     interactive: bool,
@@ -163,18 +163,18 @@ async fn request_permission(
 
 /// 打开系统设置
 #[tauri::command]
-async fn open_settings(
+async fn permission_open_settings(
     state: State<'_, PermissionsState>,
     permission: String,
 ) -> Result<(), String> {
     let perm = parse_permission(&permission)?;
     let manager = state.get_manager().await;
-    manager.open_settings(perm).await.map_err(|e| e.to_string())
+    manager.permission_open_settings(perm).await.map_err(|e| e.to_string())
 }
 
 /// 批量获取所有权限状态
 #[tauri::command]
-async fn get_all_permissions(
+async fn permission_list(
     state: State<'_, PermissionsState>,
 ) -> Result<Vec<PermissionStateDto>, String> {
     let manager = state.get_manager().await;
@@ -238,7 +238,7 @@ impl From<(SystemPermission, PermissionState)> for PermissionChangeEvent {
 
 /// 启动权限监控
 #[tauri::command]
-async fn start_permission_monitor(
+async fn permission_monitor_start(
     window: Window,
     monitor_state: State<'_, MonitorState>,
 ) -> Result<(), String> {
@@ -271,7 +271,7 @@ async fn start_permission_monitor(
 
 /// 停止权限监控
 #[tauri::command]
-async fn stop_permission_monitor(monitor_state: State<'_, MonitorState>) -> Result<(), String> {
+async fn permission_monitor_stop(monitor_state: State<'_, MonitorState>) -> Result<(), String> {
     // 获取监控器（如果存在）
     if let Some(monitor) = monitor_state.monitor.lock().await.as_ref() {
         monitor.stop().await;
@@ -286,7 +286,7 @@ async fn stop_permission_monitor(monitor_state: State<'_, MonitorState>) -> Resu
 }
 
 #[tauri::command]
-fn greet(name: &str) -> String {
+fn system_greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
@@ -328,7 +328,7 @@ impl From<&nuwax_agent_core::dependency::DependencyItem> for DependencyItemDto {
 
 /// 获取所有依赖列表
 #[tauri::command]
-async fn get_dependencies() -> Result<Vec<DependencyItemDto>, String> {
+async fn dependency_list() -> Result<Vec<DependencyItemDto>, String> {
     let manager = CoreDependencyManager::new();
     let dependencies = manager.get_all_dependencies().await;
     Ok(dependencies.iter().map(DependencyItemDto::from).collect())
@@ -336,7 +336,7 @@ async fn get_dependencies() -> Result<Vec<DependencyItemDto>, String> {
 
 /// 获取依赖统计
 #[tauri::command]
-async fn get_dependency_summary() -> Result<DependencySummaryDto, String> {
+async fn dependency_summary() -> Result<DependencySummaryDto, String> {
     let manager = CoreDependencyManager::new();
     let summary = manager.get_summary().await;
     Ok(DependencySummaryDto {
@@ -348,7 +348,7 @@ async fn get_dependency_summary() -> Result<DependencySummaryDto, String> {
 
 /// 安装指定依赖
 #[tauri::command]
-async fn install_dependency(name: String) -> Result<bool, String> {
+async fn dependency_install(name: String) -> Result<bool, String> {
     let manager = CoreDependencyManager::new();
     manager.install(&name).await.map_err(|e| format!("安装失败: {}", e))?;
     Ok(true)
@@ -356,7 +356,7 @@ async fn install_dependency(name: String) -> Result<bool, String> {
 
 /// 安装所有缺失依赖
 #[tauri::command]
-async fn install_all_dependencies() -> Result<bool, String> {
+async fn dependency_install_all() -> Result<bool, String> {
     let manager = CoreDependencyManager::new();
     manager.install_all_missing().await.map_err(|e| format!("安装失败: {}", e))?;
     Ok(true)
@@ -364,7 +364,7 @@ async fn install_all_dependencies() -> Result<bool, String> {
 
 /// 卸载指定依赖
 #[tauri::command]
-async fn uninstall_dependency(name: String) -> Result<bool, String> {
+async fn dependency_uninstall(name: String) -> Result<bool, String> {
     let manager = CoreDependencyManager::new();
     manager.uninstall(&name).await.map_err(|e| format!("卸载失败: {}", e))?;
     Ok(true)
@@ -372,7 +372,7 @@ async fn uninstall_dependency(name: String) -> Result<bool, String> {
 
 /// 检查单个依赖状态
 #[tauri::command]
-async fn check_dependency(name: String) -> Result<Option<DependencyItemDto>, String> {
+async fn dependency_check(name: String) -> Result<Option<DependencyItemDto>, String> {
     let manager = CoreDependencyManager::new();
     match manager.check(&name).await {
         Some(item) => Ok(Some(DependencyItemDto::from(&item))),
@@ -402,7 +402,7 @@ fn read_store_port(app: &tauri::AppHandle, key: &str) -> Option<u16> {
 /// - setup.proxy_port: 服务器端口
 /// - auth.saved_key: 客户端密钥
 #[tauri::command]
-async fn start_nuwax_lanproxy(
+async fn lanproxy_start(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
@@ -427,7 +427,7 @@ async fn start_nuwax_lanproxy(
 
 /// 停止 nuwax-lanproxy 客户端
 #[tauri::command]
-async fn stop_nuwax_lanproxy(
+async fn lanproxy_stop(
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
     let manager = state.manager.lock().await;
@@ -442,7 +442,7 @@ async fn stop_nuwax_lanproxy(
 /// - setup.proxy_port: 服务器端口
 /// - auth.saved_key: 客户端密钥
 #[tauri::command]
-async fn restart_nuwax_lanproxy(
+async fn lanproxy_restart(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
@@ -454,7 +454,7 @@ async fn restart_nuwax_lanproxy(
     // 等待端口释放
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     // 重新启动（使用相同的 store 配置）
-    start_nuwax_lanproxy(app, state).await?;
+    lanproxy_start(app, state).await?;
     Ok(true)
 }
 
@@ -500,25 +500,25 @@ impl Default for ServiceManagerState {
 
 /// 启动 nuwax-file-server
 #[tauri::command]
-async fn start_nuwax_file_server(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
+async fn file_server_start(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
     let manager = state.manager.lock().await;
-    manager.start_nuwax_file_server().await?;
+    manager.file_server_start().await?;
     Ok(true)
 }
 
 /// 停止 nuwax-file-server
 #[tauri::command]
-async fn stop_nuwax_file_server(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
+async fn file_server_stop(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
     let manager = state.manager.lock().await;
-    manager.stop_nuwax_file_server().await?;
+    manager.file_server_stop().await?;
     Ok(true)
 }
 
 /// 重启 nuwax-file-server
 #[tauri::command]
-async fn restart_nuwax_file_server(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
+async fn file_server_restart(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
     let manager = state.manager.lock().await;
-    manager.restart_nuwax_file_server().await?;
+    manager.file_server_restart().await?;
     Ok(true)
 }
 
@@ -527,7 +527,7 @@ async fn restart_nuwax_file_server(state: tauri::State<'_, ServiceManagerState>)
 /// 从 Tauri store 读取配置:
 /// - setup.agent_port: HTTP Server 端口 (默认 9086)
 #[tauri::command]
-async fn start_rcoder(
+async fn rcoder_start(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
@@ -536,15 +536,15 @@ async fn start_rcoder(
         .ok_or_else(|| "配置缺失: setup.agent_port (Agent 服务端口)".to_string())?;
 
     let manager = state.manager.lock().await;
-    manager.start_rcoder(port, Arc::new(MinimalAgentRunnerApi)).await?;
+    manager.rcoder_start(port, Arc::new(MinimalAgentRunnerApi)).await?;
     Ok(true)
 }
 
 /// 停止 HTTP Server (rcoder)
 #[tauri::command]
-async fn stop_rcoder(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
+async fn rcoder_stop(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
     let manager = state.manager.lock().await;
-    manager.stop_rcoder().await?;
+    manager.rcoder_stop().await?;
     Ok(true)
 }
 
@@ -553,25 +553,25 @@ async fn stop_rcoder(state: tauri::State<'_, ServiceManagerState>) -> Result<boo
 /// 从 Tauri store 读取配置:
 /// - setup.agent_port: HTTP Server 端口 (默认 9086)
 #[tauri::command]
-async fn restart_rcoder(
+async fn rcoder_restart(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
     // 先停止
     {
         let manager = state.manager.lock().await;
-        manager.stop_rcoder().await?;
+        manager.rcoder_stop().await?;
     }
     // 等待端口释放
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     // 重新启动
-    start_rcoder(app, state).await?;
+    rcoder_start(app, state).await?;
     Ok(true)
 }
 
 /// 停止所有服务
 #[tauri::command]
-async fn stop_all_services(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
+async fn services_stop_all(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
     let manager = state.manager.lock().await;
     manager.stop_all().await?;
     Ok(true)
@@ -587,7 +587,7 @@ async fn stop_all_services(state: tauri::State<'_, ServiceManagerState>) -> Resu
 /// - auth.saved_key: 客户端密钥
 /// - setup.file_server_port: 文件服务端口 (默认 60000)
 #[tauri::command]
-async fn restart_all_services(
+async fn services_restart_all(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
@@ -608,13 +608,13 @@ async fn restart_all_services(
         let manager = state.manager.lock().await;
         let port = read_store_port(&app, "setup.agent_port")
             .ok_or_else(|| "配置缺失: setup.agent_port (Agent 服务端口)".to_string())?;
-        manager.start_rcoder(port, Arc::new(MinimalAgentRunnerApi)).await?;
+        manager.rcoder_start(port, Arc::new(MinimalAgentRunnerApi)).await?;
     }
 
     // file_server
     {
         let manager = state.manager.lock().await;
-        manager.start_nuwax_file_server().await?;
+        manager.file_server_start().await?;
     }
 
     // lanproxy - 需要读取配置并调用 start_lanproxy_with_config
@@ -642,7 +642,7 @@ async fn restart_all_services(
 
 /// 获取所有服务状态
 #[tauri::command]
-async fn get_all_services_status(state: tauri::State<'_, ServiceManagerState>) -> Result<Vec<ServiceInfoDto>, String> {
+async fn services_status_all(state: tauri::State<'_, ServiceManagerState>) -> Result<Vec<ServiceInfoDto>, String> {
     let manager = state.manager.lock().await;
     let statuses = manager.get_all_status().await;
     Ok(statuses.into_iter().map(|s| s.into()).collect())
@@ -652,7 +652,7 @@ async fn get_all_services_status(state: tauri::State<'_, ServiceManagerState>) -
 
 /// 安装 npm 依赖
 #[tauri::command]
-async fn install_npm_dependency(name: String) -> Result<bool, String> {
+async fn dependency_npm_install(name: String) -> Result<bool, String> {
     let manager = CoreDependencyManager::new();
     manager.install(&name).await.map_err(|e| format!("安装失败: {}", e))?;
     Ok(true)
@@ -660,7 +660,7 @@ async fn install_npm_dependency(name: String) -> Result<bool, String> {
 
 /// 查询 npm 依赖版本
 #[tauri::command]
-async fn query_npm_version(name: String) -> Result<Option<String>, String> {
+async fn dependency_npm_query_version(name: String) -> Result<Option<String>, String> {
     let manager = CoreDependencyManager::new();
     match manager.check(&name).await {
         Some(item) => Ok(item.version),
@@ -670,7 +670,7 @@ async fn query_npm_version(name: String) -> Result<Option<String>, String> {
 
 /// 重新安装 npm 依赖
 #[tauri::command]
-async fn reinstall_npm_dependency(name: String) -> Result<bool, String> {
+async fn dependency_npm_reinstall(name: String) -> Result<bool, String> {
     let manager = CoreDependencyManager::new();
     manager.uninstall(&name).await.map_err(|e| format!("卸载失败: {}", e))?;
     manager.install(&name).await.map_err(|e| format!("安装失败: {}", e))?;
@@ -712,7 +712,7 @@ pub struct InstallResult {
 
 /// 获取应用数据目录路径
 #[tauri::command]
-fn get_app_data_dir(app: tauri::AppHandle) -> Result<String, String> {
+fn app_data_dir_get(app: tauri::AppHandle) -> Result<String, String> {
     let path = app.path().app_data_dir()
         .map_err(|e| e.to_string())?;
 
@@ -727,8 +727,8 @@ fn get_app_data_dir(app: tauri::AppHandle) -> Result<String, String> {
 
 /// 初始化本地 npm 环境（创建 package.json）
 #[tauri::command]
-async fn init_local_npm_env(app: tauri::AppHandle) -> Result<bool, String> {
-    let app_dir = get_app_data_dir(app)?;
+async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, String> {
+    let app_dir = app_data_dir_get(app)?;
     let package_json_path = std::path::Path::new(&app_dir).join("package.json");
 
     // 检查是否已存在
@@ -752,7 +752,7 @@ async fn init_local_npm_env(app: tauri::AppHandle) -> Result<bool, String> {
 
 /// 检测 Node.js 版本
 #[tauri::command]
-async fn detect_node_version() -> Result<NodeVersionResult, String> {
+async fn dependency_node_detect() -> Result<NodeVersionResult, String> {
     let output = Command::new("node")
         .arg("--version")
         .output();
@@ -793,7 +793,7 @@ pub struct UvVersionResult {
 /// 检测 uv 版本
 /// uv 是高性能的 Python 包管理器
 #[tauri::command]
-async fn detect_uv_version() -> Result<UvVersionResult, String> {
+async fn dependency_uv_detect() -> Result<UvVersionResult, String> {
     let output = Command::new("uv")
         .arg("--version")
         .output();
@@ -833,11 +833,11 @@ async fn detect_uv_version() -> Result<UvVersionResult, String> {
 
 /// 检测本地 npm 包是否已安装
 #[tauri::command]
-async fn check_local_npm_package(
+async fn dependency_local_check(
     app: tauri::AppHandle,
     package_name: String,
 ) -> Result<NpmPackageResult, String> {
-    let app_dir = get_app_data_dir(app)?;
+    let app_dir = app_data_dir_get(app)?;
     let node_modules = std::path::Path::new(&app_dir).join("node_modules");
     let package_dir = node_modules.join(&package_name);
 
@@ -876,15 +876,15 @@ async fn check_local_npm_package(
 
 /// 安装 npm 包到本地目录（使用 npmmirror）
 #[tauri::command]
-async fn install_local_npm_package(
+async fn dependency_local_install(
     app: tauri::AppHandle,
     package_name: String,
 ) -> Result<InstallResult, String> {
-    let app_dir = get_app_data_dir(app.clone())?;
+    let app_dir = app_data_dir_get(app.clone())?;
     let registry = "https://registry.npmmirror.com/";
 
     // 确保 npm 环境已初始化
-    init_local_npm_env(app.clone()).await?;
+    dependency_local_env_init(app.clone()).await?;
 
     // 执行 npm install
     let output = Command::new("npm")
@@ -899,7 +899,7 @@ async fn install_local_npm_package(
 
     if output.status.success() {
         // 获取安装的版本
-        let result = check_local_npm_package(app, package_name.clone()).await?;
+        let result = dependency_local_check(app, package_name.clone()).await?;
 
         Ok(InstallResult {
             success: true,
@@ -981,15 +981,15 @@ fn create_auto_launch(app: &tauri::AppHandle) -> Result<auto_launch::AutoLaunch,
 
 /// 设置开机自启动
 #[tauri::command]
-async fn set_auto_launch(app: tauri::AppHandle, enabled: bool) -> Result<bool, String> {
+async fn autolaunch_set(app: tauri::AppHandle, enabled: bool) -> Result<bool, String> {
     let auto_launch = create_auto_launch(&app)?;
 
     if enabled {
         auto_launch.enable().map_err(|e| format!("启用开机自启动失败: {}", e))?;
-        log::info!("[set_auto_launch] 已启用开机自启动");
+        log::info!("[autolaunch_set] 已启用开机自启动");
     } else {
         auto_launch.disable().map_err(|e| format!("禁用开机自启动失败: {}", e))?;
-        log::info!("[set_auto_launch] 已禁用开机自启动");
+        log::info!("[autolaunch_set] 已禁用开机自启动");
     }
 
     Ok(enabled)
@@ -997,16 +997,16 @@ async fn set_auto_launch(app: tauri::AppHandle, enabled: bool) -> Result<bool, S
 
 /// 获取开机自启动状态
 #[tauri::command]
-async fn get_auto_launch(app: tauri::AppHandle) -> Result<bool, String> {
+async fn autolaunch_get(app: tauri::AppHandle) -> Result<bool, String> {
     let auto_launch = create_auto_launch(&app)?;
     let enabled = auto_launch.is_enabled().map_err(|e| format!("获取开机自启动状态失败: {}", e))?;
-    log::info!("[get_auto_launch] 当前状态: {}", enabled);
+    log::info!("[autolaunch_get] 当前状态: {}", enabled);
     Ok(enabled)
 }
 
 /// 选择目录对话框
 #[tauri::command]
-async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
+async fn dialog_select_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
     use tokio::sync::oneshot;
 
@@ -1093,49 +1093,49 @@ pub fn run() {
         .manage(MonitorState::default())
         .manage(ServiceManagerState::default())
         .invoke_handler(tauri::generate_handler![
-            greet,
-            check_permission,
-            request_permission,
-            open_settings,
-            get_all_permissions,
-            start_permission_monitor,
-            stop_permission_monitor,
+            system_greet,
+            permission_check,
+            permission_request,
+            permission_open_settings,
+            permission_list,
+            permission_monitor_start,
+            permission_monitor_stop,
             // 依赖管理命令
-            get_dependencies,
-            get_dependency_summary,
-            install_dependency,
-            install_all_dependencies,
-            uninstall_dependency,
-            check_dependency,
+            dependency_list,
+            dependency_summary,
+            dependency_install,
+            dependency_install_all,
+            dependency_uninstall,
+            dependency_check,
             // nuwax-lanproxy 命令
-            start_nuwax_lanproxy,
-            stop_nuwax_lanproxy,
-            restart_nuwax_lanproxy,
+            lanproxy_start,
+            lanproxy_stop,
+            lanproxy_restart,
             // 服务管理命令
-            start_nuwax_file_server,
-            stop_nuwax_file_server,
-            restart_nuwax_file_server,
-            start_rcoder,
-            stop_rcoder,
-            restart_rcoder,
-            stop_all_services,
-            restart_all_services,
-            get_all_services_status,
+            file_server_start,
+            file_server_stop,
+            file_server_restart,
+            rcoder_start,
+            rcoder_stop,
+            rcoder_restart,
+            services_stop_all,
+            services_restart_all,
+            services_status_all,
             // npm 依赖管理命令
-            install_npm_dependency,
-            query_npm_version,
-            reinstall_npm_dependency,
+            dependency_npm_install,
+            dependency_npm_query_version,
+            dependency_npm_reinstall,
             // 初始化向导命令
-            get_app_data_dir,
-            init_local_npm_env,
-            detect_node_version,
-            detect_uv_version,
-            check_local_npm_package,
-            install_local_npm_package,
-            select_directory,
+            app_data_dir_get,
+            dependency_local_env_init,
+            dependency_node_detect,
+            dependency_uv_detect,
+            dependency_local_check,
+            dependency_local_install,
+            dialog_select_directory,
             // 开机自启动命令
-            set_auto_launch,
-            get_auto_launch,
+            autolaunch_set,
+            autolaunch_get,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

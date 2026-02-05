@@ -149,7 +149,7 @@ class DependencyService {
 
     try {
       // 调用 Rust 后端
-      const deps = await invoke<any[]>('get_dependencies');
+      const deps = await invoke<any[]>('dependency_list');
       return deps.map(this.mapDependencyDto);
     } catch (error) {
       console.error('获取依赖列表失败，使用模拟数据:', error);
@@ -167,7 +167,7 @@ class DependencyService {
     }
 
     try {
-      const summary = await invoke<any>('get_dependency_summary');
+      const summary = await invoke<any>('dependency_summary');
       return {
         total: summary.total,
         installed: summary.installed,
@@ -187,7 +187,7 @@ class DependencyService {
 
     try {
       if (!this.useMockData) {
-        await invoke('install_dependency', { name });
+        await invoke('dependency_install', { name });
       } else {
         // 模拟安装
         await this.delay(2000);
@@ -215,7 +215,7 @@ class DependencyService {
 
     try {
       if (!this.useMockData) {
-        await invoke('install_all_dependencies');
+        await invoke('dependency_install_all');
       } else {
         await this.delay(3000);
       }
@@ -236,7 +236,7 @@ class DependencyService {
 
     try {
       if (!this.useMockData) {
-        await invoke('uninstall_dependency', { name });
+        await invoke('dependency_uninstall', { name });
       } else {
         await this.delay(1500);
       }
@@ -259,7 +259,7 @@ class DependencyService {
     }
 
     try {
-      const result = await invoke<any>('check_dependency', { name });
+      const result = await invoke<any>('dependency_check', { name });
       return result ? this.mapDependencyDto(result) : null;
     } catch (error) {
       console.error('检查依赖失败:', error);
@@ -458,7 +458,7 @@ export interface InstallResult {
  */
 export async function getAppDataDir(): Promise<string> {
   try {
-    return await invoke<string>('get_app_data_dir');
+    return await invoke<string>('app_data_dir_get');
   } catch (error) {
     console.error('[Dependencies] 获取应用数据目录失败:', error);
     throw error;
@@ -480,7 +480,7 @@ export async function getNodeModulesDir(): Promise<string> {
  */
 export async function initLocalNpmEnv(): Promise<boolean> {
   try {
-    return await invoke<boolean>('init_local_npm_env');
+    return await invoke<boolean>('dependency_local_env_init');
   } catch (error) {
     console.error('[Dependencies] 初始化 npm 环境失败:', error);
     throw error;
@@ -493,7 +493,7 @@ export async function initLocalNpmEnv(): Promise<boolean> {
  */
 export async function checkNodeVersion(): Promise<NodeVersionResult> {
   try {
-    const result = await invoke<NodeVersionResult>('detect_node_version');
+    const result = await invoke<NodeVersionResult>('dependency_node_detect');
     console.log('[Dependencies] Node.js 检测结果:', result);
     return result;
   } catch (error) {
@@ -511,7 +511,7 @@ export async function checkNodeVersion(): Promise<NodeVersionResult> {
  */
 export async function checkUvVersion(): Promise<UvVersionResult> {
   try {
-    const result = await invoke<UvVersionResult>('detect_uv_version');
+    const result = await invoke<UvVersionResult>('dependency_uv_detect');
     console.log('[Dependencies] uv 检测结果:', result);
     return result;
   } catch (error) {
@@ -530,7 +530,7 @@ export async function checkUvVersion(): Promise<UvVersionResult> {
  */
 export async function checkLocalNpmPackage(packageName: string): Promise<NpmPackageResult> {
   try {
-    const result = await invoke<NpmPackageResult>('check_local_npm_package', { packageName });
+    const result = await invoke<NpmPackageResult>('dependency_local_check', { packageName });
     console.log(`[Dependencies] ${packageName} 检测结果:`, result);
     return result;
   } catch (error) {
@@ -549,7 +549,7 @@ export async function checkLocalNpmPackage(packageName: string): Promise<NpmPack
 export async function installLocalNpmPackage(packageName: string): Promise<InstallResult> {
   try {
     console.log(`[Dependencies] 开始安装 ${packageName}...`);
-    const result = await invoke<InstallResult>('install_local_npm_package', { packageName });
+    const result = await invoke<InstallResult>('dependency_local_install', { packageName });
     
     if (result.success) {
       console.log(`[Dependencies] ${packageName} 安装成功:`, result);
@@ -694,7 +694,7 @@ export async function installAllRequiredPackages(
  */
 export async function restartAllServices(): Promise<void> {
   try {
-    await invoke('restart_all_services');
+    await invoke('services_restart_all');
     console.log('[Dependencies] 服务启动命令已发送');
   } catch (error) {
     console.error('[Dependencies] 重启服务失败:', error);

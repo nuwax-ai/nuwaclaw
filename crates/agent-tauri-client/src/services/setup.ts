@@ -179,7 +179,7 @@ export async function resetSetup(): Promise<void> {
  */
 export async function getAppDataDir(): Promise<string> {
   try {
-    const dir = await invoke<string>('get_app_data_dir');
+    const dir = await invoke<string>('app_data_dir_get');
     return dir;
   } catch (error) {
     console.error('[Setup] 获取应用数据目录失败:', error);
@@ -193,7 +193,7 @@ export async function getAppDataDir(): Promise<string> {
  */
 export async function selectDirectory(): Promise<string | null> {
   try {
-    const dir = await invoke<string | null>('select_directory');
+    const dir = await invoke<string | null>('dialog_select_directory');
     return dir;
   } catch (error) {
     console.error('[Setup] 选择目录失败:', error);

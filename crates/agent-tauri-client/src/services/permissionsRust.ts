@@ -75,7 +75,7 @@ const PERMISSION_MAPPING: Record<string, string> = {
 export async function checkPermission(permissionId: string): Promise<PermissionState> {
   const rustPerm = PERMISSION_MAPPING[permissionId] || permissionId;
   try {
-    const result = await invoke<PermissionState>('check_permission', {
+    const result = await invoke<PermissionState>('permission_check', {
       permission: rustPerm,
     });
     return result;
@@ -95,7 +95,7 @@ export async function checkPermission(permissionId: string): Promise<PermissionS
  */
 export async function checkAllPermissions(): Promise<PermissionState[]> {
   try {
-    const results = await invoke<PermissionState[]>('get_all_permissions');
+    const results = await invoke<PermissionState[]>('permission_list');
     return results;
   } catch (error) {
     console.error('Failed to get all permissions:', error);
@@ -112,7 +112,7 @@ export async function requestPermission(
 ): Promise<RequestResult> {
   const rustPerm = PERMISSION_MAPPING[permissionId] || permissionId;
   try {
-    const result = await invoke<RequestResult>('request_permission', {
+    const result = await invoke<RequestResult>('permission_request', {
       permission: rustPerm,
       interactive,
     });
@@ -135,7 +135,7 @@ export async function requestPermission(
 export async function openSystemSettings(permissionId: string): Promise<boolean> {
   const rustPerm = PERMISSION_MAPPING[permissionId] || permissionId;
   try {
-    await invoke('open_settings', { permission: rustPerm });
+    await invoke('permission_open_settings', { permission: rustPerm });
     return true;
   } catch (error) {
     console.error(`Failed to open system settings for ${permissionId}:`, error);
@@ -199,7 +199,7 @@ export interface PermissionChangeEvent {
  */
 export async function startPermissionMonitor(): Promise<void> {
   try {
-    await invoke('start_permission_monitor');
+    await invoke('permission_monitor_start');
   } catch (error) {
     console.error('Failed to start permission monitor:', error);
     throw error;
@@ -211,7 +211,7 @@ export async function startPermissionMonitor(): Promise<void> {
  */
 export async function stopPermissionMonitor(): Promise<void> {
   try {
-    await invoke('stop_permission_monitor');
+    await invoke('permission_monitor_stop');
   } catch (error) {
     console.error('Failed to stop permission monitor:', error);
   }

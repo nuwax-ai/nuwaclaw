@@ -82,7 +82,7 @@ export default function SettingsPage() {
    */
   const loadAutoLaunchState = useCallback(async () => {
     try {
-      const enabled = await invoke<boolean>('get_auto_launch');
+      const enabled = await invoke<boolean>('autolaunch_get');
       setAutoLaunch(enabled);
     } catch (error) {
       console.error('获取开机自启动状态失败:', error);
@@ -170,7 +170,7 @@ export default function SettingsPage() {
   const handleAutoLaunchChange = async (checked: boolean) => {
     try {
       // 调用 Tauri 命令设置开机自启动
-      await invoke('set_auto_launch', { enabled: checked });
+      await invoke('autolaunch_set', { enabled: checked });
       setAutoLaunch(checked);
       message.success(checked ? '已开启开机自启动' : '已关闭开机自启动');
     } catch (error) {
