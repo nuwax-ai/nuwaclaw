@@ -44,8 +44,9 @@ import {
   AboutPage,
 } from './pages';
 import { initConfigStore } from './services/config';
-import { initAuthStore } from './services/auth';
+import { initAuthStore, getSavedKey, syncConfigToServer } from './services/auth';
 import { isSetupCompleted } from './services/setup';
+import { restartAllServices } from './services/dependencies';
 
 // Tab 类型定义
 type TabType = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'about';
@@ -121,6 +122,41 @@ function App() {
     };
     init();
   }, [setupCompleted]);
+
+  // ============================================
+  // 自动重连：应用重新打开时，如有 savedKey 则自动调用 reg 并启动服务
+  // ============================================
+  useEffect(() => {
+    // 必须在初始化完成且 store 已初始化后才执行
+    if (setupCompleted !== true || !storeInitialized) {
+      return;
+    }
+
+    const autoReconnect = async () => {
+      try {
+        const savedKey = await getSavedKey();
+        if (savedKey) {
+          console.log('[App] 检测到 savedKey，自动重连...');
+          // 调用 reg 接口（传入 savedKey）
+          const result = await syncConfigToServer();
+          if (result) {
+            console.log('[App] 重连成功，启动服务...');
+            await restartAllServices();
+            // 更新在线状态
+            setOnlineStatus(result.online);
+            message.success('服务已自动启动');
+          }
+        } else {
+          console.log('[App] 未检测到 savedKey，跳过自动重连');
+        }
+      } catch (error) {
+        console.error('[App] 自动重连失败:', error);
+        // 自动重连失败不阻塞用户使用，仅记录错误
+      }
+    };
+
+    autoReconnect();
+  }, [setupCompleted, storeInitialized]);
 
   // ============================================
   // 状态监听

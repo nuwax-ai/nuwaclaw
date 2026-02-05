@@ -39,6 +39,7 @@ import {
   initLocalNpmEnv,
   checkLocalNpmPackage,
   installLocalNpmPackage,
+  restartAllServices,
   type LocalDependencyItem,
   type NodeVersionResult,
   type UvVersionResult,
@@ -125,6 +126,15 @@ export default function DependenciesPage() {
             : d
         ));
         message.success(`${displayName} 安装成功`);
+        
+        // 安装成功后重启服务
+        try {
+          await restartAllServices();
+          message.success('服务已重启');
+        } catch (restartError) {
+          console.error('[DependenciesPage] 重启服务失败:', restartError);
+          message.warning('依赖安装成功，但服务重启失败');
+        }
       } else {
         // 更新状态为 error
         setLocalDeps(prev => prev.map(d => 
@@ -200,6 +210,15 @@ export default function DependenciesPage() {
       }
       
       message.success('依赖安装完成');
+      
+      // 所有安装完成后重启服务
+      try {
+        await restartAllServices();
+        message.success('服务已重启');
+      } catch (restartError) {
+        console.error('[DependenciesPage] 重启服务失败:', restartError);
+        message.warning('依赖安装成功，但服务重启失败');
+      }
     } catch (error) {
       message.error(`安装失败: ${error}`);
     } finally {

@@ -611,10 +611,12 @@ async fn services_restart_all(
         manager.rcoder_start(port, Arc::new(MinimalAgentRunnerApi)).await?;
     }
 
-    // file_server
+    // file_server - 读取端口配置
     {
+        let port = read_store_port(&app, "setup.file_server_port")
+            .unwrap_or(60000); // 默认端口 60000
         let manager = state.manager.lock().await;
-        manager.file_server_start().await?;
+        manager.file_server_start_with_port(port).await?;
     }
 
     // lanproxy - 需要读取配置并调用 lanproxy_start_with_config
@@ -1092,6 +1094,24 @@ pub fn run() {
         .manage(PermissionsState::default())
         .manage(MonitorState::default())
         .manage(ServiceManagerState::default())
+        // 窗口关闭事件处理：在应用关闭前停止所有服务
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                info!("Window close requested, stopping all services...");
+                let app = window.app_handle();
+                let state = app.state::<ServiceManagerState>();
+                
+                // 使用 block_on 在同步上下文中执行异步操作
+                tauri::async_runtime::block_on(async {
+                    let manager = state.manager.lock().await;
+                    if let Err(e) = manager.services_stop_all().await {
+                        error!("Failed to stop services on close: {}", e);
+                    } else {
+                        info!("All services stopped before app close");
+                    }
+                });
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             system_greet,
             permission_check,

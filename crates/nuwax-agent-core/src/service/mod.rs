@@ -192,6 +192,44 @@ impl ServiceManager {
         self.file_server_start().await
     }
 
+    /// 使用指定端口启动 nuwax-file-server
+    ///
+    /// 该方法允许从外部传入端口参数，用于支持从 Tauri Store 动态读取端口配置
+    ///
+    /// # Arguments
+    /// * `port` - 文件服务端口号
+    pub async fn file_server_start_with_port(&self, port: u16) -> Result<(), String> {
+        info!("Starting nuwax-file-server on port {}...", port);
+
+        let mut cmd = Command::new("nuwax-file-server");
+        cmd
+            .arg("start")
+            .arg("--env")
+            .arg(&self.config.env)
+            .arg("--port")
+            .arg(port.to_string())
+            .arg(format!("INIT_PROJECT_NAME={}", &self.config.init_project_name))
+            .arg(format!("INIT_PROJECT_DIR={}", &self.config.init_project_dir))
+            .arg(format!("UPLOAD_PROJECT_DIR={}", &self.config.upload_project_dir))
+            .arg(format!("PROJECT_SOURCE_DIR={}", &self.config.project_source_dir))
+            .arg(format!("DIST_TARGET_DIR={}", &self.config.dist_target_dir))
+            .arg(format!("LOG_BASE_DIR={}", &self.config.log_base_dir))
+            .arg(format!("COMPUTER_WORKSPACE_DIR={}", &self.config.computer_workspace_dir))
+            .arg(format!("COMPUTER_LOG_DIR={}", &self.config.computer_log_dir))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to start nuwax-file-server on port {}: {}", port, e))?;
+
+        let mut guard = self.nuwax_file_server.lock().await;
+        *guard = Some(child);
+
+        info!("nuwax-file-server started successfully on port {}", port);
+        Ok(())
+    }
+
     /// 启动 nuwax-lanproxy
     ///
     /// 使用 process_wrap 进程组方式启动，确保子进程不会成为僵尸进程
