@@ -3,6 +3,7 @@
  * 
  * 功能：
  * - 显示 Node.js 状态
+ * - 显示 uv 状态
  * - 显示本地 npm 包列表
  * - 安装/管理 npm 包
  */
@@ -17,30 +18,30 @@ import {
   Alert,
   Spin,
   Divider,
-  Avatar,
   message,
 } from 'antd';
 import {
   CodeOutlined,
-  CloudServerOutlined,
-  FolderOutlined,
   CloudDownloadOutlined,
   ReloadOutlined,
   CheckCircleOutlined,
   ExclamationCircleOutlined,
   LoadingOutlined,
   CloseCircleOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { Typography } from 'antd';
 import {
   DependencyStatus,
   checkNodeVersion,
+  checkUvVersion,
   checkAllSetupDependencies,
   initLocalNpmEnv,
   checkLocalNpmPackage,
   installLocalNpmPackage,
   type LocalDependencyItem,
   type NodeVersionResult,
+  type UvVersionResult,
 } from '../services/dependencies';
 
 const { Text } = Typography;
@@ -51,6 +52,8 @@ const { Text } = Typography;
 export default function DependenciesPage() {
   // Node.js 状态
   const [nodeResult, setNodeResult] = useState<NodeVersionResult | null>(null);
+  // uv 状态
+  const [uvResult, setUvResult] = useState<UvVersionResult | null>(null);
   // 本地依赖列表
   const [localDeps, setLocalDeps] = useState<LocalDependencyItem[]>([]);
   // 加载状态
@@ -61,14 +64,18 @@ export default function DependenciesPage() {
   const [currentInstallingDep, setCurrentInstallingDep] = useState<string>('');
 
   /**
-   * 加载依赖数据（Node.js + npm 包）
+   * 加载依赖数据（Node.js + uv + npm 包）
    */
   const loadDependencies = useCallback(async () => {
     setDepLoading(true);
     try {
-      // 检测 Node.js 版本
-      const nodeRes = await checkNodeVersion();
+      // 并行检测 Node.js 和 uv 版本
+      const [nodeRes, uvRes] = await Promise.all([
+        checkNodeVersion(),
+        checkUvVersion(),
+      ]);
       setNodeResult(nodeRes);
+      setUvResult(uvRes);
       
       // 检测所有依赖状态，只保留 npm-local 类型
       const deps = await checkAllSetupDependencies();
@@ -244,37 +251,91 @@ export default function DependenciesPage() {
     );
   }
 
+  // 系统依赖是否都满足
+  const systemDepsReady = nodeResult?.meetsRequirement && uvResult?.meetsRequirement;
+
   return (
     <div style={{ maxWidth: 900 }}>
-      {/* Node.js 状态卡片（只读） */}
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Space direction="vertical" style={{ width: '100%' }}>
+      {/* 系统依赖状态卡片（只读） */}
+      <Card 
+        size="small" 
+        style={{ marginBottom: 16 }}
+        title={
           <Space>
-            <CodeOutlined style={{ fontSize: 20, color: '#1890ff' }} />
-            <Text strong>Node.js 运行环境</Text>
-            {nodeResult?.installed ? (
-              nodeResult.meetsRequirement ? (
-                <Tag color="success">已安装</Tag>
-              ) : (
-                <Tag color="warning">版本过低</Tag>
-              )
+            <Text strong>系统依赖环境</Text>
+            {systemDepsReady ? (
+              <Tag color="success">已就绪</Tag>
             ) : (
-              <Tag color="error">未安装</Tag>
+              <Tag color="warning">需要配置</Tag>
             )}
           </Space>
-          {nodeResult?.installed && (
-            <Text type="secondary" style={{ marginLeft: 28 }}>
-              当前版本: v{nodeResult.version}
-              {!nodeResult.meetsRequirement && (
-                <Text type="danger"> (需要 &gt;= 22.0.0，请手动升级)</Text>
+        }
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          {/* Node.js 状态 */}
+          <div style={{ 
+            padding: '8px 12px', 
+            background: nodeResult?.meetsRequirement ? '#f6ffed' : '#fffbe6', 
+            borderRadius: 6,
+            border: nodeResult?.meetsRequirement ? '1px solid #b7eb8f' : '1px solid #ffe58f',
+          }}>
+            <Space>
+              <CodeOutlined style={{ fontSize: 18, color: nodeResult?.meetsRequirement ? '#52c41a' : '#faad14' }} />
+              <Text strong>Node.js</Text>
+              {nodeResult?.installed ? (
+                nodeResult.meetsRequirement ? (
+                  <Tag color="success">v{nodeResult.version}</Tag>
+                ) : (
+                  <>
+                    <Tag color="warning">v{nodeResult.version}</Tag>
+                    <Text type="danger" style={{ fontSize: 12 }}>(需要 &gt;= 22.0.0)</Text>
+                  </>
+                )
+              ) : (
+                <Tag color="error">未安装</Tag>
               )}
-            </Text>
-          )}
-          {!nodeResult?.installed && (
-            <Text type="secondary" style={{ marginLeft: 28 }}>
-              请先安装 Node.js 22 或更高版本
-            </Text>
-          )}
+            </Space>
+            {!nodeResult?.installed && (
+              <div style={{ marginTop: 4, marginLeft: 26 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  请访问 <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer">nodejs.org</a> 安装
+                </Text>
+              </div>
+            )}
+          </div>
+
+          {/* uv 状态 */}
+          <div style={{ 
+            padding: '8px 12px', 
+            background: uvResult?.meetsRequirement ? '#f6ffed' : '#fffbe6', 
+            borderRadius: 6,
+            border: uvResult?.meetsRequirement ? '1px solid #b7eb8f' : '1px solid #ffe58f',
+          }}>
+            <Space>
+              <ThunderboltOutlined style={{ fontSize: 18, color: uvResult?.meetsRequirement ? '#52c41a' : '#faad14' }} />
+              <Text strong>uv</Text>
+              {uvResult?.installed ? (
+                uvResult.meetsRequirement ? (
+                  <Tag color="success">v{uvResult.version}</Tag>
+                ) : (
+                  <>
+                    <Tag color="warning">v{uvResult.version}</Tag>
+                    <Text type="danger" style={{ fontSize: 12 }}>(需要 &gt;= 0.5.0)</Text>
+                  </>
+                )
+              ) : (
+                <Tag color="error">未安装</Tag>
+              )}
+              <Text type="secondary" style={{ fontSize: 12 }}>高性能 Python 包管理器</Text>
+            </Space>
+            {!uvResult?.installed && (
+              <div style={{ marginTop: 4, marginLeft: 26 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  安装命令: <Text code copyable>curl -LsSf https://astral.sh/uv/install.sh | sh</Text>
+                </Text>
+              </div>
+            )}
+          </div>
         </Space>
       </Card>
 
@@ -305,7 +366,7 @@ export default function DependenciesPage() {
                 icon={<CloudDownloadOutlined />}
                 onClick={handleInstallAllDeps}
                 loading={depInstalling}
-                disabled={!nodeResult?.meetsRequirement}
+                disabled={!systemDepsReady}
               >
                 安装全部
               </Button>
@@ -320,7 +381,7 @@ export default function DependenciesPage() {
             const statusConfig = getDepStatusTag(item.status);
             const isInstalling = item.status === 'installing';
             const canInstall = (item.status === 'missing' || item.status === 'error') && 
-                               nodeResult?.meetsRequirement && 
+                               systemDepsReady && 
                                !depInstalling;
 
             return (
@@ -381,11 +442,21 @@ export default function DependenciesPage() {
         />
       </Card>
 
-      {/* Node.js 未满足要求时的提示 */}
-      {nodeResult && !nodeResult.meetsRequirement && (
+      {/* 系统依赖未满足要求时的提示 */}
+      {!systemDepsReady && (
         <Alert
-          message="Node.js 环境不满足要求"
-          description="请先安装或升级 Node.js 到 22.0.0 或更高版本后才能安装 npm 包"
+          message="系统依赖环境不满足要求"
+          description={
+            <Space direction="vertical" size={4}>
+              {!nodeResult?.meetsRequirement && (
+                <Text>请安装或升级 Node.js 到 22.0.0 或更高版本</Text>
+              )}
+              {!uvResult?.meetsRequirement && (
+                <Text>请安装 uv 0.5.0 或更高版本</Text>
+              )}
+              <Text type="secondary">满足系统依赖要求后才能安装 npm 包</Text>
+            </Space>
+          }
           type="warning"
           showIcon
           style={{ marginTop: 16 }}

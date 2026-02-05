@@ -379,6 +379,15 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     installUrl: 'https://nodejs.org',
   },
   {
+    name: 'uv',
+    displayName: 'uv',
+    type: 'system',
+    description: '高性能 Python 包管理器，用于管理 Python 环境和依赖',
+    required: true,
+    minVersion: '0.5.0',
+    installUrl: 'https://docs.astral.sh/uv/getting-started/installation/',
+  },
+  {
     name: 'nuwax-file-server',
     displayName: 'Nuwax File Server',
     type: 'npm-local',
@@ -408,6 +417,15 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
  * Node.js 版本检测结果
  */
 export interface NodeVersionResult {
+  installed: boolean;
+  version?: string;
+  meetsRequirement: boolean;
+}
+
+/**
+ * uv 版本检测结果
+ */
+export interface UvVersionResult {
   installed: boolean;
   version?: string;
   meetsRequirement: boolean;
@@ -488,6 +506,24 @@ export async function checkNodeVersion(): Promise<NodeVersionResult> {
 }
 
 /**
+ * 检测 uv 版本
+ * @returns uv 版本信息
+ */
+export async function checkUvVersion(): Promise<UvVersionResult> {
+  try {
+    const result = await invoke<UvVersionResult>('detect_uv_version');
+    console.log('[Dependencies] uv 检测结果:', result);
+    return result;
+  } catch (error) {
+    console.error('[Dependencies] 检测 uv 失败:', error);
+    return {
+      installed: false,
+      meetsRequirement: false,
+    };
+  }
+}
+
+/**
  * 检测本地 npm 包是否已安装
  * @param packageName - 包名
  * @returns 安装状态和版本信息
@@ -556,8 +592,9 @@ export async function checkAllSetupDependencies(): Promise<LocalDependencyItem[]
     
     try {
       if (config.type === 'system') {
-        // 系统依赖 (Node.js)
+        // 系统依赖
         if (config.name === 'nodejs') {
+          // Node.js 检测
           const nodeResult = await checkNodeVersion();
           item.status = nodeResult.installed
             ? (nodeResult.meetsRequirement ? 'installed' : 'outdated')
@@ -567,6 +604,18 @@ export async function checkAllSetupDependencies(): Promise<LocalDependencyItem[]
           
           if (!nodeResult.meetsRequirement && nodeResult.installed) {
             item.errorMessage = `版本 ${nodeResult.version} 低于要求的 ${config.minVersion}`;
+          }
+        } else if (config.name === 'uv') {
+          // uv 检测
+          const uvResult = await checkUvVersion();
+          item.status = uvResult.installed
+            ? (uvResult.meetsRequirement ? 'installed' : 'outdated')
+            : 'missing';
+          item.version = uvResult.version;
+          item.meetsRequirement = uvResult.meetsRequirement;
+          
+          if (!uvResult.meetsRequirement && uvResult.installed) {
+            item.errorMessage = `版本 ${uvResult.version} 低于要求的 ${config.minVersion}`;
           }
         }
       } else {
@@ -661,14 +710,22 @@ export async function getSetupDependencySummary(): Promise<{
   installed: number;
   missing: number;
   nodeReady: boolean;
+  uvReady: boolean;
+  systemDepsReady: boolean;
 }> {
   const deps = await checkAllSetupDependencies();
   const nodeDep = deps.find(d => d.name === 'nodejs');
+  const uvDep = deps.find(d => d.name === 'uv');
+  
+  const nodeReady = nodeDep?.status === 'installed' && nodeDep?.meetsRequirement === true;
+  const uvReady = uvDep?.status === 'installed' && uvDep?.meetsRequirement === true;
   
   return {
     total: deps.length,
     installed: deps.filter(d => d.status === 'installed').length,
     missing: deps.filter(d => d.status === 'missing' || d.status === 'outdated').length,
-    nodeReady: nodeDep?.status === 'installed' && nodeDep?.meetsRequirement === true,
+    nodeReady,
+    uvReady,
+    systemDepsReady: nodeReady && uvReady,
   };
 }

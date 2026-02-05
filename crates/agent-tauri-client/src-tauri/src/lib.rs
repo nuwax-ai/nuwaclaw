@@ -458,6 +458,56 @@ async fn detect_node_version() -> Result<NodeVersionResult, String> {
     }
 }
 
+/// uv 版本检测结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UvVersionResult {
+    pub installed: bool,
+    pub version: Option<String>,
+    pub meets_requirement: bool,
+}
+
+/// 检测 uv 版本
+/// uv 是高性能的 Python 包管理器
+#[tauri::command]
+async fn detect_uv_version() -> Result<UvVersionResult, String> {
+    let output = Command::new("uv")
+        .arg("--version")
+        .output();
+    
+    match output {
+        Ok(out) if out.status.success() => {
+            // uv 输出格式: "uv 0.5.14 (homebrew)"
+            let output_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            
+            // 提取版本号
+            let version_str = output_str
+                .split_whitespace()
+                .nth(1)  // 获取第二个部分（版本号）
+                .unwrap_or("")
+                .to_string();
+            
+            // 检查版本是否 >= 0.5.0
+            let meets = if version_str.is_empty() {
+                false
+            } else {
+                check_version_meets_requirement(&version_str, "0.5.0")
+            };
+            
+            Ok(UvVersionResult {
+                installed: true,
+                version: if version_str.is_empty() { None } else { Some(version_str) },
+                meets_requirement: meets,
+            })
+        }
+        _ => Ok(UvVersionResult {
+            installed: false,
+            version: None,
+            meets_requirement: false,
+        })
+    }
+}
+
 /// 检测本地 npm 包是否已安装
 #[tauri::command]
 async fn check_local_npm_package(
@@ -755,6 +805,7 @@ pub fn run() {
             get_app_data_dir,
             init_local_npm_env,
             detect_node_version,
+            detect_uv_version,
             check_local_npm_package,
             install_local_npm_package,
             restart_all_services,

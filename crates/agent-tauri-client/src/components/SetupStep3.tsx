@@ -38,6 +38,7 @@ import {
 import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   checkNodeVersion,
+  checkUvVersion,
   checkAllSetupDependencies,
   getAppDataDir,
   initLocalNpmEnv,
@@ -45,6 +46,7 @@ import {
   installLocalNpmPackage,
   type LocalDependencyItem,
   type NodeVersionResult,
+  type UvVersionResult,
 } from '../services/dependencies';
 
 const { Title, Text, Paragraph } = Typography;
@@ -55,7 +57,7 @@ interface SetupStep3Props {
 }
 
 // 安装状态
-type InstallPhase = 'checking' | 'node-missing' | 'ready' | 'installing' | 'completed' | 'error';
+type InstallPhase = 'checking' | 'node-missing' | 'uv-missing' | 'system-deps-missing' | 'ready' | 'installing' | 'completed' | 'error';
 
 /**
  * 步骤3: 依赖安装组件
@@ -64,6 +66,10 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
   // Node.js 状态
   const [nodeResult, setNodeResult] = useState<NodeVersionResult | null>(null);
   const [checkingNode, setCheckingNode] = useState(true);
+  
+  // uv 状态
+  const [uvResult, setUvResult] = useState<UvVersionResult | null>(null);
+  const [checkingUv, setCheckingUv] = useState(true);
   
   // 依赖状态
   const [dependencies, setDependencies] = useState<LocalDependencyItem[]>([]);
@@ -78,25 +84,44 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
   const [appDir, setAppDir] = useState<string>('');
 
   /**
-   * 检测 Node.js 版本
+   * 检测系统依赖（Node.js 和 uv）
    */
-  const checkNode = useCallback(async () => {
+  const checkSystemDeps = useCallback(async () => {
     setCheckingNode(true);
+    setCheckingUv(true);
+    
     try {
-      const result = await checkNodeVersion();
-      setNodeResult(result);
+      // 并行检测 Node.js 和 uv
+      const [nodeRes, uvRes] = await Promise.all([
+        checkNodeVersion(),
+        checkUvVersion(),
+      ]);
       
-      if (!result.installed || !result.meetsRequirement) {
+      setNodeResult(nodeRes);
+      setUvResult(uvRes);
+      
+      const nodeReady = nodeRes.installed && nodeRes.meetsRequirement;
+      const uvReady = uvRes.installed && uvRes.meetsRequirement;
+      
+      if (!nodeReady && !uvReady) {
+        // 两个都缺失
+        setInstallPhase('system-deps-missing');
+      } else if (!nodeReady) {
+        // 只缺 Node.js
         setInstallPhase('node-missing');
+      } else if (!uvReady) {
+        // 只缺 uv
+        setInstallPhase('uv-missing');
       } else {
-        // Node.js 正常，检测其他依赖
+        // 系统依赖都满足，检测其他依赖
         await checkDependencies();
       }
     } catch (error) {
-      console.error('[SetupStep3] 检测 Node.js 失败:', error);
-      setInstallPhase('node-missing');
+      console.error('[SetupStep3] 检测系统依赖失败:', error);
+      setInstallPhase('system-deps-missing');
     } finally {
       setCheckingNode(false);
+      setCheckingUv(false);
     }
   }, []);
 
@@ -142,8 +167,8 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
    */
   useEffect(() => {
     loadAppDir();
-    checkNode();
-  }, [checkNode, loadAppDir]);
+    checkSystemDeps();
+  }, [checkSystemDeps, loadAppDir]);
 
   /**
    * 打开 Node.js 官网
@@ -158,10 +183,22 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
   };
 
   /**
-   * 重新检测 Node.js
+   * 打开 uv 安装页面
    */
-  const handleRetryNodeCheck = async () => {
-    await checkNode();
+  const handleOpenUv = async () => {
+    try {
+      await openUrl('https://docs.astral.sh/uv/getting-started/installation/');
+    } catch (error) {
+      console.error('[SetupStep3] 打开链接失败:', error);
+      message.error('打开链接失败');
+    }
+  };
+
+  /**
+   * 重新检测系统依赖
+   */
+  const handleRetrySystemCheck = async () => {
+    await checkSystemDeps();
   };
 
   /**
@@ -308,7 +345,7 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
             </Button>
             <Button
               icon={<ReloadOutlined />}
-              onClick={handleRetryNodeCheck}
+              onClick={handleRetrySystemCheck}
             >
               重新检测
             </Button>
@@ -320,6 +357,138 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
       }
     />
   );
+
+  /**
+   * 渲染 uv 缺失提示
+   */
+  const renderUvMissing = () => (
+    <Result
+      icon={<CodeOutlined style={{ color: '#faad14' }} />}
+      title={uvResult?.installed ? 'uv 版本过低' : 'uv 未安装'}
+      subTitle={
+        uvResult?.installed
+          ? `当前版本 ${uvResult.version}，需要 >= 0.5.0`
+          : '请先安装 uv (高性能 Python 包管理器)'
+      }
+      extra={
+        <Space direction="vertical" align="center">
+          <Space>
+            <Button
+              type="primary"
+              icon={<LinkOutlined />}
+              onClick={handleOpenUv}
+            >
+              查看安装说明
+            </Button>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={handleRetrySystemCheck}
+            >
+              重新检测
+            </Button>
+          </Space>
+          <Paragraph style={{ fontSize: 12, color: '#666', marginTop: 8 }}>
+            <Text strong>快速安装命令:</Text>
+            <br />
+            <Text code>curl -LsSf https://astral.sh/uv/install.sh | sh</Text>
+          </Paragraph>
+        </Space>
+      }
+    />
+  );
+
+  /**
+   * 渲染多个系统依赖缺失提示
+   */
+  const renderSystemDepsMissing = () => {
+    const nodeMissing = !nodeResult?.installed || !nodeResult?.meetsRequirement;
+    const uvMissing = !uvResult?.installed || !uvResult?.meetsRequirement;
+    
+    return (
+      <Result
+        icon={<ExclamationCircleOutlined style={{ color: '#faad14' }} />}
+        title="系统依赖未就绪"
+        subTitle="请安装以下系统依赖后继续"
+        extra={
+          <Space direction="vertical" align="center" style={{ width: '100%' }}>
+            {/* Node.js 状态 */}
+            <div style={{ 
+              padding: '12px 16px', 
+              background: nodeMissing ? '#fffbe6' : '#f6ffed', 
+              borderRadius: 8,
+              width: '100%',
+              maxWidth: 400,
+              textAlign: 'left'
+            }}>
+              <Space>
+                {nodeMissing 
+                  ? <ExclamationCircleOutlined style={{ color: '#faad14' }} />
+                  : <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                }
+                <Text strong>Node.js</Text>
+                {nodeResult?.version && <Tag>{nodeResult.version}</Tag>}
+                {nodeMissing 
+                  ? <Tag color="warning">{nodeResult?.installed ? '版本过低' : '未安装'}</Tag>
+                  : <Tag color="success">已就绪</Tag>
+                }
+              </Space>
+              {nodeMissing && (
+                <div style={{ marginTop: 8 }}>
+                  <Button size="small" type="link" onClick={handleOpenNodejs}>
+                    <LinkOutlined /> 打开 nodejs.org
+                  </Button>
+                </div>
+              )}
+            </div>
+            
+            {/* uv 状态 */}
+            <div style={{ 
+              padding: '12px 16px', 
+              background: uvMissing ? '#fffbe6' : '#f6ffed', 
+              borderRadius: 8,
+              width: '100%',
+              maxWidth: 400,
+              textAlign: 'left'
+            }}>
+              <Space>
+                {uvMissing 
+                  ? <ExclamationCircleOutlined style={{ color: '#faad14' }} />
+                  : <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                }
+                <Text strong>uv</Text>
+                {uvResult?.version && <Tag>{uvResult.version}</Tag>}
+                {uvMissing 
+                  ? <Tag color="warning">{uvResult?.installed ? '版本过低' : '未安装'}</Tag>
+                  : <Tag color="success">已就绪</Tag>
+                }
+              </Space>
+              {uvMissing && (
+                <div style={{ marginTop: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    <Text code copyable>curl -LsSf https://astral.sh/uv/install.sh | sh</Text>
+                  </Text>
+                  <Button size="small" type="link" onClick={handleOpenUv}>
+                    <LinkOutlined /> 查看文档
+                  </Button>
+                </div>
+              )}
+            </div>
+            
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={handleRetrySystemCheck}
+              style={{ marginTop: 8 }}
+            >
+              重新检测
+            </Button>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              安装完成后点击"重新检测"继续
+            </Text>
+          </Space>
+        }
+      />
+    );
+  };
 
   /**
    * 渲染依赖列表
@@ -387,18 +556,28 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
    */
   const renderContent = () => {
     // 检测中
-    if (checkingNode) {
+    if (checkingNode || checkingUv) {
       return (
         <div className="step-loading">
           <Spin size="large" />
-          <Text style={{ marginTop: 16 }}>正在检测 Node.js 环境...</Text>
+          <Text style={{ marginTop: 16 }}>正在检测系统依赖环境...</Text>
         </div>
       );
+    }
+
+    // 多个系统依赖缺失
+    if (installPhase === 'system-deps-missing') {
+      return renderSystemDepsMissing();
     }
 
     // Node.js 缺失
     if (installPhase === 'node-missing') {
       return renderNodeMissing();
+    }
+
+    // uv 缺失
+    if (installPhase === 'uv-missing') {
+      return renderUvMissing();
     }
 
     // 安装完成
@@ -437,24 +616,33 @@ export default function SetupStep3({ onComplete }: SetupStep3Props) {
     // 正常状态
     return (
       <>
-        {/* Node.js 检测成功提示 */}
-        {nodeResult?.installed && nodeResult?.meetsRequirement && (
-          <Alert
-            message="Node.js 环境检测通过"
-            description={
-              <Space direction="vertical" size={0}>
+        {/* 系统依赖检测成功提示 */}
+        <Alert
+          message="系统依赖检测通过"
+          description={
+            <Space direction="vertical" size={4}>
+              {/* Node.js 状态 */}
+              {nodeResult?.installed && nodeResult?.meetsRequirement && (
                 <Text>
                   <CheckCircleOutlined style={{ color: '#52c41a', marginRight: 8 }} />
-                  当前版本: <Text strong>v{nodeResult.version}</Text>
+                  <Text strong>Node.js</Text>: v{nodeResult.version}
                   <Text type="secondary"> (需要 &gt;= 22.0.0)</Text>
                 </Text>
-              </Space>
-            }
-            type="success"
-            showIcon
-            style={{ marginBottom: 16 }}
-          />
-        )}
+              )}
+              {/* uv 状态 */}
+              {uvResult?.installed && uvResult?.meetsRequirement && (
+                <Text>
+                  <CheckCircleOutlined style={{ color: '#52c41a', marginRight: 8 }} />
+                  <Text strong>uv</Text>: v{uvResult.version}
+                  <Text type="secondary"> (需要 &gt;= 0.5.0)</Text>
+                </Text>
+              )}
+            </Space>
+          }
+          type="success"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
 
         {/* 安装目录提示 */}
         {appDir && (
