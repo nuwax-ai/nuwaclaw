@@ -8,7 +8,7 @@
  * - 状态管理和事件监听
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Badge,
   Menu,
@@ -24,6 +24,7 @@ import {
   FolderOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
+import { listen } from '@tauri-apps/api/event';
 import {
   AgentStatus,
   LogEntry,
@@ -77,6 +78,47 @@ function App() {
     id: '',
     server: '',
   });
+
+  // ============================================
+  // CLI 启动参数监听
+  // 用于接收来自 Rust 后端的导航事件
+  // ============================================
+  useEffect(() => {
+    // 预定义合法的 Tab 名称列表
+    const VALID_TABS: TabType[] = ['client', 'settings', 'dependencies', 'permissions', 'logs', 'about'];
+
+    let unlisten: (() => void) | undefined;
+
+    const setupNavigationListener = async () => {
+      try {
+        unlisten = await listen<string>('navigate-to-tab', (event) => {
+          const targetTab = event.payload as TabType;
+
+          // 验证 Tab 名称是否合法
+          if (VALID_TABS.includes(targetTab)) {
+            console.log(`[App] 收到导航事件: ${targetTab}`);
+            setActiveTab(targetTab);
+            message.info(`正在跳转到「${targetTab}」页面`);
+          } else {
+            console.warn(`[App] 收到无效的 Tab 参数: ${targetTab}`);
+          }
+        });
+        console.log('[App] 导航事件监听已注册');
+      } catch (error) {
+        console.error('[App] 注册导航事件监听失败:', error);
+      }
+    };
+
+    setupNavigationListener();
+
+    // 清理函数
+    return () => {
+      if (unlisten) {
+        unlisten();
+        console.log('[App] 导航事件监听已移除');
+      }
+    };
+  }, []);
 
   // ============================================
   // 检查初始化向导状态
@@ -157,6 +199,136 @@ function App() {
 
     autoReconnect();
   }, [setupCompleted, storeInitialized]);
+
+  // ============================================
+  // 权限状态轮询机制
+  // ============================================
+  // 用于自动检测权限状态变化，当用户打开系统设置完成授权后返回应用时自动更新
+  const [permissionPollingEnabled, setPermissionPollingEnabled] = useState(false);
+  const [lastPermissionStatus, setLastPermissionStatus] = useState<Map<string, string>>(new Map());
+
+  // 轮询间隔（毫秒）
+  const POLLING_INTERVAL = 3000;
+
+  // 权限变化检测函数
+  const checkPermissionChanges = useCallback(async () => {
+    try {
+      // 导入权限检查函数
+      const { checkAllPermissions } = await import('./services/permissions');
+
+      // 获取当前权限状态
+      const permissionsState = await checkAllPermissions();
+      const currentPermissions = permissionsState.items;
+
+      // 检查是否有权限状态变化
+      let hasChanges = false;
+
+      for (const perm of currentPermissions) {
+        const lastStatus = lastPermissionStatus.get(perm.id);
+        if (lastStatus !== perm.status) {
+          console.log(`[App] 权限状态变化: ${perm.id} ${lastStatus || 'unknown'} -> ${perm.status}`);
+          hasChanges = true;
+          lastPermissionStatus.set(perm.id, perm.status);
+        }
+      }
+
+      // 如果有权限变化且有必需的权限从 denied/pending 变为 granted，提示用户
+      if (hasChanges) {
+        const newlyGranted = currentPermissions.filter(
+          (p) => p.required && p.status === 'granted' && lastPermissionStatus.get(p.id) !== 'granted'
+        );
+
+        if (newlyGranted.length > 0) {
+          message.success(`权限已更新: ${newlyGranted.map((p) => p.displayName).join(', ')}`);
+        }
+
+        // 更新状态
+        setLastPermissionStatus(new Map(lastPermissionStatus));
+      }
+
+      return hasChanges;
+    } catch (error) {
+      console.error('[App] 权限状态检查失败:', error);
+      return false;
+    }
+  }, [lastPermissionStatus]);
+
+  // 启动权限轮询
+  const startPermissionPolling = useCallback(() => {
+    console.log('[App] 启动权限状态轮询');
+    setPermissionPollingEnabled(true);
+  }, []);
+
+  // 停止权限轮询
+  const stopPermissionPolling = useCallback(() => {
+    console.log('[App] 停止权限状态轮询');
+    setPermissionPollingEnabled(false);
+  }, []);
+
+  // 轮询 effect：应用激活时定期检查权限状态
+  useEffect(() => {
+    // 只有在启用轮询时才执行
+    if (!permissionPollingEnabled || setupCompleted !== true) {
+      return;
+    }
+
+    console.log('[App] 权限轮询已启动');
+
+    // 立即执行一次检查
+    checkPermissionChanges();
+
+    // 设置定时器
+    const intervalId = setInterval(() => {
+      checkPermissionChanges();
+    }, POLLING_INTERVAL);
+
+    // 清理函数
+    return () => {
+      clearInterval(intervalId);
+      console.log('[App] 权限轮询已停止');
+    };
+  }, [permissionPollingEnabled, setupCompleted, checkPermissionChanges]);
+
+  // 监听应用焦点事件：失焦时停止轮询，聚焦时启动轮询
+  useEffect(() => {
+    const unlistenFocus = async () => {
+      const { listen } = await import('@tauri-apps/api/event');
+
+      return listen('tauri://focus', () => {
+        console.log('[App] 应用获得焦点');
+        // 聚焦时执行一次权限检查
+        if (permissionPollingEnabled) {
+          checkPermissionChanges();
+        }
+      });
+    };
+
+    const unlistenBlur = async () => {
+      const { listen } = await import('@tauri-apps/api/event');
+
+      return listen('tauri://blur', () => {
+        console.log('[App] 应用失去焦点');
+        // 失焦时可以停止轮询以节省资源（可选）
+        // stopPermissionPolling();
+      });
+    };
+
+    let focusUnlisten: (() => void) | undefined;
+    let blurUnlisten: (() => void) | undefined;
+
+    unlistenFocus().then((unlisten) => {
+      focusUnlisten = unlisten;
+    });
+
+    unlistenBlur().then((unlisten) => {
+      blurUnlisten = unlisten;
+    });
+
+    return () => {
+      if (focusUnlisten) focusUnlisten();
+      if (blurUnlisten) blurUnlisten();
+    };
+  }, [permissionPollingEnabled, checkPermissionChanges]);
 
   // ============================================
   // 状态监听

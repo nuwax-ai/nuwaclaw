@@ -19,14 +19,13 @@
     ],
     "security": {
       "csp": null
-    }
+    },
+    "withGlobalTauri": true
   },
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": [
-      "binaries/nuwax-lanproxy"
-    ],
+    "externalBin": ["binaries/nuwax-lanproxy"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -34,5 +33,24 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "cli": {
+      "description": "NuWax Agent Desktop Client - 智能 Agent 桌面客户端",
+      "args": [
+        {
+          "name": "tab",
+          "description": "指定启动后跳转的 Tab 页面",
+          "short": "t",
+          "takesValue": true
+        },
+        {
+          "name": "minimized",
+          "description": "启动时最小化到系统托盘",
+          "short": "m",
+          "takesValue": false
+        }
+      ]
+    }
   }
 }

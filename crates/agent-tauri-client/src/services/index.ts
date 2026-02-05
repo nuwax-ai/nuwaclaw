@@ -49,6 +49,8 @@ export {
   checkAllPermissions,
   openSystemSettings,
   getStatusConfig,
+  openFullDiskAccessPanel,
+  checkFullDiskAccessPermission,
   type PermissionCategory,
   type PermissionItem as PermissionItemFromService,
   type PermissionsState as PermissionsStateFromService,

@@ -222,6 +222,48 @@ fn parse_permission(s: &str) -> Result<SystemPermission, String> {
     }
 }
 
+/// 检查完全磁盘访问权限
+///
+/// 该命令用于检测应用是否已获得 macOS 的完全磁盘访问权限。
+/// 通过尝试访问用户主目录下的 Library/Application Support 目录来判断。
+/// 如果没有完全磁盘访问权限，该目录将被拒绝访问。
+///
+/// # 返回
+/// - `Ok(true)` - 已获得完全磁盘访问权限
+/// - `Ok(false)` - 未获得完全磁盘访问权限
+/// - `Err(message)` - 检查过程中发生错误
+#[tauri::command]
+async fn check_disk_access() -> Result<bool, String> {
+    info!("[Permissions] 开始检查完全磁盘访问权限...");
+
+    // 获取用户主目录
+    let home_dir = std::env::home_dir().ok_or("无法获取用户主目录")?;
+
+    // 尝试访问受保护的目录
+    // macOS 上完全磁盘访问权限控制的核心目录之一
+    let protected_path = home_dir.join("Library").join("Application Support");
+
+    info!(
+        "[Permissions] 尝试访问受保护目录: {}",
+        protected_path.display()
+    );
+
+    match std::fs::read_dir(&protected_path) {
+        Ok(_) => {
+            info!("[Permissions] 完全磁盘访问权限已授予");
+            Ok(true)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            warn!("[Permissions] 完全磁盘访问权限被拒绝: {}", e);
+            Ok(false)
+        }
+        Err(e) => {
+            error!("[Permissions] 检查完全磁盘访问权限时出错: {}", e);
+            Err(format!("检查权限时出错: {}", e))
+        }
+    }
+}
+
 /// 权限变化事件 DTO（用于 Tauri 事件）
 #[derive(Debug, Clone, Serialize)]
 pub struct PermissionChangeEvent {
@@ -1874,6 +1916,9 @@ pub fn run() {
         eprintln!("[Logger] Failed to initialize logger: {}", e);
     }
 
+    // 预定义合法的 Tab 名称列表，用于参数验证
+    const VALID_TABS: &[&str] = &["client", "settings", "dependencies", "permissions", "logs", "about"];
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
@@ -1887,6 +1932,73 @@ pub fn run() {
             if let Err(e) = setup_tray(app) {
                 error!("[Setup] 创建系统托盘失败: {}", e);
             }
+
+            // ============================================
+            // CLI 参数解析与导航事件处理
+            // ============================================
+            // 支持 --tab/-t 参数指定启动后跳转的 Tab
+            // 示例: nuwax-agent --tab permissions
+            //       nuwax-agent -t logs
+            info!("[Setup] 开始解析 CLI 参数...");
+
+            // 使用 tauri_plugin_cli 获取参数
+            // 注意：在 tauri.conf.json 中已配置 cli args
+            // 这里通过 ArgMatches 获取参数值
+
+            // 尝试获取 CLI 插件实例（如果可用）
+            #[cfg(feature = "cli-plugin")]
+            {
+                use tauri_plugin_cli::CliExt;
+                let matches = app.cli().matches();
+
+                match matches {
+                    Ok(matches) => {
+                        // 解析 --tab 参数
+                        if let Some(tab) = matches.value_of("tab") {
+                            // 验证 Tab 名称是否合法
+                            if VALID_TABS.contains(&tab) {
+                                info!("[Setup] 检测到 CLI 参数 --tab={}", tab);
+
+                                // 发送事件通知前端目标 Tab
+                                match app.emit("navigate-to-tab", tab) {
+                                    Ok(()) => {
+                                        info!("[Setup] 已发送导航事件到前端，目标 Tab: {}", tab);
+                                    }
+                                    Err(e) => {
+                                        warn!("[Setup] 发送导航事件失败: {}", e);
+                                    }
+                                }
+                            } else {
+                                warn!(
+                                    "[Setup] 无效的 Tab 参数: {}，有效值: {:?}",
+                                    tab, VALID_TABS
+                                );
+                            }
+                        }
+
+                        // 检查 --minimized 参数（启动时最小化）
+                        if matches.value_of("minimized") == Some("true")
+                            || matches.occurrences_of("minimized") > 0
+                        {
+                            info!("[Setup] 检测到 --minimized 参数，启动时将最小化");
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.hide();
+                                info!("[Setup] 窗口已隐藏到托盘");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("[Setup] CLI 参数解析结果: {}", e);
+                    }
+                }
+            }
+
+            // 没有 cli-plugin 时的日志提示
+            #[cfg(not(feature = "cli-plugin"))]
+            {
+                info!("[Setup] CLI 插件未启用，命令行参数功能受限");
+            }
+
             Ok(())
         })
         // 窗口关闭事件处理：隐藏到托盘而非退出
@@ -1900,6 +2012,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             system_greet,
+            check_disk_access,
             permission_check,
             permission_request,
             permission_open_settings,

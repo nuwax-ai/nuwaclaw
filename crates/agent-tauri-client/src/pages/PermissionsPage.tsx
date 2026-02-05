@@ -4,9 +4,10 @@
  * 功能：
  * - 显示关键系统权限状态
  * - 提供权限授权入口
+ * - 自动检测权限状态变化
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Space, Card, Button, Tag, List, Alert, Avatar, message } from "antd";
 import {
   ApiOutlined,
@@ -16,14 +17,19 @@ import {
   SettingOutlined,
 } from "@ant-design/icons";
 import { Typography } from "antd";
+import { listen } from "@tauri-apps/api/event";
 import {
   PermissionItem,
   getPermissions,
   refreshPermissions,
   openSystemPreferences,
+  openFullDiskAccessPanel,
 } from "../services";
 
 const { Title, Text } = Typography;
+
+// 权限轮询间隔（毫秒）
+const POLLING_INTERVAL = 2000;
 
 /**
  * 权限管理页面组件
@@ -33,6 +39,12 @@ export default function PermissionsPage() {
   const [permissions, setPermissions] = useState<PermissionItem[]>([]);
   // 加载状态
   const [permissionsLoading, setPermissionsLoading] = useState(false);
+  // 是否正在等待授权（启动轮询）
+  const [waitingForAuth, setWaitingForAuth] = useState(false);
+  // 轮询定时器引用
+  const pollingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 上一次的权限状态（用于检测变化）
+  const lastPermissionsRef = useRef<Map<string, string>>(new Map());
 
   // 关键权限列表（只显示需要系统授权的权限）
   const KEY_PERMISSIONS = ["accessibility", "screen_recording", "file_access"];
@@ -50,17 +62,136 @@ export default function PermissionsPage() {
     try {
       const data = await getPermissions();
       setPermissions(data.items);
+      return data.items;
     } catch (error) {
       message.error("加载权限数据失败");
+      return [];
     } finally {
       setPermissionsLoading(false);
     }
   }, []);
 
+  /**
+   * 检测权限状态变化
+   */
+  const checkPermissionChanges = useCallback(async () => {
+    try {
+      const data = await getPermissions();
+      const currentPermissions = data.items;
+
+      // 检查是否有权限状态变化
+      const changedPermissions: PermissionItem[] = [];
+
+      for (const perm of currentPermissions) {
+        const lastStatus = lastPermissionsRef.current.get(perm.id);
+        if (lastStatus && lastStatus !== perm.status) {
+          console.log(
+            `[PermissionsPage] 权限状态变化: ${perm.id} ${lastStatus} -> ${perm.status}`,
+          );
+          changedPermissions.push(perm);
+        }
+        lastPermissionsRef.current.set(perm.id, perm.status);
+      }
+
+      // 更新权限列表
+      setPermissions(currentPermissions);
+
+      // 如果有权限变为已授权，显示提示
+      const newlyGranted = changedPermissions.filter(
+        (p) => p.status === "granted",
+      );
+      if (newlyGranted.length > 0) {
+        message.success(
+          `权限已授权: ${newlyGranted.map((p) => p.displayName).join(", ")}`,
+        );
+      }
+
+      // 检查所有关键权限是否都已授权
+      const keyPermissions = currentPermissions.filter((p) =>
+        KEY_PERMISSIONS.includes(p.id),
+      );
+      const allGranted = keyPermissions.every((p) => p.status === "granted");
+
+      if (allGranted && waitingForAuth) {
+        message.success("所有关键权限已授权");
+        stopPermissionPolling();
+      }
+
+      return changedPermissions;
+    } catch (error) {
+      console.error("[PermissionsPage] 检测权限变化失败:", error);
+      return [];
+    }
+  }, [waitingForAuth]);
+
+  /**
+   * 启动权限状态轮询
+   */
+  const startPermissionPolling = useCallback(() => {
+    if (pollingTimerRef.current) {
+      return; // 已经在轮询中
+    }
+
+    console.log("[PermissionsPage] 启动权限状态轮询");
+    setWaitingForAuth(true);
+
+    // 记录当前权限状态作为基准
+    permissions.forEach((p) => {
+      lastPermissionsRef.current.set(p.id, p.status);
+    });
+
+    // 启动定时轮询
+    pollingTimerRef.current = setInterval(() => {
+      checkPermissionChanges();
+    }, POLLING_INTERVAL);
+  }, [permissions, checkPermissionChanges]);
+
+  /**
+   * 停止权限状态轮询
+   */
+  const stopPermissionPolling = useCallback(() => {
+    if (pollingTimerRef.current) {
+      console.log("[PermissionsPage] 停止权限状态轮询");
+      clearInterval(pollingTimerRef.current);
+      pollingTimerRef.current = null;
+    }
+    setWaitingForAuth(false);
+  }, []);
+
   // 组件挂载时加载数据
   useEffect(() => {
-    loadPermissions();
-  }, [loadPermissions]);
+    loadPermissions().then((items) => {
+      // 初始化权限状态记录
+      items.forEach((p) => {
+        lastPermissionsRef.current.set(p.id, p.status);
+      });
+    });
+
+    // 组件卸载时停止轮询
+    return () => {
+      stopPermissionPolling();
+    };
+  }, [loadPermissions, stopPermissionPolling]);
+
+  // 监听应用焦点事件：获得焦点时检查权限变化
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    const setupFocusListener = async () => {
+      unlisten = await listen("tauri://focus", () => {
+        console.log("[PermissionsPage] 应用获得焦点，检查权限状态");
+        checkPermissionChanges();
+      });
+    };
+
+    setupFocusListener();
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [checkPermissionChanges]);
 
   /**
    * 刷新权限状态
@@ -69,14 +200,37 @@ export default function PermissionsPage() {
     message.loading("正在刷新权限状态...", 1);
     const data = await refreshPermissions();
     setPermissions(data.items);
+    // 更新状态记录
+    data.items.forEach((p) => {
+      lastPermissionsRef.current.set(p.id, p.status);
+    });
     message.success("权限状态已刷新");
+  };
+
+  /**
+   * 打开完全磁盘访问权限面板（专用函数）
+   */
+  const handleOpenFullDiskAccessPanel = async () => {
+    await openFullDiskAccessPanel();
+    // 打开面板后启动轮询检测权限状态变化
+    startPermissionPolling();
+    message.info("请在系统设置中勾选本应用，完成后返回将自动更新状态");
   };
 
   /**
    * 打开系统偏好设置
    */
   const handleOpenSettings = async (permissionId: string) => {
-    await openSystemPreferences(permissionId);
+    if (permissionId === "file_access") {
+      // 文件访问权限使用专用面板
+      await handleOpenFullDiskAccessPanel();
+    } else {
+      // 其他权限使用通用方法
+      await openSystemPreferences(permissionId);
+      // 启动轮询检测权限状态变化
+      startPermissionPolling();
+      message.info("请在系统设置中授权，完成后返回将自动更新状态");
+    }
   };
 
   /**
@@ -134,13 +288,16 @@ export default function PermissionsPage() {
         <Title level={4} style={{ margin: 0 }}>
           系统权限
         </Title>
-        <Button
-          icon={<ReloadOutlined />}
-          onClick={handleRefreshPermissions}
-          loading={permissionsLoading}
-        >
-          刷新状态
-        </Button>
+        <Space>
+          {waitingForAuth && <Tag color="processing">正在检测权限变化...</Tag>}
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={handleRefreshPermissions}
+            loading={permissionsLoading}
+          >
+            刷新状态
+          </Button>
+        </Space>
       </div>
 
       {/* 权限状态摘要 */}
@@ -156,8 +313,47 @@ export default function PermissionsPage() {
         style={{ marginBottom: 16 }}
       />
 
+      {/* 完全磁盘访问权限专用入口 */}
+      <Card
+        title="完全磁盘访问权限"
+        extra={
+          <Button
+            type="primary"
+            icon={<FolderOutlined />}
+            onClick={handleOpenFullDiskAccessPanel}
+          >
+            打开面板授权
+          </Button>
+        }
+        style={{ marginBottom: 16 }}
+      >
+        <Alert
+          message="需要完全磁盘访问权限"
+          description={
+            <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
+              <li>点击「打开面板授权」按钮</li>
+              <li>在系统设置中勾选本应用</li>
+              <li>返回本应用后权限将自动更新</li>
+            </ul>
+          }
+          type="info"
+          showIcon
+        />
+      </Card>
+
       {/* 权限列表 */}
-      <Card title="关键权限">
+      <Card
+        title="关键权限"
+        extra={
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={handleRefreshPermissions}
+            loading={permissionsLoading}
+          >
+            刷新状态
+          </Button>
+        }
+      >
         <List
           loading={permissionsLoading}
           dataSource={filteredPermissions}
@@ -213,7 +409,7 @@ export default function PermissionsPage() {
       {/* 只在有未授权权限时显示简要提示 */}
       {ungrantedPermissions.length > 0 && (
         <Alert
-          message="点击「前往授权」按钮，在系统设置中找到本应用并开启权限，然后点击「刷新状态」确认"
+          message="点击「前往授权」按钮后，完成授权并返回本应用，权限状态将自动更新"
           type="info"
           style={{ marginTop: 16 }}
         />

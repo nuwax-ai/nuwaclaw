@@ -522,3 +522,92 @@ export const stopMonitoring = () => permissionsService.stopMonitoring();
 export const subscribePermissionChange = (
   callback: (category: PermissionCategory, status: PermissionStatus) => void
 ) => permissionsService.onPermissionChange(callback);
+
+// ============================================
+// 完全磁盘访问权限专用函数
+// ============================================
+
+/**
+ * 打开 macOS 完全磁盘访问权限面板
+ *
+ * 该功能用于帮助用户快速授权应用访问磁盘的权限。
+ * 打开的是系统偏好设置中的安全性与隐私 -> 完全磁盘访问权限 面板。
+ *
+ * @returns {Promise<void>}
+ * @throws {Error} 当无法打开面板时抛出异常
+ *
+ * @example
+ * await openFullDiskAccessPanel();
+ * console.log('面板已打开');
+ */
+export async function openFullDiskAccessPanel(): Promise<void> {
+  // macOS 完全磁盘访问权限面板的 URL Scheme
+  // 注意：macOS 系统偏好设置的不同版本可能有不同的 URL Scheme
+  const fullDiskAccessUrls = [
+    'x-apple.systempreferences:com.apple.security.privacy.fullDiskAccess', // macOS Ventura+
+    'x-apple.systempreferences:com.apple.Security偏好设置', // 中文系统
+    'x-apple.systempreferences:', // 兜底：打开系统偏好设置主界面
+  ];
+
+  let lastError: Error | null = null;
+
+  for (const url of fullDiskAccessUrls) {
+    try {
+      console.log(`[Permissions] 尝试打开系统设置: ${url}`);
+      const { openUrl } = await import('@tauri-apps/plugin-opener');
+      await openUrl(url);
+      console.log('[Permissions] 已成功打开系统设置面板');
+      message.info('请在系统设置中勾选本应用以授予完全磁盘访问权限');
+      return;
+    } catch (error) {
+      console.warn(`[Permissions] 打开失败 (${url}):`, error);
+      lastError = error instanceof Error ? error : new Error(String(error));
+      // 继续尝试下一个 URL
+    }
+  }
+
+  // 所有方式都失败，提供手动操作指引
+  console.error('[Permissions] 无法自动打开完全磁盘访问面板:', lastError);
+  message.warning({
+    content: '无法自动打开系统设置，请手动操作：打开「系统偏好设置」→「安全性与隐私」→「隐私」标签页，勾选「完全磁盘访问权限」中的本应用',
+    duration: 8,
+  });
+}
+
+/**
+ * 检查应用是否已获得完全磁盘访问权限
+ *
+ * 通过尝试访问用户主目录下的 Library/Application Support 目录来判断。
+ * 如果没有完全磁盘访问权限，该目录将被拒绝访问。
+ *
+ * @returns {Promise<boolean>} 返回 true 表示已获得权限，false 表示未获得
+ */
+export async function checkFullDiskAccessPermission(): Promise<boolean> {
+  try {
+    // 使用 Tauri 的 fs API 检查是否有权限访问受保护目录
+    // 这里使用 invoke 直接调用 Rust 后端进行检测
+    const { invoke } = await import('@tauri-apps/api/core');
+
+    // 调用 Rust 后端的检测命令
+    const hasPermission = await invoke('check_disk_access') as boolean;
+    return hasPermission;
+  } catch (error) {
+    console.warn('[Permissions] 完全磁盘访问权限检查失败（可能是权限不足）:', error);
+    return false;
+  }
+}
+
+/**
+ * 打开完全磁盘访问权限面板，并在打开后启动权限状态轮询
+ *
+ * 该函数封装了打开面板的操作，并在用户完成授权后提供便捷的状态刷新。
+ *
+ * @param onPanelOpened - 面板打开后的回调函数，可用于启动轮询或显示提示
+ * @returns {Promise<void>}
+ */
+export async function openFullDiskAccessPanelWithCallback(
+  onPanelOpened?: () => void
+): Promise<void> {
+  await openFullDiskAccessPanel();
+  onPanelOpened?.();
+}
