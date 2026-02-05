@@ -16,7 +16,7 @@ use tokio::sync::Mutex;
 
 use async_trait::async_trait;
 use nuwax_agent_core::api::traits::agent_runner::{
-    AgentRunnerApi, AgentInfo, AgentStatus, AgentStatusResult, ChatRequest, ChatResponse,
+    AgentInfo, AgentRunnerApi, AgentStatus, AgentStatusResult, ChatRequest, ChatResponse,
     ProgressMessage,
 };
 
@@ -350,7 +350,10 @@ async fn dependency_summary() -> Result<DependencySummaryDto, String> {
 #[tauri::command]
 async fn dependency_install(name: String) -> Result<bool, String> {
     let manager = CoreDependencyManager::new();
-    manager.install(&name).await.map_err(|e| format!("安装失败: {}", e))?;
+    manager
+        .install(&name)
+        .await
+        .map_err(|e| format!("安装失败: {}", e))?;
     Ok(true)
 }
 
@@ -358,7 +361,10 @@ async fn dependency_install(name: String) -> Result<bool, String> {
 #[tauri::command]
 async fn dependency_install_all() -> Result<bool, String> {
     let manager = CoreDependencyManager::new();
-    manager.install_all_missing().await.map_err(|e| format!("安装失败: {}", e))?;
+    manager
+        .install_all_missing()
+        .await
+        .map_err(|e| format!("安装失败: {}", e))?;
     Ok(true)
 }
 
@@ -366,7 +372,10 @@ async fn dependency_install_all() -> Result<bool, String> {
 #[tauri::command]
 async fn dependency_uninstall(name: String) -> Result<bool, String> {
     let manager = CoreDependencyManager::new();
-    manager.uninstall(&name).await.map_err(|e| format!("卸载失败: {}", e))?;
+    manager
+        .uninstall(&name)
+        .await
+        .map_err(|e| format!("卸载失败: {}", e))?;
     Ok(true)
 }
 
@@ -380,19 +389,327 @@ async fn dependency_check(name: String) -> Result<Option<DependencyItemDto>, Str
     }
 }
 
-/// 从 store 读取字符串配置
-fn read_store_string(app: &tauri::AppHandle, key: &str) -> Option<String> {
-    app.store("nuwax_store.bin").ok()?.get(key)?.as_str().map(|s| s.to_string())
+/// 从 store 读取字符串配置（带详细日志和错误信息）
+///
+/// # 返回
+/// - `Ok(Some(value))`: 成功读取到字符串值
+/// - `Ok(None)`: 键不存在
+/// - `Err(message)`: 发生错误（store 打开失败或值类型错误）
+fn read_store_string(app: &tauri::AppHandle, key: &str) -> Result<Option<String>, String> {
+    // 尝试打开 store 文件
+    let store = match app.store("nuwax_store.bin") {
+        Ok(store) => {
+            debug!("[Store] 成功打开 store 文件");
+            store
+        }
+        Err(e) => {
+            warn!("[Store] 打开 store 文件失败: {}", e);
+            return Err(format!("无法打开 store 文件: {}", e));
+        }
+    };
+
+    // 尝试获取键对应的值
+    match store.get(key) {
+        Some(value) => {
+            debug!("[Store] 找到键 '{}'，值类型: {:?}", key, value);
+            // 尝试转换为字符串
+            match value.as_str() {
+                Some(s) => {
+                    // 如果是敏感信息（如密钥），只打印前后各 4 个字符
+                    if key.contains("key") || key.contains("secret") || key.contains("password") {
+                        let masked = if s.len() > 8 {
+                            format!("{}****{}", &s[..4], &s[s.len() - 4..])
+                        } else {
+                            "****".to_string()
+                        };
+                        debug!("[Store] 成功读取 '{}' = \"{}\"", key, masked);
+                    } else {
+                        debug!("[Store] 成功读取 '{}' = \"{}\"", key, s);
+                    }
+                    Ok(Some(s.to_string()))
+                }
+                None => {
+                    warn!(
+                        "[Store] 值类型错误: '{}' 不是字符串类型，实际类型: {:?}",
+                        key, value
+                    );
+                    Err(format!(
+                        "值类型错误: '{}' 期望字符串类型，实际类型: {:?}",
+                        key, value
+                    ))
+                }
+            }
+        }
+        None => {
+            debug!("[Store] 键不存在: '{}'", key);
+            Ok(None)
+        }
+    }
 }
 
-/// 从 store 读取 i64 配置
-fn read_store_i64(app: &tauri::AppHandle, key: &str) -> Option<i64> {
-    app.store("nuwax_store.bin").ok()?.get(key)?.as_i64()
+/// 从 store 读取 i64 配置（带详细日志和错误信息）
+///
+/// # 返回
+/// - `Ok(Some(value))`: 成功读取到整数值
+/// - `Ok(None)`: 键不存在
+/// - `Err(message)`: 发生错误（store 打开失败或值类型错误）
+fn read_store_i64(app: &tauri::AppHandle, key: &str) -> Result<Option<i64>, String> {
+    // 尝试打开 store 文件
+    let store = match app.store("nuwax_store.bin") {
+        Ok(store) => {
+            debug!("[Store] 成功打开 store 文件");
+            store
+        }
+        Err(e) => {
+            warn!("[Store] 打开 store 文件失败: {}", e);
+            return Err(format!("无法打开 store 文件: {}", e));
+        }
+    };
+
+    // 尝试获取键对应的值
+    match store.get(key) {
+        Some(value) => {
+            debug!("[Store] 找到键 '{}'，值类型: {:?}", key, value);
+            // 尝试转换为 i64
+            match value.as_i64() {
+                Some(n) => {
+                    debug!("[Store] 成功读取 '{}' = {}", key, n);
+                    Ok(Some(n))
+                }
+                None => {
+                    warn!(
+                        "[Store] 值类型错误: '{}' 不是数字类型，实际类型: {:?}",
+                        key, value
+                    );
+                    Err(format!(
+                        "值类型错误: '{}' 期望数字类型，实际类型: {:?}",
+                        key, value
+                    ))
+                }
+            }
+        }
+        None => {
+            debug!("[Store] 键不存在: '{}'", key);
+            Ok(None)
+        }
+    }
 }
 
-/// 从 store 读取端口配置（i64 转 u16）
-fn read_store_port(app: &tauri::AppHandle, key: &str) -> Option<u16> {
-    read_store_i64(app, key).map(|v| v as u16)
+/// 从 store 读取端口配置（i64 转 u16），带详细日志
+///
+/// # 返回
+/// - `Ok(Some(value))`: 成功读取到端口值
+/// - `Ok(None)`: 键不存在
+/// - `Err(message)`: 发生错误（值类型错误或转换失败）
+fn read_store_port(app: &tauri::AppHandle, key: &str) -> Result<Option<u16>, String> {
+    match read_store_i64(app, key) {
+        Ok(Some(n)) => {
+            // 检查端口范围合法性
+            if n < 0 || n > 65535 {
+                warn!(
+                    "[Store] 端口值越界: '{}' = {}，端口范围应为 0-65535",
+                    key, n
+                );
+                return Err(format!(
+                    "端口值越界: '{}' = {}，端口范围应为 0-65535",
+                    key, n
+                ));
+            }
+            debug!("[Store] 成功读取端口 '{}' = {}", key, n);
+            Ok(Some(n as u16))
+        }
+        Ok(None) => {
+            debug!("[Store] 端口键不存在: '{}'", key);
+            Ok(None)
+        }
+        Err(e) => {
+            // 已经是错误信息，直接透传
+            Err(e)
+        }
+    }
+}
+
+/// 从 server_host 中去除 URL 协议前缀，得到纯主机名/IP，供 nuwax-lanproxy -s 使用
+fn strip_host_from_url(server_host: &str) -> String {
+    let s = server_host.trim();
+    if s.starts_with("https://") {
+        s.strip_prefix("https://").unwrap_or(s).trim().to_string()
+    } else if s.starts_with("http://") {
+        s.strip_prefix("http://").unwrap_or(s).trim().to_string()
+    } else {
+        s.to_string()
+    }
+}
+
+/// 获取当前平台的 nuwax-lanproxy 可执行文件完整路径
+///
+/// 返回 binaries 目录下对应平台的可执行文件路径。
+/// 路径格式: {app_dir}/binaries/nuwax-lanproxy-{platform}
+///
+/// # Arguments
+/// * `app` - Tauri AppHandle，用于获取应用资源目录
+///
+/// # Returns
+/// 完整的可执行文件路径，如果出错则返回错误信息
+#[cfg(target_os = "macos")]
+fn get_lanproxy_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
+    let bin_name = "nuwax-lanproxy-aarch64-apple-darwin";
+
+    // 1. 尝试从资源目录获取 (生产环境)
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let bin_path = resource_dir.join("binaries").join(bin_name);
+        if bin_path.exists() {
+            return Ok(bin_path.to_string_lossy().to_string());
+        }
+    }
+
+    // 2. 尝试从可执行文件所在目录获取
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+    {
+        let alt_path = exe_dir.join("binaries").join(bin_name);
+        if alt_path.exists() {
+            return Ok(alt_path.to_string_lossy().to_string());
+        }
+    }
+
+    // 3. 开发模式: 尝试从 src-tauri/binaries 目录获取
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        let dev_path = std::path::Path::new(&manifest_dir)
+            .join("binaries")
+            .join(bin_name);
+        if dev_path.exists() {
+            return Ok(dev_path.to_string_lossy().to_string());
+        }
+    }
+
+    // 4. 开发模式备选: 从当前工作目录推断
+    if let Ok(cwd) = std::env::current_dir() {
+        // 检查是否在项目根目录运行
+        let dev_path = cwd
+            .join("crates/agent-tauri-client/src-tauri/binaries")
+            .join(bin_name);
+        if dev_path.exists() {
+            return Ok(dev_path.to_string_lossy().to_string());
+        }
+    }
+
+    Err(format!("未找到 {} 可执行文件", bin_name))
+}
+
+/// 获取当前平台的 nuwax-lanproxy 可执行文件完整路径（Linux）
+#[cfg(target_os = "linux")]
+fn get_lanproxy_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
+    // 根据架构选择文件名
+    #[cfg(target_arch = "aarch64")]
+    let bin_name = "nuwax-lanproxy-aarch64-unknown-linux-gnu";
+    #[cfg(target_arch = "x86_64")]
+    let bin_name = "nuwax-lanproxy-x86_64-unknown-linux-gnu";
+    #[cfg(target_arch = "arm")]
+    let bin_name = "nuwax-lanproxy-arm-unknown-linux-gnueabi";
+    #[cfg(target_arch = "armv7")]
+    let bin_name = "nuwax-lanproxy-armv7-unknown-linux-gnueabihf";
+    #[cfg(target_arch = "mips")]
+    let bin_name = "nuwax-lanproxy-mips-unknown-linux-gnu";
+    #[cfg(target_arch = "mipsle")]
+    let bin_name = "nuwax-lanproxy-mipsle-unknown-linux-gnu";
+    #[cfg(target_arch = "mips64")]
+    let bin_name = "nuwax-lanproxy-mips64-unknown-linux-gnu";
+
+    // 1. 尝试从资源目录获取 (生产环境)
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let bin_path = resource_dir.join("binaries").join(bin_name);
+        if bin_path.exists() {
+            return Ok(bin_path.to_string_lossy().to_string());
+        }
+    }
+
+    // 2. 尝试从可执行文件所在目录获取
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+    {
+        let alt_path = exe_dir.join("binaries").join(bin_name);
+        if alt_path.exists() {
+            return Ok(alt_path.to_string_lossy().to_string());
+        }
+    }
+
+    // 3. 开发模式: 尝试从 src-tauri/binaries 目录获取
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        let dev_path = std::path::Path::new(&manifest_dir)
+            .join("binaries")
+            .join(bin_name);
+        if dev_path.exists() {
+            return Ok(dev_path.to_string_lossy().to_string());
+        }
+    }
+
+    // 4. 开发模式备选: 从当前工作目录推断
+    if let Ok(cwd) = std::env::current_dir() {
+        let dev_path = cwd
+            .join("crates/agent-tauri-client/src-tauri/binaries")
+            .join(bin_name);
+        if dev_path.exists() {
+            return Ok(dev_path.to_string_lossy().to_string());
+        }
+    }
+
+    Err(format!("未找到 {} 可执行文件", bin_name))
+}
+
+/// 获取当前平台的 nuwax-lanproxy 可执行文件完整路径（Windows）
+#[cfg(target_os = "windows")]
+fn get_lanproxy_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
+    // 根据架构选择文件名
+    #[cfg(target_arch = "x86_64")]
+    let bin_name = "nuwax-lanproxy-x86_64-pc-windows-msvc.exe";
+    #[cfg(target_arch = "x86")]
+    let bin_name = "nuwax-lanproxy-i686-pc-windows-msvc.exe";
+    #[cfg(target_arch = "aarch64")]
+    let bin_name = "nuwax-lanproxy-aarch64-pc-windows-msvc.exe";
+
+    // 1. 尝试从资源目录获取 (生产环境)
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let bin_path = resource_dir.join("binaries").join(bin_name);
+        if bin_path.exists() {
+            return Ok(bin_path.to_string_lossy().to_string());
+        }
+    }
+
+    // 2. 尝试从可执行文件所在目录获取
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+    {
+        let alt_path = exe_dir.join("binaries").join(bin_name);
+        if alt_path.exists() {
+            return Ok(alt_path.to_string_lossy().to_string());
+        }
+    }
+
+    // 3. 开发模式: 尝试从 src-tauri/binaries 目录获取
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        let dev_path = std::path::Path::new(&manifest_dir)
+            .join("binaries")
+            .join(bin_name);
+        if dev_path.exists() {
+            return Ok(dev_path.to_string_lossy().to_string());
+        }
+    }
+
+    // 4. 开发模式备选: 从当前工作目录推断
+    if let Ok(cwd) = std::env::current_dir() {
+        let dev_path = cwd
+            .join("crates/agent-tauri-client/src-tauri/binaries")
+            .join(bin_name);
+        if dev_path.exists() {
+            return Ok(dev_path.to_string_lossy().to_string());
+        }
+    }
+
+    Err(format!("未找到 {} 可执行文件", bin_name))
 }
 
 /// 启动 nuwax-lanproxy 客户端
@@ -401,20 +718,95 @@ fn read_store_port(app: &tauri::AppHandle, key: &str) -> Option<u16> {
 /// - setup.server_host: 服务器 IP
 /// - setup.proxy_port: 服务器端口
 /// - auth.saved_key: 客户端密钥
+///
+/// # 错误信息说明
+/// 详细的错误信息会帮助定位配置问题，可能的错误包括:
+/// - "无法打开 store 文件": store 文件不存在或损坏
+/// - "值类型错误": store 中该键的值类型不匹配
+/// - "键不存在": 该配置项未设置
 #[tauri::command]
 async fn lanproxy_start(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
-    // 从 store 读取配置
-    let server_ip = read_store_string(&app, "setup.server_host")
-        .ok_or_else(|| "配置缺失: setup.server_host (服务器域名)".to_string())?;
-    let server_port = read_store_port(&app, "setup.proxy_port")
-        .ok_or_else(|| "配置缺失: setup.proxy_port (代理服务端口)".to_string())?;
-    let client_key = read_store_string(&app, "auth.saved_key")
-        .ok_or_else(|| "配置缺失: auth.saved_key (客户端密钥)".to_string())?;
+    info!("[Lanproxy] 开始读取启动配置...");
+
+    // 从 store 读取 server_host
+    let server_host = match read_store_string(&app, "setup.server_host") {
+        Ok(Some(host)) => {
+            info!("[Lanproxy] 找到 server_host: {}", host);
+            host
+        }
+        Ok(None) => {
+            let err = "配置缺失: setup.server_host (服务器域名) - 请在步骤1中保存服务器地址";
+            error!("[Lanproxy] {}", err);
+            return Err(err.to_string());
+        }
+        Err(e) => {
+            let err = format!("读取 setup.server_host 失败: {}", e);
+            error!("[Lanproxy] {}", err);
+            return Err(err);
+        }
+    };
+    let server_ip = strip_host_from_url(&server_host);
+    info!("[Lanproxy] 处理后的服务器地址: {}", server_ip);
+
+    // 从 store 读取 server_port
+    let server_port = match read_store_port(&app, "setup.proxy_port") {
+        Ok(Some(port)) => {
+            info!("[Lanproxy] 找到 proxy_port: {}", port);
+            port
+        }
+        Ok(None) => {
+            let err = "配置缺失: setup.proxy_port (代理服务端口) - 请在步骤1中保存端口配置";
+            error!("[Lanproxy] {}", err);
+            return Err(err.to_string());
+        }
+        Err(e) => {
+            let err = format!("读取 setup.proxy_port 失败: {}", e);
+            error!("[Lanproxy] {}", err);
+            return Err(err);
+        }
+    };
+
+    // 从 store 读取 client_key
+    let client_key = match read_store_string(&app, "auth.saved_key") {
+        Ok(Some(key)) => {
+            let masked = if key.len() > 8 {
+                format!("{}****{}", &key[..4], &key[key.len() - 4..])
+            } else {
+                "****".to_string()
+            };
+            info!("[Lanproxy] 找到 client_key: {}", masked);
+            key
+        }
+        Ok(None) => {
+            let err = "配置缺失: auth.saved_key (客户端密钥) - 请先登录/注册以获取客户端密钥";
+            error!("[Lanproxy] {}", err);
+            return Err(err.to_string());
+        }
+        Err(e) => {
+            let err = format!("读取 auth.saved_key 失败: {}", e);
+            error!("[Lanproxy] {}", err);
+            return Err(err);
+        }
+    };
+
+    // 获取 lanproxy 可执行文件完整路径
+    let bin_path = match get_lanproxy_bin_path(&app) {
+        Ok(path) => {
+            info!("[Lanproxy] 可执行文件路径: {}", path);
+            path
+        }
+        Err(e) => {
+            let err = format!("获取 lanproxy 可执行文件路径失败: {}", e);
+            error!("[Lanproxy] {}", err);
+            return Err(err);
+        }
+    };
 
     let lanproxy_config = nuwax_agent_core::NuwaxLanproxyConfig {
+        bin_path,
         server_ip,
         server_port,
         client_key,
@@ -427,9 +819,7 @@ async fn lanproxy_start(
 
 /// 停止 nuwax-lanproxy 客户端
 #[tauri::command]
-async fn lanproxy_stop(
-    state: tauri::State<'_, ServiceManagerState>,
-) -> Result<bool, String> {
+async fn lanproxy_stop(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
     let manager = state.manager.lock().await;
     manager.lanproxy_stop().await?;
     Ok(true)
@@ -437,30 +827,38 @@ async fn lanproxy_stop(
 
 /// 重启 nuwax-lanproxy 客户端
 ///
-/// 从 Tauri store 读取配置:
-/// - setup.server_host: 服务器 IP
-/// - setup.proxy_port: 服务器端口
-/// - auth.saved_key: 客户端密钥
+/// 先停止当前服务，等待端口释放，然后重新启动。
+/// 配置从 Tauri store 重新读取。
 #[tauri::command]
 async fn lanproxy_restart(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
+    info!("[Lanproxy] 正在重启服务...");
+
     // 先停止
+    info!("[Lanproxy] 正在停止当前服务...");
     {
         let manager = state.manager.lock().await;
         manager.lanproxy_stop().await?;
     }
+    info!("[Lanproxy] 当前服务已停止");
+
     // 等待端口释放
+    info!("[Lanproxy] 等待端口释放 (500ms)...");
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
     // 重新启动（使用相同的 store 配置）
+    info!("[Lanproxy] 正在从 store 重新读取配置并启动...");
     lanproxy_start(app, state).await?;
+
+    info!("[Lanproxy] 重启完成");
     Ok(true)
 }
 
 // ========== 服务管理命令 ==========
 
-use nuwax_agent_core::service::{ServiceManager, ServiceInfo};
+use nuwax_agent_core::service::{ServiceInfo, ServiceManager};
 
 /// 服务状态 DTO
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -524,6 +922,8 @@ async fn file_server_restart(state: tauri::State<'_, ServiceManagerState>) -> Re
 
 /// 启动 HTTP Server (rcoder)
 ///
+/// 启动 HTTP Server (rcoder)
+///
 /// 从 Tauri store 读取配置:
 /// - setup.agent_port: HTTP Server 端口 (默认 9086)
 #[tauri::command]
@@ -531,12 +931,30 @@ async fn rcoder_start(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
+    info!("[Rcoder] 开始读取启动配置...");
+
     // 从 store 读取端口
-    let port = read_store_port(&app, "setup.agent_port")
-        .ok_or_else(|| "配置缺失: setup.agent_port (Agent 服务端口)".to_string())?;
+    let port = match read_store_port(&app, "setup.agent_port") {
+        Ok(Some(p)) => {
+            info!("[Rcoder] 找到 agent_port: {}", p);
+            p
+        }
+        Ok(None) => {
+            let err = "配置缺失: setup.agent_port (Agent 服务端口)";
+            error!("[Rcoder] {}", err);
+            return Err(err.to_string());
+        }
+        Err(e) => {
+            let err = format!("读取 setup.agent_port 失败: {}", e);
+            error!("[Rcoder] {}", err);
+            return Err(err);
+        }
+    };
 
     let manager = state.manager.lock().await;
-    manager.rcoder_start(port, Arc::new(MinimalAgentRunnerApi)).await?;
+    manager
+        .rcoder_start(port, Arc::new(MinimalAgentRunnerApi))
+        .await?;
     Ok(true)
 }
 
@@ -609,20 +1027,54 @@ async fn services_restart_all(
     // rcoder
     info!("[Services] 2/4 启动 Agent 服务 (rcoder)...");
     {
-        let port = read_store_port(&app, "setup.agent_port")
-            .ok_or_else(|| "配置缺失: setup.agent_port (Agent 服务端口)".to_string())?;
-        info!("[Services]   - Agent 端口: {}", port);
+        let port = match read_store_port(&app, "setup.agent_port") {
+            Ok(Some(p)) => {
+                info!("[Services]   - 找到 agent_port: {}", p);
+                p
+            }
+            Ok(None) => {
+                let err = "配置缺失: setup.agent_port (Agent 服务端口)";
+                error!("[Services]   - {}", err);
+                return Err(err.to_string());
+            }
+            Err(e) => {
+                let err = format!("读取 setup.agent_port 失败: {}", e);
+                error!("[Services]   - {}", err);
+                return Err(err);
+            }
+        };
         let manager = state.manager.lock().await;
-        manager.rcoder_start(port, Arc::new(MinimalAgentRunnerApi)).await?;
+        manager
+            .rcoder_start(port, Arc::new(MinimalAgentRunnerApi))
+            .await?;
         info!("[Services]   - Agent 服务启动命令已发送");
     }
 
     // file_server - 读取端口配置
     info!("[Services] 3/4 启动文件服务 (nuwax-file-server)...");
     {
-        let port = read_store_port(&app, "setup.file_server_port")
-            .unwrap_or(60000); // 默认端口 60000
-        info!("[Services]   - 文件服务端口: {}", port);
+        // 读取文件服务端口，如果没有配置则使用默认值 60000
+        let port = match read_store_port(&app, "setup.file_server_port") {
+            Ok(Some(p)) => {
+                info!("[Services]   - 找到 file_server_port: {}", p);
+                p
+            }
+            Ok(None) => {
+                let default_port = 60000u16;
+                info!(
+                    "[Services]   - 未找到 file_server_port，使用默认值: {}",
+                    default_port
+                );
+                default_port
+            }
+            Err(e) => {
+                warn!(
+                    "[Services]   - 读取 file_server_port 失败: {}，使用默认值 60000",
+                    e
+                );
+                60000u16
+            }
+        };
         let manager = state.manager.lock().await;
         manager.file_server_start_with_port(port).await?;
         info!("[Services]   - 文件服务启动命令已发送");
@@ -631,25 +1083,105 @@ async fn services_restart_all(
     // lanproxy - 需要读取配置并调用 lanproxy_start_with_config
     info!("[Services] 4/4 启动代理服务 (nuwax-lanproxy)...");
     {
-        let server_ip = read_store_string(&app, "setup.server_host")
-            .ok_or_else(|| "配置缺失: setup.server_host (服务器域名)".to_string())?;
-        
-        // 优先使用 serverPort（从 reg 接口返回），如果没有则使用 proxy_port
-        let server_port = read_store_port(&app, "setup.server_port")
-            .or(read_store_port(&app, "setup.proxy_port"))
-            .ok_or_else(|| "配置缺失: setup.server_port 和 setup.proxy_port".to_string())?;
-        
-        let client_key = read_store_string(&app, "auth.saved_key")
-            .ok_or_else(|| "配置缺失: auth.saved_key (客户端密钥)".to_string())?;
+        // 读取 server_host
+        let server_host = match read_store_string(&app, "setup.server_host") {
+            Ok(Some(host)) => {
+                info!("[Services]   - 找到 server_host: {}", host);
+                host
+            }
+            Ok(None) => {
+                let err = "配置缺失: setup.server_host (服务器域名)";
+                error!("[Services]   - {}", err);
+                return Err(err.to_string());
+            }
+            Err(e) => {
+                let err = format!("读取 setup.server_host 失败: {}", e);
+                error!("[Services]   - {}", err);
+                return Err(err);
+            }
+        };
+        let server_ip = strip_host_from_url(&server_host);
+        info!("[Services]   - 处理后的服务器地址: {}", server_ip);
+
+        // 优先使用 server_port（从 reg 接口返回），如果没有则使用 proxy_port
+        let server_port = match read_store_port(&app, "setup.server_port") {
+            Ok(Some(port)) => {
+                info!("[Services]   - 找到 server_port (优先): {}", port);
+                port
+            }
+            Ok(None) => match read_store_port(&app, "setup.proxy_port") {
+                Ok(Some(port)) => {
+                    info!("[Services]   - 找到 proxy_port: {}", port);
+                    port
+                }
+                Ok(None) => {
+                    let err = "配置缺失: setup.server_port 和 setup.proxy_port";
+                    error!("[Services]   - {}", err);
+                    return Err(err.to_string());
+                }
+                Err(e) => {
+                    let err = format!("读取 setup.proxy_port 失败: {}", e);
+                    error!("[Services]   - {}", err);
+                    return Err(err);
+                }
+            },
+            Err(e) => {
+                let err = format!("读取 setup.server_port 失败: {}", e);
+                error!("[Services]   - {}", err);
+                return Err(err);
+            }
+        };
+
+        // 读取 client_key
+        let client_key = match read_store_string(&app, "auth.saved_key") {
+            Ok(Some(key)) => {
+                let masked = if key.len() > 8 {
+                    format!("{}****{}", &key[..4], &key[key.len() - 4..])
+                } else {
+                    "****".to_string()
+                };
+                info!("[Services]   - 找到 client_key: {}", masked);
+                key
+            }
+            Ok(None) => {
+                let err = "配置缺失: auth.saved_key (客户端密钥)";
+                error!("[Services]   - {}", err);
+                return Err(err.to_string());
+            }
+            Err(e) => {
+                let err = format!("读取 auth.saved_key 失败: {}", e);
+                error!("[Services]   - {}", err);
+                return Err(err);
+            }
+        };
+
+        // 获取 lanproxy 可执行文件完整路径
+        let bin_path = match get_lanproxy_bin_path(&app) {
+            Ok(path) => {
+                info!("[Services]   - 可执行文件路径: {}", path);
+                path
+            }
+            Err(e) => {
+                let err = format!("获取 lanproxy 可执行文件路径失败: {}", e);
+                error!("[Services]   - {}", err);
+                return Err(err);
+            }
+        };
 
         // 打印关键配置信息（注意脱敏）
         info!("[Services]   - 服务器地址: {}:{}", server_ip, server_port);
-        info!("[Services]   - 客户端密钥: {}****{}", 
-            &client_key[..client_key.len().saturating_sub(4).min(client_key.len())], 
-            if client_key.len() > 4 { &client_key[client_key.len()-4..] } else { "****" }
+        info!(
+            "[Services]   - 客户端密钥: {}****{}",
+            &client_key[..client_key.len().saturating_sub(4).min(client_key.len())],
+            if client_key.len() > 4 {
+                &client_key[client_key.len() - 4..]
+            } else {
+                "****"
+            }
         );
 
         let lanproxy_config = nuwax_agent_core::NuwaxLanproxyConfig {
+            bin_path,
             server_ip,
             server_port,
             client_key,
@@ -666,7 +1198,9 @@ async fn services_restart_all(
 
 /// 获取所有服务状态
 #[tauri::command]
-async fn services_status_all(state: tauri::State<'_, ServiceManagerState>) -> Result<Vec<ServiceInfoDto>, String> {
+async fn services_status_all(
+    state: tauri::State<'_, ServiceManagerState>,
+) -> Result<Vec<ServiceInfoDto>, String> {
     let manager = state.manager.lock().await;
     let statuses = manager.services_status_all().await;
     Ok(statuses.into_iter().map(|s| s.into()).collect())
@@ -678,7 +1212,10 @@ async fn services_status_all(state: tauri::State<'_, ServiceManagerState>) -> Re
 #[tauri::command]
 async fn dependency_npm_install(name: String) -> Result<bool, String> {
     let manager = CoreDependencyManager::new();
-    manager.install(&name).await.map_err(|e| format!("安装失败: {}", e))?;
+    manager
+        .install(&name)
+        .await
+        .map_err(|e| format!("安装失败: {}", e))?;
     Ok(true)
 }
 
@@ -696,8 +1233,14 @@ async fn dependency_npm_query_version(name: String) -> Result<Option<String>, St
 #[tauri::command]
 async fn dependency_npm_reinstall(name: String) -> Result<bool, String> {
     let manager = CoreDependencyManager::new();
-    manager.uninstall(&name).await.map_err(|e| format!("卸载失败: {}", e))?;
-    manager.install(&name).await.map_err(|e| format!("安装失败: {}", e))?;
+    manager
+        .uninstall(&name)
+        .await
+        .map_err(|e| format!("卸载失败: {}", e))?;
+    manager
+        .install(&name)
+        .await
+        .map_err(|e| format!("安装失败: {}", e))?;
     Ok(true)
 }
 
@@ -737,13 +1280,11 @@ pub struct InstallResult {
 /// 获取应用数据目录路径
 #[tauri::command]
 fn app_data_dir_get(app: tauri::AppHandle) -> Result<String, String> {
-    let path = app.path().app_data_dir()
-        .map_err(|e| e.to_string())?;
+    let path = app.path().app_data_dir().map_err(|e| e.to_string())?;
 
     // 确保目录存在
     if !path.exists() {
-        std::fs::create_dir_all(&path)
-            .map_err(|e| format!("创建应用数据目录失败: {}", e))?;
+        std::fs::create_dir_all(&path).map_err(|e| format!("创建应用数据目录失败: {}", e))?;
     }
 
     Ok(path.to_string_lossy().to_string())
@@ -777,9 +1318,7 @@ async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, String
 /// 检测 Node.js 版本
 #[tauri::command]
 async fn dependency_node_detect() -> Result<NodeVersionResult, String> {
-    let output = Command::new("node")
-        .arg("--version")
-        .output();
+    let output = Command::new("node").arg("--version").output();
 
     match output {
         Ok(out) if out.status.success() => {
@@ -801,7 +1340,7 @@ async fn dependency_node_detect() -> Result<NodeVersionResult, String> {
             installed: false,
             version: None,
             meets_requirement: false,
-        })
+        }),
     }
 }
 
@@ -818,32 +1357,34 @@ pub struct UvVersionResult {
 /// uv 是高性能的 Python 包管理器
 #[tauri::command]
 async fn dependency_uv_detect() -> Result<UvVersionResult, String> {
-    let output = Command::new("uv")
-        .arg("--version")
-        .output();
-    
+    let output = Command::new("uv").arg("--version").output();
+
     match output {
         Ok(out) if out.status.success() => {
             // uv 输出格式: "uv 0.5.14 (homebrew)"
             let output_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            
+
             // 提取版本号
             let version_str = output_str
                 .split_whitespace()
-                .nth(1)  // 获取第二个部分（版本号）
+                .nth(1) // 获取第二个部分（版本号）
                 .unwrap_or("")
                 .to_string();
-            
+
             // 检查版本是否 >= 0.5.0
             let meets = if version_str.is_empty() {
                 false
             } else {
                 check_version_meets_requirement(&version_str, "0.5.0")
             };
-            
+
             Ok(UvVersionResult {
                 installed: true,
-                version: if version_str.is_empty() { None } else { Some(version_str) },
+                version: if version_str.is_empty() {
+                    None
+                } else {
+                    Some(version_str)
+                },
                 meets_requirement: meets,
             })
         }
@@ -851,7 +1392,7 @@ async fn dependency_uv_detect() -> Result<UvVersionResult, String> {
             installed: false,
             version: None,
             meets_requirement: false,
-        })
+        }),
     }
 }
 
@@ -915,8 +1456,10 @@ async fn dependency_local_install(
         .args([
             "install",
             &package_name,
-            "--prefix", &app_dir,
-            "--registry", registry,
+            "--prefix",
+            &app_dir,
+            "--registry",
+            registry,
         ])
         .output()
         .map_err(|e| format!("执行 npm install 失败: {}", e))?;
@@ -953,8 +1496,7 @@ fn create_auto_launch(app: &tauri::AppHandle) -> Result<auto_launch::AutoLaunch,
     let app_name = "Nuwax Agent";
 
     // 获取应用可执行文件路径
-    let exe_path = std::env::current_exe()
-        .map_err(|e| format!("获取应用路径失败: {}", e))?;
+    let exe_path = std::env::current_exe().map_err(|e| format!("获取应用路径失败: {}", e))?;
 
     // macOS 上需要获取 .app bundle 路径，而不是内部的可执行文件路径
     #[cfg(target_os = "macos")]
@@ -1000,7 +1542,9 @@ fn create_auto_launch(app: &tauri::AppHandle) -> Result<auto_launch::AutoLaunch,
         builder.set_windows_enable_mode(auto_launch::WindowsEnableMode::CurrentUser);
     }
 
-    builder.build().map_err(|e| format!("创建 AutoLaunch 失败: {}", e))
+    builder
+        .build()
+        .map_err(|e| format!("创建 AutoLaunch 失败: {}", e))
 }
 
 /// 设置开机自启动
@@ -1009,10 +1553,14 @@ async fn autolaunch_set(app: tauri::AppHandle, enabled: bool) -> Result<bool, St
     let auto_launch = create_auto_launch(&app)?;
 
     if enabled {
-        auto_launch.enable().map_err(|e| format!("启用开机自启动失败: {}", e))?;
+        auto_launch
+            .enable()
+            .map_err(|e| format!("启用开机自启动失败: {}", e))?;
         log::info!("[autolaunch_set] 已启用开机自启动");
     } else {
-        auto_launch.disable().map_err(|e| format!("禁用开机自启动失败: {}", e))?;
+        auto_launch
+            .disable()
+            .map_err(|e| format!("禁用开机自启动失败: {}", e))?;
         log::info!("[autolaunch_set] 已禁用开机自启动");
     }
 
@@ -1023,7 +1571,9 @@ async fn autolaunch_set(app: tauri::AppHandle, enabled: bool) -> Result<bool, St
 #[tauri::command]
 async fn autolaunch_get(app: tauri::AppHandle) -> Result<bool, String> {
     let auto_launch = create_auto_launch(&app)?;
-    let enabled = auto_launch.is_enabled().map_err(|e| format!("获取开机自启动状态失败: {}", e))?;
+    let enabled = auto_launch
+        .is_enabled()
+        .map_err(|e| format!("获取开机自启动状态失败: {}", e))?;
     log::info!("[autolaunch_get] 当前状态: {}", enabled);
     Ok(enabled)
 }
@@ -1037,13 +1587,11 @@ async fn dialog_select_directory(app: tauri::AppHandle) -> Result<Option<String>
     // 使用 oneshot channel 接收回调结果
     let (tx, rx) = oneshot::channel();
 
-    app.dialog()
-        .file()
-        .pick_folder(move |result| {
-            // FilePath 实现了 Display trait，使用 to_string() 或 into_path()
-            let path = result.map(|p| p.to_string());
-            let _ = tx.send(path);
-        });
+    app.dialog().file().pick_folder(move |result| {
+        // FilePath 实现了 Display trait，使用 to_string() 或 into_path()
+        let path = result.map(|p| p.to_string());
+        let _ = tx.send(path);
+    });
 
     // 等待回调结果
     match rx.await {
@@ -1052,16 +1600,93 @@ async fn dialog_select_directory(app: tauri::AppHandle) -> Result<Option<String>
     }
 }
 
+/// 获取日志目录路径
+///
+/// 返回应用日志目录的绝对路径，便于用户手动查看日志文件
+#[tauri::command]
+fn log_dir_get() -> String {
+    nuwax_agent_core::Logger::get_log_dir()
+        .to_string_lossy()
+        .to_string()
+}
+
+/// 打开日志目录
+///
+/// 使用系统默认文件管理器打开日志目录，方便用户查看和分析日志
+#[tauri::command]
+async fn open_log_directory(app: tauri::AppHandle) -> Result<bool, String> {
+    let log_dir = nuwax_agent_core::Logger::get_log_dir();
+    // 使用 tauri_plugin_opener::open_path 打开目录
+    let result = tauri_plugin_opener::open_path(&log_dir, None::<&str>);
+    match result {
+        Ok(()) => Ok(true),
+        Err(e) => Err(format!("Failed to open log directory: {}", e)),
+    }
+}
+
+/// 从日志文件读取最新日志
+///
+/// 读取最近的日志行，最新日志在最前面
+/// 支持按行数限制返回数量
+#[tauri::command]
+async fn read_logs(count: Option<u32>) -> Result<Vec<String>, String> {
+    let log_dir = nuwax_agent_core::Logger::get_log_dir();
+    let count = count.unwrap_or(100) as usize;
+
+    // 查找最新的日志文件（按修改时间排序）
+    let mut log_files: Vec<_> = std::fs::read_dir(&log_dir)
+        .map_err(|e| format!("Failed to read log directory: {}", e))?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .map(|ext| ext == "log")
+                .unwrap_or(false)
+        })
+        .collect();
+
+    if log_files.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // 按修改时间排序，最新的在前
+    log_files.sort_by_key(|e| {
+        std::cmp::Reverse(
+            e.metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH),
+        )
+    });
+
+    // 读取最新的日志文件
+    let latest_log = &log_files[0].path();
+
+    // 读取文件内容
+    let content = std::fs::read_to_string(latest_log)
+        .map_err(|e| format!("Failed to read log file: {}", e))?;
+
+    // 按行分割并反转，使最新日志在最前面
+    let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+
+    lines.reverse();
+
+    // 只返回指定数量的日志
+    if lines.len() > count {
+        lines.truncate(count);
+    }
+
+    Ok(lines)
+}
+
 // ========== 辅助函数 ==========
 
 /// 获取包的可执行文件路径
 fn get_package_bin_path(app_dir: &str, package_name: &str) -> Option<String> {
     // 从包名推断 bin 名称
     // 例如: @anthropic-ai/claude-code-acp -> claude-code-acp
-    let bin_name = package_name
-        .split('/')
-        .last()
-        .unwrap_or(package_name);
+    let bin_name = package_name.split('/').last().unwrap_or(package_name);
 
     let bin_path = std::path::Path::new(app_dir)
         .join("node_modules")
@@ -1080,18 +1705,19 @@ fn get_package_bin_path(app_dir: &str, package_name: &str) -> Option<String> {
 fn check_version_meets_requirement(current: &str, required: &str) -> bool {
     let parse_version = |v: &str| -> (u32, u32, u32) {
         let parts: Vec<&str> = v.split('.').collect();
-        let major = parts.get(0)
+        let major = parts
+            .get(0)
             .and_then(|s| s.trim().parse().ok())
             .unwrap_or(0);
-        let minor = parts.get(1)
+        let minor = parts
+            .get(1)
             .and_then(|s| s.trim().parse().ok())
             .unwrap_or(0);
-        let patch = parts.get(2)
+        let patch = parts
+            .get(2)
             .and_then(|s| {
                 // 处理可能带有后缀的版本号，如 "22.0.0-beta"
-                let numeric_part: String = s.chars()
-                    .take_while(|c| c.is_ascii_digit())
-                    .collect();
+                let numeric_part: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
                 numeric_part.parse().ok()
             })
             .unwrap_or(0);
@@ -1108,6 +1734,14 @@ fn check_version_meets_requirement(current: &str, required: &str) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 在其他代码之前初始化日志系统，使日志写入文件
+    // 日志目录：macOS ~/Library/Application Support/nuwax-agent/logs/
+    //          Linux ~/.local/share/nuwax-agent/logs/
+    //          Windows %APPDATA%\nuwax-agent\logs\
+    if let Err(e) = nuwax_agent_core::Logger::init("nuwax-agent") {
+        eprintln!("[Logger] Failed to initialize logger: {}", e);
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
@@ -1122,7 +1756,7 @@ pub fn run() {
                 info!("Window close requested, stopping all services...");
                 let app = window.app_handle();
                 let state = app.state::<ServiceManagerState>();
-                
+
                 // 使用 block_on 在同步上下文中执行异步操作
                 tauri::async_runtime::block_on(async {
                     let manager = state.manager.lock().await;
@@ -1175,6 +1809,10 @@ pub fn run() {
             dependency_local_check,
             dependency_local_install,
             dialog_select_directory,
+            // 日志相关命令
+            log_dir_get,
+            open_log_directory,
+            read_logs,
             // 开机自启动命令
             autolaunch_set,
             autolaunch_get,

@@ -35,7 +35,7 @@ import {
   getOnlineStatus,
 } from './services';
 import SetupWizard from './components/SetupWizard';
-import LogViewer from './components/LogViewer';
+import LogViewerWithBackend from './components/LogViewerWithBackend';
 import {
   ClientPage,
   SettingsPage,
@@ -49,7 +49,7 @@ import { isSetupCompleted } from './services/setup';
 import { restartAllServices } from './services/dependencies';
 
 // Tab 类型定义
-type TabType = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'about';
+type TabType = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'backend_logs' | 'about';
 
 /**
  * 主应用组件
@@ -341,8 +341,7 @@ function App() {
           {activeTab === 'dependencies' && <DependenciesPage />}
           {activeTab === 'permissions' && <PermissionsPage />}
           {activeTab === 'logs' && (
-            <LogViewer
-              maxHeight={600}
+            <LogViewerWithBackend
               showSource={true}
               enableRealtime={true}
               autoScrollDefault={true}

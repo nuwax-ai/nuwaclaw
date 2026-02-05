@@ -29,6 +29,7 @@ import {
   SaveOutlined,
   EditOutlined,
   PoweroffOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import { Typography } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
@@ -57,6 +58,8 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   // 开机自启动
   const [autoLaunch, setAutoLaunch] = useState(false);
+  // 日志目录路径
+  const [logDir, setLogDir] = useState<string | null>(null);
   // 原始配置（用于取消编辑时恢复）
   const [originalConfig, setOriginalConfig] = useState<Step1Config | null>(null);
 
@@ -90,11 +93,36 @@ export default function SettingsPage() {
     }
   }, []);
 
+  /**
+   * 加载日志目录路径
+   */
+  const loadLogDir = useCallback(async () => {
+    try {
+      const dir = await invoke<string>('log_dir_get');
+      setLogDir(dir);
+    } catch (error) {
+      console.error('获取日志目录失败:', error);
+    }
+  }, []);
+
+  /**
+   * 打开日志目录
+   */
+  const handleOpenLogDir = async () => {
+    try {
+      await invoke<void>('open_log_directory');
+    } catch (error) {
+      console.error('打开日志目录失败:', error);
+      message.error('打开日志目录失败');
+    }
+  };
+
   // 组件挂载时加载配置和自启动状态
   useEffect(() => {
     loadConfig();
     loadAutoLaunchState();
-  }, [loadConfig, loadAutoLaunchState]);
+    loadLogDir();
+  }, [loadConfig, loadAutoLaunchState, loadLogDir]);
 
   /**
    * 选择工作区目录
@@ -323,6 +351,45 @@ export default function SettingsPage() {
               checked={autoLaunch}
               onChange={handleAutoLaunchChange}
             />
+          </Form.Item>
+        </Form>
+      </Card>
+
+      {/* 日志设置 */}
+      <Card
+        title={
+          <Space>
+            <FileTextOutlined />
+            <span>日志设置</span>
+          </Space>
+        }
+        style={{ marginBottom: 16 }}
+      >
+        <Form layout="vertical">
+          <Form.Item
+            label="日志目录"
+            extra={
+              logDir ? (
+                <span style={{ color: '#888', fontSize: 12 }}>
+                  日志文件将保存在此目录中，可用于排查问题和分析运行状态
+                </span>
+              ) : undefined
+            }
+          >
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Input
+                value={logDir || '加载中...'}
+                readOnly
+                style={{ flex: 1, backgroundColor: '#f5f5f5' }}
+              />
+              <Button
+                icon={<FolderOutlined />}
+                onClick={handleOpenLogDir}
+                disabled={!logDir}
+              >
+                打开目录
+              </Button>
+            </div>
           </Form.Item>
         </Form>
       </Card>

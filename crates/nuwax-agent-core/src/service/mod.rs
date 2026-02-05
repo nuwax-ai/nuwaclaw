@@ -90,6 +90,8 @@ impl Default for NuwaxFileServerConfig {
 /// NuwaxLanproxy 配置
 #[derive(Debug, Clone)]
 pub struct NuwaxLanproxyConfig {
+    /// 可执行文件完整路径
+    pub bin_path: String,
     /// 服务器 IP
     pub server_ip: String,
     /// 服务器端口
@@ -101,6 +103,7 @@ pub struct NuwaxLanproxyConfig {
 impl Default for NuwaxLanproxyConfig {
     fn default() -> Self {
         Self {
+            bin_path: "nuwax-lanproxy".to_string(),
             server_ip: "127.0.0.1".to_string(),
             server_port: 9000,
             client_key: "test_key".to_string(),
@@ -286,8 +289,12 @@ impl ServiceManager {
         // let server_port: u16 = store.get("nuwax-lanproxy.server_port").unwrap_or_default();
         // let client_key: String = store.get("nuwax-lanproxy.client_key").unwrap_or_default();
 
+        // 使用配置中的完整路径
+        let lanproxy_bin = &self.lanproxy_config.bin_path;
+        info!("[Lanproxy] 使用可执行文件路径: {}", lanproxy_bin);
+
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(
-            "nuwax-lanproxy",
+            lanproxy_bin.as_str(),
             |cmd| {
                 cmd.arg("-s").arg(&self.lanproxy_config.server_ip);
                 cmd.arg("-p").arg(self.lanproxy_config.server_port.to_string());
@@ -366,14 +373,15 @@ impl ServiceManager {
     /// 使用指定配置启动 nuwax-lanproxy
     pub async fn lanproxy_start_with_config(&self, config: NuwaxLanproxyConfig) -> Result<(), String> {
         info!("[Lanproxy] ========== 启动代理服务 ==========");
+        info!("[Lanproxy] 可执行文件路径: {}", config.bin_path);
         info!("[Lanproxy] 服务器地址: {}:{}", config.server_ip, config.server_port);
-        info!("[Lanproxy] 客户端密钥: {}****{}", 
-            &config.client_key[..config.client_key.len().saturating_sub(4).min(config.client_key.len())], 
+        info!("[Lanproxy] 客户端密钥: {}****{}",
+            &config.client_key[..config.client_key.len().saturating_sub(4).min(config.client_key.len())],
             if config.client_key.len() > 4 { &config.client_key[config.client_key.len()-4..] } else { "****" }
         );
 
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(
-            "nuwax-lanproxy",
+            config.bin_path.as_str(),
             |cmd| {
                 cmd.arg("-s").arg(&config.server_ip);
                 cmd.arg("-p").arg(config.server_port.to_string());
