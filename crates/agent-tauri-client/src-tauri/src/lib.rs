@@ -2358,6 +2358,16 @@ fn check_version_meets_requirement(current: &str, required: &str) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // ✅ 初始化 Rustls CryptoProvider（必须在最前面，在任何可能使用 TLS 的代码之前）
+    // 这解决了 rustls 0.23 的 "Could not automatically determine the process-level CryptoProvider" 问题
+    // 使用 once_cell 确保只初始化一次，避免多次调用导致 panic
+    static INIT: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    let _ = INIT.get_or_init(|| {
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .expect("Failed to install rustls crypto provider");
+    });
+
     // 在其他代码之前初始化日志系统，使日志写入文件
     // 日志目录：macOS ~/Library/Application Support/nuwax-agent/logs/
     //          Linux ~/.local/share/nuwax-agent/logs/

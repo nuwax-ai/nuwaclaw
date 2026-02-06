@@ -774,6 +774,7 @@ mod standalone_tests {
         #[test]
         fn test_nuwax_file_server_config_custom() {
             let config = NuwaxFileServerConfig {
+                bin_path: "/custom/bin/server".to_string(),
                 port: 50000,
                 env: "development".to_string(),
                 init_project_name: "my-project".to_string(),
@@ -787,6 +788,7 @@ mod standalone_tests {
             };
             assert_eq!(config.port, 50000);
             assert_eq!(config.env, "development");
+            assert_eq!(config.bin_path, "/custom/bin/server");
         }
 
         #[test]
@@ -800,6 +802,7 @@ mod standalone_tests {
         #[test]
         fn test_nuwax_lanproxy_config_custom() {
             let config = NuwaxLanproxyConfig {
+                bin_path: "/custom/bin/lanproxy".to_string(),
                 server_ip: "192.168.1.100".to_string(),
                 server_port: 8080,
                 client_key: "my-secret-key".to_string(),
@@ -807,6 +810,7 @@ mod standalone_tests {
             assert_eq!(config.server_ip, "192.168.1.100");
             assert_eq!(config.server_port, 8080);
             assert_eq!(config.client_key, "my-secret-key");
+            assert_eq!(config.bin_path, "/custom/bin/lanproxy");
         }
 
         #[tokio::test]

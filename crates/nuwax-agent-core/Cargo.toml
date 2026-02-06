@@ -21,6 +21,8 @@ crate-type = ["rlib", "cdylib"]
 default = ["auto-launch", "dependency-management", "async-trait", "http-server", "rcoder"]
 # 开机自启动
 auto-launch = ["dep:auto-launch"]
+# rustls 加密提供者（用于测试）
+rustls = ["dep:rustls"]
 # 依赖管理功能
 dependency-management = ["dep:reqwest", "dep:flate2", "dep:tar"]
 # 远程桌面功能
@@ -113,6 +115,9 @@ open = "5"
 # 进程管理（确保子进程不会成为僵尸进程）
 # tokio1 不在默认特性中，需要显式启用
 process-wrap = { version = "9", features = ["tokio1"] }
+
+# rustls for crypto provider initialization (仅用于测试)
+rustls = { version = "0.23", features = ["ring"], optional = true }
 
 # HTTP Server (可选)
 axum = { version = "0.8", optional = true, features = ["json", "macros"] }

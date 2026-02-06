@@ -162,3 +162,129 @@ mod integration_tests {
         assert!(error_msg.contains("不存在") || error_msg.contains("not found"));
     }
 }
+
+/// Pingora 代理服务测试
+#[cfg(test)]
+mod pingora_tests {
+    use std::time::Duration;
+    use std::sync::OnceLock;
+    use reqwest::Client;
+
+    use crate::agent_runner::{
+        RcoderAgentRunner, RcoderAgentRunnerConfig,
+    };
+
+    /// 初始化 Rustls CryptoProvider（确保只初始化一次）
+    fn init_rustls() {
+        static INIT: OnceLock<()> = OnceLock::new();
+        let _ = INIT.get_or_init(|| {
+            rustls::crypto::ring::default_provider()
+                .install_default()
+                .expect("Failed to install rustls crypto provider");
+        });
+    }
+
+    /// 测试 Pingora 服务启动和健康检查
+    #[tokio::test]
+    async fn test_pingora_server_health_check() {
+        init_rustls();
+
+        let port = 38088;
+        let config = RcoderAgentRunnerConfig {
+            projects_dir: std::path::PathBuf::from("/tmp/test-pingora-health"),
+            api_key: None,
+            api_base_url: "https://api.anthropic.com".to_string(),
+            default_model: "claude-sonnet-4-20250514".to_string(),
+            proxy_port: port,
+        };
+
+        println!("[Test] 启动 Pingora 服务，端口: {}", port);
+        let runner = RcoderAgentRunner::new(config);
+
+        // 等待服务启动
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+
+        // 使用 HTTP 健康检查接口测试
+        let client = Client::new();
+        let url = format!("http://127.0.0.1:{}/health", port);
+
+        let result = tokio::time::timeout(Duration::from_secs(5), client.get(&url).send()).await;
+
+        match result {
+            Ok(Ok(response)) => {
+                assert!(response.status().is_success(), "健康检查应返回 200");
+                let body = response.text().await.unwrap();
+                println!("✅ 健康检查响应: {}", body);
+                assert!(body.contains("status") || body.contains("ok"), "响应应包含状态信息");
+            }
+            Ok(Err(e)) => {
+                panic!("❌ 健康检查请求失败: {:?}", e);
+            }
+            Err(_) => {
+                panic!("❌ 健康检查超时");
+            }
+        }
+
+        // 清理
+        runner.stop().await;
+        println!("[Test] Pingora 服务已停止");
+    }
+
+    /// 测试 Pingora 服务重启后的健康检查
+    #[tokio::test]
+    async fn test_pingora_server_restart_health_check() {
+        init_rustls();
+
+        let port = 39088;
+
+        // 第一次启动
+        let config1 = RcoderAgentRunnerConfig {
+            projects_dir: std::path::PathBuf::from("/tmp/test-pingora-restart-h1"),
+            api_key: None,
+            api_base_url: "https://api.anthropic.com".to_string(),
+            default_model: "claude-sonnet-4-20250514".to_string(),
+            proxy_port: port,
+        };
+
+        println!("[Test] 第一次启动 Pingora 服务，端口: {}", port);
+        let runner1 = RcoderAgentRunner::new(config1);
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+
+        // 第一次健康检查
+        let client = Client::new();
+        let url = format!("http://127.0.0.1:{}/health", port);
+        let result1 = tokio::time::timeout(Duration::from_secs(5), client.get(&url).send()).await;
+
+        assert!(result1.is_ok(), "第一次健康检查应该成功");
+        println!("✅ 第一次健康检查成功");
+
+        // 停止
+        runner1.stop().await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        println!("[Test] 第一次停止完成");
+
+        // 第二次启动
+        let config2 = RcoderAgentRunnerConfig {
+            projects_dir: std::path::PathBuf::from("/tmp/test-pingora-restart-h2"),
+            api_key: None,
+            api_base_url: "https://api.anthropic.com".to_string(),
+            default_model: "claude-sonnet-4-20250514".to_string(),
+            proxy_port: port,
+        };
+
+        println!("[Test] 第二次启动 Pingora 服务，端口: {}", port);
+        let runner2 = RcoderAgentRunner::new(config2);
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+
+        // 第二次健康检查
+        let result2 = tokio::time::timeout(Duration::from_secs(5), client.get(&url).send()).await;
+
+        assert!(result2.is_ok(), "第二次健康检查应该成功");
+        println!("✅ 第二次健康检查成功");
+
+        println!("✅ Pingora 服务重启健康检查测试通过");
+
+        runner2.stop().await;
+        println!("[Test] Pingora 服务已停止");
+    }
+}
