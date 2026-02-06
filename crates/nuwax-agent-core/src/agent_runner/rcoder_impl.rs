@@ -128,7 +128,7 @@ impl RcoderAgentRunner {
         // 创建代理配置
         let proxy_config = ProxyConfig {
             listen_port: proxy_port,
-            default_backend_port: 8087,
+            default_backend_port: 9086,
             backend_host: "127.0.0.1".to_string(),
             port_param: "port".to_string(),
             config_file: None,
