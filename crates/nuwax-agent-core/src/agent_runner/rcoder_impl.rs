@@ -10,14 +10,14 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::api::traits::agent_runner::{
-    AgentRunnerApi, ChatRequest, ChatResponse, ProgressMessage, ProgressMessageType,
-    AgentStatus, AgentStatusResult, AgentInfo,
+    AgentInfo, AgentRunnerApi, AgentStatus, AgentStatusResult, ChatRequest, ChatResponse,
+    ProgressMessage, ProgressMessageType,
 };
 
 // 使用 agent_runner 导出的类型
-use agent_runner::{AgentRuntime, AgentRequest, WorkerState, AGENT_REGISTRY};
+use agent_runner::{AgentRequest, AgentRuntime, WorkerState, AGENT_REGISTRY};
 // 使用 agent_runner::service 模块导出的 SESSION_CACHE 和 SessionData
-use agent_runner::service::{SESSION_CACHE, SessionData};
+use agent_runner::service::{SessionData, SESSION_CACHE};
 // 使用 agent_runner 导出的消息类型
 use agent_runner::{SessionMessageType, UnifiedSessionMessage};
 // 使用 agent_runner 导出的取消相关类型
@@ -95,7 +95,11 @@ impl RcoderAgentRunner {
         info!("[RcoderAgentRunner] 正在停止...");
 
         // 停止所有活跃会话
-        let session_ids: Vec<_> = self.active_sessions.iter().map(|r| r.key().clone()).collect();
+        let session_ids: Vec<_> = self
+            .active_sessions
+            .iter()
+            .map(|r| r.key().clone())
+            .collect();
         for session_id in session_ids {
             let _ = self.cancel_session(&session_id, "").await;
         }
@@ -110,7 +114,8 @@ fn convert_chat_request(
     config: &RcoderAgentRunnerConfig,
 ) -> agent_abstraction::PromptMessage {
     // 获取 project_id，如果为 None 则使用默认值
-    let project_id = request.project_id
+    let project_id = request
+        .project_id
         .clone()
         .unwrap_or_else(|| "default".to_string());
 
@@ -120,7 +125,10 @@ fn convert_chat_request(
         request.prompt.clone(),
         project_id,
         project_path,
-        request.request_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string()),
+        request
+            .request_id
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string()),
         ServiceType::ComputerAgentRunner,
     )
     .with_session_id(request.session_id.clone())
@@ -162,7 +170,14 @@ impl AgentRunnerApi for RcoderAgentRunner {
         );
 
         // 检查运行时状态
-        if self.runtime.state() == WorkerState::Stopped {
+        let current_state = self.runtime.state();
+        info!(
+            "[RcoderAgentRunner] 运行时状态: {:?}, is_closed={}",
+            current_state,
+            self.runtime.is_closed()
+        );
+        if current_state == WorkerState::Stopped {
+            error!("[RcoderAgentRunner] Agent 运行时已停止，拒绝请求");
             return Err("Agent 运行时已停止".to_string());
         }
 
@@ -173,36 +188,47 @@ impl AgentRunnerApi for RcoderAgentRunner {
         let (agent_request, rx) = AgentRequest::new(prompt_message, None);
 
         // 使用 runtime.send() 发送请求
-        self.runtime
-            .send(agent_request)
-            .await
-            .map_err(|e| format!("发送请求失败: {}", e))?;
+        info!("[RcoderAgentRunner] 发送请求到 runtime...");
+        self.runtime.send(agent_request).await.map_err(|e| {
+            error!("[RcoderAgentRunner] 发送请求失败: {}", e);
+            format!("发送请求失败: {}", e)
+        })?;
+
+        info!("[RcoderAgentRunner] 请求已发送，等待响应...");
 
         // 等待响应
-        let response = rx.await.map_err(|e| format!("接收响应失败: {}", e))?;
+        let response = rx.await.map_err(|e| {
+            error!("[RcoderAgentRunner] 接收响应失败: {}", e);
+            format!("接收响应失败: {}", e)
+        })?;
 
         // 追踪会话
         self.active_sessions
             .insert(response.session_id.clone(), tokio::time::Instant::now());
 
         info!(
-            "[RcoderAgentRunner] 聊天响应: project_id={}, session_id={}, success={}",
+            "[RcoderAgentRunner] 聊天响应: project_id={}, session_id={}, code={}, error={:?}, success={}",
             response.project_id,
             response.session_id,
-            response.error.is_none()
+            response.code,
+            response.error,
+            response.error.is_none() && response.code == "0000"
         );
 
-        Ok(convert_response(response))
+        let converted = convert_response(response);
+        info!(
+            "[RcoderAgentRunner] 转换后响应: success={}, error={:?}, error_code={:?}",
+            converted.success, converted.error, converted.error_code
+        );
+
+        Ok(converted)
     }
 
     async fn subscribe_progress(
         &self,
         session_id: &str,
     ) -> Result<mpsc::Receiver<ProgressMessage>, String> {
-        info!(
-            "[RcoderAgentRunner] 订阅进度: session_id={}",
-            session_id
-        );
+        info!("[RcoderAgentRunner] 订阅进度: session_id={}", session_id);
 
         // 获取或创建 SessionData（参照 rcoder gRPC 实现）
         // 使用 entry API 避免 DashMap 的读写锁死锁问题
@@ -341,11 +367,7 @@ impl AgentRunnerApi for RcoderAgentRunner {
         Ok(rx)
     }
 
-    async fn cancel_session(
-        &self,
-        session_id: &str,
-        project_id: &str,
-    ) -> Result<(), String> {
+    async fn cancel_session(&self, session_id: &str, project_id: &str) -> Result<(), String> {
         info!(
             "[RcoderAgentRunner] 取消会话: session_id={}, project_id={}",
             session_id, project_id

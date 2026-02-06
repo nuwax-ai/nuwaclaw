@@ -1,11 +1,12 @@
 //! Computer Progress Handler (SSE)
 
-use crate::api::traits::agent_runner::{AgentRunnerApi, ProgressMessage};
 use super::AppError;
+use crate::api::traits::agent_runner::{AgentRunnerApi, ProgressMessage};
 use axum::http::Response as HttpResponse;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
+use tracing::{error, info};
 
 /// Computer Progress Handler (SSE)
 ///
@@ -17,7 +18,24 @@ pub async fn computer_progress(
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     let session_id = path.0;
 
-    let mut receiver = agent_runner_api.subscribe_progress(&session_id).await?;
+    info!(
+        "[computer_progress] 订阅进度请求: session_id={}",
+        session_id
+    );
+
+    let mut receiver = match agent_runner_api.subscribe_progress(&session_id).await {
+        Ok(rx) => {
+            info!("[computer_progress] 订阅成功: session_id={}", session_id);
+            rx
+        }
+        Err(e) => {
+            error!(
+                "[computer_progress] 订阅失败: session_id={}, error={}",
+                session_id, e
+            );
+            return Err(AppError::from(e));
+        }
+    };
 
     // 创建通道用于 SSE
     let (tx, rx) = mpsc::channel::<Result<String, std::convert::Infallible>>(32);
