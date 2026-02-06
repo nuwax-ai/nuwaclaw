@@ -80,7 +80,7 @@ type InstallPhase =
 interface UnifiedDependencyItem {
   name: string;
   displayName: string;
-  type: "system" | "npm-local" | "shell-installer";
+  type: "system" | "npm-local" | "npm-global" | "shell-installer";
   description: string;
   status:
     | "checking"
@@ -139,7 +139,11 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
       return deps.map((dep) => ({
         name: dep.name,
         displayName: dep.displayName,
-        type: dep.type as "system" | "npm-local" | "shell-installer",
+        type: dep.type as
+          | "system"
+          | "npm-local"
+          | "npm-global"
+          | "shell-installer",
         description: dep.description,
         status: dep.status as UnifiedDependencyItem["status"],
         version: dep.version,
@@ -181,9 +185,12 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
         });
       }
 
-      // 获取可自动安装的依赖（shell-installer + npm-local）
+      // 获取可自动安装的依赖（shell-installer + npm-local + npm-global）
       const installableDeps = deps.filter(
-        (d) => d.type === "npm-local" || d.type === "shell-installer",
+        (d) =>
+          d.type === "npm-local" ||
+          d.type === "npm-global" ||
+          d.type === "shell-installer",
       );
       setInstallableDependencies(installableDeps);
 
@@ -514,6 +521,9 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
     if (item.type === "shell-installer") {
       return <Tag color="cyan">shell</Tag>;
     }
+    if (item.type === "npm-global") {
+      return <Tag color="purple">npm 全局</Tag>;
+    }
     return <Tag color="purple">npm 包</Tag>;
   };
 
@@ -532,9 +542,12 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
     const npmDeps = allDependencies.filter((d) => d.type === "npm-local");
     const npmReady = npmDeps.filter((d) => d.status === "installed").length;
 
-    // 可安装依赖（npm-local 和 shell-installer）
+    // 可安装依赖（npm-local、npm-global 和 shell-installer）
     const installableDeps = allDependencies.filter(
-      (d) => d.type === "npm-local" || d.type === "shell-installer",
+      (d) =>
+        d.type === "npm-local" ||
+        d.type === "npm-global" ||
+        d.type === "shell-installer",
     );
     const installableReady = installableDeps.filter(
       (d) => d.status === "installed",

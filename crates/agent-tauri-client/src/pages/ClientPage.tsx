@@ -1,6 +1,6 @@
 /**
  * 客户端页面
- * 
+ *
  * 功能：
  * - 显示所有服务状态
  * - 启动/停止服务
@@ -8,7 +8,7 @@
  * - 快速操作入口
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Space,
   Badge,
@@ -23,7 +23,7 @@ import {
   Progress,
   List,
   Spin,
-} from 'antd';
+} from "antd";
 import {
   RobotOutlined,
   FileTextOutlined,
@@ -39,19 +39,21 @@ import {
   LoadingOutlined,
   SyncOutlined,
   ReloadOutlined,
-} from '@ant-design/icons';
-import { Typography } from 'antd';
-import { AgentStatus, LogEntry } from '../services';
+} from "@ant-design/icons";
+import { Typography } from "antd";
+import { AgentStatus, LogEntry } from "../services";
 import {
   getServicesStatus,
   restartAllServices,
   stopAllServices,
+  checkAllSetupDependencies,
   ServiceInfo,
   SERVICE_DISPLAY_NAMES,
   SERVICE_STATE_COLORS,
-} from '../services/dependencies';
-import LoginForm from '../components/LoginForm';
-import SceneSwitcher from '../components/SceneSwitcher';
+  LocalDependencyItem,
+} from "../services/dependencies";
+import LoginForm from "../components/LoginForm";
+import SceneSwitcher from "../components/SceneSwitcher";
 
 const { Text } = Typography;
 
@@ -62,7 +64,13 @@ interface ConnectionInfo {
 }
 
 // Tab 类型
-type TabType = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'about';
+type TabType =
+  | "client"
+  | "settings"
+  | "dependencies"
+  | "permissions"
+  | "logs"
+  | "about";
 
 interface ClientPageProps {
   /** Agent 状态 */
@@ -76,7 +84,10 @@ interface ClientPageProps {
   /** 连接信息 */
   connectionInfo: ConnectionInfo;
   /** 状态徽章配置 */
-  badge: { status: 'success' | 'processing' | 'error' | 'default' | 'warning'; text: string };
+  badge: {
+    status: "success" | "processing" | "error" | "default" | "warning";
+    text: string;
+  };
   /** 是否加载中 */
   loading: boolean;
   /** 启动 Agent */
@@ -107,6 +118,10 @@ export default function ClientPage({
   const [servicesLoading, setServicesLoading] = useState(false);
   const [servicesOperating, setServicesOperating] = useState(false);
 
+  // 依赖状态
+  const [missingDeps, setMissingDeps] = useState<LocalDependencyItem[]>([]);
+  const [depsChecked, setDepsChecked] = useState(false);
+
   // 加载服务状态
   const loadServicesStatus = useCallback(async () => {
     setServicesLoading(true);
@@ -114,19 +129,39 @@ export default function ClientPage({
       const result = await getServicesStatus();
       setServices(result);
     } catch (error) {
-      console.error('[ClientPage] 获取服务状态失败:', error);
+      console.error("[ClientPage] 获取服务状态失败:", error);
     } finally {
       setServicesLoading(false);
+    }
+  }, []);
+
+  // 检测依赖状态
+  const checkDependencies = useCallback(async () => {
+    try {
+      const deps = await checkAllSetupDependencies();
+      const missing = deps.filter(
+        (d) =>
+          d.required &&
+          (d.status === "missing" ||
+            d.status === "outdated" ||
+            d.status === "error"),
+      );
+      setMissingDeps(missing);
+      setDepsChecked(true);
+    } catch (error) {
+      console.error("[ClientPage] 检测依赖状态失败:", error);
+      setDepsChecked(true);
     }
   }, []);
 
   // 初始加载和定时刷新
   useEffect(() => {
     loadServicesStatus();
+    checkDependencies();
     // 每 5 秒刷新一次服务状态
     const interval = setInterval(loadServicesStatus, 5000);
     return () => clearInterval(interval);
-  }, [loadServicesStatus]);
+  }, [loadServicesStatus, checkDependencies]);
 
   // 启动所有服务
   const handleStartServices = async () => {
@@ -135,7 +170,7 @@ export default function ClientPage({
       await restartAllServices();
       await loadServicesStatus();
     } catch (error) {
-      console.error('[ClientPage] 启动服务失败:', error);
+      console.error("[ClientPage] 启动服务失败:", error);
     } finally {
       setServicesOperating(false);
     }
@@ -148,14 +183,14 @@ export default function ClientPage({
       await stopAllServices();
       await loadServicesStatus();
     } catch (error) {
-      console.error('[ClientPage] 停止服务失败:', error);
+      console.error("[ClientPage] 停止服务失败:", error);
     } finally {
       setServicesOperating(false);
     }
   };
 
   // 计算服务统计
-  const runningCount = services.filter(s => s.state === 'Running').length;
+  const runningCount = services.filter((s) => s.state === "Running").length;
   const totalCount = services.length;
   const allRunning = totalCount > 0 && runningCount === totalCount;
   const allStopped = totalCount > 0 && runningCount === 0;
@@ -163,28 +198,28 @@ export default function ClientPage({
   // 获取服务状态图标
   const getServiceStateIcon = (state: string) => {
     switch (state) {
-      case 'Running':
-        return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
-      case 'Stopped':
-        return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
-      case 'Starting':
-      case 'Stopping':
-        return <LoadingOutlined style={{ color: '#1890ff' }} />;
+      case "Running":
+        return <CheckCircleOutlined style={{ color: "#52c41a" }} />;
+      case "Stopped":
+        return <CloseCircleOutlined style={{ color: "#ff4d4f" }} />;
+      case "Starting":
+      case "Stopping":
+        return <LoadingOutlined style={{ color: "#1890ff" }} />;
       default:
-        return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
+        return <CloseCircleOutlined style={{ color: "#ff4d4f" }} />;
     }
   };
 
   // 获取服务状态标签
   const getServiceStateTag = (state: string) => {
     const config: Record<string, { color: string; text: string }> = {
-      Running: { color: 'success', text: '运行中' },
-      Stopped: { color: 'error', text: '已停止' },
-      Starting: { color: 'processing', text: '启动中' },
-      Stopping: { color: 'warning', text: '停止中' },
-      Error: { color: 'error', text: '错误' },
+      Running: { color: "success", text: "运行中" },
+      Stopped: { color: "error", text: "已停止" },
+      Starting: { color: "processing", text: "启动中" },
+      Stopping: { color: "warning", text: "停止中" },
+      Error: { color: "error", text: "错误" },
     };
-    const c = config[state] || { color: 'default', text: state };
+    const c = config[state] || { color: "default", text: state };
     return <Tag color={c.color}>{c.text}</Tag>;
   };
 
@@ -210,7 +245,9 @@ export default function ClientPage({
           <Space>
             <CloudServerOutlined />
             <span>服务状态</span>
-            <Tag color={allRunning ? 'success' : allStopped ? 'error' : 'warning'}>
+            <Tag
+              color={allRunning ? "success" : allStopped ? "error" : "warning"}
+            >
               {runningCount}/{totalCount} 运行中
             </Tag>
           </Space>
@@ -230,6 +267,7 @@ export default function ClientPage({
                 icon={<PlayCircleOutlined />}
                 onClick={handleStartServices}
                 loading={servicesOperating}
+                disabled={!depsChecked || missingDeps.length > 0}
               >
                 启动全部
               </Button>
@@ -247,7 +285,7 @@ export default function ClientPage({
         }
       >
         {servicesLoading && services.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 24 }}>
+          <div style={{ textAlign: "center", padding: 24 }}>
             <Spin />
             <div style={{ marginTop: 8 }}>
               <Text type="secondary">正在获取服务状态...</Text>
@@ -274,12 +312,18 @@ export default function ClientPage({
               >
                 <List.Item.Meta
                   avatar={getServiceStateIcon(service.state)}
-                  title={SERVICE_DISPLAY_NAMES[service.serviceType] || service.serviceType}
+                  title={
+                    SERVICE_DISPLAY_NAMES[service.serviceType] ||
+                    service.serviceType
+                  }
                   description={
                     <Text type="secondary" style={{ fontSize: 12 }}>
-                      {service.serviceType === 'Rcoder' && 'HTTP Server / Agent 核心服务'}
-                      {service.serviceType === 'NuwaxFileServer' && '本地文件服务 / 工作区管理'}
-                      {service.serviceType === 'NuwaxLanproxy' && '内网穿透代理 / 远程连接'}
+                      {service.serviceType === "Rcoder" &&
+                        "HTTP Server / Agent 核心服务"}
+                      {service.serviceType === "NuwaxFileServer" &&
+                        "本地文件服务 / 工作区管理"}
+                      {service.serviceType === "NuwaxLanproxy" &&
+                        "内网穿透代理 / 远程连接"}
                     </Text>
                   }
                 />
@@ -288,16 +332,68 @@ export default function ClientPage({
           />
         )}
 
-        {allStopped && services.length > 0 && (
+        {allStopped && services.length > 0 && missingDeps.length > 0 && (
           <Alert
-            message="服务未启动"
-            description="点击「启动全部」按钮启动所有服务"
-            type="warning"
+            message="服务无法启动 - 缺少必需依赖"
+            description={
+              <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                <Text>
+                  以下依赖未安装或版本不满足要求，请先安装后再启动服务：
+                </Text>
+                <List
+                  size="small"
+                  dataSource={missingDeps}
+                  renderItem={(dep) => (
+                    <List.Item style={{ padding: "4px 0", border: "none" }}>
+                      <Space>
+                        <CloseCircleOutlined style={{ color: "#ff4d4f" }} />
+                        <Text strong>{dep.displayName}</Text>
+                        <Tag
+                          color={dep.status === "missing" ? "error" : "warning"}
+                        >
+                          {dep.status === "missing"
+                            ? "未安装"
+                            : dep.status === "outdated"
+                              ? "版本过低"
+                              : "错误"}
+                        </Tag>
+                        {dep.errorMessage && (
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {dep.errorMessage}
+                          </Text>
+                        )}
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+                <Button
+                  type="primary"
+                  icon={<FolderOutlined />}
+                  onClick={() => onNavigate?.("dependencies")}
+                >
+                  前往依赖管理安装
+                </Button>
+              </Space>
+            }
+            type="error"
             showIcon
             style={{ marginTop: 16 }}
           />
         )}
-        
+
+        {allStopped &&
+          services.length > 0 &&
+          missingDeps.length === 0 &&
+          depsChecked && (
+            <Alert
+              message="服务未启动"
+              description="所有依赖已就绪，点击「启动全部」按钮启动所有服务"
+              type="warning"
+              showIcon
+              style={{ marginTop: 16 }}
+            />
+          )}
+
         {allRunning && (
           <Alert
             message="所有服务运行正常"
@@ -322,28 +418,38 @@ export default function ClientPage({
           <Col span={12}>
             <Descriptions column={1} size="small">
               <Descriptions.Item label="连接状态">
-                <Tag color={onlineStatus === true ? 'green' : onlineStatus === false ? 'red' : 'default'}>
-                  {onlineStatus === true ? '在线' : onlineStatus === false ? '离线' : '未知'}
+                <Tag
+                  color={
+                    onlineStatus === true
+                      ? "green"
+                      : onlineStatus === false
+                        ? "red"
+                        : "default"
+                  }
+                >
+                  {onlineStatus === true
+                    ? "在线"
+                    : onlineStatus === false
+                      ? "离线"
+                      : "未知"}
                 </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="会话 ID">
-                <Text code>{sessionId || '-'}</Text>
+                <Text code>{sessionId || "-"}</Text>
               </Descriptions.Item>
-              <Descriptions.Item label="平台">
-                macOS / arm64
-              </Descriptions.Item>
+              <Descriptions.Item label="平台">macOS / arm64</Descriptions.Item>
             </Descriptions>
           </Col>
           <Col span={12}>
             <Descriptions column={1} size="small">
               <Descriptions.Item label="客户端 ID">
                 <Text code copyable={!!connectionInfo.id}>
-                  {connectionInfo.id || '-'}
+                  {connectionInfo.id || "-"}
                 </Text>
               </Descriptions.Item>
               <Descriptions.Item label="服务器">
                 <Text copyable={!!connectionInfo.server}>
-                  {connectionInfo.server || '-'}
+                  {connectionInfo.server || "-"}
                 </Text>
               </Descriptions.Item>
               <Descriptions.Item label="日志">
@@ -358,33 +464,33 @@ export default function ClientPage({
       <Card title="快速操作" style={{ marginTop: 16 }}>
         <Space wrap>
           <Tooltip title="服务配置">
-            <Button 
-              icon={<SettingOutlined />} 
-              onClick={() => onNavigate?.('settings')}
+            <Button
+              icon={<SettingOutlined />}
+              onClick={() => onNavigate?.("settings")}
             >
               服务配置
             </Button>
           </Tooltip>
           <Tooltip title="依赖管理">
-            <Button 
-              icon={<FolderOutlined />} 
-              onClick={() => onNavigate?.('dependencies')}
+            <Button
+              icon={<FolderOutlined />}
+              onClick={() => onNavigate?.("dependencies")}
             >
               依赖管理
             </Button>
           </Tooltip>
           <Tooltip title="权限设置">
-            <Button 
-              icon={<SafetyOutlined />} 
-              onClick={() => onNavigate?.('permissions')}
+            <Button
+              icon={<SafetyOutlined />}
+              onClick={() => onNavigate?.("permissions")}
             >
               权限设置
             </Button>
           </Tooltip>
           <Tooltip title="查看日志">
-            <Button 
-              icon={<FileTextOutlined />} 
-              onClick={() => onNavigate?.('logs')}
+            <Button
+              icon={<FileTextOutlined />}
+              onClick={() => onNavigate?.("logs")}
             >
               查看日志
             </Button>

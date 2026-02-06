@@ -1806,6 +1806,122 @@ async fn dependency_shell_installer_install(
     }
 }
 
+// ========== 全局 npm 包管理命令 ==========
+
+/// 检测全局 npm 包是否已安装
+/// 通过检查可执行文件是否存在来判断
+#[tauri::command]
+async fn dependency_npm_global_check(bin_name: String) -> Result<NpmPackageResult, String> {
+    // 使用 which 命令检查二进制文件是否存在
+    let which_output = Command::new("which").arg(&bin_name).output();
+
+    match which_output {
+        Ok(out) if out.status.success() => {
+            let bin_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+
+            // 尝试获取版本信息 (使用 -V 参数)
+            let version = Command::new(&bin_name)
+                .arg("-V")
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| {
+                    let output = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    // 尝试从输出中提取版本号
+                    // 常见格式: "mcp-proxy 0.1.27" 或 "v0.1.27" 或 "0.1.27"
+                    output
+                        .split_whitespace()
+                        .find(|s| {
+                            s.chars()
+                                .next()
+                                .map(|c| c.is_ascii_digit() || c == 'v')
+                                .unwrap_or(false)
+                        })
+                        .map(|s| s.trim_start_matches('v').to_string())
+                        .unwrap_or(output)
+                });
+
+            Ok(NpmPackageResult {
+                installed: true,
+                version,
+                bin_path: Some(bin_path),
+            })
+        }
+        _ => Ok(NpmPackageResult {
+            installed: false,
+            version: None,
+            bin_path: None,
+        }),
+    }
+}
+
+/// 全局安装 npm 包（使用 npmmirror）
+#[tauri::command]
+async fn dependency_npm_global_install(
+    package_name: String,
+    bin_name: String,
+) -> Result<InstallResult, String> {
+    let registry = "https://registry.npmmirror.com/";
+
+    info!(
+        "[Dependency] 开始全局安装 npm 包: {} (registry: {})",
+        package_name, registry
+    );
+
+    // 执行 npm install -g
+    let output = Command::new("npm")
+        .args([
+            "install",
+            "-g",
+            &format!("{}@latest", package_name),
+            "--registry",
+            registry,
+        ])
+        .output()
+        .map_err(|e| format!("执行 npm install -g 失败: {}", e))?;
+
+    if output.status.success() {
+        // 验证安装并获取路径
+        let check_result = dependency_npm_global_check(bin_name.clone()).await?;
+
+        if check_result.installed {
+            info!(
+                "[Dependency] {} 全局安装成功, 版本: {:?}",
+                package_name, check_result.version
+            );
+            Ok(InstallResult {
+                success: true,
+                version: check_result.version,
+                bin_path: check_result.bin_path,
+                error: None,
+            })
+        } else {
+            // 安装成功但二进制未找到，可能需要重新加载 PATH
+            Ok(InstallResult {
+                success: true,
+                version: None,
+                bin_path: None,
+                error: Some(format!(
+                    "npm install 执行成功，但未找到 {} 二进制文件。可能需要重启终端或重新加载 PATH",
+                    bin_name
+                )),
+            })
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+        error!("[Dependency] npm install -g 失败: {}", stderr);
+
+        Ok(InstallResult {
+            success: false,
+            version: None,
+            bin_path: None,
+            error: Some(format!("{}\n{}", stderr, stdout)),
+        })
+    }
+}
+
 // ========== 开机自启动命令 ==========
 
 use auto_launch::AutoLaunchBuilder;
@@ -2342,6 +2458,8 @@ pub fn run() {
             dependency_local_install,
             dependency_shell_installer_check,
             dependency_shell_installer_install,
+            dependency_npm_global_check,
+            dependency_npm_global_install,
             dialog_select_directory,
             // 日志相关命令
             log_dir_get,

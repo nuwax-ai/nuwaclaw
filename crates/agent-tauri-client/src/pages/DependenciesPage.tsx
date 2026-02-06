@@ -41,6 +41,8 @@ import {
   installLocalNpmPackage,
   checkShellInstallerPackage,
   installShellInstallerPackage,
+  checkGlobalNpmPackage,
+  installGlobalNpmPackage,
   restartAllServices,
   type LocalDependencyItem,
   type NodeVersionResult,
@@ -80,10 +82,13 @@ export default function DependenciesPage() {
       setNodeResult(nodeRes);
       setUvResult(uvRes);
 
-      // 检测所有依赖状态，保留 npm-local 和 shell-installer 类型
+      // 检测所有依赖状态，保留 npm-local、npm-global 和 shell-installer 类型
       const deps = await checkAllSetupDependencies();
       const installableDeps = deps.filter(
-        (d) => d.type === "npm-local" || d.type === "shell-installer",
+        (d) =>
+          d.type === "npm-local" ||
+          d.type === "npm-global" ||
+          d.type === "shell-installer",
       );
       setLocalDeps(installableDeps);
     } catch (error) {
@@ -132,6 +137,12 @@ export default function DependenciesPage() {
         }
         result = await installShellInstallerPackage(
           installerUrl,
+          binName || packageName,
+        );
+      } else if (type === "npm-global") {
+        // npm-global 类型全局安装
+        result = await installGlobalNpmPackage(
+          packageName,
           binName || packageName,
         );
       } else {
@@ -233,6 +244,13 @@ export default function DependenciesPage() {
           isInstalled = checkResult.installed;
           checkVersion = checkResult.version;
           checkBinPath = checkResult.binPath;
+        } else if (dep.type === "npm-global") {
+          const checkResult = await checkGlobalNpmPackage(
+            dep.binName || dep.name,
+          );
+          isInstalled = checkResult.installed;
+          checkVersion = checkResult.version;
+          checkBinPath = checkResult.binPath;
         } else {
           const checkResult = await checkLocalNpmPackage(dep.name);
           isInstalled = checkResult.installed;
@@ -264,6 +282,11 @@ export default function DependenciesPage() {
           }
           result = await installShellInstallerPackage(
             dep.installerUrl,
+            dep.binName || dep.name,
+          );
+        } else if (dep.type === "npm-global") {
+          result = await installGlobalNpmPackage(
+            dep.name,
             dep.binName || dep.name,
           );
         } else {
@@ -529,6 +552,8 @@ export default function DependenciesPage() {
             const typeTag =
               item.type === "shell-installer" ? (
                 <Tag color="cyan">shell</Tag>
+              ) : item.type === "npm-global" ? (
+                <Tag color="purple">npm 全局</Tag>
               ) : (
                 <Tag color="purple">npm</Tag>
               );

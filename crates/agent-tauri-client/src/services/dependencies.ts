@@ -346,7 +346,11 @@ export const NPM_REGISTRY = "https://registry.npmmirror.com/";
 /**
  * 依赖类型
  */
-export type LocalDependencyType = "system" | "npm-local" | "shell-installer";
+export type LocalDependencyType =
+  | "system"
+  | "npm-local"
+  | "npm-global"
+  | "shell-installer";
 
 /**
  * 本地依赖配置
@@ -402,14 +406,12 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
       "可选: 配置 shell 自动补全，详见 https://docs.astral.sh/uv/getting-started/installation/#shell-autocompletion",
   },
   {
-    name: "mcp-proxy",
+    name: "mcp-stdio-proxy",
     displayName: "MCP Proxy",
-    type: "shell-installer",
+    type: "npm-global",
     description: "MCP 协议转换代理工具，用于 AI Agent 通信",
     required: true,
     binName: "mcp-proxy",
-    installerUrl:
-      "https://github.com/nuwax-ai/mcp-proxy/releases/download/v0.1.28/mcp-stdio-proxy-installer.sh",
   },
   {
     name: "nuwax-file-server",
@@ -675,6 +677,65 @@ export async function installShellInstallerPackage(
 }
 
 /**
+ * 检测全局 npm 包是否已安装
+ * @param binName - 可执行文件名
+ * @returns 安装状态和版本信息
+ */
+export async function checkGlobalNpmPackage(
+  binName: string,
+): Promise<NpmPackageResult> {
+  try {
+    const result = await invoke<NpmPackageResult>(
+      "dependency_npm_global_check",
+      { binName },
+    );
+    console.log(`[Dependencies] ${binName} (npm global) 检测结果:`, result);
+    return result;
+  } catch (error) {
+    console.error(`[Dependencies] 检测 ${binName} (npm global) 失败:`, error);
+    return {
+      installed: false,
+    };
+  }
+}
+
+/**
+ * 全局安装 npm 包
+ * @param packageName - 包名
+ * @param binName - 可执行文件名（用于验证安装）
+ * @returns 安装结果
+ */
+export async function installGlobalNpmPackage(
+  packageName: string,
+  binName: string,
+): Promise<InstallResult> {
+  try {
+    console.log(`[Dependencies] 开始全局安装 npm 包 ${packageName}...`);
+    const result = await invoke<InstallResult>(
+      "dependency_npm_global_install",
+      { packageName, binName },
+    );
+
+    if (result.success) {
+      console.log(`[Dependencies] ${packageName} 全局安装成功:`, result);
+    } else {
+      console.error(
+        `[Dependencies] ${packageName} 全局安装失败:`,
+        result.error,
+      );
+    }
+
+    return result;
+  } catch (error) {
+    console.error(`[Dependencies] 全局安装 ${packageName} 失败:`, error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
  * 检测所有必需依赖状态
  * @returns 依赖状态列表
  */
@@ -710,6 +771,13 @@ export async function checkAllSetupDependencies(): Promise<
       } else if (config.type === "npm-local") {
         // npm-local 包
         const pkgResult = await checkLocalNpmPackage(config.name);
+        item.status = pkgResult.installed ? "installed" : "missing";
+        item.version = pkgResult.version;
+        item.binPath = pkgResult.binPath;
+      } else if (config.type === "npm-global") {
+        // npm-global 包（全局安装）
+        const binName = config.binName || config.name;
+        const pkgResult = await checkGlobalNpmPackage(binName);
         item.status = pkgResult.installed ? "installed" : "missing";
         item.version = pkgResult.version;
         item.binPath = pkgResult.binPath;
@@ -750,24 +818,27 @@ export async function checkAllSetupDependencies(): Promise<
 }
 
 /**
- * 安装所有必需的包（npm-local 和 shell-installer）
+ * 安装所有必需的包（npm-local、npm-global 和 shell-installer）
  * @param onProgress - 进度回调
  * @returns 安装结果
  */
 export async function installAllRequiredPackages(
   onProgress?: (current: string, index: number, total: number) => void,
 ): Promise<{ success: boolean; failedPackage?: string; error?: string }> {
-  // 获取所有需要安装的依赖（npm-local 和 shell-installer）
+  // 获取所有需要安装的依赖（npm-local、npm-global 和 shell-installer）
   const installablePackages = SETUP_REQUIRED_DEPENDENCIES.filter(
-    (d) => d.type === "npm-local" || d.type === "shell-installer",
+    (d) =>
+      d.type === "npm-local" ||
+      d.type === "npm-global" ||
+      d.type === "shell-installer",
   );
   const total = installablePackages.length;
 
   // 初始化 npm 环境（仅用于 npm-local 包）
-  const hasNpmPackages = installablePackages.some(
+  const hasNpmLocalPackages = installablePackages.some(
     (d) => d.type === "npm-local",
   );
-  if (hasNpmPackages) {
+  if (hasNpmLocalPackages) {
     try {
       await initLocalNpmEnv();
     } catch (error) {
@@ -799,6 +870,24 @@ export async function installAllRequiredPackages(
 
       // 安装 npm 包
       const installResult = await installLocalNpmPackage(pkg.name);
+      if (!installResult.success) {
+        return {
+          success: false,
+          failedPackage: pkg.name,
+          error: installResult.error,
+        };
+      }
+    } else if (pkg.type === "npm-global") {
+      // 检查是否已安装
+      const binName = pkg.binName || pkg.name;
+      const checkResult = await checkGlobalNpmPackage(binName);
+      if (checkResult.installed) {
+        console.log(`[Dependencies] ${pkg.name} (npm global) 已安装，跳过`);
+        continue;
+      }
+
+      // 全局安装 npm 包
+      const installResult = await installGlobalNpmPackage(pkg.name, binName);
       if (!installResult.success) {
         return {
           success: false,
