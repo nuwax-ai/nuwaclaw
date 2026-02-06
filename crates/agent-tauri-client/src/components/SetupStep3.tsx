@@ -2,9 +2,9 @@
  * 初始化向导 - 步骤3: 依赖安装
  *
  * 功能:
- * - 检测 Node.js 版本 (>= 22.0.0)
- * - 检测 uv 版本 (>= 0.5.0)
- * - 安装本地 npm 包
+ * - 检测 Node.js 版本 (>= 22.0.0) - 需要用户手动安装
+ * - 自动安装 uv、mcp-proxy (shell-installer)
+ * - 自动安装本地 npm 包
  * - 显示完整依赖列表和安装进度
  * - 所有依赖就绪后自动跳转到客户端页面
  */
@@ -41,15 +41,15 @@ import {
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   checkNodeVersion,
-  checkUvVersion,
   checkAllSetupDependencies,
   getAppDataDir,
   initLocalNpmEnv,
   checkLocalNpmPackage,
   installLocalNpmPackage,
+  checkShellInstallerPackage,
+  installShellInstallerPackage,
   type LocalDependencyItem,
   type NodeVersionResult,
-  type UvVersionResult,
 } from "../services/dependencies";
 import {
   getDepsFilter,
@@ -80,7 +80,7 @@ type InstallPhase =
 interface UnifiedDependencyItem {
   name: string;
   displayName: string;
-  type: "system" | "npm-local";
+  type: "system" | "npm-local" | "shell-installer";
   description: string;
   status:
     | "checking"
@@ -94,27 +94,27 @@ interface UnifiedDependencyItem {
   errorMessage?: string;
   installUrl?: string;
   installCommand?: string;
+  // shell-installer 专用
+  binName?: string;
+  installerUrl?: string;
 }
 
 /**
  * 步骤3: 依赖安装组件
  */
 export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
-  // 统一的依赖列表（系统依赖 + npm 包）
+  // 统一的依赖列表（系统依赖 + 可自动安装依赖）
   const [allDependencies, setAllDependencies] = useState<
     UnifiedDependencyItem[]
   >([]);
 
-  // Node.js 状态（用于逻辑判断）
+  // Node.js 状态（用于逻辑判断，唯一需要手动安装的系统依赖）
   const [nodeResult, setNodeResult] = useState<NodeVersionResult | null>(null);
 
-  // uv 状态（用于逻辑判断）
-  const [uvResult, setUvResult] = useState<UvVersionResult | null>(null);
-
-  // npm 依赖状态
-  const [npmDependencies, setNpmDependencies] = useState<LocalDependencyItem[]>(
-    [],
-  );
+  // 可安装依赖状态（shell-installer + npm-local）
+  const [installableDependencies, setInstallableDependencies] = useState<
+    LocalDependencyItem[]
+  >([]);
 
   // 安装阶段
   const [installPhase, setInstallPhase] = useState<InstallPhase>("checking");
@@ -125,141 +125,70 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
   // 应用目录
   const [appDir, setAppDir] = useState<string>("");
   const [showAllDependencies, setShowAllDependencies] = useState(false);
-  const [depFilter, setDepFilter] = useState<"all" | "system" | "npm-local">(
-    "all",
-  );
+  const [depFilter, setDepFilter] = useState<
+    "all" | "system" | "npm-local" | "shell-installer"
+  >("all");
   const listContainerRef = useRef<HTMLDivElement | null>(null);
 
   /**
    * 构建统一的依赖列表
-   * 将系统依赖和 npm 依赖合并到一个列表中展示
+   * 直接使用 checkAllSetupDependencies 返回的结果
    */
   const buildUnifiedDependencies = useCallback(
-    (
-      nodeRes: NodeVersionResult | null,
-      uvRes: UvVersionResult | null,
-      npmDeps: LocalDependencyItem[],
-    ): UnifiedDependencyItem[] => {
-      const unified: UnifiedDependencyItem[] = [];
-
-      // 1. Node.js 系统依赖
-      const nodeStatus = !nodeRes
-        ? "checking"
-        : nodeRes.installed
-          ? nodeRes.meetsRequirement
-            ? "installed"
-            : "outdated"
-          : "missing";
-
-      unified.push({
-        name: "nodejs",
-        displayName: "Node.js",
-        type: "system",
-        description: "JavaScript 运行时环境",
-        status: nodeStatus,
-        version: nodeRes?.version,
-        requiredVersion: ">= 22.0.0",
-        installUrl: "https://nodejs.org",
-        errorMessage:
-          nodeStatus === "outdated"
-            ? `版本 ${nodeRes?.version} 低于要求的 22.0.0`
-            : undefined,
-      });
-
-      // 2. uv 系统依赖
-      const uvStatus = !uvRes
-        ? "checking"
-        : uvRes.installed
-          ? uvRes.meetsRequirement
-            ? "installed"
-            : "outdated"
-          : "missing";
-
-      unified.push({
-        name: "uv",
-        displayName: "uv",
-        type: "system",
-        description: "高性能 Python 包管理器",
-        status: uvStatus,
-        version: uvRes?.version,
-        requiredVersion: ">= 0.5.0",
-        installUrl: "https://docs.astral.sh/uv/getting-started/installation/",
-        installCommand: "curl -LsSf https://astral.sh/uv/install.sh | sh",
-        errorMessage:
-          uvStatus === "outdated"
-            ? `版本 ${uvRes?.version} 低于要求的 0.5.0`
-            : undefined,
-      });
-
-      // 3. npm 本地依赖
-      npmDeps.forEach((dep) => {
-        unified.push({
-          name: dep.name,
-          displayName: dep.displayName,
-          type: "npm-local",
-          description: dep.description,
-          status: dep.status as UnifiedDependencyItem["status"],
-          version: dep.version,
-          requiredVersion: dep.minVersion ? `>= ${dep.minVersion}` : undefined,
-          errorMessage: dep.errorMessage,
-        });
-      });
-
-      return unified;
+    (deps: LocalDependencyItem[]): UnifiedDependencyItem[] => {
+      return deps.map((dep) => ({
+        name: dep.name,
+        displayName: dep.displayName,
+        type: dep.type as "system" | "npm-local" | "shell-installer",
+        description: dep.description,
+        status: dep.status as UnifiedDependencyItem["status"],
+        version: dep.version,
+        requiredVersion: dep.minVersion ? `>= ${dep.minVersion}` : undefined,
+        errorMessage: dep.errorMessage,
+        installUrl: dep.installUrl,
+        binName: dep.binName,
+        installerUrl: dep.installerUrl,
+      }));
     },
     [],
   );
 
   /**
-   * 检测所有依赖（系统依赖 + npm 包）
+   * 检测所有依赖
+   * 只有 nodejs 是需要手动安装的系统依赖
+   * uv、mcp-proxy、npm包 都可以自动安装
    */
   const checkAllDeps = useCallback(async () => {
     setInstallPhase("checking");
 
-    // 初始化统一列表（检测中状态）
-    setAllDependencies([
-      {
-        name: "nodejs",
-        displayName: "Node.js",
-        type: "system",
-        description: "JavaScript 运行时环境",
-        status: "checking",
-        requiredVersion: ">= 22.0.0",
-      },
-      {
-        name: "uv",
-        displayName: "uv",
-        type: "system",
-        description: "高性能 Python 包管理器",
-        status: "checking",
-        requiredVersion: ">= 0.5.0",
-      },
-    ]);
-
     try {
-      // 并行检测系统依赖
-      const [nodeRes, uvRes] = await Promise.all([
-        checkNodeVersion(),
-        checkUvVersion(),
-      ]);
-
-      setNodeResult(nodeRes);
-      setUvResult(uvRes);
-
-      const nodeReady = nodeRes.installed && nodeRes.meetsRequirement;
-      const uvReady = uvRes.installed && uvRes.meetsRequirement;
-
-      // 获取 npm 依赖列表
+      // 获取所有依赖状态
       const deps = await checkAllSetupDependencies();
-      const npmDeps = deps.filter((d) => d.type === "npm-local");
-      setNpmDependencies(npmDeps);
 
       // 构建统一列表
-      const unified = buildUnifiedDependencies(nodeRes, uvRes, npmDeps);
+      const unified = buildUnifiedDependencies(deps);
       setAllDependencies(unified);
 
-      // 判断系统依赖是否满足
-      if (!nodeReady || !uvReady) {
+      // 获取 Node.js 状态（唯一需要手动安装的系统依赖）
+      const nodeDep = deps.find((d) => d.name === "nodejs");
+      const nodeReady = nodeDep?.status === "installed";
+
+      if (nodeDep) {
+        setNodeResult({
+          installed: nodeDep.status !== "missing",
+          version: nodeDep.version,
+          meetsRequirement: nodeDep.status === "installed",
+        });
+      }
+
+      // 获取可自动安装的依赖（shell-installer + npm-local）
+      const installableDeps = deps.filter(
+        (d) => d.type === "npm-local" || d.type === "shell-installer",
+      );
+      setInstallableDependencies(installableDeps);
+
+      // 判断 Node.js 是否满足（唯一需要手动安装的依赖）
+      if (!nodeReady) {
         setInstallPhase("system-deps-missing");
         return;
       }
@@ -341,18 +270,6 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
   };
 
   /**
-   * 打开 uv 安装页面
-   */
-  const handleOpenUv = async () => {
-    try {
-      await openUrl("https://docs.astral.sh/uv/getting-started/installation/");
-    } catch (error) {
-      console.error("[SetupStep3] 打开链接失败:", error);
-      message.error("打开链接失败");
-    }
-  };
-
-  /**
    * 重新检测所有依赖
    */
   const handleRetryCheck = async () => {
@@ -371,7 +288,7 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
 
   /**
    * 开始安装依赖
-   * 逐个安装 npm 包，实时更新统一依赖列表的状态
+   * 逐个安装依赖包，实时更新统一依赖列表的状态
    */
   const handleStartInstall = async () => {
     setInstallPhase("installing");
@@ -379,11 +296,11 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
     setInstallError("");
 
     try {
-      // 获取需要安装的 npm 包列表（状态不是 installed 的）
-      const npmPackages = npmDependencies.filter(
+      // 获取需要安装的包列表（状态不是 installed 的）
+      const packagesToInstall = installableDependencies.filter(
         (d) => d.status !== "installed",
       );
-      const total = npmPackages.length;
+      const total = packagesToInstall.length;
 
       if (total === 0) {
         // 没有需要安装的包
@@ -395,12 +312,15 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
         return;
       }
 
-      // 初始化 npm 环境
-      await initLocalNpmEnv();
+      // 初始化 npm 环境（如果有 npm-local 类型的依赖）
+      const hasNpmDeps = packagesToInstall.some((d) => d.type === "npm-local");
+      if (hasNpmDeps) {
+        await initLocalNpmEnv();
+      }
 
       // 依次安装每个包
-      for (let i = 0; i < npmPackages.length; i++) {
-        const pkg = npmPackages[i];
+      for (let i = 0; i < packagesToInstall.length; i++) {
+        const pkg = packagesToInstall[i];
         setCurrentInstalling(pkg.displayName);
         setInstallProgress(Math.round((i / total) * 100));
 
@@ -411,9 +331,23 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
           ),
         );
 
-        // 检查是否已安装
-        const checkResult = await checkLocalNpmPackage(pkg.name);
-        if (checkResult.installed) {
+        // 根据类型检查是否已安装
+        let isInstalled = false;
+        let checkVersion: string | undefined;
+
+        if (pkg.type === "shell-installer") {
+          const checkResult = await checkShellInstallerPackage(
+            pkg.binName || pkg.name,
+          );
+          isInstalled = checkResult.installed;
+          checkVersion = checkResult.version;
+        } else {
+          const checkResult = await checkLocalNpmPackage(pkg.name);
+          isInstalled = checkResult.installed;
+          checkVersion = checkResult.version;
+        }
+
+        if (isInstalled) {
           // 已安装，更新状态
           setAllDependencies((prev) =>
             prev.map((d) =>
@@ -421,7 +355,7 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
                 ? {
                     ...d,
                     status: "installed" as const,
-                    version: checkResult.version,
+                    version: checkVersion,
                   }
                 : d,
             ),
@@ -429,8 +363,19 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
           continue;
         }
 
-        // 安装包
-        const installResult = await installLocalNpmPackage(pkg.name);
+        // 根据类型安装包
+        let installResult;
+        if (pkg.type === "shell-installer") {
+          if (!pkg.installerUrl) {
+            throw new Error(`${pkg.displayName} 缺少 installerUrl 配置`);
+          }
+          installResult = await installShellInstallerPackage(
+            pkg.installerUrl,
+            pkg.binName || pkg.name,
+          );
+        } else {
+          installResult = await installLocalNpmPackage(pkg.name);
+        }
         if (installResult.success) {
           // 安装成功，更新状态
           setAllDependencies((prev) =>
@@ -566,6 +511,9 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
     if (item.type === "system") {
       return <Tag color="blue">系统依赖</Tag>;
     }
+    if (item.type === "shell-installer") {
+      return <Tag color="cyan">shell</Tag>;
+    }
     return <Tag color="purple">npm 包</Tag>;
   };
 
@@ -584,6 +532,16 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
     const npmDeps = allDependencies.filter((d) => d.type === "npm-local");
     const npmReady = npmDeps.filter((d) => d.status === "installed").length;
 
+    // 可安装依赖（npm-local 和 shell-installer）
+    const installableDeps = allDependencies.filter(
+      (d) => d.type === "npm-local" || d.type === "shell-installer",
+    );
+    const installableReady = installableDeps.filter(
+      (d) => d.status === "installed",
+    ).length;
+    const installableTotal = installableDeps.length;
+    const installablePending = installableTotal - installableReady;
+
     // 只有当有依赖项且都已安装时才算全部就绪
     const allReady = total > 0 && total === ready;
     const systemAllReady =
@@ -596,6 +554,9 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
       systemReady,
       npmTotal: npmDeps.length,
       npmReady,
+      installableTotal,
+      installableReady,
+      installablePending,
       allReady,
       systemAllReady,
     };
@@ -930,19 +891,21 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
               </Tag>
               <Tag
                 color={
-                  stats.npmReady === stats.npmTotal ? "success" : "processing"
+                  stats.installableReady === stats.installableTotal
+                    ? "success"
+                    : "processing"
                 }
               >
-                npm 包 {stats.npmReady}/{stats.npmTotal}
+                可安装依赖 {stats.installableReady}/{stats.installableTotal}
               </Tag>
             </Space>
           }
           description={
             !stats.systemAllReady
-              ? '请先安装所有系统依赖，然后点击"重新检测"继续'
+              ? '请先安装 Node.js，然后点击"重新检测"继续'
               : stats.allReady
                 ? "所有依赖已就绪"
-                : '系统依赖已就绪，点击"开始安装"安装 npm 包'
+                : '系统依赖已就绪，点击"开始安装"自动安装其他依赖'
           }
           type={
             stats.systemAllReady
@@ -1002,7 +965,7 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
                   onClick={handleStartInstall}
                   size="middle"
                 >
-                  开始安装 ({stats.npmTotal - stats.npmReady} 个)
+                  开始安装 ({stats.installablePending} 个)
                 </Button>
               )}
           </Space>

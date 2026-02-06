@@ -17,14 +17,12 @@ import {
   Divider,
   message,
   Alert,
-  Spin,
   Result,
 } from "antd";
 import {
   UserOutlined,
   LockOutlined,
   CheckCircleOutlined,
-  WifiOutlined,
   DisconnectOutlined,
   ReloadOutlined,
   LeftOutlined,
@@ -35,6 +33,7 @@ import {
   initAuthStore,
   getAuthErrorMessage,
   getSavedUsername,
+  logout,
 } from "../services/auth";
 import { completeStep2 } from "../services/setup";
 
@@ -61,10 +60,10 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [statusHint, setStatusHint] = useState<string>("");
   const [statusType, setStatusType] = useState<"info" | "error">("info");
-  const continueButtonRef = useRef<HTMLButtonElement | null>(null);
   const [loginError, setLoginError] = useState<string>("");
   const [retryCooldown, setRetryCooldown] = useState(0);
   const [copiedError, setCopiedError] = useState(false);
+  const continueButtonRef = useRef<HTMLButtonElement | null>(null);
 
   /**
    * 检查网络连接（通过 navigator.onLine 和尝试 fetch）
@@ -77,7 +76,8 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
 
   const checkNetworkConnection = useCallback(async () => {
     setNetworkStatus("checking");
-    showStatus("正在检查网络连接...");
+    showStatus("");
+    // showStatus("正在检查网络连接...");
 
     // 首先检查 navigator.onLine
     if (!navigator.onLine) {
@@ -100,13 +100,13 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
 
       clearTimeout(timeoutId);
       setNetworkStatus("connected");
-      showStatus("网络连接正常");
+      // showStatus("网络连接正常");
     } catch (error) {
       console.warn("[SetupStep2] 网络连接检测:", error);
       // 即使 fetch 失败，如果 navigator.onLine 为 true，也假设网络可用
       // 因为 no-cors 模式下可能会有各种原因导致失败
       setNetworkStatus("connected");
-      showStatus("网络连接正常");
+      // showStatus("网络连接正常");
     }
   }, []);
 
@@ -115,7 +115,6 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
    */
   const checkLoginStatus = useCallback(async () => {
     setCheckingAuth(true);
-    showStatus("正在检查登录状态...");
     try {
       await initAuthStore();
       const savedUsername = await getSavedUsername();
@@ -125,14 +124,13 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
       const auth = await getCurrentAuth();
       if (auth.isLoggedIn) {
         setIsLoggedIn(true);
-        showStatus("已登录");
       }
     } catch (error) {
       console.error("[SetupStep2] 检查登录状态失败:", error);
     } finally {
       setCheckingAuth(false);
     }
-  }, []);
+  }, [form]);
 
   /**
    * 初始化
@@ -144,17 +142,6 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
     };
     init();
   }, [checkNetworkConnection, checkLoginStatus]);
-
-  useEffect(() => {
-    if (isLoggedIn) {
-      setTimeout(() => {
-        continueButtonRef.current?.scrollIntoView({
-          behavior: "smooth",
-          block: "nearest",
-        });
-      }, 100);
-    }
-  }, [isLoggedIn]);
 
   useEffect(() => {
     if (retryCooldown <= 0) {
@@ -182,12 +169,13 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
   }) => {
     setLoading(true);
     setLoginError("");
-    showStatus("正在登录...");
+    showStatus("");
+    // showStatus("正在登录...");
     try {
       await loginAndRegister(values.username, values.password, {
         suppressToast: true,
       });
-      showStatus("登录成功");
+      // showStatus("登录成功");
       setLoginError("");
 
       // 登录成功后自动进入下一步
@@ -225,76 +213,71 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
    */
   const handleContinue = async () => {
     try {
-      showStatus("正在进入下一步...");
       await completeStep2();
       onComplete();
     } catch (error) {
       console.error("[SetupStep2] 保存进度失败:", error);
-      // 即使保存失败也继续
       onComplete();
     }
   };
 
   /**
-   * 渲染网络连接状态
+   * 退出登录
+   */
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setIsLoggedIn(false);
+    } catch (error) {
+      console.error("[SetupStep2] 退出登录失败:", error);
+      message.error("退出登录失败");
+    }
+  };
+
+  /**
+   * 渲染网络连接状态 - 仅在断网时显示
    */
   const renderNetworkCheck = () => {
-    if (networkStatus === "checking") {
-      return (
-        <Alert
-          message="正在检查网络连接..."
-          type="info"
-          icon={<Spin size="small" />}
-          showIcon
-          style={{ marginBottom: 12 }}
-        />
-      );
+    // 检测中和已连接状态不显示任何内容，避免页面抖动
+    if (networkStatus === "checking" || networkStatus === "connected") {
+      return null;
     }
 
-    if (networkStatus === "disconnected") {
-      return (
-        <Alert
-          message="网络连接不可用"
-          description={
-            <Space direction="vertical">
-              <Text>请检查您的网络连接后重试。</Text>
-              <Button
-                size="small"
-                icon={<ReloadOutlined />}
-                onClick={handleRetryNetworkCheck}
-              >
-                重新检查
-              </Button>
-            </Space>
-          }
-          type="error"
-          icon={<DisconnectOutlined />}
-          showIcon
-          style={{ marginBottom: 12 }}
-        />
-      );
-    }
-
+    // 仅在断网时显示警告
     return (
-      <div className="network-compact">
-        <Space size={6}>
-          <WifiOutlined />
-          <Text type="secondary">网络连接正常</Text>
-        </Space>
-      </div>
+      <Alert
+        message="网络连接不可用"
+        description={
+          <Space direction="vertical">
+            <Text>请检查您的网络连接后重试。</Text>
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={handleRetryNetworkCheck}
+            >
+              重新检查
+            </Button>
+          </Space>
+        }
+        type="error"
+        icon={<DisconnectOutlined />}
+        showIcon
+        style={{ marginBottom: 12 }}
+      />
     );
   };
 
   /**
-   * 渲染登录成功状态
+   * 渲染已登录状态
    */
   const renderLoggedIn = () => (
-    <div className="logged-in-compact">
-      <Result
-        icon={<CheckCircleOutlined style={{ color: "#52c41a" }} />}
-        title="登录成功"
-        subTitle="您已成功登录，可以继续下一步"
-        extra={
+    <Result
+      icon={<CheckCircleOutlined style={{ color: "#52c41a" }} />}
+      title="已登录"
+      subTitle="您已成功登录，可以继续下一步"
+      extra={
+        <Space>
+          <Button onClick={handleLogout}>退出登录</Button>
           <Button
             ref={continueButtonRef}
             type="primary"
@@ -303,9 +286,10 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
           >
             下一步
           </Button>
-        }
-      />
-    </div>
+        </Space>
+      }
+      style={{ padding: "16px 0" }}
+    />
   );
 
   /**
@@ -366,16 +350,9 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
     </Form>
   );
 
-  // 检查中
+  // 检查中时不渲染任何内容，避免抖动
   if (checkingAuth) {
-    return (
-      <div className="setup-step2">
-        <div className="step-loading">
-          <Spin size="large" />
-          <Text style={{ marginTop: 16 }}>正在检查登录状态...</Text>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -431,10 +408,10 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
         />
       )}
 
-      {/* 网络权限检查 */}
+      {/* 网络权限检查 - 仅在断网时显示 */}
       {!isLoggedIn && renderNetworkCheck()}
 
-      {/* 登录表单或登录成功 */}
+      {/* 已登录显示状态，未登录显示表单 */}
       {isLoggedIn ? renderLoggedIn() : renderLoginForm()}
 
       {/* 内联样式 */}

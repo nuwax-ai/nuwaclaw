@@ -1395,6 +1395,15 @@ pub struct InstallResult {
     pub error: Option<String>,
 }
 
+/// Shell Installer 包检测结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellInstallerResult {
+    pub installed: bool,
+    pub version: Option<String>,
+    pub bin_path: Option<String>,
+}
+
 /// 获取应用数据目录路径
 #[tauri::command]
 fn app_data_dir_get(app: tauri::AppHandle) -> Result<String, String> {
@@ -1599,6 +1608,122 @@ async fn dependency_local_install(
             version: None,
             bin_path: None,
             error: Some(stderr),
+        })
+    }
+}
+
+/// 检测 Shell Installer 安装的包是否已安装
+#[tauri::command]
+async fn dependency_shell_installer_check(
+    bin_name: String,
+) -> Result<ShellInstallerResult, String> {
+    // 使用 which 命令检查二进制文件是否存在
+    let which_output = Command::new("which").arg(&bin_name).output();
+
+    match which_output {
+        Ok(out) if out.status.success() => {
+            let bin_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+
+            // 尝试获取版本信息
+            let version = Command::new(&bin_name)
+                .arg("--version")
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| {
+                    let output = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    // 尝试从输出中提取版本号
+                    // 常见格式: "mcp-proxy 0.1.27" 或 "v0.1.27"
+                    output
+                        .split_whitespace()
+                        .find(|s| {
+                            s.chars()
+                                .next()
+                                .map(|c| c.is_ascii_digit() || c == 'v')
+                                .unwrap_or(false)
+                        })
+                        .map(|s| s.trim_start_matches('v').to_string())
+                        .unwrap_or(output)
+                });
+
+            Ok(ShellInstallerResult {
+                installed: true,
+                version,
+                bin_path: Some(bin_path),
+            })
+        }
+        _ => Ok(ShellInstallerResult {
+            installed: false,
+            version: None,
+            bin_path: None,
+        }),
+    }
+}
+
+/// 使用 Shell 脚本安装包
+#[tauri::command]
+async fn dependency_shell_installer_install(
+    installer_url: String,
+    bin_name: String,
+) -> Result<InstallResult, String> {
+    // 先检查 curl 是否可用
+    let curl_check = Command::new("curl").arg("--version").output();
+
+    if curl_check.is_err() || !curl_check.unwrap().status.success() {
+        return Ok(InstallResult {
+            success: false,
+            version: None,
+            bin_path: None,
+            error: Some("curl 未安装。请先安装 curl".to_string()),
+        });
+    }
+
+    info!("[Dependency] 执行 shell 安装脚本: {}", installer_url);
+
+    // 执行: curl --proto '=https' --tlsv1.2 -LsSf <url> | sh
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(format!(
+            "curl --proto '=https' --tlsv1.2 -LsSf {} | sh",
+            installer_url
+        ))
+        .output()
+        .map_err(|e| format!("执行安装脚本失败: {}", e))?;
+
+    if output.status.success() {
+        // 验证安装并获取路径
+        let check_result = dependency_shell_installer_check(bin_name.clone()).await?;
+
+        if check_result.installed {
+            Ok(InstallResult {
+                success: true,
+                version: check_result.version,
+                bin_path: check_result.bin_path,
+                error: None,
+            })
+        } else {
+            // 脚本执行成功但二进制未找到，可能需要重新加载 PATH
+            Ok(InstallResult {
+                success: true,
+                version: None,
+                bin_path: None,
+                error: Some(format!(
+                    "安装脚本执行成功，但未找到 {} 二进制文件。可能需要重启终端或重新加载 PATH",
+                    bin_name
+                )),
+            })
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+        error!("[Dependency] shell 安装脚本失败: {}", stderr);
+
+        Ok(InstallResult {
+            success: false,
+            version: None,
+            bin_path: None,
+            error: Some(format!("{}\n{}", stderr, stdout)),
         })
     }
 }
@@ -1999,7 +2124,14 @@ pub fn run() {
     }
 
     // 预定义合法的 Tab 名称列表，用于参数验证
-    const VALID_TABS: &[&str] = &["client", "settings", "dependencies", "permissions", "logs", "about"];
+    const VALID_TABS: &[&str] = &[
+        "client",
+        "settings",
+        "dependencies",
+        "permissions",
+        "logs",
+        "about",
+    ];
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -2051,10 +2183,7 @@ pub fn run() {
                                     }
                                 }
                             } else {
-                                warn!(
-                                    "[Setup] 无效的 Tab 参数: {}，有效值: {:?}",
-                                    tab, VALID_TABS
-                                );
+                                warn!("[Setup] 无效的 Tab 参数: {}，有效值: {:?}", tab, VALID_TABS);
                             }
                         }
 
@@ -2133,6 +2262,8 @@ pub fn run() {
             dependency_uv_detect,
             dependency_local_check,
             dependency_local_install,
+            dependency_shell_installer_check,
+            dependency_shell_installer_install,
             dialog_select_directory,
             // 日志相关命令
             log_dir_get,
