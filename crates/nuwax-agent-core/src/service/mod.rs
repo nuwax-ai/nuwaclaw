@@ -8,6 +8,71 @@ use tracing::{debug, error, info, warn};
 
 use super::http_server::HttpServer;
 
+// ========== 跨平台辅助函数 ==========
+
+/// 获取 nuwax-file-server 的 PID 文件路径
+///
+/// 跨平台实现：
+/// - Unix: /tmp/nuwax-file-server/server.pid
+/// - Windows: %TEMP%\nuwax-file-server\server.pid
+fn get_file_server_pid_file_path() -> std::path::PathBuf {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        std::path::PathBuf::from("/tmp/nuwax-file-server/server.pid")
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let temp = std::env::var("TEMP").unwrap_or_else(|_| "C:\\Temp".to_string());
+        std::path::PathBuf::from(temp)
+            .join("nuwax-file-server")
+            .join("server.pid")
+    }
+}
+
+/// 使用 process_wrap 执行命令，带超时机制
+///
+/// # Arguments
+/// * `program` - 可执行文件路径
+/// * `args` - 命令参数
+/// * `timeout_secs` - 超时时间（秒）
+///
+/// # Returns
+/// * `bool` - 命令是否成功执行（true = 成功，false = 失败或超时）
+async fn run_command_with_timeout(program: &str, args: &[&str], timeout_secs: u64) -> bool {
+    let mut cmd = process_wrap::tokio::CommandWrap::with_new(program, |cmd| {
+        for arg in args {
+            cmd.arg(*arg);
+        }
+    });
+
+    match cmd.wrap(process_wrap::tokio::KillOnDrop).spawn() {
+        Ok(mut child) => {
+            match tokio::time::timeout(
+                tokio::time::Duration::from_secs(timeout_secs),
+                child.wait(),
+            )
+            .await
+            {
+                Ok(Ok(status)) => status.success(),
+                Ok(Err(e)) => {
+                    warn!("Command wait failed: {}", e);
+                    false
+                }
+                Err(_) => {
+                    warn!("Command timed out, killing process");
+                    let _ = child.start_kill();
+                    false
+                }
+            }
+        }
+        Err(e) => {
+            warn!("Failed to spawn command: {}", e);
+            false
+        }
+    }
+}
+
 // ========== 进程检测辅助函数 ==========
 
 /// 通过进程名称检测进程是否正在运行
@@ -21,14 +86,15 @@ use super::http_server::HttpServer;
 ///
 /// # Returns
 /// * `Option<Vec<u32>>` - 如果进程存在，返回 PID 列表；否则返回 None
-pub fn find_processes_by_name(process_name: &str) -> Option<Vec<u32>> {
+pub async fn find_processes_by_name(process_name: &str) -> Option<Vec<u32>> {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         // 使用 pgrep -x 精确匹配进程名
-        let output = std::process::Command::new("pgrep")
+        let output = tokio::process::Command::new("pgrep")
             .arg("-x")
             .arg(process_name)
             .output()
+            .await
             .ok()?;
 
         if output.status.success() {
@@ -53,7 +119,7 @@ pub fn find_processes_by_name(process_name: &str) -> Option<Vec<u32>> {
             format!("{}.exe", process_name)
         };
 
-        let output = std::process::Command::new("tasklist")
+        let output = tokio::process::Command::new("tasklist")
             .args([
                 "/FI",
                 &format!("IMAGENAME eq {}", exe_name),
@@ -62,6 +128,7 @@ pub fn find_processes_by_name(process_name: &str) -> Option<Vec<u32>> {
                 "/NH",
             ])
             .output()
+            .await
             .ok()?;
 
         if output.status.success() {
@@ -94,25 +161,17 @@ pub fn find_processes_by_name(process_name: &str) -> Option<Vec<u32>> {
 ///
 /// # Returns
 /// * `bool` - 如果进程存在返回 true
-pub fn is_process_running(process_name: &str) -> bool {
-    find_processes_by_name(process_name).is_some()
+pub async fn is_process_running(process_name: &str) -> bool {
+    find_processes_by_name(process_name).await.is_some()
 }
 
 /// 检测 nuwax-file-server 是否正在运行
 ///
 /// nuwax-file-server 是 Node.js 服务，它使用 PID 文件管理进程
 /// PID 文件位置: /tmp/nuwax-file-server/server.pid (Unix) 或 %TEMP%\nuwax-file-server\server.pid (Windows)
-pub fn is_file_server_running() -> bool {
-    // 读取 PID 文件
-    let pid_file = std::path::Path::new("/tmp/nuwax-file-server/server.pid");
-
-    #[cfg(target_os = "windows")]
-    let pid_file = {
-        let temp = std::env::var("TEMP").unwrap_or_else(|_| "C:\\Temp".to_string());
-        std::path::PathBuf::from(temp)
-            .join("nuwax-file-server")
-            .join("server.pid")
-    };
+pub async fn is_file_server_running() -> bool {
+    // 使用跨平台辅助函数获取 PID 文件路径
+    let pid_file = get_file_server_pid_file_path();
 
     if !pid_file.exists() {
         return false;
@@ -124,7 +183,7 @@ pub fn is_file_server_running() -> bool {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
             if let Some(pid) = json.get("pid").and_then(|v| v.as_u64()) {
                 // 检查进程是否存在
-                return is_pid_running(pid as u32);
+                return is_pid_running(pid as u32).await;
             }
         }
     }
@@ -133,13 +192,14 @@ pub fn is_file_server_running() -> bool {
 }
 
 /// 检查指定 PID 的进程是否存在
-fn is_pid_running(pid: u32) -> bool {
+async fn is_pid_running(pid: u32) -> bool {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         // 使用 kill -0 检查进程是否存在（通过 shell 命令）
-        let output = std::process::Command::new("kill")
+        let output = tokio::process::Command::new("kill")
             .args(["-0", &pid.to_string()])
-            .output();
+            .output()
+            .await;
 
         match output {
             Ok(o) => o.status.success(),
@@ -149,9 +209,10 @@ fn is_pid_running(pid: u32) -> bool {
 
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("tasklist")
+        let output = tokio::process::Command::new("tasklist")
             .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
-            .output();
+            .output()
+            .await;
 
         if let Ok(output) = output {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -163,32 +224,22 @@ fn is_pid_running(pid: u32) -> bool {
 }
 
 /// 通过 PID 文件强制终止 file-server 残留进程
-fn kill_file_server_by_pid() {
-    let pid_file = std::path::Path::new("/tmp/nuwax-file-server/server.pid");
-
-    #[cfg(target_os = "windows")]
-    let pid_file = {
-        let temp = std::env::var("TEMP").unwrap_or_else(|_| "C:\\Temp".to_string());
-        std::path::PathBuf::from(temp)
-            .join("nuwax-file-server")
-            .join("server.pid")
-    };
+async fn kill_file_server_by_pid() {
+    // 使用跨平台辅助函数获取 PID 文件路径
+    let pid_file = get_file_server_pid_file_path();
 
     if let Ok(content) = std::fs::read_to_string(&pid_file) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
             if let Some(pid) = json.get("pid").and_then(|v| v.as_u64()) {
+                let pid_str = pid.to_string();
+
                 #[cfg(any(target_os = "linux", target_os = "macos"))]
                 {
-                    let _ = std::process::Command::new("kill")
-                        .arg("-9")
-                        .arg(pid.to_string())
-                        .output();
+                    run_command_with_timeout("kill", &["-9", &pid_str], 5).await;
                 }
                 #[cfg(target_os = "windows")]
                 {
-                    let _ = std::process::Command::new("taskkill")
-                        .args(["/F", "/PID", &pid.to_string()])
-                        .output();
+                    run_command_with_timeout("taskkill", &["/F", "/PID", &pid_str], 5).await;
                 }
             }
         }
@@ -199,23 +250,20 @@ fn kill_file_server_by_pid() {
 
 /// 检测并清理残留的 lanproxy 进程，确保只有一个实例运行
 async fn kill_stale_lanproxy_processes() {
-    if is_process_running_fuzzy("nuwax-lanproxy") {
+    if is_process_running_fuzzy("nuwax-lanproxy").await {
         warn!("[Lanproxy] 检测到残留 nuwax-lanproxy 进程，正在终止");
-        if let Some(pids) = find_processes_by_prefix("nuwax-lanproxy") {
+        if let Some(pids) = find_processes_by_prefix("nuwax-lanproxy").await {
             for pid in &pids {
                 info!("[Lanproxy] 终止残留进程 PID: {}", pid);
+                let pid_str = pid.to_string();
+
                 #[cfg(any(target_os = "linux", target_os = "macos"))]
                 {
-                    let _ = std::process::Command::new("kill")
-                        .arg("-9")
-                        .arg(pid.to_string())
-                        .output();
+                    run_command_with_timeout("kill", &["-9", &pid_str], 5).await;
                 }
                 #[cfg(target_os = "windows")]
                 {
-                    let _ = std::process::Command::new("taskkill")
-                        .args(["/F", "/PID", &pid.to_string()])
-                        .output();
+                    run_command_with_timeout("taskkill", &["/F", "/PID", &pid_str], 5).await;
                 }
             }
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -224,20 +272,35 @@ async fn kill_stale_lanproxy_processes() {
 }
 
 /// 检测并清理残留的 file-server 进程，确保只有一个实例运行
-async fn kill_stale_file_server_processes() {
-    if is_file_server_running() {
+///
+/// # Arguments
+/// * `bin_path` - nuwax-file-server 可执行文件的完整路径
+async fn kill_stale_file_server_processes(bin_path: &str) {
+    if is_file_server_running().await {
         warn!("[FileServer] 检测到残留 nuwax-file-server 进程，正在终止");
-        // 先尝试优雅停止
-        let _ = std::process::Command::new("nuwax-file-server")
-            .arg("stop")
-            .output();
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        info!("[FileServer] 使用路径: {} stop", bin_path);
+
+        // 使用 process_wrap 执行 stop 命令
+        let success = run_command_with_timeout(bin_path, &["stop"], 5).await;
+
+        if success {
+            info!("[FileServer] stop 命令执行成功");
+        } else {
+            warn!("[FileServer] stop 命令执行失败或超时");
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
         // 如果还在运行，强制 kill
-        if is_file_server_running() {
+        if is_file_server_running().await {
             warn!("[FileServer] 优雅停止失败，强制终止");
-            kill_file_server_by_pid();
+            kill_file_server_by_pid().await;
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+
+        // 最终验证
+        if is_file_server_running().await {
+            error!("[FileServer] 无法清理残留进程，启动可能失败");
         }
     }
 }
@@ -298,8 +361,8 @@ async fn wait_for_port_ready(port: u16, timeout_secs: u64) -> Result<(), String>
 ///
 /// # Returns
 /// * `bool` - 如果匹配的进程存在返回 true
-pub fn is_process_running_fuzzy(process_prefix: &str) -> bool {
-    find_processes_by_prefix(process_prefix).is_some()
+pub async fn is_process_running_fuzzy(process_prefix: &str) -> bool {
+    find_processes_by_prefix(process_prefix).await.is_some()
 }
 
 /// 通过进程名前缀查找进程（模糊匹配）
@@ -309,14 +372,15 @@ pub fn is_process_running_fuzzy(process_prefix: &str) -> bool {
 ///
 /// # Returns
 /// * `Option<Vec<u32>>` - 如果进程存在，返回 PID 列表；否则返回 None
-pub fn find_processes_by_prefix(process_prefix: &str) -> Option<Vec<u32>> {
+pub async fn find_processes_by_prefix(process_prefix: &str) -> Option<Vec<u32>> {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         // 使用 pgrep -f 进行模糊匹配
-        let output = std::process::Command::new("pgrep")
+        let output = tokio::process::Command::new("pgrep")
             .arg("-f")
             .arg(process_prefix)
             .output()
+            .await
             .ok()?;
 
         if output.status.success() {
@@ -335,9 +399,10 @@ pub fn find_processes_by_prefix(process_prefix: &str) -> Option<Vec<u32>> {
     #[cfg(target_os = "windows")]
     {
         // Windows: 使用 tasklist 然后过滤
-        let output = std::process::Command::new("tasklist")
+        let output = tokio::process::Command::new("tasklist")
             .args(["/FO", "CSV", "/NH"])
             .output()
+            .await
             .ok()?;
 
         if output.status.success() {
@@ -369,20 +434,16 @@ pub fn find_processes_by_prefix(process_prefix: &str) -> Option<Vec<u32>> {
 ///
 /// # Returns
 /// * `Result<u32, String>` - 成功返回终止的进程数量
-pub fn kill_processes_by_name(process_name: &str) -> Result<u32, String> {
+pub async fn kill_processes_by_name(process_name: &str) -> Result<u32, String> {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         // 使用 pkill -x 精确匹配并终止进程
-        let output = std::process::Command::new("pkill")
-            .arg("-x")
-            .arg(process_name)
-            .output()
-            .map_err(|e| format!("Failed to run pkill: {}", e))?;
+        let success = run_command_with_timeout("pkill", &["-x", process_name], 5).await;
 
         // pkill 返回 0 表示至少终止了一个进程
-        if output.status.success() {
+        if success {
             // 获取实际终止的数量
-            if let Some(pids) = find_processes_by_name(process_name) {
+            if find_processes_by_name(process_name).await.is_some() {
                 Ok(0) // 进程仍存在，可能需要 SIGKILL
             } else {
                 Ok(1) // 假设至少终止了 1 个
@@ -401,12 +462,9 @@ pub fn kill_processes_by_name(process_name: &str) -> Result<u32, String> {
             format!("{}.exe", process_name)
         };
 
-        let output = std::process::Command::new("taskkill")
-            .args(["/F", "/IM", &exe_name])
-            .output()
-            .map_err(|e| format!("Failed to run taskkill: {}", e))?;
+        let success = run_command_with_timeout("taskkill", &["/F", "/IM", &exe_name], 5).await;
 
-        if output.status.success() {
+        if success {
             Ok(1)
         } else {
             Ok(0)
@@ -636,8 +694,8 @@ impl ServiceManager {
             "[FileServer] ========== 启动文件服务 =========="
         );
 
-        // 检测并清理残留进程
-        kill_stale_file_server_processes().await;
+        // 检测并清理残留进程（传入正确的 bin_path）
+        kill_stale_file_server_processes(&config.bin_path).await;
 
         info!("[FileServer] 可执行文件路径: {}", config.bin_path);
         info!("[FileServer] 端口: {}", config.port);
@@ -689,18 +747,19 @@ impl ServiceManager {
         }
 
         // 等待端口就绪
-        wait_for_port_ready(config.port, 10).await.map_err(|e| {
+        if let Err(e) = wait_for_port_ready(config.port, 10).await {
             error!("[FileServer] 端口就绪检查失败: {}", e);
-            // 端口检查失败，清理已存储的 child 并尝试停止 daemon
+
+            // 端口检查失败，清理已存储的 child
             if let Ok(mut guard) = self.nuwax_file_server.try_lock() {
                 let _ = guard.take();
             }
-            // 尝试停止可能已启动的 daemon
-            let _ = std::process::Command::new(&config.bin_path)
-                .arg("stop")
-                .output();
-            e
-        })?;
+
+            // 使用 process_wrap 停止可能已启动的 daemon
+            run_command_with_timeout(&config.bin_path, &["stop"], 5).await;
+
+            return Err(e);
+        }
 
         info!("[FileServer] 进程启动成功");
         Ok(())
