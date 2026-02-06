@@ -701,27 +701,24 @@ impl ServiceManager {
                 .arg(&config.env)
                 .arg("--port")
                 .arg(config.port.to_string())
-                // 通过命令行参数传递配置 (KEY=VALUE 格式)
-                .arg(format!("INIT_PROJECT_NAME={}", &config.init_project_name))
-                .arg(format!("INIT_PROJECT_DIR={}", &config.init_project_dir))
-                .arg(format!("UPLOAD_PROJECT_DIR={}", &config.upload_project_dir))
-                .arg(format!("PROJECT_SOURCE_DIR={}", &config.project_source_dir))
-                .arg(format!("DIST_TARGET_DIR={}", &config.dist_target_dir))
-                .arg(format!("LOG_BASE_DIR={}", &config.log_base_dir))
+                // 通过命令行参数传递配置 (--KEY=VALUE 格式，loadEnvFromArgv 要求 -- 前缀)
+                .arg(format!("--INIT_PROJECT_NAME={}", &config.init_project_name))
+                .arg(format!("--INIT_PROJECT_DIR={}", &config.init_project_dir))
                 .arg(format!(
-                    "COMPUTER_WORKSPACE_DIR={}",
+                    "--UPLOAD_PROJECT_DIR={}",
+                    &config.upload_project_dir
+                ))
+                .arg(format!(
+                    "--PROJECT_SOURCE_DIR={}",
+                    &config.project_source_dir
+                ))
+                .arg(format!("--DIST_TARGET_DIR={}", &config.dist_target_dir))
+                .arg(format!("--LOG_BASE_DIR={}", &config.log_base_dir))
+                .arg(format!(
+                    "--COMPUTER_WORKSPACE_DIR={}",
                     &config.computer_workspace_dir
                 ))
-                .arg(format!("COMPUTER_LOG_DIR={}", &config.computer_log_dir))
-                // 同时通过环境变量传递，确保 cli.js spawn 子进程时能继承
-                .env("INIT_PROJECT_NAME", &config.init_project_name)
-                .env("INIT_PROJECT_DIR", &config.init_project_dir)
-                .env("UPLOAD_PROJECT_DIR", &config.upload_project_dir)
-                .env("PROJECT_SOURCE_DIR", &config.project_source_dir)
-                .env("DIST_TARGET_DIR", &config.dist_target_dir)
-                .env("LOG_BASE_DIR", &config.log_base_dir)
-                .env("COMPUTER_WORKSPACE_DIR", &config.computer_workspace_dir)
-                .env("COMPUTER_LOG_DIR", &config.computer_log_dir);
+                .arg(format!("--COMPUTER_LOG_DIR={}", &config.computer_log_dir));
         });
 
         // 注意顺序：先 KillOnDrop，后 ProcessGroup/JobObject
