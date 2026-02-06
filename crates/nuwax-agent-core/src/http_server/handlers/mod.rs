@@ -14,4 +14,4 @@ pub use stop::computer_stop;
 
 // Re-export error types for use in handlers
 pub use crate::http_server::error::AppError;
-pub use crate::http_server::http_result::HttpResult;
+pub use shared_types::HttpResult;

@@ -64,5 +64,6 @@ pub async fn computer_chat(
         project_id: response.project_id,
         session_id: response.session_id,
         request_id: response.request_id,
+        error: response.error,
     }))
 }

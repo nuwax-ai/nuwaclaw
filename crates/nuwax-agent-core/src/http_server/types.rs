@@ -35,6 +35,9 @@ pub struct ChatResponse {
     pub session_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+    /// 错误信息（成功时为 None）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Computer Agent Stop 请求

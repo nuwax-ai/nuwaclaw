@@ -5,7 +5,6 @@
 
 pub mod types;
 pub mod error;
-pub mod http_result;
 pub mod handlers;
 
 use crate::api::traits::agent_runner::AgentRunnerApi;
@@ -104,6 +103,6 @@ pub fn router(agent_runner_api: Arc<dyn AgentRunnerApi>) -> Router {
         .route("/computer/agent/status", post(handlers::computer_status))
         .route("/computer/agent/stop", post(handlers::computer_stop))
         .route("/computer/agent/session/cancel", post(handlers::computer_cancel))
-        .route("/computer/progress/:session_id", get(handlers::computer_progress))
+        .route("/computer/progress/{session_id}", get(handlers::computer_progress))
         .with_state(agent_runner_api)
 }
