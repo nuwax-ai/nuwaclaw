@@ -5,7 +5,6 @@ members = [
     "crates/agent-tauri-client/src-tauri",
     "crates/agent-server-admin",
     "crates/system-permissions",
-    "crates/data-server",
     "crates/agent-protocol",
     "crates/nuwax-agent-core",
 ]
@@ -61,8 +60,6 @@ dashmap = "6.1"
 tokio-stream = "0.1"
 tokio-util = "0.7"
 futures = "0.3"
-# 强制使用 arrayvec 0.7 以修复 pingora-lru 依赖问题
-arrayvec = "0.7"
 
 # 网络
 reqwest = { version = "0.13", features = ["json"] }
