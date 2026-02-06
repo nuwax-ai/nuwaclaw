@@ -21,6 +21,7 @@ mod tests {
         assert_eq!(config.api_key, None);
         assert_eq!(config.api_base_url, "https://api.anthropic.com");
         assert_eq!(config.default_model, "claude-sonnet-4-20250514");
+        assert_eq!(config.proxy_port, 8088);
     }
 
     /// 测试配置自定义值
@@ -31,12 +32,14 @@ mod tests {
             api_key: Some("sk-test".to_string()),
             api_base_url: "https://api.example.com".to_string(),
             default_model: "claude-haiku".to_string(),
+            proxy_port: 9088,
         };
 
         assert_eq!(config.projects_dir, PathBuf::from("/tmp/test-projects"));
         assert_eq!(config.api_key, Some("sk-test".to_string()));
         assert_eq!(config.api_base_url, "https://api.example.com");
         assert_eq!(config.default_model, "claude-haiku");
+        assert_eq!(config.proxy_port, 9088);
     }
 
     /// 测试 RcoderAgentRunner 创建（不启动）
@@ -47,6 +50,7 @@ mod tests {
             api_key: None,
             api_base_url: "https://api.example.com".to_string(),
             default_model: "claude-test".to_string(),
+            proxy_port: 9089,
         };
 
         let runner = RcoderAgentRunner::new(config.clone());

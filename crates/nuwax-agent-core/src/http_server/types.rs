@@ -25,6 +25,10 @@ pub struct ComputerChatRequest {
     /// 附件列表
     #[serde(default)]
     pub attachments: Vec<super::super::api::traits::agent_runner::Attachment>,
+
+    /// 模型提供商配置
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "model_provider")]
+    pub model_config: Option<super::super::api::traits::agent_runner::ModelProviderConfig>,
 }
 
 /// Computer Chat 响应

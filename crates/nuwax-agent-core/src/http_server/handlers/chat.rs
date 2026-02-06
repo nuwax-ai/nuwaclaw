@@ -17,13 +17,30 @@ pub async fn computer_chat(
     State(agent_runner_api): State<Arc<dyn AgentRunnerApi>>,
     Json(request): Json<ComputerChatRequest>,
 ) -> Result<HttpResult<super::super::types::ChatResponse>, AppError> {
-    info!(
-        "[computer_chat] 收到请求: project_id={:?}, session_id={:?}, prompt_len={}, request_id={:?}",
-        request.project_id,
-        request.session_id,
-        request.prompt.len(),
-        request.request_id
-    );
+    // 详细打印模型配置
+    if let Some(ref config) = request.model_config {
+        info!(
+            "[computer_chat] 收到请求: project_id={:?}, session_id={:?}, prompt_len={}, request_id={:?}, model_config={{ id={}, name={}, base_url={}, api_key_len={}, default_model={}, requires_openai_auth={} }}",
+            request.project_id,
+            request.session_id,
+            request.prompt.len(),
+            request.request_id,
+            config.id,
+            config.name,
+            config.base_url,
+            config.api_key.len(),
+            config.default_model,
+            config.requires_openai_auth
+        );
+    } else {
+        info!(
+            "[computer_chat] 收到请求: project_id={:?}, session_id={:?}, prompt_len={}, request_id={:?}, model_config=None",
+            request.project_id,
+            request.session_id,
+            request.prompt.len(),
+            request.request_id
+        );
+    }
 
     // 生成或使用提供的 project_id（参照 rcoder 实现）
     let project_id = match &request.project_id {
@@ -37,7 +54,7 @@ pub async fn computer_chat(
         prompt: request.prompt,
         request_id: request.request_id,
         attachments: request.attachments,
-        model_config: None,
+        model_config: request.model_config,
         service_type: None,
     };
 

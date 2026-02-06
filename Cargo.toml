@@ -36,7 +36,7 @@ async-trait = "0.1"
 # 序列化
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-toml = "0.8"
+toml = "0.9"
 
 # 错误处理
 thiserror = "2.0"
@@ -48,7 +48,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 
 # 工具库
-dirs = "5.0"
+dirs = "6.0"
 url = "2.5"
 uuid = { version = "1.10", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -61,16 +61,18 @@ dashmap = "6.1"
 tokio-stream = "0.1"
 tokio-util = "0.7"
 futures = "0.3"
+# 强制使用 arrayvec 0.7 以修复 pingora-lru 依赖问题
+arrayvec = "0.7"
 
 # 网络
-reqwest = { version = "0.12", features = ["json"] }
-axum = "0.7"
+reqwest = { version = "0.13", features = ["json"] }
+axum = "0.8"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 
 # 加密
 argon2 = "0.5"
 aes-gcm = "0.10"
-rand = "0.8"
+rand = "0.9"
 
 # 强制锁定 core-text 版本，避免 core-graphics 版本冲突
 # core-text 21.0.0 依赖 core-graphics ^0.24
@@ -78,12 +80,13 @@ rand = "0.8"
 core-text = "=21.0.0"
 
 # Protobuf
-prost = "0.13"
-prost-types = "0.13"
-bytes = "1.7"
+prost = "0.14"
+prost-types = "0.14"
+bytes = "1.11"
 
 # 压缩
-zip = "2.2"
+# zip: 禁用 lzma/xz 特性以避免 lzma-rust2 的 crc 版本冲突
+zip = { version = "7.4", default-features = false, features = ["aes-crypto", "bzip2", "deflate64", "deflate", "ppmd", "time", "zstd"] }
 flate2 = "1.0"
 tar = "0.4"
 
