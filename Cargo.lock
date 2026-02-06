@@ -136,6 +136,7 @@ dependencies = [
  "auto-launch",
  "log",
  "nuwax-agent-core",
+ "nuwax-platform",
  "serde 1.0.228",
  "serde_json 1.0.149",
  "system-permissions",
