@@ -305,12 +305,14 @@ BUILD_ENV ?= prod
 .PHONY: tauri-build
 tauri-build:
 	@echo ">>> 构建 Tauri 应用 (环境: $(BUILD_ENV))..."
+	cd crates/$(TAURI_CLIENT) && pnpm install
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo build --release
 
 .PHONY: tauri-bundle
 tauri-bundle:
 	@echo ">>> 打包 Tauri 应用 (环境: $(BUILD_ENV))..."
+	cd crates/$(TAURI_CLIENT) && pnpm install
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build
 
@@ -335,6 +337,8 @@ endif
 .PHONY: tauri-dev
 tauri-dev:
 	@echo ">>> 运行 Tauri 开发模式 (环境: $(BUILD_ENV))..."
+	@echo ">>> 检查并安装前端依赖..."
+	cd crates/$(TAURI_CLIENT) && pnpm install
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) cargo tauri dev
 
 .PHONY: tauri-info
