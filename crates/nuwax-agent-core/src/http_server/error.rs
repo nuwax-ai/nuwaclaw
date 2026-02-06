@@ -3,12 +3,12 @@
 //! 参照 rcoder 项目的错误处理模式，提供结构化的错误类型
 
 use axum::response::IntoResponse;
-use axum::http::StatusCode;
-use serde::Serialize;
+use shared_types::error_codes;
+use shared_types::HttpResult;
 use thiserror::Error;
 
 /// 应用错误类型
-#[derive(Debug, Error, Serialize)]
+#[derive(Debug, Error)]
 pub enum AppError {
     /// 业务验证错误 (400)
     #[error("Validation error: {message}")]
@@ -94,30 +94,18 @@ impl From<axum::http::Error> for AppError {
     }
 }
 
-/// 错误响应结构
-#[derive(Debug, Serialize)]
-pub struct ErrorResponse {
-    pub code: u16,
-    pub message: String,
-}
-
 impl IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
-        let (status_code, error_message) = match self {
-            AppError::Validation { message } => (StatusCode::BAD_REQUEST, message),
-            AppError::NotFound { resource } => (StatusCode::NOT_FOUND, resource),
-            AppError::Internal { message } => (StatusCode::INTERNAL_SERVER_ERROR, message),
-            AppError::Business { message } => (StatusCode::UNPROCESSABLE_ENTITY, message),
-            AppError::Conflict { message } => (StatusCode::CONFLICT, message),
+        let (error_code, error_message) = match self {
+            AppError::Validation { message } => (error_codes::ERR_VALIDATION, message),
+            AppError::NotFound { resource } => (error_codes::ERR_AGENT_NOT_FOUND, resource),
+            AppError::Internal { message } => (error_codes::ERR_INTERNAL_SERVER_ERROR, message),
+            AppError::Business { message } => (error_codes::ERR_AGENT_ERROR, message),
+            AppError::Conflict { message } => (error_codes::ERR_AGENT_BUSY, message),
         };
 
-        tracing::error!(status = %status_code, error = %error_message, "HTTP request failed");
+        tracing::error!(code = %error_code, error = %error_message, "HTTP request failed");
 
-        let response = ErrorResponse {
-            code: status_code.as_u16(),
-            message: error_message,
-        };
-
-        (status_code, axum::Json(response)).into_response()
+        HttpResult::<()>::error(error_code, &error_message).into_response()
     }
 }
