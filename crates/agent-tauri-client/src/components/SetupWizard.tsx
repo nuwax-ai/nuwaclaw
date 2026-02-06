@@ -2,9 +2,9 @@
  * 初始化向导组件
  *
  * 管理客户端首次启动的配置流程:
- * 1. 基础设置 - 服务器配置、端口、工作区
- * 2. 账号登录 - 网络权限检查、用户登录
- * 3. 依赖安装 - Node.js 检测、npm 包安装
+ * 1. 依赖安装 - Node.js 检测/自动安装、npm 包安装
+ * 2. 基础设置 - 服务器配置、端口、工作区
+ * 3. 账号登录 - 网络权限检查、用户登录
  */
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -30,24 +30,24 @@ import SetupStep3 from "./SetupStep3";
 
 const { Title, Text } = Typography;
 
-// 向导步骤配置
+// 向导步骤配置（新顺序: 依赖安装 → 基础设置 → 账号登录）
 const WIZARD_STEPS = [
   {
     key: 1,
+    title: "依赖安装",
+    icon: <CloudDownloadOutlined />,
+    description: "",
+  },
+  {
+    key: 2,
     title: "基础设置",
     icon: <SettingOutlined />,
     description: "",
   },
   {
-    key: 2,
+    key: 3,
     title: "账号登录",
     icon: <UserOutlined />,
-    description: "",
-  },
-  {
-    key: 3,
-    title: "依赖安装",
-    icon: <CloudDownloadOutlined />,
     description: "",
   },
 ];
@@ -109,7 +109,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   }, []);
 
   /**
-   * 步骤1完成回调
+   * 步骤1完成回调（依赖安装完成）
    */
   const handleStep1Complete = useCallback(() => {
     setCurrentStep(2);
@@ -117,7 +117,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   }, []);
 
   /**
-   * 步骤2完成回调
+   * 步骤2完成回调（基础配置完成）
    */
   const handleStep2Complete = useCallback(() => {
     setCurrentStep(3);
@@ -125,10 +125,10 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   }, []);
 
   /**
-   * 返回上一步
+   * 返回上一步（最小值为2，不能回到步骤1-依赖安装）
    */
   const handleGoBack = useCallback(() => {
-    if (currentStep > 1) {
+    if (currentStep > 2) {
       const newStep = currentStep - 1;
       setCurrentStep(newStep);
       saveStepProgress(newStep);
@@ -136,21 +136,22 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   }, [currentStep]);
 
   /**
-   * 点击步骤条切换步骤（只能切换到已完成的步骤）
+   * 点击步骤条切换步骤（只能切换到已完成的步骤，但不能回到步骤1）
    */
   const handleStepClick = useCallback(
     (step: number) => {
-      // 只能回退到之前的步骤
-      if (step < currentStep) {
-        setCurrentStep(step + 1); // Steps 的 current 是从 0 开始的
-        saveStepProgress(step + 1);
+      const targetStep = step + 1; // Steps 的 current 是从 0 开始的
+      // 不能回到步骤1（依赖安装），且只能回退到之前的步骤
+      if (targetStep >= 2 && targetStep < currentStep) {
+        setCurrentStep(targetStep);
+        saveStepProgress(targetStep);
       }
     },
     [currentStep],
   );
 
   /**
-   * 步骤3完成回调
+   * 步骤3完成回调（登录成功 → 启动服务 → 进入主界面）
    */
   const handleStep3Complete = useCallback(async () => {
     setStartingServices(true);
@@ -208,20 +209,18 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       );
     }
 
-    // 各步骤内容
+    // 各步骤内容（新顺序: 依赖安装 → 基础配置 → 账号登录）
     switch (currentStep) {
       case 1:
-        return <SetupStep1 onComplete={handleStep1Complete} />;
+        return <SetupStep3 onComplete={handleStep1Complete} />;
       case 2:
-        return (
-          <SetupStep2 onComplete={handleStep2Complete} onBack={handleGoBack} />
-        );
+        return <SetupStep1 onComplete={handleStep2Complete} />;
       case 3:
         return (
-          <SetupStep3 onComplete={handleStep3Complete} onBack={handleGoBack} />
+          <SetupStep2 onComplete={handleStep3Complete} onBack={handleGoBack} />
         );
       default:
-        return <SetupStep1 onComplete={handleStep1Complete} />;
+        return <SetupStep3 onComplete={handleStep1Complete} />;
     }
   };
 
@@ -263,8 +262,13 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
             description:
               currentStep === step.key ? step.description : undefined,
             icon: step.icon,
-            disabled: step.key > currentStep, // 只能点击已完成或当前步骤
-            style: step.key < currentStep ? { cursor: "pointer" } : undefined,
+            // 步骤1完成后不能回退；后续步骤只有当前或已完成才能点击
+            disabled:
+              step.key > currentStep || (step.key === 1 && currentStep > 1),
+            style:
+              step.key >= 2 && step.key < currentStep
+                ? { cursor: "pointer" }
+                : undefined,
           }))}
         />
       </div>

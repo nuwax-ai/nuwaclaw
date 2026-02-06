@@ -48,8 +48,11 @@ import {
   installLocalNpmPackage,
   checkShellInstallerPackage,
   installShellInstallerPackage,
+  autoInstallNode,
+  onNodeInstallProgress,
   type LocalDependencyItem,
   type NodeVersionResult,
+  type NodeInstallProgress,
 } from "../services/dependencies";
 import {
   getDepsFilter,
@@ -129,6 +132,12 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
     "all" | "system" | "npm-local" | "shell-installer"
   >("all");
   const listContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Node.js 自动安装状态
+  const [nodeInstalling, setNodeInstalling] = useState(false);
+  const [nodeInstallProgress, setNodeInstallProgress] =
+    useState<NodeInstallProgress | null>(null);
+  const [nodeInstallError, setNodeInstallError] = useState<string>("");
 
   /**
    * 构建统一的依赖列表
@@ -273,6 +282,44 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
     } catch (error) {
       console.error("[SetupStep3] 打开链接失败:", error);
       message.error("打开链接失败");
+    }
+  };
+
+  /**
+   * 自动安装 Node.js
+   */
+  const handleAutoInstallNode = async () => {
+    setNodeInstalling(true);
+    setNodeInstallError("");
+    setNodeInstallProgress(null);
+
+    // 监听安装进度
+    let unlisten: (() => void) | null = null;
+    try {
+      unlisten = await onNodeInstallProgress((progress) => {
+        setNodeInstallProgress(progress);
+        if (progress.phase === "error") {
+          setNodeInstallError(progress.message);
+        }
+      });
+
+      const result = await autoInstallNode();
+
+      if (result.success) {
+        message.success(`Node.js v${result.version} 安装成功`);
+        // 重新检测所有依赖
+        await checkAllDeps();
+      } else {
+        setNodeInstallError(result.error || "安装失败");
+      }
+    } catch (error) {
+      console.error("[SetupStep3] 自动安装 Node.js 失败:", error);
+      setNodeInstallError(error instanceof Error ? error.message : "安装失败");
+    } finally {
+      setNodeInstalling(false);
+      if (unlisten) {
+        unlisten();
+      }
     }
   };
 
@@ -915,7 +962,7 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
           }
           description={
             !stats.systemAllReady
-              ? '请先安装 Node.js，然后点击"重新检测"继续'
+              ? "Node.js 未就绪，可点击「自动安装」或手动安装后「重新检测」"
               : stats.allReady
                 ? "所有依赖已就绪"
                 : '系统依赖已就绪，点击"开始安装"自动安装其他依赖'
@@ -930,6 +977,104 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
           showIcon
           style={{ marginBottom: 12 }}
         />
+
+        {/* Node.js 自动安装区域 */}
+        {!stats.systemAllReady && !nodeInstalling && !nodeInstallError && (
+          <Alert
+            message="Node.js 未安装或版本不满足要求"
+            description={
+              <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                <Text>
+                  需要 Node.js &gt;=
+                  22.0.0，可自动下载安装到应用目录（不影响系统环境）。
+                </Text>
+                <Space>
+                  <Button
+                    type="primary"
+                    icon={<CloudDownloadOutlined />}
+                    onClick={handleAutoInstallNode}
+                  >
+                    自动安装 Node.js
+                  </Button>
+                  <Button
+                    type="link"
+                    icon={<LinkOutlined />}
+                    onClick={handleOpenNodejs}
+                  >
+                    手动安装
+                  </Button>
+                </Space>
+              </Space>
+            }
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+          />
+        )}
+
+        {/* Node.js 安装进度 */}
+        {nodeInstalling && nodeInstallProgress && (
+          <Alert
+            message={
+              <Space>
+                <LoadingOutlined />
+                <span>
+                  {nodeInstallProgress.phase === "downloading"
+                    ? "正在下载 Node.js"
+                    : nodeInstallProgress.phase === "verifying"
+                      ? "正在校验文件"
+                      : nodeInstallProgress.phase === "extracting"
+                        ? "正在解压安装"
+                        : "安装中"}
+                </span>
+              </Space>
+            }
+            description={
+              <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                <Text type="secondary">{nodeInstallProgress.message}</Text>
+                <Progress
+                  percent={Math.round(nodeInstallProgress.progress)}
+                  status="active"
+                  size="small"
+                />
+              </Space>
+            }
+            type="info"
+            style={{ marginBottom: 12 }}
+          />
+        )}
+
+        {/* Node.js 安装错误 */}
+        {nodeInstallError && !nodeInstalling && (
+          <Alert
+            message="Node.js 安装失败"
+            description={
+              <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                <Text type="danger">{nodeInstallError}</Text>
+                <Space>
+                  <Button
+                    type="primary"
+                    size="small"
+                    onClick={handleAutoInstallNode}
+                  >
+                    重试安装
+                  </Button>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<LinkOutlined />}
+                    onClick={handleOpenNodejs}
+                  >
+                    手动安装
+                  </Button>
+                </Space>
+              </Space>
+            }
+            type="error"
+            showIcon
+            style={{ marginBottom: 12 }}
+          />
+        )}
 
         {/* 安装目录提示 */}
         {appDir && stats.systemAllReady && (
