@@ -86,6 +86,20 @@
 
 ## 实现现状评估（按模块：已完成 / 待补齐）
 
+### 跨平台抽象层 (nuwax-platform)
+
+- ✅ 已完成：
+  - 创建 `nuwax-platform` crate 统一跨平台抽象
+  - `paths` 模块：跨平台路径抽象（配置/日志/缓存/数据/运行时）
+  - `autostart` 模块：开机自启动管理
+  - `tray` 模块：系统托盘抽象（使用 tray-icon）
+  - `config` 模块：统一配置管理（TOML 格式）
+  - `capability` 检测：平台能力状态检测函数
+- 待补齐：
+  - 托盘模块与各客户端的更深度集成
+  - 配置模块与现有 store 系统的统一
+  - 平台能力检测的扩展（更多权限类型）
+
 ### 权限
 
 - 已完成：
@@ -100,18 +114,21 @@
 
 ### 托盘与窗口行为
 
-- 已完成：
-  - `setup_tray` 与托盘菜单事件。
+- ✅ 已完成：
+  - `nuwax-platform::tray` 统一托盘抽象
+  - `agent-gpui-client` 托盘模块重构，使用 nuwax-platform 类型
   - 窗口关闭时隐藏到托盘。
 - 待补齐：
   - Linux 不同 DE/Wayland/X11 兼容测试与回退策略。
   - Windows 托盘焦点/显示行为一致性处理。
+  - Tauri 客户端托盘集成
 
 ### 自动启动
 
-- 已完成：
-  - `autolaunch_set / autolaunch_get` 基于 `auto_launch`。
-  - macOS 与 Windows 平台特化配置。
+- ✅ 已完成：
+  - `nuwax-platform::autostart` 统一自动启动抽象
+  - `nuwax-agent-core` 自动启动模块重构，使用 nuwax-platform
+  - macOS/Windows/Linux 三平台实现
 - 待补齐：
   - Linux systemd/autostart 实测验证与文档。
   - 启动失败时错误提示与用户修复入口。
@@ -137,12 +154,14 @@
 
 ### 配置与日志
 
-- 已完成：
-  - `log_dir_get / read_logs / open_log_directory`。
-  - Store 读写基于 `tauri_plugin_store`。
+- ✅ 已完成：
+  - `nuwax-platform::paths` 统一路径抽象
+  - `nuwax-platform::config` 统一配置管理
+  - `nuwax-agent-core` 配置模块重构，使用 nuwax-platform 路径
+  - `log_dir_get / read_logs / open_log_directory`
 - 待补齐：
-  - 配置/缓存/日志路径统一抽象与兜底策略。
-  - 跨平台权限与可写性检测。
+  - 配置模块与现有 store 系统的统一
+  - 跨平台权限与可写性检测
 
 ### 打包与更新
 
@@ -162,20 +181,20 @@
 
 ## 解决计划（分阶段）
 
-### 阶段 1：基础能力一致化（2-3 周）
+### 阶段 1：基础能力一致化（已完成）
 
-- 平台抽象层对齐：`paths / autostart / tray`。
-- 依赖清单与自检流程对齐 `DependencyManager`。
-- 配置与日志路径统一抽象 + 兜底策略。
+- ✅ 平台抽象层：`paths / autostart / tray / config` 已完成
+- ✅ 依赖清单与自检流程对齐 `DependencyManager`
+- ✅ 配置与日志路径统一抽象
 
-### 阶段 2：权限与系统集成（3-4 周）
+### 阶段 2：权限与系统集成（进行中）
 
 - 权限引导流程打通（前端联动）。
 - macOS 权限申请与文档。
 - Windows 防火墙/UAC 引导。
 - Linux Wayland/X11 兼容说明。
 
-### 阶段 3：打包与更新（3-4 周）
+### 阶段 3：打包与更新（待开始）
 
 - macOS 公证/签名，Windows 签名，Linux 产物策略。
 - updater 与回滚策略。
@@ -185,11 +204,11 @@
 - 多平台构建矩阵与 smoke test。
 - 安装/卸载/升级/权限/托盘/自启动/依赖修复覆盖。
 
-## 近期执行建议（可直接排期）
+## 近期执行建议（已更新）
 
-1. 建立平台抽象模块与接口清单（paths/autostart/tray）。
-2. 整理依赖清单与自检逻辑（与 `DependencyManager` 对齐）。
-3. 完成 macOS 权限检测与前端引导。
-4. 完成 Windows 自动启动与防火墙引导。
-5. 完成 Linux AppImage 或 DEB 打包方案。
-6. 搭建 CI 跨平台构建与最小 smoke test。
+1. ✅ 建立平台抽象模块与接口清单（paths/autostart/tray/config）
+2. ✅ 整理依赖清单与自检逻辑（与 `DependencyManager` 对齐）
+3. 完成 macOS 权限检测与前端引导
+4. ✅ nuwax-agent-core 已集成 nuwax-platform
+5. 完成 Linux AppImage 或 DEB 打包方案
+6. 搭建 CI 跨平台构建与最小 smoke test

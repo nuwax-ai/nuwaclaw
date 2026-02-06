@@ -4,11 +4,27 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
+[features]
+default = []
+tray = ["dep:image", "dep:xdg"]
+config = ["dep:toml", "dep:serde"]
+
+[dev-dependencies]
+tempfile = "3"
+
 [dependencies]
 # 通用依赖
 dirs = "5.0"
 thiserror = "2.0"
 anyhow = "1.0"
+
+# 托盘功能依赖
+image = { version = "0.24", optional = true, default-features = false }
+xdg = { version = "2.5", optional = true }
+
+# 配置文件依赖
+toml = { version = "0.8", optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
 
 # 平台相关依赖
 [target.'cfg(target_os = "macos")'.dependencies]

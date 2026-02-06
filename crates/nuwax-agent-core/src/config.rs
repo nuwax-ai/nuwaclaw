@@ -3,12 +3,15 @@
 //! 支持普通配置文件和加密配置文件
 //! - config.toml: 普通配置（服务器地址、外观设置等）
 //! - secure.enc: 加密配置（密码等敏感信息）
+//!
+//! 使用 nuwax-platform 提供跨平台路径抽象
 
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::crypto::{CryptoManager, CryptoError};
+use nuwax_platform::paths::{get_path, PathType, ensure_dir};
 
 /// 配置错误
 #[derive(Error, Debug)]
@@ -246,13 +249,9 @@ impl ConfigManager {
         self.secure_config.config.client_id = client_id;
     }
 
-    /// 获取配置文件路径
-    fn get_config_path() -> PathBuf {
-        let config_dir = dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("nuwax-agent");
-
-        config_dir.join("config.toml")
+    /// 获取配置文件路径（使用 nuwax-platform）
+    pub fn get_config_path() -> PathBuf {
+        get_path(PathType::Config).join("config.toml")
     }
 }
 
@@ -339,12 +338,8 @@ impl SecureConfigManager {
         Ok(())
     }
 
-    /// 获取安全配置文件路径
+    /// 获取安全配置文件路径（使用 nuwax-platform）
     fn get_config_path() -> PathBuf {
-        let config_dir = dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("nuwax-agent");
-
-        config_dir.join("secure.enc")
+        get_path(PathType::Config).join("secure.enc")
     }
 }

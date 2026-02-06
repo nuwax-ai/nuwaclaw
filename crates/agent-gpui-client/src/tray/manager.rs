@@ -1,7 +1,9 @@
 //! 托盘管理器
 //!
 //! 管理系统托盘图标和菜单
+//! 使用 nuwax-platform 提供统一类型定义
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tray_icon::{
@@ -10,23 +12,23 @@ use tray_icon::{
 };
 use tracing::{error, info};
 
-/// 托盘事件
-#[derive(Debug, Clone)]
-pub enum TrayEvent {
-    /// 显示主窗口
-    ShowWindow,
-    /// 打开设置
-    OpenSettings,
-    /// 打开依赖管理
-    OpenDependencies,
-    /// 显示关于
-    ShowAbout,
-    /// 退出应用
-    Quit,
-    /// 左键点击图标
-    LeftClick,
-    /// 右键点击图标
-    RightClick,
+// 导入 nuwax-platform 的托盘类型
+pub use nuwax_platform::tray::{TrayEvent, TrayMenu, TrayMenuItem};
+
+/// 获取托盘图标路径
+///
+/// 优先从 nuwax-platform 运行时目录加载图标
+#[inline]
+pub fn get_tray_icon_path() -> Option<PathBuf> {
+    // 尝试从运行时目录加载图标
+    let runtime_path = nuwax_platform::paths::get_path(nuwax_platform::paths::PathType::Runtime);
+    let icon_path = runtime_path.join("icons").join("tray_icon.png");
+
+    if icon_path.exists() {
+        Some(icon_path)
+    } else {
+        None
+    }
 }
 
 /// 托盘菜单项 ID
@@ -39,6 +41,8 @@ struct MenuIds {
 }
 
 /// 托盘管理器
+///
+/// 在 nuwax-platform 类型基础上添加异步事件处理
 pub struct TrayManager {
     /// 事件发送器
     event_tx: mpsc::Sender<TrayEvent>,
@@ -55,6 +59,12 @@ impl TrayManager {
     /// 返回管理器实例和事件接收器
     pub fn new() -> anyhow::Result<(Self, mpsc::Receiver<TrayEvent>)> {
         let (event_tx, event_rx) = mpsc::channel(32);
+
+        // 从 nuwax-platform 获取图标路径
+        let icon = match get_tray_icon_path() {
+            Some(path) => Self::load_icon_from_file(&path)?,
+            None => Self::create_default_icon()?,
+        };
 
         // 创建菜单
         let menu = Menu::new();
@@ -86,8 +96,6 @@ impl TrayManager {
         });
 
         // 创建托盘图标
-        let icon = Self::create_default_icon()?;
-
         let tray_icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
             .with_tooltip("NuWax Agent")
@@ -152,6 +160,51 @@ impl TrayManager {
             },
             event_rx,
         ))
+    }
+
+    /// 从 TrayMenu 创建 tray-icon Menu
+    ///
+    /// 保持事件 ID 映射一致性
+    pub fn create_menu_from_tray_menu(tray_menu: &TrayMenu) -> (Menu, Arc<MenuIds>) {
+        let menu = Menu::new();
+        let mut menu_ids_vec = Vec::new();
+
+        for item in &tray_menu.items {
+            if item.is_separator {
+                let separator = PredefinedMenuItem::separator();
+                let _ = menu.append(&separator);
+            } else {
+                let menu_item = MenuItem::new(&item.label, item.enabled, None);
+                menu_ids_vec.push((item.id.clone(), menu_item.id().clone()));
+                let _ = menu.append(&menu_item);
+            }
+        }
+
+        // 创建 ID 映射
+        let menu_ids = Arc::new(MenuIds {
+            show_window: menu_ids_vec.iter()
+                .find(|(id, _)| id == "show_window")
+                .map(|(_, id)| id.clone())
+                .unwrap_or_else(|| MenuId::new("show_window")),
+            settings: menu_ids_vec.iter()
+                .find(|(id, _)| id == "settings")
+                .map(|(_, id)| id.clone())
+                .unwrap_or_else(|| MenuId::new("settings")),
+            dependencies: menu_ids_vec.iter()
+                .find(|(id, _)| id == "dependencies")
+                .map(|(_, id)| id.clone())
+                .unwrap_or_else(|| MenuId::new("dependencies")),
+            about: menu_ids_vec.iter()
+                .find(|(id, _)| id == "about")
+                .map(|(_, id)| id.clone())
+                .unwrap_or_else(|| MenuId::new("about")),
+            quit: menu_ids_vec.iter()
+                .find(|(id, _)| id == "quit")
+                .map(|(_, id)| id.clone())
+                .unwrap_or_else(|| MenuId::new("quit")),
+        });
+
+        (menu, menu_ids)
     }
 
     /// 创建默认图标

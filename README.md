@@ -38,7 +38,10 @@
 ```
 nuwax-agent/
 ├── crates/
-│   ├── agent-client/       # 客户端主程序
+│   ├── nuwax-platform/     # 跨平台抽象层（路径、自动启动、托盘、配置）
+│   ├── nuwax-agent-core/  # 核心业务逻辑（无 UI 依赖）
+│   ├── agent-gpui-client/ # GPUI 客户端实现
+│   ├── agent-tauri-client/ # Tauri 客户端实现
 │   ├── agent-protocol/     # 通信协议定义
 │   ├── agent-server-admin/ # 管理端 API 服务
 │   └── data-server/        # 信令/中继服务器封装
@@ -49,6 +52,53 @@ nuwax-agent/
 └── tests/
     ├── e2e/                # 端到端测试
     └── integration/        # 集成测试
+```
+
+## 跨平台抽象层 (nuwax-platform)
+
+`nuwax-platform` crate 提供统一的跨平台能力抽象，是整个项目跨平台兼容性的基础。
+
+### 主要模块
+
+| 模块 | 功能 | 支持平台 |
+|------|------|---------|
+| `paths` | 跨平台路径抽象（配置/日志/缓存/数据） | macOS/Windows/Linux |
+| `autostart` | 开机自启动管理 | macOS/Windows/Linux |
+| `tray` | 系统托盘图标和菜单 | macOS/Windows/Linux |
+| `config` | 统一配置管理（TOML 格式） | macOS/Windows/Linux |
+
+### 平台能力检测
+
+```rust
+use nuwax_platform::{Platform, check_capability, PlatformCapability, get_all_capabilities};
+
+// 获取当前平台
+let platform = nuwax_platform::current_platform();
+
+// 检查特定能力
+let tray_status = nuwax_platform::check_capability(PlatformCapability::Tray);
+
+// 获取所有能力状态
+let capabilities = nuwax_platform::get_all_capabilities();
+```
+
+### 使用示例
+
+```rust
+use nuwax_platform::{paths, autostart, tray, config};
+
+// 使用路径抽象
+let config_path = paths::get_path(paths::PathType::Config)?;
+
+// 使用自动启动
+let autostart = autostart::PlatformAutostart::new();
+autostart.enable()?;
+
+// 使用托盘
+let tray_manager = tray::PlatformTray::new()?;
+
+// 使用配置管理
+let config_manager = config::ConfigManager::new()?;
 ```
 
 ## 快速开始
@@ -154,32 +204,34 @@ cargo build -p nuwax-agent --features "remote-desktop,chat-ui"
 ### 目录结构
 
 ```
-crates/agent-client/src/
-├── main.rs              # 程序入口
-├── app.rs               # 应用状态管理
-├── lib.rs               # 库导出
+crates/nuwax-platform/src/
+├── lib.rs              # 模块入口和平台枚举
+├── paths/mod.rs        # 跨平台路径抽象
+├── autostart/mod.rs    # 开机自启动管理
+├── tray/mod.rs         # 系统托盘抽象
+└── config/mod.rs       # 统一配置管理
+
+crates/nuwax-agent-core/src/
+├── lib.rs              # 核心库导出
+├── config.rs           # 配置管理（使用 nuwax-platform）
+├── auto_launch.rs      # 自动启动（使用 nuwax-platform）
+├── dependency/          # 依赖检测和安装
+├── connection/         # 连接管理
+├── platform/           # 平台特定代码
+├── permissions/        # 权限管理（使用 system-permissions）
+├── agent.rs            # Agent 任务管理
+└── ...
+
+crates/agent-gpui-client/src/
+├── main.rs             # 程序入口
+├── app.rs              # 应用状态管理
+├── lib.rs              # 库导出
 ├── components/          # UI 组件
-│   ├── root.rs          # 根组件
-│   ├── status_bar.rs    # 状态栏
-│   ├── client_info.rs   # 客户端信息
-│   ├── settings.rs      # 设置界面
-│   ├── dependency_manager.rs  # 依赖管理
-│   ├── remote_desktop.rs      # 远程桌面
-│   ├── chat.rs          # 聊天界面
-│   └── about.rs         # 关于页面
-├── core/                # 核心逻辑
-│   ├── connection/      # 连接管理
-│   ├── dependency/      # 依赖检测/安装
-│   ├── platform/        # 平台适配
-│   ├── permissions/     # 权限管理
-│   ├── agent.rs         # Agent 任务管理
-│   ├── business_channel.rs  # 业务通道
-│   ├── crypto.rs        # 加密工具
-│   └── upgrade.rs       # 升级管理
-├── tray/                # 系统托盘
-├── i18n/                # 国际化
-├── message/             # 消息处理
-└── utils/               # 工具函数
+│   ├── root.rs         # 根组件
+│   ├── status_bar.rs   # 状态栏
+│   └── ...
+├── tray/               # 托盘（使用 nuwax-platform）
+└── ...
 ```
 
 ### 运行测试

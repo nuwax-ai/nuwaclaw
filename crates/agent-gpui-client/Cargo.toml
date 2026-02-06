@@ -42,6 +42,7 @@ dev-mode = []
 [dependencies]
 # Workspace 依赖
 nuwax-agent-core = { path = "../nuwax-agent-core" }
+nuwax-platform = { path = "../nuwax-platform" }
 agent-protocol = { path = "../agent-protocol" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
