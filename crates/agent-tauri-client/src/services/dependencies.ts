@@ -375,6 +375,7 @@ export interface LocalDependencyConfig {
 export interface LocalDependencyItem extends LocalDependencyConfig {
   status: DependencyStatus;
   version?: string; // 已安装版本
+  latestVersion?: string; // npm 上的最新版本
   binPath?: string; // 可执行文件完整路径
   errorMessage?: string; // 错误信息
   meetsRequirement?: boolean; // 版本是否满足要求 (仅 system 类型)
@@ -1093,4 +1094,37 @@ export async function getSetupDependencySummary(): Promise<{
     uvReady,
     systemDepsReady: nodeReady && uvReady,
   };
+}
+
+/**
+ * 查询 npm 包的最新版本号
+ */
+export async function checkLatestNpmVersion(
+  packageName: string,
+): Promise<string | null> {
+  try {
+    const version = await invoke<string | null>(
+      "dependency_local_check_latest",
+      { packageName },
+    );
+    return version;
+  } catch (error) {
+    console.warn(`[Dependencies] 查询 ${packageName} 最新版本失败:`, error);
+    return null;
+  }
+}
+
+/**
+ * 比较两个 semver 版本号，返回 true 表示 latest > current
+ */
+export function isNewerVersion(current: string, latest: string): boolean {
+  const c = current.split(".").map(Number);
+  const l = latest.split(".").map(Number);
+  for (let i = 0; i < Math.max(c.length, l.length); i++) {
+    const cv = c[i] || 0;
+    const lv = l[i] || 0;
+    if (lv > cv) return true;
+    if (lv < cv) return false;
+  }
+  return false;
 }

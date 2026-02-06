@@ -44,6 +44,8 @@ import {
   checkGlobalNpmPackage,
   installGlobalNpmPackage,
   restartAllServices,
+  checkLatestNpmVersion,
+  isNewerVersion,
   type LocalDependencyItem,
   type NodeVersionResult,
   type UvVersionResult,
@@ -91,6 +93,30 @@ export default function DependenciesPage() {
           d.type === "shell-installer",
       );
       setLocalDeps(installableDeps);
+
+      // 对已安装的 npm 包并行查询最新版本
+      const npmDepsToCheck = installableDeps.filter(
+        (d) =>
+          d.status === "installed" &&
+          (d.type === "npm-local" || d.type === "npm-global"),
+      );
+      if (npmDepsToCheck.length > 0) {
+        const latestResults = await Promise.all(
+          npmDepsToCheck.map(async (d) => ({
+            name: d.name,
+            latest: await checkLatestNpmVersion(d.name),
+          })),
+        );
+        setLocalDeps((prev) =>
+          prev.map((d) => {
+            const found = latestResults.find((r) => r.name === d.name);
+            if (found?.latest) {
+              return { ...d, latestVersion: found.latest };
+            }
+            return d;
+          }),
+        );
+      }
     } catch (error) {
       console.error("加载依赖数据失败:", error);
       message.error("加载依赖数据失败");
@@ -195,6 +221,90 @@ export default function DependenciesPage() {
         ),
       );
       message.error(`安装失败: ${error}`);
+    } finally {
+      setDepInstalling(false);
+      setCurrentInstallingDep("");
+    }
+  };
+
+  /**
+   * 更新单个 npm 依赖到最新版本
+   */
+  const handleUpdateDep = async (dep: LocalDependencyItem) => {
+    const { name: packageName, displayName, type } = dep;
+
+    setDepInstalling(true);
+    setCurrentInstallingDep(displayName);
+
+    // 更新状态为 installing
+    setLocalDeps((prev) =>
+      prev.map((d) =>
+        d.name === packageName ? { ...d, status: "installing" as const } : d,
+      ),
+    );
+
+    try {
+      let result;
+      if (type === "npm-global") {
+        result = await installGlobalNpmPackage(
+          packageName,
+          dep.binName || packageName,
+        );
+      } else {
+        await initLocalNpmEnv();
+        result = await installLocalNpmPackage(packageName);
+      }
+
+      if (result.success) {
+        setLocalDeps((prev) =>
+          prev.map((d) =>
+            d.name === packageName
+              ? {
+                  ...d,
+                  status: "installed" as const,
+                  version: result.version,
+                  binPath: result.binPath,
+                  latestVersion: undefined,
+                }
+              : d,
+          ),
+        );
+        message.success(`${displayName} 更新成功`);
+
+        try {
+          await restartAllServices();
+          message.success("服务已重启");
+        } catch (restartError) {
+          console.error("[DependenciesPage] 重启服务失败:", restartError);
+          message.warning("依赖更新成功，但服务重启失败");
+        }
+      } else {
+        setLocalDeps((prev) =>
+          prev.map((d) =>
+            d.name === packageName
+              ? {
+                  ...d,
+                  status: "installed" as const,
+                  errorMessage: result.error,
+                }
+              : d,
+          ),
+        );
+        message.error(`${displayName} 更新失败: ${result.error}`);
+      }
+    } catch (error) {
+      setLocalDeps((prev) =>
+        prev.map((d) =>
+          d.name === packageName
+            ? {
+                ...d,
+                status: "installed" as const,
+                errorMessage: String(error),
+              }
+            : d,
+        ),
+      );
+      message.error(`更新失败: ${error}`);
     } finally {
       setDepInstalling(false);
       setCurrentInstallingDep("");
@@ -548,6 +658,14 @@ export default function DependenciesPage() {
               systemDepsReady &&
               !depInstalling;
 
+            // 是否有可用更新
+            const hasUpdate =
+              item.status === "installed" &&
+              item.version &&
+              item.latestVersion &&
+              isNewerVersion(item.version, item.latestVersion);
+            const canUpdate = hasUpdate && !depInstalling;
+
             // 根据类型显示不同的标签
             const typeTag =
               item.type === "shell-installer" ? (
@@ -572,6 +690,16 @@ export default function DependenciesPage() {
                       安装
                     </Button>
                   ),
+                  canUpdate && (
+                    <Button
+                      type="primary"
+                      size="small"
+                      icon={<CloudDownloadOutlined />}
+                      onClick={() => handleUpdateDep(item)}
+                    >
+                      更新
+                    </Button>
+                  ),
                 ].filter(Boolean)}
               >
                 <List.Item.Meta
@@ -589,6 +717,17 @@ export default function DependenciesPage() {
                       {item.version && (
                         <Text type="secondary" style={{ fontSize: 12 }}>
                           版本: {item.version}
+                          {hasUpdate && (
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                color: "#fa8c16",
+                                marginLeft: 8,
+                              }}
+                            >
+                              最新版本: {item.latestVersion}
+                            </Text>
+                          )}
                         </Text>
                       )}
                       {item.binPath && (

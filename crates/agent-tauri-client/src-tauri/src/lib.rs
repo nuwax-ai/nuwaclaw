@@ -1051,9 +1051,7 @@ async fn rcoder_start(
     let agent_runner = RcoderAgentRunner::new(config);
 
     let manager = state.manager.lock().await;
-    manager
-        .rcoder_start(port, Arc::new(agent_runner))
-        .await?;
+    manager.rcoder_start(port, Arc::new(agent_runner)).await?;
     Ok(true)
 }
 
@@ -1183,9 +1181,7 @@ async fn services_restart_all(
         let agent_runner = RcoderAgentRunner::new(config);
 
         let manager = state.manager.lock().await;
-        manager
-            .rcoder_start(port, Arc::new(agent_runner))
-            .await?;
+        manager.rcoder_start(port, Arc::new(agent_runner)).await?;
         info!("[Services]   - Agent 服务启动命令已发送");
     }
 
@@ -1719,6 +1715,27 @@ async fn dependency_local_install(
             bin_path: None,
             error: Some(stderr),
         })
+    }
+}
+
+/// 查询 npm 包的最新版本号
+#[tauri::command]
+async fn dependency_local_check_latest(package_name: String) -> Result<Option<String>, String> {
+    let registry = "https://registry.npmmirror.com/";
+    let output = Command::new("npm")
+        .args(["view", &package_name, "version", "--registry", registry])
+        .output()
+        .map_err(|e| format!("执行 npm view 失败: {}", e))?;
+
+    if output.status.success() {
+        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if version.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(version))
+        }
+    } else {
+        Ok(None)
     }
 }
 
@@ -2488,6 +2505,7 @@ pub fn run() {
             dependency_uv_detect,
             dependency_local_check,
             dependency_local_install,
+            dependency_local_check_latest,
             dependency_shell_installer_check,
             dependency_shell_installer_install,
             dependency_npm_global_check,
