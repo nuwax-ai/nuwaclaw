@@ -10,7 +10,7 @@
 ## 当前现状（来自仓库信息）
 
 - 目标平台：macOS（arm64/x86_64）、Windows（x86_64）、Linux（x86_64/arm64）均标记为支持。
-- 依赖：vcpkg（如 libvpx/libyuv/opus/aom）、Rustdesk 相关库、Tauri 客户端为主。
+- 依赖：vcpkg（如 libvpx/libyuv/opus/aom）、Rustdesk 相关库、**Tauri 客户端**（已废弃 gpui-client）。
 - 功能：托盘、自动启动、依赖自动安装、远程桌面（开发中）。
 - 配置路径：macOS `~/Library/Application Support/...`；Windows `%APPDATA%/...`；Linux `~/.config/...`。
 

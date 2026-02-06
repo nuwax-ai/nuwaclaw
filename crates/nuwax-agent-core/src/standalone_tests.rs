@@ -800,6 +800,7 @@ mod standalone_tests {
         #[test]
         fn test_nuwax_lanproxy_config_custom() {
             let config = NuwaxLanproxyConfig {
+                bin_path: "/usr/local/bin/nuwax-lanproxy".to_string(),
                 server_ip: "192.168.1.100".to_string(),
                 server_port: 8080,
                 client_key: "my-secret-key".to_string(),

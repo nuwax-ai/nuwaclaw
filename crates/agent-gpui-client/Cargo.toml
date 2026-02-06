@@ -1,6 +1,9 @@
 # crates/agent-gpui-client/Cargo.toml
 #
-# GPUI 客户端实现
+# ⚠️ DEPRECATED - 此模块已废弃，不再维护
+# 请使用 agent-tauri-client 替代
+#
+# GPUI 客户端实现（已废弃）
 # 依赖 nuwax-agent-core 提供核心业务逻辑
 
 [package]
@@ -9,9 +12,11 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-description = "跨平台 Agent 客户端（GPUI 实现），支持远程桌面和 Agent 任务执行"
+description = "跨平台 Agent 客户端（GPUI 实现，已废弃）- 请使用 agent-tauri-client"
 repository.workspace = true
 license.workspace = true
+
+# 此 crate 已废弃，可能无法编译
 
 [lib]
 name = "nuwax_gpui_agent"
