@@ -16,53 +16,14 @@ use tauri_plugin_shell::ShellExt;
 use tauri_plugin_store::StoreExt;
 use tokio::sync::Mutex;
 
-// ========== AgentRunnerApi 最小实现 ==========
+// ========== AgentRunnerApi 实现 ==========
 
 use async_trait::async_trait;
+use nuwax_agent_core::agent_runner::{RcoderAgentRunner, RcoderAgentRunnerConfig};
 use nuwax_agent_core::api::traits::agent_runner::{
     AgentInfo, AgentRunnerApi, AgentStatus, AgentStatusResult, ChatRequest, ChatResponse,
     ProgressMessage,
 };
-
-/// AgentRunnerApi 的最小实现（用于启动 HTTP Server）
-///
-/// 完整功能需要在 agent-tauri 中实现
-#[derive(Clone)]
-struct MinimalAgentRunnerApi;
-
-#[async_trait]
-impl AgentRunnerApi for MinimalAgentRunnerApi {
-    async fn chat(&self, _request: ChatRequest) -> Result<ChatResponse, String> {
-        Err("AgentRunnerApi 未完整实现".to_string())
-    }
-
-    async fn subscribe_progress(
-        &self,
-        _session_id: &str,
-    ) -> Result<tokio::sync::mpsc::Receiver<ProgressMessage>, String> {
-        Err("AgentRunnerApi 未完整实现".to_string())
-    }
-
-    async fn cancel_session(&self, _session_id: &str, _project_id: &str) -> Result<(), String> {
-        Err("AgentRunnerApi 未完整实现".to_string())
-    }
-
-    async fn get_status(
-        &self,
-        _session_id: &str,
-        _project_id: &str,
-    ) -> Result<AgentStatusResult, String> {
-        Err("AgentRunnerApi 未完整实现".to_string())
-    }
-
-    async fn stop_agent(&self, _project_id: &str) -> Result<(), String> {
-        Err("AgentRunnerApi 未完整实现".to_string())
-    }
-
-    async fn get_all_agents(&self) -> Result<Vec<AgentInfo>, String> {
-        Err("AgentRunnerApi 未完整实现".to_string())
-    }
-}
 
 /// AgentRunnerApi 的 Arc 智能指针类型别名
 type DynAgentRunnerApi = Arc<dyn AgentRunnerApi>;
@@ -1059,9 +1020,11 @@ async fn rcoder_start(
     };
 
     let manager = state.manager.lock().await;
-    manager
-        .rcoder_start(port, Arc::new(MinimalAgentRunnerApi))
-        .await?;
+
+    // 创建 RcoderAgentRunner
+    let agent_runner = RcoderAgentRunner::new(RcoderAgentRunnerConfig::default());
+
+    manager.rcoder_start(port, Arc::new(agent_runner)).await?;
     Ok(true)
 }
 
@@ -1151,9 +1114,11 @@ async fn services_restart_all(
             }
         };
         let manager = state.manager.lock().await;
-        manager
-            .rcoder_start(port, Arc::new(MinimalAgentRunnerApi))
-            .await?;
+
+        // 创建 RcoderAgentRunner
+        let agent_runner = RcoderAgentRunner::new(RcoderAgentRunnerConfig::default());
+
+        manager.rcoder_start(port, Arc::new(agent_runner)).await?;
         info!("[Services]   - Agent 服务启动命令已发送");
     }
 
