@@ -5,6 +5,7 @@
 
 import { message } from "antd";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 // 依赖状态
 export type DependencyStatus =
@@ -447,6 +448,28 @@ export interface NodeVersionResult {
   installed: boolean;
   version?: string;
   meetsRequirement: boolean;
+  nodePath?: string;
+}
+
+/**
+ * Node.js 自动安装进度
+ */
+export interface NodeInstallProgress {
+  phase: string; // "downloading" | "verifying" | "extracting" | "completed" | "error"
+  progress: number; // 0.0-100.0
+  downloadedBytes: number;
+  totalBytes: number;
+  message: string;
+}
+
+/**
+ * Node.js 自动安装结果
+ */
+export interface NodeAutoInstallResult {
+  success: boolean;
+  nodePath?: string;
+  version?: string;
+  error?: string;
 }
 
 /**
@@ -539,6 +562,43 @@ export async function checkNodeVersion(): Promise<NodeVersionResult> {
       meetsRequirement: false,
     };
   }
+}
+
+/**
+ * 自动安装 Node.js
+ * 下载 Node.js 到应用数据目录，校验 SHA256，解压
+ * @returns 安装结果
+ */
+export async function autoInstallNode(): Promise<NodeAutoInstallResult> {
+  try {
+    console.log("[Dependencies] 开始自动安装 Node.js...");
+    const result = await invoke<NodeAutoInstallResult>("node_auto_install");
+    if (result.success) {
+      console.log("[Dependencies] Node.js 自动安装成功:", result);
+    } else {
+      console.error("[Dependencies] Node.js 自动安装失败:", result.error);
+    }
+    return result;
+  } catch (error) {
+    console.error("[Dependencies] Node.js 自动安装异常:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * 监听 Node.js 自动安装进度事件
+ * @param callback 进度回调
+ * @returns 取消监听函数
+ */
+export async function onNodeInstallProgress(
+  callback: (progress: NodeInstallProgress) => void,
+): Promise<() => void> {
+  return listen<NodeInstallProgress>("node-install-progress", (event) => {
+    callback(event.payload);
+  });
 }
 
 /**
