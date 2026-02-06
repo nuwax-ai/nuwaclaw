@@ -1041,8 +1041,10 @@ async fn rcoder_start(
     };
 
     // 创建 RcoderAgentRunner 配置
+    // port 是 agent_port (HTTP 服务端口)，backend_port 使用相同的值
     let config = RcoderAgentRunnerConfig {
         projects_dir,
+        backend_port: port, // Agent HTTP 服务端口用于 pingora 反向代理
         ..RcoderAgentRunnerConfig::default()
     };
     info!("[Rcoder] 创建 RcoderAgentRunner 配置: {:?}", config);
