@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 /// Computer Chat 请求
 #[derive(Debug, Clone, Deserialize)]
 pub struct ComputerChatRequest {
-    /// 项目 ID
-    pub project_id: String,
+    /// 项目 ID（可选，若未提供则自动生成 UUID）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
 
     /// 会话 ID（可选）
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -29,7 +30,8 @@ pub struct ComputerChatRequest {
 /// Computer Chat 响应
 #[derive(Debug, Clone, Serialize)]
 pub struct ChatResponse {
-    pub project_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
     pub session_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,

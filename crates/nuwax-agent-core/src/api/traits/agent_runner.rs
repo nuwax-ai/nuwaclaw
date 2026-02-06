@@ -24,8 +24,9 @@ pub enum AgentStatus {
 /// 聊天请求
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatRequest {
-    /// 项目 ID
-    pub project_id: String,
+    /// 项目 ID（可选，若未提供则自动生成 UUID）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
 
     /// 会话 ID（可选，如果没有则自动创建）
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -66,7 +67,8 @@ pub struct ChatResponse {
     pub error_code: Option<String>,
 
     /// 项目 ID
-    pub project_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
 
     /// 会话 ID
     pub session_id: String,
@@ -92,15 +94,12 @@ pub enum ServiceType {
 #[serde(tag = "source_type", content = "data")]
 pub enum AttachmentSource {
     /// 文件路径，相对于项目目录
-    #[serde(rename = "file_path")]
     FilePath { path: String },
 
     /// Base64 编码的数据
-    #[serde(rename = "base64")]
     Base64 { data: String, mime_type: String },
 
     /// URL 链接
-    #[serde(rename = "url")]
     Url { url: String },
 }
 
@@ -109,19 +108,15 @@ pub enum AttachmentSource {
 #[serde(tag = "type", content = "content")]
 pub enum Attachment {
     /// 文本附件
-    #[serde(rename = "text")]
     Text(TextAttachment),
 
     /// 图像附件
-    #[serde(rename = "image")]
     Image(ImageAttachment),
 
     /// 音频附件
-    #[serde(rename = "audio")]
     Audio(AudioAttachment),
 
     /// 文档附件
-    #[serde(rename = "document")]
     Document(DocumentAttachment),
 }
 

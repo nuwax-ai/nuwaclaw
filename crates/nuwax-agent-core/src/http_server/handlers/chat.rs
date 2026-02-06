@@ -7,6 +7,7 @@ use axum::{
     Json,
 };
 use std::sync::Arc;
+use uuid::Uuid;
 
 use super::super::types::ComputerChatRequest;
 
@@ -18,9 +19,14 @@ pub async fn computer_chat(
     State(agent_runner_api): State<Arc<dyn AgentRunnerApi>>,
     Json(request): Json<ComputerChatRequest>,
 ) -> Result<HttpResult<super::super::types::ChatResponse>, AppError> {
-    let project_id = request.project_id.clone();
+    // 生成或使用提供的 project_id（参照 rcoder 实现）
+    let project_id = match &request.project_id {
+        Some(id) if !id.trim().is_empty() => id.clone(),
+        _ => Uuid::new_v4().to_string(),
+    };
+
     let chat_request = ChatRequest {
-        project_id: request.project_id,
+        project_id: Some(project_id),
         session_id: request.session_id,
         prompt: request.prompt,
         request_id: request.request_id,

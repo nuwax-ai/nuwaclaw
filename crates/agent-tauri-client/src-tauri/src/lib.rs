@@ -16,56 +16,8 @@ use tauri_plugin_shell::ShellExt;
 use tauri_plugin_store::StoreExt;
 use tokio::sync::Mutex;
 
-// ========== AgentRunnerApi 最小实现 ==========
-
-use async_trait::async_trait;
-use nuwax_agent_core::api::traits::agent_runner::{
-    AgentInfo, AgentRunnerApi, AgentStatus, AgentStatusResult, ChatRequest, ChatResponse,
-    ProgressMessage,
-};
-
-/// AgentRunnerApi 的最小实现（用于启动 HTTP Server）
-///
-/// 完整功能需要在 agent-tauri 中实现
-#[derive(Clone)]
-struct MinimalAgentRunnerApi;
-
-#[async_trait]
-impl AgentRunnerApi for MinimalAgentRunnerApi {
-    async fn chat(&self, _request: ChatRequest) -> Result<ChatResponse, String> {
-        Err("AgentRunnerApi 未完整实现".to_string())
-    }
-
-    async fn subscribe_progress(
-        &self,
-        _session_id: &str,
-    ) -> Result<tokio::sync::mpsc::Receiver<ProgressMessage>, String> {
-        Err("AgentRunnerApi 未完整实现".to_string())
-    }
-
-    async fn cancel_session(&self, _session_id: &str, _project_id: &str) -> Result<(), String> {
-        Err("AgentRunnerApi 未完整实现".to_string())
-    }
-
-    async fn get_status(
-        &self,
-        _session_id: &str,
-        _project_id: &str,
-    ) -> Result<AgentStatusResult, String> {
-        Err("AgentRunnerApi 未完整实现".to_string())
-    }
-
-    async fn stop_agent(&self, _project_id: &str) -> Result<(), String> {
-        Err("AgentRunnerApi 未完整实现".to_string())
-    }
-
-    async fn get_all_agents(&self) -> Result<Vec<AgentInfo>, String> {
-        Err("AgentRunnerApi 未完整实现".to_string())
-    }
-}
-
-/// AgentRunnerApi 的 Arc 智能指针类型别名
-type DynAgentRunnerApi = Arc<dyn AgentRunnerApi>;
+// ========== AgentRunnerApi 导入 ==========
+use nuwax_agent_core::agent_runner::{RcoderAgentRunner, RcoderAgentRunnerConfig};
 
 /// 权限管理状态（使用延迟初始化避免启动时崩溃）
 struct PermissionsState {
@@ -1033,6 +985,7 @@ async fn file_server_restart(state: tauri::State<'_, ServiceManagerState>) -> Re
 ///
 /// 从 Tauri store 读取配置:
 /// - setup.agent_port: HTTP Server 端口 (默认 9086)
+/// - setup.workspace_dir: 工作区目录
 #[tauri::command]
 async fn rcoder_start(
     app: tauri::AppHandle,
@@ -1058,9 +1011,48 @@ async fn rcoder_start(
         }
     };
 
+    // 读取工作区目录作为项目目录
+    let projects_dir = match read_store_string(&app, "setup.workspace_dir") {
+        Ok(Some(dir)) => {
+            info!("[Rcoder] 找到 workspace_dir: {}", dir);
+            std::path::PathBuf::from(dir)
+        }
+        Ok(None) => {
+            // 如果没有配置，使用应用数据目录下的 workspace
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+            let default_workspace = app_data_dir.join("workspace");
+            info!(
+                "[Rcoder] 未找到 workspace_dir，使用默认值: {}",
+                default_workspace.display()
+            );
+            default_workspace
+        }
+        Err(e) => {
+            warn!("[Rcoder] 读取 workspace_dir 失败: {}，使用默认值", e);
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+            app_data_dir.join("workspace")
+        }
+    };
+
+    // 创建 RcoderAgentRunner 配置
+    let config = RcoderAgentRunnerConfig {
+        projects_dir,
+        ..RcoderAgentRunnerConfig::default()
+    };
+    info!("[Rcoder] 创建 RcoderAgentRunner 配置: {:?}", config);
+
+    // 创建 RcoderAgentRunner 实例
+    let agent_runner = RcoderAgentRunner::new(config);
+
     let manager = state.manager.lock().await;
     manager
-        .rcoder_start(port, Arc::new(MinimalAgentRunnerApi))
+        .rcoder_start(port, Arc::new(agent_runner))
         .await?;
     Ok(true)
 }
@@ -1150,9 +1142,49 @@ async fn services_restart_all(
                 return Err(err);
             }
         };
+
+        // 读取工作区目录作为项目目录
+        let projects_dir = match read_store_string(&app, "setup.workspace_dir") {
+            Ok(Some(dir)) => {
+                info!("[Services]   - 找到 workspace_dir: {}", dir);
+                std::path::PathBuf::from(dir)
+            }
+            Ok(None) => {
+                // 如果没有配置，使用应用数据目录下的 workspace
+                let app_data_dir = app
+                    .path()
+                    .app_data_dir()
+                    .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+                let default_workspace = app_data_dir.join("workspace");
+                info!(
+                    "[Services]   - 未找到 workspace_dir，使用默认值: {}",
+                    default_workspace.display()
+                );
+                default_workspace
+            }
+            Err(e) => {
+                warn!("[Services]   - 读取 workspace_dir 失败: {}，使用默认值", e);
+                let app_data_dir = app
+                    .path()
+                    .app_data_dir()
+                    .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+                app_data_dir.join("workspace")
+            }
+        };
+
+        // 创建 RcoderAgentRunner 配置
+        let config = RcoderAgentRunnerConfig {
+            projects_dir,
+            ..RcoderAgentRunnerConfig::default()
+        };
+        info!("[Services]   - 创建 RcoderAgentRunner 配置: {:?}", config);
+
+        // 创建 RcoderAgentRunner 实例
+        let agent_runner = RcoderAgentRunner::new(config);
+
         let manager = state.manager.lock().await;
         manager
-            .rcoder_start(port, Arc::new(MinimalAgentRunnerApi))
+            .rcoder_start(port, Arc::new(agent_runner))
             .await?;
         info!("[Services]   - Agent 服务启动命令已发送");
     }

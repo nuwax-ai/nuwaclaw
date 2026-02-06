@@ -102,11 +102,16 @@ fn convert_chat_request(
     request: &ChatRequest,
     config: &RcoderAgentRunnerConfig,
 ) -> agent_abstraction::PromptMessage {
-    let project_path = config.projects_dir.join(&request.project_id);
+    // 获取 project_id，如果为 None 则使用默认值
+    let project_id = request.project_id
+        .clone()
+        .unwrap_or_else(|| "default".to_string());
+
+    let project_path = config.projects_dir.join(&project_id);
 
     agent_abstraction::PromptMessage::new(
         request.prompt.clone(),
-        request.project_id.clone(),
+        project_id,
         project_path,
         request.request_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string()),
         ServiceType::ComputerAgentRunner,
@@ -124,7 +129,7 @@ fn convert_response(response: agent_runner::ChatPromptResponse) -> ChatResponse 
         success: is_success,
         error: response.error,
         error_code: if !is_success { Some(code) } else { None },
-        project_id: response.project_id,
+        project_id: Some(response.project_id),
         session_id: response.session_id,
         request_id: response.request_id,
     }
@@ -144,7 +149,7 @@ fn convert_status(status: agent_runner::AgentStatus) -> AgentStatus {
 impl AgentRunnerApi for RcoderAgentRunner {
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, String> {
         info!(
-            "[RcoderAgentRunner] 收到聊天请求: project_id={}, prompt_len={}",
+            "[RcoderAgentRunner] 收到聊天请求: project_id={:?}, prompt_len={}",
             request.project_id,
             request.prompt.len()
         );

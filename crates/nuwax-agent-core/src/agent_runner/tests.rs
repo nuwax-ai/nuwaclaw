@@ -93,7 +93,7 @@ mod integration_tests {
 
         // 发送聊天请求，验证错误处理
         let request = ChatRequest {
-            project_id: "test-project".to_string(),
+            project_id: Some("test-project".to_string()),
             session_id: None,
             prompt: "test prompt".to_string(),
             request_id: None,
