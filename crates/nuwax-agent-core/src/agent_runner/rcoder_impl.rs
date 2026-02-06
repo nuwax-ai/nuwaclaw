@@ -4,17 +4,24 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use std::time::Duration;
+use tokio::sync::{mpsc, oneshot};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::api::traits::agent_runner::{
-    AgentRunnerApi, ChatRequest, ChatResponse, ProgressMessage,
+    AgentRunnerApi, ChatRequest, ChatResponse, ProgressMessage, ProgressMessageType,
     AgentStatus, AgentStatusResult, AgentInfo,
 };
 
 // 使用 agent_runner 导出的类型
 use agent_runner::{AgentRuntime, AgentRequest, WorkerState, AGENT_REGISTRY};
+// 使用 agent_runner::service 模块导出的 SESSION_CACHE 和 SessionData
+use agent_runner::service::{SESSION_CACHE, SessionData};
+// 使用 agent_runner 导出的消息类型
+use agent_runner::{SessionMessageType, UnifiedSessionMessage};
+// 使用 agent_runner 导出的取消相关类型
+use agent_runner::{CancelNotification, CancelNotificationRequestWrapper, CancelResult, SessionId};
 
 // 使用 shared_types 中的类型
 use shared_types::ServiceType;
@@ -192,20 +199,144 @@ impl AgentRunnerApi for RcoderAgentRunner {
         &self,
         session_id: &str,
     ) -> Result<mpsc::Receiver<ProgressMessage>, String> {
-        debug!(
+        info!(
             "[RcoderAgentRunner] 订阅进度: session_id={}",
             session_id
         );
 
-        // TODO: 等待 rcoder 提供 SSE 流支持
-        // 进度订阅需要 rcoder 的 AgentRuntime 支持事件流
-        // 当前返回空通道占位，rcoder 实现后需要补充
-        let (_tx, rx) = mpsc::channel(32);
+        // 获取或创建 SessionData（参照 rcoder gRPC 实现）
+        // 使用 entry API 避免 DashMap 的读写锁死锁问题
+        let session_data = match SESSION_CACHE.entry(session_id.to_string()) {
+            dashmap::mapref::entry::Entry::Occupied(entry) => {
+                info!(
+                    "[RcoderAgentRunner] SESSION_CACHE 已存在，复用: session_id={}",
+                    session_id
+                );
+                entry.get().clone()
+            }
+            dashmap::mapref::entry::Entry::Vacant(entry) => {
+                info!(
+                    "[RcoderAgentRunner] SESSION_CACHE 不存在，创建新的: session_id={}",
+                    session_id
+                );
+                let session_data = SessionData::new(1000);
+                entry.insert(session_data.clone());
+                session_data
+            }
+        };
 
-        debug!(
-            "[RcoderAgentRunner] 进度订阅已创建 (等待 rcoder SSE 支持): session_id={}",
+        // 创建新连接获取 receiver
+        let (mut message_rx, cancellation_token) = session_data
+            .create_new_connection(100)
+            .await
+            .map_err(|e| format!("创建 session 连接失败: {}", e))?;
+
+        info!(
+            "[RcoderAgentRunner] 成功创建 session 连接: session_id={}",
             session_id
         );
+
+        // 创建输出 channel
+        let (tx, rx) = mpsc::channel::<ProgressMessage>(100);
+        let session_id_clone = session_id.to_string();
+
+        // 启动后台任务转发消息
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = cancellation_token.cancelled() => {
+                        info!(
+                            "[RcoderAgentRunner] Session 连接被取消: session_id={}",
+                            session_id_clone
+                        );
+                        // 发送结束消息
+                        let end_message = ProgressMessage {
+                            session_id: session_id_clone.clone(),
+                            message_type: ProgressMessageType::SessionPromptEnd,
+                            sub_type: "cancelled".to_string(),
+                            data: serde_json::json!({
+                                "reason": "Cancelled",
+                                "description": "用户主动取消任务"
+                            }),
+                            timestamp: chrono::Utc::now(),
+                        };
+                        let _ = tx.send(end_message).await;
+                        break;
+                    }
+                    msg = message_rx.recv() => {
+                        match msg {
+                            Some(unified_message) => {
+                                // 检查是否为终止消息
+                                let is_terminal = matches!(
+                                    unified_message.message_type,
+                                    SessionMessageType::SessionPromptEnd
+                                );
+
+                                // 转换消息
+                                let progress_message = convert_unified_to_progress(&unified_message);
+
+                                if tx.send(progress_message).await.is_err() {
+                                    debug!(
+                                        "[RcoderAgentRunner] 客户端已断开连接: session_id={}",
+                                        session_id_clone
+                                    );
+                                    break;
+                                }
+
+                                // 收到终止消息后主动关闭
+                                if is_terminal {
+                                    info!(
+                                        "[RcoderAgentRunner] 收到 SessionPromptEnd，关闭流: session_id={}",
+                                        session_id_clone
+                                    );
+                                    break;
+                                }
+                            }
+                            None => {
+                                debug!(
+                                    "[RcoderAgentRunner] Session 消息通道已关闭: session_id={}",
+                                    session_id_clone
+                                );
+                                // 发送结束消息
+                                let end_message = ProgressMessage {
+                                    session_id: session_id_clone.clone(),
+                                    message_type: ProgressMessageType::SessionPromptEnd,
+                                    sub_type: "end_turn".to_string(),
+                                    data: serde_json::json!({
+                                        "reason": "EndTurn",
+                                        "description": "Agent 当前无在执行任务"
+                                    }),
+                                    timestamp: chrono::Utc::now(),
+                                };
+                                let _ = tx.send(end_message).await;
+                                break;
+                            }
+                        }
+                    }
+                    // 心跳保活（30秒）
+                    _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                        let heartbeat = ProgressMessage {
+                            session_id: session_id_clone.clone(),
+                            message_type: ProgressMessageType::Heartbeat,
+                            sub_type: "ping".to_string(),
+                            data: serde_json::json!({
+                                "type": "heartbeat",
+                                "message": "keep-alive"
+                            }),
+                            timestamp: chrono::Utc::now(),
+                        };
+
+                        if tx.send(heartbeat).await.is_err() {
+                            debug!(
+                                "[RcoderAgentRunner] 发送心跳失败，客户端已断开: session_id={}",
+                                session_id_clone
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+        });
 
         Ok(rx)
     }
@@ -220,23 +351,130 @@ impl AgentRunnerApi for RcoderAgentRunner {
             session_id, project_id
         );
 
-        // 从注册表获取 Agent 信息
-        let agent_info = AGENT_REGISTRY.get_agent_info_by_session(session_id);
+        // 1. 获取 agent_info 并提取需要的数据
+        // 使用代码块限制读锁生命周期，避免跨 .await 持有读锁导致死锁
+        let (status, cancel_tx) = {
+            let agent_info = match AGENT_REGISTRY.get_agent_info_by_session(session_id) {
+                Some(info) => info,
+                None => {
+                    // 会话不存在，幂等返回成功
+                    info!(
+                        "[RcoderAgentRunner] session_id={} 无活跃会话，取消目标已达成（幂等）",
+                        session_id
+                    );
+                    self.active_sessions.remove(session_id);
+                    return Ok(());
+                }
+            };
 
-        if let Some(info) = agent_info {
-            let _info = info.value();
+            // 主动克隆数据，然后显式释放读锁
+            let status = agent_info.status;
+            let cancel_tx = agent_info.cancel_tx.clone();
 
-            // TODO: 等待 rcoder 提供简洁的取消 API
-            // 当前实现依赖 rcoder 的 CancelNotification 机制
-            // 模拟方案：从活跃会话移除并标记状态
-            // 未来需要调用 info.cancel_tx.send(...) 发送真正的取消信号
+            // 显式释放读锁
+            drop(agent_info);
+
+            (status, cancel_tx)
+        };
+
+        // 2. 幂等性检查
+        match status {
+            agent_runner::AgentStatus::Idle => {
+                info!(
+                    "[RcoderAgentRunner] Agent 已处于 Idle 状态，取消请求幂等成功: session_id={}",
+                    session_id
+                );
+                self.active_sessions.remove(session_id);
+                return Ok(());
+            }
+            agent_runner::AgentStatus::Terminating => {
+                info!(
+                    "[RcoderAgentRunner] Agent 正在停止中，取消请求幂等成功: session_id={}",
+                    session_id
+                );
+                self.active_sessions.remove(session_id);
+                return Ok(());
+            }
+            agent_runner::AgentStatus::Active | agent_runner::AgentStatus::Pending => {
+                debug!(
+                    "[RcoderAgentRunner] Agent 状态为 {:?}，执行取消: session_id={}",
+                    status, session_id
+                );
+            }
+        }
+
+        // 3. 检查 cancel_tx 通道是否仍然有效
+        if cancel_tx.is_closed() {
+            error!(
+                "[RcoderAgentRunner] cancel_tx 通道已关闭，Agent 可能已停止: session_id={}",
+                session_id
+            );
             self.active_sessions.remove(session_id);
+            return Err("取消通道已关闭，Agent 可能已停止".to_string());
+        }
 
-            info!("[RcoderAgentRunner] 会话已标记为取消: {}", session_id);
-            Ok(())
-        } else {
-            warn!("[RcoderAgentRunner] 会话不存在，无法取消: {}", session_id);
-            Err(format!("会话不存在: {}", session_id))
+        // 4. 创建 SessionId 和 CancelNotification
+        let session_id_obj = SessionId::new(Arc::from(session_id));
+        let cancel_notification = CancelNotification::new(session_id_obj);
+
+        // 5. 创建 oneshot 通道等待取消结果
+        let (result_tx, result_rx) = oneshot::channel::<CancelResult>();
+        let cancel_request = CancelNotificationRequestWrapper {
+            cancel_notification,
+            result_tx,
+        };
+
+        // 6. 发送取消通知
+        if let Err(e) = cancel_tx.send(cancel_request).await {
+            error!("[RcoderAgentRunner] 发送取消通知失败: {}", e);
+            self.active_sessions.remove(session_id);
+            return Err(format!("发送取消通知失败: {}", e));
+        }
+
+        info!(
+            "[RcoderAgentRunner] 等待 Agent 取消响应: session_id={}",
+            session_id
+        );
+
+        // 7. 等待取消响应（30秒超时）
+        match tokio::time::timeout(Duration::from_secs(30), result_rx).await {
+            Ok(Ok(cancel_result)) => {
+                let is_success = cancel_result.is_success();
+                info!(
+                    "[RcoderAgentRunner] 收到 Agent 取消响应: session_id={}, success={}",
+                    session_id, is_success
+                );
+
+                self.active_sessions.remove(session_id);
+
+                // 关闭 SSE 连接
+                if let Some(session_data) = SESSION_CACHE.get(session_id) {
+                    session_data.close_current_connection().await;
+                }
+
+                if is_success {
+                    Ok(())
+                } else {
+                    Err(format!("取消失败: {:?}", cancel_result))
+                }
+            }
+            Ok(Err(_)) => {
+                warn!(
+                    "[RcoderAgentRunner] 取消结果通道被关闭: session_id={}",
+                    session_id
+                );
+                self.active_sessions.remove(session_id);
+                // 通道关闭但任务可能已被取消，视为成功
+                Ok(())
+            }
+            Err(_) => {
+                warn!(
+                    "[RcoderAgentRunner] 等待取消响应超时: session_id={}",
+                    session_id
+                );
+                self.active_sessions.remove(session_id);
+                Err("等待取消响应超时".to_string())
+            }
         }
     }
 
@@ -314,5 +552,23 @@ impl AgentRunnerApi for RcoderAgentRunner {
 
         info!("[RcoderAgentRunner] 找到 {} 个活跃 Agent", agents.len());
         Ok(agents)
+    }
+}
+
+/// 将 UnifiedSessionMessage 转换为 ProgressMessage
+fn convert_unified_to_progress(unified: &UnifiedSessionMessage) -> ProgressMessage {
+    let message_type = match unified.message_type {
+        SessionMessageType::SessionPromptStart => ProgressMessageType::SessionPromptStart,
+        SessionMessageType::SessionPromptEnd => ProgressMessageType::SessionPromptEnd,
+        SessionMessageType::AgentSessionUpdate => ProgressMessageType::AgentSessionUpdate,
+        SessionMessageType::Heartbeat => ProgressMessageType::Heartbeat,
+    };
+
+    ProgressMessage {
+        session_id: unified.session_id.clone(),
+        message_type,
+        sub_type: unified.sub_type.clone(),
+        data: unified.data.clone(),
+        timestamp: unified.timestamp,
     }
 }
