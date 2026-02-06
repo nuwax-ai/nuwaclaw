@@ -2453,6 +2453,58 @@ pub fn run() {
                 info!("[Setup] CLI 插件未启用，命令行参数功能受限");
             }
 
+            // ============================================
+            // 跨平台信号处理器（Unix/macOS/Windows）
+            // ============================================
+            // 当使用 Ctrl+C 或 kill 命令终止应用时，主动清理子进程
+            // 这是因为子进程使用了独立的进程组（Unix）或 JobObject（Windows），
+            // 不会自动收到发送给父进程的终止信号
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    // 跨平台：等待 Ctrl+C 或终止信号
+                    #[cfg(unix)]
+                    {
+                        use tokio::signal::unix::{signal, SignalKind};
+
+                        let mut sigint = signal(SignalKind::interrupt())
+                            .expect("Failed to register SIGINT handler");
+                        let mut sigterm = signal(SignalKind::terminate())
+                            .expect("Failed to register SIGTERM handler");
+
+                        tokio::select! {
+                            _ = sigint.recv() => {
+                                info!("[Signal] 收到 SIGINT 信号，正在清理子进程...");
+                            }
+                            _ = sigterm.recv() => {
+                                info!("[Signal] 收到 SIGTERM 信号，正在清理子进程...");
+                            }
+                        }
+                    }
+
+                    #[cfg(windows)]
+                    {
+                        // Windows 上使用 ctrl_c() 处理 Ctrl+C
+                        if let Err(e) = tokio::signal::ctrl_c().await {
+                            error!("[Signal] 等待 Ctrl+C 信号失败: {}", e);
+                            return;
+                        }
+                        info!("[Signal] 收到 Ctrl+C 信号，正在清理子进程...");
+                    }
+
+                    // 主动停止所有服务
+                    let state = app_handle.state::<ServiceManagerState>();
+                    let manager = state.manager.lock().await;
+                    if let Err(e) = manager.services_stop_all().await {
+                        error!("[Signal] 停止服务失败: {}", e);
+                    }
+                    info!("[Signal] 子进程已清理，应用即将退出");
+
+                    // 退出应用
+                    app_handle.exit(0);
+                });
+            }
+
             Ok(())
         })
         // 窗口关闭事件处理：隐藏到托盘而非退出
