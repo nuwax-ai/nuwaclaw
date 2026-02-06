@@ -2012,6 +2012,23 @@ async fn node_auto_install(app: tauri::AppHandle) -> Result<NodeAutoInstallResul
         let _ = store.save();
     }
 
+    // 立即注入 PATH，无需重启应用即可使用 npx/node
+    {
+        #[cfg(unix)]
+        let node_bin_dir = node_dir.join("bin");
+        #[cfg(windows)]
+        let node_bin_dir = node_dir.clone();
+
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        let node_bin_dir_str = node_bin_dir.to_string_lossy().to_string();
+        if !current_path.contains(&node_bin_dir_str) {
+            let separator = if cfg!(windows) { ";" } else { ":" };
+            let new_path = format!("{}{}{}", node_bin_dir_str, separator, current_path);
+            std::env::set_var("PATH", &new_path);
+            info!("[NodeInstall] 已将 {} 注入 PATH", node_bin_dir_str);
+        }
+    }
+
     emit_progress(
         "completed",
         100.0,
@@ -2876,6 +2893,26 @@ pub fn run() {
     //          Windows %APPDATA%\nuwax-agent\logs\
     if let Err(e) = nuwax_agent_core::Logger::init("nuwax-agent") {
         eprintln!("[Logger] Failed to initialize logger: {}", e);
+    }
+
+    // 将 ~/.nuwax/node/bin 注入 PATH，确保所有子进程（rcoder、claude-code-acp、
+    // MCP 服务器等）都能找到 npx/node/npm
+    if let Some(node_dir) = get_global_node_install_dir() {
+        #[cfg(unix)]
+        let node_bin_dir = node_dir.join("bin");
+        #[cfg(windows)]
+        let node_bin_dir = node_dir.clone();
+
+        if node_bin_dir.exists() {
+            let current_path = std::env::var("PATH").unwrap_or_default();
+            let node_bin_str = node_bin_dir.to_string_lossy().to_string();
+            if !current_path.contains(&node_bin_str) {
+                let separator = if cfg!(windows) { ";" } else { ":" };
+                let new_path = format!("{}{}{}", node_bin_str, separator, current_path);
+                std::env::set_var("PATH", &new_path);
+                eprintln!("[Setup] 已将 {} 注入 PATH", node_bin_str);
+            }
+        }
     }
 
     // 预定义合法的 Tab 名称列表，用于参数验证（在 cli-plugin 特性中使用）
