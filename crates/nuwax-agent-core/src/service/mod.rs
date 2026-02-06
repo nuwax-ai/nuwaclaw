@@ -242,6 +242,52 @@ async fn kill_stale_file_server_processes() {
     }
 }
 
+/// 等待端口就绪（可被连接）
+///
+/// 通过尝试 TCP 连接来检测服务是否已经在监听端口
+///
+/// # Arguments
+/// * `port` - 要检查的端口
+/// * `timeout_secs` - 超时时间（秒）
+///
+/// # Returns
+/// * `Ok(())` - 端口已就绪
+/// * `Err(String)` - 超时或错误
+async fn wait_for_port_ready(port: u16, timeout_secs: u64) -> Result<(), String> {
+    use std::time::Duration;
+    use tokio::net::TcpStream;
+    use tokio::time::{sleep, timeout};
+
+    let start = std::time::Instant::now();
+    let timeout_duration = Duration::from_secs(timeout_secs);
+    let retry_interval = Duration::from_millis(100);
+
+    loop {
+        match timeout(
+            Duration::from_millis(500),
+            TcpStream::connect(format!("127.0.0.1:{}", port)),
+        )
+        .await
+        {
+            Ok(Ok(_)) => {
+                info!("Port {} is ready", port);
+                return Ok(());
+            }
+            Ok(Err(_)) | Err(_) => {
+                // 连接失败或超时，检查是否已超过总超时时间
+                if start.elapsed() > timeout_duration {
+                    return Err(format!(
+                        "Timeout waiting for port {} to be ready after {}s",
+                        port, timeout_secs
+                    ));
+                }
+                // 继续重试
+                sleep(retry_interval).await;
+            }
+        }
+    }
+}
+
 /// 检测指定进程名（支持模糊匹配）是否正在运行
 ///
 /// 用于开发模式下检测带平台后缀的二进制文件
@@ -408,6 +454,8 @@ pub struct ServiceInfo {
 /// NuwaxFileServer 配置
 #[derive(Debug, Clone)]
 pub struct NuwaxFileServerConfig {
+    /// 可执行文件完整路径
+    pub bin_path: String,
     /// 端口
     pub port: u16,
     /// 环境
@@ -433,6 +481,7 @@ pub struct NuwaxFileServerConfig {
 impl Default for NuwaxFileServerConfig {
     fn default() -> Self {
         Self {
+            bin_path: "nuwax-file-server".to_string(),
             port: 60000,
             env: "production".to_string(),
             init_project_name: "nuwax-template".to_string(),
@@ -501,64 +550,13 @@ impl ServiceManager {
         }
     }
 
-    /// 启动 nuwax-file-server
+    /// 启动 nuwax-file-server（使用内部配置）
+    ///
+    /// 使用 ServiceManager 初始化时的配置启动文件服务
     pub async fn file_server_start(&self) -> Result<(), String> {
-        info!("Starting nuwax-file-server...");
-
-        // 检测并清理残留进程
-        kill_stale_file_server_processes().await;
-
-        let mut cmd = process_wrap::tokio::CommandWrap::with_new("nuwax-file-server", |cmd| {
-            cmd.arg("start")
-                .arg("--env")
-                .arg(&self.config.env)
-                .arg("--port")
-                .arg(self.config.port.to_string())
-                .arg(format!(
-                    "INIT_PROJECT_NAME={}",
-                    &self.config.init_project_name
-                ))
-                .arg(format!(
-                    "INIT_PROJECT_DIR={}",
-                    &self.config.init_project_dir
-                ))
-                .arg(format!(
-                    "UPLOAD_PROJECT_DIR={}",
-                    &self.config.upload_project_dir
-                ))
-                .arg(format!(
-                    "PROJECT_SOURCE_DIR={}",
-                    &self.config.project_source_dir
-                ))
-                .arg(format!("DIST_TARGET_DIR={}", &self.config.dist_target_dir))
-                .arg(format!("LOG_BASE_DIR={}", &self.config.log_base_dir))
-                .arg(format!(
-                    "COMPUTER_WORKSPACE_DIR={}",
-                    &self.config.computer_workspace_dir
-                ))
-                .arg(format!(
-                    "COMPUTER_LOG_DIR={}",
-                    &self.config.computer_log_dir
-                ));
-        });
-
-        // 跨平台条件编译：Unix 使用进程组，Windows 使用 JobObject
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        let cmd = cmd.wrap(process_wrap::tokio::ProcessGroup::leader());
-        #[cfg(target_os = "windows")]
-        let cmd = cmd.wrap(process_wrap::tokio::JobObject::new());
-
-        // 双重保障：KillOnDrop 确保进程被正确终止
-        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
-            .wrap(process_wrap::tokio::KillOnDrop)
-            .spawn()
-            .map_err(|e| format!("Failed to start nuwax-file-server: {}", e))?;
-
-        let mut guard = self.nuwax_file_server.lock().await;
-        *guard = Some(child);
-
-        info!("nuwax-file-server started successfully");
-        Ok(())
+        // 委托给核心方法，使用内部配置（需要解引用 Arc）
+        self.file_server_start_with_config((*self.config).clone())
+            .await
     }
 
     /// 停止 nuwax-file-server
@@ -615,59 +613,96 @@ impl ServiceManager {
     /// # Arguments
     /// * `port` - 文件服务端口号
     pub async fn file_server_start_with_port(&self, port: u16) -> Result<(), String> {
-        info!("Starting nuwax-file-server on port {}...", port);
+        // 基于内部配置创建新配置，仅修改端口
+        let config = NuwaxFileServerConfig {
+            port,
+            ..(*self.config).clone()
+        };
+        // 委托给核心方法
+        self.file_server_start_with_config(config).await
+    }
+
+    /// 使用指定配置启动 nuwax-file-server
+    ///
+    /// 该方法允许从外部传入完整配置，包括 bin_path 和 port
+    ///
+    /// # Arguments
+    /// * `config` - 文件服务配置（包含 bin_path、port 等）
+    pub async fn file_server_start_with_config(
+        &self,
+        config: NuwaxFileServerConfig,
+    ) -> Result<(), String> {
+        info!(
+            "[FileServer] ========== 启动文件服务 =========="
+        );
 
         // 检测并清理残留进程
         kill_stale_file_server_processes().await;
 
-        let mut cmd = process_wrap::tokio::CommandWrap::with_new("nuwax-file-server", |cmd| {
+        info!("[FileServer] 可执行文件路径: {}", config.bin_path);
+        info!("[FileServer] 端口: {}", config.port);
+
+        let mut cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
             cmd.arg("start")
                 .arg("--env")
-                .arg(&self.config.env)
+                .arg(&config.env)
                 .arg("--port")
-                .arg(port.to_string())
-                .arg(format!(
-                    "INIT_PROJECT_NAME={}",
-                    &self.config.init_project_name
-                ))
-                .arg(format!(
-                    "INIT_PROJECT_DIR={}",
-                    &self.config.init_project_dir
-                ))
-                .arg(format!(
-                    "UPLOAD_PROJECT_DIR={}",
-                    &self.config.upload_project_dir
-                ))
-                .arg(format!(
-                    "PROJECT_SOURCE_DIR={}",
-                    &self.config.project_source_dir
-                ))
-                .arg(format!("DIST_TARGET_DIR={}", &self.config.dist_target_dir))
-                .arg(format!("LOG_BASE_DIR={}", &self.config.log_base_dir))
+                .arg(config.port.to_string())
+                .arg(format!("INIT_PROJECT_NAME={}", &config.init_project_name))
+                .arg(format!("INIT_PROJECT_DIR={}", &config.init_project_dir))
+                .arg(format!("UPLOAD_PROJECT_DIR={}", &config.upload_project_dir))
+                .arg(format!("PROJECT_SOURCE_DIR={}", &config.project_source_dir))
+                .arg(format!("DIST_TARGET_DIR={}", &config.dist_target_dir))
+                .arg(format!("LOG_BASE_DIR={}", &config.log_base_dir))
                 .arg(format!(
                     "COMPUTER_WORKSPACE_DIR={}",
-                    &self.config.computer_workspace_dir
+                    &config.computer_workspace_dir
                 ))
-                .arg(format!(
-                    "COMPUTER_LOG_DIR={}",
-                    &self.config.computer_log_dir
-                ));
+                .arg(format!("COMPUTER_LOG_DIR={}", &config.computer_log_dir));
         });
 
+        // 注意顺序：先 KillOnDrop，后 ProcessGroup/JobObject
+        // KillOnDrop 在外层，确保 drop 时能杀死整个进程组
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        let cmd = cmd.wrap(process_wrap::tokio::ProcessGroup::leader());
-        #[cfg(target_os = "windows")]
-        let cmd = cmd.wrap(process_wrap::tokio::JobObject::new());
-
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
+            .wrap(process_wrap::tokio::ProcessGroup::leader())
             .spawn()
-            .map_err(|e| format!("Failed to start nuwax-file-server on port {}: {}", port, e))?;
+            .map_err(|e| {
+                error!("[FileServer] 启动失败: {}", e);
+                format!("Failed to start nuwax-file-server: {}", e)
+            })?;
 
-        let mut guard = self.nuwax_file_server.lock().await;
-        *guard = Some(child);
+        #[cfg(target_os = "windows")]
+        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
+            .wrap(process_wrap::tokio::KillOnDrop)
+            .wrap(process_wrap::tokio::JobObject::new())
+            .spawn()
+            .map_err(|e| {
+                error!("[FileServer] 启动失败: {}", e);
+                format!("Failed to start nuwax-file-server: {}", e)
+            })?;
 
-        info!("nuwax-file-server started successfully on port {}", port);
+        {
+            let mut guard = self.nuwax_file_server.lock().await;
+            *guard = Some(child);
+        }
+
+        // 等待端口就绪
+        wait_for_port_ready(config.port, 10).await.map_err(|e| {
+            error!("[FileServer] 端口就绪检查失败: {}", e);
+            // 端口检查失败，清理已存储的 child 并尝试停止 daemon
+            if let Ok(mut guard) = self.nuwax_file_server.try_lock() {
+                let _ = guard.take();
+            }
+            // 尝试停止可能已启动的 daemon
+            let _ = std::process::Command::new(&config.bin_path)
+                .arg("stop")
+                .output();
+            e
+        })?;
+
+        info!("[FileServer] 进程启动成功");
         Ok(())
     }
 
@@ -707,14 +742,19 @@ impl ServiceManager {
         });
 
         // 跨平台条件编译：Unix 使用进程组，Windows 使用 JobObject
+        // 注意顺序：先 KillOnDrop，后 ProcessGroup/JobObject
+        // KillOnDrop 在外层，确保 drop 时能杀死整个进程组
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        let cmd = cmd.wrap(process_wrap::tokio::ProcessGroup::leader());
-        #[cfg(target_os = "windows")]
-        let cmd = cmd.wrap(process_wrap::tokio::JobObject::new());
-
-        // 双重保障：KillOnDrop 确保进程被正确终止
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
+            .wrap(process_wrap::tokio::ProcessGroup::leader())
+            .spawn()
+            .map_err(|e| format!("Failed to start nuwax-lanproxy: {}", e))?;
+
+        #[cfg(target_os = "windows")]
+        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
+            .wrap(process_wrap::tokio::KillOnDrop)
+            .wrap(process_wrap::tokio::JobObject::new())
             .spawn()
             .map_err(|e| format!("Failed to start nuwax-lanproxy: {}", e))?;
 
@@ -817,24 +857,52 @@ impl ServiceManager {
         });
 
         // 跨平台条件编译：Unix 使用进程组，Windows 使用 JobObject
+        // 注意顺序：先 KillOnDrop，后 ProcessGroup/JobObject
+        // KillOnDrop 在外层，确保 drop 时能杀死整个进程组
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        let cmd = cmd.wrap(process_wrap::tokio::ProcessGroup::leader());
-        #[cfg(target_os = "windows")]
-        let cmd = cmd.wrap(process_wrap::tokio::JobObject::new());
-
-        // 双重保障：KillOnDrop 确保进程被正确终止
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
+            .wrap(process_wrap::tokio::ProcessGroup::leader())
             .spawn()
             .map_err(|e| {
                 error!("[Lanproxy] 启动失败: {}", e);
                 format!("Failed to start nuwax-lanproxy: {}", e)
             })?;
 
-        let mut guard = self.lanproxy.lock().await;
-        *guard = Some(child);
+        #[cfg(target_os = "windows")]
+        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
+            .wrap(process_wrap::tokio::KillOnDrop)
+            .wrap(process_wrap::tokio::JobObject::new())
+            .spawn()
+            .map_err(|e| {
+                error!("[Lanproxy] 启动失败: {}", e);
+                format!("Failed to start nuwax-lanproxy: {}", e)
+            })?;
 
-        info!("[Lanproxy] 进程已启动，等待运行状态...");
+        {
+            let mut guard = self.lanproxy.lock().await;
+            *guard = Some(child);
+        }
+
+        // 等待进程初始化（lanproxy 是客户端，无本地端口可检查）
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        // 检查进程是否还在运行（未立即退出）
+        {
+            let guard = self.lanproxy.lock().await;
+            if let Some(ref child) = *guard {
+                if child.id().is_none() {
+                    drop(guard);
+                    // 清理已存储的 child
+                    if let Ok(mut guard) = self.lanproxy.try_lock() {
+                        let _ = guard.take();
+                    }
+                    return Err("[Lanproxy] 进程启动后立即退出，请检查配置".to_string());
+                }
+            }
+        }
+
+        info!("[Lanproxy] 进程启动成功");
         Ok(())
     }
 
@@ -856,11 +924,23 @@ impl ServiceManager {
             }
         });
 
-        // 等待一小段时间让服务启动
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        // 先存储 server，确保即使端口检查失败也能在 drop 时正确清理
+        {
+            let mut guard = self.http_server.lock().await;
+            *guard = Some(server);
+        }
 
-        let mut guard = self.http_server.lock().await;
-        *guard = Some(server);
+        // 用端口就绪检查替代固定 100ms 等待
+        wait_for_port_ready(port, 5).await.map_err(|e| {
+            error!("HTTP Server (rcoder) failed to start: {}", e);
+            // 端口检查失败，清理已存储的 server
+            if let Ok(mut guard) = self.http_server.try_lock() {
+                if let Some(server) = guard.take() {
+                    server.stop();
+                }
+            }
+            e
+        })?;
 
         info!("HTTP Server (rcoder) started");
         Ok(())

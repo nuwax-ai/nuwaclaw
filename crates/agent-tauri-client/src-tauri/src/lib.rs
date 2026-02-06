@@ -597,6 +597,67 @@ fn strip_host_from_url(server_host: &str) -> String {
 ///
 /// # Returns
 /// 完整的可执行文件路径，如果出错则返回错误信息
+
+/// 获取 nuwax-file-server 可执行文件完整路径
+///
+/// nuwax-file-server 是通过 npm 安装到本地目录的，路径为：
+/// <app_data_dir>/node_modules/.bin/nuwax-file-server
+///
+/// # Arguments
+/// * `app` - Tauri AppHandle，用于获取应用数据目录
+///
+/// # Returns
+/// 完整的可执行文件路径，如果出错则返回错误信息
+fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
+    let bin_name = "nuwax-file-server";
+
+    // 获取应用数据目录
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+
+    // 构建 node_modules/.bin 下的路径
+    let bin_path = app_data_dir.join("node_modules").join(".bin").join(bin_name);
+
+    if bin_path.exists() {
+        info!(
+            "[FileServer] 找到可执行文件: {}",
+            bin_path.to_string_lossy()
+        );
+        return Ok(bin_path.to_string_lossy().to_string());
+    }
+
+    // 如果本地没有安装，尝试使用全局命令（作为 fallback）
+    warn!(
+        "[FileServer] 本地未安装 nuwax-file-server，尝试使用全局命令"
+    );
+
+    // 检查是否在 PATH 中（跨平台）
+    #[cfg(unix)]
+    let which_cmd = "which";
+    #[cfg(windows)]
+    let which_cmd = "where";
+
+    if let Ok(output) = std::process::Command::new(which_cmd)
+        .arg(bin_name)
+        .output()
+    {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                info!("[FileServer] 找到全局命令: {}", path);
+                return Ok(path);
+            }
+        }
+    }
+
+    Err(format!(
+        "未找到 {} 可执行文件，请在「依赖」页面安装 Nuwax File Server",
+        bin_name
+    ))
+}
+
 #[cfg(target_os = "macos")]
 fn get_lanproxy_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
     let bin_name = "nuwax-lanproxy-aarch64-apple-darwin";
@@ -1098,9 +1159,22 @@ async fn services_restart_all(
         info!("[Services]   - Agent 服务启动命令已发送");
     }
 
-    // file_server - 读取端口配置
+    // file_server - 读取端口配置和 bin 路径
     info!("[Services] 3/4 启动文件服务 (nuwax-file-server)...");
     {
+        // 获取 file_server 可执行文件路径
+        let bin_path = match get_file_server_bin_path(&app) {
+            Ok(path) => {
+                info!("[Services]   - 可执行文件路径: {}", path);
+                path
+            }
+            Err(e) => {
+                let err = format!("获取 nuwax-file-server 路径失败: {}", e);
+                error!("[Services]   - {}", err);
+                return Err(err);
+            }
+        };
+
         // 读取文件服务端口，如果没有配置则使用默认值 60000
         let port = match read_store_port(&app, "setup.file_server_port") {
             Ok(Some(p)) => {
@@ -1123,8 +1197,16 @@ async fn services_restart_all(
                 60000u16
             }
         };
+
+        // 使用完整配置启动
+        let file_server_config = nuwax_agent_core::NuwaxFileServerConfig {
+            bin_path,
+            port,
+            ..Default::default()
+        };
+
         let manager = state.manager.lock().await;
-        manager.file_server_start_with_port(port).await?;
+        manager.file_server_start_with_config(file_server_config).await?;
         info!("[Services]   - 文件服务启动命令已发送");
     }
 
@@ -2191,6 +2273,22 @@ pub fn run() {
             autolaunch_set,
             autolaunch_get,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // 应用退出事件处理：在退出前清理所有服务
+            if let tauri::RunEvent::Exit = event {
+                info!("[Exit] 应用正在退出，停止所有服务...");
+                // 同步阻塞等待服务停止
+                let state = app_handle.state::<ServiceManagerState>();
+                // 使用 tauri::async_runtime 执行异步清理
+                tauri::async_runtime::block_on(async {
+                    let manager = state.manager.lock().await;
+                    if let Err(e) = manager.services_stop_all().await {
+                        error!("[Exit] 停止服务失败: {}", e);
+                    }
+                });
+                info!("[Exit] 所有服务已停止");
+            }
+        });
 }
