@@ -5,7 +5,6 @@
 
 import { message } from "antd";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 
 // 依赖状态
 export type DependencyStatus =
@@ -347,11 +346,7 @@ export const NPM_REGISTRY = "https://registry.npmmirror.com/";
 /**
  * 依赖类型
  */
-export type LocalDependencyType =
-  | "system"
-  | "npm-local"
-  | "npm-global"
-  | "shell-installer";
+export type LocalDependencyType = "system" | "npm-local" | "shell-installer";
 
 /**
  * 本地依赖配置
@@ -410,7 +405,7 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
   {
     name: "mcp-stdio-proxy",
     displayName: "MCP Proxy",
-    type: "npm-global",
+    type: "npm-local",
     description: "MCP 协议转换代理工具，用于 AI Agent 通信",
     required: true,
     binName: "mcp-proxy",
@@ -449,27 +444,6 @@ export interface NodeVersionResult {
   version?: string;
   meetsRequirement: boolean;
   nodePath?: string;
-}
-
-/**
- * Node.js 自动安装进度
- */
-export interface NodeInstallProgress {
-  phase: string; // "downloading" | "verifying" | "extracting" | "completed" | "error"
-  progress: number; // 0.0-100.0
-  downloadedBytes: number;
-  totalBytes: number;
-  message: string;
-}
-
-/**
- * Node.js 自动安装结果
- */
-export interface NodeAutoInstallResult {
-  success: boolean;
-  nodePath?: string;
-  version?: string;
-  error?: string;
 }
 
 /**
@@ -565,40 +539,26 @@ export async function checkNodeVersion(): Promise<NodeVersionResult> {
 }
 
 /**
- * 自动安装 Node.js
- * 下载 Node.js 到应用数据目录，校验 SHA256，解压
+ * 自动安装 uv 到应用本地目录
  * @returns 安装结果
  */
-export async function autoInstallNode(): Promise<NodeAutoInstallResult> {
+export async function autoInstallUv(): Promise<InstallResult> {
   try {
-    console.log("[Dependencies] 开始自动安装 Node.js...");
-    const result = await invoke<NodeAutoInstallResult>("node_auto_install");
+    console.log("[Dependencies] 开始自动安装 uv...");
+    const result = await invoke<InstallResult>("uv_auto_install");
     if (result.success) {
-      console.log("[Dependencies] Node.js 自动安装成功:", result);
+      console.log("[Dependencies] uv 自动安装成功:", result);
     } else {
-      console.error("[Dependencies] Node.js 自动安装失败:", result.error);
+      console.error("[Dependencies] uv 自动安装失败:", result.error);
     }
     return result;
   } catch (error) {
-    console.error("[Dependencies] Node.js 自动安装异常:", error);
+    console.error("[Dependencies] uv 自动安装异常:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
     };
   }
-}
-
-/**
- * 监听 Node.js 自动安装进度事件
- * @param callback 进度回调
- * @returns 取消监听函数
- */
-export async function onNodeInstallProgress(
-  callback: (progress: NodeInstallProgress) => void,
-): Promise<() => void> {
-  return listen<NodeInstallProgress>("node-install-progress", (event) => {
-    callback(event.payload);
-  });
 }
 
 /**
@@ -835,13 +795,6 @@ export async function checkAllSetupDependencies(): Promise<
         item.status = pkgResult.installed ? "installed" : "missing";
         item.version = pkgResult.version;
         item.binPath = pkgResult.binPath;
-      } else if (config.type === "npm-global") {
-        // npm-global 包（全局安装）
-        const binName = config.binName || config.name;
-        const pkgResult = await checkGlobalNpmPackage(binName);
-        item.status = pkgResult.installed ? "installed" : "missing";
-        item.version = pkgResult.version;
-        item.binPath = pkgResult.binPath;
       } else if (config.type === "shell-installer") {
         // shell-installer 包
         // uv 需要特殊处理版本检测
@@ -886,12 +839,9 @@ export async function checkAllSetupDependencies(): Promise<
 export async function installAllRequiredPackages(
   onProgress?: (current: string, index: number, total: number) => void,
 ): Promise<{ success: boolean; failedPackage?: string; error?: string }> {
-  // 获取所有需要安装的依赖（npm-local、npm-global 和 shell-installer）
+  // 获取所有需要安装的依赖（npm-local 和 shell-installer）
   const installablePackages = SETUP_REQUIRED_DEPENDENCIES.filter(
-    (d) =>
-      d.type === "npm-local" ||
-      d.type === "npm-global" ||
-      d.type === "shell-installer",
+    (d) => d.type === "npm-local" || d.type === "shell-installer",
   );
   const total = installablePackages.length;
 
@@ -931,24 +881,6 @@ export async function installAllRequiredPackages(
 
       // 安装 npm 包
       const installResult = await installLocalNpmPackage(pkg.name);
-      if (!installResult.success) {
-        return {
-          success: false,
-          failedPackage: pkg.name,
-          error: installResult.error,
-        };
-      }
-    } else if (pkg.type === "npm-global") {
-      // 检查是否已安装
-      const binName = pkg.binName || pkg.name;
-      const checkResult = await checkGlobalNpmPackage(binName);
-      if (checkResult.installed) {
-        console.log(`[Dependencies] ${pkg.name} (npm global) 已安装，跳过`);
-        continue;
-      }
-
-      // 全局安装 npm 包
-      const installResult = await installGlobalNpmPackage(pkg.name, binName);
       if (!installResult.success) {
         return {
           success: false,

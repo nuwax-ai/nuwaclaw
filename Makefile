@@ -302,15 +302,77 @@ TAURI_CLIENT := agent-tauri-client
 # 构建环境: prod (默认) 或 test
 BUILD_ENV ?= prod
 
+# Node.js 版本（打包到应用内）
+NODE_VERSION := 22.13.1
+
+# Node.js 资源目录
+NODE_RESOURCE_DIR := crates/$(TAURI_CLIENT)/src-tauri/resources/node
+
+# 自动检测平台和架构，构建 Node.js 下载文件名
+ifeq ($(UNAME_S),Darwin)
+  NODE_OS := darwin
+  NODE_EXT := tar.xz
+else ifeq ($(UNAME_S),Linux)
+  NODE_OS := linux
+  NODE_EXT := tar.xz
+else
+  NODE_OS := win
+  NODE_EXT := zip
+endif
+
+ifeq ($(UNAME_M),arm64)
+  NODE_ARCH := arm64
+else ifeq ($(UNAME_M),aarch64)
+  NODE_ARCH := arm64
+else
+  NODE_ARCH := x64
+endif
+
+NODE_FILENAME := node-v$(NODE_VERSION)-$(NODE_OS)-$(NODE_ARCH).$(NODE_EXT)
+NODE_URL := https://nodejs.org/dist/v$(NODE_VERSION)/$(NODE_FILENAME)
+NODE_SHASUMS_URL := https://nodejs.org/dist/v$(NODE_VERSION)/SHASUMS256.txt
+NODE_DIR_NAME := node-v$(NODE_VERSION)-$(NODE_OS)-$(NODE_ARCH)
+
+.PHONY: node-download
+node-download:
+	@echo ">>> 下载 Node.js v$(NODE_VERSION) ($(NODE_OS)-$(NODE_ARCH))..."
+	@if [ -f "$(NODE_RESOURCE_DIR)/bin/node" ] || [ -f "$(NODE_RESOURCE_DIR)/node.exe" ]; then \
+		echo ">>> Node.js 已存在于 $(NODE_RESOURCE_DIR)，跳过下载"; \
+	else \
+		echo ">>> 下载 $(NODE_URL)..."; \
+		mkdir -p /tmp/node-download; \
+		curl -fSL -o /tmp/node-download/$(NODE_FILENAME) $(NODE_URL); \
+		echo ">>> 校验 SHA256..."; \
+		curl -fsSL $(NODE_SHASUMS_URL) > /tmp/node-download/SHASUMS256.txt; \
+		cd /tmp/node-download && grep "$(NODE_FILENAME)" SHASUMS256.txt | shasum -a 256 -c -; \
+		echo ">>> 解压到 $(NODE_RESOURCE_DIR)..."; \
+		rm -rf $(NODE_RESOURCE_DIR); \
+		mkdir -p /tmp/node-download/extract; \
+		if [ "$(NODE_EXT)" = "tar.xz" ]; then \
+			tar -xJf /tmp/node-download/$(NODE_FILENAME) -C /tmp/node-download/extract; \
+		else \
+			unzip -q /tmp/node-download/$(NODE_FILENAME) -d /tmp/node-download/extract; \
+		fi; \
+		mv /tmp/node-download/extract/$(NODE_DIR_NAME) $(NODE_RESOURCE_DIR); \
+		echo ">>> 清理临时文件..."; \
+		rm -rf /tmp/node-download; \
+		echo ">>> Node.js v$(NODE_VERSION) 已下载到 $(NODE_RESOURCE_DIR)"; \
+	fi
+
+.PHONY: node-clean
+node-clean:
+	@echo ">>> 清理 Node.js 资源..."
+	rm -rf $(NODE_RESOURCE_DIR)
+
 .PHONY: tauri-build
-tauri-build:
+tauri-build: node-download
 	@echo ">>> 构建 Tauri 应用 (环境: $(BUILD_ENV))..."
 	cd crates/$(TAURI_CLIENT) && pnpm install
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo build --release
 
 .PHONY: tauri-bundle
-tauri-bundle:
+tauri-bundle: node-download
 	@echo ">>> 打包 Tauri 应用 (环境: $(BUILD_ENV))..."
 	cd crates/$(TAURI_CLIENT) && pnpm install
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build

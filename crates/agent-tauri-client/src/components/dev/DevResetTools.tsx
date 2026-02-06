@@ -9,6 +9,7 @@
  * 注意：此组件仅在开发环境下加载
  */
 
+import { invoke } from '@tauri-apps/api/core';
 import React, { useState } from 'react';
 import {
   Card,
@@ -75,13 +76,33 @@ export default function DevResetTools() {
    * 重置初始化 + 清除登录 + 刷新页面
    */
   const handleClearAll = async () => {
-    await resetSetup();
-    await clearAuthInfo();
-    message.success('所有数据已清除，正在刷新...');
-    setTimeout(() => {
-      window.location.reload();
-    }, 500);
+    try {
+      // 1. 清除 Tauri Store 中的状态
+      await resetSetup();
+      await clearAuthInfo();
+      
+      // 2. 清除浏览器 LocalStorage
+      localStorage.clear();
+      
+      // 3. 调用后端清理本地安装
+      try {
+        await invoke('dependency_clear_all');
+        message.success('本地安装文件清理完成');
+      } catch (e) {
+        console.error('清理本地安装失败:', e);
+        message.warning('本地安装清理部分失败，但重置将继续');
+      }
+
+      message.success('已清除全部数据，即将刷新');
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+    } catch (error) {
+      console.error('清除失败:', error);
+      message.error('清除失败');
+    }
   };
+
 
   /**
    * 重置工具列表

@@ -290,9 +290,7 @@ fn system_greet(name: &str) -> String {
 
 // ========== 依赖管理命令 ==========
 
-use futures_util::StreamExt;
 use nuwax_agent_core::dependency::manager::DependencyManager as CoreDependencyManager;
-use sha2::{Digest, Sha256};
 
 // 依赖项 DTO（用于 Tauri IPC）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -583,25 +581,6 @@ fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
             bin_path.to_string_lossy()
         );
         return Ok(bin_path.to_string_lossy().to_string());
-    }
-
-    // 如果本地没有安装，尝试使用全局命令（作为 fallback）
-    warn!("[FileServer] 本地未安装 nuwax-file-server，尝试使用全局命令");
-
-    // 检查是否在 PATH 中（跨平台）
-    #[cfg(unix)]
-    let which_cmd = "which";
-    #[cfg(windows)]
-    let which_cmd = "where";
-
-    if let Ok(output) = std::process::Command::new(which_cmd).arg(bin_name).output() {
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                info!("[FileServer] 找到全局命令: {}", path);
-                return Ok(path);
-            }
-        }
     }
 
     Err(format!(
@@ -1277,6 +1256,7 @@ async fn services_restart_all(
             log_base_dir: format!("{}/logs/project_logs", app_data_str),
             computer_workspace_dir: format!("{}/computer-project-workspace", workspace_dir),
             computer_log_dir: format!("{}/logs/computer_logs", app_data_str),
+            path_env: Some(build_local_path_env(&app)),
         };
 
         // 打印完整配置用于调试
@@ -1485,27 +1465,6 @@ pub struct NodeVersionResult {
     pub node_path: Option<String>,
 }
 
-/// Node.js 自动安装进度
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NodeInstallProgress {
-    pub phase: String,
-    pub progress: f64,
-    pub downloaded_bytes: u64,
-    pub total_bytes: u64,
-    pub message: String,
-}
-
-/// Node.js 自动安装结果
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NodeAutoInstallResult {
-    pub success: bool,
-    pub node_path: Option<String>,
-    pub version: Option<String>,
-    pub error: Option<String>,
-}
-
 /// npm 包检测结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1572,485 +1531,306 @@ async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, String
     Ok(true)
 }
 
-/// 获取 Node.js 全局安装目录
-/// 安装到 ~/.nuwax/node/ 以便全局访问
-fn get_global_node_install_dir() -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|home| home.join(".nuwax").join("node"))
-}
-
-/// 返回 node 二进制文件的完整路径（如果存在）
-fn get_local_node_bin_path() -> Option<String> {
-    let node_dir = get_global_node_install_dir()?;
-
-    #[cfg(unix)]
-    let node_bin = node_dir.join("bin").join("node");
-    #[cfg(windows)]
-    let node_bin = node_dir.join("node.exe");
-
-    if node_bin.exists() {
-        Some(node_bin.to_string_lossy().to_string())
-    } else {
-        None
-    }
-}
-
-/// 获取可用的 npm 可执行文件路径
-/// 优先使用本地安装的 npm，其次使用系统 PATH 中的 npm
-fn get_npm_bin_path_resolved() -> Option<String> {
-    // 1. 检查全局安装的 npm (~/.nuwax/node/)
-    if let Some(node_dir) = get_global_node_install_dir() {
+/// 获取打包的 Node.js 二进制文件路径（从 Tauri resources 目录）
+fn get_bundled_node_bin_path(app: &tauri::AppHandle) -> Option<String> {
+    // 1. 开发模式优先：从 src-tauri/resources/node 获取
+    #[cfg(debug_assertions)]
+    {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dev_node_dir = manifest_dir.join("resources").join("node");
         #[cfg(unix)]
-        let npm_bin = node_dir.join("bin").join("npm");
+        let dev_node_bin = dev_node_dir.join("bin").join("node");
         #[cfg(windows)]
-        let npm_bin = node_dir.join("npm.cmd");
-
-        if npm_bin.exists() {
-            // 验证可执行
-            if let Ok(output) = Command::new(npm_bin.to_string_lossy().to_string())
-                .arg("--version")
-                .output()
-            {
-                if output.status.success() {
-                    return Some(npm_bin.to_string_lossy().to_string());
-                }
-            }
+        let dev_node_bin = dev_node_dir.join("node.exe");
+        if dev_node_bin.exists() {
+            info!("[Setup] 开发模式使用源码目录 Node: {:?}", dev_node_bin);
+            return Some(dev_node_bin.to_string_lossy().to_string());
         }
     }
 
-    // 2. 检查系统 PATH 中的 npm
-    if let Ok(output) = Command::new("npm").arg("--version").output() {
-        if output.status.success() {
-            return Some("npm".to_string());
+    // 2. 尝试从 Tauri resource_dir 获取（打包后的路径）
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let node_dir = resource_dir.join("node");
+        #[cfg(unix)]
+        let node_bin = node_dir.join("bin").join("node");
+        #[cfg(windows)]
+        let node_bin = node_dir.join("node.exe");
+        if node_bin.exists() {
+            return Some(node_bin.to_string_lossy().to_string());
         }
     }
 
     None
 }
 
-/// Node.js 自动安装常量
-const NODE_VERSION: &str = "22.13.1";
-
-/// 获取当前平台的 Node.js 下载文件名
-fn get_node_download_filename() -> Result<String, String> {
-    let os = if cfg!(target_os = "macos") {
-        "darwin"
-    } else if cfg!(target_os = "linux") {
-        "linux"
-    } else if cfg!(target_os = "windows") {
-        "win"
-    } else {
-        return Err("不支持的操作系统".to_string());
-    };
-
-    let arch = if cfg!(target_arch = "aarch64") {
-        "arm64"
-    } else if cfg!(target_arch = "x86_64") {
-        "x64"
-    } else {
-        return Err("不支持的 CPU 架构".to_string());
-    };
-
-    let ext = if cfg!(target_os = "windows") {
-        "zip"
-    } else {
-        "tar.xz"
-    };
-
-    Ok(format!("node-v{}-{}-{}.{}", NODE_VERSION, os, arch, ext))
-}
-
-/// 获取 Node.js 下载 URL
-fn get_node_download_url() -> Result<String, String> {
-    let filename = get_node_download_filename()?;
-    Ok(format!(
-        "https://nodejs.org/dist/v{}/{}",
-        NODE_VERSION, filename
-    ))
-}
-
-/// 获取 SHASUMS256.txt URL
-fn get_node_shasums_url() -> String {
-    format!("https://nodejs.org/dist/v{}/SHASUMS256.txt", NODE_VERSION)
-}
-
-/// 自动安装 Node.js
-///
-/// 下载 Node.js 到全局目录 (~/.nuwax/node/)，校验 SHA256，解压
-/// 通过 Tauri 事件 "node-install-progress" 推送安装进度
-#[tauri::command]
-async fn node_auto_install(app: tauri::AppHandle) -> Result<NodeAutoInstallResult, String> {
-    let global_dir =
-        get_global_node_install_dir().ok_or_else(|| "无法获取用户主目录".to_string())?;
-    let nuwax_dir = global_dir
-        .parent()
-        .ok_or_else(|| "无法获取 .nuwax 目录".to_string())?
-        .to_path_buf();
-
-    // 确保 ~/.nuwax/ 目录存在
-    if !nuwax_dir.exists() {
-        std::fs::create_dir_all(&nuwax_dir)
-            .map_err(|e| format!("创建 ~/.nuwax 目录失败: {}", e))?;
-    }
-
-    let node_dir = global_dir;
-    let download_filename =
-        get_node_download_filename().map_err(|e| format!("获取下载文件名失败: {}", e))?;
-    let download_url = get_node_download_url().map_err(|e| format!("获取下载 URL 失败: {}", e))?;
-    let shasums_url = get_node_shasums_url();
-    let download_path = nuwax_dir.join(&download_filename);
-
-    info!("[NodeInstall] 开始自动安装 Node.js v{}", NODE_VERSION);
-    info!("[NodeInstall] 下载 URL: {}", download_url);
-    info!("[NodeInstall] 目标目录: {}", node_dir.display());
-
-    // 发送进度事件的辅助闭包
-    let emit_progress = |phase: &str, progress: f64, downloaded: u64, total: u64, msg: &str| {
-        let _ = app.emit(
-            "node-install-progress",
-            NodeInstallProgress {
-                phase: phase.to_string(),
-                progress,
-                downloaded_bytes: downloaded,
-                total_bytes: total,
-                message: msg.to_string(),
-            },
-        );
-    };
-
-    // ========== 1. 下载 SHASUMS256.txt ==========
-    emit_progress("downloading", 0.0, 0, 0, "正在获取校验信息...");
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
-
-    let shasums_text = client
-        .get(&shasums_url)
-        .send()
-        .await
-        .map_err(|e| {
-            emit_progress("error", 0.0, 0, 0, &format!("下载校验文件失败: {}", e));
-            format!("下载 SHASUMS256.txt 失败: {}", e)
-        })?
-        .text()
-        .await
-        .map_err(|e| {
-            emit_progress("error", 0.0, 0, 0, &format!("读取校验文件失败: {}", e));
-            format!("读取 SHASUMS256.txt 失败: {}", e)
-        })?;
-
-    // 解析 SHASUMS256.txt，找到对应文件的 SHA256
-    let expected_sha256 = shasums_text
-        .lines()
-        .find(|line| line.contains(&download_filename))
-        .and_then(|line| line.split_whitespace().next())
-        .map(|s| s.to_string())
-        .ok_or_else(|| {
-            let msg = format!("在 SHASUMS256.txt 中未找到 {} 的校验值", download_filename);
-            emit_progress("error", 0.0, 0, 0, &msg);
-            msg
-        })?;
-
-    info!("[NodeInstall] 期望 SHA256: {}", expected_sha256);
-
-    // ========== 2. 流式下载 Node.js 包 ==========
-    emit_progress("downloading", 0.0, 0, 0, "正在下载 Node.js...");
-
-    let response = client.get(&download_url).send().await.map_err(|e| {
-        emit_progress("error", 0.0, 0, 0, &format!("下载请求失败: {}", e));
-        format!("下载 Node.js 失败: {}", e)
-    })?;
-
-    let total_size = response.content_length().unwrap_or(0);
-    let mut downloaded: u64 = 0;
-    let mut hasher = Sha256::new();
-
-    // 创建下载文件
-    let mut file = tokio::fs::File::create(&download_path).await.map_err(|e| {
-        emit_progress("error", 0.0, 0, 0, &format!("创建下载文件失败: {}", e));
-        format!("创建下载文件失败: {}", e)
-    })?;
-
-    let mut stream = response.bytes_stream();
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| {
-            emit_progress(
-                "error",
-                0.0,
-                downloaded,
-                total_size,
-                &format!("下载中断: {}", e),
+/// 获取打包的 Node.js bin 目录路径（用于设置 PATH 环境变量）
+fn get_bundled_node_bin_dir(app: &tauri::AppHandle) -> Option<String> {
+    // 1. 开发模式优先：从 src-tauri/resources/node 获取
+    #[cfg(debug_assertions)]
+    {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dev_node_dir = manifest_dir.join("resources").join("node");
+        #[cfg(unix)]
+        let dev_bin_dir = dev_node_dir.join("bin");
+        #[cfg(windows)]
+        let dev_bin_dir = dev_node_dir;
+        if dev_bin_dir.exists() {
+            info!(
+                "[Setup] 开发模式使用源码目录 Node Bin Dir: {:?}",
+                dev_bin_dir
             );
-            format!("下载中断: {}", e)
-        })?;
-
-        // 写入文件
-        use tokio::io::AsyncWriteExt;
-        file.write_all(&chunk).await.map_err(|e| {
-            emit_progress(
-                "error",
-                0.0,
-                downloaded,
-                total_size,
-                &format!("写入文件失败: {}", e),
-            );
-            format!("写入文件失败: {}", e)
-        })?;
-
-        // 更新 SHA256 计算
-        hasher.update(&chunk);
-
-        downloaded += chunk.len() as u64;
-
-        // 计算进度
-        let progress = if total_size > 0 {
-            (downloaded as f64 / total_size as f64) * 100.0
-        } else {
-            0.0
-        };
-
-        let msg = if total_size > 0 {
-            format!(
-                "已下载 {:.1} MB / {:.1} MB",
-                downloaded as f64 / 1_048_576.0,
-                total_size as f64 / 1_048_576.0,
-            )
-        } else {
-            format!("已下载 {:.1} MB", downloaded as f64 / 1_048_576.0)
-        };
-
-        emit_progress("downloading", progress, downloaded, total_size, &msg);
-    }
-
-    // 确保文件刷盘
-    use tokio::io::AsyncWriteExt;
-    file.flush().await.map_err(|e| format!("刷盘失败: {}", e))?;
-    drop(file);
-
-    info!("[NodeInstall] 下载完成，文件大小: {} bytes", downloaded);
-
-    // ========== 3. 校验 SHA256 ==========
-    emit_progress(
-        "verifying",
-        0.0,
-        downloaded,
-        total_size,
-        "正在校验文件完整性...",
-    );
-
-    let computed_sha256 = hex::encode(hasher.finalize());
-    if computed_sha256 != expected_sha256 {
-        // 清理下载文件
-        let _ = std::fs::remove_file(&download_path);
-        let msg = format!(
-            "SHA256 校验失败: 期望 {}，实际 {}",
-            expected_sha256, computed_sha256
-        );
-        emit_progress("error", 0.0, 0, 0, &msg);
-        return Err(msg);
-    }
-
-    info!("[NodeInstall] SHA256 校验通过");
-    emit_progress("verifying", 100.0, downloaded, total_size, "校验通过");
-
-    // ========== 4. 解压 ==========
-    emit_progress("extracting", 0.0, 0, 0, "正在解压 Node.js...");
-
-    // 清理旧的 node 目录
-    if node_dir.exists() {
-        std::fs::remove_dir_all(&node_dir).map_err(|e| format!("清理旧的 node 目录失败: {}", e))?;
-    }
-
-    // 创建临时解压目录
-    let extract_tmp = nuwax_dir.join("node_extract_tmp");
-    if extract_tmp.exists() {
-        let _ = std::fs::remove_dir_all(&extract_tmp);
-    }
-    std::fs::create_dir_all(&extract_tmp).map_err(|e| format!("创建临时解压目录失败: {}", e))?;
-
-    let download_path_clone = download_path.clone();
-    let extract_tmp_clone = extract_tmp.clone();
-
-    // 解压操作（在阻塞线程中执行）
-    let extract_result = tokio::task::spawn_blocking(move || -> Result<(), String> {
-        if cfg!(target_os = "windows") {
-            // Windows: zip 解压
-            let file = std::fs::File::open(&download_path_clone)
-                .map_err(|e| format!("打开 zip 文件失败: {}", e))?;
-            let mut archive =
-                zip::ZipArchive::new(file).map_err(|e| format!("读取 zip 文件失败: {}", e))?;
-            archive
-                .extract(&extract_tmp_clone)
-                .map_err(|e| format!("解压 zip 失败: {}", e))?;
-        } else {
-            // macOS/Linux: tar.xz 解压
-            let file = std::fs::File::open(&download_path_clone)
-                .map_err(|e| format!("打开 tar.xz 文件失败: {}", e))?;
-            let xz_reader = xz2::read::XzDecoder::new(file);
-            let mut archive = tar::Archive::new(xz_reader);
-            archive
-                .unpack(&extract_tmp_clone)
-                .map_err(|e| format!("解压 tar.xz 失败: {}", e))?;
-        }
-        Ok(())
-    })
-    .await
-    .map_err(|e| format!("解压任务失败: {}", e))?;
-
-    extract_result.map_err(|e| {
-        emit_progress("error", 0.0, 0, 0, &format!("解压失败: {}", e));
-        // 清理
-        let _ = std::fs::remove_dir_all(&extract_tmp);
-        let _ = std::fs::remove_file(&download_path);
-        e
-    })?;
-
-    emit_progress("extracting", 50.0, 0, 0, "正在整理文件...");
-
-    // 找到解压后的目录（通常是 node-v{version}-{platform}-{arch}/）
-    let extracted_dir_name = if cfg!(target_os = "windows") {
-        let arch = if cfg!(target_arch = "aarch64") {
-            "arm64"
-        } else {
-            "x64"
-        };
-        format!("node-v{}-win-{}", NODE_VERSION, arch)
-    } else {
-        let os = if cfg!(target_os = "macos") {
-            "darwin"
-        } else {
-            "linux"
-        };
-        let arch = if cfg!(target_arch = "aarch64") {
-            "arm64"
-        } else {
-            "x64"
-        };
-        format!("node-v{}-{}-{}", NODE_VERSION, os, arch)
-    };
-
-    let extracted_dir = extract_tmp.join(&extracted_dir_name);
-    if !extracted_dir.exists() {
-        let _ = std::fs::remove_dir_all(&extract_tmp);
-        let _ = std::fs::remove_file(&download_path);
-        let msg = format!("解压后未找到目录: {}", extracted_dir_name);
-        emit_progress("error", 0.0, 0, 0, &msg);
-        return Err(msg);
-    }
-
-    // 移动到最终目录
-    if let Err(e) = std::fs::rename(&extracted_dir, &node_dir) {
-        // rename 可能跨文件系统失败，尝试复制
-        info!("[NodeInstall] rename 失败 ({}), 尝试复制...", e);
-        fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
-            std::fs::create_dir_all(dst)?;
-            for entry in std::fs::read_dir(src)? {
-                let entry = entry?;
-                let file_type = entry.file_type()?;
-                let dst_path = dst.join(entry.file_name());
-                if file_type.is_dir() {
-                    copy_dir_recursive(&entry.path(), &dst_path)?;
-                } else {
-                    std::fs::copy(&entry.path(), &dst_path)?;
-                }
-            }
-            Ok(())
-        }
-        if let Err(e2) = copy_dir_recursive(&extracted_dir, &node_dir) {
-            let _ = std::fs::remove_dir_all(&extract_tmp);
-            let _ = std::fs::remove_file(&download_path);
-            let msg = format!("移动目录失败: rename={}, copy={}", e, e2);
-            emit_progress("error", 0.0, 0, 0, &msg);
-            return Err(msg);
+            return Some(dev_bin_dir.to_string_lossy().to_string());
         }
     }
 
-    // 清理临时文件
-    let _ = std::fs::remove_dir_all(&extract_tmp);
-    let _ = std::fs::remove_file(&download_path);
+    // 2. 尝试从 Tauri resource_dir 获取（打包后的路径）
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let node_dir = resource_dir.join("node");
+        #[cfg(unix)]
+        let bin_dir = node_dir.join("bin");
+        #[cfg(windows)]
+        let bin_dir = node_dir.clone();
+        if bin_dir.exists() {
+            return Some(bin_dir.to_string_lossy().to_string());
+        }
+    }
 
-    emit_progress("extracting", 90.0, 0, 0, "正在验证安装...");
+    None
+}
 
-    // ========== 5. 验证安装 ==========
+/// 获取打包的 npm 可执行文件路径（从 Tauri resources 目录）
+fn get_bundled_npm_bin_path(app: &tauri::AppHandle) -> Option<String> {
+    // 1. 开发模式优先：从 src-tauri/resources/node 获取
+    #[cfg(debug_assertions)]
+    {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dev_node_dir = manifest_dir.join("resources").join("node");
+        #[cfg(unix)]
+        let dev_npm_bin = dev_node_dir.join("bin").join("npm");
+        #[cfg(windows)]
+        let dev_npm_bin = dev_node_dir.join("npm.cmd");
+        if dev_npm_bin.exists() {
+            info!("[Setup] 开发模式使用源码目录 npm: {:?}", dev_npm_bin);
+            return Some(dev_npm_bin.to_string_lossy().to_string());
+        }
+    }
+
+    // 2. 尝试从 Tauri resource_dir 获取（打包后的路径）
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let node_dir = resource_dir.join("node");
+        #[cfg(unix)]
+        let npm_bin = node_dir.join("bin").join("npm");
+        #[cfg(windows)]
+        let npm_bin = node_dir.join("npm.cmd");
+        if npm_bin.exists() {
+            return Some(npm_bin.to_string_lossy().to_string());
+        }
+    }
+
+    None
+}
+
+/// 获取打包的 npx 可执行文件路径（从 Tauri resources 目录）
+fn get_bundled_npx_bin_path(app: &tauri::AppHandle) -> Option<String> {
+    // 1. 开发模式优先：从 src-tauri/resources/node 获取
+    #[cfg(debug_assertions)]
+    {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dev_node_dir = manifest_dir.join("resources").join("node");
+        #[cfg(unix)]
+        let dev_npx_bin = dev_node_dir.join("bin").join("npx");
+        #[cfg(windows)]
+        let dev_npx_bin = dev_node_dir.join("npx.cmd");
+        if dev_npx_bin.exists() {
+            info!("[Setup] 开发模式使用源码目录 npx: {:?}", dev_npx_bin);
+            return Some(dev_npx_bin.to_string_lossy().to_string());
+        }
+    }
+
+    // 2. 尝试从 Tauri resource_dir 获取（打包后的路径）
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let node_dir = resource_dir.join("node");
+        #[cfg(unix)]
+        let npx_bin = node_dir.join("bin").join("npx");
+        #[cfg(windows)]
+        let npx_bin = node_dir.join("npx.cmd");
+        if npx_bin.exists() {
+            return Some(npx_bin.to_string_lossy().to_string());
+        }
+    }
+
+    None
+}
+
+/// 获取本地 uv 二进制文件路径（安装在 app_data_dir/uv/bin/）
+fn get_local_uv_bin_path(app: &tauri::AppHandle) -> Option<String> {
+    let app_data_dir = app.path().app_data_dir().ok()?;
     #[cfg(unix)]
-    let node_bin = node_dir.join("bin").join("node");
+    let uv_bin = app_data_dir.join("uv").join("bin").join("uv");
     #[cfg(windows)]
-    let node_bin = node_dir.join("node.exe");
+    let uv_bin = app_data_dir.join("uv").join("bin").join("uv.exe");
+    if uv_bin.exists() {
+        Some(uv_bin.to_string_lossy().to_string())
+    } else {
+        None
+    }
+}
 
-    let node_bin_str = node_bin.to_string_lossy().to_string();
+/// 获取本地 uvx 二进制文件路径（安装在 app_data_dir/uv/bin/）
+fn get_local_uvx_bin_path(app: &tauri::AppHandle) -> Option<String> {
+    let app_data_dir = app.path().app_data_dir().ok()?;
+    #[cfg(unix)]
+    let uvx_bin = app_data_dir.join("uv").join("bin").join("uvx");
+    #[cfg(windows)]
+    let uvx_bin = app_data_dir.join("uv").join("bin").join("uvx.exe");
+    if uvx_bin.exists() {
+        Some(uvx_bin.to_string_lossy().to_string())
+    } else {
+        None
+    }
+}
 
-    let verify_output = Command::new(&node_bin_str)
+/// 构建应用本地 PATH 环境变量
+///
+/// 将打包的 Node.js、本地 uv、本地 npm bin 目录添加到 PATH 前面，
+/// 用于子进程环境注入，不修改系统 PATH。
+fn build_local_path_env(app: &tauri::AppHandle) -> String {
+    let mut paths: Vec<String> = Vec::new();
+
+    // 1. 打包的 Node.js bin 目录
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        #[cfg(unix)]
+        let node_bin = resource_dir.join("node").join("bin");
+        #[cfg(windows)]
+        let node_bin = resource_dir.join("node");
+        if node_bin.exists() {
+            paths.push(node_bin.to_string_lossy().to_string());
+        }
+    }
+
+    // 2. 本地 uv bin 目录
+    if let Ok(app_data_dir) = app.path().app_data_dir() {
+        let uv_bin = app_data_dir.join("uv").join("bin");
+        if uv_bin.exists() {
+            paths.push(uv_bin.to_string_lossy().to_string());
+        }
+        // 3. npm local bin 目录（mcp-proxy 等）
+        let npm_bin = app_data_dir.join("node_modules").join(".bin");
+        if npm_bin.exists() {
+            paths.push(npm_bin.to_string_lossy().to_string());
+        }
+    }
+
+    // 追加系统 PATH
+    let system_path = std::env::var("PATH").unwrap_or_default();
+    paths.push(system_path);
+
+    let separator = if cfg!(windows) { ";" } else { ":" };
+    paths.join(separator)
+}
+
+/// 自动安装 uv 到应用本地目录
+///
+/// 使用 uv 官方安装脚本，通过 UV_INSTALL_DIR 环境变量指定安装位置
+/// 安装到 <app_data_dir>/uv/bin/
+#[tauri::command]
+async fn uv_auto_install(app: tauri::AppHandle) -> Result<InstallResult, String> {
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let uv_install_dir = app_data_dir.join("uv").join("bin");
+
+    // 确保目录存在
+    std::fs::create_dir_all(&uv_install_dir).map_err(|e| format!("创建 uv 安装目录失败: {}", e))?;
+
+    let uv_install_dir_str = uv_install_dir.to_string_lossy().to_string();
+
+    info!("[UvInstall] 开始安装 uv 到 {}", uv_install_dir_str);
+
+    #[cfg(unix)]
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(format!(
+            "curl --proto '=https' --tlsv1.2 -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR='{}' sh",
+            uv_install_dir_str
+        ))
+        .output()
+        .map_err(|e| format!("执行 uv 安装脚本失败: {}", e))?;
+
+    #[cfg(windows)]
+    let output = Command::new("powershell")
+        .args([
+            "-c",
+            &format!(
+                "$env:UV_INSTALL_DIR='{}'; irm https://astral.sh/uv/install.ps1 | iex",
+                uv_install_dir_str
+            ),
+        ])
+        .output()
+        .map_err(|e| format!("执行 uv 安装脚本失败: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        error!("[UvInstall] 安装失败: {}", stderr);
+        return Ok(InstallResult {
+            success: false,
+            version: None,
+            bin_path: None,
+            error: Some(stderr),
+        });
+    }
+
+    // 验证安装
+    #[cfg(unix)]
+    let uv_bin = uv_install_dir.join("uv");
+    #[cfg(windows)]
+    let uv_bin = uv_install_dir.join("uv.exe");
+
+    if !uv_bin.exists() {
+        return Ok(InstallResult {
+            success: false,
+            version: None,
+            bin_path: None,
+            error: Some("安装脚本执行成功但未找到 uv 二进制文件".to_string()),
+        });
+    }
+
+    let uv_bin_str = uv_bin.to_string_lossy().to_string();
+
+    // 获取版本
+    let version = Command::new(&uv_bin_str)
         .arg("--version")
         .output()
-        .map_err(|e| {
-            let msg = format!("验证 node 安装失败: {}", e);
-            emit_progress("error", 0.0, 0, 0, &msg);
-            msg
-        })?;
-
-    if !verify_output.status.success() {
-        let msg = "Node.js 安装验证失败: node --version 返回非零状态".to_string();
-        emit_progress("error", 0.0, 0, 0, &msg);
-        return Err(msg);
-    }
-
-    let installed_version = String::from_utf8_lossy(&verify_output.stdout)
-        .trim()
-        .trim_start_matches('v')
-        .to_string();
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| {
+            let output = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            output.split_whitespace().nth(1).unwrap_or("").to_string()
+        })
+        .filter(|v| !v.is_empty());
 
     info!(
-        "[NodeInstall] 安装成功！版本: {}, 路径: {}",
-        installed_version, node_bin_str
+        "[UvInstall] 安装成功，版本: {:?}，路径: {}",
+        version, uv_bin_str
     );
 
-    // 保存 node 路径到 store
-    if let Ok(store) = app.store("nuwax_store.bin") {
-        let _ = store.set("node.local_path", serde_json::json!(node_bin_str));
-        let _ = store.save();
-    }
+    // 更新进程级 PATH 环境变量（uv 安装后目录已存在）
+    let updated_path = build_local_path_env(&app);
+    std::env::set_var("NUWAX_LOCAL_PATH_ENV", &updated_path);
+    info!("[UvInstall] 已更新 NUWAX_LOCAL_PATH_ENV");
 
-    // 立即注入 PATH，无需重启应用即可使用 npx/node
-    {
-        #[cfg(unix)]
-        let node_bin_dir = node_dir.join("bin");
-        #[cfg(windows)]
-        let node_bin_dir = node_dir.clone();
-
-        let current_path = std::env::var("PATH").unwrap_or_default();
-        let node_bin_dir_str = node_bin_dir.to_string_lossy().to_string();
-        if !current_path.contains(&node_bin_dir_str) {
-            let separator = if cfg!(windows) { ";" } else { ":" };
-            let new_path = format!("{}{}{}", node_bin_dir_str, separator, current_path);
-            std::env::set_var("PATH", &new_path);
-            info!("[NodeInstall] 已将 {} 注入 PATH", node_bin_dir_str);
-        }
-    }
-
-    emit_progress(
-        "completed",
-        100.0,
-        0,
-        0,
-        &format!("Node.js v{} 安装完成", installed_version),
-    );
-
-    Ok(NodeAutoInstallResult {
+    Ok(InstallResult {
         success: true,
-        node_path: Some(node_bin_str),
-        version: Some(installed_version),
+        version,
+        bin_path: Some(uv_bin_str),
         error: None,
     })
 }
 
 /// 检测 Node.js 版本
 #[tauri::command]
-async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionResult, String> {
-    // 1. 检查本地安装的 node
-    if let Some(local_path) = get_local_node_bin_path() {
-        let output = Command::new(&local_path).arg("--version").output();
+async fn dependency_node_detect(app: tauri::AppHandle) -> Result<NodeVersionResult, String> {
+    // 1. 检查打包的 node（优先）
+    if let Some(bundled_path) = get_bundled_node_bin_path(&app) {
+        let output = Command::new(&bundled_path).arg("--version").output();
         if let Ok(out) = output {
             if out.status.success() {
                 let version_str = String::from_utf8_lossy(&out.stdout)
@@ -2062,13 +1842,13 @@ async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionRes
                     installed: true,
                     version: Some(version_str),
                     meets_requirement: meets,
-                    node_path: Some(local_path),
+                    node_path: Some(bundled_path),
                 });
             }
         }
     }
 
-    // 2. 检查系统 PATH 中的 node
+    // 2. 检查系统 PATH 中的 node（fallback）
     let output = Command::new("node").arg("--version").output();
 
     match output {
@@ -2105,9 +1885,13 @@ pub struct UvVersionResult {
 
 /// 检测 uv 版本
 /// uv 是高性能的 Python 包管理器
+/// 优先检查应用本地安装的 uv，其次检查系统 PATH
 #[tauri::command]
-async fn dependency_uv_detect() -> Result<UvVersionResult, String> {
-    let output = Command::new("uv").arg("--version").output();
+async fn dependency_uv_detect(app: tauri::AppHandle) -> Result<UvVersionResult, String> {
+    // 确定要检测的 uv 路径：优先本地，fallback 系统
+    let uv_cmd = get_local_uv_bin_path(&app).unwrap_or_else(|| "uv".to_string());
+
+    let output = Command::new(&uv_cmd).arg("--version").output();
 
     match output {
         Ok(out) if out.status.success() => {
@@ -2198,14 +1982,21 @@ async fn dependency_local_install(
     let app_dir = app_data_dir_get(app.clone())?;
     let registry = "https://registry.npmmirror.com/";
 
-    // 获取可用的 npm 路径
-    let npm_bin = get_npm_bin_path_resolved().ok_or("未找到可用的 npm，请先安装 Node.js")?;
+    // 获取打包的 npm 路径和 node bin 目录
+    let npm_bin = get_bundled_npm_bin_path(&app).ok_or("未找到打包的 npm，安装包可能损坏")?;
+    let node_bin_dir =
+        get_bundled_node_bin_dir(&app).ok_or("未找到打包的 Node.js，安装包可能损坏")?;
+
+    // 构建 PATH 环境变量：bundled node bin 目录优先
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    let new_path = format!("{}:{}", node_bin_dir, current_path);
 
     // 确保 npm 环境已初始化
     dependency_local_env_init(app.clone()).await?;
 
     // 执行 npm install
     let output = Command::new(&npm_bin)
+        .env("PATH", &new_path)
         .args([
             "install",
             &package_name,
@@ -2219,7 +2010,11 @@ async fn dependency_local_install(
 
     if output.status.success() {
         // 获取安装的版本
-        let result = dependency_local_check(app, package_name.clone()).await?;
+        let result = dependency_local_check(app.clone(), package_name.clone()).await?;
+
+        // 更新进程级 PATH 环境变量（npm install 后 node_modules/.bin 目录已存在）
+        let updated_path = build_local_path_env(&app);
+        std::env::set_var("NUWAX_LOCAL_PATH_ENV", &updated_path);
 
         Ok(InstallResult {
             success: true,
@@ -2241,14 +2036,21 @@ async fn dependency_local_install(
 /// 查询 npm 包的最新版本号
 #[tauri::command]
 async fn dependency_local_check_latest(
-    _app: tauri::AppHandle,
+    app: tauri::AppHandle,
     package_name: String,
 ) -> Result<Option<String>, String> {
     let registry = "https://registry.npmmirror.com/";
 
-    let npm_bin = get_npm_bin_path_resolved().ok_or("未找到可用的 npm，请先安装 Node.js")?;
+    let npm_bin = get_bundled_npm_bin_path(&app).ok_or("未找到打包的 npm，安装包可能损坏")?;
+    let node_bin_dir =
+        get_bundled_node_bin_dir(&app).ok_or("未找到打包的 Node.js，安装包可能损坏")?;
+
+    // 构建 PATH 环境变量
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    let new_path = format!("{}:{}", node_bin_dir, current_path);
 
     let output = Command::new(&npm_bin)
+        .env("PATH", &new_path)
         .args(["view", &package_name, "version", "--registry", registry])
         .output()
         .map_err(|e| format!("执行 npm view 失败: {}", e))?;
@@ -2266,56 +2068,83 @@ async fn dependency_local_check_latest(
 }
 
 /// 检测 Shell Installer 安装的包是否已安装
+/// 优先检查应用本地目录（如 uv），再 fallback 到系统 PATH
 #[tauri::command]
 async fn dependency_shell_installer_check(
+    app: tauri::AppHandle,
     bin_name: String,
 ) -> Result<ShellInstallerResult, String> {
-    // 使用 which 命令检查二进制文件是否存在
-    let which_output = Command::new("which").arg(&bin_name).output();
+    // 优先检查应用本地目录
+    let local_bin_path = if bin_name == "uv" {
+        get_local_uv_bin_path(&app)
+    } else if bin_name == "uvx" {
+        get_local_uvx_bin_path(&app)
+    } else {
+        // 其他 shell-installer 包，检查 app_data_dir 下对应目录
+        None
+    };
 
-    match which_output {
-        Ok(out) if out.status.success() => {
-            let bin_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    // 确定要检测的二进制路径
+    let bin_cmd = local_bin_path.clone().unwrap_or_else(|| bin_name.clone());
 
-            // 尝试获取版本信息
-            let version = Command::new(&bin_name)
-                .arg("--version")
-                .output()
-                .ok()
-                .filter(|o| o.status.success())
-                .map(|o| {
-                    let output = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                    // 尝试从输出中提取版本号
-                    // 常见格式: "mcp-proxy 0.1.27" 或 "v0.1.27"
-                    output
-                        .split_whitespace()
-                        .find(|s| {
-                            s.chars()
-                                .next()
-                                .map(|c| c.is_ascii_digit() || c == 'v')
-                                .unwrap_or(false)
-                        })
-                        .map(|s| s.trim_start_matches('v').to_string())
-                        .unwrap_or(output)
-                });
+    // 检查二进制文件是否存在
+    let exists = if local_bin_path.is_some() {
+        // 本地路径直接检查文件是否存在
+        std::path::Path::new(&bin_cmd).exists()
+    } else {
+        // 系统 PATH 检查
+        #[cfg(unix)]
+        let which_cmd = "which";
+        #[cfg(windows)]
+        let which_cmd = "where";
+        Command::new(which_cmd)
+            .arg(&bin_name)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    };
 
-            Ok(ShellInstallerResult {
-                installed: true,
-                version,
-                bin_path: Some(bin_path),
-            })
-        }
-        _ => Ok(ShellInstallerResult {
+    if exists {
+        // 尝试获取版本信息
+        let version = Command::new(&bin_cmd)
+            .arg("--version")
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| {
+                let output = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                // 尝试从输出中提取版本号
+                // 常见格式: "mcp-proxy 0.1.27" 或 "uv 0.5.14 (homebrew)" 或 "v0.1.27"
+                output
+                    .split_whitespace()
+                    .find(|s| {
+                        s.chars()
+                            .next()
+                            .map(|c| c.is_ascii_digit() || c == 'v')
+                            .unwrap_or(false)
+                    })
+                    .map(|s| s.trim_start_matches('v').to_string())
+                    .unwrap_or(output)
+            });
+
+        Ok(ShellInstallerResult {
+            installed: true,
+            version,
+            bin_path: Some(bin_cmd),
+        })
+    } else {
+        Ok(ShellInstallerResult {
             installed: false,
             version: None,
             bin_path: None,
-        }),
+        })
     }
 }
 
 /// 使用 Shell 脚本安装包
 #[tauri::command]
 async fn dependency_shell_installer_install(
+    app: tauri::AppHandle,
     installer_url: String,
     bin_name: String,
 ) -> Result<InstallResult, String> {
@@ -2345,7 +2174,7 @@ async fn dependency_shell_installer_install(
 
     if output.status.success() {
         // 验证安装并获取路径
-        let check_result = dependency_shell_installer_check(bin_name.clone()).await?;
+        let check_result = dependency_shell_installer_check(app, bin_name.clone()).await?;
 
         if check_result.installed {
             Ok(InstallResult {
@@ -2381,90 +2210,118 @@ async fn dependency_shell_installer_install(
     }
 }
 
-// ========== 全局 npm 包管理命令 ==========
+// ========== npm 包管理命令（本地优先） ==========
 
-/// 检测全局 npm 包是否已安装
-/// 通过检查可执行文件是否存在来判断
+/// 检测 npm 包是否已安装
+/// 优先检查本地 node_modules/.bin，再 fallback 到系统 PATH
 #[tauri::command]
-async fn dependency_npm_global_check(bin_name: String) -> Result<NpmPackageResult, String> {
-    // 使用 which 命令检查二进制文件是否存在
-    let which_output = Command::new("which").arg(&bin_name).output();
+async fn dependency_npm_global_check(
+    app: tauri::AppHandle,
+    bin_name: String,
+) -> Result<NpmPackageResult, String> {
+    // 优先检查应用本地 node_modules/.bin 目录
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let local_bin = app_data_dir
+        .join("node_modules")
+        .join(".bin")
+        .join(&bin_name);
 
-    match which_output {
+    let bin_cmd = if local_bin.exists() {
+        local_bin.to_string_lossy().to_string()
+    } else {
+        // fallback 到系统 PATH
+        bin_name.clone()
+    };
+
+    // 检查是否可以执行
+    let check_output = Command::new(&bin_cmd).arg("-V").output();
+
+    match check_output {
         Ok(out) if out.status.success() => {
-            let bin_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-
-            // 尝试获取版本信息 (使用 -V 参数)
-            let version = Command::new(&bin_name)
-                .arg("-V")
-                .output()
-                .ok()
-                .filter(|o| o.status.success())
-                .map(|o| {
-                    let output = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                    // 尝试从输出中提取版本号
-                    // 常见格式: "mcp-proxy 0.1.27" 或 "v0.1.27" 或 "0.1.27"
-                    output
-                        .split_whitespace()
-                        .find(|s| {
-                            s.chars()
-                                .next()
-                                .map(|c| c.is_ascii_digit() || c == 'v')
-                                .unwrap_or(false)
-                        })
-                        .map(|s| s.trim_start_matches('v').to_string())
-                        .unwrap_or(output)
-                });
+            let output_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            // 尝试从输出中提取版本号
+            // 常见格式: "mcp-proxy 0.1.27" 或 "v0.1.27" 或 "0.1.27"
+            let version = output_str
+                .split_whitespace()
+                .find(|s| {
+                    s.chars()
+                        .next()
+                        .map(|c| c.is_ascii_digit() || c == 'v')
+                        .unwrap_or(false)
+                })
+                .map(|s| s.trim_start_matches('v').to_string());
 
             Ok(NpmPackageResult {
                 installed: true,
                 version,
-                bin_path: Some(bin_path),
+                bin_path: Some(bin_cmd),
             })
         }
-        _ => Ok(NpmPackageResult {
-            installed: false,
-            version: None,
-            bin_path: None,
-        }),
+        _ => {
+            // -V 失败时，如果本地文件存在也认为已安装
+            if local_bin.exists() {
+                Ok(NpmPackageResult {
+                    installed: true,
+                    version: None,
+                    bin_path: Some(local_bin.to_string_lossy().to_string()),
+                })
+            } else {
+                Ok(NpmPackageResult {
+                    installed: false,
+                    version: None,
+                    bin_path: None,
+                })
+            }
+        }
     }
 }
 
 /// 全局安装 npm 包（使用 npmmirror）
+/// 实际安装到应用本地 node_modules 目录（--prefix app_data_dir）
 #[tauri::command]
 async fn dependency_npm_global_install(
-    _app: tauri::AppHandle,
+    app: tauri::AppHandle,
     package_name: String,
     bin_name: String,
 ) -> Result<InstallResult, String> {
     let registry = "https://registry.npmmirror.com/";
 
-    let npm_bin = get_npm_bin_path_resolved().ok_or("未找到可用的 npm，请先安装 Node.js")?;
+    let npm_bin = get_bundled_npm_bin_path(&app).ok_or("未找到打包的 npm，安装包可能损坏")?;
+    let node_bin_dir =
+        get_bundled_node_bin_dir(&app).ok_or("未找到打包的 Node.js，安装包可能损坏")?;
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let prefix = app_data_dir.to_string_lossy().to_string();
 
     info!(
-        "[Dependency] 开始全局安装 npm 包: {} (registry: {})",
-        package_name, registry
+        "[Dependency] 开始本地安装 npm 包: {} (prefix: {}, registry: {})",
+        package_name, prefix, registry
     );
 
-    // 执行 npm install -g
+    // 构建 PATH 环境变量
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    let new_path = format!("{}:{}", node_bin_dir, current_path);
+
+    // 执行 npm install --prefix <app_data_dir>（安装到本地而非全局）
     let output = Command::new(&npm_bin)
+        .env("PATH", &new_path)
         .args([
             "install",
-            "-g",
             &format!("{}@latest", package_name),
+            "--prefix",
+            &prefix,
             "--registry",
             registry,
         ])
         .output()
-        .map_err(|e| format!("执行 npm install -g 失败: {}", e))?;
+        .map_err(|e| format!("执行 npm install 失败: {}", e))?;
 
     if output.status.success() {
         // 验证安装并获取路径
-        let check_result = dependency_npm_global_check(bin_name.clone()).await?;
+        let check_result = dependency_npm_global_check(app, bin_name.clone()).await?;
 
         if check_result.installed {
             info!(
-                "[Dependency] {} 全局安装成功, 版本: {:?}",
+                "[Dependency] {} 本地安装成功, 版本: {:?}",
                 package_name, check_result.version
             );
             Ok(InstallResult {
@@ -2474,13 +2331,12 @@ async fn dependency_npm_global_install(
                 error: None,
             })
         } else {
-            // 安装成功但二进制未找到，可能需要重新加载 PATH
             Ok(InstallResult {
                 success: true,
                 version: None,
                 bin_path: None,
                 error: Some(format!(
-                    "npm install 执行成功，但未找到 {} 二进制文件。可能需要重启终端或重新加载 PATH",
+                    "npm install 执行成功，但未找到 {} 二进制文件",
                     bin_name
                 )),
             })
@@ -2489,7 +2345,7 @@ async fn dependency_npm_global_install(
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
-        error!("[Dependency] npm install -g 失败: {}", stderr);
+        error!("[Dependency] npm install 失败: {}", stderr);
 
         Ok(InstallResult {
             success: false,
@@ -2885,6 +2741,35 @@ fn check_version_meets_requirement(current: &str, required: &str) -> bool {
     (cur_major, cur_minor, cur_patch) >= (req_major, req_minor, req_patch)
 }
 
+#[tauri::command]
+async fn dependency_clear_all(app: tauri::AppHandle) -> Result<(), String> {
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+
+    // 需要清理的路径列表
+    let paths_to_remove = vec![
+        app_data_dir.join("node_modules"),
+        app_data_dir.join("uv"),
+        app_data_dir.join("package.json"),
+        app_data_dir.join("package-lock.json"),
+    ];
+
+    for path in paths_to_remove {
+        if path.exists() {
+            info!("[Dependency]正在清理: {:?}", path);
+            if path.is_dir() {
+                std::fs::remove_dir_all(&path)
+                    .map_err(|e| format!("清理目录失败 {:?}: {}", path, e))?;
+            } else {
+                std::fs::remove_file(&path)
+                    .map_err(|e| format!("清理文件失败 {:?}: {}", path, e))?;
+            }
+        }
+    }
+
+    info!("[Dependency] 本地安装清理完成");
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 在其他代码之前初始化日志系统，使日志写入文件
@@ -2893,26 +2778,6 @@ pub fn run() {
     //          Windows %APPDATA%\nuwax-agent\logs\
     if let Err(e) = nuwax_agent_core::Logger::init("nuwax-agent") {
         eprintln!("[Logger] Failed to initialize logger: {}", e);
-    }
-
-    // 将 ~/.nuwax/node/bin 注入 PATH，确保所有子进程（rcoder、claude-code-acp、
-    // MCP 服务器等）都能找到 npx/node/npm
-    if let Some(node_dir) = get_global_node_install_dir() {
-        #[cfg(unix)]
-        let node_bin_dir = node_dir.join("bin");
-        #[cfg(windows)]
-        let node_bin_dir = node_dir.clone();
-
-        if node_bin_dir.exists() {
-            let current_path = std::env::var("PATH").unwrap_or_default();
-            let node_bin_str = node_bin_dir.to_string_lossy().to_string();
-            if !current_path.contains(&node_bin_str) {
-                let separator = if cfg!(windows) { ";" } else { ":" };
-                let new_path = format!("{}{}{}", node_bin_str, separator, current_path);
-                std::env::set_var("PATH", &new_path);
-                eprintln!("[Setup] 已将 {} 注入 PATH", node_bin_str);
-            }
-        }
     }
 
     // 预定义合法的 Tab 名称列表，用于参数验证（在 cli-plugin 特性中使用）
@@ -2929,6 +2794,14 @@ pub fn run() {
         .setup(|app| {
             if let Err(e) = setup_tray(app) {
                 error!("[Setup] 创建系统托盘失败: {}", e);
+            }
+
+            // 设置应用本地 PATH 环境变量（供 rcoder/acp_worker 读取注入到子进程）
+            // 注意：这只设置进程级环境变量，不修改系统 PATH
+            {
+                let local_path = build_local_path_env(app.handle());
+                info!("[Setup] 设置 NUWAX_LOCAL_PATH_ENV: {}", local_path);
+                std::env::set_var("NUWAX_LOCAL_PATH_ENV", &local_path);
             }
 
             // ============================================
@@ -3113,7 +2986,7 @@ pub fn run() {
             dependency_shell_installer_install,
             dependency_npm_global_check,
             dependency_npm_global_install,
-            node_auto_install,
+            uv_auto_install,
             dialog_select_directory,
             // 日志相关命令
             log_dir_get,
@@ -3122,6 +2995,7 @@ pub fn run() {
             // 开机自启动命令
             autolaunch_set,
             autolaunch_get,
+            dependency_clear_all,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

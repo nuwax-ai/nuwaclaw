@@ -36,20 +36,17 @@ import {
   checkNodeVersion,
   checkUvVersion,
   checkAllSetupDependencies,
-  initLocalNpmEnv,
-  checkLocalNpmPackage,
-  installLocalNpmPackage,
-  checkShellInstallerPackage,
-  installShellInstallerPackage,
-  checkGlobalNpmPackage,
-  installGlobalNpmPackage,
   restartAllServices,
   checkLatestNpmVersion,
-  isNewerVersion,
   type LocalDependencyItem,
   type NodeVersionResult,
   type UvVersionResult,
 } from "../services/dependencies";
+import {
+  installSingleDependency,
+  installDependencies,
+  isNewerVersion,
+} from "../services/dependencyUtils";
 
 const { Text } = Typography;
 
@@ -84,21 +81,16 @@ export default function DependenciesPage() {
       setNodeResult(nodeRes);
       setUvResult(uvRes);
 
-      // 检测所有依赖状态，保留 npm-local、npm-global 和 shell-installer 类型
+      // 检测所有依赖状态，保留 npm-local 和 shell-installer 类型
       const deps = await checkAllSetupDependencies();
       const installableDeps = deps.filter(
-        (d) =>
-          d.type === "npm-local" ||
-          d.type === "npm-global" ||
-          d.type === "shell-installer",
+        (d) => d.type === "npm-local" || d.type === "shell-installer",
       );
       setLocalDeps(installableDeps);
 
       // 对已安装的 npm 包并行查询最新版本
       const npmDepsToCheck = installableDeps.filter(
-        (d) =>
-          d.status === "installed" &&
-          (d.type === "npm-local" || d.type === "npm-global"),
+        (d) => d.status === "installed" && d.type === "npm-local",
       );
       if (npmDepsToCheck.length > 0) {
         const latestResults = await Promise.all(
@@ -141,7 +133,7 @@ export default function DependenciesPage() {
    * 安装单个依赖
    */
   const handleInstallSingleDep = async (dep: LocalDependencyItem) => {
-    const { name: packageName, displayName, type, installerUrl, binName } = dep;
+    const { name: packageName, displayName } = dep;
 
     setDepInstalling(true);
     setCurrentInstallingDep(displayName);
@@ -154,28 +146,7 @@ export default function DependenciesPage() {
     );
 
     try {
-      let result;
-
-      if (type === "shell-installer") {
-        // shell-installer 类型使用 curl 脚本安装
-        if (!installerUrl) {
-          throw new Error("缺少 installerUrl 配置");
-        }
-        result = await installShellInstallerPackage(
-          installerUrl,
-          binName || packageName,
-        );
-      } else if (type === "npm-global") {
-        // npm-global 类型全局安装
-        result = await installGlobalNpmPackage(
-          packageName,
-          binName || packageName,
-        );
-      } else {
-        // npm-local 类型
-        await initLocalNpmEnv();
-        result = await installLocalNpmPackage(packageName);
-      }
+      const result = await installSingleDependency(dep);
 
       if (result.success) {
         // 更新状态为 installed
@@ -231,7 +202,7 @@ export default function DependenciesPage() {
    * 更新单个 npm 依赖到最新版本
    */
   const handleUpdateDep = async (dep: LocalDependencyItem) => {
-    const { name: packageName, displayName, type } = dep;
+    const { name: packageName, displayName } = dep;
 
     setDepInstalling(true);
     setCurrentInstallingDep(displayName);
@@ -244,16 +215,7 @@ export default function DependenciesPage() {
     );
 
     try {
-      let result;
-      if (type === "npm-global") {
-        result = await installGlobalNpmPackage(
-          packageName,
-          dep.binName || packageName,
-        );
-      } else {
-        await initLocalNpmEnv();
-        result = await installLocalNpmPackage(packageName);
-      }
+      const result = await installSingleDependency(dep);
 
       if (result.success) {
         setLocalDeps((prev) =>
@@ -326,116 +288,56 @@ export default function DependenciesPage() {
     setDepInstalling(true);
 
     try {
-      // 初始化 npm 环境（如果有 npm-local 类型的依赖）
-      const hasNpmDeps = missingDeps.some((d) => d.type === "npm-local");
-      if (hasNpmDeps) {
-        await initLocalNpmEnv();
-      }
+      // 使用共享的批量安装函数
+      const result = await installDependencies(
+        missingDeps,
+        (current, index, total) => {
+          setCurrentInstallingDep(current);
+          // 更新当前安装项的状态为 installing
+          const depName = missingDeps[index - 1]?.name;
+          if (depName) {
+            setLocalDeps((prev) =>
+              prev.map((d) =>
+                d.name === depName ? { ...d, status: "installing" as const } : d,
+              ),
+            );
+          }
+        },
+      );
 
-      for (const dep of missingDeps) {
-        setCurrentInstallingDep(dep.displayName);
-
-        // 更新状态为 installing
+      if (result.success) {
+        // 更新所有安装成功的依赖状态
         setLocalDeps((prev) =>
           prev.map((d) =>
-            d.name === dep.name ? { ...d, status: "installing" as const } : d,
+            result.installed.includes(d.name)
+              ? { ...d, status: "installed" as const }
+              : d,
           ),
         );
+        message.success("依赖安装完成");
 
-        // 根据类型检查是否已安装
-        let isInstalled = false;
-        let checkVersion: string | undefined;
-        let checkBinPath: string | undefined;
-
-        if (dep.type === "shell-installer") {
-          const checkResult = await checkShellInstallerPackage(
-            dep.binName || dep.name,
-          );
-          isInstalled = checkResult.installed;
-          checkVersion = checkResult.version;
-          checkBinPath = checkResult.binPath;
-        } else if (dep.type === "npm-global") {
-          const checkResult = await checkGlobalNpmPackage(
-            dep.binName || dep.name,
-          );
-          isInstalled = checkResult.installed;
-          checkVersion = checkResult.version;
-          checkBinPath = checkResult.binPath;
-        } else {
-          const checkResult = await checkLocalNpmPackage(dep.name);
-          isInstalled = checkResult.installed;
-          checkVersion = checkResult.version;
-          checkBinPath = checkResult.binPath;
+        // 所有安装完成后重启服务
+        try {
+          await restartAllServices();
+          message.success("服务已重启");
+        } catch (restartError) {
+          console.error("[DependenciesPage] 重启服务失败:", restartError);
+          message.warning("依赖安装成功，但服务重启失败");
         }
-
-        if (isInstalled) {
-          setLocalDeps((prev) =>
-            prev.map((d) =>
-              d.name === dep.name
-                ? {
-                    ...d,
-                    status: "installed" as const,
-                    version: checkVersion,
-                    binPath: checkBinPath,
-                  }
-                : d,
-            ),
-          );
-          continue;
-        }
-
-        // 根据类型安装
-        let result;
-        if (dep.type === "shell-installer") {
-          if (!dep.installerUrl) {
-            throw new Error(`${dep.displayName} 缺少 installerUrl 配置`);
-          }
-          result = await installShellInstallerPackage(
-            dep.installerUrl,
-            dep.binName || dep.name,
-          );
-        } else if (dep.type === "npm-global") {
-          result = await installGlobalNpmPackage(
-            dep.name,
-            dep.binName || dep.name,
-          );
-        } else {
-          result = await installLocalNpmPackage(dep.name);
-        }
-        if (result.success) {
-          setLocalDeps((prev) =>
-            prev.map((d) =>
-              d.name === dep.name
-                ? {
-                    ...d,
-                    status: "installed" as const,
-                    version: result.version,
-                    binPath: result.binPath,
-                  }
-                : d,
-            ),
-          );
-        } else {
-          setLocalDeps((prev) =>
-            prev.map((d) =>
-              d.name === dep.name
-                ? { ...d, status: "error" as const, errorMessage: result.error }
-                : d,
-            ),
-          );
-          message.error(`${dep.displayName} 安装失败: ${result.error}`);
-        }
-      }
-
-      message.success("依赖安装完成");
-
-      // 所有安装完成后重启服务
-      try {
-        await restartAllServices();
-        message.success("服务已重启");
-      } catch (restartError) {
-        console.error("[DependenciesPage] 重启服务失败:", restartError);
-        message.warning("依赖安装成功，但服务重启失败");
+      } else if (result.failed) {
+        // 标记失败的依赖
+        setLocalDeps((prev) =>
+          prev.map((d) => {
+            if (result.installed.includes(d.name)) {
+              return { ...d, status: "installed" as const };
+            }
+            if (d.name === result.failed?.name) {
+              return { ...d, status: "error" as const, errorMessage: result.failed.error };
+            }
+            return d;
+          }),
+        );
+        message.error(`${result.failed.displayName} 安装失败: ${result.failed.error}`);
       }
     } catch (error) {
       message.error(`安装失败: ${error}`);
@@ -670,8 +572,6 @@ export default function DependenciesPage() {
             const typeTag =
               item.type === "shell-installer" ? (
                 <Tag color="cyan">shell</Tag>
-              ) : item.type === "npm-global" ? (
-                <Tag color="purple">npm 全局</Tag>
               ) : (
                 <Tag color="purple">npm</Tag>
               );

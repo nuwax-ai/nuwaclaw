@@ -43,17 +43,13 @@ import {
   checkNodeVersion,
   checkAllSetupDependencies,
   getAppDataDir,
-  initLocalNpmEnv,
-  checkLocalNpmPackage,
-  installLocalNpmPackage,
-  checkShellInstallerPackage,
-  installShellInstallerPackage,
-  autoInstallNode,
-  onNodeInstallProgress,
+  autoInstallUv,
   type LocalDependencyItem,
   type NodeVersionResult,
-  type NodeInstallProgress,
 } from "../services/dependencies";
+import {
+  installDependencies,
+} from "../services/dependencyUtils";
 import {
   getDepsFilter,
   setDepsFilter,
@@ -83,7 +79,7 @@ type InstallPhase =
 interface UnifiedDependencyItem {
   name: string;
   displayName: string;
-  type: "system" | "npm-local" | "npm-global" | "shell-installer";
+  type: "system" | "npm-local" | "shell-installer";
   description: string;
   status:
     | "checking"
@@ -133,11 +129,9 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
   >("all");
   const listContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Node.js 自动安装状态
-  const [nodeInstalling, setNodeInstalling] = useState(false);
-  const [nodeInstallProgress, setNodeInstallProgress] =
-    useState<NodeInstallProgress | null>(null);
-  const [nodeInstallError, setNodeInstallError] = useState<string>("");
+  // uv 自动安装状态
+  const [uvInstalling, setUvInstalling] = useState(false);
+  const [uvInstallError, setUvInstallError] = useState<string>("");
 
   /**
    * 构建统一的依赖列表
@@ -148,11 +142,7 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
       return deps.map((dep) => ({
         name: dep.name,
         displayName: dep.displayName,
-        type: dep.type as
-          | "system"
-          | "npm-local"
-          | "npm-global"
-          | "shell-installer",
+        type: dep.type as "system" | "npm-local" | "shell-installer",
         description: dep.description,
         status: dep.status as UnifiedDependencyItem["status"],
         version: dep.version,
@@ -194,12 +184,9 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
         });
       }
 
-      // 获取可自动安装的依赖（shell-installer + npm-local + npm-global）
+      // 获取可自动安装的依赖（shell-installer + npm-local）
       const installableDeps = deps.filter(
-        (d) =>
-          d.type === "npm-local" ||
-          d.type === "npm-global" ||
-          d.type === "shell-installer",
+        (d) => d.type === "npm-local" || d.type === "shell-installer",
       );
       setInstallableDependencies(installableDeps);
 
@@ -274,52 +261,27 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
   }, [showAllDependencies]);
 
   /**
-   * 打开 Node.js 官网
+   * 自动安装 uv 到应用本地目录
    */
-  const handleOpenNodejs = async () => {
+  const handleAutoInstallUv = async () => {
+    setUvInstalling(true);
+    setUvInstallError("");
+
     try {
-      await openUrl("https://nodejs.org");
-    } catch (error) {
-      console.error("[SetupStep3] 打开链接失败:", error);
-      message.error("打开链接失败");
-    }
-  };
-
-  /**
-   * 自动安装 Node.js
-   */
-  const handleAutoInstallNode = async () => {
-    setNodeInstalling(true);
-    setNodeInstallError("");
-    setNodeInstallProgress(null);
-
-    // 监听安装进度
-    let unlisten: (() => void) | null = null;
-    try {
-      unlisten = await onNodeInstallProgress((progress) => {
-        setNodeInstallProgress(progress);
-        if (progress.phase === "error") {
-          setNodeInstallError(progress.message);
-        }
-      });
-
-      const result = await autoInstallNode();
+      const result = await autoInstallUv();
 
       if (result.success) {
-        message.success(`Node.js v${result.version} 安装成功`);
+        message.success(`uv ${result.version || ""} 安装成功`);
         // 重新检测所有依赖
         await checkAllDeps();
       } else {
-        setNodeInstallError(result.error || "安装失败");
+        setUvInstallError(result.error || "安装失败");
       }
     } catch (error) {
-      console.error("[SetupStep3] 自动安装 Node.js 失败:", error);
-      setNodeInstallError(error instanceof Error ? error.message : "安装失败");
+      console.error("[SetupStep3] 自动安装 uv 失败:", error);
+      setUvInstallError(error instanceof Error ? error.message : "安装失败");
     } finally {
-      setNodeInstalling(false);
-      if (unlisten) {
-        unlisten();
-      }
+      setUvInstalling(false);
     }
   };
 
@@ -342,7 +304,7 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
 
   /**
    * 开始安装依赖
-   * 逐个安装依赖包，实时更新统一依赖列表的状态
+   * 使用共享工具函数逐个安装依赖包，实时更新统一依赖列表的状态
    */
   const handleStartInstall = async () => {
     setInstallPhase("installing");
@@ -354,9 +316,8 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
       const packagesToInstall = installableDependencies.filter(
         (d) => d.status !== "installed",
       );
-      const total = packagesToInstall.length;
 
-      if (total === 0) {
+      if (packagesToInstall.length === 0) {
         // 没有需要安装的包
         setInstallProgress(100);
         setInstallPhase("completed");
@@ -366,112 +327,59 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
         return;
       }
 
-      // 初始化 npm 环境（如果有 npm-local 类型的依赖）
-      const hasNpmDeps = packagesToInstall.some((d) => d.type === "npm-local");
-      if (hasNpmDeps) {
-        await initLocalNpmEnv();
-      }
+      // 使用共享的批量安装函数
+      const result = await installDependencies(
+        packagesToInstall,
+        (current, index, total) => {
+          setCurrentInstalling(current);
+          setInstallProgress(Math.round((index / total) * 100));
 
-      // 依次安装每个包
-      for (let i = 0; i < packagesToInstall.length; i++) {
-        const pkg = packagesToInstall[i];
-        setCurrentInstalling(pkg.displayName);
-        setInstallProgress(Math.round((i / total) * 100));
+          // 更新当前安装项的状态为 installing
+          const depName = packagesToInstall[index - 1]?.name;
+          if (depName) {
+            setAllDependencies((prev) =>
+              prev.map((d) =>
+                d.name === depName ? { ...d, status: "installing" as const } : d,
+              ),
+            );
+          }
+        },
+      );
 
-        // 更新统一列表中当前包状态为 installing
+      if (result.success) {
+        // 更新所有安装成功的依赖状态
         setAllDependencies((prev) =>
           prev.map((d) =>
-            d.name === pkg.name ? { ...d, status: "installing" as const } : d,
+            result.installed.includes(d.name)
+              ? { ...d, status: "installed" as const }
+              : d,
           ),
         );
 
-        // 根据类型检查是否已安装
-        let isInstalled = false;
-        let checkVersion: string | undefined;
+        // 全部安装成功
+        setInstallProgress(100);
+        setInstallPhase("completed");
 
-        if (pkg.type === "shell-installer") {
-          const checkResult = await checkShellInstallerPackage(
-            pkg.binName || pkg.name,
-          );
-          isInstalled = checkResult.installed;
-          checkVersion = checkResult.version;
-        } else {
-          const checkResult = await checkLocalNpmPackage(pkg.name);
-          isInstalled = checkResult.installed;
-          checkVersion = checkResult.version;
-        }
-
-        if (isInstalled) {
-          // 已安装，更新状态
-          setAllDependencies((prev) =>
-            prev.map((d) =>
-              d.name === pkg.name
-                ? {
-                    ...d,
-                    status: "installed" as const,
-                    version: checkVersion,
-                  }
-                : d,
-            ),
-          );
-          continue;
-        }
-
-        // 根据类型安装包
-        let installResult;
-        if (pkg.type === "shell-installer") {
-          if (!pkg.installerUrl) {
-            throw new Error(`${pkg.displayName} 缺少 installerUrl 配置`);
-          }
-          installResult = await installShellInstallerPackage(
-            pkg.installerUrl,
-            pkg.binName || pkg.name,
-          );
-        } else {
-          installResult = await installLocalNpmPackage(pkg.name);
-        }
-        if (installResult.success) {
-          // 安装成功，更新状态
-          setAllDependencies((prev) =>
-            prev.map((d) =>
-              d.name === pkg.name
-                ? {
-                    ...d,
-                    status: "installed" as const,
-                    version: installResult.version,
-                  }
-                : d,
-            ),
-          );
-        } else {
-          // 安装失败
-          setAllDependencies((prev) =>
-            prev.map((d) =>
-              d.name === pkg.name
-                ? {
-                    ...d,
-                    status: "error" as const,
-                    errorMessage: installResult.error,
-                  }
-                : d,
-            ),
-          );
-          setInstallPhase("error");
-          setInstallError(
-            installResult.error || `安装 ${pkg.displayName} 失败`,
-          );
-          return;
-        }
+        // 自动触发完成回调
+        setTimeout(() => {
+          onComplete();
+        }, 1500);
+      } else if (result.failed) {
+        // 标记失败的依赖
+        setAllDependencies((prev) =>
+          prev.map((d) => {
+            if (result.installed.includes(d.name)) {
+              return { ...d, status: "installed" as const };
+            }
+            if (d.name === result.failed?.name) {
+              return { ...d, status: "error" as const, errorMessage: result.failed.error };
+            }
+            return d;
+          }),
+        );
+        setInstallPhase("error");
+        setInstallError(result.failed.error || `安装 ${result.failed.displayName} 失败`);
       }
-
-      // 全部安装成功
-      setInstallProgress(100);
-      setInstallPhase("completed");
-
-      // 自动触发完成回调（调用 restart_all_services，然后跳转到客户端页面）
-      setTimeout(() => {
-        onComplete();
-      }, 1500);
     } catch (error) {
       console.error("[SetupStep3] 安装失败:", error);
       setInstallPhase("error");
@@ -568,9 +476,6 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
     if (item.type === "shell-installer") {
       return <Tag color="cyan">shell</Tag>;
     }
-    if (item.type === "npm-global") {
-      return <Tag color="purple">npm 全局</Tag>;
-    }
     return <Tag color="purple">npm 包</Tag>;
   };
 
@@ -589,12 +494,9 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
     const npmDeps = allDependencies.filter((d) => d.type === "npm-local");
     const npmReady = npmDeps.filter((d) => d.status === "installed").length;
 
-    // 可安装依赖（npm-local、npm-global 和 shell-installer）
+    // 可安装依赖（npm-local 和 shell-installer）
     const installableDeps = allDependencies.filter(
-      (d) =>
-        d.type === "npm-local" ||
-        d.type === "npm-global" ||
-        d.type === "shell-installer",
+      (d) => d.type === "npm-local" || d.type === "shell-installer",
     );
     const installableReady = installableDeps.filter(
       (d) => d.status === "installed",
@@ -962,7 +864,7 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
           }
           description={
             !stats.systemAllReady
-              ? "Node.js 未就绪，可点击「自动安装」或手动安装后「重新检测」"
+              ? "系统依赖未就绪，请检查 Node.js 和 uv 状态"
               : stats.allReady
                 ? "所有依赖已就绪"
                 : '系统依赖已就绪，点击"开始安装"自动安装其他依赖'
@@ -978,65 +880,60 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
           style={{ marginBottom: 12 }}
         />
 
-        {/* Node.js 自动安装区域 */}
-        {!stats.systemAllReady && !nodeInstalling && !nodeInstallError && (
+        {/* Node.js 检测失败提示（已打包，不应出现） */}
+        {nodeResult && !nodeResult.meetsRequirement && (
           <Alert
-            message="Node.js 未安装或版本不满足要求"
+            message="Node.js 异常"
             description={
-              <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                <Text>
-                  需要 Node.js &gt;=
-                  22.0.0，可自动下载安装到应用目录（不影响系统环境）。
-                </Text>
-                <Space>
-                  <Button
-                    type="primary"
-                    icon={<CloudDownloadOutlined />}
-                    onClick={handleAutoInstallNode}
-                  >
-                    自动安装 Node.js
-                  </Button>
-                  <Button
-                    type="link"
-                    icon={<LinkOutlined />}
-                    onClick={handleOpenNodejs}
-                  >
-                    手动安装
-                  </Button>
-                </Space>
-              </Space>
+              nodeResult.installed
+                ? `Node.js 版本 ${nodeResult.version} 低于要求的 >= 22.0.0，安装包可能损坏`
+                : "未检测到打包的 Node.js，安装包可能损坏，请重新安装应用"
             }
-            type="warning"
+            type="error"
             showIcon
             style={{ marginBottom: 12 }}
           />
         )}
 
-        {/* Node.js 安装进度 */}
-        {nodeInstalling && nodeInstallProgress && (
+        {/* uv 自动安装区域 */}
+        {(() => {
+          const uvDep = allDependencies.find((d) => d.name === "uv");
+          const uvMissing = uvDep && uvDep.status !== "installed";
+          if (!uvMissing || uvInstalling) return null;
+          return (
+            <Alert
+              message="uv 未安装或版本不满足要求"
+              description={
+                <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                  <Text>
+                    需要 uv &gt;=
+                    0.5.0，可自动安装到应用本地目录（不影响系统环境）。
+                  </Text>
+                  <Space>
+                    <Button
+                      type="primary"
+                      icon={<CloudDownloadOutlined />}
+                      onClick={handleAutoInstallUv}
+                    >
+                      自动安装 uv
+                    </Button>
+                  </Space>
+                </Space>
+              }
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+            />
+          );
+        })()}
+
+        {/* uv 安装中 */}
+        {uvInstalling && (
           <Alert
             message={
               <Space>
                 <LoadingOutlined />
-                <span>
-                  {nodeInstallProgress.phase === "downloading"
-                    ? "正在下载 Node.js"
-                    : nodeInstallProgress.phase === "verifying"
-                      ? "正在校验文件"
-                      : nodeInstallProgress.phase === "extracting"
-                        ? "正在解压安装"
-                        : "安装中"}
-                </span>
-              </Space>
-            }
-            description={
-              <Space direction="vertical" size={4} style={{ width: "100%" }}>
-                <Text type="secondary">{nodeInstallProgress.message}</Text>
-                <Progress
-                  percent={Math.round(nodeInstallProgress.progress)}
-                  status="active"
-                  size="small"
-                />
+                <span>正在安装 uv...</span>
               </Space>
             }
             type="info"
@@ -1044,30 +941,20 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
           />
         )}
 
-        {/* Node.js 安装错误 */}
-        {nodeInstallError && !nodeInstalling && (
+        {/* uv 安装错误 */}
+        {uvInstallError && !uvInstalling && (
           <Alert
-            message="Node.js 安装失败"
+            message="uv 安装失败"
             description={
               <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                <Text type="danger">{nodeInstallError}</Text>
-                <Space>
-                  <Button
-                    type="primary"
-                    size="small"
-                    onClick={handleAutoInstallNode}
-                  >
-                    重试安装
-                  </Button>
-                  <Button
-                    type="link"
-                    size="small"
-                    icon={<LinkOutlined />}
-                    onClick={handleOpenNodejs}
-                  >
-                    手动安装
-                  </Button>
-                </Space>
+                <Text type="danger">{uvInstallError}</Text>
+                <Button
+                  type="primary"
+                  size="small"
+                  onClick={handleAutoInstallUv}
+                >
+                  重试安装
+                </Button>
               </Space>
             }
             type="error"

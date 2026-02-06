@@ -531,6 +531,8 @@ pub struct NuwaxFileServerConfig {
     pub computer_workspace_dir: String,
     /// 计算机日志目录
     pub computer_log_dir: String,
+    /// 自定义 PATH 环境变量（用于注入应用本地的 bin 目录）
+    pub path_env: Option<String>,
 }
 
 impl Default for NuwaxFileServerConfig {
@@ -547,6 +549,7 @@ impl Default for NuwaxFileServerConfig {
             log_base_dir: "/var/logs/project_logs".to_string(),
             computer_workspace_dir: "/data/computer".to_string(),
             computer_log_dir: "/var/logs/computer".to_string(),
+            path_env: None,
         }
     }
 }
@@ -719,6 +722,11 @@ impl ServiceManager {
                     &config.computer_workspace_dir
                 ))
                 .arg(format!("--COMPUTER_LOG_DIR={}", &config.computer_log_dir));
+
+            // 注入自定义 PATH 环境变量（包含应用本地的 bin 目录）
+            if let Some(ref path_env) = config.path_env {
+                cmd.env("PATH", path_env);
+            }
         });
 
         // 注意顺序：先 KillOnDrop，后 ProcessGroup/JobObject

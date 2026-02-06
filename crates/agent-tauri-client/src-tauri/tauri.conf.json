@@ -25,6 +25,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": {
+      "resources/node": "node"
+    },
     "externalBin": ["binaries/nuwax-lanproxy"],
     "icon": [
       "icons/32x32.png",
