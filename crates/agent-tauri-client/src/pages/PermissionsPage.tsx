@@ -263,7 +263,7 @@ export default function PermissionsPage() {
   );
 
   return (
-    <div style={{ maxWidth: 900 }}>
+    <div>
       {/* 标题栏 */}
       <div
         style={{

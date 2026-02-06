@@ -1,176 +1,203 @@
 /* 全局样式重置 */
 * {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
 }
 
-html, body, #root {
-  height: 100%;
-  width: 100%;
-  overflow: hidden;
+html,
+body,
+#root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
-    'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
-    'Noto Color Emoji';
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+    font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+        Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+        "Segoe UI Symbol", "Noto Color Emoji";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 /* 主布局容器 */
 .app-container {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 /* 顶部栏 */
 .app-header {
-  height: 56px;
-  background: #001529;
-  padding: 0 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-shrink: 0;
-  z-index: 100;
+    height: 56px;
+    background: #001529;
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    z-index: 100;
 }
 
 .app-header-logo {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
 }
 
 .app-header-title {
-  color: #fff;
-  font-size: 16px;
-  font-weight: 500;
-  margin: 0 !important;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 500;
+    margin: 0 !important;
 }
 
 /* 主体区域 */
 .app-body {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
+    flex: 1;
+    display: flex;
+    overflow: hidden;
 }
 
 /* 左侧边栏 */
 .app-sider {
-  width: 160px;
-  background: #001529;
-  overflow-y: auto;
-  flex-shrink: 0;
+    width: 160px;
+    background: #001529;
+    overflow-y: auto;
+    flex-shrink: 0;
 }
 
 .app-sider .ant-menu {
-  border-right: 0;
+    border-right: 0;
 }
 
 /* 主内容区 */
 .app-content {
-  flex: 1;
-  padding: 16px;
-  background: #f0f2f5;
-  overflow-y: auto;
+    flex: 1;
+    padding: 16px;
+    background: #f0f2f5;
+    overflow-y: auto;
+}
+
+/* Tabs 组件全高度适配 */
+.app-content .ant-tabs {
+    display: flex;
+    flex-direction: column;
+}
+
+.app-content .ant-tabs-content-holder {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
+.app-content .ant-tabs-content {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
+.app-content .ant-tabs-tabpane-active {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 /* 滚动条样式 */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+    width: 8px;
+    height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f0f0f0;
+    background: #f0f0f0;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 4px;
+    background: #c1c1c1;
+    border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+    background: #a8a8a8;
 }
 
 /* 菜单样式 */
 .ant-menu-dark {
-  background: transparent;
+    background: transparent;
 }
 
 .ant-menu-dark .ant-menu-item-selected {
-  background: #1890ff;
+    background: #1890ff;
 }
-
 
 /* 按钮动画 */
 .ant-btn {
-  transition: all 0.3s;
+    transition: all 0.3s;
 }
 
 .ant-btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.4);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(24, 144, 255, 0.4);
 }
 
 /* 徽章样式 */
 .ant-badge-status-text {
-  font-size: 14px;
+    font-size: 14px;
 }
 
 /* 表单标签 */
 .ant-form-item-label > label {
-  font-weight: 500;
+    font-weight: 500;
 }
 
 /* 列表项悬停 */
 .ant-list-item {
-  transition: background-color 0.3s;
+    transition: background-color 0.3s;
 }
 
 .ant-list-item:hover {
-  background-color: #f5f5f5;
+    background-color: #f5f5f5;
 }
 
 /* 标签样式 */
 .ant-tag {
-  margin-right: 0;
-  padding: 2px 8px;
-  border-radius: 4px;
+    margin-right: 0;
+    padding: 2px 8px;
+    border-radius: 4px;
 }
 
 /* 警告框样式 */
 .ant-alert {
-  border-radius: 8px;
+    border-radius: 8px;
 }
 
 /* 描述列表样式 */
 .ant-descriptions-item-label {
-  color: #666;
+    color: #666;
 }
 
 /* 开关样式 */
 .ant-switch-checked {
-  background-color: #1890ff;
+    background-color: #1890ff;
 }
 
 /* 选择器样式 */
 .ant-select-selector {
-  border-radius: 6px !important;
+    border-radius: 6px !important;
 }
 
 /* 输入框样式 */
 .ant-input,
 .ant-input-affix-wrapper {
-  border-radius: 6px;
+    border-radius: 6px;
 }
 
 /* Progress 样式 */
 .ant-progress-text {
-  font-size: 12px;
+    font-size: 12px;
 }

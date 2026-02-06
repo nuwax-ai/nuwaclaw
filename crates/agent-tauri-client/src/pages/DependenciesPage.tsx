@@ -481,7 +481,7 @@ export default function DependenciesPage() {
   // 加载中
   if (depLoading && !nodeResult) {
     return (
-      <div style={{ maxWidth: 900, textAlign: "center", padding: 40 }}>
+      <div style={{ textAlign: "center", padding: 40 }}>
         <Spin size="large" />
         <div style={{ marginTop: 16 }}>正在检测依赖状态...</div>
       </div>
@@ -493,7 +493,7 @@ export default function DependenciesPage() {
     nodeResult?.meetsRequirement && uvResult?.meetsRequirement;
 
   return (
-    <div style={{ maxWidth: 900 }}>
+    <div>
       {/* 系统依赖状态卡片（只读） */}
       <Card
         size="small"

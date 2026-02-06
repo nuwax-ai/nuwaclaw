@@ -24,7 +24,7 @@ import {
   List,
   Spin,
   message,
-} from 'antd';
+} from "antd";
 import {
   RobotOutlined,
   FileTextOutlined,
@@ -170,10 +170,11 @@ export default function ClientPage({
     try {
       await restartAllServices();
       await loadServicesStatus();
-      message.success('服务启动成功');
+      message.success("服务启动成功");
     } catch (error) {
-      console.error('[ClientPage] 启动服务失败:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("[ClientPage] 启动服务失败:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       message.error(`启动服务失败: ${errorMessage}`);
     } finally {
       setServicesOperating(false);
@@ -186,10 +187,11 @@ export default function ClientPage({
     try {
       await stopAllServices();
       await loadServicesStatus();
-      message.success('服务已停止');
+      message.success("服务已停止");
     } catch (error) {
-      console.error('[ClientPage] 停止服务失败:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("[ClientPage] 停止服务失败:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       message.error(`停止服务失败: ${errorMessage}`);
     } finally {
       setServicesOperating(false);
@@ -231,7 +233,7 @@ export default function ClientPage({
   };
 
   return (
-    <div style={{ maxWidth: 900 }}>
+    <div>
       {/* 场景切换 */}
       {/* <Card size="small" style={{ marginBottom: 16 }}>
         <Space style={{ width: '100%', display: 'flex', justifyContent: 'space-between' }}>

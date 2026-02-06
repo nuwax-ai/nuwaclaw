@@ -3,19 +3,29 @@
  * 整合操作日志（前端）和后端日志，使用 Tab 切换
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { Card, Tabs, Empty, Spin, Space, Tooltip, Button, Input, Tag } from 'antd';
+import { useState, useEffect, useCallback } from "react";
+import {
+  Card,
+  Tabs,
+  Empty,
+  Spin,
+  Space,
+  Tooltip,
+  Button,
+  Input,
+  Tag,
+} from "antd";
 import {
   FileTextOutlined,
   ReloadOutlined,
   FolderOutlined,
   SearchOutlined,
   RobotOutlined,
-} from '@ant-design/icons';
-import { invoke } from '@tauri-apps/api/core';
-import LogToolbar from './LogToolbar';
-import LogStats from './LogStats';
-import LogItem from './LogItem';
+} from "@ant-design/icons";
+import { invoke } from "@tauri-apps/api/core";
+import LogToolbar from "./LogToolbar";
+import LogStats from "./LogStats";
+import LogItem from "./LogItem";
 import {
   LogEntry,
   LogFilter,
@@ -23,7 +33,7 @@ import {
   getLogs,
   getLogStats,
   subscribeLogs,
-} from '../services/logService';
+} from "../services/logService";
 
 interface LogViewerWithBackendProps {
   showSource?: boolean;
@@ -41,7 +51,9 @@ interface ParsedBackendLog {
 
 // 解析后端日志行
 function parseBackendLogLine(line: string): ParsedBackendLog {
-  const timeMatch = line.match(/\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\]/);
+  const timeMatch = line.match(
+    /\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\]/,
+  );
   const levelMatch = line.match(/\]\s*(ERROR|WARN|INFO|DEBUG|TRACE)\s*/i);
 
   return {
@@ -55,18 +67,18 @@ function parseBackendLogLine(line: string): ParsedBackendLog {
 // 获取后端日志级别颜色
 function getBackendLevelColor(level?: string): string {
   switch (level) {
-    case 'ERROR':
-      return 'error';
-    case 'WARN':
-    case 'WARNING':
-      return 'warning';
-    case 'INFO':
-      return 'success';
-    case 'DEBUG':
-    case 'TRACE':
-      return 'processing';
+    case "ERROR":
+      return "error";
+    case "WARN":
+    case "WARNING":
+      return "warning";
+    case "INFO":
+      return "success";
+    case "DEBUG":
+    case "TRACE":
+      return "processing";
     default:
-      return 'default';
+      return "default";
   }
 }
 
@@ -76,7 +88,9 @@ export default function LogViewerWithBackend({
   autoScrollDefault = true,
 }: LogViewerWithBackendProps) {
   // Tab 状态
-  const [activeTab, setActiveTab] = useState<'operation' | 'backend'>('operation');
+  const [activeTab, setActiveTab] = useState<"operation" | "backend">(
+    "operation",
+  );
 
   // 操作日志状态
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -87,7 +101,7 @@ export default function LogViewerWithBackend({
     success: 0,
     info: 0,
   });
-  const [filter, setFilter] = useState<LogFilter>({ level: 'all' });
+  const [filter, setFilter] = useState<LogFilter>({ level: "all" });
   const [loading, setLoading] = useState(false);
   const [autoScroll, setAutoScroll] = useState(autoScrollDefault);
 
@@ -95,7 +109,7 @@ export default function LogViewerWithBackend({
   const [backendLogs, setBackendLogs] = useState<ParsedBackendLog[]>([]);
   const [backendLoading, setBackendLoading] = useState(false);
   const [backendCount, setBackendCount] = useState(200);
-  const [backendSearch, setBackendSearch] = useState('');
+  const [backendSearch, setBackendSearch] = useState("");
   const [backendError, setBackendError] = useState<string | null>(null);
 
   // ========== 操作日志相关 ==========
@@ -103,11 +117,14 @@ export default function LogViewerWithBackend({
   const loadLogs = useCallback(async () => {
     setLoading(true);
     try {
-      const [logsData, statsData] = await Promise.all([getLogs(filter), getLogStats()]);
+      const [logsData, statsData] = await Promise.all([
+        getLogs(filter),
+        getLogStats(),
+      ]);
       setLogs(logsData);
       setStats(statsData);
     } catch (error) {
-      console.error('加载日志失败:', error);
+      console.error("加载日志失败:", error);
     } finally {
       setLoading(false);
     }
@@ -143,7 +160,7 @@ export default function LogViewerWithBackend({
   const handleLevelClick = useCallback((level: string) => {
     setFilter((prev: LogFilter) => ({
       ...prev,
-      level: (level === prev.level ? 'all' : level) as LogFilter['level'],
+      level: (level === prev.level ? "all" : level) as LogFilter["level"],
     }));
   }, []);
 
@@ -153,19 +170,21 @@ export default function LogViewerWithBackend({
     setBackendLoading(true);
     setBackendError(null);
     try {
-      const lines = await invoke<string[]>('read_logs', { count: backendCount });
+      const lines = await invoke<string[]>("read_logs", {
+        count: backendCount,
+      });
       const parsed = lines.map(parseBackendLogLine);
       setBackendLogs(parsed);
     } catch (err) {
-      console.error('加载后端日志失败:', err);
-      setBackendError(err instanceof Error ? err.message : '加载失败');
+      console.error("加载后端日志失败:", err);
+      setBackendError(err instanceof Error ? err.message : "加载失败");
     } finally {
       setBackendLoading(false);
     }
   }, [backendCount]);
 
   useEffect(() => {
-    if (activeTab === 'backend') {
+    if (activeTab === "backend") {
       loadBackendLogs();
     }
   }, [activeTab, loadBackendLogs]);
@@ -177,31 +196,42 @@ export default function LogViewerWithBackend({
 
   const handleOpenLogDir = async () => {
     try {
-      await invoke<void>('open_log_directory');
+      await invoke<void>("open_log_directory");
     } catch (err) {
-      console.error('打开日志目录失败:', err);
+      console.error("打开日志目录失败:", err);
     }
   };
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div
+      style={{
+        height: "calc(100vh - 56px - 32px)",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       <Card
-        style={{ flex: 1, overflow: 'hidden' }}
+        style={{ flex: 1, overflow: "hidden" }}
         bodyStyle={{
-          height: '100%',
+          height: "100%",
           padding: 16,
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
         }}
       >
         <Tabs
           activeKey={activeTab}
-          onChange={(key) => setActiveTab(key as 'operation' | 'backend')}
-          style={{ height: '100%', flex:1, display:'flex', flexDirection:'column' }}
+          onChange={(key) => setActiveTab(key as "operation" | "backend")}
+          style={{
+            height: "100%",
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+          }}
           items={[
             {
-              key: 'operation',
+              key: "operation",
               label: (
                 <span>
                   <FileTextOutlined />
@@ -209,7 +239,14 @@ export default function LogViewerWithBackend({
                 </span>
               ),
               children: (
-                <div style={{ display: 'flex', flexDirection: 'column', height:'400px', overflow:'hidden', }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    flex: 1,
+                    overflow: "hidden",
+                  }}
+                >
                   <LogToolbar
                     filter={filter}
                     onFilterChange={handleFilterChange}
@@ -227,22 +264,26 @@ export default function LogViewerWithBackend({
                   <div
                     style={{
                       flex: 1,
-                      overflow: 'auto',
-              
-                      background: '#fafafa',
+                      overflow: "auto",
+                      background: "#fafafa",
                       borderRadius: 4,
-                      height:'100%',
-                      border: '1px solid #f0f0f0',
+                      border: "1px solid #f0f0f0",
                     }}
                   >
                     {loading && logs.length === 0 ? (
-                      <div style={{ textAlign: 'center', padding: 40 }}>
+                      <div style={{ textAlign: "center", padding: 40 }}>
                         <Spin tip="加载中..." />
                       </div>
                     ) : logs.length === 0 ? (
-                      <Empty description="暂无日志" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      <Empty
+                        description="暂无日志"
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      />
                     ) : (
-                      <div className="log-list" style={{ flex:1 ,height:'100%', overflow:'auto' }}>
+                      <div
+                        className="log-list"
+                        style={{ flex: 1, overflow: "auto" }}
+                      >
                         {logs.map((log) => (
                           <LogItem
                             key={log.id}
@@ -258,7 +299,7 @@ export default function LogViewerWithBackend({
               ),
             },
             {
-              key: 'backend',
+              key: "backend",
               label: (
                 <span>
                   <RobotOutlined />
@@ -266,9 +307,18 @@ export default function LogViewerWithBackend({
                 </span>
               ),
               children: (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div
+                  style={{
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    overflow: "hidden",
+                  }}
+                >
                   <div style={{ marginBottom: 16, flexShrink: 0 }}>
-                    <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                    <Space
+                      style={{ width: "100%", justifyContent: "space-between" }}
+                    >
                       <Space>
                         <Input
                           placeholder="搜索日志..."
@@ -282,12 +332,18 @@ export default function LogViewerWithBackend({
                       </Space>
                       <Space>
                         <Tooltip title="刷新">
-                          <Button icon={<ReloadOutlined spin={backendLoading} />} onClick={loadBackendLogs}>
+                          <Button
+                            icon={<ReloadOutlined spin={backendLoading} />}
+                            onClick={loadBackendLogs}
+                          >
                             刷新
                           </Button>
                         </Tooltip>
                         <Tooltip title="在文件中查看">
-                          <Button icon={<FolderOutlined />} onClick={handleOpenLogDir}>
+                          <Button
+                            icon={<FolderOutlined />}
+                            onClick={handleOpenLogDir}
+                          >
                             打开目录
                           </Button>
                         </Tooltip>
@@ -299,11 +355,11 @@ export default function LogViewerWithBackend({
                     <div
                       style={{
                         marginBottom: 16,
-                        padding: '8px 12px',
-                        background: '#fff2f0',
-                        border: '1px solid #ffccc7',
+                        padding: "8px 12px",
+                        background: "#fff2f0",
+                        border: "1px solid #ffccc7",
                         borderRadius: 4,
-                        color: '#cf1322',
+                        color: "#cf1322",
                         flexShrink: 0,
                       }}
                     >
@@ -314,9 +370,9 @@ export default function LogViewerWithBackend({
                   <div
                     style={{
                       flex: 1,
-                      overflow: 'auto',
-                      padding: '8px 12px',
-                      background: '#1e1e1e',
+                      overflow: "auto",
+                      padding: "8px 12px",
+                      background: "#1e1e1e",
                       borderRadius: 4,
                       fontFamily: 'Monaco, Consolas, "Courier New", monospace',
                       fontSize: 12,
@@ -324,12 +380,20 @@ export default function LogViewerWithBackend({
                     }}
                   >
                     {backendLoading && backendLogs.length === 0 ? (
-                      <div style={{ textAlign: 'center', padding: 40, color: '#fff' }}>
+                      <div
+                        style={{
+                          textAlign: "center",
+                          padding: 40,
+                          color: "#fff",
+                        }}
+                      >
                         <Spin tip="加载日志中..." />
                       </div>
                     ) : filteredBackendLogs.length === 0 ? (
                       <Empty
-                        description={backendSearch ? '没有匹配的日志' : '暂无日志文件'}
+                        description={
+                          backendSearch ? "没有匹配的日志" : "暂无日志文件"
+                        }
                         image={Empty.PRESENTED_IMAGE_SIMPLE}
                       />
                     ) : (
@@ -338,23 +402,32 @@ export default function LogViewerWithBackend({
                           <div
                             key={index}
                             style={{
-                              padding: '2px 0',
-                              borderBottom: '1px solid #333',
-                              color: '#d4d4d4',
+                              padding: "2px 0",
+                              borderBottom: "1px solid #333",
+                              color: "#d4d4d4",
                             }}
                           >
                             {log.timestamp && (
-                              <span style={{ color: '#569cd6', marginRight: 8 }}>[{log.timestamp}]</span>
+                              <span
+                                style={{ color: "#569cd6", marginRight: 8 }}
+                              >
+                                [{log.timestamp}]
+                              </span>
                             )}
                             {log.level && (
                               <Tag
                                 color={getBackendLevelColor(log.level)}
-                                style={{ marginRight: 8, fontSize: 10, lineHeight: '16px', height: 16 }}
+                                style={{
+                                  marginRight: 8,
+                                  fontSize: 10,
+                                  lineHeight: "16px",
+                                  height: 16,
+                                }}
                               >
                                 {log.level}
                               </Tag>
                             )}
-                            <span style={{ color: '#d4d4d4' }}>{log.raw}</span>
+                            <span style={{ color: "#d4d4d4" }}>{log.raw}</span>
                           </div>
                         ))}
                       </div>
@@ -364,11 +437,11 @@ export default function LogViewerWithBackend({
                   <div
                     style={{
                       marginTop: 8,
-                      padding: '8px 12px',
-                      background: '#f5f5f5',
+                      padding: "8px 12px",
+                      background: "#f5f5f5",
                       borderRadius: 4,
                       fontSize: 12,
-                      color: '#666',
+                      color: "#666",
                       flexShrink: 0,
                     }}
                   >
@@ -379,7 +452,9 @@ export default function LogViewerWithBackend({
                         min={50}
                         max={1000}
                         value={backendCount}
-                        onChange={(e) => setBackendCount(Number(e.target.value) || 100)}
+                        onChange={(e) =>
+                          setBackendCount(Number(e.target.value) || 100)
+                        }
                         style={{ width: 80 }}
                         size="small"
                       />
