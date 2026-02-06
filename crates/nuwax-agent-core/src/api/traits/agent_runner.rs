@@ -6,6 +6,9 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+// 重新导出 shared_types 中的类型
+pub use shared_types::{Attachment, ChatAgentConfig, ModelProviderConfig};
+
 /// Agent 状态（UI 层使用）
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -43,13 +46,25 @@ pub struct ChatRequest {
     #[serde(default)]
     pub attachments: Vec<Attachment>,
 
+    /// 数据源附件列表
+    #[serde(default)]
+    pub data_source_attachments: Vec<String>,
+
     /// 模型提供商配置
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_config: Option<ModelProviderConfig>,
 
-    /// 服务类型
+    /// Agent 配置覆盖
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub service_type: Option<ServiceType>,
+    pub agent_config_override: Option<ChatAgentConfig>,
+
+    /// 系统提示覆盖
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt_override: Option<String>,
+
+    /// 用户提示模板覆盖
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_prompt_template_override: Option<String>,
 }
 
 /// 聊天响应
@@ -87,98 +102,6 @@ pub enum ServiceType {
     Rcoder,
     /// Agent Runner 服务
     AgentRunner,
-}
-
-/// 附件数据源类型
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "source_type", content = "data")]
-pub enum AttachmentSource {
-    /// 文件路径，相对于项目目录
-    FilePath { path: String },
-
-    /// Base64 编码的数据
-    Base64 { data: String, mime_type: String },
-
-    /// URL 链接
-    Url { url: String },
-}
-
-/// 附件枚举
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "content")]
-pub enum Attachment {
-    /// 文本附件
-    Text(TextAttachment),
-
-    /// 图像附件
-    Image(ImageAttachment),
-
-    /// 音频附件
-    Audio(AudioAttachment),
-
-    /// 文档附件
-    Document(DocumentAttachment),
-}
-
-/// 文本附件
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TextAttachment {
-    pub id: String,
-    pub source: AttachmentSource,
-    pub filename: Option<String>,
-    pub description: Option<String>,
-}
-
-/// 图像附件
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImageAttachment {
-    pub id: String,
-    pub source: AttachmentSource,
-    pub mime_type: String,
-    pub filename: Option<String>,
-    pub description: Option<String>,
-}
-
-/// 音频附件
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AudioAttachment {
-    pub id: String,
-    pub source: AttachmentSource,
-    pub mime_type: String,
-    pub filename: Option<String>,
-    pub description: Option<String>,
-}
-
-/// 文档附件
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DocumentAttachment {
-    pub id: String,
-    pub source: AttachmentSource,
-    pub mime_type: String,
-    pub filename: Option<String>,
-    pub description: Option<String>,
-}
-
-/// 模型提供商配置
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ModelProviderConfig {
-    /// 模型 ID
-    pub id: String,
-
-    /// 提供商名称
-    pub name: String,
-
-    /// API 基础 URL
-    pub base_url: String,
-
-    /// API 密钥
-    pub api_key: String,
-
-    /// 是否需要 OpenAI 兼容的认证
-    pub requires_openai_auth: bool,
-
-    /// 默认模型名称
-    pub default_model: String,
 }
 
 /// 状态查询结果

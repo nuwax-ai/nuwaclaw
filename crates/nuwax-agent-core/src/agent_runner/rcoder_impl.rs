@@ -11,8 +11,8 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::api::traits::agent_runner::{
-    AgentInfo, AgentRunnerApi, AgentStatus, AgentStatusResult, ChatRequest, ChatResponse,
-    ProgressMessage, ProgressMessageType,
+    AgentInfo, AgentRunnerApi, AgentStatus, AgentStatusResult, ChatAgentConfig, ChatRequest,
+    ChatResponse, ProgressMessage, ProgressMessageType,
 };
 
 // 使用 agent_runner 导出的类型
@@ -232,13 +232,14 @@ impl AgentRunnerApi for RcoderAgentRunner {
         // 2. 转换 model_config 并打印详细信息
         let model_config = request.model_config.map(|config| {
             info!(
-                "[RcoderAgentRunner] 转换模型配置: id={}, name={}, base_url={}, api_key_len={}, default_model={}, requires_openai_auth={}",
+                "[RcoderAgentRunner] 转换模型配置: id={}, name={}, base_url={}, api_key_len={}, default_model={}, requires_openai_auth={}, api_protocol={:?}",
                 config.id,
                 config.name,
                 config.base_url,
                 config.api_key.len(),
                 config.default_model,
-                config.requires_openai_auth
+                config.requires_openai_auth,
+                config.api_protocol
             );
             SharedModelProviderConfig {
                 id: config.id,
@@ -247,7 +248,7 @@ impl AgentRunnerApi for RcoderAgentRunner {
                 api_key: config.api_key,
                 requires_openai_auth: config.requires_openai_auth,
                 default_model: config.default_model,
-                api_protocol: None, // HTTP 接口暂不支持
+                api_protocol: config.api_protocol,
             }
         });
 
@@ -268,6 +269,15 @@ impl AgentRunnerApi for RcoderAgentRunner {
             project_dir
         );
 
+        // 2.2 打印 agent_config_override
+        if let Some(ref config) = request.agent_config_override {
+            info!(
+                "[RcoderAgentRunner] agent_config_override: has_agent_server={}, context_servers={}",
+                config.has_agent_server(),
+                config.context_servers.len()
+            );
+        }
+
         // 3. 构建 ChatHandlerInput
         let input = ChatHandlerInput {
             project_id: project_id.clone(),
@@ -276,13 +286,20 @@ impl AgentRunnerApi for RcoderAgentRunner {
             prompt: request.prompt,
             request_id,
             attachments: vec![], // HTTP 接口暂不支持附件
-            data_source_attachments: vec![],
+            data_source_attachments: request.data_source_attachments,
             model_config,
             service_type: ServiceType::ComputerAgentRunner,
-            agent_config_override: None,
-            system_prompt_override: None,
-            user_prompt_template_override: None,
+            agent_config_override: request.agent_config_override,
+            system_prompt_override: request.system_prompt_override,
+            user_prompt_template_override: request.user_prompt_template_override,
         };
+
+        info!(
+            "[RcoderAgentRunner] 构建 ChatHandlerInput: agent_config_override={}, system_prompt_override={}, data_source_attachments={}",
+            input.agent_config_override.is_some(),
+            input.system_prompt_override.is_some(),
+            input.data_source_attachments.len()
+        );
 
         // 4. 构建 ChatHandlerContext
         let context = ChatHandlerContext {
