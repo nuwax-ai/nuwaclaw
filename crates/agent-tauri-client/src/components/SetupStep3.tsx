@@ -190,7 +190,7 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
         setNodeResult({
           installed: nodeDep.status !== "missing",
           version: nodeDep.version,
-          meetsRequirement: nodeDep.status === "installed",
+          meetsRequirement: nodeDep.meetsRequirement === true,
         });
       }
 

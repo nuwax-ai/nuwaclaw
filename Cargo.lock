@@ -134,6 +134,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "auto-launch",
+ "dirs 5.0.1",
  "futures-util",
  "hex",
  "log",

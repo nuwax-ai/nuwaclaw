@@ -1572,11 +1572,15 @@ async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, String
     Ok(true)
 }
 
-/// 获取应用数据目录下本地安装的 Node.js 路径
+/// 获取 Node.js 全局安装目录
+/// 安装到 ~/.nuwax/node/ 以便全局访问
+fn get_global_node_install_dir() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|home| home.join(".nuwax").join("node"))
+}
+
 /// 返回 node 二进制文件的完整路径（如果存在）
-fn get_local_node_bin_path(app: &tauri::AppHandle) -> Option<String> {
-    let app_data_dir = app.path().app_data_dir().ok()?;
-    let node_dir = app_data_dir.join("node");
+fn get_local_node_bin_path() -> Option<String> {
+    let node_dir = get_global_node_install_dir()?;
 
     #[cfg(unix)]
     let node_bin = node_dir.join("bin").join("node");
@@ -1590,49 +1594,25 @@ fn get_local_node_bin_path(app: &tauri::AppHandle) -> Option<String> {
     }
 }
 
-/// 获取可用的 node 可执行文件路径
-/// 优先使用本地安装的 node，其次使用系统 PATH 中的 node
-fn get_node_bin_path_resolved(app: &tauri::AppHandle) -> Option<String> {
-    // 1. 检查本地安装的 node
-    if let Some(local_path) = get_local_node_bin_path(app) {
-        // 验证可执行
-        if let Ok(output) = Command::new(&local_path).arg("--version").output() {
-            if output.status.success() {
-                return Some(local_path);
-            }
-        }
-    }
-
-    // 2. 检查系统 PATH 中的 node
-    if let Ok(output) = Command::new("node").arg("--version").output() {
-        if output.status.success() {
-            return Some("node".to_string());
-        }
-    }
-
-    None
-}
-
 /// 获取可用的 npm 可执行文件路径
 /// 优先使用本地安装的 npm，其次使用系统 PATH 中的 npm
-fn get_npm_bin_path_resolved(app: &tauri::AppHandle) -> Option<String> {
-    // 1. 检查本地安装的 npm
-    let app_data_dir = app.path().app_data_dir().ok()?;
-    let node_dir = app_data_dir.join("node");
+fn get_npm_bin_path_resolved() -> Option<String> {
+    // 1. 检查全局安装的 npm (~/.nuwax/node/)
+    if let Some(node_dir) = get_global_node_install_dir() {
+        #[cfg(unix)]
+        let npm_bin = node_dir.join("bin").join("npm");
+        #[cfg(windows)]
+        let npm_bin = node_dir.join("npm.cmd");
 
-    #[cfg(unix)]
-    let npm_bin = node_dir.join("bin").join("npm");
-    #[cfg(windows)]
-    let npm_bin = node_dir.join("npm.cmd");
-
-    if npm_bin.exists() {
-        // 验证可执行
-        if let Ok(output) = Command::new(npm_bin.to_string_lossy().to_string())
-            .arg("--version")
-            .output()
-        {
-            if output.status.success() {
-                return Some(npm_bin.to_string_lossy().to_string());
+        if npm_bin.exists() {
+            // 验证可执行
+            if let Ok(output) = Command::new(npm_bin.to_string_lossy().to_string())
+                .arg("--version")
+                .output()
+            {
+                if output.status.success() {
+                    return Some(npm_bin.to_string_lossy().to_string());
+                }
             }
         }
     }
@@ -1695,27 +1675,29 @@ fn get_node_shasums_url() -> String {
 
 /// 自动安装 Node.js
 ///
-/// 下载 Node.js 到应用数据目录，校验 SHA256，解压
+/// 下载 Node.js 到全局目录 (~/.nuwax/node/)，校验 SHA256，解压
 /// 通过 Tauri 事件 "node-install-progress" 推送安装进度
 #[tauri::command]
 async fn node_auto_install(app: tauri::AppHandle) -> Result<NodeAutoInstallResult, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+    let global_dir =
+        get_global_node_install_dir().ok_or_else(|| "无法获取用户主目录".to_string())?;
+    let nuwax_dir = global_dir
+        .parent()
+        .ok_or_else(|| "无法获取 .nuwax 目录".to_string())?
+        .to_path_buf();
 
-    // 确保应用数据目录存在
-    if !app_data_dir.exists() {
-        std::fs::create_dir_all(&app_data_dir)
-            .map_err(|e| format!("创建应用数据目录失败: {}", e))?;
+    // 确保 ~/.nuwax/ 目录存在
+    if !nuwax_dir.exists() {
+        std::fs::create_dir_all(&nuwax_dir)
+            .map_err(|e| format!("创建 ~/.nuwax 目录失败: {}", e))?;
     }
 
-    let node_dir = app_data_dir.join("node");
+    let node_dir = global_dir;
     let download_filename =
         get_node_download_filename().map_err(|e| format!("获取下载文件名失败: {}", e))?;
     let download_url = get_node_download_url().map_err(|e| format!("获取下载 URL 失败: {}", e))?;
     let shasums_url = get_node_shasums_url();
-    let download_path = app_data_dir.join(&download_filename);
+    let download_path = nuwax_dir.join(&download_filename);
 
     info!("[NodeInstall] 开始自动安装 Node.js v{}", NODE_VERSION);
     info!("[NodeInstall] 下载 URL: {}", download_url);
@@ -1882,7 +1864,7 @@ async fn node_auto_install(app: tauri::AppHandle) -> Result<NodeAutoInstallResul
     }
 
     // 创建临时解压目录
-    let extract_tmp = app_data_dir.join("node_extract_tmp");
+    let extract_tmp = nuwax_dir.join("node_extract_tmp");
     if extract_tmp.exists() {
         let _ = std::fs::remove_dir_all(&extract_tmp);
     }
@@ -2048,9 +2030,9 @@ async fn node_auto_install(app: tauri::AppHandle) -> Result<NodeAutoInstallResul
 
 /// 检测 Node.js 版本
 #[tauri::command]
-async fn dependency_node_detect(app: tauri::AppHandle) -> Result<NodeVersionResult, String> {
+async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionResult, String> {
     // 1. 检查本地安装的 node
-    if let Some(local_path) = get_local_node_bin_path(&app) {
+    if let Some(local_path) = get_local_node_bin_path() {
         let output = Command::new(&local_path).arg("--version").output();
         if let Ok(out) = output {
             if out.status.success() {
@@ -2200,7 +2182,7 @@ async fn dependency_local_install(
     let registry = "https://registry.npmmirror.com/";
 
     // 获取可用的 npm 路径
-    let npm_bin = get_npm_bin_path_resolved(&app).ok_or("未找到可用的 npm，请先安装 Node.js")?;
+    let npm_bin = get_npm_bin_path_resolved().ok_or("未找到可用的 npm，请先安装 Node.js")?;
 
     // 确保 npm 环境已初始化
     dependency_local_env_init(app.clone()).await?;
@@ -2242,12 +2224,12 @@ async fn dependency_local_install(
 /// 查询 npm 包的最新版本号
 #[tauri::command]
 async fn dependency_local_check_latest(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     package_name: String,
 ) -> Result<Option<String>, String> {
     let registry = "https://registry.npmmirror.com/";
 
-    let npm_bin = get_npm_bin_path_resolved(&app).ok_or("未找到可用的 npm，请先安装 Node.js")?;
+    let npm_bin = get_npm_bin_path_resolved().ok_or("未找到可用的 npm，请先安装 Node.js")?;
 
     let output = Command::new(&npm_bin)
         .args(["view", &package_name, "version", "--registry", registry])
@@ -2434,13 +2416,13 @@ async fn dependency_npm_global_check(bin_name: String) -> Result<NpmPackageResul
 /// 全局安装 npm 包（使用 npmmirror）
 #[tauri::command]
 async fn dependency_npm_global_install(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     package_name: String,
     bin_name: String,
 ) -> Result<InstallResult, String> {
     let registry = "https://registry.npmmirror.com/";
 
-    let npm_bin = get_npm_bin_path_resolved(&app).ok_or("未找到可用的 npm，请先安装 Node.js")?;
+    let npm_bin = get_npm_bin_path_resolved().ok_or("未找到可用的 npm，请先安装 Node.js")?;
 
     info!(
         "[Dependency] 开始全局安装 npm 包: {} (registry: {})",
@@ -2768,7 +2750,7 @@ fn log_dir_get() -> String {
 ///
 /// 使用系统默认文件管理器打开日志目录，方便用户查看和分析日志
 #[tauri::command]
-async fn open_log_directory(app: tauri::AppHandle) -> Result<bool, String> {
+async fn open_log_directory(_app: tauri::AppHandle) -> Result<bool, String> {
     let log_dir = nuwax_agent_core::Logger::get_log_dir();
     // 使用 tauri_plugin_opener::open_path 打开目录
     let result = tauri_plugin_opener::open_path(&log_dir, None::<&str>);
@@ -2896,15 +2878,7 @@ pub fn run() {
         eprintln!("[Logger] Failed to initialize logger: {}", e);
     }
 
-    // 预定义合法的 Tab 名称列表，用于参数验证
-    const VALID_TABS: &[&str] = &[
-        "client",
-        "settings",
-        "dependencies",
-        "permissions",
-        "logs",
-        "about",
-    ];
+    // 预定义合法的 Tab 名称列表，用于参数验证（在 cli-plugin 特性中使用）
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -2936,6 +2910,16 @@ pub fn run() {
             #[cfg(feature = "cli-plugin")]
             {
                 use tauri_plugin_cli::CliExt;
+
+                const VALID_TABS: &[&str] = &[
+                    "client",
+                    "settings",
+                    "dependencies",
+                    "permissions",
+                    "logs",
+                    "about",
+                ];
+
                 let matches = app.cli().matches();
 
                 match matches {
