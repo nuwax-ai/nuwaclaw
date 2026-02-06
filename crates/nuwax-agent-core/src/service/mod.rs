@@ -48,11 +48,8 @@ async fn run_command_with_timeout(program: &str, args: &[&str], timeout_secs: u6
 
     match cmd.wrap(process_wrap::tokio::KillOnDrop).spawn() {
         Ok(mut child) => {
-            match tokio::time::timeout(
-                tokio::time::Duration::from_secs(timeout_secs),
-                child.wait(),
-            )
-            .await
+            match tokio::time::timeout(tokio::time::Duration::from_secs(timeout_secs), child.wait())
+                .await
             {
                 Ok(Ok(status)) => status.success(),
                 Ok(Err(e)) => {
@@ -690,9 +687,7 @@ impl ServiceManager {
         &self,
         config: NuwaxFileServerConfig,
     ) -> Result<(), String> {
-        info!(
-            "[FileServer] ========== 启动文件服务 =========="
-        );
+        info!("[FileServer] ========== 启动文件服务 ==========");
 
         // 检测并清理残留进程（传入正确的 bin_path）
         kill_stale_file_server_processes(&config.bin_path).await;
@@ -706,6 +701,7 @@ impl ServiceManager {
                 .arg(&config.env)
                 .arg("--port")
                 .arg(config.port.to_string())
+                // 通过命令行参数传递配置 (KEY=VALUE 格式)
                 .arg(format!("INIT_PROJECT_NAME={}", &config.init_project_name))
                 .arg(format!("INIT_PROJECT_DIR={}", &config.init_project_dir))
                 .arg(format!("UPLOAD_PROJECT_DIR={}", &config.upload_project_dir))

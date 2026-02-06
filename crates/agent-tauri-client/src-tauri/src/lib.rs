@@ -618,7 +618,10 @@ fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
         .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
 
     // 构建 node_modules/.bin 下的路径
-    let bin_path = app_data_dir.join("node_modules").join(".bin").join(bin_name);
+    let bin_path = app_data_dir
+        .join("node_modules")
+        .join(".bin")
+        .join(bin_name);
 
     if bin_path.exists() {
         info!(
@@ -629,9 +632,7 @@ fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
     }
 
     // 如果本地没有安装，尝试使用全局命令（作为 fallback）
-    warn!(
-        "[FileServer] 本地未安装 nuwax-file-server，尝试使用全局命令"
-    );
+    warn!("[FileServer] 本地未安装 nuwax-file-server，尝试使用全局命令");
 
     // 检查是否在 PATH 中（跨平台）
     #[cfg(unix)]
@@ -639,10 +640,7 @@ fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
     #[cfg(windows)]
     let which_cmd = "where";
 
-    if let Ok(output) = std::process::Command::new(which_cmd)
-        .arg(bin_name)
-        .output()
-    {
+    if let Ok(output) = std::process::Command::new(which_cmd).arg(bin_name).output() {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() {
@@ -1198,15 +1196,95 @@ async fn services_restart_all(
             }
         };
 
-        // 使用完整配置启动
+        // 读取用户配置的工作区目录
+        let workspace_dir = match read_store_string(&app, "setup.workspace_dir") {
+            Ok(Some(dir)) => {
+                info!("[Services]   - 找到 workspace_dir: {}", dir);
+                dir
+            }
+            Ok(None) => {
+                // 如果没有配置，使用应用数据目录下的 workspace
+                let app_data_dir = app
+                    .path()
+                    .app_data_dir()
+                    .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+                let default_workspace = app_data_dir.join("workspace");
+                let default_workspace_str = default_workspace.to_string_lossy().to_string();
+                info!(
+                    "[Services]   - 未找到 workspace_dir，使用默认值: {}",
+                    default_workspace_str
+                );
+                default_workspace_str
+            }
+            Err(e) => {
+                warn!("[Services]   - 读取 workspace_dir 失败: {}，使用默认值", e);
+                let app_data_dir = app
+                    .path()
+                    .app_data_dir()
+                    .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+                app_data_dir.join("workspace").to_string_lossy().to_string()
+            }
+        };
+
+        // 获取应用数据目录用于日志等
+        let app_data_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+        let app_data_str = app_data_dir.to_string_lossy().to_string();
+
+        // 使用完整配置启动，基于用户工作区目录设置各路径
+        // workspace_dir 替换容器中的 /app 前缀
         let file_server_config = nuwax_agent_core::NuwaxFileServerConfig {
             bin_path,
             port,
-            ..Default::default()
+            env: "production".to_string(),
+            init_project_name: "nuwax-template".to_string(),
+            init_project_dir: format!("{}/project_init", workspace_dir),
+            upload_project_dir: format!("{}/project_zips", workspace_dir),
+            project_source_dir: format!("{}/project_workspace", workspace_dir),
+            dist_target_dir: format!("{}/project_nginx", workspace_dir),
+            log_base_dir: format!("{}/logs/project_logs", app_data_str),
+            computer_workspace_dir: format!("{}/computer-project-workspace", workspace_dir),
+            computer_log_dir: format!("{}/logs/computer_logs", app_data_str),
         };
 
+        // 打印完整配置用于调试
+        info!("[Services]   - file_server_config:");
+        info!("[Services]     env: {}", file_server_config.env);
+        info!(
+            "[Services]     init_project_dir: {}",
+            file_server_config.init_project_dir
+        );
+        info!(
+            "[Services]     upload_project_dir: {}",
+            file_server_config.upload_project_dir
+        );
+        info!(
+            "[Services]     project_source_dir: {}",
+            file_server_config.project_source_dir
+        );
+        info!(
+            "[Services]     dist_target_dir: {}",
+            file_server_config.dist_target_dir
+        );
+        info!(
+            "[Services]     log_base_dir: {}",
+            file_server_config.log_base_dir
+        );
+        info!(
+            "[Services]     computer_workspace_dir: {}",
+            file_server_config.computer_workspace_dir
+        );
+        info!(
+            "[Services]     computer_log_dir: {}",
+            file_server_config.computer_log_dir
+        );
+
         let manager = state.manager.lock().await;
-        manager.file_server_start_with_config(file_server_config).await?;
+        manager
+            .file_server_start_with_config(file_server_config)
+            .await?;
         info!("[Services]   - 文件服务启动命令已发送");
     }
 
