@@ -941,8 +941,11 @@ impl From<ServiceInfo> for ServiceInfoDto {
 ///
 /// 注意：服务配置在启动时从 Tauri store 动态读取，
 /// 不在此处设置默认配置
+
 struct ServiceManagerState {
     manager: Mutex<ServiceManager>,
+    /// 保存当前的 RcoderAgentRunner，用于在重启时正确停止旧实例（包括 Pingora 代理）
+    agent_runner: Mutex<Option<Arc<RcoderAgentRunner>>>,
 }
 
 impl Default for ServiceManagerState {
@@ -951,6 +954,7 @@ impl Default for ServiceManagerState {
         let lanproxy_config = nuwax_agent_core::NuwaxLanproxyConfig::default();
         Self {
             manager: Mutex::new(ServiceManager::new(None, Some(lanproxy_config))),
+            agent_runner: Mutex::new(None),
         }
     }
 }
@@ -1041,25 +1045,44 @@ async fn rcoder_start(
     };
 
     // 创建 RcoderAgentRunner 配置
-    // port 是 agent_port (HTTP 服务端口)，backend_port 使用相同的值
+    // projects_dir 需要与 file-server 的 computer_workspace_dir 保持一致
     let config = RcoderAgentRunnerConfig {
-        projects_dir,
+        projects_dir: projects_dir.join("computer-project-workspace"),
         backend_port: port, // Agent HTTP 服务端口用于 pingora 反向代理
         ..RcoderAgentRunnerConfig::default()
     };
     info!("[Rcoder] 创建 RcoderAgentRunner 配置: {:?}", config);
 
     // 创建 RcoderAgentRunner 实例
-    let agent_runner = RcoderAgentRunner::new(config).await;
+    let agent_runner = Arc::new(RcoderAgentRunner::new(config).await);
+
+    // 停止旧的 runner（如果存在），释放端口
+    {
+        let mut runner_guard = state.agent_runner.lock().await;
+        if let Some(old_runner) = runner_guard.take() {
+            info!("[Rcoder] 停止旧的 RcoderAgentRunner...");
+            old_runner.stop().await;
+            // 等待端口释放
+            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+        }
+        *runner_guard = Some(agent_runner.clone());
+    }
 
     let manager = state.manager.lock().await;
-    manager.rcoder_start(port, Arc::new(agent_runner)).await?;
+    manager.rcoder_start(port, agent_runner).await?;
     Ok(true)
 }
 
 /// 停止 HTTP Server (rcoder)
 #[tauri::command]
 async fn rcoder_stop(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
+    // 停止 RcoderAgentRunner（包括 Pingora 代理）
+    {
+        let mut runner_guard = state.agent_runner.lock().await;
+        if let Some(old_runner) = runner_guard.take() {
+            old_runner.stop().await;
+        }
+    }
     let manager = state.manager.lock().await;
     manager.rcoder_stop().await?;
     Ok(true)
@@ -1089,6 +1112,13 @@ async fn rcoder_restart(
 /// 停止所有服务
 #[tauri::command]
 async fn services_stop_all(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
+    // 停止 RcoderAgentRunner（包括 Pingora 代理）
+    {
+        let mut runner_guard = state.agent_runner.lock().await;
+        if let Some(old_runner) = runner_guard.take() {
+            old_runner.stop().await;
+        }
+    }
     let manager = state.manager.lock().await;
     manager.services_stop_all().await?;
     Ok(true)
@@ -1112,6 +1142,14 @@ async fn services_restart_all(
 
     // 停止所有服务
     info!("[Services] 1/4 停止所有服务...");
+    {
+        // 停止 RcoderAgentRunner（包括 Pingora 代理）
+        let mut runner_guard = state.agent_runner.lock().await;
+        if let Some(old_runner) = runner_guard.take() {
+            info!("[Services] 停止旧的 RcoderAgentRunner...");
+            old_runner.stop().await;
+        }
+    }
     {
         let manager = state.manager.lock().await;
         manager.services_stop_all().await?;
@@ -1173,17 +1211,24 @@ async fn services_restart_all(
         };
 
         // 创建 RcoderAgentRunner 配置
+        // projects_dir 需要与 file-server 的 computer_workspace_dir 保持一致
         let config = RcoderAgentRunnerConfig {
-            projects_dir,
+            projects_dir: projects_dir.join("computer-project-workspace"),
             ..RcoderAgentRunnerConfig::default()
         };
         info!("[Services]   - 创建 RcoderAgentRunner 配置: {:?}", config);
 
         // 创建 RcoderAgentRunner 实例
-        let agent_runner = RcoderAgentRunner::new(config).await;
+        let agent_runner = Arc::new(RcoderAgentRunner::new(config).await);
+
+        // 存储新的 runner
+        {
+            let mut runner_guard = state.agent_runner.lock().await;
+            *runner_guard = Some(agent_runner.clone());
+        }
 
         let manager = state.manager.lock().await;
-        manager.rcoder_start(port, Arc::new(agent_runner)).await?;
+        manager.rcoder_start(port, agent_runner).await?;
         info!("[Services]   - Agent 服务启动命令已发送");
     }
 
