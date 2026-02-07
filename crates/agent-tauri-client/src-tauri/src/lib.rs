@@ -1050,7 +1050,7 @@ async fn rcoder_start(
     info!("[Rcoder] 创建 RcoderAgentRunner 配置: {:?}", config);
 
     // 创建 RcoderAgentRunner 实例
-    let agent_runner = RcoderAgentRunner::new(config);
+    let agent_runner = RcoderAgentRunner::new(config).await;
 
     let manager = state.manager.lock().await;
     manager.rcoder_start(port, Arc::new(agent_runner)).await?;
@@ -1180,7 +1180,7 @@ async fn services_restart_all(
         info!("[Services]   - 创建 RcoderAgentRunner 配置: {:?}", config);
 
         // 创建 RcoderAgentRunner 实例
-        let agent_runner = RcoderAgentRunner::new(config);
+        let agent_runner = RcoderAgentRunner::new(config).await;
 
         let manager = state.manager.lock().await;
         manager.rcoder_start(port, Arc::new(agent_runner)).await?;
