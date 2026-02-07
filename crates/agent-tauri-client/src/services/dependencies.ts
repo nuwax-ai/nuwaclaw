@@ -417,7 +417,7 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
   {
     name: "nuwax-file-server",
     displayName: "Nuwax File Server",
-    type: "npm-local",
+    type: "npm-global",
     description: "NuWax 文件服务 - AI Agent 文件传输服务",
     required: true,
     binName: "nuwax-file-server",
@@ -425,7 +425,7 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
   {
     name: "nuwaxcode",
     displayName: "NuwaxCode",
-    type: "npm-local",
+    type: "npm-global",
     description: "NuWax VSCode 扩展 - AI 编程助手集成",
     required: true,
     binName: "nuwaxcode",
@@ -433,7 +433,7 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
   {
     name: "claude-code-acp",
     displayName: "Claude Code (ACP)",
-    type: "npm-local",
+    type: "npm-global",
     description: "Claude Code AI 编程助手 (ACP 版本)",
     required: true,
     binName: "claude-code-acp",

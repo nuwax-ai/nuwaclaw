@@ -48,6 +48,8 @@ import {
   installLocalNpmPackage,
   checkShellInstallerPackage,
   installShellInstallerPackage,
+  checkGlobalNpmPackage,
+  installGlobalNpmPackage,
   type LocalDependencyItem,
   type NodeVersionResult,
 } from "../services/dependencies";
@@ -348,6 +350,12 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
           );
           isInstalled = checkResult.installed;
           checkVersion = checkResult.version;
+        } else if (pkg.type === "npm-global") {
+          const checkResult = await checkGlobalNpmPackage(
+            pkg.binName || pkg.name,
+          );
+          isInstalled = checkResult.installed;
+          checkVersion = checkResult.version;
         } else {
           const checkResult = await checkLocalNpmPackage(pkg.name);
           isInstalled = checkResult.installed;
@@ -378,6 +386,11 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
           }
           installResult = await installShellInstallerPackage(
             pkg.installerUrl,
+            pkg.binName || pkg.name,
+          );
+        } else if (pkg.type === "npm-global") {
+          installResult = await installGlobalNpmPackage(
+            pkg.name,
             pkg.binName || pkg.name,
           );
         } else {

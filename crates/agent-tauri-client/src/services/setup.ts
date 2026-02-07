@@ -315,3 +315,32 @@ export async function goToStep(step: number): Promise<void> {
   }
   await saveStepProgress(step);
 }
+
+// ========== 依赖安装状态 ==========
+
+/**
+ * 获取依赖是否已全部安装
+ */
+export async function getDepsInstalled(): Promise<boolean> {
+  try {
+    await initStore();
+    return await setupStorage.getDepsInstalled();
+  } catch (error) {
+    console.error('[Setup] 获取依赖安装状态失败:', error);
+    return false;
+  }
+}
+
+/**
+ * 设置依赖是否已全部安装
+ */
+export async function setDepsInstalled(value: boolean): Promise<void> {
+  try {
+    await initStore();
+    await setupStorage.setDepsInstalled(value);
+    console.log('[Setup] 依赖安装状态已保存:', value);
+  } catch (error) {
+    console.error('[Setup] 保存依赖安装状态失败:', error);
+    throw error;
+  }
+}
