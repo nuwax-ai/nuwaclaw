@@ -1,14 +1,9 @@
 /**
  * 初始化向导组件
- *
- * 管理客户端首次启动的配置流程:
- * 0. 依赖安装 - 自动执行，隐藏步骤（不可返回）
- * 1. 基础设置 - 服务器配置、端口、工作区
- * 2. 账号登录 - 网络权限检查、用户登录 → 完成后进入主界面
  */
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Steps, Card, Typography, Space, Spin, Result } from "antd";
+import { Steps, Typography, Spin, Result } from "antd";
 import {
   SettingOutlined,
   UserOutlined,
@@ -30,59 +25,32 @@ import SetupStep3 from "./SetupStep3";
 
 const { Title, Text } = Typography;
 
-// 向导步骤配置（只显示 2 个配置步骤，依赖安装是隐藏的前置步骤）
 const WIZARD_STEPS = [
-  {
-    key: 1,
-    title: "基础设置",
-    icon: <SettingOutlined />,
-    description: "",
-  },
-  {
-    key: 2,
-    title: "账号登录",
-    icon: <UserOutlined />,
-    description: "",
-  },
+  { key: 1, title: "基础设置", icon: <SettingOutlined /> },
+  { key: 2, title: "账号登录", icon: <UserOutlined /> },
 ];
 
 interface SetupWizardProps {
-  /** 完成回调 */
   onComplete: () => void;
 }
 
-/**
- * 初始化向导组件
- */
 export default function SetupWizard({ onComplete }: SetupWizardProps) {
-  // 依赖是否安装完成（隐藏的前置步骤）
-  const [dependenciesReady, setDependenciesReady] = useState<boolean | null>(null);
-  // 当前配置步骤 (1=基础设置, 2=账号登录)
+  const [dependenciesReady, setDependenciesReady] = useState<boolean | null>(
+    null,
+  );
   const [currentStep, setCurrentStep] = useState<number>(1);
-  // 是否正在加载初始状态
   const [loading, setLoading] = useState(true);
-  // 是否完成
   const [completed, setCompleted] = useState(false);
-  // 是否正在启动服务
   const [startingServices, setStartingServices] = useState(false);
 
-  /**
-   * 初始化: 加载保存的状态
-   */
   useEffect(() => {
     const init = async () => {
       try {
-        // 检查依赖是否已安装
         const depsInstalled = await getDepsInstalled();
         setDependenciesReady(depsInstalled);
-
         if (depsInstalled) {
-          // 依赖已安装，加载配置步骤进度
           const step = await getCurrentStep();
           setCurrentStep(step);
-          console.log("[SetupWizard] 依赖已安装，当前步骤:", step);
-        } else {
-          console.log("[SetupWizard] 需要先安装依赖");
         }
       } catch (error) {
         console.error("[SetupWizard] 加载状态失败:", error);
@@ -94,58 +62,38 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     init();
   }, []);
 
-  /**
-   * 监听应用激活事件
-   */
   useEffect(() => {
     const setupListener = async () => {
-      const unlisten = await listen("tauri://focus", async () => {
-        console.log("[SetupWizard] 应用激活");
-      });
+      const unlisten = await listen("tauri://focus", async () => {});
       return unlisten;
     };
-
-    const unlistenPromise = setupListener();
+    const p = setupListener();
     return () => {
-      unlistenPromise.then((unlisten) => unlisten());
+      p.then((u) => u());
     };
   }, []);
 
-  /**
-   * 依赖安装完成回调
-   */
   const handleDepsComplete = useCallback(async () => {
-    console.log("[SetupWizard] 依赖安装完成");
     await setDepsInstalled(true);
     setDependenciesReady(true);
     setCurrentStep(1);
   }, []);
 
-  /**
-   * 步骤1完成回调（基础设置）
-   */
   const handleStep1Complete = useCallback(() => {
     setCurrentStep(2);
     saveStepProgress(2);
   }, []);
 
-  /**
-   * 返回上一步
-   */
   const handleGoBack = useCallback(() => {
     if (currentStep > 1) {
-      const newStep = currentStep - 1;
-      setCurrentStep(newStep);
-      saveStepProgress(newStep);
+      const s = currentStep - 1;
+      setCurrentStep(s);
+      saveStepProgress(s);
     }
   }, [currentStep]);
 
-  /**
-   * 点击步骤条切换步骤（只能切换到已完成的步骤）
-   */
   const handleStepClick = useCallback(
     (step: number) => {
-      // 只能回退到之前的步骤
       if (step < currentStep) {
         setCurrentStep(step + 1);
         saveStepProgress(step + 1);
@@ -154,55 +102,33 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     [currentStep],
   );
 
-  /**
-   * 步骤2完成回调（账号登录）- 直接进入主界面
-   */
   const handleStep2Complete = useCallback(async () => {
     setStartingServices(true);
-
     try {
-      // 启动服务
       await restartAllServices();
-
-      // 标记初始化完成
       await completeSetup();
-
       setCompleted(true);
-
-      // 延迟后进入主界面
-      setTimeout(() => {
-        onComplete();
-      }, 2000);
+      setTimeout(() => onComplete(), 2000);
     } catch (error) {
-      console.error("[SetupWizard] 完成初始化失败:", error);
-      // 即使启动服务失败，也标记为完成
       await completeSetup();
       setCompleted(true);
-      setTimeout(() => {
-        onComplete();
-      }, 2000);
+      setTimeout(() => onComplete(), 2000);
     } finally {
       setStartingServices(false);
     }
   }, [onComplete]);
 
-  /**
-   * 渲染当前步骤内容
-   */
   const renderStepContent = () => {
-    // 完成状态
     if (completed) {
       return (
         <Result
-          icon={<CheckCircleOutlined style={{ color: "#52c41a" }} />}
+          icon={<CheckCircleOutlined style={{ color: "#16a34a" }} />}
           title="初始化完成"
           subTitle="正在进入主界面..."
-          extra={<Spin />}
+          extra={<Spin size="small" />}
         />
       );
     }
-
-    // 正在启动服务
     if (startingServices) {
       return (
         <Result
@@ -212,8 +138,6 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         />
       );
     }
-
-    // 配置步骤内容
     switch (currentStep) {
       case 1:
         return <SetupStep1 onComplete={handleStep1Complete} />;
@@ -226,208 +150,126 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     }
   };
 
-  // 加载中
   if (loading) {
     return (
-      <div className="setup-wizard-container">
-        <div className="setup-wizard-loading">
-          <Spin size="large" />
-          <Text style={{ marginTop: 16 }}>正在加载...</Text>
+      <div style={styles.container}>
+        <div style={styles.center}>
+          <Spin size="small" />
         </div>
       </div>
     );
   }
 
-  // 依赖安装阶段（隐藏步骤，无导航条）
+  // 依赖安装阶段
   if (!dependenciesReady) {
     return (
-      <div className="setup-wizard-container">
-        {/* 简化的头部 */}
-        <div className="setup-wizard-header">
-          <Space>
-            <RobotOutlined style={{ fontSize: 22, color: "#1890ff" }} />
-            <Title level={4} style={{ margin: 0 }}>
-              NuWax Agent 初始化
-            </Title>
-          </Space>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            正在检查和安装必需依赖
-          </Text>
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              justifyContent: "center",
+              marginBottom: 4,
+            }}
+          >
+            <RobotOutlined style={{ fontSize: 18, color: "#18181b" }} />
+            <span style={{ fontSize: 15, fontWeight: 600 }}>NuWax Agent</span>
+          </div>
+          <div style={{ fontSize: 12, color: "#a1a1aa", textAlign: "center" }}>
+            检查和安装必需依赖
+          </div>
         </div>
 
-        {/* 依赖安装内容（无步骤导航） */}
-        <div className="setup-wizard-content">
-          <Card variant="borderless">
-            <SetupStep3 onComplete={handleDepsComplete} />
-          </Card>
+        <div style={styles.content}>
+          <SetupStep3 onComplete={handleDepsComplete} />
         </div>
 
-        {/* 底部 */}
-        <div className="setup-wizard-footer">
-          <Text type="secondary" style={{ fontSize: 12 }}>
+        <div style={styles.footer}>
+          <Text style={{ fontSize: 11, color: "#a1a1aa" }}>
             NuWax Agent v0.1.0
           </Text>
         </div>
-
-        {/* 内联样式 */}
-        <style>{`
-          .setup-wizard-container {
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%);
-            padding: 16px;
-          }
-
-          .setup-wizard-loading {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-          }
-
-          .setup-wizard-header {
-            text-align: center;
-            margin-bottom: 12px;
-          }
-
-          .setup-wizard-header .ant-space {
-            margin-bottom: 4px;
-          }
-
-          .setup-wizard-content {
-            flex: 1;
-            max-width: 720px;
-            width: 100%;
-            margin: 0 auto;
-            overflow-y: auto;
-          }
-
-          .setup-wizard-content .ant-card {
-            min-height: 280px;
-          }
-
-          .setup-wizard-footer {
-            text-align: center;
-            margin-top: 8px;
-          }
-        `}</style>
       </div>
     );
   }
 
-  // 配置步骤（显示步骤导航）
+  // 配置步骤
   return (
-    <div className="setup-wizard-container">
-      {/* 头部 */}
-      <div className="setup-wizard-header">
-        <Space>
-          <RobotOutlined style={{ fontSize: 22, color: "#1890ff" }} />
-          <Title level={4} style={{ margin: 0 }}>
-            NuWax Agent 初始化向导
-          </Title>
-        </Space>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          完成以下配置后即可使用
-        </Text>
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            justifyContent: "center",
+            marginBottom: 4,
+          }}
+        >
+          <RobotOutlined style={{ fontSize: 18, color: "#18181b" }} />
+          <span style={{ fontSize: 15, fontWeight: 600 }}>初始化向导</span>
+        </div>
+        <div style={{ fontSize: 12, color: "#a1a1aa", textAlign: "center" }}>
+          完成配置后即可使用
+        </div>
       </div>
 
-      {/* 步骤条（只显示 2 步） */}
-      <div className="setup-wizard-steps">
+      <div style={{ maxWidth: 480, margin: "0 auto 12px", padding: "0 8px" }}>
         <Steps
           current={currentStep - 1}
           size="small"
           onChange={handleStepClick}
           items={WIZARD_STEPS.map((step) => ({
             title: step.title,
-            description:
-              currentStep === step.key ? step.description : undefined,
             icon: step.icon,
             disabled: step.key > currentStep,
-            style: step.key < currentStep ? { cursor: "pointer" } : undefined,
           }))}
         />
       </div>
 
-      {/* 内容区 */}
-      <div className="setup-wizard-content">
-        <Card variant="borderless">{renderStepContent()}</Card>
-      </div>
+      <div style={styles.content}>{renderStepContent()}</div>
 
-      {/* 底部 */}
-      <div className="setup-wizard-footer">
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          NuWax Agent v0.1.0 | 初始化进度会自动保存
+      <div style={styles.footer}>
+        <Text style={{ fontSize: 11, color: "#a1a1aa" }}>
+          NuWax Agent v0.1.0 · 进度自动保存
         </Text>
       </div>
-
-      {/* 内联样式 */}
-      <style>{`
-        .setup-wizard-container {
-          display: flex;
-          flex-direction: column;
-          height: 100vh;
-          background: linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%);
-          padding: 16px;
-        }
-
-        .setup-wizard-loading {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          height: 100%;
-        }
-
-        .setup-wizard-header {
-          text-align: center;
-          margin-bottom: 12px;
-        }
-
-        .setup-wizard-header .ant-space {
-          margin-bottom: 4px;
-        }
-
-        .setup-wizard-steps {
-          max-width: 480px;
-          margin: 0 auto 12px;
-          padding: 0 8px;
-        }
-
-        .setup-wizard-steps .ant-steps-item-title {
-          font-size: 13px;
-        }
-
-        .setup-wizard-steps .ant-steps-item-description {
-          font-size: 12px;
-        }
-
-        .setup-wizard-steps .ant-steps-item-icon {
-          transform: scale(0.9);
-        }
-
-        .setup-wizard-steps .ant-steps-item {
-          padding-inline-start: 4px;
-        }
-
-        .setup-wizard-content {
-          flex: 1;
-          max-width: 720px;
-          width: 100%;
-          margin: 0 auto;
-          overflow-y: auto;
-        }
-
-        .setup-wizard-content .ant-card {
-          min-height: 280px;
-        }
-
-        .setup-wizard-footer {
-          text-align: center;
-          margin-top: 8px;
-        }
-      `}</style>
     </div>
   );
 }
+
+const styles: Record<string, React.CSSProperties> = {
+  container: {
+    display: "flex",
+    flexDirection: "column",
+    height: "100vh",
+    background: "#fafafa",
+    padding: 16,
+  },
+  center: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    height: "100%",
+  },
+  header: {
+    marginBottom: 12,
+  },
+  content: {
+    flex: 1,
+    maxWidth: 640,
+    width: "100%",
+    margin: "0 auto",
+    overflowY: "auto",
+    background: "#fff",
+    border: "1px solid #e4e4e7",
+    borderRadius: 8,
+    padding: 20,
+  },
+  footer: {
+    textAlign: "center",
+    marginTop: 8,
+  },
+};

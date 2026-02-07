@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "agent-tauri-client",
-        "width": 1280,
-        "height": 800
+        "width": 960,
+        "height": 640
       }
     ],
     "security": {
