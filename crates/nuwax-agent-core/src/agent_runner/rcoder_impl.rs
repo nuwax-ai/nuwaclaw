@@ -306,9 +306,26 @@ impl AgentRunnerApi for RcoderAgentRunner {
         // 5. 调用共享 handler
         let output = handle_chat_core(input, &context).await;
 
-        // 6. 追踪会话
+        // 6. 将 session 写入 SESSION_CACHE（SSE 进度流需要从这里读取）
+        // 注意：handle_chat_core 内部没有写入 SESSION_CACHE，需要手动写入
+        let session_id_str = output.session_id.clone();
+        let session_data = match SESSION_CACHE.entry(session_id_str.clone()) {
+            dashmap::mapref::entry::Entry::Occupied(_) => {
+                // 已存在，使用现有的
+                SESSION_CACHE.get(&session_id_str).unwrap().clone()
+            }
+            dashmap::mapref::entry::Entry::Vacant(entry) => {
+                // 不存在，创建新的
+                let data = SessionData::new(1000);
+                entry.insert(data.clone());
+                data
+            }
+        };
+        info!("[RcoderAgentRunner] Session 已写入 SESSION_CACHE: session_id={}", session_id_str);
+
+        // 7. 追踪会话
         self.active_sessions
-            .insert(output.session_id.clone(), tokio::time::Instant::now());
+            .insert(session_id_str.clone(), tokio::time::Instant::now());
 
         info!(
             "[RcoderAgentRunner] 聊天响应: project_id={}, session_id={}, success={}, error={:?}, error_code={:?}",
