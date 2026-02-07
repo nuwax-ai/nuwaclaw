@@ -337,9 +337,12 @@ endif
 .PHONY: tauri-dev
 tauri-dev:
 	@echo ">>> 运行 Tauri 开发模式 (环境: $(BUILD_ENV))..."
+	@echo ">>> 日志将输出到 logs/tauri-dev.log"
+	mkdir -p logs
+	@echo "=== Tauri Dev Started at $$(date) ===" > logs/tauri-dev.log
 	@echo ">>> 检查并安装前端依赖..."
-	cd crates/$(TAURI_CLIENT) && pnpm install
-	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) cargo tauri dev
+	cd crates/$(TAURI_CLIENT) && pnpm install 2>&1 | tee -a $(CURDIR)/logs/tauri-dev.log
+	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) cargo tauri dev 2>&1 | tee -a $(CURDIR)/logs/tauri-dev.log
 
 .PHONY: tauri-info
 tauri-info:
