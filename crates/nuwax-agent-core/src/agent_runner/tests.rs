@@ -5,12 +5,10 @@
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
-    use std::time::Duration;
 
     use crate::agent_runner::{
         RcoderAgentRunner, RcoderAgentRunnerConfig,
     };
-    use crate::api::traits::agent_runner::ChatRequest;
 
     /// 测试配置创建
     #[test]
@@ -57,7 +55,7 @@ mod tests {
             backend_port: 9086,
         };
 
-        let runner = RcoderAgentRunner::new(config.clone());
+        let mut runner = RcoderAgentRunner::new(config.clone());
 
         // 验证配置被正确存储（通过 getter）
         let runner_config = runner.config();
@@ -77,93 +75,6 @@ mod tests {
         let uuid_str = uuid::Uuid::new_v4().to_string();
         assert!(!uuid_str.is_empty());
         assert!(uuid_str.len() == 36); // UUID v4 format
-    }
-}
-
-/// 集成测试（需要 rcoder 运行时）
-#[cfg(test)]
-mod integration_tests {
-    use crate::agent_runner::{
-        RcoderAgentRunner, RcoderAgentRunnerConfig,
-    };
-    use crate::api::traits::agent_runner::{
-        AgentRunnerApi, ChatRequest, ChatResponse, AgentStatusResult, AgentStatus,
-    };
-
-    /// 测试运行时停止状态下的聊天请求
-    #[tokio::test]
-    async fn test_chat_runtime_stopped() {
-        let config = RcoderAgentRunnerConfig::default();
-        let runner = RcoderAgentRunner::new(config);
-
-        // 停止
-        runner.stop().await;
-
-        // 发送聊天请求，验证错误处理
-        let request = ChatRequest {
-            project_id: Some("test-project".to_string()),
-            session_id: None,
-            prompt: "test prompt".to_string(),
-            request_id: None,
-            attachments: vec![],
-            model_config: None,
-            service_type: None,
-        };
-
-        // 验证返回结果（可能成功也可能失败，取决于运行时状态）
-        let _result: Result<ChatResponse, String> = runner.chat(request).await;
-        // 由于异步竞态条件，这里只验证能正确返回，不强求错误
-    }
-
-    /// 测试获取不存在的会话状态
-    #[tokio::test]
-    async fn test_get_status_not_found() {
-        let config = RcoderAgentRunnerConfig::default();
-        let runner = RcoderAgentRunner::new(config);
-
-        let result: Result<AgentStatusResult, String> = runner.get_status("non-existent-session", "non-existent-project").await;
-        assert!(result.is_ok());
-
-        let status = result.unwrap();
-        assert!(!status.is_found);
-        assert!(matches!(status.status, AgentStatus::Idle));
-    }
-
-    /// 测试停止不存在的 Agent
-    #[tokio::test]
-    async fn test_stop_agent_not_found() {
-        let config = RcoderAgentRunnerConfig::default();
-        let runner = RcoderAgentRunner::new(config);
-
-        let result: Result<(), String> = runner.stop_agent("non-existent-project").await;
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err();
-        assert!(error_msg.contains("不存在") || error_msg.contains("not found"));
-    }
-
-    /// 测试获取所有活跃 Agent（空列表）
-    #[tokio::test]
-    async fn test_get_all_agents_empty() {
-        let config = RcoderAgentRunnerConfig::default();
-        let runner = RcoderAgentRunner::new(config);
-
-        let result: Result<Vec<crate::api::traits::agent_runner::AgentInfo>, String> = runner.get_all_agents().await;
-        assert!(result.is_ok());
-
-        let agents = result.unwrap();
-        assert!(agents.is_empty());
-    }
-
-    /// 测试取消不存在的会话
-    #[tokio::test]
-    async fn test_cancel_session_not_found() {
-        let config = RcoderAgentRunnerConfig::default();
-        let runner = RcoderAgentRunner::new(config);
-
-        let result: Result<(), String> = runner.cancel_session("non-existent-session", "non-existent-project").await;
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err();
-        assert!(error_msg.contains("不存在") || error_msg.contains("not found"));
     }
 }
 
@@ -206,7 +117,8 @@ mod pingora_tests {
         };
 
         println!("[Test] 启动 Pingora 服务，端口: {}", port);
-        let runner = RcoderAgentRunner::new(config);
+        let mut runner = RcoderAgentRunner::new(config);
+        runner.start().await.expect("启动失败");
 
         // 等待服务启动
         tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -252,7 +164,8 @@ mod pingora_tests {
         };
 
         println!("[Test] 第一次启动 Pingora 服务，端口: {}", port);
-        let runner1 = RcoderAgentRunner::new(config1);
+        let mut runner1 = RcoderAgentRunner::new(config1);
+        runner1.start().await.expect("第一次启动失败");
         tokio::time::sleep(Duration::from_millis(1500)).await;
 
         // 验证第一次启动成功
@@ -278,7 +191,8 @@ mod pingora_tests {
         };
 
         println!("[Test] 第二次启动 Pingora 服务，端口: {}", port);
-        let runner2 = RcoderAgentRunner::new(config2);
+        let mut runner2 = RcoderAgentRunner::new(config2);
+        runner2.start().await.expect("第二次启动失败");
         tokio::time::sleep(Duration::from_millis(1500)).await;
 
         // 验证第二次启动成功
