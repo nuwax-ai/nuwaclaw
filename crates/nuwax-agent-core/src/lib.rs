@@ -65,10 +65,6 @@ pub mod file_transfer;
 #[cfg(any(feature = "file-transfer", feature = "remote-desktop"))]
 pub use file_transfer::FileTransferManager;
 
-/// HTTP Server 模块（可选，用于嵌入式客户端）
-#[cfg(feature = "http-server")]
-pub mod http_server;
-
 /// Agent Runner 模块（可选，用于 rcoder 集成）
 #[cfg(feature = "rcoder")]
 pub mod agent_runner;
