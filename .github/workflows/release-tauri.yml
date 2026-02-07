@@ -1,0 +1,151 @@
+# Tauri 桌面客户端跨平台打包发布
+# 使用 tauri-apps/tauri-action 自动构建并创建 GitHub Draft Release
+#
+# 支持平台：
+#   - macOS arm64 (M1+)
+#   - macOS x86_64 (Intel)
+#   - Windows x86_64
+#   - Linux x86_64
+#
+# 触发方式：
+#   - 推送 v* tag → 构建 + 创建 Draft Release
+#   - 手动触发 (workflow_dispatch) → 仅构建，不创建 Release
+#
+# 注意事项：
+#   - 与 release.yml 共用 v* tag 触发，两个 workflow 的产物会合并到同一个 Draft Release
+#   - nuwax-agent-core 依赖了 nuwax-ai 组织的 git 仓库（rcoder, nuwax-rustdesk）
+#     如果这些是私有仓库，需要配置 GH_PAT secret（具有 repo 权限的 Personal Access Token）
+
+name: Release Tauri App
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # 使用系统 git 拉取 cargo git 依赖，确保能使用已配置的凭据
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+
+permissions:
+  contents: write
+
+jobs:
+  release-tauri:
+    name: Build Tauri (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: '--target aarch64-apple-darwin'
+            rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+          - platform: macos-latest
+            args: '--target x86_64-apple-darwin'
+            rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+          - platform: ubuntu-22.04
+            args: ''
+            rust_targets: ''
+          - platform: windows-latest
+            args: ''
+            rust_targets: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---- 私有 Git 仓库认证（nuwax-ai 组织下的 rcoder, nuwax-rustdesk 等） ----
+      # 需要在仓库 Settings → Secrets 中配置 GH_PAT（具有 Contents:Read 权限的 Fine-grained Token）
+      - name: Configure git credentials for private repos
+        run: |
+          git config --global url."https://${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+
+      # ---- 系统依赖 (Ubuntu) ----
+      # libwebkit2gtk-4.1-dev: Tauri 2.0 WebView
+      # libappindicator3-dev:  系统托盘图标
+      # librsvg2-dev:          SVG 图标渲染
+      # patchelf:              ELF 二进制 rpath 修复
+      # libssl-dev + pkg-config: reqwest (nuwax-agent-core 的 dependency-management feature)
+      # libgtk-3-dev:          GTK3 窗口框架
+      - name: Install system dependencies (Ubuntu)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            pkg-config
+
+      # ---- pnpm（从 package.json 的 packageManager 字段读取版本 9.15.5） ----
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: crates/agent-tauri-client/package.json
+
+      # ---- Node.js（pnpm 缓存指向子目录的 lockfile） ----
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+          cache-dependency-path: crates/agent-tauri-client/pnpm-lock.yaml
+
+      # ---- Rust ----
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      # Cargo workspace 在仓库根目录，target 也在根目录
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+          cache-on-failure: true
+
+      # ---- 前端依赖 ----
+      - name: Install frontend dependencies
+        working-directory: crates/agent-tauri-client
+        run: pnpm install
+
+      # ---- 构建 & 发布（tag 触发时创建 Draft Release） ----
+      # tauri-action 自动执行 tauri.conf.json 中的 beforeBuildCommand (pnpm build)
+      # 然后运行 cargo tauri build，最后将产物上传到 GitHub Release
+      - name: Build and release Tauri app
+        if: github.ref_type == 'tag'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: crates/agent-tauri-client
+          tagName: ${{ github.ref_name }}
+          releaseName: 'NuWax Agent ${{ github.ref_name }}'
+          releaseBody: |
+            ## NuWax Agent Desktop 桌面客户端
+
+            请在下方 Assets 中下载对应平台的安装包：
+            - **macOS**: `.dmg` (Intel / Apple Silicon)
+            - **Windows**: `.msi` / `.nsis`
+            - **Linux**: `.deb` / `.AppImage`
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      # ---- 仅构建（手动 workflow_dispatch 触发，不创建 Release） ----
+      - name: Build Tauri app (no release)
+        if: github.ref_type != 'tag'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: crates/agent-tauri-client
+          args: ${{ matrix.args }}
