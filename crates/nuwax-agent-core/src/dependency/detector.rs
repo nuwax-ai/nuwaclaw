@@ -127,7 +127,7 @@ impl ToolInfo {
 /// 工具安装器 trait
 ///
 /// 定义工具安装的抽象接口。
-/// 用于安装 npm 全局工具等。
+/// 用于安装本地 npm 工具等。
 pub trait ToolInstaller: Send + Sync {
     /// 检查工具是否已安装
     fn check_tool(&self, name: &str) -> Result<ToolInfo, InstallerError>;
@@ -140,6 +140,14 @@ pub trait ToolInstaller: Send + Sync {
 
     /// 更新工具
     fn update_tool(&self, name: &str) -> Result<ToolInfo, InstallerError>;
+
+    /// 检测工具（支持多种安装方式的回退检测）
+    ///
+    /// 默认委托给 `check_tool()`。
+    /// `NpmToolInstaller` 会 override 以支持 Homebrew、CLI 等多源检测。
+    fn check_tool_with_fallback(&self, name: &str) -> Result<ToolInfo, InstallerError> {
+        self.check_tool(name)
+    }
 }
 
 // ============================================================================

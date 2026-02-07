@@ -10,6 +10,7 @@ import {
   installLocalNpmPackage,
   installShellInstallerPackage,
   initLocalNpmEnv,
+  autoInstallUv,
   type LocalDependencyItem,
   type InstallResult,
 } from "./dependencies";
@@ -98,16 +99,21 @@ export async function installSingleDependency(
     let result: InstallResult;
 
     if (type === "shell-installer") {
-      if (!installerUrl) {
-        return {
-          success: false,
-          error: `缺少 installerUrl 配置`,
-        };
+      if (name === "uv") {
+        // uv 使用专门的安装函数以确保安装到应用本地目录
+        result = await autoInstallUv();
+      } else {
+        if (!installerUrl) {
+          return {
+            success: false,
+            error: `缺少 installerUrl 配置`,
+          };
+        }
+        result = await installShellInstallerPackage(
+          installerUrl,
+          binName || name
+        );
       }
-      result = await installShellInstallerPackage(
-        installerUrl,
-        binName || name
-      );
     } else {
       // npm-local
       result = await installLocalNpmPackage(name);

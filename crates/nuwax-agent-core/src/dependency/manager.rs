@@ -74,11 +74,11 @@ pub struct DependencyManager {
 impl DependencyManager {
     /// 创建新的依赖管理器（生产环境）
     pub fn new() -> Self {
-        use super::{GitDetector, PythonDetector, DockerDetector};
         use super::cli_tools::{
-            create_ffmpeg_detector, create_pandoc_detector, create_rust_detector,
-            create_curl_detector, create_jq_detector,
+            create_curl_detector, create_ffmpeg_detector, create_jq_detector,
+            create_pandoc_detector, create_rust_detector,
         };
+        use super::{DockerDetector, GitDetector, PythonDetector};
 
         let detectors: Vec<Arc<dyn DependencyDetector>> = vec![
             // 核心依赖
@@ -293,21 +293,11 @@ impl DependencyManager {
     }
 
     /// 使用多源检测工具（支持 npm、brew、PATH 等多种安装方式）
-    fn check_tool_with_fallback(&self, tool_name: &str) -> Result<super::npm_tools::NpmToolInfo, super::npm_tools::NpmToolError> {
-        // 尝试向下转型到 NpmToolInstaller 以访问高级功能
-        let npm_installer = self.installer.clone().as_ref() as *const dyn ToolInstaller
-            as *const super::npm_tools::NpmToolInstaller;
-
-        unsafe {
-            if !npm_installer.is_null() {
-                return (*npm_installer).check_tool_with_fallback(tool_name);
-            }
-        }
-
-        // 回退到标准检测
-        self.installer.check_tool(tool_name)
-            .map(|info| info.into())
-            .map_err(|e| super::npm_tools::NpmToolError::CommandFailed(e.to_string()))
+    fn check_tool_with_fallback(
+        &self,
+        tool_name: &str,
+    ) -> Result<super::detector::ToolInfo, super::detector::InstallerError> {
+        self.installer.check_tool_with_fallback(tool_name)
     }
 
     /// 更新依赖状态
@@ -356,8 +346,14 @@ impl DependencyManager {
     pub async fn get_summary(&self) -> DependencySummary {
         let deps = self.dependencies.read().await;
         let total = deps.len();
-        let installed = deps.values().filter(|d| d.status == DependencyStatus::Ok).count();
-        let missing = deps.values().filter(|d| d.status == DependencyStatus::Missing).count();
+        let installed = deps
+            .values()
+            .filter(|d| d.status == DependencyStatus::Ok)
+            .count();
+        let missing = deps
+            .values()
+            .filter(|d| d.status == DependencyStatus::Missing)
+            .count();
         DependencySummary {
             total,
             installed,
