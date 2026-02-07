@@ -467,7 +467,7 @@ export async function getCurrentSandboxValue(): Promise<SandboxValue> {
   const fileServer = parseUrl(fileServerUrl);
 
   return {
-    hostWithScheme: agent.hostWithScheme,
+    // hostWithScheme: agent.hostWithScheme,
     agentPort: agent.port,
     vncPort: vnc.port,
     fileServerPort: fileServer.port,

@@ -131,7 +131,7 @@ export async function apiRequest<T>(
  * 沙盒配置值
  */
 export interface SandboxValue {
-  hostWithScheme: string;
+  hostWithScheme?: string;
   agentPort: number;
   vncPort: number;
   fileServerPort: number;
