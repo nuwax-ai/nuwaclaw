@@ -171,6 +171,7 @@ export default function LogViewerWithBackend({
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      {/* 外层容器：flex: 1 撑满剩余空间，overflow: hidden 防止溢出 */}
       <div
         style={{
           flex: 1,
@@ -185,12 +186,8 @@ export default function LogViewerWithBackend({
         <Tabs
           activeKey={activeTab}
           onChange={(key) => setActiveTab(key as "operation" | "backend")}
-          style={{
-            height: "100%",
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-          }}
+          // Tabs 组件设置为 100% 高度，内部会自动处理子元素的 flex 布局
+          style={{ height: "100%" }}
           tabBarStyle={{ padding: "0 16px", marginBottom: 0 }}
           items={[
             {
@@ -202,15 +199,17 @@ export default function LogViewerWithBackend({
                 </span>
               ),
               children: (
+                // 内容容器：使用 flex 纵向布局，height: 100% 撑满 Tabs 内容区
                 <div
                   style={{
                     display: "flex",
                     flexDirection: "column",
-                    height: 400,
+                    height: "100%",
                     overflow: "hidden",
                     padding: "12px 16px",
                   }}
                 >
+                  {/* 工具栏：flexShrink: 0 防止被压缩 */}
                   <LogToolbar
                     filter={filter}
                     onFilterChange={handleFilterChange}
@@ -218,6 +217,7 @@ export default function LogViewerWithBackend({
                     autoScroll={autoScroll}
                     onAutoScrollChange={setAutoScroll}
                   />
+                  {/* 统计信息区域：flexShrink: 0 保持固定高度 */}
                   <div style={{ marginBottom: 10, flexShrink: 0 }}>
                     <LogStats
                       stats={stats}
@@ -225,6 +225,7 @@ export default function LogViewerWithBackend({
                       onFilterClick={handleLevelClick}
                     />
                   </div>
+                  {/* 日志列表区域：flex: 1 撑满剩余空间，overflow: auto 超出时滚动 */}
                   <div
                     style={{
                       flex: 1,
@@ -244,6 +245,7 @@ export default function LogViewerWithBackend({
                         image={Empty.PRESENTED_IMAGE_SIMPLE}
                       />
                     ) : (
+                      // 内层容器再次使用 flex 确保日志项正确显示
                       <div style={{ height: "100%", overflow: "auto" }}>
                         {logs.map((log) => (
                           <LogItem
@@ -268,6 +270,7 @@ export default function LogViewerWithBackend({
                 </span>
               ),
               children: (
+                // 内容容器：使用 flex 纵向布局，flex: 1 撑满剩余空间
                 <div
                   style={{
                     flex: 1,
@@ -277,6 +280,7 @@ export default function LogViewerWithBackend({
                     padding: "12px 16px",
                   }}
                 >
+                  {/* 搜索和控制栏：flexShrink: 0 防止被压缩 */}
                   <div
                     style={{
                       marginBottom: 10,
@@ -320,6 +324,7 @@ export default function LogViewerWithBackend({
                     </div>
                   </div>
 
+                  {/* 错误提示区域：flexShrink: 0 保持固定高度 */}
                   {backendError && (
                     <div
                       style={{
@@ -337,6 +342,7 @@ export default function LogViewerWithBackend({
                     </div>
                   )}
 
+                  {/* 日志内容区域：flex: 1 撑满剩余空间，overflow: auto 超出时滚动 */}
                   <div
                     style={{
                       flex: 1,
@@ -403,6 +409,7 @@ export default function LogViewerWithBackend({
                     )}
                   </div>
 
+                  {/* 行数控制栏：flexShrink: 0 保持固定高度 */}
                   <div
                     style={{
                       marginTop: 8,
