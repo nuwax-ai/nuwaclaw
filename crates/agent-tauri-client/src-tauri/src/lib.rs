@@ -2356,7 +2356,7 @@ async fn read_logs(count: Option<u32>) -> Result<Vec<String>, String> {
 /// 获取包的可执行文件路径
 fn get_package_bin_path(app_dir: &str, package_name: &str) -> Option<String> {
     // 从包名推断 bin 名称
-    // 例如: @anthropic-ai/claude-code-acp -> claude-code-acp
+    // 例如: @anthropic-ai/claude-code-acp-ts -> claude-code-acp-ts
     let bin_name = package_name.split('/').last().unwrap_or(package_name);
 
     let bin_path = std::path::Path::new(app_dir)
@@ -2405,6 +2405,36 @@ fn check_version_meets_requirement(current: &str, required: &str) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // ✅ 修复 macOS GUI 应用的 PATH 环境变量问题
+    // macOS GUI 应用不继承 shell 的 PATH (如 nvm 设置的 PATH)
+    // 这导致 claude-code-acp-ts, nuwaxcode 等通过 nvm 安装的命令找不到
+    // 我们通过调用用户的默认 shell 来获取正确的 PATH
+    #[cfg(target_os = "macos")]
+    {
+        match fix_macos_path_env() {
+            Ok(()) => {
+                // 验证 PATH 是否包含 nvm 目录
+                if let Ok(path) = std::env::var("PATH") {
+                    let has_nvm = path.contains(".nvm");
+                    println!(
+                        "[PATH Fix] PATH fixed successfully, has_nvm={}, entries={}",
+                        has_nvm,
+                        path.split(':').count()
+                    );
+                    if has_nvm {
+                        // 打印 nvm 相关的路径
+                        for p in path.split(':').filter(|p| p.contains("nvm")) {
+                            println!("[PATH Fix]   nvm path: {}", p);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[PATH Fix] Failed to fix PATH environment: {}", e);
+            }
+        }
+    }
+
     // ✅ 初始化 Rustls CryptoProvider（必须在最前面，在任何可能使用 TLS 的代码之前）
     // 这解决了 rustls 0.23 的 "Could not automatically determine the process-level CryptoProvider" 问题
     // 使用 once_cell 确保只初始化一次，避免多次调用导致 panic
@@ -2646,4 +2676,65 @@ pub fn run() {
                 info!("[Exit] 所有服务已停止");
             }
         });
+}
+
+/// 修复 macOS GUI 应用的 PATH 环境变量问题
+///
+/// macOS GUI 应用（从 Finder、Dock 或 Spotlight 启动）不继承 shell 的环境变量。
+/// 这导致通过 nvm、homebrew 等工具安装的命令（如 claude-code-acp-ts）找不到。
+///
+/// 该函数通过启动用户的默认 shell 并读取其 PATH 环境变量来解决此问题。
+#[cfg(target_os = "macos")]
+fn fix_macos_path_env() -> Result<(), Box<dyn std::error::Error>> {
+    use std::process::Command;
+
+    // 获取用户的默认 shell
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+
+    // 通过 login shell 获取正确的 PATH
+    // -l: 作为 login shell 启动，会读取 .zprofile, .zshrc 等配置文件
+    // -c: 执行命令
+    let output = Command::new(&shell)
+        .args(["-l", "-c", "echo $PATH"])
+        .output()?;
+
+    if output.status.success() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path.is_empty() {
+            // 获取当前 PATH 并合并
+            let current_path = std::env::var("PATH").unwrap_or_default();
+
+            // 合并 PATH，避免重复
+            let mut paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut ordered_paths: Vec<String> = Vec::new();
+
+            // 先添加 shell 的 PATH（优先级更高）
+            for p in path.split(':') {
+                if !p.is_empty() && paths.insert(p.to_string()) {
+                    ordered_paths.push(p.to_string());
+                }
+            }
+
+            // 再添加当前 PATH 中不重复的部分
+            for p in current_path.split(':') {
+                if !p.is_empty() && paths.insert(p.to_string()) {
+                    ordered_paths.push(p.to_string());
+                }
+            }
+
+            let new_path = ordered_paths.join(":");
+            std::env::set_var("PATH", &new_path);
+
+            eprintln!("[PATH Fix] Successfully fixed PATH environment");
+            eprintln!(
+                "[PATH Fix] New PATH includes: {} entries",
+                ordered_paths.len()
+            );
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Shell command failed: {}", stderr).into());
+    }
+
+    Ok(())
 }

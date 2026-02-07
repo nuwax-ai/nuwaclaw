@@ -58,7 +58,7 @@ npm依赖安装,我还需要提供几个接口,参考示意如下:
 ```
 commands::dependency_npm_install("nuwax-file-server")
 commands::dependency_npm_query_version("nuwaxcode")
-commands::dependency_npm_reinstall("claude-code-acp")
+commands::dependency_npm_reinstall("claude-code-acp-ts")
 ```
 `dependency_npm_install` 就是根据名字,使用npm 来安装这个依赖, 并指定阿里云镜像仓库来安装,装最新的 latest 版本;
 `dependency_npm_query_version` 是根据名字,查询当前使用的版本号;

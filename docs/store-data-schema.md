@@ -166,7 +166,7 @@ interface SetupState {
 |------|------|
 | `nuwax-file-server` | 文件服务器 |
 | `nuwaxcode` | Nuwax 代码服务 |
-| `claude-code-acp` | Claude Code ACP 服务 |
+| `claude-code-acp-ts` | Claude Code ACP 服务 |
 
 ### 各平台应用数据目录
 
@@ -447,7 +447,7 @@ fn start_nuwax_services(app: &tauri::AppHandle) {
     // 获取各服务的可执行文件路径
     let file_server_bin = get_local_bin_path(app, "nuwax-file-server");
     let nuwaxcode_bin = get_local_bin_path(app, "nuwaxcode");
-    let claude_code_bin = get_local_bin_path(app, "claude-code-acp");
+    let claude_code_bin = get_local_bin_path(app, "claude-code-acp-ts");
 
     if let Some(bin) = file_server_bin {
         log::info!("文件服务路径: {}", bin);

@@ -45,13 +45,13 @@
 
 ### 4.3 依赖管理
 
-当前依赖安装实现（除去系统级 Node/uv）走 **本地 npm 包安装**，真实包名如下：  
-`nuwax-file-server`、`nuwaxcode`、`claude-code-acp`。
+当前依赖安装实现（除去系统级 Node/uv）走 **本地 npm 包安装**,真实包名如下:
+`nuwax-file-server`、`nuwaxcode`、`claude-code-acp-ts`。
 
-建议命令样例（以真实包名为准，命名遵循 `<domain>_<action>`）：  
-- `commands::dependency_npm_install("nuwax-file-server")`  
-- `commands::dependency_npm_query_version("nuwaxcode")`  
-- `commands::dependency_npm_reinstall("claude-code-acp")`
+建议命令样例（以真实包名为准,命名遵循 `<domain>_<action>`）:
+- `commands::dependency_npm_install("nuwax-file-server")`
+- `commands::dependency_npm_query_version("nuwaxcode")`
+- `commands::dependency_npm_reinstall("claude-code-acp-ts")`
 
 ### 4.4 服务重启
 

@@ -431,12 +431,12 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     binName: "nuwaxcode",
   },
   {
-    name: "claude-code-acp",
+    name: "claude-code-acp-ts",
     displayName: "Claude Code (ACP)",
     type: "npm-global",
     description: "Claude Code AI 编程助手 (ACP 版本)",
     required: true,
-    binName: "claude-code-acp",
+    binName: "claude-code-acp-ts",
   },
 ];
 
