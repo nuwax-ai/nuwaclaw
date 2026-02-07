@@ -1,22 +1,22 @@
 //! Rcoder Agent Runner 实现
 //!
 //! 使用 rcoder 的 agent_runner 库实现 AgentRunnerApi trait
+//! 通过 start_http_server 启动 HTTP 服务器（包含 Pingora 代理）
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::api::traits::agent_runner::{
-    AgentInfo, AgentRunnerApi, AgentStatus, AgentStatusResult, ChatAgentConfig, ChatRequest,
+    AgentInfo, AgentRunnerApi, AgentStatus, AgentStatusResult, ChatRequest,
     ChatResponse, ProgressMessage, ProgressMessageType,
 };
 
 // 使用 agent_runner 导出的类型
-use agent_runner::{AgentRuntime, AGENT_REGISTRY};
+use agent_runner::{start_http_server, AppConfig, AgentRuntime, HealthCheckConfig, HttpServerConfig, ProxyConfig, AGENT_REGISTRY};
 // 使用 agent_runner::service 模块导出的 SESSION_CACHE 和 SessionData
 use agent_runner::service::{SessionData, SESSION_CACHE};
 // 使用 agent_runner 导出的消息类型
@@ -29,9 +29,6 @@ use agent_runner::{handle_chat_core, ChatHandlerContext, ChatHandlerInput};
 // 使用 shared_types 中的类型
 use dashmap::DashMap;
 use shared_types::{ModelProviderConfig as SharedModelProviderConfig, ServiceType};
-
-// 使用 rcoder_proxy 启动代理服务
-use rcoder_proxy::{PingoraServerManager, ProxyConfig, PingoraProxyService};
 
 /// 代理服务默认监听端口
 const DEFAULT_PROXY_PORT: u16 = 8088;
@@ -82,10 +79,8 @@ pub struct RcoderAgentRunner {
     shared_api_key_manager: Arc<DashMap<String, SharedModelProviderConfig>>,
     /// project_id -> UUID 映射（用于后续清理时查找）
     project_uuid_map: Arc<DashMap<String, String>>,
-    /// 代理服务句柄（用于停止）
-    _proxy_handle: Option<JoinHandle<()>>,
-    /// 代理服务引用（用于指标等）
-    _pingora_service: Option<Arc<PingoraProxyService>>,
+    /// HTTP 服务器句柄
+    _server_handle: tokio::task::JoinHandle<()>,
 }
 
 impl Clone for RcoderAgentRunner {
@@ -96,8 +91,7 @@ impl Clone for RcoderAgentRunner {
             active_sessions: self.active_sessions.clone(),
             shared_api_key_manager: self.shared_api_key_manager.clone(),
             project_uuid_map: self.project_uuid_map.clone(),
-            _proxy_handle: None, // Clone 时不复制句柄
-            _pingora_service: self._pingora_service.clone(),
+            _server_handle: tokio::spawn(async {}), // Clone 时不复制句柄
         }
     }
 }
@@ -115,52 +109,54 @@ impl RcoderAgentRunner {
         // 包装为 Arc
         let runtime = Arc::new(runtime);
 
-        // 在后台启动运行时
+        // 单独启动 AgentRuntime
         let rt = runtime.clone();
         tokio::spawn(async move {
             rt.start(request_rx).await;
         });
 
-        // 启动代理服务
-        let proxy_port = config.proxy_port;
-        let api_key_manager_for_proxy = shared_api_key_manager.clone();
-
-        info!(
-            "[RcoderAgentRunner] 🚀 启动 Pingora 代理服务，监听端口: {}",
-            proxy_port
-        );
-
-        // 创建代理配置
-        let proxy_config = ProxyConfig {
-            listen_port: proxy_port,
-            default_backend_port: config.backend_port,
-            backend_host: "127.0.0.1".to_string(),
-            port_param: "port".to_string(),
-            config_file: None,
-            verbose: false,
+        // 1. 构建 agent_runner 的 AppConfig
+        let app_config = AppConfig {
+            projects_dir: config.projects_dir.clone(),
+            port: config.backend_port,
+            proxy_config: Some(ProxyConfig {
+                listen_port: config.proxy_port,
+                default_backend_port: config.backend_port,
+                backend_host: "127.0.0.1".to_string(),
+                port_param: "port".to_string(),
+                health_check: HealthCheckConfig {
+                    enabled: true,
+                    interval_seconds: 5,
+                    timeout_seconds: 1,
+                    healthy_threshold: 2,
+                    unhealthy_threshold: 3,
+                },
+            }),
+            ..Default::default()
         };
 
-        // 创建 Pingora 服务器管理器并注入共享的 API 密钥管理器
-        // 使用 builder 模式的 with_api_key_manager 方法
-        let mut server_manager = PingoraServerManager::new(proxy_config)
-            .with_api_key_manager(api_key_manager_for_proxy);
+        // 2. 构建 HttpServerConfig（注意：没有 task_receiver 字段）
+        let http_config = HttpServerConfig {
+            port: config.backend_port,
+            app_config,
+            agent_runtime: runtime.clone(),
+            shared_api_key_manager: shared_api_key_manager.clone(),
+        };
 
-        // 获取服务引用（用于后续指标读取等）
-        let pingora_service = server_manager.service();
+        info!(
+            "[RcoderAgentRunner] 🚀 启动 HTTP 服务器，后端端口: {}, 代理端口: {}",
+            config.backend_port, config.proxy_port
+        );
 
-        info!("[RcoderAgentRunner] ✅ Pingora 代理服务配置完成，已注入 API 密钥管理器");
-
-        // 在后台启动 Pingora 服务器
-        let proxy_handle = tokio::spawn(async move {
-            info!("[RcoderAgentRunner] 📍 正在启动 Pingora 代理服务器...");
-            if let Err(e) = server_manager.start().await {
-                error!(
-                    "[RcoderAgentRunner] ❌ Pingora 代理服务器启动失败: {:?}",
-                    e
-                );
+        // 3. 启动 HTTP 服务器（包含 Pingora 代理、HTTP API、gRPC）
+        let server_handle = tokio::spawn(async move {
+            if let Err(e) = start_http_server(http_config).await {
+                tracing::error!("[RcoderAgentRunner] HTTP 服务器错误: {}", e);
             }
-            info!("[RcoderAgentRunner] ✅ Pingora 代理服务器已退出");
         });
+
+        // 4. 单独启动 AgentRuntime（在 start_http_server 内部处理）
+        // 注意：start_http_server 已经内部处理了 runtime.start()
 
         Self {
             runtime,
@@ -168,8 +164,7 @@ impl RcoderAgentRunner {
             active_sessions: Arc::new(DashMap::new()),
             shared_api_key_manager,
             project_uuid_map: Arc::new(DashMap::new()),
-            _proxy_handle: Some(proxy_handle),
-            _pingora_service: Some(pingora_service),
+            _server_handle: server_handle,
         }
     }
 

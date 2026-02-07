@@ -6,7 +6,10 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
-use super::http_server::HttpServer;
+// 类型别名，解决 trait object 类型推断问题
+type ChildWrapperType = Box<dyn process_wrap::tokio::ChildWrapper>;
+
+// 注意：HTTP Server 现在由 RcoderAgentRunner 内部管理，不再需要 http_server 导入
 
 // ========== 跨平台辅助函数 ==========
 
@@ -579,15 +582,13 @@ impl Default for NuwaxLanproxyConfig {
 #[derive(Clone)]
 pub struct ServiceManager {
     /// nuwax-file-server 进程（统一使用 process_wrap）
-    nuwax_file_server: Arc<Mutex<Option<Box<dyn process_wrap::tokio::ChildWrapper>>>>,
+    nuwax_file_server: Arc<Mutex<Option<ChildWrapperType>>>,
     /// nuwax-file-server 配置
     config: Arc<NuwaxFileServerConfig>,
     /// nuwax-lanproxy 进程（使用 process_wrap 进程组）
-    lanproxy: Arc<Mutex<Option<Box<dyn process_wrap::tokio::ChildWrapper>>>>,
+    lanproxy: Arc<Mutex<Option<ChildWrapperType>>>,
     /// nuwax-lanproxy 配置
     lanproxy_config: Arc<NuwaxLanproxyConfig>,
-    /// HTTP Server 管理器
-    http_server: Arc<tokio::sync::Mutex<Option<crate::http_server::HttpServer>>>,
 }
 
 impl ServiceManager {
@@ -601,7 +602,6 @@ impl ServiceManager {
             config: Arc::new(config.unwrap_or_default()),
             lanproxy: Arc::new(Mutex::new(None)),
             lanproxy_config: Arc::new(lanproxy_config.unwrap_or_default()),
-            http_server: Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 
@@ -970,69 +970,27 @@ impl ServiceManager {
     /// 启动 HTTP Server
     pub async fn rcoder_start(
         &self,
-        port: u16,
-        agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>,
+        _port: u16,
+        _agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>,
     ) -> Result<(), String> {
-        info!("Starting HTTP Server (rcoder) on port {}...", port);
-
-        let server = super::http_server::HttpServer::new(port);
-        let server_clone = server.clone();
-
-        // 在后台启动服务
-        tokio::spawn(async move {
-            if let Err(e) = server_clone.start(agent_runner_api).await {
-                error!("HTTP Server error: {}", e);
-            }
-        });
-
-        // 先存储 server，确保即使端口检查失败也能在 drop 时正确清理
-        {
-            let mut guard = self.http_server.lock().await;
-            *guard = Some(server);
-        }
-
-        // 用端口就绪检查替代固定 100ms 等待
-        wait_for_port_ready(port, 5).await.map_err(|e| {
-            error!("HTTP Server (rcoder) failed to start: {}", e);
-            // 端口检查失败，清理已存储的 server
-            if let Ok(mut guard) = self.http_server.try_lock() {
-                if let Some(server) = guard.take() {
-                    server.stop();
-                }
-            }
-            e
-        })?;
-
-        info!("HTTP Server (rcoder) started");
+        info!("HTTP Server 现在由 RcoderAgentRunner 内部管理，无需手动启动");
         Ok(())
     }
 
     /// 停止 HTTP Server
     pub async fn rcoder_stop(&self) -> Result<(), String> {
-        info!("Stopping HTTP Server (rcoder)...");
-
-        let mut guard: tokio::sync::MutexGuard<'_, Option<HttpServer>> =
-            self.http_server.lock().await;
-        if let Some(server) = guard.take() {
-            drop(guard);
-            server.stop();
-            info!("HTTP Server (rcoder) stopped");
-        } else {
-            warn!("HTTP Server (rcoder) is not running");
-        }
-
+        info!("HTTP Server 的停止由 RcoderAgentRunner 处理");
         Ok(())
     }
 
     /// 重启 HTTP Server
     pub async fn rcoder_restart(
         &self,
-        port: u16,
-        agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>,
+        _port: u16,
+        _agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>,
     ) -> Result<(), String> {
-        self.rcoder_stop().await?;
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        self.rcoder_start(port, agent_runner_api).await
+        info!("HTTP Server 由 RcoderAgentRunner 管理，无需手动重启");
+        Ok(())
     }
 
     /// 停止所有服务
@@ -1136,25 +1094,13 @@ impl ServiceManager {
             }
         }
 
-        // HTTP Server 状态
-        {
-            let guard = self.http_server.lock().await;
-            if guard.is_some() {
-                statuses.push(ServiceInfo {
-                    service_type: ServiceType::Rcoder,
-                    state: ServiceState::Running,
-                    pid: None, // HTTP Server 是内嵌的，没有独立 PID
-                });
-                debug!("[Services] Agent 服务运行中");
-            } else {
-                statuses.push(ServiceInfo {
-                    service_type: ServiceType::Rcoder,
-                    state: ServiceState::Stopped,
-                    pid: None,
-                });
-                debug!("[Services] Agent 服务已停止");
-            }
-        }
+        // 注意：HTTP Server 状态现在由 RcoderAgentRunner 内部管理，不再通过 ServiceManager 查询
+        statuses.push(ServiceInfo {
+            service_type: ServiceType::Rcoder,
+            state: ServiceState::Running, // 假设 RcoderAgentRunner 启动后即运行
+            pid: None,
+        });
+        debug!("[Services] Agent 服务由 RcoderAgentRunner 管理");
 
         statuses
     }

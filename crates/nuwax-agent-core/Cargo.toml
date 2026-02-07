@@ -18,7 +18,7 @@ crate-type = ["rlib", "cdylib"]
 
 # Feature 控制表
 [features]
-default = ["auto-launch", "dependency-management", "async-trait", "http-server", "rcoder"]
+default = ["auto-launch", "dependency-management", "async-trait", "rcoder"]
 # 开机自启动
 auto-launch = ["dep:auto-launch"]
 # rustls 加密提供者（用于测试）
@@ -31,10 +31,8 @@ remote-desktop = ["dep:enigo"]
 file-transfer = ["dep:enigo"]
 # 开发者模式日志
 dev-mode = []
-# HTTP 服务（嵌入客户端）
-http-server = ["dep:axum", "dep:tower-http"]
 # rcoder agent_runner 集成 (本地模式)
-rcoder = ["dep:agent_runner", "dep:shared_types", "dep:agent_abstraction", "dep:rcoder_proxy", "dep:arc-swap"]
+rcoder = ["dep:agent_runner", "dep:shared_types", "dep:agent_abstraction", "dep:rcoder-proxy", "dep:arc-swap"]
 
 [dependencies]
 # Workspace 依赖
@@ -61,18 +59,16 @@ semver = { workspace = true }
 base64 = { workspace = true }
 
 # rcoder agent_runner (通过 git 依赖)
-# 使用 git URL 依赖确保独立仓库也能编译
-# 分支: nuwax-client (开发阶段)
-agent_runner = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client", optional = true }
+agent_runner = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client", optional = true, features = ["http-server"] }
 
-# rcoder shared_types (用于类型转换)
+# rcoder shared_types (通过 git 依赖)
 shared_types = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client", optional = true }
 
-# rcoder agent_abstraction (用于 PromptMessage)
+# rcoder agent_abstraction (通过 git 依赖)
 agent_abstraction = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client", optional = true }
 
-# rcoder-proxy (API 代理服务，用于管理模型 API 密钥)
-rcoder_proxy = { package = "rcoder-proxy", git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client", optional = true }
+# rcoder-proxy (通过 git 依赖)
+rcoder-proxy = { package = "rcoder-proxy", git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client", optional = true }
 
 # arc-swap (用于 API Key 配置的无锁读取)
 arc-swap = { version = "1.7", optional = true }
