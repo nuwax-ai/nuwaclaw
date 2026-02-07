@@ -102,3 +102,10 @@ strip = true
 
 [profile.dev]
 debug = true
+
+# 强制使用本地修改的 rcoder 依赖
+[patch."https://github.com/nuwax-ai/rcoder.git"]
+agent_runner = { path = "vendors/rcoder/crates/agent_runner" }
+agent_abstraction = { path = "vendors/rcoder/crates/agent_abstraction" }
+shared_types = { path = "vendors/rcoder/crates/shared_types" }
+agent_config = { path = "vendors/rcoder/crates/agent_config" }

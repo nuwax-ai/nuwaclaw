@@ -2808,12 +2808,39 @@ pub fn run() {
                 error!("[Setup] 创建系统托盘失败: {}", e);
             }
 
-            // 设置应用本地 PATH 环境变量（供 rcoder/acp_worker 读取注入到子进程）
+            // 设置应用本地环境变量（供 rcoder/acp_worker 读取注入到子进程）
             // 注意：这只设置进程级环境变量，不修改系统 PATH
             {
                 let local_path = build_local_path_env(app.handle());
                 info!("[Setup] 设置 NUWAX_LOCAL_PATH_ENV: {}", local_path);
                 std::env::set_var("NUWAX_LOCAL_PATH_ENV", &local_path);
+
+                // 设置本地 npm prefix（供 NpmInstaller 使用 --prefix 替代 -g）
+                if let Ok(app_data_dir) = app.handle().path().app_data_dir() {
+                    let prefix = app_data_dir.to_string_lossy().to_string();
+                    info!("[Setup] 设置 NUWAX_LOCAL_NPM_PREFIX: {}", prefix);
+                    std::env::set_var("NUWAX_LOCAL_NPM_PREFIX", &prefix);
+
+                    // npm 缓存目录
+                    let npm_cache = app_data_dir.join("npm-cache");
+                    let _ = std::fs::create_dir_all(&npm_cache);
+                    let npm_cache_str = npm_cache.to_string_lossy().to_string();
+                    info!("[Setup] 设置 NUWAX_NPM_CACHE_DIR: {}", npm_cache_str);
+                    std::env::set_var("NUWAX_NPM_CACHE_DIR", &npm_cache_str);
+
+                    // uv/uvx 缓存目录
+                    let uv_cache = app_data_dir.join("uv-cache");
+                    let _ = std::fs::create_dir_all(&uv_cache);
+                    let uv_cache_str = uv_cache.to_string_lossy().to_string();
+                    info!("[Setup] 设置 NUWAX_UV_CACHE_DIR: {}", uv_cache_str);
+                    std::env::set_var("NUWAX_UV_CACHE_DIR", &uv_cache_str);
+                }
+
+                // 设置打包的 npm 路径
+                if let Some(npm_path) = get_bundled_npm_bin_path(app.handle()) {
+                    info!("[Setup] 设置 NUWAX_BUNDLED_NPM_PATH: {}", npm_path);
+                    std::env::set_var("NUWAX_BUNDLED_NPM_PATH", &npm_path);
+                }
             }
 
             // ============================================
