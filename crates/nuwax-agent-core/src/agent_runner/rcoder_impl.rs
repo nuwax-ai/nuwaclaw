@@ -6,25 +6,37 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::api::traits::agent_runner::{
-    AgentInfo, AgentRunnerApi, AgentStatus, AgentStatusResult, ChatRequest, ChatResponse,
-    ProgressMessage, ProgressMessageType,
+    AgentInfo, AgentRunnerApi, AgentStatus, AgentStatusResult, ChatAgentConfig, ChatRequest,
+    ChatResponse, ProgressMessage, ProgressMessageType,
 };
 
 // 使用 agent_runner 导出的类型
-use agent_runner::{AgentRequest, AgentRuntime, WorkerState, AGENT_REGISTRY};
+use agent_runner::{AgentRuntime, AGENT_REGISTRY};
 // 使用 agent_runner::service 模块导出的 SESSION_CACHE 和 SessionData
 use agent_runner::service::{SessionData, SESSION_CACHE};
 // 使用 agent_runner 导出的消息类型
 use agent_runner::{SessionMessageType, UnifiedSessionMessage};
 // 使用 agent_runner 导出的取消相关类型
 use agent_runner::{CancelNotification, CancelNotificationRequestWrapper, CancelResult, SessionId};
+// 使用 agent_runner 导出的 chat_handler 共享函数
+use agent_runner::{handle_chat_core, ChatHandlerContext, ChatHandlerInput};
 
 // 使用 shared_types 中的类型
-use shared_types::ServiceType;
+use dashmap::DashMap;
+use shared_types::{ModelProviderConfig as SharedModelProviderConfig, ServiceType};
+
+// 使用 rcoder_proxy 启动代理服务
+use rcoder_proxy::{PingoraServerManager, ProxyConfig, PingoraProxyService};
+
+/// 代理服务默认监听端口
+const DEFAULT_PROXY_PORT: u16 = 8088;
+/// Agent HTTP 服务默认端口
+const DEFAULT_BACKEND_PORT: u16 = 9086;
 
 /// Rcoder Agent Runner 配置
 #[derive(Debug, Clone)]
@@ -37,6 +49,10 @@ pub struct RcoderAgentRunnerConfig {
     pub api_base_url: String,
     /// 默认模型
     pub default_model: String,
+    /// 代理服务端口（默认 8088）
+    pub proxy_port: u16,
+    /// Agent HTTP 服务端口（默认 9086，用于 pingora 反向代理到后端）
+    pub backend_port: u16,
 }
 
 impl Default for RcoderAgentRunnerConfig {
@@ -46,6 +62,8 @@ impl Default for RcoderAgentRunnerConfig {
             api_key: None,
             api_base_url: "https://api.anthropic.com".to_string(),
             default_model: "claude-sonnet-4-20250514".to_string(),
+            proxy_port: DEFAULT_PROXY_PORT,
+            backend_port: DEFAULT_BACKEND_PORT,
         }
     }
 }
@@ -53,19 +71,44 @@ impl Default for RcoderAgentRunnerConfig {
 /// Rcoder Agent Runner 实现
 ///
 /// 使用 rcoder 的 agent_runner 作为后端
-#[derive(Clone)]
 pub struct RcoderAgentRunner {
     /// rcoder AgentRuntime (Arc 包装)
     runtime: Arc<AgentRuntime>,
     /// 配置
     config: Arc<RcoderAgentRunnerConfig>,
     /// 活跃会话追踪
-    active_sessions: Arc<dashmap::DashMap<String, tokio::time::Instant>>,
+    active_sessions: Arc<DashMap<String, tokio::time::Instant>>,
+    /// 共享的 API 密钥管理器（用于存储 ModelProviderConfig）
+    shared_api_key_manager: Arc<DashMap<String, SharedModelProviderConfig>>,
+    /// project_id -> UUID 映射（用于后续清理时查找）
+    project_uuid_map: Arc<DashMap<String, String>>,
+    /// 代理服务句柄（用于停止）
+    _proxy_handle: Option<JoinHandle<()>>,
+    /// 代理服务引用（用于指标等）
+    _pingora_service: Option<Arc<PingoraProxyService>>,
+}
+
+impl Clone for RcoderAgentRunner {
+    fn clone(&self) -> Self {
+        Self {
+            runtime: self.runtime.clone(),
+            config: self.config.clone(),
+            active_sessions: self.active_sessions.clone(),
+            shared_api_key_manager: self.shared_api_key_manager.clone(),
+            project_uuid_map: self.project_uuid_map.clone(),
+            _proxy_handle: None, // Clone 时不复制句柄
+            _pingora_service: self._pingora_service.clone(),
+        }
+    }
 }
 
 impl RcoderAgentRunner {
     /// 创建新的 Runner
     pub fn new(config: RcoderAgentRunnerConfig) -> Self {
+        // 创建共享的 API 密钥管理器
+        let shared_api_key_manager: Arc<DashMap<String, SharedModelProviderConfig>> =
+            Arc::new(DashMap::new());
+
         // 创建 AgentRuntime，缓冲区大小为 100
         let (runtime, request_rx) = AgentRuntime::new(100);
 
@@ -78,10 +121,55 @@ impl RcoderAgentRunner {
             rt.start(request_rx).await;
         });
 
+        // 启动代理服务
+        let proxy_port = config.proxy_port;
+        let api_key_manager_for_proxy = shared_api_key_manager.clone();
+
+        info!(
+            "[RcoderAgentRunner] 🚀 启动 Pingora 代理服务，监听端口: {}",
+            proxy_port
+        );
+
+        // 创建代理配置
+        let proxy_config = ProxyConfig {
+            listen_port: proxy_port,
+            default_backend_port: config.backend_port,
+            backend_host: "127.0.0.1".to_string(),
+            port_param: "port".to_string(),
+            config_file: None,
+            verbose: false,
+        };
+
+        // 创建 Pingora 服务器管理器并注入共享的 API 密钥管理器
+        // 使用 builder 模式的 with_api_key_manager 方法
+        let mut server_manager = PingoraServerManager::new(proxy_config)
+            .with_api_key_manager(api_key_manager_for_proxy);
+
+        // 获取服务引用（用于后续指标读取等）
+        let pingora_service = server_manager.service();
+
+        info!("[RcoderAgentRunner] ✅ Pingora 代理服务配置完成，已注入 API 密钥管理器");
+
+        // 在后台启动 Pingora 服务器
+        let proxy_handle = tokio::spawn(async move {
+            info!("[RcoderAgentRunner] 📍 正在启动 Pingora 代理服务器...");
+            if let Err(e) = server_manager.start().await {
+                error!(
+                    "[RcoderAgentRunner] ❌ Pingora 代理服务器启动失败: {:?}",
+                    e
+                );
+            }
+            info!("[RcoderAgentRunner] ✅ Pingora 代理服务器已退出");
+        });
+
         Self {
             runtime,
             config: Arc::new(config),
-            active_sessions: Arc::new(dashmap::DashMap::new()),
+            active_sessions: Arc::new(DashMap::new()),
+            shared_api_key_manager,
+            project_uuid_map: Arc::new(DashMap::new()),
+            _proxy_handle: Some(proxy_handle),
+            _pingora_service: Some(pingora_service),
         }
     }
 
@@ -108,48 +196,6 @@ impl RcoderAgentRunner {
     }
 }
 
-/// 将 nuwax 的 ChatRequest 转换为 rcoder 的 PromptMessage
-fn convert_chat_request(
-    request: &ChatRequest,
-    config: &RcoderAgentRunnerConfig,
-) -> agent_abstraction::PromptMessage {
-    // 获取 project_id，如果为 None 则使用默认值
-    let project_id = request
-        .project_id
-        .clone()
-        .unwrap_or_else(|| "default".to_string());
-
-    let project_path = config.projects_dir.join(&project_id);
-
-    agent_abstraction::PromptMessage::new(
-        request.prompt.clone(),
-        project_id,
-        project_path,
-        request
-            .request_id
-            .clone()
-            .unwrap_or_else(|| Uuid::new_v4().to_string()),
-        ServiceType::ComputerAgentRunner,
-    )
-    .with_session_id(request.session_id.clone())
-}
-
-/// 将 rcoder 的 ChatPromptResponse 转换为 nuwax 的 ChatResponse
-fn convert_response(response: agent_runner::ChatPromptResponse) -> ChatResponse {
-    let code = response.code.clone();
-    // rcoder 的成功码是 "0000"
-    let is_success = response.error.is_none() && code == "0000";
-
-    ChatResponse {
-        success: is_success,
-        error: response.error,
-        error_code: if !is_success { Some(code) } else { None },
-        project_id: Some(response.project_id),
-        session_id: response.session_id,
-        request_id: response.request_id,
-    }
-}
-
 /// 转换 Agent 状态
 fn convert_status(status: agent_runner::AgentStatus) -> AgentStatus {
     match status {
@@ -164,64 +210,129 @@ fn convert_status(status: agent_runner::AgentStatus) -> AgentStatus {
 impl AgentRunnerApi for RcoderAgentRunner {
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, String> {
         info!(
-            "[RcoderAgentRunner] 收到聊天请求: project_id={:?}, prompt_len={}",
+            "[RcoderAgentRunner] 收到聊天请求: project_id={:?}, prompt_len={}, has_model_config={}",
             request.project_id,
-            request.prompt.len()
+            request.prompt.len(),
+            request.model_config.is_some()
         );
 
-        // 检查运行时状态
-        let current_state = self.runtime.state();
-        info!(
-            "[RcoderAgentRunner] 运行时状态: {:?}, is_closed={}",
-            current_state,
-            self.runtime.is_closed()
-        );
-        if current_state == WorkerState::Stopped {
-            error!("[RcoderAgentRunner] Agent 运行时已停止，拒绝请求");
-            return Err("Agent 运行时已停止".to_string());
+        // 1. 准备参数
+        let project_id = request
+            .project_id
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string().replace("-", ""));
+
+        let session_id = request.session_id.clone();
+
+        let request_id = request
+            .request_id
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string().replace("-", ""));
+
+        // 2. 转换 model_config 并打印详细信息
+        let model_config = request.model_config.map(|config| {
+            info!(
+                "[RcoderAgentRunner] 转换模型配置: id={}, name={}, base_url={}, api_key_len={}, default_model={}, requires_openai_auth={}, api_protocol={:?}",
+                config.id,
+                config.name,
+                config.base_url,
+                config.api_key.len(),
+                config.default_model,
+                config.requires_openai_auth,
+                config.api_protocol
+            );
+            SharedModelProviderConfig {
+                id: config.id,
+                name: config.name,
+                base_url: config.base_url,
+                api_key: config.api_key,
+                requires_openai_auth: config.requires_openai_auth,
+                default_model: config.default_model,
+                api_protocol: config.api_protocol,
+            }
+        });
+
+        // 打印转换后的配置
+        if let Some(ref cfg) = model_config {
+            info!(
+                "[RcoderAgentRunner] 转换后 SharedModelProviderConfig: id={}, name={}, base_url={}, api_key_len={}, default_model={}",
+                cfg.id, cfg.name, cfg.base_url, cfg.api_key.len(), cfg.default_model
+            );
+        } else {
+            warn!("[RcoderAgentRunner] model_config 为 None，将使用环境变量或默认配置");
         }
 
-        // 转换请求
-        let prompt_message = convert_chat_request(&request, &self.config);
+        // 2.1 计算项目工作目录（使用配置的 projects_dir）
+        let project_dir = self.config.projects_dir.join(&project_id);
+        info!(
+            "[RcoderAgentRunner] 项目工作目录: {:?}",
+            project_dir
+        );
 
-        // 创建请求 (不使用模型配置)
-        let (agent_request, rx) = AgentRequest::new(prompt_message, None);
+        // 2.2 打印 agent_config_override
+        if let Some(ref config) = request.agent_config_override {
+            info!(
+                "[RcoderAgentRunner] agent_config_override: has_agent_server={}, context_servers={}",
+                config.has_agent_server(),
+                config.context_servers.len()
+            );
+        }
 
-        // 使用 runtime.send() 发送请求
-        info!("[RcoderAgentRunner] 发送请求到 runtime...");
-        self.runtime.send(agent_request).await.map_err(|e| {
-            error!("[RcoderAgentRunner] 发送请求失败: {}", e);
-            format!("发送请求失败: {}", e)
-        })?;
+        // 3. 构建 ChatHandlerInput
+        let input = ChatHandlerInput {
+            project_id: project_id.clone(),
+            project_dir,
+            session_id,
+            prompt: request.prompt,
+            request_id,
+            attachments: vec![], // HTTP 接口暂不支持附件
+            data_source_attachments: request.data_source_attachments,
+            model_config,
+            service_type: ServiceType::ComputerAgentRunner,
+            agent_config_override: request.agent_config_override,
+            system_prompt_override: request.system_prompt_override,
+            user_prompt_template_override: request.user_prompt_template_override,
+        };
 
-        info!("[RcoderAgentRunner] 请求已发送，等待响应...");
+        info!(
+            "[RcoderAgentRunner] 构建 ChatHandlerInput: agent_config_override={}, system_prompt_override={}, data_source_attachments={}",
+            input.agent_config_override.is_some(),
+            input.system_prompt_override.is_some(),
+            input.data_source_attachments.len()
+        );
 
-        // 等待响应
-        let response = rx.await.map_err(|e| {
-            error!("[RcoderAgentRunner] 接收响应失败: {}", e);
-            format!("接收响应失败: {}", e)
-        })?;
+        // 4. 构建 ChatHandlerContext
+        let context = ChatHandlerContext {
+            agent_runtime: self.runtime.clone(),
+            shared_api_key_manager: self.shared_api_key_manager.clone(),
+            project_uuid_map: self.project_uuid_map.clone(),
+        };
 
-        // 追踪会话
+        // 5. 调用共享 handler
+        let output = handle_chat_core(input, &context).await;
+
+        // 6. 追踪会话
         self.active_sessions
-            .insert(response.session_id.clone(), tokio::time::Instant::now());
+            .insert(output.session_id.clone(), tokio::time::Instant::now());
 
         info!(
-            "[RcoderAgentRunner] 聊天响应: project_id={}, session_id={}, code={}, error={:?}, success={}",
-            response.project_id,
-            response.session_id,
-            response.code,
-            response.error,
-            response.error.is_none() && response.code == "0000"
+            "[RcoderAgentRunner] 聊天响应: project_id={}, session_id={}, success={}, error={:?}, error_code={:?}",
+            output.project_id,
+            output.session_id,
+            output.success,
+            output.error,
+            output.error_code
         );
 
-        let converted = convert_response(response);
-        info!(
-            "[RcoderAgentRunner] 转换后响应: success={}, error={:?}, error_code={:?}",
-            converted.success, converted.error, converted.error_code
-        );
-
-        Ok(converted)
+        // 7. 转换为 ChatResponse
+        Ok(ChatResponse {
+            success: output.success,
+            error: output.error,
+            error_code: output.error_code,
+            project_id: Some(output.project_id),
+            session_id: output.session_id,
+            request_id: output.request_id,
+        })
     }
 
     async fn subscribe_progress(

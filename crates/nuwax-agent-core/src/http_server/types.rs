@@ -4,6 +4,9 @@
 
 use serde::{Deserialize, Serialize};
 
+// 导入共享类型
+use super::super::api::traits::{Attachment, ChatAgentConfig, ModelProviderConfig};
+
 /// Computer Chat 请求
 #[derive(Debug, Clone, Deserialize)]
 pub struct ComputerChatRequest {
@@ -24,7 +27,23 @@ pub struct ComputerChatRequest {
 
     /// 附件列表
     #[serde(default)]
-    pub attachments: Vec<super::super::api::traits::agent_runner::Attachment>,
+    pub attachments: Vec<Attachment>,
+
+    /// 数据源附件
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_source_attachments: Option<Vec<String>>,
+
+    /// 模型提供商配置
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "model_provider")]
+    pub model_config: Option<ModelProviderConfig>,
+
+    /// Agent 配置
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "agent_config")]
+    pub agent_config: Option<ChatAgentConfig>,
+
+    /// 系统提示覆盖
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
 }
 
 /// Computer Chat 响应

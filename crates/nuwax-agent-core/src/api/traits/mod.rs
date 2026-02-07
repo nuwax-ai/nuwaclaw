@@ -15,8 +15,8 @@ pub mod status_bar;
 
 // 导出类型别名，方便使用
 pub use agent_runner::{
-    AgentRunnerApi, AgentStatus, AgentStatusResult, Attachment, AttachmentSource, ChatRequest,
-    ChatResponse, ModelProviderConfig, ProgressMessage, ServiceType,
+    AgentRunnerApi, AgentStatus, AgentStatusResult, Attachment, ChatAgentConfig,
+    ChatRequest, ChatResponse, ModelProviderConfig, ProgressMessage, ServiceType,
 };
 pub use agent_status::AgentStatusApi;
 pub use client_info::ClientInfoApi;

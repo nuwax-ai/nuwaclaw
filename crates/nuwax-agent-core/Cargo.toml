@@ -21,6 +21,8 @@ crate-type = ["rlib", "cdylib"]
 default = ["auto-launch", "dependency-management", "async-trait", "http-server", "rcoder"]
 # 开机自启动
 auto-launch = ["dep:auto-launch"]
+# rustls 加密提供者（用于测试）
+rustls = ["dep:rustls"]
 # 依赖管理功能
 dependency-management = ["dep:reqwest", "dep:flate2", "dep:tar"]
 # 远程桌面功能
@@ -32,7 +34,7 @@ dev-mode = []
 # HTTP 服务（嵌入客户端）
 http-server = ["dep:axum", "dep:tower-http"]
 # rcoder agent_runner 集成 (本地模式)
-rcoder = ["dep:agent_runner", "dep:shared_types", "dep:agent_abstraction"]
+rcoder = ["dep:agent_runner", "dep:shared_types", "dep:agent_abstraction", "dep:rcoder_proxy", "dep:arc-swap"]
 
 [dependencies]
 # Workspace 依赖
@@ -68,6 +70,12 @@ shared_types = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax
 
 # rcoder agent_abstraction (用于 PromptMessage)
 agent_abstraction = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client", optional = true }
+
+# rcoder-proxy (API 代理服务，用于管理模型 API 密钥)
+rcoder_proxy = { package = "rcoder-proxy", git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client", optional = true }
+
+# arc-swap (用于 API Key 配置的无锁读取)
+arc-swap = { version = "1.7", optional = true }
 
 # 加密
 argon2 = { workspace = true }
@@ -107,6 +115,9 @@ open = "5"
 # 进程管理（确保子进程不会成为僵尸进程）
 # tokio1 不在默认特性中，需要显式启用
 process-wrap = { version = "9", features = ["tokio1"] }
+
+# rustls for crypto provider initialization (仅用于测试)
+rustls = { version = "0.23", features = ["ring"], optional = true }
 
 # HTTP Server (可选)
 axum = { version = "0.8", optional = true, features = ["json", "macros"] }

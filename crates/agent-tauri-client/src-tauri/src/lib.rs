@@ -1022,8 +1022,10 @@ async fn rcoder_start(
     };
 
     // 创建 RcoderAgentRunner 配置
+    // port 是 agent_port (HTTP 服务端口)，backend_port 使用相同的值
     let config = RcoderAgentRunnerConfig {
         projects_dir,
+        backend_port: port, // Agent HTTP 服务端口用于 pingora 反向代理
         ..RcoderAgentRunnerConfig::default()
     };
     info!("[Rcoder] 创建 RcoderAgentRunner 配置: {:?}", config);
@@ -2772,6 +2774,16 @@ async fn dependency_clear_all(app: tauri::AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // ✅ 初始化 Rustls CryptoProvider（必须在最前面，在任何可能使用 TLS 的代码之前）
+    // 这解决了 rustls 0.23 的 "Could not automatically determine the process-level CryptoProvider" 问题
+    // 使用 once_cell 确保只初始化一次，避免多次调用导致 panic
+    static INIT: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    let _ = INIT.get_or_init(|| {
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .expect("Failed to install rustls crypto provider");
+    });
+
     // 在其他代码之前初始化日志系统，使日志写入文件
     // 日志目录：macOS ~/Library/Application Support/nuwax-agent/logs/
     //          Linux ~/.local/share/nuwax-agent/logs/
