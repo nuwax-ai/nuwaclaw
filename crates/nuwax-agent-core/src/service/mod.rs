@@ -9,7 +9,8 @@ use tracing::{debug, error, info, warn};
 // 类型别名，解决 trait object 类型推断问题
 type ChildWrapperType = Box<dyn process_wrap::tokio::ChildWrapper>;
 
-// 注意：HTTP Server 现在由 RcoderAgentRunner 内部管理，不再需要 http_server 导入
+// 导入 RcoderAgentRunner
+use super::agent_runner::RcoderAgentRunner;
 
 // ========== 跨平台辅助函数 ==========
 
@@ -589,6 +590,8 @@ pub struct ServiceManager {
     lanproxy: Arc<Mutex<Option<ChildWrapperType>>>,
     /// nuwax-lanproxy 配置
     lanproxy_config: Arc<NuwaxLanproxyConfig>,
+    /// Rcoder Agent Runner
+    rcoder: Arc<Mutex<Option<Arc<RcoderAgentRunner>>>>,
 }
 
 impl ServiceManager {
@@ -602,6 +605,7 @@ impl ServiceManager {
             config: Arc::new(config.unwrap_or_default()),
             lanproxy: Arc::new(Mutex::new(None)),
             lanproxy_config: Arc::new(lanproxy_config.unwrap_or_default()),
+            rcoder: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -967,29 +971,62 @@ impl ServiceManager {
         Ok(())
     }
 
-    /// 启动 HTTP Server
+    /// 启动 Rcoder Agent Runner
+    ///
+    /// 接收已创建的 RcoderAgentRunner 实例并存储
     pub async fn rcoder_start(
         &self,
         _port: u16,
-        _agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>,
+        agent_runner: Arc<RcoderAgentRunner>,
     ) -> Result<(), String> {
-        info!("HTTP Server 现在由 RcoderAgentRunner 内部管理，无需手动启动");
+        info!("[Rcoder] 正在启动 Agent Runner...");
+
+        let mut guard = self.rcoder.lock().await;
+        *guard = Some(agent_runner);
+
+        info!("[Rcoder] Agent Runner 已启动");
         Ok(())
     }
 
-    /// 停止 HTTP Server
+    /// 停止 Rcoder Agent Runner
     pub async fn rcoder_stop(&self) -> Result<(), String> {
-        info!("HTTP Server 的停止由 RcoderAgentRunner 处理");
+        info!("[Rcoder] 正在停止 Agent Runner...");
+
+        let guard = self.rcoder.lock().await;
+        if let Some(ref runner) = *guard {
+            runner.stop().await;
+            info!("[Rcoder] Agent Runner 已停止");
+        } else {
+            info!("[Rcoder] Agent Runner 未运行");
+        }
+
+        // 注意：我们不清理 guard 中的 runner，因为 RcoderAgentRunner::stop 不再消费 self
+        // 这样做是因为：
+        // 1. 停止信号已通过 AtomicBool 发送给服务器任务
+        // 2. 服务器任务会在下次循环检查时退出
+        // 3. Runner 的重新启动会覆盖这个字段
+
         Ok(())
     }
 
-    /// 重启 HTTP Server
+    /// 重启 Rcoder Agent Runner
     pub async fn rcoder_restart(
         &self,
-        _port: u16,
-        _agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>,
+        port: u16,
+        agent_runner: Arc<RcoderAgentRunner>,
     ) -> Result<(), String> {
-        info!("HTTP Server 由 RcoderAgentRunner 管理，无需手动重启");
+        info!("[Rcoder] 正在重启 Agent Runner...");
+
+        // 先停止
+        self.rcoder_stop().await?;
+
+        // 等待端口释放
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        // 再启动
+        self.rcoder_start(port, agent_runner).await?;
+
+        info!("[Rcoder] Agent Runner 重启完成");
         Ok(())
     }
 
@@ -1026,14 +1063,14 @@ impl ServiceManager {
     pub async fn services_restart_all(
         &self,
         port: u16,
-        agent_runner_api: Arc<dyn super::api::traits::agent_runner::AgentRunnerApi>,
+        agent_runner: Arc<RcoderAgentRunner>,
     ) -> Result<(), String> {
         info!("Restarting all services...");
 
         self.services_stop_all().await?;
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-        self.rcoder_start(port, agent_runner_api.clone()).await?;
+        self.rcoder_start(port, agent_runner).await?;
         self.file_server_start().await?;
         self.lanproxy_start().await?;
 
