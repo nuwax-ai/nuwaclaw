@@ -79,6 +79,7 @@ export const STORAGE_KEYS = {
   DEPS_NODE_MODULES_PATH: "deps.node_modules_path", // node_modules 完整路径
   SETUP_DEPS_FILTER: "setup.deps_filter", // 依赖筛选（all/system/npm-local）
   SETUP_DEPS_SHOW_ALL: "setup.deps_show_all", // 是否展开全部依赖
+  SETUP_DEPS_INSTALLED: "setup.deps_installed", // 依赖是否已全部安装
 } as const;
 
 // 配置版本号
@@ -740,6 +741,22 @@ export const setupStorage = {
    */
   async setDepsShowAll(value: boolean): Promise<void> {
     await setBoolean(STORAGE_KEYS.SETUP_DEPS_SHOW_ALL, value);
+    await save();
+  },
+
+  /**
+   * 获取依赖是否已安装
+   */
+  async getDepsInstalled(): Promise<boolean> {
+    const installed = await getBoolean(STORAGE_KEYS.SETUP_DEPS_INSTALLED);
+    return installed === true;
+  },
+
+  /**
+   * 设置依赖是否已安装
+   */
+  async setDepsInstalled(value: boolean): Promise<void> {
+    await setBoolean(STORAGE_KEYS.SETUP_DEPS_INSTALLED, value);
     await save();
   },
 };

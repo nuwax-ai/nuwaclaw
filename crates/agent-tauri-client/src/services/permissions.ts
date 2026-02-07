@@ -11,10 +11,7 @@ import type {
   PermissionsSummary,
   PermissionsState,
 } from "./permissions/config";
-import {
-  getFullDiskAccessUrl,
-  getCurrentPlatform,
-} from "./permissions/config";
+import { getFullDiskAccessUrl, getCurrentPlatform } from "./permissions/config";
 
 // 导入核心服务（用于便捷函数）
 import { permissionsService } from "./permissions/service";
@@ -217,6 +214,15 @@ export function getFullDiskAccessHelpText(): string {
 // ============================================
 // 从子模块 re-export
 // ============================================
+
+// 类型 re-export
+export type {
+  PermissionStatus,
+  PermissionCategory,
+  PermissionItem,
+  PermissionsSummary,
+  PermissionsState,
+} from "./permissions/config";
 
 // 配置函数
 export {

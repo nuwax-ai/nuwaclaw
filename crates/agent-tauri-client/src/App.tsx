@@ -1,6 +1,6 @@
 /**
  * NuWax Agent 主应用入口
- * 
+ *
  * 职责：
  * - 初始化向导状态管理
  * - Tab 导航切换
@@ -8,13 +8,8 @@
  * - 状态管理和事件监听
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Badge,
-  Menu,
-  Spin,
-  message,
-} from 'antd';
+import React, { useState, useEffect, useCallback } from "react";
+import { Badge, Menu, Spin, message } from "antd";
 import {
   RobotOutlined,
   FileTextOutlined,
@@ -23,8 +18,8 @@ import {
   SafetyOutlined,
   FolderOutlined,
   InfoCircleOutlined,
-} from '@ant-design/icons';
-import { listen } from '@tauri-apps/api/event';
+} from "@ant-design/icons";
+import { listen } from "@tauri-apps/api/event";
 import {
   AgentStatus,
   LogEntry,
@@ -34,23 +29,34 @@ import {
   onStatusChange,
   onLogChange,
   getOnlineStatus,
-} from './services';
-import SetupWizard from './components/SetupWizard';
-import LogViewerWithBackend from './components/LogViewerWithBackend';
+} from "./services";
+import SetupWizard from "./components/SetupWizard";
+import LogViewerWithBackend from "./components/LogViewerWithBackend";
 import {
   ClientPage,
   SettingsPage,
   DependenciesPage,
   PermissionsPage,
   AboutPage,
-} from './pages';
-import { initConfigStore } from './services/config';
-import { initAuthStore, getSavedKey, syncConfigToServer } from './services/auth';
-import { isSetupCompleted } from './services/setup';
-import { restartAllServices } from './services/dependencies';
+} from "./pages";
+import { initConfigStore } from "./services/config";
+import {
+  initAuthStore,
+  getSavedKey,
+  syncConfigToServer,
+} from "./services/auth";
+import { isSetupCompleted } from "./services/setup";
+import { restartAllServices } from "./services/dependencies";
 
 // Tab 类型定义
-type TabType = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'backend_logs' | 'about';
+type TabType =
+  | "client"
+  | "settings"
+  | "dependencies"
+  | "permissions"
+  | "logs"
+  | "backend_logs"
+  | "about";
 
 /**
  * 主应用组件
@@ -64,19 +70,22 @@ function App() {
   // ============================================
   // 核心状态
   // ============================================
-  const [activeTab, setActiveTab] = useState<TabType>('client');
+  const [activeTab, setActiveTab] = useState<TabType>("client");
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<AgentStatus>('idle');
-  const [sessionId, setSessionId] = useState('');
+  const [status, setStatus] = useState<AgentStatus>("idle");
+  const [sessionId, setSessionId] = useState("");
   const [isConnected, setIsConnected] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [onlineStatus, setOnlineStatus] = useState<boolean | null>(null);
   const [storeInitialized, setStoreInitialized] = useState(false);
 
   // 连接信息
-  const [connectionInfo, setConnectionInfo] = useState<{ id: string; server: string }>({
-    id: '',
-    server: '',
+  const [connectionInfo, setConnectionInfo] = useState<{
+    id: string;
+    server: string;
+  }>({
+    id: "",
+    server: "",
   });
 
   // ============================================
@@ -85,13 +94,20 @@ function App() {
   // ============================================
   useEffect(() => {
     // 预定义合法的 Tab 名称列表
-    const VALID_TABS: TabType[] = ['client', 'settings', 'dependencies', 'permissions', 'logs', 'about'];
+    const VALID_TABS: TabType[] = [
+      "client",
+      "settings",
+      "dependencies",
+      "permissions",
+      "logs",
+      "about",
+    ];
 
     let unlisten: (() => void) | undefined;
 
     const setupNavigationListener = async () => {
       try {
-        unlisten = await listen<string>('navigate-to-tab', (event) => {
+        unlisten = await listen<string>("navigate-to-tab", (event) => {
           const targetTab = event.payload as TabType;
 
           // 验证 Tab 名称是否合法
@@ -103,9 +119,9 @@ function App() {
             console.warn(`[App] 收到无效的 Tab 参数: ${targetTab}`);
           }
         });
-        console.log('[App] 导航事件监听已注册');
+        console.log("[App] 导航事件监听已注册");
       } catch (error) {
-        console.error('[App] 注册导航事件监听失败:', error);
+        console.error("[App] 注册导航事件监听失败:", error);
       }
     };
 
@@ -115,7 +131,7 @@ function App() {
     return () => {
       if (unlisten) {
         unlisten();
-        console.log('[App] 导航事件监听已移除');
+        console.log("[App] 导航事件监听已移除");
       }
     };
   }, []);
@@ -129,7 +145,7 @@ function App() {
         const completed = await isSetupCompleted();
         setSetupCompleted(completed);
       } catch (error) {
-        console.error('检查初始化状态失败:', error);
+        console.error("检查初始化状态失败:", error);
         // 如果检查失败，假设已完成（避免阻塞用户）
         setSetupCompleted(true);
       }
@@ -145,7 +161,7 @@ function App() {
     if (setupCompleted !== true) {
       return;
     }
-    
+
     const init = async () => {
       try {
         // 初始化认证存储
@@ -157,7 +173,7 @@ function App() {
         setOnlineStatus(status);
         setStoreInitialized(true);
       } catch (error) {
-        console.error('初始化存储服务失败:', error);
+        console.error("初始化存储服务失败:", error);
         // 即使失败也标记为已初始化，使用默认配置
         setStoreInitialized(true);
       }
@@ -178,21 +194,21 @@ function App() {
       try {
         const savedKey = await getSavedKey();
         if (savedKey) {
-          console.log('[App] 检测到 savedKey，自动重连...');
+          console.log("[App] 检测到 savedKey，自动重连...");
           // 调用 reg 接口（传入 savedKey）
           const result = await syncConfigToServer();
           if (result) {
-            console.log('[App] 重连成功，启动服务...');
+            console.log("[App] 重连成功，启动服务...");
             await restartAllServices();
             // 更新在线状态
             setOnlineStatus(result.online);
-            message.success('服务已自动启动');
+            message.success("服务已自动启动");
           }
         } else {
-          console.log('[App] 未检测到 savedKey，跳过自动重连');
+          console.log("[App] 未检测到 savedKey，跳过自动重连");
         }
       } catch (error) {
-        console.error('[App] 自动重连失败:', error);
+        console.error("[App] 自动重连失败:", error);
         // 自动重连失败不阻塞用户使用，仅记录错误
       }
     };
@@ -204,8 +220,11 @@ function App() {
   // 权限状态轮询机制
   // ============================================
   // 用于自动检测权限状态变化，当用户打开系统设置完成授权后返回应用时自动更新
-  const [permissionPollingEnabled, setPermissionPollingEnabled] = useState(false);
-  const [lastPermissionStatus, setLastPermissionStatus] = useState<Map<string, string>>(new Map());
+  const [permissionPollingEnabled, setPermissionPollingEnabled] =
+    useState(false);
+  const [lastPermissionStatus, setLastPermissionStatus] = useState<
+    Map<string, string>
+  >(new Map());
 
   // 轮询间隔（毫秒）
   const POLLING_INTERVAL = 3000;
@@ -214,7 +233,7 @@ function App() {
   const checkPermissionChanges = useCallback(async () => {
     try {
       // 导入权限检查函数
-      const { checkAllPermissions } = await import('./services/permissions');
+      const { checkAllPermissions } = await import("./services/permissions");
 
       // 获取当前权限状态
       const permissionsState = await checkAllPermissions();
@@ -226,7 +245,9 @@ function App() {
       for (const perm of currentPermissions) {
         const lastStatus = lastPermissionStatus.get(perm.id);
         if (lastStatus !== perm.status) {
-          console.log(`[App] 权限状态变化: ${perm.id} ${lastStatus || 'unknown'} -> ${perm.status}`);
+          console.log(
+            `[App] 权限状态变化: ${perm.id} ${lastStatus || "unknown"} -> ${perm.status}`,
+          );
           hasChanges = true;
           lastPermissionStatus.set(perm.id, perm.status);
         }
@@ -235,11 +256,16 @@ function App() {
       // 如果有权限变化且有必需的权限从 denied/pending 变为 granted，提示用户
       if (hasChanges) {
         const newlyGranted = currentPermissions.filter(
-          (p) => p.required && p.status === 'granted' && lastPermissionStatus.get(p.id) !== 'granted'
+          (p) =>
+            p.required &&
+            p.status === "granted" &&
+            lastPermissionStatus.get(p.id) !== "granted",
         );
 
         if (newlyGranted.length > 0) {
-          message.success(`权限已更新: ${newlyGranted.map((p) => p.displayName).join(', ')}`);
+          message.success(
+            `权限已更新: ${newlyGranted.map((p) => p.displayName).join(", ")}`,
+          );
         }
 
         // 更新状态
@@ -248,20 +274,20 @@ function App() {
 
       return hasChanges;
     } catch (error) {
-      console.error('[App] 权限状态检查失败:', error);
+      console.error("[App] 权限状态检查失败:", error);
       return false;
     }
   }, [lastPermissionStatus]);
 
   // 启动权限轮询
   const startPermissionPolling = useCallback(() => {
-    console.log('[App] 启动权限状态轮询');
+    console.log("[App] 启动权限状态轮询");
     setPermissionPollingEnabled(true);
   }, []);
 
   // 停止权限轮询
   const stopPermissionPolling = useCallback(() => {
-    console.log('[App] 停止权限状态轮询');
+    console.log("[App] 停止权限状态轮询");
     setPermissionPollingEnabled(false);
   }, []);
 
@@ -272,7 +298,7 @@ function App() {
       return;
     }
 
-    console.log('[App] 权限轮询已启动');
+    console.log("[App] 权限轮询已启动");
 
     // 立即执行一次检查
     checkPermissionChanges();
@@ -285,17 +311,17 @@ function App() {
     // 清理函数
     return () => {
       clearInterval(intervalId);
-      console.log('[App] 权限轮询已停止');
+      console.log("[App] 权限轮询已停止");
     };
   }, [permissionPollingEnabled, setupCompleted, checkPermissionChanges]);
 
   // 监听应用焦点事件：失焦时停止轮询，聚焦时启动轮询
   useEffect(() => {
     const unlistenFocus = async () => {
-      const { listen } = await import('@tauri-apps/api/event');
+      const { listen } = await import("@tauri-apps/api/event");
 
-      return listen('tauri://focus', () => {
-        console.log('[App] 应用获得焦点');
+      return listen("tauri://focus", () => {
+        console.log("[App] 应用获得焦点");
         // 聚焦时执行一次权限检查
         if (permissionPollingEnabled) {
           checkPermissionChanges();
@@ -304,10 +330,10 @@ function App() {
     };
 
     const unlistenBlur = async () => {
-      const { listen } = await import('@tauri-apps/api/event');
+      const { listen } = await import("@tauri-apps/api/event");
 
-      return listen('tauri://blur', () => {
-        console.log('[App] 应用失去焦点');
+      return listen("tauri://blur", () => {
+        console.log("[App] 应用失去焦点");
         // 失焦时可以停止轮询以节省资源（可选）
         // stopPermissionPolling();
       });
@@ -337,9 +363,9 @@ function App() {
     // 订阅状态变化
     onStatusChange((newStatus: AgentStatus) => {
       setStatus(newStatus);
-      if (newStatus === 'running') {
+      if (newStatus === "running") {
         setIsConnected(true);
-      } else if (newStatus === 'stopped' || newStatus === 'error') {
+      } else if (newStatus === "stopped" || newStatus === "error") {
         setIsConnected(false);
       }
     });
@@ -354,11 +380,11 @@ function App() {
   // 连接信息更新
   // ============================================
   useEffect(() => {
-    if (status === 'running') {
+    if (status === "running") {
       const info = getConnectionInfo();
       setConnectionInfo({ id: info.id, server: info.server });
     } else {
-      setConnectionInfo({ id: '', server: '' });
+      setConnectionInfo({ id: "", server: "" });
     }
   }, [status]);
 
@@ -373,13 +399,13 @@ function App() {
         // 状态会通过 onStatusChange 回调更新
         // 获取连接信息中的 session id
         const info = getConnectionInfo();
-        setSessionId(info.id || '');
-        message.success('Agent 启动成功');
+        setSessionId(info.id || "");
+        message.success("Agent 启动成功");
       } else {
-        message.error('启动失败');
+        message.error("启动失败");
       }
     } catch (error) {
-      message.error('启动失败');
+      message.error("启动失败");
     } finally {
       setLoading(false);
     }
@@ -389,10 +415,10 @@ function App() {
     setLoading(true);
     try {
       await stopAgent();
-      setStatus('stopped');
-      message.success('Agent 已停止');
+      setStatus("stopped");
+      message.success("Agent 已停止");
     } catch (error) {
-      message.error('停止失败');
+      message.error("停止失败");
     } finally {
       setLoading(false);
     }
@@ -402,13 +428,19 @@ function App() {
   // 状态徽章配置
   // ============================================
   const getBadgeConfig = () => {
-    const config: Record<AgentStatus, { status: 'success' | 'processing' | 'error' | 'default' | 'warning'; text: string }> = {
-      idle: { status: 'default', text: '就绪' },
-      starting: { status: 'processing', text: '启动中' },
-      running: { status: 'success', text: '运行中' },
-      busy: { status: 'warning', text: '繁忙' },
-      stopped: { status: 'default', text: '已停止' },
-      error: { status: 'error', text: '错误' },
+    const config: Record<
+      AgentStatus,
+      {
+        status: "success" | "processing" | "error" | "default" | "warning";
+        text: string;
+      }
+    > = {
+      idle: { status: "default", text: "就绪" },
+      starting: { status: "processing", text: "启动中" },
+      running: { status: "success", text: "运行中" },
+      busy: { status: "warning", text: "繁忙" },
+      stopped: { status: "default", text: "已停止" },
+      error: { status: "error", text: "错误" },
     };
     return config[status] || config.idle;
   };
@@ -419,12 +451,12 @@ function App() {
   // 菜单配置
   // ============================================
   const menuItems = [
-    { key: 'client', icon: <DashboardOutlined />, label: '客户端' },
-    { key: 'settings', icon: <SettingOutlined />, label: '设置' },
-    { key: 'dependencies', icon: <FolderOutlined />, label: '依赖' },
-    { key: 'permissions', icon: <SafetyOutlined />, label: '权限' },
-    { key: 'logs', icon: <FileTextOutlined />, label: '日志' },
-    { key: 'about', icon: <InfoCircleOutlined />, label: '关于' },
+    { key: "client", icon: <DashboardOutlined />, label: "客户端" },
+    { key: "settings", icon: <SettingOutlined />, label: "设置" },
+    { key: "dependencies", icon: <FolderOutlined />, label: "依赖" },
+    { key: "permissions", icon: <SafetyOutlined />, label: "权限" },
+    { key: "logs", icon: <FileTextOutlined />, label: "日志" },
+    { key: "about", icon: <InfoCircleOutlined />, label: "关于" },
   ];
 
   // ============================================
@@ -434,17 +466,9 @@ function App() {
     return (
       <div className="app-loading">
         <Spin size="large" />
-        <div style={{ marginTop: 16, color: '#666' }}>正在加载...</div>
-        <style>{`
-          .app-loading {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%);
-          }
-        `}</style>
+        <div style={{ marginTop: 16, color: "#71717a", fontSize: 13 }}>
+          正在加载...
+        </div>
       </div>
     );
   }
@@ -453,11 +477,7 @@ function App() {
   // 渲染：初始化向导
   // ============================================
   if (!setupCompleted) {
-    return (
-      <SetupWizard
-        onComplete={() => setSetupCompleted(true)}
-      />
-    );
+    return <SetupWizard onComplete={() => setSetupCompleted(true)} />;
   }
 
   // ============================================
@@ -468,20 +488,26 @@ function App() {
       {/* 顶部栏 */}
       <div className="app-header">
         <div className="app-header-logo">
-          <RobotOutlined style={{ fontSize: 20, color: '#1890ff' }} />
+          <RobotOutlined style={{ fontSize: 16, color: "#18181b" }} />
           <span className="app-header-title">NuWax Agent</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <Badge status={badge.status} text={<span style={{ color: '#fff' }}>{badge.text}</span>} />
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <Badge
+            status={badge.status}
+            text={
+              <span style={{ color: "#52525b", fontSize: 12 }}>
+                {badge.text}
+              </span>
+            }
+          />
         </div>
       </div>
 
       {/* 主体部分 */}
       <div className="app-body">
-        {/* 左侧边栏 */}
+        {/* 左侧边栏 - 浅色简洁 */}
         <div className="app-sider">
           <Menu
-            theme="dark"
             mode="inline"
             selectedKeys={[activeTab]}
             items={menuItems.map((item) => ({
@@ -495,7 +521,7 @@ function App() {
 
         {/* 主内容区 */}
         <div className="app-content">
-          {activeTab === 'client' && (
+          {activeTab === "client" && (
             <ClientPage
               status={status}
               sessionId={sessionId}
@@ -509,17 +535,17 @@ function App() {
               onNavigate={setActiveTab}
             />
           )}
-          {activeTab === 'settings' && <SettingsPage />}
-          {activeTab === 'dependencies' && <DependenciesPage />}
-          {activeTab === 'permissions' && <PermissionsPage />}
-          {activeTab === 'logs' && (
+          {activeTab === "settings" && <SettingsPage />}
+          {activeTab === "dependencies" && <DependenciesPage />}
+          {activeTab === "permissions" && <PermissionsPage />}
+          {activeTab === "logs" && (
             <LogViewerWithBackend
               showSource={true}
               enableRealtime={true}
               autoScrollDefault={true}
             />
           )}
-          {activeTab === 'about' && <AboutPage />}
+          {activeTab === "about" && <AboutPage />}
         </div>
       </div>
     </div>

@@ -1,16 +1,14 @@
 /**
  * 日志统计组件
- * 显示各级别日志数量
  */
 
-import { Space, Badge } from 'antd';
 import {
   CheckCircleOutlined,
   WarningOutlined,
   CloseCircleOutlined,
   FileTextOutlined,
-} from '@ant-design/icons';
-import { LogStats } from '../services/logService';
+} from "@ant-design/icons";
+import { LogStats } from "../services/logService";
 
 interface LogStatsProps {
   stats: LogStats;
@@ -23,70 +21,64 @@ export default function LogStatsComponent({
   currentFilter,
   onFilterClick,
 }: LogStatsProps) {
-  // 日志级别配置
   const items = [
     {
-      key: 'total',
+      key: "total",
       icon: <FileTextOutlined />,
-      color: '#1890ff',
-      label: '全部',
+      color: "#71717a",
+      label: "全部",
       count: stats.total,
     },
     {
-      key: 'success',
+      key: "success",
       icon: <CheckCircleOutlined />,
-      color: '#52c41a',
-      label: '成功',
+      color: "#16a34a",
+      label: "成功",
       count: stats.success,
     },
     {
-      key: 'warning',
+      key: "warning",
       icon: <WarningOutlined />,
-      color: '#faad14',
-      label: '警告',
+      color: "#ca8a04",
+      label: "警告",
       count: stats.warning,
     },
     {
-      key: 'error',
+      key: "error",
       icon: <CloseCircleOutlined />,
-      color: '#ff4d4f',
-      label: '错误',
+      color: "#dc2626",
+      label: "错误",
       count: stats.error,
     },
   ];
 
   return (
-    <Space split="|" size={16}>
-      {items.map((item) => (
-        <Badge
-          key={item.key}
-          showZero
-          style={{
-            backgroundColor: currentFilter === item.key ? item.color : '#f0f0f0',
-            color: currentFilter === item.key ? '#fff' : item.color,
-          }}
-          onClick={() => onFilterClick?.(item.key)}
-          className={onFilterClick ? 'log-stats-item' : ''}
-        >
+    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+      {items.map((item) => {
+        const isActive = currentFilter === item.key;
+        return (
           <span
+            key={item.key}
+            onClick={() => onFilterClick?.(item.key)}
             style={{
-              color: item.color,
-              marginRight: 4,
-              cursor: onFilterClick ? 'pointer' : 'default',
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 12,
+              cursor: onFilterClick ? "pointer" : "default",
+              color: isActive ? item.color : "#a1a1aa",
+              fontWeight: isActive ? 500 : 400,
+              padding: "2px 6px",
+              borderRadius: 4,
+              background: isActive ? "#f4f4f5" : "transparent",
+              transition: "all 0.15s",
             }}
           >
             {item.icon}
-          </span>
-          <span
-            style={{
-              fontWeight: currentFilter === item.key ? 600 : 400,
-              cursor: onFilterClick ? 'pointer' : 'default',
-            }}
-          >
             {item.label} {item.count}
           </span>
-        </Badge>
-      ))}
-    </Space>
+        );
+      })}
+    </div>
   );
 }

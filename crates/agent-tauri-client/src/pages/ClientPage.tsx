@@ -9,37 +9,14 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
+import { Button, Tag, Alert, Spin, message } from "antd";
 import {
-  Space,
-  Badge,
-  Card,
-  Button,
-  Descriptions,
-  Tag,
-  Row,
-  Col,
-  Tooltip,
-  Alert,
-  Progress,
-  List,
-  Spin,
-  message,
-} from 'antd';
-import {
-  RobotOutlined,
-  FileTextOutlined,
   PlayCircleOutlined,
   StopOutlined,
-  CloudServerOutlined,
-  ApiOutlined,
-  FolderOutlined,
-  SafetyOutlined,
-  SettingOutlined,
+  ReloadOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
   LoadingOutlined,
-  SyncOutlined,
-  ReloadOutlined,
 } from "@ant-design/icons";
 import { Typography } from "antd";
 import { AgentStatus, LogEntry } from "../services";
@@ -50,11 +27,9 @@ import {
   checkAllSetupDependencies,
   ServiceInfo,
   SERVICE_DISPLAY_NAMES,
-  SERVICE_STATE_COLORS,
   LocalDependencyItem,
 } from "../services/dependencies";
 import LoginForm from "../components/LoginForm";
-import SceneSwitcher from "../components/SceneSwitcher";
 
 const { Text } = Typography;
 
@@ -74,34 +49,21 @@ type TabType =
   | "about";
 
 interface ClientPageProps {
-  /** Agent 状态 */
   status: AgentStatus;
-  /** 会话 ID */
   sessionId: string;
-  /** 在线状态 */
   onlineStatus: boolean | null;
-  /** 日志列表 */
   logs: LogEntry[];
-  /** 连接信息 */
   connectionInfo: ConnectionInfo;
-  /** 状态徽章配置 */
   badge: {
     status: "success" | "processing" | "error" | "default" | "warning";
     text: string;
   };
-  /** 是否加载中 */
   loading: boolean;
-  /** 启动 Agent */
   onStart: () => void;
-  /** 停止 Agent */
   onStop: () => void;
-  /** 导航到其他 Tab */
   onNavigate?: (tab: TabType) => void;
 }
 
-/**
- * 客户端页面组件
- */
 export default function ClientPage({
   status,
   sessionId,
@@ -114,16 +76,12 @@ export default function ClientPage({
   onStop,
   onNavigate,
 }: ClientPageProps) {
-  // 服务状态
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [servicesLoading, setServicesLoading] = useState(false);
   const [servicesOperating, setServicesOperating] = useState(false);
-
-  // 依赖状态
   const [missingDeps, setMissingDeps] = useState<LocalDependencyItem[]>([]);
   const [depsChecked, setDepsChecked] = useState(false);
 
-  // 加载服务状态
   const loadServicesStatus = useCallback(async () => {
     setServicesLoading(true);
     try {
@@ -136,7 +94,6 @@ export default function ClientPage({
     }
   }, []);
 
-  // 检测依赖状态
   const checkDependencies = useCallback(async () => {
     try {
       const deps = await checkAllSetupDependencies();
@@ -155,113 +112,115 @@ export default function ClientPage({
     }
   }, []);
 
-  // 初始加载和定时刷新
   useEffect(() => {
     loadServicesStatus();
     checkDependencies();
-    // 每 5 秒刷新一次服务状态
     const interval = setInterval(loadServicesStatus, 5000);
     return () => clearInterval(interval);
   }, [loadServicesStatus, checkDependencies]);
 
-  // 启动所有服务
   const handleStartServices = async () => {
     setServicesOperating(true);
     try {
       await restartAllServices();
       await loadServicesStatus();
-      message.success('服务启动成功');
+      message.success("服务启动成功");
     } catch (error) {
-      console.error('[ClientPage] 启动服务失败:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      message.error(`启动服务失败: ${errorMessage}`);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      message.error(`启动失败: ${errorMessage}`);
     } finally {
       setServicesOperating(false);
     }
   };
 
-  // 停止所有服务
   const handleStopServices = async () => {
     setServicesOperating(true);
     try {
       await stopAllServices();
       await loadServicesStatus();
-      message.success('服务已停止');
+      message.success("服务已停止");
     } catch (error) {
-      console.error('[ClientPage] 停止服务失败:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      message.error(`停止服务失败: ${errorMessage}`);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      message.error(`停止失败: ${errorMessage}`);
     } finally {
       setServicesOperating(false);
     }
   };
 
-  // 计算服务统计
   const runningCount = services.filter((s) => s.state === "Running").length;
   const totalCount = services.length;
   const allRunning = totalCount > 0 && runningCount === totalCount;
   const allStopped = totalCount > 0 && runningCount === 0;
 
-  // 获取服务状态图标
-  const getServiceStateIcon = (state: string) => {
+  const getStateIcon = (state: string) => {
     switch (state) {
       case "Running":
-        return <CheckCircleOutlined style={{ color: "#52c41a" }} />;
+        return (
+          <CheckCircleOutlined style={{ color: "#16a34a", fontSize: 12 }} />
+        );
       case "Stopped":
-        return <CloseCircleOutlined style={{ color: "#ff4d4f" }} />;
+        return (
+          <CloseCircleOutlined style={{ color: "#a1a1aa", fontSize: 12 }} />
+        );
       case "Starting":
       case "Stopping":
-        return <LoadingOutlined style={{ color: "#1890ff" }} />;
+        return <LoadingOutlined style={{ color: "#71717a", fontSize: 12 }} />;
       default:
-        return <CloseCircleOutlined style={{ color: "#ff4d4f" }} />;
+        return (
+          <CloseCircleOutlined style={{ color: "#a1a1aa", fontSize: 12 }} />
+        );
     }
   };
 
-  // 获取服务状态标签
-  const getServiceStateTag = (state: string) => {
-    const config: Record<string, { color: string; text: string }> = {
-      Running: { color: "success", text: "运行中" },
-      Stopped: { color: "error", text: "已停止" },
-      Starting: { color: "processing", text: "启动中" },
-      Stopping: { color: "warning", text: "停止中" },
-      Error: { color: "error", text: "错误" },
+  const getStateText = (state: string) => {
+    const map: Record<string, string> = {
+      Running: "运行中",
+      Stopped: "已停止",
+      Starting: "启动中",
+      Stopping: "停止中",
+      Error: "错误",
     };
-    const c = config[state] || { color: "default", text: state };
-    return <Tag color={c.color}>{c.text}</Tag>;
+    return map[state] || state;
+  };
+
+  const SERVICE_DESC: Record<string, string> = {
+    Rcoder: "Agent 核心服务",
+    NuwaxFileServer: "文件服务",
+    NuwaxLanproxy: "内网穿透",
   };
 
   return (
-    <div style={{ maxWidth: 900 }}>
-      {/* 场景切换 */}
-      {/* <Card size="small" style={{ marginBottom: 16 }}>
-        <Space style={{ width: '100%', display: 'flex', justifyContent: 'space-between' }}>
-          <Space>
-            <RobotOutlined style={{ fontSize: 16, color: '#1890ff' }} />
-            <span style={{ fontWeight: 500 }}>NuWax Agent</span>
-          </Space>
-          <SceneSwitcher showLabel={false} size="small" />
-        </Space>
-      </Card> */}
-
-      {/* 登录表单 */}
+    <div>
+      {/* 登录 */}
       <LoginForm onLoginSuccess={() => {}} />
 
-      {/* 服务状态卡片 */}
-      <Card
-        title={
-          <Space>
-            <CloudServerOutlined />
-            <span>服务状态</span>
+      {/* 服务状态 */}
+      <div className="section">
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: "#18181b" }}>
+              服务
+            </span>
             <Tag
-              color={allRunning ? "success" : allStopped ? "error" : "warning"}
+              color={
+                allRunning ? "success" : allStopped ? "default" : "warning"
+              }
             >
-              {runningCount}/{totalCount} 运行中
+              {runningCount}/{totalCount}
             </Tag>
-          </Space>
-        }
-        extra={
-          <Space>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
             <Button
+              size="small"
               icon={<ReloadOutlined spin={servicesLoading} />}
               onClick={loadServicesStatus}
               disabled={servicesLoading}
@@ -270,6 +229,7 @@ export default function ClientPage({
             </Button>
             {allStopped ? (
               <Button
+                size="small"
                 type="primary"
                 icon={<PlayCircleOutlined />}
                 onClick={handleStartServices}
@@ -280,6 +240,7 @@ export default function ClientPage({
               </Button>
             ) : (
               <Button
+                size="small"
                 danger
                 icon={<StopOutlined />}
                 onClick={handleStopServices}
@@ -288,149 +249,144 @@ export default function ClientPage({
                 停止全部
               </Button>
             )}
-          </Space>
-        }
-      >
+          </div>
+        </div>
+
         {servicesLoading && services.length === 0 ? (
           <div style={{ textAlign: "center", padding: 24 }}>
-            <Spin />
-            <div style={{ marginTop: 8 }}>
-              <Text type="secondary">正在获取服务状态...</Text>
-            </div>
+            <Spin size="small" />
           </div>
         ) : services.length === 0 ? (
-          <Alert
-            message="未检测到服务"
-            description="请先完成初始化配置并安装依赖"
-            type="info"
-            showIcon
-          />
+          <Alert message="未检测到服务，请先完成初始化配置" type="info" />
         ) : (
-          <List
-            size="small"
-            dataSource={services}
-            renderItem={(service) => (
-              <List.Item
-                actions={[
-                  getServiceStateTag(service.state),
-                  null,
-                  // service.pid ? <Text type="secondary">PID: {service.pid}</Text> : null,
-                ].filter(Boolean)}
+          <div
+            style={{
+              border: "1px solid #e4e4e7",
+              borderRadius: 8,
+              overflow: "hidden",
+              background: "#fff",
+            }}
+          >
+            {services.map((service, i) => (
+              <div
+                key={service.serviceType}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "10px 14px",
+                  borderBottom:
+                    i < services.length - 1 ? "1px solid #f4f4f5" : "none",
+                }}
               >
-                <List.Item.Meta
-                  avatar={getServiceStateIcon(service.state)}
-                  title={
-                    SERVICE_DISPLAY_NAMES[service.serviceType] ||
-                    service.serviceType
-                  }
-                  description={
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {service.serviceType === "Rcoder" &&
-                        "HTTP Server / Agent 核心服务"}
-                      {service.serviceType === "NuwaxFileServer" &&
-                        "本地文件服务 / 工作区管理"}
-                      {service.serviceType === "NuwaxLanproxy" &&
-                        "内网穿透代理 / 远程连接"}
-                    </Text>
-                  }
-                />
-              </List.Item>
-            )}
-          />
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  {getStateIcon(service.state)}
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: "#18181b",
+                      }}
+                    >
+                      {SERVICE_DISPLAY_NAMES[service.serviceType] ||
+                        service.serviceType}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#a1a1aa" }}>
+                      {SERVICE_DESC[service.serviceType] || ""}
+                    </div>
+                  </div>
+                </div>
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: service.state === "Running" ? "#16a34a" : "#a1a1aa",
+                  }}
+                >
+                  {getStateText(service.state)}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
 
         {allStopped && services.length > 0 && missingDeps.length > 0 && (
           <Alert
-            message="服务无法启动 - 缺少必需依赖"
+            message="缺少必需依赖，无法启动服务"
             description={
-              <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                <Text>
-                  以下依赖未安装或版本不满足要求，请先安装后再启动服务：
-                </Text>
-                <List
-                  size="small"
-                  dataSource={missingDeps}
-                  renderItem={(dep) => (
-                    <List.Item style={{ padding: "4px 0", border: "none" }}>
-                      <Space>
-                        <CloseCircleOutlined style={{ color: "#ff4d4f" }} />
-                        <Text strong>{dep.displayName}</Text>
-                        <Tag
-                          color={dep.status === "missing" ? "error" : "warning"}
-                        >
-                          {dep.status === "missing"
-                            ? "未安装"
-                            : dep.status === "outdated"
-                              ? "版本过低"
-                              : "错误"}
-                        </Tag>
-                        {dep.errorMessage && (
-                          <Text type="secondary" style={{ fontSize: 12 }}>
-                            {dep.errorMessage}
-                          </Text>
-                        )}
-                      </Space>
-                    </List.Item>
-                  )}
-                />
+              <div>
+                <div style={{ marginBottom: 8 }}>
+                  {missingDeps.map((dep) => (
+                    <Tag
+                      key={dep.name}
+                      color="error"
+                      style={{ marginBottom: 4 }}
+                    >
+                      {dep.displayName}
+                    </Tag>
+                  ))}
+                </div>
                 <Button
+                  size="small"
                   type="primary"
-                  icon={<FolderOutlined />}
                   onClick={() => onNavigate?.("dependencies")}
                 >
-                  前往依赖管理安装
+                  前往安装
                 </Button>
-              </Space>
+              </div>
             }
             type="error"
-            showIcon
-            style={{ marginTop: 16 }}
+            style={{ marginTop: 12 }}
           />
         )}
-
-        {allStopped &&
-          services.length > 0 &&
-          missingDeps.length === 0 &&
-          depsChecked && (
-            <Alert
-              message="服务未启动"
-              description="所有依赖已就绪，点击「启动全部」按钮启动所有服务"
-              type="warning"
-              showIcon
-              style={{ marginTop: 16 }}
-            />
-          )}
 
         {allRunning && (
-          <Alert
-            message="所有服务运行正常"
-            type="success"
-            showIcon
-            style={{ marginTop: 16 }}
-          />
+          <div
+            style={{
+              marginTop: 8,
+              fontSize: 12,
+              color: "#16a34a",
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            <CheckCircleOutlined />
+            所有服务运行正常
+          </div>
         )}
-      </Card>
+      </div>
 
       {/* 连接信息 */}
-      <Card
-        title={
-          <Space>
-            <ApiOutlined />
-            <span>连接信息</span>
-          </Space>
-        }
-        style={{ marginTop: 16 }}
-      >
-        <Row gutter={16}>
-          <Col span={12}>
-            <Descriptions column={1} size="small">
-              <Descriptions.Item label="连接状态">
+      <div className="section" style={{ marginTop: 20 }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 500,
+            color: "#18181b",
+            marginBottom: 10,
+          }}
+        >
+          连接信息
+        </div>
+        <div
+          style={{
+            border: "1px solid #e4e4e7",
+            borderRadius: 8,
+            background: "#fff",
+            padding: "2px 0",
+          }}
+        >
+          {[
+            {
+              label: "状态",
+              value: (
                 <Tag
                   color={
                     onlineStatus === true
-                      ? "green"
+                      ? "success"
                       : onlineStatus === false
-                        ? "red"
+                        ? "error"
                         : "default"
                   }
                 >
@@ -440,70 +396,58 @@ export default function ClientPage({
                       ? "离线"
                       : "未知"}
                 </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="会话 ID">
-                <Text code>{sessionId || "-"}</Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="平台">macOS / arm64</Descriptions.Item>
-            </Descriptions>
-          </Col>
-          <Col span={12}>
-            <Descriptions column={1} size="small">
-              <Descriptions.Item label="客户端 ID">
-                <Text code copyable={!!connectionInfo.id}>
-                  {connectionInfo.id || "-"}
-                </Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="服务器">
-                <Text copyable={!!connectionInfo.server}>
-                  {connectionInfo.server || "-"}
-                </Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="日志">
-                {logs.length} 条记录
-              </Descriptions.Item>
-            </Descriptions>
-          </Col>
-        </Row>
-      </Card>
+              ),
+            },
+            { label: "会话 ID", value: sessionId || "-" },
+            { label: "客户端 ID", value: connectionInfo.id || "-" },
+            { label: "服务器", value: connectionInfo.server || "-" },
+            { label: "日志", value: `${logs.length} 条` },
+          ].map((item, i) => (
+            <div
+              key={i}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "7px 14px",
+                borderBottom: i < 4 ? "1px solid #f4f4f5" : "none",
+              }}
+            >
+              <span style={{ fontSize: 12, color: "#71717a" }}>
+                {item.label}
+              </span>
+              <span
+                style={{
+                  fontSize: 12,
+                  color: "#18181b",
+                  fontFamily:
+                    typeof item.value === "string"
+                      ? "ui-monospace, SFMono-Regular, Menlo, monospace"
+                      : undefined,
+                }}
+              >
+                {item.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
 
-      {/* 快速操作 */}
-      <Card title="快速操作" style={{ marginTop: 16 }}>
-        <Space wrap>
-          <Tooltip title="服务配置">
-            <Button
-              icon={<SettingOutlined />}
-              onClick={() => onNavigate?.("settings")}
-            >
-              服务配置
-            </Button>
-          </Tooltip>
-          <Tooltip title="依赖管理">
-            <Button
-              icon={<FolderOutlined />}
-              onClick={() => onNavigate?.("dependencies")}
-            >
-              依赖管理
-            </Button>
-          </Tooltip>
-          <Tooltip title="权限设置">
-            <Button
-              icon={<SafetyOutlined />}
-              onClick={() => onNavigate?.("permissions")}
-            >
-              权限设置
-            </Button>
-          </Tooltip>
-          <Tooltip title="查看日志">
-            <Button
-              icon={<FileTextOutlined />}
-              onClick={() => onNavigate?.("logs")}
-            >
-              查看日志
-            </Button>
-          </Tooltip>
-        </Space>
-      </Card>
+      {/* 快捷操作 */}
+      <div style={{ marginTop: 20, display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Button size="small" onClick={() => onNavigate?.("settings")}>
+          配置
+        </Button>
+        <Button size="small" onClick={() => onNavigate?.("dependencies")}>
+          依赖
+        </Button>
+        <Button size="small" onClick={() => onNavigate?.("permissions")}>
+          权限
+        </Button>
+        <Button size="small" onClick={() => onNavigate?.("logs")}>
+          日志
+        </Button>
+      </div>
     </div>
   );
 }

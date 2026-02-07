@@ -1,15 +1,9 @@
 /**
  * 设置页面
- * 
- * 功能：
- * - 服务配置管理（服务域名、端口、工作区）
- * - 开机自启动设置
- * - 开发工具（仅开发模式，通过 DevToolsPanel 动态加载）
  */
 
-import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 import {
-  Space,
   Card,
   Button,
   Switch,
@@ -22,50 +16,32 @@ import {
   Modal,
   Alert,
   Spin,
-} from 'antd';
-import {
-  SettingOutlined,
-  FolderOutlined,
-  SaveOutlined,
-  EditOutlined,
-  PoweroffOutlined,
-  FileTextOutlined,
-} from '@ant-design/icons';
-import { Typography } from 'antd';
-import { invoke } from '@tauri-apps/api/core';
+} from "antd";
+import { FolderOutlined, SaveOutlined, EditOutlined } from "@ant-design/icons";
+import { Typography } from "antd";
+import { invoke } from "@tauri-apps/api/core";
 import {
   getStep1Config,
   saveStep1Config,
   selectDirectory,
   type Step1Config,
-} from '../services/setup';
-import { restartAllServices } from '../services/dependencies';
-import { IS_DEV, DevToolsPanel } from '../components/dev';
+} from "../services/setup";
+import { restartAllServices } from "../services/dependencies";
+import { IS_DEV, DevToolsPanel } from "../components/dev";
 
 const { Text } = Typography;
 
-/**
- * 设置页面组件
- */
 export default function SettingsPage() {
-  // 配置表单
   const [form] = Form.useForm<Step1Config>();
-  // 加载状态
   const [loading, setLoading] = useState(true);
-  // 编辑模式
   const [editing, setEditing] = useState(false);
-  // 保存中
   const [saving, setSaving] = useState(false);
-  // 开机自启动
   const [autoLaunch, setAutoLaunch] = useState(false);
-  // 日志目录路径
   const [logDir, setLogDir] = useState<string | null>(null);
-  // 原始配置（用于取消编辑时恢复）
-  const [originalConfig, setOriginalConfig] = useState<Step1Config | null>(null);
+  const [originalConfig, setOriginalConfig] = useState<Step1Config | null>(
+    null,
+  );
 
-  /**
-   * 加载配置
-   */
   const loadConfig = useCallback(async () => {
     setLoading(true);
     try {
@@ -73,77 +49,53 @@ export default function SettingsPage() {
       form.setFieldsValue(config);
       setOriginalConfig(config);
     } catch (error) {
-      console.error('加载配置失败:', error);
-      message.error('加载配置失败');
+      console.error("加载配置失败:", error);
+      message.error("加载配置失败");
     } finally {
       setLoading(false);
     }
   }, [form]);
 
-  /**
-   * 加载开机自启动状态
-   */
   const loadAutoLaunchState = useCallback(async () => {
     try {
-      const enabled = await invoke<boolean>('autolaunch_get');
+      const enabled = await invoke<boolean>("autolaunch_get");
       setAutoLaunch(enabled);
     } catch (error) {
-      console.error('获取开机自启动状态失败:', error);
-      // 获取失败时保持默认 false 状态
+      console.error("获取开机自启动状态失败:", error);
     }
   }, []);
 
-  /**
-   * 加载日志目录路径
-   */
   const loadLogDir = useCallback(async () => {
     try {
-      const dir = await invoke<string>('log_dir_get');
+      const dir = await invoke<string>("log_dir_get");
       setLogDir(dir);
     } catch (error) {
-      console.error('获取日志目录失败:', error);
+      console.error("获取日志目录失败:", error);
     }
   }, []);
 
-  /**
-   * 打开日志目录
-   */
   const handleOpenLogDir = async () => {
     try {
-      await invoke<void>('open_log_directory');
+      await invoke<void>("open_log_directory");
     } catch (error) {
-      console.error('打开日志目录失败:', error);
-      message.error('打开日志目录失败');
+      console.error("打开日志目录失败:", error);
+      message.error("打开日志目录失败");
     }
   };
 
-  // 组件挂载时加载配置和自启动状态
   useEffect(() => {
     loadConfig();
     loadAutoLaunchState();
     loadLogDir();
   }, [loadConfig, loadAutoLaunchState, loadLogDir]);
 
-  /**
-   * 选择工作区目录
-   */
   const handleSelectWorkspace = async () => {
     const dir = await selectDirectory();
     if (dir) {
-      form.setFieldValue('workspaceDir', dir);
+      form.setFieldValue("workspaceDir", dir);
     }
   };
 
-  /**
-   * 进入编辑模式
-   */
-  const handleEdit = () => {
-    setEditing(true);
-  };
-
-  /**
-   * 取消编辑
-   */
   const handleCancelEdit = () => {
     if (originalConfig) {
       form.setFieldsValue(originalConfig);
@@ -151,35 +103,28 @@ export default function SettingsPage() {
     setEditing(false);
   };
 
-  /**
-   * 保存配置并重启服务
-   */
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
-      
+
       Modal.confirm({
-        title: '保存配置',
-        content: '保存配置后需要重启服务才能生效，确定要保存吗？',
-        okText: '保存并重启',
-        cancelText: '取消',
+        title: "保存配置",
+        content: "保存后需要重启服务才能生效，确定保存吗？",
+        okText: "保存并重启",
+        cancelText: "取消",
         onOk: async () => {
           setSaving(true);
           try {
-            // 保存配置
             await saveStep1Config(values);
             setOriginalConfig(values);
             setEditing(false);
-            
-            // 重启服务
-            message.loading('正在重启服务...', 0);
+            message.loading("正在重启服务...", 0);
             await restartAllServices();
             message.destroy();
-            message.success('配置已保存，服务已重启');
+            message.success("配置已保存，服务已重启");
           } catch (error) {
             message.destroy();
-            console.error('保存配置失败:', error);
-            message.error('保存配置失败');
+            message.error("保存配置失败");
           } finally {
             setSaving(false);
           }
@@ -187,55 +132,50 @@ export default function SettingsPage() {
       });
     } catch (error) {
       // 表单验证失败
-      console.error('表单验证失败:', error);
     }
   };
 
-  /**
-   * 开机自启动设置变更
-   * 调用 Rust 后端实现跨平台开机自启动
-   */
   const handleAutoLaunchChange = async (checked: boolean) => {
     try {
-      // 调用 Tauri 命令设置开机自启动
-      await invoke('autolaunch_set', { enabled: checked });
+      await invoke("autolaunch_set", { enabled: checked });
       setAutoLaunch(checked);
-      message.success(checked ? '已开启开机自启动' : '已关闭开机自启动');
+      message.success(checked ? "已开启开机自启动" : "已关闭开机自启动");
     } catch (error) {
-      console.error('设置开机自启动失败:', error);
-      message.error('设置开机自启动失败，请在系统设置中手动配置');
-      // 恢复 UI 状态
+      message.error("设置失败，请在系统设置中手动配置");
       setAutoLaunch(!checked);
     }
   };
 
-  // 加载中
   if (loading) {
     return (
-      <div style={{ maxWidth: 900, textAlign: 'center', padding: 40 }}>
-        <Spin size="large" />
-        <div style={{ marginTop: 16 }}>正在加载配置...</div>
+      <div style={{ textAlign: "center", padding: 40 }}>
+        <Spin size="small" />
       </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: 900 }}>
+    <div>
       {/* 服务配置 */}
-      <Card
-        title={
-          <Space>
-            <SettingOutlined />
-            <span>服务配置</span>
-          </Space>
-        }
-        extra={
-          editing ? (
-            <Space>
-              <Button onClick={handleCancelEdit} disabled={saving}>
+      <div className="section">
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 12,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 500, color: "#18181b" }}>
+            服务配置
+          </span>
+          {editing ? (
+            <div style={{ display: "flex", gap: 6 }}>
+              <Button size="small" onClick={handleCancelEdit} disabled={saving}>
                 取消
               </Button>
               <Button
+                size="small"
                 type="primary"
                 icon={<SaveOutlined />}
                 onClick={handleSave}
@@ -243,167 +183,196 @@ export default function SettingsPage() {
               >
                 保存
               </Button>
-            </Space>
+            </div>
           ) : (
-            <Button icon={<EditOutlined />} onClick={handleEdit}>
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => setEditing(true)}
+            >
               编辑
             </Button>
-          )
-        }
-        style={{ marginBottom: 16 }}
-      >
-        <Form
-          form={form}
-          layout="vertical"
-          disabled={!editing}
-        >
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="serverHost"
-                label="服务域名"
-                rules={[{ required: true, message: '请输入服务域名' }]}
-              >
-                <Input placeholder="例如: nvwa-api.xspaceagi.com" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="agentPort"
-                label="Agent 服务端口"
-                rules={[{ required: true, message: '请输入端口' }]}
-              >
-                <InputNumber min={1} max={65535} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="fileServerPort"
-                label="文件服务端口"
-                rules={[{ required: true, message: '请输入端口' }]}
-              >
-                <InputNumber min={1} max={65535} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="proxyPort"
-                label="代理服务端口"
-                rules={[{ required: true, message: '请输入端口' }]}
-              >
-                <InputNumber min={1} max={65535} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Form.Item
-            name="workspaceDir"
-            label="工作区目录"
-            rules={[{ required: true, message: '请选择工作区目录' }]}
-          >
-            <Input
-              placeholder="点击选择目录"
-              readOnly
-              addonAfter={
-                editing && (
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<FolderOutlined />}
-                    onClick={handleSelectWorkspace}
-                  >
-                    选择
-                  </Button>
-                )
-              }
-            />
-          </Form.Item>
-        </Form>
+          )}
+        </div>
 
-        {!editing && (
-          <Alert
-            message="提示"
-            description="修改配置后需要重启服务才能生效"
-            type="info"
-            showIcon
-            style={{ marginTop: 16 }}
-          />
-        )}
-      </Card>
+        <div
+          style={{
+            border: "1px solid #e4e4e7",
+            borderRadius: 8,
+            background: "#fff",
+            padding: 16,
+          }}
+        >
+          <Form form={form} layout="vertical" disabled={!editing} size="small">
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="serverHost"
+                  label="服务域名"
+                  rules={[{ required: true, message: "请输入服务域名" }]}
+                >
+                  <Input placeholder="例如: nvwa-api.xspaceagi.com" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="agentPort"
+                  label="Agent 端口"
+                  rules={[{ required: true, message: "请输入端口" }]}
+                >
+                  <InputNumber min={1} max={65535} style={{ width: "100%" }} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="fileServerPort"
+                  label="文件服务端口"
+                  rules={[{ required: true, message: "请输入端口" }]}
+                >
+                  <InputNumber min={1} max={65535} style={{ width: "100%" }} />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="proxyPort"
+                  label="代理端口"
+                  rules={[{ required: true, message: "请输入端口" }]}
+                >
+                  <InputNumber min={1} max={65535} style={{ width: "100%" }} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Form.Item
+              name="workspaceDir"
+              label="工作区目录"
+              rules={[{ required: true, message: "请选择工作区目录" }]}
+              style={{ marginBottom: 0 }}
+            >
+              <Input
+                placeholder="点击选择目录"
+                readOnly
+                addonAfter={
+                  editing && (
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<FolderOutlined />}
+                      onClick={handleSelectWorkspace}
+                      style={{ padding: 0 }}
+                    >
+                      选择
+                    </Button>
+                  )
+                }
+              />
+            </Form.Item>
+          </Form>
+
+          {!editing && (
+            <div
+              style={{
+                marginTop: 12,
+                fontSize: 12,
+                color: "#a1a1aa",
+              }}
+            >
+              修改配置后需要重启服务才能生效
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* 系统设置 */}
-      <Card
-        title={
-          <Space>
-            <PoweroffOutlined />
-            <span>系统设置</span>
-          </Space>
-        }
-        style={{ marginBottom: 16 }}
-      >
-        <Form layout="vertical">
-          <Form.Item
-            label="开机自启动"
-            extra="开启后，系统启动时将自动运行 NuWax Agent"
+      <div className="section" style={{ marginTop: 20 }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 500,
+            color: "#18181b",
+            marginBottom: 10,
+          }}
+        >
+          系统
+        </div>
+        <div
+          style={{
+            border: "1px solid #e4e4e7",
+            borderRadius: 8,
+            background: "#fff",
+          }}
+        >
+          {/* 开机自启 */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "10px 14px",
+              borderBottom: "1px solid #f4f4f5",
+            }}
           >
+            <div>
+              <div style={{ fontSize: 13, color: "#18181b" }}>开机自启动</div>
+              <div style={{ fontSize: 11, color: "#a1a1aa", marginTop: 1 }}>
+                系统启动时自动运行
+              </div>
+            </div>
             <Switch
+              size="small"
               checked={autoLaunch}
               onChange={handleAutoLaunchChange}
             />
-          </Form.Item>
-        </Form>
-      </Card>
+          </div>
 
-      {/* 日志设置 */}
-      <Card
-        title={
-          <Space>
-            <FileTextOutlined />
-            <span>日志设置</span>
-          </Space>
-        }
-        style={{ marginBottom: 16 }}
-      >
-        <Form layout="vertical">
-          <Form.Item
-            label="日志目录"
-            extra={
-              logDir ? (
-                <span style={{ color: '#888', fontSize: 12 }}>
-                  日志文件将保存在此目录中，可用于排查问题和分析运行状态
-                </span>
-              ) : undefined
+          {/* 日志目录 */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "10px 14px",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 13, color: "#18181b" }}>日志目录</div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "#a1a1aa",
+                  marginTop: 1,
+                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                }}
+              >
+                {logDir || "加载中..."}
+              </div>
+            </div>
+            <Button
+              size="small"
+              icon={<FolderOutlined />}
+              onClick={handleOpenLogDir}
+              disabled={!logDir}
+            >
+              打开
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* 开发工具 */}
+      {IS_DEV && DevToolsPanel && (
+        <div style={{ marginTop: 20 }}>
+          <Suspense
+            fallback={
+              <div style={{ textAlign: "center", padding: 20 }}>
+                <Spin size="small" />
+              </div>
             }
           >
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <Input
-                value={logDir || '加载中...'}
-                readOnly
-                style={{ flex: 1, backgroundColor: '#f5f5f5' }}
-              />
-              <Button
-                icon={<FolderOutlined />}
-                onClick={handleOpenLogDir}
-                disabled={!logDir}
-              >
-                打开目录
-              </Button>
-            </div>
-          </Form.Item>
-        </Form>
-      </Card>
-
-      {/* 开发工具面板 - 仅开发环境动态加载 */}
-      {IS_DEV && DevToolsPanel && (
-        <Suspense fallback={
-          <Card size="small" style={{ textAlign: 'center', padding: 20 }}>
-            <Spin />
-            <div style={{ marginTop: 8 }}>加载开发工具...</div>
-          </Card>
-        }>
-          <DevToolsPanel />
-        </Suspense>
+            <DevToolsPanel />
+          </Suspense>
+        </div>
       )}
     </div>
   );
