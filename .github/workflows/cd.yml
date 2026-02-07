@@ -1,9 +1,10 @@
 name: Continuous Deployment
 
 on:
-  push:
-    tags:
-      - '*'
+  # 暂时禁用 tag 自动触发，仅保留手动触发
+  # push:
+  #   tags:
+  #     - 'crate-v*'
   workflow_dispatch:
 
 permissions: read-all
