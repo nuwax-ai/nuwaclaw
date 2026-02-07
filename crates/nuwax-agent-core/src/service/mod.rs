@@ -10,7 +10,7 @@ use tracing::{debug, error, info, warn};
 type ChildWrapperType = Box<dyn process_wrap::tokio::ChildWrapper>;
 
 // 导入 RcoderAgentRunner
-use super::agent_runner::RcoderAgentRunner;
+use super::agent_runner::{RcoderAgentRunner, RcoderAgentRunnerConfig};
 
 // ========== 跨平台辅助函数 ==========
 
@@ -591,7 +591,7 @@ pub struct ServiceManager {
     /// nuwax-lanproxy 配置
     lanproxy_config: Arc<NuwaxLanproxyConfig>,
     /// Rcoder Agent Runner
-    rcoder: Arc<Mutex<Option<Arc<RcoderAgentRunner>>>>,
+    rcoder: Arc<Mutex<Option<RcoderAgentRunner>>>,
 }
 
 impl ServiceManager {
@@ -973,16 +973,25 @@ impl ServiceManager {
 
     /// 启动 Rcoder Agent Runner
     ///
-    /// 接收已创建的 RcoderAgentRunner 实例并存储
+    /// 创建并启动新的 RcoderAgentRunner 实例
+    /// 如果已有运行中的实例，先停止再启动
     pub async fn rcoder_start(
         &self,
-        _port: u16,
-        agent_runner: Arc<RcoderAgentRunner>,
+        config: RcoderAgentRunnerConfig,
     ) -> Result<(), String> {
         info!("[Rcoder] 正在启动 Agent Runner...");
 
         let mut guard = self.rcoder.lock().await;
-        *guard = Some(agent_runner);
+
+        // 如果已有 runner，确保停止后再替换（stop 对已停止的 runner 是 no-op）
+        if let Some(ref mut runner) = *guard {
+            info!("[Rcoder] 停止旧的 Agent Runner...");
+            runner.stop().await;
+        }
+
+        let mut runner = RcoderAgentRunner::new(config);
+        runner.start().await?;
+        *guard = Some(runner);
 
         info!("[Rcoder] Agent Runner 已启动");
         Ok(())
@@ -992,19 +1001,14 @@ impl ServiceManager {
     pub async fn rcoder_stop(&self) -> Result<(), String> {
         info!("[Rcoder] 正在停止 Agent Runner...");
 
-        let guard = self.rcoder.lock().await;
-        if let Some(ref runner) = *guard {
+        let mut guard = self.rcoder.lock().await;
+        if let Some(ref mut runner) = *guard {
             runner.stop().await;
             info!("[Rcoder] Agent Runner 已停止");
         } else {
             info!("[Rcoder] Agent Runner 未运行");
         }
-
-        // 注意：我们不清理 guard 中的 runner，因为 RcoderAgentRunner::stop 不再消费 self
-        // 这样做是因为：
-        // 1. 停止信号已通过 AtomicBool 发送给服务器任务
-        // 2. 服务器任务会在下次循环检查时退出
-        // 3. Runner 的重新启动会覆盖这个字段
+        *guard = None;
 
         Ok(())
     }
@@ -1012,19 +1016,21 @@ impl ServiceManager {
     /// 重启 Rcoder Agent Runner
     pub async fn rcoder_restart(
         &self,
-        port: u16,
-        agent_runner: Arc<RcoderAgentRunner>,
+        config: RcoderAgentRunnerConfig,
     ) -> Result<(), String> {
         info!("[Rcoder] 正在重启 Agent Runner...");
 
-        // 先停止
-        self.rcoder_stop().await?;
+        let mut guard = self.rcoder.lock().await;
 
-        // 等待端口释放
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        // 先停止旧的
+        if let Some(ref mut runner) = *guard {
+            runner.stop().await;
+        }
 
-        // 再启动
-        self.rcoder_start(port, agent_runner).await?;
+        // 创建并启动新的（stop 已确定性等待完成，无需 sleep）
+        let mut runner = RcoderAgentRunner::new(config);
+        runner.start().await?;
+        *guard = Some(runner);
 
         info!("[Rcoder] Agent Runner 重启完成");
         Ok(())
@@ -1062,15 +1068,13 @@ impl ServiceManager {
     /// 重启所有服务
     pub async fn services_restart_all(
         &self,
-        port: u16,
-        agent_runner: Arc<RcoderAgentRunner>,
+        rcoder_config: RcoderAgentRunnerConfig,
     ) -> Result<(), String> {
         info!("Restarting all services...");
 
         self.services_stop_all().await?;
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-        self.rcoder_start(port, agent_runner).await?;
+        self.rcoder_start(rcoder_config).await?;
         self.file_server_start().await?;
         self.lanproxy_start().await?;
 
@@ -1131,13 +1135,25 @@ impl ServiceManager {
             }
         }
 
-        // 注意：HTTP Server 状态现在由 RcoderAgentRunner 内部管理，不再通过 ServiceManager 查询
-        statuses.push(ServiceInfo {
-            service_type: ServiceType::Rcoder,
-            state: ServiceState::Running, // 假设 RcoderAgentRunner 启动后即运行
-            pid: None,
-        });
-        debug!("[Services] Agent 服务由 RcoderAgentRunner 管理");
+        // Rcoder Agent Runner 状态
+        {
+            let guard = self.rcoder.lock().await;
+            let state = if let Some(ref runner) = *guard {
+                if runner.is_running() {
+                    ServiceState::Running
+                } else {
+                    ServiceState::Stopped
+                }
+            } else {
+                ServiceState::Stopped
+            };
+            statuses.push(ServiceInfo {
+                service_type: ServiceType::Rcoder,
+                state,
+                pid: None,
+            });
+            debug!("[Services] Agent 服务状态: {:?}", statuses.last().unwrap().state);
+        }
 
         statuses
     }

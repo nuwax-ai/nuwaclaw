@@ -342,7 +342,7 @@ tauri-dev:
 	@echo "=== Tauri Dev Started at $$(date) ===" > logs/tauri-dev.log
 	@echo ">>> 检查并安装前端依赖..."
 	cd crates/$(TAURI_CLIENT) && pnpm install 2>&1 | tee -a $(CURDIR)/logs/tauri-dev.log
-	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) cargo tauri dev 2>&1 | tee -a $(CURDIR)/logs/tauri-dev.log
+	cd crates/$(TAURI_CLIENT) && RUST_LOG=trace AGENT_RUST_LOG=trace VITE_BUILD_ENV=$(BUILD_ENV) cargo tauri dev 2>&1 | tee -a $(CURDIR)/logs/tauri-dev.log
 
 .PHONY: tauri-info
 tauri-info:

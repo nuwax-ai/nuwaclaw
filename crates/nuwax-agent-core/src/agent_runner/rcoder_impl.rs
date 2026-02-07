@@ -55,18 +55,28 @@ impl Default for RcoderAgentRunnerConfig {
 /// - GET /computer/progress/{session_id} (SSE)
 /// - POST /computer/stop
 /// - GET /computer/status
-#[derive(Clone)]
 pub struct RcoderAgentRunner {
     /// 配置
-    pub config: Arc<RcoderAgentRunnerConfig>,
+    config: Arc<RcoderAgentRunnerConfig>,
     /// HTTP 服务器控制柄
     server_handle: Option<HttpServerHandle>,
 }
 
 impl RcoderAgentRunner {
-    /// 创建新的 Runner
-    pub async fn new(config: RcoderAgentRunnerConfig) -> Self {
-        // 创建共享的 API 密钥管理器
+    /// 构造（仅保存配置，不启动服务）
+    pub fn new(config: RcoderAgentRunnerConfig) -> Self {
+        Self {
+            config: Arc::new(config),
+            server_handle: None,
+        }
+    }
+
+    /// 启动服务器，返回 Result 而非 panic
+    pub async fn start(&mut self) -> Result<(), String> {
+        if self.server_handle.is_some() {
+            return Err("服务器已在运行中".to_string());
+        }
+
         let shared_api_key_manager = Arc::new(dashmap::DashMap::new());
 
         // 创建 AgentRuntime，缓冲区大小为 100
@@ -79,8 +89,56 @@ impl RcoderAgentRunner {
             rt.start(request_rx).await;
         });
 
-        // 1. 构建 agent_runner 的 AppConfig
-        let app_config = AppConfig {
+        let app_config = Self::build_app_config(&self.config);
+
+        let http_config = HttpServerConfig {
+            port: self.config.backend_port,
+            app_config,
+            agent_runtime: runtime,
+            shared_api_key_manager,
+        };
+
+        info!(
+            "[RcoderAgentRunner] 启动 HTTP 服务器，后端端口: {}, 代理端口: {}",
+            self.config.backend_port, self.config.proxy_port
+        );
+
+        let server_handle = start_http_server(http_config)
+            .await
+            .map_err(|e| format!("启动 HTTP 服务器失败: {}", e))?;
+
+        self.server_handle = Some(server_handle);
+        Ok(())
+    }
+
+    /// 停止服务器（确定性等待完成）
+    pub async fn stop(&mut self) {
+        if let Some(handle) = self.server_handle.take() {
+            info!("[RcoderAgentRunner] 正在停止...");
+            handle.stop().await;
+            info!("[RcoderAgentRunner] 已停止");
+        }
+    }
+
+    /// 是否正在运行
+    pub fn is_running(&self) -> bool {
+        self.server_handle.is_some()
+    }
+
+    /// 重启（stop + start）
+    pub async fn restart(&mut self) -> Result<(), String> {
+        self.stop().await;
+        self.start().await
+    }
+
+    /// 获取配置引用
+    pub fn config(&self) -> &RcoderAgentRunnerConfig {
+        &self.config
+    }
+
+    /// 构建 AppConfig
+    fn build_app_config(config: &RcoderAgentRunnerConfig) -> AppConfig {
+        AppConfig {
             projects_dir: config.projects_dir.clone(),
             port: config.backend_port,
             proxy_config: Some(ProxyConfig {
@@ -97,45 +155,6 @@ impl RcoderAgentRunner {
                 },
             }),
             ..Default::default()
-        };
-
-        // 2. 构建 HttpServerConfig
-        let http_config = HttpServerConfig {
-            port: config.backend_port,
-            app_config,
-            agent_runtime: runtime.clone(),
-            shared_api_key_manager: shared_api_key_manager.clone(),
-        };
-
-        info!(
-            "[RcoderAgentRunner] 启动 HTTP 服务器，后端端口: {}, 代理端口: {}",
-            config.backend_port, config.proxy_port
-        );
-
-        // 3. 启动 HTTP 服务器（包含 Pingora 代理、HTTP API、gRPC）
-        let server_handle = start_http_server(http_config)
-            .await
-            .expect("启动 HTTP 服务器失败");
-
-        Self {
-            config: Arc::new(config),
-            server_handle: Some(server_handle),
         }
-    }
-
-    /// 获取配置引用
-    pub fn config(&self) -> &RcoderAgentRunnerConfig {
-        &self.config
-    }
-
-    /// 停止 Runner
-    pub async fn stop(&self) {
-        info!("[RcoderAgentRunner] 正在停止...");
-
-        if let Some(ref handle) = self.server_handle {
-            handle.stop().await;
-        }
-
-        info!("[RcoderAgentRunner] 已停止");
     }
 }
