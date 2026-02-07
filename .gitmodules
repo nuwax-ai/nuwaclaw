@@ -1,0 +1,4 @@
+[submodule "vendors/rcoder"]
+	path = vendors/rcoder
+	url = https://github.com/nuwax-ai/rcoder.git
+	branch = nuwax-client
