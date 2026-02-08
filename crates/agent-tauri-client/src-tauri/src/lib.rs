@@ -2473,12 +2473,24 @@ pub fn run() {
             Ok(())
         })
         // 窗口关闭事件处理：隐藏到托盘而非退出
+        // 注意：必须使用 block_on 同步等待服务停止，否则窗口隐藏后服务可能仍在运行
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // 阻止默认关闭行为，改为隐藏窗口
                 api.prevent_close();
-                let _ = window.hide();
-                info!("[Window] 窗口已隐藏到托盘");
+
+                // 同步等待服务停止，确保窗口隐藏前所有服务已停止
+                let app_handle = window.app_handle().clone();
+                let state = app_handle.state::<ServiceManagerState>();
+                tauri::async_runtime::block_on(async {
+                    let manager = state.manager.lock().await;
+                    if let Err(e) = manager.services_stop_all().await {
+                        error!("[Window] 停止服务失败: {}", e);
+                    }
+                    drop(manager);
+                    let _ = window.hide();
+                    info!("[Window] 窗口已隐藏到托盘");
+                });
             }
         })
         .invoke_handler(tauri::generate_handler![

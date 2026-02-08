@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 use agent_runner::{start_http_server, AppConfig, AgentRuntime, HealthCheckConfig, HttpServerHandle, HttpServerConfig, ProxyConfig};
 
@@ -60,6 +60,10 @@ pub struct RcoderAgentRunner {
     config: Arc<RcoderAgentRunnerConfig>,
     /// HTTP 服务器控制柄
     server_handle: Option<HttpServerHandle>,
+    /// AgentRuntime 引用，用于在 stop() 时关闭 sender
+    runtime: Option<Arc<AgentRuntime>>,
+    /// AgentRuntime worker JoinHandle，用于等待 worker 退出
+    worker_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl RcoderAgentRunner {
@@ -68,6 +72,8 @@ impl RcoderAgentRunner {
         Self {
             config: Arc::new(config),
             server_handle: None,
+            runtime: None,
+            worker_handle: None,
         }
     }
 
@@ -83,11 +89,14 @@ impl RcoderAgentRunner {
         let (runtime, request_rx) = AgentRuntime::new(100);
         let runtime = Arc::new(runtime);
 
-        // 单独启动 AgentRuntime
+        // 保存 runtime 引用用于 stop() 时关闭 sender
+        self.runtime = Some(runtime.clone());
+
+        // 启动 AgentRuntime worker 并保存 JoinHandle
         let rt = runtime.clone();
-        tokio::spawn(async move {
+        self.worker_handle = Some(tokio::spawn(async move {
             rt.start(request_rx).await;
-        });
+        }));
 
         let app_config = Self::build_app_config(&self.config);
 
@@ -112,11 +121,35 @@ impl RcoderAgentRunner {
     }
 
     /// 停止服务器（确定性等待完成）
+    ///
+    /// 停止顺序：
+    /// 1. 先停止 HTTP 服务器（释放 runtime 引用）
+    /// 2. 再关闭 sender（触发 worker 退出）
+    /// 3. 等待 worker 完成（带 5 秒超时）
     pub async fn stop(&mut self) {
+        // 1. 先停止 HTTP 服务器（释放 http_config 中的 runtime 引用）
         if let Some(handle) = self.server_handle.take() {
-            info!("[RcoderAgentRunner] 正在停止...");
+            info!("[RcoderAgentRunner] 正在停止 HTTP 服务器...");
             handle.stop().await;
-            info!("[RcoderAgentRunner] 已停止");
+            info!("[RcoderAgentRunner] HTTP 服务器已停止");
+        }
+        // 此时 runtime 引用: self.runtime + tokio::spawn 中的 rt
+
+        // 2. 关闭 runtime sender（触发 worker 正常退出）
+        if self.runtime.is_some() {
+            drop(self.runtime.take());
+            info!("[RcoderAgentRunner] AgentRuntime sender 已关闭");
+        }
+        // sender 关闭后，worker 的 request_rx 会收到 None
+
+        // 3. 等待 worker 完成（带 5 秒超时）
+        if let Some(handle) = self.worker_handle.take() {
+            use tokio::time::{timeout, Duration};
+            match timeout(Duration::from_secs(5), handle).await {
+                Ok(Ok(())) => info!("[RcoderAgentRunner] Worker 已正常退出"),
+                Ok(Err(e)) => warn!("[RcoderAgentRunner] Worker 出错退出: {}", e),
+                Err(_) => warn!("[RcoderAgentRunner] Worker 超时未退出（将被强制终止）"),
+            }
         }
     }
 
