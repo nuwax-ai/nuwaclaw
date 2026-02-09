@@ -72,8 +72,23 @@ fi
 if [ -f "${NODE_BIN}" ]; then
   EXISTING_VERSION="$("${NODE_BIN}" --version 2>/dev/null || true)"
   if [ "${EXISTING_VERSION}" = "v${NODE_VERSION}" ]; then
-    echo "==> Node.js v${NODE_VERSION} already exists at ${TARGET_DIR}, skipping download"
-    exit 0
+    # macOS: 还需验证架构匹配，避免 universal 构建时跳过不同架构的下载
+    if [ "${PLATFORM}" = "darwin" ]; then
+      case "${ARCH}" in
+        arm64) EXPECTED_ARCH="arm64" ;;
+        x64)   EXPECTED_ARCH="x86_64" ;;
+      esac
+      ACTUAL_ARCH="$(file "${NODE_BIN}" | grep -oE 'arm64|x86_64' | head -1 || true)"
+      if [ "${ACTUAL_ARCH}" != "${EXPECTED_ARCH}" ]; then
+        echo "==> Node.js v${NODE_VERSION} exists but architecture mismatch (have ${ACTUAL_ARCH}, need ${EXPECTED_ARCH}), re-downloading..."
+      else
+        echo "==> Node.js v${NODE_VERSION} (${ARCH}) already exists at ${TARGET_DIR}, skipping download"
+        exit 0
+      fi
+    else
+      echo "==> Node.js v${NODE_VERSION} already exists at ${TARGET_DIR}, skipping download"
+      exit 0
+    fi
   fi
 fi
 
