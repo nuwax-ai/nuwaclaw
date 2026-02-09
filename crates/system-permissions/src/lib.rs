@@ -61,10 +61,13 @@ pub use crate::types::{
     SystemPermission,
 };
 
-// 模块声明
+// 模块声明（按平台条件编译）
+#[cfg(target_os = "linux")]
 pub mod linux;
+#[cfg(target_os = "macos")]
 pub mod macos;
 pub mod monitor;
+#[cfg(target_os = "windows")]
 pub mod windows;
 
 // 内部模块
