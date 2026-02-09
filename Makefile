@@ -76,6 +76,7 @@ help:
 	@echo "  package-deb    - 打包 Linux DEB"
 	@echo ""
 	@echo "=== Tauri 应用打包 ==="
+	@echo "  node-download      - 下载 Node.js 运行时到资源目录（已存在则跳过）"
 	@echo "  tauri-bundle       - 打包 Tauri 应用 (默认生产环境)"
 	@echo "  tauri-bundle-test  - 打包 Tauri 应用 (测试环境)"
 	@echo "  tauri-bundle-prod  - 打包 Tauri 应用 (生产环境)"
@@ -303,15 +304,23 @@ TAURI_CLIENT := agent-tauri-client
 # 构建环境: prod (默认) 或 test
 BUILD_ENV ?= prod
 
+# Node.js 资源目录
+NODE_RESOURCE_DIR := crates/$(TAURI_CLIENT)/src-tauri/resources/node
+
+.PHONY: node-download
+node-download:
+	@echo ">>> 下载 Node.js 运行时资源（已存在则跳过）..."
+	./scripts/download-node.sh
+
 .PHONY: tauri-build
-tauri-build:
+tauri-build: node-download
 	@echo ">>> 构建 Tauri 应用 (环境: $(BUILD_ENV))..."
 	cd crates/$(TAURI_CLIENT) && pnpm install
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo build --release
 
 .PHONY: tauri-bundle
-tauri-bundle:
+tauri-bundle: node-download
 	@echo ">>> 打包 Tauri 应用 (环境: $(BUILD_ENV))..."
 	cd crates/$(TAURI_CLIENT) && pnpm install
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
@@ -336,7 +345,7 @@ endif
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build --bundles all
 
 .PHONY: tauri-dev
-tauri-dev:
+tauri-dev: node-download
 	@echo ">>> 运行 Tauri 开发模式 (环境: $(BUILD_ENV))..."
 	@echo ">>> 日志将输出到 logs/tauri-dev.log"
 	mkdir -p logs
