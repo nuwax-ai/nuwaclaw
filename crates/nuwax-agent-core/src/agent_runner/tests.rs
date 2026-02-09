@@ -19,8 +19,8 @@ mod tests {
         assert_eq!(config.api_key, None);
         assert_eq!(config.api_base_url, "https://api.anthropic.com");
         assert_eq!(config.default_model, "claude-sonnet-4-20250514");
-        assert_eq!(config.proxy_port, 8088);
-        assert_eq!(config.backend_port, 9086);
+        assert_eq!(config.proxy_port, 60002);
+        assert_eq!(config.backend_port, 60001);
     }
 
     /// 测试配置自定义值
@@ -33,6 +33,7 @@ mod tests {
             default_model: "claude-haiku".to_string(),
             proxy_port: 9088,
             backend_port: 9086,
+            mcp_server_port: 60004,
         };
 
         assert_eq!(config.projects_dir, PathBuf::from("/tmp/test-projects"));
@@ -53,6 +54,7 @@ mod tests {
             default_model: "claude-test".to_string(),
             proxy_port: 9089,
             backend_port: 9086,
+            mcp_server_port: 60004,
         };
 
         let mut runner = RcoderAgentRunner::new(config.clone());
@@ -113,7 +115,8 @@ mod pingora_tests {
             api_base_url: "https://api.anthropic.com".to_string(),
             default_model: "claude-sonnet-4-20250514".to_string(),
             proxy_port: port,
-            backend_port: 9086,
+            backend_port: 60001,
+            mcp_server_port: 60004,
         };
 
         println!("[Test] 启动 Pingora 服务，端口: {}", port);
@@ -160,7 +163,8 @@ mod pingora_tests {
             api_base_url: "https://api.anthropic.com".to_string(),
             default_model: "claude-sonnet-4-20250514".to_string(),
             proxy_port: port,
-            backend_port: 9086,
+            backend_port: 60001,
+            mcp_server_port: 60004,
         };
 
         println!("[Test] 第一次启动 Pingora 服务，端口: {}", port);
@@ -187,7 +191,8 @@ mod pingora_tests {
             api_base_url: "https://api.anthropic.com".to_string(),
             default_model: "claude-sonnet-4-20250514".to_string(),
             proxy_port: port,
-            backend_port: 9086,
+            backend_port: 60001,
+            mcp_server_port: 60004,
         };
 
         println!("[Test] 第二次启动 Pingora 服务，端口: {}", port);

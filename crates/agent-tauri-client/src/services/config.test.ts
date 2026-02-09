@@ -17,7 +17,7 @@ describe('ConfigService', () => {
       const localScene = DEFAULT_SCENES.find(s => s.id === 'local');
       expect(localScene).toBeDefined();
       expect(localScene?.name).toBe('本地开发');
-      expect(localScene?.server.apiUrl).toBe('http://localhost:8080');
+      expect(localScene?.server.apiUrl).toBe('http://localhost:60002');
     });
 
     it('应该包含测试环境场景', () => {
@@ -43,7 +43,7 @@ describe('ConfigService', () => {
   describe('默认本地服务配置', () => {
     it('应该包含 Agent 服务配置', () => {
       expect(DEFAULT_LOCAL_SERVICES.agent.host).toBe('127.0.0.1');
-      expect(DEFAULT_LOCAL_SERVICES.agent.port).toBe(8080);
+      expect(DEFAULT_LOCAL_SERVICES.agent.port).toBe(60002);
     });
 
     it('应该包含 VNC 服务配置', () => {
@@ -53,19 +53,19 @@ describe('ConfigService', () => {
 
     it('应该包含文件服务配置', () => {
       expect(DEFAULT_LOCAL_SERVICES.fileServer.host).toBe('127.0.0.1');
-      expect(DEFAULT_LOCAL_SERVICES.fileServer.port).toBe(8081);
+      expect(DEFAULT_LOCAL_SERVICES.fileServer.port).toBe(60000);
     });
 
     it('应该包含 WebSocket 服务配置', () => {
       expect(DEFAULT_LOCAL_SERVICES.websocket.host).toBe('127.0.0.1');
-      expect(DEFAULT_LOCAL_SERVICES.websocket.port).toBe(8080);
+      expect(DEFAULT_LOCAL_SERVICES.websocket.port).toBe(60002);
     });
   });
 
   describe('URL 构造', () => {
     it('应该正确构造 Agent URL', () => {
       const url = `${DEFAULT_LOCAL_SERVICES.agent.scheme}://${DEFAULT_LOCAL_SERVICES.agent.host}:${DEFAULT_LOCAL_SERVICES.agent.port}`;
-      expect(url).toBe('http://127.0.0.1:8080');
+      expect(url).toBe('http://127.0.0.1:60002');
     });
 
     it('应该正确构造 VNC URL', () => {
@@ -75,12 +75,12 @@ describe('ConfigService', () => {
 
     it('应该正确构造文件服务 URL', () => {
       const url = `${DEFAULT_LOCAL_SERVICES.fileServer.scheme}://${DEFAULT_LOCAL_SERVICES.fileServer.host}:${DEFAULT_LOCAL_SERVICES.fileServer.port}`;
-      expect(url).toBe('http://127.0.0.1:8081');
+      expect(url).toBe('http://127.0.0.1:60000');
     });
 
     it('应该正确构造 WebSocket URL', () => {
       const url = `${DEFAULT_LOCAL_SERVICES.websocket.scheme}://${DEFAULT_LOCAL_SERVICES.websocket.host}:${DEFAULT_LOCAL_SERVICES.websocket.port}`;
-      expect(url).toBe('ws://127.0.0.1:8080');
+      expect(url).toBe('ws://127.0.0.1:60002');
     });
   });
 
@@ -124,6 +124,6 @@ describe('SceneConfig 类型', () => {
     expect(config.id).toBe('custom');
     expect(config.name).toBe('自定义环境');
     expect(config.server.apiUrl).toBe('https://custom.api.com');
-    expect(config.local.agent.port).toBe(8080);
+    expect(config.local.agent.port).toBe(60002);
   });
 });

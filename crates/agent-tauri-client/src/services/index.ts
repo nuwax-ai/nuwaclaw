@@ -4,7 +4,6 @@ export * from './mockService';
 // 认证服务
 export {
   syncConfigToServer,
-  getCurrentSandboxValue,
   getOnlineStatus,
   saveOnlineStatus,
   getCurrentAuth,

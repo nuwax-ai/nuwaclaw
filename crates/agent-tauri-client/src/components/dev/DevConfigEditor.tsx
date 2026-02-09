@@ -27,6 +27,13 @@ import {
   ServerConfig,
   LocalServicesConfig,
 } from '../../services/config';
+import {
+  DEFAULT_FILE_SERVER_PORT,
+  DEFAULT_PROXY_PORT,
+  DEFAULT_VNC_PORT,
+  DEFAULT_LOCAL_HOST,
+  DEFAULT_TIMEOUT,
+} from '../../constants';
 
 interface DevConfigEditorProps {
   visible: boolean;
@@ -72,15 +79,15 @@ export default function DevConfigEditor({
       form.resetFields();
       // 设置默认值
       form.setFieldsValue({
-        agentHost: '127.0.0.1',
-        agentPort: 8080,
+        agentHost: DEFAULT_LOCAL_HOST,
+        agentPort: DEFAULT_PROXY_PORT,
         agentScheme: 'http',
-        vncHost: '127.0.0.1',
-        vncPort: 5900,
-        fileServerHost: '127.0.0.1',
-        fileServerPort: 8081,
-        websocketHost: '127.0.0.1',
-        websocketPort: 8080,
+        vncHost: DEFAULT_LOCAL_HOST,
+        vncPort: DEFAULT_VNC_PORT,
+        fileServerHost: DEFAULT_LOCAL_HOST,
+        fileServerPort: DEFAULT_FILE_SERVER_PORT,
+        websocketHost: DEFAULT_LOCAL_HOST,
+        websocketPort: DEFAULT_PROXY_PORT,
       });
     }
   }, [visible, scene, isNew, form]);
@@ -92,7 +99,7 @@ export default function DevConfigEditor({
       
       const serverConfig: ServerConfig = {
         apiUrl: values.serverApiUrl,
-        timeout: values.serverTimeout || 30000,
+        timeout: values.serverTimeout || DEFAULT_TIMEOUT,
       };
 
       const localConfig: LocalServicesConfig = {
@@ -159,7 +166,7 @@ export default function DevConfigEditor({
         form={form}
         layout="vertical"
         initialValues={{
-          serverTimeout: 30000,
+          serverTimeout: DEFAULT_TIMEOUT,
           agentScheme: 'http',
           fileServerScheme: 'http',
           websocketScheme: 'ws',

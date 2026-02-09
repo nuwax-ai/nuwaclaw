@@ -5,6 +5,13 @@
  */
 
 import { Store, load } from "@tauri-apps/plugin-store";
+import {
+  DEFAULT_AGENT_PORT,
+  DEFAULT_FILE_SERVER_PORT,
+  DEFAULT_PROXY_PORT,
+  DEFAULT_SERVER_HOST,
+  DEFAULT_SERVER_PORT,
+} from "../constants";
 
 // Store 实例（单例）
 let storeInstance: Store | null = null;
@@ -45,6 +52,7 @@ export const STORAGE_KEYS = {
   AUTH_PASSWORD: "auth.password",
   AUTH_CONFIG_KEY: "auth.config_key",
   AUTH_SAVED_KEY: "auth.saved_key",
+  AUTH_SAVED_KEYS_PREFIX: "auth.saved_keys.", // 按域名+用户名存储的 savedKey 前缀
   AUTH_USER_INFO: "auth.user_info",
   AUTH_ONLINE_STATUS: "auth.online_status",
 
@@ -134,11 +142,11 @@ export interface SetupState {
 export const DEFAULT_SETUP_STATE: SetupState = {
   completed: false,
   currentStep: 1,
-  serverHost: "https://agent.nuwax.com",
-  serverPort: 443,
-  agentPort: 9086,
-  fileServerPort: 60000,
-  proxyPort: 9099,
+  serverHost: DEFAULT_SERVER_HOST,
+  serverPort: DEFAULT_SERVER_PORT,
+  agentPort: DEFAULT_AGENT_PORT,
+  fileServerPort: DEFAULT_FILE_SERVER_PORT,
+  proxyPort: DEFAULT_PROXY_PORT,
   workspaceDir: "",
 };
 
@@ -254,6 +262,20 @@ export async function keys(): Promise<string[]> {
 }
 
 /**
+ * 将域名标准化为存储键的一部分
+ * 去除协议前缀、端口号，只保留主机名
+ */
+function normalizeDomain(domain: string): string {
+  try {
+    const url = new URL(domain);
+    return url.hostname;
+  } catch {
+    // 如果不是合法 URL，去掉常见前缀后直接使用
+    return domain.replace(/^https?:\/\//, "").replace(/[:/]/g, "_");
+  }
+}
+
+/**
  * 认证信息存储操作
  */
 export const authStorage = {
@@ -300,16 +322,43 @@ export const authStorage = {
   },
 
   /**
-   * 获取 SavedKey
+   * 获取 SavedKey（全局）
    */
   async getSavedKey(): Promise<string | null> {
     return getString(STORAGE_KEYS.AUTH_SAVED_KEY);
   },
 
   /**
-   * 保存 SavedKey
+   * 保存 SavedKey（全局）
    */
   async setSavedKey(value: string): Promise<void> {
+    await setString(STORAGE_KEYS.AUTH_SAVED_KEY, value);
+  },
+
+  /**
+   * 获取按域名+用户名存储的 SavedKey
+   * 键格式: auth.saved_keys.{normalizedDomain}_{username}
+   */
+  async getSavedKeyFor(
+    domain: string,
+    username: string,
+  ): Promise<string | null> {
+    const key = `${STORAGE_KEYS.AUTH_SAVED_KEYS_PREFIX}${normalizeDomain(domain)}_${username}`;
+    return getString(key);
+  },
+
+  /**
+   * 按域名+用户名保存 SavedKey
+   * 同时更新全局 savedKey
+   */
+  async setSavedKeyFor(
+    domain: string,
+    username: string,
+    value: string,
+  ): Promise<void> {
+    const key = `${STORAGE_KEYS.AUTH_SAVED_KEYS_PREFIX}${normalizeDomain(domain)}_${username}`;
+    await setString(key, value);
+    // 同步更新全局 savedKey
     await setString(STORAGE_KEYS.AUTH_SAVED_KEY, value);
   },
 
@@ -342,15 +391,16 @@ export const authStorage = {
   },
 
   /**
-   * 清除所有认证信息
+   * 清除认证信息（保留 savedKey，退出登录时不丢失设备标识）
    */
   async clear(): Promise<void> {
     await remove(STORAGE_KEYS.AUTH_USERNAME);
     await remove(STORAGE_KEYS.AUTH_PASSWORD);
     await remove(STORAGE_KEYS.AUTH_CONFIG_KEY);
-    await remove(STORAGE_KEYS.AUTH_SAVED_KEY);
     await remove(STORAGE_KEYS.AUTH_USER_INFO);
     await remove(STORAGE_KEYS.AUTH_ONLINE_STATUS);
+    // 注意: 不清除 AUTH_SAVED_KEY 和 AUTH_SAVED_KEYS_PREFIX.*
+    // savedKey 需要跨登录会话持久化，用于服务端识别同一客户端
   },
 };
 

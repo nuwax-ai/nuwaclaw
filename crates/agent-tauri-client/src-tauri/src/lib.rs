@@ -1032,7 +1032,7 @@ fn build_rcoder_config(app: &tauri::AppHandle) -> Result<RcoderAgentRunnerConfig
 /// 启动 HTTP Server (rcoder)
 ///
 /// 从 Tauri store 读取配置:
-/// - setup.agent_port: HTTP Server 端口 (默认 9086)
+/// - setup.agent_port: HTTP Server 端口 (默认 60001)
 /// - setup.workspace_dir: 工作区目录
 #[tauri::command]
 async fn rcoder_start(
@@ -1056,7 +1056,7 @@ async fn rcoder_stop(state: tauri::State<'_, ServiceManagerState>) -> Result<boo
 /// 重启 HTTP Server (rcoder)
 ///
 /// 从 Tauri store 读取配置:
-/// - setup.agent_port: HTTP Server 端口 (默认 9086)
+/// - setup.agent_port: HTTP Server 端口 (默认 60001)
 #[tauri::command]
 async fn rcoder_restart(
     app: tauri::AppHandle,
@@ -1079,7 +1079,7 @@ async fn services_stop_all(state: tauri::State<'_, ServiceManagerState>) -> Resu
 /// 重启所有服务
 ///
 /// 从 Tauri store 读取配置:
-/// - setup.agent_port: Agent 服务端口 (默认 9086)
+/// - setup.agent_port: Agent 服务端口 (默认 60001)
 /// - setup.file_server_port: 文件服务端口 (默认 60000)
 /// - lanproxy.server_host: lanproxy 服务器地址 (从 API 返回)
 /// - lanproxy.server_port: lanproxy 服务器端口 (从 API 返回)

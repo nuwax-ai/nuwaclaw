@@ -21,6 +21,11 @@ import {
 } from "../services/setup";
 import { logout, getCurrentAuth } from "../services/auth";
 import { DEFAULT_SETUP_STATE } from "../services/store";
+import {
+  DEFAULT_AGENT_PORT,
+  DEFAULT_FILE_SERVER_PORT,
+  DEFAULT_PROXY_PORT,
+} from "../constants";
 
 const { Text } = Typography;
 
@@ -197,7 +202,7 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
               <InputNumber
                 min={1}
                 max={65535}
-                placeholder="9086"
+                placeholder={String(DEFAULT_AGENT_PORT)}
                 style={{ width: "100%" }}
               />
             </Form.Item>
@@ -213,7 +218,7 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
               <InputNumber
                 min={1}
                 max={65535}
-                placeholder="60000"
+                placeholder={String(DEFAULT_FILE_SERVER_PORT)}
                 style={{ width: "100%" }}
               />
             </Form.Item>
@@ -229,7 +234,7 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
               <InputNumber
                 min={1}
                 max={65535}
-                placeholder="9099"
+                placeholder={String(DEFAULT_PROXY_PORT)}
                 style={{ width: "100%" }}
               />
             </Form.Item>

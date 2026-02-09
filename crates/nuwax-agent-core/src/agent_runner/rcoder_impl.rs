@@ -13,9 +13,11 @@ use tracing::{info, warn};
 use agent_runner::{start_http_server, AppConfig, AgentRuntime, HealthCheckConfig, HttpServerHandle, HttpServerConfig, ProxyConfig};
 
 /// 代理服务默认监听端口
-const DEFAULT_PROXY_PORT: u16 = 8088;
+const DEFAULT_PROXY_PORT: u16 = 60002;
 /// Agent HTTP 服务默认端口
-const DEFAULT_BACKEND_PORT: u16 = 9086;
+const DEFAULT_BACKEND_PORT: u16 = 60001;
+/// MCP Server 默认端口
+const DEFAULT_MCP_SERVER_PORT: u16 = 60004;
 
 /// Rcoder Agent Runner 配置
 #[derive(Debug, Clone)]
@@ -28,10 +30,12 @@ pub struct RcoderAgentRunnerConfig {
     pub api_base_url: String,
     /// 默认模型
     pub default_model: String,
-    /// 代理服务端口（默认 8088）
+    /// 代理服务端口（默认 60002）
     pub proxy_port: u16,
-    /// Agent HTTP 服务端口（默认 9086，用于 pingora 反向代理到后端）
+    /// Agent HTTP 服务端口（默认 60001，用于 pingora 反向代理到后端）
     pub backend_port: u16,
+    /// MCP Server 端口（默认 60004）
+    pub mcp_server_port: u16,
 }
 
 impl Default for RcoderAgentRunnerConfig {
@@ -43,6 +47,7 @@ impl Default for RcoderAgentRunnerConfig {
             default_model: "claude-sonnet-4-20250514".to_string(),
             proxy_port: DEFAULT_PROXY_PORT,
             backend_port: DEFAULT_BACKEND_PORT,
+            mcp_server_port: DEFAULT_MCP_SERVER_PORT,
         }
     }
 }

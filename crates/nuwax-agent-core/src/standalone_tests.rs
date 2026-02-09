@@ -795,7 +795,7 @@ mod standalone_tests {
         fn test_nuwax_lanproxy_config_default() {
             let config = NuwaxLanproxyConfig::default();
             assert_eq!(config.server_ip, "127.0.0.1");
-            assert_eq!(config.server_port, 9000);
+            assert_eq!(config.server_port, 60003);
             assert_eq!(config.client_key, "test_key");
         }
 

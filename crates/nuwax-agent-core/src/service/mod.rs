@@ -573,7 +573,7 @@ impl Default for NuwaxLanproxyConfig {
         Self {
             bin_path: "nuwax-lanproxy".to_string(),
             server_ip: "127.0.0.1".to_string(),
-            server_port: 9000,
+            server_port: 60003,
             client_key: "test_key".to_string(),
         }
     }

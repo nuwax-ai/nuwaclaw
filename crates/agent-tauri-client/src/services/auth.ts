@@ -12,7 +12,6 @@ import {
   ClientRegisterResponse,
   SandboxValue,
 } from "./api";
-import { getAgentUrl, getVncUrl, getFileServerUrl } from "./config";
 import {
   authStorage,
   initStore,
@@ -90,17 +89,37 @@ export function saveConfigKey(configKey: string): Promise<void> {
 
 /**
  * 获取保存的 SavedKey（用于下次注册时传递给服务端）
+ * 优先按域名+用户名查找，回退到全局 savedKey
  */
-export function getSavedKey(): Promise<string | null> {
+export async function getSavedKey(
+  domain?: string,
+  username?: string,
+): Promise<string | null> {
+  // 优先按域名+用户名查找
+  if (domain && username) {
+    const perUserKey = await authStorage.getSavedKeyFor(domain, username);
+    if (perUserKey) {
+      return perUserKey;
+    }
+  }
+  // 回退到全局 savedKey
   return authStorage.getSavedKey();
 }
 
 /**
  * 保存 SavedKey
- * 这个值会在下次登录时作为 savedKey 参数传递给服务端
+ * 以域名+用户名为键持久化，同时更新全局 savedKey
  */
-export function saveSavedKey(key: string): Promise<void> {
-  return authStorage.setSavedKey(key);
+export async function saveSavedKey(
+  key: string,
+  domain?: string,
+  username?: string,
+): Promise<void> {
+  if (domain && username) {
+    await authStorage.setSavedKeyFor(domain, username, key);
+  } else {
+    await authStorage.setSavedKey(key);
+  }
 }
 
 /**
@@ -226,14 +245,15 @@ export function getAuthErrorMessage(error: any): string {
 // ========== 客户端注册 ==========
 
 /**
- * 获取本地沙箱配置值（默认配置）
+ * 获取本地沙箱配置值（从 store 读取用户配置的端口，回退到默认值）
  */
-function getLocalSandboxValue(): SandboxValue {
+async function getLocalSandboxValue(): Promise<SandboxValue> {
+  const setupState = await setupStorage.getState();
   return {
     hostWithScheme: "http://127.0.0.1",
-    agentPort: 9086,
-    vncPort: 9099,
-    fileServerPort: 60000,
+    agentPort: setupState.agentPort,
+    vncPort: setupState.proxyPort,
+    fileServerPort: setupState.fileServerPort,
     apiKey: "",
     maxUsers: 1,
   };
@@ -252,15 +272,19 @@ export async function loginAndRegister(
   options?: { suppressToast?: boolean },
 ): Promise<ClientRegisterResponse> {
   const suppressToast = options?.suppressToast === true;
-  // 获取保存的 savedKey（用于标识是否为老用户）
-  const savedKey = await getSavedKey();
+  // 获取当前 API 域名，用于 savedKey 的域名+用户名存储
+  const setupState = await setupStorage.getState();
+  const domain = setupState.serverHost;
+
+  // 获取保存的 savedKey（优先按域名+用户名查找）
+  const savedKey = await getSavedKey(domain, username);
 
   // 构建注册参数
   const params: ClientRegisterParams = {
     username,
     password,
     savedKey: savedKey || undefined,
-    sandboxConfigValue: getLocalSandboxValue(),
+    sandboxConfigValue: await getLocalSandboxValue(),
   };
 
   // 启动 loading 提示
@@ -280,9 +304,8 @@ export async function loginAndRegister(
     // 2. 保存 configKey（当前客户端的唯一标识）
     await saveConfigKey(response.configKey);
 
-    // 3. 保存 savedKey（下次注册时使用，实现用户识别）
-    // 这个值会作为下次登录时的 savedKey 参数
-    await saveSavedKey(response.configKey);
+    // 3. 保存 savedKey（按域名+用户名持久化，退出登录不丢失）
+    await saveSavedKey(response.configKey, domain, username);
 
     // 4. 保存用户信息
     await saveUserInfo({
@@ -442,41 +465,6 @@ export function stopHeartbeat(): void {
 // ========== 同步配置到后端 ==========
 
 /**
- * 获取当前的沙箱配置值（从当前场景配置）
- */
-export async function getCurrentSandboxValue(): Promise<SandboxValue> {
-  const agentUrl = await getAgentUrl();
-  const vncUrl = await getVncUrl();
-  const fileServerUrl = await getFileServerUrl();
-
-  // 从 URL 中解析 hostWithScheme 和端口
-  const parseUrl = (url: string) => {
-    try {
-      const u = new URL(url);
-      return {
-        hostWithScheme: `${u.protocol}//${u.hostname}`,
-        port: parseInt(u.port || (u.protocol === "https:" ? "443" : "80"), 10),
-      };
-    } catch {
-      return { hostWithScheme: "http://127.0.0.1", port: 0 };
-    }
-  };
-
-  const agent = parseUrl(agentUrl);
-  const vnc = parseUrl(vncUrl);
-  const fileServer = parseUrl(fileServerUrl);
-
-  return {
-    // hostWithScheme: agent.hostWithScheme,
-    agentPort: agent.port,
-    vncPort: vnc.port,
-    fileServerPort: fileServer.port,
-    apiKey: "",
-    maxUsers: 1,
-  };
-}
-
-/**
  * 同步本地配置到后端
  * 当用户修改了本地服务配置后调用，更新后端终端配置
  */
@@ -484,6 +472,8 @@ export async function syncConfigToServer(): Promise<ClientRegisterResponse | nul
   const username = await getSavedUsername();
   const password = await getSavedPassword();
   const configKey = await getSavedConfigKey();
+  const setupState = await setupStorage.getState();
+  const domain = setupState.serverHost;
 
   if (!username || !password) {
     console.warn("[SyncConfig] 未登录，无法同步配置");
@@ -494,7 +484,7 @@ export async function syncConfigToServer(): Promise<ClientRegisterResponse | nul
     username,
     password,
     savedKey: configKey || undefined,
-    sandboxConfigValue: await getCurrentSandboxValue(),
+    sandboxConfigValue: await getLocalSandboxValue(),
   };
 
   const loadingKey = "syncConfigLoading";
@@ -505,7 +495,7 @@ export async function syncConfigToServer(): Promise<ClientRegisterResponse | nul
 
     // 更新保存的 configKey、savedKey 和连接状态
     await saveConfigKey(response.configKey);
-    await saveSavedKey(response.configKey);
+    await saveSavedKey(response.configKey, domain, username);
     await saveOnlineStatus(response.online);
 
     message.success({ content: "配置同步成功！", key: loadingKey });

@@ -6,6 +6,13 @@
 
 import { message } from "antd";
 import { configStorage, initStore, type CustomScene } from "./store";
+import {
+  DEFAULT_FILE_SERVER_PORT,
+  DEFAULT_PROXY_PORT,
+  DEFAULT_VNC_PORT,
+  DEFAULT_LOCAL_HOST,
+  DEFAULT_TIMEOUT,
+} from "../constants";
 
 // ========== 构建环境配置 ==========
 
@@ -79,25 +86,25 @@ export interface ServiceEndpoint {
  */
 export const DEFAULT_LOCAL_SERVICES: LocalServicesConfig = {
   agent: {
-    host: "127.0.0.1",
-    port: 8080,
+    host: DEFAULT_LOCAL_HOST,
+    port: DEFAULT_PROXY_PORT,
     scheme: "http",
     path: "/api",
   },
   vnc: {
-    host: "127.0.0.1",
-    port: 5900,
+    host: DEFAULT_LOCAL_HOST,
+    port: DEFAULT_VNC_PORT,
     scheme: "vnc",
   },
   fileServer: {
-    host: "127.0.0.1",
-    port: 8081,
+    host: DEFAULT_LOCAL_HOST,
+    port: DEFAULT_FILE_SERVER_PORT,
     scheme: "http",
     path: "/files",
   },
   websocket: {
-    host: "127.0.0.1",
-    port: 8080,
+    host: DEFAULT_LOCAL_HOST,
+    port: DEFAULT_PROXY_PORT,
     scheme: "ws",
     path: "/ws",
   },
@@ -119,8 +126,8 @@ export function getDefaultScenes(): SceneConfig[] {
       description: "本地开发环境",
       isDefault: buildEnv === "local",
       server: {
-        apiUrl: "http://localhost:8080",
-        timeout: 30000,
+        apiUrl: `http://localhost:${DEFAULT_PROXY_PORT}`,
+        timeout: DEFAULT_TIMEOUT,
       },
       local: DEFAULT_LOCAL_SERVICES,
     },
@@ -131,19 +138,19 @@ export function getDefaultScenes(): SceneConfig[] {
       isDefault: buildEnv === "test",
       server: {
         apiUrl: "https://testagent.xspaceagi.com",
-        timeout: 30000,
+        timeout: DEFAULT_TIMEOUT,
       },
       local: {
-        agent: { host: "test-nvwa.xspaceagi.com", port: 8080, scheme: "http" },
-        vnc: { host: "test-nvwa.xspaceagi.com", port: 5900, scheme: "vnc" },
+        agent: { host: "test-nvwa.xspaceagi.com", port: DEFAULT_PROXY_PORT, scheme: "http" },
+        vnc: { host: "test-nvwa.xspaceagi.com", port: DEFAULT_VNC_PORT, scheme: "vnc" },
         fileServer: {
           host: "test-nvwa.xspaceagi.com",
-          port: 8081,
+          port: DEFAULT_FILE_SERVER_PORT,
           scheme: "http",
         },
         websocket: {
           host: "test-nvwa.xspaceagi.com",
-          port: 8080,
+          port: DEFAULT_PROXY_PORT,
           scheme: "ws",
         },
       },
@@ -155,13 +162,13 @@ export function getDefaultScenes(): SceneConfig[] {
       isDefault: buildEnv === "prod",
       server: {
         apiUrl: "https://agent.nuwax.com",
-        timeout: 30000,
+        timeout: DEFAULT_TIMEOUT,
       },
       local: {
-        agent: { host: "nvwa.xspaceagi.com", port: 8080, scheme: "http" },
-        vnc: { host: "nvwa.xspaceagi.com", port: 5900, scheme: "vnc" },
-        fileServer: { host: "nvwa.xspaceagi.com", port: 8081, scheme: "http" },
-        websocket: { host: "nvwa.xspaceagi.com", port: 8080, scheme: "ws" },
+        agent: { host: "nvwa.xspaceagi.com", port: DEFAULT_PROXY_PORT, scheme: "http" },
+        vnc: { host: "nvwa.xspaceagi.com", port: DEFAULT_VNC_PORT, scheme: "vnc" },
+        fileServer: { host: "nvwa.xspaceagi.com", port: DEFAULT_FILE_SERVER_PORT, scheme: "http" },
+        websocket: { host: "nvwa.xspaceagi.com", port: DEFAULT_PROXY_PORT, scheme: "ws" },
       },
     },
   ];
