@@ -2,6 +2,7 @@
 # 使用 tauri-apps/tauri-action 自动构建并创建 GitHub Draft Release
 #
 # 支持平台：
+#   - macOS Universal (Intel + Apple Silicon 通用安装包)
 #   - macOS arm64 (M1+)
 #   - macOS x86_64 (Intel)
 #   - Windows x86_64
@@ -40,6 +41,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # macOS Universal — 同时包含 Intel 和 Apple Silicon，用户只需下载一个安装包
+          - platform: macos-latest
+            args: '--target universal-apple-darwin'
+            rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
             rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
@@ -150,6 +155,26 @@ jobs:
         run: pnpm install
 
       # ---- 下载 Node.js 运行时到 Tauri 资源目录（bundle resources 需要） ----
+      - name: Download Node.js runtime (macOS universal)
+        if: runner.os == 'macOS' && contains(matrix.args, 'universal')
+        run: |
+          # 下载 arm64 版本
+          ./scripts/download-node.sh darwin arm64
+          cp crates/agent-tauri-client/src-tauri/resources/node/bin/node /tmp/node-arm64
+
+          # 下载 x64 版本（脚本会清空并重建目录）
+          ./scripts/download-node.sh darwin x64
+          cp crates/agent-tauri-client/src-tauri/resources/node/bin/node /tmp/node-x64
+
+          # 用 lipo 合并为 universal binary（lib/ 目录是 JS 文件，与架构无关，保留 x64 版本即可）
+          lipo -create /tmp/node-arm64 /tmp/node-x64 -output crates/agent-tauri-client/src-tauri/resources/node/bin/node
+          chmod 755 crates/agent-tauri-client/src-tauri/resources/node/bin/node
+
+          # 验证 universal binary
+          echo "==> Universal Node.js binary:"
+          file crates/agent-tauri-client/src-tauri/resources/node/bin/node
+          lipo -info crates/agent-tauri-client/src-tauri/resources/node/bin/node
+
       - name: Download Node.js runtime (macOS aarch64)
         if: runner.os == 'macOS' && contains(matrix.args, 'aarch64')
         run: ./scripts/download-node.sh darwin arm64
@@ -188,12 +213,13 @@ jobs:
             ## NuWax Agent Desktop 桌面客户端
 
             请在下方 Assets 中下载对应平台的安装包：
-            - **macOS**: `.dmg` (Intel / Apple Silicon)
+            - **macOS (推荐)**: `_universal.dmg` — 通用安装包，同时支持 Intel 和 Apple Silicon
+            - **macOS (单架构)**: `_aarch64.dmg` (Apple Silicon) / `_x64.dmg` (Intel)
             - **Windows**: `.msi` / `.nsis`
             - **Linux**: `.deb` / `.AppImage`
 
             客户端支持自动更新，无需手动下载。
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
