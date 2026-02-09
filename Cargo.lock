@@ -13622,7 +13622,8 @@ dependencies = [
  "serde 1.0.228",
  "thiserror 2.0.18",
  "tokio",
- "windows 0.57.0",
+ "windows 0.62.2",
+ "winreg 0.55.0",
 ]
 
 [[package]]

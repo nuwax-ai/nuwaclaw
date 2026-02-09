@@ -46,7 +46,14 @@ core-graphics = "0.24"
 
 # Windows 特定依赖
 [target."cfg(target_os = \"windows\")".dependencies]
-windows = "0.57"
+windows = { version = "0.62", features = [
+    "Win32",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Threading",
+] }
+# 注册表读取（参考 RustDesk，使用 winreg 替代原生 RegGetValueW，更安全简洁）
+winreg = "0.55"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }

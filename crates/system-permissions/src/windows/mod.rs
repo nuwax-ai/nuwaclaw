@@ -7,15 +7,13 @@ use chrono::Utc;
 use std::process::Command;
 
 #[cfg(target_family = "windows")]
-use windows::{
-    core::PCWSTR,
-    Win32::{
-        Foundation::{BOOL, HANDLE, LSTATUS, ERROR_SUCCESS},
-        Security::{
-            Advanced::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY},
-        },
-        System::Threading::{OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION},
+use windows::Win32::{
+    Foundation::HANDLE,
+    Security::{
+        GetTokenInformation, OpenProcessToken,
+        TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
     },
+    System::Threading::GetCurrentProcess,
 };
 
 use crate::{
@@ -455,30 +453,17 @@ fn check_privacy_setting(category: &str) -> bool {
         category
     );
 
-    // 检查 Value 字段
+    // 检查 Value 字段（使用 winreg crate 读取注册表，参考 RustDesk）
     #[cfg(target_family = "windows")]
     {
-        use windows::Win32::Registry::{HKEY_CURRENT_USER, RegGetValueW, KEY_READ, REG_SZ};
+        use winreg::enums::*;
+        use winreg::RegKey;
 
-        let mut value: [u16; 256] = [0; 256];
-        let mut data_size: u32 = std::mem::size_of::<u16>() as u32 * 256;
-
-        let result = unsafe {
-            RegGetValueW(
-                HKEY_CURRENT_USER,
-                PCWSTR::from_raw(key_path.encode_utf16().collect::<Vec<u16>>().as_ptr()),
-                PCWSTR::from_raw("Value".encode_utf16().collect::<Vec<u16>>().as_ptr()),
-                RRF_RT_REG_SZ,
-                std::ptr::null_mut(),
-                value.as_mut_ptr() as *mut std::ffi::c_void,
-                &mut data_size,
-            )
-        };
-
-        if result == 0 {
-            // 读取成功，检查值是否为 "Allow"
-            let value_str = String::from_utf16_lossy(&value[..(data_size / 2) as usize]);
-            return value_str.trim_end_matches('\0') == "Allow";
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        if let Ok(subkey) = hkcu.open_subkey_with_flags(&key_path, KEY_READ) {
+            if let Ok(value) = subkey.get_value::<String, _>("Value") {
+                return value == "Allow";
+            }
         }
     }
 
@@ -502,10 +487,10 @@ fn get_process_elevated() -> bool {
         let mut token_handle: HANDLE = HANDLE::default();
         
         if OpenProcessToken(
-            PROCESS_QUERY_LIMITED_INFORMATION,
-            TOKEN_QUERY.0 as _,
+            GetCurrentProcess(),
+            TOKEN_QUERY,
             &mut token_handle,
-        ) == FALSE
+        ).is_err()
         {
             return false;
         }
@@ -513,15 +498,14 @@ fn get_process_elevated() -> bool {
         let mut elevation = TOKEN_ELEVATION::default();
         let mut return_length: u32 = std::mem::size_of::<TOKEN_ELEVATION>() as u32;
         
-        let result = GetTokenInformation(
+        if GetTokenInformation(
             token_handle,
             TokenElevation,
             Some(&mut elevation as *mut _ as *mut std::ffi::c_void),
             return_length,
             &mut return_length,
-        );
-
-        if result == FALSE {
+        ).is_err()
+        {
             return false;
         }
 
