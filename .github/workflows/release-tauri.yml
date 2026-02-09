@@ -134,11 +134,16 @@ jobs:
       # ---- 构建 & 发布（tag 触发时创建 Draft Release） ----
       # tauri-action 会自动执行 tauri.conf.json 中的 beforeBuildCommand (pnpm build)
       # 然后运行 cargo tauri build，最后将产物上传到 GitHub Release
+      # 设置 TAURI_SIGNING_PRIVATE_KEY 后，tauri-action 会自动:
+      #   1. 为每个平台的安装包生成 .sig 签名文件
+      #   2. 生成跨平台的 latest.json 更新清单文件
       - name: Build and release Tauri app
         if: github.ref_type == 'tag'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: crates/agent-tauri-client
           tagName: ${{ github.ref_name }}
@@ -150,8 +155,11 @@ jobs:
             - **macOS**: `.dmg` (Intel / Apple Silicon)
             - **Windows**: `.msi` / `.nsis`
             - **Linux**: `.deb` / `.AppImage`
+
+            客户端支持自动更新，无需手动下载。
           releaseDraft: true
           prerelease: false
+          updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
 
       # ---- 仅构建（手动 workflow_dispatch 触发，不创建 Release） ----
@@ -160,6 +168,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: crates/agent-tauri-client
           args: ${{ matrix.args }}

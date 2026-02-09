@@ -8,6 +8,8 @@
     "opener:default",
     "store:default",
     "dialog:default",
-    "shell:default"
+    "shell:default",
+    "updater:default",
+    "process:default"
   ]
 }

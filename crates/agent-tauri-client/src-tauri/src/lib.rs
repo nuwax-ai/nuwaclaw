@@ -2346,11 +2346,16 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
         .manage(PermissionsState::default())
         .manage(MonitorState::default())
         .manage(ServiceManagerState::default())
-        // 设置托盘
+        // 设置托盘 + 初始化 updater 插件
         .setup(|app| {
+            // 注册 updater 插件（仅桌面端）
+            #[cfg(desktop)]
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+
             if let Err(e) = setup_tray(app) {
                 error!("[Setup] 创建系统托盘失败: {}", e);
             }
