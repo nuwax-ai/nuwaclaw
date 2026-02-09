@@ -12,9 +12,9 @@
 #   - 手动触发 (workflow_dispatch) → 仅构建，不创建 Release
 #
 # 注意事项：
-#   - nuwax-agent-core 依赖了 nuwax-ai 组织的 git 仓库（rcoder, nuwax-rustdesk）
+#   - nuwax-agent-core 依赖了 nuwax-ai 组织的 git 仓库（rcoder）
 #     如果这些是私有仓库，需要配置 GH_PAT secret（具有 repo 权限的 Personal Access Token）
-#   - librustdesk 依赖 magnum-opus / scrap 等，需要通过 vcpkg 安装 opus, libvpx, libyuv, aom
+#   - Tauri 客户端不启用 p2p-connection feature，因此不依赖 librustdesk / vcpkg
 
 name: Release Tauri App
 
@@ -43,24 +43,17 @@ jobs:
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
             rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
-            vcpkg_triplet: 'arm64-osx'
           - platform: macos-latest
             args: '--target x86_64-apple-darwin'
             rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
-            vcpkg_triplet: 'x64-osx'
           - platform: ubuntu-22.04
             args: ''
             rust_targets: ''
-            vcpkg_triplet: 'x64-linux'
           - platform: windows-latest
             args: ''
             rust_targets: ''
-            vcpkg_triplet: 'x64-windows-static'
 
     runs-on: ${{ matrix.platform }}
-
-    env:
-      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
 
     steps:
       - name: Checkout repository
@@ -71,26 +64,6 @@ jobs:
       - name: Configure git credentials for private repos
         run: |
           git config --global url."https://${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
-
-      # ---- vcpkg（librustdesk 依赖的 opus, libvpx, libyuv, aom） ----
-      - name: Setup vcpkg cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.VCPKG_ROOT }}
-            !${{ env.VCPKG_ROOT }}/buildtrees
-            !${{ env.VCPKG_ROOT }}/packages
-            !${{ env.VCPKG_ROOT }}/downloads
-          key: vcpkg-${{ matrix.platform }}-${{ matrix.vcpkg_triplet }}-v1
-
-      - name: Install vcpkg and native dependencies
-        shell: bash
-        run: |
-          if [ ! -f "$VCPKG_ROOT/vcpkg" ] && [ ! -f "$VCPKG_ROOT/vcpkg.exe" ]; then
-            git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
-            cd "$VCPKG_ROOT" && ./bootstrap-vcpkg.sh -disableMetrics
-          fi
-          "$VCPKG_ROOT/vcpkg" install libvpx libyuv opus aom --triplet ${{ matrix.vcpkg_triplet }}
 
       # ---- protobuf 编译器（shared_types 的 prost-build 需要） ----
       - name: Install protoc (macOS)
@@ -161,7 +134,6 @@ jobs:
       # ---- 构建 & 发布（tag 触发时创建 Draft Release） ----
       # tauri-action 会自动执行 tauri.conf.json 中的 beforeBuildCommand (pnpm build)
       # 然后运行 cargo tauri build，最后将产物上传到 GitHub Release
-      # VCPKG_ROOT 环境变量已在 job 级别设置，cargo build 会自动使用
       - name: Build and release Tauri app
         if: github.ref_type == 'tag'
         uses: tauri-apps/tauri-action@v0
