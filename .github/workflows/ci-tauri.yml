@@ -78,7 +78,7 @@ jobs:
         id: set-matrix
         run: |
           # macOS aarch64 始终构建
-          MATRIX='[{"platform":"macos-latest","args":"--target aarch64-apple-darwin","rust_targets":"aarch64-apple-darwin,x86_64-apple-darwin","artifact_name":"macos-aarch64"}'
+          MATRIX='{"platform":"macos-latest","args":"--target aarch64-apple-darwin","rust_targets":"aarch64-apple-darwin,x86_64-apple-darwin","artifact_name":"macos-aarch64"}'
 
           # 手动触发时根据输入决定额外平台
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
