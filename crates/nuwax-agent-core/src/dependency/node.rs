@@ -11,7 +11,7 @@ use tracing::{debug, info, warn};
 use super::detector::{DependencyDetector, DetectionResult, DetectorError};
 
 /// Node.js 最低要求版本
-pub const MIN_NODE_VERSION: &str = "18.0.0";
+pub const MIN_NODE_VERSION: &str = "22.0.0";
 
 /// Node.js 信息
 #[derive(Debug, Clone)]
@@ -370,9 +370,111 @@ impl NodeInstaller {
         Self { target_dir }
     }
 
+    /// 从打包的资源目录安装 Node.js
+    ///
+    /// 将 bundled_node_dir（包含 bin/ 和 lib/）中的文件复制到 target_dir
+    pub fn install_from_bundled(&self, bundled_node_dir: &PathBuf) -> Result<NodeInfo, NodeError> {
+        info!(
+            "Installing Node.js from bundled resources: {:?} -> {:?}",
+            bundled_node_dir, self.target_dir
+        );
+
+        // 验证打包资源目录存在
+        if !bundled_node_dir.exists() {
+            return Err(NodeError::InstallFailed(format!(
+                "打包的 Node.js 资源目录不存在: {:?}",
+                bundled_node_dir
+            )));
+        }
+
+        // 验证 bin/node 存在
+        #[cfg(unix)]
+        let bundled_node_bin = bundled_node_dir.join("bin").join("node");
+        #[cfg(windows)]
+        let bundled_node_bin = bundled_node_dir.join("node.exe");
+
+        if !bundled_node_bin.exists() {
+            return Err(NodeError::InstallFailed(format!(
+                "打包的 Node.js 二进制文件不存在: {:?}",
+                bundled_node_bin
+            )));
+        }
+
+        // 创建目标目录
+        std::fs::create_dir_all(&self.target_dir)?;
+
+        // 递归复制 bin/ 和 lib/ 目录
+        let dirs_to_copy = ["bin", "lib"];
+        for dir_name in &dirs_to_copy {
+            let src = bundled_node_dir.join(dir_name);
+            let dst = self.target_dir.join(dir_name);
+
+            if src.exists() {
+                info!("Copying {:?} -> {:?}", src, dst);
+                Self::copy_dir_recursive(&src, &dst)?;
+            }
+        }
+
+        // 设置可执行权限
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let node_path = self.target_dir.join("bin").join("node");
+            if node_path.exists() {
+                let mut perms = std::fs::metadata(&node_path)?.permissions();
+                perms.set_mode(0o755);
+                std::fs::set_permissions(&node_path, perms)?;
+            }
+
+            // npm 和 npx 也需要可执行权限
+            for bin_name in &["npm", "npx", "corepack"] {
+                let bin_path = self.target_dir.join("bin").join(bin_name);
+                if bin_path.exists() {
+                    let mut perms = std::fs::metadata(&bin_path)?.permissions();
+                    perms.set_mode(0o755);
+                    std::fs::set_permissions(&bin_path, perms)?;
+                }
+            }
+        }
+
+        info!("Node.js installation from bundled resources completed");
+
+        // 验证安装
+        let detector = NodeDetector::new();
+        detector.detect_local()
+    }
+
+    /// 递归复制目录
+    fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), NodeError> {
+        std::fs::create_dir_all(dst)?;
+
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let src_path = entry.path();
+            let dst_path = dst.join(entry.file_name());
+
+            if src_path.is_dir() {
+                Self::copy_dir_recursive(&src_path, &dst_path)?;
+            } else if src_path.is_symlink() {
+                // 读取符号链接目标并创建新的符号链接
+                let link_target = std::fs::read_link(&src_path)?;
+                // 如果目标已存在先删除
+                let _ = std::fs::remove_file(&dst_path);
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(&link_target, &dst_path)?;
+                #[cfg(windows)]
+                std::os::windows::fs::symlink_file(&link_target, &dst_path)?;
+            } else {
+                std::fs::copy(&src_path, &dst_path)?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// 获取下载 URL
     fn get_download_url(&self) -> String {
-        let version = "20.11.0"; // LTS 版本
+        let version = "22.14.0"; // LTS 版本
         let os = std::env::consts::OS;
         let arch = std::env::consts::ARCH;
 
@@ -565,7 +667,7 @@ mod tests {
     fn test_node_detector_creation() {
         let detector = NodeDetector::new();
         // 只测试创建，不依赖实际安装的 Node.js
-        assert!(detector.min_version >= Version::parse("18.0.0").unwrap());
+        assert!(detector.min_version >= Version::parse("22.0.0").unwrap());
     }
 
     #[test]

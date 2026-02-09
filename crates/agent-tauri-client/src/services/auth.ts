@@ -177,36 +177,7 @@ export async function saveServerConfig(
   console.log("[Auth] lanproxy 服务器配置已保存:", { serverHost, serverPort });
 }
 
-// ========== 错误码定义 ==========
-
-/**
- * 业务错误码定义
- */
-export const AUTH_ERROR_CODES = {
-  SUCCESS: "0000",
-  USER_NOT_FOUND: "1001", // 用户不存在
-  PASSWORD_ERROR: "1002", // 密码错误
-  USER_DISABLED: "1003", // 用户已被禁用
-  CLIENT_NOT_FOUND: "2001", // 客户端不存在
-  CLIENT_DISABLED: "2002", // 客户端已被禁用
-  CONFIG_NOT_FOUND: "2003", // 配置不存在
-} as const;
-
-/**
- * 错误码对应的中文提示信息
- */
-export const AUTH_ERROR_MESSAGES: Record<string, string> = {
-  "0000": "操作成功",
-  "1001": "用户不存在，请检查输入",
-  "1002": "密码错误，请重新输入",
-  "1003": "账户已被禁用，请联系管理员",
-  "2001": "客户端不存在或已下架",
-  "2002": "客户端已被禁用",
-  "2003": "配置不存在，请重新登录",
-  "4010": "登录已过期，请重新登录",
-  "4011": "登录已过期，请重新登录",
-  "9999": "系统错误，请稍后重试",
-};
+// ========== 错误处理 ==========
 
 /**
  * 获取友好的错误信息
@@ -223,8 +194,19 @@ export function getAuthErrorMessage(error: any): string {
   }
 
   // 使用错误码映射
-  if (error?.data?.code && AUTH_ERROR_MESSAGES[error.data.code]) {
-    return AUTH_ERROR_MESSAGES[error.data.code];
+  const errorCodeMessages: Record<string, string> = {
+    "1001": "用户不存在，请检查输入",
+    "1002": "密码错误，请重新输入",
+    "1003": "账户已被禁用，请联系管理员",
+    "2001": "客户端不存在或已下架",
+    "2002": "客户端已被禁用",
+    "2003": "配置不存在，请重新登录",
+    "4010": "登录已过期，请重新登录",
+    "4011": "登录已过期，请重新登录",
+    "9999": "系统错误，请稍后重试",
+  };
+  if (error?.data?.code && errorCodeMessages[error.data.code]) {
+    return errorCodeMessages[error.data.code];
   }
 
   // HTTP 状态码处理
@@ -432,34 +414,6 @@ export async function logout(): Promise<void> {
   await clearAuthInfo();
   await clearOnlineStatus();
   message.info("已退出登录");
-}
-
-// ========== 心跳机制 (TODO) ==========
-
-/**
- * 启动心跳 (TODO)
- * 实现思路：
- * 1. 定期调用 registerClient 保持客户端在线
- * 2. 建议间隔: 30秒-1分钟
- * 3. 需要停止心跳的场景: 退出登录、程序关闭
- */
-export async function startHeartbeat(): Promise<void> {
-  console.log("[Heartbeat] TODO: 实现心跳机制");
-  // 实现思路：
-  // 1. 使用 setInterval 创建定时任务
-  // 2. 定期调用 reRegisterClient
-  // 3. 保存定时器 ID，以便停止
-  // 4. 处理心跳失败的场景
-}
-
-/**
- * 停止心跳 (TODO)
- */
-export function stopHeartbeat(): void {
-  console.log("[Heartbeat] TODO: 实现停止心跳");
-  // 实现思路：
-  // 1. 清除定时器
-  // 2. 重置心跳状态
 }
 
 // ========== 同步配置到后端 ==========

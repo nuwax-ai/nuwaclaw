@@ -1,17 +1,22 @@
 /**
- * 初始化向导 - 步骤3: 依赖安装
+ * 初始化向导 - 依赖安装
+ *
+ * 流程:
+ * 1. checking → 检测所有依赖
+ * 2. 若 Node 不满足 → node-installing → 自动安装 Node
+ * 3. 自动安装成功 → 重新检测 → ready/completed
+ * 4. 自动安装失败 → node-install-failed → 手动安装提示 + 刷新
+ * 5. Node 已就绪但其他依赖未安装 → ready → 用户点击安装
+ * 6. 所有依赖就绪 → completed → 进入下一步
  */
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Typography,
   Button,
   Progress,
-  Tag,
   Alert,
   Spin,
   Result,
-  message,
 } from "antd";
 import {
   CloudDownloadOutlined,
@@ -22,12 +27,14 @@ import {
   ReloadOutlined,
   LinkOutlined,
   LeftOutlined,
+  WifiOutlined,
+  DisconnectOutlined,
 } from "@ant-design/icons";
+import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
-  checkNodeVersion,
   checkAllSetupDependencies,
-  getAppDataDir,
+  autoInstallNode,
   initLocalNpmEnv,
   checkLocalNpmPackage,
   installLocalNpmPackage,
@@ -36,24 +43,21 @@ import {
   checkGlobalNpmPackage,
   installGlobalNpmPackage,
   type LocalDependencyItem,
-  type NodeVersionResult,
 } from "../services/dependencies";
 import {
-  getDepsFilter,
-  setDepsFilter,
   getDepsShowAll,
   setDepsShowAll,
 } from "../services/setup";
 
-const { Text } = Typography;
-
-interface SetupStep3Props {
+interface SetupDependenciesProps {
   onComplete: () => void;
   onBack?: () => void;
 }
 
 type InstallPhase =
   | "checking"
+  | "node-installing"
+  | "node-install-failed"
   | "system-deps-missing"
   | "ready"
   | "installing"
@@ -81,11 +85,12 @@ interface UnifiedDependencyItem {
   installerUrl?: string;
 }
 
-export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
+type NetworkStatus = "checking" | "connected" | "disconnected";
+
+export default function SetupDependencies({ onComplete, onBack }: SetupDependenciesProps) {
   const [allDependencies, setAllDependencies] = useState<
     UnifiedDependencyItem[]
   >([]);
-  const [nodeResult, setNodeResult] = useState<NodeVersionResult | null>(null);
   const [installableDependencies, setInstallableDependencies] = useState<
     LocalDependencyItem[]
   >([]);
@@ -93,8 +98,24 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
   const [installProgress, setInstallProgress] = useState(0);
   const [currentInstalling, setCurrentInstalling] = useState<string>("");
   const [installError, setInstallError] = useState<string>("");
+  const [nodeInstallError, setNodeInstallError] = useState<string>("");
+  const [networkStatus, setNetworkStatus] = useState<NetworkStatus>("checking");
   const [showAll, setShowAll] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
+  // 防止自动安装重复触发
+  const nodeAutoInstallTriggered = useRef(false);
+
+  const checkNetwork = useCallback(async () => {
+    setNetworkStatus("checking");
+    try {
+      const connected = await invoke<boolean>("check_network_cn");
+      setNetworkStatus(connected ? "connected" : "disconnected");
+      return connected;
+    } catch {
+      setNetworkStatus("disconnected");
+      return false;
+    }
+  }, []);
 
   const buildUnifiedDeps = useCallback(
     (deps: LocalDependencyItem[]): UnifiedDependencyItem[] =>
@@ -114,22 +135,51 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
     [],
   );
 
+  /**
+   * 自动安装 Node.js 并重新检测
+   */
+  const handleAutoInstallNode = useCallback(async () => {
+    setInstallPhase("node-installing");
+    setNodeInstallError("");
+
+    try {
+      const result = await autoInstallNode();
+
+      if (result.success) {
+        console.log("[SetupDeps] Node.js 自动安装成功，重新检测依赖...");
+        // 安装成功，重新检测全部依赖
+        nodeAutoInstallTriggered.current = false;
+        // 直接重新检测而不是递归调用 checkAllDeps
+        setInstallPhase("checking");
+      } else {
+        console.error("[SetupDeps] Node.js 自动安装失败:", result.error);
+        setNodeInstallError(
+          result.error || "Node.js 自动安装失败，请手动安装。"
+        );
+        setInstallPhase("node-install-failed");
+      }
+    } catch (error) {
+      console.error("[SetupDeps] Node.js 自动安装异常:", error);
+      setNodeInstallError(
+        error instanceof Error ? error.message : "Node.js 自动安装异常"
+      );
+      setInstallPhase("node-install-failed");
+    }
+  }, []);
+
   const checkAllDeps = useCallback(async () => {
     setInstallPhase("checking");
     try {
-      const deps = await checkAllSetupDependencies();
+      // 并行执行依赖检测和网络检测
+      const [deps] = await Promise.all([
+        checkAllSetupDependencies(),
+        checkNetwork(),
+      ]);
       const unified = buildUnifiedDeps(deps);
       setAllDependencies(unified);
 
       const nodeDep = deps.find((d) => d.name === "nodejs");
       const nodeReady = nodeDep?.status === "installed";
-      if (nodeDep) {
-        setNodeResult({
-          installed: nodeDep.status !== "missing",
-          version: nodeDep.version,
-          meetsRequirement: nodeDep.status === "installed",
-        });
-      }
 
       setInstallableDependencies(
         deps.filter(
@@ -141,6 +191,25 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
       );
 
       if (!nodeReady) {
+        // Node 不满足要求 → 自动安装（本地资源，无需网络）
+        if (!nodeAutoInstallTriggered.current) {
+          nodeAutoInstallTriggered.current = true;
+          handleAutoInstallNode();
+        } else {
+          // 自动安装已尝试过，显示手动安装提示
+          setInstallPhase("system-deps-missing");
+        }
+        return;
+      }
+
+      // 检查是否还有其他系统依赖未满足（如 uv）
+      const otherSystemMissing = unified.some(
+        (d) =>
+          d.type === "system" &&
+          d.name !== "nodejs" &&
+          d.status !== "installed",
+      );
+      if (otherSystemMissing) {
         setInstallPhase("system-deps-missing");
         return;
       }
@@ -155,11 +224,14 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
       setInstallPhase("error");
       setInstallError("检测依赖失败");
     }
-  }, [buildUnifiedDeps, onComplete]);
+  }, [buildUnifiedDeps, onComplete, handleAutoInstallNode, checkNetwork]);
 
+  // 当 installPhase 变为 "checking"（例如自动安装成功后），重新检测
   useEffect(() => {
-    checkAllDeps();
-  }, [checkAllDeps]);
+    if (installPhase === "checking") {
+      checkAllDeps();
+    }
+  }, [installPhase, checkAllDeps]);
 
   useEffect(() => {
     const load = async () => {
@@ -172,6 +244,14 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
   useEffect(() => {
     setDepsShowAll(showAll);
   }, [showAll]);
+
+  /**
+   * 手动刷新 Node.js 检测（用于 node-install-failed 状态）
+   */
+  const handleRefreshNodeCheck = useCallback(async () => {
+    nodeAutoInstallTriggered.current = false;
+    setInstallPhase("checking");
+  }, []);
 
   const handleStartInstall = async () => {
     setInstallPhase("installing");
@@ -475,6 +555,87 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
     );
   }
 
+  // Node auto-installing
+  if (installPhase === "node-installing") {
+    return (
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
+          依赖安装
+        </div>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 12,
+            padding: "24px 16px",
+            background: "#f4f4f5",
+            borderRadius: 8,
+          }}
+        >
+          <Spin size="large" />
+          <div style={{ fontSize: 13, fontWeight: 500 }}>
+            正在自动安装 Node.js...
+          </div>
+          <div style={{ fontSize: 12, color: "#71717a", textAlign: "center" }}>
+            正在从内置资源安装 Node.js 运行时，请稍候
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Node auto-install failed
+  if (installPhase === "node-install-failed") {
+    return (
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
+          依赖安装
+        </div>
+        {allDependencies.length > 0 && renderDependencyList()}
+        <Alert
+          message="Node.js 自动安装失败"
+          description={
+            <div>
+              <div>{nodeInstallError}</div>
+              <div style={{ marginTop: 8, fontSize: 12, color: "#71717a" }}>
+                请手动安装 Node.js (版本 &gt;= 22)，安装完成后点击「刷新检测」。
+              </div>
+              <div style={{ marginTop: 4 }}>
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<LinkOutlined />}
+                  onClick={() => openUrl("https://nodejs.org")}
+                  style={{ padding: 0, fontSize: 12 }}
+                >
+                  前往 Node.js 官网下载
+                </Button>
+              </div>
+            </div>
+          }
+          type="error"
+          showIcon
+          style={{ marginBottom: 12 }}
+        />
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={handleRefreshNodeCheck}
+          >
+            刷新检测
+          </Button>
+          <Button
+            type="primary"
+            onClick={handleAutoInstallNode}
+          >
+            重试自动安装
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   // Completed
   if (installPhase === "completed") {
     return (
@@ -509,7 +670,7 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
           style={{ marginBottom: 12 }}
         />
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <Button onClick={checkAllDeps}>重新检测</Button>
+          <Button onClick={() => setInstallPhase("checking")}>重新检测</Button>
           <Button type="primary" onClick={handleStartInstall}>
             重试安装
           </Button>
@@ -545,16 +706,43 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
         </div>
       </div>
 
+      {networkStatus === "disconnected" && !allReady && (
+        <Alert
+          message="网络不可用"
+          description={
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12 }}>
+                安装依赖需要网络连接，请检查网络后重试
+              </span>
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                onClick={checkNetwork}
+              >
+                重新检测
+              </Button>
+            </div>
+          }
+          type="error"
+          showIcon
+          icon={<DisconnectOutlined />}
+          style={{ marginBottom: 12 }}
+        />
+      )}
+
       <Alert
         message={
           !systemAllReady
-            ? "请先安装 Node.js，然后点击「重新检测」"
+            ? "请先安装所需系统依赖，然后点击「重新检测」"
             : allReady
               ? "所有依赖已就绪"
-              : "系统依赖已就绪，点击「开始安装」"
+              : networkStatus === "connected"
+                ? "系统依赖已就绪，点击「开始安装」"
+                : "系统依赖已就绪，等待网络连接"
         }
         type={systemAllReady ? (allReady ? "success" : "info") : "warning"}
         showIcon
+        icon={networkStatus === "connected" || allReady ? undefined : <WifiOutlined />}
         style={{ marginBottom: 12 }}
       />
 
@@ -585,7 +773,7 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
           borderTop: "1px solid #f4f4f5",
         }}
       >
-        <Button size="small" icon={<ReloadOutlined />} onClick={checkAllDeps}>
+        <Button size="small" icon={<ReloadOutlined />} onClick={() => setInstallPhase("checking")}>
           重新检测
         </Button>
         {systemAllReady && !allReady && installPhase !== "installing" && (
@@ -594,6 +782,7 @@ export default function SetupStep3({ onComplete, onBack }: SetupStep3Props) {
             size="small"
             icon={<CloudDownloadOutlined />}
             onClick={handleStartInstall}
+            disabled={networkStatus !== "connected"}
           >
             开始安装 ({pendingCount})
           </Button>

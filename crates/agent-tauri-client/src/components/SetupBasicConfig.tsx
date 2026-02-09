@@ -1,5 +1,5 @@
 /**
- * 初始化向导 - 步骤1: 基础设置
+ * 初始化向导 - 基础设置
  */
 
 import React, { useState, useEffect } from "react";

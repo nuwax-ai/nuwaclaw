@@ -1,5 +1,5 @@
 /**
- * 初始化向导 - 步骤2: 账号登录
+ * 初始化向导 - 账号登录
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -20,6 +20,7 @@ import {
   ReloadOutlined,
   LeftOutlined,
 } from "@ant-design/icons";
+import { invoke } from "@tauri-apps/api/core";
 import {
   loginAndRegister,
   getCurrentAuth,
@@ -50,21 +51,12 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
 
   const checkNetworkConnection = useCallback(async () => {
     setNetworkStatus("checking");
-    if (!navigator.onLine) {
-      setNetworkStatus("disconnected");
-      return;
-    }
     try {
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 5000);
-      await fetch("https://nvwa-api.xspaceagi.com/health", {
-        method: "HEAD",
-        mode: "no-cors",
-        signal: controller.signal,
-      });
-      clearTimeout(t);
-    } catch {}
-    setNetworkStatus("connected");
+      const connected = await invoke<boolean>("check_network_cn");
+      setNetworkStatus(connected ? "connected" : "disconnected");
+    } catch {
+      setNetworkStatus("disconnected");
+    }
   }, []);
 
   const checkLoginStatus = useCallback(async () => {

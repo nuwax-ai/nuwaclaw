@@ -1448,6 +1448,31 @@ fn app_data_dir_get(app: tauri::AppHandle) -> Result<String, String> {
     Ok(path.to_string_lossy().to_string())
 }
 
+/// 检测中国大陆网络连通性
+/// 依次尝试多个国内可用端点，任一成功即返回 true
+#[tauri::command]
+async fn check_network_cn() -> bool {
+    let urls = vec![
+        "https://223.5.5.5",
+        "https://www.baidu.com/favicon.ico",
+        "https://cloud.tencent.com",
+    ];
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_default();
+
+    for url in urls {
+        if let Ok(resp) = client.get(url).send().await {
+            if resp.status().is_success() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// 初始化本地 npm 环境（创建 package.json）
 #[tauri::command]
 async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, String> {
@@ -1474,8 +1499,44 @@ async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, String
 }
 
 /// 检测 Node.js 版本
+/// 检测顺序: 1) 本地安装路径 (app_data/tools/node) 2) 系统 PATH
 #[tauri::command]
-async fn dependency_node_detect() -> Result<NodeVersionResult, String> {
+async fn dependency_node_detect(app: tauri::AppHandle) -> Result<NodeVersionResult, String> {
+    // 1. 检测本地安装路径（优先级最高）
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+    let local_node_dir = app_data_dir.join("tools").join("node");
+
+    #[cfg(unix)]
+    let local_node_bin = local_node_dir.join("bin").join("node");
+    #[cfg(windows)]
+    let local_node_bin = local_node_dir.join("node.exe");
+
+    if local_node_bin.exists() {
+        let output = Command::new(&local_node_bin).arg("--version").output();
+        if let Ok(out) = output {
+            if out.status.success() {
+                let version_str = String::from_utf8_lossy(&out.stdout)
+                    .trim()
+                    .trim_start_matches('v')
+                    .to_string();
+                let meets = check_version_meets_requirement(&version_str, "22.0.0");
+                info!(
+                    "[NodeDetect] 本地 Node.js: v{} (满足要求: {})",
+                    version_str, meets
+                );
+                return Ok(NodeVersionResult {
+                    installed: true,
+                    version: Some(version_str),
+                    meets_requirement: meets,
+                });
+            }
+        }
+    }
+
+    // 2. 检测系统 PATH
     let output = Command::new("node").arg("--version").output();
 
     match output {
@@ -1499,6 +1560,84 @@ async fn dependency_node_detect() -> Result<NodeVersionResult, String> {
             version: None,
             meets_requirement: false,
         }),
+    }
+}
+
+/// Node.js 自动安装结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeInstallResult {
+    pub success: bool,
+    pub version: Option<String>,
+    pub error: Option<String>,
+}
+
+/// 自动安装 Node.js（从打包资源复制到应用数据目录）
+#[tauri::command]
+async fn node_install_auto(app: tauri::AppHandle) -> Result<NodeInstallResult, String> {
+    use tauri::Manager;
+
+    info!("[NodeInstall] 开始自动安装 Node.js...");
+
+    // 1. 解析打包资源目录中的 node 路径
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("获取资源目录失败: {}", e))?;
+
+    // 资源目录结构: $RESOURCE/resources/node/{bin,lib}
+    let bundled_node_dir = resource_dir.join("resources").join("node");
+
+    // 开发模式下的回退路径
+    let bundled_node_dir = if !bundled_node_dir.exists() {
+        // 开发模式: 直接使用 src-tauri/resources/node
+        let dev_path = std::env::current_dir()
+            .unwrap_or_default()
+            .join("resources")
+            .join("node");
+        if dev_path.exists() {
+            info!("[NodeInstall] 使用开发模式资源路径: {:?}", dev_path);
+            dev_path
+        } else {
+            return Ok(NodeInstallResult {
+                success: false,
+                version: None,
+                error: Some(format!(
+                    "Node.js 资源文件未找到: {:?} 和 {:?}",
+                    bundled_node_dir, dev_path
+                )),
+            });
+        }
+    } else {
+        info!(
+            "[NodeInstall] 使用打包资源路径: {:?}",
+            bundled_node_dir
+        );
+        bundled_node_dir
+    };
+
+    // 2. 使用 NodeInstaller 从打包资源安装
+    let installer = nuwax_agent_core::dependency::node::NodeInstaller::new();
+    match installer.install_from_bundled(&bundled_node_dir) {
+        Ok(info) => {
+            info!(
+                "[NodeInstall] 安装成功: v{} at {:?}",
+                info.version, info.path
+            );
+            Ok(NodeInstallResult {
+                success: true,
+                version: Some(info.version),
+                error: None,
+            })
+        }
+        Err(e) => {
+            error!("[NodeInstall] 安装失败: {}", e);
+            Ok(NodeInstallResult {
+                success: false,
+                version: None,
+                error: Some(format!("安装失败: {}", e)),
+            })
+        }
     }
 }
 
@@ -2534,8 +2673,10 @@ pub fn run() {
             dependency_npm_reinstall,
             // 初始化向导命令
             app_data_dir_get,
+            check_network_cn,
             dependency_local_env_init,
             dependency_node_detect,
+            node_install_auto,
             dependency_uv_detect,
             dependency_local_check,
             dependency_local_install,

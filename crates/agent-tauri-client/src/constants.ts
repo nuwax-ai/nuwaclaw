@@ -14,12 +14,6 @@ export const DEFAULT_AGENT_PORT = 60001;
 /** 代理服务 (rcoder proxy) 默认端口 */
 export const DEFAULT_PROXY_PORT = 60002;
 
-/** Lanproxy 远程代理默认端口 */
-export const DEFAULT_LANPROXY_PORT = 60003;
-
-/** MCP Server 默认端口 */
-export const DEFAULT_MCP_SERVER_PORT = 60004;
-
 /** VNC 服务默认端口 */
 export const DEFAULT_VNC_PORT = 5900;
 

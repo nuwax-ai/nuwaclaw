@@ -6,15 +6,10 @@
 import { message } from 'antd';
 
 // 错误码定义
-export const SUCCESS_CODE = '0000';
-export const ERROR_CODES = {
-  USER_NO_LOGIN: '4010',
-  REDIRECT_LOGIN: '4011',
-  CLIENT_NOT_FOUND: '1001',
-} as const;
+const SUCCESS_CODE = '0000';
 
 // 错误码对应的消息
-export const ERROR_MESSAGES: Record<string, string> = {
+const ERROR_MESSAGES: Record<string, string> = {
   '0000': '操作成功',
   '4010': '用户未登录，请重新登录',
   '4011': '登录已过期，请重新登录',
@@ -22,8 +17,8 @@ export const ERROR_MESSAGES: Record<string, string> = {
   '9999': '系统错误，请稍后重试',
 };
 
-// 响应类型定义
-export interface ApiResponse<T = any> {
+// 响应类型定义（内部使用）
+interface ApiResponse<T = any> {
   code: string;
   displayCode?: string;
   message: string;
@@ -32,8 +27,8 @@ export interface ApiResponse<T = any> {
   tid?: string;
 }
 
-// 请求配置
-export interface RequestConfig {
+// 请求配置（内部使用）
+interface RequestConfig {
   baseUrl?: string;
   timeout?: number;
   headers?: Record<string, string>;
@@ -184,20 +179,4 @@ export async function registerClient(
     data: params,
     showError: true,
   });
-}
-
-// ========== 工具函数 ==========
-
-/**
- * 延迟函数
- */
-export function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/**
- * 检查字符串是否为空
- */
-export function isEmpty(str: string | null | undefined): boolean {
-  return str === null || str === undefined || str.trim() === '';
 }

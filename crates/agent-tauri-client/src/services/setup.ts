@@ -38,20 +38,6 @@ export async function isSetupCompleted(): Promise<boolean> {
 }
 
 /**
- * 获取当前初始化状态
- * @returns 完整的初始化状态
- */
-export async function getSetupState(): Promise<SetupState> {
-  try {
-    await initStore();
-    return await setupStorage.getState();
-  } catch (error) {
-    console.error('[Setup] 获取初始化状态失败:', error);
-    return DEFAULT_SETUP_STATE;
-  }
-}
-
-/**
  * 获取当前步骤
  * @returns 当前步骤编号 (1/2/3)
  */
@@ -98,7 +84,13 @@ export async function saveStep1Config(config: Step1Config): Promise<void> {
  * @returns 步骤1配置数据
  */
 export async function getStep1Config(): Promise<Step1Config> {
-  const state = await getSetupState();
+  let state: SetupState;
+  try {
+    await initStore();
+    state = await setupStorage.getState();
+  } catch {
+    state = DEFAULT_SETUP_STATE;
+  }
   return {
     serverHost: state.serverHost,
     agentPort: state.agentPort,
@@ -106,43 +98,6 @@ export async function getStep1Config(): Promise<Step1Config> {
     proxyPort: state.proxyPort,
     workspaceDir: state.workspaceDir,
   };
-}
-
-/**
- * 获取最近使用的工作区目录
- */
-export async function getRecentWorkspaces(): Promise<string[]> {
-  try {
-    await initStore();
-    return await setupStorage.getRecentWorkspaces();
-  } catch (error) {
-    console.error('[Setup] 获取最近工作区失败:', error);
-    return [];
-  }
-}
-
-/**
- * 添加最近使用的工作区目录
- */
-export async function addRecentWorkspace(dir: string): Promise<void> {
-  try {
-    await initStore();
-    await setupStorage.addRecentWorkspace(dir);
-  } catch (error) {
-    console.error('[Setup] 保存最近工作区失败:', error);
-  }
-}
-
-/**
- * 清除最近使用的工作区目录
- */
-export async function clearRecentWorkspaces(): Promise<void> {
-  try {
-    await initStore();
-    await setupStorage.clearRecentWorkspaces();
-  } catch (error) {
-    console.error('[Setup] 清除最近工作区失败:', error);
-  }
 }
 
 /**
@@ -211,22 +166,6 @@ export async function completeStep2(): Promise<void> {
   }
 }
 
-// ========== 步骤3: 依赖安装 ==========
-
-/**
- * 完成步骤3并完成整个初始化流程
- */
-export async function completeStep3(): Promise<void> {
-  try {
-    await initStore();
-    await setupStorage.complete();
-    console.log('[Setup] 初始化向导已完成');
-  } catch (error) {
-    console.error('[Setup] 完成步骤3失败:', error);
-    throw error;
-  }
-}
-
 // ========== 完成/重置 ==========
 
 /**
@@ -261,20 +200,6 @@ export async function resetSetup(): Promise<void> {
 // ========== 工具函数 ==========
 
 /**
- * 获取应用数据目录路径
- * @returns 应用数据目录（如 ~/Library/Application Support/com.nuwax.agent）
- */
-export async function getAppDataDir(): Promise<string> {
-  try {
-    const dir = await invoke<string>('app_data_dir_get');
-    return dir;
-  } catch (error) {
-    console.error('[Setup] 获取应用数据目录失败:', error);
-    throw error;
-  }
-}
-
-/**
  * 选择目录对话框
  * @returns 用户选择的目录路径，取消返回 null
  */
@@ -301,19 +226,6 @@ export async function saveStepProgress(step: number): Promise<void> {
     console.error('[Setup] 保存步骤进度失败:', error);
     throw error;
   }
-}
-
-/**
- * 跳转到指定步骤
- * 用于断点续传场景
- * @param step 目标步骤
- */
-export async function goToStep(step: number): Promise<void> {
-  if (step < 1 || step > 3) {
-    console.warn('[Setup] 无效的步骤编号:', step);
-    return;
-  }
-  await saveStepProgress(step);
 }
 
 // ========== 依赖安装状态 ==========

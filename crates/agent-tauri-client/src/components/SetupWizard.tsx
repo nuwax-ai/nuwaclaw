@@ -19,11 +19,11 @@ import {
   setDepsInstalled,
 } from "../services/setup";
 import { restartAllServices } from "../services/dependencies";
-import SetupStep1 from "./SetupStep1";
-import SetupStep2 from "./SetupStep2";
-import SetupStep3 from "./SetupStep3";
+import SetupBasicConfig from "./SetupBasicConfig";
+import SetupAccountLogin from "./SetupAccountLogin";
+import SetupDependencies from "./SetupDependencies";
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const WIZARD_STEPS = [
   { key: 1, title: "基础设置", icon: <SettingOutlined /> },
@@ -140,13 +140,13 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     }
     switch (currentStep) {
       case 1:
-        return <SetupStep1 onComplete={handleStep1Complete} />;
+        return <SetupBasicConfig onComplete={handleStep1Complete} />;
       case 2:
         return (
-          <SetupStep2 onComplete={handleStep2Complete} onBack={handleGoBack} />
+          <SetupAccountLogin onComplete={handleStep2Complete} onBack={handleGoBack} />
         );
       default:
-        return <SetupStep1 onComplete={handleStep1Complete} />;
+        return <SetupBasicConfig onComplete={handleStep1Complete} />;
     }
   };
 
@@ -183,7 +183,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         </div>
 
         <div style={styles.content}>
-          <SetupStep3 onComplete={handleDepsComplete} />
+          <SetupDependencies onComplete={handleDepsComplete} />
         </div>
 
         <div style={styles.footer}>

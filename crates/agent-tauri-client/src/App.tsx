@@ -55,7 +55,6 @@ type TabType =
   | "dependencies"
   | "permissions"
   | "logs"
-  | "backend_logs"
   | "about";
 
 /**

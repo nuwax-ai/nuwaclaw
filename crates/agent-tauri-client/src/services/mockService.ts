@@ -2,53 +2,16 @@
 // 用于前端开发和调试，无需启动后端服务
 
 import { checkAllPermissions, openSystemSettings } from './permissions';
-import type { PermissionCategory } from './permissions';
+import type { PermissionCategory, PermissionsState } from './permissions';
 
 // Agent 状态
 export type AgentStatus = 'idle' | 'starting' | 'running' | 'busy' | 'error' | 'stopped';
-
-export interface StatusResponse {
-  status: string;
-  session_id?: string;
-}
 
 export interface LogEntry {
   id: string;
   timestamp: string;
   level: 'info' | 'success' | 'warning' | 'error';
   message: string;
-}
-
-export interface TaskInfo {
-  id: string;
-  name: string;
-  status: 'running' | 'waiting' | 'completed';
-  progress: number;
-}
-
-// 权限状态类型
-export type PermissionStatus = 'granted' | 'denied' | 'pending' | 'unknown';
-
-// 权限项接口
-export interface PermissionItem {
-  id: string;
-  name: string;
-  displayName: string;
-  description: string;
-  status: PermissionStatus;
-  required: boolean;  // 是否必需权限
-}
-
-// 权限统计摘要
-export interface PermissionsSummary {
-  total: number;
-  granted: number;
-}
-
-// 权限状态数据
-export interface PermissionsState {
-  items: PermissionItem[];
-  summary: PermissionsSummary;
 }
 
 // 权限数据改为使用 permissions 服务的完整列表（含平台过滤），保证权限菜单与配置一致
@@ -60,21 +23,15 @@ const mockLogs: LogEntry[] = [
   { id: '3', timestamp: '14:30:27', level: 'info', message: '等待任务指令...' },
 ];
 
-const mockTasks: TaskInfo[] = [
-  { id: '001', name: '文件同步任务 #1234', status: 'running', progress: 65 },
-  { id: '002', name: '数据备份 #1235', status: 'waiting', progress: 0 },
-];
-
 // Mock 服务类
 class MockService {
   private status: AgentStatus = 'idle';
   private sessionId: string = '';
   private logs: LogEntry[] = [...mockLogs];
-  private tasks: TaskInfo[] = [...mockTasks];
   private callbacks: Map<string, Function[]> = new Map();
 
   // 获取状态
-  async getStatus(): Promise<StatusResponse> {
+  async getStatus() {
     return {
       status: this.status,
       session_id: this.sessionId || undefined,
@@ -112,11 +69,6 @@ class MockService {
     return [...this.logs];
   }
 
-  // 获取任务列表
-  async getTasks(): Promise<TaskInfo[]> {
-    return [...this.tasks];
-  }
-
   // 获取连接信息
   getConnectionInfo() {
     // 如果没有 session，返回空状态
@@ -137,13 +89,7 @@ class MockService {
   // 获取权限状态：使用 permissions 服务的完整列表与平台检测，保证权限菜单全部接入
   async getPermissions(): Promise<PermissionsState> {
     const state = await checkAllPermissions();
-    return {
-      items: state.items,
-      summary: {
-        total: state.summary.total,
-        granted: state.summary.granted,
-      },
-    };
+    return state;
   }
 
   // 刷新权限状态
@@ -199,15 +145,12 @@ class MockService {
   }
 }
 
-// 单例导出
-export const mockService = new MockService();
+// 单例
+const mockService = new MockService();
 
 // 便捷函数
-export const getAgentStatus = () => mockService.getStatus();
 export const startAgent = () => mockService.startAgent();
 export const stopAgent = () => mockService.stopAgent();
-export const getLogs = () => mockService.getLogs();
-export const getTasks = () => mockService.getTasks();
 export const getConnectionInfo = () => mockService.getConnectionInfo();
 export const getPermissions = () => mockService.getPermissions();
 export const refreshPermissions = () => mockService.refreshPermissions();

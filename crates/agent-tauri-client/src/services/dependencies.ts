@@ -3,7 +3,6 @@
  * 通过 Tauri invoke 调用 Rust 后端执行 node 命令检测/安装依赖
  */
 
-import { message } from "antd";
 import { invoke } from "@tauri-apps/api/core";
 
 // 依赖状态
@@ -15,333 +14,7 @@ export type DependencyStatus =
   | "installing"
   | "error";
 
-// 依赖项
-export interface DependencyItem {
-  name: string;
-  displayName: string;
-  version?: string;
-  source?: string;
-  status: DependencyStatus;
-  required: boolean;
-  description: string;
-  installUrl?: string;
-}
-
-// 依赖统计
-export interface DependencySummary {
-  total: number;
-  installed: number;
-  missing: number;
-}
-
-// 模拟数据（后端 API 未就绪时使用）
-const mockDependencies: DependencyItem[] = [
-  {
-    name: "nodejs",
-    displayName: "Node.js",
-    version: "v18.19.0",
-    source: "系统全局",
-    status: "installed",
-    required: true,
-    description: "JavaScript 运行时环境",
-  },
-  {
-    name: "git",
-    displayName: "Git",
-    version: "v2.39.1",
-    source: "Xcode",
-    status: "installed",
-    required: true,
-    description: "版本控制工具",
-  },
-  {
-    name: "npm",
-    displayName: "npm",
-    version: "v10.2.4",
-    source: "系统全局",
-    status: "installed",
-    required: true,
-    description: "Node.js 包管理器",
-  },
-  {
-    name: "python",
-    displayName: "Python",
-    version: "v3.11.0",
-    source: "系统全局",
-    status: "installed",
-    required: false,
-    description: "Python 运行时环境",
-  },
-  {
-    name: "docker",
-    displayName: "Docker",
-    version: "v24.0.0",
-    status: "missing",
-    required: false,
-    description: "容器运行时",
-  },
-  {
-    name: "rust",
-    displayName: "Rust/Cargo",
-    version: "v1.72.0",
-    status: "installed",
-    required: false,
-    description: "Rust 工具链",
-  },
-  {
-    name: "curl",
-    displayName: "cURL",
-    version: "v8.5.0",
-    status: "installed",
-    required: false,
-    description: "HTTP 客户端工具",
-  },
-  {
-    name: "jq",
-    displayName: "jq",
-    version: "v1.7",
-    status: "installed",
-    required: false,
-    description: "JSON 处理工具",
-  },
-  {
-    name: "pandoc",
-    displayName: "Pandoc",
-    version: "v3.1.0",
-    status: "missing",
-    required: false,
-    description: "文档转换工具",
-  },
-  {
-    name: "ffmpeg",
-    displayName: "FFmpeg",
-    version: "v6.0",
-    status: "missing",
-    required: false,
-    description: "多媒体处理工具",
-  },
-  {
-    name: "opencode",
-    displayName: "OpenCode",
-    status: "installed",
-    required: false,
-    description: "AI 编程助手",
-  },
-  {
-    name: "@anthropic-ai/claude-code",
-    displayName: "Claude Code",
-    status: "installed",
-    required: false,
-    description: "Claude AI 编程助手",
-  },
-];
-
-// 是否使用后端 API
-const USE_BACKEND_API = true;
-
-/**
- * 依赖服务类
- */
-class DependencyService {
-  private useMockData = !USE_BACKEND_API;
-
-  /**
-   * 获取所有依赖
-   */
-  async getDependencies(): Promise<DependencyItem[]> {
-    if (this.useMockData) {
-      return this.getMockDependencies();
-    }
-
-    try {
-      // 调用 Rust 后端
-      const deps = await invoke<any[]>("dependency_list");
-      return deps.map(this.mapDependencyDto);
-    } catch (error) {
-      console.error("获取依赖列表失败，使用模拟数据:", error);
-      this.useMockData = true;
-      return this.getMockDependencies();
-    }
-  }
-
-  /**
-   * 获取依赖统计
-   */
-  async getSummary(): Promise<DependencySummary> {
-    if (this.useMockData) {
-      return this.getMockSummary();
-    }
-
-    try {
-      const summary = await invoke<any>("dependency_summary");
-      return {
-        total: summary.total,
-        installed: summary.installed,
-        missing: summary.missing,
-      };
-    } catch (error) {
-      console.error("获取依赖统计失败，使用模拟数据:", error);
-      return this.getMockSummary();
-    }
-  }
-
-  /**
-   * 安装依赖
-   */
-  async installDependency(name: string): Promise<boolean> {
-    message.loading(`正在安装 ${name}...`, 0);
-
-    try {
-      if (!this.useMockData) {
-        await invoke("dependency_install", { name });
-      } else {
-        // 模拟安装
-        await this.delay(2000);
-      }
-
-      message.success(`${name} 安装成功！`);
-      return true;
-    } catch (error: any) {
-      message.error(error.message || `${name} 安装失败`);
-      return false;
-    }
-  }
-
-  /**
-   * 安装所有缺失依赖
-   */
-  async installAll(): Promise<boolean> {
-    const missing = (await this.getSummary()).missing;
-    if (missing === 0) {
-      message.info("没有需要安装的依赖");
-      return true;
-    }
-
-    message.loading(`正在安装 ${missing} 个依赖...`, 0);
-
-    try {
-      if (!this.useMockData) {
-        await invoke("dependency_install_all");
-      } else {
-        await this.delay(3000);
-      }
-
-      message.success("所有依赖安装完成！");
-      return true;
-    } catch (error: any) {
-      message.error(error.message || "安装失败");
-      return false;
-    }
-  }
-
-  /**
-   * 卸载依赖
-   */
-  async uninstallDependency(name: string): Promise<boolean> {
-    message.loading(`正在卸载 ${name}...`, 0);
-
-    try {
-      if (!this.useMockData) {
-        await invoke("dependency_uninstall", { name });
-      } else {
-        await this.delay(1500);
-      }
-
-      message.success(`${name} 已卸载！`);
-      return true;
-    } catch (error: any) {
-      message.error(error.message || `${name} 卸载失败`);
-      return false;
-    }
-  }
-
-  /**
-   * 检查单个依赖
-   */
-  async checkDependency(name: string): Promise<DependencyItem | null> {
-    if (this.useMockData) {
-      const deps = await this.getMockDependencies();
-      return deps.find((d) => d.name === name) || null;
-    }
-
-    try {
-      const result = await invoke<any>("dependency_check", { name });
-      return result ? this.mapDependencyDto(result) : null;
-    } catch (error) {
-      console.error("检查依赖失败:", error);
-      return null;
-    }
-  }
-
-  /**
-   * 刷新依赖状态
-   */
-  async refresh(): Promise<DependencyItem[]> {
-    message.loading("正在刷新依赖状态...", 0);
-    await this.delay(500);
-    message.success("依赖状态已刷新");
-    return this.getDependencies();
-  }
-
-  // ========== Mock 数据方法 ==========
-
-  private async getMockDependencies(): Promise<DependencyItem[]> {
-    await this.delay(300);
-    return [...mockDependencies];
-  }
-
-  private async getMockSummary(): Promise<DependencySummary> {
-    const deps = await this.getMockDependencies();
-    return {
-      total: deps.length,
-      installed: deps.filter((d) => d.status === "installed").length,
-      missing: deps.filter((d) => d.status === "missing").length,
-    };
-  }
-
-  private mapDependencyDto(dto: any): DependencyItem {
-    const statusMap: Record<string, DependencyStatus> = {
-      Ok: "installed",
-      Missing: "missing",
-      Outdated: "outdated",
-      Checking: "checking",
-      Installing: "installing",
-    };
-
-    return {
-      name: dto.name,
-      displayName: dto.display_name || dto.name,
-      version: dto.version,
-      status: statusMap[dto.status] || "installed",
-      required: dto.required,
-      description: dto.description,
-    };
-  }
-
-  private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-}
-
-// 单例导出
-export const dependencyService = new DependencyService();
-
-// 便捷函数
-export const getDependencies = () => dependencyService.getDependencies();
-export const getDependencySummary = () => dependencyService.getSummary();
-export const installDependency = (name: string) =>
-  dependencyService.installDependency(name);
-export const refreshDependencies = () => dependencyService.refresh();
-export const installAllDependencies = () => dependencyService.installAll();
-export const uninstallDependency = (name: string) =>
-  dependencyService.uninstallDependency(name);
-
 // ========== 初始化向导依赖管理 ==========
-
-/**
- * npm 镜像源（国内加速）
- */
-export const NPM_REGISTRY = "https://registry.npmmirror.com/";
 
 /**
  * 依赖类型
@@ -384,7 +57,7 @@ export interface LocalDependencyItem extends LocalDependencyConfig {
 /**
  * 初始化向导必需依赖配置
  */
-export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
+const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
   {
     name: "nodejs",
     displayName: "Node.js",
@@ -459,6 +132,15 @@ export interface UvVersionResult {
 }
 
 /**
+ * Node.js 自动安装结果
+ */
+export interface NodeInstallResult {
+  success: boolean;
+  version?: string;
+  error?: string;
+}
+
+/**
  * npm 包检测结果
  */
 export interface NpmPackageResult {
@@ -502,15 +184,6 @@ export async function getAppDataDir(): Promise<string> {
 }
 
 /**
- * 获取 node_modules 目录路径
- * @returns $APP_DATA_DIR/node_modules
- */
-export async function getNodeModulesDir(): Promise<string> {
-  const appDir = await getAppDataDir();
-  return `${appDir}/node_modules`;
-}
-
-/**
  * 初始化本地 npm 环境
  * 在应用数据目录下创建 package.json
  */
@@ -537,6 +210,31 @@ export async function checkNodeVersion(): Promise<NodeVersionResult> {
     return {
       installed: false,
       meetsRequirement: false,
+    };
+  }
+}
+
+/**
+ * 自动安装 Node.js（从打包资源复制到应用数据目录）
+ * @returns 安装结果
+ */
+export async function autoInstallNode(): Promise<NodeInstallResult> {
+  try {
+    console.log("[Dependencies] 开始自动安装 Node.js...");
+    const result = await invoke<NodeInstallResult>("node_install_auto");
+
+    if (result.success) {
+      console.log("[Dependencies] Node.js 自动安装成功:", result.version);
+    } else {
+      console.error("[Dependencies] Node.js 自动安装失败:", result.error);
+    }
+
+    return result;
+  } catch (error) {
+    console.error("[Dependencies] 自动安装 Node.js 异常:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
     };
   }
 }
@@ -609,16 +307,6 @@ export async function installLocalNpmPackage(
       error: error instanceof Error ? error.message : String(error),
     };
   }
-}
-
-/**
- * 获取本地安装的包的可执行文件路径
- * @param binName - 可执行文件名
- * @returns 完整路径
- */
-export async function getLocalBinPath(binName: string): Promise<string> {
-  const appDir = await getAppDataDir();
-  return `${appDir}/node_modules/.bin/${binName}`;
 }
 
 /**
@@ -819,123 +507,10 @@ export async function checkAllSetupDependencies(): Promise<
 }
 
 /**
- * 安装所有必需的包（npm-local、npm-global 和 shell-installer）
- * @param onProgress - 进度回调
- * @returns 安装结果
- */
-export async function installAllRequiredPackages(
-  onProgress?: (current: string, index: number, total: number) => void,
-): Promise<{ success: boolean; failedPackage?: string; error?: string }> {
-  // 获取所有需要安装的依赖（npm-local、npm-global 和 shell-installer）
-  const installablePackages = SETUP_REQUIRED_DEPENDENCIES.filter(
-    (d) =>
-      d.type === "npm-local" ||
-      d.type === "npm-global" ||
-      d.type === "shell-installer",
-  );
-  const total = installablePackages.length;
-
-  // 初始化 npm 环境（仅用于 npm-local 包）
-  const hasNpmLocalPackages = installablePackages.some(
-    (d) => d.type === "npm-local",
-  );
-  if (hasNpmLocalPackages) {
-    try {
-      await initLocalNpmEnv();
-    } catch (error) {
-      return {
-        success: false,
-        error:
-          "初始化 npm 环境失败: " +
-          (error instanceof Error ? error.message : String(error)),
-      };
-    }
-  }
-
-  // 依次安装
-  for (let i = 0; i < installablePackages.length; i++) {
-    const pkg = installablePackages[i];
-
-    // 进度回调
-    if (onProgress) {
-      onProgress(pkg.displayName, i + 1, total);
-    }
-
-    if (pkg.type === "npm-local") {
-      // 检查是否已安装
-      const checkResult = await checkLocalNpmPackage(pkg.name);
-      if (checkResult.installed) {
-        console.log(`[Dependencies] ${pkg.name} 已安装，跳过`);
-        continue;
-      }
-
-      // 安装 npm 包
-      const installResult = await installLocalNpmPackage(pkg.name);
-      if (!installResult.success) {
-        return {
-          success: false,
-          failedPackage: pkg.name,
-          error: installResult.error,
-        };
-      }
-    } else if (pkg.type === "npm-global") {
-      // 检查是否已安装
-      const binName = pkg.binName || pkg.name;
-      const checkResult = await checkGlobalNpmPackage(binName);
-      if (checkResult.installed) {
-        console.log(`[Dependencies] ${pkg.name} (npm global) 已安装，跳过`);
-        continue;
-      }
-
-      // 全局安装 npm 包
-      const installResult = await installGlobalNpmPackage(pkg.name, binName);
-      if (!installResult.success) {
-        return {
-          success: false,
-          failedPackage: pkg.name,
-          error: installResult.error,
-        };
-      }
-    } else if (pkg.type === "shell-installer") {
-      // 检查是否已安装
-      const binName = pkg.binName || pkg.name;
-      const checkResult = await checkShellInstallerPackage(binName);
-      if (checkResult.installed) {
-        console.log(`[Dependencies] ${pkg.name} (shell) 已安装，跳过`);
-        continue;
-      }
-
-      // 安装 shell-installer 包
-      if (!pkg.installerUrl) {
-        return {
-          success: false,
-          failedPackage: pkg.name,
-          error: `缺少 installerUrl 配置`,
-        };
-      }
-
-      const installResult = await installShellInstallerPackage(
-        pkg.installerUrl,
-        binName,
-      );
-      if (!installResult.success) {
-        return {
-          success: false,
-          failedPackage: pkg.name,
-          error: installResult.error,
-        };
-      }
-    }
-  }
-
-  return { success: true };
-}
-
-/**
  * 检查所有必需依赖是否已安装
  * @returns 未安装的依赖列表
  */
-export async function checkRequiredDependencies(): Promise<{
+async function checkRequiredDependencies(): Promise<{
   allInstalled: boolean;
   missingDeps: LocalDependencyItem[];
 }> {
@@ -1007,17 +582,6 @@ export const SERVICE_DISPLAY_NAMES: Record<ServiceType, string> = {
 };
 
 /**
- * 服务图标颜色映射
- */
-export const SERVICE_STATE_COLORS: Record<ServiceState, string> = {
-  Running: "#52c41a",
-  Stopped: "#ff4d4f",
-  Starting: "#1890ff",
-  Stopping: "#faad14",
-  Error: "#ff4d4f",
-};
-
-/**
  * 获取所有服务状态
  */
 export async function getServicesStatus(): Promise<ServiceInfo[]> {
@@ -1062,38 +626,6 @@ export async function stopAllServices(): Promise<void> {
     console.error("[Services] 停止服务失败:", error);
     throw error;
   }
-}
-
-/**
- * 获取依赖安装统计
- */
-export async function getSetupDependencySummary(): Promise<{
-  total: number;
-  installed: number;
-  missing: number;
-  nodeReady: boolean;
-  uvReady: boolean;
-  systemDepsReady: boolean;
-}> {
-  const deps = await checkAllSetupDependencies();
-  const nodeDep = deps.find((d) => d.name === "nodejs");
-  const uvDep = deps.find((d) => d.name === "uv");
-
-  const nodeReady =
-    nodeDep?.status === "installed" && nodeDep?.meetsRequirement === true;
-  const uvReady =
-    uvDep?.status === "installed" && uvDep?.meetsRequirement === true;
-
-  return {
-    total: deps.length,
-    installed: deps.filter((d) => d.status === "installed").length,
-    missing: deps.filter(
-      (d) => d.status === "missing" || d.status === "outdated",
-    ).length,
-    nodeReady,
-    uvReady,
-    systemDepsReady: nodeReady && uvReady,
-  };
 }
 
 /**
