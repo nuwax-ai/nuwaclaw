@@ -1,5 +1,6 @@
-# Tauri 桌面客户端跨平台打包发布
-# 使用 tauri-apps/tauri-action 自动构建并创建 GitHub Draft Release
+# Tauri 桌面客户端 — 正式版本发布
+# 推送 v* tag 触发，自动构建全平台安装包并创建 GitHub Release
+# 日常开发测试请使用 ci-tauri.yml（推送 dev 分支或手动触发）
 #
 # 支持平台：
 #   - macOS Universal (Intel + Apple Silicon 通用安装包)
@@ -9,8 +10,7 @@
 #   - Linux x86_64
 #
 # 触发方式：
-#   - 推送 v* tag → 构建 + 创建 Draft Release
-#   - 手动触发 (workflow_dispatch) → 仅构建，不创建 Release
+#   - 推送 v* tag → 构建 + 创建 Release + 签名 + 生成 latest.json
 #
 # 注意事项：
 #   - nuwax-agent-core 依赖了 nuwax-ai 组织的 git 仓库（rcoder）
@@ -23,7 +23,6 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -192,14 +191,13 @@ jobs:
         shell: bash
         run: ./scripts/download-node.sh win x64
 
-      # ---- 构建 & 发布（tag 触发时创建 Draft Release） ----
+      # ---- 构建 & 发布 ----
       # tauri-action 会自动执行 tauri.conf.json 中的 beforeBuildCommand (pnpm build)
       # 然后运行 cargo tauri build，最后将产物上传到 GitHub Release
       # 设置 TAURI_SIGNING_PRIVATE_KEY 后，tauri-action 会自动:
       #   1. 为每个平台的安装包生成 .sig 签名文件
       #   2. 生成跨平台的 latest.json 更新清单文件
       - name: Build and release Tauri app
-        if: github.ref_type == 'tag'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -222,16 +220,4 @@ jobs:
           releaseDraft: false
           prerelease: false
           updaterJsonPreferNsis: true
-          args: ${{ matrix.args }}
-
-      # ---- 仅构建（手动 workflow_dispatch 触发，不创建 Release） ----
-      - name: Build Tauri app (no release)
-        if: github.ref_type != 'tag'
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          projectPath: crates/agent-tauri-client
           args: ${{ matrix.args }}
