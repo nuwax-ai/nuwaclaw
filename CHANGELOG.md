@@ -7,9 +7,16 @@
 
 ---
 
-## [待发布]
+## [待发布] - 2026-02-09
+
+> 日志生成时间: 2026-02-09 12:00:00 UTC+8
 
 ### 新增功能 [feat]
+
+#### rcoder 子模块 [rcoder] ([5f205cd])
+- HTTP Server 模式：添加跳过槽位限制功能
+- gRPC 模式：添加 HTTP 健康检查端点
+- 特性门控：proxy feature gate 支持
 
 #### 登录认证 [auth]
 - 用户名/密码登录功能
@@ -85,6 +92,11 @@
 
 ### 变更 [change]
 
+#### rcoder 子模块 [rcoder]
+- 代理架构：重构 claude_code_sacp.rs（大量代码优化）
+- 主程序：扩展 main.rs（新增150行）
+- 特性配置：更新多个 Cargo.toml 依赖配置
+
 #### 存储服务 [storage]
 - 使用 Tauri Store 插件替代 localStorage
 - 新增统一存储服务 `store.ts`
@@ -121,6 +133,11 @@
 - 添加日志功能
 
 ### 修复 [fix]
+
+#### rcoder 子模块 [rcoder]
+- 跨平台支持：修复 Windows 编译条件编译问题
+- 日志优化：无限制模式下心跳日志显示具体数量
+- 无限制模式：在 start_http_server 中正确启用
 
 #### 用户界面 [ui]
 - 修复 App.tsx 中缺失的 useEffect 声明
@@ -162,6 +179,9 @@
 - 紧密结合现有实现的新方案
 
 ### 维护 [chore]
+
+#### rcoder 子模块 [rcoder]
+- 构建系统：更新 Makefile
 
 - 更新 Cargo.lock
 - 暂时排除 data-server 模块避免 hbb_common 冲突
