@@ -39,3 +39,7 @@ log = "0.4"
 reqwest = { workspace = true }
 # rustls for crypto provider initialization
 rustls = { version = "0.23", features = ["ring"] }
+
+# Pingora 代理：仅非 Windows 平台启用（pingora 不支持 Windows）
+[target."cfg(not(target_os = \"windows\"))".dependencies]
+nuwax-agent-core = { path = "../../nuwax-agent-core", features = ["proxy"] }
