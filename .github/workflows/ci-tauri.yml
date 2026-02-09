@@ -13,7 +13,7 @@
 #   - macOS 默认只构建 aarch64（节省 CI 时间）
 #   - 产物以 Artifacts 形式保留 7 天
 
-name: CI Tauri Build
+name: Tauri Desktop Client (Testing Build)
 
 on:
   push:
