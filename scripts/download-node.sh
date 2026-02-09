@@ -118,10 +118,20 @@ rm -rf "${TARGET_DIR}"
 mkdir -p "${TARGET_DIR}"
 
 if [ "${PLATFORM}" = "win" ]; then
-  # Windows: 文件都在根目录，没有 bin/ 子目录
-  cp -r "${INNER_DIR}/." "${TARGET_DIR}/"
-  # 清理不需要的文件
-  rm -rf "${TARGET_DIR}/include" "${TARGET_DIR}/share" "${TARGET_DIR}/CHANGELOG.md" "${TARGET_DIR}/README.md" "${TARGET_DIR}/LICENSE"
+  # Windows: Node.js 发行包没有 bin/ 子目录，需要手动创建以匹配 tauri.conf.json 的 resources 路径
+  mkdir -p "${TARGET_DIR}/bin"
+  # 复制可执行文件到 bin/ 目录
+  cp "${INNER_DIR}/node.exe" "${TARGET_DIR}/bin/"
+  for exe in npm npm.cmd npx npx.cmd corepack corepack.cmd; do
+    if [ -f "${INNER_DIR}/${exe}" ]; then
+      cp "${INNER_DIR}/${exe}" "${TARGET_DIR}/bin/"
+    fi
+  done
+  # 复制 node_modules（npm 等工具需要）
+  if [ -d "${INNER_DIR}/node_modules" ]; then
+    mkdir -p "${TARGET_DIR}/lib"
+    cp -r "${INNER_DIR}/node_modules" "${TARGET_DIR}/lib/node_modules"
+  fi
 else
   # Unix: 只保留 bin/ 和 lib/
   cp -r "${INNER_DIR}/bin" "${TARGET_DIR}/bin"
