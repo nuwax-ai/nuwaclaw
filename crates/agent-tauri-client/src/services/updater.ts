@@ -51,19 +51,21 @@ async function performUpdate(update: Update): Promise<void> {
 
   try {
     let downloaded = 0;
+    let contentLength: number | undefined;
 
     await update.downloadAndInstall((event) => {
       switch (event.event) {
         case "Started":
+          contentLength = event.data.contentLength ?? undefined;
           console.log(
-            `[Updater] 开始下载, 大小: ${event.data.contentLength} bytes`,
+            `[Updater] 开始下载, 大小: ${contentLength} bytes`,
           );
           break;
         case "Progress":
           downloaded += event.data.chunkLength;
-          if (event.data.contentLength) {
+          if (contentLength) {
             const percent = Math.round(
-              (downloaded / event.data.contentLength) * 100,
+              (downloaded / contentLength) * 100,
             );
             progressModal.update({
               content: `正在下载更新包... ${percent}%`,
