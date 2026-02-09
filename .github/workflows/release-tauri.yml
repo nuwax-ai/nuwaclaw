@@ -136,6 +136,24 @@ jobs:
         working-directory: crates/agent-tauri-client
         run: pnpm install
 
+      # ---- 下载 Node.js 运行时到 Tauri 资源目录（bundle resources 需要） ----
+      - name: Download Node.js runtime (macOS aarch64)
+        if: runner.os == 'macOS' && contains(matrix.args, 'aarch64')
+        run: ./scripts/download-node.sh darwin arm64
+
+      - name: Download Node.js runtime (macOS x86_64)
+        if: runner.os == 'macOS' && contains(matrix.args, 'x86_64')
+        run: ./scripts/download-node.sh darwin x64
+
+      - name: Download Node.js runtime (Linux)
+        if: runner.os == 'Linux'
+        run: ./scripts/download-node.sh linux x64
+
+      - name: Download Node.js runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: ./scripts/download-node.sh win x64
+
       # ---- 构建 & 发布（tag 触发时创建 Draft Release） ----
       # tauri-action 会自动执行 tauri.conf.json 中的 beforeBuildCommand (pnpm build)
       # 然后运行 cargo tauri build，最后将产物上传到 GitHub Release
