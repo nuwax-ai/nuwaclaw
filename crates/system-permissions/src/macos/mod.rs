@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use objc2::{class, msg_send, runtime::AnyClass};
 use objc2_foundation::NSString;
+use std::ffi::CStr;
 
 use crate::{
     LocationMode, PermissionError, PermissionManager, PermissionState, PermissionStatus,
@@ -490,7 +491,7 @@ impl AVMediaType {
 struct AVCaptureDevice;
 impl AVCaptureDevice {
     unsafe fn authorization_status_for_media_type(media_type: &'static str) -> isize {
-        if AnyClass::get("AVCaptureDevice").is_none() {
+        if AnyClass::get(CStr::from_bytes_with_nul_unchecked(b"AVCaptureDevice\0")).is_none() {
             return 0;
         }
         let cls = class!(AVCaptureDevice);
@@ -500,7 +501,7 @@ impl AVCaptureDevice {
     }
 
     unsafe fn request_access_for_media_type(media_type: &'static str) {
-        if AnyClass::get("AVCaptureDevice").is_none() {
+        if AnyClass::get(CStr::from_bytes_with_nul_unchecked(b"AVCaptureDevice\0")).is_none() {
             return;
         }
         let cls = class!(AVCaptureDevice);
@@ -520,7 +521,7 @@ impl AVCaptureDevice {
 struct SFSpeechRecognizer;
 impl SFSpeechRecognizer {
     unsafe fn authorization_status() -> isize {
-        if AnyClass::get("SFSpeechRecognizer").is_none() {
+        if AnyClass::get(CStr::from_bytes_with_nul_unchecked(b"SFSpeechRecognizer\0")).is_none() {
             return 0;
         }
         let cls = class!(SFSpeechRecognizer);
@@ -529,7 +530,7 @@ impl SFSpeechRecognizer {
     }
 
     unsafe fn request_authorization() {
-        if AnyClass::get("SFSpeechRecognizer").is_none() {
+        if AnyClass::get(CStr::from_bytes_with_nul_unchecked(b"SFSpeechRecognizer\0")).is_none() {
             return;
         }
         let cls = class!(SFSpeechRecognizer);

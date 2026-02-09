@@ -10,10 +10,10 @@ use std::process::Command;
 use windows::Win32::{
     Foundation::HANDLE,
     Security::{
-        GetTokenInformation, OpenProcessToken,
+        GetTokenInformation,
         TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
     },
-    System::Threading::GetCurrentProcess,
+    System::Threading::{GetCurrentProcess, OpenProcessToken},
 };
 
 use crate::{

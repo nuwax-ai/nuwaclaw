@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use tokio::sync::broadcast;
 
 use crate::{
-    PermissionError, PermissionState, PermissionStatus, RequestOptions, RequestResult,
+    PermissionError, PermissionState, RequestOptions, RequestResult,
     SystemPermission,
 };
 
