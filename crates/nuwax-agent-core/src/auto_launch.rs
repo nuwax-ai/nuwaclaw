@@ -82,42 +82,15 @@ impl AutoLaunchManager {
 
         #[cfg(target_os = "windows")]
         {
-            use windows_sys::Win32::System::Registry::{
-                RegSetValueExW, RegCreateKeyExW, RegCloseKey, HKEY_CURRENT_USER,
-                KEY_WRITE, REG_SZ,
-            };
+            use winreg::enums::HKEY_CURRENT_USER;
+            use winreg::RegKey;
 
-            let key_path = r"Software\Microsoft\Windows\CurrentVersion\Run";
-            let value_name = format!("NuWaxAgent");
-            let value_data: Vec<u16> = format!("\"{}\"", self.app_path)
-                .encode_utf16()
-                .chain(std::iter::once(0))
-                .collect();
-
-            unsafe {
-                let mut hkey: windows_sys::Win32::System::Registry::HKEY = 0;
-                if RegCreateKeyExW(
-                    HKEY_CURRENT_USER,
-                    key_path.as_ptr() as *const u16,
-                    0,
-                    None,
-                    0,
-                    KEY_WRITE,
-                    None,
-                    &mut hkey,
-                    None,
-                ) == 0 {
-                    RegSetValueExW(
-                        hkey,
-                        value_name.encode_utf16().collect::<Vec<u16>>().as_ptr(),
-                        0,
-                        REG_SZ,
-                        value_data.as_ptr() as *const u8,
-                        (value_data.len() * 2) as u32,
-                    );
-                    RegCloseKey(hkey);
-                }
-            }
+            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+            let (key, _) = hkcu
+                .create_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run")
+                .map_err(|e| AutoLaunchError::EnableFailed(e.to_string()))?;
+            key.set_value("NuWaxAgent", &format!("\"{}\"", self.app_path))
+                .map_err(|e| AutoLaunchError::EnableFailed(e.to_string()))?;
         }
 
         #[cfg(target_os = "linux")]
@@ -166,19 +139,15 @@ X-GNOME-Autostart-enabled=true
 
         #[cfg(target_os = "windows")]
         {
-            use windows_sys::Win32::System::Registry::{
-                RegDeleteValueW, RegOpenKeyExW, HKEY_CURRENT_USER, KEY_WRITE,
-            };
+            use winreg::enums::{HKEY_CURRENT_USER, KEY_WRITE};
+            use winreg::RegKey;
 
-            let key_path = r"Software\Microsoft\Windows\CurrentVersion\Run";
-            let value_name: Vec<u16> = "NuWaxAgent".encode_utf16().chain(std::iter::once(0)).collect();
-
-            unsafe {
-                let mut hkey: windows_sys::Win32::System::Registry::HKEY = 0;
-                if RegOpenKeyExW(HKEY_CURRENT_USER, key_path.as_ptr() as *const u16, 0, KEY_WRITE, &mut hkey) == 0 {
-                    RegDeleteValueW(hkey, value_name.as_ptr());
-                    RegCloseKey(hkey);
-                }
+            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+            if let Ok(key) = hkcu.open_subkey_with_flags(
+                r"Software\Microsoft\Windows\CurrentVersion\Run",
+                KEY_WRITE,
+            ) {
+                let _ = key.delete_value("NuWaxAgent");
             }
         }
 
@@ -208,33 +177,14 @@ X-GNOME-Autostart-enabled=true
 
         #[cfg(target_os = "windows")]
         {
-            use windows_sys::Win32::System::Registry::{
-                RegGetValueW, RegOpenKeyExW, HKEY_CURRENT_USER, KEY_READ, REG_SZ,
-            };
+            use winreg::enums::HKEY_CURRENT_USER;
+            use winreg::RegKey;
 
-            let key_path = r"Software\Microsoft\Windows\CurrentVersion\Run";
-            let value_name: Vec<u16> = "NuWaxAgent".encode_utf16().chain(std::iter::once(0)).collect();
-
-            let mut value_data = [0u16; 1024];
-            let mut data_size = 1024u32;
-
-            unsafe {
-                let mut hkey: windows_sys::Win32::System::Registry::HKEY = 0;
-                if RegOpenKeyExW(HKEY_CURRENT_USER, key_path.as_ptr() as *const u16, 0, KEY_READ, &mut hkey) == 0 {
-                    let result = RegGetValueW(
-                        hkey,
-                        None,
-                        value_name.as_ptr(),
-                        REG_SZ,
-                        None,
-                        value_data.as_ptr() as *mut u8,
-                        &mut data_size,
-                    );
-                    RegCloseKey(hkey);
-                    Ok(result == 0)
-                } else {
-                    Ok(false)
-                }
+            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+            if let Ok(key) = hkcu.open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run") {
+                Ok(key.get_value::<String, _>("NuWaxAgent").is_ok())
+            } else {
+                Ok(false)
             }
         }
 

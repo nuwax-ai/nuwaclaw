@@ -81,7 +81,7 @@ rand = { workspace = true }
 sha2 = "0.10"
 
 # 派生宏
-derive_more = { version = "1.0", features = ["display"] }
+derive_more = { version = "2.1", features = ["display"] }
 
 # 通信库 - nuwax-rustdesk (package name: rustdesk, lib name: librustdesk)
 # 可选依赖：通过 p2p-connection / remote-desktop / file-transfer feature 启用
@@ -99,10 +99,10 @@ tar = { version = "0.4", optional = true }
 
 # 系统信息
 os_info = "3.9"
-gethostname = "0.5"
+gethostname = "1.1"
 
 # 可执行文件检测（跨平台）
-which = "6.0"
+which = "8.0"
 
 # 开机自启动 (可选)
 auto-launch = { version = "0.6.0", optional = true }
@@ -121,9 +121,13 @@ rustls = { version = "0.23", features = ["ring"], optional = true }
 axum = { version = "0.8", optional = true, features = ["json", "macros"] }
 tower-http = { version = "0.6", optional = true }
 
+# Windows 注册表操作（用于开机自启动等）
+[target."cfg(target_os = \"windows\")".dependencies]
+winreg = "0.55"
+
 [dev-dependencies]
 tempfile = "3.10"
-rstest = "0.23"
+rstest = "0.26"
 rustls = { version = "0.23", features = ["ring"] }
 
 [build-dependencies]

@@ -740,7 +740,7 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(process_wrap::tokio::JobObject::new())
+            .wrap(process_wrap::tokio::JobObject)
             .spawn()
             .map_err(|e| {
                 error!("[FileServer] 启动失败: {}", e);
@@ -819,7 +819,7 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(process_wrap::tokio::JobObject::new())
+            .wrap(process_wrap::tokio::JobObject)
             .spawn()
             .map_err(|e| format!("Failed to start nuwax-lanproxy: {}", e))?;
 
@@ -937,7 +937,7 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(process_wrap::tokio::JobObject::new())
+            .wrap(process_wrap::tokio::JobObject)
             .spawn()
             .map_err(|e| {
                 error!("[Lanproxy] 启动失败: {}", e);
