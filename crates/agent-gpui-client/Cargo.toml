@@ -41,7 +41,7 @@ dev-mode = []
 
 [dependencies]
 # Workspace 依赖
-nuwax-agent-core = { path = "../nuwax-agent-core" }
+nuwax-agent-core = { path = "../nuwax-agent-core", features = ["p2p-connection"] }
 agent-protocol = { path = "../agent-protocol" }
 tokio = { workspace = true }
 async-trait = { workspace = true }

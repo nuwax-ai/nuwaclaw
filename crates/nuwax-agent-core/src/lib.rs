@@ -29,6 +29,7 @@ pub mod config;
 pub mod crypto;
 pub mod password;
 pub mod agent;
+#[cfg(feature = "p2p-connection")]
 pub mod connection;
 pub mod business_channel;
 pub mod protocol;
@@ -43,6 +44,7 @@ pub use config::{AppConfig, ConfigManager, ConfigError};
 pub use crypto::{CryptoManager, CryptoError};
 pub use password::{PasswordManager, PasswordError, PasswordStrength};
 pub use agent::{AgentManager, AgentTask, TaskStatus, TaskProgress, TaskResult, AgentEvent, AgentError};
+#[cfg(feature = "p2p-connection")]
 pub use connection::{ConnectionManager, ConnectionState, ConnectionMode};
 pub use business_channel::{BusinessChannel, BusinessMessage, BusinessEnvelope, BusinessMessageType};
 pub use protocol::{ProtocolManager, ClientInfo, HandshakeRequest, HandshakeResponse};

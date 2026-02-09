@@ -19,6 +19,8 @@ crate-type = ["rlib", "cdylib"]
 # Feature 控制表
 [features]
 default = ["auto-launch", "dependency-management", "async-trait", "rcoder"]
+# P2P 连接（依赖 nuwax-rustdesk，需要 vcpkg）
+p2p-connection = ["dep:librustdesk"]
 # 开机自启动
 auto-launch = ["dep:auto-launch"]
 # rustls 加密提供者（用于测试）
@@ -26,9 +28,9 @@ rustls = ["dep:rustls"]
 # 依赖管理功能
 dependency-management = ["dep:reqwest", "dep:flate2", "dep:tar"]
 # 远程桌面功能
-remote-desktop = ["dep:enigo"]
+remote-desktop = ["dep:enigo", "dep:librustdesk"]
 # 文件传输
-file-transfer = ["dep:enigo"]
+file-transfer = ["dep:enigo", "dep:librustdesk"]
 # 开发者模式日志
 dev-mode = []
 # rcoder agent_runner 集成 (本地模式)
@@ -83,7 +85,8 @@ sha2 = "0.10"
 derive_more = { version = "1.0", features = ["display"] }
 
 # 通信库 - nuwax-rustdesk (package name: rustdesk, lib name: librustdesk)
-librustdesk = { workspace = true, features = ["agent-client"] }
+# 可选依赖：通过 p2p-connection / remote-desktop / file-transfer feature 启用
+librustdesk = { workspace = true, features = ["agent-client"], optional = true }
 
 # 远程桌面
 enigo = { version = "0.6.1", optional = true }
