@@ -215,14 +215,18 @@ jobs:
         shell: bash
         run: ./scripts/download-node.sh win x64
 
-      # ---- 构建（不创建 Release，不签名） ----
+      # ---- 构建（不创建 Release，不生成 latest.json / updater 签名文件） ----
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: crates/agent-tauri-client
-          args: ${{ matrix.args }}
+          # 使用额外的 CI 配置关闭 bundle.createUpdaterArtifacts，
+          # 这样即使启用了 updater 插件也不会生成更新签名文件。
+          # 同时通过 includeUpdaterJson=false 禁用 latest.json 生成。
+          args: ${{ matrix.args }} --config src-tauri/tauri.ci.conf.json
+          includeUpdaterJson: false
 
       # ---- 上传构建产物为 Artifacts ----
       - name: Upload build artifacts (macOS)
