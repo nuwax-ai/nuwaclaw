@@ -41,7 +41,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUzNjg5RkExREZGQUVCNDIKUldSQzYvcmZvWjlvNDNIZkJNcmV1SHFtcForNVMvcTQycU1BRmlEUEd1ckFJanZLamZaU0x1K0IK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIyMTczQzJDQzE1MkYwMzgKUldRNDhGTEJMRHdYSWdiTXlROWtiVTBhcGhCQUlhczRqMTZCMTN0YUhtNTg0eFBFbW5qUnZmSVMK",
       "endpoints": [
         "https://github.com/nuwax-ai/nuwax-agent-client/releases/latest/download/latest.json"
       ]
