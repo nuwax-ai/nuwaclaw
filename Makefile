@@ -86,6 +86,7 @@ help:
 	@echo "  setup-repo     - 初始化 Git 子模块（含嵌套的 hbb_common）"
 	@echo "  setup-vcpkg    - 安装 vcpkg 和依赖"
 	@echo "  update-deps    - 更新 Cargo 依赖"
+	@echo "  update         - 拉取代码 + 更新 Cargo 依赖 + 更新子模块 (git pull, cargo update, submodule)"
 	@echo ""
 	@echo "=== 清理 ==="
 	@echo "  clean          - 清理构建产物"
@@ -384,6 +385,17 @@ setup-vcpkg:
 update-deps:
 	@echo ">>> 更新 Cargo 依赖..."
 	$(CARGO) update
+
+# 一键更新：拉取主仓库、更新 Cargo 依赖、更新子模块到远程最新并合并
+.PHONY: update
+update:
+	@echo ">>> 1/3 git pull..."
+	git pull
+	@echo ">>> 2/3 cargo update..."
+	$(CARGO) update
+	@echo ">>> 3/3 git submodule update --remote --merge..."
+	git submodule update --remote --merge
+	@echo ">>> update 完成"
 
 .PHONY: vendor
 vendor:
