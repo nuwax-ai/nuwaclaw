@@ -131,6 +131,19 @@ jobs:
           workspaces: '. -> target'
           cache-on-failure: true
 
+      # ---- 从 git tag 同步版本号到 package.json ----
+      # tauri.conf.json 的 version 已指向 "../package.json"，Tauri 会自动读取
+      # 因此只需更新 package.json 这一个文件即可
+      - name: Sync version from git tag
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Syncing version: $VERSION"
+          cd crates/agent-tauri-client
+          jq --arg v "$VERSION" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+          echo "package.json version: $(jq -r .version package.json)"
+
       # ---- 前端依赖 ----
       - name: Install frontend dependencies
         working-directory: crates/agent-tauri-client

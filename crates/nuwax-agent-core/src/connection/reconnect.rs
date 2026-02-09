@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tracing::{info, warn};
-use rand::Rng;
+use rand::RngExt;
 
 /// 重连配置
 #[derive(Debug, Clone)]
@@ -93,10 +93,10 @@ impl ReconnectManager {
 
         // 添加随机抖动
         let jitter = if self.config.jitter_factor > 0.0 {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             let jitter_range = (base_interval as f64 * self.config.jitter_factor) as u64;
             if jitter_range > 0 {
-                rng.gen_range(0..jitter_range)
+                rng.random_range(0..jitter_range)
             } else {
                 0
             }

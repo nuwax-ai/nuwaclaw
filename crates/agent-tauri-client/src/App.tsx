@@ -47,6 +47,7 @@ import {
 } from "./services/auth";
 import { isSetupCompleted } from "./services/setup";
 import { restartAllServices } from "./services/dependencies";
+import { checkForAppUpdate } from "./services/updater";
 
 // Tab 类型定义
 type TabType =
@@ -213,6 +214,16 @@ function App() {
     };
 
     autoReconnect();
+  }, [setupCompleted, storeInitialized]);
+
+  // ============================================
+  // 应用更新检查（启动后自动执行一次）
+  // ============================================
+  useEffect(() => {
+    if (setupCompleted !== true || !storeInitialized) {
+      return;
+    }
+    checkForAppUpdate();
   }, [setupCompleted, storeInitialized]);
 
   // ============================================

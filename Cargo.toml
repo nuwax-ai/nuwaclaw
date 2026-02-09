@@ -35,7 +35,7 @@ async-trait = "0.1"
 # 序列化
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-toml = "0.9"
+toml = "0.9.8"
 
 # 错误处理
 thiserror = "2.0"
@@ -69,7 +69,7 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 # 加密
 argon2 = "0.5"
 aes-gcm = "0.10"
-rand = "0.9"
+rand = "0.10"
 
 # 强制锁定 core-text 版本，避免 core-graphics 版本冲突
 # core-text 21.0.0 依赖 core-graphics ^0.24
