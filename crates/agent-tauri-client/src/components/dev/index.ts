@@ -58,3 +58,11 @@ export const DevSceneManager = IS_DEV
 export const DevConfigEditor = IS_DEV
   ? React.lazy(() => import('./DevConfigEditor'))
   : null;
+
+/**
+ * Store 数据查看器组件（动态导入）
+ * 通常不需要单独使用，DevToolsPanel 已包含
+ */
+export const DevStoreViewer = IS_DEV
+  ? React.lazy(() => import('./DevStoreViewer'))
+  : null;

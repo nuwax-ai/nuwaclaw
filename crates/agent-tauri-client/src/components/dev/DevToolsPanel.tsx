@@ -21,6 +21,7 @@ import {
 } from '@ant-design/icons';
 import DevResetTools from './DevResetTools';
 import DevSceneManager from './DevSceneManager';
+import DevStoreViewer from './DevStoreViewer';
 
 const { Title } = Typography;
 
@@ -55,6 +56,9 @@ export default function DevToolsPanel() {
 
         {/* 场景配置管理 */}
         <DevSceneManager />
+
+        {/* Store 数据查看器 */}
+        <DevStoreViewer />
       </Space>
 
       {/* 样式 */}
