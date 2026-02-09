@@ -22,8 +22,7 @@ pub enum LogError {
 }
 
 /// 日志级别
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LogLevel {
     Trace,
     Debug,
@@ -44,7 +43,6 @@ impl LogLevel {
         }
     }
 }
-
 
 /// 日志配置
 pub struct LogConfig {
@@ -103,10 +101,8 @@ impl Logger {
 
         if config.file_output && config.console_output {
             // 文件 + 控制台
-            let file_appender = tracing_appender::rolling::daily(
-                &log_dir,
-                format!("{}.log", config.app_name),
-            );
+            let file_appender =
+                tracing_appender::rolling::daily(&log_dir, format!("{}.log", config.app_name));
             let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
             registry
@@ -117,39 +113,25 @@ impl Logger {
                         .with_file(true)
                         .with_line_number(true),
                 )
-                .with(
-                    fmt::layer()
-                        .with_writer(non_blocking)
-                        .with_ansi(false),
-                )
+                .with(fmt::layer().with_writer(non_blocking).with_ansi(false))
                 .init();
 
             std::mem::forget(_guard);
         } else if config.file_output {
             // 仅文件
-            let file_appender = tracing_appender::rolling::daily(
-                &log_dir,
-                format!("{}.log", config.app_name),
-            );
+            let file_appender =
+                tracing_appender::rolling::daily(&log_dir, format!("{}.log", config.app_name));
             let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
             registry
-                .with(
-                    fmt::layer()
-                        .with_writer(non_blocking)
-                        .with_ansi(false),
-                )
+                .with(fmt::layer().with_writer(non_blocking).with_ansi(false))
                 .init();
 
             std::mem::forget(_guard);
         } else {
             // 仅控制台
             registry
-                .with(
-                    fmt::layer()
-                        .with_target(true)
-                        .with_thread_ids(true),
-                )
+                .with(fmt::layer().with_target(true).with_thread_ids(true))
                 .init();
         }
 
@@ -183,9 +165,7 @@ impl Logger {
         // 收集日志文件
         let log_files: Vec<_> = std::fs::read_dir(&log_dir)?
             .filter_map(|entry| entry.ok())
-            .filter(|entry| {
-                entry.path().extension().is_some_and(|ext| ext == "log")
-            })
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "log"))
             .collect();
 
         if log_files.is_empty() {
@@ -214,7 +194,8 @@ impl Logger {
             }
         }
 
-        zip.finish().map_err(|e| LogError::ExportFailed(e.to_string()))?;
+        zip.finish()
+            .map_err(|e| LogError::ExportFailed(e.to_string()))?;
 
         Ok(archive_path)
     }
@@ -266,7 +247,8 @@ impl Logger {
             if path.extension().is_some_and(|ext| ext == "log") {
                 if let Ok(metadata) = entry.metadata() {
                     files.push(LogFileInfo {
-                        name: path.file_name()
+                        name: path
+                            .file_name()
                             .unwrap_or_default()
                             .to_string_lossy()
                             .to_string(),
