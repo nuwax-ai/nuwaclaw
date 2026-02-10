@@ -1062,9 +1062,17 @@ fn build_rcoder_config(app: &tauri::AppHandle) -> Result<RcoderAgentRunnerConfig
     info!("[Rcoder] 找到 agent_port: {}", port);
 
     let projects_dir = resolve_projects_dir(app)?;
+    let computer_workspace_dir = projects_dir.join("computer-project-workspace");
+
+    // 确保 computer-project-workspace 目录存在
+    if !computer_workspace_dir.exists() {
+        std::fs::create_dir_all(&computer_workspace_dir)
+            .map_err(|e| format!("创建 computer-project-workspace 目录失败: {}", e))?;
+        info!("[Rcoder] 已创建目录: {}", computer_workspace_dir.display());
+    }
 
     let config = RcoderAgentRunnerConfig {
-        projects_dir: projects_dir.join("computer-project-workspace"),
+        projects_dir: computer_workspace_dir,
         backend_port: port,
         ..RcoderAgentRunnerConfig::default()
     };
