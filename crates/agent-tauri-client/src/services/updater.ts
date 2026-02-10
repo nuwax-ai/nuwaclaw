@@ -1,25 +1,30 @@
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { Modal } from "antd";
+import { Modal, message } from "antd";
 
 /**
  * 检查应用更新，若有新版本则弹窗提示用户
  *
- * 调用时机：应用启动且初始化完成后
+ * @param manual 是否为手动触发（手动触发时无更新也会提示）
  */
-export async function checkForAppUpdate(): Promise<void> {
+export async function checkForAppUpdate(manual = false): Promise<void> {
   try {
     const update = await check();
     if (!update) {
       console.log("[Updater] 当前已是最新版本");
+      if (manual) {
+        message.success("当前已是最新版本");
+      }
       return;
     }
 
     console.log(`[Updater] 发现新版本: ${update.version}`);
     showUpdateDialog(update);
   } catch (error) {
-    // 更新检查失败不应阻塞用户使用
     console.error("[Updater] 检查更新失败:", error);
+    if (manual) {
+      message.error("检查更新失败，请检查网络连接");
+    }
   }
 }
 
@@ -57,16 +62,12 @@ async function performUpdate(update: Update): Promise<void> {
       switch (event.event) {
         case "Started":
           contentLength = event.data.contentLength ?? undefined;
-          console.log(
-            `[Updater] 开始下载, 大小: ${contentLength} bytes`,
-          );
+          console.log(`[Updater] 开始下载, 大小: ${contentLength} bytes`);
           break;
         case "Progress":
           downloaded += event.data.chunkLength;
           if (contentLength) {
-            const percent = Math.round(
-              (downloaded / contentLength) * 100,
-            );
+            const percent = Math.round((downloaded / contentLength) * 100);
             progressModal.update({
               content: `正在下载更新包... ${percent}%`,
             });

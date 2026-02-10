@@ -2,10 +2,29 @@
  * 关于页面
  */
 
-import React from "react";
-import { RobotOutlined } from "@ant-design/icons";
+import React, { useState, useEffect } from "react";
+import { Button } from "antd";
+import { RobotOutlined, SyncOutlined } from "@ant-design/icons";
+import { getVersion } from "@tauri-apps/api/app";
+import { checkForAppUpdate } from "../services/updater";
 
 export default function AboutPage() {
+  const [version, setVersion] = useState<string>("");
+  const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    getVersion().then((v) => setVersion(v));
+  }, []);
+
+  const handleCheckUpdate = async () => {
+    setChecking(true);
+    try {
+      await checkForAppUpdate(true);
+    } finally {
+      setChecking(false);
+    }
+  };
+
   return (
     <div
       style={{
@@ -46,7 +65,7 @@ export default function AboutPage() {
           NuWax Agent
         </div>
         <div style={{ marginTop: 4, fontSize: 12, color: "#a1a1aa" }}>
-          v0.1.0
+          {version ? `v${version}` : ""}
         </div>
         <div
           style={{
@@ -60,6 +79,16 @@ export default function AboutPage() {
           <br />
           远程桌面控制 · AI 编程助手集成
         </div>
+        <Button
+          type="default"
+          size="small"
+          icon={<SyncOutlined />}
+          loading={checking}
+          onClick={handleCheckUpdate}
+          style={{ marginTop: 16 }}
+        >
+          检查更新
+        </Button>
       </div>
     </div>
   );
