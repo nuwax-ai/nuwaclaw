@@ -152,9 +152,7 @@ jobs:
             librsvg2-dev \
             patchelf \
             libssl-dev \
-            pkg-config \
-            libgstreamer1.0-dev \
-            libgstreamer-plugins-base1.0-dev
+            pkg-config
 
       # ---- 系统依赖 (Windows) ----
       - name: Install system dependencies (Windows)
