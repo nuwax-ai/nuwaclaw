@@ -44,7 +44,7 @@
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIyMTczQzJDQzE1MkYwMzgKUldRNDhGTEJMRHdYSWdiTXlROWtiVTBhcGhCQUlhczRqMTZCMTN0YUhtNTg0eFBFbW5qUnZmSVMK",
       "endpoints": [
         "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwax-agent-client/latest/latest.json",
-        "https://nuwax.com/releases/latest/download/latest.json"
+        "https://github.com/nuwax-ai/nuwax-agent-client/releases/latest/download/latest.json"
       ]
     },
     "cli": {
