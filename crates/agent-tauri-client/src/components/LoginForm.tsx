@@ -140,7 +140,6 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
     setIsLogged(false);
     setUserInfo(null);
     form.resetFields();
-    message.info("已退出登录");
   };
 
   if (!initialized) return null;
