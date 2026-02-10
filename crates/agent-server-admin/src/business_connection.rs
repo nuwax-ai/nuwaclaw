@@ -22,7 +22,6 @@ use librustdesk::hbb_common::message_proto::{
 };
 use librustdesk::hbb_common::protobuf::Message as ProtobufMessage;
 use librustdesk::hbb_common::rendezvous_proto::ConnType;
-use librustdesk::hbb_common::fs::{TransferJob, JobType, DataSource, get_next_job_id};
 use librustdesk::hbb_common::Stream;
 
 use nuwax_agent_core::business_channel::{BusinessEnvelope, BusinessMessageType};
@@ -182,8 +181,8 @@ impl BusinessConnection {
     ) -> BusinessEnvelope {
         let mut envelope = BusinessEnvelope::new();
         envelope.message_id = uuid::Uuid::new_v4().to_string();
-        envelope.type_ = message_type.into();
-        envelope.payload = payload.into();
+        envelope.type_ = message_type;
+        envelope.payload = payload;
         envelope.timestamp = chrono::Utc::now().timestamp_millis();
         envelope.source_id = source_id.to_string();
         envelope.target_id = target_id.to_string();
@@ -343,7 +342,7 @@ impl BusinessConnection {
 
         // 发送请求
         let envelope = Self::create_envelope(
-            BusinessMessageType::FILE_TRANSFER_REQUEST,
+            BusinessMessageType::FileTransferRequest,
             payload,
             &self.peer_id, // source is actually this side
             &self.peer_id, // target will be set by connection layer
@@ -366,7 +365,7 @@ impl BusinessConnection {
             .map_err(|e| anyhow::anyhow!("Failed to serialize block: {}", e))?;
 
         let envelope = Self::create_envelope(
-            BusinessMessageType::FILE_BLOCK,
+            BusinessMessageType::FileBlock,
             payload,
             "",
             &self.peer_id,
@@ -385,7 +384,7 @@ impl BusinessConnection {
         cancel.write_to_vec(&mut payload)?;
 
         let envelope = Self::create_envelope(
-            BusinessMessageType::FILE_TRANSFER_CANCEL,
+            BusinessMessageType::FileTransferCancel,
             payload,
             "",
             &self.peer_id,
@@ -418,7 +417,7 @@ impl BusinessConnection {
         confirm.write_to_vec(&mut payload)?;
 
         let envelope = Self::create_envelope(
-            BusinessMessageType::FILE_TRANSFER_RESPONSE,
+            BusinessMessageType::FileTransferResponse,
             payload,
             "",
             &self.peer_id,
@@ -602,7 +601,7 @@ mod tests {
     #[test]
     fn test_create_envelope() {
         let envelope = BusinessConnection::create_envelope(
-            BusinessMessageType::AGENT_TASK_REQUEST,
+            BusinessMessageType::AgentTaskRequest,
             b"test".to_vec(),
             "admin-1",
             "client-1",
@@ -611,7 +610,7 @@ mod tests {
         assert!(!envelope.message_id.is_empty());
         assert_eq!(
             envelope.type_ as i32,
-            BusinessMessageType::AGENT_TASK_REQUEST as i32
+            BusinessMessageType::AgentTaskRequest as i32
         );
         assert_eq!(envelope.payload.as_slice(), b"test");
         assert_eq!(envelope.source_id, "admin-1");

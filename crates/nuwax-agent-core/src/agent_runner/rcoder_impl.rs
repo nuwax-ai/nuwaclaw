@@ -385,7 +385,7 @@ impl AgentRunnerApi for RcoderAgentRunner {
         // 6. 将 session 写入 SESSION_CACHE（SSE 进度流需要从这里读取）
         // 注意：handle_chat_core 内部没有写入 SESSION_CACHE，需要手动写入
         let session_id_str = output.session_id.clone();
-        let session_data = match SESSION_CACHE.entry(session_id_str.clone()) {
+        let _session_data = match SESSION_CACHE.entry(session_id_str.clone()) {
             dashmap::mapref::entry::Entry::Occupied(_) => {
                 // 已存在，使用现有的
                 SESSION_CACHE.get(&session_id_str).unwrap().clone()

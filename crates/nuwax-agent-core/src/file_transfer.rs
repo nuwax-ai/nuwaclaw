@@ -3,21 +3,19 @@
 //! 管理客户端与服务器之间的文件传输
 //! 使用 rustdesk 的 P2P/Relay 通道传输文件
 
-use std::path::{PathBuf, Path};
+use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 use tokio::sync::Mutex;
-use tracing::debug;
 
 use librustdesk::client_api::{
     FileTransferBlock, FileTransferSendRequest, FileTransferReceiveRequest,
-    FileTransferCancel, FileTransferSendConfirmRequest, FileTransferDone,
+    FileTransferCancel, FileTransferSendConfirmRequest,
     FileAction, FileEntry,
 };
 use librustdesk::hbb_common::fs::get_recursive_files;
 use librustdesk::hbb_common::message_proto::FileType;
-use tokio_util::bytes::Bytes;
 
 /// 文件传输错误
 #[derive(Error, Debug)]
@@ -462,7 +460,7 @@ impl FileTransferSession {
         if let Some(ref mut reader_mutex) = self.reader {
             let mut reader = reader_mutex.lock().await;
 
-            let (entry, data) = match reader.read_next_block().await {
+            let (_entry, data) = match reader.read_next_block().await {
                 Ok(Some(result)) => result,
                 Ok(None) => return Ok(None),
                 Err(e) => return Err(FileTransferManagerError::IoError(e.to_string())),
@@ -599,7 +597,7 @@ impl FileTransferManager {
         // 添加到待传输队列
         self.pending_transfers
             .entry(peer_id.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(id);
 
         Ok(id)

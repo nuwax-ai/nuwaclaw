@@ -64,7 +64,7 @@ pub async fn create_chat_task(
         .dispatcher
         .dispatch(
             &req.client_id,
-            BusinessMessageType::AGENT_TASK_REQUEST,
+            BusinessMessageType::AgentTaskRequest,
             payload,
         )
         .await
@@ -179,7 +179,7 @@ pub async fn cancel_task(
             .dispatcher
             .dispatch(
                 &task.client_id,
-                BusinessMessageType::TASK_CANCEL,
+                BusinessMessageType::TaskCancel,
                 cancel_payload,
             )
             .await;

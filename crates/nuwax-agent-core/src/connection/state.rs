@@ -483,7 +483,7 @@ mod tests {
         };
 
         let manager =
-            ConnectionManager::with_adapter_factory(config.clone(), || MockAdapter::new());
+            ConnectionManager::with_adapter_factory(config.clone(), MockAdapter::new);
 
         assert_eq!(manager.config().hbbs_addr, "custom.hbbs:21116");
         assert_eq!(manager.config().hbbr_addr, "custom.hbbr:21117");

@@ -200,7 +200,7 @@ mod tests {
         let result = dispatcher
             .dispatch(
                 "client-001",
-                BusinessMessageType::AGENT_TASK_REQUEST,
+                BusinessMessageType::AgentTaskRequest,
                 serde_json::json!({"task": "test"}),
             )
             .await
@@ -222,7 +222,7 @@ mod tests {
         let result = dispatcher
             .dispatch(
                 "client-001",
-                BusinessMessageType::AGENT_TASK_REQUEST,
+                BusinessMessageType::AgentTaskRequest,
                 serde_json::json!({"task": "test"}),
             )
             .await
@@ -243,7 +243,7 @@ mod tests {
         let result = dispatcher
             .dispatch(
                 "client-001",
-                BusinessMessageType::AGENT_TASK_REQUEST,
+                BusinessMessageType::AgentTaskRequest,
                 serde_json::json!({}),
             )
             .await;
@@ -283,7 +283,7 @@ mod tests {
         let result = dispatcher
             .dispatch(
                 "client-001",
-                BusinessMessageType::AGENT_TASK_REQUEST,
+                BusinessMessageType::AgentTaskRequest,
                 serde_json::json!({}),
             )
             .await;

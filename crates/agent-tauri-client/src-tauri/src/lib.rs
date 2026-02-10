@@ -1,4 +1,5 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+#![allow(unexpected_cfgs)]
 #[macro_use]
 extern crate log;
 use serde::{Deserialize, Serialize};
@@ -9,10 +10,8 @@ use system_permissions::{
 };
 use tauri::{
     menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, State, Window,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Emitter, Manager, State, Window,
 };
-use tauri_plugin_shell::ShellExt;
 use tauri_plugin_store::StoreExt;
 use tokio::sync::Mutex;
 
@@ -503,7 +502,7 @@ fn read_store_port(app: &tauri::AppHandle, key: &str) -> Result<Option<u16>, Str
     match read_store_i64(app, key) {
         Ok(Some(n)) => {
             // 检查端口范围合法性
-            if n < 0 || n > 65535 {
+            if !(0..=65535).contains(&n) {
                 warn!(
                     "[Store] 端口值越界: '{}' = {}，端口范围应为 0-65535",
                     key, n
@@ -549,7 +548,6 @@ fn strip_host_from_url(server_host: &str) -> String {
 ///
 /// # Returns
 /// 完整的可执行文件路径，如果出错则返回错误信息
-
 /// 获取 nuwax-file-server 可执行文件完整路径
 ///
 /// nuwax-file-server 是通过 npm 安装到本地目录的，路径为：
@@ -941,7 +939,6 @@ impl From<ServiceInfo> for ServiceInfoDto {
 ///
 /// 注意：服务配置在启动时从 Tauri store 动态读取，
 /// 不在此处设置默认配置
-
 struct ServiceManagerState {
     manager: Mutex<ServiceManager>,
     /// 保存当前的 RcoderAgentRunner，用于在重启时正确停止旧实例（包括 Pingora 代理）
@@ -2416,7 +2413,7 @@ fn log_dir_get() -> String {
 ///
 /// 使用系统默认文件管理器打开日志目录，方便用户查看和分析日志
 #[tauri::command]
-async fn open_log_directory(app: tauri::AppHandle) -> Result<bool, String> {
+async fn open_log_directory(_app: tauri::AppHandle) -> Result<bool, String> {
     let log_dir = nuwax_agent_core::Logger::get_log_dir();
     // 使用 tauri_plugin_opener::open_path 打开目录
     let result = tauri_plugin_opener::open_path(&log_dir, None::<&str>);
@@ -2488,7 +2485,7 @@ async fn read_logs(count: Option<u32>) -> Result<Vec<String>, String> {
 fn get_package_bin_path(app_dir: &str, package_name: &str) -> Option<String> {
     // 从包名推断 bin 名称
     // 例如: @anthropic-ai/claude-code-acp-ts -> claude-code-acp-ts
-    let bin_name = package_name.split('/').last().unwrap_or(package_name);
+    let bin_name = package_name.split('/').next_back().unwrap_or(package_name);
 
     let bin_path = std::path::Path::new(app_dir)
         .join("node_modules")
@@ -2507,8 +2504,7 @@ fn get_package_bin_path(app_dir: &str, package_name: &str) -> Option<String> {
 fn check_version_meets_requirement(current: &str, required: &str) -> bool {
     let parse_version = |v: &str| -> (u32, u32, u32) {
         let parts: Vec<&str> = v.split('.').collect();
-        let major = parts
-            .get(0)
+        let major = parts.first()
             .and_then(|s| s.trim().parse().ok())
             .unwrap_or(0);
         let minor = parts
@@ -2585,6 +2581,7 @@ pub fn run() {
     }
 
     // 预定义合法的 Tab 名称列表，用于参数验证
+    #[allow(dead_code)]
     const VALID_TABS: &[&str] = &[
         "client",
         "settings",
@@ -2627,6 +2624,7 @@ pub fn run() {
             // 这里通过 ArgMatches 获取参数值
 
             // 尝试获取 CLI 插件实例（如果可用）
+            #[allow(unexpected_cfgs)]
             #[cfg(feature = "cli-plugin")]
             {
                 use tauri_plugin_cli::CliExt;
@@ -2672,6 +2670,7 @@ pub fn run() {
             }
 
             // 没有 cli-plugin 时的日志提示
+            #[allow(unexpected_cfgs)]
             #[cfg(not(feature = "cli-plugin"))]
             {
                 info!("[Setup] CLI 插件未启用，命令行参数功能受限");

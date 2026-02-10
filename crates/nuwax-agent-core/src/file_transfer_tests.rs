@@ -12,7 +12,6 @@ mod file_transfer_tests {
     use crate::file_transfer::{
         FileTransferManager, FileTransferSession, FileBlockReader, TransferStatus,
         TransferDirection, FileTransferCallback, NoopFileTransferCallback,
-        FileTransferManagerError, FileTransferItem,
     };
 
     /// 测试回调实现
@@ -170,7 +169,7 @@ mod file_transfer_tests {
     #[tokio::test]
     async fn test_file_block_reader_single_file() {
         let dir = tempdir().unwrap();
-        let file_path = create_test_file(&dir.path().to_path_buf(), "test.txt", b"Hello, World!");
+        let _file_path = create_test_file(&dir.path().to_path_buf(), "test.txt", b"Hello, World!");
 
         use librustdesk::client_api::FileEntry;
 

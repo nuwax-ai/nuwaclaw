@@ -9,7 +9,7 @@ pub fn get_machine_id() -> Option<String> {
 
     // 方式 1: 使用 ioreg 获取设备序列号
     let output = Command::new("ioreg")
-        .args(&["-rd1", "-c", "IOPlatformExpertDevice"])
+        .args(["-rd1", "-c", "IOPlatformExpertDevice"])
         .output()
         .ok()?;
 
@@ -31,7 +31,7 @@ pub fn get_machine_id() -> Option<String> {
 
     // 方式 2: 使用 system_profiler 获取
     let output = Command::new("system_profiler")
-        .args(&["SPHardwareDataType", "-json"])
+        .args(["SPHardwareDataType", "-json"])
         .output()
         .ok()?;
 

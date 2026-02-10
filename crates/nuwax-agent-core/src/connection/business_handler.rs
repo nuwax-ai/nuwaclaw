@@ -3,20 +3,19 @@
 //! 处理来自 admin-server 的 P2P 业务消息
 //! 将 BusinessEnvelope 转换为本地任务并执行
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::agent::{AgentManager, AgentTask, TaskProgress, TaskResult};
+use crate::agent::{AgentManager, AgentTask};
 use crate::business_channel::{BusinessEnvelope, BusinessMessage, BusinessMessageType, MessageType};
 #[cfg(feature = "remote-desktop")]
 use librustdesk::hbb_common::protobuf::Message as ProtobufMessage;
 
 #[cfg(feature = "remote-desktop")]
-use crate::file_transfer::{FileTransferManager, FileTransferManagerError, NoopFileTransferCallback};
+use crate::file_transfer::{FileTransferManager, NoopFileTransferCallback};
 
 /// 业务消息处理事件
 #[derive(Debug, Clone)]
@@ -50,6 +49,7 @@ pub struct BusinessMessageHandler {
     file_transfer_manager: Arc<FileTransferManager>,
 }
 
+#[allow(dead_code)]
 impl BusinessMessageHandler {
     /// 创建新的业务消息处理器（无文件传输）
     pub fn new(agent_manager: Arc<AgentManager>) -> Self {
@@ -108,37 +108,37 @@ impl BusinessMessageHandler {
         );
 
         match message_type {
-            BusinessMessageType::AGENT_TASK_REQUEST => {
+            BusinessMessageType::AgentTaskRequest => {
                 self.handle_task_request(&envelope).await?;
             }
-            BusinessMessageType::TASK_CANCEL => {
+            BusinessMessageType::TaskCancel => {
                 self.handle_task_cancel(&envelope).await?;
             }
-            BusinessMessageType::HEARTBEAT => {
+            BusinessMessageType::Heartbeat => {
                 self.handle_heartbeat(&envelope).await?;
             }
-            BusinessMessageType::SYSTEM_NOTIFY => {
+            BusinessMessageType::SystemNotify => {
                 self.handle_system_notify(&envelope).await?;
             }
             // 文件传输相关消息
             #[cfg(feature = "remote-desktop")]
-            BusinessMessageType::FILE_TRANSFER_REQUEST => {
+            BusinessMessageType::FileTransferRequest => {
                 self.handle_file_transfer_request(&envelope).await?;
             }
             #[cfg(feature = "remote-desktop")]
-            BusinessMessageType::FILE_BLOCK => {
+            BusinessMessageType::FileBlock => {
                 self.handle_file_block(&envelope).await?;
             }
             #[cfg(feature = "remote-desktop")]
-            BusinessMessageType::FILE_TRANSFER_CANCEL => {
+            BusinessMessageType::FileTransferCancel => {
                 self.handle_file_transfer_cancel(&envelope).await?;
             }
             #[cfg(feature = "remote-desktop")]
-            BusinessMessageType::FILE_TRANSFER_DONE => {
+            BusinessMessageType::FileTransferDone => {
                 self.handle_file_transfer_done(&envelope).await?;
             }
             #[cfg(feature = "remote-desktop")]
-            BusinessMessageType::FILE_TRANSFER_ERROR => {
+            BusinessMessageType::FileTransferError => {
                 self.handle_file_transfer_error(&envelope).await?;
             }
             _ => {
@@ -170,10 +170,10 @@ impl BusinessMessageHandler {
             .map_err(|e| anyhow::anyhow!("Failed to submit task {}: {}", task_id, e))?;
 
         // 发送事件
-        let _ = self.event_tx.send(BusinessHandlerEvent::TaskReceived {
+        drop(self.event_tx.send(BusinessHandlerEvent::TaskReceived {
             message_id: envelope.message_id.clone(),
             task_id,
-        });
+        }));
 
         Ok(())
     }
@@ -260,7 +260,7 @@ impl BusinessMessageHandler {
 
             let response = self.create_response(
                 &envelope.message_id,
-                BusinessMessageType::FILE_TRANSFER_RESPONSE,
+                BusinessMessageType::FileTransferResponse,
                 payload,
                 &envelope.source_id,
             ).await;
@@ -292,7 +292,7 @@ impl BusinessMessageHandler {
 
         // 查找对应的会话
         if let Some(session) = self.file_transfer_manager.get_session(transfer_id) {
-            let mut s = session.lock().await;
+            let s = session.lock().await;
             s.write_block(block).await
                 .map_err(|e| anyhow::anyhow!("Failed to write file block: {}", e))?;
 
@@ -421,39 +421,39 @@ impl BusinessMessageHandler {
     /// 内部消息类型转换为 protobuf 消息类型
     fn message_type_to_business_type(msg_type: MessageType) -> BusinessMessageType {
         match msg_type {
-            MessageType::AgentTaskRequest => BusinessMessageType::AGENT_TASK_REQUEST,
-            MessageType::AgentTaskResponse => BusinessMessageType::AGENT_TASK_RESPONSE,
-            MessageType::TaskProgress => BusinessMessageType::TASK_PROGRESS,
-            MessageType::TaskCancel => BusinessMessageType::TASK_CANCEL,
-            MessageType::FileTransferRequest => BusinessMessageType::FILE_TRANSFER_REQUEST,
-            MessageType::FileTransferResponse => BusinessMessageType::FILE_TRANSFER_RESPONSE,
-            MessageType::FileBlock => BusinessMessageType::FILE_BLOCK,
-            MessageType::FileTransferCancel => BusinessMessageType::FILE_TRANSFER_CANCEL,
-            MessageType::FileTransferDone => BusinessMessageType::FILE_TRANSFER_DONE,
-            MessageType::FileTransferError => BusinessMessageType::FILE_TRANSFER_ERROR,
-            MessageType::Heartbeat => BusinessMessageType::HEARTBEAT,
-            MessageType::SystemNotify => BusinessMessageType::SYSTEM_NOTIFY,
-            MessageType::Custom => BusinessMessageType::BUSINESS_UNKNOWN,
+            MessageType::AgentTaskRequest => BusinessMessageType::AgentTaskRequest,
+            MessageType::AgentTaskResponse => BusinessMessageType::AgentTaskResponse,
+            MessageType::TaskProgress => BusinessMessageType::TaskProgress,
+            MessageType::TaskCancel => BusinessMessageType::TaskCancel,
+            MessageType::FileTransferRequest => BusinessMessageType::FileTransferRequest,
+            MessageType::FileTransferResponse => BusinessMessageType::FileTransferResponse,
+            MessageType::FileBlock => BusinessMessageType::FileBlock,
+            MessageType::FileTransferCancel => BusinessMessageType::FileTransferCancel,
+            MessageType::FileTransferDone => BusinessMessageType::FileTransferDone,
+            MessageType::FileTransferError => BusinessMessageType::FileTransferError,
+            MessageType::Heartbeat => BusinessMessageType::Heartbeat,
+            MessageType::SystemNotify => BusinessMessageType::SystemNotify,
+            MessageType::Custom => BusinessMessageType::BusinessUnknown,
         }
     }
 
     /// protobuf 消息类型转换为内部消息类型
     fn business_type_to_message_type(biz_type: BusinessMessageType) -> MessageType {
         match biz_type {
-            BusinessMessageType::AGENT_TASK_REQUEST => MessageType::AgentTaskRequest,
-            BusinessMessageType::AGENT_TASK_RESPONSE => MessageType::AgentTaskResponse,
-            BusinessMessageType::TASK_PROGRESS => MessageType::TaskProgress,
-            BusinessMessageType::TASK_CANCEL => MessageType::TaskCancel,
-            BusinessMessageType::FILE_TRANSFER_REQUEST => MessageType::FileTransferRequest,
-            BusinessMessageType::FILE_TRANSFER_RESPONSE => MessageType::FileTransferResponse,
-            BusinessMessageType::FILE_BLOCK => MessageType::FileBlock,
-            BusinessMessageType::FILE_TRANSFER_CANCEL => MessageType::FileTransferCancel,
-            BusinessMessageType::FILE_TRANSFER_DONE => MessageType::FileTransferDone,
-            BusinessMessageType::FILE_TRANSFER_ERROR => MessageType::FileTransferError,
-            BusinessMessageType::HEARTBEAT => MessageType::Heartbeat,
-            BusinessMessageType::SYSTEM_NOTIFY => MessageType::SystemNotify,
-            BusinessMessageType::BUSINESS_CUSTOM => MessageType::Custom,
-            BusinessMessageType::BUSINESS_UNKNOWN => MessageType::Custom,
+            BusinessMessageType::AgentTaskRequest => MessageType::AgentTaskRequest,
+            BusinessMessageType::AgentTaskResponse => MessageType::AgentTaskResponse,
+            BusinessMessageType::TaskProgress => MessageType::TaskProgress,
+            BusinessMessageType::TaskCancel => MessageType::TaskCancel,
+            BusinessMessageType::FileTransferRequest => MessageType::FileTransferRequest,
+            BusinessMessageType::FileTransferResponse => MessageType::FileTransferResponse,
+            BusinessMessageType::FileBlock => MessageType::FileBlock,
+            BusinessMessageType::FileTransferCancel => MessageType::FileTransferCancel,
+            BusinessMessageType::FileTransferDone => MessageType::FileTransferDone,
+            BusinessMessageType::FileTransferError => MessageType::FileTransferError,
+            BusinessMessageType::Heartbeat => MessageType::Heartbeat,
+            BusinessMessageType::SystemNotify => MessageType::SystemNotify,
+            BusinessMessageType::BusinessCustom => MessageType::Custom,
+            BusinessMessageType::BusinessUnknown => MessageType::Custom,
         }
     }
 }

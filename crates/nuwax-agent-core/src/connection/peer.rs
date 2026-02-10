@@ -7,18 +7,12 @@
 //! - 输入事件转发
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::info;
 
 #[cfg(feature = "remote-desktop")]
-use librustdesk::hbb_common::config::Config as RustDeskConfig;
-#[cfg(feature = "remote-desktop")]
-use librustdesk::hbb_common::rendezvous_proto::ConnType;
-#[cfg(feature = "remote-desktop")]
-use librustdesk::hbb_common::Stream;
-#[cfg(feature = "remote-desktop")]
-use librustdesk::client_api::{Client, Data, Interface, LoginConfigHandler};
+use librustdesk::client_api::Data;
 
 /// Peer 连接事件
 #[derive(Debug, Clone)]
@@ -234,7 +228,7 @@ impl PeerConnection {
             let _ = self.event_tx.send(PeerConnectionEvent::Error {
                 message: "Peer connection not fully implemented".to_string(),
             }).await;
-            return Err("Peer connection not fully implemented. Requires Interface trait implementation.".to_string());
+            Err("Peer connection not fully implemented. Requires Interface trait implementation.".to_string())
         }
 
         #[cfg(not(feature = "remote-desktop"))]
@@ -243,7 +237,7 @@ impl PeerConnection {
             let _ = self.event_tx.send(PeerConnectionEvent::Error {
                 message: "remote-desktop feature not enabled".to_string(),
             }).await;
-            return Err("remote-desktop feature not enabled".to_string());
+            Err("remote-desktop feature not enabled".to_string())
         }
     }
 

@@ -2,7 +2,7 @@
 //!
 //! 检测系统中已安装的 Git
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -125,7 +125,7 @@ impl GitDetector {
     }
 
     /// 检测 Git 来源
-    fn detect_source(&self, path: &PathBuf) -> GitSource {
+    fn detect_source(&self, path: &Path) -> GitSource {
         let path_str = path.to_string_lossy();
         
         // macOS Xcode Command Line Tools

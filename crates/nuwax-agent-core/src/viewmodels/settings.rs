@@ -17,6 +17,7 @@ use super::super::api::traits::{
 /// 使用字符串而非特定 UI 框架的图标类型
 /// 允许不同 UI 层自行映射到对应的图标实现
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum UIIconName {
     Globe,
     Eye,
@@ -27,14 +28,10 @@ pub enum UIIconName {
     CircleCheck,
     CircleX,
     TriangleAlert,
+    #[default]
     Unknown,
 }
 
-impl Default for UIIconName {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
 
 impl UIIconName {
     /// 获取图标名称字符串

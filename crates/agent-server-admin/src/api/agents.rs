@@ -72,7 +72,7 @@ pub async fn stop_agent(
 
     let _ = state
         .dispatcher
-        .dispatch(&id, BusinessMessageType::SYSTEM_NOTIFY, stop_payload)
+        .dispatch(&id, BusinessMessageType::SystemNotify, stop_payload)
         .await;
 
     info!("Agent {} stopped, cancelled {} tasks", id, cancelled_count);

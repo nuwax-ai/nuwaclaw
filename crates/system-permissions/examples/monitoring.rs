@@ -25,7 +25,7 @@ async fn main() {
         for permission in &permissions {
             let state = manager.check(*permission).await;
             let changed = prev
-                .get(&permission)
+                .get(permission)
                 .map(|s| *s != state.status)
                 .unwrap_or(true);
             prev.insert(*permission, state.status);

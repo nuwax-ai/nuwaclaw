@@ -41,7 +41,7 @@ impl AppState {
         // 更新 client_tasks 映射（使用 entry API）
         self.client_tasks
             .entry(client_id.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(task_id.clone());
 
         // 发送事件

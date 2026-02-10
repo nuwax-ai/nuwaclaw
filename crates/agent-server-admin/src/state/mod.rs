@@ -7,8 +7,7 @@ mod task_store;
 
 pub use events::ServerEvent;
 pub use models::{
-    AgentStatus, ClientInfo, ClientRegistration, CreateTaskRequest, TaskInfo, TaskProgressEvent,
-    TaskProgressEventType, TaskStatus,
+    AgentStatus, ClientInfo, ClientRegistration, CreateTaskRequest, TaskInfo, TaskStatus,
 };
 
 use std::sync::Arc;

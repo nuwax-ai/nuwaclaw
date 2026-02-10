@@ -6,7 +6,7 @@ use semver::Version;
 use std::path::PathBuf;
 use std::process::Command;
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use super::detector::{DependencyDetector, DetectionResult, DetectorError};
 

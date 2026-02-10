@@ -2,7 +2,6 @@
 //!
 //! 定义跨平台权限管理的核心 Trait
 
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::sync::broadcast;
@@ -66,12 +65,6 @@ pub trait PermissionMonitor: Send + Sync {
     /// 获取当前所有权限状态
     async fn get_all_states(&self) -> Vec<PermissionState>;
 }
-
-/// 便捷类型别名
-///
-/// 用于简化常用类型的使用
-pub type PermissionManagerRef = Arc<dyn PermissionManager>;
-pub type PermissionMonitorRef = Arc<dyn PermissionMonitor>;
 
 /// 权限请求构建器
 ///
@@ -151,7 +144,6 @@ impl RequestBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SystemPermission;
 
     #[test]
     fn test_request_builder_default() {

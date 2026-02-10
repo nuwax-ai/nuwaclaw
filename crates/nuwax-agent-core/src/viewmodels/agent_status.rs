@@ -17,6 +17,7 @@ pub struct AgentStatusViewModel {
     /// 任务数量
     task_count: Arc<RwLock<u32>>,
     /// 最后活动时间
+    #[allow(dead_code)]
     last_active: Arc<RwLock<Option<chrono::DateTime<chrono::Utc>>>>,
 }
 

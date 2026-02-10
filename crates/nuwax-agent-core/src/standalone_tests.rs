@@ -5,11 +5,11 @@
 
 #[cfg(test)]
 mod standalone_tests {
-    use std::path::PathBuf;
-    use std::sync::Arc;
-    use tokio::sync::mpsc;
-    use tokio::time::Duration;
-    use dashmap::DashMap;
+    
+    
+    
+    
+    
 
     // ========================================================================
     // BusinessMessageType Tests
@@ -20,35 +20,35 @@ mod standalone_tests {
 
         #[test]
         fn test_message_type_from_i32() {
-            assert_eq!(BusinessMessageType::from(1), BusinessMessageType::AGENT_TASK_REQUEST);
-            assert_eq!(BusinessMessageType::from(2), BusinessMessageType::AGENT_TASK_RESPONSE);
-            assert_eq!(BusinessMessageType::from(3), BusinessMessageType::TASK_PROGRESS);
-            assert_eq!(BusinessMessageType::from(4), BusinessMessageType::TASK_CANCEL);
-            assert_eq!(BusinessMessageType::from(10), BusinessMessageType::HEARTBEAT);
-            assert_eq!(BusinessMessageType::from(20), BusinessMessageType::SYSTEM_NOTIFY);
-            assert_eq!(BusinessMessageType::from(99), BusinessMessageType::BUSINESS_CUSTOM);
-            assert_eq!(BusinessMessageType::from(100), BusinessMessageType::FILE_TRANSFER_REQUEST);
-            assert_eq!(BusinessMessageType::from(101), BusinessMessageType::FILE_TRANSFER_RESPONSE);
-            assert_eq!(BusinessMessageType::from(102), BusinessMessageType::FILE_BLOCK);
-            assert_eq!(BusinessMessageType::from(103), BusinessMessageType::FILE_TRANSFER_CANCEL);
-            assert_eq!(BusinessMessageType::from(104), BusinessMessageType::FILE_TRANSFER_DONE);
-            assert_eq!(BusinessMessageType::from(105), BusinessMessageType::FILE_TRANSFER_ERROR);
-            assert_eq!(BusinessMessageType::from(999), BusinessMessageType::BUSINESS_UNKNOWN);
+            assert_eq!(BusinessMessageType::from(1), BusinessMessageType::AgentTaskRequest);
+            assert_eq!(BusinessMessageType::from(2), BusinessMessageType::AgentTaskResponse);
+            assert_eq!(BusinessMessageType::from(3), BusinessMessageType::TaskProgress);
+            assert_eq!(BusinessMessageType::from(4), BusinessMessageType::TaskCancel);
+            assert_eq!(BusinessMessageType::from(10), BusinessMessageType::Heartbeat);
+            assert_eq!(BusinessMessageType::from(20), BusinessMessageType::SystemNotify);
+            assert_eq!(BusinessMessageType::from(99), BusinessMessageType::BusinessCustom);
+            assert_eq!(BusinessMessageType::from(100), BusinessMessageType::FileTransferRequest);
+            assert_eq!(BusinessMessageType::from(101), BusinessMessageType::FileTransferResponse);
+            assert_eq!(BusinessMessageType::from(102), BusinessMessageType::FileBlock);
+            assert_eq!(BusinessMessageType::from(103), BusinessMessageType::FileTransferCancel);
+            assert_eq!(BusinessMessageType::from(104), BusinessMessageType::FileTransferDone);
+            assert_eq!(BusinessMessageType::from(105), BusinessMessageType::FileTransferError);
+            assert_eq!(BusinessMessageType::from(999), BusinessMessageType::BusinessUnknown);
         }
 
         #[test]
         fn test_message_type_into_i32() {
-            assert_eq!(i32::from(BusinessMessageType::AGENT_TASK_REQUEST), 1);
-            assert_eq!(i32::from(BusinessMessageType::AGENT_TASK_RESPONSE), 2);
-            assert_eq!(i32::from(BusinessMessageType::HEARTBEAT), 10);
-            assert_eq!(i32::from(BusinessMessageType::FILE_TRANSFER_REQUEST), 100);
-            assert_eq!(i32::from(BusinessMessageType::FILE_TRANSFER_DONE), 104);
+            assert_eq!(i32::from(BusinessMessageType::AgentTaskRequest), 1);
+            assert_eq!(i32::from(BusinessMessageType::AgentTaskResponse), 2);
+            assert_eq!(i32::from(BusinessMessageType::Heartbeat), 10);
+            assert_eq!(i32::from(BusinessMessageType::FileTransferRequest), 100);
+            assert_eq!(i32::from(BusinessMessageType::FileTransferDone), 104);
         }
 
         #[test]
         fn test_message_type_default() {
             let default: BusinessMessageType = Default::default();
-            assert_eq!(default, BusinessMessageType::BUSINESS_UNKNOWN);
+            assert_eq!(default, BusinessMessageType::BusinessUnknown);
         }
     }
 
@@ -63,7 +63,7 @@ mod standalone_tests {
         fn test_envelope_new() {
             let envelope = BusinessEnvelope::new();
             assert!(envelope.message_id.is_empty());
-            assert_eq!(envelope.type_, BusinessMessageType::BUSINESS_UNKNOWN);
+            assert_eq!(envelope.type_, BusinessMessageType::BusinessUnknown);
             assert!(envelope.payload.is_empty());
             assert_eq!(envelope.timestamp, 0);
             assert!(envelope.source_id.is_empty());
@@ -74,13 +74,13 @@ mod standalone_tests {
         fn test_envelope_builder_pattern() {
             let envelope = BusinessEnvelope::new()
                 .with_message_id("msg-123".to_string())
-                .with_type(BusinessMessageType::AGENT_TASK_REQUEST)
+                .with_type(BusinessMessageType::AgentTaskRequest)
                 .with_payload(vec![1, 2, 3])
                 .with_source_id("admin-1".to_string())
                 .with_target_id("agent-1".to_string());
 
             assert_eq!(envelope.message_id, "msg-123");
-            assert_eq!(envelope.type_, BusinessMessageType::AGENT_TASK_REQUEST);
+            assert_eq!(envelope.type_, BusinessMessageType::AgentTaskRequest);
             assert_eq!(envelope.payload, vec![1, 2, 3]);
             assert_eq!(envelope.source_id, "admin-1");
             assert_eq!(envelope.target_id, "agent-1");
@@ -90,7 +90,7 @@ mod standalone_tests {
         fn test_envelope_serialization() {
             let envelope = BusinessEnvelope::new()
                 .with_message_id("msg-456".to_string())
-                .with_type(BusinessMessageType::FILE_TRANSFER_REQUEST)
+                .with_type(BusinessMessageType::FileTransferRequest)
                 .with_payload(vec![0x01, 0x02, 0x03])
                 .with_source_id("server".to_string())
                 .with_target_id("client".to_string());
@@ -109,7 +109,7 @@ mod standalone_tests {
         fn test_envelope_default() {
             let default: BusinessEnvelope = Default::default();
             assert!(default.message_id.is_empty());
-            assert_eq!(default.type_, BusinessMessageType::BUSINESS_UNKNOWN);
+            assert_eq!(default.type_, BusinessMessageType::BusinessUnknown);
         }
     }
 
@@ -572,9 +572,9 @@ mod standalone_tests {
 
     mod admin_client_tests {
         use crate::admin_client::{AdminConfig, PendingMessage, AdminClient};
-        use crate::http_client::mock::{MockHttpClient, MockResponse};
-        use crate::http_client::HttpClient;
-        use crate::admin_client::RegistrationResponse;
+        use crate::http_client::mock::MockHttpClient;
+        
+        
         use chrono::Utc;
 
         #[test]

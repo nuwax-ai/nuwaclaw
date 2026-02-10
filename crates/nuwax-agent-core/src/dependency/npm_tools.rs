@@ -274,8 +274,8 @@ impl NpmToolInstaller {
     pub fn check_tool_with_fallback(&self, tool_name: &str) -> Result<NpmToolInfo, NpmToolError> {
         // 特殊处理 Claude Code 和 OpenCode（支持多种安装方式）
         match tool_name {
-            "@anthropic-ai/claude-code" => return self.detect_claude_code(),
-            "opencode" => return self.detect_opencode(),
+            "@anthropic-ai/claude-code" => self.detect_claude_code(),
+            "opencode" => self.detect_opencode(),
             _ => {
                 // 首先尝试 npm 全局检测
                 if let Ok(info) = self.check_npm_global(tool_name) {

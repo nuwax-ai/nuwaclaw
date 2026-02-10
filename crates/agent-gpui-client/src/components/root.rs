@@ -117,10 +117,12 @@ pub struct RootView {
     /// 状态栏视图
     status_bar: Entity<StatusBarView>,
     /// 状态栏 ViewModel（用于直接更新）
+    #[allow(dead_code)]
     status_bar_vm: Arc<StatusBarViewModel>,
     /// 客户端信息视图
     client_info_view: Entity<ClientInfoView>,
     /// 客户端信息 ViewModel（用于直接更新）
+    #[allow(dead_code)]
     client_info_vm: Arc<ClientInfoViewModel>,
     /// 设置视图
     settings_view: Entity<SettingsView>,
@@ -205,7 +207,7 @@ impl RootView {
                 move |_this, _state, event: &ClientInfoEvent, _window, cx| match event {
                     ClientInfoEvent::NavigateToSecurity => {
                         // 切换到设置页面并导航到安全子页面
-                        let _ = settings_view_for_sub.update(cx, |view, cx| {
+                        settings_view_for_sub.update(cx, |view, cx| {
                             view.set_active_page(SettingsPage::Security, cx);
                         });
                     }
@@ -216,7 +218,7 @@ impl RootView {
                 move |_this, _state, event: &PermissionsEvent, _window, cx| match event {
                     PermissionsEvent::OpenSettings(permission_name) => {
                         // 打开系统设置页面
-                        if let Err(e) = PermissionManager::open_settings(&permission_name) {
+                        if let Err(e) = PermissionManager::open_settings(permission_name) {
                             let message = format!("打开系统设置失败: {}", e);
                             let app_state_inner = app_state_clone.clone();
                             cx.spawn(async move |_view, cx| {
@@ -324,6 +326,7 @@ impl RootView {
     }
 
     /// 渲染占位页面
+    #[allow(dead_code)]
     fn render_placeholder_page(
         &self,
         title: &str,

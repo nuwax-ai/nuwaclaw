@@ -157,7 +157,7 @@ pub mod mock {
 
             self.sent_messages
                 .entry(peer_id.to_string())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(envelope);
 
             Ok(())

@@ -18,6 +18,7 @@ use super::super::api::traits::DependencyApi;
 /// 使用字符串而非特定 UI 框架的图标类型
 /// 允许不同 UI 层自行映射到对应的图标实现
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Default)]
 pub enum UIIconName {
     Globe,
     Eye,
@@ -28,14 +29,10 @@ pub enum UIIconName {
     CircleCheck,
     CircleX,
     TriangleAlert,
+    #[default]
     Unknown,
 }
 
-impl Default for UIIconName {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
 
 impl UIIconName {
     /// 获取图标名称字符串
@@ -239,6 +236,7 @@ impl UIDependencyItem {
     }
 
     /// 将核心层名称映射到 UI 显示名称
+    #[allow(dead_code)]
     fn map_to_display_name(core_name: &str) -> &str {
         DEPENDENCY_MAPPINGS
             .iter()

@@ -15,42 +15,39 @@ pub const BUSINESS_CHANNEL_ID: u32 = 0xB1F;
 /// 业务消息类型（用于 BusinessEnvelope）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Default)]
 pub enum BusinessMessageType {
     /// 未知类型（默认值）
-    BUSINESS_UNKNOWN = 0,
+    #[default]
+    BusinessUnknown = 0,
     /// Agent 任务请求
-    AGENT_TASK_REQUEST = 1,
+    AgentTaskRequest = 1,
     /// Agent 任务响应
-    AGENT_TASK_RESPONSE = 2,
+    AgentTaskResponse = 2,
     /// 任务进度更新
-    TASK_PROGRESS = 3,
+    TaskProgress = 3,
     /// 任务取消
-    TASK_CANCEL = 4,
+    TaskCancel = 4,
     /// 文件传输请求（发送文件到远程）
-    FILE_TRANSFER_REQUEST = 100,
+    FileTransferRequest = 100,
     /// 文件传输响应（接收方确认）
-    FILE_TRANSFER_RESPONSE = 101,
+    FileTransferResponse = 101,
     /// 文件数据块
-    FILE_BLOCK = 102,
+    FileBlock = 102,
     /// 文件传输取消
-    FILE_TRANSFER_CANCEL = 103,
+    FileTransferCancel = 103,
     /// 文件传输完成确认
-    FILE_TRANSFER_DONE = 104,
+    FileTransferDone = 104,
     /// 文件传输错误
-    FILE_TRANSFER_ERROR = 105,
+    FileTransferError = 105,
     /// 心跳
-    HEARTBEAT = 10,
+    Heartbeat = 10,
     /// 系统通知
-    SYSTEM_NOTIFY = 20,
+    SystemNotify = 20,
     /// 自定义
-    BUSINESS_CUSTOM = 99,
+    BusinessCustom = 99,
 }
 
-impl Default for BusinessMessageType {
-    fn default() -> Self {
-        BusinessMessageType::BUSINESS_UNKNOWN
-    }
-}
 
 impl From<BusinessMessageType> for i32 {
     fn from(val: BusinessMessageType) -> Self {
@@ -61,20 +58,20 @@ impl From<BusinessMessageType> for i32 {
 impl From<i32> for BusinessMessageType {
     fn from(val: i32) -> Self {
         match val {
-            1 => BusinessMessageType::AGENT_TASK_REQUEST,
-            2 => BusinessMessageType::AGENT_TASK_RESPONSE,
-            3 => BusinessMessageType::TASK_PROGRESS,
-            4 => BusinessMessageType::TASK_CANCEL,
-            100 => BusinessMessageType::FILE_TRANSFER_REQUEST,
-            101 => BusinessMessageType::FILE_TRANSFER_RESPONSE,
-            102 => BusinessMessageType::FILE_BLOCK,
-            103 => BusinessMessageType::FILE_TRANSFER_CANCEL,
-            104 => BusinessMessageType::FILE_TRANSFER_DONE,
-            105 => BusinessMessageType::FILE_TRANSFER_ERROR,
-            10 => BusinessMessageType::HEARTBEAT,
-            20 => BusinessMessageType::SYSTEM_NOTIFY,
-            99 => BusinessMessageType::BUSINESS_CUSTOM,
-            _ => BusinessMessageType::BUSINESS_UNKNOWN,
+            1 => BusinessMessageType::AgentTaskRequest,
+            2 => BusinessMessageType::AgentTaskResponse,
+            3 => BusinessMessageType::TaskProgress,
+            4 => BusinessMessageType::TaskCancel,
+            100 => BusinessMessageType::FileTransferRequest,
+            101 => BusinessMessageType::FileTransferResponse,
+            102 => BusinessMessageType::FileBlock,
+            103 => BusinessMessageType::FileTransferCancel,
+            104 => BusinessMessageType::FileTransferDone,
+            105 => BusinessMessageType::FileTransferError,
+            10 => BusinessMessageType::Heartbeat,
+            20 => BusinessMessageType::SystemNotify,
+            99 => BusinessMessageType::BusinessCustom,
+            _ => BusinessMessageType::BusinessUnknown,
         }
     }
 }
@@ -106,7 +103,7 @@ impl Default for BusinessEnvelope {
     fn default() -> Self {
         Self {
             message_id: String::new(),
-            type_: BusinessMessageType::BUSINESS_UNKNOWN,
+            type_: BusinessMessageType::BusinessUnknown,
             payload: Vec::new(),
             timestamp: 0,
             source_id: String::new(),

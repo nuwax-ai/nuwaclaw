@@ -173,11 +173,11 @@ pub async fn send_message(
 
     // 将消息类型转换为 BusinessMessageType
     let biz_type = match req.message_type.as_str() {
-        "AgentTaskRequest" => BusinessMessageType::AGENT_TASK_REQUEST,
-        "TaskCancel" => BusinessMessageType::TASK_CANCEL,
-        "Heartbeat" => BusinessMessageType::HEARTBEAT,
-        "SystemNotify" => BusinessMessageType::SYSTEM_NOTIFY,
-        _ => BusinessMessageType::AGENT_TASK_REQUEST,
+        "AgentTaskRequest" => BusinessMessageType::AgentTaskRequest,
+        "TaskCancel" => BusinessMessageType::TaskCancel,
+        "Heartbeat" => BusinessMessageType::Heartbeat,
+        "SystemNotify" => BusinessMessageType::SystemNotify,
+        _ => BusinessMessageType::AgentTaskRequest,
     };
 
     match state

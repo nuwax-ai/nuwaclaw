@@ -17,6 +17,7 @@ use serde::Deserialize;
 
 /// 认证配置
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct AuthConfig {
     /// 管理端 API Key（用于 /api/clients, /api/status, /api/tasks 等）
     pub admin_api_key: Option<String>,
@@ -26,15 +27,6 @@ pub struct AuthConfig {
     pub enabled: bool,
 }
 
-impl Default for AuthConfig {
-    fn default() -> Self {
-        Self {
-            admin_api_key: None,
-            client_token: None,
-            enabled: false,
-        }
-    }
-}
 
 impl AuthConfig {
     /// 从环境变量加载配置

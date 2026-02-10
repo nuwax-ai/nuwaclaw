@@ -23,11 +23,9 @@ mod manager;
 mod rustdesk_transport;
 mod transport;
 
-pub use manager::{
-    PeerConnectionEvent, PeerConnectionManager, PeerConnectionState,
-};
+pub use manager::PeerConnectionManager;
 pub use rustdesk_transport::RustDeskTransport;
-pub use transport::{ConnectionInfo, Transport};
+pub use transport::Transport;
 
 #[cfg(test)]
 pub use transport::mock::MockTransport;

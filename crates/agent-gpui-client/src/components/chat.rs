@@ -193,16 +193,14 @@ impl ChatView {
 
         // 订阅输入状态事件
         let input_entity = input_state.read(cx).input.clone();
-        let _subscriptions = vec![
-            cx.subscribe_in(&input_entity, window, {
+        let _subscriptions = [cx.subscribe_in(&input_entity, window, {
                 move |this: &mut ChatView, _, ev: &InputEvent, window, cx| match ev {
                     InputEvent::PressEnter { secondary: false } if !this.state.is_generating() => {
                         this.send_message(window, cx);
                     }
                     _ => {}
                 }
-            }),
-        ];
+            })];
 
         Self { state, input_state }
     }
@@ -412,7 +410,7 @@ impl ChatView {
 impl EventEmitter<ChatViewEvent> for ChatView {}
 
 impl Render for ChatView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let is_generating = self.state.is_generating();
         let can_send = self.can_send(cx);
         let theme = cx.theme().clone();

@@ -57,7 +57,7 @@ impl PermissionsView {
         let vm = self.view_model.clone();
         cx.spawn(async move |view, cx| {
             vm.handle_action(PermissionsAction::Refresh).await;
-            cx.update(|cx| {
+            let _ = cx.update(|cx| {
                 if let Some(view) = view.upgrade() {
                     view.update(cx, |_view, cx| {
                         cx.emit(PermissionsEvent::Refreshed);

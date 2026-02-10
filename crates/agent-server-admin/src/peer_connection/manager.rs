@@ -252,8 +252,8 @@ impl<T: Transport + 'static> PeerConnectionManager<T> {
     ) -> BusinessEnvelope {
         let mut envelope = BusinessEnvelope::new();
         envelope.message_id = uuid::Uuid::new_v4().to_string();
-        envelope.type_ = message_type.into();
-        envelope.payload = payload.into();
+        envelope.type_ = message_type;
+        envelope.payload = payload;
         envelope.timestamp = chrono::Utc::now().timestamp_millis();
         envelope.source_id = source_id.to_string();
         envelope.target_id = target_id.to_string();
@@ -421,7 +421,7 @@ mod tests {
         manager.connect("peer-001", None).await.unwrap();
 
         let envelope = manager.create_envelope(
-            BusinessMessageType::AGENT_TASK_REQUEST,
+            BusinessMessageType::AgentTaskRequest,
             b"test payload".to_vec(),
             "admin-001",
             "peer-001",
@@ -443,7 +443,7 @@ mod tests {
         let manager = PeerConnectionManager::new(transport);
 
         let envelope = manager.create_envelope(
-            BusinessMessageType::AGENT_TASK_REQUEST,
+            BusinessMessageType::AgentTaskRequest,
             b"test".to_vec(),
             "admin-001",
             "peer-001",
@@ -460,7 +460,7 @@ mod tests {
         let manager = PeerConnectionManager::new(transport);
 
         let envelope = manager.create_envelope(
-            BusinessMessageType::AGENT_TASK_REQUEST,
+            BusinessMessageType::AgentTaskRequest,
             b"test payload".to_vec(),
             "admin-001",
             "client-001",
@@ -469,7 +469,7 @@ mod tests {
         assert!(!envelope.message_id.is_empty());
         assert_eq!(
             envelope.type_ as i32,
-            BusinessMessageType::AGENT_TASK_REQUEST as i32
+            BusinessMessageType::AgentTaskRequest as i32
         );
         assert_eq!(envelope.payload.as_slice(), b"test payload");
         assert_eq!(envelope.source_id, "admin-001");

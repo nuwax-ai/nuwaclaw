@@ -3,7 +3,7 @@
 //! 检测系统中已安装的 Node.js，支持自动下载安装
 
 use semver::Version;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -583,8 +583,8 @@ impl NodeInstaller {
 
     /// 解压文件
     #[cfg(feature = "dependency-management")]
-    async fn extract(&self, archive_path: &PathBuf) -> Result<(), NodeError> {
-        let archive_path = archive_path.clone();
+    async fn extract(&self, archive_path: &Path) -> Result<(), NodeError> {
+        let archive_path = archive_path.to_path_buf();
         let target_dir = self.target_dir.clone();
 
         tokio::task::spawn_blocking(move || {

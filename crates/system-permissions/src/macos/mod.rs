@@ -159,21 +159,6 @@ impl MacOSPermissionManager {
         }
     }
 
-    /// 检查文件系统权限
-    /// macOS 上非沙箱应用通常有完整文件访问权限
-    async fn check_file_system(&self, permission: SystemPermission) -> PermissionState {
-        // 对于 Tauri 应用，通常都有文件访问权限
-        // 真正的"完全磁盘访问"需要用户在系统偏好设置中手动授权
-        // 这里我们假设基本文件访问是可用的
-        PermissionState {
-            permission,
-            status: PermissionStatus::Authorized,
-            location_mode: None,
-            granted_at: Some(Utc::now()),
-            can_request: false,
-        }
-    }
-
     /// 检查其他权限
     async fn check_ide_and_extra(&self, permission: SystemPermission) -> PermissionState {
         PermissionState {
@@ -514,7 +499,7 @@ impl AVCaptureDevice {
         // For this fix, we will just call check() again which returns current status.
         // Properly implementing blocks in Rust is complex (requires `block` crate).
         // Given usage is often just "trigger prompt", let's try calling with null listener.
-        let _: () = msg_send![cls, requestAccessForMediaType: &*arg completionHandler: std::ptr::null_mut::<std::ffi::c_void>()];
+        let _: () = msg_send![cls, requestAccessForMediaType: &*arg, completionHandler: std::ptr::null_mut::<std::ffi::c_void>()];
     }
 }
 

@@ -147,7 +147,7 @@ impl Application {
             init_ui(cx);
 
             // 创建应用状态（从配置恢复 client_id）
-            let app_state = cx.new(|cx| {
+            let app_state = cx.new(|_cx| {
                 AppState::new(config.clone(), client_id.clone())
             });
 

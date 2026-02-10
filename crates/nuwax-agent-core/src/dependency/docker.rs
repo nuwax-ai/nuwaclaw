@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use super::detector::{DependencyDetector, DetectionResult, DetectorError};
 
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn test_docker_detector_creation() {
-        let detector = DockerDetector::new();
+        let _detector = DockerDetector::new();
         // 只测试创建
     }
 

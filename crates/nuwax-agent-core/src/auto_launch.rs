@@ -47,7 +47,7 @@ impl AutoLaunchManager {
             let launch_agents_dir = std::env::home_dir()
                 .ok_or_else(|| AutoLaunchError::EnableFailed("无法获取 home 目录".to_string()))?
                 .join("Library/LaunchAgents");
-            let plist_path = launch_agents_dir.join(&format!("com.nuwax.{}.plist", self.app_name));
+            let plist_path = launch_agents_dir.join(format!("com.nuwax.{}.plist", self.app_name));
 
             let plist_content = format!(
                 r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -75,7 +75,7 @@ impl AutoLaunchManager {
                 .map_err(|e| AutoLaunchError::EnableFailed(e.to_string()))?;
 
             Command::new("launchctl")
-                .args(&["load", "-w", &plist_path.to_string_lossy()])
+                .args(["load", "-w", &plist_path.to_string_lossy()])
                 .output()
                 .map_err(|e| AutoLaunchError::EnableFailed(e.to_string()))?;
         }
@@ -129,7 +129,7 @@ X-GNOME-Autostart-enabled=true
 
             if plist_path.exists() {
                 Command::new("launchctl")
-                    .args(&["unload", "-w", &plist_path.to_string_lossy()])
+                    .args(["unload", "-w", &plist_path.to_string_lossy()])
                     .output()
                     .ok();
                 std::fs::remove_file(&plist_path)
@@ -169,7 +169,7 @@ X-GNOME-Autostart-enabled=true
         {
             use std::process::Command;
             let output = Command::new("launchctl")
-                .args(&["list", &format!("com.nuwax.{}", self.app_name)])
+                .args(["list", &format!("com.nuwax.{}", self.app_name)])
                 .output()
                 .map_err(|e| AutoLaunchError::StatusCheckFailed(e.to_string()))?;
             Ok(output.status.success())

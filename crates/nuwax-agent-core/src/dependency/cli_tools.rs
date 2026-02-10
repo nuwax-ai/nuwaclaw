@@ -5,7 +5,6 @@
 use std::path::PathBuf;
 use std::process::Command;
 use thiserror::Error;
-use tracing::{debug, info};
 
 use super::detector::{DependencyDetector, DetectionResult, DetectorError};
 

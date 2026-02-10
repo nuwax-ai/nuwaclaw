@@ -2,13 +2,11 @@
 //!
 //! 与管理服务器进行通信
 
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use thiserror::Error;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
-use super::http_client::{HttpClient, HttpResponse};
+use super::http_client::HttpClient;
 
 /// 管理配置
 #[derive(Debug, Clone, Default)]
@@ -113,6 +111,7 @@ pub struct AdminClient<C: HttpClient> {
     /// 注册状态
     is_registered: bool,
     /// 待发送消息队列
+    #[allow(dead_code)]
     pending_messages: Vec<PendingMessage>,
 }
 
@@ -220,10 +219,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_admin_client_registration() {
-        let mut client: AdminClient<MockHttpClient> = AdminClient::with_config(AdminConfig::new("http://localhost:8080"));
+        let _client: AdminClient<MockHttpClient> = AdminClient::with_config(AdminConfig::new("http://localhost:8080"));
 
         // Mock 注册响应
-        let mock_http = MockHttpClient::new()
+        let _mock_http = MockHttpClient::new()
             .expect_response(MockResponse::ok(&RegistrationResponse {
                 success: true,
                 assigned_id: Some("test-id".to_string()),

@@ -111,6 +111,7 @@ impl DependencyManagerView {
     }
 
     /// 安装单个依赖
+    #[allow(dead_code)]
     fn install_dependency(&mut self, name: &str, cx: &mut Context<Self>) {
         // 更新本地状态
         if let Some(dep) = self.state.items.iter_mut().find(|d| d.display_name == name) {
@@ -246,6 +247,7 @@ impl DependencyManagerView {
     }
 
     /// 渲染依赖项
+    #[allow(dead_code)]
     fn render_dependency_item(
         &self,
         item: &UIDependencyItem,
