@@ -14,17 +14,14 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Button, Progress, Alert, Spin, Result } from "antd";
+import { Button, Progress, Alert, Spin } from "antd";
 import {
-  CloudDownloadOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
   LoadingOutlined,
   ExclamationCircleOutlined,
   ReloadOutlined,
   LinkOutlined,
-  LeftOutlined,
-  WifiOutlined,
   DisconnectOutlined,
 } from "@ant-design/icons";
 import { invoke } from "@tauri-apps/api/core";
@@ -86,7 +83,6 @@ type NetworkStatus = "checking" | "connected" | "disconnected";
 
 export default function SetupDependencies({
   onComplete,
-  onBack,
 }: SetupDependenciesProps) {
   const [allDependencies, setAllDependencies] = useState<
     UnifiedDependencyItem[]
@@ -106,6 +102,7 @@ export default function SetupDependencies({
   // 防止自动安装重复触发
   const nodeAutoInstallTriggered = useRef(false);
   const uvAutoInstallTriggered = useRef(false);
+  const projectInstallTriggered = useRef(false);
 
   const checkNetwork = useCallback(async () => {
     setNetworkStatus("checking");
@@ -262,6 +259,7 @@ export default function SetupDependencies({
         setInstallPhase("completed");
         setTimeout(() => onComplete(), 1500);
       } else {
+        // 系统依赖就绪，自动安装项目依赖（npm-global 等）
         setInstallPhase("ready");
       }
     } catch (error) {
@@ -421,6 +419,18 @@ export default function SetupDependencies({
     }
   };
 
+  // 系统依赖就绪后，自动触发项目依赖安装
+  useEffect(() => {
+    if (
+      installPhase === "ready" &&
+      !projectInstallTriggered.current &&
+      networkStatus === "connected"
+    ) {
+      projectInstallTriggered.current = true;
+      handleStartInstall();
+    }
+  }, [installPhase, networkStatus]);
+
   const getStatusIcon = (item: UnifiedDependencyItem) => {
     switch (item.status) {
       case "installed":
@@ -448,17 +458,7 @@ export default function SetupDependencies({
   const stats = {
     total: allDependencies.length,
     ready: allDependencies.filter((d) => d.status === "installed").length,
-    systemReady: allDependencies.filter(
-      (d) => d.type === "system" && d.status === "installed",
-    ).length,
-    systemTotal: allDependencies.filter((d) => d.type === "system").length,
   };
-  const systemAllReady =
-    stats.systemTotal > 0 && stats.systemTotal === stats.systemReady;
-  const allReady = stats.total > 0 && stats.total === stats.ready;
-  const pendingCount = allDependencies.filter(
-    (d) => d.status !== "installed",
-  ).length;
 
   const displayDeps = showAll
     ? allDependencies
@@ -588,62 +588,69 @@ export default function SetupDependencies({
     </div>
   );
 
-  // Checking
-  if (installPhase === "checking") {
-    return (
-      <div>
-        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
-          依赖安装
-        </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "8px 10px",
-            background: "#f4f4f5",
-            borderRadius: 6,
-            fontSize: 12,
-          }}
-        >
-          <Spin size="small" />
-          <span>正在检测依赖环境...</span>
-        </div>
-      </div>
-    );
-  }
+  // ========== 渲染 ==========
 
-  // Node auto-installing
-  if (installPhase === "node-installing") {
+  // 判断是否为错误/需要用户介入的阶段
+  const isErrorPhase =
+    installPhase === "node-install-failed" ||
+    installPhase === "uv-install-failed" ||
+    installPhase === "system-deps-missing" ||
+    installPhase === "error";
+
+  // 正常自动流程：只显示 loading + 状态文字
+  if (!isErrorPhase) {
+    const phaseText: Record<string, string> = {
+      checking: "正在检测依赖环境...",
+      "node-installing": "正在自动安装 Node.js...",
+      "uv-installing": "正在自动安装 uv...",
+      ready: "正在准备安装项目依赖...",
+      installing: currentInstalling
+        ? `正在安装 ${currentInstalling}...`
+        : "正在安装依赖...",
+      completed: "所有依赖已就绪",
+    };
+
     return (
       <div>
-        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
-          依赖安装
-        </div>
         <div
           style={{
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            gap: 12,
-            padding: "24px 16px",
-            background: "#f4f4f5",
-            borderRadius: 8,
+            gap: 16,
+            padding: "40px 16px",
           }}
         >
-          <Spin size="large" />
-          <div style={{ fontSize: 13, fontWeight: 500 }}>
-            正在自动安装 Node.js...
+          {installPhase === "completed" ? (
+            <CheckCircleOutlined style={{ fontSize: 40, color: "#16a34a" }} />
+          ) : (
+            <Spin size="large" />
+          )}
+          <div style={{ fontSize: 14, fontWeight: 500 }}>
+            {phaseText[installPhase] || "启动中..."}
           </div>
-          <div style={{ fontSize: 12, color: "#71717a", textAlign: "center" }}>
-            正在从内置资源安装 Node.js 运行时，请稍候
-          </div>
+          {installPhase === "installing" && (
+            <div style={{ width: "100%", maxWidth: 300 }}>
+              <Progress
+                size="small"
+                percent={installProgress}
+                status="active"
+              />
+            </div>
+          )}
+          {installPhase === "completed" && (
+            <div style={{ fontSize: 12, color: "#71717a" }}>
+              正在进入下一步...
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
-  // Node auto-install failed
+  // ========== 错误/需要用户介入的阶段：展示完整依赖列表 ==========
+
+  // Node 安装失败
   if (installPhase === "node-install-failed") {
     return (
       <div>
@@ -688,37 +695,7 @@ export default function SetupDependencies({
     );
   }
 
-  // uv auto-installing
-  if (installPhase === "uv-installing") {
-    return (
-      <div>
-        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
-          依赖安装
-        </div>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 12,
-            padding: "24px 16px",
-            background: "#f4f4f5",
-            borderRadius: 8,
-          }}
-        >
-          <Spin size="large" />
-          <div style={{ fontSize: 13, fontWeight: 500 }}>
-            正在自动安装 uv...
-          </div>
-          <div style={{ fontSize: 12, color: "#71717a", textAlign: "center" }}>
-            正在从内置资源安装 uv 包管理器，请稍候
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // uv auto-install failed
+  // uv 安装失败
   if (installPhase === "uv-install-failed") {
     return (
       <div>
@@ -767,25 +744,7 @@ export default function SetupDependencies({
     );
   }
 
-  // Completed
-  if (installPhase === "completed") {
-    return (
-      <div>
-        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
-          依赖安装
-        </div>
-        {renderDependencyList()}
-        <Result
-          icon={<CheckCircleOutlined style={{ color: "#16a34a" }} />}
-          title="所有依赖已就绪"
-          subTitle="正在进入主界面..."
-          extra={<Spin size="small" />}
-        />
-      </div>
-    );
-  }
-
-  // Error
+  // 通用错误（npm 安装失败等）
   if (installPhase === "error") {
     return (
       <div>
@@ -801,8 +760,21 @@ export default function SetupDependencies({
           style={{ marginBottom: 12 }}
         />
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <Button onClick={() => setInstallPhase("checking")}>重新检测</Button>
-          <Button type="primary" onClick={handleStartInstall}>
+          <Button
+            onClick={() => {
+              projectInstallTriggered.current = false;
+              setInstallPhase("checking");
+            }}
+          >
+            重新检测
+          </Button>
+          <Button
+            type="primary"
+            onClick={() => {
+              projectInstallTriggered.current = false;
+              handleStartInstall();
+            }}
+          >
             重试安装
           </Button>
         </div>
@@ -810,34 +782,14 @@ export default function SetupDependencies({
     );
   }
 
-  // Ready or system-deps-missing
+  // system-deps-missing：系统依赖缺失
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          marginBottom: 16,
-        }}
-      >
-        {onBack && (
-          <Button
-            type="text"
-            size="small"
-            icon={<LeftOutlined />}
-            onClick={onBack}
-          />
-        )}
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 500 }}>依赖安装</div>
-          <div style={{ fontSize: 12, color: "#a1a1aa" }}>
-            检测并安装运行所需的依赖
-          </div>
-        </div>
+      <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
+        依赖安装
       </div>
 
-      {networkStatus === "disconnected" && !allReady && (
+      {networkStatus === "disconnected" && (
         <Alert
           message="网络不可用"
           description={
@@ -862,42 +814,13 @@ export default function SetupDependencies({
       )}
 
       <Alert
-        message={
-          !systemAllReady
-            ? "请先安装所需系统依赖，然后点击「重新检测」"
-            : allReady
-              ? "所有依赖已就绪"
-              : networkStatus === "connected"
-                ? "系统依赖已就绪，点击「开始安装」"
-                : "系统依赖已就绪，等待网络连接"
-        }
-        type={systemAllReady ? (allReady ? "success" : "info") : "warning"}
+        message="请安装所需系统依赖，然后点击「重新检测」"
+        type="warning"
         showIcon
-        icon={
-          networkStatus === "connected" || allReady ? undefined : (
-            <WifiOutlined />
-          )
-        }
         style={{ marginBottom: 12 }}
       />
 
       {renderDependencyList()}
-
-      {installPhase === "installing" && (
-        <div
-          style={{
-            padding: "8px 10px",
-            background: "#f4f4f5",
-            borderRadius: 6,
-            marginBottom: 12,
-          }}
-        >
-          <div style={{ fontSize: 12, marginBottom: 4 }}>
-            {currentInstalling ? `正在安装 ${currentInstalling}` : "准备安装"}
-          </div>
-          <Progress size="small" percent={installProgress} status="active" />
-        </div>
-      )}
 
       <div
         style={{
@@ -911,21 +834,15 @@ export default function SetupDependencies({
         <Button
           size="small"
           icon={<ReloadOutlined />}
-          onClick={() => setInstallPhase("checking")}
+          onClick={() => {
+            nodeAutoInstallTriggered.current = false;
+            uvAutoInstallTriggered.current = false;
+            projectInstallTriggered.current = false;
+            setInstallPhase("checking");
+          }}
         >
           重新检测
         </Button>
-        {systemAllReady && !allReady && installPhase !== "installing" && (
-          <Button
-            type="primary"
-            size="small"
-            icon={<CloudDownloadOutlined />}
-            onClick={handleStartInstall}
-            disabled={networkStatus !== "connected"}
-          >
-            开始安装 ({pendingCount})
-          </Button>
-        )}
       </div>
     </div>
   );
