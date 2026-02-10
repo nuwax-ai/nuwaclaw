@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 use async_trait::async_trait;
 
 use super::super::api::traits::status_bar::{
-    StatusBarApi, UIConnectionState, UIConnectionMode, UIAgentState,
+    StatusBarApi, UIAgentState, UIConnectionMode, UIConnectionState,
 };
 
 /// 状态栏状态

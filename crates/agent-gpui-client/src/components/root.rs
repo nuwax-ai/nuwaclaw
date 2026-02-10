@@ -6,23 +6,29 @@ use std::sync::Arc;
 
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Icon, IconName, Side, Sizable, button::{Button, ButtonVariants}, h_flex,
-    scroll::ScrollableElement as _, sidebar::{Sidebar, SidebarGroup, SidebarMenu, SidebarMenuItem}, v_flex,
+    button::{Button, ButtonVariants},
+    h_flex,
+    scroll::ScrollableElement as _,
+    sidebar::{Sidebar, SidebarGroup, SidebarMenu, SidebarMenuItem},
+    v_flex, ActiveTheme, Icon, IconName, Side, Sizable,
 };
 
 use crate::app::{AppEvent, AppState};
+#[cfg(feature = "chat-ui")]
+use crate::components::chat::ChatView;
 use crate::components::client_info::{ClientInfoEvent, ClientInfoView};
 use crate::components::dependency_manager::DependencyManagerView;
 use crate::components::permissions::{PermissionsEvent, PermissionsView};
 #[cfg(feature = "remote-desktop")]
 use crate::components::remote_desktop::RemoteDesktopView;
-#[cfg(feature = "chat-ui")]
-use crate::components::chat::ChatView;
 use crate::components::settings::{SettingsPage, SettingsView};
 use crate::components::status_bar::StatusBarView;
+use crate::viewmodels::{
+    ClientInfoViewModel, DependencyViewModel, PermissionsViewModel, SettingsViewModel,
+    StatusBarViewModel, UIConnectionState,
+};
 use nuwax_agent_core::permissions::PermissionManager;
 use nuwax_agent_core::utils::notification::Notification;
-use crate::viewmodels::{ClientInfoViewModel, DependencyViewModel, PermissionsViewModel, SettingsViewModel, StatusBarViewModel, UIConnectionState};
 
 /// Tab 页面类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -285,21 +291,17 @@ impl RootView {
 
         Sidebar::new(Side::Left)
             .w(px(140.0))
-            .child(
-                SidebarGroup::new("导航").child(
-                    SidebarMenu::new().children(
-                        TabPage::all().into_iter().map(|tab| {
-                            let is_active = tab == active_tab;
-                            SidebarMenuItem::new(tab.label())
-                                .icon(Icon::new(tab.icon()).small())
-                                .active(is_active)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.switch_tab(tab, cx);
-                                }))
-                        }),
-                    ),
-                ),
-            )
+            .child(SidebarGroup::new("导航").child(SidebarMenu::new().children(
+                TabPage::all().into_iter().map(|tab| {
+                    let is_active = tab == active_tab;
+                    SidebarMenuItem::new(tab.label())
+                        .icon(Icon::new(tab.icon()).small())
+                        .active(is_active)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.switch_tab(tab, cx);
+                        }))
+                }),
+            )))
     }
 
     /// 渲染内容区
@@ -537,9 +539,7 @@ impl RootView {
                 Ok(log_content) => {
                     let _ = cx.update(|cx| {
                         app_state.update(cx, |state, _cx| {
-                            state.show_notification(Notification::success(
-                                "日志导出功能开发中",
-                            ));
+                            state.show_notification(Notification::success("日志导出功能开发中"));
                         });
                     });
                     tracing::info!("Logs exported, size: {} bytes", log_content.len());
@@ -577,9 +577,7 @@ impl RootView {
 
                     let _ = cx.update(|cx| {
                         app_state.update(cx, |state, _cx| {
-                            state.show_notification(Notification::success(
-                                "日志上报功能开发中",
-                            ));
+                            state.show_notification(Notification::success("日志上报功能开发中"));
                         });
                     });
                     tracing::info!("Log upload triggered, size: {} bytes", log_content.len());
@@ -605,14 +603,13 @@ impl RootView {
             .ok_or_else(|| "无法获取数据目录".to_string())?
             .join("nuwax-agent");
 
-        let entries = std::fs::read_dir(&log_dir)
-            .map_err(|e| format!("无法读取日志目录: {}", e))?;
+        let entries =
+            std::fs::read_dir(&log_dir).map_err(|e| format!("无法读取日志目录: {}", e))?;
 
         let mut log_files: Vec<_> = entries
             .filter_map(|e| e.ok())
             .filter(|e| {
-                e.path().is_file() &&
-                    e.file_name().to_string_lossy().starts_with("nuwax-agent")
+                e.path().is_file() && e.file_name().to_string_lossy().starts_with("nuwax-agent")
             })
             .collect();
 
@@ -623,8 +620,7 @@ impl RootView {
         log_files.sort_by_key(|e| e.path());
         if let Some(latest_log) = log_files.last() {
             let log_path = latest_log.path();
-            std::fs::read_to_string(&log_path)
-                .map_err(|e| format!("无法读取日志文件: {}", e))
+            std::fs::read_to_string(&log_path).map_err(|e| format!("无法读取日志文件: {}", e))
         } else {
             Err("未找到日志文件".to_string())
         }
@@ -636,24 +632,17 @@ impl Render for RootView {
         let theme = cx.theme();
 
         // 使用 Flex 布局：侧边栏 + 内容区，状态栏固定在底部（整行）
-        div()
-            .size_full()
-            .bg(theme.background)
-            .child(
-                v_flex()
-                    .size_full()
-                    .child(
-                        h_flex()
-                            .flex_1()
-                            .overflow_hidden()
-                            .child(self.render_sidebar(window, cx))
-                            .child(self.render_content(window, cx)),
-                    )
-                    .child(
-                        div()
-                            .w_full()
-                            .child(self.status_bar.clone()),
-                    ),
-            )
+        div().size_full().bg(theme.background).child(
+            v_flex()
+                .size_full()
+                .child(
+                    h_flex()
+                        .flex_1()
+                        .overflow_hidden()
+                        .child(self.render_sidebar(window, cx))
+                        .child(self.render_content(window, cx)),
+                )
+                .child(div().w_full().child(self.status_bar.clone())),
+        )
     }
 }

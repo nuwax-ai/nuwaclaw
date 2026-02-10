@@ -4,18 +4,15 @@
 
 use std::sync::Arc;
 
+use gpui::SharedString;
 use gpui::*;
-use gpui::{
-    SharedString,
-};
 use gpui_component::{
     alert::Alert,
     button::{Button, ButtonVariants},
-    Disableable,
-    h_flex, v_flex,
+    h_flex,
     scroll::ScrollableElement as _,
     tag::Tag,
-    ActiveTheme, Icon, IconName, Sizable,
+    v_flex, ActiveTheme, Disableable, Icon, IconName, Sizable,
 };
 
 use crate::viewmodels::{
@@ -137,13 +134,11 @@ impl PermissionsView {
                                 .text_color(theme.foreground)
                                 .child(perm.display_name.clone()),
                         )
-                        .child(
-                            if can_grant {
-                                Tag::danger().outline().child("需授权")
-                            } else {
-                                Tag::secondary().outline().child("已授权")
-                            }
-                        ),
+                        .child(if can_grant {
+                            Tag::danger().outline().child("需授权")
+                        } else {
+                            Tag::secondary().outline().child("已授权")
+                        }),
                 )
                 .child(status_tag.child(status.label())),
         );
@@ -164,43 +159,36 @@ impl PermissionsView {
         let grant_button_id: SharedString = format!("grant-{}", perm_name).into();
         let revoke_button_id: SharedString = format!("revoke-{}", perm_name_revoke).into();
 
-        card = card.child(
-            h_flex()
-                .justify_end()
-                .gap_2()
-                .child(
-                    if can_grant {
-                        Button::new(grant_button_id)
-                            .label("去授权")
-                            .small()
-                            .primary()
-                            .on_click(cx.listener(move |_, _, _window, cx| {
-                                tracing::info!("点击去授权按钮: {}", perm_name);
-                                cx.emit(PermissionsEvent::OpenSettings(perm_name.clone()));
-                            }))
-                    } else if is_granted {
-                        Button::new(revoke_button_id)
-                            .label("撤销")
-                            .small()
-                            .ghost()
-                            .on_click(cx.listener(move |this, _, _window, cx| {
-                                let name = perm_name_revoke.clone();
-                                let vm = this.view_model.clone();
-                                cx.spawn(async move |_view, _cx| {
-                                    vm.handle_action(PermissionsAction::Revoke(name)).await;
-                                })
-                                .detach();
-                            }))
-                    } else {
-                        let unavailable_button_id: SharedString = format!("unavailable-{}", perm.name).into();
-                        Button::new(unavailable_button_id)
-                            .label("不可用")
-                            .small()
-                            .ghost()
-                            .disabled(true)
-                    }
-                ),
-        );
+        card = card.child(h_flex().justify_end().gap_2().child(if can_grant {
+            Button::new(grant_button_id)
+                .label("去授权")
+                .small()
+                .primary()
+                .on_click(cx.listener(move |_, _, _window, cx| {
+                    tracing::info!("点击去授权按钮: {}", perm_name);
+                    cx.emit(PermissionsEvent::OpenSettings(perm_name.clone()));
+                }))
+        } else if is_granted {
+            Button::new(revoke_button_id)
+                .label("撤销")
+                .small()
+                .ghost()
+                .on_click(cx.listener(move |this, _, _window, cx| {
+                    let name = perm_name_revoke.clone();
+                    let vm = this.view_model.clone();
+                    cx.spawn(async move |_view, _cx| {
+                        vm.handle_action(PermissionsAction::Revoke(name)).await;
+                    })
+                    .detach();
+                }))
+        } else {
+            let unavailable_button_id: SharedString = format!("unavailable-{}", perm.name).into();
+            Button::new(unavailable_button_id)
+                .label("不可用")
+                .small()
+                .ghost()
+                .disabled(true)
+        }));
 
         card
     }
@@ -219,11 +207,9 @@ impl PermissionsView {
         };
 
         if granted == total {
-            Alert::success("permissions-summary", message.clone())
-                .title("权限正常")
+            Alert::success("permissions-summary", message.clone()).title("权限正常")
         } else {
-            Alert::warning("permissions-summary", message.clone())
-                .title("权限提醒")
+            Alert::warning("permissions-summary", message.clone()).title("权限提醒")
         }
     }
 }
@@ -244,19 +230,16 @@ impl Render for PermissionsView {
                     .child("权限设置"),
             )
             .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        Button::new("refresh-permissions")
-                            .label("刷新")
-                            .icon(Icon::new(IconName::Redo).small())
-                            .small()
-                            .ghost()
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.refresh(cx);
-                            })),
-                    ),
+                h_flex().gap_2().items_center().child(
+                    Button::new("refresh-permissions")
+                        .label("刷新")
+                        .icon(Icon::new(IconName::Redo).small())
+                        .small()
+                        .ghost()
+                        .on_click(cx.listener(|this, _, _window, cx| {
+                            this.refresh(cx);
+                        })),
+                ),
             );
 
         // 使用 flex 布局确保滚动容器正确计算高度
@@ -276,10 +259,9 @@ impl Render for PermissionsView {
                     .pb_48()
                     .child(
                         v_flex().gap_3().children(
-                            state
-                                .items
-                                .iter()
-                                .map(|perm| self.render_permission_card(perm, cx).into_any_element()),
+                            state.items.iter().map(|perm| {
+                                self.render_permission_card(perm, cx).into_any_element()
+                            }),
                         ),
                     ),
             )

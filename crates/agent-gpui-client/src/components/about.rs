@@ -2,7 +2,7 @@
 
 use gpui::*;
 use gpui_component::button::Button;
-use gpui_component::{ActiveTheme, Icon, IconName, Sizable, h_flex, v_flex};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable};
 
 /// 关于页面视图
 pub struct AboutView {

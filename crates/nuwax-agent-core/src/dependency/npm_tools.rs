@@ -78,14 +78,13 @@ impl NpmToolInstaller {
             }
 
             // 方式 2: 使用 brew --prefix 检测
-            let output = Command::new("brew")
-                .args(["--prefix", executable])
-                .output();
+            let output = Command::new("brew").args(["--prefix", executable]).output();
 
             match output {
                 Ok(output) if output.status.success() => {
                     let prefix = String::from_utf8_lossy(&output.stdout);
-                    !prefix.trim().is_empty() && std::path::Path::new(prefix.trim().trim_end_matches('/')).exists()
+                    !prefix.trim().is_empty()
+                        && std::path::Path::new(prefix.trim().trim_end_matches('/')).exists()
                 }
                 _ => false,
             }
@@ -133,9 +132,7 @@ impl NpmToolInstaller {
 
     /// 获取 Claude CLI 版本
     fn get_claude_version(&self) -> Option<String> {
-        let output = Command::new("claude")
-            .args(["--version"])
-            .output();
+        let output = Command::new("claude").args(["--version"]).output();
 
         match output {
             Ok(output) if output.status.success() => {

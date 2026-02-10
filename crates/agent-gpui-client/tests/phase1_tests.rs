@@ -4,7 +4,7 @@
 
 #[cfg(test)]
 mod config_tests {
-    use nuwax_agent::core::config::{AppConfig, ServerConfig, GeneralConfig, LoggingConfig};
+    use nuwax_agent::core::config::{AppConfig, GeneralConfig, LoggingConfig, ServerConfig};
 
     #[test]
     fn test_default_config() {
@@ -221,7 +221,7 @@ mod password_tests {
 
 #[cfg(test)]
 mod platform_tests {
-    use nuwax_agent::core::platform::{platform_name, get_machine_id};
+    use nuwax_agent::core::platform::{get_machine_id, platform_name};
 
     #[test]
     fn test_platform_name() {

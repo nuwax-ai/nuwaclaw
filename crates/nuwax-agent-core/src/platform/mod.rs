@@ -40,6 +40,10 @@ pub fn get_machine_id() -> Option<String> {
 }
 
 /// 检查指定端口是否可用（未被占用）
+///
+/// 使用 TcpListener 尝试绑定端口。
+/// 注意：由于 TcpListener 不支持在绑定前设置 SO_REUSEADDR，
+/// 测试中调用方应在释放端口后等待短暂时间再检查。
 pub fn check_port_available(port: u16) -> bool {
     std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
 }
@@ -75,12 +79,18 @@ mod tests {
 
     #[test]
     fn test_check_port_available_on_unused_port() {
-        // 端口 0 让 OS 分配一个空闲端口，先绑定拿到端口号，再释放，再检查
+        // 获取一个临时端口（由 OS 分配）
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
+
+        // 释放端口
         drop(listener);
-        // 释放后端口应该可用
-        assert!(check_port_available(port));
+
+        // 短暂延迟让操作系统完成端口状态转换
+        std::thread::sleep(std::time::Duration::from_millis(1));
+
+        // 检查端口是否可用
+        assert!(check_port_available(port), "端口 {} 应该可用", port);
     }
 
     #[test]

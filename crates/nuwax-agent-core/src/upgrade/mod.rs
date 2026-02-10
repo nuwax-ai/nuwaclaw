@@ -39,7 +39,8 @@ impl UpgradeManager {
     /// 创建新的升级管理器
     pub fn new() -> Self {
         let current_version = env!("CARGO_PKG_VERSION").to_string();
-        let check_url = "https://api.github.com/repos/nuwax/nuwax-agent/releases/latest".to_string();
+        let check_url =
+            "https://api.github.com/repos/nuwax/nuwax-agent/releases/latest".to_string();
 
         Self {
             checker: VersionChecker::new(current_version, check_url),
@@ -74,7 +75,10 @@ impl UpgradeManager {
     /// 检查更新
     pub async fn check_update(&mut self) -> Result<bool, UpgradeError> {
         self.status = UpdateStatus::Checking;
-        info!("Checking for updates... current: {}", self.checker.current_version());
+        info!(
+            "Checking for updates... current: {}",
+            self.checker.current_version()
+        );
 
         // 获取最新版本信息
         match self.checker.fetch_latest_version().await {
@@ -82,7 +86,11 @@ impl UpgradeManager {
                 let has_update = self.checker.compare_versions(&version_info.version);
 
                 if has_update {
-                    info!("Update available: {} -> {}", self.checker.current_version(), version_info.version);
+                    info!(
+                        "Update available: {} -> {}",
+                        self.checker.current_version(),
+                        version_info.version
+                    );
                     self.status = UpdateStatus::UpdateAvailable(version_info.version.clone());
                     self.latest_version = Some(version_info);
                 } else {
@@ -101,7 +109,9 @@ impl UpgradeManager {
 
     /// 下载更新
     pub async fn download(&mut self) -> Result<PathBuf, UpgradeError> {
-        let version_info = self.latest_version.as_ref()
+        let version_info = self
+            .latest_version
+            .as_ref()
             .ok_or_else(|| UpgradeError::DownloadFailed("No version info available".to_string()))?;
 
         self.status = UpdateStatus::Downloading(0);
@@ -116,7 +126,9 @@ impl UpgradeManager {
 
     /// 安装更新（平台特定）
     pub async fn install(&self) -> Result<(), UpgradeError> {
-        let download_path = self.download_path.as_ref()
+        let download_path = self
+            .download_path
+            .as_ref()
             .ok_or_else(|| UpgradeError::InstallFailed("No download available".to_string()))?;
 
         Installer::install(download_path).await
@@ -146,10 +158,7 @@ mod tests {
 
     #[test]
     fn test_version_comparison() {
-        let checker = VersionChecker::new(
-            env!("CARGO_PKG_VERSION").to_string(),
-            "".to_string(),
-        );
+        let checker = VersionChecker::new(env!("CARGO_PKG_VERSION").to_string(), "".to_string());
 
         // 远程版本更新
         assert!(checker.compare_versions("99.0.0"));

@@ -1,9 +1,9 @@
 //! Agent 管理 API
 
 use axum::{
-    Json,
     extract::{Path, State},
     http::StatusCode,
+    Json,
 };
 use tracing::info;
 

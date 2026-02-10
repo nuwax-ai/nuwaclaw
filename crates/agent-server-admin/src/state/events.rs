@@ -21,15 +21,9 @@ pub enum ServerEvent {
         payload: String,
     },
     /// 任务创建
-    TaskCreated {
-        task_id: String,
-        client_id: String,
-    },
+    TaskCreated { task_id: String, client_id: String },
     /// 任务开始执行
-    TaskStarted {
-        task_id: String,
-        client_id: String,
-    },
+    TaskStarted { task_id: String, client_id: String },
     /// 任务进度更新
     TaskProgress {
         task_id: String,

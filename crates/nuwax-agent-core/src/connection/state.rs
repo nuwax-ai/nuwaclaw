@@ -3,7 +3,7 @@
 //! 管理与 data-server 的连接状态
 
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tracing::{debug, error, info, warn};
 
 use super::adapter::{AdapterEvent, ConnectionAdapter, RustDeskAdapter};
@@ -20,8 +20,7 @@ pub enum ConnectionMode {
 }
 
 /// 连接状态
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum ConnectionState {
     /// 已断开
     #[default]
@@ -37,7 +36,6 @@ pub enum ConnectionState {
     /// 错误
     Error(String),
 }
-
 
 /// 连接状态变化事件
 #[derive(Debug, Clone)]
@@ -482,8 +480,7 @@ mod tests {
             hbbr_addr: "custom.hbbr:21117".to_string(),
         };
 
-        let manager =
-            ConnectionManager::with_adapter_factory(config.clone(), MockAdapter::new);
+        let manager = ConnectionManager::with_adapter_factory(config.clone(), MockAdapter::new);
 
         assert_eq!(manager.config().hbbs_addr, "custom.hbbs:21116");
         assert_eq!(manager.config().hbbr_addr, "custom.hbbr:21117");

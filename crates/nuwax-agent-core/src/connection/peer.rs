@@ -225,18 +225,27 @@ impl PeerConnection {
             // 注意: P2P 连接功能需要完整的 Interface trait 实现
             // 当前实现不完整，返回错误
             self.running.store(false, Ordering::SeqCst);
-            let _ = self.event_tx.send(PeerConnectionEvent::Error {
-                message: "Peer connection not fully implemented".to_string(),
-            }).await;
-            Err("Peer connection not fully implemented. Requires Interface trait implementation.".to_string())
+            let _ = self
+                .event_tx
+                .send(PeerConnectionEvent::Error {
+                    message: "Peer connection not fully implemented".to_string(),
+                })
+                .await;
+            Err(
+                "Peer connection not fully implemented. Requires Interface trait implementation."
+                    .to_string(),
+            )
         }
 
         #[cfg(not(feature = "remote-desktop"))]
         {
             self.running.store(false, Ordering::SeqCst);
-            let _ = self.event_tx.send(PeerConnectionEvent::Error {
-                message: "remote-desktop feature not enabled".to_string(),
-            }).await;
+            let _ = self
+                .event_tx
+                .send(PeerConnectionEvent::Error {
+                    message: "remote-desktop feature not enabled".to_string(),
+                })
+                .await;
             Err("remote-desktop feature not enabled".to_string())
         }
     }
@@ -341,17 +350,36 @@ impl PeerConnection {
     }
 
     /// 发送鼠标点击
-    pub async fn send_mouse_click(&self, button: MouseButton, x: i32, y: i32) -> Result<(), String> {
-        self.send_input(InputEvent::MouseDown { button, x, y }).await?;
+    pub async fn send_mouse_click(
+        &self,
+        button: MouseButton,
+        x: i32,
+        y: i32,
+    ) -> Result<(), String> {
+        self.send_input(InputEvent::MouseDown { button, x, y })
+            .await?;
         self.send_input(InputEvent::MouseUp { button, x, y }).await
     }
 
     /// 发送键盘事件
-    pub async fn send_key(&self, key_code: u32, modifiers: u32, pressed: bool) -> Result<(), String> {
+    pub async fn send_key(
+        &self,
+        key_code: u32,
+        modifiers: u32,
+        pressed: bool,
+    ) -> Result<(), String> {
         if pressed {
-            self.send_input(InputEvent::KeyDown { key_code, modifiers }).await
+            self.send_input(InputEvent::KeyDown {
+                key_code,
+                modifiers,
+            })
+            .await
         } else {
-            self.send_input(InputEvent::KeyUp { key_code, modifiers }).await
+            self.send_input(InputEvent::KeyUp {
+                key_code,
+                modifiers,
+            })
+            .await
         }
     }
 }

@@ -34,7 +34,8 @@ impl VersionChecker {
 
             if !response.status().is_success() {
                 return Err(UpgradeError::CheckFailed(format!(
-                    "HTTP {}", response.status()
+                    "HTTP {}",
+                    response.status()
                 )));
             }
 
@@ -68,12 +69,17 @@ impl VersionChecker {
         }
 
         #[cfg(not(feature = "dependency-management"))]
-        Err(UpgradeError::CheckFailed("HTTP client not available (enable dependency-management feature)".to_string()))
+        Err(UpgradeError::CheckFailed(
+            "HTTP client not available (enable dependency-management feature)".to_string(),
+        ))
     }
 
     /// 从 GitHub release 中查找当前平台的资产
     #[cfg(feature = "dependency-management")]
-    fn find_platform_asset(&self, release: &serde_json::Value) -> Result<(String, u64, String), UpgradeError> {
+    fn find_platform_asset(
+        &self,
+        release: &serde_json::Value,
+    ) -> Result<(String, u64, String), UpgradeError> {
         let os = std::env::consts::OS;
         let arch = std::env::consts::ARCH;
 
@@ -83,9 +89,12 @@ impl VersionChecker {
             ("windows", "x86_64") => "windows-x64",
             ("linux", "x86_64") => "linux-x64",
             ("linux", "aarch64") => "linux-arm64",
-            _ => return Err(UpgradeError::CheckFailed(format!(
-                "Unsupported platform: {}/{}", os, arch
-            ))),
+            _ => {
+                return Err(UpgradeError::CheckFailed(format!(
+                    "Unsupported platform: {}/{}",
+                    os, arch
+                )))
+            }
         };
 
         let assets = release["assets"]
@@ -105,7 +114,8 @@ impl VersionChecker {
         }
 
         Err(UpgradeError::CheckFailed(format!(
-            "No asset found for platform: {}", platform_suffix
+            "No asset found for platform: {}",
+            platform_suffix
         )))
     }
 

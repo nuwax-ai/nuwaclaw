@@ -2,12 +2,12 @@
 //!
 //! 在基础连接之上建立业务数据通道，用于传输 Agent 任务数据
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock, broadcast};
 use thiserror::Error;
-use tracing::{info, warn, debug};
-use serde::{Serialize, Deserialize};
+use tokio::sync::{broadcast, mpsc, RwLock};
+use tracing::{debug, info, warn};
 
 /// 业务通道 ID
 pub const BUSINESS_CHANNEL_ID: u32 = 0xB1F;
@@ -47,7 +47,6 @@ pub enum BusinessMessageType {
     /// 自定义
     BusinessCustom = 99,
 }
-
 
 impl From<BusinessMessageType> for i32 {
     fn from(val: BusinessMessageType) -> Self {
@@ -150,8 +149,7 @@ impl BusinessEnvelope {
 
     /// 序列化为字节
     pub fn to_bytes(&self) -> Result<Vec<u8>, ChannelError> {
-        serde_json::to_vec(self)
-            .map_err(|e| ChannelError::SerializationFailed(e.to_string()))
+        serde_json::to_vec(self).map_err(|e| ChannelError::SerializationFailed(e.to_string()))
     }
 
     /// 从字节反序列化
@@ -236,8 +234,7 @@ impl BusinessMessage {
 
     /// 序列化为字节
     pub fn to_bytes(&self) -> Result<Vec<u8>, ChannelError> {
-        serde_json::to_vec(self)
-            .map_err(|e| ChannelError::SerializationFailed(e.to_string()))
+        serde_json::to_vec(self).map_err(|e| ChannelError::SerializationFailed(e.to_string()))
     }
 
     /// 从字节反序列化
@@ -301,7 +298,11 @@ impl BusinessChannel {
     }
 
     /// 设置连接状态
-    pub async fn set_connected(&mut self, connected: bool, tx: Option<mpsc::Sender<BusinessMessage>>) {
+    pub async fn set_connected(
+        &mut self,
+        connected: bool,
+        tx: Option<mpsc::Sender<BusinessMessage>>,
+    ) {
         *self.connected.write().await = connected;
         self.tx = tx;
 
@@ -325,7 +326,8 @@ impl BusinessChannel {
         }
 
         if let Some(ref tx) = self.tx {
-            tx.send(message).await
+            tx.send(message)
+                .await
                 .map_err(|e| ChannelError::SendFailed(e.to_string()))?;
             Ok(())
         } else {

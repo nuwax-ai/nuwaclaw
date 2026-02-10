@@ -109,19 +109,11 @@ impl<T: Transport + 'static> MessageDispatcher for P2PDispatcher<T> {
             .map_err(|e| anyhow::anyhow!("Failed to serialize payload: {}", e))?;
 
         // 创建信封并发送
-        let self_id = self
-            .bridge_self_id
-            .read()
-            .await
-            .clone()
-            .unwrap_or_default();
+        let self_id = self.bridge_self_id.read().await.clone().unwrap_or_default();
 
-        let envelope = self.peer_connections.create_envelope(
-            message_type,
-            payload_bytes,
-            &self_id,
-            client_id,
-        );
+        let envelope =
+            self.peer_connections
+                .create_envelope(message_type, payload_bytes, &self_id, client_id);
 
         let message_id = envelope.message_id.clone();
 

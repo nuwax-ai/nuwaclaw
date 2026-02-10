@@ -4,9 +4,9 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
-use nuwax_gpui_agent::app::Application;
 use nuwax_agent_core::config::ConfigManager;
 use nuwax_agent_core::logger::Logger;
+use nuwax_gpui_agent::app::Application;
 
 const APP_NAME: &str = "nuwax-agent";
 const VERSION: &str = env!("CARGO_PKG_VERSION");

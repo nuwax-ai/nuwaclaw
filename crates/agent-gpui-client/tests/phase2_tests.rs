@@ -4,7 +4,7 @@
 
 #[cfg(test)]
 mod connection_tests {
-    use nuwax_agent::core::connection::{ConnectionState, ConnectionMode};
+    use nuwax_agent::core::connection::{ConnectionMode, ConnectionState};
 
     #[test]
     fn test_connection_state_default() {
@@ -44,7 +44,9 @@ mod connection_tests {
 
 #[cfg(test)]
 mod connection_manager_tests {
-    use nuwax_agent::core::connection::{ConnectionManager, ConnectionState, ConnectionConfig, ConnectionMode};
+    use nuwax_agent::core::connection::{
+        ConnectionConfig, ConnectionManager, ConnectionMode, ConnectionState,
+    };
 
     #[tokio::test]
     async fn test_connection_manager_creation() {
@@ -59,12 +61,17 @@ mod connection_manager_tests {
         manager.set_state(ConnectionState::Connecting).await;
         assert_eq!(manager.get_state().await, ConnectionState::Connecting);
 
-        manager.set_state(ConnectionState::Connected {
-            mode: ConnectionMode::P2P,
-            latency_ms: 10,
-            client_id: "test-id".to_string(),
-        }).await;
-        if let ConnectionState::Connected { mode, client_id, .. } = manager.get_state().await {
+        manager
+            .set_state(ConnectionState::Connected {
+                mode: ConnectionMode::P2P,
+                latency_ms: 10,
+                client_id: "test-id".to_string(),
+            })
+            .await;
+        if let ConnectionState::Connected {
+            mode, client_id, ..
+        } = manager.get_state().await
+        {
             assert_eq!(mode, ConnectionMode::P2P);
             assert_eq!(client_id, "test-id");
         } else {
@@ -80,11 +87,13 @@ mod connection_manager_tests {
         assert!(manager.get_client_id().await.is_none());
 
         // 连接后有 client_id
-        manager.set_state(ConnectionState::Connected {
-            mode: ConnectionMode::P2P,
-            latency_ms: 10,
-            client_id: "87654321".to_string(),
-        }).await;
+        manager
+            .set_state(ConnectionState::Connected {
+                mode: ConnectionMode::P2P,
+                latency_ms: 10,
+                client_id: "87654321".to_string(),
+            })
+            .await;
         assert_eq!(manager.get_client_id().await, Some("87654321".to_string()));
     }
 
@@ -92,11 +101,13 @@ mod connection_manager_tests {
     async fn test_disconnect() {
         let manager = ConnectionManager::new(ConnectionConfig::default());
 
-        manager.set_state(ConnectionState::Connected {
-            mode: ConnectionMode::Relay,
-            latency_ms: 50,
-            client_id: "test-id".to_string(),
-        }).await;
+        manager
+            .set_state(ConnectionState::Connected {
+                mode: ConnectionMode::Relay,
+                latency_ms: 50,
+                client_id: "test-id".to_string(),
+            })
+            .await;
 
         manager.disconnect().await;
         assert_eq!(manager.get_state().await, ConnectionState::Disconnected);
@@ -106,11 +117,13 @@ mod connection_manager_tests {
     async fn test_update_latency() {
         let manager = ConnectionManager::new(ConnectionConfig::default());
 
-        manager.set_state(ConnectionState::Connected {
-            mode: ConnectionMode::P2P,
-            latency_ms: 10,
-            client_id: "test-id".to_string(),
-        }).await;
+        manager
+            .set_state(ConnectionState::Connected {
+                mode: ConnectionMode::P2P,
+                latency_ms: 10,
+                client_id: "test-id".to_string(),
+            })
+            .await;
 
         manager.update_latency(50).await;
 
@@ -140,9 +153,7 @@ mod connection_manager_tests {
 
 #[cfg(test)]
 mod business_channel_tests {
-    use nuwax_agent::core::business_channel::{
-        BusinessChannel, BusinessMessage, MessageType,
-    };
+    use nuwax_agent::core::business_channel::{BusinessChannel, BusinessMessage, MessageType};
 
     #[test]
     fn test_message_creation() {
@@ -211,7 +222,7 @@ mod business_channel_tests {
 
 #[cfg(test)]
 mod chunking_tests {
-    use nuwax_agent::message::chunking::{MessageChunker, MessageReassembler, MessageChunk};
+    use nuwax_agent::message::chunking::{MessageChunk, MessageChunker, MessageReassembler};
 
     #[test]
     fn test_no_chunking_needed() {

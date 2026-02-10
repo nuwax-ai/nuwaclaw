@@ -27,7 +27,11 @@ pub trait Transport: Send + Sync {
     /// 建立到目标 peer 的连接
     ///
     /// 返回连接信息（包含 is_direct 标识）
-    async fn connect(&self, peer_id: &str, password: Option<String>) -> anyhow::Result<ConnectionInfo>;
+    async fn connect(
+        &self,
+        peer_id: &str,
+        password: Option<String>,
+    ) -> anyhow::Result<ConnectionInfo>;
 
     /// 发送业务消息
     async fn send(&self, peer_id: &str, envelope: BusinessEnvelope) -> anyhow::Result<()>;
@@ -131,7 +135,11 @@ pub mod mock {
 
     #[async_trait]
     impl Transport for MockTransport {
-        async fn connect(&self, peer_id: &str, _password: Option<String>) -> anyhow::Result<ConnectionInfo> {
+        async fn connect(
+            &self,
+            peer_id: &str,
+            _password: Option<String>,
+        ) -> anyhow::Result<ConnectionInfo> {
             if self.fail_connect {
                 anyhow::bail!("Simulated connection failure");
             }
@@ -142,10 +150,8 @@ pub mod mock {
                 is_direct,
             };
 
-            self.connections.insert(
-                peer_id.to_string(),
-                MockConnection { info: info.clone() },
-            );
+            self.connections
+                .insert(peer_id.to_string(), MockConnection { info: info.clone() });
 
             Ok(info)
         }
@@ -229,7 +235,10 @@ pub mod mock {
         async fn test_mock_transport_p2p_connect() {
             let transport = MockTransport::new();
 
-            let info = transport.connect("peer-001", Some("password".to_string())).await.unwrap();
+            let info = transport
+                .connect("peer-001", Some("password".to_string()))
+                .await
+                .unwrap();
 
             assert!(info.is_direct, "Default mock should be P2P direct");
             assert!(transport.is_connected("peer-001"));

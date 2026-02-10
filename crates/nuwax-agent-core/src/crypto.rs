@@ -104,11 +104,9 @@ impl CryptoManager {
 
     /// 解密字符串
     pub fn decrypt_string(&self, encrypted: &str) -> Result<String, CryptoError> {
-        let encrypted_bytes = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            encrypted,
-        )
-        .map_err(|_| CryptoError::InvalidFormat)?;
+        let encrypted_bytes =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encrypted)
+                .map_err(|_| CryptoError::InvalidFormat)?;
 
         let decrypted = self.decrypt(&encrypted_bytes)?;
         String::from_utf8(decrypted).map_err(|_| CryptoError::InvalidFormat)

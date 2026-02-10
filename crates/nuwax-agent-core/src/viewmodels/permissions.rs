@@ -7,9 +7,9 @@ use tokio::sync::RwLock;
 
 use async_trait::async_trait;
 
+use super::super::api::traits::PermissionsApi;
 use super::super::permissions::PermissionManager;
 use super::super::permissions::PermissionStatus as CorePermissionStatus;
-use super::super::api::traits::PermissionsApi;
 
 /// 权限状态枚举（UI 层使用）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

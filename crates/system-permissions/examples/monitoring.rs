@@ -30,12 +30,7 @@ async fn main() {
                 .unwrap_or(true);
             prev.insert(*permission, state.status);
             let marker = if changed { " (变化)" } else { "" };
-            println!(
-                "  {}: {:?}{}",
-                permission.name(),
-                state.status,
-                marker
-            );
+            println!("  {}: {:?}{}", permission.name(), state.status, marker);
         }
         if round < 3 {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;

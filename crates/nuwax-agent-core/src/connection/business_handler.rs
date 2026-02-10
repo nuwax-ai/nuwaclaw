@@ -10,7 +10,9 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::agent::{AgentManager, AgentTask};
-use crate::business_channel::{BusinessEnvelope, BusinessMessage, BusinessMessageType, MessageType};
+use crate::business_channel::{
+    BusinessEnvelope, BusinessMessage, BusinessMessageType, MessageType,
+};
 #[cfg(feature = "remote-desktop")]
 use librustdesk::hbb_common::protobuf::Message as ProtobufMessage;
 
@@ -206,7 +208,10 @@ impl BusinessMessageHandler {
     }
 
     #[cfg(feature = "remote-desktop")]
-    async fn handle_file_transfer_request(&self, envelope: &BusinessEnvelope) -> anyhow::Result<()> {
+    async fn handle_file_transfer_request(
+        &self,
+        envelope: &BusinessEnvelope,
+    ) -> anyhow::Result<()> {
         info!(
             "Received file transfer request from {}, payload size: {} bytes",
             envelope.source_id,
@@ -216,8 +221,9 @@ impl BusinessMessageHandler {
         use librustdesk::client_api::FileTransferReceiveRequest;
 
         // 解析文件接收请求
-        let request: FileTransferReceiveRequest = ProtobufMessage::parse_from_bytes(&envelope.payload)
-            .map_err(|e| anyhow::anyhow!("Failed to parse file transfer request: {}", e))?;
+        let request: FileTransferReceiveRequest =
+            ProtobufMessage::parse_from_bytes(&envelope.payload)
+                .map_err(|e| anyhow::anyhow!("Failed to parse file transfer request: {}", e))?;
 
         let transfer_id = request.id;
         let remote_path = request.path.clone();
@@ -226,7 +232,10 @@ impl BusinessMessageHandler {
 
         info!(
             "File transfer request: id={}, path={}, files={}, total_size={}",
-            transfer_id, remote_path, files.len(), total_size
+            transfer_id,
+            remote_path,
+            files.len(),
+            total_size
         );
 
         // 创建接收会话
@@ -255,17 +264,21 @@ impl BusinessMessageHandler {
             confirm_msg.set_send_confirm(confirm);
 
             let mut payload = Vec::new();
-            confirm_msg.write_to_vec(&mut payload)
+            confirm_msg
+                .write_to_vec(&mut payload)
                 .map_err(|e| anyhow::anyhow!("Failed to serialize confirm: {}", e))?;
 
-            let response = self.create_response(
-                &envelope.message_id,
-                BusinessMessageType::FileTransferResponse,
-                payload,
-                &envelope.source_id,
-            ).await;
+            let response = self
+                .create_response(
+                    &envelope.message_id,
+                    BusinessMessageType::FileTransferResponse,
+                    payload,
+                    &envelope.source_id,
+                )
+                .await;
 
-            tx.send(response).await
+            tx.send(response)
+                .await
                 .map_err(|e| anyhow::anyhow!("Failed to send confirm response: {}", e))?;
         }
 
@@ -293,7 +306,8 @@ impl BusinessMessageHandler {
         // 查找对应的会话
         if let Some(session) = self.file_transfer_manager.get_session(transfer_id) {
             let s = session.lock().await;
-            s.write_block(block).await
+            s.write_block(block)
+                .await
                 .map_err(|e| anyhow::anyhow!("Failed to write file block: {}", e))?;
 
             debug!("File block written: id={}, blk_id={}", transfer_id, blk_id);
@@ -351,7 +365,10 @@ impl BusinessMessageHandler {
             let transfer_id = error.id;
             let error_msg = error.error;
 
-            error!("File transfer error: id={}, error={}", transfer_id, error_msg);
+            error!(
+                "File transfer error: id={}, error={}",
+                transfer_id, error_msg
+            );
 
             // 清理会话
             if let Some(session) = self.file_transfer_manager.remove_session(transfer_id) {

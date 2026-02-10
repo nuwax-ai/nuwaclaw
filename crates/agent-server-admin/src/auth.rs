@@ -16,8 +16,7 @@ use axum::{
 use serde::Deserialize;
 
 /// 认证配置
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct AuthConfig {
     /// 管理端 API Key（用于 /api/clients, /api/status, /api/tasks 等）
     pub admin_api_key: Option<String>,
@@ -26,7 +25,6 @@ pub struct AuthConfig {
     /// 是否启用认证（开发环境可关闭）
     pub enabled: bool,
 }
-
 
 impl AuthConfig {
     /// 从环境变量加载配置

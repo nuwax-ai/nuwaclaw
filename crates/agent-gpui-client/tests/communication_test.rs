@@ -23,8 +23,10 @@ mod tests {
     /// 获取测试用的服务器地址
     fn get_test_config() -> ConnectionConfig {
         // 从环境变量获取，或使用默认值
-        let hbbs = std::env::var("TEST_HBBS_ADDR").unwrap_or_else(|_| "127.0.0.1:21116".to_string());
-        let hbbr = std::env::var("TEST_HBBR_ADDR").unwrap_or_else(|_| "127.0.0.1:21117".to_string());
+        let hbbs =
+            std::env::var("TEST_HBBS_ADDR").unwrap_or_else(|_| "127.0.0.1:21116".to_string());
+        let hbbr =
+            std::env::var("TEST_HBBR_ADDR").unwrap_or_else(|_| "127.0.0.1:21117".to_string());
 
         ConnectionConfig {
             hbbs_addr: hbbs,
@@ -37,7 +39,10 @@ mod tests {
     #[ignore = "requires data-server running: make start-server"]
     async fn test_client_can_connect_and_get_id() {
         let config = get_test_config();
-        println!("Testing connection to hbbs={}, hbbr={}", config.hbbs_addr, config.hbbr_addr);
+        println!(
+            "Testing connection to hbbs={}, hbbr={}",
+            config.hbbs_addr, config.hbbr_addr
+        );
 
         let manager = ConnectionManager::new(config);
 
@@ -64,18 +69,21 @@ mod tests {
                     }
                     _ => {
                         // 等待状态变化
-                        if let Ok(event) = tokio::time::timeout(
-                            Duration::from_secs(1),
-                            rx.recv()
-                        ).await {
+                        if let Ok(event) =
+                            tokio::time::timeout(Duration::from_secs(1), rx.recv()).await
+                        {
                             println!("Event: {:?}", event);
                         }
                     }
                 }
             }
-        }).await;
+        })
+        .await;
 
-        assert!(result.is_ok(), "Should receive connection result within timeout");
+        assert!(
+            result.is_ok(),
+            "Should receive connection result within timeout"
+        );
         let client_id = result.unwrap();
         assert!(client_id.is_some(), "Should get client_id");
 
@@ -122,7 +130,10 @@ mod tests {
                                         seen_connecting = true;
                                     }
                                     ConnectionState::Connected { .. } => {
-                                        assert!(seen_connecting, "Should see Connecting before Connected");
+                                        assert!(
+                                            seen_connecting,
+                                            "Should see Connecting before Connected"
+                                        );
                                         return Ok(());
                                     }
                                     ConnectionState::Error(e) => {
@@ -139,7 +150,8 @@ mod tests {
                     }
                 }
             }
-        }).await;
+        })
+        .await;
 
         assert!(result.is_ok(), "Should complete within timeout");
         assert!(result.unwrap().is_ok(), "Should connect successfully");
@@ -168,7 +180,8 @@ mod tests {
                 }
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
-        }).await;
+        })
+        .await;
 
         assert!(result.unwrap_or(false), "First connection should succeed");
         println!("First connection succeeded");
@@ -190,7 +203,8 @@ mod tests {
                 }
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
-        }).await;
+        })
+        .await;
 
         assert!(result.unwrap_or(false), "Reconnection should succeed");
         println!("Reconnection succeeded");
@@ -237,7 +251,8 @@ mod tests {
                 }
             }
             error_seen
-        }).await;
+        })
+        .await;
 
         // 无论是超时还是收到错误状态，都算通过
         // 重要的是测试不会无限卡住
@@ -280,7 +295,10 @@ async fn quick_connection_test() {
         hbbr_addr: "127.0.0.1:21117".to_string(),
     };
 
-    println!("Connecting to hbbs={}, hbbr={}", config.hbbs_addr, config.hbbr_addr);
+    println!(
+        "Connecting to hbbs={}, hbbr={}",
+        config.hbbs_addr, config.hbbr_addr
+    );
 
     let manager = ConnectionManager::new(config);
 
@@ -298,7 +316,11 @@ async fn quick_connection_test() {
         println!("[{}s] State: {:?}", i as f32 * 0.5, state);
 
         match state {
-            ConnectionState::Connected { client_id, latency_ms, mode } => {
+            ConnectionState::Connected {
+                client_id,
+                latency_ms,
+                mode,
+            } => {
                 println!("\n✅ SUCCESS!");
                 println!("   Client ID: {}", client_id);
                 println!("   Latency: {}ms", latency_ms);
@@ -331,8 +353,8 @@ mod admin_tests {
 
     /// 获取测试用的 Admin 服务器配置
     fn get_admin_config() -> AdminConfig {
-        let admin_url = std::env::var("TEST_ADMIN_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
+        let admin_url =
+            std::env::var("TEST_ADMIN_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
 
         AdminConfig {
             admin_url,
@@ -389,7 +411,10 @@ mod admin_tests {
             client_version: env!("CARGO_PKG_VERSION").to_string(),
         };
 
-        client.register(req).await.expect("Registration should succeed");
+        client
+            .register(req)
+            .await
+            .expect("Registration should succeed");
 
         // 发送心跳
         match client.send_heartbeat(Some(15)).await {
@@ -420,7 +445,10 @@ mod admin_tests {
             client_version: env!("CARGO_PKG_VERSION").to_string(),
         };
 
-        client.register(req).await.expect("Registration should succeed");
+        client
+            .register(req)
+            .await
+            .expect("Registration should succeed");
 
         // 轮询消息
         match client.poll_messages(Some(10)).await {
@@ -454,7 +482,10 @@ mod admin_tests {
             client_version: env!("CARGO_PKG_VERSION").to_string(),
         };
 
-        client.register(req).await.expect("Registration should succeed");
+        client
+            .register(req)
+            .await
+            .expect("Registration should succeed");
 
         // 上报消息
         let payload = serde_json::json!({
@@ -495,17 +526,26 @@ mod admin_tests {
             arch: std::env::consts::ARCH.to_string(),
             client_version: env!("CARGO_PKG_VERSION").to_string(),
         };
-        client.register(req).await.expect("Registration should succeed");
+        client
+            .register(req)
+            .await
+            .expect("Registration should succeed");
         println!("   ✅ Registered as {}", client_id);
 
         // Step 2: 心跳
         println!("\n[2/4] Sending heartbeat...");
-        let pending = client.send_heartbeat(Some(10)).await.expect("Heartbeat should succeed");
+        let pending = client
+            .send_heartbeat(Some(10))
+            .await
+            .expect("Heartbeat should succeed");
         println!("   ✅ Heartbeat sent, pending messages: {}", pending);
 
         // Step 3: 轮询
         println!("\n[3/4] Polling messages...");
-        let messages = client.poll_messages(Some(10)).await.expect("Poll should succeed");
+        let messages = client
+            .poll_messages(Some(10))
+            .await
+            .expect("Poll should succeed");
         println!("   ✅ Polled {} messages", messages.len());
 
         // Step 4: 上报
@@ -514,7 +554,9 @@ mod admin_tests {
             "test": "full_flow",
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
-        let msg_id = client.report_message("test_report", payload, None).await
+        let msg_id = client
+            .report_message("test_report", payload, None)
+            .await
             .expect("Report should succeed");
         println!("   ✅ Reported message: {}", msg_id);
 

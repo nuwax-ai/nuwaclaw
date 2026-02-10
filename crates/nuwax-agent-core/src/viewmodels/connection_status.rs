@@ -8,7 +8,7 @@ use tokio::sync::RwLock;
 use async_trait::async_trait;
 
 pub use super::super::api::traits::connection_status::{
-    ConnectionStatusApi, ConnectionStatusViewModelState, UIConnectionState, UIConnectionMode,
+    ConnectionStatusApi, ConnectionStatusViewModelState, UIConnectionMode, UIConnectionState,
 };
 
 /// 连接操作
@@ -117,7 +117,9 @@ impl ConnectionStatusViewModel {
     /// 处理连接操作
     pub async fn handle_action(&self, action: ConnectionStatusAction) {
         match action {
-            ConnectionStatusAction::Disconnect => self.set_state(UIConnectionState::Disconnected).await,
+            ConnectionStatusAction::Disconnect => {
+                self.set_state(UIConnectionState::Disconnected).await
+            }
             ConnectionStatusAction::Connect(id) => {
                 self.set_remote_id(Some(id)).await;
                 self.set_state(UIConnectionState::Connecting).await;

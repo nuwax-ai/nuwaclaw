@@ -168,7 +168,10 @@ mod tests {
         new_manager.load().await.unwrap();
 
         assert_eq!(new_manager.config.name, Some("test".to_string()));
-        assert_eq!(new_manager.config.description, Some("test description".to_string()));
+        assert_eq!(
+            new_manager.config.description,
+            Some("test description".to_string())
+        );
     }
 
     #[tokio::test]

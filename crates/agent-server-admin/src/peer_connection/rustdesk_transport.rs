@@ -12,13 +12,11 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
 use librustdesk::client_api::Client;
-use nuwax_agent_core::business_channel::BusinessEnvelope;
 use librustdesk::hbb_common::rendezvous_proto::ConnType;
 use librustdesk::hbb_common::Stream;
+use nuwax_agent_core::business_channel::BusinessEnvelope;
 
-use crate::business_connection::{
-    BusinessConnection, BusinessConnectionEvent, BusinessInterface,
-};
+use crate::business_connection::{BusinessConnection, BusinessConnectionEvent, BusinessInterface};
 
 use super::transport::{ConnectionInfo, Transport};
 
@@ -117,11 +115,17 @@ impl Transport for RustDeskTransport {
         let (biz_event_tx, mut biz_event_rx) = mpsc::channel::<BusinessConnectionEvent>(32);
 
         // 创建业务连接
-        let business_conn = Arc::new(BusinessConnection::new(peer_id, password.clone(), biz_event_tx));
+        let business_conn = Arc::new(BusinessConnection::new(
+            peer_id,
+            password.clone(),
+            biz_event_tx,
+        ));
 
         // 创建 BusinessInterface 用于 RustDesk Client
-        let (interface_event_tx, mut interface_event_rx) = mpsc::channel::<BusinessConnectionEvent>(32);
-        let (interface, mut data_rx) = BusinessInterface::new(peer_id, password, interface_event_tx);
+        let (interface_event_tx, mut interface_event_rx) =
+            mpsc::channel::<BusinessConnectionEvent>(32);
+        let (interface, mut data_rx) =
+            BusinessInterface::new(peer_id, password, interface_event_tx);
 
         let peer_id_str = peer_id.to_string();
         let connections = self.connections.clone();

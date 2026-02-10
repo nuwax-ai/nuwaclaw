@@ -16,8 +16,7 @@ use super::super::api::traits::{
 ///
 /// 使用字符串而非特定 UI 框架的图标类型
 /// 允许不同 UI 层自行映射到对应的图标实现
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum UIIconName {
     Globe,
     Eye,
@@ -31,7 +30,6 @@ pub enum UIIconName {
     #[default]
     Unknown,
 }
-
 
 impl UIIconName {
     /// 获取图标名称字符串
@@ -338,7 +336,9 @@ impl GeneralSettingsViewModel {
 
     /// 处理常规设置操作
     pub async fn handle_general_action(&self, action: SettingsAction) {
-        if let SettingsAction::ToggleAutoLaunch = action { self.toggle_auto_launch().await }
+        if let SettingsAction::ToggleAutoLaunch = action {
+            self.toggle_auto_launch().await
+        }
     }
 }
 
@@ -384,7 +384,9 @@ impl AppearanceSettingsViewModel {
 
     /// 处理外观设置操作
     pub async fn handle_appearance_action(&self, action: SettingsAction) {
-        if let SettingsAction::UpdateTheme(theme) = action { self.update_theme(theme).await }
+        if let SettingsAction::UpdateTheme(theme) = action {
+            self.update_theme(theme).await
+        }
     }
 }
 
@@ -579,14 +581,14 @@ impl SettingsViewModel {
             SettingsAction::SaveServerConfig => {
                 self.server_config.handle_server_action(action).await
             }
-            SettingsAction::TestConnection => {
-                self.server_config.handle_server_action(action).await
-            }
+            SettingsAction::TestConnection => self.server_config.handle_server_action(action).await,
             SettingsAction::ToggleAutoLaunch => {
                 self.general_settings.handle_general_action(action).await
             }
             SettingsAction::UpdateTheme(_) => {
-                self.appearance_settings.handle_appearance_action(action).await
+                self.appearance_settings
+                    .handle_appearance_action(action)
+                    .await
             }
             SettingsAction::UpdateJsonContent(_) => {
                 self.json_config.handle_json_config_action(action).await
@@ -645,11 +647,13 @@ impl ServerConfigApi for ServerConfigViewModel {
     }
 
     async fn save_config(&self) {
-        self.handle_server_action(SettingsAction::SaveServerConfig).await
+        self.handle_server_action(SettingsAction::SaveServerConfig)
+            .await
     }
 
     async fn test_connection(&self) {
-        self.handle_server_action(SettingsAction::TestConnection).await
+        self.handle_server_action(SettingsAction::TestConnection)
+            .await
     }
 }
 
@@ -666,7 +670,8 @@ impl GeneralSettingsApi for GeneralSettingsViewModel {
     }
 
     async fn toggle_auto_launch(&self) {
-        self.handle_general_action(SettingsAction::ToggleAutoLaunch).await
+        self.handle_general_action(SettingsAction::ToggleAutoLaunch)
+            .await
     }
 }
 
@@ -708,7 +713,8 @@ impl JsonConfigApi for JsonConfigViewModel {
     }
 
     async fn reload_config(&self) {
-        self.handle_json_config_action(SettingsAction::ReloadJsonConfig).await
+        self.handle_json_config_action(SettingsAction::ReloadJsonConfig)
+            .await
     }
 }
 
@@ -750,7 +756,10 @@ mod tests {
         vm.save_config().await;
 
         assert!(!vm.is_modified().await);
-        assert_eq!(vm.test_result().await, Some((true, "配置已保存".to_string())));
+        assert_eq!(
+            vm.test_result().await,
+            Some((true, "配置已保存".to_string()))
+        );
     }
 
     #[tokio::test]

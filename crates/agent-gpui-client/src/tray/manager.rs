@@ -4,11 +4,11 @@
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tracing::{error, info};
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
     Icon, TrayIcon, TrayIconBuilder, TrayIconEvent,
 };
-use tracing::{error, info};
 
 /// 托盘事件
 #[derive(Debug, Clone)]

@@ -1,6 +1,6 @@
 //! 状态和健康检查 API
 
-use axum::{Json, extract::State};
+use axum::{extract::State, Json};
 
 use crate::state::AppState;
 

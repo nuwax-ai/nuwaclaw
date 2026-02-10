@@ -9,10 +9,7 @@ use std::process::Command;
 #[cfg(target_family = "windows")]
 use windows::Win32::{
     Foundation::HANDLE,
-    Security::{
-        GetTokenInformation,
-        TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
-    },
+    Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY},
     System::Threading::{GetCurrentProcess, OpenProcessToken},
 };
 
@@ -485,26 +482,22 @@ fn open_privacy_settings(category: &str) {
 fn get_process_elevated() -> bool {
     unsafe {
         let mut token_handle: HANDLE = HANDLE::default();
-        
-        if OpenProcessToken(
-            GetCurrentProcess(),
-            TOKEN_QUERY,
-            &mut token_handle,
-        ).is_err()
-        {
+
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token_handle).is_err() {
             return false;
         }
 
         let mut elevation = TOKEN_ELEVATION::default();
         let mut return_length: u32 = std::mem::size_of::<TOKEN_ELEVATION>() as u32;
-        
+
         if GetTokenInformation(
             token_handle,
             TokenElevation,
             Some(&mut elevation as *mut _ as *mut std::ffi::c_void),
             return_length,
             &mut return_length,
-        ).is_err()
+        )
+        .is_err()
         {
             return false;
         }

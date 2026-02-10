@@ -115,9 +115,7 @@ impl ClientInfoViewModel {
         match action {
             ClientInfoAction::UpdateClientId(id) => self.set_client_id(id).await,
             ClientInfoAction::SetConnected(connected) => self.set_connected(connected).await,
-            ClientInfoAction::UpdateConnectionAddr(addr) => {
-                self.update_connection_addr(addr).await
-            }
+            ClientInfoAction::UpdateConnectionAddr(addr) => self.update_connection_addr(addr).await,
             ClientInfoAction::CopyClientId => {
                 // 复制到剪贴板的操作由 UI 层处理
             }

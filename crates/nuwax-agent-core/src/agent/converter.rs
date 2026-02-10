@@ -54,8 +54,8 @@ impl MessageConverter {
         let req = CancelRequest {
             task_id: task_id.to_string(),
         };
-        let payload = serde_json::to_vec(&req)
-            .map_err(|e| AgentError::ConversionFailed(e.to_string()))?;
+        let payload =
+            serde_json::to_vec(&req).map_err(|e| AgentError::ConversionFailed(e.to_string()))?;
         Ok(BusinessMessage::new(MessageType::TaskCancel, payload))
     }
 }

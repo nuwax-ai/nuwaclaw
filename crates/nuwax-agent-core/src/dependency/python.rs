@@ -110,7 +110,7 @@ impl PythonDetector {
     /// 解析版本输出
     fn parse_version_output(&self, output: &[u8]) -> Result<String, PythonError> {
         let version_str = String::from_utf8_lossy(output);
-        
+
         // 尝试多种格式: "Python 3.11.5", "Python 3.11.5\n"
         for line in version_str.lines() {
             if line.starts_with("Python ") {
@@ -213,9 +213,7 @@ impl PythonDetector {
             .ok();
 
         if let Some(conda_prefix) = conda_path {
-            let python_path = PathBuf::from(&conda_prefix)
-                .join("bin")
-                .join("python3");
+            let python_path = PathBuf::from(&conda_prefix).join("bin").join("python3");
 
             if python_path.exists() {
                 let output = Command::new(&python_path)
@@ -311,8 +309,8 @@ impl PythonDetector {
 
     /// 检查版本是否满足要求
     fn check_version(&self, version: &str) -> Result<bool, PythonError> {
-        let parsed = Version::parse(version)
-            .map_err(|_| PythonError::ParseError(version.to_string()))?;
+        let parsed =
+            Version::parse(version).map_err(|_| PythonError::ParseError(version.to_string()))?;
 
         if parsed < self.min_version {
             warn!(
@@ -432,12 +430,12 @@ mod tests {
     #[test]
     fn test_parse_version_output() {
         let detector = PythonDetector::new();
-        
+
         // Python 3.11.5 格式
         let output = b"Python 3.11.5\n";
         let version = detector.parse_version_output(output).unwrap();
         assert_eq!(version, "3.11.5");
-        
+
         // Python 3.8.0 格式
         let output = b"Python 3.8.0";
         let version = detector.parse_version_output(output).unwrap();

@@ -86,13 +86,17 @@ impl GitDetector {
 
         info!("Found Git in PATH: v{} at {:?}", version, path);
 
-        Ok(GitInfo { version, path, source })
+        Ok(GitInfo {
+            version,
+            path,
+            source,
+        })
     }
 
     /// 解析版本输出
     fn parse_version_output(&self, output: &[u8]) -> Result<String, GitError> {
         let version_str = String::from_utf8_lossy(output);
-        
+
         // 格式: "git version 2.39.1" 或 "git version 2.39.1 (Apple Git-130)"
         if let Some(version) = version_str.strip_prefix("git version ") {
             let version = version
@@ -127,12 +131,12 @@ impl GitDetector {
     /// 检测 Git 来源
     fn detect_source(&self, path: &Path) -> GitSource {
         let path_str = path.to_string_lossy();
-        
+
         // macOS Xcode Command Line Tools
         if path_str.contains("/Library/Developer/CommandLineTools/") {
             return GitSource::Xcode;
         }
-        
+
         // Homebrew
         if path_str.contains("/opt/homebrew/") || path_str.contains("/usr/local/") {
             return GitSource::Other;
@@ -205,9 +209,7 @@ impl GitDetector {
             .map_err(|e| GitError::CommandFailed(e.to_string()))?;
 
         if !output.status.success() {
-            return Err(GitError::CommandFailed(
-                "git --version failed".to_string(),
-            ));
+            return Err(GitError::CommandFailed("git --version failed".to_string()));
         }
 
         self.parse_version_output(&output.stdout)
@@ -221,10 +223,7 @@ impl GitDetector {
             .split('.')
             .filter_map(|s| s.parse().ok())
             .collect();
-        let version_parts: Vec<u32> = version
-            .split('.')
-            .filter_map(|s| s.parse().ok())
-            .collect();
+        let version_parts: Vec<u32> = version.split('.').filter_map(|s| s.parse().ok()).collect();
 
         if min_parts.is_empty() || version_parts.is_empty() {
             return Err(GitError::ParseError(format!("无效版本号: {}", version)));
@@ -336,12 +335,12 @@ mod tests {
     #[test]
     fn test_parse_version_output() {
         let detector = GitDetector::new();
-        
+
         // 标准格式
         let output = b"git version 2.39.1\n";
         let version = detector.parse_version_output(output).unwrap();
         assert_eq!(version, "2.39.1");
-        
+
         // Apple Git 格式
         let output = b"git version 2.39.1 (Apple Git-130)";
         let version = detector.parse_version_output(output).unwrap();
@@ -351,7 +350,7 @@ mod tests {
     #[test]
     fn test_check_version() {
         let detector = GitDetector::new();
-        
+
         assert!(detector.check_version("2.40.0").unwrap());
         assert!(detector.check_version("2.20.0").unwrap());
         assert!(!detector.check_version("2.19.0").unwrap());

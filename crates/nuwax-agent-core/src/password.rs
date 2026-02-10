@@ -2,8 +2,8 @@
 //!
 //! 使用 Argon2 进行密码哈希和验证
 
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use argon2::password_hash::{rand_core::OsRng, SaltString};
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use thiserror::Error;
 use tracing::debug;
 
@@ -94,11 +94,9 @@ impl PasswordManager {
 
     /// 验证密码
     pub fn verify_password(&self, password: &str, hash: &str) -> Result<bool, PasswordError> {
-        let parsed_hash = PasswordHash::new(hash)
-            .map_err(|_| PasswordError::InvalidFormat)?;
+        let parsed_hash = PasswordHash::new(hash).map_err(|_| PasswordError::InvalidFormat)?;
 
-        let result = Argon2::default()
-            .verify_password(password.as_bytes(), &parsed_hash);
+        let result = Argon2::default().verify_password(password.as_bytes(), &parsed_hash);
 
         match result {
             Ok(()) => {
@@ -159,9 +157,10 @@ impl PasswordManager {
     /// 验证密码是否符合要求
     pub fn validate_password(&self, password: &str) -> Result<(), PasswordError> {
         if password.len() < self.min_length {
-            return Err(PasswordError::WeakPassword(
-                format!("密码长度至少需要 {} 个字符", self.min_length),
-            ));
+            return Err(PasswordError::WeakPassword(format!(
+                "密码长度至少需要 {} 个字符",
+                self.min_length
+            )));
         }
 
         let strength = self.check_strength(password);
@@ -209,10 +208,19 @@ mod tests {
         let manager = PasswordManager::new();
 
         assert_eq!(manager.check_strength("123"), PasswordStrength::VeryWeak);
-        assert_eq!(manager.check_strength("password"), PasswordStrength::VeryWeak);
+        assert_eq!(
+            manager.check_strength("password"),
+            PasswordStrength::VeryWeak
+        );
         assert_eq!(manager.check_strength("Password1"), PasswordStrength::Weak);
-        assert_eq!(manager.check_strength("Password1!"), PasswordStrength::Medium);
-        assert_eq!(manager.check_strength("MyStr0ng!P@ssw0rd"), PasswordStrength::Strong);
+        assert_eq!(
+            manager.check_strength("Password1!"),
+            PasswordStrength::Medium
+        );
+        assert_eq!(
+            manager.check_strength("MyStr0ng!P@ssw0rd"),
+            PasswordStrength::Strong
+        );
     }
 
     #[test]

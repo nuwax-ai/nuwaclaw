@@ -2,14 +2,10 @@
 //!
 //! 定义跨平台权限管理的核心 Trait
 
-
 use async_trait::async_trait;
 use tokio::sync::broadcast;
 
-use crate::{
-    PermissionError, PermissionState, RequestOptions, RequestResult,
-    SystemPermission,
-};
+use crate::{PermissionError, PermissionState, RequestOptions, RequestResult, SystemPermission};
 
 /// 权限状态变化回调
 ///

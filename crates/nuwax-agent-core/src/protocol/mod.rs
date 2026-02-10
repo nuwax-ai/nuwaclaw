@@ -70,7 +70,10 @@ impl ProtocolManager {
     }
 
     /// 检查服务器版本是否兼容
-    pub fn check_compatibility(&self, server_version: &str) -> Result<NegotiationResult, ProtocolError> {
+    pub fn check_compatibility(
+        &self,
+        server_version: &str,
+    ) -> Result<NegotiationResult, ProtocolError> {
         let server_ver = Version::parse(server_version)
             .map_err(|_| ProtocolError::ParseError(server_version.to_string()))?;
 
@@ -109,7 +112,10 @@ impl ProtocolManager {
 
     /// 协商协议版本
     pub fn negotiate(&self, server_version: &str) -> Result<NegotiationResult, ProtocolError> {
-        info!("Negotiating protocol version with server v{}", server_version);
+        info!(
+            "Negotiating protocol version with server v{}",
+            server_version
+        );
 
         let result = self.check_compatibility(server_version)?;
 
@@ -141,7 +147,10 @@ impl ProtocolManager {
     ) -> Result<NegotiationResult, ProtocolError> {
         if !response.accepted {
             return Err(ProtocolError::HandshakeFailed(
-                response.reason.clone().unwrap_or_else(|| "Unknown error".to_string()),
+                response
+                    .reason
+                    .clone()
+                    .unwrap_or_else(|| "Unknown error".to_string()),
             ));
         }
 

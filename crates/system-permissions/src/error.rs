@@ -129,7 +129,10 @@ impl PermissionError {
     pub fn user_message(&self) -> String {
         match self {
             Self::Unsupported { permission } => {
-                format!("{} permission is not available on this platform", permission)
+                format!(
+                    "{} permission is not available on this platform",
+                    permission
+                )
             }
             Self::Timeout { timeout_ms } => {
                 format!("Permission request timed out after {}ms", timeout_ms)
@@ -154,12 +157,8 @@ impl PermissionError {
             Self::InvalidStatus { value } => {
                 format!("Invalid permission status value: {}", value)
             }
-            Self::Cancelled => {
-                "Permission request was cancelled".to_string()
-            }
-            Self::Unknown { message } => {
-                message.clone()
-            }
+            Self::Cancelled => "Permission request was cancelled".to_string(),
+            Self::Unknown { message } => message.clone(),
         }
     }
 }
@@ -198,7 +197,10 @@ mod tests {
         );
 
         let error = PermissionError::timeout(30000);
-        assert_eq!(error.to_string(), "Permission request timed out after 30000ms");
+        assert_eq!(
+            error.to_string(),
+            "Permission request timed out after 30000ms"
+        );
     }
 
     #[test]

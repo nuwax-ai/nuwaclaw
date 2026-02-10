@@ -30,8 +30,7 @@ impl TaskStatus {
 }
 
 /// 任务优先级
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 pub enum TaskPriority {
     Low = 0,
     #[default]
@@ -39,7 +38,6 @@ pub enum TaskPriority {
     High = 2,
     Critical = 3,
 }
-
 
 /// Agent 任务
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +60,11 @@ pub struct AgentTask {
 
 impl AgentTask {
     /// 创建新任务
-    pub fn new(task_type: impl Into<String>, payload: Vec<u8>, source_id: impl Into<String>) -> Self {
+    pub fn new(
+        task_type: impl Into<String>,
+        payload: Vec<u8>,
+        source_id: impl Into<String>,
+    ) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             task_type: task_type.into(),
@@ -189,6 +191,9 @@ impl TaskResult {
     pub fn to_business_message(&self) -> Result<BusinessMessage, AgentError> {
         let payload = serde_json::to_vec(self)
             .map_err(|e| AgentError::ConversionFailed(format!("序列化结果失败: {}", e)))?;
-        Ok(BusinessMessage::new(MessageType::AgentTaskResponse, payload))
+        Ok(BusinessMessage::new(
+            MessageType::AgentTaskResponse,
+            payload,
+        ))
     }
 }

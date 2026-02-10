@@ -12,12 +12,16 @@ pub struct Downloader;
 impl Downloader {
     /// 下载更新
     pub async fn download(version_info: &VersionInfo) -> Result<PathBuf, UpgradeError> {
-        info!("Downloading update: {} ({} bytes)", version_info.version, version_info.file_size);
+        info!(
+            "Downloading update: {} ({} bytes)",
+            version_info.version, version_info.file_size
+        );
 
         let temp_dir = std::env::temp_dir().join("nuwax-agent-update");
         std::fs::create_dir_all(&temp_dir)?;
 
-        let file_name = version_info.download_url
+        let file_name = version_info
+            .download_url
             .split('/')
             .next_back()
             .unwrap_or("update-package");
@@ -31,11 +35,13 @@ impl Downloader {
 
             if !response.status().is_success() {
                 return Err(UpgradeError::DownloadFailed(format!(
-                    "HTTP {}", response.status()
+                    "HTTP {}",
+                    response.status()
                 )));
             }
 
-            let bytes = response.bytes()
+            let bytes = response
+                .bytes()
                 .await
                 .map_err(|e| UpgradeError::DownloadFailed(e.to_string()))?;
 
@@ -51,7 +57,9 @@ impl Downloader {
         }
 
         #[cfg(not(feature = "dependency-management"))]
-        Err(UpgradeError::DownloadFailed("HTTP client not available".to_string()))
+        Err(UpgradeError::DownloadFailed(
+            "HTTP client not available".to_string(),
+        ))
     }
 
     /// 验证 SHA256 校验和
@@ -73,7 +81,8 @@ impl Downloader {
         let hash = hasher.finalize_hex();
         if hash != expected {
             return Err(UpgradeError::VerifyFailed(format!(
-                "SHA256 mismatch: expected {}, got {}", expected, hash
+                "SHA256 mismatch: expected {}, got {}",
+                expected, hash
             )));
         }
 
@@ -90,7 +99,9 @@ pub struct Sha256Hasher {
 impl Sha256Hasher {
     pub fn new() -> Self {
         use sha2::Digest;
-        Self { hasher: sha2::Sha256::new() }
+        Self {
+            hasher: sha2::Sha256::new(),
+        }
     }
 
     pub fn update(&mut self, data: &[u8]) {

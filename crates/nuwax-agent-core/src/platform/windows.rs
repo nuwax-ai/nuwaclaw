@@ -24,7 +24,10 @@ pub fn get_machine_id() -> Option<String> {
 
     // 备选：使用 powershell 获取
     let output = Command::new("powershell")
-        .args(&["-Command", "(Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID"])
+        .args(&[
+            "-Command",
+            "(Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID",
+        ])
         .output()
         .ok()?;
 

@@ -1,9 +1,9 @@
 //! 任务管理 API
 
 use axum::{
-    Json,
     extract::{Path, Query, State},
     http::StatusCode,
+    Json,
 };
 use tracing::{info, warn};
 
@@ -129,10 +129,7 @@ pub async fn get_task(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<TaskInfo>, StatusCode> {
-    state
-        .get_task(&id)
-        .map(Json)
-        .ok_or(StatusCode::NOT_FOUND)
+    state.get_task(&id).map(Json).ok_or(StatusCode::NOT_FOUND)
 }
 
 /// 获取任务状态

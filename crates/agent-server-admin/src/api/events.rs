@@ -65,24 +65,24 @@ pub async fn sse_events(
                             })
                             .to_string(),
                         ),
-                        ServerEvent::TaskCreated { task_id, client_id } => Event::default()
-                            .event("task_created")
-                            .data(
+                        ServerEvent::TaskCreated { task_id, client_id } => {
+                            Event::default().event("task_created").data(
                                 serde_json::json!({
                                     "task_id": task_id,
                                     "client_id": client_id
                                 })
                                 .to_string(),
-                            ),
-                        ServerEvent::TaskStarted { task_id, client_id } => Event::default()
-                            .event("task_started")
-                            .data(
+                            )
+                        }
+                        ServerEvent::TaskStarted { task_id, client_id } => {
+                            Event::default().event("task_started").data(
                                 serde_json::json!({
                                     "task_id": task_id,
                                     "client_id": client_id
                                 })
                                 .to_string(),
-                            ),
+                            )
+                        }
                         ServerEvent::TaskProgress {
                             task_id,
                             client_id,
@@ -183,81 +183,81 @@ pub async fn task_progress_sse(
     let existing_stream = stream::iter(existing_events);
 
     // 订阅新事件
-    let live_stream =
-        stream::unfold((rx, target_task_id), |(mut rx, target_task_id)| async move {
+    let live_stream = stream::unfold(
+        (rx, target_task_id),
+        |(mut rx, target_task_id)| async move {
             loop {
                 match rx.recv().await {
-                    Ok(event) => {
-                        match &event {
-                            ServerEvent::TaskProgress {
-                                task_id,
-                                client_id,
-                                event,
-                            } if task_id == &target_task_id => {
-                                let event_data = Event::default().event("task_progress").data(
-                                    serde_json::json!({
-                                        "task_id": task_id,
-                                        "client_id": client_id,
-                                        "event": event
-                                    })
-                                    .to_string(),
-                                );
-                                return Some((Ok(event_data), (rx, target_task_id)));
-                            }
-                            ServerEvent::TaskCompleted {
-                                task_id,
-                                client_id,
-                                result,
-                            } if task_id == &target_task_id => {
-                                let event_data = Event::default().event("task_completed").data(
-                                    serde_json::json!({
-                                        "task_id": task_id,
-                                        "client_id": client_id,
-                                        "result": result
-                                    })
-                                    .to_string(),
-                                );
-                                return Some((Ok(event_data), (rx, target_task_id)));
-                            }
-                            ServerEvent::TaskFailed {
-                                task_id,
-                                client_id,
-                                error,
-                                error_code,
-                            } if task_id == &target_task_id => {
-                                let event_data = Event::default().event("task_failed").data(
-                                    serde_json::json!({
-                                        "task_id": task_id,
-                                        "client_id": client_id,
-                                        "error": error,
-                                        "error_code": error_code
-                                    })
-                                    .to_string(),
-                                );
-                                return Some((Ok(event_data), (rx, target_task_id)));
-                            }
-                            ServerEvent::TaskCancelled {
-                                task_id,
-                                client_id,
-                                reason,
-                            } if task_id == &target_task_id => {
-                                let event_data = Event::default().event("task_cancelled").data(
-                                    serde_json::json!({
-                                        "task_id": task_id,
-                                        "client_id": client_id,
-                                        "reason": reason
-                                    })
-                                    .to_string(),
-                                );
-                                return Some((Ok(event_data), (rx, target_task_id)));
-                            }
-                            _ => continue,
+                    Ok(event) => match &event {
+                        ServerEvent::TaskProgress {
+                            task_id,
+                            client_id,
+                            event,
+                        } if task_id == &target_task_id => {
+                            let event_data = Event::default().event("task_progress").data(
+                                serde_json::json!({
+                                    "task_id": task_id,
+                                    "client_id": client_id,
+                                    "event": event
+                                })
+                                .to_string(),
+                            );
+                            return Some((Ok(event_data), (rx, target_task_id)));
                         }
-                    }
+                        ServerEvent::TaskCompleted {
+                            task_id,
+                            client_id,
+                            result,
+                        } if task_id == &target_task_id => {
+                            let event_data = Event::default().event("task_completed").data(
+                                serde_json::json!({
+                                    "task_id": task_id,
+                                    "client_id": client_id,
+                                    "result": result
+                                })
+                                .to_string(),
+                            );
+                            return Some((Ok(event_data), (rx, target_task_id)));
+                        }
+                        ServerEvent::TaskFailed {
+                            task_id,
+                            client_id,
+                            error,
+                            error_code,
+                        } if task_id == &target_task_id => {
+                            let event_data = Event::default().event("task_failed").data(
+                                serde_json::json!({
+                                    "task_id": task_id,
+                                    "client_id": client_id,
+                                    "error": error,
+                                    "error_code": error_code
+                                })
+                                .to_string(),
+                            );
+                            return Some((Ok(event_data), (rx, target_task_id)));
+                        }
+                        ServerEvent::TaskCancelled {
+                            task_id,
+                            client_id,
+                            reason,
+                        } if task_id == &target_task_id => {
+                            let event_data = Event::default().event("task_cancelled").data(
+                                serde_json::json!({
+                                    "task_id": task_id,
+                                    "client_id": client_id,
+                                    "reason": reason
+                                })
+                                .to_string(),
+                            );
+                            return Some((Ok(event_data), (rx, target_task_id)));
+                        }
+                        _ => continue,
+                    },
                     Err(_) => return None,
                 }
             }
-        });
+        },
+    );
 
     // 添加心跳
     let heartbeat = stream::repeat_with(|| Ok(Event::default().comment("heartbeat")))

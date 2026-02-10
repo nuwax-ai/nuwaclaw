@@ -7,7 +7,7 @@ use tracing::info;
 
 use super::events::ServerEvent;
 use super::models::{
-    AgentStatus, CreateTaskRequest, TaskInfo, TaskProgressEvent, TaskStatus, default_service_type,
+    default_service_type, AgentStatus, CreateTaskRequest, TaskInfo, TaskProgressEvent, TaskStatus,
 };
 use super::AppState;
 
@@ -45,10 +45,9 @@ impl AppState {
             .push(task_id.clone());
 
         // 发送事件
-        let _ = self.event_tx.send(ServerEvent::TaskCreated {
-            task_id,
-            client_id,
-        });
+        let _ = self
+            .event_tx
+            .send(ServerEvent::TaskCreated { task_id, client_id });
 
         task
     }
@@ -188,12 +187,7 @@ impl AppState {
     }
 
     /// 设置任务错误
-    pub fn set_task_error(
-        &self,
-        task_id: &str,
-        error: String,
-        error_code: Option<String>,
-    ) -> bool {
+    pub fn set_task_error(&self, task_id: &str, error: String, error_code: Option<String>) -> bool {
         if let Some(mut task) = self.tasks.get_mut(task_id) {
             task.error = Some(error);
             task.error_code = error_code;

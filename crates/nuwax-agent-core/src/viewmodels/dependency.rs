@@ -8,17 +8,18 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::sync::{Mutex, RwLock};
 
+use super::super::api::traits::DependencyApi;
 use super::super::dependency::manager::DependencyManager as CoreDependencyManager;
 use super::super::dependency::manager::DependencyStatus as CoreDependencyStatus;
 use super::super::dependency::node::NodeSource;
-use super::super::api::traits::DependencyApi;
 
 /// UI 图标名称类型
 ///
 /// 使用字符串而非特定 UI 框架的图标类型
 /// 允许不同 UI 层自行映射到对应的图标实现
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[derive(Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default,
+)]
 pub enum UIIconName {
     Globe,
     Eye,
@@ -32,7 +33,6 @@ pub enum UIIconName {
     #[default]
     Unknown,
 }
-
 
 impl UIIconName {
     /// 获取图标名称字符串
@@ -300,8 +300,7 @@ impl DependencyViewModelState {
         self.items
             .iter()
             .filter(|d| {
-                d.status == UIDependencyStatus::Missing
-                    || d.status == UIDependencyStatus::Outdated
+                d.status == UIDependencyStatus::Missing || d.status == UIDependencyStatus::Outdated
             })
             .count()
     }
@@ -658,11 +657,11 @@ mod tests {
             UIDependencyItem::map_to_display_name("@anthropic-ai/claude-code"),
             "claude-code"
         );
-        assert_eq!(UIDependencyItem::map_to_display_name("opencode"), "opencode");
         assert_eq!(
-            UIDependencyItem::map_to_display_name("unknown"),
-            "unknown"
+            UIDependencyItem::map_to_display_name("opencode"),
+            "opencode"
         );
+        assert_eq!(UIDependencyItem::map_to_display_name("unknown"), "unknown");
     }
 
     #[test]

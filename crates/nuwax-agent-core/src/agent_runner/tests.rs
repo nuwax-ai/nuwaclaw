@@ -6,9 +6,7 @@
 mod tests {
     use std::path::PathBuf;
 
-    use crate::agent_runner::{
-        RcoderAgentRunner, RcoderAgentRunnerConfig,
-    };
+    use crate::agent_runner::{RcoderAgentRunner, RcoderAgentRunnerConfig};
 
     /// 测试配置创建
     #[test]
@@ -84,14 +82,12 @@ mod tests {
 #[cfg(test)]
 mod pingora_tests {
     use std::net::SocketAddr;
-    use std::time::Duration;
     use std::sync::OnceLock;
+    use std::time::Duration;
     use tokio::net::TcpStream;
     use tokio::time::timeout;
 
-    use crate::agent_runner::{
-        RcoderAgentRunner, RcoderAgentRunnerConfig,
-    };
+    use crate::agent_runner::{RcoderAgentRunner, RcoderAgentRunnerConfig};
 
     /// 初始化 Rustls CryptoProvider（确保只初始化一次）
     fn init_rustls() {

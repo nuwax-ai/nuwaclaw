@@ -15,10 +15,19 @@ mod types_tests {
         assert_eq!(SystemPermission::Location.name(), "Location");
         assert_eq!(SystemPermission::NuwaxCode.name(), "NuwaxCode");
         assert_eq!(SystemPermission::ClaudeCode.name(), "Claude Code");
-        assert_eq!(SystemPermission::FileSystemRead.name(), "File System (Read)");
-        assert_eq!(SystemPermission::FileSystemWrite.name(), "File System (Write)");
+        assert_eq!(
+            SystemPermission::FileSystemRead.name(),
+            "File System (Read)"
+        );
+        assert_eq!(
+            SystemPermission::FileSystemWrite.name(),
+            "File System (Write)"
+        );
         assert_eq!(SystemPermission::Clipboard.name(), "Clipboard");
-        assert_eq!(SystemPermission::KeyboardMonitoring.name(), "Keyboard Monitoring");
+        assert_eq!(
+            SystemPermission::KeyboardMonitoring.name(),
+            "Keyboard Monitoring"
+        );
         assert_eq!(SystemPermission::Network.name(), "Network");
     }
 
@@ -26,8 +35,12 @@ mod types_tests {
     fn test_permission_descriptions() {
         assert!(!SystemPermission::Microphone.description().is_empty());
         assert!(SystemPermission::Camera.description().contains("video"));
-        assert!(SystemPermission::FileSystemRead.description().contains("read"));
-        assert!(SystemPermission::Clipboard.description().contains("clipboard"));
+        assert!(SystemPermission::FileSystemRead
+            .description()
+            .contains("read"));
+        assert!(SystemPermission::Clipboard
+            .description()
+            .contains("clipboard"));
         assert!(SystemPermission::Network.description().contains("network"));
     }
 
@@ -57,7 +70,10 @@ mod types_tests {
     fn test_permission_status_to_string() {
         assert_eq!(PermissionStatus::Authorized.to_string(), "Authorized");
         assert_eq!(PermissionStatus::Denied.to_string(), "Denied");
-        assert_eq!(PermissionStatus::NotDetermined.to_string(), "Not Determined");
+        assert_eq!(
+            PermissionStatus::NotDetermined.to_string(),
+            "Not Determined"
+        );
     }
 
     #[test]

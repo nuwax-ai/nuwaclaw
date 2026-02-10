@@ -1,8 +1,7 @@
 //! 远程桌面状态和事件定义
 
 /// 远程桌面连接状态
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum RemoteDesktopState {
     /// 未连接
     #[default]
@@ -18,7 +17,6 @@ pub enum RemoteDesktopState {
     /// 错误
     Error(String),
 }
-
 
 /// 远程桌面事件
 #[derive(Debug, Clone)]

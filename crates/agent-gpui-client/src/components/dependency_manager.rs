@@ -10,10 +10,10 @@ use gpui::*;
 use gpui_component::{
     alert::Alert,
     button::{Button, ButtonVariants},
-    h_flex, v_flex,
+    h_flex,
     spinner::Spinner,
     tag::Tag,
-    ActiveTheme, Icon, IconName, Sizable, Size,
+    v_flex, ActiveTheme, Icon, IconName, Sizable, Size,
 };
 
 use crate::viewmodels::dependency::{
@@ -126,7 +126,9 @@ impl DependencyManagerView {
 
         cx.spawn(async move |_view, _cx| {
             // 调用 ViewModel 安装
-            view_model.handle_action(DependencyAction::Install(name)).await;
+            view_model
+                .handle_action(DependencyAction::Install(name))
+                .await;
 
             // 获取更新后的状态
             let new_state = view_model.get_state().await;
@@ -187,62 +189,56 @@ impl DependencyManagerView {
             .border_1()
             .border_color(theme.border)
             .child(
-                h_flex()
-                    .justify_between()
-                    .items_center()
-                    .child(
-                        h_flex()
-                            .gap_3()
-                            .items_center()
+                h_flex().justify_between().items_center().child(
+                    h_flex().gap_3().items_center().child(
+                        v_flex()
                             .child(
-                                v_flex()
+                                h_flex()
+                                    .gap_2()
+                                    .items_center()
                                     .child(
-                                        h_flex()
-                                            .gap_2()
-                                            .items_center()
-                                            .child(
-                                                div()
-                                                    .text_sm()
-                                                    .font_weight(FontWeight::MEDIUM)
-                                                    .text_color(theme.foreground)
-                                                    .child(name_for_display.clone()),
-                                            )
-                                            .child(required_tag.child(if item.required { "必需" } else { "可选" })),
+                                        div()
+                                            .text_sm()
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(theme.foreground)
+                                            .child(name_for_display.clone()),
                                     )
-                                    .child(
-                                        h_flex()
-                                            .gap_2()
-                                            .items_center()
-                                            .child(status_tag.child(status_label))
-                                            .when_some(version_clone, |this, v| {
-                                                this.child(
-                                                    div()
-                                                        .text_xs()
-                                                        .text_color(theme.muted_foreground)
-                                                        .child(format!("v{}", v)),
-                                                )
-                                            })
-                                            .when_some(source_clone, |this, s| {
-                                                this.child(
-                                                    div()
-                                                        .text_xs()
-                                                        .text_color(theme.muted_foreground)
-                                                        .child(format!("({})", s)),
-                                                )
-                                            }),
-                                    )
-                                    // 显示错误信息
-                                    .when_some(error_msg, |this, msg| {
+                                    .child(required_tag.child(if item.required {
+                                        "必需"
+                                    } else {
+                                        "可选"
+                                    })),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(status_tag.child(status_label))
+                                    .when_some(version_clone, |this, v| {
                                         this.child(
                                             div()
-                                                .mt_1()
                                                 .text_xs()
-                                                .text_color(theme.danger)
-                                                .child(msg),
+                                                .text_color(theme.muted_foreground)
+                                                .child(format!("v{}", v)),
+                                        )
+                                    })
+                                    .when_some(source_clone, |this, s| {
+                                        this.child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(theme.muted_foreground)
+                                                .child(format!("({})", s)),
                                         )
                                     }),
-                            ),
+                            )
+                            // 显示错误信息
+                            .when_some(error_msg, |this, msg| {
+                                this.child(
+                                    div().mt_1().text_xs().text_color(theme.danger).child(msg),
+                                )
+                            }),
                     ),
+                ),
             )
     }
 
@@ -268,9 +264,10 @@ impl Render for DependencyManagerView {
         // Clone items to avoid borrow issues
         let items: Vec<_> = self.state.items.clone();
         // Pre-render items to avoid borrow conflicts with theme
-        let rendered_items: Vec<_> = items.iter().map(|item| {
-            Self::render_dependency_item_inner(item, theme)
-        }).collect();
+        let rendered_items: Vec<_> = items
+            .iter()
+            .map(|item| Self::render_dependency_item_inner(item, theme))
+            .collect();
 
         v_flex()
             .size_full()
@@ -310,7 +307,9 @@ impl Render for DependencyManagerView {
                                         this.refresh_status(cx);
                                     })),
                             )
-                            .when(is_loading, |this| this.child(Spinner::new().with_size(Size::Small)))
+                            .when(is_loading, |this| {
+                                this.child(Spinner::new().with_size(Size::Small))
+                            })
                             .when(missing > 0 && !is_installing, |this| {
                                 this.child(
                                     Button::new("install-all")
@@ -329,7 +328,12 @@ impl Render for DependencyManagerView {
                                         .gap_2()
                                         .items_center()
                                         .child(Spinner::new().with_size(Size::Small))
-                                        .child(div().text_sm().text_color(theme.muted_foreground).child("安装中...")),
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .text_color(theme.muted_foreground)
+                                                .child("安装中..."),
+                                        ),
                                 )
                             }),
                     ),
@@ -342,10 +346,7 @@ impl Render for DependencyManagerView {
                 )
             })
             .when(missing == 0 && !items.is_empty(), |this| {
-                this.child(
-                    Alert::success("dependency-ready", "所有依赖已安装就绪")
-                        .title("就绪"),
-                )
+                this.child(Alert::success("dependency-ready", "所有依赖已安装就绪").title("就绪"))
             })
             // Dependency list - 使用预渲染的 items
             .child(v_flex().gap_2().children(rendered_items))

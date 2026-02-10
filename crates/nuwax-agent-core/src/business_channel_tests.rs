@@ -5,13 +5,13 @@
 #[cfg(test)]
 mod business_channel_tests {
     use std::sync::Arc;
+    use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio::time::timeout;
-    use std::time::Duration;
 
     use crate::business_channel::{
-        BusinessChannel, BusinessMessage, BusinessEnvelope, BusinessMessageType,
-        MessageType, ChannelError,
+        BusinessChannel, BusinessEnvelope, BusinessMessage, BusinessMessageType, ChannelError,
+        MessageType,
     };
 
     #[tokio::test]
@@ -99,12 +99,11 @@ mod business_channel_tests {
         let handler_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let handler_count_clone = handler_count.clone();
 
-        channel.register_handler(
-            MessageType::AgentTaskRequest,
-            move |_msg| {
+        channel
+            .register_handler(MessageType::AgentTaskRequest, move |_msg| {
                 handler_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            },
-        ).await;
+            })
+            .await;
 
         // 发送消息
         let message = BusinessMessage::new(MessageType::AgentTaskRequest, vec![]);
@@ -126,12 +125,11 @@ mod business_channel_tests {
         // 注册多个处理器
         for _ in 0..3 {
             let call_count_clone = call_count_clone.clone();
-            channel.register_handler(
-                MessageType::SystemNotify,
-                move |_msg| {
+            channel
+                .register_handler(MessageType::SystemNotify, move |_msg| {
                     call_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                },
-            ).await;
+                })
+                .await;
         }
 
         // 发送消息
@@ -315,20 +313,62 @@ mod business_channel_tests {
 
     #[test]
     fn test_business_message_type_from_i32() {
-        assert_eq!(BusinessMessageType::from(1), BusinessMessageType::AgentTaskRequest);
-        assert_eq!(BusinessMessageType::from(2), BusinessMessageType::AgentTaskResponse);
-        assert_eq!(BusinessMessageType::from(3), BusinessMessageType::TaskProgress);
-        assert_eq!(BusinessMessageType::from(4), BusinessMessageType::TaskCancel);
-        assert_eq!(BusinessMessageType::from(10), BusinessMessageType::Heartbeat);
-        assert_eq!(BusinessMessageType::from(20), BusinessMessageType::SystemNotify);
-        assert_eq!(BusinessMessageType::from(99), BusinessMessageType::BusinessCustom);
-        assert_eq!(BusinessMessageType::from(100), BusinessMessageType::FileTransferRequest);
-        assert_eq!(BusinessMessageType::from(101), BusinessMessageType::FileTransferResponse);
-        assert_eq!(BusinessMessageType::from(102), BusinessMessageType::FileBlock);
-        assert_eq!(BusinessMessageType::from(103), BusinessMessageType::FileTransferCancel);
-        assert_eq!(BusinessMessageType::from(104), BusinessMessageType::FileTransferDone);
-        assert_eq!(BusinessMessageType::from(105), BusinessMessageType::FileTransferError);
-        assert_eq!(BusinessMessageType::from(999), BusinessMessageType::BusinessUnknown);
+        assert_eq!(
+            BusinessMessageType::from(1),
+            BusinessMessageType::AgentTaskRequest
+        );
+        assert_eq!(
+            BusinessMessageType::from(2),
+            BusinessMessageType::AgentTaskResponse
+        );
+        assert_eq!(
+            BusinessMessageType::from(3),
+            BusinessMessageType::TaskProgress
+        );
+        assert_eq!(
+            BusinessMessageType::from(4),
+            BusinessMessageType::TaskCancel
+        );
+        assert_eq!(
+            BusinessMessageType::from(10),
+            BusinessMessageType::Heartbeat
+        );
+        assert_eq!(
+            BusinessMessageType::from(20),
+            BusinessMessageType::SystemNotify
+        );
+        assert_eq!(
+            BusinessMessageType::from(99),
+            BusinessMessageType::BusinessCustom
+        );
+        assert_eq!(
+            BusinessMessageType::from(100),
+            BusinessMessageType::FileTransferRequest
+        );
+        assert_eq!(
+            BusinessMessageType::from(101),
+            BusinessMessageType::FileTransferResponse
+        );
+        assert_eq!(
+            BusinessMessageType::from(102),
+            BusinessMessageType::FileBlock
+        );
+        assert_eq!(
+            BusinessMessageType::from(103),
+            BusinessMessageType::FileTransferCancel
+        );
+        assert_eq!(
+            BusinessMessageType::from(104),
+            BusinessMessageType::FileTransferDone
+        );
+        assert_eq!(
+            BusinessMessageType::from(105),
+            BusinessMessageType::FileTransferError
+        );
+        assert_eq!(
+            BusinessMessageType::from(999),
+            BusinessMessageType::BusinessUnknown
+        );
     }
 
     #[test]

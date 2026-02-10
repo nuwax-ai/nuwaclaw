@@ -268,9 +268,9 @@ impl RemoteDesktopView {
                         Button::new("pause")
                             .icon(
                                 Icon::new(if is_paused {
-                                    IconName::ArrowRight  // Play
+                                    IconName::ArrowRight // Play
                                 } else {
-                                    IconName::Minus  // Pause
+                                    IconName::Minus // Pause
                                 })
                                 .small(),
                             )
@@ -486,13 +486,16 @@ impl RemoteDesktopView {
                                 .large()
                                 .text_color(muted_fg_color),
                             )
-                            .child(div().text_sm().text_color(muted_fg_color).child(
-                                if is_paused {
-                                    "已暂停"
-                                } else {
-                                    "远程桌面已连接"
-                                },
-                            ))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(muted_fg_color)
+                                    .child(if is_paused {
+                                        "已暂停"
+                                    } else {
+                                        "远程桌面已连接"
+                                    }),
+                            )
                             .child(div().text_xs().text_color(muted_fg_color).child(
                                 if is_paused {
                                     "点击继续按钮恢复画面"

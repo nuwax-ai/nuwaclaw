@@ -55,8 +55,7 @@ async fn test_permission_check_all() {
 /// 测试权限状态结构
 #[tokio::test]
 async fn test_permission_state_constructors() {
-    let state =
-        PermissionState::new(SystemPermission::Microphone, PermissionStatus::Authorized);
+    let state = PermissionState::new(SystemPermission::Microphone, PermissionStatus::Authorized);
     assert_eq!(state.permission, SystemPermission::Microphone);
     assert_eq!(state.status, PermissionStatus::Authorized);
     assert!(state.is_authorized());

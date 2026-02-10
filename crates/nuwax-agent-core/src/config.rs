@@ -4,11 +4,11 @@
 //! - config.toml: 普通配置（服务器地址、外观设置等）
 //! - secure.enc: 加密配置（密码等敏感信息）
 
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use thiserror::Error;
 
-use super::crypto::{CryptoManager, CryptoError};
+use super::crypto::{CryptoError, CryptoManager};
 
 /// 配置错误
 #[derive(Error, Debug)]
@@ -26,8 +26,7 @@ pub enum ConfigError {
 }
 
 /// 应用配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     /// 服务器配置
     #[serde(default)]
@@ -42,7 +41,6 @@ pub struct AppConfig {
     #[serde(default)]
     pub logging: LoggingConfig,
 }
-
 
 /// 服务器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -292,8 +290,8 @@ impl SecureConfigManager {
                 // 尝试解密
                 match crypto.decrypt(&encrypted_content) {
                     Ok(decrypted) => {
-                        let json = String::from_utf8(decrypted)
-                            .map_err(|_| CryptoError::InvalidFormat)?;
+                        let json =
+                            String::from_utf8(decrypted).map_err(|_| CryptoError::InvalidFormat)?;
                         serde_json::from_str(&json)?
                     }
                     Err(_) => {

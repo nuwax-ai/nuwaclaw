@@ -2,9 +2,9 @@
 //!
 //! 隔离 nuwax-rustdesk 的复杂 API，为 ConnectionManager 提供简洁接口
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::sync::{Mutex, RwLock, mpsc};
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{info, warn};
 
 use async_trait::async_trait;

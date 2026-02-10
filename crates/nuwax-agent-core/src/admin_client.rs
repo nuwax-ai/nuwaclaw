@@ -173,7 +173,10 @@ impl<C: HttpClient + Default> AdminClient<C> {
 
         if reg_response.success {
             self.is_registered = true;
-            info!("Registered with admin server: {}", reg_response.assigned_id.clone().unwrap_or_default());
+            info!(
+                "Registered with admin server: {}",
+                reg_response.assigned_id.clone().unwrap_or_default()
+            );
             Ok(())
         } else {
             Err(AdminClientError::RequestFailed(reg_response.message))
@@ -208,8 +211,8 @@ impl<C: HttpClient + Default> AdminClient<C> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::http_client::mock::{MockHttpClient, MockResponse};
+    use super::*;
 
     #[tokio::test]
     async fn test_admin_client_creation() {
@@ -219,11 +222,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_admin_client_registration() {
-        let _client: AdminClient<MockHttpClient> = AdminClient::with_config(AdminConfig::new("http://localhost:8080"));
+        let _client: AdminClient<MockHttpClient> =
+            AdminClient::with_config(AdminConfig::new("http://localhost:8080"));
 
         // Mock 注册响应
-        let _mock_http = MockHttpClient::new()
-            .expect_response(MockResponse::ok(&RegistrationResponse {
+        let _mock_http =
+            MockHttpClient::new().expect_response(MockResponse::ok(&RegistrationResponse {
                 success: true,
                 assigned_id: Some("test-id".to_string()),
                 message: "OK".to_string(),

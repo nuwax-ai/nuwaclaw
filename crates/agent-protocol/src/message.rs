@@ -2,9 +2,9 @@
 //!
 //! 包含所有通信消息的定义
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
 /// 消息 ID 类型
 pub type MessageId = String;
@@ -192,7 +192,10 @@ pub struct ProtocolMessage {
 
 impl ProtocolMessage {
     /// 创建新的协议消息
-    pub fn new<T: Serialize>(msg_type: MessageType, payload: &T) -> Result<Self, serde_json::Error> {
+    pub fn new<T: Serialize>(
+        msg_type: MessageType,
+        payload: &T,
+    ) -> Result<Self, serde_json::Error> {
         Ok(Self {
             header: MessageHeader::new(msg_type),
             payload: serde_json::to_value(payload)?,

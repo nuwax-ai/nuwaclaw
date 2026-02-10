@@ -132,24 +132,24 @@ impl Application {
             }
         });
 
-        tracing::info!("RustDeskAdapter configured (hbbs={}), starting...", hbbs_addr);
+        tracing::info!(
+            "RustDeskAdapter configured (hbbs={}), starting...",
+            hbbs_addr
+        );
 
         // 创建 gpui 应用
         let app = gpui::Application::new();
 
         // 在进入 gpui 事件循环前读取配置（恢复 client_id）
-        let client_id = runtime_handle.block_on(async {
-            config.read().await.get_client_id().map(|s| s.to_string())
-        });
+        let client_id = runtime_handle
+            .block_on(async { config.read().await.get_client_id().map(|s| s.to_string()) });
 
         app.run(move |cx| {
             // 初始化 gpui-component 主题和资源
             init_ui(cx);
 
             // 创建应用状态（从配置恢复 client_id）
-            let app_state = cx.new(|_cx| {
-                AppState::new(config.clone(), client_id.clone())
-            });
+            let app_state = cx.new(|_cx| AppState::new(config.clone(), client_id.clone()));
 
             // 创建主窗口
             let window_options = WindowOptions {
@@ -163,17 +163,21 @@ impl Application {
             let rt_for_poll = runtime_handle.clone();
             cx.spawn(async move |cx| {
                 // 等待 adapter 启动
-                rt_for_poll.spawn(async {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                }).await.ok();
+                rt_for_poll
+                    .spawn(async {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    })
+                    .await
+                    .ok();
 
                 let mut last_id = String::new();
                 loop {
                     // 从 adapter 获取客户端 ID（在 tokio 上下文中执行）
                     let adapter_ref = adapter_for_poll.clone();
-                    let id: String = rt_for_poll.spawn(async move {
-                        adapter_ref.get_client_id().await
-                    }).await.unwrap_or_default();
+                    let id: String = rt_for_poll
+                        .spawn(async move { adapter_ref.get_client_id().await })
+                        .await
+                        .unwrap_or_default();
 
                     // 如果 ID 有变化，更新 AppState 和 UI
                     if !id.is_empty() && id != last_id {
@@ -186,13 +190,17 @@ impl Application {
                                 state.set_client_id(Some(id_clone.clone()), cx);
                                 state.set_connected(true, cx);
                             });
-                        }).ok();
+                        })
+                        .ok();
                     }
 
                     // 每 2 秒轮询一次
-                    rt_for_poll.spawn(async {
-                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                    }).await.ok();
+                    rt_for_poll
+                        .spawn(async {
+                            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                        })
+                        .await
+                        .ok();
                 }
             })
             .detach();

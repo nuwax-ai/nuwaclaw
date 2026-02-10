@@ -2,10 +2,10 @@
 //!
 //! 支持大消息的分片传输和重组
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use thiserror::Error;
 use tracing::debug;
-use std::collections::HashMap;
 
 /// 默认分片大小 (64KB)
 pub const DEFAULT_CHUNK_SIZE: usize = 64 * 1024;
@@ -170,14 +170,15 @@ impl MessageReassembler {
         // 清理超时的缓冲区
         self.cleanup_expired();
 
-        let buffer = self.buffers.entry(chunk.message_id.clone()).or_insert_with(|| {
-            ReassemblyBuffer {
+        let buffer = self
+            .buffers
+            .entry(chunk.message_id.clone())
+            .or_insert_with(|| ReassemblyBuffer {
                 total_chunks: chunk.total_chunks,
                 total_size: chunk.total_size,
                 chunks: HashMap::new(),
                 created_at: std::time::Instant::now(),
-            }
-        });
+            });
 
         // 验证一致性
         if buffer.total_chunks != chunk.total_chunks {
@@ -201,9 +202,10 @@ impl MessageReassembler {
             let mut result = Vec::with_capacity(buffer.total_size);
 
             for i in 0..total_chunks {
-                let data = buffer.chunks.remove(&i).ok_or_else(|| {
-                    ChunkError::ReassemblyFailed(format!("Missing chunk {}", i))
-                })?;
+                let data = buffer
+                    .chunks
+                    .remove(&i)
+                    .ok_or_else(|| ChunkError::ReassemblyFailed(format!("Missing chunk {}", i)))?;
                 result.extend_from_slice(&data);
             }
 
@@ -225,9 +227,8 @@ impl MessageReassembler {
     /// 清理超时的缓冲区
     fn cleanup_expired(&mut self) {
         let timeout = std::time::Duration::from_secs(self.timeout_secs);
-        self.buffers.retain(|_, buffer| {
-            buffer.created_at.elapsed() < timeout
-        });
+        self.buffers
+            .retain(|_, buffer| buffer.created_at.elapsed() < timeout);
     }
 }
 

@@ -19,16 +19,15 @@ impl Installer {
             "windows" => Self::install_windows(download_path).await,
             "linux" => Self::install_linux(download_path).await,
             _ => Err(UpgradeError::InstallFailed(format!(
-                "Unsupported platform: {}", os
+                "Unsupported platform: {}",
+                os
             ))),
         }
     }
 
     /// macOS 安装：mount DMG -> copy .app -> unmount
     async fn install_macos(path: &Path) -> Result<(), UpgradeError> {
-        let extension = path.extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         match extension {
             "dmg" => {
@@ -43,17 +42,17 @@ impl Installer {
                     .map_err(|e| UpgradeError::InstallFailed(e.to_string()))?;
 
                 if !output.status.success() {
-                    return Err(UpgradeError::InstallFailed(
-                        format!("Failed to mount DMG: {}", String::from_utf8_lossy(&output.stderr))
-                    ));
+                    return Err(UpgradeError::InstallFailed(format!(
+                        "Failed to mount DMG: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    )));
                 }
 
                 // 2. Parse plist output to find mount point
                 let plist_output = String::from_utf8_lossy(&output.stdout);
-                let mount_point = Self::parse_dmg_mount_point(&plist_output)
-                    .ok_or_else(|| UpgradeError::InstallFailed(
-                        "Could not determine DMG mount point".to_string()
-                    ))?;
+                let mount_point = Self::parse_dmg_mount_point(&plist_output).ok_or_else(|| {
+                    UpgradeError::InstallFailed("Could not determine DMG mount point".to_string())
+                })?;
 
                 info!("DMG mounted at: {}", mount_point);
 
@@ -64,17 +63,17 @@ impl Installer {
                 info!("Found app: {}", app_path.display());
 
                 // 4. Get app name and destination
-                let app_name = app_path.file_name()
+                let app_name = app_path
+                    .file_name()
                     .ok_or_else(|| UpgradeError::InstallFailed("Invalid app path".to_string()))?;
                 let dest_path = Path::new("/Applications").join(app_name);
 
                 // 5. Remove old app if exists
                 if dest_path.exists() {
                     info!("Removing old app: {}", dest_path.display());
-                    tokio::fs::remove_dir_all(&dest_path).await
-                        .map_err(|e| UpgradeError::InstallFailed(
-                            format!("Failed to remove old app: {}", e)
-                        ))?;
+                    tokio::fs::remove_dir_all(&dest_path).await.map_err(|e| {
+                        UpgradeError::InstallFailed(format!("Failed to remove old app: {}", e))
+                    })?;
                 }
 
                 // 6. Copy new app to /Applications
@@ -91,7 +90,7 @@ impl Installer {
                     // Cleanup: unmount before returning error
                     let _ = Self::unmount_dmg(&mount_point).await;
                     return Err(UpgradeError::InstallFailed(
-                        "Failed to copy app to /Applications".to_string()
+                        "Failed to copy app to /Applications".to_string(),
                     ));
                 }
 
@@ -109,21 +108,22 @@ impl Installer {
                     .map_err(|e| UpgradeError::InstallFailed(e.to_string()))?;
 
                 // Extract to temp location
-                archive.extract(dest)
+                archive
+                    .extract(dest)
                     .map_err(|e| UpgradeError::InstallFailed(e.to_string()))?;
 
                 // Find and copy .app to /Applications
                 let app_path = Self::find_app_in_volume(dest).await?;
-                let app_name = app_path.file_name()
+                let app_name = app_path
+                    .file_name()
                     .ok_or_else(|| UpgradeError::InstallFailed("Invalid app path".to_string()))?;
                 let dest_app = Path::new("/Applications").join(app_name);
 
                 // Remove old app if exists
                 if dest_app.exists() {
-                    tokio::fs::remove_dir_all(&dest_app).await
-                        .map_err(|e| UpgradeError::InstallFailed(
-                            format!("Failed to remove old app: {}", e)
-                        ))?;
+                    tokio::fs::remove_dir_all(&dest_app).await.map_err(|e| {
+                        UpgradeError::InstallFailed(format!("Failed to remove old app: {}", e))
+                    })?;
                 }
 
                 // Move extracted app to /Applications
@@ -146,7 +146,9 @@ impl Installer {
                             let _ = tokio::fs::remove_dir_all(&app_path).await;
                             info!("ZIP install completed: {}", dest_app.display());
                         } else {
-                            return Err(UpgradeError::InstallFailed("Failed to copy app".to_string()));
+                            return Err(UpgradeError::InstallFailed(
+                                "Failed to copy app".to_string(),
+                            ));
                         }
                     }
                 }
@@ -154,7 +156,8 @@ impl Installer {
                 Ok(())
             }
             _ => Err(UpgradeError::InstallFailed(format!(
-                "Unsupported file format: {}", extension
+                "Unsupported file format: {}",
+                extension
             ))),
         }
     }
@@ -178,12 +181,13 @@ impl Installer {
 
     /// 在 volume 中查找 .app 文件
     async fn find_app_in_volume(volume_path: &Path) -> Result<std::path::PathBuf, UpgradeError> {
-        let mut entries = tokio::fs::read_dir(volume_path).await
-            .map_err(|e| UpgradeError::InstallFailed(
-                format!("Failed to read volume: {}", e)
-            ))?;
+        let mut entries = tokio::fs::read_dir(volume_path)
+            .await
+            .map_err(|e| UpgradeError::InstallFailed(format!("Failed to read volume: {}", e)))?;
 
-        while let Some(entry) = entries.next_entry().await
+        while let Some(entry) = entries
+            .next_entry()
+            .await
             .map_err(|e| UpgradeError::InstallFailed(e.to_string()))?
         {
             let path = entry.path();
@@ -195,7 +199,7 @@ impl Installer {
         }
 
         Err(UpgradeError::InstallFailed(
-            "No .app found in volume".to_string()
+            "No .app found in volume".to_string(),
         ))
     }
 
@@ -210,16 +214,17 @@ impl Installer {
             .map_err(|e| UpgradeError::InstallFailed(e.to_string()))?;
 
         if !output.status.success() {
-            warn!("Failed to unmount DMG (non-fatal): {}", String::from_utf8_lossy(&output.stderr));
+            warn!(
+                "Failed to unmount DMG (non-fatal): {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
         Ok(())
     }
 
     /// Windows 安装：MSI silent install
     async fn install_windows(path: &Path) -> Result<(), UpgradeError> {
-        let extension = path.extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         match extension {
             "msi" => {
@@ -232,7 +237,8 @@ impl Installer {
 
                 if !output.status.success() {
                     return Err(UpgradeError::InstallFailed(format!(
-                        "MSI install failed with exit code: {:?}", output.status.code()
+                        "MSI install failed with exit code: {:?}",
+                        output.status.code()
                     )));
                 }
                 info!("MSI install completed");
@@ -241,29 +247,29 @@ impl Installer {
             "exe" => {
                 info!("Running installer: {}", path.display());
                 let output = tokio::process::Command::new(path)
-                    .args(["/S"])  // Silent mode (NSIS convention)
+                    .args(["/S"]) // Silent mode (NSIS convention)
                     .output()
                     .await
                     .map_err(|e| UpgradeError::InstallFailed(e.to_string()))?;
 
                 if !output.status.success() {
                     return Err(UpgradeError::InstallFailed(format!(
-                        "Installer failed with exit code: {:?}", output.status.code()
+                        "Installer failed with exit code: {:?}",
+                        output.status.code()
                     )));
                 }
                 Ok(())
             }
             _ => Err(UpgradeError::InstallFailed(format!(
-                "Unsupported file format: {}", extension
+                "Unsupported file format: {}",
+                extension
             ))),
         }
     }
 
     /// Linux 安装：dpkg / AppImage replace
     async fn install_linux(path: &Path) -> Result<(), UpgradeError> {
-        let extension = path.extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         match extension {
             "deb" => {
@@ -278,7 +284,8 @@ impl Installer {
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     return Err(UpgradeError::InstallFailed(format!(
-                        "dpkg install failed: {}", stderr
+                        "dpkg install failed: {}",
+                        stderr
                     )));
                 }
                 info!("DEB install completed");
@@ -307,7 +314,8 @@ impl Installer {
                 Ok(())
             }
             _ => Err(UpgradeError::InstallFailed(format!(
-                "Unsupported file format: {}", extension
+                "Unsupported file format: {}",
+                extension
             ))),
         }
     }

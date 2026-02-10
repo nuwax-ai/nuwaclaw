@@ -79,7 +79,7 @@ impl DockerDetector {
 
         // 判断变体
         let variant = self.detect_variant();
-        
+
         // 检查是否运行
         let running = self.check_docker_running()?;
 
@@ -215,7 +215,10 @@ impl DockerDetector {
 
         let paths = vec![
             format!(r"{}\Docker\Docker Resources\bin\docker.exe", program_files),
-            format!(r"{}\Docker\Docker Resources\bin\docker.exe", program_files_x86),
+            format!(
+                r"{}\Docker\Docker Resources\bin\docker.exe",
+                program_files_x86
+            ),
         ];
 
         for path in paths {
@@ -278,11 +281,7 @@ impl DependencyDetector for DockerDetector {
                 let found = info.running || matches!(info.variant, DockerVariant::Engine);
                 if !found {
                     // Docker 已安装但未运行
-                    return Ok(DetectionResult::found(
-                        info.version,
-                        info.path,
-                        source,
-                    ));
+                    return Ok(DetectionResult::found(info.version, info.path, source));
                 }
                 Ok(DetectionResult::found(info.version, info.path, source))
             }
@@ -347,12 +346,12 @@ mod tests {
     #[test]
     fn test_parse_version_output() {
         let detector = DockerDetector::new();
-        
+
         // 标准格式
         let output = b"Docker version 20.10.21, build baeda1f\n";
         let version = detector.parse_version_output(output).unwrap();
         assert_eq!(version, "20.10.21");
-        
+
         // Docker Desktop 格式
         let output = b"Docker version 4.16.2, build aa83ca2, desktop";
         let version = detector.parse_version_output(output).unwrap();

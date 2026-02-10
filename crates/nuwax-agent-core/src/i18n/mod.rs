@@ -63,7 +63,6 @@ impl Language {
     }
 }
 
-
 /// 翻译条目
 type Translations = HashMap<String, String>;
 
@@ -101,10 +100,7 @@ impl I18nManager {
 
     /// 获取当前语言
     pub fn current_language(&self) -> Language {
-        self.current
-            .read()
-            .map(|l| *l)
-            .unwrap_or(Language::Chinese)
+        self.current.read().map(|l| *l).unwrap_or(Language::Chinese)
     }
 
     /// 获取翻译文本
@@ -207,7 +203,10 @@ impl I18nManager {
 
         // General
         t.insert("app.name".into(), "Nuwax Agent".into());
-        t.insert("app.description".into(), "Cross-platform AI Agent Client".into());
+        t.insert(
+            "app.description".into(),
+            "Cross-platform AI Agent Client".into(),
+        );
 
         // Status bar
         t.insert("status.disconnected".into(), "Disconnected".into());

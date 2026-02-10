@@ -192,7 +192,8 @@ mod tests {
 
     #[test]
     fn test_api_response_from_result_error() {
-        let response: ApiResponse<String> = ApiResponse::from_result(Err("error from result".to_string()));
+        let response: ApiResponse<String> =
+            ApiResponse::from_result(Err("error from result".to_string()));
 
         assert!(!response.is_success());
         assert_eq!(response.error_message(), Some("error from result"));

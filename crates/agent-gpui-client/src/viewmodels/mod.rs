@@ -32,13 +32,12 @@ pub use nuwax_agent_core::viewmodels::permissions::{
 
 #[cfg(feature = "remote-desktop")]
 pub use nuwax_agent_core::viewmodels::remote_desktop::{
-    RemoteDesktopAction, RemoteDesktopViewModel,
-    RemoteDesktopViewModelState,
+    RemoteDesktopAction, RemoteDesktopViewModel, RemoteDesktopViewModelState,
 };
 
 pub use nuwax_agent_core::viewmodels::settings::{
-    AppearanceSettingsViewModel, GeneralSettingsViewModel, ServerConfigViewModel,
-    SettingsAction, SettingsViewModel, UISettingsPage,
+    AppearanceSettingsViewModel, GeneralSettingsViewModel, ServerConfigViewModel, SettingsAction,
+    SettingsViewModel, UISettingsPage,
 };
 
 pub use nuwax_agent_core::viewmodels::status_bar::{

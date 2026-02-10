@@ -1,9 +1,9 @@
 //! 客户端管理 API
 
 use axum::{
-    Json,
     extract::{Path, State},
     http::StatusCode,
+    Json,
 };
 use tracing::{info, warn};
 
@@ -98,10 +98,7 @@ pub async fn get_client(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<ClientInfo>, StatusCode> {
-    state
-        .get_client(&id)
-        .map(Json)
-        .ok_or(StatusCode::NOT_FOUND)
+    state.get_client(&id).map(Json).ok_or(StatusCode::NOT_FOUND)
 }
 
 /// 连接到客户端
@@ -180,11 +177,7 @@ pub async fn send_message(
         _ => BusinessMessageType::AgentTaskRequest,
     };
 
-    match state
-        .dispatcher
-        .dispatch(&id, biz_type, req.payload)
-        .await
-    {
+    match state.dispatcher.dispatch(&id, biz_type, req.payload).await {
         Ok(result) => {
             info!(
                 "Message {} sent via {:?} to client {}: type={}",

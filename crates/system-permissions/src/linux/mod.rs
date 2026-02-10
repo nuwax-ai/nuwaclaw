@@ -160,7 +160,7 @@ impl LinuxPermissionManager {
     async fn check_filesystem(&self, permission: SystemPermission) -> PermissionState {
         // 检查用户主目录权限
         let home_dir = std::env::home_dir().unwrap_or_default();
-        
+
         if permission == SystemPermission::FileSystemRead {
             let can_read = home_dir.exists() && home_dir.read_dir().is_ok();
             PermissionState {
@@ -243,7 +243,10 @@ impl LinuxPermissionManager {
         if options.interactive {
             // 提示用户通过 portal 对话框授权
             let _ = Command::new("sh")
-                .args(&["-c", "xdg-desktop-portal --help 2>/dev/null || echo 'Portal not available'"])
+                .args(&[
+                    "-c",
+                    "xdg-desktop-portal --help 2>/dev/null || echo 'Portal not available'",
+                ])
                 .spawn();
         }
 
@@ -409,7 +412,9 @@ impl LinuxPermissionManager {
             permission: SystemPermission::KeyboardMonitoring,
             granted: false,
             status: PermissionStatus::NotDetermined,
-            error_message: Some("Keyboard monitoring requires input device permissions".to_string()),
+            error_message: Some(
+                "Keyboard monitoring requires input device permissions".to_string(),
+            ),
             settings_guide: Some("System Settings > Privacy > Input Monitoring".to_string()),
         }
     }
@@ -475,9 +480,7 @@ impl PermissionManager for LinuxPermissionManager {
             SystemPermission::Location => self.request_location(options).await,
             SystemPermission::Clipboard => self.request_clipboard(options).await,
             SystemPermission::Network => self.request_network(options).await,
-            SystemPermission::KeyboardMonitoring => {
-                self.request_keyboard_monitoring(options).await
-            }
+            SystemPermission::KeyboardMonitoring => self.request_keyboard_monitoring(options).await,
             SystemPermission::FileSystemRead | SystemPermission::FileSystemWrite => {
                 let _ = self.open_settings(permission).await;
                 RequestResult::denied(
@@ -501,9 +504,9 @@ impl PermissionManager for LinuxPermissionManager {
     async fn open_settings(&self, permission: SystemPermission) -> Result<(), PermissionError> {
         let settings_cmd = match permission {
             SystemPermission::Accessibility => "gnome-control-center accessibility",
-            SystemPermission::ScreenRecording | SystemPermission::Microphone | SystemPermission::Camera => {
-                "gnome-control-center privacy"
-            }
+            SystemPermission::ScreenRecording
+            | SystemPermission::Microphone
+            | SystemPermission::Camera => "gnome-control-center privacy",
             SystemPermission::Location => "gnome-control-center privacy",
             SystemPermission::Clipboard | SystemPermission::KeyboardMonitoring => {
                 "gnome-control-center privacy"
@@ -569,11 +572,18 @@ fn check_atspi_access() -> bool {
 fn check_dbus_atspi_access() -> bool {
     // 通过 D-Bus 检查 AT-SPI2 服务
     std::process::Command::new("busctl")
-        .args(&["call", "--system", "org.a11y.Bus", "/org/a11y/bus", "org.freedesktop.DBus.Introspectable", "Introspect"])
+        .args(&[
+            "call",
+            "--system",
+            "org.a11y.Bus",
+            "/org/a11y/bus",
+            "org.freedesktop.DBus.Introspectable",
+            "Introspect",
+        ])
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false)
-   }
+}
 
 /// 检查 PipeWire 门户访问权限
 fn check_pipewire_portal_access() -> bool {
@@ -603,10 +613,7 @@ fn check_pipewire_portal_access() -> bool {
 fn check_xdg_portal_screencast() -> bool {
     // 检查 portal 设置文件
     if let Ok(home) = std::env::var("HOME") {
-        let portal_settings = format!(
-            "{}/.config/xdg-desktop-portal/settings.conf",
-            home
-        );
+        let portal_settings = format!("{}/.config/xdg-desktop-portal/settings.conf", home);
         if Path::new(&portal_settings).exists() {
             return true;
         }
@@ -630,9 +637,8 @@ fn check_x11_screen_access() -> bool {
     match output {
         Some(s) => {
             // 检查是否有本地连接
-            s.lines().any(|line| {
-                line.contains("LOCAL:") || line.contains("Si:")
-            })
+            s.lines()
+                .any(|line| line.contains("LOCAL:") || line.contains("Si:"))
         }
         None => false,
     }

@@ -19,7 +19,10 @@ async fn main() {
     #[cfg(not(target_os = "macos"))]
     {
         let result = manager
-            .request(SystemPermission::AppleScript, RequestOptions::non_interactive())
+            .request(
+                SystemPermission::AppleScript,
+                RequestOptions::non_interactive(),
+            )
             .await;
         handle_result(&result);
     }
@@ -86,9 +89,8 @@ async fn main() {
     println!("4. 使用 Result 类型处理错误...");
 
     // 模拟一个权限操作
-    let permission_result: Result<(), PermissionError> = manager
-        .open_settings(SystemPermission::Microphone)
-        .await;
+    let permission_result: Result<(), PermissionError> =
+        manager.open_settings(SystemPermission::Microphone).await;
 
     match permission_result {
         Ok(()) => println!("   成功打开设置页面"),

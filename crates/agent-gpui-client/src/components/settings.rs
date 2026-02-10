@@ -682,12 +682,13 @@ impl SettingsView {
                                     .text_color(theme.foreground)
                                     .child("文件监控"),
                             )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(theme.muted_foreground)
-                                    .child(if self.is_watching { "监控中" } else { "未监控" }),
-                            ),
+                            .child(div().text_sm().text_color(theme.muted_foreground).child(
+                                if self.is_watching {
+                                    "监控中"
+                                } else {
+                                    "未监控"
+                                },
+                            )),
                     )
                     .child(
                         h_flex()
@@ -710,7 +711,10 @@ impl SettingsView {
                                     .primary()
                                     .on_click(cx.listener(|this, _, _window, cx| {
                                         if let Some(ref error) = this.json_error {
-                                            this.set_result(false, format!("JSON 格式错误: {}", error));
+                                            this.set_result(
+                                                false,
+                                                format!("JSON 格式错误: {}", error),
+                                            );
                                         } else {
                                             this.set_result(true, "配置已应用".to_string());
                                         }

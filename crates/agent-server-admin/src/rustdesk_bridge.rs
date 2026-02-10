@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
-use tracing::{info, warn, error, debug};
+use tracing::{debug, error, info, warn};
 
 use librustdesk::hbb_common::config::Config as RustDeskConfig;
 
@@ -35,10 +35,7 @@ pub enum BridgeEvent {
     /// 客户端下线
     ClientLost { client_id: String },
     /// 收到客户端消息
-    MessageReceived {
-        client_id: String,
-        payload: Vec<u8>,
-    },
+    MessageReceived { client_id: String, payload: Vec<u8> },
     /// 连接断开
     Disconnected { reason: String },
     /// 错误
@@ -86,7 +83,10 @@ impl RustDeskBridge {
         }
 
         self.running.store(true, Ordering::SeqCst);
-        info!("Starting RustDeskBridge, connecting to hbbs: {}", self.hbbs_addr);
+        info!(
+            "Starting RustDeskBridge, connecting to hbbs: {}",
+            self.hbbs_addr
+        );
 
         // 配置 rendezvous server 地址
         RustDeskConfig::set_option(
@@ -144,15 +144,19 @@ impl RustDeskBridge {
 
             let id = RustDeskConfig::get_id();
             if !id.is_empty() {
-                info!("RustDeskBridge obtained self ID: {} (attempt {})", id, attempt);
+                info!(
+                    "RustDeskBridge obtained self ID: {} (attempt {})",
+                    id, attempt
+                );
                 *self_id.write().await = Some(id.clone());
-                let _ = event_tx
-                    .send(BridgeEvent::Connected { self_id: id })
-                    .await;
+                let _ = event_tx.send(BridgeEvent::Connected { self_id: id }).await;
                 return;
             }
 
-            debug!("Waiting for self ID... (attempt {}/{})", attempt, ID_POLL_MAX_ATTEMPTS);
+            debug!(
+                "Waiting for self ID... (attempt {}/{})",
+                attempt, ID_POLL_MAX_ATTEMPTS
+            );
         }
 
         error!(

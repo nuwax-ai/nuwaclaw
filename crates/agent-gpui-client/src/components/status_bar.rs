@@ -3,11 +3,9 @@
 use std::sync::Arc;
 
 use gpui::*;
-use gpui_component::{tag::Tag, ActiveTheme, h_flex};
+use gpui_component::{h_flex, tag::Tag, ActiveTheme};
 
-use crate::viewmodels::{
-    StatusBarViewModel, UIConnectionState, UIAgentState,
-};
+use crate::viewmodels::{StatusBarViewModel, UIAgentState, UIConnectionState};
 
 /// 状态栏视图组件
 pub struct StatusBarView {
@@ -81,7 +79,11 @@ impl Render for StatusBarView {
 
         // 构建 Agent 状态文本（包含任务数）
         let agent_text = if state.agent_task_count > 0 {
-            format!("{} ({})", agent_label(state.agent_state), state.agent_task_count)
+            format!(
+                "{} ({})",
+                agent_label(state.agent_state),
+                state.agent_task_count
+            )
         } else {
             agent_label(state.agent_state).to_string()
         };
@@ -101,36 +103,25 @@ impl Render for StatusBarView {
                     .gap_4()
                     .items_center()
                     .child(
-                        h_flex()
-                            .gap_1()
-                            .items_center()
-                            .child(
-                                connection_tag(state.connection_state)
-                                    .child(connection_label(state.connection_state))
-                            )
+                        h_flex().gap_1().items_center().child(
+                            connection_tag(state.connection_state)
+                                .child(connection_label(state.connection_state)),
+                        ),
                     )
                     .child(
                         h_flex()
                             .gap_1()
                             .items_center()
-                            .child(
-                                agent_tag(state.agent_state)
-                                    .child(agent_text)
-                            )
-                    )
+                            .child(agent_tag(state.agent_state).child(agent_text)),
+                    ),
             )
             .child(
                 // 右侧：依赖状态
-                h_flex()
-                    .gap_1()
-                    .items_center()
-                    .child(
-                        if state.has_update {
-                            Tag::warning().child("有更新")
-                        } else {
-                            Tag::success().child(state.dependency_text)
-                        }
-                    )
+                h_flex().gap_1().items_center().child(if state.has_update {
+                    Tag::warning().child("有更新")
+                } else {
+                    Tag::success().child(state.dependency_text)
+                }),
             )
     }
 }

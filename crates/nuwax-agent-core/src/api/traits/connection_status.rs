@@ -4,8 +4,8 @@
 
 use serde::Serialize;
 
-pub use super::status_bar::UIConnectionState;
 pub use super::status_bar::UIConnectionMode;
+pub use super::status_bar::UIConnectionState;
 
 /// 连接状态 ViewModel 状态
 #[derive(Debug, Clone, Default, Serialize)]

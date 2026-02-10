@@ -86,7 +86,10 @@ async fn main() -> anyhow::Result<()> {
     // 启动 RustDesk 桥接层（连接到 data-server）
     match state.start_bridge().await {
         Ok(()) => info!("RustDesk bridge started"),
-        Err(e) => warn!("Failed to start RustDesk bridge: {} (will retry on connect)", e),
+        Err(e) => warn!(
+            "Failed to start RustDesk bridge: {} (will retry on connect)",
+            e
+        ),
     }
 
     // 创建 CORS 配置

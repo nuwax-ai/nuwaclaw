@@ -9,7 +9,6 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
-use gpui_component::ActiveTheme;
 use gpui_component::avatar::Avatar;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::h_flex;
@@ -17,8 +16,9 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::popover::Popover;
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::v_flex;
-use serde::{Deserialize, Serialize};
+use gpui_component::ActiveTheme;
 use gpui_component::{Disableable, Sizable};
+use serde::{Deserialize, Serialize};
 
 use chrono::{DateTime, Local};
 
@@ -194,13 +194,13 @@ impl ChatView {
         // 订阅输入状态事件
         let input_entity = input_state.read(cx).input.clone();
         let _subscriptions = [cx.subscribe_in(&input_entity, window, {
-                move |this: &mut ChatView, _, ev: &InputEvent, window, cx| match ev {
-                    InputEvent::PressEnter { secondary: false } if !this.state.is_generating() => {
-                        this.send_message(window, cx);
-                    }
-                    _ => {}
+            move |this: &mut ChatView, _, ev: &InputEvent, window, cx| match ev {
+                InputEvent::PressEnter { secondary: false } if !this.state.is_generating() => {
+                    this.send_message(window, cx);
                 }
-            })];
+                _ => {}
+            }
+        })];
 
         Self { state, input_state }
     }
@@ -281,7 +281,11 @@ impl ChatView {
         };
 
         // 消息气泡样式
-        let bubble_bg = if is_user { theme.primary } else { theme.sidebar };
+        let bubble_bg = if is_user {
+            theme.primary
+        } else {
+            theme.sidebar
+        };
         let bubble_text = if is_user {
             theme.primary_foreground
         } else {
@@ -320,52 +324,46 @@ impl ChatView {
             h_flex().flex_row()
         };
 
-        container
-            .w_full()
-            .p_3()
-            .gap_3()
-            .child(avatar)
-            .child(
-                v_flex()
-                    .max_w(px(500.0))
-                    .gap_1()
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .items_center()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child(sender_name),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child(time_str),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .w_full()
-                            .p_3()
-                            .rounded_lg()
-                            .bg(bubble_bg)
-                            .text_color(bubble_text)
-                            .text_sm()
-                            .child(div().text_sm().text_color(bubble_text).child(message.content.clone())),
-                    )
-                    .when(!is_user, |this| {
-                        this.child(
-                            h_flex()
-                                .gap_1()
-                                .mt_1()
-                                .child(copy_btn)
-                                .child(delete_btn),
+        container.w_full().p_3().gap_3().child(avatar).child(
+            v_flex()
+                .max_w(px(500.0))
+                .gap_1()
+                .child(
+                    h_flex()
+                        .justify_between()
+                        .items_center()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(sender_name),
                         )
-                    }),
-            )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(time_str),
+                        ),
+                )
+                .child(
+                    div()
+                        .w_full()
+                        .p_3()
+                        .rounded_lg()
+                        .bg(bubble_bg)
+                        .text_color(bubble_text)
+                        .text_sm()
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(bubble_text)
+                                .child(message.content.clone()),
+                        ),
+                )
+                .when(!is_user, |this| {
+                    this.child(h_flex().gap_1().mt_1().child(copy_btn).child(delete_btn))
+                }),
+        )
     }
 
     /// 渲染空状态
@@ -392,18 +390,28 @@ impl ChatView {
     /// 渲染打字指示器
     fn render_typing_indicator(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        h_flex()
-            .gap_3()
-            .p_3()
-            .bg(theme.sidebar)
-            .rounded_lg()
-            .child(
-                h_flex()
-                    .gap_1()
-                    .child(div().size(px(8.0)).rounded_full().bg(theme.muted_foreground))
-                    .child(div().size(px(8.0)).rounded_full().bg(theme.muted_foreground))
-                    .child(div().size(px(8.0)).rounded_full().bg(theme.muted_foreground)),
-            )
+        h_flex().gap_3().p_3().bg(theme.sidebar).rounded_lg().child(
+            h_flex()
+                .gap_1()
+                .child(
+                    div()
+                        .size(px(8.0))
+                        .rounded_full()
+                        .bg(theme.muted_foreground),
+                )
+                .child(
+                    div()
+                        .size(px(8.0))
+                        .rounded_full()
+                        .bg(theme.muted_foreground),
+                )
+                .child(
+                    div()
+                        .size(px(8.0))
+                        .rounded_full()
+                        .bg(theme.muted_foreground),
+                ),
+        )
     }
 }
 
@@ -456,16 +464,13 @@ impl Render for ChatView {
             )
             // 消息列表
             .child(
-                div()
-                    .flex_1()
-                    .overflow_y_scrollbar()
-                    .child(
-                        v_flex()
-                            .p_4()
-                            .gap_3()
-                            .children(message_items)
-                            .when_some(typing_indicator, |this, indicator| this.child(indicator)),
-                    ),
+                div().flex_1().overflow_y_scrollbar().child(
+                    v_flex()
+                        .p_4()
+                        .gap_3()
+                        .children(message_items)
+                        .when_some(typing_indicator, |this, indicator| this.child(indicator)),
+                ),
             )
             // 输入区域
             .child(

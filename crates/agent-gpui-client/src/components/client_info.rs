@@ -5,11 +5,7 @@
 use std::sync::Arc;
 
 use gpui::*;
-use gpui_component::{
-    button::Button,
-    h_flex, v_flex,
-    ActiveTheme, Icon, IconName, Sizable,
-};
+use gpui_component::{button::Button, h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable};
 
 use crate::viewmodels::ClientInfoViewModel;
 
@@ -174,10 +170,9 @@ impl Render for ClientInfoView {
                                     .child("连接地址"),
                             )
                             .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(theme.foreground)
-                                    .child(state.connection_addr.unwrap_or_else(|| "-".to_string())),
+                                div().text_sm().text_color(theme.foreground).child(
+                                    state.connection_addr.unwrap_or_else(|| "-".to_string()),
+                                ),
                             ),
                     ),
             )

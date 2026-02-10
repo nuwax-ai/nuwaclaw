@@ -10,8 +10,8 @@ mod file_transfer_tests {
     use tokio::sync::Mutex;
 
     use crate::file_transfer::{
-        FileTransferManager, FileTransferSession, FileBlockReader, TransferStatus,
-        TransferDirection, FileTransferCallback, NoopFileTransferCallback,
+        FileBlockReader, FileTransferCallback, FileTransferManager, FileTransferSession,
+        NoopFileTransferCallback, TransferDirection, TransferStatus,
     };
 
     /// 测试回调实现
@@ -92,7 +92,9 @@ mod file_transfer_tests {
             "/remote/path",
             "peer-123",
             callback,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         assert_eq!(session.id, 1);
         assert_eq!(session.direction, TransferDirection::Send);
@@ -105,22 +107,17 @@ mod file_transfer_tests {
         use librustdesk::client_api::FileEntry;
 
         let callback = Arc::new(NoopFileTransferCallback);
-        let entries = vec![
-            FileEntry {
-                name: "file1.txt".to_string(),
-                size: 100,
-                entry_type: librustdesk::client_api::FileType::File.into(),
-                ..Default::default()
-            },
-        ];
+        let entries = vec![FileEntry {
+            name: "file1.txt".to_string(),
+            size: 100,
+            entry_type: librustdesk::client_api::FileType::File.into(),
+            ..Default::default()
+        }];
 
-        let session = FileTransferSession::new_receive(
-            2,
-            entries,
-            "/remote/path",
-            "peer-456",
-            callback,
-        ).await.unwrap();
+        let session =
+            FileTransferSession::new_receive(2, entries, "/remote/path", "peer-456", callback)
+                .await
+                .unwrap();
 
         assert_eq!(session.id, 2);
         assert_eq!(session.direction, TransferDirection::Receive);
@@ -130,13 +127,10 @@ mod file_transfer_tests {
     #[tokio::test]
     async fn test_file_transfer_session_confirm() {
         let callback = Arc::new(NoopFileTransferCallback);
-        let mut session = FileTransferSession::new_receive(
-            1,
-            vec![],
-            "/remote/path",
-            "peer-123",
-            callback,
-        ).await.unwrap();
+        let mut session =
+            FileTransferSession::new_receive(1, vec![], "/remote/path", "peer-123", callback)
+                .await
+                .unwrap();
 
         assert_eq!(session.status, TransferStatus::Pending);
 
@@ -154,7 +148,9 @@ mod file_transfer_tests {
             "/remote/path",
             "peer-123",
             callback.clone(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         session.cancel().await;
 
@@ -173,14 +169,12 @@ mod file_transfer_tests {
 
         use librustdesk::client_api::FileEntry;
 
-        let entries = vec![
-            FileEntry {
-                name: "test.txt".to_string(),
-                size: 13,
-                entry_type: librustdesk::client_api::FileType::File.into(),
-                ..Default::default()
-            },
-        ];
+        let entries = vec![FileEntry {
+            name: "test.txt".to_string(),
+            size: 13,
+            entry_type: librustdesk::client_api::FileType::File.into(),
+            ..Default::default()
+        }];
 
         let mut reader = FileBlockReader::new(dir.path().to_path_buf(), entries);
 
@@ -239,14 +233,12 @@ mod file_transfer_tests {
         use librustdesk::client_api::FileEntry;
 
         // 只创建一个文件条目，但文件不存在
-        let entries = vec![
-            FileEntry {
-                name: "missing.txt".to_string(),
-                size: 100,
-                entry_type: librustdesk::client_api::FileType::File.into(),
-                ..Default::default()
-            },
-        ];
+        let entries = vec![FileEntry {
+            name: "missing.txt".to_string(),
+            size: 100,
+            entry_type: librustdesk::client_api::FileType::File.into(),
+            ..Default::default()
+        }];
 
         let mut reader = FileBlockReader::new(dir.path().to_path_buf(), entries);
 
@@ -264,14 +256,12 @@ mod file_transfer_tests {
 
         use librustdesk::client_api::FileEntry;
 
-        let entries = vec![
-            FileEntry {
-                name: "large.txt".to_string(),
-                size: 200,
-                entry_type: librustdesk::client_api::FileType::File.into(),
-                ..Default::default()
-            },
-        ];
+        let entries = vec![FileEntry {
+            name: "large.txt".to_string(),
+            size: 200,
+            entry_type: librustdesk::client_api::FileType::File.into(),
+            ..Default::default()
+        }];
 
         // 使用 100 字节块大小
         let mut reader = FileBlockReader::with_block_size(
@@ -299,12 +289,10 @@ mod file_transfer_tests {
         let manager = FileTransferManager::new();
         let callback = Arc::new(NoopFileTransferCallback);
 
-        let id = manager.create_send_session(
-            vec![file_path],
-            "/remote",
-            "peer-123",
-            callback,
-        ).await.unwrap();
+        let id = manager
+            .create_send_session(vec![file_path], "/remote", "peer-123", callback)
+            .await
+            .unwrap();
 
         assert!(id > 0);
 
@@ -320,22 +308,20 @@ mod file_transfer_tests {
         let manager = FileTransferManager::new();
         let callback = Arc::new(NoopFileTransferCallback);
 
-        let entries = vec![
-            FileEntry {
-                name: "test.txt".to_string(),
-                size: 100,
-                entry_type: librustdesk::client_api::FileType::File.into(),
-                ..Default::default()
-            },
-        ];
+        let entries = vec![FileEntry {
+            name: "test.txt".to_string(),
+            size: 100,
+            entry_type: librustdesk::client_api::FileType::File.into(),
+            ..Default::default()
+        }];
 
-        manager.create_receive_session(
-            100, // 指定的传输 ID
-            entries,
-            "/remote",
-            "peer-123",
-            callback,
-        ).await.unwrap();
+        manager
+            .create_receive_session(
+                100, // 指定的传输 ID
+                entries, "/remote", "peer-123", callback,
+            )
+            .await
+            .unwrap();
 
         // 检查会话是否创建
         let session = manager.get_session(100);
@@ -350,12 +336,10 @@ mod file_transfer_tests {
         let manager = FileTransferManager::new();
         let callback = Arc::new(NoopFileTransferCallback);
 
-        let id = manager.create_send_session(
-            vec![file_path],
-            "/remote",
-            "peer-123",
-            callback,
-        ).await.unwrap();
+        let id = manager
+            .create_send_session(vec![file_path], "/remote", "peer-123", callback)
+            .await
+            .unwrap();
 
         // 取消传输
         let result = manager.cancel_transfer(id).await;
@@ -374,12 +358,10 @@ mod file_transfer_tests {
         let manager = FileTransferManager::new();
         let callback = Arc::new(NoopFileTransferCallback);
 
-        let id = manager.create_send_session(
-            vec![file_path],
-            "/remote",
-            "peer-123",
-            callback,
-        ).await.unwrap();
+        let id = manager
+            .create_send_session(vec![file_path], "/remote", "peer-123", callback)
+            .await
+            .unwrap();
 
         let progress = manager.get_progress(id);
         assert!(progress.is_some());
@@ -396,19 +378,20 @@ mod file_transfer_tests {
         let manager = FileTransferManager::new();
         let callback = Arc::new(NoopFileTransferCallback);
 
-        manager.create_send_session(
-            vec![file_path.clone()],
-            "/remote",
-            "peer-123",
-            callback.clone(),
-        ).await.unwrap();
+        manager
+            .create_send_session(
+                vec![file_path.clone()],
+                "/remote",
+                "peer-123",
+                callback.clone(),
+            )
+            .await
+            .unwrap();
 
-        manager.create_send_session(
-            vec![file_path],
-            "/remote",
-            "peer-456",
-            callback,
-        ).await.unwrap();
+        manager
+            .create_send_session(vec![file_path], "/remote", "peer-456", callback)
+            .await
+            .unwrap();
 
         let statuses = manager.get_all_status();
         assert_eq!(statuses.len(), 2);
@@ -422,12 +405,10 @@ mod file_transfer_tests {
         let manager = FileTransferManager::new();
         let callback = Arc::new(NoopFileTransferCallback);
 
-        let id = manager.create_send_session(
-            vec![file_path],
-            "/remote",
-            "peer-123",
-            callback,
-        ).await.unwrap();
+        let id = manager
+            .create_send_session(vec![file_path], "/remote", "peer-123", callback)
+            .await
+            .unwrap();
 
         // 模拟完成传输
         manager.cancel_transfer(id).await;
@@ -451,7 +432,9 @@ mod file_transfer_tests {
             "/remote/path",
             "peer-123",
             callback.clone(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         let block = session.read_next_block().await.unwrap();
         assert!(block.is_some());
@@ -476,7 +459,9 @@ mod file_transfer_tests {
             "/remote/path",
             "peer-123",
             callback.clone(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         // 读取块
         let _ = session.read_next_block().await.unwrap();

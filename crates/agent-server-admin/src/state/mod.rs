@@ -188,12 +188,9 @@ impl AppState {
     ) -> anyhow::Result<String> {
         let self_id = self.get_bridge_self_id().await.unwrap_or_default();
 
-        let envelope = self.peer_connections.create_envelope(
-            message_type,
-            payload,
-            &self_id,
-            client_id,
-        );
+        let envelope =
+            self.peer_connections
+                .create_envelope(message_type, payload, &self_id, client_id);
 
         let message_id = envelope.message_id.clone();
         self.peer_connections

@@ -10,9 +10,8 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 use tokio::sync::Mutex;
 
 use librustdesk::client_api::{
-    FileTransferBlock, FileTransferSendRequest, FileTransferReceiveRequest,
-    FileTransferCancel, FileTransferSendConfirmRequest,
-    FileAction, FileEntry,
+    FileAction, FileEntry, FileTransferBlock, FileTransferCancel, FileTransferReceiveRequest,
+    FileTransferSendConfirmRequest, FileTransferSendRequest,
 };
 use librustdesk::hbb_common::fs::get_recursive_files;
 use librustdesk::hbb_common::message_proto::FileType;
@@ -234,7 +233,9 @@ impl FileBlockReader {
     }
 
     /// 读取下一个文件块
-    pub async fn read_next_block(&mut self) -> Result<Option<(FileEntry, Vec<u8>)>, std::io::Error> {
+    pub async fn read_next_block(
+        &mut self,
+    ) -> Result<Option<(FileEntry, Vec<u8>)>, std::io::Error> {
         // 使用循环代替递归，避免栈溢出
         loop {
             if self.file_index >= self.files.len() {
@@ -394,7 +395,8 @@ impl FileTransferSession {
             if path.is_file() {
                 if let Ok(meta) = std::fs::metadata(path) {
                     let entry = FileEntry {
-                        name: path.file_name()
+                        name: path
+                            .file_name()
                             .and_then(|n| n.to_str())
                             .unwrap_or("unknown")
                             .to_string(),
@@ -420,7 +422,10 @@ impl FileTransferSession {
         }
 
         let reader = if !all_files.is_empty() {
-            Some(Mutex::new(FileBlockReader::new(files[0].clone(), file_entries)))
+            Some(Mutex::new(FileBlockReader::new(
+                files[0].clone(),
+                file_entries,
+            )))
         } else {
             None
         };
@@ -456,7 +461,9 @@ impl FileTransferSession {
     }
 
     /// 获取下一个文件块（发送时使用）
-    pub async fn read_next_block(&mut self) -> Result<Option<FileTransferBlock>, FileTransferManagerError> {
+    pub async fn read_next_block(
+        &mut self,
+    ) -> Result<Option<FileTransferBlock>, FileTransferManagerError> {
         if let Some(ref mut reader_mutex) = self.reader {
             let mut reader = reader_mutex.lock().await;
 
@@ -500,7 +507,10 @@ impl FileTransferSession {
     }
 
     /// 写入文件块（接收时使用）
-    pub async fn write_block(&self, _block: FileTransferBlock) -> Result<(), FileTransferManagerError> {
+    pub async fn write_block(
+        &self,
+        _block: FileTransferBlock,
+    ) -> Result<(), FileTransferManagerError> {
         // 接收文件块的实现需要文件写入逻辑
         // 这里可以扩展为实际的文件接收
         Ok(())
@@ -571,7 +581,8 @@ impl FileTransferManager {
 
     /// 生成新的传输 ID
     fn generate_id(&self) -> i32 {
-        self.next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        self.next_id
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     }
 
     /// 创建发送会话
@@ -584,13 +595,8 @@ impl FileTransferManager {
     ) -> Result<i32, FileTransferManagerError> {
         let id = self.generate_id();
 
-        let session = FileTransferSession::new_send(
-            id,
-            files,
-            remote_path,
-            peer_id,
-            callback,
-        ).await?;
+        let session =
+            FileTransferSession::new_send(id, files, remote_path, peer_id, callback).await?;
 
         self.sessions.insert(id, Arc::new(Mutex::new(session)));
 
@@ -612,13 +618,8 @@ impl FileTransferManager {
         peer_id: &str,
         callback: Arc<dyn FileTransferCallback>,
     ) -> Result<(), FileTransferManagerError> {
-        let session = FileTransferSession::new_receive(
-            id,
-            files,
-            remote_path,
-            peer_id,
-            callback,
-        ).await?;
+        let session =
+            FileTransferSession::new_receive(id, files, remote_path, peer_id, callback).await?;
 
         self.sessions.insert(id, Arc::new(Mutex::new(session)));
         Ok(())
@@ -636,7 +637,8 @@ impl FileTransferManager {
 
     /// 获取所有会话
     pub fn get_all_sessions(&self) -> Vec<(i32, Arc<Mutex<FileTransferSession>>)> {
-        self.sessions.iter()
+        self.sessions
+            .iter()
             .map(|s| (*s.key(), s.clone()))
             .collect()
     }
@@ -654,28 +656,31 @@ impl FileTransferManager {
     /// 暂停传输
     pub fn pause_transfer(&self, _id: i32) -> Result<(), FileTransferManagerError> {
         // TODO: 实现暂停逻辑
-        Err(FileTransferManagerError::InvalidArgument("暂停功能尚未实现".to_string()))
+        Err(FileTransferManagerError::InvalidArgument(
+            "暂停功能尚未实现".to_string(),
+        ))
     }
 
     /// 恢复传输
     pub fn resume_transfer(&self, _id: i32) -> Result<(), FileTransferManagerError> {
         // TODO: 实现恢复逻辑
-        Err(FileTransferManagerError::InvalidArgument("恢复功能尚未实现".to_string()))
+        Err(FileTransferManagerError::InvalidArgument(
+            "恢复功能尚未实现".to_string(),
+        ))
     }
 
     /// 获取传输进度
     pub fn get_progress(&self, id: i32) -> Option<(u64, u64)> {
         self.sessions.get(&id).map(|s| {
             let session = s.value().blocking_lock();
-            futures::executor::block_on(async {
-                session.get_progress().await
-            })
+            futures::executor::block_on(async { session.get_progress().await })
         })
     }
 
     /// 获取所有传输的状态
     pub fn get_all_status(&self) -> Vec<(i32, TransferStatus)> {
-        self.sessions.iter()
+        self.sessions
+            .iter()
             .map(|s| (*s.key(), s.value().blocking_lock().status()))
             .collect()
     }
@@ -693,11 +698,7 @@ impl FileTransferManager {
 
 /// 辅助函数：构建文件传输请求消息
 #[cfg(feature = "remote-desktop")]
-pub fn build_file_send_request(
-    id: i32,
-    path: &str,
-    files: &[FileEntry],
-) -> FileAction {
+pub fn build_file_send_request(id: i32, path: &str, files: &[FileEntry]) -> FileAction {
     let mut action = FileAction::new();
     let request = FileTransferSendRequest {
         id,
@@ -713,11 +714,7 @@ pub fn build_file_send_request(
 
 /// 辅助函数：构建文件接收请求消息
 #[cfg(feature = "remote-desktop")]
-pub fn build_file_receive_request(
-    id: i32,
-    path: &str,
-    files: Vec<FileEntry>,
-) -> FileAction {
+pub fn build_file_receive_request(id: i32, path: &str, files: Vec<FileEntry>) -> FileAction {
     let total_size: u64 = files.iter().map(|f| f.size).sum();
     let mut action = FileAction::new();
     action.set_receive(FileTransferReceiveRequest {
@@ -743,7 +740,12 @@ pub fn build_file_cancel(id: i32) -> FileAction {
 
 /// 辅助函数：构建文件确认消息
 #[cfg(feature = "remote-desktop")]
-pub fn build_file_confirm(id: i32, file_num: i32, skip: bool, offset_blk: Option<u32>) -> FileAction {
+pub fn build_file_confirm(
+    id: i32,
+    file_num: i32,
+    skip: bool,
+    offset_blk: Option<u32>,
+) -> FileAction {
     let mut confirm = FileTransferSendConfirmRequest {
         id,
         file_num,

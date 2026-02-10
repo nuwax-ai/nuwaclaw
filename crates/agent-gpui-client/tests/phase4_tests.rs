@@ -17,15 +17,13 @@ mod agent_task_tests {
 
     #[test]
     fn test_task_with_priority() {
-        let task = AgentTask::new("test", vec![], "admin")
-            .with_priority(TaskPriority::Critical);
+        let task = AgentTask::new("test", vec![], "admin").with_priority(TaskPriority::Critical);
         assert_eq!(task.priority, TaskPriority::Critical);
     }
 
     #[test]
     fn test_task_with_timeout() {
-        let task = AgentTask::new("test", vec![], "admin")
-            .with_timeout(5000);
+        let task = AgentTask::new("test", vec![], "admin").with_timeout(5000);
         assert_eq!(task.timeout_ms, Some(5000));
     }
 
@@ -74,8 +72,7 @@ mod task_progress_tests {
 
     #[test]
     fn test_progress_with_stage() {
-        let progress = TaskProgress::new("task-1", 75, "Almost done")
-            .with_stage("compilation");
+        let progress = TaskProgress::new("task-1", 75, "Almost done").with_stage("compilation");
         assert_eq!(progress.stage, Some("compilation".to_string()));
     }
 
@@ -87,8 +84,7 @@ mod task_progress_tests {
 
     #[test]
     fn test_progress_serialization() {
-        let progress = TaskProgress::new("task-1", 60, "Working")
-            .with_stage("step2");
+        let progress = TaskProgress::new("task-1", 60, "Working").with_stage("step2");
         let bytes = serde_json::to_vec(&progress).unwrap();
         let decoded: TaskProgress = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(progress.task_id, decoded.task_id);
@@ -132,7 +128,7 @@ mod task_result_tests {
 #[cfg(test)]
 mod message_converter_tests {
     use nuwax_agent::core::agent::{
-        AgentTask, MessageConverter, TaskProgress, TaskResult, CancelRequest,
+        AgentTask, CancelRequest, MessageConverter, TaskProgress, TaskResult,
     };
     use nuwax_agent::core::business_channel::MessageType;
 
@@ -182,8 +178,8 @@ mod message_converter_tests {
 #[cfg(test)]
 mod agent_manager_tests {
     use nuwax_agent::core::agent::{
-        AgentEvent, AgentManager, AgentManagerState, AgentTask, TaskExecutor,
-        TaskProgress, TaskResult, AgentError,
+        AgentError, AgentEvent, AgentManager, AgentManagerState, AgentTask, TaskExecutor,
+        TaskProgress, TaskResult,
     };
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
@@ -260,11 +256,7 @@ mod agent_manager_tests {
         let task = AgentTask::new("test", vec![], "admin");
         let _id = manager.submit_task(task).await.unwrap();
 
-        let event = tokio::time::timeout(
-            std::time::Duration::from_millis(200),
-            rx.recv(),
-        )
-        .await;
+        let event = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await;
         assert!(event.is_ok());
         match event.unwrap().unwrap() {
             AgentEvent::TaskCreated(_) => {} // expected

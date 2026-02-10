@@ -12,6 +12,10 @@ pub mod state;
 pub use adapter::{AdapterEvent, ConnectionAdapter, RustDeskAdapter};
 pub use business_handler::{BusinessHandlerEvent, BusinessMessageHandler};
 pub use heartbeat::HeartbeatManager;
-pub use peer::{InputEvent, MouseButton, PeerConnection, PeerConnectionConfig, PeerConnectionEvent};
+pub use peer::{
+    InputEvent, MouseButton, PeerConnection, PeerConnectionConfig, PeerConnectionEvent,
+};
 pub use reconnect::ReconnectManager;
-pub use state::{ConnectionConfig, ConnectionEvent, ConnectionManager, ConnectionMode, ConnectionState};
+pub use state::{
+    ConnectionConfig, ConnectionEvent, ConnectionManager, ConnectionMode, ConnectionState,
+};

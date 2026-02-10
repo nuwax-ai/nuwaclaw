@@ -4,21 +4,21 @@
 //! 不涉及远程桌面功能（视频、音频、输入等）
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, error, info, warn};
 
 use librustdesk::client_api::{
-    Data, Interface, LoginConfigHandler,
-    handle_hash, handle_login_error, handle_login_from_ui, handle_test_delay,
+    handle_hash, handle_login_error, handle_login_from_ui, handle_test_delay, Data, Interface,
+    LoginConfigHandler,
 };
 use librustdesk::hbb_common::message_proto::{
-    message::Union as MessageUnion, Hash, Message,
-    PeerInfo, TestDelay, WindowsSession, FileTransferBlock, FileTransferSendRequest,
-    FileEntry, FileTransferSendConfirmRequest, FileTransferCancel, BusinessMessage,
+    message::Union as MessageUnion, BusinessMessage, FileEntry, FileTransferBlock,
+    FileTransferCancel, FileTransferSendConfirmRequest, FileTransferSendRequest, Hash, Message,
+    PeerInfo, TestDelay, WindowsSession,
 };
 use librustdesk::hbb_common::protobuf::Message as ProtobufMessage;
 use librustdesk::hbb_common::rendezvous_proto::ConnType;
@@ -164,9 +164,7 @@ impl BusinessConnection {
 
         debug!(
             "Sent business message to {}: type={:?}, id={}",
-            self.peer_id,
-            envelope.type_,
-            envelope.message_id
+            self.peer_id, envelope.type_, envelope.message_id
         );
 
         Ok(())
@@ -220,7 +218,8 @@ impl BusinessConnection {
                         // 解析消息
                         match Message::parse_from_bytes(&bytes) {
                             Ok(msg) => {
-                                if let Some(MessageUnion::BusinessMessage(business_msg)) = msg.union {
+                                if let Some(MessageUnion::BusinessMessage(business_msg)) = msg.union
+                                {
                                     // 转换为 BusinessEnvelope
                                     let envelope = BusinessEnvelope {
                                         message_id: business_msg.message_id,
@@ -235,9 +234,7 @@ impl BusinessConnection {
                                         peer_id, envelope.type_
                                     );
                                     let _ = event_tx
-                                        .send(BusinessConnectionEvent::MessageReceived {
-                                            envelope,
-                                        })
+                                        .send(BusinessConnectionEvent::MessageReceived { envelope })
                                         .await;
                                 }
                                 // 忽略非业务消息
@@ -249,8 +246,7 @@ impl BusinessConnection {
                     }
                     Some(Err(e)) => {
                         error!("Error reading from {}: {}", peer_id, e);
-                        *state.write().await =
-                            BusinessConnectionState::Error(e.to_string());
+                        *state.write().await = BusinessConnectionState::Error(e.to_string());
                         let _ = event_tx
                             .send(BusinessConnectionEvent::Error {
                                 peer_id: peer_id.clone(),
@@ -302,11 +298,7 @@ impl BusinessConnection {
     ///
     /// # 返回
     /// 传输任务 ID
-    pub async fn send_file(
-        &self,
-        files: Vec<PathBuf>,
-        remote_path: &str,
-    ) -> anyhow::Result<i32> {
+    pub async fn send_file(&self, files: Vec<PathBuf>, remote_path: &str) -> anyhow::Result<i32> {
         let transfer_id = get_next_transfer_id();
 
         // 构建文件列表
@@ -317,7 +309,8 @@ impl BusinessConnection {
             }
             if let Ok(meta) = std::fs::metadata(path) {
                 let entry = FileEntry {
-                    name: path.file_name()
+                    name: path
+                        .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("unknown")
                         .to_string(),
@@ -337,7 +330,8 @@ impl BusinessConnection {
 
         // 序列化请求
         let mut payload = Vec::new();
-        request.write_to_vec(&mut payload)
+        request
+            .write_to_vec(&mut payload)
             .map_err(|e| anyhow::anyhow!("Failed to serialize request: {}", e))?;
 
         // 发送请求
@@ -350,26 +344,31 @@ impl BusinessConnection {
 
         self.send_message(envelope).await?;
 
-        info!("File transfer initiated: id={}, files={}", transfer_id, files.len());
+        info!(
+            "File transfer initiated: id={}, files={}",
+            transfer_id,
+            files.len()
+        );
         Ok(transfer_id)
     }
 
     /// 处理接收到的文件块
     pub async fn handle_file_block(&self, block: FileTransferBlock) -> anyhow::Result<()> {
-        info!("Received file block: id={}, file_num={}, size={}",
-              block.id, block.file_num, block.data.len());
+        info!(
+            "Received file block: id={}, file_num={}, size={}",
+            block.id,
+            block.file_num,
+            block.data.len()
+        );
 
         // 将文件块发送到远程端
         let mut payload = Vec::new();
-        block.write_to_vec(&mut payload)
+        block
+            .write_to_vec(&mut payload)
             .map_err(|e| anyhow::anyhow!("Failed to serialize block: {}", e))?;
 
-        let envelope = Self::create_envelope(
-            BusinessMessageType::FileBlock,
-            payload,
-            "",
-            &self.peer_id,
-        );
+        let envelope =
+            Self::create_envelope(BusinessMessageType::FileBlock, payload, "", &self.peer_id);
 
         self.send_message(envelope).await?;
         Ok(())
@@ -424,7 +423,10 @@ impl BusinessConnection {
         );
 
         self.send_message(envelope).await?;
-        info!("File transfer confirmed: id={}, file_num={}", transfer_id, file_num);
+        info!(
+            "File transfer confirmed: id={}, file_num={}",
+            transfer_id, file_num
+        );
         Ok(())
     }
 }
@@ -464,12 +466,12 @@ impl BusinessInterface {
         let lc = Arc::new(std::sync::RwLock::new(LoginConfigHandler::default()));
         lc.write().unwrap().initialize(
             peer_id.to_string(),
-            ConnType::DEFAULT_CONN,  // 使用默认连接类型
-            None,   // switch_uuid
-            false,  // force_relay
-            None,   // adapter_luid
-            None,   // shared_password
-            None,   // conn_token
+            ConnType::DEFAULT_CONN, // 使用默认连接类型
+            None,                   // switch_uuid
+            false,                  // force_relay
+            None,                   // adapter_luid
+            None,                   // shared_password
+            None,                   // conn_token
         );
 
         let interface = Self {
@@ -507,10 +509,10 @@ impl Interface for BusinessInterface {
                 debug!("Auto-sending password for {}", self.peer_id);
                 self.sender
                     .send(Data::Login((
-                        String::new(),          // os_username
-                        String::new(),          // os_password
-                        self.password.clone(),  // password
-                        true,                   // remember
+                        String::new(),         // os_username
+                        String::new(),         // os_password
+                        self.password.clone(), // password
+                        true,                  // remember
                     )))
                     .ok();
             }
@@ -528,7 +530,10 @@ impl Interface for BusinessInterface {
                 });
             }
             msg if msg.contains("error") => {
-                error!("Connection error for {}: {} - {}", self.peer_id, title, text);
+                error!(
+                    "Connection error for {}: {} - {}",
+                    self.peer_id, title, text
+                );
                 let event_tx = self.event_tx.clone();
                 let peer_id = self.peer_id.clone();
                 let message = format!("{}: {}", title, text);
@@ -539,7 +544,10 @@ impl Interface for BusinessInterface {
                 });
             }
             _ => {
-                debug!("Message for {}: [{}] {} - {}", self.peer_id, msgtype, title, text);
+                debug!(
+                    "Message for {}: [{}] {} - {}",
+                    self.peer_id, msgtype, title, text
+                );
             }
         }
     }
@@ -549,7 +557,10 @@ impl Interface for BusinessInterface {
     }
 
     fn handle_peer_info(&self, pi: PeerInfo) {
-        debug!("Received peer info from {}: {:?}", self.peer_id, pi.username);
+        debug!(
+            "Received peer info from {}: {:?}",
+            self.peer_id, pi.username
+        );
         self.lc.write().unwrap().handle_peer_info(&pi);
 
         // 发送认证成功事件

@@ -4,9 +4,7 @@
 
 #[cfg(test)]
 mod permission_tests {
-    use nuwax_agent::core::permissions::{
-        PermissionManager, PermissionStatus, PermissionType,
-    };
+    use nuwax_agent::core::permissions::{PermissionManager, PermissionStatus, PermissionType};
 
     #[test]
     fn test_permission_type_description() {
@@ -171,7 +169,7 @@ mod theme_tests {
 
 #[cfg(test)]
 mod upgrade_tests {
-    use nuwax_agent::core::upgrade::{UpgradeManager, UpdateStatus};
+    use nuwax_agent::core::upgrade::{UpdateStatus, UpgradeManager};
 
     #[test]
     fn test_manager_creation() {

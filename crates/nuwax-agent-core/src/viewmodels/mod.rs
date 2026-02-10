@@ -21,7 +21,7 @@
 //! │                  业务逻辑层 (Model)                       │
 //! │  core/*.rs - 纯业务逻辑                                   │
 //! └─────────────────────────────────────────────────────────┘
- //! ```
+//! ```
 
 // 导出 API traits（由 API 层重新导出，这里也导出方便使用）
 pub use super::api::traits::{
@@ -30,8 +30,8 @@ pub use super::api::traits::{
 };
 
 // 导出共享类型（从子模块重新导出）
-pub use super::api::traits::status_bar::StatusBarViewModelState as StatusBarState;
 pub use super::api::traits::connection_status::ConnectionStatusViewModelState as ConnectionStatusState;
+pub use super::api::traits::status_bar::StatusBarViewModelState as StatusBarState;
 
 // 从 connection_status 重新导出类型（供外部使用）
 pub use connection_status::{
@@ -72,8 +72,7 @@ pub use super::api::traits::RemoteDesktopApi;
 
 #[cfg(feature = "remote-desktop")]
 pub use remote_desktop::{
-    RemoteDesktopAction, RemoteDesktopViewModel,
-    RemoteDesktopViewModelState,
+    RemoteDesktopAction, RemoteDesktopViewModel, RemoteDesktopViewModelState,
 };
 
 #[cfg(not(feature = "remote-desktop"))]
@@ -91,9 +90,7 @@ pub struct RemoteDesktopViewModel;
 pub struct RemoteDesktopAction;
 
 pub use settings::{
-    AppearanceSettingsViewModel, GeneralSettingsViewModel, ServerConfigViewModel,
-    SettingsAction, SettingsViewModel, UISettingsPage,
+    AppearanceSettingsViewModel, GeneralSettingsViewModel, ServerConfigViewModel, SettingsAction,
+    SettingsViewModel, UISettingsPage,
 };
-pub use status_bar::{
-    StatusBarAction, StatusBarViewModel,
-};
+pub use status_bar::{StatusBarAction, StatusBarViewModel};

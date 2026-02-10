@@ -130,14 +130,19 @@ impl AgentManager {
     }
 
     /// 从 BusinessMessage 提交任务
-    pub async fn submit_from_message(&self, message: &BusinessMessage) -> Result<String, AgentError> {
+    pub async fn submit_from_message(
+        &self,
+        message: &BusinessMessage,
+    ) -> Result<String, AgentError> {
         let task = AgentTask::from_business_message(message)?;
         self.submit_task(task).await
     }
 
     /// 取消任务
     pub fn cancel_task(&self, task_id: &str) -> Result<(), AgentError> {
-        let entry = self.tasks.get(task_id)
+        let entry = self
+            .tasks
+            .get(task_id)
             .ok_or_else(|| AgentError::TaskNotFound(task_id.to_string()))?;
 
         if entry.status.is_terminal() {
@@ -152,7 +157,9 @@ impl AgentManager {
             entry.status = TaskStatus::Cancelled;
         }
 
-        let _ = self.event_tx.send(AgentEvent::TaskCancelled(task_id.to_string()));
+        let _ = self
+            .event_tx
+            .send(AgentEvent::TaskCancelled(task_id.to_string()));
         info!("Task cancelled: {}", task_id);
         Ok(())
     }
@@ -164,12 +171,16 @@ impl AgentManager {
 
     /// 获取任务进度
     pub fn get_task_progress(&self, task_id: &str) -> Option<TaskProgress> {
-        self.tasks.get(task_id).and_then(|entry| entry.progress.clone())
+        self.tasks
+            .get(task_id)
+            .and_then(|entry| entry.progress.clone())
     }
 
     /// 获取任务结果
     pub fn get_task_result(&self, task_id: &str) -> Option<TaskResult> {
-        self.tasks.get(task_id).and_then(|entry| entry.result.clone())
+        self.tasks
+            .get(task_id)
+            .and_then(|entry| entry.result.clone())
     }
 
     /// 获取所有活跃任务 ID
@@ -208,7 +219,9 @@ impl AgentManager {
             .iter()
             .filter(|entry| entry.status.is_terminal())
             .map(|entry| {
-                let completed_at = entry.result.as_ref()
+                let completed_at = entry
+                    .result
+                    .as_ref()
                     .map(|r| r.completed_at)
                     .unwrap_or(entry.task.created_at);
                 (entry.key().clone(), completed_at)
@@ -224,7 +237,10 @@ impl AgentManager {
     }
 
     /// 处理来自 BusinessChannel 的消息
-    pub async fn handle_business_message(&self, message: BusinessMessage) -> Result<(), AgentError> {
+    pub async fn handle_business_message(
+        &self,
+        message: BusinessMessage,
+    ) -> Result<(), AgentError> {
         match message.message_type {
             MessageType::AgentTaskRequest => {
                 self.submit_from_message(&message).await?;
@@ -236,7 +252,10 @@ impl AgentManager {
                 self.cancel_task(&cancel_req.task_id)?;
             }
             _ => {
-                debug!("Ignoring non-agent message type: {:?}", message.message_type);
+                debug!(
+                    "Ignoring non-agent message type: {:?}",
+                    message.message_type
+                );
             }
         }
         Ok(())
@@ -290,12 +309,19 @@ impl AgentManager {
             // 执行任务
             let result = if let Some(timeout_ms) = task.timeout_ms {
                 let timeout = std::time::Duration::from_millis(timeout_ms);
-                match tokio::time::timeout(timeout, executor.execute(&task, progress_tx.clone(), cancel_token.clone())).await {
+                match tokio::time::timeout(
+                    timeout,
+                    executor.execute(&task, progress_tx.clone(), cancel_token.clone()),
+                )
+                .await
+                {
                     Ok(r) => r,
                     Err(_) => Err(AgentError::ExecutionFailed("任务执行超时".to_string())),
                 }
             } else {
-                executor.execute(&task, progress_tx.clone(), cancel_token.clone()).await
+                executor
+                    .execute(&task, progress_tx.clone(), cancel_token.clone())
+                    .await
             };
 
             // 等待进度转发完成
@@ -332,7 +358,10 @@ impl AgentManager {
             // 减少活跃计数
             active_count.fetch_sub(1, std::sync::atomic::Ordering::Release);
 
-            debug!("Task execution completed: {} (status: {:?})", task_id, status);
+            debug!(
+                "Task execution completed: {} (status: {:?})",
+                task_id, status
+            );
         });
     }
 }
@@ -380,8 +409,7 @@ mod tests {
 
     #[test]
     fn test_progress_creation() {
-        let progress = TaskProgress::new("task-1", 50, "处理中")
-            .with_stage("parsing");
+        let progress = TaskProgress::new("task-1", 50, "处理中").with_stage("parsing");
         assert_eq!(progress.task_id, "task-1");
         assert_eq!(progress.percentage, 50);
         assert_eq!(progress.stage, Some("parsing".to_string()));
@@ -452,8 +480,8 @@ mod tests {
 
     #[test]
     fn test_message_converter_cancel() {
-        use crate::agent::converter::MessageConverter;
         use crate::agent::converter::CancelRequest;
+        use crate::agent::converter::MessageConverter;
         let msg = MessageConverter::cancel_to_message("task-123").unwrap();
         assert_eq!(msg.message_type, MessageType::TaskCancel);
         let req: CancelRequest = serde_json::from_slice(&msg.payload).unwrap();
@@ -534,13 +562,12 @@ mod tests {
         let _task_id = manager.submit_task(task).await.unwrap();
 
         // 应该收到 TaskCreated 事件
-        let event = tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            rx.recv(),
-        )
-        .await;
+        let event = tokio::time::timeout(std::time::Duration::from_millis(100), rx.recv()).await;
         assert!(event.is_ok());
-        assert!(matches!(event.unwrap().unwrap(), AgentEvent::TaskCreated(_)));
+        assert!(matches!(
+            event.unwrap().unwrap(),
+            AgentEvent::TaskCreated(_)
+        ));
     }
 
     #[tokio::test]

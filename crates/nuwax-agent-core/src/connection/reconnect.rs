@@ -2,12 +2,12 @@
 //!
 //! 实现网络断开后的自动重连机制，包含指数退避和随机抖动
 
+use rand::RngExt;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tracing::{info, warn};
-use rand::RngExt;
 
 /// 重连配置
 #[derive(Debug, Clone)]
@@ -127,7 +127,11 @@ impl ReconnectManager {
         // 等待
         *self.state.write().await = ReconnectState::Waiting;
         let delay = self.calculate_delay().await;
-        info!("Waiting {:?} before reconnect attempt #{}", delay, retry_count + 1);
+        info!(
+            "Waiting {:?} before reconnect attempt #{}",
+            delay,
+            retry_count + 1
+        );
         sleep(delay).await;
 
         // 尝试重连
