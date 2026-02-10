@@ -324,6 +324,7 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           OSS_ENDPOINT="https://oss-rg-china-mainland.aliyuncs.com"
+          OSS_REGION="rg-china-mainland"
           OSS_BUCKET="oss://nuwa-packages"
           OSS_PREFIX="nuwax-agent-client/${TAG}"
 
@@ -337,6 +338,7 @@ jobs:
             echo "Uploading: ${filename}"
             ossutil cp --force "$file" "${OSS_BUCKET}/${OSS_PREFIX}/${filename}" \
               --endpoint "$OSS_ENDPOINT" \
+              --region "$OSS_REGION" \
               --access-key-id "$OSS_ACCESS_KEY_ID" \
               --access-key-secret "$OSS_ACCESS_KEY_SECRET"
           done
@@ -348,6 +350,7 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           OSS_ENDPOINT="https://oss-rg-china-mainland.aliyuncs.com"
+          OSS_REGION="rg-china-mainland"
           OSS_BUCKET="oss://nuwa-packages"
           LATEST_JSON="/tmp/release-assets/latest.json"
 
@@ -370,12 +373,14 @@ jobs:
           # Upload to versioned path
           ossutil cp --force "$LATEST_JSON" "${OSS_BUCKET}/nuwax-agent-client/${TAG}/latest.json" \
             --endpoint "$OSS_ENDPOINT" \
+            --region "$OSS_REGION" \
             --access-key-id "$OSS_ACCESS_KEY_ID" \
             --access-key-secret "$OSS_ACCESS_KEY_SECRET"
 
           # Upload to stable path for updater endpoint
           ossutil cp --force "$LATEST_JSON" "${OSS_BUCKET}/nuwax-agent-client/latest/latest.json" \
             --endpoint "$OSS_ENDPOINT" \
+            --region "$OSS_REGION" \
             --access-key-id "$OSS_ACCESS_KEY_ID" \
             --access-key-secret "$OSS_ACCESS_KEY_SECRET"
 
