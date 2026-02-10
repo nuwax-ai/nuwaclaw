@@ -34,8 +34,17 @@
 | 托盘与窗口 | 统一托盘菜单与关闭行为 | 已存在（`setup_tray` 在 Rust 侧） | `tray_status` / `tray_rebuild` | `/Users/apple/workspace/nuwax-agent_diff/crates/agent-tauri-client/src-tauri/src/lib.rs` |
 | 依赖与预检 | 自检/修复/状态汇总 | `dependency_*` | `preflight_check` / `preflight_fix` | `/Users/apple/workspace/nuwax-agent_diff/crates/agent-tauri-client/src-tauri/src/lib.rs` |
 | 服务管理 | lanproxy/file/rcoder | `lanproxy_*` / `file_server_*` / `rcoder_*` / `services_*` | `service_health` | `/Users/apple/workspace/nuwax-agent_diff/crates/agent-tauri-client/src-tauri/src/lib.rs` |
+| MCP Proxy | 端口/配置/启停 | `mcp_proxy_start` / `mcp_proxy_stop` / `mcp_proxy_restart` | `mcp_proxy_status` | `/Users/apple/workspace/nuwax-agent_diff/crates/agent-tauri-client/src-tauri/src/lib.rs` |
 | 网络与防火墙 | 端口占用/防火墙提示 | 无 | `network_port_check` / `firewall_guide` | `/Users/apple/workspace/nuwax-agent_diff/crates/agent-tauri-client/src-tauri/src/lib.rs` |
 | 更新 | 可用更新检查/提示 | 无 | `update_check` / `update_apply` | `/Users/apple/workspace/nuwax-agent_diff/crates/agent-tauri-client/src-tauri/src/lib.rs` |
+
+## 近期功能问题处理清单（基于代码确认）
+
+- 服务与登录流程：`/Users/apple/workspace/nuwax-agent_diff/crates/agent-tauri-client/src/services/auth.ts` 已在 `logout()` 调用 `services_stop_all`，要求 Windows/Linux 行为一致。
+- 自动重连逻辑：`/Users/apple/workspace/nuwax-agent_diff/crates/agent-tauri-client/src/App.tsx` 在无 savedKey 时强制 `stopAllServices()`，需确保三平台启动后不遗留服务。
+- 服务重启依赖：`/Users/apple/workspace/nuwax-agent_diff/crates/agent-tauri-client/src-tauri/src/lib.rs` 的 `services_restart_all` 依赖 store 中端口与目录键，缺失时会返回错误或回退默认 workspace 目录，需确认 Windows/Linux path 兼容。
+- MCP Proxy：`/Users/apple/workspace/nuwax-agent_diff/crates/agent-tauri-client/src-tauri/src/lib.rs` 新增 `mcp_proxy_*` 命令，`/Users/apple/workspace/nuwax-agent_diff/crates/agent-tauri-client/src/services/setup.ts` 与 `store.ts` 维护配置，需要补充三平台端口占用/防火墙引导。
+- 更新检查：`/Users/apple/workspace/nuwax-agent_diff/crates/agent-tauri-client/src/pages/AboutPage.tsx` 与 `/Users/apple/workspace/nuwax-agent_diff/crates/agent-tauri-client/src/services/updater.ts` 支持手动与启动检查，需要对 Windows/Linux 产物与签名策略对齐。
 
 ## 目标与非目标
 
@@ -43,6 +52,7 @@
 - 三平台行为一致：托盘、自动启动、权限引导、依赖管理、外部服务、配置路径、更新策略。
 - 可重复构建：本地 + CI 输出一致产物。
 - 可回归：跨平台最小 smoke test + 关键路径用例。
+ - 近期重点：兼顾功能问题修复与跨平台对齐，避免只修 macOS 导致三端分叉。
 
 - 非目标
 - 不在本次文档里实现功能代码。
@@ -417,6 +427,8 @@ jobs:
 - 依赖自检：无依赖时提示并可修复。
 - 日志读写：日志目录存在且可写。
 - 服务启动：外部服务（如 lanproxy）可启动。
+- MCP Proxy：`mcp_proxy_start` 可启动，端口占用提示可用。
+- 更新检查：手动检查能给出一致的提示与错误信息。
 
 ## macOS -> Windows/Linux Bring-up 清单（必做）
 
@@ -433,6 +445,13 @@ jobs:
 - Linux 依赖：`dependency_*` 可检测并提示修复路径。
 
 ## 执行步骤（按里程碑）
+
+### 里程碑 0：近期功能问题处理与同步（持续）
+
+- 每个修复必须确认：是否涉及 `tauri-client` 的跨平台行为。
+- 修复策略：先在 `tauri-client` 抽象层或命令层修复，再验证 macOS 通过，随后同步验证 Windows/Linux。
+- 对新增修复，补充到“模块与命令映射表”与 smoke test 用例中。
+- 以“近期功能问题处理清单（基于代码确认）”为基线，每周复核一次并更新。
 
 ### 里程碑 1：平台抽象与基础能力对齐（2 周）
 
