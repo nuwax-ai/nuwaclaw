@@ -663,9 +663,9 @@ pub struct McpProxyConfig {
 impl Default for McpProxyConfig {
     fn default() -> Self {
         Self {
-            bin_path: "mcp-proxy".to_string(),
-            port: 18099,
-            host: "127.0.0.1".to_string(),
+            bin_path: DEFAULT_MCP_PROXY_BIN.to_string(),
+            port: DEFAULT_MCP_PROXY_PORT,
+            host: DEFAULT_MCP_PROXY_HOST.to_string(),
             config_json: r#"{"mcpServers":{}}"#.to_string(),
         }
     }

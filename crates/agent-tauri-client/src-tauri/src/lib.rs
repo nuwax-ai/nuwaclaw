@@ -921,7 +921,7 @@ async fn lanproxy_restart(
 ///
 /// 参数:
 /// - config_json: mcpServers JSON 配置 (必需，如 `{"mcpServers":{"name":{...}}}`)
-/// - port: 监听端口 (可选，默认 18099)
+/// - port: 监听端口 (可选，默认 DEFAULT_MCP_PROXY_PORT)
 ///
 /// 如果未传 config_json，则从 store 读取 `setup.mcp_proxy_config`
 #[tauri::command]
@@ -939,15 +939,18 @@ async fn mcp_proxy_start(
             p
         }
         Ok(None) => {
-            info!("[McpProxy] 未找到 mcp_proxy_port，使用默认值: 18099");
-            18099u16
+            info!(
+                "[McpProxy] 未找到 mcp_proxy_port，使用默认值: {}",
+                DEFAULT_MCP_PROXY_PORT
+            );
+            DEFAULT_MCP_PROXY_PORT
         }
         Err(e) => {
             warn!(
-                "[McpProxy] 读取 mcp_proxy_port 失败: {}，使用默认值 18099",
-                e
+                "[McpProxy] 读取 mcp_proxy_port 失败: {}，使用默认值 {}",
+                e, DEFAULT_MCP_PROXY_PORT
             );
-            18099u16
+            DEFAULT_MCP_PROXY_PORT
         }
     });
 
@@ -971,9 +974,9 @@ async fn mcp_proxy_start(
         });
 
     let mcp_proxy_config = nuwax_agent_core::McpProxyConfig {
-        bin_path: "mcp-proxy".to_string(),
+        bin_path: DEFAULT_MCP_PROXY_BIN.to_string(),
         port,
-        host: "127.0.0.1".to_string(),
+        host: DEFAULT_MCP_PROXY_HOST.to_string(),
         config_json,
     };
 
@@ -1014,7 +1017,10 @@ async fn mcp_proxy_restart(
 
 // ========== 服务管理命令 ==========
 
-use nuwax_agent_core::service::{ServiceInfo, ServiceManager};
+use nuwax_agent_core::service::{
+    ServiceInfo, ServiceManager, DEFAULT_MCP_PROXY_BIN, DEFAULT_MCP_PROXY_HOST,
+    DEFAULT_MCP_PROXY_PORT,
+};
 
 /// 服务状态 DTO
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1565,19 +1571,18 @@ async fn services_restart_all(
                 p
             }
             Ok(None) => {
-                let default_port = 18099u16;
                 info!(
                     "[Services]   - 未找到 mcp_proxy_port，使用默认值: {}",
-                    default_port
+                    DEFAULT_MCP_PROXY_PORT
                 );
-                default_port
+                DEFAULT_MCP_PROXY_PORT
             }
             Err(e) => {
                 warn!(
-                    "[Services]   - 读取 mcp_proxy_port 失败: {}，使用默认值 18099",
-                    e
+                    "[Services]   - 读取 mcp_proxy_port 失败: {}，使用默认值 {}",
+                    e, DEFAULT_MCP_PROXY_PORT
                 );
-                18099u16
+                DEFAULT_MCP_PROXY_PORT
             }
         };
 
@@ -1587,9 +1592,9 @@ async fn services_restart_all(
         };
 
         let mcp_proxy_config = nuwax_agent_core::McpProxyConfig {
-            bin_path: "mcp-proxy".to_string(),
+            bin_path: DEFAULT_MCP_PROXY_BIN.to_string(),
             port,
-            host: "127.0.0.1".to_string(),
+            host: DEFAULT_MCP_PROXY_HOST.to_string(),
             config_json,
         };
 
