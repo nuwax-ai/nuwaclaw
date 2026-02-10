@@ -46,7 +46,7 @@ import {
   syncConfigToServer,
 } from "./services/auth";
 import { isSetupCompleted } from "./services/setup";
-import { restartAllServices } from "./services/dependencies";
+import { restartAllServices, stopAllServices } from "./services/dependencies";
 import { checkForAppUpdate } from "./services/updater";
 
 // Tab 类型定义
@@ -205,7 +205,13 @@ function App() {
             message.success("服务已自动启动");
           }
         } else {
-          console.log("[App] 未检测到 savedKey，跳过自动重连");
+          console.log("[App] 未检测到 savedKey，停止所有服务");
+          // 未登录状态下停止所有可能残留的服务
+          try {
+            await stopAllServices();
+          } catch (error) {
+            console.error("[App] 停止服务失败:", error);
+          }
         }
       } catch (error) {
         console.error("[App] 自动重连失败:", error);

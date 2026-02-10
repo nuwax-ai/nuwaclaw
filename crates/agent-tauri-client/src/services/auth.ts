@@ -408,10 +408,18 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
 
 /**
  * 退出登录
- * 清除所有本地认证信息
+ * 停止所有服务，保留持久化的认证信息（用于下次自动重连）
  */
 export async function logout(): Promise<void> {
-  await clearAuthInfo();
+  // 停止所有服务
+  try {
+    console.log("[Auth] 退出登录，正在停止所有服务...");
+    await invoke("services_stop_all");
+    console.log("[Auth] 所有服务已停止");
+  } catch (error) {
+    console.error("[Auth] 停止服务失败:", error);
+  }
+
   await clearOnlineStatus();
   message.info("已退出登录");
 }
