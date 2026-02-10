@@ -101,7 +101,7 @@ export default function SetupDependencies({
   const [nodeInstallError, setNodeInstallError] = useState<string>("");
   const [uvInstallError, setUvInstallError] = useState<string>("");
   const [networkStatus, setNetworkStatus] = useState<NetworkStatus>("checking");
-  const [showAll, setShowAll] = useState(false);
+  const [showAll, setShowAll] = useState(true);
   const listRef = useRef<HTMLDivElement | null>(null);
   // 防止自动安装重复触发
   const nodeAutoInstallTriggered = useRef(false);

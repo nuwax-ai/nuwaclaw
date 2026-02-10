@@ -208,8 +208,8 @@ fn check_directory_writable(
 async fn check_dependency_tools() -> Vec<PreflightCheck> {
     let mut checks = Vec::new();
 
-    // 检查 node
-    let node_ok = which::which("node").is_ok();
+    // 检查 node（本地安装路径 → ~/.local/bin/ → PATH）
+    let node_ok = check_node_available();
     checks.push(PreflightCheck {
         id: "dep_node".to_string(),
         name: "Node.js".to_string(),
@@ -222,18 +222,18 @@ async fn check_dependency_tools() -> Vec<PreflightCheck> {
         message: if node_ok {
             "Node.js 已安装".to_string()
         } else {
-            "Node.js 未安装，部分功能不可用".to_string()
+            "Node.js 未安装，将在下一步自动安装".to_string()
         },
         fix_hint: if node_ok {
             None
         } else {
-            Some("请在依赖管理页面安装 Node.js".to_string())
+            Some("将在依赖安装阶段自动安装".to_string())
         },
         auto_fixable: false,
     });
 
-    // 检查 uv (Python 包管理器)
-    let uv_ok = which::which("uv").is_ok();
+    // 检查 uv（~/.local/bin/ → PATH）
+    let uv_ok = check_uv_available();
     checks.push(PreflightCheck {
         id: "dep_uv".to_string(),
         name: "uv (Python)".to_string(),
@@ -246,17 +246,85 @@ async fn check_dependency_tools() -> Vec<PreflightCheck> {
         message: if uv_ok {
             "uv 已安装".to_string()
         } else {
-            "uv 未安装，MCP 工具相关功能不可用".to_string()
+            "uv 未安装，将在下一步自动安装".to_string()
         },
         fix_hint: if uv_ok {
             None
         } else {
-            Some("请在依赖管理页面安装 uv".to_string())
+            Some("将在依赖安装阶段自动安装".to_string())
+        },
+        auto_fixable: false,
+    });
+
+    // 检查 mcp-proxy
+    let mcp_ok = which::which("mcp-proxy").is_ok();
+    checks.push(PreflightCheck {
+        id: "dep_mcp_proxy".to_string(),
+        name: "MCP Proxy".to_string(),
+        category: CheckCategory::Dependency,
+        status: if mcp_ok {
+            CheckStatus::Pass
+        } else {
+            CheckStatus::Warn
+        },
+        message: if mcp_ok {
+            "MCP Proxy 已安装".to_string()
+        } else {
+            "MCP Proxy 未安装，将在下一步自动安装".to_string()
+        },
+        fix_hint: if mcp_ok {
+            None
+        } else {
+            Some("将在依赖安装阶段自动安装".to_string())
         },
         auto_fixable: false,
     });
 
     checks
+}
+
+/// 检查 node 是否可用（本地安装路径 → ~/.local/bin/ → PATH）
+fn check_node_available() -> bool {
+    // 1. 本地安装路径
+    let local_node = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("nuwax-agent")
+        .join("tools")
+        .join("node")
+        .join("bin")
+        .join("node");
+    if local_node.exists() {
+        return true;
+    }
+
+    // 2. ~/.local/bin/
+    let global_node = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".local")
+        .join("bin")
+        .join("node");
+    if global_node.exists() {
+        return true;
+    }
+
+    // 3. PATH
+    which::which("node").is_ok()
+}
+
+/// 检查 uv 是否可用（~/.local/bin/ → PATH）
+fn check_uv_available() -> bool {
+    // 1. ~/.local/bin/
+    let local_uv = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".local")
+        .join("bin")
+        .join("uv");
+    if local_uv.exists() {
+        return true;
+    }
+
+    // 2. PATH
+    which::which("uv").is_ok()
 }
 
 /// 修复目录问题

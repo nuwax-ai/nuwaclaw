@@ -464,6 +464,9 @@ export async function checkAllSetupDependencies(): Promise<
   const results: LocalDependencyItem[] = [];
 
   for (const config of SETUP_REQUIRED_DEPENDENCIES) {
+    console.log(
+      `[Dependencies] 开始检测: ${config.name} (type: ${config.type})`,
+    );
     const item: LocalDependencyItem = {
       ...config,
       status: "checking",
@@ -528,8 +531,16 @@ export async function checkAllSetupDependencies(): Promise<
     }
 
     results.push(item);
+    console.log(
+      `[Dependencies] 检测完成: ${config.name} -> ${item.status}`,
+      item.version || "",
+    );
   }
 
+  console.log(
+    `[Dependencies] 全部检测完成, 共 ${results.length} 项:`,
+    results.map((r) => `${r.name}:${r.status}`).join(", "),
+  );
   return results;
 }
 
