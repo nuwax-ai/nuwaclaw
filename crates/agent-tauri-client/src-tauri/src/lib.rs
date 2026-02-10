@@ -1898,6 +1898,11 @@ fn resolve_node_bin(bin_name: &str) -> String {
     bin_name.to_string()
 }
 
+/// 构建包含 node bin 目录的 PATH 环境变量（委托给 nuwax-agent-core）
+fn build_node_path_env() -> String {
+    nuwax_agent_core::utils::build_node_path_env()
+}
+
 /// 初始化本地 npm 环境（创建 package.json）
 #[tauri::command]
 async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, String> {
@@ -2340,7 +2345,9 @@ async fn dependency_local_install(
 
     // 执行 npm install
     let npm_bin = resolve_node_bin("npm");
+    let node_path = build_node_path_env();
     let output = Command::new(&npm_bin)
+        .env("PATH", &node_path)
         .args([
             "install",
             &package_name,
@@ -2378,7 +2385,9 @@ async fn dependency_local_install(
 async fn dependency_local_check_latest(package_name: String) -> Result<Option<String>, String> {
     let registry = "https://registry.npmmirror.com/";
     let npm_bin = resolve_node_bin("npm");
+    let node_path = build_node_path_env();
     let output = Command::new(&npm_bin)
+        .env("PATH", &node_path)
         .args(["view", &package_name, "version", "--registry", registry])
         .output()
         .map_err(|e| format!("执行 npm view 失败: {}", e))?;
@@ -2546,8 +2555,25 @@ async fn dependency_shell_installer_install(
 /// 通过检查可执行文件是否存在来判断
 #[tauri::command]
 async fn dependency_npm_global_check(bin_name: String) -> Result<NpmPackageResult, String> {
+    let node_path = build_node_path_env();
+
     // 跨平台检查二进制文件是否存在
-    let which_output = which_command(&bin_name);
+    let which_output = {
+        #[cfg(target_os = "windows")]
+        {
+            Command::new("where")
+                .env("PATH", &node_path)
+                .arg(&bin_name)
+                .output()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Command::new("which")
+                .env("PATH", &node_path)
+                .arg(&bin_name)
+                .output()
+        }
+    };
 
     match which_output {
         Ok(out) if out.status.success() => {
@@ -2557,6 +2583,7 @@ async fn dependency_npm_global_check(bin_name: String) -> Result<NpmPackageResul
 
             // 尝试获取版本信息 (使用 -V 参数)
             let version = Command::new(&bin_name)
+                .env("PATH", &node_path)
                 .arg("-V")
                 .output()
                 .ok()
@@ -2606,7 +2633,9 @@ async fn dependency_npm_global_install(
 
     // 执行 npm install -g
     let npm_bin = resolve_node_bin("npm");
+    let node_path = build_node_path_env();
     let output = Command::new(&npm_bin)
+        .env("PATH", &node_path)
         .args([
             "install",
             "-g",
