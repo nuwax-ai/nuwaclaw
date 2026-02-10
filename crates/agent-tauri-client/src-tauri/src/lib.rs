@@ -1243,7 +1243,7 @@ async fn services_restart_all(
 
         // 创建 RcoderAgentRunner 配置
         let config = RcoderAgentRunnerConfig {
-            projects_dir,
+            projects_dir: projects_dir.join("computer-project-workspace"),
             ..RcoderAgentRunnerConfig::default()
         };
         info!("[Services]   - 创建 RcoderAgentRunner 配置: {:?}", config);
