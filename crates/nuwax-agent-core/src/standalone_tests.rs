@@ -5,11 +5,6 @@
 
 #[cfg(test)]
 mod standalone_tests {
-    
-    
-    
-    
-    
 
     // ========================================================================
     // BusinessMessageType Tests
@@ -20,20 +15,62 @@ mod standalone_tests {
 
         #[test]
         fn test_message_type_from_i32() {
-            assert_eq!(BusinessMessageType::from(1), BusinessMessageType::AgentTaskRequest);
-            assert_eq!(BusinessMessageType::from(2), BusinessMessageType::AgentTaskResponse);
-            assert_eq!(BusinessMessageType::from(3), BusinessMessageType::TaskProgress);
-            assert_eq!(BusinessMessageType::from(4), BusinessMessageType::TaskCancel);
-            assert_eq!(BusinessMessageType::from(10), BusinessMessageType::Heartbeat);
-            assert_eq!(BusinessMessageType::from(20), BusinessMessageType::SystemNotify);
-            assert_eq!(BusinessMessageType::from(99), BusinessMessageType::BusinessCustom);
-            assert_eq!(BusinessMessageType::from(100), BusinessMessageType::FileTransferRequest);
-            assert_eq!(BusinessMessageType::from(101), BusinessMessageType::FileTransferResponse);
-            assert_eq!(BusinessMessageType::from(102), BusinessMessageType::FileBlock);
-            assert_eq!(BusinessMessageType::from(103), BusinessMessageType::FileTransferCancel);
-            assert_eq!(BusinessMessageType::from(104), BusinessMessageType::FileTransferDone);
-            assert_eq!(BusinessMessageType::from(105), BusinessMessageType::FileTransferError);
-            assert_eq!(BusinessMessageType::from(999), BusinessMessageType::BusinessUnknown);
+            assert_eq!(
+                BusinessMessageType::from(1),
+                BusinessMessageType::AgentTaskRequest
+            );
+            assert_eq!(
+                BusinessMessageType::from(2),
+                BusinessMessageType::AgentTaskResponse
+            );
+            assert_eq!(
+                BusinessMessageType::from(3),
+                BusinessMessageType::TaskProgress
+            );
+            assert_eq!(
+                BusinessMessageType::from(4),
+                BusinessMessageType::TaskCancel
+            );
+            assert_eq!(
+                BusinessMessageType::from(10),
+                BusinessMessageType::Heartbeat
+            );
+            assert_eq!(
+                BusinessMessageType::from(20),
+                BusinessMessageType::SystemNotify
+            );
+            assert_eq!(
+                BusinessMessageType::from(99),
+                BusinessMessageType::BusinessCustom
+            );
+            assert_eq!(
+                BusinessMessageType::from(100),
+                BusinessMessageType::FileTransferRequest
+            );
+            assert_eq!(
+                BusinessMessageType::from(101),
+                BusinessMessageType::FileTransferResponse
+            );
+            assert_eq!(
+                BusinessMessageType::from(102),
+                BusinessMessageType::FileBlock
+            );
+            assert_eq!(
+                BusinessMessageType::from(103),
+                BusinessMessageType::FileTransferCancel
+            );
+            assert_eq!(
+                BusinessMessageType::from(104),
+                BusinessMessageType::FileTransferDone
+            );
+            assert_eq!(
+                BusinessMessageType::from(105),
+                BusinessMessageType::FileTransferError
+            );
+            assert_eq!(
+                BusinessMessageType::from(999),
+                BusinessMessageType::BusinessUnknown
+            );
         }
 
         #[test]
@@ -144,9 +181,10 @@ mod standalone_tests {
 
         #[test]
         fn test_message_serialization() {
-            let message = BusinessMessage::new(MessageType::FileTransferRequest, vec![1, 2, 3, 4, 5])
-                .with_source("sender".to_string())
-                .with_target("receiver".to_string());
+            let message =
+                BusinessMessage::new(MessageType::FileTransferRequest, vec![1, 2, 3, 4, 5])
+                    .with_source("sender".to_string())
+                    .with_target("receiver".to_string());
 
             let bytes = message.to_bytes().unwrap();
             let decoded = BusinessMessage::from_bytes(&bytes).unwrap();
@@ -190,8 +228,8 @@ mod standalone_tests {
     // ========================================================================
 
     mod dashmap_tests {
-        use std::sync::Arc;
         use dashmap::DashMap;
+        use std::sync::Arc;
 
         #[test]
         fn test_dashmap_basic_operations() {
@@ -240,11 +278,9 @@ mod standalone_tests {
             let map = DashMap::new();
 
             // Using entry API
-            map.entry(1)
-                .or_insert_with(|| "one".to_string());
+            map.entry(1).or_insert_with(|| "one".to_string());
 
-            map.entry(1)
-                .and_modify(|s| s.push_str("-modified"));
+            map.entry(1).and_modify(|s| s.push_str("-modified"));
 
             let val = map.get(&1).unwrap();
             assert_eq!(val.as_str(), "one-modified");
@@ -554,13 +590,15 @@ mod standalone_tests {
             assert!(not_found.to_string().contains("配置文件不存在"));
 
             // Test IoError variant
-            let io_error = ConfigError::IoError(std::io::Error::new(std::io::ErrorKind::NotFound, "file not found"));
+            let io_error = ConfigError::IoError(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "file not found",
+            ));
             assert!(io_error.to_string().contains("IO 错误"));
 
             // Test JsonError variant - construct via from_slice
             let json_bytes = b"{invalid json";
-            let json_error = serde_json::from_slice::<serde_json::Value>(json_bytes)
-                .unwrap_err();
+            let json_error = serde_json::from_slice::<serde_json::Value>(json_bytes).unwrap_err();
             let config_error = ConfigError::JsonError(json_error);
             assert!(config_error.to_string().contains("JSON 解析错误"));
         }
@@ -571,10 +609,9 @@ mod standalone_tests {
     // ========================================================================
 
     mod admin_client_tests {
-        use crate::admin_client::{AdminConfig, PendingMessage, AdminClient};
+        use crate::admin_client::{AdminClient, AdminConfig, PendingMessage};
         use crate::http_client::mock::MockHttpClient;
-        
-        
+
         use chrono::Utc;
 
         #[test]
@@ -603,8 +640,7 @@ mod standalone_tests {
 
         #[test]
         fn test_admin_config_with_api_key() {
-            let config = AdminConfig::new("http://localhost:8080")
-                .with_api_key("test-api-key");
+            let config = AdminConfig::new("http://localhost:8080").with_api_key("test-api-key");
             assert_eq!(config.server_addr, "http://localhost:8080");
             assert_eq!(config.api_key, Some("test-api-key".to_string()));
         }
@@ -650,16 +686,14 @@ mod standalone_tests {
 
         #[tokio::test]
         async fn test_admin_client_with_config() {
-            let config = AdminConfig::new("http://admin.example.com:8080")
-                .with_api_key("my-key");
+            let config = AdminConfig::new("http://admin.example.com:8080").with_api_key("my-key");
             let client: AdminClient<MockHttpClient> = AdminClient::with_config(config);
             assert!(!client.is_registered());
         }
 
         #[tokio::test]
         async fn test_admin_client_config_access() {
-            let config = AdminConfig::new("http://admin.example.com:8080")
-                .with_api_key("my-key");
+            let config = AdminConfig::new("http://admin.example.com:8080").with_api_key("my-key");
             let client: AdminClient<MockHttpClient> = AdminClient::with_config(config);
             let client_config = client.config();
             assert_eq!(client_config.server_addr, "http://admin.example.com:8080");
@@ -673,8 +707,8 @@ mod standalone_tests {
 
     mod service_tests {
         use crate::service::{
-            ServiceType, ServiceState, ServiceInfo,
-            NuwaxFileServerConfig, NuwaxLanproxyConfig, ServiceManager
+            NuwaxFileServerConfig, NuwaxLanproxyConfig, ServiceInfo, ServiceManager, ServiceState,
+            ServiceType,
         };
 
         #[test]
@@ -815,11 +849,11 @@ mod standalone_tests {
 
         #[tokio::test]
         async fn test_service_manager_get_all_status_empty() {
-            let manager = ServiceManager::new(None, None);
+            let manager = ServiceManager::new(None, None, None);
             let statuses = manager.get_all_status().await;
 
             // All services should be stopped initially
-            assert_eq!(statuses.len(), 3);
+            assert_eq!(statuses.len(), 4);
 
             let file_server = &statuses[0];
             assert_eq!(file_server.service_type, ServiceType::NuwaxFileServer);
@@ -832,6 +866,10 @@ mod standalone_tests {
             let rcoder = &statuses[2];
             assert_eq!(rcoder.service_type, ServiceType::Rcoder);
             assert_eq!(rcoder.state, ServiceState::Stopped);
+
+            let mcp_proxy = &statuses[3];
+            assert_eq!(mcp_proxy.service_type, ServiceType::McpProxy);
+            assert_eq!(mcp_proxy.state, ServiceState::Stopped);
         }
     }
 }

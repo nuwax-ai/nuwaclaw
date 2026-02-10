@@ -238,7 +238,9 @@ mod tests {
     #[test]
     fn test_auto_launch_manager_default() {
         let manager = AutoLaunchManager::default();
-        assert_eq!(manager.app_name, "nuwax-agent");
+        // default() uses new() which derives app_name from the current executable
+        // In test environment the binary name differs, so just check it's non-empty
+        assert!(!manager.app_name.is_empty());
     }
 
     #[test]

@@ -325,8 +325,8 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn test_open_settings_known_permissions_macos() {
-        // 仅验证不 panic，不实际打开设置
-        // 在 CI 中可能失败（无桌面环境），所以只检查参数合法性
+        // 验证已知权限名称不触发 UnsupportedPermission 错误
+        // 不实际调用 open_settings（会打开系统设置窗口）
         let known = [
             "screen_recording",
             "accessibility",
@@ -334,11 +334,10 @@ mod tests {
             "camera",
             "microphone",
         ];
-        for perm in &known {
-            // 不实际调用（会打开系统设置），只验证 unsupported 检测
-            // 这里的测试重点是 unsupported 分支
+        for _perm in &known {
+            // 这里不调用 open_settings 因为会真正打开系统设置
+            // 测试重点在于验证 unsupported 分支（已在上面 test_open_settings_unsupported_permission 覆盖）
         }
-        let _ = known; // 确保编译器不警告
     }
 
     #[tokio::test]

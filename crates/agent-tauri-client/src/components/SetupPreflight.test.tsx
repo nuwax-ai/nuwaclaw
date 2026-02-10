@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import SetupPreflight from "./SetupPreflight";
 
@@ -14,6 +14,14 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 import { invoke } from "@tauri-apps/api/core";
 const mockInvoke = vi.mocked(invoke);
+
+// Ant Design Button 在 CJK 文本间插入空格，需要用 matcher 函数匹配
+function findButtonByText(text: string) {
+  const buttons = screen.getAllByRole("button");
+  return buttons.find((btn) =>
+    btn.textContent?.replace(/\s/g, "").includes(text),
+  );
+}
 
 describe("SetupPreflight", () => {
   const mockOnComplete = vi.fn();
@@ -47,11 +55,13 @@ describe("SetupPreflight", () => {
     render(<SetupPreflight onComplete={mockOnComplete} />);
 
     await waitFor(() => {
-      expect(screen.getByText("所有检查已通过，可以继续安装")).toBeInTheDocument();
+      expect(
+        screen.getByText("所有检查已通过，可以继续安装"),
+      ).toBeInTheDocument();
     });
 
-    const continueBtn = screen.getByText("继续");
-    expect(continueBtn).toBeInTheDocument();
+    const continueBtn = findButtonByText("继续");
+    expect(continueBtn).toBeDefined();
   });
 
   it("应该在有失败项时显示问题数量", async () => {
@@ -85,8 +95,9 @@ describe("SetupPreflight", () => {
       expect(screen.getByText(/发现 1 个问题/)).toBeInTheDocument();
     });
 
-    // 应显示跳过并继续
-    expect(screen.getByText("跳过并继续")).toBeInTheDocument();
+    // 应显示跳过并继续按钮
+    const skipBtn = findButtonByText("跳过并继续");
+    expect(skipBtn).toBeDefined();
   });
 
   it("点击继续按钮应触发 onComplete", async () => {
@@ -98,10 +109,11 @@ describe("SetupPreflight", () => {
     render(<SetupPreflight onComplete={mockOnComplete} />);
 
     await waitFor(() => {
-      expect(screen.getByText("继续")).toBeInTheDocument();
+      expect(findButtonByText("继续")).toBeDefined();
     });
 
-    await userEvent.click(screen.getByText("继续"));
+    const btn = findButtonByText("继续")!;
+    await userEvent.click(btn);
     expect(mockOnComplete).toHaveBeenCalledTimes(1);
   });
 
@@ -125,10 +137,12 @@ describe("SetupPreflight", () => {
     render(<SetupPreflight onComplete={mockOnComplete} />);
 
     await waitFor(() => {
-      expect(screen.getByText("重新检查")).toBeInTheDocument();
+      const recheck = findButtonByText("重新检查");
+      expect(recheck).toBeDefined();
     });
 
-    await userEvent.click(screen.getByText("重新检查"));
+    const recheckBtn = findButtonByText("重新检查")!;
+    await userEvent.click(recheckBtn);
 
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledTimes(2);
@@ -188,10 +202,11 @@ describe("SetupPreflight", () => {
       expect(screen.getByText("环境预检失败")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("重新检查"));
+    const recheckBtn = findButtonByText("重新检查")!;
+    await userEvent.click(recheckBtn);
 
     await waitFor(() => {
-      expect(screen.getByText("继续")).toBeInTheDocument();
+      expect(findButtonByText("继续")).toBeDefined();
     });
   });
 
@@ -214,7 +229,9 @@ describe("SetupPreflight", () => {
     render(<SetupPreflight onComplete={mockOnComplete} />);
 
     await waitFor(() => {
-      expect(screen.getByText("所有检查已通过，可以继续安装")).toBeInTheDocument();
+      expect(
+        screen.getByText("所有检查已通过，可以继续安装"),
+      ).toBeInTheDocument();
     });
 
     // Warn 项仍显示 fix_hint
