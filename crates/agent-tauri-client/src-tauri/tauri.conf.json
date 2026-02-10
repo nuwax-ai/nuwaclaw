@@ -29,7 +29,8 @@
     "externalBin": ["binaries/nuwax-lanproxy"],
     "resources": [
       "resources/node/bin/",
-      "resources/node/lib/"
+      "resources/node/lib/",
+      "resources/uv/bin/"
     ],
     "icon": [
       "icons/32x32.png",

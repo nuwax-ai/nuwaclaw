@@ -440,9 +440,59 @@ impl NodeInstaller {
 
         info!("Node.js installation from bundled resources completed");
 
+        // 创建全局符号链接到 ~/.local/bin/
+        self.create_global_symlinks();
+
         // 验证安装
         let detector = NodeDetector::new();
         detector.detect_local()
+    }
+
+    /// 在 ~/.local/bin/ 创建指向 node/npm/npx 的符号链接，使其全局可用
+    fn create_global_symlinks(&self) {
+        let global_bin = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".local")
+            .join("bin");
+
+        if let Err(e) = std::fs::create_dir_all(&global_bin) {
+            warn!("[NodeInstaller] 创建 ~/.local/bin/ 失败: {}", e);
+            return;
+        }
+
+        #[cfg(unix)]
+        let bins = &["node", "npm", "npx", "corepack"];
+        #[cfg(windows)]
+        let bins = &["node.exe", "npm.cmd", "npx.cmd", "corepack.cmd"];
+
+        for bin_name in bins {
+            let source = self.target_dir.join("bin").join(bin_name);
+            let link = global_bin.join(bin_name);
+
+            if !source.exists() {
+                continue;
+            }
+
+            // 如果目标已存在，先删除
+            let _ = std::fs::remove_file(&link);
+
+            #[cfg(unix)]
+            {
+                match std::os::unix::fs::symlink(&source, &link) {
+                    Ok(()) => info!("[NodeInstaller] 符号链接: {:?} -> {:?}", link, source),
+                    Err(e) => warn!("[NodeInstaller] 创建符号链接失败 {:?}: {}", link, e),
+                }
+            }
+
+            #[cfg(windows)]
+            {
+                // Windows 上复制文件而非符号链接（符号链接需要管理员权限）
+                match std::fs::copy(&source, &link) {
+                    Ok(_) => info!("[NodeInstaller] 复制: {:?} -> {:?}", source, link),
+                    Err(e) => warn!("[NodeInstaller] 复制失败 {:?}: {}", link, e),
+                }
+            }
+        }
     }
 
     /// 递归复制目录

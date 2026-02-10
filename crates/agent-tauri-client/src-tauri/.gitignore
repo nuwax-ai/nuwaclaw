@@ -8,3 +8,6 @@
 
 # Node.js runtime (downloaded at build time via `make node-download`)
 /resources/node/
+
+# uv runtime (downloaded at build time via `scripts/download-uv.sh`)
+/resources/uv/

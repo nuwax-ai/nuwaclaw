@@ -22,7 +22,7 @@ name: Release Tauri App
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 env:
   CARGO_TERM_COLOR: always
@@ -68,20 +68,20 @@ jobs:
         include:
           # macOS Universal — 同时包含 Intel 和 Apple Silicon，用户只需下载一个安装包
           - platform: macos-latest
-            args: '--target universal-apple-darwin'
-            rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+            args: "--target universal-apple-darwin"
+            rust_targets: "aarch64-apple-darwin,x86_64-apple-darwin"
           - platform: macos-latest
-            args: '--target aarch64-apple-darwin'
-            rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+            args: "--target aarch64-apple-darwin"
+            rust_targets: "aarch64-apple-darwin,x86_64-apple-darwin"
           - platform: macos-latest
-            args: '--target x86_64-apple-darwin'
-            rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+            args: "--target x86_64-apple-darwin"
+            rust_targets: "aarch64-apple-darwin,x86_64-apple-darwin"
           - platform: ubuntu-22.04
-            args: ''
-            rust_targets: ''
+            args: ""
+            rust_targets: ""
           - platform: windows-latest
-            args: ''
-            rust_targets: ''
+            args: ""
+            rust_targets: ""
 
     runs-on: ${{ matrix.platform }}
 
@@ -158,7 +158,7 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: '. -> target'
+          workspaces: ". -> target"
           cache-on-failure: true
 
       # ---- 从 git tag 同步版本号到 package.json ----
@@ -231,6 +231,41 @@ jobs:
         shell: bash
         run: ./scripts/download-node.sh win x64
 
+      # ---- 下载 uv 运行时 ----
+      - name: Download uv (macOS universal)
+        if: runner.os == 'macOS' && contains(matrix.args, 'universal')
+        run: |
+          ./scripts/download-uv.sh darwin arm64
+          cp crates/agent-tauri-client/src-tauri/resources/uv/bin/uv /tmp/uv-arm64
+          cp crates/agent-tauri-client/src-tauri/resources/uv/bin/uvx /tmp/uvx-arm64
+          ./scripts/download-uv.sh darwin x64
+          cp crates/agent-tauri-client/src-tauri/resources/uv/bin/uv /tmp/uv-x64
+          cp crates/agent-tauri-client/src-tauri/resources/uv/bin/uvx /tmp/uvx-x64
+          lipo -create /tmp/uv-arm64 /tmp/uv-x64 -output crates/agent-tauri-client/src-tauri/resources/uv/bin/uv
+          lipo -create /tmp/uvx-arm64 /tmp/uvx-x64 -output crates/agent-tauri-client/src-tauri/resources/uv/bin/uvx
+          chmod 755 crates/agent-tauri-client/src-tauri/resources/uv/bin/uv
+          chmod 755 crates/agent-tauri-client/src-tauri/resources/uv/bin/uvx
+          echo "==> Universal uv binary:"
+          file crates/agent-tauri-client/src-tauri/resources/uv/bin/uv
+          lipo -info crates/agent-tauri-client/src-tauri/resources/uv/bin/uv
+
+      - name: Download uv (macOS aarch64)
+        if: runner.os == 'macOS' && contains(matrix.args, 'aarch64')
+        run: ./scripts/download-uv.sh darwin arm64
+
+      - name: Download uv (macOS x86_64)
+        if: runner.os == 'macOS' && contains(matrix.args, 'x86_64')
+        run: ./scripts/download-uv.sh darwin x64
+
+      - name: Download uv (Linux)
+        if: runner.os == 'Linux'
+        run: ./scripts/download-uv.sh linux x64
+
+      - name: Download uv (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: ./scripts/download-uv.sh win x64
+
       # ---- 构建 & 发布 ----
       # tauri-action 会自动执行 tauri.conf.json 中的 beforeBuildCommand (pnpm build)
       # 然后运行 cargo tauri build，最后将产物上传到 GitHub Release
@@ -246,7 +281,7 @@ jobs:
         with:
           projectPath: crates/agent-tauri-client
           tagName: ${{ github.ref_name }}
-          releaseName: 'NuWax Agent ${{ github.ref_name }}'
+          releaseName: "NuWax Agent ${{ github.ref_name }}"
           releaseBody: ${{ needs.prepare-release.outputs.release_notes }}
           releaseDraft: false
           prerelease: false

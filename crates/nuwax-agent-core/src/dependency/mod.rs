@@ -10,6 +10,7 @@ pub mod manager;
 pub mod node;
 pub mod npm_tools;
 pub mod python;
+pub mod uv;
 
 pub use cli_tools::{
     create_curl_detector, create_ffmpeg_detector, create_jq_detector, create_pandoc_detector,
@@ -24,3 +25,4 @@ pub use manager::{DependencyItem, DependencyManager, DependencyStatus, Dependenc
 pub use node::{NodeDetector, NodeInfo, NodeInstaller};
 pub use npm_tools::NpmToolInstaller;
 pub use python::{PythonDetector, PythonInfo};
+pub use uv::{UvDetector, UvInfo, UvInstaller};

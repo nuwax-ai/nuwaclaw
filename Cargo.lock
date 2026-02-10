@@ -134,6 +134,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "auto-launch",
+ "dirs 6.0.0",
  "log",
  "nuwax-agent-core",
  "reqwest 0.13.2",

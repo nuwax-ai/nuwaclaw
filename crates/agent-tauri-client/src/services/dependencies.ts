@@ -70,14 +70,11 @@ const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
   {
     name: "uv",
     displayName: "uv",
-    type: "shell-installer",
+    type: "system",
     description: "高性能 Python 包管理器，用于管理 Python 环境和依赖",
     required: true,
-    binName: "uv",
     minVersion: "0.5.0",
-    installerUrl: "https://astral.sh/uv/install.sh",
-    postInstallHint:
-      "可选: 配置 shell 自动补全，详见 https://docs.astral.sh/uv/getting-started/installation/#shell-autocompletion",
+    installUrl: "https://docs.astral.sh/uv/getting-started/installation/",
   },
   {
     name: "mcp-stdio-proxy",
@@ -135,6 +132,15 @@ export interface UvVersionResult {
  * Node.js 自动安装结果
  */
 export interface NodeInstallResult {
+  success: boolean;
+  version?: string;
+  error?: string;
+}
+
+/**
+ * uv 自动安装结果
+ */
+export interface UvInstallResult {
   success: boolean;
   version?: string;
   error?: string;
@@ -232,6 +238,30 @@ export async function autoInstallNode(): Promise<NodeInstallResult> {
     return result;
   } catch (error) {
     console.error("[Dependencies] 自动安装 Node.js 异常:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * 自动安装 uv（从打包资源复制到本地）
+ */
+export async function autoInstallUv(): Promise<UvInstallResult> {
+  try {
+    console.log("[Dependencies] 开始自动安装 uv...");
+    const result = await invoke<UvInstallResult>("uv_install_auto");
+
+    if (result.success) {
+      console.log("[Dependencies] uv 自动安装成功:", result.version);
+    } else {
+      console.error("[Dependencies] uv 自动安装失败:", result.error);
+    }
+
+    return result;
+  } catch (error) {
+    console.error("[Dependencies] 自动安装 uv 异常:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
@@ -456,6 +486,20 @@ export async function checkAllSetupDependencies(): Promise<
           if (!nodeResult.meetsRequirement && nodeResult.installed) {
             item.errorMessage = `版本 ${nodeResult.version} 低于要求的 ${config.minVersion}`;
           }
+        } else if (config.name === "uv") {
+          // uv 检测
+          const uvResult = await checkUvVersion();
+          item.status = uvResult.installed
+            ? uvResult.meetsRequirement
+              ? "installed"
+              : "outdated"
+            : "missing";
+          item.version = uvResult.version;
+          item.meetsRequirement = uvResult.meetsRequirement;
+
+          if (!uvResult.meetsRequirement && uvResult.installed) {
+            item.errorMessage = `版本 ${uvResult.version} 低于要求的 ${config.minVersion}`;
+          }
         }
       } else if (config.type === "npm-local") {
         // npm-local 包
@@ -472,28 +516,11 @@ export async function checkAllSetupDependencies(): Promise<
         item.binPath = pkgResult.binPath;
       } else if (config.type === "shell-installer") {
         // shell-installer 包
-        // uv 需要特殊处理版本检测
-        if (config.name === "uv") {
-          const uvResult = await checkUvVersion();
-          item.status = uvResult.installed
-            ? uvResult.meetsRequirement
-              ? "installed"
-              : "outdated"
-            : "missing";
-          item.version = uvResult.version;
-          item.meetsRequirement = uvResult.meetsRequirement;
-
-          if (!uvResult.meetsRequirement && uvResult.installed) {
-            item.errorMessage = `版本 ${uvResult.version} 低于要求的 ${config.minVersion}`;
-          }
-        } else {
-          // 其他 shell-installer 包
-          const binName = config.binName || config.name;
-          const shellResult = await checkShellInstallerPackage(binName);
-          item.status = shellResult.installed ? "installed" : "missing";
-          item.version = shellResult.version;
-          item.binPath = shellResult.binPath;
-        }
+        const binName = config.binName || config.name;
+        const shellResult = await checkShellInstallerPackage(binName);
+        item.status = shellResult.installed ? "installed" : "missing";
+        item.version = shellResult.version;
+        item.binPath = shellResult.binPath;
       }
     } catch (error) {
       item.status = "error";

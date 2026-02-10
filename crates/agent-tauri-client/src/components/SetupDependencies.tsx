@@ -4,10 +4,13 @@
  * 流程:
  * 1. checking → 检测所有依赖
  * 2. 若 Node 不满足 → node-installing → 自动安装 Node
- * 3. 自动安装成功 → 重新检测 → ready/completed
- * 4. 自动安装失败 → node-install-failed → 手动安装提示 + 刷新
- * 5. Node 已就绪但其他依赖未安装 → ready → 用户点击安装
- * 6. 所有依赖就绪 → completed → 进入下一步
+ * 3. Node 安装成功 → 重新检测
+ * 4. Node 安装失败 → node-install-failed → 手动安装提示 + 刷新
+ * 5. 若 uv 不满足 → uv-installing → 自动安装 uv
+ * 6. uv 安装成功 → 重新检测
+ * 7. uv 安装失败 → uv-install-failed → 手动安装提示 + 刷新
+ * 8. Node 和 uv 已就绪但其他依赖未安装 → ready → 用户点击安装
+ * 9. 所有依赖就绪 → completed → 进入下一步
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -29,6 +32,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   checkAllSetupDependencies,
   autoInstallNode,
+  autoInstallUv,
   initLocalNpmEnv,
   checkLocalNpmPackage,
   installLocalNpmPackage,
@@ -49,6 +53,8 @@ type InstallPhase =
   | "checking"
   | "node-installing"
   | "node-install-failed"
+  | "uv-installing"
+  | "uv-install-failed"
   | "system-deps-missing"
   | "ready"
   | "installing"
@@ -93,11 +99,13 @@ export default function SetupDependencies({
   const [currentInstalling, setCurrentInstalling] = useState<string>("");
   const [installError, setInstallError] = useState<string>("");
   const [nodeInstallError, setNodeInstallError] = useState<string>("");
+  const [uvInstallError, setUvInstallError] = useState<string>("");
   const [networkStatus, setNetworkStatus] = useState<NetworkStatus>("checking");
   const [showAll, setShowAll] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
   // 防止自动安装重复触发
   const nodeAutoInstallTriggered = useRef(false);
+  const uvAutoInstallTriggered = useRef(false);
 
   const checkNetwork = useCallback(async () => {
     setNetworkStatus("checking");
@@ -142,8 +150,7 @@ export default function SetupDependencies({
       if (result.success) {
         console.log("[SetupDeps] Node.js 自动安装成功，重新检测依赖...");
         // 安装成功，重新检测全部依赖
-        nodeAutoInstallTriggered.current = false;
-        // 直接重新检测而不是递归调用 checkAllDeps
+        // 注意：不重置 nodeAutoInstallTriggered，防止检测仍失败时再次触发安装循环
         setInstallPhase("checking");
       } else {
         console.error("[SetupDeps] Node.js 自动安装失败:", result.error);
@@ -158,6 +165,33 @@ export default function SetupDependencies({
         error instanceof Error ? error.message : "Node.js 自动安装异常",
       );
       setInstallPhase("node-install-failed");
+    }
+  }, []);
+
+  /**
+   * 自动安装 uv 并重新检测
+   */
+  const handleAutoInstallUv = useCallback(async () => {
+    setInstallPhase("uv-installing");
+    setUvInstallError("");
+
+    try {
+      const result = await autoInstallUv();
+
+      if (result.success) {
+        console.log("[SetupDeps] uv 自动安装成功，重新检测依赖...");
+        setInstallPhase("checking");
+      } else {
+        console.error("[SetupDeps] uv 自动安装失败:", result.error);
+        setUvInstallError(result.error || "uv 自动安装失败，请手动安装。");
+        setInstallPhase("uv-install-failed");
+      }
+    } catch (error) {
+      console.error("[SetupDeps] uv 自动安装异常:", error);
+      setUvInstallError(
+        error instanceof Error ? error.message : "uv 自动安装异常",
+      );
+      setInstallPhase("uv-install-failed");
     }
   }, []);
 
@@ -196,11 +230,27 @@ export default function SetupDependencies({
         return;
       }
 
-      // 检查是否还有其他系统依赖未满足（如 uv）
+      // 检查 uv 是否满足要求 → 自动安装（本地资源，无需网络）
+      const uvDep = deps.find((d) => d.name === "uv");
+      const uvReady = uvDep?.status === "installed";
+
+      if (!uvReady) {
+        if (!uvAutoInstallTriggered.current) {
+          uvAutoInstallTriggered.current = true;
+          handleAutoInstallUv();
+        } else {
+          // 自动安装已尝试过，显示系统依赖缺失提示
+          setInstallPhase("system-deps-missing");
+        }
+        return;
+      }
+
+      // 检查是否还有其他系统依赖未满足
       const otherSystemMissing = unified.some(
         (d) =>
           d.type === "system" &&
           d.name !== "nodejs" &&
+          d.name !== "uv" &&
           d.status !== "installed",
       );
       if (otherSystemMissing) {
@@ -218,7 +268,13 @@ export default function SetupDependencies({
       setInstallPhase("error");
       setInstallError("检测依赖失败");
     }
-  }, [buildUnifiedDeps, onComplete, handleAutoInstallNode, checkNetwork]);
+  }, [
+    buildUnifiedDeps,
+    onComplete,
+    handleAutoInstallNode,
+    handleAutoInstallUv,
+    checkNetwork,
+  ]);
 
   // 当 installPhase 变为 "checking"（例如自动安装成功后），重新检测
   useEffect(() => {
@@ -244,6 +300,14 @@ export default function SetupDependencies({
    */
   const handleRefreshNodeCheck = useCallback(async () => {
     nodeAutoInstallTriggered.current = false;
+    setInstallPhase("checking");
+  }, []);
+
+  /**
+   * 手动刷新 uv 检测（用于 uv-install-failed 状态）
+   */
+  const handleRefreshUvCheck = useCallback(async () => {
+    uvAutoInstallTriggered.current = false;
     setInstallPhase("checking");
   }, []);
 
@@ -617,6 +681,85 @@ export default function SetupDependencies({
             刷新检测
           </Button>
           <Button type="primary" onClick={handleAutoInstallNode}>
+            重试自动安装
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // uv auto-installing
+  if (installPhase === "uv-installing") {
+    return (
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
+          依赖安装
+        </div>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 12,
+            padding: "24px 16px",
+            background: "#f4f4f5",
+            borderRadius: 8,
+          }}
+        >
+          <Spin size="large" />
+          <div style={{ fontSize: 13, fontWeight: 500 }}>
+            正在自动安装 uv...
+          </div>
+          <div style={{ fontSize: 12, color: "#71717a", textAlign: "center" }}>
+            正在从内置资源安装 uv 包管理器，请稍候
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // uv auto-install failed
+  if (installPhase === "uv-install-failed") {
+    return (
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
+          依赖安装
+        </div>
+        {allDependencies.length > 0 && renderDependencyList()}
+        <Alert
+          message="uv 自动安装失败"
+          description={
+            <div>
+              <div>{uvInstallError}</div>
+              <div style={{ marginTop: 8, fontSize: 12, color: "#71717a" }}>
+                请手动安装 uv (版本 &gt;= 0.5.0)，安装完成后点击「刷新检测」。
+              </div>
+              <div style={{ marginTop: 4 }}>
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<LinkOutlined />}
+                  onClick={() =>
+                    openUrl(
+                      "https://docs.astral.sh/uv/getting-started/installation/",
+                    )
+                  }
+                  style={{ padding: 0, fontSize: 12 }}
+                >
+                  前往 uv 官网查看安装方式
+                </Button>
+              </div>
+            </div>
+          }
+          type="error"
+          showIcon
+          style={{ marginBottom: 12 }}
+        />
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <Button icon={<ReloadOutlined />} onClick={handleRefreshUvCheck}>
+            刷新检测
+          </Button>
+          <Button type="primary" onClick={handleAutoInstallUv}>
             重试自动安装
           </Button>
         </div>

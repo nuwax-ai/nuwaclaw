@@ -1871,20 +1871,21 @@ async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, String
 }
 
 /// 检测 Node.js 版本
-/// 检测顺序: 1) 本地安装路径 (app_data/tools/node) 2) 系统 PATH
+/// 检测顺序: 1) 本地安装路径 (data_local_dir/nuwax-agent/tools/node) 2) 系统 PATH
 #[tauri::command]
-async fn dependency_node_detect(app: tauri::AppHandle) -> Result<NodeVersionResult, String> {
+async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionResult, String> {
     // 1. 检测本地安装路径（优先级最高）
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
-    let local_node_dir = app_data_dir.join("tools").join("node");
+    // 使用 dirs::data_local_dir() 与 NodeInstaller 保持一致的路径
+    let local_node_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("nuwax-agent")
+        .join("tools")
+        .join("node");
 
     #[cfg(unix)]
     let local_node_bin = local_node_dir.join("bin").join("node");
     #[cfg(windows)]
-    let local_node_bin = local_node_dir.join("node.exe");
+    let local_node_bin = local_node_dir.join("bin").join("node.exe");
 
     if local_node_bin.exists() {
         let output = Command::new(&local_node_bin).arg("--version").output();
@@ -1908,7 +1909,36 @@ async fn dependency_node_detect(app: tauri::AppHandle) -> Result<NodeVersionResu
         }
     }
 
-    // 2. 检测系统 PATH
+    // 2. 检测 ~/.local/bin/node（全局符号链接）
+    let global_node_bin = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".local")
+        .join("bin")
+        .join(if cfg!(windows) { "node.exe" } else { "node" });
+
+    if global_node_bin.exists() {
+        let output = Command::new(&global_node_bin).arg("--version").output();
+        if let Ok(out) = output {
+            if out.status.success() {
+                let version_str = String::from_utf8_lossy(&out.stdout)
+                    .trim()
+                    .trim_start_matches('v')
+                    .to_string();
+                let meets = check_version_meets_requirement(&version_str, "22.0.0");
+                info!(
+                    "[NodeDetect] 全局 ~/.local/bin/node: v{} (满足要求: {})",
+                    version_str, meets
+                );
+                return Ok(NodeVersionResult {
+                    installed: true,
+                    version: Some(version_str),
+                    meets_requirement: meets,
+                });
+            }
+        }
+    }
+
+    // 3. 检测系统 PATH
     let output = Command::new("node").arg("--version").output();
 
     match output {
@@ -1971,14 +2001,26 @@ async fn node_install_auto(app: tauri::AppHandle) -> Result<NodeInstallResult, S
             info!("[NodeInstall] 使用开发模式资源路径: {:?}", dev_path);
             dev_path
         } else {
-            return Ok(NodeInstallResult {
-                success: false,
-                version: None,
-                error: Some(format!(
-                    "Node.js 资源文件未找到: {:?} 和 {:?}",
-                    bundled_node_dir, dev_path
-                )),
-            });
+            // 再尝试从 cargo manifest 目录
+            let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("resources")
+                .join("node");
+            if manifest_path.exists() {
+                info!(
+                    "[NodeInstall] 使用 CARGO_MANIFEST_DIR 资源路径: {:?}",
+                    manifest_path
+                );
+                manifest_path
+            } else {
+                return Ok(NodeInstallResult {
+                    success: false,
+                    version: None,
+                    error: Some(format!(
+                        "Node.js 资源文件未找到: {:?} / {:?} / {:?}",
+                        bundled_node_dir, dev_path, manifest_path
+                    )),
+                });
+            }
         }
     } else {
         info!("[NodeInstall] 使用打包资源路径: {:?}", bundled_node_dir);
@@ -2023,34 +2065,60 @@ pub struct UvVersionResult {
 /// uv 是高性能的 Python 包管理器
 #[tauri::command]
 async fn dependency_uv_detect() -> Result<UvVersionResult, String> {
+    // 辅助闭包: 从 uv --version 输出中提取版本号
+    fn parse_uv_version(stdout: &[u8]) -> Option<String> {
+        let output_str = String::from_utf8_lossy(stdout).trim().to_string();
+        output_str
+            .split_whitespace()
+            .nth(1)
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    // 1. 检测全局安装路径（优先级最高）
+    // 使用 ~/.local/bin/ 与 UvInstaller 保持一致的路径
+    let local_uv_dir = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".local")
+        .join("bin");
+
+    #[cfg(unix)]
+    let local_uv_bin = local_uv_dir.join("uv");
+    #[cfg(windows)]
+    let local_uv_bin = local_uv_dir.join("uv.exe");
+
+    if local_uv_bin.exists() {
+        let output = Command::new(&local_uv_bin).arg("--version").output();
+        if let Ok(out) = output {
+            if out.status.success() {
+                if let Some(version_str) = parse_uv_version(&out.stdout) {
+                    let meets = check_version_meets_requirement(&version_str, "0.5.0");
+                    info!("[UvDetect] 本地 uv: v{} (满足要求: {})", version_str, meets);
+                    return Ok(UvVersionResult {
+                        installed: true,
+                        version: Some(version_str),
+                        meets_requirement: meets,
+                    });
+                }
+            }
+        }
+    }
+
+    // 2. 检测系统 PATH
     let output = Command::new("uv").arg("--version").output();
 
     match output {
         Ok(out) if out.status.success() => {
-            // uv 输出格式: "uv 0.5.14 (homebrew)"
-            let output_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
-
-            // 提取版本号
-            let version_str = output_str
-                .split_whitespace()
-                .nth(1) // 获取第二个部分（版本号）
-                .unwrap_or("")
-                .to_string();
-
-            // 检查版本是否 >= 0.5.0
-            let meets = if version_str.is_empty() {
-                false
-            } else {
-                check_version_meets_requirement(&version_str, "0.5.0")
-            };
+            // uv 输出格式: "uv 0.10.0 (homebrew)"
+            let version_str = parse_uv_version(&out.stdout);
+            let meets = version_str
+                .as_ref()
+                .map(|v| check_version_meets_requirement(v, "0.5.0"))
+                .unwrap_or(false);
 
             Ok(UvVersionResult {
                 installed: true,
-                version: if version_str.is_empty() {
-                    None
-                } else {
-                    Some(version_str)
-                },
+                version: version_str,
                 meets_requirement: meets,
             })
         }
@@ -2059,6 +2127,106 @@ async fn dependency_uv_detect() -> Result<UvVersionResult, String> {
             version: None,
             meets_requirement: false,
         }),
+    }
+}
+
+/// uv 自动安装结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UvInstallResult {
+    pub success: bool,
+    pub version: Option<String>,
+    pub error: Option<String>,
+}
+
+/// 自动安装 uv（从打包资源复制到应用数据目录）
+#[tauri::command]
+async fn uv_install_auto(app: tauri::AppHandle) -> Result<UvInstallResult, String> {
+    use tauri::Manager;
+
+    info!("[UvInstall] 开始自动安装 uv...");
+
+    // 1. 解析打包资源目录中的 uv 路径
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("获取资源目录失败: {}", e))?;
+
+    let bundled_uv_dir = resource_dir.join("resources").join("uv");
+    info!(
+        "[UvInstall] 打包资源路径: {:?}, exists={}",
+        bundled_uv_dir,
+        bundled_uv_dir.exists()
+    );
+
+    // 开发模式下的回退路径
+    let bundled_uv_dir = if !bundled_uv_dir.exists() {
+        // 开发模式: 尝试 cwd/resources/uv (Tauri dev 从 src-tauri/ 启动)
+        let dev_path = std::env::current_dir()
+            .unwrap_or_default()
+            .join("resources")
+            .join("uv");
+        info!(
+            "[UvInstall] 开发模式路径1: {:?}, exists={}",
+            dev_path,
+            dev_path.exists()
+        );
+
+        if dev_path.exists() {
+            info!("[UvInstall] 使用开发模式资源路径: {:?}", dev_path);
+            dev_path
+        } else {
+            // 再尝试从 cargo manifest 目录
+            let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("resources")
+                .join("uv");
+            info!(
+                "[UvInstall] 开发模式路径2: {:?}, exists={}",
+                manifest_path,
+                manifest_path.exists()
+            );
+
+            if manifest_path.exists() {
+                info!(
+                    "[UvInstall] 使用 CARGO_MANIFEST_DIR 资源路径: {:?}",
+                    manifest_path
+                );
+                manifest_path
+            } else {
+                return Ok(UvInstallResult {
+                    success: false,
+                    version: None,
+                    error: Some(format!(
+                        "uv 资源文件未找到: {:?} / {:?} / {:?}",
+                        bundled_uv_dir, dev_path, manifest_path
+                    )),
+                });
+            }
+        }
+    } else {
+        info!("[UvInstall] 使用打包资源路径: {:?}", bundled_uv_dir);
+        bundled_uv_dir
+    };
+
+    // 2. 使用 UvInstaller 复制到本地
+    let installer = nuwax_agent_core::dependency::uv::UvInstaller::new();
+    match installer.install_from_bundled(&bundled_uv_dir) {
+        Ok(info) => {
+            info!("[UvInstall] 安装成功: v{} at {:?}", info.version, info.path);
+            Ok(UvInstallResult {
+                success: true,
+                version: Some(info.version),
+                error: None,
+            })
+        }
+        Err(e) => {
+            error!("[UvInstall] 安装失败: {}", e);
+            Ok(UvInstallResult {
+                success: false,
+                version: None,
+                error: Some(format!("安装失败: {}", e)),
+            })
+        }
     }
 }
 
@@ -3278,6 +3446,7 @@ pub fn run() {
             dependency_node_detect,
             node_install_auto,
             dependency_uv_detect,
+            uv_install_auto,
             dependency_local_check,
             dependency_local_install,
             dependency_local_check_latest,
