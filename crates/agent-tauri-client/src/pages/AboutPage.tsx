@@ -2,19 +2,15 @@
  * 关于页面
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Button } from "antd";
 import { RobotOutlined, SyncOutlined } from "@ant-design/icons";
-import { getVersion } from "@tauri-apps/api/app";
 import { checkForAppUpdate } from "../services/updater";
+import { useAppInfo } from "../hooks/useAppInfo";
 
 export default function AboutPage() {
-  const [version, setVersion] = useState<string>("");
+  const { appName, appVersion } = useAppInfo();
   const [checking, setChecking] = useState(false);
-
-  useEffect(() => {
-    getVersion().then((v) => setVersion(v));
-  }, []);
 
   const handleCheckUpdate = async () => {
     setChecking(true);
@@ -62,10 +58,10 @@ export default function AboutPage() {
             color: "#18181b",
           }}
         >
-          NuWax Agent
+          {appName}
         </div>
         <div style={{ marginTop: 4, fontSize: 12, color: "#a1a1aa" }}>
-          {version ? `v${version}` : ""}
+          {appVersion ? `v${appVersion}` : ""}
         </div>
         <div
           style={{

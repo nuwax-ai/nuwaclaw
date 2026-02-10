@@ -23,6 +23,7 @@ import SetupBasicConfig from "./SetupBasicConfig";
 import SetupAccountLogin from "./SetupAccountLogin";
 import SetupDependencies from "./SetupDependencies";
 import SetupPreflight from "./SetupPreflight";
+import { useAppInfo } from "../hooks/useAppInfo";
 
 const { Text } = Typography;
 
@@ -44,6 +45,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   const [loading, setLoading] = useState(true);
   const [completed, setCompleted] = useState(false);
   const [startingServices, setStartingServices] = useState(false);
+  const { appName, appVersion } = useAppInfo();
 
   useEffect(() => {
     const init = async () => {
@@ -191,7 +193,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
             }}
           >
             <RobotOutlined style={{ fontSize: 18, color: "#18181b" }} />
-            <span style={{ fontSize: 15, fontWeight: 600 }}>NuWax Agent</span>
+            <span style={{ fontSize: 15, fontWeight: 600 }}>{appName}</span>
           </div>
           <div style={{ fontSize: 12, color: "#a1a1aa", textAlign: "center" }}>
             环境预检
@@ -204,7 +206,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
         <div style={styles.footer}>
           <Text style={{ fontSize: 11, color: "#a1a1aa" }}>
-            NuWax Agent v0.1.0
+            {appName}{appVersion ? ` v${appVersion}` : ""}
           </Text>
         </div>
       </div>
@@ -226,7 +228,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
             }}
           >
             <RobotOutlined style={{ fontSize: 18, color: "#18181b" }} />
-            <span style={{ fontSize: 15, fontWeight: 600 }}>NuWax Agent</span>
+            <span style={{ fontSize: 15, fontWeight: 600 }}>{appName}</span>
           </div>
           <div style={{ fontSize: 12, color: "#a1a1aa", textAlign: "center" }}>
             检查和安装必需依赖
@@ -239,7 +241,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
         <div style={styles.footer}>
           <Text style={{ fontSize: 11, color: "#a1a1aa" }}>
-            NuWax Agent v0.1.0
+            {appName}{appVersion ? ` v${appVersion}` : ""}
           </Text>
         </div>
       </div>
@@ -284,7 +286,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
       <div style={styles.footer}>
         <Text style={{ fontSize: 11, color: "#a1a1aa" }}>
-          NuWax Agent v0.1.0 · 进度自动保存
+          {appName}{appVersion ? ` v${appVersion}` : ""} · 进度自动保存
         </Text>
       </div>
     </div>
