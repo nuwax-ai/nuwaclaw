@@ -217,11 +217,7 @@ export default function SetupPreflight({ onComplete }: SetupPreflightProps) {
             自动修复
           </Button>
         )}
-        <Button
-          type="primary"
-          onClick={onComplete}
-          disabled={failCount > 0 && !result.passed}
-        >
+        <Button type="primary" onClick={onComplete}>
           {result.passed ? "继续" : "跳过并继续"}
         </Button>
       </div>

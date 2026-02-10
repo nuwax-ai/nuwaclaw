@@ -58,3 +58,64 @@ pub fn firewall_guide() -> &'static str {
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     return "请在系统防火墙中允许本应用的网络访问。";
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_platform_name_returns_known_value() {
+        let name = platform_name();
+        assert!(
+            ["macOS", "Windows", "Linux", "Unknown"].contains(&name),
+            "unexpected platform: {}",
+            name
+        );
+    }
+
+    #[test]
+    fn test_check_port_available_on_unused_port() {
+        // 端口 0 让 OS 分配一个空闲端口，先绑定拿到端口号，再释放，再检查
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        // 释放后端口应该可用
+        assert!(check_port_available(port));
+    }
+
+    #[test]
+    fn test_check_port_available_on_occupied_port() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        // 绑定中端口应该不可用
+        assert!(!check_port_available(port));
+        drop(listener);
+    }
+
+    #[test]
+    fn test_firewall_guide_returns_non_empty() {
+        let guide = firewall_guide();
+        assert!(!guide.is_empty());
+    }
+
+    #[test]
+    fn test_firewall_guide_platform_specific_content() {
+        let guide = firewall_guide();
+        #[cfg(target_os = "macos")]
+        assert!(guide.contains("macOS"));
+        #[cfg(target_os = "windows")]
+        assert!(guide.contains("Windows"));
+        #[cfg(target_os = "linux")]
+        assert!(guide.contains("Linux"));
+    }
+
+    #[test]
+    fn test_get_machine_id_returns_option() {
+        let id = get_machine_id();
+        // 在 CI 或桌面环境中应该返回 Some
+        // 不断言具体值，只确保不 panic
+        if let Some(ref machine_id) = id {
+            assert!(!machine_id.is_empty());
+        }
+    }
+}

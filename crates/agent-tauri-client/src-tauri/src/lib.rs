@@ -2262,8 +2262,8 @@ async fn dependency_shell_installer_install(
         // Windows: 使用 PowerShell 的 irm (Invoke-RestMethod) | iex (Invoke-Expression)
         // 许多现代安装脚本（如 cargo-binstall、uv 等）提供 .ps1 安装脚本
         // 尝试将 URL 末尾的 .sh 替换为 .ps1
-        let ps_url = if installer_url.ends_with(".sh") {
-            installer_url.replace(".sh", ".ps1")
+        let ps_url = if let Some(base) = installer_url.strip_suffix(".sh") {
+            format!("{}.ps1", base)
         } else {
             installer_url.clone()
         };

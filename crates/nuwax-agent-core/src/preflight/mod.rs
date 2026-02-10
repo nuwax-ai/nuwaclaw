@@ -131,7 +131,7 @@ pub async fn run_preflight(config: &PreflightConfig) -> PreflightResult {
             status,
             message,
             fix_hint,
-            auto_fixable: true,
+            auto_fixable: false,
         });
     }
 
@@ -276,10 +276,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_preflight_with_empty_config() {
+        let config = PreflightConfig {
+            ports: vec![],
+            directories: vec![],
+            check_dependencies: false,
+        };
+        let result = run_preflight(&config).await;
+        assert!(result.checks.is_empty());
+        assert!(result.passed);
+    }
+
+    #[tokio::test]
+    async fn test_preflight_with_dependency_check() {
         let config = PreflightConfig::default();
         let result = run_preflight(&config).await;
-        // 空配置下没有端口/目录检查，只有依赖检查（可能通过也可能不通过）
-        assert!(!result.checks.is_empty());
+        // 默认检查依赖，至少有 node 和 uv 两项
+        assert!(result.checks.len() >= 2);
+        assert!(result.checks.iter().any(|c| c.id == "dep_node"));
+        assert!(result.checks.iter().any(|c| c.id == "dep_uv"));
     }
 
     #[tokio::test]
@@ -294,6 +308,26 @@ mod tests {
         assert_eq!(result.checks.len(), 1);
         // 端口可能可用也可能不可用，只验证结构完整
         assert_eq!(result.checks[0].id, "port_59999");
+        assert_eq!(result.checks[0].category, CheckCategory::Network);
+    }
+
+    #[tokio::test]
+    async fn test_port_check_occupied() {
+        // 绑定一个端口使其被占用
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let config = PreflightConfig {
+            ports: vec![("occupied".to_string(), port)],
+            directories: vec![],
+            check_dependencies: false,
+        };
+        let result = run_preflight(&config).await;
+        assert_eq!(result.checks.len(), 1);
+        assert_eq!(result.checks[0].status, CheckStatus::Fail);
+        assert!(!result.passed);
+        assert!(result.checks[0].fix_hint.is_some());
+        drop(listener);
     }
 
     #[tokio::test]
@@ -307,8 +341,117 @@ mod tests {
         let result = run_preflight(&config).await;
         assert_eq!(result.checks.len(), 1);
         assert_eq!(result.checks[0].status, CheckStatus::Pass);
+        assert_eq!(result.checks[0].category, CheckCategory::Directory);
 
         // 清理
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_directory_unwritable_path() {
+        // 使用一个不可能存在且无法创建的路径
+        let impossible_path = std::path::PathBuf::from("/nonexistent_root_dir_12345/subdir/deep");
+        let config = PreflightConfig {
+            ports: vec![],
+            directories: vec![("impossible".to_string(), impossible_path)],
+            check_dependencies: false,
+        };
+        let result = run_preflight(&config).await;
+        assert_eq!(result.checks.len(), 1);
+        assert_eq!(result.checks[0].status, CheckStatus::Fail);
+        assert!(!result.passed);
+    }
+
+    #[tokio::test]
+    async fn test_multiple_checks_combined() {
+        let temp_dir = std::env::temp_dir().join("nuwax_preflight_multi_test");
+        let config = PreflightConfig {
+            ports: vec![("svc1".to_string(), 59990), ("svc2".to_string(), 59991)],
+            directories: vec![("workspace".to_string(), temp_dir.clone())],
+            check_dependencies: true,
+        };
+        let result = run_preflight(&config).await;
+        // 至少 2 端口 + 1 目录 + 2 依赖 = 5 项
+        assert!(result.checks.len() >= 5);
+
+        // 清理
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_passed_flag_all_pass() {
+        let temp_dir = std::env::temp_dir().join("nuwax_preflight_pass_test");
+        let config = PreflightConfig {
+            ports: vec![],
+            directories: vec![("ok".to_string(), temp_dir.clone())],
+            check_dependencies: false,
+        };
+        let result = run_preflight(&config).await;
+        assert!(result.passed);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_fix_unknown_check_id() {
+        let results = run_preflight_fix(&["unknown_id_123".to_string()]).await;
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].success);
+    }
+
+    #[tokio::test]
+    async fn test_fix_directory_returns_message() {
+        let results = run_preflight_fix(&["dir_workspace".to_string()]).await;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "dir_workspace");
+    }
+
+    #[tokio::test]
+    async fn test_fix_dependency_not_auto_fixable() {
+        let results = run_preflight_fix(&["dep_node".to_string()]).await;
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].success);
+        assert!(results[0].message.contains("依赖管理"));
+    }
+
+    #[tokio::test]
+    async fn test_check_status_equality() {
+        assert_eq!(CheckStatus::Pass, CheckStatus::Pass);
+        assert_ne!(CheckStatus::Pass, CheckStatus::Fail);
+        assert_ne!(CheckStatus::Warn, CheckStatus::Fail);
+    }
+
+    #[tokio::test]
+    async fn test_check_category_equality() {
+        assert_eq!(CheckCategory::Network, CheckCategory::Network);
+        assert_ne!(CheckCategory::Network, CheckCategory::Directory);
+    }
+
+    #[test]
+    fn test_preflight_config_default() {
+        let config = PreflightConfig::default();
+        assert!(config.ports.is_empty());
+        assert!(config.directories.is_empty());
+        assert!(config.check_dependencies);
+    }
+
+    #[test]
+    fn test_check_directory_writable_creates_dir() {
+        let dir = std::env::temp_dir().join("nuwax_preflight_create_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!dir.exists());
+
+        let (status, _msg, _hint) = check_directory_writable("test", &dir);
+        assert_eq!(status, CheckStatus::Pass);
+        assert!(dir.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_check_directory_writable_existing_dir() {
+        let dir = std::env::temp_dir();
+        let (status, msg, _hint) = check_directory_writable("tmp", &dir);
+        assert_eq!(status, CheckStatus::Pass);
+        assert!(msg.contains("可写"));
     }
 }

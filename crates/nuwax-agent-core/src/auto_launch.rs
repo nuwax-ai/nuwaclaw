@@ -234,4 +234,42 @@ mod tests {
         // 在测试环境中可能无法准确检查
         let _ = manager.is_enabled().await;
     }
+
+    #[test]
+    fn test_auto_launch_manager_default() {
+        let manager = AutoLaunchManager::default();
+        assert_eq!(manager.app_name, "nuwax-agent");
+    }
+
+    #[test]
+    fn test_auto_launch_manager_has_app_path() {
+        let manager = AutoLaunchManager::new().unwrap();
+        // app_path 在正常环境应非空（指向当前可执行文件）
+        assert!(!manager.app_path.is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_linux_autostart_path_is_user_level() {
+        // 验证 Linux 自启动配置写入用户目录而非系统目录
+        let config_dir = dirs::config_dir().expect("config_dir should exist");
+        let autostart_path = config_dir.join("autostart/nuwax-agent.desktop");
+        let path_str = autostart_path.to_string_lossy();
+
+        // 不应使用系统级别路径
+        assert!(!path_str.starts_with("/etc/xdg"));
+        // 应在用户配置目录下
+        assert!(path_str.contains(".config/autostart") || path_str.contains("config/autostart"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_macos_plist_path_uses_dirs() {
+        let home = dirs::home_dir().expect("home_dir should exist");
+        let plist_path = home.join("Library/LaunchAgents");
+        // 验证路径构造正确
+        assert!(plist_path
+            .to_string_lossy()
+            .contains("Library/LaunchAgents"));
+    }
 }
