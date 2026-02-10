@@ -9,7 +9,33 @@
 
 ## [待发布] - 2026-02-10
 
-> 日志生成时间: 2026-02-10 13:30:00 UTC+8
+> 日志生成时间: 2026-02-10 14:35:00 UTC+8
+
+### 新增功能 [feat]
+
+#### MCP Proxy [mcp]
+- 添加 MCP Proxy 服务支持，包括启动、重启命令
+- 添加 DEFAULT_MCP_PROXY_PORT 常量（默认端口 18099）
+- 添加 DEFAULT_MCP_PROXY_BIN 常量（默认二进制路径 "mcp-proxy"）
+- 添加 DEFAULT_MCP_PROXY_HOST 常量（默认主机 "127.0.0.1"）
+- 添加 DEFAULT_MCP_PROXY_CONFIG 默认 mcpServers JSON 配置
+- 集成 setup 服务支持 MCP Proxy 配置获取
+- 扩展 store 服务添加配置持久化接口
+- 添加 services_restart_all 命令支持批量重启所有服务
+
+#### 服务管理 [service]
+- 重构 service/mod.rs 增强服务管理能力
+- 添加 McpProxyConfig 结构体定义
+- 更新 ServiceManager 支持外部创建的 runner 实例
+- 统一所有服务的默认端口和配置常量
+
+### 变更 [change]
+
+#### 常量管理 [const]
+- 重构 MCP Proxy 使用常量替代硬编码值
+- 在 nuwax-agent-core 中导出 DEFAULT_MCP_PROXY_* 常量供前端使用
+- 更新 mcp_proxy_start 和 mcp_proxy_restart 命令使用定义的常量
+- 更新 McpProxyConfig::default() 使用定义的常量
 
 ### 修复 [fix]
 
