@@ -63,7 +63,7 @@ semver = { workspace = true }
 base64 = { workspace = true }
 
 # rcoder agent_runner (通过 git 依赖)
-agent_runner = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client", optional = true, features = ["http-server", "proxy"] }
+agent_runner = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client", optional = true, features = ["http-server"] }
 
 # rcoder shared_types (通过 git 依赖)
 shared_types = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client", optional = true }
