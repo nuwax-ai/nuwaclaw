@@ -4,6 +4,8 @@
 
 ## 快速开始
 
+以下涉及 `make` 的命令均在 **nuwax-agent 仓库根目录** 执行（即包含 `crates/agent-tauri-client` 的上级目录）。
+
 ### 1. 安装必需工具
 
 ```bash
@@ -17,7 +19,7 @@ npm install -g pnpm
 ### 2. 安装项目依赖
 
 ```bash
-# 安装前端依赖
+# 在仓库根目录下，进入本 crate 安装前端依赖
 cd crates/agent-tauri-client
 pnpm install
 ```
@@ -36,13 +38,15 @@ unset CI && cargo tauri dev
 ### 4. 打包发布
 
 ```bash
-# 在项目根目录运行
+# 在仓库根目录运行
 unset CI && make tauri-bundle
 
-# 打包产物位于
-# target/release/bundle/macos/agent-tauri-client.app
-# target/release/bundle/dmg/agent-tauri-client_0.1.0_aarch64.dmg
+# 打包产物位于 target/release/bundle/，例如：
+# - macos/agent-tauri-client.app
+# - dmg/agent-tauri-client_<version>_aarch64.dmg（Apple Silicon）或 _x64.dmg（Intel）
 ```
+
+发布到 GitHub Releases 后，需在 **docs 项目** 执行 `make update-release` 并部署，用户端才能检测到新版本（见下方「自动更新与版本检查」）。
 
 ## 推荐 IDE 配置
 
@@ -50,11 +54,15 @@ unset CI && make tauri-bundle
 
 ## Makefile 命令
 
+在 **nuwax-agent 仓库根目录** 执行：
+
 | 命令 | 说明 |
 |------|------|
 | `make tauri-dev` | 开发模式运行（热重载） |
-| `make tauri-bundle` | 打包当前平台应用 |
-| `make tauri-bundle-all` | 打包所有平台应用 |
+| `make tauri-bundle` | 打包当前平台应用（默认生产环境） |
+| `make tauri-bundle-test` | 打包当前平台（测试环境） |
+| `make tauri-bundle-prod` | 打包当前平台（生产环境） |
+| `make tauri-bundle-all` | 打包所有平台（macOS/Windows/Linux） |
 
 **注意**：运行前建议先执行 `unset CI` 避免环境变量冲突。
 
