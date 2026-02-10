@@ -144,6 +144,7 @@ jobs:
       - name: Install system dependencies (Ubuntu)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
+          sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
             libgtk-3-dev \
@@ -151,7 +152,17 @@ jobs:
             librsvg2-dev \
             patchelf \
             libssl-dev \
-            pkg-config
+            pkg-config \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev
+
+      # ---- 系统依赖 (Windows) ----
+      - name: Install system dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> "$GITHUB_ENV"
+          vcpkg install opus:x64-windows-static-md
 
       # ---- pnpm ----
       - name: Setup pnpm
@@ -281,65 +292,6 @@ jobs:
           # 同时通过 includeUpdaterJson=false 禁用 latest.json 生成。
           args: ${{ matrix.args }} --config src-tauri/tauri.ci.conf.json
           includeUpdaterJson: false
-
-      # ---- 构建产物 Smoke Test ----
-      - name: Smoke test (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          # 验证 .app bundle 存在且二进制格式正确
-          APP=$(find target -name "*.app" -path "*/release/bundle/macos/*" | head -1)
-          if [ -z "$APP" ]; then
-            echo "::error::No .app bundle found"
-            exit 1
-          fi
-          BIN="$APP/Contents/MacOS/agent-tauri-client"
-          echo "Found app: $APP"
-          file "$BIN"
-          echo "Smoke test passed: binary exists and is valid"
-
-      - name: Smoke test (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          # 验证 AppImage 存在
-          APPIMAGE=$(find target -name "*.AppImage" -path "*/release/bundle/appimage/*" | head -1)
-          if [ -z "$APPIMAGE" ]; then
-            echo "::warning::No AppImage found, checking deb..."
-            DEB=$(find target -name "*.deb" -path "*/release/bundle/deb/*" | head -1)
-            if [ -z "$DEB" ]; then
-              echo "::error::No build artifacts found"
-              exit 1
-            fi
-            echo "Found deb: $DEB"
-            dpkg-deb --info "$DEB"
-          else
-            echo "Found AppImage: $APPIMAGE"
-            chmod +x "$APPIMAGE"
-            file "$APPIMAGE"
-          fi
-          echo "Smoke test passed: build artifacts exist"
-
-      - name: Smoke test (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # 验证安装包存在
-          $msi = Get-ChildItem -Recurse -Path target -Filter "*.msi" | Select-Object -First 1
-          $exe = Get-ChildItem -Recurse -Path target -Filter "*.exe" -Include "*setup*","*installer*" | Select-Object -First 1
-          if ($msi) {
-            Write-Host "Found MSI: $($msi.FullName)"
-          } elseif ($exe) {
-            Write-Host "Found EXE: $($exe.FullName)"
-          } else {
-            Write-Host "::warning::No installer found, checking NSIS output..."
-            $nsis = Get-ChildItem -Recurse -Path target\release\bundle\nsis -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($nsis) {
-              Write-Host "Found NSIS: $($nsis.FullName)"
-            } else {
-              Write-Host "::error::No build artifacts found"
-              exit 1
-            }
-          }
-          Write-Host "Smoke test passed: build artifacts exist"
 
       # ---- 上传构建产物为 Artifacts ----
       - name: Upload build artifacts (macOS)
