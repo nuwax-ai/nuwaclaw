@@ -9,8 +9,8 @@ use system_permissions::{
     SystemPermission,
 };
 use tauri::{
-    menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    menu::{CheckMenuItem, Menu, MenuItem},
+    tray::TrayIconBuilder,
     Emitter, Manager, State, Window,
 };
 use tauri_plugin_store::StoreExt;
@@ -55,6 +55,15 @@ impl Default for MonitorState {
             task_handle: Mutex::new(None),
         }
     }
+}
+
+// ========== 托盘菜单 ID 常量 ==========
+mod tray_ids {
+    pub const SHOW: &str = "show";
+    pub const SERVICES_RESTART: &str = "services_restart";
+    pub const SERVICES_STOP: &str = "services_stop";
+    pub const AUTOLAUNCH: &str = "autolaunch";
+    pub const QUIT: &str = "quit";
 }
 
 // 可序列化的权限状态（用于 Tauri IPC）
@@ -2894,85 +2903,168 @@ fn tray_status(app: tauri::AppHandle) -> TrayStatusResult {
     }
 }
 
+/// 更新托盘菜单（自动获取自启动状态和服务状态）
+fn update_tray_menu(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::menu::MenuItemKind;
+
+    // 获取自启动状态
+    let autolaunch_enabled = create_auto_launch(app_handle)
+        .and_then(|al| Ok(al.is_enabled().unwrap_or(false)))
+        .unwrap_or(false);
+
+    // 获取服务状态，用于决定是否禁用菜单项
+    // 使用 try_lock 避免死锁，如果获取锁失败则默认禁用停止服务
+    let services_running = tauri::async_runtime::block_on(async {
+        let state = app_handle.state::<ServiceManagerState>();
+        // 尝试获取锁，如果已被持有则等待一段时间后超时
+        let lock_result = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            state.manager.lock(),
+        )
+        .await;
+
+        match lock_result {
+            Ok(manager) => {
+                let statuses = manager.services_status_all().await;
+                statuses
+                    .iter()
+                    .any(|s| matches!(s.state, nuwax_agent_core::service::ServiceState::Running))
+            }
+            Err(_) => {
+                warn!("[Tray] 获取服务状态超时，默认禁用停止服务");
+                false
+            }
+        }
+    });
+
+    // 重新创建菜单项
+    let show_i = MenuItem::with_id(app_handle, tray_ids::SHOW, "显示主窗口", true, None::<&str>)?;
+    let separator1 = tauri::menu::PredefinedMenuItem::separator(app_handle)?;
+    let services_restart_i = MenuItem::with_id(
+        app_handle,
+        tray_ids::SERVICES_RESTART,
+        "重启服务",
+        true, // 始终启用重启服务
+        None::<&str>,
+    )?;
+    let services_stop_i = MenuItem::with_id(
+        app_handle,
+        tray_ids::SERVICES_STOP,
+        "停止服务",
+        services_running, // 只有在服务运行时才启用停止
+        None::<&str>,
+    )?;
+    let separator2 = tauri::menu::PredefinedMenuItem::separator(app_handle)?;
+    let autolaunch_i = CheckMenuItem::with_id(
+        app_handle,
+        tray_ids::AUTOLAUNCH,
+        "开机自启动",
+        true,
+        autolaunch_enabled,
+        None::<&str>,
+    )?;
+    let separator3 = tauri::menu::PredefinedMenuItem::separator(app_handle)?;
+    let quit_i = MenuItem::with_id(app_handle, tray_ids::QUIT, "退出", true, None::<&str>)?;
+
+    // 构建新菜单
+    let new_menu = Menu::with_items(
+        app_handle,
+        &[
+            &MenuItemKind::MenuItem(show_i),
+            &MenuItemKind::Predefined(separator1),
+            &MenuItemKind::MenuItem(services_restart_i),
+            &MenuItemKind::MenuItem(services_stop_i),
+            &MenuItemKind::Predefined(separator2),
+            &MenuItemKind::Check(autolaunch_i),
+            &MenuItemKind::Predefined(separator3),
+            &MenuItemKind::MenuItem(quit_i),
+        ],
+    )?;
+
+    // 更新托盘图标的菜单
+    if let Some(tray) = app_handle.tray_by_id("main") {
+        tray.set_menu(Some(new_menu))?;
+    }
+
+    Ok(())
+}
+
 /// 设置系统托盘
 fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::MenuItemKind;
 
+    // 获取当前自启动状态
+    let autolaunch_enabled = create_auto_launch(&app.handle())
+        .and_then(|al| Ok(al.is_enabled().unwrap_or(false)))
+        .unwrap_or(false);
+
     // 创建菜单项
-    let show_i = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
-    let hide_i = MenuItem::with_id(app, "hide", "隐藏主窗口", true, None::<&str>)?;
+    let show_i = MenuItem::with_id(app, tray_ids::SHOW, "显示主窗口", true, None::<&str>)?;
     let separator1 = tauri::menu::PredefinedMenuItem::separator(app)?;
-    let services_start_i =
-        MenuItem::with_id(app, "services_start", "启动服务", true, None::<&str>)?;
-    let services_stop_i = MenuItem::with_id(app, "services_stop", "停止服务", true, None::<&str>)?;
+    let services_restart_i =
+        MenuItem::with_id(app, tray_ids::SERVICES_RESTART, "重启服务", true, None::<&str>)?;
+    let services_stop_i =
+        MenuItem::with_id(app, tray_ids::SERVICES_STOP, "停止服务", true, None::<&str>)?;
     let separator2 = tauri::menu::PredefinedMenuItem::separator(app)?;
-    let autolaunch_i = MenuItem::with_id(app, "autolaunch", "开机自启动", true, None::<&str>)?;
+    let autolaunch_i = CheckMenuItem::with_id(
+        app,
+        tray_ids::AUTOLAUNCH,
+        "开机自启动",
+        true,
+        autolaunch_enabled,
+        None::<&str>,
+    )?;
     let separator3 = tauri::menu::PredefinedMenuItem::separator(app)?;
-    let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, tray_ids::QUIT, "退出", true, None::<&str>)?;
 
     // 构建菜单
     let menu = Menu::with_items(
         app,
         &[
             &MenuItemKind::MenuItem(show_i),
-            &MenuItemKind::MenuItem(hide_i),
             &MenuItemKind::Predefined(separator1),
-            &MenuItemKind::MenuItem(services_start_i),
+            &MenuItemKind::MenuItem(services_restart_i),
             &MenuItemKind::MenuItem(services_stop_i),
             &MenuItemKind::Predefined(separator2),
-            &MenuItemKind::MenuItem(autolaunch_i),
+            &MenuItemKind::Check(autolaunch_i.clone()),
             &MenuItemKind::Predefined(separator3),
             &MenuItemKind::MenuItem(quit_i),
         ],
     )?;
 
     // 创建托盘图标
-    let _tray = TrayIconBuilder::new()
+    let _tray = TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
-        .show_menu_on_left_click(false) // 左键点击显示窗口，右键显示菜单
-        .on_tray_icon_event(|tray, event| {
-            // 左键点击显示主窗口
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                if let Some(window) = tray.app_handle().get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
-        })
+        .show_menu_on_left_click(true) // 左键点击显示菜单
         .on_menu_event(|app, event| {
             match event.id.as_ref() {
-                "show" => {
+                tray_ids::SHOW => {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.show();
                         let _ = window.set_focus();
                     }
                 }
-                "hide" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.hide();
-                    }
-                }
-                "services_start" => {
+                tray_ids::SERVICES_RESTART => {
                     let app_handle = app.clone();
                     tauri::async_runtime::spawn(async move {
+                        info!("[Tray] 重启所有服务...");
                         let state = app_handle.state::<ServiceManagerState>();
-                        // 调用服务重启逻辑
-                        info!("[Tray] 启动服务...");
-                        let manager = state.manager.lock().await;
-                        if let Err(e) = manager.services_stop_all().await {
-                            error!("[Tray] 停止服务失败: {}", e);
+                        match services_restart_all(app_handle.clone(), state).await {
+                            Ok(_) => {
+                                info!("[Tray] 所有服务已重启");
+                                // 更新托盘菜单（自动获取最新状态）
+                                if let Err(e) = update_tray_menu(&app_handle) {
+                                    error!("[Tray] 更新托盘菜单失败: {}", e);
+                                }
+                            }
+                            Err(e) => {
+                                error!("[Tray] 重启服务失败: {}", e);
+                            }
                         }
-                        // 注意：完整启动需要配置，这里只做基础停止/启动
-                        info!("[Tray] 服务操作完成，请通过主窗口启动服务");
                     });
                 }
-                "services_stop" => {
+                tray_ids::SERVICES_STOP => {
                     let app_handle = app.clone();
                     tauri::async_runtime::spawn(async move {
                         let state = app_handle.state::<ServiceManagerState>();
@@ -2981,10 +3073,14 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                             error!("[Tray] 停止服务失败: {}", e);
                         } else {
                             info!("[Tray] 所有服务已停止");
+                            // 更新托盘菜单（自动获取最新状态）
+                            if let Err(e) = update_tray_menu(&app_handle) {
+                                error!("[Tray] 更新托盘菜单失败: {}", e);
+                            }
                         }
                     });
                 }
-                "autolaunch" => {
+                tray_ids::AUTOLAUNCH => {
                     // 切换开机自启动状态
                     let app_handle = app.clone();
                     tauri::async_runtime::spawn(async move {
@@ -2997,10 +3093,18 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                                     auto_launch.enable()
                                 };
                                 match result {
-                                    Ok(()) => info!(
-                                        "[Tray] 开机自启动已{}",
-                                        if current { "禁用" } else { "启用" }
-                                    ),
+                                    Ok(()) => {
+                                        let new_state = !current;
+                                        info!(
+                                            "[Tray] 开机自启动已{}",
+                                            if new_state { "启用" } else { "禁用" }
+                                        );
+
+                                        // 重新创建菜单以更新勾选状态（自动获取最新状态）
+                                        if let Err(e) = update_tray_menu(&app_handle) {
+                                            error!("[Tray] 更新托盘菜单失败: {}", e);
+                                        }
+                                    }
                                     Err(e) => error!("[Tray] 切换开机自启动失败: {}", e),
                                 }
                             }
@@ -3008,7 +3112,7 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                         }
                     });
                 }
-                "quit" => {
+                tray_ids::QUIT => {
                     // 停止服务后退出
                     let app_handle = app.clone();
                     tauri::async_runtime::spawn(async move {
