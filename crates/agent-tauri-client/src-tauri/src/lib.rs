@@ -2442,8 +2442,12 @@ use auto_launch::AutoLaunchBuilder;
 /// 创建 AutoLaunch 实例
 /// 根据当前运行的应用信息构建
 fn create_auto_launch(app: &tauri::AppHandle) -> Result<auto_launch::AutoLaunch, String> {
-    // 获取应用名称
-    let app_name = "Nuwax Agent";
+    // 从 tauri.conf.json 的 productName 获取应用名称
+    let app_name = app
+        .config()
+        .product_name
+        .as_deref()
+        .unwrap_or("NuWax Agent");
 
     // 获取应用可执行文件路径
     let exe_path = std::env::current_exe().map_err(|e| format!("获取应用路径失败: {}", e))?;

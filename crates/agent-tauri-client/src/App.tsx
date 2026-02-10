@@ -47,6 +47,7 @@ import {
 } from "./services/auth";
 import { isSetupCompleted, ensureMcpProxyDefaults } from "./services/setup";
 import { restartAllServices, stopAllServices } from "./services/dependencies";
+import { useAppInfo } from "./hooks/useAppInfo";
 import { checkForAppUpdate } from "./services/updater";
 
 // Tab 类型定义
@@ -66,6 +67,7 @@ function App() {
   // 初始化向导状态
   // ============================================
   const [setupCompleted, setSetupCompleted] = useState<boolean | null>(null);
+  const { appName } = useAppInfo();
 
   // ============================================
   // 核心状态
@@ -507,7 +509,7 @@ function App() {
       <div className="app-header">
         <div className="app-header-logo">
           <RobotOutlined style={{ fontSize: 16, color: "#18181b" }} />
-          <span className="app-header-title">NuWax Agent</span>
+          <span className="app-header-title">{appName}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center" }}>
           <Badge
