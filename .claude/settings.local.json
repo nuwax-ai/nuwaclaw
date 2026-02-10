@@ -4,7 +4,8 @@
       "Bash(cargo build:*)",
       "mcp__acp__Bash",
       "mcp__acp__Write",
-      "mcp__acp__Edit"
+      "mcp__acp__Edit",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

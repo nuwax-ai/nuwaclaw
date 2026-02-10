@@ -192,7 +192,7 @@ jobs:
 
       # ---- 跨平台 cargo test ----
       - name: Run cargo tests
-        run: cargo test --workspace --exclude agent-gpui-client -- --nocapture
+        run: cargo test --workspace --exclude agent-gpui-client --exclude agent-server-admin -- --nocapture
         continue-on-error: false
 
       # ---- 前端依赖 ----

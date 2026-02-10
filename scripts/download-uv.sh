@@ -141,13 +141,21 @@ else
   tar -xzf "${TMPDIR_DL}/${FILENAME}" -C "${EXTRACT_DIR}"
 fi
 
-# uv archive 结构: uv-{target}/uv + uv-{target}/uvx
-INNER_DIR="${EXTRACT_DIR}/${UV_TARGET}"
+# 定位 uv 二进制所在目录（不同平台/版本的归档结构可能不同：有或无外层子目录）
+if [ "${PLATFORM}" = "win" ]; then
+  UV_FOUND="$(find "${EXTRACT_DIR}" -name "uv.exe" -type f | head -1)"
+else
+  UV_FOUND="$(find "${EXTRACT_DIR}" -name "uv" -type f | head -1)"
+fi
 
-if [ ! -d "${INNER_DIR}" ]; then
-  echo "Error: Expected directory ${INNER_DIR} not found after extraction" >&2
+if [ -z "${UV_FOUND}" ]; then
+  echo "Error: uv binary not found after extraction" >&2
+  echo "==> Contents of extract dir:" >&2
+  find "${EXTRACT_DIR}" -type f >&2
   exit 1
 fi
+
+INNER_DIR="$(dirname "${UV_FOUND}")"
 
 # === 复制到资源目录 ===
 
