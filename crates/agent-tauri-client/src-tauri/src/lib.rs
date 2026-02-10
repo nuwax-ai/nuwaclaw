@@ -1845,6 +1845,59 @@ async fn check_network_cn() -> bool {
     false
 }
 
+/// 解析 node/npm/npx 等二进制的实际路径
+/// 优先查找本地安装路径 → ~/.local/bin/ → 最后 fallback 到命令名（依赖 PATH）
+fn resolve_node_bin(bin_name: &str) -> String {
+    // 1. 本地安装路径
+    let local_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("nuwax-agent")
+        .join("tools")
+        .join("node")
+        .join("bin");
+
+    #[cfg(unix)]
+    let local_bin = local_dir.join(bin_name);
+    #[cfg(windows)]
+    let local_bin = if bin_name == "node" {
+        local_dir.join("node.exe")
+    } else {
+        local_dir.join(format!("{}.cmd", bin_name))
+    };
+
+    if local_bin.exists() {
+        info!("[resolve_node_bin] {} -> {:?} (local)", bin_name, local_bin);
+        return local_bin.to_string_lossy().to_string();
+    }
+
+    // 2. ~/.local/bin/ (全局符号链接)
+    let global_bin = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".local")
+        .join("bin");
+
+    #[cfg(unix)]
+    let global_path = global_bin.join(bin_name);
+    #[cfg(windows)]
+    let global_path = if bin_name == "node" {
+        global_bin.join("node.exe")
+    } else {
+        global_bin.join(format!("{}.cmd", bin_name))
+    };
+
+    if global_path.exists() {
+        info!(
+            "[resolve_node_bin] {} -> {:?} (global)",
+            bin_name, global_path
+        );
+        return global_path.to_string_lossy().to_string();
+    }
+
+    // 3. 降级到 PATH
+    info!("[resolve_node_bin] {} -> fallback to PATH", bin_name);
+    bin_name.to_string()
+}
+
 /// 初始化本地 npm 环境（创建 package.json）
 #[tauri::command]
 async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, String> {
@@ -2286,7 +2339,8 @@ async fn dependency_local_install(
     dependency_local_env_init(app.clone()).await?;
 
     // 执行 npm install
-    let output = Command::new("npm")
+    let npm_bin = resolve_node_bin("npm");
+    let output = Command::new(&npm_bin)
         .args([
             "install",
             &package_name,
@@ -2323,7 +2377,8 @@ async fn dependency_local_install(
 #[tauri::command]
 async fn dependency_local_check_latest(package_name: String) -> Result<Option<String>, String> {
     let registry = "https://registry.npmmirror.com/";
-    let output = Command::new("npm")
+    let npm_bin = resolve_node_bin("npm");
+    let output = Command::new(&npm_bin)
         .args(["view", &package_name, "version", "--registry", registry])
         .output()
         .map_err(|e| format!("执行 npm view 失败: {}", e))?;
@@ -2550,7 +2605,8 @@ async fn dependency_npm_global_install(
     );
 
     // 执行 npm install -g
-    let output = Command::new("npm")
+    let npm_bin = resolve_node_bin("npm");
+    let output = Command::new(&npm_bin)
         .args([
             "install",
             "-g",
