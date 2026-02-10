@@ -1,6 +1,119 @@
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { Modal, message } from "antd";
+import { Modal } from "antd";
+import React from "react";
+
+const DEFAULT_MESSAGE = "建议更新到最新版本以获得更好的体验。";
+
+/** 旧格式安装说明的特征文本，匹配到任意一个即视为旧格式 */
+const OLD_FORMAT_MARKERS = [
+  "Assets 中下载",
+  "_universal.dmg",
+  "_aarch64.dmg",
+  "_x64.dmg",
+  ".msi",
+  ".nsis",
+  ".deb",
+  ".AppImage",
+];
+
+/**
+ * 检测 body 是否为旧格式的安装说明（而非更新日志）
+ */
+function isOldFormatBody(body: string): boolean {
+  return OLD_FORMAT_MARKERS.some((marker) => body.includes(marker));
+}
+
+/**
+ * 将简易 markdown 文本格式化为 React 元素
+ *
+ * 支持：
+ * - `### 标题` → 加粗文本
+ * - `- 列表项` → 带缩进的列表
+ * - `**粗体**` → 加粗文本
+ * - 空行 → 段落分隔
+ */
+function formatReleaseNotes(markdown: string): React.ReactNode {
+  const lines = markdown.split("\n");
+  const elements: React.ReactNode[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      continue;
+    }
+
+    if (trimmed.startsWith("### ")) {
+      const title = trimmed.slice(4);
+      elements.push(
+        React.createElement(
+          "div",
+          {
+            key: `h-${i}`,
+            style: {
+              fontWeight: 600,
+              marginTop: elements.length > 0 ? 12 : 0,
+              marginBottom: 4,
+            },
+          },
+          title,
+        ),
+      );
+    } else if (trimmed.startsWith("- ")) {
+      const content = trimmed.slice(2);
+      elements.push(
+        React.createElement(
+          "div",
+          {
+            key: `li-${i}`,
+            style: { paddingLeft: 16, lineHeight: "24px" },
+          },
+          "• ",
+          formatInlineText(content, i),
+        ),
+      );
+    } else {
+      elements.push(
+        React.createElement(
+          "div",
+          { key: `p-${i}`, style: { lineHeight: "24px" } },
+          formatInlineText(trimmed, i),
+        ),
+      );
+    }
+  }
+
+  return React.createElement(
+    "div",
+    { style: { maxHeight: 300, overflowY: "auto" as const } },
+    ...elements,
+  );
+}
+
+/**
+ * 处理行内 **粗体** 标记
+ */
+function formatInlineText(
+  text: string,
+  lineIndex: number,
+): React.ReactNode[] | string {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  if (parts.length === 1) {
+    return text;
+  }
+  return parts.map((part, j) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return React.createElement(
+        "strong",
+        { key: `b-${lineIndex}-${j}` },
+        part.slice(2, -2),
+      );
+    }
+    return part;
+  });
+}
 
 /**
  * 检查应用更新，若有新版本则弹窗提示用户
@@ -31,9 +144,16 @@ export async function checkForAppUpdate(manual = false): Promise<void> {
 function showUpdateDialog(update: Update) {
   const { version, body } = update;
 
+  let content: React.ReactNode;
+  if (!body || isOldFormatBody(body)) {
+    content = DEFAULT_MESSAGE;
+  } else {
+    content = formatReleaseNotes(body);
+  }
+
   Modal.confirm({
     title: `发现新版本 v${version}`,
-    content: body || "建议更新到最新版本以获得更好的体验。",
+    content,
     okText: "立即更新",
     cancelText: "稍后再说",
     width: 440,

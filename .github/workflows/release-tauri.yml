@@ -34,8 +34,34 @@ permissions:
   contents: write
 
 jobs:
+  # ---- 准备发布说明 ----
+  # 从 release-notes/{tag}.md 读取自定义更新日志，用于 latest.json 的 notes 字段
+  # 这样客户端更新弹窗只显示更新日志，而非安装说明
+  prepare-release:
+    name: Prepare release notes
+    runs-on: ubuntu-latest
+    outputs:
+      release_notes: ${{ steps.notes.outputs.content }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read release notes
+        id: notes
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          NOTES_FILE="release-notes/${TAG}.md"
+          if [ -f "$NOTES_FILE" ]; then
+            CONTENT=$(cat "$NOTES_FILE")
+          else
+            CONTENT="功能优化和问题修复。建议更新到最新版本以获得更好的体验。"
+          fi
+          echo "content<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CONTENT" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
   release-tauri:
     name: Build Tauri (${{ matrix.platform }})
+    needs: prepare-release
     strategy:
       fail-fast: false
       matrix:
@@ -221,17 +247,45 @@ jobs:
           projectPath: crates/agent-tauri-client
           tagName: ${{ github.ref_name }}
           releaseName: 'NuWax Agent ${{ github.ref_name }}'
-          releaseBody: |
-            ## NuWax Agent Desktop 桌面客户端
-
-            请在下方 Assets 中下载对应平台的安装包：
-            - **macOS (推荐)**: `_universal.dmg` — 通用安装包，同时支持 Intel 和 Apple Silicon
-            - **macOS (单架构)**: `_aarch64.dmg` (Apple Silicon) / `_x64.dmg` (Intel)
-            - **Windows**: `.msi` / `.nsis`
-            - **Linux**: `.deb` / `.AppImage`
-
-            客户端支持自动更新，无需手动下载。
+          releaseBody: ${{ needs.prepare-release.outputs.release_notes }}
           releaseDraft: false
           prerelease: false
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
+
+  # ---- 追加安装说明到 GitHub Release 页面 ----
+  # 所有平台构建完成后，将安装指引追加到 Release body 末尾
+  # 最终 GitHub Release = 自定义更新日志 + 分隔线 + 安装说明
+  # latest.json notes = 仅自定义更新日志（由 tauri-action 在 build 阶段写入）
+  update-release-body:
+    name: Append install instructions to release
+    needs: [prepare-release, release-tauri]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Append install instructions
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          RELEASE_NOTES: ${{ needs.prepare-release.outputs.release_notes }}
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+
+          read -r -d '' INSTALL_GUIDE << 'GUIDE' || true
+          ## 安装说明
+
+          请在下方 Assets 中下载对应平台的安装包：
+          - **macOS (推荐)**: `_universal.dmg` — 通用安装包，同时支持 Intel 和 Apple Silicon
+          - **macOS (单架构)**: `_aarch64.dmg` (Apple Silicon) / `_x64.dmg` (Intel)
+          - **Windows**: `.msi` / `.nsis`
+          - **Linux**: `.deb` / `.AppImage`
+
+          客户端支持自动更新，无需手动下载。
+          GUIDE
+
+          FULL_BODY="${RELEASE_NOTES}
+
+          ---
+
+          ${INSTALL_GUIDE}"
+
+          gh release edit "$TAG" --notes "$FULL_BODY" --repo "$GITHUB_REPOSITORY"
