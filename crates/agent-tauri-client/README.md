@@ -57,3 +57,32 @@ unset CI && make tauri-bundle
 | `make tauri-bundle-all` | 打包所有平台应用 |
 
 **注意**：运行前建议先执行 `unset CI` 避免环境变量冲突。
+
+## 自动更新与版本检查
+
+客户端通过 Tauri 插件检查更新，配置在 `src-tauri/tauri.conf.json` 的 `plugins.updater.endpoints`，当前指向：
+
+- **当前使用**：`https://nuwax.com/releases/latest/download/latest.json`
+
+该文件并非由 nuwax.com 自动生成，而是**从 GitHub 手动同步**的。
+
+### 原始数据源
+
+- **来源地址**：<https://github.com/nuwax-ai/nuwax-agent-client/releases/latest/download/latest.json>
+- 每次在 GitHub 发布新版本后，需把上述 `latest.json` 同步到对外域名，客户端才能检测到新版本。
+
+### 如何同步
+
+同步通过 **docs 项目** 的 Makefile 完成（例如项目路径：`git_work/docs`）：
+
+```bash
+cd /path/to/docs   # 如 ~/git_work/docs
+make update-release
+```
+
+该命令会：
+
+1. 从 GitHub 下载 `latest.json` 到 `public/releases/latest/download/latest.json`
+2. 部署 docs 后，即可通过 `https://nuwax.com/releases/latest/download/latest.json` 访问
+
+因此发布新版本后，在 docs 项目里执行一次 `make update-release` 并完成部署，用户端才能收到更新提示。
