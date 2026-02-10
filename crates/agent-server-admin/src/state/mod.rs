@@ -101,9 +101,25 @@ impl AppState {
         let bridge_self_id = self.bridge_self_id.clone();
         let event_tx = self.event_tx.clone();
 
+        // 带 panic 捕获的事件循环
         tokio::spawn(async move {
-            let mut rx = event_rx.lock().await;
-            while let Some(event) = rx.recv().await {
+            if let Err(e) = tokio::panic::catch_unwind(|| {
+                futures::executor::block_on(async {
+                    Self::bridge_event_loop_inner(event_rx, bridge_self_id, event_tx).await;
+                })
+            }).await {
+                error!("Bridge event loop panicked: {:?}", e);
+            }
+        });
+    }
+
+    /// 桥接事件循环内部实现
+    async fn bridge_event_loop_inner(
+        mut rx: tokio::sync::MutexGuard<'_, tokio::sync::mpsc::Receiver<BridgeEvent>>,
+        bridge_self_id: Arc<tokio::sync::RwLock<Option<String>>>,
+        event_tx: broadcast::Sender<ServerEvent>,
+    ) {
+        while let Some(event) = rx.recv().await {
                 match event {
                     BridgeEvent::Connected { self_id } => {
                         info!("Bridge connected with self ID: {}", self_id);
