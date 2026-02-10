@@ -1,6 +1,6 @@
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { Modal } from "antd";
+import { message, Modal } from "antd";
 import React from "react";
 
 const DEFAULT_MESSAGE = "建议更新到最新版本以获得更好的体验。";
