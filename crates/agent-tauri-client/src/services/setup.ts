@@ -16,6 +16,7 @@ import {
   type SetupState,
   DEFAULT_SETUP_STATE,
 } from "./store";
+import { DEFAULT_MCP_PROXY_PORT, DEFAULT_MCP_PROXY_CONFIG } from "../constants";
 
 // 导出类型
 export type { SetupState };
@@ -254,5 +255,91 @@ export async function setDepsInstalled(value: boolean): Promise<void> {
   } catch (error) {
     console.error("[Setup] 保存依赖安装状态失败:", error);
     throw error;
+  }
+}
+
+// ========== MCP Proxy 配置 ==========
+
+/**
+ * 获取 MCP Proxy mcpServers JSON 配置
+ */
+export async function getMcpProxyConfig(): Promise<string | null> {
+  try {
+    await initStore();
+    return await setupStorage.getMcpProxyConfig();
+  } catch (error) {
+    console.error("[Setup] 获取 MCP Proxy 配置失败:", error);
+    return null;
+  }
+}
+
+/**
+ * 设置 MCP Proxy mcpServers JSON 配置
+ */
+export async function setMcpProxyConfig(configJson: string): Promise<void> {
+  try {
+    await initStore();
+    await setupStorage.setMcpProxyConfig(configJson);
+    console.log("[Setup] MCP Proxy 配置已保存");
+  } catch (error) {
+    console.error("[Setup] 保存 MCP Proxy 配置失败:", error);
+    throw error;
+  }
+}
+
+/**
+ * 获取 MCP Proxy 端口
+ */
+export async function getMcpProxyPort(): Promise<number> {
+  try {
+    await initStore();
+    const port = await setupStorage.getMcpProxyPort();
+    return port ?? DEFAULT_MCP_PROXY_PORT;
+  } catch (error) {
+    console.error("[Setup] 获取 MCP Proxy 端口失败:", error);
+    return DEFAULT_MCP_PROXY_PORT;
+  }
+}
+
+/**
+ * 设置 MCP Proxy 端口
+ */
+export async function setMcpProxyPort(port: number): Promise<void> {
+  try {
+    await initStore();
+    await setupStorage.setMcpProxyPort(port);
+    console.log("[Setup] MCP Proxy 端口已保存:", port);
+  } catch (error) {
+    console.error("[Setup] 保存 MCP Proxy 端口失败:", error);
+    throw error;
+  }
+}
+
+/**
+ * 确保 MCP Proxy 有默认配置
+ * 如果 store 中没有配置，则写入默认值
+ */
+export async function ensureMcpProxyDefaults(): Promise<void> {
+  try {
+    await initStore();
+
+    // 确保端口有默认值
+    const port = await setupStorage.getMcpProxyPort();
+    if (port === null) {
+      await setupStorage.setMcpProxyPort(DEFAULT_MCP_PROXY_PORT);
+      console.log(
+        "[Setup] MCP Proxy 端口已设置默认值:",
+        DEFAULT_MCP_PROXY_PORT,
+      );
+    }
+
+    // 确保 mcpServers 配置有默认值
+    const config = await setupStorage.getMcpProxyConfig();
+    if (!config) {
+      await setupStorage.setMcpProxyConfig(DEFAULT_MCP_PROXY_CONFIG);
+      console.log("[Setup] MCP Proxy 配置已设置默认值");
+    }
+  } catch (error) {
+    console.error("[Setup] 初始化 MCP Proxy 默认配置失败:", error);
   }
 }

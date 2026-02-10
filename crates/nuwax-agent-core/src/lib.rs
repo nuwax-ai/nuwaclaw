@@ -25,33 +25,37 @@
 // 核心模块
 // ============================================================================
 
-pub mod config;
-pub mod crypto;
-pub mod password;
 pub mod agent;
+pub mod business_channel;
+pub mod config;
 #[cfg(feature = "p2p-connection")]
 pub mod connection;
-pub mod business_channel;
-pub mod protocol;
+pub mod crypto;
+pub mod dependency;
 pub mod http_client;
 pub mod logger;
-pub mod upgrade;
+pub mod password;
 pub mod platform;
-pub mod dependency;
+pub mod protocol;
+pub mod upgrade;
 
 // 重导出类型
-pub use config::{AppConfig, ConfigManager, ConfigError};
-pub use crypto::{CryptoManager, CryptoError};
-pub use password::{PasswordManager, PasswordError, PasswordStrength};
-pub use agent::{AgentManager, AgentTask, TaskStatus, TaskProgress, TaskResult, AgentEvent, AgentError};
+pub use agent::{
+    AgentError, AgentEvent, AgentManager, AgentTask, TaskProgress, TaskResult, TaskStatus,
+};
+pub use business_channel::{
+    BusinessChannel, BusinessEnvelope, BusinessMessage, BusinessMessageType,
+};
+pub use config::{AppConfig, ConfigError, ConfigManager};
 #[cfg(feature = "p2p-connection")]
-pub use connection::{ConnectionManager, ConnectionState, ConnectionMode};
-pub use business_channel::{BusinessChannel, BusinessMessage, BusinessEnvelope, BusinessMessageType};
-pub use protocol::{ProtocolManager, ClientInfo, HandshakeRequest, HandshakeResponse};
-pub use http_client::{HttpClient, HttpError, HttpResponse, ReqwestClient};
-pub use logger::{Logger, LogLevel, LogConfig, LogError};
-pub use upgrade::{UpgradeManager, UpdateStatus, VersionInfo};
+pub use connection::{ConnectionManager, ConnectionMode, ConnectionState};
+pub use crypto::{CryptoError, CryptoManager};
 pub use dependency::{DependencyManager, DependencyStatus, ToolInfo};
+pub use http_client::{HttpClient, HttpError, HttpResponse, ReqwestClient};
+pub use logger::{LogConfig, LogError, LogLevel, Logger};
+pub use password::{PasswordError, PasswordManager, PasswordStrength};
+pub use protocol::{ClientInfo, HandshakeRequest, HandshakeResponse, ProtocolManager};
+pub use upgrade::{UpdateStatus, UpgradeManager, VersionInfo};
 
 // ============================================================================
 // 可选模块（根据 feature 条件导出）
@@ -91,16 +95,16 @@ mod business_channel_tests;
 // 通用模块
 // ============================================================================
 
+pub mod api;
+pub mod i18n;
 pub mod message;
 pub mod utils;
-pub mod i18n;
-pub mod api;
 pub mod viewmodels;
 
+pub use api::*;
+pub use i18n::{I18nError, I18nManager, Language};
 pub use message::*;
 pub use utils::*;
-pub use i18n::{I18nManager, Language, I18nError};
-pub use api::*;
 pub use viewmodels::*;
 
 // ============================================================================
@@ -108,7 +112,7 @@ pub use viewmodels::*;
 // ============================================================================
 
 pub mod admin_client;
-pub use admin_client::{AdminClient, AdminConfig, AdminClientEvent};
+pub use admin_client::{AdminClient, AdminClientEvent, AdminConfig};
 
 // ============================================================================
 // 权限管理模块
@@ -122,14 +126,17 @@ pub use permissions::PermissionManager;
 // ============================================================================
 
 pub mod json_config;
-pub use json_config::{JsonConfigManager, JsonConfigError, EditableConfig};
+pub use json_config::{EditableConfig, JsonConfigError, JsonConfigManager};
 
 // ============================================================================
 // 服务管理模块
 // ============================================================================
 
 pub mod service;
-pub use service::{ServiceManager, ServiceType, ServiceState, ServiceInfo, NuwaxFileServerConfig, NuwaxLanproxyConfig};
+pub use service::{
+    McpProxyConfig, NuwaxFileServerConfig, NuwaxLanproxyConfig, ServiceInfo, ServiceManager,
+    ServiceState, ServiceType,
+};
 
 // ============================================================================
 // 统一错误类型

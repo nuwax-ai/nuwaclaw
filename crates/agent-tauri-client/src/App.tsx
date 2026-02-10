@@ -45,7 +45,7 @@ import {
   getSavedKey,
   syncConfigToServer,
 } from "./services/auth";
-import { isSetupCompleted } from "./services/setup";
+import { isSetupCompleted, ensureMcpProxyDefaults } from "./services/setup";
 import { restartAllServices, stopAllServices } from "./services/dependencies";
 import { checkForAppUpdate } from "./services/updater";
 
@@ -168,6 +168,8 @@ function App() {
         await initAuthStore();
         // 初始化配置存储
         await initConfigStore();
+        // 确保 MCP Proxy 有默认配置
+        await ensureMcpProxyDefaults();
         // 加载在线状态
         const status = await getOnlineStatus();
         setOnlineStatus(status);

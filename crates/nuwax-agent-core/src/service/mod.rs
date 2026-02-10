@@ -12,6 +12,17 @@ type ChildWrapperType = Box<dyn process_wrap::tokio::ChildWrapper>;
 // 导入 RcoderAgentRunner
 use super::agent_runner::{RcoderAgentRunner, RcoderAgentRunnerConfig};
 
+// ========== 默认常量 ==========
+
+/// MCP Proxy 默认监听端口
+pub const DEFAULT_MCP_PROXY_PORT: u16 = 18099;
+
+/// MCP Proxy 默认监听地址
+pub const DEFAULT_MCP_PROXY_HOST: &str = "127.0.0.1";
+
+/// MCP Proxy 默认可执行文件名
+pub const DEFAULT_MCP_PROXY_BIN: &str = "mcp-proxy";
+
 // ========== 跨平台辅助函数 ==========
 
 /// 获取 nuwax-file-server 的 PID 文件路径
@@ -272,6 +283,61 @@ async fn kill_stale_lanproxy_processes() {
     }
 }
 
+/// 检测并清理残留的 mcp-proxy 进程
+async fn kill_stale_mcp_proxy_processes() {
+    if is_process_running_fuzzy("mcp-proxy").await {
+        warn!("[McpProxy] 检测到残留 mcp-proxy 进程，正在终止");
+        if let Some(pids) = find_processes_by_prefix("mcp-proxy").await {
+            for pid in &pids {
+                info!("[McpProxy] 终止残留进程 PID: {}", pid);
+                let pid_str = pid.to_string();
+
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
+                {
+                    run_command_with_timeout("kill", &["-9", &pid_str], 5).await;
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    run_command_with_timeout("taskkill", &["/F", "/PID", &pid_str], 5).await;
+                }
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+    }
+}
+
+/// 等待 MCP Proxy 服务就绪（使用 mcp-proxy health 命令）
+async fn wait_for_mcp_proxy_ready(
+    bin_path: &str,
+    port: u16,
+    host: &str,
+    timeout_secs: u64,
+) -> Result<(), String> {
+    let start = std::time::Instant::now();
+    let timeout_duration = std::time::Duration::from_secs(timeout_secs);
+    let retry_interval = std::time::Duration::from_millis(500);
+    let health_url = format!("http://{}:{}/mcp", host, port);
+
+    loop {
+        let healthy =
+            run_command_with_timeout(bin_path, &["health", &health_url, "--quiet"], 5).await;
+
+        if healthy {
+            info!("[McpProxy] 服务就绪 (port {})", port);
+            return Ok(());
+        }
+
+        if start.elapsed() > timeout_duration {
+            return Err(format!(
+                "MCP Proxy 健康检查超时: 等待 {}s 后 {} 仍未就绪",
+                timeout_secs, health_url
+            ));
+        }
+
+        tokio::time::sleep(retry_interval).await;
+    }
+}
+
 /// 检测并清理残留的 file-server 进程，确保只有一个实例运行
 ///
 /// # Arguments
@@ -482,6 +548,8 @@ pub enum ServiceType {
     NuwaxLanproxy,
     /// HTTP Server (rcoder) 服务
     Rcoder,
+    /// MCP Proxy 服务
+    McpProxy,
 }
 
 /// 服务状态
@@ -579,6 +647,30 @@ impl Default for NuwaxLanproxyConfig {
     }
 }
 
+/// MCP Proxy 配置
+#[derive(Debug, Clone)]
+pub struct McpProxyConfig {
+    /// 可执行文件路径（默认 "mcp-proxy"，假设在 PATH 中）
+    pub bin_path: String,
+    /// 监听端口（默认 18099）
+    pub port: u16,
+    /// 监听主机地址（默认 "127.0.0.1"）
+    pub host: String,
+    /// mcpServers 配置（JSON 字符串，直接传递给 --config 参数）
+    pub config_json: String,
+}
+
+impl Default for McpProxyConfig {
+    fn default() -> Self {
+        Self {
+            bin_path: "mcp-proxy".to_string(),
+            port: 18099,
+            host: "127.0.0.1".to_string(),
+            config_json: r#"{"mcpServers":{}}"#.to_string(),
+        }
+    }
+}
+
 /// 服务管理器
 #[derive(Clone)]
 pub struct ServiceManager {
@@ -592,6 +684,10 @@ pub struct ServiceManager {
     lanproxy_config: Arc<NuwaxLanproxyConfig>,
     /// Rcoder Agent Runner
     rcoder: Arc<Mutex<Option<Arc<RcoderAgentRunner>>>>,
+    /// MCP Proxy 进程
+    mcp_proxy: Arc<Mutex<Option<ChildWrapperType>>>,
+    /// MCP Proxy 配置
+    mcp_proxy_config: Arc<McpProxyConfig>,
 }
 
 impl ServiceManager {
@@ -599,6 +695,7 @@ impl ServiceManager {
     pub fn new(
         config: Option<NuwaxFileServerConfig>,
         lanproxy_config: Option<NuwaxLanproxyConfig>,
+        mcp_proxy_config: Option<McpProxyConfig>,
     ) -> Self {
         Self {
             nuwax_file_server: Arc::new(Mutex::new(None)),
@@ -606,6 +703,8 @@ impl ServiceManager {
             lanproxy: Arc::new(Mutex::new(None)),
             lanproxy_config: Arc::new(lanproxy_config.unwrap_or_default()),
             rcoder: Arc::new(Mutex::new(None)),
+            mcp_proxy: Arc::new(Mutex::new(None)),
+            mcp_proxy_config: Arc::new(mcp_proxy_config.unwrap_or_default()),
         }
     }
 
@@ -971,6 +1070,149 @@ impl ServiceManager {
         Ok(())
     }
 
+    /// 使用指定配置启动 MCP Proxy
+    pub async fn mcp_proxy_start_with_config(&self, config: McpProxyConfig) -> Result<(), String> {
+        info!("[McpProxy] ========== 启动 MCP Proxy 服务 ==========");
+
+        // 检查配置是否包含至少一个 MCP 服务
+        if config.config_json == r#"{"mcpServers":{}}"# || config.config_json.is_empty() {
+            warn!("[McpProxy] mcpServers 配置为空，跳过启动");
+            return Ok(());
+        }
+
+        // 检测并清理残留进程
+        kill_stale_mcp_proxy_processes().await;
+
+        info!("[McpProxy] 可执行文件路径: {}", config.bin_path);
+        info!("[McpProxy] 监听地址: {}:{}", config.host, config.port);
+
+        let port_str = config.port.to_string();
+        let mut cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
+            cmd.arg("proxy")
+                .arg("--port")
+                .arg(&port_str)
+                .arg("--host")
+                .arg(&config.host)
+                .arg("--config")
+                .arg(&config.config_json);
+        });
+
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
+            .wrap(process_wrap::tokio::KillOnDrop)
+            .wrap(process_wrap::tokio::ProcessGroup::leader())
+            .spawn()
+            .map_err(|e| {
+                error!("[McpProxy] 启动失败: {}", e);
+                format!("Failed to start mcp-proxy: {}", e)
+            })?;
+
+        #[cfg(target_os = "windows")]
+        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
+            .wrap(process_wrap::tokio::KillOnDrop)
+            .wrap(process_wrap::tokio::JobObject)
+            .spawn()
+            .map_err(|e| {
+                error!("[McpProxy] 启动失败: {}", e);
+                format!("Failed to start mcp-proxy: {}", e)
+            })?;
+
+        {
+            let mut guard = self.mcp_proxy.lock().await;
+            *guard = Some(child);
+        }
+
+        // 等待进程初始化
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        // 检查进程是否还在运行（未立即退出）
+        {
+            let guard = self.mcp_proxy.lock().await;
+            if let Some(ref child) = *guard {
+                if child.id().is_none() {
+                    drop(guard);
+                    if let Ok(mut guard) = self.mcp_proxy.try_lock() {
+                        let _ = guard.take();
+                    }
+                    return Err(
+                        "[McpProxy] 进程启动后立即退出，请检查配置或 mcp-proxy 可执行文件"
+                            .to_string(),
+                    );
+                }
+            }
+        }
+
+        // 使用 mcp-proxy health 命令检查服务就绪
+        if let Err(e) =
+            wait_for_mcp_proxy_ready(&config.bin_path, config.port, &config.host, 15).await
+        {
+            error!("[McpProxy] 健康检查失败: {}", e);
+            if let Ok(mut guard) = self.mcp_proxy.try_lock() {
+                let _ = guard.take();
+            }
+            return Err(e);
+        }
+
+        info!("[McpProxy] 进程启动成功");
+        Ok(())
+    }
+
+    /// 启动 MCP Proxy（使用内部配置）
+    pub async fn mcp_proxy_start(&self) -> Result<(), String> {
+        self.mcp_proxy_start_with_config((*self.mcp_proxy_config).clone())
+            .await
+    }
+
+    /// 停止 MCP Proxy
+    pub async fn mcp_proxy_stop(&self) -> Result<(), String> {
+        info!("[McpProxy] 正在停止 MCP Proxy...");
+
+        let mut guard = self.mcp_proxy.lock().await;
+        if let Some(child) = guard.take() {
+            let mut child = child;
+
+            if let Err(e) = child.start_kill() {
+                warn!(
+                    "[McpProxy] Failed to send kill signal, process may have exited: {}",
+                    e
+                );
+            }
+
+            use std::time::Duration;
+            use tokio::time::timeout;
+
+            match timeout(Duration::from_secs(5), child.wait()).await {
+                Ok(Ok(status)) => {
+                    if status.success() {
+                        info!("[McpProxy] MCP Proxy stopped gracefully");
+                    } else {
+                        info!(
+                            "[McpProxy] MCP Proxy stopped with exit code: {:?}",
+                            status.code()
+                        );
+                    }
+                }
+                Ok(Err(e)) => {
+                    warn!("[McpProxy] Error waiting for mcp-proxy: {}", e);
+                }
+                Err(_) => {
+                    warn!("[McpProxy] MCP Proxy stop timed out");
+                }
+            }
+        } else {
+            warn!("[McpProxy] MCP Proxy is not running");
+        }
+
+        Ok(())
+    }
+
+    /// 重启 MCP Proxy
+    pub async fn mcp_proxy_restart(&self) -> Result<(), String> {
+        self.mcp_proxy_stop().await?;
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        self.mcp_proxy_start().await
+    }
+
     /// 启动 Rcoder Agent Runner
     ///
     /// 接受外部创建的 RcoderAgentRunner 实例
@@ -1036,25 +1278,32 @@ impl ServiceManager {
     pub async fn services_stop_all(&self) -> Result<(), String> {
         info!("[Services] ========== 停止所有服务 ==========");
 
-        info!("[Services] 1/3 停止 Agent 服务 (rcoder)...");
+        info!("[Services] 1/4 停止 Agent 服务 (rcoder)...");
         if let Err(e) = self.rcoder_stop().await {
             warn!("[Services]   - Agent 服务停止失败: {}", e);
         } else {
             info!("[Services]   - Agent 服务已停止");
         }
 
-        info!("[Services] 2/3 停止文件服务 (nuwax-file-server)...");
+        info!("[Services] 2/4 停止文件服务 (nuwax-file-server)...");
         if let Err(e) = self.file_server_stop().await {
             warn!("[Services]   - 文件服务停止失败: {}", e);
         } else {
             info!("[Services]   - 文件服务已停止");
         }
 
-        info!("[Services] 3/3 停止代理服务 (nuwax-lanproxy)...");
+        info!("[Services] 3/4 停止代理服务 (nuwax-lanproxy)...");
         if let Err(e) = self.lanproxy_stop().await {
             warn!("[Services]   - 代理服务停止失败: {}", e);
         } else {
             info!("[Services]   - 代理服务已停止");
+        }
+
+        info!("[Services] 4/4 停止 MCP Proxy 服务...");
+        if let Err(e) = self.mcp_proxy_stop().await {
+            warn!("[Services]   - MCP Proxy 停止失败: {}", e);
+        } else {
+            info!("[Services]   - MCP Proxy 已停止");
         }
 
         info!("[Services] ========== 所有服务停止完成 ==========");
@@ -1076,6 +1325,7 @@ impl ServiceManager {
         self.rcoder_start(0, agent_runner).await?;
         self.file_server_start().await?;
         self.lanproxy_start().await?;
+        self.mcp_proxy_start().await?;
 
         info!("All services restarted");
         Ok(())
@@ -1155,6 +1405,27 @@ impl ServiceManager {
                 "[Services] Agent 服务状态: {:?}",
                 statuses.last().unwrap().state
             );
+        }
+
+        // MCP Proxy 状态
+        {
+            let guard = self.mcp_proxy.lock().await;
+            if let Some(child) = &*guard {
+                let pid = child.id();
+                statuses.push(ServiceInfo {
+                    service_type: ServiceType::McpProxy,
+                    state: ServiceState::Running,
+                    pid,
+                });
+                debug!("[Services] MCP Proxy 运行中, PID: {:?}", pid);
+            } else {
+                statuses.push(ServiceInfo {
+                    service_type: ServiceType::McpProxy,
+                    state: ServiceState::Stopped,
+                    pid: None,
+                });
+                debug!("[Services] MCP Proxy 已停止");
+            }
         }
 
         statuses
