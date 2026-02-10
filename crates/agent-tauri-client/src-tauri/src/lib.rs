@@ -17,7 +17,7 @@ use tauri_plugin_store::StoreExt;
 use tokio::sync::Mutex;
 
 // ========== AgentRunnerApi 导入 ==========
-use nuwax_agent_core::agent_runner::RcoderAgentRunnerConfig;
+use nuwax_agent_core::agent_runner::{RcoderAgentRunner, RcoderAgentRunnerConfig};
 
 /// 权限管理状态（使用延迟初始化避免启动时崩溃）
 struct PermissionsState {
@@ -1032,7 +1032,6 @@ fn build_rcoder_config(app: &tauri::AppHandle) -> Result<RcoderAgentRunnerConfig
     Ok(config)
 }
 
-<<<<<<< Updated upstream
 /// 启动 HTTP Server (rcoder)
 ///
 /// 从 Tauri store 读取配置:
@@ -1044,27 +1043,35 @@ async fn rcoder_start(
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
     let config = build_rcoder_config(&app)?;
-    let manager = state.manager.lock().await;
-    manager.rcoder_start(config).await?;
-=======
-    // 创建 RcoderAgentRunner 实例
-    let agent_runner = Arc::new(RcoderAgentRunner::new(config));
+    let port = config.backend_port;
 
     // 停止旧的 runner（如果存在），释放端口
     {
         let mut runner_guard = state.agent_runner.lock().await;
         if let Some(old_runner) = runner_guard.take() {
             info!("[Rcoder] 停止旧的 RcoderAgentRunner...");
-            old_runner.stop().await;
+            old_runner.shutdown().await;
             // 等待端口释放
             tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
         }
+    }
+
+    // 创建 RcoderAgentRunner 实例并启动
+    let mut runner = RcoderAgentRunner::new(config);
+    runner
+        .start()
+        .await
+        .map_err(|e| format!("启动 Agent Runner 失败: {}", e))?;
+    let agent_runner = Arc::new(runner);
+
+    // 存储新的 runner
+    {
+        let mut runner_guard = state.agent_runner.lock().await;
         *runner_guard = Some(agent_runner.clone());
     }
 
     let manager = state.manager.lock().await;
     manager.rcoder_start(port, agent_runner).await?;
->>>>>>> Stashed changes
     Ok(true)
 }
 
@@ -1075,7 +1082,7 @@ async fn rcoder_stop(state: tauri::State<'_, ServiceManagerState>) -> Result<boo
     {
         let mut runner_guard = state.agent_runner.lock().await;
         if let Some(old_runner) = runner_guard.take() {
-            old_runner.stop().await;
+            old_runner.shutdown().await;
         }
     }
     let manager = state.manager.lock().await;
@@ -1105,7 +1112,7 @@ async fn services_stop_all(state: tauri::State<'_, ServiceManagerState>) -> Resu
     {
         let mut runner_guard = state.agent_runner.lock().await;
         if let Some(old_runner) = runner_guard.take() {
-            old_runner.stop().await;
+            old_runner.shutdown().await;
         }
     }
     let manager = state.manager.lock().await;
@@ -1135,7 +1142,7 @@ async fn services_restart_all(
         let mut runner_guard = state.agent_runner.lock().await;
         if let Some(old_runner) = runner_guard.take() {
             info!("[Services] 停止旧的 RcoderAgentRunner...");
-            old_runner.stop().await;
+            old_runner.shutdown().await;
         }
     }
     {
@@ -1148,12 +1155,6 @@ async fn services_restart_all(
     // rcoder
     info!("[Services] 2/4 启动 Agent 服务 (rcoder)...");
     {
-<<<<<<< Updated upstream
-        let config = build_rcoder_config(&app)?;
-
-        let manager = state.manager.lock().await;
-        manager.rcoder_start(config).await?;
-=======
         let port = match read_store_port(&app, "setup.agent_port") {
             Ok(Some(p)) => {
                 info!("[Services]   - 找到 agent_port: {}", p);
@@ -1207,8 +1208,13 @@ async fn services_restart_all(
         };
         info!("[Services]   - 创建 RcoderAgentRunner 配置: {:?}", config);
 
-        // 创建 RcoderAgentRunner 实例
-        let agent_runner = Arc::new(RcoderAgentRunner::new(config));
+        // 创建 RcoderAgentRunner 实例并启动
+        let mut runner = RcoderAgentRunner::new(config);
+        runner
+            .start()
+            .await
+            .map_err(|e| format!("启动 Agent Runner 失败: {}", e))?;
+        let agent_runner = Arc::new(runner);
 
         // 存储新的 runner
         {
@@ -1218,7 +1224,6 @@ async fn services_restart_all(
 
         let manager = state.manager.lock().await;
         manager.rcoder_start(port, agent_runner).await?;
->>>>>>> Stashed changes
         info!("[Services]   - Agent 服务启动命令已发送");
     }
 
@@ -1721,10 +1726,7 @@ async fn node_install_auto(app: tauri::AppHandle) -> Result<NodeInstallResult, S
             });
         }
     } else {
-        info!(
-            "[NodeInstall] 使用打包资源路径: {:?}",
-            bundled_node_dir
-        );
+        info!("[NodeInstall] 使用打包资源路径: {:?}", bundled_node_dir);
         bundled_node_dir
     };
 
@@ -2605,7 +2607,8 @@ pub fn run() {
         .setup(|app| {
             // 注册 updater 插件（仅桌面端）
             #[cfg(desktop)]
-            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
 
             if let Err(e) = setup_tray(app) {
                 error!("[Setup] 创建系统托盘失败: {}", e);

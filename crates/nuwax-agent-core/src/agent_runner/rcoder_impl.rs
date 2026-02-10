@@ -5,14 +5,13 @@
 ///
 /// 注意：chat、subscribe_progress 等方法已由 agent_runner 内置的 HTTP 服务处理
 /// 此模块主要用于配置管理和服务器启动
-
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{info, warn};
+use std::time::Duration;
+use tokio::sync::{mpsc, oneshot};
+use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
-<<<<<<< Updated upstream
-use agent_runner::{start_http_server, AppConfig, AgentRuntime, HealthCheckConfig, HttpServerHandle, HttpServerConfig, ProxyConfig};
-=======
 use crate::api::traits::agent_runner::{
     AgentInfo, AgentRunnerApi, AgentStatus, AgentStatusResult, ChatRequest, ChatResponse,
     ProgressMessage, ProgressMessageType,
@@ -20,8 +19,8 @@ use crate::api::traits::agent_runner::{
 
 // 使用 agent_runner 导出的类型
 use agent_runner::{
-    start_http_server, AgentRuntime, AppConfig, HealthCheckConfig, HttpServerConfig, ProxyConfig,
-    AGENT_REGISTRY,
+    start_http_server, AgentRuntime, AppConfig, HealthCheckConfig, HttpServerConfig,
+    HttpServerHandle, ProxyConfig, AGENT_REGISTRY,
 };
 // 使用 agent_runner::service 模块导出的 SESSION_CACHE 和 SessionData
 use agent_runner::service::{SessionData, SESSION_CACHE};
@@ -35,7 +34,6 @@ use agent_runner::{handle_chat_core, ChatHandlerContext, ChatHandlerInput};
 // 使用 shared_types 中的类型
 use dashmap::DashMap;
 use shared_types::{ModelProviderConfig as SharedModelProviderConfig, ServiceType};
->>>>>>> Stashed changes
 
 /// 代理服务默认监听端口
 const DEFAULT_PROXY_PORT: u16 = 60002;
@@ -88,14 +86,6 @@ impl Default for RcoderAgentRunnerConfig {
 pub struct RcoderAgentRunner {
     /// 配置
     config: Arc<RcoderAgentRunnerConfig>,
-<<<<<<< Updated upstream
-    /// HTTP 服务器控制柄
-    server_handle: Option<HttpServerHandle>,
-    /// AgentRuntime 引用，用于在 stop() 时关闭 sender
-    runtime: Option<Arc<AgentRuntime>>,
-    /// AgentRuntime worker JoinHandle，用于等待 worker 退出
-    worker_handle: Option<tokio::task::JoinHandle<()>>,
-=======
     /// 活跃会话追踪
     active_sessions: Arc<DashMap<String, tokio::time::Instant>>,
     /// 共享的 API 密钥管理器（用于存储 ModelProviderConfig）
@@ -103,21 +93,25 @@ pub struct RcoderAgentRunner {
     /// project_id -> UUID 映射（用于后续清理时查找）
     project_uuid_map: Arc<DashMap<String, String>>,
     /// HTTP 服务器句柄（包含 Pingora 代理）
-    server_handle: tokio::task::JoinHandle<()>,
+    server_handle: Option<HttpServerHandle>,
+    /// AgentRuntime 引用，用于在 stop() 时关闭 sender
+    runtime: Option<Arc<AgentRuntime>>,
+    /// AgentRuntime worker JoinHandle，用于等待 worker 退出
+    worker_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Clone for RcoderAgentRunner {
     fn clone(&self) -> Self {
         Self {
-            runtime: self.runtime.clone(),
             config: self.config.clone(),
             active_sessions: self.active_sessions.clone(),
             shared_api_key_manager: self.shared_api_key_manager.clone(),
             project_uuid_map: self.project_uuid_map.clone(),
-            server_handle: tokio::spawn(async {}), // Clone 时不复制句柄
+            server_handle: None, // Clone 时不复制句柄
+            runtime: None,       // Clone 时不复制 runtime
+            worker_handle: None, // Clone 时不复制 worker_handle
         }
     }
->>>>>>> Stashed changes
 }
 
 impl RcoderAgentRunner {
@@ -125,6 +119,9 @@ impl RcoderAgentRunner {
     pub fn new(config: RcoderAgentRunnerConfig) -> Self {
         Self {
             config: Arc::new(config),
+            active_sessions: Arc::new(DashMap::new()),
+            shared_api_key_manager: Arc::new(DashMap::new()),
+            project_uuid_map: Arc::new(DashMap::new()),
             server_handle: None,
             runtime: None,
             worker_handle: None,
@@ -242,52 +239,11 @@ impl RcoderAgentRunner {
                 },
             }),
             ..Default::default()
-<<<<<<< Updated upstream
-        }
-    }
-=======
-        };
-
-        // 2. 构建 HttpServerConfig（注意：没有 task_receiver 字段）
-        let http_config = HttpServerConfig {
-            port: config.backend_port,
-            app_config,
-            agent_runtime: runtime.clone(),
-            shared_api_key_manager: shared_api_key_manager.clone(),
-        };
-
-        info!(
-            "[RcoderAgentRunner] 🚀 启动 HTTP 服务器，后端端口: {}, 代理端口: {}",
-            config.backend_port, config.proxy_port
-        );
-
-        // 3. 启动 HTTP 服务器（包含 Pingora 代理、HTTP API、gRPC）
-        let server_handle = tokio::spawn(async move {
-            if let Err(e) = start_http_server(http_config).await {
-                tracing::error!("[RcoderAgentRunner] HTTP 服务器错误: {}", e);
-            }
-        });
-
-        // 4. 单独启动 AgentRuntime（在 start_http_server 内部处理）
-        // 注意：start_http_server 已经内部处理了 runtime.start()
-
-        Self {
-            runtime,
-            config: Arc::new(config),
-            active_sessions: Arc::new(DashMap::new()),
-            shared_api_key_manager,
-            project_uuid_map: Arc::new(DashMap::new()),
-            server_handle,
         }
     }
 
-    /// 获取配置引用
-    pub fn config(&self) -> &RcoderAgentRunnerConfig {
-        &self.config
-    }
-
-    /// 停止 Runner
-    pub async fn stop(&self) {
+    /// 停止 Runner（通过 Arc 调用，非独占）
+    pub async fn shutdown(&self) {
         info!("[RcoderAgentRunner] 正在停止...");
 
         // 停止所有活跃会话
@@ -301,7 +257,9 @@ impl RcoderAgentRunner {
         }
 
         // 停止 HTTP 服务器和 Pingora 代理
-        self.server_handle.abort();
+        if let Some(ref handle) = self.server_handle {
+            handle.stop().await;
+        }
 
         info!("[RcoderAgentRunner] 已停止");
     }
@@ -400,6 +358,7 @@ impl AgentRunnerApi for RcoderAgentRunner {
             agent_config_override: request.agent_config_override,
             system_prompt_override: request.system_prompt_override,
             user_prompt_template_override: request.user_prompt_template_override,
+            skip_slot_limit: false,
         };
 
         info!(
@@ -410,8 +369,12 @@ impl AgentRunnerApi for RcoderAgentRunner {
         );
 
         // 4. 构建 ChatHandlerContext
+        let agent_runtime = self
+            .runtime
+            .clone()
+            .ok_or_else(|| "AgentRuntime 未初始化，请先调用 start()".to_string())?;
         let context = ChatHandlerContext {
-            agent_runtime: self.runtime.clone(),
+            agent_runtime,
             shared_api_key_manager: self.shared_api_key_manager.clone(),
             project_uuid_map: self.project_uuid_map.clone(),
         };
@@ -832,5 +795,4 @@ fn convert_unified_to_progress(unified: &UnifiedSessionMessage) -> ProgressMessa
         data: unified.data.clone(),
         timestamp: unified.timestamp,
     }
->>>>>>> Stashed changes
 }
