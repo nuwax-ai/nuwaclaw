@@ -551,7 +551,11 @@ export async function restartAllServices(): Promise<void> {
 /**
  * 服务类型枚举
  */
-export type ServiceType = "NuwaxFileServer" | "NuwaxLanproxy" | "Rcoder";
+export type ServiceType =
+  | "NuwaxFileServer"
+  | "NuwaxLanproxy"
+  | "Rcoder"
+  | "McpProxy";
 
 /**
  * 服务状态枚举
@@ -579,6 +583,7 @@ export const SERVICE_DISPLAY_NAMES: Record<ServiceType, string> = {
   NuwaxFileServer: "文件服务",
   NuwaxLanproxy: "代理服务",
   Rcoder: "Agent 服务",
+  McpProxy: "MCP Proxy 服务",
 };
 
 /**

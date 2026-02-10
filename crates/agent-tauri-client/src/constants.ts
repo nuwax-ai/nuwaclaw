@@ -17,6 +17,9 @@ export const DEFAULT_PROXY_PORT = 60002;
 /** VNC 服务默认端口 */
 export const DEFAULT_VNC_PORT = 5900;
 
+/** MCP Proxy 服务默认端口 */
+export const DEFAULT_MCP_PROXY_PORT = 18099;
+
 // ========== 默认地址 ==========
 
 /** 本地默认主机 */
@@ -30,3 +33,15 @@ export const DEFAULT_SERVER_PORT = 443;
 
 /** 默认请求超时（毫秒） */
 export const DEFAULT_TIMEOUT = 30000;
+
+// ========== MCP Proxy 默认配置 ==========
+
+/** MCP Proxy 默认 mcpServers 配置 */
+export const DEFAULT_MCP_PROXY_CONFIG = JSON.stringify({
+  mcpServers: {
+    "chrome-devtools": {
+      command: "npx",
+      args: ["-y", "chrome-devtools-mcp@latest"],
+    },
+  },
+});

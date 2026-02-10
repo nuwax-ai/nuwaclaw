@@ -7,6 +7,32 @@
 
 ---
 
+## [待发布] - 2026-02-10
+
+> 日志生成时间: 2026-02-10 13:30:00 UTC+8
+
+### 修复 [fix]
+
+#### agent_runner [rcoder]
+- 解决 agent_runner proxy feature 依赖冲突
+- 清除 rcoder_impl.rs 中的 git merge 冲突标记
+- 重构 RcoderAgentRunner 使用 Arc<RcoderAgentRunner> 管理生命周期
+- 更新 ServiceManager 以接受外部创建的 runner 实例
+
+### 维护 [chore]
+
+#### 构建配置 [build]
+- 为 agent_runner 依赖启用 proxy feature
+- 更新 Cargo.lock 依赖到 nuwax-client 分支最新提交
+
+### 文档 [docs]
+
+- 更新 README 添加更清晰的安装和构建说明
+- 澄清 make 命令应在根目录执行
+- 增强 Makefile 命令说明
+
+---
+
 ## [待发布] - 2026-02-09
 
 > 日志生成时间: 2026-02-09 12:00:00 UTC+8

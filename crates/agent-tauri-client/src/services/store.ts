@@ -82,6 +82,10 @@ export const STORAGE_KEYS = {
   LANPROXY_SERVER_HOST: "lanproxy.server_host", // lanproxy 服务器地址 (如 testagent.xspaceagi.com)
   LANPROXY_SERVER_PORT: "lanproxy.server_port", // lanproxy 服务器端口 (如 6443)
 
+  // MCP Proxy 配置
+  SETUP_MCP_PROXY_PORT: "setup.mcp_proxy_port", // MCP Proxy 监听端口 (默认 18099)
+  SETUP_MCP_PROXY_CONFIG: "setup.mcp_proxy_config", // MCP Proxy mcpServers JSON 配置
+
   // 依赖安装（步骤3）
   DEPS_INSTALL_DIR: "deps.install_dir", // npm 包安装目录（应用数据目录）
   DEPS_NODE_MODULES_PATH: "deps.node_modules_path", // node_modules 完整路径
@@ -809,6 +813,38 @@ export const setupStorage = {
    */
   async setDepsInstalled(value: boolean): Promise<void> {
     await setBoolean(STORAGE_KEYS.SETUP_DEPS_INSTALLED, value);
+    await save();
+  },
+
+  // ========== MCP Proxy 配置 ==========
+
+  /**
+   * 获取 MCP Proxy 端口
+   */
+  async getMcpProxyPort(): Promise<number | null> {
+    return getNumber(STORAGE_KEYS.SETUP_MCP_PROXY_PORT);
+  },
+
+  /**
+   * 设置 MCP Proxy 端口
+   */
+  async setMcpProxyPort(port: number): Promise<void> {
+    await setNumber(STORAGE_KEYS.SETUP_MCP_PROXY_PORT, port);
+    await save();
+  },
+
+  /**
+   * 获取 MCP Proxy mcpServers JSON 配置
+   */
+  async getMcpProxyConfig(): Promise<string | null> {
+    return getString(STORAGE_KEYS.SETUP_MCP_PROXY_CONFIG);
+  },
+
+  /**
+   * 设置 MCP Proxy mcpServers JSON 配置
+   */
+  async setMcpProxyConfig(configJson: string): Promise<void> {
+    await setString(STORAGE_KEYS.SETUP_MCP_PROXY_CONFIG, configJson);
     await save();
   },
 };

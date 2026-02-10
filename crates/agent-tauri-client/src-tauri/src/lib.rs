@@ -913,9 +913,112 @@ async fn lanproxy_restart(
     Ok(true)
 }
 
+// ========== MCP Proxy 命令 ==========
+
+/// 启动 MCP Proxy 服务
+///
+/// 参数:
+/// - config_json: mcpServers JSON 配置 (必需，如 `{"mcpServers":{"name":{...}}}`)
+/// - port: 监听端口 (可选，默认 DEFAULT_MCP_PROXY_PORT)
+///
+/// 如果未传 config_json，则从 store 读取 `setup.mcp_proxy_config`
+#[tauri::command]
+async fn mcp_proxy_start(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ServiceManagerState>,
+    config_json: Option<String>,
+    port: Option<u16>,
+) -> Result<bool, String> {
+    info!("[McpProxy] 开始读取启动配置...");
+
+    let port = port.unwrap_or_else(|| match read_store_port(&app, "setup.mcp_proxy_port") {
+        Ok(Some(p)) => {
+            info!("[McpProxy] 找到 mcp_proxy_port: {}", p);
+            p
+        }
+        Ok(None) => {
+            info!(
+                "[McpProxy] 未找到 mcp_proxy_port，使用默认值: {}",
+                DEFAULT_MCP_PROXY_PORT
+            );
+            DEFAULT_MCP_PROXY_PORT
+        }
+        Err(e) => {
+            warn!(
+                "[McpProxy] 读取 mcp_proxy_port 失败: {}，使用默认值 {}",
+                e, DEFAULT_MCP_PROXY_PORT
+            );
+            DEFAULT_MCP_PROXY_PORT
+        }
+    });
+
+    let config_json =
+        config_json.unwrap_or_else(|| match read_store_string(&app, "setup.mcp_proxy_config") {
+            Ok(Some(json)) => {
+                info!("[McpProxy] 找到 mcp_proxy_config");
+                json
+            }
+            Ok(None) => {
+                info!("[McpProxy] 未找到 mcp_proxy_config，使用默认空配置");
+                r#"{"mcpServers":{}}"#.to_string()
+            }
+            Err(e) => {
+                warn!(
+                    "[McpProxy] 读取 mcp_proxy_config 失败: {}，使用默认空配置",
+                    e
+                );
+                r#"{"mcpServers":{}}"#.to_string()
+            }
+        });
+
+    let mcp_proxy_config = nuwax_agent_core::McpProxyConfig {
+        bin_path: DEFAULT_MCP_PROXY_BIN.to_string(),
+        port,
+        host: DEFAULT_MCP_PROXY_HOST.to_string(),
+        config_json,
+    };
+
+    let manager = state.manager.lock().await;
+    manager
+        .mcp_proxy_start_with_config(mcp_proxy_config)
+        .await?;
+    Ok(true)
+}
+
+/// 停止 MCP Proxy 服务
+#[tauri::command]
+async fn mcp_proxy_stop(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
+    let manager = state.manager.lock().await;
+    manager.mcp_proxy_stop().await?;
+    Ok(true)
+}
+
+/// 重启 MCP Proxy 服务
+#[tauri::command]
+async fn mcp_proxy_restart(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ServiceManagerState>,
+    config_json: Option<String>,
+    port: Option<u16>,
+) -> Result<bool, String> {
+    info!("[McpProxy] 正在重启服务...");
+
+    {
+        let manager = state.manager.lock().await;
+        manager.mcp_proxy_stop().await?;
+    }
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    mcp_proxy_start(app, state, config_json, port).await
+}
+
 // ========== 服务管理命令 ==========
 
-use nuwax_agent_core::service::{ServiceInfo, ServiceManager};
+use nuwax_agent_core::service::{
+    ServiceInfo, ServiceManager, DEFAULT_MCP_PROXY_BIN, DEFAULT_MCP_PROXY_HOST,
+    DEFAULT_MCP_PROXY_PORT,
+};
 
 /// 服务状态 DTO
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -950,7 +1053,7 @@ impl Default for ServiceManagerState {
         // 使用默认配置初始化，运行时通过 start_*_with_config 方法传入实际配置
         let lanproxy_config = nuwax_agent_core::NuwaxLanproxyConfig::default();
         Self {
-            manager: Mutex::new(ServiceManager::new(None, Some(lanproxy_config))),
+            manager: Mutex::new(ServiceManager::new(None, Some(lanproxy_config), None)),
             agent_runner: Mutex::new(None),
         }
     }
@@ -1133,7 +1236,7 @@ async fn services_restart_all(
     info!("[Services] ========== 开始重启所有服务 ==========");
 
     // 停止所有服务
-    info!("[Services] 1/4 停止所有服务...");
+    info!("[Services] 1/5 停止所有服务...");
     {
         // 停止 RcoderAgentRunner（包括 Pingora 代理）
         let mut runner_guard = state.agent_runner.lock().await;
@@ -1150,7 +1253,7 @@ async fn services_restart_all(
 
     // 重新启动所有服务（依次调用各个启动命令）
     // rcoder
-    info!("[Services] 2/4 启动 Agent 服务 (rcoder)...");
+    info!("[Services] 2/5 启动 Agent 服务 (rcoder)...");
     {
         let port = match read_store_port(&app, "setup.agent_port") {
             Ok(Some(p)) => {
@@ -1225,7 +1328,7 @@ async fn services_restart_all(
     }
 
     // file_server - 读取端口配置和 bin 路径
-    info!("[Services] 3/4 启动文件服务 (nuwax-file-server)...");
+    info!("[Services] 3/5 启动文件服务 (nuwax-file-server)...");
     {
         // 获取 file_server 可执行文件路径
         let bin_path = match get_file_server_bin_path(&app) {
@@ -1356,7 +1459,7 @@ async fn services_restart_all(
     }
 
     // lanproxy - 需要读取配置并调用 lanproxy_start_with_config
-    info!("[Services] 4/4 启动代理服务 (nuwax-lanproxy)...");
+    info!("[Services] 4/5 启动代理服务 (nuwax-lanproxy)...");
     {
         // 读取 lanproxy server_host (从 API 返回)
         let server_host = match read_store_string(&app, "lanproxy.server_host") {
@@ -1454,6 +1557,49 @@ async fn services_restart_all(
         let manager = state.manager.lock().await;
         manager.lanproxy_start_with_config(lanproxy_config).await?;
         info!("[Services]   - 代理服务启动命令已发送");
+    }
+
+    // mcp-proxy
+    info!("[Services] 5/5 启动 MCP Proxy 服务...");
+    {
+        let port = match read_store_port(&app, "setup.mcp_proxy_port") {
+            Ok(Some(p)) => {
+                info!("[Services]   - 找到 mcp_proxy_port: {}", p);
+                p
+            }
+            Ok(None) => {
+                info!(
+                    "[Services]   - 未找到 mcp_proxy_port，使用默认值: {}",
+                    DEFAULT_MCP_PROXY_PORT
+                );
+                DEFAULT_MCP_PROXY_PORT
+            }
+            Err(e) => {
+                warn!(
+                    "[Services]   - 读取 mcp_proxy_port 失败: {}，使用默认值 {}",
+                    e, DEFAULT_MCP_PROXY_PORT
+                );
+                DEFAULT_MCP_PROXY_PORT
+            }
+        };
+
+        let config_json = match read_store_string(&app, "setup.mcp_proxy_config") {
+            Ok(Some(json)) => json,
+            _ => r#"{"mcpServers":{}}"#.to_string(),
+        };
+
+        let mcp_proxy_config = nuwax_agent_core::McpProxyConfig {
+            bin_path: DEFAULT_MCP_PROXY_BIN.to_string(),
+            port,
+            host: DEFAULT_MCP_PROXY_HOST.to_string(),
+            config_json,
+        };
+
+        let manager = state.manager.lock().await;
+        manager
+            .mcp_proxy_start_with_config(mcp_proxy_config)
+            .await?;
+        info!("[Services]   - MCP Proxy 启动命令已发送");
     }
 
     info!("[Services] ========== 所有服务重启命令已发送 ==========");
@@ -2778,6 +2924,9 @@ pub fn run() {
             rcoder_start,
             rcoder_stop,
             rcoder_restart,
+            mcp_proxy_start,
+            mcp_proxy_stop,
+            mcp_proxy_restart,
             services_stop_all,
             services_restart_all,
             services_status_all,
