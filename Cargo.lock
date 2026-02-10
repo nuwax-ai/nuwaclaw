@@ -156,11 +156,7 @@ dependencies = [
 [[package]]
 name = "agent_abstraction"
 version = "0.1.0"
-<<<<<<< Updated upstream
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#df463abca031707e106418fb9f7a533dd6d08d2f"
-=======
 source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#e4c4f75e547a9803ddb065eed79d3e90d3f99fe6"
->>>>>>> Stashed changes
 dependencies = [
  "agent_config",
  "anyhow",
@@ -187,11 +183,7 @@ dependencies = [
 [[package]]
 name = "agent_config"
 version = "0.1.0"
-<<<<<<< Updated upstream
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#df463abca031707e106418fb9f7a533dd6d08d2f"
-=======
 source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#e4c4f75e547a9803ddb065eed79d3e90d3f99fe6"
->>>>>>> Stashed changes
 dependencies = [
  "anyhow",
  "async-trait",
@@ -209,11 +201,7 @@ dependencies = [
 [[package]]
 name = "agent_runner"
 version = "0.1.0"
-<<<<<<< Updated upstream
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#df463abca031707e106418fb9f7a533dd6d08d2f"
-=======
 source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#e4c4f75e547a9803ddb065eed79d3e90d3f99fe6"
->>>>>>> Stashed changes
 dependencies = [
  "agent_abstraction",
  "agent_config",
@@ -11079,11 +11067,7 @@ dependencies = [
 [[package]]
 name = "rcoder-proxy"
 version = "0.1.0"
-<<<<<<< Updated upstream
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#df463abca031707e106418fb9f7a533dd6d08d2f"
-=======
 source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#e4c4f75e547a9803ddb065eed79d3e90d3f99fe6"
->>>>>>> Stashed changes
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -11110,11 +11094,7 @@ dependencies = [
 [[package]]
 name = "rcoder-telemetry"
 version = "0.1.0"
-<<<<<<< Updated upstream
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#df463abca031707e106418fb9f7a533dd6d08d2f"
-=======
 source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#e4c4f75e547a9803ddb065eed79d3e90d3f99fe6"
->>>>>>> Stashed changes
 dependencies = [
  "anyhow",
  "axum",
@@ -12726,11 +12706,7 @@ dependencies = [
 [[package]]
 name = "shared_types"
 version = "0.1.0"
-<<<<<<< Updated upstream
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#df463abca031707e106418fb9f7a533dd6d08d2f"
-=======
 source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#e4c4f75e547a9803ddb065eed79d3e90d3f99fe6"
->>>>>>> Stashed changes
 dependencies = [
  "anyhow",
  "arc-swap",
