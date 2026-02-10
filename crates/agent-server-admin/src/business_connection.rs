@@ -197,80 +197,95 @@ impl BusinessConnection {
         let state = self.state.clone();
 
         tokio::spawn(async move {
-            info!("Starting receive loop for {}", peer_id);
+            if let Err(e) = tokio::panic::catch_unwind(|| {
+                futures::executor::block_on(async {
+                    Self::receive_loop_inner(&peer_id, &event_tx, &stream, &state).await;
+                })
+            }).await {
+                error!("Receive loop for {} panicked: {:?}", peer_id, e);
+            }
+        })
+    }
 
-            loop {
-                // 获取流
-                let mut stream_guard = stream.write().await;
-                let stream_ref = match stream_guard.as_mut() {
-                    Some(s) => s,
-                    None => {
-                        warn!("Stream not available for {}", peer_id);
-                        break;
-                    }
-                };
+    async fn receive_loop_inner(
+        peer_id: &str,
+        event_tx: &mpsc::Sender<BusinessConnectionEvent>,
+        stream: &Arc<RwLock<Option<Stream>>>,
+        state: &Arc<RwLock<BusinessConnectionState>>,
+    ) {
+        info!("Starting receive loop for {}", peer_id);
 
-                // 读取下一条消息
-                match stream_ref.next().await {
-                    Some(Ok(bytes)) => {
-                        drop(stream_guard); // 释放锁
+        loop {
+            // 获取流
+            let mut stream_guard = stream.write().await;
+            let stream_ref = match stream_guard.as_mut() {
+                Some(s) => s,
+                None => {
+                    warn!("Stream not available for {}", peer_id);
+                    break;
+                }
+            };
 
-                        // 解析消息
-                        match Message::parse_from_bytes(&bytes) {
-                            Ok(msg) => {
-                                if let Some(MessageUnion::BusinessMessage(business_msg)) = msg.union
-                                {
-                                    // 转换为 BusinessEnvelope
-                                    let envelope = BusinessEnvelope {
-                                        message_id: business_msg.message_id,
-                                        type_: BusinessMessageType::from(business_msg.type_),
-                                        payload: business_msg.payload.to_vec(),
-                                        timestamp: business_msg.timestamp,
-                                        source_id: business_msg.source_id,
-                                        target_id: business_msg.target_id,
-                                    };
-                                    debug!(
-                                        "Received business message from {}: type={:?}",
-                                        peer_id, envelope.type_
-                                    );
-                                    let _ = event_tx
-                                        .send(BusinessConnectionEvent::MessageReceived { envelope })
-                                        .await;
-                                }
-                                // 忽略非业务消息
+            // 读取下一条消息
+            match stream_ref.next().await {
+                Some(Ok(bytes)) => {
+                    drop(stream_guard); // 释放锁
+
+                    // 解析消息
+                    match Message::parse_from_bytes(&bytes) {
+                        Ok(msg) => {
+                            if let Some(MessageUnion::BusinessMessage(business_msg)) = msg.union
+                            {
+                                // 转换为 BusinessEnvelope
+                                let envelope = BusinessEnvelope {
+                                    message_id: business_msg.message_id,
+                                    type_: BusinessMessageType::from(business_msg.type_),
+                                    payload: business_msg.payload.to_vec(),
+                                    timestamp: business_msg.timestamp,
+                                    source_id: business_msg.source_id,
+                                    target_id: business_msg.target_id,
+                                };
+                                debug!(
+                                    "Received business message from {}: type={:?}",
+                                    peer_id, envelope.type_
+                                );
+                                let _ = event_tx
+                                    .send(BusinessConnectionEvent::MessageReceived { envelope })
+                                    .await;
                             }
-                            Err(e) => {
-                                warn!("Failed to parse message from {}: {}", peer_id, e);
-                            }
+                            // 忽略非业务消息
+                        }
+                        Err(e) => {
+                            warn!("Failed to parse message from {}: {}", peer_id, e);
                         }
                     }
-                    Some(Err(e)) => {
-                        error!("Error reading from {}: {}", peer_id, e);
-                        *state.write().await = BusinessConnectionState::Error(e.to_string());
-                        let _ = event_tx
-                            .send(BusinessConnectionEvent::Error {
-                                peer_id: peer_id.clone(),
-                                message: e.to_string(),
-                            })
-                            .await;
-                        break;
-                    }
-                    None => {
-                        info!("Connection closed for {}", peer_id);
-                        *state.write().await = BusinessConnectionState::Disconnected;
-                        let _ = event_tx
-                            .send(BusinessConnectionEvent::Disconnected {
-                                peer_id: peer_id.clone(),
-                                reason: "Stream closed".to_string(),
-                            })
-                            .await;
-                        break;
-                    }
+                }
+                Some(Err(e)) => {
+                    error!("Error reading from {}: {}", peer_id, e);
+                    *state.write().await = BusinessConnectionState::Error(e.to_string());
+                    let _ = event_tx
+                        .send(BusinessConnectionEvent::Error {
+                            peer_id: peer_id.to_string(),
+                            message: e.to_string(),
+                        })
+                        .await;
+                    break;
+                }
+                None => {
+                    info!("Connection closed for {}", peer_id);
+                    *state.write().await = BusinessConnectionState::Disconnected;
+                    let _ = event_tx
+                        .send(BusinessConnectionEvent::Disconnected {
+                            peer_id: peer_id.to_string(),
+                            reason: "Stream closed".to_string(),
+                        })
+                        .await;
+                    break;
                 }
             }
+        }
 
-            info!("Receive loop ended for {}", peer_id);
-        })
+        info!("Receive loop ended for {}", peer_id);
     }
 
     /// 关闭连接

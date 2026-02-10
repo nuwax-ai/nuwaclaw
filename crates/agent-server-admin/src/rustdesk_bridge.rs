@@ -98,29 +98,40 @@ impl RustDeskBridge {
         let event_tx = self.event_tx.clone();
         let self_id = self.self_id.clone();
 
-        // 启动 RendezvousMediator 后台任务
+        // 启动 RendezvousMediator 后台任务（带 panic 捕获）
+        let bridge_event_tx = self.event_tx.clone();
+        let bridge_running = self.running.clone();
         tokio::spawn(async move {
-            // 启动 ID 轮询任务
+            // 启动 ID 轮询任务（带 panic 捕获）
             let id_running = running.clone();
             let id_event_tx = event_tx.clone();
             let id_self_id = self_id.clone();
-            tokio::spawn(async move {
-                Self::poll_self_id(id_running, id_event_tx, id_self_id).await;
-            });
+            let id_abort_handle = tokio::spawn(async move {
+                if let Err(e) = tokio::panic::catch_unwind(|| {
+                    futures::executor::block_on(async {
+                        Self::poll_self_id(id_running.clone(), id_event_tx.clone(), id_self_id.clone()).await;
+                    })
+                }).await {
+                    error!("ID polling task panicked: {:?}", e);
+                }
+            }).abort_handle();
 
             // 启动 rendezvous mediator（阻塞直到连接断开）
-            librustdesk::RendezvousMediator::start_all().await;
+            let mediator_result = librustdesk::RendezvousMediator::start_all().await;
 
             // mediator 退出意味着连接断开
-            if running.load(Ordering::SeqCst) {
-                running.store(false, Ordering::SeqCst);
+            if bridge_running.load(Ordering::SeqCst) {
+                bridge_running.store(false, Ordering::SeqCst);
                 *self_id.write().await = None;
-                let _ = event_tx
+                let _ = bridge_event_tx
                     .send(BridgeEvent::Disconnected {
                         reason: "RendezvousMediator exited".to_string(),
                     })
                     .await;
             }
+
+            // 清理 ID 轮询任务
+            let _ = id_abort_handle.abort();
         });
 
         Ok(())
