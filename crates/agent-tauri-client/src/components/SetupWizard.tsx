@@ -143,7 +143,10 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
         return <SetupBasicConfig onComplete={handleStep1Complete} />;
       case 2:
         return (
-          <SetupAccountLogin onComplete={handleStep2Complete} onBack={handleGoBack} />
+          <SetupAccountLogin
+            onComplete={handleStep2Complete}
+            onBack={handleGoBack}
+          />
         );
       default:
         return <SetupBasicConfig onComplete={handleStep1Complete} />;

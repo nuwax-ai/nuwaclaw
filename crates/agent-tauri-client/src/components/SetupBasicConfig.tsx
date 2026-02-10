@@ -86,7 +86,9 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
       try {
         const auth = await getCurrentAuth();
         if (auth.isLoggedIn) await logout();
-      } catch {}
+      } catch {
+        // logout failure is non-critical during config save
+      }
       onComplete();
     } catch (error) {
       message.error("保存配置失败");

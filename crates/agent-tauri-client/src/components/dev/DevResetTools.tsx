@@ -1,15 +1,15 @@
 /**
  * 开发工具 - 重置工具
- * 
+ *
  * 功能：
  * - 重置初始化状态（进入向导）
  * - 清除登录状态
  * - 清除所有缓存数据
- * 
+ *
  * 注意：此组件仅在开发环境下加载
  */
 
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   Card,
   Space,
@@ -19,7 +19,7 @@ import {
   message,
   Tag,
   Typography,
-} from 'antd';
+} from "antd";
 import {
   ReloadOutlined,
   DeleteOutlined,
@@ -27,9 +27,9 @@ import {
   ClearOutlined,
   UserDeleteOutlined,
   UndoOutlined,
-} from '@ant-design/icons';
-import { resetSetup } from '../../services/setup';
-import { clearAuthInfo } from '../../services/auth';
+} from "@ant-design/icons";
+import { resetSetup } from "../../services/setup";
+import { clearAuthInfo } from "../../services/auth";
 
 const { Text } = Typography;
 
@@ -58,7 +58,7 @@ export default function DevResetTools() {
    */
   const handleResetSetup = async () => {
     await resetSetup();
-    message.success('初始化状态已重置');
+    message.success("初始化状态已重置");
   };
 
   /**
@@ -67,7 +67,7 @@ export default function DevResetTools() {
    */
   const handleClearAuth = async () => {
     await clearAuthInfo();
-    message.success('登录状态已清除');
+    message.success("登录状态已清除");
   };
 
   /**
@@ -77,7 +77,7 @@ export default function DevResetTools() {
   const handleClearAll = async () => {
     await resetSetup();
     await clearAuthInfo();
-    message.success('所有数据已清除，正在刷新...');
+    message.success("所有数据已清除，正在刷新...");
     setTimeout(() => {
       window.location.reload();
     }, 500);
@@ -88,24 +88,24 @@ export default function DevResetTools() {
    */
   const tools: ResetTool[] = [
     {
-      key: 'reset-setup',
-      title: '重置初始化',
-      description: '清除初始化完成标记，刷新后进入配置向导',
+      key: "reset-setup",
+      title: "重置初始化",
+      description: "清除初始化完成标记，刷新后进入配置向导",
       icon: <UndoOutlined />,
       action: handleResetSetup,
       requireReload: true,
     },
     {
-      key: 'clear-auth',
-      title: '清除登录',
-      description: '清除用户名、密码、ConfigKey 等认证信息',
+      key: "clear-auth",
+      title: "清除登录",
+      description: "清除用户名、密码、ConfigKey 等认证信息",
       icon: <UserDeleteOutlined />,
       action: handleClearAuth,
     },
     {
-      key: 'clear-all',
-      title: '清除全部并刷新',
-      description: '重置初始化状态 + 清除登录信息，然后刷新页面',
+      key: "clear-all",
+      title: "清除全部并刷新",
+      description: "重置初始化状态 + 清除登录信息，然后刷新页面",
       icon: <ClearOutlined />,
       action: handleClearAll,
       danger: true,
@@ -119,12 +119,12 @@ export default function DevResetTools() {
     // 危险操作需要确认
     if (tool.danger) {
       Modal.confirm({
-        title: '确认操作',
+        title: "确认操作",
         icon: <ExclamationCircleOutlined />,
         content: `确定要执行"${tool.title}"吗？此操作不可撤销。`,
-        okText: '确定',
-        okType: 'danger',
-        cancelText: '取消',
+        okText: "确定",
+        okType: "danger",
+        cancelText: "取消",
         onOk: async () => {
           setLoading(tool.key);
           try {
@@ -145,7 +145,7 @@ export default function DevResetTools() {
     try {
       await tool.action();
       if (tool.requireReload) {
-        message.info('刷新页面后生效');
+        message.info("刷新页面后生效");
       }
     } catch (error) {
       console.error(`[DevResetTools] ${tool.title} 失败:`, error);

@@ -1,7 +1,7 @@
 /**
  * 初始化向导服务
  * 管理首次启动配置流程
- * 
+ *
  * 功能:
  * - 检查初始化状态
  * - 管理向导步骤进度
@@ -9,13 +9,13 @@
  * - 断点续传支持
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from "@tauri-apps/api/core";
 import {
   setupStorage,
   initStore,
   type SetupState,
   DEFAULT_SETUP_STATE,
-} from './store';
+} from "./store";
 
 // 导出类型
 export type { SetupState };
@@ -32,7 +32,7 @@ export async function isSetupCompleted(): Promise<boolean> {
     await initStore();
     return await setupStorage.isCompleted();
   } catch (error) {
-    console.error('[Setup] 检查初始化状态失败:', error);
+    console.error("[Setup] 检查初始化状态失败:", error);
     return false;
   }
 }
@@ -46,7 +46,7 @@ export async function getCurrentStep(): Promise<number> {
     await initStore();
     return await setupStorage.getCurrentStep();
   } catch (error) {
-    console.error('[Setup] 获取当前步骤失败:', error);
+    console.error("[Setup] 获取当前步骤失败:", error);
     return 1;
   }
 }
@@ -57,11 +57,11 @@ export async function getCurrentStep(): Promise<number> {
  * 步骤1配置数据
  */
 export interface Step1Config {
-  serverHost: string;      // 服务域名
-  agentPort: number;       // Agent 服务端口
-  fileServerPort: number;  // 文件服务端口
-  proxyPort: number;       // 代理服务端口
-  workspaceDir: string;    // 工作区目录
+  serverHost: string; // 服务域名
+  agentPort: number; // Agent 服务端口
+  fileServerPort: number; // 文件服务端口
+  proxyPort: number; // 代理服务端口
+  workspaceDir: string; // 工作区目录
 }
 
 /**
@@ -72,9 +72,9 @@ export async function saveStep1Config(config: Step1Config): Promise<void> {
   try {
     await initStore();
     await setupStorage.saveStep1(config);
-    console.log('[Setup] 步骤1配置已保存:', config);
+    console.log("[Setup] 步骤1配置已保存:", config);
   } catch (error) {
-    console.error('[Setup] 保存步骤1配置失败:', error);
+    console.error("[Setup] 保存步骤1配置失败:", error);
     throw error;
   }
 }
@@ -108,7 +108,7 @@ export async function getDepsFilter(): Promise<string | null> {
     await initStore();
     return await setupStorage.getDepsFilter();
   } catch (error) {
-    console.error('[Setup] 获取依赖筛选失败:', error);
+    console.error("[Setup] 获取依赖筛选失败:", error);
     return null;
   }
 }
@@ -121,7 +121,7 @@ export async function setDepsFilter(value: string): Promise<void> {
     await initStore();
     await setupStorage.setDepsFilter(value);
   } catch (error) {
-    console.error('[Setup] 保存依赖筛选失败:', error);
+    console.error("[Setup] 保存依赖筛选失败:", error);
   }
 }
 
@@ -133,7 +133,7 @@ export async function getDepsShowAll(): Promise<boolean | null> {
     await initStore();
     return await setupStorage.getDepsShowAll();
   } catch (error) {
-    console.error('[Setup] 获取依赖显示状态失败:', error);
+    console.error("[Setup] 获取依赖显示状态失败:", error);
     return null;
   }
 }
@@ -146,7 +146,7 @@ export async function setDepsShowAll(value: boolean): Promise<void> {
     await initStore();
     await setupStorage.setDepsShowAll(value);
   } catch (error) {
-    console.error('[Setup] 保存依赖显示状态失败:', error);
+    console.error("[Setup] 保存依赖显示状态失败:", error);
   }
 }
 
@@ -159,9 +159,9 @@ export async function completeStep2(): Promise<void> {
   try {
     await initStore();
     await setupStorage.completeStep2();
-    console.log('[Setup] 步骤2已完成');
+    console.log("[Setup] 步骤2已完成");
   } catch (error) {
-    console.error('[Setup] 完成步骤2失败:', error);
+    console.error("[Setup] 完成步骤2失败:", error);
     throw error;
   }
 }
@@ -175,9 +175,9 @@ export async function completeSetup(): Promise<void> {
   try {
     await initStore();
     await setupStorage.complete();
-    console.log('[Setup] 初始化已完成');
+    console.log("[Setup] 初始化已完成");
   } catch (error) {
-    console.error('[Setup] 完成初始化失败:', error);
+    console.error("[Setup] 完成初始化失败:", error);
     throw error;
   }
 }
@@ -190,9 +190,9 @@ export async function resetSetup(): Promise<void> {
   try {
     await initStore();
     await setupStorage.reset();
-    console.log('[Setup] 初始化状态已重置');
+    console.log("[Setup] 初始化状态已重置");
   } catch (error) {
-    console.error('[Setup] 重置初始化状态失败:', error);
+    console.error("[Setup] 重置初始化状态失败:", error);
     throw error;
   }
 }
@@ -205,10 +205,10 @@ export async function resetSetup(): Promise<void> {
  */
 export async function selectDirectory(): Promise<string | null> {
   try {
-    const dir = await invoke<string | null>('dialog_select_directory');
+    const dir = await invoke<string | null>("dialog_select_directory");
     return dir;
   } catch (error) {
-    console.error('[Setup] 选择目录失败:', error);
+    console.error("[Setup] 选择目录失败:", error);
     return null;
   }
 }
@@ -221,9 +221,9 @@ export async function saveStepProgress(step: number): Promise<void> {
   try {
     await initStore();
     await setupStorage.setCurrentStep(step);
-    console.log('[Setup] 步骤进度已保存:', step);
+    console.log("[Setup] 步骤进度已保存:", step);
   } catch (error) {
-    console.error('[Setup] 保存步骤进度失败:', error);
+    console.error("[Setup] 保存步骤进度失败:", error);
     throw error;
   }
 }
@@ -238,7 +238,7 @@ export async function getDepsInstalled(): Promise<boolean> {
     await initStore();
     return await setupStorage.getDepsInstalled();
   } catch (error) {
-    console.error('[Setup] 获取依赖安装状态失败:', error);
+    console.error("[Setup] 获取依赖安装状态失败:", error);
     return false;
   }
 }
@@ -250,9 +250,9 @@ export async function setDepsInstalled(value: boolean): Promise<void> {
   try {
     await initStore();
     await setupStorage.setDepsInstalled(value);
-    console.log('[Setup] 依赖安装状态已保存:', value);
+    console.log("[Setup] 依赖安装状态已保存:", value);
   } catch (error) {
-    console.error('[Setup] 保存依赖安装状态失败:', error);
+    console.error("[Setup] 保存依赖安装状态失败:", error);
     throw error;
   }
 }

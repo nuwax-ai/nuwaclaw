@@ -1,0 +1,17 @@
+{
+  "private": true,
+  "scripts": {
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9",
+    "lint-staged": "^16"
+  },
+  "lint-staged": {
+    "crates/agent-tauri-client/src/**/*.{ts,tsx}": [
+      "prettier --write",
+      "pnpm --filter agent-tauri-client lint"
+    ],
+    "*.rs": "cargo fmt -- --check"
+  }
+}

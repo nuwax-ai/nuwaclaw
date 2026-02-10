@@ -1,12 +1,12 @@
 /**
  * 开发工具模块
- * 
+ *
  * 统一导出开发环境专用组件
- * 
+ *
  * 使用方式：
  * ```typescript
  * import { IS_DEV, DevToolsPanel } from '../components/dev';
- * 
+ *
  * // 在组件中
  * {IS_DEV && DevToolsPanel && (
  *   <Suspense fallback={<Spin />}>
@@ -14,13 +14,13 @@
  *   </Suspense>
  * )}
  * ```
- * 
+ *
  * 注意：
  * - 所有组件仅在开发环境下加载
  * - 使用 React.lazy 动态导入，确保生产环境不打包
  */
 
-import React from 'react';
+import React from "react";
 
 /**
  * 是否为开发环境
@@ -32,7 +32,7 @@ export const IS_DEV = import.meta.env.DEV;
  * 生产环境返回 null，不会打包相关代码
  */
 export const DevToolsPanel = IS_DEV
-  ? React.lazy(() => import('./DevToolsPanel'))
+  ? React.lazy(() => import("./DevToolsPanel"))
   : null;
 
 /**
@@ -40,7 +40,7 @@ export const DevToolsPanel = IS_DEV
  * 通常不需要单独使用，DevToolsPanel 已包含
  */
 export const DevResetTools = IS_DEV
-  ? React.lazy(() => import('./DevResetTools'))
+  ? React.lazy(() => import("./DevResetTools"))
   : null;
 
 /**
@@ -48,7 +48,7 @@ export const DevResetTools = IS_DEV
  * 通常不需要单独使用，DevToolsPanel 已包含
  */
 export const DevSceneManager = IS_DEV
-  ? React.lazy(() => import('./DevSceneManager'))
+  ? React.lazy(() => import("./DevSceneManager"))
   : null;
 
 /**
@@ -56,7 +56,7 @@ export const DevSceneManager = IS_DEV
  * 通常不需要单独使用，DevSceneManager 内部使用
  */
 export const DevConfigEditor = IS_DEV
-  ? React.lazy(() => import('./DevConfigEditor'))
+  ? React.lazy(() => import("./DevConfigEditor"))
   : null;
 
 /**
@@ -64,5 +64,5 @@ export const DevConfigEditor = IS_DEV
  * 通常不需要单独使用，DevToolsPanel 已包含
  */
 export const DevStoreViewer = IS_DEV
-  ? React.lazy(() => import('./DevStoreViewer'))
+  ? React.lazy(() => import("./DevStoreViewer"))
   : null;

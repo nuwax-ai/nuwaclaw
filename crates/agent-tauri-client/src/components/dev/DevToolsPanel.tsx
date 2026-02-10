@@ -1,27 +1,20 @@
 /**
  * 开发工具面板
- * 
+ *
  * 整合所有开发调试工具：
  * - 重置工具（初始化、登录等）
  * - 场景配置管理
- * 
+ *
  * 注意：此组件仅在开发环境下加载
  */
 
-import React from 'react';
-import {
-  Space,
-  Tag,
-  Alert,
-  Divider,
-} from 'antd';
-import { Typography } from 'antd';
-import {
-  ToolOutlined,
-} from '@ant-design/icons';
-import DevResetTools from './DevResetTools';
-import DevSceneManager from './DevSceneManager';
-import DevStoreViewer from './DevStoreViewer';
+import React from "react";
+import { Space, Tag, Alert, Divider } from "antd";
+import { Typography } from "antd";
+import { ToolOutlined } from "@ant-design/icons";
+import DevResetTools from "./DevResetTools";
+import DevSceneManager from "./DevSceneManager";
+import DevStoreViewer from "./DevStoreViewer";
 
 const { Title } = Typography;
 
@@ -34,7 +27,7 @@ export default function DevToolsPanel() {
       {/* 标题区域 */}
       <Divider orientation="left">
         <Space>
-          <ToolOutlined style={{ color: '#faad14' }} />
+          <ToolOutlined style={{ color: "#faad14" }} />
           <span>开发工具</span>
           <Tag color="orange">DEV</Tag>
         </Space>
@@ -50,7 +43,7 @@ export default function DevToolsPanel() {
       />
 
       {/* 工具区域 */}
-      <Space direction="vertical" style={{ width: '100%' }} size={16}>
+      <Space direction="vertical" style={{ width: "100%" }} size={16}>
         {/* 重置工具 */}
         <DevResetTools />
 

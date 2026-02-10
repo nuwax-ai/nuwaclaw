@@ -10,7 +10,7 @@ export {
   openSystemPreferences,
   onStatusChange,
   onLogChange,
-} from './mockService';
+} from "./mockService";
 
 // 认证服务
 export {
@@ -21,7 +21,7 @@ export {
   logout,
   initAuthStore,
   type AuthUserInfo,
-} from './auth';
+} from "./auth";
 
 // 存储服务
 export {
@@ -33,7 +33,7 @@ export {
   setupStorage,
   settingsStorage,
   keys,
-} from './store';
+} from "./store";
 
 // 权限服务
 export {
@@ -45,7 +45,7 @@ export {
   type PermissionCategory,
   type PermissionItem,
   type PermissionsState,
-} from './permissions';
+} from "./permissions";
 
 // 初始化向导服务
 export {
@@ -60,4 +60,4 @@ export {
   saveStepProgress,
   type SetupState,
   type Step1Config,
-} from './setup';
+} from "./setup";

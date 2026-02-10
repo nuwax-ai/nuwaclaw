@@ -259,12 +259,10 @@ export function getAllPermissionConfigs(): Record<
  * 该协议在 macOS 系统中可直接打开对应的设置页面。
  */
 const MACOS_SETTINGS_URLS: Record<PermissionCategory, string> = {
-  accessibility:
-    "x-apple.systempreferences:com.apple.security.accessibility",
+  accessibility: "x-apple.systempreferences:com.apple.security.accessibility",
   screen_recording:
     "x-apple.systempreferences:com.apple.security.screenRecording",
-  microphone:
-    "x-apple.systempreferences:com.apple.security.privacy-microphone",
+  microphone: "x-apple.systempreferences:com.apple.security.privacy-microphone",
   camera: "x-apple.systempreferences:com.apple.security.privacy-camera",
   location: "x-apple.systempreferences:com.apple.security.privacy-location",
   notifications:
@@ -348,7 +346,9 @@ export const MACOS_FULL_DISK_ACCESS_URL =
  * const url = getSettingsUrl('accessibility');
  * if (url) openUrl(url);
  */
-export function getSettingsUrl(category: PermissionCategory): string | undefined {
+export function getSettingsUrl(
+  category: PermissionCategory,
+): string | undefined {
   const platform = getCurrentPlatform();
 
   switch (platform) {

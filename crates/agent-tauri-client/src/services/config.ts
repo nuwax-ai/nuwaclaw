@@ -141,8 +141,16 @@ export function getDefaultScenes(): SceneConfig[] {
         timeout: DEFAULT_TIMEOUT,
       },
       local: {
-        agent: { host: "test-nvwa.xspaceagi.com", port: DEFAULT_PROXY_PORT, scheme: "http" },
-        vnc: { host: "test-nvwa.xspaceagi.com", port: DEFAULT_VNC_PORT, scheme: "vnc" },
+        agent: {
+          host: "test-nvwa.xspaceagi.com",
+          port: DEFAULT_PROXY_PORT,
+          scheme: "http",
+        },
+        vnc: {
+          host: "test-nvwa.xspaceagi.com",
+          port: DEFAULT_VNC_PORT,
+          scheme: "vnc",
+        },
         fileServer: {
           host: "test-nvwa.xspaceagi.com",
           port: DEFAULT_FILE_SERVER_PORT,
@@ -165,10 +173,26 @@ export function getDefaultScenes(): SceneConfig[] {
         timeout: DEFAULT_TIMEOUT,
       },
       local: {
-        agent: { host: "nvwa.xspaceagi.com", port: DEFAULT_PROXY_PORT, scheme: "http" },
-        vnc: { host: "nvwa.xspaceagi.com", port: DEFAULT_VNC_PORT, scheme: "vnc" },
-        fileServer: { host: "nvwa.xspaceagi.com", port: DEFAULT_FILE_SERVER_PORT, scheme: "http" },
-        websocket: { host: "nvwa.xspaceagi.com", port: DEFAULT_PROXY_PORT, scheme: "ws" },
+        agent: {
+          host: "nvwa.xspaceagi.com",
+          port: DEFAULT_PROXY_PORT,
+          scheme: "http",
+        },
+        vnc: {
+          host: "nvwa.xspaceagi.com",
+          port: DEFAULT_VNC_PORT,
+          scheme: "vnc",
+        },
+        fileServer: {
+          host: "nvwa.xspaceagi.com",
+          port: DEFAULT_FILE_SERVER_PORT,
+          scheme: "http",
+        },
+        websocket: {
+          host: "nvwa.xspaceagi.com",
+          port: DEFAULT_PROXY_PORT,
+          scheme: "ws",
+        },
       },
     },
   ];

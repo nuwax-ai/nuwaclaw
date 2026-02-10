@@ -1,15 +1,15 @@
 /**
  * 开发工具 - 场景配置管理
- * 
+ *
  * 功能：
  * - 查看/切换部署环境
  * - 添加/编辑/删除自定义配置
  * - 重置为默认配置
- * 
+ *
  * 注意：此组件仅在开发环境下加载
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Card,
   Space,
@@ -20,14 +20,14 @@ import {
   Modal,
   message,
   Spin,
-} from 'antd';
-import { Typography } from 'antd';
+} from "antd";
+import { Typography } from "antd";
 import {
   CloudServerOutlined,
   EnvironmentOutlined,
   RedoOutlined,
   PlusOutlined,
-} from '@ant-design/icons';
+} from "@ant-design/icons";
 import {
   initConfigStore,
   getAllScenes,
@@ -36,9 +36,9 @@ import {
   deleteCustomScene,
   resetConfig,
   SceneConfig,
-} from '../../services/config';
-import { syncConfigToServer } from '../../services';
-import DevConfigEditor from './DevConfigEditor';
+} from "../../services/config";
+import { syncConfigToServer } from "../../services";
+import DevConfigEditor from "./DevConfigEditor";
 
 const { Text } = Typography;
 
@@ -50,7 +50,7 @@ export default function DevSceneManager() {
   const [scenes, setScenes] = useState<SceneConfig[]>([]);
   const [currentScene, setCurrentScene] = useState<SceneConfig | null>(null);
   const [loading, setLoading] = useState(true);
-  
+
   // 配置编辑器状态
   const [configEditorVisible, setConfigEditorVisible] = useState(false);
   const [editingScene, setEditingScene] = useState<SceneConfig | null>(null);
@@ -70,8 +70,8 @@ export default function DevSceneManager() {
       setScenes(scenesData);
       setCurrentScene(current);
     } catch (error) {
-      console.error('[DevSceneManager] 加载场景失败:', error);
-      message.error('加载场景配置失败');
+      console.error("[DevSceneManager] 加载场景失败:", error);
+      message.error("加载场景配置失败");
     } finally {
       setLoading(false);
     }
@@ -89,7 +89,7 @@ export default function DevSceneManager() {
     const success = await switchScene(sceneId);
     if (success) {
       await loadScenes();
-      message.success('场景切换成功');
+      message.success("场景切换成功");
     }
   };
 
@@ -116,16 +116,16 @@ export default function DevSceneManager() {
    */
   const handleDeleteConfig = async (sceneId: string, sceneName: string) => {
     Modal.confirm({
-      title: '确认删除',
+      title: "确认删除",
       content: `确定要删除配置 "${sceneName}" 吗？`,
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
+      okText: "删除",
+      okType: "danger",
+      cancelText: "取消",
       onOk: async () => {
         const success = await deleteCustomScene(sceneId);
         if (success) {
           await loadScenes();
-          message.success('配置已删除');
+          message.success("配置已删除");
         }
       },
     });
@@ -136,15 +136,15 @@ export default function DevSceneManager() {
    */
   const handleResetConfig = async () => {
     Modal.confirm({
-      title: '重置配置',
-      content: '确定要重置为默认配置吗？所有自定义配置将被删除。',
-      okText: '重置',
-      okType: 'danger',
-      cancelText: '取消',
+      title: "重置配置",
+      content: "确定要重置为默认配置吗？所有自定义配置将被删除。",
+      okText: "重置",
+      okType: "danger",
+      cancelText: "取消",
       onOk: async () => {
         await resetConfig();
         await loadScenes();
-        message.success('配置已重置');
+        message.success("配置已重置");
       },
     });
   };
@@ -166,7 +166,7 @@ export default function DevSceneManager() {
   // 加载中
   if (loading) {
     return (
-      <Card size="small" style={{ textAlign: 'center', padding: 20 }}>
+      <Card size="small" style={{ textAlign: "center", padding: 20 }}>
         <Spin />
         <div style={{ marginTop: 8 }}>加载场景配置...</div>
       </Card>
@@ -175,7 +175,7 @@ export default function DevSceneManager() {
 
   return (
     <>
-      <Card 
+      <Card
         size="small"
         title={
           <Space>
@@ -185,10 +185,19 @@ export default function DevSceneManager() {
         }
         extra={
           <Space>
-            <Button size="small" icon={<RedoOutlined />} onClick={handleResetConfig}>
+            <Button
+              size="small"
+              icon={<RedoOutlined />}
+              onClick={handleResetConfig}
+            >
               重置
             </Button>
-            <Button size="small" type="primary" icon={<PlusOutlined />} onClick={handleAddConfig}>
+            <Button
+              size="small"
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleAddConfig}
+            >
               添加
             </Button>
           </Space>
@@ -234,7 +243,9 @@ export default function DevSceneManager() {
                   <Avatar
                     icon={<EnvironmentOutlined />}
                     style={{
-                      backgroundColor: isCurrentScene(scene.id) ? '#1890ff' : '#52c41a'
+                      backgroundColor: isCurrentScene(scene.id)
+                        ? "#1890ff"
+                        : "#52c41a",
                     }}
                   />
                 }
@@ -246,7 +257,9 @@ export default function DevSceneManager() {
                 }
                 description={
                   <Space direction="vertical" size={0}>
-                    <Text type="secondary">{scene.description || '无描述'}</Text>
+                    <Text type="secondary">
+                      {scene.description || "无描述"}
+                    </Text>
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       API: {scene.server.apiUrl}
                     </Text>

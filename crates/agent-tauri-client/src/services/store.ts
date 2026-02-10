@@ -707,7 +707,9 @@ export const setupStorage = {
    * 获取最近使用的工作区目录
    */
   async getRecentWorkspaces(): Promise<string[]> {
-    return (await getObject<string[]>(STORAGE_KEYS.SETUP_RECENT_WORKSPACES)) || [];
+    return (
+      (await getObject<string[]>(STORAGE_KEYS.SETUP_RECENT_WORKSPACES)) || []
+    );
   },
 
   /**
@@ -723,7 +725,7 @@ export const setupStorage = {
    */
   async addRecentWorkspace(dir: string): Promise<void> {
     const current = await this.getRecentWorkspaces();
-    const next = [dir, ...current.filter(d => d !== dir)].slice(0, 5);
+    const next = [dir, ...current.filter((d) => d !== dir)].slice(0, 5);
     await this.setRecentWorkspaces(next);
   },
 

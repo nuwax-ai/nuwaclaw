@@ -186,7 +186,9 @@ export async function requestPermission(
  * @example
  * await openSystemSettings('accessibility');
  */
-export async function openSystemSettings(permissionId: string): Promise<boolean> {
+export async function openSystemSettings(
+  permissionId: string,
+): Promise<boolean> {
   const rustPerm = toRustPermission(permissionId);
   try {
     await invoke(COMMANDS.OPEN_SETTINGS, { permission: rustPerm });

@@ -3,4 +3,4 @@
  */
 
 /** 构建环境: 'test' | 'prod' | 'local' */
-declare const __BUILD_ENV__: 'test' | 'prod' | 'local';
+declare const __BUILD_ENV__: "test" | "prod" | "local";

@@ -156,7 +156,11 @@ dependencies = [
 [[package]]
 name = "agent_abstraction"
 version = "0.1.0"
+<<<<<<< Updated upstream
 source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#df463abca031707e106418fb9f7a533dd6d08d2f"
+=======
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#e4c4f75e547a9803ddb065eed79d3e90d3f99fe6"
+>>>>>>> Stashed changes
 dependencies = [
  "agent_config",
  "anyhow",
@@ -183,7 +187,11 @@ dependencies = [
 [[package]]
 name = "agent_config"
 version = "0.1.0"
+<<<<<<< Updated upstream
 source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#df463abca031707e106418fb9f7a533dd6d08d2f"
+=======
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#e4c4f75e547a9803ddb065eed79d3e90d3f99fe6"
+>>>>>>> Stashed changes
 dependencies = [
  "anyhow",
  "async-trait",
@@ -201,7 +209,11 @@ dependencies = [
 [[package]]
 name = "agent_runner"
 version = "0.1.0"
+<<<<<<< Updated upstream
 source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#df463abca031707e106418fb9f7a533dd6d08d2f"
+=======
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#e4c4f75e547a9803ddb065eed79d3e90d3f99fe6"
+>>>>>>> Stashed changes
 dependencies = [
  "agent_abstraction",
  "agent_config",
@@ -6795,9 +6807,9 @@ checksum = "2c4a545a15244c7d945065b5d392b2d2d7f21526fba56ce51467b06ed445e8f7"
 
 [[package]]
 name = "libc"
-version = "0.2.180"
+version = "0.2.181"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bcc35a38544a891a5f7c865aca548a982ccb3b8650a5b06d0fd33a10283c56fc"
+checksum = "459427e2af2b9c839b132acb702a1c654d95e10f8c326bfc2ad11310e458b1c5"
 
 [[package]]
 name = "libdbus-sys"
@@ -11067,7 +11079,11 @@ dependencies = [
 [[package]]
 name = "rcoder-proxy"
 version = "0.1.0"
+<<<<<<< Updated upstream
 source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#df463abca031707e106418fb9f7a533dd6d08d2f"
+=======
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#e4c4f75e547a9803ddb065eed79d3e90d3f99fe6"
+>>>>>>> Stashed changes
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -11094,7 +11110,11 @@ dependencies = [
 [[package]]
 name = "rcoder-telemetry"
 version = "0.1.0"
+<<<<<<< Updated upstream
 source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#df463abca031707e106418fb9f7a533dd6d08d2f"
+=======
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#e4c4f75e547a9803ddb065eed79d3e90d3f99fe6"
+>>>>>>> Stashed changes
 dependencies = [
  "anyhow",
  "axum",
@@ -12706,7 +12726,11 @@ dependencies = [
 [[package]]
 name = "shared_types"
 version = "0.1.0"
+<<<<<<< Updated upstream
 source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#df463abca031707e106418fb9f7a533dd6d08d2f"
+=======
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#e4c4f75e547a9803ddb065eed79d3e90d3f99fe6"
+>>>>>>> Stashed changes
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -14215,12 +14239,12 @@ dependencies = [
 
 [[package]]
 name = "tempfile"
-version = "3.24.0"
+version = "3.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "655da9c7eb6305c55742045d5a8d2037996d61d8de95806335c7c86ce0f82e9c"
+checksum = "0136791f7c95b1f6dd99f9cc786b91bb81c3800b639b3478e561ddb7be95e5f1"
 dependencies = [
  "fastrand 2.3.0",
- "getrandom 0.3.4",
+ "getrandom 0.4.1",
  "once_cell",
  "rustix 1.1.3",
  "windows-sys 0.61.2",

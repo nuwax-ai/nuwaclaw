@@ -11,13 +11,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import {
-  Button,
-  Progress,
-  Alert,
-  Spin,
-  Result,
-} from "antd";
+import { Button, Progress, Alert, Spin, Result } from "antd";
 import {
   CloudDownloadOutlined,
   CheckCircleOutlined,
@@ -44,10 +38,7 @@ import {
   installGlobalNpmPackage,
   type LocalDependencyItem,
 } from "../services/dependencies";
-import {
-  getDepsShowAll,
-  setDepsShowAll,
-} from "../services/setup";
+import { getDepsShowAll, setDepsShowAll } from "../services/setup";
 
 interface SetupDependenciesProps {
   onComplete: () => void;
@@ -87,7 +78,10 @@ interface UnifiedDependencyItem {
 
 type NetworkStatus = "checking" | "connected" | "disconnected";
 
-export default function SetupDependencies({ onComplete, onBack }: SetupDependenciesProps) {
+export default function SetupDependencies({
+  onComplete,
+  onBack,
+}: SetupDependenciesProps) {
   const [allDependencies, setAllDependencies] = useState<
     UnifiedDependencyItem[]
   >([]);
@@ -154,14 +148,14 @@ export default function SetupDependencies({ onComplete, onBack }: SetupDependenc
       } else {
         console.error("[SetupDeps] Node.js 自动安装失败:", result.error);
         setNodeInstallError(
-          result.error || "Node.js 自动安装失败，请手动安装。"
+          result.error || "Node.js 自动安装失败，请手动安装。",
         );
         setInstallPhase("node-install-failed");
       }
     } catch (error) {
       console.error("[SetupDeps] Node.js 自动安装异常:", error);
       setNodeInstallError(
-        error instanceof Error ? error.message : "Node.js 自动安装异常"
+        error instanceof Error ? error.message : "Node.js 自动安装异常",
       );
       setInstallPhase("node-install-failed");
     }
@@ -619,16 +613,10 @@ export default function SetupDependencies({ onComplete, onBack }: SetupDependenc
           style={{ marginBottom: 12 }}
         />
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={handleRefreshNodeCheck}
-          >
+          <Button icon={<ReloadOutlined />} onClick={handleRefreshNodeCheck}>
             刷新检测
           </Button>
-          <Button
-            type="primary"
-            onClick={handleAutoInstallNode}
-          >
+          <Button type="primary" onClick={handleAutoInstallNode}>
             重试自动安装
           </Button>
         </div>
@@ -742,7 +730,11 @@ export default function SetupDependencies({ onComplete, onBack }: SetupDependenc
         }
         type={systemAllReady ? (allReady ? "success" : "info") : "warning"}
         showIcon
-        icon={networkStatus === "connected" || allReady ? undefined : <WifiOutlined />}
+        icon={
+          networkStatus === "connected" || allReady ? undefined : (
+            <WifiOutlined />
+          )
+        }
         style={{ marginBottom: 12 }}
       />
 
@@ -773,7 +765,11 @@ export default function SetupDependencies({ onComplete, onBack }: SetupDependenc
           borderTop: "1px solid #f4f4f5",
         }}
       >
-        <Button size="small" icon={<ReloadOutlined />} onClick={() => setInstallPhase("checking")}>
+        <Button
+          size="small"
+          icon={<ReloadOutlined />}
+          onClick={() => setInstallPhase("checking")}
+        >
           重新检测
         </Button>
         {systemAllReady && !allReady && installPhase !== "installing" && (

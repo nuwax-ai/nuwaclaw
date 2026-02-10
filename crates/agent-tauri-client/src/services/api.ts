@@ -3,18 +3,18 @@
  * 统一处理请求、响应、错误码
  */
 
-import { message } from 'antd';
+import { message } from "antd";
 
 // 错误码定义
-const SUCCESS_CODE = '0000';
+const SUCCESS_CODE = "0000";
 
 // 错误码对应的消息
 const ERROR_MESSAGES: Record<string, string> = {
-  '0000': '操作成功',
-  '4010': '用户未登录，请重新登录',
-  '4011': '登录已过期，请重新登录',
-  '1001': '客户端不存在或已下架',
-  '9999': '系统错误，请稍后重试',
+  "0000": "操作成功",
+  "4010": "用户未登录，请重新登录",
+  "4011": "登录已过期，请重新登录",
+  "1001": "客户端不存在或已下架",
+  "9999": "系统错误，请稍后重试",
 };
 
 // 响应类型定义（内部使用）
@@ -36,7 +36,7 @@ interface RequestConfig {
 
 // 默认配置
 const DEFAULT_CONFIG: RequestConfig = {
-  baseUrl: 'https://testagent.xspaceagi.com',
+  baseUrl: "https://testagent.xspaceagi.com",
   timeout: 30000,
 };
 
@@ -46,21 +46,21 @@ const DEFAULT_CONFIG: RequestConfig = {
 export async function apiRequest<T>(
   url: string,
   options: {
-    method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+    method?: "GET" | "POST" | "PUT" | "DELETE";
     data?: any;
     params?: Record<string, any>;
     headers?: Record<string, string>;
     showError?: boolean;
     baseUrl?: string;
-  } = {}
+  } = {},
 ): Promise<T> {
   const config = { ...DEFAULT_CONFIG, ...options };
   const fullUrl = `${config.baseUrl}${url}`;
-  
+
   const fetchOptions: RequestInit = {
-    method: options.method || 'POST',
+    method: options.method || "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       ...config.headers,
     },
   };
@@ -94,25 +94,28 @@ export async function apiRequest<T>(
 
     // 统一错误处理
     if (result.code !== SUCCESS_CODE) {
-      const errorMsg = result.message || ERROR_MESSAGES[result.code] || `请求失败 (错误码: ${result.code})`;
-      
-      console.error('API Error:', result);
-      
+      const errorMsg =
+        result.message ||
+        ERROR_MESSAGES[result.code] ||
+        `请求失败 (错误码: ${result.code})`;
+
+      console.error("API Error:", result);
+
       if (options.showError !== false) {
         message.error(errorMsg);
       }
-      
+
       throw new Error(errorMsg);
     }
 
     return result.data;
   } catch (error: any) {
-    console.error('API Request Error:', error);
-    
+    console.error("API Request Error:", error);
+
     if (options.showError !== false && error.message) {
       message.error(error.message);
     }
-    
+
     throw error;
   }
 }
@@ -167,15 +170,15 @@ export interface ClientRegisterResponse {
 
 /**
  * 注册客户端
- * 
+ *
  * @param params 注册参数
  * @returns 注册响应数据
  */
 export async function registerClient(
-  params: ClientRegisterParams
+  params: ClientRegisterParams,
 ): Promise<ClientRegisterResponse> {
-  return apiRequest<ClientRegisterResponse>('/api/sandbox/config/reg', {
-    method: 'POST',
+  return apiRequest<ClientRegisterResponse>("/api/sandbox/config/reg", {
+    method: "POST",
     data: params,
     showError: true,
   });
