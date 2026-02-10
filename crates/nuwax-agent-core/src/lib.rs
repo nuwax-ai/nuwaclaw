@@ -36,6 +36,7 @@ pub mod http_client;
 pub mod logger;
 pub mod password;
 pub mod platform;
+pub mod preflight;
 pub mod protocol;
 pub mod upgrade;
 

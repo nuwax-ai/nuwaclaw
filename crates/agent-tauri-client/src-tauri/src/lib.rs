@@ -10,7 +10,8 @@ use system_permissions::{
 };
 use tauri::{
     menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Emitter, Manager, State, Window,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager, State, Window,
 };
 use tauri_plugin_store::StoreExt;
 use tokio::sync::Mutex;
@@ -606,124 +607,54 @@ fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
     ))
 }
 
-#[cfg(target_os = "macos")]
+/// 获取当前平台的 nuwax-lanproxy 可执行文件完整路径
 fn get_lanproxy_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
+    // 根据平台和架构选择二进制文件名
+    #[cfg(target_os = "macos")]
     let bin_name = "nuwax-lanproxy-aarch64-apple-darwin";
 
-    // 1. 尝试从资源目录获取 (生产环境)
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let bin_path = resource_dir.join("binaries").join(bin_name);
-        if bin_path.exists() {
-            return Ok(bin_path.to_string_lossy().to_string());
+    #[cfg(target_os = "linux")]
+    let bin_name = {
+        #[cfg(target_arch = "aarch64")]
+        {
+            "nuwax-lanproxy-aarch64-unknown-linux-gnu"
         }
-    }
-
-    // 2. 尝试从可执行文件所在目录获取
-    if let Some(exe_dir) = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-    {
-        let alt_path = exe_dir.join("binaries").join(bin_name);
-        if alt_path.exists() {
-            return Ok(alt_path.to_string_lossy().to_string());
+        #[cfg(target_arch = "x86_64")]
+        {
+            "nuwax-lanproxy-x86_64-unknown-linux-gnu"
         }
-    }
-
-    // 3. 开发模式: 尝试从 src-tauri/binaries 目录获取
-    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let dev_path = std::path::Path::new(&manifest_dir)
-            .join("binaries")
-            .join(bin_name);
-        if dev_path.exists() {
-            return Ok(dev_path.to_string_lossy().to_string());
+        #[cfg(target_arch = "arm")]
+        {
+            "nuwax-lanproxy-arm-unknown-linux-gnueabi"
         }
-    }
-
-    // 4. 开发模式备选: 从当前工作目录推断
-    if let Ok(cwd) = std::env::current_dir() {
-        // 检查是否在项目根目录运行
-        let dev_path = cwd
-            .join("crates/agent-tauri-client/src-tauri/binaries")
-            .join(bin_name);
-        if dev_path.exists() {
-            return Ok(dev_path.to_string_lossy().to_string());
+        #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64", target_arch = "arm")))]
+        {
+            "nuwax-lanproxy-unknown-linux"
         }
-    }
+    };
 
-    Err(format!("未找到 {} 可执行文件", bin_name))
-}
-
-/// 获取当前平台的 nuwax-lanproxy 可执行文件完整路径（Linux）
-#[cfg(target_os = "linux")]
-fn get_lanproxy_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
-    // 根据架构选择文件名
-    #[cfg(target_arch = "aarch64")]
-    let bin_name = "nuwax-lanproxy-aarch64-unknown-linux-gnu";
-    #[cfg(target_arch = "x86_64")]
-    let bin_name = "nuwax-lanproxy-x86_64-unknown-linux-gnu";
-    #[cfg(target_arch = "arm")]
-    let bin_name = "nuwax-lanproxy-arm-unknown-linux-gnueabi";
-    #[cfg(target_arch = "armv7")]
-    let bin_name = "nuwax-lanproxy-armv7-unknown-linux-gnueabihf";
-    #[cfg(target_arch = "mips")]
-    let bin_name = "nuwax-lanproxy-mips-unknown-linux-gnu";
-    #[cfg(target_arch = "mipsle")]
-    let bin_name = "nuwax-lanproxy-mipsle-unknown-linux-gnu";
-    #[cfg(target_arch = "mips64")]
-    let bin_name = "nuwax-lanproxy-mips64-unknown-linux-gnu";
-
-    // 1. 尝试从资源目录获取 (生产环境)
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let bin_path = resource_dir.join("binaries").join(bin_name);
-        if bin_path.exists() {
-            return Ok(bin_path.to_string_lossy().to_string());
+    #[cfg(target_os = "windows")]
+    let bin_name = {
+        #[cfg(target_arch = "x86_64")]
+        {
+            "nuwax-lanproxy-x86_64-pc-windows-msvc.exe"
         }
-    }
-
-    // 2. 尝试从可执行文件所在目录获取
-    if let Some(exe_dir) = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-    {
-        let alt_path = exe_dir.join("binaries").join(bin_name);
-        if alt_path.exists() {
-            return Ok(alt_path.to_string_lossy().to_string());
+        #[cfg(target_arch = "x86")]
+        {
+            "nuwax-lanproxy-i686-pc-windows-msvc.exe"
         }
-    }
-
-    // 3. 开发模式: 尝试从 src-tauri/binaries 目录获取
-    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let dev_path = std::path::Path::new(&manifest_dir)
-            .join("binaries")
-            .join(bin_name);
-        if dev_path.exists() {
-            return Ok(dev_path.to_string_lossy().to_string());
+        #[cfg(target_arch = "aarch64")]
+        {
+            "nuwax-lanproxy-aarch64-pc-windows-msvc.exe"
         }
-    }
-
-    // 4. 开发模式备选: 从当前工作目录推断
-    if let Ok(cwd) = std::env::current_dir() {
-        let dev_path = cwd
-            .join("crates/agent-tauri-client/src-tauri/binaries")
-            .join(bin_name);
-        if dev_path.exists() {
-            return Ok(dev_path.to_string_lossy().to_string());
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")))]
+        {
+            "nuwax-lanproxy-unknown-windows.exe"
         }
-    }
+    };
 
-    Err(format!("未找到 {} 可执行文件", bin_name))
-}
-
-/// 获取当前平台的 nuwax-lanproxy 可执行文件完整路径（Windows）
-#[cfg(target_os = "windows")]
-fn get_lanproxy_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
-    // 根据架构选择文件名
-    #[cfg(target_arch = "x86_64")]
-    let bin_name = "nuwax-lanproxy-x86_64-pc-windows-msvc.exe";
-    #[cfg(target_arch = "x86")]
-    let bin_name = "nuwax-lanproxy-i686-pc-windows-msvc.exe";
-    #[cfg(target_arch = "aarch64")]
-    let bin_name = "nuwax-lanproxy-aarch64-pc-windows-msvc.exe";
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    let bin_name = "nuwax-lanproxy";
 
     // 1. 尝试从资源目录获取 (生产环境)
     if let Ok(resource_dir) = app.path().resource_dir() {
@@ -1401,7 +1332,6 @@ async fn services_restart_all(
             .path()
             .app_data_dir()
             .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
-        let app_data_str = app_data_dir.to_string_lossy().to_string();
 
         // 使用完整配置启动，基于用户工作区目录设置各路径
         // workspace_dir 替换容器中的 /app 前缀
@@ -1410,13 +1340,36 @@ async fn services_restart_all(
             port,
             env: "production".to_string(),
             init_project_name: "nuwax-template".to_string(),
-            init_project_dir: format!("{}/project_init", workspace_dir),
-            upload_project_dir: format!("{}/project_zips", workspace_dir),
-            project_source_dir: format!("{}/project_workspace", workspace_dir),
-            dist_target_dir: format!("{}/project_nginx", workspace_dir),
-            log_base_dir: format!("{}/logs/project_logs", app_data_str),
-            computer_workspace_dir: format!("{}/computer-project-workspace", workspace_dir),
-            computer_log_dir: format!("{}/logs/computer_logs", app_data_str),
+            init_project_dir: std::path::PathBuf::from(&workspace_dir)
+                .join("project_init")
+                .to_string_lossy()
+                .to_string(),
+            upload_project_dir: std::path::PathBuf::from(&workspace_dir)
+                .join("project_zips")
+                .to_string_lossy()
+                .to_string(),
+            project_source_dir: std::path::PathBuf::from(&workspace_dir)
+                .join("project_workspace")
+                .to_string_lossy()
+                .to_string(),
+            dist_target_dir: std::path::PathBuf::from(&workspace_dir)
+                .join("project_nginx")
+                .to_string_lossy()
+                .to_string(),
+            log_base_dir: app_data_dir
+                .join("logs")
+                .join("project_logs")
+                .to_string_lossy()
+                .to_string(),
+            computer_workspace_dir: std::path::PathBuf::from(&workspace_dir)
+                .join("computer-project-workspace")
+                .to_string_lossy()
+                .to_string(),
+            computer_log_dir: app_data_dir
+                .join("logs")
+                .join("computer_logs")
+                .to_string_lossy()
+                .to_string(),
         };
 
         // 打印完整配置用于调试
@@ -1616,6 +1569,116 @@ async fn services_status_all(
     Ok(statuses.into_iter().map(|s| s.into()).collect())
 }
 
+/// 服务健康检查结果 DTO
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceHealthDto {
+    pub service_type: String,
+    pub state: String,
+    pub pid: Option<u32>,
+    pub port: Option<u16>,
+    pub port_reachable: bool,
+}
+
+/// 获取所有服务的健康状态（包含端口可达性检测）
+#[tauri::command]
+async fn service_health(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ServiceManagerState>,
+) -> Result<Vec<ServiceHealthDto>, String> {
+    let manager = state.manager.lock().await;
+    let statuses = manager.services_status_all().await;
+
+    let mut results = Vec::new();
+    for info in statuses {
+        // 根据服务类型确定对应端口
+        let port = match format!("{:?}", info.service_type).as_str() {
+            "FileServer" => read_store_port(&app, "setup.file_server_port")
+                .ok()
+                .flatten(),
+            "McpProxy" => read_store_port(&app, "setup.mcp_proxy_port").ok().flatten(),
+            "HttpServer" => read_store_port(&app, "setup.agent_port").ok().flatten(),
+            _ => None,
+        };
+
+        let port_reachable = port
+            .map(|p| !nuwax_agent_core::platform::check_port_available(p))
+            .unwrap_or(false);
+
+        results.push(ServiceHealthDto {
+            service_type: format!("{:?}", info.service_type),
+            state: format!("{:?}", info.state),
+            pid: info.pid,
+            port,
+            port_reachable,
+        });
+    }
+
+    Ok(results)
+}
+
+// ========== 预检检查命令 ==========
+
+/// 执行预检检查
+#[tauri::command]
+async fn preflight_check(
+    app: tauri::AppHandle,
+) -> Result<nuwax_agent_core::preflight::PreflightResult, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+
+    // 从 store 读取端口配置
+    let file_server_port = read_store_port(&app, "setup.file_server_port")
+        .ok()
+        .flatten()
+        .unwrap_or(60000);
+    let agent_port = read_store_port(&app, "setup.agent_port")
+        .ok()
+        .flatten()
+        .unwrap_or(60001);
+    let mcp_proxy_port = read_store_port(&app, "setup.mcp_proxy_port")
+        .ok()
+        .flatten()
+        .unwrap_or(18099);
+
+    // 从 store 读取工作区目录
+    let workspace_dir = read_store_string(&app, "setup.workspace_dir")
+        .ok()
+        .flatten()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| app_data_dir.join("workspace"));
+
+    let config = nuwax_agent_core::preflight::PreflightConfig {
+        ports: vec![
+            ("文件服务".to_string(), file_server_port),
+            ("Agent 服务".to_string(), agent_port),
+            ("MCP Proxy".to_string(), mcp_proxy_port),
+        ],
+        directories: vec![
+            ("工作区".to_string(), workspace_dir),
+            ("日志".to_string(), app_data_dir.join("logs")),
+            (
+                "缓存".to_string(),
+                app.path()
+                    .app_cache_dir()
+                    .unwrap_or_else(|_| app_data_dir.join("cache")),
+            ),
+        ],
+        check_dependencies: true,
+    };
+
+    Ok(nuwax_agent_core::preflight::run_preflight(&config).await)
+}
+
+/// 修复指定的预检问题
+#[tauri::command]
+async fn preflight_fix(
+    check_ids: Vec<String>,
+) -> Result<Vec<nuwax_agent_core::preflight::FixResult>, String> {
+    Ok(nuwax_agent_core::preflight::run_preflight_fix(&check_ids).await)
+}
+
 // ========== npm 依赖管理命令 ==========
 
 /// 安装 npm 依赖
@@ -1657,6 +1720,19 @@ async fn dependency_npm_reinstall(name: String) -> Result<bool, String> {
 // ========== 初始化向导命令 ==========
 
 use std::process::Command;
+
+/// 跨平台查找可执行文件路径
+/// macOS/Linux 使用 `which`，Windows 使用 `where`
+fn which_command(bin_name: &str) -> std::io::Result<std::process::Output> {
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("where").arg(bin_name).output()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new("which").arg(bin_name).output()
+    }
+}
 
 /// Node.js 版本检测结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1706,6 +1782,42 @@ fn app_data_dir_get(app: tauri::AppHandle) -> Result<String, String> {
     }
 
     Ok(path.to_string_lossy().to_string())
+}
+
+/// 获取应用缓存目录路径
+#[tauri::command]
+fn cache_dir_get(app: tauri::AppHandle) -> Result<String, String> {
+    let path = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+
+    if !path.exists() {
+        std::fs::create_dir_all(&path).map_err(|e| format!("创建缓存目录失败: {}", e))?;
+    }
+
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// 获取应用配置目录路径
+#[tauri::command]
+fn config_dir_get(app: tauri::AppHandle) -> Result<String, String> {
+    let path = app.path().app_config_dir().map_err(|e| e.to_string())?;
+
+    if !path.exists() {
+        std::fs::create_dir_all(&path).map_err(|e| format!("创建配置目录失败: {}", e))?;
+    }
+
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// 检查指定端口是否可用
+#[tauri::command]
+fn network_port_check(port: u16) -> bool {
+    nuwax_agent_core::platform::check_port_available(port)
+}
+
+/// 获取防火墙操作引导文案
+#[tauri::command]
+fn firewall_guide_get() -> String {
+    nuwax_agent_core::platform::firewall_guide().to_string()
 }
 
 /// 检测中国大陆网络连通性
@@ -2065,12 +2177,14 @@ async fn dependency_local_check_latest(package_name: String) -> Result<Option<St
 async fn dependency_shell_installer_check(
     bin_name: String,
 ) -> Result<ShellInstallerResult, String> {
-    // 使用 which 命令检查二进制文件是否存在
-    let which_output = Command::new("which").arg(&bin_name).output();
+    // 跨平台检查二进制文件是否存在
+    let which_output = which_command(&bin_name);
 
     match which_output {
         Ok(out) if out.status.success() => {
             let bin_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            // Windows `where` 可能返回多行，取第一行
+            let bin_path = bin_path.lines().next().unwrap_or(&bin_path).to_string();
 
             // 尝试获取版本信息
             let version = Command::new(&bin_name)
@@ -2109,34 +2223,61 @@ async fn dependency_shell_installer_check(
 }
 
 /// 使用 Shell 脚本安装包
+/// macOS/Linux: curl ... | sh
+/// Windows: powershell irm ... | iex
 #[tauri::command]
 async fn dependency_shell_installer_install(
     installer_url: String,
     bin_name: String,
 ) -> Result<InstallResult, String> {
-    // 先检查 curl 是否可用
-    let curl_check = Command::new("curl").arg("--version").output();
+    info!("[Dependency] 执行安装脚本: {}", installer_url);
 
-    if curl_check.is_err() || !curl_check.unwrap().status.success() {
-        return Ok(InstallResult {
-            success: false,
-            version: None,
-            bin_path: None,
-            error: Some("curl 未安装。请先安装 curl".to_string()),
-        });
-    }
+    #[cfg(not(target_os = "windows"))]
+    let output = {
+        // 先检查 curl 是否可用
+        let curl_check = Command::new("curl").arg("--version").output();
 
-    info!("[Dependency] 执行 shell 安装脚本: {}", installer_url);
+        if curl_check.is_err() || !curl_check.unwrap().status.success() {
+            return Ok(InstallResult {
+                success: false,
+                version: None,
+                bin_path: None,
+                error: Some("curl 未安装。请先安装 curl".to_string()),
+            });
+        }
 
-    // 执行: curl --proto '=https' --tlsv1.2 -LsSf <url> | sh
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(format!(
-            "curl --proto '=https' --tlsv1.2 -LsSf {} | sh",
-            installer_url
-        ))
-        .output()
-        .map_err(|e| format!("执行安装脚本失败: {}", e))?;
+        // 执行: curl --proto '=https' --tlsv1.2 -LsSf <url> | sh
+        Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "curl --proto '=https' --tlsv1.2 -LsSf {} | sh",
+                installer_url
+            ))
+            .output()
+            .map_err(|e| format!("执行安装脚本失败: {}", e))?
+    };
+
+    #[cfg(target_os = "windows")]
+    let output = {
+        // Windows: 使用 PowerShell 的 irm (Invoke-RestMethod) | iex (Invoke-Expression)
+        // 许多现代安装脚本（如 cargo-binstall、uv 等）提供 .ps1 安装脚本
+        // 尝试将 URL 末尾的 .sh 替换为 .ps1
+        let ps_url = if installer_url.ends_with(".sh") {
+            installer_url.replace(".sh", ".ps1")
+        } else {
+            installer_url.clone()
+        };
+
+        Command::new("powershell")
+            .args([
+                "-ExecutionPolicy",
+                "ByPass",
+                "-Command",
+                &format!("irm {} | iex", ps_url),
+            ])
+            .output()
+            .map_err(|e| format!("执行 PowerShell 安装脚本失败: {}", e))?
+    };
 
     if output.status.success() {
         // 验证安装并获取路径
@@ -2182,12 +2323,14 @@ async fn dependency_shell_installer_install(
 /// 通过检查可执行文件是否存在来判断
 #[tauri::command]
 async fn dependency_npm_global_check(bin_name: String) -> Result<NpmPackageResult, String> {
-    // 使用 which 命令检查二进制文件是否存在
-    let which_output = Command::new("which").arg(&bin_name).output();
+    // 跨平台检查二进制文件是否存在
+    let which_output = which_command(&bin_name);
 
     match which_output {
         Ok(out) if out.status.success() => {
             let bin_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            // Windows `where` 可能返回多行，取第一行
+            let bin_path = bin_path.lines().next().unwrap_or(&bin_path).to_string();
 
             // 尝试获取版本信息 (使用 -V 参数)
             let version = Command::new(&bin_name)
@@ -2385,7 +2528,174 @@ async fn autolaunch_get(app: tauri::AppHandle) -> Result<bool, String> {
     Ok(enabled)
 }
 
+/// 诊断开机自启动配置
+/// 返回自启动的后端类型、配置路径和当前状态
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutolaunchDiagnoseResult {
+    pub enabled: bool,
+    pub backend: String,
+    pub config_path: String,
+    pub config_exists: bool,
+}
+
+#[tauri::command]
+async fn autolaunch_diagnose(app: tauri::AppHandle) -> Result<AutolaunchDiagnoseResult, String> {
+    let auto_launch = create_auto_launch(&app)?;
+    let enabled = auto_launch
+        .is_enabled()
+        .map_err(|e| format!("获取状态失败: {}", e))?;
+
+    #[cfg(target_os = "macos")]
+    let (backend, config_path) = {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let plist = std::path::PathBuf::from(&home)
+            .join("Library/LaunchAgents/com.nuwax.agent-tauri-client.plist");
+        (
+            "LaunchAgent".to_string(),
+            plist.to_string_lossy().to_string(),
+        )
+    };
+
+    #[cfg(target_os = "windows")]
+    let (backend, config_path) = {
+        (
+            "Registry (HKCU\\...\\Run)".to_string(),
+            r"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run".to_string(),
+        )
+    };
+
+    #[cfg(target_os = "linux")]
+    let (backend, config_path) = {
+        let config_dir = std::env::var("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| {
+                std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config")
+            });
+        let path = config_dir.join("autostart/nuwax-agent.desktop");
+        (
+            "XDG Autostart".to_string(),
+            path.to_string_lossy().to_string(),
+        )
+    };
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    let (backend, config_path) = ("Unknown".to_string(), "N/A".to_string());
+
+    let config_exists = std::path::Path::new(&config_path).exists();
+
+    Ok(AutolaunchDiagnoseResult {
+        enabled,
+        backend,
+        config_path,
+        config_exists,
+    })
+}
+
+/// 获取 MCP Proxy 运行状态
+#[tauri::command]
+async fn mcp_proxy_status(
+    state: tauri::State<'_, ServiceManagerState>,
+    app: tauri::AppHandle,
+) -> Result<ServiceHealthDto, String> {
+    let manager = state.manager.lock().await;
+    let statuses = manager.services_status_all().await;
+
+    let mcp_info = statuses
+        .iter()
+        .find(|s| format!("{:?}", s.service_type) == "McpProxy");
+
+    let port = read_store_port(&app, "setup.mcp_proxy_port")
+        .ok()
+        .flatten()
+        .unwrap_or(nuwax_agent_core::DEFAULT_MCP_PROXY_PORT);
+
+    let port_reachable = !nuwax_agent_core::platform::check_port_available(port);
+
+    match mcp_info {
+        Some(info) => Ok(ServiceHealthDto {
+            service_type: "McpProxy".to_string(),
+            state: format!("{:?}", info.state),
+            pid: info.pid,
+            port: Some(port),
+            port_reachable,
+        }),
+        None => Ok(ServiceHealthDto {
+            service_type: "McpProxy".to_string(),
+            state: "Unknown".to_string(),
+            pid: None,
+            port: Some(port),
+            port_reachable,
+        }),
+    }
+}
+
+/// 获取当前平台所需的权限列表及状态
+#[tauri::command]
+async fn permission_requirements(
+    state: State<'_, PermissionsState>,
+) -> Result<Vec<PermissionStateDto>, String> {
+    let manager = state.get_manager().await;
+
+    // 定义各平台需要的权限
+    #[cfg(target_os = "macos")]
+    let required_perms = vec!["screen_recording", "accessibility", "microphone"];
+
+    #[cfg(target_os = "windows")]
+    let required_perms = vec!["microphone", "camera"];
+
+    #[cfg(target_os = "linux")]
+    let required_perms = vec!["screen_recording", "accessibility", "microphone"];
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    let required_perms: Vec<&str> = vec![];
+
+    let mut results = Vec::new();
+    for perm_name in required_perms {
+        if let Ok(perm) = parse_permission(perm_name) {
+            let result = manager.check(perm).await;
+            results.push(PermissionStateDto {
+                permission: perm_name.to_string(),
+                status: format!("{:?}", result.status),
+                can_request: result.can_request,
+                granted_at: result.granted_at.map(|d| d.to_rfc3339()),
+            });
+        }
+    }
+
+    Ok(results)
+}
+
 // ========== 系统托盘支持 ==========
+
+/// 查询系统托盘状态
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrayStatusResult {
+    pub available: bool,
+    pub reason: Option<String>,
+}
+
+#[tauri::command]
+fn tray_status(app: tauri::AppHandle) -> TrayStatusResult {
+    // 检查托盘图标是否存在
+    let has_tray = app.tray_by_id("main").is_some() || app.default_window_icon().is_some();
+
+    if has_tray {
+        TrayStatusResult {
+            available: true,
+            reason: None,
+        }
+    } else {
+        #[cfg(target_os = "linux")]
+        let reason = "系统托盘可能不可用。请确保安装了 AppIndicator 扩展（GNOME 43+ 需要 gnome-shell-extension-appindicator）。".to_string();
+        #[cfg(not(target_os = "linux"))]
+        let reason = "系统托盘图标未创建".to_string();
+
+        TrayStatusResult {
+            available: false,
+            reason: Some(reason),
+        }
+    }
+}
 
 /// 设置系统托盘
 fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -2650,7 +2960,8 @@ fn get_package_bin_path(app_dir: &str, package_name: &str) -> Option<String> {
 fn check_version_meets_requirement(current: &str, required: &str) -> bool {
     let parse_version = |v: &str| -> (u32, u32, u32) {
         let parts: Vec<&str> = v.split('.').collect();
-        let major = parts.first()
+        let major = parts
+            .first()
             .and_then(|s| s.trim().parse().ok())
             .unwrap_or(0);
         let minor = parts
@@ -2704,6 +3015,24 @@ pub fn run() {
             }
             Err(e) => {
                 eprintln!("[PATH Fix] Failed to fix PATH environment: {}", e);
+            }
+        }
+    }
+
+    // ✅ 修复 Linux GUI 应用的 PATH 环境变量问题（同 macOS）
+    #[cfg(target_os = "linux")]
+    {
+        match fix_linux_path_env() {
+            Ok(()) => {
+                if let Ok(path) = std::env::var("PATH") {
+                    println!(
+                        "[PATH Fix] Linux PATH fixed successfully, entries={}",
+                        path.split(':').count()
+                    );
+                }
+            }
+            Err(e) => {
+                eprintln!("[PATH Fix] Failed to fix Linux PATH environment: {}", e);
             }
         }
     }
@@ -2930,12 +3259,20 @@ pub fn run() {
             services_stop_all,
             services_restart_all,
             services_status_all,
+            service_health,
+            // 预检检查命令
+            preflight_check,
+            preflight_fix,
             // npm 依赖管理命令
             dependency_npm_install,
             dependency_npm_query_version,
             dependency_npm_reinstall,
             // 初始化向导命令
             app_data_dir_get,
+            cache_dir_get,
+            config_dir_get,
+            network_port_check,
+            firewall_guide_get,
             check_network_cn,
             dependency_local_env_init,
             dependency_node_detect,
@@ -2956,6 +3293,11 @@ pub fn run() {
             // 开机自启动命令
             autolaunch_set,
             autolaunch_get,
+            autolaunch_diagnose,
+            // 诊断与状态命令
+            mcp_proxy_status,
+            permission_requirements,
+            tray_status,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -3025,6 +3367,56 @@ fn fix_macos_path_env() -> Result<(), Box<dyn std::error::Error>> {
             std::env::set_var("PATH", &new_path);
 
             eprintln!("[PATH Fix] Successfully fixed PATH environment");
+            eprintln!(
+                "[PATH Fix] New PATH includes: {} entries",
+                ordered_paths.len()
+            );
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Shell command failed: {}", stderr).into());
+    }
+
+    Ok(())
+}
+
+/// Linux GUI 应用（从桌面启动器启动）不继承用户 shell 的 PATH
+/// 这导致通过 nvm/pyenv 安装的命令找不到
+/// 逻辑与 fix_macos_path_env 相同
+#[cfg(target_os = "linux")]
+fn fix_linux_path_env() -> Result<(), Box<dyn std::error::Error>> {
+    use std::process::Command;
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+
+    let output = Command::new(&shell)
+        .args(["-l", "-c", "echo $PATH"])
+        .output()?;
+
+    if output.status.success() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path.is_empty() {
+            let current_path = std::env::var("PATH").unwrap_or_default();
+
+            let mut paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut ordered_paths: Vec<String> = Vec::new();
+
+            for p in path.split(':') {
+                if !p.is_empty() && paths.insert(p.to_string()) {
+                    ordered_paths.push(p.to_string());
+                }
+            }
+
+            for p in current_path.split(':') {
+                if !p.is_empty() && paths.insert(p.to_string()) {
+                    ordered_paths.push(p.to_string());
+                }
+            }
+
+            let new_path = ordered_paths.join(":");
+            std::env::set_var("PATH", &new_path);
+
+            eprintln!("[PATH Fix] Successfully fixed Linux PATH environment");
             eprintln!(
                 "[PATH Fix] New PATH includes: {} entries",
                 ordered_paths.len()

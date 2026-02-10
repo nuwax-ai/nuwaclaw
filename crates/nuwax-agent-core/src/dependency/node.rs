@@ -259,7 +259,8 @@ impl NodeDetector {
 
         #[cfg(windows)]
         {
-            data_dir.join("node.exe")
+            // install_from_bundled 会复制 bin/ 目录结构
+            data_dir.join("bin").join("node.exe")
         }
     }
 }
@@ -391,7 +392,7 @@ impl NodeInstaller {
         #[cfg(unix)]
         let bundled_node_bin = bundled_node_dir.join("bin").join("node");
         #[cfg(windows)]
-        let bundled_node_bin = bundled_node_dir.join("node.exe");
+        let bundled_node_bin = bundled_node_dir.join("bin").join("node.exe");
 
         if !bundled_node_bin.exists() {
             return Err(NodeError::InstallFailed(format!(

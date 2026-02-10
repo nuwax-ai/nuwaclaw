@@ -44,7 +44,7 @@ impl AutoLaunchManager {
         #[cfg(target_os = "macos")]
         {
             use std::process::Command;
-            let launch_agents_dir = std::env::home_dir()
+            let launch_agents_dir = dirs::home_dir()
                 .ok_or_else(|| AutoLaunchError::EnableFailed("无法获取 home 目录".to_string()))?
                 .join("Library/LaunchAgents");
             let plist_path = launch_agents_dir.join(format!("com.nuwax.{}.plist", self.app_name));
@@ -95,8 +95,10 @@ impl AutoLaunchManager {
 
         #[cfg(target_os = "linux")]
         {
-            let desktop_entry_dir = std::path::PathBuf::from("/etc/xdg/autostart");
-            let desktop_entry_path = desktop_entry_dir.join(&format!("nuwax-agent.desktop"));
+            let desktop_entry_dir = dirs::config_dir()
+                .ok_or_else(|| AutoLaunchError::EnableFailed("无法获取配置目录".to_string()))?
+                .join("autostart");
+            let desktop_entry_path = desktop_entry_dir.join("nuwax-agent.desktop");
 
             let desktop_entry = format!(
                 r#"[Desktop Entry]
@@ -123,9 +125,12 @@ X-GNOME-Autostart-enabled=true
         #[cfg(target_os = "macos")]
         {
             use std::process::Command;
-            let plist_path = std::env::home_dir()
+            let plist_path = dirs::home_dir()
                 .ok_or_else(|| AutoLaunchError::DisableFailed("无法获取 home 目录".to_string()))?
-                .join(format!("Library/LaunchAgents/com.nuwax.{}.plist", self.app_name));
+                .join(format!(
+                    "Library/LaunchAgents/com.nuwax.{}.plist",
+                    self.app_name
+                ));
 
             if plist_path.exists() {
                 Command::new("launchctl")
@@ -143,17 +148,18 @@ X-GNOME-Autostart-enabled=true
             use winreg::RegKey;
 
             let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-            if let Ok(key) = hkcu.open_subkey_with_flags(
-                r"Software\Microsoft\Windows\CurrentVersion\Run",
-                KEY_WRITE,
-            ) {
+            if let Ok(key) = hkcu
+                .open_subkey_with_flags(r"Software\Microsoft\Windows\CurrentVersion\Run", KEY_WRITE)
+            {
                 let _ = key.delete_value("NuWaxAgent");
             }
         }
 
         #[cfg(target_os = "linux")]
         {
-            let desktop_entry_path = std::path::PathBuf::from("/etc/xdg/autostart/nuwax-agent.desktop");
+            let desktop_entry_path = dirs::config_dir()
+                .ok_or_else(|| AutoLaunchError::DisableFailed("无法获取配置目录".to_string()))?
+                .join("autostart/nuwax-agent.desktop");
             if desktop_entry_path.exists() {
                 std::fs::remove_file(&desktop_entry_path)
                     .map_err(|e| AutoLaunchError::DisableFailed(e.to_string()))?;
@@ -190,7 +196,9 @@ X-GNOME-Autostart-enabled=true
 
         #[cfg(target_os = "linux")]
         {
-            let desktop_entry_path = std::path::PathBuf::from("/etc/xdg/autostart/nuwax-agent.desktop");
+            let desktop_entry_path = dirs::config_dir()
+                .map(|d| d.join("autostart/nuwax-agent.desktop"))
+                .unwrap_or_default();
             Ok(desktop_entry_path.exists())
         }
 

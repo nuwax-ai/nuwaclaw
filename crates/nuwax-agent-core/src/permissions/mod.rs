@@ -2,9 +2,9 @@
 //!
 //! 管理客户端的系统权限
 
+use open;
 use thiserror::Error;
 use tracing::debug;
-use open;
 
 /// 权限错误
 #[derive(Error, Debug)]
@@ -68,14 +68,24 @@ impl PermissionManager {
     #[cfg(target_os = "macos")]
     pub fn open_settings(permission: &str) -> Result<(), PermissionError> {
         let url = match permission {
-            "screen_recording" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-            "accessibility" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-            "input_monitoring" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+            "screen_recording" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+            }
+            "accessibility" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+            }
+            "input_monitoring" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+            }
             "camera" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
-            "microphone" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+            "microphone" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+            }
             _ => {
                 tracing::error!("不支持的权限类型: {}", permission);
-                return Err(PermissionError::UnsupportedPermission(permission.to_string()));
+                return Err(PermissionError::UnsupportedPermission(
+                    permission.to_string(),
+                ));
             }
         };
 
@@ -84,24 +94,79 @@ impl PermissionManager {
         open::that(url).map_err(|e| PermissionError::RequestFailed(e.to_string()))
     }
 
-    /// 打开系统权限设置页面 (非 macOS 平台)
-    #[cfg(not(target_os = "macos"))]
+    /// 打开系统权限设置页面 (Windows)
+    #[cfg(target_os = "windows")]
     pub fn open_settings(permission: &str) -> Result<(), PermissionError> {
         let url = match permission {
-            "screen_recording" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-            "accessibility" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-            "input_monitoring" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
-            "camera" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
-            "microphone" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+            "screen_recording" => "ms-settings:privacy-broadfilesystemaccess",
+            "accessibility" => "ms-settings:easeofaccess-display",
+            "input_monitoring" => "ms-settings:privacy-backgroundapps",
+            "camera" => "ms-settings:privacy-webcam",
+            "microphone" => "ms-settings:privacy-microphone",
             _ => {
                 tracing::error!("不支持的权限类型: {}", permission);
-                return Err(PermissionError::UnsupportedPermission(permission.to_string()));
+                return Err(PermissionError::UnsupportedPermission(
+                    permission.to_string(),
+                ));
             }
         };
 
         tracing::info!("打开系统设置 URL: {}", url);
 
         open::that(url).map_err(|e| PermissionError::RequestFailed(e.to_string()))
+    }
+
+    /// 打开系统权限设置页面 (Linux)
+    #[cfg(target_os = "linux")]
+    pub fn open_settings(permission: &str) -> Result<(), PermissionError> {
+        // Linux 桌面环境差异大，尝试打开通用隐私/安全设置
+        let url = match permission {
+            "camera" => "xdg-open x-scheme-handler/camera",
+            "microphone" => "xdg-open x-scheme-handler/microphone",
+            _ => {
+                // 对于大多数权限，尝试打开 GNOME Settings 的隐私面板
+                // 如果不是 GNOME，xdg-open 会回退到系统默认设置应用
+                tracing::info!(
+                    "Linux 平台权限 '{}' 无直接设置页面，尝试打开系统设置",
+                    permission
+                );
+                "gnome-control-center privacy"
+            }
+        };
+
+        tracing::info!("打开系统设置: {}", url);
+
+        // 尝试 GNOME 设置面板，失败则回退到 xdg-open
+        let result = match permission {
+            "camera" | "microphone" => open::that(format!("gnome-control-center {}", permission))
+                .or_else(|_| open::that("xdg-settings")),
+            _ => std::process::Command::new("gnome-control-center")
+                .arg("privacy")
+                .spawn()
+                .map(|_| ())
+                .or_else(|_| {
+                    std::process::Command::new("xdg-open")
+                        .arg("gnome-control-center:")
+                        .spawn()
+                        .map(|_| ())
+                }),
+        };
+
+        result.map_err(|e| {
+            PermissionError::RequestFailed(format!(
+                "无法打开系统设置，请手动在系统设置中授权: {}",
+                e
+            ))
+        })
+    }
+
+    /// 打开系统权限设置页面 (其他平台)
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    pub fn open_settings(permission: &str) -> Result<(), PermissionError> {
+        Err(PermissionError::UnsupportedPermission(format!(
+            "当前平台不支持自动打开权限设置: {}",
+            permission
+        )))
     }
 
     /// 默认权限列表
@@ -117,7 +182,8 @@ impl PermissionManager {
             PermissionItem {
                 name: "input_monitoring".to_string(),
                 display_name: "输入监控".to_string(),
-                description: "允许应用程序监控输入事件，用于远程控制时拦截本地键盘鼠标操作".to_string(),
+                description: "允许应用程序监控输入事件，用于远程控制时拦截本地键盘鼠标操作"
+                    .to_string(),
                 status: PermissionStatus::Unknown,
                 requested: false,
             },

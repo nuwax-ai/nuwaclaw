@@ -22,6 +22,7 @@ import { restartAllServices } from "../services/dependencies";
 import SetupBasicConfig from "./SetupBasicConfig";
 import SetupAccountLogin from "./SetupAccountLogin";
 import SetupDependencies from "./SetupDependencies";
+import SetupPreflight from "./SetupPreflight";
 
 const { Text } = Typography;
 
@@ -35,6 +36,7 @@ interface SetupWizardProps {
 }
 
 export default function SetupWizard({ onComplete }: SetupWizardProps) {
+  const [preflightPassed, setPreflightPassed] = useState<boolean | null>(null);
   const [dependenciesReady, setDependenciesReady] = useState<boolean | null>(
     null,
   );
@@ -47,13 +49,20 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     const init = async () => {
       try {
         const depsInstalled = await getDepsInstalled();
-        setDependenciesReady(depsInstalled);
         if (depsInstalled) {
+          // 依赖已装好，跳过预检和依赖阶段
+          setPreflightPassed(true);
+          setDependenciesReady(true);
           const step = await getCurrentStep();
           setCurrentStep(step);
+        } else {
+          // 先展示预检
+          setPreflightPassed(false);
+          setDependenciesReady(false);
         }
       } catch (error) {
         console.error("[SetupWizard] 加载状态失败:", error);
+        setPreflightPassed(false);
         setDependenciesReady(false);
       } finally {
         setLoading(false);
@@ -71,6 +80,10 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     return () => {
       p.then((u) => u());
     };
+  }, []);
+
+  const handlePreflightComplete = useCallback(() => {
+    setPreflightPassed(true);
   }, []);
 
   const handleDepsComplete = useCallback(async () => {
@@ -158,6 +171,41 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       <div style={styles.container}>
         <div style={styles.center}>
           <Spin size="small" />
+        </div>
+      </div>
+    );
+  }
+
+  // 环境预检阶段
+  if (!preflightPassed) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              justifyContent: "center",
+              marginBottom: 4,
+            }}
+          >
+            <RobotOutlined style={{ fontSize: 18, color: "#18181b" }} />
+            <span style={{ fontSize: 15, fontWeight: 600 }}>NuWax Agent</span>
+          </div>
+          <div style={{ fontSize: 12, color: "#a1a1aa", textAlign: "center" }}>
+            环境预检
+          </div>
+        </div>
+
+        <div style={styles.content}>
+          <SetupPreflight onComplete={handlePreflightComplete} />
+        </div>
+
+        <div style={styles.footer}>
+          <Text style={{ fontSize: 11, color: "#a1a1aa" }}>
+            NuWax Agent v0.1.0
+          </Text>
         </div>
       </div>
     );
