@@ -1062,9 +1062,17 @@ fn build_rcoder_config(app: &tauri::AppHandle) -> Result<RcoderAgentRunnerConfig
     info!("[Rcoder] 找到 agent_port: {}", port);
 
     let projects_dir = resolve_projects_dir(app)?;
+    let computer_workspace_dir = projects_dir.join("computer-project-workspace");
+
+    // 确保 computer-project-workspace 目录存在
+    if !computer_workspace_dir.exists() {
+        std::fs::create_dir_all(&computer_workspace_dir)
+            .map_err(|e| format!("创建 computer-project-workspace 目录失败: {}", e))?;
+        info!("[Rcoder] 已创建目录: {}", computer_workspace_dir.display());
+    }
 
     let config = RcoderAgentRunnerConfig {
-        projects_dir: projects_dir.join("computer-project-workspace"),
+        projects_dir: computer_workspace_dir,
         backend_port: port,
         ..RcoderAgentRunnerConfig::default()
     };
@@ -1370,8 +1378,43 @@ async fn services_restart_all(
                 .join("project_logs")
                 .to_string_lossy()
                 .to_string(),
-            computer_workspace_dir: std::path::PathBuf::from(&workspace_dir)
-                .join("computer-project-workspace")
+        };
+
+        // 确保 computer-project-workspace 目录存在
+        let computer_workspace_path = std::path::PathBuf::from(&workspace_dir).join("computer-project-workspace");
+        if !computer_workspace_path.exists() {
+            std::fs::create_dir_all(&computer_workspace_path)
+                .map_err(|e| format!("创建 computer-project-workspace 目录失败: {}", e))?;
+            info!("[Services]   - 已创建 computer-project-workspace 目录");
+        }
+
+        let file_server_config = nuwax_agent_core::NuwaxFileServerConfig {
+            bin_path,
+            port,
+            env: "production".to_string(),
+            init_project_name: "nuwax-template".to_string(),
+            init_project_dir: std::path::PathBuf::from(&workspace_dir)
+                .join("project_init")
+                .to_string_lossy()
+                .to_string(),
+            upload_project_dir: std::path::PathBuf::from(&workspace_dir)
+                .join("project_zips")
+                .to_string_lossy()
+                .to_string(),
+            project_source_dir: std::path::PathBuf::from(&workspace_dir)
+                .join("project_workspace")
+                .to_string_lossy()
+                .to_string(),
+            dist_target_dir: std::path::PathBuf::from(&workspace_dir)
+                .join("project_nginx")
+                .to_string_lossy()
+                .to_string(),
+            log_base_dir: app_data_dir
+                .join("logs")
+                .join("project_logs")
+                .to_string_lossy()
+                .to_string(),
+            computer_workspace_dir: computer_workspace_path
                 .to_string_lossy()
                 .to_string(),
             computer_log_dir: app_data_dir
