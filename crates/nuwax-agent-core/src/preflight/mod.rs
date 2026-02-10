@@ -283,31 +283,19 @@ async fn check_dependency_tools() -> Vec<PreflightCheck> {
     checks
 }
 
-/// 检查 node 是否可用（本地安装路径 → ~/.local/bin/ → PATH）
+/// 检查 node 是否可用（~/.local/bin/ → PATH）
 fn check_node_available() -> bool {
-    // 1. 本地安装路径
-    let local_node = dirs::data_local_dir()
+    // 1. ~/.local/bin/node
+    let local_node = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("nuwax-agent")
-        .join("tools")
-        .join("node")
+        .join(".local")
         .join("bin")
         .join("node");
     if local_node.exists() {
         return true;
     }
 
-    // 2. ~/.local/bin/
-    let global_node = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".local")
-        .join("bin")
-        .join("node");
-    if global_node.exists() {
-        return true;
-    }
-
-    // 3. PATH
+    // 2. PATH
     which::which("node").is_ok()
 }
 

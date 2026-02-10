@@ -1846,54 +1846,29 @@ async fn check_network_cn() -> bool {
 }
 
 /// 解析 node/npm/npx 等二进制的实际路径
-/// 优先查找本地安装路径 → ~/.local/bin/ → 最后 fallback 到命令名（依赖 PATH）
+/// 优先查找 ~/.local/bin/ → 最后 fallback 到命令名（依赖 PATH）
 fn resolve_node_bin(bin_name: &str) -> String {
-    // 1. 本地安装路径
-    let local_dir = dirs::data_local_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("nuwax-agent")
-        .join("tools")
-        .join("node")
-        .join("bin");
-
-    #[cfg(unix)]
-    let local_bin = local_dir.join(bin_name);
-    #[cfg(windows)]
-    let local_bin = if bin_name == "node" {
-        local_dir.join("node.exe")
-    } else {
-        local_dir.join(format!("{}.cmd", bin_name))
-    };
-
-    if local_bin.exists() {
-        info!("[resolve_node_bin] {} -> {:?} (local)", bin_name, local_bin);
-        return local_bin.to_string_lossy().to_string();
-    }
-
-    // 2. ~/.local/bin/ (全局符号链接)
+    // 1. ~/.local/bin/ (node 安装目录)
     let global_bin = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".local")
         .join("bin");
 
     #[cfg(unix)]
-    let global_path = global_bin.join(bin_name);
+    let bin_path = global_bin.join(bin_name);
     #[cfg(windows)]
-    let global_path = if bin_name == "node" {
+    let bin_path = if bin_name == "node" {
         global_bin.join("node.exe")
     } else {
         global_bin.join(format!("{}.cmd", bin_name))
     };
 
-    if global_path.exists() {
-        info!(
-            "[resolve_node_bin] {} -> {:?} (global)",
-            bin_name, global_path
-        );
-        return global_path.to_string_lossy().to_string();
+    if bin_path.exists() {
+        info!("[resolve_node_bin] {} -> {:?}", bin_name, bin_path);
+        return bin_path.to_string_lossy().to_string();
     }
 
-    // 3. 降级到 PATH
+    // 2. 降级到 PATH
     info!("[resolve_node_bin] {} -> fallback to PATH", bin_name);
     bin_name.to_string()
 }
@@ -1929,21 +1904,15 @@ async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, String
 }
 
 /// 检测 Node.js 版本
-/// 检测顺序: 1) 本地安装路径 (data_local_dir/nuwax-agent/tools/node) 2) 系统 PATH
+/// 检测顺序: 1) ~/.local/bin/node 2) 系统 PATH
 #[tauri::command]
 async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionResult, String> {
-    // 1. 检测本地安装路径（优先级最高）
-    // 使用 dirs::data_local_dir() 与 NodeInstaller 保持一致的路径
-    let local_node_dir = dirs::data_local_dir()
+    // 1. 检测 ~/.local/bin/node（我们的安装路径）
+    let local_node_bin = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("nuwax-agent")
-        .join("tools")
-        .join("node");
-
-    #[cfg(unix)]
-    let local_node_bin = local_node_dir.join("bin").join("node");
-    #[cfg(windows)]
-    let local_node_bin = local_node_dir.join("bin").join("node.exe");
+        .join(".local")
+        .join("bin")
+        .join(if cfg!(windows) { "node.exe" } else { "node" });
 
     if local_node_bin.exists() {
         let output = Command::new(&local_node_bin).arg("--version").output();
@@ -1955,7 +1924,7 @@ async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionRes
                     .to_string();
                 let meets = check_version_meets_requirement(&version_str, "22.0.0");
                 info!(
-                    "[NodeDetect] 本地 Node.js: v{} (满足要求: {})",
+                    "[NodeDetect] ~/.local/bin/node: v{} (满足要求: {})",
                     version_str, meets
                 );
                 return Ok(NodeVersionResult {
@@ -1967,36 +1936,7 @@ async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionRes
         }
     }
 
-    // 2. 检测 ~/.local/bin/node（全局符号链接）
-    let global_node_bin = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".local")
-        .join("bin")
-        .join(if cfg!(windows) { "node.exe" } else { "node" });
-
-    if global_node_bin.exists() {
-        let output = Command::new(&global_node_bin).arg("--version").output();
-        if let Ok(out) = output {
-            if out.status.success() {
-                let version_str = String::from_utf8_lossy(&out.stdout)
-                    .trim()
-                    .trim_start_matches('v')
-                    .to_string();
-                let meets = check_version_meets_requirement(&version_str, "22.0.0");
-                info!(
-                    "[NodeDetect] 全局 ~/.local/bin/node: v{} (满足要求: {})",
-                    version_str, meets
-                );
-                return Ok(NodeVersionResult {
-                    installed: true,
-                    version: Some(version_str),
-                    meets_requirement: meets,
-                });
-            }
-        }
-    }
-
-    // 3. 检测系统 PATH
+    // 2. 检测系统 PATH
     let output = Command::new("node").arg("--version").output();
 
     match output {

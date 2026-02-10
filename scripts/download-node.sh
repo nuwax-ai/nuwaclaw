@@ -148,10 +148,10 @@ if [ "${PLATFORM}" = "win" ]; then
     cp -r "${INNER_DIR}/node_modules" "${TARGET_DIR}/lib/node_modules"
   fi
 else
-  # Unix: 只保留 bin/ 和 lib/
-  cp -r "${INNER_DIR}/bin" "${TARGET_DIR}/bin"
+  # Unix: 只保留 bin/ 和 lib/（使用 cp -a 保留符号链接）
+  cp -a "${INNER_DIR}/bin" "${TARGET_DIR}/bin"
   if [ -d "${INNER_DIR}/lib" ]; then
-    cp -r "${INNER_DIR}/lib" "${TARGET_DIR}/lib"
+    cp -a "${INNER_DIR}/lib" "${TARGET_DIR}/lib"
   fi
 
   # 确保可执行权限
