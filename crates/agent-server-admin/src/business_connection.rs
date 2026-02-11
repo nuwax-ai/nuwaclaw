@@ -197,13 +197,7 @@ impl BusinessConnection {
         let state = self.state.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                futures::executor::block_on(async {
-                    Self::receive_loop_inner(&peer_id, &event_tx, &stream, &state).await;
-                })
-            })) {
-                error!("Receive loop for {} panicked: {:?}", peer_id, e);
-            }
+            Self::receive_loop_inner(&peer_id, &event_tx, &stream, &state).await;
         })
     }
 

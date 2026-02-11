@@ -107,13 +107,7 @@ impl RustDeskBridge {
             let id_event_tx = event_tx.clone();
             let id_self_id = self_id.clone();
             let id_abort_handle = tokio::spawn(async move {
-                if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    futures::executor::block_on(async {
-                        Self::poll_self_id(id_running.clone(), id_event_tx.clone(), id_self_id.clone()).await;
-                    })
-                })) {
-                    error!("ID polling task panicked: {:?}", e);
-                }
+                Self::poll_self_id(id_running.clone(), id_event_tx.clone(), id_self_id.clone()).await;
             }).abort_handle();
 
             // 启动 rendezvous mediator（阻塞直到连接断开）

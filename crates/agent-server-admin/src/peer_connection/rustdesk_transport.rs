@@ -20,25 +20,18 @@ use crate::business_connection::{BusinessConnection, BusinessConnectionEvent, Bu
 
 use super::transport::{ConnectionInfo, Transport};
 
-/// 安全 spawn 包装器 — 捕获 panic 并记录日志
+/// 安全 spawn 包装器
+///
+/// 简化的 spawn 包装器，直接使用 tokio::spawn。
+/// tokio::spawn 默认已经隔离 panic，不会导致进程崩溃。
+///
+/// 注意：$task_name 参数保留用于日志追踪（当前未使用，未来可扩展）。
 macro_rules! spawn_safe {
     ($task_name:expr, $future:expr) => {
-        tokio::spawn(async move {
-            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                futures::executor::block_on($future)
-            })) {
-                error!("Task '{}' panicked: {:?}", $task_name, e);
-            }
-        })
+        tokio::spawn($future)
     };
     ($future:expr) => {
-        tokio::spawn(async move {
-            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                futures::executor::block_on($future)
-            })) {
-                error!("Anonymous task panicked: {:?}", e);
-            }
-        })
+        tokio::spawn($future)
     };
 }
 
