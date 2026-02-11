@@ -800,6 +800,20 @@ impl ServiceManager {
         info!("[FileServer] 可执行文件路径: {}", config.bin_path);
         info!("[FileServer] 端口: {}", config.port);
 
+        // 创建必要的目录
+        let dirs_to_create = [
+            &config.project_source_dir,
+            &config.computer_workspace_dir,
+            &config.computer_log_dir,
+        ];
+        for dir in &dirs_to_create {
+            if let Err(e) = tokio::fs::create_dir_all(dir).await {
+                warn!("[FileServer] 创建目录失败 {}: {}", dir, e);
+            } else {
+                info!("[FileServer] 确保目录存在: {}", dir);
+            }
+        }
+
         let node_path = crate::utils::build_node_path_env();
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
             cmd.env("PATH", &node_path)

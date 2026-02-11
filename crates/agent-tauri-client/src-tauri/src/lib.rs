@@ -1251,7 +1251,7 @@ async fn services_restart_all(
 
         // 创建 RcoderAgentRunner 配置
         let config = RcoderAgentRunnerConfig {
-            projects_dir,
+            projects_dir: projects_dir.join("computer-project-workspace"),
             ..RcoderAgentRunnerConfig::default()
         };
         info!("[Services]   - 创建 RcoderAgentRunner 配置: {:?}", config);
@@ -3562,6 +3562,7 @@ pub fn run() {
         // 注意：必须使用 block_on 同步等待服务停止，否则窗口隐藏后服务可能仍在运行
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                info!("[Window] 收到 CloseRequested 事件，停止所有服务并隐藏到托盘");
                 // 阻止默认关闭行为，改为隐藏窗口
                 api.prevent_close();
 
