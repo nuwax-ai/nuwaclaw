@@ -484,6 +484,11 @@ impl NodeInstaller {
 
         info!("Node.js installation to ~/.local/ completed");
 
+        // 创建 ~/.local/bin/env（Unix）或 env.bat/env.ps1（Windows），便于用户在终端 source 后使用 node
+        if let Err(e) = crate::utils::ensure_local_bin_env() {
+            warn!("写入本地 env 脚本失败（不影响安装）: {}", e);
+        }
+
         // 验证安装
         let detector = NodeDetector::new();
         detector.detect_local()
@@ -518,6 +523,7 @@ impl NodeInstaller {
     }
 
     /// 获取下载 URL
+    /// 使用国内 npmmirror 镜像（https://npmmirror.com/mirrors/node），便于国内环境下载
     fn get_download_url(&self) -> String {
         let version = "22.14.0"; // LTS 版本
         let os = std::env::consts::OS;
@@ -539,7 +545,7 @@ impl NodeInstaller {
         let ext = if os == "windows" { "zip" } else { "tar.gz" };
 
         format!(
-            "https://nodejs.org/dist/v{}/node-v{}-{}-{}.{}",
+            "https://npmmirror.com/mirrors/node/v{}/node-v{}-{}-{}.{}",
             version, version, platform, arch_str, ext
         )
     }

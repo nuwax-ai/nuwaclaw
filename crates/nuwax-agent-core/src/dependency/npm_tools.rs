@@ -1,12 +1,16 @@
 //! npm 工具安装器
 //!
 //! 管理 npm 全局工具的安装（opencode, claude-code 等）
+//! 国内环境使用 npmmirror 镜像，加速安装与下载。
 
 use std::path::PathBuf;
 use std::process::Command;
 use thiserror::Error;
 use tracing::{info, warn};
 use which::which;
+
+/// 国内 npm 镜像（npmmirror），安装/更新时使用以加速
+const NPM_REGISTRY_CN: &str = "https://registry.npmmirror.com/";
 
 use super::detector::{InstallerError, ToolInfo, ToolInstaller};
 
@@ -292,13 +296,23 @@ impl NpmToolInstaller {
     }
 
     /// 安装工具（返回 NpmToolInfo，向后兼容）
+    /// 使用国内 npmmirror 镜像，便于国内环境安装
     pub fn install_tool(&self, tool_name: &str) -> Result<NpmToolInfo, NpmToolError> {
         let npm_path = self.get_npm_path();
 
-        info!("Installing npm tool: {}", tool_name);
+        info!(
+            "Installing npm tool: {} (registry: {})",
+            tool_name, NPM_REGISTRY_CN
+        );
 
         let output = Command::new(&npm_path)
-            .args(["install", "-g", tool_name])
+            .args([
+                "install",
+                "-g",
+                tool_name,
+                "--registry",
+                NPM_REGISTRY_CN,
+            ])
             .output()
             .map_err(|e| NpmToolError::CommandFailed(e.to_string()))?;
 
@@ -334,13 +348,23 @@ impl NpmToolInstaller {
     }
 
     /// 更新工具
+    /// 使用国内 npmmirror 镜像
     pub fn update_tool(&self, tool_name: &str) -> Result<NpmToolInfo, NpmToolError> {
         let npm_path = self.get_npm_path();
 
-        info!("Updating npm tool: {}", tool_name);
+        info!(
+            "Updating npm tool: {} (registry: {})",
+            tool_name, NPM_REGISTRY_CN
+        );
 
         let output = Command::new(&npm_path)
-            .args(["update", "-g", tool_name])
+            .args([
+                "update",
+                "-g",
+                tool_name,
+                "--registry",
+                NPM_REGISTRY_CN,
+            ])
             .output()
             .map_err(|e| NpmToolError::CommandFailed(e.to_string()))?;
 

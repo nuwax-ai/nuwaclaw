@@ -45,13 +45,15 @@ pub fn fix_macos_path_env() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             let new_path = ordered_paths.join(":");
-            std::env::set_var("PATH", &new_path);
 
             eprintln!("[PATH Fix] Successfully fixed PATH environment");
             eprintln!(
                 "[PATH Fix] New PATH includes: {} entries",
                 ordered_paths.len()
             );
+
+            // 使用安全封装函数设置 PATH
+            nuwax_agent_core::utils::set_path_env(new_path);
         }
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -95,7 +97,15 @@ pub fn fix_linux_path_env() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             let new_path = ordered_paths.join(":");
-            std::env::set_var("PATH", &new_path);
+
+            eprintln!("[PATH Fix] Successfully fixed Linux PATH environment");
+            eprintln!(
+                "[PATH Fix] New PATH includes: {} entries",
+                ordered_paths.len()
+            );
+
+            // 使用安全封装函数设置 PATH
+            nuwax_agent_core::utils::set_path_env(new_path);
 
             eprintln!("[PATH Fix] Successfully fixed Linux PATH environment");
             eprintln!(
