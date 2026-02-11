@@ -576,33 +576,26 @@ fn strip_host_from_url(server_host: &str) -> String {
     }
 }
 
-/// 获取当前平台的 nuwax-lanproxy 可执行文件完整路径
-///
-/// 返回 binaries 目录下对应平台的可执行文件路径。
-/// 路径格式: {app_dir}/binaries/nuwax-lanproxy-{platform}
-///
-/// # Arguments
-/// * `app` - Tauri AppHandle，用于获取应用资源目录
-///
-/// # Returns
-/// 完整的可执行文件路径，如果出错则返回错误信息
-/// 获取 nuwax-file-server 可执行文件完整路径
+// ========== 可执行文件路径解析（公共方法，供 file-server / mcp-proxy / lanproxy 等复用） ==========
+
+/// 解析通过 npm 安装的可执行文件路径（本地 node_modules/.bin 或全局安装）。
 ///
 /// 查找顺序（与「依赖均安装在全局」方案一致）：
-/// 1. 应用数据目录本地安装：<app_data_dir>/node_modules/.bin/nuwax-file-server
-/// 2. npm 全局 prefix 下的 bin：通过 `npm config get prefix` 得到目录，再查 <prefix>/bin/nuwax-file-server（Unix）或 <prefix>/nuwax-file-server.cmd（Windows）
-/// 3. 常见全局 bin 目录：~/.local/bin/nuwax-file-server（Unix）、%APPDATA%\\npm\\nuwax-file-server.cmd（Windows）
-/// 4. 系统 PATH 中的 which/where
+/// 1. 应用数据目录：`<app_data_dir>/node_modules/.bin/{bin_name}`
+/// 2. npm 全局 prefix：`npm config get prefix` → `<prefix>/bin/{bin_name}`（Unix）或 `<prefix>/{bin_name}.cmd`（Windows）
+/// 3. 常见目录：`~/.local/bin/{bin_name}`、Windows `%APPDATA%\\npm\\{bin_name}.cmd`
+/// 4. 系统 PATH：which/where
 ///
-/// # Arguments
-/// * `app` - Tauri AppHandle，用于获取应用数据目录
-///
-/// # Returns
-/// 完整的可执行文件路径，如果出错则返回错误信息
-fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
-    let bin_name = "nuwax-file-server";
-
-    // 1. 应用数据目录下的本地安装（兼容旧方案）
+/// # 参数
+/// - `app`: Tauri AppHandle
+/// - `bin_name`: 可执行文件名（如 `nuwax-file-server`、`mcp-proxy`）
+/// - `missing_hint`: 未找到时错误信息中的提示（如「请在「依赖」页面安装 xxx」）
+fn resolve_npm_global_bin_path(
+    app: &tauri::AppHandle,
+    bin_name: &str,
+    missing_hint: &str,
+) -> Result<String, String> {
+    // 1. 应用数据目录下的本地安装
     let app_data_dir = app
         .path()
         .app_data_dir()
@@ -614,14 +607,11 @@ fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
         .join(bin_name);
 
     if local_bin.exists() {
-        info!(
-            "[FileServer] 找到可执行文件(本地): {}",
-            local_bin.to_string_lossy()
-        );
+        info!("[BinPath] {} 找到(本地): {}", bin_name, local_bin.to_string_lossy());
         return Ok(local_bin.to_string_lossy().to_string());
     }
 
-    // 2. 通过 npm 全局 prefix 解析（不依赖 GUI 进程的 PATH，打包后干净环境也能找到全局安装）
+    // 2. npm 全局 prefix
     let node_path_env = build_node_path_env();
     let npm_bin = resolve_node_bin("npm");
 
@@ -642,7 +632,6 @@ fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
                 #[cfg(windows)]
                 let global_bin = {
                     let p = std::path::Path::new(&prefix);
-                    // Windows 下 npm 全局包可能在 prefix 根目录或 prefix/bin
                     let in_root = p.join(format!("{}.cmd", bin_name));
                     if in_root.exists() {
                         in_root
@@ -652,17 +641,14 @@ fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
                 };
 
                 if global_bin.exists() {
-                    info!(
-                        "[FileServer] 找到可执行文件(npm 全局 prefix): {}",
-                        global_bin.to_string_lossy()
-                    );
+                    info!("[BinPath] {} 找到(npm 全局): {}", bin_name, global_bin.to_string_lossy());
                     return Ok(global_bin.to_string_lossy().to_string());
                 }
             }
         }
     }
 
-    // 3. 常见全局 bin 目录（与 resolve_node_bin 使用的 ~/.local/bin 一致）
+    // 3. 常见全局 bin 目录
     let home_local_bin = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".local")
@@ -674,20 +660,19 @@ fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
     let common_global = home_local_bin.join(format!("{}.cmd", bin_name));
 
     if common_global.exists() {
-        info!(
-            "[FileServer] 找到可执行文件(~/.local/bin): {}",
-            common_global.to_string_lossy()
-        );
+        info!("[BinPath] {} 找到(~/.local/bin): {}", bin_name, common_global.to_string_lossy());
         return Ok(common_global.to_string_lossy().to_string());
     }
 
     #[cfg(windows)]
     {
         if let Ok(appdata) = std::env::var("APPDATA") {
-            let npm_appdata = std::path::Path::new(&appdata).join("npm").join(format!("{}.cmd", bin_name));
+            let npm_appdata =
+                std::path::Path::new(&appdata).join("npm").join(format!("{}.cmd", bin_name));
             if npm_appdata.exists() {
                 info!(
-                    "[FileServer] 找到可执行文件(%%APPDATA%%\\npm): {}",
+                    "[BinPath] {} 找到(%%APPDATA%%\\npm): {}",
+                    bin_name,
                     npm_appdata.to_string_lossy()
                 );
                 return Ok(npm_appdata.to_string_lossy().to_string());
@@ -695,8 +680,8 @@ fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
         }
     }
 
-    // 4. 最后回退：当前进程 PATH 中的 which/where
-    warn!("[FileServer] 未在 npm 全局/常见路径找到，尝试 PATH 中的命令");
+    // 4. PATH 中的 which/where
+    warn!("[BinPath] {} 未在常见路径找到，尝试 PATH", bin_name);
 
     #[cfg(unix)]
     let which_cmd = "which";
@@ -705,25 +690,91 @@ fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
 
     if let Ok(output) = std::process::Command::new(which_cmd).arg(bin_name).output() {
         if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // Windows "where" 可能返回多行，取第一行
+            let path = stdout.lines().next().unwrap_or("").trim().to_string();
             if !path.is_empty() {
-                info!("[FileServer] 找到全局命令(PATH): {}", path);
+                info!("[BinPath] {} 找到(PATH): {}", bin_name, path);
                 return Ok(path);
             }
         }
     }
 
-    Err(format!(
-        "未找到 {} 可执行文件，请在「依赖」页面安装 Nuwax File Server",
-        bin_name
-    ))
+    Err(format!("未找到 {} 可执行文件，{}", bin_name, missing_hint))
 }
 
-/// 获取当前平台的 nuwax-lanproxy 可执行文件完整路径
+/// 解析随应用打包的可执行文件路径（binaries 目录）。
+///
+/// 查找顺序：资源目录 → 可执行文件同目录 → CARGO_MANIFEST_DIR → 开发目录 cwd。
+fn resolve_bundled_bin_path(app: &tauri::AppHandle, bin_name: &str) -> Result<String, String> {
+    // 1. 资源目录（生产环境）
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let bin_path = resource_dir.join("binaries").join(bin_name);
+        if bin_path.exists() {
+            info!("[BinPath] {} 找到(资源目录): {}", bin_name, bin_path.to_string_lossy());
+            return Ok(bin_path.to_string_lossy().to_string());
+        }
+    }
+
+    // 2. 可执行文件所在目录
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+    {
+        let alt_path = exe_dir.join("binaries").join(bin_name);
+        if alt_path.exists() {
+            info!("[BinPath] {} 找到(exe 同目录): {}", bin_name, alt_path.to_string_lossy());
+            return Ok(alt_path.to_string_lossy().to_string());
+        }
+    }
+
+    // 3. 开发模式：CARGO_MANIFEST_DIR
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        let dev_path = std::path::Path::new(&manifest_dir).join("binaries").join(bin_name);
+        if dev_path.exists() {
+            info!("[BinPath] {} 找到(manifest): {}", bin_name, dev_path.to_string_lossy());
+            return Ok(dev_path.to_string_lossy().to_string());
+        }
+    }
+
+    // 4. 开发模式：cwd 下的 src-tauri/binaries
+    if let Ok(cwd) = std::env::current_dir() {
+        let dev_path = cwd
+            .join("crates/agent-tauri-client/src-tauri/binaries")
+            .join(bin_name);
+        if dev_path.exists() {
+            info!("[BinPath] {} 找到(cwd): {}", bin_name, dev_path.to_string_lossy());
+            return Ok(dev_path.to_string_lossy().to_string());
+        }
+    }
+
+    Err(format!("未找到 {} 可执行文件", bin_name))
+}
+
+/// 获取 nuwax-file-server 可执行文件完整路径（复用 resolve_npm_global_bin_path）
+fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
+    resolve_npm_global_bin_path(app, "nuwax-file-server", "请在「依赖」页面安装 Nuwax File Server")
+}
+
+/// 获取当前平台的 nuwax-lanproxy 可执行文件完整路径（复用 resolve_bundled_bin_path）
+///
+/// 返回 binaries 目录下对应平台的可执行文件路径：{app_dir}/binaries/nuwax-lanproxy-{platform}
 fn get_lanproxy_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
-    // 根据平台和架构选择二进制文件名
     #[cfg(target_os = "macos")]
-    let bin_name = "nuwax-lanproxy-aarch64-apple-darwin";
+    let bin_name = {
+        #[cfg(target_arch = "aarch64")]
+        {
+            "nuwax-lanproxy-aarch64-apple-darwin"
+        }
+        #[cfg(target_arch = "x86_64")]
+        {
+            "nuwax-lanproxy-x86_64-apple-darwin"
+        }
+        #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+        {
+            "nuwax-lanproxy-universal-apple-darwin"
+        }
+    };
 
     #[cfg(target_os = "linux")]
     let bin_name = {
@@ -768,46 +819,12 @@ fn get_lanproxy_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     let bin_name = "nuwax-lanproxy";
 
-    // 1. 尝试从资源目录获取 (生产环境)
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let bin_path = resource_dir.join("binaries").join(bin_name);
-        if bin_path.exists() {
-            return Ok(bin_path.to_string_lossy().to_string());
-        }
-    }
+    resolve_bundled_bin_path(app, bin_name)
+}
 
-    // 2. 尝试从可执行文件所在目录获取
-    if let Some(exe_dir) = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-    {
-        let alt_path = exe_dir.join("binaries").join(bin_name);
-        if alt_path.exists() {
-            return Ok(alt_path.to_string_lossy().to_string());
-        }
-    }
-
-    // 3. 开发模式: 尝试从 src-tauri/binaries 目录获取
-    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let dev_path = std::path::Path::new(&manifest_dir)
-            .join("binaries")
-            .join(bin_name);
-        if dev_path.exists() {
-            return Ok(dev_path.to_string_lossy().to_string());
-        }
-    }
-
-    // 4. 开发模式备选: 从当前工作目录推断
-    if let Ok(cwd) = std::env::current_dir() {
-        let dev_path = cwd
-            .join("crates/agent-tauri-client/src-tauri/binaries")
-            .join(bin_name);
-        if dev_path.exists() {
-            return Ok(dev_path.to_string_lossy().to_string());
-        }
-    }
-
-    Err(format!("未找到 {} 可执行文件", bin_name))
+/// 获取 mcp-proxy 可执行文件完整路径（复用 resolve_npm_global_bin_path）
+fn get_mcp_proxy_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
+    resolve_npm_global_bin_path(app, "mcp-proxy", "请在「依赖」页面安装 MCP Proxy")
 }
 
 /// 启动 nuwax-lanproxy 客户端
@@ -1014,8 +1031,13 @@ async fn mcp_proxy_start(
             }
         });
 
+    let bin_path = get_mcp_proxy_bin_path(&app).map_err(|e| {
+        error!("[McpProxy] {}", e);
+        e
+    })?;
+
     let mcp_proxy_config = nuwax_agent_core::McpProxyConfig {
-        bin_path: DEFAULT_MCP_PROXY_BIN.to_string(),
+        bin_path,
         port,
         host: DEFAULT_MCP_PROXY_HOST.to_string(),
         config_json,
@@ -1059,8 +1081,7 @@ async fn mcp_proxy_restart(
 // ========== 服务管理命令 ==========
 
 use nuwax_agent_core::service::{
-    ServiceInfo, ServiceManager, DEFAULT_MCP_PROXY_BIN, DEFAULT_MCP_PROXY_HOST,
-    DEFAULT_MCP_PROXY_PORT,
+    ServiceInfo, ServiceManager, DEFAULT_MCP_PROXY_HOST, DEFAULT_MCP_PROXY_PORT,
 };
 
 /// 服务状态 DTO
@@ -1715,8 +1736,20 @@ async fn services_restart_all(
             _ => r#"{"mcpServers":{}}"#.to_string(),
         };
 
+        let bin_path = match get_mcp_proxy_bin_path(&app) {
+            Ok(p) => {
+                info!("[Services]   - mcp-proxy 可执行文件: {}", p);
+                p
+            }
+            Err(e) => {
+                let err = format!("获取 mcp-proxy 路径失败: {}", e);
+                error!("[Services]   - {}", err);
+                return Err(err);
+            }
+        };
+
         let mcp_proxy_config = nuwax_agent_core::McpProxyConfig {
-            bin_path: DEFAULT_MCP_PROXY_BIN.to_string(),
+            bin_path,
             port,
             host: DEFAULT_MCP_PROXY_HOST.to_string(),
             config_json,
