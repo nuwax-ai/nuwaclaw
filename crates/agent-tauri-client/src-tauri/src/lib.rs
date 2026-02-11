@@ -185,43 +185,44 @@ fn parse_permission(s: &str) -> Result<SystemPermission, String> {
 
 /// 检查完全磁盘访问权限
 ///
-/// 该命令用于检测应用是否已获得 macOS 的完全磁盘访问权限。
-/// 通过尝试访问用户主目录下的 Library/Application Support 目录来判断。
-/// 如果没有完全磁盘访问权限，该目录将被拒绝访问。
+/// - **macOS**：通过尝试访问用户主目录下的 Library/Application Support 判断是否已授予完全磁盘访问权限。
+/// - **Windows / Linux**：无此系统级权限概念，直接返回 `Ok(true)`，避免路径与语义不兼容。
 ///
 /// # 返回
-/// - `Ok(true)` - 已获得完全磁盘访问权限
-/// - `Ok(false)` - 未获得完全磁盘访问权限
+/// - `Ok(true)` - 已获得权限（或当前平台无需此检查）
+/// - `Ok(false)` - 未获得权限（仅 macOS）
 /// - `Err(message)` - 检查过程中发生错误
 #[tauri::command]
 async fn check_disk_access() -> Result<bool, String> {
-    info!("[Permissions] 开始检查完全磁盘访问权限...");
-
-    // 获取用户主目录
-    let home_dir = std::env::home_dir().ok_or("无法获取用户主目录")?;
-
-    // 尝试访问受保护的目录
-    // macOS 上完全磁盘访问权限控制的核心目录之一
-    let protected_path = home_dir.join("Library").join("Application Support");
-
-    info!(
-        "[Permissions] 尝试访问受保护目录: {}",
-        protected_path.display()
-    );
-
-    match std::fs::read_dir(&protected_path) {
-        Ok(_) => {
-            info!("[Permissions] 完全磁盘访问权限已授予");
-            Ok(true)
+    #[cfg(target_os = "macos")]
+    {
+        info!("[Permissions] 开始检查完全磁盘访问权限...");
+        let home_dir = std::env::home_dir().ok_or("无法获取用户主目录")?;
+        let protected_path = home_dir.join("Library").join("Application Support");
+        info!(
+            "[Permissions] 尝试访问受保护目录: {}",
+            protected_path.display()
+        );
+        match std::fs::read_dir(&protected_path) {
+            Ok(_) => {
+                info!("[Permissions] 完全磁盘访问权限已授予");
+                Ok(true)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                warn!("[Permissions] 完全磁盘访问权限被拒绝: {}", e);
+                Ok(false)
+            }
+            Err(e) => {
+                error!("[Permissions] 检查完全磁盘访问权限时出错: {}", e);
+                Err(format!("检查权限时出错: {}", e))
+            }
         }
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-            warn!("[Permissions] 完全磁盘访问权限被拒绝: {}", e);
-            Ok(false)
-        }
-        Err(e) => {
-            error!("[Permissions] 检查完全磁盘访问权限时出错: {}", e);
-            Err(format!("检查权限时出错: {}", e))
-        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Windows / Linux 无“完全磁盘访问”同一语义，不检测，直接视为通过
+        Ok(true)
     }
 }
 

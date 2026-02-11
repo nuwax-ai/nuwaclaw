@@ -796,13 +796,36 @@ mod standalone_tests {
             assert_eq!(config.port, 60000);
             assert_eq!(config.env, "production");
             assert_eq!(config.init_project_name, "nuwax-template");
-            assert_eq!(config.init_project_dir, "/data/init");
-            assert_eq!(config.upload_project_dir, "/data/zips");
-            assert_eq!(config.project_source_dir, "/data/workspace");
-            assert_eq!(config.dist_target_dir, "/var/www/nginx");
-            assert_eq!(config.log_base_dir, "/var/logs/project_logs");
-            assert_eq!(config.computer_workspace_dir, "/data/computer");
-            assert_eq!(config.computer_log_dir, "/var/logs/computer");
+            // 默认使用 temp_dir 下的 nuwax-file-server-default，跨平台兼容
+            let base = std::env::temp_dir().join("nuwax-file-server-default");
+            assert_eq!(
+                config.init_project_dir,
+                base.join("init").to_string_lossy().to_string()
+            );
+            assert_eq!(
+                config.upload_project_dir,
+                base.join("zips").to_string_lossy().to_string()
+            );
+            assert_eq!(
+                config.project_source_dir,
+                base.join("workspace").to_string_lossy().to_string()
+            );
+            assert_eq!(
+                config.dist_target_dir,
+                base.join("nginx").to_string_lossy().to_string()
+            );
+            assert_eq!(
+                config.log_base_dir,
+                base.join("logs").join("project_logs").to_string_lossy().to_string()
+            );
+            assert_eq!(
+                config.computer_workspace_dir,
+                base.join("computer").to_string_lossy().to_string()
+            );
+            assert_eq!(
+                config.computer_log_dir,
+                base.join("logs").join("computer").to_string_lossy().to_string()
+            );
         }
 
         #[test]

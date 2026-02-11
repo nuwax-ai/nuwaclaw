@@ -665,19 +665,23 @@ pub struct NuwaxFileServerConfig {
 }
 
 impl Default for NuwaxFileServerConfig {
+    /// 默认配置使用跨平台临时/数据目录，兼容 Windows / Linux / macOS。
+    /// 实际部署时由 Tauri 客户端根据 workspace_dir 与 app_data_dir 覆盖这些字段。
     fn default() -> Self {
+        // 使用系统临时目录下的子目录，避免硬编码 /data、/var 等 Unix 路径
+        let base = std::env::temp_dir().join("nuwax-file-server-default");
         Self {
             bin_path: "nuwax-file-server".to_string(),
             port: 60000,
             env: "production".to_string(),
             init_project_name: "nuwax-template".to_string(),
-            init_project_dir: "/data/init".to_string(),
-            upload_project_dir: "/data/zips".to_string(),
-            project_source_dir: "/data/workspace".to_string(),
-            dist_target_dir: "/var/www/nginx".to_string(),
-            log_base_dir: "/var/logs/project_logs".to_string(),
-            computer_workspace_dir: "/data/computer".to_string(),
-            computer_log_dir: "/var/logs/computer".to_string(),
+            init_project_dir: base.join("init").to_string_lossy().to_string(),
+            upload_project_dir: base.join("zips").to_string_lossy().to_string(),
+            project_source_dir: base.join("workspace").to_string_lossy().to_string(),
+            dist_target_dir: base.join("nginx").to_string_lossy().to_string(),
+            log_base_dir: base.join("logs").join("project_logs").to_string_lossy().to_string(),
+            computer_workspace_dir: base.join("computer").to_string_lossy().to_string(),
+            computer_log_dir: base.join("logs").join("computer").to_string_lossy().to_string(),
             capture_output_to_log: true,
         }
     }
