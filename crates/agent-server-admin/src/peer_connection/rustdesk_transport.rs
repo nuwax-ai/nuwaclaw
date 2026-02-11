@@ -22,14 +22,42 @@ use super::transport::{ConnectionInfo, Transport};
 
 /// 安全 spawn 包装器
 ///
-/// 简化的 spawn 包装器，直接使用 tokio::spawn。
-/// tokio::spawn 默认已经隔离 panic，不会导致进程崩溃。
+/// 增强版的 spawn 包装器，提供：
+/// - 任务启动日志（debug级别）
+/// - panic 监控和恢复
+/// - 错误上下文追踪
 ///
-/// 注意：$task_name 参数保留用于日志追踪（当前未使用，未来可扩展）。
+/// tokio::spawn 默认已经隔离 panic，不会导致进程崩溃。
+/// 此宏在此基础上添加可观测性，便于调试。
 macro_rules! spawn_safe {
-    ($task_name:expr, $future:expr) => {
-        tokio::spawn($future)
-    };
+    // 带任务名的版本：记录任务名并监控 panic
+    ($task_name:expr, $future:expr) => {{
+        let task_name = $task_name;
+        debug!("Spawning task: {}", task_name);
+
+        let handle = tokio::spawn($future);
+
+        // 在后台监控 panic（不阻塞主流程）
+        let monitor_task_name = task_name.to_string();
+        tokio::spawn(async move {
+            match handle.await {
+                Ok(_) => {
+                    debug!("Task '{}' completed successfully", monitor_task_name);
+                }
+                Err(e) if e.is_panic() => {
+                    error!("Task '{}' panicked: {:?}", monitor_task_name, e);
+                }
+                Err(e) if e.is_cancelled() => {
+                    debug!("Task '{}' was cancelled", monitor_task_name);
+                }
+                Err(e) => {
+                    error!("Task '{}' failed: {:?}", monitor_task_name, e);
+                }
+            }
+        })
+    }};
+
+    // 无任务名的版本：简单转发
     ($future:expr) => {
         tokio::spawn($future)
     };
@@ -241,8 +269,8 @@ impl Transport for RustDeskTransport {
                     // 设置流到 BusinessConnection
                     business_conn_clone.set_stream(stream, direct).await;
 
-                    // 启动消息接收循环（带 panic 捕获）
-                    let recv_handle = business_conn_clone.clone().spawn_receive_loop();
+                    // 启动消息接收循环（带自动监控）
+                    let _ = business_conn_clone.clone().spawn_receive_loop();
 
                     // 创建连接信息
                     let info = ConnectionInfo {

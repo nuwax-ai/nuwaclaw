@@ -102,13 +102,36 @@ impl RustDeskBridge {
         let bridge_event_tx = self.event_tx.clone();
         let bridge_running = self.running.clone();
         tokio::spawn(async move {
-            // 启动 ID 轮询任务（带 panic 捕获）
+            // 启动 ID 轮询任务（带监控）
             let id_running = running.clone();
             let id_event_tx = event_tx.clone();
             let id_self_id = self_id.clone();
-            let id_abort_handle = tokio::spawn(async move {
+
+            debug!("Spawning ID polling task");
+
+            let id_handle = tokio::spawn(async move {
                 Self::poll_self_id(id_running.clone(), id_event_tx.clone(), id_self_id.clone()).await;
-            }).abort_handle();
+            });
+
+            let id_abort_handle = id_handle.abort_handle();
+
+            // 监控 ID 轮询任务（不阻塞）
+            tokio::spawn(async move {
+                match id_handle.await {
+                    Ok(_) => {
+                        debug!("ID polling task completed successfully");
+                    }
+                    Err(e) if e.is_panic() => {
+                        error!("ID polling task panicked: {:?}", e);
+                    }
+                    Err(e) if e.is_cancelled() => {
+                        debug!("ID polling task was cancelled (expected on shutdown)");
+                    }
+                    Err(e) => {
+                        error!("ID polling task failed: {:?}", e);
+                    }
+                }
+            });
 
             // 启动 rendezvous mediator（阻塞直到连接断开）
             let mediator_result = librustdesk::RendezvousMediator::start_all().await;

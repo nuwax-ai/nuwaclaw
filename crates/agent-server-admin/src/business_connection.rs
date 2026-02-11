@@ -189,15 +189,39 @@ impl BusinessConnection {
 
     /// 启动消息接收循环
     ///
-    /// 返回一个任务句柄，持续从流中读取消息并通过事件通道发送
+    /// 返回一个任务句柄，持续从流中读取消息并通过事件通道发送。
+    /// 任务会自动监控 panic 并记录日志。
     pub fn spawn_receive_loop(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
         let peer_id = self.peer_id.clone();
         let event_tx = self.event_tx.clone();
         let stream = self.stream.clone();
         let state = self.state.clone();
 
-        tokio::spawn(async move {
+        debug!("Spawning receive loop for peer: {}", peer_id);
+
+        // 为监控任务克隆一份 peer_id
+        let monitor_peer_id = peer_id.clone();
+
+        let handle = tokio::spawn(async move {
             Self::receive_loop_inner(&peer_id, &event_tx, &stream, &state).await;
+        });
+
+        // 监控任务状态（不阻塞主流程）
+        tokio::spawn(async move {
+            match handle.await {
+                Ok(_) => {
+                    debug!("Receive loop for '{}' completed", monitor_peer_id);
+                }
+                Err(e) if e.is_panic() => {
+                    error!("Receive loop for '{}' panicked: {:?}", monitor_peer_id, e);
+                }
+                Err(e) if e.is_cancelled() => {
+                    debug!("Receive loop for '{}' was cancelled", monitor_peer_id);
+                }
+                Err(e) => {
+                    error!("Receive loop for '{}' failed: {:?}", monitor_peer_id, e);
+                }
+            }
         })
     }
 
