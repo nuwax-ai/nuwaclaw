@@ -650,18 +650,32 @@ pub async fn dependency_local_install(
     // 执行 npm install
     let npm_bin = resolve_node_bin("npm");
     let node_path = build_node_path_env();
-    let output = Command::new(&npm_bin)
-        .env("PATH", &node_path)
-        .args([
-            "install",
-            &package_name,
-            "--prefix",
-            &app_dir,
-            "--registry",
-            registry,
-        ])
-        .output()
-        .map_err(|e| format!("执行 npm install 失败: {}", e))?;
+
+    #[cfg(target_os = "windows")]
+    let output = {
+        // Windows: 使用 cmd.exe /C 执行 npm（因为 npm 是 .cmd 批处理文件）
+        Command::new("cmd")
+            .env("PATH", &node_path)
+            .args(["/C", &npm_bin, "install", &package_name, "--prefix", &app_dir, "--registry", registry])
+            .output()
+            .map_err(|e| format!("执行 npm install 失败: {}", e))?
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let output = {
+        Command::new(&npm_bin)
+            .env("PATH", &node_path)
+            .args([
+                "install",
+                &package_name,
+                "--prefix",
+                &app_dir,
+                "--registry",
+                registry,
+            ])
+            .output()
+            .map_err(|e| format!("执行 npm install 失败: {}", e))?
+    };
 
     if output.status.success() {
         // 获取安装的版本
@@ -690,11 +704,25 @@ pub async fn dependency_local_check_latest(package_name: String) -> Result<Optio
     let registry = "https://registry.npmmirror.com/";
     let npm_bin = resolve_node_bin("npm");
     let node_path = build_node_path_env();
-    let output = Command::new(&npm_bin)
-        .env("PATH", &node_path)
-        .args(["view", &package_name, "version", "--registry", registry])
-        .output()
-        .map_err(|e| format!("执行 npm view 失败: {}", e))?;
+
+    #[cfg(target_os = "windows")]
+    let output = {
+        // Windows: 使用 cmd.exe /C 执行 npm
+        Command::new("cmd")
+            .env("PATH", &node_path)
+            .args(["/C", &npm_bin, "view", &package_name, "version", "--registry", registry])
+            .output()
+            .map_err(|e| format!("执行 npm view 失败: {}", e))?
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let output = {
+        Command::new(&npm_bin)
+            .env("PATH", &node_path)
+            .args(["view", &package_name, "version", "--registry", registry])
+            .output()
+            .map_err(|e| format!("执行 npm view 失败: {}", e))?
+    };
 
     if output.status.success() {
         let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -942,16 +970,12 @@ pub async fn dependency_npm_global_install(
 
     #[cfg(target_os = "windows")]
     {
-        // Windows: 直接执行（npm 全局目录在用户目录，不需要提权）
-        let output = Command::new(&npm_bin)
+        // Windows: 使用 cmd.exe /C 执行 npm（因为 npm 是 .cmd 批处理文件）
+        let output = Command::new("cmd")
             .env("PATH", &node_path)
-            .args([
-                "install",
-                "-g",
-                &format!("{}@latest", package_name),
-                "--registry",
-                registry,
-            ])
+            .args(["/C", &npm_bin, "install", "-g"])
+            .arg(format!("{}@latest", package_name))
+            .args(["--registry", registry])
             .output()
             .map_err(|e| format!("执行 npm install -g 失败: {}", e))?;
 
@@ -1129,10 +1153,10 @@ pub async fn dependency_npm_global_install_batch(
 
     #[cfg(target_os = "windows")]
     {
-        // Windows: 直接执行（npm 全局目录在用户目录，不需要提权）
-        let output = Command::new(&npm_bin)
+        // Windows: 使用 cmd.exe /C 执行 npm（因为 npm 是 .cmd 批处理文件）
+        let output = Command::new("cmd")
             .env("PATH", &node_path)
-            .args(["install", "-g"])
+            .args(["/C", &npm_bin, "install", "-g"])
             .args(&package_args)
             .args(["--registry", registry])
             .output()
