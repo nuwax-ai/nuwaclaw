@@ -10,6 +10,16 @@ use tracing::{debug, error, info, warn};
 
 use crate::utils::CommandNoWindowExt;
 
+// Windows 静默运行支持
+#[cfg(windows)]
+use process_wrap::tokio::{CreationFlags, JobObject};
+#[cfg(windows)]
+use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+
+// Unix 进程组支持
+#[cfg(unix)]
+use process_wrap::tokio::ProcessGroup;
+
 // 类型别名，解决 trait object 类型推断问题
 type ChildWrapperType = Box<dyn process_wrap::tokio::ChildWrapper>;
 
@@ -943,7 +953,7 @@ impl ServiceManager {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         let mut child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(process_wrap::tokio::ProcessGroup::leader())
+            .wrap(ProcessGroup::leader())
             .spawn()
             .map_err(|e| {
                 error!("[FileServer] 启动失败: {}", e);
@@ -953,7 +963,8 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let mut child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(process_wrap::tokio::JobObject)
+            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出 CMD 窗口
+            .wrap(JobObject)
             .spawn()
             .map_err(|e| {
                 error!("[FileServer] 启动失败: {}", e);
@@ -1034,14 +1045,15 @@ impl ServiceManager {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(process_wrap::tokio::ProcessGroup::leader())
+            .wrap(ProcessGroup::leader())
             .spawn()
             .map_err(|e| format!("Failed to start nuwax-lanproxy: {}", e))?;
 
         #[cfg(target_os = "windows")]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(process_wrap::tokio::JobObject)
+            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出 CMD 窗口
+            .wrap(JobObject)
             .spawn()
             .map_err(|e| format!("Failed to start nuwax-lanproxy: {}", e))?;
 
@@ -1150,7 +1162,7 @@ impl ServiceManager {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(process_wrap::tokio::ProcessGroup::leader())
+            .wrap(ProcessGroup::leader())
             .spawn()
             .map_err(|e| {
                 error!("[Lanproxy] 启动失败: {}", e);
@@ -1160,7 +1172,8 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(process_wrap::tokio::JobObject)
+            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出 CMD 窗口
+            .wrap(JobObject)
             .spawn()
             .map_err(|e| {
                 error!("[Lanproxy] 启动失败: {}", e);
@@ -1228,7 +1241,7 @@ impl ServiceManager {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(process_wrap::tokio::ProcessGroup::leader())
+            .wrap(ProcessGroup::leader())
             .spawn()
             .map_err(|e| {
                 error!("[McpProxy] 启动失败: {}", e);
@@ -1238,7 +1251,8 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(process_wrap::tokio::JobObject)
+            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出 CMD 窗口
+            .wrap(JobObject)
             .spawn()
             .map_err(|e| {
                 error!("[McpProxy] 启动失败: {}", e);

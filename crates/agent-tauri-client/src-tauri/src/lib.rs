@@ -18,6 +18,7 @@ use tokio::sync::Mutex;
 
 // ========== AgentRunnerApi 导入 ==========
 use nuwax_agent_core::agent_runner::{RcoderAgentRunner, RcoderAgentRunnerConfig};
+use nuwax_agent_core::utils::CommandNoWindowExt;
 
 /// 权限管理状态（使用延迟初始化避免启动时崩溃）
 struct PermissionsState {
@@ -639,15 +640,14 @@ fn resolve_npm_global_bin_path(
     let common_global = home_local_bin.join(format!("{}.cmd", bin_name));
 
     // 按优先级组装路径候选，复用公共查找逻辑
-    let mut candidates: Vec<(std::path::PathBuf, &'static str)> = vec![
-        (local_bin, "本地"),
-        (common_global, "~/.local/bin"),
-    ];
+    let mut candidates: Vec<(std::path::PathBuf, &'static str)> =
+        vec![(local_bin, "本地"), (common_global, "~/.local/bin")];
 
     // npm 全局 prefix 需执行命令得到路径，插入到本地之后
     let node_path_env = build_node_path_env();
     let npm_bin = resolve_node_bin("npm");
     if let Ok(output) = std::process::Command::new(&npm_bin)
+        .no_window()
         .args(["config", "get", "prefix"])
         .env("PATH", &node_path_env)
         .output()
@@ -661,7 +661,13 @@ fn resolve_npm_global_bin_path(
             if !prefix.is_empty() {
                 #[cfg(unix)]
                 {
-                    candidates.insert(1, (std::path::Path::new(&prefix).join("bin").join(bin_name), "npm 全局"));
+                    candidates.insert(
+                        1,
+                        (
+                            std::path::Path::new(&prefix).join("bin").join(bin_name),
+                            "npm 全局",
+                        ),
+                    );
                 }
                 #[cfg(windows)]
                 {
@@ -726,7 +732,10 @@ fn resolve_bundled_bin_path(app: &tauri::AppHandle, bin_name: &str) -> Result<St
     let mut candidates: Vec<(std::path::PathBuf, &'static str)> = vec![];
 
     if let Ok(resource_dir) = app.path().resource_dir() {
-        candidates.push((resource_dir.join("binaries").join(bin_name), "resource/binaries"));
+        candidates.push((
+            resource_dir.join("binaries").join(bin_name),
+            "resource/binaries",
+        ));
         candidates.push((resource_dir.join(bin_name), "resource 平铺"));
     }
 
@@ -739,21 +748,20 @@ fn resolve_bundled_bin_path(app: &tauri::AppHandle, bin_name: &str) -> Result<St
     }
 
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        candidates.push(
-            (
-                std::path::Path::new(&manifest_dir).join("binaries").join(bin_name),
-                "manifest",
-            ),
-        );
+        candidates.push((
+            std::path::Path::new(&manifest_dir)
+                .join("binaries")
+                .join(bin_name),
+            "manifest",
+        ));
     }
 
     if let Ok(cwd) = std::env::current_dir() {
-        candidates.push(
-            (
-                cwd.join("crates/agent-tauri-client/src-tauri/binaries").join(bin_name),
-                "cwd",
-            ),
-        );
+        candidates.push((
+            cwd.join("crates/agent-tauri-client/src-tauri/binaries")
+                .join(bin_name),
+            "cwd",
+        ));
     }
 
     if let Some((path, _)) = first_existing_bin_path(&candidates, bin_name) {
@@ -765,7 +773,11 @@ fn resolve_bundled_bin_path(app: &tauri::AppHandle, bin_name: &str) -> Result<St
 
 /// 获取 nuwax-file-server 可执行文件完整路径（复用 resolve_npm_global_bin_path）
 fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
-    resolve_npm_global_bin_path(app, "nuwax-file-server", "请在「依赖」页面安装 Nuwax File Server")
+    resolve_npm_global_bin_path(
+        app,
+        "nuwax-file-server",
+        "请在「依赖」页面安装 Nuwax File Server",
+    )
 }
 
 /// 获取当前平台的 nuwax-lanproxy 可执行文件完整路径（复用 resolve_bundled_bin_path）
@@ -1543,7 +1555,8 @@ async fn services_restart_all(
         };
 
         // 确保 computer-project-workspace 目录存在
-        let computer_workspace_path = std::path::PathBuf::from(&workspace_dir).join("computer-project-workspace");
+        let computer_workspace_path =
+            std::path::PathBuf::from(&workspace_dir).join("computer-project-workspace");
         if !computer_workspace_path.exists() {
             std::fs::create_dir_all(&computer_workspace_path)
                 .map_err(|e| format!("创建 computer-project-workspace 目录失败: {}", e))?;
@@ -1576,9 +1589,7 @@ async fn services_restart_all(
                 .join("project_logs")
                 .to_string_lossy()
                 .to_string(),
-            computer_workspace_dir: computer_workspace_path
-                .to_string_lossy()
-                .to_string(),
+            computer_workspace_dir: computer_workspace_path.to_string_lossy().to_string(),
             computer_log_dir: app_data_dir
                 .join("logs")
                 .join("computer_logs")
@@ -2139,7 +2150,7 @@ async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionRes
         .join(if cfg!(windows) { "node.exe" } else { "node" });
 
     if local_node_bin.exists() {
-        let output = Command::new(&local_node_bin).arg("--version").output();
+        let output = Command::new(&local_node_bin).no_window().arg("--version").output();
         if let Ok(out) = output {
             if out.status.success() {
                 let version_str = String::from_utf8_lossy(&out.stdout)
@@ -2161,7 +2172,7 @@ async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionRes
     }
 
     // 2. 检测系统 PATH
-    let output = Command::new("node").arg("--version").output();
+    let output = Command::new("node").no_window().arg("--version").output();
 
     match output {
         Ok(out) if out.status.success() => {
@@ -2310,7 +2321,7 @@ async fn dependency_uv_detect() -> Result<UvVersionResult, String> {
     let local_uv_bin = local_uv_dir.join("uv.exe");
 
     if local_uv_bin.exists() {
-        let output = Command::new(&local_uv_bin).arg("--version").output();
+        let output = Command::new(&local_uv_bin).no_window().arg("--version").output();
         if let Ok(out) = output {
             if out.status.success() {
                 if let Some(version_str) = parse_uv_version(&out.stdout) {
@@ -2327,7 +2338,7 @@ async fn dependency_uv_detect() -> Result<UvVersionResult, String> {
     }
 
     // 2. 检测系统 PATH
-    let output = Command::new("uv").arg("--version").output();
+    let output = Command::new("uv").no_window().arg("--version").output();
 
     match output {
         Ok(out) if out.status.success() => {
@@ -2511,6 +2522,7 @@ async fn dependency_local_install(
     let npm_bin = resolve_node_bin("npm");
     let node_path = build_node_path_env();
     let output = Command::new(&npm_bin)
+        .no_window()
         .env("PATH", &node_path)
         .args([
             "install",
@@ -2551,6 +2563,7 @@ async fn dependency_local_check_latest(package_name: String) -> Result<Option<St
     let npm_bin = resolve_node_bin("npm");
     let node_path = build_node_path_env();
     let output = Command::new(&npm_bin)
+        .no_window()
         .env("PATH", &node_path)
         .args(["view", &package_name, "version", "--registry", registry])
         .output()
@@ -2580,6 +2593,7 @@ async fn dependency_shell_installer_check(
 
             // 尝试获取版本信息
             let version = Command::new(&bin_name)
+                .no_window()
                 .arg("--version")
                 .output()
                 .ok()
@@ -2627,7 +2641,7 @@ async fn dependency_shell_installer_install(
     #[cfg(not(target_os = "windows"))]
     let output = {
         // 先检查 curl 是否可用
-        let curl_check = Command::new("curl").arg("--version").output();
+        let curl_check = Command::new("curl").no_window().arg("--version").output();
 
         if curl_check.is_err() || !curl_check.unwrap().status.success() {
             return Ok(InstallResult {
@@ -2640,6 +2654,7 @@ async fn dependency_shell_installer_install(
 
         // 执行: curl --proto '=https' --tlsv1.2 -LsSf <url> | sh
         Command::new("sh")
+            .no_window()
             .arg("-c")
             .arg(format!(
                 "curl --proto '=https' --tlsv1.2 -LsSf {} | sh",
@@ -2661,6 +2676,7 @@ async fn dependency_shell_installer_install(
         };
 
         Command::new("powershell")
+            .no_window()
             .args([
                 "-ExecutionPolicy",
                 "ByPass",
@@ -2719,7 +2735,9 @@ async fn dependency_npm_global_check(bin_name: String) -> Result<NpmPackageResul
 
     // 仅使用 which crate 在 node_path 中查找（跨平台）
     let path_os = std::ffi::OsStr::new(&node_path);
-    let bin_path_opt = which::which_in_global(&bin_name, Some(path_os)).ok().and_then(|mut it| it.next());
+    let bin_path_opt = which::which_in_global(&bin_name, Some(path_os))
+        .ok()
+        .and_then(|mut it| it.next());
 
     match bin_path_opt {
         Some(path) => {
@@ -2727,6 +2745,7 @@ async fn dependency_npm_global_check(bin_name: String) -> Result<NpmPackageResul
 
             // 尝试获取版本信息 (使用 -V 参数)
             let version = Command::new(&bin_name)
+                .no_window()
                 .env("PATH", &node_path)
                 .arg("-V")
                 .output()
@@ -2779,6 +2798,7 @@ async fn dependency_npm_global_install(
     let npm_bin = resolve_node_bin("npm");
     let node_path = build_node_path_env();
     let output = Command::new(&npm_bin)
+        .no_window()
         .env("PATH", &node_path)
         .args([
             "install",
@@ -3112,11 +3132,8 @@ fn update_tray_menu(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::er
     let services_running = tauri::async_runtime::block_on(async {
         let state = app_handle.state::<ServiceManagerState>();
         // 尝试获取锁，如果已被持有则等待一段时间后超时
-        let lock_result = tokio::time::timeout(
-            std::time::Duration::from_millis(500),
-            state.manager.lock(),
-        )
-        .await;
+        let lock_result =
+            tokio::time::timeout(std::time::Duration::from_millis(500), state.manager.lock()).await;
 
         match lock_result {
             Ok(manager) => {
@@ -3196,8 +3213,13 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // 创建菜单项
     let show_i = MenuItem::with_id(app, tray_ids::SHOW, "显示主窗口", true, None::<&str>)?;
     let separator1 = tauri::menu::PredefinedMenuItem::separator(app)?;
-    let services_restart_i =
-        MenuItem::with_id(app, tray_ids::SERVICES_RESTART, "重启服务", true, None::<&str>)?;
+    let services_restart_i = MenuItem::with_id(
+        app,
+        tray_ids::SERVICES_RESTART,
+        "重启服务",
+        true,
+        None::<&str>,
+    )?;
     let services_stop_i =
         MenuItem::with_id(app, tray_ids::SERVICES_STOP, "停止服务", true, None::<&str>)?;
     let separator2 = tauri::menu::PredefinedMenuItem::separator(app)?;
@@ -3834,6 +3856,7 @@ fn fix_macos_path_env() -> Result<(), Box<dyn std::error::Error>> {
     // -l: 作为 login shell 启动，会读取 .zprofile, .zshrc 等配置文件
     // -c: 执行命令
     let output = Command::new(&shell)
+        .no_window()
         .args(["-l", "-c", "echo $PATH"])
         .output()?;
 
@@ -3888,6 +3911,7 @@ fn fix_linux_path_env() -> Result<(), Box<dyn std::error::Error>> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
 
     let output = Command::new(&shell)
+        .no_window()
         .args(["-l", "-c", "echo $PATH"])
         .output()?;
 

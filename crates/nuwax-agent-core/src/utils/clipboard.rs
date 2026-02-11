@@ -4,6 +4,8 @@
 
 use tracing::debug;
 
+use crate::utils::CommandNoWindowExt;
+
 /// 复制文本到剪贴板
 pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
     debug!("Copying text to clipboard ({} chars)", text.len());
@@ -12,6 +14,7 @@ pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
     {
         use std::process::Command;
         let mut child = Command::new("pbcopy")
+            .no_window()
             .stdin(std::process::Stdio::piped())
             .spawn()?;
 
@@ -32,6 +35,7 @@ pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
     {
         use std::process::Command;
         let mut child = Command::new("cmd")
+            .no_window()
             .args(["/c", "clip"])
             .stdin(std::process::Stdio::piped())
             .spawn()?;
@@ -62,6 +66,7 @@ pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
 
         for (tool, args) in &tools {
             if let Ok(mut child) = Command::new(tool)
+                .no_window()
                 .args(args)
                 .stdin(std::process::Stdio::piped())
                 .spawn()
@@ -94,7 +99,7 @@ pub fn read_from_clipboard() -> anyhow::Result<String> {
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
-        let output = Command::new("pbpaste").output()?;
+        let output = Command::new("pbpaste").no_window().output()?;
         if output.status.success() {
             return Ok(String::from_utf8_lossy(&output.stdout).to_string());
         }
@@ -105,6 +110,7 @@ pub fn read_from_clipboard() -> anyhow::Result<String> {
     {
         use std::process::Command;
         let output = Command::new("powershell")
+            .no_window()
             .args(["-command", "Get-Clipboard"])
             .output()?;
         if output.status.success() {
@@ -124,7 +130,7 @@ pub fn read_from_clipboard() -> anyhow::Result<String> {
         ];
 
         for (tool, args) in &tools {
-            if let Ok(output) = Command::new(tool).args(args).output() {
+            if let Ok(output) = Command::new(tool).no_window().args(args).output() {
                 if output.status.success() {
                     return Ok(String::from_utf8_lossy(&output.stdout).to_string());
                 }
