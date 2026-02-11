@@ -819,6 +819,7 @@ mod standalone_tests {
                 log_base_dir: "/custom/logs".to_string(),
                 computer_workspace_dir: "/custom/workspace".to_string(),
                 computer_log_dir: "/custom/computer-logs".to_string(),
+                capture_output_to_log: true,
             };
             assert_eq!(config.port, 50000);
             assert_eq!(config.env, "development");

@@ -2,7 +2,9 @@
 //!
 //! 管理 nuwax-file-server, nuwax-lanproxy 和 HTTP Server 服务的启动、停止、重启
 
+use std::process::Stdio;
 use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
@@ -420,6 +422,58 @@ async fn wait_for_port_ready(port: u16, timeout_secs: u64) -> Result<(), String>
     }
 }
 
+/// 将 file-server 子进程的 stdout/stderr 管道按行读取并写入 tracing 日志，便于排查崩溃原因。
+/// 会 spawn 两个独立任务，不阻塞调用方；管道关闭后任务自然退出。
+fn spawn_file_server_output_loggers(
+    stdout: Option<tokio::process::ChildStdout>,
+    stderr: Option<tokio::process::ChildStderr>,
+) {
+    if let Some(pipe) = stdout {
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(pipe);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
+                        if !trimmed.is_empty() {
+                            info!("[FileServer stdout] {}", trimmed);
+                        }
+                    }
+                    Err(e) => {
+                        debug!("[FileServer stdout] read error: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+    if let Some(pipe) = stderr {
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(pipe);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
+                        if !trimmed.is_empty() {
+                            warn!("[FileServer stderr] {}", trimmed);
+                        }
+                    }
+                    Err(e) => {
+                        debug!("[FileServer stderr] read error: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+}
+
 /// 检测指定进程名（支持模糊匹配）是否正在运行
 ///
 /// 用于开发模式下检测带平台后缀的二进制文件
@@ -605,6 +659,9 @@ pub struct NuwaxFileServerConfig {
     pub computer_workspace_dir: String,
     /// 计算机日志目录
     pub computer_log_dir: String,
+    /// 是否将 file-server 子进程的 stdout/stderr 捕获并写入 agent 的 tracing 日志（便于排查崩溃）。
+    /// 对应 subapp-deployer 的 LOG_CONSOLE_ENABLED：file-server 端控制是否打 console；本项控制 agent 是否接管管道并落盘。
+    pub capture_output_to_log: bool,
 }
 
 impl Default for NuwaxFileServerConfig {
@@ -621,6 +678,7 @@ impl Default for NuwaxFileServerConfig {
             log_base_dir: "/var/logs/project_logs".to_string(),
             computer_workspace_dir: "/data/computer".to_string(),
             computer_log_dir: "/var/logs/computer".to_string(),
+            capture_output_to_log: true,
         }
     }
 }
@@ -794,7 +852,17 @@ impl ServiceManager {
     ) -> Result<(), String> {
         info!("[FileServer] ========== 启动文件服务 ==========");
 
-        // 检测并清理残留进程（传入正确的 bin_path）
+        // 启动前先执行一次 stop，清理可能存在的 daemon（避免「服务已在运行中 (PID: xxx)」导致 start 直接退出）
+        let stop_ok = run_command_with_timeout(&config.bin_path, &["stop"], 5).await;
+        if stop_ok {
+            debug!("[FileServer] 启动前 stop 执行成功");
+        } else {
+            // stop 失败或超时不阻塞启动（可能本来就没有在跑）
+            debug!("[FileServer] 启动前 stop 未成功或超时，继续尝试启动");
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        // 检测并清理残留进程（按 PID 文件等做二次清理）
         kill_stale_file_server_processes(&config.bin_path).await;
 
         info!("[FileServer] 可执行文件路径: {}", config.bin_path);
@@ -815,9 +883,15 @@ impl ServiceManager {
         }
 
         let node_path = crate::utils::build_node_path_env();
+        let capture_output = config.capture_output_to_log;
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
-            cmd.env("PATH", &node_path)
-                .arg("start")
+            let cmd = cmd.env("PATH", &node_path);
+            let cmd = if capture_output {
+                cmd.stdout(Stdio::piped()).stderr(Stdio::piped())
+            } else {
+                cmd.stdout(Stdio::null()).stderr(Stdio::null())
+            };
+            cmd.arg("start")
                 .arg("--env")
                 .arg(&config.env)
                 .arg("--port")
@@ -845,7 +919,7 @@ impl ServiceManager {
         // 注意顺序：先 KillOnDrop，后 ProcessGroup/JobObject
         // KillOnDrop 在外层，确保 drop 时能杀死整个进程组
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
+        let mut child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
             .wrap(process_wrap::tokio::ProcessGroup::leader())
             .spawn()
@@ -855,7 +929,7 @@ impl ServiceManager {
             })?;
 
         #[cfg(target_os = "windows")]
-        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
+        let mut child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
             .wrap(process_wrap::tokio::JobObject)
             .spawn()
@@ -863,6 +937,12 @@ impl ServiceManager {
                 error!("[FileServer] 启动失败: {}", e);
                 format!("Failed to start nuwax-file-server: {}", e)
             })?;
+
+        if capture_output {
+            let stdout = child.stdout().take();
+            let stderr = child.stderr().take();
+            spawn_file_server_output_loggers(stdout, stderr);
+        }
 
         {
             let mut guard = self.nuwax_file_server.lock().await;
