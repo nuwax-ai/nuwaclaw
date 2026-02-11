@@ -588,8 +588,11 @@ fn strip_host_from_url(server_host: &str) -> String {
 /// 完整的可执行文件路径，如果出错则返回错误信息
 /// 获取 nuwax-file-server 可执行文件完整路径
 ///
-/// nuwax-file-server 是通过 npm 安装到本地目录的，路径为：
-/// <app_data_dir>/node_modules/.bin/nuwax-file-server
+/// 查找顺序（与「依赖均安装在全局」方案一致）：
+/// 1. 应用数据目录本地安装：<app_data_dir>/node_modules/.bin/nuwax-file-server
+/// 2. npm 全局 prefix 下的 bin：通过 `npm config get prefix` 得到目录，再查 <prefix>/bin/nuwax-file-server（Unix）或 <prefix>/nuwax-file-server.cmd（Windows）
+/// 3. 常见全局 bin 目录：~/.local/bin/nuwax-file-server（Unix）、%APPDATA%\\npm\\nuwax-file-server.cmd（Windows）
+/// 4. 系统 PATH 中的 which/where
 ///
 /// # Arguments
 /// * `app` - Tauri AppHandle，用于获取应用数据目录
@@ -599,30 +602,102 @@ fn strip_host_from_url(server_host: &str) -> String {
 fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
     let bin_name = "nuwax-file-server";
 
-    // 获取应用数据目录
+    // 1. 应用数据目录下的本地安装（兼容旧方案）
     let app_data_dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
 
-    // 构建 node_modules/.bin 下的路径
-    let bin_path = app_data_dir
+    let local_bin = app_data_dir
         .join("node_modules")
         .join(".bin")
         .join(bin_name);
 
-    if bin_path.exists() {
+    if local_bin.exists() {
         info!(
-            "[FileServer] 找到可执行文件: {}",
-            bin_path.to_string_lossy()
+            "[FileServer] 找到可执行文件(本地): {}",
+            local_bin.to_string_lossy()
         );
-        return Ok(bin_path.to_string_lossy().to_string());
+        return Ok(local_bin.to_string_lossy().to_string());
     }
 
-    // 如果本地没有安装，尝试使用全局命令（作为 fallback）
-    warn!("[FileServer] 本地未安装 nuwax-file-server，尝试使用全局命令");
+    // 2. 通过 npm 全局 prefix 解析（不依赖 GUI 进程的 PATH，打包后干净环境也能找到全局安装）
+    let node_path_env = build_node_path_env();
+    let npm_bin = resolve_node_bin("npm");
 
-    // 检查是否在 PATH 中（跨平台）
+    if let Ok(output) = std::process::Command::new(&npm_bin)
+        .args(["config", "get", "prefix"])
+        .env("PATH", &node_path_env)
+        .output()
+    {
+        if output.status.success() {
+            let prefix: String = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .trim_matches(|c| c == '"' || c == '\'')
+                .trim()
+                .to_string();
+            if !prefix.is_empty() {
+                #[cfg(unix)]
+                let global_bin = std::path::Path::new(&prefix).join("bin").join(bin_name);
+                #[cfg(windows)]
+                let global_bin = {
+                    let p = std::path::Path::new(&prefix);
+                    // Windows 下 npm 全局包可能在 prefix 根目录或 prefix/bin
+                    let in_root = p.join(format!("{}.cmd", bin_name));
+                    if in_root.exists() {
+                        in_root
+                    } else {
+                        p.join("bin").join(format!("{}.cmd", bin_name))
+                    }
+                };
+
+                if global_bin.exists() {
+                    info!(
+                        "[FileServer] 找到可执行文件(npm 全局 prefix): {}",
+                        global_bin.to_string_lossy()
+                    );
+                    return Ok(global_bin.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    // 3. 常见全局 bin 目录（与 resolve_node_bin 使用的 ~/.local/bin 一致）
+    let home_local_bin = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".local")
+        .join("bin");
+
+    #[cfg(unix)]
+    let common_global = home_local_bin.join(bin_name);
+    #[cfg(windows)]
+    let common_global = home_local_bin.join(format!("{}.cmd", bin_name));
+
+    if common_global.exists() {
+        info!(
+            "[FileServer] 找到可执行文件(~/.local/bin): {}",
+            common_global.to_string_lossy()
+        );
+        return Ok(common_global.to_string_lossy().to_string());
+    }
+
+    #[cfg(windows)]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let npm_appdata = std::path::Path::new(&appdata).join("npm").join(format!("{}.cmd", bin_name));
+            if npm_appdata.exists() {
+                info!(
+                    "[FileServer] 找到可执行文件(%%APPDATA%%\\npm): {}",
+                    npm_appdata.to_string_lossy()
+                );
+                return Ok(npm_appdata.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // 4. 最后回退：当前进程 PATH 中的 which/where
+    warn!("[FileServer] 未在 npm 全局/常见路径找到，尝试 PATH 中的命令");
+
     #[cfg(unix)]
     let which_cmd = "which";
     #[cfg(windows)]
@@ -632,7 +707,7 @@ fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() {
-                info!("[FileServer] 找到全局命令: {}", path);
+                info!("[FileServer] 找到全局命令(PATH): {}", path);
                 return Ok(path);
             }
         }

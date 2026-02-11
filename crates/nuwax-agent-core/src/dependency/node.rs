@@ -518,6 +518,7 @@ impl NodeInstaller {
     }
 
     /// 获取下载 URL
+    /// 使用国内 npmmirror 镜像（https://npmmirror.com/mirrors/node），便于国内环境下载
     fn get_download_url(&self) -> String {
         let version = "22.14.0"; // LTS 版本
         let os = std::env::consts::OS;
@@ -539,7 +540,7 @@ impl NodeInstaller {
         let ext = if os == "windows" { "zip" } else { "tar.gz" };
 
         format!(
-            "https://nodejs.org/dist/v{}/node-v{}-{}-{}.{}",
+            "https://npmmirror.com/mirrors/node/v{}/node-v{}-{}-{}.{}",
             version, version, platform, arch_str, ext
         )
     }
