@@ -14,7 +14,7 @@
 #
 # 注意事项：
 #   - nuwax-agent-core 依赖了 nuwax-ai 组织的 git 仓库（rcoder）
-#     如果这些是私有仓库，需要配置 GH_PAT secret（具有 repo 权限的 Personal Access Token）
+#     GH_PAT：拉取私有依赖需 Contents: Read；创建/编辑 Release、上传资产需 Contents: Write（可同一 Token 配齐）
 #   - Tauri 客户端不启用 p2p-connection feature，因此不依赖 librustdesk / vcpkg
 
 name: Release Tauri App
@@ -34,9 +34,8 @@ permissions:
   contents: write
 
 jobs:
-  # ---- 准备发布说明 ----
-  # 从 release-notes/{tag}.md 读取自定义更新日志，用于 latest.json 的 notes 字段
-  # 这样客户端更新弹窗只显示更新日志，而非安装说明
+  # ---- 准备发布说明并预先创建 Release ----
+  # 从 release-notes/{tag}.md 读取更新日志；先在此处创建 Release，避免 5 个 matrix 任务同时创建导致竞态（仅 Mac 报 Server Error 多为该原因）
   prepare-release:
     name: Prepare release notes
     runs-on: ubuntu-latest
@@ -58,6 +57,20 @@ jobs:
           echo "content<<EOF" >> "$GITHUB_OUTPUT"
           echo "$CONTENT" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "$CONTENT" > release_notes.txt
+
+      # 先创建 Release，避免多个 matrix 任务同时“创建”导致冲突（仅 Mac 报错多为竞态）
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" 2>/dev/null; then
+            echo "Release $TAG already exists, skipping create"
+          else
+            gh release create "$TAG" --notes-file release_notes.txt --repo "$GITHUB_REPOSITORY"
+            echo "Created release $TAG"
+          fi
 
   release-tauri:
     name: Build Tauri (${{ matrix.platform }})
@@ -90,7 +103,7 @@ jobs:
         uses: actions/checkout@v4
 
       # ---- 私有 Git 仓库认证（nuwax-ai 组织下的 rcoder, nuwax-rustdesk 等） ----
-      # 需要在仓库 Settings → Secrets 中配置 GH_PAT（具有 Contents:Read 权限的 Fine-grained Token）
+      # Settings → Secrets 配置 GH_PAT（拉取私有依赖 + Release 操作用同一 Token 时需 Contents: Read + Write）
       - name: Configure git credentials for private repos
         run: |
           git config --global url."https://${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
