@@ -29,6 +29,33 @@ import {
 
 const { Text } = Typography;
 
+/**
+ * 判断是否为绝对路径（跨平台：Unix / Windows 盘符与 UNC）
+ * - Unix: 以 / 开头
+ * - Windows: 盘符 X: 或 X:\、X:/，或 UNC \\host\share
+ */
+function isAbsolutePath(value: string): boolean {
+  const s = value.trim();
+  if (!s) return false;
+  // Unix 绝对路径
+  if (s.startsWith("/")) return true;
+  // Windows UNC
+  if (s.startsWith("\\\\") || s.startsWith("//")) return true;
+  // Windows 盘符：X: 或 X:\ 或 X:/
+  if (/^[A-Za-z]:[/\\]?/.test(s)) return true;
+  return false;
+}
+
+/**
+ * 规范化路径字符串：去除首尾空白与引号，去掉末尾多余的分隔符（/ 或 \）
+ */
+function normalizePathInput(raw: string): string {
+  const trimmed = raw.trim().replace(/^["']|["']$/g, "");
+  if (trimmed.length <= 1) return trimmed;
+  // 去掉末尾的 / 或 \（保留至少一个字符，避免把 "C:\" 清空）
+  return trimmed.replace(/[/\\]+$/, "");
+}
+
 interface SetupStep1Props {
   onComplete: () => void;
 }
@@ -251,9 +278,13 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
             {
               validator: (_, value) => {
                 if (!value) return Promise.resolve();
-                if (typeof value === "string" && value.startsWith("/"))
+                if (typeof value === "string" && isAbsolutePath(value))
                   return Promise.resolve();
-                return Promise.reject(new Error("请输入有效的绝对路径"));
+                return Promise.reject(
+                  new Error(
+                    "请输入有效的绝对路径（如 /path/to/dir 或 C:\\path\\to\\dir）",
+                  ),
+                );
               },
             },
           ]}
@@ -262,21 +293,14 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
             placeholder="选择本地目录..."
             onBlur={(e) => {
               const raw = e.target.value || "";
-              const trimmed = raw.trim().replace(/^["']|["']$/g, "");
-              const normalized =
-                trimmed.endsWith("/") && trimmed.length > 1
-                  ? trimmed.replace(/\/+$/, "")
-                  : trimmed;
+              const normalized = normalizePathInput(raw);
               if (normalized !== raw)
                 form.setFieldValue("workspaceDir", normalized);
             }}
             onPaste={(e) => {
               const text = e.clipboardData.getData("text");
               if (text) {
-                form.setFieldValue(
-                  "workspaceDir",
-                  text.trim().replace(/^["']|["']$/g, ""),
-                );
+                form.setFieldValue("workspaceDir", normalizePathInput(text));
                 e.preventDefault();
               }
             }}

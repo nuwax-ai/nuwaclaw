@@ -427,10 +427,16 @@ impl NodeInstaller {
         }
 
         // 2. 复制 lib/node_modules/ 到 ~/.local/lib/node_modules/
+        // 2. 复制 lib/node_modules/ 到 ~/.local/lib/node_modules/
         let src_lib = bundled_node_dir.join("lib");
         if src_lib.exists() {
-            info!("Copying lib: {:?} -> {:?}", src_lib, lib_dir);
-            Self::copy_dir_recursive(&src_lib, &lib_dir)?;
+            #[cfg(unix)]
+            let dst_dir = &lib_dir;
+            #[cfg(windows)]
+            let dst_dir = &bin_dir;
+
+            info!("Copying lib: {:?} -> {:?}", src_lib, dst_dir);
+            Self::copy_dir_recursive(&src_lib, dst_dir)?;
         }
 
         // 3. 创建 npm/npx/corepack 符号链接（使用与 Node.js 原始包相同的相对路径）
