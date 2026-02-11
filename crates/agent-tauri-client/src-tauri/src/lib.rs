@@ -578,13 +578,35 @@ fn strip_host_from_url(server_host: &str) -> String {
 
 // ========== 可执行文件路径解析（公共方法，供 file-server / mcp-proxy / lanproxy 等复用） ==========
 
+/// 在候选路径中返回第一个存在的路径及其标签，用于统一「按顺序查找可执行文件」逻辑。
+///
+/// # 参数
+/// - `candidates`: 按优先级排列的 `(路径, 标签)` 列表，标签用于日志
+/// - `bin_name`: 可执行文件名，用于日志输出
+///
+/// # 返回
+/// 若存在则返回 `Some((路径字符串, 标签))`，并打 info 日志；否则 `None`
+fn first_existing_bin_path(
+    candidates: &[(std::path::PathBuf, &'static str)],
+    bin_name: &str,
+) -> Option<(String, &'static str)> {
+    for (path, label) in candidates {
+        if path.exists() {
+            let s = path.to_string_lossy().to_string();
+            info!("[BinPath] {} 找到({}): {}", bin_name, label, s);
+            return Some((s, label));
+        }
+    }
+    None
+}
+
 /// 解析通过 npm 安装的可执行文件路径（本地 node_modules/.bin 或全局安装）。
 ///
 /// 查找顺序（与「依赖均安装在全局」方案一致）：
 /// 1. 应用数据目录：`<app_data_dir>/node_modules/.bin/{bin_name}`
 /// 2. npm 全局 prefix：`npm config get prefix` → `<prefix>/bin/{bin_name}`（Unix）或 `<prefix>/{bin_name}.cmd`（Windows）
 /// 3. 常见目录：`~/.local/bin/{bin_name}`、Windows `%APPDATA%\\npm\\{bin_name}.cmd`
-/// 4. 系统 PATH：which/where
+/// 4. 系统 PATH：which crate 查找
 ///
 /// # 参数
 /// - `app`: Tauri AppHandle
@@ -595,7 +617,6 @@ fn resolve_npm_global_bin_path(
     bin_name: &str,
     missing_hint: &str,
 ) -> Result<String, String> {
-    // 1. 应用数据目录下的本地安装
     let app_data_dir = app
         .path()
         .app_data_dir()
@@ -606,15 +627,25 @@ fn resolve_npm_global_bin_path(
         .join(".bin")
         .join(bin_name);
 
-    if local_bin.exists() {
-        info!("[BinPath] {} 找到(本地): {}", bin_name, local_bin.to_string_lossy());
-        return Ok(local_bin.to_string_lossy().to_string());
-    }
+    let home_local_bin = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".local")
+        .join("bin");
 
-    // 2. npm 全局 prefix
+    #[cfg(unix)]
+    let common_global = home_local_bin.join(bin_name);
+    #[cfg(windows)]
+    let common_global = home_local_bin.join(format!("{}.cmd", bin_name));
+
+    // 按优先级组装路径候选，复用公共查找逻辑
+    let mut candidates: Vec<(std::path::PathBuf, &'static str)> = vec![
+        (local_bin, "本地"),
+        (common_global, "~/.local/bin"),
+    ];
+
+    // npm 全局 prefix 需执行命令得到路径，插入到本地之后
     let node_path_env = build_node_path_env();
     let npm_bin = resolve_node_bin("npm");
-
     if let Ok(output) = std::process::Command::new(&npm_bin)
         .args(["config", "get", "prefix"])
         .env("PATH", &node_path_env)
@@ -628,124 +659,104 @@ fn resolve_npm_global_bin_path(
                 .to_string();
             if !prefix.is_empty() {
                 #[cfg(unix)]
-                let global_bin = std::path::Path::new(&prefix).join("bin").join(bin_name);
+                {
+                    candidates.insert(1, (std::path::Path::new(&prefix).join("bin").join(bin_name), "npm 全局"));
+                }
                 #[cfg(windows)]
-                let global_bin = {
+                {
                     let p = std::path::Path::new(&prefix);
                     let in_root = p.join(format!("{}.cmd", bin_name));
-                    if in_root.exists() {
-                        in_root
-                    } else {
-                        p.join("bin").join(format!("{}.cmd", bin_name))
-                    }
-                };
-
-                if global_bin.exists() {
-                    info!("[BinPath] {} 找到(npm 全局): {}", bin_name, global_bin.to_string_lossy());
-                    return Ok(global_bin.to_string_lossy().to_string());
+                    candidates.insert(
+                        1,
+                        if in_root.exists() {
+                            (in_root, "npm 全局")
+                        } else {
+                            (p.join("bin").join(format!("{}.cmd", bin_name)), "npm 全局")
+                        },
+                    );
                 }
             }
         }
     }
 
-    // 3. 常见全局 bin 目录
-    let home_local_bin = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".local")
-        .join("bin");
-
-    #[cfg(unix)]
-    let common_global = home_local_bin.join(bin_name);
     #[cfg(windows)]
-    let common_global = home_local_bin.join(format!("{}.cmd", bin_name));
-
-    if common_global.exists() {
-        info!("[BinPath] {} 找到(~/.local/bin): {}", bin_name, common_global.to_string_lossy());
-        return Ok(common_global.to_string_lossy().to_string());
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        candidates.push((
+            std::path::Path::new(&appdata)
+                .join("npm")
+                .join(format!("{}.cmd", bin_name)),
+            "%%APPDATA%%\\npm",
+        ));
     }
 
-    #[cfg(windows)]
-    {
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            let npm_appdata =
-                std::path::Path::new(&appdata).join("npm").join(format!("{}.cmd", bin_name));
-            if npm_appdata.exists() {
-                info!(
-                    "[BinPath] {} 找到(%%APPDATA%%\\npm): {}",
-                    bin_name,
-                    npm_appdata.to_string_lossy()
-                );
-                return Ok(npm_appdata.to_string_lossy().to_string());
-            }
-        }
+    if let Some((path, _)) = first_existing_bin_path(&candidates, bin_name) {
+        return Ok(path);
     }
 
-    // 4. PATH 中的 which/where
+    // 最后回退：仅使用 which crate 在 PATH 中查找（跨平台，不依赖系统 which/where）
     warn!("[BinPath] {} 未在常见路径找到，尝试 PATH", bin_name);
 
-    #[cfg(unix)]
-    let which_cmd = "which";
-    #[cfg(windows)]
-    let which_cmd = "where";
-
-    if let Ok(output) = std::process::Command::new(which_cmd).arg(bin_name).output() {
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            // Windows "where" 可能返回多行，取第一行
-            let path = stdout.lines().next().unwrap_or("").trim().to_string();
-            if !path.is_empty() {
-                info!("[BinPath] {} 找到(PATH): {}", bin_name, path);
-                return Ok(path);
-            }
+    if let Ok(path) = which::which(bin_name) {
+        let path = path.to_string_lossy().to_string();
+        if !path.is_empty() {
+            info!("[BinPath] {} 找到(PATH): {}", bin_name, path);
+            return Ok(path);
         }
     }
 
     Err(format!("未找到 {} 可执行文件，{}", bin_name, missing_hint))
 }
 
-/// 解析随应用打包的可执行文件路径（binaries 目录）。
+/// 解析随应用打包的可执行文件路径（binaries / externalBin），兼容 macOS / Windows / Linux。
 ///
-/// 查找顺序：资源目录 → 可执行文件同目录 → CARGO_MANIFEST_DIR → 开发目录 cwd。
+/// Tauri 各平台 resource_dir / exe 位置（参考）：
+/// - **macOS**: exe 在 `Contents/MacOS/`，externalBin 同目录；resource_dir = `Contents/Resources/`
+/// - **Windows**: resource_dir = 主程序所在目录，externalBin 通常与 exe 同目录
+/// - **Linux**: resource_dir = `/usr/lib/${exe_name}` 或 AppImage 内 `usr/lib/...`；exe 可能在 `/usr/bin/`，externalBin 可能在 resource_dir 或与 exe 同目录
+///
+/// 查找顺序：
+/// 1. resource_dir/binaries/{bin_name}
+/// 2. resource_dir/{bin_name}（Linux 等可能平铺在 resource_dir）
+/// 3. exe 同目录（macOS Contents/MacOS/、Windows 主程序目录）
+/// 4. exe 同目录/binaries/
+/// 5. CARGO_MANIFEST_DIR/binaries/（开发）
+/// 6. cwd/.../src-tauri/binaries/（开发）
 fn resolve_bundled_bin_path(app: &tauri::AppHandle, bin_name: &str) -> Result<String, String> {
-    // 1. 资源目录（生产环境）
+    let mut candidates: Vec<(std::path::PathBuf, &'static str)> = vec![];
+
     if let Ok(resource_dir) = app.path().resource_dir() {
-        let bin_path = resource_dir.join("binaries").join(bin_name);
-        if bin_path.exists() {
-            info!("[BinPath] {} 找到(资源目录): {}", bin_name, bin_path.to_string_lossy());
-            return Ok(bin_path.to_string_lossy().to_string());
-        }
+        candidates.push((resource_dir.join("binaries").join(bin_name), "resource/binaries"));
+        candidates.push((resource_dir.join(bin_name), "resource 平铺"));
     }
 
-    // 2. 可执行文件所在目录
     if let Some(exe_dir) = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
     {
-        let alt_path = exe_dir.join("binaries").join(bin_name);
-        if alt_path.exists() {
-            info!("[BinPath] {} 找到(exe 同目录): {}", bin_name, alt_path.to_string_lossy());
-            return Ok(alt_path.to_string_lossy().to_string());
-        }
+        candidates.push((exe_dir.join(bin_name), "exe 同目录"));
+        candidates.push((exe_dir.join("binaries").join(bin_name), "exe/binaries"));
     }
 
-    // 3. 开发模式：CARGO_MANIFEST_DIR
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let dev_path = std::path::Path::new(&manifest_dir).join("binaries").join(bin_name);
-        if dev_path.exists() {
-            info!("[BinPath] {} 找到(manifest): {}", bin_name, dev_path.to_string_lossy());
-            return Ok(dev_path.to_string_lossy().to_string());
-        }
+        candidates.push(
+            (
+                std::path::Path::new(&manifest_dir).join("binaries").join(bin_name),
+                "manifest",
+            ),
+        );
     }
 
-    // 4. 开发模式：cwd 下的 src-tauri/binaries
     if let Ok(cwd) = std::env::current_dir() {
-        let dev_path = cwd
-            .join("crates/agent-tauri-client/src-tauri/binaries")
-            .join(bin_name);
-        if dev_path.exists() {
-            info!("[BinPath] {} 找到(cwd): {}", bin_name, dev_path.to_string_lossy());
-            return Ok(dev_path.to_string_lossy().to_string());
-        }
+        candidates.push(
+            (
+                cwd.join("crates/agent-tauri-client/src-tauri/binaries").join(bin_name),
+                "cwd",
+            ),
+        );
+    }
+
+    if let Some((path, _)) = first_existing_bin_path(&candidates, bin_name) {
+        return Ok(path);
     }
 
     Err(format!("未找到 {} 可执行文件", bin_name))
@@ -758,8 +769,24 @@ fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
 
 /// 获取当前平台的 nuwax-lanproxy 可执行文件完整路径（复用 resolve_bundled_bin_path）
 ///
-/// 返回 binaries 目录下对应平台的可执行文件路径：{app_dir}/binaries/nuwax-lanproxy-{platform}
+/// nuwax-lanproxy 通过 Tauri 的 externalBin（sidecar）随应用包集成，无需用户单独安装。
+/// 查找顺序：
+/// 1. **打包环境**：先按 sidecar 基名查找（与 app.shell().sidecar("nuwax-lanproxy") 一致），
+///    打包后 Tauri 将二进制放在主程序同目录且可能使用基名。
+/// 2. **开发环境**：再按带 target triple 的文件名查找（src-tauri/binaries/ 下为 triple 命名）。
 fn get_lanproxy_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
+    /// sidecar 基名：与 tauri.conf.json 中 externalBin "binaries/nuwax-lanproxy" 对应，打包后同目录下的文件名。
+    #[cfg(not(windows))]
+    const SIDECAR_BASE_NAME: &str = "nuwax-lanproxy";
+    #[cfg(windows)]
+    const SIDECAR_BASE_NAME: &str = "nuwax-lanproxy.exe";
+
+    // 1. 优先按 sidecar 基名解析（应用包内 Tauri 放置的 sidecar 通常为该名称）
+    if let Ok(path) = resolve_bundled_bin_path(app, SIDECAR_BASE_NAME) {
+        return Ok(path);
+    }
+
+    // 2. 回退到带 target triple 的文件名（开发态 src-tauri/binaries/ 下的命名）
     #[cfg(target_os = "macos")]
     let bin_name = {
         #[cfg(target_arch = "aarch64")]
@@ -1928,19 +1955,6 @@ async fn dependency_npm_reinstall(name: String) -> Result<bool, String> {
 
 use std::process::Command;
 
-/// 跨平台查找可执行文件路径
-/// macOS/Linux 使用 `which`，Windows 使用 `where`
-fn which_command(bin_name: &str) -> std::io::Result<std::process::Output> {
-    #[cfg(target_os = "windows")]
-    {
-        Command::new("where").arg(bin_name).output()
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        Command::new("which").arg(bin_name).output()
-    }
-}
-
 /// Node.js 版本检测结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2556,14 +2570,10 @@ async fn dependency_local_check_latest(package_name: String) -> Result<Option<St
 async fn dependency_shell_installer_check(
     bin_name: String,
 ) -> Result<ShellInstallerResult, String> {
-    // 跨平台检查二进制文件是否存在
-    let which_output = which_command(&bin_name);
-
-    match which_output {
-        Ok(out) if out.status.success() => {
-            let bin_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            // Windows `where` 可能返回多行，取第一行
-            let bin_path = bin_path.lines().next().unwrap_or(&bin_path).to_string();
+    // 仅使用 which crate 跨平台检查可执行文件路径
+    match which::which(&bin_name) {
+        Ok(path) => {
+            let bin_path = path.to_string_lossy().to_string();
 
             // 尝试获取版本信息
             let version = Command::new(&bin_name)
@@ -2699,34 +2709,18 @@ async fn dependency_shell_installer_install(
 // ========== 全局 npm 包管理命令 ==========
 
 /// 检测全局 npm 包是否已安装
-/// 通过检查可执行文件是否存在来判断
+/// 通过检查可执行文件是否存在来判断；仅使用 which crate，在 node PATH 中查找
 #[tauri::command]
 async fn dependency_npm_global_check(bin_name: String) -> Result<NpmPackageResult, String> {
     let node_path = build_node_path_env();
 
-    // 跨平台检查二进制文件是否存在
-    let which_output = {
-        #[cfg(target_os = "windows")]
-        {
-            Command::new("where")
-                .env("PATH", &node_path)
-                .arg(&bin_name)
-                .output()
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            Command::new("which")
-                .env("PATH", &node_path)
-                .arg(&bin_name)
-                .output()
-        }
-    };
+    // 仅使用 which crate 在 node_path 中查找（跨平台）
+    let path_os = std::ffi::OsStr::new(&node_path);
+    let bin_path_opt = which::which_in_global(&bin_name, Some(path_os)).ok().and_then(|mut it| it.next());
 
-    match which_output {
-        Ok(out) if out.status.success() => {
-            let bin_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            // Windows `where` 可能返回多行，取第一行
-            let bin_path = bin_path.lines().next().unwrap_or(&bin_path).to_string();
+    match bin_path_opt {
+        Some(path) => {
+            let bin_path = path.to_string_lossy().to_string();
 
             // 尝试获取版本信息 (使用 -V 参数)
             let version = Command::new(&bin_name)
