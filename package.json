@@ -12,7 +12,6 @@
     "crates/agent-tauri-client/src/**/*.{ts,tsx}": [
       "prettier --write",
       "pnpm --filter agent-tauri-client lint"
-    ],
-    "*.rs": "cargo fmt -- --check"
+    ]
   }
 }

@@ -537,6 +537,34 @@ fn read_store_port(app: &tauri::AppHandle, key: &str) -> Result<Option<u16>, Str
     }
 }
 
+/// 从 store 读取布尔配置（如是否捕获 file-server 日志到 agent）
+///
+/// # 返回
+/// - `Ok(Some(value))`: 成功读取
+/// - `Ok(None)`: 键不存在或类型非布尔
+/// - `Err(message)`: store 打开失败
+fn read_store_bool(app: &tauri::AppHandle, key: &str) -> Result<Option<bool>, String> {
+    let store = match app.store("nuwax_store.bin") {
+        Ok(store) => store,
+        Err(e) => return Err(format!("无法打开 store 文件: {}", e)),
+    };
+    match store.get(key) {
+        Some(value) => {
+            if let Some(b) = value.as_bool() {
+                debug!("[Store] 成功读取 '{}' = {}", key, b);
+                Ok(Some(b))
+            } else {
+                debug!("[Store] 键 '{}' 类型不是布尔，忽略", key);
+                Ok(None)
+            }
+        }
+        None => {
+            debug!("[Store] 键不存在: '{}'", key);
+            Ok(None)
+        }
+    }
+}
+
 /// 从 server_host 中去除 URL 协议前缀，得到纯主机名/IP，供 nuwax-lanproxy -s 使用
 fn strip_host_from_url(server_host: &str) -> String {
     let s = server_host.trim();
@@ -1252,7 +1280,7 @@ async fn services_restart_all(
 
         // 创建 RcoderAgentRunner 配置
         let config = RcoderAgentRunnerConfig {
-            projects_dir,
+            projects_dir: projects_dir.join("computer-project-workspace"),
             ..RcoderAgentRunnerConfig::default()
         };
         info!("[Services]   - 创建 RcoderAgentRunner 配置: {:?}", config);
@@ -1388,6 +1416,7 @@ async fn services_restart_all(
                 .join("computer_logs")
                 .to_string_lossy()
                 .to_string(),
+            capture_output_to_log: true,
         };
 
         // 确保 computer-project-workspace 目录存在
@@ -1432,6 +1461,11 @@ async fn services_restart_all(
                 .join("computer_logs")
                 .to_string_lossy()
                 .to_string(),
+            // 是否将 file-server 的 stdout/stderr 捕获到 agent 日志（便于排查崩溃）；对应 subapp-deployer 的 LOG_CONSOLE_ENABLED
+            capture_output_to_log: read_store_bool(&app, "setup.file_server_capture_output")
+                .ok()
+                .flatten()
+                .unwrap_or(true),
         };
 
         // 打印完整配置用于调试
@@ -1464,6 +1498,10 @@ async fn services_restart_all(
         info!(
             "[Services]     computer_log_dir: {}",
             file_server_config.computer_log_dir
+        );
+        info!(
+            "[Services]     capture_output_to_log: {}",
+            file_server_config.capture_output_to_log
         );
 
         let manager = state.manager.lock().await;
@@ -3602,6 +3640,7 @@ pub fn run() {
         // 注意：必须使用 block_on 同步等待服务停止，否则窗口隐藏后服务可能仍在运行
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                info!("[Window] 收到 CloseRequested 事件，停止所有服务并隐藏到托盘");
                 // 阻止默认关闭行为，改为隐藏窗口
                 api.prevent_close();
 

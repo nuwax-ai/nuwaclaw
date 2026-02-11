@@ -554,14 +554,17 @@ impl Interface for BusinessInterface {
             "re-input-password" => {
                 // 密码错误，重试
                 warn!("Password error for {}: {} - {}", self.peer_id, title, text);
-                // 发送错误事件
+                // 发送错误事件（带 panic 捕获）
                 let event_tx = self.event_tx.clone();
                 let peer_id = self.peer_id.clone();
                 let message = format!("{}: {}", title, text);
                 tokio::spawn(async move {
-                    let _ = event_tx
+                    if let Err(e) = event_tx
                         .send(BusinessConnectionEvent::Error { peer_id, message })
-                        .await;
+                        .await
+                    {
+                        error!("Failed to send error event: {}", e);
+                    }
                 });
             }
             msg if msg.contains("error") => {
@@ -569,13 +572,17 @@ impl Interface for BusinessInterface {
                     "Connection error for {}: {} - {}",
                     self.peer_id, title, text
                 );
+                // 发送错误事件（带 panic 捕获）
                 let event_tx = self.event_tx.clone();
                 let peer_id = self.peer_id.clone();
                 let message = format!("{}: {}", title, text);
                 tokio::spawn(async move {
-                    let _ = event_tx
+                    if let Err(e) = event_tx
                         .send(BusinessConnectionEvent::Error { peer_id, message })
-                        .await;
+                        .await
+                    {
+                        error!("Failed to send error event: {}", e);
+                    }
                 });
             }
             _ => {
@@ -611,13 +618,16 @@ impl Interface for BusinessInterface {
             }
         }
 
-        // 发送认证成功事件
+        // 发送认证成功事件（带 panic 捕获）
         let event_tx = self.event_tx.clone();
         let peer_id = self.peer_id.clone();
         tokio::spawn(async move {
-            let _ = event_tx
+            if let Err(e) = event_tx
                 .send(BusinessConnectionEvent::Authenticated { peer_id })
-                .await;
+                .await
+            {
+                error!("Failed to send Authenticated event: {}", e);
+            }
         });
     }
 
