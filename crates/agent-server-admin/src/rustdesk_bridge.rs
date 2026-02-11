@@ -110,7 +110,8 @@ impl RustDeskBridge {
             debug!("Spawning ID polling task");
 
             let id_handle = tokio::spawn(async move {
-                Self::poll_self_id(id_running.clone(), id_event_tx.clone(), id_self_id.clone()).await;
+                Self::poll_self_id(id_running.clone(), id_event_tx.clone(), id_self_id.clone())
+                    .await;
             });
 
             let id_abort_handle = id_handle.abort_handle();

@@ -252,8 +252,7 @@ impl BusinessConnection {
                     // 解析消息
                     match Message::parse_from_bytes(&bytes) {
                         Ok(msg) => {
-                            if let Some(MessageUnion::BusinessMessage(business_msg)) = msg.union
-                            {
+                            if let Some(MessageUnion::BusinessMessage(business_msg)) = msg.union {
                                 // 转换为 BusinessEnvelope
                                 let envelope = BusinessEnvelope {
                                     message_id: business_msg.message_id,
