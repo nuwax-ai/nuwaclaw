@@ -207,11 +207,14 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     let app_handle = app.clone();
                     tauri::async_runtime::spawn(async move {
                         let state = app_handle.state::<ServiceManagerState>();
-                        let manager = state.manager.lock().await;
-                        if let Err(e) = manager.services_stop_all().await {
-                            error!("[Tray] 停止服务失败: {}", e);
-                        } else {
-                            info!("[Tray] 所有服务已停止");
+                        let lanproxy_state = app_handle.state::<crate::state::LanproxyState>();
+                        match crate::commands::services::services_stop_all(state, lanproxy_state).await {
+                            Ok(_) => {
+                                info!("[Tray] 所有服务已停止");
+                            }
+                            Err(e) => {
+                                error!("[Tray] 停止服务失败: {}", e);
+                            }
                         }
                         // 无论成功失败都刷新菜单，使「停止服务」与当前服务状态一致
                         if let Err(e) = update_tray_menu_async(&app_handle).await {
@@ -251,7 +254,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                                             .body(body)
                                             .show()
                                         {
-                                            log::warn!("[Tray] 发送开机自启动通知失败: {}", e);
+                                            tracing::warn!("[Tray] 发送开机自启动通知失败: {}", e);
                                         }
                                         // 重新创建菜单以更新勾选状态（使用 async 避免 runtime 内 block_on panic）
                                         if let Err(e) = update_tray_menu_async(&app_handle).await {
@@ -291,8 +294,8 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     let app_handle = app.clone();
                     tauri::async_runtime::spawn(async move {
                         let state = app_handle.state::<ServiceManagerState>();
-                        let manager = state.manager.lock().await;
-                        if let Err(e) = manager.services_stop_all().await {
+                        let lanproxy_state = app_handle.state::<crate::state::LanproxyState>();
+                        if let Err(e) = crate::commands::services::services_stop_all(state, lanproxy_state).await {
                             error!("[Tray] 退出前停止服务失败: {}", e);
                         }
                         info!("[Tray] 应用退出");

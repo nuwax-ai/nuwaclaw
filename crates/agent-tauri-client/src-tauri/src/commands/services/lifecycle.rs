@@ -12,16 +12,38 @@ use tauri::Manager;
 #[tauri::command]
 pub async fn services_stop_all(
     state: tauri::State<'_, ServiceManagerState>,
+    lanproxy_state: tauri::State<'_, LanproxyState>,
 ) -> Result<bool, String> {
-    // 停止 RcoderAgentRunner（包括 Pingora 代理）
+    info!("[Services] ========== 停止所有服务 ==========");
+
+    // 1. 停止 RcoderAgentRunner（包括 Pingora 代理）
+    info!("[Services] 1/4 停止 Agent 服务...");
     {
         let mut runner_guard = state.agent_runner.lock().await;
         if let Some(old_runner) = runner_guard.take() {
             old_runner.shutdown().await;
         }
     }
+    info!("[Services]   - Agent 服务已停止");
+
+    // 2. 停止 Core 层管理的服务
+    info!("[Services] 2/4 停止 File/MCP 服务...");
     let manager = state.manager.lock().await;
     manager.services_stop_all().await?;
+    info!("[Services]   - File/MCP 服务已停止");
+
+    // 3. 停止 lanproxy（使用 Tauri sidecar）
+    info!("[Services] 3/4 停止 Lanproxy 服务...");
+    match super::lanproxy::lanproxy_stop(lanproxy_state).await {
+        Ok(_) => {
+            info!("[Services]   - Lanproxy 服务已停止");
+        }
+        Err(e) => {
+            warn!("[Services]   - Lanproxy 停止失败: {}", e);
+        }
+    }
+
+    info!("[Services] ========== 所有服务已停止 ==========");
     Ok(true)
 }
 
@@ -403,9 +425,40 @@ pub async fn services_restart_all(
 #[tauri::command]
 pub async fn services_status_all(
     state: tauri::State<'_, ServiceManagerState>,
+    lanproxy_state: tauri::State<'_, LanproxyState>,
 ) -> Result<Vec<ServiceInfoDto>, String> {
     let manager = state.manager.lock().await;
-    let statuses = manager.services_status_all().await;
+    let mut statuses = manager.services_status_all().await;
+
+    // 添加 lanproxy 服务状态
+    let lanproxy_running = {
+        let guard = lanproxy_state.child.lock().await;
+        if guard.is_some() {
+            // 进一步验证进程是否真的在运行
+            nuwax_agent_core::is_process_running_fuzzy("nuwax-lanproxy").await
+        } else {
+            false
+        }
+    };
+
+    let lanproxy_pid = if lanproxy_running {
+        lanproxy_state.child.lock().await.as_ref().map(|c| c.pid())
+    } else {
+        None
+    };
+
+    let lanproxy_info = nuwax_agent_core::service::ServiceInfo {
+        service_type: nuwax_agent_core::service::ServiceType::NuwaxLanproxy,
+        state: if lanproxy_running {
+            nuwax_agent_core::service::ServiceState::Running
+        } else {
+            nuwax_agent_core::service::ServiceState::Stopped
+        },
+        pid: lanproxy_pid,
+    };
+
+    statuses.push(lanproxy_info);
+
     Ok(statuses.into_iter().map(|s| s.into()).collect())
 }
 
@@ -414,9 +467,28 @@ pub async fn services_status_all(
 pub async fn service_health(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
+    lanproxy_state: tauri::State<'_, LanproxyState>,
 ) -> Result<Vec<ServiceHealthDto>, String> {
     let manager = state.manager.lock().await;
-    let statuses = manager.services_status_all().await;
+    let mut statuses = manager.services_status_all().await;
+
+    // 添加 lanproxy 服务状态
+    let lanproxy_running = {
+        let guard = lanproxy_state.child.lock().await;
+        guard.is_some() && nuwax_agent_core::is_process_running_fuzzy("nuwax-lanproxy").await
+    };
+
+    let lanproxy_info = nuwax_agent_core::service::ServiceInfo {
+        service_type: nuwax_agent_core::service::ServiceType::NuwaxLanproxy,
+        state: if lanproxy_running {
+            nuwax_agent_core::service::ServiceState::Running
+        } else {
+            nuwax_agent_core::service::ServiceState::Stopped
+        },
+        pid: lanproxy_state.child.lock().await.as_ref().map(|c| c.pid()),
+    };
+
+    statuses.push(lanproxy_info);
 
     let mut results = Vec::new();
     for info in statuses {
@@ -427,6 +499,7 @@ pub async fn service_health(
                 .flatten(),
             "McpProxy" => read_store_port(&app, "setup.mcp_proxy_port").ok().flatten(),
             "HttpServer" => read_store_port(&app, "setup.agent_port").ok().flatten(),
+            "NuwaxLanproxy" => read_store_port(&app, "lanproxy.server_port").ok().flatten(),
             _ => None,
         };
 

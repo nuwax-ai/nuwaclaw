@@ -17,14 +17,14 @@ pub fn setup_hook(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
 
     // ========== 系统托盘初始化 ==========
     if let Err(e) = setup_tray(app) {
-        log::error!("[Setup] 创建系统托盘失败: {}", e);
+        tracing::error!("[Setup] 创建系统托盘失败: {}", e);
     } else {
         // 启动后延迟刷新托盘菜单，使「停止服务」/「开机自启动」勾选与真实状态一致
         let app_handle = app.handle().clone();
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(600)).await;
             if let Err(e) = update_tray_menu_async(&app_handle).await {
-                log::warn!("[Setup] 启动后刷新托盘菜单失败: {}", e);
+                tracing::warn!("[Setup] 启动后刷新托盘菜单失败: {}", e);
             }
         });
     }
@@ -33,7 +33,7 @@ pub fn setup_hook(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     // 支持 --tab/-t 参数指定启动后跳转的 Tab
     // 示例: nuwax-agent --tab permissions
     //       nuwax-agent -t logs
-    log::info!("[Setup] 开始解析 CLI 参数...");
+    tracing::info!("[Setup] 开始解析 CLI 参数...");
 
     // 预定义合法的 Tab 名称列表，用于参数验证
     const VALID_TABS: &[&str] = &[
@@ -60,19 +60,19 @@ pub fn setup_hook(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
                 if let Some(tab) = matches.value_of("tab") {
                     // 验证 Tab 名称是否合法
                     if VALID_TABS.contains(&tab) {
-                        log::info!("[Setup] 检测到 CLI 参数 --tab={}", tab);
+                        tracing::info!("[Setup] 检测到 CLI 参数 --tab={}", tab);
 
                         // 发送事件通知前端目标 Tab
                         match app.emit("navigate-to-tab", tab) {
                             Ok(()) => {
-                                log::info!("[Setup] 已发送导航事件到前端，目标 Tab: {}", tab);
+                                tracing::info!("[Setup] 已发送导航事件到前端，目标 Tab: {}", tab);
                             }
                             Err(e) => {
-                                log::warn!("[Setup] 发送导航事件失败: {}", e);
+                                tracing::warn!("[Setup] 发送导航事件失败: {}", e);
                             }
                         }
                     } else {
-                        log::warn!("[Setup] 无效的 Tab 参数: {}，有效值: {:?}", tab, VALID_TABS);
+                        tracing::warn!("[Setup] 无效的 Tab 参数: {}，有效值: {:?}", tab, VALID_TABS);
                     }
                 }
 
@@ -80,15 +80,15 @@ pub fn setup_hook(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
                 if matches.value_of("minimized") == Some("true")
                     || matches.occurrences_of("minimized") > 0
                 {
-                    log::info!("[Setup] 检测到 --minimized 参数，启动时将最小化");
+                    tracing::info!("[Setup] 检测到 --minimized 参数，启动时将最小化");
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.hide();
-                        log::info!("[Setup] 窗口已隐藏到托盘");
+                        tracing::info!("[Setup] 窗口已隐藏到托盘");
                     }
                 }
             }
             Err(e) => {
-                log::warn!("[Setup] CLI 参数解析结果: {}", e);
+                tracing::warn!("[Setup] CLI 参数解析结果: {}", e);
             }
         }
     }
@@ -97,7 +97,7 @@ pub fn setup_hook(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     #[allow(unexpected_cfgs)]
     #[cfg(not(feature = "cli-plugin"))]
     {
-        log::info!("[Setup] CLI 插件未启用，命令行参数功能受限");
+        tracing::info!("[Setup] CLI 插件未启用，命令行参数功能受限");
     }
 
     // ========== 跨平台信号处理器（Unix/macOS/Windows）==========
@@ -119,10 +119,10 @@ pub fn setup_hook(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
 
                 tokio::select! {
                     _ = sigint.recv() => {
-                        log::info!("[Signal] 收到 SIGINT 信号，正在清理子进程...");
+                        tracing::info!("[Signal] 收到 SIGINT 信号，正在清理子进程...");
                     }
                     _ = sigterm.recv() => {
-                        log::info!("[Signal] 收到 SIGTERM 信号，正在清理子进程...");
+                        tracing::info!("[Signal] 收到 SIGTERM 信号，正在清理子进程...");
                     }
                 }
             }
@@ -131,19 +131,19 @@ pub fn setup_hook(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
             {
                 // Windows 上使用 ctrl_c() 处理 Ctrl+C
                 if let Err(e) = tokio::signal::ctrl_c().await {
-                    log::error!("[Signal] 等待 Ctrl+C 信号失败: {}", e);
+                    tracing::error!("[Signal] 等待 Ctrl+C 信号失败: {}", e);
                     return;
                 }
-                log::info!("[Signal] 收到 Ctrl+C 信号，正在清理子进程...");
+                tracing::info!("[Signal] 收到 Ctrl+C 信号，正在清理子进程...");
             }
 
             // 主动停止所有服务
             let state = app_handle.state::<ServiceManagerState>();
             let manager = state.manager.lock().await;
             if let Err(e) = manager.services_stop_all().await {
-                log::error!("[Signal] 停止服务失败: {}", e);
+                tracing::error!("[Signal] 停止服务失败: {}", e);
             }
-            log::info!("[Signal] 子进程已清理，应用即将退出");
+            tracing::info!("[Signal] 子进程已清理，应用即将退出");
 
             // 退出应用
             app_handle.exit(0);

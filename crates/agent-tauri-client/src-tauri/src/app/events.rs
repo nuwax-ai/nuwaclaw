@@ -85,7 +85,7 @@ pub fn run() {
         // 注意：必须使用 block_on 同步等待服务停止，否则窗口隐藏后服务可能仍在运行
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                log::info!("[Window] 收到 CloseRequested 事件，停止所有服务并隐藏到托盘");
+                tracing::info!("[Window] 收到 CloseRequested 事件，停止所有服务并隐藏到托盘");
                 // 阻止默认关闭行为，改为隐藏窗口
                 api.prevent_close();
 
@@ -95,11 +95,11 @@ pub fn run() {
                 tauri::async_runtime::block_on(async {
                     let manager = state.manager.lock().await;
                     if let Err(e) = manager.services_stop_all().await {
-                        log::error!("[Window] 停止服务失败: {}", e);
+                        tracing::error!("[Window] 停止服务失败: {}", e);
                     }
                     drop(manager);
                     let _ = window.hide();
-                    log::info!("[Window] 窗口已隐藏到托盘");
+                    tracing::info!("[Window] 窗口已隐藏到托盘");
                 });
             }
         })
@@ -108,17 +108,17 @@ pub fn run() {
         .run(|app_handle, event| {
             // 应用退出事件处理：在退出前清理所有服务
             if let tauri::RunEvent::Exit = event {
-                log::info!("[Exit] 应用正在退出，停止所有服务...");
+                tracing::info!("[Exit] 应用正在退出，停止所有服务...");
                 // 同步阻塞等待服务停止
                 let state = app_handle.state::<ServiceManagerState>();
                 // 使用 tauri::async_runtime 执行异步清理
                 tauri::async_runtime::block_on(async {
                     let manager = state.manager.lock().await;
                     if let Err(e) = manager.services_stop_all().await {
-                        log::error!("[Exit] 停止服务失败: {}", e);
+                        tracing::error!("[Exit] 停止服务失败: {}", e);
                     }
                 });
-                log::info!("[Exit] 所有服务已停止");
+                tracing::info!("[Exit] 所有服务已停止");
             }
         });
 }

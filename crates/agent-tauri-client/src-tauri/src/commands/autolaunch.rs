@@ -72,12 +72,12 @@ pub async fn autolaunch_set(app: tauri::AppHandle, enabled: bool) -> Result<bool
         auto_launch
             .enable()
             .map_err(|e| format!("启用开机自启动失败: {}", e))?;
-        log::info!("[autolaunch_set] 已启用开机自启动");
+        tracing::info!("[autolaunch_set] 已启用开机自启动");
     } else {
         auto_launch
             .disable()
             .map_err(|e| format!("禁用开机自启动失败: {}", e))?;
-        log::info!("[autolaunch_set] 已禁用开机自启动");
+        tracing::info!("[autolaunch_set] 已禁用开机自启动");
     }
 
     Ok(enabled)
@@ -90,7 +90,7 @@ pub async fn autolaunch_get(app: tauri::AppHandle) -> Result<bool, String> {
     let enabled = auto_launch
         .is_enabled()
         .map_err(|e| format!("获取开机自启动状态失败: {}", e))?;
-    log::info!("[autolaunch_get] 当前状态: {}", enabled);
+    tracing::info!("[autolaunch_get] 当前状态: {}", enabled);
     Ok(enabled)
 }
 

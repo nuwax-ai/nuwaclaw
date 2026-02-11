@@ -153,6 +153,8 @@ dependencies = [
  "tauri-plugin-store",
  "tauri-plugin-updater",
  "tokio",
+ "tracing",
+ "which 8.0.0",
 ]
 
 [[package]]
