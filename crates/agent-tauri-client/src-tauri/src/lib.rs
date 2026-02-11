@@ -1352,8 +1352,8 @@ async fn services_restart_all(
 
         // 使用完整配置启动，基于用户工作区目录设置各路径
         // workspace_dir 替换容器中的 /app 前缀
-        let file_server_config = nuwax_agent_core::NuwaxFileServerConfig {
-            bin_path,
+        let _file_server_config = nuwax_agent_core::NuwaxFileServerConfig {
+            bin_path: bin_path.clone(),
             port,
             env: "production".to_string(),
             init_project_name: "nuwax-template".to_string(),
@@ -1376,6 +1376,15 @@ async fn services_restart_all(
             log_base_dir: app_data_dir
                 .join("logs")
                 .join("project_logs")
+                .to_string_lossy()
+                .to_string(),
+            computer_workspace_dir: std::path::PathBuf::from(&workspace_dir)
+                .join("computer-project-workspace")
+                .to_string_lossy()
+                .to_string(),
+            computer_log_dir: app_data_dir
+                .join("logs")
+                .join("computer_logs")
                 .to_string_lossy()
                 .to_string(),
         };
