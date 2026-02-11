@@ -318,8 +318,12 @@ impl NpmToolInstaller {
             tool_name, NPM_REGISTRY_CN
         );
 
+        // 构建包含 ~/.local/bin 的 PATH，确保 postinstall 脚本能找到 node
+        let path_env = crate::utils::build_node_path_env();
+
         let output = Command::new(&npm_path)
             .no_window()
+            .env("PATH", path_env)
             .args(["install", "-g", tool_name, "--registry", NPM_REGISTRY_CN])
             .output()
             .map_err(|e| NpmToolError::CommandFailed(e.to_string()))?;
@@ -366,8 +370,12 @@ impl NpmToolInstaller {
             tool_name, NPM_REGISTRY_CN
         );
 
+        // 构建包含 ~/.local/bin 的 PATH，确保 postinstall 脚本能找到 node
+        let path_env = crate::utils::build_node_path_env();
+
         let output = Command::new(&npm_path)
             .no_window()
+            .env("PATH", path_env)
             .args(["update", "-g", tool_name, "--registry", NPM_REGISTRY_CN])
             .output()
             .map_err(|e| NpmToolError::CommandFailed(e.to_string()))?;

@@ -16,17 +16,20 @@ fn local_bin_dir() -> PathBuf {
 /// 构建供 spawn/子进程使用的 PATH 字符串。
 ///
 /// - **Unix**：在现有 PATH 前追加 ~/.local/bin（安装 node/uv 到本地后即生效）。
-/// - **Windows**：直接返回当前系统 PATH，不修改；依赖请使用全局安装（如 `npm i -g`），无需设置额外环境变量。
+/// - **Windows**：在现有 PATH 前追加 %USERPROFILE%\.local\bin（安装 node 到本地后即生效）。
 pub fn build_node_path_env() -> String {
+    let bin = local_bin_dir();
+    let current = std::env::var("PATH").unwrap_or_default();
+
     #[cfg(windows)]
     {
-        return std::env::var("PATH").unwrap_or_default();
+        // Windows 使用分号分隔
+        format!("{};{}", bin.to_string_lossy(), current)
     }
 
     #[cfg(not(windows))]
     {
-        let bin = local_bin_dir();
-        let current = std::env::var("PATH").unwrap_or_default();
+        // Unix 使用冒号分隔
         format!("{}:{}", bin.to_string_lossy(), current)
     }
 }
