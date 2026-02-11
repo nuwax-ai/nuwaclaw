@@ -279,6 +279,11 @@ jobs:
         shell: bash
         run: ./scripts/download-uv.sh win x64
 
+      # ---- 下载 Node.js 安装包（用于系统级安装）----
+      - name: Download Node.js installers
+        shell: bash
+        run: ./scripts/download-node-installers.sh
+
       # ---- 构建 & 发布 ----
       # tauri-action 会自动执行 tauri.conf.json 中的 beforeBuildCommand (pnpm build)
       # 然后运行 cargo tauri build，最后将产物上传到 GitHub Release
