@@ -107,11 +107,11 @@ impl RustDeskBridge {
             let id_event_tx = event_tx.clone();
             let id_self_id = self_id.clone();
             let id_abort_handle = tokio::spawn(async move {
-                if let Err(e) = tokio::panic::catch_unwind(|| {
+                if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     futures::executor::block_on(async {
                         Self::poll_self_id(id_running.clone(), id_event_tx.clone(), id_self_id.clone()).await;
                     })
-                }).await {
+                })) {
                     error!("ID polling task panicked: {:?}", e);
                 }
             }).abort_handle();

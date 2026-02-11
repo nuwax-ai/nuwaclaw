@@ -24,18 +24,18 @@ use super::transport::{ConnectionInfo, Transport};
 macro_rules! spawn_safe {
     ($task_name:expr, $future:expr) => {
         tokio::spawn(async move {
-            if let Err(e) = tokio::panic::catch_unwind(|| {
+            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 futures::executor::block_on($future)
-            }).await {
+            })) {
                 error!("Task '{}' panicked: {:?}", $task_name, e);
             }
         })
     };
     ($future:expr) => {
         tokio::spawn(async move {
-            if let Err(e) = tokio::panic::catch_unwind(|| {
+            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 futures::executor::block_on($future)
-            }).await {
+            })) {
                 error!("Anonymous task panicked: {:?}", e);
             }
         })

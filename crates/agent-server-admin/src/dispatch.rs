@@ -37,6 +37,7 @@ pub struct DispatchResult {
 #[serde(rename_all = "snake_case")]
 pub enum TransportKind {
     /// RustDesk P2P 直连（最优先）
+    #[serde(rename = "p2p")]
     P2P,
     /// RustDesk TCP 中继（relay）
     TcpRelay,

@@ -197,11 +197,11 @@ impl BusinessConnection {
         let state = self.state.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = tokio::panic::catch_unwind(|| {
+            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 futures::executor::block_on(async {
                     Self::receive_loop_inner(&peer_id, &event_tx, &stream, &state).await;
                 })
-            }).await {
+            })) {
                 error!("Receive loop for {} panicked: {:?}", peer_id, e);
             }
         })
@@ -479,15 +479,17 @@ impl BusinessInterface {
 
         // 初始化 LoginConfigHandler
         let lc = Arc::new(std::sync::RwLock::new(LoginConfigHandler::default()));
-        lc.write().unwrap().initialize(
-            peer_id.to_string(),
-            ConnType::DEFAULT_CONN, // 使用默认连接类型
-            None,                   // switch_uuid
-            false,                  // force_relay
-            None,                   // adapter_luid
-            None,                   // shared_password
-            None,                   // conn_token
-        );
+        lc.write()
+            .expect("初始化 LoginConfigHandler 时 RwLock 中毒（poisoned）")
+            .initialize(
+                peer_id.to_string(),
+                ConnType::DEFAULT_CONN, // 使用默认连接类型
+                None,                   // switch_uuid
+                false,                  // force_relay
+                None,                   // adapter_luid
+                None,                   // shared_password
+                None,                   // conn_token
+            );
 
         let interface = Self {
             peer_id: peer_id.to_string(),
@@ -576,7 +578,20 @@ impl Interface for BusinessInterface {
             "Received peer info from {}: {:?}",
             self.peer_id, pi.username
         );
-        self.lc.write().unwrap().handle_peer_info(&pi);
+
+        // 优雅处理锁错误，避免 panic
+        match self.lc.write() {
+            Ok(mut guard) => {
+                guard.handle_peer_info(&pi);
+            }
+            Err(e) => {
+                error!(
+                    "无法获取 LoginConfigHandler 写锁: {}，跳过 peer info 处理",
+                    e
+                );
+                return;
+            }
+        }
 
         // 发送认证成功事件
         let event_tx = self.event_tx.clone();
