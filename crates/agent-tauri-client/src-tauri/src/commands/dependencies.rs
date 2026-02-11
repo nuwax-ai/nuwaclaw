@@ -887,6 +887,8 @@ pub async fn dependency_npm_global_check(bin_name: String) -> Result<NpmPackageR
 }
 
 /// 全局安装 npm 包（使用 npmmirror）
+/// macOS/Linux: 使用 osascript 弹出密码输入框，以 sudo 权限执行
+/// Windows: 直接执行 npm install -g
 #[tauri::command]
 pub async fn dependency_npm_global_install(
     package_name: String,
@@ -899,21 +901,58 @@ pub async fn dependency_npm_global_install(
         package_name, registry
     );
 
-    // 执行 npm install -g
     let npm_bin = resolve_node_bin("npm");
     let node_path = build_node_path_env();
-    let output = Command::new(&npm_bin)
-        .env("PATH", &node_path)
-        .args([
-            "install",
-            "-g",
-            &format!("{}@latest", package_name),
-            "--registry",
-            registry,
-        ])
-        .output()
-        .map_err(|e| format!("执行 npm install -g 失败: {}", e))?;
 
+    #[cfg(target_os = "windows")]
+    {
+        // Windows: 直接执行
+        let output = Command::new(&npm_bin)
+            .env("PATH", &node_path)
+            .args([
+                "install",
+                "-g",
+                &format!("{}@latest", package_name),
+                "--registry",
+                registry,
+            ])
+            .output()
+            .map_err(|e| format!("执行 npm install -g 失败: {}", e))?;
+
+        handle_npm_install_result(output, bin_name, &package_name).await
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // macOS/Linux: 使用 osascript 弹出密码框，以 sudo 执行
+        let npm_args = format!(
+            "install -g {}@latest --registry {}",
+            package_name, registry
+        );
+
+        // 使用 osascript 弹出密码输入框并执行 sudo 命令
+        let osascript = format!(
+            r#"do shell script "PATH='{}' '{}' {}" with administrator privileges"#,
+            node_path, npm_bin, npm_args
+        );
+
+        info!("[Dependency] 使用 osascript 执行 sudo npm install");
+
+        let output = Command::new("osascript")
+            .args(["-e", &osascript])
+            .output()
+            .map_err(|e| format!("执行 osascript 失败: {}", e))?;
+
+        handle_npm_install_result(output, bin_name, &package_name).await
+    }
+}
+
+/// 处理 npm 安装结果
+async fn handle_npm_install_result(
+    output: std::process::Output,
+    bin_name: String,
+    package_name: &str,
+) -> Result<InstallResult, String> {
     if output.status.success() {
         // 验证安装并获取路径
         let check_result = dependency_npm_global_check(bin_name.clone()).await?;
@@ -947,13 +986,683 @@ pub async fn dependency_npm_global_install(
 
         error!("[Dependency] npm install -g 失败: {}", stderr);
 
-        Ok(InstallResult {
+        // 检查是否是用户取消
+        if stderr.contains("User canceled") || stderr.contains("User canceled.") {
+            Ok(InstallResult {
+                success: false,
+                version: None,
+                bin_path: None,
+                error: Some("用户取消了安装".to_string()),
+            })
+        } else {
+            Ok(InstallResult {
+                success: false,
+                version: None,
+                bin_path: None,
+                error: Some(format!("{}\n{}", stderr, stdout)),
+            })
+        }
+    }
+}
+
+/// 批量安装结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchInstallResult {
+    pub success: bool,
+    pub installed_packages: Vec<String>,
+    pub failed_packages: Vec<FailedPackage>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FailedPackage {
+    pub name: String,
+    pub error: String,
+}
+
+/// 批量全局安装 npm 包（只输入一次密码）
+/// macOS/Linux: 使用 osascript 弹出密码输入框，以 sudo 权限执行
+/// Windows: 直接执行 npm install -g
+#[tauri::command]
+pub async fn dependency_npm_global_install_batch(
+    packages: Vec<String>,
+) -> Result<BatchInstallResult, String> {
+    if packages.is_empty() {
+        return Ok(BatchInstallResult {
+            success: true,
+            installed_packages: vec![],
+            failed_packages: vec![],
+            error: None,
+        });
+    }
+
+    let registry = "https://registry.npmmirror.com/";
+
+    info!(
+        "[Dependency] 开始批量全局安装 npm 包: {:?} (registry: {})",
+        packages, registry
+    );
+
+    let npm_bin = resolve_node_bin("npm");
+    let node_path = build_node_path_env();
+
+    // 构建包列表：package@latest
+    let package_args: Vec<String> = packages.iter().map(|p| format!("{}@latest", p)).collect();
+    let package_list = package_args.join(" ");
+
+    #[cfg(target_os = "windows")]
+    {
+        // Windows: 直接执行
+        let output = Command::new(&npm_bin)
+            .env("PATH", &node_path)
+            .args(["install", "-g"])
+            .args(&package_args)
+            .args(["--registry", registry])
+            .output()
+            .map_err(|e| format!("执行 npm install -g 失败: {}", e))?;
+
+        handle_batch_install_result(output, packages).await
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // macOS/Linux: 使用 osascript 弹出密码框，以 sudo 执行
+        let npm_args = format!(
+            "install -g {} --registry {}",
+            package_list, registry
+        );
+
+        // 使用 osascript 弹出密码输入框并执行 sudo 命令
+        let osascript = format!(
+            r#"do shell script "PATH='{}' '{}' {}" with administrator privileges"#,
+            node_path, npm_bin, npm_args
+        );
+
+        info!("[Dependency] 使用 osascript 执行批量 sudo npm install");
+
+        let output = Command::new("osascript")
+            .args(["-e", &osascript])
+            .output()
+            .map_err(|e| format!("执行 osascript 失败: {}", e))?;
+
+        handle_batch_install_result(output, packages).await
+    }
+}
+
+/// 处理批量安装结果
+async fn handle_batch_install_result(
+    output: std::process::Output,
+    packages: Vec<String>,
+) -> Result<BatchInstallResult, String> {
+    if output.status.success() {
+        // 验证每个包是否安装成功
+        let mut installed_packages = Vec::new();
+        let mut failed_packages = Vec::new();
+
+        for pkg in packages {
+            // 获取包的 bin 名称（通常与包名相同，但有些包不同）
+            let bin_name = get_bin_name_for_package(&pkg);
+            let check_result = dependency_npm_global_check(bin_name.clone()).await?;
+
+            if check_result.installed {
+                info!("[Dependency] {} 安装成功", pkg);
+                installed_packages.push(pkg);
+            } else {
+                warn!("[Dependency] {} 安装后未找到二进制文件", pkg);
+                failed_packages.push(FailedPackage {
+                    name: pkg,
+                    error: format!("安装后未找到 {} 二进制文件", bin_name),
+                });
+            }
+        }
+
+        let success = failed_packages.is_empty();
+        info!(
+            "[Dependency] 批量安装完成: 成功 {}, 失败 {}",
+            installed_packages.len(),
+            failed_packages.len()
+        );
+
+        Ok(BatchInstallResult {
+            success,
+            installed_packages,
+            failed_packages,
+            error: None,
+        })
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+        error!("[Dependency] 批量 npm install -g 失败: {}", stderr);
+
+        // 检查是否是用户取消
+        if stderr.contains("User canceled") || stderr.contains("User canceled.") {
+            Ok(BatchInstallResult {
+                success: false,
+                installed_packages: vec![],
+                failed_packages: packages.into_iter().map(|p| FailedPackage {
+                    name: p,
+                    error: "用户取消了安装".to_string(),
+                }).collect(),
+                error: Some("用户取消了安装".to_string()),
+            })
+        } else {
+            Ok(BatchInstallResult {
+                success: false,
+                installed_packages: vec![],
+                failed_packages: packages.into_iter().map(|p| FailedPackage {
+                    name: p,
+                    error: stderr.clone(),
+                }).collect(),
+                error: Some(format!("{}\n{}", stderr, stdout)),
+            })
+        }
+    }
+}
+
+/// 获取 npm 包对应的 bin 名称
+fn get_bin_name_for_package(package_name: &str) -> String {
+    // 包名到 bin 名称的映射
+    match package_name {
+        "mcp-stdio-proxy" => "mcp-proxy".to_string(),
+        "nuwax-file-server" => "nuwax-file-server".to_string(),
+        "nuwaxcode" => "nuwaxcode".to_string(),
+        "claude-code-acp-ts" => "claude-code-acp-ts".to_string(),
+        _ => package_name.to_string(),
+    }
+}
+
+// ========== 系统级 Node.js 安装 ==========
+
+/// 系统级 Node.js 安装结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeSystemInstallResult {
+    pub success: bool,
+    pub version: Option<String>,
+    pub install_path: Option<String>,
+    pub needs_restart: bool,
+    pub error: Option<String>,
+}
+
+/// 验证 Node.js 是否安装成功
+fn verify_node_install() -> Result<String, String> {
+    let output = Command::new("node")
+        .arg("--version")
+        .output()
+        .map_err(|e| format!("验证安装失败: {}", e))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        Err("node 命令未找到".to_string())
+    }
+}
+
+/// Windows: 使用 MSI 静默安装
+/// 注意：用户级安装不需要管理员权限
+#[cfg(target_os = "windows")]
+fn install_node_system_windows(msi_path: &std::path::Path) -> Result<NodeSystemInstallResult, String> {
+    let msi_path_str = msi_path.to_str().ok_or("无效的 MSI 路径")?;
+    info!("[NodeInstall] MSI 路径: {}", msi_path_str);
+    info!("[NodeInstall] MSI 文件存在: {}", msi_path.exists());
+
+    if !msi_path.exists() {
+        return Err(format!("MSI 文件不存在: {}", msi_path_str));
+    }
+
+    // 执行 MSI 静默安装（/passive 显示进度条，/quiet 完全静默）
+    let status = Command::new("msiexec")
+        .args([
+            "/i",
+            msi_path_str,
+            "/quiet",
+            "/norestart",
+        ])
+        .status()
+        .map_err(|e| format!("执行 msiexec 失败: {}", e))?;
+
+    if !status.success() {
+        return Err(format!("MSI 安装失败，退出码: {:?}", status.code()));
+    }
+
+    info!("[NodeInstall] MSI 安装命令完成，等待文件系统刷新...");
+
+    // msiexec /quiet 会同步等待安装完成，但仍需短暂延迟确保文件系统刷新
+    std::thread::sleep(std::time::Duration::from_secs(3));
+
+    // 验证安装（检查标准 MSI 安装路径）
+    // 系统级安装: C:\Program Files\nodejs\
+    // 用户级安装: %LOCALAPPDATA%\Programs\nodejs\
+    let node_paths = vec![
+        r"C:\Program Files\nodejs\node.exe",
+        r"C:\Program Files (x86)\nodejs\node.exe",
+    ];
+
+    // 获取用户级安装路径
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        let user_node_path = std::path::PathBuf::from(local_app_data)
+            .join("Programs")
+            .join("nodejs")
+            .join("node.exe");
+        if user_node_path.exists() {
+            info!("[NodeInstall] 找到用户级安装: {:?}", user_node_path);
+            let version = Command::new(&user_node_path)
+                .arg("--version")
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_default();
+
+            return Ok(NodeSystemInstallResult {
+                success: true,
+                version: Some(version),
+                install_path: Some(user_node_path.to_string_lossy().to_string()),
+                needs_restart: true,
+                error: None,
+            });
+        }
+    }
+
+    let mut installed_path = None;
+    for path in node_paths {
+        if std::path::Path::new(path).exists() {
+            installed_path = Some(path.to_string());
+            info!("[NodeInstall] 找到系统级安装: {}", path);
+            break;
+        }
+    }
+
+    match installed_path {
+        Some(path) => {
+            let version = Command::new(&path)
+                .arg("--version")
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_default();
+
+            Ok(NodeSystemInstallResult {
+                success: true,
+                version: Some(version),
+                install_path: Some(path),
+                needs_restart: true,
+                error: None,
+            })
+        }
+        None => {
+            // 最后尝试直接调用 node 命令
+            info!("[NodeInstall] 未找到特定路径，尝试直接调用 node 命令");
+            match Command::new("node").arg("--version").output() {
+                Ok(out) if out.status.success() => {
+                    let version = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    Ok(NodeSystemInstallResult {
+                        success: true,
+                        version: Some(version),
+                        install_path: Some("node (PATH)".to_string()),
+                        needs_restart: true,
+                        error: None,
+                    })
+                }
+                _ => Ok(NodeSystemInstallResult {
+                    success: false,
+                    version: None,
+                    install_path: None,
+                    needs_restart: true,
+                    error: Some("安装完成但未找到 node.exe，可能需要重启应用".to_string()),
+                }),
+            }
+        }
+    }
+}
+
+/// macOS: 使用 PKG 安装（需要管理员权限）
+/// 策略：先将 PKG 复制到 /tmp，然后从 /tmp 安装（确保 root 可访问）
+#[cfg(target_os = "macos")]
+fn install_node_system_macos(pkg_path: &std::path::Path) -> Result<NodeSystemInstallResult, String> {
+    let pkg_path_str = pkg_path.to_str().ok_or("无效的 PKG 路径")?;
+    info!("[NodeInstall] PKG 路径: {}", pkg_path_str);
+    info!("[NodeInstall] PKG 文件存在: {}", pkg_path.exists());
+
+    if !pkg_path.exists() {
+        return Err(format!("PKG 文件不存在: {}", pkg_path_str));
+    }
+
+    // 关键修复：先将 PKG 复制到 /tmp
+    // 原因：使用 admin privileges 时，脚本以 root 身份运行，可能无法访问用户目录
+    let tmp_pkg_path = "/tmp/node-install.pkg";
+    info!("[NodeInstall] 复制 PKG 到 /tmp...");
+
+    let copy_output = Command::new("cp")
+        .arg(pkg_path_str)
+        .arg(tmp_pkg_path)
+        .output()
+        .map_err(|e| format!("复制 PKG 到 /tmp 失败: {}", e))?;
+
+    if !copy_output.status.success() {
+        return Err(format!("复制 PKG 失败，退出码: {:?}, stderr: {}",
+            copy_output.status.code(),
+            String::from_utf8_lossy(&copy_output.stderr)));
+    }
+
+    info!("[NodeInstall] PKG 已复制到 {}", tmp_pkg_path);
+
+    // 从 /tmp 安装
+    let install_cmd = format!("installer -pkg '{}' -target /", tmp_pkg_path);
+    info!("[NodeInstall] 安装命令: {}", install_cmd);
+
+    let apple_script = format!(
+        r#"do shell script "{}" with administrator privileges"#,
+        install_cmd
+    );
+
+    info!("[NodeInstall] 使用 AppleScript 执行安装...");
+
+    let output = Command::new("osascript")
+        .current_dir("/tmp")
+        .arg("-e")
+        .arg(&apple_script)
+        .output();
+
+    // 清理临时文件（无论成功或失败）
+    let _ = std::fs::remove_file(tmp_pkg_path);
+    info!("[NodeInstall] 已清理临时 PKG 文件");
+
+    match output {
+        Ok(out) => {
+            info!("[NodeInstall] 安装程序退出码: {:?}", out.status.code());
+            if !out.stdout.is_empty() {
+                info!("[NodeInstall] stdout: {}", String::from_utf8_lossy(&out.stdout));
+            }
+            if !out.stderr.is_empty() {
+                info!("[NodeInstall] stderr: {}", String::from_utf8_lossy(&out.stderr));
+            }
+
+            if !out.status.success() {
+                return Err(format!("PKG 安装失败，退出码: {:?}, stderr: {}",
+                    out.status.code(),
+                    String::from_utf8_lossy(&out.stderr)));
+            }
+        }
+        Err(e) => {
+            return Err(format!("执行 AppleScript 失败: {}", e));
+        }
+    }
+
+    // PKG 安装是同步的，可以立即验证
+    let version = verify_node_install()?;
+
+    Ok(NodeSystemInstallResult {
+        success: true,
+        version: Some(version),
+        install_path: Some("/usr/local/bin/node".to_string()),
+        needs_restart: false,
+        error: None,
+    })
+}
+
+/// Linux: 使用 tar.xz 解压到 /usr/local（需要管理员权限）
+/// 优先使用 pkexec (Polkit)，回退到 zenity + sudo
+#[cfg(target_os = "linux")]
+fn install_node_system_linux(tar_path: &std::path::Path) -> Result<NodeSystemInstallResult, String> {
+    let tar_path_str = tar_path.to_str().ok_or("无效的 tar 路径")?;
+    info!("[NodeInstall] tar 路径: {}", tar_path_str);
+    info!("[NodeInstall] tar 文件存在: {}", tar_path.exists());
+
+    if !tar_path.exists() {
+        return Err(format!("tar 文件不存在: {}", tar_path_str));
+    }
+
+    // 关键修复：先将 tar.xz 复制到 /tmp
+    // 原因：使用 pkexec/sudo 时，脚本以 root 身份运行，可能无法访问用户目录
+    let tmp_tar_path = "/tmp/node-install.tar.xz";
+    info!("[NodeInstall] 复制 tar.xz 到 /tmp...");
+
+    let copy_output = Command::new("cp")
+        .arg(tar_path_str)
+        .arg(tmp_tar_path)
+        .output()
+        .map_err(|e| format!("复制 tar.xz 到 /tmp 失败: {}", e))?;
+
+    if !copy_output.status.success() {
+        return Err(format!("复制 tar.xz 失败，退出码: {:?}, stderr: {}",
+            copy_output.status.code(),
+            String::from_utf8_lossy(&copy_output.stderr)));
+    }
+
+    info!("[NodeInstall] tar.xz 已复制到 {}", tmp_tar_path);
+
+    // 从 /tmp 解压
+    let tar_command = format!("tar -xJf '{}' -C /usr/local --strip-components=1", tmp_tar_path);
+    info!("[NodeInstall] 执行命令: {}", tar_command);
+
+    // 方法1: 尝试使用 pkexec (Polkit 标准)
+    info!("[NodeInstall] 尝试使用 pkexec 执行安装...");
+    let pkexec_result = Command::new("pkexec")
+        .args(["sh", "-c", &tar_command])
+        .output();
+
+    // 清理临时文件
+    let _ = std::fs::remove_file(tmp_tar_path);
+    info!("[NodeInstall] 已清理临时 tar.xz 文件");
+
+    match pkexec_result {
+        Ok(out) => {
+            info!("[NodeInstall] pkexec 退出码: {:?}", out.status.code());
+            if !out.stderr.is_empty() {
+                info!("[NodeInstall] stderr: {}", String::from_utf8_lossy(&out.stderr));
+            }
+            if out.status.success() {
+                let version = verify_node_install()?;
+                return Ok(NodeSystemInstallResult {
+                    success: true,
+                    version: Some(version),
+                    install_path: Some("/usr/local/bin/node".to_string()),
+                    needs_restart: false,
+                    error: None,
+                });
+            }
+            // pkexec 失败，尝试备用方案
+            warn!("[NodeInstall] pkexec 失败，尝试 zenity 备用方案...");
+        }
+        Err(e) => {
+            info!("[NodeInstall] pkexec 不可用: {}，尝试 zenity 备用方案...", e);
+        }
+    }
+
+    // 方法2: 备用方案 - 使用 zenity 显示密码输入框，然后用 sudo 执行
+    // 注意：需要先重新复制到 /tmp，因为上面已经清理了
+    let copy_output = Command::new("cp")
+        .arg(tar_path_str)
+        .arg(tmp_tar_path)
+        .output()
+        .map_err(|e| format!("重新复制 tar.xz 到 /tmp 失败: {}", e))?;
+
+    if !copy_output.status.success() {
+        return Err(format!("重新复制 tar.xz 失败"));
+    }
+
+    let tar_command_zenity = format!("tar -xJf '{}' -C /usr/local --strip-components=1", tmp_tar_path);
+    let zenity_script = format!(
+        r#"PASSWORD=$(zenity --password --title="Node.js 安装需要管理员权限"); if [ -n "$PASSWORD" ]; then echo "$PASSWORD" | sudo -S sh -c '{}'; rm -f '{}'; else echo "用户取消安装"; rm -f '{}'; fi"#,
+        tar_command_zenity, tmp_tar_path, tmp_tar_path
+    );
+
+    info!("[NodeInstall] 使用 zenity 备用方案执行安装...");
+
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(&zenity_script)
+        .output();
+
+    match output {
+        Ok(out) => {
+            info!("[NodeInstall] zenity 安装完成，退出码: {:?}", out.status.code());
+            if !out.stdout.is_empty() {
+                info!("[NodeInstall] stdout: {}", String::from_utf8_lossy(&out.stdout));
+            }
+            if !out.stderr.is_empty() {
+                info!("[NodeInstall] stderr: {}", String::from_utf8_lossy(&out.stderr));
+            }
+
+            if !out.status.success() {
+                return Err(format!("安装失败，退出码: {:?}, stderr: {}",
+                    out.status.code(),
+                    String::from_utf8_lossy(&out.stderr)));
+            }
+
+            let version = verify_node_install()?;
+            Ok(NodeSystemInstallResult {
+                success: true,
+                version: Some(version),
+                install_path: Some("/usr/local/bin/node".to_string()),
+                needs_restart: false,
+                error: None,
+            })
+        }
+        Err(e) => {
+            // 清理临时文件
+            let _ = std::fs::remove_file(tmp_tar_path);
+            Err(format!("执行 zenity 失败: {}，请手动安装 Node.js", e))
+        }
+    }
+}
+
+/// 系统级安装 Node.js（macOS/Linux 需要管理员权限）
+#[tauri::command]
+pub async fn node_install_system(app: tauri::AppHandle) -> Result<NodeSystemInstallResult, String> {
+    info!("[NodeInstall] 开始系统级安装 Node.js...");
+
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("获取资源目录失败: {}", e))?;
+
+    info!("[NodeInstall] 资源目录: {:?}", resource_dir);
+
+    // 根据平台和架构选择安装程序
+    #[cfg(target_os = "windows")]
+    let installer_path = {
+        // 检测架构
+        if std::env::consts::ARCH == "aarch64" {
+            resource_dir.join("resources/installers/windows/node-arm64.msi")
+        } else {
+            resource_dir.join("resources/installers/windows/node-x64.msi")
+        }
+    };
+
+    #[cfg(target_os = "macos")]
+    let installer_path = {
+        // macOS 使用 Universal PKG，同时支持 ARM64 和 x64
+        // 注意：Tauri 可能会转换目录名（macos -> macOS）
+        let path1 = resource_dir.join("resources/installers/macos/node.pkg");
+        let path2 = resource_dir.join("resources/installers/macOS/node.pkg");
+
+        info!("[NodeInstall] 检查路径1: {:?}, 存在: {}", path1, path1.exists());
+        info!("[NodeInstall] 检查路径2: {:?}, 存在: {}", path2, path2.exists());
+
+        if path2.exists() {
+            path2
+        } else {
+            path1
+        }
+    };
+
+    #[cfg(target_os = "linux")]
+    let installer_path = {
+        // 检测架构
+        if std::env::consts::ARCH == "aarch64" {
+            resource_dir.join("resources/installers/linux/node-arm64.tar.xz")
+        } else {
+            resource_dir.join("resources/installers/linux/node-x64.tar.xz")
+        }
+    };
+
+    // 开发模式下的回退路径
+    let installer_path = if !installer_path.exists() {
+        let dev_path = std::env::current_dir()
+            .unwrap_or_default()
+            .join("resources/installers")
+            .join(if cfg!(windows) {
+                if std::env::consts::ARCH == "aarch64" {
+                    "windows/node-arm64.msi"
+                } else {
+                    "windows/node-x64.msi"
+                }
+            } else if cfg!(target_os = "macos") {
+                "macos/node.pkg"
+            } else {
+                if std::env::consts::ARCH == "aarch64" {
+                    "linux/node-arm64.tar.xz"
+                } else {
+                    "linux/node-x64.tar.xz"
+                }
+            });
+
+        if dev_path.exists() {
+            info!("[NodeInstall] 使用开发模式安装程序路径: {:?}", dev_path);
+            dev_path
+        } else {
+            // 再尝试从 cargo manifest 目录
+            let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("resources/installers")
+                .join(if cfg!(windows) {
+                    if std::env::consts::ARCH == "aarch64" {
+                        "windows/node-arm64.msi"
+                    } else {
+                        "windows/node-x64.msi"
+                    }
+                } else if cfg!(target_os = "macos") {
+                    "macos/node.pkg"
+                } else {
+                    if std::env::consts::ARCH == "aarch64" {
+                        "linux/node-arm64.tar.xz"
+                    } else {
+                        "linux/node-x64.tar.xz"
+                    }
+                });
+
+            if manifest_path.exists() {
+                info!(
+                    "[NodeInstall] 使用 CARGO_MANIFEST_DIR 安装程序路径: {:?}",
+                    manifest_path
+                );
+                manifest_path
+            } else {
+                return Ok(NodeSystemInstallResult {
+                    success: false,
+                    version: None,
+                    install_path: None,
+                    needs_restart: false,
+                    error: Some(format!("未找到安装程序: {:?}", installer_path)),
+                });
+            }
+        }
+    } else {
+        installer_path
+    };
+
+    if !installer_path.exists() {
+        return Ok(NodeSystemInstallResult {
             success: false,
             version: None,
-            bin_path: None,
-            error: Some(format!("{}\n{}", stderr, stdout)),
-        })
+            install_path: None,
+            needs_restart: false,
+            error: Some(format!("未找到安装程序: {:?}", installer_path)),
+        });
     }
+
+    // 执行平台特定的安装
+    #[cfg(target_os = "windows")]
+    let result = install_node_system_windows(&installer_path);
+
+    #[cfg(target_os = "macos")]
+    let result = install_node_system_macos(&installer_path);
+
+    #[cfg(target_os = "linux")]
+    let result = install_node_system_linux(&installer_path);
+
+    result
 }
 
 // ========== 辅助函数 ==========

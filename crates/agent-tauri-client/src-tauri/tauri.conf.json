@@ -29,6 +29,7 @@
     "createUpdaterArtifacts": true,
     "externalBin": ["binaries/nuwax-lanproxy"],
     "resources": [
+      "resources/installers/",
       "resources/node/bin/",
       "resources/node/lib/",
       "resources/uv/bin/"

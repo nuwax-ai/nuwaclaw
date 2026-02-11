@@ -5,6 +5,7 @@
  * - 重置初始化状态（进入向导）
  * - 清除登录状态
  * - 清除所有缓存数据
+ * - 测试系统级 Node.js 安装
  *
  * 注意：此组件仅在开发环境下加载
  */
@@ -27,9 +28,11 @@ import {
   ClearOutlined,
   UserDeleteOutlined,
   UndoOutlined,
+  DownloadOutlined,
 } from "@ant-design/icons";
 import { resetSetup } from "../../services/setup";
 import { clearAuthInfo } from "../../services/auth";
+import { systemInstallNode } from "../../services/dependencies";
 
 const { Text } = Typography;
 
@@ -84,6 +87,31 @@ export default function DevResetTools() {
   };
 
   /**
+   * 测试系统级 Node.js 安装
+   * 从内置安装包（MSI/PKG）安装到系统全局
+   */
+  const handleTestSystemInstallNode = async () => {
+    try {
+      const result = await systemInstallNode();
+
+      if (result.success) {
+        let msg = `Node.js v${result.version} 安装成功！`;
+        if (result.needsRestart) {
+          msg += " 请重启应用以使用新安装的 Node.js。";
+        }
+        message.success(msg);
+        console.log("[DevTools] Node.js 安装详情:", result);
+      } else {
+        message.error(`Node.js 安装失败: ${result.error || "未知错误"}`);
+        console.error("[DevTools] Node.js 安装失败:", result);
+      }
+    } catch (error) {
+      message.error(`Node.js 安装异常: ${error}`);
+      console.error("[DevTools] Node.js 安装异常:", error);
+    }
+  };
+
+  /**
    * 重置工具列表
    */
   const tools: ResetTool[] = [
@@ -109,6 +137,14 @@ export default function DevResetTools() {
       icon: <ClearOutlined />,
       action: handleClearAll,
       danger: true,
+    },
+    {
+      key: "test-system-install-node",
+      title: "测试系统级安装 Node.js",
+      description: "从内置安装包（MSI/PKG）安装到系统全局（macOS/Linux 需要管理员权限）",
+      icon: <DownloadOutlined />,
+      action: handleTestSystemInstallNode,
+      requireReload: false,
     },
   ];
 

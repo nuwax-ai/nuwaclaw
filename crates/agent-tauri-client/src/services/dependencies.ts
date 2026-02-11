@@ -455,6 +455,64 @@ export async function installGlobalNpmPackage(
 }
 
 /**
+ * 批量安装失败的包
+ */
+export interface FailedPackage {
+  name: string;
+  error: string;
+}
+
+/**
+ * 批量安装结果
+ */
+export interface BatchInstallResult {
+  success: boolean;
+  installedPackages: string[];
+  failedPackages: FailedPackage[];
+  error?: string;
+}
+
+/**
+ * 批量全局安装 npm 包（只输入一次密码）
+ * @param packages - 包名列表
+ * @returns 批量安装结果
+ */
+export async function installGlobalNpmPackageBatch(
+  packages: string[],
+): Promise<BatchInstallResult> {
+  try {
+    console.log(
+      `[Dependencies] 开始批量全局安装 npm 包: ${packages.join(", ")}...`,
+    );
+    const result = await invoke<BatchInstallResult>(
+      "dependency_npm_global_install_batch",
+      { packages },
+    );
+
+    if (result.success) {
+      console.log(
+        `[Dependencies] 批量安装成功: ${result.installedPackages.join(", ")}`,
+      );
+    } else {
+      console.error(`[Dependencies] 批量安装失败:`, result.error);
+    }
+
+    return result;
+  } catch (error) {
+    console.error(`[Dependencies] 批量全局安装失败:`, error);
+    return {
+      success: false,
+      installedPackages: [],
+      failedPackages: packages.map((p) => ({
+        name: p,
+        error: error instanceof Error ? error.message : String(error),
+      })),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
  * 检测所有必需依赖状态
  * @returns 依赖状态列表
  */
@@ -702,4 +760,45 @@ export function isNewerVersion(current: string, latest: string): boolean {
     if (lv < cv) return false;
   }
   return false;
+}
+
+/**
+ * 系统级 Node.js 安装结果
+ */
+export interface NodeSystemInstallResult {
+  success: boolean;
+  version?: string;
+  installPath?: string;
+  needsRestart: boolean;
+  error?: string;
+}
+
+/**
+ * 系统级安装 Node.js（macOS/Linux 需要管理员权限）
+ * 从内置安装包（MSI/PKG）安装到系统全局
+ */
+export async function systemInstallNode(): Promise<NodeSystemInstallResult> {
+  try {
+    console.log("[Dependencies] 开始系统级安装 Node.js...");
+    const result = await invoke<NodeSystemInstallResult>("node_install_system");
+
+    if (result.success) {
+      console.log("[Dependencies] Node.js 系统级安装成功:", result.version);
+      console.log("[Dependencies] 安装路径:", result.installPath);
+      if (result.needsRestart) {
+        console.warn("[Dependencies] 安装成功，但需要重启应用生效");
+      }
+    } else {
+      console.error("[Dependencies] Node.js 系统级安装失败:", result.error);
+    }
+
+    return result;
+  } catch (error) {
+    console.error("[Dependencies] 系统级安装 Node.js 异常:", error);
+    return {
+      success: false,
+      needsRestart: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }

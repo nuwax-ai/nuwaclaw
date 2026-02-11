@@ -72,6 +72,7 @@ pub fn create_app() -> tauri::Builder<tauri::Wry> {
             crate::commands::dependency_local_env_init,
             crate::commands::dependency_node_detect,
             crate::commands::node_install_auto,
+            crate::commands::node_install_system,
             crate::commands::dependency_uv_detect,
             crate::commands::uv_install_auto,
             crate::commands::dependency_local_check,
@@ -81,6 +82,7 @@ pub fn create_app() -> tauri::Builder<tauri::Wry> {
             crate::commands::dependency_shell_installer_install,
             crate::commands::dependency_npm_global_check,
             crate::commands::dependency_npm_global_install,
+            crate::commands::dependency_npm_global_install_batch,
             crate::commands::dialog_select_directory,
             // 日志相关命令
             crate::commands::log_dir_get,

@@ -19,3 +19,6 @@ vcpkg
 
 # Node.js dependencies (root husky/lint-staged)
 node_modules/
+
+# Node.js 安装包（通过脚本下载）
+crates/agent-tauri-client/src-tauri/resources/installers/

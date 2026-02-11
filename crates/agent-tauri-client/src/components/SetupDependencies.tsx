@@ -28,7 +28,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   checkAllSetupDependencies,
-  autoInstallNode,
+  systemInstallNode,
   autoInstallUv,
   initLocalNpmEnv,
   checkLocalNpmPackage,
@@ -36,7 +36,7 @@ import {
   checkShellInstallerPackage,
   installShellInstallerPackage,
   checkGlobalNpmPackage,
-  installGlobalNpmPackage,
+  installGlobalNpmPackageBatch,
   type LocalDependencyItem,
 } from "../services/dependencies";
 import { getDepsShowAll, setDepsShowAll } from "../services/setup";
@@ -50,6 +50,7 @@ type InstallPhase =
   | "checking"
   | "node-installing"
   | "node-install-failed"
+  | "node-install-restart-required"
   | "uv-installing"
   | "uv-install-failed"
   | "system-deps-missing"
@@ -135,31 +136,36 @@ export default function SetupDependencies({
   );
 
   /**
-   * 自动安装 Node.js 并重新检测
+   * 系统级安装 Node.js 并重新检测
    */
   const handleAutoInstallNode = useCallback(async () => {
     setInstallPhase("node-installing");
     setNodeInstallError("");
 
     try {
-      const result = await autoInstallNode();
+      const result = await systemInstallNode();
 
       if (result.success) {
-        console.log("[SetupDeps] Node.js 自动安装成功，重新检测依赖...");
-        // 安装成功，重新检测全部依赖
-        // 注意：不重置 nodeAutoInstallTriggered，防止检测仍失败时再次触发安装循环
-        setInstallPhase("checking");
+        console.log("[SetupDeps] Node.js 系统级安装成功:", result.version);
+        if (result.needsRestart) {
+          // 安装成功但需要重启应用
+          setInstallPhase("node-install-restart-required");
+        } else {
+          // 安装成功，重新检测全部依赖
+          console.log("[SetupDeps] 重新检测依赖...");
+          setInstallPhase("checking");
+        }
       } else {
-        console.error("[SetupDeps] Node.js 自动安装失败:", result.error);
+        console.error("[SetupDeps] Node.js 系统级安装失败:", result.error);
         setNodeInstallError(
-          result.error || "Node.js 自动安装失败，请手动安装。",
+          result.error || "Node.js 系统级安装失败，请手动安装。",
         );
         setInstallPhase("node-install-failed");
       }
     } catch (error) {
-      console.error("[SetupDeps] Node.js 自动安装异常:", error);
+      console.error("[SetupDeps] Node.js 系统级安装异常:", error);
       setNodeInstallError(
-        error instanceof Error ? error.message : "Node.js 自动安装异常",
+        error instanceof Error ? error.message : "Node.js 系统级安装异常",
       );
       setInstallPhase("node-install-failed");
     }
@@ -318,8 +324,8 @@ export default function SetupDependencies({
       const toInstall = installableDependencies.filter(
         (d) => d.status !== "installed",
       );
-      const total = toInstall.length;
-      if (total === 0) {
+
+      if (toInstall.length === 0) {
         setInstallProgress(100);
         setInstallPhase("completed");
         setTimeout(() => onComplete(), 1500);
@@ -329,10 +335,77 @@ export default function SetupDependencies({
       const hasNpm = toInstall.some((d) => d.type === "npm-local");
       if (hasNpm) await initLocalNpmEnv();
 
-      for (let i = 0; i < toInstall.length; i++) {
-        const pkg = toInstall[i];
+      // 1. 先批量安装所有 npm-global 包（只输入一次密码）
+      const npmGlobalPackages = toInstall.filter((d) => d.type === "npm-global");
+      if (npmGlobalPackages.length > 0) {
+        setCurrentInstalling("npm 全局依赖");
+        setInstallProgress(10);
+
+        // 标记所有 npm-global 包为安装中
+        setAllDependencies((prev) =>
+          prev.map((d) =>
+            d.type === "npm-global" && d.status !== "installed"
+              ? { ...d, status: "installing" as const }
+              : d,
+          ),
+        );
+
+        const packageNames = npmGlobalPackages.map((p) => p.name);
+        const batchResult = await installGlobalNpmPackageBatch(packageNames);
+
+        // 更新安装结果
+        for (const pkg of npmGlobalPackages) {
+          const failed = batchResult.failedPackages.find(
+            (f) => f.name === pkg.name,
+          );
+          if (failed) {
+            setAllDependencies((prev) =>
+              prev.map((d) =>
+                d.name === pkg.name
+                  ? { ...d, status: "error" as const, errorMessage: failed.error }
+                  : d,
+              ),
+            );
+          } else {
+            // 获取版本信息
+            const checkResult = await checkGlobalNpmPackage(
+              pkg.binName || pkg.name,
+            );
+            setAllDependencies((prev) =>
+              prev.map((d) =>
+                d.name === pkg.name
+                  ? {
+                      ...d,
+                      status: "installed" as const,
+                      version: checkResult.version,
+                    }
+                  : d,
+              ),
+            );
+          }
+        }
+
+        if (!batchResult.success && batchResult.failedPackages.length > 0) {
+          setInstallPhase("error");
+          setInstallError(
+            batchResult.error || "部分 npm 全局包安装失败",
+          );
+          return;
+        }
+
+        setInstallProgress(50);
+      }
+
+      // 2. 安装其他类型的包（shell-installer, npm-local）
+      const otherPackages = toInstall.filter(
+        (d) => d.type !== "npm-global",
+      );
+      const otherCount = otherPackages.length;
+
+      for (let i = 0; i < otherCount; i++) {
+        const pkg = otherPackages[i];
         setCurrentInstalling(pkg.displayName);
-        setInstallProgress(Math.round((i / total) * 100));
+        setInstallProgress(50 + Math.round((i / otherCount) * 50));
 
         setAllDependencies((prev) =>
           prev.map((d) =>
@@ -344,10 +417,6 @@ export default function SetupDependencies({
         let ver: string | undefined;
         if (pkg.type === "shell-installer") {
           const r = await checkShellInstallerPackage(pkg.binName || pkg.name);
-          isInstalled = r.installed;
-          ver = r.version;
-        } else if (pkg.type === "npm-global") {
-          const r = await checkGlobalNpmPackage(pkg.binName || pkg.name);
           isInstalled = r.installed;
           ver = r.version;
         } else {
@@ -373,11 +442,6 @@ export default function SetupDependencies({
             throw new Error(`${pkg.displayName} 缺少 installerUrl`);
           result = await installShellInstallerPackage(
             pkg.installerUrl,
-            pkg.binName || pkg.name,
-          );
-        } else if (pkg.type === "npm-global") {
-          result = await installGlobalNpmPackage(
-            pkg.name,
             pkg.binName || pkg.name,
           );
         } else {
@@ -593,6 +657,7 @@ export default function SetupDependencies({
   // 判断是否为错误/需要用户介入的阶段
   const isErrorPhase =
     installPhase === "node-install-failed" ||
+    installPhase === "node-install-restart-required" ||
     installPhase === "uv-install-failed" ||
     installPhase === "system-deps-missing" ||
     installPhase === "error";
@@ -649,6 +714,36 @@ export default function SetupDependencies({
   }
 
   // ========== 错误/需要用户介入的阶段：展示完整依赖列表 ==========
+
+  // Node 安装成功，需要重启
+  if (installPhase === "node-install-restart-required") {
+    return (
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
+          依赖安装
+        </div>
+        <Alert
+          message="Node.js 安装成功"
+          description={
+            <div>
+              <div>Node.js 已成功安装到系统。</div>
+              <div style={{ marginTop: 8, fontSize: 12, color: "#71717a" }}>
+                需要重启应用才能生效。请保存当前进度后点击「重启应用」。
+              </div>
+            </div>
+          }
+          type="success"
+          showIcon
+          style={{ marginBottom: 12 }}
+        />
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <Button type="primary" onClick={() => window.location.reload()}>
+            重启应用
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   // Node 安装失败
   if (installPhase === "node-install-failed") {

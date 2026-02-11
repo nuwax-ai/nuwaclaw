@@ -76,12 +76,13 @@ help:
 	@echo "  package-deb    - 打包 Linux DEB"
 	@echo ""
 	@echo "=== Tauri 应用打包 ==="
-	@echo "  node-download      - 下载 Node.js 运行时到资源目录（已存在则跳过）"
-	@echo "  tauri-bundle       - 打包 Tauri 应用 (默认生产环境)"
-	@echo "  tauri-bundle-test  - 打包 Tauri 应用 (测试环境)"
-	@echo "  tauri-bundle-prod  - 打包 Tauri 应用 (生产环境)"
-	@echo "  tauri-bundle-all   - 打包 Tauri 所有平台 (macOS/Windows/Linux)"
-	@echo "  tauri-dev          - 运行 Tauri 开发模式"
+	@echo "  node-download          - 下载 Node.js 运行时到资源目录（已存在则跳过）"
+	@echo "  node-installers-download - 下载 Node.js 安装包（MSI/PKG）"
+	@echo "  tauri-bundle           - 打包 Tauri 应用 (默认生产环境)"
+	@echo "  tauri-bundle-test      - 打包 Tauri 应用 (测试环境)"
+	@echo "  tauri-bundle-prod      - 打包 Tauri 应用 (生产环境)"
+	@echo "  tauri-bundle-all       - 打包 Tauri 所有平台 (macOS/Windows/Linux)"
+	@echo "  tauri-dev              - 运行 Tauri 开发模式"
 	@echo ""
 	@echo "=== 依赖 ==="
 	@echo "  setup-repo     - 初始化 Git 子模块（含嵌套的 hbb_common）"
@@ -317,15 +318,20 @@ uv-download:
 	@echo ">>> 下载 uv 运行时资源（已存在则跳过）..."
 	./scripts/download-uv.sh
 
+.PHONY: node-installers-download
+node-installers-download:
+	@echo ">>> 下载 Node.js 安装包（已存在则跳过）..."
+	./scripts/download-node-installers.sh
+
 .PHONY: tauri-build
-tauri-build: node-download uv-download
+tauri-build: node-download uv-download node-installers-download
 	@echo ">>> 构建 Tauri 应用 (环境: $(BUILD_ENV))..."
 	cd crates/$(TAURI_CLIENT) && pnpm install
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo build --release
 
 .PHONY: tauri-bundle
-tauri-bundle: node-download uv-download
+tauri-bundle: node-download uv-download node-installers-download
 	@echo ">>> 打包 Tauri 应用 (环境: $(BUILD_ENV))..."
 	cd crates/$(TAURI_CLIENT) && pnpm install
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
@@ -350,7 +356,7 @@ endif
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build --bundles all
 
 .PHONY: tauri-dev
-tauri-dev: node-download uv-download
+tauri-dev: node-download uv-download node-installers-download
 	@echo ">>> 运行 Tauri 开发模式 (环境: $(BUILD_ENV))..."
 	@echo ">>> 日志将输出到 logs/tauri-dev.log"
 	mkdir -p logs
