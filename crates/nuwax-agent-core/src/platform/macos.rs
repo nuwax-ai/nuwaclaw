@@ -1,5 +1,6 @@
 //! 平台适配模块 - macOS
 
+use crate::utils::CommandNoWindowExt;
 use std::process::Command;
 
 /// 获取 macOS 机器 ID
@@ -9,6 +10,7 @@ pub fn get_machine_id() -> Option<String> {
 
     // 方式 1: 使用 ioreg 获取设备序列号
     let output = Command::new("ioreg")
+        .no_window()
         .args(["-rd1", "-c", "IOPlatformExpertDevice"])
         .output()
         .ok()?;
@@ -31,6 +33,7 @@ pub fn get_machine_id() -> Option<String> {
 
     // 方式 2: 使用 system_profiler 获取
     let output = Command::new("system_profiler")
+        .no_window()
         .args(["SPHardwareDataType", "-json"])
         .output()
         .ok()?;

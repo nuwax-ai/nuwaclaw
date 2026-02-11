@@ -6,6 +6,7 @@ use open;
 use thiserror::Error;
 use tracing::debug;
 
+#[cfg(target_os = "linux")]
 use crate::utils::CommandNoWindowExt;
 
 /// 权限错误

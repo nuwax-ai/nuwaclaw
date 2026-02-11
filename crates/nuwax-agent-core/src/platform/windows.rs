@@ -1,11 +1,13 @@
 //! 平台适配模块 - Windows
 
+use crate::utils::CommandNoWindowExt;
 use std::process::Command;
 
 /// 获取 Windows 机器 ID
 pub fn get_machine_id() -> Option<String> {
     // 使用 wmic 获取产品 ID 和机器 GUID
     let output = Command::new("wmic")
+        .no_window()
         .args(&["csproduct", "get", "UUID"])
         .output()
         .ok()?;
@@ -24,6 +26,7 @@ pub fn get_machine_id() -> Option<String> {
 
     // 备选：使用 powershell 获取
     let output = Command::new("powershell")
+        .no_window()
         .args(&[
             "-Command",
             "(Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID",

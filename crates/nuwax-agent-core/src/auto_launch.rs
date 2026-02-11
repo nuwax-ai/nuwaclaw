@@ -43,6 +43,7 @@ impl AutoLaunchManager {
     pub async fn enable(&self) -> Result<(), AutoLaunchError> {
         #[cfg(target_os = "macos")]
         {
+            use crate::utils::CommandNoWindowExt;
             use std::process::Command;
             let launch_agents_dir = dirs::home_dir()
                 .ok_or_else(|| AutoLaunchError::EnableFailed("无法获取 home 目录".to_string()))?
@@ -75,6 +76,7 @@ impl AutoLaunchManager {
                 .map_err(|e| AutoLaunchError::EnableFailed(e.to_string()))?;
 
             Command::new("launchctl")
+                .no_window()
                 .args(["load", "-w", &plist_path.to_string_lossy()])
                 .output()
                 .map_err(|e| AutoLaunchError::EnableFailed(e.to_string()))?;
@@ -124,6 +126,7 @@ X-GNOME-Autostart-enabled=true
     pub async fn disable(&self) -> Result<(), AutoLaunchError> {
         #[cfg(target_os = "macos")]
         {
+            use crate::utils::CommandNoWindowExt;
             use std::process::Command;
             let plist_path = dirs::home_dir()
                 .ok_or_else(|| AutoLaunchError::DisableFailed("无法获取 home 目录".to_string()))?
@@ -134,6 +137,7 @@ X-GNOME-Autostart-enabled=true
 
             if plist_path.exists() {
                 Command::new("launchctl")
+                    .no_window()
                     .args(["unload", "-w", &plist_path.to_string_lossy()])
                     .output()
                     .ok();
@@ -173,8 +177,10 @@ X-GNOME-Autostart-enabled=true
     pub async fn is_enabled(&self) -> Result<bool, AutoLaunchError> {
         #[cfg(target_os = "macos")]
         {
+            use crate::utils::CommandNoWindowExt;
             use std::process::Command;
             let output = Command::new("launchctl")
+                .no_window()
                 .args(["list", &format!("com.nuwax.{}", self.app_name)])
                 .output()
                 .map_err(|e| AutoLaunchError::StatusCheckFailed(e.to_string()))?;

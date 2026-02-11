@@ -61,7 +61,8 @@ fn get_file_server_pid_file_path() -> std::path::PathBuf {
 async fn run_command_with_timeout(program: &str, args: &[&str], timeout_secs: u64) -> bool {
     let node_path = crate::utils::build_node_path_env();
     let mut cmd = process_wrap::tokio::CommandWrap::with_new(program, |cmd| {
-        cmd.env("PATH", &node_path);
+        use crate::utils::CommandNoWindowExt;
+        cmd.no_window().env("PATH", &node_path);
         for arg in args {
             cmd.arg(*arg);
         }
@@ -905,7 +906,8 @@ impl ServiceManager {
         let node_path = crate::utils::build_node_path_env();
         let capture_output = config.capture_output_to_log;
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
-            let cmd = cmd.env("PATH", &node_path);
+            use crate::utils::CommandNoWindowExt;
+            let cmd = cmd.no_window().env("PATH", &node_path);
             let cmd = if capture_output {
                 cmd.stdout(Stdio::piped()).stderr(Stdio::piped())
             } else {
@@ -1016,7 +1018,10 @@ impl ServiceManager {
         info!("[Lanproxy] 使用可执行文件路径: {}", lanproxy_bin);
 
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(lanproxy_bin.as_str(), |cmd| {
-            cmd.arg("-s").arg(&self.lanproxy_config.server_ip);
+            use crate::utils::CommandNoWindowExt;
+            cmd.no_window()
+                .arg("-s")
+                .arg(&self.lanproxy_config.server_ip);
             cmd.arg("-p")
                 .arg(self.lanproxy_config.server_port.to_string());
             cmd.arg("-k").arg(&self.lanproxy_config.client_key);
@@ -1132,7 +1137,8 @@ impl ServiceManager {
         );
 
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
-            cmd.arg("-s").arg(&config.server_ip);
+            use crate::utils::CommandNoWindowExt;
+            cmd.no_window().arg("-s").arg(&config.server_ip);
             cmd.arg("-p").arg(config.server_port.to_string());
             cmd.arg("-k").arg(&config.client_key);
             cmd.arg("--ssl=true");
@@ -1207,7 +1213,9 @@ impl ServiceManager {
         let port_str = config.port.to_string();
         let node_path = crate::utils::build_node_path_env();
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
-            cmd.env("PATH", &node_path)
+            use crate::utils::CommandNoWindowExt;
+            cmd.no_window()
+                .env("PATH", &node_path)
                 .arg("proxy")
                 .arg("--port")
                 .arg(&port_str)

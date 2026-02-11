@@ -1,5 +1,6 @@
 //! 平台适配模块 - Linux
 
+use crate::utils::CommandNoWindowExt;
 use std::process::Command;
 
 /// 获取 Linux 机器 ID
@@ -21,7 +22,7 @@ pub fn get_machine_id() -> Option<String> {
     }
 
     // 方式 3: 使用 hostid 命令
-    let output = Command::new("hostid").output().ok()?;
+    let output = Command::new("hostid").no_window().output().ok()?;
     if output.status.success() {
         let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !id.is_empty() {
