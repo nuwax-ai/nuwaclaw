@@ -7,6 +7,8 @@ use std::process::Command;
 use thiserror::Error;
 use tracing::{debug, info};
 
+use crate::utils::CommandNoWindowExt;
+
 use super::detector::{DependencyDetector, DetectionResult, DetectorError};
 
 /// Docker 信息
@@ -66,6 +68,7 @@ impl DockerDetector {
     /// 从 PATH 检测
     fn detect_from_path(&self) -> Result<DockerInfo, DockerError> {
         let output = Command::new("docker")
+            .no_window()
             .arg("--version")
             .output()
             .map_err(|e| DockerError::CommandFailed(e.to_string()))?;
@@ -120,6 +123,7 @@ impl DockerDetector {
     /// 查找 Docker 路径
     fn find_docker_path(&self) -> Result<PathBuf, DockerError> {
         let output = Command::new("which")
+            .no_window()
             .arg("docker")
             .output()
             .map_err(|e| DockerError::CommandFailed(e.to_string()))?;
@@ -173,6 +177,7 @@ impl DockerDetector {
     /// 检查 Docker 是否运行
     fn check_docker_running(&self) -> Result<bool, DockerError> {
         let output = Command::new("docker")
+            .no_window()
             .arg("info")
             .output()
             .map_err(|e| DockerError::CommandFailed(e.to_string()))?;
@@ -242,6 +247,7 @@ impl DockerDetector {
     /// 从路径获取版本
     fn get_version_from_path(&self, path: &PathBuf) -> Result<String, DockerError> {
         let output = Command::new(path)
+            .no_window()
             .arg("--version")
             .output()
             .map_err(|e| DockerError::CommandFailed(e.to_string()))?;

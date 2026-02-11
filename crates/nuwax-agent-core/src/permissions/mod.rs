@@ -6,6 +6,8 @@ use open;
 use thiserror::Error;
 use tracing::debug;
 
+use crate::utils::CommandNoWindowExt;
+
 /// 权限错误
 #[derive(Error, Debug)]
 pub enum PermissionError {
@@ -141,11 +143,13 @@ impl PermissionManager {
             "camera" | "microphone" => open::that(format!("gnome-control-center {}", permission))
                 .or_else(|_| open::that("xdg-settings")),
             _ => std::process::Command::new("gnome-control-center")
+                .no_window()
                 .arg("privacy")
                 .spawn()
                 .map(|_| ())
                 .or_else(|_| {
                     std::process::Command::new("xdg-open")
+                        .no_window()
                         .arg("gnome-control-center:")
                         .spawn()
                         .map(|_| ())

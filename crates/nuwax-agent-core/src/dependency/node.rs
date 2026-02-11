@@ -8,6 +8,8 @@ use std::process::Command;
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
+use crate::utils::CommandNoWindowExt;
+
 use super::detector::{DependencyDetector, DetectionResult, DetectorError};
 
 /// Node.js 最低要求版本
@@ -75,6 +77,7 @@ impl NodeDetector {
     /// 从 PATH 检测
     fn detect_from_path(&self) -> Result<NodeInfo, NodeError> {
         let output = Command::new("node")
+            .no_window()
             .arg("--version")
             .output()
             .map_err(|e| NodeError::CommandFailed(e.to_string()))?;
@@ -105,6 +108,7 @@ impl NodeDetector {
         #[cfg(unix)]
         {
             let output = Command::new("which")
+                .no_window()
                 .arg("node")
                 .output()
                 .map_err(|e| NodeError::CommandFailed(e.to_string()))?;
@@ -118,6 +122,7 @@ impl NodeDetector {
         #[cfg(windows)]
         {
             let output = Command::new("where")
+                .no_window()
                 .arg("node")
                 .output()
                 .map_err(|e| NodeError::CommandFailed(e.to_string()))?;
@@ -210,6 +215,7 @@ impl NodeDetector {
     /// 从路径获取版本
     fn get_version_from_path(&self, path: &PathBuf) -> Result<String, NodeError> {
         let output = Command::new(path)
+            .no_window()
             .arg("--version")
             .output()
             .map_err(|e| NodeError::CommandFailed(e.to_string()))?;
@@ -426,17 +432,21 @@ impl NodeInstaller {
             std::fs::copy(&src_node, &dst_node)?;
         }
 
-        // 2. 复制 lib/node_modules/ 到 ~/.local/lib/node_modules/
-        // 2. 复制 lib/node_modules/ 到 ~/.local/lib/node_modules/
-        let src_lib = bundled_node_dir.join("lib");
-        if src_lib.exists() {
+        // 2. 复制 node_modules/ 到目标位置
+        // Unix: ~/.local/lib/node_modules/ (标准 Unix FHS 结构)
+        // Windows: ~/.local/bin/node_modules/ (与 node.exe 同级，符合 Windows Node.js 标准结构)
+        let src_node_modules = bundled_node_dir.join("lib").join("node_modules");
+        if src_node_modules.exists() {
             #[cfg(unix)]
-            let dst_dir = &lib_dir;
+            let dst_node_modules = lib_dir.join("node_modules");
             #[cfg(windows)]
-            let dst_dir = &bin_dir;
+            let dst_node_modules = bin_dir.join("node_modules");
 
-            info!("Copying lib: {:?} -> {:?}", src_lib, dst_dir);
-            Self::copy_dir_recursive(&src_lib, dst_dir)?;
+            info!(
+                "Copying node_modules: {:?} -> {:?}",
+                src_node_modules, dst_node_modules
+            );
+            Self::copy_dir_recursive(&src_node_modules, &dst_node_modules)?;
         }
 
         // 3. 创建 npm/npx/corepack 符号链接（使用与 Node.js 原始包相同的相对路径）

@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use thiserror::Error;
 
+use crate::utils::CommandNoWindowExt;
+
 use super::detector::{DependencyDetector, DetectionResult, DetectorError};
 
 /// CLI 工具错误
@@ -85,6 +87,7 @@ impl CliToolDetector {
     fn detect_tool(&self) -> Result<CliToolInfo, CliToolError> {
         // 检测命令
         let output = Command::new(&self.name)
+            .no_window()
             .arg("--version")
             .output()
             .map_err(|e| CliToolError::CommandFailed(e.to_string()))?;
@@ -109,6 +112,7 @@ impl CliToolDetector {
     /// 查找工具路径
     fn find_path(&self) -> Result<PathBuf, CliToolError> {
         let output = Command::new("which")
+            .no_window()
             .arg(&self.name)
             .output()
             .map_err(|e| CliToolError::CommandFailed(e.to_string()))?;

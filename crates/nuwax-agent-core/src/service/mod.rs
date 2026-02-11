@@ -8,6 +8,8 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
+use crate::utils::CommandNoWindowExt;
+
 // 类型别名，解决 trait object 类型推断问题
 type ChildWrapperType = Box<dyn process_wrap::tokio::ChildWrapper>;
 
@@ -107,6 +109,7 @@ pub async fn find_processes_by_name(process_name: &str) -> Option<Vec<u32>> {
     {
         // 使用 pgrep -x 精确匹配进程名
         let output = tokio::process::Command::new("pgrep")
+            .no_window()
             .arg("-x")
             .arg(process_name)
             .output()
@@ -136,6 +139,7 @@ pub async fn find_processes_by_name(process_name: &str) -> Option<Vec<u32>> {
         };
 
         let output = tokio::process::Command::new("tasklist")
+            .no_window()
             .args([
                 "/FI",
                 &format!("IMAGENAME eq {}", exe_name),
@@ -213,6 +217,7 @@ async fn is_pid_running(pid: u32) -> bool {
     {
         // 使用 kill -0 检查进程是否存在（通过 shell 命令）
         let output = tokio::process::Command::new("kill")
+            .no_window()
             .args(["-0", &pid.to_string()])
             .output()
             .await;
@@ -226,6 +231,7 @@ async fn is_pid_running(pid: u32) -> bool {
     #[cfg(target_os = "windows")]
     {
         let output = tokio::process::Command::new("tasklist")
+            .no_window()
             .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
             .output()
             .await;
@@ -500,6 +506,7 @@ pub async fn find_processes_by_prefix(process_prefix: &str) -> Option<Vec<u32>> 
     {
         // 使用 pgrep -f 进行模糊匹配
         let output = tokio::process::Command::new("pgrep")
+            .no_window()
             .arg("-f")
             .arg(process_prefix)
             .output()
@@ -523,6 +530,7 @@ pub async fn find_processes_by_prefix(process_prefix: &str) -> Option<Vec<u32>> 
     {
         // Windows: 使用 tasklist 然后过滤
         let output = tokio::process::Command::new("tasklist")
+            .no_window()
             .args(["/FO", "CSV", "/NH"])
             .output()
             .await
@@ -679,9 +687,17 @@ impl Default for NuwaxFileServerConfig {
             upload_project_dir: base.join("zips").to_string_lossy().to_string(),
             project_source_dir: base.join("workspace").to_string_lossy().to_string(),
             dist_target_dir: base.join("nginx").to_string_lossy().to_string(),
-            log_base_dir: base.join("logs").join("project_logs").to_string_lossy().to_string(),
+            log_base_dir: base
+                .join("logs")
+                .join("project_logs")
+                .to_string_lossy()
+                .to_string(),
             computer_workspace_dir: base.join("computer").to_string_lossy().to_string(),
-            computer_log_dir: base.join("logs").join("computer").to_string_lossy().to_string(),
+            computer_log_dir: base
+                .join("logs")
+                .join("computer")
+                .to_string_lossy()
+                .to_string(),
             capture_output_to_log: true,
         }
     }

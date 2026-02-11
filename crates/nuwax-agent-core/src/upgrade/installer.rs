@@ -3,6 +3,8 @@
 use std::path::Path;
 use tracing::{info, warn};
 
+use crate::utils::CommandNoWindowExt;
+
 use super::error::UpgradeError;
 
 /// 安装管理器
@@ -35,6 +37,7 @@ impl Installer {
 
                 // 1. Mount DMG and capture the mount point
                 let output = tokio::process::Command::new("hdiutil")
+                    .no_window()
                     .args(["attach", "-nobrowse", "-noverify", "-noautoopen", "-plist"])
                     .arg(path)
                     .output()
@@ -79,6 +82,7 @@ impl Installer {
                 // 6. Copy new app to /Applications
                 info!("Copying {} to /Applications", app_name.to_string_lossy());
                 let copy_status = tokio::process::Command::new("cp")
+                    .no_window()
                     .args(["-R"])
                     .arg(&app_path)
                     .arg("/Applications/")
@@ -134,6 +138,7 @@ impl Installer {
                     Err(_) => {
                         // If rename fails (cross-device), use cp -R
                         let status = tokio::process::Command::new("cp")
+                            .no_window()
                             .args(["-R"])
                             .arg(&app_path)
                             .arg("/Applications/")
@@ -207,6 +212,7 @@ impl Installer {
     async fn unmount_dmg(mount_point: &str) -> Result<(), UpgradeError> {
         info!("Unmounting DMG: {}", mount_point);
         let output = tokio::process::Command::new("hdiutil")
+            .no_window()
             .args(["detach", "-quiet"])
             .arg(mount_point)
             .output()
@@ -230,6 +236,7 @@ impl Installer {
             "msi" => {
                 info!("Installing MSI: {}", path.display());
                 let output = tokio::process::Command::new("msiexec")
+                    .no_window()
                     .args(["/i", &path.to_string_lossy(), "/quiet", "/norestart"])
                     .output()
                     .await
@@ -247,6 +254,7 @@ impl Installer {
             "exe" => {
                 info!("Running installer: {}", path.display());
                 let output = tokio::process::Command::new(path)
+                    .no_window()
                     .args(["/S"]) // Silent mode (NSIS convention)
                     .output()
                     .await
@@ -275,6 +283,7 @@ impl Installer {
             "deb" => {
                 info!("Installing DEB: {}", path.display());
                 let output = tokio::process::Command::new("sudo")
+                    .no_window()
                     .args(["dpkg", "-i"])
                     .arg(path)
                     .output()

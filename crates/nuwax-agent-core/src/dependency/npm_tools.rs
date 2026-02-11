@@ -9,6 +9,8 @@ use thiserror::Error;
 use tracing::{info, warn};
 use which::which;
 
+use crate::utils::CommandNoWindowExt;
+
 /// 国内 npm 镜像（npmmirror），安装/更新时使用以加速
 const NPM_REGISTRY_CN: &str = "https://registry.npmmirror.com/";
 
@@ -82,7 +84,11 @@ impl NpmToolInstaller {
             }
 
             // 方式 2: 使用 brew --prefix 检测
-            let output = Command::new("brew").args(["--prefix", executable]).output();
+            // 方式 2: 使用 brew --prefix 检测
+            let output = Command::new("brew")
+                .no_window()
+                .args(["--prefix", executable])
+                .output();
 
             match output {
                 Ok(output) if output.status.success() => {
@@ -135,8 +141,12 @@ impl NpmToolInstaller {
     }
 
     /// 获取 Claude CLI 版本
+    /// 获取 Claude CLI 版本
     fn get_claude_version(&self) -> Option<String> {
-        let output = Command::new("claude").args(["--version"]).output();
+        let output = Command::new("claude")
+            .no_window()
+            .args(["--version"])
+            .output();
 
         match output {
             Ok(output) if output.status.success() => {
@@ -167,6 +177,7 @@ impl NpmToolInstaller {
         let npm_path = self.get_npm_path();
 
         let output = Command::new(&npm_path)
+            .no_window()
             .args(["list", "-g", tool_name, "--depth=0", "--json"])
             .output()
             .map_err(|e| NpmToolError::CommandFailed(e.to_string()))?;
@@ -219,6 +230,7 @@ impl NpmToolInstaller {
         let npm_path = self.get_npm_path();
 
         let output = Command::new(&npm_path)
+            .no_window()
             .args(["list", "-g", tool_name, "--depth=0", "--json"])
             .output()
             .map_err(|e| NpmToolError::CommandFailed(e.to_string()))?;
@@ -251,6 +263,7 @@ impl NpmToolInstaller {
         let npm_path = self.get_npm_path();
 
         let output = Command::new(&npm_path)
+            .no_window()
             .args(["list", "-g", tool_name, "--depth=0"])
             .output()
             .map_err(|e| NpmToolError::CommandFailed(e.to_string()))?;
@@ -306,13 +319,8 @@ impl NpmToolInstaller {
         );
 
         let output = Command::new(&npm_path)
-            .args([
-                "install",
-                "-g",
-                tool_name,
-                "--registry",
-                NPM_REGISTRY_CN,
-            ])
+            .no_window()
+            .args(["install", "-g", tool_name, "--registry", NPM_REGISTRY_CN])
             .output()
             .map_err(|e| NpmToolError::CommandFailed(e.to_string()))?;
 
@@ -335,6 +343,7 @@ impl NpmToolInstaller {
         info!("Uninstalling npm tool: {}", tool_name);
 
         let output = Command::new(&npm_path)
+            .no_window()
             .args(["uninstall", "-g", tool_name])
             .output()
             .map_err(|e| NpmToolError::CommandFailed(e.to_string()))?;
@@ -358,13 +367,8 @@ impl NpmToolInstaller {
         );
 
         let output = Command::new(&npm_path)
-            .args([
-                "update",
-                "-g",
-                tool_name,
-                "--registry",
-                NPM_REGISTRY_CN,
-            ])
+            .no_window()
+            .args(["update", "-g", tool_name, "--registry", NPM_REGISTRY_CN])
             .output()
             .map_err(|e| NpmToolError::CommandFailed(e.to_string()))?;
 

@@ -8,6 +8,8 @@ use std::process::Command;
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
+use crate::utils::CommandNoWindowExt;
+
 use super::detector::{DependencyDetector, DetectionResult, DetectorError};
 
 /// uv 最低要求版本
@@ -71,6 +73,7 @@ impl UvDetector {
     /// 从 PATH 检测
     fn detect_from_path(&self) -> Result<UvInfo, UvError> {
         let output = Command::new("uv")
+            .no_window()
             .arg("--version")
             .output()
             .map_err(|e| UvError::CommandFailed(e.to_string()))?;
@@ -106,6 +109,7 @@ impl UvDetector {
         #[cfg(unix)]
         {
             let output = Command::new("which")
+                .no_window()
                 .arg("uv")
                 .output()
                 .map_err(|e| UvError::CommandFailed(e.to_string()))?;
@@ -119,6 +123,7 @@ impl UvDetector {
         #[cfg(windows)]
         {
             let output = Command::new("where")
+                .no_window()
                 .arg("uv")
                 .output()
                 .map_err(|e| UvError::CommandFailed(e.to_string()))?;
@@ -162,6 +167,7 @@ impl UvDetector {
     /// 从路径获取版本
     fn get_version_from_path(&self, path: &PathBuf) -> Result<String, UvError> {
         let output = Command::new(path)
+            .no_window()
             .arg("--version")
             .output()
             .map_err(|e| UvError::CommandFailed(e.to_string()))?;

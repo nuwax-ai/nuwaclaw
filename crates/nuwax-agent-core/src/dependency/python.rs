@@ -8,6 +8,8 @@ use std::process::Command;
 use thiserror::Error;
 use tracing::{debug, warn};
 
+use crate::utils::CommandNoWindowExt;
+
 use super::detector::{DependencyDetector, DetectionResult, DetectorError};
 
 /// Python 最低要求版本
@@ -74,6 +76,7 @@ impl PythonDetector {
     fn detect_from_path(&self) -> Result<PythonInfo, PythonError> {
         // 尝试 python3
         let output = Command::new("python3")
+            .no_window()
             .arg("--version")
             .output()
             .map_err(|e| PythonError::CommandFailed(e.to_string()))?;
@@ -90,6 +93,7 @@ impl PythonDetector {
 
         // 尝试 python
         let output = Command::new("python")
+            .no_window()
             .arg("--version")
             .output()
             .map_err(|e| PythonError::CommandFailed(e.to_string()))?;
@@ -128,6 +132,7 @@ impl PythonDetector {
     /// 查找 Python 路径
     fn find_python_path(&self, name: &str) -> Result<PathBuf, PythonError> {
         let output = Command::new("which")
+            .no_window()
             .arg(name)
             .output()
             .map_err(|e| PythonError::CommandFailed(e.to_string()))?;
@@ -144,6 +149,7 @@ impl PythonDetector {
     fn detect_pyenv(&self) -> Result<PythonInfo, PythonError> {
         // 获取 pyenv 当前版本
         let output = Command::new("pyenv")
+            .no_window()
             .args(["global"])
             .output()
             .map_err(|e| PythonError::CommandFailed(e.to_string()))?;
@@ -166,6 +172,7 @@ impl PythonDetector {
         if python_path.exists() {
             // 获取版本信息
             let output = Command::new(&python_path)
+                .no_window()
                 .arg("--version")
                 .output()
                 .map_err(|e| PythonError::CommandFailed(e.to_string()))?;
@@ -185,6 +192,7 @@ impl PythonDetector {
     fn detect_conda(&self) -> Result<PythonInfo, PythonError> {
         // 获取当前 conda 环境的 Python
         let output = Command::new("conda")
+            .no_window()
             .args(["info", "--envs"])
             .output()
             .map_err(|e| PythonError::CommandFailed(e.to_string()))?;
@@ -217,6 +225,7 @@ impl PythonDetector {
 
             if python_path.exists() {
                 let output = Command::new(&python_path)
+                    .no_window()
                     .arg("--version")
                     .output()
                     .map_err(|e| PythonError::CommandFailed(e.to_string()))?;
@@ -294,6 +303,7 @@ impl PythonDetector {
     /// 从路径获取版本
     fn get_version_from_path(&self, path: &PathBuf) -> Result<String, PythonError> {
         let output = Command::new(path)
+            .no_window()
             .arg("--version")
             .output()
             .map_err(|e| PythonError::CommandFailed(e.to_string()))?;

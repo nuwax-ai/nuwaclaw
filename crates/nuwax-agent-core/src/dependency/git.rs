@@ -7,6 +7,8 @@ use std::process::Command;
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
+use crate::utils::CommandNoWindowExt;
+
 use super::detector::{DependencyDetector, DetectionResult, DetectorError};
 
 /// Git 最低要求版本
@@ -70,6 +72,7 @@ impl GitDetector {
     /// 从 PATH 检测
     fn detect_from_path(&self) -> Result<GitInfo, GitError> {
         let output = Command::new("git")
+            .no_window()
             .arg("--version")
             .output()
             .map_err(|e| GitError::CommandFailed(e.to_string()))?;
@@ -116,6 +119,7 @@ impl GitDetector {
     /// 查找 Git 路径
     fn find_git_path(&self) -> Result<PathBuf, GitError> {
         let output = Command::new("which")
+            .no_window()
             .arg("git")
             .output()
             .map_err(|e| GitError::CommandFailed(e.to_string()))?;
@@ -204,6 +208,7 @@ impl GitDetector {
     /// 从路径获取版本
     fn get_version_from_path(&self, path: &PathBuf) -> Result<String, GitError> {
         let output = Command::new(path)
+            .no_window()
             .arg("--version")
             .output()
             .map_err(|e| GitError::CommandFailed(e.to_string()))?;
