@@ -1375,8 +1375,14 @@ fn install_node_system_windows(msi_path: &std::path::Path) -> Result<NodeSystemI
 
             // 将 Node.js 目录添加到当前进程的 PATH 环境变量
             // 这样后续的 npm install 等命令可以直接使用新安装的 Node.js
-            if let Ok(mut current_path) = std::env::var("PATH") {
-                std::env::set_var("PATH", format!("{};{}", user_node_dir.to_string_lossy(), current_path));
+            if let Ok(current_path) = std::env::var("PATH") {
+                // SAFETY: set_var 在 Rust 2024 edition 中是 unsafe 的
+                // 这里我们确保路径不包含空字节
+                let new_path = format!("{};{}", user_node_dir.to_string_lossy(), current_path);
+                assert!(!new_path.contains('\0'), "PATH value cannot contain null bytes");
+                unsafe {
+                    std::env::set_var("PATH", &new_path);
+                }
                 info!("[NodeInstall] 已将 Node.js 路径添加到 PATH: {:?}", user_node_dir);
             }
 
@@ -1403,9 +1409,9 @@ fn install_node_system_windows(msi_path: &std::path::Path) -> Result<NodeSystemI
         Some(path) => {
             let node_dir = if path.contains("node.exe") {
                 // 从路径中提取目录：C:\Program Files\nodejs\node.exe -> C:\Program Files\nodejs
-                std::path::PathBuf::from(path).parent().map(|p| p.to_path_buf()).unwrap_or_default()
+                std::path::PathBuf::from(&path).parent().map(|p| p.to_path_buf()).unwrap_or_default()
             } else {
-                std::path::PathBuf::from(path)
+                std::path::PathBuf::from(&path)
             };
 
             let version = Command::new(&path)
@@ -1415,8 +1421,14 @@ fn install_node_system_windows(msi_path: &std::path::Path) -> Result<NodeSystemI
                 .unwrap_or_default();
 
             // 将 Node.js 目录添加到当前进程的 PATH 环境变量
-            if let Ok(mut current_path) = std::env::var("PATH") {
-                std::env::set_var("PATH", format!("{};{}", node_dir.to_string_lossy(), current_path));
+            if let Ok(current_path) = std::env::var("PATH") {
+                // SAFETY: set_var 在 Rust 2024 edition 中是 unsafe 的
+                // 这里我们确保路径不包含空字节
+                let new_path = format!("{};{}", node_dir.to_string_lossy(), current_path);
+                assert!(!new_path.contains('\0'), "PATH value cannot contain null bytes");
+                unsafe {
+                    std::env::set_var("PATH", &new_path);
+                }
                 info!("[NodeInstall] 已将 Node.js 路径添加到 PATH: {:?}", node_dir);
             }
 
