@@ -142,10 +142,23 @@ pub fn install_bundled_uv(
     fs::create_dir_all(&local_bin_dir)?;
 
     // 查找 uv 可执行文件
-    let uv_bin_source = if cfg!(target_os = "windows") {
-        bundled_uv_dir.join("uv.exe")
-    } else {
-        // uv 可能在根目录或 bin 子目录
+    // uv 可能在根目录或 bin 子目录
+    #[cfg(windows)]
+    let uv_bin_source = {
+        let root_uv = bundled_uv_dir.join("uv.exe");
+        let bin_uv = bundled_uv_dir.join("bin").join("uv.exe");
+
+        if root_uv.exists() {
+            root_uv
+        } else if bin_uv.exists() {
+            bin_uv
+        } else {
+            return Err(format!("未找到 uv 可执行文件在: {:?}", bundled_uv_dir).into());
+        }
+    };
+
+    #[cfg(not(windows))]
+    let uv_bin_source = {
         let root_uv = bundled_uv_dir.join("uv");
         let bin_uv = bundled_uv_dir.join("bin").join("uv");
 
