@@ -13,6 +13,7 @@ use tauri::{
     tray::TrayIconBuilder,
     Emitter, Manager, State, Window,
 };
+use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_store::StoreExt;
 use tokio::sync::Mutex;
 
@@ -2956,7 +2957,8 @@ fn tray_status(app: tauri::AppHandle) -> TrayStatusResult {
 }
 
 /// 更新托盘菜单（自动获取自启动状态和服务状态）
-fn update_tray_menu(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+/// 异步版本：在已处于 async runtime 内调用时使用，避免 block_on 导致 "Cannot start a runtime from within a runtime" panic
+async fn update_tray_menu_async(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::MenuItemKind;
 
     // 获取自启动状态
@@ -2964,30 +2966,26 @@ fn update_tray_menu(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::er
         .and_then(|al| Ok(al.is_enabled().unwrap_or(false)))
         .unwrap_or(false);
 
-    // 获取服务状态，用于决定是否禁用菜单项
-    // 使用 try_lock 避免死锁，如果获取锁失败则默认禁用停止服务
-    let services_running = tauri::async_runtime::block_on(async {
-        let state = app_handle.state::<ServiceManagerState>();
-        // 尝试获取锁，如果已被持有则等待一段时间后超时
-        let lock_result = tokio::time::timeout(
-            std::time::Duration::from_millis(500),
-            state.manager.lock(),
-        )
-        .await;
+    // 获取服务状态（使用 await，禁止在 runtime 内使用 block_on）
+    let state = app_handle.state::<ServiceManagerState>();
+    let lock_result = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        state.manager.lock(),
+    )
+    .await;
 
-        match lock_result {
-            Ok(manager) => {
-                let statuses = manager.services_status_all().await;
-                statuses
-                    .iter()
-                    .any(|s| matches!(s.state, nuwax_agent_core::service::ServiceState::Running))
-            }
-            Err(_) => {
-                warn!("[Tray] 获取服务状态超时，默认禁用停止服务");
-                false
-            }
+    let services_running = match lock_result {
+        Ok(manager) => {
+            let statuses = manager.services_status_all().await;
+            statuses
+                .iter()
+                .any(|s| matches!(s.state, nuwax_agent_core::service::ServiceState::Running))
         }
-    });
+        Err(_) => {
+            warn!("[Tray] 获取服务状态超时，默认禁用停止服务");
+            false
+        }
+    };
 
     // 重新创建菜单项
     let show_i = MenuItem::with_id(app_handle, tray_ids::SHOW, "显示主窗口", true, None::<&str>)?;
@@ -3034,8 +3032,9 @@ fn update_tray_menu(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::er
     )?;
 
     // 更新托盘图标的菜单
-    if let Some(tray) = app_handle.tray_by_id("main") {
-        tray.set_menu(Some(new_menu))?;
+    match app_handle.tray_by_id("main") {
+        Some(tray) => tray.set_menu(Some(new_menu))?,
+        None => warn!("[Tray] 未找到 id=main 的托盘，跳过菜单更新"),
     }
 
     Ok(())
@@ -3103,16 +3102,12 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                         info!("[Tray] 重启所有服务...");
                         let state = app_handle.state::<ServiceManagerState>();
                         match services_restart_all(app_handle.clone(), state).await {
-                            Ok(_) => {
-                                info!("[Tray] 所有服务已重启");
-                                // 更新托盘菜单（自动获取最新状态）
-                                if let Err(e) = update_tray_menu(&app_handle) {
-                                    error!("[Tray] 更新托盘菜单失败: {}", e);
-                                }
-                            }
-                            Err(e) => {
-                                error!("[Tray] 重启服务失败: {}", e);
-                            }
+                            Ok(_) => info!("[Tray] 所有服务已重启"),
+                            Err(e) => error!("[Tray] 重启服务失败: {}", e),
+                        }
+                        // 无论成功失败都刷新菜单，使「停止服务」与当前服务状态一致
+                        if let Err(e) = update_tray_menu_async(&app_handle).await {
+                            error!("[Tray] 更新托盘菜单失败: {}", e);
                         }
                     });
                 }
@@ -3125,10 +3120,10 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                             error!("[Tray] 停止服务失败: {}", e);
                         } else {
                             info!("[Tray] 所有服务已停止");
-                            // 更新托盘菜单（自动获取最新状态）
-                            if let Err(e) = update_tray_menu(&app_handle) {
-                                error!("[Tray] 更新托盘菜单失败: {}", e);
-                            }
+                        }
+                        // 无论成功失败都刷新菜单，使「停止服务」与当前服务状态一致
+                        if let Err(e) = update_tray_menu_async(&app_handle).await {
+                            error!("[Tray] 更新托盘菜单失败: {}", e);
                         }
                     });
                 }
@@ -3151,16 +3146,51 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                                             "[Tray] 开机自启动已{}",
                                             if new_state { "启用" } else { "禁用" }
                                         );
-
-                                        // 重新创建菜单以更新勾选状态（自动获取最新状态）
-                                        if let Err(e) = update_tray_menu(&app_handle) {
+                                        // 系统通知提示，便于用户确认已生效
+                                        let body = if new_state {
+                                            "已开启开机自启动"
+                                        } else {
+                                            "已关闭开机自启动"
+                                        };
+                                        if let Err(e) = app_handle
+                                            .notification()
+                                            .builder()
+                                            .title("NuWax Agent")
+                                            .body(body)
+                                            .show()
+                                        {
+                                            log::warn!("[Tray] 发送开机自启动通知失败: {}", e);
+                                        }
+                                        // 重新创建菜单以更新勾选状态（使用 async 避免 runtime 内 block_on panic）
+                                        if let Err(e) = update_tray_menu_async(&app_handle).await {
                                             error!("[Tray] 更新托盘菜单失败: {}", e);
                                         }
                                     }
-                                    Err(e) => error!("[Tray] 切换开机自启动失败: {}", e),
+                                    Err(e) => {
+                                        error!("[Tray] 切换开机自启动失败: {}", e);
+                                        // 失败时也通知用户，避免无反馈
+                                        let _ = app_handle
+                                            .notification()
+                                            .builder()
+                                            .title("NuWax Agent")
+                                            .body("开机自启动设置失败，请检查系统权限或重试")
+                                            .show();
+                                        // 刷新菜单使勾选与系统实际状态一致
+                                        if let Err(e) = update_tray_menu_async(&app_handle).await {
+                                            error!("[Tray] 更新托盘菜单失败: {}", e);
+                                        }
+                                    }
                                 }
                             }
-                            Err(e) => error!("[Tray] 创建 AutoLaunch 失败: {}", e),
+                            Err(e) => {
+                                error!("[Tray] 创建 AutoLaunch 失败: {}", e);
+                                let _ = app_handle
+                                    .notification()
+                                    .builder()
+                                    .title("NuWax Agent")
+                                    .body("无法读取开机自启动状态，请检查应用配置")
+                                    .show();
+                            }
                         }
                     });
                 }
@@ -3425,6 +3455,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(PermissionsState::default())
         .manage(MonitorState::default())
         .manage(ServiceManagerState::default())
@@ -3437,6 +3468,15 @@ pub fn run() {
 
             if let Err(e) = setup_tray(app) {
                 error!("[Setup] 创建系统托盘失败: {}", e);
+            } else {
+                // 启动后延迟刷新托盘菜单，使「停止服务」/「开机自启动」勾选与真实状态一致
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                    if let Err(e) = update_tray_menu_async(&app_handle).await {
+                        log::warn!("[Setup] 启动后刷新托盘菜单失败: {}", e);
+                    }
+                });
             }
 
             // ============================================
