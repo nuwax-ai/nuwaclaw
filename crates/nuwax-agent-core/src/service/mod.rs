@@ -824,41 +824,71 @@ impl ServiceManager {
 
     /// 停止 nuwax-file-server
     pub async fn file_server_stop(&self) -> Result<(), String> {
-        info!("Stopping nuwax-file-server...");
+        info!("[FileServer] ========== 停止文件服务 ==========");
 
-        let mut guard = self.nuwax_file_server.lock().await;
-        if let Some(child) = guard.take() {
-            let mut child = child;
+        // 1. 清理 Rust 持有的启动进程句柄
+        {
+            let mut guard = self.nuwax_file_server.lock().await;
+            if let Some(child) = guard.take() {
+                let mut child = child;
 
-            if let Err(e) = child.start_kill() {
-                warn!("Failed to send kill signal, process may have exited: {}", e);
-            }
+                if let Err(e) = child.start_kill() {
+                    debug!(
+                        "[FileServer] Failed to send kill signal to start process: {}",
+                        e
+                    );
+                }
 
-            use std::time::Duration;
-            use tokio::time::timeout;
+                use std::time::Duration;
+                use tokio::time::timeout;
 
-            match timeout(Duration::from_secs(5), child.wait()).await {
-                Ok(Ok(status)) => {
-                    if status.success() {
-                        info!("nuwax-file-server stopped gracefully");
-                    } else {
-                        info!(
-                            "nuwax-file-server stopped with exit code: {:?}",
+                match timeout(Duration::from_secs(2), child.wait()).await {
+                    Ok(Ok(status)) => {
+                        debug!(
+                            "[FileServer] Start process exited with status: {:?}",
                             status.code()
                         );
                     }
-                }
-                Ok(Err(e)) => {
-                    warn!("Error waiting for nuwax-file-server: {}", e);
-                }
-                Err(_) => {
-                    warn!("nuwax-file-server stop timed out");
+                    Ok(Err(e)) => {
+                        debug!("[FileServer] Error waiting for start process: {}", e);
+                    }
+                    Err(_) => {
+                        debug!("[FileServer] Start process wait timed out");
+                    }
                 }
             }
-        } else {
-            warn!("nuwax-file-server is not running");
         }
 
+        // 2. 停止真正的 daemon 进程（通过 PID 文件和 stop 命令）
+        info!("[FileServer] 停止 daemon 进程...");
+        let bin_path = self.config.bin_path.clone();
+
+        // 使用 nuwax-file-server stop 命令
+        let stop_success = run_command_with_timeout(&bin_path, &["stop"], 5).await;
+
+        if stop_success {
+            info!("[FileServer] stop 命令执行成功");
+        } else {
+            warn!("[FileServer] stop 命令执行失败或超时，尝试强制清理");
+        }
+
+        // 等待进程停止
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        // 3. 验证是否还在运行，如果是则强制 kill
+        if is_file_server_running().await {
+            warn!("[FileServer] daemon 进程仍在运行，强制终止");
+            kill_file_server_by_pid().await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+
+        // 4. 最终验证
+        if is_file_server_running().await {
+            error!("[FileServer] 无法停止 daemon 进程");
+            return Err("Failed to stop nuwax-file-server daemon".to_string());
+        }
+
+        info!("[FileServer] 文件服务已完全停止");
         Ok(())
     }
 
