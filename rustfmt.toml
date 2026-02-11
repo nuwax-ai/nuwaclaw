@@ -1,8 +1,11 @@
+# 以下选项仅在 nightly 下可用，若使用 stable 的 cargo fmt 会报警告。
+# 若需使用，请执行: cargo +nightly fmt
+# format_strings = true
+# group_imports = "StdExternalCrate"
+# imports_granularity = "Crate"
+# indent_style = "Block"
+# unstable_features = true
+
 edition = "2024"
-format_strings = true
-group_imports = "StdExternalCrate"
-imports_granularity = "Crate"
-indent_style = "Block"
 merge_derives = true
 reorder_imports = true
-unstable_features = true
