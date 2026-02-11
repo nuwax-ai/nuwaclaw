@@ -14,7 +14,7 @@ use crate::utils::CommandNoWindowExt;
 #[cfg(windows)]
 use process_wrap::tokio::{CreationFlags, JobObject};
 #[cfg(windows)]
-use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+use windows::Win32::System::Threading::{CREATE_NO_WINDOW, DETACHED_PROCESS};
 
 // Unix 进程组支持
 #[cfg(unix)]
@@ -78,7 +78,21 @@ async fn run_command_with_timeout(program: &str, args: &[&str], timeout_secs: u6
         }
     });
 
-    match cmd.wrap(process_wrap::tokio::KillOnDrop).spawn() {
+    // 跨平台条件编译：Unix 使用进程组，Windows 使用 JobObject + CREATE_NO_WINDOW
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let spawn_result = cmd
+        .wrap(process_wrap::tokio::KillOnDrop)
+        .wrap(ProcessGroup::leader())
+        .spawn();
+
+    #[cfg(target_os = "windows")]
+    let spawn_result = cmd
+        .wrap(process_wrap::tokio::KillOnDrop)
+        .wrap(CreationFlags(CREATE_NO_WINDOW | DETACHED_PROCESS))
+        .wrap(JobObject)
+        .spawn();
+
+    match spawn_result {
         Ok(mut child) => {
             match tokio::time::timeout(tokio::time::Duration::from_secs(timeout_secs), child.wait())
                 .await
@@ -963,7 +977,7 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let mut child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出 CMD 窗口
+            .wrap(CreationFlags(CREATE_NO_WINDOW | DETACHED_PROCESS)) // 禁止弹出 CMD 窗口
             .wrap(JobObject)
             .spawn()
             .map_err(|e| {
@@ -1052,7 +1066,7 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出 CMD 窗口
+            .wrap(CreationFlags(CREATE_NO_WINDOW | DETACHED_PROCESS)) // 禁止弹出 CMD 窗口
             .wrap(JobObject)
             .spawn()
             .map_err(|e| format!("Failed to start nuwax-lanproxy: {}", e))?;
@@ -1172,7 +1186,7 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出 CMD 窗口
+            .wrap(CreationFlags(CREATE_NO_WINDOW | DETACHED_PROCESS)) // 禁止弹出 CMD 窗口
             .wrap(JobObject)
             .spawn()
             .map_err(|e| {
@@ -1251,7 +1265,7 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出 CMD 窗口
+            .wrap(CreationFlags(CREATE_NO_WINDOW | DETACHED_PROCESS)) // 禁止弹出 CMD 窗口
             .wrap(JobObject)
             .spawn()
             .map_err(|e| {
