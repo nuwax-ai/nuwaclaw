@@ -9,14 +9,14 @@ pub mod process;
 pub mod health;
 pub mod utils;
 pub mod file_server;
-pub mod lanproxy;
 pub mod mcp_proxy;
 
 // Re-export 公共类型和配置
-pub use config::{McpProxyConfig, NuwaxFileServerConfig, NuwaxLanproxyConfig};
+pub use config::{McpProxyConfig, NuwaxFileServerConfig};
 pub use process::{
     find_processes_by_name, find_processes_by_prefix, is_file_server_running,
     is_process_running, is_process_running_fuzzy, kill_processes_by_name,
+    kill_stale_lanproxy_processes,
 };
 pub use types::{
     ServiceInfo, ServiceState, ServiceType, DEFAULT_MCP_PROXY_BIN, DEFAULT_MCP_PROXY_HOST,
@@ -41,10 +41,6 @@ pub struct ServiceManager {
     pub(crate) nuwax_file_server: Arc<Mutex<Option<ChildWrapperType>>>,
     /// nuwax-file-server 配置
     pub(crate) config: Arc<NuwaxFileServerConfig>,
-    /// nuwax-lanproxy 进程（使用 process_wrap 进程组）
-    pub(crate) lanproxy: Arc<Mutex<Option<ChildWrapperType>>>,
-    /// nuwax-lanproxy 配置
-    pub(crate) lanproxy_config: Arc<NuwaxLanproxyConfig>,
     /// Rcoder Agent Runner
     pub(crate) rcoder: Arc<Mutex<Option<Arc<RcoderAgentRunner>>>>,
     /// MCP Proxy 进程
@@ -57,14 +53,11 @@ impl ServiceManager {
     /// 创建新的服务管理器
     pub fn new(
         config: Option<NuwaxFileServerConfig>,
-        lanproxy_config: Option<NuwaxLanproxyConfig>,
         mcp_proxy_config: Option<McpProxyConfig>,
     ) -> Self {
         Self {
             nuwax_file_server: Arc::new(Mutex::new(None)),
             config: Arc::new(config.unwrap_or_default()),
-            lanproxy: Arc::new(Mutex::new(None)),
-            lanproxy_config: Arc::new(lanproxy_config.unwrap_or_default()),
             rcoder: Arc::new(Mutex::new(None)),
             mcp_proxy: Arc::new(Mutex::new(None)),
             mcp_proxy_config: Arc::new(mcp_proxy_config.unwrap_or_default()),
@@ -115,42 +108,6 @@ impl ServiceManager {
         config: NuwaxFileServerConfig,
     ) -> Result<(), String> {
         file_server::start_with_config(self, config).await
-    }
-
-    /// 启动 nuwax-lanproxy
-    ///
-    /// 使用 process_wrap 进程组方式启动，确保子进程不会成为僵尸进程
-    /// - Unix/Linux/macOS: 使用 ProcessGroup::leader()
-    /// - Windows: 使用 JobObject::new()
-    /// - 双重保障: kill_on_drop 确保进程被正确终止
-    ///
-    /// TODO: 从 Tauri store 读取配置
-    /// 需要前端定义 store 中的配置字段名，如:
-    /// - nuwax-lanproxy.server_ip: 服务器 IP
-    /// - nuwax-lanproxy.server_port: 服务器端口
-    /// - nuwax-lanproxy.client_key: 客户端密钥
-    pub async fn lanproxy_start(&self) -> Result<(), String> {
-        lanproxy::start_with_config(self, (*self.lanproxy_config).clone()).await
-    }
-
-    /// 停止 nuwax-lanproxy
-    pub async fn lanproxy_stop(&self) -> Result<(), String> {
-        lanproxy::stop(self).await
-    }
-
-    /// 重启 nuwax-lanproxy
-    pub async fn lanproxy_restart(&self) -> Result<(), String> {
-        self.lanproxy_stop().await?;
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        self.lanproxy_start().await
-    }
-
-    /// 使用指定配置启动 nuwax-lanproxy
-    pub async fn lanproxy_start_with_config(
-        &self,
-        config: NuwaxLanproxyConfig,
-    ) -> Result<(), String> {
-        lanproxy::start_with_config(self, config).await
     }
 
     /// 使用指定配置启动 MCP Proxy
@@ -240,28 +197,21 @@ impl ServiceManager {
     pub async fn services_stop_all(&self) -> Result<(), String> {
         info!("[Services] ========== Stopping All Services ==========");
 
-        info!("[Services] 1/4 Stopping Agent service (rcoder)...");
+        info!("[Services] 1/3 Stopping Agent service (rcoder)...");
         if let Err(e) = self.rcoder_stop().await {
             warn!("[Services]   - Agent service stop failed: {}", e);
         } else {
             info!("[Services]   - Agent service stopped");
         }
 
-        info!("[Services] 2/4 Stopping File service (nuwax-file-server)...");
+        info!("[Services] 2/3 Stopping File service (nuwax-file-server)...");
         if let Err(e) = self.file_server_stop().await {
             warn!("[Services]   - File service stop failed: {}", e);
         } else {
             info!("[Services]   - File service stopped");
         }
 
-        info!("[Services] 3/4 Stopping Proxy service (nuwax-lanproxy)...");
-        if let Err(e) = self.lanproxy_stop().await {
-            warn!("[Services]   - Proxy service stop failed: {}", e);
-        } else {
-            info!("[Services]   - Proxy service stopped");
-        }
-
-        info!("[Services] 4/4 Stopping MCP Proxy service...");
+        info!("[Services] 3/3 Stopping MCP Proxy service...");
         if let Err(e) = self.mcp_proxy_stop().await {
             warn!("[Services]   - MCP Proxy stop failed: {}", e);
         } else {
@@ -286,7 +236,6 @@ impl ServiceManager {
         let agent_runner = Arc::new(runner);
         self.rcoder_start(0, agent_runner).await?;
         self.file_server_start().await?;
-        self.lanproxy_start().await?;
         self.mcp_proxy_start().await?;
 
         info!("All services restarted");
@@ -321,28 +270,6 @@ impl ServiceManager {
                     pid: None,
                 });
                 debug!("[Services] File service stopped");
-            }
-        }
-
-        // nuwax-lanproxy 状态
-        {
-            let guard = self.lanproxy.lock().await;
-            if let Some(child) = &*guard {
-                // process_wrap::tokio::ChildWrapper.id() 返回 Option<u32>
-                let pid = child.id();
-                statuses.push(ServiceInfo {
-                    service_type: ServiceType::NuwaxLanproxy,
-                    state: ServiceState::Running,
-                    pid,
-                });
-                debug!("[Services] Proxy service running, PID: {:?}", pid);
-            } else {
-                statuses.push(ServiceInfo {
-                    service_type: ServiceType::NuwaxLanproxy,
-                    state: ServiceState::Stopped,
-                    pid: None,
-                });
-                debug!("[Services] Proxy service stopped");
             }
         }
 

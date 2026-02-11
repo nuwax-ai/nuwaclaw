@@ -16,9 +16,8 @@ pub struct ServiceManagerState {
 impl Default for ServiceManagerState {
     fn default() -> Self {
         // 使用默认配置初始化，运行时通过 start_*_with_config 方法传入实际配置
-        let lanproxy_config = nuwax_agent_core::NuwaxLanproxyConfig::default();
         Self {
-            manager: Mutex::new(ServiceManager::new(None, Some(lanproxy_config), None)),
+            manager: Mutex::new(ServiceManager::new(None, None)),
             agent_runner: Mutex::new(None),
         }
     }

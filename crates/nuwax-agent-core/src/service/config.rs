@@ -55,30 +55,6 @@ impl Default for NuwaxFileServerConfig {
     }
 }
 
-/// NuwaxLanproxy 配置
-#[derive(Debug, Clone)]
-pub struct NuwaxLanproxyConfig {
-    /// 可执行文件完整路径
-    pub bin_path: String,
-    /// 服务器 IP
-    pub server_ip: String,
-    /// 服务器端口
-    pub server_port: u16,
-    /// 客户端密钥
-    pub client_key: String,
-}
-
-impl Default for NuwaxLanproxyConfig {
-    fn default() -> Self {
-        Self {
-            bin_path: "nuwax-lanproxy".to_string(),
-            server_ip: "127.0.0.1".to_string(),
-            server_port: 60003,
-            client_key: "test_key".to_string(),
-        }
-    }
-}
-
 /// MCP Proxy 配置
 #[derive(Debug, Clone)]
 pub struct McpProxyConfig {

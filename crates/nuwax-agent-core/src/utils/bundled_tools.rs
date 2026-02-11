@@ -5,6 +5,9 @@
 use std::fs;
 use std::path::Path;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 /// 安装信息结构体
 #[derive(Debug, Clone)]
 pub struct InstallInfo {
@@ -31,8 +34,6 @@ pub struct InstallInfo {
 pub fn install_bundled_node(
     bundled_node_dir: &Path,
 ) -> Result<InstallInfo, Box<dyn std::error::Error>> {
-    use std::os::unix::fs::PermissionsExt;
-
     // 获取用户主目录
     let home_dir = dirs::home_dir().ok_or("无法获取用户主目录")?;
     let local_bin_dir = home_dir.join(".local").join("bin");
@@ -123,8 +124,6 @@ pub fn install_bundled_node(
 pub fn install_bundled_uv(
     bundled_uv_dir: &Path,
 ) -> Result<InstallInfo, Box<dyn std::error::Error>> {
-    use std::os::unix::fs::PermissionsExt;
-
     // 获取用户主目录
     let home_dir = dirs::home_dir().ok_or("无法获取用户主目录")?;
     let local_bin_dir = home_dir.join(".local").join("bin");

@@ -192,7 +192,8 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     tauri::async_runtime::spawn(async move {
                         info!("[Tray] 重启所有服务...");
                         let state = app_handle.state::<ServiceManagerState>();
-                        match services_restart_all(app_handle.clone(), state).await {
+                        let lanproxy_state = app_handle.state::<crate::state::LanproxyState>();
+                        match services_restart_all(app_handle.clone(), state, lanproxy_state).await {
                             Ok(_) => info!("[Tray] 所有服务已重启"),
                             Err(e) => error!("[Tray] 重启服务失败: {}", e),
                         }

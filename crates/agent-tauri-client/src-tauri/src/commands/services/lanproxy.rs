@@ -1,34 +1,25 @@
 use crate::state::*;
 use crate::utils::*;
+use tauri_plugin_shell::ShellExt;
 
-/// 启动 nuwax-lanproxy 客户端
+/// 启动 nuwax-lanproxy 客户端（使用 Tauri sidecar API）
 ///
-/// 从 Tauri store 读取配置:
-/// - lanproxy.server_host: lanproxy 服务器地址 (从 API 返回的 serverHost)
-/// - lanproxy.server_port: lanproxy 服务器端口 (从 API 返回的 serverPort)
-/// - auth.saved_key: 客户端密钥 (configKey)
-///
-/// # 错误信息说明
-/// 详细的错误信息会帮助定位配置问题，可能的错误包括:
-/// - "无法打开 store 文件": store 文件不存在或损坏
-/// - "值类型错误": store 中该键的值类型不匹配
-/// - "键不存在": 该配置项未设置
+/// 从 Tauri store 读取配置后，使用 app.shell().sidecar() 启动进程
 #[tauri::command]
 pub async fn lanproxy_start(
     app: tauri::AppHandle,
-    state: tauri::State<'_, ServiceManagerState>,
+    lanproxy_state: tauri::State<'_, LanproxyState>,
 ) -> Result<bool, String> {
-    info!("[Lanproxy] 开始读取启动配置...");
+    info!("[Lanproxy] ========== Starting Proxy Service (via Tauri sidecar) ==========");
 
-    // 从 store 读取 lanproxy server_host (API 返回的 serverHost，如 testagent.xspaceagi.com)
+    // 1. 从 store 读取配置
     let server_host = match read_store_string(&app, "lanproxy.server_host") {
         Ok(Some(host)) => {
-            info!("[Lanproxy] 找到 server_host: {}", host);
+            info!("[Lanproxy] server_host: {}", host);
             host
         }
         Ok(None) => {
-            let err =
-                "配置缺失: lanproxy.server_host (lanproxy服务器地址) - 请先登录以获取服务器配置";
+            let err = "配置缺失: lanproxy.server_host - 请先登录以获取服务器配置";
             error!("[Lanproxy] {}", err);
             return Err(err.to_string());
         }
@@ -39,17 +30,15 @@ pub async fn lanproxy_start(
         }
     };
     let server_ip = strip_host_from_url(&server_host);
-    info!("[Lanproxy] 处理后的服务器地址: {}", server_ip);
+    info!("[Lanproxy] server_ip (processed): {}", server_ip);
 
-    // 从 store 读取 lanproxy server_port (API 返回的 serverPort，如 6443)
     let server_port = match read_store_port(&app, "lanproxy.server_port") {
         Ok(Some(port)) => {
-            info!("[Lanproxy] 找到 server_port: {}", port);
+            info!("[Lanproxy] server_port: {}", port);
             port
         }
         Ok(None) => {
-            let err =
-                "配置缺失: lanproxy.server_port (lanproxy服务器端口) - 请先登录以获取服务器配置";
+            let err = "配置缺失: lanproxy.server_port - 请先登录以获取服务器配置";
             error!("[Lanproxy] {}", err);
             return Err(err.to_string());
         }
@@ -60,19 +49,19 @@ pub async fn lanproxy_start(
         }
     };
 
-    // 从 store 读取 client_key
     let client_key = match read_store_string(&app, "auth.saved_key") {
         Ok(Some(key)) => {
+            // 安全的密钥掩码处理
             let masked = if key.len() > 8 {
                 format!("{}****{}", &key[..4], &key[key.len() - 4..])
             } else {
                 "****".to_string()
             };
-            info!("[Lanproxy] 找到 client_key: {}", masked);
+            info!("[Lanproxy] client_key: {}", masked);
             key
         }
         Ok(None) => {
-            let err = "配置缺失: auth.saved_key (客户端密钥) - 请先登录/注册以获取客户端密钥";
+            let err = "配置缺失: auth.saved_key - 请先登录/注册以获取客户端密钥";
             error!("[Lanproxy] {}", err);
             return Err(err.to_string());
         }
@@ -83,65 +72,110 @@ pub async fn lanproxy_start(
         }
     };
 
-    // 获取 lanproxy 可执行文件完整路径
-    let bin_path = match get_lanproxy_bin_path(&app) {
-        Ok(path) => {
-            info!("[Lanproxy] 可执行文件路径: {}", path);
-            path
-        }
-        Err(e) => {
-            let err = format!("获取 lanproxy 可执行文件路径失败: {}", e);
+    // 2. 检测并清理残留进程（使用 core 层的公开函数）
+    info!("[Lanproxy] 检测残留进程...");
+    nuwax_agent_core::kill_stale_lanproxy_processes().await;
+
+    // 3. 使用 Tauri sidecar API 启动
+    info!("[Lanproxy] 使用 Tauri sidecar API 启动进程...");
+    let sidecar_cmd = app.shell().sidecar("nuwax-lanproxy").map_err(|e| {
+        let err = format!("创建 sidecar 命令失败: {}", e);
+        error!("[Lanproxy] {}", err);
+        err
+    })?;
+
+    let (rx, child) = sidecar_cmd
+        .args([
+            "-s",
+            &server_ip,
+            "-p",
+            &server_port.to_string(),
+            "-k",
+            &client_key,
+            "--ssl=true",
+        ])
+        .spawn()
+        .map_err(|e| {
+            let err = format!("启动 lanproxy sidecar 失败: {}", e);
             error!("[Lanproxy] {}", err);
-            return Err(err);
-        }
+            err
+        })?;
+
+    let pid = child.pid();
+    info!("[Lanproxy] 进程已启动，PID: {}", pid);
+
+    // 4. 存储进程句柄和事件接收器
+    {
+        let mut guard = lanproxy_state.child.lock().await;
+        *guard = Some(child);
+    }
+    {
+        let mut guard = lanproxy_state.receiver.lock().await;
+        *guard = Some(rx);
+    }
+
+    // 5. 等待进程初始化（lanproxy 是客户端，无本地端口可检查）
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // 6. 简单验证进程是否还在运行
+    let still_running = {
+        let guard = lanproxy_state.child.lock().await;
+        guard.is_some()
     };
 
-    let lanproxy_config = nuwax_agent_core::NuwaxLanproxyConfig {
-        bin_path,
-        server_ip,
-        server_port,
-        client_key,
-    };
+    if !still_running {
+        let err = "进程启动后立即退出，请检查配置";
+        error!("[Lanproxy] {}", err);
+        return Err(err.to_string());
+    }
 
-    let manager = state.manager.lock().await;
-    manager.lanproxy_start_with_config(lanproxy_config).await?;
+    info!("[Lanproxy] 服务启动成功");
     Ok(true)
 }
 
 /// 停止 nuwax-lanproxy 客户端
 #[tauri::command]
-pub async fn lanproxy_stop(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
-    let manager = state.manager.lock().await;
-    manager.lanproxy_stop().await?;
+pub async fn lanproxy_stop(lanproxy_state: tauri::State<'_, LanproxyState>) -> Result<bool, String> {
+    info!("[Lanproxy] 正在停止服务...");
+
+    let child = lanproxy_state.child.lock().await.take();
+
+    if let Some(child) = child {
+        info!("[Lanproxy] 发送 kill 信号到 PID: {}", child.pid());
+        child.kill().map_err(|e| {
+            let err = format!("停止 lanproxy 失败: {}", e);
+            error!("[Lanproxy] {}", err);
+            err
+        })?;
+        info!("[Lanproxy] 进程已停止");
+    } else {
+        info!("[Lanproxy] 进程未运行，无需停止");
+    }
+
+    // 清理事件接收器
+    lanproxy_state.receiver.lock().await.take();
+
     Ok(true)
 }
 
 /// 重启 nuwax-lanproxy 客户端
-///
-/// 先停止当前服务，等待端口释放，然后重新启动。
-/// 配置从 Tauri store 重新读取。
 #[tauri::command]
 pub async fn lanproxy_restart(
     app: tauri::AppHandle,
-    state: tauri::State<'_, ServiceManagerState>,
+    lanproxy_state: tauri::State<'_, LanproxyState>,
 ) -> Result<bool, String> {
     info!("[Lanproxy] 正在重启服务...");
 
     // 先停止
-    info!("[Lanproxy] 正在停止当前服务...");
-    {
-        let manager = state.manager.lock().await;
-        manager.lanproxy_stop().await?;
-    }
-    info!("[Lanproxy] 当前服务已停止");
+    lanproxy_stop(lanproxy_state.clone()).await?;
 
     // 等待端口释放
     info!("[Lanproxy] 等待端口释放 (500ms)...");
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    // 重新启动（使用相同的 store 配置）
-    info!("[Lanproxy] 正在从 store 重新读取配置并启动...");
-    lanproxy_start(app, state).await?;
+    // 重新启动
+    info!("[Lanproxy] 正在重新启动...");
+    lanproxy_start(app, lanproxy_state).await?;
 
     info!("[Lanproxy] 重启完成");
     Ok(true)

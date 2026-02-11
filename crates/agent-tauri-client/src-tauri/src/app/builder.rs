@@ -1,4 +1,4 @@
-use crate::state::{MonitorState, PermissionsState, ServiceManagerState};
+use crate::state::{LanproxyState, MonitorState, PermissionsState, ServiceManagerState};
 
 /// 创建并配置 Tauri 应用构建器
 ///
@@ -19,6 +19,7 @@ pub fn create_app() -> tauri::Builder<tauri::Wry> {
         .manage(PermissionsState::default())
         .manage(MonitorState::default())
         .manage(ServiceManagerState::default())
+        .manage(LanproxyState::default())
         // ========== 命令注册 ==========
         .invoke_handler(tauri::generate_handler![
             crate::commands::system_greet,

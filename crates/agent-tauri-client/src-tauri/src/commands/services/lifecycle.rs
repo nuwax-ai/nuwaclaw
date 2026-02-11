@@ -37,6 +37,7 @@ pub async fn services_stop_all(
 pub async fn services_restart_all(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
+    lanproxy_state: tauri::State<'_, LanproxyState>,
 ) -> Result<bool, String> {
     info!("[Services] ========== 开始重启所有服务 ==========");
 
@@ -338,105 +339,17 @@ pub async fn services_restart_all(
         info!("[Services]   - 文件服务启动命令已发送");
     }
 
-    // lanproxy - 需要读取配置并调用 lanproxy_start_with_config
-    info!("[Services] 4/5 启动代理服务 (nuwax-lanproxy)...");
-    {
-        // 读取 lanproxy server_host (从 API 返回)
-        let server_host = match read_store_string(&app, "lanproxy.server_host") {
-            Ok(Some(host)) => {
-                info!("[Services]   - 找到 lanproxy.server_host: {}", host);
-                host
-            }
-            Ok(None) => {
-                let err = "配置缺失: lanproxy.server_host (lanproxy服务器地址) - 请先登录以获取服务器配置";
-                error!("[Services]   - {}", err);
-                return Err(err.to_string());
-            }
-            Err(e) => {
-                let err = format!("读取 lanproxy.server_host 失败: {}", e);
-                error!("[Services]   - {}", err);
-                return Err(err);
-            }
-        };
-        let server_ip = strip_host_from_url(&server_host);
-        info!("[Services]   - 处理后的服务器地址: {}", server_ip);
-
-        // 读取 lanproxy server_port (从 API 返回)
-        let server_port = match read_store_port(&app, "lanproxy.server_port") {
-            Ok(Some(port)) => {
-                info!("[Services]   - 找到 lanproxy.server_port: {}", port);
-                port
-            }
-            Ok(None) => {
-                let err = "配置缺失: lanproxy.server_port (lanproxy服务器端口) - 请先登录以获取服务器配置";
-                error!("[Services]   - {}", err);
-                return Err(err.to_string());
-            }
-            Err(e) => {
-                let err = format!("读取 lanproxy.server_port 失败: {}", e);
-                error!("[Services]   - {}", err);
-                return Err(err);
-            }
-        };
-
-        // 读取 client_key
-        let client_key = match read_store_string(&app, "auth.saved_key") {
-            Ok(Some(key)) => {
-                let masked = if key.len() > 8 {
-                    format!("{}****{}", &key[..4], &key[key.len() - 4..])
-                } else {
-                    "****".to_string()
-                };
-                info!("[Services]   - 找到 client_key: {}", masked);
-                key
-            }
-            Ok(None) => {
-                let err = "配置缺失: auth.saved_key (客户端密钥)";
-                error!("[Services]   - {}", err);
-                return Err(err.to_string());
-            }
-            Err(e) => {
-                let err = format!("读取 auth.saved_key 失败: {}", e);
-                error!("[Services]   - {}", err);
-                return Err(err);
-            }
-        };
-
-        // 获取 lanproxy 可执行文件完整路径
-        let bin_path = match get_lanproxy_bin_path(&app) {
-            Ok(path) => {
-                info!("[Services]   - 可执行文件路径: {}", path);
-                path
-            }
-            Err(e) => {
-                let err = format!("获取 lanproxy 可执行文件路径失败: {}", e);
-                error!("[Services]   - {}", err);
-                return Err(err);
-            }
-        };
-
-        // 打印关键配置信息（注意脱敏）
-        info!("[Services]   - 服务器地址: {}:{}", server_ip, server_port);
-        info!(
-            "[Services]   - 客户端密钥: {}****{}",
-            &client_key[..client_key.len().saturating_sub(4).min(client_key.len())],
-            if client_key.len() > 4 {
-                &client_key[client_key.len() - 4..]
-            } else {
-                "****"
-            }
-        );
-
-        let lanproxy_config = nuwax_agent_core::NuwaxLanproxyConfig {
-            bin_path,
-            server_ip,
-            server_port,
-            client_key,
-        };
-
-        let manager = state.manager.lock().await;
-        manager.lanproxy_start_with_config(lanproxy_config).await?;
-        info!("[Services]   - 代理服务启动命令已发送");
+    // lanproxy - 使用 Tauri sidecar API 启动
+    info!("[Services] 4/5 启动代理服务 (nuwax-lanproxy via sidecar)...");
+    match super::lanproxy::lanproxy_start(app.clone(), lanproxy_state).await {
+        Ok(_) => {
+            info!("[Services]   - 代理服务启动成功");
+        }
+        Err(e) => {
+            let err = format!("lanproxy 启动失败: {}", e);
+            error!("[Services]   - {}", err);
+            return Err(err);
+        }
     }
 
     // mcp-proxy

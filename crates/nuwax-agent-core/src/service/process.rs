@@ -363,7 +363,7 @@ pub(crate) async fn kill_stale_file_server_processes(bin_path: &str) {
 // ========== Lanproxy 特定进程管理 ==========
 
 /// 检测并清理残留的 lanproxy 进程，确保只有一个实例运行
-pub(crate) async fn kill_stale_lanproxy_processes() {
+pub async fn kill_stale_lanproxy_processes() {
     if is_process_running_fuzzy("nuwax-lanproxy").await {
         warn!("[Lanproxy] Detected stale nuwax-lanproxy process, terminating");
         if let Some(pids) = find_processes_by_prefix("nuwax-lanproxy").await {

@@ -135,9 +135,9 @@ pub use json_config::{EditableConfig, JsonConfigError, JsonConfigManager};
 
 pub mod service;
 pub use service::{
-    McpProxyConfig, NuwaxFileServerConfig, NuwaxLanproxyConfig, ServiceInfo, ServiceManager,
-    ServiceState, ServiceType, DEFAULT_MCP_PROXY_BIN, DEFAULT_MCP_PROXY_HOST,
-    DEFAULT_MCP_PROXY_PORT,
+    kill_stale_lanproxy_processes, is_process_running_fuzzy, McpProxyConfig,
+    NuwaxFileServerConfig, ServiceInfo, ServiceManager, ServiceState, ServiceType,
+    DEFAULT_MCP_PROXY_BIN, DEFAULT_MCP_PROXY_HOST, DEFAULT_MCP_PROXY_PORT,
 };
 
 // ============================================================================
