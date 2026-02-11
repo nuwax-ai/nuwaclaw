@@ -906,7 +906,7 @@ pub async fn dependency_npm_global_install(
 
     #[cfg(target_os = "windows")]
     {
-        // Windows: 直接执行
+        // Windows: 直接执行（npm 全局目录在用户目录，不需要提权）
         let output = Command::new(&npm_bin)
             .env("PATH", &node_path)
             .args([
@@ -922,21 +922,20 @@ pub async fn dependency_npm_global_install(
         handle_npm_install_result(output, bin_name, &package_name).await
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
-        // macOS/Linux: 使用 osascript 弹出密码框，以 sudo 执行
+        // macOS: 使用 osascript 弹出密码框
         let npm_args = format!(
             "install -g {}@latest --registry {}",
             package_name, registry
         );
 
-        // 使用 osascript 弹出密码输入框并执行 sudo 命令
         let osascript = format!(
             r#"do shell script "PATH='{}' '{}' {}" with administrator privileges"#,
             node_path, npm_bin, npm_args
         );
 
-        info!("[Dependency] 使用 osascript 执行 sudo npm install");
+        info!("[Dependency] macOS: 使用 osascript 执行 sudo npm install");
 
         let output = Command::new("osascript")
             .args(["-e", &osascript])
@@ -944,6 +943,45 @@ pub async fn dependency_npm_global_install(
             .map_err(|e| format!("执行 osascript 失败: {}", e))?;
 
         handle_npm_install_result(output, bin_name, &package_name).await
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Linux: 使用 pkexec 弹出密码框
+        let npm_args = format!(
+            "install -g {}@latest --registry {}",
+            package_name, registry
+        );
+
+        let shell_command = format!("PATH='{}' '{}' {}", node_path, npm_bin, npm_args);
+
+        info!("[Dependency] Linux: 使用 pkexec 执行 sudo npm install");
+
+        // 优先使用 pkexec
+        let pkexec_result = Command::new("pkexec")
+            .args(["sh", "-c", &shell_command])
+            .output();
+
+        match pkexec_result {
+            Ok(output) => handle_npm_install_result(output, bin_name, &package_name).await,
+            Err(e) => {
+                warn!("[Dependency] pkexec 不可用: {}，尝试直接执行...", e);
+                // 如果 pkexec 不可用，尝试直接执行
+                let output = Command::new(&npm_bin)
+                    .env("PATH", &node_path)
+                    .args([
+                        "install",
+                        "-g",
+                        &format!("{}@latest", package_name),
+                        "--registry",
+                        registry,
+                    ])
+                    .output()
+                    .map_err(|e| format!("执行 npm install -g 失败: {}", e))?;
+
+                handle_npm_install_result(output, bin_name, &package_name).await
+            }
+        }
     }
 }
 
@@ -1023,8 +1061,9 @@ pub struct FailedPackage {
 }
 
 /// 批量全局安装 npm 包（只输入一次密码）
-/// macOS/Linux: 使用 osascript 弹出密码输入框，以 sudo 权限执行
-/// Windows: 直接执行 npm install -g
+/// macOS: 使用 osascript 弹出密码输入框
+/// Linux: 使用 pkexec 弹出密码输入框
+/// Windows: 直接执行 npm install -g（UAC 会自动处理）
 #[tauri::command]
 pub async fn dependency_npm_global_install_batch(
     packages: Vec<String>,
@@ -1054,7 +1093,7 @@ pub async fn dependency_npm_global_install_batch(
 
     #[cfg(target_os = "windows")]
     {
-        // Windows: 直接执行
+        // Windows: 直接执行（npm 全局目录在用户目录，不需要提权）
         let output = Command::new(&npm_bin)
             .env("PATH", &node_path)
             .args(["install", "-g"])
@@ -1066,21 +1105,20 @@ pub async fn dependency_npm_global_install_batch(
         handle_batch_install_result(output, packages).await
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
-        // macOS/Linux: 使用 osascript 弹出密码框，以 sudo 执行
+        // macOS: 使用 osascript 弹出密码框
         let npm_args = format!(
             "install -g {} --registry {}",
             package_list, registry
         );
 
-        // 使用 osascript 弹出密码输入框并执行 sudo 命令
         let osascript = format!(
             r#"do shell script "PATH='{}' '{}' {}" with administrator privileges"#,
             node_path, npm_bin, npm_args
         );
 
-        info!("[Dependency] 使用 osascript 执行批量 sudo npm install");
+        info!("[Dependency] macOS: 使用 osascript 执行批量 sudo npm install");
 
         let output = Command::new("osascript")
             .args(["-e", &osascript])
@@ -1088,6 +1126,41 @@ pub async fn dependency_npm_global_install_batch(
             .map_err(|e| format!("执行 osascript 失败: {}", e))?;
 
         handle_batch_install_result(output, packages).await
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Linux: 使用 pkexec 弹出密码框
+        let npm_args = format!(
+            "install -g {} --registry {}",
+            package_list, registry
+        );
+
+        let shell_command = format!("PATH='{}' '{}' {}", node_path, npm_bin, npm_args);
+
+        info!("[Dependency] Linux: 使用 pkexec 执行批量 sudo npm install");
+
+        // 优先使用 pkexec
+        let pkexec_result = Command::new("pkexec")
+            .args(["sh", "-c", &shell_command])
+            .output();
+
+        match pkexec_result {
+            Ok(output) => handle_batch_install_result(output, packages).await,
+            Err(e) => {
+                warn!("[Dependency] pkexec 不可用: {}，尝试直接执行...", e);
+                // 如果 pkexec 不可用，尝试直接执行（可能会因权限失败）
+                let output = Command::new(&npm_bin)
+                    .env("PATH", &node_path)
+                    .args(["install", "-g"])
+                    .args(&package_args)
+                    .args(["--registry", registry])
+                    .output()
+                    .map_err(|e| format!("执行 npm install -g 失败: {}", e))?;
+
+                handle_batch_install_result(output, packages).await
+            }
+        }
     }
 }
 
