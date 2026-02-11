@@ -1286,11 +1286,20 @@ fn install_node_system_windows(msi_path: &std::path::Path) -> Result<NodeSystemI
         return Err(format!("MSI 文件不存在: {}", msi_path_str));
     }
 
-    // 执行 MSI 静默安装（/passive 显示进度条，/quiet 完全静默）
+    // 移除 \\?\ 前缀（msiexec 不支持扩展长度路径前缀）
+    // Rust 的 Command::args() 会自动处理路径中的空格，不需要手动加引号
+    let msi_path_for_msiexec = if msi_path_str.starts_with(r"\\?\") {
+        &msi_path_str[4..]
+    } else {
+        msi_path_str
+    };
+    info!("[NodeInstall] 传给 msiexec 的路径: {}", msi_path_for_msiexec);
+
+    // 执行 MSI 静默安装
     let status = Command::new("msiexec")
         .args([
             "/i",
-            msi_path_str,
+            msi_path_for_msiexec,
             "/quiet",
             "/norestart",
         ])

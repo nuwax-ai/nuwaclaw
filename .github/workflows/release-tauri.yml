@@ -279,10 +279,19 @@ jobs:
         shell: bash
         run: ./scripts/download-uv.sh win x64
 
-      # ---- 下载 Node.js 安装包（用于系统级安装）----
-      - name: Download Node.js installers
+      # ---- 下载 Node.js 安装包（用于系统级安装，仅当前平台）----
+      - name: Download Node.js installers (macOS)
+        if: runner.os == 'macOS'
+        run: ./scripts/download-node-installers.sh 22.14.0 macos
+
+      - name: Download Node.js installers (Linux)
+        if: runner.os == 'Linux'
+        run: ./scripts/download-node-installers.sh 22.14.0 linux
+
+      - name: Download Node.js installers (Windows)
+        if: runner.os == 'Windows'
         shell: bash
-        run: ./scripts/download-node-installers.sh
+        run: ./scripts/download-node-installers.sh 22.14.0 windows
 
       # ---- 构建 & 发布 ----
       # tauri-action 会自动执行 tauri.conf.json 中的 beforeBuildCommand (pnpm build)
