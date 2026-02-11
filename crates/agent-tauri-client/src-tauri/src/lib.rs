@@ -939,7 +939,7 @@ async fn lanproxy_start(
     // 获取 lanproxy 可执行文件完整路径
     let bin_path = match get_lanproxy_bin_path(&app) {
         Ok(path) => {
-            info!("[Lanproxy] 可执行文件路径: {}", path);
+            debug!("[Lanproxy] 可执行文件路径: {}", path);
             path
         }
         Err(e) => {
@@ -1432,7 +1432,7 @@ async fn services_restart_all(
         // 获取 file_server 可执行文件路径
         let bin_path = match get_file_server_bin_path(&app) {
             Ok(path) => {
-                info!("[Services]   - 可执行文件路径: {}", path);
+                debug!("[Services]   - file_server 可执行文件路径: {}", path);
                 path
             }
             Err(e) => {
@@ -1700,7 +1700,7 @@ async fn services_restart_all(
         // 获取 lanproxy 可执行文件完整路径
         let bin_path = match get_lanproxy_bin_path(&app) {
             Ok(path) => {
-                info!("[Services]   - 可执行文件路径: {}", path);
+                debug!("[Services]   - lanproxy 可执行文件路径: {}", path);
                 path
             }
             Err(e) => {
@@ -1765,7 +1765,7 @@ async fn services_restart_all(
 
         let bin_path = match get_mcp_proxy_bin_path(&app) {
             Ok(p) => {
-                info!("[Services]   - mcp-proxy 可执行文件: {}", p);
+                debug!("[Services]   - mcp-proxy 可执行文件: {}", p);
                 p
             }
             Err(e) => {
@@ -2099,27 +2099,29 @@ fn build_node_path_env() -> String {
     nuwax_agent_core::utils::build_node_path_env()
 }
 
-/// 初始化本地 npm 环境（创建 package.json）
+/// 初始化本地 npm 环境（创建 package.json，并确保 ~/.local/bin/env 存在便于终端生效）
 #[tauri::command]
 async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, String> {
     let app_dir = app_data_dir_get(app)?;
     let package_json_path = std::path::Path::new(&app_dir).join("package.json");
 
-    // 检查是否已存在
-    if package_json_path.exists() {
-        return Ok(true);
-    }
-
-    // 创建 package.json
-    let content = r#"{
+    // 创建 package.json（若不存在）
+    if !package_json_path.exists() {
+        let content = r#"{
   "name": "nuwax-agent-deps",
   "version": "1.0.0",
   "private": true,
   "description": "NuWax Agent 本地依赖"
 }"#;
+        std::fs::write(&package_json_path, content)
+            .map_err(|e| format!("创建 package.json 失败: {}", e))?;
+    }
 
-    std::fs::write(&package_json_path, content)
-        .map_err(|e| format!("创建 package.json 失败: {}", e))?;
+    // 多平台：确保 ~/.local/bin/env（Unix）或 env.bat/env.ps1（Windows）存在，
+    // 用户 source 后即可在终端使用 node/npm/uv
+    if let Err(e) = nuwax_agent_core::utils::ensure_local_bin_env() {
+        warn!("[Dependencies] 写入本地 env 脚本失败: {}", e);
+    }
 
     Ok(true)
 }
@@ -2217,7 +2219,7 @@ async fn node_install_auto(app: tauri::AppHandle) -> Result<NodeInstallResult, S
             .join("resources")
             .join("node");
         if dev_path.exists() {
-            info!("[NodeInstall] 使用开发模式资源路径: {:?}", dev_path);
+            debug!("[NodeInstall] 使用开发模式资源路径: {:?}", dev_path);
             dev_path
         } else {
             // 再尝试从 cargo manifest 目录
@@ -2242,7 +2244,7 @@ async fn node_install_auto(app: tauri::AppHandle) -> Result<NodeInstallResult, S
             }
         }
     } else {
-        info!("[NodeInstall] 使用打包资源路径: {:?}", bundled_node_dir);
+        debug!("[NodeInstall] 使用打包资源路径: {:?}", bundled_node_dir);
         bundled_node_dir
     };
 
@@ -2392,7 +2394,7 @@ async fn uv_install_auto(app: tauri::AppHandle) -> Result<UvInstallResult, Strin
         );
 
         if dev_path.exists() {
-            info!("[UvInstall] 使用开发模式资源路径: {:?}", dev_path);
+            debug!("[UvInstall] 使用开发模式资源路径: {:?}", dev_path);
             dev_path
         } else {
             // 再尝试从 cargo manifest 目录
@@ -2423,7 +2425,7 @@ async fn uv_install_auto(app: tauri::AppHandle) -> Result<UvInstallResult, Strin
             }
         }
     } else {
-        info!("[UvInstall] 使用打包资源路径: {:?}", bundled_uv_dir);
+        debug!("[UvInstall] 使用打包资源路径: {:?}", bundled_uv_dir);
         bundled_uv_dir
     };
 

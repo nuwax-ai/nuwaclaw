@@ -484,6 +484,11 @@ impl NodeInstaller {
 
         info!("Node.js installation to ~/.local/ completed");
 
+        // 创建 ~/.local/bin/env（Unix）或 env.bat/env.ps1（Windows），便于用户在终端 source 后使用 node
+        if let Err(e) = crate::utils::ensure_local_bin_env() {
+            warn!("写入本地 env 脚本失败（不影响安装）: {}", e);
+        }
+
         // 验证安装
         let detector = NodeDetector::new();
         detector.detect_local()
