@@ -3,6 +3,7 @@
 //! 定义各服务的配置结构体及默认实现
 
 use super::types::*;
+use std::path::PathBuf;
 
 // ========== 配置结构体定义 ==========
 
@@ -38,18 +39,48 @@ pub struct NuwaxFileServerConfig {
 
 impl Default for NuwaxFileServerConfig {
     fn default() -> Self {
+        // 注意：
+        // - 这里不能依赖 Tauri 的 app_data_dir 等 API，只能使用相对路径来保持跨平台性
+        // - 具体的工作目录由上层（例如 Tauri 客户端）在构造 NuwaxFileServerConfig 时覆盖
+        // - 默认值仅用于纯 Rust 环境或测试场景，避免将 Linux 容器内的绝对路径硬编码到所有平台
+        let workspace_root = PathBuf::from("./workspace");
+        let logs_root = PathBuf::from("./logs");
+
         Self {
             bin_path: "nuwax-file-server".to_string(),
             port: 60000,
             env: "production".to_string(),
             init_project_name: "nuwax-template".to_string(),
-            init_project_dir: "/data/init".to_string(),
-            upload_project_dir: "/data/zips".to_string(),
-            project_source_dir: "/data/workspace".to_string(),
-            dist_target_dir: "/var/www/nginx".to_string(),
-            log_base_dir: "/var/logs/project_logs".to_string(),
-            computer_workspace_dir: "/data/computer".to_string(),
-            computer_log_dir: "/var/logs/computer".to_string(),
+            // 与 Tauri 端的约定保持一致：在 workspace 目录下使用 project_* 子目录
+            init_project_dir: workspace_root
+                .join("project_init")
+                .to_string_lossy()
+                .to_string(),
+            upload_project_dir: workspace_root
+                .join("project_zips")
+                .to_string_lossy()
+                .to_string(),
+            project_source_dir: workspace_root
+                .join("project_workspace")
+                .to_string_lossy()
+                .to_string(),
+            dist_target_dir: workspace_root
+                .join("project_nginx")
+                .to_string_lossy()
+                .to_string(),
+            // 日志目录统一放在相对的 ./logs 下，避免依赖 /var 等特定系统路径
+            log_base_dir: logs_root
+                .join("project_logs")
+                .to_string_lossy()
+                .to_string(),
+            computer_workspace_dir: workspace_root
+                .join("computer-project-workspace")
+                .to_string_lossy()
+                .to_string(),
+            computer_log_dir: logs_root
+                .join("computer_logs")
+                .to_string_lossy()
+                .to_string(),
             capture_output_to_log: true,
         }
     }

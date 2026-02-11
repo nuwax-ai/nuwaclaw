@@ -706,6 +706,8 @@ mod standalone_tests {
     // ========================================================================
 
     mod service_tests {
+        use std::path::PathBuf;
+
         use crate::service::{
             NuwaxFileServerConfig, NuwaxLanproxyConfig, ServiceInfo, ServiceManager, ServiceState,
             ServiceType,
@@ -796,13 +798,58 @@ mod standalone_tests {
             assert_eq!(config.port, 60000);
             assert_eq!(config.env, "production");
             assert_eq!(config.init_project_name, "nuwax-template");
-            assert_eq!(config.init_project_dir, "/data/init");
-            assert_eq!(config.upload_project_dir, "/data/zips");
-            assert_eq!(config.project_source_dir, "/data/workspace");
-            assert_eq!(config.dist_target_dir, "/var/www/nginx");
-            assert_eq!(config.log_base_dir, "/var/logs/project_logs");
-            assert_eq!(config.computer_workspace_dir, "/data/computer");
-            assert_eq!(config.computer_log_dir, "/var/logs/computer");
+            let workspace_root = PathBuf::from("./workspace");
+            let logs_root = PathBuf::from("./logs");
+
+            assert_eq!(
+                config.init_project_dir,
+                workspace_root
+                    .join("project_init")
+                    .to_string_lossy()
+                    .to_string()
+            );
+            assert_eq!(
+                config.upload_project_dir,
+                workspace_root
+                    .join("project_zips")
+                    .to_string_lossy()
+                    .to_string()
+            );
+            assert_eq!(
+                config.project_source_dir,
+                workspace_root
+                    .join("project_workspace")
+                    .to_string_lossy()
+                    .to_string()
+            );
+            assert_eq!(
+                config.dist_target_dir,
+                workspace_root
+                    .join("project_nginx")
+                    .to_string_lossy()
+                    .to_string()
+            );
+            assert_eq!(
+                config.log_base_dir,
+                logs_root
+                    .join("project_logs")
+                    .to_string_lossy()
+                    .to_string()
+            );
+            assert_eq!(
+                config.computer_workspace_dir,
+                workspace_root
+                    .join("computer-project-workspace")
+                    .to_string_lossy()
+                    .to_string()
+            );
+            assert_eq!(
+                config.computer_log_dir,
+                logs_root
+                    .join("computer_logs")
+                    .to_string_lossy()
+                    .to_string()
+            );
         }
 
         #[test]

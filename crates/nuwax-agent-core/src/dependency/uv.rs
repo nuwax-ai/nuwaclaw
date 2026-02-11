@@ -381,7 +381,7 @@ impl UvInstaller {
 
         info!("[UvInstaller] 安装完成，验证中...");
 
-        // 创建 ~/.local/bin/env（Unix）或 env.bat/env.ps1（Windows），便于用户在终端 source 后使用 uv
+        // 创建 ~/.local/bin/env（仅 Unix；Windows 不创建脚本，依赖全局安装 uv）
         if let Err(e) = crate::utils::ensure_local_bin_env() {
             warn!("写入本地 env 脚本失败（不影响安装）: {}", e);
         }
