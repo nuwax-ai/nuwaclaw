@@ -204,6 +204,16 @@ fn resolve_node_bin(bin_name: &str) -> String {
 
     if bin_path.exists() {
         info!("[resolve_node_bin] {} -> {:?}", bin_name, bin_path);
+        // Windows 上移除可能的扩展长度路径前缀 `\\?\`
+        #[cfg(windows)]
+        {
+            let path_str = bin_path.to_string_lossy();
+            if path_str.starts_with(r"\\?\") {
+                return path_str[4..].to_string();
+            }
+            return path_str.to_string();
+        }
+        #[cfg(not(windows))]
         return bin_path.to_string_lossy().to_string();
     }
 
@@ -1325,10 +1335,10 @@ fn install_node_system_windows(msi_path: &std::path::Path) -> Result<NodeSystemI
 
     // 获取用户级安装路径
     if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-        let user_node_path = std::path::PathBuf::from(local_app_data)
+        let user_node_dir = std::path::PathBuf::from(local_app_data)
             .join("Programs")
-            .join("nodejs")
-            .join("node.exe");
+            .join("nodejs");
+        let user_node_path = user_node_dir.join("node.exe");
         if user_node_path.exists() {
             info!("[NodeInstall] 找到用户级安装: {:?}", user_node_path);
             let version = Command::new(&user_node_path)
@@ -1337,11 +1347,18 @@ fn install_node_system_windows(msi_path: &std::path::Path) -> Result<NodeSystemI
                 .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
                 .unwrap_or_default();
 
+            // 将 Node.js 目录添加到当前进程的 PATH 环境变量
+            // 这样后续的 npm install 等命令可以直接使用新安装的 Node.js
+            if let Ok(mut current_path) = std::env::var("PATH") {
+                std::env::set_var("PATH", format!("{};{}", user_node_dir.to_string_lossy(), current_path));
+                info!("[NodeInstall] 已将 Node.js 路径添加到 PATH: {:?}", user_node_dir);
+            }
+
             return Ok(NodeSystemInstallResult {
                 success: true,
                 version: Some(version),
                 install_path: Some(user_node_path.to_string_lossy().to_string()),
-                needs_restart: true,
+                needs_restart: false,  // 不需要重启，PATH 已更新
                 error: None,
             });
         }
@@ -1358,17 +1375,30 @@ fn install_node_system_windows(msi_path: &std::path::Path) -> Result<NodeSystemI
 
     match installed_path {
         Some(path) => {
+            let node_dir = if path.contains("node.exe") {
+                // 从路径中提取目录：C:\Program Files\nodejs\node.exe -> C:\Program Files\nodejs
+                std::path::PathBuf::from(path).parent().map(|p| p.to_path_buf()).unwrap_or_default()
+            } else {
+                std::path::PathBuf::from(path)
+            };
+
             let version = Command::new(&path)
                 .arg("--version")
                 .output()
                 .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
                 .unwrap_or_default();
 
+            // 将 Node.js 目录添加到当前进程的 PATH 环境变量
+            if let Ok(mut current_path) = std::env::var("PATH") {
+                std::env::set_var("PATH", format!("{};{}", node_dir.to_string_lossy(), current_path));
+                info!("[NodeInstall] 已将 Node.js 路径添加到 PATH: {:?}", node_dir);
+            }
+
             Ok(NodeSystemInstallResult {
                 success: true,
                 version: Some(version),
                 install_path: Some(path),
-                needs_restart: true,
+                needs_restart: false,  // 不需要重启，PATH 已更新
                 error: None,
             })
         }
@@ -1382,7 +1412,7 @@ fn install_node_system_windows(msi_path: &std::path::Path) -> Result<NodeSystemI
                         success: true,
                         version: Some(version),
                         install_path: Some("node (PATH)".to_string()),
-                        needs_restart: true,
+                        needs_restart: false,  // 能找到说明已在 PATH 中
                         error: None,
                     })
                 }
@@ -1390,8 +1420,8 @@ fn install_node_system_windows(msi_path: &std::path::Path) -> Result<NodeSystemI
                     success: false,
                     version: None,
                     install_path: None,
-                    needs_restart: true,
-                    error: Some("安装完成但未找到 node.exe，可能需要重启应用".to_string()),
+                    needs_restart: false,
+                    error: Some("安装完成但未找到 node.exe".to_string()),
                 }),
             }
         }

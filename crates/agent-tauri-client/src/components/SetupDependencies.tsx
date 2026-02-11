@@ -50,7 +50,6 @@ type InstallPhase =
   | "checking"
   | "node-installing"
   | "node-install-failed"
-  | "node-install-restart-required"
   | "uv-installing"
   | "uv-install-failed"
   | "system-deps-missing"
@@ -147,14 +146,10 @@ export default function SetupDependencies({
 
       if (result.success) {
         console.log("[SetupDeps] Node.js 系统级安装成功:", result.version);
-        if (result.needsRestart) {
-          // 安装成功但需要重启应用
-          setInstallPhase("node-install-restart-required");
-        } else {
-          // 安装成功，重新检测全部依赖
-          console.log("[SetupDeps] 重新检测依赖...");
-          setInstallPhase("checking");
-        }
+        // 安装成功，重新检测全部依赖
+        // 注意：由于安装时已更新当前进程的 PATH，无需重启应用
+        console.log("[SetupDeps] 重新检测依赖...");
+        setInstallPhase("checking");
       } else {
         console.error("[SetupDeps] Node.js 系统级安装失败:", result.error);
         setNodeInstallError(
@@ -657,7 +652,6 @@ export default function SetupDependencies({
   // 判断是否为错误/需要用户介入的阶段
   const isErrorPhase =
     installPhase === "node-install-failed" ||
-    installPhase === "node-install-restart-required" ||
     installPhase === "uv-install-failed" ||
     installPhase === "system-deps-missing" ||
     installPhase === "error";
@@ -714,36 +708,6 @@ export default function SetupDependencies({
   }
 
   // ========== 错误/需要用户介入的阶段：展示完整依赖列表 ==========
-
-  // Node 安装成功，需要重启
-  if (installPhase === "node-install-restart-required") {
-    return (
-      <div>
-        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
-          依赖安装
-        </div>
-        <Alert
-          message="Node.js 安装成功"
-          description={
-            <div>
-              <div>Node.js 已成功安装到系统。</div>
-              <div style={{ marginTop: 8, fontSize: 12, color: "#71717a" }}>
-                需要重启应用才能生效。请保存当前进度后点击「重启应用」。
-              </div>
-            </div>
-          }
-          type="success"
-          showIcon
-          style={{ marginBottom: 12 }}
-        />
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <Button type="primary" onClick={() => window.location.reload()}>
-            重启应用
-          </Button>
-        </div>
-      </div>
-    );
-  }
 
   // Node 安装失败
   if (installPhase === "node-install-failed") {

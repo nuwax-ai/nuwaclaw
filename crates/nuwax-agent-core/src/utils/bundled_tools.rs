@@ -8,6 +8,10 @@ use std::path::Path;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
+// Windows 上运行命令时需要移除 `\\?\` 扩展长度路径前缀
+#[cfg(windows)]
+use crate::utils::path_env::clean_extended_path;
+
 /// 安装信息结构体
 #[derive(Debug, Clone)]
 pub struct InstallInfo {
@@ -94,7 +98,13 @@ pub fn install_bundled_node(
     }
 
     // 获取版本信息
-    let version_output = std::process::Command::new(&node_bin_target)
+    // Windows 上需要清理扩展长度路径前缀，否则 Command::new 可能失败
+    #[cfg(windows)]
+    let node_bin_target_clean = clean_extended_path(&node_bin_target);
+    #[cfg(not(windows))]
+    let node_bin_target_clean = node_bin_target.to_string_lossy().into_owned();
+
+    let version_output = std::process::Command::new(&node_bin_target_clean)
         .arg("--version")
         .output()?;
 
@@ -104,7 +114,7 @@ pub fn install_bundled_node(
 
     Ok(InstallInfo {
         version,
-        bin_path: node_bin_target.to_string_lossy().to_string(),
+        bin_path: node_bin_target_clean,
     })
 }
 
@@ -171,7 +181,13 @@ pub fn install_bundled_uv(
     }
 
     // 获取版本信息
-    let version_output = std::process::Command::new(&uv_bin_target)
+    // Windows 上需要清理扩展长度路径前缀，否则 Command::new 可能失败
+    #[cfg(windows)]
+    let uv_bin_target_clean = clean_extended_path(&uv_bin_target);
+    #[cfg(not(windows))]
+    let uv_bin_target_clean = uv_bin_target.to_string_lossy().into_owned();
+
+    let version_output = std::process::Command::new(&uv_bin_target_clean)
         .arg("--version")
         .output()?;
 
@@ -181,7 +197,7 @@ pub fn install_bundled_uv(
 
     Ok(InstallInfo {
         version,
-        bin_path: uv_bin_target.to_string_lossy().to_string(),
+        bin_path: uv_bin_target_clean,
     })
 }
 
