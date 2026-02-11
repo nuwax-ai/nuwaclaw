@@ -312,15 +312,20 @@ node-download:
 	@echo ">>> 下载 Node.js 运行时资源（已存在则跳过）..."
 	./scripts/download-node.sh
 
+.PHONY: uv-download
+uv-download:
+	@echo ">>> 下载 uv 运行时资源（已存在则跳过）..."
+	./scripts/download-uv.sh
+
 .PHONY: tauri-build
-tauri-build: node-download
+tauri-build: node-download uv-download
 	@echo ">>> 构建 Tauri 应用 (环境: $(BUILD_ENV))..."
 	cd crates/$(TAURI_CLIENT) && pnpm install
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo build --release
 
 .PHONY: tauri-bundle
-tauri-bundle: node-download
+tauri-bundle: node-download uv-download
 	@echo ">>> 打包 Tauri 应用 (环境: $(BUILD_ENV))..."
 	cd crates/$(TAURI_CLIENT) && pnpm install
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
@@ -345,7 +350,7 @@ endif
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build --bundles all
 
 .PHONY: tauri-dev
-tauri-dev: node-download
+tauri-dev: node-download uv-download
 	@echo ">>> 运行 Tauri 开发模式 (环境: $(BUILD_ENV))..."
 	@echo ">>> 日志将输出到 logs/tauri-dev.log"
 	mkdir -p logs

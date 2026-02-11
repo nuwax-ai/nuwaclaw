@@ -703,6 +703,7 @@ export const setupStorage = {
       remove(STORAGE_KEYS.SETUP_DEPS_SHOW_ALL),
       remove(STORAGE_KEYS.DEPS_INSTALL_DIR),
       remove(STORAGE_KEYS.DEPS_NODE_MODULES_PATH),
+      remove(STORAGE_KEYS.SETUP_DEPS_INSTALLED),
     ]);
     await save();
   },

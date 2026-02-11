@@ -123,18 +123,39 @@ EXTRACT_DIR="${TMPDIR_DL}/extracted"
 mkdir -p "${EXTRACT_DIR}"
 
 if [ "${PLATFORM}" = "win" ]; then
-  unzip -q "${TMPDIR_DL}/${FILENAME}" -d "${EXTRACT_DIR}"
+  # Windows: 尝试多种解压方式
+  if command -v unzip &>/dev/null; then
+    unzip -q "${TMPDIR_DL}/${FILENAME}" -d "${EXTRACT_DIR}"
+  elif command -v pwsh &>/dev/null || command -v powershell &>/dev/null; then
+    # PowerShell 7+ 支持 tar 格式
+    pwsh -Command "Expand-Archive -Path '${TMPDIR_DL}/${FILENAME}' -DestinationPath '${EXTRACT_DIR}' -Force" 2>/dev/null || \
+    powershell -Command "Expand-Archive -Path '${TMPDIR_DL}/${FILENAME}' -DestinationPath '${EXTRACT_DIR}' -Force"
+  elif command -v tar &>/dev/null; then
+    # 某些 Windows 环境下的 tar 也可以处理 zip
+    tar -xf "${TMPDIR_DL}/${FILENAME}" -C "${EXTRACT_DIR}"
+  else
+    echo "Error: No extraction tool available (unzip, powershell, or tar)" >&2
+    exit 1
+  fi
 else
   tar -xzf "${TMPDIR_DL}/${FILENAME}" -C "${EXTRACT_DIR}"
 fi
 
-# uv archive 结构: uv-{target}/uv + uv-{target}/uvx
-INNER_DIR="${EXTRACT_DIR}/${UV_TARGET}"
+# 定位 uv 二进制所在目录（不同平台/版本的归档结构可能不同：有或无外层子目录）
+if [ "${PLATFORM}" = "win" ]; then
+  UV_FOUND="$(find "${EXTRACT_DIR}" -name "uv.exe" -type f | head -1)"
+else
+  UV_FOUND="$(find "${EXTRACT_DIR}" -name "uv" -type f | head -1)"
+fi
 
-if [ ! -d "${INNER_DIR}" ]; then
-  echo "Error: Expected directory ${INNER_DIR} not found after extraction" >&2
+if [ -z "${UV_FOUND}" ]; then
+  echo "Error: uv binary not found after extraction" >&2
+  echo "==> Contents of extract dir:" >&2
+  find "${EXTRACT_DIR}" -type f >&2
   exit 1
 fi
+
+INNER_DIR="$(dirname "${UV_FOUND}")"
 
 # === 复制到资源目录 ===
 

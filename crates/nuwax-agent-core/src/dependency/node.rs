@@ -244,23 +244,20 @@ impl NodeDetector {
         Ok(true)
     }
 
-    /// 获取客户端目录下的 node 路径
+    /// 获取客户端安装的 node 路径（~/.local/bin/node）
     pub fn get_local_node_path() -> PathBuf {
-        let data_dir = dirs::data_local_dir()
+        let home_local = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("nuwax-agent")
-            .join("tools")
-            .join("node");
+            .join(".local");
 
         #[cfg(unix)]
         {
-            data_dir.join("bin").join("node")
+            home_local.join("bin").join("node")
         }
 
         #[cfg(windows)]
         {
-            // install_from_bundled 会复制 bin/ 目录结构
-            data_dir.join("bin").join("node.exe")
+            home_local.join("bin").join("node.exe")
         }
     }
 }
@@ -355,26 +352,29 @@ impl NodeDetector {
 
 /// Node.js 安装器
 pub struct NodeInstaller {
-    /// 目标目录
+    /// 目标目录（~/.local/）
     target_dir: PathBuf,
 }
 
 impl NodeInstaller {
     /// 创建新的安装器
     pub fn new() -> Self {
-        let target_dir = dirs::data_local_dir()
+        let target_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("nuwax-agent")
-            .join("tools")
-            .join("node");
+            .join(".local");
 
         Self { target_dir }
     }
 
-    /// 从打包的资源目录安装 Node.js
+    /// 从打包的资源目录安装 Node.js 到 ~/.local/
     ///
-    /// 将 bundled_node_dir（包含 bin/ 和 lib/）中的文件复制到 target_dir
+    /// - 复制 node 二进制到 ~/.local/bin/node
+    /// - 复制 lib/node_modules/ 到 ~/.local/lib/node_modules/
+    /// - 创建 npm/npx/corepack 符号链接（保持相对路径，使 require 正确解析）
     pub fn install_from_bundled(&self, bundled_node_dir: &PathBuf) -> Result<NodeInfo, NodeError> {
+        let bin_dir = self.target_dir.join("bin");
+        let lib_dir = self.target_dir.join("lib");
+
         info!(
             "Installing Node.js from bundled resources: {:?} -> {:?}",
             bundled_node_dir, self.target_dir
@@ -402,97 +402,91 @@ impl NodeInstaller {
         }
 
         // 创建目标目录
-        std::fs::create_dir_all(&self.target_dir)?;
+        std::fs::create_dir_all(&bin_dir)?;
+        std::fs::create_dir_all(&lib_dir)?;
 
-        // 递归复制 bin/ 和 lib/ 目录
-        let dirs_to_copy = ["bin", "lib"];
-        for dir_name in &dirs_to_copy {
-            let src = bundled_node_dir.join(dir_name);
-            let dst = self.target_dir.join(dir_name);
-
-            if src.exists() {
-                info!("Copying {:?} -> {:?}", src, dst);
-                Self::copy_dir_recursive(&src, &dst)?;
-            }
+        // 1. 复制 node 二进制文件
+        #[cfg(unix)]
+        {
+            let src_node = bundled_node_dir.join("bin").join("node");
+            let dst_node = bin_dir.join("node");
+            info!("Copying node binary: {:?} -> {:?}", src_node, dst_node);
+            std::fs::copy(&src_node, &dst_node)?;
+            // 设置可执行权限
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&dst_node)?.permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&dst_node, perms)?;
+        }
+        #[cfg(windows)]
+        {
+            let src_node = bundled_node_dir.join("bin").join("node.exe");
+            let dst_node = bin_dir.join("node.exe");
+            info!("Copying node binary: {:?} -> {:?}", src_node, dst_node);
+            std::fs::copy(&src_node, &dst_node)?;
         }
 
-        // 设置可执行权限
+        // 2. 复制 lib/node_modules/ 到 ~/.local/lib/node_modules/
+        let src_lib = bundled_node_dir.join("lib");
+        if src_lib.exists() {
+            info!("Copying lib: {:?} -> {:?}", src_lib, lib_dir);
+            Self::copy_dir_recursive(&src_lib, &lib_dir)?;
+        }
+
+        // 3. 创建 npm/npx/corepack 符号链接（使用与 Node.js 原始包相同的相对路径）
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let node_path = self.target_dir.join("bin").join("node");
-            if node_path.exists() {
-                let mut perms = std::fs::metadata(&node_path)?.permissions();
-                perms.set_mode(0o755);
-                std::fs::set_permissions(&node_path, perms)?;
-            }
+            let symlinks: &[(&str, &str)] = &[
+                ("npm", "../lib/node_modules/npm/bin/npm-cli.js"),
+                ("npx", "../lib/node_modules/npm/bin/npx-cli.js"),
+                ("corepack", "../lib/node_modules/corepack/dist/corepack.js"),
+            ];
 
-            // npm 和 npx 也需要可执行权限
-            for bin_name in &["npm", "npx", "corepack"] {
-                let bin_path = self.target_dir.join("bin").join(bin_name);
-                if bin_path.exists() {
-                    let mut perms = std::fs::metadata(&bin_path)?.permissions();
-                    perms.set_mode(0o755);
-                    std::fs::set_permissions(&bin_path, perms)?;
+            for (name, target) in symlinks {
+                let link_path = bin_dir.join(name);
+                // 检查目标文件是否存在（通过 lib_dir 验证）
+                let resolved = bin_dir.join(target);
+                if !resolved.exists() {
+                    warn!(
+                        "Symlink target does not exist, skipping {}: {:?}",
+                        name, resolved
+                    );
+                    continue;
+                }
+                // 删除旧的（可能是被 deref 的普通文件）
+                let _ = std::fs::remove_file(&link_path);
+                match std::os::unix::fs::symlink(target, &link_path) {
+                    Ok(()) => {
+                        info!("Created symlink: {:?} -> {}", link_path, target);
+                        // 确保目标脚本有可执行权限
+                        let mut perms = std::fs::metadata(&resolved)?.permissions();
+                        perms.set_mode(0o755);
+                        std::fs::set_permissions(&resolved, perms)?;
+                    }
+                    Err(e) => warn!("Failed to create symlink {:?}: {}", link_path, e),
                 }
             }
         }
 
-        info!("Node.js installation from bundled resources completed");
+        #[cfg(windows)]
+        {
+            // Windows: 复制 .cmd 文件
+            for cmd_name in &["npm.cmd", "npx.cmd", "corepack.cmd"] {
+                let src = bundled_node_dir.join("bin").join(cmd_name);
+                let dst = bin_dir.join(cmd_name);
+                if src.exists() {
+                    std::fs::copy(&src, &dst)?;
+                    info!("Copied: {:?} -> {:?}", src, dst);
+                }
+            }
+        }
 
-        // 创建全局符号链接到 ~/.local/bin/
-        self.create_global_symlinks();
+        info!("Node.js installation to ~/.local/ completed");
 
         // 验证安装
         let detector = NodeDetector::new();
         detector.detect_local()
-    }
-
-    /// 在 ~/.local/bin/ 创建指向 node/npm/npx 的符号链接，使其全局可用
-    fn create_global_symlinks(&self) {
-        let global_bin = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".local")
-            .join("bin");
-
-        if let Err(e) = std::fs::create_dir_all(&global_bin) {
-            warn!("[NodeInstaller] 创建 ~/.local/bin/ 失败: {}", e);
-            return;
-        }
-
-        #[cfg(unix)]
-        let bins = &["node", "npm", "npx", "corepack"];
-        #[cfg(windows)]
-        let bins = &["node.exe", "npm.cmd", "npx.cmd", "corepack.cmd"];
-
-        for bin_name in bins {
-            let source = self.target_dir.join("bin").join(bin_name);
-            let link = global_bin.join(bin_name);
-
-            if !source.exists() {
-                continue;
-            }
-
-            // 如果目标已存在，先删除
-            let _ = std::fs::remove_file(&link);
-
-            #[cfg(unix)]
-            {
-                match std::os::unix::fs::symlink(&source, &link) {
-                    Ok(()) => info!("[NodeInstaller] 符号链接: {:?} -> {:?}", link, source),
-                    Err(e) => warn!("[NodeInstaller] 创建符号链接失败 {:?}: {}", link, e),
-                }
-            }
-
-            #[cfg(windows)]
-            {
-                // Windows 上复制文件而非符号链接（符号链接需要管理员权限）
-                match std::fs::copy(&source, &link) {
-                    Ok(_) => info!("[NodeInstaller] 复制: {:?} -> {:?}", source, link),
-                    Err(e) => warn!("[NodeInstaller] 复制失败 {:?}: {}", link, e),
-                }
-            }
-        }
     }
 
     /// 递归复制目录

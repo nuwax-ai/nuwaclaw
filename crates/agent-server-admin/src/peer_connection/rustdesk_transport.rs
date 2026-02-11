@@ -20,6 +20,28 @@ use crate::business_connection::{BusinessConnection, BusinessConnectionEvent, Bu
 
 use super::transport::{ConnectionInfo, Transport};
 
+/// 安全 spawn 包装器 — 捕获 panic 并记录日志
+macro_rules! spawn_safe {
+    ($task_name:expr, $future:expr) => {
+        tokio::spawn(async move {
+            if let Err(e) = tokio::panic::catch_unwind(|| {
+                futures::executor::block_on($future)
+            }).await {
+                error!("Task '{}' panicked: {:?}", $task_name, e);
+            }
+        })
+    };
+    ($future:expr) => {
+        tokio::spawn(async move {
+            if let Err(e) = tokio::panic::catch_unwind(|| {
+                futures::executor::block_on($future)
+            }).await {
+                error!("Anonymous task panicked: {:?}", e);
+            }
+        })
+    };
+}
+
 /// 真实连接元数据
 struct RealConnection {
     /// 连接信息
@@ -136,17 +158,17 @@ impl Transport for RustDeskTransport {
         // 用于通知连接结果的通道
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
 
-        // 启动事件转发任务
+        // 启动事件转发任务（带 panic 捕获）
         let peer_id_for_events = peer_id.to_string();
         let event_tx_for_events = self.event_tx.clone();
-        tokio::spawn(async move {
+        spawn_safe!("event_forwarder", async move {
             while let Some(event) = biz_event_rx.recv().await {
                 if let Some(tx) = &event_tx_for_events {
                     let transport_event = match event {
                         BusinessConnectionEvent::Connected { peer_id } => {
                             TransportEvent::Connected {
                                 peer_id,
-                                is_direct: true, // 将在实际连接时更新
+                                is_direct: true,
                             }
                         }
                         BusinessConnectionEvent::MessageReceived { envelope } => {
@@ -168,10 +190,10 @@ impl Transport for RustDeskTransport {
             }
         });
 
-        // 启动 Interface 事件处理任务
+        // 启动 Interface 事件处理任务（带 panic 捕获）
         let peer_id_for_interface = peer_id.to_string();
         let event_tx_for_interface = self.event_tx.clone();
-        tokio::spawn(async move {
+        spawn_safe!("interface_events", async move {
             while let Some(event) = interface_event_rx.recv().await {
                 match event {
                     BusinessConnectionEvent::Authenticated { peer_id } => {
@@ -197,8 +219,8 @@ impl Transport for RustDeskTransport {
             debug!("Interface event loop ended for {}", peer_id_for_interface);
         });
 
-        // 启动 P2P 连接任务
-        tokio::spawn(async move {
+        // 启动 P2P 连接任务（带 panic 捕获）
+        spawn_safe!("p2p_connect", async move {
             info!("Starting P2P connection to {}", peer_id_str);
 
             let key = String::new();
@@ -226,8 +248,8 @@ impl Transport for RustDeskTransport {
                     // 设置流到 BusinessConnection
                     business_conn_clone.set_stream(stream, direct).await;
 
-                    // 启动消息接收循环
-                    let _recv_handle = business_conn_clone.clone().spawn_receive_loop();
+                    // 启动消息接收循环（带 panic 捕获）
+                    let recv_handle = business_conn_clone.clone().spawn_receive_loop();
 
                     // 创建连接信息
                     let info = ConnectionInfo {
@@ -241,7 +263,7 @@ impl Transport for RustDeskTransport {
                         RealConnection {
                             info: info.clone(),
                             business_conn: business_conn_clone.clone(),
-                            stream: None, // 流由 BusinessConnection 管理
+                            stream: None,
                         },
                     );
 
@@ -258,11 +280,9 @@ impl Transport for RustDeskTransport {
                     // 通知连接结果
                     let _ = result_tx.send(Ok(info));
 
-                    // 处理 Data 消息
-                    tokio::spawn(async move {
-                        while data_rx.recv().await.is_some() {
-                            // Data 消息已在 BusinessInterface 内部处理
-                        }
+                    // 处理 Data 消息（带 panic 捕获）
+                    spawn_safe!("data_handler", async move {
+                        while data_rx.recv().await.is_some() {}
                     });
                 }
                 Ok(Err(err)) => {

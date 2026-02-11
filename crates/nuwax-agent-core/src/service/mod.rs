@@ -55,7 +55,9 @@ fn get_file_server_pid_file_path() -> std::path::PathBuf {
 /// # Returns
 /// * `bool` - 命令是否成功执行（true = 成功，false = 失败或超时）
 async fn run_command_with_timeout(program: &str, args: &[&str], timeout_secs: u64) -> bool {
+    let node_path = crate::utils::build_node_path_env();
     let mut cmd = process_wrap::tokio::CommandWrap::with_new(program, |cmd| {
+        cmd.env("PATH", &node_path);
         for arg in args {
             cmd.arg(*arg);
         }
@@ -798,8 +800,10 @@ impl ServiceManager {
         info!("[FileServer] 可执行文件路径: {}", config.bin_path);
         info!("[FileServer] 端口: {}", config.port);
 
+        let node_path = crate::utils::build_node_path_env();
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
-            cmd.arg("start")
+            cmd.env("PATH", &node_path)
+                .arg("start")
                 .arg("--env")
                 .arg(&config.env)
                 .arg("--port")
@@ -1087,8 +1091,10 @@ impl ServiceManager {
         info!("[McpProxy] 监听地址: {}:{}", config.host, config.port);
 
         let port_str = config.port.to_string();
+        let node_path = crate::utils::build_node_path_env();
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
-            cmd.arg("proxy")
+            cmd.env("PATH", &node_path)
+                .arg("proxy")
                 .arg("--port")
                 .arg(&port_str)
                 .arg("--host")

@@ -114,7 +114,20 @@ EXTRACT_DIR="${TMPDIR_DL}/extracted"
 mkdir -p "${EXTRACT_DIR}"
 
 if [ "${PLATFORM}" = "win" ]; then
-  unzip -q "${TMPDIR_DL}/${FILENAME}" -d "${EXTRACT_DIR}"
+  # Windows: 尝试多种解压方式
+  if command -v unzip &>/dev/null; then
+    unzip -q "${TMPDIR_DL}/${FILENAME}" -d "${EXTRACT_DIR}"
+  elif command -v pwsh &>/dev/null || command -v powershell &>/dev/null; then
+    # PowerShell 7+ 支持 tar 格式
+    pwsh -Command "Expand-Archive -Path '${TMPDIR_DL}/${FILENAME}' -DestinationPath '${EXTRACT_DIR}' -Force" 2>/dev/null || \
+    powershell -Command "Expand-Archive -Path '${TMPDIR_DL}/${FILENAME}' -DestinationPath '${EXTRACT_DIR}' -Force"
+  elif command -v tar &>/dev/null; then
+    # 某些 Windows 环境下的 tar 也可以处理 zip
+    tar -xf "${TMPDIR_DL}/${FILENAME}" -C "${EXTRACT_DIR}"
+  else
+    echo "Error: No extraction tool available (unzip, powershell, or tar)" >&2
+    exit 1
+  fi
   INNER_DIR="${EXTRACT_DIR}/node-v${NODE_VERSION}-win-${ARCH}"
 else
   tar -xf "${TMPDIR_DL}/${FILENAME}" -C "${EXTRACT_DIR}"
@@ -148,10 +161,10 @@ if [ "${PLATFORM}" = "win" ]; then
     cp -r "${INNER_DIR}/node_modules" "${TARGET_DIR}/lib/node_modules"
   fi
 else
-  # Unix: 只保留 bin/ 和 lib/
-  cp -r "${INNER_DIR}/bin" "${TARGET_DIR}/bin"
+  # Unix: 只保留 bin/ 和 lib/（使用 cp -a 保留符号链接）
+  cp -a "${INNER_DIR}/bin" "${TARGET_DIR}/bin"
   if [ -d "${INNER_DIR}/lib" ]; then
-    cp -r "${INNER_DIR}/lib" "${TARGET_DIR}/lib"
+    cp -a "${INNER_DIR}/lib" "${TARGET_DIR}/lib"
   fi
 
   # 确保可执行权限

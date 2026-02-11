@@ -11,6 +11,7 @@ import {
   RobotOutlined,
 } from "@ant-design/icons";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import {
   getCurrentStep,
   saveStepProgress,
@@ -18,7 +19,10 @@ import {
   getDepsInstalled,
   setDepsInstalled,
 } from "../services/setup";
-import { restartAllServices } from "../services/dependencies";
+import {
+  restartAllServices,
+  checkAllSetupDependencies,
+} from "../services/dependencies";
 import SetupBasicConfig from "./SetupBasicConfig";
 import SetupAccountLogin from "./SetupAccountLogin";
 import SetupDependencies from "./SetupDependencies";
@@ -50,21 +54,36 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   useEffect(() => {
     const init = async () => {
       try {
-        const depsInstalled = await getDepsInstalled();
-        if (depsInstalled) {
-          // 依赖已装好，跳过预检和依赖阶段
-          setPreflightPassed(true);
+        // 静默预检（端口/目录）
+        try {
+          await invoke("preflight_check");
+          console.log("[SetupWizard] 预检完成");
+        } catch (err) {
+          console.warn("[SetupWizard] 预检失败（不阻塞）:", err);
+        }
+        setPreflightPassed(true);
+
+        // 实际检测所有依赖状态
+        const deps = await checkAllSetupDependencies();
+        const allInstalled = deps.every((d) => d.status === "installed");
+        console.log(
+          "[SetupWizard] 依赖检测:",
+          deps.map((d) => `${d.name}:${d.status}`).join(", "),
+        );
+
+        if (allInstalled) {
+          // 所有依赖就绪，跳过安装阶段
           setDependenciesReady(true);
+          await setDepsInstalled(true);
           const step = await getCurrentStep();
           setCurrentStep(step);
         } else {
-          // 先展示预检
-          setPreflightPassed(false);
+          // 有依赖缺失，进入安装流程
           setDependenciesReady(false);
         }
       } catch (error) {
-        console.error("[SetupWizard] 加载状态失败:", error);
-        setPreflightPassed(false);
+        console.error("[SetupWizard] 初始化失败:", error);
+        setPreflightPassed(true);
         setDependenciesReady(false);
       } finally {
         setLoading(false);
@@ -206,7 +225,8 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
         <div style={styles.footer}>
           <Text style={{ fontSize: 11, color: "#a1a1aa" }}>
-            {appName}{appVersion ? ` v${appVersion}` : ""}
+            {appName}
+            {appVersion ? ` v${appVersion}` : ""}
           </Text>
         </div>
       </div>
@@ -241,7 +261,8 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
         <div style={styles.footer}>
           <Text style={{ fontSize: 11, color: "#a1a1aa" }}>
-            {appName}{appVersion ? ` v${appVersion}` : ""}
+            {appName}
+            {appVersion ? ` v${appVersion}` : ""}
           </Text>
         </div>
       </div>
@@ -286,7 +307,8 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
       <div style={styles.footer}>
         <Text style={{ fontSize: 11, color: "#a1a1aa" }}>
-          {appName}{appVersion ? ` v${appVersion}` : ""} · 进度自动保存
+          {appName}
+          {appVersion ? ` v${appVersion}` : ""} · 进度自动保存
         </Text>
       </div>
     </div>

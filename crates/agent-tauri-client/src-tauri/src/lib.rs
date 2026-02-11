@@ -9,8 +9,8 @@ use system_permissions::{
     SystemPermission,
 };
 use tauri::{
-    menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    menu::{CheckMenuItem, Menu, MenuItem},
+    tray::TrayIconBuilder,
     Emitter, Manager, State, Window,
 };
 use tauri_plugin_store::StoreExt;
@@ -55,6 +55,15 @@ impl Default for MonitorState {
             task_handle: Mutex::new(None),
         }
     }
+}
+
+// ========== 托盘菜单 ID 常量 ==========
+mod tray_ids {
+    pub const SHOW: &str = "show";
+    pub const SERVICES_RESTART: &str = "services_restart";
+    pub const SERVICES_STOP: &str = "services_stop";
+    pub const AUTOLAUNCH: &str = "autolaunch";
+    pub const QUIT: &str = "quit";
 }
 
 // 可序列化的权限状态（用于 Tauri IPC）
@@ -1053,9 +1062,17 @@ fn build_rcoder_config(app: &tauri::AppHandle) -> Result<RcoderAgentRunnerConfig
     info!("[Rcoder] 找到 agent_port: {}", port);
 
     let projects_dir = resolve_projects_dir(app)?;
+    let computer_workspace_dir = projects_dir.join("computer-project-workspace");
+
+    // 确保 computer-project-workspace 目录存在
+    if !computer_workspace_dir.exists() {
+        std::fs::create_dir_all(&computer_workspace_dir)
+            .map_err(|e| format!("创建 computer-project-workspace 目录失败: {}", e))?;
+        info!("[Rcoder] 已创建目录: {}", computer_workspace_dir.display());
+    }
 
     let config = RcoderAgentRunnerConfig {
-        projects_dir: projects_dir.join("computer-project-workspace"),
+        projects_dir: computer_workspace_dir,
         backend_port: port,
         ..RcoderAgentRunnerConfig::default()
     };
@@ -1361,8 +1378,43 @@ async fn services_restart_all(
                 .join("project_logs")
                 .to_string_lossy()
                 .to_string(),
-            computer_workspace_dir: std::path::PathBuf::from(&workspace_dir)
-                .join("computer-project-workspace")
+        };
+
+        // 确保 computer-project-workspace 目录存在
+        let computer_workspace_path = std::path::PathBuf::from(&workspace_dir).join("computer-project-workspace");
+        if !computer_workspace_path.exists() {
+            std::fs::create_dir_all(&computer_workspace_path)
+                .map_err(|e| format!("创建 computer-project-workspace 目录失败: {}", e))?;
+            info!("[Services]   - 已创建 computer-project-workspace 目录");
+        }
+
+        let file_server_config = nuwax_agent_core::NuwaxFileServerConfig {
+            bin_path,
+            port,
+            env: "production".to_string(),
+            init_project_name: "nuwax-template".to_string(),
+            init_project_dir: std::path::PathBuf::from(&workspace_dir)
+                .join("project_init")
+                .to_string_lossy()
+                .to_string(),
+            upload_project_dir: std::path::PathBuf::from(&workspace_dir)
+                .join("project_zips")
+                .to_string_lossy()
+                .to_string(),
+            project_source_dir: std::path::PathBuf::from(&workspace_dir)
+                .join("project_workspace")
+                .to_string_lossy()
+                .to_string(),
+            dist_target_dir: std::path::PathBuf::from(&workspace_dir)
+                .join("project_nginx")
+                .to_string_lossy()
+                .to_string(),
+            log_base_dir: app_data_dir
+                .join("logs")
+                .join("project_logs")
+                .to_string_lossy()
+                .to_string(),
+            computer_workspace_dir: computer_workspace_path
                 .to_string_lossy()
                 .to_string(),
             computer_log_dir: app_data_dir
@@ -1846,56 +1898,36 @@ async fn check_network_cn() -> bool {
 }
 
 /// 解析 node/npm/npx 等二进制的实际路径
-/// 优先查找本地安装路径 → ~/.local/bin/ → 最后 fallback 到命令名（依赖 PATH）
+/// 优先查找 ~/.local/bin/ → 最后 fallback 到命令名（依赖 PATH）
 fn resolve_node_bin(bin_name: &str) -> String {
-    // 1. 本地安装路径
-    let local_dir = dirs::data_local_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("nuwax-agent")
-        .join("tools")
-        .join("node")
-        .join("bin");
-
-    #[cfg(unix)]
-    let local_bin = local_dir.join(bin_name);
-    #[cfg(windows)]
-    let local_bin = if bin_name == "node" {
-        local_dir.join("node.exe")
-    } else {
-        local_dir.join(format!("{}.cmd", bin_name))
-    };
-
-    if local_bin.exists() {
-        info!("[resolve_node_bin] {} -> {:?} (local)", bin_name, local_bin);
-        return local_bin.to_string_lossy().to_string();
-    }
-
-    // 2. ~/.local/bin/ (全局符号链接)
+    // 1. ~/.local/bin/ (node 安装目录)
     let global_bin = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".local")
         .join("bin");
 
     #[cfg(unix)]
-    let global_path = global_bin.join(bin_name);
+    let bin_path = global_bin.join(bin_name);
     #[cfg(windows)]
-    let global_path = if bin_name == "node" {
+    let bin_path = if bin_name == "node" {
         global_bin.join("node.exe")
     } else {
         global_bin.join(format!("{}.cmd", bin_name))
     };
 
-    if global_path.exists() {
-        info!(
-            "[resolve_node_bin] {} -> {:?} (global)",
-            bin_name, global_path
-        );
-        return global_path.to_string_lossy().to_string();
+    if bin_path.exists() {
+        info!("[resolve_node_bin] {} -> {:?}", bin_name, bin_path);
+        return bin_path.to_string_lossy().to_string();
     }
 
-    // 3. 降级到 PATH
+    // 2. 降级到 PATH
     info!("[resolve_node_bin] {} -> fallback to PATH", bin_name);
     bin_name.to_string()
+}
+
+/// 构建包含 node bin 目录的 PATH 环境变量（委托给 nuwax-agent-core）
+fn build_node_path_env() -> String {
+    nuwax_agent_core::utils::build_node_path_env()
 }
 
 /// 初始化本地 npm 环境（创建 package.json）
@@ -1924,21 +1956,15 @@ async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, String
 }
 
 /// 检测 Node.js 版本
-/// 检测顺序: 1) 本地安装路径 (data_local_dir/nuwax-agent/tools/node) 2) 系统 PATH
+/// 检测顺序: 1) ~/.local/bin/node 2) 系统 PATH
 #[tauri::command]
 async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionResult, String> {
-    // 1. 检测本地安装路径（优先级最高）
-    // 使用 dirs::data_local_dir() 与 NodeInstaller 保持一致的路径
-    let local_node_dir = dirs::data_local_dir()
+    // 1. 检测 ~/.local/bin/node（我们的安装路径）
+    let local_node_bin = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("nuwax-agent")
-        .join("tools")
-        .join("node");
-
-    #[cfg(unix)]
-    let local_node_bin = local_node_dir.join("bin").join("node");
-    #[cfg(windows)]
-    let local_node_bin = local_node_dir.join("bin").join("node.exe");
+        .join(".local")
+        .join("bin")
+        .join(if cfg!(windows) { "node.exe" } else { "node" });
 
     if local_node_bin.exists() {
         let output = Command::new(&local_node_bin).arg("--version").output();
@@ -1950,7 +1976,7 @@ async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionRes
                     .to_string();
                 let meets = check_version_meets_requirement(&version_str, "22.0.0");
                 info!(
-                    "[NodeDetect] 本地 Node.js: v{} (满足要求: {})",
+                    "[NodeDetect] ~/.local/bin/node: v{} (满足要求: {})",
                     version_str, meets
                 );
                 return Ok(NodeVersionResult {
@@ -1962,36 +1988,7 @@ async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionRes
         }
     }
 
-    // 2. 检测 ~/.local/bin/node（全局符号链接）
-    let global_node_bin = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".local")
-        .join("bin")
-        .join(if cfg!(windows) { "node.exe" } else { "node" });
-
-    if global_node_bin.exists() {
-        let output = Command::new(&global_node_bin).arg("--version").output();
-        if let Ok(out) = output {
-            if out.status.success() {
-                let version_str = String::from_utf8_lossy(&out.stdout)
-                    .trim()
-                    .trim_start_matches('v')
-                    .to_string();
-                let meets = check_version_meets_requirement(&version_str, "22.0.0");
-                info!(
-                    "[NodeDetect] 全局 ~/.local/bin/node: v{} (满足要求: {})",
-                    version_str, meets
-                );
-                return Ok(NodeVersionResult {
-                    installed: true,
-                    version: Some(version_str),
-                    meets_requirement: meets,
-                });
-            }
-        }
-    }
-
-    // 3. 检测系统 PATH
+    // 2. 检测系统 PATH
     let output = Command::new("node").arg("--version").output();
 
     match output {
@@ -2340,7 +2337,9 @@ async fn dependency_local_install(
 
     // 执行 npm install
     let npm_bin = resolve_node_bin("npm");
+    let node_path = build_node_path_env();
     let output = Command::new(&npm_bin)
+        .env("PATH", &node_path)
         .args([
             "install",
             &package_name,
@@ -2378,7 +2377,9 @@ async fn dependency_local_install(
 async fn dependency_local_check_latest(package_name: String) -> Result<Option<String>, String> {
     let registry = "https://registry.npmmirror.com/";
     let npm_bin = resolve_node_bin("npm");
+    let node_path = build_node_path_env();
     let output = Command::new(&npm_bin)
+        .env("PATH", &node_path)
         .args(["view", &package_name, "version", "--registry", registry])
         .output()
         .map_err(|e| format!("执行 npm view 失败: {}", e))?;
@@ -2546,8 +2547,25 @@ async fn dependency_shell_installer_install(
 /// 通过检查可执行文件是否存在来判断
 #[tauri::command]
 async fn dependency_npm_global_check(bin_name: String) -> Result<NpmPackageResult, String> {
+    let node_path = build_node_path_env();
+
     // 跨平台检查二进制文件是否存在
-    let which_output = which_command(&bin_name);
+    let which_output = {
+        #[cfg(target_os = "windows")]
+        {
+            Command::new("where")
+                .env("PATH", &node_path)
+                .arg(&bin_name)
+                .output()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Command::new("which")
+                .env("PATH", &node_path)
+                .arg(&bin_name)
+                .output()
+        }
+    };
 
     match which_output {
         Ok(out) if out.status.success() => {
@@ -2557,6 +2575,7 @@ async fn dependency_npm_global_check(bin_name: String) -> Result<NpmPackageResul
 
             // 尝试获取版本信息 (使用 -V 参数)
             let version = Command::new(&bin_name)
+                .env("PATH", &node_path)
                 .arg("-V")
                 .output()
                 .ok()
@@ -2606,7 +2625,9 @@ async fn dependency_npm_global_install(
 
     // 执行 npm install -g
     let npm_bin = resolve_node_bin("npm");
+    let node_path = build_node_path_env();
     let output = Command::new(&npm_bin)
+        .env("PATH", &node_path)
         .args([
             "install",
             "-g",
@@ -2925,85 +2946,168 @@ fn tray_status(app: tauri::AppHandle) -> TrayStatusResult {
     }
 }
 
+/// 更新托盘菜单（自动获取自启动状态和服务状态）
+fn update_tray_menu(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::menu::MenuItemKind;
+
+    // 获取自启动状态
+    let autolaunch_enabled = create_auto_launch(app_handle)
+        .and_then(|al| Ok(al.is_enabled().unwrap_or(false)))
+        .unwrap_or(false);
+
+    // 获取服务状态，用于决定是否禁用菜单项
+    // 使用 try_lock 避免死锁，如果获取锁失败则默认禁用停止服务
+    let services_running = tauri::async_runtime::block_on(async {
+        let state = app_handle.state::<ServiceManagerState>();
+        // 尝试获取锁，如果已被持有则等待一段时间后超时
+        let lock_result = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            state.manager.lock(),
+        )
+        .await;
+
+        match lock_result {
+            Ok(manager) => {
+                let statuses = manager.services_status_all().await;
+                statuses
+                    .iter()
+                    .any(|s| matches!(s.state, nuwax_agent_core::service::ServiceState::Running))
+            }
+            Err(_) => {
+                warn!("[Tray] 获取服务状态超时，默认禁用停止服务");
+                false
+            }
+        }
+    });
+
+    // 重新创建菜单项
+    let show_i = MenuItem::with_id(app_handle, tray_ids::SHOW, "显示主窗口", true, None::<&str>)?;
+    let separator1 = tauri::menu::PredefinedMenuItem::separator(app_handle)?;
+    let services_restart_i = MenuItem::with_id(
+        app_handle,
+        tray_ids::SERVICES_RESTART,
+        "重启服务",
+        true, // 始终启用重启服务
+        None::<&str>,
+    )?;
+    let services_stop_i = MenuItem::with_id(
+        app_handle,
+        tray_ids::SERVICES_STOP,
+        "停止服务",
+        services_running, // 只有在服务运行时才启用停止
+        None::<&str>,
+    )?;
+    let separator2 = tauri::menu::PredefinedMenuItem::separator(app_handle)?;
+    let autolaunch_i = CheckMenuItem::with_id(
+        app_handle,
+        tray_ids::AUTOLAUNCH,
+        "开机自启动",
+        true,
+        autolaunch_enabled,
+        None::<&str>,
+    )?;
+    let separator3 = tauri::menu::PredefinedMenuItem::separator(app_handle)?;
+    let quit_i = MenuItem::with_id(app_handle, tray_ids::QUIT, "退出", true, None::<&str>)?;
+
+    // 构建新菜单
+    let new_menu = Menu::with_items(
+        app_handle,
+        &[
+            &MenuItemKind::MenuItem(show_i),
+            &MenuItemKind::Predefined(separator1),
+            &MenuItemKind::MenuItem(services_restart_i),
+            &MenuItemKind::MenuItem(services_stop_i),
+            &MenuItemKind::Predefined(separator2),
+            &MenuItemKind::Check(autolaunch_i),
+            &MenuItemKind::Predefined(separator3),
+            &MenuItemKind::MenuItem(quit_i),
+        ],
+    )?;
+
+    // 更新托盘图标的菜单
+    if let Some(tray) = app_handle.tray_by_id("main") {
+        tray.set_menu(Some(new_menu))?;
+    }
+
+    Ok(())
+}
+
 /// 设置系统托盘
 fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::MenuItemKind;
 
+    // 获取当前自启动状态
+    let autolaunch_enabled = create_auto_launch(&app.handle())
+        .and_then(|al| Ok(al.is_enabled().unwrap_or(false)))
+        .unwrap_or(false);
+
     // 创建菜单项
-    let show_i = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
-    let hide_i = MenuItem::with_id(app, "hide", "隐藏主窗口", true, None::<&str>)?;
+    let show_i = MenuItem::with_id(app, tray_ids::SHOW, "显示主窗口", true, None::<&str>)?;
     let separator1 = tauri::menu::PredefinedMenuItem::separator(app)?;
-    let services_start_i =
-        MenuItem::with_id(app, "services_start", "启动服务", true, None::<&str>)?;
-    let services_stop_i = MenuItem::with_id(app, "services_stop", "停止服务", true, None::<&str>)?;
+    let services_restart_i =
+        MenuItem::with_id(app, tray_ids::SERVICES_RESTART, "重启服务", true, None::<&str>)?;
+    let services_stop_i =
+        MenuItem::with_id(app, tray_ids::SERVICES_STOP, "停止服务", true, None::<&str>)?;
     let separator2 = tauri::menu::PredefinedMenuItem::separator(app)?;
-    let autolaunch_i = MenuItem::with_id(app, "autolaunch", "开机自启动", true, None::<&str>)?;
+    let autolaunch_i = CheckMenuItem::with_id(
+        app,
+        tray_ids::AUTOLAUNCH,
+        "开机自启动",
+        true,
+        autolaunch_enabled,
+        None::<&str>,
+    )?;
     let separator3 = tauri::menu::PredefinedMenuItem::separator(app)?;
-    let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, tray_ids::QUIT, "退出", true, None::<&str>)?;
 
     // 构建菜单
     let menu = Menu::with_items(
         app,
         &[
             &MenuItemKind::MenuItem(show_i),
-            &MenuItemKind::MenuItem(hide_i),
             &MenuItemKind::Predefined(separator1),
-            &MenuItemKind::MenuItem(services_start_i),
+            &MenuItemKind::MenuItem(services_restart_i),
             &MenuItemKind::MenuItem(services_stop_i),
             &MenuItemKind::Predefined(separator2),
-            &MenuItemKind::MenuItem(autolaunch_i),
+            &MenuItemKind::Check(autolaunch_i.clone()),
             &MenuItemKind::Predefined(separator3),
             &MenuItemKind::MenuItem(quit_i),
         ],
     )?;
 
     // 创建托盘图标
-    let _tray = TrayIconBuilder::new()
+    let _tray = TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
-        .show_menu_on_left_click(false) // 左键点击显示窗口，右键显示菜单
-        .on_tray_icon_event(|tray, event| {
-            // 左键点击显示主窗口
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                if let Some(window) = tray.app_handle().get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
-        })
+        .show_menu_on_left_click(true) // 左键点击显示菜单
         .on_menu_event(|app, event| {
             match event.id.as_ref() {
-                "show" => {
+                tray_ids::SHOW => {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.show();
                         let _ = window.set_focus();
                     }
                 }
-                "hide" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.hide();
-                    }
-                }
-                "services_start" => {
+                tray_ids::SERVICES_RESTART => {
                     let app_handle = app.clone();
                     tauri::async_runtime::spawn(async move {
+                        info!("[Tray] 重启所有服务...");
                         let state = app_handle.state::<ServiceManagerState>();
-                        // 调用服务重启逻辑
-                        info!("[Tray] 启动服务...");
-                        let manager = state.manager.lock().await;
-                        if let Err(e) = manager.services_stop_all().await {
-                            error!("[Tray] 停止服务失败: {}", e);
+                        match services_restart_all(app_handle.clone(), state).await {
+                            Ok(_) => {
+                                info!("[Tray] 所有服务已重启");
+                                // 更新托盘菜单（自动获取最新状态）
+                                if let Err(e) = update_tray_menu(&app_handle) {
+                                    error!("[Tray] 更新托盘菜单失败: {}", e);
+                                }
+                            }
+                            Err(e) => {
+                                error!("[Tray] 重启服务失败: {}", e);
+                            }
                         }
-                        // 注意：完整启动需要配置，这里只做基础停止/启动
-                        info!("[Tray] 服务操作完成，请通过主窗口启动服务");
                     });
                 }
-                "services_stop" => {
+                tray_ids::SERVICES_STOP => {
                     let app_handle = app.clone();
                     tauri::async_runtime::spawn(async move {
                         let state = app_handle.state::<ServiceManagerState>();
@@ -3012,10 +3116,14 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                             error!("[Tray] 停止服务失败: {}", e);
                         } else {
                             info!("[Tray] 所有服务已停止");
+                            // 更新托盘菜单（自动获取最新状态）
+                            if let Err(e) = update_tray_menu(&app_handle) {
+                                error!("[Tray] 更新托盘菜单失败: {}", e);
+                            }
                         }
                     });
                 }
-                "autolaunch" => {
+                tray_ids::AUTOLAUNCH => {
                     // 切换开机自启动状态
                     let app_handle = app.clone();
                     tauri::async_runtime::spawn(async move {
@@ -3028,10 +3136,18 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                                     auto_launch.enable()
                                 };
                                 match result {
-                                    Ok(()) => info!(
-                                        "[Tray] 开机自启动已{}",
-                                        if current { "禁用" } else { "启用" }
-                                    ),
+                                    Ok(()) => {
+                                        let new_state = !current;
+                                        info!(
+                                            "[Tray] 开机自启动已{}",
+                                            if new_state { "启用" } else { "禁用" }
+                                        );
+
+                                        // 重新创建菜单以更新勾选状态（自动获取最新状态）
+                                        if let Err(e) = update_tray_menu(&app_handle) {
+                                            error!("[Tray] 更新托盘菜单失败: {}", e);
+                                        }
+                                    }
                                     Err(e) => error!("[Tray] 切换开机自启动失败: {}", e),
                                 }
                             }
@@ -3039,7 +3155,7 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                         }
                     });
                 }
-                "quit" => {
+                tray_ids::QUIT => {
                     // 停止服务后退出
                     let app_handle = app.clone();
                     tauri::async_runtime::spawn(async move {
