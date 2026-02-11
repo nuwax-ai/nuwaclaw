@@ -292,7 +292,20 @@ pub async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersio
         .join(if cfg!(windows) { "node.exe" } else { "node" });
 
     if local_node_bin.exists() {
-        let output = Command::new(&local_node_bin).arg("--version").output();
+        // Windows 上需要清理扩展长度路径前缀
+        #[cfg(windows)]
+        let local_node_bin_clean = {
+            let path_str = local_node_bin.to_string_lossy();
+            if path_str.starts_with(r"\\?\") {
+                path_str[4..].to_string()
+            } else {
+                path_str.to_string()
+            }
+        };
+        #[cfg(not(windows))]
+        let local_node_bin_clean = local_node_bin.to_string_lossy().to_string();
+
+        let output = Command::new(&local_node_bin_clean).arg("--version").output();
         if let Ok(out) = output {
             if out.status.success() {
                 let version_str = String::from_utf8_lossy(&out.stdout)
@@ -438,7 +451,20 @@ pub async fn dependency_uv_detect() -> Result<UvVersionResult, String> {
     let local_uv_bin = local_uv_dir.join("uv.exe");
 
     if local_uv_bin.exists() {
-        let output = Command::new(&local_uv_bin).arg("--version").output();
+        // Windows 上需要清理扩展长度路径前缀
+        #[cfg(windows)]
+        let local_uv_bin_clean = {
+            let path_str = local_uv_bin.to_string_lossy();
+            if path_str.starts_with(r"\\?\") {
+                path_str[4..].to_string()
+            } else {
+                path_str.to_string()
+            }
+        };
+        #[cfg(not(windows))]
+        let local_uv_bin_clean = local_uv_bin.to_string_lossy().to_string();
+
+        let output = Command::new(&local_uv_bin_clean).arg("--version").output();
         if let Ok(out) = output {
             if out.status.success() {
                 if let Some(version_str) = parse_uv_version(&out.stdout) {
