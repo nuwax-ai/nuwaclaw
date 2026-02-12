@@ -816,6 +816,18 @@ pub fn resolve_npm_package_direct_path(package_name: &str) -> Result<NpmPackageI
 
 /// 查找 node.exe 可执行文件
 fn find_node_executable() -> Result<PathBuf, NodeError> {
+    // 允许上层（Tauri sidecar）通过环境变量注入固定 node.exe，避免依赖系统 PATH。
+    if let Ok(node_from_env) = std::env::var("NUWAX_NODE_EXE") {
+        let node_from_env = PathBuf::from(node_from_env);
+        if node_from_env.exists() {
+            debug!(
+                "Using node from NUWAX_NODE_EXE: {}",
+                node_from_env.display()
+            );
+            return Ok(node_from_env);
+        }
+    }
+
     // 优先使用本地安装的 Node.js
     let local_node = NodeDetector::get_local_node_path();
     if local_node.exists() {
@@ -887,6 +899,18 @@ fn find_npm_package_dir(package_name: &str) -> Result<PathBuf, NodeError> {
     #[cfg(windows)]
     {
         if let Ok(appdata) = std::env::var("APPDATA") {
+            let app_private_modules = PathBuf::from(&appdata)
+                .join("com.nuwax.agent-tauri-client")
+                .join("node_modules")
+                .join(package_name);
+            if app_private_modules.exists() {
+                debug!(
+                    "Found package in app private node_modules: {}",
+                    app_private_modules.display()
+                );
+                return Ok(app_private_modules);
+            }
+
             let npm_modules = PathBuf::from(appdata)
                 .join("npm")
                 .join("node_modules")

@@ -279,6 +279,34 @@ jobs:
         shell: bash
         run: ./scripts/download-uv.sh win x64
 
+      # ---- 下载 sidecar（mcp-proxy/node-runtime）到缓存，并按当前构建目标投放到 binaries ----
+      - name: Download sidecars for current target
+        shell: bash
+        run: |
+          BINARIES_DIR="crates/agent-tauri-client/src-tauri/binaries"
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            if [[ "${{ matrix.args }}" == *"universal-apple-darwin"* ]]; then
+              ./scripts/download-sidecars.sh --target aarch64-apple-darwin --target x86_64-apple-darwin --materialize
+              lipo -create \
+                "${BINARIES_DIR}/mcp-proxy-aarch64-apple-darwin" \
+                "${BINARIES_DIR}/mcp-proxy-x86_64-apple-darwin" \
+                -output "${BINARIES_DIR}/mcp-proxy-universal-apple-darwin"
+              lipo -create \
+                "${BINARIES_DIR}/node-runtime-aarch64-apple-darwin" \
+                "${BINARIES_DIR}/node-runtime-x86_64-apple-darwin" \
+                -output "${BINARIES_DIR}/node-runtime-universal-apple-darwin"
+              chmod 755 "${BINARIES_DIR}/mcp-proxy-universal-apple-darwin" "${BINARIES_DIR}/node-runtime-universal-apple-darwin"
+            elif [[ "${{ matrix.args }}" == *"x86_64-apple-darwin"* ]]; then
+              ./scripts/download-sidecars.sh --target x86_64-apple-darwin --materialize
+            else
+              ./scripts/download-sidecars.sh --target aarch64-apple-darwin --materialize
+            fi
+          elif [ "${{ runner.os }}" = "Linux" ]; then
+            ./scripts/download-sidecars.sh --target x86_64-unknown-linux-gnu --materialize
+          else
+            ./scripts/download-sidecars.sh --target x86_64-pc-windows-msvc --materialize
+          fi
+
       # ---- macOS：仅当配置了证书时导入 keychain，供后续 codesign 使用 ----
       # 需在仓库 Secrets 配置 APPLE_CERTIFICATE（Base64 编码的 .p12）、APPLE_CERTIFICATE_PASSWORD。
       # 未配置时脚本内判断并跳过导入，签名步骤由 sign-macos-resource-bins.sh 在 identity 为空时跳过。

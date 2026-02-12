@@ -151,6 +151,10 @@ jobs:
         shell: bash
         run: ./scripts/download-uv.sh win x64
 
+      - name: Download sidecars for windows target
+        shell: bash
+        run: ./scripts/download-sidecars.sh --target x86_64-pc-windows-msvc --materialize
+
       # ---- 构建 & 发布 ----
       # tauri-action 会自动执行 tauri.conf.json 中的 beforeBuildCommand (pnpm build)
       # 然后运行 cargo tauri build，最后将产物上传到 GitHub Release
