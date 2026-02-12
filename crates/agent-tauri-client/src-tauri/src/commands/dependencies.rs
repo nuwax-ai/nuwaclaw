@@ -338,6 +338,31 @@ pub async fn node_install_auto(app: tauri::AppHandle) -> Result<NodeInstallResul
                 "[NodeInstall] Node.js 安装成功，版本: {}，路径: {}",
                 info.version, info.bin_path
             );
+
+            // 将安装目录添加到当前进程的 PATH
+            if let Some(parent_dir) = std::path::Path::new(&info.bin_path).parent() {
+                let bin_dir = parent_dir.to_string_lossy().to_string();
+                if let Ok(current_path) = std::env::var("PATH") {
+                    // Windows 路径比较需要大小写不敏感
+                    #[cfg(windows)]
+                    let needs_update = !current_path.to_lowercase().contains(&bin_dir.to_lowercase());
+                    #[cfg(not(windows))]
+                    let needs_update = !current_path.contains(&bin_dir);
+
+                    if needs_update {
+                        #[cfg(windows)]
+                        let new_path = format!("{};{}", bin_dir, current_path);
+                        #[cfg(not(windows))]
+                        let new_path = format!("{}:{}", bin_dir, current_path);
+                        assert!(!new_path.contains('\0'), "PATH value cannot contain null bytes");
+                        unsafe {
+                            std::env::set_var("PATH", &new_path);
+                        }
+                        info!("[NodeInstall] 已将 {} 添加到 PATH", bin_dir);
+                    }
+                }
+            }
+
             Ok(NodeInstallResult {
                 success: true,
                 version: Some(info.version),
@@ -464,6 +489,31 @@ pub async fn uv_install_auto(app: tauri::AppHandle) -> Result<UvInstallResult, S
                 "[UvInstall] uv 安装成功，版本: {}，路径: {}",
                 info.version, info.bin_path
             );
+
+            // 将安装目录添加到当前进程的 PATH
+            if let Some(parent_dir) = std::path::Path::new(&info.bin_path).parent() {
+                let bin_dir = parent_dir.to_string_lossy().to_string();
+                if let Ok(current_path) = std::env::var("PATH") {
+                    // Windows 路径比较需要大小写不敏感
+                    #[cfg(windows)]
+                    let needs_update = !current_path.to_lowercase().contains(&bin_dir.to_lowercase());
+                    #[cfg(not(windows))]
+                    let needs_update = !current_path.contains(&bin_dir);
+
+                    if needs_update {
+                        #[cfg(windows)]
+                        let new_path = format!("{};{}", bin_dir, current_path);
+                        #[cfg(not(windows))]
+                        let new_path = format!("{}:{}", bin_dir, current_path);
+                        assert!(!new_path.contains('\0'), "PATH value cannot contain null bytes");
+                        unsafe {
+                            std::env::set_var("PATH", &new_path);
+                        }
+                        info!("[UvInstall] 已将 {} 添加到 PATH", bin_dir);
+                    }
+                }
+            }
+
             Ok(UvInstallResult {
                 success: true,
                 version: Some(info.version),
@@ -1379,6 +1429,19 @@ fn install_uv_system_macos(bundled_uv_dir: &std::path::Path) -> Result<UvSystemI
         }
     }
 
+    // 确保 /usr/local/bin 在当前进程的 PATH 中
+    let bin_dir = "/usr/local/bin";
+    if let Ok(current_path) = std::env::var("PATH") {
+        if !current_path.contains(bin_dir) {
+            let new_path = format!("{}:{}", bin_dir, current_path);
+            assert!(!new_path.contains('\0'), "PATH value cannot contain null bytes");
+            unsafe {
+                std::env::set_var("PATH", &new_path);
+            }
+            info!("[UvSystemInstall] 已将 {} 添加到 PATH", bin_dir);
+        }
+    }
+
     // 验证安装
     let version = verify_uv_install()?;
     info!("[UvSystemInstall] uv 安装成功，版本: {}", version);
@@ -1443,6 +1506,19 @@ fn install_uv_system_linux(bundled_uv_dir: &std::path::Path) -> Result<UvSystemI
     match pkexec_result {
         Ok(out) => {
             if out.status.success() {
+                // 确保 /usr/local/bin 在当前进程的 PATH 中
+                let bin_dir = "/usr/local/bin";
+                if let Ok(current_path) = std::env::var("PATH") {
+                    if !current_path.contains(bin_dir) {
+                        let new_path = format!("{}:{}", bin_dir, current_path);
+                        assert!(!new_path.contains('\0'), "PATH value cannot contain null bytes");
+                        unsafe {
+                            std::env::set_var("PATH", &new_path);
+                        }
+                        info!("[UvSystemInstall] 已将 {} 添加到 PATH", bin_dir);
+                    }
+                }
+
                 let version = verify_uv_install()?;
                 info!("[UvSystemInstall] uv 安装成功，版本: {}", version);
                 return Ok(UvSystemInstallResult {
@@ -1505,6 +1581,19 @@ fn install_uv_system_linux(bundled_uv_dir: &std::path::Path) -> Result<UvSystemI
                 return Err(format!("安装失败，退出码: {:?}, stderr: {}",
                     out.status.code(),
                     String::from_utf8_lossy(&out.stderr)));
+            }
+
+            // 确保 /usr/local/bin 在当前进程的 PATH 中
+            let bin_dir = "/usr/local/bin";
+            if let Ok(current_path) = std::env::var("PATH") {
+                if !current_path.contains(bin_dir) {
+                    let new_path = format!("{}:{}", bin_dir, current_path);
+                    assert!(!new_path.contains('\0'), "PATH value cannot contain null bytes");
+                    unsafe {
+                        std::env::set_var("PATH", &new_path);
+                    }
+                    info!("[UvSystemInstall] 已将 {} 添加到 PATH", bin_dir);
+                }
             }
 
             let version = verify_uv_install()?;
@@ -1858,6 +1947,20 @@ fn install_node_system_macos(pkg_path: &std::path::Path) -> Result<NodeSystemIns
     }
 
     // PKG 安装是同步的，可以立即验证
+
+    // 确保 /usr/local/bin 在当前进程的 PATH 中
+    let bin_dir = "/usr/local/bin";
+    if let Ok(current_path) = std::env::var("PATH") {
+        if !current_path.contains(bin_dir) {
+            let new_path = format!("{}:{}", bin_dir, current_path);
+            assert!(!new_path.contains('\0'), "PATH value cannot contain null bytes");
+            unsafe {
+                std::env::set_var("PATH", &new_path);
+            }
+            info!("[NodeInstall] 已将 {} 添加到 PATH", bin_dir);
+        }
+    }
+
     let version = verify_node_install()?;
 
     Ok(NodeSystemInstallResult {
@@ -1921,6 +2024,19 @@ fn install_node_system_linux(tar_path: &std::path::Path) -> Result<NodeSystemIns
                 info!("[NodeInstall] stderr: {}", String::from_utf8_lossy(&out.stderr));
             }
             if out.status.success() {
+                // 确保 /usr/local/bin 在当前进程的 PATH 中
+                let bin_dir = "/usr/local/bin";
+                if let Ok(current_path) = std::env::var("PATH") {
+                    if !current_path.contains(bin_dir) {
+                        let new_path = format!("{}:{}", bin_dir, current_path);
+                        assert!(!new_path.contains('\0'), "PATH value cannot contain null bytes");
+                        unsafe {
+                            std::env::set_var("PATH", &new_path);
+                        }
+                        info!("[NodeInstall] 已将 {} 添加到 PATH", bin_dir);
+                    }
+                }
+
                 let version = verify_node_install()?;
                 return Ok(NodeSystemInstallResult {
                     success: true,
@@ -1977,6 +2093,19 @@ fn install_node_system_linux(tar_path: &std::path::Path) -> Result<NodeSystemIns
                 return Err(format!("安装失败，退出码: {:?}, stderr: {}",
                     out.status.code(),
                     String::from_utf8_lossy(&out.stderr)));
+            }
+
+            // 确保 /usr/local/bin 在当前进程的 PATH 中
+            let bin_dir = "/usr/local/bin";
+            if let Ok(current_path) = std::env::var("PATH") {
+                if !current_path.contains(bin_dir) {
+                    let new_path = format!("{}:{}", bin_dir, current_path);
+                    assert!(!new_path.contains('\0'), "PATH value cannot contain null bytes");
+                    unsafe {
+                        std::env::set_var("PATH", &new_path);
+                    }
+                    info!("[NodeInstall] 已将 {} 添加到 PATH", bin_dir);
+                }
             }
 
             let version = verify_node_install()?;
