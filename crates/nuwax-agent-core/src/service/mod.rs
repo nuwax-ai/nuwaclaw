@@ -957,7 +957,23 @@ impl ServiceManager {
             }
         }
 
-        let node_path = crate::utils::build_node_path_env();
+        let mut node_path = crate::utils::build_node_path_env();
+        
+        // Windows: 补充 npm 全局 bin 目录到 PATH（GUI 应用可能不继承完整 PATH）
+        #[cfg(target_os = "windows")]
+        {
+            use std::env::var;
+            if let Ok(appdata) = var("APPDATA") {
+                if !appdata.is_empty() {
+                    let npm_path = format!(r"{}\npm", appdata);
+                    if !node_path.contains(&npm_path) {
+                        info!("[FileServer] Windows: 添加 npm 全局 bin 到 PATH: {}", npm_path);
+                        node_path = format!("{};{}", node_path, npm_path);
+                    }
+                }
+            }
+        }
+        
         let capture_output = config.capture_output_to_log;
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
             use crate::utils::CommandNoWindowExt;
@@ -1268,7 +1284,25 @@ impl ServiceManager {
         info!("[McpProxy] 监听地址: {}:{}", config.host, config.port);
 
         let port_str = config.port.to_string();
-        let node_path = crate::utils::build_node_path_env();
+        
+        // 构建 PATH 环境变量
+        let mut node_path = crate::utils::build_node_path_env();
+        
+        // Windows: 补充 npm 全局 bin 目录到 PATH（GUI 应用可能不继承完整 PATH）
+        #[cfg(target_os = "windows")]
+        {
+            use std::env::var;
+            if let Ok(appdata) = var("APPDATA") {
+                if !appdata.is_empty() {
+                    let npm_path = format!(r"{}\npm", appdata);
+                    if !node_path.contains(&npm_path) {
+                        info!("[McpProxy] Windows: 添加 npm 全局 bin 到 PATH: {}", npm_path);
+                        node_path = format!("{};{}", node_path, npm_path);
+                    }
+                }
+            }
+        }
+        
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
             use crate::utils::CommandNoWindowExt;
             cmd.no_window()
