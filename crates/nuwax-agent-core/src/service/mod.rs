@@ -60,8 +60,7 @@ fn find_node_exe_for_windows_launch() -> Option<std::path::PathBuf> {
         .next()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(str::to_owned)
-        .ok()?;
+        .map(str::to_owned)?;
     Some(std::path::PathBuf::from(path))
 }
 
