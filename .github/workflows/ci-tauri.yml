@@ -279,6 +279,13 @@ jobs:
         shell: bash
         run: ./scripts/download-uv.sh win x64
 
+      # ---- macOS：对 node/uv 资源做 codesign（与 release-tauri 一致，未设 APPLE_SIGNING_IDENTITY 时脚本会跳过） ----
+      - name: Sign macOS resource binaries (node, uv)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: ./scripts/sign-macos-resource-bins.sh
+
       # ---- 构建（不创建 Release，不生成 latest.json / updater 签名文件） ----
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
