@@ -368,7 +368,7 @@ impl RootView {
                     .text_2xl()
                     .font_weight(FontWeight::BOLD)
                     .text_color(theme.foreground)
-                    .child("NuWax Agent"),
+                    .child("Nuwax Agent"),
             )
             .child(
                 div()

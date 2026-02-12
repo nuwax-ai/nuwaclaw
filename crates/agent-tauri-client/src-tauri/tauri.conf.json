@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "NuWax Agent",
+  "productName": "Nuwax Agent",
   "mainBinaryName": "agent-tauri-client",
   "version": "../package.json",
   "identifier": "com.nuwax.agent-tauri-client",
@@ -13,7 +13,7 @@
   "app": {
     "windows": [
       {
-        "title": "NuWax Agent",
+        "title": "Nuwax Agent",
         "width": 960,
         "height": 640
       }
@@ -50,7 +50,7 @@
       ]
     },
     "cli": {
-      "description": "NuWax Agent Desktop Client - 智能 Agent 桌面客户端",
+      "description": "Nuwax Agent Desktop Client - 智能 Agent 桌面客户端",
       "args": [
         {
           "name": "tab",

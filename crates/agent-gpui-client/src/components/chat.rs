@@ -187,7 +187,7 @@ impl ChatView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut state = ChatViewState::new();
         state.add_message(ChatMessage::assistant_message(
-            "你好！我是 NuWax Agent 助手。\n\n我可以帮助你完成各种任务，比如：\n- 编写代码\n- 分析问题\n- 执行系统操作\n\n请告诉我你需要什么帮助？".to_string(),
+            "你好！我是 Nuwax Agent 助手。\n\n我可以帮助你完成各种任务，比如：\n- 编写代码\n- 分析问题\n- 执行系统操作\n\n请告诉我你需要什么帮助？".to_string(),
         ));
         let input_state = cx.new(|cx| ChatInputState::new(window, cx));
 

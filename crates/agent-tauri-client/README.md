@@ -1,4 +1,4 @@
-# NuWax Agent Tauri 客户端
+# Nuwax Agent Tauri 客户端
 
 基于 Tauri 2.0 + React 18 + Ant Design 5 的跨平台桌面客户端应用。
 

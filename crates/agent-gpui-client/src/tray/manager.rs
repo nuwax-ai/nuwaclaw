@@ -90,7 +90,7 @@ impl TrayManager {
 
         let tray_icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
-            .with_tooltip("NuWax Agent")
+            .with_tooltip("Nuwax Agent")
             .with_icon(icon)
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to create tray icon: {}", e))?;

@@ -105,7 +105,7 @@ impl AutoLaunchManager {
             let desktop_entry = format!(
                 r#"[Desktop Entry]
 Type=Application
-Name=NuWax Agent
+Name=Nuwax Agent
 Exec={}
 Terminal=false
 X-GNOME-Autostart-enabled=true

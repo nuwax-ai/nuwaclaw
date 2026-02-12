@@ -1,5 +1,5 @@
 /**
- * NuWax Agent 主应用入口
+ * Nuwax Agent 主应用入口
  *
  * 职责：
  * - 初始化向导状态管理

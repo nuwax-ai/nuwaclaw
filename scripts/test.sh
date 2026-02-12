@@ -188,7 +188,7 @@ cd "$ROOT_DIR"
 
 MODE="${1:-all}"
 
-echo -e "${CYAN}NuWax Agent 测试运行器${NC}"
+echo -e "${CYAN}Nuwax Agent 测试运行器${NC}"
 echo "工作目录: $ROOT_DIR"
 echo "模式: $MODE"
 

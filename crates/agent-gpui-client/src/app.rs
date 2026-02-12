@@ -208,7 +208,7 @@ impl Application {
             cx.spawn(async move |cx| {
                 cx.open_window(window_options, |window, cx| {
                     // 设置窗口标题
-                    window.set_window_title("NuWax Agent");
+                    window.set_window_title("Nuwax Agent");
 
                     // 创建根组件
                     let root_view = cx.new(|cx| RootView::new(app_state.clone(), window, cx));

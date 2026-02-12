@@ -2100,7 +2100,7 @@ async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, String
   "name": "nuwax-agent-deps",
   "version": "1.0.0",
   "private": true,
-  "description": "NuWax Agent 本地依赖"
+  "description": "Nuwax Agent 本地依赖"
 }"#;
         std::fs::write(&package_json_path, content)
             .map_err(|e| format!("创建 package.json 失败: {}", e))?;
@@ -2801,7 +2801,7 @@ fn create_auto_launch(app: &tauri::AppHandle) -> Result<auto_launch::AutoLaunch,
         .config()
         .product_name
         .as_deref()
-        .unwrap_or("NuWax Agent");
+        .unwrap_or("Nuwax Agent");
 
     // 获取应用可执行文件路径
     let exe_path = std::env::current_exe().map_err(|e| format!("获取应用路径失败: {}", e))?;

@@ -166,7 +166,7 @@ jobs:
         with:
           projectPath: crates/agent-tauri-client
           tagName: ${{ github.ref_name }}
-          releaseName: "NuWax Agent ${{ github.ref_name }}"
+          releaseName: "Nuwax Agent ${{ github.ref_name }}"
           releaseBody: ${{ needs.prepare-release.outputs.release_notes }}
           releaseDraft: false
           prerelease: false

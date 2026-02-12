@@ -643,7 +643,7 @@ async function getNodeVersion(): Promise<string> {
     },
     "linux": {
       "desktop": {
-        "Name": "NuWax Agent",
+        "Name": "Nuwax Agent",
         "Comment": "AI Agent Desktop Application",
         "Keywords": "AI;Agent;Development",
         "Categories": "Development;Utility;"
