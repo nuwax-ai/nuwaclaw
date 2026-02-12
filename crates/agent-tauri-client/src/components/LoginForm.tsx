@@ -11,6 +11,7 @@ import {
   CheckCircleOutlined,
   MailOutlined,
   PhoneOutlined,
+  GlobalOutlined,
 } from "@ant-design/icons";
 import {
   loginAndRegister,
@@ -18,7 +19,7 @@ import {
   getCurrentAuth,
   initAuthStore,
 } from "../services/auth";
-import type { AuthUserInfo } from "../services/store";
+import { setupStorage, type AuthUserInfo } from "../services/store";
 
 const { Text } = Typography;
 
@@ -35,11 +36,15 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
   const [loginMethod, setLoginMethod] = useState<LoginMethod>("username");
   const [form] = Form.useForm();
   const [initialized, setInitialized] = useState(false);
+  const [currentDomain, setCurrentDomain] = useState("");
 
   useEffect(() => {
     const init = async () => {
       try {
         await initAuthStore();
+        const setupState = await setupStorage.getState();
+        setCurrentDomain(setupState.serverHost);
+        form.setFieldValue("domain", setupState.serverHost);
         const auth = await getCurrentAuth();
         if (auth.isLoggedIn && auth.userInfo) {
           setIsLogged(true);
@@ -52,7 +57,7 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
       }
     };
     init();
-  }, []);
+  }, [form]);
 
   const detectLoginMethod = useCallback((value: string): LoginMethod => {
     if (value.includes("@")) return "email";
@@ -117,14 +122,18 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
   };
 
   const handleSubmit = async (values: {
+    domain: string;
     username: string;
     password: string;
   }) => {
     setLoading(true);
     try {
-      await loginAndRegister(values.username, values.password);
+      await loginAndRegister(values.username, values.password, {
+        domain: values.domain,
+      });
       const auth = await getCurrentAuth();
       if (auth.userInfo) setUserInfo(auth.userInfo);
+      setCurrentDomain(values.domain);
       setIsLogged(true);
       message.success("登录成功");
       onLoginSuccess();
@@ -161,12 +170,19 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <CheckCircleOutlined style={{ color: "#16a34a", fontSize: 12 }} />
-          <span style={{ fontSize: 13, fontWeight: 500 }}>
-            {userInfo.displayName || userInfo.username}
-          </span>
-          <span style={{ fontSize: 12, color: "#a1a1aa" }}>
-            {userInfo.username}
-          </span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 500 }}>
+                {userInfo.displayName || userInfo.username}
+              </span>
+              <span style={{ fontSize: 12, color: "#a1a1aa" }}>
+                {userInfo.username}
+              </span>
+            </div>
+            <span style={{ fontSize: 11, color: "#71717a" }}>
+              域名：{currentDomain}
+            </span>
+          </div>
         </div>
         <Button
           type="text"
@@ -206,9 +222,21 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
         form={form}
         layout="vertical"
         onFinish={handleSubmit}
-        initialValues={{ username: "", password: "" }}
+        initialValues={{ domain: currentDomain, username: "", password: "" }}
         size="small"
       >
+        <Form.Item
+          name="domain"
+          rules={[{ required: true, message: "请输入服务域名" }]}
+          style={{ marginBottom: 10 }}
+        >
+          <Input
+            prefix={<GlobalOutlined />}
+            placeholder="服务域名（例如：https://agent.nuwax.com）"
+            allowClear
+          />
+        </Form.Item>
+
         <Form.Item
           name="username"
           rules={getUsernameRules()}
@@ -224,10 +252,18 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
 
         <Form.Item
           name="password"
-          rules={[{ required: true, message: "请输入密码" }]}
+          rules={[
+            {
+              required: true,
+              message: "请填写动态认证码（在PC端或移动端的个人资料中查看）",
+            },
+          ]}
           style={{ marginBottom: 12 }}
         >
-          <Input.Password prefix={<LockOutlined />} placeholder="密码" />
+          <Input.Password
+            prefix={<LockOutlined />}
+            placeholder="请填写动态认证码（在PC端或移动端的个人资料中查看）"
+          />
         </Form.Item>
 
         <Button type="primary" htmlType="submit" loading={loading} block>

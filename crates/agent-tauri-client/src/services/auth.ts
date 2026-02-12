@@ -95,14 +95,11 @@ export async function getSavedKey(
   domain?: string,
   username?: string,
 ): Promise<string | null> {
-  // 优先按域名+用户名查找
+  // 按域名+用户名查找（新逻辑）
   if (domain && username) {
-    const perUserKey = await authStorage.getSavedKeyFor(domain, username);
-    if (perUserKey) {
-      return perUserKey;
-    }
+    return authStorage.getSavedKeyFor(domain, username);
   }
-  // 回退到全局 savedKey
+  // 兼容旧逻辑（无域名/用户名时）
   return authStorage.getSavedKey();
 }
 
@@ -251,12 +248,17 @@ async function getLocalSandboxValue(): Promise<SandboxValue> {
 export async function loginAndRegister(
   username: string,
   password: string,
-  options?: { suppressToast?: boolean },
+  options?: { suppressToast?: boolean; domain?: string },
 ): Promise<ClientRegisterResponse> {
   const suppressToast = options?.suppressToast === true;
-  // 获取当前 API 域名，用于 savedKey 的域名+用户名存储
+  // 获取并规范化 API 域名（用于请求地址和 savedKey 分组）
   const setupState = await setupStorage.getState();
-  const domain = setupState.serverHost;
+  const domain = normalizeServerHost(options?.domain || setupState.serverHost);
+
+  // 用户在登录表单修改域名时，写回设置存储
+  if (domain !== setupState.serverHost) {
+    await setupStorage.setState({ serverHost: domain });
+  }
 
   // 获取保存的 savedKey（优先按域名+用户名查找）
   const savedKey = await getSavedKey(domain, username);
@@ -276,7 +278,7 @@ export async function loginAndRegister(
   }
 
   try {
-    const response = await registerClient(params);
+    const response = await registerClient(params, { baseUrl: domain });
 
     // ========== 重要：保存认证信息 ==========
     // 1. 保存用户名和密码（用于自动登录和重新注册）
@@ -420,7 +422,8 @@ export async function logout(): Promise<void> {
     console.error("[Auth] 停止服务失败:", error);
   }
 
-  await clearOnlineStatus();
+  // 清除本地登录状态，但保留 savedKey（含域名+账号映射）
+  await clearAuthInfo();
   message.info("已退出登录");
 }
 
@@ -435,7 +438,7 @@ export async function syncConfigToServer(): Promise<ClientRegisterResponse | nul
   const password = await getSavedPassword();
   const configKey = await getSavedConfigKey();
   const setupState = await setupStorage.getState();
-  const domain = setupState.serverHost;
+  const domain = normalizeServerHost(setupState.serverHost);
 
   if (!username || !password) {
     console.warn("[SyncConfig] 未登录，无法同步配置");
@@ -453,7 +456,7 @@ export async function syncConfigToServer(): Promise<ClientRegisterResponse | nul
   message.loading({ content: "正在同步配置...", key: loadingKey, duration: 0 });
 
   try {
-    const response = await registerClient(params);
+    const response = await registerClient(params, { baseUrl: domain });
 
     // 更新保存的 configKey、savedKey 和连接状态
     await saveConfigKey(response.configKey);
@@ -472,4 +475,11 @@ export async function syncConfigToServer(): Promise<ClientRegisterResponse | nul
     message.error({ content: errorMessage, key: loadingKey });
     return null;
   }
+}
+
+function normalizeServerHost(input: string): string {
+  const value = input.trim();
+  if (!value) return value;
+  if (/^https?:\/\//i.test(value)) return value;
+  return `https://${value}`;
 }

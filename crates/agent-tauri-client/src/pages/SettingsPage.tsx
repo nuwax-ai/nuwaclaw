@@ -207,15 +207,6 @@ export default function SettingsPage() {
             <Row gutter={16}>
               <Col span={12}>
                 <Form.Item
-                  name="serverHost"
-                  label="服务域名"
-                  rules={[{ required: true, message: "请输入服务域名" }]}
-                >
-                  <Input placeholder="例如: nvwa-api.xspaceagi.com" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item
                   name="agentPort"
                   label="Agent 端口"
                   rules={[{ required: true, message: "请输入端口" }]}
@@ -227,8 +218,8 @@ export default function SettingsPage() {
             <Row gutter={16}>
               <Col span={12}>
                 <Form.Item
-                  name="fileServerPort"
-                  label="文件服务端口"
+                  name="proxyPort"
+                  label="代理端口"
                   rules={[{ required: true, message: "请输入端口" }]}
                 >
                   <InputNumber min={1} max={65535} style={{ width: "100%" }} />
@@ -236,8 +227,8 @@ export default function SettingsPage() {
               </Col>
               <Col span={12}>
                 <Form.Item
-                  name="proxyPort"
-                  label="代理端口"
+                  name="fileServerPort"
+                  label="文件服务端口"
                   rules={[{ required: true, message: "请输入端口" }]}
                 >
                   <InputNumber min={1} max={65535} style={{ width: "100%" }} />

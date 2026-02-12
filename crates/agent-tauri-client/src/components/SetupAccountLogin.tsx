@@ -19,6 +19,7 @@ import {
   CheckCircleOutlined,
   ReloadOutlined,
   LeftOutlined,
+  GlobalOutlined,
 } from "@ant-design/icons";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -29,7 +30,7 @@ import {
   getSavedUsername,
   logout,
 } from "../services/auth";
-import { completeStep2 } from "../services/setup";
+import { completeStep2, getStep1Config } from "../services/setup";
 
 const { Text } = Typography;
 
@@ -48,6 +49,7 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [loginError, setLoginError] = useState<string>("");
   const [retryCooldown, setRetryCooldown] = useState(0);
+  const [domain, setDomain] = useState("");
 
   const checkNetworkConnection = useCallback(async () => {
     setNetworkStatus("checking");
@@ -63,6 +65,9 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
     setCheckingAuth(true);
     try {
       await initAuthStore();
+      const step1Config = await getStep1Config();
+      setDomain(step1Config.serverHost);
+      form.setFieldValue("domain", step1Config.serverHost);
       const savedUsername = await getSavedUsername();
       if (savedUsername) form.setFieldValue("username", savedUsername);
       const auth = await getCurrentAuth();
@@ -91,6 +96,7 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
   }, [retryCooldown]);
 
   const handleSubmit = async (values: {
+    domain: string;
     username: string;
     password: string;
   }) => {
@@ -99,7 +105,9 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
     try {
       await loginAndRegister(values.username, values.password, {
         suppressToast: true,
+        domain: values.domain,
       });
+      setDomain(values.domain);
       setLoginError("");
       await completeStep2();
       onComplete();
@@ -200,7 +208,7 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
         <Result
           icon={<CheckCircleOutlined style={{ color: "#16a34a" }} />}
           title="已登录"
-          subTitle="可以继续下一步"
+          subTitle={`当前域名：${domain || "-"}`}
           extra={
             <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
               <Button onClick={handleLogout} size="small">
@@ -223,6 +231,17 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
             initialValues={{ username: "", password: "" }}
           >
             <Form.Item
+              name="domain"
+              label="服务域名"
+              rules={[{ required: true, message: "请输入服务域名" }]}
+            >
+              <Input
+                prefix={<GlobalOutlined />}
+                placeholder="例如：https://agent.nuwax.com"
+              />
+            </Form.Item>
+
+            <Form.Item
               name="username"
               label="账号"
               rules={[{ required: true, message: "请输入账号" }]}
@@ -236,12 +255,17 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
 
             <Form.Item
               name="password"
-              label="密码"
-              rules={[{ required: true, message: "请输入密码" }]}
+              label="动态认证码"
+              rules={[
+                {
+                  required: true,
+                  message: "请填写动态认证码（在PC端或移动端的个人资料中查看）",
+                },
+              ]}
             >
               <Input.Password
                 prefix={<LockOutlined />}
-                placeholder="请输入密码"
+                placeholder="请填写动态认证码（在PC端或移动端的个人资料中查看）"
                 autoComplete="current-password"
               />
             </Form.Item>

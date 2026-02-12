@@ -165,11 +165,20 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     }
     if (startingServices) {
       return (
-        <Result
-          icon={<Spin size="large" />}
-          title="正在启动服务..."
-          subTitle="请稍候"
-        />
+        <div
+          style={{
+            minHeight: 320,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Result
+            icon={<Spin size="large" />}
+            title="正在启动服务..."
+            subTitle="请稍候"
+          />
+        </div>
       );
     }
     switch (currentStep) {

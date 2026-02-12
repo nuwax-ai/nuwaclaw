@@ -60,8 +60,10 @@ interface SetupStep1Props {
   onComplete: () => void;
 }
 
+type Step1FormValues = Omit<Step1Config, "serverHost">;
+
 export default function SetupStep1({ onComplete }: SetupStep1Props) {
-  const [form] = Form.useForm<Step1Config>();
+  const [form] = Form.useForm<Step1FormValues>();
   const [loading, setLoading] = useState(false);
   const [selectingDir, setSelectingDir] = useState(false);
   const [statusHint, setStatusHint] = useState<string>("");
@@ -80,7 +82,6 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
         form.setFieldsValue(config);
       } catch (error) {
         form.setFieldsValue({
-          serverHost: DEFAULT_SETUP_STATE.serverHost,
           agentPort: DEFAULT_SETUP_STATE.agentPort,
           fileServerPort: DEFAULT_SETUP_STATE.fileServerPort,
           proxyPort: DEFAULT_SETUP_STATE.proxyPort,
@@ -106,10 +107,15 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
     }
   };
 
-  const handleSubmit = async (values: Step1Config) => {
+  const handleSubmit = async (values: Step1FormValues) => {
     setLoading(true);
     try {
-      await saveStep1Config(values);
+      const currentConfig = await getStep1Config();
+      await saveStep1Config({
+        ...values,
+        // 基础设置页不再编辑域名，沿用当前已保存值
+        serverHost: currentConfig.serverHost,
+      });
       try {
         const auth = await getCurrentAuth();
         if (auth.isLoggedIn) await logout();
@@ -126,7 +132,6 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
 
   const handleReset = () => {
     form.setFieldsValue({
-      serverHost: DEFAULT_SETUP_STATE.serverHost,
       agentPort: DEFAULT_SETUP_STATE.agentPort,
       fileServerPort: DEFAULT_SETUP_STATE.fileServerPort,
       proxyPort: DEFAULT_SETUP_STATE.proxyPort,
@@ -167,24 +172,12 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
           if (first) showStatus(first, "error");
         }}
         initialValues={{
-          serverHost: DEFAULT_SETUP_STATE.serverHost,
           agentPort: DEFAULT_SETUP_STATE.agentPort,
           fileServerPort: DEFAULT_SETUP_STATE.fileServerPort,
           proxyPort: DEFAULT_SETUP_STATE.proxyPort,
           workspaceDir: "",
         }}
       >
-        <Form.Item
-          name="serverHost"
-          label="服务域名"
-          rules={[
-            { required: true, message: "请输入服务域名" },
-            { type: "url", message: "请输入有效的 URL 地址" },
-          ]}
-        >
-          <Input placeholder="https://nvwa-api.xspaceagi.com" />
-        </Form.Item>
-
         <div
           style={{
             background: "#f4f4f5",

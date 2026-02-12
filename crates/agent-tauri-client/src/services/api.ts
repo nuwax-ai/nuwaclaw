@@ -176,10 +176,14 @@ export interface ClientRegisterResponse {
  */
 export async function registerClient(
   params: ClientRegisterParams,
+  options?: {
+    baseUrl?: string;
+  },
 ): Promise<ClientRegisterResponse> {
   return apiRequest<ClientRegisterResponse>("/api/sandbox/config/reg", {
     method: "POST",
     data: params,
     showError: true,
+    baseUrl: options?.baseUrl,
   });
 }
