@@ -54,11 +54,14 @@ fn find_node_exe_for_windows_launch() -> Option<std::path::PathBuf> {
     if !output.status.success() {
         return None;
     }
-    let path = String::from_utf8_lossy(&output.stdout)
+    let binding = String::from_utf8_lossy(&output.stdout);
+    let path = binding
         .lines()
         .next()
         .map(str::trim)
-        .filter(|s| !s.is_empty())?;
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .ok()?;
     Some(std::path::PathBuf::from(path))
 }
 
@@ -108,6 +111,52 @@ fn resolve_js_entry_from_npm_bin_shim(
     }
 }
 
+#[cfg(target_os = "windows")]
+fn get_windows_cmd_script_path(program: &std::path::Path) -> Option<std::path::PathBuf> {
+    match program.extension().and_then(|s| s.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case("cmd") => Some(program.to_path_buf()),
+        None => {
+            let candidate = program.with_extension("cmd");
+            if candidate.exists() {
+                Some(candidate)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_js_entry_from_cmd_shim(cmd_script: &std::path::Path) -> Option<std::path::PathBuf> {
+    let content = std::fs::read_to_string(cmd_script).ok()?;
+    let base_dir = cmd_script.parent()?;
+
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if !line.contains("%~dp0") || !line.to_ascii_lowercase().contains(".js") {
+            continue;
+        }
+        let clean = line.replace('"', "");
+        let start = clean.find("%~dp0")?;
+        let js_pos = clean.to_ascii_lowercase().find(".js")?;
+        let end = js_pos + 3;
+        if end <= start + 5 || end > clean.len() {
+            continue;
+        }
+        let rel = clean[start + 5..end].trim_start_matches(['\\', '/']);
+        if rel.is_empty() {
+            continue;
+        }
+        let rel = rel.replace('/', "\\");
+        let entry = base_dir.join(std::path::Path::new(&rel));
+        if entry.exists() {
+            return Some(entry);
+        }
+    }
+    None
+}
+
 /// 构建实际启动命令（Windows 下优先绕过 .cmd，避免弹出 CMD 窗口）
 ///
 /// 返回值：
@@ -122,6 +171,24 @@ fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<String>)
             None => path.file_name().and_then(|s| s.to_str()),
             _ => None,
         };
+        let cmd_script = get_windows_cmd_script_path(path);
+
+        // 优先从 npm 生成的 .cmd shim 解析真实 JS 入口，覆盖 mcp-proxy -> mcp-stdio-proxy 等别名场景。
+        if let (Some(node_exe), Some(cmd_script)) = (find_node_exe_for_windows_launch(), cmd_script.as_ref())
+        {
+            if let Some(js_entry) = resolve_js_entry_from_cmd_shim(cmd_script) {
+                let mut actual_args = Vec::with_capacity(args.len() + 1);
+                actual_args.push(js_entry.to_string_lossy().to_string());
+                actual_args.extend(args.iter().map(|s| (*s).to_string()));
+                info!(
+                    "[Service] Windows 命令转直连 node 启动(cmd shim): {} -> {} {}",
+                    program,
+                    node_exe.display(),
+                    js_entry.display()
+                );
+                return (node_exe.to_string_lossy().to_string(), actual_args);
+            }
+        }
 
         if let Some(package_name) = package_name {
             if let Ok(pkg) = crate::dependency::node::resolve_npm_package_direct_path(package_name) {
@@ -160,19 +227,6 @@ fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<String>)
 
         // 兜底：Windows 不能直接 CreateProcess 执行 .cmd（会报 os error 193），
         // 若直连 node 解析失败，则改为通过 cmd.exe /C 启动同名 .cmd 包装脚本。
-        let cmd_script = match path.extension().and_then(|s| s.to_str()) {
-            Some(ext) if ext.eq_ignore_ascii_case("cmd") => Some(path.to_path_buf()),
-            None => {
-                let candidate = path.with_extension("cmd");
-                if candidate.exists() {
-                    Some(candidate)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-
         if let Some(cmd_script) = cmd_script {
             let mut actual_args = Vec::with_capacity(args.len() + 2);
             actual_args.push("/C".to_string());
