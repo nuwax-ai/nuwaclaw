@@ -82,7 +82,7 @@ fn find_node_exe_for_windows_launch() -> Option<std::path::PathBuf> {
 #[cfg(target_os = "windows")]
 fn resolve_js_entry_from_npm_bin_shim(
     program: &std::path::Path,
-    package_name: &str,
+    package_names: &[&str],
 ) -> Option<std::path::PathBuf> {
     let bin_dir = program.parent()?;
     let bin_name = bin_dir.file_name()?.to_string_lossy();
@@ -90,39 +90,72 @@ fn resolve_js_entry_from_npm_bin_shim(
         return None;
     }
     let node_modules_dir = bin_dir.parent()?;
-    let package_dir = node_modules_dir.join(package_name);
-    if !package_dir.exists() {
-        return None;
+
+    for package_name in package_names {
+        let package_dir = node_modules_dir.join(package_name);
+        if !package_dir.exists() {
+            continue;
+        }
+
+        let package_json_path = package_dir.join("package.json");
+        let content = match std::fs::read_to_string(&package_json_path) {
+            Ok(c) => c,
+            Err(e) => {
+                debug!(
+                    "[Service] package.json 读取失败，跳过: {} ({})",
+                    package_json_path.display(),
+                    e
+                );
+                continue;
+            }
+        };
+        let package_json: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(v) => v,
+            Err(e) => {
+                debug!(
+                    "[Service] package.json 解析失败，跳过: {} ({})",
+                    package_json_path.display(),
+                    e
+                );
+                continue;
+            }
+        };
+
+        let bin_field = match package_json.get("bin") {
+            Some(v) => v,
+            None => continue,
+        };
+        let rel_entry = if let Some(bin_str) = bin_field.as_str() {
+            Some(bin_str.to_string())
+        } else if let Some(bin_obj) = bin_field.as_object() {
+            bin_obj
+                .get(*package_name)
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .or_else(|| {
+                    bin_obj
+                        .values()
+                        .find_map(|v| v.as_str())
+                        .map(str::to_string)
+                })
+        } else {
+            None
+        };
+        let Some(rel_entry) = rel_entry else {
+            continue;
+        };
+
+        let js_entry = package_dir.join(rel_entry);
+        if js_entry.exists() {
+            debug!(
+                "[Service] 私有 node_modules 入口解析命中: package={} entry={}",
+                package_name,
+                js_entry.display()
+            );
+            return Some(js_entry);
+        }
     }
-
-    let package_json_path = package_dir.join("package.json");
-    let content = std::fs::read_to_string(&package_json_path).ok()?;
-    let package_json: serde_json::Value = serde_json::from_str(&content).ok()?;
-
-    let bin_field = package_json.get("bin")?;
-    let rel_entry = if let Some(bin_str) = bin_field.as_str() {
-        Some(bin_str.to_string())
-    } else if let Some(bin_obj) = bin_field.as_object() {
-        bin_obj
-            .get(package_name)
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .or_else(|| {
-                bin_obj
-                    .values()
-                    .find_map(|v| v.as_str())
-                    .map(str::to_string)
-            })
-    } else {
-        None
-    }?;
-
-    let js_entry = package_dir.join(rel_entry);
-    if js_entry.exists() {
-        Some(js_entry)
-    } else {
-        None
-    }
+    None
 }
 
 #[cfg(target_os = "windows")]
@@ -158,13 +191,19 @@ fn resolve_js_entry_from_cmd_shim(cmd_script: &std::path::Path) -> Option<std::p
 
     for raw_line in content.lines() {
         let line = raw_line.trim();
-        if !line.contains("%~dp0") || !line.to_ascii_lowercase().contains(".js") {
+        if !line.contains("%~dp0") {
             continue;
         }
+        let lower = line.to_ascii_lowercase();
+        let ext_end = [".cjs", ".mjs", ".js"]
+            .iter()
+            .filter_map(|ext| lower.find(ext).map(|pos| pos + ext.len()))
+            .min();
+        let Some(end) = ext_end else {
+            continue;
+        };
         let clean = line.replace('"', "");
         let start = clean.find("%~dp0")?;
-        let js_pos = clean.to_ascii_lowercase().find(".js")?;
-        let end = js_pos + 3;
         if end <= start + 5 || end > clean.len() {
             continue;
         }
@@ -228,6 +267,11 @@ fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<String>)
         }
 
         if let Some(package_name) = package_name {
+            let package_candidates: Vec<&str> = if package_name == "mcp-proxy" {
+                vec!["mcp-stdio-proxy", "mcp-proxy"]
+            } else {
+                vec![package_name]
+            };
             if let Ok(pkg) = crate::dependency::node::resolve_npm_package_direct_path(package_name) {
                 let mut actual_args = Vec::with_capacity(args.len() + 1);
                 actual_args.push(pkg.js_entry.to_string_lossy().to_string());
@@ -252,7 +296,7 @@ fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<String>)
             // <appdata>/.../node_modules/.bin/<pkg> -> 反查到 ../<pkg>/package.json 的 bin 入口。
             if let (Some(node_exe), Some(js_entry)) = (
                 find_node_exe_for_windows_launch(),
-                resolve_js_entry_from_npm_bin_shim(path, package_name),
+                resolve_js_entry_from_npm_bin_shim(path, &package_candidates),
             ) {
                 let mut actual_args = Vec::with_capacity(args.len() + 1);
                 actual_args.push(js_entry.to_string_lossy().to_string());
