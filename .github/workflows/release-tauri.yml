@@ -279,13 +279,34 @@ jobs:
         shell: bash
         run: ./scripts/download-uv.sh win x64
 
-      # ---- macOS：对 node/uv 资源做 codesign，否则公证会因未签名而失败 ----
-      # tauri-action 只跑 cargo tauri build，不会执行 Makefile 的 sign-macos-resource-bins；
-      # 此处显式调用，与本地 make tauri-bundle 行为一致。需在仓库 Secrets 配置 APPLE_SIGNING_IDENTITY。
-      - name: Sign macOS resource binaries (node, uv)
-        if: runner.os == 'macOS'
+      # ---- macOS：仅当配置了证书时导入 keychain，供后续 codesign 使用 ----
+      # 正式发布需在仓库 Secrets 配置：APPLE_CERTIFICATE（Base64 编码的 .p12）、APPLE_CERTIFICATE_PASSWORD、APPLE_SIGNING_IDENTITY。
+      # 未配置证书时跳过导入与签名，macOS 包将未签名（公证会失败，仅适合测试流程）。
+      - name: Import Apple certificate for code signing
+        if: runner.os == 'macOS' && secrets.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=actions
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+      # ---- macOS：对 node/uv 资源做 codesign；仅当已配置证书且已导入时传入 identity，否则脚本跳过签名 ----
+      - name: Sign macOS resource binaries (node, uv) — with certificate
+        if: runner.os == 'macOS' && secrets.APPLE_CERTIFICATE != ''
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: ./scripts/sign-macos-resource-bins.sh
+
+      - name: Sign macOS resource binaries (node, uv) — skip when no certificate
+        if: runner.os == 'macOS' && secrets.APPLE_CERTIFICATE == ''
         run: ./scripts/sign-macos-resource-bins.sh
 
       # ---- 构建 & 发布 ----
