@@ -1,7 +1,38 @@
 use crate::utils::CommandNoWindowExt;
 use tracing::{debug, info, warn};
 
+fn package_candidates_for_program_name(program_name: &str) -> Vec<&str> {
+    match program_name {
+        // npm 包名是 mcp-stdio-proxy，但 bin 叫 mcp-proxy
+        "mcp-proxy" => vec!["mcp-stdio-proxy", "mcp-proxy"],
+        // file-server 早期在 subapp-deployer 目录维护，增加别名兜底
+        "nuwax-file-server" => vec!["nuwax-file-server", "subapp-deployer"],
+        _ => vec![program_name],
+    }
+}
+
+fn is_node_js_entry(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .as_deref(),
+        Some("js" | "mjs" | "cjs")
+    )
+}
+
 fn find_node_exe_for_windows_launch() -> Option<std::path::PathBuf> {
+    if let Ok(node_from_env) = std::env::var("NUWAX_NODE_EXE") {
+        let node_from_env = std::path::PathBuf::from(node_from_env);
+        if node_from_env.exists() {
+            debug!(
+                "[Service] Windows node 解析命中环境变量 NUWAX_NODE_EXE: {}",
+                node_from_env.display()
+            );
+            return Some(node_from_env);
+        }
+    }
+
     let local_node = crate::dependency::node::NodeDetector::get_local_node_path();
     if local_node.exists() {
         debug!(
@@ -213,6 +244,41 @@ fn resolve_js_entry_from_known_windows_node_modules(
     None
 }
 
+fn resolve_native_exe_from_known_windows_node_modules(
+    package_names: &[&str],
+    binary_name: &str,
+) -> Option<std::path::PathBuf> {
+    let appdata = std::env::var("APPDATA").ok()?;
+    let appdata_path = std::path::PathBuf::from(&appdata);
+    let candidates = [
+        appdata_path
+            .join("com.nuwax.agent-tauri-client")
+            .join("node_modules"),
+        appdata_path.join("npm").join("node_modules"),
+    ];
+
+    for node_modules_dir in candidates {
+        if !node_modules_dir.exists() {
+            continue;
+        }
+        for package_name in package_names {
+            let package_dir = node_modules_dir.join(package_name);
+            if !package_dir.exists() {
+                continue;
+            }
+            // mcp-stdio-proxy 将原生二进制安装到 <pkg>/node_modules/.bin_real/
+            let exe = package_dir
+                .join("node_modules")
+                .join(".bin_real")
+                .join(format!("{}.exe", binary_name));
+            if exe.exists() {
+                return Some(exe);
+            }
+        }
+    }
+    None
+}
+
 fn get_windows_cmd_script_path(program: &std::path::Path) -> Option<std::path::PathBuf> {
     match program
         .extension()
@@ -276,9 +342,15 @@ fn resolve_js_entry_from_cmd_shim(cmd_script: &std::path::Path) -> Option<std::p
 
     for raw_line in content.lines() {
         let line = raw_line.trim();
-        if !line.contains("%~dp0") {
+        let base_token = if line.contains("%~dp0") {
+            "%~dp0"
+        } else if line.contains("%dp0%") {
+            "%dp0%"
+        } else if line.contains("%dp0") {
+            "%dp0"
+        } else {
             continue;
-        }
+        };
         let clean = line.replace('"', "");
         let clean_lower = clean.to_ascii_lowercase();
         let ext_end = [".cjs", ".mjs", ".js"]
@@ -288,11 +360,11 @@ fn resolve_js_entry_from_cmd_shim(cmd_script: &std::path::Path) -> Option<std::p
         let Some(end) = ext_end else {
             continue;
         };
-        let start = clean.find("%~dp0")?;
-        if end <= start + 5 || end > clean.len() {
+        let start = clean.find(base_token)?;
+        if end <= start + base_token.len() || end > clean.len() {
             continue;
         }
-        let rel = clean[start + 5..end].trim_start_matches(['\\', '/']);
+        let rel = clean[start + base_token.len()..end].trim_start_matches(['\\', '/']);
         if rel.is_empty() {
             continue;
         }
@@ -316,6 +388,24 @@ fn resolve_js_entry_from_cmd_shim(cmd_script: &std::path::Path) -> Option<std::p
 
 pub fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<String>) {
     let path = std::path::Path::new(program);
+    if is_node_js_entry(path) {
+        if let Some(node_exe) = find_node_exe_for_windows_launch() {
+            let mut actual_args = Vec::with_capacity(args.len() + 1);
+            actual_args.push(path.to_string_lossy().to_string());
+            actual_args.extend(args.iter().map(|s| (*s).to_string()));
+            info!(
+                "[Service] Windows JS 入口转直连 node 启动: {} -> {}",
+                program,
+                node_exe.display()
+            );
+            return (node_exe.to_string_lossy().to_string(), actual_args);
+        }
+        warn!(
+            "[Service] Windows JS 入口未找到 node.exe，保持原命令执行: {}",
+            program
+        );
+    }
+
     let package_name = match path.extension().and_then(|s| s.to_str()) {
         Some(ext) if ext.eq_ignore_ascii_case("cmd") => path.file_stem().and_then(|s| s.to_str()),
         None => path.file_name().and_then(|s| s.to_str()),
@@ -344,30 +434,49 @@ pub fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<Stri
     }
 
     if let Some(package_name) = package_name {
-        let package_candidates: Vec<&str> = if package_name == "mcp-proxy" {
-            vec!["mcp-stdio-proxy", "mcp-proxy"]
-        } else {
-            vec![package_name]
-        };
-        if let Ok(pkg) = crate::dependency::node::resolve_npm_package_direct_path(package_name) {
-            let mut actual_args = Vec::with_capacity(args.len() + 1);
-            actual_args.push(pkg.js_entry.to_string_lossy().to_string());
-            actual_args.extend(args.iter().map(|s| (*s).to_string()));
+        let package_candidates = package_candidates_for_program_name(package_name);
 
-            info!(
-                "[Service] Windows 命令转直连 node 启动: {} -> {} {}",
-                program,
-                pkg.node_exe.display(),
-                pkg.js_entry.display()
-            );
-
-            return (pkg.node_exe.to_string_lossy().to_string(), actual_args);
-        } else {
-            debug!(
-                "[Service] 包名直连 node 解析失败，尝试私有 node_modules 解析: {}",
-                package_name
-            );
+        // mcp-stdio-proxy 在 Windows 实际承载的是原生 mcp-proxy.exe，优先直启原生 exe，
+        // 彻底绕过 node + js wrapper，避免 node.exe 控制台闪现/弹窗链路。
+        if package_name == "mcp-proxy" {
+            if let Some(native_exe) = resolve_native_exe_from_known_windows_node_modules(
+                &package_candidates,
+                "mcp-proxy",
+            ) {
+                info!(
+                    "[Service] Windows 命令转直连原生可执行程序: {} -> {}",
+                    program,
+                    native_exe.display()
+                );
+                return (
+                    native_exe.to_string_lossy().to_string(),
+                    args.iter().map(|s| (*s).to_string()).collect(),
+                );
+            }
+            debug!("[Service] mcp-proxy 原生 exe 解析失败，回退 node/js 解析路径");
         }
+
+        for candidate in &package_candidates {
+            if let Ok(pkg) = crate::dependency::node::resolve_npm_package_direct_path(candidate) {
+                let mut actual_args = Vec::with_capacity(args.len() + 1);
+                actual_args.push(pkg.js_entry.to_string_lossy().to_string());
+                actual_args.extend(args.iter().map(|s| (*s).to_string()));
+
+                info!(
+                    "[Service] Windows 命令转直连 node 启动: {} -> {} {} (pkg={})",
+                    program,
+                    pkg.node_exe.display(),
+                    pkg.js_entry.display(),
+                    candidate
+                );
+
+                return (pkg.node_exe.to_string_lossy().to_string(), actual_args);
+            }
+        }
+        debug!(
+            "[Service] 包名直连 node 解析失败，尝试私有 node_modules 解析: {}",
+            package_name
+        );
 
         if let (Some(node_exe), Some(js_entry)) = (
             find_node_exe_for_windows_launch(),
@@ -383,6 +492,23 @@ pub fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<Stri
                 js_entry.display()
             );
             return (node_exe.to_string_lossy().to_string(), actual_args);
+        }
+        if package_name == "nuwax-file-server" {
+            if let (Some(node_exe), Some(js_entry)) = (
+                find_node_exe_for_windows_launch(),
+                resolve_js_entry_from_known_windows_node_modules(&["nuwax-file-server"]),
+            ) {
+                let mut actual_args = Vec::with_capacity(args.len() + 1);
+                actual_args.push(js_entry.to_string_lossy().to_string());
+                actual_args.extend(args.iter().map(|s| (*s).to_string()));
+                info!(
+                    "[Service] Windows file-server 兜底直连 node 启动(固定包名): {} -> {} {}",
+                    program,
+                    node_exe.display(),
+                    js_entry.display()
+                );
+                return (node_exe.to_string_lossy().to_string(), actual_args);
+            }
         }
         if let (Some(node_exe), Some(js_entry)) = (
             find_node_exe_for_windows_launch(),
@@ -403,6 +529,18 @@ pub fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<Stri
             "[Service] 私有 node_modules 解析失败: program={}, package={}",
             program, package_name
         );
+
+        // 硬防线：file-server 解析失败时禁止进入 cmd.exe /C 回退链路。
+        if package_name == "nuwax-file-server" {
+            warn!(
+                "[Service] Windows file-server 解析失败，禁止 cmd 回退。保持原命令返回: {}",
+                program
+            );
+            return (
+                program.to_string(),
+                args.iter().map(|s| (*s).to_string()).collect(),
+            );
+        }
     }
 
     if let Some(cmd_script) = cmd_script {

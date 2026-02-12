@@ -649,6 +649,273 @@ fn build_app_runtime_path_env(app: &tauri::AppHandle) -> Result<String, String> 
     ))
 }
 
+fn resolve_npm_registry(app: Option<&tauri::AppHandle>) -> String {
+    const DEFAULT_REGISTRY: &str = "https://registry.npmmirror.com/";
+    const ENV_KEY: &str = "NUWAX_NPM_REGISTRY";
+    const STORE_KEYS: [&str; 2] = ["setup.npm_registry", "dependency.npm_registry"];
+
+    if let Ok(v) = std::env::var(ENV_KEY) {
+        let v = v.trim();
+        if !v.is_empty() {
+            info!("[Dependency] 使用 npm registry(ENV): {}", v);
+            return v.to_string();
+        }
+    }
+
+    if let Some(app) = app {
+        for key in STORE_KEYS {
+            match read_store_string(app, key) {
+                Ok(Some(v)) if !v.trim().is_empty() => {
+                    info!("[Dependency] 使用 npm registry(Store:{}): {}", key, v.trim());
+                    return v.trim().to_string();
+                }
+                Ok(_) => {}
+                Err(e) => debug!("[Dependency] 读取 npm registry 配置失败 key={}: {}", key, e),
+            }
+        }
+    }
+
+    info!("[Dependency] 使用默认 npm registry: {}", DEFAULT_REGISTRY);
+    DEFAULT_REGISTRY.to_string()
+}
+
+fn npm_tarball_cache_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+    let dir = cache_dir.join("npm-tarballs");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建 npm 缓存目录失败: {}", e))?;
+    Ok(dir)
+}
+
+fn npm_runtime_cache_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+    let dir = cache_dir.join("npm-cache");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建 npm cache 目录失败: {}", e))?;
+    Ok(dir)
+}
+
+fn npm_runtime_logs_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let log_dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
+    let dir = log_dir.join("npm");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建 npm 日志目录失败: {}", e))?;
+    Ok(dir)
+}
+
+fn npm_tarball_prefix(package_name: &str) -> String {
+    let normalized = package_name.trim_start_matches('@').replace('/', "-");
+    format!("{}-", normalized)
+}
+
+fn find_cached_npm_tarball(
+    app: &tauri::AppHandle,
+    package_name: &str,
+) -> Result<Option<std::path::PathBuf>, String> {
+    let cache_dir = npm_tarball_cache_dir(app)?;
+    let prefix = npm_tarball_prefix(package_name);
+    let mut candidates: Vec<(std::path::PathBuf, std::time::SystemTime)> = Vec::new();
+
+    let entries = std::fs::read_dir(&cache_dir)
+        .map_err(|e| format!("读取 npm 缓存目录失败 {}: {}", cache_dir.display(), e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("读取 npm 缓存目录项失败: {}", e))?;
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.ends_with(".tgz") || !name.starts_with(&prefix) {
+            continue;
+        }
+        let modified = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        candidates.push((path, modified));
+    }
+
+    candidates.sort_by(|a, b| b.1.cmp(&a.1));
+    Ok(candidates.into_iter().next().map(|(p, _)| p))
+}
+
+async fn npm_prefetch_tarball(
+    app: &tauri::AppHandle,
+    package_name: &str,
+    registry: &str,
+) -> Result<std::path::PathBuf, String> {
+    let cache_dir = npm_tarball_cache_dir(app)?;
+    let npm_bin = app_runtime_node_bin_path(app, "npm")?;
+    let node_path = build_app_runtime_path_env(app)?;
+
+    info!(
+        "[Dependency] 预下载 npm 包到本地: {} -> {}",
+        package_name,
+        cache_dir.display()
+    );
+    let output = run_npm_command_with_timeout(
+        app,
+        &npm_bin,
+        &node_path,
+        vec![
+            "pack".to_string(),
+            package_name.to_string(),
+            "--pack-destination".to_string(),
+            cache_dir.to_string_lossy().to_string(),
+            "--registry".to_string(),
+            registry.to_string(),
+        ],
+        60,
+        "npm pack",
+    )
+    .await?;
+
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(format!(
+            "npm pack 失败 (package={}, code={:?}): stdout='{}' stderr='{}'",
+            package_name,
+            output.status.code(),
+            stdout,
+            stderr.trim()
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let packed_name = stdout
+        .lines()
+        .map(str::trim)
+        .rev()
+        .find(|line| line.ends_with(".tgz"))
+        .map(str::to_string);
+
+    if let Some(name) = packed_name {
+        let path = cache_dir.join(name);
+        if path.exists() {
+            return Ok(path);
+        }
+    }
+
+    find_cached_npm_tarball(app, package_name)?.ok_or_else(|| {
+        format!(
+            "npm pack 成功但未找到本地 tarball (package={}, cache={})",
+            package_name,
+            cache_dir.display()
+        )
+    })
+}
+
+async fn run_npm_command_with_timeout(
+    app: &tauri::AppHandle,
+    npm_bin: &str,
+    node_path: &str,
+    args: Vec<String>,
+    timeout_secs: u64,
+    phase: &str,
+) -> Result<std::process::Output, String> {
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    info!(
+        "[Dependency] 执行 {}: bin={} args={:?} timeout={}s",
+        phase, npm_bin, args, timeout_secs
+    );
+    let started = Instant::now();
+
+    let npm_cache_dir = npm_runtime_cache_dir(app)?;
+    let npm_logs_dir = npm_runtime_logs_dir(app)?;
+    #[cfg(target_os = "macos")]
+    let node_options = match std::env::var("NODE_OPTIONS") {
+        Ok(v) if !v.trim().is_empty() => format!("{} --jitless", v),
+        _ => "--jitless".to_string(),
+    };
+
+    let node_bin = app_runtime_node_bin_path(app, "node")?;
+    let npm_cli = app_runtime_node_root_dir(app)?
+        .join("lib")
+        .join("node_modules")
+        .join("npm")
+        .join("bin")
+        .join("npm-cli.js");
+
+    let mut cmd = if npm_cli.exists() {
+        info!(
+            "[Dependency] {} 使用 node+npm-cli 执行: node={} npm_cli={}",
+            phase,
+            node_bin,
+            npm_cli.display()
+        );
+        let mut c = tokio::process::Command::new(&node_bin);
+        #[cfg(target_os = "macos")]
+        {
+            // In macOS sandbox/hardened runtime combinations, V8 JIT init may trap.
+            // Force jitless mode for npm-related short-lived commands.
+            c.arg("--jitless");
+        }
+        c.arg(npm_cli);
+        c
+    } else {
+        warn!(
+            "[Dependency] {} 未找到 npm-cli.js，回退直接执行 npm: {}",
+            phase, npm_bin
+        );
+        tokio::process::Command::new(npm_bin)
+    };
+
+    cmd.no_window();
+    cmd.env("PATH", node_path);
+    cmd.env("NPM_CONFIG_CACHE", npm_cache_dir.to_string_lossy().to_string());
+    cmd.env("NPM_CONFIG_LOGS_DIR", npm_logs_dir.to_string_lossy().to_string());
+    cmd.env("SCARF_ANALYTICS", "false");
+    cmd.env("npm_config_scarf_analytics", "false");
+    cmd.env("SCARF_NO_ANALYTICS", "true");
+    cmd.env("npm_config_fund", "false");
+    cmd.env("npm_config_audit", "false");
+    #[cfg(target_os = "macos")]
+    {
+        cmd.env("NODE_OPTIONS", node_options);
+    }
+    cmd.args(&args);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    cmd.kill_on_drop(true);
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("{} 启动失败: {}", phase, e))?;
+
+    let waited =
+        tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait_with_output()).await;
+
+    let output = match waited {
+        Ok(Ok(output)) => output,
+        Ok(Err(e)) => return Err(format!("{} 执行失败: {}", phase, e)),
+        Err(_) => {
+            return Err(format!(
+                "{} 超时({}s)，请检查 npm registry/网络连通性",
+                phase, timeout_secs
+            ));
+        }
+    };
+
+    let elapsed = started.elapsed().as_millis();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr_preview = stderr.lines().take(8).collect::<Vec<_>>().join(" | ");
+    let stdout_preview = stdout.lines().take(8).collect::<Vec<_>>().join(" | ");
+    #[cfg(unix)]
+    let signal = std::os::unix::process::ExitStatusExt::signal(&output.status);
+    #[cfg(not(unix))]
+    let signal: Option<i32> = None;
+    info!(
+        "[Dependency] {} 完成: success={} code={:?} signal={:?} elapsed={}ms stdout_preview={} stderr_preview={}",
+        phase,
+        output.status.success(),
+        output.status.code(),
+        signal,
+        elapsed,
+        stdout_preview,
+        stderr_preview
+    );
+    Ok(output)
+}
+
 /// 解析通过 npm 安装的可执行文件路径（应用内 node_modules/.bin）。
 ///
 /// 查找顺序：
@@ -679,6 +946,78 @@ fn resolve_npm_global_bin_path(
     }
 
     Err(format!("未找到 {} 可执行文件，{}", bin_name, missing_hint))
+}
+
+#[cfg(windows)]
+fn resolve_local_npm_package_js_entry(
+    app: &tauri::AppHandle,
+    package_name: &str,
+    bin_name: &str,
+) -> Result<Option<String>, String> {
+    let app_data_dir = app_data_dir_get(app.clone())
+        .map(std::path::PathBuf::from)
+        .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+    let package_dir = app_data_dir.join("node_modules").join(package_name);
+    if !package_dir.exists() {
+        return Ok(None);
+    }
+
+    let package_json_path = package_dir.join("package.json");
+    let content = match std::fs::read_to_string(&package_json_path) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!(
+                "[Dependency] 读取 package.json 失败，回退 .bin 路径: {} ({})",
+                package_json_path.display(),
+                e
+            );
+            return Ok(None);
+        }
+    };
+    let package_json: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!(
+                "[Dependency] 解析 package.json 失败，回退 .bin 路径: {} ({})",
+                package_json_path.display(),
+                e
+            );
+            return Ok(None);
+        }
+    };
+
+    let rel_entry = if let Some(bin_str) = package_json.get("bin").and_then(|v| v.as_str()) {
+        Some(bin_str.to_string())
+    } else if let Some(bin_obj) = package_json.get("bin").and_then(|v| v.as_object()) {
+        bin_obj
+            .get(bin_name)
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .or_else(|| {
+                bin_obj
+                    .get(package_name)
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            })
+            .or_else(|| {
+                bin_obj
+                    .values()
+                    .find_map(|v| v.as_str())
+                    .map(str::to_string)
+            })
+    } else {
+        None
+    };
+
+    let Some(rel_entry) = rel_entry else {
+        return Ok(None);
+    };
+    let entry = package_dir.join(rel_entry);
+    if entry.exists() {
+        Ok(Some(entry.to_string_lossy().to_string()))
+    } else {
+        Ok(None)
+    }
 }
 
 /// 解析随应用打包的可执行文件路径（binaries / externalBin），兼容 macOS / Windows / Linux。
@@ -738,12 +1077,95 @@ fn resolve_bundled_bin_path(app: &tauri::AppHandle, bin_name: &str) -> Result<St
     Err(format!("未找到 {} 可执行文件", bin_name))
 }
 
-/// 获取 nuwax-file-server 可执行文件完整路径（复用 resolve_npm_global_bin_path）
+/// 获取 nuwax-file-server 可执行文件完整路径
+///
+/// 优先顺序：
+/// 1. sidecar / bundled（若后续接入 externalBin）
+/// 2. 开发态 triple 命名（src-tauri/binaries）
+/// 3. 应用内 npm 本地安装路径（node_modules/.bin/nuwax-file-server）
 fn get_file_server_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
+    #[cfg(not(windows))]
+    const SIDECAR_BASE_NAME: &str = "nuwax-file-server";
+    #[cfg(windows)]
+    const SIDECAR_BASE_NAME: &str = "nuwax-file-server.exe";
+
+    if let Ok(path) = resolve_bundled_bin_path(app, SIDECAR_BASE_NAME) {
+        return Ok(path);
+    }
+
+    #[cfg(target_os = "macos")]
+    let bin_name = {
+        #[cfg(target_arch = "aarch64")]
+        {
+            "nuwax-file-server-aarch64-apple-darwin"
+        }
+        #[cfg(target_arch = "x86_64")]
+        {
+            "nuwax-file-server-x86_64-apple-darwin"
+        }
+        #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+        {
+            "nuwax-file-server-universal-apple-darwin"
+        }
+    };
+
+    #[cfg(target_os = "linux")]
+    let bin_name = {
+        #[cfg(target_arch = "aarch64")]
+        {
+            "nuwax-file-server-aarch64-unknown-linux-gnu"
+        }
+        #[cfg(target_arch = "x86_64")]
+        {
+            "nuwax-file-server-x86_64-unknown-linux-gnu"
+        }
+        #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+        {
+            "nuwax-file-server-unknown-linux"
+        }
+    };
+
+    #[cfg(target_os = "windows")]
+    let bin_name = {
+        #[cfg(target_arch = "x86_64")]
+        {
+            "nuwax-file-server-x86_64-pc-windows-msvc.exe"
+        }
+        #[cfg(target_arch = "x86")]
+        {
+            "nuwax-file-server-i686-pc-windows-msvc.exe"
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            "nuwax-file-server-aarch64-pc-windows-msvc.exe"
+        }
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")))]
+        {
+            "nuwax-file-server-unknown-windows.exe"
+        }
+    };
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    let bin_name = "nuwax-file-server";
+
+    if let Ok(path) = resolve_bundled_bin_path(app, bin_name) {
+        return Ok(path);
+    }
+
+    #[cfg(windows)]
+    {
+        // Windows 优先使用 npm 包内 JS 入口，避免 .bin/.cmd shim 引发的控制台窗口链路。
+        if let Some(js_entry) =
+            resolve_local_npm_package_js_entry(app, "nuwax-file-server", "nuwax-file-server")?
+        {
+            return Ok(js_entry);
+        }
+    }
+
     resolve_npm_global_bin_path(
         app,
         "nuwax-file-server",
-        "请在「依赖」页面安装 Nuwax File Server",
+        "未找到内置 nuwax-file-server，请在「依赖」页面安装 Nuwax File Server",
     )
 }
 
@@ -829,9 +1251,158 @@ fn get_lanproxy_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
     resolve_bundled_bin_path(app, bin_name)
 }
 
-/// 获取 mcp-proxy 可执行文件完整路径（复用 resolve_npm_global_bin_path）
+/// 获取当前平台的 mcp-proxy 可执行文件完整路径
+///
+/// 优先顺序：
+/// 1. sidecar（externalBin）打包路径
+/// 2. 应用内 npm 本地安装路径（node_modules/.bin/mcp-proxy）
 fn get_mcp_proxy_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
+    #[cfg(not(windows))]
+    const SIDECAR_BASE_NAME: &str = "mcp-proxy";
+    #[cfg(windows)]
+    const SIDECAR_BASE_NAME: &str = "mcp-proxy.exe";
+
+    // 1) sidecar 基名（打包后常见命名）
+    if let Ok(path) = resolve_bundled_bin_path(app, SIDECAR_BASE_NAME) {
+        return Ok(path);
+    }
+
+    // 2) 开发态/按 target triple 命名的 sidecar 文件
+    #[cfg(target_os = "macos")]
+    let bin_name = {
+        #[cfg(target_arch = "aarch64")]
+        {
+            "mcp-proxy-aarch64-apple-darwin"
+        }
+        #[cfg(target_arch = "x86_64")]
+        {
+            "mcp-proxy-x86_64-apple-darwin"
+        }
+        #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+        {
+            "mcp-proxy-universal-apple-darwin"
+        }
+    };
+
+    #[cfg(target_os = "linux")]
+    let bin_name = {
+        #[cfg(target_arch = "aarch64")]
+        {
+            "mcp-proxy-aarch64-unknown-linux-gnu"
+        }
+        #[cfg(target_arch = "x86_64")]
+        {
+            "mcp-proxy-x86_64-unknown-linux-gnu"
+        }
+        #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+        {
+            "mcp-proxy-unknown-linux"
+        }
+    };
+
+    #[cfg(target_os = "windows")]
+    let bin_name = {
+        #[cfg(target_arch = "x86_64")]
+        {
+            "mcp-proxy-x86_64-pc-windows-msvc.exe"
+        }
+        #[cfg(target_arch = "x86")]
+        {
+            "mcp-proxy-i686-pc-windows-msvc.exe"
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            "mcp-proxy-aarch64-pc-windows-msvc.exe"
+        }
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")))]
+        {
+            "mcp-proxy-unknown-windows.exe"
+        }
+    };
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    let bin_name = "mcp-proxy";
+
+    if let Ok(path) = resolve_bundled_bin_path(app, bin_name) {
+        return Ok(path);
+    }
+
+    // 3) 回退 npm 本地安装
     resolve_npm_global_bin_path(app, "mcp-proxy", "请在「依赖」页面安装 MCP Proxy")
+}
+
+/// 获取 node-runtime sidecar 路径（可选）
+///
+/// 仅用于在运行时优先注入固定 Node 可执行文件路径，避免依赖系统 PATH。
+/// 找不到时返回 Err，由调用方决定是否回退。
+fn get_node_runtime_sidecar_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
+    #[cfg(not(windows))]
+    const SIDECAR_BASE_NAME: &str = "node-runtime";
+    #[cfg(windows)]
+    const SIDECAR_BASE_NAME: &str = "node-runtime.exe";
+
+    // 1) sidecar 基名（打包后常见命名）
+    if let Ok(path) = resolve_bundled_bin_path(app, SIDECAR_BASE_NAME) {
+        return Ok(path);
+    }
+
+    // 2) 开发态/按 target triple 命名
+    #[cfg(target_os = "macos")]
+    let bin_name = {
+        #[cfg(target_arch = "aarch64")]
+        {
+            "node-runtime-aarch64-apple-darwin"
+        }
+        #[cfg(target_arch = "x86_64")]
+        {
+            "node-runtime-x86_64-apple-darwin"
+        }
+        #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+        {
+            "node-runtime-universal-apple-darwin"
+        }
+    };
+
+    #[cfg(target_os = "linux")]
+    let bin_name = {
+        #[cfg(target_arch = "aarch64")]
+        {
+            "node-runtime-aarch64-unknown-linux-gnu"
+        }
+        #[cfg(target_arch = "x86_64")]
+        {
+            "node-runtime-x86_64-unknown-linux-gnu"
+        }
+        #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+        {
+            "node-runtime-unknown-linux"
+        }
+    };
+
+    #[cfg(target_os = "windows")]
+    let bin_name = {
+        #[cfg(target_arch = "x86_64")]
+        {
+            "node-runtime-x86_64-pc-windows-msvc.exe"
+        }
+        #[cfg(target_arch = "x86")]
+        {
+            "node-runtime-i686-pc-windows-msvc.exe"
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            "node-runtime-aarch64-pc-windows-msvc.exe"
+        }
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")))]
+        {
+            "node-runtime-unknown-windows.exe"
+        }
+    };
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    let bin_name = "node-runtime";
+
+    resolve_bundled_bin_path(app, bin_name)
 }
 
 /// 启动 nuwax-lanproxy 客户端
@@ -851,6 +1422,7 @@ async fn lanproxy_start(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
+    sync_local_bin_env(&app)?;
     info!("[Lanproxy] 开始读取启动配置...");
 
     // 从 store 读取 lanproxy server_host (API 返回的 serverHost，如 testagent.xspaceagi.com)
@@ -982,6 +1554,253 @@ async fn lanproxy_restart(
 
 // ========== MCP Proxy 命令 ==========
 
+fn is_npx_command(command: &str) -> bool {
+    let lower = command.trim().to_ascii_lowercase();
+    if lower == "npx" || lower.ends_with("/npx") || lower.ends_with("\\npx") {
+        return true;
+    }
+    if lower == "npx.cmd"
+        || lower.ends_with("/npx.cmd")
+        || lower.ends_with("\\npx.cmd")
+        || lower == "npx.exe"
+        || lower.ends_with("/npx.exe")
+        || lower.ends_with("\\npx.exe")
+    {
+        return true;
+    }
+    false
+}
+
+fn package_name_from_npx_spec(spec: &str) -> Option<String> {
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return None;
+    }
+    if spec.starts_with('@') {
+        // scoped package: @scope/name@version -> @scope/name
+        if let Some(pos) = spec[1..].find('@') {
+            return Some(spec[..pos + 1].to_string());
+        }
+        return Some(spec.to_string());
+    }
+    Some(spec.split('@').next().unwrap_or(spec).to_string())
+}
+
+fn parse_npx_package_and_forward_args(args: &[String]) -> Option<(String, Vec<String>)> {
+    let mut idx = 0usize;
+    while idx < args.len() {
+        let arg = args[idx].trim();
+        if arg.is_empty() {
+            idx += 1;
+            continue;
+        }
+        if arg == "--" {
+            break;
+        }
+        if matches!(arg, "-y" | "--yes" | "-q" | "--quiet" | "--no")
+            || arg.starts_with("--registry=")
+            || arg.starts_with("--cache=")
+        {
+            idx += 1;
+            continue;
+        }
+        if matches!(arg, "-p" | "--package" | "-c" | "--call") {
+            idx += 2;
+            continue;
+        }
+        if arg.starts_with('-') {
+            idx += 1;
+            continue;
+        }
+        let package_spec = args[idx].clone();
+        let forward_args = args[idx + 1..].to_vec();
+        return Some((package_spec, forward_args));
+    }
+    None
+}
+
+fn resolve_local_bin_from_package_name(app: &tauri::AppHandle, package_name: &str) -> Option<String> {
+    let app_data_dir = app_data_dir_get(app.clone()).ok()?;
+    let app_data_dir = std::path::PathBuf::from(app_data_dir);
+    let package_dir = app_data_dir.join("node_modules").join(package_name);
+    if !package_dir.exists() {
+        return None;
+    }
+
+    let package_json_path = package_dir.join("package.json");
+    let content = std::fs::read_to_string(&package_json_path).ok()?;
+    let package_json: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    let default_bin_name = package_name
+        .rsplit('/')
+        .next()
+        .unwrap_or(package_name)
+        .to_string();
+    let bin_name = if package_json.get("bin").and_then(|v| v.as_str()).is_some() {
+        default_bin_name
+    } else if let Some(bin_obj) = package_json.get("bin").and_then(|v| v.as_object()) {
+        if bin_obj.contains_key(package_name) {
+            package_name.to_string()
+        } else if bin_obj.contains_key(&default_bin_name) {
+            default_bin_name
+        } else if let Some(first_key) = bin_obj.keys().next() {
+            first_key.to_string()
+        } else {
+            return None;
+        }
+    } else {
+        return None;
+    };
+
+    let bin_base = app_data_dir.join("node_modules").join(".bin");
+    let candidates = [
+        bin_base.join(&bin_name),
+        bin_base.join(format!("{}.cmd", &bin_name)),
+        bin_base.join(format!("{}.exe", &bin_name)),
+    ];
+    for candidate in candidates {
+        if candidate.exists() {
+            return Some(candidate.to_string_lossy().to_string());
+        }
+    }
+    None
+}
+
+async fn normalize_mcp_proxy_config_for_local_runtime(
+    app: &tauri::AppHandle,
+    raw_config_json: String,
+) -> String {
+    let mut root: serde_json::Value = match serde_json::from_str(&raw_config_json) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!("[McpProxy] 配置 JSON 解析失败，保持原配置: {}", e);
+            return raw_config_json;
+        }
+    };
+
+    let Some(mcp_servers) = root
+        .get_mut("mcpServers")
+        .and_then(|v| v.as_object_mut())
+    else {
+        return raw_config_json;
+    };
+
+    let mut changed = false;
+    for (server_name, server_value) in mcp_servers.iter_mut() {
+        let Some(server_obj) = server_value.as_object_mut() else {
+            continue;
+        };
+        let command = server_obj
+            .get("command")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        if !is_npx_command(command) {
+            continue;
+        }
+
+        let args = server_obj
+            .get("args")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(str::to_string))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let Some((package_spec, forward_args)) = parse_npx_package_and_forward_args(&args) else {
+            warn!(
+                "[McpProxy] 服务 {} 使用 npx，但无法提取 package 信息，保持原配置",
+                server_name
+            );
+            continue;
+        };
+        let Some(package_name) = package_name_from_npx_spec(&package_spec) else {
+            continue;
+        };
+
+        match dependency_local_check(app.clone(), package_name.clone()).await {
+            Ok(result) if result.installed => {
+                debug!(
+                    "[McpProxy] 服务 {} 依赖已安装: {}",
+                    server_name, package_name
+                );
+            }
+            Ok(_) => {
+                info!(
+                    "[McpProxy] 服务 {} 依赖未安装，开始应用内安装: {}",
+                    server_name, package_name
+                );
+                match dependency_local_install(app.clone(), package_name.clone()).await {
+                    Ok(install_result) if install_result.success => {
+                        info!(
+                            "[McpProxy] 服务 {} 依赖安装成功: {}",
+                            server_name, package_name
+                        );
+                    }
+                    Ok(install_result) => {
+                        warn!(
+                            "[McpProxy] 服务 {} 依赖安装失败: package={} error={:?}",
+                            server_name, package_name, install_result.error
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!(
+                            "[McpProxy] 服务 {} 依赖安装异常: package={} error={}",
+                            server_name, package_name, e
+                        );
+                        continue;
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "[McpProxy] 服务 {} 依赖检测失败: package={} error={}",
+                    server_name, package_name, e
+                );
+                continue;
+            }
+        }
+
+        let Some(local_bin) = resolve_local_bin_from_package_name(app, &package_name) else {
+            warn!(
+                "[McpProxy] 服务 {} 已安装 {}，但未找到应用内 bin，保持 npx 启动",
+                server_name, package_name
+            );
+            continue;
+        };
+
+        info!(
+            "[McpProxy] 服务 {} 配置改写: npx {} -> {}",
+            server_name, package_spec, local_bin
+        );
+        server_obj.insert("command".to_string(), serde_json::Value::String(local_bin));
+        server_obj.insert(
+            "args".to_string(),
+            serde_json::Value::Array(
+                forward_args
+                    .into_iter()
+                    .map(serde_json::Value::String)
+                    .collect(),
+            ),
+        );
+        changed = true;
+    }
+
+    if changed {
+        match serde_json::to_string(&root) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("[McpProxy] 配置改写后序列化失败，保持原配置: {}", e);
+                raw_config_json
+            }
+        }
+    } else {
+        raw_config_json
+    }
+}
+
 /// 启动 MCP Proxy 服务
 ///
 /// 参数:
@@ -996,6 +1815,7 @@ async fn mcp_proxy_start(
     config_json: Option<String>,
     port: Option<u16>,
 ) -> Result<bool, String> {
+    sync_local_bin_env(&app)?;
     info!("[McpProxy] 开始读取启动配置...");
 
     let port = port.unwrap_or_else(|| match read_store_port(&app, "setup.mcp_proxy_port") {
@@ -1037,6 +1857,7 @@ async fn mcp_proxy_start(
                 r#"{"mcpServers":{}}"#.to_string()
             }
         });
+    let config_json = normalize_mcp_proxy_config_for_local_runtime(&app, config_json).await;
 
     let bin_path = get_mcp_proxy_bin_path(&app).map_err(|e| {
         error!("[McpProxy] {}", e);
@@ -1136,7 +1957,11 @@ impl Default for ServiceManagerState {
 
 /// 启动 nuwax-file-server
 #[tauri::command]
-async fn file_server_start(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
+async fn file_server_start(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ServiceManagerState>,
+) -> Result<bool, String> {
+    sync_local_bin_env(&app)?;
     let manager = state.manager.lock().await;
     manager.file_server_start().await?;
     Ok(true)
@@ -1225,6 +2050,7 @@ async fn rcoder_start(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
+    sync_local_bin_env(&app)?;
     let config = build_rcoder_config(&app)?;
     let port = config.backend_port;
 
@@ -1746,6 +2572,7 @@ async fn services_restart_all(
             Ok(Some(json)) => json,
             _ => r#"{"mcpServers":{}}"#.to_string(),
         };
+        let config_json = normalize_mcp_proxy_config_for_local_runtime(&app, config_json).await;
 
         let bin_path = match get_mcp_proxy_bin_path(&app) {
             Ok(p) => {
@@ -2054,37 +2881,13 @@ async fn check_network_cn() -> bool {
     false
 }
 
-/// 解析 node/npm/npx 等二进制的实际路径
-/// 优先查找 ~/.local/bin/ → 最后 fallback 到命令名（依赖 PATH）
-fn resolve_node_bin(bin_name: &str) -> String {
-    // 1. ~/.local/bin/ (node 安装目录)
-    let global_bin = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".local")
-        .join("bin");
-
-    #[cfg(unix)]
-    let bin_path = global_bin.join(bin_name);
-    #[cfg(windows)]
-    let bin_path = if bin_name == "node" {
-        global_bin.join("node.exe")
-    } else {
-        global_bin.join(format!("{}.cmd", bin_name))
-    };
-
-    if bin_path.exists() {
-        info!("[resolve_node_bin] {} -> {:?}", bin_name, bin_path);
-        return bin_path.to_string_lossy().to_string();
+/// 将历史上的 bin 名称映射为应用内 npm 包名
+fn package_name_from_bin_name(bin_name: &str) -> String {
+    match bin_name {
+        // npm 包名是 mcp-stdio-proxy，但 bin 名是 mcp-proxy
+        "mcp-proxy" => "mcp-stdio-proxy".to_string(),
+        other => other.to_string(),
     }
-
-    // 2. 降级到 PATH
-    info!("[resolve_node_bin] {} -> fallback to PATH", bin_name);
-    bin_name.to_string()
-}
-
-/// 构建包含 node bin 目录的 PATH 环境变量（委托给 nuwax-agent-core）
-fn build_node_path_env() -> String {
-    nuwax_agent_core::utils::build_node_path_env()
 }
 
 /// 将应用内运行时目录同步到当前进程 PATH
@@ -2092,6 +2895,19 @@ fn sync_local_bin_env(app: &tauri::AppHandle) -> Result<(), String> {
     let node_path = build_app_runtime_path_env(app)?;
     debug!("[EnvSync] runtime PATH: {}", node_path);
     std::env::set_var("PATH", &node_path);
+    std::env::set_var("NUWAX_APP_RUNTIME_PATH", &node_path);
+
+    // sidecar node（若存在）优先注入到全局环境，供 core 层 Windows 启动解析优先使用。
+    match get_node_runtime_sidecar_bin_path(app) {
+        Ok(node_exe) => {
+            std::env::set_var("NUWAX_NODE_EXE", &node_exe);
+            debug!("[EnvSync] 已设置 NUWAX_NODE_EXE={}", node_exe);
+        }
+        Err(e) => {
+            debug!("[EnvSync] 未找到 node-runtime sidecar，继续使用 runtime node/PATH: {}", e);
+        }
+    }
+
     debug!("[EnvSync] 已同步 PATH 到应用内运行时目录");
     Ok(())
 }
@@ -2411,12 +3227,30 @@ async fn dependency_local_check(
     app: tauri::AppHandle,
     package_name: String,
 ) -> Result<NpmPackageResult, String> {
+    info!("[Dependency] 开始检测依赖: {}", package_name);
+    if let Some(sidecar_bin) = sidecar_like_bin_for_package(&app, &package_name) {
+        info!(
+            "[Dependency] 检测命中 sidecar: package={} bin={}",
+            package_name, sidecar_bin
+        );
+        return Ok(NpmPackageResult {
+            installed: true,
+            version: detect_bin_version(&sidecar_bin),
+            bin_path: Some(sidecar_bin),
+        });
+    }
+
     let app_dir = app_data_dir_get(app)?;
     let node_modules = std::path::Path::new(&app_dir).join("node_modules");
     let package_dir = node_modules.join(&package_name);
 
     // 检查包目录是否存在
     if !package_dir.exists() {
+        info!(
+            "[Dependency] 未安装(应用内): package={} dir={}",
+            package_name,
+            package_dir.display()
+        );
         return Ok(NpmPackageResult {
             installed: false,
             version: None,
@@ -2454,32 +3288,110 @@ async fn dependency_local_install(
     app: tauri::AppHandle,
     package_name: String,
 ) -> Result<InstallResult, String> {
+    info!("[Dependency] 开始安装依赖: {}", package_name);
+    if let Some(sidecar_bin) = sidecar_like_bin_for_package(&app, &package_name) {
+        info!(
+            "[Dependency] 跳过安装(命中 sidecar): package={} bin={}",
+            package_name, sidecar_bin
+        );
+        return Ok(InstallResult {
+            success: true,
+            version: detect_bin_version(&sidecar_bin),
+            bin_path: Some(sidecar_bin),
+            error: None,
+        });
+    }
+
     let app_dir = app_data_dir_get(app.clone())?;
-    let registry = "https://registry.npmmirror.com/";
+    let registry = resolve_npm_registry(Some(&app));
+    info!(
+        "[Dependency] 安装目标: package={} app_dir={} registry={}",
+        package_name, app_dir, registry
+    );
 
     // 确保 npm 环境已初始化
     dependency_local_env_init(app.clone()).await?;
 
-    // 执行 npm install
+    // 先确保 tarball 已下载到本地，再优先走本地 tarball 安装
+    let local_tarball = match find_cached_npm_tarball(&app, &package_name)? {
+        Some(path) => {
+            info!("[Dependency] 命中本地 npm 缓存: {}", path.display());
+            path
+        }
+        None => {
+            info!("[Dependency] 未命中本地缓存，开始预下载: {}", package_name);
+            npm_prefetch_tarball(&app, &package_name, &registry).await?
+        }
+    };
+
+    // 执行 npm install（优先本地 tarball）
     let npm_bin = app_runtime_node_bin_path(&app, "npm")?;
     let node_path = build_app_runtime_path_env(&app)?;
-    let output = Command::new(&npm_bin)
-        .no_window()
-        .env("PATH", &node_path)
-        .args([
-            "install",
-            &package_name,
-            "--prefix",
-            &app_dir,
-            "--registry",
-            registry,
-        ])
-        .output()
-        .map_err(|e| format!("执行 npm install 失败: {}", e))?;
+    let output = run_npm_command_with_timeout(
+        &app,
+        &npm_bin,
+        &node_path,
+        vec![
+            "install".to_string(),
+            local_tarball.to_string_lossy().to_string(),
+            "--prefix".to_string(),
+            app_dir.clone(),
+            "--registry".to_string(),
+            registry.clone(),
+        ],
+        120,
+        "npm install(local tarball)",
+    )
+    .await?;
+    info!(
+        "[Dependency] npm install(本地tarball) 结束: package={} success={}",
+        package_name,
+        output.status.success()
+    );
+
+    let output = if output.status.success() {
+        output
+    } else {
+        // 本地 tarball 失败时回退线上安装，避免缓存损坏导致不可用。
+        warn!(
+            "[Dependency] 本地 tarball 安装失败，回退线上安装: package={}, tarball={}",
+            package_name,
+            local_tarball.display()
+        );
+        run_npm_command_with_timeout(
+            &app,
+            &npm_bin,
+            &node_path,
+            vec![
+                "install".to_string(),
+                package_name.clone(),
+                "--prefix".to_string(),
+                app_dir.clone(),
+                "--registry".to_string(),
+                registry.clone(),
+            ],
+            120,
+            "npm install(remote fallback)",
+        )
+        .await
+        .map_err(|e| format!("回退执行 npm install 失败: {}", e))?
+    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        error!(
+            "[Dependency] npm install 失败: package={} stderr={}",
+            package_name,
+            stderr
+        );
+    }
 
     if output.status.success() {
         // 获取安装的版本
         let result = dependency_local_check(app, package_name.clone()).await?;
+        info!(
+            "[Dependency] 安装成功: package={} version={:?} bin={:?}",
+            package_name, result.version, result.bin_path
+        );
 
         Ok(InstallResult {
             success: true,
@@ -2489,6 +3401,11 @@ async fn dependency_local_install(
         })
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        error!(
+            "[Dependency] 安装失败: package={} stderr={}",
+            package_name,
+            stderr
+        );
         Ok(InstallResult {
             success: false,
             version: None,
@@ -2504,13 +3421,13 @@ async fn dependency_local_check_latest(
     app: tauri::AppHandle,
     package_name: String,
 ) -> Result<Option<String>, String> {
-    let registry = "https://registry.npmmirror.com/";
+    let registry = resolve_npm_registry(Some(&app));
     let npm_bin = app_runtime_node_bin_path(&app, "npm")?;
     let node_path = build_app_runtime_path_env(&app)?;
     let output = Command::new(&npm_bin)
         .no_window()
         .env("PATH", &node_path)
-        .args(["view", &package_name, "version", "--registry", registry])
+        .args(["view", &package_name, "version", "--registry", &registry])
         .output()
         .map_err(|e| format!("执行 npm view 失败: {}", e))?;
 
@@ -2529,48 +3446,20 @@ async fn dependency_local_check_latest(
 /// 检测 Shell Installer 安装的包是否已安装
 #[tauri::command]
 async fn dependency_shell_installer_check(
+    app: tauri::AppHandle,
     bin_name: String,
 ) -> Result<ShellInstallerResult, String> {
-    // 仅使用 which crate 跨平台检查可执行文件路径
-    match which::which(&bin_name) {
-        Ok(path) => {
-            let bin_path = path.to_string_lossy().to_string();
-
-            // 尝试获取版本信息
-            let version = Command::new(&bin_name)
-                .no_window()
-                .arg("--version")
-                .output()
-                .ok()
-                .filter(|o| o.status.success())
-                .map(|o| {
-                    let output = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                    // 尝试从输出中提取版本号
-                    // 常见格式: "mcp-proxy 0.1.27" 或 "v0.1.27"
-                    output
-                        .split_whitespace()
-                        .find(|s| {
-                            s.chars()
-                                .next()
-                                .map(|c| c.is_ascii_digit() || c == 'v')
-                                .unwrap_or(false)
-                        })
-                        .map(|s| s.trim_start_matches('v').to_string())
-                        .unwrap_or(output)
-                });
-
-            Ok(ShellInstallerResult {
-                installed: true,
-                version,
-                bin_path: Some(bin_path),
-            })
-        }
-        _ => Ok(ShellInstallerResult {
-            installed: false,
-            version: None,
-            bin_path: None,
-        }),
-    }
+    let package_name = package_name_from_bin_name(&bin_name);
+    info!(
+        "[Dependency] shell-check 代理到应用内检测: bin={} package={}",
+        bin_name, package_name
+    );
+    let local = dependency_local_check(app, package_name).await?;
+    Ok(ShellInstallerResult {
+        installed: local.installed,
+        version: local.version,
+        bin_path: local.bin_path,
+    })
 }
 
 /// 使用 Shell 脚本安装包
@@ -2578,223 +3467,50 @@ async fn dependency_shell_installer_check(
 /// Windows: powershell irm ... | iex
 #[tauri::command]
 async fn dependency_shell_installer_install(
+    app: tauri::AppHandle,
     installer_url: String,
     bin_name: String,
 ) -> Result<InstallResult, String> {
-    info!("[Dependency] 执行安装脚本: {}", installer_url);
-
-    #[cfg(not(target_os = "windows"))]
-    let output = {
-        // 先检查 curl 是否可用
-        let curl_check = Command::new("curl").no_window().arg("--version").output();
-
-        if curl_check.is_err() || !curl_check.unwrap().status.success() {
-            return Ok(InstallResult {
-                success: false,
-                version: None,
-                bin_path: None,
-                error: Some("curl 未安装。请先安装 curl".to_string()),
-            });
-        }
-
-        // 执行: curl --proto '=https' --tlsv1.2 -LsSf <url> | sh
-        Command::new("sh")
-            .no_window()
-            .arg("-c")
-            .arg(format!(
-                "curl --proto '=https' --tlsv1.2 -LsSf {} | sh",
-                installer_url
-            ))
-            .output()
-            .map_err(|e| format!("执行安装脚本失败: {}", e))?
-    };
-
-    #[cfg(target_os = "windows")]
-    let output = {
-        // Windows: 使用 PowerShell 的 irm (Invoke-RestMethod) | iex (Invoke-Expression)
-        // 许多现代安装脚本（如 cargo-binstall、uv 等）提供 .ps1 安装脚本
-        // 尝试将 URL 末尾的 .sh 替换为 .ps1
-        let ps_url = if let Some(base) = installer_url.strip_suffix(".sh") {
-            format!("{}.ps1", base)
-        } else {
-            installer_url.clone()
-        };
-
-        Command::new("powershell")
-            .no_window()
-            .args([
-                "-ExecutionPolicy",
-                "ByPass",
-                "-Command",
-                &format!("irm {} | iex", ps_url),
-            ])
-            .output()
-            .map_err(|e| format!("执行 PowerShell 安装脚本失败: {}", e))?
-    };
-
-    if output.status.success() {
-        // 验证安装并获取路径
-        let check_result = dependency_shell_installer_check(bin_name.clone()).await?;
-
-        if check_result.installed {
-            Ok(InstallResult {
-                success: true,
-                version: check_result.version,
-                bin_path: check_result.bin_path,
-                error: None,
-            })
-        } else {
-            // 脚本执行成功但二进制未找到，可能需要重新加载 PATH
-            Ok(InstallResult {
-                success: true,
-                version: None,
-                bin_path: None,
-                error: Some(format!(
-                    "安装脚本执行成功，但未找到 {} 二进制文件。可能需要重启终端或重新加载 PATH",
-                    bin_name
-                )),
-            })
-        }
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-
-        error!("[Dependency] shell 安装脚本失败: {}", stderr);
-
-        Ok(InstallResult {
-            success: false,
-            version: None,
-            bin_path: None,
-            error: Some(format!("{}\n{}", stderr, stdout)),
-        })
-    }
+    let _ = installer_url;
+    let package_name = package_name_from_bin_name(&bin_name);
+    info!(
+        "[Dependency] shell-install 代理到应用内安装: bin={} package={}",
+        bin_name, package_name
+    );
+    dependency_local_install(app, package_name).await
 }
 
 // ========== 全局 npm 包管理命令 ==========
 
-/// 检测全局 npm 包是否已安装
-/// 通过检查可执行文件是否存在来判断；仅使用 which crate，在 node PATH 中查找
+/// 检测 npm 包是否已安装（兼容旧接口名）
+/// 实际仅检测应用内安装目录，不触达用户全局环境。
 #[tauri::command]
-async fn dependency_npm_global_check(bin_name: String) -> Result<NpmPackageResult, String> {
-    let node_path = build_node_path_env();
-
-    // 仅使用 which crate 在 node_path 中查找（跨平台）
-    let path_os = std::ffi::OsStr::new(&node_path);
-    let bin_path_opt = which::which_in_global(&bin_name, Some(path_os))
-        .ok()
-        .and_then(|mut it| it.next());
-
-    match bin_path_opt {
-        Some(path) => {
-            let bin_path = path.to_string_lossy().to_string();
-
-            // 尝试获取版本信息 (使用 -V 参数)
-            let version = Command::new(&bin_name)
-                .no_window()
-                .env("PATH", &node_path)
-                .arg("-V")
-                .output()
-                .ok()
-                .filter(|o| o.status.success())
-                .map(|o| {
-                    let output = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                    // 尝试从输出中提取版本号
-                    // 常见格式: "mcp-proxy 0.1.27" 或 "v0.1.27" 或 "0.1.27"
-                    output
-                        .split_whitespace()
-                        .find(|s| {
-                            s.chars()
-                                .next()
-                                .map(|c| c.is_ascii_digit() || c == 'v')
-                                .unwrap_or(false)
-                        })
-                        .map(|s| s.trim_start_matches('v').to_string())
-                        .unwrap_or(output)
-                });
-
-            Ok(NpmPackageResult {
-                installed: true,
-                version,
-                bin_path: Some(bin_path),
-            })
-        }
-        _ => Ok(NpmPackageResult {
-            installed: false,
-            version: None,
-            bin_path: None,
-        }),
-    }
+async fn dependency_npm_global_check(
+    app: tauri::AppHandle,
+    bin_name: String,
+) -> Result<NpmPackageResult, String> {
+    let package_name = package_name_from_bin_name(&bin_name);
+    info!(
+        "[Dependency] global-check 代理到应用内检测: bin={} package={}",
+        bin_name, package_name
+    );
+    dependency_local_check(app, package_name).await
 }
 
-/// 全局安装 npm 包（使用 npmmirror）
+/// 安装 npm 包（兼容旧接口名）
+/// 实际仅安装到应用内目录，不触达用户全局环境。
 #[tauri::command]
 async fn dependency_npm_global_install(
+    app: tauri::AppHandle,
     package_name: String,
     bin_name: String,
 ) -> Result<InstallResult, String> {
-    let registry = "https://registry.npmmirror.com/";
-
     info!(
-        "[Dependency] 开始全局安装 npm 包: {} (registry: {})",
-        package_name, registry
+        "[Dependency] global-install 代理到应用内安装: bin={} package={}",
+        bin_name, package_name
     );
-
-    // 执行 npm install -g
-    let npm_bin = resolve_node_bin("npm");
-    let node_path = build_node_path_env();
-    let output = Command::new(&npm_bin)
-        .no_window()
-        .env("PATH", &node_path)
-        .args([
-            "install",
-            "-g",
-            &format!("{}@latest", package_name),
-            "--registry",
-            registry,
-        ])
-        .output()
-        .map_err(|e| format!("执行 npm install -g 失败: {}", e))?;
-
-    if output.status.success() {
-        // 验证安装并获取路径
-        let check_result = dependency_npm_global_check(bin_name.clone()).await?;
-
-        if check_result.installed {
-            info!(
-                "[Dependency] {} 全局安装成功, 版本: {:?}",
-                package_name, check_result.version
-            );
-            Ok(InstallResult {
-                success: true,
-                version: check_result.version,
-                bin_path: check_result.bin_path,
-                error: None,
-            })
-        } else {
-            // 安装成功但二进制未找到，可能需要重新加载 PATH
-            Ok(InstallResult {
-                success: true,
-                version: None,
-                bin_path: None,
-                error: Some(format!(
-                    "npm install 执行成功，但未找到 {} 二进制文件。可能需要重启终端或重新加载 PATH",
-                    bin_name
-                )),
-            })
-        }
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-
-        error!("[Dependency] npm install -g 失败: {}", stderr);
-
-        Ok(InstallResult {
-            success: false,
-            version: None,
-            bin_path: None,
-            error: Some(format!("{}\n{}", stderr, stdout)),
-        })
-    }
+    let _ = bin_name;
+    dependency_local_install(app, package_name).await
 }
 
 // ========== 开机自启动命令 ==========
@@ -3399,6 +4115,52 @@ fn get_package_bin_path(app_dir: &str, package_name: &str) -> Option<String> {
         Some(bin_path.to_string_lossy().to_string())
     } else {
         None
+    }
+}
+
+fn is_node_modules_bin_path(path: &str) -> bool {
+    path.contains("/node_modules/.bin/") || path.contains("\\node_modules\\.bin\\")
+}
+
+fn parse_cli_version(output: &str) -> Option<String> {
+    let out = output.trim();
+    if out.is_empty() {
+        return None;
+    }
+    out.split_whitespace()
+        .find(|s| {
+            s.chars()
+                .next()
+                .map(|c| c.is_ascii_digit() || c == 'v')
+                .unwrap_or(false)
+        })
+        .map(|s| s.trim_start_matches('v').to_string())
+        .or_else(|| Some(out.to_string()))
+}
+
+fn detect_bin_version(bin_path: &str) -> Option<String> {
+    for args in [["-V"], ["--version"]] {
+        if let Ok(out) = Command::new(bin_path).no_window().args(args).output() {
+            if out.status.success() {
+                if let Some(v) = parse_cli_version(&String::from_utf8_lossy(&out.stdout)) {
+                    return Some(v);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn sidecar_like_bin_for_package(app: &tauri::AppHandle, package_name: &str) -> Option<String> {
+    let bin_path = match package_name {
+        "mcp-stdio-proxy" => get_mcp_proxy_bin_path(app).ok(),
+        _ => None,
+    }?;
+
+    if is_node_modules_bin_path(&bin_path) {
+        None
+    } else {
+        Some(bin_path)
     }
 }
 

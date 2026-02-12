@@ -18,6 +18,21 @@ fn local_bin_dir() -> PathBuf {
 /// - **Unix**：在现有 PATH 前追加 ~/.local/bin（安装 node/uv 到本地后即生效）。
 /// - **Windows**：在现有 PATH 前追加 %USERPROFILE%\.local\bin（安装 node 到本地后即生效）。
 pub fn build_node_path_env() -> String {
+    if let Ok(runtime_path) = std::env::var("NUWAX_APP_RUNTIME_PATH") {
+        let runtime_path = runtime_path.trim();
+        if !runtime_path.is_empty() {
+            let current = std::env::var("PATH").unwrap_or_default();
+            #[cfg(windows)]
+            {
+                return format!("{};{}", runtime_path, current);
+            }
+            #[cfg(not(windows))]
+            {
+                return format!("{}:{}", runtime_path, current);
+            }
+        }
+    }
+
     let bin = local_bin_dir();
     let current = std::env::var("PATH").unwrap_or_default();
 

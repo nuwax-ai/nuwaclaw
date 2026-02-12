@@ -65,6 +65,14 @@ help:
 	@echo ""
 	@echo "=== 代码检查 ==="
 	@echo "  check          - 代码检查 (cargo check)"
+	@echo "  sidecar-prepare - 准备当前平台 sidecar 二进制（mcp-proxy/node-runtime）"
+	@echo "  sidecar-download - 下载 sidecar 到本地缓存（默认当前平台，可用 TARGET=...）"
+	@echo "  sidecar-download-all - 下载常用平台 sidecar到本地缓存（Win/macOS/Linux）"
+	@echo "  sidecar-clean - 清理 sidecar 下载缓存与投放产物（mcp-proxy/node-runtime）"
+	@echo "  sidecar-check  - 检查下载项 sidecar 是否齐全（mcp-proxy/node-runtime）"
+	@echo "  sidecar-check-all - 检查常用平台下载项 sidecar 是否齐全"
+	@echo "  sidecar-check-full - 检查完整 sidecar（三件套含 nuwax-lanproxy）"
+	@echo "  npm-prefetch-tarballs - 预下载 npm 包 tarball 到本地缓存（默认 npmmirror）"
 	@echo "  clippy         - Clippy 代码分析"
 	@echo "  fmt            - 格式化代码"
 	@echo "  fmt-check      - 检查代码格式"
@@ -77,6 +85,7 @@ help:
 	@echo ""
 	@echo "=== Tauri 应用打包 ==="
 	@echo "  node-download      - 下载 Node.js 运行时到资源目录（已存在则跳过）"
+	@echo "  tauri-install-deps - 先下载 sidecar/Node/uv，再安装前端依赖"
 	@echo "  tauri-bundle       - 打包 Tauri 应用 (默认生产环境)"
 	@echo "  tauri-bundle-test  - 打包 Tauri 应用 (测试环境)"
 	@echo "  tauri-bundle-prod  - 打包 Tauri 应用 (生产环境)"
@@ -211,6 +220,46 @@ check:
 	@echo ">>> 代码检查..."
 	$(CARGO) check -p $(CLIENT)
 
+.PHONY: sidecar-check
+sidecar-check:
+	@echo ">>> 检查当前平台 sidecar 下载缓存..."
+	./scripts/check-sidecars.sh --downloaded-only --dir .cache/sidecars
+
+.PHONY: sidecar-check-all
+sidecar-check-all:
+	@echo ">>> 检查常用平台 sidecar 下载缓存..."
+	./scripts/check-sidecars.sh --downloaded-only --all-common --dir .cache/sidecars
+
+.PHONY: sidecar-check-full
+sidecar-check-full:
+	@echo ">>> 检查完整 sidecar（二进制，含 nuwax-lanproxy）..."
+	./scripts/check-sidecars.sh
+
+.PHONY: npm-prefetch-tarballs
+npm-prefetch-tarballs:
+	@echo ">>> 预下载 npm tarball 到本地..."
+	./scripts/prefetch-npm-tarballs.sh
+
+.PHONY: sidecar-prepare
+sidecar-prepare:
+	@echo ">>> 准备当前平台 sidecar 二进制..."
+	./scripts/prepare-sidecars.sh
+
+.PHONY: sidecar-download
+sidecar-download:
+	@echo ">>> 下载 sidecar 到本地缓存..."
+	./scripts/download-sidecars.sh $(if $(TARGET),--target $(TARGET),) $(if $(MATERIALIZE),--materialize,)
+
+.PHONY: sidecar-download-all
+sidecar-download-all:
+	@echo ">>> 下载常用平台 sidecar 到本地缓存..."
+	./scripts/download-sidecars.sh --all-common
+
+.PHONY: sidecar-clean
+sidecar-clean:
+	@echo ">>> 清理下载 sidecar 产物..."
+	./scripts/clean-downloaded-sidecars.sh
+
 .PHONY: check-all
 check-all:
 	@echo ">>> 检查所有功能..."
@@ -304,6 +353,7 @@ TAURI_CLIENT := agent-tauri-client
 
 # 构建环境: prod (默认) 或 test
 BUILD_ENV ?= prod
+HOST_TRIPLE := $(shell rustc -vV | awk '/^host:/ {print $$2}')
 
 # Node.js 资源目录
 NODE_RESOURCE_DIR := crates/$(TAURI_CLIENT)/src-tauri/resources/node
@@ -325,16 +375,14 @@ sign-macos-resource-bins:
 	@./scripts/sign-macos-resource-bins.sh
 
 .PHONY: tauri-build
-tauri-build: node-download uv-download sign-macos-resource-bins
+tauri-build: tauri-install-deps sign-macos-resource-bins
 	@echo ">>> 构建 Tauri 应用 (环境: $(BUILD_ENV))..."
-	cd crates/$(TAURI_CLIENT) && pnpm install
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo build --release
 
 .PHONY: tauri-bundle
-tauri-bundle: node-download uv-download sign-macos-resource-bins
+tauri-bundle: tauri-install-deps sign-macos-resource-bins
 	@echo ">>> 打包 Tauri 应用 (环境: $(BUILD_ENV))..."
-	cd crates/$(TAURI_CLIENT) && pnpm install
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build
 
@@ -349,7 +397,7 @@ tauri-bundle-prod:
 	$(MAKE) tauri-bundle BUILD_ENV=prod
 
 .PHONY: tauri-bundle-all
-tauri-bundle-all: tauri-build
+tauri-bundle-all: sidecar-download-all sidecar-check-all tauri-build
 	@echo ">>> 打包 Tauri 应用 (所有平台)..."
 ifeq ($(UNAME_S),Darwin)
 	@echo "注意: 交叉编译需要安装工具链 (brew install mingw-w64 cargo-xar)" || true
@@ -357,19 +405,28 @@ endif
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build --bundles all
 
 .PHONY: tauri-dev
-tauri-dev: node-download uv-download
+tauri-dev: tauri-install-deps
 	@echo ">>> 运行 Tauri 开发模式 (环境: $(BUILD_ENV))..."
 	@echo ">>> 日志将输出到 logs/tauri-dev.log"
 	mkdir -p logs
 	@echo "=== Tauri Dev Started at $$(date) ===" > logs/tauri-dev.log
-	@echo ">>> 检查并安装前端依赖..."
-	cd crates/$(TAURI_CLIENT) && pnpm install 2>&1 | tee -a $(CURDIR)/logs/tauri-dev.log
+	@echo ">>> 前端依赖已完成安装，启动 tauri dev..."
 	cd crates/$(TAURI_CLIENT) && RUST_LOG=trace AGENT_RUST_LOG=trace VITE_BUILD_ENV=$(BUILD_ENV) cargo tauri dev 2>&1 | tee -a $(CURDIR)/logs/tauri-dev.log
 
 .PHONY: tauri-info
 tauri-info:
 	@echo ">>> Tauri 应用信息..."
 	@cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri info
+
+.PHONY: sidecar-preload
+sidecar-preload:
+	@echo ">>> 预下载并投放当前平台 sidecar (target: $(HOST_TRIPLE))..."
+	./scripts/download-sidecars.sh --target $(HOST_TRIPLE) --materialize
+
+.PHONY: tauri-install-deps
+tauri-install-deps: sidecar-preload node-download uv-download
+	@echo ">>> 安装 Tauri 前端依赖（安装前确保 sidecar 已下载到本地）..."
+	cd crates/$(TAURI_CLIENT) && pnpm install
 
 # ============================================================================
 # 依赖管理
@@ -410,11 +467,13 @@ update-deps:
 # 一键更新：拉取主仓库、更新 Cargo 依赖、更新子模块到远程最新并合并
 .PHONY: update
 update:
-	@echo ">>> 1/3 git pull..."
+	@echo ">>> 0/4 预下载当前平台 sidecar 到本地缓存 (target: $(HOST_TRIPLE))..."
+	./scripts/download-sidecars.sh --target $(HOST_TRIPLE)
+	@echo ">>> 1/4 git pull..."
 	git pull
-	@echo ">>> 2/3 cargo update..."
+	@echo ">>> 2/4 cargo update..."
 	$(CARGO) update
-	@echo ">>> 3/3 git submodule update --remote --merge..."
+	@echo ">>> 3/4 git submodule update --remote --merge..."
 	git submodule update --remote --merge
 	@echo ">>> update 完成"
 
