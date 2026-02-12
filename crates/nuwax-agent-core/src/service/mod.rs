@@ -39,6 +39,75 @@ pub const DEFAULT_MCP_PROXY_BIN: &str = "mcp-proxy";
 
 // ========== 跨平台辅助函数 ==========
 
+#[cfg(target_os = "windows")]
+fn find_node_exe_for_windows_launch() -> Option<std::path::PathBuf> {
+    let local_node = crate::dependency::node::NodeDetector::get_local_node_path();
+    if local_node.exists() {
+        return Some(local_node);
+    }
+
+    let output = std::process::Command::new("where")
+        .no_window()
+        .arg("node.exe")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let path = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    Some(std::path::PathBuf::from(path))
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_js_entry_from_npm_bin_shim(
+    program: &std::path::Path,
+    package_name: &str,
+) -> Option<std::path::PathBuf> {
+    let bin_dir = program.parent()?;
+    let bin_name = bin_dir.file_name()?.to_string_lossy();
+    if !bin_name.eq_ignore_ascii_case(".bin") {
+        return None;
+    }
+    let node_modules_dir = bin_dir.parent()?;
+    let package_dir = node_modules_dir.join(package_name);
+    if !package_dir.exists() {
+        return None;
+    }
+
+    let package_json_path = package_dir.join("package.json");
+    let content = std::fs::read_to_string(&package_json_path).ok()?;
+    let package_json: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    let bin_field = package_json.get("bin")?;
+    let rel_entry = if let Some(bin_str) = bin_field.as_str() {
+        Some(bin_str.to_string())
+    } else if let Some(bin_obj) = bin_field.as_object() {
+        bin_obj
+            .get(package_name)
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .or_else(|| {
+                bin_obj
+                    .values()
+                    .find_map(|v| v.as_str())
+                    .map(str::to_string)
+            })
+    } else {
+        None
+    }?;
+
+    let js_entry = package_dir.join(rel_entry);
+    if js_entry.exists() {
+        Some(js_entry)
+    } else {
+        None
+    }
+}
+
 /// 构建实际启动命令（Windows 下优先绕过 .cmd，避免弹出 CMD 窗口）
 ///
 /// 返回值：
@@ -69,6 +138,52 @@ fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<String>)
 
                 return (pkg.node_exe.to_string_lossy().to_string(), actual_args);
             }
+
+            // 兼容应用私有目录安装：
+            // <appdata>/.../node_modules/.bin/<pkg> -> 反查到 ../<pkg>/package.json 的 bin 入口。
+            if let (Some(node_exe), Some(js_entry)) = (
+                find_node_exe_for_windows_launch(),
+                resolve_js_entry_from_npm_bin_shim(path, package_name),
+            ) {
+                let mut actual_args = Vec::with_capacity(args.len() + 1);
+                actual_args.push(js_entry.to_string_lossy().to_string());
+                actual_args.extend(args.iter().map(|s| (*s).to_string()));
+                info!(
+                    "[Service] Windows 命令转直连 node 启动(私有 node_modules): {} -> {} {}",
+                    program,
+                    node_exe.display(),
+                    js_entry.display()
+                );
+                return (node_exe.to_string_lossy().to_string(), actual_args);
+            }
+        }
+
+        // 兜底：Windows 不能直接 CreateProcess 执行 .cmd（会报 os error 193），
+        // 若直连 node 解析失败，则改为通过 cmd.exe /C 启动同名 .cmd 包装脚本。
+        let cmd_script = match path.extension().and_then(|s| s.to_str()) {
+            Some(ext) if ext.eq_ignore_ascii_case("cmd") => Some(path.to_path_buf()),
+            None => {
+                let candidate = path.with_extension("cmd");
+                if candidate.exists() {
+                    Some(candidate)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        if let Some(cmd_script) = cmd_script {
+            let mut actual_args = Vec::with_capacity(args.len() + 2);
+            actual_args.push("/C".to_string());
+            actual_args.push(cmd_script.to_string_lossy().to_string());
+            actual_args.extend(args.iter().map(|s| (*s).to_string()));
+            info!(
+                "[Service] Windows 命令回退 cmd.exe 启动: {} -> {}",
+                program,
+                cmd_script.display()
+            );
+            return ("cmd.exe".to_string(), actual_args);
         }
     }
 
