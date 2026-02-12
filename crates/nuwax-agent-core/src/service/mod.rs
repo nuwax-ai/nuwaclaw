@@ -43,15 +43,29 @@ pub const DEFAULT_MCP_PROXY_BIN: &str = "mcp-proxy";
 fn find_node_exe_for_windows_launch() -> Option<std::path::PathBuf> {
     let local_node = crate::dependency::node::NodeDetector::get_local_node_path();
     if local_node.exists() {
+        debug!(
+            "[Service] Windows node 解析命中本地 runtime: {}",
+            local_node.display()
+        );
         return Some(local_node);
     }
 
-    let output = std::process::Command::new("where")
+    let output = match std::process::Command::new("where")
         .no_window()
         .arg("node.exe")
         .output()
-        .ok()?;
+    {
+        Ok(o) => o,
+        Err(e) => {
+            warn!("[Service] Windows node 解析失败: where node.exe 执行错误: {}", e);
+            return None;
+        }
+    };
     if !output.status.success() {
+        warn!(
+            "[Service] Windows node 解析失败: where node.exe exit={:?}",
+            output.status.code()
+        );
         return None;
     }
     let binding = String::from_utf8_lossy(&output.stdout);
@@ -61,6 +75,7 @@ fn find_node_exe_for_windows_launch() -> Option<std::path::PathBuf> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_owned)?;
+    debug!("[Service] Windows node 解析命中 PATH: {}", path);
     Some(std::path::PathBuf::from(path))
 }
 
@@ -128,7 +143,17 @@ fn get_windows_cmd_script_path(program: &std::path::Path) -> Option<std::path::P
 
 #[cfg(target_os = "windows")]
 fn resolve_js_entry_from_cmd_shim(cmd_script: &std::path::Path) -> Option<std::path::PathBuf> {
-    let content = std::fs::read_to_string(cmd_script).ok()?;
+    let content = match std::fs::read_to_string(cmd_script) {
+        Ok(c) => c,
+        Err(e) => {
+            debug!(
+                "[Service] cmd shim 读取失败: {} ({})",
+                cmd_script.display(),
+                e
+            );
+            return None;
+        }
+    };
     let base_dir = cmd_script.parent()?;
 
     for raw_line in content.lines() {
@@ -150,9 +175,18 @@ fn resolve_js_entry_from_cmd_shim(cmd_script: &std::path::Path) -> Option<std::p
         let rel = rel.replace('/', "\\");
         let entry = base_dir.join(std::path::Path::new(&rel));
         if entry.exists() {
+            debug!(
+                "[Service] cmd shim 解析命中入口: {} -> {}",
+                cmd_script.display(),
+                entry.display()
+            );
             return Some(entry);
         }
     }
+    debug!(
+        "[Service] cmd shim 未解析到入口: {}",
+        cmd_script.display()
+    );
     None
 }
 
@@ -187,6 +221,10 @@ fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<String>)
                 );
                 return (node_exe.to_string_lossy().to_string(), actual_args);
             }
+            debug!(
+                "[Service] cmd shim 存在但未解析到 JS 入口，继续其他解析路径: {}",
+                cmd_script.display()
+            );
         }
 
         if let Some(package_name) = package_name {
@@ -203,6 +241,11 @@ fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<String>)
                 );
 
                 return (pkg.node_exe.to_string_lossy().to_string(), actual_args);
+            } else {
+                debug!(
+                    "[Service] 包名直连 node 解析失败，尝试私有 node_modules 解析: {}",
+                    package_name
+                );
             }
 
             // 兼容应用私有目录安装：
@@ -222,6 +265,10 @@ fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<String>)
                 );
                 return (node_exe.to_string_lossy().to_string(), actual_args);
             }
+            debug!(
+                "[Service] 私有 node_modules 解析失败: program={}, package={}",
+                program, package_name
+            );
         }
 
         // 兜底：Windows 不能直接 CreateProcess 执行 .cmd（会报 os error 193），
@@ -238,6 +285,10 @@ fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<String>)
             );
             return ("cmd.exe".to_string(), actual_args);
         }
+        warn!(
+            "[Service] Windows 命令解析未命中任何直连/回退路径，保持原命令执行: {}",
+            program
+        );
     }
 
     (
