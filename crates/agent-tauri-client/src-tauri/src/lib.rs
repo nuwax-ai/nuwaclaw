@@ -602,13 +602,57 @@ fn first_existing_bin_path(
     None
 }
 
-/// 解析通过 npm 安装的可执行文件路径（本地 node_modules/.bin 或全局安装）。
+fn app_runtime_root_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+    Ok(app_data_dir.join("runtime"))
+}
+
+fn app_runtime_node_root_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app_runtime_root_dir(app)?.join("node"))
+}
+
+fn app_runtime_bin_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app_runtime_root_dir(app)?.join("bin"))
+}
+
+fn app_runtime_node_bin_path(app: &tauri::AppHandle, bin_name: &str) -> Result<String, String> {
+    let node_root = app_runtime_node_root_dir(app)?;
+    #[cfg(unix)]
+    let bin = node_root.join("bin").join(bin_name);
+    #[cfg(windows)]
+    let bin = if bin_name == "node" {
+        node_root.join("bin").join("node.exe")
+    } else {
+        node_root.join("bin").join(format!("{}.cmd", bin_name))
+    };
+    Ok(bin.to_string_lossy().to_string())
+}
+
+fn build_app_runtime_path_env(app: &tauri::AppHandle) -> Result<String, String> {
+    let current = std::env::var("PATH").unwrap_or_default();
+    let node_bin = app_runtime_node_root_dir(app)?.join("bin");
+    let uv_bin = app_runtime_bin_dir(app)?;
+    #[cfg(windows)]
+    let sep = ";";
+    #[cfg(not(windows))]
+    let sep = ":";
+    Ok(format!(
+        "{}{}{}{}{}",
+        node_bin.to_string_lossy(),
+        sep,
+        uv_bin.to_string_lossy(),
+        sep,
+        current
+    ))
+}
+
+/// 解析通过 npm 安装的可执行文件路径（应用内 node_modules/.bin）。
 ///
-/// 查找顺序（与「依赖均安装在全局」方案一致）：
+/// 查找顺序：
 /// 1. 应用数据目录：`<app_data_dir>/node_modules/.bin/{bin_name}`
-/// 2. npm 全局 prefix：`npm config get prefix` → `<prefix>/bin/{bin_name}`（Unix）或 `<prefix>/{bin_name}.cmd`（Windows）
-/// 3. 常见目录：`~/.local/bin/{bin_name}`、Windows `%APPDATA%\\npm\\{bin_name}.cmd`
-/// 4. 系统 PATH：which crate 查找
 ///
 /// # 参数
 /// - `app`: Tauri AppHandle
@@ -619,9 +663,8 @@ fn resolve_npm_global_bin_path(
     bin_name: &str,
     missing_hint: &str,
 ) -> Result<String, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
+    let app_data_dir = app_data_dir_get(app.clone())
+        .map(std::path::PathBuf::from)
         .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
 
     let local_bin = app_data_dir
@@ -629,86 +672,10 @@ fn resolve_npm_global_bin_path(
         .join(".bin")
         .join(bin_name);
 
-    let home_local_bin = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".local")
-        .join("bin");
-
-    #[cfg(unix)]
-    let common_global = home_local_bin.join(bin_name);
-    #[cfg(windows)]
-    let common_global = home_local_bin.join(format!("{}.cmd", bin_name));
-
-    // 按优先级组装路径候选，复用公共查找逻辑
-    let mut candidates: Vec<(std::path::PathBuf, &'static str)> =
-        vec![(local_bin, "本地"), (common_global, "~/.local/bin")];
-
-    // npm 全局 prefix 需执行命令得到路径，插入到本地之后
-    let node_path_env = build_node_path_env();
-    let npm_bin = resolve_node_bin("npm");
-    if let Ok(output) = std::process::Command::new(&npm_bin)
-        .no_window()
-        .args(["config", "get", "prefix"])
-        .env("PATH", &node_path_env)
-        .output()
-    {
-        if output.status.success() {
-            let prefix: String = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .trim_matches(|c| c == '"' || c == '\'')
-                .trim()
-                .to_string();
-            if !prefix.is_empty() {
-                #[cfg(unix)]
-                {
-                    candidates.insert(
-                        1,
-                        (
-                            std::path::Path::new(&prefix).join("bin").join(bin_name),
-                            "npm 全局",
-                        ),
-                    );
-                }
-                #[cfg(windows)]
-                {
-                    let p = std::path::Path::new(&prefix);
-                    let in_root = p.join(format!("{}.cmd", bin_name));
-                    candidates.insert(
-                        1,
-                        if in_root.exists() {
-                            (in_root, "npm 全局")
-                        } else {
-                            (p.join("bin").join(format!("{}.cmd", bin_name)), "npm 全局")
-                        },
-                    );
-                }
-            }
-        }
-    }
-
-    #[cfg(windows)]
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        candidates.push((
-            std::path::Path::new(&appdata)
-                .join("npm")
-                .join(format!("{}.cmd", bin_name)),
-            "%%APPDATA%%\\npm",
-        ));
-    }
+    let candidates: Vec<(std::path::PathBuf, &'static str)> = vec![(local_bin, "本地")];
 
     if let Some((path, _)) = first_existing_bin_path(&candidates, bin_name) {
         return Ok(path);
-    }
-
-    // 最后回退：仅使用 which crate 在 PATH 中查找（跨平台，不依赖系统 which/where）
-    warn!("[BinPath] {} 未在常见路径找到，尝试 PATH", bin_name);
-
-    if let Ok(path) = which::which(bin_name) {
-        let path = path.to_string_lossy().to_string();
-        if !path.is_empty() {
-            info!("[BinPath] {} 找到(PATH): {}", bin_name, path);
-            return Ok(path);
-        }
     }
 
     Err(format!("未找到 {} 可执行文件，{}", bin_name, missing_hint))
@@ -2111,10 +2078,18 @@ fn build_node_path_env() -> String {
     nuwax_agent_core::utils::build_node_path_env()
 }
 
+/// 将应用内运行时目录同步到当前进程 PATH
+fn sync_local_bin_env(app: &tauri::AppHandle) -> Result<(), String> {
+    let node_path = build_app_runtime_path_env(app)?;
+    std::env::set_var("PATH", &node_path);
+    debug!("[EnvSync] 已同步 PATH 到应用内运行时目录");
+    Ok(())
+}
+
 /// 初始化本地 npm 环境（创建 package.json，并确保 ~/.local/bin/env 存在便于终端生效）
 #[tauri::command]
 async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, String> {
-    let app_dir = app_data_dir_get(app)?;
+    let app_dir = app_data_dir_get(app.clone())?;
     let package_json_path = std::path::Path::new(&app_dir).join("package.json");
 
     // 创建 package.json（若不存在）
@@ -2129,25 +2104,20 @@ async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, String
             .map_err(|e| format!("创建 package.json 失败: {}", e))?;
     }
 
-    // 多平台：确保 ~/.local/bin/env（Unix）或 env.bat/env.ps1（Windows）存在，
-    // 用户 source 后即可在终端使用 node/npm/uv
-    if let Err(e) = nuwax_agent_core::utils::ensure_local_bin_env() {
-        warn!("[Dependencies] 写入本地 env 脚本失败: {}", e);
-    }
+    // 同步当前进程 PATH 到应用内运行时目录
+    sync_local_bin_env(&app)?;
 
     Ok(true)
 }
 
-/// 检测 Node.js 版本
-/// 检测顺序: 1) ~/.local/bin/node 2) 系统 PATH
+/// 检测 Node.js 版本（仅检测应用内运行时路径）
 #[tauri::command]
-async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionResult, String> {
-    // 1. 检测 ~/.local/bin/node（我们的安装路径）
-    let local_node_bin = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".local")
-        .join("bin")
-        .join(if cfg!(windows) { "node.exe" } else { "node" });
+async fn dependency_node_detect(app: tauri::AppHandle) -> Result<NodeVersionResult, String> {
+    let node_root = app_runtime_node_root_dir(&app)?;
+    #[cfg(unix)]
+    let local_node_bin = node_root.join("bin").join("node");
+    #[cfg(windows)]
+    let local_node_bin = node_root.join("bin").join("node.exe");
 
     if local_node_bin.exists() {
         let output = Command::new(&local_node_bin).no_window().arg("--version").output();
@@ -2159,7 +2129,7 @@ async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionRes
                     .to_string();
                 let meets = check_version_meets_requirement(&version_str, "22.0.0");
                 info!(
-                    "[NodeDetect] ~/.local/bin/node: v{} (满足要求: {})",
+                    "[NodeDetect] app runtime node: v{} (满足要求: {})",
                     version_str, meets
                 );
                 return Ok(NodeVersionResult {
@@ -2171,31 +2141,11 @@ async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionRes
         }
     }
 
-    // 2. 检测系统 PATH
-    let output = Command::new("node").no_window().arg("--version").output();
-
-    match output {
-        Ok(out) if out.status.success() => {
-            let version_str = String::from_utf8_lossy(&out.stdout)
-                .trim()
-                .trim_start_matches('v')
-                .to_string();
-
-            // 检查版本是否 >= 22.0.0
-            let meets = check_version_meets_requirement(&version_str, "22.0.0");
-
-            Ok(NodeVersionResult {
-                installed: true,
-                version: Some(version_str),
-                meets_requirement: meets,
-            })
-        }
-        _ => Ok(NodeVersionResult {
-            installed: false,
-            version: None,
-            meets_requirement: false,
-        }),
-    }
+    Ok(NodeVersionResult {
+        installed: false,
+        version: None,
+        meets_requirement: false,
+    })
 }
 
 /// Node.js 自动安装结果
@@ -2260,14 +2210,18 @@ async fn node_install_auto(app: tauri::AppHandle) -> Result<NodeInstallResult, S
         bundled_node_dir
     };
 
-    // 2. 使用 NodeInstaller 从打包资源安装
-    let installer = nuwax_agent_core::dependency::node::NodeInstaller::new();
+    // 2. 使用 NodeInstaller 安装到应用内运行时目录
+    let node_runtime_root = app_runtime_node_root_dir(&app)?;
+    let installer = nuwax_agent_core::dependency::node::NodeInstaller::with_target_dir(
+        node_runtime_root,
+    );
     match installer.install_from_bundled(&bundled_node_dir) {
         Ok(info) => {
             info!(
                 "[NodeInstall] 安装成功: v{} at {:?}",
                 info.version, info.path
             );
+            let _ = sync_local_bin_env(&app);
             Ok(NodeInstallResult {
                 success: true,
                 version: Some(info.version),
@@ -2297,7 +2251,7 @@ pub struct UvVersionResult {
 /// 检测 uv 版本
 /// uv 是高性能的 Python 包管理器
 #[tauri::command]
-async fn dependency_uv_detect() -> Result<UvVersionResult, String> {
+async fn dependency_uv_detect(app: tauri::AppHandle) -> Result<UvVersionResult, String> {
     // 辅助闭包: 从 uv --version 输出中提取版本号
     fn parse_uv_version(stdout: &[u8]) -> Option<String> {
         let output_str = String::from_utf8_lossy(stdout).trim().to_string();
@@ -2308,13 +2262,7 @@ async fn dependency_uv_detect() -> Result<UvVersionResult, String> {
             .filter(|s| !s.is_empty())
     }
 
-    // 1. 检测全局安装路径（优先级最高）
-    // 使用 ~/.local/bin/ 与 UvInstaller 保持一致的路径
-    let local_uv_dir = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".local")
-        .join("bin");
-
+    let local_uv_dir = app_runtime_bin_dir(&app)?;
     #[cfg(unix)]
     let local_uv_bin = local_uv_dir.join("uv");
     #[cfg(windows)]
@@ -2337,30 +2285,11 @@ async fn dependency_uv_detect() -> Result<UvVersionResult, String> {
         }
     }
 
-    // 2. 检测系统 PATH
-    let output = Command::new("uv").no_window().arg("--version").output();
-
-    match output {
-        Ok(out) if out.status.success() => {
-            // uv 输出格式: "uv 0.10.0 (homebrew)"
-            let version_str = parse_uv_version(&out.stdout);
-            let meets = version_str
-                .as_ref()
-                .map(|v| check_version_meets_requirement(v, "0.5.0"))
-                .unwrap_or(false);
-
-            Ok(UvVersionResult {
-                installed: true,
-                version: version_str,
-                meets_requirement: meets,
-            })
-        }
-        _ => Ok(UvVersionResult {
-            installed: false,
-            version: None,
-            meets_requirement: false,
-        }),
-    }
+    Ok(UvVersionResult {
+        installed: false,
+        version: None,
+        meets_requirement: false,
+    })
 }
 
 /// uv 自动安装结果
@@ -2441,11 +2370,14 @@ async fn uv_install_auto(app: tauri::AppHandle) -> Result<UvInstallResult, Strin
         bundled_uv_dir
     };
 
-    // 2. 使用 UvInstaller 复制到本地
-    let installer = nuwax_agent_core::dependency::uv::UvInstaller::new();
+    // 2. 使用 UvInstaller 复制到应用内运行时目录
+    let uv_runtime_bin = app_runtime_bin_dir(&app)?;
+    let installer =
+        nuwax_agent_core::dependency::uv::UvInstaller::with_target_dir(uv_runtime_bin);
     match installer.install_from_bundled(&bundled_uv_dir) {
         Ok(info) => {
             info!("[UvInstall] 安装成功: v{} at {:?}", info.version, info.path);
+            let _ = sync_local_bin_env(&app);
             Ok(UvInstallResult {
                 success: true,
                 version: Some(info.version),
@@ -2519,8 +2451,8 @@ async fn dependency_local_install(
     dependency_local_env_init(app.clone()).await?;
 
     // 执行 npm install
-    let npm_bin = resolve_node_bin("npm");
-    let node_path = build_node_path_env();
+    let npm_bin = app_runtime_node_bin_path(&app, "npm")?;
+    let node_path = build_app_runtime_path_env(&app)?;
     let output = Command::new(&npm_bin)
         .no_window()
         .env("PATH", &node_path)
@@ -2558,10 +2490,13 @@ async fn dependency_local_install(
 
 /// 查询 npm 包的最新版本号
 #[tauri::command]
-async fn dependency_local_check_latest(package_name: String) -> Result<Option<String>, String> {
+async fn dependency_local_check_latest(
+    app: tauri::AppHandle,
+    package_name: String,
+) -> Result<Option<String>, String> {
     let registry = "https://registry.npmmirror.com/";
-    let npm_bin = resolve_node_bin("npm");
-    let node_path = build_node_path_env();
+    let npm_bin = app_runtime_node_bin_path(&app, "npm")?;
+    let node_path = build_app_runtime_path_env(&app)?;
     let output = Command::new(&npm_bin)
         .no_window()
         .env("PATH", &node_path)

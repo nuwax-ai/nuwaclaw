@@ -304,6 +304,30 @@ impl UvInstaller {
         Self { target_dir }
     }
 
+    /// 使用自定义目标目录创建安装器
+    pub fn with_target_dir(target_dir: PathBuf) -> Self {
+        Self { target_dir }
+    }
+
+    fn read_version_from_path(path: &PathBuf) -> Result<String, UvError> {
+        let output = Command::new(path)
+            .no_window()
+            .arg("--version")
+            .output()
+            .map_err(|e| UvError::CommandFailed(e.to_string()))?;
+
+        if !output.status.success() {
+            return Err(UvError::CommandFailed("uv --version failed".to_string()));
+        }
+
+        let output_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        output_str
+            .split_whitespace()
+            .nth(1)
+            .map(|s| s.to_string())
+            .ok_or_else(|| UvError::ParseError(output_str))
+    }
+
     /// 从打包的资源目录安装 uv 到全局路径
     ///
     /// bundled_uv_dir 结构: bundled_uv_dir/bin/{uv,uvx}
@@ -387,24 +411,33 @@ impl UvInstaller {
 
         info!("[UvInstaller] 安装完成，验证中...");
 
-        // 创建 ~/.local/bin/env（Unix）或 env.bat/env.ps1（Windows），便于用户在终端 source 后使用 uv
-        if let Err(e) = crate::utils::ensure_local_bin_env() {
-            warn!("写入本地 env 脚本失败（不影响安装）: {}", e);
+        // 默认目录时才写入 ~/.local/bin/env；自定义目录由调用方负责环境同步
+        let default_target = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".local")
+            .join("bin");
+        if self.target_dir == default_target {
+            if let Err(e) = crate::utils::ensure_local_bin_env() {
+                warn!("写入本地 env 脚本失败（不影响安装）: {}", e);
+            }
         }
 
-        // 验证安装
-        let detector = UvDetector::new();
-        match detector.detect_local() {
-            Ok(info) => {
-                info!(
-                    "[UvInstaller] 验证成功: v{} at {:?}",
-                    info.version, info.path
-                );
-                Ok(info)
+        #[cfg(unix)]
+        let uv_bin = self.target_dir.join("uv");
+        #[cfg(windows)]
+        let uv_bin = self.target_dir.join("uv.exe");
+
+        match Self::read_version_from_path(&uv_bin) {
+            Ok(version) => {
+                info!("[UvInstaller] 验证成功: v{} at {:?}", version, uv_bin);
+                Ok(UvInfo {
+                    version,
+                    path: uv_bin,
+                    source: UvSource::Local,
+                })
             }
             Err(e) => {
                 warn!("[UvInstaller] 验证失败: {}", e);
-                // 列出目标目录内容
                 if let Ok(entries) = std::fs::read_dir(&self.target_dir) {
                     let files: Vec<String> = entries
                         .filter_map(|e| e.ok())

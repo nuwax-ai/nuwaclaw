@@ -35,8 +35,6 @@ import {
   installLocalNpmPackage,
   checkShellInstallerPackage,
   installShellInstallerPackage,
-  checkGlobalNpmPackage,
-  installGlobalNpmPackage,
   type LocalDependencyItem,
 } from "../services/dependencies";
 import { getDepsShowAll, setDepsShowAll } from "../services/setup";
@@ -259,7 +257,7 @@ export default function SetupDependencies({
         setInstallPhase("completed");
         setTimeout(() => onComplete(), 1500);
       } else {
-        // 系统依赖就绪，自动安装项目依赖（npm-global 等）
+        // 系统依赖就绪，自动安装项目依赖（应用内）
         setInstallPhase("ready");
       }
     } catch (error) {
@@ -326,7 +324,9 @@ export default function SetupDependencies({
         return;
       }
 
-      const hasNpm = toInstall.some((d) => d.type === "npm-local");
+      const hasNpm = toInstall.some(
+        (d) => d.type === "npm-local" || d.type === "npm-global",
+      );
       if (hasNpm) await initLocalNpmEnv();
 
       for (let i = 0; i < toInstall.length; i++) {
@@ -344,10 +344,6 @@ export default function SetupDependencies({
         let ver: string | undefined;
         if (pkg.type === "shell-installer") {
           const r = await checkShellInstallerPackage(pkg.binName || pkg.name);
-          isInstalled = r.installed;
-          ver = r.version;
-        } else if (pkg.type === "npm-global") {
-          const r = await checkGlobalNpmPackage(pkg.binName || pkg.name);
           isInstalled = r.installed;
           ver = r.version;
         } else {
@@ -373,11 +369,6 @@ export default function SetupDependencies({
             throw new Error(`${pkg.displayName} 缺少 installerUrl`);
           result = await installShellInstallerPackage(
             pkg.installerUrl,
-            pkg.binName || pkg.name,
-          );
-        } else if (pkg.type === "npm-global") {
-          result = await installGlobalNpmPackage(
-            pkg.name,
             pkg.binName || pkg.name,
           );
         } else {

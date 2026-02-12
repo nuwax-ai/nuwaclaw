@@ -79,32 +79,32 @@ const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
   {
     name: "mcp-stdio-proxy",
     displayName: "MCP Proxy",
-    type: "npm-global",
-    description: "MCP 协议转换代理工具，用于 AI Agent 通信",
+    type: "npm-local",
+    description: "MCP 协议转换代理工具（应用内安装）",
     required: true,
     binName: "mcp-proxy",
   },
   {
     name: "nuwax-file-server",
     displayName: "Nuwax File Server",
-    type: "npm-global",
-    description: "NuWax 文件服务 - AI Agent 文件传输服务",
+    type: "npm-local",
+    description: "NuWax 文件服务（应用内安装）",
     required: true,
     binName: "nuwax-file-server",
   },
   {
     name: "nuwaxcode",
     displayName: "NuwaxCode",
-    type: "npm-global",
-    description: "NuWax VSCode 扩展 - AI 编程助手集成",
+    type: "npm-local",
+    description: "NuWax VSCode 扩展（应用内安装）",
     required: true,
     binName: "nuwaxcode",
   },
   {
     name: "claude-code-acp-ts",
     displayName: "Claude Code (ACP)",
-    type: "npm-global",
-    description: "Claude Code AI 编程助手 (ACP 版本)",
+    type: "npm-local",
+    description: "Claude Code AI 编程助手 (ACP 版本，应用内安装)",
     required: true,
     binName: "claude-code-acp-ts",
   },
@@ -511,9 +511,8 @@ export async function checkAllSetupDependencies(): Promise<
         item.version = pkgResult.version;
         item.binPath = pkgResult.binPath;
       } else if (config.type === "npm-global") {
-        // npm-global 包（全局安装）
-        const binName = config.binName || config.name;
-        const pkgResult = await checkGlobalNpmPackage(binName);
+        // 兼容旧配置：npm-global 也按应用内 npm-local 处理
+        const pkgResult = await checkLocalNpmPackage(config.name);
         item.status = pkgResult.installed ? "installed" : "missing";
         item.version = pkgResult.version;
         item.binPath = pkgResult.binPath;

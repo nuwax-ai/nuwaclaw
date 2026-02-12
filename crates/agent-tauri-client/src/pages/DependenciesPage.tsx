@@ -22,8 +22,6 @@ import {
   installLocalNpmPackage,
   checkShellInstallerPackage,
   installShellInstallerPackage,
-  checkGlobalNpmPackage,
-  installGlobalNpmPackage,
   restartAllServices,
   checkLatestNpmVersion,
   isNewerVersion,
@@ -118,11 +116,6 @@ export default function DependenciesPage() {
           installerUrl,
           binName || packageName,
         );
-      } else if (type === "npm-global") {
-        result = await installGlobalNpmPackage(
-          packageName,
-          binName || packageName,
-        );
       } else {
         await initLocalNpmEnv();
         result = await installLocalNpmPackage(packageName);
@@ -183,16 +176,8 @@ export default function DependenciesPage() {
     );
 
     try {
-      let result;
-      if (type === "npm-global") {
-        result = await installGlobalNpmPackage(
-          packageName,
-          dep.binName || packageName,
-        );
-      } else {
-        await initLocalNpmEnv();
-        result = await installLocalNpmPackage(packageName);
-      }
+      await initLocalNpmEnv();
+      const result = await installLocalNpmPackage(packageName);
 
       if (result.success) {
         setLocalDeps((prev) =>
@@ -257,7 +242,9 @@ export default function DependenciesPage() {
 
     setDepInstalling(true);
     try {
-      const hasNpmDeps = missingDeps.some((d) => d.type === "npm-local");
+      const hasNpmDeps = missingDeps.some(
+        (d) => d.type === "npm-local" || d.type === "npm-global",
+      );
       if (hasNpmDeps) await initLocalNpmEnv();
 
       for (const dep of missingDeps) {
@@ -274,11 +261,6 @@ export default function DependenciesPage() {
 
         if (dep.type === "shell-installer") {
           const r = await checkShellInstallerPackage(dep.binName || dep.name);
-          isInstalled = r.installed;
-          checkVersion = r.version;
-          checkBinPath = r.binPath;
-        } else if (dep.type === "npm-global") {
-          const r = await checkGlobalNpmPackage(dep.binName || dep.name);
           isInstalled = r.installed;
           checkVersion = r.version;
           checkBinPath = r.binPath;
@@ -313,11 +295,6 @@ export default function DependenciesPage() {
             throw new Error(`${dep.displayName} 缺少 installerUrl`);
           result = await installShellInstallerPackage(
             dep.installerUrl,
-            dep.binName || dep.name,
-          );
-        } else if (dep.type === "npm-global") {
-          result = await installGlobalNpmPackage(
-            dep.name,
             dep.binName || dep.name,
           );
         } else {

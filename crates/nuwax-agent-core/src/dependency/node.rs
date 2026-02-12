@@ -372,6 +372,30 @@ impl NodeInstaller {
         Self { target_dir }
     }
 
+    /// 使用自定义目标目录创建安装器
+    pub fn with_target_dir(target_dir: PathBuf) -> Self {
+        Self { target_dir }
+    }
+
+    fn read_version_from_path(path: &PathBuf) -> Result<String, NodeError> {
+        let output = Command::new(path)
+            .no_window()
+            .arg("--version")
+            .output()
+            .map_err(|e| NodeError::CommandFailed(e.to_string()))?;
+
+        if !output.status.success() {
+            return Err(NodeError::CommandFailed(
+                "node --version failed".to_string(),
+            ));
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .trim_start_matches('v')
+            .to_string())
+    }
+
     /// 从打包的资源目录安装 Node.js 到 ~/.local/
     ///
     /// - 复制 node 二进制到 ~/.local/bin/node
@@ -498,16 +522,30 @@ impl NodeInstaller {
             }
         }
 
-        info!("Node.js installation to ~/.local/ completed");
+        info!("Node.js installation completed to {:?}", self.target_dir);
 
-        // 创建 ~/.local/bin/env（Unix）或 env.bat/env.ps1（Windows），便于用户在终端 source 后使用 node
-        if let Err(e) = crate::utils::ensure_local_bin_env() {
-            warn!("写入本地 env 脚本失败（不影响安装）: {}", e);
+        // 默认目录时才写入 ~/.local/bin/env；自定义目录由调用方负责环境同步
+        let default_target = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".local");
+        if self.target_dir == default_target {
+            if let Err(e) = crate::utils::ensure_local_bin_env() {
+                warn!("写入本地 env 脚本失败（不影响安装）: {}", e);
+            }
         }
 
-        // 验证安装
-        let detector = NodeDetector::new();
-        detector.detect_local()
+        // 验证安装（按当前 target_dir 验证）
+        #[cfg(unix)]
+        let installed_node = self.target_dir.join("bin").join("node");
+        #[cfg(windows)]
+        let installed_node = self.target_dir.join("bin").join("node.exe");
+
+        let version = Self::read_version_from_path(&installed_node)?;
+        Ok(NodeInfo {
+            version,
+            path: installed_node,
+            source: NodeSource::Local,
+        })
     }
 
     /// 递归复制目录
