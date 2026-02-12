@@ -279,9 +279,33 @@ jobs:
         shell: bash
         run: ./scripts/download-uv.sh win x64
 
-      # ---- macOS：对 node/uv 资源做 codesign，否则公证会因未签名而失败 ----
-      # tauri-action 只跑 cargo tauri build，不会执行 Makefile 的 sign-macos-resource-bins；
-      # 此处显式调用，与本地 make tauri-bundle 行为一致。需在仓库 Secrets 配置 APPLE_SIGNING_IDENTITY。
+      # ---- macOS：仅当配置了证书时导入 keychain，供后续 codesign 使用 ----
+      # 正式发布需在仓库 Secrets 配置：APPLE_CERTIFICATE（Base64 编码的 .p12）、APPLE_CERTIFICATE_PASSWORD、APPLE_SIGNING_IDENTITY。
+      # 未配置证书时脚本内判断并跳过导入，签名步骤由 sign-macos-resource-bins.sh 在 identity 为空时跳过。
+      # 正式发布 macOS 时请务必配置上述三个 Secret，否则打出的包未签名无法通过公证。
+      # 注意：不能在 if 中使用 secrets 上下文，故在 run 内判断。
+      - name: Import Apple certificate for code signing
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "==> APPLE_CERTIFICATE not set, skipping import"
+            exit 0
+          fi
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=actions
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          rm -f "$CERTIFICATE_PATH"
+
+      # ---- macOS：对 node/uv 资源做 codesign；未设置 APPLE_SIGNING_IDENTITY 时脚本内跳过 ----
       - name: Sign macOS resource binaries (node, uv)
         if: runner.os == 'macOS'
         env:
