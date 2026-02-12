@@ -1042,12 +1042,16 @@ async fn mcp_proxy_start(
         error!("[McpProxy] {}", e);
         e
     })?;
+    let mcp_log_dir = nuwax_agent_core::Logger::get_log_dir()
+        .to_string_lossy()
+        .to_string();
 
     let mcp_proxy_config = nuwax_agent_core::McpProxyConfig {
         bin_path,
         port,
         host: DEFAULT_MCP_PROXY_HOST.to_string(),
         config_json,
+        log_dir: Some(mcp_log_dir),
     };
 
     let manager = state.manager.lock().await;
@@ -1754,12 +1758,16 @@ async fn services_restart_all(
                 return Err(err);
             }
         };
+        let mcp_log_dir = nuwax_agent_core::Logger::get_log_dir()
+            .to_string_lossy()
+            .to_string();
 
         let mcp_proxy_config = nuwax_agent_core::McpProxyConfig {
             bin_path,
             port,
             host: DEFAULT_MCP_PROXY_HOST.to_string(),
             config_json,
+            log_dir: Some(mcp_log_dir),
         };
 
         let manager = state.manager.lock().await;

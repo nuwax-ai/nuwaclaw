@@ -4,7 +4,7 @@
 
 use std::process::Stdio;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
@@ -534,21 +534,52 @@ async fn kill_stale_mcp_proxy_processes() {
     info!("[McpProxy] 残留进程清理完成");
 }
 
-/// 等待 MCP Proxy 服务就绪（使用 mcp-proxy health 命令）
-async fn wait_for_mcp_proxy_ready(
-    bin_path: &str,
-    port: u16,
-    host: &str,
-    timeout_secs: u64,
-) -> Result<(), String> {
+/// 等待 MCP Proxy 服务就绪（直接探活 HTTP /health，避免重复拉起 mcp-proxy 子进程）
+async fn wait_for_mcp_proxy_ready(port: u16, host: &str, timeout_secs: u64) -> Result<(), String> {
+    use std::time::Duration;
+    use tokio::net::TcpStream;
+    use tokio::time::{sleep, timeout};
+
     let start = std::time::Instant::now();
-    let timeout_duration = std::time::Duration::from_secs(timeout_secs);
-    let retry_interval = std::time::Duration::from_millis(500);
-    let health_url = format!("http://{}:{}/mcp", host, port);
+    let timeout_duration = Duration::from_secs(timeout_secs);
+    let retry_interval = Duration::from_millis(500);
+    // mcp-proxy 常见监听 host=0.0.0.0，此时应使用本机回环地址探活
+    let probe_host = if host == "0.0.0.0" { "127.0.0.1" } else { host };
+    let health_path = format!("http://{}:{}/health", probe_host, port);
 
     loop {
-        let healthy =
-            run_command_with_timeout(bin_path, &["health", &health_url, "--quiet"], 5).await;
+        let healthy = async {
+            let mut stream = timeout(
+                Duration::from_millis(700),
+                TcpStream::connect(format!("{}:{}", probe_host, port)),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok)?;
+
+            let req = format!(
+                "GET /health HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\n\r\n",
+                probe_host, port
+            );
+            stream.write_all(req.as_bytes()).await.ok()?;
+
+            let mut buf = [0u8; 256];
+            let n = timeout(Duration::from_millis(700), stream.read(&mut buf))
+                .await
+                .ok()
+                .and_then(Result::ok)?;
+            if n == 0 {
+                return None;
+            }
+            let resp = String::from_utf8_lossy(&buf[..n]).to_ascii_lowercase();
+            if resp.contains(" 200 ") || resp.contains("200 ok") {
+                Some(())
+            } else {
+                None
+            }
+        }
+        .await
+        .is_some();
 
         if healthy {
             info!("[McpProxy] 服务就绪 (port {})", port);
@@ -558,11 +589,11 @@ async fn wait_for_mcp_proxy_ready(
         if start.elapsed() > timeout_duration {
             return Err(format!(
                 "MCP Proxy 健康检查超时: 等待 {}s 后 {} 仍未就绪",
-                timeout_secs, health_url
+                timeout_secs, health_path
             ));
         }
 
-        tokio::time::sleep(retry_interval).await;
+        sleep(retry_interval).await;
     }
 }
 
@@ -956,6 +987,8 @@ pub struct McpProxyConfig {
     pub host: String,
     /// mcpServers 配置（JSON 字符串，直接传递给 --config 参数）
     pub config_json: String,
+    /// mcp-proxy 日志目录（对应 `mcp-proxy proxy --log-dir`）
+    pub log_dir: Option<String>,
 }
 
 impl Default for McpProxyConfig {
@@ -965,6 +998,7 @@ impl Default for McpProxyConfig {
             port: DEFAULT_MCP_PROXY_PORT,
             host: DEFAULT_MCP_PROXY_HOST.to_string(),
             config_json: r#"{"mcpServers":{}}"#.to_string(),
+            log_dir: None,
         }
     }
 }
@@ -1484,6 +1518,9 @@ impl ServiceManager {
 
         info!("[McpProxy] 可执行文件路径: {}", config.bin_path);
         info!("[McpProxy] 监听地址: {}:{}", config.host, config.port);
+        if let Some(log_dir) = config.log_dir.as_deref() {
+            info!("[McpProxy] 日志目录: {}", log_dir);
+        }
 
         let port_str = config.port.to_string();
         
@@ -1516,6 +1553,7 @@ impl ServiceManager {
         };
         
         let mcp_args = vec![
+            "-v".to_string(),
             "proxy".to_string(),
             "--port".to_string(),
             port_str.clone(),
@@ -1524,6 +1562,17 @@ impl ServiceManager {
             "--config".to_string(),
             config.config_json.clone(),
         ];
+        let mut mcp_args = mcp_args;
+        if let Some(log_dir) = config.log_dir.as_deref().map(str::trim) {
+            if !log_dir.is_empty() {
+                // 提前确保目录存在，避免 mcp-proxy 因日志目录不存在而启动失败
+                if let Err(e) = tokio::fs::create_dir_all(log_dir).await {
+                    warn!("[McpProxy] 创建日志目录失败 {}: {}", log_dir, e);
+                }
+                mcp_args.push("--log-dir".to_string());
+                mcp_args.push(log_dir.to_string());
+            }
+        }
         let mcp_arg_refs: Vec<&str> = mcp_args.iter().map(String::as_str).collect();
         let (actual_program, actual_args) =
             resolve_launch_command(config.bin_path.as_str(), &mcp_arg_refs);
@@ -1583,9 +1632,7 @@ impl ServiceManager {
         }
 
         // 使用 mcp-proxy health 命令检查服务就绪
-        if let Err(e) =
-            wait_for_mcp_proxy_ready(&config.bin_path, config.port, &config.host, 15).await
-        {
+        if let Err(e) = wait_for_mcp_proxy_ready(config.port, &config.host, 15).await {
             error!("[McpProxy] 健康检查失败: {}", e);
             if let Ok(mut guard) = self.mcp_proxy.try_lock() {
                 let _ = guard.take();
