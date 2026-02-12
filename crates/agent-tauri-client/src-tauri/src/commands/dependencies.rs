@@ -1168,6 +1168,29 @@ async fn handle_batch_install_result(
     packages: Vec<String>,
 ) -> Result<BatchInstallResult, String> {
     if output.status.success() {
+        // 在 Windows 上，npm 全局安装后需要更新当前进程的 PATH
+        // 因为 where 命令只在当前进程的 PATH 中搜索
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(appdata) = std::env::var("APPDATA") {
+                let npm_global_path = format!("{}\\npm", appdata);
+                if std::path::Path::new(&npm_global_path).exists() {
+                    if let Ok(current_path) = std::env::var("PATH") {
+                        if !current_path.contains(&npm_global_path) {
+                            let new_path = format!("{};{}", npm_global_path, current_path);
+                            assert!(!new_path.contains('\0'), "PATH value cannot contain null bytes");
+                            // SAFETY: 我们已经确保 new_path 不包含 null 字节
+                            #[allow(unsafe_code)]
+                            unsafe {
+                                std::env::set_var("PATH", &new_path);
+                            }
+                            info!("[Dependency] 已将 npm 全局目录添加到 PATH: {:?}", npm_global_path);
+                        }
+                    }
+                }
+            }
+        }
+
         // 验证每个包是否安装成功
         let mut installed_packages = Vec::new();
         let mut failed_packages = Vec::new();
