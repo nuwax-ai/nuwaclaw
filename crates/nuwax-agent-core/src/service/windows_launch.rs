@@ -118,6 +118,101 @@ fn resolve_js_entry_from_npm_bin_shim(
     None
 }
 
+fn resolve_js_entry_from_node_modules_dir(
+    node_modules_dir: &std::path::Path,
+    package_names: &[&str],
+) -> Option<std::path::PathBuf> {
+    for package_name in package_names {
+        let package_dir = node_modules_dir.join(package_name);
+        if !package_dir.exists() {
+            continue;
+        }
+
+        let package_json_path = package_dir.join("package.json");
+        let content = match std::fs::read_to_string(&package_json_path) {
+            Ok(c) => c,
+            Err(e) => {
+                debug!(
+                    "[Service] package.json 读取失败，跳过: {} ({})",
+                    package_json_path.display(),
+                    e
+                );
+                continue;
+            }
+        };
+        let package_json: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(v) => v,
+            Err(e) => {
+                debug!(
+                    "[Service] package.json 解析失败，跳过: {} ({})",
+                    package_json_path.display(),
+                    e
+                );
+                continue;
+            }
+        };
+
+        let bin_field = match package_json.get("bin") {
+            Some(v) => v,
+            None => continue,
+        };
+        let rel_entry = if let Some(bin_str) = bin_field.as_str() {
+            Some(bin_str.to_string())
+        } else if let Some(bin_obj) = bin_field.as_object() {
+            bin_obj
+                .get(*package_name)
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .or_else(|| {
+                    bin_obj
+                        .values()
+                        .find_map(|v| v.as_str())
+                        .map(str::to_string)
+                })
+        } else {
+            None
+        };
+        let Some(rel_entry) = rel_entry else {
+            continue;
+        };
+
+        let js_entry = package_dir.join(rel_entry);
+        if js_entry.exists() {
+            debug!(
+                "[Service] node_modules 入口解析命中: package={} entry={}",
+                package_name,
+                js_entry.display()
+            );
+            return Some(js_entry);
+        }
+    }
+    None
+}
+
+fn resolve_js_entry_from_known_windows_node_modules(
+    package_names: &[&str],
+) -> Option<std::path::PathBuf> {
+    let appdata = std::env::var("APPDATA").ok()?;
+    let appdata_path = std::path::PathBuf::from(&appdata);
+    let candidates = [
+        appdata_path
+            .join("com.nuwax.agent-tauri-client")
+            .join("node_modules"),
+        appdata_path.join("npm").join("node_modules"),
+    ];
+
+    for node_modules_dir in candidates {
+        if !node_modules_dir.exists() {
+            continue;
+        }
+        if let Some(entry) = resolve_js_entry_from_node_modules_dir(&node_modules_dir, package_names)
+        {
+            return Some(entry);
+        }
+    }
+    None
+}
+
 fn get_windows_cmd_script_path(program: &std::path::Path) -> Option<std::path::PathBuf> {
     match program
         .extension()
@@ -283,6 +378,21 @@ pub fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<Stri
             actual_args.extend(args.iter().map(|s| (*s).to_string()));
             info!(
                 "[Service] Windows 命令转直连 node 启动(私有 node_modules): {} -> {} {}",
+                program,
+                node_exe.display(),
+                js_entry.display()
+            );
+            return (node_exe.to_string_lossy().to_string(), actual_args);
+        }
+        if let (Some(node_exe), Some(js_entry)) = (
+            find_node_exe_for_windows_launch(),
+            resolve_js_entry_from_known_windows_node_modules(&package_candidates),
+        ) {
+            let mut actual_args = Vec::with_capacity(args.len() + 1);
+            actual_args.push(js_entry.to_string_lossy().to_string());
+            actual_args.extend(args.iter().map(|s| (*s).to_string()));
+            info!(
+                "[Service] Windows 命令转直连 node 启动(已知 node_modules): {} -> {} {}",
                 program,
                 node_exe.display(),
                 js_entry.display()
