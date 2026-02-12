@@ -279,6 +279,15 @@ jobs:
         shell: bash
         run: ./scripts/download-uv.sh win x64
 
+      # ---- macOS：对 node/uv 资源做 codesign，否则公证会因未签名而失败 ----
+      # tauri-action 只跑 cargo tauri build，不会执行 Makefile 的 sign-macos-resource-bins；
+      # 此处显式调用，与本地 make tauri-bundle 行为一致。需在仓库 Secrets 配置 APPLE_SIGNING_IDENTITY。
+      - name: Sign macOS resource binaries (node, uv)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: ./scripts/sign-macos-resource-bins.sh
+
       # ---- 构建 & 发布 ----
       # tauri-action 会自动执行 tauri.conf.json 中的 beforeBuildCommand (pnpm build)
       # 然后运行 cargo tauri build，最后将产物上传到 GitHub Release

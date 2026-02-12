@@ -102,6 +102,39 @@ cargo tauri info
 | `make tauri-bundle-all` | 打包所有平台应用 | `target/release/bundle/` |
 
 **注意**：由于 `CI=1` 环境变量会导致 Tauri CLI 参数错误，建议运行前先执行 `unset CI`。
+
+### 其他人在本机打包
+
+在**自己电脑**上打包（克隆仓库后）按以下步骤即可；每人用**自己的** Apple 证书签名与公证。
+
+1. **项目根目录**安装依赖并下载运行时资源：
+   ```bash
+   cd /path/to/nuwax-agent
+   make node-download   # 下载 Node 到 src-tauri/resources/node
+   make uv-download    # 下载 uv/uvx 到 src-tauri/resources/uv
+   ```
+
+2. **macOS 且需要公证时**，设置本机签名身份（与 Tauri 使用同一证书）：
+   ```bash
+   # 查看本机可用 identity：security find-identity -v -p codesigning
+   export APPLE_SIGNING_IDENTITY="Developer ID Application: 你的名字 (TEAM_ID)"
+   # 若使用证书 SHA-1 亦可：export APPLE_SIGNING_IDENTITY="xxxxxxxx..."
+   ```
+   `make tauri-bundle` 会自动对 `resources/node` 与 `resources/uv` 做 codesign，再打包；未设置则跳过资源签名（公证会失败）。
+
+3. **可选**：公证需 Apple 账号与 API Key，在打包前设置：
+   ```bash
+   export APPLE_ID="your@email"
+   export APPLE_PASSWORD="app-specific-password"
+   export APPLE_TEAM_ID="TEAM_ID"
+   # 或使用 App Store Connect API Key：APPLE_API_ISSUER / APPLE_API_KEY / APPLE_API_KEY_PATH
+   ```
+
+4. **执行打包**（会先签资源再打包）：
+   ```bash
+   unset CI && make tauri-bundle
+   ```
+   产物在 `target/release/bundle/macos/`（或当前平台对应目录）。
 ```
 
 ### 快速启动
