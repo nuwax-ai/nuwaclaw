@@ -1313,6 +1313,7 @@ async fn services_restart_all(
     state: tauri::State<'_, ServiceManagerState>,
 ) -> Result<bool, String> {
     info!("[Services] ========== 开始重启所有服务 ==========");
+    sync_local_bin_env(&app)?;
 
     // 停止所有服务
     info!("[Services] 1/5 停止所有服务...");
