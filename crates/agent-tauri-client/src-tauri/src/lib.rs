@@ -2081,6 +2081,7 @@ fn build_node_path_env() -> String {
 /// 将应用内运行时目录同步到当前进程 PATH
 fn sync_local_bin_env(app: &tauri::AppHandle) -> Result<(), String> {
     let node_path = build_app_runtime_path_env(app)?;
+    debug!("[EnvSync] runtime PATH: {}", node_path);
     std::env::set_var("PATH", &node_path);
     debug!("[EnvSync] 已同步 PATH 到应用内运行时目录");
     Ok(())
