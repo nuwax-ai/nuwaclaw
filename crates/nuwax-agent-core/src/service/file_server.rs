@@ -114,10 +114,8 @@ pub(crate) async fn start_with_config(
         }
     }
 
-    let node_path = crate::utils::build_node_path_env();
     let capture_output = config.capture_output_to_log;
     let cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
-        let cmd = cmd.env("PATH", &node_path);
         let cmd = if capture_output {
             cmd.stdout(Stdio::piped()).stderr(Stdio::piped())
         } else {

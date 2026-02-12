@@ -75,6 +75,7 @@ pub fn create_app() -> tauri::Builder<tauri::Wry> {
             crate::commands::node_install_system,
             crate::commands::dependency_uv_detect,
             crate::commands::uv_install_auto,
+            crate::commands::uv_install_system,
             crate::commands::dependency_local_check,
             crate::commands::dependency_local_install,
             crate::commands::dependency_local_check_latest,

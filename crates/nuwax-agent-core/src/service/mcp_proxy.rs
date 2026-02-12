@@ -43,10 +43,8 @@ pub(crate) async fn start_with_config(
     info!("[McpProxy] Listen address: {}:{}", config.host, config.port);
 
     let port_str = config.port.to_string();
-    let node_path = crate::utils::build_node_path_env();
     let cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
-        cmd.env("PATH", &node_path)
-            .arg("proxy")
+        cmd.arg("proxy")
             .arg("--port")
             .arg(&port_str)
             .arg("--host")

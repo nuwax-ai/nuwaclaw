@@ -120,8 +120,3 @@ pub fn fix_linux_path_env() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-
-/// 构建包含 node bin 目录的 PATH 环境变量(委托给 nuwax-agent-core)
-pub fn build_node_path_env() -> String {
-    nuwax_agent_core::utils::build_node_path_env()
-}

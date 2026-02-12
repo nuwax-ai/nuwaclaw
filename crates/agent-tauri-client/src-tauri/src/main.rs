@@ -6,9 +6,5 @@ fn main() {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let _ = fix_path_env::fix();
 
-    // 确保进程 PATH 包含 ~/.local/bin，以便所有子进程（含 rcoder 启动的 claude-code-acp-ts）都能找到 node
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    nuwax_agent_core::utils::set_path_env(nuwax_agent_core::utils::build_node_path_env());
-
     agent_tauri_client_lib::run()
 }

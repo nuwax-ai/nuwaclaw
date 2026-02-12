@@ -73,11 +73,8 @@ pub fn resolve_npm_global_bin_path(
     ];
 
     // npm 全局 prefix 需执行命令得到路径，插入到本地之后
-    let node_path_env = build_node_path_env();
-    let npm_bin = resolve_node_bin("npm");
-    if let Ok(output) = std::process::Command::new(&npm_bin)
+    if let Ok(output) = std::process::Command::new("npm")
         .args(["config", "get", "prefix"])
-        .env("PATH", &node_path_env)
         .output()
     {
         if output.status.success() {
@@ -137,36 +134,11 @@ pub fn resolve_npm_global_bin_path(
 }
 
 /// 解析 node/npm/npx 等二进制的实际路径
-/// 优先查找 ~/.local/bin/ → 最后 fallback 到命令名（依赖 PATH）
+/// 直接使用系统 PATH
 fn resolve_node_bin(bin_name: &str) -> String {
-    // 1. ~/.local/bin/ (node 安装目录)
-    let global_bin = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".local")
-        .join("bin");
-
-    #[cfg(unix)]
-    let bin_path = global_bin.join(bin_name);
-    #[cfg(windows)]
-    let bin_path = if bin_name == "node" {
-        global_bin.join("node.exe")
-    } else {
-        global_bin.join(format!("{}.cmd", bin_name))
-    };
-
-    if bin_path.exists() {
-        info!("[resolve_node_bin] {} -> {:?}", bin_name, bin_path);
-        return bin_path.to_string_lossy().to_string();
-    }
-
-    // 2. 降级到 PATH
-    info!("[resolve_node_bin] {} -> fallback to PATH", bin_name);
+    // 直接返回命令名，依赖系统 PATH
+    info!("[resolve_node_bin] {} -> using PATH", bin_name);
     bin_name.to_string()
-}
-
-/// 构建包含 node bin 目录的 PATH 环境变量（委托给 nuwax-agent-core）
-fn build_node_path_env() -> String {
-    nuwax_agent_core::utils::build_node_path_env()
 }
 
 // ========== 专用路径解析函数（复用上面的公共方法） ==========

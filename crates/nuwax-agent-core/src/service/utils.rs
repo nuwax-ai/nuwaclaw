@@ -16,9 +16,7 @@ use super::types::ChildWrapperType;
 /// # Returns
 /// * `bool` - 命令是否成功执行（true = 成功，false = 失败或超时）
 pub(crate) async fn run_command_with_timeout(program: &str, args: &[&str], timeout_secs: u64) -> bool {
-    let node_path = crate::utils::build_node_path_env();
     let mut cmd = process_wrap::tokio::CommandWrap::with_new(program, |cmd| {
-        cmd.env("PATH", &node_path);
         for arg in args {
             cmd.arg(*arg);
         }

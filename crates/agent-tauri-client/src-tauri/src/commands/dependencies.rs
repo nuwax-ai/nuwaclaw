@@ -176,6 +176,17 @@ pub struct UvInstallResult {
     pub error: Option<String>,
 }
 
+/// uv 系统级安装结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UvSystemInstallResult {
+    pub success: bool,
+    pub version: Option<String>,
+    pub install_path: Option<String>,
+    pub needs_restart: bool,
+    pub error: Option<String>,
+}
+
 /// 跨平台查找可执行文件路径
 /// macOS/Linux 使用 `which`，Windows 使用 `where`
 fn which_command(bin_name: &str) -> std::io::Result<std::process::Output> {
@@ -187,44 +198,6 @@ fn which_command(bin_name: &str) -> std::io::Result<std::process::Output> {
     {
         Command::new("which").arg(bin_name).output()
     }
-}
-
-/// 跨平台解析 Node.js bin 目录
-fn resolve_node_bin(bin_name: &str) -> String {
-    // 1. 优先使用 ~/.local/bin 下的二进制（我们的安装路径）
-    let local_bin_dir = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".local")
-        .join("bin");
-
-    #[cfg(windows)]
-    let bin_path = local_bin_dir.join(format!("{}.exe", bin_name));
-    #[cfg(not(windows))]
-    let bin_path = local_bin_dir.join(bin_name);
-
-    if bin_path.exists() {
-        info!("[resolve_node_bin] {} -> {:?}", bin_name, bin_path);
-        // Windows 上移除可能的扩展长度路径前缀 `\\?\`
-        #[cfg(windows)]
-        {
-            let path_str = bin_path.to_string_lossy();
-            if path_str.starts_with(r"\\?\") {
-                return path_str[4..].to_string();
-            }
-            return path_str.to_string();
-        }
-        #[cfg(not(windows))]
-        return bin_path.to_string_lossy().to_string();
-    }
-
-    // 2. 降级到 PATH
-    info!("[resolve_node_bin] {} -> fallback to PATH", bin_name);
-    bin_name.to_string()
-}
-
-/// 构建包含 node bin 目录的 PATH 环境变量
-fn build_node_path_env() -> String {
-    nuwax_agent_core::utils::build_node_path_env()
 }
 
 /// 获取包的 bin 文件路径
@@ -281,52 +254,10 @@ pub async fn dependency_local_env_init(app: tauri::AppHandle) -> Result<bool, St
 }
 
 /// 检测 Node.js 版本
-/// 检测顺序: 1) ~/.local/bin/node 2) 系统 PATH
+/// 直接检测系统 PATH 中的 node
 #[tauri::command]
 pub async fn dependency_node_detect(_app: tauri::AppHandle) -> Result<NodeVersionResult, String> {
-    // 1. 检测 ~/.local/bin/node（我们的安装路径）
-    let local_node_bin = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".local")
-        .join("bin")
-        .join(if cfg!(windows) { "node.exe" } else { "node" });
-
-    if local_node_bin.exists() {
-        // Windows 上需要清理扩展长度路径前缀
-        #[cfg(windows)]
-        let local_node_bin_clean = {
-            let path_str = local_node_bin.to_string_lossy();
-            if path_str.starts_with(r"\\?\") {
-                path_str[4..].to_string()
-            } else {
-                path_str.to_string()
-            }
-        };
-        #[cfg(not(windows))]
-        let local_node_bin_clean = local_node_bin.to_string_lossy().to_string();
-
-        let output = Command::new(&local_node_bin_clean).arg("--version").output();
-        if let Ok(out) = output {
-            if out.status.success() {
-                let version_str = String::from_utf8_lossy(&out.stdout)
-                    .trim()
-                    .trim_start_matches('v')
-                    .to_string();
-                let meets = check_version_meets_requirement(&version_str, "22.0.0");
-                info!(
-                    "[NodeDetect] ~/.local/bin/node: v{} (满足要求: {})",
-                    version_str, meets
-                );
-                return Ok(NodeVersionResult {
-                    installed: true,
-                    version: Some(version_str),
-                    meets_requirement: meets,
-                });
-            }
-        }
-    }
-
-    // 2. 检测系统 PATH
+    // 直接检测系统 PATH
     let output = Command::new("node").arg("--version").output();
 
     match output {
@@ -438,49 +369,7 @@ pub async fn dependency_uv_detect() -> Result<UvVersionResult, String> {
             .filter(|s| !s.is_empty())
     }
 
-    // 1. 检测全局安装路径（优先级最高）
-    // 使用 ~/.local/bin/ 与 UvInstaller 保持一致的路径
-    let local_uv_dir = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".local")
-        .join("bin");
-
-    #[cfg(unix)]
-    let local_uv_bin = local_uv_dir.join("uv");
-    #[cfg(windows)]
-    let local_uv_bin = local_uv_dir.join("uv.exe");
-
-    if local_uv_bin.exists() {
-        // Windows 上需要清理扩展长度路径前缀
-        #[cfg(windows)]
-        let local_uv_bin_clean = {
-            let path_str = local_uv_bin.to_string_lossy();
-            if path_str.starts_with(r"\\?\") {
-                path_str[4..].to_string()
-            } else {
-                path_str.to_string()
-            }
-        };
-        #[cfg(not(windows))]
-        let local_uv_bin_clean = local_uv_bin.to_string_lossy().to_string();
-
-        let output = Command::new(&local_uv_bin_clean).arg("--version").output();
-        if let Ok(out) = output {
-            if out.status.success() {
-                if let Some(version_str) = parse_uv_version(&out.stdout) {
-                    let meets = check_version_meets_requirement(&version_str, "0.5.0");
-                    info!("[UvDetect] 本地 uv: v{} (满足要求: {})", version_str, meets);
-                    return Ok(UvVersionResult {
-                        installed: true,
-                        version: Some(version_str),
-                        meets_requirement: meets,
-                    });
-                }
-            }
-        }
-    }
-
-    // 2. 检测系统 PATH
+    // 直接检测系统 PATH
     let output = Command::new("uv").arg("--version").output();
 
     match output {
@@ -648,23 +537,18 @@ pub async fn dependency_local_install(
     dependency_local_env_init(app.clone()).await?;
 
     // 执行 npm install
-    let npm_bin = resolve_node_bin("npm");
-    let node_path = build_node_path_env();
-
     #[cfg(target_os = "windows")]
     let output = {
         // Windows: 使用 cmd.exe /C 执行 npm（因为 npm 是 .cmd 批处理文件）
         Command::new("cmd")
-            .env("PATH", &node_path)
-            .args(["/C", &npm_bin, "install", &package_name, "--prefix", &app_dir, "--registry", registry])
+            .args(["/C", "npm", "install", &package_name, "--prefix", &app_dir, "--registry", registry])
             .output()
             .map_err(|e| format!("执行 npm install 失败: {}", e))?
     };
 
     #[cfg(not(target_os = "windows"))]
     let output = {
-        Command::new(&npm_bin)
-            .env("PATH", &node_path)
+        Command::new("npm")
             .args([
                 "install",
                 &package_name,
@@ -702,23 +586,19 @@ pub async fn dependency_local_install(
 #[tauri::command]
 pub async fn dependency_local_check_latest(package_name: String) -> Result<Option<String>, String> {
     let registry = "https://registry.npmmirror.com/";
-    let npm_bin = resolve_node_bin("npm");
-    let node_path = build_node_path_env();
 
     #[cfg(target_os = "windows")]
     let output = {
         // Windows: 使用 cmd.exe /C 执行 npm
         Command::new("cmd")
-            .env("PATH", &node_path)
-            .args(["/C", &npm_bin, "view", &package_name, "version", "--registry", registry])
+            .args(["/C", "npm", "view", &package_name, "version", "--registry", registry])
             .output()
             .map_err(|e| format!("执行 npm view 失败: {}", e))?
     };
 
     #[cfg(not(target_os = "windows"))]
     let output = {
-        Command::new(&npm_bin)
-            .env("PATH", &node_path)
+        Command::new("npm")
             .args(["view", &package_name, "version", "--registry", registry])
             .output()
             .map_err(|e| format!("执行 npm view 失败: {}", e))?
@@ -887,21 +767,17 @@ pub async fn dependency_shell_installer_install(
 /// 通过检查可执行文件是否存在来判断
 #[tauri::command]
 pub async fn dependency_npm_global_check(bin_name: String) -> Result<NpmPackageResult, String> {
-    let node_path = build_node_path_env();
-
     // 跨平台检查二进制文件是否存在
     let which_output = {
         #[cfg(target_os = "windows")]
         {
             Command::new("where")
-                .env("PATH", &node_path)
                 .arg(&bin_name)
                 .output()
         }
         #[cfg(not(target_os = "windows"))]
         {
             Command::new("which")
-                .env("PATH", &node_path)
                 .arg(&bin_name)
                 .output()
         }
@@ -915,7 +791,6 @@ pub async fn dependency_npm_global_check(bin_name: String) -> Result<NpmPackageR
 
             // 尝试获取版本信息 (使用 -V 参数)
             let version = Command::new(&bin_name)
-                .env("PATH", &node_path)
                 .arg("-V")
                 .output()
                 .ok()
@@ -965,15 +840,11 @@ pub async fn dependency_npm_global_install(
         package_name, registry
     );
 
-    let npm_bin = resolve_node_bin("npm");
-    let node_path = build_node_path_env();
-
     #[cfg(target_os = "windows")]
     {
         // Windows: 使用 cmd.exe /C 执行 npm（因为 npm 是 .cmd 批处理文件）
         let output = Command::new("cmd")
-            .env("PATH", &node_path)
-            .args(["/C", &npm_bin, "install", "-g"])
+            .args(["/C", "npm", "install", "-g"])
             .arg(format!("{}@latest", package_name))
             .args(["--registry", registry])
             .output()
@@ -991,8 +862,8 @@ pub async fn dependency_npm_global_install(
         );
 
         let osascript = format!(
-            r#"do shell script "PATH='{}' '{}' {}" with administrator privileges"#,
-            node_path, npm_bin, npm_args
+            r#"do shell script "npm {}" with administrator privileges"#,
+            npm_args
         );
 
         info!("[Dependency] macOS: 使用 osascript 执行 sudo npm install");
@@ -1013,7 +884,7 @@ pub async fn dependency_npm_global_install(
             package_name, registry
         );
 
-        let shell_command = format!("PATH='{}' '{}' {}", node_path, npm_bin, npm_args);
+        let shell_command = format!("npm {}", npm_args);
 
         info!("[Dependency] Linux: 使用 pkexec 执行 sudo npm install");
 
@@ -1027,8 +898,7 @@ pub async fn dependency_npm_global_install(
             Err(e) => {
                 warn!("[Dependency] pkexec 不可用: {}，尝试直接执行...", e);
                 // 如果 pkexec 不可用，尝试直接执行
-                let output = Command::new(&npm_bin)
-                    .env("PATH", &node_path)
+                let output = Command::new("npm")
                     .args([
                         "install",
                         "-g",
@@ -1144,9 +1014,6 @@ pub async fn dependency_npm_global_install_batch(
         packages, registry
     );
 
-    let npm_bin = resolve_node_bin("npm");
-    let node_path = build_node_path_env();
-
     // 构建包列表：package@latest
     let package_args: Vec<String> = packages.iter().map(|p| format!("{}@latest", p)).collect();
     let package_list = package_args.join(" ");
@@ -1155,8 +1022,7 @@ pub async fn dependency_npm_global_install_batch(
     {
         // Windows: 使用 cmd.exe /C 执行 npm（因为 npm 是 .cmd 批处理文件）
         let output = Command::new("cmd")
-            .env("PATH", &node_path)
-            .args(["/C", &npm_bin, "install", "-g"])
+            .args(["/C", "npm", "install", "-g"])
             .args(&package_args)
             .args(["--registry", registry])
             .output()
@@ -1174,8 +1040,8 @@ pub async fn dependency_npm_global_install_batch(
         );
 
         let osascript = format!(
-            r#"do shell script "PATH='{}' '{}' {}" with administrator privileges"#,
-            node_path, npm_bin, npm_args
+            r#"do shell script "npm {}" with administrator privileges"#,
+            npm_args
         );
 
         info!("[Dependency] macOS: 使用 osascript 执行批量 sudo npm install");
@@ -1196,7 +1062,7 @@ pub async fn dependency_npm_global_install_batch(
             package_list, registry
         );
 
-        let shell_command = format!("PATH='{}' '{}' {}", node_path, npm_bin, npm_args);
+        let shell_command = format!("npm {}", npm_args);
 
         info!("[Dependency] Linux: 使用 pkexec 执行批量 sudo npm install");
 
@@ -1210,8 +1076,7 @@ pub async fn dependency_npm_global_install_batch(
             Err(e) => {
                 warn!("[Dependency] pkexec 不可用: {}，尝试直接执行...", e);
                 // 如果 pkexec 不可用，尝试直接执行（可能会因权限失败）
-                let output = Command::new(&npm_bin)
-                    .env("PATH", &node_path)
+                let output = Command::new("npm")
                     .args(["install", "-g"])
                     .args(&package_args)
                     .args(["--registry", registry])
@@ -1305,6 +1170,435 @@ fn get_bin_name_for_package(package_name: &str) -> String {
         "claude-code-acp-ts" => "claude-code-acp-ts".to_string(),
         _ => package_name.to_string(),
     }
+}
+
+// ========== 系统级 uv 安装 ==========
+
+/// 验证 uv 是否安装成功
+fn verify_uv_install() -> Result<String, String> {
+    let output = Command::new("uv")
+        .arg("--version")
+        .output()
+        .map_err(|e| format!("验证安装失败: {}", e))?;
+
+    if output.status.success() {
+        // uv 输出格式: "uv 0.10.0 (homebrew)"
+        let output_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        output_str
+            .split_whitespace()
+            .nth(1)
+            .map(|s| s.to_string())
+            .ok_or_else(|| "无法解析 uv 版本".to_string())
+    } else {
+        Err("uv 命令未找到".to_string())
+    }
+}
+
+/// Windows: 复制 uv 二进制到 Program Files 并更新 PATH
+#[cfg(target_os = "windows")]
+fn install_uv_system_windows(bundled_uv_dir: &std::path::Path) -> Result<UvSystemInstallResult, String> {
+    info!("[UvSystemInstall] Windows: 开始系统级安装 uv...");
+
+    let src_bin = bundled_uv_dir.join("bin");
+    info!("[UvSystemInstall] 源目录: {:?}", src_bin);
+
+    // 目标目录: C:\Program Files\uv\
+    let program_files = std::env::var("ProgramFiles")
+        .unwrap_or_else(|_| r"C:\Program Files".to_string());
+    let target_dir = std::path::Path::new(&program_files).join("uv");
+    info!("[UvSystemInstall] 目标目录: {:?}", target_dir);
+
+    // 创建目标目录
+    std::fs::create_dir_all(&target_dir)
+        .map_err(|e| format!("创建目标目录失败: {}", e))?;
+
+    // 复制 uv.exe 和 uvx.exe
+    for bin in &["uv.exe", "uvx.exe"] {
+        let src = src_bin.join(bin);
+        let dst = target_dir.join(bin);
+
+        if !src.exists() {
+            return Err(format!("源文件不存在: {:?}", src));
+        }
+
+        info!("[UvSystemInstall] 复制 {:?} -> {:?}", src, dst);
+        std::fs::copy(&src, &dst)
+            .map_err(|e| format!("复制 {} 失败: {}", bin, e))?;
+    }
+
+    // 获取目标路径字符串
+    let target_path = target_dir.to_string_lossy().to_string();
+
+    // 使用 setx 添加到用户 PATH
+    // 注意：setx 更新的 PATH 只对新开的终端生效
+    let current_user_path = std::env::var("PATH").unwrap_or_default();
+    if !current_user_path.contains(&target_path) {
+        info!("[UvSystemInstall] 更新用户 PATH...");
+
+        // 使用 powershell 获取当前用户的 PATH 环境变量（不包含系统 PATH）
+        let get_path_output = Command::new("powershell")
+            .args(["-Command", "[Environment]::GetEnvironmentVariable('PATH', 'User')"])
+            .output()
+            .map_err(|e| format!("获取用户 PATH 失败: {}", e))?;
+
+        let user_path = String::from_utf8_lossy(&get_path_output.stdout).trim().to_string();
+
+        // 检查是否已在用户 PATH 中
+        if !user_path.to_lowercase().contains(&target_path.to_lowercase()) {
+            let new_user_path = if user_path.is_empty() {
+                target_path.clone()
+            } else {
+                format!("{};{}", target_path, user_path)
+            };
+
+            // 使用 powershell 设置用户 PATH
+            let set_path_cmd = format!(
+                "[Environment]::SetEnvironmentVariable('PATH', '{}', 'User')",
+                new_user_path
+            );
+
+            let set_result = Command::new("powershell")
+                .args(["-Command", &set_path_cmd])
+                .output()
+                .map_err(|e| format!("设置用户 PATH 失败: {}", e))?;
+
+            if !set_result.status.success() {
+                let stderr = String::from_utf8_lossy(&set_result.stderr);
+                warn!("[UvSystemInstall] 设置用户 PATH 警告: {}", stderr);
+            }
+
+            info!("[UvSystemInstall] 用户 PATH 已更新");
+        }
+
+        // 更新当前进程的 PATH
+        let new_path = format!("{};{}", target_path, current_user_path);
+        assert!(!new_path.contains('\0'), "PATH value cannot contain null bytes");
+        unsafe {
+            std::env::set_var("PATH", &new_path);
+        }
+        info!("[UvSystemInstall] 当前进程 PATH 已更新");
+    }
+
+    // 验证安装
+    match verify_uv_install() {
+        Ok(version) => {
+            info!("[UvSystemInstall] uv 安装成功，版本: {}", version);
+            Ok(UvSystemInstallResult {
+                success: true,
+                version: Some(version),
+                install_path: Some(format!("{}\\uv.exe", target_path)),
+                needs_restart: true,  // setx 更新需要新终端才生效
+                error: None,
+            })
+        }
+        Err(e) => {
+            warn!("[UvSystemInstall] 验证安装失败: {}", e);
+            Ok(UvSystemInstallResult {
+                success: true,
+                version: None,
+                install_path: Some(format!("{}\\uv.exe", target_path)),
+                needs_restart: true,
+                error: Some(format!("文件已复制但验证失败: {}。请重新打开终端后验证。", e)),
+            })
+        }
+    }
+}
+
+/// macOS: 使用 osascript 弹出密码框，复制 uv 到 /usr/local/bin
+#[cfg(target_os = "macos")]
+fn install_uv_system_macos(bundled_uv_dir: &std::path::Path) -> Result<UvSystemInstallResult, String> {
+    info!("[UvSystemInstall] macOS: 开始系统级安装 uv...");
+
+    let src_bin = bundled_uv_dir.join("bin");
+    info!("[UvSystemInstall] 源目录: {:?}", src_bin);
+
+    // 先复制到 /tmp（解决权限问题）
+    let tmp_dir = "/tmp/uv-install";
+    info!("[UvSystemInstall] 复制到临时目录: {}", tmp_dir);
+
+    // 清理旧的临时目录
+    let _ = std::fs::remove_dir_all(tmp_dir);
+    std::fs::create_dir_all(tmp_dir)
+        .map_err(|e| format!("创建临时目录失败: {}", e))?;
+
+    for bin in &["uv", "uvx"] {
+        let src = src_bin.join(bin);
+        let dst = format!("{}/{}", tmp_dir, bin);
+
+        if !src.exists() {
+            // 清理临时目录
+            let _ = std::fs::remove_dir_all(tmp_dir);
+            return Err(format!("源文件不存在: {:?}", src));
+        }
+
+        info!("[UvSystemInstall] 复制 {:?} -> {}", src, dst);
+        std::fs::copy(&src, &dst)
+            .map_err(|e| {
+                let _ = std::fs::remove_dir_all(tmp_dir);
+                format!("复制 {} 失败: {}", bin, e)
+            })?;
+    }
+
+    // 使用 osascript 执行安装（弹出密码框）
+    let install_cmd = format!(
+        "cp {tmp_dir}/uv {tmp_dir}/uvx /usr/local/bin/ && chmod 755 /usr/local/bin/uv /usr/local/bin/uvx"
+    );
+    let osascript = format!(
+        r#"do shell script "{}" with administrator privileges"#,
+        install_cmd
+    );
+
+    info!("[UvSystemInstall] 使用 osascript 执行安装...");
+
+    let output = Command::new("osascript")
+        .args(["-e", &osascript])
+        .output();
+
+    // 清理临时文件
+    let _ = std::fs::remove_dir_all(tmp_dir);
+    info!("[UvSystemInstall] 已清理临时目录");
+
+    match output {
+        Ok(out) => {
+            if !out.status.success() {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                if stderr.contains("User canceled") {
+                    return Ok(UvSystemInstallResult {
+                        success: false,
+                        version: None,
+                        install_path: None,
+                        needs_restart: false,
+                        error: Some("用户取消了安装".to_string()),
+                    });
+                }
+                return Err(format!("安装失败: {}", stderr));
+            }
+        }
+        Err(e) => {
+            return Err(format!("执行 osascript 失败: {}", e));
+        }
+    }
+
+    // 验证安装
+    let version = verify_uv_install()?;
+    info!("[UvSystemInstall] uv 安装成功，版本: {}", version);
+
+    Ok(UvSystemInstallResult {
+        success: true,
+        version: Some(version),
+        install_path: Some("/usr/local/bin/uv".to_string()),
+        needs_restart: false,
+        error: None,
+    })
+}
+
+/// Linux: 使用 pkexec 弹出密码框，复制 uv 到 /usr/local/bin
+#[cfg(target_os = "linux")]
+fn install_uv_system_linux(bundled_uv_dir: &std::path::Path) -> Result<UvSystemInstallResult, String> {
+    info!("[UvSystemInstall] Linux: 开始系统级安装 uv...");
+
+    let src_bin = bundled_uv_dir.join("bin");
+    info!("[UvSystemInstall] 源目录: {:?}", src_bin);
+
+    // 先复制到 /tmp
+    let tmp_dir = "/tmp/uv-install";
+    info!("[UvSystemInstall] 复制到临时目录: {}", tmp_dir);
+
+    // 清理旧的临时目录
+    let _ = std::fs::remove_dir_all(tmp_dir);
+    std::fs::create_dir_all(tmp_dir)
+        .map_err(|e| format!("创建临时目录失败: {}", e))?;
+
+    for bin in &["uv", "uvx"] {
+        let src = src_bin.join(bin);
+        let dst = format!("{}/{}", tmp_dir, bin);
+
+        if !src.exists() {
+            let _ = std::fs::remove_dir_all(tmp_dir);
+            return Err(format!("源文件不存在: {:?}", src));
+        }
+
+        info!("[UvSystemInstall] 复制 {:?} -> {}", src, dst);
+        std::fs::copy(&src, &dst)
+            .map_err(|e| {
+                let _ = std::fs::remove_dir_all(tmp_dir);
+                format!("复制 {} 失败: {}", bin, e)
+            })?;
+    }
+
+    // 构建安装命令
+    let install_cmd = format!(
+        "cp {tmp_dir}/uv {tmp_dir}/uvx /usr/local/bin/ && chmod 755 /usr/local/bin/uv /usr/local/bin/uvx"
+    );
+
+    // 优先使用 pkexec
+    info!("[UvSystemInstall] 尝试使用 pkexec 执行安装...");
+    let pkexec_result = Command::new("pkexec")
+        .args(["sh", "-c", &install_cmd])
+        .output();
+
+    // 清理临时文件
+    let _ = std::fs::remove_dir_all(tmp_dir);
+
+    match pkexec_result {
+        Ok(out) => {
+            if out.status.success() {
+                let version = verify_uv_install()?;
+                info!("[UvSystemInstall] uv 安装成功，版本: {}", version);
+                return Ok(UvSystemInstallResult {
+                    success: true,
+                    version: Some(version),
+                    install_path: Some("/usr/local/bin/uv".to_string()),
+                    needs_restart: false,
+                    error: None,
+                });
+            }
+            // pkexec 失败，尝试备用方案
+            warn!("[UvSystemInstall] pkexec 失败，尝试备用方案...");
+        }
+        Err(e) => {
+            info!("[UvSystemInstall] pkexec 不可用: {}，尝试备用方案...", e);
+        }
+    }
+
+    // 备用方案: 重新复制到 /tmp 并使用 zenity + sudo
+    let _ = std::fs::remove_dir_all(tmp_dir);
+    std::fs::create_dir_all(tmp_dir)
+        .map_err(|e| format!("重新创建临时目录失败: {}", e))?;
+
+    for bin in &["uv", "uvx"] {
+        let src = src_bin.join(bin);
+        let dst = format!("{}/{}", tmp_dir, bin);
+        std::fs::copy(&src, &dst)
+            .map_err(|e| format!("重新复制 {} 失败: {}", bin, e))?;
+    }
+
+    let install_cmd_zenity = format!(
+        "cp {tmp_dir}/uv {tmp_dir}/uvx /usr/local/bin/ && chmod 755 /usr/local/bin/uv /usr/local/bin/uvx"
+    );
+
+    let zenity_script = format!(
+        r#"PASSWORD=$(zenity --password --title="uv 安装需要管理员权限"); if [ -n "$PASSWORD" ]; then echo "$PASSWORD" | sudo -S sh -c '{}'; rm -rf '{}'; else echo "用户取消安装"; rm -rf '{}'; fi"#,
+        install_cmd_zenity, tmp_dir, tmp_dir
+    );
+
+    info!("[UvSystemInstall] 使用 zenity 备用方案执行安装...");
+
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(&zenity_script)
+        .output();
+
+    match output {
+        Ok(out) => {
+            if !out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if stdout.contains("用户取消") {
+                    return Ok(UvSystemInstallResult {
+                        success: false,
+                        version: None,
+                        install_path: None,
+                        needs_restart: false,
+                        error: Some("用户取消了安装".to_string()),
+                    });
+                }
+                return Err(format!("安装失败，退出码: {:?}, stderr: {}",
+                    out.status.code(),
+                    String::from_utf8_lossy(&out.stderr)));
+            }
+
+            let version = verify_uv_install()?;
+            info!("[UvSystemInstall] uv 安装成功，版本: {}", version);
+            Ok(UvSystemInstallResult {
+                success: true,
+                version: Some(version),
+                install_path: Some("/usr/local/bin/uv".to_string()),
+                needs_restart: false,
+                error: None,
+            })
+        }
+        Err(e) => {
+            // 清理临时文件
+            let _ = std::fs::remove_dir_all(tmp_dir);
+            Err(format!("执行 zenity 失败: {}，请手动安装 uv", e))
+        }
+    }
+}
+
+/// 系统级安装 uv（需要管理员权限）
+/// 安装位置：/usr/local/bin (macOS/Linux) 或 C:\Program Files\uv (Windows)
+#[tauri::command]
+pub async fn uv_install_system(app: tauri::AppHandle) -> Result<UvSystemInstallResult, String> {
+    info!("[UvSystemInstall] 开始系统级安装 uv...");
+
+    // 1. 解析打包资源目录中的 uv 路径
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("获取资源目录失败: {}", e))?;
+
+    let bundled_uv_dir = resource_dir.join("resources").join("uv");
+    info!(
+        "[UvSystemInstall] 打包资源路径: {:?}, exists={}",
+        bundled_uv_dir,
+        bundled_uv_dir.exists()
+    );
+
+    // 开发模式下的回退路径
+    let bundled_uv_dir = if !bundled_uv_dir.exists() {
+        let dev_path = std::env::current_dir()
+            .unwrap_or_default()
+            .join("resources")
+            .join("uv");
+        info!(
+            "[UvSystemInstall] 开发模式路径1: {:?}, exists={}",
+            dev_path,
+            dev_path.exists()
+        );
+
+        if dev_path.exists() {
+            info!("[UvSystemInstall] 使用开发模式资源路径: {:?}", dev_path);
+            dev_path
+        } else {
+            let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("resources")
+                .join("uv");
+            info!(
+                "[UvSystemInstall] 开发模式路径2: {:?}, exists={}",
+                manifest_path,
+                manifest_path.exists()
+            );
+            if manifest_path.exists() {
+                info!(
+                    "[UvSystemInstall] 使用 CARGO_MANIFEST_DIR 资源路径: {:?}",
+                    manifest_path
+                );
+                manifest_path
+            } else {
+                return Ok(UvSystemInstallResult {
+                    success: false,
+                    version: None,
+                    install_path: None,
+                    needs_restart: false,
+                    error: Some("未找到打包的 uv 资源".to_string()),
+                });
+            }
+        }
+    } else {
+        bundled_uv_dir
+    };
+
+    // 执行平台特定的安装
+    #[cfg(target_os = "windows")]
+    let result = install_uv_system_windows(&bundled_uv_dir);
+
+    #[cfg(target_os = "macos")]
+    let result = install_uv_system_macos(&bundled_uv_dir);
+
+    #[cfg(target_os = "linux")]
+    let result = install_uv_system_linux(&bundled_uv_dir);
+
+    result
 }
 
 // ========== 系统级 Node.js 安装 ==========
