@@ -2804,27 +2804,11 @@ fn create_auto_launch(app: &tauri::AppHandle) -> Result<auto_launch::AutoLaunch,
         .unwrap_or("Nuwax Agent");
 
     // 获取应用可执行文件路径
+    // auto_launch 库在所有平台都需要可执行文件的绝对路径:
+    // - macOS: LaunchAgent 的 ProgramArguments[0] 需要可执行文件路径
+    // - Windows: 注册表值需要 .exe 文件路径
+    // - Linux: .desktop 文件的 Exec 需要可执行文件路径
     let exe_path = std::env::current_exe().map_err(|e| format!("获取应用路径失败: {}", e))?;
-
-    // macOS 上需要获取 .app bundle 路径，而不是内部的可执行文件路径
-    #[cfg(target_os = "macos")]
-    let app_path = {
-        // 路径格式: /Applications/xxx.app/Contents/MacOS/xxx
-        // 需要回退到 .app 目录
-        let path_str = exe_path.to_string_lossy().to_string();
-        if path_str.contains(".app/Contents/MacOS") {
-            // 找到 .app 的位置并截取
-            if let Some(idx) = path_str.find(".app/") {
-                path_str[..idx + 4].to_string() // 包含 .app
-            } else {
-                path_str
-            }
-        } else {
-            path_str
-        }
-    };
-
-    #[cfg(not(target_os = "macos"))]
     let app_path = exe_path.to_string_lossy().to_string();
 
     // 获取 bundle identifier
