@@ -358,8 +358,179 @@ async fn kill_stale_lanproxy_processes() {
     }
 }
 
-/// 检测并清理残留的 mcp-proxy 进程
+/// 清理使用 chrome-devtools-mcp profile 的 Chrome 进程
+///
+/// 只清理使用特定 profile 的 Chrome 进程，不影响用户正常的 Chrome 使用
+async fn kill_chrome_devtools_processes() {
+    let profile_path = "chrome-devtools-mcp/chrome-profile";
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        // 使用 pgrep 清理包含特定 profile 路径的 Chrome 进程
+        let output = tokio::process::Command::new("pgrep")
+            .no_window()
+            .arg("-f")
+            .arg(profile_path)
+            .output()
+            .await;
+
+        if let Ok(output) = output {
+            let pids: Vec<String> = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+
+            if !pids.is_empty() {
+                warn!("[McpProxy] 检测到 {} 个残留的 Chrome DevTools 进程，正在终止", pids.len());
+                for pid in &pids {
+                    info!("[McpProxy] 终止残留 Chrome 进程 PID: {}", pid);
+                    if let Err(e) = tokio::process::Command::new("kill")
+                        .no_window()
+                        .arg("-9")
+                        .arg(pid)
+                        .status()
+                        .await
+                    {
+                        warn!("[McpProxy] 终止进程 {} 失败: {}", pid, e);
+                    }
+                }
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Windows: 使用 wmic 查询包含特定 profile 路径的进程
+        let profile_path_win = profile_path.replace("/", "\\\\");
+        let output = tokio::process::Command::new("wmic")
+            .no_window()
+            .args(["process", "where", &format!("CommandLine like '%{}%'", profile_path_win), "get", "ProcessId"])
+            .output()
+            .await;
+
+        if let Ok(output) = output {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let mut killed_any = false;
+            for line in stdout.lines() {
+                // 跳过标题行 "ProcessId"
+                if line.trim() == "ProcessId" || line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(pid) = line.trim().parse::<u32>() {
+                    if pid > 0 {
+                        warn!("[McpProxy] 终止残留 Chrome 进程 PID: {}", pid);
+                        if let Err(e) = tokio::process::Command::new("taskkill")
+                            .no_window()
+                            .args(["/F", "/PID", &pid.to_string()])
+                            .status()
+                            .await
+                        {
+                            warn!("[McpProxy] 终止进程 {} 失败: {}", pid, e);
+                        }
+                        killed_any = true;
+                    }
+                }
+            }
+            if killed_any {
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            }
+        }
+    }
+}
+
+/// 清理孤立的 chrome-devtools-mcp 进程
+async fn kill_chrome_devtools_mcp_processes() {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        let output = tokio::process::Command::new("pgrep")
+            .no_window()
+            .arg("-f")
+            .arg("chrome-devtools-mcp")
+            .output()
+            .await;
+
+        if let Ok(output) = output {
+            let pids: Vec<String> = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+
+            if !pids.is_empty() {
+                warn!("[McpProxy] 检测到 {} 个残留的 chrome-devtools-mcp 进程，正在终止", pids.len());
+                for pid in &pids {
+                    info!("[McpProxy] 终止残留 chrome-devtools-mcp 进程 PID: {}", pid);
+                    if let Err(e) = tokio::process::Command::new("kill")
+                        .no_window()
+                        .arg("-9")
+                        .arg(pid)
+                        .status()
+                        .await
+                    {
+                        warn!("[McpProxy] 终止进程 {} 失败: {}", pid, e);
+                    }
+                }
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let output = tokio::process::Command::new("wmic")
+            .no_window()
+            .args(["process", "where", "CommandLine like '%chrome-devtools-mcp%'", "get", "ProcessId"])
+            .output()
+            .await;
+
+        if let Ok(output) = output {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let mut killed_any = false;
+            for line in stdout.lines() {
+                // 跳过标题行 "ProcessId"
+                if line.trim() == "ProcessId" || line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(pid) = line.trim().parse::<u32>() {
+                    if pid > 0 {
+                        warn!("[McpProxy] 终止残留 chrome-devtools-mcp 进程 PID: {}", pid);
+                        if let Err(e) = tokio::process::Command::new("taskkill")
+                            .no_window()
+                            .args(["/F", "/PID", &pid.to_string()])
+                            .status()
+                            .await
+                        {
+                            warn!("[McpProxy] 终止进程 {} 失败: {}", pid, e);
+                        }
+                        killed_any = true;
+                    }
+                }
+            }
+            if killed_any {
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            }
+        }
+    }
+}
+
+/// 检测并清理残留的 mcp-proxy 及相关进程
+///
+/// 清理顺序：
+/// 1. Chrome DevTools 相关的 Chrome 进程（使用特定 profile）
+/// 2. 孤立的 chrome-devtools-mcp 进程
+/// 3. mcp-proxy 进程
 async fn kill_stale_mcp_proxy_processes() {
+    info!("[McpProxy] 开始清理残留进程...");
+
+    // 1. 清理 Chrome DevTools 相关的 Chrome 进程
+    kill_chrome_devtools_processes().await;
+
+    // 2. 清理孤立的 chrome-devtools-mcp 进程
+    kill_chrome_devtools_mcp_processes().await;
+
+    // 3. 清理 mcp-proxy 进程
     if is_process_running_fuzzy("mcp-proxy").await {
         warn!("[McpProxy] 检测到残留 mcp-proxy 进程，正在终止");
         if let Some(pids) = find_processes_by_prefix("mcp-proxy").await {
@@ -379,6 +550,8 @@ async fn kill_stale_mcp_proxy_processes() {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         }
     }
+
+    info!("[McpProxy] 残留进程清理完成");
 }
 
 /// 等待 MCP Proxy 服务就绪（使用 mcp-proxy health 命令）
@@ -1489,6 +1662,9 @@ impl ServiceManager {
         } else {
             warn!("[McpProxy] MCP Proxy is not running");
         }
+
+        // 停止后清理可能残留的 Chrome DevTools 进程
+        kill_chrome_devtools_processes().await;
 
         Ok(())
     }
