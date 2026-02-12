@@ -251,8 +251,21 @@ export default function SetupStep1({ onComplete }: SetupStep1Props) {
             {
               validator: (_, value) => {
                 if (!value) return Promise.resolve();
-                if (typeof value === "string" && value.startsWith("/"))
-                  return Promise.resolve();
+                if (typeof value !== "string")
+                  return Promise.reject(new Error("请输入有效的绝对路径"));
+
+                // Unix/macOS 绝对路径: /path/to/dir
+                if (value.startsWith("/")) return Promise.resolve();
+
+                // Windows 标准路径: C:\path\to\dir 或 c:/path/to/dir
+                if (/^[a-zA-Z]:[/\\]/.test(value)) return Promise.resolve();
+
+                // Windows 扩展长度路径: \\?\C:\path\to\dir
+                if (value.startsWith("\\\\?\\")) return Promise.resolve();
+
+                // Windows UNC 路径: \\server\share\path
+                if (value.startsWith("\\\\")) return Promise.resolve();
+
                 return Promise.reject(new Error("请输入有效的绝对路径"));
               },
             },
