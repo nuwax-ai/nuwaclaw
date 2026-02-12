@@ -3767,19 +3767,33 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // 应用退出事件处理：在退出前清理所有服务
-            if let tauri::RunEvent::Exit = event {
-                info!("[Exit] 应用正在退出，停止所有服务...");
-                // 同步阻塞等待服务停止
-                let state = app_handle.state::<ServiceManagerState>();
-                // 使用 tauri::async_runtime 执行异步清理
-                tauri::async_runtime::block_on(async {
-                    let manager = state.manager.lock().await;
-                    if let Err(e) = manager.services_stop_all().await {
-                        error!("[Exit] 停止服务失败: {}", e);
+            match event {
+                // macOS Dock 图标点击事件：显示主窗口
+                tauri::RunEvent::Reopen {
+                    has_visible_windows: _,
+                    ..
+                } => {
+                    info!("[Dock] Dock 图标被点击，显示主窗口");
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
                     }
-                });
-                info!("[Exit] 所有服务已停止");
+                }
+                // 应用退出事件处理：在退出前清理所有服务
+                tauri::RunEvent::Exit => {
+                    info!("[Exit] 应用正在退出，停止所有服务...");
+                    // 同步阻塞等待服务停止
+                    let state = app_handle.state::<ServiceManagerState>();
+                    // 使用 tauri::async_runtime 执行异步清理
+                    tauri::async_runtime::block_on(async {
+                        let manager = state.manager.lock().await;
+                        if let Err(e) = manager.services_stop_all().await {
+                            error!("[Exit] 停止服务失败: {}", e);
+                        }
+                    });
+                    info!("[Exit] 所有服务已停止");
+                }
+                _ => {}
             }
         });
 }
