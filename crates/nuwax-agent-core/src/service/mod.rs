@@ -39,6 +39,45 @@ pub const DEFAULT_MCP_PROXY_BIN: &str = "mcp-proxy";
 
 // ========== 跨平台辅助函数 ==========
 
+/// 构建实际启动命令（Windows 下优先绕过 .cmd，避免弹出 CMD 窗口）
+///
+/// 返回值：
+/// - 第一个值：实际可执行程序（program）
+/// - 第二个值：实际参数（args）
+fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<String>) {
+    #[cfg(target_os = "windows")]
+    {
+        let path = std::path::Path::new(program);
+        let package_name = match path.extension().and_then(|s| s.to_str()) {
+            Some(ext) if ext.eq_ignore_ascii_case("cmd") => path.file_stem().and_then(|s| s.to_str()),
+            None => path.file_name().and_then(|s| s.to_str()),
+            _ => None,
+        };
+
+        if let Some(package_name) = package_name {
+            if let Ok(pkg) = crate::dependency::node::resolve_npm_package_direct_path(package_name) {
+                let mut actual_args = Vec::with_capacity(args.len() + 1);
+                actual_args.push(pkg.js_entry.to_string_lossy().to_string());
+                actual_args.extend(args.iter().map(|s| (*s).to_string()));
+
+                info!(
+                    "[Service] Windows 命令转直连 node 启动: {} -> {} {}",
+                    program,
+                    pkg.node_exe.display(),
+                    pkg.js_entry.display()
+                );
+
+                return (pkg.node_exe.to_string_lossy().to_string(), actual_args);
+            }
+        }
+    }
+
+    (
+        program.to_string(),
+        args.iter().map(|s| (*s).to_string()).collect(),
+    )
+}
+
 /// 获取 nuwax-file-server 的 PID 文件路径
 ///
 /// 跨平台实现：
@@ -70,11 +109,12 @@ fn get_file_server_pid_file_path() -> std::path::PathBuf {
 /// * `bool` - 命令是否成功执行（true = 成功，false = 失败或超时）
 async fn run_command_with_timeout(program: &str, args: &[&str], timeout_secs: u64) -> bool {
     let node_path = crate::utils::build_node_path_env();
-    let mut cmd = process_wrap::tokio::CommandWrap::with_new(program, |cmd| {
+    let (actual_program, actual_args) = resolve_launch_command(program, args);
+    let mut cmd = process_wrap::tokio::CommandWrap::with_new(actual_program.as_str(), |cmd| {
         use crate::utils::CommandNoWindowExt;
         cmd.no_window().env("PATH", &node_path);
-        for arg in args {
-            cmd.arg(*arg);
+        for arg in &actual_args {
+            cmd.arg(arg);
         }
     });
 
@@ -957,25 +997,54 @@ impl ServiceManager {
             }
         }
 
-        let mut node_path = crate::utils::build_node_path_env();
-        
-        // Windows: 补充 npm 全局 bin 目录到 PATH（GUI 应用可能不继承完整 PATH）
-        #[cfg(target_os = "windows")]
-        {
-            use std::env::var;
-            if let Ok(appdata) = var("APPDATA") {
-                if !appdata.is_empty() {
-                    let npm_path = format!(r"{}\npm", appdata);
-                    if !node_path.contains(&npm_path) {
-                        info!("[FileServer] Windows: 添加 npm 全局 bin 到 PATH: {}", npm_path);
-                        node_path = format!("{};{}", node_path, npm_path);
+        let node_path = {
+            let base = crate::utils::build_node_path_env();
+            #[cfg(target_os = "windows")]
+            {
+                use std::env::var;
+                if let Ok(appdata) = var("APPDATA") {
+                    if !appdata.is_empty() {
+                        let npm_path = format!(r"{}\npm", appdata);
+                        if !base.contains(&npm_path) {
+                            info!("[FileServer] Windows: 添加 npm 全局 bin 到 PATH: {}", npm_path);
+                            format!("{};{}", base, npm_path)
+                        } else {
+                            base
+                        }
+                    } else {
+                        base
                     }
+                } else {
+                    base
                 }
             }
-        }
+            #[cfg(not(target_os = "windows"))]
+            {
+                base
+            }
+        };
         
         let capture_output = config.capture_output_to_log;
-        let mut cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
+        let file_server_args = vec![
+            "start".to_string(),
+            "--env".to_string(),
+            config.env.clone(),
+            "--port".to_string(),
+            config.port.to_string(),
+            format!("--INIT_PROJECT_NAME={}", &config.init_project_name),
+            format!("--INIT_PROJECT_DIR={}", &config.init_project_dir),
+            format!("--UPLOAD_PROJECT_DIR={}", &config.upload_project_dir),
+            format!("--PROJECT_SOURCE_DIR={}", &config.project_source_dir),
+            format!("--DIST_TARGET_DIR={}", &config.dist_target_dir),
+            format!("--LOG_BASE_DIR={}", &config.log_base_dir),
+            format!("--COMPUTER_WORKSPACE_DIR={}", &config.computer_workspace_dir),
+            format!("--COMPUTER_LOG_DIR={}", &config.computer_log_dir),
+        ];
+        let file_server_arg_refs: Vec<&str> = file_server_args.iter().map(String::as_str).collect();
+        let (actual_program, actual_args) =
+            resolve_launch_command(config.bin_path.as_str(), &file_server_arg_refs);
+
+        let mut cmd = process_wrap::tokio::CommandWrap::with_new(actual_program.as_str(), |cmd| {
             use crate::utils::CommandNoWindowExt;
             let cmd = cmd.no_window().env("PATH", &node_path);
             let cmd = if capture_output {
@@ -983,29 +1052,9 @@ impl ServiceManager {
             } else {
                 cmd.stdout(Stdio::null()).stderr(Stdio::null())
             };
-            cmd.arg("start")
-                .arg("--env")
-                .arg(&config.env)
-                .arg("--port")
-                .arg(config.port.to_string())
-                // 通过命令行参数传递配置 (--KEY=VALUE 格式，loadEnvFromArgv 要求 -- 前缀)
-                .arg(format!("--INIT_PROJECT_NAME={}", &config.init_project_name))
-                .arg(format!("--INIT_PROJECT_DIR={}", &config.init_project_dir))
-                .arg(format!(
-                    "--UPLOAD_PROJECT_DIR={}",
-                    &config.upload_project_dir
-                ))
-                .arg(format!(
-                    "--PROJECT_SOURCE_DIR={}",
-                    &config.project_source_dir
-                ))
-                .arg(format!("--DIST_TARGET_DIR={}", &config.dist_target_dir))
-                .arg(format!("--LOG_BASE_DIR={}", &config.log_base_dir))
-                .arg(format!(
-                    "--COMPUTER_WORKSPACE_DIR={}",
-                    &config.computer_workspace_dir
-                ))
-                .arg(format!("--COMPUTER_LOG_DIR={}", &config.computer_log_dir));
+            for arg in &actual_args {
+                cmd.arg(arg);
+            }
         });
 
         // 注意顺序：先 KillOnDrop，后 ProcessGroup/JobObject
@@ -1286,34 +1335,52 @@ impl ServiceManager {
         let port_str = config.port.to_string();
         
         // 构建 PATH 环境变量
-        let mut node_path = crate::utils::build_node_path_env();
-        
-        // Windows: 补充 npm 全局 bin 目录到 PATH（GUI 应用可能不继承完整 PATH）
-        #[cfg(target_os = "windows")]
-        {
-            use std::env::var;
-            if let Ok(appdata) = var("APPDATA") {
-                if !appdata.is_empty() {
-                    let npm_path = format!(r"{}\npm", appdata);
-                    if !node_path.contains(&npm_path) {
-                        info!("[McpProxy] Windows: 添加 npm 全局 bin 到 PATH: {}", npm_path);
-                        node_path = format!("{};{}", node_path, npm_path);
+        let node_path = {
+            let base = crate::utils::build_node_path_env();
+            #[cfg(target_os = "windows")]
+            {
+                use std::env::var;
+                if let Ok(appdata) = var("APPDATA") {
+                    if !appdata.is_empty() {
+                        let npm_path = format!(r"{}\npm", appdata);
+                        if !base.contains(&npm_path) {
+                            info!("[McpProxy] Windows: 添加 npm 全局 bin 到 PATH: {}", npm_path);
+                            format!("{};{}", base, npm_path)
+                        } else {
+                            base
+                        }
+                    } else {
+                        base
                     }
+                } else {
+                    base
                 }
             }
-        }
+            #[cfg(not(target_os = "windows"))]
+            {
+                base
+            }
+        };
         
-        let mut cmd = process_wrap::tokio::CommandWrap::with_new(config.bin_path.as_str(), |cmd| {
+        let mcp_args = vec![
+            "proxy".to_string(),
+            "--port".to_string(),
+            port_str.clone(),
+            "--host".to_string(),
+            config.host.clone(),
+            "--config".to_string(),
+            config.config_json.clone(),
+        ];
+        let mcp_arg_refs: Vec<&str> = mcp_args.iter().map(String::as_str).collect();
+        let (actual_program, actual_args) =
+            resolve_launch_command(config.bin_path.as_str(), &mcp_arg_refs);
+
+        let mut cmd = process_wrap::tokio::CommandWrap::with_new(actual_program.as_str(), |cmd| {
             use crate::utils::CommandNoWindowExt;
-            cmd.no_window()
-                .env("PATH", &node_path)
-                .arg("proxy")
-                .arg("--port")
-                .arg(&port_str)
-                .arg("--host")
-                .arg(&config.host)
-                .arg("--config")
-                .arg(&config.config_json);
+            let cmd = cmd.no_window().env("PATH", &node_path);
+            for arg in &actual_args {
+                cmd.arg(arg);
+            }
         });
 
         #[cfg(any(target_os = "linux", target_os = "macos"))]

@@ -726,6 +726,202 @@ impl Default for NodeInstaller {
     }
 }
 
+// ============================================================================
+// npm 包路径解析工具（用于绕过 .cmd 文件直接调用 node.exe）
+// ============================================================================
+
+/// npm 全局包信息
+#[derive(Debug, Clone)]
+pub struct NpmPackageInfo {
+    /// Node.js 可执行文件路径
+    pub node_exe: PathBuf,
+    /// 包的 JavaScript 入口文件
+    pub js_entry: PathBuf,
+    /// 包名
+    pub package_name: String,
+}
+
+/// 解析 npm 全局包的实际路径
+///
+/// 这个函数会找到 node.exe 和包的 JavaScript 入口文件，
+/// 用于绕过 .cmd 批处理文件直接启动 Node.js 进程，避免 CMD 窗口弹出
+///
+/// # 参数
+/// - `package_name`: npm 包名（如 "mcp-stdio-proxy"）
+///
+/// # 返回
+/// - Ok(NpmPackageInfo): 包含 node.exe 和 JS 入口文件路径
+/// - Err(NodeError): 未找到或解析失败
+pub fn resolve_npm_package_direct_path(package_name: &str) -> Result<NpmPackageInfo, NodeError> {
+    // 1. 找到 node.exe
+    let node_exe = find_node_executable()?;
+
+    // 2. 找到包的安装位置
+    let package_dir = find_npm_package_dir(package_name)?;
+
+    // 3. 读取 package.json 找到入口文件
+    let js_entry = find_package_entry(&package_dir)?;
+
+    info!(
+        "Resolved npm package '{}': node={}, entry={}",
+        package_name,
+        node_exe.display(),
+        js_entry.display()
+    );
+
+    Ok(NpmPackageInfo {
+        node_exe,
+        js_entry,
+        package_name: package_name.to_string(),
+    })
+}
+
+/// 查找 node.exe 可执行文件
+fn find_node_executable() -> Result<PathBuf, NodeError> {
+    // 优先使用本地安装的 Node.js
+    let local_node = NodeDetector::get_local_node_path();
+    if local_node.exists() {
+        debug!("Using local node: {}", local_node.display());
+        return Ok(local_node);
+    }
+
+    // 使用系统 PATH 中的 node
+    #[cfg(windows)]
+    let node_cmd = "node.exe";
+    #[cfg(not(windows))]
+    let node_cmd = "node";
+
+    #[cfg(windows)]
+    {
+        let output = Command::new("where")
+            .no_window()
+            .arg(node_cmd)
+            .output()
+            .map_err(|e| NodeError::CommandFailed(format!("where node failed: {}", e)))?;
+
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .ok_or(NodeError::NotFound)?
+                .trim()
+                .to_string();
+            return Ok(PathBuf::from(path));
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        let output = Command::new("which")
+            .no_window()
+            .arg(node_cmd)
+            .output()
+            .map_err(|e| NodeError::CommandFailed(format!("which node failed: {}", e)))?;
+
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            return Ok(PathBuf::from(path));
+        }
+    }
+
+    Err(NodeError::NotFound)
+}
+
+/// 查找 npm 全局包的安装目录
+fn find_npm_package_dir(package_name: &str) -> Result<PathBuf, NodeError> {
+    // 尝试本地 ~/.local/lib/node_modules（兼容旧路径 ~/.local/bin/node_modules）
+    let home_local = dirs::home_dir()
+        .ok_or(NodeError::NotFound)?
+        .join(".local");
+    let local_candidates = [
+        home_local.join("lib").join("node_modules").join(package_name),
+        home_local.join("bin").join("node_modules").join(package_name),
+    ];
+
+    for local_modules in local_candidates {
+        if local_modules.exists() {
+            debug!("Found package in local: {}", local_modules.display());
+            return Ok(local_modules);
+        }
+    }
+
+    // Windows: %APPDATA%\npm\node_modules
+    #[cfg(windows)]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let npm_modules = PathBuf::from(appdata)
+                .join("npm")
+                .join("node_modules")
+                .join(package_name);
+
+            if npm_modules.exists() {
+                debug!("Found package in APPDATA: {}", npm_modules.display());
+                return Ok(npm_modules);
+            }
+        }
+    }
+
+    // Unix: 全局 node_modules
+    #[cfg(unix)]
+    {
+        let global_paths = vec![
+            format!("/usr/local/lib/node_modules/{}", package_name),
+            format!("/opt/homebrew/lib/node_modules/{}", package_name),
+        ];
+
+        for path_str in global_paths {
+            let path = PathBuf::from(&path_str);
+            if path.exists() {
+                debug!("Found package in global: {}", path.display());
+                return Ok(path);
+            }
+        }
+    }
+
+    Err(NodeError::NotFound)
+}
+
+/// 从 package.json 读取入口文件
+fn find_package_entry(package_dir: &Path) -> Result<PathBuf, NodeError> {
+    let package_json = package_dir.join("package.json");
+
+    if !package_json.exists() {
+        return Err(NodeError::NotFound);
+    }
+
+    let content = std::fs::read_to_string(&package_json).map_err(|e| NodeError::IoError(e))?;
+
+    let json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| NodeError::ParseError(format!("Invalid package.json: {}", e)))?;
+
+    // 查找入口文件字段（按优先级）
+    let entry = json
+        .get("bin")
+        .and_then(|bin| {
+            // bin 可以是字符串或对象
+            if bin.is_string() {
+                bin.as_str()
+            } else if bin.is_object() {
+                // 如果是对象，取第一个值
+                bin.as_object()
+                    .and_then(|obj| obj.values().next())
+                    .and_then(|v| v.as_str())
+            } else {
+                None
+            }
+        })
+        .or_else(|| json.get("main").and_then(|v| v.as_str()))
+        .ok_or_else(|| NodeError::ParseError("No entry point found in package.json".to_string()))?;
+
+    let entry_path = package_dir.join(entry);
+
+    if !entry_path.exists() {
+        return Err(NodeError::NotFound);
+    }
+
+    Ok(entry_path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -740,6 +936,6 @@ mod tests {
     #[test]
     fn test_local_node_path() {
         let path = NodeDetector::get_local_node_path();
-        assert!(path.to_string_lossy().contains("nuwax-agent"));
+        assert!(path.to_string_lossy().contains(".local"));
     }
 }

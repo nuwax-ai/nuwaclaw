@@ -112,7 +112,9 @@ open = "5"
 
 # 进程管理（确保子进程不会成为僵尸进程）
 # tokio1 不在默认特性中，需要显式启用
-process-wrap = { version = "9", features = ["tokio1"] }
+# process-group: Unix 进程组管理
+# job-object: Windows Job Object 管理（支持 CREATE_NO_WINDOW）
+process-wrap = { version = "9", features = ["tokio1", "process-group", "job-object"] }
 
 # rustls for crypto provider initialization (仅用于测试)
 rustls = { version = "0.23", features = ["ring"], optional = true }

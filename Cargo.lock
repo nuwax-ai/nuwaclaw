@@ -8341,6 +8341,7 @@ dependencies = [
  "uuid",
  "vergen-gitcl",
  "which 8.0.0",
+ "windows 0.62.2",
  "winreg 0.55.0",
  "zip 7.4.0",
 ]
