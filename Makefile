@@ -106,6 +106,7 @@ help:
 	@echo "环境变量:"
 	@echo "  VCPKG_ROOT     - vcpkg 路径 (当前: $(VCPKG_ROOT))"
 	@echo "  RUST_LOG       - 日志级别 (例: debug, info, warn)"
+	@echo "  APPLE_SIGNING_IDENTITY - macOS 打包/公证时签名 identity（例: Developer ID Application: Name (TEAM_ID)）"
 
 # ============================================================================
 # 构建目标
@@ -317,15 +318,21 @@ uv-download:
 	@echo ">>> 下载 uv 运行时资源（已存在则跳过）..."
 	./scripts/download-uv.sh
 
+# macOS 打包前对 resources 下的 node 与 uv/uvx 做 codesign，否则公证会因“未签名/无时间戳/无硬化运行时”失败。
+# node 与 uv 均会签名，不隐藏。需设置 APPLE_SIGNING_IDENTITY；非 macOS 或未设置时脚本内部会直接退出 0。
+.PHONY: sign-macos-resource-bins
+sign-macos-resource-bins:
+	@./scripts/sign-macos-resource-bins.sh
+
 .PHONY: tauri-build
-tauri-build: node-download uv-download
+tauri-build: node-download uv-download sign-macos-resource-bins
 	@echo ">>> 构建 Tauri 应用 (环境: $(BUILD_ENV))..."
 	cd crates/$(TAURI_CLIENT) && pnpm install
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo build --release
 
 .PHONY: tauri-bundle
-tauri-bundle: node-download uv-download
+tauri-bundle: node-download uv-download sign-macos-resource-bins
 	@echo ">>> 打包 Tauri 应用 (环境: $(BUILD_ENV))..."
 	cd crates/$(TAURI_CLIENT) && pnpm install
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
