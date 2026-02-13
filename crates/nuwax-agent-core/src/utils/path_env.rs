@@ -17,13 +17,13 @@ fn local_bin_dir() -> PathBuf {
 
 /// 构建供 spawn/子进程使用的 PATH 字符串。
 ///
-/// 只包含我们自己管理的运行时路径 + 最小系统路径，不继承用户完整 PATH，
-/// 避免子进程 PATH 过长（包含 IDE 工具、build 产物等无关条目）。
+/// **完全隔离**：仅包含 NUWAX_APP_RUNTIME_PATH 中的应用自有运行时目录，
+/// 不包含 ~/.local/bin、/usr/bin 等任何系统或用户路径，彻底避免环境污染。
 pub fn build_node_path_env() -> String {
     let sep = if cfg!(windows) { ";" } else { ":" };
     let mut paths: Vec<String> = Vec::new();
 
-    // 1. NUWAX_APP_RUNTIME_PATH（Tauri 打包后的运行时路径，可包含多个目录）
+    // 仅使用 NUWAX_APP_RUNTIME_PATH（Tauri 打包后的运行时路径）
     if let Ok(runtime_path) = std::env::var("NUWAX_APP_RUNTIME_PATH") {
         let runtime_path = runtime_path.trim();
         if !runtime_path.is_empty() {
@@ -32,35 +32,6 @@ pub fn build_node_path_env() -> String {
                 if !p.is_empty() && !paths.contains(&p.to_string()) {
                     paths.push(p.to_string());
                 }
-            }
-        }
-    }
-
-    // 2. ~/.local/bin（本地安装的 node/uv 等）
-    let bin = local_bin_dir();
-    let bin_str = bin.to_string_lossy().to_string();
-    if !paths.contains(&bin_str) {
-        paths.push(bin_str);
-    }
-
-    // 3. 最小系统路径（仅保证基本命令可用）
-    #[cfg(windows)]
-    {
-        let sys_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
-        let sys32 = format!(r"{}\System32", sys_root);
-        if !paths.contains(&sys32) {
-            paths.push(sys32);
-        }
-        if !paths.contains(&sys_root) {
-            paths.push(sys_root);
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        for p in &["/usr/local/bin", "/usr/bin", "/bin"] {
-            let s = p.to_string();
-            if !paths.contains(&s) {
-                paths.push(s);
             }
         }
     }

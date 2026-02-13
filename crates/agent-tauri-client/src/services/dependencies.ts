@@ -12,6 +12,7 @@ export type DependencyStatus =
   | "missing"
   | "outdated"
   | "installing"
+  | "bundled"
   | "error";
 
 // ========== 初始化向导依赖管理 ==========
@@ -153,6 +154,8 @@ export interface NpmPackageResult {
   installed: boolean;
   version?: string;
   binPath?: string;
+  /** 是否为应用集成（sidecar），集成包不走动态更新 */
+  bundled?: boolean;
 }
 
 /**
@@ -507,13 +510,21 @@ export async function checkAllSetupDependencies(): Promise<
       } else if (config.type === "npm-local") {
         // npm-local 包
         const pkgResult = await checkLocalNpmPackage(config.name);
-        item.status = pkgResult.installed ? "installed" : "missing";
+        item.status = pkgResult.bundled
+          ? "bundled"
+          : pkgResult.installed
+            ? "installed"
+            : "missing";
         item.version = pkgResult.version;
         item.binPath = pkgResult.binPath;
       } else if (config.type === "npm-global") {
         // 兼容旧配置：npm-global 也按应用内 npm-local 处理
         const pkgResult = await checkLocalNpmPackage(config.name);
-        item.status = pkgResult.installed ? "installed" : "missing";
+        item.status = pkgResult.bundled
+          ? "bundled"
+          : pkgResult.installed
+            ? "installed"
+            : "missing";
         item.version = pkgResult.version;
         item.binPath = pkgResult.binPath;
       } else if (config.type === "shell-installer") {
@@ -553,7 +564,7 @@ async function checkRequiredDependencies(): Promise<{
 }> {
   const deps = await checkAllSetupDependencies();
   const missingDeps = deps.filter(
-    (d) => d.required && d.status !== "installed",
+    (d) => d.required && d.status !== "installed" && d.status !== "bundled",
   );
   return {
     allInstalled: missingDeps.length === 0,

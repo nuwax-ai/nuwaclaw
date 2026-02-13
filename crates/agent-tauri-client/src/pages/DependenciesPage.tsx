@@ -59,6 +59,7 @@ export default function DependenciesPage() {
       );
       setLocalDeps(installableDeps);
 
+      // bundled（应用集成）的包不查 npm latest，它们的版本由应用更新管理
       const npmDepsToCheck = installableDeps.filter(
         (d) =>
           d.status === "installed" &&
@@ -94,7 +95,9 @@ export default function DependenciesPage() {
 
   const depSummary = {
     total: localDeps.length,
-    installed: localDeps.filter((d) => d.status === "installed").length,
+    installed: localDeps.filter(
+      (d) => d.status === "installed" || d.status === "bundled",
+    ).length,
     missing: localDeps.filter((d) => d.status === "missing").length,
   };
 
@@ -343,6 +346,7 @@ export default function DependenciesPage() {
   const getStatusIcon = (status: DependencyStatus) => {
     switch (status) {
       case "installed":
+      case "bundled":
         return (
           <CheckCircleOutlined style={{ color: "#16a34a", fontSize: 12 }} />
         );
@@ -371,6 +375,7 @@ export default function DependenciesPage() {
       checking: "检测中",
       error: "错误",
       outdated: "版本过低",
+      bundled: "应用集成",
     };
     return map[status] || "检测中";
   };
@@ -650,6 +655,11 @@ export default function DependenciesPage() {
                     >
                       更新
                     </Button>
+                  )}
+                  {item.status === "bundled" && (
+                    <span style={{ fontSize: 12, color: "#16a34a" }}>
+                      {getStatusText(item.status)}
+                    </span>
                   )}
                   {item.status === "installed" && !hasUpdate && (
                     <span style={{ fontSize: 12, color: "#16a34a" }}>

@@ -2802,6 +2802,9 @@ pub struct NpmPackageResult {
     pub installed: bool,
     pub version: Option<String>,
     pub bin_path: Option<String>,
+    /// 是否为应用集成（sidecar），集成包不走动态更新
+    #[serde(default)]
+    pub bundled: bool,
 }
 
 /// npm 包安装结果
@@ -3259,6 +3262,7 @@ async fn dependency_local_check(
             installed: true,
             version: detect_bin_version(&sidecar_bin),
             bin_path: Some(sidecar_bin),
+            bundled: true,
         });
     }
 
@@ -3277,6 +3281,7 @@ async fn dependency_local_check(
             installed: false,
             version: None,
             bin_path: None,
+            bundled: false,
         });
     }
 
@@ -3301,6 +3306,7 @@ async fn dependency_local_check(
         installed: true,
         version,
         bin_path,
+        bundled: false,
     })
 }
 
@@ -4176,6 +4182,7 @@ fn detect_bin_version(bin_path: &str) -> Option<String> {
 fn sidecar_like_bin_for_package(app: &tauri::AppHandle, package_name: &str) -> Option<String> {
     let bin_path = match package_name {
         "mcp-stdio-proxy" => get_mcp_proxy_bin_path(app).ok(),
+        "nuwax-file-server" => get_file_server_bin_path(app).ok(),
         _ => None,
     }?;
 

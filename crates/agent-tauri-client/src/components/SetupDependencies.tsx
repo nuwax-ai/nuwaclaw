@@ -67,6 +67,7 @@ interface UnifiedDependencyItem {
     | "missing"
     | "outdated"
     | "installing"
+    | "bundled"
     | "error";
   version?: string;
   requiredVersion?: string;
@@ -246,14 +247,17 @@ export default function SetupDependencies({
           d.type === "system" &&
           d.name !== "nodejs" &&
           d.name !== "uv" &&
-          d.status !== "installed",
+          d.status !== "installed" &&
+          d.status !== "bundled",
       );
       if (otherSystemMissing) {
         setInstallPhase("system-deps-missing");
         return;
       }
 
-      if (unified.every((d) => d.status === "installed")) {
+      if (
+        unified.every((d) => d.status === "installed" || d.status === "bundled")
+      ) {
         setInstallPhase("completed");
         setTimeout(() => onComplete(), 1500);
       } else {
@@ -314,7 +318,7 @@ export default function SetupDependencies({
 
     try {
       const toInstall = installableDependencies.filter(
-        (d) => d.status !== "installed",
+        (d) => d.status !== "installed" && d.status !== "bundled",
       );
       const total = toInstall.length;
       if (total === 0) {
@@ -425,6 +429,7 @@ export default function SetupDependencies({
   const getStatusIcon = (item: UnifiedDependencyItem) => {
     switch (item.status) {
       case "installed":
+      case "bundled":
         return (
           <CheckCircleOutlined style={{ color: "#16a34a", fontSize: 12 }} />
         );
@@ -448,12 +453,16 @@ export default function SetupDependencies({
 
   const stats = {
     total: allDependencies.length,
-    ready: allDependencies.filter((d) => d.status === "installed").length,
+    ready: allDependencies.filter(
+      (d) => d.status === "installed" || d.status === "bundled",
+    ).length,
   };
 
   const displayDeps = showAll
     ? allDependencies
-    : allDependencies.filter((d) => d.status !== "installed");
+    : allDependencies.filter(
+        (d) => d.status !== "installed" && d.status !== "bundled",
+      );
 
   const renderDependencyList = () => (
     <div ref={listRef} style={{ marginBottom: 12 }}>
@@ -502,7 +511,8 @@ export default function SetupDependencies({
           </div>
         ) : (
           displayDeps.map((item, i) => {
-            const isProblem = item.status !== "installed";
+            const isProblem =
+              item.status !== "installed" && item.status !== "bundled";
             const isSystem = item.type === "system";
             const needsAction =
               item.status === "missing" || item.status === "outdated";
@@ -518,7 +528,7 @@ export default function SetupDependencies({
                   borderBottom:
                     i < displayDeps.length - 1 ? "1px solid #f4f4f5" : "none",
                   background:
-                    item.status === "installed"
+                    item.status === "installed" || item.status === "bundled"
                       ? "#f0fdf4"
                       : item.status === "error"
                         ? "#fef2f2"
