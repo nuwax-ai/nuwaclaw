@@ -193,7 +193,22 @@ echo "==> [post-sign] 验证签名..."
 codesign --verify --deep --strict "${APP_PATH}" 2>&1 && echo "    签名验证通过" || echo "    ⚠️ 签名验证失败"
 
 # ---- 3. 记录 .app.tar.gz 路径（稍后在公证后重建） ----
-TAR_GZ="${MACOS_BUNDLE_DIR}/${APP_NAME}.app.tar.gz"
+# 文件名需要包含架构后缀，与 Tauri 生成的格式一致（如 Nuwax.Agent_aarch64.app.tar.gz）
+# 否则不同架构的构建会上传同名文件，互相覆盖
+ARCH_SUFFIX=""
+if [ -n "${TARGET}" ]; then
+  # TARGET 格式: aarch64-apple-darwin, x86_64-apple-darwin, universal-apple-darwin
+  if [[ "${TARGET}" == *"aarch64"* ]]; then
+    ARCH_SUFFIX="_aarch64"
+  elif [[ "${TARGET}" == *"x86_64"* ]]; then
+    ARCH_SUFFIX="_x64"
+  elif [[ "${TARGET}" == *"universal"* ]]; then
+    ARCH_SUFFIX="_universal"
+  fi
+fi
+# 将 APP_NAME 中的空格替换为点（Nuwax Agent -> Nuwax.Agent）
+APP_NAME_NO_SPACE="${APP_NAME// /.}"
+TAR_GZ="${MACOS_BUNDLE_DIR}/${APP_NAME_NO_SPACE}${ARCH_SUFFIX}.app.tar.gz"
 
 # ---- 4. 公证（Notarization） ----
 # 公证需要 App Store Connect API Key，未配置时跳过
@@ -241,9 +256,11 @@ if [ -n "${APPLE_API_KEY_PATH:-}" ] && [ -n "${APPLE_API_KEY_ID:-}" ] && [ -n "$
   fi
 
   # 4.2 重建 .app.tar.gz（包含 stapled 的票据）
-  if [ -f "${TAR_GZ}" ] || [ -n "${TAR_GZ}" ]; then
-    echo "==> [notarize] 创建已 stapled 的 ${APP_NAME}.app.tar.gz..."
-    (cd "${MACOS_BUNDLE_DIR}" && tar -czf "${APP_NAME}.app.tar.gz" "${APP_NAME}.app")
+  # 使用包含架构后缀的文件名（如 Nuwax.Agent_aarch64.app.tar.gz）
+  if [ -n "${TAR_GZ}" ]; then
+    TAR_GZ_BASENAME="$(basename "${TAR_GZ}")"
+    echo "==> [notarize] 创建已 stapled 的 ${TAR_GZ_BASENAME}..."
+    (cd "${MACOS_BUNDLE_DIR}" && tar -czf "${TAR_GZ_BASENAME}" "${APP_NAME}.app")
     echo "    created: ${TAR_GZ}"
   fi
 
@@ -296,9 +313,10 @@ else
   echo "    提示: 未公证的应用在 macOS 上可能会被 Gatekeeper 阻止"
 
   # ---- 未配置公证时，仍然需要重建 .app.tar.gz 和 .dmg ----
-  if [ -f "${TAR_GZ}" ] || [ -n "${TAR_GZ}" ]; then
-    echo "==> [post-sign] 重建 ${APP_NAME}.app.tar.gz..."
-    (cd "${MACOS_BUNDLE_DIR}" && tar -czf "${APP_NAME}.app.tar.gz" "${APP_NAME}.app")
+  if [ -n "${TAR_GZ}" ]; then
+    TAR_GZ_BASENAME="$(basename "${TAR_GZ}")"
+    echo "==> [post-sign] 重建 ${TAR_GZ_BASENAME}..."
+    (cd "${MACOS_BUNDLE_DIR}" && tar -czf "${TAR_GZ_BASENAME}" "${APP_NAME}.app")
     echo "    rebuilt: ${TAR_GZ}"
 
     if [ -f "${TAR_GZ}.sig" ]; then

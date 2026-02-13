@@ -451,7 +451,10 @@ jobs:
           # 保存 TAURI_SIGNING_PRIVATE_KEY 用于后续 latest.json 更新
           TAURI_KEY_BACKUP="${TAURI_SIGNING_PRIVATE_KEY:-}"
 
-          # 上传重建的 .app.tar.gz（覆盖旧文件）
+          # 上传重建的 .app.tar.gz
+          # 注意：Tauri 上传的文件名包含架构后缀（如 Nuwax.Agent_aarch64.app.tar.gz），
+          # 而 post-sign 重建的文件名不带架构后缀（如 Nuwax Agent.app.tar.gz）。
+          # 需要先删除旧的 tar.gz 文件，再上传新的。
           for targz in "${BUNDLE_BASE}/macos"/*.app.tar.gz; do
             if [ -f "$targz" ]; then
               echo "Uploading $(basename "$targz") ..."
@@ -467,6 +470,19 @@ jobs:
                 pnpm --dir crates/agent-tauri-client tauri signer sign "$ABSOLUTE_TARGZ" | tee "$SIG_FILE" > /dev/null
                 echo "Generated ${SIG_FILE}"
               fi
+
+              # 删除旧的 tar.gz 和 sig 文件（确保干净状态）
+              # 虽然 post-sign 现在使用与 Tauri 相同的文件名格式，
+              # 但为了兼容旧版本可能遗留的文件，仍然删除所有可能的文件名
+              echo "Deleting old tar.gz files from release..."
+              gh release delete-asset "$TAG" "Nuwax.Agent_aarch64.app.tar.gz" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+              gh release delete-asset "$TAG" "Nuwax.Agent_aarch64.app.tar.gz.sig" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+              gh release delete-asset "$TAG" "Nuwax.Agent_x64.app.tar.gz" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+              gh release delete-asset "$TAG" "Nuwax.Agent_x64.app.tar.gz.sig" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+              gh release delete-asset "$TAG" "Nuwax.Agent_universal.app.tar.gz" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+              gh release delete-asset "$TAG" "Nuwax.Agent_universal.app.tar.gz.sig" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+              gh release delete-asset "$TAG" "Nuwax.Agent.app.tar.gz" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+              gh release delete-asset "$TAG" "Nuwax.Agent.app.tar.gz.sig" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
 
               gh release upload "$TAG" "$targz" --clobber --repo "$GITHUB_REPOSITORY"
 
@@ -488,18 +504,30 @@ jobs:
               for targz in "${BUNDLE_BASE}/macos"/*.app.tar.gz; do
                 if [ -f "$targz" ] && [ -f "${targz}.sig" ]; then
                   SIG_CONTENT=$(cat "${targz}.sig")
-                  # 从文件名提取架构 (darwin-x86_64, darwin-aarch64, darwin-universal)
-                  BASENAME=$(basename "$targz")
-                  # 使用 jq 更新对应平台的 signature
-                  # macOS 在 latest.json 中的 key 格式: darwin-x86_64, darwin-aarch64, darwin-universal
-                  if [[ "$BASENAME" == *"universal"* ]]; then
-                    jq --arg sig "$SIG_CONTENT" '.platforms."darwin-universal".signature = $sig' "$LATEST_JSON" > "${LATEST_JSON}.tmp" && mv "${LATEST_JSON}.tmp" "$LATEST_JSON"
-                  elif [[ "$BASENAME" == *"aarch64"* ]] || [[ "$BASENAME" == *"_arm64"* ]]; then
-                    jq --arg sig "$SIG_CONTENT" '.platforms."darwin-aarch64".signature = $sig' "$LATEST_JSON" > "${LATEST_JSON}.tmp" && mv "${LATEST_JSON}.tmp" "$LATEST_JSON"
+                  # 从 TARGET 变量或目录路径推断架构
+                  # TARGET 格式: aarch64-apple-darwin, x86_64-apple-darwin, universal-apple-darwin
+                  if [[ "$TARGET" == *"aarch64"* ]] || [[ "${BUNDLE_BASE}" == *"aarch64"* ]]; then
+                    PLATFORM_KEYS=("darwin-aarch64" "darwin-aarch64-app")
+                  elif [[ "$TARGET" == *"x86_64"* ]] || [[ "${BUNDLE_BASE}" == *"x86_64"* ]]; then
+                    PLATFORM_KEYS=("darwin-x86_64" "darwin-x86_64-app")
+                  elif [[ "$TARGET" == *"universal"* ]] || [[ "${BUNDLE_BASE}" == *"universal"* ]]; then
+                    PLATFORM_KEYS=("darwin-universal" "darwin-universal-app")
                   else
-                    jq --arg sig "$SIG_CONTENT" '.platforms."darwin-x86_64".signature = $sig' "$LATEST_JSON" > "${LATEST_JSON}.tmp" && mv "${LATEST_JSON}.tmp" "$LATEST_JSON"
+                    # 从文件名推断（兼容旧逻辑）
+                    BASENAME=$(basename "$targz")
+                    if [[ "$BASENAME" == *"universal"* ]]; then
+                      PLATFORM_KEYS=("darwin-universal" "darwin-universal-app")
+                    elif [[ "$BASENAME" == *"aarch64"* ]] || [[ "$BASENAME" == *"_arm64"* ]]; then
+                      PLATFORM_KEYS=("darwin-aarch64" "darwin-aarch64-app")
+                    else
+                      PLATFORM_KEYS=("darwin-x86_64" "darwin-x86_64-app")
+                    fi
                   fi
-                  echo "Updated signature for $(basename "$targz")"
+                  # 更新所有相关的 platform key（Tauri 会为每个平台生成两个 key）
+                  for PLATFORM_KEY in "${PLATFORM_KEYS[@]}"; do
+                    jq --arg sig "$SIG_CONTENT" --arg key "$PLATFORM_KEY" 'if .platforms[$key] then .platforms[$key].signature = $sig else . end' "$LATEST_JSON" > "${LATEST_JSON}.tmp" && mv "${LATEST_JSON}.tmp" "$LATEST_JSON"
+                    echo "Updated signature for $PLATFORM_KEY"
+                  done
                 fi
               done
 
