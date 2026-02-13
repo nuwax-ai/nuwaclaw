@@ -762,9 +762,15 @@ async fn wait_for_port_ready(port: u16, timeout_secs: u64) -> Result<(), String>
     }
 }
 
-/// 将 file-server 子进程的 stdout/stderr 管道按行读取并写入 tracing 日志，便于排查崩溃原因。
+/// 将子进程的 stdout/stderr 管道按行读取并写入 tracing 日志，便于排查崩溃原因。
 /// 会 spawn 两个独立任务，不阻塞调用方；管道关闭后任务自然退出。
-fn spawn_file_server_output_loggers(
+///
+/// # Arguments
+/// * `label` - 日志前缀标签，如 "FileServer" 或 "McpProxy"
+/// * `stdout` - 子进程的 stdout 管道
+/// * `stderr` - 子进程的 stderr 管道
+fn spawn_child_output_loggers(
+    label: &'static str,
     stdout: Option<tokio::process::ChildStdout>,
     stderr: Option<tokio::process::ChildStderr>,
 ) {
@@ -779,11 +785,11 @@ fn spawn_file_server_output_loggers(
                     Ok(_) => {
                         let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
                         if !trimmed.is_empty() {
-                            info!("[FileServer stdout] {}", trimmed);
+                            info!("[{} stdout] {}", label, trimmed);
                         }
                     }
                     Err(e) => {
-                        debug!("[FileServer stdout] read error: {}", e);
+                        debug!("[{} stdout] read error: {}", label, e);
                         break;
                     }
                 }
@@ -801,11 +807,11 @@ fn spawn_file_server_output_loggers(
                     Ok(_) => {
                         let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
                         if !trimmed.is_empty() {
-                            warn!("[FileServer stderr] {}", trimmed);
+                            warn!("[{} stderr] {}", label, trimmed);
                         }
                     }
                     Err(e) => {
-                        debug!("[FileServer stderr] read error: {}", e);
+                        debug!("[{} stderr] read error: {}", label, e);
                         break;
                     }
                 }
@@ -1367,7 +1373,7 @@ impl ServiceManager {
         if capture_output {
             let stdout = child.stdout().take();
             let stderr = child.stderr().take();
-            spawn_file_server_output_loggers(stdout, stderr);
+            spawn_child_output_loggers("FileServer", stdout, stderr);
         }
 
         {
@@ -1686,14 +1692,18 @@ impl ServiceManager {
 
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(actual_program.as_str(), |cmd| {
             use crate::utils::CommandNoWindowExt;
-            let cmd = cmd.no_window().env("PATH", &node_path);
+            let cmd = cmd
+                .no_window()
+                .env("PATH", &node_path)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
             for arg in &actual_args {
                 cmd.arg(arg);
             }
         });
 
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
+        let mut child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
             .wrap(ProcessGroup::leader())
             .spawn()
@@ -1703,7 +1713,7 @@ impl ServiceManager {
             })?;
 
         #[cfg(target_os = "windows")]
-        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
+        let mut child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
             .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出 CMD 窗口
             .wrap(JobObject)
@@ -1712,6 +1722,13 @@ impl ServiceManager {
                 error!("[McpProxy] 启动失败: {}", e);
                 format!("Failed to start mcp-proxy: {}", e)
             })?;
+
+        // 捕获 mcp-proxy 的 stdout/stderr 输出到日志
+        {
+            let stdout = child.stdout().take();
+            let stderr = child.stderr().take();
+            spawn_child_output_loggers("McpProxy", stdout, stderr);
+        }
 
         {
             let mut guard = self.mcp_proxy.lock().await;
