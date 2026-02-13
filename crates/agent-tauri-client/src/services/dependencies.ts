@@ -4,6 +4,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { setupStorage } from "./store";
 
 // 依赖状态
 export type DependencyStatus =
@@ -592,7 +593,16 @@ export async function restartAllServices(): Promise<void> {
   }
 
   try {
-    await invoke("services_restart_all");
+    // 先获取 MCP Proxy 配置，避免 Store 读取的时序问题
+    const mcpProxyConfig = await setupStorage.getMcpProxyConfig();
+    console.log(
+      "[Dependencies] MCP Proxy 配置:",
+      mcpProxyConfig ? "已获取" : "为空",
+    );
+
+    await invoke("services_restart_all", {
+      mcpProxyConfig: mcpProxyConfig,
+    });
     console.log("[Dependencies] 服务启动命令已发送");
   } catch (error) {
     console.error("[Dependencies] 重启服务失败:", error);

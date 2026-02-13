@@ -129,6 +129,33 @@ else
   echo "==> [post-sign] 未找到 ${NODE_RUNTIME}，跳过 node-runtime 签名"
 fi
 
+# ---- 1.1 对 Resources 下的 node 二进制补签 JIT entitlement ----
+NODE_BIN="${APP_PATH}/Contents/Resources/node/bin/node"
+if [ -f "${NODE_BIN}" ]; then
+  echo "==> [post-sign] 对 Resources/node 补签 JIT entitlement..."
+  codesign --force --timestamp --options runtime \
+    --entitlements "${ENTITLEMENTS}" \
+    -s "${APPLE_SIGNING_IDENTITY}" -- "${NODE_BIN}"
+  echo "    signed (with JIT): ${NODE_BIN}"
+else
+  echo "==> [post-sign] 未找到 ${NODE_BIN}，跳过 node 签名"
+fi
+
+# ---- 1.2 对 Resources 下的 uv/uvx 二进制签名 ----
+UV_BIN="${APP_PATH}/Contents/Resources/uv/bin"
+if [ -d "${UV_BIN}" ]; then
+  echo "==> [post-sign] 对 Resources/uv 补签..."
+  for bin in "${UV_BIN}"/uv "${UV_BIN}"/uvx; do
+    if [ -f "$bin" ]; then
+      codesign --force --timestamp --options runtime \
+        -s "${APPLE_SIGNING_IDENTITY}" -- "$bin"
+      echo "    signed: $bin"
+    fi
+  done
+else
+  echo "==> [post-sign] 未找到 ${UV_BIN}，跳过 uv 签名"
+fi
+
 # ---- 2. 重新签名 .app bundle ----
 # node-runtime 的签名变更后，需要更新 .app 的 bundle 签名
 echo "==> [post-sign] 重新签名 .app bundle..."

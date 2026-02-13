@@ -2224,6 +2224,7 @@ async fn services_stop_all(state: tauri::State<'_, ServiceManagerState>) -> Resu
 async fn services_restart_all(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServiceManagerState>,
+    mcp_proxy_config: Option<String>,
 ) -> Result<bool, String> {
     info!("[Services] ========== 开始重启所有服务 ==========");
     sync_local_bin_env(&app)?;
@@ -2651,9 +2652,21 @@ async fn services_restart_all(
             }
         };
 
-        let config_json = match read_store_string(&app, "setup.mcp_proxy_config") {
-            Ok(Some(json)) => json,
-            _ => r#"{"mcpServers":{}}"#.to_string(),
+        // 优先使用传入的配置参数，避免 Store 读取的时序问题
+        let config_json = if let Some(config) = mcp_proxy_config {
+            info!("[Services]   - 使用传入的 MCP Proxy 配置");
+            config
+        } else {
+            match read_store_string(&app, "setup.mcp_proxy_config") {
+                Ok(Some(json)) => {
+                    info!("[Services]   - 从 Store 读取 MCP Proxy 配置");
+                    json
+                }
+                _ => {
+                    warn!("[Services]   - MCP Proxy 配置为空，使用默认空配置");
+                    r#"{"mcpServers":{}}"#.to_string()
+                }
+            }
         };
         let config_json = normalize_mcp_proxy_config_for_local_runtime(&app, config_json).await;
 
@@ -4059,7 +4072,8 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     tauri::async_runtime::spawn(async move {
                         info!("[Tray] 重启所有服务...");
                         let state = app_handle.state::<ServiceManagerState>();
-                        match services_restart_all(app_handle.clone(), state).await {
+                        // 托盘菜单重启时，从 Store 读取配置
+                        match services_restart_all(app_handle.clone(), state, None).await {
                             Ok(_) => {
                                 info!("[Tray] 所有服务已重启");
                                 // 更新托盘菜单（自动获取最新状态）

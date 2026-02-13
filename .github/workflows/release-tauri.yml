@@ -456,8 +456,10 @@ jobs:
               if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
                 echo "Generating new .sig for $(basename "$targz") ..."
                 SIG_FILE="${targz}.sig"
+                # 使用绝对路径（GITHUB_WORKSPACE 是项目根目录）
+                ABSOLUTE_TARGZ="${GITHUB_WORKSPACE}/${targz}"
                 # 使用 tee 避免路径中空格导致的重定向问题
-                pnpm --dir crates/agent-tauri-client tauri signer sign "$targz" | tee "$SIG_FILE" > /dev/null
+                pnpm --dir crates/agent-tauri-client tauri signer sign "$ABSOLUTE_TARGZ" | tee "$SIG_FILE" > /dev/null
                 echo "Generated ${SIG_FILE}"
               fi
 
