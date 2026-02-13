@@ -1,7 +1,13 @@
-//! PATH 与 ~/.local/bin 环境脚本（与 Tauri fix-path-env 互补：fix-path-env 修 GUI 进程 PATH，此处写终端用 env 脚本并在 spawn 时兜底注入）。
+//! PATH 与运行时环境管理
 //!
-//! - **Unix (macOS/Linux)**：在 PATH 前追加 ~/.local/bin，便于使用本地安装的 node/uv 等。
-//! - **Windows**：直接使用系统 PATH，不追加用户目录；依赖通过全局安装（如 `npm i -g`）即可，无需单独设置环境变量。
+//! 提供子进程启动时的 PATH 环境变量构建，支持以下路径来源：
+//!
+//! 1. **NUWAX_APP_RUNTIME_PATH**: 由 Tauri 层设置，指向 .app 包内的 node/bin 和 uv/bin 目录
+//!    - 新架构：直接使用 .app 包内资源，保持 macOS 代码签名
+//! 2. **NUWAX_APP_BUNDLED_NODE_PATH**: 指向打包的 Node.js bin 目录（可选，用于额外灵活性）
+//! 3. **~/.local/bin**: 用户本地安装的工具目录（回退）
+//!
+//! 环境变量优先级：NUWAX_APP_RUNTIME_PATH > NUWAX_APP_BUNDLED_NODE_PATH > ~/.local/bin > 系统 PATH
 
 use std::path::PathBuf;
 
@@ -15,38 +21,38 @@ fn local_bin_dir() -> PathBuf {
 
 /// 构建供 spawn/子进程使用的 PATH 字符串。
 ///
-/// - **Unix**：在现有 PATH 前追加 ~/.local/bin（安装 node/uv 到本地后即生效）。
-/// - **Windows**：在现有 PATH 前追加 %USERPROFILE%\.local\bin（安装 node 到本地后即生效）。
+/// 优先顺序：
+/// 1. NUWAX_APP_RUNTIME_PATH - 由 Tauri 层设置，包含 .app 包内资源路径
+/// 2. NUWAX_APP_BUNDLED_NODE_PATH - 打包的 Node.js bin 目录
+/// 3. ~/.local/bin - 用户本地安装目录
+/// 4. 系统 PATH
 pub fn build_node_path_env() -> String {
-    if let Ok(runtime_path) = std::env::var("NUWAX_APP_RUNTIME_PATH") {
-        let runtime_path = runtime_path.trim();
-        if !runtime_path.is_empty() {
-            let current = std::env::var("PATH").unwrap_or_default();
-            #[cfg(windows)]
-            {
-                return format!("{};{}", runtime_path, current);
-            }
-            #[cfg(not(windows))]
-            {
-                return format!("{}:{}", runtime_path, current);
-            }
-        }
-    }
-
-    let bin = local_bin_dir();
     let current = std::env::var("PATH").unwrap_or_default();
 
     #[cfg(windows)]
-    {
-        // Windows 使用分号分隔
-        format!("{};{}", bin.to_string_lossy(), current)
+    let sep = ";";
+    #[cfg(not(windows))]
+    let sep = ":";
+
+    // 1. 优先使用 NUWAX_APP_RUNTIME_PATH（由 Tauri 层设置）
+    if let Ok(runtime_path) = std::env::var("NUWAX_APP_RUNTIME_PATH") {
+        let runtime_path = runtime_path.trim();
+        if !runtime_path.is_empty() {
+            return format!("{}{}{}", runtime_path, sep, current);
+        }
     }
 
-    #[cfg(not(windows))]
-    {
-        // Unix 使用冒号分隔
-        format!("{}:{}", bin.to_string_lossy(), current)
+    // 2. 回退到 NUWAX_APP_BUNDLED_NODE_PATH（单独指定的 Node.js 路径）
+    if let Ok(bundled_path) = std::env::var("NUWAX_APP_BUNDLED_NODE_PATH") {
+        let bundled_path = bundled_path.trim();
+        if !bundled_path.is_empty() {
+            return format!("{}{}{}", bundled_path, sep, current);
+        }
     }
+
+    // 3. 回退到 ~/.local/bin
+    let bin = local_bin_dir();
+    format!("{}{}{}", bin.to_string_lossy(), sep, current)
 }
 
 /// 在 ~/.local/bin 下创建 env 脚本，安装 Node/uv 后用户可在终端 source 以加入 PATH。

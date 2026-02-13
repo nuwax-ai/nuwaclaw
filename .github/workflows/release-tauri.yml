@@ -365,13 +365,27 @@ jobs:
 
       # ---- macOS：Tauri 签名后对 node-runtime 补签 JIT entitlement，并重建 dmg/tar.gz ----
       # Tauri bundler 对 sidecar 签名时不附带 entitlements，但 node-runtime (V8) 需要 JIT。
-      # 此步骤在 Tauri 构建完成后：重签 node-runtime → 重签 .app → 重建 .dmg/.tar.gz
+      # 此步骤在 Tauri 构建完成后：重签 node-runtime → 重签 .app → 重建 .dmg/.tar.gz → 公证
       # 然后用 gh release upload --clobber 覆盖 tauri-action 上传的旧产物。
-      - name: Post-sign node-runtime with JIT entitlement
+      - name: Post-sign node-runtime with JIT entitlement and notarize
         if: runner.os == 'macOS'
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # 公证所需（App Store Connect API Key 方式，推荐）
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_ISSUER_ID: ${{ secrets.APPLE_ISSUER_ID }}
         run: |
+          # 准备 API Key 文件（notarytool 需要 .p8 文件路径）
+          if [ -n "${APPLE_API_KEY:-}" ] && [ -n "${APPLE_API_KEY_ID:-}" ] && [ -n "${APPLE_ISSUER_ID:-}" ]; then
+            APPLE_API_KEY_PATH="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY_ID}.p8"
+            echo -n "${APPLE_API_KEY}" | base64 --decode -o "${APPLE_API_KEY_PATH}"
+            export APPLE_API_KEY_PATH
+            echo "==> 已配置 App Store Connect API Key，将执行公证"
+          else
+            echo "==> 未配置 APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_ISSUER_ID，跳过公证"
+          fi
+
           # 从 matrix.args 提取 --target 值
           TARGET=""
           if [[ "${{ matrix.args }}" == *"--target "* ]]; then
@@ -383,11 +397,19 @@ jobs:
             ./scripts/post-sign-macos-app.sh
           fi
 
+          # 清理 API Key 文件
+          if [ -n "${APPLE_API_KEY_PATH:-}" ] && [ -f "${APPLE_API_KEY_PATH}" ]; then
+            rm -f "${APPLE_API_KEY_PATH}"
+          fi
+
       # 用重建后的 .dmg 和 .app.tar.gz 覆盖 tauri-action 已上传的旧产物
+      # 注意：需要重新生成 .app.tar.gz 的 .sig 签名文件（用于 Tauri updater 验证）
       - name: Replace release assets with re-signed artifacts
         if: runner.os == 'macOS'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           TAG="${{ github.ref_name }}"
           TARGET=""
@@ -412,9 +434,57 @@ jobs:
           for targz in "${BUNDLE_BASE}/macos"/*.app.tar.gz; do
             if [ -f "$targz" ]; then
               echo "Uploading $(basename "$targz") ..."
+
+              # 重新生成 .sig 签名文件（用于 Tauri updater 验证）
+              # Tauri 使用 Ed25519 签名，通过 tauri signer sign 命令生成
+              if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+                echo "Generating new .sig for $(basename "$targz") ..."
+                cd crates/agent-tauri-client
+                pnpm tauri signer sign "$targz" --private-key "${TAURI_SIGNING_PRIVATE_KEY}" > "${targz}.sig"
+                cd -
+                echo "Generated ${targz}.sig"
+              fi
+
               gh release upload "$TAG" "$targz" --clobber --repo "$GITHUB_REPOSITORY"
+
+              # 上传新的 .sig 文件
+              if [ -f "${targz}.sig" ]; then
+                gh release upload "$TAG" "${targz}.sig" --clobber --repo "$GITHUB_REPOSITORY"
+              fi
             fi
           done
+
+          # 更新 latest.json 中的 macOS signature（因为我们重建了 .app.tar.gz）
+          # 下载现有的 latest.json，更新 signature，然后重新上传
+          if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "Updating latest.json with new signatures..."
+            LATEST_JSON="${BUNDLE_BASE}/../../latest.json"
+
+            if [ -f "$LATEST_JSON" ]; then
+              # 为每个平台的 .app.tar.gz 更新 signature
+              for targz in "${BUNDLE_BASE}/macos"/*.app.tar.gz; do
+                if [ -f "$targz" ] && [ -f "${targz}.sig" ]; then
+                  SIG_CONTENT=$(cat "${targz}.sig")
+                  # 从文件名提取架构 (darwin-x86_64, darwin-aarch64, darwin-universal)
+                  BASENAME=$(basename "$targz")
+                  # 使用 jq 更新对应平台的 signature
+                  # macOS 在 latest.json 中的 key 格式: darwin-x86_64, darwin-aarch64, darwin-universal
+                  if [[ "$BASENAME" == *"universal"* ]]; then
+                    jq --arg sig "$SIG_CONTENT" '.platforms."darwin-universal".signature = $sig' "$LATEST_JSON" > "${LATEST_JSON}.tmp" && mv "${LATEST_JSON}.tmp" "$LATEST_JSON"
+                  elif [[ "$BASENAME" == *"aarch64"* ]] || [[ "$BASENAME" == *"_arm64"* ]]; then
+                    jq --arg sig "$SIG_CONTENT" '.platforms."darwin-aarch64".signature = $sig' "$LATEST_JSON" > "${LATEST_JSON}.tmp" && mv "${LATEST_JSON}.tmp" "$LATEST_JSON"
+                  else
+                    jq --arg sig "$SIG_CONTENT" '.platforms."darwin-x86_64".signature = $sig' "$LATEST_JSON" > "${LATEST_JSON}.tmp" && mv "${LATEST_JSON}.tmp" "$LATEST_JSON"
+                  fi
+                  echo "Updated signature for $(basename "$targz")"
+                fi
+              done
+
+              # 上传更新后的 latest.json
+              gh release upload "$TAG" "$LATEST_JSON" --clobber --repo "$GITHUB_REPOSITORY"
+              echo "Uploaded updated latest.json"
+            fi
+          fi
 
   # ---- 追加安装说明到 GitHub Release 页面 ----
   # 所有平台构建完成后，将安装指引追加到 Release body 末尾

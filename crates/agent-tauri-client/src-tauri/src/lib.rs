@@ -602,38 +602,109 @@ fn first_existing_bin_path(
     None
 }
 
-fn app_runtime_root_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    let app_data_dir = app
+/// 获取打包资源目录（.app 包内的 resources 目录）
+///
+/// 返回路径：{resource_dir}/resources
+/// 结构：
+/// - resources/node/bin/node (Node.js 运行时)
+/// - resources/node/lib/node_modules/ (npm 等模块)
+/// - resources/uv/bin/uv (uv 包管理器)
+fn app_bundled_resources_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let resource_dir = app
         .path()
-        .app_data_dir()
-        .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
-    Ok(app_data_dir.join("runtime"))
+        .resource_dir()
+        .map_err(|e| format!("获取资源目录失败: {}", e))?;
+    Ok(resource_dir.join("resources"))
 }
 
+/// 获取打包的 Node.js 根目录（直接使用 .app 包内资源，不再复制）
+///
+/// 返回路径：{resource_dir}/resources/node
+/// 保持 macOS 代码签名，避免 V8 SIGTRAP 崩溃
 fn app_runtime_node_root_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    Ok(app_runtime_root_dir(app)?.join("node"))
+    // 优先使用打包资源目录
+    let bundled_dir = app_bundled_resources_dir(app)?.join("node");
+
+    // 开发模式回退：尝试从当前目录和 CARGO_MANIFEST_DIR 查找
+    if !bundled_dir.exists() {
+        let dev_path = std::env::current_dir()
+            .unwrap_or_default()
+            .join("resources")
+            .join("node");
+        if dev_path.exists() {
+            debug!("[Runtime] 使用开发模式 Node.js 路径: {:?}", dev_path);
+            return Ok(dev_path);
+        }
+
+        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join("node");
+        if manifest_path.exists() {
+            debug!("[Runtime] 使用 CARGO_MANIFEST_DIR Node.js 路径: {:?}", manifest_path);
+            return Ok(manifest_path);
+        }
+    }
+
+    Ok(bundled_dir)
 }
 
+/// 获取打包的 uv bin 目录（直接使用 .app 包内资源，不再复制）
+///
+/// 返回路径：{resource_dir}/resources/uv/bin
 fn app_runtime_bin_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    Ok(app_runtime_root_dir(app)?.join("bin"))
+    // 优先使用打包资源目录
+    let bundled_dir = app_bundled_resources_dir(app)?.join("uv").join("bin");
+
+    // 开发模式回退
+    if !bundled_dir.exists() {
+        let dev_path = std::env::current_dir()
+            .unwrap_or_default()
+            .join("resources")
+            .join("uv")
+            .join("bin");
+        if dev_path.exists() {
+            debug!("[Runtime] 使用开发模式 uv 路径: {:?}", dev_path);
+            return Ok(dev_path);
+        }
+
+        let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join("uv")
+            .join("bin");
+        if manifest_path.exists() {
+            debug!("[Runtime] 使用 CARGO_MANIFEST_DIR uv 路径: {:?}", manifest_path);
+            return Ok(manifest_path);
+        }
+    }
+
+    Ok(bundled_dir)
 }
 
+/// 获取 Node.js bin 目录路径
+fn app_runtime_node_bin_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app_runtime_node_root_dir(app)?.join("bin"))
+}
+
+/// 获取 Node.js 可执行文件路径（直接使用 .app 包内资源）
 fn app_runtime_node_bin_path(app: &tauri::AppHandle, bin_name: &str) -> Result<String, String> {
-    let node_root = app_runtime_node_root_dir(app)?;
+    let node_bin_dir = app_runtime_node_bin_dir(app)?;
     #[cfg(unix)]
-    let bin = node_root.join("bin").join(bin_name);
+    let bin = node_bin_dir.join(bin_name);
     #[cfg(windows)]
     let bin = if bin_name == "node" {
-        node_root.join("bin").join("node.exe")
+        node_bin_dir.join("node.exe")
     } else {
-        node_root.join("bin").join(format!("{}.cmd", bin_name))
+        node_bin_dir.join(format!("{}.cmd", bin_name))
     };
     Ok(bin.to_string_lossy().to_string())
 }
 
+/// 构建 PATH 环境变量（使用 .app 包内资源路径）
+///
+/// 优先顺序：node/bin > uv/bin > 系统 PATH
 fn build_app_runtime_path_env(app: &tauri::AppHandle) -> Result<String, String> {
     let current = std::env::var("PATH").unwrap_or_default();
-    let node_bin = app_runtime_node_root_dir(app)?.join("bin");
+    let node_bin = app_runtime_node_bin_dir(app)?;
     let uv_bin = app_runtime_bin_dir(app)?;
     #[cfg(windows)]
     let sep = ";";
@@ -2991,83 +3062,82 @@ pub struct NodeInstallResult {
     pub error: Option<String>,
 }
 
-/// 自动安装 Node.js（从打包资源复制到应用数据目录）
+/// 自动安装 Node.js（验证打包资源存在，直接使用 .app 包内资源）
+///
+/// 新架构：不再复制到 runtime/ 目录，直接使用 .app 包内的 Node.js
+/// 优势：保持 macOS 代码签名，避免 V8 SIGTRAP 崩溃
 #[tauri::command]
 async fn node_install_auto(app: tauri::AppHandle) -> Result<NodeInstallResult, String> {
     use tauri::Manager;
 
-    info!("[NodeInstall] 开始自动安装 Node.js...");
+    info!("[NodeInstall] 验证打包的 Node.js 资源...");
 
-    // 1. 解析打包资源目录中的 node 路径
-    let resource_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|e| format!("获取资源目录失败: {}", e))?;
+    // 获取打包资源目录中的 node 路径（直接使用 .app 包内资源）
+    let bundled_node_dir = app_runtime_node_root_dir(&app)?;
 
-    // 资源目录结构: $RESOURCE/resources/node/{bin,lib}
-    let bundled_node_dir = resource_dir.join("resources").join("node");
+    // 验证 node 二进制存在
+    #[cfg(unix)]
+    let node_bin = bundled_node_dir.join("bin").join("node");
+    #[cfg(windows)]
+    let node_bin = bundled_node_dir.join("bin").join("node.exe");
 
-    // 开发模式下的回退路径
-    let bundled_node_dir = if !bundled_node_dir.exists() {
-        // 开发模式: 直接使用 src-tauri/resources/node
-        let dev_path = std::env::current_dir()
-            .unwrap_or_default()
-            .join("resources")
-            .join("node");
-        if dev_path.exists() {
-            debug!("[NodeInstall] 使用开发模式资源路径: {:?}", dev_path);
-            dev_path
-        } else {
-            // 再尝试从 cargo manifest 目录
-            let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("resources")
-                .join("node");
-            if manifest_path.exists() {
-                info!(
-                    "[NodeInstall] 使用 CARGO_MANIFEST_DIR 资源路径: {:?}",
-                    manifest_path
-                );
-                manifest_path
-            } else {
-                return Ok(NodeInstallResult {
-                    success: false,
-                    version: None,
-                    error: Some(format!(
-                        "Node.js 资源文件未找到: {:?} / {:?} / {:?}",
-                        bundled_node_dir, dev_path, manifest_path
-                    )),
-                });
-            }
-        }
-    } else {
-        debug!("[NodeInstall] 使用打包资源路径: {:?}", bundled_node_dir);
-        bundled_node_dir
-    };
+    if !node_bin.exists() {
+        error!(
+            "[NodeInstall] Node.js 资源不存在: {:?}",
+            node_bin
+        );
+        return Ok(NodeInstallResult {
+            success: false,
+            version: None,
+            error: Some(format!(
+                "Node.js 资源不存在: {:?}",
+                node_bin
+            )),
+        });
+    }
 
-    // 2. 使用 NodeInstaller 安装到应用内运行时目录
-    let node_runtime_root = app_runtime_node_root_dir(&app)?;
-    let installer = nuwax_agent_core::dependency::node::NodeInstaller::with_target_dir(
-        node_runtime_root,
-    );
-    match installer.install_from_bundled(&bundled_node_dir) {
-        Ok(info) => {
+    // 获取版本信息
+    let output = Command::new(&node_bin)
+        .no_window()
+        .arg("--version")
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            let version = String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .trim_start_matches('v')
+                .to_string();
+
             info!(
-                "[NodeInstall] 安装成功: v{} at {:?}",
-                info.version, info.path
+                "[NodeInstall] Node.js 已就绪: v{} at {:?}",
+                version, node_bin
             );
+
+            // 同步 PATH 环境变量
             let _ = sync_local_bin_env(&app);
+
             Ok(NodeInstallResult {
                 success: true,
-                version: Some(info.version),
+                version: Some(version),
                 error: None,
             })
         }
-        Err(e) => {
-            error!("[NodeInstall] 安装失败: {}", e);
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            error!("[NodeInstall] 获取 Node.js 版本失败: {}", stderr);
             Ok(NodeInstallResult {
                 success: false,
                 version: None,
-                error: Some(format!("安装失败: {}", e)),
+                error: Some(format!("获取版本失败: {}", stderr)),
+            })
+        }
+        Err(e) => {
+            error!("[NodeInstall] 执行 node --version 失败: {}", e);
+            Ok(NodeInstallResult {
+                success: false,
+                version: None,
+                error: Some(format!("执行失败: {}", e)),
             })
         }
     }
@@ -3135,95 +3205,85 @@ pub struct UvInstallResult {
     pub error: Option<String>,
 }
 
-/// 自动安装 uv（从打包资源复制到应用数据目录）
+/// 自动安装 uv（验证打包资源存在，直接使用 .app 包内资源）
+///
+/// 新架构：不再复制到 runtime/ 目录，直接使用 .app 包内的 uv
+/// 优势：保持 macOS 代码签名
 #[tauri::command]
 async fn uv_install_auto(app: tauri::AppHandle) -> Result<UvInstallResult, String> {
     use tauri::Manager;
 
-    info!("[UvInstall] 开始自动安装 uv...");
+    info!("[UvInstall] 验证打包的 uv 资源...");
 
-    // 1. 解析打包资源目录中的 uv 路径
-    let resource_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|e| format!("获取资源目录失败: {}", e))?;
+    // 获取打包资源目录中的 uv bin 目录
+    let uv_bin_dir = app_runtime_bin_dir(&app)?;
 
-    let bundled_uv_dir = resource_dir.join("resources").join("uv");
-    info!(
-        "[UvInstall] 打包资源路径: {:?}, exists={}",
-        bundled_uv_dir,
-        bundled_uv_dir.exists()
-    );
+    // 验证 uv 二进制存在
+    #[cfg(unix)]
+    let uv_bin = uv_bin_dir.join("uv");
+    #[cfg(windows)]
+    let uv_bin = uv_bin_dir.join("uv.exe");
 
-    // 开发模式下的回退路径
-    let bundled_uv_dir = if !bundled_uv_dir.exists() {
-        // 开发模式: 尝试 cwd/resources/uv (Tauri dev 从 src-tauri/ 启动)
-        let dev_path = std::env::current_dir()
-            .unwrap_or_default()
-            .join("resources")
-            .join("uv");
-        info!(
-            "[UvInstall] 开发模式路径1: {:?}, exists={}",
-            dev_path,
-            dev_path.exists()
+    if !uv_bin.exists() {
+        error!(
+            "[UvInstall] uv 资源不存在: {:?}",
+            uv_bin
         );
+        return Ok(UvInstallResult {
+            success: false,
+            version: None,
+            error: Some(format!(
+                "uv 资源不存在: {:?}",
+                uv_bin
+            )),
+        });
+    }
 
-        if dev_path.exists() {
-            debug!("[UvInstall] 使用开发模式资源路径: {:?}", dev_path);
-            dev_path
-        } else {
-            // 再尝试从 cargo manifest 目录
-            let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("resources")
-                .join("uv");
+    // 获取版本信息
+    let output = Command::new(&uv_bin)
+        .no_window()
+        .arg("--version")
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            // 解析版本：uv 0.5.0 (xxx)
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let version = stdout
+                .split_whitespace()
+                .nth(1)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| stdout.clone());
+
             info!(
-                "[UvInstall] 开发模式路径2: {:?}, exists={}",
-                manifest_path,
-                manifest_path.exists()
+                "[UvInstall] uv 已就绪: v{} at {:?}",
+                version, uv_bin
             );
 
-            if manifest_path.exists() {
-                info!(
-                    "[UvInstall] 使用 CARGO_MANIFEST_DIR 资源路径: {:?}",
-                    manifest_path
-                );
-                manifest_path
-            } else {
-                return Ok(UvInstallResult {
-                    success: false,
-                    version: None,
-                    error: Some(format!(
-                        "uv 资源文件未找到: {:?} / {:?} / {:?}",
-                        bundled_uv_dir, dev_path, manifest_path
-                    )),
-                });
-            }
-        }
-    } else {
-        debug!("[UvInstall] 使用打包资源路径: {:?}", bundled_uv_dir);
-        bundled_uv_dir
-    };
-
-    // 2. 使用 UvInstaller 复制到应用内运行时目录
-    let uv_runtime_bin = app_runtime_bin_dir(&app)?;
-    let installer =
-        nuwax_agent_core::dependency::uv::UvInstaller::with_target_dir(uv_runtime_bin);
-    match installer.install_from_bundled(&bundled_uv_dir) {
-        Ok(info) => {
-            info!("[UvInstall] 安装成功: v{} at {:?}", info.version, info.path);
+            // 同步 PATH 环境变量
             let _ = sync_local_bin_env(&app);
+
             Ok(UvInstallResult {
                 success: true,
-                version: Some(info.version),
+                version: Some(version),
                 error: None,
             })
         }
-        Err(e) => {
-            error!("[UvInstall] 安装失败: {}", e);
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            error!("[UvInstall] 获取 uv 版本失败: {}", stderr);
             Ok(UvInstallResult {
                 success: false,
                 version: None,
-                error: Some(format!("安装失败: {}", e)),
+                error: Some(format!("获取版本失败: {}", stderr)),
+            })
+        }
+        Err(e) => {
+            error!("[UvInstall] 执行 uv --version 失败: {}", e);
+            Ok(UvInstallResult {
+                success: false,
+                version: None,
+                error: Some(format!("执行失败: {}", e)),
             })
         }
     }
