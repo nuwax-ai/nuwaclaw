@@ -159,7 +159,7 @@ dependencies = [
 [[package]]
 name = "agent_abstraction"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#4c38bc2b351ba02492923a4094ad2915c55e00d9"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#2af3e96192150d8c7ac11c491ebe5d67e064cb02"
 dependencies = [
  "agent_config",
  "anyhow",
@@ -188,7 +188,7 @@ dependencies = [
 [[package]]
 name = "agent_config"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#4c38bc2b351ba02492923a4094ad2915c55e00d9"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#2af3e96192150d8c7ac11c491ebe5d67e064cb02"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -206,7 +206,7 @@ dependencies = [
 [[package]]
 name = "agent_runner"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#4c38bc2b351ba02492923a4094ad2915c55e00d9"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#2af3e96192150d8c7ac11c491ebe5d67e064cb02"
 dependencies = [
  "agent_abstraction",
  "agent_config",
@@ -629,9 +629,9 @@ dependencies = [
 
 [[package]]
 name = "ashpd"
-version = "0.12.1"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "618a409b91d5265798a99e3d1d0b226911605e581c4e7255e83c1e397b172bce"
+checksum = "522dc9bec59923af17c43c5911cdabbacdb32ed4f955e83ecf592855618b20b5"
 dependencies = [
  "async-fs 2.2.0",
  "async-net",
@@ -8979,7 +8979,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3299dd401feaf1d45afd8fd1c0586f10fcfb22f244bb9afa942cec73503b89d"
 dependencies = [
  "aes",
- "ashpd 0.12.1",
+ "ashpd 0.12.2",
  "async-fs 2.2.0",
  "async-io 2.6.0",
  "async-lock 3.4.2",
@@ -11095,7 +11095,7 @@ dependencies = [
 [[package]]
 name = "rcoder-proxy"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#4c38bc2b351ba02492923a4094ad2915c55e00d9"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#2af3e96192150d8c7ac11c491ebe5d67e064cb02"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -11122,7 +11122,7 @@ dependencies = [
 [[package]]
 name = "rcoder-telemetry"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#4c38bc2b351ba02492923a4094ad2915c55e00d9"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#2af3e96192150d8c7ac11c491ebe5d67e064cb02"
 dependencies = [
  "anyhow",
  "axum",
@@ -12734,7 +12734,7 @@ dependencies = [
 [[package]]
 name = "shared_types"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#4c38bc2b351ba02492923a4094ad2915c55e00d9"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#2af3e96192150d8c7ac11c491ebe5d67e064cb02"
 dependencies = [
  "anyhow",
  "arc-swap",
