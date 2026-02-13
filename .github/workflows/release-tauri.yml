@@ -430,6 +430,9 @@ jobs:
             fi
           done
 
+          # 保存 TAURI_SIGNING_PRIVATE_KEY 用于后续 latest.json 更新
+          TAURI_KEY_BACKUP="${TAURI_SIGNING_PRIVATE_KEY:-}"
+
           # 上传重建的 .app.tar.gz（覆盖旧文件）
           for targz in "${BUNDLE_BASE}/macos"/*.app.tar.gz; do
             if [ -f "$targz" ]; then
@@ -439,10 +442,10 @@ jobs:
               # Tauri 使用 Ed25519 签名，通过 tauri signer sign 命令生成
               if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
                 echo "Generating new .sig for $(basename "$targz") ..."
-                cd crates/agent-tauri-client
-                pnpm tauri signer sign "$targz" --private-key "${TAURI_SIGNING_PRIVATE_KEY}" > "${targz}.sig"
-                cd -
-                echo "Generated ${targz}.sig"
+                SIG_FILE="${targz}.sig"
+                # 使用 tee 避免路径中空格导致的重定向问题
+                pnpm --dir crates/agent-tauri-client tauri signer sign "$targz" | tee "$SIG_FILE" > /dev/null
+                echo "Generated ${SIG_FILE}"
               fi
 
               gh release upload "$TAG" "$targz" --clobber --repo "$GITHUB_REPOSITORY"
@@ -455,8 +458,8 @@ jobs:
           done
 
           # 更新 latest.json 中的 macOS signature（因为我们重建了 .app.tar.gz）
-          # 下载现有的 latest.json，更新 signature，然后重新上传
-          if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+          # 使用备份的 key 检查，而非可能被修改的环境变量
+          if [ -n "${TAURI_KEY_BACKUP:-}" ]; then
             echo "Updating latest.json with new signatures..."
             LATEST_JSON="${BUNDLE_BASE}/../../latest.json"
 
