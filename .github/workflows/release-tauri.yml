@@ -333,6 +333,11 @@ jobs:
           security list-keychain -d user -s "$KEYCHAIN_PATH"
           rm -f "$CERTIFICATE_PATH"
 
+      # ---- macOS：安装 create-dmg 用于创建带 Applications 快捷方式的 DMG ----
+      - name: Install create-dmg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install create-dmg
+
       # ---- macOS：对 node/uv 资源做 codesign；未设置 APPLE_SIGNING_IDENTITY 时脚本内跳过 ----
       - name: Sign macOS resource binaries (node, uv)
         if: runner.os == 'macOS'
