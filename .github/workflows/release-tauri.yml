@@ -457,14 +457,16 @@ jobs:
 
               # 重新生成 .sig 签名文件（用于 Tauri updater 验证）
               # Tauri 使用 Ed25519 签名，通过 tauri signer sign 命令生成
+              # 注意：tauri signer sign 输出包含额外文本，需要只提取 "Public signature:" 后的签名
               if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
                 echo "Generating new .sig for $(basename "$targz") ..."
                 SIG_FILE="${targz}.sig"
                 # 使用绝对路径（GITHUB_WORKSPACE 是项目根目录）
                 ABSOLUTE_TARGZ="${GITHUB_WORKSPACE}/${targz}"
-                # 使用 tee 避免路径中空格导致的重定向问题
-                pnpm --dir crates/agent-tauri-client tauri signer sign "$ABSOLUTE_TARGZ" | tee "$SIG_FILE" > /dev/null
+                # 提取 "Public signature:" 后面的那一行（实际的 base64 签名）
+                pnpm --dir crates/agent-tauri-client tauri signer sign "$ABSOLUTE_TARGZ" | grep -A1 "Public signature:" | tail -1 > "$SIG_FILE"
                 echo "Generated ${SIG_FILE}"
+                echo "Signature content: $(cat "$SIG_FILE" | head -c 50)..."
               fi
 
               # 删除旧的 tar.gz 和 sig 文件（只删除当前架构的文件，避免并行构建竞态条件）
