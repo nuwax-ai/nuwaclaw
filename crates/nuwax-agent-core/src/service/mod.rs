@@ -1362,7 +1362,7 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let mut child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出 CMD 窗口
+            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出控制台窗口
             .wrap(JobObject)
             .spawn()
             .map_err(|e| {
@@ -1455,7 +1455,7 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出 CMD 窗口
+            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出控制台窗口
             .wrap(JobObject)
             .spawn()
             .map_err(|e| format!("Failed to start nuwax-lanproxy: {}", e))?;
@@ -1575,7 +1575,7 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出 CMD 窗口
+            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出控制台窗口
             .wrap(JobObject)
             .spawn()
             .map_err(|e| {
@@ -1715,7 +1715,7 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let mut child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出 CMD 窗口
+            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出控制台窗口
             .wrap(JobObject)
             .spawn()
             .map_err(|e| {
