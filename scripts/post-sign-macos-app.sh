@@ -59,6 +59,33 @@ if [ ! -f "${ENTITLEMENTS}" ]; then
   exit 0
 fi
 
+# ---- DMG 创建函数 ----
+# 使用 create-dmg 创建带 Applications 快捷方式的 DMG
+create_dmg_with_app_link() {
+  local dmg_path="$1"
+  local app_path="$2"
+  local app_name="$3"
+
+  # 删除旧的 DMG（如果存在）
+  rm -f "${dmg_path}"
+
+  # 检查 volicon 是否存在
+  local volicon_arg=""
+  local volicon_path="${app_path}/Contents/Resources/AppIcon.icns"
+  if [ -f "${volicon_path}" ]; then
+    volicon_arg="--volicon ${volicon_path}"
+  fi
+
+  # 使用 create-dmg 创建 DMG
+  # --app-drop-link 0 0: 在 DMG 左下角创建 Applications 快捷方式
+  create-dmg \
+    --volname "${app_name}" \
+    ${volicon_arg} \
+    --app-drop-link 0 0 \
+    "${dmg_path}" \
+    "${app_path}"
+}
+
 # ---- 定位构建产物 ----
 # Tauri 输出路径:
 #   target/<triple>/release/bundle/macos/<ProductName>.app
@@ -180,14 +207,8 @@ if [ -n "${APPLE_API_KEY_PATH:-}" ] && [ -n "${APPLE_API_KEY_ID:-}" ] && [ -n "$
   if [ -n "${DMG_PATH}" ]; then
     echo "==> [notarize] 创建 .dmg（包含 stapled 的 .app）..."
     DMG_NAME="$(basename "${DMG_PATH}")"
-    DMG_TEMP="${DMG_DIR}/${DMG_NAME}.tmp"
 
-    hdiutil create -volname "${APP_NAME}" \
-      -srcfolder "${APP_PATH}" \
-      -ov -format UDZO \
-      "${DMG_TEMP}" 2>/dev/null
-
-    mv -f "${DMG_TEMP}.dmg" "${DMG_PATH}"
+    create_dmg_with_app_link "${DMG_PATH}" "${APP_PATH}" "${APP_NAME}"
     echo "    created: ${DMG_PATH}"
 
     # 4.4 公证 .dmg 并 staple
@@ -244,15 +265,8 @@ else
 
   if [ -n "${DMG_PATH}" ]; then
     echo "==> [post-sign] 重建 .dmg..."
-    DMG_NAME="$(basename "${DMG_PATH}")"
-    DMG_TEMP="${DMG_DIR}/${DMG_NAME}.tmp"
 
-    hdiutil create -volname "${APP_NAME}" \
-      -srcfolder "${APP_PATH}" \
-      -ov -format UDZO \
-      "${DMG_TEMP}" 2>/dev/null
-
-    mv -f "${DMG_TEMP}.dmg" "${DMG_PATH}"
+    create_dmg_with_app_link "${DMG_PATH}" "${APP_PATH}" "${APP_NAME}"
     echo "    rebuilt: ${DMG_PATH}"
   fi
 fi
