@@ -449,9 +449,8 @@ jobs:
           done
 
           # 上传重建的 .app.tar.gz
-          # 注意：Tauri 上传的文件名包含架构后缀（如 Nuwax.Agent_aarch64.app.tar.gz），
-          # 而 post-sign 重建的文件名不带架构后缀（如 Nuwax Agent.app.tar.gz）。
-          # 需要先删除旧的 tar.gz 文件，再上传新的。
+          # 注意：post-sign 和 Tauri 生成的文件名格式一致，都包含架构后缀
+          # （如 Nuwax.Agent_aarch64.app.tar.gz）
           for targz in "${BUNDLE_BASE}/macos"/*.app.tar.gz; do
             if [ -f "$targz" ]; then
               echo "Uploading $(basename "$targz") ..."
