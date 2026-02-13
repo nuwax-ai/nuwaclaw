@@ -84,15 +84,17 @@ else
   echo "==> [sign-macos-resource-bins] 未找到 ${UV_BIN_DIR}，跳过 uv 签名"
 fi
 
-# 2. 签名 resources/node/bin 下的可执行文件（与 uv 一致，不隐藏，避免公证失败）
+# 2. 签名 resources/node/bin 下的可执行文件
+# 注意：node 是 V8/Node.js 运行时，需要 JIT 权限，与 node-runtime sidecar 一样使用带 entitlement 的签名
 NODE_BIN_DIR="${TAURI_RESOURCES}/node/bin"
 if [ -d "${NODE_BIN_DIR}" ]; then
-  echo "==> [sign-macos-resource-bins] 签名 node 资源..."
+  echo "==> [sign-macos-resource-bins] 签名 node 资源 (带 JIT entitlement)..."
   for f in "${NODE_BIN_DIR}"/*; do
     if [ -f "$f" ] && [ -x "$f" ]; then
       # 排除脚本或非 Mach-O（如 .sh）；仅签名可执行二进制
       if file "$f" | grep -q "Mach-O"; then
-        sign_one "$f"
+        # node 是 V8 运行时，需要 JIT 权限
+        sign_node_runtime_with_jit "$f"
       fi
     fi
   done
