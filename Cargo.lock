@@ -159,7 +159,7 @@ dependencies = [
 [[package]]
 name = "agent_abstraction"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#7de5cca97d01eb92c1cc5fbbba521d2aabc4d80a"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#475919e137d914a5bc18ce430d82dfafe91f889c"
 dependencies = [
  "agent_config",
  "anyhow",
@@ -182,12 +182,13 @@ dependencies = [
  "tracing",
  "uuid",
  "which 8.0.0",
+ "windows 0.62.2",
 ]
 
 [[package]]
 name = "agent_config"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#7de5cca97d01eb92c1cc5fbbba521d2aabc4d80a"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#475919e137d914a5bc18ce430d82dfafe91f889c"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -205,7 +206,7 @@ dependencies = [
 [[package]]
 name = "agent_runner"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#7de5cca97d01eb92c1cc5fbbba521d2aabc4d80a"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#475919e137d914a5bc18ce430d82dfafe91f889c"
 dependencies = [
  "agent_abstraction",
  "agent_config",
@@ -5979,7 +5980,7 @@ dependencies = [
  "tokio",
  "tower-service",
  "tracing",
- "windows-registry 0.4.0",
+ "windows-registry 0.6.1",
 ]
 
 [[package]]
@@ -5994,7 +5995,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.57.0",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -7657,9 +7658,9 @@ dependencies = [
 
 [[package]]
 name = "native-tls"
-version = "0.2.14"
+version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87de3442987e9dbec73158d5c715e7ad9072fda936bb03d19d7fa10e00520f0e"
+checksum = "6cdede44f9a69cab2899a2049e2c3bd49bf911a157f6a3353d4a91c61abbce44"
 dependencies = [
  "libc",
  "log",
@@ -9231,7 +9232,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9843,7 +9844,7 @@ dependencies = [
  "serde 1.0.228",
  "serde_yaml",
  "sfv",
- "socket2 0.4.10",
+ "socket2 0.6.2",
  "strum 0.26.3",
  "strum_macros 0.26.4",
  "tokio",
@@ -9852,7 +9853,7 @@ dependencies = [
  "unicase",
  "windows-sys 0.59.0",
  "x509-parser",
- "zstd 0.11.2+zstd.1.5.2",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -10414,7 +10415,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
  "heck 0.5.0",
- "itertools 0.11.0",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "once_cell",
@@ -10434,7 +10435,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
  "heck 0.5.0",
- "itertools 0.11.0",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "petgraph 0.8.3",
@@ -10455,7 +10456,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.11.0",
+ "itertools 0.14.0",
  "proc-macro2 1.0.106",
  "quote 1.0.44",
  "syn 2.0.115",
@@ -10468,7 +10469,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.11.0",
+ "itertools 0.14.0",
  "proc-macro2 1.0.106",
  "quote 1.0.44",
  "syn 2.0.115",
@@ -11094,7 +11095,7 @@ dependencies = [
 [[package]]
 name = "rcoder-proxy"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#7de5cca97d01eb92c1cc5fbbba521d2aabc4d80a"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#475919e137d914a5bc18ce430d82dfafe91f889c"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -11121,7 +11122,7 @@ dependencies = [
 [[package]]
 name = "rcoder-telemetry"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#7de5cca97d01eb92c1cc5fbbba521d2aabc4d80a"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#475919e137d914a5bc18ce430d82dfafe91f889c"
 dependencies = [
  "anyhow",
  "axum",
@@ -12733,7 +12734,7 @@ dependencies = [
 [[package]]
 name = "shared_types"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#7de5cca97d01eb92c1cc5fbbba521d2aabc4d80a"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#475919e137d914a5bc18ce430d82dfafe91f889c"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -14849,9 +14850,9 @@ dependencies = [
 
 [[package]]
 name = "toml_parser"
-version = "1.0.7+spec-1.1.0"
+version = "1.0.8+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "247eaa3197818b831697600aadf81514e577e0cba5eab10f7e064e78ae154df1"
+checksum = "0742ff5ff03ea7e67c8ae6c93cac239e0d9784833362da3f9a9c1da8dfefcbdc"
 dependencies = [
  "winnow 0.7.14",
 ]
@@ -16534,7 +16535,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
