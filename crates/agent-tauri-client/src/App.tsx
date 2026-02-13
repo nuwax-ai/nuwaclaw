@@ -15,7 +15,6 @@ import {
   FileTextOutlined,
   SettingOutlined,
   DashboardOutlined,
-  SafetyOutlined,
   FolderOutlined,
   InfoCircleOutlined,
 } from "@ant-design/icons";
@@ -32,13 +31,7 @@ import {
 } from "./services";
 import SetupWizard from "./components/SetupWizard";
 import LogViewerWithBackend from "./components/LogViewerWithBackend";
-import {
-  ClientPage,
-  SettingsPage,
-  DependenciesPage,
-  PermissionsPage,
-  AboutPage,
-} from "./pages";
+import { ClientPage, SettingsPage, DependenciesPage, AboutPage } from "./pages";
 import { initConfigStore } from "./services/config";
 import {
   initAuthStore,
@@ -479,16 +472,16 @@ function App() {
     const config: Record<
       AgentStatus,
       {
-        status: "success" | "processing" | "error" | "default" | "warning";
+        status: "success" | "error" | "default" | "warning";
         text: string;
       }
     > = {
       idle: { status: "default", text: "就绪" },
-      starting: { status: "processing", text: "启动中" },
+      starting: { status: "warning", text: "启动中" },
       running: { status: "success", text: "运行中" },
-      busy: { status: "warning", text: "繁忙" },
+      busy: { status: "success", text: "繁忙" },
       stopped: { status: "default", text: "已停止" },
-      error: { status: "error", text: "错误" },
+      error: { status: "warning", text: "错误" },
     };
     return config[status] || config.idle;
   };
@@ -502,8 +495,8 @@ function App() {
     { key: "client", icon: <DashboardOutlined />, label: "客户端" },
     { key: "settings", icon: <SettingOutlined />, label: "设置" },
     { key: "dependencies", icon: <FolderOutlined />, label: "依赖" },
-    { key: "permissions", icon: <SafetyOutlined />, label: "权限" },
-    { key: "logs", icon: <FileTextOutlined />, label: "日志" },
+    // { key: "permissions", icon: <SafetyOutlined />, label: "权限" },
+    // { key: "logs", icon: <FileTextOutlined />, label: "日志" },
     { key: "about", icon: <InfoCircleOutlined />, label: "关于" },
   ];
 
@@ -592,7 +585,6 @@ function App() {
           )}
           {activeTab === "settings" && <SettingsPage />}
           {activeTab === "dependencies" && <DependenciesPage />}
-          {activeTab === "permissions" && <PermissionsPage />}
           {activeTab === "logs" && (
             <LogViewerWithBackend
               showSource={true}

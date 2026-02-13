@@ -358,7 +358,7 @@ export default function ClientPage({
       </div>
 
       {/* 连接信息 */}
-      <div className="section" style={{ marginTop: 20 }}>
+      {/* <div className="section" style={{ marginTop: 20 }}>
         <div
           style={{
             fontSize: 13,
@@ -431,7 +431,7 @@ export default function ClientPage({
             </div>
           ))}
         </div>
-      </div>
+      </div> */}
 
       {/* 快捷操作 */}
       <div style={{ marginTop: 20, display: "flex", gap: 8, flexWrap: "wrap" }}>
