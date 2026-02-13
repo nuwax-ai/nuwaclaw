@@ -8,7 +8,7 @@
  * - 状态管理和事件监听
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Badge, Menu, Spin, message } from "antd";
 import {
   RobotOutlined,
@@ -67,6 +67,8 @@ function App() {
   // 初始化向导状态
   // ============================================
   const [setupCompleted, setSetupCompleted] = useState<boolean | null>(null);
+  // 标记向导是否刚完成（向导中已启动服务，避免 autoReconnect 重复启动）
+  const setupJustCompleted = useRef(false);
   const { appName } = useAppInfo();
 
   // ============================================
@@ -195,6 +197,13 @@ function App() {
     }
 
     const autoReconnect = async () => {
+      // 如果向导刚完成，服务已在向导中启动，仅同步配置，跳过重复启动服务
+      if (setupJustCompleted.current) {
+        setupJustCompleted.current = false;
+        console.log("[App] 初始化向导刚完成，服务已在向导中启动，跳过自动重连");
+        return;
+      }
+
       try {
         const savedKey = await getSavedKey();
         if (savedKey) {
@@ -203,10 +212,28 @@ function App() {
           const result = await syncConfigToServer();
           if (result) {
             console.log("[App] 重连成功，启动服务...");
-            await restartAllServices();
-            // 更新在线状态
-            setOnlineStatus(result.online);
-            message.success("服务已自动启动");
+            try {
+              await restartAllServices();
+              setOnlineStatus(result.online);
+              message.success("服务已自动启动");
+            } catch (serviceError) {
+              console.error("[App] 自动启动服务失败:", serviceError);
+              setOnlineStatus(result.online);
+              const errMsg =
+                serviceError instanceof Error
+                  ? serviceError.message
+                  : String(serviceError);
+              message.warning(`服务自动启动失败: ${errMsg}`);
+            }
+          } else {
+            console.warn("[App] 配置同步失败，尝试直接启动服务...");
+            try {
+              await restartAllServices();
+              message.info("服务已启动（配置同步失败，使用本地配置）");
+            } catch (serviceError) {
+              console.error("[App] 服务启动也失败:", serviceError);
+              message.warning("配置同步和服务启动均失败，请手动重试");
+            }
           }
         } else {
           console.log("[App] 未检测到 savedKey，停止所有服务");
@@ -219,7 +246,8 @@ function App() {
         }
       } catch (error) {
         console.error("[App] 自动重连失败:", error);
-        // 自动重连失败不阻塞用户使用，仅记录错误
+        const errMsg = error instanceof Error ? error.message : String(error);
+        message.warning(`自动重连失败: ${errMsg}`);
       }
     };
 
@@ -497,7 +525,14 @@ function App() {
   // 渲染：初始化向导
   // ============================================
   if (!setupCompleted) {
-    return <SetupWizard onComplete={() => setSetupCompleted(true)} />;
+    return (
+      <SetupWizard
+        onComplete={() => {
+          setupJustCompleted.current = true;
+          setSetupCompleted(true);
+        }}
+      />
+    );
   }
 
   // ============================================

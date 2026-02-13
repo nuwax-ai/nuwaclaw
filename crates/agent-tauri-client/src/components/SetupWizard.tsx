@@ -65,7 +65,9 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
         // 实际检测所有依赖状态
         const deps = await checkAllSetupDependencies();
-        const allInstalled = deps.every((d) => d.status === "installed");
+        const allInstalled = deps.every(
+          (d) => d.status === "installed" || d.status === "bundled",
+        );
         console.log(
           "[SetupWizard] 依赖检测:",
           deps.map((d) => `${d.name}:${d.status}`).join(", "),

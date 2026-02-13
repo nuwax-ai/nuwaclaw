@@ -2911,14 +2911,30 @@ fn package_name_from_bin_name(bin_name: &str) -> String {
 
 /// 将应用内运行时目录同步到当前进程 PATH
 fn sync_local_bin_env(app: &tauri::AppHandle) -> Result<(), String> {
-    // Tauri 进程自身 PATH：运行时目录 + 系统 PATH（Tauri 自身可能需要系统命令）
-    let full_path = build_app_runtime_path_env(app)?;
+    // Tauri 进程自身 PATH：运行时目录 + 应用内 node_modules/.bin + 系统 PATH
+    // 应用内 node_modules/.bin 包含 npm 安装的命令（如 claude-code-acp-ts、nuwaxcode 等），
+    // 需要加入 Tauri 进程 PATH 以便 which crate 和 ACP agent 启动时能找到。
+    let app_dir = app_data_dir_get(app.clone())?;
+    let nm_bin = std::path::Path::new(&app_dir)
+        .join("node_modules")
+        .join(".bin");
+    let mut full_path = build_app_runtime_path_env(app)?;
+    #[cfg(windows)]
+    let sep = ";";
+    #[cfg(not(windows))]
+    let sep = ":";
+    if nm_bin.exists() {
+        full_path = format!("{}{}{}", full_path, sep, nm_bin.to_string_lossy());
+    }
     debug!("[EnvSync] Tauri 进程 PATH: {}", full_path);
     std::env::set_var("PATH", &full_path);
 
-    // NUWAX_APP_RUNTIME_PATH：仅运行时目录（不含系统 PATH），
-    // 子进程通过 build_node_path_env() 读取此值 + 最小系统路径，与用户环境隔离
-    let runtime_dirs = build_app_runtime_dirs(app)?;
+    // NUWAX_APP_RUNTIME_PATH：运行时目录 + 应用内 node_modules/.bin（不含系统 PATH），
+    // 子进程通过 build_node_path_env() 读取此值，与用户环境隔离
+    let mut runtime_dirs = build_app_runtime_dirs(app)?;
+    if nm_bin.exists() {
+        runtime_dirs = format!("{}{}{}", runtime_dirs, sep, nm_bin.to_string_lossy());
+    }
     debug!("[EnvSync] NUWAX_APP_RUNTIME_PATH: {}", runtime_dirs);
     std::env::set_var("NUWAX_APP_RUNTIME_PATH", &runtime_dirs);
 
@@ -3246,6 +3262,9 @@ async fn uv_install_auto(app: tauri::AppHandle) -> Result<UvInstallResult, Strin
     }
 }
 
+/// 与 scripts/download-sidecars.sh 中 MCP_VERSION 保持一致，用于依赖页展示
+const MCP_PROXY_BUNDLED_VERSION: &str = "0.1.42";
+
 /// 检测本地 npm 包是否已安装
 #[tauri::command]
 async fn dependency_local_check(
@@ -3258,9 +3277,15 @@ async fn dependency_local_check(
             "[Dependency] 检测命中 sidecar: package={} bin={}",
             package_name, sidecar_bin
         );
+        // mcp-stdio-proxy 使用与 sidecar 发布一致的版本号展示，避免显示 npm 或旧二进制版本
+        let version = if package_name == "mcp-stdio-proxy" {
+            Some(MCP_PROXY_BUNDLED_VERSION.to_string())
+        } else {
+            detect_bin_version(&sidecar_bin)
+        };
         return Ok(NpmPackageResult {
             installed: true,
-            version: detect_bin_version(&sidecar_bin),
+            version,
             bin_path: Some(sidecar_bin),
             bundled: true,
         });

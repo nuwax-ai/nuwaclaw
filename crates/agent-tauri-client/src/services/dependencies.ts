@@ -83,6 +83,7 @@ const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     type: "npm-local",
     description: "MCP 协议转换代理工具（应用内安装）",
     required: true,
+    minVersion: "0.1.42", // 与 download-sidecars.sh MCP_VERSION 一致，用于「必需」展示
     binName: "mcp-proxy",
   },
   {
@@ -574,15 +575,20 @@ async function checkRequiredDependencies(): Promise<{
 
 /**
  * 重启所有服务
- * 在启动前会检查必需依赖是否已安装
+ * 在启动前会检查必需依赖是否已安装，缺失时仅警告不阻塞
  */
 export async function restartAllServices(): Promise<void> {
-  // 检查必需依赖
-  const { allInstalled, missingDeps } = await checkRequiredDependencies();
-
-  if (!allInstalled) {
-    const missingNames = missingDeps.map((d) => d.displayName).join(", ");
-    throw new Error(`缺少必需依赖: ${missingNames}。请先安装所有必需依赖。`);
+  // 检查必需依赖（仅作为预检警告，不阻塞服务启动）
+  try {
+    const { allInstalled, missingDeps } = await checkRequiredDependencies();
+    if (!allInstalled) {
+      const missingNames = missingDeps.map((d) => d.displayName).join(", ");
+      console.warn(
+        `[Dependencies] 依赖预检: 缺少 ${missingNames}，仍尝试启动服务`,
+      );
+    }
+  } catch (checkError) {
+    console.warn("[Dependencies] 依赖预检失败，仍尝试启动服务:", checkError);
   }
 
   try {
