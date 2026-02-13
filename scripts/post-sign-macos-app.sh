@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# post-sign-macos-app.sh — Tauri 构建后对 .app 中的 node-runtime 补签 JIT entitlement
+# post-sign-macos-app.sh — Tauri 构建后对 .app 中的 node-runtime 补签 JIT entitlement 并公证
 #
 # 背景:
 #   Tauri bundler 会对 .app/Contents/MacOS/ 下所有二进制执行 codesign，
@@ -12,13 +12,18 @@
 #   1. 找到构建产物 .app
 #   2. 对 node-runtime 重新签名（附带 JIT entitlement）
 #   3. 重新签名 .app bundle（使 bundle 签名包含更新后的 node-runtime）
-#   4. 重建 .dmg 和 .app.tar.gz（覆盖 Tauri 生成的旧版本）
+#   4. 公证 .app → staple → 创建 .app.tar.gz 和 .dmg → 公证 .dmg → staple
 #
 # 用法:
-#   APPLE_SIGNING_IDENTITY="Developer ID Application: ..." ./scripts/post-sign-macos-app.sh [--target <triple>]
+#   APPLE_SIGNING_IDENTITY="Developer ID Application: ..." \
+#   APPLE_API_KEY_PATH="/path/to/AuthKey.p8" \
+#   APPLE_API_KEY_ID="AB12CD34EF" \
+#   APPLE_ISSUER_ID="uuid-xxx" \
+#   ./scripts/post-sign-macos-app.sh [--target <triple>]
 #   例如: ./scripts/post-sign-macos-app.sh --target universal-apple-darwin
 #
 # 仅在 macOS 上执行；非 macOS 或未设置 APPLE_SIGNING_IDENTITY 时直接退出 0。
+# 公证是可选的：未设置 APPLE_API_KEY_PATH 时跳过公证步骤（仅重建 dmg/tar.gz）。
 #
 
 set -euo pipefail
@@ -105,44 +110,148 @@ echo "    signed: ${APP_PATH}"
 echo "==> [post-sign] 验证签名..."
 codesign --verify --deep --strict "${APP_PATH}" 2>&1 && echo "    签名验证通过" || echo "    ⚠️ 签名验证失败"
 
-# ---- 3. 重建 .app.tar.gz（供 Tauri updater 使用） ----
+# ---- 3. 记录 .app.tar.gz 路径（稍后在公证后重建） ----
 TAR_GZ="${MACOS_BUNDLE_DIR}/${APP_NAME}.app.tar.gz"
-if [ -f "${TAR_GZ}" ]; then
-  echo "==> [post-sign] 重建 ${APP_NAME}.app.tar.gz..."
-  # 进入 bundle 目录，以正确的相对路径打包
-  (cd "${MACOS_BUNDLE_DIR}" && tar -czf "${APP_NAME}.app.tar.gz" "${APP_NAME}.app")
-  echo "    rebuilt: ${TAR_GZ}"
 
-  # 如果有 .sig 文件，需要重新生成（由 tauri-action 的 updater 签名处理，这里删除旧的让 tauri-action 重新生成）
-  if [ -f "${TAR_GZ}.sig" ]; then
-    rm -f "${TAR_GZ}.sig"
-    echo "    removed stale .sig (will be regenerated)"
+# ---- 4. 公证（Notarization） ----
+# 公证需要 App Store Connect API Key，未配置时跳过
+# 所需环境变量：
+#   - APPLE_API_KEY_PATH: AuthKey_<KeyID>.p8 文件路径
+#   - APPLE_API_KEY_ID: API Key ID (如 AB12CD34EF)
+#   - APPLE_ISSUER_ID: Issuer ID (UUID 格式)
+
+if [ -n "${APPLE_API_KEY_PATH:-}" ] && [ -n "${APPLE_API_KEY_ID:-}" ] && [ -n "${APPLE_ISSUER_ID:-}" ]; then
+  echo "==> [notarize] 开始公证流程..."
+
+  # 4.1 提交 .app 进行公证（直接提交 .app，而非 .tar.gz）
+  # 公证成功后 staple .app，然后打包 .tar.gz 和创建 .dmg
+  echo "==> [notarize] 创建临时 zip 用于提交公证..."
+  TEMP_ZIP="${RUNNER_TEMP:-/tmp}/${APP_NAME}.zip"
+  ditto -c -k --keepParent "${APP_PATH}" "${TEMP_ZIP}"
+
+  echo "==> [notarize] 提交 ${APP_NAME}.app 公证..."
+  SUBMIT_LOG=$(mktemp)
+
+  xcrun notarytool submit "${TEMP_ZIP}" \
+    --key "${APPLE_API_KEY_PATH}" \
+    --key-id "${APPLE_API_KEY_ID}" \
+    --issuer "${APPLE_ISSUER_ID}" \
+    --wait \
+    --timeout 600 \
+    2>&1 | tee "${SUBMIT_LOG}"
+
+  rm -f "${TEMP_ZIP}"
+
+  # 检查公证结果
+  if grep -q "status: Accepted" "${SUBMIT_LOG}"; then
+    echo "    公证成功: ${APP_PATH}"
+    rm -f "${SUBMIT_LOG}"
+
+    # Staple 公证票据到 .app
+    echo "==> [notarize] Staple 公证票据到 .app..."
+    xcrun stapler staple "${APP_PATH}"
+    echo "    stapled: ${APP_PATH}"
+  else
+    echo "::error::公证失败，查看日志:"
+    cat "${SUBMIT_LOG}"
+    rm -f "${SUBMIT_LOG}"
+    exit 1
   fi
-fi
 
-# ---- 4. 重建 .dmg ----
-DMG_PATH=""
-for dmg in "${DMG_DIR}"/*.dmg; do
-  if [ -f "$dmg" ]; then
-    DMG_PATH="$dmg"
-    break
+  # 4.2 重建 .app.tar.gz（包含 stapled 的票据）
+  if [ -f "${TAR_GZ}" ] || [ -n "${TAR_GZ}" ]; then
+    echo "==> [notarize] 创建已 stapled 的 ${APP_NAME}.app.tar.gz..."
+    (cd "${MACOS_BUNDLE_DIR}" && tar -czf "${APP_NAME}.app.tar.gz" "${APP_NAME}.app")
+    echo "    created: ${TAR_GZ}"
   fi
-done
 
-if [ -n "${DMG_PATH}" ]; then
-  echo "==> [post-sign] 重建 .dmg..."
-  DMG_NAME="$(basename "${DMG_PATH}")"
-  DMG_TEMP="${DMG_DIR}/${DMG_NAME}.tmp"
+  # 4.3 重建 .dmg（包含 stapled 的 .app）
+  DMG_PATH=""
+  for dmg in "${DMG_DIR}"/*.dmg; do
+    if [ -f "$dmg" ]; then
+      DMG_PATH="$dmg"
+      break
+    fi
+  done
 
-  # 创建临时 DMG
-  hdiutil create -volname "${APP_NAME}" \
-    -srcfolder "${APP_PATH}" \
-    -ov -format UDZO \
-    "${DMG_TEMP}" 2>/dev/null
+  if [ -n "${DMG_PATH}" ]; then
+    echo "==> [notarize] 创建 .dmg（包含 stapled 的 .app）..."
+    DMG_NAME="$(basename "${DMG_PATH}")"
+    DMG_TEMP="${DMG_DIR}/${DMG_NAME}.tmp"
 
-  # 替换原 DMG（hdiutil create 会自动追加 .dmg 扩展名）
-  mv -f "${DMG_TEMP}.dmg" "${DMG_PATH}"
-  echo "    rebuilt: ${DMG_PATH}"
+    hdiutil create -volname "${APP_NAME}" \
+      -srcfolder "${APP_PATH}" \
+      -ov -format UDZO \
+      "${DMG_TEMP}" 2>/dev/null
+
+    mv -f "${DMG_TEMP}.dmg" "${DMG_PATH}"
+    echo "    created: ${DMG_PATH}"
+
+    # 4.4 公证 .dmg 并 staple
+    echo "==> [notarize] 提交 ${DMG_NAME} 公证..."
+    SUBMIT_LOG=$(mktemp)
+
+    xcrun notarytool submit "${DMG_PATH}" \
+      --key "${APPLE_API_KEY_PATH}" \
+      --key-id "${APPLE_API_KEY_ID}" \
+      --issuer "${APPLE_ISSUER_ID}" \
+      --wait \
+      --timeout 600 \
+      2>&1 | tee "${SUBMIT_LOG}"
+
+    if grep -q "status: Accepted" "${SUBMIT_LOG}"; then
+      echo "    公证成功: ${DMG_PATH}"
+      rm -f "${SUBMIT_LOG}"
+
+      echo "==> [notarize] Staple 公证票据到 .dmg..."
+      xcrun stapler staple "${DMG_PATH}"
+      echo "    stapled: ${DMG_PATH}"
+    else
+      echo "::error::.dmg 公证失败，查看日志:"
+      cat "${SUBMIT_LOG}"
+      rm -f "${SUBMIT_LOG}"
+      exit 1
+    fi
+  fi
+
+  echo "==> [notarize] 公证流程完成"
+else
+  echo "==> [notarize] 未配置 APPLE_API_KEY_PATH / APPLE_API_KEY_ID / APPLE_ISSUER_ID，跳过公证"
+  echo "    提示: 未公证的应用在 macOS 上可能会被 Gatekeeper 阻止"
+
+  # ---- 未配置公证时，仍然需要重建 .app.tar.gz 和 .dmg ----
+  if [ -f "${TAR_GZ}" ] || [ -n "${TAR_GZ}" ]; then
+    echo "==> [post-sign] 重建 ${APP_NAME}.app.tar.gz..."
+    (cd "${MACOS_BUNDLE_DIR}" && tar -czf "${APP_NAME}.app.tar.gz" "${APP_NAME}.app")
+    echo "    rebuilt: ${TAR_GZ}"
+
+    if [ -f "${TAR_GZ}.sig" ]; then
+      rm -f "${TAR_GZ}.sig"
+      echo "    removed stale .sig (will be regenerated)"
+    fi
+  fi
+
+  DMG_PATH=""
+  for dmg in "${DMG_DIR}"/*.dmg; do
+    if [ -f "$dmg" ]; then
+      DMG_PATH="$dmg"
+      break
+    fi
+  done
+
+  if [ -n "${DMG_PATH}" ]; then
+    echo "==> [post-sign] 重建 .dmg..."
+    DMG_NAME="$(basename "${DMG_PATH}")"
+    DMG_TEMP="${DMG_DIR}/${DMG_NAME}.tmp"
+
+    hdiutil create -volname "${APP_NAME}" \
+      -srcfolder "${APP_PATH}" \
+      -ov -format UDZO \
+      "${DMG_TEMP}" 2>/dev/null
+
+    mv -f "${DMG_TEMP}.dmg" "${DMG_PATH}"
+    echo "    rebuilt: ${DMG_PATH}"
+  fi
 fi
 
 echo "==> [post-sign] 完成"

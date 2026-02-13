@@ -282,9 +282,10 @@ impl DependencyDetector for UvDetector {
 }
 
 /// uv 安装器
-/// 安装到全局路径: ~/.local/bin/ (macOS/Linux) 或 %USERPROFILE%\.local\bin\ (Windows)
+/// 验证打包的 uv 资源存在（新架构：不再复制，直接使用 .app 包内资源）
 pub struct UvInstaller {
-    /// 目标目录 (直接放二进制的目录)
+    /// 目标目录（保留字段用于兼容性，新架构中不再使用）
+    #[allow(dead_code)]
     target_dir: PathBuf,
 }
 
@@ -328,14 +329,16 @@ impl UvInstaller {
             .ok_or_else(|| UvError::ParseError(output_str))
     }
 
-    /// 从打包的资源目录安装 uv 到全局路径
+    /// 验证打包的 uv 资源存在并返回信息
+    ///
+    /// 新架构：不再复制到 ~/.local/bin/，直接验证打包资源
+    /// 优势：保持 macOS 代码签名
     ///
     /// bundled_uv_dir 结构: bundled_uv_dir/bin/{uv,uvx}
-    /// 安装后: ~/.local/bin/{uv,uvx}
     pub fn install_from_bundled(&self, bundled_uv_dir: &PathBuf) -> Result<UvInfo, UvError> {
         info!(
-            "[UvInstaller] 开始安装: {:?} -> {:?}",
-            bundled_uv_dir, self.target_dir
+            "[UvInstaller] 验证打包的 uv 资源: {:?}",
+            bundled_uv_dir
         );
 
         if !bundled_uv_dir.exists() {
@@ -350,12 +353,6 @@ impl UvInstaller {
         let bundled_uv_bin = bundled_uv_dir.join("bin").join("uv");
         #[cfg(windows)]
         let bundled_uv_bin = bundled_uv_dir.join("bin").join("uv.exe");
-
-        info!(
-            "[UvInstaller] 源二进制: {:?}, exists={}",
-            bundled_uv_bin,
-            bundled_uv_bin.exists()
-        );
 
         if !bundled_uv_bin.exists() {
             // 列出 bundled_uv_dir 内容以便排查
@@ -372,82 +369,24 @@ impl UvInstaller {
             )));
         }
 
-        // 创建目标目录
-        info!("[UvInstaller] 创建目标目录: {:?}", self.target_dir);
-        std::fs::create_dir_all(&self.target_dir)?;
+        // 获取版本信息
+        let version = Self::read_version_from_path(&bundled_uv_bin)?;
 
-        // 复制 bin/ 下的文件到目标目录（扁平复制，不保留 bin/ 子目录）
-        let src_bin = bundled_uv_dir.join("bin");
-        for entry in std::fs::read_dir(&src_bin)? {
-            let entry = entry?;
-            let src_path = entry.path();
-            let dst_path = self.target_dir.join(entry.file_name());
+        info!(
+            "[UvInstaller] uv 资源验证通过: v{} at {:?}",
+            version, bundled_uv_bin
+        );
 
-            if src_path.is_file() || src_path.is_symlink() {
-                info!("[UvInstaller] 复制: {:?} -> {:?}", src_path, dst_path);
-                std::fs::copy(&src_path, &dst_path).map_err(|e| {
-                    UvError::InstallFailed(format!(
-                        "复制失败 {:?} -> {:?}: {}",
-                        src_path, dst_path, e
-                    ))
-                })?;
-            }
+        // 写入本地 env 脚本（用于终端环境）
+        if let Err(e) = crate::utils::ensure_local_bin_env() {
+            warn!("写入本地 env 脚本失败（不影响使用）: {}", e);
         }
 
-        // 设置可执行权限
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            for bin_name in &["uv", "uvx"] {
-                let bin_path = self.target_dir.join(bin_name);
-                if bin_path.exists() {
-                    let mut perms = std::fs::metadata(&bin_path)?.permissions();
-                    perms.set_mode(0o755);
-                    std::fs::set_permissions(&bin_path, perms)?;
-                    info!("[UvInstaller] 设置权限 0o755: {:?}", bin_path);
-                }
-            }
-        }
-
-        info!("[UvInstaller] 安装完成，验证中...");
-
-        // 默认目录时才写入 ~/.local/bin/env；自定义目录由调用方负责环境同步
-        let default_target = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".local")
-            .join("bin");
-        if self.target_dir == default_target {
-            if let Err(e) = crate::utils::ensure_local_bin_env() {
-                warn!("写入本地 env 脚本失败（不影响安装）: {}", e);
-            }
-        }
-
-        #[cfg(unix)]
-        let uv_bin = self.target_dir.join("uv");
-        #[cfg(windows)]
-        let uv_bin = self.target_dir.join("uv.exe");
-
-        match Self::read_version_from_path(&uv_bin) {
-            Ok(version) => {
-                info!("[UvInstaller] 验证成功: v{} at {:?}", version, uv_bin);
-                Ok(UvInfo {
-                    version,
-                    path: uv_bin,
-                    source: UvSource::Local,
-                })
-            }
-            Err(e) => {
-                warn!("[UvInstaller] 验证失败: {}", e);
-                if let Ok(entries) = std::fs::read_dir(&self.target_dir) {
-                    let files: Vec<String> = entries
-                        .filter_map(|e| e.ok())
-                        .map(|e| format!("{:?}", e.path()))
-                        .collect();
-                    warn!("[UvInstaller] 目标目录内容: {:?}", files);
-                }
-                Err(e)
-            }
-        }
+        Ok(UvInfo {
+            version,
+            path: bundled_uv_bin,
+            source: UvSource::Local,
+        })
     }
 }
 

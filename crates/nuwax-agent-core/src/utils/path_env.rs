@@ -1,9 +1,13 @@
-//! 子进程环境变量管理 — 与用户系统环境隔离。
+//! PATH 与运行时环境管理
 //!
-//! 子进程不继承父进程/用户的完整环境变量，仅使用我们管理的运行时路径 + 最小系统基础变量，
-//! 避免用户 IDE 工具、build 产物等无关配置污染子进程环境。
+//! 提供子进程启动时的 PATH 环境变量构建，支持以下路径来源：
 //!
-//! 与 Tauri fix-path-env 互补：fix-path-env 修 GUI 进程 PATH，此处管控 spawn 子进程的完整环境。
+//! 1. **NUWAX_APP_RUNTIME_PATH**: 由 Tauri 层设置，指向 .app 包内的 node/bin 和 uv/bin 目录
+//!    - 新架构：直接使用 .app 包内资源，保持 macOS 代码签名
+//! 2. **NUWAX_APP_BUNDLED_NODE_PATH**: 指向打包的 Node.js bin 目录（可选，用于额外灵活性）
+//! 3. **~/.local/bin**: 用户本地安装的工具目录（回退）
+//!
+//! 环境变量优先级：NUWAX_APP_RUNTIME_PATH > NUWAX_APP_BUNDLED_NODE_PATH > ~/.local/bin > 系统 PATH
 
 use std::path::PathBuf;
 
@@ -17,80 +21,38 @@ fn local_bin_dir() -> PathBuf {
 
 /// 构建供 spawn/子进程使用的 PATH 字符串。
 ///
-/// **完全隔离**：仅包含 NUWAX_APP_RUNTIME_PATH 中的应用自有运行时目录，
-/// 不包含 ~/.local/bin、/usr/bin 等任何系统或用户路径，彻底避免环境污染。
+/// 优先顺序：
+/// 1. NUWAX_APP_RUNTIME_PATH - 由 Tauri 层设置，包含 .app 包内资源路径
+/// 2. NUWAX_APP_BUNDLED_NODE_PATH - 打包的 Node.js bin 目录
+/// 3. ~/.local/bin - 用户本地安装目录
+/// 4. 系统 PATH
 pub fn build_node_path_env() -> String {
-    let sep = if cfg!(windows) { ";" } else { ":" };
-    let mut paths: Vec<String> = Vec::new();
+    let current = std::env::var("PATH").unwrap_or_default();
 
-    // 仅使用 NUWAX_APP_RUNTIME_PATH（Tauri 打包后的运行时路径）
+    #[cfg(windows)]
+    let sep = ";";
+    #[cfg(not(windows))]
+    let sep = ":";
+
+    // 1. 优先使用 NUWAX_APP_RUNTIME_PATH（由 Tauri 层设置）
     if let Ok(runtime_path) = std::env::var("NUWAX_APP_RUNTIME_PATH") {
         let runtime_path = runtime_path.trim();
         if !runtime_path.is_empty() {
-            for p in runtime_path.split(sep) {
-                let p = p.trim();
-                if !p.is_empty() && !paths.contains(&p.to_string()) {
-                    paths.push(p.to_string());
-                }
-            }
+            return format!("{}{}{}", runtime_path, sep, current);
         }
     }
 
-    paths.join(sep)
-}
-
-/// 构建子进程最小基础环境变量集（配合 `env_clear()` 使用，不继承父进程环境）。
-///
-/// 仅包含操作系统必需的基础变量 + 我们自己的变量，与用户系统/IDE 配置完全隔离。
-/// 调用方需额外通过 `.env("PATH", build_node_path_env())` 设置 PATH。
-pub fn build_base_env() -> Vec<(String, String)> {
-    let mut env = Vec::new();
-
-    // --- 操作系统基础变量（子进程正常运行所需） ---
-
-    #[cfg(not(windows))]
-    {
-        for key in &["HOME", "USER", "LANG", "TMPDIR", "SHELL"] {
-            if let Ok(v) = std::env::var(key) {
-                env.push((key.to_string(), v));
-            }
+    // 2. 回退到 NUWAX_APP_BUNDLED_NODE_PATH（单独指定的 Node.js 路径）
+    if let Ok(bundled_path) = std::env::var("NUWAX_APP_BUNDLED_NODE_PATH") {
+        let bundled_path = bundled_path.trim();
+        if !bundled_path.is_empty() {
+            return format!("{}{}{}", bundled_path, sep, current);
         }
     }
 
-    #[cfg(windows)]
-    {
-        for key in &[
-            "USERPROFILE", "HOMEDRIVE", "HOMEPATH",   // 用户主目录
-            "SystemRoot", "SYSTEMDRIVE",               // 系统根目录
-            "COMSPEC",                                 // cmd.exe 路径
-            "TEMP", "TMP",                             // 临时目录
-            "APPDATA", "LOCALAPPDATA", "PROGRAMDATA",  // 应用数据目录（npm/node 需要）
-        ] {
-            if let Ok(v) = std::env::var(key) {
-                env.push((key.to_string(), v));
-            }
-        }
-    }
-
-    // --- 我们自己的变量 ---
-
-    // Tauri 运行时路径
-    if let Ok(v) = std::env::var("NUWAX_APP_RUNTIME_PATH") {
-        env.push(("NUWAX_APP_RUNTIME_PATH".into(), v));
-    }
-    // 应用数据目录
-    if let Ok(v) = std::env::var("NUWAX_APP_DATA_DIR") {
-        env.push(("NUWAX_APP_DATA_DIR".into(), v));
-    }
-
-    // --- 日志配置（调试用，有则透传） ---
-    for key in &["RUST_LOG", "AGENT_RUST_LOG"] {
-        if let Ok(v) = std::env::var(key) {
-            env.push((key.to_string(), v));
-        }
-    }
-
-    env
+    // 3. 回退到 ~/.local/bin
+    let bin = local_bin_dir();
+    format!("{}{}{}", bin.to_string_lossy(), sep, current)
 }
 
 /// 在 ~/.local/bin 下创建 env 脚本，安装 Node/uv 后用户可在终端 source 以加入 PATH。

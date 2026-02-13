@@ -82,10 +82,40 @@ fn find_node_exe_for_windows_launch() -> Option<std::path::PathBuf> {
 }
 
 /// 获取 Node.js bin 目录路径（用于设置 PATH 环境变量）
+///
+/// 优先顺序：
+/// 1. NUWAX_APP_RUNTIME_PATH 环境变量（由 Tauri 层设置，指向 .app 包内资源）
+/// 2. 本地安装的 node（~/.local/bin/node）
+/// 3. 系统 PATH 中的 node
 #[cfg(target_os = "windows")]
 pub fn get_node_bin_path() -> Option<String> {
+    // 优先使用环境变量指定的路径
+    if let Ok(runtime_path) = std::env::var("NUWAX_APP_RUNTIME_PATH") {
+        let runtime_path = runtime_path.trim();
+        if !runtime_path.is_empty() {
+            // NUWAX_APP_RUNTIME_PATH 可能包含多个路径（用 ; 分隔）
+            for dir in runtime_path.split(';') {
+                let dir = dir.trim();
+                if !dir.is_empty() {
+                    let node_path = std::path::Path::new(dir).join("node.exe");
+                    if node_path.exists() {
+                        debug!(
+                            "[Service] Windows node 解析命中 NUWAX_APP_RUNTIME_PATH: {}",
+                            dir
+                        );
+                        return Some(dir.to_string());
+                    }
+                }
+            }
+        }
+    }
+
     if let Some(node_exe) = find_node_exe_for_windows_launch() {
         if let Some(bin_dir) = node_exe.parent() {
+            debug!(
+                "[Service] Windows node 解析命中本地: {}",
+                bin_dir.display()
+            );
             return Some(bin_dir.to_string_lossy().to_string());
         }
     }
@@ -95,10 +125,33 @@ pub fn get_node_bin_path() -> Option<String> {
 #[cfg(not(target_os = "windows"))]
 pub fn get_node_bin_path() -> Option<String> {
     use std::env::var;
+
+    // 优先使用环境变量指定的路径
+    if let Ok(runtime_path) = var("NUWAX_APP_RUNTIME_PATH") {
+        let runtime_path = runtime_path.trim();
+        if !runtime_path.is_empty() {
+            // NUWAX_APP_RUNTIME_PATH 可能包含多个路径（用 : 分隔）
+            for dir in runtime_path.split(':') {
+                let dir = dir.trim();
+                if !dir.is_empty() {
+                    let node_path = std::path::Path::new(dir).join("node");
+                    if node_path.exists() {
+                        debug!(
+                            "[Service] Node 解析命中 NUWAX_APP_RUNTIME_PATH: {}",
+                            dir
+                        );
+                        return Some(dir.to_string());
+                    }
+                }
+            }
+        }
+    }
+
     if let Ok(path) = var("PATH") {
         for dir in path.split(':') {
             let node_path = std::path::Path::new(dir).join("node");
             if node_path.exists() {
+                debug!("[Service] Node 解析命中 PATH: {}", dir);
                 return Some(dir.to_string());
             }
         }
