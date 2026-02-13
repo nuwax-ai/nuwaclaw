@@ -47,9 +47,33 @@ fn find_in_path(executable: &str) -> Option<String> {
 /// 在系统 PATH 中查找可执行文件并返回其父目录
 fn find_bin_dir(executable: &str) -> Option<String> {
     find_in_path(executable).and_then(|path| {
-        PathBuf::from(&path)
-            .parent()
-            .map(|p| p.to_string_lossy().to_string())
+        let parent = PathBuf::from(&path).parent()?.to_path_buf();
+        let parent_str = parent.to_string_lossy().to_string();
+
+        // 如果父目录是 "cmd"，尝试找同级的 "bin" 目录
+        // 例如: D:\Program Files\Git\cmd -> D:\Program Files\Git\bin
+        if parent_str.to_lowercase().ends_with("cmd") {
+            let bin_dir = parent
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| {
+                    if n.eq_ignore_ascii_case("cmd") {
+                        parent
+                            .parent()
+                            .map(|p| p.join("bin").to_string_lossy().to_string())
+                    } else {
+                        None
+                    }
+                })
+                .flatten();
+            if let Some(bin) = bin_dir {
+                if PathBuf::from(&bin).join("bash.exe").exists() {
+                    return Some(bin);
+                }
+            }
+        }
+
+        Some(parent_str)
     })
 }
 
@@ -105,6 +129,15 @@ pub fn build_node_path_env() -> String {
     }
 
     paths.join(sep)
+}
+
+/// Windows: 查找 Git Bash 路径
+///
+/// 查找系统 PATH 中的 bash.exe，返回其 bin 目录路径
+/// 如果 bash.exe 在 Git\cmd 目录下，会自动查找同级的 Git\bin 目录
+#[cfg(windows)]
+pub fn find_git_bash_path() -> Option<String> {
+    find_bin_dir("bash.exe")
 }
 
 /// 构建完整的 PATH 环境变量（供 sidecar 服务使用）。

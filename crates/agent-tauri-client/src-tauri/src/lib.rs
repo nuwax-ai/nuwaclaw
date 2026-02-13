@@ -1414,6 +1414,12 @@ fn get_mcp_proxy_bin_path(app: &tauri::AppHandle) -> Result<String, String> {
     resolve_npm_global_bin_path(app, "mcp-proxy", "请在「依赖」页面安装 MCP Proxy")
 }
 
+/// Windows: 查找 Git Bash 路径
+#[cfg(windows)]
+fn find_git_bash_path_windows() -> Option<String> {
+    nuwax_agent_core::utils::find_git_bash_path()
+}
+
 /// 获取 node-runtime sidecar 路径（可选）
 ///
 /// 仅用于在运行时优先注入固定 Node 可执行文件路径，避免依赖系统 PATH。
@@ -2232,6 +2238,17 @@ async fn services_restart_all(
 ) -> Result<bool, String> {
     info!("[Services] ========== 开始重启所有服务 ==========");
     sync_local_bin_env(&app)?;
+
+    // Windows: 设置 Git Bash 路径环境变量（供 Docker 容器内的 rcoder 使用）
+    #[cfg(windows)]
+    {
+        if std::env::var("CLAUDE_CODE_GIT_BASH_PATH").is_err() {
+            if let Some(git_bash_path) = find_git_bash_path_windows() {
+                std::env::set_var("CLAUDE_CODE_GIT_BASH_PATH", &git_bash_path);
+                info!("[Services] 已设置 CLAUDE_CODE_GIT_BASH_PATH: {}", git_bash_path);
+            }
+        }
+    }
 
     // 停止所有服务
     info!("[Services] 1/5 停止所有服务...");
