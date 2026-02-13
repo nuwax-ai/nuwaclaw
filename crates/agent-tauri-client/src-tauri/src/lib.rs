@@ -2981,33 +2981,66 @@ fn package_name_from_bin_name(bin_name: &str) -> String {
 }
 
 /// 将应用内运行时目录同步到当前进程 PATH
+///
+/// 注意：此函数可能被多次调用，使用 NUWAX_ORIGINAL_PATH 保存原始 PATH，
+/// 避免每次调用时 PATH 不断增长。
 fn sync_local_bin_env(app: &tauri::AppHandle) -> Result<(), String> {
-    // Tauri 进程自身 PATH：运行时目录 + 应用内 node_modules/.bin + 系统 PATH
-    // 应用内 node_modules/.bin 包含 npm 安装的命令（如 claude-code-acp-ts、nuwaxcode 等），
-    // 需要加入 Tauri 进程 PATH 以便 which crate 和 ACP agent 启动时能找到。
-    let app_dir = app_data_dir_get(app.clone())?;
-    let nm_bin = std::path::Path::new(&app_dir)
-        .join("node_modules")
-        .join(".bin");
-    let mut full_path = build_app_runtime_path_env(app)?;
     #[cfg(windows)]
     let sep = ";";
     #[cfg(not(windows))]
     let sep = ":";
-    if nm_bin.exists() {
-        full_path = format!("{}{}{}", full_path, sep, nm_bin.to_string_lossy());
-    }
-    debug!("[EnvSync] Tauri 进程 PATH: {}", full_path);
-    std::env::set_var("PATH", &full_path);
 
-    // NUWAX_APP_RUNTIME_PATH：运行时目录 + 应用内 node_modules/.bin（不含系统 PATH），
-    // 子进程通过 build_node_path_env() 读取此值，与用户环境隔离
+    // 获取应用内 node_modules/.bin 目录
+    let app_dir = app_data_dir_get(app.clone())?;
+    let nm_bin = std::path::Path::new(&app_dir)
+        .join("node_modules")
+        .join(".bin");
+
+    // 获取 sidecar 二进制文件所在目录（跨平台）：
+    // - macOS: Contents/MacOS/
+    // - Windows: 主程序所在目录
+    // - Linux: 与 exe 同目录
+    let sidecar_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+
+    // 构建 NUWAX_APP_RUNTIME_PATH：
+    // 1. node/bin (Node.js 运行时)
+    // 2. uv/bin (uv 包管理器)
+    // 3. sidecar 目录 (mcp-proxy, nuwax-lanproxy 等)
+    // 4. node_modules/.bin (npm 安装的命令)
     let mut runtime_dirs = build_app_runtime_dirs(app)?;
+
+    // 添加 sidecar 目录到 PATH
+    if let Some(ref sidecar) = sidecar_dir {
+        if sidecar.exists() {
+            runtime_dirs = format!("{}{}{}", runtime_dirs, sep, sidecar.to_string_lossy());
+        }
+    }
+
+    // 添加 node_modules/.bin
     if nm_bin.exists() {
         runtime_dirs = format!("{}{}{}", runtime_dirs, sep, nm_bin.to_string_lossy());
     }
+
     debug!("[EnvSync] NUWAX_APP_RUNTIME_PATH: {}", runtime_dirs);
     std::env::set_var("NUWAX_APP_RUNTIME_PATH", &runtime_dirs);
+
+    // 使用保存的原始 PATH，避免多次调用时 PATH 不断增长
+    let original_path = if let Ok(saved) = std::env::var("NUWAX_ORIGINAL_PATH") {
+        saved
+    } else {
+        // 首次调用，保存原始 PATH
+        let current = std::env::var("PATH").unwrap_or_default();
+        std::env::set_var("NUWAX_ORIGINAL_PATH", &current);
+        debug!("[EnvSync] 保存原始 PATH: {}", current);
+        current
+    };
+
+    // Tauri 进程自身 PATH = NUWAX_APP_RUNTIME_PATH + 原始系统 PATH
+    let full_path = format!("{}{}{}", runtime_dirs, sep, original_path);
+    debug!("[EnvSync] Tauri 进程 PATH: {}", full_path);
+    std::env::set_var("PATH", &full_path);
 
     // sidecar node（若存在）优先注入到全局环境，供 core 层 Windows 启动解析优先使用。
     match get_node_runtime_sidecar_bin_path(app) {
