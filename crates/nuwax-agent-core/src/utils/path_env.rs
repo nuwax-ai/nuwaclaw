@@ -32,7 +32,7 @@ fn find_in_path(executable: &str) -> Option<String> {
 
     match output {
         Ok(o) if o.status.success() => {
-            let binding = String::from_utf8_lossy(&output.stdout);
+            let binding = String::from_utf8_lossy(&o.stdout);
             binding
                 .lines()
                 .next()
@@ -57,8 +57,8 @@ fn find_bin_dir(executable: &str) -> Option<String> {
 fn add_system_bin_dir(paths: &mut Vec<String>, executable: &str) {
     if let Some(bin_dir) = find_bin_dir(executable) {
         if !paths.contains(&bin_dir) {
-            paths.push(bin_dir);
             debug!("[Env] 已添加 {} 目录到 PATH", bin_dir);
+            paths.push(bin_dir);
         }
     }
 }
@@ -105,6 +105,29 @@ pub fn build_node_path_env() -> String {
     }
 
     paths.join(sep)
+}
+
+/// 构建完整的 PATH 环境变量（供 sidecar 服务使用）。
+///
+/// 包含：
+/// 1. 应用内运行时目录 (NUWAX_APP_RUNTIME_PATH)
+/// 2. 系统 PATH 中的工具 (node, python, git, go 等)
+/// 3. Windows: 额外添加 npm 全局 bin 目录
+pub fn build_full_path_env() -> String {
+    let paths = build_node_path_env();
+
+    // Windows: 添加 npm 全局 bin 目录（确保 npm 全局安装的包可用）
+    #[cfg(windows)]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let npm_path = format!(r"{}\npm", appdata);
+            if !paths.contains(&npm_path) {
+                return format!("{};{}", paths, npm_path);
+            }
+        }
+    }
+
+    paths
 }
 
 /// 构建子进程最小基础环境变量集（配合 `env_clear()` 使用，不继承父进程环境）。

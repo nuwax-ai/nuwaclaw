@@ -1487,33 +1487,8 @@ impl ServiceManager {
             }
         }
 
-        let node_path = {
-            let base = crate::utils::build_node_path_env();
-            #[cfg(target_os = "windows")]
-            {
-                use std::env::var;
-                if let Ok(appdata) = var("APPDATA") {
-                    if !appdata.is_empty() {
-                        let npm_path = format!(r"{}\npm", appdata);
-                        if !base.contains(&npm_path) {
-                            info!("[FileServer] Windows: 添加 npm 全局 bin 到 PATH: {}", npm_path);
-                            format!("{};{}", base, npm_path)
-                        } else {
-                            base
-                        }
-                    } else {
-                        base
-                    }
-                } else {
-                    base
-                }
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                base
-            }
-        };
-        
+        let node_path = crate::utils::build_full_path_env();
+
         let capture_output = config.capture_output_to_log;
         let fallback_args = vec![
             "start".to_string(),
@@ -1865,51 +1840,23 @@ impl ServiceManager {
         }
 
         let port_str = config.port.to_string();
-        
+
         // 构建 PATH 环境变量
         let node_path = {
-            let mut base = crate::utils::build_node_path_env();
-            
-            // 如果提供了 node_bin_path，添加到 PATH 前面
+            let mut base = crate::utils::build_full_path_env();
+
+            // 如果提供了 node_bin_path，添加到 PATH 最前面（优先）
             if let Some(ref node_bin) = config.node_bin_path {
                 if !node_bin.is_empty() {
-                    info!("[McpProxy] 添加 Node.js bin 到 PATH: {}", node_bin);
-                    #[cfg(windows)]
-                    {
-                        base = format!("{};{}", node_bin, base);
-                    }
-                    #[cfg(not(windows))]
-                    {
-                        base = format!("{}:{}", node_bin, base);
-                    }
+                    info!("[McpProxy] 添加 Node.js bin 到 PATH 最前面: {}", node_bin);
+                    let sep = if cfg!(windows) { ";" } else { ":" };
+                    base = format!("{}{}{}", node_bin, sep, base);
                 }
             }
-            
-            #[cfg(target_os = "windows")]
-            {
-                use std::env::var;
-                if let Ok(appdata) = var("APPDATA") {
-                    if !appdata.is_empty() {
-                        let npm_path = format!(r"{}\npm", appdata);
-                        if !base.contains(&npm_path) {
-                            info!("[McpProxy] Windows: 添加 npm 全局 bin 到 PATH: {}", npm_path);
-                            format!("{};{}", base, npm_path)
-                        } else {
-                            base
-                        }
-                    } else {
-                        base
-                    }
-                } else {
-                    base
-                }
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                base
-            }
+
+            base
         };
-        
+
         let mcp_args = vec![
             "-v".to_string(),
             "proxy".to_string(),
