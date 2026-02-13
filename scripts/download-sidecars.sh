@@ -141,10 +141,25 @@ extract_archive() {
   local out_dir="$2"
   rm -rf "$out_dir"
   mkdir -p "$out_dir"
+  # 按扩展名选择解压方式；Windows 下 MCP 为 .zip，必须用 unzip（若保存时无扩展名会误走 tar 导致失败）
   if [[ "$archive" == *.zip ]]; then
     unzip -q -o "$archive" -d "$out_dir"
-  else
+  elif [[ "$archive" == *.tar.xz || "$archive" == *.tar.gz || "$archive" == *.tgz ]]; then
     tar -xf "$archive" -C "$out_dir"
+  else
+    # 无扩展名或未知格式时用 file 检测
+    if command -v file &>/dev/null; then
+      case "$(file -b "$archive")" in
+        *[Zz]ip*)
+          unzip -q -o "$archive" -d "$out_dir"
+          ;;
+        *)
+          tar -xf "$archive" -C "$out_dir"
+          ;;
+      esac
+    else
+      tar -xf "$archive" -C "$out_dir"
+    fi
   fi
 }
 
@@ -217,6 +232,10 @@ for TARGET in "${TARGETS[@]}"; do
   MCP_DST="$BIN_DIR/mcp-proxy-${TARGET}${DEST_EXT}"
   NODE_DST="$BIN_DIR/node-runtime-${TARGET}${DEST_EXT}"
 
+  # 从第一个候选 artifact 得到压缩包后缀（.zip 或 .tar.xz），保证 extract_archive 能正确选择 unzip/tar
+  MCP_ARCHIVE_SUFFIX="${MCP_ARTIFACT_CANDIDATES[0]#*${TARGET}}"
+  MCP_PKG="$TMP_DIR/mcp-stdio-proxy-${TARGET}${MCP_ARCHIVE_SUFFIX}"
+
   echo "target: $TARGET"
   echo "  cache dir   : $CACHE_DIR"
   echo "  mcp version : $MCP_VERSION"
@@ -226,7 +245,6 @@ for TARGET in "${TARGETS[@]}"; do
     echo "  SKIP 已存在缓存: $(basename "$MCP_CACHE"), $(basename "$NODE_CACHE")"
   else
     NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/${NODE_ARTIFACT}"
-    MCP_PKG="$TMP_DIR/mcp-stdio-proxy-${TARGET}"
     NODE_PKG="$TMP_DIR/${NODE_ARTIFACT}"
 
     MCP_URLS=()
