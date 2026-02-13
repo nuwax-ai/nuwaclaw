@@ -471,19 +471,6 @@ jobs:
                 echo "Generated ${SIG_FILE}"
               fi
 
-              # 删除旧的 tar.gz 和 sig 文件（确保干净状态）
-              # 虽然 post-sign 现在使用与 Tauri 相同的文件名格式，
-              # 但为了兼容旧版本可能遗留的文件，仍然删除所有可能的文件名
-              echo "Deleting old tar.gz files from release..."
-              gh release delete-asset "$TAG" "Nuwax.Agent_aarch64.app.tar.gz" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
-              gh release delete-asset "$TAG" "Nuwax.Agent_aarch64.app.tar.gz.sig" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
-              gh release delete-asset "$TAG" "Nuwax.Agent_x64.app.tar.gz" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
-              gh release delete-asset "$TAG" "Nuwax.Agent_x64.app.tar.gz.sig" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
-              gh release delete-asset "$TAG" "Nuwax.Agent_universal.app.tar.gz" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
-              gh release delete-asset "$TAG" "Nuwax.Agent_universal.app.tar.gz.sig" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
-              gh release delete-asset "$TAG" "Nuwax.Agent.app.tar.gz" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
-              gh release delete-asset "$TAG" "Nuwax.Agent.app.tar.gz.sig" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
-
               gh release upload "$TAG" "$targz" --clobber --repo "$GITHUB_REPOSITORY"
 
               # 上传新的 .sig 文件
