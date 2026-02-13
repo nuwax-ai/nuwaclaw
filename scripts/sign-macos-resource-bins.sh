@@ -29,8 +29,8 @@ if [ "$(uname -s)" != "Darwin" ]; then
   exit 0
 fi
 
-# 明确说明本步骤会对 node 与 uv 资源签名，不隐藏
-echo "==> [sign-macos-resource-bins] 将对 node、uv/uvx、node-runtime sidecar 做 codesign（供 macOS 公证）"
+# 明确说明本步骤会对哪些资源签名
+echo "==> [sign-macos-resource-bins] 将对 node、uv/uvx、sidecar 做 codesign（供 macOS 公证）"
 
 # 未配置签名身份时跳过（例如 CI 未配置或非发布构建）
 if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
@@ -125,8 +125,18 @@ if [ -d "${BINARIES_DIR}" ] && [ -f "${NODE_RUNTIME_ENTITLEMENTS}" ]; then
       fi
     fi
   done
+
+  # 3.2 签名 nuwax-lanproxy sidecar（普通签名，Go 程序不需要 JIT）
+  echo "==> [sign-macos-resource-bins] 签名 nuwax-lanproxy sidecar (binaries/nuwax-lanproxy-*)..."
+  for f in "${BINARIES_DIR}"/nuwax-lanproxy-*; do
+    if [ -f "$f" ] && [ -x "$f" ]; then
+      if file "$f" | grep -q "Mach-O"; then
+        sign_one "$f"
+      fi
+    fi
+  done
 elif [ -d "${BINARIES_DIR}" ] && [ ! -f "${NODE_RUNTIME_ENTITLEMENTS}" ]; then
   echo "==> [sign-macos-resource-bins] 未找到 ${NODE_RUNTIME_ENTITLEMENTS}，跳过 node-runtime sidecar 签名"
 fi
 
-echo "==> [sign-macos-resource-bins] node / uv / node-runtime 资源签名完成"
+echo "==> [sign-macos-resource-bins] node / uv / sidecar 资源签名完成"

@@ -142,6 +142,17 @@ else
   echo "==> [post-sign] 未找到 ${MCP_PROXY}，跳过 mcp-proxy 签名"
 fi
 
+# ---- 1.05 对 nuwax-lanproxy 补签（普通签名，Go 程序不需要 JIT）----
+NUWAX_LANPROXY="${APP_PATH}/Contents/MacOS/nuwax-lanproxy"
+if [ -f "${NUWAX_LANPROXY}" ]; then
+  echo "==> [post-sign] 对 nuwax-lanproxy 补签..."
+  codesign --force --timestamp --options runtime \
+    -s "${APPLE_SIGNING_IDENTITY}" -- "${NUWAX_LANPROXY}"
+  echo "    signed: ${NUWAX_LANPROXY}"
+else
+  echo "==> [post-sign] 未找到 ${NUWAX_LANPROXY}，跳过 nuwax-lanproxy 签名"
+fi
+
 # ---- 1.1 对 Resources 下的 node 二进制补签 JIT entitlement ----
 # 注意：Tauri 把 resources 目录放在 Contents/Resources/resources/ 下
 NODE_BIN="${APP_PATH}/Contents/Resources/resources/node/bin/node"
