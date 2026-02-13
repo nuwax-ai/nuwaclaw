@@ -16,6 +16,14 @@
 #   - nuwax-agent-core 依赖了 nuwax-ai 组织的 git 仓库（rcoder）
 #     GH_PAT：拉取私有依赖需 Contents: Read；创建/编辑 Release、上传资产需 Contents: Write（可同一 Token 配齐）
 #   - Tauri 客户端不启用 p2p-connection feature，因此不依赖 librustdesk / vcpkg
+#
+# 使用的 GitHub Actions Secrets（Settings → Secrets and variables → Actions，应使用线上已配置的）：
+#   - GH_PAT：拉取私有依赖、创建 Release、上传资产
+#   - APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY：macOS 签名
+#   - APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_ISSUER_ID：macOS 公证（App Store Connect API Key，未配置则跳过公证）
+#   - TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD：Tauri 更新包签名
+#   - OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET：上传到阿里云 OSS（latest.json 等）
+#   - APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID：若使用 Apple ID 公证方式时可选用（本 workflow 使用 API Key 方式）
 
 name: Release Tauri App
 
@@ -367,11 +375,11 @@ jobs:
       # Tauri bundler 对 sidecar 签名时不附带 entitlements，但 node-runtime (V8) 需要 JIT。
       # 此步骤在 Tauri 构建完成后：重签 node-runtime → 重签 .app → 重建 .dmg/.tar.gz → 公证
       # 然后用 gh release upload --clobber 覆盖 tauri-action 上传的旧产物。
+      # 以下 env 均来自仓库已配置的 GitHub Actions Secrets。
       - name: Post-sign node-runtime with JIT entitlement and notarize
         if: runner.os == 'macOS'
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # 公证所需（App Store Connect API Key 方式，推荐）
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_ISSUER_ID: ${{ secrets.APPLE_ISSUER_ID }}

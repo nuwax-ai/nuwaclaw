@@ -15,12 +15,15 @@
 #   4. 公证 .app → staple → 创建 .app.tar.gz 和 .dmg → 公证 .dmg → staple
 #
 # 用法:
+#   本地或 CI 调用时由调用方传入环境变量；在 GitHub Actions 中由 release-tauri.yml
+#   从仓库已配置的 Secrets 注入（APPLE_SIGNING_IDENTITY、APPLE_API_KEY 等），无需在脚本内写死。
+#
+#   本地示例:
 #   APPLE_SIGNING_IDENTITY="Developer ID Application: ..." \
 #   APPLE_API_KEY_PATH="/path/to/AuthKey.p8" \
 #   APPLE_API_KEY_ID="AB12CD34EF" \
 #   APPLE_ISSUER_ID="uuid-xxx" \
 #   ./scripts/post-sign-macos-app.sh [--target <triple>]
-#   例如: ./scripts/post-sign-macos-app.sh --target universal-apple-darwin
 #
 # 仅在 macOS 上执行；非 macOS 或未设置 APPLE_SIGNING_IDENTITY 时直接退出 0。
 # 公证是可选的：未设置 APPLE_API_KEY_PATH 时跳过公证步骤（仅重建 dmg/tar.gz）。
