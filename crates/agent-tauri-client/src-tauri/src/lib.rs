@@ -3535,8 +3535,8 @@ fn create_auto_launch(app: &tauri::AppHandle) -> Result<auto_launch::AutoLaunch,
     let exe_path = std::env::current_exe().map_err(|e| format!("获取应用路径失败: {}", e))?;
     let app_path = exe_path.to_string_lossy().to_string();
 
-    // 获取 bundle identifier
-    let bundle_id = app.config().identifier.clone();
+    // 获取 bundle identifier（macOS LaunchAgent 需要）
+    let _bundle_id = app.config().identifier.clone();
 
     // 构建 AutoLaunch
     let mut builder = AutoLaunchBuilder::new();
@@ -3548,7 +3548,7 @@ fn create_auto_launch(app: &tauri::AppHandle) -> Result<auto_launch::AutoLaunch,
     // macOS 特定设置
     #[cfg(target_os = "macos")]
     {
-        builder.set_bundle_identifiers(&[&bundle_id]);
+        builder.set_bundle_identifiers(&[&_bundle_id]);
         builder.set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent);
     }
 
@@ -4514,7 +4514,8 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             match event {
-                // macOS Dock 图标点击事件：显示主窗口
+                // macOS Dock 图标点击事件：显示主窗口（Reopen 仅在 macOS 上存在，需 cfg 避免 Linux/Windows CI 编译报错）
+                #[cfg(target_os = "macos")]
                 tauri::RunEvent::Reopen {
                     has_visible_windows: _,
                     ..
