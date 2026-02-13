@@ -5,6 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { setupStorage } from "./store";
+import { DEFAULT_MCP_PROXY_CONFIG } from "../constants";
 
 // 依赖状态
 export type DependencyStatus =
@@ -593,12 +594,11 @@ export async function restartAllServices(): Promise<void> {
   }
 
   try {
-    // 先获取 MCP Proxy 配置，避免 Store 读取的时序问题
-    const mcpProxyConfig = await setupStorage.getMcpProxyConfig();
-    console.log(
-      "[Dependencies] MCP Proxy 配置:",
-      mcpProxyConfig ? "已获取" : "为空",
-    );
+    // 获取 MCP Proxy 配置，如果没有则使用默认配置
+    // 配置只在前端定义一次（constants.ts），避免前后端重复维护
+    const mcpProxyConfig =
+      (await setupStorage.getMcpProxyConfig()) || DEFAULT_MCP_PROXY_CONFIG;
+    console.log("[Dependencies] MCP Proxy 配置: 已获取");
 
     await invoke("services_restart_all", {
       mcpProxyConfig: mcpProxyConfig,

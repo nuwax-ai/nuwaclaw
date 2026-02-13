@@ -129,8 +129,22 @@ else
   echo "==> [post-sign] 未找到 ${NODE_RUNTIME}，跳过 node-runtime 签名"
 fi
 
+# ---- 1.0 对 mcp-proxy 补签 JIT entitlement ----
+# mcp-proxy 会通过 npx 启动 MCP 服务器进程，需要 JIT 权限以便子进程能正常执行 JavaScript
+MCP_PROXY="${APP_PATH}/Contents/MacOS/mcp-proxy"
+if [ -f "${MCP_PROXY}" ]; then
+  echo "==> [post-sign] 对 mcp-proxy 补签 JIT entitlement..."
+  codesign --force --timestamp --options runtime \
+    --entitlements "${ENTITLEMENTS}" \
+    -s "${APPLE_SIGNING_IDENTITY}" -- "${MCP_PROXY}"
+  echo "    signed (with JIT): ${MCP_PROXY}"
+else
+  echo "==> [post-sign] 未找到 ${MCP_PROXY}，跳过 mcp-proxy 签名"
+fi
+
 # ---- 1.1 对 Resources 下的 node 二进制补签 JIT entitlement ----
-NODE_BIN="${APP_PATH}/Contents/Resources/node/bin/node"
+# 注意：Tauri 把 resources 目录放在 Contents/Resources/resources/ 下
+NODE_BIN="${APP_PATH}/Contents/Resources/resources/node/bin/node"
 if [ -f "${NODE_BIN}" ]; then
   echo "==> [post-sign] 对 Resources/node 补签 JIT entitlement..."
   codesign --force --timestamp --options runtime \
@@ -142,7 +156,7 @@ else
 fi
 
 # ---- 1.2 对 Resources 下的 uv/uvx 二进制签名 ----
-UV_BIN="${APP_PATH}/Contents/Resources/uv/bin"
+UV_BIN="${APP_PATH}/Contents/Resources/resources/uv/bin"
 if [ -d "${UV_BIN}" ]; then
   echo "==> [post-sign] 对 Resources/uv 补签..."
   for bin in "${UV_BIN}"/uv "${UV_BIN}"/uvx; do

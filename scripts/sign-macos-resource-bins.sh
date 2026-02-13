@@ -115,6 +115,16 @@ if [ -d "${BINARIES_DIR}" ] && [ -f "${NODE_RUNTIME_ENTITLEMENTS}" ]; then
   if [ "$signed_any" -eq 0 ]; then
     echo "    (未找到 node-runtime-* 文件，跳过)"
   fi
+
+  # 3.1 签名 mcp-proxy sidecar（带 JIT entitlement，因为它会启动 Node.js 子进程）
+  echo "==> [sign-macos-resource-bins] 签名 mcp-proxy sidecar (binaries/mcp-proxy-*)..."
+  for f in "${BINARIES_DIR}"/mcp-proxy-*; do
+    if [ -f "$f" ] && [ -x "$f" ]; then
+      if file "$f" | grep -q "Mach-O"; then
+        sign_node_runtime_with_jit "$f"
+      fi
+    fi
+  done
 elif [ -d "${BINARIES_DIR}" ] && [ ! -f "${NODE_RUNTIME_ENTITLEMENTS}" ]; then
   echo "==> [sign-macos-resource-bins] 未找到 ${NODE_RUNTIME_ENTITLEMENTS}，跳过 node-runtime sidecar 签名"
 fi

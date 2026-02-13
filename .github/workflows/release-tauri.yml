@@ -359,6 +359,12 @@ jobs:
       # 设置 TAURI_SIGNING_PRIVATE_KEY 后，tauri-action 会自动:
       #   1. 为每个平台的安装包生成 .sig 签名文件
       #   2. 生成跨平台的 latest.json 更新清单文件
+      #
+      # 注意：不在此设置 Tauri 的公证变量，因为：
+      #   - Tauri 签名不带 JIT entitlement，必须由 post-sign 脚本重签
+      #   - 重签后需要重新公证，所以 Tauri 的初始公证是冗余的
+      #   - 公证由 post-sign-macos-app.sh 统一处理
+      # 这会导致 Tauri 显示 "skipping app notarization" 警告，可安全忽略。
       - name: Build and release Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -380,7 +386,6 @@ jobs:
       # Tauri bundler 对 sidecar 签名时不附带 entitlements，但 node-runtime (V8) 需要 JIT。
       # 此步骤在 Tauri 构建完成后：重签 node-runtime → 重签 .app → 重建 .dmg/.tar.gz → 公证
       # 然后用 gh release upload --clobber 覆盖 tauri-action 上传的旧产物。
-      # 以下 env 均来自仓库已配置的 GitHub Actions Secrets。
       - name: Post-sign node-runtime with JIT entitlement and notarize
         if: runner.os == 'macOS'
         env:

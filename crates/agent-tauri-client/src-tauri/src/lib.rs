@@ -67,6 +67,10 @@ mod tray_ids {
     pub const QUIT: &str = "quit";
 }
 
+// ========== MCP Proxy 默认配置 ==========
+/// 默认 MCP Proxy 配置（与前端 constants.ts 保持一致）
+const DEFAULT_MCP_PROXY_CONFIG: &str = r#"{"mcpServers":{"chrome-devtools":{"command":"npx","args":["-y","chrome-devtools-mcp@latest"]}}}"#;
+
 // 可序列化的权限状态（用于 Tauri IPC）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionStateDto {
@@ -1925,15 +1929,15 @@ async fn mcp_proxy_start(
                 json
             }
             Ok(None) => {
-                info!("[McpProxy] 未找到 mcp_proxy_config，使用默认空配置");
-                r#"{"mcpServers":{}}"#.to_string()
+                info!("[McpProxy] 未找到 mcp_proxy_config，使用默认配置（chrome-devtools）");
+                DEFAULT_MCP_PROXY_CONFIG.to_string()
             }
             Err(e) => {
                 warn!(
-                    "[McpProxy] 读取 mcp_proxy_config 失败: {}，使用默认空配置",
+                    "[McpProxy] 读取 mcp_proxy_config 失败: {}，使用默认配置（chrome-devtools）",
                     e
                 );
-                r#"{"mcpServers":{}}"#.to_string()
+                DEFAULT_MCP_PROXY_CONFIG.to_string()
             }
         });
     let config_json = normalize_mcp_proxy_config_for_local_runtime(&app, config_json).await;
@@ -2652,19 +2656,25 @@ async fn services_restart_all(
             }
         };
 
-        // 优先使用传入的配置参数，避免 Store 读取的时序问题
+        // 使用传入的配置参数（前端已保证传递有效配置）
+        // 仅托盘菜单重启时可能传入 None，此时从 Store 读取
         let config_json = if let Some(config) = mcp_proxy_config {
             info!("[Services]   - 使用传入的 MCP Proxy 配置");
             config
         } else {
+            // 托盘菜单重启场景：从 Store 读取
             match read_store_string(&app, "setup.mcp_proxy_config") {
                 Ok(Some(json)) => {
                     info!("[Services]   - 从 Store 读取 MCP Proxy 配置");
                     json
                 }
-                _ => {
-                    warn!("[Services]   - MCP Proxy 配置为空，使用默认空配置");
-                    r#"{"mcpServers":{}}"#.to_string()
+                Ok(None) => {
+                    info!("[Services]   - Store 中无 MCP Proxy 配置，使用默认配置");
+                    DEFAULT_MCP_PROXY_CONFIG.to_string()
+                }
+                Err(e) => {
+                    warn!("[Services]   - 读取 MCP Proxy 配置失败: {}，使用默认配置", e);
+                    DEFAULT_MCP_PROXY_CONFIG.to_string()
                 }
             }
         };
