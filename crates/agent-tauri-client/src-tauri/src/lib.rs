@@ -633,6 +633,16 @@ fn app_runtime_node_bin_path(app: &tauri::AppHandle, bin_name: &str) -> Result<S
 
 fn build_app_runtime_path_env(app: &tauri::AppHandle) -> Result<String, String> {
     let current = std::env::var("PATH").unwrap_or_default();
+    let runtime_dirs = build_app_runtime_dirs(app)?;
+    #[cfg(windows)]
+    let sep = ";";
+    #[cfg(not(windows))]
+    let sep = ":";
+    Ok(format!("{}{}{}", runtime_dirs, sep, current))
+}
+
+/// 仅返回我们管理的运行时目录（不包含系统 PATH），供 NUWAX_APP_RUNTIME_PATH 使用。
+fn build_app_runtime_dirs(app: &tauri::AppHandle) -> Result<String, String> {
     let node_bin = app_runtime_node_root_dir(app)?.join("bin");
     let uv_bin = app_runtime_bin_dir(app)?;
     #[cfg(windows)]
@@ -640,12 +650,10 @@ fn build_app_runtime_path_env(app: &tauri::AppHandle) -> Result<String, String> 
     #[cfg(not(windows))]
     let sep = ":";
     Ok(format!(
-        "{}{}{}{}{}",
+        "{}{}{}",
         node_bin.to_string_lossy(),
         sep,
-        uv_bin.to_string_lossy(),
-        sep,
-        current
+        uv_bin.to_string_lossy()
     ))
 }
 
@@ -2900,10 +2908,16 @@ fn package_name_from_bin_name(bin_name: &str) -> String {
 
 /// 将应用内运行时目录同步到当前进程 PATH
 fn sync_local_bin_env(app: &tauri::AppHandle) -> Result<(), String> {
-    let node_path = build_app_runtime_path_env(app)?;
-    debug!("[EnvSync] runtime PATH: {}", node_path);
-    std::env::set_var("PATH", &node_path);
-    std::env::set_var("NUWAX_APP_RUNTIME_PATH", &node_path);
+    // Tauri 进程自身 PATH：运行时目录 + 系统 PATH（Tauri 自身可能需要系统命令）
+    let full_path = build_app_runtime_path_env(app)?;
+    debug!("[EnvSync] Tauri 进程 PATH: {}", full_path);
+    std::env::set_var("PATH", &full_path);
+
+    // NUWAX_APP_RUNTIME_PATH：仅运行时目录（不含系统 PATH），
+    // 子进程通过 build_node_path_env() 读取此值 + 最小系统路径，与用户环境隔离
+    let runtime_dirs = build_app_runtime_dirs(app)?;
+    debug!("[EnvSync] NUWAX_APP_RUNTIME_PATH: {}", runtime_dirs);
+    std::env::set_var("NUWAX_APP_RUNTIME_PATH", &runtime_dirs);
 
     // sidecar node（若存在）优先注入到全局环境，供 core 层 Windows 启动解析优先使用。
     match get_node_runtime_sidecar_bin_path(app) {

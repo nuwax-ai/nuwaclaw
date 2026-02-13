@@ -392,7 +392,10 @@ async fn run_command_with_timeout(program: &str, args: &[&str], timeout_secs: u6
     );
     let mut cmd = process_wrap::tokio::CommandWrap::with_new(actual_program.as_str(), |cmd| {
         use crate::utils::CommandNoWindowExt;
-        cmd.no_window().env("PATH", &node_path);
+        cmd.no_window()
+            .env_clear()
+            .envs(crate::utils::build_base_env())
+            .env("PATH", &node_path);
         for arg in &actual_args {
             cmd.arg(arg);
         }
@@ -1504,7 +1507,11 @@ impl ServiceManager {
 
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(actual_program.as_str(), |cmd| {
             use crate::utils::CommandNoWindowExt;
-            let cmd = cmd.no_window().env("PATH", &node_path);
+            let cmd = cmd
+                .no_window()
+                .env_clear()
+                .envs(crate::utils::build_base_env())
+                .env("PATH", &node_path);
             let cmd = cmd
                 .env("NODE_ENV", &config.env)
                 .env("PORT", config.port.to_string())
@@ -1885,6 +1892,8 @@ impl ServiceManager {
             use crate::utils::CommandNoWindowExt;
             let cmd = cmd
                 .no_window()
+                .env_clear()
+                .envs(crate::utils::build_base_env())
                 .env("PATH", &node_path)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
