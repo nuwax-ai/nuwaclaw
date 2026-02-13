@@ -41,6 +41,182 @@ pub const DEFAULT_MCP_PROXY_BIN: &str = "mcp-proxy";
 
 // ========== 跨平台辅助函数 ==========
 
+#[cfg(target_os = "windows")]
+fn find_node_exe_for_windows_launch() -> Option<std::path::PathBuf> {
+    let local_node = crate::dependency::node::NodeDetector::get_local_node_path();
+    if local_node.exists() {
+        debug!(
+            "[Service] Windows node 解析命中本地 runtime: {}",
+            local_node.display()
+        );
+        return Some(local_node);
+    }
+
+    let output = match std::process::Command::new("where")
+        .no_window()
+        .arg("node.exe")
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            warn!("[Service] Windows node 解析失败: where node.exe 执行错误: {}", e);
+            return None;
+        }
+    };
+    if !output.status.success() {
+        warn!(
+            "[Service] Windows node 解析失败: where node.exe exit={:?}",
+            output.status.code()
+        );
+        return None;
+    }
+    let binding = String::from_utf8_lossy(&output.stdout);
+    let path = binding
+        .lines()
+        .next()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)?;
+    debug!("[Service] Windows node 解析命中 PATH: {}", path);
+    Some(std::path::PathBuf::from(path))
+}
+
+/// 获取 Node.js bin 目录路径（用于设置 PATH 环境变量）
+#[cfg(target_os = "windows")]
+pub fn get_node_bin_path() -> Option<String> {
+    if let Some(node_exe) = find_node_exe_for_windows_launch() {
+        if let Some(bin_dir) = node_exe.parent() {
+            return Some(bin_dir.to_string_lossy().to_string());
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_node_bin_path() -> Option<String> {
+    use std::env::var;
+    if let Ok(path) = var("PATH") {
+        for dir in path.split(':') {
+            let node_path = std::path::Path::new(dir).join("node");
+            if node_path.exists() {
+                return Some(dir.to_string());
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_js_entry_from_npm_bin_shim(
+    program: &std::path::Path,
+    package_name: &str,
+) -> Option<std::path::PathBuf> {
+    let bin_dir = program.parent()?;
+    let bin_name = bin_dir.file_name()?.to_string_lossy();
+    if !bin_name.eq_ignore_ascii_case(".bin") {
+        return None;
+    }
+    let node_modules_dir = bin_dir.parent()?;
+    let package_dir = node_modules_dir.join(package_name);
+    if !package_dir.exists() {
+        return None;
+    }
+
+    let package_json_path = package_dir.join("package.json");
+    let content = std::fs::read_to_string(&package_json_path).ok()?;
+    let package_json: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    let bin_field = package_json.get("bin")?;
+    let rel_entry = if let Some(bin_str) = bin_field.as_str() {
+        Some(bin_str.to_string())
+    } else if let Some(bin_obj) = bin_field.as_object() {
+        bin_obj
+            .get(package_name)
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .or_else(|| {
+                bin_obj
+                    .values()
+                    .find_map(|v| v.as_str())
+                    .map(str::to_string)
+            })
+    } else {
+        None
+    }?;
+
+    let js_entry = package_dir.join(rel_entry);
+    if js_entry.exists() {
+        Some(js_entry)
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_windows_cmd_script_path(program: &std::path::Path) -> Option<std::path::PathBuf> {
+    match program.extension().and_then(|s| s.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case("cmd") => Some(program.to_path_buf()),
+        None => {
+            let candidate = program.with_extension("cmd");
+            if candidate.exists() {
+                Some(candidate)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_js_entry_from_cmd_shim(cmd_script: &std::path::Path) -> Option<std::path::PathBuf> {
+    let content = match std::fs::read_to_string(cmd_script) {
+        Ok(c) => c,
+        Err(e) => {
+            debug!(
+                "[Service] cmd shim 读取失败: {} ({})",
+                cmd_script.display(),
+                e
+            );
+            return None;
+        }
+    };
+    let base_dir = cmd_script.parent()?;
+
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if !line.contains("%~dp0") || !line.to_ascii_lowercase().contains(".js") {
+            continue;
+        }
+        let clean = line.replace('"', "");
+        let start = clean.find("%~dp0")?;
+        let js_pos = clean.to_ascii_lowercase().find(".js")?;
+        let end = js_pos + 3;
+        if end <= start + 5 || end > clean.len() {
+            continue;
+        }
+        let rel = clean[start + 5..end].trim_start_matches(['\\', '/']);
+        if rel.is_empty() {
+            continue;
+        }
+        let rel = rel.replace('/', "\\");
+        let entry = base_dir.join(std::path::Path::new(&rel));
+        if entry.exists() {
+            debug!(
+                "[Service] cmd shim 解析命中入口: {} -> {}",
+                cmd_script.display(),
+                entry.display()
+            );
+            return Some(entry);
+        }
+    }
+    debug!(
+        "[Service] cmd shim 未解析到入口: {}",
+        cmd_script.display()
+    );
+    None
+}
+
 /// 构建实际启动命令（Windows 下优先绕过 .cmd，避免弹出 CMD 窗口）
 ///
 /// 返回值：
@@ -1078,7 +1254,9 @@ pub struct McpProxyConfig {
     pub host: String,
     /// mcpServers 配置（JSON 字符串，直接传递给 --config 参数）
     pub config_json: String,
-    /// mcp-proxy 日志目录（对应 `mcp-proxy proxy --log-dir`）
+    /// Node.js bin 目录路径（可选，用于设置 PATH 环境变量）
+    pub node_bin_path: Option<String>,
+    /// 日志目录路径（可选）
     pub log_dir: Option<String>,
 }
 
@@ -1089,6 +1267,7 @@ impl Default for McpProxyConfig {
             port: DEFAULT_MCP_PROXY_PORT,
             host: DEFAULT_MCP_PROXY_HOST.to_string(),
             config_json: r#"{"mcpServers":{}}"#.to_string(),
+            node_bin_path: None,
             log_dir: None,
         }
     }
@@ -1613,12 +1792,8 @@ impl ServiceManager {
     /// 使用指定配置启动 MCP Proxy
     pub async fn mcp_proxy_start_with_config(&self, config: McpProxyConfig) -> Result<(), String> {
         info!("[McpProxy] ========== 启动 MCP Proxy 服务 ==========");
-
-        // 检查配置是否包含至少一个 MCP 服务
-        if config.config_json == r#"{"mcpServers":{}}"# || config.config_json.is_empty() {
-            warn!("[McpProxy] mcpServers 配置为空，跳过启动");
-            return Ok(());
-        }
+        info!("[McpProxy] 配置: bin_path={}, port={}, host={}, config_json={}, node_bin_path={:?}, log_dir={:?}", 
+              config.bin_path, config.port, config.host, config.config_json, config.node_bin_path, config.log_dir);
 
         // 检测并清理残留进程
         kill_stale_mcp_proxy_processes().await;
@@ -1633,7 +1808,23 @@ impl ServiceManager {
         
         // 构建 PATH 环境变量
         let node_path = {
-            let base = crate::utils::build_node_path_env();
+            let mut base = crate::utils::build_node_path_env();
+            
+            // 如果提供了 node_bin_path，添加到 PATH 前面
+            if let Some(ref node_bin) = config.node_bin_path {
+                if !node_bin.is_empty() {
+                    info!("[McpProxy] 添加 Node.js bin 到 PATH: {}", node_bin);
+                    #[cfg(windows)]
+                    {
+                        base = format!("{};{}", node_bin, base);
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        base = format!("{}:{}", node_bin, base);
+                    }
+                }
+            }
+            
             #[cfg(target_os = "windows")]
             {
                 use std::env::var;

@@ -1867,11 +1867,15 @@ async fn mcp_proxy_start(
         .to_string_lossy()
         .to_string();
 
+    // 获取 Node.js bin 目录路径
+    let node_bin_path = nuwax_agent_core::service::get_node_bin_path();
+
     let mcp_proxy_config = nuwax_agent_core::McpProxyConfig {
         bin_path,
         port,
         host: DEFAULT_MCP_PROXY_HOST.to_string(),
         config_json,
+        node_bin_path,
         log_dir: Some(mcp_log_dir),
     };
 
@@ -2589,11 +2593,15 @@ async fn services_restart_all(
             .to_string_lossy()
             .to_string();
 
+        // 获取 Node.js bin 目录路径
+        let node_bin_path = nuwax_agent_core::service::get_node_bin_path();
+
         let mcp_proxy_config = nuwax_agent_core::McpProxyConfig {
             bin_path,
             port,
             host: DEFAULT_MCP_PROXY_HOST.to_string(),
             config_json,
+            node_bin_path,
             log_dir: Some(mcp_log_dir),
         };
 
