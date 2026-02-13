@@ -380,11 +380,16 @@ tauri-build: tauri-install-deps sign-macos-resource-bins
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo build --release
 
+.PHONY: post-sign-macos-app
+post-sign-macos-app:
+	@./scripts/post-sign-macos-app.sh
+
 .PHONY: tauri-bundle
 tauri-bundle: tauri-install-deps sign-macos-resource-bins
 	@echo ">>> 打包 Tauri 应用 (环境: $(BUILD_ENV))..."
 	cd crates/$(TAURI_CLIENT) && VITE_BUILD_ENV=$(BUILD_ENV) pnpm build
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build
+	@$(MAKE) post-sign-macos-app
 
 .PHONY: tauri-bundle-test
 tauri-bundle-test:
@@ -403,6 +408,7 @@ ifeq ($(UNAME_S),Darwin)
 	@echo "注意: 交叉编译需要安装工具链 (brew install mingw-w64 cargo-xar)" || true
 endif
 	cd crates/$(TAURI_CLIENT)/src-tauri && cargo tauri build --bundles all
+	@$(MAKE) post-sign-macos-app
 
 .PHONY: tauri-dev
 tauri-dev: tauri-install-deps

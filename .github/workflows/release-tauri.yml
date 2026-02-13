@@ -352,6 +352,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         with:
           projectPath: crates/agent-tauri-client
           tagName: ${{ github.ref_name }}
@@ -361,6 +362,59 @@ jobs:
           prerelease: false
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
+
+      # ---- macOS：Tauri 签名后对 node-runtime 补签 JIT entitlement，并重建 dmg/tar.gz ----
+      # Tauri bundler 对 sidecar 签名时不附带 entitlements，但 node-runtime (V8) 需要 JIT。
+      # 此步骤在 Tauri 构建完成后：重签 node-runtime → 重签 .app → 重建 .dmg/.tar.gz
+      # 然后用 gh release upload --clobber 覆盖 tauri-action 上传的旧产物。
+      - name: Post-sign node-runtime with JIT entitlement
+        if: runner.os == 'macOS'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          # 从 matrix.args 提取 --target 值
+          TARGET=""
+          if [[ "${{ matrix.args }}" == *"--target "* ]]; then
+            TARGET=$(echo "${{ matrix.args }}" | grep -o '\-\-target [^ ]*' | head -1 | awk '{print $2}')
+          fi
+          if [ -n "$TARGET" ]; then
+            ./scripts/post-sign-macos-app.sh --target "$TARGET"
+          else
+            ./scripts/post-sign-macos-app.sh
+          fi
+
+      # 用重建后的 .dmg 和 .app.tar.gz 覆盖 tauri-action 已上传的旧产物
+      - name: Replace release assets with re-signed artifacts
+        if: runner.os == 'macOS'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          TARGET=""
+          if [[ "${{ matrix.args }}" == *"--target "* ]]; then
+            TARGET=$(echo "${{ matrix.args }}" | grep -o '\-\-target [^ ]*' | head -1 | awk '{print $2}')
+          fi
+          if [ -n "$TARGET" ]; then
+            BUNDLE_BASE="target/${TARGET}/release/bundle"
+          else
+            BUNDLE_BASE="target/release/bundle"
+          fi
+
+          # 上传重建的 .dmg（覆盖旧文件）
+          for dmg in "${BUNDLE_BASE}/dmg"/*.dmg; do
+            if [ -f "$dmg" ]; then
+              echo "Uploading $(basename "$dmg") ..."
+              gh release upload "$TAG" "$dmg" --clobber --repo "$GITHUB_REPOSITORY"
+            fi
+          done
+
+          # 上传重建的 .app.tar.gz（覆盖旧文件）
+          for targz in "${BUNDLE_BASE}/macos"/*.app.tar.gz; do
+            if [ -f "$targz" ]; then
+              echo "Uploading $(basename "$targz") ..."
+              gh release upload "$TAG" "$targz" --clobber --repo "$GITHUB_REPOSITORY"
+            fi
+          done
 
   # ---- 追加安装说明到 GitHub Release 页面 ----
   # 所有平台构建完成后，将安装指引追加到 Release body 末尾

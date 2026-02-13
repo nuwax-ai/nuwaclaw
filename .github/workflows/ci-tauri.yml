@@ -345,6 +345,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         with:
           projectPath: crates/agent-tauri-client
           # 使用额外的 CI 配置关闭 bundle.createUpdaterArtifacts，
@@ -352,6 +353,25 @@ jobs:
           # 同时通过 includeUpdaterJson=false 禁用 latest.json 生成。
           args: ${{ matrix.args }} --config src-tauri/tauri.ci.conf.json
           includeUpdaterJson: false
+
+      # ---- macOS：Tauri 签名后对 node-runtime 补签 JIT entitlement，并重建 dmg/tar.gz ----
+      # Tauri bundler 对 sidecar 签名时不附带 entitlements，但 node-runtime (V8) 需要 JIT。
+      # 此步骤在 Tauri 构建完成后：重签 node-runtime → 重签 .app → 重建 .dmg/.tar.gz
+      - name: Post-sign node-runtime with JIT entitlement
+        if: runner.os == 'macOS'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          # 从 matrix.args 提取 --target 值
+          TARGET=""
+          if [[ "${{ matrix.args }}" == *"--target "* ]]; then
+            TARGET=$(echo "${{ matrix.args }}" | grep -o '\-\-target [^ ]*' | head -1 | awk '{print $2}')
+          fi
+          if [ -n "$TARGET" ]; then
+            ./scripts/post-sign-macos-app.sh --target "$TARGET"
+          else
+            ./scripts/post-sign-macos-app.sh
+          fi
 
       # ---- 上传构建产物为 Artifacts ----
       - name: Upload build artifacts (macOS)
