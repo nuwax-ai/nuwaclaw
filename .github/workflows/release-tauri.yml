@@ -507,23 +507,25 @@ jobs:
                   # 从 TARGET 变量或目录路径推断架构
                   # TARGET 格式: aarch64-apple-darwin, x86_64-apple-darwin
                   if [[ "$TARGET" == *"aarch64"* ]] || [[ "${BUNDLE_BASE}" == *"aarch64"* ]]; then
-                    PLATFORM_KEY="darwin-aarch64"
+                    PLATFORM_KEYS=("darwin-aarch64" "darwin-aarch64-app")
                   elif [[ "$TARGET" == *"x86_64"* ]] || [[ "${BUNDLE_BASE}" == *"x86_64"* ]]; then
-                    PLATFORM_KEY="darwin-x86_64"
+                    PLATFORM_KEYS=("darwin-x86_64" "darwin-x86_64-app")
                   else
                     # 从文件名推断（兼容旧逻辑）
                     BASENAME=$(basename "$targz")
                     if [[ "$BASENAME" == *"universal"* ]]; then
-                      PLATFORM_KEY="darwin-universal"
+                      PLATFORM_KEYS=("darwin-universal" "darwin-universal-app")
                     elif [[ "$BASENAME" == *"aarch64"* ]] || [[ "$BASENAME" == *"_arm64"* ]]; then
-                      PLATFORM_KEY="darwin-aarch64"
+                      PLATFORM_KEYS=("darwin-aarch64" "darwin-aarch64-app")
                     else
-                      PLATFORM_KEY="darwin-x86_64"
+                      PLATFORM_KEYS=("darwin-x86_64" "darwin-x86_64-app")
                     fi
                   fi
-                  # 使用 jq 更新对应平台的 signature
-                  jq --arg sig "$SIG_CONTENT" --arg key "$PLATFORM_KEY" '.platforms[$key].signature = $sig' "$LATEST_JSON" > "${LATEST_JSON}.tmp" && mv "${LATEST_JSON}.tmp" "$LATEST_JSON"
-                  echo "Updated signature for $PLATFORM_KEY"
+                  # 更新所有相关的 platform key（Tauri 会为每个平台生成两个 key）
+                  for PLATFORM_KEY in "${PLATFORM_KEYS[@]}"; do
+                    jq --arg sig "$SIG_CONTENT" --arg key "$PLATFORM_KEY" 'if .platforms[$key] then .platforms[$key].signature = $sig else . end' "$LATEST_JSON" > "${LATEST_JSON}.tmp" && mv "${LATEST_JSON}.tmp" "$LATEST_JSON"
+                    echo "Updated signature for $PLATFORM_KEY"
+                  done
                 fi
               done
 
