@@ -436,16 +436,13 @@ export default function ClientPage({
       {/* 快捷操作 */}
       <div style={{ marginTop: 20, display: "flex", gap: 8, flexWrap: "wrap" }}>
         <Button size="small" onClick={() => onNavigate?.("settings")}>
-          配置
+          设置
         </Button>
         <Button size="small" onClick={() => onNavigate?.("dependencies")}>
           依赖
         </Button>
-        <Button size="small" onClick={() => onNavigate?.("permissions")}>
-          权限
-        </Button>
-        <Button size="small" onClick={() => onNavigate?.("logs")}>
-          日志
+        <Button size="small" onClick={() => onNavigate?.("about")}>
+          关于
         </Button>
       </div>
     </div>
