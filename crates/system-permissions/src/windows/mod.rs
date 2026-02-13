@@ -5,6 +5,8 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 /// Windows 下隐藏控制台窗口的标志
 #[cfg(target_os = "windows")]
