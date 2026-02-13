@@ -471,9 +471,9 @@ jobs:
                 echo "Generated ${SIG_FILE}"
               fi
 
-              # 删除旧的 tar.gz 和 sig 文件（文件名格式不同，无法直接覆盖）
-              # Tauri 上传的格式: Nuwax.Agent_<arch>.app.tar.gz
-              # post-sign 生成的格式: Nuwax Agent.app.tar.gz
+              # 删除旧的 tar.gz 和 sig 文件（确保干净状态）
+              # 虽然 post-sign 现在使用与 Tauri 相同的文件名格式，
+              # 但为了兼容旧版本可能遗留的文件，仍然删除所有可能的文件名
               echo "Deleting old tar.gz files from release..."
               gh release delete-asset "$TAG" "Nuwax.Agent_aarch64.app.tar.gz" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
               gh release delete-asset "$TAG" "Nuwax.Agent_aarch64.app.tar.gz.sig" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
@@ -505,11 +505,13 @@ jobs:
                 if [ -f "$targz" ] && [ -f "${targz}.sig" ]; then
                   SIG_CONTENT=$(cat "${targz}.sig")
                   # 从 TARGET 变量或目录路径推断架构
-                  # TARGET 格式: aarch64-apple-darwin, x86_64-apple-darwin
+                  # TARGET 格式: aarch64-apple-darwin, x86_64-apple-darwin, universal-apple-darwin
                   if [[ "$TARGET" == *"aarch64"* ]] || [[ "${BUNDLE_BASE}" == *"aarch64"* ]]; then
                     PLATFORM_KEYS=("darwin-aarch64" "darwin-aarch64-app")
                   elif [[ "$TARGET" == *"x86_64"* ]] || [[ "${BUNDLE_BASE}" == *"x86_64"* ]]; then
                     PLATFORM_KEYS=("darwin-x86_64" "darwin-x86_64-app")
+                  elif [[ "$TARGET" == *"universal"* ]] || [[ "${BUNDLE_BASE}" == *"universal"* ]]; then
+                    PLATFORM_KEYS=("darwin-universal" "darwin-universal-app")
                   else
                     # 从文件名推断（兼容旧逻辑）
                     BASENAME=$(basename "$targz")
