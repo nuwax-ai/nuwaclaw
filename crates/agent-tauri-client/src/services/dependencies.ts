@@ -81,34 +81,34 @@ const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
   },
   {
     name: "mcp-stdio-proxy",
-    displayName: "MCP Proxy",
+    displayName: "MCP 服务",
     type: "npm-local",
-    description: "MCP 协议转换代理工具（应用内安装）",
+    description: "MCP 协议转换工具（应用内安装）",
     required: true,
     minVersion: "0.1.42", // 与 download-sidecars.sh MCP_VERSION 一致，用于「必需」展示
     binName: "mcp-proxy",
   },
   {
     name: "nuwax-file-server",
-    displayName: "Nuwax File Server",
+    displayName: "文件服务",
     type: "npm-local",
-    description: "NuWax 文件服务（应用内安装）",
+    description: "智能体工作目录文件远程管理服务（应用内安装）",
     required: true,
     binName: "nuwax-file-server",
   },
   {
     name: "nuwaxcode",
-    displayName: "NuwaxCode",
+    displayName: "Agent 引擎",
     type: "npm-local",
-    description: "NuWax VSCode 扩展（应用内安装）",
+    description: "Agent执行引擎（应用内安装）",
     required: true,
     binName: "nuwaxcode",
   },
   {
     name: "claude-code-acp-ts",
-    displayName: "Claude Code (ACP)",
+    displayName: "ACP 协议",
     type: "npm-local",
-    description: "Claude Code AI 编程助手 (ACP 版本，应用内安装)",
+    description: "Agent 引擎统一适配服务（应用内安装）",
     required: true,
     binName: "claude-code-acp-ts",
   },
@@ -647,7 +647,7 @@ export const SERVICE_DISPLAY_NAMES: Record<ServiceType, string> = {
   NuwaxFileServer: "文件服务",
   NuwaxLanproxy: "代理服务",
   Rcoder: "Agent 服务",
-  McpProxy: "MCP Proxy 服务",
+  McpProxy: "MCP 服务",
 };
 
 /**

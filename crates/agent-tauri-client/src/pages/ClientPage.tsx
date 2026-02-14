@@ -187,8 +187,9 @@ export default function ClientPage({
 
   const SERVICE_DESC: Record<string, string> = {
     Rcoder: "Agent 核心服务",
-    NuwaxFileServer: "文件服务",
-    NuwaxLanproxy: "内网穿透",
+    NuwaxFileServer: "智能体工作目录文件远程管理服务",
+    NuwaxLanproxy: "网络通道",
+    McpProxy: "MCP 协议转换工具",
   };
 
   return (
@@ -356,82 +357,6 @@ export default function ClientPage({
           </div>
         )}
       </div>
-
-      {/* 连接信息 */}
-      {/* <div className="section" style={{ marginTop: 20 }}>
-        <div
-          style={{
-            fontSize: 13,
-            fontWeight: 500,
-            color: "#18181b",
-            marginBottom: 10,
-          }}
-        >
-          连接信息
-        </div>
-        <div
-          style={{
-            border: "1px solid #e4e4e7",
-            borderRadius: 8,
-            background: "#fff",
-            padding: "2px 0",
-          }}
-        >
-          {[
-            {
-              label: "状态",
-              value: (
-                <Tag
-                  color={
-                    onlineStatus === true
-                      ? "success"
-                      : onlineStatus === false
-                        ? "error"
-                        : "default"
-                  }
-                >
-                  {onlineStatus === true
-                    ? "在线"
-                    : onlineStatus === false
-                      ? "离线"
-                      : "未知"}
-                </Tag>
-              ),
-            },
-            { label: "会话 ID", value: sessionId || "-" },
-            { label: "客户端 ID", value: connectionInfo.id || "-" },
-            { label: "服务器", value: connectionInfo.server || "-" },
-            { label: "日志", value: `${logs.length} 条` },
-          ].map((item, i) => (
-            <div
-              key={i}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "7px 14px",
-                borderBottom: i < 4 ? "1px solid #f4f4f5" : "none",
-              }}
-            >
-              <span style={{ fontSize: 12, color: "#71717a" }}>
-                {item.label}
-              </span>
-              <span
-                style={{
-                  fontSize: 12,
-                  color: "#18181b",
-                  fontFamily:
-                    typeof item.value === "string"
-                      ? "ui-monospace, SFMono-Regular, Menlo, monospace"
-                      : undefined,
-                }}
-              >
-                {item.value}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div> */}
 
       {/* 快捷操作 */}
       <div style={{ marginTop: 20, display: "flex", gap: 8, flexWrap: "wrap" }}>
