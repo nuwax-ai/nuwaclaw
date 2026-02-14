@@ -478,8 +478,11 @@ export async function syncConfigToServer(): Promise<ClientRegisterResponse | nul
 }
 
 function normalizeServerHost(input: string): string {
-  const value = input.trim();
+  let value = input.trim();
   if (!value) return value;
+  // 去除末尾的 / (允许用户输入带 / 的域名)
+  value = value.replace(/\/+$/, "");
+  // 如果有 http 前缀直接返回，否则添加 https://
   if (/^https?:\/\//i.test(value)) return value;
   return `https://${value}`;
 }
