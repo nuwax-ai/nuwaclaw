@@ -191,7 +191,7 @@ export default function ClientPage({
   return (
     <div>
       {/* 登录 */}
-      <LoginForm onLoginSuccess={() => {}} />
+      <LoginForm onLoginSuccess={() => {}} isServiceRunning={allRunning} />
 
       {/* 服务状态 */}
       <div className="section">

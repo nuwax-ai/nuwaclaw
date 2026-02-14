@@ -241,13 +241,12 @@ function App() {
               message.warning(`服务自动启动失败: ${errMsg}`);
             }
           } else {
-            console.warn("[App] 配置同步失败，尝试直接启动服务...");
+            // 配置同步失败（可能是未登录或网络问题），停止所有服务
+            console.warn("[App] 配置同步失败，停止所有服务");
             try {
-              await restartAllServices();
-              message.info("服务已启动（配置同步失败，使用本地配置）");
+              await stopAllServices();
             } catch (serviceError) {
-              console.error("[App] 服务启动也失败:", serviceError);
-              message.warning("配置同步和服务启动均失败，请手动重试");
+              console.error("[App] 停止服务失败:", serviceError);
             }
           }
         } else {

@@ -294,10 +294,12 @@ export async function loginAndRegister(
     // 3. 保存 savedKey（按域名+用户名持久化，退出登录不丢失）
     await saveSavedKey(response.configKey, domain, username);
 
-    // 4. 保存用户信息
+    // 4. 保存用户信息（包含 id 和 currentDomain）
     await saveUserInfo({
+      id: response.id,
       username,
       displayName: response.name,
+      currentDomain: domain,
     });
 
     // 5. 保存连接状态
@@ -477,6 +479,16 @@ export async function syncConfigToServer(options?: {
     await saveConfigKey(response.configKey);
     await saveSavedKey(response.configKey, domain, username);
     await saveOnlineStatus(response.online);
+
+    // 更新用户信息（包含 id 和 currentDomain）
+    const currentUserInfo = await getUserInfo();
+    await saveUserInfo({
+      ...currentUserInfo,
+      id: response.id,
+      username: username,
+      displayName: response.name,
+      currentDomain: domain,
+    } as AuthUserInfo);
 
     if (!suppressToast) {
       message.success({ content: "配置同步成功！", key: loadingKey });
