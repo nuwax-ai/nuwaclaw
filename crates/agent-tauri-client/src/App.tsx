@@ -8,7 +8,13 @@
  * - 状态管理和事件监听
  */
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import { Badge, Menu, Spin, message } from "antd";
 import {
   RobotOutlined,
@@ -17,6 +23,7 @@ import {
   DashboardOutlined,
   FolderOutlined,
   InfoCircleOutlined,
+  SafetyOutlined,
 } from "@ant-design/icons";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -31,7 +38,14 @@ import {
 } from "./services";
 import SetupWizard from "./components/SetupWizard";
 import LogViewerWithBackend from "./components/LogViewerWithBackend";
-import { ClientPage, SettingsPage, DependenciesPage, AboutPage } from "./pages";
+import {
+  ClientPage,
+  SettingsPage,
+  DependenciesPage,
+  PermissionsPage,
+  AboutPage,
+} from "./pages";
+import { getCurrentPlatform } from "./services/permissions/config";
 import { initConfigStore } from "./services/config";
 import {
   initAuthStore,
@@ -69,6 +83,9 @@ function App() {
   const setupJustCompleted = useRef(false);
   const { appName } = useAppInfo();
 
+  /** 是否为 macOS：仅 macOS 下展示「授权」Tab（系统权限与 Tauri 能力主要在该平台使用） */
+  const isMacOS = useMemo(() => getCurrentPlatform() === "macos", []);
+
   // ============================================
   // 核心状态
   // ============================================
@@ -95,12 +112,12 @@ function App() {
   // 用于接收来自 Rust 后端的导航事件
   // ============================================
   useEffect(() => {
-    // 预定义合法的 Tab 名称列表
+    // 合法 Tab 列表：仅在 macOS 下包含「授权」，非 macOS 不响应 navigate-to-tab("permissions")
     const VALID_TABS: TabType[] = [
       "client",
       "settings",
       "dependencies",
-      "permissions",
+      ...(isMacOS ? (["permissions"] as const) : []),
       "logs",
       "about",
     ];
@@ -136,7 +153,7 @@ function App() {
         console.log("[App] 导航事件监听已移除");
       }
     };
-  }, []);
+  }, [isMacOS]);
 
   // ============================================
   // 检查初始化向导状态
@@ -534,16 +551,24 @@ function App() {
   const badge = getBadgeConfig();
 
   // ============================================
-  // 菜单配置
+  // 菜单配置（仅 macOS 展示「授权」Tab）
   // ============================================
-  const menuItems = [
-    { key: "client", icon: <DashboardOutlined />, label: "客户端" },
-    { key: "settings", icon: <SettingOutlined />, label: "设置" },
-    { key: "dependencies", icon: <FolderOutlined />, label: "依赖" },
-    // { key: "permissions", icon: <SafetyOutlined />, label: "权限" },
-    // { key: "logs", icon: <FileTextOutlined />, label: "日志" },
-    { key: "about", icon: <InfoCircleOutlined />, label: "关于" },
-  ];
+  const menuItems = useMemo(() => {
+    const base = [
+      { key: "client", icon: <DashboardOutlined />, label: "客户端" },
+      { key: "settings", icon: <SettingOutlined />, label: "设置" },
+      { key: "dependencies", icon: <FolderOutlined />, label: "依赖" },
+    ];
+    const permissionItem = {
+      key: "permissions",
+      icon: <SafetyOutlined />,
+      label: "授权",
+    };
+    const tail = [
+      { key: "about", icon: <InfoCircleOutlined />, label: "关于" },
+    ];
+    return isMacOS ? [...base, permissionItem, ...tail] : [...base, ...tail];
+  }, [isMacOS]);
 
   // ============================================
   // 渲染：加载中
@@ -630,6 +655,7 @@ function App() {
           )}
           {activeTab === "settings" && <SettingsPage />}
           {activeTab === "dependencies" && <DependenciesPage />}
+          {activeTab === "permissions" && <PermissionsPage />}
           {activeTab === "logs" && (
             <LogViewerWithBackend
               showSource={true}
