@@ -1742,17 +1742,111 @@ fn resolve_local_bin_from_package_name(app: &tauri::AppHandle, package_name: &st
     };
 
     let bin_base = app_data_dir.join("node_modules").join(".bin");
+
+    // Windows 上优先使用 .exe 文件（可直接执行），其次 .cmd（通过 cmd.exe 执行）
+    // 无扩展名的 shell 脚本在 Windows 上无法直接执行
+    // macOS/Linux 上优先使用无扩展名的 shell 脚本
+    #[cfg(target_os = "windows")]
     let candidates = [
-        bin_base.join(&bin_name),
+        bin_base.join(format!("{}.exe", &bin_name)), // Windows: 优先 .exe（可直接执行）
+        bin_base.join(format!("{}.cmd", &bin_name)), // 其次 .cmd（通过 cmd.exe 执行）
+        bin_base.join(&bin_name),                    // 无扩展名的 POSIX shell 脚本作为兜底
+    ];
+
+    #[cfg(not(target_os = "windows"))]
+    let candidates = [
+        bin_base.join(&bin_name),                    // Unix: 优先无扩展名的 shell 脚本
         bin_base.join(format!("{}.cmd", &bin_name)),
         bin_base.join(format!("{}.exe", &bin_name)),
     ];
+
     for candidate in candidates {
         if candidate.exists() {
             return Some(candidate.to_string_lossy().to_string());
         }
     }
     None
+}
+
+/// 解析 npm 包的 JS 入口文件路径（用于 Windows 上直接用 node 执行）
+///
+/// 返回 (node_exe_path, js_entry_path)
+#[cfg(target_os = "windows")]
+fn resolve_node_and_js_entry_for_mcp(
+    app: &tauri::AppHandle,
+    package_name: &str,
+) -> Option<(String, String)> {
+    let app_data_dir = app_data_dir_get(app.clone()).ok()?;
+    let app_data_dir = std::path::PathBuf::from(app_data_dir);
+    let package_dir = app_data_dir.join("node_modules").join(package_name);
+    if !package_dir.exists() {
+        return None;
+    }
+
+    let package_json_path = package_dir.join("package.json");
+    let content = std::fs::read_to_string(&package_json_path).ok()?;
+    let package_json: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    // 获取 bin 字段中的 JS 入口路径
+    let rel_entry = if let Some(bin_str) = package_json.get("bin").and_then(|v| v.as_str()) {
+        bin_str.to_string()
+    } else if let Some(bin_obj) = package_json.get("bin").and_then(|v| v.as_object()) {
+        let default_bin_name = package_name.rsplit('/').next().unwrap_or(package_name);
+        if let Some(entry) = bin_obj.get(package_name).and_then(|v| v.as_str()) {
+            entry.to_string()
+        } else if let Some(entry) = bin_obj.get(default_bin_name).and_then(|v| v.as_str()) {
+            entry.to_string()
+        } else if let Some(entry) = bin_obj.values().next().and_then(|v| v.as_str()) {
+            entry.to_string()
+        } else {
+            return None;
+        }
+    } else {
+        return None;
+    };
+
+    // 解析 JS 入口文件的绝对路径
+    let js_entry = package_dir.join(&rel_entry);
+    if !js_entry.exists() {
+        warn!(
+            "[McpProxy] JS 入口文件不存在: {} (package: {}, rel: {})",
+            js_entry.display(),
+            package_name,
+            rel_entry
+        );
+        return None;
+    }
+
+    // 查找 node.exe 路径
+    let node_exe = if let Some(runtime_path) = std::env::var("NUWAX_APP_RUNTIME_PATH")
+        .ok()
+        .map(std::path::PathBuf::from)
+    {
+        let node_bin = runtime_path.join("node").join("bin").join("node.exe");
+        if node_bin.exists() {
+            node_bin.to_string_lossy().to_string()
+        } else {
+            // 尝试直接在 runtime_path 下查找
+            let node_bin = runtime_path.join("node.exe");
+            if node_bin.exists() {
+                node_bin.to_string_lossy().to_string()
+            } else {
+                "node".to_string()
+            }
+        }
+    } else if let Ok(node_path) = std::env::var("NUWAX_NODE_EXE") {
+        node_path
+    } else {
+        "node".to_string()
+    };
+
+    let js_entry_path = js_entry.to_string_lossy().to_string();
+    info!(
+        "[McpProxy] Windows MCP 配置解析: package={}, node={}, js_entry={}",
+        package_name, node_exe, js_entry_path
+    );
+
+    Some((node_exe, js_entry_path))
 }
 
 async fn normalize_mcp_proxy_config_for_local_runtime(
@@ -1850,6 +1944,37 @@ async fn normalize_mcp_proxy_config_for_local_runtime(
                 );
                 continue;
             }
+        }
+
+        // Windows 上优先使用 node 直接执行 JS 入口文件，避免弹出 CMD 窗口
+        #[cfg(target_os = "windows")]
+        {
+            if let Some((node_exe, js_entry)) = resolve_node_and_js_entry_for_mcp(app, &package_name) {
+                info!(
+                    "[McpProxy] 服务 {} 配置改写(Windows node 直连): npx {} -> node {}",
+                    server_name, package_spec, js_entry
+                );
+                // 构建新的 args：JS 入口 + 原始 forward_args
+                let mut new_args = vec![js_entry];
+                new_args.extend(forward_args);
+                server_obj.insert("command".to_string(), serde_json::Value::String(node_exe));
+                server_obj.insert(
+                    "args".to_string(),
+                    serde_json::Value::Array(
+                        new_args
+                            .into_iter()
+                            .map(serde_json::Value::String)
+                            .collect(),
+                    ),
+                );
+                changed = true;
+                continue;
+            }
+            // 如果 node 直连解析失败，回退到 bin 路径
+            warn!(
+                "[McpProxy] 服务 {} node 直连解析失败，回退到 bin 路径",
+                server_name
+            );
         }
 
         let Some(local_bin) = resolve_local_bin_from_package_name(app, &package_name) else {
