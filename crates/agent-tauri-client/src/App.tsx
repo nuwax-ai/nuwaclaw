@@ -554,7 +554,7 @@ function App() {
     { key: "settings", icon: <SettingOutlined />, label: "设置" },
     { key: "dependencies", icon: <FolderOutlined />, label: "依赖" },
     // { key: "permissions", icon: <SafetyOutlined />, label: "权限" },
-    { key: "logs", icon: <FileTextOutlined />, label: "日志" },
+    // { key: "logs", icon: <FileTextOutlined />, label: "日志" },
     { key: "about", icon: <InfoCircleOutlined />, label: "关于" },
   ];
 
