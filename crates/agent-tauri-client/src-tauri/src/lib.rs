@@ -3411,7 +3411,7 @@ async fn uv_install_auto(app: tauri::AppHandle) -> Result<UvInstallResult, Strin
 }
 
 /// 与 scripts/download-sidecars.sh 中 MCP_VERSION 保持一致，用于依赖页展示
-const MCP_PROXY_BUNDLED_VERSION: &str = "0.1.42";
+const MCP_PROXY_BUNDLED_VERSION: &str = "0.1.48";
 
 /// 检测本地 npm 包是否已安装
 #[tauri::command]
