@@ -159,7 +159,7 @@ dependencies = [
 [[package]]
 name = "agent_abstraction"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#6e408d791a78055ae64a8b89b8eefcc3f79e24b1"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#945a0fb6337c903c3c9dc707afe6cc4769deea77"
 dependencies = [
  "agent_config",
  "anyhow",
@@ -188,7 +188,7 @@ dependencies = [
 [[package]]
 name = "agent_config"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#6e408d791a78055ae64a8b89b8eefcc3f79e24b1"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#945a0fb6337c903c3c9dc707afe6cc4769deea77"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -206,7 +206,7 @@ dependencies = [
 [[package]]
 name = "agent_runner"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#6e408d791a78055ae64a8b89b8eefcc3f79e24b1"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#945a0fb6337c903c3c9dc707afe6cc4769deea77"
 dependencies = [
  "agent_abstraction",
  "agent_config",
@@ -11095,7 +11095,7 @@ dependencies = [
 [[package]]
 name = "rcoder-proxy"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#6e408d791a78055ae64a8b89b8eefcc3f79e24b1"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#945a0fb6337c903c3c9dc707afe6cc4769deea77"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -11122,7 +11122,7 @@ dependencies = [
 [[package]]
 name = "rcoder-telemetry"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#6e408d791a78055ae64a8b89b8eefcc3f79e24b1"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#945a0fb6337c903c3c9dc707afe6cc4769deea77"
 dependencies = [
  "anyhow",
  "axum",
@@ -12734,7 +12734,7 @@ dependencies = [
 [[package]]
 name = "shared_types"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#6e408d791a78055ae64a8b89b8eefcc3f79e24b1"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#945a0fb6337c903c3c9dc707afe6cc4769deea77"
 dependencies = [
  "anyhow",
  "arc-swap",
