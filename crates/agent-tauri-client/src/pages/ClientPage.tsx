@@ -187,7 +187,7 @@ export default function ClientPage({
 
   const SERVICE_DESC: Record<string, string> = {
     Rcoder: "Agent 核心服务",
-    NuwaxFileServer: "智能体工作目录文件远程管理服务",
+    NuwaxFileServer: "Agent 工作目录文件远程管理服务",
     NuwaxLanproxy: "网络通道",
     McpProxy: "MCP 协议转换工具",
   };
