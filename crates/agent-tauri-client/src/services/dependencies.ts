@@ -4,6 +4,8 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { setupStorage } from "./store";
+import { DEFAULT_MCP_PROXY_CONFIG } from "../constants";
 
 // 依赖状态
 export type DependencyStatus =
@@ -12,6 +14,7 @@ export type DependencyStatus =
   | "missing"
   | "outdated"
   | "installing"
+  | "bundled"
   | "error";
 
 // ========== 初始化向导依赖管理 ==========
@@ -78,33 +81,34 @@ const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
   },
   {
     name: "mcp-stdio-proxy",
-    displayName: "MCP Proxy",
+    displayName: "MCP 服务",
     type: "npm-local",
-    description: "MCP 协议转换代理工具（应用内安装）",
+    description: "MCP 协议转换工具（应用内安装）",
     required: true,
+    minVersion: "0.1.48", // 与 download-sidecars.sh MCP_VERSION 一致，用于「必需」展示
     binName: "mcp-proxy",
   },
   {
     name: "nuwax-file-server",
-    displayName: "Nuwax File Server",
+    displayName: "文件服务",
     type: "npm-local",
-    description: "NuWax 文件服务（应用内安装）",
+    description: "Agent 工作目录文件远程管理服务（应用内安装）",
     required: true,
     binName: "nuwax-file-server",
   },
   {
     name: "nuwaxcode",
-    displayName: "NuwaxCode",
+    displayName: "Agent 引擎",
     type: "npm-local",
-    description: "NuWax VSCode 扩展（应用内安装）",
+    description: "Agent 执行引擎（应用内安装）",
     required: true,
     binName: "nuwaxcode",
   },
   {
     name: "claude-code-acp-ts",
-    displayName: "Claude Code (ACP)",
+    displayName: "ACP 协议",
     type: "npm-local",
-    description: "Claude Code AI 编程助手 (ACP 版本，应用内安装)",
+    description: "Agent 引擎统一适配服务（应用内安装）",
     required: true,
     binName: "claude-code-acp-ts",
   },
@@ -153,6 +157,8 @@ export interface NpmPackageResult {
   installed: boolean;
   version?: string;
   binPath?: string;
+  /** 是否为应用集成（sidecar），集成包不走动态更新 */
+  bundled?: boolean;
 }
 
 /**
@@ -507,13 +513,21 @@ export async function checkAllSetupDependencies(): Promise<
       } else if (config.type === "npm-local") {
         // npm-local 包
         const pkgResult = await checkLocalNpmPackage(config.name);
-        item.status = pkgResult.installed ? "installed" : "missing";
+        item.status = pkgResult.bundled
+          ? "bundled"
+          : pkgResult.installed
+            ? "installed"
+            : "missing";
         item.version = pkgResult.version;
         item.binPath = pkgResult.binPath;
       } else if (config.type === "npm-global") {
         // 兼容旧配置：npm-global 也按应用内 npm-local 处理
         const pkgResult = await checkLocalNpmPackage(config.name);
-        item.status = pkgResult.installed ? "installed" : "missing";
+        item.status = pkgResult.bundled
+          ? "bundled"
+          : pkgResult.installed
+            ? "installed"
+            : "missing";
         item.version = pkgResult.version;
         item.binPath = pkgResult.binPath;
       } else if (config.type === "shell-installer") {
@@ -553,7 +567,7 @@ async function checkRequiredDependencies(): Promise<{
 }> {
   const deps = await checkAllSetupDependencies();
   const missingDeps = deps.filter(
-    (d) => d.required && d.status !== "installed",
+    (d) => d.required && d.status !== "installed" && d.status !== "bundled",
   );
   return {
     allInstalled: missingDeps.length === 0,
@@ -563,24 +577,49 @@ async function checkRequiredDependencies(): Promise<{
 
 /**
  * 重启所有服务
- * 在启动前会检查必需依赖是否已安装
+ * 在启动前会检查必需依赖是否已安装，缺失时仅警告不阻塞
  */
 export async function restartAllServices(): Promise<void> {
-  // 检查必需依赖
-  const { allInstalled, missingDeps } = await checkRequiredDependencies();
-
-  if (!allInstalled) {
-    const missingNames = missingDeps.map((d) => d.displayName).join(", ");
-    throw new Error(`缺少必需依赖: ${missingNames}。请先安装所有必需依赖。`);
+  console.log("[Dependencies] restartAllServices: 开始");
+  // 检查必需依赖（仅作为预检警告，不阻塞服务启动）
+  try {
+    console.log(
+      "[Dependencies] restartAllServices: 调用 checkRequiredDependencies",
+    );
+    const { allInstalled, missingDeps } = await checkRequiredDependencies();
+    console.log(
+      "[Dependencies] restartAllServices: checkRequiredDependencies 已返回",
+    );
+    if (!allInstalled) {
+      const missingNames = missingDeps.map((d) => d.displayName).join(", ");
+      console.warn(
+        `[Dependencies] 依赖预检: 缺少 ${missingNames}，仍尝试启动服务`,
+      );
+    }
+  } catch (checkError) {
+    console.warn("[Dependencies] 依赖预检失败，仍尝试启动服务:", checkError);
   }
 
   try {
-    await invoke("services_restart_all");
+    // 获取 MCP Proxy 配置，如果没有则使用默认配置
+    // 配置只在前端定义一次（constants.ts），避免前后端重复维护
+    console.log("[Dependencies] restartAllServices: 获取 MCP Proxy 配置");
+    const mcpProxyConfig =
+      (await setupStorage.getMcpProxyConfig()) || DEFAULT_MCP_PROXY_CONFIG;
+    console.log("[Dependencies] MCP Proxy 配置: 已获取");
+
+    console.log(
+      "[Dependencies] restartAllServices: 即将 invoke services_restart_all（若卡住则多半卡在 Rust 侧）",
+    );
+    await invoke("services_restart_all", {
+      mcpProxyConfig: mcpProxyConfig,
+    });
     console.log("[Dependencies] 服务启动命令已发送");
   } catch (error) {
     console.error("[Dependencies] 重启服务失败:", error);
     throw error;
   }
+  console.log("[Dependencies] restartAllServices: 结束");
 }
 
 // ========== 服务状态管理 ==========
@@ -620,7 +659,7 @@ export const SERVICE_DISPLAY_NAMES: Record<ServiceType, string> = {
   NuwaxFileServer: "文件服务",
   NuwaxLanproxy: "代理服务",
   Rcoder: "Agent 服务",
-  McpProxy: "MCP Proxy 服务",
+  McpProxy: "MCP 服务",
 };
 
 /**

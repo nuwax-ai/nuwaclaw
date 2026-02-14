@@ -101,11 +101,13 @@ const CONFIG_VERSION = "1";
  * 类型定义
  */
 export interface AuthUserInfo {
+  id?: number;
   username: string;
   displayName?: string;
   avatar?: string;
   email?: string;
   phone?: string;
+  currentDomain?: string;
 }
 
 export interface CustomScene {

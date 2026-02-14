@@ -5,6 +5,12 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+/// Windows 下隐藏控制台窗口的标志
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[cfg(target_family = "windows")]
 use windows::Win32::{
@@ -175,6 +181,15 @@ impl WindowsPermissionManager {
     async fn request_admin(&self, options: RequestOptions) -> RequestResult {
         if options.interactive {
             // 尝试以管理员身份重新运行
+            #[cfg(target_os = "windows")]
+            let _ = Command::new("powershell")
+                .creation_flags(CREATE_NO_WINDOW)
+                .args(&[
+                    "-Command",
+                    "Start-Process -FilePath '$env:ComSpec' -ArgumentList '/c','echo Admin rights required' -Verb RunAs",
+                ])
+                .spawn();
+            #[cfg(not(target_os = "windows"))]
             let _ = Command::new("powershell")
                 .args(&[
                     "-Command",
@@ -470,6 +485,12 @@ fn check_privacy_setting(category: &str) -> bool {
 
 /// 打开 Windows 隐私设置页面
 fn open_privacy_settings(category: &str) {
+    #[cfg(target_os = "windows")]
+    let _ = Command::new("cmd")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(&["/c", &format!("start ms-settings:{}", category)])
+        .spawn();
+    #[cfg(not(target_os = "windows"))]
     let _ = Command::new("cmd")
         .args(&["/c", &format!("start ms-settings:{}", category)])
         .spawn();

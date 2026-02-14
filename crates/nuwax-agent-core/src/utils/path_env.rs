@@ -1,11 +1,14 @@
-//! PATH 与 ~/.local/bin 环境脚本（与 Tauri fix-path-env 互补：fix-path-env 修 GUI 进程 PATH，此处写终端用 env 脚本并在 spawn 时兜底注入）。
+//! 子进程环境变量管理 — 与用户系统环境隔离。
 //!
-//! - **Unix (macOS/Linux)**：在 PATH 前追加 ~/.local/bin，便于使用本地安装的 node/uv 等。
-//! - **Windows**：直接使用系统 PATH，不追加用户目录；依赖通过全局安装（如 `npm i -g`）即可，无需单独设置环境变量。
+//! 子进程不继承父进程/用户的完整环境变量，仅使用我们管理的运行时路径 + 最小系统基础变量，
+//! 避免用户 IDE 工具、build 产物等无关配置污染子进程环境。
+//!
+//! 与 Tauri fix-path-env 互补：fix-path-env 修 GUI 进程 PATH，此处管控 spawn 子进程的完整环境。
 
 use std::path::PathBuf;
+use tracing::debug;
 
-/// 返回 ~/.local/bin（仅 Unix；Windows 不使用此目录）。
+/// 返回 ~/.local/bin
 fn local_bin_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -13,25 +16,205 @@ fn local_bin_dir() -> PathBuf {
         .join("bin")
 }
 
+/// 在系统 PATH 中查找可执行文件
+fn find_in_path(executable: &str) -> Option<String> {
+    // 先检查应用内是否已有（通过命令行参数 NUWAX_APP_RUNTIME_PATH 判断）
+    // 这里只在系统 PATH 中查找
+    let output = if cfg!(windows) {
+        std::process::Command::new("where")
+            .arg(executable)
+            .output()
+    } else {
+        std::process::Command::new("which")
+            .arg(executable)
+            .output()
+    };
+
+    match output {
+        Ok(o) if o.status.success() => {
+            let binding = String::from_utf8_lossy(&o.stdout);
+            binding
+                .lines()
+                .next()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        }
+        _ => None,
+    }
+}
+
+/// 在系统 PATH 中查找可执行文件并返回其父目录
+fn find_bin_dir(executable: &str) -> Option<String> {
+    find_in_path(executable).and_then(|path| {
+        let parent = PathBuf::from(&path).parent()?.to_path_buf();
+        let parent_str = parent.to_string_lossy().to_string();
+
+        // 如果父目录是 "cmd"，尝试找同级的 "bin" 目录
+        // 例如: D:\Program Files\Git\cmd -> D:\Program Files\Git\bin
+        if parent_str.to_lowercase().ends_with("cmd") {
+            let bin_dir = parent
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| {
+                    if n.eq_ignore_ascii_case("cmd") {
+                        parent
+                            .parent()
+                            .map(|p| p.join("bin").to_string_lossy().to_string())
+                    } else {
+                        None
+                    }
+                })
+                .flatten();
+            if let Some(bin) = bin_dir {
+                if PathBuf::from(&bin).join("bash.exe").exists() {
+                    return Some(bin);
+                }
+            }
+        }
+
+        Some(parent_str)
+    })
+}
+
+/// 添加系统 PATH 中的 bin 目录到 paths 列表
+fn add_system_bin_dir(paths: &mut Vec<String>, executable: &str) {
+    if let Some(bin_dir) = find_bin_dir(executable) {
+        if !paths.contains(&bin_dir) {
+            debug!("[Env] 已添加 {} 目录到 PATH", bin_dir);
+            paths.push(bin_dir);
+        }
+    }
+}
+
 /// 构建供 spawn/子进程使用的 PATH 字符串。
 ///
-/// - **Unix**：在现有 PATH 前追加 ~/.local/bin（安装 node/uv 到本地后即生效）。
-/// - **Windows**：在现有 PATH 前追加 %USERPROFILE%\.local\bin（安装 node 到本地后即生效）。
+/// **完全隔离**：仅包含 NUWAX_APP_RUNTIME_PATH 中的应用自有运行时目录，
+/// 不包含 ~/.local/bin、/usr/bin 等任何系统或用户路径，彻底避免环境污染。
 pub fn build_node_path_env() -> String {
-    let bin = local_bin_dir();
-    let current = std::env::var("PATH").unwrap_or_default();
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let mut paths: Vec<String> = Vec::new();
 
+    // 1. 先添加应用内的 NUWAX_APP_RUNTIME_PATH（优先）
+    if let Ok(runtime_path) = std::env::var("NUWAX_APP_RUNTIME_PATH") {
+        let runtime_path = runtime_path.trim();
+        if !runtime_path.is_empty() {
+            for p in runtime_path.split(sep) {
+                let p = p.trim();
+                if !p.is_empty() && !paths.contains(&p.to_string()) {
+                    paths.push(p.to_string());
+                }
+            }
+        }
+    }
+
+    // 2. 查找系统 PATH 中的工具（兜底）
+    // Windows
     #[cfg(windows)]
     {
-        // Windows 使用分号分隔
-        format!("{};{}", bin.to_string_lossy(), current)
+        add_system_bin_dir(&mut paths, "python.exe");
+        add_system_bin_dir(&mut paths, "node.exe");
+        add_system_bin_dir(&mut paths, "git.exe");
+        add_system_bin_dir(&mut paths, "bash.exe"); // Git Bash
+        add_system_bin_dir(&mut paths, "go.exe");
     }
+
+    // Linux/macOS
+    #[cfg(not(windows))]
+    {
+        add_system_bin_dir(&mut paths, "python3");
+        add_system_bin_dir(&mut paths, "node");
+        add_system_bin_dir(&mut paths, "git");
+        add_system_bin_dir(&mut paths, "go");
+    }
+
+    paths.join(sep)
+}
+
+/// Windows: 查找 Git Bash 路径
+///
+/// 查找系统 PATH 中的 bash.exe，返回其 bin 目录路径
+/// 如果 bash.exe 在 Git\cmd 目录下，会自动查找同级的 Git\bin 目录
+#[cfg(windows)]
+pub fn find_git_bash_path() -> Option<String> {
+    find_bin_dir("bash.exe")
+}
+
+/// 构建完整的 PATH 环境变量（供 sidecar 服务使用）。
+///
+/// 包含：
+/// 1. 应用内运行时目录 (NUWAX_APP_RUNTIME_PATH)
+/// 2. 系统 PATH 中的工具 (node, python, git, go 等)
+/// 3. Windows: 额外添加 npm 全局 bin 目录
+pub fn build_full_path_env() -> String {
+    let paths = build_node_path_env();
+
+    // Windows: 添加 npm 全局 bin 目录（确保 npm 全局安装的包可用）
+    #[cfg(windows)]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let npm_path = format!(r"{}\npm", appdata);
+            if !paths.contains(&npm_path) {
+                return format!("{};{}", paths, npm_path);
+            }
+        }
+    }
+
+    paths
+}
+
+/// 构建子进程最小基础环境变量集（配合 `env_clear()` 使用，不继承父进程环境）。
+///
+/// 仅包含操作系统必需的基础变量 + 我们自己的变量，与用户系统/IDE 配置完全隔离。
+/// 调用方需额外通过 `.env("PATH", build_node_path_env())` 设置 PATH。
+pub fn build_base_env() -> Vec<(String, String)> {
+    let mut env = Vec::new();
+
+    // --- 操作系统基础变量（子进程正常运行所需） ---
 
     #[cfg(not(windows))]
     {
-        // Unix 使用冒号分隔
-        format!("{}:{}", bin.to_string_lossy(), current)
+        for key in &["HOME", "USER", "LANG", "TMPDIR", "SHELL"] {
+            if let Ok(v) = std::env::var(key) {
+                env.push((key.to_string(), v));
+            }
+        }
     }
+
+    #[cfg(windows)]
+    {
+        for key in &[
+            "USERPROFILE", "HOMEDRIVE", "HOMEPATH",   // 用户主目录
+            "SystemRoot", "SYSTEMDRIVE",               // 系统根目录
+            "COMSPEC",                                 // cmd.exe 路径
+            "TEMP", "TMP",                             // 临时目录
+            "APPDATA", "LOCALAPPDATA", "PROGRAMDATA",  // 应用数据目录（npm/node 需要）
+        ] {
+            if let Ok(v) = std::env::var(key) {
+                env.push((key.to_string(), v));
+            }
+        }
+    }
+
+    // --- 我们自己的变量 ---
+
+    // Tauri 运行时路径
+    if let Ok(v) = std::env::var("NUWAX_APP_RUNTIME_PATH") {
+        env.push(("NUWAX_APP_RUNTIME_PATH".into(), v));
+    }
+    // 应用数据目录
+    if let Ok(v) = std::env::var("NUWAX_APP_DATA_DIR") {
+        env.push(("NUWAX_APP_DATA_DIR".into(), v));
+    }
+
+    // --- 日志配置（调试用，有则透传） ---
+    for key in &["RUST_LOG", "AGENT_RUST_LOG"] {
+        if let Ok(v) = std::env::var(key) {
+            env.push((key.to_string(), v));
+        }
+    }
+
+    env
 }
 
 /// 在 ~/.local/bin 下创建 env 脚本，安装 Node/uv 后用户可在终端 source 以加入 PATH。

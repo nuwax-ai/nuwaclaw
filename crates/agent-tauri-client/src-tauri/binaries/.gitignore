@@ -1,0 +1,6 @@
+# Downloaded sidecars (generated locally, do not commit)
+mcp-proxy-*
+node-runtime-*
+sidecar-download-manifest.txt
+
+# Keep repository-managed binaries (nuwax-lanproxy-*) tracked.

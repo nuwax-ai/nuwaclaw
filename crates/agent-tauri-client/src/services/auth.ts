@@ -278,7 +278,10 @@ export async function loginAndRegister(
   }
 
   try {
-    const response = await registerClient(params, { baseUrl: domain });
+    const response = await registerClient(params, {
+      baseUrl: domain,
+      suppressToast: true,
+    });
 
     // ========== 重要：保存认证信息 ==========
     // 1. 保存用户名和密码（用于自动登录和重新注册）
@@ -291,10 +294,12 @@ export async function loginAndRegister(
     // 3. 保存 savedKey（按域名+用户名持久化，退出登录不丢失）
     await saveSavedKey(response.configKey, domain, username);
 
-    // 4. 保存用户信息
+    // 4. 保存用户信息（包含 id 和 currentDomain）
     await saveUserInfo({
+      id: response.id,
       username,
       displayName: response.name,
+      currentDomain: domain,
     });
 
     // 5. 保存连接状态
@@ -433,7 +438,10 @@ export async function logout(): Promise<void> {
  * 同步本地配置到后端
  * 当用户修改了本地服务配置后调用，更新后端终端配置
  */
-export async function syncConfigToServer(): Promise<ClientRegisterResponse | null> {
+export async function syncConfigToServer(options?: {
+  suppressToast?: boolean;
+}): Promise<ClientRegisterResponse | null> {
+  const suppressToast = options?.suppressToast === true;
   const username = await getSavedUsername();
   const password = await getSavedPassword();
   const configKey = await getSavedConfigKey();
@@ -453,17 +461,38 @@ export async function syncConfigToServer(): Promise<ClientRegisterResponse | nul
   };
 
   const loadingKey = "syncConfigLoading";
-  message.loading({ content: "正在同步配置...", key: loadingKey, duration: 0 });
+  if (!suppressToast) {
+    message.loading({
+      content: "正在同步配置...",
+      key: loadingKey,
+      duration: 0,
+    });
+  }
 
   try {
-    const response = await registerClient(params, { baseUrl: domain });
+    const response = await registerClient(params, {
+      baseUrl: domain,
+      suppressToast: true,
+    });
 
     // 更新保存的 configKey、savedKey 和连接状态
     await saveConfigKey(response.configKey);
     await saveSavedKey(response.configKey, domain, username);
     await saveOnlineStatus(response.online);
 
-    message.success({ content: "配置同步成功！", key: loadingKey });
+    // 更新用户信息（包含 id 和 currentDomain）
+    const currentUserInfo = await getUserInfo();
+    await saveUserInfo({
+      ...currentUserInfo,
+      id: response.id,
+      username: username,
+      displayName: response.name,
+      currentDomain: domain,
+    } as AuthUserInfo);
+
+    if (!suppressToast) {
+      message.success({ content: "配置同步成功！", key: loadingKey });
+    }
     console.log("[SyncConfig] 配置同步成功:", {
       configKey: response.configKey,
       online: response.online,
@@ -472,14 +501,19 @@ export async function syncConfigToServer(): Promise<ClientRegisterResponse | nul
   } catch (error: any) {
     const errorMessage = getAuthErrorMessage(error);
     console.error("[SyncConfig] 配置同步失败:", error);
-    message.error({ content: errorMessage, key: loadingKey });
+    if (!suppressToast) {
+      message.error({ content: errorMessage, key: loadingKey });
+    }
     return null;
   }
 }
 
 function normalizeServerHost(input: string): string {
-  const value = input.trim();
+  let value = input.trim();
   if (!value) return value;
+  // 去除末尾的 / (允许用户输入带 / 的域名)
+  value = value.replace(/\/+$/, "");
+  // 如果有 http 前缀直接返回，否则添加 https://
   if (/^https?:\/\//i.test(value)) return value;
   return `https://${value}`;
 }

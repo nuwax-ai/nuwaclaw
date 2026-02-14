@@ -30,6 +30,7 @@ import {
   LocalDependencyItem,
 } from "../services/dependencies";
 import LoginForm from "../components/LoginForm";
+import { SERVICE_STATE_NAMES, SERVICE_DESCRIPTIONS } from "../constants";
 
 const { Text } = Typography;
 
@@ -175,26 +176,22 @@ export default function ClientPage({
   };
 
   const getStateText = (state: string) => {
-    const map: Record<string, string> = {
-      Running: "运行中",
-      Stopped: "已停止",
-      Starting: "启动中",
-      Stopping: "停止中",
-      Error: "错误",
-    };
-    return map[state] || state;
+    return (
+      SERVICE_STATE_NAMES[state as keyof typeof SERVICE_STATE_NAMES] || state
+    );
   };
 
   const SERVICE_DESC: Record<string, string> = {
-    Rcoder: "Agent 核心服务",
-    NuwaxFileServer: "文件服务",
-    NuwaxLanproxy: "内网穿透",
+    Rcoder: SERVICE_DESCRIPTIONS.Rcoder,
+    NuwaxFileServer: SERVICE_DESCRIPTIONS.NuwaxFileServer,
+    NuwaxLanproxy: SERVICE_DESCRIPTIONS.NuwaxLanproxy,
+    McpProxy: SERVICE_DESCRIPTIONS.McpProxy,
   };
 
   return (
     <div>
       {/* 登录 */}
-      <LoginForm onLoginSuccess={() => {}} />
+      <LoginForm onLoginSuccess={() => {}} isServiceRunning={allRunning} />
 
       {/* 服务状态 */}
       <div className="section">
@@ -357,95 +354,16 @@ export default function ClientPage({
         )}
       </div>
 
-      {/* 连接信息 */}
-      <div className="section" style={{ marginTop: 20 }}>
-        <div
-          style={{
-            fontSize: 13,
-            fontWeight: 500,
-            color: "#18181b",
-            marginBottom: 10,
-          }}
-        >
-          连接信息
-        </div>
-        <div
-          style={{
-            border: "1px solid #e4e4e7",
-            borderRadius: 8,
-            background: "#fff",
-            padding: "2px 0",
-          }}
-        >
-          {[
-            {
-              label: "状态",
-              value: (
-                <Tag
-                  color={
-                    onlineStatus === true
-                      ? "success"
-                      : onlineStatus === false
-                        ? "error"
-                        : "default"
-                  }
-                >
-                  {onlineStatus === true
-                    ? "在线"
-                    : onlineStatus === false
-                      ? "离线"
-                      : "未知"}
-                </Tag>
-              ),
-            },
-            { label: "会话 ID", value: sessionId || "-" },
-            { label: "客户端 ID", value: connectionInfo.id || "-" },
-            { label: "服务器", value: connectionInfo.server || "-" },
-            { label: "日志", value: `${logs.length} 条` },
-          ].map((item, i) => (
-            <div
-              key={i}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "7px 14px",
-                borderBottom: i < 4 ? "1px solid #f4f4f5" : "none",
-              }}
-            >
-              <span style={{ fontSize: 12, color: "#71717a" }}>
-                {item.label}
-              </span>
-              <span
-                style={{
-                  fontSize: 12,
-                  color: "#18181b",
-                  fontFamily:
-                    typeof item.value === "string"
-                      ? "ui-monospace, SFMono-Regular, Menlo, monospace"
-                      : undefined,
-                }}
-              >
-                {item.value}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* 快捷操作 */}
       <div style={{ marginTop: 20, display: "flex", gap: 8, flexWrap: "wrap" }}>
         <Button size="small" onClick={() => onNavigate?.("settings")}>
-          配置
+          设置
         </Button>
         <Button size="small" onClick={() => onNavigate?.("dependencies")}>
           依赖
         </Button>
-        <Button size="small" onClick={() => onNavigate?.("permissions")}>
-          权限
-        </Button>
-        <Button size="small" onClick={() => onNavigate?.("logs")}>
-          日志
+        <Button size="small" onClick={() => onNavigate?.("about")}>
+          关于
         </Button>
       </div>
     </div>

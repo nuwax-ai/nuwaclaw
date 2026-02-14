@@ -396,18 +396,17 @@ impl NodeInstaller {
             .to_string())
     }
 
-    /// 从打包的资源目录安装 Node.js 到 ~/.local/
+    /// 验证打包的 Node.js 资源存在并返回信息
     ///
-    /// - 复制 node 二进制到 ~/.local/bin/node
-    /// - 复制 lib/node_modules/ 到 ~/.local/lib/node_modules/
-    /// - 创建 npm/npx/corepack 符号链接（保持相对路径，使 require 正确解析）
+    /// 新架构：不再复制到 ~/.local/，直接验证打包资源
+    /// 优势：保持 macOS 代码签名，避免 V8 SIGTRAP 崩溃
+    ///
+    /// - 验证 node 二进制存在
+    /// - 返回 Node.js 信息（版本、路径）
     pub fn install_from_bundled(&self, bundled_node_dir: &PathBuf) -> Result<NodeInfo, NodeError> {
-        let bin_dir = self.target_dir.join("bin");
-        let lib_dir = self.target_dir.join("lib");
-
         info!(
-            "Installing Node.js from bundled resources: {:?} -> {:?}",
-            bundled_node_dir, self.target_dir
+            "[NodeInstaller] 验证打包的 Node.js 资源: {:?}",
+            bundled_node_dir
         );
 
         // 验证打包资源目录存在
@@ -431,149 +430,24 @@ impl NodeInstaller {
             )));
         }
 
-        // 创建目标目录
-        std::fs::create_dir_all(&bin_dir)?;
-        std::fs::create_dir_all(&lib_dir)?;
+        // 获取版本信息
+        let version = Self::read_version_from_path(&bundled_node_bin)?;
 
-        // 1. 复制 node 二进制文件
-        #[cfg(unix)]
-        {
-            let src_node = bundled_node_dir.join("bin").join("node");
-            let dst_node = bin_dir.join("node");
-            info!("Copying node binary: {:?} -> {:?}", src_node, dst_node);
-            std::fs::copy(&src_node, &dst_node)?;
-            // 设置可执行权限
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(&dst_node)?.permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(&dst_node, perms)?;
-        }
-        #[cfg(windows)]
-        {
-            let src_node = bundled_node_dir.join("bin").join("node.exe");
-            let dst_node = bin_dir.join("node.exe");
-            info!("Copying node binary: {:?} -> {:?}", src_node, dst_node);
-            std::fs::copy(&src_node, &dst_node)?;
+        info!(
+            "[NodeInstaller] Node.js 资源验证通过: v{} at {:?}",
+            version, bundled_node_bin
+        );
+
+        // 写入本地 env 脚本（用于终端环境）
+        if let Err(e) = crate::utils::ensure_local_bin_env() {
+            warn!("写入本地 env 脚本失败（不影响使用）: {}", e);
         }
 
-        // 2. 复制 node_modules/ 到目标位置
-        // Unix: ~/.local/lib/node_modules/ (标准 Unix FHS 结构)
-        // Windows: ~/.local/bin/node_modules/ (与 node.exe 同级，符合 Windows Node.js 标准结构)
-        let src_node_modules = bundled_node_dir.join("lib").join("node_modules");
-        if src_node_modules.exists() {
-            #[cfg(unix)]
-            let dst_node_modules = lib_dir.join("node_modules");
-            #[cfg(windows)]
-            let dst_node_modules = bin_dir.join("node_modules");
-
-            info!(
-                "Copying node_modules: {:?} -> {:?}",
-                src_node_modules, dst_node_modules
-            );
-            Self::copy_dir_recursive(&src_node_modules, &dst_node_modules)?;
-        }
-
-        // 3. 创建 npm/npx/corepack 符号链接（使用与 Node.js 原始包相同的相对路径）
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let symlinks: &[(&str, &str)] = &[
-                ("npm", "../lib/node_modules/npm/bin/npm-cli.js"),
-                ("npx", "../lib/node_modules/npm/bin/npx-cli.js"),
-                ("corepack", "../lib/node_modules/corepack/dist/corepack.js"),
-            ];
-
-            for (name, target) in symlinks {
-                let link_path = bin_dir.join(name);
-                // 检查目标文件是否存在（通过 lib_dir 验证）
-                let resolved = bin_dir.join(target);
-                if !resolved.exists() {
-                    warn!(
-                        "Symlink target does not exist, skipping {}: {:?}",
-                        name, resolved
-                    );
-                    continue;
-                }
-                // 删除旧的（可能是被 deref 的普通文件）
-                let _ = std::fs::remove_file(&link_path);
-                match std::os::unix::fs::symlink(target, &link_path) {
-                    Ok(()) => {
-                        info!("Created symlink: {:?} -> {}", link_path, target);
-                        // 确保目标脚本有可执行权限
-                        let mut perms = std::fs::metadata(&resolved)?.permissions();
-                        perms.set_mode(0o755);
-                        std::fs::set_permissions(&resolved, perms)?;
-                    }
-                    Err(e) => warn!("Failed to create symlink {:?}: {}", link_path, e),
-                }
-            }
-        }
-
-        #[cfg(windows)]
-        {
-            // Windows: 复制 .cmd 文件
-            for cmd_name in &["npm.cmd", "npx.cmd", "corepack.cmd"] {
-                let src = bundled_node_dir.join("bin").join(cmd_name);
-                let dst = bin_dir.join(cmd_name);
-                if src.exists() {
-                    std::fs::copy(&src, &dst)?;
-                    info!("Copied: {:?} -> {:?}", src, dst);
-                }
-            }
-        }
-
-        info!("Node.js installation completed to {:?}", self.target_dir);
-
-        // 默认目录时才写入 ~/.local/bin/env；自定义目录由调用方负责环境同步
-        let default_target = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".local");
-        if self.target_dir == default_target {
-            if let Err(e) = crate::utils::ensure_local_bin_env() {
-                warn!("写入本地 env 脚本失败（不影响安装）: {}", e);
-            }
-        }
-
-        // 验证安装（按当前 target_dir 验证）
-        #[cfg(unix)]
-        let installed_node = self.target_dir.join("bin").join("node");
-        #[cfg(windows)]
-        let installed_node = self.target_dir.join("bin").join("node.exe");
-
-        let version = Self::read_version_from_path(&installed_node)?;
         Ok(NodeInfo {
             version,
-            path: installed_node,
+            path: bundled_node_bin,
             source: NodeSource::Local,
         })
-    }
-
-    /// 递归复制目录
-    fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), NodeError> {
-        std::fs::create_dir_all(dst)?;
-
-        for entry in std::fs::read_dir(src)? {
-            let entry = entry?;
-            let src_path = entry.path();
-            let dst_path = dst.join(entry.file_name());
-
-            if src_path.is_dir() {
-                Self::copy_dir_recursive(&src_path, &dst_path)?;
-            } else if src_path.is_symlink() {
-                // 读取符号链接目标并创建新的符号链接
-                let link_target = std::fs::read_link(&src_path)?;
-                // 如果目标已存在先删除
-                let _ = std::fs::remove_file(&dst_path);
-                #[cfg(unix)]
-                std::os::unix::fs::symlink(&link_target, &dst_path)?;
-                #[cfg(windows)]
-                std::os::windows::fs::symlink_file(&link_target, &dst_path)?;
-            } else {
-                std::fs::copy(&src_path, &dst_path)?;
-            }
-        }
-
-        Ok(())
     }
 
     /// 获取下载 URL
@@ -816,6 +690,18 @@ pub fn resolve_npm_package_direct_path(package_name: &str) -> Result<NpmPackageI
 
 /// 查找 node.exe 可执行文件
 fn find_node_executable() -> Result<PathBuf, NodeError> {
+    // 允许上层（Tauri sidecar）通过环境变量注入固定 node.exe，避免依赖系统 PATH。
+    if let Ok(node_from_env) = std::env::var("NUWAX_NODE_EXE") {
+        let node_from_env = PathBuf::from(node_from_env);
+        if node_from_env.exists() {
+            debug!(
+                "Using node from NUWAX_NODE_EXE: {}",
+                node_from_env.display()
+            );
+            return Ok(node_from_env);
+        }
+    }
+
     // 优先使用本地安装的 Node.js
     let local_node = NodeDetector::get_local_node_path();
     if local_node.exists() {
@@ -887,6 +773,18 @@ fn find_npm_package_dir(package_name: &str) -> Result<PathBuf, NodeError> {
     #[cfg(windows)]
     {
         if let Ok(appdata) = std::env::var("APPDATA") {
+            let app_private_modules = PathBuf::from(&appdata)
+                .join("com.nuwax.agent-tauri-client")
+                .join("node_modules")
+                .join(package_name);
+            if app_private_modules.exists() {
+                debug!(
+                    "Found package in app private node_modules: {}",
+                    app_private_modules.display()
+                );
+                return Ok(app_private_modules);
+            }
+
             let npm_modules = PathBuf::from(appdata)
                 .join("npm")
                 .join("node_modules")

@@ -19,3 +19,5 @@ vcpkg
 
 # Node.js dependencies (root husky/lint-staged)
 node_modules/
+.cache/sidecars/
+.cache/npm-tarballs/

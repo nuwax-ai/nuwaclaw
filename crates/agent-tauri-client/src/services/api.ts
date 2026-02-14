@@ -112,8 +112,20 @@ export async function apiRequest<T>(
   } catch (error: any) {
     console.error("API Request Error:", error);
 
-    if (options.showError !== false && error.message) {
-      message.error(error.message);
+    // 检测是否是重定向到登录页面的情况（后端返回 HTML）
+    const isLoginRedirect =
+      error.message?.includes("/login") || error.message?.includes("redirect");
+
+    // 生成用户友好的错误信息
+    let userMessage: string = "";
+    if (isLoginRedirect) {
+      userMessage = "登录遇到问题，请检查配置域名信息或服务状态后重试";
+    } else if (options.showError !== false && error.message) {
+      userMessage = error.message;
+    }
+
+    if (options.showError !== false && userMessage) {
+      message.error(userMessage);
     }
 
     throw error;
@@ -178,12 +190,13 @@ export async function registerClient(
   params: ClientRegisterParams,
   options?: {
     baseUrl?: string;
+    suppressToast?: boolean;
   },
 ): Promise<ClientRegisterResponse> {
   return apiRequest<ClientRegisterResponse>("/api/sandbox/config/reg", {
     method: "POST",
     data: params,
-    showError: true,
+    showError: !options?.suppressToast,
     baseUrl: options?.baseUrl,
   });
 }

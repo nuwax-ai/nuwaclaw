@@ -72,8 +72,6 @@ export default function AboutPage() {
           }}
         >
           跨平台 Agent 客户端
-          <br />
-          远程桌面控制 · AI 编程助手集成
         </div>
         <Button
           type="default"

@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { Form, Input, Button, message, Typography } from "antd";
+import { Form, Input, Button, message, Typography, Modal } from "antd";
 import {
   UserOutlined,
   LockOutlined,
@@ -12,7 +12,11 @@ import {
   MailOutlined,
   PhoneOutlined,
   GlobalOutlined,
+  PlayCircleOutlined,
+  QrcodeOutlined,
 } from "@ant-design/icons";
+import { QRCodeSVG } from "qrcode.react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   loginAndRegister,
   logout,
@@ -27,9 +31,14 @@ type LoginMethod = "username" | "email" | "phone";
 
 interface LoginFormProps {
   onLoginSuccess: () => void;
+  /** 服务是否正在运行 */
+  isServiceRunning?: boolean;
 }
 
-export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
+export default function LoginForm({
+  onLoginSuccess,
+  isServiceRunning = false,
+}: LoginFormProps) {
   const [loading, setLoading] = useState(false);
   const [isLogged, setIsLogged] = useState(false);
   const [userInfo, setUserInfo] = useState<AuthUserInfo | null>(null);
@@ -37,6 +46,7 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
   const [form] = Form.useForm();
   const [initialized, setInitialized] = useState(false);
   const [currentDomain, setCurrentDomain] = useState("");
+  const [qrModalVisible, setQrModalVisible] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -135,7 +145,7 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
       if (auth.userInfo) setUserInfo(auth.userInfo);
       setCurrentDomain(values.domain);
       setIsLogged(true);
-      message.success("登录成功");
+      // message.success("登录成功");
       onLoginSuccess();
     } catch (error) {
       // 错误已在 auth.ts 中处理
@@ -151,49 +161,139 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
     form.resetFields();
   };
 
+  // 获取会话重定向 URL
+  const getRedirectUrl = useCallback(() => {
+    if (!userInfo?.id || !currentDomain) return "";
+    const normalizedDomain = currentDomain.replace(/\/+$/, "");
+    return `${normalizedDomain}/api/sandbox/config/redirect/${userInfo.id}`;
+  }, [userInfo?.id, currentDomain]);
+
+  // 开始会话 - 打开浏览器
+  const handleStartSession = async () => {
+    const url = getRedirectUrl();
+    if (!url) {
+      message.error("无法获取会话地址");
+      return;
+    }
+    try {
+      await openUrl(url);
+    } catch (error) {
+      console.error("打开浏览器失败:", error);
+      message.error("打开浏览器失败");
+    }
+  };
+
+  // 扫码使用 - 展示二维码
+  const handleShowQrCode = () => {
+    const url = getRedirectUrl();
+    if (!url) {
+      message.error("无法获取会话地址");
+      return;
+    }
+    setQrModalVisible(true);
+  };
+
   if (!initialized) return null;
 
   // 已登录
   if (isLogged && userInfo) {
+    const redirectUrl = getRedirectUrl();
+    // 按钮禁用条件：没有 redirectUrl 或服务未运行
+    const isButtonDisabled = !redirectUrl || !isServiceRunning;
+
     return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "10px 14px",
-          border: "1px solid #e4e4e7",
-          borderRadius: 8,
-          background: "#fff",
-          marginBottom: 16,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <CheckCircleOutlined style={{ color: "#16a34a", fontSize: 12 }} />
-          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 500 }}>
-                {userInfo.displayName || userInfo.username}
-              </span>
-              <span style={{ fontSize: 12, color: "#a1a1aa" }}>
-                {userInfo.username}
+      <>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "10px 14px",
+            border: "1px solid #e4e4e7",
+            borderRadius: 8,
+            background: "#fff",
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <CheckCircleOutlined style={{ color: "#16a34a", fontSize: 12 }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 500 }}>
+                  {userInfo.displayName || userInfo.username}
+                </span>
+                <span style={{ fontSize: 12, color: "#a1a1aa" }}>
+                  {userInfo.username}
+                </span>
+              </div>
+              <span style={{ fontSize: 11, color: "#71717a" }}>
+                域名：{currentDomain}
               </span>
             </div>
-            <span style={{ fontSize: 11, color: "#71717a" }}>
-              域名：{currentDomain}
-            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <Button
+              type="primary"
+              size="small"
+              icon={<PlayCircleOutlined />}
+              onClick={handleStartSession}
+              disabled={isButtonDisabled}
+            >
+              开始会话
+            </Button>
+            <Button
+              size="small"
+              icon={<QrcodeOutlined />}
+              onClick={handleShowQrCode}
+              disabled={isButtonDisabled}
+            >
+              扫码使用
+            </Button>
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<LogoutOutlined />}
+              onClick={handleLogout}
+            >
+              退出
+            </Button>
           </div>
         </div>
-        <Button
-          type="text"
-          size="small"
-          danger
-          icon={<LogoutOutlined />}
-          onClick={handleLogout}
+
+        {/* 二维码弹窗 */}
+        <Modal
+          title="扫码使用"
+          open={qrModalVisible}
+          onCancel={() => setQrModalVisible(false)}
+          footer={null}
+          centered
+          width={320}
         >
-          退出
-        </Button>
-      </div>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              padding: "16px 0",
+            }}
+          >
+            <QRCodeSVG value={redirectUrl} size={200} />
+            {/* <div
+              style={{
+                marginTop: 16,
+                fontSize: 12,
+                color: "#71717a",
+                textAlign: "center",
+                wordBreak: "break-all",
+                maxWidth: 280,
+              }}
+            >
+              {redirectUrl}
+            </div> */}
+          </div>
+        </Modal>
+      </>
     );
   }
 

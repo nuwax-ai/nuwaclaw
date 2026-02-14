@@ -14,7 +14,7 @@ use crate::utils::CommandNoWindowExt;
 #[cfg(windows)]
 use process_wrap::tokio::{CreationFlags, JobObject};
 #[cfg(windows)]
-use windows::Win32::System::Threading::{CREATE_NO_WINDOW, DETACHED_PROCESS};
+use windows::Win32::System::Threading::CREATE_NO_WINDOW;
 
 // Unix 进程组支持
 #[cfg(unix)]
@@ -25,6 +25,8 @@ type ChildWrapperType = Box<dyn process_wrap::tokio::ChildWrapper>;
 
 // 导入 RcoderAgentRunner
 use super::agent_runner::{RcoderAgentRunner, RcoderAgentRunnerConfig};
+#[cfg(target_os = "windows")]
+mod windows_launch;
 
 // ========== 默认常量 ==========
 
@@ -43,15 +45,29 @@ pub const DEFAULT_MCP_PROXY_BIN: &str = "mcp-proxy";
 fn find_node_exe_for_windows_launch() -> Option<std::path::PathBuf> {
     let local_node = crate::dependency::node::NodeDetector::get_local_node_path();
     if local_node.exists() {
+        debug!(
+            "[Service] Windows node 解析命中本地 runtime: {}",
+            local_node.display()
+        );
         return Some(local_node);
     }
 
-    let output = std::process::Command::new("where")
+    let output = match std::process::Command::new("where")
         .no_window()
         .arg("node.exe")
         .output()
-        .ok()?;
+    {
+        Ok(o) => o,
+        Err(e) => {
+            warn!("[Service] Windows node 解析失败: where node.exe 执行错误: {}", e);
+            return None;
+        }
+    };
     if !output.status.success() {
+        warn!(
+            "[Service] Windows node 解析失败: where node.exe exit={:?}",
+            output.status.code()
+        );
         return None;
     }
     let binding = String::from_utf8_lossy(&output.stdout);
@@ -60,9 +76,87 @@ fn find_node_exe_for_windows_launch() -> Option<std::path::PathBuf> {
         .next()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(str::to_owned)
-        .ok()?;
+        .map(str::to_owned)?;
+    debug!("[Service] Windows node 解析命中 PATH: {}", path);
     Some(std::path::PathBuf::from(path))
+}
+
+/// 获取 Node.js bin 目录路径（用于设置 PATH 环境变量）
+///
+/// 优先顺序：
+/// 1. NUWAX_APP_RUNTIME_PATH 环境变量（由 Tauri 层设置，指向 .app 包内资源）
+/// 2. 本地安装的 node（~/.local/bin/node）
+/// 3. 系统 PATH 中的 node
+#[cfg(target_os = "windows")]
+pub fn get_node_bin_path() -> Option<String> {
+    // 优先使用环境变量指定的路径
+    if let Ok(runtime_path) = std::env::var("NUWAX_APP_RUNTIME_PATH") {
+        let runtime_path = runtime_path.trim();
+        if !runtime_path.is_empty() {
+            // NUWAX_APP_RUNTIME_PATH 可能包含多个路径（用 ; 分隔）
+            for dir in runtime_path.split(';') {
+                let dir = dir.trim();
+                if !dir.is_empty() {
+                    let node_path = std::path::Path::new(dir).join("node.exe");
+                    if node_path.exists() {
+                        debug!(
+                            "[Service] Windows node 解析命中 NUWAX_APP_RUNTIME_PATH: {}",
+                            dir
+                        );
+                        return Some(dir.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(node_exe) = find_node_exe_for_windows_launch() {
+        if let Some(bin_dir) = node_exe.parent() {
+            debug!(
+                "[Service] Windows node 解析命中本地: {}",
+                bin_dir.display()
+            );
+            return Some(bin_dir.to_string_lossy().to_string());
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_node_bin_path() -> Option<String> {
+    use std::env::var;
+
+    // 优先使用环境变量指定的路径
+    if let Ok(runtime_path) = var("NUWAX_APP_RUNTIME_PATH") {
+        let runtime_path = runtime_path.trim();
+        if !runtime_path.is_empty() {
+            // NUWAX_APP_RUNTIME_PATH 可能包含多个路径（用 : 分隔）
+            for dir in runtime_path.split(':') {
+                let dir = dir.trim();
+                if !dir.is_empty() {
+                    let node_path = std::path::Path::new(dir).join("node");
+                    if node_path.exists() {
+                        debug!(
+                            "[Service] Node 解析命中 NUWAX_APP_RUNTIME_PATH: {}",
+                            dir
+                        );
+                        return Some(dir.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    if let Ok(path) = var("PATH") {
+        for dir in path.split(':') {
+            let node_path = std::path::Path::new(dir).join("node");
+            if node_path.exists() {
+                debug!("[Service] Node 解析命中 PATH: {}", dir);
+                return Some(dir.to_string());
+            }
+        }
+    }
+    None
 }
 
 #[cfg(target_os = "windows")]
@@ -129,7 +223,17 @@ fn get_windows_cmd_script_path(program: &std::path::Path) -> Option<std::path::P
 
 #[cfg(target_os = "windows")]
 fn resolve_js_entry_from_cmd_shim(cmd_script: &std::path::Path) -> Option<std::path::PathBuf> {
-    let content = std::fs::read_to_string(cmd_script).ok()?;
+    let content = match std::fs::read_to_string(cmd_script) {
+        Ok(c) => c,
+        Err(e) => {
+            debug!(
+                "[Service] cmd shim 读取失败: {} ({})",
+                cmd_script.display(),
+                e
+            );
+            return None;
+        }
+    };
     let base_dir = cmd_script.parent()?;
 
     for raw_line in content.lines() {
@@ -165,9 +269,18 @@ fn resolve_js_entry_from_cmd_shim(cmd_script: &std::path::Path) -> Option<std::p
         let rel = rel.replace('/', "\\");
         let entry = base_dir.join(std::path::Path::new(&rel));
         if entry.exists() {
+            debug!(
+                "[Service] cmd shim 解析命中入口: {} -> {}",
+                cmd_script.display(),
+                entry.display()
+            );
             return Some(entry);
         }
     }
+    debug!(
+        "[Service] cmd shim 未解析到入口: {}",
+        cmd_script.display()
+    );
     None
 }
 
@@ -179,86 +292,119 @@ fn resolve_js_entry_from_cmd_shim(cmd_script: &std::path::Path) -> Option<std::p
 fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<String>) {
     #[cfg(target_os = "windows")]
     {
-        let path = std::path::Path::new(program);
-        let package_name = match path.extension().and_then(|s| s.to_str()) {
-            Some(ext) if ext.eq_ignore_ascii_case("cmd") => path.file_stem().and_then(|s| s.to_str()),
-            None => path.file_name().and_then(|s| s.to_str()),
-            _ => None,
-        };
-        let cmd_script = get_windows_cmd_script_path(path);
-
-        // 优先从 npm 生成的 .cmd shim 解析真实 JS 入口，覆盖 mcp-proxy -> mcp-stdio-proxy 等别名场景。
-        if let (Some(node_exe), Some(cmd_script)) = (find_node_exe_for_windows_launch(), cmd_script.as_ref())
-        {
-            if let Some(js_entry) = resolve_js_entry_from_cmd_shim(cmd_script) {
-                let mut actual_args = Vec::with_capacity(args.len() + 1);
-                actual_args.push(js_entry.to_string_lossy().to_string());
-                actual_args.extend(args.iter().map(|s| (*s).to_string()));
-                info!(
-                    "[Service] Windows 命令转直连 node 启动(cmd shim): {} -> {} {}",
-                    program,
-                    node_exe.display(),
-                    js_entry.display()
-                );
-                return (node_exe.to_string_lossy().to_string(), actual_args);
-            }
-        }
-
-        if let Some(package_name) = package_name {
-            if let Ok(pkg) = crate::dependency::node::resolve_npm_package_direct_path(package_name) {
-                let mut actual_args = Vec::with_capacity(args.len() + 1);
-                actual_args.push(pkg.js_entry.to_string_lossy().to_string());
-                actual_args.extend(args.iter().map(|s| (*s).to_string()));
-
-                info!(
-                    "[Service] Windows 命令转直连 node 启动: {} -> {} {}",
-                    program,
-                    pkg.node_exe.display(),
-                    pkg.js_entry.display()
-                );
-
-                return (pkg.node_exe.to_string_lossy().to_string(), actual_args);
-            }
-
-            // 兼容应用私有目录安装：
-            // <appdata>/.../node_modules/.bin/<pkg> -> 反查到 ../<pkg>/package.json 的 bin 入口。
-            if let (Some(node_exe), Some(js_entry)) = (
-                find_node_exe_for_windows_launch(),
-                resolve_js_entry_from_npm_bin_shim(path, package_name),
-            ) {
-                let mut actual_args = Vec::with_capacity(args.len() + 1);
-                actual_args.push(js_entry.to_string_lossy().to_string());
-                actual_args.extend(args.iter().map(|s| (*s).to_string()));
-                info!(
-                    "[Service] Windows 命令转直连 node 启动(私有 node_modules): {} -> {} {}",
-                    program,
-                    node_exe.display(),
-                    js_entry.display()
-                );
-                return (node_exe.to_string_lossy().to_string(), actual_args);
-            }
-        }
-
-        // 兜底：Windows 不能直接 CreateProcess 执行 .cmd（会报 os error 193），
-        // 若直连 node 解析失败，则改为通过 cmd.exe /C 启动同名 .cmd 包装脚本。
-        if let Some(cmd_script) = cmd_script {
-            let mut actual_args = Vec::with_capacity(args.len() + 2);
-            actual_args.push("/C".to_string());
-            actual_args.push(cmd_script.to_string_lossy().to_string());
-            actual_args.extend(args.iter().map(|s| (*s).to_string()));
-            info!(
-                "[Service] Windows 命令回退 cmd.exe 启动: {} -> {}",
-                program,
-                cmd_script.display()
-            );
-            return ("cmd.exe".to_string(), actual_args);
-        }
+        return windows_launch::resolve_launch_command(program, args);
     }
 
     (
         program.to_string(),
         args.iter().map(|s| (*s).to_string()).collect(),
     )
+}
+
+fn format_launch_args_for_log(args: &[String]) -> String {
+    if args.is_empty() {
+        return "<none>".to_string();
+    }
+    args.iter()
+        .map(|a| {
+            if a.contains(' ') {
+                format!("\"{}\"", a)
+            } else {
+                a.clone()
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(" ")
+}
+
+fn find_node_executable_for_sidecar() -> Option<std::path::PathBuf> {
+    if let Ok(node_from_env) = std::env::var("NUWAX_NODE_EXE") {
+        let p = std::path::PathBuf::from(node_from_env);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+
+    let path_env = crate::utils::build_node_path_env();
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    for dir in path_env.split(sep) {
+        if dir.trim().is_empty() {
+            continue;
+        }
+        let base = std::path::Path::new(dir);
+        let candidates = if cfg!(windows) {
+            vec![base.join("node.exe"), base.join("node")]
+        } else {
+            vec![base.join("node")]
+        };
+        for c in candidates {
+            if c.exists() {
+                return Some(c);
+            }
+        }
+    }
+    None
+}
+
+fn resolve_file_server_sidecar_launch(bin_path: &str) -> Option<(String, Vec<String>)> {
+    let bin = std::path::Path::new(bin_path);
+    let package_dir = bin
+        .parent() // .../node_modules/.bin
+        .and_then(|p| p.parent()) // .../node_modules
+        .map(|p| p.join("nuwax-file-server"))?;
+    let server_js = package_dir.join("dist").join("server.js");
+    if !server_js.exists() {
+        warn!(
+            "[FileServer] sidecar 直启解析失败: 未找到 server.js: {}",
+            server_js.display()
+        );
+        return None;
+    }
+    let node_exe = find_node_executable_for_sidecar()?;
+    Some((
+        node_exe.to_string_lossy().to_string(),
+        vec![server_js.to_string_lossy().to_string()],
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn is_file_server_program(program: &str) -> bool {
+    let lower = std::path::Path::new(program)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(program)
+        .to_ascii_lowercase();
+    lower == "nuwax-file-server" || lower == "nuwax-file-server.cmd" || lower == "nuwax-file-server.exe"
+}
+
+#[cfg(target_os = "windows")]
+fn is_cmd_fallback_program(program: &str) -> bool {
+    let lower = std::path::Path::new(program)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(program)
+        .to_ascii_lowercase();
+    lower == "cmd.exe" || lower == "cmd"
+}
+
+#[cfg(target_os = "windows")]
+fn is_file_server_unsafe_windows_program(program: &str) -> bool {
+    let p = std::path::Path::new(program);
+    let lower_name = p
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(program)
+        .to_ascii_lowercase();
+    let lower_ext = p
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    is_cmd_fallback_program(program)
+        || lower_ext == "cmd"
+        || lower_name == "nuwax-file-server"
+        || lower_name == "nuwax-file-server.cmd"
 }
 
 /// 获取 nuwax-file-server 的 PID 文件路径
@@ -293,9 +439,30 @@ fn get_file_server_pid_file_path() -> std::path::PathBuf {
 async fn run_command_with_timeout(program: &str, args: &[&str], timeout_secs: u64) -> bool {
     let node_path = crate::utils::build_node_path_env();
     let (actual_program, actual_args) = resolve_launch_command(program, args);
+    #[cfg(target_os = "windows")]
+    {
+        if is_file_server_program(program) && is_file_server_unsafe_windows_program(&actual_program) {
+            warn!(
+                "[FileServer] 硬防线: 禁止不安全启动链路。program={} resolved={} args={}",
+                program,
+                actual_program,
+                format_launch_args_for_log(&actual_args)
+            );
+            return false;
+        }
+    }
+    debug!(
+        "[Service] 运行命令(超时={}s): program={} args={}",
+        timeout_secs,
+        actual_program,
+        format_launch_args_for_log(&actual_args)
+    );
     let mut cmd = process_wrap::tokio::CommandWrap::with_new(actual_program.as_str(), |cmd| {
         use crate::utils::CommandNoWindowExt;
-        cmd.no_window().env("PATH", &node_path);
+        cmd.no_window()
+            .env_clear()
+            .envs(crate::utils::build_base_env())
+            .env("PATH", &node_path);
         for arg in &actual_args {
             cmd.arg(arg);
         }
@@ -311,7 +478,7 @@ async fn run_command_with_timeout(program: &str, args: &[&str], timeout_secs: u6
     #[cfg(target_os = "windows")]
     let spawn_result = cmd
         .wrap(process_wrap::tokio::KillOnDrop)
-        .wrap(CreationFlags(CREATE_NO_WINDOW | DETACHED_PROCESS))
+        .wrap(CreationFlags(CREATE_NO_WINDOW))
         .wrap(JobObject)
         .spawn();
 
@@ -737,21 +904,25 @@ async fn kill_stale_mcp_proxy_processes() {
     info!("[McpProxy] 残留进程清理完成");
 }
 
-/// 等待 MCP Proxy 服务就绪（使用 mcp-proxy health 命令）
-async fn wait_for_mcp_proxy_ready(
-    bin_path: &str,
-    port: u16,
-    host: &str,
-    timeout_secs: u64,
-) -> Result<(), String> {
+/// 等待 MCP Proxy 服务就绪（优先判断端口监听）
+async fn wait_for_mcp_proxy_ready(port: u16, host: &str, timeout_secs: u64) -> Result<(), String> {
+    use std::time::Duration;
+    use tokio::net::TcpStream;
+    use tokio::time::{sleep, timeout};
+
     let start = std::time::Instant::now();
-    let timeout_duration = std::time::Duration::from_secs(timeout_secs);
-    let retry_interval = std::time::Duration::from_millis(500);
-    let health_url = format!("http://{}:{}/mcp", host, port);
+    let timeout_duration = Duration::from_secs(timeout_secs);
+    let retry_interval = Duration::from_millis(500);
+    // mcp-proxy 常见监听 host=0.0.0.0，此时应使用本机回环地址探活
+    let probe_host = if host == "0.0.0.0" { "127.0.0.1" } else { host };
+    let probe_addr = format!("{}:{}", probe_host, port);
 
     loop {
-        let healthy =
-            run_command_with_timeout(bin_path, &["health", &health_url, "--quiet"], 5).await;
+        let healthy = timeout(Duration::from_millis(700), TcpStream::connect(&probe_addr))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .is_some();
 
         if healthy {
             info!("[McpProxy] 服务就绪 (port {})", port);
@@ -761,11 +932,11 @@ async fn wait_for_mcp_proxy_ready(
         if start.elapsed() > timeout_duration {
             return Err(format!(
                 "MCP Proxy 健康检查超时: 等待 {}s 后 {} 仍未就绪",
-                timeout_secs, health_url
+                timeout_secs, probe_addr
             ));
         }
 
-        tokio::time::sleep(retry_interval).await;
+        sleep(retry_interval).await;
     }
 }
 
@@ -776,25 +947,13 @@ async fn wait_for_mcp_proxy_ready(
 async fn kill_stale_file_server_processes(bin_path: &str) {
     if is_file_server_running().await {
         warn!("[FileServer] 检测到残留 nuwax-file-server 进程，正在终止");
-        info!("[FileServer] 使用路径: {} stop", bin_path);
-
-        // 使用 process_wrap 执行 stop 命令
-        let success = run_command_with_timeout(bin_path, &["stop"], 5).await;
-
-        if success {
-            info!("[FileServer] stop 命令执行成功");
-        } else {
-            warn!("[FileServer] stop 命令执行失败或超时");
-        }
-
+        debug!("[FileServer] sidecar 模式优先使用 PID 文件清理残留进程");
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
-        // 如果还在运行，强制 kill
-        if is_file_server_running().await {
-            warn!("[FileServer] 优雅停止失败，强制终止");
-            kill_file_server_by_pid().await;
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        }
+        // sidecar 直启模式：直接按 PID 文件强制清理
+        let _ = bin_path;
+        kill_file_server_by_pid().await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
         // 最终验证
         if is_file_server_running().await {
@@ -849,9 +1008,15 @@ async fn wait_for_port_ready(port: u16, timeout_secs: u64) -> Result<(), String>
     }
 }
 
-/// 将 file-server 子进程的 stdout/stderr 管道按行读取并写入 tracing 日志，便于排查崩溃原因。
+/// 将子进程的 stdout/stderr 管道按行读取并写入 tracing 日志，便于排查崩溃原因。
 /// 会 spawn 两个独立任务，不阻塞调用方；管道关闭后任务自然退出。
-fn spawn_file_server_output_loggers(
+///
+/// # Arguments
+/// * `label` - 日志前缀标签，如 "FileServer" 或 "McpProxy"
+/// * `stdout` - 子进程的 stdout 管道
+/// * `stderr` - 子进程的 stderr 管道
+fn spawn_child_output_loggers(
+    label: &'static str,
     stdout: Option<tokio::process::ChildStdout>,
     stderr: Option<tokio::process::ChildStderr>,
 ) {
@@ -866,11 +1031,11 @@ fn spawn_file_server_output_loggers(
                     Ok(_) => {
                         let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
                         if !trimmed.is_empty() {
-                            info!("[FileServer stdout] {}", trimmed);
+                            info!("[{} stdout] {}", label, trimmed);
                         }
                     }
                     Err(e) => {
-                        debug!("[FileServer stdout] read error: {}", e);
+                        debug!("[{} stdout] read error: {}", label, e);
                         break;
                     }
                 }
@@ -888,11 +1053,11 @@ fn spawn_file_server_output_loggers(
                     Ok(_) => {
                         let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
                         if !trimmed.is_empty() {
-                            warn!("[FileServer stderr] {}", trimmed);
+                            warn!("[{} stderr] {}", label, trimmed);
                         }
                     }
                     Err(e) => {
-                        debug!("[FileServer stderr] read error: {}", e);
+                        debug!("[{} stderr] read error: {}", label, e);
                         break;
                     }
                 }
@@ -1159,6 +1324,10 @@ pub struct McpProxyConfig {
     pub host: String,
     /// mcpServers 配置（JSON 字符串，直接传递给 --config 参数）
     pub config_json: String,
+    /// Node.js bin 目录路径（可选，用于设置 PATH 环境变量）
+    pub node_bin_path: Option<String>,
+    /// 日志目录路径（可选）
+    pub log_dir: Option<String>,
 }
 
 impl Default for McpProxyConfig {
@@ -1168,6 +1337,8 @@ impl Default for McpProxyConfig {
             port: DEFAULT_MCP_PROXY_PORT,
             host: DEFAULT_MCP_PROXY_HOST.to_string(),
             config_json: r#"{"mcpServers":{}}"#.to_string(),
+            node_bin_path: None,
+            log_dir: None,
         }
     }
 }
@@ -1255,30 +1426,13 @@ impl ServiceManager {
             }
         }
 
-        // 2. 停止真正的 daemon 进程（通过 PID 文件和 stop 命令）
-        info!("[FileServer] 停止 daemon 进程...");
-        let bin_path = self.config.bin_path.clone();
-
-        // 使用 nuwax-file-server stop 命令
-        let stop_success = run_command_with_timeout(&bin_path, &["stop"], 5).await;
-
-        if stop_success {
-            info!("[FileServer] stop 命令执行成功");
-        } else {
-            warn!("[FileServer] stop 命令执行失败或超时，尝试强制清理");
-        }
-
-        // 等待进程停止
+        // 2. sidecar 模式：清理历史 PID 文件（兼容旧 daemon 模式）
+        info!("[FileServer] 清理残留 PID 进程（如存在）...");
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        kill_file_server_by_pid().await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-        // 3. 验证是否还在运行，如果是则强制 kill
-        if is_file_server_running().await {
-            warn!("[FileServer] daemon 进程仍在运行，强制终止");
-            kill_file_server_by_pid().await;
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        }
-
-        // 4. 最终验证
+        // 3. 最终验证（仅针对旧 daemon PID 模式）
         if is_file_server_running().await {
             error!("[FileServer] 无法停止 daemon 进程");
             return Err("Failed to stop nuwax-file-server daemon".to_string());
@@ -1322,16 +1476,9 @@ impl ServiceManager {
         config: NuwaxFileServerConfig,
     ) -> Result<(), String> {
         info!("[FileServer] ========== 启动文件服务 ==========");
-
-        // 启动前先执行一次 stop，清理可能存在的 daemon（避免「服务已在运行中 (PID: xxx)」导致 start 直接退出）
-        let stop_ok = run_command_with_timeout(&config.bin_path, &["stop"], 5).await;
-        if stop_ok {
-            debug!("[FileServer] 启动前 stop 执行成功");
-        } else {
-            // stop 失败或超时不阻塞启动（可能本来就没有在跑）
-            debug!("[FileServer] 启动前 stop 未成功或超时，继续尝试启动");
-        }
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        // sidecar 生命周期：先清理现有进程句柄和残留 PID 进程，不再依赖 CLI stop 子命令。
+        let _ = self.file_server_stop().await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
 
         // 检测并清理残留进程（按 PID 文件等做二次清理）
         kill_stale_file_server_processes(&config.bin_path).await;
@@ -1341,6 +1488,7 @@ impl ServiceManager {
 
         // 创建必要的目录
         let dirs_to_create = [
+            &config.log_base_dir,
             &config.project_source_dir,
             &config.computer_workspace_dir,
             &config.computer_log_dir,
@@ -1353,35 +1501,10 @@ impl ServiceManager {
             }
         }
 
-        let node_path = {
-            let base = crate::utils::build_node_path_env();
-            #[cfg(target_os = "windows")]
-            {
-                use std::env::var;
-                if let Ok(appdata) = var("APPDATA") {
-                    if !appdata.is_empty() {
-                        let npm_path = format!(r"{}\npm", appdata);
-                        if !base.contains(&npm_path) {
-                            info!("[FileServer] Windows: 添加 npm 全局 bin 到 PATH: {}", npm_path);
-                            format!("{};{}", base, npm_path)
-                        } else {
-                            base
-                        }
-                    } else {
-                        base
-                    }
-                } else {
-                    base
-                }
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                base
-            }
-        };
-        
+        let node_path = crate::utils::build_full_path_env();
+
         let capture_output = config.capture_output_to_log;
-        let file_server_args = vec![
+        let fallback_args = vec![
             "start".to_string(),
             "--env".to_string(),
             config.env.clone(),
@@ -1396,13 +1519,52 @@ impl ServiceManager {
             format!("--COMPUTER_WORKSPACE_DIR={}", &config.computer_workspace_dir),
             format!("--COMPUTER_LOG_DIR={}", &config.computer_log_dir),
         ];
-        let file_server_arg_refs: Vec<&str> = file_server_args.iter().map(String::as_str).collect();
-        let (actual_program, actual_args) =
-            resolve_launch_command(config.bin_path.as_str(), &file_server_arg_refs);
+        let (actual_program, actual_args, sidecar_mode) =
+            if let Some((program, args)) = resolve_file_server_sidecar_launch(&config.bin_path) {
+                info!("[FileServer] sidecar 直启模式: node + server.js");
+                (program, args, true)
+            } else {
+                let fallback_arg_refs: Vec<&str> = fallback_args.iter().map(String::as_str).collect();
+                let (program, args) =
+                    resolve_launch_command(config.bin_path.as_str(), &fallback_arg_refs);
+                warn!("[FileServer] sidecar 直启解析失败，回退旧 CLI start 模式");
+                (program, args, false)
+            };
+        #[cfg(target_os = "windows")]
+        if is_file_server_unsafe_windows_program(&actual_program) {
+            let msg = format!(
+                "[FileServer] 硬防线触发：Windows 下禁止不安全启动链路。bin_path={} resolved={} args={}",
+                config.bin_path,
+                actual_program,
+                format_launch_args_for_log(&actual_args)
+            );
+            error!("{}", msg);
+            return Err(msg);
+        }
+        info!(
+            "[FileServer] 实际启动命令: program={} args={}",
+            actual_program,
+            format_launch_args_for_log(&actual_args)
+        );
 
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(actual_program.as_str(), |cmd| {
             use crate::utils::CommandNoWindowExt;
-            let cmd = cmd.no_window().env("PATH", &node_path);
+            let cmd = cmd
+                .no_window()
+                .env_clear()
+                .envs(crate::utils::build_base_env())
+                .env("PATH", &node_path);
+            let cmd = cmd
+                .env("NODE_ENV", &config.env)
+                .env("PORT", config.port.to_string())
+                .env("INIT_PROJECT_NAME", &config.init_project_name)
+                .env("INIT_PROJECT_DIR", &config.init_project_dir)
+                .env("UPLOAD_PROJECT_DIR", &config.upload_project_dir)
+                .env("PROJECT_SOURCE_DIR", &config.project_source_dir)
+                .env("DIST_TARGET_DIR", &config.dist_target_dir)
+                .env("LOG_BASE_DIR", &config.log_base_dir)
+                .env("COMPUTER_WORKSPACE_DIR", &config.computer_workspace_dir)
+                .env("COMPUTER_LOG_DIR", &config.computer_log_dir);
             let cmd = if capture_output {
                 cmd.stdout(Stdio::piped()).stderr(Stdio::piped())
             } else {
@@ -1428,7 +1590,7 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let mut child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(CreationFlags(CREATE_NO_WINDOW | DETACHED_PROCESS)) // 禁止弹出 CMD 窗口
+            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出控制台窗口
             .wrap(JobObject)
             .spawn()
             .map_err(|e| {
@@ -1439,7 +1601,7 @@ impl ServiceManager {
         if capture_output {
             let stdout = child.stdout().take();
             let stderr = child.stderr().take();
-            spawn_file_server_output_loggers(stdout, stderr);
+            spawn_child_output_loggers("FileServer", stdout, stderr);
         }
 
         {
@@ -1456,8 +1618,12 @@ impl ServiceManager {
                 let _ = guard.take();
             }
 
-            // 使用 process_wrap 停止可能已启动的 daemon
-            run_command_with_timeout(&config.bin_path, &["stop"], 5).await;
+            // sidecar 直启失败时，不再依赖 CLI stop；仅清理 PID 文件残留。
+            if sidecar_mode {
+                kill_file_server_by_pid().await;
+            } else {
+                run_command_with_timeout(&config.bin_path, &["stop"], 5).await;
+            }
 
             return Err(e);
         }
@@ -1517,7 +1683,7 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(CreationFlags(CREATE_NO_WINDOW | DETACHED_PROCESS)) // 禁止弹出 CMD 窗口
+            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出控制台窗口
             .wrap(JobObject)
             .spawn()
             .map_err(|e| format!("Failed to start nuwax-lanproxy: {}", e))?;
@@ -1637,7 +1803,7 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(CreationFlags(CREATE_NO_WINDOW | DETACHED_PROCESS)) // 禁止弹出 CMD 窗口
+            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出控制台窗口
             .wrap(JobObject)
             .spawn()
             .map_err(|e| {
@@ -1675,72 +1841,89 @@ impl ServiceManager {
     /// 使用指定配置启动 MCP Proxy
     pub async fn mcp_proxy_start_with_config(&self, config: McpProxyConfig) -> Result<(), String> {
         info!("[McpProxy] ========== 启动 MCP Proxy 服务 ==========");
-
-        // 检查配置是否包含至少一个 MCP 服务
-        if config.config_json == r#"{"mcpServers":{}}"# || config.config_json.is_empty() {
-            warn!("[McpProxy] mcpServers 配置为空，跳过启动");
-            return Ok(());
-        }
+        info!("[McpProxy] 配置: bin_path={}, port={}, host={}, config_json={}, node_bin_path={:?}, log_dir={:?}", 
+              config.bin_path, config.port, config.host, config.config_json, config.node_bin_path, config.log_dir);
 
         // 检测并清理残留进程
         kill_stale_mcp_proxy_processes().await;
 
         info!("[McpProxy] 可执行文件路径: {}", config.bin_path);
         info!("[McpProxy] 监听地址: {}:{}", config.host, config.port);
+        if let Some(log_dir) = config.log_dir.as_deref() {
+            info!("[McpProxy] 日志目录: {}", log_dir);
+        }
 
         let port_str = config.port.to_string();
-        
+
         // 构建 PATH 环境变量
         let node_path = {
-            let base = crate::utils::build_node_path_env();
-            #[cfg(target_os = "windows")]
-            {
-                use std::env::var;
-                if let Ok(appdata) = var("APPDATA") {
-                    if !appdata.is_empty() {
-                        let npm_path = format!(r"{}\npm", appdata);
-                        if !base.contains(&npm_path) {
-                            info!("[McpProxy] Windows: 添加 npm 全局 bin 到 PATH: {}", npm_path);
-                            format!("{};{}", base, npm_path)
-                        } else {
-                            base
-                        }
-                    } else {
-                        base
-                    }
-                } else {
-                    base
+            let mut base = crate::utils::build_full_path_env();
+
+            // 如果提供了 node_bin_path，添加到 PATH 最前面（优先）
+            if let Some(ref node_bin) = config.node_bin_path {
+                if !node_bin.is_empty() {
+                    info!("[McpProxy] 添加 Node.js bin 到 PATH 最前面: {}", node_bin);
+                    let sep = if cfg!(windows) { ";" } else { ":" };
+                    base = format!("{}{}{}", node_bin, sep, base);
                 }
             }
-            #[cfg(not(target_os = "windows"))]
-            {
-                base
-            }
+
+            base
         };
-        
-        let mcp_args = vec![
-            "proxy".to_string(),
-            "--port".to_string(),
-            port_str.clone(),
-            "--host".to_string(),
-            config.host.clone(),
-            "--config".to_string(),
-            config.config_json.clone(),
-        ];
+
+        let mcp_args = {
+            let mut args = vec![
+                "proxy".to_string(),
+                "--port".to_string(),
+                port_str.clone(),
+                "--host".to_string(),
+                config.host.clone(),
+                "--config".to_string(),
+                config.config_json.clone(),
+            ];
+            if cfg!(debug_assertions) {
+                // proxy 子命令在前，-v/--diagnostic 紧接其后：mcp-proxy proxy -v --diagnostic ...
+                args.insert(1, "--diagnostic".to_string());
+                args.insert(1, "-v".to_string());
+            }
+            args
+        };
+        let mut mcp_args = mcp_args;
+        if let Some(log_dir) = config.log_dir.as_deref().map(str::trim) {
+            if !log_dir.is_empty() {
+                // 提前确保目录存在，避免 mcp-proxy 因日志目录不存在而启动失败
+                if let Err(e) = tokio::fs::create_dir_all(log_dir).await {
+                    warn!("[McpProxy] 创建日志目录失败 {}: {}", log_dir, e);
+                }
+                mcp_args.push("--log-dir".to_string());
+                mcp_args.push(log_dir.to_string());
+            }
+        }
         let mcp_arg_refs: Vec<&str> = mcp_args.iter().map(String::as_str).collect();
         let (actual_program, actual_args) =
             resolve_launch_command(config.bin_path.as_str(), &mcp_arg_refs);
+        info!(
+            "[McpProxy] 实际启动命令: program={} args={}",
+            actual_program,
+            format_launch_args_for_log(&actual_args)
+        );
 
         let mut cmd = process_wrap::tokio::CommandWrap::with_new(actual_program.as_str(), |cmd| {
             use crate::utils::CommandNoWindowExt;
-            let cmd = cmd.no_window().env("PATH", &node_path);
+            let cmd = cmd
+                .no_window()
+                .env_clear()
+                .envs(crate::utils::build_base_env())
+                .env("PATH", &node_path)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
             for arg in &actual_args {
                 cmd.arg(arg);
             }
         });
 
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
+        let mut child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
             .wrap(ProcessGroup::leader())
             .spawn()
@@ -1750,15 +1933,22 @@ impl ServiceManager {
             })?;
 
         #[cfg(target_os = "windows")]
-        let child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
+        let mut child: Box<dyn process_wrap::tokio::ChildWrapper> = cmd
             .wrap(process_wrap::tokio::KillOnDrop)
-            .wrap(CreationFlags(CREATE_NO_WINDOW | DETACHED_PROCESS)) // 禁止弹出 CMD 窗口
+            .wrap(CreationFlags(CREATE_NO_WINDOW)) // 禁止弹出控制台窗口
             .wrap(JobObject)
             .spawn()
             .map_err(|e| {
                 error!("[McpProxy] 启动失败: {}", e);
                 format!("Failed to start mcp-proxy: {}", e)
             })?;
+
+        // 捕获 mcp-proxy 的 stdout/stderr 输出到日志
+        {
+            let stdout = child.stdout().take();
+            let stderr = child.stderr().take();
+            spawn_child_output_loggers("McpProxy", stdout, stderr);
+        }
 
         {
             let mut guard = self.mcp_proxy.lock().await;
@@ -1786,9 +1976,7 @@ impl ServiceManager {
         }
 
         // 使用 mcp-proxy health 命令检查服务就绪
-        if let Err(e) =
-            wait_for_mcp_proxy_ready(&config.bin_path, config.port, &config.host, 15).await
-        {
+        if let Err(e) = wait_for_mcp_proxy_ready(config.port, &config.host, 15).await {
             error!("[McpProxy] 健康检查失败: {}", e);
             if let Ok(mut guard) = self.mcp_proxy.try_lock() {
                 let _ = guard.take();

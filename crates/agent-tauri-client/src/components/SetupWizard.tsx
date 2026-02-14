@@ -65,7 +65,9 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
 
         // 实际检测所有依赖状态
         const deps = await checkAllSetupDependencies();
-        const allInstalled = deps.every((d) => d.status === "installed");
+        const allInstalled = deps.every(
+          (d) => d.status === "installed" || d.status === "bundled",
+        );
         console.log(
           "[SetupWizard] 依赖检测:",
           deps.map((d) => `${d.name}:${d.status}`).join(", "),
@@ -137,17 +139,28 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   );
 
   const handleStep2Complete = useCallback(async () => {
+    const log = (msg: string, extra?: unknown) =>
+      console.log("[SetupWizard] handleStep2Complete:", msg, extra ?? "");
+    log("开始");
     setStartingServices(true);
     try {
+      log("即将调用 restartAllServices()");
       await restartAllServices();
+      log("restartAllServices() 已返回");
+      log("即将调用 completeSetup()");
       await completeSetup();
+      log("completeSetup() 已返回");
       setCompleted(true);
+      log("已 setCompleted(true)，2s 后触发 onComplete");
       setTimeout(() => onComplete(), 2000);
     } catch (error) {
+      console.error("[SetupWizard] handleStep2Complete 发生错误:", error);
+      log("catch 中仍执行 completeSetup()");
       await completeSetup();
       setCompleted(true);
       setTimeout(() => onComplete(), 2000);
     } finally {
+      log("finally，setStartingServices(false)");
       setStartingServices(false);
     }
   }, [onComplete]);

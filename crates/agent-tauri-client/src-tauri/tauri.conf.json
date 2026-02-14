@@ -27,7 +27,11 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
-    "externalBin": ["binaries/nuwax-lanproxy"],
+    "externalBin": [
+      "binaries/nuwax-lanproxy",
+      "binaries/mcp-proxy",
+      "binaries/node-runtime"
+    ],
     "resources": [
       "resources/node/bin/",
       "resources/node/lib/",

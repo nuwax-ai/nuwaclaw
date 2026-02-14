@@ -29,6 +29,7 @@ import {
   type NodeVersionResult,
   type UvVersionResult,
 } from "../services/dependencies";
+import { DEPENDENCY_STATUS_LABELS, ACTION_MESSAGES } from "../constants";
 
 const { Text } = Typography;
 
@@ -59,6 +60,7 @@ export default function DependenciesPage() {
       );
       setLocalDeps(installableDeps);
 
+      // bundled（应用集成）的包不查 npm latest，它们的版本由应用更新管理
       const npmDepsToCheck = installableDeps.filter(
         (d) =>
           d.status === "installed" &&
@@ -94,7 +96,9 @@ export default function DependenciesPage() {
 
   const depSummary = {
     total: localDeps.length,
-    installed: localDeps.filter((d) => d.status === "installed").length,
+    installed: localDeps.filter(
+      (d) => d.status === "installed" || d.status === "bundled",
+    ).length,
     missing: localDeps.filter((d) => d.status === "missing").length,
   };
 
@@ -343,6 +347,7 @@ export default function DependenciesPage() {
   const getStatusIcon = (status: DependencyStatus) => {
     switch (status) {
       case "installed":
+      case "bundled":
         return (
           <CheckCircleOutlined style={{ color: "#16a34a", fontSize: 12 }} />
         );
@@ -364,15 +369,9 @@ export default function DependenciesPage() {
   };
 
   const getStatusText = (status: DependencyStatus) => {
-    const map: Record<string, string> = {
-      installed: "已安装",
-      missing: "待安装",
-      installing: "安装中",
-      checking: "检测中",
-      error: "错误",
-      outdated: "版本过低",
-    };
-    return map[status] || "检测中";
+    return (
+      DEPENDENCY_STATUS_LABELS[status] || DEPENDENCY_STATUS_LABELS.checking
+    );
   };
 
   const systemDepsReady =
@@ -406,7 +405,9 @@ export default function DependenciesPage() {
               系统环境
             </span>
             <Tag color={systemDepsReady ? "success" : "warning"}>
-              {systemDepsReady ? "就绪" : "需配置"}
+              {systemDepsReady
+                ? ACTION_MESSAGES.ready
+                : ACTION_MESSAGES.needConfig}
             </Tag>
           </div>
         </div>
@@ -456,7 +457,9 @@ export default function DependenciesPage() {
                 安装
               </a>
             ) : nodeResult.meetsRequirement ? (
-              <span style={{ fontSize: 12, color: "#16a34a" }}>已就绪</span>
+              <span style={{ fontSize: 12, color: "#16a34a" }}>
+                {ACTION_MESSAGES.allInstalled}
+              </span>
             ) : (
               <span style={{ fontSize: 12, color: "#ca8a04" }}>
                 需 &gt;= 22.0.0
@@ -493,7 +496,9 @@ export default function DependenciesPage() {
             {!uvResult?.installed ? (
               <span style={{ fontSize: 12, color: "#ca8a04" }}>未安装</span>
             ) : uvResult.meetsRequirement ? (
-              <span style={{ fontSize: 12, color: "#16a34a" }}>已就绪</span>
+              <span style={{ fontSize: 12, color: "#16a34a" }}>
+                {ACTION_MESSAGES.allInstalled}
+              </span>
             ) : (
               <span style={{ fontSize: 12, color: "#ca8a04" }}>
                 需 &gt;= 0.5.0
@@ -650,6 +655,11 @@ export default function DependenciesPage() {
                     >
                       更新
                     </Button>
+                  )}
+                  {item.status === "bundled" && (
+                    <span style={{ fontSize: 12, color: "#16a34a" }}>
+                      {getStatusText(item.status)}
+                    </span>
                   )}
                   {item.status === "installed" && !hasUpdate && (
                     <span style={{ fontSize: 12, color: "#16a34a" }}>

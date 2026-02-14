@@ -8,16 +8,22 @@
  * - 状态管理和事件监听
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import { Badge, Menu, Spin, message } from "antd";
 import {
   RobotOutlined,
   FileTextOutlined,
   SettingOutlined,
   DashboardOutlined,
-  SafetyOutlined,
   FolderOutlined,
   InfoCircleOutlined,
+  SafetyOutlined,
 } from "@ant-design/icons";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -39,6 +45,7 @@ import {
   PermissionsPage,
   AboutPage,
 } from "./pages";
+import { getCurrentPlatform } from "./services/permissions/config";
 import { initConfigStore } from "./services/config";
 import {
   initAuthStore,
@@ -46,9 +53,14 @@ import {
   syncConfigToServer,
 } from "./services/auth";
 import { isSetupCompleted, ensureMcpProxyDefaults } from "./services/setup";
-import { restartAllServices, stopAllServices } from "./services/dependencies";
+import {
+  restartAllServices,
+  stopAllServices,
+  getServicesStatus,
+} from "./services/dependencies";
 import { useAppInfo } from "./hooks/useAppInfo";
 import { checkForAppUpdate } from "./services/updater";
+import { AGENT_STATUS_CONFIG } from "./constants";
 
 // Tab 类型定义
 type TabType =
@@ -67,7 +79,12 @@ function App() {
   // 初始化向导状态
   // ============================================
   const [setupCompleted, setSetupCompleted] = useState<boolean | null>(null);
+  // 标记向导是否刚完成（向导中已启动服务，避免 autoReconnect 重复启动）
+  const setupJustCompleted = useRef(false);
   const { appName } = useAppInfo();
+
+  /** 是否为 macOS：仅 macOS 下展示「授权」Tab（系统权限与 Tauri 能力主要在该平台使用） */
+  const isMacOS = useMemo(() => getCurrentPlatform() === "macos", []);
 
   // ============================================
   // 核心状态
@@ -95,12 +112,12 @@ function App() {
   // 用于接收来自 Rust 后端的导航事件
   // ============================================
   useEffect(() => {
-    // 预定义合法的 Tab 名称列表
+    // 合法 Tab 列表：仅在 macOS 下包含「授权」，非 macOS 不响应 navigate-to-tab("permissions")
     const VALID_TABS: TabType[] = [
       "client",
       "settings",
       "dependencies",
-      "permissions",
+      ...(isMacOS ? (["permissions"] as const) : []),
       "logs",
       "about",
     ];
@@ -136,7 +153,7 @@ function App() {
         console.log("[App] 导航事件监听已移除");
       }
     };
-  }, []);
+  }, [isMacOS]);
 
   // ============================================
   // 检查初始化向导状态
@@ -195,18 +212,42 @@ function App() {
     }
 
     const autoReconnect = async () => {
+      // 如果向导刚完成，服务已在向导中启动，仅同步配置，跳过重复启动服务
+      if (setupJustCompleted.current) {
+        setupJustCompleted.current = false;
+        console.log("[App] 初始化向导刚完成，服务已在向导中启动，跳过自动重连");
+        return;
+      }
+
       try {
         const savedKey = await getSavedKey();
         if (savedKey) {
           console.log("[App] 检测到 savedKey，自动重连...");
           // 调用 reg 接口（传入 savedKey）
-          const result = await syncConfigToServer();
+          const result = await syncConfigToServer({ suppressToast: true });
           if (result) {
             console.log("[App] 重连成功，启动服务...");
-            await restartAllServices();
-            // 更新在线状态
-            setOnlineStatus(result.online);
-            message.success("服务已自动启动");
+            try {
+              await restartAllServices();
+              setOnlineStatus(result.online);
+              message.success("服务已自动启动");
+            } catch (serviceError) {
+              console.error("[App] 自动启动服务失败:", serviceError);
+              setOnlineStatus(result.online);
+              const errMsg =
+                serviceError instanceof Error
+                  ? serviceError.message
+                  : String(serviceError);
+              message.warning(`服务自动启动失败: ${errMsg}`);
+            }
+          } else {
+            // 配置同步失败（可能是未登录或网络问题），停止所有服务
+            console.warn("[App] 配置同步失败，停止所有服务");
+            try {
+              await stopAllServices();
+            } catch (serviceError) {
+              console.error("[App] 停止服务失败:", serviceError);
+            }
           }
         } else {
           console.log("[App] 未检测到 savedKey，停止所有服务");
@@ -219,7 +260,8 @@ function App() {
         }
       } catch (error) {
         console.error("[App] 自动重连失败:", error);
-        // 自动重连失败不阻塞用户使用，仅记录错误
+        const errMsg = error instanceof Error ? error.message : String(error);
+        message.warning(`自动重连失败: ${errMsg}`);
       }
     };
 
@@ -380,8 +422,53 @@ function App() {
   // 状态监听
   // ============================================
   useEffect(() => {
-    // 订阅状态变化
-    onStatusChange((newStatus: AgentStatus) => {
+    // 订阅 Rust 后端服务状态变化事件
+    let unsubServiceStatus: (() => void) | undefined;
+    const setupServiceStatusListener = async () => {
+      unsubServiceStatus = await listen<any[]>(
+        "service_status_change",
+        async (event) => {
+          console.log("[App] 收到服务状态变化事件:", event.payload);
+          // 根据服务状态更新 Agent 状态
+          const services = event.payload;
+          const runningCount = services.filter(
+            (s: any) => s.state === "Running",
+          ).length;
+          const startingCount = services.filter(
+            (s: any) => s.state === "Starting",
+          ).length;
+          const stoppingCount = services.filter(
+            (s: any) => s.state === "Stopping",
+          ).length;
+          const errorCount = services.filter(
+            (s: any) => s.state === "Error",
+          ).length;
+
+          if (errorCount > 0) {
+            setStatus("error");
+            setIsConnected(false);
+          } else if (stoppingCount > 0) {
+            setStatus("starting"); // 使用 starting 表示停止中
+          } else if (startingCount > 0) {
+            setStatus("starting");
+          } else if (runningCount === services.length && runningCount > 0) {
+            setStatus("running");
+            setIsConnected(true);
+          } else if (runningCount > 0 && runningCount < services.length) {
+            setStatus("busy");
+            setIsConnected(true);
+          } else {
+            setStatus("stopped");
+            setIsConnected(false);
+          }
+        },
+      );
+    };
+
+    setupServiceStatusListener();
+
+    // 订阅 mock 状态变化（保留兼容性）
+    const unsubStatus = onStatusChange((newStatus: AgentStatus) => {
       setStatus(newStatus);
       if (newStatus === "running") {
         setIsConnected(true);
@@ -391,9 +478,18 @@ function App() {
     });
 
     // 订阅日志变化
-    onLogChange((newLog: LogEntry) => {
+    const unsubLogs = onLogChange((newLog: LogEntry) => {
       setLogs((prev) => [...prev, newLog]);
     });
+
+    // 清理函数：取消订阅
+    return () => {
+      if (unsubServiceStatus) {
+        unsubServiceStatus();
+      }
+      unsubStatus();
+      unsubLogs();
+    };
   }, []);
 
   // ============================================
@@ -448,36 +544,30 @@ function App() {
   // 状态徽章配置
   // ============================================
   const getBadgeConfig = () => {
-    const config: Record<
-      AgentStatus,
-      {
-        status: "success" | "processing" | "error" | "default" | "warning";
-        text: string;
-      }
-    > = {
-      idle: { status: "default", text: "就绪" },
-      starting: { status: "processing", text: "启动中" },
-      running: { status: "success", text: "运行中" },
-      busy: { status: "warning", text: "繁忙" },
-      stopped: { status: "default", text: "已停止" },
-      error: { status: "error", text: "错误" },
-    };
-    return config[status] || config.idle;
+    return AGENT_STATUS_CONFIG[status] || AGENT_STATUS_CONFIG.idle;
   };
 
   const badge = getBadgeConfig();
 
   // ============================================
-  // 菜单配置
+  // 菜单配置（仅 macOS 展示「授权」Tab）
   // ============================================
-  const menuItems = [
-    { key: "client", icon: <DashboardOutlined />, label: "客户端" },
-    { key: "settings", icon: <SettingOutlined />, label: "设置" },
-    { key: "dependencies", icon: <FolderOutlined />, label: "依赖" },
-    { key: "permissions", icon: <SafetyOutlined />, label: "权限" },
-    { key: "logs", icon: <FileTextOutlined />, label: "日志" },
-    { key: "about", icon: <InfoCircleOutlined />, label: "关于" },
-  ];
+  const menuItems = useMemo(() => {
+    const base = [
+      { key: "client", icon: <DashboardOutlined />, label: "客户端" },
+      { key: "settings", icon: <SettingOutlined />, label: "设置" },
+      { key: "dependencies", icon: <FolderOutlined />, label: "依赖" },
+    ];
+    const permissionItem = {
+      key: "permissions",
+      icon: <SafetyOutlined />,
+      label: "授权",
+    };
+    const tail = [
+      { key: "about", icon: <InfoCircleOutlined />, label: "关于" },
+    ];
+    return isMacOS ? [...base, permissionItem, ...tail] : [...base, ...tail];
+  }, [isMacOS]);
 
   // ============================================
   // 渲染：加载中
@@ -497,7 +587,14 @@ function App() {
   // 渲染：初始化向导
   // ============================================
   if (!setupCompleted) {
-    return <SetupWizard onComplete={() => setSetupCompleted(true)} />;
+    return (
+      <SetupWizard
+        onComplete={() => {
+          setupJustCompleted.current = true;
+          setSetupCompleted(true);
+        }}
+      />
+    );
   }
 
   // ============================================

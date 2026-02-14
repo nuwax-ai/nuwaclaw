@@ -38,6 +38,7 @@ import {
   type LocalDependencyItem,
 } from "../services/dependencies";
 import { getDepsShowAll, setDepsShowAll } from "../services/setup";
+import { ACTION_MESSAGES, DEPENDENCY_STATUS_LABELS } from "../constants";
 
 interface SetupDependenciesProps {
   onComplete: () => void;
@@ -67,6 +68,7 @@ interface UnifiedDependencyItem {
     | "missing"
     | "outdated"
     | "installing"
+    | "bundled"
     | "error";
   version?: string;
   requiredVersion?: string;
@@ -105,7 +107,16 @@ export default function SetupDependencies({
   const checkNetwork = useCallback(async () => {
     setNetworkStatus("checking");
     try {
-      const connected = await invoke<boolean>("check_network_cn");
+      // 5秒超时
+      const connected = await Promise.race([
+        invoke<boolean>("check_network_cn"),
+        new Promise<boolean>((resolve) =>
+          setTimeout(() => {
+            console.warn("[SetupDeps] 网络检测超时，假设已连接");
+            resolve(true);
+          }, 5000),
+        ),
+      ]);
       setNetworkStatus(connected ? "connected" : "disconnected");
       return connected;
     } catch {
@@ -191,15 +202,19 @@ export default function SetupDependencies({
   }, []);
 
   const checkAllDeps = useCallback(async () => {
+    console.log("[SetupDeps] checkAllDeps 开始");
     setInstallPhase("checking");
     try {
-      // 并行执行依赖检测和网络检测
-      const [deps] = await Promise.all([
-        checkAllSetupDependencies(),
-        checkNetwork(),
-      ]);
+      console.log("[SetupDeps] 开始检测依赖...");
+      // 只检测依赖，不阻塞等待网络检测（本地安装不需要网络）
+      const deps = await checkAllSetupDependencies();
+      console.log("[SetupDeps] 依赖检测完成:", deps?.length, "项");
       const unified = buildUnifiedDeps(deps);
       setAllDependencies(unified);
+      console.log(
+        "[SetupDeps] 状态检查，unified:",
+        unified.map((d) => `${d.name}:${d.status}`),
+      );
 
       const nodeDep = deps.find((d) => d.name === "nodejs");
       const nodeReady = nodeDep?.status === "installed";
@@ -246,21 +261,27 @@ export default function SetupDependencies({
           d.type === "system" &&
           d.name !== "nodejs" &&
           d.name !== "uv" &&
-          d.status !== "installed",
+          d.status !== "installed" &&
+          d.status !== "bundled",
       );
       if (otherSystemMissing) {
         setInstallPhase("system-deps-missing");
         return;
       }
 
-      if (unified.every((d) => d.status === "installed")) {
+      if (
+        unified.every((d) => d.status === "installed" || d.status === "bundled")
+      ) {
+        console.log("[SetupDeps] 所有依赖已就绪，设置 completed");
         setInstallPhase("completed");
         setTimeout(() => onComplete(), 1500);
       } else {
+        console.log("[SetupDeps] 依赖未全部就绪，设置 ready");
         // 系统依赖就绪，自动安装项目依赖（应用内）
         setInstallPhase("ready");
       }
     } catch (error) {
+      console.error("[SetupDeps] 检测失败:", error);
       setInstallPhase("error");
       setInstallError("检测依赖失败");
     }
@@ -269,15 +290,12 @@ export default function SetupDependencies({
     onComplete,
     handleAutoInstallNode,
     handleAutoInstallUv,
-    checkNetwork,
   ]);
 
-  // 当 installPhase 变为 "checking"（例如自动安装成功后），重新检测
+  // 组件挂载后立即检测依赖
   useEffect(() => {
-    if (installPhase === "checking") {
-      checkAllDeps();
-    }
-  }, [installPhase, checkAllDeps]);
+    checkAllDeps();
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -314,7 +332,7 @@ export default function SetupDependencies({
 
     try {
       const toInstall = installableDependencies.filter(
-        (d) => d.status !== "installed",
+        (d) => d.status !== "installed" && d.status !== "bundled",
       );
       const total = toInstall.length;
       if (total === 0) {
@@ -412,11 +430,8 @@ export default function SetupDependencies({
 
   // 系统依赖就绪后，自动触发项目依赖安装
   useEffect(() => {
-    if (
-      installPhase === "ready" &&
-      !projectInstallTriggered.current &&
-      networkStatus === "connected"
-    ) {
+    if (installPhase === "ready" && !projectInstallTriggered.current) {
+      // 本地 npm 安装不需要网络连接，直接触发安装
       projectInstallTriggered.current = true;
       handleStartInstall();
     }
@@ -425,6 +440,7 @@ export default function SetupDependencies({
   const getStatusIcon = (item: UnifiedDependencyItem) => {
     switch (item.status) {
       case "installed":
+      case "bundled":
         return (
           <CheckCircleOutlined style={{ color: "#16a34a", fontSize: 12 }} />
         );
@@ -448,12 +464,16 @@ export default function SetupDependencies({
 
   const stats = {
     total: allDependencies.length,
-    ready: allDependencies.filter((d) => d.status === "installed").length,
+    ready: allDependencies.filter(
+      (d) => d.status === "installed" || d.status === "bundled",
+    ).length,
   };
 
   const displayDeps = showAll
     ? allDependencies
-    : allDependencies.filter((d) => d.status !== "installed");
+    : allDependencies.filter(
+        (d) => d.status !== "installed" && d.status !== "bundled",
+      );
 
   const renderDependencyList = () => (
     <div ref={listRef} style={{ marginBottom: 12 }}>
@@ -502,7 +522,8 @@ export default function SetupDependencies({
           </div>
         ) : (
           displayDeps.map((item, i) => {
-            const isProblem = item.status !== "installed";
+            const isProblem =
+              item.status !== "installed" && item.status !== "bundled";
             const isSystem = item.type === "system";
             const needsAction =
               item.status === "missing" || item.status === "outdated";
@@ -518,7 +539,7 @@ export default function SetupDependencies({
                   borderBottom:
                     i < displayDeps.length - 1 ? "1px solid #f4f4f5" : "none",
                   background:
-                    item.status === "installed"
+                    item.status === "installed" || item.status === "bundled"
                       ? "#f0fdf4"
                       : item.status === "error"
                         ? "#fef2f2"
@@ -598,7 +619,7 @@ export default function SetupDependencies({
       installing: currentInstalling
         ? `正在安装 ${currentInstalling}...`
         : "正在安装依赖...",
-      completed: "所有依赖已就绪",
+      completed: ACTION_MESSAGES.allReady,
     };
 
     return (
@@ -618,7 +639,7 @@ export default function SetupDependencies({
             <Spin size="large" />
           )}
           <div style={{ fontSize: 14, fontWeight: 500 }}>
-            {phaseText[installPhase] || "启动中..."}
+            {phaseText[installPhase] || ACTION_MESSAGES.starting}
           </div>
           {installPhase === "installing" && (
             <div style={{ width: "100%", maxWidth: 300 }}>
