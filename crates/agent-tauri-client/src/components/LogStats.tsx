@@ -9,6 +9,7 @@ import {
   FileTextOutlined,
 } from "@ant-design/icons";
 import { LogStats } from "../services/logService";
+import { LOG_LEVEL_LABELS } from "../constants";
 
 interface LogStatsProps {
   stats: LogStats;
@@ -26,28 +27,28 @@ export default function LogStatsComponent({
       key: "total",
       icon: <FileTextOutlined />,
       color: "#71717a",
-      label: "全部",
+      label: LOG_LEVEL_LABELS.all,
       count: stats.total,
     },
     {
       key: "success",
       icon: <CheckCircleOutlined />,
       color: "#16a34a",
-      label: "成功",
+      label: LOG_LEVEL_LABELS.success,
       count: stats.success,
     },
     {
       key: "warning",
       icon: <WarningOutlined />,
       color: "#ca8a04",
-      label: "警告",
+      label: LOG_LEVEL_LABELS.warning,
       count: stats.warning,
     },
     {
       key: "error",
       icon: <CloseCircleOutlined />,
       color: "#dc2626",
-      label: "错误",
+      label: LOG_LEVEL_LABELS.error,
       count: stats.error,
     },
   ];

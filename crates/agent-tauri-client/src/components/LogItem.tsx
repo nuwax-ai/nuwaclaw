@@ -11,6 +11,7 @@ import {
   CopyOutlined,
 } from "@ant-design/icons";
 import { LogEntry } from "../services/logService";
+import { LOG_LEVEL_LABELS } from "../constants";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import "dayjs/locale/zh-cn";
@@ -30,10 +31,26 @@ const levelConfig: Record<
   string,
   { color: string; icon: React.ReactNode; label: string }
 > = {
-  error: { color: "#dc2626", icon: <CloseCircleOutlined />, label: "错误" },
-  warning: { color: "#ca8a04", icon: <WarningOutlined />, label: "警告" },
-  success: { color: "#16a34a", icon: <CheckCircleOutlined />, label: "成功" },
-  info: { color: "#71717a", icon: <InfoCircleOutlined />, label: "信息" },
+  error: {
+    color: "#dc2626",
+    icon: <CloseCircleOutlined />,
+    label: LOG_LEVEL_LABELS.error,
+  },
+  warning: {
+    color: "#ca8a04",
+    icon: <WarningOutlined />,
+    label: LOG_LEVEL_LABELS.warning,
+  },
+  success: {
+    color: "#16a34a",
+    icon: <CheckCircleOutlined />,
+    label: LOG_LEVEL_LABELS.success,
+  },
+  info: {
+    color: "#71717a",
+    icon: <InfoCircleOutlined />,
+    label: LOG_LEVEL_LABELS.info,
+  },
 };
 
 export default function LogItem({

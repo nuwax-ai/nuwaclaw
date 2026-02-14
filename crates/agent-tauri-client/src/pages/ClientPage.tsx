@@ -30,6 +30,7 @@ import {
   LocalDependencyItem,
 } from "../services/dependencies";
 import LoginForm from "../components/LoginForm";
+import { SERVICE_STATE_NAMES, SERVICE_DESCRIPTIONS } from "../constants";
 
 const { Text } = Typography;
 
@@ -175,21 +176,16 @@ export default function ClientPage({
   };
 
   const getStateText = (state: string) => {
-    const map: Record<string, string> = {
-      Running: "运行中",
-      Stopped: "已停止",
-      Starting: "启动中",
-      Stopping: "停止中",
-      Error: "错误",
-    };
-    return map[state] || state;
+    return (
+      SERVICE_STATE_NAMES[state as keyof typeof SERVICE_STATE_NAMES] || state
+    );
   };
 
   const SERVICE_DESC: Record<string, string> = {
-    Rcoder: "Agent 核心服务",
-    NuwaxFileServer: "Agent 工作目录文件远程管理服务",
-    NuwaxLanproxy: "网络通道",
-    McpProxy: "MCP 协议转换工具",
+    Rcoder: SERVICE_DESCRIPTIONS.Rcoder,
+    NuwaxFileServer: SERVICE_DESCRIPTIONS.NuwaxFileServer,
+    NuwaxLanproxy: SERVICE_DESCRIPTIONS.NuwaxLanproxy,
+    McpProxy: SERVICE_DESCRIPTIONS.McpProxy,
   };
 
   return (

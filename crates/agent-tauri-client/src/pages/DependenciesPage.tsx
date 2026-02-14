@@ -29,6 +29,7 @@ import {
   type NodeVersionResult,
   type UvVersionResult,
 } from "../services/dependencies";
+import { DEPENDENCY_STATUS_LABELS, ACTION_MESSAGES } from "../constants";
 
 const { Text } = Typography;
 
@@ -368,16 +369,9 @@ export default function DependenciesPage() {
   };
 
   const getStatusText = (status: DependencyStatus) => {
-    const map: Record<string, string> = {
-      installed: "已安装",
-      missing: "待安装",
-      installing: "安装中",
-      checking: "检测中",
-      error: "错误",
-      outdated: "版本过低",
-      bundled: "应用集成",
-    };
-    return map[status] || "检测中";
+    return (
+      DEPENDENCY_STATUS_LABELS[status] || DEPENDENCY_STATUS_LABELS.checking
+    );
   };
 
   const systemDepsReady =
@@ -411,7 +405,9 @@ export default function DependenciesPage() {
               系统环境
             </span>
             <Tag color={systemDepsReady ? "success" : "warning"}>
-              {systemDepsReady ? "就绪" : "需配置"}
+              {systemDepsReady
+                ? ACTION_MESSAGES.ready
+                : ACTION_MESSAGES.needConfig}
             </Tag>
           </div>
         </div>
@@ -461,7 +457,9 @@ export default function DependenciesPage() {
                 安装
               </a>
             ) : nodeResult.meetsRequirement ? (
-              <span style={{ fontSize: 12, color: "#16a34a" }}>已就绪</span>
+              <span style={{ fontSize: 12, color: "#16a34a" }}>
+                {ACTION_MESSAGES.allInstalled}
+              </span>
             ) : (
               <span style={{ fontSize: 12, color: "#ca8a04" }}>
                 需 &gt;= 22.0.0
@@ -498,7 +496,9 @@ export default function DependenciesPage() {
             {!uvResult?.installed ? (
               <span style={{ fontSize: 12, color: "#ca8a04" }}>未安装</span>
             ) : uvResult.meetsRequirement ? (
-              <span style={{ fontSize: 12, color: "#16a34a" }}>已就绪</span>
+              <span style={{ fontSize: 12, color: "#16a34a" }}>
+                {ACTION_MESSAGES.allInstalled}
+              </span>
             ) : (
               <span style={{ fontSize: 12, color: "#ca8a04" }}>
                 需 &gt;= 0.5.0

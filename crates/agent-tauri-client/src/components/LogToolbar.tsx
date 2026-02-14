@@ -17,6 +17,7 @@ import {
   downloadLogs,
   clearLogs,
 } from "../services/logService";
+import { LOG_LEVEL_LABELS } from "../constants";
 
 interface LogToolbarProps {
   filter: LogFilter;
@@ -96,11 +97,11 @@ export default function LogToolbar({
         style={{ width: 100 }}
         size="small"
         options={[
-          { value: "all", label: "全部" },
-          { value: "info", label: "信息" },
-          { value: "success", label: "成功" },
-          { value: "warning", label: "警告" },
-          { value: "error", label: "错误" },
+          { value: "all", label: LOG_LEVEL_LABELS.all },
+          { value: "info", label: LOG_LEVEL_LABELS.info },
+          { value: "success", label: LOG_LEVEL_LABELS.success },
+          { value: "warning", label: LOG_LEVEL_LABELS.warning },
+          { value: "error", label: LOG_LEVEL_LABELS.error },
         ]}
       />
 

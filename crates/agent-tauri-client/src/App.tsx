@@ -46,6 +46,7 @@ import {
 } from "./services/dependencies";
 import { useAppInfo } from "./hooks/useAppInfo";
 import { checkForAppUpdate } from "./services/updater";
+import { AGENT_STATUS_CONFIG } from "./constants";
 
 // Tab 类型定义
 type TabType =
@@ -527,21 +528,7 @@ function App() {
   // 状态徽章配置
   // ============================================
   const getBadgeConfig = () => {
-    const config: Record<
-      AgentStatus,
-      {
-        status: "success" | "error" | "default" | "warning";
-        text: string;
-      }
-    > = {
-      idle: { status: "default", text: "就绪" },
-      starting: { status: "warning", text: "启动中" },
-      running: { status: "success", text: "运行中" },
-      busy: { status: "success", text: "繁忙" },
-      stopped: { status: "default", text: "已停止" },
-      error: { status: "warning", text: "错误" },
-    };
-    return config[status] || config.idle;
+    return AGENT_STATUS_CONFIG[status] || AGENT_STATUS_CONFIG.idle;
   };
 
   const badge = getBadgeConfig();
