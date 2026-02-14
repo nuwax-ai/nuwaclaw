@@ -41,7 +41,11 @@ export const DEFAULT_MCP_PROXY_CONFIG = JSON.stringify({
   mcpServers: {
     "chrome-devtools": {
       command: "npx",
-      args: ["-y", "chrome-devtools-mcp@latest"],
+      args: [
+        "--registry=https://registry.npmmirror.com",
+        "-y",
+        "chrome-devtools-mcp@latest",
+      ],
     },
   },
 });
