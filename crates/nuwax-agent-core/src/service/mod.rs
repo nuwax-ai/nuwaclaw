@@ -1857,17 +1857,23 @@ impl ServiceManager {
             base
         };
 
-        let mcp_args = vec![
-            "-v".to_string(),
-            "proxy".to_string(),
-            "--diagnostic".to_string(),
-            "--port".to_string(),
-            port_str.clone(),
-            "--host".to_string(),
-            config.host.clone(),
-            "--config".to_string(),
-            config.config_json.clone(),
-        ];
+        let mcp_args = {
+            let mut args = vec![
+                "proxy".to_string(),
+                "--port".to_string(),
+                port_str.clone(),
+                "--host".to_string(),
+                config.host.clone(),
+                "--config".to_string(),
+                config.config_json.clone(),
+            ];
+            if cfg!(debug_assertions) {
+                // proxy 子命令在前，-v/--diagnostic 紧接其后：mcp-proxy proxy -v --diagnostic ...
+                args.insert(1, "--diagnostic".to_string());
+                args.insert(1, "-v".to_string());
+            }
+            args
+        };
         let mut mcp_args = mcp_args;
         if let Some(log_dir) = config.log_dir.as_deref().map(str::trim) {
             if !log_dir.is_empty() {
