@@ -8,6 +8,13 @@
 use std::path::PathBuf;
 use tracing::debug;
 
+/// 默认 MCP Proxy 配置（与前端 constants.ts 保持一致）
+pub const DEFAULT_MCP_PROXY_CONFIG: &str = r#"{"mcpServers":{"chrome-devtools":{"command":"npx","args":["-y","chrome-devtools-mcp@latest"]}}}"#;
+/// 阿里云 npm 镜像（npx 加速）
+pub const DEFAULT_NPM_REGISTRY: &str = "https://registry.npmmirror.com";
+/// 阿里云 PyPI 镜像（uvx/pip 加速）
+pub const DEFAULT_PYPI_INDEX_URL: &str = "https://mirrors.aliyun.com/pypi/simple/";
+
 /// 返回 ~/.local/bin
 fn local_bin_dir() -> PathBuf {
     dirs::home_dir()
@@ -209,6 +216,22 @@ pub fn build_base_env() -> Vec<(String, String)> {
 
     // --- 日志配置（调试用，有则透传） ---
     for key in &["RUST_LOG", "AGENT_RUST_LOG"] {
+        if let Ok(v) = std::env::var(key) {
+            env.push((key.to_string(), v));
+        }
+    }
+
+    // --- 镜像源 & 代理配置（有则透传到 mcp-proxy / npx / uvx 子进程） ---
+    for key in &[
+        "MCP_PROXY_NPM_REGISTRY",  // mcp-proxy 读取后设为 npm_config_registry
+        "MCP_PROXY_PYPI_INDEX_URL", // mcp-proxy 读取后设为 UV_INDEX_URL / PIP_INDEX_URL
+        "npm_config_registry",      // npx/npm 直接使用
+        "UV_INDEX_URL",             // uv/uvx 直接使用
+        "PIP_INDEX_URL",            // pip 直接使用
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+    ] {
         if let Ok(v) = std::env::var(key) {
             env.push((key.to_string(), v));
         }

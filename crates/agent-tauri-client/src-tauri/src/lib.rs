@@ -18,7 +18,9 @@ use tokio::sync::Mutex;
 
 // ========== AgentRunnerApi 导入 ==========
 use nuwax_agent_core::agent_runner::{RcoderAgentRunner, RcoderAgentRunnerConfig};
-use nuwax_agent_core::utils::CommandNoWindowExt;
+use nuwax_agent_core::utils::{
+    CommandNoWindowExt, DEFAULT_MCP_PROXY_CONFIG, DEFAULT_NPM_REGISTRY, DEFAULT_PYPI_INDEX_URL,
+};
 
 /// 权限管理状态（使用延迟初始化避免启动时崩溃）
 struct PermissionsState {
@@ -66,10 +68,6 @@ mod tray_ids {
     pub const AUTOLAUNCH: &str = "autolaunch";
     pub const QUIT: &str = "quit";
 }
-
-// ========== MCP Proxy 默认配置 ==========
-/// 默认 MCP Proxy 配置（与前端 constants.ts 保持一致）
-const DEFAULT_MCP_PROXY_CONFIG: &str = r#"{"mcpServers":{"chrome-devtools":{"command":"npx","args":["-y","chrome-devtools-mcp@latest"]}}}"#;
 
 // 可序列化的权限状态（用于 Tauri IPC）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3206,6 +3204,15 @@ fn sync_local_bin_env(app: &tauri::AppHandle) -> Result<(), String> {
 
     debug!("[EnvSync] NUWAX_APP_RUNTIME_PATH: {}", runtime_dirs);
     std::env::set_var("NUWAX_APP_RUNTIME_PATH", &runtime_dirs);
+
+    // 设置国内镜像源环境变量（仅首次，不覆盖已有值）
+    // 通过 build_base_env() 透传到 mcp-proxy → npx/uvx 子进程
+    if std::env::var("MCP_PROXY_NPM_REGISTRY").is_err() {
+        std::env::set_var("MCP_PROXY_NPM_REGISTRY", DEFAULT_NPM_REGISTRY);
+    }
+    if std::env::var("MCP_PROXY_PYPI_INDEX_URL").is_err() {
+        std::env::set_var("MCP_PROXY_PYPI_INDEX_URL", DEFAULT_PYPI_INDEX_URL);
+    }
 
     // 使用保存的原始 PATH，避免多次调用时 PATH 不断增长
     let original_path = if let Ok(saved) = std::env::var("NUWAX_ORIGINAL_PATH") {
