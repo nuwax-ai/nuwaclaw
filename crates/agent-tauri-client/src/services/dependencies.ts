@@ -85,7 +85,7 @@ const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     type: "npm-local",
     description: "MCP 协议转换工具（应用内安装）",
     required: true,
-    minVersion: "0.1.48", // 与 download-sidecars.sh MCP_VERSION 一致，用于「必需」展示
+    minVersion: "0.1.48",
     binName: "mcp-proxy",
   },
   {

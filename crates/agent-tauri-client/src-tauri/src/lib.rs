@@ -3535,8 +3535,6 @@ async fn uv_install_auto(app: tauri::AppHandle) -> Result<UvInstallResult, Strin
     }
 }
 
-/// 与 scripts/download-sidecars.sh 中 MCP_VERSION 保持一致，用于依赖页展示
-const MCP_PROXY_BUNDLED_VERSION: &str = "0.1.48";
 
 /// 检测本地 npm 包是否已安装
 #[tauri::command]
@@ -3550,12 +3548,7 @@ async fn dependency_local_check(
             "[Dependency] 检测命中 sidecar: package={} bin={}",
             package_name, sidecar_bin
         );
-        // mcp-stdio-proxy 使用与 sidecar 发布一致的版本号展示，避免显示 npm 或旧二进制版本
-        let version = if package_name == "mcp-stdio-proxy" {
-            Some(MCP_PROXY_BUNDLED_VERSION.to_string())
-        } else {
-            detect_bin_version(&sidecar_bin)
-        };
+        let version = detect_bin_version(&sidecar_bin);
         return Ok(NpmPackageResult {
             installed: true,
             version,
