@@ -2319,6 +2319,7 @@ async fn services_restart_all(
         // 创建 RcoderAgentRunner 配置
         let config = RcoderAgentRunnerConfig {
             projects_dir: projects_dir.join("computer-project-workspace"),
+            backend_port: port,
             ..RcoderAgentRunnerConfig::default()
         };
         info!("[Services]   - 创建 RcoderAgentRunner 配置: {:?}", config);
@@ -3318,8 +3319,6 @@ pub struct UvInstallResult {
 /// 优势：保持 macOS 代码签名
 #[tauri::command]
 async fn uv_install_auto(app: tauri::AppHandle) -> Result<UvInstallResult, String> {
-    use tauri::Manager;
-
     info!("[UvInstall] 验证打包的 uv 资源...");
 
     // 获取打包资源目录中的 uv bin 目录
@@ -3951,7 +3950,7 @@ fn tray_status(app: tauri::AppHandle) -> TrayStatusResult {
 }
 
 /// 更新托盘菜单（自动获取自启动状态和服务状态）
-fn update_tray_menu(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+async fn update_tray_menu(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::MenuItemKind;
 
     // 获取自启动状态
@@ -3961,25 +3960,23 @@ fn update_tray_menu(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::er
 
     // 获取服务状态，用于决定是否禁用菜单项
     // 使用 try_lock 避免死锁，如果获取锁失败则默认禁用停止服务
-    let services_running = tauri::async_runtime::block_on(async {
-        let state = app_handle.state::<ServiceManagerState>();
-        // 尝试获取锁，如果已被持有则等待一段时间后超时
-        let lock_result =
-            tokio::time::timeout(std::time::Duration::from_millis(500), state.manager.lock()).await;
+    let state = app_handle.state::<ServiceManagerState>();
+    // 尝试获取锁，如果已被持有则等待一段时间后超时
+    let lock_result =
+        tokio::time::timeout(std::time::Duration::from_millis(500), state.manager.lock()).await;
 
-        match lock_result {
-            Ok(manager) => {
-                let statuses = manager.services_status_all().await;
-                statuses
-                    .iter()
-                    .any(|s| matches!(s.state, nuwax_agent_core::service::ServiceState::Running))
-            }
-            Err(_) => {
-                warn!("[Tray] 获取服务状态超时，默认禁用停止服务");
-                false
-            }
+    let services_running = match lock_result {
+        Ok(manager) => {
+            let statuses = manager.services_status_all().await;
+            statuses
+                .iter()
+                .any(|s| matches!(s.state, nuwax_agent_core::service::ServiceState::Running))
         }
-    });
+        Err(_) => {
+            warn!("[Tray] 获取服务状态超时，默认禁用停止服务");
+            false
+        }
+    };
 
     // 重新创建菜单项
     let show_i = MenuItem::with_id(app_handle, tray_ids::SHOW, "显示主窗口", true, None::<&str>)?;
@@ -4104,7 +4101,7 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                             Ok(_) => {
                                 info!("[Tray] 所有服务已重启");
                                 // 更新托盘菜单（自动获取最新状态）
-                                if let Err(e) = update_tray_menu(&app_handle) {
+                                if let Err(e) = update_tray_menu(&app_handle).await {
                                     error!("[Tray] 更新托盘菜单失败: {}", e);
                                 }
                             }
@@ -4124,7 +4121,7 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                         } else {
                             info!("[Tray] 所有服务已停止");
                             // 更新托盘菜单（自动获取最新状态）
-                            if let Err(e) = update_tray_menu(&app_handle) {
+                            if let Err(e) = update_tray_menu(&app_handle).await {
                                 error!("[Tray] 更新托盘菜单失败: {}", e);
                             }
                         }
@@ -4151,7 +4148,7 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                                         );
 
                                         // 重新创建菜单以更新勾选状态（自动获取最新状态）
-                                        if let Err(e) = update_tray_menu(&app_handle) {
+                                        if let Err(e) = update_tray_menu(&app_handle).await {
                                             error!("[Tray] 更新托盘菜单失败: {}", e);
                                         }
                                     }

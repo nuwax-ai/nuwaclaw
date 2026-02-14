@@ -262,6 +262,19 @@ if [ -n "${APPLE_API_KEY_PATH:-}" ] && [ -n "${APPLE_API_KEY_ID:-}" ] && [ -n "$
     echo "==> [notarize] 创建已 stapled 的 ${TAR_GZ_BASENAME}..."
     (cd "${MACOS_BUNDLE_DIR}" && tar -czf "${TAR_GZ_BASENAME}" "${APP_NAME}.app")
     echo "    created: ${TAR_GZ}"
+
+    # 删除原始的无架构后缀的 tar.gz 文件（Tauri bundler 生成的）
+    # 这些文件名格式为 "Nuwax Agent.app.tar.gz"（带空格）或 "Nuwax.Agent.app.tar.gz"（带点）
+    if [ -n "${ARCH_SUFFIX}" ]; then
+      ORIGINAL_TAR_GZ_NO_SPACE="${MACOS_BUNDLE_DIR}/${APP_NAME_NO_SPACE}.app.tar.gz"
+      ORIGINAL_TAR_GZ_WITH_SPACE="${MACOS_BUNDLE_DIR}/${APP_NAME}.app.tar.gz"
+      for old_file in "$ORIGINAL_TAR_GZ_NO_SPACE" "$ORIGINAL_TAR_GZ_WITH_SPACE"; do
+        if [ -f "$old_file" ] && [ "$old_file" != "${TAR_GZ}" ]; then
+          rm -f "$old_file"
+          echo "    removed old tar.gz: $(basename "$old_file")"
+        fi
+      done
+    fi
   fi
 
   # 4.3 重建 .dmg（包含 stapled 的 .app）
@@ -318,6 +331,18 @@ else
     echo "==> [post-sign] 重建 ${TAR_GZ_BASENAME}..."
     (cd "${MACOS_BUNDLE_DIR}" && tar -czf "${TAR_GZ_BASENAME}" "${APP_NAME}.app")
     echo "    rebuilt: ${TAR_GZ}"
+
+    # 删除原始的无架构后缀的 tar.gz 文件（Tauri bundler 生成的）
+    if [ -n "${ARCH_SUFFIX}" ]; then
+      ORIGINAL_TAR_GZ_NO_SPACE="${MACOS_BUNDLE_DIR}/${APP_NAME_NO_SPACE}.app.tar.gz"
+      ORIGINAL_TAR_GZ_WITH_SPACE="${MACOS_BUNDLE_DIR}/${APP_NAME}.app.tar.gz"
+      for old_file in "$ORIGINAL_TAR_GZ_NO_SPACE" "$ORIGINAL_TAR_GZ_WITH_SPACE"; do
+        if [ -f "$old_file" ] && [ "$old_file" != "${TAR_GZ}" ]; then
+          rm -f "$old_file"
+          echo "    removed old tar.gz: $(basename "$old_file")"
+        fi
+      done
+    fi
 
     if [ -f "${TAR_GZ}.sig" ]; then
       rm -f "${TAR_GZ}.sig"
