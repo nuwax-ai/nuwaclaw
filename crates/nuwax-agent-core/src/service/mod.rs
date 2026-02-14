@@ -134,17 +134,31 @@ fn resolve_js_entry_from_cmd_shim(cmd_script: &std::path::Path) -> Option<std::p
 
     for raw_line in content.lines() {
         let line = raw_line.trim();
-        if !line.contains("%~dp0") || !line.to_ascii_lowercase().contains(".js") {
+        // 支持两种格式：
+        // 1. %~dp0\..\package\build\src\index.js (直接使用)
+        // 2. "%dp0%\..\package\build\src\index.js" (变量展开后使用)
+        let has_dp0 = line.contains("%~dp0") || line.contains("%dp0%");
+        if !has_dp0 || !line.to_ascii_lowercase().contains(".js") {
             continue;
         }
         let clean = line.replace('"', "");
-        let start = clean.find("%~dp0")?;
+
+        // 尝试匹配 %~dp0 或 %dp0% 后面的路径
+        let start = if let Some(pos) = clean.find("%~dp0") {
+            Some(pos + 5) // 跳过 "%~dp0"
+        } else if let Some(pos) = clean.find("%dp0%") {
+            Some(pos + 6) // 跳过 "%dp0%"
+        } else {
+            None
+        };
+
+        let start = start?;
         let js_pos = clean.to_ascii_lowercase().find(".js")?;
         let end = js_pos + 3;
-        if end <= start + 5 || end > clean.len() {
+        if end <= start || end > clean.len() {
             continue;
         }
-        let rel = clean[start + 5..end].trim_start_matches(['\\', '/']);
+        let rel = clean[start..end].trim_start_matches(['\\', '/']);
         if rel.is_empty() {
             continue;
         }
