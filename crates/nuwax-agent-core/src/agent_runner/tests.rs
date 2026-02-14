@@ -26,12 +26,14 @@ mod tests {
     fn test_config_custom() {
         let config = RcoderAgentRunnerConfig {
             projects_dir: PathBuf::from("/tmp/test-projects"),
+            app_data_dir: None,
             api_key: Some("sk-test".to_string()),
             api_base_url: "https://api.example.com".to_string(),
             default_model: "claude-haiku".to_string(),
             proxy_port: 9088,
             backend_port: 9086,
             mcp_server_port: 60004,
+            mcp_proxy_log_dir: None,
         };
 
         assert_eq!(config.projects_dir, PathBuf::from("/tmp/test-projects"));
@@ -47,12 +49,14 @@ mod tests {
     async fn test_runner_creation() {
         let config = RcoderAgentRunnerConfig {
             projects_dir: PathBuf::from("/tmp/test-projects"),
+            app_data_dir: None,
             api_key: None,
             api_base_url: "https://api.example.com".to_string(),
             default_model: "claude-test".to_string(),
             proxy_port: 9089,
             backend_port: 9086,
             mcp_server_port: 60004,
+            mcp_proxy_log_dir: None,
         };
 
         let mut runner = RcoderAgentRunner::new(config.clone());
@@ -107,12 +111,14 @@ mod pingora_tests {
         let port = 48088;
         let config = RcoderAgentRunnerConfig {
             projects_dir: std::path::PathBuf::from("/tmp/test-pingora-startup"),
+            app_data_dir: None,
             api_key: None,
             api_base_url: "https://api.anthropic.com".to_string(),
             default_model: "claude-sonnet-4-20250514".to_string(),
             proxy_port: port,
             backend_port: 60001,
             mcp_server_port: 60004,
+            mcp_proxy_log_dir: None,
         };
 
         println!("[Test] 启动 Pingora 服务，端口: {}", port);
@@ -155,12 +161,14 @@ mod pingora_tests {
         // 第一次启动
         let config1 = RcoderAgentRunnerConfig {
             projects_dir: std::path::PathBuf::from("/tmp/test-pingora-restart-1"),
+            app_data_dir: None,
             api_key: None,
             api_base_url: "https://api.anthropic.com".to_string(),
             default_model: "claude-sonnet-4-20250514".to_string(),
             proxy_port: port,
             backend_port: 60001,
             mcp_server_port: 60004,
+            mcp_proxy_log_dir: None,
         };
 
         println!("[Test] 第一次启动 Pingora 服务，端口: {}", port);
@@ -183,12 +191,14 @@ mod pingora_tests {
         // 第二次启动（模拟重启场景）
         let config2 = RcoderAgentRunnerConfig {
             projects_dir: std::path::PathBuf::from("/tmp/test-pingora-restart-2"),
+            app_data_dir: None,
             api_key: None,
             api_base_url: "https://api.anthropic.com".to_string(),
             default_model: "claude-sonnet-4-20250514".to_string(),
             proxy_port: port,
             backend_port: 60001,
             mcp_server_port: 60004,
+            mcp_proxy_log_dir: None,
         };
 
         println!("[Test] 第二次启动 Pingora 服务，端口: {}", port);
