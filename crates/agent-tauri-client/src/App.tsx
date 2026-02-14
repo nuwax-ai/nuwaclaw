@@ -39,7 +39,11 @@ import {
   syncConfigToServer,
 } from "./services/auth";
 import { isSetupCompleted, ensureMcpProxyDefaults } from "./services/setup";
-import { restartAllServices, stopAllServices } from "./services/dependencies";
+import {
+  restartAllServices,
+  stopAllServices,
+  getServicesStatus,
+} from "./services/dependencies";
 import { useAppInfo } from "./hooks/useAppInfo";
 import { checkForAppUpdate } from "./services/updater";
 
@@ -401,8 +405,53 @@ function App() {
   // 状态监听
   // ============================================
   useEffect(() => {
-    // 订阅状态变化
-    onStatusChange((newStatus: AgentStatus) => {
+    // 订阅 Rust 后端服务状态变化事件
+    let unsubServiceStatus: (() => void) | undefined;
+    const setupServiceStatusListener = async () => {
+      unsubServiceStatus = await listen<any[]>(
+        "service_status_change",
+        async (event) => {
+          console.log("[App] 收到服务状态变化事件:", event.payload);
+          // 根据服务状态更新 Agent 状态
+          const services = event.payload;
+          const runningCount = services.filter(
+            (s: any) => s.state === "Running",
+          ).length;
+          const startingCount = services.filter(
+            (s: any) => s.state === "Starting",
+          ).length;
+          const stoppingCount = services.filter(
+            (s: any) => s.state === "Stopping",
+          ).length;
+          const errorCount = services.filter(
+            (s: any) => s.state === "Error",
+          ).length;
+
+          if (errorCount > 0) {
+            setStatus("error");
+            setIsConnected(false);
+          } else if (stoppingCount > 0) {
+            setStatus("starting"); // 使用 starting 表示停止中
+          } else if (startingCount > 0) {
+            setStatus("starting");
+          } else if (runningCount === services.length && runningCount > 0) {
+            setStatus("running");
+            setIsConnected(true);
+          } else if (runningCount > 0 && runningCount < services.length) {
+            setStatus("busy");
+            setIsConnected(true);
+          } else {
+            setStatus("stopped");
+            setIsConnected(false);
+          }
+        },
+      );
+    };
+
+    setupServiceStatusListener();
+
+    // 订阅 mock 状态变化（保留兼容性）
+    const unsubStatus = onStatusChange((newStatus: AgentStatus) => {
       setStatus(newStatus);
       if (newStatus === "running") {
         setIsConnected(true);
@@ -412,9 +461,18 @@ function App() {
     });
 
     // 订阅日志变化
-    onLogChange((newLog: LogEntry) => {
+    const unsubLogs = onLogChange((newLog: LogEntry) => {
       setLogs((prev) => [...prev, newLog]);
     });
+
+    // 清理函数：取消订阅
+    return () => {
+      if (unsubServiceStatus) {
+        unsubServiceStatus();
+      }
+      unsubStatus();
+      unsubLogs();
+    };
   }, []);
 
   // ============================================
@@ -496,7 +554,7 @@ function App() {
     { key: "settings", icon: <SettingOutlined />, label: "设置" },
     { key: "dependencies", icon: <FolderOutlined />, label: "依赖" },
     // { key: "permissions", icon: <SafetyOutlined />, label: "权限" },
-    // { key: "logs", icon: <FileTextOutlined />, label: "日志" },
+    { key: "logs", icon: <FileTextOutlined />, label: "日志" },
     { key: "about", icon: <InfoCircleOutlined />, label: "关于" },
   ];
 

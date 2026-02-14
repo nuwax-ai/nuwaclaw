@@ -2209,7 +2209,10 @@ async fn rcoder_restart(
 
 /// 停止所有服务
 #[tauri::command]
-async fn services_stop_all(state: tauri::State<'_, ServiceManagerState>) -> Result<bool, String> {
+async fn services_stop_all(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ServiceManagerState>,
+) -> Result<bool, String> {
     // 停止 RcoderAgentRunner（包括 Pingora 代理）
     {
         let mut runner_guard = state.agent_runner.lock().await;
@@ -2219,6 +2222,12 @@ async fn services_stop_all(state: tauri::State<'_, ServiceManagerState>) -> Resu
     }
     let manager = state.manager.lock().await;
     manager.services_stop_all().await?;
+
+    // 发射服务状态变化事件，通知前端
+    let statuses = manager.services_status_all().await;
+    let statuses_dto: Vec<ServiceInfoDto> = statuses.into_iter().map(|s| s.into()).collect();
+    let _ = app.emit("service_status_change", statuses_dto);
+
     Ok(true)
 }
 
@@ -2733,6 +2742,12 @@ async fn services_restart_all(
     }
 
     info!("[Services] ========== 所有服务重启命令已发送 ==========");
+
+    // 发射服务状态变化事件，通知前端
+    let statuses = state.manager.lock().await.services_status_all().await;
+    let statuses_dto: Vec<ServiceInfoDto> = statuses.into_iter().map(|s| s.into()).collect();
+    let _ = app.emit("service_status_change", statuses_dto);
+
     Ok(true)
 }
 

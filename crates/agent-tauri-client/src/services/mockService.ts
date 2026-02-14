@@ -127,12 +127,22 @@ class MockService {
     this.notify("logChange", log);
   }
 
-  // 事件订阅
+  // 事件订阅，返回取消订阅函数
   on(event: string, callback: (...args: any[]) => void) {
     if (!this.callbacks.has(event)) {
       this.callbacks.set(event, []);
     }
     this.callbacks.get(event)!.push(callback);
+    // 返回取消订阅函数
+    return () => {
+      const callbacks = this.callbacks.get(event);
+      if (callbacks) {
+        const index = callbacks.indexOf(callback);
+        if (index > -1) {
+          callbacks.splice(index, 1);
+        }
+      }
+    };
   }
 
   // 事件通知
@@ -167,7 +177,7 @@ export const getPermissions = () => mockService.getPermissions();
 export const refreshPermissions = () => mockService.refreshPermissions();
 export const openSystemPreferences = (permissionId: string) =>
   mockService.openSystemPreferences(permissionId);
-export const onStatusChange = (cb: (...args: any[]) => void) =>
+export const onStatusChange = (cb: (...args: any[]) => void): (() => void) =>
   mockService.on("statusChange", cb);
-export const onLogChange = (cb: (...args: any[]) => void) =>
+export const onLogChange = (cb: (...args: any[]) => void): (() => void) =>
   mockService.on("logChange", cb);
