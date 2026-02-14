@@ -47,6 +47,8 @@ const DEFAULT_MCP_SERVER_PORT: u16 = 60004;
 pub struct RcoderAgentRunnerConfig {
     /// 项目工作目录
     pub projects_dir: PathBuf,
+    /// 应用数据目录（用于查找 claude-code-acp-ts 等）
+    pub app_data_dir: Option<PathBuf>,
     /// API Key
     pub api_key: Option<String>,
     /// API Base URL
@@ -65,6 +67,7 @@ impl Default for RcoderAgentRunnerConfig {
     fn default() -> Self {
         Self {
             projects_dir: PathBuf::from("./projects"),
+            app_data_dir: None,
             api_key: None,
             api_base_url: "https://api.anthropic.com".to_string(),
             default_model: "claude-sonnet-4-20250514".to_string(),
@@ -132,6 +135,19 @@ impl RcoderAgentRunner {
     pub async fn start(&mut self) -> Result<(), String> {
         if self.server_handle.is_some() {
             return Err("服务器已在运行中".to_string());
+        }
+
+        // 🔧 设置 CLAUDE_CODE_ACP_PATH 环境变量，确保使用应用内安装的版本
+        // 这样不会与用户全局安装的版本冲突，也不会弹 CMD 窗口
+        if let Some(ref app_data_dir) = self.config.app_data_dir {
+            let acp_bin_path = app_data_dir.join("node_modules").join(".bin").join("claude-code-acp-ts");
+            if acp_bin_path.exists() {
+                std::env::set_var("CLAUDE_CODE_ACP_PATH", acp_bin_path.to_string_lossy().to_string());
+                info!(
+                    "[RcoderAgentRunner] ✅ 已设置 CLAUDE_CODE_ACP_PATH: {}",
+                    acp_bin_path.display()
+                );
+            }
         }
 
         let shared_api_key_manager = Arc::new(dashmap::DashMap::new());
