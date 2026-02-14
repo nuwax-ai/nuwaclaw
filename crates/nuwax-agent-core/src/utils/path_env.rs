@@ -133,6 +133,14 @@ pub fn build_node_path_env() -> String {
         add_system_bin_dir(&mut paths, "node");
         add_system_bin_dir(&mut paths, "git");
         add_system_bin_dir(&mut paths, "go");
+
+        // 确保系统基础目录在 PATH 中（uvx/pip 脚本依赖 realpath 等系统命令）
+        for sys_dir in &["/bin", "/usr/bin", "/usr/local/bin"] {
+            let s = sys_dir.to_string();
+            if std::path::Path::new(sys_dir).is_dir() && !paths.contains(&s) {
+                paths.push(s);
+            }
+        }
     }
 
     paths.join(sep)

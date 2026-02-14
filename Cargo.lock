@@ -159,7 +159,7 @@ dependencies = [
 [[package]]
 name = "agent_abstraction"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#4bb307b06db8efc6f2adbd594240cb4e5fbc5103"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#abff43594c0c04b9663d908c65e34ef2082fe2c5"
 dependencies = [
  "agent_config",
  "anyhow",
@@ -188,7 +188,7 @@ dependencies = [
 [[package]]
 name = "agent_config"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#4bb307b06db8efc6f2adbd594240cb4e5fbc5103"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#abff43594c0c04b9663d908c65e34ef2082fe2c5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -206,7 +206,7 @@ dependencies = [
 [[package]]
 name = "agent_runner"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#4bb307b06db8efc6f2adbd594240cb4e5fbc5103"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#abff43594c0c04b9663d908c65e34ef2082fe2c5"
 dependencies = [
  "agent_abstraction",
  "agent_config",
@@ -6179,7 +6179,7 @@ dependencies = [
  "image-webp",
  "moxcms",
  "num-traits 0.2.19",
- "png 0.18.0",
+ "png 0.18.1",
  "qoi",
  "ravif",
  "rayon",
@@ -10057,9 +10057,9 @@ dependencies = [
 
 [[package]]
 name = "png"
-version = "0.18.0"
+version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97baced388464909d42d89643fe4361939af9b7ce7a31ee32a168f832a70f2a0"
+checksum = "60769b8b31b2a9f263dae2776c37b1b28ae246943cf719eb6946a1db05128a61"
 dependencies = [
  "bitflags 2.11.0",
  "crc32fast",
@@ -11095,7 +11095,7 @@ dependencies = [
 [[package]]
 name = "rcoder-proxy"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#4bb307b06db8efc6f2adbd594240cb4e5fbc5103"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#abff43594c0c04b9663d908c65e34ef2082fe2c5"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -11122,7 +11122,7 @@ dependencies = [
 [[package]]
 name = "rcoder-telemetry"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#4bb307b06db8efc6f2adbd594240cb4e5fbc5103"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#abff43594c0c04b9663d908c65e34ef2082fe2c5"
 dependencies = [
  "anyhow",
  "axum",
@@ -12734,7 +12734,7 @@ dependencies = [
 [[package]]
 name = "shared_types"
 version = "0.1.0"
-source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#4bb307b06db8efc6f2adbd594240cb4e5fbc5103"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client#abff43594c0c04b9663d908c65e34ef2082fe2c5"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -15209,7 +15209,7 @@ dependencies = [
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
  "once_cell",
- "png 0.18.0",
+ "png 0.18.1",
  "thiserror 2.0.18",
  "windows-sys 0.60.2",
 ]

@@ -26,7 +26,7 @@ BIN_DIR="$ROOT_DIR/crates/agent-tauri-client/src-tauri/binaries"
 CACHE_DIR="$ROOT_DIR/.cache/sidecars"
 TMP_DIR="/tmp/nuwax-sidecar-download"
 
-MCP_VERSION=""
+MCP_VERSION="0.1.53"
 NODE_VERSION="22.14.0"
 FORCE=0
 DRY_RUN=0
