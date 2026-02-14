@@ -240,6 +240,30 @@ pub fn build_base_env() -> Vec<(String, String)> {
     env
 }
 
+/// 设置镜像源环境变量（仅首次，不覆盖已有值）
+///
+/// 同时设置直接变量（npx/uvx 直接读取）和 MCP_PROXY_* 中转变量（mcp-proxy 兼容）。
+/// 通过 `build_base_env()` 透传到所有子进程。
+pub fn setup_mirror_env() {
+    use tracing::info;
+
+    if std::env::var("npm_config_registry").is_err() {
+        let registry = std::env::var("MCP_PROXY_NPM_REGISTRY")
+            .unwrap_or_else(|_| DEFAULT_NPM_REGISTRY.to_string());
+        std::env::set_var("npm_config_registry", &registry);
+        std::env::set_var("MCP_PROXY_NPM_REGISTRY", &registry);
+        info!("[EnvSync] 已设置 npm_config_registry={}", registry);
+    }
+    if std::env::var("UV_INDEX_URL").is_err() {
+        let index_url = std::env::var("MCP_PROXY_PYPI_INDEX_URL")
+            .unwrap_or_else(|_| DEFAULT_PYPI_INDEX_URL.to_string());
+        std::env::set_var("UV_INDEX_URL", &index_url);
+        std::env::set_var("PIP_INDEX_URL", &index_url);
+        std::env::set_var("MCP_PROXY_PYPI_INDEX_URL", &index_url);
+        info!("[EnvSync] 已设置 UV_INDEX_URL={}", index_url);
+    }
+}
+
 /// 在 ~/.local/bin 下创建 env 脚本，安装 Node/uv 后用户可在终端 source 以加入 PATH。
 ///
 /// - **Unix**：创建 ~/.local/bin/env，用户可 source 或加入 shell 配置。
