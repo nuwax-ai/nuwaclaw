@@ -10,11 +10,13 @@
 # - aarch64-unknown-linux-gnu
 #
 # 用法:
-#   ./scripts/download-sidecars.sh
+#   ./scripts/download-sidecars.sh                          # 自动从 GitHub 获取最新 mcp-proxy 版本
 #   ./scripts/download-sidecars.sh --target x86_64-pc-windows-msvc
 #   ./scripts/download-sidecars.sh --all-common
 #   ./scripts/download-sidecars.sh --all-common --materialize
 #   ./scripts/download-sidecars.sh --cache-dir .cache/sidecars
+#   ./scripts/download-sidecars.sh --mcp-version 0.1.48     # 指定 mcp-proxy 版本
+#   ./scripts/download-sidecars.sh --force                  # 强制重新下载
 
 set -euo pipefail
 
@@ -24,7 +26,7 @@ BIN_DIR="$ROOT_DIR/crates/agent-tauri-client/src-tauri/binaries"
 CACHE_DIR="$ROOT_DIR/.cache/sidecars"
 TMP_DIR="/tmp/nuwax-sidecar-download"
 
-MCP_VERSION="0.1.48"
+MCP_VERSION=""
 NODE_VERSION="22.14.0"
 FORCE=0
 DRY_RUN=0
@@ -33,6 +35,25 @@ NO_CHECK=0
 MATERIALIZE=0
 TARGETS=()
 LAST_SUCCESS_URL=""
+MCP_GITHUB_REPO="nuwax-ai/mcp-proxy"
+
+# 从 GitHub releases 获取最新版本号
+get_latest_mcp_version() {
+  local api_url="https://api.github.com/repos/${MCP_GITHUB_REPO}/releases/latest"
+  local response
+  response=$(curl -fsSL "$api_url" 2>/dev/null) || {
+    echo "ERROR: 无法从 GitHub 获取最新版本" >&2
+    return 1
+  }
+  local tag_name
+  tag_name=$(echo "$response" | grep -m1 '"tag_name"' | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+  if [[ -z "$tag_name" ]]; then
+    echo "ERROR: 无法解析 GitHub response 中的 tag_name" >&2
+    return 1
+  fi
+  # 移除前缀 'v' (如 v0.1.48 -> 0.1.48)
+  echo "${tag_name#v}"
+}
 
 COMMON_TARGETS=(
   "x86_64-pc-windows-msvc"
@@ -97,6 +118,13 @@ if [[ $ALL_COMMON -eq 1 ]]; then
 fi
 if [[ ${#TARGETS[@]} -eq 0 ]]; then
   TARGETS=("$(rustc -vV | awk '/^host:/ {print $2}')")
+fi
+
+# 如果未指定 MCP 版本，从 GitHub 获取最新版本
+if [[ -z "$MCP_VERSION" ]]; then
+  echo "正在从 GitHub 获取 mcp-stdio-proxy 最新版本..."
+  MCP_VERSION=$(get_latest_mcp_version) || exit 1
+  echo "检测到最新版本: $MCP_VERSION"
 fi
 
 mkdir -p "$CACHE_DIR" "$BIN_DIR" "$TMP_DIR"
@@ -236,12 +264,46 @@ for TARGET in "${TARGETS[@]}"; do
   MCP_ARCHIVE_SUFFIX="${MCP_ARTIFACT_CANDIDATES[0]#*${TARGET}}"
   MCP_PKG="$TMP_DIR/mcp-stdio-proxy-${TARGET}${MCP_ARCHIVE_SUFFIX}"
 
+  # 缓存版本记录文件
+  MCP_VERSION_FILE="$CACHE_DIR/mcp-proxy-${TARGET}.version"
+
   echo "target: $TARGET"
   echo "  cache dir   : $CACHE_DIR"
   echo "  mcp version : $MCP_VERSION"
   echo "  node version: $NODE_VERSION"
 
-  if [[ $FORCE -eq 0 && -f "$MCP_CACHE" && -f "$NODE_CACHE" ]]; then
+  # 检查是否需要重新下载：force标志、缓存文件不存在、或版本不一致
+  NEED_DOWNLOAD=0
+  if [[ $FORCE -eq 1 ]]; then
+    NEED_DOWNLOAD=1
+    rm -f "$MCP_VERSION_FILE"
+    echo "  FORCE 强制重新下载"
+  elif [[ ! -f "$MCP_CACHE" || ! -f "$NODE_CACHE" ]]; then
+    NEED_DOWNLOAD=1
+    echo "  缓存文件不存在，需要下载"
+  elif [[ -f "$MCP_VERSION_FILE" ]]; then
+    CACHED_VERSION=$(cat "$MCP_VERSION_FILE" 2>/dev/null || echo "")
+    if [[ "$CACHED_VERSION" != "$MCP_VERSION" ]]; then
+      NEED_DOWNLOAD=1
+      echo "  版本不一致 (缓存: $CACHED_VERSION, 最新: $MCP_VERSION)，需要更新"
+    fi
+  else
+    # 缓存文件存在但没有版本记录，尝试从二进制获取版本
+    CACHED_VERSION=$("$MCP_CACHE" -V 2>/dev/null | awk '{print $2}' || echo "")
+    if [[ -z "$CACHED_VERSION" ]]; then
+      # 无法获取版本，保守起见重新下载
+      NEED_DOWNLOAD=1
+      echo "  无法获取缓存版本，需要重新下载"
+    elif [[ "$CACHED_VERSION" != "$MCP_VERSION" ]]; then
+      NEED_DOWNLOAD=1
+      echo "  版本不一致 (缓存: $CACHED_VERSION, 最新: $MCP_VERSION)，需要更新"
+    else
+      # 版本一致，补写版本记录文件
+      echo "$MCP_VERSION" > "$MCP_VERSION_FILE"
+    fi
+  fi
+
+  if [[ $NEED_DOWNLOAD -eq 0 ]]; then
     echo "  SKIP 已存在缓存: $(basename "$MCP_CACHE"), $(basename "$NODE_CACHE")"
   else
     NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/${NODE_ARTIFACT}"
@@ -281,6 +343,8 @@ for TARGET in "${TARGETS[@]}"; do
     cp -f "$MCP_SRC" "$MCP_CACHE"
     cp -f "$NODE_SRC" "$NODE_CACHE"
     chmod +x "$MCP_CACHE" "$NODE_CACHE" || true
+    # 保存版本号到版本文件
+    echo "$MCP_VERSION" > "$MCP_VERSION_FILE"
     echo "  DONE cache $(basename "$MCP_CACHE")"
     echo "  DONE cache $(basename "$NODE_CACHE")"
     echo "$TARGET mcp-proxy $(basename "$MCP_CACHE") $MCP_SELECTED_URL" >> "$MANIFEST_FILE"
