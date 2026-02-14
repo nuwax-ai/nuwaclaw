@@ -135,7 +135,7 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
       if (auth.userInfo) setUserInfo(auth.userInfo);
       setCurrentDomain(values.domain);
       setIsLogged(true);
-      message.success("登录成功");
+      // message.success("登录成功");
       onLoginSuccess();
     } catch (error) {
       // 错误已在 auth.ts 中处理

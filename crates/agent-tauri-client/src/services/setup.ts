@@ -173,14 +173,18 @@ export async function completeStep2(): Promise<void> {
  * 完成初始化
  */
 export async function completeSetup(): Promise<void> {
+  console.log("[Setup] completeSetup: 开始");
   try {
+    console.log("[Setup] completeSetup: 调用 initStore");
     await initStore();
+    console.log("[Setup] completeSetup: 调用 setupStorage.complete");
     await setupStorage.complete();
     console.log("[Setup] 初始化已完成");
   } catch (error) {
     console.error("[Setup] 完成初始化失败:", error);
     throw error;
   }
+  console.log("[Setup] completeSetup: 结束");
 }
 
 /**

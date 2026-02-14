@@ -207,7 +207,7 @@ function App() {
         if (savedKey) {
           console.log("[App] 检测到 savedKey，自动重连...");
           // 调用 reg 接口（传入 savedKey）
-          const result = await syncConfigToServer();
+          const result = await syncConfigToServer({ suppressToast: true });
           if (result) {
             console.log("[App] 重连成功，启动服务...");
             try {

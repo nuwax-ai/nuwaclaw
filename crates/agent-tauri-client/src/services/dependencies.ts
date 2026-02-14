@@ -580,9 +580,16 @@ async function checkRequiredDependencies(): Promise<{
  * 在启动前会检查必需依赖是否已安装，缺失时仅警告不阻塞
  */
 export async function restartAllServices(): Promise<void> {
+  console.log("[Dependencies] restartAllServices: 开始");
   // 检查必需依赖（仅作为预检警告，不阻塞服务启动）
   try {
+    console.log(
+      "[Dependencies] restartAllServices: 调用 checkRequiredDependencies",
+    );
     const { allInstalled, missingDeps } = await checkRequiredDependencies();
+    console.log(
+      "[Dependencies] restartAllServices: checkRequiredDependencies 已返回",
+    );
     if (!allInstalled) {
       const missingNames = missingDeps.map((d) => d.displayName).join(", ");
       console.warn(
@@ -596,10 +603,14 @@ export async function restartAllServices(): Promise<void> {
   try {
     // 获取 MCP Proxy 配置，如果没有则使用默认配置
     // 配置只在前端定义一次（constants.ts），避免前后端重复维护
+    console.log("[Dependencies] restartAllServices: 获取 MCP Proxy 配置");
     const mcpProxyConfig =
       (await setupStorage.getMcpProxyConfig()) || DEFAULT_MCP_PROXY_CONFIG;
     console.log("[Dependencies] MCP Proxy 配置: 已获取");
 
+    console.log(
+      "[Dependencies] restartAllServices: 即将 invoke services_restart_all（若卡住则多半卡在 Rust 侧）",
+    );
     await invoke("services_restart_all", {
       mcpProxyConfig: mcpProxyConfig,
     });
@@ -608,6 +619,7 @@ export async function restartAllServices(): Promise<void> {
     console.error("[Dependencies] 重启服务失败:", error);
     throw error;
   }
+  console.log("[Dependencies] restartAllServices: 结束");
 }
 
 // ========== 服务状态管理 ==========

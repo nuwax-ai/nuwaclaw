@@ -107,7 +107,16 @@ export default function SetupDependencies({
   const checkNetwork = useCallback(async () => {
     setNetworkStatus("checking");
     try {
-      const connected = await invoke<boolean>("check_network_cn");
+      // 5秒超时
+      const connected = await Promise.race([
+        invoke<boolean>("check_network_cn"),
+        new Promise<boolean>((resolve) =>
+          setTimeout(() => {
+            console.warn("[SetupDeps] 网络检测超时，假设已连接");
+            resolve(true);
+          }, 5000),
+        ),
+      ]);
       setNetworkStatus(connected ? "connected" : "disconnected");
       return connected;
     } catch {
@@ -193,15 +202,19 @@ export default function SetupDependencies({
   }, []);
 
   const checkAllDeps = useCallback(async () => {
+    console.log("[SetupDeps] checkAllDeps 开始");
     setInstallPhase("checking");
     try {
-      // 并行执行依赖检测和网络检测
-      const [deps] = await Promise.all([
-        checkAllSetupDependencies(),
-        checkNetwork(),
-      ]);
+      console.log("[SetupDeps] 开始检测依赖...");
+      // 只检测依赖，不阻塞等待网络检测（本地安装不需要网络）
+      const deps = await checkAllSetupDependencies();
+      console.log("[SetupDeps] 依赖检测完成:", deps?.length, "项");
       const unified = buildUnifiedDeps(deps);
       setAllDependencies(unified);
+      console.log(
+        "[SetupDeps] 状态检查，unified:",
+        unified.map((d) => `${d.name}:${d.status}`),
+      );
 
       const nodeDep = deps.find((d) => d.name === "nodejs");
       const nodeReady = nodeDep?.status === "installed";
@@ -259,13 +272,16 @@ export default function SetupDependencies({
       if (
         unified.every((d) => d.status === "installed" || d.status === "bundled")
       ) {
+        console.log("[SetupDeps] 所有依赖已就绪，设置 completed");
         setInstallPhase("completed");
         setTimeout(() => onComplete(), 1500);
       } else {
+        console.log("[SetupDeps] 依赖未全部就绪，设置 ready");
         // 系统依赖就绪，自动安装项目依赖（应用内）
         setInstallPhase("ready");
       }
     } catch (error) {
+      console.error("[SetupDeps] 检测失败:", error);
       setInstallPhase("error");
       setInstallError("检测依赖失败");
     }
@@ -274,15 +290,12 @@ export default function SetupDependencies({
     onComplete,
     handleAutoInstallNode,
     handleAutoInstallUv,
-    checkNetwork,
   ]);
 
-  // 当 installPhase 变为 "checking"（例如自动安装成功后），重新检测
+  // 组件挂载后立即检测依赖
   useEffect(() => {
-    if (installPhase === "checking") {
-      checkAllDeps();
-    }
-  }, [installPhase, checkAllDeps]);
+    checkAllDeps();
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -417,11 +430,8 @@ export default function SetupDependencies({
 
   // 系统依赖就绪后，自动触发项目依赖安装
   useEffect(() => {
-    if (
-      installPhase === "ready" &&
-      !projectInstallTriggered.current &&
-      networkStatus === "connected"
-    ) {
+    if (installPhase === "ready" && !projectInstallTriggered.current) {
+      // 本地 npm 安装不需要网络连接，直接触发安装
       projectInstallTriggered.current = true;
       handleStartInstall();
     }
