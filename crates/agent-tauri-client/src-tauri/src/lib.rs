@@ -2247,9 +2247,24 @@ fn build_rcoder_config(app: &tauri::AppHandle) -> Result<RcoderAgentRunnerConfig
         info!("[Rcoder] 已创建目录: {}", computer_workspace_dir.display());
     }
 
+    // 获取应用数据目录
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+
+    // 仅在开发模式下启用 MCP 日志
+    let mcp_proxy_log_dir = if cfg!(debug_assertions) {
+        Some(app_data_dir.join("logs").join("mcp"))
+    } else {
+        None
+    };
+
     let config = RcoderAgentRunnerConfig {
         projects_dir: computer_workspace_dir,
+        app_data_dir: Some(app_data_dir),
         backend_port: port,
+        mcp_proxy_log_dir,
         ..RcoderAgentRunnerConfig::default()
     };
     info!("[Rcoder] 创建 RcoderAgentRunner 配置: {:?}", config);
@@ -2448,10 +2463,25 @@ async fn services_restart_all(
             }
         };
 
+        // 获取应用数据目录
+        let app_data_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+
+        // 仅在开发模式下启用 MCP 日志
+        let mcp_proxy_log_dir = if cfg!(debug_assertions) {
+            Some(app_data_dir.join("logs").join("mcp"))
+        } else {
+            None
+        };
+
         // 创建 RcoderAgentRunner 配置
         let config = RcoderAgentRunnerConfig {
             projects_dir: projects_dir.join("computer-project-workspace"),
+            app_data_dir: Some(app_data_dir),
             backend_port: port,
+            mcp_proxy_log_dir,
             ..RcoderAgentRunnerConfig::default()
         };
         info!("[Services]   - 创建 RcoderAgentRunner 配置: {:?}", config);

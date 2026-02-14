@@ -61,6 +61,9 @@ pub struct RcoderAgentRunnerConfig {
     pub backend_port: u16,
     /// MCP Server 端口（默认 60004）
     pub mcp_server_port: u16,
+    /// MCP Proxy 日志目录（可选）
+    /// 当设置此值时，mcp-proxy convert 命令会输出诊断日志
+    pub mcp_proxy_log_dir: Option<PathBuf>,
 }
 
 impl Default for RcoderAgentRunnerConfig {
@@ -74,6 +77,7 @@ impl Default for RcoderAgentRunnerConfig {
             proxy_port: DEFAULT_PROXY_PORT,
             backend_port: DEFAULT_BACKEND_PORT,
             mcp_server_port: DEFAULT_MCP_SERVER_PORT,
+            mcp_proxy_log_dir: None,
         }
     }
 }
@@ -254,6 +258,10 @@ impl RcoderAgentRunner {
                     unhealthy_threshold: 3,
                 },
             }),
+            mcp_proxy_log_dir: config
+                .mcp_proxy_log_dir
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string()),
             ..Default::default()
         }
     }
