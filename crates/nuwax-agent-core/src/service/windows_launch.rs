@@ -33,6 +33,29 @@ fn find_node_exe_for_windows_launch() -> Option<std::path::PathBuf> {
         }
     }
 
+    // 检查应用资源目录中的 node.exe（打包安装环境）
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            // 打包安装后，node.exe 可能在以下位置：
+            // 1. 与可执行文件同目录的 resources/node/bin/node.exe
+            // 2. 上一级目录的 resources/node/bin/node.exe
+            let resource_paths = [
+                exe_dir.join("resources").join("node").join("bin").join("node.exe"),
+                exe_dir.parent().unwrap_or(exe_dir).join("resources").join("node").join("bin").join("node.exe"),
+            ];
+            
+            for resource_path in resource_paths {
+                if resource_path.exists() {
+                    debug!(
+                        "[Service] Windows node 解析命中应用资源目录: {}",
+                        resource_path.display()
+                    );
+                    return Some(resource_path);
+                }
+            }
+        }
+    }
+
     let local_node = crate::dependency::node::NodeDetector::get_local_node_path();
     if local_node.exists() {
         debug!(
@@ -225,12 +248,28 @@ fn resolve_js_entry_from_known_windows_node_modules(
 ) -> Option<std::path::PathBuf> {
     let appdata = std::env::var("APPDATA").ok()?;
     let appdata_path = std::path::PathBuf::from(&appdata);
-    let candidates = [
+    let mut candidates = vec![
         appdata_path
             .join("com.nuwax.agent-tauri-client")
             .join("node_modules"),
         appdata_path.join("npm").join("node_modules"),
     ];
+
+    // 添加应用资源目录中的 node_modules（打包安装环境）
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let resource_paths = [
+                exe_dir.join("resources").join("node").join("node_modules"),
+                exe_dir.parent().unwrap_or(exe_dir).join("resources").join("node").join("node_modules"),
+            ];
+            
+            for resource_path in resource_paths {
+                if resource_path.exists() {
+                    candidates.push(resource_path);
+                }
+            }
+        }
+    }
 
     for node_modules_dir in candidates {
         if !node_modules_dir.exists() {
@@ -250,12 +289,28 @@ fn resolve_native_exe_from_known_windows_node_modules(
 ) -> Option<std::path::PathBuf> {
     let appdata = std::env::var("APPDATA").ok()?;
     let appdata_path = std::path::PathBuf::from(&appdata);
-    let candidates = [
+    let mut candidates = vec![
         appdata_path
             .join("com.nuwax.agent-tauri-client")
             .join("node_modules"),
         appdata_path.join("npm").join("node_modules"),
     ];
+
+    // 添加应用资源目录中的 node_modules（打包安装环境）
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let resource_paths = [
+                exe_dir.join("resources").join("node").join("node_modules"),
+                exe_dir.parent().unwrap_or(exe_dir).join("resources").join("node").join("node_modules"),
+            ];
+            
+            for resource_path in resource_paths {
+                if resource_path.exists() {
+                    candidates.push(resource_path);
+                }
+            }
+        }
+    }
 
     for node_modules_dir in candidates {
         if !node_modules_dir.exists() {
@@ -294,6 +349,26 @@ fn get_windows_cmd_script_path(program: &std::path::Path) -> Option<std::path::P
             }
 
             let program_name = program.file_name().and_then(|s| s.to_str())?;
+
+            // 检查应用资源目录中的 .cmd 文件（打包安装环境）
+            if let Ok(exe_path) = std::env::current_exe() {
+                if let Some(exe_dir) = exe_path.parent() {
+                    let resource_paths = [
+                        exe_dir.join("resources").join("node").join("bin").join(format!("{}.cmd", program_name)),
+                        exe_dir.parent().unwrap_or(exe_dir).join("resources").join("node").join("bin").join(format!("{}.cmd", program_name)),
+                    ];
+                    
+                    for resource_path in resource_paths {
+                        if resource_path.exists() {
+                            debug!(
+                                "[Service] Windows cmd 解析命中应用资源目录: {}",
+                                resource_path.display()
+                            );
+                            return Some(resource_path);
+                        }
+                    }
+                }
+            }
 
             if let Ok(appdata) = std::env::var("APPDATA") {
                 let app_private = std::path::PathBuf::from(&appdata)
@@ -342,6 +417,19 @@ fn resolve_js_entry_from_cmd_shim(cmd_script: &std::path::Path) -> Option<std::p
 
     for raw_line in content.lines() {
         let line = raw_line.trim();
+        
+        // 跳过空行和注释
+        if line.is_empty() || line.starts_with('@') || line.starts_with(':') {
+            continue;
+        }
+        
+        // 查找包含 node 执行命令的行
+        let line_lower = line.to_ascii_lowercase();
+        if !line_lower.contains("node") && !line_lower.contains(".js") {
+            continue;
+        }
+        
+        // 查找包含 %~dp0、%dp0% 或 %dp0 的行
         let base_token = if line.contains("%~dp0") {
             "%~dp0"
         } else if line.contains("%dp0%") {
@@ -351,6 +439,43 @@ fn resolve_js_entry_from_cmd_shim(cmd_script: &std::path::Path) -> Option<std::p
         } else {
             continue;
         };
+        
+        // 提取 JavaScript 文件路径
+        // 处理格式："%_prog%"  "%dp0%\..\chrome-devtools-mcp\build\src\index.js" %*
+        let mut parts = line.split('"').filter(|s| !s.trim().is_empty());
+        while let Some(part) = parts.next() {
+            if part.contains(base_token) && (part.contains(".js") || part.contains(".mjs") || part.contains(".cjs")) {
+                let clean = part.replace('"', "");
+                let js_path = clean;
+                
+                // 替换 %~dp0 为实际路径
+                let resolved_path = if js_path.contains("%~dp0") {
+                    let rel_path = js_path.replace("%~dp0", "");
+                    base_dir.join(std::path::Path::new(&rel_path))
+                } else if js_path.contains("%dp0%") {
+                    let rel_path = js_path.replace("%dp0%", "");
+                    base_dir.join(std::path::Path::new(&rel_path))
+                } else if js_path.contains("%dp0") {
+                    let rel_path = js_path.replace("%dp0", "");
+                    base_dir.join(std::path::Path::new(&rel_path))
+                } else {
+                    continue;
+                };
+                
+                // 规范化路径
+                let normalized_path = resolved_path.canonicalize().unwrap_or(resolved_path);
+                if normalized_path.exists() {
+                    debug!(
+                        "[Service] cmd shim 解析命中入口: {} -> {}",
+                        cmd_script.display(),
+                        normalized_path.display()
+                    );
+                    return Some(normalized_path);
+                }
+            }
+        }
+        
+        // 尝试原始解析方法作为后备
         let clean = line.replace('"', "");
         let clean_lower = clean.to_ascii_lowercase();
         let ext_end = [".cjs", ".mjs", ".js"]
@@ -370,13 +495,14 @@ fn resolve_js_entry_from_cmd_shim(cmd_script: &std::path::Path) -> Option<std::p
         }
         let rel = rel.replace('/', "\\");
         let entry = base_dir.join(std::path::Path::new(&rel));
-        if entry.exists() {
+        let normalized_entry = entry.canonicalize().unwrap_or(entry);
+        if normalized_entry.exists() {
             debug!(
                 "[Service] cmd shim 解析命中入口: {} -> {}",
                 cmd_script.display(),
-                entry.display()
+                normalized_entry.display()
             );
-            return Some(entry);
+            return Some(normalized_entry);
         }
     }
     debug!(
