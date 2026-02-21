@@ -53,20 +53,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Version detection
   - Package location tracking
 
-#### Services
-- **Setup Wizard** - 3-step configuration
-- **Login/Logout** - Authentication with SQLite storage
-- **File Server** - Local file service
-- **Lanproxy** - Intranet penetration
-- **Skills Sync** - Remote skills synchronization
-- **IM Integration** - Instant messaging
-- **Scheduler** - Task scheduling
+#### Sandbox Execution
+- **Sandbox Manager** (`sandbox.ts`)
+  - Cross-platform sandbox support
+  - Docker containers (all platforms)
+  - WSL (Windows)
+  - Firejail (Linux)
+  - macOS App Sandbox
+
+#### Permission System
+- **Permissions Service** (`permissions.ts`)
+  - Rule-based permission management
+  - Pattern matching (wildcards)
+  - Session-level approval
+  - Config persistence
+  - Import/export config
+
+#### Logging
+- **Log Service** (`logService.ts`)
+  - Log levels: error, warning, success, info
+  - Filtering and search
+  - Statistics
+  - Export (JSON/CSV/TXT)
+  - Real-time subscription
+  - Integration with electron-log
+  - Persistent storage
+
+#### Platform Compatibility
+- **Windows Fix**: Add `windowsHide: true` to prevent cmd popup
+- **Process Cleanup**: Proper cleanup on app quit
+- **Zombie Prevention**: Kill all child processes on exit
+
+#### Services (18 total)
+- setup.ts - Setup wizard and auth
+- agent.ts - Agent management
+- agentRunner.ts - Agent runner
+- ai.ts - AI configuration
+- dependencies.ts - Dependency management
+- engineManager.ts - Engine management
+- fileServer.ts - File server
+- im.ts - Instant messaging
+- lanproxy.ts - Intranet penetration
+- logService.ts - Logging
+- mcp.ts - MCP management
+- packageLocator.ts - Package detection
+- packageManager.ts - Package management
+- permissions.ts - Permissions
+- sandbox.ts - Sandbox execution
+- scheduler.ts - Task scheduling
+- setup.ts - Setup wizard
+- shellEnv.ts - Shell environment
+- skills.ts - Skills sync
+- workspaceManager.ts - Workspace management
+
+#### Components (10 total)
+- AgentRunnerSettings.tsx
+- AgentSettings.tsx
+- IMSettings.tsx
+- LanproxySettings.tsx
+- MCPSettings.tsx
+- PermissionModal.tsx
+- SettingsPage.tsx
+- SetupWizard.tsx
+- SkillsSync.tsx
+- TaskSettings.tsx
+
+### Fixed
+- Windows cmd popup issue when running as service
+- Process cleanup on app quit
+- Zombie process prevention
+- Port conflict prevention
 
 ### Changed
-
 - Removed Zed ACP (rcoder)方案
 - Removed claude-code-acp-ts dependency
-- Node.js detection (built into Electron, no separate installation needed)
 - Updated dependency list to match Electron architecture
 
 ### Technical Details
@@ -77,8 +137,8 @@ Main Process (Electron)
 ├── Window Management
 ├── IPC Handlers (40+)
 ├── SQLite Database
-├── CoworkRunner
-└── IM Gateways
+├── System Tray
+└── Process Cleanup on Exit
 
 Renderer Process (React)
 ├── UI Components
@@ -92,6 +152,8 @@ Renderer Process (React)
 ├── engines/           # Agent engines (claude-code, nuwaxcode)
 ├── workspaces/       # Session workspaces
 ├── node_modules/    # Local npm packages
+│   └── mcp-servers # MCP servers (isolated)
+├── logs/            # Application logs
 └── nuwax-agent.db   # SQLite database
 ```
 
@@ -100,15 +162,11 @@ Renderer Process (React)
 ## [Future]
 
 ### Planned Features
-
-- [ ] Sandbox execution (Alpine Linux VM)
-- [ ] Permission gating
-- [ ] Persistent memory
-- [ ] Scheduled tasks
-- [ ] IM remote control
+- [ ] Built-in Skills (16 types like LobsterAI)
+- [ ] Persistent Memory
+- [ ] Auto-launch on startup
 
 ### Known Issues
-
 - None currently
 
 ---
