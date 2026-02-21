@@ -963,11 +963,77 @@ app.on('activate', () => {
   }
 });
 
+// Stop all child processes before quit
+function cleanupAllProcesses(): void {
+  log.info('[Cleanup] Stopping all processes...');
+  
+  // Stop Agent Runner
+  if (agentRunnerProcess) {
+    try {
+      agentRunnerProcess.kill();
+      log.info('[Cleanup] Agent Runner stopped');
+    } catch (e) {
+      log.error('[Cleanup] Agent Runner stop error:', e);
+    }
+    agentRunnerProcess = null;
+  }
+
+  // Stop Lanproxy
+  if (lanproxyProcess) {
+    try {
+      lanproxyProcess.kill();
+      log.info('[Cleanup] Lanproxy stopped');
+    } catch (e) {
+      log.error('[Cleanup] Lanproxy stop error:', e);
+    }
+    lanproxyProcess = null;
+  }
+
+  // Stop File Server
+  if (fileServerProcess) {
+    try {
+      fileServerProcess.kill();
+      log.info('[Cleanup] File Server stopped');
+    } catch (e) {
+      log.error('[Cleanup] File Server stop error:', e);
+    }
+    fileServerProcess = null;
+  }
+
+  // Stop all MCP servers
+  try {
+    const { stopAllMcpServers } = require('../services/mcp');
+    stopAllMcpServers();
+    log.info('[Cleanup] MCP servers stopped');
+  } catch (e) {
+    // MCP service might not be loaded
+  }
+
+  // Stop all Engine processes
+  try {
+    const { stopAllEngines } = require('../services/engineManager');
+    stopAllEngines();
+    log.info('[Cleanup] Engine processes stopped');
+  } catch (e) {
+    // Engine service might not be loaded
+  }
+
+  log.info('[Cleanup] All processes stopped');
+}
+
+// Register cleanup handlers
 app.on('before-quit', () => {
+  log.info('[App] Before quit - starting cleanup');
+  cleanupAllProcesses();
+  
   if (db) {
     db.close();
-    log.info('Database closed');
+    log.info('[App] Database closed');
   }
+});
+
+app.on('will-quit', () => {
+  log.info('[App] Will quit');
 });
 
 // Handle uncaught exceptions

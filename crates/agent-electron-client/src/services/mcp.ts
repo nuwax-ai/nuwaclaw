@@ -445,3 +445,8 @@ class MCPManager {
 }
 
 export const mcpManager = new MCPManager();
+
+// Convenience function for cleanup
+export function stopAllMcpServers(): void {
+  mcpManager.stopAll();
+}
