@@ -293,6 +293,7 @@ function setupIpcHandlers() {
 
       const proc = spawn('npm', ['install', '-g', packageName, registryArg].filter(Boolean), {
         shell: true,
+        windowsHide: true,
         env: { ...process.env },
       });
 
@@ -332,6 +333,7 @@ function setupIpcHandlers() {
 
       const proc = spawn('npm', ['uninstall', '-g', packageName], {
         shell: true,
+        windowsHide: true,
         env: { ...process.env },
       });
 
@@ -363,6 +365,7 @@ function setupIpcHandlers() {
     return new Promise((resolve) => {
       const proc = spawn('npm', ['list', '-g', '--depth=0', packageName], {
         shell: true,
+        windowsHide: true,
         stdio: ['ignore', 'pipe', 'ignore'],
       });
 
@@ -455,6 +458,7 @@ function setupIpcHandlers() {
 
         lanproxyProcess = spawn(config.binPath, args, {
           shell: true,
+        windowsHide: true,
           env: { ...process.env },
           stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -527,6 +531,7 @@ function setupIpcHandlers() {
 
         agentRunnerProcess = spawn(config.binPath, args, {
           shell: true,
+        windowsHide: true,
           env: { ...process.env },
           stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -664,6 +669,7 @@ function setupIpcHandlers() {
 
         fileServerProcess = spawn(serverCmd, args, {
           shell: true,
+        windowsHide: true,
           env: { ...process.env },
           stdio: ['ignore', 'pipe', 'pipe'],
         });

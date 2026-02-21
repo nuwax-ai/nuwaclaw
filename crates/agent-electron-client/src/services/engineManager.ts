@@ -364,6 +364,7 @@ export async function startEngine(
       env,
       cwd: config.workspaceDir || getAppDataDir(),
       stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
     });
     
     proc.on('error', (error) => {
