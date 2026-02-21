@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This is the **Nuwax Agent** desktop application - a multi-engine AI assistant that works around the clock.
+This is the **Nuwax Agent** Electron client - a multi-engine AI assistant desktop application.
 
 ### Core Features
 
