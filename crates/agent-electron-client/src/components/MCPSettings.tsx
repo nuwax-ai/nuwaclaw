@@ -28,27 +28,9 @@ import {
   SaveOutlined,
   ApiOutlined,
 } from '@ant-design/icons';
+import type { McpServerEntry, McpServersConfig, McpProxyStatus } from '../types/electron';
 
 const { Text } = Typography;
-
-interface McpServerEntry {
-  command: string;
-  args: string[];
-  env?: Record<string, string>;
-}
-
-interface McpServersConfig {
-  mcpServers: Record<string, McpServerEntry>;
-}
-
-interface McpProxyStatus {
-  running: boolean;
-  pid?: number;
-  port?: number;
-  host?: string;
-  serverCount?: number;
-  serverNames?: string[];
-}
 
 interface MCPSettingsProps {
   isOpen: boolean;

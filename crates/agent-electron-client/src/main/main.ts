@@ -6,6 +6,8 @@ import log from 'electron-log';
 import Database from 'better-sqlite3';
 import { agentService } from '../services/unifiedAgent';
 import type { AgentConfig } from '../services/unifiedAgent';
+import { mcpProxyManager, DEFAULT_MCP_PROXY_CONFIG, DEFAULT_MCP_PROXY_PORT } from '../services/mcp';
+import type { McpServersConfig } from '../services/mcp';
 
 // Configure logging — 日志统一写入 ~/.nuwax-agent/logs/
 const nuwaxHome = path.join(app.getPath('home'), '.nuwax-agent');
@@ -328,7 +330,6 @@ function setupIpcHandlers() {
   });
 
   // MCP Proxy handlers — 统一代理模式 (mcp-stdio-proxy)
-  const { mcpProxyManager, DEFAULT_MCP_PROXY_CONFIG, DEFAULT_MCP_PROXY_PORT } = require('../services/mcp');
 
   // 启动 MCP Proxy
   ipcMain.handle('mcp:start', async (_, options?: { port?: number; host?: string; configJson?: string }) => {
@@ -356,13 +357,15 @@ function setupIpcHandlers() {
     if (saved) {
       try {
         return JSON.parse(saved.value);
-      } catch {}
+      } catch (e) {
+        log.warn('[McpProxy] 配置 JSON 解析失败，使用默认值:', e);
+      }
     }
     return DEFAULT_MCP_PROXY_CONFIG;
   });
 
   // 保存配置
-  ipcMain.handle('mcp:setConfig', async (_, config: { mcpServers: Record<string, unknown> }) => {
+  ipcMain.handle('mcp:setConfig', async (_, config: McpServersConfig) => {
     try {
       const configJson = JSON.stringify(config);
       db?.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('mcp_proxy_config', configJson);
@@ -1427,12 +1430,13 @@ app.whenReady().then(() => {
 
   // 初始化 MCP Proxy 配置（从数据库加载）
   try {
-    const { mcpProxyManager, DEFAULT_MCP_PROXY_CONFIG, DEFAULT_MCP_PROXY_PORT } = require('../services/mcp');
     const savedConfig = db?.prepare('SELECT value FROM settings WHERE key = ?').get('mcp_proxy_config') as { value: string } | undefined;
     if (savedConfig) {
       try {
         mcpProxyManager.setConfig(JSON.parse(savedConfig.value));
-      } catch {}
+      } catch (e) {
+        log.warn('[McpProxy] 初始化配置解析失败:', e);
+      }
     }
     const savedPort = db?.prepare('SELECT value FROM settings WHERE key = ?').get('mcp_proxy_port') as { value: string } | undefined;
     if (savedPort) {
@@ -1449,7 +1453,6 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   // Stop MCP Proxy
-  const { mcpProxyManager } = require('../services/mcp');
   mcpProxyManager.cleanup();
 
   // Stop lanproxy
@@ -1528,7 +1531,6 @@ function cleanupAllProcesses(): void {
 
   // Stop MCP Proxy
   try {
-    const { mcpProxyManager } = require('../services/mcp');
     mcpProxyManager.cleanup();
     log.info('[Cleanup] MCP Proxy stopped');
   } catch (e) {

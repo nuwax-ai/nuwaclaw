@@ -7,7 +7,7 @@
  * - 系统设置
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import {
   Button,
   Form,
@@ -24,6 +24,12 @@ import {
 } from 'antd';
 import { FolderOutlined, SaveOutlined, EditOutlined } from '@ant-design/icons';
 import { setupService, Step1Config, DEFAULT_STEP1_CONFIG } from '../services/setup';
+
+// Dev tools: 仅开发模式加载
+const IS_DEV = import.meta.env.DEV;
+const DevToolsPanel = IS_DEV
+  ? React.lazy(() => import('./dev/DevToolsPanel'))
+  : null;
 
 // AI 配置接口
 interface AISettings {
@@ -279,16 +285,8 @@ export default function SettingsPage() {
           }}
         >
           <Form form={form} layout="vertical" disabled={!editing} size="small">
-            <Form.Item
-              name="serverHost"
-              label="服务域名"
-              rules={[{ required: true, message: '请输入服务域名' }]}
-            >
-              <Input placeholder="https://agent.nuwax.com" />
-            </Form.Item>
-
             <Row gutter={16}>
-              <Col span={8}>
+              <Col span={12}>
                 <Form.Item
                   name="agentPort"
                   label="Agent 端口"
@@ -297,19 +295,21 @@ export default function SettingsPage() {
                   <InputNumber min={1} max={65535} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+            </Row>
+            <Row gutter={16}>
+              <Col span={12}>
                 <Form.Item
-                  name="fileServerPort"
-                  label="文件服务端口"
+                  name="proxyPort"
+                  label="代理服务端口"
                   rules={[{ required: true, message: '请输入端口' }]}
                 >
                   <InputNumber min={1} max={65535} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+              <Col span={12}>
                 <Form.Item
-                  name="proxyPort"
-                  label="代理端口"
+                  name="fileServerPort"
+                  label="文件服务端口"
                   rules={[{ required: true, message: '请输入端口' }]}
                 >
                   <InputNumber min={1} max={65535} style={{ width: '100%' }} />
@@ -540,6 +540,15 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* 开发工具 (仅开发模式) */}
+      {IS_DEV && DevToolsPanel && (
+        <div style={{ marginTop: 20 }}>
+          <Suspense fallback={<Spin size="small" />}>
+            <DevToolsPanel />
+          </Suspense>
+        </div>
+      )}
     </div>
   );
 }

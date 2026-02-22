@@ -27,7 +27,6 @@ import {
   LockOutlined,
   GlobalOutlined,
   LogoutOutlined,
-  LoginOutlined,
   PlayCircleOutlined,
   PoweroffOutlined,
   SettingOutlined,
@@ -93,7 +92,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
   const [batchLoading, setBatchLoading] = useState(false);
 
   // ---------- Dependencies ----------
-  const [depsMissing, setDepsMissing] = useState(false);
+  const [missingDeps, setMissingDeps] = useState<{ name: string; displayName: string }[]>([]);
   const [depsChecked, setDepsChecked] = useState(false);
 
   // ---------- Polling ----------
@@ -129,14 +128,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
   }, []);
 
   const handleLogin = async () => {
-    if (!loginUsername || !loginPassword) {
-      message.warning('请输入账号和认证码');
-      return;
-    }
-    if (!loginDomain) {
-      message.warning('请输入服务域名');
-      return;
-    }
+    if (!loginUsername || !loginPassword || !loginDomain) return;
 
     setLoginLoading(true);
     try {
@@ -206,22 +198,12 @@ function ClientPage({ onNavigate }: ClientPageProps) {
     try {
       const items: ServiceItem[] = [];
 
-      // Agent
-      const agentStatus = await window.electronAPI?.agent.status();
-      items.push({
-        key: 'agent',
-        label: 'Agent 服务',
-        description: 'Agent 引擎服务',
-        running: agentStatus?.running ?? false,
-        pid: agentStatus?.pid,
-      });
-
       // File Server
       const fsStatus = await window.electronAPI?.fileServer.status();
       items.push({
         key: 'fileServer',
         label: '文件服务',
-        description: '本地文件服务',
+        description: 'Agent 工作目录文件远程管理服务',
         running: fsStatus?.running ?? false,
         pid: fsStatus?.pid,
       });
@@ -230,14 +212,24 @@ function ClientPage({ onNavigate }: ClientPageProps) {
       const lpStatus = await window.electronAPI?.lanproxy.status();
       items.push({
         key: 'lanproxy',
-        label: 'Lanproxy',
-        description: '内网穿透服务',
+        label: '代理服务',
+        description: '网络通道',
         running: lpStatus?.running ?? false,
         pid: lpStatus?.pid,
       });
 
+      // Agent
+      const agentStatus = await window.electronAPI?.agent.status();
+      items.push({
+        key: 'agent',
+        label: 'Agent 服务',
+        description: 'Agent 核心服务',
+        running: agentStatus?.running ?? false,
+        pid: agentStatus?.pid,
+      });
+
       // Agent Runner
-      const arStatus = await window.electronAPI?.agentRunner?.status();
+      const arStatus = await window.electronAPI?.agentRunner.status();
       items.push({
         key: 'agentRunner',
         label: 'Agent Runner',
@@ -250,8 +242,8 @@ function ClientPage({ onNavigate }: ClientPageProps) {
       const mcpStatus = await window.electronAPI?.mcp.status();
       items.push({
         key: 'mcpProxy',
-        label: 'MCP Proxy',
-        description: 'MCP 协议转换服务',
+        label: 'MCP 服务',
+        description: 'MCP 协议转换工具',
         running: mcpStatus?.running ?? false,
         pid: mcpStatus?.pid,
       });
@@ -266,9 +258,11 @@ function ClientPage({ onNavigate }: ClientPageProps) {
 
   const handleStartService = async (key: string) => {
     try {
+      let result: { success: boolean; error?: string } | undefined;
+
       if (key === 'agent') {
         const config = await window.electronAPI?.settings.get('agent_config') as any;
-        const result = await window.electronAPI?.agent.start({
+        result = await window.electronAPI?.agent.start({
           type: config?.type || 'nuwaxcode',
           binPath: config?.binPath || 'opencode',
           env: {},
@@ -276,30 +270,25 @@ function ClientPage({ onNavigate }: ClientPageProps) {
           apiBaseUrl: config?.apiBaseUrl,
           model: config?.model,
         });
-        if (result?.success) {
-          message.success('Agent 启动成功');
-        } else {
-          message.error(`Agent 启动失败: ${result?.error || '未知错误'}`);
-        }
       } else if (key === 'fileServer') {
         const step1 = await window.electronAPI?.settings.get('step1_config') as { fileServerPort?: number } | null;
-        const result = await window.electronAPI?.fileServer.start(step1?.fileServerPort ?? 60000);
-        if (result?.success) {
-          message.success('文件服务启动成功');
-        } else {
-          message.error(`文件服务启动失败: ${result?.error || '未知错误'}`);
-        }
+        result = await window.electronAPI?.fileServer.start(step1?.fileServerPort ?? 60000);
       } else if (key === 'lanproxy') {
-        message.info('请在设置中配置 Lanproxy 参数后启动');
+        message.info('请在设置中配置代理服务参数后启动');
+        await pollServices();
+        return;
       } else if (key === 'agentRunner') {
         message.info('请在设置中配置 Agent Runner 参数后启动');
+        await pollServices();
+        return;
       } else if (key === 'mcpProxy') {
-        const result = await window.electronAPI?.mcp.start();
-        if (result?.success) {
-          message.success('MCP Proxy 启动成功');
-        } else {
-          message.error(`MCP Proxy 启动失败: ${result?.error || '未知错误'}`);
-        }
+        result = await window.electronAPI?.mcp.start();
+      }
+
+      if (result?.success) {
+        message.success('服务启动成功');
+      } else if (result) {
+        message.error(`启动失败: ${result.error || '未知错误'}`);
       }
     } catch (error) {
       message.error(`启动失败: ${error}`);
@@ -309,22 +298,12 @@ function ClientPage({ onNavigate }: ClientPageProps) {
 
   const handleStopService = async (key: string) => {
     try {
-      if (key === 'agent') {
-        await window.electronAPI?.agent.stop();
-        message.success('Agent 已停止');
-      } else if (key === 'fileServer') {
-        await window.electronAPI?.fileServer.stop();
-        message.success('文件服务已停止');
-      } else if (key === 'lanproxy') {
-        await window.electronAPI?.lanproxy.stop();
-        message.success('Lanproxy 已停止');
-      } else if (key === 'agentRunner') {
-        await window.electronAPI?.agentRunner?.stop();
-        message.success('Agent Runner 已停止');
-      } else if (key === 'mcpProxy') {
-        await window.electronAPI?.mcp.stop();
-        message.success('MCP Proxy 已停止');
-      }
+      if (key === 'agent') await window.electronAPI?.agent.stop();
+      else if (key === 'fileServer') await window.electronAPI?.fileServer.stop();
+      else if (key === 'lanproxy') await window.electronAPI?.lanproxy.stop();
+      else if (key === 'agentRunner') await window.electronAPI?.agentRunner.stop();
+      else if (key === 'mcpProxy') await window.electronAPI?.mcp.stop();
+      message.success('服务已停止');
     } catch (error) {
       message.error(`停止失败: ${error}`);
     }
@@ -332,14 +311,28 @@ function ClientPage({ onNavigate }: ClientPageProps) {
   };
 
   const handleStartAll = async () => {
+    if (missingDeps.length > 0) {
+      message.warning('存在缺失依赖，请先安装');
+      return;
+    }
+
     setBatchLoading(true);
     try {
-      const stopped = services.filter((s) => !s.running);
-      for (const svc of stopped) {
-        await handleStartService(svc.key);
+      // 按顺序启动: File Server → MCP Proxy → Agent
+      // Lanproxy / Agent Runner 需要额外配置，不自动启动
+      const startOrder = ['fileServer', 'mcpProxy', 'agent'];
+      let startedCount = 0;
+
+      for (const key of startOrder) {
+        const svc = services.find((s) => s.key === key);
+        if (svc && !svc.running) {
+          await handleStartService(key);
+          startedCount++;
+        }
       }
-      if (stopped.length === 0) {
-        message.info('所有服务已在运行');
+
+      if (startedCount === 0) {
+        message.info('所有可自动启动的服务已在运行');
       }
     } finally {
       setBatchLoading(false);
@@ -356,7 +349,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
           if (svc.key === 'agent') await window.electronAPI?.agent.stop();
           else if (svc.key === 'fileServer') await window.electronAPI?.fileServer.stop();
           else if (svc.key === 'lanproxy') await window.electronAPI?.lanproxy.stop();
-          else if (svc.key === 'agentRunner') await window.electronAPI?.agentRunner?.stop();
+          else if (svc.key === 'agentRunner') await window.electronAPI?.agentRunner.stop();
           else if (svc.key === 'mcpProxy') await window.electronAPI?.mcp.stop();
         } catch (error) {
           console.error(`停止 ${svc.label} 失败:`, error);
@@ -379,10 +372,14 @@ function ClientPage({ onNavigate }: ClientPageProps) {
     try {
       const result = await window.electronAPI?.dependencies.checkAll();
       const deps = result?.results || [];
-      const hasMissing = deps.some(
-        (d) => d.status !== 'installed' && d.status !== 'bundled',
+      const missing = deps.filter(
+        (d: any) =>
+          d.required &&
+          (d.status === 'missing' || d.status === 'outdated' || d.status === 'error'),
       );
-      setDepsMissing(hasMissing);
+      setMissingDeps(
+        missing.map((d: any) => ({ name: d.name, displayName: d.displayName || d.name })),
+      );
     } catch (error) {
       console.error('[ClientPage] checkDependencies failed:', error);
     } finally {
@@ -497,51 +494,62 @@ function ClientPage({ onNavigate }: ClientPageProps) {
     // Not logged in — show login form
     return (
       <div style={styles.sectionBody}>
-        <Form layout="vertical" style={{ maxWidth: 360 }}>
-          <Form.Item label="服务域名" style={{ marginBottom: 12 }}>
+        <Form layout="vertical" size="small" onFinish={handleLogin}>
+          <Form.Item
+            rules={[{ required: true, message: '请输入服务域名' }]}
+            style={{ marginBottom: 10 }}
+          >
             <Input
               prefix={<GlobalOutlined />}
               value={loginDomain}
               onChange={(e) => setLoginDomain(e.target.value)}
-              placeholder="https://agent.nuwax.com"
-              size="small"
+              placeholder="服务域名（例如：https://agent.nuwax.com）"
+              allowClear
             />
           </Form.Item>
 
-          <Form.Item label="账号" style={{ marginBottom: 12 }}>
+          <Form.Item
+            rules={[{ required: true, message: '请输入账号' }]}
+            style={{ marginBottom: 10 }}
+          >
             <Input
               prefix={<UserOutlined />}
               value={loginUsername}
               onChange={(e) => setLoginUsername(e.target.value)}
               placeholder="用户名 / 手机号 / 邮箱"
               autoComplete="username"
-              size="small"
+              allowClear
             />
           </Form.Item>
 
-          <Form.Item label="动态认证码" style={{ marginBottom: 16 }}>
+          <Form.Item
+            rules={[{ required: true, message: '请填写动态认证码（在PC端或移动端的个人资料中查看）' }]}
+            style={{ marginBottom: 12 }}
+          >
             <Input.Password
               prefix={<LockOutlined />}
               value={loginPassword}
               onChange={(e) => setLoginPassword(e.target.value)}
-              placeholder="请填写动态认证码"
+              placeholder="请填写动态认证码（在PC端或移动端的个人资料中查看）"
               autoComplete="current-password"
-              size="small"
-              onPressEnter={handleLogin}
             />
           </Form.Item>
 
           <Button
             type="primary"
-            icon={<LoginOutlined />}
-            onClick={handleLogin}
+            htmlType="submit"
             loading={loginLoading}
             block
-            size="small"
           >
             登录
           </Button>
         </Form>
+
+        <div style={{ marginTop: 8, textAlign: 'center' }}>
+          <span style={{ fontSize: 11, color: '#a1a1aa' }}>
+            支持用户名、邮箱、手机号
+          </span>
+        </div>
       </div>
     );
   };
@@ -611,24 +619,35 @@ function ClientPage({ onNavigate }: ClientPageProps) {
   };
 
   const renderDependencyAlert = () => {
-    if (!depsChecked || !depsMissing) return null;
+    if (!depsChecked || missingDeps.length === 0) return null;
+
+    const allStopped = services.length > 0 && services.every((s) => !s.running);
 
     return (
       <Alert
-        message="检测到缺失依赖"
-        description="部分必需依赖未安装，可能影响服务运行。"
-        type="warning"
+        message="缺少必需依赖，无法启动服务"
+        description={
+          <div>
+            <div style={{ marginBottom: 8 }}>
+              {missingDeps.map((dep) => (
+                <Tag key={dep.name} color="error" style={{ marginBottom: 4 }}>
+                  {dep.displayName}
+                </Tag>
+              ))}
+            </div>
+            <Button
+              size="small"
+              type="primary"
+              onClick={() => onNavigate?.('dependencies')}
+            >
+              前往安装
+            </Button>
+          </div>
+        }
+        type={allStopped ? 'error' : 'warning'}
         showIcon
         icon={<ExclamationCircleOutlined />}
         style={{ marginBottom: 16 }}
-        action={
-          <Button
-            size="small"
-            onClick={() => onNavigate?.('dependencies')}
-          >
-            前往安装
-          </Button>
-        }
       />
     );
   };
@@ -649,7 +668,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
             onClick={() => onNavigate?.('dependencies')}
             size="small"
           >
-            依赖管理
+            依赖
           </Button>
           <Button
             icon={<InfoCircleOutlined />}
@@ -684,13 +703,13 @@ function ClientPage({ onNavigate }: ClientPageProps) {
         <div style={{ ...styles.sectionHeader, justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <PlayCircleOutlined style={{ fontSize: 14, color: '#52525b' }} />
-            <span style={styles.sectionTitle}>服务状态</span>
+            <span style={styles.sectionTitle}>服务</span>
             {!servicesLoading && (() => {
               const runningCount = services.filter((s) => s.running).length;
               const totalCount = services.length;
-              const badgeColor = runningCount === totalCount ? 'green'
+              const badgeColor = runningCount === totalCount ? 'success'
                 : runningCount === 0 ? 'default'
-                : 'orange';
+                : 'warning';
               return (
                 <Tag color={badgeColor} style={{ margin: 0, fontSize: 11 }}>
                   {runningCount}/{totalCount}
@@ -704,16 +723,18 @@ function ClientPage({ onNavigate }: ClientPageProps) {
                 size="small"
                 icon={<ReloadOutlined />}
                 onClick={() => { setServicesLoading(true); pollServices(); }}
-              />
+              >
+                刷新
+              </Button>
               <Button
                 size="small"
                 type="primary"
                 icon={<PlayCircleOutlined />}
                 onClick={handleStartAll}
                 loading={batchLoading}
-                disabled={services.every((s) => s.running)}
+                disabled={!depsChecked || missingDeps.length > 0 || services.every((s) => s.running)}
               >
-                全部启动
+                启动全部
               </Button>
               <Button
                 size="small"
@@ -723,7 +744,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
                 loading={batchLoading}
                 disabled={services.every((s) => !s.running)}
               >
-                全部停止
+                停止全部
               </Button>
             </div>
           )}

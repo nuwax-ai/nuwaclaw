@@ -163,6 +163,10 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
       message.warning('请输入文件服务端口');
       return;
     }
+    if (!step1Config.proxyPort) {
+      message.warning('请输入代理服务端口');
+      return;
+    }
     if (!step1Config.workspaceDir) {
       message.warning('请选择工作区目录');
       return;
@@ -290,7 +294,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               <InputNumber
                 value={step1Config.agentPort}
                 onChange={(value) =>
-                  setStep1Config({ ...step1Config, agentPort: value || 60001 })
+                  setStep1Config({ ...step1Config, agentPort: value as number })
                 }
                 style={{ width: '100%' }}
                 min={1024}
@@ -304,7 +308,22 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
                 onChange={(value) =>
                   setStep1Config({
                     ...step1Config,
-                    fileServerPort: value || 60000,
+                    fileServerPort: value as number,
+                  })
+                }
+                style={{ width: '100%' }}
+                min={1024}
+                max={65535}
+              />
+            </Form.Item>
+
+            <Form.Item label="代理服务端口" required>
+              <InputNumber
+                value={step1Config.proxyPort}
+                onChange={(value) =>
+                  setStep1Config({
+                    ...step1Config,
+                    proxyPort: value as number,
                   })
                 }
                 style={{ width: '100%' }}

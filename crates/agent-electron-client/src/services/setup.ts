@@ -174,10 +174,15 @@ class SetupService {
 
   /**
    * Reset setup (for logout/re-setup)
+   * 清除所有设置向导状态和配置，恢复到初始状态
    */
   async resetSetup(): Promise<void> {
     try {
       await window.electronAPI?.settings.set(STORAGE_KEYS.SETUP_STATE, DEFAULT_SETUP_STATE);
+      await window.electronAPI?.settings.set(STORAGE_KEYS.STEP1_CONFIG, null);
+      await window.electronAPI?.settings.set(STORAGE_KEYS.AGENT_CONFIG, null);
+      await window.electronAPI?.settings.set(STORAGE_KEYS.LANPROXY_CONFIG, null);
+      await window.electronAPI?.settings.set(STORAGE_KEYS.MCP_CONFIG, null);
       console.log('[Setup] Reset completed');
     } catch (error) {
       console.error('[Setup] Reset failed:', error);

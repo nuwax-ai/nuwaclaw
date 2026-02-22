@@ -8,6 +8,8 @@
  */
 
 import { spawn, ChildProcess } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
 import log from 'electron-log';
 import { getAppEnv } from './dependencies';
 import { getAppPaths, isInstalledLocally } from './packageLocator';
@@ -77,8 +79,8 @@ class McpProxyManager {
     const binName = process.platform === 'win32' ? 'mcp-proxy.cmd' : 'mcp-proxy';
 
     // 优先检查应用内安装
-    const localBinPath = require('path').join(dirs.nodeModules, '.bin', binName);
-    if (require('fs').existsSync(localBinPath)) {
+    const localBinPath = path.join(dirs.nodeModules, '.bin', binName);
+    if (fs.existsSync(localBinPath)) {
       return localBinPath;
     }
 

@@ -258,14 +258,9 @@ export function createIsolatedEnvironment(config: EngineConfig): {
   const runId = generateRunId();
   const isolatedHome = getIsolatedHomeDir(runId);
   
-  // 创建隔离目录
-  if (!fs.existsSync(isolatedHome)) {
-    fs.mkdirSync(isolatedHome, { recursive: true });
-
-    // 创建必要子目录
-    fs.mkdirSync(path.join(isolatedHome, '.claude'), { recursive: true });
-    fs.mkdirSync(path.join(isolatedHome, '.nuwaxcode'), { recursive: true });
-  }
+  // 创建隔离目录（recursive: true 保证幂等）
+  fs.mkdirSync(path.join(isolatedHome, '.claude'), { recursive: true });
+  fs.mkdirSync(path.join(isolatedHome, '.nuwaxcode'), { recursive: true });
 
   // 注入 MCP 配置到 .claude/settings.json
   // 如果 MCP Proxy 运行中，使用 mcp-proxy convert 桥接；否则直接配置 stdio 服务器
@@ -377,14 +372,7 @@ export async function startEngine(
       args = ['serve', '--stdio'];
       break;
   }
-  
-  // 可选: 添加配置文件路径
-  if (config.engine === 'claude-code') {
-    const configPath = path.join(getIsolatedHomeDir(runId), 'config.yaml');
-    // 如果有自定义配置
-    //config', configPath args.push('--);
-  }
-  
+
   log.info(`[Engine] Starting ${config.engine}: ${engineBinary} ${args.join(' ')}`);
   
   return new Promise((resolve) => {
