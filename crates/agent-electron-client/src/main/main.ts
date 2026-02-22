@@ -70,6 +70,7 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     title: 'Nuwax Agent',
+    icon: path.join(__dirname, '../../public/icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -183,7 +184,8 @@ function createMenu() {
 }
 
 function createTray() {
-  const icon = nativeImage.createEmpty();
+  const trayIconPath = path.join(__dirname, '../../public/32x32.png');
+  const icon = nativeImage.createFromPath(trayIconPath);
   tray = new Tray(icon);
 
   const contextMenu = Menu.buildFromTemplate([

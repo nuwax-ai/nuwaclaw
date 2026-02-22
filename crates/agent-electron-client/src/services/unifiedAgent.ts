@@ -124,7 +124,7 @@ export class OpencodeEngine extends EventEmitter {
     try {
       if (config.baseUrl) {
         log.info('[OpencodeEngine] Connecting to existing server:', config.baseUrl);
-        this.client = createOpencodeClient({ baseUrl: config.baseUrl });
+        this.client = await createOpencodeClient({ baseUrl: config.baseUrl });
       } else {
         const port = config.port || 4096;
         const hostname = config.hostname || '127.0.0.1';
