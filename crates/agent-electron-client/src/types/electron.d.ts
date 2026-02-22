@@ -140,6 +140,8 @@ export interface AgentInitConfig {
   engineBinaryPath?: string;
   env?: Record<string, string>;
   mcpServers?: Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
+  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions';
+  systemPrompt?: string;
 }
 
 export interface SdkSession {

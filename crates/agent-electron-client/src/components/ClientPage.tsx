@@ -265,7 +265,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
         const agentConfig = await window.electronAPI?.settings.get('agent_config') as any;
         const step1 = await window.electronAPI?.settings.get('step1_config') as { workspaceDir?: string } | null;
         result = await window.electronAPI?.agent.init({
-          engine: agentConfig?.type || 'opencode',
+          engine: agentConfig?.type || 'claude-code',
           apiKey: agentConfig?.apiKey,
           baseUrl: agentConfig?.apiBaseUrl,
           model: agentConfig?.model,

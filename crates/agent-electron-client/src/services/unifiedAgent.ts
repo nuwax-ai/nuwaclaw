@@ -7,10 +7,11 @@
  * - UnifiedAgentService: Event bus + engine proxy
  */
 
-import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
+import { app } from 'electron';
 import log from 'electron-log';
 import { getAppEnv } from './dependencies';
+import { loadClaudeSdk, getClaudeCodeCliPath, type PermissionResult } from './claudeAgentSdk';
 import {
   createOpencode,
   createOpencodeClient,
@@ -49,6 +50,8 @@ export interface AgentConfig {
   engineBinaryPath?: string;
   env?: Record<string, string>;
   mcpServers?: Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
+  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions';
+  systemPrompt?: string;
 }
 
 export type Message = UserMessage | AssistantMessage;
@@ -620,86 +623,385 @@ export class OpencodeEngine extends EventEmitter {
 
 // ==================== ClaudeCodeEngine ====================
 
+interface ClaudeSession {
+  id: string;
+  title?: string;
+  _sdkSessionId?: string;
+  createdAt: number;
+}
+
+let _ccSessionCounter = 0;
+
 export class ClaudeCodeEngine extends EventEmitter {
   private config: AgentConfig | null = null;
-  private activeProcess: ChildProcess | null = null;
   private _ready = false;
+  private sessions = new Map<string, ClaudeSession>();
+  private pendingPermissions = new Map<string, { resolve: (r: PermissionResult) => void }>();
+  private activeAbortController: AbortController | null = null;
 
   get isReady(): boolean {
     return this._ready;
   }
 
+  // === Lifecycle ===
+
   async init(config: AgentConfig): Promise<boolean> {
     this.config = config;
-    this._ready = true;
-    log.info('[ClaudeCodeEngine] Initialized (CLI mode)');
-    this.emit('ready');
-    return true;
-  }
 
-  async prompt(message: string, outputFormat: 'text' | 'json' = 'json'): Promise<string> {
-    if (!this.config) {
-      throw new Error('ClaudeCodeEngine not initialized');
-    }
-
-    const cfg = this.config;
-
-    return new Promise((resolve, reject) => {
-      const binaryPath = cfg.engineBinaryPath || 'claude';
-      const args = ['--print', message];
-      if (outputFormat === 'json') {
-        args.push('--output-format', 'json');
-      }
-
-      const env: Record<string, string> = { ...process.env as Record<string, string>, ...getAppEnv() };
-      if (cfg.apiKey) env.ANTHROPIC_API_KEY = cfg.apiKey;
-      if (cfg.baseUrl) env.ANTHROPIC_BASE_URL = cfg.baseUrl;
-      if (cfg.model) env.ANTHROPIC_MODEL = cfg.model;
-      if (cfg.env) Object.assign(env, cfg.env);
-
-      const proc = spawn(binaryPath, args, {
-        cwd: cfg.workspaceDir || process.cwd(),
-        env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-      });
-
-      this.activeProcess = proc;
-      let stdout = '';
-      let stderr = '';
-
-      proc.stdout?.on('data', (data: Buffer) => { stdout += data.toString(); });
-      proc.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
-
-      proc.on('close', (code) => {
-        this.activeProcess = null;
-        if (code === 0) {
-          resolve(stdout);
-        } else {
-          reject(new Error(stderr || `claude exited with code ${code}`));
-        }
-      });
-
-      proc.on('error', (error) => {
-        this.activeProcess = null;
-        reject(error);
-      });
-    });
-  }
-
-  async abort(): Promise<void> {
-    if (this.activeProcess) {
-      this.activeProcess.kill();
-      this.activeProcess = null;
+    try {
+      // Pre-load SDK to fail fast if missing
+      await loadClaudeSdk();
+      this._ready = true;
+      log.info('[ClaudeCodeEngine] Initialized (SDK mode)');
+      this.emit('ready');
+      return true;
+    } catch (error) {
+      log.error('[ClaudeCodeEngine] Init failed — SDK not loadable:', error);
+      this.emit('error', error instanceof Error ? error : new Error(String(error)));
+      return false;
     }
   }
 
   async destroy(): Promise<void> {
-    await this.abort();
+    await this.abortSession();
+    // Reject all pending permissions
+    for (const [id, pending] of this.pendingPermissions) {
+      pending.resolve({ behavior: 'deny' });
+      this.pendingPermissions.delete(id);
+    }
+    this.sessions.clear();
     this.config = null;
     this._ready = false;
     log.info('[ClaudeCodeEngine] Destroyed');
     this.emit('destroyed');
+  }
+
+  // === Session Management ===
+
+  async createSession(opts?: { title?: string }): Promise<SdkSession> {
+    const id = `cc-${++_ccSessionCounter}-${Date.now()}`;
+    const session: ClaudeSession = {
+      id,
+      title: opts?.title,
+      createdAt: Date.now(),
+    };
+    this.sessions.set(id, session);
+    log.info('[ClaudeCodeEngine] Session created:', id);
+    return {
+      id,
+      title: session.title,
+      time: { created: session.createdAt },
+    };
+  }
+
+  async listSessions(): Promise<SdkSession[]> {
+    return Array.from(this.sessions.values()).map((s) => ({
+      id: s.id,
+      title: s.title,
+      time: { created: s.createdAt },
+    }));
+  }
+
+  async getSession(id: string): Promise<SdkSession> {
+    const s = this.sessions.get(id);
+    if (!s) throw new Error(`Session not found: ${id}`);
+    return { id: s.id, title: s.title, time: { created: s.createdAt } };
+  }
+
+  async deleteSession(id: string): Promise<boolean> {
+    return this.sessions.delete(id);
+  }
+
+  async abortSession(_id?: string): Promise<void> {
+    if (this.activeAbortController) {
+      this.activeAbortController.abort();
+      this.activeAbortController = null;
+    }
+  }
+
+  // === Prompt (Core) ===
+
+  async prompt(
+    sessionId: string,
+    parts: Array<{ type: string; text?: string; [key: string]: unknown }>,
+    _opts?: PromptOptions,
+  ): Promise<MessageWithParts> {
+    if (!this.config) throw new Error('ClaudeCodeEngine not initialized');
+
+    const session = this.sessions.get(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+
+    // Build prompt text from parts
+    const promptText = parts
+      .filter((p) => p.type === 'text' && p.text)
+      .map((p) => p.text)
+      .join('\n');
+
+    if (!promptText) throw new Error('Empty prompt');
+
+    const cfg = this.config;
+
+    // Build env
+    const env: Record<string, string> = {
+      ...process.env as Record<string, string>,
+      ...getAppEnv(),
+    };
+    if (cfg.apiKey) env.ANTHROPIC_API_KEY = cfg.apiKey;
+    if (cfg.baseUrl) env.ANTHROPIC_BASE_URL = cfg.baseUrl;
+    if (cfg.model) env.ANTHROPIC_MODEL = cfg.model;
+    if (cfg.env) Object.assign(env, cfg.env);
+
+    // When packaged, process.execPath is the Electron binary.
+    // child_process.fork() in the SDK would launch another Electron app instance
+    // without this flag.
+    if (app.isPackaged) {
+      env.ELECTRON_RUN_AS_NODE = '1';
+    }
+
+    // Build query options
+    const abortController = new AbortController();
+    this.activeAbortController = abortController;
+
+    const options: Record<string, unknown> = {
+      cwd: cfg.workspaceDir || process.cwd(),
+      env,
+      pathToClaudeCodeExecutable: getClaudeCodeCliPath(),
+      abortController,
+      includePartialMessages: true,
+      permissionMode: cfg.permissionMode || 'default',
+      stderr: (msg: string) => {
+        log.warn('[ClaudeCodeEngine] stderr:', msg);
+      },
+    };
+
+    // Model
+    if (cfg.model) {
+      options.model = cfg.model;
+    }
+
+    // System prompt
+    if (cfg.systemPrompt) {
+      options.systemPrompt = cfg.systemPrompt;
+    }
+
+    // Resume session
+    if (session._sdkSessionId) {
+      options.resume = session._sdkSessionId;
+    }
+
+    // MCP servers — add type:'stdio' for compatibility
+    if (cfg.mcpServers) {
+      const servers: Record<string, unknown> = {};
+      for (const [name, srv] of Object.entries(cfg.mcpServers)) {
+        servers[name] = { type: 'stdio', ...srv };
+      }
+      options.mcpServers = servers;
+    }
+
+    // Permission bridge
+    options.canUseTool = async (
+      toolName: string,
+      toolInput: unknown,
+      { signal }: { signal: AbortSignal },
+    ): Promise<PermissionResult> => {
+      if (abortController.signal.aborted || signal.aborted) {
+        return { behavior: 'deny' };
+      }
+
+      const permissionId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      // Emit permission request to UI
+      this.emit('permission.updated', {
+        id: permissionId,
+        type: 'tool',
+        sessionId,
+        title: `Tool: ${toolName}`,
+        details: { toolName, toolInput },
+        status: 'pending',
+      });
+
+      // Wait for response (with timeout)
+      return new Promise<PermissionResult>((resolve) => {
+        const timeout = setTimeout(() => {
+          this.pendingPermissions.delete(permissionId);
+          resolve({ behavior: 'deny' });
+        }, 60_000);
+
+        this.pendingPermissions.set(permissionId, {
+          resolve: (result) => {
+            clearTimeout(timeout);
+            this.pendingPermissions.delete(permissionId);
+            resolve(result);
+          },
+        });
+
+        // Auto-deny if aborted
+        const onAbort = () => {
+          clearTimeout(timeout);
+          this.pendingPermissions.delete(permissionId);
+          resolve({ behavior: 'deny' });
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+        abortController.signal.addEventListener('abort', onAbort, { once: true });
+      });
+    };
+
+    // Execute query
+    let resultText = '';
+    try {
+      const sdk = await loadClaudeSdk();
+      log.info('[ClaudeCodeEngine] Starting query', {
+        sessionId,
+        hasResume: !!session._sdkSessionId,
+        cwd: options.cwd,
+      });
+
+      const result = await sdk.query({ prompt: promptText, options });
+
+      for await (const event of result) {
+        if (abortController.signal.aborted) break;
+        this.handleSdkEvent(sessionId, session, event);
+
+        // Capture result text from 'result' events
+        if (typeof event === 'object' && event !== null) {
+          const payload = event as Record<string, unknown>;
+          if (payload.type === 'result' && typeof payload.result === 'string') {
+            resultText = payload.result;
+          }
+        }
+      }
+    } catch (error) {
+      if (abortController.signal.aborted) {
+        log.info('[ClaudeCodeEngine] Query aborted');
+      } else {
+        log.error('[ClaudeCodeEngine] Query failed:', error);
+        this.emit('session.error', {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    } finally {
+      if (this.activeAbortController === abortController) {
+        this.activeAbortController = null;
+      }
+    }
+
+    return {
+      info: { role: 'assistant', content: [{ type: 'text', text: resultText }] } as unknown as AssistantMessage,
+      parts: [{ type: 'text', text: resultText } as unknown as TextPart],
+    };
+  }
+
+  async promptAsync(
+    sessionId: string,
+    parts: Array<{ type: string; text?: string; [key: string]: unknown }>,
+    opts?: PromptOptions,
+  ): Promise<void> {
+    // Fire and forget — errors are emitted as events
+    this.prompt(sessionId, parts, opts).catch((error) => {
+      log.error('[ClaudeCodeEngine] promptAsync error:', error);
+    });
+  }
+
+  // === Permission Response ===
+
+  respondPermission(permissionId: string, response: 'once' | 'always' | 'reject'): void {
+    const pending = this.pendingPermissions.get(permissionId);
+    if (!pending) {
+      log.warn('[ClaudeCodeEngine] No pending permission for:', permissionId);
+      return;
+    }
+    const behavior = response === 'reject' ? 'deny' : 'allow';
+    pending.resolve({ behavior });
+  }
+
+  // === Legacy compat ===
+
+  /** Backward-compatible simple prompt (auto-creates a temp session) */
+  async claudePrompt(message: string): Promise<string> {
+    const session = await this.createSession({ title: 'temp' });
+    try {
+      const result = await this.prompt(session.id, [{ type: 'text', text: message }]);
+      const text = result.parts
+        .filter((p) => (p as any).type === 'text')
+        .map((p) => (p as any).text || '')
+        .join('');
+      return text;
+    } finally {
+      this.deleteSession(session.id);
+    }
+  }
+
+  // === Internal: SDK Event Handling ===
+
+  private handleSdkEvent(sessionId: string, session: ClaudeSession, event: unknown): void {
+    if (typeof event === 'string') {
+      this.emit('message.updated', {
+        sessionId,
+        type: 'assistant',
+        content: event,
+      });
+      return;
+    }
+
+    if (!event || typeof event !== 'object') return;
+
+    const payload = event as Record<string, unknown>;
+    const eventType = String(payload.type ?? '');
+
+    switch (eventType) {
+      case 'system': {
+        const subtype = String(payload.subtype ?? '');
+        if (subtype === 'init' && typeof payload.session_id === 'string') {
+          session._sdkSessionId = payload.session_id;
+          this.emit('session.created', { sessionId, sdkSessionId: payload.session_id });
+        }
+        break;
+      }
+
+      case 'stream_event': {
+        // Partial streaming content
+        this.emit('message.part.updated', {
+          sessionId,
+          ...payload,
+        });
+        break;
+      }
+
+      case 'assistant': {
+        // Full assistant message
+        this.emit('message.updated', {
+          sessionId,
+          ...payload,
+        });
+        break;
+      }
+
+      case 'result': {
+        const subtype = String(payload.subtype ?? 'success');
+        if (subtype === 'success') {
+          this.emit('session.idle', { sessionId });
+        } else {
+          const errors = Array.isArray(payload.errors)
+            ? payload.errors.filter((e) => typeof e === 'string').join('\n')
+            : String(payload.error || 'Unknown error');
+          this.emit('session.error', { sessionId, error: errors });
+        }
+        break;
+      }
+
+      case 'user': {
+        // User message (tool results) — forward
+        this.emit('message.updated', {
+          sessionId,
+          ...payload,
+        });
+        break;
+      }
+
+      default:
+        log.debug('[ClaudeCodeEngine] Unhandled event type:', eventType);
+    }
   }
 }
 
@@ -769,18 +1071,22 @@ export class UnifiedAgentService extends EventEmitter {
   // === Proxy methods ===
 
   async listSessions(): Promise<SdkSession[]> {
+    if (this.engine instanceof ClaudeCodeEngine) return this.engine.listSessions();
     return this.oc().listSessions();
   }
 
   async createSession(opts?: { parentID?: string; title?: string }): Promise<SdkSession> {
+    if (this.engine instanceof ClaudeCodeEngine) return this.engine.createSession(opts);
     return this.oc().createSession(opts);
   }
 
   async getSession(id: string): Promise<SdkSession> {
+    if (this.engine instanceof ClaudeCodeEngine) return this.engine.getSession(id);
     return this.oc().getSession(id);
   }
 
   async deleteSession(id: string): Promise<boolean> {
+    if (this.engine instanceof ClaudeCodeEngine) return this.engine.deleteSession(id);
     return this.oc().deleteSession(id);
   }
 
@@ -798,7 +1104,7 @@ export class UnifiedAgentService extends EventEmitter {
 
   async abortSession(id: string): Promise<void> {
     if (this.engine instanceof ClaudeCodeEngine) {
-      return this.engine.abort();
+      return this.engine.abortSession(id);
     }
     return this.oc().abortSession(id);
   }
@@ -816,6 +1122,9 @@ export class UnifiedAgentService extends EventEmitter {
     parts: Array<TextPartInput | FilePartInput>,
     opts?: PromptOptions,
   ): Promise<MessageWithParts> {
+    if (this.engine instanceof ClaudeCodeEngine) {
+      return this.engine.prompt(sessionId, parts as any, opts);
+    }
     return this.oc().prompt(sessionId, parts, opts);
   }
 
@@ -824,6 +1133,9 @@ export class UnifiedAgentService extends EventEmitter {
     parts: Array<TextPartInput | FilePartInput>,
     opts?: PromptOptions,
   ): Promise<void> {
+    if (this.engine instanceof ClaudeCodeEngine) {
+      return this.engine.promptAsync(sessionId, parts as any, opts);
+    }
     return this.oc().promptAsync(sessionId, parts, opts);
   }
 
@@ -836,6 +1148,10 @@ export class UnifiedAgentService extends EventEmitter {
   }
 
   async respondPermission(sessionId: string, permissionId: string, response: 'once' | 'always' | 'reject'): Promise<boolean> {
+    if (this.engine instanceof ClaudeCodeEngine) {
+      this.engine.respondPermission(permissionId, response);
+      return true;
+    }
     return this.oc().respondPermission(sessionId, permissionId, response);
   }
 
@@ -924,7 +1240,7 @@ export class UnifiedAgentService extends EventEmitter {
   async claudePrompt(message: string): Promise<string> {
     const claude = this.getClaudeCodeEngine();
     if (!claude) throw new Error('claude-code engine not active');
-    return claude.prompt(message);
+    return claude.claudePrompt(message);
   }
 
   // === Helpers ===

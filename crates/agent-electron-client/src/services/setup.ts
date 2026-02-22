@@ -277,7 +277,7 @@ class ServiceManager {
   }): Promise<{ success: boolean; error?: string }> {
     try {
       return await window.electronAPI?.agent.init({
-        engine: config.engine || 'opencode',
+        engine: config.engine || 'claude-code',
         apiKey: config.apiKey,
         baseUrl: config.baseUrl,
         model: config.model,

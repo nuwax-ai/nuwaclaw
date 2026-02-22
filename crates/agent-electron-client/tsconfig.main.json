@@ -16,6 +16,7 @@
   "include": [
     "src/main/**/*",
     "src/services/unifiedAgent.ts",
+    "src/services/claudeAgentSdk.ts",
     "src/services/dependencies.ts",
     "src/services/engineManager.ts",
     "src/services/mcp.ts",

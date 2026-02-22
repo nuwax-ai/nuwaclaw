@@ -28,8 +28,8 @@ interface AgentSettingsProps {
 }
 
 function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
-  const [agentType, setAgentType] = useState('nuwaxcode');
-  const [binPath, setBinPath] = useState('opencode');
+  const [agentType, setAgentType] = useState('claude-code');
+  const [binPath, setBinPath] = useState('claude');
   const [backendPort, setBackendPort] = useState(60001);
   const [apiKey, setApiKey] = useState('');
   const [apiBaseUrl, setApiBaseUrl] = useState('https://api.anthropic.com');
@@ -49,8 +49,8 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
       const saved = await window.electronAPI?.settings.get('agent_config');
       if (saved) {
         const config = saved as any;
-        setAgentType(config.type || 'nuwaxcode');
-        setBinPath(config.binPath || 'opencode');
+        setAgentType(config.type || 'claude-code');
+        setBinPath(config.binPath || 'claude');
         setBackendPort(config.backendPort || 60001);
         setApiKey(config.apiKey || '');
         setApiBaseUrl(config.apiBaseUrl || 'https://api.anthropic.com');
@@ -148,18 +148,18 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
           <Form.Item label="类型">
             <Select value={agentType} onChange={(v) => {
               setAgentType(v);
-              setBinPath(v === 'nuwaxcode' ? 'opencode' : 'claude-code');
+              setBinPath(v === 'claude-code' ? 'claude' : 'opencode');
             }}>
+              <Select.Option value="claude-code">
+                <Space>
+                  <span>Claude Code (SDK)</span>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Anthropic 官方 SDK</Text>
+                </Space>
+              </Select.Option>
               <Select.Option value="nuwaxcode">
                 <Space>
                   <span>nuwaxcode (OpenCode)</span>
                   <Text type="secondary" style={{ fontSize: 12 }}>基于 OpenCode 开发</Text>
-                </Space>
-              </Select.Option>
-              <Select.Option value="claude-code">
-                <Space>
-                  <span>Claude Code</span>
-                  <Text type="secondary" style={{ fontSize: 12 }}>Anthropic 官方 CLI</Text>
                 </Space>
               </Select.Option>
             </Select>
