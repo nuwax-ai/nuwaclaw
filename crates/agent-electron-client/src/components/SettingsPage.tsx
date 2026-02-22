@@ -1,138 +1,545 @@
-import { useState, useEffect } from 'react';
+/**
+ * 设置页面（对齐 Tauri 客户端）
+ *
+ * 功能：
+ * - 服务配置（端口、工作区目录）
+ * - AI 配置（API key、模型、max_tokens、温度）
+ * - 系统设置
+ */
 
-interface Settings {
-  anthropic_api_key: string;
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Button,
+  Form,
+  Row,
+  Col,
+  Input,
+  InputNumber,
+  Select,
+  Slider,
+  Switch,
+  message,
+  Modal,
+  Spin,
+} from 'antd';
+import { FolderOutlined, SaveOutlined, EditOutlined } from '@ant-design/icons';
+import { setupService, Step1Config, DEFAULT_STEP1_CONFIG } from '../services/setup';
+
+// AI 配置接口
+interface AISettings {
   default_model: string;
   max_tokens: number;
   temperature: number;
 }
 
-const defaultSettings: Settings = {
-  anthropic_api_key: '',
+const DEFAULT_AI_SETTINGS: AISettings = {
   default_model: 'claude-sonnet-4-20250514',
   max_tokens: 4096,
-  temperature: 1.0,
+  temperature: 0.7,
 };
 
-interface SettingsPageProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
+const MODEL_OPTIONS = [
+  { label: 'Claude Opus 4', value: 'claude-opus-4-20250514' },
+  { label: 'Claude Sonnet 4', value: 'claude-sonnet-4-20250514' },
+  { label: 'Claude Haiku 3.5', value: 'claude-3-5-haiku-20241022' },
+];
 
-function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
-  const [settings, setSettings] = useState<Settings>(defaultSettings);
+export default function SettingsPage() {
+  // 服务配置
+  const [form] = Form.useForm<Step1Config>();
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState('');
+  const [originalConfig, setOriginalConfig] = useState<Step1Config | null>(null);
 
-  useEffect(() => {
-    if (isOpen) {
-      loadSettings();
-    }
-  }, [isOpen]);
+  // AI 配置
+  const [aiForm] = Form.useForm<AISettings & { apiKey: string }>();
+  const [aiEditing, setAiEditing] = useState(false);
+  const [aiSaving, setAiSaving] = useState(false);
+  const [originalAiConfig, setOriginalAiConfig] = useState<(AISettings & { apiKey: string }) | null>(null);
 
-  const loadSettings = async () => {
+  // 系统设置
+  const [autolaunchEnabled, setAutolaunchEnabled] = useState(false);
+  const [autolaunchLoading, setAutolaunchLoading] = useState(false);
+  const [logDir, setLogDir] = useState('');
+
+  // ========== 加载服务配置 ==========
+  const loadConfig = useCallback(async () => {
     setLoading(true);
     try {
-      const saved = await window.electronAPI?.settings.get('app_settings');
-      if (saved) {
-        setSettings({ ...defaultSettings, ...(saved as Settings) });
-      }
+      const config = await setupService.getStep1Config();
+      form.setFieldsValue(config);
+      setOriginalConfig(config);
     } catch (error) {
       console.error('加载配置失败:', error);
+      message.error('加载配置失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, [form]);
 
-  const saveSettings = async () => {
-    setSaving(true);
-    setMessage('');
+  // ========== 加载 AI 配置 ==========
+  const loadAiConfig = useCallback(async () => {
     try {
-      await window.electronAPI?.settings.set('app_settings', settings);
-      await window.electronAPI?.settings.set('anthropic_api_key', settings.anthropic_api_key);
-      setMessage('配置已保存');
-      setTimeout(() => setMessage(''), 2000);
+      const apiKey = await window.electronAPI?.settings.get('anthropic_api_key') as string | null;
+      const settings = await window.electronAPI?.settings.get('app_settings') as AISettings | null;
+      const aiConfig = {
+        apiKey: apiKey || '',
+        default_model: settings?.default_model || DEFAULT_AI_SETTINGS.default_model,
+        max_tokens: settings?.max_tokens || DEFAULT_AI_SETTINGS.max_tokens,
+        temperature: settings?.temperature ?? DEFAULT_AI_SETTINGS.temperature,
+      };
+      aiForm.setFieldsValue(aiConfig);
+      setOriginalAiConfig(aiConfig);
     } catch (error) {
-      console.error('保存配置失败:', error);
-      setMessage('保存配置失败');
-    } finally {
-      setSaving(false);
+      console.error('加载 AI 配置失败:', error);
+    }
+  }, [aiForm]);
+
+  // ========== 加载系统设置 ==========
+  const loadSystemSettings = useCallback(async () => {
+    try {
+      const enabled = await window.electronAPI?.autolaunch?.get();
+      setAutolaunchEnabled(enabled ?? false);
+    } catch (error) {
+      console.error('加载自启动状态失败:', error);
+    }
+    try {
+      const dir = await window.electronAPI?.log?.getDir();
+      setLogDir(dir || '');
+    } catch (error) {
+      console.error('加载日志目录失败:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadConfig();
+    loadAiConfig();
+    loadSystemSettings();
+  }, [loadConfig, loadAiConfig, loadSystemSettings]);
+
+  // ========== 服务配置操作 ==========
+  const handleSelectWorkspace = async () => {
+    const result = await window.electronAPI?.dialog.openDirectory('选择工作区目录');
+    if (result?.success && result.path) {
+      form.setFieldValue('workspaceDir', result.path);
     }
   };
 
-  if (!isOpen) return null;
+  const handleCancelEdit = () => {
+    if (originalConfig) {
+      form.setFieldsValue(originalConfig);
+    }
+    setEditing(false);
+  };
+
+  const handleSave = async () => {
+    try {
+      const values = await form.validateFields();
+
+      Modal.confirm({
+        title: '保存配置',
+        content: '保存后需要重启服务才能生效，确定保存吗？',
+        okText: '保存',
+        cancelText: '取消',
+        onOk: async () => {
+          setSaving(true);
+          try {
+            await setupService.saveStep1Config(values);
+            setOriginalConfig(values);
+            setEditing(false);
+            message.success('配置已保存');
+          } catch (error) {
+            message.error('保存配置失败');
+          } finally {
+            setSaving(false);
+          }
+        },
+      });
+    } catch {
+      // form validation failed
+    }
+  };
+
+  // ========== AI 配置操作 ==========
+  const handleCancelAiEdit = () => {
+    if (originalAiConfig) {
+      aiForm.setFieldsValue(originalAiConfig);
+    }
+    setAiEditing(false);
+  };
+
+  const handleSaveAiConfig = async () => {
+    try {
+      const values = await aiForm.validateFields();
+      setAiSaving(true);
+      try {
+        // 保存 API Key
+        await window.electronAPI?.settings.set('anthropic_api_key', values.apiKey || '');
+        // 保存其他 AI 设置
+        await window.electronAPI?.settings.set('app_settings', {
+          default_model: values.default_model,
+          max_tokens: values.max_tokens,
+          temperature: values.temperature,
+        });
+        setOriginalAiConfig(values);
+        setAiEditing(false);
+        message.success('AI 配置已保存');
+      } catch (error) {
+        message.error('保存 AI 配置失败');
+      } finally {
+        setAiSaving(false);
+      }
+    } catch {
+      // form validation failed
+    }
+  };
+
+  // ========== 系统设置操作 ==========
+  const handleAutolaunchChange = async (enabled: boolean) => {
+    setAutolaunchLoading(true);
+    try {
+      const result = await window.electronAPI?.autolaunch?.set(enabled);
+      if (result?.success) {
+        setAutolaunchEnabled(enabled);
+        message.success(enabled ? '已开启开机自启动' : '已关闭开机自启动');
+      } else {
+        message.error(result?.error || '设置失败');
+      }
+    } catch (error) {
+      message.error('设置开机自启动失败');
+    } finally {
+      setAutolaunchLoading(false);
+    }
+  };
+
+  const handleOpenLogDir = async () => {
+    try {
+      await window.electronAPI?.log?.openDir();
+    } catch {
+      message.error('无法打开日志目录');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: 40 }}>
+        <Spin size="small" />
+      </div>
+    );
+  }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>设置</h2>
-          <button className="close-btn" onClick={onClose}>×</button>
+    <div>
+      {/* 服务配置 */}
+      <div className="section">
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 12,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 500, color: '#18181b' }}>
+            服务配置
+          </span>
+          {editing ? (
+            <div style={{ display: 'flex', gap: 6 }}>
+              <Button size="small" onClick={handleCancelEdit} disabled={saving}>
+                取消
+              </Button>
+              <Button
+                size="small"
+                type="primary"
+                icon={<SaveOutlined />}
+                onClick={handleSave}
+                loading={saving}
+              >
+                保存
+              </Button>
+            </div>
+          ) : (
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => setEditing(true)}
+            >
+              编辑
+            </Button>
+          )}
         </div>
 
-        {loading ? (
-          <div className="loading">加载中...</div>
-        ) : (
-          <div className="settings-form">
-            <div className="form-group">
-              <label>API 密钥 (Anthropic)</label>
-              <input
-                type="password"
-                value={settings.anthropic_api_key}
-                onChange={(e) => setSettings({ ...settings, anthropic_api_key: e.target.value })}
-                placeholder="sk-ant-..."
-              />
-              <span className="hint">从 <a href="https://console.anthropic.com" target="_blank" rel="noopener">Anthropic 控制台</a> 获取密钥</span>
-            </div>
+        <div
+          style={{
+            border: '1px solid #e4e4e7',
+            borderRadius: 8,
+            background: '#fff',
+            padding: 16,
+          }}
+        >
+          <Form form={form} layout="vertical" disabled={!editing} size="small">
+            <Form.Item
+              name="serverHost"
+              label="服务域名"
+              rules={[{ required: true, message: '请输入服务域名' }]}
+            >
+              <Input placeholder="https://agent.nuwax.com" />
+            </Form.Item>
 
-            <div className="form-group">
-              <label>默认模型</label>
-              <select
-                value={settings.default_model}
-                onChange={(e) => setSettings({ ...settings, default_model: e.target.value })}
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item
+                  name="agentPort"
+                  label="Agent 端口"
+                  rules={[{ required: true, message: '请输入端口' }]}
+                >
+                  <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item
+                  name="fileServerPort"
+                  label="文件服务端口"
+                  rules={[{ required: true, message: '请输入端口' }]}
+                >
+                  <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item
+                  name="proxyPort"
+                  label="代理端口"
+                  rules={[{ required: true, message: '请输入端口' }]}
+                >
+                  <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Form.Item
+              name="workspaceDir"
+              label="工作区目录"
+              rules={[{ required: true, message: '请选择工作区目录' }]}
+              style={{ marginBottom: 0 }}
+            >
+              <Input
+                placeholder="点击选择目录"
+                readOnly
+                addonAfter={
+                  editing && (
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<FolderOutlined />}
+                      onClick={handleSelectWorkspace}
+                      style={{ padding: 0 }}
+                    >
+                      选择
+                    </Button>
+                  )
+                }
+              />
+            </Form.Item>
+          </Form>
+
+          {!editing && (
+            <div style={{ marginTop: 12, fontSize: 12, color: '#a1a1aa' }}>
+              修改配置后需要重启服务才能生效
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* AI 配置 */}
+      <div className="section" style={{ marginTop: 20 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 12,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 500, color: '#18181b' }}>
+            AI 配置
+          </span>
+          {aiEditing ? (
+            <div style={{ display: 'flex', gap: 6 }}>
+              <Button size="small" onClick={handleCancelAiEdit} disabled={aiSaving}>
+                取消
+              </Button>
+              <Button
+                size="small"
+                type="primary"
+                icon={<SaveOutlined />}
+                onClick={handleSaveAiConfig}
+                loading={aiSaving}
               >
-                <option value="claude-opus-4-20250514">Claude Opus 4</option>
-                <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
-                <option value="claude-haiku-3-20240307">Claude Haiku 3</option>
-              </select>
+                保存
+              </Button>
             </div>
+          ) : (
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => setAiEditing(true)}
+            >
+              编辑
+            </Button>
+          )}
+        </div>
 
-            <div className="form-group">
-              <label>最大 Token 数: {settings.max_tokens}</label>
-              <input
-                type="range"
-                min="1024"
-                max="8192"
-                step="512"
-                value={settings.max_tokens}
-                onChange={(e) => setSettings({ ...settings, max_tokens: parseInt(e.target.value) })}
-              />
+        <div
+          style={{
+            border: '1px solid #e4e4e7',
+            borderRadius: 8,
+            background: '#fff',
+            padding: 16,
+          }}
+        >
+          <Form form={aiForm} layout="vertical" disabled={!aiEditing} size="small">
+            <Form.Item
+              name="apiKey"
+              label="API Key"
+              rules={[{ required: true, message: '请输入 API Key' }]}
+            >
+              <Input.Password placeholder="sk-ant-..." visibilityToggle />
+            </Form.Item>
+
+            <Form.Item
+              name="default_model"
+              label="默认模型"
+              rules={[{ required: true, message: '请选择模型' }]}
+            >
+              <Select options={MODEL_OPTIONS} placeholder="选择模型" />
+            </Form.Item>
+
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="max_tokens"
+                  label="Max Tokens"
+                  rules={[{ required: true, message: '请输入最大 Token 数' }]}
+                >
+                  <InputNumber min={256} max={200000} step={256} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="temperature"
+                  label="温度"
+                  rules={[{ required: true, message: '请设置温度' }]}
+                  style={{ marginBottom: 0 }}
+                >
+                  <Slider min={0} max={1} step={0.1} />
+                </Form.Item>
+              </Col>
+            </Row>
+          </Form>
+        </div>
+      </div>
+
+      {/* 系统设置 */}
+      <div className="section" style={{ marginTop: 20 }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 500,
+            color: '#18181b',
+            marginBottom: 10,
+          }}
+        >
+          系统
+        </div>
+        <div
+          style={{
+            border: '1px solid #e4e4e7',
+            borderRadius: 8,
+            background: '#fff',
+          }}
+        >
+          {/* 开机自启动 */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 14px',
+              borderBottom: '1px solid #f4f4f5',
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 13, color: '#18181b' }}>开机自启动</div>
+              <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 1 }}>
+                系统启动时自动运行 Nuwax Agent
+              </div>
             </div>
+            <Switch
+              size="small"
+              checked={autolaunchEnabled}
+              onChange={handleAutolaunchChange}
+              loading={autolaunchLoading}
+            />
+          </div>
 
-            <div className="form-group">
-              <label>温度: {settings.temperature}</label>
-              <input
-                type="range"
-                min="0"
-                max="2"
-                step="0.1"
-                value={settings.temperature}
-                onChange={(e) => setSettings({ ...settings, temperature: parseFloat(e.target.value) })}
-              />
-            </div>
-
-            <div className="form-actions">
-              {message && <span className="message">{message}</span>}
-              <button className="save-btn" onClick={saveSettings} disabled={saving}>
-                {saving ? '保存中...' : '保存'}
-              </button>
+          {/* 应用数据目录 */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 14px',
+              borderBottom: '1px solid #f4f4f5',
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 13, color: '#18181b' }}>应用数据目录</div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: '#a1a1aa',
+                  marginTop: 1,
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                }}
+              >
+                ~/.nuwax-agent
+              </div>
             </div>
           </div>
-        )}
+
+          {/* 日志目录 */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 14px',
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 13, color: '#18181b' }}>日志目录</div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: '#a1a1aa',
+                  marginTop: 1,
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  maxWidth: 280,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {logDir || '加载中...'}
+              </div>
+            </div>
+            <Button size="small" onClick={handleOpenLogDir}>
+              打开
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
-
-export default SettingsPage;

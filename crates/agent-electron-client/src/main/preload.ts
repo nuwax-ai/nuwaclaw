@@ -247,6 +247,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openDirectory: (title?: string) => ipcRenderer.invoke('dialog:openDirectory', title),
   },
 
+  // Autolaunch
+  autolaunch: {
+    get: () => ipcRenderer.invoke('autolaunch:get'),
+    set: (enabled: boolean) => ipcRenderer.invoke('autolaunch:set', enabled),
+  },
+
+  // Log
+  log: {
+    getDir: () => ipcRenderer.invoke('log:getDir'),
+    openDir: () => ipcRenderer.invoke('log:openDir'),
+    list: (count?: number) => ipcRenderer.invoke('log:list', count),
+  },
+
+  // App
+  app: {
+    checkUpdate: () => ipcRenderer.invoke('app:checkUpdate'),
+    getVersion: () => ipcRenderer.invoke('app:getVersion'),
+  },
+
+  // Permissions (macOS)
+  permissions: {
+    check: () => ipcRenderer.invoke('permissions:check'),
+    openSettings: (permissionKey: string) => ipcRenderer.invoke('permissions:openSettings', permissionKey),
+  },
+
   // Event listeners
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     const validChannels = ['menu:new-session', 'menu:settings', 'menu:mcp-settings', 'cowork:message', 'cowork:permission', 'agent:event'];

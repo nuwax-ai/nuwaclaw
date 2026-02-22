@@ -27,8 +27,17 @@ import {
   CheckCircleOutlined,
   RobotOutlined,
   FolderOpenOutlined,
+  LockOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons';
-import { setupService, authService, Step1Config, DEFAULT_STEP1_CONFIG } from '../services/setup';
+import { setupService, Step1Config, DEFAULT_STEP1_CONFIG } from '../services/setup';
+import {
+  loginAndRegister,
+  isLoggedIn as checkIsLoggedIn,
+  getCurrentAuth,
+  getAuthErrorMessage,
+  logout,
+} from '../services/auth';
 import SetupDependencies from './SetupDependencies';
 
 const { Text } = Typography;
@@ -52,7 +61,12 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [completed, setCompleted] = useState(false);
-  const [startingServices, setStartingServices] = useState(false);
+  const [domain, setDomain] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
+  const [retryCooldown, setRetryCooldown] = useState(0);
+  const [isAlreadyLoggedIn, setIsAlreadyLoggedIn] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -102,6 +116,40 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
     setCurrentStep(1);
   }, []);
 
+  // Check login status when entering step 2
+  const checkLoginStatus = useCallback(async () => {
+    setCheckingAuth(true);
+    try {
+      const auth = await getCurrentAuth();
+      if (auth.isLoggedIn && auth.userInfo) {
+        setIsAlreadyLoggedIn(true);
+        setDomain(auth.userInfo.currentDomain || '');
+      }
+      if (auth.username) {
+        setUsername(auth.username);
+      }
+    } catch (error) {
+      console.error('[SetupWizard] 检查登录状态失败:', error);
+    } finally {
+      setCheckingAuth(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentStep === 2) {
+      checkLoginStatus();
+    }
+  }, [currentStep, checkLoginStatus]);
+
+  // Retry cooldown timer
+  useEffect(() => {
+    if (retryCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setRetryCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [retryCooldown]);
+
   const handleStep1Submit = async () => {
     if (!step1Config.serverHost) {
       message.warning('请输入服务域名');
@@ -133,23 +181,58 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
 
   const handleLogin = async () => {
     if (!username || !password) {
-      message.warning('请输入账号和密码');
+      message.warning('请输入账号和动态认证码');
       return;
     }
 
-    setStartingServices(true);
+    const loginDomain = domain || step1Config.serverHost;
+    if (!loginDomain) {
+      message.warning('请输入服务域名');
+      return;
+    }
+
+    setLoginLoading(true);
+    setLoginError('');
     try {
-      await authService.login(username, password);
+      await loginAndRegister(username, password, {
+        suppressToast: true,
+        domain: loginDomain,
+      });
+      setLoginError('');
       await setupService.completeStep2();
       await setupService.completeSetup();
       setCompleted(true);
       message.success('登录成功');
       setTimeout(() => onComplete(), 2000);
-    } catch (error) {
-      console.error('[SetupWizard] 登录失败:', error);
-      message.error('登录失败');
+    } catch (error: any) {
+      const errorMessage = getAuthErrorMessage(error);
+      message.error(errorMessage);
+      setLoginError(errorMessage);
+      setPassword('');
+      setRetryCooldown(3);
     } finally {
-      setStartingServices(false);
+      setLoginLoading(false);
+    }
+  };
+
+  const handleContinueLoggedIn = async () => {
+    try {
+      await setupService.completeStep2();
+      await setupService.completeSetup();
+      setCompleted(true);
+      setTimeout(() => onComplete(), 1000);
+    } catch {
+      onComplete();
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setIsAlreadyLoggedIn(false);
+      setDomain('');
+    } catch {
+      message.error('退出登录失败');
     }
   };
 
@@ -178,25 +261,6 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
           subTitle="正在进入主界面..."
           extra={<Spin size="small" />}
         />
-      );
-    }
-
-    if (startingServices) {
-      return (
-        <div
-          style={{
-            minHeight: 320,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Result
-            icon={<Spin size="large" />}
-            title="正在启动服务..."
-            subTitle="请稍候"
-          />
-        </div>
       );
     }
 
@@ -284,41 +348,100 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
         );
 
       case 2:
+        if (checkingAuth) {
+          return (
+            <div style={{ minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Spin size="small" />
+            </div>
+          );
+        }
+
+        if (isAlreadyLoggedIn) {
+          return (
+            <Result
+              icon={<CheckCircleOutlined style={{ color: '#16a34a' }} />}
+              title="已登录"
+              subTitle={`当前域名：${domain || '-'}`}
+              extra={
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                  <Button onClick={handleLogout} size="small">
+                    退出登录
+                  </Button>
+                  <Button type="primary" onClick={handleContinueLoggedIn}>
+                    下一步
+                  </Button>
+                </div>
+              }
+              style={{ padding: '16px 0' }}
+            />
+          );
+        }
+
         return (
           <Form layout="vertical">
-            <Alert
-              message="账号登录"
-              description="登录 NuWax 账号以使用完整功能"
-              type="info"
-              showIcon
-              style={{ marginBottom: 24 }}
-            />
+            {loginError && (
+              <Alert
+                message="登录失败"
+                description={
+                  <Text
+                    copyable={{ text: loginError }}
+                    style={{ fontSize: 12, color: '#52525b' }}
+                  >
+                    {loginError}
+                  </Text>
+                }
+                type="error"
+                showIcon
+                style={{ marginBottom: 12 }}
+              />
+            )}
+
+            <Form.Item label="服务域名" required>
+              <Input
+                prefix={<GlobalOutlined />}
+                value={domain || step1Config.serverHost}
+                onChange={(e) => setDomain(e.target.value)}
+                placeholder="例如：https://agent.nuwax.com"
+              />
+            </Form.Item>
 
             <Form.Item label="账号" required>
               <Input
+                prefix={<UserOutlined />}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="用户名 / 手机号 / 邮箱"
+                autoComplete="username"
               />
             </Form.Item>
 
             <Form.Item label="动态认证码" required>
               <Input.Password
+                prefix={<LockOutlined />}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="请填写动态认证码"
+                autoComplete="current-password"
               />
             </Form.Item>
 
-            <Space>
-              <Button onClick={() => setCurrentStep(1)}>上一步</Button>
-              <Button
-                type="primary"
-                onClick={handleLogin}
-                loading={startingServices}
-              >
-                登录
-              </Button>
+            <Space style={{ width: '100%' }} direction="vertical">
+              <Space>
+                <Button onClick={() => setCurrentStep(1)}>上一步</Button>
+                <Button
+                  type="primary"
+                  onClick={handleLogin}
+                  loading={loginLoading}
+                  disabled={retryCooldown > 0}
+                >
+                  {retryCooldown > 0 ? `请稍后 (${retryCooldown}s)` : '登录'}
+                </Button>
+              </Space>
+              <div style={{ textAlign: 'center' }}>
+                <Text style={{ fontSize: 11, color: '#a1a1aa' }}>
+                  支持用户名、邮箱、手机号登录
+                </Text>
+              </div>
             </Space>
           </Form>
         );

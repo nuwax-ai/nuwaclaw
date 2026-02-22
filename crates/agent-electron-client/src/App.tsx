@@ -1,72 +1,175 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Menu,
   Badge,
   Spin,
-  message,
 } from 'antd';
+import type { PresetStatusColorType } from 'antd/es/_util/colors';
 import {
   RobotOutlined,
   SettingOutlined,
-  CloudServerOutlined,
-  ApiOutlined,
-  ClockCircleOutlined,
+  DashboardOutlined,
+  FolderOutlined,
+  InfoCircleOutlined,
+  SafetyOutlined,
   FileTextOutlined,
-  GlobalOutlined,
-  CommentOutlined,
 } from '@ant-design/icons';
-import { aiService } from './services/ai';
 import { setupService, authService } from './services/setup';
+import { syncConfigToServer } from './services/auth';
 import SetupWizard from './components/SetupWizard';
-import AgentSettings from './components/AgentSettings';
+import ClientPage from './components/ClientPage';
 import SettingsPage from './components/SettingsPage';
+import DependenciesPage from './components/DependenciesPage';
+import AboutPage from './components/AboutPage';
+import LogViewer from './components/LogViewer';
+import PermissionsPage from './components/PermissionsPage';
 
-type TabKey = 'chat' | 'agent' | 'mcp' | 'lanproxy' | 'skills' | 'im' | 'tasks' | 'settings';
+// Tab 类型定义（对齐 Tauri 客户端）
+type TabKey = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'about';
+
+// 状态配置
+const STATUS_CONFIG: Record<string, { status: PresetStatusColorType; text: string }> = {
+  idle: { status: 'default', text: '就绪' },
+  running: { status: 'success', text: '运行中' },
+  starting: { status: 'processing', text: '启动中' },
+  stopped: { status: 'default', text: '已停止' },
+  error: { status: 'error', text: '异常' },
+};
 
 function App() {
-  const [activeTab, setActiveTab] = useState<TabKey>('chat');
+  // ============================================
+  // 初始化向导状态
+  // ============================================
   const [isSetupComplete, setIsSetupComplete] = useState<boolean | null>(null);
-  const [username, setUsername] = useState<string>('');
+  const setupJustCompleted = useRef(false);
 
+  // ============================================
+  // 核心状态
+  // ============================================
+  const [activeTab, setActiveTab] = useState<TabKey>('client');
+  const [username, setUsername] = useState<string>('');
+  const [onlineStatus, setOnlineStatus] = useState<boolean | null>(null);
+  const [agentStatus, setAgentStatus] = useState<string>('idle');
+
+  // ============================================
+  // 检查初始化向导状态
+  // ============================================
   useEffect(() => {
-    checkSetupStatus();
+    const checkSetup = async () => {
+      try {
+        const completed = await setupService.isSetupCompleted();
+        setIsSetupComplete(completed);
+      } catch (error) {
+        console.error('[App] 检查初始化状态失败:', error);
+        setIsSetupComplete(true);
+      }
+    };
+    checkSetup();
   }, []);
 
-  const checkSetupStatus = async () => {
-    const completed = await setupService.isSetupCompleted();
-    setIsSetupComplete(completed);
+  // ============================================
+  // 初始化主界面（setup 完成后执行）
+  // ============================================
+  useEffect(() => {
+    if (isSetupComplete !== true) return;
 
-    if (completed) {
+    const init = async () => {
+      // 加载用户信息
       const user = await authService.getAuthUser();
       if (user) {
-        setUsername(user.username || '用户');
+        setUsername(user.displayName || user.username || '用户');
       }
-      await loadSettings();
-    }
-  };
 
-  const loadSettings = async () => {
-    try {
-      const apiKey = await window.electronAPI?.settings.get('anthropic_api_key');
-      const settings = await window.electronAPI?.settings.get('app_settings');
-      if (apiKey) {
-        aiService.configure({
-          apiKey: apiKey as string,
-          model: (settings as any)?.default_model || 'claude-sonnet-4-20250514',
-          maxTokens: (settings as any)?.max_tokens || 4096,
-        });
+      // 加载在线状态
+      const online = await window.electronAPI?.settings.get('auth.online_status');
+      setOnlineStatus(online as boolean | null);
+    };
+
+    init();
+  }, [isSetupComplete]);
+
+  // ============================================
+  // 自动重连（对齐 Tauri 客户端）
+  // setup 完成后检查 savedKey → syncConfigToServer
+  // ============================================
+  useEffect(() => {
+    if (isSetupComplete !== true) return;
+
+    const autoReconnect = async () => {
+      // 如果向导刚完成，服务已在向导中启动，跳过自动重连
+      if (setupJustCompleted.current) {
+        setupJustCompleted.current = false;
+        console.log('[App] 初始化向导刚完成，跳过自动重连');
+        return;
       }
-    } catch (error) {
-      console.error('加载配置失败:', error);
-    }
-  };
 
+      try {
+        const savedKey = await window.electronAPI?.settings.get('auth.saved_key');
+        if (savedKey) {
+          console.log('[App] 检测到 savedKey，自动重连...');
+          const result = await syncConfigToServer({ suppressToast: true });
+          if (result) {
+            console.log('[App] 重连成功');
+            setOnlineStatus(result.online);
+            // 更新用户名显示
+            const user = await authService.getAuthUser();
+            if (user) {
+              setUsername(user.displayName || user.username || '用户');
+            }
+          } else {
+            console.warn('[App] 配置同步失败');
+          }
+        } else {
+          console.log('[App] 未检测到 savedKey，跳过自动重连');
+        }
+      } catch (error) {
+        console.error('[App] 自动重连失败:', error);
+      }
+    };
+
+    autoReconnect();
+  }, [isSetupComplete]);
+
+  // ============================================
+  // 向导完成回调
+  // ============================================
   const handleSetupComplete = () => {
+    setupJustCompleted.current = true;
     setIsSetupComplete(true);
-    checkSetupStatus();
   };
 
-  // 加载中
+  // ============================================
+  // 状态 Badge
+  // ============================================
+  const badge = STATUS_CONFIG[agentStatus] || STATUS_CONFIG.idle;
+
+  // ============================================
+  // 平台检测
+  // ============================================
+  const isMacOS = navigator.platform.toUpperCase().includes('MAC');
+
+  // ============================================
+  // 菜单配置（对齐 Tauri 客户端）
+  // ============================================
+  const menuItems = useMemo(() => {
+    const items = [
+      { key: 'client', icon: <DashboardOutlined />, label: '客户端' },
+      { key: 'settings', icon: <SettingOutlined />, label: '设置' },
+      { key: 'dependencies', icon: <FolderOutlined />, label: '依赖' },
+    ];
+    if (isMacOS) {
+      items.push({ key: 'permissions', icon: <SafetyOutlined />, label: '授权' });
+    }
+    items.push(
+      { key: 'logs', icon: <FileTextOutlined />, label: '日志' },
+      { key: 'about', icon: <InfoCircleOutlined />, label: '关于' },
+    );
+    return items;
+  }, [isMacOS]);
+
+  // ============================================
+  // 渲染：加载中
+  // ============================================
   if (isSetupComplete === null) {
     return (
       <div className="app-loading">
@@ -78,22 +181,16 @@ function App() {
     );
   }
 
-  // 初始化向导
+  // ============================================
+  // 渲染：初始化向导
+  // ============================================
   if (!isSetupComplete) {
     return <SetupWizard onComplete={handleSetupComplete} />;
   }
 
-  const menuItems = [
-    { key: 'chat', icon: <CommentOutlined />, label: '对话' },
-    { key: 'agent', icon: <CloudServerOutlined />, label: 'Agent' },
-    { key: 'mcp', icon: <ApiOutlined />, label: 'MCP' },
-    { key: 'lanproxy', icon: <GlobalOutlined />, label: '穿透' },
-    { key: 'skills', icon: <FileTextOutlined />, label: '技能' },
-    { key: 'im', icon: <CommentOutlined />, label: '通讯' },
-    { key: 'tasks', icon: <ClockCircleOutlined />, label: '任务' },
-    { key: 'settings', icon: <SettingOutlined />, label: '设置' },
-  ];
-
+  // ============================================
+  // 渲染：主界面
+  // ============================================
   return (
     <div className="app-container">
       {/* 顶部栏 */}
@@ -106,15 +203,15 @@ function App() {
           {username && (
             <span style={{ color: '#71717a', fontSize: 12 }}>{username}</span>
           )}
-          <Badge status="default" text={
-            <span style={{ color: '#52525b', fontSize: 12 }}>就绪</span>
+          <Badge status={badge.status} text={
+            <span style={{ color: '#52525b', fontSize: 12 }}>{badge.text}</span>
           } />
         </div>
       </div>
 
       {/* 主体部分 */}
       <div className="app-body">
-        {/* 左侧边栏 - 浅色简洁 */}
+        {/* 左侧边栏 */}
         <div className="app-sider">
           <Menu
             mode="inline"
@@ -130,34 +227,14 @@ function App() {
 
         {/* 主内容区 */}
         <div className="app-content">
-          {activeTab === 'settings' && (
-            <SettingsPage isOpen={true} onClose={() => setActiveTab('chat')} />
+          {activeTab === 'client' && (
+            <ClientPage onNavigate={setActiveTab} />
           )}
-          {activeTab === 'agent' && (
-            <AgentSettings isOpen={true} onClose={() => setActiveTab('chat')} />
-          )}
-          {activeTab !== 'settings' && activeTab !== 'agent' && (
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: '100%',
-              minHeight: 200,
-            }}>
-              <div style={{
-                padding: '24px 32px',
-                background: '#ffffff',
-                borderRadius: 8,
-                border: '1px solid #e4e4e7',
-                textAlign: 'center',
-              }}>
-                <span style={{ color: '#71717a', fontSize: 13 }}>
-                  {menuItems.find(m => m.key === activeTab)?.label} — 即将推出
-                </span>
-              </div>
-            </div>
-          )}
+          {activeTab === 'settings' && <SettingsPage />}
+          {activeTab === 'dependencies' && <DependenciesPage />}
+          {activeTab === 'permissions' && <PermissionsPage />}
+          {activeTab === 'logs' && <LogViewer />}
+          {activeTab === 'about' && <AboutPage />}
         </div>
       </div>
     </div>

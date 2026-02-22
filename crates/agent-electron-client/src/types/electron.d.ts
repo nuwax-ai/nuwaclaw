@@ -211,6 +211,42 @@ export interface AgentAPI {
   offEvent: (callback: (event: unknown, data: AgentEventPayload) => void) => void;
 }
 
+export interface AutolaunchAPI {
+  get: () => Promise<boolean>;
+  set: (enabled: boolean) => Promise<{ success: boolean; error?: string }>;
+}
+
+export interface LogEntry {
+  timestamp: string;
+  level: 'info' | 'warn' | 'error' | 'debug';
+  message: string;
+}
+
+export interface LogAPI {
+  getDir: () => Promise<string>;
+  openDir: () => Promise<{ success: boolean; error?: string }>;
+  list: (count?: number) => Promise<LogEntry[]>;
+}
+
+export interface AppAPI {
+  checkUpdate: () => Promise<{ hasUpdate: boolean; version?: string; error?: string }>;
+  getVersion: () => Promise<string>;
+}
+
+export type PermissionStatus = 'granted' | 'denied' | 'unknown';
+
+export interface PermissionItem {
+  key: string;
+  name: string;
+  description: string;
+  status: PermissionStatus;
+}
+
+export interface PermissionsAPI {
+  check: () => Promise<PermissionItem[]>;
+  openSettings: (permissionKey: string) => Promise<{ success: boolean; error?: string }>;
+}
+
 export interface ShellAPI {
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
 }
@@ -247,6 +283,10 @@ export interface ElectronAPI {
   dialog: DialogAPI;
   engine: EngineAPI;
   agent: AgentAPI;
+  autolaunch: AutolaunchAPI;
+  log: LogAPI;
+  app: AppAPI;
+  permissions: PermissionsAPI;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   off: (channel: string, callback: (...args: unknown[]) => void) => void;
 }

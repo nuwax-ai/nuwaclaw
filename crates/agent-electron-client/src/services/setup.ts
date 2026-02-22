@@ -16,14 +16,18 @@ export interface Step1Config {
   serverHost: string;
   agentPort: number;
   fileServerPort: number;
+  proxyPort: number;
   workspaceDir: string;
 }
 
 export interface AuthUserInfo {
+  id?: number;
   username: string;
+  displayName?: string;
   token?: string;
   userId?: string;
   email?: string;
+  currentDomain?: string;
 }
 
 export interface SetupState {
@@ -48,9 +52,10 @@ export interface ServiceStatus {
 // ==================== Default Values ====================
 
 export const DEFAULT_STEP1_CONFIG: Step1Config = {
-  serverHost: 'localhost',
+  serverHost: 'https://agent.nuwax.com',
   agentPort: 8086,
   fileServerPort: 8080,
+  proxyPort: 60002,
   workspaceDir: '',
 };
 
@@ -185,11 +190,11 @@ class SetupService {
 
 class AuthService {
   /**
-   * Get saved user info
+   * Get saved user info (from auth.user_info, set by auth.ts)
    */
   async getAuthUser(): Promise<AuthUserInfo | null> {
     try {
-      const user = await window.electronAPI?.settings.get(STORAGE_KEYS.AUTH_USER);
+      const user = await window.electronAPI?.settings.get('auth.user_info');
       return user as AuthUserInfo | null;
     } catch (error) {
       console.error('[Auth] Get user failed:', error);
@@ -198,24 +203,15 @@ class AuthService {
   }
 
   /**
-   * Save user info after login
-   */
-  async saveAuthUser(user: AuthUserInfo): Promise<void> {
-    try {
-      await window.electronAPI?.settings.set(STORAGE_KEYS.AUTH_USER, user);
-      console.log('[Auth] User saved:', user.username);
-    } catch (error) {
-      console.error('[Auth] Save user failed:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Clear auth (logout)
+   * Clear auth (logout) — delegates to auth.ts logout()
    */
   async clearAuth(): Promise<void> {
     try {
-      await window.electronAPI?.settings.set(STORAGE_KEYS.AUTH_USER, null);
+      await window.electronAPI?.settings.set('auth.username', null);
+      await window.electronAPI?.settings.set('auth.password', null);
+      await window.electronAPI?.settings.set('auth.config_key', null);
+      await window.electronAPI?.settings.set('auth.user_info', null);
+      await window.electronAPI?.settings.set('auth.online_status', null);
       console.log('[Auth] Cleared');
     } catch (error) {
       console.error('[Auth] Clear failed:', error);
@@ -224,27 +220,11 @@ class AuthService {
   }
 
   /**
-   * Login with username/password
-   * Note: This is a placeholder - integrate with your actual auth server
-   */
-  async login(username: string, password: string): Promise<AuthUserInfo> {
-    // Placeholder: In production, call your auth server
-    // For now, just save the username
-    const user: AuthUserInfo = {
-      username,
-      userId: crypto.randomUUID(),
-    };
-    
-    await this.saveAuthUser(user);
-    return user;
-  }
-
-  /**
    * Logout and optionally reset setup
    */
   async logout(resetSetupState: boolean = false): Promise<void> {
     await this.clearAuth();
-    
+
     if (resetSetupState) {
       await setupService.resetSetup();
     }
