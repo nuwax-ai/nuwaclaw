@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, dialog, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
@@ -1134,6 +1134,32 @@ function setupIpcHandlers() {
       type: 'destroyed',
       data: {},
     });
+  });
+
+  // ==================== Shell handlers ====================
+
+  ipcMain.handle('shell:openExternal', async (_, url: string) => {
+    try {
+      await shell.openExternal(url);
+      return { success: true };
+    } catch (error) {
+      log.error('[IPC] shell:openExternal failed:', error);
+      return { success: false, error: String(error) };
+    }
+  });
+
+  // ==================== Dialog handlers ====================
+
+  ipcMain.handle('dialog:openDirectory', async (_, title?: string) => {
+    if (!mainWindow) return { success: false, error: 'No window' };
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: title || '选择目录',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+    return { success: true, path: result.filePaths[0] };
   });
 
   // ==================== Dependency handlers ====================

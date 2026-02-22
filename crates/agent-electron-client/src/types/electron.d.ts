@@ -211,6 +211,14 @@ export interface AgentAPI {
   offEvent: (callback: (event: unknown, data: AgentEventPayload) => void) => void;
 }
 
+export interface ShellAPI {
+  openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+}
+
+export interface DialogAPI {
+  openDirectory: (title?: string) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
+}
+
 export interface ElectronAPI {
   session: {
     list: () => Promise<Session[]>;
@@ -235,6 +243,8 @@ export interface ElectronAPI {
   agentRunner: AgentRunnerAPI;
   fileServer: FileServerAPI;
   dependencies: DependenciesAPI;
+  shell: ShellAPI;
+  dialog: DialogAPI;
   engine: EngineAPI;
   agent: AgentAPI;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;

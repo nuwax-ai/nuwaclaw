@@ -8,6 +8,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
+import { app } from 'electron';
 import log from 'electron-log';
 
 // ==================== Types ====================
@@ -51,11 +52,9 @@ export interface LocalDependencyItem extends LocalDependencyConfig {
 
 // ==================== App Paths ====================
 
-// 获取应用数据目录
+// 获取应用数据目录（Electron 标准 userData 路径）
 function getAppDataDir(): string {
-  // 尝试从环境变量或默认路径获取
-  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-  return path.join(homeDir, '.nuwax-agent');
+  return app.getPath('userData');
 }
 
 function getAppBinDir(): string {
@@ -291,15 +290,15 @@ export async function installNpmPackage(
   binPath?: string;
   error?: string;
 }> {
-  const nodeModules = getAppNodeModules();
+  const appDataDir = getAppDataDir();
 
   // 确保目录存在
-  if (!fs.existsSync(nodeModules)) {
-    fs.mkdirSync(nodeModules, { recursive: true });
+  if (!fs.existsSync(appDataDir)) {
+    fs.mkdirSync(appDataDir, { recursive: true });
   }
 
-  // 初始化 package.json 如果不存在
-  const packageJsonPath = path.join(nodeModules, 'package.json');
+  // 初始化 package.json 如果不存在（放在 appDataDir，npm 会自动创建 node_modules/）
+  const packageJsonPath = path.join(appDataDir, 'package.json');
   if (!fs.existsSync(packageJsonPath)) {
     fs.writeFileSync(packageJsonPath, JSON.stringify({
       name: 'nuwax-agent',
@@ -311,7 +310,7 @@ export async function installNpmPackage(
   return new Promise((resolve) => {
     const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     const args = ['install', '--save', '--no-save'];
-    
+
     if (options?.version) {
       args.push(`${packageName}@${options.version}`);
     } else {
@@ -322,10 +321,10 @@ export async function installNpmPackage(
       args.push(`--registry=${options.registry}`);
     }
 
-    log.info(`[Dependencies] Installing ${packageName}...`);
+    log.info(`[Dependencies] Installing ${packageName} in ${appDataDir}...`);
 
     const proc = spawn(npmCmd, args, {
-      cwd: nodeModules,
+      cwd: appDataDir,
       env: { ...process.env },
       stdio: 'pipe',
     });

@@ -237,6 +237,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('engine:stopAll'),
   },
 
+  // Shell utilities
+  shell: {
+    openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+  },
+
+  // Dialog utilities
+  dialog: {
+    openDirectory: (title?: string) => ipcRenderer.invoke('dialog:openDirectory', title),
+  },
+
   // Event listeners
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     const validChannels = ['menu:new-session', 'menu:settings', 'menu:mcp-settings', 'cowork:message', 'cowork:permission', 'agent:event'];
