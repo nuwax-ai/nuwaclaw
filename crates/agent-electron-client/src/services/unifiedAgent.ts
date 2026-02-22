@@ -2,8 +2,9 @@
  * Agent Service - 统一 Agent 引擎
  * 
  * 统一接口:
- * - opencode (nuwaxcode): @opencode-ai/sdk
- * - claude-code: CLI (无 SDK)
+ * - opencode: @opencode-ai/sdk (HTTP)
+ * - nuwaxcode: @opencode-ai/sdk (HTTP) 或 CLI (stdio)
+ * - claude-code: CLI (sACP)
  * 
  * 提供一致的 API 给外部调用
  */
@@ -14,7 +15,7 @@ import * as path from 'path';
 
 // ==================== Types ====================
 
-export type AgentEngine = 'opencode' | 'claude-code';
+export type AgentEngine = 'opencode' | 'nuwaxcode' | 'claude-code';
 
 export interface AgentConfig {
   engine: AgentEngine;
@@ -177,6 +178,139 @@ class OpencodeService {
   }
 }
 
+// ==================== Nuwaxcode Service ====================
+
+class NuwaxcodeService {
+  private client: any = null;
+  private serverProcess: ChildProcess | null = null;
+  private sessionId: string | null = null;
+  private config: AgentConfig | null = null;
+  private mode: 'http' | 'stdio' = 'stdio';
+
+  async init(config: AgentConfig): Promise<boolean> {
+    this.config = config;
+    
+    // 尝试使用 HTTP 模式 (需要 nuwaxcode 支持 --http 参数)
+    try {
+      const { createOpencodeClient } = await import('@opencode-ai/sdk');
+      
+      // 尝试启动 nuwaxcode HTTP 服务器
+      // 注意: 需要 nuwaxcode 支持 --port 参数
+      this.serverProcess = spawn('nuwaxcode', ['serve', '--port', '4097'], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+      
+      // 等待服务器启动
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // 尝试连接
+      this.client = createOpencodeClient({
+        baseUrl: 'http://localhost:4097',
+      });
+      
+      this.mode = 'http';
+      log.info('[Agent] Nuwaxcode initialized (HTTP mode)');
+      return true;
+    } catch (error) {
+      log.warn('[Agent] Nuwaxcode HTTP mode failed, using stdio mode:', error);
+      this.mode = 'stdio';
+      log.info('[Agent] Nuwaxcode initialized (stdio mode)');
+      return true;
+    }
+  }
+
+  async createSession(workspaceDir: string): Promise<string | null> {
+    if (this.mode === 'http' && this.client) {
+      try {
+        const result = await this.client.session.create({
+          body: { parts: [] },
+        });
+        this.sessionId = result.data.id;
+        return this.sessionId;
+      } catch (error) {
+        log.error('[Agent] Nuwaxcode session create failed:', error);
+        return null;
+      }
+    }
+    
+    // Stdio 模式
+    this.sessionId = `nuwaxcode-${Date.now()}`;
+    return this.sessionId;
+  }
+
+  async chat(options: ChatOptions): Promise<ChatResult> {
+    if (this.mode === 'http' && this.client && this.sessionId) {
+      try {
+        const parts = options.messages.map(msg => ({
+          type: 'text' as const,
+          text: msg.content,
+        }));
+        
+        const result = await this.client.session.prompt({
+          path: { id: this.sessionId },
+          body: { parts, noReply: false },
+        });
+        
+        const responseText = result.parts?.map((p: any) => p.text).join('') || '';
+        return { success: true, content: responseText };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    }
+    
+    // Stdio 模式 - 使用 CLI
+    return { success: false, error: 'Nuwaxcode stdio mode not fully implemented' };
+  }
+
+  async executeCommand(command: string): Promise<ChatResult> {
+    // Stdio 模式
+    return new Promise((resolve) => {
+      const proc = spawn('nuwaxcode', ['exec', command], {
+        cwd: this.config?.workspaceDir || process.cwd(),
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+      
+      let stdout = '';
+      let stderr = '';
+      
+      proc.stdout?.on('data', (data) => { stdout += data.toString(); });
+      proc.stderr?.on('data', (data) => { stderr += data.toString(); });
+      
+      proc.on('close', (code) => {
+        if (code === 0) {
+          resolve({ success: true, content: stdout });
+        } else {
+          resolve({ success: false, error: stderr || `Exit: ${code}` });
+        }
+      });
+      
+      proc.on('error', (error) => {
+        resolve({ success: false, error: error.message });
+      });
+    });
+  }
+
+  async destroy(): Promise<void> {
+    if (this.serverProcess) {
+      this.serverProcess.kill();
+      this.serverProcess = null;
+    }
+    this.client = null;
+    this.sessionId = null;
+    log.info('[Agent] Nuwaxcode destroyed');
+  }
+
+  isInitialized(): boolean {
+    return true;
+  }
+
+  getMode(): string {
+    return this.mode;
+  }
+}
+
 // ==================== Claude Code CLI Wrapper ====================
 
 class ClaudeCodeService {
@@ -301,12 +435,14 @@ class ClaudeCodeService {
 
 class UnifiedAgentService {
   private opencodeService: OpencodeService;
+  private nuwaxcodeService: NuwaxcodeService;
   private claudeCodeService: ClaudeCodeService;
   private currentEngine: AgentEngine | null = null;
   private config: AgentConfig | null = null;
 
   constructor() {
     this.opencodeService = new OpencodeService();
+    this.nuwaxcodeService = new NuwaxcodeService();
     this.claudeCodeService = new ClaudeCodeService();
   }
 
@@ -320,6 +456,8 @@ class UnifiedAgentService {
     switch (config.engine) {
       case 'opencode':
         return await this.opencodeService.init(config);
+      case 'nuwaxcode':
+        return await this.nuwaxcodeService.init(config);
       case 'claude-code':
         return await this.claudeCodeService.init(config);
       default:
@@ -335,6 +473,8 @@ class UnifiedAgentService {
     switch (this.currentEngine) {
       case 'opencode':
         return await this.opencodeService.createSession(workspaceDir);
+      case 'nuwaxcode':
+        return await this.nuwaxcodeService.createSession(workspaceDir);
       case 'claude-code':
         return await this.claudeCodeService.createSession(workspaceDir);
       default:
@@ -349,6 +489,8 @@ class UnifiedAgentService {
     switch (this.currentEngine) {
       case 'opencode':
         return await this.opencodeService.chat(options);
+      case 'nuwaxcode':
+        return await this.nuwaxcodeService.chat(options);
       case 'claude-code':
         return await this.claudeCodeService.chat(options);
       default:
@@ -363,6 +505,8 @@ class UnifiedAgentService {
     switch (this.currentEngine) {
       case 'opencode':
         return await this.opencodeService.executeCommand(command);
+      case 'nuwaxcode':
+        return await this.nuwaxcodeService.executeCommand(command);
       case 'claude-code':
         return await this.claudeCodeService.executeCommand(command);
       default:
@@ -377,6 +521,9 @@ class UnifiedAgentService {
     switch (this.currentEngine) {
       case 'opencode':
         await this.opencodeService.destroy();
+        break;
+      case 'nuwaxcode':
+        await this.nuwaxcodeService.destroy();
         break;
       case 'claude-code':
         await this.claudeCodeService.destroy();
@@ -401,6 +548,8 @@ class UnifiedAgentService {
     switch (this.currentEngine) {
       case 'opencode':
         return this.opencodeService.isInitialized();
+      case 'nuwaxcode':
+        return this.nuwaxcodeService.isInitialized();
       case 'claude-code':
         return this.claudeCodeService.isInitialized();
       default:
