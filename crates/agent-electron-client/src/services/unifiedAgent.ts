@@ -210,22 +210,22 @@ export class OpencodeEngine extends EventEmitter {
     }
   }
 
+  private static readonly SSE_EVENT_TYPES = [
+    'message.updated', 'message.removed',
+    'message.part.updated', 'message.part.removed',
+    'permission.updated', 'permission.replied',
+    'session.created', 'session.updated', 'session.deleted',
+    'session.status', 'session.idle', 'session.error', 'session.diff',
+    'file.edited', 'server.connected',
+  ];
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private handleSseEvent(data: any): void {
     if (!data || typeof data !== 'object') return;
     const type = data.type as string;
     if (!type) return;
 
-    const passthrough = [
-      'message.updated', 'message.removed',
-      'message.part.updated', 'message.part.removed',
-      'permission.updated', 'permission.replied',
-      'session.created', 'session.updated', 'session.deleted',
-      'session.status', 'session.idle', 'session.error', 'session.diff',
-      'file.edited', 'server.connected',
-    ];
-
-    if (passthrough.includes(type)) {
+    if (OpencodeEngine.SSE_EVENT_TYPES.includes(type)) {
       this.emit(type, data.properties);
     } else {
       log.debug('[OpencodeEngine] Unhandled SSE event:', type);
@@ -290,6 +290,7 @@ export class OpencodeEngine extends EventEmitter {
     const result = await client.session.fork({
       path: { id },
       body: messageID ? { messageID } : undefined,
+      query: this.dirQuery(),
     });
     return (result as any)?.data;
   }
@@ -842,6 +843,14 @@ export class UnifiedAgentService extends EventEmitter {
     return this.oc().shareSession(id);
   }
 
+  async unshareSession(id: string): Promise<SdkSession> {
+    return this.oc().unshareSession(id);
+  }
+
+  async getSessionChildren(id: string): Promise<SdkSession[]> {
+    return this.oc().getSessionChildren(id);
+  }
+
   async listTools(provider?: string, model?: string): Promise<ToolInfo[]> {
     return this.oc().listTools(provider, model);
   }
@@ -876,6 +885,18 @@ export class UnifiedAgentService extends EventEmitter {
 
   async mcpStatus(): Promise<unknown> {
     return this.oc().mcpStatus();
+  }
+
+  async mcpConnect(name: string): Promise<void> {
+    return this.oc().mcpConnect(name);
+  }
+
+  async mcpDisconnect(name: string): Promise<void> {
+    return this.oc().mcpDisconnect(name);
+  }
+
+  async getConfigProviders(): Promise<unknown> {
+    return this.oc().getConfigProviders();
   }
 
   async listAgents(): Promise<unknown[]> {

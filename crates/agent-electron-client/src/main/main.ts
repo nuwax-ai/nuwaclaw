@@ -5,7 +5,7 @@ import { spawn, ChildProcess } from 'child_process';
 import log from 'electron-log';
 import Database from 'better-sqlite3';
 import { agentService } from '../services/unifiedAgent';
-import type { AgentConfig, AgentEngineType } from '../services/unifiedAgent';
+import type { AgentConfig } from '../services/unifiedAgent';
 
 // Configure logging
 log.transports.file.level = 'info';

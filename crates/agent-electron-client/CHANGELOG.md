@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+#### SDK Migration
+- **Rename vendors/opencode-sdk to vendors/nuwaxcode-sdk**
+- **Upgrade @nuwax-ai/sdk to v1.2.10** (based on @opencode-ai/sdk v1.2.10)
+  - Full API surface: 22 session methods, SSE events, tools, permissions, files
+  - Pre-compiled dist from @opencode-ai/sdk
+
+#### Unified Agent Service Rewrite
+- **Complete rewrite of `unifiedAgent.ts`** with full SDK integration
+  - `OpencodeEngine`: 30+ methods covering sessions, messages, prompt/promptAsync, permissions, tools, files, providers, MCP, agents, commands
+  - `ClaudeCodeEngine`: CLI wrapper (claude --print --output-format json)
+  - `UnifiedAgentService`: Event bus + engine proxy pattern
+  - SSE event stream with auto-reconnect for real-time updates
+  - Type-safe imports from @nuwax-ai/sdk
+
+#### IPC Layer Enhancement
+- **30 new IPC handlers** in main.ts for SDK operations
+  - Session CRUD: listSessions, createSession, getSession, deleteSession, updateSession
+  - Messages: getMessages, getMessage
+  - Prompt/Command: prompt, promptAsync, command, shell
+  - Permissions: respondPermission
+  - Session ops: abort, revert, unrevert, shareSession, forkSession, getSessionDiff
+  - Tools/Providers: listTools, listProviders, getConfig
+  - Files: findText, findFiles, listFiles, readFile
+  - MCP/Agents: mcpStatus, listAgents, listCommands
+- **SSE event forwarding** from main process to renderer via `agent:event` channel
+- **Updated preload.ts** with complete agent API surface
+- **Updated electron.d.ts** with AgentAPI type definitions
+
 ---
 
 ## [0.1.0] - 2026-02-22
@@ -23,14 +53,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Agent Service
 - **Unified Agent Service** (`unifiedAgent.ts`)
   - Unified SDK layer for all agent engines
-  - Opencode support via @opencode-ai/sdk (npm)
-  - Nuwaxcode support via @opencode-ai/sdk (HTTP mode 或 createOpencodeClient)
+  - Opencode/Nuwaxcode support via @nuwax-ai/sdk (vendors/nuwaxcode-sdk)
   - Claude Code support via CLI (sACP mode)
   - Consistent API for session management, chat, command execution
 
 #### SDK
-- **@opencode-ai/sdk** (npm)
-  - 官方 SDK，用于 opencode；nuwaxcode 可用同一包或 createOpencodeClient 连接已有服务
+- **@nuwax-ai/sdk** (vendors/nuwaxcode-sdk)
+  - 基于 @opencode-ai/sdk v1.2.10 的完整 SDK
   - Auto-start server process
   - HTTP API support for both engines
 

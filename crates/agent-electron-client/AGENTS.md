@@ -97,28 +97,37 @@ This is the **Nuwax Agent** Electron client - a multi-engine AI assistant deskto
 
 | Engine | SDK/CLI | Package |
 |--------|---------|---------|
-| **opencode** | SDK | @opencode-ai/sdk |
+| **opencode** | SDK | @nuwax-ai/sdk (vendors/nuwaxcode-sdk) |
+| **nuwaxcode** | SDK | @nuwax-ai/sdk (vendors/nuwaxcode-sdk) |
 | **claude-code** | CLI | spawn |
 
 ### Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│         Unified Agent Service           │
-│              (统一入口)                  │
-├─────────────────────────────────────────┤
-│                                         │
-│  ┌─────────────────────────────────┐   │
-│  │      OpencodeService            │   │
-│  │   (@opencode-ai/sdk)          │   │
-│  └─────────────────────────────────┘   │
-│                                         │
-│  ┌─────────────────────────────────┐   │
-│  │     ClaudeCodeService           │   │
-│  │       (CLI spawn)              │   │
-│  └─────────────────────────────────┘   │
-│                                         │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│            UnifiedAgentService                   │
+│         （统一入口，事件总线）                      │
+├─────────────────────────────────────────────────┤
+│                                                  │
+│  ┌────────────────────────────────────────┐     │
+│  │         OpencodeEngine                  │     │
+│  │   @nuwax-ai/sdk (createOpencode)       │     │
+│  │   - 完整 Session API (22 方法)          │     │
+│  │   - SSE 事件流                          │     │
+│  │   - 工具发现 & 选择                     │     │
+│  │   - 权限请求/响应                       │     │
+│  │   - 文件操作                            │     │
+│  │   - Provider 管理                       │     │
+│  └────────────────────────────────────────┘     │
+│                                                  │
+│  ┌────────────────────────────────────────┐     │
+│  │       ClaudeCodeEngine                  │     │
+│  │   CLI spawn (--print / JSON 模式)      │     │
+│  │   - 基本 chat                           │     │
+│  │   - 命令执行                            │     │
+│  └────────────────────────────────────────┘     │
+│                                                  │
+└─────────────────────────────────────────────────┘
 ```
 
 ### Usage
@@ -126,24 +135,33 @@ This is the **Nuwax Agent** Electron client - a multi-engine AI assistant deskto
 ```typescript
 import { agentService } from './services/unifiedAgent';
 
-// Initialize
+// Initialize with opencode/nuwaxcode (SDK engine)
 await agentService.init({
-  engine: 'opencode',  // or 'claude-code'
+  engine: 'opencode',  // or 'nuwaxcode' or 'claude-code'
   apiKey: 'xxx',
   model: 'claude-sonnet-4-20250514',
   workspaceDir: '/path/to/workspace'
 });
 
 // Create session
-const sessionId = await agentService.createSession('/path/to/workspace');
+const session = await agentService.createSession({ title: 'My Session' });
 
-// Chat
-const result = await agentService.chat({
-  messages: [{ role: 'user', content: 'Hello!' }]
-});
+// Send prompt (blocking)
+const result = await agentService.prompt(session.id, [
+  { type: 'text', text: 'Hello!' }
+]);
 
-// Execute command
-const result = await agentService.executeCommand('ls -la');
+// Send prompt (async, results via SSE events)
+await agentService.promptAsync(session.id, [
+  { type: 'text', text: 'Build a todo app' }
+]);
+
+// Listen for SSE events
+agentService.on('message.updated', (data) => { /* ... */ });
+agentService.on('permission.updated', (data) => { /* ... */ });
+
+// Respond to permission request
+await agentService.respondPermission(session.id, permissionId, 'once');
 
 // Destroy
 await agentService.destroy();
@@ -151,27 +169,27 @@ await agentService.destroy();
 
 ---
 
-## Unified Agent SDK (@opencode-ai/sdk)
+## Unified Agent SDK (@nuwax-ai/sdk)
 
 ### About
 
-使用 npm 官方包 `@opencode-ai/sdk`，支持 opencode；nuwaxcode 可通过同一 SDK 的 `createOpencode`（若支持）或 `createOpencodeClient(baseUrl)` 连接已有 HTTP 服务。
+使用 vendor 包 `@nuwax-ai/sdk`（位于 `vendors/nuwaxcode-sdk`，基于 `@opencode-ai/sdk` v1.2.10），提供完整的 22 个 session 方法 + SSE 事件流 + 工具发现 + 权限管理 + 文件操作。
 
 ### Supported Engines
 
 | Engine | SDK/CLI | Package |
 |--------|---------|---------|
-| **opencode** | SDK | @opencode-ai/sdk (npm) |
-| **nuwaxcode** | SDK | @opencode-ai/sdk (npm)，或 createOpencodeClient 连接已有服务 |
+| **opencode** | SDK | @nuwax-ai/sdk (vendors/nuwaxcode-sdk) |
+| **nuwaxcode** | SDK | @nuwax-ai/sdk，通过 createOpencodeClient 连接已有服务 |
 | **claude-code** | CLI | spawn |
 
 ### Usage
 
 ```typescript
-import { createOpencode, createOpencodeClient } from '@opencode-ai/sdk';
+import { createOpencode, createOpencodeClient } from '@nuwax-ai/sdk';
 
 // 启动 opencode 并创建 client
-const { client, server } = await createOpencode({ engine: 'opencode', port: 4096 });
+const { client, server } = await createOpencode({ port: 4096 });
 
 // 或连接已有 opencode/nuwaxcode HTTP 服务
 const client = createOpencodeClient({ baseUrl: 'http://127.0.0.1:4096' });
