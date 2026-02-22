@@ -23,9 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Agent Service
 - **Unified Agent Service** (`unifiedAgent.ts`)
   - Unified SDK layer for all agent engines
-  - Opencode support via @opencode-ai/sdk
+  - Opencode support via @nuwax-ai/sdk
+  - Nuwaxcode support via @nuwax-ai/sdk (HTTP mode)
   - Claude Code support via CLI (sACP mode)
   - Consistent API for session management, chat, command execution
+
+#### SDK
+- **@nuwax-ai/sdk** (`vendors/opencode-sdk`)
+  - Fork of @opencode-ai/sdk with nuwaxcode support
+  - Unified SDK for opencode and nuwaxcode
+  - Auto-start server process
+  - HTTP API support for both engines
 
 #### Agent Engine Management
 - **Engine Manager** (`engineManager.ts`)

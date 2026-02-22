@@ -151,6 +151,47 @@ await agentService.destroy();
 
 ---
 
+## Unified Agent SDK (@nuwax-ai/sdk)
+
+### About
+
+Fork of @opencode-ai/sdk with nuwaxcode support.
+
+### Supported Engines
+
+| Engine | SDK/CLI | Package |
+|--------|---------|---------|
+| **opencode** | SDK | @nuwax-ai/sdk |
+| **nuwaxcode** | SDK | @nuwax-ai/sdk |
+| **claude-code** | CLI | spawn |
+
+### Location
+
+```
+vendors/opencode-sdk/
+├── src/index.ts       # SDK implementation
+├── bin/nuwaxcode-http.js  # HTTP wrapper
+└── dist/             # Built output
+```
+
+### Usage
+
+```typescript
+import { createOpencode } from '@nuwax-ai/sdk';
+
+// Start opencode
+await createOpencode({ engine: 'opencode', port: 4096 });
+
+// Start nuwaxcode
+await createOpencode({ 
+  engine: 'nuwaxcode', 
+  nuwaxcodePath: '/path/to/nuwaxcode',
+  port: 4097 
+});
+```
+
+---
+
 ## Agent Engines
 
 ### Supported Engines
