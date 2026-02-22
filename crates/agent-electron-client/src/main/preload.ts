@@ -2,6 +2,13 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('electronAPI', {
+  // Process info (available in preload but not in renderer)
+  versions: {
+    node: process.versions.node,
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+  },
+
   // Session management (SQLite)
   session: {
     list: () => ipcRenderer.invoke('session:list'),

@@ -8,6 +8,7 @@
  */
 
 import * as path from 'path';
+import * as os from 'os';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
 import log from 'electron-log';
@@ -55,7 +56,7 @@ function getEngineDir(engine: AgentEngine): string {
 }
 
 function getIsolatedHomeDir(runId: string): string {
-  return path.join('/tmp', `nuwax-agent-${runId}`);
+  return path.join(os.tmpdir(), `nuwax-agent-${runId}`);
 }
 
 // ==================== Engine Detection ====================
@@ -265,9 +266,20 @@ export function createIsolatedEnvironment(config: EngineConfig): {
   }
   
   // 构建隔离环境变量
+  // 注入应用内依赖路径，确保引擎能找到 ~/.nuwax-agent/node_modules/.bin 下的工具
+  const appDataDir = getAppDataDir();
+  const nodeModulesBin = path.join(appDataDir, 'node_modules', '.bin');
+  const appBin = path.join(appDataDir, 'bin');
+  const pathSep = process.platform === 'win32' ? ';' : ':';
+  const existingPath = process.env.PATH || '';
+
   const env: Record<string, string> = {
     ...process.env,
-    
+
+    // 注入应用内依赖到 PATH 最前面
+    PATH: [nodeModulesBin, appBin, existingPath].filter(Boolean).join(pathSep),
+    NODE_PATH: path.join(appDataDir, 'node_modules'),
+
     // 隔离 HOME 目录 - 避免读取全局配置
     HOME: isolatedHome,
     

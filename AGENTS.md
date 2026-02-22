@@ -92,6 +92,11 @@ Each engine runs in an isolated environment:
 
 ```typescript
 {
+  // App-internal dependencies injected
+  PATH: '~/.nuwax-agent/node_modules/.bin:~/.nuwax-agent/bin:$PATH',
+  NODE_PATH: '~/.nuwax-agent/node_modules',
+
+  // Isolated home
   HOME: '/tmp/nuwax-agent-run-xxx',
   XDG_CONFIG_HOME: '/tmp/.../.config',
   CLAUDE_CONFIG_DIR: '/tmp/.../.claude',
@@ -109,7 +114,7 @@ Each engine runs in an isolated environment:
 
 | Dependency | Type | Description |
 |------------|------|-------------|
-| **uv** | system | Python package manager (>=0.5.0) |
+| **uv** | bundled | Python package manager (>=0.5.0), shipped in extraResources |
 | **nuwax-file-server** | npm-local | File service |
 | **nuwaxcode** | npm-local | Agent engine |
 
@@ -120,9 +125,14 @@ Each engine runs in an isolated environment:
 ├── engines/           # Agent engines
 ├── workspaces/       # Session workspaces
 ├── node_modules/    # Local npm packages
+│   ├── .bin/        # Executable symlinks (injected into PATH)
 │   └── mcp-servers/ # MCP servers (isolated)
+├── bin/              # App binaries
+├── logs/             # Application logs
 └── nuwax-agent.db   # SQLite database
 ```
+
+> **Note**: All data is stored under `~/.nuwax-agent/`. The Electron `app.getPath('userData')` path is NOT used.
 
 ---
 
@@ -206,4 +216,4 @@ Store sensitive configuration in SQLite, not in code:
 
 ---
 
-*Last updated: 2026-02-22*
+*Last updated: 2026-02-23*

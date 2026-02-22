@@ -24,3 +24,6 @@ node_modules/
 
 # Electron/前端构建产物
 dist/
+
+# Bundled platform-specific binaries (downloaded per-platform, not committed)
+resources/uv/bin/

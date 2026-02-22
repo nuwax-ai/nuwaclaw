@@ -236,6 +236,16 @@ function ClientPage({ onNavigate }: ClientPageProps) {
         pid: lpStatus?.pid,
       });
 
+      // Agent Runner
+      const arStatus = await window.electronAPI?.agentRunner?.status();
+      items.push({
+        key: 'agentRunner',
+        label: 'Agent Runner',
+        description: 'Agent Runner 代理服务',
+        running: arStatus?.running ?? false,
+        pid: arStatus?.pid,
+      });
+
       setServices(items);
     } catch (error) {
       console.error('[ClientPage] pollServices failed:', error);
@@ -271,6 +281,8 @@ function ClientPage({ onNavigate }: ClientPageProps) {
         }
       } else if (key === 'lanproxy') {
         message.info('请在设置中配置 Lanproxy 参数后启动');
+      } else if (key === 'agentRunner') {
+        message.info('请在设置中配置 Agent Runner 参数后启动');
       }
     } catch (error) {
       message.error(`启动失败: ${error}`);
@@ -289,6 +301,9 @@ function ClientPage({ onNavigate }: ClientPageProps) {
       } else if (key === 'lanproxy') {
         await window.electronAPI?.lanproxy.stop();
         message.success('Lanproxy 已停止');
+      } else if (key === 'agentRunner') {
+        await window.electronAPI?.agentRunner?.stop();
+        message.success('Agent Runner 已停止');
       }
     } catch (error) {
       message.error(`停止失败: ${error}`);
@@ -321,6 +336,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
           if (svc.key === 'agent') await window.electronAPI?.agent.stop();
           else if (svc.key === 'fileServer') await window.electronAPI?.fileServer.stop();
           else if (svc.key === 'lanproxy') await window.electronAPI?.lanproxy.stop();
+          else if (svc.key === 'agentRunner') await window.electronAPI?.agentRunner?.stop();
         } catch (error) {
           console.error(`停止 ${svc.label} 失败:`, error);
         }

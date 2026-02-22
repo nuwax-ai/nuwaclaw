@@ -49,7 +49,7 @@ export type DependencyStatus = 'checking' | 'installed' | 'missing' | 'outdated'
 export interface LocalDependencyItem {
   name: string;
   displayName: string;
-  type: 'system' | 'npm-local' | 'npm-global' | 'shell-installer';
+  type: 'system' | 'bundled' | 'npm-local' | 'npm-global' | 'shell-installer';
   description: string;
   required: boolean;
   minVersion?: string;
@@ -65,7 +65,7 @@ export interface LocalDependencyItem {
 export interface DependenciesAPI {
   checkAll: () => Promise<{ success: boolean; results?: LocalDependencyItem[]; error?: string }>;
   checkNode: () => Promise<{ success: boolean; installed?: boolean; version?: string; meetsRequirement?: boolean; error?: string }>;
-  checkUv: () => Promise<{ success: boolean; installed?: boolean; version?: string; meetsRequirement?: boolean; error?: string }>;
+  checkUv: () => Promise<{ success: boolean; installed?: boolean; version?: string; meetsRequirement?: boolean; bundled?: boolean; error?: string }>;
   detectPackage: (packageName: string, binName?: string) => Promise<{ success: boolean; installed?: boolean; version?: string; binPath?: string; error?: string }>;
   installPackage: (packageName: string, options?: { registry?: string; version?: string }) => Promise<{ success: boolean; version?: string; binPath?: string; error?: string }>;
   installMissing: () => Promise<{ success: boolean; results?: Array<{ name: string; success: boolean; error?: string }> }>;
@@ -256,6 +256,11 @@ export interface DialogAPI {
 }
 
 export interface ElectronAPI {
+  versions: {
+    node: string;
+    electron: string;
+    chrome: string;
+  };
   session: {
     list: () => Promise<Session[]>;
     create: (session: { id: string; title: string; model: string; system_prompt?: string }) => Promise<Session>;

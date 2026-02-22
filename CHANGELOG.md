@@ -9,6 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+#### Data Directory Unification
+- **Unified data directory** — All data now stored under `~/.nuwax-agent/`
+  - SQLite database moved from `app.getPath('userData')` to `~/.nuwax-agent/nuwax-agent.db`
+  - Dependencies service (`dependencies.ts`) `getAppDataDir()` now returns `~/.nuwax-agent/`
+  - Eliminates split between `~/Library/Application Support/...` and `~/.nuwax-agent/`
+
+#### Bundled uv
+- **uv bundled into Electron** — No longer requires system-wide uv installation
+  - uv binary shipped via `extraResources` → `resources/uv/bin/`
+  - New `getResourcesPath()` resolves `process.resourcesPath` (packaged) or `resources/` (dev)
+  - New `getUvBinPath()` returns platform-specific bundled uv path
+  - `checkUvVersion()` prefers bundled uv, falls back to system uv
+  - uv dependency type changed from `"system"` to `"bundled"` in `SETUP_REQUIRED_DEPENDENCIES`
+  - DependenciesPage shows "已集成" when bundled uv is detected
+
+#### Dependency Environment Injection
+- **App-internal dependency paths injected into all child processes**
+  - New `getAppEnv()` builds env vars with `~/.nuwax-agent/node_modules/.bin`, `~/.nuwax-agent/bin`, and `resources/uv/bin` prepended to `PATH`
+  - `NODE_PATH` set to `~/.nuwax-agent/node_modules`
+  - Applied to: file server, agent runner, lanproxy, agent, engine manager spawns
+  - `engineManager.ts` `createIsolatedEnvironment()` also injects app-internal paths
+
+#### Node.js Detection Removed
+- **Node.js no longer checked as system dependency** — Electron bundles its own Node runtime
+  - DependenciesPage shows Electron built-in Node.js version with "已集成 (Electron)" status
+  - `systemDepsReady` no longer depends on Node.js check
+
+### Added
+- `"bundled"` type added to `LocalDependencyType`
+- `getResourcesPath()`, `getUvBinPath()`, `getAppEnv()` exported from `dependencies.ts`
+- `_checkUvBin()` helper for checking a specific uv binary path
+- `checkUvVersion()` now returns `bundled` flag and `binPath`
+- **Agent Runner** added to ClientPage service dashboard (4 services total)
+- `resources/uv/bin/uv` — bundled uv binary for macOS (CI/CD provides other platforms)
+- `package.json` `build.extraResources` includes `resources/uv`
+
 ---
 
 ## [0.1.0] - 2026-02-22

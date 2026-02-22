@@ -7,13 +7,14 @@ import Database from 'better-sqlite3';
 import { agentService } from '../services/unifiedAgent';
 import type { AgentConfig } from '../services/unifiedAgent';
 
-// Configure logging
+// Configure logging — 日志统一写入 ~/.nuwax-agent/logs/
 const nuwaxHome = path.join(app.getPath('home'), '.nuwax-agent');
 const logDir = path.join(nuwaxHome, 'logs');
 if (!fs.existsSync(logDir)) {
   fs.mkdirSync(logDir, { recursive: true });
 }
-log.transports.file.resolvePathFn = () => path.join(logDir, 'main.log');
+log.transports.file.resolvePathFn = (variables) =>
+  path.join(logDir, variables.fileName || 'main.log');
 log.transports.file.level = 'info';
 log.transports.console.level = 'debug';
 log.info('Application starting...');
@@ -29,9 +30,8 @@ let fileServerProcess: ChildProcess | null = null;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
-// Database path
-const userDataPath = app.getPath('userData');
-const dbPath = path.join(userDataPath, 'nuwax-agent.db');
+// Database path — 统一使用 ~/.nuwax-agent/
+const dbPath = path.join(nuwaxHome, 'nuwax-agent.db');
 
 function initDatabase() {
   try {
@@ -469,7 +469,7 @@ function setupIpcHandlers() {
         lanproxyProcess = spawn(config.binPath, args, {
           shell: true,
         windowsHide: true,
-          env: { ...process.env },
+          env: { ...process.env, ...getAppEnv() },
           stdio: ['ignore', 'pipe', 'pipe'],
         });
 
@@ -542,7 +542,7 @@ function setupIpcHandlers() {
         agentRunnerProcess = spawn(config.binPath, args, {
           shell: true,
         windowsHide: true,
-          env: { ...process.env },
+          env: { ...process.env, ...getAppEnv() },
           stdio: ['ignore', 'pipe', 'pipe'],
         });
 
@@ -610,6 +610,7 @@ function setupIpcHandlers() {
 
         const env = {
           ...process.env,
+          ...getAppEnv(),
           ...config.env,
           ...(config.apiKey && { ANTHROPIC_API_KEY: config.apiKey }),
           ...(config.apiBaseUrl && { ANTHROPIC_BASE_URL: config.apiBaseUrl }),
@@ -680,7 +681,7 @@ function setupIpcHandlers() {
         fileServerProcess = spawn(serverCmd, args, {
           shell: true,
         windowsHide: true,
-          env: { ...process.env },
+          env: { ...process.env, ...getAppEnv() },
           stdio: ['ignore', 'pipe', 'pipe'],
         });
 
@@ -1306,7 +1307,6 @@ function setupIpcHandlers() {
 
   // ==================== Dependency handlers ====================
   
-  // Import dependency functions
   const {
     checkNodeVersion,
     checkUvVersion,
@@ -1315,6 +1315,7 @@ function setupIpcHandlers() {
     installNpmPackage,
     installMissingDependencies,
     getAppDataDir,
+    getAppEnv,
     SETUP_REQUIRED_DEPENDENCIES,
   } = require('../services/dependencies');
 

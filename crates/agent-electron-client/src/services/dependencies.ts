@@ -22,8 +22,9 @@ export type DependencyStatus =
   | "bundled"
   | "error";
 
-export type LocalDependencyType = 
+export type LocalDependencyType =
   | "system"
+  | "bundled"
   | "npm-local"
   | "npm-global"
   | "shell-installer";
@@ -52,9 +53,9 @@ export interface LocalDependencyItem extends LocalDependencyConfig {
 
 // ==================== App Paths ====================
 
-// 获取应用数据目录（Electron 标准 userData 路径）
+// 获取应用数据目录 — 统一使用 ~/.nuwax-agent/
 function getAppDataDir(): string {
-  return app.getPath('userData');
+  return path.join(app.getPath('home'), '.nuwax-agent');
 }
 
 function getAppBinDir(): string {
@@ -63,6 +64,45 @@ function getAppBinDir(): string {
 
 function getAppNodeModules(): string {
   return path.join(getAppDataDir(), 'node_modules');
+}
+
+// 获取 Electron extraResources 路径
+export function getResourcesPath(): string {
+  if (app.isPackaged) {
+    return process.resourcesPath;
+  }
+  // 开发模式：项目根目录下 resources/
+  return path.join(__dirname, '../../resources');
+}
+
+// 获取 bundled uv 二进制路径
+export function getUvBinPath(): string {
+  const uvName = process.platform === 'win32' ? 'uv.exe' : 'uv';
+  return path.join(getResourcesPath(), 'uv', 'bin', uvName);
+}
+
+/**
+ * 构建注入应用内依赖的环境变量
+ * 确保 spawned 进程能加载应用内安装的依赖
+ */
+export function getAppEnv(): Record<string, string> {
+  const appDataDir = getAppDataDir();
+  const nodeModulesBin = path.join(appDataDir, 'node_modules', '.bin');
+  const appBin = getAppBinDir();
+  const uvBin = path.dirname(getUvBinPath());
+
+  const pathSep = process.platform === 'win32' ? ';' : ':';
+  const existingPath = process.env.PATH || '';
+
+  // 将应用内路径注入 PATH 最前面，优先使用应用内依赖
+  const newPath = [nodeModulesBin, appBin, uvBin, existingPath]
+    .filter(Boolean)
+    .join(pathSep);
+
+  return {
+    PATH: newPath,
+    NODE_PATH: path.join(appDataDir, 'node_modules'),
+  };
 }
 
 // ==================== Required Dependencies ====================
@@ -75,8 +115,8 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
   {
     name: "uv",
     displayName: "uv",
-    type: "system",
-    description: "高性能 Python 包管理器，用于管理 Python 环境和依赖",
+    type: "bundled",
+    description: "高性能 Python 包管理器，用于管理 Python 环境和依赖（已集成）",
     required: true,
     minVersion: "0.5.0",
     installUrl: "https://docs.astral.sh/uv/getting-started/installation/",
@@ -138,14 +178,60 @@ export async function checkNodeVersion(): Promise<{
 
 /**
  * 检测 uv 版本
+ * 优先使用 bundled 路径，fallback 到系统 uv
  */
 export async function checkUvVersion(): Promise<{
   installed: boolean;
   version?: string;
   meetsRequirement: boolean;
+  bundled: boolean;
+  binPath?: string;
 }> {
+  // 优先检测 bundled uv
+  const bundledPath = getUvBinPath();
+  if (fs.existsSync(bundledPath)) {
+    const result = await _checkUvBin(bundledPath);
+    if (result.installed) {
+      return { ...result, bundled: true, binPath: bundledPath };
+    }
+  }
+
+  // Fallback 到系统 uv
   return new Promise((resolve) => {
     const proc = spawn('uv', ['--version'], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+
+    let stdout = '';
+    proc.stdout?.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        const match = stdout.match(/(\d+\.\d+\.\d+)/);
+        const version = match ? match[1] : 'unknown';
+        const meets = compareVersions(version, '0.5.0') >= 0;
+        resolve({ installed: true, version, meetsRequirement: meets, bundled: false, binPath: 'uv' });
+      } else {
+        resolve({ installed: false, meetsRequirement: false, bundled: false });
+      }
+    });
+
+    proc.on('error', () => {
+      resolve({ installed: false, meetsRequirement: false, bundled: false });
+    });
+  });
+}
+
+/** 检测指定路径的 uv 二进制 */
+function _checkUvBin(binPath: string): Promise<{
+  installed: boolean;
+  version?: string;
+  meetsRequirement: boolean;
+}> {
+  return new Promise((resolve) => {
+    const proc = spawn(binPath, ['--version'], {
       stdio: ['ignore', 'pipe', 'ignore'],
     });
 
@@ -325,7 +411,7 @@ export async function installNpmPackage(
 
     const proc = spawn(npmCmd, args, {
       cwd: appDataDir,
-      env: { ...process.env },
+      env: { ...process.env, ...getAppEnv() },
       stdio: 'pipe',
     });
 
@@ -376,9 +462,12 @@ export async function checkAllDependencies(): Promise<LocalDependencyItem[]> {
       switch (dep.name) {
         case 'uv': {
           const result = await checkUvVersion();
-          item.status = result.installed ? 'installed' : 'missing';
+          item.status = result.installed
+            ? (result.bundled ? 'bundled' : 'installed')
+            : 'missing';
           item.version = result.version;
           item.meetsRequirement = result.meetsRequirement;
+          item.binPath = result.binPath;
           break;
         }
         case 'nuwaxcode':
@@ -492,4 +581,7 @@ export default {
   getAppDataDir,
   getAppBinDir,
   getAppNodeModules,
+  getResourcesPath,
+  getUvBinPath,
+  getAppEnv,
 };

@@ -212,6 +212,11 @@ Each engine runs in an isolated environment:
 
 ```typescript
 {
+  // App-internal dependencies injected
+  PATH: '~/.nuwax-agent/node_modules/.bin:~/.nuwax-agent/bin:$PATH',
+  NODE_PATH: '~/.nuwax-agent/node_modules',
+
+  // Isolated home
   HOME: '/tmp/nuwax-agent-run-xxx',
   XDG_CONFIG_HOME: '/tmp/.../.config',
   CLAUDE_CONFIG_DIR: '/tmp/.../.claude',
@@ -289,9 +294,11 @@ permissionManager.approveRequest(requestId, alwaysAllow);
 
 | Dependency | Type | Description |
 |------------|------|-------------|
-| **uv** | system | Python package manager (>=0.5.0) |
+| **uv** | bundled | Python package manager (>=0.5.0), shipped in extraResources |
 | **nuwax-file-server** | npm-local | File service |
 | **nuwaxcode** | npm-local | Agent engine |
+
+> **Note**: Node.js is NOT a required dependency — Electron bundles its own Node runtime.
 
 ### Installation Locations
 
@@ -300,10 +307,38 @@ permissionManager.approveRequest(requestId, alwaysAllow);
 ├── engines/           # Agent engines
 ├── workspaces/       # Session workspaces
 ├── node_modules/    # Local npm packages
-│   └── mcp-servers # MCP servers (isolated)
+│   ├── .bin/        # Executable symlinks (injected into PATH)
+│   └── mcp-servers  # MCP servers (isolated)
+├── bin/              # App binaries
 ├── logs/             # Application logs
 └── nuwax-agent.db   # SQLite database
 ```
+
+> **Important**: All data is stored under `~/.nuwax-agent/`. The Electron `app.getPath('userData')` path is NOT used.
+
+### Environment Injection
+
+All child processes (engines, file server, lanproxy, agent runner) receive injected environment variables:
+
+```typescript
+{
+  PATH: '~/.nuwax-agent/node_modules/.bin:~/.nuwax-agent/bin:resources/uv/bin:$PATH',
+  NODE_PATH: '~/.nuwax-agent/node_modules',
+}
+```
+
+This ensures app-internal dependencies are always found first. Provided by `getAppEnv()` in `dependencies.ts`.
+
+### Bundled Resources
+
+```
+resources/
+└── uv/
+    └── bin/
+        └── uv          # Bundled uv binary (platform-specific)
+```
+
+In packaged mode, these are accessible via `process.resourcesPath`. In dev mode, via `resources/` relative to project root.
 
 ---
 
@@ -385,6 +420,8 @@ crates/agent-electron-client/
 │   ├── services/    # All services (19)
 │   ├── components/  # All components (10)
 │   └── types/       # TypeScript definitions
+├── resources/       # Bundled resources (extraResources)
+│   └── uv/bin/      # Bundled uv binary
 ├── package.json
 └── vite.config.ts
 ```
@@ -415,4 +452,4 @@ Store sensitive configuration in SQLite, not in code:
 
 ---
 
-*Last updated: 2026-02-22*
+*Last updated: 2026-02-23*

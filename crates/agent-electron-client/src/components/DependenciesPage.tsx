@@ -30,6 +30,7 @@ interface UvCheckResult {
   installed?: boolean;
   version?: string;
   meetsRequirement?: boolean;
+  bundled?: boolean;
 }
 
 const STATUS_LABELS: Record<DependencyStatus, string> = {
@@ -53,28 +54,24 @@ export default function DependenciesPage() {
   const loadDependencies = useCallback(async () => {
     setDepLoading(true);
     try {
-      // Check system dependencies in parallel
-      const [nodeRes, uvRes] = await Promise.all([
-        window.electronAPI?.dependencies.checkNode(),
-        window.electronAPI?.dependencies.checkUv(),
-      ]);
+      // Node.js: Electron 内置，通过 preload 获取版本
+      const nodeVersion = window.electronAPI?.versions?.node || 'unknown';
+      setNodeResult({
+        installed: true,
+        version: nodeVersion,
+        meetsRequirement: true,
+      });
 
-      const nodeData: NodeCheckResult = nodeRes?.success
-        ? {
-            installed: nodeRes.installed,
-            version: nodeRes.version,
-            meetsRequirement: nodeRes.meetsRequirement,
-          }
-        : { installed: false, meetsRequirement: false };
-      setNodeResult(nodeData);
-
+      // Check uv
+      const uvRes = await window.electronAPI?.dependencies.checkUv();
       const uvData: UvCheckResult = uvRes?.success
         ? {
             installed: uvRes.installed,
             version: uvRes.version,
             meetsRequirement: uvRes.meetsRequirement,
+            bundled: uvRes.bundled,
           }
-        : { installed: false, meetsRequirement: false };
+        : { installed: false, meetsRequirement: false, bundled: false };
       setUvResult(uvData);
 
       // Check all local/installable dependencies
@@ -262,8 +259,8 @@ export default function DependenciesPage() {
     return STATUS_LABELS[status] || STATUS_LABELS.checking;
   };
 
-  const systemDepsReady =
-    nodeResult?.meetsRequirement && uvResult?.meetsRequirement;
+  // Node.js is always ready (Electron built-in), only check uv
+  const systemDepsReady = uvResult?.meetsRequirement ?? false;
 
   // ==========================================
   // Loading state
@@ -312,7 +309,7 @@ export default function DependenciesPage() {
             overflow: "hidden",
           }}
         >
-          {/* Node.js */}
+          {/* Node.js — Electron 内置 */}
           <div
             style={{
               display: "flex",
@@ -323,38 +320,15 @@ export default function DependenciesPage() {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {nodeResult?.meetsRequirement ? (
-                <CheckCircleOutlined
-                  style={{ color: "#16a34a", fontSize: 12 }}
-                />
-              ) : (
-                <ExclamationCircleOutlined
-                  style={{ color: "#ca8a04", fontSize: 12 }}
-                />
-              )}
+              <CheckCircleOutlined
+                style={{ color: "#16a34a", fontSize: 12 }}
+              />
               <span style={{ fontSize: 13, fontWeight: 500 }}>Node.js</span>
-              {nodeResult?.installed && (
-                <span style={{ fontSize: 12, color: "#71717a" }}>
-                  v{nodeResult.version}
-                </span>
-              )}
-            </div>
-            {!nodeResult?.installed ? (
-              <a
-                href="https://nodejs.org"
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ fontSize: 12, color: "#52525b" }}
-              >
-                安装
-              </a>
-            ) : nodeResult.meetsRequirement ? (
-              <span style={{ fontSize: 12, color: "#16a34a" }}>已就绪</span>
-            ) : (
-              <span style={{ fontSize: 12, color: "#ca8a04" }}>
-                需 &gt;= 22.0.0
+              <span style={{ fontSize: 12, color: "#71717a" }}>
+                v{nodeResult?.version || 'N/A'}
               </span>
-            )}
+            </div>
+            <span style={{ fontSize: 12, color: "#16a34a" }}>已集成 (Electron)</span>
           </div>
 
           {/* uv */}
@@ -385,6 +359,8 @@ export default function DependenciesPage() {
             </div>
             {!uvResult?.installed ? (
               <span style={{ fontSize: 12, color: "#ca8a04" }}>未安装</span>
+            ) : uvResult.bundled ? (
+              <span style={{ fontSize: 12, color: "#16a34a" }}>已集成</span>
             ) : uvResult.meetsRequirement ? (
               <span style={{ fontSize: 12, color: "#16a34a" }}>已就绪</span>
             ) : (
