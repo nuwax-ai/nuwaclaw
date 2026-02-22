@@ -2,8 +2,8 @@
  * Agent Service - 统一 Agent 引擎
  * 
  * 统一接口:
- * - opencode: @opencode-ai/sdk (HTTP)
- * - nuwaxcode: @opencode-ai/sdk (HTTP) 或 CLI (stdio)
+ * - opencode: @nuwax-ai/sdk
+ * - nuwaxcode: @nuwax-ai/sdk
  * - claude-code: CLI (sACP)
  * 
  * 提供一致的 API 给外部调用
@@ -62,10 +62,11 @@ class OpencodeService {
     this.config = config;
     
     try {
-      // Dynamic import to avoid requiring package
-      const { createOpencode } = await import('@opencode-ai/sdk');
+      // Use @nuwax-ai/sdk
+      const { createOpencode } = await import('@nuwax-ai/sdk');
       
       const { client, server } = await createOpencode({
+        engine: 'opencode',
         hostname: '127.0.0.1',
         port: 4096,
         config: {
@@ -75,7 +76,7 @@ class OpencodeService {
       });
       
       this.client = client;
-      this.serverProcess = server;
+      this.serverProcess = server as any;
       
       log.info('[Agent] Opencode SDK initialized');
       return true;
@@ -190,33 +191,37 @@ class NuwaxcodeService {
   async init(config: AgentConfig): Promise<boolean> {
     this.config = config;
     
-    // 尝试使用 HTTP 模式 (需要 nuwaxcode 支持 --http 参数)
+    // Use @nuwax-ai/sdk with nuwaxcode engine
     try {
-      const { createOpencodeClient } = await import('@opencode-ai/sdk');
+      const { createOpencode, createOpencodeClient } = await import('@nuwax-ai/sdk');
       
-      // 尝试启动 nuwaxcode HTTP 服务器
-      // 注意: 需要 nuwaxcode 支持 --port 参数
-      this.serverProcess = spawn('nuwaxcode', ['serve', '--port', '4097'], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-      });
-      
-      // 等待服务器启动
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // 尝试连接
-      this.client = createOpencodeClient({
-        baseUrl: 'http://localhost:4097',
-      });
-      
-      this.mode = 'http';
-      log.info('[Agent] Nuwaxcode initialized (HTTP mode)');
-      return true;
+      // Try to start nuwaxcode in HTTP mode
+      try {
+        const { client, server } = await createOpencode({
+          engine: 'nuwaxcode',
+          hostname: '127.0.0.1',
+          port: 4097,
+          nuwaxcodePath: 'nuwaxcode',  // Will be found in PATH
+          config: {
+            model: config.model || 'anthropic/claude-3-5-sonnet-20241022',
+          },
+          timeout: 10000,
+        });
+        
+        this.client = client;
+        this.serverProcess = server as any;
+        this.mode = 'http';
+        log.info('[Agent] Nuwaxcode initialized (HTTP mode)');
+        return true;
+      } catch (httpError) {
+        log.warn('[Agent] Nuwaxcode HTTP mode failed, using stdio mode:', httpError);
+        this.mode = 'stdio';
+        log.info('[Agent] Nuwaxcode initialized (stdio mode)');
+        return true;
+      }
     } catch (error) {
-      log.warn('[Agent] Nuwaxcode HTTP mode failed, using stdio mode:', error);
-      this.mode = 'stdio';
-      log.info('[Agent] Nuwaxcode initialized (stdio mode)');
-      return true;
+      log.error('[Agent] Nuwaxcode init failed:', error);
+      return false;
     }
   }
 
