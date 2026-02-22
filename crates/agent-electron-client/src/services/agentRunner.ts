@@ -30,11 +30,27 @@ export interface ChatRequest {
   messages: { role: 'user' | 'assistant'; content: string }[];
   model?: string;
   maxTokens?: number;
+  sessionId?: string;
+  systemPrompt?: string;
 }
 
 export interface ChatResponse {
   content: string;
   type: 'message' | 'error';
+  sessionId?: string;
+  messageId?: string;
+}
+
+export interface CancelRequest {
+  sessionId: string;
+  messageId?: string;
+}
+
+export interface AgentStatus {
+  running: boolean;
+  sessionCount: number;
+  engine?: string;
+  model?: string;
 }
 
 class AgentRunnerManager {
@@ -220,6 +236,92 @@ class AgentRunnerManager {
       }
     } finally {
       reader.releaseLock();
+    }
+  }
+
+  // Cancel a running session
+  async cancel(request: CancelRequest): Promise<{ success: boolean; error?: string }> {
+    if (!this.status.running) {
+      return { success: false, error: 'Agent Runner is not running' };
+    }
+
+    try {
+      const response = await fetch(`${this.getBackendUrl()}/computer/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.config.apiKey}`,
+        },
+        body: JSON.stringify({
+          session_id: request.sessionId,
+          message_id: request.messageId,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        return { success: false, error };
+      }
+
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  // Stop agent runner via HTTP API
+  async httpStop(): Promise<{ success: boolean; error?: string }> {
+    if (!this.status.running) {
+      return { success: true };
+    }
+
+    try {
+      const response = await fetch(`${this.getBackendUrl()}/computer/stop`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.config.apiKey}`,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        return { success: false, error };
+      }
+
+      this.status.running = false;
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  // Get agent status via HTTP API
+  async httpStatus(): Promise<AgentStatus> {
+    if (!this.status.running) {
+      return { running: false, sessionCount: 0 };
+    }
+
+    try {
+      const response = await fetch(`${this.getBackendUrl()}/computer/status`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.config.apiKey}`,
+        },
+      });
+
+      if (!response.ok) {
+        return { running: false, sessionCount: 0 };
+      }
+
+      const data = await response.json();
+      return {
+        running: data.running ?? true,
+        sessionCount: data.session_count ?? data.sessionCount ?? 0,
+        engine: data.engine,
+        model: data.model,
+      };
+    } catch {
+      return { running: false, sessionCount: 0 };
     }
   }
 }
