@@ -4,4 +4,4 @@
 	branch = nuwax-client
 [submodule "vendors/nuwaxcode-sdk"]
 	path = vendors/nuwaxcode-sdk
-	url = https://github.com/nuwax-ai/opencode-sdk.git
+	url = https://github.com/nuwax-ai/nuwaxcode-sdk.git
