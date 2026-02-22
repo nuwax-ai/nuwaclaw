@@ -11,6 +11,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+#### Agent 管理统一走 SDK
+- **移除旧版 Agent spawn 方案** — 删除 `agentProcess` 变量及 `agent:start/stop/status/send` 4 个 IPC handler（~170 行），所有 Agent 生命周期统一通过 `UnifiedAgentService`（`agentService`）管理
+- **`agent:init` 增强** — 自动从 `McpProxyManager.getAgentMcpConfig()` 注入 MCP 配置；返回值新增 `engineType`
+- **新增 `agent:serviceStatus` IPC** — 返回 `{ running, engineType }`，替代旧版 `agent:status`
+- **`AgentConfig` 扩展** — 新增 `env`（自定义环境变量）和 `mcpServers`（MCP 服务器配置）字段
+- **`OpencodeEngine.init()` 支持 MCP** — 通过 `config.mcp.servers` 将 MCP 配置传入 `createOpencode()`
+- **`ClaudeCodeEngine.prompt()` 支持自定义 env** — 合并 `config.env` 到 spawn 环境
+- **ClientPage / AgentSettings / setup.ts** — 全部迁移到 `agent.init()` / `agent.destroy()` / `agent.serviceStatus()`
+- **preload.ts** — 移除 `start/stop/status/send` bridge，新增 `serviceStatus`
+- **electron.d.ts** — 移除旧版类型，新增 `serviceStatus` 和 `env/mcpServers` 字段
+
+### Fixed
+
+#### Process Management
+- **Separated `agentProcess` from `agentRunnerProcess`** — `agent:start/stop/status/send` previously shared the same `agentRunnerProcess` variable as `agentRunner:*` handlers, meaning starting either service would clobber the other
+- **Never-resolving promises in process start** — `lanproxy:start`, `agentRunner:start`, `agent:start` setTimeout callbacks lacked an else branch; if the process exited within the timeout, the IPC promise would hang forever
+- **Hard-coded ports in `agentRunner:status`** — Ports 60001/60002 were hard-coded instead of using the actual ports passed to `agentRunner:start`
+
+#### Dependency Installation
+- **npm `--save --no-save` flag contradiction** — `installNpmPackage()` passed both `--save` and `--no-save` to npm; `--no-save` won, so packages weren't tracked in `package.json`, and npm 7+ auto-pruned previously-installed packages during subsequent installs. Only the last-installed package survived.
+- **`packageLocator.ts` used `process.cwd()` instead of `os.homedir()`** — In Electron main process, `process.cwd()` points to the app bundle directory, not the user's home. This caused `mcp.ts`'s `isInstalledLocally()` to look for packages in the wrong directory.
+
+#### Settings & Storage
+- **`settings:set` stored `"null"` string for null values** — When clearing a setting with `null`, the handler inserted `JSON.stringify(null)` = `"null"` into SQLite. Now uses `DELETE` for null/undefined values.
+- **`parseInt` without NaN check** — `mcp:getPort` and MCP initialization parsed port strings without validating the result, potentially passing `NaN` to `setPort()`.
+
+#### MCP Service
+- **`getMcpProxyBinPath` returned system fallback instead of null** — When `mcp-proxy` wasn't installed locally, the method returned the bare binary name as fallback, causing the `if (!binPath)` guard in `start()` to never trigger. Now returns `null` to surface clear errors.
+- **Shallow copy of `DEFAULT_MCP_PROXY_CONFIG`** — The spread operator `{ ...DEFAULT_MCP_PROXY_CONFIG }` only shallow-copied; the nested `mcpServers` object was shared between the default and the instance. Now uses deep copy.
+
+#### UI
+- **Login form validation never fired** — `Form.Item` had `rules` but no `name` prop, so Ant Design validation was silently skipped. Replaced with explicit `message.warning()` for each empty field.
+
+### Changed
+
 #### Data Directory Unification
 - **Unified data directory** — All data now stored under `~/.nuwax-agent/`
   - SQLite database moved from `app.getPath('userData')` to `~/.nuwax-agent/nuwax-agent.db`
@@ -156,3 +191,5 @@ Renderer Process (React)
 | Version | Date | Description |
 |---------|------|-------------|
 | 0.1.0 | 2026-02-22 | Initial Electron client with multi-engine support |
+| 0.1.1 | 2026-02-23 | Bug fixes: process separation, dependency install, settings storage |
+| 0.2.0 | 2026-02-23 | Remove legacy Agent spawn, unify to SDK with MCP injection |

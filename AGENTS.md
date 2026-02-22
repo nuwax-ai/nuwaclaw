@@ -49,6 +49,7 @@ This is the **Nuwax Agent** desktop application - a multi-engine AI assistant th
 
 | Service | File | Description |
 |---------|------|-------------|
+| **Unified Agent** | `unifiedAgent.ts` | SDK-based agent lifecycle, MCP injection |
 | **Engine Manager** | `engineManager.ts` | Agent engine lifecycle |
 | **Shell Environment** | `shellEnv.ts` | Cross-platform shell |
 | **Workspace Manager** | `workspaceManager.ts` | Session workspaces |
@@ -117,6 +118,7 @@ Each engine runs in an isolated environment:
 | **uv** | bundled | Python package manager (>=0.5.0), shipped in extraResources |
 | **nuwax-file-server** | npm-local | File service |
 | **nuwaxcode** | npm-local | Agent engine |
+| **mcp-stdio-proxy** | npm-local | MCP protocol proxy (bin: `mcp-proxy`) |
 
 ### Installation Locations
 

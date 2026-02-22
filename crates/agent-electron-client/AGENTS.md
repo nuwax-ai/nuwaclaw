@@ -74,12 +74,15 @@ This is the **Nuwax Agent** Electron client - a multi-engine AI assistant deskto
 | **Package Locator** | `packageLocator.ts` | Package detection |
 | **Package Manager** | `packageManager.ts` | Package management |
 
-### Components (10)
+### Components (12)
 
 | Component | Description |
 |-----------|-------------|
 | `SetupWizard.tsx` | 3-step setup wizard |
+| `SetupDependencies.tsx` | Dependency detection & auto-install |
+| `ClientPage.tsx` | Dashboard (login, services, deps) |
 | `SettingsPage.tsx` | Settings UI |
+| `DependenciesPage.tsx` | Dependency management UI |
 | `AgentSettings.tsx` | Agent configuration |
 | `AgentRunnerSettings.tsx` | Runner configuration |
 | `MCPSettings.tsx` | MCP management |
@@ -87,7 +90,6 @@ This is the **Nuwax Agent** Electron client - a multi-engine AI assistant deskto
 | `SkillsSync.tsx` | Skills sync UI |
 | `IMSettings.tsx` | IM configuration |
 | `TaskSettings.tsx` | Task settings |
-| `PermissionModal.tsx` | Permission approval |
 
 ---
 
@@ -140,7 +142,12 @@ await agentService.init({
   engine: 'opencode',  // or 'nuwaxcode' or 'claude-code'
   apiKey: 'xxx',
   model: 'claude-sonnet-4-20250514',
-  workspaceDir: '/path/to/workspace'
+  workspaceDir: '/path/to/workspace',
+  // Optional: custom env and MCP servers
+  env: { MY_VAR: 'value' },
+  mcpServers: {
+    'my-mcp': { command: 'npx', args: ['-y', 'my-mcp-server'] },
+  },
 });
 
 // Create session
@@ -297,6 +304,7 @@ permissionManager.approveRequest(requestId, alwaysAllow);
 | **uv** | bundled | Python package manager (>=0.5.0), shipped in extraResources |
 | **nuwax-file-server** | npm-local | File service |
 | **nuwaxcode** | npm-local | Agent engine |
+| **mcp-stdio-proxy** | npm-local | MCP protocol proxy (bin: `mcp-proxy`) |
 
 > **Note**: Node.js is NOT a required dependency — Electron bundles its own Node runtime.
 
@@ -373,13 +381,26 @@ User creates session
 ```
 App quit requested
     │
+    ├── Stop Unified Agent Service (agentService.destroy())
     ├── Stop Agent Runner
     ├── Stop Lanproxy
     ├── Stop File Server
-    ├── Stop MCP servers
+    ├── Stop MCP Proxy
     ├── Stop Engine processes
     └── Close database
 ```
+
+### Process Variables
+
+Main process manages 3 independent child process variables:
+
+| Variable | IPC Prefix | Description |
+|----------|-----------|-------------|
+| `agentRunnerProcess` | `agentRunner:*` | Agent Runner proxy |
+| `lanproxyProcess` | `lanproxy:*` | Lanproxy tunnel |
+| `fileServerProcess` | `fileServer:*` | File server |
+
+> **Note**: Agent engine lifecycle is managed by `UnifiedAgentService` (not a raw `ChildProcess`). Use `agent:init` / `agent:destroy` / `agent:serviceStatus` IPC.
 
 ### Prevents
 
@@ -417,11 +438,17 @@ crates/agent-electron-client/
 │   ├── main/        # Electron main process
 │   │   ├── main.ts
 │   │   └── preload.ts
-│   ├── services/    # All services (19)
-│   ├── components/  # All components (10)
+│   ├── services/    # All services (20)
+│   ├── components/  # All components (12)
+│   │   └── dev/     # Dev-only tools (DevToolsPanel)
 │   └── types/       # TypeScript definitions
 ├── resources/       # Bundled resources (extraResources)
-│   └── uv/bin/      # Bundled uv binary
+│   └── uv/          # uv 多平台：prepare-uv 按当前平台复制或下载
+│       ├── bin/     # 打包用（prepare-uv 生成，不提交）
+│       ├── .cache/  # 下载缓存（不提交）
+│       └── <platform-arch>/  # 可选：提交各平台到 darwin-arm64、win32-x64 等
+├── scripts/
+│   └── prepare-uv.js # 构建前准备 uv（复制或从 GitHub Release 下载）
 ├── package.json
 └── vite.config.ts
 ```
