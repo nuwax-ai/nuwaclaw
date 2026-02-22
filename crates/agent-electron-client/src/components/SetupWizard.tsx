@@ -26,6 +26,7 @@ import {
   UserOutlined,
   CheckCircleOutlined,
   RobotOutlined,
+  FolderOpenOutlined,
 } from '@ant-design/icons';
 import { setupService, authService, Step1Config, DEFAULT_STEP1_CONFIG } from '../services/setup';
 import SetupDependencies from './SetupDependencies';
@@ -102,6 +103,18 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
   }, []);
 
   const handleStep1Submit = async () => {
+    if (!step1Config.serverHost) {
+      message.warning('请输入服务域名');
+      return;
+    }
+    if (!step1Config.agentPort) {
+      message.warning('请输入 Agent 端口');
+      return;
+    }
+    if (!step1Config.fileServerPort) {
+      message.warning('请输入文件服务端口');
+      return;
+    }
     if (!step1Config.workspaceDir) {
       message.warning('请选择工作区目录');
       return;
@@ -209,7 +222,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               />
             </Form.Item>
 
-            <Form.Item label="Agent 端口">
+            <Form.Item label="Agent 端口" required>
               <InputNumber
                 value={step1Config.agentPort}
                 onChange={(value) =>
@@ -221,7 +234,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               />
             </Form.Item>
 
-            <Form.Item label="文件服务端口">
+            <Form.Item label="文件服务端口" required>
               <InputNumber
                 value={step1Config.fileServerPort}
                 onChange={(value) =>
@@ -236,17 +249,27 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               />
             </Form.Item>
 
-            <Form.Item label="工作区目录">
-              <Input
-                value={step1Config.workspaceDir}
-                onChange={(e) =>
-                  setStep1Config({
-                    ...step1Config,
-                    workspaceDir: e.target.value,
-                  })
-                }
-                placeholder="请输入有效的绝对路径（如 /path/to/dir）"
-              />
+            <Form.Item
+              label="工作区目录"
+              required
+              validateStatus={!step1Config.workspaceDir ? 'error' : ''}
+              help={!step1Config.workspaceDir ? '请选择工作区目录' : ''}
+            >
+              <Space.Compact style={{ width: '100%' }}>
+                <Input
+                  value={step1Config.workspaceDir}
+                  readOnly
+                  placeholder="点击右侧按钮选择目录"
+                  style={{ cursor: 'pointer' }}
+                  onClick={handleSelectWorkspaceDir}
+                />
+                <Button
+                  icon={<FolderOpenOutlined />}
+                  onClick={handleSelectWorkspaceDir}
+                >
+                  选择
+                </Button>
+              </Space.Compact>
             </Form.Item>
 
             <Button
