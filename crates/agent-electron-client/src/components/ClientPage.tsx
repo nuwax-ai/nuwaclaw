@@ -128,7 +128,9 @@ function ClientPage({ onNavigate }: ClientPageProps) {
   }, []);
 
   const handleLogin = async () => {
-    if (!loginUsername || !loginPassword || !loginDomain) return;
+    if (!loginDomain) { message.warning('请输入服务域名'); return; }
+    if (!loginUsername) { message.warning('请输入账号'); return; }
+    if (!loginPassword) { message.warning('请填写动态认证码'); return; }
 
     setLoginLoading(true);
     try {
@@ -219,13 +221,12 @@ function ClientPage({ onNavigate }: ClientPageProps) {
       });
 
       // Agent
-      const agentStatus = await window.electronAPI?.agent.status();
+      const agentStatus = await window.electronAPI?.agent.serviceStatus();
       items.push({
         key: 'agent',
         label: 'Agent 服务',
         description: 'Agent 核心服务',
         running: agentStatus?.running ?? false,
-        pid: agentStatus?.pid,
       });
 
       // Agent Runner
@@ -261,14 +262,16 @@ function ClientPage({ onNavigate }: ClientPageProps) {
       let result: { success: boolean; error?: string } | undefined;
 
       if (key === 'agent') {
-        const config = await window.electronAPI?.settings.get('agent_config') as any;
-        result = await window.electronAPI?.agent.start({
-          type: config?.type || 'nuwaxcode',
-          binPath: config?.binPath || 'opencode',
-          env: {},
-          apiKey: config?.apiKey,
-          apiBaseUrl: config?.apiBaseUrl,
-          model: config?.model,
+        const agentConfig = await window.electronAPI?.settings.get('agent_config') as any;
+        const step1 = await window.electronAPI?.settings.get('step1_config') as { workspaceDir?: string } | null;
+        result = await window.electronAPI?.agent.init({
+          engine: agentConfig?.type || 'opencode',
+          apiKey: agentConfig?.apiKey,
+          baseUrl: agentConfig?.apiBaseUrl,
+          model: agentConfig?.model,
+          workspaceDir: step1?.workspaceDir || '',
+          port: agentConfig?.backendPort || undefined,
+          engineBinaryPath: agentConfig?.binPath || undefined,
         });
       } else if (key === 'fileServer') {
         const step1 = await window.electronAPI?.settings.get('step1_config') as { fileServerPort?: number } | null;
@@ -298,7 +301,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
 
   const handleStopService = async (key: string) => {
     try {
-      if (key === 'agent') await window.electronAPI?.agent.stop();
+      if (key === 'agent') await window.electronAPI?.agent.destroy();
       else if (key === 'fileServer') await window.electronAPI?.fileServer.stop();
       else if (key === 'lanproxy') await window.electronAPI?.lanproxy.stop();
       else if (key === 'agentRunner') await window.electronAPI?.agentRunner.stop();
@@ -346,7 +349,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
       const running = services.filter((s) => s.running);
       for (const svc of running) {
         try {
-          if (svc.key === 'agent') await window.electronAPI?.agent.stop();
+          if (svc.key === 'agent') await window.electronAPI?.agent.destroy();
           else if (svc.key === 'fileServer') await window.electronAPI?.fileServer.stop();
           else if (svc.key === 'lanproxy') await window.electronAPI?.lanproxy.stop();
           else if (svc.key === 'agentRunner') await window.electronAPI?.agentRunner.stop();
@@ -496,7 +499,6 @@ function ClientPage({ onNavigate }: ClientPageProps) {
       <div style={styles.sectionBody}>
         <Form layout="vertical" size="small" onFinish={handleLogin}>
           <Form.Item
-            rules={[{ required: true, message: '请输入服务域名' }]}
             style={{ marginBottom: 10 }}
           >
             <Input
@@ -509,7 +511,6 @@ function ClientPage({ onNavigate }: ClientPageProps) {
           </Form.Item>
 
           <Form.Item
-            rules={[{ required: true, message: '请输入账号' }]}
             style={{ marginBottom: 10 }}
           >
             <Input
@@ -523,7 +524,6 @@ function ClientPage({ onNavigate }: ClientPageProps) {
           </Form.Item>
 
           <Form.Item
-            rules={[{ required: true, message: '请填写动态认证码（在PC端或移动端的个人资料中查看）' }]}
             style={{ marginBottom: 12 }}
           >
             <Input.Password

@@ -35,7 +35,6 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
   const [apiBaseUrl, setApiBaseUrl] = useState('https://api.anthropic.com');
   const [model, setModel] = useState('claude-sonnet-4-20250514');
   const [running, setRunning] = useState(false);
-  const [pid, setPid] = useState<number | undefined>();
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -64,9 +63,8 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
 
   const checkStatus = async () => {
     try {
-      const status = await window.electronAPI?.agent.status();
+      const status = await window.electronAPI?.agent.serviceStatus();
       setRunning(status?.running || false);
-      setPid(status?.pid);
     } catch (error) {
       console.error('检查状态失败:', error);
     }
@@ -89,16 +87,18 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
     setLoading(true);
     try {
       if (running) {
-        await window.electronAPI?.agent.stop();
+        await window.electronAPI?.agent.destroy();
         message.success('Agent 已停止');
       } else {
-        const result = await window.electronAPI?.agent.start({
-          type: agentType as 'nuwaxcode' | 'claude-code',
-          binPath,
-          env: {},
+        const step1 = await window.electronAPI?.settings.get('step1_config') as { workspaceDir?: string } | null;
+        const result = await window.electronAPI?.agent.init({
+          engine: agentType === 'claude-code' ? 'claude-code' : 'opencode',
           apiKey,
-          apiBaseUrl,
+          baseUrl: apiBaseUrl,
           model,
+          workspaceDir: step1?.workspaceDir || '',
+          port: backendPort,
+          engineBinaryPath: binPath || undefined,
         });
         if (result?.success) {
           message.success('Agent 启动成功');
@@ -130,7 +130,6 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
         <Card size="small" style={{ background: '#f5f5f5' }}>
           <Space>
             <Badge status={running ? "success" : "default"} text={running ? "运行中" : "已停止"} />
-            {pid && <Text type="secondary">PID: {pid}</Text>}
             <Button
               type={running ? "default" : "primary"}
               icon={running ? <StopOutlined /> : <PlayCircleOutlined />}
