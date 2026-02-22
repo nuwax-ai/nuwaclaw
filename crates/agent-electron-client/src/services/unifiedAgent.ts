@@ -1276,3 +1276,94 @@ export class UnifiedAgentService extends EventEmitter {
 export const agentService = new UnifiedAgentService();
 
 export default agentService;
+
+// ==================== Unified SSE Formatter ====================
+
+/**
+ * Unified SSE event format for all engines
+ */
+export interface UnifiedSseEvent {
+  type: 'message' | 'permission' | 'session' | 'error' | 'done';
+  sessionId?: string;
+  messageId?: string;
+  content?: string;
+  subtype?: string;
+  data?: unknown;
+  timestamp: number;
+}
+
+/**
+ * SSE Event Types
+ */
+export const SSE_EVENT_TYPES = {
+  MESSAGE: 'message',
+  PERMISSION: 'permission',
+  SESSION: 'session',
+  ERROR: 'error',
+  DONE: 'done',
+} as const;
+
+/**
+ * Format SDK event to unified SSE format
+ */
+export function formatSdkToUnifiedSse(
+  type: string,
+  data: Record<string, unknown>,
+  sessionId?: string
+): UnifiedSseEvent {
+  const event: UnifiedSseEvent = {
+    type: getUnifiedEventType(type),
+    sessionId,
+    timestamp: Date.now(),
+  };
+
+  switch (event.type) {
+    case 'message':
+      event.content = String(data.content || data.text || '');
+      event.messageId = String(data.messageId || data.id || '');
+      break;
+    case 'permission':
+      event.data = {
+        permissionId: data.permissionId,
+        description: data.description,
+        tools: data.tools,
+      };
+      break;
+    case 'session':
+      event.subtype = String(data.status || data.subtype || '');
+      break;
+    case 'error':
+      event.data = { error: String(data.error || data.message || 'Unknown error') };
+      break;
+  }
+
+  return event;
+}
+
+/**
+ * Map SDK event type to unified type
+ */
+function getUnifiedEventType(type: string): UnifiedSseEvent['type'] {
+  if (type.startsWith('message')) return 'message';
+  if (type.startsWith('permission')) return 'permission';
+  if (type.startsWith('session')) return 'session';
+  if (type === 'error' || type.includes('error')) return 'error';
+  if (type === 'done' || type === '[DONE]') return 'done';
+  return 'message';
+}
+
+/**
+ * Convert unified event to SSE format string
+ */
+export function toSseString(event: UnifiedSseEvent): string {
+  const lines: string[] = [];
+  
+  if (event.type) lines.push(`event: ${event.type}`);
+  if (event.sessionId) lines.push(`sessionId: ${event.sessionId}`);
+  if (event.messageId) lines.push(`messageId: ${event.messageId}`);
+  if (event.content) lines.push(`data: ${JSON.stringify({ content: event.content })}`);
+  else if (event.data) lines.push(`data: ${JSON.stringify(event.data)}`);
+  
+  lines.push('');
+  return lines.join('\n');
+}
