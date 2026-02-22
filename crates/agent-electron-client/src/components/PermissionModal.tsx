@@ -46,12 +46,12 @@ function PermissionModal({ isOpen, request, onApprove, onDeny }: PermissionModal
         return (
           <div className="permission-details">
             <div className="detail-row">
-              <span className="label">Command:</span>
+              <span className="label">命令:</span>
               <code>{details.command} {details.args?.join(' ')}</code>
             </div>
             {details.env && (
               <div className="detail-row">
-                <span className="label">Environment:</span>
+                <span className="label">环境变量:</span>
                 <span>{Object.keys(details.env).join(', ')}</span>
               </div>
             )}
@@ -61,7 +61,7 @@ function PermissionModal({ isOpen, request, onApprove, onDeny }: PermissionModal
         return (
           <div className="permission-details">
             <div className="detail-row">
-              <span className="label">File:</span>
+              <span className="label">文件:</span>
               <code>{details.file}</code>
             </div>
           </div>
@@ -79,7 +79,7 @@ function PermissionModal({ isOpen, request, onApprove, onDeny }: PermissionModal
         return (
           <div className="permission-details">
             <div className="detail-row">
-              <span className="label">Tool:</span>
+              <span className="label">工具:</span>
               <code>{details.tool}</code>
             </div>
           </div>
@@ -96,7 +96,7 @@ function PermissionModal({ isOpen, request, onApprove, onDeny }: PermissionModal
           <span className="permission-icon">{getIcon()}</span>
           <div className="permission-title">
             <h3>{request.title}</h3>
-            <span className="permission-timer">{countdown}s</span>
+            <span className="permission-timer">{countdown} 秒</span>
           </div>
         </div>
 
@@ -107,13 +107,13 @@ function PermissionModal({ isOpen, request, onApprove, onDeny }: PermissionModal
 
         <div className="permission-actions">
           <button className="deny-btn" onClick={onDeny}>
-            Deny
+            拒绝
           </button>
           <button className="approve-once-btn" onClick={() => onApprove(false)}>
-            Approve Once
+            本次允许
           </button>
           <button className="approve-always-btn" onClick={() => onApprove(true)}>
-            Always Allow
+            始终允许
           </button>
         </div>
       </div>

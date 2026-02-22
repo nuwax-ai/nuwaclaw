@@ -39,7 +39,7 @@ function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
         setSettings({ ...defaultSettings, ...(saved as Settings) });
       }
     } catch (error) {
-      console.error('Failed to load settings:', error);
+      console.error('加载配置失败:', error);
     } finally {
       setLoading(false);
     }
@@ -51,11 +51,11 @@ function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
     try {
       await window.electronAPI?.settings.set('app_settings', settings);
       await window.electronAPI?.settings.set('anthropic_api_key', settings.anthropic_api_key);
-      setMessage('Settings saved!');
+      setMessage('配置已保存');
       setTimeout(() => setMessage(''), 2000);
     } catch (error) {
-      console.error('Failed to save settings:', error);
-      setMessage('Failed to save settings');
+      console.error('保存配置失败:', error);
+      setMessage('保存配置失败');
     } finally {
       setSaving(false);
     }
@@ -67,27 +67,27 @@ function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>⚙️ Settings</h2>
+          <h2>设置</h2>
           <button className="close-btn" onClick={onClose}>×</button>
         </div>
 
         {loading ? (
-          <div className="loading">Loading...</div>
+          <div className="loading">加载中...</div>
         ) : (
           <div className="settings-form">
             <div className="form-group">
-              <label>API Key (Anthropic)</label>
+              <label>API 密钥 (Anthropic)</label>
               <input
                 type="password"
                 value={settings.anthropic_api_key}
                 onChange={(e) => setSettings({ ...settings, anthropic_api_key: e.target.value })}
                 placeholder="sk-ant-..."
               />
-              <span className="hint">Get your API key from <a href="https://console.anthropic.com" target="_blank" rel="noopener">Anthropic Console</a></span>
+              <span className="hint">从 <a href="https://console.anthropic.com" target="_blank" rel="noopener">Anthropic 控制台</a> 获取密钥</span>
             </div>
 
             <div className="form-group">
-              <label>Default Model</label>
+              <label>默认模型</label>
               <select
                 value={settings.default_model}
                 onChange={(e) => setSettings({ ...settings, default_model: e.target.value })}
@@ -99,7 +99,7 @@ function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
             </div>
 
             <div className="form-group">
-              <label>Max Tokens: {settings.max_tokens}</label>
+              <label>最大 Token 数: {settings.max_tokens}</label>
               <input
                 type="range"
                 min="1024"
@@ -111,7 +111,7 @@ function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
             </div>
 
             <div className="form-group">
-              <label>Temperature: {settings.temperature}</label>
+              <label>温度: {settings.temperature}</label>
               <input
                 type="range"
                 min="0"
@@ -125,7 +125,7 @@ function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
             <div className="form-actions">
               {message && <span className="message">{message}</span>}
               <button className="save-btn" onClick={saveSettings} disabled={saving}>
-                {saving ? 'Saving...' : 'Save'}
+                {saving ? '保存中...' : '保存'}
               </button>
             </div>
           </div>

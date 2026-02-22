@@ -9,10 +9,20 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "outDir": "dist/main",
-    "rootDir": "src/main",
+    "outDir": "dist",
+    "rootDir": "src",
     "declaration": false
   },
-  "include": ["src/main/**/*"],
+  "include": [
+    "src/main/**/*",
+    "src/services/dependencies.ts",
+    "src/services/engineManager.ts",
+    "src/services/mcp.ts",
+    "src/services/shellEnv.ts",
+    "src/services/packageLocator.ts",
+    "src/services/packageManager.ts",
+    "src/services/unifiedAgent.ts",
+    "src/types/**/*"
+  ],
   "exclude": ["node_modules"]
 }

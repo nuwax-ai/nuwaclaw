@@ -460,7 +460,7 @@ export async function sendToEngine(engineId: string, message: string): Promise<{
   }
   
   return new Promise((resolve) => {
-    engine.process.stdin.write(message + '\n', (error) => {
+    engine.process.stdin!.write(message + '\n', (error) => {
       if (error) {
         resolve({ success: false, error: error.message });
       } else {
@@ -486,11 +486,6 @@ export async function stopAllEngines(): Promise<void> {
 }
 
 export default {
-  // Types
-  AgentEngine,
-  EngineConfig,
-  EngineStatus,
-  
   // Detection
   isEngineInstalledLocally,
   isEngineInstalledGlobally,

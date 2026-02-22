@@ -13,6 +13,13 @@ const defaultConfigs: Record<IMPlatform, IMConfig> = {
   feishu: { platform: 'feishu', enabled: false, appId: '', appSecret: '', allowedUsers: [] },
 };
 
+const PLATFORM_LABELS: Record<IMPlatform, string> = {
+  discord: 'Discord',
+  telegram: 'Telegram',
+  dingtalk: '钉钉',
+  feishu: '飞书',
+};
+
 function IMSettings({ isOpen, onClose }: IMSettingsProps) {
   const [activeTab, setActiveTab] = useState<IMPlatform>('discord');
   const [configs, setConfigs] = useState<Record<IMPlatform, IMConfig>>(defaultConfigs);
@@ -36,7 +43,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
     const platforms: IMPlatform[] = ['discord', 'telegram', 'dingtalk', 'feishu'];
     const newConfigs = { ...defaultConfigs };
     const newStatus = { ...status };
-    
+
     for (const platform of platforms) {
       const config = imService.getConfig(platform);
       if (config) {
@@ -44,7 +51,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
       }
       newStatus[platform] = imService.isConnected(platform);
     }
-    
+
     setConfigs(newConfigs);
     setStatus(newStatus);
   };
@@ -54,7 +61,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
       imService.setConfig(config.platform, config);
     }
     await imService.saveConfigs();
-    setMessage('Config saved!');
+    setMessage('配置已保存');
     setTimeout(() => setMessage(''), 2000);
   };
 
@@ -63,12 +70,12 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
     setMessage('');
 
     const result = await imService.connect(activeTab);
-    
+
     if (result.success) {
       setStatus({ ...status, [activeTab]: true });
-      setMessage(`${activeTab} connected!`);
+      setMessage(`${PLATFORM_LABELS[activeTab]} 已连接`);
     } else {
-      setMessage(`Error: ${result.error}`);
+      setMessage(`错误: ${result.error}`);
     }
 
     setConnecting(false);
@@ -77,7 +84,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
   const handleDisconnect = async () => {
     await imService.disconnect(activeTab);
     setStatus({ ...status, [activeTab]: false });
-    setMessage('Disconnected');
+    setMessage('已断开连接');
   };
 
   const updateConfig = (key: keyof IMConfig, value: unknown) => {
@@ -95,7 +102,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content im-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>💬 IM Integration</h2>
+          <h2>即时通讯集成</h2>
           <button className="close-btn" onClick={onClose}>×</button>
         </div>
 
@@ -112,7 +119,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
                 {platform === 'dingtalk' && '📎'}
                 {platform === 'feishu' && '📝'}
               </span>
-              <span className="tab-name">{platform}</span>
+              <span className="tab-name">{PLATFORM_LABELS[platform]}</span>
               {status[platform] && <span className="tab-status">●</span>}
             </button>
           ))}
@@ -121,7 +128,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
         <div className="im-content">
           <div className="im-section">
             <label className="toggle-label">
-              <span>Enable {activeTab}</span>
+              <span>启用 {PLATFORM_LABELS[activeTab]}</span>
               <input
                 type="checkbox"
                 checked={currentConfig.enabled}
@@ -132,7 +139,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
 
           {activeTab === 'discord' && (
             <div className="im-section">
-              <h3>🔐 Bot Configuration</h3>
+              <h3>机器人配置</h3>
               <div className="form-group">
                 <label>Bot Token</label>
                 <input
@@ -143,7 +150,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
                 />
               </div>
               <div className="form-group">
-                <label>Allowed User IDs (comma separated)</label>
+                <label>允许的用户 ID（逗号分隔）</label>
                 <input
                   type="text"
                   value={currentConfig.allowedUsers?.join(', ') || ''}
@@ -156,7 +163,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
 
           {activeTab === 'telegram' && (
             <div className="im-section">
-              <h3>🔐 Bot Configuration</h3>
+              <h3>机器人配置</h3>
               <div className="form-group">
                 <label>Bot Token</label>
                 <input
@@ -167,7 +174,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
                 />
               </div>
               <div className="form-group">
-                <label>Allowed User IDs (comma separated)</label>
+                <label>允许的用户 ID（逗号分隔）</label>
                 <input
                   type="text"
                   value={currentConfig.allowedUsers?.join(', ') || ''}
@@ -180,7 +187,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
 
           {activeTab === 'dingtalk' && (
             <div className="im-section">
-              <h3>🔐 App Configuration</h3>
+              <h3>应用配置</h3>
               <div className="form-group">
                 <label>App Key</label>
                 <input
@@ -203,7 +210,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
 
           {activeTab === 'feishu' && (
             <div className="im-section">
-              <h3>🔐 App Configuration</h3>
+              <h3>应用配置</h3>
               <div className="form-group">
                 <label>App ID</label>
                 <input
@@ -225,9 +232,9 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
           )}
 
           <div className="im-section">
-            <h3>⚙️ Options</h3>
+            <h3>选项</h3>
             <label className="toggle-label">
-              <span>Auto Reply</span>
+              <span>自动回复</span>
               <input
                 type="checkbox"
                 checked={currentConfig.autoReply || false}
@@ -242,7 +249,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
         <div className="im-actions">
           {status[activeTab] ? (
             <button className="disconnect-btn" onClick={handleDisconnect}>
-              Disconnect
+              断开连接
             </button>
           ) : (
             <button
@@ -250,11 +257,11 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
               onClick={handleConnect}
               disabled={connecting || !currentConfig.enabled}
             >
-              {connecting ? 'Connecting...' : 'Connect'}
+              {connecting ? '连接中...' : '连接'}
             </button>
           )}
           <button className="save-btn" onClick={handleSave}>
-            Save Config
+            保存配置
           </button>
         </div>
       </div>

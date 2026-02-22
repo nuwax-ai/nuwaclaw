@@ -58,7 +58,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
         setModel(config.model || 'claude-sonnet-4-20250514');
       }
     } catch (error) {
-      console.error('Failed to load config:', error);
+      console.error('加载配置失败:', error);
     }
   };
 
@@ -68,7 +68,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
       setRunning(status?.running || false);
       setPid(status?.pid);
     } catch (error) {
-      console.error('Failed to check status:', error);
+      console.error('检查状态失败:', error);
     }
   };
 
@@ -82,7 +82,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
       model,
     };
     await window.electronAPI?.settings.set('agent_config', config);
-    message.success('Config saved!');
+    message.success('配置已保存');
   };
 
   const handleStartStop = async () => {
@@ -90,7 +90,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
     try {
       if (running) {
         await window.electronAPI?.agent.stop();
-        message.success('Agent stopped');
+        message.success('Agent 已停止');
       } else {
         const result = await window.electronAPI?.agent.start({
           type: agentType as 'nuwaxcode' | 'claude-code',
@@ -101,13 +101,13 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
           model,
         });
         if (result?.success) {
-          message.success('Agent started');
+          message.success('Agent 启动成功');
         } else {
-          message.error(`Error: ${result?.error}`);
+          message.error(`启动失败: ${result?.error}`);
         }
       }
     } catch (error) {
-      message.error(`Error: ${error}`);
+      message.error(`错误: ${error}`);
     }
     await checkStatus();
     setLoading(false);
@@ -120,7 +120,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
       title={
         <Space>
           <CloudServerOutlined />
-          Agent Settings
+          Agent 引擎设置
         </Space>
       }
       style={{ margin: 16 }}
@@ -129,7 +129,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
         {/* Status Panel */}
         <Card size="small" style={{ background: '#f5f5f5' }}>
           <Space>
-            <Badge status={running ? "success" : "default"} text={running ? "Running" : "Stopped"} />
+            <Badge status={running ? "success" : "default"} text={running ? "运行中" : "已停止"} />
             {pid && <Text type="secondary">PID: {pid}</Text>}
             <Button
               type={running ? "default" : "primary"}
@@ -138,15 +138,15 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
               onClick={handleStartStop}
               loading={loading}
             >
-              {running ? "Stop" : "Start"}
+              {running ? "停止" : "启动"}
             </Button>
           </Space>
         </Card>
 
-        <Divider orientation="left">Agent Type</Divider>
+        <Divider orientation="left">引擎类型</Divider>
 
         <Form layout="vertical">
-          <Form.Item label="Type">
+          <Form.Item label="类型">
             <Select value={agentType} onChange={(v) => {
               setAgentType(v);
               setBinPath(v === 'nuwaxcode' ? 'opencode' : 'claude-code');
@@ -166,9 +166,9 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
             </Select>
           </Form.Item>
 
-          <Divider orientation="left">Port Configuration</Divider>
+          <Divider orientation="left">端口配置</Divider>
 
-          <Form.Item label="Backend Port (直接连接)">
+          <Form.Item label="后端端口（直接连接）">
             <Input
               type="number"
               value={backendPort}
@@ -178,9 +178,9 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
             <Text type="secondary">直接连接 Agent 服务，无需代理</Text>
           </Form.Item>
 
-          <Divider orientation="left">API Configuration</Divider>
+          <Divider orientation="left">API 配置</Divider>
 
-          <Form.Item label="Binary Path">
+          <Form.Item label="可执行文件路径">
             <Input
               value={binPath}
               onChange={(e) => setBinPath(e.target.value)}
@@ -188,7 +188,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
             />
           </Form.Item>
 
-          <Form.Item label="API Key">
+          <Form.Item label="API 密钥">
             <Input.Password
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
@@ -196,7 +196,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
             />
           </Form.Item>
 
-          <Form.Item label="API Base URL">
+          <Form.Item label="API 基础 URL">
             <Input
               value={apiBaseUrl}
               onChange={(e) => setApiBaseUrl(e.target.value)}
@@ -204,7 +204,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
             />
           </Form.Item>
 
-          <Form.Item label="Model">
+          <Form.Item label="模型">
             <Select value={model} onChange={setModel}>
               <Select.Option value="claude-opus-4-20250514">Claude Opus 4</Select.Option>
               <Select.Option value="claude-sonnet-4-20250514">Claude Sonnet 4</Select.Option>
@@ -213,7 +213,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
           </Form.Item>
 
           <Button type="primary" icon={<SaveOutlined />} onClick={handleSave}>
-            Save Config
+            保存配置
           </Button>
         </Form>
       </Space>

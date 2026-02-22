@@ -104,6 +104,113 @@ export interface EngineAPI {
   stopAll: () => Promise<{ success: boolean }>;
 }
 
+// SDK types (simplified for renderer use)
+export type AgentEngineType = 'opencode' | 'nuwaxcode' | 'claude-code';
+
+export interface AgentInitConfig {
+  engine: AgentEngineType;
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  workspaceDir: string;
+  hostname?: string;
+  port?: number;
+  timeout?: number;
+  engineBinaryPath?: string;
+}
+
+export interface SdkSession {
+  id: string;
+  parentID?: string;
+  title?: string;
+  time?: { created: number; updated?: number };
+  [key: string]: unknown;
+}
+
+export interface MessageWithParts {
+  info: unknown;
+  parts: unknown[];
+}
+
+export interface AgentEventPayload {
+  type: string;
+  data: unknown;
+}
+
+type ApiResult<T = unknown> = Promise<{ success: boolean; data?: T; error?: string }>;
+
+export interface AgentAPI {
+  // Legacy (process-level)
+  start: (config: { type: 'nuwaxcode' | 'claude-code'; binPath: string; env: Record<string, string>; apiKey?: string; apiBaseUrl?: string; model?: string }) => Promise<{ success: boolean; error?: string }>;
+  stop: () => Promise<{ success: boolean; error?: string }>;
+  status: () => Promise<{ running: boolean; pid?: number }>;
+  send: (message: string) => Promise<{ success: boolean; response?: string; error?: string }>;
+
+  // Unified Agent SDK
+  init: (config: AgentInitConfig) => ApiResult;
+  destroy: () => ApiResult;
+  getEngineType: () => Promise<AgentEngineType | null>;
+  isReady: () => Promise<boolean>;
+
+  // Session management (SDK)
+  listSessions: () => ApiResult<SdkSession[]>;
+  createSession: (opts?: { parentID?: string; title?: string }) => ApiResult<SdkSession>;
+  getSession: (id: string) => ApiResult<SdkSession>;
+  deleteSession: (id: string) => ApiResult;
+  updateSession: (id: string, title?: string) => ApiResult<SdkSession>;
+  getSessionStatus: () => ApiResult<Record<string, unknown>>;
+  forkSession: (id: string, messageId?: string) => ApiResult<SdkSession>;
+
+  // Messages
+  getMessages: (sessionId: string, limit?: number) => ApiResult<MessageWithParts[]>;
+  getMessage: (sessionId: string, messageId: string) => ApiResult<MessageWithParts>;
+
+  // Prompt / Command / Shell
+  prompt: (sessionId: string, parts: unknown[], opts?: unknown) => ApiResult<MessageWithParts>;
+  promptAsync: (sessionId: string, parts: unknown[], opts?: unknown) => ApiResult;
+  command: (sessionId: string, cmd: string, args?: string, opts?: unknown) => ApiResult<MessageWithParts>;
+  shell: (sessionId: string, cmd: string, agent?: string, model?: unknown) => ApiResult<MessageWithParts>;
+
+  // Abort
+  abort: (sessionId: string) => ApiResult;
+
+  // Permission
+  respondPermission: (sessionId: string, permissionId: string, response: 'once' | 'always' | 'reject') => ApiResult;
+
+  // Session operations
+  getSessionDiff: (sessionId: string, messageId?: string) => ApiResult<unknown[]>;
+  revert: (sessionId: string, messageId: string, partId?: string) => ApiResult<SdkSession>;
+  unrevert: (sessionId: string) => ApiResult<SdkSession>;
+  shareSession: (sessionId: string) => ApiResult<SdkSession>;
+
+  // Tools & Providers
+  listTools: (provider?: string, model?: string) => ApiResult<unknown[]>;
+  listProviders: () => ApiResult<unknown[]>;
+
+  // Config
+  getConfig: () => ApiResult<unknown>;
+
+  // File operations
+  findText: (pattern: string) => ApiResult<unknown[]>;
+  findFiles: (query: string, dirs?: boolean) => ApiResult<string[]>;
+  listFiles: (dirPath: string) => ApiResult<unknown[]>;
+  readFile: (filePath: string) => ApiResult<unknown>;
+
+  // MCP via SDK
+  mcpStatus: () => ApiResult<unknown>;
+
+  // Agents & Commands
+  listAgents: () => ApiResult<unknown[]>;
+  listCommands: () => ApiResult<unknown[]>;
+
+  // Claude Code specific
+  claudePrompt: (message: string) => ApiResult<string>;
+
+  // SSE Event listening
+  onEvent: (callback: (event: unknown, data: AgentEventPayload) => void) => void;
+  offEvent: (callback: (event: unknown, data: AgentEventPayload) => void) => void;
+}
+
 export interface ElectronAPI {
   session: {
     list: () => Promise<Session[]>;
@@ -126,8 +233,10 @@ export interface ElectronAPI {
   mcp: MCPAPI;
   lanproxy: LanproxyAPI;
   agentRunner: AgentRunnerAPI;
+  fileServer: FileServerAPI;
   dependencies: DependenciesAPI;
   engine: EngineAPI;
+  agent: AgentAPI;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   off: (channel: string, callback: (...args: unknown[]) => void) => void;
 }

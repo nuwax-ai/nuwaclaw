@@ -83,7 +83,7 @@ bytes = "1.11"
 
 # 压缩
 # zip: 禁用 lzma/xz 特性以避免 lzma-rust2 的 crc 版本冲突
-zip = { version = "7.4", default-features = false, features = ["aes-crypto", "bzip2", "deflate64", "deflate", "ppmd", "time", "zstd"] }
+zip = { version = "8.1", default-features = false, features = ["aes-crypto", "bzip2", "deflate64", "deflate", "ppmd", "time", "zstd"] }
 flate2 = "1.0"
 tar = "0.4"
 

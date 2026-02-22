@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('electronAPI', {
-  // Session management
+  // Session management (SQLite)
   session: {
     list: () => ipcRenderer.invoke('session:list'),
     create: (session: { id: string; title: string; model: string; system_prompt?: string }) =>
@@ -10,7 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete: (sessionId: string) => ipcRenderer.invoke('session:delete', sessionId),
   },
 
-  // Message management
+  // Message management (SQLite)
   message: {
     list: (sessionId: string) => ipcRenderer.invoke('message:list', sessionId),
     add: (message: { id: string; session_id: string; role: string; content: string }) =>
@@ -66,8 +66,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('agentRunner:status'),
   },
 
-  // Agent (nuwaxcode/claude-code) management
+  // Agent - unified SDK service (@nuwax-ai/sdk)
   agent: {
+    // Legacy (process-level)
     start: (config: { type: 'nuwaxcode' | 'claude-code'; binPath: string; env: Record<string, string>; apiKey?: string; apiBaseUrl?: string; model?: string }) =>
       ipcRenderer.invoke('agent:start', config),
     stop: () =>
@@ -76,6 +77,110 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('agent:status'),
     send: (message: string) =>
       ipcRenderer.invoke('agent:send', message),
+
+    // Unified Agent SDK
+    init: (config: any) =>
+      ipcRenderer.invoke('agent:init', config),
+    destroy: () =>
+      ipcRenderer.invoke('agent:destroy'),
+    getEngineType: () =>
+      ipcRenderer.invoke('agent:getEngineType'),
+    isReady: () =>
+      ipcRenderer.invoke('agent:isReady'),
+
+    // Session management (SDK)
+    listSessions: () =>
+      ipcRenderer.invoke('agent:listSessions'),
+    createSession: (opts?: { parentID?: string; title?: string }) =>
+      ipcRenderer.invoke('agent:createSession', opts),
+    getSession: (id: string) =>
+      ipcRenderer.invoke('agent:getSession', id),
+    deleteSession: (id: string) =>
+      ipcRenderer.invoke('agent:deleteSession', id),
+    updateSession: (id: string, title?: string) =>
+      ipcRenderer.invoke('agent:updateSession', id, title),
+    getSessionStatus: () =>
+      ipcRenderer.invoke('agent:getSessionStatus'),
+    forkSession: (id: string, messageId?: string) =>
+      ipcRenderer.invoke('agent:forkSession', id, messageId),
+
+    // Messages
+    getMessages: (sessionId: string, limit?: number) =>
+      ipcRenderer.invoke('agent:getMessages', sessionId, limit),
+    getMessage: (sessionId: string, messageId: string) =>
+      ipcRenderer.invoke('agent:getMessage', sessionId, messageId),
+
+    // Prompt / Command / Shell
+    prompt: (sessionId: string, parts: any[], opts?: any) =>
+      ipcRenderer.invoke('agent:prompt', sessionId, parts, opts),
+    promptAsync: (sessionId: string, parts: any[], opts?: any) =>
+      ipcRenderer.invoke('agent:promptAsync', sessionId, parts, opts),
+    command: (sessionId: string, cmd: string, args?: string, opts?: any) =>
+      ipcRenderer.invoke('agent:command', sessionId, cmd, args, opts),
+    shell: (sessionId: string, cmd: string, agent?: string, model?: any) =>
+      ipcRenderer.invoke('agent:shell', sessionId, cmd, agent, model),
+
+    // Abort
+    abort: (sessionId: string) =>
+      ipcRenderer.invoke('agent:abort', sessionId),
+
+    // Permission
+    respondPermission: (sessionId: string, permissionId: string, response: 'once' | 'always' | 'reject') =>
+      ipcRenderer.invoke('agent:respondPermission', sessionId, permissionId, response),
+
+    // Session operations
+    getSessionDiff: (sessionId: string, messageId?: string) =>
+      ipcRenderer.invoke('agent:getSessionDiff', sessionId, messageId),
+    revert: (sessionId: string, messageId: string, partId?: string) =>
+      ipcRenderer.invoke('agent:revert', sessionId, messageId, partId),
+    unrevert: (sessionId: string) =>
+      ipcRenderer.invoke('agent:unrevert', sessionId),
+    shareSession: (sessionId: string) =>
+      ipcRenderer.invoke('agent:shareSession', sessionId),
+
+    // Tools
+    listTools: (provider?: string, model?: string) =>
+      ipcRenderer.invoke('agent:listTools', provider, model),
+
+    // Providers
+    listProviders: () =>
+      ipcRenderer.invoke('agent:listProviders'),
+
+    // Config
+    getConfig: () =>
+      ipcRenderer.invoke('agent:getConfig'),
+
+    // File operations
+    findText: (pattern: string) =>
+      ipcRenderer.invoke('agent:findText', pattern),
+    findFiles: (query: string, dirs?: boolean) =>
+      ipcRenderer.invoke('agent:findFiles', query, dirs),
+    listFiles: (dirPath: string) =>
+      ipcRenderer.invoke('agent:listFiles', dirPath),
+    readFile: (filePath: string) =>
+      ipcRenderer.invoke('agent:readFile', filePath),
+
+    // MCP via SDK
+    mcpStatus: () =>
+      ipcRenderer.invoke('agent:mcpStatus'),
+
+    // Agents & Commands
+    listAgents: () =>
+      ipcRenderer.invoke('agent:listAgents'),
+    listCommands: () =>
+      ipcRenderer.invoke('agent:listCommands'),
+
+    // Claude Code specific
+    claudePrompt: (message: string) =>
+      ipcRenderer.invoke('agent:claudePrompt', message),
+
+    // SSE Event listening
+    onEvent: (callback: (event: any, data: { type: string; data: any }) => void) => {
+      ipcRenderer.on('agent:event', callback);
+    },
+    offEvent: (callback: (event: any, data: { type: string; data: any }) => void) => {
+      ipcRenderer.removeListener('agent:event', callback);
+    },
   },
 
   // File Server management
@@ -134,7 +239,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Event listeners
   on: (channel: string, callback: (...args: unknown[]) => void) => {
-    const validChannels = ['menu:new-session', 'menu:settings', 'menu:mcp-settings', 'cowork:message', 'cowork:permission'];
+    const validChannels = ['menu:new-session', 'menu:settings', 'menu:mcp-settings', 'cowork:message', 'cowork:permission', 'agent:event'];
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, (_, ...args) => callback(...args));
     }

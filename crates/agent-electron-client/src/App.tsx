@@ -9,7 +9,9 @@ import {
   Badge,
   Typography,
   message,
+  ConfigProvider,
 } from 'antd';
+import zhCN from 'antd/locale/zh_CN';
 import {
   RobotOutlined,
   SettingOutlined,
@@ -20,6 +22,7 @@ import {
   GlobalOutlined,
   UserOutlined,
   LogoutOutlined,
+  CommentOutlined,
 } from '@ant-design/icons';
 import type { MenuProps, ModalProps } from 'antd';
 import { aiService } from './services/ai';
@@ -32,6 +35,17 @@ const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 
 type TabKey = 'chat' | 'agent' | 'mcp' | 'lanproxy' | 'skills' | 'im' | 'tasks' | 'settings';
+
+const TAB_LABELS: Record<TabKey, string> = {
+  chat: '对话',
+  agent: 'Agent 引擎',
+  mcp: 'MCP 服务',
+  lanproxy: '内网穿透',
+  skills: '技能同步',
+  im: '即时通讯',
+  tasks: '定时任务',
+  settings: '设置',
+};
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('chat');
@@ -51,7 +65,7 @@ function App() {
     if (completed) {
       const user = await authService.getAuthUser();
       if (user) {
-        setUsername(user.username || 'User');
+        setUsername(user.username || '用户');
       }
       await loadSettings();
     }
@@ -69,7 +83,7 @@ function App() {
         });
       }
     } catch (error) {
-      console.error('Failed to load settings:', error);
+      console.error('加载配置失败:', error);
     }
   };
 
@@ -83,9 +97,9 @@ function App() {
       await authService.logout(true);
       setIsSetupComplete(false);
       setUsername('');
-      message.success('Logged out');
+      message.success('已退出登录');
     } catch (error) {
-      message.error('Logout failed');
+      message.error('退出登录失败');
     }
   };
 
@@ -93,7 +107,7 @@ function App() {
     {
       key: 'settings',
       icon: <SettingOutlined />,
-      label: 'Settings',
+      label: '设置',
       onClick: () => setSettingsOpen(true),
     },
     {
@@ -102,7 +116,7 @@ function App() {
     {
       key: 'logout',
       icon: <LogoutOutlined />,
-      label: 'Logout',
+      label: '退出登录',
       danger: true,
       onClick: handleLogout,
     },
@@ -111,91 +125,99 @@ function App() {
   // Show loading while checking setup status
   if (isSetupComplete === null) {
     return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        background: '#f0f2f5',
-      }}>
-        <Text>Loading...</Text>
-      </div>
+      <ConfigProvider locale={zhCN}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          height: '100vh',
+          background: '#f0f2f5',
+        }}>
+          <Text>正在加载...</Text>
+        </div>
+      </ConfigProvider>
     );
   }
 
   // Show setup wizard if not completed
   if (!isSetupComplete) {
-    return <SetupWizard onComplete={handleSetupComplete} />;
+    return (
+      <ConfigProvider locale={zhCN}>
+        <SetupWizard onComplete={handleSetupComplete} />
+      </ConfigProvider>
+    );
   }
 
   const menuItems: MenuProps['items'] = [
-    { key: 'chat', icon: <RobotOutlined />, label: 'Chat' },
-    { key: 'agent', icon: <CloudServerOutlined />, label: 'Agent' },
-    { key: 'mcp', icon: <ApiOutlined />, label: 'MCP' },
-    { key: 'lanproxy', icon: <GlobalOutlined />, label: 'Lanproxy' },
-    { key: 'skills', icon: <FileTextOutlined />, label: 'Skills' },
-    { key: 'im', icon: <ApiOutlined />, label: 'IM' },
-    { key: 'tasks', icon: <ClockCircleOutlined />, label: 'Tasks' },
+    { key: 'chat', icon: <CommentOutlined />, label: '对话' },
+    { key: 'agent', icon: <CloudServerOutlined />, label: 'Agent 引擎' },
+    { key: 'mcp', icon: <ApiOutlined />, label: 'MCP 服务' },
+    { key: 'lanproxy', icon: <GlobalOutlined />, label: '内网穿透' },
+    { key: 'skills', icon: <FileTextOutlined />, label: '技能同步' },
+    { key: 'im', icon: <CommentOutlined />, label: '即时通讯' },
+    { key: 'tasks', icon: <ClockCircleOutlined />, label: '定时任务' },
   ];
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider width={200} theme="dark" breakpoint="lg" collapsedWidth="0">
-        <div style={{ padding: '16px', textAlign: 'center' }}>
-          <Text strong style={{ color: '#fff', fontSize: 16 }}>🤖 Nuwax Agent</Text>
-        </div>
-        <Menu
-          theme="dark"
-          mode="inline"
-          defaultSelectedKeys={['chat']}
-          items={menuItems}
-          onClick={({ key }) => setActiveTab(key as TabKey)}
-        />
-      </Sider>
-      <Layout>
-        <Header style={{
-          background: '#fff',
-          padding: '0 24px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          borderBottom: '1px solid #f0f0f0',
-        }}>
-          <Text strong style={{ fontSize: 16 }}>
-            {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
-          </Text>
-          <Space>
-            <Badge dot>
-              <Button type="text" icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)} />
-            </Badge>
-            <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
-              <Space style={{ cursor: 'pointer' }}>
-                <Avatar icon={<UserOutlined />} />
-                <Text>{username}</Text>
-              </Space>
-            </Dropdown>
-          </Space>
-        </Header>
-        <Content style={{ margin: 16, overflow: 'initial' }}>
-          {activeTab === 'settings' && (
-            <SettingsPage isOpen={true} onClose={() => setActiveTab('chat')} />
-          )}
-          {activeTab === 'agent' && (
-            <AgentSettings isOpen={true} onClose={() => setActiveTab('chat')} />
-          )}
-          {activeTab !== 'settings' && activeTab !== 'agent' && (
-            <div style={{
-              padding: 24,
-              background: '#fff',
-              borderRadius: 8,
-              textAlign: 'center',
-            }}>
-              <Text type="secondary">{activeTab} panel - Coming soon</Text>
-            </div>
-          )}
-        </Content>
+    <ConfigProvider locale={zhCN}>
+      <Layout style={{ minHeight: '100vh' }}>
+        <Sider width={200} theme="dark" breakpoint="lg" collapsedWidth="0">
+          <div style={{ padding: '16px', textAlign: 'center' }}>
+            <Text strong style={{ color: '#fff', fontSize: 16 }}>Nuwax Agent</Text>
+          </div>
+          <Menu
+            theme="dark"
+            mode="inline"
+            defaultSelectedKeys={['chat']}
+            items={menuItems}
+            onClick={({ key }) => setActiveTab(key as TabKey)}
+          />
+        </Sider>
+        <Layout>
+          <Header style={{
+            background: '#fff',
+            padding: '0 24px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            borderBottom: '1px solid #f0f0f0',
+          }}>
+            <Text strong style={{ fontSize: 16 }}>
+              {TAB_LABELS[activeTab] || activeTab}
+            </Text>
+            <Space>
+              <Badge dot>
+                <Button type="text" icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)} />
+              </Badge>
+              <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
+                <Space style={{ cursor: 'pointer' }}>
+                  <Avatar icon={<UserOutlined />} />
+                  <Text>{username}</Text>
+                </Space>
+              </Dropdown>
+            </Space>
+          </Header>
+          <Content style={{ margin: 16, overflow: 'initial' }}>
+            {activeTab === 'settings' && (
+              <SettingsPage isOpen={true} onClose={() => setActiveTab('chat')} />
+            )}
+            {activeTab === 'agent' && (
+              <AgentSettings isOpen={true} onClose={() => setActiveTab('chat')} />
+            )}
+            {activeTab !== 'settings' && activeTab !== 'agent' && (
+              <div style={{
+                padding: 24,
+                background: '#fff',
+                borderRadius: 8,
+                textAlign: 'center',
+              }}>
+                <Text type="secondary">{TAB_LABELS[activeTab]} - 即将推出</Text>
+              </div>
+            )}
+          </Content>
+        </Layout>
       </Layout>
-    </Layout>
+    </ConfigProvider>
   );
 }
 

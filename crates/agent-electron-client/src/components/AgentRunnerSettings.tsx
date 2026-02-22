@@ -32,7 +32,7 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
   const handleSave = async () => {
     agentRunnerManager.setConfig(config);
     await agentRunnerManager.saveConfig();
-    setMessage('Config saved!');
+    setMessage('配置已保存');
     setTimeout(() => setMessage(''), 2000);
   };
 
@@ -44,20 +44,20 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
       if (status.running) {
         const result = await agentRunnerManager.stop();
         if (result.success) {
-          setMessage('Agent Runner stopped');
+          setMessage('Agent Runner 已停止');
         } else {
-          setMessage(`Error: ${result.error}`);
+          setMessage(`错误: ${result.error}`);
         }
       } else {
         const result = await agentRunnerManager.start();
         if (result.success) {
-          setMessage('Agent Runner started');
+          setMessage('Agent Runner 已启动');
         } else {
-          setMessage(`Error: ${result.error}`);
+          setMessage(`错误: ${result.error}`);
         }
       }
     } catch (error) {
-      setMessage(`Error: ${error}`);
+      setMessage(`错误: ${error}`);
     }
 
     await checkStatus();
@@ -70,14 +70,14 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content agent-runner-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>🤖 Agent Runner</h2>
+          <h2>Agent Runner</h2>
           <button className="close-btn" onClick={onClose}>×</button>
         </div>
 
         <div className="agent-runner-section">
           <div className="status-panel">
             <div className={`status-indicator ${status.running ? 'running' : 'stopped'}`}>
-              {status.running ? '● Running' : '○ Stopped'}
+              {status.running ? '● 运行中' : '○ 已停止'}
             </div>
             {status.pid && <div className="pid">PID: {status.pid}</div>}
           </div>
@@ -85,11 +85,11 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
           {status.running && (
             <div className="url-info">
               <div className="url-item">
-                <span className="label">Backend:</span>
+                <span className="label">后端地址:</span>
                 <code>{status.backendUrl}</code>
               </div>
               <div className="url-item">
-                <span className="label">Proxy:</span>
+                <span className="label">代理地址:</span>
                 <code>{status.proxyUrl}</code>
               </div>
             </div>
@@ -100,15 +100,15 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
             onClick={handleStartStop}
             disabled={loading}
           >
-            {loading ? '...' : status.running ? 'Stop' : 'Start'}
+            {loading ? '...' : status.running ? '停止' : '启动'}
           </button>
         </div>
 
         <div className="agent-runner-section">
-          <h3>⚙️ Configuration</h3>
+          <h3>配置</h3>
 
           <div className="form-group">
-            <label>Binary Path</label>
+            <label>可执行文件路径</label>
             <input
               type="text"
               value={config.binPath}
@@ -119,7 +119,7 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
 
           <div className="form-row">
             <div className="form-group">
-              <label>Backend Port</label>
+              <label>后端端口</label>
               <input
                 type="number"
                 value={config.backendPort}
@@ -128,7 +128,7 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
               />
             </div>
             <div className="form-group">
-              <label>Proxy Port</label>
+              <label>代理端口</label>
               <input
                 type="number"
                 value={config.proxyPort}
@@ -139,7 +139,7 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
           </div>
 
           <div className="form-group">
-            <label>API Key</label>
+            <label>API 密钥</label>
             <input
               type="password"
               value={config.apiKey}
@@ -149,7 +149,7 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
           </div>
 
           <div className="form-group">
-            <label>API Base URL</label>
+            <label>API 基础 URL</label>
             <input
               type="text"
               value={config.apiBaseUrl}
@@ -159,7 +159,7 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
           </div>
 
           <div className="form-group">
-            <label>Default Model</label>
+            <label>默认模型</label>
             <select
               value={config.defaultModel}
               onChange={(e) => setConfig({ ...config, defaultModel: e.target.value })}
@@ -175,7 +175,7 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
 
         <div className="modal-footer">
           <button className="save-btn" onClick={handleSave}>
-            Save Config
+            保存配置
           </button>
         </div>
       </div>

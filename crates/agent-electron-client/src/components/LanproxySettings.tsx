@@ -32,34 +32,34 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
   const handleSave = async () => {
     lanproxyManager.setConfig(config);
     await lanproxyManager.saveConfig();
-    setMessage('Config saved!');
+    setMessage('配置已保存');
     setTimeout(() => setMessage(''), 2000);
   };
 
   const handleStartStop = async () => {
     setLoading(true);
     setMessage('');
-    
+
     try {
       if (status.running) {
         const result = await lanproxyManager.stop();
         if (result.success) {
-          setMessage('Lanproxy stopped');
+          setMessage('内网穿透已停止');
         } else {
-          setMessage(`Error: ${result.error}`);
+          setMessage(`错误: ${result.error}`);
         }
       } else {
         const result = await lanproxyManager.start();
         if (result.success) {
-          setMessage('Lanproxy started');
+          setMessage('内网穿透已启动');
         } else {
-          setMessage(`Error: ${result.error}`);
+          setMessage(`错误: ${result.error}`);
         }
       }
     } catch (error) {
-      setMessage(`Error: ${error}`);
+      setMessage(`错误: ${error}`);
     }
-    
+
     await checkStatus();
     setLoading(false);
   };
@@ -70,32 +70,32 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content lanproxy-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>🌐 Lanproxy (内网穿透)</h2>
+          <h2>内网穿透 (Lanproxy)</h2>
           <button className="close-btn" onClick={onClose}>×</button>
         </div>
 
         <div className="lanproxy-section">
           <div className="status-panel">
             <div className={`status-indicator ${status.running ? 'running' : 'stopped'}`}>
-              {status.running ? '● Running' : '○ Stopped'}
+              {status.running ? '● 运行中' : '○ 已停止'}
             </div>
             {status.pid && <div className="pid">PID: {status.pid}</div>}
           </div>
 
-          <button 
+          <button
             className={`toggle-lanproxy-btn ${status.running ? 'stop' : 'start'}`}
             onClick={handleStartStop}
             disabled={loading}
           >
-            {loading ? '...' : status.running ? 'Stop' : 'Start'}
+            {loading ? '...' : status.running ? '停止' : '启动'}
           </button>
         </div>
 
         <div className="lanproxy-section">
-          <h3>⚙️ Configuration</h3>
-          
+          <h3>配置</h3>
+
           <div className="form-group">
-            <label>Binary Path</label>
+            <label>可执行文件路径</label>
             <input
               type="text"
               value={config.binPath}
@@ -106,7 +106,7 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
 
           <div className="form-row">
             <div className="form-group">
-              <label>Server IP</label>
+              <label>服务器 IP</label>
               <input
                 type="text"
                 value={config.serverIp}
@@ -115,7 +115,7 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
               />
             </div>
             <div className="form-group">
-              <label>Server Port</label>
+              <label>服务器端口</label>
               <input
                 type="number"
                 value={config.serverPort}
@@ -127,7 +127,7 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
 
           <div className="form-row">
             <div className="form-group">
-              <label>Client Key</label>
+              <label>客户端密钥</label>
               <input
                 type="text"
                 value={config.clientKey}
@@ -136,7 +136,7 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
               />
             </div>
             <div className="form-group">
-              <label>Local Port</label>
+              <label>本地端口</label>
               <input
                 type="number"
                 value={config.localPort}
@@ -151,7 +151,7 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
 
         <div className="modal-footer">
           <button className="save-btn" onClick={handleSave}>
-            Save Config
+            保存配置
           </button>
         </div>
       </div>

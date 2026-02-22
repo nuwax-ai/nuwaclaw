@@ -37,13 +37,13 @@ function TaskSettings({ isOpen, onClose }: TaskSettingsProps) {
 
   const handleSave = async () => {
     await taskScheduler.saveTasks();
-    setMessage('Tasks saved!');
+    setMessage('任务已保存');
     setTimeout(() => setMessage(''), 2000);
   };
 
   const handleAddTask = async () => {
     if (!newTask.name || !newTask.actionContent) {
-      setMessage('Please fill required fields');
+      setMessage('请填写必填字段');
       return;
     }
 
@@ -86,7 +86,7 @@ function TaskSettings({ isOpen, onClose }: TaskSettingsProps) {
     });
 
     setTasks(taskScheduler.getTasks());
-    setMessage('Task created!');
+    setMessage('任务已创建');
     setTimeout(() => setMessage(''), 2000);
   };
 
@@ -98,25 +98,25 @@ function TaskSettings({ isOpen, onClose }: TaskSettingsProps) {
   const handleDeleteTask = (id: string) => {
     taskScheduler.deleteTask(id);
     setTasks(taskScheduler.getTasks());
-    setMessage('Task deleted');
+    setMessage('任务已删除');
     setTimeout(() => setMessage(''), 2000);
   };
 
   const handleRunNow = async (id: string) => {
-    setMessage('Running task...');
+    setMessage('正在执行任务...');
     const result = await taskScheduler.runTask(id);
-    setMessage(result.success ? 'Task executed!' : `Error: ${result.error}`);
+    setMessage(result.success ? '任务执行完成' : `错误: ${result.error}`);
     setTimeout(() => setMessage(''), 2000);
     setTasks(taskScheduler.getTasks());
   };
 
   const formatNextRun = (timestamp?: number) => {
-    if (!timestamp) return 'N/A';
+    if (!timestamp) return '无';
     const diff = timestamp - Date.now();
-    if (diff < 0) return 'Now';
-    if (diff < 60000) return `${Math.round(diff / 1000)}s`;
-    if (diff < 3600000) return `${Math.round(diff / 60000)}m`;
-    return `${Math.round(diff / 3600000)}h`;
+    if (diff < 0) return '立即';
+    if (diff < 60000) return `${Math.round(diff / 1000)} 秒`;
+    if (diff < 3600000) return `${Math.round(diff / 60000)} 分钟`;
+    return `${Math.round(diff / 3600000)} 小时`;
   };
 
   if (!isOpen) return null;
@@ -125,56 +125,56 @@ function TaskSettings({ isOpen, onClose }: TaskSettingsProps) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content task-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>⏰ Scheduled Tasks</h2>
+          <h2>定时任务</h2>
           <button className="close-btn" onClick={onClose}>×</button>
         </div>
 
         <div className="task-content">
           <div className="task-header">
-            <span className="task-count">{tasks.length} tasks</span>
+            <span className="task-count">{tasks.length} 个任务</span>
             <button className="add-task-btn" onClick={() => setShowAddForm(!showAddForm)}>
-              {showAddForm ? '− Cancel' : '+ Add Task'}
+              {showAddForm ? '− 取消' : '+ 添加任务'}
             </button>
           </div>
 
           {showAddForm && (
             <div className="task-form">
               <div className="form-group">
-                <label>Task Name *</label>
+                <label>任务名称 *</label>
                 <input
                   type="text"
                   value={newTask.name}
                   onChange={(e) => setNewTask({ ...newTask, name: e.target.value })}
-                  placeholder="Daily news digest"
+                  placeholder="每日新闻摘要"
                 />
               </div>
 
               <div className="form-group">
-                <label>Description</label>
+                <label>描述</label>
                 <input
                   type="text"
                   value={newTask.description}
                   onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-                  placeholder="Get daily tech news"
+                  placeholder="获取每日科技新闻"
                 />
               </div>
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Schedule</label>
+                  <label>调度方式</label>
                   <select
                     value={newTask.scheduleType}
                     onChange={(e) => setNewTask({ ...newTask, scheduleType: e.target.value as any })}
                   >
-                    <option value="interval">Interval</option>
-                    <option value="once">Once</option>
-                    <option value="cron">Cron</option>
+                    <option value="interval">定时循环</option>
+                    <option value="once">执行一次</option>
+                    <option value="cron">Cron 表达式</option>
                   </select>
                 </div>
 
                 {newTask.scheduleType === 'interval' && (
                   <div className="form-group">
-                    <label>Every</label>
+                    <label>间隔</label>
                     <div className="interval-input">
                       <input
                         type="number"
@@ -186,9 +186,9 @@ function TaskSettings({ isOpen, onClose }: TaskSettingsProps) {
                         value={newTask.intervalUnit}
                         onChange={(e) => setNewTask({ ...newTask, intervalUnit: e.target.value as any })}
                       >
-                        <option value="minutes">Minutes</option>
-                        <option value="hours">Hours</option>
-                        <option value="days">Days</option>
+                        <option value="minutes">分钟</option>
+                        <option value="hours">小时</option>
+                        <option value="days">天</option>
                       </select>
                     </div>
                   </div>
@@ -196,24 +196,24 @@ function TaskSettings({ isOpen, onClose }: TaskSettingsProps) {
               </div>
 
               <div className="form-group">
-                <label>Action Type</label>
+                <label>动作类型</label>
                 <select
                   value={newTask.actionType}
                   onChange={(e) => setNewTask({ ...newTask, actionType: e.target.value as any })}
                 >
-                  <option value="message">Send Message</option>
-                  <option value="command">Run Command</option>
+                  <option value="message">发送消息</option>
+                  <option value="command">执行命令</option>
                   <option value="webhook">Webhook</option>
                 </select>
               </div>
 
               <div className="form-group">
-                <label>Content *</label>
+                <label>内容 *</label>
                 {newTask.actionType === 'message' && (
                   <textarea
                     value={newTask.actionContent}
                     onChange={(e) => setNewTask({ ...newTask, actionContent: e.target.value })}
-                    placeholder="Get the latest tech news"
+                    placeholder="获取最新的科技新闻"
                     rows={3}
                   />
                 )}
@@ -237,7 +237,7 @@ function TaskSettings({ isOpen, onClose }: TaskSettingsProps) {
                       type="text"
                       value={newTask.actionContent}
                       onChange={(e) => setNewTask({ ...newTask, actionContent: e.target.value })}
-                      placeholder="Request body (JSON)"
+                      placeholder="请求体（JSON）"
                       style={{ marginTop: '8px' }}
                     />
                   </>
@@ -245,7 +245,7 @@ function TaskSettings({ isOpen, onClose }: TaskSettingsProps) {
               </div>
 
               <button className="create-task-btn" onClick={handleAddTask}>
-                Create Task
+                创建任务
               </button>
             </div>
           )}
@@ -253,8 +253,8 @@ function TaskSettings({ isOpen, onClose }: TaskSettingsProps) {
           <div className="task-list">
             {tasks.length === 0 && !showAddForm && (
               <div className="empty-state">
-                <p>No scheduled tasks</p>
-                <p className="hint">Create a task to automate your workflow</p>
+                <p>暂无定时任务</p>
+                <p className="hint">创建任务以自动化您的工作流程</p>
               </div>
             )}
 
@@ -274,8 +274,8 @@ function TaskSettings({ isOpen, onClose }: TaskSettingsProps) {
                     <div className="task-desc">{task.description}</div>
                   )}
                   <div className="task-meta">
-                    <span>Next: {formatNextRun(task.nextRun)}</span>
-                    {task.lastRun && <span>Last: {formatNextRun(Date.now() - task.lastRun)} ago</span>}
+                    <span>下次: {formatNextRun(task.nextRun)}</span>
+                    {task.lastRun && <span>上次: {formatNextRun(Date.now() - task.lastRun)} 前</span>}
                   </div>
                 </div>
                 <div className="task-actions">
@@ -299,7 +299,7 @@ function TaskSettings({ isOpen, onClose }: TaskSettingsProps) {
 
         <div className="modal-footer">
           <button className="save-btn" onClick={handleSave}>
-            Save Tasks
+            保存任务
           </button>
         </div>
       </div>

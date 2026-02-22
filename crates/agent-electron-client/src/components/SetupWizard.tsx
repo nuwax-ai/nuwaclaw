@@ -53,9 +53,9 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
     try {
       await setupService.saveStep1Config(step1Config);
       setCurrentStep(1);
-      message.success('Step 1 completed!');
+      message.success('基础配置已保存');
     } catch (error) {
-      message.error('Failed to save configuration');
+      message.error('保存配置失败');
     } finally {
       setLoading(false);
     }
@@ -63,19 +63,18 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
 
   const handleLogin = async () => {
     if (!username || !password) {
-      message.warning('Please enter username and password');
+      message.warning('请输入账号和密码');
       return;
     }
 
     setLoading(true);
     try {
-      // Placeholder: Replace with actual auth server call
       await authService.login(username, password);
       await setupService.completeStep2();
       setCurrentStep(2);
-      message.success('Login successful!');
+      message.success('登录成功');
     } catch (error) {
-      message.error('Login failed');
+      message.error('登录失败');
     } finally {
       setLoading(false);
     }
@@ -87,9 +86,9 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
       await setupService.completeSetup();
       setCompleted(true);
       onComplete();
-      message.success('Setup completed!');
+      message.success('初始化完成');
     } catch (error) {
-      message.error('Failed to complete setup');
+      message.error('完成初始化失败');
     } finally {
       setLoading(false);
     }
@@ -100,9 +99,9 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
   }
 
   const steps = [
-    { title: 'Basic Config', icon: <SettingOutlined /> },
-    { title: 'Login', icon: <UserOutlined /> },
-    { title: 'Ready', icon: <ApiOutlined /> },
+    { title: '基础设置', icon: <SettingOutlined /> },
+    { title: '账号登录', icon: <UserOutlined /> },
+    { title: '完成', icon: <CheckCircleOutlined /> },
   ];
 
   return (
@@ -114,28 +113,28 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
       background: '#f0f2f5',
       padding: 24,
     }}>
-      <Card style={{ width: 600 }}>
+      <Card style={{ width: 600 }} title="初始化向导">
         <Steps current={currentStep} items={steps} style={{ marginBottom: 32 }} />
 
         {currentStep === 0 && (
           <Form layout="vertical">
             <Alert
-              message="Basic Configuration"
-              description="Configure your service connections"
+              message="基础设置"
+              description="完成配置后即可使用，进度自动保存"
               type="info"
               showIcon
               style={{ marginBottom: 24 }}
             />
 
-            <Form.Item label="Server Host" required>
+            <Form.Item label="服务域名" required>
               <Input
                 value={step1Config.serverHost}
                 onChange={(e) => setStep1Config({ ...step1Config, serverHost: e.target.value })}
-                placeholder="localhost or your server address"
+                placeholder="例如：https://agent.nuwax.com"
               />
             </Form.Item>
 
-            <Form.Item label="Agent Port">
+            <Form.Item label="Agent 端口">
               <InputNumber
                 value={step1Config.agentPort}
                 onChange={(value) => setStep1Config({ ...step1Config, agentPort: value || 8086 })}
@@ -145,7 +144,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               />
             </Form.Item>
 
-            <Form.Item label="File Server Port">
+            <Form.Item label="文件服务端口">
               <InputNumber
                 value={step1Config.fileServerPort}
                 onChange={(value) => setStep1Config({ ...step1Config, fileServerPort: value || 8080 })}
@@ -155,11 +154,11 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               />
             </Form.Item>
 
-            <Form.Item label="Workspace Directory">
+            <Form.Item label="工作区目录">
               <Input
                 value={step1Config.workspaceDir}
                 onChange={(e) => setStep1Config({ ...step1Config, workspaceDir: e.target.value })}
-                placeholder="~/workspace or custom path"
+                placeholder="请输入有效的绝对路径（如 /path/to/dir）"
               />
             </Form.Item>
 
@@ -169,7 +168,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               loading={loading}
               block
             >
-              Next: Login
+              下一步：账号登录
             </Button>
           </Form>
         )}
@@ -177,39 +176,39 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
         {currentStep === 1 && (
           <Form layout="vertical">
             <Alert
-              message="Login"
-              description="Enter your credentials to continue"
+              message="账号登录"
+              description="登录 NuWax 账号以使用完整功能"
               type="info"
               showIcon
               style={{ marginBottom: 24 }}
             />
 
-            <Form.Item label="Username" required>
+            <Form.Item label="账号" required>
               <Input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter username"
+                placeholder="用户名 / 手机号 / 邮箱"
               />
             </Form.Item>
 
-            <Form.Item label="Password" required>
+            <Form.Item label="动态认证码" required>
               <Input.Password
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter password"
+                placeholder="请填写动态认证码"
               />
             </Form.Item>
 
             <Space>
               <Button onClick={() => setCurrentStep(0)}>
-                Back
+                上一步
               </Button>
               <Button
                 type="primary"
                 onClick={handleLogin}
                 loading={loading}
               >
-                Login
+                登录
               </Button>
             </Space>
           </Form>
@@ -218,8 +217,8 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
         {currentStep === 2 && (
           <Result
             status="success"
-            title="Setup Complete!"
-            subTitle="Your client is ready to use. Click below to start."
+            title="初始化完成"
+            subTitle="正在进入主界面，请稍候..."
             extra={[
               <Button
                 type="primary"
@@ -227,10 +226,10 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
                 onClick={handleComplete}
                 loading={loading}
               >
-                Start Using
+                开始使用
               </Button>,
               <Button key="back" onClick={() => setCurrentStep(0)}>
-                Reconfigure
+                重新配置
               </Button>,
             ]}
           />

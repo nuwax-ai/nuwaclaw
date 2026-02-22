@@ -120,7 +120,7 @@ export async function detectShell(): Promise<ShellInfo> {
       return {
         name: shell.name,
         path: shell.path,
-        version,
+        version: version ?? undefined,
         isAvailable: true,
       };
     } catch {
@@ -173,20 +173,17 @@ export async function checkCommand(cmd: string): Promise<boolean> {
 export async function getCommandVersion(cmd: string, args?: string[]): Promise<string | null> {
   return new Promise((resolve) => {
     const proc = spawn(cmd, args || ['--version'], {
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ['ignore', 'pipe', 'pipe'],
       shell: true,
     });
-    
+
     let stdout = '';
-    let stderr = '';
-    
-    proc.stdout?.on('data', (data) => { stdout += data.toString(); });
-    proc.stderr?.on('data', (data) => { stderr += data.toString(); });
-    
+
+    proc.stdout?.on('data', (data: Buffer) => { stdout += data.toString(); });
+
     proc.on('close', () => {
-      const output = stdout || stderr;
-      const match = output.match(/(\d+\.\d+\.\d+[\d.]*)/);
-      resolve(match ? match[1] : (output.trim() || null));
+      const match = stdout.match(/(\d+\.\d+\.\d+[\d.]*)/);
+      resolve(match ? match[1] : (stdout.trim() || null));
     });
     
     proc.on('error', () => resolve(null));

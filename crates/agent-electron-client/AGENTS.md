@@ -1,4 +1,4 @@
-# AGENTS.md - Agent Development Guide
+# Agent Development Guide
 
 ## Project Overview
 
@@ -151,43 +151,30 @@ await agentService.destroy();
 
 ---
 
-## Unified Agent SDK (@nuwax-ai/sdk)
+## Unified Agent SDK (@opencode-ai/sdk)
 
 ### About
 
-Fork of @opencode-ai/sdk with nuwaxcode support.
+使用 npm 官方包 `@opencode-ai/sdk`，支持 opencode；nuwaxcode 可通过同一 SDK 的 `createOpencode`（若支持）或 `createOpencodeClient(baseUrl)` 连接已有 HTTP 服务。
 
 ### Supported Engines
 
 | Engine | SDK/CLI | Package |
 |--------|---------|---------|
-| **opencode** | SDK | @nuwax-ai/sdk |
-| **nuwaxcode** | SDK | @nuwax-ai/sdk |
+| **opencode** | SDK | @opencode-ai/sdk (npm) |
+| **nuwaxcode** | SDK | @opencode-ai/sdk (npm)，或 createOpencodeClient 连接已有服务 |
 | **claude-code** | CLI | spawn |
-
-### Location
-
-```
-vendors/opencode-sdk/
-├── src/index.ts       # SDK implementation
-├── bin/nuwaxcode-http.js  # HTTP wrapper
-└── dist/             # Built output
-```
 
 ### Usage
 
 ```typescript
-import { createOpencode } from '@nuwax-ai/sdk';
+import { createOpencode, createOpencodeClient } from '@opencode-ai/sdk';
 
-// Start opencode
-await createOpencode({ engine: 'opencode', port: 4096 });
+// 启动 opencode 并创建 client
+const { client, server } = await createOpencode({ engine: 'opencode', port: 4096 });
 
-// Start nuwaxcode
-await createOpencode({ 
-  engine: 'nuwaxcode', 
-  nuwaxcodePath: '/path/to/nuwaxcode',
-  port: 4097 
-});
+// 或连接已有 opencode/nuwaxcode HTTP 服务
+const client = createOpencodeClient({ baseUrl: 'http://127.0.0.1:4096' });
 ```
 
 ---

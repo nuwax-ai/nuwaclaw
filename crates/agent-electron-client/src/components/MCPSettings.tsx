@@ -33,16 +33,16 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
       if (saved) {
         await mcpManager.loadConfig(saved as Parameters<typeof mcpManager.loadConfig>[0]);
       }
-      
+
       const serverList = mcpManager.getServers();
       for (const server of serverList) {
         await mcpManager.checkInstalled(server.id);
       }
-      
+
       setServers([...mcpManager.getServers()]);
       setRegistry(mcpManager.getRegistry());
     } catch (error) {
-      console.error('Failed to load MCP config:', error);
+      console.error('加载 MCP 配置失败:', error);
     } finally {
       setLoading(false);
     }
@@ -51,10 +51,10 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
   const saveConfig = async () => {
     try {
       await window.electronAPI?.settings.set('mcp_config', mcpManager.exportConfig());
-      setMessage('MCP config saved!');
+      setMessage('MCP 配置已保存');
       setTimeout(() => setMessage(''), 2000);
     } catch (error) {
-      setMessage('Failed to save');
+      setMessage('保存失败');
     }
   };
 
@@ -64,13 +64,13 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
     try {
       const result = await mcpManager.installServer(serverId);
       if (result.success) {
-        setMessage(`${serverId} installed!`);
+        setMessage(`${serverId} 安装成功`);
       } else {
-        setMessage(`Install failed: ${result.error}`);
+        setMessage(`安装失败: ${result.error}`);
       }
       setServers([...mcpManager.getServers()]);
     } catch (error) {
-      setMessage(`Error: ${error}`);
+      setMessage(`错误: ${error}`);
     } finally {
       setInstalling(null);
     }
@@ -82,13 +82,13 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
     try {
       const result = await mcpManager.uninstallServer(serverId);
       if (result.success) {
-        setMessage(`${serverId} uninstalled!`);
+        setMessage(`${serverId} 已卸载`);
       } else {
-        setMessage(`Uninstall failed: ${result.error}`);
+        setMessage(`卸载失败: ${result.error}`);
       }
       setServers([...mcpManager.getServers()]);
     } catch (error) {
-      setMessage(`Error: ${error}`);
+      setMessage(`错误: ${error}`);
     } finally {
       setInstalling(null);
     }
@@ -97,11 +97,11 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
   const handleToggle = async (serverId: string, enabled: boolean) => {
     mcpManager.toggleServer(serverId, enabled);
     setServers([...mcpManager.getServers()]);
-    
+
     if (enabled) {
       const result = await mcpManager.startServer(serverId);
       if (!result.success) {
-        setMessage(`Start failed: ${result.error}`);
+        setMessage(`启动失败: ${result.error}`);
       }
     } else {
       await mcpManager.stopServer(serverId);
@@ -112,17 +112,17 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
   const handleDelete = async (serverId: string) => {
     await mcpManager.removeServer(serverId);
     setServers([...mcpManager.getServers()]);
-    setMessage('Server removed');
+    setMessage('服务已移除');
   };
 
   const handleAddServer = async () => {
     if (!newServer.id || !newServer.name || !newServer.args) {
-      setMessage('Please fill required fields');
+      setMessage('请填写必填字段');
       return;
     }
 
     const args = newServer.args.split(' ').filter(Boolean);
-    
+
     await mcpManager.addServer({
       id: newServer.id.toLowerCase().replace(/\s+/g, '-'),
       name: newServer.name,
@@ -135,7 +135,7 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
     setServers([...mcpManager.getServers()]);
     setShowAddForm(false);
     setNewServer({ id: '', name: '', command: 'npx', args: '', description: '' });
-    setMessage('Server added! Save config to persist.');
+    setMessage('服务已添加，请保存配置以持久化');
   };
 
   const handleRegistryChange = (newRegistry: string) => {
@@ -149,16 +149,16 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content mcp-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>🔌 MCP Servers</h2>
+          <h2>MCP 服务管理</h2>
           <button className="close-btn" onClick={onClose}>×</button>
         </div>
 
         {loading ? (
-          <div className="loading">Loading...</div>
+          <div className="loading">加载中...</div>
         ) : (
           <>
             <div className="mcp-section">
-              <h3>📦 NPM Registry</h3>
+              <h3>NPM 镜像源</h3>
               <div className="registry-options">
                 <label className="radio-option">
                   <input
@@ -167,7 +167,7 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
                     checked={registry === npmRegistries.default}
                     onChange={() => handleRegistryChange(npmRegistries.default)}
                   />
-                  <span>🇺🇸 npmjs.org</span>
+                  <span>npmjs.org（官方）</span>
                 </label>
                 <label className="radio-option">
                   <input
@@ -176,7 +176,7 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
                     checked={registry === npmRegistries.china.taobao}
                     onChange={() => handleRegistryChange(npmRegistries.china.taobao)}
                   />
-                  <span>🇨🇳 淘宝镜像</span>
+                  <span>淘宝镜像</span>
                 </label>
                 <label className="radio-option">
                   <input
@@ -185,7 +185,7 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
                     checked={registry === npmRegistries.china.tencent}
                     onChange={() => handleRegistryChange(npmRegistries.china.tencent)}
                   />
-                  <span>🇨🇳 腾讯镜像</span>
+                  <span>腾讯镜像</span>
                 </label>
                 <label className="radio-option">
                   <input
@@ -194,16 +194,16 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
                     checked={registry === npmRegistries.china.aliyun}
                     onChange={() => handleRegistryChange(npmRegistries.china.aliyun)}
                   />
-                  <span>🇨🇳 阿里云</span>
+                  <span>阿里云镜像</span>
                 </label>
               </div>
             </div>
 
             <div className="mcp-section">
               <div className="section-header">
-                <h3>🖥️ Available Servers</h3>
+                <h3>可用服务</h3>
                 <button className="add-btn" onClick={() => setShowAddForm(!showAddForm)}>
-                  {showAddForm ? '− Cancel' : '+ Add Custom'}
+                  {showAddForm ? '− 取消' : '+ 添加自定义'}
                 </button>
               </div>
 
@@ -212,13 +212,13 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
                   <div className="form-row">
                     <input
                       type="text"
-                      placeholder="ID (e.g., my-server)"
+                      placeholder="ID（如 my-server）"
                       value={newServer.id}
                       onChange={(e) => setNewServer({ ...newServer, id: e.target.value })}
                     />
                     <input
                       type="text"
-                      placeholder="Name"
+                      placeholder="名称"
                       value={newServer.name}
                       onChange={(e) => setNewServer({ ...newServer, name: e.target.value })}
                     />
@@ -234,19 +234,19 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
                     </select>
                     <input
                       type="text"
-                      placeholder="Args (e.g., -y @scope/package arg1 arg2)"
+                      placeholder="参数（如 -y @scope/package arg1 arg2）"
                       value={newServer.args}
                       onChange={(e) => setNewServer({ ...newServer, args: e.target.value })}
                     />
                   </div>
                   <input
                     type="text"
-                    placeholder="Description (optional)"
+                    placeholder="描述（可选）"
                     value={newServer.description}
                     onChange={(e) => setNewServer({ ...newServer, description: e.target.value })}
                   />
                   <button className="add-confirm-btn" onClick={handleAddServer}>
-                    Add Server
+                    添加服务
                   </button>
                 </div>
               )}
@@ -258,8 +258,8 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
                       <div className="server-header">
                         <span className="server-name">{server.name}</span>
                         <span className="server-id">({server.id})</span>
-                        {server.running && <span className="status-badge running">Running</span>}
-                        {server.installed && !server.running && <span className="status-badge installed">Installed</span>}
+                        {server.running && <span className="status-badge running">运行中</span>}
+                        {server.installed && !server.running && <span className="status-badge installed">已安装</span>}
                       </div>
                       <div className="server-desc">{server.description}</div>
                       <div className="server-cmd">
@@ -282,7 +282,7 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
                           onClick={() => handleUninstall(server.id)}
                           disabled={installing === server.id || server.running}
                         >
-                          {installing === server.id ? '...' : 'Uninstall'}
+                          {installing === server.id ? '...' : '卸载'}
                         </button>
                       ) : (
                         <button
@@ -290,13 +290,13 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
                           onClick={() => handleInstall(server.id)}
                           disabled={installing === server.id}
                         >
-                          {installing === server.id ? '...' : 'Install'}
+                          {installing === server.id ? '...' : '安装'}
                         </button>
                       )}
                       <button
                         className="action-btn delete"
                         onClick={() => handleDelete(server.id)}
-                        title="Remove server"
+                        title="移除服务"
                       >
                         ×
                       </button>
@@ -310,7 +310,7 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
 
             <div className="modal-footer">
               <button className="save-btn" onClick={saveConfig}>
-                Save Config
+                保存配置
               </button>
             </div>
           </>

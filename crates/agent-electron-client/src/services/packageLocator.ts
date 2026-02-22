@@ -345,12 +345,12 @@ export function spawnLocal(
   }
   
   // Build environment with local paths first
-  const env = {
+  const env: Record<string, string | undefined> = {
     ...process.env,
     PATH: path.join(dirs.nodeModules, '.bin') + path.delimiter + (process.env.PATH || ''),
     ...options?.env,
   };
-  
+
   // Set npm registry if specified
   if (options?.registry) {
     env.NPM_CONFIG_REGISTRY = options.registry;
