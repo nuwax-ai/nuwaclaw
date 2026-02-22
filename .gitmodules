@@ -2,3 +2,6 @@
 	path = vendors/rcoder
 	url = https://github.com/nuwax-ai/rcoder.git
 	branch = nuwax-client
+[submodule "opencode-sdk"]
+	path = vendors/opencode-sdk
+	url = https://github.com/nuwax-ai/opencode-sdk.git
