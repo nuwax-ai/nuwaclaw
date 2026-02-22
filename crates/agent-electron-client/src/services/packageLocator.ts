@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { spawn } from 'child_process';
 import { getAppEnv } from './dependencies';
 
@@ -19,7 +20,7 @@ let appPaths: AppPaths | null = null;
 export function getAppPaths(basePath?: string): AppPaths {
   if (appPaths) return appPaths;
 
-  const base = basePath || process.cwd();
+  const base = basePath || os.homedir();
   
   appPaths = {
     appData: path.join(base, '.nuwax-agent'),

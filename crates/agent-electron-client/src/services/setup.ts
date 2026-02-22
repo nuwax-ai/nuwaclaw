@@ -249,16 +249,15 @@ class ServiceManager {
     };
 
     try {
-      // Check Agent
-      const agentStatus = await window.electronAPI?.agent.status();
+      // Check Agent via SDK serviceStatus
+      const agentStatus = await window.electronAPI?.agent.serviceStatus();
       if (agentStatus) {
         status.agent.running = agentStatus.running;
-        status.agent.pid = agentStatus.pid;
       }
 
       // Check File Server (if implemented)
       // const fsStatus = await window.electronAPI?.fileServer.status();
-      
+
     } catch (error) {
       console.error('[Service] Get status failed:', error);
     }
@@ -267,19 +266,23 @@ class ServiceManager {
   }
 
   /**
-   * Start Agent service
+   * Start Agent service via SDK init
    */
   async startAgent(config: {
-    binPath: string;
-    backendPort: number;
-    apiKey: string;
-    apiBaseUrl: string;
-    model: string;
+    engine?: string;
+    apiKey?: string;
+    baseUrl?: string;
+    model?: string;
+    workspaceDir?: string;
   }): Promise<{ success: boolean; error?: string }> {
     try {
-      return await window.electronAPI?.agent.start({
-        type: 'nuwaxcode',
-        ...config,
+      return await window.electronAPI?.agent.init({
+        engine: config.engine || 'opencode',
+        apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
+        model: config.model,
+        workspaceDir: config.workspaceDir || '',
+        // mcpServers auto-injected by agent:init handler
       }) || { success: false, error: 'IPC failed' };
     } catch (error) {
       return { success: false, error: String(error) };
@@ -287,11 +290,11 @@ class ServiceManager {
   }
 
   /**
-   * Stop Agent service
+   * Stop Agent service via SDK destroy
    */
   async stopAgent(): Promise<{ success: boolean; error?: string }> {
     try {
-      return await window.electronAPI?.agent.stop() || { success: false, error: 'IPC failed' };
+      return await window.electronAPI?.agent.destroy() || { success: false, error: 'IPC failed' };
     } catch (error) {
       return { success: false, error: String(error) };
     }

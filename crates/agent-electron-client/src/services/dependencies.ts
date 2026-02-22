@@ -477,7 +477,7 @@ export async function installNpmPackage(
 
   return new Promise((resolve) => {
     const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const args = ['install', '--save', '--no-save'];
+    const args = ['install', '--save'];
 
     if (options?.version) {
       args.push(`${packageName}@${options.version}`);

@@ -69,7 +69,7 @@ class McpProxyManager {
   private process: ChildProcess | null = null;
   private port: number = DEFAULT_MCP_PROXY_PORT;
   private host: string = DEFAULT_MCP_PROXY_HOST;
-  private config: McpServersConfig = { ...DEFAULT_MCP_PROXY_CONFIG };
+  private config: McpServersConfig = JSON.parse(JSON.stringify(DEFAULT_MCP_PROXY_CONFIG));
 
   /**
    * 获取 mcp-proxy 可执行文件路径
@@ -78,14 +78,14 @@ class McpProxyManager {
     const dirs = getAppPaths();
     const binName = process.platform === 'win32' ? 'mcp-proxy.cmd' : 'mcp-proxy';
 
-    // 优先检查应用内安装
+    // 检查应用内安装
     const localBinPath = path.join(dirs.nodeModules, '.bin', binName);
     if (fs.existsSync(localBinPath)) {
       return localBinPath;
     }
 
-    // Fallback: 系统全局
-    return binName;
+    // 未找到
+    return null;
   }
 
   /**

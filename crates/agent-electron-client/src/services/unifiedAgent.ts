@@ -47,6 +47,8 @@ export interface AgentConfig {
   port?: number;
   timeout?: number;
   engineBinaryPath?: string;
+  env?: Record<string, string>;
+  mcpServers?: Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
 }
 
 export type Message = UserMessage | AssistantMessage;
@@ -131,11 +133,19 @@ export class OpencodeEngine extends EventEmitter {
         const hostname = config.hostname || '127.0.0.1';
         log.info(`[OpencodeEngine] Starting server on ${hostname}:${port}...`);
 
+        const opencodeConfig: Record<string, unknown> = {};
+        if (config.model) {
+          opencodeConfig.provider = { anthropic: { model: config.model } };
+        }
+        if (config.mcpServers) {
+          opencodeConfig.mcp = { servers: config.mcpServers };
+        }
+
         const result = await createOpencode({
           hostname,
           port,
           timeout: config.timeout || 15000,
-          config: config.model ? { provider: { anthropic: { model: config.model } } } as any : undefined,
+          config: Object.keys(opencodeConfig).length > 0 ? opencodeConfig as any : undefined,
         });
 
         this.client = result.client;
@@ -645,6 +655,7 @@ export class ClaudeCodeEngine extends EventEmitter {
       if (cfg.apiKey) env.ANTHROPIC_API_KEY = cfg.apiKey;
       if (cfg.baseUrl) env.ANTHROPIC_BASE_URL = cfg.baseUrl;
       if (cfg.model) env.ANTHROPIC_MODEL = cfg.model;
+      if (cfg.env) Object.assign(env, cfg.env);
 
       const proc = spawn(binaryPath, args, {
         cwd: cfg.workspaceDir || process.cwd(),
