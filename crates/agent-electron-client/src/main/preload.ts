@@ -79,16 +79,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Agent - unified SDK service (@nuwax-ai/sdk)
   agent: {
-    // Legacy (process-level)
-    start: (config: { type: 'nuwaxcode' | 'claude-code'; binPath: string; env: Record<string, string>; apiKey?: string; apiBaseUrl?: string; model?: string }) =>
-      ipcRenderer.invoke('agent:start', config),
-    stop: () =>
-      ipcRenderer.invoke('agent:stop'),
-    status: () =>
-      ipcRenderer.invoke('agent:status'),
-    send: (message: string) =>
-      ipcRenderer.invoke('agent:send', message),
-
     // Unified Agent SDK
     init: (config: any) =>
       ipcRenderer.invoke('agent:init', config),
@@ -98,6 +88,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('agent:getEngineType'),
     isReady: () =>
       ipcRenderer.invoke('agent:isReady'),
+    serviceStatus: () =>
+      ipcRenderer.invoke('agent:serviceStatus'),
 
     // Session management (SDK)
     listSessions: () =>

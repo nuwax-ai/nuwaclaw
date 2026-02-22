@@ -27,6 +27,7 @@ let tray: Tray | null = null;
 let db: Database.Database | null = null;
 let lanproxyProcess: ChildProcess | null = null;
 let agentRunnerProcess: ChildProcess | null = null;
+let agentRunnerPorts: { backendPort: number; proxyPort: number } | null = null;
 let fileServerProcess: ChildProcess | null = null;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -286,10 +287,14 @@ function setupIpcHandlers() {
 
   ipcMain.handle('settings:set', (_, key: string, value: unknown) => {
     if (!db) return false;
-    const stmt = db.prepare(
-      'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'
-    );
-    stmt.run(key, JSON.stringify(value));
+    if (value === null || value === undefined) {
+      db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+    } else {
+      const stmt = db.prepare(
+        'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'
+      );
+      stmt.run(key, JSON.stringify(value));
+    }
     return true;
   });
 
@@ -380,7 +385,8 @@ function setupIpcHandlers() {
   // 获取端口
   ipcMain.handle('mcp:getPort', async () => {
     const saved = db?.prepare('SELECT value FROM settings WHERE key = ?').get('mcp_proxy_port') as { value: string } | undefined;
-    return saved ? parseInt(saved.value) : DEFAULT_MCP_PROXY_PORT;
+    const port = saved ? parseInt(saved.value, 10) : NaN;
+    return Number.isNaN(port) ? DEFAULT_MCP_PROXY_PORT : port;
   });
 
   // 保存端口
@@ -439,6 +445,8 @@ function setupIpcHandlers() {
         setTimeout(() => {
           if (lanproxyProcess) {
             resolve({ success: true });
+          } else {
+            resolve({ success: false, error: '进程启动后立即退出' });
           }
         }, 1000);
       } catch (error) {
@@ -492,7 +500,7 @@ function setupIpcHandlers() {
 
         agentRunnerProcess = spawn(config.binPath, args, {
           shell: true,
-        windowsHide: true,
+          windowsHide: true,
           env: { ...process.env, ...getAppEnv() },
           stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -500,18 +508,23 @@ function setupIpcHandlers() {
         agentRunnerProcess.on('error', (error) => {
           log.error('Agent Runner error:', error);
           agentRunnerProcess = null;
+          agentRunnerPorts = null;
           resolve({ success: false, error: error.message });
         });
 
         agentRunnerProcess.on('exit', (code) => {
           log.info(`Agent Runner exited with code ${code}`);
           agentRunnerProcess = null;
+          agentRunnerPorts = null;
         });
 
         // Check after a delay
         setTimeout(() => {
           if (agentRunnerProcess) {
+            agentRunnerPorts = { backendPort: config.backendPort, proxyPort: config.proxyPort };
             resolve({ success: true });
+          } else {
+            resolve({ success: false, error: '进程启动后立即退出' });
           }
         }, 2000);
       } catch (error) {
@@ -525,6 +538,7 @@ function setupIpcHandlers() {
     if (agentRunnerProcess) {
       agentRunnerProcess.kill();
       agentRunnerProcess = null;
+      agentRunnerPorts = null;
       return { success: true };
     }
     return { success: true, message: 'Not running' };
@@ -535,85 +549,12 @@ function setupIpcHandlers() {
     return {
       running: agentRunnerProcess !== null,
       pid: agentRunnerProcess?.pid,
-      backendUrl: agentRunnerProcess ? `http://127.0.0.1:60001` : undefined,
-      proxyUrl: agentRunnerProcess ? `http://127.0.0.1:60002` : undefined,
+      backendUrl: agentRunnerPorts ? `http://127.0.0.1:${agentRunnerPorts.backendPort}` : undefined,
+      proxyUrl: agentRunnerPorts ? `http://127.0.0.1:${agentRunnerPorts.proxyPort}` : undefined,
     };
   });
 
-  // Agent (nuwaxcode/claude-code) handlers
-  ipcMain.handle('agent:start', async (_, config: {
-    type: 'nuwaxcode' | 'claude-code';
-    binPath: string;
-    env: Record<string, string>;
-    apiKey?: string;
-    apiBaseUrl?: string;
-    model?: string;
-  }) => {
-    if (agentRunnerProcess) {
-      return { success: true, message: 'Already running' };
-    }
-
-    return new Promise((resolve) => {
-      try {
-        const args = config.type === 'nuwaxcode' 
-          ? ['serve', '--stdio'] 
-          : ['--sACP'];
-
-        const env = {
-          ...process.env,
-          ...getAppEnv(),
-          ...config.env,
-          ...(config.apiKey && { ANTHROPIC_API_KEY: config.apiKey }),
-          ...(config.apiBaseUrl && { ANTHROPIC_BASE_URL: config.apiBaseUrl }),
-          ...(config.model && { ANTHROPIC_MODEL: config.model }),
-        };
-
-        log.info(`Starting agent (${config.type}):`, config.binPath, args.join(' '));
-
-        agentRunnerProcess = spawn(config.binPath, args, {
-          env,
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
-
-        agentRunnerProcess.on('error', (error) => {
-          log.error(`Agent (${config.type}) error:`, error);
-          agentRunnerProcess = null;
-          resolve({ success: false, error: error.message });
-        });
-
-        agentRunnerProcess.on('exit', (code) => {
-          log.info(`Agent (${config.type}) exited with code ${code}`);
-          agentRunnerProcess = null;
-        });
-
-        setTimeout(() => {
-          if (agentRunnerProcess) {
-            resolve({ success: true });
-          }
-        }, 2000);
-      } catch (error) {
-        resolve({ success: false, error: String(error) });
-      }
-    });
-  });
-
-  // Agent handlers - Stop
-  ipcMain.handle('agent:stop', async () => {
-    if (agentRunnerProcess) {
-      agentRunnerProcess.kill();
-      agentRunnerProcess = null;
-      return { success: true };
-    }
-    return { success: true, message: 'Not running' };
-  });
-
-  // Agent handlers - Status
-  ipcMain.handle('agent:status', () => {
-    return {
-      running: agentRunnerProcess !== null,
-      pid: agentRunnerProcess?.pid,
-    };
-  });
+  // Agent (nuwaxcode/claude-code) handlers — Legacy removed, using Unified Agent SDK below
 
   // File Server handlers - Start
   ipcMain.handle('fileServer:start', async (_, port: number = 60000) => {
@@ -678,49 +619,38 @@ function setupIpcHandlers() {
     };
   });
 
-  // Agent handlers - Send message
-  ipcMain.handle('agent:send', async (_, message: string) => {
-    if (!agentRunnerProcess) {
-      return { success: false, error: 'Agent not running' };
-    }
-
-    const stdin = agentRunnerProcess.stdin;
-    const stdout = agentRunnerProcess.stdout;
-    
-    if (!stdin || !stdout) {
-      return { success: false, error: 'Agent streams not available' };
-    }
-    
-    return new Promise((resolve) => {
-      const response: string[] = [];
-      
-      const onData = (data: Buffer) => {
-        response.push(data.toString());
-      };
-
-      stdout.on('data', onData);
-
-      stdin.write(message + '\n', (error) => {
-        setTimeout(() => {
-          stdout.off('data', onData);
-          resolve({ success: true, response: response.join('') });
-        }, 5000);
-      });
-    });
-  });
-
   // ==================== Unified Agent SDK handlers ====================
 
   // Initialize unified agent service
   ipcMain.handle('agent:init', async (_, config: AgentConfig) => {
     log.info('[IPC] Initializing unified agent:', config.engine);
     try {
-      const ok = await agentService.init(config);
-      return { success: ok };
+      // Auto-inject MCP config if MCP proxy is running and no mcpServers provided
+      let finalConfig = config;
+      if (!config.mcpServers) {
+        const mcpConfig = mcpProxyManager.getAgentMcpConfig();
+        if (mcpConfig) {
+          finalConfig = { ...config, mcpServers: mcpConfig };
+          log.info('[IPC] Auto-injected MCP config into agent:', Object.keys(mcpConfig));
+        }
+      }
+      const ok = await agentService.init(finalConfig);
+      return {
+        success: ok,
+        engineType: agentService.getEngineType(),
+      };
     } catch (error) {
       log.error('[IPC] agent:init failed:', error);
       return { success: false, error: String(error) };
     }
+  });
+
+  // Get agent service status (replaces legacy agent:status)
+  ipcMain.handle('agent:serviceStatus', () => {
+    return {
+      running: agentService.isReady,
+      engineType: agentService.getEngineType(),
+    };
   });
 
   // Destroy unified agent service
@@ -1440,7 +1370,10 @@ app.whenReady().then(() => {
     }
     const savedPort = db?.prepare('SELECT value FROM settings WHERE key = ?').get('mcp_proxy_port') as { value: string } | undefined;
     if (savedPort) {
-      mcpProxyManager.setPort(parseInt(savedPort.value));
+      const port = parseInt(savedPort.value, 10);
+      if (!Number.isNaN(port)) {
+        mcpProxyManager.setPort(port);
+      }
     }
     log.info('[McpProxy] 配置已加载');
   } catch (e) {
@@ -1466,6 +1399,7 @@ app.on('window-all-closed', () => {
   if (agentRunnerProcess) {
     agentRunnerProcess.kill();
     agentRunnerProcess = null;
+    agentRunnerPorts = null;
     log.info('Agent Runner stopped');
   }
 
@@ -1505,6 +1439,7 @@ function cleanupAllProcesses(): void {
       log.error('[Cleanup] Agent Runner stop error:', e);
     }
     agentRunnerProcess = null;
+    agentRunnerPorts = null;
   }
 
   // Stop Lanproxy

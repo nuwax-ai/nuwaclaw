@@ -138,6 +138,8 @@ export interface AgentInitConfig {
   port?: number;
   timeout?: number;
   engineBinaryPath?: string;
+  env?: Record<string, string>;
+  mcpServers?: Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
 }
 
 export interface SdkSession {
@@ -161,17 +163,12 @@ export interface AgentEventPayload {
 type ApiResult<T = unknown> = Promise<{ success: boolean; data?: T; error?: string }>;
 
 export interface AgentAPI {
-  // Legacy (process-level)
-  start: (config: { type: 'nuwaxcode' | 'claude-code'; binPath: string; env: Record<string, string>; apiKey?: string; apiBaseUrl?: string; model?: string }) => Promise<{ success: boolean; error?: string }>;
-  stop: () => Promise<{ success: boolean; error?: string }>;
-  status: () => Promise<{ running: boolean; pid?: number }>;
-  send: (message: string) => Promise<{ success: boolean; response?: string; error?: string }>;
-
   // Unified Agent SDK
   init: (config: AgentInitConfig) => ApiResult;
   destroy: () => ApiResult;
   getEngineType: () => Promise<AgentEngineType | null>;
   isReady: () => Promise<boolean>;
+  serviceStatus: () => Promise<{ running: boolean; engineType?: AgentEngineType | null }>;
 
   // Session management (SDK)
   listSessions: () => ApiResult<SdkSession[]>;
