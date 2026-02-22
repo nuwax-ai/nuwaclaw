@@ -21,3 +21,6 @@ vcpkg
 node_modules/
 .cache/sidecars/
 .cache/npm-tarballs/
+
+# Electron/前端构建产物
+dist/
