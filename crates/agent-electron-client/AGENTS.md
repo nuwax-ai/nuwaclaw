@@ -49,10 +49,11 @@ This is the **Nuwax Agent** Electron client - a multi-engine AI assistant deskto
 
 ## Services
 
-### Core Services (19)
+### Core Services (20)
 
 | Service | File | Description |
 |---------|------|-------------|
+| **Unified Agent** | `unifiedAgent.ts` | Unified SDK layer for all engines |
 | **Engine Manager** | `engineManager.ts` | Agent engine lifecycle, isolation |
 | **Shell Environment** | `shellEnv.ts` | Cross-platform shell |
 | **Workspace Manager** | `workspaceManager.ts` | Session workspaces |
@@ -87,6 +88,66 @@ This is the **Nuwax Agent** Electron client - a multi-engine AI assistant deskto
 | `IMSettings.tsx` | IM configuration |
 | `TaskSettings.tsx` | Task settings |
 | `PermissionModal.tsx` | Permission approval |
+
+---
+
+## Unified Agent Service
+
+### Supported Engines
+
+| Engine | SDK/CLI | Package |
+|--------|---------|---------|
+| **opencode** | SDK | @opencode-ai/sdk |
+| **claude-code** | CLI | spawn |
+
+### Architecture
+
+```
+┌─────────────────────────────────────────┐
+│         Unified Agent Service           │
+│              (统一入口)                  │
+├─────────────────────────────────────────┤
+│                                         │
+│  ┌─────────────────────────────────┐   │
+│  │      OpencodeService            │   │
+│  │   (@opencode-ai/sdk)          │   │
+│  └─────────────────────────────────┘   │
+│                                         │
+│  ┌─────────────────────────────────┐   │
+│  │     ClaudeCodeService           │   │
+│  │       (CLI spawn)              │   │
+│  └─────────────────────────────────┘   │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+### Usage
+
+```typescript
+import { agentService } from './services/unifiedAgent';
+
+// Initialize
+await agentService.init({
+  engine: 'opencode',  // or 'claude-code'
+  apiKey: 'xxx',
+  model: 'claude-sonnet-4-20250514',
+  workspaceDir: '/path/to/workspace'
+});
+
+// Create session
+const sessionId = await agentService.createSession('/path/to/workspace');
+
+// Chat
+const result = await agentService.chat({
+  messages: [{ role: 'user', content: 'Hello!' }]
+});
+
+// Execute command
+const result = await agentService.executeCommand('ls -la');
+
+// Destroy
+await agentService.destroy();
+```
 
 ---
 

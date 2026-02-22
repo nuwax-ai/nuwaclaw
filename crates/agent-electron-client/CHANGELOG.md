@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Multi-Agent Engine Support** - Support for claude-code and nuwaxcode
 - **Session-Based Workspace** - Each conversation has its own workspace
 
+#### Agent Service
+- **Unified Agent Service** (`unifiedAgent.ts`)
+  - Unified SDK layer for all agent engines
+  - Opencode support via @opencode-ai/sdk
+  - Claude Code support via CLI (sACP mode)
+  - Consistent API for session management, chat, command execution
+
 #### Agent Engine Management
 - **Engine Manager** (`engineManager.ts`)
   - Local installation of engines
@@ -89,6 +96,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - agent.ts - Agent management
 - agentRunner.ts - Agent runner
 - ai.ts - AI configuration
+- dependencies.ts - Dependency management
+- engineManager.ts - Engine management
 - dependencies.ts - Dependency management
 - engineManager.ts - Engine management
 - fileServer.ts - File server
