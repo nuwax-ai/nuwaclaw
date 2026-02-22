@@ -25,5 +25,6 @@ node_modules/
 # Electron/前端构建产物
 dist/
 
-# Bundled platform-specific binaries (downloaded per-platform, not committed)
-resources/uv/bin/
+# Bundled uv: 构建时 prepare-uv 生成，或从 GitHub Release 下载缓存
+crates/agent-electron-client/resources/uv/bin/
+crates/agent-electron-client/resources/uv/.cache/
