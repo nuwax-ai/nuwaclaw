@@ -324,6 +324,24 @@ class AgentRunnerManager {
       return { running: false, sessionCount: 0 };
     }
   }
+
+  // Health check via HTTP API
+  async httpHealth(): Promise<{ healthy: boolean; version?: string }> {
+    try {
+      const response = await fetch(`${this.getBackendUrl()}/health`, {
+        method: 'GET',
+      });
+
+      if (!response.ok) {
+        return { healthy: false };
+      }
+
+      const data = await response.json();
+      return { healthy: data.healthy ?? true, version: data.version };
+    } catch {
+      return { healthy: false };
+    }
+  }
 }
 
 export const agentRunnerManager = new AgentRunnerManager();
