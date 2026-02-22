@@ -53,8 +53,8 @@ export interface ServiceStatus {
 
 export const DEFAULT_STEP1_CONFIG: Step1Config = {
   serverHost: 'https://agent.nuwax.com',
-  agentPort: 8086,
-  fileServerPort: 8080,
+  agentPort: 60001,
+  fileServerPort: 60000,
   proxyPort: 60002,
   workspaceDir: '',
 };
@@ -295,7 +295,7 @@ class ServiceManager {
   /**
    * Start File Server
    */
-  async startFileServer(port: number = 8080): Promise<{ success: boolean; error?: string }> {
+  async startFileServer(port: number = 60000): Promise<{ success: boolean; error?: string }> {
     try {
       return await window.electronAPI?.fileServer?.start?.(port) || { success: false, error: 'Not implemented' };
     } catch (error) {

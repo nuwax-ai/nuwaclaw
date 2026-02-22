@@ -37,20 +37,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
     close: () => ipcRenderer.invoke('window:close'),
   },
 
-  // MCP management (via IPC to main process)
+  // MCP Proxy management (mcp-stdio-proxy 统一代理)
   mcp: {
-    install: (packageName: string, registry?: string) =>
-      ipcRenderer.invoke('mcp:install', { packageName, registry }),
-    uninstall: (packageName: string) =>
-      ipcRenderer.invoke('mcp:uninstall', packageName),
-    isInstalled: (packageName: string) =>
-      ipcRenderer.invoke('mcp:isInstalled', packageName),
-    start: (id: string, command: string, args: string[], env?: Record<string, string>) =>
-      ipcRenderer.invoke('mcp:start', { id, command, args, env }),
-    stop: (id: string) =>
-      ipcRenderer.invoke('mcp:stop', id),
-    running: () =>
-      ipcRenderer.invoke('mcp:running'),
+    start: (options?: { port?: number; host?: string; configJson?: string }) =>
+      ipcRenderer.invoke('mcp:start', options),
+    stop: () =>
+      ipcRenderer.invoke('mcp:stop'),
+    restart: (options?: { port?: number; host?: string; configJson?: string }) =>
+      ipcRenderer.invoke('mcp:restart', options),
+    status: () =>
+      ipcRenderer.invoke('mcp:status'),
+    getConfig: () =>
+      ipcRenderer.invoke('mcp:getConfig'),
+    setConfig: (config: { mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> }) =>
+      ipcRenderer.invoke('mcp:setConfig', config),
+    getPort: () =>
+      ipcRenderer.invoke('mcp:getPort'),
+    setPort: (port: number) =>
+      ipcRenderer.invoke('mcp:setPort', port),
   },
 
   // Lanproxy management (via IPC to main process)
@@ -247,6 +251,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Shell utilities
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+  },
+
+  // Mirror / Registry
+  mirror: {
+    get: () => ipcRenderer.invoke('mirror:get'),
+    set: (config: { npmRegistry?: string; uvIndexUrl?: string }) =>
+      ipcRenderer.invoke('mirror:set', config),
   },
 
   // Dialog utilities

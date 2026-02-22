@@ -1,5 +1,54 @@
-import { useState } from 'react';
-import { mcpManager, MCPServer, npmRegistries } from '../services/mcp';
+/**
+ * MCP Proxy 设置组件
+ *
+ * 使用 mcp-stdio-proxy 统一代理模式管理 MCP 服务。
+ * 所有操作通过 window.electronAPI.mcp.* IPC 通道。
+ */
+
+import { useState, useEffect } from 'react';
+import {
+  Card,
+  Button,
+  Space,
+  Badge,
+  Input,
+  InputNumber,
+  Form,
+  Typography,
+  Divider,
+  message,
+  Popconfirm,
+} from 'antd';
+import {
+  PlayCircleOutlined,
+  StopOutlined,
+  ReloadOutlined,
+  PlusOutlined,
+  DeleteOutlined,
+  SaveOutlined,
+  ApiOutlined,
+} from '@ant-design/icons';
+
+const { Text } = Typography;
+
+interface McpServerEntry {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+interface McpServersConfig {
+  mcpServers: Record<string, McpServerEntry>;
+}
+
+interface McpProxyStatus {
+  running: boolean;
+  pid?: number;
+  port?: number;
+  host?: string;
+  serverCount?: number;
+  serverNames?: string[];
+}
 
 interface MCPSettingsProps {
   isOpen: boolean;
@@ -7,316 +56,356 @@ interface MCPSettingsProps {
 }
 
 function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
-  const [servers, setServers] = useState<MCPServer[]>([]);
-  const [registry, setRegistry] = useState(npmRegistries.default);
+  const [config, setConfig] = useState<McpServersConfig>({ mcpServers: {} });
+  const [port, setPort] = useState(60004);
+  const [status, setStatus] = useState<McpProxyStatus>({ running: false });
   const [loading, setLoading] = useState(true);
-  const [installing, setInstalling] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // 新增 server 表单
   const [showAddForm, setShowAddForm] = useState(false);
-  const [newServer, setNewServer] = useState({
-    id: '',
-    name: '',
-    command: 'npx',
-    args: '',
-    description: '',
-  });
+  const [newServerId, setNewServerId] = useState('');
+  const [newServerCommand, setNewServerCommand] = useState('npx');
+  const [newServerArgs, setNewServerArgs] = useState('');
 
-  // Load config on mount
-  if (isOpen && servers.length === 0 && loading) {
-    loadConfig();
-  }
+  useEffect(() => {
+    if (isOpen) {
+      loadAll();
+    }
+  }, [isOpen]);
 
-  const loadConfig = async () => {
+  const loadAll = async () => {
     setLoading(true);
     try {
-      const saved = await window.electronAPI?.settings.get('mcp_config');
-      if (saved) {
-        await mcpManager.loadConfig(saved as Parameters<typeof mcpManager.loadConfig>[0]);
-      }
-
-      const serverList = mcpManager.getServers();
-      for (const server of serverList) {
-        await mcpManager.checkInstalled(server.id);
-      }
-
-      setServers([...mcpManager.getServers()]);
-      setRegistry(mcpManager.getRegistry());
+      const [savedConfig, savedPort, currentStatus] = await Promise.all([
+        window.electronAPI?.mcp.getConfig(),
+        window.electronAPI?.mcp.getPort(),
+        window.electronAPI?.mcp.status(),
+      ]);
+      if (savedConfig) setConfig(savedConfig);
+      if (savedPort) setPort(savedPort);
+      if (currentStatus) setStatus(currentStatus);
     } catch (error) {
-      console.error('加载 MCP 配置失败:', error);
+      console.error('[MCPSettings] 加载失败:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const saveConfig = async () => {
+  const refreshStatus = async () => {
     try {
-      await window.electronAPI?.settings.set('mcp_config', mcpManager.exportConfig());
-      setMessage('MCP 配置已保存');
-      setTimeout(() => setMessage(''), 2000);
+      const currentStatus = await window.electronAPI?.mcp.status();
+      if (currentStatus) setStatus(currentStatus);
+    } catch {}
+  };
+
+  const handleSaveConfig = async () => {
+    try {
+      await window.electronAPI?.mcp.setConfig(config);
+      await window.electronAPI?.mcp.setPort(port);
+      message.success('MCP 配置已保存');
     } catch (error) {
-      setMessage('保存失败');
+      message.error('保存失败');
     }
   };
 
-  const handleInstall = async (serverId: string) => {
-    setInstalling(serverId);
-    setMessage('');
+  const handleStart = async () => {
+    setActionLoading(true);
     try {
-      const result = await mcpManager.installServer(serverId);
-      if (result.success) {
-        setMessage(`${serverId} 安装成功`);
+      // 先保存配置
+      await window.electronAPI?.mcp.setConfig(config);
+      await window.electronAPI?.mcp.setPort(port);
+
+      const result = await window.electronAPI?.mcp.start({
+        port,
+        configJson: JSON.stringify(config),
+      });
+      if (result?.success) {
+        message.success('MCP Proxy 启动成功');
       } else {
-        setMessage(`安装失败: ${result.error}`);
+        message.error(`启动失败: ${result?.error}`);
       }
-      setServers([...mcpManager.getServers()]);
     } catch (error) {
-      setMessage(`错误: ${error}`);
+      message.error(`错误: ${error}`);
     } finally {
-      setInstalling(null);
+      await refreshStatus();
+      setActionLoading(false);
     }
   };
 
-  const handleUninstall = async (serverId: string) => {
-    setInstalling(serverId);
-    setMessage('');
+  const handleStop = async () => {
+    setActionLoading(true);
     try {
-      const result = await mcpManager.uninstallServer(serverId);
-      if (result.success) {
-        setMessage(`${serverId} 已卸载`);
+      const result = await window.electronAPI?.mcp.stop();
+      if (result?.success) {
+        message.success('MCP Proxy 已停止');
       } else {
-        setMessage(`卸载失败: ${result.error}`);
+        message.error(`停止失败: ${result?.error}`);
       }
-      setServers([...mcpManager.getServers()]);
     } catch (error) {
-      setMessage(`错误: ${error}`);
+      message.error(`错误: ${error}`);
     } finally {
-      setInstalling(null);
+      await refreshStatus();
+      setActionLoading(false);
     }
   };
 
-  const handleToggle = async (serverId: string, enabled: boolean) => {
-    mcpManager.toggleServer(serverId, enabled);
-    setServers([...mcpManager.getServers()]);
+  const handleRestart = async () => {
+    setActionLoading(true);
+    try {
+      await window.electronAPI?.mcp.setConfig(config);
+      await window.electronAPI?.mcp.setPort(port);
 
-    if (enabled) {
-      const result = await mcpManager.startServer(serverId);
-      if (!result.success) {
-        setMessage(`启动失败: ${result.error}`);
+      const result = await window.electronAPI?.mcp.restart({
+        port,
+        configJson: JSON.stringify(config),
+      });
+      if (result?.success) {
+        message.success('MCP Proxy 重启成功');
+      } else {
+        message.error(`重启失败: ${result?.error}`);
       }
-    } else {
-      await mcpManager.stopServer(serverId);
+    } catch (error) {
+      message.error(`错误: ${error}`);
+    } finally {
+      await refreshStatus();
+      setActionLoading(false);
     }
-    setServers([...mcpManager.getServers()]);
   };
 
-  const handleDelete = async (serverId: string) => {
-    await mcpManager.removeServer(serverId);
-    setServers([...mcpManager.getServers()]);
-    setMessage('服务已移除');
-  };
-
-  const handleAddServer = async () => {
-    if (!newServer.id || !newServer.name || !newServer.args) {
-      setMessage('请填写必填字段');
+  const handleAddServer = () => {
+    if (!newServerId.trim()) {
+      message.warning('请输入 Server ID');
+      return;
+    }
+    if (!newServerArgs.trim()) {
+      message.warning('请输入参数');
       return;
     }
 
-    const args = newServer.args.split(' ').filter(Boolean);
+    const id = newServerId.trim().toLowerCase().replace(/\s+/g, '-');
+    const args = newServerArgs.split(' ').filter(Boolean);
 
-    await mcpManager.addServer({
-      id: newServer.id.toLowerCase().replace(/\s+/g, '-'),
-      name: newServer.name,
-      command: newServer.command,
-      args,
-      description: newServer.description,
-      enabled: false,
+    setConfig({
+      mcpServers: {
+        ...config.mcpServers,
+        [id]: {
+          command: newServerCommand,
+          args,
+        },
+      },
     });
 
-    setServers([...mcpManager.getServers()]);
+    setNewServerId('');
+    setNewServerCommand('npx');
+    setNewServerArgs('');
     setShowAddForm(false);
-    setNewServer({ id: '', name: '', command: 'npx', args: '', description: '' });
-    setMessage('服务已添加，请保存配置以持久化');
+    message.info('已添加，记得保存配置');
   };
 
-  const handleRegistryChange = (newRegistry: string) => {
-    setRegistry(newRegistry);
-    mcpManager.setRegistry(newRegistry);
+  const handleRemoveServer = (id: string) => {
+    const { [id]: _, ...rest } = config.mcpServers;
+    setConfig({ mcpServers: rest });
+    message.info('已移除，记得保存配置');
+  };
+
+  const handleUpdateServerArgs = (id: string, argsStr: string) => {
+    const args = argsStr.split(' ').filter(Boolean);
+    setConfig({
+      mcpServers: {
+        ...config.mcpServers,
+        [id]: {
+          ...config.mcpServers[id],
+          args,
+        },
+      },
+    });
   };
 
   if (!isOpen) return null;
 
+  const serverEntries = Object.entries(config.mcpServers || {});
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content mcp-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>MCP 服务管理</h2>
-          <button className="close-btn" onClick={onClose}>×</button>
+    <Card
+      title={
+        <Space>
+          <ApiOutlined />
+          MCP Proxy 服务管理
+        </Space>
+      }
+      extra={<Button size="small" onClick={onClose}>关闭</Button>}
+      style={{ margin: 16 }}
+      loading={loading}
+    >
+      <Space direction="vertical" style={{ width: '100%' }} size="middle">
+        {/* Status & Controls */}
+        <Card size="small" style={{ background: '#f5f5f5' }}>
+          <Space wrap>
+            <Badge
+              status={status.running ? 'success' : 'default'}
+              text={status.running ? '运行中' : '已停止'}
+            />
+            {status.pid && <Text type="secondary">PID: {status.pid}</Text>}
+            {status.running && status.port && (
+              <Text type="secondary">端口: {status.port}</Text>
+            )}
+            {status.running && (
+              <Text type="secondary">
+                {status.serverCount ?? 0} 个 Server
+              </Text>
+            )}
+            <Button
+              type={status.running ? 'default' : 'primary'}
+              icon={status.running ? <StopOutlined /> : <PlayCircleOutlined />}
+              danger={status.running}
+              onClick={status.running ? handleStop : handleStart}
+              loading={actionLoading}
+              size="small"
+            >
+              {status.running ? '停止' : '启动'}
+            </Button>
+            {status.running && (
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={handleRestart}
+                loading={actionLoading}
+                size="small"
+              >
+                重启
+              </Button>
+            )}
+          </Space>
+        </Card>
+
+        {/* Port Config */}
+        <Form layout="vertical" size="small">
+          <Form.Item label="MCP Proxy 端口">
+            <InputNumber
+              value={port}
+              onChange={(v) => setPort(v || 60004)}
+              min={1024}
+              max={65535}
+              style={{ width: 150 }}
+            />
+          </Form.Item>
+        </Form>
+
+        <Divider orientation="left" style={{ margin: '8px 0' }}>
+          MCP Servers 配置
+        </Divider>
+
+        {/* Server List */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {serverEntries.length === 0 && (
+            <Text type="secondary" style={{ textAlign: 'center', padding: 16 }}>
+              暂无 MCP Server 配置
+            </Text>
+          )}
+
+          {serverEntries.map(([id, entry]) => (
+            <Card
+              key={id}
+              size="small"
+              style={{ border: '1px solid #e4e4e7' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Text strong>{id}</Text>
+                  <div style={{ marginTop: 4 }}>
+                    <Text type="secondary" style={{ fontSize: 12, wordBreak: 'break-all' }}>
+                      {entry.command} {entry.args.join(' ')}
+                    </Text>
+                  </div>
+                  <div style={{ marginTop: 4 }}>
+                    <Input
+                      size="small"
+                      addonBefore={entry.command}
+                      value={entry.args.join(' ')}
+                      onChange={(e) => handleUpdateServerArgs(id, e.target.value)}
+                      placeholder="参数"
+                    />
+                  </div>
+                </div>
+                <Popconfirm
+                  title="确定移除？"
+                  onConfirm={() => handleRemoveServer(id)}
+                  okText="确定"
+                  cancelText="取消"
+                >
+                  <Button
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined />}
+                  />
+                </Popconfirm>
+              </div>
+            </Card>
+          ))}
         </div>
 
-        {loading ? (
-          <div className="loading">加载中...</div>
+        {/* Add Server Form */}
+        {showAddForm ? (
+          <Card size="small" style={{ border: '1px dashed #d4d4d8' }}>
+            <Space direction="vertical" style={{ width: '100%' }} size="small">
+              <Input
+                size="small"
+                placeholder="Server ID（如 chrome-devtools）"
+                value={newServerId}
+                onChange={(e) => setNewServerId(e.target.value)}
+              />
+              <Space.Compact style={{ width: '100%' }}>
+                <Input
+                  size="small"
+                  style={{ width: 80 }}
+                  value={newServerCommand}
+                  onChange={(e) => setNewServerCommand(e.target.value)}
+                  placeholder="命令"
+                />
+                <Input
+                  size="small"
+                  value={newServerArgs}
+                  onChange={(e) => setNewServerArgs(e.target.value)}
+                  placeholder="参数（如 -y chrome-devtools-mcp@latest）"
+                />
+              </Space.Compact>
+              <Space>
+                <Button size="small" type="primary" onClick={handleAddServer}>
+                  添加
+                </Button>
+                <Button size="small" onClick={() => setShowAddForm(false)}>
+                  取消
+                </Button>
+              </Space>
+            </Space>
+          </Card>
         ) : (
-          <>
-            <div className="mcp-section">
-              <h3>NPM 镜像源</h3>
-              <div className="registry-options">
-                <label className="radio-option">
-                  <input
-                    type="radio"
-                    name="registry"
-                    checked={registry === npmRegistries.default}
-                    onChange={() => handleRegistryChange(npmRegistries.default)}
-                  />
-                  <span>npmjs.org（官方）</span>
-                </label>
-                <label className="radio-option">
-                  <input
-                    type="radio"
-                    name="registry"
-                    checked={registry === npmRegistries.china.taobao}
-                    onChange={() => handleRegistryChange(npmRegistries.china.taobao)}
-                  />
-                  <span>淘宝镜像</span>
-                </label>
-                <label className="radio-option">
-                  <input
-                    type="radio"
-                    name="registry"
-                    checked={registry === npmRegistries.china.tencent}
-                    onChange={() => handleRegistryChange(npmRegistries.china.tencent)}
-                  />
-                  <span>腾讯镜像</span>
-                </label>
-                <label className="radio-option">
-                  <input
-                    type="radio"
-                    name="registry"
-                    checked={registry === npmRegistries.china.aliyun}
-                    onChange={() => handleRegistryChange(npmRegistries.china.aliyun)}
-                  />
-                  <span>阿里云镜像</span>
-                </label>
-              </div>
-            </div>
-
-            <div className="mcp-section">
-              <div className="section-header">
-                <h3>可用服务</h3>
-                <button className="add-btn" onClick={() => setShowAddForm(!showAddForm)}>
-                  {showAddForm ? '− 取消' : '+ 添加自定义'}
-                </button>
-              </div>
-
-              {showAddForm && (
-                <div className="add-form">
-                  <div className="form-row">
-                    <input
-                      type="text"
-                      placeholder="ID（如 my-server）"
-                      value={newServer.id}
-                      onChange={(e) => setNewServer({ ...newServer, id: e.target.value })}
-                    />
-                    <input
-                      type="text"
-                      placeholder="名称"
-                      value={newServer.name}
-                      onChange={(e) => setNewServer({ ...newServer, name: e.target.value })}
-                    />
-                  </div>
-                  <div className="form-row">
-                    <select
-                      value={newServer.command}
-                      onChange={(e) => setNewServer({ ...newServer, command: e.target.value })}
-                    >
-                      <option value="npx">npx</option>
-                      <option value="node">node</option>
-                      <option value="python">python</option>
-                    </select>
-                    <input
-                      type="text"
-                      placeholder="参数（如 -y @scope/package arg1 arg2）"
-                      value={newServer.args}
-                      onChange={(e) => setNewServer({ ...newServer, args: e.target.value })}
-                    />
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="描述（可选）"
-                    value={newServer.description}
-                    onChange={(e) => setNewServer({ ...newServer, description: e.target.value })}
-                  />
-                  <button className="add-confirm-btn" onClick={handleAddServer}>
-                    添加服务
-                  </button>
-                </div>
-              )}
-
-              <div className="server-list">
-                {servers.map((server) => (
-                  <div key={server.id} className={`server-item ${server.running ? 'running' : ''}`}>
-                    <div className="server-info">
-                      <div className="server-header">
-                        <span className="server-name">{server.name}</span>
-                        <span className="server-id">({server.id})</span>
-                        {server.running && <span className="status-badge running">运行中</span>}
-                        {server.installed && !server.running && <span className="status-badge installed">已安装</span>}
-                      </div>
-                      <div className="server-desc">{server.description}</div>
-                      <div className="server-cmd">
-                        <code>{server.command} {server.args.join(' ')}</code>
-                      </div>
-                    </div>
-                    <div className="server-actions">
-                      <label className="toggle">
-                        <input
-                          type="checkbox"
-                          checked={server.enabled}
-                          disabled={!server.installed}
-                          onChange={(e) => handleToggle(server.id, e.target.checked)}
-                        />
-                        <span className="toggle-slider"></span>
-                      </label>
-                      {server.installed ? (
-                        <button
-                          className="action-btn uninstall"
-                          onClick={() => handleUninstall(server.id)}
-                          disabled={installing === server.id || server.running}
-                        >
-                          {installing === server.id ? '...' : '卸载'}
-                        </button>
-                      ) : (
-                        <button
-                          className="action-btn install"
-                          onClick={() => handleInstall(server.id)}
-                          disabled={installing === server.id}
-                        >
-                          {installing === server.id ? '...' : '安装'}
-                        </button>
-                      )}
-                      <button
-                        className="action-btn delete"
-                        onClick={() => handleDelete(server.id)}
-                        title="移除服务"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {message && <div className="mcp-message">{message}</div>}
-
-            <div className="modal-footer">
-              <button className="save-btn" onClick={saveConfig}>
-                保存配置
-              </button>
-            </div>
-          </>
+          <Button
+            type="dashed"
+            icon={<PlusOutlined />}
+            onClick={() => setShowAddForm(true)}
+            block
+            size="small"
+          >
+            添加 MCP Server
+          </Button>
         )}
-      </div>
-    </div>
+
+        {/* Save */}
+        <Button
+          type="primary"
+          icon={<SaveOutlined />}
+          onClick={handleSaveConfig}
+          block
+        >
+          保存配置
+        </Button>
+
+        <Text type="secondary" style={{ fontSize: 11, textAlign: 'center', display: 'block' }}>
+          配置修改后需保存并重启 MCP Proxy 才会生效
+        </Text>
+      </Space>
+    </Card>
   );
 }
 

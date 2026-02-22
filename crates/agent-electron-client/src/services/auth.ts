@@ -144,9 +144,9 @@ async function getLocalSandboxValue(): Promise<SandboxValue> {
 
   return {
     hostWithScheme: 'http://127.0.0.1',
-    agentPort: step1Config?.agentPort ?? 8086,
+    agentPort: step1Config?.agentPort ?? 60001,
     vncPort: 0,
-    fileServerPort: step1Config?.fileServerPort ?? 8080,
+    fileServerPort: step1Config?.fileServerPort ?? 60000,
     apiKey: '',
     maxUsers: 1,
   };

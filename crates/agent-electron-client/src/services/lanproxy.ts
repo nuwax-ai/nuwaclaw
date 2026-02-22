@@ -13,7 +13,7 @@ export const defaultLanproxyConfig: LanproxyConfig = {
   serverIp: '127.0.0.1',
   serverPort: 60003,
   clientKey: 'test_key',
-  localPort: 8080,
+  localPort: 60000,
 };
 
 export interface LanproxyStatus {

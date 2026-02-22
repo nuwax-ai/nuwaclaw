@@ -12,6 +12,8 @@ import * as os from 'os';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
 import log from 'electron-log';
+import { getAppEnv } from './dependencies';
+import { mcpProxyManager } from './mcp';
 
 // ==================== Types ====================
 
@@ -211,7 +213,7 @@ export async function installEngine(
       cwd: engineDir,
       env: {
         ...process.env,
-        NPM_CONFIG_PREFIX: getAppDataDir(),
+        ...getAppEnv(),
       },
       stdio: 'pipe',
     });
@@ -259,36 +261,50 @@ export function createIsolatedEnvironment(config: EngineConfig): {
   // 创建隔离目录
   if (!fs.existsSync(isolatedHome)) {
     fs.mkdirSync(isolatedHome, { recursive: true });
-    
+
     // 创建必要子目录
     fs.mkdirSync(path.join(isolatedHome, '.claude'), { recursive: true });
     fs.mkdirSync(path.join(isolatedHome, '.nuwaxcode'), { recursive: true });
   }
+
+  // 注入 MCP 配置到 .claude/settings.json
+  // 如果 MCP Proxy 运行中，使用 mcp-proxy convert 桥接；否则直接配置 stdio 服务器
+  const mcpConfig = mcpProxyManager.getAgentMcpConfig();
+  if (mcpConfig) {
+    const settingsPath = path.join(isolatedHome, '.claude', 'settings.json');
+    const settings = { mcpServers: mcpConfig };
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+    log.info(`[Engine] 已写入 MCP 配置到 ${settingsPath}`);
+  }
   
   // 构建隔离环境变量
-  // 注入应用内依赖路径，确保引擎能找到 ~/.nuwax-agent/node_modules/.bin 下的工具
-  const appDataDir = getAppDataDir();
-  const nodeModulesBin = path.join(appDataDir, 'node_modules', '.bin');
-  const appBin = path.join(appDataDir, 'bin');
-  const pathSep = process.platform === 'win32' ? ';' : ':';
-  const existingPath = process.env.PATH || '';
+  // 使用 getAppEnv() 注入应用内依赖路径（PATH / NODE_PATH）
+  const appEnv = getAppEnv();
+
+  // 清洗系统环境变量：移除可能干扰 agent 引擎的变量
+  // 避免用户系统配置（~/.zshrc 等）中设置的 CLAUDE_*/ANTHROPIC_* 变量泄漏到隔离环境
+  const sanitizedEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined) continue;
+    // 清除所有 CLAUDE_* 和 ANTHROPIC_* 变量，后续由我们显式注入
+    if (key.startsWith('CLAUDE_') || key.startsWith('ANTHROPIC_')) continue;
+    sanitizedEnv[key] = value;
+  }
 
   const env: Record<string, string> = {
-    ...process.env,
+    ...sanitizedEnv,
+    ...appEnv,
 
-    // 注入应用内依赖到 PATH 最前面
-    PATH: [nodeModulesBin, appBin, existingPath].filter(Boolean).join(pathSep),
-    NODE_PATH: path.join(appDataDir, 'node_modules'),
-
-    // 隔离 HOME 目录 - 避免读取全局配置
+    // 隔离 HOME 目录 - 避免读取用户全局配置（~/.claude/settings.json 等）
     HOME: isolatedHome,
-    
+    USERPROFILE: isolatedHome, // Windows 兼容
+
     // 隔离 XDG 配置
     XDG_CONFIG_HOME: path.join(isolatedHome, '.config'),
     XDG_DATA_HOME: path.join(isolatedHome, '.local', 'share'),
     XDG_CACHE_HOME: path.join(isolatedHome, '.cache'),
-    
-    // 显式配置路径
+
+    // 显式配置路径 — 引擎只会读取隔离目录内的配置
     CLAUDE_CONFIG_DIR: path.join(isolatedHome, '.claude'),
     NUWAXCODE_CONFIG_DIR: path.join(isolatedHome, '.nuwaxcode'),
   };

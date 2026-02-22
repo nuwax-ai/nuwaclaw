@@ -246,6 +246,16 @@ function ClientPage({ onNavigate }: ClientPageProps) {
         pid: arStatus?.pid,
       });
 
+      // MCP Proxy
+      const mcpStatus = await window.electronAPI?.mcp.status();
+      items.push({
+        key: 'mcpProxy',
+        label: 'MCP Proxy',
+        description: 'MCP 协议转换服务',
+        running: mcpStatus?.running ?? false,
+        pid: mcpStatus?.pid,
+      });
+
       setServices(items);
     } catch (error) {
       console.error('[ClientPage] pollServices failed:', error);
@@ -273,7 +283,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
         }
       } else if (key === 'fileServer') {
         const step1 = await window.electronAPI?.settings.get('step1_config') as { fileServerPort?: number } | null;
-        const result = await window.electronAPI?.fileServer.start(step1?.fileServerPort ?? 8080);
+        const result = await window.electronAPI?.fileServer.start(step1?.fileServerPort ?? 60000);
         if (result?.success) {
           message.success('文件服务启动成功');
         } else {
@@ -283,6 +293,13 @@ function ClientPage({ onNavigate }: ClientPageProps) {
         message.info('请在设置中配置 Lanproxy 参数后启动');
       } else if (key === 'agentRunner') {
         message.info('请在设置中配置 Agent Runner 参数后启动');
+      } else if (key === 'mcpProxy') {
+        const result = await window.electronAPI?.mcp.start();
+        if (result?.success) {
+          message.success('MCP Proxy 启动成功');
+        } else {
+          message.error(`MCP Proxy 启动失败: ${result?.error || '未知错误'}`);
+        }
       }
     } catch (error) {
       message.error(`启动失败: ${error}`);
@@ -304,6 +321,9 @@ function ClientPage({ onNavigate }: ClientPageProps) {
       } else if (key === 'agentRunner') {
         await window.electronAPI?.agentRunner?.stop();
         message.success('Agent Runner 已停止');
+      } else if (key === 'mcpProxy') {
+        await window.electronAPI?.mcp.stop();
+        message.success('MCP Proxy 已停止');
       }
     } catch (error) {
       message.error(`停止失败: ${error}`);
@@ -337,6 +357,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
           else if (svc.key === 'fileServer') await window.electronAPI?.fileServer.stop();
           else if (svc.key === 'lanproxy') await window.electronAPI?.lanproxy.stop();
           else if (svc.key === 'agentRunner') await window.electronAPI?.agentRunner?.stop();
+          else if (svc.key === 'mcpProxy') await window.electronAPI?.mcp.stop();
         } catch (error) {
           console.error(`停止 ${svc.label} 失败:`, error);
         }

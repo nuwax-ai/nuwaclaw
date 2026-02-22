@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
+import { getAppEnv } from './dependencies';
 
 // ==================== App Paths ====================
 
@@ -344,10 +345,10 @@ export function spawnLocal(
     useArgs = ['-y', packageName, ...args];
   }
   
-  // Build environment with local paths first
+  // Build environment — getAppEnv() 提供完整的应用内隔离环境
   const env: Record<string, string | undefined> = {
     ...process.env,
-    PATH: path.join(dirs.nodeModules, '.bin') + path.delimiter + (process.env.PATH || ''),
+    ...getAppEnv(),
     ...options?.env,
   };
 

@@ -17,13 +17,34 @@ export interface Message {
   created_at: number;
 }
 
+export interface McpServerEntry {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+export interface McpServersConfig {
+  mcpServers: Record<string, McpServerEntry>;
+}
+
+export interface McpProxyStatus {
+  running: boolean;
+  pid?: number;
+  port?: number;
+  host?: string;
+  serverCount?: number;
+  serverNames?: string[];
+}
+
 export interface MCPAPI {
-  install: (packageName: string, registry?: string) => Promise<{ success: boolean; error?: string }>;
-  uninstall: (packageName: string) => Promise<{ success: boolean; error?: string }>;
-  isInstalled: (packageName: string) => Promise<boolean>;
-  start: (id: string, command: string, args: string[], env?: Record<string, string>) => Promise<{ success: boolean; error?: string }>;
-  stop: (id: string) => Promise<{ success: boolean; error?: string }>;
-  running: () => Promise<string[]>;
+  start: (options?: { port?: number; host?: string; configJson?: string }) => Promise<{ success: boolean; error?: string }>;
+  stop: () => Promise<{ success: boolean; error?: string }>;
+  restart: (options?: { port?: number; host?: string; configJson?: string }) => Promise<{ success: boolean; error?: string }>;
+  status: () => Promise<McpProxyStatus>;
+  getConfig: () => Promise<McpServersConfig>;
+  setConfig: (config: McpServersConfig) => Promise<{ success: boolean; error?: string }>;
+  getPort: () => Promise<number>;
+  setPort: (port: number) => Promise<{ success: boolean; error?: string }>;
 }
 
 export interface LanproxyAPI {
@@ -251,6 +272,16 @@ export interface ShellAPI {
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
 }
 
+export interface MirrorPresets {
+  npm: { official: string; taobao: string; tencent: string };
+  uv: { official: string; tuna: string; aliyun: string; tencent: string };
+}
+
+export interface MirrorAPI {
+  get: () => Promise<{ success: boolean; npmRegistry: string; uvIndexUrl: string; presets: MirrorPresets }>;
+  set: (config: { npmRegistry?: string; uvIndexUrl?: string }) => Promise<{ success: boolean; error?: string }>;
+}
+
 export interface DialogAPI {
   openDirectory: (title?: string) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
 }
@@ -285,6 +316,7 @@ export interface ElectronAPI {
   fileServer: FileServerAPI;
   dependencies: DependenciesAPI;
   shell: ShellAPI;
+  mirror: MirrorAPI;
   dialog: DialogAPI;
   engine: EngineAPI;
   agent: AgentAPI;

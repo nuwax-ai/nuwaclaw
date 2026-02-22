@@ -141,7 +141,7 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
                 type="number"
                 value={config.localPort}
                 onChange={(e) => setConfig({ ...config, localPort: parseInt(e.target.value) })}
-                placeholder="8080"
+                placeholder="60000"
               />
             </div>
           </div>

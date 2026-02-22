@@ -91,7 +91,7 @@ export interface AgentStopResponse {
 
 class FileServerService {
   private config: FileServerConfig = {
-    baseUrl: 'http://localhost:8080',
+    baseUrl: 'http://localhost:60000',
   };
 
   setConfig(config: Partial<FileServerConfig>) {

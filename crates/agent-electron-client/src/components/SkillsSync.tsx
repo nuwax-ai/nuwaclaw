@@ -7,7 +7,7 @@ interface SkillsSyncProps {
 }
 
 function SkillsSync({ isOpen, onClose }: SkillsSyncProps) {
-  const [baseUrl, setBaseUrl] = useState('http://localhost:8080');
+  const [baseUrl, setBaseUrl] = useState('http://localhost:60000');
   const [connected, setConnected] = useState(false);
   const [checking, setChecking] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -113,7 +113,7 @@ function SkillsSync({ isOpen, onClose }: SkillsSyncProps) {
                 type="text"
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="http://localhost:8080"
+                placeholder="http://localhost:60000"
               />
               <button
                 className={`check-btn ${checking ? 'checking' : ''}`}

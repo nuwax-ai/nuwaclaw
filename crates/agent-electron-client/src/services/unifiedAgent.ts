@@ -10,6 +10,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import log from 'electron-log';
+import { getAppEnv } from './dependencies';
 import {
   createOpencode,
   createOpencodeClient,
@@ -126,7 +127,7 @@ export class OpencodeEngine extends EventEmitter {
         log.info('[OpencodeEngine] Connecting to existing server:', config.baseUrl);
         this.client = await createOpencodeClient({ baseUrl: config.baseUrl });
       } else {
-        const port = config.port || 4096;
+        const port = config.port || 60096;
         const hostname = config.hostname || '127.0.0.1';
         log.info(`[OpencodeEngine] Starting server on ${hostname}:${port}...`);
 
@@ -640,7 +641,7 @@ export class ClaudeCodeEngine extends EventEmitter {
         args.push('--output-format', 'json');
       }
 
-      const env: Record<string, string> = { ...process.env as Record<string, string> };
+      const env: Record<string, string> = { ...process.env as Record<string, string>, ...getAppEnv() };
       if (cfg.apiKey) env.ANTHROPIC_API_KEY = cfg.apiKey;
       if (cfg.baseUrl) env.ANTHROPIC_BASE_URL = cfg.baseUrl;
       if (cfg.model) env.ANTHROPIC_MODEL = cfg.model;

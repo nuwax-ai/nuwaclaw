@@ -23,7 +23,6 @@ log.info('Application starting...');
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let db: Database.Database | null = null;
-let mcpProcesses: Map<string, ChildProcess> = new Map();
 let lanproxyProcess: ChildProcess | null = null;
 let agentRunnerProcess: ChildProcess | null = null;
 let fileServerProcess: ChildProcess | null = null;
@@ -88,7 +87,7 @@ function createWindow() {
 
   // Load the app
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.loadURL('http://localhost:60173');
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
@@ -215,6 +214,21 @@ function createTray() {
 
 // IPC Handlers
 function setupIpcHandlers() {
+  // 应用内依赖环境变量 — 所有 spawn 调用共用
+  const { getAppEnv, setMirrorConfig, getMirrorConfig, MIRROR_PRESETS } = require('../services/dependencies');
+
+  // 从 SQLite 恢复镜像配置
+  if (db) {
+    try {
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('mirror_config') as { value: string } | undefined;
+      if (row) {
+        setMirrorConfig(JSON.parse(row.value));
+      }
+    } catch (e) {
+      log.warn('[Mirror] Failed to load mirror config from DB:', e);
+    }
+  }
+
   // Session management
   ipcMain.handle('session:list', () => {
     if (!db) return [];
@@ -277,6 +291,25 @@ function setupIpcHandlers() {
     return true;
   });
 
+  // Mirror / Registry — 动态切换 npm、uv 镜像源
+  ipcMain.handle('mirror:get', () => {
+    return { success: true, ...getMirrorConfig(), presets: MIRROR_PRESETS };
+  });
+
+  ipcMain.handle('mirror:set', (_, config: { npmRegistry?: string; uvIndexUrl?: string }) => {
+    try {
+      setMirrorConfig(config);
+      // 持久化到 SQLite
+      if (db) {
+        const stmt = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+        stmt.run('mirror_config', JSON.stringify(getMirrorConfig()));
+      }
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  });
+
   // Window controls
   ipcMain.handle('window:minimize', () => {
     mainWindow?.minimize();
@@ -294,153 +327,68 @@ function setupIpcHandlers() {
     mainWindow?.close();
   });
 
-  // MCP handlers - Install package
-  ipcMain.handle('mcp:install', async (_, { packageName, registry }: { packageName: string; registry?: string }) => {
-    return new Promise((resolve) => {
-      const registryArg = registry && registry !== 'https://registry.npmjs.org/' ? `--registry=${registry}` : '';
-      const cmd = `npm install -g ${packageName} ${registryArg}`;
-      log.info('Installing MCP package:', cmd);
+  // MCP Proxy handlers — 统一代理模式 (mcp-stdio-proxy)
+  const { mcpProxyManager, DEFAULT_MCP_PROXY_CONFIG, DEFAULT_MCP_PROXY_PORT } = require('../services/mcp');
 
-      const proc = spawn('npm', ['install', '-g', packageName, registryArg].filter(Boolean), {
-        shell: true,
-        windowsHide: true,
-        env: { ...process.env },
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      proc.stdout?.on('data', (data) => {
-        stdout += data.toString();
-      });
-
-      proc.stderr?.on('data', (data) => {
-        stderr += data.toString();
-      });
-
-      proc.on('error', (error) => {
-        log.error('MCP install error:', error);
-        resolve({ success: false, error: error.message });
-      });
-
-      proc.on('close', (code) => {
-        if (code === 0) {
-          log.info('MCP package installed:', packageName);
-          resolve({ success: true });
-        } else {
-          log.error('MCP install failed:', stderr);
-          resolve({ success: false, error: stderr || 'Install failed' });
-        }
-      });
-    });
+  // 启动 MCP Proxy
+  ipcMain.handle('mcp:start', async (_, options?: { port?: number; host?: string; configJson?: string }) => {
+    return mcpProxyManager.start(options);
   });
 
-  // MCP handlers - Uninstall package
-  ipcMain.handle('mcp:uninstall', async (_, packageName: string) => {
-    return new Promise((resolve) => {
-      const cmd = `npm uninstall -g ${packageName}`;
-      log.info('Uninstalling MCP package:', cmd);
-
-      const proc = spawn('npm', ['uninstall', '-g', packageName], {
-        shell: true,
-        windowsHide: true,
-        env: { ...process.env },
-      });
-
-      let stderr = '';
-
-      proc.stderr?.on('data', (data) => {
-        stderr += data.toString();
-      });
-
-      proc.on('error', (error) => {
-        log.error('MCP uninstall error:', error);
-        resolve({ success: false, error: error.message });
-      });
-
-      proc.on('close', (code) => {
-        if (code === 0) {
-          log.info('MCP package uninstalled:', packageName);
-          resolve({ success: true });
-        } else {
-          log.error('MCP uninstall failed:', stderr);
-          resolve({ success: false, error: stderr || 'Uninstall failed' });
-        }
-      });
-    });
+  // 停止 MCP Proxy
+  ipcMain.handle('mcp:stop', async () => {
+    return mcpProxyManager.stop();
   });
 
-  // MCP handlers - Check if package is installed
-  ipcMain.handle('mcp:isInstalled', async (_, packageName: string) => {
-    return new Promise((resolve) => {
-      const proc = spawn('npm', ['list', '-g', '--depth=0', packageName], {
-        shell: true,
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
-
-      let stdout = '';
-      proc.stdout?.on('data', (data) => {
-        stdout += data.toString();
-      });
-
-      proc.on('close', (code) => {
-        resolve(code === 0 && stdout.includes(packageName));
-      });
-
-      proc.on('error', () => {
-        resolve(false);
-      });
-    });
+  // 重启 MCP Proxy
+  ipcMain.handle('mcp:restart', async (_, options?: { port?: number; host?: string; configJson?: string }) => {
+    return mcpProxyManager.restart(options);
   });
 
-  // MCP handlers - Start MCP server
-  ipcMain.handle('mcp:start', async (_, { id, command, args, env }: { id: string; command: string; args: string[]; env?: Record<string, string> }) => {
-    if (mcpProcesses.has(id)) {
-      return { success: true, message: 'Already running' };
-    }
+  // 获取运行状态
+  ipcMain.handle('mcp:status', async () => {
+    return mcpProxyManager.getStatus();
+  });
 
-    return new Promise((resolve) => {
+  // 获取配置
+  ipcMain.handle('mcp:getConfig', async () => {
+    const saved = db?.prepare('SELECT value FROM settings WHERE key = ?').get('mcp_proxy_config') as { value: string } | undefined;
+    if (saved) {
       try {
-        const proc = spawn(command, args, {
-          env: { ...process.env, ...env },
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-
-        proc.on('error', (error) => {
-          log.error(`MCP server ${id} error:`, error);
-          mcpProcesses.delete(id);
-          resolve({ success: false, error: error.message });
-        });
-
-        proc.on('exit', (code) => {
-          log.info(`MCP server ${id} exited with code ${code}`);
-          mcpProcesses.delete(id);
-        });
-
-        mcpProcesses.set(id, proc);
-        log.info(`MCP server ${id} started`);
-        resolve({ success: true });
-      } catch (error) {
-        resolve({ success: false, error: String(error) });
-      }
-    });
-  });
-
-  // MCP handlers - Stop MCP server
-  ipcMain.handle('mcp:stop', async (_, id: string) => {
-    const proc = mcpProcesses.get(id);
-    if (proc) {
-      proc.kill();
-      mcpProcesses.delete(id);
-      return { success: true };
+        return JSON.parse(saved.value);
+      } catch {}
     }
-    return { success: false, error: 'Not running' };
+    return DEFAULT_MCP_PROXY_CONFIG;
   });
 
-  // MCP handlers - Get running servers
-  ipcMain.handle('mcp:running', () => {
-    return Array.from(mcpProcesses.keys());
+  // 保存配置
+  ipcMain.handle('mcp:setConfig', async (_, config: { mcpServers: Record<string, unknown> }) => {
+    try {
+      const configJson = JSON.stringify(config);
+      db?.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('mcp_proxy_config', configJson);
+      mcpProxyManager.setConfig(config);
+      log.info('[McpProxy] 配置已保存');
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  });
+
+  // 获取端口
+  ipcMain.handle('mcp:getPort', async () => {
+    const saved = db?.prepare('SELECT value FROM settings WHERE key = ?').get('mcp_proxy_port') as { value: string } | undefined;
+    return saved ? parseInt(saved.value) : DEFAULT_MCP_PROXY_PORT;
+  });
+
+  // 保存端口
+  ipcMain.handle('mcp:setPort', async (_, port: number) => {
+    try {
+      db?.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('mcp_proxy_port', String(port));
+      mcpProxyManager.setPort(port);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
   });
 
   // Lanproxy handlers - Start
@@ -665,7 +613,7 @@ function setupIpcHandlers() {
   });
 
   // File Server handlers - Start
-  ipcMain.handle('fileServer:start', async (_, port: number = 8080) => {
+  ipcMain.handle('fileServer:start', async (_, port: number = 60000) => {
     if (fileServerProcess) {
       return { success: true, message: 'Already running' };
     }
@@ -1315,7 +1263,6 @@ function setupIpcHandlers() {
     installNpmPackage,
     installMissingDependencies,
     getAppDataDir,
-    getAppEnv,
     SETUP_REQUIRED_DEPENDENCIES,
   } = require('../services/dependencies');
 
@@ -1477,17 +1424,33 @@ app.whenReady().then(() => {
   log.info('App ready');
   initDatabase();
   setupIpcHandlers();
+
+  // 初始化 MCP Proxy 配置（从数据库加载）
+  try {
+    const { mcpProxyManager, DEFAULT_MCP_PROXY_CONFIG, DEFAULT_MCP_PROXY_PORT } = require('../services/mcp');
+    const savedConfig = db?.prepare('SELECT value FROM settings WHERE key = ?').get('mcp_proxy_config') as { value: string } | undefined;
+    if (savedConfig) {
+      try {
+        mcpProxyManager.setConfig(JSON.parse(savedConfig.value));
+      } catch {}
+    }
+    const savedPort = db?.prepare('SELECT value FROM settings WHERE key = ?').get('mcp_proxy_port') as { value: string } | undefined;
+    if (savedPort) {
+      mcpProxyManager.setPort(parseInt(savedPort.value));
+    }
+    log.info('[McpProxy] 配置已加载');
+  } catch (e) {
+    log.warn('[McpProxy] 初始化配置失败:', e);
+  }
+
   createWindow();
   createTray();
 });
 
 app.on('window-all-closed', () => {
-  // Stop all MCP processes
-  for (const [id, proc] of mcpProcesses) {
-    proc.kill();
-    log.info(`MCP server ${id} stopped`);
-  }
-  mcpProcesses.clear();
+  // Stop MCP Proxy
+  const { mcpProxyManager } = require('../services/mcp');
+  mcpProxyManager.cleanup();
 
   // Stop lanproxy
   if (lanproxyProcess) {
@@ -1563,11 +1526,11 @@ function cleanupAllProcesses(): void {
     fileServerProcess = null;
   }
 
-  // Stop all MCP servers
+  // Stop MCP Proxy
   try {
-    const { stopAllMcpServers } = require('../services/mcp');
-    stopAllMcpServers();
-    log.info('[Cleanup] MCP servers stopped');
+    const { mcpProxyManager } = require('../services/mcp');
+    mcpProxyManager.cleanup();
+    log.info('[Cleanup] MCP Proxy stopped');
   } catch (e) {
     // MCP service might not be loaded
   }

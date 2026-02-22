@@ -290,7 +290,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               <InputNumber
                 value={step1Config.agentPort}
                 onChange={(value) =>
-                  setStep1Config({ ...step1Config, agentPort: value || 8086 })
+                  setStep1Config({ ...step1Config, agentPort: value || 60001 })
                 }
                 style={{ width: '100%' }}
                 min={1024}
@@ -304,7 +304,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
                 onChange={(value) =>
                   setStep1Config({
                     ...step1Config,
-                    fileServerPort: value || 8080,
+                    fileServerPort: value || 60000,
                   })
                 }
                 style={{ width: '100%' }}

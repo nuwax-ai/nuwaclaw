@@ -2,6 +2,7 @@ import { app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
+import { getAppEnv } from './dependencies';
 
 export interface AppPaths {
   appData: string;        // 应用数据目录
@@ -85,7 +86,7 @@ export async function installPackage(packageName: string, options?: {
       cwd,
       env: {
         ...process.env,
-        NPM_CONFIG_PREFIX: dirs.appData, // Install globally-accessible packages here
+        ...getAppEnv(),
       },
       stdio: 'pipe',
     });
@@ -133,6 +134,7 @@ export async function uninstallPackage(packageName: string, options?: {
     
     const proc = spawn(npmCmd, args, {
       cwd,
+      env: { ...process.env, ...getAppEnv() },
       stdio: 'pipe',
     });
     

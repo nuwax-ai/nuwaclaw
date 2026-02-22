@@ -53,6 +53,51 @@ export interface LocalDependencyItem extends LocalDependencyConfig {
 
 // ==================== App Paths ====================
 
+// ==================== Mirror / Registry ====================
+
+/** 预置镜像源 */
+export const MIRROR_PRESETS = {
+  npm: {
+    official: 'https://registry.npmjs.org/',
+    taobao: 'https://registry.npmmirror.com/',
+    tencent: 'https://mirrors.cloud.tencent.com/npm/',
+  },
+  uv: {
+    official: 'https://pypi.org/simple/',
+    tuna: 'https://pypi.tuna.tsinghua.edu.cn/simple/',
+    aliyun: 'https://mirrors.aliyun.com/pypi/simple/',
+    tencent: 'https://mirrors.cloud.tencent.com/pypi/simple/',
+  },
+} as const;
+
+export interface MirrorConfig {
+  npmRegistry: string;
+  uvIndexUrl: string;
+}
+
+/** 默认国内镜像 */
+const DEFAULT_MIRROR: MirrorConfig = {
+  npmRegistry: MIRROR_PRESETS.npm.taobao,
+  uvIndexUrl: MIRROR_PRESETS.uv.aliyun,
+};
+
+/** 运行时缓存，避免每次 spawn 都读 SQLite */
+let _mirrorConfig: MirrorConfig = { ...DEFAULT_MIRROR };
+
+/** 设置镜像配置（同时更新运行时缓存，持久化由调用方负责写 settings） */
+export function setMirrorConfig(config: Partial<MirrorConfig>): void {
+  if (config.npmRegistry !== undefined) _mirrorConfig.npmRegistry = config.npmRegistry;
+  if (config.uvIndexUrl !== undefined) _mirrorConfig.uvIndexUrl = config.uvIndexUrl;
+  log.info('[Dependencies] Mirror config updated:', _mirrorConfig);
+}
+
+/** 获取当前镜像配置 */
+export function getMirrorConfig(): MirrorConfig {
+  return { ..._mirrorConfig };
+}
+
+// ==================== App Paths ====================
+
 // 获取应用数据目录 — 统一使用 ~/.nuwax-agent/
 function getAppDataDir(): string {
   return path.join(app.getPath('home'), '.nuwax-agent');
@@ -83,7 +128,12 @@ export function getUvBinPath(): string {
 
 /**
  * 构建注入应用内依赖的环境变量
- * 确保 spawned 进程能加载应用内安装的依赖
+ *
+ * 所有 spawned 进程（包括引擎内部再调 npx/npm/uvx/bash 等）都继承此 env，
+ * 确保：
+ *  - npm/npx  → 缓存、全局前缀、镜像源指向应用内
+ *  - uv/uvx   → 工具、缓存、Python、镜像源指向应用内
+ *  - PATH     → 应用内 bin 优先，系统 bin 保留（bash/grep/git/node 等仍可用）
  */
 export function getAppEnv(): Record<string, string> {
   const appDataDir = getAppDataDir();
@@ -94,14 +144,37 @@ export function getAppEnv(): Record<string, string> {
   const pathSep = process.platform === 'win32' ? ';' : ':';
   const existingPath = process.env.PATH || '';
 
-  // 将应用内路径注入 PATH 最前面，优先使用应用内依赖
-  const newPath = [nodeModulesBin, appBin, uvBin, existingPath]
+  // uv/uvx 数据目录
+  const uvDataDir = path.join(appDataDir, 'uv');
+  const uvToolBinDir = path.join(uvDataDir, 'tools', 'bin');
+
+  // npm 缓存和全局前缀
+  const npmCacheDir = path.join(appDataDir, 'npm-cache');
+
+  // 镜像配置
+  const mirror = getMirrorConfig();
+
+  // 将应用内路径注入 PATH 最前面，系统 PATH 保留在末尾
+  // → 引擎运行时 bash/grep/git/node 等系统工具仍可通过 existingPath 找到
+  const newPath = [nodeModulesBin, appBin, uvBin, uvToolBinDir, existingPath]
     .filter(Boolean)
     .join(pathSep);
 
   return {
     PATH: newPath,
     NODE_PATH: path.join(appDataDir, 'node_modules'),
+
+    // npm/npx: 缓存、全局前缀、镜像源
+    NPM_CONFIG_CACHE: npmCacheDir,
+    NPM_CONFIG_PREFIX: appDataDir,
+    NPM_CONFIG_REGISTRY: mirror.npmRegistry,
+
+    // uv/uvx: 工具、缓存、Python、镜像源
+    UV_TOOL_DIR: path.join(uvDataDir, 'tools'),
+    UV_TOOL_BIN_DIR: uvToolBinDir,
+    UV_CACHE_DIR: path.join(uvDataDir, 'cache'),
+    UV_PYTHON_INSTALL_DIR: path.join(uvDataDir, 'python'),
+    UV_INDEX_URL: mirror.uvIndexUrl,
   };
 }
 
@@ -136,6 +209,15 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     description: "Agent 执行引擎（应用内安装）",
     required: true,
     binName: "nuwaxcode",
+  },
+  {
+    name: "mcp-stdio-proxy",
+    displayName: "MCP 服务",
+    type: "npm-local",
+    description: "MCP 协议转换工具（应用内安装）",
+    required: true,
+    minVersion: "0.1.48",
+    binName: "mcp-proxy",
   },
 ];
 
@@ -584,4 +666,7 @@ export default {
   getResourcesPath,
   getUvBinPath,
   getAppEnv,
+  setMirrorConfig,
+  getMirrorConfig,
+  MIRROR_PRESETS,
 };

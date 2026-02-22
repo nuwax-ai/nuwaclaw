@@ -30,7 +30,7 @@ interface AgentSettingsProps {
 function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
   const [agentType, setAgentType] = useState('nuwaxcode');
   const [binPath, setBinPath] = useState('opencode');
-  const [backendPort, setBackendPort] = useState(8086);
+  const [backendPort, setBackendPort] = useState(60001);
   const [apiKey, setApiKey] = useState('');
   const [apiBaseUrl, setApiBaseUrl] = useState('https://api.anthropic.com');
   const [model, setModel] = useState('claude-sonnet-4-20250514');
@@ -52,7 +52,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
         const config = saved as any;
         setAgentType(config.type || 'nuwaxcode');
         setBinPath(config.binPath || 'opencode');
-        setBackendPort(config.backendPort || 8086);
+        setBackendPort(config.backendPort || 60001);
         setApiKey(config.apiKey || '');
         setApiBaseUrl(config.apiBaseUrl || 'https://api.anthropic.com');
         setModel(config.model || 'claude-sonnet-4-20250514');
@@ -173,7 +173,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
               type="number"
               value={backendPort}
               onChange={(e) => setBackendPort(parseInt(e.target.value))}
-              placeholder="8086"
+              placeholder="60001"
             />
             <Text type="secondary">直接连接 Agent 服务，无需代理</Text>
           </Form.Item>
