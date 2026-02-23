@@ -670,20 +670,56 @@ export interface ComputerChatRequest {
   agent_config?: Record<string, unknown>;
 }
 
-// 对应 rcoder ChatResponse
+// 对应 rcoder ChatResponse（HttpResult.data 的内容，不含 success）
 export interface ComputerChatResponse {
-  success: boolean;
   project_id: string;
   session_id: string;
-  error?: string;
+  error?: string | null;
   request_id?: string;
+  need_fallback?: boolean | null;
+  fallback_reason?: string | null;
 }
 
-// 对应 rcoder ProgressMessage（进度事件，snake_case 字段名）
-export interface UnifiedSessionMessage {
+// 对应 rcoder HttpResult<T> 响应包装
+export interface HttpResult<T = unknown> {
+  code: string;       // "0000" = 成功，其他为错误码
+  message: string;    // 状态描述
+  data: T | null;     // 实际数据
+  tid: string | null; // trace ID（Electron 端始终为 null）
+  success: boolean;   // code === "0000"
+}
+
+// 对应 rcoder ComputerAgentStatusResponse
+export interface ComputerAgentStatusResponse {
+  user_id: string;
+  project_id: string;
+  is_alive: boolean;
+  session_id?: string | null;
+  status?: string | null;
+  last_activity?: string | null;
+  created_at?: string | null;
+}
+
+// 对应 rcoder ComputerAgentStopResponse
+export interface ComputerAgentStopResponse {
+  success: boolean;
+  message: string;
+  user_id: string;
+  project_id: string;
+}
+
+// 对应 rcoder ComputerAgentCancelResponse
+export interface ComputerAgentCancelResponse {
+  success: boolean;
   session_id: string;
-  message_type: 'SessionPromptStart' | 'SessionPromptEnd' | 'AgentSessionUpdate' | 'Heartbeat';
-  sub_type: string;
+}
+
+// 对应 rcoder UnifiedSessionMessage（SSE 进度事件）
+// 字段名使用 camelCase 对齐 rcoder #[serde(rename_all = "camelCase")]
+export interface UnifiedSessionMessage {
+  sessionId: string;
+  messageType: 'sessionPromptStart' | 'sessionPromptEnd' | 'agentSessionUpdate' | 'heartbeat';
+  subType: string;
   data: unknown;
   timestamp: string;
 }
@@ -1146,12 +1182,14 @@ export class AcpEngine extends EventEmitter {
     return null;
   }
 
-  async chat(request: ComputerChatRequest): Promise<ComputerChatResponse> {
+  async chat(request: ComputerChatRequest): Promise<HttpResult<ComputerChatResponse>> {
     if (!this.acpConnection || !this.config) {
-      return { success: false, project_id: request.project_id || '', session_id: '', error: 'Agent not initialized' };
+      return { code: '5000', message: 'Agent not initialized', data: null, tid: null, success: false };
     }
 
     try {
+      log.info(`${this.logTag} 📨 chat() 收到请求:\n├─ user_id: ${request.user_id}\n├─ project_id: ${request.project_id}\n├─ session_id: ${request.session_id}\n├─ request_id: ${request.request_id}\n└─ prompt (${request.prompt.length}字符)`);
+
       // 1. Find existing session by session_id or project_id, or create new
       let session: AcpSession | undefined;
 
@@ -1173,23 +1211,34 @@ export class AcpEngine extends EventEmitter {
       // 2. Async prompt (results via computer:progress events)
       this.promptAsync(session.id, [{ type: 'text', text: request.prompt }]);
 
-      // 3. Return session info
-      return {
-        success: true,
+      // 3. Return HttpResult<ChatResponse>
+      const chatResponse: ComputerChatResponse = {
         project_id: request.project_id || session.id,
         session_id: session.id,
+        error: null,
         request_id: request.request_id,
       };
+
+      log.info(`${this.logTag} ✅ chat() 响应: session_id=${session.id}`);
+
+      return {
+        code: '0000',
+        message: '成功',
+        data: chatResponse,
+        tid: null,
+        success: true,
+      };
     } catch (error) {
-      log.error(`${this.logTag} chat() failed:`, error);
       const errorMsg = error instanceof Error
         ? error.message
         : (typeof error === 'object' && error !== null ? safeStringify(error) : String(error));
+      log.error(`${this.logTag} ❌ chat() 失败: ${errorMsg}`);
       return {
+        code: '5000',
+        message: errorMsg,
+        data: null,
+        tid: null,
         success: false,
-        project_id: request.project_id || '',
-        session_id: '',
-        error: errorMsg,
       };
     }
   }
@@ -1261,14 +1310,14 @@ export class AcpEngine extends EventEmitter {
     if (session) session.lastActivity = Date.now();
 
     // Emit rcoder-compatible computer:progress event for all updates
-    // 字段名使用 snake_case 对齐 rcoder ProgressMessage 格式
+    // 字段名使用 camelCase 对齐 rcoder #[serde(rename_all = "camelCase")]
     this.emit('computer:progress', {
-      session_id: sessionId,
-      message_type: 'AgentSessionUpdate',
-      sub_type: update.sessionUpdate,
+      sessionId: sessionId,
+      messageType: 'agentSessionUpdate',
+      subType: update.sessionUpdate,
       data: update,
       timestamp: new Date().toISOString(),
-    });
+    } satisfies UnifiedSessionMessage);
 
     switch (update.sessionUpdate) {
       case 'agent_message_chunk': {

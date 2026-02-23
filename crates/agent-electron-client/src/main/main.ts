@@ -5,7 +5,7 @@ import { spawn, ChildProcess } from 'child_process';
 import log from 'electron-log';
 import Database from 'better-sqlite3';
 import { agentService } from '../services/unifiedAgent';
-import type { AgentConfig, ComputerChatRequest, UnifiedSessionMessage } from '../services/unifiedAgent';
+import type { AgentConfig, ComputerChatRequest, UnifiedSessionMessage, HttpResult, ComputerAgentStatusResponse, ComputerAgentStopResponse, ComputerAgentCancelResponse } from '../services/unifiedAgent';
 import { startComputerServer, stopComputerServer, pushSseEvent } from '../services/computerServer';
 import { mcpProxyManager, DEFAULT_MCP_PROXY_CONFIG, DEFAULT_MCP_PROXY_PORT } from '../services/mcp';
 import type { McpServersConfig } from '../services/mcp';
@@ -236,6 +236,18 @@ function setupIpcHandlers() {
     } catch (e) {
       log.warn('[Mirror] Failed to apply mirror config:', e);
     }
+  }
+
+  // 尽早启动 Computer HTTP Server（对齐 rcoder /computer/* API）
+  // 必须在 lanproxy 之前监听端口，否则 Java 后端通过隧道访问时会收到 "no bytes"
+  // Agent 未初始化时，各端点正常返回 503/offline，不会无响应
+  {
+    const s1 = readSetting('step1_config') as { agentPort?: number } | null;
+    const agentPort = s1?.agentPort ?? 60001;
+    startComputerServer(agentPort).then((r) => {
+      if (r.success) log.info(`[Init] Computer HTTP server listening on port ${agentPort}`);
+      else log.warn(`[Init] Computer HTTP server failed: ${r.error}`);
+    });
   }
 
   // Session management
@@ -675,16 +687,6 @@ function setupIpcHandlers() {
       }
       const ok = await agentService.init(finalConfig);
 
-      // 启动 Computer HTTP Server（对齐 rcoder，让 Java 后端通过 lanproxy 访问 /computer/* API）
-      const step1Config = readSetting('step1_config') as { agentPort?: number } | null;
-      const agentPort = step1Config?.agentPort ?? 60001;
-      const serverResult = await startComputerServer(agentPort);
-      if (serverResult.success) {
-        log.info(`[IPC] Computer HTTP server started on port ${agentPort}`);
-      } else {
-        log.warn(`[IPC] Computer HTTP server failed: ${serverResult.error}`);
-      }
-
       return {
         success: ok,
         engineType: agentService.getEngineType(),
@@ -707,7 +709,7 @@ function setupIpcHandlers() {
   ipcMain.handle('agent:destroy', async () => {
     try {
       await agentService.destroy();
-      await stopComputerServer();
+      // Computer HTTP Server 保持运行（独立于 agent 生命周期），仅在 app 退出时停止
       return { success: true };
     } catch (error) {
       return { success: false, error: String(error) };
@@ -1079,40 +1081,57 @@ function setupIpcHandlers() {
 
   ipcMain.handle('computer:chat', async (_, request: ComputerChatRequest) => {
     const acpEngine = agentService.getAcpEngine();
-    if (!acpEngine) return { success: false, project_id: '', session_id: '', error: 'Agent not initialized' };
+    if (!acpEngine) {
+      return { code: '5000', message: 'Agent not initialized', data: null, tid: null, success: false } as HttpResult;
+    }
     return acpEngine.chat(request);
   });
 
   ipcMain.handle('computer:agentStatus', async (_, request: { user_id: string; project_id?: string }) => {
     const acpEngine = agentService.getAcpEngine();
-    if (!acpEngine) return { success: false, status: 'offline' };
-    const session = acpEngine.findSessionByProjectId(request.project_id || '');
-    return {
-      success: true,
-      status: session?.status === 'active' ? 'Busy' : 'Idle',
-      session_id: session?.id,
-      project_id: request.project_id,
+    const session = acpEngine?.findSessionByProjectId(request.project_id || '') ?? null;
+    const response: ComputerAgentStatusResponse = {
+      user_id: request.user_id,
+      project_id: request.project_id || '',
+      is_alive: !!session && session.status === 'active',
+      session_id: session?.id ?? null,
+      status: session ? (session.status === 'active' ? 'Busy' : 'Idle') : null,
+      last_activity: session?.lastActivity ? new Date(session.lastActivity).toISOString() : null,
+      created_at: session ? new Date(session.createdAt).toISOString() : null,
     };
+    return { code: '0000', message: '成功', data: response, tid: null, success: true } as HttpResult<ComputerAgentStatusResponse>;
   });
 
   ipcMain.handle('computer:agentStop', async (_, request: { user_id: string; project_id?: string }) => {
     const acpEngine = agentService.getAcpEngine();
-    if (!acpEngine) return { success: true, message: 'Not running' };
-    if (request.project_id) {
+    if (acpEngine && request.project_id) {
       const session = acpEngine.findSessionByProjectId(request.project_id);
       if (session) await acpEngine.abortSession(session.id);
-    } else {
+    } else if (acpEngine) {
       await acpEngine.abortSession();
     }
-    return { success: true, message: 'Stopped' };
+    const response: ComputerAgentStopResponse = {
+      success: true,
+      message: acpEngine ? 'Agent stopped successfully' : 'Agent not found (already stopped)',
+      user_id: request.user_id,
+      project_id: request.project_id || '',
+    };
+    return { code: '0000', message: '成功', data: response, tid: null, success: true } as HttpResult<ComputerAgentStopResponse>;
   });
 
-  ipcMain.handle('computer:cancelSession', async (_, request: { user_id: string; session_id?: string }) => {
+  ipcMain.handle('computer:cancelSession', async (_, request: { user_id: string; project_id?: string; session_id?: string }) => {
     const acpEngine = agentService.getAcpEngine();
-    if (!acpEngine) return { success: false, error: 'Agent not initialized' };
-    if (!request.session_id) return { success: false, error: 'session_id is required' };
-    await acpEngine.abortSession(request.session_id);
-    return { success: true, session_id: request.session_id };
+    if (acpEngine && request.session_id) {
+      await acpEngine.abortSession(request.session_id);
+    } else if (acpEngine && request.project_id) {
+      const session = acpEngine.findSessionByProjectId(request.project_id);
+      if (session) await acpEngine.abortSession(session.id);
+    }
+    const response: ComputerAgentCancelResponse = {
+      success: true,
+      session_id: request.session_id || '',
+    };
+    return { code: '0000', message: '成功', data: response, tid: null, success: true } as HttpResult<ComputerAgentCancelResponse>;
   });
 
   ipcMain.handle('computer:health', async () => {
@@ -1123,37 +1142,37 @@ function setupIpcHandlers() {
     };
   });
 
-  // ==================== computer:* Event Forwarding (rcoder ProgressMessage format, snake_case) ====================
+  // ==================== computer:* Event Forwarding (rcoder camelCase format) ====================
 
   agentService.on('computer:progress', (data: unknown) => {
     mainWindow?.webContents.send('computer:progress', data);
-    // 同时推送到 HTTP SSE 客户端
+    // 同时推送到 HTTP SSE 客户端（使用 subType 作为 SSE event name，对齐 rcoder）
     const d = data as UnifiedSessionMessage;
-    if (d?.session_id) pushSseEvent(d.session_id, 'message', d);
+    if (d?.sessionId) pushSseEvent(d.sessionId, d.subType || 'message', d);
   });
 
   agentService.on('computer:promptStart', (data: { sessionId: string; requestId?: string }) => {
-    const event = {
-      session_id: data.sessionId,
-      message_type: 'SessionPromptStart',
-      sub_type: 'prompt_start',
+    const event: UnifiedSessionMessage = {
+      sessionId: data.sessionId,
+      messageType: 'sessionPromptStart',
+      subType: 'prompt_start',
       data: { request_id: data.requestId },
       timestamp: new Date().toISOString(),
     };
     mainWindow?.webContents.send('computer:progress', event);
-    pushSseEvent(data.sessionId, 'message', event);
+    pushSseEvent(data.sessionId, 'prompt_start', event);
   });
 
   agentService.on('computer:promptEnd', (data: { sessionId: string; reason?: string; description?: string }) => {
-    const event = {
-      session_id: data.sessionId,
-      message_type: 'SessionPromptEnd',
-      sub_type: data.reason || 'end_turn',
+    const event: UnifiedSessionMessage = {
+      sessionId: data.sessionId,
+      messageType: 'sessionPromptEnd',
+      subType: data.reason || 'end_turn',
       data: { reason: data.reason, description: data.description },
       timestamp: new Date().toISOString(),
     };
     mainWindow?.webContents.send('computer:progress', event);
-    pushSseEvent(data.sessionId, 'message', event);
+    pushSseEvent(data.sessionId, data.reason || 'end_turn', event);
   });
 
   // ==================== services:restartAll (对齐 Tauri services_restart_all) ====================
@@ -1166,16 +1185,15 @@ function setupIpcHandlers() {
     const agentConfig = readSetting('agent_config') as any || {};
     const step1Config = readSetting('step1_config') as any || {};
 
-    // 1. Stop existing services first
+    // 1. Stop existing services first (Computer HTTP Server 保持运行)
     try {
       await agentService.destroy();
-      await stopComputerServer();
     } catch (e) { log.warn('[Services] Agent destroy error (ignored):', e); }
     if (fileServerProcess) { fileServerProcess.kill(); fileServerProcess = null; }
     if (lanproxyProcess) { lanproxyProcess.kill(); lanproxyProcess = null; }
     mcpProxyManager.stop();
 
-    // 2. Start Agent + Computer HTTP Server
+    // 2. Start Agent（Computer HTTP Server 已独立运行，无需重启）
     try {
       let finalConfig: AgentConfig = {
         engine: agentConfig.type || 'claude-code',
@@ -1189,7 +1207,6 @@ function setupIpcHandlers() {
       const mcpConfig = mcpProxyManager.getAgentMcpConfig();
       if (mcpConfig) finalConfig = { ...finalConfig, mcpServers: mcpConfig };
       const ok = await agentService.init(finalConfig);
-      await startComputerServer(step1Config.agentPort ?? 60001);
       results.agent = { success: ok };
       log.info('[Services] Agent started');
     } catch (e) {

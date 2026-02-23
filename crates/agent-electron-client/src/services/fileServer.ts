@@ -131,11 +131,18 @@ class FileServerService {
 
   // POST /computer/chat - 发送聊天消息
   async chat(request: ChatRequest): Promise<ChatResponse> {
-    // 优先通过 IPC（AcpEngine 直接处理）
+    // 优先通过 IPC（AcpEngine 直接处理，返回 HttpResult<ComputerChatResponse>）
     if (window.electronAPI?.computer) {
-      return window.electronAPI.computer.chat(request);
+      const result = await window.electronAPI.computer.chat(request);
+      // 从 HttpResult 中提取 data，映射到 fileServer 本地 ChatResponse 格式
+      return {
+        success: result.success,
+        project_id: result.data?.project_id || '',
+        session_id: result.data?.session_id || '',
+        error: result.data?.error || (result.success ? undefined : result.message),
+      };
     }
-    // 回退到 HTTP（agentRunner 进程）
+    // 回退到 HTTP（rcoder 返回 HttpResult<ChatResponse> 格式）
     const response = await fetch(`${this.config.baseUrl}/computer/chat`, {
       method: 'POST',
       headers: {
@@ -150,7 +157,14 @@ class FileServerService {
       throw new Error(error.message || `Chat failed: ${response.statusText}`);
     }
 
-    return response.json();
+    // rcoder 返回 HttpResult 格式，提取 data
+    const httpResult = await response.json();
+    return {
+      success: httpResult.success ?? false,
+      project_id: httpResult.data?.project_id || '',
+      session_id: httpResult.data?.session_id || '',
+      error: httpResult.data?.error || (httpResult.success ? undefined : httpResult.message),
+    };
   }
 
   // GET /computer/progress/{session_id} - SSE 流式进度
@@ -212,11 +226,17 @@ class FileServerService {
 
   // POST /computer/agent/status - 获取 Agent 状态
   async getAgentStatus(request: AgentStatusRequest): Promise<AgentStatusResponse> {
-    // 优先通过 IPC
+    // 优先通过 IPC（返回 HttpResult<ComputerAgentStatusResponse>）
     if (window.electronAPI?.computer) {
-      return window.electronAPI.computer.agentStatus(request) as Promise<AgentStatusResponse>;
+      const result = await window.electronAPI.computer.agentStatus(request);
+      return {
+        success: result.success,
+        status: (result.data?.status === 'Busy' ? 'Busy' : 'Idle') as 'Idle' | 'Busy',
+        session_id: result.data?.session_id ?? undefined,
+        project_id: result.data?.project_id ?? request.project_id,
+      };
     }
-    // 回退到 HTTP
+    // 回退到 HTTP（rcoder 返回 HttpResult 格式）
     const response = await fetch(`${this.config.baseUrl}/computer/agent/status`, {
       method: 'POST',
       headers: {
@@ -230,16 +250,26 @@ class FileServerService {
       throw new Error(`Failed to get status: ${response.statusText}`);
     }
 
-    return response.json();
+    const httpResult = await response.json();
+    return {
+      success: httpResult.success ?? false,
+      status: (httpResult.data?.status === 'Busy' ? 'Busy' : 'Idle') as 'Idle' | 'Busy',
+      session_id: httpResult.data?.session_id,
+      project_id: httpResult.data?.project_id,
+    };
   }
 
   // POST /computer/agent/stop - 停止 Agent
   async stopAgent(request: AgentStopRequest): Promise<AgentStopResponse> {
-    // 优先通过 IPC
+    // 优先通过 IPC（返回 HttpResult<ComputerAgentStopResponse>）
     if (window.electronAPI?.computer) {
-      return window.electronAPI.computer.agentStop(request) as Promise<AgentStopResponse>;
+      const result = await window.electronAPI.computer.agentStop(request);
+      return {
+        success: result.data?.success ?? result.success,
+        message: result.data?.message ?? result.message,
+      };
     }
-    // 回退到 HTTP
+    // 回退到 HTTP（rcoder 返回 HttpResult 格式）
     const response = await fetch(`${this.config.baseUrl}/computer/agent/stop`, {
       method: 'POST',
       headers: {
@@ -253,17 +283,21 @@ class FileServerService {
       throw new Error(`Failed to stop agent: ${response.statusText}`);
     }
 
-    return response.json();
+    const httpResult = await response.json();
+    return {
+      success: httpResult.data?.success ?? httpResult.success,
+      message: httpResult.data?.message ?? httpResult.message ?? 'Stopped',
+    };
   }
 
   // POST /computer/agent/session/cancel - 取消会话
   async cancelSession(request: { user_id: string; session_id: string }): Promise<{ success: boolean; message: string }> {
-    // 优先通过 IPC
+    // 优先通过 IPC（返回 HttpResult<ComputerAgentCancelResponse>）
     if (window.electronAPI?.computer) {
       const result = await window.electronAPI.computer.cancelSession(request);
-      return { success: result.success, message: result.success ? 'Cancelled' : (result.error || 'Failed') };
+      return { success: result.data?.success ?? result.success, message: result.success ? 'Cancelled' : result.message };
     }
-    // 回退到 HTTP
+    // 回退到 HTTP（rcoder 返回 HttpResult 格式）
     const response = await fetch(`${this.config.baseUrl}/computer/agent/session/cancel`, {
       method: 'POST',
       headers: {
@@ -277,7 +311,11 @@ class FileServerService {
       throw new Error(`Failed to cancel session: ${response.statusText}`);
     }
 
-    return response.json();
+    const httpResult = await response.json();
+    return {
+      success: httpResult.data?.success ?? httpResult.success,
+      message: httpResult.success ? 'Cancelled' : (httpResult.message ?? 'Failed'),
+    };
   }
 
   // ==================== Computer Routes ====================

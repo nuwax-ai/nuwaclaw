@@ -289,27 +289,60 @@ export interface ComputerChatRequest {
   agent_config?: Record<string, unknown>;
 }
 
-export interface ComputerChatResponse {
+// 对应 rcoder HttpResult<T> 响应包装
+export interface HttpResult<T = unknown> {
+  code: string;
+  message: string;
+  data: T | null;
+  tid: string | null;
   success: boolean;
-  project_id: string;
-  session_id: string;
-  error?: string;
-  request_id?: string;
 }
 
-export interface UnifiedSessionMessage {
+export interface ComputerChatResponse {
+  project_id: string;
   session_id: string;
-  message_type: 'SessionPromptStart' | 'SessionPromptEnd' | 'AgentSessionUpdate' | 'Heartbeat';
-  sub_type: string;
+  error?: string | null;
+  request_id?: string;
+  need_fallback?: boolean | null;
+  fallback_reason?: string | null;
+}
+
+// 对齐 rcoder #[serde(rename_all = "camelCase")] UnifiedSessionMessage
+export interface UnifiedSessionMessage {
+  sessionId: string;
+  messageType: 'sessionPromptStart' | 'sessionPromptEnd' | 'agentSessionUpdate' | 'heartbeat';
+  subType: string;
   data: unknown;
   timestamp: string;
 }
 
+export interface ComputerAgentStatusResponse {
+  user_id: string;
+  project_id: string;
+  is_alive: boolean;
+  session_id?: string | null;
+  status?: string | null;
+  last_activity?: string | null;
+  created_at?: string | null;
+}
+
+export interface ComputerAgentStopResponse {
+  success: boolean;
+  message: string;
+  user_id: string;
+  project_id: string;
+}
+
+export interface ComputerAgentCancelResponse {
+  success: boolean;
+  session_id: string;
+}
+
 export interface ComputerAPI {
-  chat(request: ComputerChatRequest): Promise<ComputerChatResponse>;
-  agentStatus(request: { user_id: string; project_id?: string }): Promise<{ success: boolean; status: string; session_id?: string; project_id?: string }>;
-  agentStop(request: { user_id: string; project_id?: string }): Promise<{ success: boolean; message: string }>;
-  cancelSession(request: { user_id: string; session_id?: string }): Promise<{ success: boolean; session_id?: string; error?: string }>;
+  chat(request: ComputerChatRequest): Promise<HttpResult<ComputerChatResponse>>;
+  agentStatus(request: { user_id: string; project_id?: string }): Promise<HttpResult<ComputerAgentStatusResponse>>;
+  agentStop(request: { user_id: string; project_id?: string }): Promise<HttpResult<ComputerAgentStopResponse>>;
+  cancelSession(request: { user_id: string; project_id?: string; session_id?: string }): Promise<HttpResult<ComputerAgentCancelResponse>>;
   health(): Promise<{ status: string; engineType?: string | null; timestamp: string }>;
   onProgress(callback: (event: unknown, data: UnifiedSessionMessage) => void): void;
   offProgress(callback: (event: unknown, data: UnifiedSessionMessage) => void): void;

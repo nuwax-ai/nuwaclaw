@@ -4,6 +4,12 @@
  * 在 agentPort (默认 60001) 上启动 HTTP 服务器，
  * 将 Java 后端通过 lanproxy 隧道发来的请求路由到 AcpEngine。
  *
+ * 所有 HTTP 响应使用 rcoder 的 HttpResult<T> 格式：
+ *   { code: "0000", message: "成功", data: {...}, tid: null, success: true }
+ *
+ * SSE 事件使用 rcoder 的 UnifiedSessionMessage 格式（camelCase 字段名）：
+ *   event: <subType>\ndata: <json>\n\n
+ *
  * 对应 rcoder 的 HTTP 端点：
  * - POST   /computer/chat
  * - GET    /computer/progress/{session_id}  (SSE)
@@ -16,10 +22,16 @@
 import * as http from 'http';
 import log from 'electron-log';
 import { agentService } from './unifiedAgent';
-import type { ComputerChatRequest } from './unifiedAgent';
+import type {
+  ComputerChatRequest,
+  HttpResult,
+  UnifiedSessionMessage,
+} from './unifiedAgent';
 
 let server: http.Server | null = null;
 let sseClients: Map<string, http.ServerResponse[]> = new Map();
+
+// ==================== Helpers ====================
 
 /**
  * 解析 POST body (JSON)，限制最大 10MB 防止内存耗尽
@@ -51,6 +63,29 @@ function parseBody(req: http.IncomingMessage): Promise<any> {
 }
 
 /**
+ * 解析 URL query 参数为对象
+ */
+function parseQuery(url: URL): Record<string, string> {
+  const params: Record<string, string> = {};
+  url.searchParams.forEach((v, k) => { params[k] = v; });
+  return params;
+}
+
+/**
+ * 构建 rcoder HttpResult<T> 成功响应
+ */
+function httpResult<T>(data: T): HttpResult<T> {
+  return { code: '0000', message: '成功', data, tid: null, success: true };
+}
+
+/**
+ * 构建 rcoder HttpResult<T> 错误响应
+ */
+function httpError(code: string, message: string): HttpResult<null> {
+  return { code, message, data: null, tid: null, success: false };
+}
+
+/**
  * 发送 JSON 响应
  */
 function sendJson(res: http.ServerResponse, statusCode: number, data: unknown) {
@@ -64,9 +99,8 @@ function sendJson(res: http.ServerResponse, statusCode: number, data: unknown) {
   res.end(json);
 }
 
-/**
- * 请求路由
- */
+// ==================== Request Router ====================
+
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const pathname = url.pathname;
@@ -97,12 +131,36 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     // POST /computer/chat
     if (pathname === '/computer/chat' && method === 'POST') {
       const body = await parseBody(req) as ComputerChatRequest;
-      const acpEngine = agentService.getAcpEngine();
-      if (!acpEngine) {
-        sendJson(res, 503, { success: false, error: 'Agent not initialized' });
+      log.info(
+        `📨 [HTTP] 收到 Computer Chat 请求:\n` +
+        `├─ user_id: ${body.user_id}\n` +
+        `├─ project_id: ${body.project_id}\n` +
+        `├─ session_id: ${body.session_id}\n` +
+        `├─ request_id: ${body.request_id}\n` +
+        `└─ prompt (${body.prompt?.length || 0}字符)`,
+      );
+
+      // 验证必填字段
+      if (!body.user_id) {
+        log.error('❌ [HTTP] user_id is required for ComputerAgentRunner');
+        sendJson(res, 400, httpError('VALIDATION_ERROR', 'user_id is required for ComputerAgentRunner'));
         return;
       }
+
+      const acpEngine = agentService.getAcpEngine();
+      if (!acpEngine) {
+        log.error('❌ [HTTP] Agent not initialized');
+        sendJson(res, 200, httpError('5000', 'Agent not initialized'));
+        return;
+      }
+
+      // chat() 已返回 HttpResult<ComputerChatResponse> 格式
       const result = await acpEngine.chat(body);
+      if (result.success) {
+        log.info(`✅ [HTTP] Computer Chat 响应: session_id=${result.data?.session_id}`);
+      } else {
+        log.error(`❌ [HTTP] Computer Chat 失败: ${result.message}`);
+      }
       sendJson(res, 200, result);
       return;
     }
@@ -110,6 +168,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     // GET /computer/progress/{session_id} — SSE
     if (pathname.startsWith('/computer/progress/') && method === 'GET') {
       const sessionId = pathname.replace('/computer/progress/', '');
+      log.info(`📡 [HTTP] Computer Agent 进度流订阅: session_id=${sessionId}`);
+
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -118,19 +178,49 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       });
       res.write('\n');
 
+      // 检查 Agent 是否 idle — 如果是，发送立即结束事件（对齐 rcoder is_agent_idle 逻辑）
+      const acpEngine = agentService.getAcpEngine();
+      if (!acpEngine || !acpEngine.isReady) {
+        log.info(`💤 [HTTP] Agent 处于 idle 状态，发送 SessionPromptEnd: session_id=${sessionId}`);
+        const endEvent: UnifiedSessionMessage = {
+          sessionId,
+          messageType: 'sessionPromptEnd',
+          subType: 'end_turn',
+          data: { reason: 'EndTurn', description: 'Agent 当前无在执行任务' },
+          timestamp: new Date().toISOString(),
+        };
+        res.write(`event: end_turn\ndata: ${JSON.stringify(endEvent)}\n\n`);
+        res.end();
+        return;
+      }
+
       // 注册 SSE 客户端
       if (!sseClients.has(sessionId)) {
         sseClients.set(sessionId, []);
       }
       sseClients.get(sessionId)!.push(res);
 
-      // 心跳
+      // 心跳：发送符合 UnifiedSessionMessage 格式的心跳消息（对齐 rcoder heartbeat）
       const heartbeat = setInterval(() => {
-        try { res.write(':heartbeat\n\n'); } catch { /* client disconnected */ }
+        try {
+          const hb: UnifiedSessionMessage = {
+            sessionId,
+            messageType: 'heartbeat',
+            subType: 'ping',
+            data: {
+              type: 'heartbeat',
+              message: 'keep-alive',
+              timestamp: new Date().toISOString(),
+            },
+            timestamp: new Date().toISOString(),
+          };
+          res.write(`event: ping\ndata: ${JSON.stringify(hb)}\n\n`);
+        } catch { /* client disconnected */ }
       }, 15000);
 
       req.on('close', () => {
         clearInterval(heartbeat);
+        log.debug(`[HTTP] 客户端已断开连接: session_id=${sessionId}`);
         const clients = sseClients.get(sessionId);
         if (clients) {
           const idx = clients.indexOf(res);
@@ -138,76 +228,145 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
           if (clients.length === 0) sseClients.delete(sessionId);
         }
       });
+
+      log.info(`✅ [HTTP] SSE 流已建立: session_id=${sessionId}`);
       return;
     }
 
     // POST /computer/agent/status
     if (pathname === '/computer/agent/status' && method === 'POST') {
       const body = await parseBody(req);
-      const acpEngine = agentService.getAcpEngine();
-      if (!acpEngine) {
-        sendJson(res, 200, { success: false, status: 'offline' });
+      log.info(`🔍 [HTTP] Computer Agent 状态查询: user_id=${body.user_id}, project_id=${body.project_id}`);
+
+      if (!body.user_id) {
+        sendJson(res, 400, httpError('VALIDATION_ERROR', 'user_id is required'));
         return;
       }
-      const session = acpEngine.findSessionByProjectId(body.project_id || '');
-      sendJson(res, 200, {
-        success: true,
-        status: session?.status === 'active' ? 'Busy' : 'Idle',
-        session_id: session?.id,
+      if (!body.project_id) {
+        sendJson(res, 400, httpError('VALIDATION_ERROR', 'project_id is required'));
+        return;
+      }
+
+      const acpEngine = agentService.getAcpEngine();
+      const session = acpEngine?.findSessionByProjectId(body.project_id) ?? null;
+
+      if (session) {
+        log.info(`✅ [HTTP] Agent 状态: project_id=${body.project_id}, is_alive=true, session_id=${session.id}`);
+      } else {
+        log.warn(`⚠️ [HTTP] Agent 不存在: project_id=${body.project_id}`);
+      }
+
+      sendJson(res, 200, httpResult({
+        user_id: body.user_id,
         project_id: body.project_id,
-      });
+        is_alive: !!session && session.status === 'active',
+        session_id: session?.id ?? null,
+        status: session ? (session.status === 'active' ? 'Busy' : 'Idle') : null,
+        last_activity: session?.lastActivity ? new Date(session.lastActivity).toISOString() : null,
+        created_at: session ? new Date(session.createdAt).toISOString() : null,
+      }));
       return;
     }
 
     // POST /computer/agent/stop
     if (pathname === '/computer/agent/stop' && method === 'POST') {
       const body = await parseBody(req);
-      const acpEngine = agentService.getAcpEngine();
-      if (!acpEngine) {
-        sendJson(res, 200, { success: true, message: 'Not running' });
+      log.info(`🛑 [HTTP] Computer Agent 停止请求: user_id=${body.user_id}, project_id=${body.project_id}`);
+
+      if (!body.user_id) {
+        sendJson(res, 400, httpError('VALIDATION_ERROR', 'user_id is required'));
         return;
       }
-      if (body.project_id) {
-        const session = acpEngine.findSessionByProjectId(body.project_id);
-        if (session) await acpEngine.abortSession(session.id);
-      } else {
-        await acpEngine.abortSession();
+      if (!body.project_id) {
+        sendJson(res, 400, httpError('VALIDATION_ERROR', 'project_id is required'));
+        return;
       }
-      sendJson(res, 200, { success: true, message: 'Stopped' });
+
+      const acpEngine = agentService.getAcpEngine();
+      if (acpEngine) {
+        const session = acpEngine.findSessionByProjectId(body.project_id);
+        if (session) {
+          await acpEngine.abortSession(session.id);
+          log.info(`✅ [HTTP] Agent 已停止: project_id=${body.project_id}`);
+        } else {
+          log.info(`ℹ️ [HTTP] Agent 不存在,幂等返回成功: project_id=${body.project_id}`);
+        }
+      }
+
+      sendJson(res, 200, httpResult({
+        success: true,
+        message: 'Agent stopped successfully',
+        user_id: body.user_id,
+        project_id: body.project_id,
+      }));
       return;
     }
 
     // POST /computer/agent/session/cancel
+    // rcoder 使用 Query 参数，兼容 body 和 query 两种方式
     if (pathname === '/computer/agent/session/cancel' && method === 'POST') {
-      const body = await parseBody(req);
-      const acpEngine = agentService.getAcpEngine();
-      if (!acpEngine) {
-        sendJson(res, 503, { success: false, error: 'Agent not initialized' });
+      const query = parseQuery(url);
+      const body = await parseBody(req).catch(() => ({}));
+      const userId = query.user_id || body.user_id || '';
+      const projectId = query.project_id || body.project_id || '';
+      const sessionId = query.session_id || body.session_id || '';
+
+      log.info(`🚫 [HTTP] Computer Agent 取消请求: user_id=${userId}, project_id=${projectId}, session_id=${sessionId}`);
+
+      if (!userId) {
+        sendJson(res, 400, httpError('VALIDATION_ERROR', 'user_id is required'));
         return;
       }
-      if (body.session_id) {
-        await acpEngine.abortSession(body.session_id);
+      if (!projectId) {
+        sendJson(res, 400, httpError('VALIDATION_ERROR', 'project_id is required'));
+        return;
       }
-      sendJson(res, 200, { success: true, session_id: body.session_id });
+
+      const acpEngine = agentService.getAcpEngine();
+      if (acpEngine) {
+        if (sessionId) {
+          await acpEngine.abortSession(sessionId);
+          log.info(`✅ [HTTP] 取消信号已发送: session_id=${sessionId}`);
+        } else {
+          const session = acpEngine.findSessionByProjectId(projectId);
+          if (session) {
+            await acpEngine.abortSession(session.id);
+            log.info(`✅ [HTTP] 取消信号已发送: session_id=${session.id}`);
+          } else {
+            log.info(`ℹ️ [HTTP] Agent 不存在,幂等返回成功: project_id=${projectId}`);
+          }
+        }
+      }
+
+      sendJson(res, 200, httpResult({
+        success: true,
+        session_id: sessionId,
+      }));
       return;
     }
 
     // 404
-    sendJson(res, 404, { error: 'Not found', path: pathname });
+    sendJson(res, 404, httpError('NOT_FOUND', `Path not found: ${pathname}`));
   } catch (error: any) {
-    log.error('[ComputerServer] Request error:', error);
-    sendJson(res, 500, { error: error.message || 'Internal server error' });
+    log.error(`❌ [HTTP] 请求处理异常: ${pathname}`, error);
+    sendJson(res, 500, httpError('5000', error.message || 'Internal server error'));
   }
 }
 
+// ==================== SSE Push ====================
+
 /**
- * 向 SSE 客户端推送事件（对齐 rcoder 格式：data-only SSE，无 event: 前缀）
+ * 向 SSE 客户端推送事件
+ *
+ * 对齐 rcoder SSE 格式：使用 subType 作为 SSE event name
+ *   event: <eventName>\n
+ *   data: <json>\n\n
  */
-export function pushSseEvent(sessionId: string, _event: string, data: unknown) {
+export function pushSseEvent(sessionId: string, eventName: string, data: unknown) {
   const clients = sseClients.get(sessionId);
   if (!clients || clients.length === 0) return;
 
-  const payload = `data: ${JSON.stringify(data)}\n\n`;
+  const payload = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const client of clients) {
     try {
       client.write(payload);
@@ -216,6 +375,8 @@ export function pushSseEvent(sessionId: string, _event: string, data: unknown) {
     }
   }
 }
+
+// ==================== Lifecycle ====================
 
 /**
  * 启动 Computer HTTP Server
@@ -230,7 +391,7 @@ export function startComputerServer(port: number): Promise<{ success: boolean; e
     server = http.createServer(handleRequest);
 
     server.on('error', (err: NodeJS.ErrnoException) => {
-      log.error('[ComputerServer] Server error:', err);
+      log.error('❌ [ComputerServer] Server error:', err);
       if (err.code === 'EADDRINUSE') {
         resolve({ success: false, error: `Port ${port} already in use` });
       } else {
@@ -241,7 +402,7 @@ export function startComputerServer(port: number): Promise<{ success: boolean; e
 
     // 监听 0.0.0.0：与 Tauri rcoder 行为一致，lanproxy 隧道需要从外部访问此端口
     server.listen(port, '0.0.0.0', () => {
-      log.info(`[ComputerServer] Listening on port ${port} (对齐 rcoder /computer/* API)`);
+      log.info(`✅ [ComputerServer] Listening on 0.0.0.0:${port} (对齐 rcoder /computer/* API)`);
       resolve({ success: true });
     });
   });
