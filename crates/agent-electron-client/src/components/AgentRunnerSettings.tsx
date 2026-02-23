@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { agentRunnerManager, AgentRunnerConfig, AgentRunnerStatus } from '../services/agentRunner';
+import { agentRunnerManager, AgentRunnerConfig, AgentRunnerStatus } from '../services/renderer/agentRunner';
 
 interface AgentRunnerSettingsProps {
   isOpen: boolean;

@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
-import { agentService } from '../../services/unifiedAgent';
-import type { ComputerChatRequest, ComputerAgentStatusResponse, ComputerAgentStopResponse, ComputerAgentCancelResponse, HttpResult } from '../../services/unifiedAgent';
+import { agentService } from '../../services/main/engines/unifiedAgent';
+import type { ComputerChatRequest, ComputerAgentStatusResponse, ComputerAgentStopResponse, ComputerAgentCancelResponse, HttpResult } from '../../services/main/engines/unifiedAgent';
 
 export function registerComputerHandlers(): void {
   ipcMain.handle('computer:chat', async (_, request: ComputerChatRequest) => {

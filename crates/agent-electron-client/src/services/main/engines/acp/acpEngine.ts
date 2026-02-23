@@ -40,14 +40,14 @@ import type {
   SdkSession,
   MessageWithParts,
   PromptOptions,
-} from './unifiedAgent';
+} from '../unifiedAgent';
 import type {
   HttpResult,
   ComputerChatRequest,
   ComputerChatResponse,
   UnifiedSessionMessage,
   ModelProviderConfig,
-} from '../types/computerTypes';
+} from '../../../../types/computerTypes';
 
 /** Safe JSON.stringify that handles circular references */
 function safeStringify(obj: unknown): string {

@@ -23,7 +23,7 @@ import {
   Spin,
 } from 'antd';
 import { FolderOutlined, SaveOutlined, EditOutlined } from '@ant-design/icons';
-import { setupService, Step1Config, DEFAULT_STEP1_CONFIG } from '../services/setup';
+import { setupService, Step1Config, DEFAULT_STEP1_CONFIG } from '../services/renderer/setup';
 
 // Dev tools: 仅开发模式加载
 const IS_DEV = import.meta.env.DEV;

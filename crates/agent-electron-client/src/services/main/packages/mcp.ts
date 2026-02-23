@@ -12,7 +12,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import log from 'electron-log';
 import { app } from 'electron';
-import { getAppEnv } from './dependencies';
+import { getAppEnv } from '../system/dependencies';
 import { getAppPaths, isInstalledLocally } from './packageLocator';
 
 // ========== Constants ==========

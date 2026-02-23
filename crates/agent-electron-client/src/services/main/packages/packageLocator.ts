@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { spawn } from 'child_process';
-import { getAppEnv } from './dependencies';
+import { getAppEnv } from '../system/dependencies';
 
 // ==================== App Paths ====================
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { imService, IMPlatform, IMConfig } from '../services/im';
+import { imService, IMPlatform, IMConfig } from '../services/renderer/im';
 
 interface IMSettingsProps {
   isOpen: boolean;

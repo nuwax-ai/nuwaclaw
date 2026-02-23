@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { fileServerService } from '../services/fileServer';
+import { fileServerService } from '../services/renderer/fileServer';
 
 interface SkillsSyncProps {
   isOpen: boolean;

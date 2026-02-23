@@ -287,7 +287,6 @@ export default {
   getWorkspacesDir,
   getDefaultWorkspace,
   getSessionWorkspace,
-  ensureSessionWorkspace,
   deleteSessionWorkspace,
   getSessionFiles,
   saveWorkspaceConfig,

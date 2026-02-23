@@ -16,7 +16,7 @@ import {
   ClearOutlined,
   DatabaseOutlined,
 } from '@ant-design/icons';
-import { setupService } from '../../services/setup';
+import { setupService } from '../../services/renderer/setup';
 
 export default function DevToolsPanel() {
   const [storeData, setStoreData] = useState<Record<string, unknown> | null>(null);

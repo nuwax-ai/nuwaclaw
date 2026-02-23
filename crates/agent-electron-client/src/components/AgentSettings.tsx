@@ -18,7 +18,7 @@ import {
   StopOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
-import { aiService } from '../services/ai';
+import { aiService } from '../services/renderer/ai';
 
 const { Title, Text } = Typography;
 

@@ -6,9 +6,9 @@ import { initDatabase, closeDb } from './db';
 import { ManagedProcess } from './processManager';
 import { registerAllHandlers } from './ipc/index';
 import { runStartupTasks } from './startup';
-import { agentService } from '../services/unifiedAgent';
-import { stopComputerServer } from '../services/computerServer';
-import { mcpProxyManager } from '../services/mcp';
+import { agentService } from '../services/main/engines/unifiedAgent';
+import { stopComputerServer } from '../services/main/computerServer';
+import { mcpProxyManager } from '../services/main/packages/mcp';
 import type { HandlerContext } from '../types/ipc';
 
 // Configure logging — 日志统一写入 ~/.nuwax-agent/logs/
@@ -202,7 +202,7 @@ function cleanupAllProcesses(): void {
   }
 
   try {
-    const { stopAllEngines } = require('../services/engineManager');
+    const { stopAllEngines } = require('../services/main/engines/engineManager');
     stopAllEngines();
     log.info('[Cleanup] Engine processes stopped');
   } catch (e) {

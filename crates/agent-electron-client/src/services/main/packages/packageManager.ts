@@ -2,7 +2,7 @@ import { app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
-import { getAppEnv } from './dependencies';
+import { getAppEnv } from '../system/dependencies';
 
 export interface AppPaths {
   appData: string;        // 应用数据目录

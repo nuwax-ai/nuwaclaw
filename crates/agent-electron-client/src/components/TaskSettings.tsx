@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { taskScheduler, ScheduledTask, TaskSchedule, TaskAction } from '../services/scheduler';
+import { taskScheduler, ScheduledTask, TaskSchedule, TaskAction } from '../services/renderer/scheduler';
 
 interface TaskSettingsProps {
   isOpen: boolean;

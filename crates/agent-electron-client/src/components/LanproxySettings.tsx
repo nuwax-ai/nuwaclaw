@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { lanproxyManager, LanproxyConfig, LanproxyStatus } from '../services/lanproxy';
+import { lanproxyManager, LanproxyConfig, LanproxyStatus } from '../services/renderer/lanproxy';
 
 interface LanproxySettingsProps {
   isOpen: boolean;

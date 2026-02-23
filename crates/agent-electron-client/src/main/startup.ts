@@ -1,11 +1,11 @@
 import log from 'electron-log';
 import { getDb, readSetting } from './db';
-import { startComputerServer } from '../services/computerServer';
-import { mcpProxyManager } from '../services/mcp';
+import { startComputerServer } from '../services/main/computerServer';
+import { mcpProxyManager } from '../services/main/packages/mcp';
 
 export async function runStartupTasks(): Promise<void> {
   // 从 SQLite 恢复镜像配置
-  const { setMirrorConfig } = require('../services/dependencies');
+  const { setMirrorConfig } = require('../services/main/system/dependencies');
   const mirrorConfig = readSetting('mirror_config');
   if (mirrorConfig) {
     try {

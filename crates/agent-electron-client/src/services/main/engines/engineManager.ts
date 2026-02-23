@@ -12,8 +12,8 @@ import * as os from 'os';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
 import log from 'electron-log';
-import { getAppEnv } from './dependencies';
-import { mcpProxyManager } from './mcp';
+import { getAppEnv } from '../system/dependencies';
+import { mcpProxyManager } from '../packages/mcp';
 
 // ==================== Types ====================
 

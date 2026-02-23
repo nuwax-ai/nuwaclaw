@@ -21,12 +21,12 @@
 
 import * as http from 'http';
 import log from 'electron-log';
-import { agentService } from './unifiedAgent';
+import { agentService } from './engines/unifiedAgent';
 import type {
   ComputerChatRequest,
   HttpResult,
   UnifiedSessionMessage,
-} from './unifiedAgent';
+} from './engines/unifiedAgent';
 
 let server: http.Server | null = null;
 let sseClients: Map<string, http.ServerResponse[]> = new Map();

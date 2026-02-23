@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { permissionManager, PermissionRequest } from '../services/permissions';
+import { permissionManager, PermissionRequest } from '../services/renderer/permissions';
 
 interface PermissionModalProps {
   isOpen: boolean;

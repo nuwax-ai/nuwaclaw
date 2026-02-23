@@ -14,8 +14,8 @@ import {
   SafetyOutlined,
   FileTextOutlined,
 } from '@ant-design/icons';
-import { setupService, authService } from './services/setup';
-import { syncConfigToServer } from './services/auth';
+import { setupService, authService } from './services/renderer/setup';
+import { syncConfigToServer } from './services/renderer/auth';
 import SetupWizard from './components/SetupWizard';
 import ClientPage from './components/ClientPage';
 import SettingsPage from './components/SettingsPage';

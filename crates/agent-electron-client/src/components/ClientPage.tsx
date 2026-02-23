@@ -45,7 +45,7 @@ import {
   getCurrentAuth,
   getAuthErrorMessage,
   syncConfigToServer,
-} from '../services/auth';
+} from '../services/renderer/auth';
 
 // ======================== Types ========================
 

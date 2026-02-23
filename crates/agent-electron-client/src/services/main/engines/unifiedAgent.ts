@@ -20,12 +20,12 @@ import type {
 
 // Re-export engine classes (extracted modules)
 export { OpencodeEngine } from './opcodeEngine';
-export { AcpEngine } from './acpEngine';
+export { AcpEngine } from './acp/acpEngine';
 export { mapAgentCommand, resolveAgentEnv } from './agentHelpers';
 
 // Re-export from engines for downstream compatibility
 import { OpencodeEngine } from './opcodeEngine';
-import { AcpEngine } from './acpEngine';
+import { AcpEngine } from './acp/acpEngine';
 import { mapAgentCommand, resolveAgentEnv } from './agentHelpers';
 
 // Re-export computer types
@@ -38,8 +38,8 @@ export type {
   ComputerAgentStatusResponse,
   ComputerAgentStopResponse,
   ComputerAgentCancelResponse,
-} from '../types/computerTypes';
-import type { ComputerChatRequest, ModelProviderConfig } from '../types/computerTypes';
+} from '../../../types/computerTypes';
+import type { ComputerChatRequest, ModelProviderConfig } from '../../../types/computerTypes';
 
 // ==================== Types ====================
 

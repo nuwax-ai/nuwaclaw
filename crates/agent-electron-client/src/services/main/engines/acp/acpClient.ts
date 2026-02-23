@@ -21,7 +21,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import { app } from 'electron';
 import log from 'electron-log';
-import { getAppEnv } from './dependencies';
+import { getAppEnv } from '../../system/dependencies';
 
 // ==================== Types ====================
 

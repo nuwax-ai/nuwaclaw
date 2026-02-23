@@ -1,6 +1,6 @@
-import { agentService } from '../../services/unifiedAgent';
-import type { UnifiedSessionMessage } from '../../services/unifiedAgent';
-import { pushSseEvent } from '../../services/computerServer';
+import { agentService } from '../../services/main/engines/unifiedAgent';
+import type { UnifiedSessionMessage } from '../../services/main/engines/unifiedAgent';
+import { pushSseEvent } from '../../services/main/computerServer';
 import type { HandlerContext } from '../../types/ipc';
 
 export function registerEventForwarders(ctx: HandlerContext): void {

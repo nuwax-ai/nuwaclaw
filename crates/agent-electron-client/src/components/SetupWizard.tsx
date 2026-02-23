@@ -30,14 +30,14 @@ import {
   LockOutlined,
   GlobalOutlined,
 } from '@ant-design/icons';
-import { setupService, Step1Config, DEFAULT_STEP1_CONFIG } from '../services/setup';
+import { setupService, Step1Config, DEFAULT_STEP1_CONFIG } from '../services/renderer/setup';
 import {
   loginAndRegister,
   isLoggedIn as checkIsLoggedIn,
   getCurrentAuth,
   getAuthErrorMessage,
   logout,
-} from '../services/auth';
+} from '../services/renderer/auth';
 import SetupDependencies from './SetupDependencies';
 
 const { Text } = Typography;

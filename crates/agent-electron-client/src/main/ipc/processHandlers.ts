@@ -8,7 +8,7 @@ import { readSetting } from '../db';
 import { ManagedProcess } from '../processManager';
 
 export function registerProcessHandlers(ctx: HandlerContext): void {
-  const { getAppEnv, getLanproxyBinPath } = require('../../services/dependencies');
+  const { getAppEnv, getLanproxyBinPath } = require('../../services/main/system/dependencies');
 
   // ==================== Helper: Start File Server ====================
   const startFileServerProcess = (port: number): Promise<{ success: boolean; error?: string }> => {
@@ -161,9 +161,9 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   // ==================== services:restartAll ====================
 
   ipcMain.handle('services:restartAll', async () => {
-    const { agentService } = require('../../services/unifiedAgent');
-    const { mcpProxyManager } = require('../../services/mcp');
-    type AgentConfigType = import('../../services/unifiedAgent').AgentConfig;
+    const { agentService } = require('../../services/main/engines/unifiedAgent');
+    const { mcpProxyManager } = require('../../services/main/packages/mcp');
+    type AgentConfigType = import('../../services/main/engines/unifiedAgent').AgentConfig;
 
     log.info('[Services] Restarting all services...');
     const results: Record<string, { success: boolean; error?: string }> = {};
