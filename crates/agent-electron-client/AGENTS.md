@@ -430,6 +430,32 @@ npm run dist:win    # Windows
 npm run dist:linux  # Linux
 ```
 
+### 在 macOS 上打 Windows 包（跨平台构建）
+
+**可以。** electron-builder 支持在 Mac 上打包 Windows（会下载 win32 版 Electron 并打包）。若出现：
+
+```text
+zip: not a valid zip file
+```
+
+多为 **Electron 的 win32 zip 缓存损坏**。处理步骤：
+
+1. **清掉 Electron 相关缓存后重试：**
+   ```bash
+   # macOS 上 Electron 缓存
+   rm -rf ~/Library/Caches/electron
+   rm -rf ~/Library/Caches/electron-builder
+   # 然后重新打包
+   CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:electron -- --win
+   ```
+2. 若仍报错，可删掉项目内 builder 缓存再试：
+   ```bash
+   rm -rf node_modules/app-builder-bin
+   npm install
+   CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:electron -- --win
+   ```
+3. **Windows x64** 在 Mac 上会触发 native 模块（如 better-sqlite3）交叉编译，node-gyp 不支持，故在 Mac 上一般只打 **Windows arm64**；要 **Windows x64** 请在 Windows 本机或 CI（如 GitHub Actions `windows-latest`）上执行 `npm run dist:win`。
+
 ### Project Structure
 
 ```

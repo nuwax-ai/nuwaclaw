@@ -20,6 +20,7 @@
     "dist:mac": "npm run build:electron -- --mac",
     "dist:win": "npm run build:electron -- --win",
     "dist:linux": "npm run build:electron -- --linux",
+    "clean:electron-cache": "node scripts/clean-electron-cache.js",
     "lint": "eslint src --ext .ts,.tsx"
   },
   "dependencies": {
