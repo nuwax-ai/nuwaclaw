@@ -1,3 +1,11 @@
+import {
+  LOCAL_HOST_URL,
+  DEFAULT_AGENT_RUNNER_PORT,
+  DEFAULT_LANPROXY_PORT,
+  DEFAULT_ANTHROPIC_API_URL,
+  DEFAULT_AI_MODEL,
+} from '../../commons/constants';
+
 export interface AgentRunnerConfig {
   enabled: boolean;
   binPath: string;
@@ -11,11 +19,11 @@ export interface AgentRunnerConfig {
 export const defaultAgentRunnerConfig: AgentRunnerConfig = {
   enabled: false,
   binPath: 'nuwax-agent-core',
-  backendPort: 60001,
-  proxyPort: 60002,
+  backendPort: DEFAULT_AGENT_RUNNER_PORT,
+  proxyPort: DEFAULT_LANPROXY_PORT,
   apiKey: '',
-  apiBaseUrl: 'https://api.anthropic.com',
-  defaultModel: 'claude-sonnet-4-20250514',
+  apiBaseUrl: DEFAULT_ANTHROPIC_API_URL,
+  defaultModel: DEFAULT_AI_MODEL,
 };
 
 export interface AgentRunnerStatus {
@@ -54,7 +62,7 @@ class AgentRunnerManager {
   }
 
   getBackendUrl(): string {
-    return `http://127.0.0.1:${this.config.backendPort}`;
+    return `${LOCAL_HOST_URL}:${this.config.backendPort}`;
   }
 
   async loadConfig(): Promise<void> {

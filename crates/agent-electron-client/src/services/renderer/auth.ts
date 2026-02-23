@@ -11,6 +11,12 @@ import {
   ClientRegisterResponse,
   SandboxValue,
 } from './api';
+import {
+  AUTH_KEYS,
+  LOCAL_HOST_URL,
+  DEFAULT_AGENT_RUNNER_PORT,
+  DEFAULT_FILE_SERVER_PORT,
+} from '../../commons/constants';
 
 // ========== 类型定义 ==========
 
@@ -23,20 +29,6 @@ export interface AuthUserInfo {
   phone?: string;
   currentDomain?: string;
 }
-
-// ========== 存储键名 ==========
-
-const AUTH_KEYS = {
-  USERNAME: 'auth.username',
-  PASSWORD: 'auth.password',
-  CONFIG_KEY: 'auth.config_key',
-  SAVED_KEY: 'auth.saved_key',
-  SAVED_KEYS_PREFIX: 'auth.saved_keys.',
-  USER_INFO: 'auth.user_info',
-  ONLINE_STATUS: 'auth.online_status',
-  LANPROXY_SERVER_HOST: 'lanproxy.server_host',
-  LANPROXY_SERVER_PORT: 'lanproxy.server_port',
-} as const;
 
 // ========== 存储辅助函数 ==========
 
@@ -154,10 +146,10 @@ async function getLocalSandboxValue(): Promise<SandboxValue> {
   } | null;
 
   return {
-    hostWithScheme: 'http://127.0.0.1',
-    agentPort: step1Config?.agentPort ?? 60001,
+    hostWithScheme: LOCAL_HOST_URL,
+    agentPort: step1Config?.agentPort ?? DEFAULT_AGENT_RUNNER_PORT,
     vncPort: 0, // vncPort 未启用
-    fileServerPort: step1Config?.fileServerPort ?? 60000,
+    fileServerPort: step1Config?.fileServerPort ?? DEFAULT_FILE_SERVER_PORT,
     apiKey: '',
     maxUsers: 1,
   };

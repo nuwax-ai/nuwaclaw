@@ -34,7 +34,7 @@ export default function AboutPage() {
   return (
     <div
       style={{
-        maxWidth: 360,
+        maxWidth: 400,
         margin: "48px auto",
         textAlign: "center",
       }}
@@ -42,53 +42,52 @@ export default function AboutPage() {
       <div
         style={{
           border: "1px solid #e4e4e7",
-          borderRadius: 8,
+          borderRadius: 12,
           background: "#fff",
-          padding: "32px 24px",
+          padding: "40px 32px",
         }}
       >
         <div
           style={{
-            width: 48,
-            height: 48,
-            borderRadius: 10,
-            background: "#f4f4f5",
+            width: 64,
+            height: 64,
+            borderRadius: 16,
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          <RobotOutlined style={{ fontSize: 22, color: "#52525b" }} />
+          <RobotOutlined style={{ fontSize: 32, color: "#fff" }} />
         </div>
         <div
           style={{
-            marginTop: 14,
-            fontSize: 15,
+            marginTop: 20,
+            fontSize: 20,
             fontWeight: 600,
             color: "#18181b",
           }}
         >
           Nuwax Agent
         </div>
-        <div style={{ marginTop: 4, fontSize: 12, color: "#a1a1aa" }}>
+        <div style={{ marginTop: 8, fontSize: 16, color: "#71717a", fontWeight: 500 }}>
           v{__APP_VERSION__}
         </div>
         <div
           style={{
-            marginTop: 12,
-            fontSize: 13,
-            color: "#71717a",
+            marginTop: 16,
+            fontSize: 14,
+            color: "#a1a1aa",
             lineHeight: 1.6,
           }}
         >
-          跨平台 Agent 客户端
+          跨平台 AI 智能体桌面客户端
         </div>
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginTop: 24 }}>
           <Button
             icon={<SyncOutlined />}
             onClick={handleCheckUpdate}
             loading={checking}
-            size="small"
           >
             检查更新
           </Button>

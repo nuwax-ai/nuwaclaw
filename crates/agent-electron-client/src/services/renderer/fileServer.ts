@@ -1,3 +1,5 @@
+import { LOCALHOST_HOSTNAME, DEFAULT_FILE_SERVER_PORT } from '../../commons/constants';
+
 export interface FileServerConfig {
   baseUrl: string;
   apiKey?: string;
@@ -91,7 +93,7 @@ export interface AgentStopResponse {
 
 class FileServerService {
   private config: FileServerConfig = {
-    baseUrl: 'http://localhost:60000',
+    baseUrl: `http://${LOCALHOST_HOSTNAME}:${DEFAULT_FILE_SERVER_PORT}`,
   };
 
   setConfig(config: Partial<FileServerConfig>) {

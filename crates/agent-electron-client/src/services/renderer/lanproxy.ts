@@ -1,3 +1,5 @@
+import { LOCALHOST_IP, DEFAULT_LANPROXY_PORT } from '../../commons/constants';
+
 export interface LanproxyConfig {
   enabled: boolean;
   serverIp: string;
@@ -7,8 +9,8 @@ export interface LanproxyConfig {
 
 export const defaultLanproxyConfig: LanproxyConfig = {
   enabled: false,
-  serverIp: '127.0.0.1',
-  serverPort: 60002,
+  serverIp: LOCALHOST_IP,
+  serverPort: DEFAULT_LANPROXY_PORT,
   ssl: true,
 };
 

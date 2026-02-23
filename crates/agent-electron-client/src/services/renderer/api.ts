@@ -4,6 +4,7 @@
  */
 
 import { message } from "antd";
+import { DEFAULT_SERVER_HOST, DEFAULT_API_TIMEOUT } from "../../commons/constants";
 
 // 错误码定义
 const SUCCESS_CODE = "0000";
@@ -36,8 +37,8 @@ interface RequestConfig {
 
 // 默认配置
 const DEFAULT_CONFIG: RequestConfig = {
-  baseUrl: "https://agent.nuwax.com",
-  timeout: 30000,
+  baseUrl: DEFAULT_SERVER_HOST,
+  timeout: DEFAULT_API_TIMEOUT,
 };
 
 /**

@@ -1,6 +1,6 @@
 /**
  * Setup & Auth Service for Electron Client
- * 
+ *
  * Manages:
  * - Setup Wizard (first launch)
  * - Login/Logout
@@ -9,6 +9,14 @@
  */
 
 import { message } from 'antd';
+import {
+  DEFAULT_SERVER_HOST,
+  DEFAULT_AGENT_RUNNER_PORT,
+  DEFAULT_FILE_SERVER_PORT,
+  DEFAULT_LANPROXY_PORT,
+  STORAGE_KEYS,
+  AUTH_KEYS,
+} from '../../commons/constants';
 
 // ==================== Types ====================
 
@@ -52,10 +60,10 @@ export interface ServiceStatus {
 // ==================== Default Values ====================
 
 export const DEFAULT_STEP1_CONFIG: Step1Config = {
-  serverHost: 'https://agent.nuwax.com',
-  agentPort: 60001,
-  fileServerPort: 60000,
-  proxyPort: 60002,
+  serverHost: DEFAULT_SERVER_HOST,
+  agentPort: DEFAULT_AGENT_RUNNER_PORT,
+  fileServerPort: DEFAULT_FILE_SERVER_PORT,
+  proxyPort: DEFAULT_LANPROXY_PORT,
   workspaceDir: '',
 };
 
@@ -66,17 +74,13 @@ export const DEFAULT_SETUP_STATE: SetupState = {
   step2Completed: false,
 };
 
-// ==================== Storage Keys ====================
+// ==================== Auth Keys (Re-export) ====================
 
-const STORAGE_KEYS = {
-  SETUP_STATE: 'setup_state',
-  STEP1_CONFIG: 'step1_config',
-  AUTH_USER: 'auth_user',
-  API_KEY: 'anthropic_api_key',
-  MCP_CONFIG: 'mcp_config',
-  LANPROXY_CONFIG: 'lanproxy_config',
-  AGENT_CONFIG: 'agent_config',
-};
+export { AUTH_KEYS };
+
+// ==================== Storage Keys (Re-export) ====================
+
+export { STORAGE_KEYS };
 
 // ==================== Setup Service ====================
 

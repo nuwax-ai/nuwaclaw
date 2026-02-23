@@ -1,6 +1,6 @@
 /**
  * 依赖管理服务 - Electron Client 版本
- * 
+ *
  * 对应 Tauri 版本的 dependencies.ts
  * 管理本地依赖的检测、安装、版本检查
  */
@@ -10,10 +10,16 @@ import * as fs from 'fs';
 import { spawn } from 'child_process';
 import { app } from 'electron';
 import log from 'electron-log';
+import {
+  NPM_MIRRORS,
+  UV_MIRRORS,
+  DEFAULT_MIRROR_CONFIG,
+  APP_DATA_DIR_NAME,
+} from '../../../commons/constants';
 
 // ==================== Types ====================
 
-export type DependencyStatus = 
+export type DependencyStatus =
   | "checking"
   | "installed"
   | "missing"
@@ -51,22 +57,20 @@ export interface LocalDependencyItem extends LocalDependencyConfig {
   meetsRequirement?: boolean;
 }
 
-// ==================== App Paths ====================
-
 // ==================== Mirror / Registry ====================
 
 /** 预置镜像源 */
 export const MIRROR_PRESETS = {
   npm: {
-    official: 'https://registry.npmjs.org/',
-    taobao: 'https://registry.npmmirror.com/',
-    tencent: 'https://mirrors.cloud.tencent.com/npm/',
+    official: NPM_MIRRORS.OFFICIAL,
+    taobao: NPM_MIRRORS.TAOBAO,
+    tencent: NPM_MIRRORS.TENCENT,
   },
   uv: {
-    official: 'https://pypi.org/simple/',
-    tuna: 'https://pypi.tuna.tsinghua.edu.cn/simple/',
-    aliyun: 'https://mirrors.aliyun.com/pypi/simple/',
-    tencent: 'https://mirrors.cloud.tencent.com/pypi/simple/',
+    official: UV_MIRRORS.OFFICIAL,
+    tuna: UV_MIRRORS.TUNA,
+    aliyun: UV_MIRRORS.ALIYUN,
+    tencent: UV_MIRRORS.TENCENT,
   },
 } as const;
 
@@ -77,8 +81,8 @@ export interface MirrorConfig {
 
 /** 默认国内镜像 */
 const DEFAULT_MIRROR: MirrorConfig = {
-  npmRegistry: MIRROR_PRESETS.npm.taobao,
-  uvIndexUrl: MIRROR_PRESETS.uv.aliyun,
+  npmRegistry: DEFAULT_MIRROR_CONFIG.npmRegistry,
+  uvIndexUrl: DEFAULT_MIRROR_CONFIG.uvIndexUrl,
 };
 
 /** 运行时缓存，避免每次 spawn 都读 SQLite */
@@ -100,7 +104,7 @@ export function getMirrorConfig(): MirrorConfig {
 
 // 获取应用数据目录 — 统一使用 ~/.nuwax-agent/
 function getAppDataDir(): string {
-  return path.join(app.getPath('home'), '.nuwax-agent');
+  return path.join(app.getPath('home'), APP_DATA_DIR_NAME);
 }
 
 function getAppBinDir(): string {

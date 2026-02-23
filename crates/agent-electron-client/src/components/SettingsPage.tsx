@@ -24,6 +24,15 @@ import {
 } from 'antd';
 import { FolderOutlined, SaveOutlined, EditOutlined } from '@ant-design/icons';
 import { setupService, Step1Config, DEFAULT_STEP1_CONFIG } from '../services/renderer/setup';
+import {
+  DEFAULT_AI_MODEL,
+  DEFAULT_MAX_TOKENS,
+  DEFAULT_TEMPERATURE,
+  MODEL_OPTIONS,
+  STORAGE_KEYS,
+  MSG_SUCCESS,
+  MSG_ERROR,
+} from '../commons/constants';
 
 // Dev tools: 仅开发模式加载
 const IS_DEV = import.meta.env.DEV;
@@ -39,16 +48,10 @@ interface AISettings {
 }
 
 const DEFAULT_AI_SETTINGS: AISettings = {
-  default_model: 'claude-sonnet-4-20250514',
-  max_tokens: 4096,
-  temperature: 0.7,
+  default_model: DEFAULT_AI_MODEL,
+  max_tokens: DEFAULT_MAX_TOKENS,
+  temperature: DEFAULT_TEMPERATURE,
 };
-
-const MODEL_OPTIONS = [
-  { label: 'Claude Opus 4', value: 'claude-opus-4-20250514' },
-  { label: 'Claude Sonnet 4', value: 'claude-sonnet-4-20250514' },
-  { label: 'Claude Haiku 3.5', value: 'claude-3-5-haiku-20241022' },
-];
 
 export default function SettingsPage() {
   // 服务配置
@@ -78,7 +81,7 @@ export default function SettingsPage() {
       setOriginalConfig(config);
     } catch (error) {
       console.error('加载配置失败:', error);
-      message.error('加载配置失败');
+      message.error(MSG_ERROR.LOAD_FAILED);
     } finally {
       setLoading(false);
     }
@@ -87,7 +90,7 @@ export default function SettingsPage() {
   // ========== 加载 AI 配置 ==========
   const loadAiConfig = useCallback(async () => {
     try {
-      const apiKey = await window.electronAPI?.settings.get('anthropic_api_key') as string | null;
+      const apiKey = await window.electronAPI?.settings.get(STORAGE_KEYS.API_KEY) as string | null;
       const settings = await window.electronAPI?.settings.get('app_settings') as AISettings | null;
       const aiConfig = {
         apiKey: apiKey || '',
@@ -154,9 +157,9 @@ export default function SettingsPage() {
             await setupService.saveStep1Config(values);
             setOriginalConfig(values);
             setEditing(false);
-            message.success('配置已保存');
+            message.success(MSG_SUCCESS.CONFIG_SAVED);
           } catch (error) {
-            message.error('保存配置失败');
+            message.error(MSG_ERROR.CONFIG_SAVE_FAILED);
           } finally {
             setSaving(false);
           }
@@ -181,7 +184,7 @@ export default function SettingsPage() {
       setAiSaving(true);
       try {
         // 保存 API Key
-        await window.electronAPI?.settings.set('anthropic_api_key', values.apiKey || '');
+        await window.electronAPI?.settings.set(STORAGE_KEYS.API_KEY, values.apiKey || '');
         // 保存其他 AI 设置
         await window.electronAPI?.settings.set('app_settings', {
           default_model: values.default_model,
@@ -190,9 +193,9 @@ export default function SettingsPage() {
         });
         setOriginalAiConfig(values);
         setAiEditing(false);
-        message.success('AI 配置已保存');
+        message.success(MSG_SUCCESS.AI_CONFIG_SAVED);
       } catch (error) {
-        message.error('保存 AI 配置失败');
+        message.error(MSG_ERROR.AI_CONFIG_SAVE_FAILED);
       } finally {
         setAiSaving(false);
       }
@@ -213,7 +216,7 @@ export default function SettingsPage() {
         message.error(result?.error || '设置失败');
       }
     } catch (error) {
-      message.error('设置开机自启动失败');
+      message.error(MSG_ERROR.OPEN_SETTINGS_FAILED);
     } finally {
       setAutolaunchLoading(false);
     }
@@ -223,7 +226,7 @@ export default function SettingsPage() {
     try {
       await window.electronAPI?.log?.openDir();
     } catch {
-      message.error('无法打开日志目录');
+      message.error(MSG_ERROR.OPEN_LOGS_FAILED);
     }
   };
 
