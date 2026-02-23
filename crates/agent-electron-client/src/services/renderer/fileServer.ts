@@ -1,4 +1,4 @@
-import { LOCALHOST_HOSTNAME, DEFAULT_FILE_SERVER_PORT } from '../../commons/constants';
+import { LOCALHOST_HOSTNAME, DEFAULT_FILE_SERVER_PORT } from '@/commons/constants';
 
 export interface FileServerConfig {
   baseUrl: string;

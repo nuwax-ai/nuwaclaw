@@ -1,4 +1,4 @@
-import { LOCALHOST_IP, DEFAULT_LANPROXY_PORT } from '../../commons/constants';
+import { LOCALHOST_IP, DEFAULT_LANPROXY_PORT } from '@/commons/constants';
 
 export interface LanproxyConfig {
   enabled: boolean;

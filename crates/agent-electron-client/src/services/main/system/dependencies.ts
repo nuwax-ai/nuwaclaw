@@ -15,7 +15,7 @@ import {
   UV_MIRRORS,
   DEFAULT_MIRROR_CONFIG,
   APP_DATA_DIR_NAME,
-} from '../../../commons/constants';
+} from '@/commons/constants';
 
 // ==================== Types ====================
 

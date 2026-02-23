@@ -11,11 +11,16 @@
     "resolveJsonModule": true,
     "outDir": "dist",
     "rootDir": "src",
-    "declaration": false
+    "declaration": false,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
   },
   "include": [
     "src/main/**/*",
     "src/services/main/**/*",
+    "src/commons/**/*",
     "src/types/**/*"
   ],
   "exclude": ["node_modules"]

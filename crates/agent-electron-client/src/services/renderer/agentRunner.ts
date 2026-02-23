@@ -4,7 +4,7 @@ import {
   DEFAULT_LANPROXY_PORT,
   DEFAULT_ANTHROPIC_API_URL,
   DEFAULT_AI_MODEL,
-} from '../../commons/constants';
+} from '@/commons/constants';
 
 export interface AgentRunnerConfig {
   enabled: boolean;

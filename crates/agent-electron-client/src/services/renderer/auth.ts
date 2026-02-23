@@ -16,7 +16,7 @@ import {
   LOCAL_HOST_URL,
   DEFAULT_AGENT_RUNNER_PORT,
   DEFAULT_FILE_SERVER_PORT,
-} from '../../commons/constants';
+} from '@/commons/constants';
 
 // ========== 类型定义 ==========
 

@@ -6,4 +6,4 @@ export {
 } from './mcp';
 export { getAppPaths, isInstalledLocally } from './packageLocator';
 // Re-export ports from constants
-export { DEFAULT_MCP_PROXY_PORT, DEFAULT_MCP_PROXY_HOST } from '../../../commons/constants';
+export { DEFAULT_MCP_PROXY_PORT, DEFAULT_MCP_PROXY_HOST } from '@/commons/constants';

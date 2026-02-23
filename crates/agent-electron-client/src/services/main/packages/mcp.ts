@@ -14,7 +14,7 @@ import log from 'electron-log';
 import { app } from 'electron';
 import { getAppEnv } from '../system/dependencies';
 import { getAppPaths, isInstalledLocally } from './packageLocator';
-import { DEFAULT_MCP_PROXY_PORT, DEFAULT_MCP_PROXY_HOST } from '../../../commons/constants';
+import { DEFAULT_MCP_PROXY_PORT, DEFAULT_MCP_PROXY_HOST } from '@/commons/constants';
 
 // ========== Types ==========
 

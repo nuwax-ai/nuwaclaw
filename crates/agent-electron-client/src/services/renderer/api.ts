@@ -4,7 +4,7 @@
  */
 
 import { message } from "antd";
-import { DEFAULT_SERVER_HOST, DEFAULT_API_TIMEOUT } from "../../commons/constants";
+import { DEFAULT_SERVER_HOST, DEFAULT_API_TIMEOUT } from "@/commons/constants";
 
 // 错误码定义
 const SUCCESS_CODE = "0000";

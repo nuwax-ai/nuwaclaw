@@ -16,7 +16,7 @@ import {
   DEFAULT_LANPROXY_PORT,
   STORAGE_KEYS,
   AUTH_KEYS,
-} from '../../commons/constants';
+} from '@/commons/constants';
 
 // ==================== Types ====================
 

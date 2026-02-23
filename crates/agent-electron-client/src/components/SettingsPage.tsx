@@ -32,7 +32,7 @@ import {
   STORAGE_KEYS,
   MSG_SUCCESS,
   MSG_ERROR,
-} from '../commons/constants';
+} from '@/commons/constants';
 
 // Dev tools: 仅开发模式加载
 const IS_DEV = import.meta.env.DEV;
