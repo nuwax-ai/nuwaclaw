@@ -140,13 +140,14 @@ export class AcpEngine extends EventEmitter {
           configObj.mcp = mcpConfig;
         }
 
-        // 2. Permission bypass
+        // 2. Permission bypass (question: deny to avoid interactive prompts)
         configObj.permission = {
           edit: 'allow',
           bash: 'allow',
           webfetch: 'allow',
           doom_loop: 'allow',
           external_directory: 'allow',
+          question: 'deny',
         };
 
         const configContent = JSON.stringify(configObj);
@@ -363,52 +364,64 @@ export class AcpEngine extends EventEmitter {
     return this.sessions.delete(id);
   }
 
-  async abortSession(id?: string): Promise<void> {
-    if (!this.acpConnection) return;
+  async abortSession(id?: string): Promise<boolean> {
+    if (!this.acpConnection) return false;
 
     const ABORT_TIMEOUT = 30_000;
 
-    const cancelWithTimeout = async (acpSessionId: string): Promise<void> => {
+    const cancelOne = async (sessionId: string, session: AcpSession): Promise<void> => {
+      if (!session.acpSessionId) {
+        log.warn(`${this.logTag} Session ${sessionId} has no acpSessionId, skip cancel`);
+        return;
+      }
+
+      session.status = 'terminating';
+
+      // 1. Send cancel to ACP binary
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         await Promise.race([
-          this.acpConnection!.cancel({ sessionId: acpSessionId }),
+          this.acpConnection!.cancel({ sessionId: session.acpSessionId }),
           new Promise<void>((_, reject) => {
             timer = setTimeout(() => reject(new Error('Abort timeout')), ABORT_TIMEOUT);
           }),
         ]);
+      } catch (e) {
+        log.warn(`${this.logTag} Cancel error/timeout for ${sessionId}:`, e);
       } finally {
         if (timer !== undefined) clearTimeout(timer);
       }
+
+      // 2. Reject the running prompt promise so prompt() returns immediately
+      const reject = this.activePromptRejects.get(sessionId);
+      if (reject) {
+        reject(new Error('Session cancelled'));
+        this.activePromptRejects.delete(sessionId);
+      }
+
+      this.activePromptSessions.delete(sessionId);
+      session.status = 'idle';
+      session.lastActivity = Date.now();
     };
 
     if (id) {
       const session = this.sessions.get(id);
-      if (session?.acpSessionId) {
-        session.status = 'terminating';
-        try {
-          await cancelWithTimeout(session.acpSessionId);
-        } catch (e) {
-          log.warn(`${this.logTag} Cancel error/timeout:`, e);
-        }
-        this.activePromptSessions.delete(id);
-        session.status = 'idle';
-        session.lastActivity = Date.now();
+      if (!session) {
+        log.warn(`${this.logTag} abortSession: session not found: ${id}`);
+        return false;
       }
+      await cancelOne(id, session);
+      return true;
     } else {
+      let cancelled = false;
       for (const [sessionId, session] of this.sessions) {
         if (session.acpSessionId && this.activePromptSessions.has(sessionId)) {
-          session.status = 'terminating';
-          try {
-            await cancelWithTimeout(session.acpSessionId);
-          } catch (e) {
-            log.warn(`${this.logTag} Cancel error/timeout:`, e);
-          }
-          session.status = 'idle';
-          session.lastActivity = Date.now();
+          await cancelOne(sessionId, session);
+          cancelled = true;
         }
       }
       this.activePromptSessions.clear();
+      return cancelled;
     }
   }
 
@@ -828,6 +841,12 @@ export class AcpEngine extends EventEmitter {
     const acpSessionId = params.sessionId;
     const sessionId = this.findLocalSessionId(acpSessionId);
     if (!sessionId) {
+      return { outcome: { outcome: 'cancelled' } };
+    }
+
+    // Deny question-type requests (interactive prompts that would block the agent)
+    if (params.toolCall.kind === 'question') {
+      log.info(`${this.logTag} 🚫 拒绝 question 类型请求: tool=${params.toolCall.title}`);
       return { outcome: { outcome: 'cancelled' } };
     }
 

@@ -334,13 +334,17 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       const acpEngine = agentService.getAcpEngine();
       if (acpEngine) {
         if (sessionId) {
-          await acpEngine.abortSession(sessionId);
-          log.info(`✅ [HTTP] 取消信号已发送: session_id=${sessionId}`);
+          const ok = await acpEngine.abortSession(sessionId);
+          if (ok) {
+            log.info(`✅ [HTTP] 取消成功: session_id=${sessionId}`);
+          } else {
+            log.warn(`⚠️ [HTTP] 取消失败(session 不存在): session_id=${sessionId}`);
+          }
         } else {
           const session = acpEngine.findSessionByProjectId(projectId);
           if (session) {
             await acpEngine.abortSession(session.id);
-            log.info(`✅ [HTTP] 取消信号已发送: session_id=${session.id}`);
+            log.info(`✅ [HTTP] 取消成功: session_id=${session.id}`);
           } else {
             log.info(`ℹ️ [HTTP] Agent 不存在,幂等返回成功: project_id=${projectId}`);
           }

@@ -348,7 +348,8 @@ export class UnifiedAgentService extends EventEmitter {
 
   async abortSession(id: string): Promise<void> {
     if (this.engine instanceof AcpEngine) {
-      return this.engine.abortSession(id);
+      await this.engine.abortSession(id);
+      return;
     }
     return this.oc().abortSession(id);
   }
