@@ -8,11 +8,9 @@
  */
 
 import { EventEmitter } from 'events';
-import { app } from 'electron';
 import * as path from 'path';
 import log from 'electron-log';
 import type { ChildProcess } from 'child_process';
-import { getAppEnv } from './dependencies';
 import {
   createAcpConnection,
   loadAcpSdk,
@@ -59,7 +57,6 @@ import type {
   TextPartInput,
   FilePartInput,
   FileDiff,
-  Permission,
 } from '@nuwax-ai/sdk';
 
 // ==================== Helpers ====================
@@ -837,7 +834,11 @@ export class AcpEngine extends EventEmitter {
 
   // === Session Management ===
 
-  async createSession(opts?: { title?: string; cwd?: string }): Promise<SdkSession> {
+  async createSession(opts?: {
+    title?: string;
+    cwd?: string;
+    mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
+  }): Promise<SdkSession> {
     if (!this.acpConnection || !this.config) {
       throw new Error('AcpEngine not initialized');
     }
@@ -847,20 +848,33 @@ export class AcpEngine extends EventEmitter {
     // Build mcpServers array for ACP (McpServerStdio format)
     // ACP schema requires env as Array<{name, value}>, not Record<string, string>
     const mcpServers: AcpMcpServer[] = [];
+
+    const toAcpMcpServer = (
+      name: string,
+      srv: { command: string; args?: string[]; env?: Record<string, string> },
+    ): AcpMcpServer => {
+      const envVars: AcpEnvVariable[] = [];
+      if (srv.env) {
+        for (const [k, v] of Object.entries(srv.env)) {
+          envVars.push({ name: k, value: v });
+        }
+      }
+      return { name, command: srv.command, args: srv.args || [], env: envVars };
+    };
+
+    // 1. Global MCP servers from config
     if (this.config.mcpServers) {
       for (const [name, srv] of Object.entries(this.config.mcpServers)) {
-        const envVars: AcpEnvVariable[] = [];
-        if (srv.env) {
-          for (const [k, v] of Object.entries(srv.env)) {
-            envVars.push({ name: k, value: v });
-          }
-        }
-        mcpServers.push({
-          name,
-          command: srv.command,
-          args: srv.args,
-          env: envVars,
-        });
+        mcpServers.push(toAcpMcpServer(name, srv));
+      }
+    }
+
+    // 2. Per-request MCP servers (from agent_config.context_servers)
+    if (opts?.mcpServers) {
+      for (const [name, srv] of Object.entries(opts.mcpServers)) {
+        // Skip if already added from global config
+        if (mcpServers.some((m) => m.name === name)) continue;
+        mcpServers.push(toAcpMcpServer(name, srv));
       }
     }
 
@@ -1092,11 +1106,15 @@ export class AcpEngine extends EventEmitter {
       // Map response to ACP PermissionOptionKind
       const targetKind = response === 'always' ? 'allow_always' : 'allow_once';
       const optionId = pending.options.find((o) => o.kind === targetKind)?.optionId
-        ?? pending.options[0]?.optionId
-        ?? response;
-      pending.resolve({
-        outcome: { outcome: 'selected', optionId },
-      });
+        ?? pending.options[0]?.optionId;
+      if (!optionId) {
+        log.warn(`${this.logTag} No valid option for permission response, cancelling`);
+        pending.resolve({ outcome: { outcome: 'cancelled' } });
+      } else {
+        pending.resolve({
+          outcome: { outcome: 'selected', optionId },
+        });
+      }
     }
   }
 
@@ -1164,7 +1182,26 @@ export class AcpEngine extends EventEmitter {
         );
         log.info(`${this.logTag} 📁 项目工作目录: ${projectDir}`);
 
-        const newSession = await this.createSession({ title: projectId, cwd: projectDir });
+        // Extract MCP servers from agent_config.context_servers (aligned with rcoder)
+        let requestMcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> | undefined;
+        if (request.agent_config?.context_servers) {
+          requestMcpServers = {};
+          for (const [name, srv] of Object.entries(request.agent_config.context_servers)) {
+            if (srv.enabled === false || !srv.command) continue;
+            requestMcpServers[name] = {
+              command: srv.command,
+              args: srv.args,
+              env: srv.env,
+            };
+          }
+          log.info(`${this.logTag} 🔌 请求级 MCP 服务器: ${Object.keys(requestMcpServers).join(', ') || '无'}`);
+        }
+
+        const newSession = await this.createSession({
+          title: projectId,
+          cwd: projectDir,
+          mcpServers: requestMcpServers,
+        });
         session = this.sessions.get(newSession.id)!;
         session.projectId = request.project_id;
       }

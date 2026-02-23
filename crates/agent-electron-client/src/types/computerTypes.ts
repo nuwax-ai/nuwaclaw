@@ -14,6 +14,27 @@ export interface HttpResult<T = unknown> {
   success: boolean;   // code === "0000"
 }
 
+// 对应 rcoder ChatContextServerConfig（MCP 服务器配置）
+export interface ChatContextServerConfig {
+  source?: string;
+  enabled?: boolean;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+// 对应 rcoder ChatAgentConfig
+export interface ChatAgentConfig {
+  agent_server?: {
+    agent_id?: string;
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+    metadata?: Record<string, string>;
+  };
+  context_servers?: Record<string, ChatContextServerConfig>;
+}
+
 // 对应 rcoder ComputerChatRequest
 export interface ComputerChatRequest {
   user_id: string;
@@ -28,7 +49,7 @@ export interface ComputerChatRequest {
   };
   request_id?: string;
   system_prompt?: string;
-  agent_config?: Record<string, unknown>;
+  agent_config?: ChatAgentConfig;
 }
 
 // 对应 rcoder ChatResponse（HttpResult.data 的内容，不含 success）

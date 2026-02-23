@@ -90,14 +90,20 @@ function copyToDestBin(key) {
   return true;
 }
 
-function download(url) {
+/**
+ * 下载文件到 cache 目录。使用 preferredFilename 避免重定向后 URL 过长导致 ENAMETOOLONG。
+ * @param {string} url - 下载地址
+ * @param {string} [preferredFilename] - 保存文件名（建议传入，如 uv-aarch64-apple-darwin.tar.gz）
+ */
+function download(url, preferredFilename) {
   return new Promise((resolve, reject) => {
-    const file = path.join(cacheDir, path.basename(url));
+    const filename = preferredFilename || path.basename(url.split('?')[0]) || 'download';
+    const file = path.join(cacheDir, filename);
     const stream = fs.createWriteStream(file);
     https.get(url, { headers: { 'User-Agent': 'Nuwax-Agent-Build' } }, (res) => {
       if (res.statusCode === 302 || res.statusCode === 301) {
         const loc = res.headers.location;
-        return download(loc.startsWith('http') ? loc : new URL(loc, url).href).then(resolve).catch(reject);
+        return download(loc.startsWith('http') ? loc : new URL(loc, url).href, preferredFilename).then(resolve).catch(reject);
       }
       if (res.statusCode !== 200) {
         stream.close();
@@ -170,7 +176,7 @@ async function downloadAndPrepare(key, suffix, version) {
   console.log(`[prepare-uv] 下载 uv ${version} (${assetName}) ...`);
   if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
 
-  const archivePath = await download(downloadUrl);
+  const archivePath = await download(downloadUrl, assetName);
   const extractDir = path.join(cacheDir, `uv-extract-${key}`);
   if (fs.existsSync(extractDir)) {
     try { fs.rmSync(extractDir, { recursive: true }); } catch (_) {}
