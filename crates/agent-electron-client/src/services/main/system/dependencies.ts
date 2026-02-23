@@ -116,8 +116,16 @@ export function getResourcesPath(): string {
   if (app.isPackaged) {
     return process.resourcesPath;
   }
-  // 开发模式：项目根目录下 resources/
-  return path.join(__dirname, '../../resources');
+  // 开发模式：使用 process.cwd() 获取项目根目录，避免脆弱的相对路径
+  // process.cwd() 在开发模式下是 crates/agent-electron-client/
+  const projectRoot = process.cwd();
+  const resourcesFromCwd = path.join(projectRoot, 'resources');
+  // 验证 resources 目录是否存在，如果不存在则回退到 __dirname 相对路径
+  if (fs.existsSync(resourcesFromCwd)) {
+    return resourcesFromCwd;
+  }
+  // 回退方案：使用相对路径（编译后 __dirname 是 dist/services/main/system/）
+  return path.join(__dirname, '../../../../../resources');
 }
 
 // 获取 bundled uv 二进制路径
