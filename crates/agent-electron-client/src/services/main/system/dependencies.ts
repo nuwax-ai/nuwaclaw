@@ -141,13 +141,31 @@ export function getLanproxyBinPath(): string {
 }
 
 /**
- * 构建注入应用内依赖的环境变量
+ * 构建注入应用内依赖的环境变量（优先应用内，回退系统）
  *
  * 所有 spawned 进程（包括引擎内部再调 npx/npm/uvx/bash 等）都继承此 env，
- * 确保：
- *  - npm/npx  → 缓存、全局前缀、镜像源指向应用内
- *  - uv/uvx   → 工具、缓存、Python、镜像源指向应用内
- *  - PATH     → 应用内 bin 优先，系统 bin 保留（bash/grep/git/node 等仍可用）
+ * 策略：优先使用应用内依赖，回退到系统工具
+ *
+ * 隔离策略：
+ * 1. PATH: 应用内路径优先，系统 PATH 作为回退
+ *    - node/npm/npx → 优先应用内版本
+ *    - uv/uvx → 优先应用内 bundled 版本
+ *    - bash/git/grep → 使用系统版本
+ *
+ * 2. Node.js 相关：
+ *    - NODE_PATH → 应用内 node_modules
+ *    - npm/npx 缓存 → 应用内目录
+ *    - npm 镜像源 → 应用配置
+ *
+ * 3. Python/uv 相关：
+ *    - UV_TOOL_DIR → 应用内工具目录
+ *    - UV_CACHE_DIR → 应用内缓存
+ *    - UV_PYTHON_INSTALL_DIR → 应用内 Python
+ *    - uv 镜像源 → 应用配置
+ *
+ * 4. 用户配置隔离：
+ *    - 清除用户 npm 配置文件，避免读取用户全局设置
+ *    - 禁用 uv 自动安装到全局目录
  */
 export function getAppEnv(): Record<string, string> {
   const appDataDir = getAppDataDir();
@@ -156,7 +174,6 @@ export function getAppEnv(): Record<string, string> {
   const uvBin = path.dirname(getUvBinPath());
 
   const pathSep = process.platform === 'win32' ? ';' : ':';
-  const existingPath = process.env.PATH || '';
 
   // uv/uvx 数据目录
   const uvDataDir = path.join(appDataDir, 'uv');
@@ -168,28 +185,118 @@ export function getAppEnv(): Record<string, string> {
   // 镜像配置
   const mirror = getMirrorConfig();
 
-  // 将应用内路径注入 PATH 最前面，系统 PATH 保留在末尾
-  // → 引擎运行时 bash/grep/git/node 等系统工具仍可通过 existingPath 找到
-  const newPath = [nodeModulesBin, appBin, uvBin, uvToolBinDir, existingPath]
+  // 构建系统 PATH 的回退路径（仅包含常用系统工具目录）
+  // 这样 agent 可以使用 bash/git/grep 等系统工具
+  const systemPathPaths = getSystemPaths();
+
+  // PATH 优先级：应用内路径 > 系统 PATH（回退）
+  // - node/npm/npx/uv/uvx 会优先使用应用内版本
+  // - bash/git/grep 等系统工具通过 systemPathPaths 回退到系统版本
+  const priorityPath = [nodeModulesBin, appBin, uvBin, uvToolBinDir, ...systemPathPaths]
     .filter(Boolean)
     .join(pathSep);
 
-  return {
-    PATH: newPath,
+  // 平台相关的 null device
+  const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null';
+
+  // 构建环境变量对象
+  const env: Record<string, string | undefined> = {
+    // === PATH：应用内优先，系统回退 ===
+    PATH: priorityPath,
+
+    // === Node.js 环境隔离 ===
     NODE_PATH: path.join(appDataDir, 'node_modules'),
+    NODE_ENV: process.env.NODE_ENV || 'production',
 
     // npm/npx: 缓存、全局前缀、镜像源
     NPM_CONFIG_CACHE: npmCacheDir,
     NPM_CONFIG_PREFIX: appDataDir,
     NPM_CONFIG_REGISTRY: mirror.npmRegistry,
+    // 清除用户级别的 npm 配置文件，避免读取用户全局设置
+    npm_config_userconfig: nullDevice,
+    npm_config_globalconfig: nullDevice,
 
-    // uv/uvx: 工具、缓存、Python、镜像源
+    // === Python/uv 环境隔离 ===
     UV_TOOL_DIR: path.join(uvDataDir, 'tools'),
     UV_TOOL_BIN_DIR: uvToolBinDir,
     UV_CACHE_DIR: path.join(uvDataDir, 'cache'),
     UV_PYTHON_INSTALL_DIR: path.join(uvDataDir, 'python'),
     UV_INDEX_URL: mirror.uvIndexUrl,
+    // 禁止 uv 自动安装到全局目录
+    UV_NO_INSTALL: '1',
+
+    // === 保留必要的环境变量（跨平台兼容）===
+    HOME: process.env.HOME || process.env.USERPROFILE,  // Unix: HOME, Windows: USERPROFILE
+    USER: process.env.USER || process.env.USERNAME,     // Unix: USER, Windows: USERNAME
+    USERNAME: process.env.USERNAME || process.env.USER, // Windows: USERNAME, Unix: USER
+    LANG: process.env.LANG || 'en_US.UTF-8',
+    TZ: process.env.TZ,
+    // Windows 特有：确保正确设置 USERPROFILE
+    ...(process.platform === 'win32' ? { USERPROFILE: process.env.USERPROFILE || process.env.HOME } : {}),
   };
+
+  // 过滤掉 undefined 值并返回
+  const cleanEnv: Record<string, string> = {};
+  for (const [key, val] of Object.entries(env)) {
+    if (val !== undefined) {
+      cleanEnv[key] = val;
+    }
+  }
+  return cleanEnv;
+}
+
+// ==================== System PATH Utilities ====================
+
+/**
+ * 缓存的系统路径，避免重复计算
+ * PATH 在进程生命周期内基本不会变化
+ */
+let cachedSystemPaths: string[] | null = null;
+
+/**
+ * 获取系统常用工具路径（用于 PATH 回退）
+ * 确保可以使用 bash/git/grep 等系统工具
+ *
+ * 使用 path 模块保证跨平台兼容性：
+ * - macOS/Linux: /usr/bin, /bin, /usr/sbin, /sbin
+ * - Windows: C:\Windows\System32, C:\Windows, C:\Program Files\Git\bin, etc.
+ *
+ * @returns 过滤后的系统路径列表（排除用户 node/npm 相关路径）
+ */
+function getSystemPaths(): string[] {
+  // 返回缓存结果（PATH 在进程生命周期内基本不会变化）
+  if (cachedSystemPaths) {
+    return cachedSystemPaths;
+  }
+
+  const systemPath = process.env.PATH || '';
+  const pathSep = process.platform === 'win32' ? ';' : ':';
+  const allPaths = systemPath.split(pathSep).filter(Boolean);
+
+  // 排除模式：只排除明确的用户级包管理器路径
+  // 避免误伤系统级路径（如 /usr/local/nodejs/bin）
+  const excludedPatterns = [
+    'node_modules',           // npm 项目本地依赖
+    '.nvm',                  // NVM 用户安装目录
+    '.npm',                  // npm 用户配置目录
+    'yarn/global',           // Yarn 全局安装
+    'pnpm-global',           // pnpm 全局安装
+    'config/yarn/global',    // Yarn 全局配置（macOS）
+    'Library/pnpm',         // pnpm 全局存储（macOS）
+    'AppData/Roaming/npm',  // npm 全局存储（Windows）
+    'AppData/Roaming/yarn', // yarn 全局存储（Windows）
+  ];
+
+  cachedSystemPaths = allPaths.filter(p => {
+    // 使用 path.normalize 标准化路径（处理 Windows 路径分隔符和 . / ..）
+    // 然后统一转小写进行比较（Windows 文件系统不区分大小写）
+    const normalizedPath = path.normalize(p).toLowerCase();
+
+    // 排除包含用户包管理器特征路径的目录
+    return !excludedPatterns.some(pattern => normalizedPath.includes(pattern));
+  });
+
+  return cachedSystemPaths;
 }
 
 // ==================== Required Dependencies ====================
@@ -247,36 +354,57 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
 
 /**
  * 检测 Node.js 版本
+ *
+ * 在 Electron 环境中，直接使用 process.version 获取内置 Node.js 版本
+ * Electron 会绑定特定版本的 Node.js，无需单独安装
  */
 export async function checkNodeVersion(): Promise<{
   installed: boolean;
   version?: string;
   meetsRequirement: boolean;
+  electronBundled: boolean;
 }> {
   return new Promise((resolve) => {
-    const nodeCmd = process.platform === 'win32' ? 'node.cmd' : 'node';
-    const proc = spawn(nodeCmd, ['--version'], {
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-
-    let stdout = '';
-    proc.stdout?.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    proc.on('close', (code) => {
-      if (code === 0) {
-        const version = stdout.trim().replace('v', '');
+    try {
+      // Electron 内置 Node.js，直接使用 process.version
+      if (process.versions && process.versions.node) {
+        const version = process.versions.node;
         const meets = compareVersions(version, '22.0.0') >= 0;
-        resolve({ installed: true, version, meetsRequirement: meets });
+        resolve({
+          installed: true,
+          version,
+          meetsRequirement: meets,
+          electronBundled: true
+        });
       } else {
-        resolve({ installed: false, meetsRequirement: false });
-      }
-    });
+        // 降级方案：尝试 spawn node 命令
+        const nodeCmd = process.platform === 'win32' ? 'node.cmd' : 'node';
+        const proc = spawn(nodeCmd, ['--version'], {
+          stdio: ['ignore', 'pipe', 'ignore'],
+        });
 
-    proc.on('error', () => {
-      resolve({ installed: false, meetsRequirement: false });
-    });
+        let stdout = '';
+        proc.stdout?.on('data', (data) => {
+          stdout += data.toString();
+        });
+
+        proc.on('close', (code) => {
+          if (code === 0) {
+            const version = stdout.trim().replace('v', '');
+            const meets = compareVersions(version, '22.0.0') >= 0;
+            resolve({ installed: true, version, meetsRequirement: meets, electronBundled: false });
+          } else {
+            resolve({ installed: false, meetsRequirement: false, electronBundled: false });
+          }
+        });
+
+        proc.on('error', () => {
+          resolve({ installed: false, meetsRequirement: false, electronBundled: false });
+        });
+      }
+    } catch {
+      resolve({ installed: false, meetsRequirement: false, electronBundled: false });
+    }
   });
 }
 
