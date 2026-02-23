@@ -151,12 +151,8 @@ function ClientPage({ onNavigate }: ClientPageProps) {
           console.warn('[ClientPage] Agent 启动失败，跳过 lanproxy');
           continue;
         }
-        try {
-          await handleStartService(key, true);
-        } catch (e) {
-          console.error(`自动启动 ${key} 失败:`, e);
-          if (key === 'agent') agentFailed = true;
-        }
+        const success = await handleStartService(key, true);
+        if (key === 'agent' && !success) agentFailed = true;
       }
       await pollServices();
       // 服务启动后重新调用 reg 接口，通知后端最新的端口配置
@@ -287,7 +283,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
     }
   }, []);
 
-  const handleStartService = async (key: string, silent = false) => {
+  const handleStartService = async (key: string, silent = false): Promise<boolean> => {
     try {
       let result: { success: boolean; error?: string } | undefined;
 
@@ -323,7 +319,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
         if (!serverIp || !clientKey || !serverPort) {
           if (!silent) message.info('请先登录以获取代理服务配置');
           await pollServices();
-          return;
+          return false;
         }
         result = await window.electronAPI?.lanproxy.start({
           serverIp,
@@ -340,10 +336,13 @@ function ClientPage({ onNavigate }: ClientPageProps) {
       } else if (result) {
         if (!silent) message.error(`启动失败: ${result.error || '未知错误'}`);
       }
+      await pollServices();
+      return result?.success ?? false;
     } catch (error) {
       if (!silent) message.error(`启动失败: ${error}`);
+      await pollServices();
+      return false;
     }
-    await pollServices();
   };
 
   const handleStopService = async (key: string) => {

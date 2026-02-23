@@ -1162,6 +1162,10 @@ function setupIpcHandlers() {
     log.info('[Services] Restarting all services...');
     const results: Record<string, { success: boolean; error?: string }> = {};
 
+    // 预读共用配置
+    const agentConfig = readSetting('agent_config') as any || {};
+    const step1Config = readSetting('step1_config') as any || {};
+
     // 1. Stop existing services first
     try {
       await agentService.destroy();
@@ -1173,8 +1177,6 @@ function setupIpcHandlers() {
 
     // 2. Start Agent + Computer HTTP Server
     try {
-      const agentConfig = readSetting('agent_config') as any || {};
-      const step1Config = readSetting('step1_config') as any || {};
       let finalConfig: AgentConfig = {
         engine: agentConfig.type || 'claude-code',
         apiKey: agentConfig.apiKey,
@@ -1197,7 +1199,6 @@ function setupIpcHandlers() {
 
     // 3. Start File Server (uses extracted helper)
     try {
-      const step1Config = readSetting('step1_config') as any || {};
       results.fileServer = await startFileServerProcess(step1Config.fileServerPort ?? 60000);
       log.info('[Services] FileServer started:', results.fileServer);
     } catch (e) {

@@ -104,9 +104,10 @@ function App() {
       }
 
       // 如果 ClientPage handleLogin 已经启动了服务，跳过自动重连
+      // 无论是否命中，都先清除标记，防止 crash 后标记残留导致永久跳过
       const loginStarted = await window.electronAPI?.settings.get('_services_started_by_login');
+      await window.electronAPI?.settings.set('_services_started_by_login', false);
       if (loginStarted) {
-        await window.electronAPI?.settings.set('_services_started_by_login', false);
         console.log('[App] 服务已由登录流程启动，跳过自动重连');
         return;
       }
