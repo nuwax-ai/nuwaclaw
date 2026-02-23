@@ -28,7 +28,7 @@ import {
   LOCALHOST_IP,
   DEFAULT_SSE_RETRY_DELAY,
   DEFAULT_SSE_MAX_RETRY_DELAY,
-} from '@/commons/constants';
+} from '../constants';
 
 export class OpencodeEngine extends EventEmitter {
   private client: OpencodeClient | null = null;

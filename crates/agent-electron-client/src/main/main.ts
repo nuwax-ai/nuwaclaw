@@ -10,7 +10,7 @@ import { agentService } from '../services/main/engines/unifiedAgent';
 import { stopComputerServer } from '../services/main/computerServer';
 import { mcpProxyManager } from '../services/main/packages/mcp';
 import type { HandlerContext } from '../types/ipc';
-import { APP_DATA_DIR_NAME, LOGS_DIR_NAME, DEFAULT_DEV_SERVER_PORT } from '@/commons/constants';
+import { APP_DATA_DIR_NAME, LOGS_DIR_NAME, DEFAULT_DEV_SERVER_PORT } from '../services/main/constants';
 
 // Configure logging — 日志统一写入 ~/.nuwax-agent/logs/
 const nuwaxHome = path.join(app.getPath('home'), APP_DATA_DIR_NAME);

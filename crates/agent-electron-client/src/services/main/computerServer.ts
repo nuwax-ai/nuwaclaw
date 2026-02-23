@@ -23,7 +23,7 @@ import * as http from 'http';
 import { EventEmitter } from 'events';
 import log from 'electron-log';
 import { agentService } from './engines/unifiedAgent';
-import { LOCALHOST_HOSTNAME } from '@/commons/constants';
+import { LOCALHOST_HOSTNAME } from './constants';
 import type {
   ComputerChatRequest,
   HttpResult,

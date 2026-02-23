@@ -6,7 +6,7 @@ import log from 'electron-log';
 import type { HandlerContext } from '../../types/ipc';
 import { readSetting } from '../db';
 import { ManagedProcess } from '../processManager';
-import { APP_DATA_DIR_NAME, DEFAULT_STARTUP_DELAY } from '@/commons/constants';
+import { APP_DATA_DIR_NAME, DEFAULT_STARTUP_DELAY } from '../../services/main/constants';
 
 export function registerProcessHandlers(ctx: HandlerContext): void {
   const { getAppEnv, getLanproxyBinPath } = require('../../services/main/system/dependencies');

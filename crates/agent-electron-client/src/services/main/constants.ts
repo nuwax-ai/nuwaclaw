@@ -1,0 +1,71 @@
+/**
+ * 主进程常量 (CommonJS)
+ *
+ * 从 commons/constants.ts 复制过来供主进程使用
+ * 因为主进程使用 CommonJS 编译，路径解析与渲染进程不同
+ */
+
+// ==================== 应用目录 ====================
+
+/** 应用数据目录名称 */
+export const APP_DATA_DIR_NAME = '.nuwax-agent';
+
+/** 日志目录名称 */
+export const LOGS_DIR_NAME = 'logs';
+
+/** MCP 日志目录名称 */
+export const MCP_LOGS_DIR_NAME = 'mcp';
+
+// ==================== 端口配置 ====================
+
+/** MCP Proxy 默认端口 */
+export const DEFAULT_MCP_PROXY_PORT = 18099;
+
+/** MCP Proxy 默认监听地址 */
+export const DEFAULT_MCP_PROXY_HOST = '127.0.0.1';
+
+/** 开发服务器默认端口 */
+export const DEFAULT_DEV_SERVER_PORT = 60173;
+
+// ==================== 主机/IP 配置 ====================
+
+/** 本地回环地址 */
+export const LOCALHOST_IP = '127.0.0.1';
+
+/** localhost 主机名 */
+export const LOCALHOST_HOSTNAME = 'localhost';
+
+// ==================== 超时配置 ====================
+
+/** 启动延迟 (ms) */
+export const DEFAULT_STARTUP_DELAY = 3000;
+
+/** SSE 默认重试延迟 (ms) */
+export const DEFAULT_SSE_RETRY_DELAY = 3000;
+
+/** SSE 最大重试延迟 (ms) */
+export const DEFAULT_SSE_MAX_RETRY_DELAY = 30000;
+
+// ==================== 镜像源配置 ====================
+
+/** NPM 镜像源预设 */
+export const NPM_MIRRORS = {
+  OFFICIAL: 'https://registry.npmjs.org/',
+  TAOBAO: 'https://registry.npmmirror.com/',
+  TENCENT: 'https://mirrors.cloud.tencent.com/npm/',
+} as const;
+
+/** UV (PyPI) 镜像源预设 */
+export const UV_MIRRORS = {
+  OFFICIAL: 'https://pypi.org/simple/',
+  TUNA: 'https://pypi.tuna.tsinghua.edu.cn/simple/',
+  ALIYUN: 'https://mirrors.aliyun.com/pypi/simple/',
+  TENCENT: 'https://mirrors.cloud.tencent.com/pypi/simple/',
+} as const;
+
+/** 默认镜像源配置 */
+export const DEFAULT_MIRROR_CONFIG = {
+  npmRegistry: NPM_MIRRORS.TAOBAO,
+  uvIndexUrl: UV_MIRRORS.ALIYUN,
+} as const;
+
