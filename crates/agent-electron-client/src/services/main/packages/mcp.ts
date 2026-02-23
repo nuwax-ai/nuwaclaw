@@ -14,14 +14,9 @@ import log from 'electron-log';
 import { app } from 'electron';
 import { getAppEnv } from '../system/dependencies';
 import { getAppPaths, isInstalledLocally } from './packageLocator';
+import { DEFAULT_MCP_PROXY_PORT, DEFAULT_MCP_PROXY_HOST } from '../../../types/constants';
 
-// ========== Constants ==========
-
-/** MCP Proxy 默认端口 */
-export const DEFAULT_MCP_PROXY_PORT = 18099;
-
-/** MCP Proxy 默认监听地址 */
-export const DEFAULT_MCP_PROXY_HOST = '127.0.0.1';
+// ========== Types ==========
 
 /** 默认 mcpServers 配置 */
 export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {

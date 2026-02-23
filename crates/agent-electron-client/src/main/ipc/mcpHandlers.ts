@@ -1,7 +1,8 @@
 import { ipcMain } from 'electron';
 import { getDb } from '../db';
-import { mcpProxyManager, DEFAULT_MCP_PROXY_CONFIG, DEFAULT_MCP_PROXY_PORT } from '../../services/main/packages/mcp';
+import { mcpProxyManager, DEFAULT_MCP_PROXY_CONFIG } from '../../services/main/packages/mcp';
 import type { McpServersConfig } from '../../services/main/packages/mcp';
+import { DEFAULT_MCP_PROXY_PORT } from '../../types/constants';
 import log from 'electron-log';
 
 export function registerMcpHandlers(): void {

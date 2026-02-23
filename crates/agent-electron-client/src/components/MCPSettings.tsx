@@ -39,7 +39,7 @@ interface MCPSettingsProps {
 
 function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
   const [config, setConfig] = useState<McpServersConfig>({ mcpServers: {} });
-  const [port, setPort] = useState(60004);
+  const [port, setPort] = useState(18099);
   const [status, setStatus] = useState<McpProxyStatus>({ running: false });
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
