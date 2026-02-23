@@ -17,6 +17,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { Readable, Writable } from 'stream';
 import * as path from 'path';
+import * as os from 'os';
 import * as fs from 'fs';
 import { app } from 'electron';
 import log from 'electron-log';
@@ -189,6 +190,8 @@ export interface AcpConnectionConfig {
 export interface AcpConnectionResult {
   connection: AcpClientSideConnection;
   process: ChildProcess;
+  /** Isolated HOME directory created for this ACP process (for cleanup) */
+  isolatedHome: string;
 }
 
 // ==================== SDK Loader ====================
@@ -270,14 +273,52 @@ export async function createAcpConnection(
     throw new Error(`ACP binary not found at: ${binPath}. Please install it first.`);
   }
 
-  // Build environment
+  // Build isolated environment (aligned with rcoder + engineManager pattern)
+  // 1. Sanitize process.env: keep system vars (PATH, HOME, etc.), strip all CLAUDE_*/ANTHROPIC_*/OPENAI_*
+  // 2. Create isolated HOME/config dir so Claude Code uses empty config (not user's global ~/.claude/)
+  // 3. Only inject model vars from ACP-provided config
+  const sanitizedEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined) continue;
+    if (key.startsWith('CLAUDE_') || key.startsWith('ANTHROPIC_') || key.startsWith('OPENAI_')) continue;
+    sanitizedEnv[key] = value;
+  }
+
+  // Create isolated HOME directory with empty .claude/ config
+  // This prevents Claude Code from reading user's global ~/.claude/settings.json
+  const runId = `acp-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+  const isolatedHome = path.join(os.tmpdir(), `nuwax-agent-${runId}`);
+  fs.mkdirSync(path.join(isolatedHome, '.claude'), { recursive: true });
+
   const env: Record<string, string> = {
-    ...(process.env as Record<string, string>),
+    ...sanitizedEnv,
     ...getAppEnv(),
+
+    // Isolated HOME — Claude Code won't read user's global config
+    HOME: isolatedHome,
+    USERPROFILE: isolatedHome, // Windows
+    XDG_CONFIG_HOME: path.join(isolatedHome, '.config'),
+    XDG_DATA_HOME: path.join(isolatedHome, '.local', 'share'),
+    XDG_CACHE_HOME: path.join(isolatedHome, '.cache'),
+    CLAUDE_CONFIG_DIR: path.join(isolatedHome, '.claude'),
+    NUWAXCODE_CONFIG_DIR: path.join(isolatedHome, '.nuwaxcode'),
+
+    // Disable non-essential traffic (aligned with rcoder ENV_DISABLE_NONESSENTIAL)
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
   };
-  if (config.apiKey) env.ANTHROPIC_API_KEY = config.apiKey;
+
+  // Set model/api vars from ACP config only (never from user's global env)
+  if (config.apiKey) {
+    env.ANTHROPIC_API_KEY = config.apiKey;
+    env.ANTHROPIC_AUTH_TOKEN = config.apiKey;
+  }
   if (config.baseUrl) env.ANTHROPIC_BASE_URL = config.baseUrl;
-  if (config.model) env.ANTHROPIC_MODEL = config.model;
+  // config.model 必须由上层设置（ensureEngineForRequest 从 model_provider 或 agent_config env 提取）
+  if (config.model) {
+    env.ANTHROPIC_MODEL = config.model;
+  } else {
+    log.warn('[AcpClient] ⚠️ config.model 未设置，引擎将使用内置默认模型（不推荐）');
+  }
   if (config.env) Object.assign(env, config.env);
 
   // When packaged, ensure child processes use Node.js mode, not Electron app mode
@@ -290,11 +331,19 @@ export async function createAcpConnection(
     env.CLAUDE_CODE_ACP_PATH = binPath;
   }
 
-  log.info('[AcpClient] Spawning ACP binary', {
-    binPath,
-    binArgs,
-    cwd: config.workspaceDir,
-  });
+  // 打印最终生效的模型配置（关键调试信息）
+  log.info(`[AcpClient] 🚀 Spawning ACP binary:\n` +
+    `├─ binPath: ${binPath}\n` +
+    `├─ binArgs: ${JSON.stringify(binArgs)}\n` +
+    `├─ cwd: ${config.workspaceDir}\n` +
+    `├─ isolatedHome: ${isolatedHome}\n` +
+    `├─ 📌 ANTHROPIC_MODEL: ${env.ANTHROPIC_MODEL || '⚠️ 未设置'}\n` +
+    `├─ ANTHROPIC_BASE_URL: ${env.ANTHROPIC_BASE_URL || '(未设置)'}\n` +
+    `├─ ANTHROPIC_API_KEY: ${env.ANTHROPIC_API_KEY ? env.ANTHROPIC_API_KEY.slice(0, Math.min(8, Math.floor(env.ANTHROPIC_API_KEY.length / 2))) + '...' : '(未设置)'}\n` +
+    `├─ 📌 OPENCODE_MODEL: ${env.OPENCODE_MODEL || '(未设置)'}\n` +
+    `├─ OPENAI_BASE_URL: ${env.OPENAI_BASE_URL || '(未设置)'}\n` +
+    `└─ OPENAI_API_KEY: ${env.OPENAI_API_KEY ? env.OPENAI_API_KEY.slice(0, Math.min(8, Math.floor(env.OPENAI_API_KEY.length / 2))) + '...' : '(未设置)'}`,
+  );
 
   // 1. Spawn ACP binary
   const proc = spawn(binPath, binArgs, {
@@ -331,5 +380,5 @@ export async function createAcpConnection(
     stream,
   ) as AcpClientSideConnection;
 
-  return { connection, process: proc };
+  return { connection, process: proc, isolatedHome };
 }

@@ -9,6 +9,8 @@
 
 import { EventEmitter } from 'events';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 import log from 'electron-log';
 import type { ChildProcess } from 'child_process';
 import {
@@ -39,9 +41,7 @@ import type {
   ComputerChatRequest,
   ComputerChatResponse,
   UnifiedSessionMessage,
-  ComputerAgentStatusResponse,
-  ComputerAgentStopResponse,
-  ComputerAgentCancelResponse,
+  ModelProviderConfig,
 } from '../types/computerTypes';
 import type {
   UserMessage,
@@ -166,7 +166,7 @@ export class OpencodeEngine extends EventEmitter {
     try {
       if (config.baseUrl) {
         log.info('[OpencodeEngine] Connecting to existing server:', config.baseUrl);
-        this.client = await createOpencodeClient({ baseUrl: config.baseUrl });
+        this.client = createOpencodeClient({ baseUrl: config.baseUrl });
       } else {
         const port = config.port || 60096;
         const hostname = config.hostname || '127.0.0.1';
@@ -667,6 +667,7 @@ export type {
   ComputerChatRequest,
   ComputerChatResponse,
   UnifiedSessionMessage,
+  ModelProviderConfig,
   ComputerAgentStatusResponse,
   ComputerAgentStopResponse,
   ComputerAgentCancelResponse,
@@ -699,6 +700,7 @@ export class AcpEngine extends EventEmitter {
   private _ready = false;
   private acpConnection: AcpClientSideConnection | null = null;
   private acpProcess: ChildProcess | null = null;
+  private isolatedHome: string | null = null;
   private sessions = new Map<string, AcpSession>();
   private pendingPermissions = new Map<string, {
     resolve: (r: AcpPermissionResponse) => void;
@@ -717,11 +719,25 @@ export class AcpEngine extends EventEmitter {
     return this._ready && this.acpConnection !== null;
   }
 
+  getActivePromptCount(): number {
+    return this.activePromptSessions.size;
+  }
+
   // === Lifecycle ===
 
   async init(config: AgentConfig): Promise<boolean> {
     this.config = config;
-
+    const envModel = config.env?.OPENCODE_MODEL || config.env?.ANTHROPIC_MODEL;
+    log.info(
+      `${this.logTag} 🚀 初始化配置:\n` +
+      `├─ engine: ${this.engineName}\n` +
+      `├─ config.model: ${config.model || '⚠️ 未设置'}\n` +
+      `├─ env model: ${envModel || '(未设置)'}\n` +
+      `├─ baseUrl: ${config.baseUrl || '(default)'}\n` +
+      `├─ apiKeySet: ${!!config.apiKey}\n` +
+      `├─ workspaceDir: ${config.workspaceDir}\n` +
+      `└─ env keys: ${config.env ? Object.keys(config.env).join(', ') : '(none)'}`,
+    );
     try {
       // Build ACP client handler (callbacks from agent → client)
       const clientHandler = this.buildClientHandler();
@@ -730,7 +746,7 @@ export class AcpEngine extends EventEmitter {
       const { binPath, binArgs } = resolveAcpBinary(this.engineName);
 
       // Spawn ACP binary and create ClientSideConnection
-      const { connection, process: proc } = await createAcpConnection(
+      const { connection, process: proc, isolatedHome } = await createAcpConnection(
         {
           binPath,
           binArgs,
@@ -745,6 +761,7 @@ export class AcpEngine extends EventEmitter {
 
       this.acpConnection = connection;
       this.acpProcess = proc;
+      this.isolatedHome = isolatedHome;
 
       // Handle process exit
       proc.on('exit', (code, signal) => {
@@ -820,6 +837,17 @@ export class AcpEngine extends EventEmitter {
         log.warn(`${this.logTag} Process kill error:`, e);
       }
       this.acpProcess = null;
+    }
+
+    // Cleanup isolated HOME directory
+    if (this.isolatedHome) {
+      try {
+        fs.rmSync(this.isolatedHome, { recursive: true, force: true });
+        log.info(`${this.logTag} 🧹 已清理隔离目录: ${this.isolatedHome}`);
+      } catch (e) {
+        log.warn(`${this.logTag} 隔离目录清理失败:`, e);
+      }
+      this.isolatedHome = null;
     }
 
     this.acpConnection = null;
@@ -1151,13 +1179,78 @@ export class AcpEngine extends EventEmitter {
     return null;
   }
 
+  /**
+   * Check if model_provider from chat request requires re-initializing the ACP connection.
+   * Aligned with rcoder: each chat request can carry its own ModelProviderConfig.
+   * rcoder spawns a new process per request; Electron reuses one process,
+   * so we reinit when api_key, base_url, or model actually changed.
+   */
+  private shouldReinitForModelProvider(mp: ModelProviderConfig): boolean {
+    if (!this.config) return false;
+
+    const apiKey = mp.api_key || '';
+    const baseUrl = mp.base_url || '';
+    const model = mp.model || '';
+
+    // Skip reinit if all fields are empty (no meaningful config)
+    if (!apiKey && !baseUrl && !model) return false;
+
+    // Compare with current config — reinit only if something actually changed
+    // 模型比较：config.model 已包含从 env 提取的模型（由 ensureEngineForRequest 设置）
+    const currentKey = this.config.apiKey || '';
+    const currentUrl = this.config.baseUrl || '';
+    const currentModel = this.config.model || '';
+
+    return (!!apiKey && apiKey !== currentKey) ||
+           (!!baseUrl && baseUrl !== currentUrl) ||
+           (!!model && model !== currentModel);
+  }
+
   async chat(request: ComputerChatRequest): Promise<HttpResult<ComputerChatResponse>> {
     if (!this.acpConnection || !this.config) {
       return { code: '5000', message: 'Agent not initialized', data: null, tid: null, success: false };
     }
 
     try {
-      log.info(`${this.logTag} 📨 chat() 收到请求:\n├─ user_id: ${request.user_id}\n├─ project_id: ${request.project_id}\n├─ session_id: ${request.session_id}\n├─ request_id: ${request.request_id}\n└─ prompt (${request.prompt.length}字符)`);
+      // 打印请求信息和当前引擎的模型配置
+      const envModel = this.config.env?.OPENCODE_MODEL || this.config.env?.ANTHROPIC_MODEL;
+      log.info(
+        `${this.logTag} 📨 chat() 收到请求:\n` +
+        `├─ user_id: ${request.user_id}\n` +
+        `├─ project_id: ${request.project_id}\n` +
+        `├─ session_id: ${request.session_id}\n` +
+        `├─ request_id: ${request.request_id}\n` +
+        `├─ agent_config: ${safeStringify(request.agent_config)}\n` +
+        `├─ model_provider: ${request.model_provider ? `provider=${request.model_provider.provider}, model=${request.model_provider.model}, base_url_set=${!!request.model_provider.base_url}, api_key_len=${request.model_provider.api_key?.length || 0}` : '(无)'}\n` +
+        `├─ 📌 config.model: ${this.config.model || '⚠️ 未设置'}\n` +
+        `├─ 📌 env model: ${envModel || '(未设置)'}\n` +
+        `├─ baseUrl_set: ${!!this.config.baseUrl}\n` +
+        `├─ apiKeySet: ${!!this.config.apiKey}\n` +
+        `├─ env keys: ${this.config.env ? Object.keys(this.config.env).join(', ') : '(none)'}\n` +
+        `└─ prompt (${request.prompt.length}字符)`,
+      );
+
+      // model_provider 处理（兜底路径）
+      // 正常流程由 computerServer → ensureEngineForRequest 统一处理引擎/模型/apiKey/baseUrl 变更。
+      // 此处是兜底：应对直接调用 chat()（如 IPC agent:prompt）而未经 computerServer 的场景。
+      if (request.model_provider && this.shouldReinitForModelProvider(request.model_provider)) {
+        if (this.activePromptSessions.size > 0) {
+          log.warn(`${this.logTag} ⚠️ model_provider 变更但有 ${this.activePromptSessions.size} 个活跃 prompt，跳过 reinit，使用当前配置`);
+        } else {
+          log.info(`${this.logTag} 🔄 model_provider 变更，重新初始化 ACP 连接...`);
+          const newConfig: AgentConfig = {
+            ...this.config,
+            apiKey: request.model_provider.api_key || this.config.apiKey,
+            baseUrl: request.model_provider.base_url || this.config.baseUrl,
+            model: request.model_provider.model || this.config.model,
+          };
+          await this.destroy();
+          const ok = await this.init(newConfig);
+          if (!ok) {
+            return { code: '5000', message: 'Failed to reinit with new model_provider', data: null, tid: null, success: false };
+          }
+        }
+      }
 
       // 1. Find existing session by session_id or project_id, or create new
       let session: AcpSession | undefined;
@@ -1416,6 +1509,43 @@ export class AcpEngine extends EventEmitter {
   }
 }
 
+// ==================== Agent Config Helpers ====================
+
+/** Map agent_config.agent_server.command to engine type */
+function mapAgentCommand(command: string): AgentEngineType | null {
+  if (command === 'nuwaxcode') return 'nuwaxcode';
+  if (command === 'claude-code' || command === 'claude-code-acp-ts') return 'claude-code';
+  return null;
+}
+
+/**
+ * Resolve template placeholders in agent_server.env using model_provider.
+ * rcoder does this internally in handle_chat_core; Electron needs to do it here.
+ *
+ * Templates: {MODEL_PROVIDER_BASE_URL}, {MODEL_PROVIDER_API_KEY}, {MODEL_PROVIDER_MODEL}
+ */
+function resolveAgentEnv(
+  env: Record<string, string>,
+  modelProvider?: ModelProviderConfig,
+): Record<string, string> {
+  const resolved: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    let v = value;
+    if (modelProvider) {
+      v = v.replace(/\{MODEL_PROVIDER_BASE_URL\}/g, modelProvider.base_url || '');
+      v = v.replace(/\{MODEL_PROVIDER_API_KEY\}/g, modelProvider.api_key || '');
+      v = v.replace(/\{MODEL_PROVIDER_MODEL\}/g, modelProvider.model || '');
+    }
+    // Skip entries with unresolved placeholders (missing model_provider fields)
+    if (/\{MODEL_PROVIDER_\w+\}/.test(v)) {
+      log.warn(`[resolveAgentEnv] ⚠️ 跳过未解析的模板变量: ${key}=${v}`);
+      continue;
+    }
+    resolved[key] = v;
+  }
+  return resolved;
+}
+
 // ==================== UnifiedAgentService ====================
 
 export class UnifiedAgentService extends EventEmitter {
@@ -1465,6 +1595,127 @@ export class UnifiedAgentService extends EventEmitter {
 
   getEngineType(): AgentEngineType | null {
     return this.engineType;
+  }
+
+  getAgentConfig(): AgentConfig | null {
+    return this.config;
+  }
+
+  /**
+   * Ensure the correct engine is running for the given chat request.
+   *
+   * Handles:
+   * 1. Engine switching (claude-code ↔ nuwaxcode) based on agent_config.agent_server.command
+   * 2. Template variable resolution ({MODEL_PROVIDER_*}) in agent_server.env
+   * 3. Env update when model_provider changes
+   *
+   * Aligned with rcoder: rcoder spawns a new process per request with resolved config;
+   * Electron reuses one process, so we reinit when engine/env actually changed.
+   */
+  async ensureEngineForRequest(request: ComputerChatRequest): Promise<void> {
+    const agentServer = request.agent_config?.agent_server;
+    const mp = request.model_provider;
+
+    // 无 agent_config 且无 model_provider → 不需要任何切换
+    if (!agentServer?.command && !mp) return;
+
+    // 1. 确定目标引擎
+    const requiredEngine = agentServer?.command
+      ? mapAgentCommand(agentServer.command)
+      : this.engineType; // 无 agent_config 时保持当前引擎
+    if (!requiredEngine) {
+      log.warn(`[UnifiedAgent] 未知的 agent command: ${agentServer?.command}，跳过引擎切换`);
+      return;
+    }
+
+    // 2. 解析 agent_server.env 模板变量
+    const resolvedEnv = agentServer?.env
+      ? resolveAgentEnv(agentServer.env, mp)
+      : undefined;
+
+    // 3. 提取最终模型（模型优先级：model_provider.model > env 模型变量 > 已有 config.model）
+    let model = mp?.model;
+    if (!model && resolvedEnv) {
+      model = resolvedEnv.OPENCODE_MODEL || resolvedEnv.ANTHROPIC_MODEL;
+    }
+    model = model || this.config?.model;
+
+    // 4. 判断是否需要 reinit
+    const needsSwitch = requiredEngine !== this.engineType;
+
+    // 比较 env：JSON.stringify 第二个参数为 replacer 数组，按排序后的 key 列表序列化，确保 key 顺序无关
+    const currentEnvStr = this.config?.env ? JSON.stringify(this.config.env, Object.keys(this.config.env).sort()) : '';
+    const newEnvStr = resolvedEnv ? JSON.stringify(resolvedEnv, Object.keys(resolvedEnv).sort()) : '';
+    const envChanged = !!resolvedEnv && newEnvStr !== currentEnvStr;
+
+    // model_provider 的 apiKey/baseUrl/model 是否与当前 config 不同
+    const modelChanged = !!model && model !== (this.config?.model || '');
+    const apiKeyChanged = !!mp?.api_key && mp.api_key !== (this.config?.apiKey || '');
+    const baseUrlChanged = !!mp?.base_url && mp.base_url !== (this.config?.baseUrl || '');
+
+    if (!needsSwitch && !envChanged && !modelChanged && !apiKeyChanged && !baseUrlChanged) return;
+
+    // Safety: don't switch if there are active prompts
+    const acpEngine = this.getAcpEngine();
+    if (acpEngine && acpEngine.getActivePromptCount() > 0) {
+      log.warn(`[UnifiedAgent] ⚠️ 需要切换引擎但有活跃 prompt (${acpEngine.getActivePromptCount()} 个)，跳过切换，使用当前引擎`);
+      return;
+    }
+
+    log.info(
+      `[UnifiedAgent] 🔄 引擎切换:\n` +
+      `├─ 当前引擎: ${this.engineType}\n` +
+      `├─ 目标引擎: ${requiredEngine}\n` +
+      `├─ 引擎变更: ${needsSwitch}\n` +
+      `├─ 环境变更: ${envChanged}\n` +
+      `├─ 模型变更: ${modelChanged} (${this.config?.model || '(无)'} → ${model || '(无)'})\n` +
+      `├─ apiKey变更: ${apiKeyChanged}\n` +
+      `├─ baseUrl变更: ${baseUrlChanged}\n` +
+      `└─ env keys: ${resolvedEnv ? Object.keys(resolvedEnv).join(', ') : '(none)'}`,
+    );
+
+    const baseConfig = this.config || { engine: requiredEngine, workspaceDir: '' };
+
+    if (!model) {
+      log.warn(`[UnifiedAgent] ⚠️ 模型未设置！model_provider.model 和 agent_config env 均无模型信息`);
+    }
+
+    const mergedEnv = { ...(baseConfig.env || {}), ...(resolvedEnv || {}) };
+
+    // OPENCODE_LOG_DIR 容器路径本地化：/app/container-logs → ~/.nuwax-agent/logs/
+    if (mergedEnv.OPENCODE_LOG_DIR && !fs.existsSync(mergedEnv.OPENCODE_LOG_DIR)) {
+      const localLogDir = path.join(os.homedir(), '.nuwax-agent', 'logs');
+      log.info(`[UnifiedAgent] 📂 OPENCODE_LOG_DIR 本地化: ${mergedEnv.OPENCODE_LOG_DIR} → ${localLogDir}`);
+      mergedEnv.OPENCODE_LOG_DIR = localLogDir;
+    }
+
+    const newConfig: AgentConfig = {
+      ...baseConfig,
+      engine: requiredEngine,
+      apiKey: mp?.api_key || baseConfig.apiKey,
+      baseUrl: mp?.base_url || baseConfig.baseUrl,
+      model,
+      env: mergedEnv,
+    };
+
+    // 打印最终构建的模型配置
+    log.info(
+      `[UnifiedAgent] 📌 最终模型配置:\n` +
+      `├─ engine: ${newConfig.engine}\n` +
+      `├─ config.model: ${newConfig.model || '⚠️ 未设置'}\n` +
+      `├─ env OPENCODE_MODEL: ${newConfig.env?.OPENCODE_MODEL || '(未设置)'}\n` +
+      `├─ env ANTHROPIC_MODEL: ${newConfig.env?.ANTHROPIC_MODEL || '(未设置)'}\n` +
+      `├─ baseUrl: ${newConfig.baseUrl || '(未设置)'}\n` +
+      `├─ env OPENAI_BASE_URL: ${newConfig.env?.OPENAI_BASE_URL || '(未设置)'}\n` +
+      `├─ apiKeySet: ${!!newConfig.apiKey}\n` +
+      `└─ env OPENAI_API_KEY set: ${!!newConfig.env?.OPENAI_API_KEY}`,
+    );
+
+    const ok = await this.init(newConfig);
+    if (!ok) {
+      throw new Error(`Failed to switch engine to ${requiredEngine}`);
+    }
+    log.info(`[UnifiedAgent] ✅ 引擎已切换到 ${requiredEngine}`);
   }
 
   get isReady(): boolean {

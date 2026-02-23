@@ -35,18 +35,27 @@ export interface ChatAgentConfig {
   context_servers?: Record<string, ChatContextServerConfig>;
 }
 
+// 对应 rcoder ModelProviderConfig
+export interface ModelProviderConfig {
+  /** 提供商名称 (如: anthropic, openai, qwen 等) */
+  provider: string;
+  /** API 密钥 */
+  api_key?: string;
+  /** API 基础 URL */
+  base_url?: string;
+  /** 默认模型名称 */
+  model?: string;
+  /** 模型接口协议类型 (anthropic/openai)，默认为 openai */
+  api_protocol?: string;
+}
+
 // 对应 rcoder ComputerChatRequest
 export interface ComputerChatRequest {
   user_id: string;
   project_id?: string;
   prompt: string;
   session_id?: string;
-  model_provider?: {
-    provider: string;
-    api_key?: string;
-    base_url?: string;
-    model?: string;
-  };
+  model_provider?: ModelProviderConfig;
   request_id?: string;
   system_prompt?: string;
   agent_config?: ChatAgentConfig;

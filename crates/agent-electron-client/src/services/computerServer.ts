@@ -147,6 +147,15 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         return;
       }
 
+      // 确保正确的引擎已启动（对齐 rcoder: 根据 agent_config 切换引擎 + 解析模板变量）
+      try {
+        await agentService.ensureEngineForRequest(body);
+      } catch (err: any) {
+        log.error('❌ [HTTP] Engine switch failed:', err);
+        sendJson(res, 200, httpError('5000', err.message || 'Engine switch failed'));
+        return;
+      }
+
       const acpEngine = agentService.getAcpEngine();
       if (!acpEngine) {
         log.error('❌ [HTTP] Agent not initialized');
