@@ -11,7 +11,7 @@ export function registerDependencyHandlers(): void {
     installMissingDependencies,
     getAppDataDir,
     SETUP_REQUIRED_DEPENDENCIES,
-  } = require('../../services/dependencies');
+  } = require('../../services/main/system/dependencies');
 
   ipcMain.handle('dependencies:checkAll', async () => {
     log.info('[IPC] Checking all dependencies...');
