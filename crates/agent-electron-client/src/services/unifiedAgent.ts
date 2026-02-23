@@ -746,25 +746,44 @@ export class AcpEngine extends EventEmitter {
       // Resolve binary path and args for the engine type
       const { binPath, binArgs } = resolveAcpBinary(this.engineName);
 
-      // For nuwaxcode: inject MCP servers via OPENCODE_CONFIG_CONTENT env var
+      // For nuwaxcode: inject config via OPENCODE_CONFIG_CONTENT env var
       // nuwaxcode doesn't process mcpServers from ACP newSession (unlike claude-code),
       // so we pass MCP config at spawn time via its highest-priority config override.
+      // Also set all permissions to "allow" to avoid unnecessary ACP permission round-trips;
+      // claude-code handles permissions via ACP requestPermission callback instead.
       const spawnEnv = { ...(config.env || {}) };
-      if (this.engineName === 'nuwaxcode' && config.mcpServers && Object.keys(config.mcpServers).length > 0) {
-        const mcpConfig: Record<string, unknown> = {};
-        for (const [name, srv] of Object.entries(config.mcpServers)) {
-          mcpConfig[name] = {
-            type: 'local',
-            command: [srv.command, ...(srv.args || [])],
-            environment: srv.env || {},
-            enabled: true,
-          };
+      if (this.engineName === 'nuwaxcode') {
+        const configObj: Record<string, unknown> = {};
+
+        // 1. MCP servers injection
+        if (config.mcpServers && Object.keys(config.mcpServers).length > 0) {
+          const mcpConfig: Record<string, unknown> = {};
+          for (const [name, srv] of Object.entries(config.mcpServers)) {
+            mcpConfig[name] = {
+              type: 'local',
+              command: [srv.command, ...(srv.args || [])],
+              environment: srv.env || {},
+              enabled: true,
+            };
+          }
+          configObj.mcp = mcpConfig;
         }
-        const configContent = JSON.stringify({ mcp: mcpConfig });
+
+        // 2. Permission bypass — avoid nuwaxcode sending ACP permission requests
+        configObj.permission = {
+          edit: 'allow',
+          bash: 'allow',
+          webfetch: 'allow',
+          doom_loop: 'allow',
+          external_directory: 'allow',
+        };
+
+        const configContent = JSON.stringify(configObj);
         spawnEnv.OPENCODE_CONFIG_CONTENT = configContent;
         log.info(
-          `${this.logTag} 🔌 nuwaxcode MCP 注入 (OPENCODE_CONFIG_CONTENT):\n` +
-          `├─ servers: ${Object.keys(mcpConfig).join(', ')}\n` +
+          `${this.logTag} 🔌 nuwaxcode config 注入 (OPENCODE_CONFIG_CONTENT):\n` +
+          `├─ mcp servers: ${configObj.mcp ? Object.keys(configObj.mcp as Record<string, unknown>).join(', ') : '(none)'}\n` +
+          `├─ permission: all allow\n` +
           `└─ content: ${configContent}`,
         );
       }
