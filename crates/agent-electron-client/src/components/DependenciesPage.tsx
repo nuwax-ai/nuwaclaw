@@ -8,7 +8,7 @@
  * - 类型来自 ../types/electron.d.ts
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button, Tag, Alert, Spin, message } from "antd";
 import {
   CloudDownloadOutlined,
@@ -19,6 +19,10 @@ import {
   CloseCircleOutlined,
 } from "@ant-design/icons";
 import type { LocalDependencyItem, DependencyStatus } from "../types/electron";
+import {
+  DEPENDENCY_STATUS_LABELS,
+  ACTION_MESSAGES,
+} from "@/commons/constants";
 
 interface NodeCheckResult {
   installed?: boolean;
@@ -32,16 +36,6 @@ interface UvCheckResult {
   meetsRequirement?: boolean;
   bundled?: boolean;
 }
-
-const STATUS_LABELS: Record<DependencyStatus, string> = {
-  checking: "检测中",
-  installed: "已安装",
-  missing: "未安装",
-  outdated: "需更新",
-  installing: "安装中",
-  bundled: "已集成",
-  error: "异常",
-};
 
 export default function DependenciesPage() {
   const [nodeResult, setNodeResult] = useState<NodeCheckResult | null>(null);
@@ -256,7 +250,7 @@ export default function DependenciesPage() {
   };
 
   const getStatusText = (status: DependencyStatus) => {
-    return STATUS_LABELS[status] || STATUS_LABELS.checking;
+    return DEPENDENCY_STATUS_LABELS[status] || DEPENDENCY_STATUS_LABELS.checking;
   };
 
   // Node.js is always ready (Electron built-in), only check uv
@@ -296,7 +290,7 @@ export default function DependenciesPage() {
               系统环境
             </span>
             <Tag color={systemDepsReady ? "success" : "warning"}>
-              {systemDepsReady ? "就绪" : "需配置"}
+              {systemDepsReady ? ACTION_MESSAGES.ready : ACTION_MESSAGES.needConfig}
             </Tag>
           </div>
         </div>
@@ -328,7 +322,7 @@ export default function DependenciesPage() {
                 v{nodeResult?.version || 'N/A'}
               </span>
             </div>
-            <span style={{ fontSize: 12, color: "#16a34a" }}>已集成 (Electron)</span>
+            <span style={{ fontSize: 12, color: "#16a34a" }}>{ACTION_MESSAGES.allInstalled}</span>
           </div>
 
           {/* uv */}
@@ -360,9 +354,9 @@ export default function DependenciesPage() {
             {!uvResult?.installed ? (
               <span style={{ fontSize: 12, color: "#ca8a04" }}>未安装</span>
             ) : uvResult.bundled ? (
-              <span style={{ fontSize: 12, color: "#16a34a" }}>已集成</span>
+              <span style={{ fontSize: 12, color: "#16a34a" }}>{DEPENDENCY_STATUS_LABELS.bundled}</span>
             ) : uvResult.meetsRequirement ? (
-              <span style={{ fontSize: 12, color: "#16a34a" }}>已就绪</span>
+              <span style={{ fontSize: 12, color: "#16a34a" }}>{ACTION_MESSAGES.allInstalled}</span>
             ) : (
               <span style={{ fontSize: 12, color: "#ca8a04" }}>
                 需 &gt;= 0.5.0

@@ -212,3 +212,26 @@ export const MSG_INFO = {
   LOGIN_FIRST_SILENT: '请先登录以获取代理服务配置',
   ALREADY_LATEST_VERSION: '当前已是最新版本',
 } as const;
+
+// ==================== 依赖管理文案 ====================
+
+/** 依赖状态显示文案 */
+export const DEPENDENCY_STATUS_LABELS = {
+  checking: '检查中',
+  installed: '已安装',
+  missing: '缺失',
+  outdated: '版本过低',
+  installing: '安装中',
+  bundled: '应用集成',
+  error: '错误',
+} as const;
+
+/** 通用操作文案 */
+export const ACTION_MESSAGES = {
+  starting: '启动中...',
+  stopping: '停止中...',
+  ready: '就绪',
+  needConfig: '需配置',
+  allReady: '所有依赖已就绪',
+  allInstalled: '已就绪',
+} as const;
