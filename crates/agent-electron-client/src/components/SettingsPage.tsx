@@ -351,8 +351,8 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* AI 配置 */}
-      <div className="section" style={{ marginTop: 20 }}>
+      {/* AI 配置 - 暂时隐藏，当前需求不需要 */}
+      {/* <div className="section" style={{ marginTop: 20 }}>
         <div
           style={{
             display: 'flex',
@@ -438,7 +438,7 @@ export default function SettingsPage() {
             </Row>
           </Form>
         </div>
-      </div>
+      </div> */}
 
       {/* 系统设置 */}
       <div className="section" style={{ marginTop: 20 }}>
