@@ -49,30 +49,52 @@ This is the **Nuwax Agent** Electron client - a multi-engine AI assistant deskto
 
 ## Services
 
-### Core Services (20)
+### Main Process Services (13 files)
+
+Located in `src/services/main/`, these services use Node/Electron APIs and can only run in the main process.
 
 | Service | File | Description |
 |---------|------|-------------|
-| **Unified Agent** | `unifiedAgent.ts` | Unified SDK layer for all engines |
-| **Engine Manager** | `engineManager.ts` | Agent engine lifecycle, isolation |
-| **Shell Environment** | `shellEnv.ts` | Cross-platform shell |
-| **Workspace Manager** | `workspaceManager.ts` | Session workspaces |
-| **Sandbox** | `sandbox.ts` | Cross-platform sandbox |
-| **Dependencies** | `dependencies.ts` | Package management |
-| **MCP** | `mcp.ts` | MCP server management |
-| **Permissions** | `permissions.ts` | Permission rules |
-| **Setup** | `setup.ts` | Setup wizard & auth |
-| **File Server** | `fileServer.ts` | Local file service |
-| **Lanproxy** | `lanproxy.ts` | Intranet penetration |
-| **Skills** | `skills.ts` | Skills sync |
-| **IM** | `im.ts` | Instant messaging |
-| **Scheduler** | `scheduler.ts` | Task scheduling |
-| **Log Service** | `logService.ts` | Logging & export |
-| **Agent** | `agent.ts` | Agent management |
-| **Agent Runner** | `agentRunner.ts` | Agent runner |
-| **AI** | `ai.ts` | AI configuration |
-| **Package Locator** | `packageLocator.ts` | Package detection |
-| **Package Manager** | `packageManager.ts` | Package management |
+| **Engines** | | |
+| Unified Agent | `engines/unifiedAgent.ts` | Unified SDK layer for all engines |
+| Opencode Engine | `engines/opcodeEngine.ts` | HTTP/SSE client for opencode |
+| ACP Engine | `engines/acp/acpEngine.ts` | ACP protocol handler |
+| ACP Client | `engines/acp/acpClient.ts` | ACP connection manager |
+| Agent Helpers | `engines/agentHelpers.ts` | Agent utilities |
+| Engine Manager | `engines/engineManager.ts` | Engine lifecycle, isolation |
+| **System** | | |
+| Dependencies | `system/dependencies.ts` | Package management, env injection |
+| Shell Environment | `system/shellEnv.ts` | Cross-platform shell |
+| Workspace Manager | `system/workspaceManager.ts` | Session workspaces |
+| **Packages** | | |
+| MCP | `packages/mcp.ts` | MCP server management |
+| Package Locator | `packages/packageLocator.ts` | Package detection |
+| Package Manager | `packages/packageManager.ts` | Package installation |
+| **Other** | | |
+| Computer Server | `main/computerServer.ts` | HTTP server for /computer/* API |
+
+### Renderer Process Services (13 files)
+
+Located in `src/services/renderer/`, these services are used by React components.
+
+| Service | File | Description |
+|---------|------|-------------|
+| **Setup** | | |
+| Setup | `renderer/setup.ts` | Setup wizard & auth |
+| Auth | `renderer/auth.ts` | Authentication, API keys |
+| AI | `renderer/ai.ts` | AI configuration |
+| **Services** | | |
+| File Server | `renderer/fileServer.ts` | Local file service |
+| Lanproxy | `renderer/lanproxy.ts` | Intranet penetration |
+| Agent Runner | `renderer/agentRunner.ts` | Agent runner proxy |
+| **Features** | | |
+| Sandbox | `renderer/sandbox.ts` | Cross-platform sandbox |
+| Permissions | `renderer/permissions.ts` | Permission rules |
+| Skills | `renderer/skills.ts` | Skills sync |
+| IM | `renderer/im.ts` | Instant messaging |
+| Scheduler | `renderer/scheduler.ts` | Task scheduling |
+| Log Service | `renderer/logService.ts` | Logging & export |
+| API | `renderer/api.ts` | Backend API client |
 
 ### Components (12)
 
@@ -135,7 +157,7 @@ This is the **Nuwax Agent** Electron client - a multi-engine AI assistant deskto
 ### Usage
 
 ```typescript
-import { agentService } from './services/unifiedAgent';
+import { agentService } from './services/main/engines/unifiedAgent';
 
 // Initialize with opencode/nuwaxcode (SDK engine)
 await agentService.init({
@@ -248,7 +270,7 @@ Each engine runs in an isolated environment:
 ### Usage
 
 ```typescript
-import { sandboxManager } from './services/sandbox';
+import { sandboxManager } from './services/renderer/sandbox';
 
 // Initialize
 await sandboxManager.init({
@@ -278,7 +300,7 @@ const result = await sandboxManager.execute('npm', ['install', 'package']);
 ### Usage
 
 ```typescript
-import { permissionManager } from './services/permissions';
+import { permissionManager } from './services/renderer/permissions';
 
 // Check permission
 const { allowed, requiresPrompt } = permissionManager.checkPermission({
@@ -335,7 +357,7 @@ All child processes (engines, file server, lanproxy, agent runner) receive injec
 }
 ```
 
-This ensures app-internal dependencies are always found first. Provided by `getAppEnv()` in `dependencies.ts`.
+This ensures app-internal dependencies are always found first. Provided by `getAppEnv()` in `system/dependencies.ts`.
 
 ### Bundled Resources
 
@@ -464,8 +486,15 @@ crates/agent-electron-client/
 │   ├── main/        # Electron main process
 │   │   ├── main.ts
 │   │   └── preload.ts
-│   ├── services/    # All services (20)
-│   ├── components/  # All components (12)
+│   ├── services/    # Services organized by process type
+│   │   ├── main/    # Main process services (Node/Electron APIs)
+│   │   │   ├── engines/
+│   │   │   │   ├── acp/
+│   │   │   │   └── ...
+│   │   │   ├── system/
+│   │   │   └── packages/
+│   │   └── renderer/ # Renderer process services
+│   ├── components/  # React components
 │   │   └── dev/     # Dev-only tools (DevToolsPanel)
 │   └── types/       # TypeScript definitions
 ├── resources/       # Bundled resources (extraResources)
@@ -505,4 +534,4 @@ Store sensitive configuration in SQLite, not in code:
 
 ---
 
-*Last updated: 2026-02-23*
+*Last updated: 2026-02-24*
