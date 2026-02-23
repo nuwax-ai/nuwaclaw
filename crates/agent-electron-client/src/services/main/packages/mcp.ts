@@ -138,17 +138,31 @@ class McpProxyManager {
         // 因此不能完全隔离，只注入必要的应用内路径
         const appEnv = getAppEnv();
 
-        // 移除可能导致 npm 配置问题的环境变量
-        // chrome-devtools-mcp 通过 npx 启动，需要正常的 npm 配置路径
-        const { npm_config_userconfig, npm_config_globalconfig, ...cleanEnv } = appEnv;
+        // 构建 mcp-proxy 专用环境
+        // 不继承 process.env，避免传递用户的 npm 配置
+        // 只保留必要的环境变量
+        const platform = process.platform;
+        const mcpEnv: Record<string, string> = {
+          // PATH：应用内优先
+          PATH: appEnv.PATH,
+          // Node.js 相关
+          NODE_PATH: appEnv.NODE_PATH,
+          NODE_ENV: process.env.NODE_ENV || 'production',
+          // Python/uv 相关
+          UV_TOOL_DIR: appEnv.UV_TOOL_DIR,
+          UV_CACHE_DIR: appEnv.UV_CACHE_DIR,
+          UV_INDEX_URL: appEnv.UV_INDEX_URL,
+          // 用户目录（保持系统默认，不隔离）
+          HOME: process.env.HOME || process.env.USERPROFILE || '',
+          USER: process.env.USER || process.env.USERNAME || '',
+          USERNAME: process.env.USERNAME || process.env.USER || '',
+          // 语言环境
+          LANG: process.env.LANG || 'en_US.UTF-8',
+          TZ: process.env.TZ || '',
+        };
 
         const proc = spawn(binPath, args, {
-          env: {
-            ...process.env,
-            ...cleanEnv,
-            // 保留 PATH 优先级（应用内路径优先）
-            PATH: appEnv.PATH,
-          },
+          env: mcpEnv,
           stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: true,
         });
