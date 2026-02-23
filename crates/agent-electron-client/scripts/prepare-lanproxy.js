@@ -1,0 +1,98 @@
+#!/usr/bin/env node
+/**
+ * 多平台 nuwax-lanproxy 集成：构建前按当前平台准备 resources/lanproxy/bin/
+ *
+ * 源：../agent-tauri-client/src-tauri/binaries/ 下的多平台二进制
+ *     文件名格式：nuwax-lanproxy-<rust-target>[.exe]
+ *
+ * 目标：resources/lanproxy/bin/nuwax-lanproxy (或 .exe)
+ *
+ * 打包时 electron-builder 的 extraResources 会打包
+ *   resources/lanproxy → .app/Contents/Resources/lanproxy
+ * 运行时 getLanproxyBinPath() 使用 Resources/lanproxy/bin/nuwax-lanproxy
+ *
+ * 平台映射 (Node → Rust target)：
+ *   darwin-arm64  → aarch64-apple-darwin
+ *   darwin-x64    → x86_64-apple-darwin
+ *   win32-x64     → x86_64-pc-windows-msvc
+ *   linux-x64     → x86_64-unknown-linux-gnu
+ *   linux-arm64   → (暂无，需要时补充)
+ */
+
+const path = require('path');
+const fs = require('fs');
+
+const projectRoot = path.resolve(__dirname, '..');
+const tauriBinDir = path.resolve(projectRoot, '..', 'agent-tauri-client', 'src-tauri', 'binaries');
+const destBinDir = path.join(projectRoot, 'resources', 'lanproxy', 'bin');
+
+// Node platform-arch → Rust target triple
+const PLATFORM_MAP = {
+  'darwin-arm64': 'aarch64-apple-darwin',
+  'darwin-x64': 'x86_64-apple-darwin',
+  'win32-x64': 'x86_64-pc-windows-msvc',
+  'win32-ia32': 'i686-pc-windows-msvc',
+  'linux-x64': 'x86_64-unknown-linux-gnu',
+  'linux-arm64': 'aarch64-unknown-linux-gnu',
+  'linux-arm': 'arm-unknown-linux-gnueabi',
+};
+
+function getPlatformKey() {
+  return `${process.platform}-${process.arch}`;
+}
+
+function main() {
+  const key = getPlatformKey();
+  const target = PLATFORM_MAP[key];
+
+  if (!target) {
+    console.error(`[prepare-lanproxy] 不支持的平台: ${key}`);
+    console.error(`[prepare-lanproxy] 支持的平台: ${Object.keys(PLATFORM_MAP).join(', ')}`);
+    process.exit(1);
+  }
+
+  const isWin = process.platform === 'win32';
+  const srcName = `nuwax-lanproxy-${target}${isWin ? '.exe' : ''}`;
+  const destName = `nuwax-lanproxy${isWin ? '.exe' : ''}`;
+
+  const srcPath = path.join(tauriBinDir, srcName);
+  const destPath = path.join(destBinDir, destName);
+
+  // 检查源文件
+  if (!fs.existsSync(srcPath)) {
+    // macOS: 尝试 universal binary 作为 fallback
+    if (process.platform === 'darwin') {
+      const universalSrc = path.join(tauriBinDir, 'nuwax-lanproxy-universal-apple-darwin');
+      if (fs.existsSync(universalSrc)) {
+        console.log(`[prepare-lanproxy] ${key} → universal-apple-darwin (fallback)`);
+        fs.mkdirSync(destBinDir, { recursive: true });
+        fs.copyFileSync(universalSrc, destPath);
+        fs.chmodSync(destPath, 0o755);
+        console.log(`[prepare-lanproxy] ✓ ${destPath}`);
+        return;
+      }
+    }
+    console.error(`[prepare-lanproxy] 源文件不存在: ${srcPath}`);
+    console.error(`[prepare-lanproxy] 请确保 Tauri binaries 目录包含当前平台的二进制`);
+    process.exit(1);
+  }
+
+  // 如果目标已存在且大小一致，跳过
+  if (fs.existsSync(destPath)) {
+    const srcStat = fs.statSync(srcPath);
+    const destStat = fs.statSync(destPath);
+    if (srcStat.size === destStat.size) {
+      console.log(`[prepare-lanproxy] ${key} → ${destName} (已是最新，跳过)`);
+      return;
+    }
+  }
+
+  // 复制
+  console.log(`[prepare-lanproxy] ${key} → ${srcName}`);
+  fs.mkdirSync(destBinDir, { recursive: true });
+  fs.copyFileSync(srcPath, destPath);
+  fs.chmodSync(destPath, 0o755);
+  console.log(`[prepare-lanproxy] ✓ ${destPath} (${(fs.statSync(destPath).size / 1024 / 1024).toFixed(1)} MB)`);
+}
+
+main();
