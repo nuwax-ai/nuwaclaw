@@ -274,15 +274,9 @@ export async function createAcpConnection(
   }
 
   // Build isolated environment (aligned with rcoder + engineManager pattern)
-  // 1. Sanitize process.env: keep system vars (PATH, HOME, etc.), strip all CLAUDE_*/ANTHROPIC_*/OPENAI_*
+  // 1. Start with getAppEnv() for complete isolation (node/npm/uv paths, no system PATH)
   // 2. Create isolated HOME/config dir so Claude Code uses empty config (not user's global ~/.claude/)
   // 3. Only inject model vars from ACP-provided config
-  const sanitizedEnv: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value === undefined) continue;
-    if (key.startsWith('CLAUDE_') || key.startsWith('ANTHROPIC_') || key.startsWith('OPENAI_')) continue;
-    sanitizedEnv[key] = value;
-  }
 
   // Create isolated HOME directory with empty .claude/ config
   // This prevents Claude Code from reading user's global ~/.claude/settings.json
@@ -290,16 +284,23 @@ export async function createAcpConnection(
   const isolatedHome = path.join(os.tmpdir(), `nuwax-agent-${runId}`);
   fs.mkdirSync(path.join(isolatedHome, '.claude'), { recursive: true });
 
+  // 获取应用隔离环境变量（包含隔离的 PATH、npm、uv 配置等）
+  const appEnv = getAppEnv();
+
+  // 构建最终环境变量：以 appEnv 为基础，添加 ACP 特定配置
   const env: Record<string, string> = {
-    ...sanitizedEnv,
-    ...getAppEnv(),
+    ...appEnv,  // 包含完全隔离的 PATH、NODE_PATH、npm/uv 配置等
 
     // Isolated HOME — Claude Code won't read user's global config
     HOME: isolatedHome,
     USERPROFILE: isolatedHome, // Windows
+
+    // XDG 目录（Unix/Linux 标准，Windows 上也设置以兼容可能的工具）
     XDG_CONFIG_HOME: path.join(isolatedHome, '.config'),
     XDG_DATA_HOME: path.join(isolatedHome, '.local', 'share'),
     XDG_CACHE_HOME: path.join(isolatedHome, '.cache'),
+
+    // 引擎配置目录
     CLAUDE_CONFIG_DIR: path.join(isolatedHome, '.claude'),
     NUWAXCODE_CONFIG_DIR: path.join(isolatedHome, '.nuwaxcode'),
 
