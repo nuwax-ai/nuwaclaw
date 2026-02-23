@@ -1,19 +1,15 @@
 export interface LanproxyConfig {
   enabled: boolean;
-  binPath: string;
   serverIp: string;
   serverPort: number;
-  clientKey: string;
-  localPort: number;
+  ssl: boolean;
 }
 
 export const defaultLanproxyConfig: LanproxyConfig = {
   enabled: false,
-  binPath: 'nuwax-lanproxy',
   serverIp: '127.0.0.1',
-  serverPort: 60003,
-  clientKey: 'test_key',
-  localPort: 60000,
+  serverPort: 60002,
+  ssl: true,
 };
 
 export interface LanproxyStatus {
@@ -58,19 +54,23 @@ class LanproxyManager {
     }
   }
 
-  // Start lanproxy via IPC
+  // Start lanproxy via IPC — clientKey 从 auth.saved_key 读取，不由 LanproxyManager 管理
   async start(): Promise<{ success: boolean; error?: string }> {
     if (this.status.running) {
       return { success: true };
     }
 
     try {
+      // clientKey 始终从 auth.saved_key 读取（参考 Tauri 客户端）
+      const clientKey = await window.electronAPI?.settings.get('auth.saved_key') as string | null;
+      if (!clientKey) {
+        return { success: false, error: '请先登录以获取客户端密钥' };
+      }
       const result = await window.electronAPI?.lanproxy.start({
-        binPath: this.config.binPath,
         serverIp: this.config.serverIp,
         serverPort: this.config.serverPort,
-        clientKey: this.config.clientKey,
-        localPort: this.config.localPort,
+        clientKey,
+        ssl: this.config.ssl,
       });
 
       if (result?.success) {

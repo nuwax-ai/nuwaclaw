@@ -44,6 +44,7 @@ import {
   logout,
   getCurrentAuth,
   getAuthErrorMessage,
+  syncConfigToServer,
 } from '../services/auth';
 
 // ======================== Types ========================
@@ -139,6 +140,32 @@ function ClientPage({ onNavigate }: ClientPageProps) {
       });
       setLoginPassword('');
       await loadAuth();
+      // 标记服务已由登录流程启动，防止 App.tsx 自动重连再次启动
+      await window.electronAPI?.settings.set('_services_started_by_login', true);
+      // 登录成功后自动启动所有服务（不依赖 services 状态，直接按顺序启动）
+      const startOrder = ['agent', 'fileServer', 'lanproxy', 'mcpProxy'];
+      let agentFailed = false;
+      for (const key of startOrder) {
+        // 如果 agent 启动失败，跳过 lanproxy（无 agent 时隧道无意义）
+        if (key === 'lanproxy' && agentFailed) {
+          console.warn('[ClientPage] Agent 启动失败，跳过 lanproxy');
+          continue;
+        }
+        try {
+          await handleStartService(key, true);
+        } catch (e) {
+          console.error(`自动启动 ${key} 失败:`, e);
+          if (key === 'agent') agentFailed = true;
+        }
+      }
+      await pollServices();
+      // 服务启动后重新调用 reg 接口，通知后端最新的端口配置
+      try {
+        await syncConfigToServer({ suppressToast: true });
+        console.log('[ClientPage] 登录后服务启动，reg 同步成功');
+      } catch (e) {
+        console.error('[ClientPage] 登录后 reg 同步失败:', e);
+      }
     } catch (error: any) {
       const errorMsg = getAuthErrorMessage(error);
       message.error(errorMsg);
@@ -151,12 +178,25 @@ function ClientPage({ onNavigate }: ClientPageProps) {
   const handleLogout = async () => {
     Modal.confirm({
       title: '确认退出登录',
-      content: '退出后需要重新登录才能使用在线功能。',
+      content: '退出后将停止所有运行中的服务，需要重新登录才能使用在线功能。',
       okText: '退出',
       cancelText: '取消',
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
+          // 先停止所有运行中的服务
+          const running = services.filter((s) => s.running);
+          for (const svc of running) {
+            try {
+              if (svc.key === 'agent') await window.electronAPI?.agent.destroy();
+              else if (svc.key === 'fileServer') await window.electronAPI?.fileServer.stop();
+              else if (svc.key === 'lanproxy') await window.electronAPI?.lanproxy.stop();
+              else if (svc.key === 'mcpProxy') await window.electronAPI?.mcp.stop();
+            } catch (e) {
+              console.error(`停止 ${svc.label} 失败:`, e);
+            }
+          }
+
           await logout();
           setAuthState({ isLoggedIn: false, username: null, domain: null });
         } catch {
@@ -229,16 +269,6 @@ function ClientPage({ onNavigate }: ClientPageProps) {
         running: agentStatus?.running ?? false,
       });
 
-      // Agent Runner
-      const arStatus = await window.electronAPI?.agentRunner.status();
-      items.push({
-        key: 'agentRunner',
-        label: 'Agent Runner',
-        description: 'Agent Runner 代理服务',
-        running: arStatus?.running ?? false,
-        pid: arStatus?.pid,
-      });
-
       // MCP Proxy
       const mcpStatus = await window.electronAPI?.mcp.status();
       items.push({
@@ -257,7 +287,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
     }
   }, []);
 
-  const handleStartService = async (key: string) => {
+  const handleStartService = async (key: string, silent = false) => {
     try {
       let result: { success: boolean; error?: string } | undefined;
 
@@ -277,24 +307,41 @@ function ClientPage({ onNavigate }: ClientPageProps) {
         const step1 = await window.electronAPI?.settings.get('step1_config') as { fileServerPort?: number } | null;
         result = await window.electronAPI?.fileServer.start(step1?.fileServerPort ?? 60000);
       } else if (key === 'lanproxy') {
-        message.info('请在设置中配置代理服务参数后启动');
-        await pollServices();
-        return;
-      } else if (key === 'agentRunner') {
-        message.info('请在设置中配置 Agent Runner 参数后启动');
-        await pollServices();
-        return;
+        // clientKey 始终从 auth.saved_key 读取（参考 Tauri 客户端，持久化不可编辑）
+        const clientKey = await window.electronAPI?.settings.get('auth.saved_key') as string | null;
+        // serverIp/serverPort/ssl 优先从 lanproxy_config 读取（用户可在 LanproxySettings 中修改）
+        const lpConfig = await window.electronAPI?.settings.get('lanproxy_config') as {
+          serverIp?: string;
+          serverPort?: number;
+          ssl?: boolean;
+        } | null;
+        // 回退到 auth 存储的值
+        const serverIp = lpConfig?.serverIp
+          || ((await window.electronAPI?.settings.get('lanproxy.server_host') as string | null)?.replace(/^https?:\/\//, ''));
+        const serverPort = lpConfig?.serverPort
+          || (await window.electronAPI?.settings.get('lanproxy.server_port') as number | null);
+        if (!serverIp || !clientKey || !serverPort) {
+          if (!silent) message.info('请先登录以获取代理服务配置');
+          await pollServices();
+          return;
+        }
+        result = await window.electronAPI?.lanproxy.start({
+          serverIp,
+          serverPort,
+          clientKey,
+          ssl: lpConfig?.ssl,
+        });
       } else if (key === 'mcpProxy') {
         result = await window.electronAPI?.mcp.start();
       }
 
       if (result?.success) {
-        message.success('服务启动成功');
+        if (!silent) message.success('服务启动成功');
       } else if (result) {
-        message.error(`启动失败: ${result.error || '未知错误'}`);
+        if (!silent) message.error(`启动失败: ${result.error || '未知错误'}`);
       }
     } catch (error) {
-      message.error(`启动失败: ${error}`);
+      if (!silent) message.error(`启动失败: ${error}`);
     }
     await pollServices();
   };
@@ -304,7 +351,6 @@ function ClientPage({ onNavigate }: ClientPageProps) {
       if (key === 'agent') await window.electronAPI?.agent.destroy();
       else if (key === 'fileServer') await window.electronAPI?.fileServer.stop();
       else if (key === 'lanproxy') await window.electronAPI?.lanproxy.stop();
-      else if (key === 'agentRunner') await window.electronAPI?.agentRunner.stop();
       else if (key === 'mcpProxy') await window.electronAPI?.mcp.stop();
       message.success('服务已停止');
     } catch (error) {
@@ -321,9 +367,8 @@ function ClientPage({ onNavigate }: ClientPageProps) {
 
     setBatchLoading(true);
     try {
-      // 按顺序启动: File Server → MCP Proxy → Agent
-      // Lanproxy / Agent Runner 需要额外配置，不自动启动
-      const startOrder = ['fileServer', 'mcpProxy', 'agent'];
+      // 按顺序启动: Agent → File Server → Lanproxy → MCP Proxy（与 Tauri 客户端一致）
+      const startOrder = ['agent', 'fileServer', 'lanproxy', 'mcpProxy'];
       let startedCount = 0;
 
       for (const key of startOrder) {
@@ -336,6 +381,14 @@ function ClientPage({ onNavigate }: ClientPageProps) {
 
       if (startedCount === 0) {
         message.info('所有可自动启动的服务已在运行');
+      } else {
+        // 有服务启动后重新调用 reg 接口，通知后端最新的端口配置
+        try {
+          await syncConfigToServer({ suppressToast: true });
+          console.log('[ClientPage] 全部启动后 reg 同步成功');
+        } catch (e) {
+          console.error('[ClientPage] 全部启动后 reg 同步失败:', e);
+        }
       }
     } finally {
       setBatchLoading(false);
@@ -352,7 +405,6 @@ function ClientPage({ onNavigate }: ClientPageProps) {
           if (svc.key === 'agent') await window.electronAPI?.agent.destroy();
           else if (svc.key === 'fileServer') await window.electronAPI?.fileServer.stop();
           else if (svc.key === 'lanproxy') await window.electronAPI?.lanproxy.stop();
-          else if (svc.key === 'agentRunner') await window.electronAPI?.agentRunner.stop();
           else if (svc.key === 'mcpProxy') await window.electronAPI?.mcp.stop();
         } catch (error) {
           console.error(`停止 ${svc.label} 失败:`, error);

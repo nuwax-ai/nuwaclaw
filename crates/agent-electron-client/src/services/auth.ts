@@ -122,6 +122,17 @@ async function setOnlineStatus(value: boolean): Promise<void> {
 async function saveServerConfig(serverHost: string, serverPort: number): Promise<void> {
   await settingsSet(AUTH_KEYS.LANPROXY_SERVER_HOST, serverHost);
   await settingsSet(AUTH_KEYS.LANPROXY_SERVER_PORT, serverPort);
+
+  // 同步到 lanproxy_config（LanproxySettings 可编辑的配置）
+  // clientKey 不存入 lanproxy_config，始终从 auth.saved_key 读取（参考 Tauri 客户端）
+  const existing = await settingsGet<Record<string, unknown>>('lanproxy_config');
+  await settingsSet('lanproxy_config', {
+    ...existing,
+    serverIp: serverHost.replace(/^https?:\/\//, ''),
+    serverPort,
+    enabled: true,
+  });
+
   console.log('[Auth] lanproxy 服务器配置已保存:', { serverHost, serverPort });
 }
 
@@ -145,7 +156,7 @@ async function getLocalSandboxValue(): Promise<SandboxValue> {
   return {
     hostWithScheme: 'http://127.0.0.1',
     agentPort: step1Config?.agentPort ?? 60001,
-    vncPort: 0,
+    vncPort: 0, // vncPort 未启用
     fileServerPort: step1Config?.fileServerPort ?? 60000,
     apiKey: '',
     maxUsers: 1,
@@ -371,7 +382,6 @@ export async function syncConfigToServer(options?: {
   const suppressToast = options?.suppressToast === true;
   const username = await getUsername();
   const password = await getPassword();
-  const configKey = await getConfigKey();
 
   const step1Config = await window.electronAPI?.settings.get('step1_config') as {
     serverHost?: string;
@@ -383,10 +393,13 @@ export async function syncConfigToServer(options?: {
     return null;
   }
 
+  // 使用持久化的 savedKey（参考 Tauri 客户端：退出登录不清除，跨会话持久化）
+  const savedKey = await getSavedKey(domain, username);
+
   const params: ClientRegisterParams = {
     username,
     password,
-    savedKey: configKey || undefined,
+    savedKey: savedKey || undefined,
     sandboxConfigValue: await getLocalSandboxValue(),
   };
 
@@ -408,6 +421,11 @@ export async function syncConfigToServer(options?: {
     await setConfigKey(response.configKey);
     await setSavedKey(response.configKey, domain, username);
     await setOnlineStatus(response.online);
+
+    // 保存 lanproxy 服务器配置（参考 Tauri 客户端，与 loginAndRegister 逻辑一致）
+    if (response.serverHost && response.serverPort) {
+      await saveServerConfig(response.serverHost, response.serverPort);
+    }
 
     const currentUserInfo = await getUserInfo();
     await setUserInfo({

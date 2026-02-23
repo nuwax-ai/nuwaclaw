@@ -103,6 +103,14 @@ function App() {
         return;
       }
 
+      // 如果 ClientPage handleLogin 已经启动了服务，跳过自动重连
+      const loginStarted = await window.electronAPI?.settings.get('_services_started_by_login');
+      if (loginStarted) {
+        await window.electronAPI?.settings.set('_services_started_by_login', false);
+        console.log('[App] 服务已由登录流程启动，跳过自动重连');
+        return;
+      }
+
       try {
         const savedKey = await window.electronAPI?.settings.get('auth.saved_key');
         if (savedKey) {
@@ -115,6 +123,14 @@ function App() {
             const user = await authService.getAuthUser();
             if (user) {
               setUsername(user.displayName || user.username || '用户');
+            }
+            // 重启所有服务（对齐 Tauri services_restart_all）
+            try {
+              console.log('[App] 重启所有服务...');
+              const restartResult = await window.electronAPI?.services.restartAll();
+              console.log('[App] 服务重启结果:', restartResult);
+            } catch (e) {
+              console.error('[App] 服务重启失败:', e);
             }
           } else {
             console.warn('[App] 配置同步失败');

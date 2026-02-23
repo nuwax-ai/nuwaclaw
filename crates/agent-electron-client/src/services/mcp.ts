@@ -11,6 +11,7 @@ import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import log from 'electron-log';
+import { app } from 'electron';
 import { getAppEnv } from './dependencies';
 import { getAppPaths, isInstalledLocally } from './packageLocator';
 
@@ -121,11 +122,17 @@ class McpProxyManager {
 
     const configJson = JSON.stringify(config);
 
+    // 日志目录（对齐 Tauri 客户端）
+    const appDataDir = path.join(app.getPath('home'), '.nuwax-agent');
+    const mcpLogDir = path.join(appDataDir, 'logs', 'mcp');
+    try { fs.mkdirSync(mcpLogDir, { recursive: true }); } catch { /* ignore */ }
+
     const args = [
       'proxy',
       '--port', String(port),
       '--host', host,
       '--config', configJson,
+      '--log-dir', mcpLogDir,
     ];
 
     log.info(`[McpProxy] 启动: ${binPath} ${args.join(' ')}`);

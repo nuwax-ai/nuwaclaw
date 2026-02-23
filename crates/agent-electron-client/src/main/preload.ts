@@ -59,7 +59,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Lanproxy management (via IPC to main process)
   lanproxy: {
-    start: (config: { binPath: string; serverIp: string; serverPort: number; clientKey: string; localPort: number }) =>
+    start: (config: { serverIp: string; serverPort: number; clientKey: string; ssl?: boolean }) =>
       ipcRenderer.invoke('lanproxy:start', config),
     stop: () =>
       ipcRenderer.invoke('lanproxy:stop'),
@@ -209,6 +209,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     offProgress: (callback: any) => {
       ipcRenderer.removeListener('computer:progress', callback);
     },
+  },
+
+  // Services (对齐 Tauri services_restart_all)
+  services: {
+    restartAll: () => ipcRenderer.invoke('services:restartAll'),
   },
 
   // Dependency management

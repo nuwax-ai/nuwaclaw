@@ -24,6 +24,22 @@ import { getAppEnv } from './dependencies';
 
 // ==================== Types ====================
 
+/** ACP MCP Server types (matching @agentclientprotocol/sdk schema) */
+export interface AcpEnvVariable {
+  name: string;
+  value: string;
+}
+
+export interface AcpHttpHeader {
+  name: string;
+  value: string;
+}
+
+export type AcpMcpServer =
+  | { name: string; command: string; args: string[]; env: AcpEnvVariable[] }
+  | { name: string; url: string; headers: AcpHttpHeader[]; type: 'http' }
+  | { name: string; url: string; headers: AcpHttpHeader[]; type: 'sse' };
+
 /** ACP SDK module shape (loaded dynamically since it's ESM) */
 export interface AcpSdkModule {
   ndJsonStream: (
@@ -45,11 +61,8 @@ export interface AcpClientSideConnection {
   }): Promise<{ protocolVersion: string; agentCapabilities?: Record<string, unknown> }>;
 
   newSession(params: {
-    cwd?: string;
-    mcpServers?: Array<{ name: string; command: string; args: string[]; env?: Record<string, string> }>;
-    systemPrompt?: string;
-    permissionMode?: string;
-    model?: string;
+    cwd: string;
+    mcpServers: Array<AcpMcpServer>;
   }): Promise<{ sessionId: string }>;
 
   prompt(params: {

@@ -26,6 +26,8 @@ import {
   type AcpSessionInfoUpdate,
   type AcpPermissionRequest,
   type AcpPermissionResponse,
+  type AcpMcpServer,
+  type AcpEnvVariable,
 } from './acpClient';
 import {
   createOpencode,
@@ -48,6 +50,17 @@ import type {
   FileDiff,
   Permission,
 } from '@nuwax-ai/sdk';
+
+// ==================== Helpers ====================
+
+/** Safe JSON.stringify that handles circular references */
+function safeStringify(obj: unknown): string {
+  try {
+    return JSON.stringify(obj);
+  } catch {
+    return String(obj);
+  }
+}
 
 // ==================== Types ====================
 
@@ -666,11 +679,11 @@ export interface ComputerChatResponse {
   request_id?: string;
 }
 
-// 对应 rcoder UnifiedSessionMessage（进度事件）
+// 对应 rcoder ProgressMessage（进度事件，snake_case 字段名）
 export interface UnifiedSessionMessage {
-  sessionId: string;
-  messageType: 'SessionPromptStart' | 'SessionPromptEnd' | 'AgentSessionUpdate' | 'Heartbeat';
-  subType: string;
+  session_id: string;
+  message_type: 'SessionPromptStart' | 'SessionPromptEnd' | 'AgentSessionUpdate' | 'Heartbeat';
+  sub_type: string;
   data: unknown;
   timestamp: string;
 }
@@ -847,27 +860,35 @@ export class AcpEngine extends EventEmitter {
 
     const localId = `acp-${++_acpSessionCounter}-${Date.now()}`;
 
-    // Build mcpServers array for ACP
-    const mcpServers: Array<{ name: string; command: string; args: string[]; env?: Record<string, string> }> = [];
+    // Build mcpServers array for ACP (McpServerStdio format)
+    // ACP schema requires env as Array<{name, value}>, not Record<string, string>
+    const mcpServers: AcpMcpServer[] = [];
     if (this.config.mcpServers) {
       for (const [name, srv] of Object.entries(this.config.mcpServers)) {
+        const envVars: AcpEnvVariable[] = [];
+        if (srv.env) {
+          for (const [k, v] of Object.entries(srv.env)) {
+            envVars.push({ name: k, value: v });
+          }
+        }
         mcpServers.push({
           name,
           command: srv.command,
           args: srv.args,
-          env: srv.env,
+          env: envVars,
         });
       }
     }
 
     // Create ACP session
-    const acpResult = await this.acpConnection.newSession({
+    // Note: systemPrompt/permissionMode/model are NOT part of ACP NewSessionRequest schema;
+    // they are passed via env vars (ANTHROPIC_MODEL) or process-level config.
+    const newSessionParams = {
       cwd: this.config.workspaceDir,
-      mcpServers: mcpServers.length > 0 ? mcpServers : undefined,
-      systemPrompt: this.config.systemPrompt,
-      permissionMode: this.config.permissionMode,
-      model: this.config.model,
-    });
+      mcpServers,
+    };
+    log.info(`${this.logTag} newSession params:`, JSON.stringify(newSessionParams, null, 2));
+    const acpResult = await this.acpConnection.newSession(newSessionParams);
 
     const session: AcpSession = {
       id: localId,
@@ -1032,16 +1053,19 @@ export class AcpEngine extends EventEmitter {
       log.error(`${this.logTag} Prompt failed:`, error);
 
       // Emit rcoder-compatible prompt end event (error)
+      const errMsg = error instanceof Error
+        ? error.message
+        : (typeof error === 'object' && error !== null ? safeStringify(error) : String(error));
       this.emit('computer:promptEnd', {
         sessionId,
         acpSessionId: session.acpSessionId,
         reason: 'error',
-        description: error instanceof Error ? error.message : String(error),
+        description: errMsg,
       });
 
       this.emit('session.error', {
         sessionId,
-        error: error instanceof Error ? error.message : String(error),
+        error: errMsg,
       });
     } finally {
       this.activePromptSessions.delete(sessionId);
@@ -1158,11 +1182,14 @@ export class AcpEngine extends EventEmitter {
       };
     } catch (error) {
       log.error(`${this.logTag} chat() failed:`, error);
+      const errorMsg = error instanceof Error
+        ? error.message
+        : (typeof error === 'object' && error !== null ? safeStringify(error) : String(error));
       return {
         success: false,
         project_id: request.project_id || '',
         session_id: '',
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMsg,
       };
     }
   }
@@ -1234,13 +1261,14 @@ export class AcpEngine extends EventEmitter {
     if (session) session.lastActivity = Date.now();
 
     // Emit rcoder-compatible computer:progress event for all updates
+    // 字段名使用 snake_case 对齐 rcoder ProgressMessage 格式
     this.emit('computer:progress', {
-      sessionId,
-      messageType: 'AgentSessionUpdate',
-      subType: update.sessionUpdate,
+      session_id: sessionId,
+      message_type: 'AgentSessionUpdate',
+      sub_type: update.sessionUpdate,
       data: update,
       timestamp: new Date().toISOString(),
-    } as UnifiedSessionMessage);
+    });
 
     switch (update.sessionUpdate) {
       case 'agent_message_chunk': {

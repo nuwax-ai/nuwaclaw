@@ -48,7 +48,7 @@ export interface MCPAPI {
 }
 
 export interface LanproxyAPI {
-  start: (config: { binPath: string; serverIp: string; serverPort: number; clientKey: string; localPort: number }) => Promise<{ success: boolean; error?: string }>;
+  start: (config: { serverIp: string; serverPort: number; clientKey: string; ssl?: boolean }) => Promise<{ success: boolean; error?: string }>;
   stop: () => Promise<{ success: boolean; error?: string }>;
   status: () => Promise<{ running: boolean; pid?: number }>;
 }
@@ -298,9 +298,9 @@ export interface ComputerChatResponse {
 }
 
 export interface UnifiedSessionMessage {
-  sessionId: string;
-  messageType: 'SessionPromptStart' | 'SessionPromptEnd' | 'AgentSessionUpdate' | 'Heartbeat';
-  subType: string;
+  session_id: string;
+  message_type: 'SessionPromptStart' | 'SessionPromptEnd' | 'AgentSessionUpdate' | 'Heartbeat';
+  sub_type: string;
   data: unknown;
   timestamp: string;
 }
@@ -313,6 +313,10 @@ export interface ComputerAPI {
   health(): Promise<{ status: string; engineType?: string | null; timestamp: string }>;
   onProgress(callback: (event: unknown, data: UnifiedSessionMessage) => void): void;
   offProgress(callback: (event: unknown, data: UnifiedSessionMessage) => void): void;
+}
+
+export interface ServicesAPI {
+  restartAll: () => Promise<{ success: boolean; results?: Record<string, { success: boolean; error?: string }> }>;
 }
 
 export interface MirrorPresets {
@@ -364,6 +368,7 @@ export interface ElectronAPI {
   engine: EngineAPI;
   agent: AgentAPI;
   computer: ComputerAPI;
+  services: ServicesAPI;
   autolaunch: AutolaunchAPI;
   log: LogAPI;
   app: AppAPI;

@@ -126,6 +126,12 @@ export function getUvBinPath(): string {
   return path.join(getResourcesPath(), 'uv', 'bin', uvName);
 }
 
+// 获取 bundled nuwax-lanproxy 二进制路径
+export function getLanproxyBinPath(): string {
+  const binName = process.platform === 'win32' ? 'nuwax-lanproxy.exe' : 'nuwax-lanproxy';
+  return path.join(getResourcesPath(), 'lanproxy', 'bin', binName);
+}
+
 /**
  * 构建注入应用内依赖的环境变量
  *
@@ -673,6 +679,7 @@ export default {
   getAppNodeModules,
   getResourcesPath,
   getUvBinPath,
+  getLanproxyBinPath,
   getAppEnv,
   setMirrorConfig,
   getMirrorConfig,

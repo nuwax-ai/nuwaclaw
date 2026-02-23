@@ -5,7 +5,8 @@ import { spawn, ChildProcess } from 'child_process';
 import log from 'electron-log';
 import Database from 'better-sqlite3';
 import { agentService } from '../services/unifiedAgent';
-import type { AgentConfig, ComputerChatRequest } from '../services/unifiedAgent';
+import type { AgentConfig, ComputerChatRequest, UnifiedSessionMessage } from '../services/unifiedAgent';
+import { startComputerServer, stopComputerServer, pushSseEvent } from '../services/computerServer';
 import { mcpProxyManager, DEFAULT_MCP_PROXY_CONFIG, DEFAULT_MCP_PROXY_PORT } from '../services/mcp';
 import type { McpServersConfig } from '../services/mcp';
 
@@ -218,17 +219,22 @@ function createTray() {
 // IPC Handlers
 function setupIpcHandlers() {
   // 应用内依赖环境变量 — 所有 spawn 调用共用
-  const { getAppEnv, setMirrorConfig, getMirrorConfig, MIRROR_PRESETS } = require('../services/dependencies');
+  const { getAppEnv, getLanproxyBinPath, setMirrorConfig, getMirrorConfig, MIRROR_PRESETS } = require('../services/dependencies');
+
+  // Helper: 从 SQLite 读取设置项（JSON 自动解析）
+  const readSetting = (key: string): unknown => {
+    const row = db?.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+    if (!row?.value) return null;
+    try { return JSON.parse(row.value); } catch { return row.value; }
+  };
 
   // 从 SQLite 恢复镜像配置
-  if (db) {
+  const mirrorConfig = readSetting('mirror_config');
+  if (mirrorConfig) {
     try {
-      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('mirror_config') as { value: string } | undefined;
-      if (row) {
-        setMirrorConfig(JSON.parse(row.value));
-      }
+      setMirrorConfig(mirrorConfig);
     } catch (e) {
-      log.warn('[Mirror] Failed to load mirror config from DB:', e);
+      log.warn('[Mirror] Failed to apply mirror config:', e);
     }
   }
 
@@ -402,56 +408,22 @@ function setupIpcHandlers() {
 
   // Lanproxy handlers - Start
   ipcMain.handle('lanproxy:start', async (_, config: {
-    binPath: string;
     serverIp: string;
     serverPort: number;
     clientKey: string;
-    localPort: number;
+    ssl?: boolean;
   }) => {
-    if (lanproxyProcess) {
-      return { success: true, message: 'Already running' };
-    }
-
+    const result = startLanproxyProcess(config);
+    if (!result.success) return result;
+    // Wait for process to stabilize
     return new Promise((resolve) => {
-      try {
-        const args = [
-          '-s', config.serverIp,
-          '-p', String(config.serverPort),
-          '-k', config.clientKey,
-          '-l', String(config.localPort),
-        ];
-
-        log.info('Starting lanproxy:', config.binPath, args.join(' '));
-
-        lanproxyProcess = spawn(config.binPath, args, {
-          shell: true,
-        windowsHide: true,
-          env: { ...process.env, ...getAppEnv() },
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-
-        lanproxyProcess.on('error', (error) => {
-          log.error('Lanproxy error:', error);
-          lanproxyProcess = null;
-          resolve({ success: false, error: error.message });
-        });
-
-        lanproxyProcess.on('exit', (code) => {
-          log.info(`Lanproxy exited with code ${code}`);
-          lanproxyProcess = null;
-        });
-
-        // Check if it's running after a short delay
-        setTimeout(() => {
-          if (lanproxyProcess) {
-            resolve({ success: true });
-          } else {
-            resolve({ success: false, error: '进程启动后立即退出' });
-          }
-        }, 1000);
-      } catch (error) {
-        resolve({ success: false, error: String(error) });
-      }
+      setTimeout(() => {
+        if (lanproxyProcess) {
+          resolve({ success: true });
+        } else {
+          resolve({ success: false, error: '进程启动后立即退出' });
+        }
+      }, 1000);
     });
   });
 
@@ -556,49 +528,116 @@ function setupIpcHandlers() {
 
   // Agent (nuwaxcode/claude-code) handlers — Legacy removed, using Unified Agent SDK below
 
-  // File Server handlers - Start
-  ipcMain.handle('fileServer:start', async (_, port: number = 60000) => {
+  // ==================== Helper: Start File Server ====================
+  const startFileServerProcess = (port: number): Promise<{ success: boolean; error?: string }> => {
     if (fileServerProcess) {
-      return { success: true, message: 'Already running' };
+      return Promise.resolve({ success: true, message: 'Already running' });
     }
-
     return new Promise((resolve) => {
       try {
-        // Try nuwax-file-server or fallback to a simple server
-        const serverCmd = 'nuwax-file-server';
-        const args = ['--port', String(port)];
-
-        log.info('Starting file server:', serverCmd, args.join(' '));
-
-        fileServerProcess = spawn(serverCmd, args, {
-          shell: true,
-        windowsHide: true,
-          env: { ...process.env, ...getAppEnv() },
+        const appDataDir = path.join(app.getPath('home'), '.nuwax-agent');
+        const serverJsPath = path.join(appDataDir, 'node_modules', 'nuwax-file-server', 'dist', 'server.js');
+        const step1Parsed = readSetting('step1_config') as { workspaceDir?: string } | null;
+        const baseWorkspace = step1Parsed?.workspaceDir || path.join(appDataDir, 'workspace');
+        const logsDir = path.join(appDataDir, 'logs');
+        const dirConfig = {
+          INIT_PROJECT_NAME: 'nuwax-template',
+          INIT_PROJECT_DIR: path.join(baseWorkspace, 'project_init'),
+          UPLOAD_PROJECT_DIR: path.join(baseWorkspace, 'project_zips'),
+          PROJECT_SOURCE_DIR: path.join(baseWorkspace, 'project_workspace'),
+          DIST_TARGET_DIR: path.join(baseWorkspace, 'project_nginx'),
+          COMPUTER_WORKSPACE_DIR: path.join(baseWorkspace, 'computer-project-workspace'),
+          LOG_BASE_DIR: path.join(logsDir, 'project_logs'),
+          COMPUTER_LOG_DIR: path.join(logsDir, 'computer_logs'),
+        };
+        for (const dir of Object.values(dirConfig)) {
+          if (dir && dir.includes(path.sep)) {
+            try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
+          }
+        }
+        log.info('Starting file server:', 'node', serverJsPath, `PORT=${port}`, dirConfig);
+        fileServerProcess = spawn(process.execPath, [serverJsPath], {
+          windowsHide: true,
+          env: {
+            ...process.env,
+            ...getAppEnv(),
+            ...dirConfig,
+            PORT: String(port),
+            NODE_ENV: 'production',
+            ELECTRON_RUN_AS_NODE: '1',
+          },
           stdio: ['ignore', 'pipe', 'pipe'],
         });
-
+        fileServerProcess.stdout?.on('data', (data: Buffer) => {
+          log.info('[FileServer]', data.toString().trim());
+        });
+        fileServerProcess.stderr?.on('data', (data: Buffer) => {
+          log.warn('[FileServer stderr]', data.toString().trim());
+        });
         fileServerProcess.on('error', (error) => {
           log.error('File server error:', error);
           fileServerProcess = null;
           resolve({ success: false, error: error.message });
         });
-
         fileServerProcess.on('exit', (code) => {
           log.info(`File server exited with code ${code}`);
           fileServerProcess = null;
         });
-
         setTimeout(() => {
           if (fileServerProcess) {
             resolve({ success: true });
           } else {
             resolve({ success: false, error: 'Failed to start' });
           }
-        }, 2000);
+        }, 3000);
       } catch (error) {
         resolve({ success: false, error: String(error) });
       }
     });
+  };
+
+  // ==================== Helper: Start Lanproxy ====================
+  const startLanproxyProcess = (config: {
+    serverIp: string; serverPort: number; clientKey: string; ssl?: boolean;
+  }): { success: boolean; error?: string } => {
+    if (lanproxyProcess) {
+      return { success: true };
+    }
+    const binPath = getLanproxyBinPath();
+    if (!fs.existsSync(binPath)) {
+      return { success: false, error: `二进制文件未找到: ${binPath}` };
+    }
+    const useSsl = config.ssl !== false;
+    const args = ['-s', config.serverIp, '-p', String(config.serverPort), '-k', config.clientKey, `--ssl=${useSsl}`];
+    const maskedKey = config.clientKey.length > 8
+      ? `${config.clientKey.slice(0, 4)}****${config.clientKey.slice(-4)}`
+      : '****';
+    log.info(`Starting lanproxy: ${binPath} -s ${config.serverIp} -p ${config.serverPort} -k ${maskedKey} --ssl=${useSsl}`);
+    try {
+      lanproxyProcess = spawn(binPath, args, {
+        windowsHide: true,
+        env: { ...process.env, ...getAppEnv() },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      lanproxyProcess.on('error', (error) => {
+        log.error('Lanproxy error:', error);
+        lanproxyProcess = null;
+      });
+      lanproxyProcess.on('exit', (code) => {
+        log.info('Lanproxy exited with code', code);
+        lanproxyProcess = null;
+      });
+      return { success: true };
+    } catch (error) {
+      log.error('Lanproxy spawn failed:', error);
+      lanproxyProcess = null;
+      return { success: false, error: `启动失败: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  };
+
+  // File Server handlers - Start
+  ipcMain.handle('fileServer:start', async (_, port: number = 60000) => {
+    return startFileServerProcess(port);
   });
 
   // File Server handlers - Stop
@@ -635,6 +674,17 @@ function setupIpcHandlers() {
         }
       }
       const ok = await agentService.init(finalConfig);
+
+      // 启动 Computer HTTP Server（对齐 rcoder，让 Java 后端通过 lanproxy 访问 /computer/* API）
+      const step1Config = readSetting('step1_config') as { agentPort?: number } | null;
+      const agentPort = step1Config?.agentPort ?? 60001;
+      const serverResult = await startComputerServer(agentPort);
+      if (serverResult.success) {
+        log.info(`[IPC] Computer HTTP server started on port ${agentPort}`);
+      } else {
+        log.warn(`[IPC] Computer HTTP server failed: ${serverResult.error}`);
+      }
+
       return {
         success: ok,
         engineType: agentService.getEngineType(),
@@ -657,6 +707,7 @@ function setupIpcHandlers() {
   ipcMain.handle('agent:destroy', async () => {
     try {
       await agentService.destroy();
+      await stopComputerServer();
       return { success: true };
     } catch (error) {
       return { success: false, error: String(error) };
@@ -1072,30 +1123,123 @@ function setupIpcHandlers() {
     };
   });
 
-  // ==================== computer:* Event Forwarding (rcoder format) ====================
+  // ==================== computer:* Event Forwarding (rcoder ProgressMessage format, snake_case) ====================
 
   agentService.on('computer:progress', (data: unknown) => {
     mainWindow?.webContents.send('computer:progress', data);
+    // 同时推送到 HTTP SSE 客户端
+    const d = data as UnifiedSessionMessage;
+    if (d?.session_id) pushSseEvent(d.session_id, 'message', d);
   });
 
   agentService.on('computer:promptStart', (data: { sessionId: string; requestId?: string }) => {
-    mainWindow?.webContents.send('computer:progress', {
-      sessionId: data.sessionId,
-      messageType: 'SessionPromptStart',
-      subType: 'prompt_start',
+    const event = {
+      session_id: data.sessionId,
+      message_type: 'SessionPromptStart',
+      sub_type: 'prompt_start',
       data: { request_id: data.requestId },
       timestamp: new Date().toISOString(),
-    });
+    };
+    mainWindow?.webContents.send('computer:progress', event);
+    pushSseEvent(data.sessionId, 'message', event);
   });
 
   agentService.on('computer:promptEnd', (data: { sessionId: string; reason?: string; description?: string }) => {
-    mainWindow?.webContents.send('computer:progress', {
-      sessionId: data.sessionId,
-      messageType: 'SessionPromptEnd',
-      subType: data.reason || 'end_turn',
+    const event = {
+      session_id: data.sessionId,
+      message_type: 'SessionPromptEnd',
+      sub_type: data.reason || 'end_turn',
       data: { reason: data.reason, description: data.description },
       timestamp: new Date().toISOString(),
-    });
+    };
+    mainWindow?.webContents.send('computer:progress', event);
+    pushSseEvent(data.sessionId, 'message', event);
+  });
+
+  // ==================== services:restartAll (对齐 Tauri services_restart_all) ====================
+
+  ipcMain.handle('services:restartAll', async () => {
+    log.info('[Services] Restarting all services...');
+    const results: Record<string, { success: boolean; error?: string }> = {};
+
+    // 1. Stop existing services first
+    try {
+      await agentService.destroy();
+      await stopComputerServer();
+    } catch (e) { log.warn('[Services] Agent destroy error (ignored):', e); }
+    if (fileServerProcess) { fileServerProcess.kill(); fileServerProcess = null; }
+    if (lanproxyProcess) { lanproxyProcess.kill(); lanproxyProcess = null; }
+    mcpProxyManager.stop();
+
+    // 2. Start Agent + Computer HTTP Server
+    try {
+      const agentConfig = readSetting('agent_config') as any || {};
+      const step1Config = readSetting('step1_config') as any || {};
+      let finalConfig: AgentConfig = {
+        engine: agentConfig.type || 'claude-code',
+        apiKey: agentConfig.apiKey,
+        baseUrl: agentConfig.apiBaseUrl,
+        model: agentConfig.model,
+        workspaceDir: step1Config.workspaceDir || '',
+        port: agentConfig.backendPort || undefined,
+        engineBinaryPath: agentConfig.binPath || undefined,
+      };
+      const mcpConfig = mcpProxyManager.getAgentMcpConfig();
+      if (mcpConfig) finalConfig = { ...finalConfig, mcpServers: mcpConfig };
+      const ok = await agentService.init(finalConfig);
+      await startComputerServer(step1Config.agentPort ?? 60001);
+      results.agent = { success: ok };
+      log.info('[Services] Agent started');
+    } catch (e) {
+      results.agent = { success: false, error: String(e) };
+      log.error('[Services] Agent start failed:', e);
+    }
+
+    // 3. Start File Server (uses extracted helper)
+    try {
+      const step1Config = readSetting('step1_config') as any || {};
+      results.fileServer = await startFileServerProcess(step1Config.fileServerPort ?? 60000);
+      log.info('[Services] FileServer started:', results.fileServer);
+    } catch (e) {
+      results.fileServer = { success: false, error: String(e) };
+      log.error('[Services] FileServer start failed:', e);
+    }
+
+    // 4. Start Lanproxy (uses extracted helper)
+    try {
+      const clientKey = readSetting('auth.saved_key') as string | null;
+      const lpConfig = readSetting('lanproxy_config') as any || {};
+      const serverHost = readSetting('lanproxy.server_host') as string | null;
+      const serverPortStored = readSetting('lanproxy.server_port') as number | null;
+      const serverIp = lpConfig.serverIp || serverHost?.replace(/^https?:\/\//, '');
+      const serverPort = lpConfig.serverPort || serverPortStored;
+
+      if (serverIp && clientKey && serverPort) {
+        results.lanproxy = startLanproxyProcess({
+          serverIp, serverPort, clientKey, ssl: lpConfig.ssl,
+        });
+        log.info('[Services] Lanproxy started');
+      } else {
+        results.lanproxy = { success: false, error: '缺少 lanproxy 配置' };
+        log.warn('[Services] Lanproxy skipped (missing config)');
+      }
+    } catch (e) {
+      results.lanproxy = { success: false, error: String(e) };
+      log.error('[Services] Lanproxy start failed:', e);
+    }
+
+    // 5. Start MCP Proxy
+    try {
+      await mcpProxyManager.start();
+      results.mcpProxy = { success: true };
+      log.info('[Services] MCP Proxy started');
+    } catch (e) {
+      results.mcpProxy = { success: false, error: String(e) };
+      log.error('[Services] MCP Proxy start failed:', e);
+    }
+
+    log.info('[Services] All services restart complete:', results);
+    return { success: true, results };
   });
 
   // ==================== Autolaunch handlers ====================
@@ -1498,6 +1642,11 @@ app.on('activate', () => {
 // Stop all child processes before quit
 function cleanupAllProcesses(): void {
   log.info('[Cleanup] Stopping all processes...');
+
+  // Stop Computer HTTP Server
+  stopComputerServer().catch((e) => {
+    log.error('[Cleanup] Computer server stop error:', e);
+  });
 
   // Stop Unified Agent Service
   agentService.destroy().catch((e) => {

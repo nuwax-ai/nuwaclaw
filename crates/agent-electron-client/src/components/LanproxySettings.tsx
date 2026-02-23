@@ -6,22 +6,36 @@ interface LanproxySettingsProps {
   onClose: () => void;
 }
 
+function maskKey(key: string): string {
+  if (key.length > 8) {
+    return `${key.slice(0, 4)}****${key.slice(-4)}`;
+  }
+  return key ? '****' : '(未登录)';
+}
+
 function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
   const [config, setConfig] = useState<LanproxyConfig>(lanproxyManager.getConfig());
   const [status, setStatus] = useState<LanproxyStatus>({ running: false });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [maskedClientKey, setMaskedClientKey] = useState('');
 
   useEffect(() => {
     if (isOpen) {
       loadConfig();
       checkStatus();
+      loadClientKey();
     }
   }, [isOpen]);
 
   const loadConfig = async () => {
     await lanproxyManager.loadConfig();
     setConfig(lanproxyManager.getConfig());
+  };
+
+  const loadClientKey = async () => {
+    const key = await window.electronAPI?.settings.get('auth.saved_key') as string | null;
+    setMaskedClientKey(maskKey(key || ''));
   };
 
   const checkStatus = async () => {
@@ -94,16 +108,6 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
         <div className="lanproxy-section">
           <h3>配置</h3>
 
-          <div className="form-group">
-            <label>可执行文件路径</label>
-            <input
-              type="text"
-              value={config.binPath}
-              onChange={(e) => setConfig({ ...config, binPath: e.target.value })}
-              placeholder="nuwax-lanproxy"
-            />
-          </div>
-
           <div className="form-row">
             <div className="form-group">
               <label>服务器 IP</label>
@@ -120,29 +124,31 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
                 type="number"
                 value={config.serverPort}
                 onChange={(e) => setConfig({ ...config, serverPort: parseInt(e.target.value) })}
-                placeholder="60003"
+                placeholder="60002"
               />
             </div>
           </div>
 
           <div className="form-row">
             <div className="form-group">
-              <label>客户端密钥</label>
+              <label>客户端密钥（登录后自动获取）</label>
               <input
                 type="text"
-                value={config.clientKey}
-                onChange={(e) => setConfig({ ...config, clientKey: e.target.value })}
-                placeholder="test_key"
+                value={maskedClientKey}
+                readOnly
+                disabled
+                style={{ opacity: 0.7, cursor: 'not-allowed' }}
               />
             </div>
             <div className="form-group">
-              <label>本地端口</label>
-              <input
-                type="number"
-                value={config.localPort}
-                onChange={(e) => setConfig({ ...config, localPort: parseInt(e.target.value) })}
-                placeholder="60000"
-              />
+              <label>SSL</label>
+              <select
+                value={config.ssl ? 'true' : 'false'}
+                onChange={(e) => setConfig({ ...config, ssl: e.target.value === 'true' })}
+              >
+                <option value="true">启用</option>
+                <option value="false">禁用</option>
+              </select>
             </div>
           </div>
         </div>
