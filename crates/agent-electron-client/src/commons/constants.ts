@@ -235,3 +235,40 @@ export const ACTION_MESSAGES = {
   allReady: '所有依赖已就绪',
   allInstalled: '已就绪',
 } as const;
+
+// ==================== 服务相关文案 ====================
+
+/** 服务显示名称 */
+export const SERVICE_NAMES = {
+  NuwaxFileServer: '文件服务',
+  NuwaxLanproxy: '代理服务',
+  Rcoder: 'Agent 服务',
+  McpProxy: 'MCP Proxy 服务',
+} as const;
+
+/** 服务描述 */
+export const SERVICE_DESCRIPTIONS = {
+  NuwaxFileServer: 'Agent 工作目录文件远程管理服务',
+  NuwaxLanproxy: '网络通道',
+  Rcoder: 'Agent 核心服务',
+  McpProxy: 'MCP 协议转换工具',
+} as const;
+
+/** Agent 状态配置 */
+export const AGENT_STATUS_CONFIG = {
+  idle: { status: 'default' as const, text: '就绪' },
+  starting: { status: 'warning' as const, text: '启动中' },
+  running: { status: 'success' as const, text: '运行中' },
+  busy: { status: 'success' as const, text: '繁忙' },
+  stopped: { status: 'default' as const, text: '已停止' },
+  error: { status: 'warning' as const, text: '错误' },
+} as const;
+
+/** 服务状态显示名称 */
+export const SERVICE_STATE_NAMES = {
+  Running: '运行中',
+  Stopped: '已停止',
+  Starting: '启动中',
+  Stopping: '停止中',
+  Error: '错误',
+} as const;

@@ -24,6 +24,7 @@ import {
   LinkOutlined,
 } from "@ant-design/icons";
 import type { LocalDependencyItem } from "../types/electron.d";
+import { ACTION_MESSAGES } from "@/commons/constants";
 
 interface SetupDependenciesProps {
   onComplete: () => void;
@@ -401,7 +402,7 @@ export default function SetupDependencies({
       installing: currentInstalling
         ? `正在安装 ${currentInstalling}...`
         : "正在安装依赖...",
-      completed: "所有依赖已就绪",
+      completed: ACTION_MESSAGES.allReady,
     };
 
     return (
@@ -421,7 +422,7 @@ export default function SetupDependencies({
             <Spin size="large" />
           )}
           <div style={{ fontSize: 14, fontWeight: 500 }}>
-            {phaseText[installPhase] || "启动中..."}
+            {phaseText[installPhase] || ACTION_MESSAGES.starting}
           </div>
           {installPhase === "installing" && (
             <div style={{ width: "100%", maxWidth: 300 }}>
