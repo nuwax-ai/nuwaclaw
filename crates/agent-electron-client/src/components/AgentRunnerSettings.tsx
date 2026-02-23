@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { agentRunnerManager, AgentRunnerConfig, AgentRunnerStatus } from '../services/renderer/agentRunner';
+import { DEFAULT_ANTHROPIC_API_URL } from '@/commons/constants';
 
 interface AgentRunnerSettingsProps {
   isOpen: boolean;
@@ -154,7 +155,7 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
               type="text"
               value={config.apiBaseUrl}
               onChange={(e) => setConfig({ ...config, apiBaseUrl: e.target.value })}
-              placeholder="https://api.anthropic.com"
+              placeholder={DEFAULT_ANTHROPIC_API_URL}
             />
           </div>
 

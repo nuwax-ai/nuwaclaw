@@ -20,8 +20,10 @@
  */
 
 import * as http from 'http';
+import { EventEmitter } from 'events';
 import log from 'electron-log';
 import { agentService } from './engines/unifiedAgent';
+import { LOCALHOST_HOSTNAME } from '@/commons/constants';
 import type {
   ComputerChatRequest,
   HttpResult,
@@ -102,7 +104,7 @@ function sendJson(res: http.ServerResponse, statusCode: number, data: unknown) {
 // ==================== Request Router ====================
 
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
-  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  const url = new URL(req.url || '/', `http://${req.headers.host || LOCALHOST_HOSTNAME}`);
   const pathname = url.pathname;
   const method = req.method?.toUpperCase() || 'GET';
 

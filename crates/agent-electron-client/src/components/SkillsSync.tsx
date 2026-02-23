@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { fileServerService } from '../services/renderer/fileServer';
+import { LOCAL_HOST_URL, DEFAULT_FILE_SERVER_PORT } from '@/commons/constants';
 
 interface SkillsSyncProps {
   isOpen: boolean;
@@ -7,7 +8,7 @@ interface SkillsSyncProps {
 }
 
 function SkillsSync({ isOpen, onClose }: SkillsSyncProps) {
-  const [baseUrl, setBaseUrl] = useState('http://localhost:60000');
+  const [baseUrl, setBaseUrl] = useState(`${LOCAL_HOST_URL}:${DEFAULT_FILE_SERVER_PORT}`);
   const [connected, setConnected] = useState(false);
   const [checking, setChecking] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -113,7 +114,7 @@ function SkillsSync({ isOpen, onClose }: SkillsSyncProps) {
                 type="text"
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="http://localhost:60000"
+                placeholder={`${LOCAL_HOST_URL}:${DEFAULT_FILE_SERVER_PORT}`}
               />
               <button
                 className={`check-btn ${checking ? 'checking' : ''}`}

@@ -6,6 +6,7 @@ import log from 'electron-log';
 import type { HandlerContext } from '../../types/ipc';
 import { readSetting } from '../db';
 import { ManagedProcess } from '../processManager';
+import { APP_DATA_DIR_NAME, DEFAULT_STARTUP_DELAY } from '@/commons/constants';
 
 export function registerProcessHandlers(ctx: HandlerContext): void {
   const { getAppEnv, getLanproxyBinPath } = require('../../services/main/system/dependencies');
@@ -15,7 +16,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     if (ctx.fileServer.running) {
       return Promise.resolve({ success: true, message: 'Already running' } as any);
     }
-    const appDataDir = path.join(app.getPath('home'), '.nuwax-agent');
+    const appDataDir = path.join(app.getPath('home'), APP_DATA_DIR_NAME);
     const serverJsPath = path.join(appDataDir, 'node_modules', 'nuwax-file-server', 'dist', 'server.js');
     const step1Parsed = readSetting('step1_config') as { workspaceDir?: string } | null;
     const baseWorkspace = step1Parsed?.workspaceDir || path.join(appDataDir, 'workspace');
@@ -46,7 +47,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
         NODE_ENV: 'production',
         ELECTRON_RUN_AS_NODE: '1',
       },
-      startupDelayMs: 3000,
+      startupDelayMs: DEFAULT_STARTUP_DELAY,
     });
   };
 

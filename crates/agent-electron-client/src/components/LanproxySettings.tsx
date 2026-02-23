@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { lanproxyManager, LanproxyConfig, LanproxyStatus } from '../services/renderer/lanproxy';
+import { LOCALHOST_IP, DEFAULT_LANPROXY_PORT } from '@/commons/constants';
 
 interface LanproxySettingsProps {
   isOpen: boolean;
@@ -115,7 +116,7 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
                 type="text"
                 value={config.serverIp}
                 onChange={(e) => setConfig({ ...config, serverIp: e.target.value })}
-                placeholder="127.0.0.1"
+                placeholder={LOCALHOST_IP}
               />
             </div>
             <div className="form-group">
@@ -124,7 +125,7 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
                 type="number"
                 value={config.serverPort}
                 onChange={(e) => setConfig({ ...config, serverPort: parseInt(e.target.value) })}
-                placeholder="60002"
+                placeholder={String(DEFAULT_LANPROXY_PORT)}
               />
             </div>
           </div>

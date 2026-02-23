@@ -5,6 +5,8 @@
  * 便于统一维护和修改
  */
 
+import type { AgentEngineType } from '../types/electron';
+
 // ==================== 端口配置 ====================
 
 /** MCP Proxy 默认端口 */
@@ -42,6 +44,9 @@ export const DEFAULT_ANTHROPIC_API_URL = 'https://api.anthropic.com';
 export const DEFAULT_SERVER_HOST = 'https://agent.nuwax.com';
 
 // ==================== AI 默认配置 ====================
+
+/** 默认 Agent 引擎类型 */
+export const DEFAULT_AI_ENGINE: AgentEngineType = 'claude-code';
 
 /** 默认 AI 模型 */
 export const DEFAULT_AI_MODEL = 'claude-sonnet-4-20250514';

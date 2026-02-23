@@ -1,3 +1,5 @@
+import { DEFAULT_SCHEDULER_MINUTE_INTERVAL } from '@/commons/constants';
+
 export interface ScheduledTask {
   id: string;
   name: string;
@@ -305,7 +307,7 @@ export const taskScheduler = new TaskScheduler();
 
 // Common preset schedules
 export const presetSchedules = {
-  everyMinute: { type: 'interval' as const, intervalMs: 60000 },
+  everyMinute: { type: 'interval' as const, intervalMs: DEFAULT_SCHEDULER_MINUTE_INTERVAL },
   everyHour: { type: 'interval' as const, intervalMs: 3600000 },
   everyDay: { type: 'interval' as const, intervalMs: 86400000 },
   everyWeek: { type: 'interval' as const, intervalMs: 604800000 },

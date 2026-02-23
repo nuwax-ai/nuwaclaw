@@ -18,6 +18,7 @@ import {
   StopOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
+import { DEFAULT_ANTHROPIC_API_URL, DEFAULT_AI_MODEL } from '@/commons/constants';
 import { aiService } from '../services/renderer/ai';
 
 const { Title, Text } = Typography;
@@ -32,8 +33,8 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
   const [binPath, setBinPath] = useState('claude');
   const [backendPort, setBackendPort] = useState(60001);
   const [apiKey, setApiKey] = useState('');
-  const [apiBaseUrl, setApiBaseUrl] = useState('https://api.anthropic.com');
-  const [model, setModel] = useState('claude-sonnet-4-20250514');
+  const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_ANTHROPIC_API_URL);
+  const [model, setModel] = useState(DEFAULT_AI_MODEL);
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -53,8 +54,8 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
         setBinPath(config.binPath || 'claude');
         setBackendPort(config.backendPort || 60001);
         setApiKey(config.apiKey || '');
-        setApiBaseUrl(config.apiBaseUrl || 'https://api.anthropic.com');
-        setModel(config.model || 'claude-sonnet-4-20250514');
+        setApiBaseUrl(config.apiBaseUrl || DEFAULT_ANTHROPIC_API_URL);
+        setModel(config.model || DEFAULT_AI_MODEL);
       }
     } catch (error) {
       console.error('加载配置失败:', error);
@@ -199,7 +200,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
             <Input
               value={apiBaseUrl}
               onChange={(e) => setApiBaseUrl(e.target.value)}
-              placeholder="https://api.anthropic.com"
+              placeholder={DEFAULT_ANTHROPIC_API_URL}
             />
           </Form.Item>
 

@@ -24,6 +24,11 @@ import type {
   ToolInfo,
   ProviderInfo,
 } from './unifiedAgent';
+import {
+  LOCALHOST_IP,
+  DEFAULT_SSE_RETRY_DELAY,
+  DEFAULT_SSE_MAX_RETRY_DELAY,
+} from '@/commons/constants';
 
 export class OpencodeEngine extends EventEmitter {
   private client: OpencodeClient | null = null;
@@ -51,7 +56,7 @@ export class OpencodeEngine extends EventEmitter {
         this.client = createOpencodeClient({ baseUrl: config.baseUrl });
       } else {
         const port = config.port || 60096;
-        const hostname = config.hostname || '127.0.0.1';
+        const hostname = config.hostname || LOCALHOST_IP;
         log.info(`[OpencodeEngine] Starting server on ${hostname}:${port}...`);
 
         const opencodeConfig: Record<string, unknown> = {};
@@ -125,8 +130,8 @@ export class OpencodeEngine extends EventEmitter {
         this.emit('error', error instanceof Error ? error : new Error(String(error)));
       },
       sseMaxRetryAttempts: undefined,
-      sseDefaultRetryDelay: 3000,
-      sseMaxRetryDelay: 30000,
+      sseDefaultRetryDelay: DEFAULT_SSE_RETRY_DELAY,
+      sseMaxRetryDelay: DEFAULT_SSE_MAX_RETRY_DELAY,
       signal: this.sseController.signal,
     } as any).catch((err: unknown) => {
       if (this.sseController?.signal.aborted) return;

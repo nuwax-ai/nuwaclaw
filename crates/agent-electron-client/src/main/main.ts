@@ -10,10 +10,11 @@ import { agentService } from '../services/main/engines/unifiedAgent';
 import { stopComputerServer } from '../services/main/computerServer';
 import { mcpProxyManager } from '../services/main/packages/mcp';
 import type { HandlerContext } from '../types/ipc';
+import { APP_DATA_DIR_NAME, LOGS_DIR_NAME, DEFAULT_DEV_SERVER_PORT } from '@/commons/constants';
 
 // Configure logging — 日志统一写入 ~/.nuwax-agent/logs/
-const nuwaxHome = path.join(app.getPath('home'), '.nuwax-agent');
-const logDir = path.join(nuwaxHome, 'logs');
+const nuwaxHome = path.join(app.getPath('home'), APP_DATA_DIR_NAME);
+const logDir = path.join(nuwaxHome, LOGS_DIR_NAME);
 if (!fs.existsSync(logDir)) {
   fs.mkdirSync(logDir, { recursive: true });
 }
@@ -54,7 +55,7 @@ function createWindow() {
 
   // Load the app
   if (isDev) {
-    mainWindow.loadURL('http://localhost:60173');
+    mainWindow.loadURL(`http://localhost:${DEFAULT_DEV_SERVER_PORT}`);
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));

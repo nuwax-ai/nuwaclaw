@@ -16,6 +16,7 @@ import {
   DEFAULT_LANPROXY_PORT,
   STORAGE_KEYS,
   AUTH_KEYS,
+  DEFAULT_AI_ENGINE,
 } from '@/commons/constants';
 
 // ==================== Types ====================
@@ -281,7 +282,7 @@ class ServiceManager {
   }): Promise<{ success: boolean; error?: string }> {
     try {
       return await window.electronAPI?.agent.init({
-        engine: config.engine || 'claude-code',
+        engine: (config.engine || DEFAULT_AI_ENGINE) as AgentEngineType,
         apiKey: config.apiKey,
         baseUrl: config.baseUrl,
         model: config.model,
