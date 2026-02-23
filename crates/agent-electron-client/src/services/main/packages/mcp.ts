@@ -18,7 +18,7 @@ import { getAppPaths, isInstalledLocally } from './packageLocator';
 // ========== Constants ==========
 
 /** MCP Proxy 默认端口 */
-export const DEFAULT_MCP_PROXY_PORT = 60004;
+export const DEFAULT_MCP_PROXY_PORT = 18099;
 
 /** MCP Proxy 默认监听地址 */
 export const DEFAULT_MCP_PROXY_HOST = '127.0.0.1';
@@ -139,8 +139,21 @@ class McpProxyManager {
 
     return new Promise((resolve) => {
       try {
+        // MCP Proxy 需要访问系统 npm 以运行 chrome-devtools-mcp 等工具
+        // 因此不能完全隔离，只注入必要的应用内路径
+        const appEnv = getAppEnv();
+
+        // 移除可能导致 npm 配置问题的环境变量
+        // chrome-devtools-mcp 通过 npx 启动，需要正常的 npm 配置路径
+        const { npm_config_userconfig, npm_config_globalconfig, ...cleanEnv } = appEnv;
+
         const proc = spawn(binPath, args, {
-          env: { ...process.env, ...getAppEnv() },
+          env: {
+            ...process.env,
+            ...cleanEnv,
+            // 保留 PATH 优先级（应用内路径优先）
+            PATH: appEnv.PATH,
+          },
           stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: true,
         });
