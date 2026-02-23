@@ -9,7 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.2.0] - 2026-02-23
+
+### Added
+
+#### 多平台打包与构建
+- **uv 多平台集成** — `scripts/prepare-uv.js` 按当前平台从 `resources/uv/<platform-arch>/` 复制或从 GitHub Release 下载最新 uv，支持 darwin/win32/linux 的 x64 与 arm64
+- **lanproxy 多平台** — `scripts/prepare-lanproxy.js` 从 Tauri binaries 按平台准备 nuwax-lanproxy
+- **prepare-sdk** — `scripts/prepare-sdk.js` 打包前将 `vendors/nuwaxcode-sdk` 复制到 `node_modules/@nuwax-ai/sdk`，避免 electron-builder 因 file: 符号链接报错
+- **clean:electron-cache** — `npm run clean:electron-cache` 与 `scripts/clean-electron-cache.js`，用于修复「zip: not a valid zip file」等缓存损坏问题
+- **release/** 加入 .gitignore，忽略打包产物
+
 ### Changed
+
+#### 构建与打包
+- **Vite emptyOutDir: false** — 保留主进程 `dist/main/` 输出，避免 renderer 构建清空导致入口缺失
+- **prepare-uv 下载文件名** — 使用 `preferredFilename` 避免重定向后 URL 过长导致 ENAMETOOLONG
+- **AGENTS.md** — 增加「在 macOS 上打 Windows 包」与 zip 报错处理说明
 
 #### SDK Migration
 - **Rename vendors/opencode-sdk to vendors/nuwaxcode-sdk**

@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.2.0] - 2026-02-23
+
+### Agent Electron Client
+
+#### Added
+- **多平台打包** — uv/lanproxy 按平台准备，prepare-sdk 解决 file: 依赖符号链接问题，支持在 macOS 上打包 Windows（清理 Electron 缓存可修复 zip 报错）
+- **clean:electron-cache** — 清理 Electron/electron-builder 缓存脚本，修复「zip: not a valid zip file」
+
+#### Changed
+- **Vite emptyOutDir: false** — 避免 renderer 构建清空 dist 导致主进程入口缺失
+- **prepare-uv 下载** — 使用固定文件名避免重定向 URL 过长
+
+---
+
+## [0.1.x]
+
 ### Changed
 
 #### Agent 管理统一走 SDK
