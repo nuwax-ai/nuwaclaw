@@ -273,70 +273,26 @@ export interface ShellAPI {
 
 // ==================== Computer API (rcoder /computer/* compat) ====================
 
-export interface ComputerChatRequest {
-  user_id: string;
-  project_id?: string;
-  prompt: string;
-  session_id?: string;
-  model_provider?: {
-    provider: string;
-    api_key?: string;
-    base_url?: string;
-    model?: string;
-  };
-  request_id?: string;
-  system_prompt?: string;
-  agent_config?: Record<string, unknown>;
-}
+// Shared types — single source of truth
+export type {
+  HttpResult,
+  ComputerChatRequest,
+  ComputerChatResponse,
+  UnifiedSessionMessage,
+  ComputerAgentStatusResponse,
+  ComputerAgentStopResponse,
+  ComputerAgentCancelResponse,
+} from './computerTypes';
 
-// 对应 rcoder HttpResult<T> 响应包装
-export interface HttpResult<T = unknown> {
-  code: string;
-  message: string;
-  data: T | null;
-  tid: string | null;
-  success: boolean;
-}
-
-export interface ComputerChatResponse {
-  project_id: string;
-  session_id: string;
-  error?: string | null;
-  request_id?: string;
-  need_fallback?: boolean | null;
-  fallback_reason?: string | null;
-}
-
-// 对齐 rcoder #[serde(rename_all = "camelCase")] UnifiedSessionMessage
-export interface UnifiedSessionMessage {
-  sessionId: string;
-  messageType: 'sessionPromptStart' | 'sessionPromptEnd' | 'agentSessionUpdate' | 'heartbeat';
-  subType: string;
-  data: unknown;
-  timestamp: string;
-}
-
-export interface ComputerAgentStatusResponse {
-  user_id: string;
-  project_id: string;
-  is_alive: boolean;
-  session_id?: string | null;
-  status?: string | null;
-  last_activity?: string | null;
-  created_at?: string | null;
-}
-
-export interface ComputerAgentStopResponse {
-  success: boolean;
-  message: string;
-  user_id: string;
-  project_id: string;
-}
-
-export interface ComputerAgentCancelResponse {
-  success: boolean;
-  session_id: string;
-}
+import type {
+  HttpResult,
+  ComputerChatRequest,
+  ComputerChatResponse,
+  UnifiedSessionMessage,
+  ComputerAgentStatusResponse,
+  ComputerAgentStopResponse,
+  ComputerAgentCancelResponse,
+} from './computerTypes';
 
 export interface ComputerAPI {
   chat(request: ComputerChatRequest): Promise<HttpResult<ComputerChatResponse>>;
