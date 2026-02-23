@@ -758,10 +758,10 @@ export class AcpEngine extends EventEmitter {
           this.acpProcess = null;
 
           // Reject all active prompts so they don't hang
-          for (const [sessionId, reject] of this.activePromptRejects) {
+          for (const [, reject] of this.activePromptRejects) {
             reject(new Error(`ACP process exited unexpectedly (code=${code})`));
-            this.activePromptRejects.delete(sessionId);
           }
+          this.activePromptRejects.clear();
 
           this.emit('error', new Error(`ACP process exited unexpectedly (code=${code})`));
         }
@@ -914,17 +914,26 @@ export class AcpEngine extends EventEmitter {
 
     const ABORT_TIMEOUT = 30_000;
 
+    const cancelWithTimeout = async (acpSessionId: string): Promise<void> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          this.acpConnection!.cancel({ sessionId: acpSessionId }),
+          new Promise<void>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('Abort timeout')), ABORT_TIMEOUT);
+          }),
+        ]);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+    };
+
     if (id) {
       const session = this.sessions.get(id);
       if (session?.acpSessionId) {
         session.status = 'terminating';
         try {
-          await Promise.race([
-            this.acpConnection.cancel({ sessionId: session.acpSessionId }),
-            new Promise<void>((_, reject) =>
-              setTimeout(() => reject(new Error('Abort timeout')), ABORT_TIMEOUT),
-            ),
-          ]);
+          await cancelWithTimeout(session.acpSessionId);
         } catch (e) {
           log.warn(`${this.logTag} Cancel error/timeout:`, e);
         }
@@ -938,12 +947,7 @@ export class AcpEngine extends EventEmitter {
         if (session.acpSessionId && this.activePromptSessions.has(sessionId)) {
           session.status = 'terminating';
           try {
-            await Promise.race([
-              this.acpConnection.cancel({ sessionId: session.acpSessionId }),
-              new Promise<void>((_, reject) =>
-                setTimeout(() => reject(new Error('Abort timeout')), ABORT_TIMEOUT),
-              ),
-            ]);
+            await cancelWithTimeout(session.acpSessionId);
           } catch (e) {
             log.warn(`${this.logTag} Cancel error/timeout:`, e);
           }
@@ -1231,7 +1235,7 @@ export class AcpEngine extends EventEmitter {
 
     // Emit rcoder-compatible computer:progress event for all updates
     this.emit('computer:progress', {
-      sessionId: acpSessionId,
+      sessionId,
       messageType: 'AgentSessionUpdate',
       subType: update.sessionUpdate,
       data: update,

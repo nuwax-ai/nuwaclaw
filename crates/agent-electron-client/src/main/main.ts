@@ -1059,6 +1059,7 @@ function setupIpcHandlers() {
   ipcMain.handle('computer:cancelSession', async (_, request: { user_id: string; session_id?: string }) => {
     const acpEngine = agentService.getAcpEngine();
     if (!acpEngine) return { success: false, error: 'Agent not initialized' };
+    if (!request.session_id) return { success: false, error: 'session_id is required' };
     await acpEngine.abortSession(request.session_id);
     return { success: true, session_id: request.session_id };
   });
