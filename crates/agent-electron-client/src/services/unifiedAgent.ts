@@ -9,6 +9,7 @@
 
 import { EventEmitter } from 'events';
 import { app } from 'electron';
+import * as path from 'path';
 import log from 'electron-log';
 import type { ChildProcess } from 'child_process';
 import { getAppEnv } from './dependencies';
@@ -26,6 +27,7 @@ import {
   type AcpSessionInfoUpdate,
   type AcpPermissionRequest,
   type AcpPermissionResponse,
+  type AcpPermissionOption,
   type AcpMcpServer,
   type AcpEnvVariable,
 } from './acpClient';
@@ -703,7 +705,7 @@ export class AcpEngine extends EventEmitter {
   private sessions = new Map<string, AcpSession>();
   private pendingPermissions = new Map<string, {
     resolve: (r: AcpPermissionResponse) => void;
-    options: Array<{ id: string; label: string; description?: string }>;
+    options: AcpPermissionOption[];
   }>();
   private activePromptSessions = new Set<string>();
   private activePromptRejects = new Map<string, (reason: Error) => void>();
@@ -766,16 +768,13 @@ export class AcpEngine extends EventEmitter {
       });
 
       // Initialize ACP protocol handshake
+      // Note: Do NOT declare fs capabilities (readTextFile/writeTextFile).
+      // Aligned with rcoder: let the agent handle file operations directly
+      // via its own built-in tools, avoiding client-side fs callback issues.
       const acp = await loadAcpSdk();
       const initResult = await connection.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
-        clientCapabilities: {
-          fs: {
-            readTextFile: true,
-            writeTextFile: true,
-          },
-          terminal: true,
-        },
+        clientCapabilities: {},
       });
 
       log.info(`${this.logTag} ACP initialized`, {
@@ -838,7 +837,7 @@ export class AcpEngine extends EventEmitter {
 
   // === Session Management ===
 
-  async createSession(opts?: { title?: string }): Promise<SdkSession> {
+  async createSession(opts?: { title?: string; cwd?: string }): Promise<SdkSession> {
     if (!this.acpConnection || !this.config) {
       throw new Error('AcpEngine not initialized');
     }
@@ -868,8 +867,10 @@ export class AcpEngine extends EventEmitter {
     // Create ACP session
     // Note: systemPrompt/permissionMode/model are NOT part of ACP NewSessionRequest schema;
     // they are passed via env vars (ANTHROPIC_MODEL) or process-level config.
+    // cwd: use per-project directory if provided, otherwise fall back to global workspaceDir
+    const sessionCwd = opts?.cwd || this.config.workspaceDir;
     const newSessionParams = {
-      cwd: this.config.workspaceDir,
+      cwd: sessionCwd,
       mcpServers,
     };
     log.info(`${this.logTag} newSession params:`, JSON.stringify(newSessionParams, null, 2));
@@ -1088,10 +1089,11 @@ export class AcpEngine extends EventEmitter {
     if (response === 'reject') {
       pending.resolve({ outcome: { outcome: 'cancelled' } });
     } else {
-      // Use actual option ID from ACP request if available, fallback to response string
-      const optionId = pending.options.find((o) =>
-        o.id === response || o.label.toLowerCase().includes(response),
-      )?.id ?? response;
+      // Map response to ACP PermissionOptionKind
+      const targetKind = response === 'always' ? 'allow_always' : 'allow_once';
+      const optionId = pending.options.find((o) => o.kind === targetKind)?.optionId
+        ?? pending.options[0]?.optionId
+        ?? response;
       pending.resolve({
         outcome: { outcome: 'selected', optionId },
       });
@@ -1150,11 +1152,21 @@ export class AcpEngine extends EventEmitter {
       }
 
       if (!session) {
-        const newSession = await this.createSession({ title: request.project_id || 'chat' });
+        // Build per-project workspace directory (aligned with rcoder):
+        //   {workspaceDir}/computer-project-workspace/{user_id}/{project_id}/
+        // Directory is pre-created by fileServer.createWorkspace() before chat is called.
+        const projectId = request.project_id || `proj-${Date.now()}`;
+        const projectDir = path.join(
+          this.config.workspaceDir,
+          'computer-project-workspace',
+          request.user_id,
+          projectId,
+        );
+        log.info(`${this.logTag} 📁 项目工作目录: ${projectDir}`);
+
+        const newSession = await this.createSession({ title: projectId, cwd: projectDir });
         session = this.sessions.get(newSession.id)!;
-        if (request.project_id) {
-          session.projectId = request.project_id;
-        }
+        session.projectId = request.project_id;
       }
 
       // 2. Async prompt (results via computer:progress events)
@@ -1207,35 +1219,6 @@ export class AcpEngine extends EventEmitter {
       // ACP agent requests permission
       requestPermission: async (params: AcpPermissionRequest): Promise<AcpPermissionResponse> => {
         return this.handlePermissionRequest(params);
-      },
-
-      // File system operations (delegate to Node.js fs)
-      readTextFile: async (params: {
-        sessionId: string;
-        uri: string;
-      }): Promise<{ content: string }> => {
-        const fs = await import('fs/promises');
-        const filePath = params.uri.startsWith('file:///')
-          ? params.uri.slice(7)
-          : params.uri;
-        const content = await fs.readFile(filePath, 'utf-8');
-        return { content };
-      },
-
-      writeTextFile: async (params: {
-        sessionId: string;
-        uri: string;
-        content: string;
-      }): Promise<Record<string, never>> => {
-        const fs = await import('fs/promises');
-        const fspath = await import('path');
-        const filePath = params.uri.startsWith('file:///')
-          ? params.uri.slice(7)
-          : params.uri;
-        // Ensure directory exists
-        await fs.mkdir(fspath.dirname(filePath), { recursive: true });
-        await fs.writeFile(filePath, params.content);
-        return {};
       },
     };
   }
@@ -1356,40 +1339,23 @@ export class AcpEngine extends EventEmitter {
       return { outcome: { outcome: 'cancelled' } };
     }
 
-    const permissionId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // Auto-allow all permissions (aligned with rcoder handle_permission_request):
+    // Priority: allow_always > allow_once > first non-reject option
+    const selected =
+      params.options.find((o) => o.kind === 'allow_always') ||
+      params.options.find((o) => o.kind === 'allow_once') ||
+      params.options[0];
 
-    // Emit permission request to UI
-    this.emit('permission.updated', {
-      id: permissionId,
-      type: 'tool',
-      sessionId,
-      title: params.toolCall.title || 'Permission Request',
-      details: {
-        toolName: params.toolCall.title,
-        toolInput: params.toolCall.rawInput,
-        description: params.toolCall.description,
-        kind: params.toolCall.kind,
-      },
-      options: params.options,
-      status: 'pending',
-    });
+    if (selected) {
+      log.info(`${this.logTag} 🔓 权限自动放行: tool=${params.toolCall.title}, kind=${selected.kind}, optionId=${selected.optionId}`);
+      return {
+        outcome: { outcome: 'selected', optionId: selected.optionId },
+      };
+    }
 
-    // Wait for response (with timeout)
-    return new Promise<AcpPermissionResponse>((resolve) => {
-      const timeout = setTimeout(() => {
-        this.pendingPermissions.delete(permissionId);
-        resolve({ outcome: { outcome: 'cancelled' } });
-      }, 60_000);
-
-      this.pendingPermissions.set(permissionId, {
-        resolve: (result) => {
-          clearTimeout(timeout);
-          this.pendingPermissions.delete(permissionId);
-          resolve(result);
-        },
-        options: params.options,
-      });
-    });
+    // No options available — cancel
+    log.warn(`${this.logTag} ⚠️ 权限请求无可选项,取消: tool=${params.toolCall.title}`);
+    return { outcome: { outcome: 'cancelled' } };
   }
 
   // === Internal: Session Lookup Helpers ===

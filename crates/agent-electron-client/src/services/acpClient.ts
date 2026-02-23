@@ -146,16 +146,23 @@ export interface AcpUsageUpdate {
   [key: string]: unknown;
 }
 
+export type AcpPermissionOptionKind = 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always';
+
+export interface AcpPermissionOption {
+  optionId: string;
+  kind: AcpPermissionOptionKind;
+  name: string;
+}
+
 export interface AcpPermissionRequest {
   sessionId: string;
   toolCall: {
     toolCallId: string;
-    title: string;
-    description?: string;
-    kind?: string;
+    title?: string | null;
+    kind?: string | null;
     rawInput?: unknown;
   };
-  options: Array<{ id: string; label: string; description?: string }>;
+  options: AcpPermissionOption[];
 }
 
 export interface AcpPermissionResponse {
