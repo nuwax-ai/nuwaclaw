@@ -736,7 +736,8 @@ export class AcpEngine extends EventEmitter {
       `├─ baseUrl: ${config.baseUrl || '(default)'}\n` +
       `├─ apiKeySet: ${!!config.apiKey}\n` +
       `├─ workspaceDir: ${config.workspaceDir}\n` +
-      `└─ env keys: ${config.env ? Object.keys(config.env).join(', ') : '(none)'}`,
+      `├─ env keys: ${config.env ? Object.keys(config.env).join(', ') : '(none)'}\n` +
+      `└─ mcpServers: ${config.mcpServers ? Object.keys(config.mcpServers).join(', ') : '(none)'}`,
     );
     try {
       // Build ACP client handler (callbacks from agent → client)
@@ -744,6 +745,29 @@ export class AcpEngine extends EventEmitter {
 
       // Resolve binary path and args for the engine type
       const { binPath, binArgs } = resolveAcpBinary(this.engineName);
+
+      // For nuwaxcode: inject MCP servers via OPENCODE_CONFIG_CONTENT env var
+      // nuwaxcode doesn't process mcpServers from ACP newSession (unlike claude-code),
+      // so we pass MCP config at spawn time via its highest-priority config override.
+      const spawnEnv = { ...(config.env || {}) };
+      if (this.engineName === 'nuwaxcode' && config.mcpServers && Object.keys(config.mcpServers).length > 0) {
+        const mcpConfig: Record<string, unknown> = {};
+        for (const [name, srv] of Object.entries(config.mcpServers)) {
+          mcpConfig[name] = {
+            type: 'local',
+            command: [srv.command, ...(srv.args || [])],
+            environment: srv.env || {},
+            enabled: true,
+          };
+        }
+        const configContent = JSON.stringify({ mcp: mcpConfig });
+        spawnEnv.OPENCODE_CONFIG_CONTENT = configContent;
+        log.info(
+          `${this.logTag} 🔌 nuwaxcode MCP 注入 (OPENCODE_CONFIG_CONTENT):\n` +
+          `├─ servers: ${Object.keys(mcpConfig).join(', ')}\n` +
+          `└─ content: ${configContent}`,
+        );
+      }
 
       // Spawn ACP binary and create ClientSideConnection
       const { connection, process: proc, isolatedHome } = await createAcpConnection(
@@ -754,7 +778,7 @@ export class AcpEngine extends EventEmitter {
           apiKey: config.apiKey,
           baseUrl: config.baseUrl,
           model: config.model,
-          env: config.env,
+          env: spawnEnv,
         },
         clientHandler,
       );
@@ -1290,6 +1314,8 @@ export class AcpEngine extends EventEmitter {
           log.info(`${this.logTag} 🔌 请求级 MCP 服务器: ${Object.keys(requestMcpServers).join(', ') || '无'}`);
         }
 
+        // mcpServers: passed via ACP newSession for claude-code;
+        // for nuwaxcode, MCP is pre-injected via OPENCODE_CONFIG_CONTENT in init()
         const newSession = await this.createSession({
           title: projectId,
           cwd: projectDir,
@@ -1653,7 +1679,24 @@ export class UnifiedAgentService extends EventEmitter {
     const apiKeyChanged = !!mp?.api_key && mp.api_key !== (this.config?.apiKey || '');
     const baseUrlChanged = !!mp?.base_url && mp.base_url !== (this.config?.baseUrl || '');
 
-    if (!needsSwitch && !envChanged && !modelChanged && !apiKeyChanged && !baseUrlChanged) return;
+    // MCP servers 变更检测（nuwaxcode 需要重启进程才能加载新 MCP 配置）
+    const currentMcpStr = this.config?.mcpServers
+      ? JSON.stringify(this.config.mcpServers, Object.keys(this.config.mcpServers).sort())
+      : '';
+    // 提取请求级 MCP 服务器 (agent_config.context_servers)
+    const requestMcpServers: NonNullable<AgentConfig['mcpServers']> = {};
+    if (request.agent_config?.context_servers) {
+      for (const [name, srv] of Object.entries(request.agent_config.context_servers)) {
+        if (srv.enabled === false || !srv.command) continue;
+        requestMcpServers[name] = { command: srv.command, args: srv.args || [], env: srv.env };
+      }
+    }
+    const newMcpStr = Object.keys(requestMcpServers).length > 0
+      ? JSON.stringify(requestMcpServers, Object.keys(requestMcpServers).sort())
+      : '';
+    const mcpChanged = !!newMcpStr && newMcpStr !== currentMcpStr;
+
+    if (!needsSwitch && !envChanged && !modelChanged && !apiKeyChanged && !baseUrlChanged && !mcpChanged) return;
 
     // Safety: don't switch if there are active prompts
     const acpEngine = this.getAcpEngine();
@@ -1671,6 +1714,7 @@ export class UnifiedAgentService extends EventEmitter {
       `├─ 模型变更: ${modelChanged} (${this.config?.model || '(无)'} → ${model || '(无)'})\n` +
       `├─ apiKey变更: ${apiKeyChanged}\n` +
       `├─ baseUrl变更: ${baseUrlChanged}\n` +
+      `├─ MCP变更: ${mcpChanged}\n` +
       `└─ env keys: ${resolvedEnv ? Object.keys(resolvedEnv).join(', ') : '(none)'}`,
     );
 
@@ -1689,6 +1733,12 @@ export class UnifiedAgentService extends EventEmitter {
       mergedEnv.OPENCODE_LOG_DIR = localLogDir;
     }
 
+    // 合并全局 + 请求级 MCP（请求级优先，requestMcpServers 已在变更检测时提取）
+    const mergedMcpServers = {
+      ...(baseConfig.mcpServers || {}),
+      ...requestMcpServers,
+    };
+
     const newConfig: AgentConfig = {
       ...baseConfig,
       engine: requiredEngine,
@@ -1696,6 +1746,7 @@ export class UnifiedAgentService extends EventEmitter {
       baseUrl: mp?.base_url || baseConfig.baseUrl,
       model,
       env: mergedEnv,
+      mcpServers: Object.keys(mergedMcpServers).length > 0 ? mergedMcpServers : undefined,
     };
 
     // 打印最终构建的模型配置
@@ -1708,7 +1759,8 @@ export class UnifiedAgentService extends EventEmitter {
       `├─ baseUrl: ${newConfig.baseUrl || '(未设置)'}\n` +
       `├─ env OPENAI_BASE_URL: ${newConfig.env?.OPENAI_BASE_URL || '(未设置)'}\n` +
       `├─ apiKeySet: ${!!newConfig.apiKey}\n` +
-      `└─ env OPENAI_API_KEY set: ${!!newConfig.env?.OPENAI_API_KEY}`,
+      `├─ env OPENAI_API_KEY set: ${!!newConfig.env?.OPENAI_API_KEY}\n` +
+      `└─ mcpServers: ${newConfig.mcpServers ? Object.keys(newConfig.mcpServers).join(', ') : '(none)'}`,
     );
 
     const ok = await this.init(newConfig);
