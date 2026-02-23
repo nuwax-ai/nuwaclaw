@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@ant-design/icons": "^5.6.1",
-    "@anthropic-ai/claude-agent-sdk": "0.2.12",
+    "@agentclientprotocol/sdk": "^0.14.1",
     "@anthropic-ai/sdk": "^0.39.0",
     "@nuwax-ai/sdk": "file:../../vendors/nuwaxcode-sdk",
     "antd": "^5.29.3",
@@ -95,8 +95,7 @@
     },
     "asar": true,
     "asarUnpack": [
-      "node_modules/better-sqlite3/**/*",
-      "node_modules/@anthropic-ai/claude-agent-sdk/**"
+      "node_modules/better-sqlite3/**/*"
     ]
   }
 }

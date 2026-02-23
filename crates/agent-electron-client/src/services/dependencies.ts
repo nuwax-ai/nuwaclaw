@@ -219,6 +219,14 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     minVersion: "0.1.48",
     binName: "mcp-proxy",
   },
+  {
+    name: "claude-code-acp-ts",
+    displayName: "ACP 协议",
+    type: "npm-local",
+    description: "Claude Code Agent 通信适配服务（应用内安装）",
+    required: true,
+    binName: "claude-code-acp-ts",
+  },
 ];
 
 // ==================== Detection Functions ====================

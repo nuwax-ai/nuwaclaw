@@ -1,17 +1,32 @@
 /**
- * Unified Agent Service - Full SDK integration with @nuwax-ai/sdk
+ * Unified Agent Service
  *
  * Architecture:
- * - OpencodeEngine: Full SDK API (sessions, SSE, tools, permissions, files)
- * - ClaudeCodeEngine: CLI wrapper (--print / JSON mode)
+ * - AcpEngine: ACP protocol (claude-code via claude-code-acp-ts, nuwaxcode via nuwaxcode acp)
+ * - OpencodeEngine: HTTP/SSE API via @nuwax-ai/sdk (opencode only)
  * - UnifiedAgentService: Event bus + engine proxy
  */
 
 import { EventEmitter } from 'events';
 import { app } from 'electron';
 import log from 'electron-log';
+import type { ChildProcess } from 'child_process';
 import { getAppEnv } from './dependencies';
-import { loadClaudeSdk, getClaudeCodeCliPath, type PermissionResult } from './claudeAgentSdk';
+import {
+  createAcpConnection,
+  loadAcpSdk,
+  resolveAcpBinary,
+  type AcpClientSideConnection,
+  type AcpClientHandler,
+  type AcpSessionUpdate,
+  type AcpAgentMessageChunk,
+  type AcpAgentThoughtChunk,
+  type AcpToolCall,
+  type AcpToolCallUpdate,
+  type AcpSessionInfoUpdate,
+  type AcpPermissionRequest,
+  type AcpPermissionResponse,
+} from './acpClient';
 import {
   createOpencode,
   createOpencodeClient,
@@ -621,26 +636,88 @@ export class OpencodeEngine extends EventEmitter {
   }
 }
 
-// ==================== ClaudeCodeEngine ====================
+// ==================== rcoder-compatible types ====================
 
-interface ClaudeSession {
-  id: string;
-  title?: string;
-  _sdkSessionId?: string;
-  createdAt: number;
+export type AcpSessionStatus = 'idle' | 'pending' | 'active' | 'terminating';
+
+// 对应 rcoder ComputerChatRequest
+export interface ComputerChatRequest {
+  user_id: string;
+  project_id?: string;
+  prompt: string;
+  session_id?: string;
+  model_provider?: {
+    provider: string;
+    api_key?: string;
+    base_url?: string;
+    model?: string;
+  };
+  request_id?: string;
+  system_prompt?: string;
+  agent_config?: Record<string, unknown>;
 }
 
-let _ccSessionCounter = 0;
+// 对应 rcoder ChatResponse
+export interface ComputerChatResponse {
+  success: boolean;
+  project_id: string;
+  session_id: string;
+  error?: string;
+  request_id?: string;
+}
 
-export class ClaudeCodeEngine extends EventEmitter {
+// 对应 rcoder UnifiedSessionMessage（进度事件）
+export interface UnifiedSessionMessage {
+  sessionId: string;
+  messageType: 'SessionPromptStart' | 'SessionPromptEnd' | 'AgentSessionUpdate' | 'Heartbeat';
+  subType: string;
+  data: unknown;
+  timestamp: string;
+}
+
+// ==================== AcpEngine ====================
+
+interface AcpSession {
+  id: string;
+  title?: string;
+  acpSessionId?: string;
+  createdAt: number;
+  status: AcpSessionStatus;
+  projectId?: string;
+  lastActivity?: number;
+}
+
+let _acpSessionCounter = 0;
+
+/**
+ * ACP-based engine for claude-code and nuwaxcode.
+ *
+ * Both engines communicate via the Agent Client Protocol (NDJSON over stdin/stdout).
+ * The only difference is the binary spawned:
+ * - claude-code → claude-code-acp-ts
+ * - nuwaxcode   → nuwaxcode acp
+ */
+export class AcpEngine extends EventEmitter {
   private config: AgentConfig | null = null;
   private _ready = false;
-  private sessions = new Map<string, ClaudeSession>();
-  private pendingPermissions = new Map<string, { resolve: (r: PermissionResult) => void }>();
-  private activeAbortController: AbortController | null = null;
+  private acpConnection: AcpClientSideConnection | null = null;
+  private acpProcess: ChildProcess | null = null;
+  private sessions = new Map<string, AcpSession>();
+  private pendingPermissions = new Map<string, {
+    resolve: (r: AcpPermissionResponse) => void;
+    options: Array<{ id: string; label: string; description?: string }>;
+  }>();
+  private activePromptSessions = new Set<string>();
+  private activePromptRejects = new Map<string, (reason: Error) => void>();
+  private logTag: string;
+
+  constructor(private readonly engineName: 'claude-code' | 'nuwaxcode' = 'claude-code') {
+    super();
+    this.logTag = `[AcpEngine:${engineName}]`;
+  }
 
   get isReady(): boolean {
-    return this._ready;
+    return this._ready && this.acpConnection !== null;
   }
 
   // === Lifecycle ===
@@ -649,46 +726,166 @@ export class ClaudeCodeEngine extends EventEmitter {
     this.config = config;
 
     try {
-      // Pre-load SDK to fail fast if missing
-      await loadClaudeSdk();
+      // Build ACP client handler (callbacks from agent → client)
+      const clientHandler = this.buildClientHandler();
+
+      // Resolve binary path and args for the engine type
+      const { binPath, binArgs } = resolveAcpBinary(this.engineName);
+
+      // Spawn ACP binary and create ClientSideConnection
+      const { connection, process: proc } = await createAcpConnection(
+        {
+          binPath,
+          binArgs,
+          workspaceDir: config.workspaceDir,
+          apiKey: config.apiKey,
+          baseUrl: config.baseUrl,
+          model: config.model,
+          env: config.env,
+        },
+        clientHandler,
+      );
+
+      this.acpConnection = connection;
+      this.acpProcess = proc;
+
+      // Handle process exit
+      proc.on('exit', (code, signal) => {
+        log.info(`${this.logTag} ACP process exited`, { code, signal });
+        if (this._ready) {
+          this._ready = false;
+          this.acpConnection = null;
+          this.acpProcess = null;
+
+          // Reject all active prompts so they don't hang
+          for (const [sessionId, reject] of this.activePromptRejects) {
+            reject(new Error(`ACP process exited unexpectedly (code=${code})`));
+            this.activePromptRejects.delete(sessionId);
+          }
+
+          this.emit('error', new Error(`ACP process exited unexpectedly (code=${code})`));
+        }
+      });
+
+      // Initialize ACP protocol handshake
+      const acp = await loadAcpSdk();
+      const initResult = await connection.initialize({
+        protocolVersion: acp.PROTOCOL_VERSION,
+        clientCapabilities: {
+          fs: {
+            readTextFile: true,
+            writeTextFile: true,
+          },
+          terminal: true,
+        },
+      });
+
+      log.info(`${this.logTag} ACP initialized`, {
+        protocolVersion: initResult.protocolVersion,
+      });
+
       this._ready = true;
-      log.info('[ClaudeCodeEngine] Initialized (SDK mode)');
       this.emit('ready');
       return true;
     } catch (error) {
-      log.error('[ClaudeCodeEngine] Init failed — SDK not loadable:', error);
+      log.error(`${this.logTag} Init failed:`, error);
       this.emit('error', error instanceof Error ? error : new Error(String(error)));
       return false;
     }
   }
 
   async destroy(): Promise<void> {
-    await this.abortSession();
+    // Cancel all active sessions
+    for (const [, session] of this.sessions) {
+      if (session.acpSessionId && this.activePromptSessions.has(session.id)) {
+        try {
+          await this.acpConnection?.cancel({ sessionId: session.acpSessionId });
+        } catch (e) {
+          log.warn(`${this.logTag} Cancel session error on destroy:`, e);
+        }
+      }
+    }
+
     // Reject all pending permissions
     for (const [id, pending] of this.pendingPermissions) {
-      pending.resolve({ behavior: 'deny' });
+      pending.resolve({ outcome: { outcome: 'cancelled' } });
       this.pendingPermissions.delete(id);
     }
+
+    // Reject all active prompts
+    for (const [sessionId, reject] of this.activePromptRejects) {
+      reject(new Error('AcpEngine destroyed'));
+      this.activePromptRejects.delete(sessionId);
+    }
+
+    // Kill ACP process
+    if (this.acpProcess) {
+      try {
+        this.acpProcess.kill();
+      } catch (e) {
+        log.warn(`${this.logTag} Process kill error:`, e);
+      }
+      this.acpProcess = null;
+    }
+
+    this.acpConnection = null;
     this.sessions.clear();
+    this.activePromptSessions.clear();
+    this.activePromptRejects.clear();
     this.config = null;
     this._ready = false;
-    log.info('[ClaudeCodeEngine] Destroyed');
+    log.info(`${this.logTag} Destroyed`);
     this.emit('destroyed');
   }
 
   // === Session Management ===
 
   async createSession(opts?: { title?: string }): Promise<SdkSession> {
-    const id = `cc-${++_ccSessionCounter}-${Date.now()}`;
-    const session: ClaudeSession = {
-      id,
+    if (!this.acpConnection || !this.config) {
+      throw new Error('AcpEngine not initialized');
+    }
+
+    const localId = `acp-${++_acpSessionCounter}-${Date.now()}`;
+
+    // Build mcpServers array for ACP
+    const mcpServers: Array<{ name: string; command: string; args: string[]; env?: Record<string, string> }> = [];
+    if (this.config.mcpServers) {
+      for (const [name, srv] of Object.entries(this.config.mcpServers)) {
+        mcpServers.push({
+          name,
+          command: srv.command,
+          args: srv.args,
+          env: srv.env,
+        });
+      }
+    }
+
+    // Create ACP session
+    const acpResult = await this.acpConnection.newSession({
+      cwd: this.config.workspaceDir,
+      mcpServers: mcpServers.length > 0 ? mcpServers : undefined,
+      systemPrompt: this.config.systemPrompt,
+      permissionMode: this.config.permissionMode,
+      model: this.config.model,
+    });
+
+    const session: AcpSession = {
+      id: localId,
       title: opts?.title,
+      acpSessionId: acpResult.sessionId,
       createdAt: Date.now(),
+      status: 'idle',
+      lastActivity: Date.now(),
     };
-    this.sessions.set(id, session);
-    log.info('[ClaudeCodeEngine] Session created:', id);
+    this.sessions.set(localId, session);
+
+    log.info(`${this.logTag} Session created`, {
+      localId,
+      acpSessionId: acpResult.sessionId,
+    });
+
     return {
-      id,
+      id: localId,
       title: session.title,
       time: { created: session.createdAt },
     };
@@ -712,10 +909,49 @@ export class ClaudeCodeEngine extends EventEmitter {
     return this.sessions.delete(id);
   }
 
-  async abortSession(_id?: string): Promise<void> {
-    if (this.activeAbortController) {
-      this.activeAbortController.abort();
-      this.activeAbortController = null;
+  async abortSession(id?: string): Promise<void> {
+    if (!this.acpConnection) return;
+
+    const ABORT_TIMEOUT = 30_000;
+
+    if (id) {
+      const session = this.sessions.get(id);
+      if (session?.acpSessionId) {
+        session.status = 'terminating';
+        try {
+          await Promise.race([
+            this.acpConnection.cancel({ sessionId: session.acpSessionId }),
+            new Promise<void>((_, reject) =>
+              setTimeout(() => reject(new Error('Abort timeout')), ABORT_TIMEOUT),
+            ),
+          ]);
+        } catch (e) {
+          log.warn(`${this.logTag} Cancel error/timeout:`, e);
+        }
+        this.activePromptSessions.delete(id);
+        session.status = 'idle';
+        session.lastActivity = Date.now();
+      }
+    } else {
+      // Cancel all active sessions
+      for (const [sessionId, session] of this.sessions) {
+        if (session.acpSessionId && this.activePromptSessions.has(sessionId)) {
+          session.status = 'terminating';
+          try {
+            await Promise.race([
+              this.acpConnection.cancel({ sessionId: session.acpSessionId }),
+              new Promise<void>((_, reject) =>
+                setTimeout(() => reject(new Error('Abort timeout')), ABORT_TIMEOUT),
+              ),
+            ]);
+          } catch (e) {
+            log.warn(`${this.logTag} Cancel error/timeout:`, e);
+          }
+          session.status = 'idle';
+          session.lastActivity = Date.now();
+        }
+      }
+      this.activePromptSessions.clear();
     }
   }
 
@@ -726,164 +962,88 @@ export class ClaudeCodeEngine extends EventEmitter {
     parts: Array<{ type: string; text?: string; [key: string]: unknown }>,
     _opts?: PromptOptions,
   ): Promise<MessageWithParts> {
-    if (!this.config) throw new Error('ClaudeCodeEngine not initialized');
+    if (!this.acpConnection || !this.config) {
+      throw new Error('AcpEngine not initialized');
+    }
 
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
+    if (!session.acpSessionId) throw new Error(`Session has no ACP session: ${sessionId}`);
 
-    // Build prompt text from parts
-    const promptText = parts
-      .filter((p) => p.type === 'text' && p.text)
-      .map((p) => p.text)
-      .join('\n');
-
-    if (!promptText) throw new Error('Empty prompt');
-
-    const cfg = this.config;
-
-    // Build env
-    const env: Record<string, string> = {
-      ...process.env as Record<string, string>,
-      ...getAppEnv(),
-    };
-    if (cfg.apiKey) env.ANTHROPIC_API_KEY = cfg.apiKey;
-    if (cfg.baseUrl) env.ANTHROPIC_BASE_URL = cfg.baseUrl;
-    if (cfg.model) env.ANTHROPIC_MODEL = cfg.model;
-    if (cfg.env) Object.assign(env, cfg.env);
-
-    // When packaged, process.execPath is the Electron binary.
-    // child_process.fork() in the SDK would launch another Electron app instance
-    // without this flag.
-    if (app.isPackaged) {
-      env.ELECTRON_RUN_AS_NODE = '1';
-    }
-
-    // Build query options
-    const abortController = new AbortController();
-    this.activeAbortController = abortController;
-
-    const options: Record<string, unknown> = {
-      cwd: cfg.workspaceDir || process.cwd(),
-      env,
-      pathToClaudeCodeExecutable: getClaudeCodeCliPath(),
-      abortController,
-      includePartialMessages: true,
-      permissionMode: cfg.permissionMode || 'default',
-      stderr: (msg: string) => {
-        log.warn('[ClaudeCodeEngine] stderr:', msg);
-      },
-    };
-
-    // Model
-    if (cfg.model) {
-      options.model = cfg.model;
-    }
-
-    // System prompt
-    if (cfg.systemPrompt) {
-      options.systemPrompt = cfg.systemPrompt;
-    }
-
-    // Resume session
-    if (session._sdkSessionId) {
-      options.resume = session._sdkSessionId;
-    }
-
-    // MCP servers — add type:'stdio' for compatibility
-    if (cfg.mcpServers) {
-      const servers: Record<string, unknown> = {};
-      for (const [name, srv] of Object.entries(cfg.mcpServers)) {
-        servers[name] = { type: 'stdio', ...srv };
+    // Build prompt content
+    const promptContent: Array<{ type: string; text?: string; uri?: string; mimeType?: string }> = [];
+    for (const part of parts) {
+      if (part.type === 'text' && part.text) {
+        promptContent.push({ type: 'text', text: part.text });
       }
-      options.mcpServers = servers;
     }
 
-    // Permission bridge
-    options.canUseTool = async (
-      toolName: string,
-      toolInput: unknown,
-      { signal }: { signal: AbortSignal },
-    ): Promise<PermissionResult> => {
-      if (abortController.signal.aborted || signal.aborted) {
-        return { behavior: 'deny' };
-      }
+    if (promptContent.length === 0) throw new Error('Empty prompt');
 
-      const permissionId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    this.activePromptSessions.add(sessionId);
+    session.status = 'active';
+    session.lastActivity = Date.now();
 
-      // Emit permission request to UI
-      this.emit('permission.updated', {
-        id: permissionId,
-        type: 'tool',
-        sessionId,
-        title: `Tool: ${toolName}`,
-        details: { toolName, toolInput },
-        status: 'pending',
-      });
+    // Emit rcoder-compatible prompt start event
+    this.emit('computer:promptStart', {
+      sessionId,
+      acpSessionId: session.acpSessionId,
+      requestId: _opts?.messageID,
+    });
 
-      // Wait for response (with timeout)
-      return new Promise<PermissionResult>((resolve) => {
-        const timeout = setTimeout(() => {
-          this.pendingPermissions.delete(permissionId);
-          resolve({ behavior: 'deny' });
-        }, 60_000);
-
-        this.pendingPermissions.set(permissionId, {
-          resolve: (result) => {
-            clearTimeout(timeout);
-            this.pendingPermissions.delete(permissionId);
-            resolve(result);
-          },
-        });
-
-        // Auto-deny if aborted
-        const onAbort = () => {
-          clearTimeout(timeout);
-          this.pendingPermissions.delete(permissionId);
-          resolve({ behavior: 'deny' });
-        };
-        signal.addEventListener('abort', onAbort, { once: true });
-        abortController.signal.addEventListener('abort', onAbort, { once: true });
-      });
-    };
-
-    // Execute query
     let resultText = '';
     try {
-      const sdk = await loadClaudeSdk();
-      log.info('[ClaudeCodeEngine] Starting query', {
+      log.info(`${this.logTag} Starting prompt`, {
         sessionId,
-        hasResume: !!session._sdkSessionId,
-        cwd: options.cwd,
+        acpSessionId: session.acpSessionId,
       });
 
-      const result = await sdk.query({ prompt: promptText, options });
+      // ACP prompt() blocks until completion; events come via sessionUpdate callback
+      const result = await new Promise<{ stopReason: string }>((resolve, reject) => {
+        // Register reject handler so process exit can abort the prompt
+        this.activePromptRejects.set(sessionId, reject);
 
-      for await (const event of result) {
-        if (abortController.signal.aborted) break;
-        this.handleSdkEvent(sessionId, session, event);
+        this.acpConnection!.prompt({
+          sessionId: session.acpSessionId!,
+          prompt: promptContent,
+        }).then(resolve, reject);
+      });
 
-        // Capture result text from 'result' events
-        if (typeof event === 'object' && event !== null) {
-          const payload = event as Record<string, unknown>;
-          if (payload.type === 'result' && typeof payload.result === 'string') {
-            resultText = payload.result;
-          }
-        }
-      }
+      log.info(`${this.logTag} Prompt completed`, {
+        sessionId,
+        stopReason: result.stopReason,
+      });
+
+      // Emit rcoder-compatible prompt end event
+      this.emit('computer:promptEnd', {
+        sessionId,
+        acpSessionId: session.acpSessionId,
+        reason: result.stopReason,
+        description: `Prompt completed: ${result.stopReason}`,
+      });
+
+      // Emit session idle
+      this.emit('session.idle', { sessionId });
     } catch (error) {
-      if (abortController.signal.aborted) {
-        log.info('[ClaudeCodeEngine] Query aborted');
-      } else {
-        log.error('[ClaudeCodeEngine] Query failed:', error);
-        this.emit('session.error', {
-          sessionId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
+      log.error(`${this.logTag} Prompt failed:`, error);
+
+      // Emit rcoder-compatible prompt end event (error)
+      this.emit('computer:promptEnd', {
+        sessionId,
+        acpSessionId: session.acpSessionId,
+        reason: 'error',
+        description: error instanceof Error ? error.message : String(error),
+      });
+
+      this.emit('session.error', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
-      if (this.activeAbortController === abortController) {
-        this.activeAbortController = null;
-      }
+      this.activePromptSessions.delete(sessionId);
+      this.activePromptRejects.delete(sessionId);
+      session.status = 'idle';
+      session.lastActivity = Date.now();
     }
 
     return {
@@ -897,9 +1057,9 @@ export class ClaudeCodeEngine extends EventEmitter {
     parts: Array<{ type: string; text?: string; [key: string]: unknown }>,
     opts?: PromptOptions,
   ): Promise<void> {
-    // Fire and forget — errors are emitted as events
+    // Fire and forget — errors emitted as events
     this.prompt(sessionId, parts, opts).catch((error) => {
-      log.error('[ClaudeCodeEngine] promptAsync error:', error);
+      log.error(`${this.logTag} promptAsync error:`, error);
     });
   }
 
@@ -908,16 +1068,25 @@ export class ClaudeCodeEngine extends EventEmitter {
   respondPermission(permissionId: string, response: 'once' | 'always' | 'reject'): void {
     const pending = this.pendingPermissions.get(permissionId);
     if (!pending) {
-      log.warn('[ClaudeCodeEngine] No pending permission for:', permissionId);
+      log.warn(`${this.logTag} No pending permission for:`, permissionId);
       return;
     }
-    const behavior = response === 'reject' ? 'deny' : 'allow';
-    pending.resolve({ behavior });
+
+    if (response === 'reject') {
+      pending.resolve({ outcome: { outcome: 'cancelled' } });
+    } else {
+      // Use actual option ID from ACP request if available, fallback to response string
+      const optionId = pending.options.find((o) =>
+        o.id === response || o.label.toLowerCase().includes(response),
+      )?.id ?? response;
+      pending.resolve({
+        outcome: { outcome: 'selected', optionId },
+      });
+    }
   }
 
   // === Legacy compat ===
 
-  /** Backward-compatible simple prompt (auto-creates a temp session) */
   async claudePrompt(message: string): Promise<string> {
     const session = await this.createSession({ title: 'temp' });
     try {
@@ -932,83 +1101,292 @@ export class ClaudeCodeEngine extends EventEmitter {
     }
   }
 
-  // === Internal: SDK Event Handling ===
+  // === Session Status & rcoder-compat Methods ===
 
-  private handleSdkEvent(sessionId: string, session: ClaudeSession, event: unknown): void {
-    if (typeof event === 'string') {
-      this.emit('message.updated', {
-        sessionId,
-        type: 'assistant',
-        content: event,
-      });
+  getSessionStatus(sessionId: string): AcpSessionStatus | null {
+    const session = this.sessions.get(sessionId);
+    return session?.status ?? null;
+  }
+
+  findSessionByProjectId(projectId: string): AcpSession | null {
+    if (!projectId) return null;
+    for (const [, session] of this.sessions) {
+      if (session.projectId === projectId) {
+        return session;
+      }
+    }
+    return null;
+  }
+
+  async chat(request: ComputerChatRequest): Promise<ComputerChatResponse> {
+    if (!this.acpConnection || !this.config) {
+      return { success: false, project_id: request.project_id || '', session_id: '', error: 'Agent not initialized' };
+    }
+
+    try {
+      // 1. Find existing session by session_id or project_id, or create new
+      let session: AcpSession | undefined;
+
+      if (request.session_id) {
+        session = this.sessions.get(request.session_id);
+      }
+      if (!session && request.project_id) {
+        session = this.findSessionByProjectId(request.project_id) ?? undefined;
+      }
+
+      if (!session) {
+        const newSession = await this.createSession({ title: request.project_id || 'chat' });
+        session = this.sessions.get(newSession.id)!;
+        if (request.project_id) {
+          session.projectId = request.project_id;
+        }
+      }
+
+      // 2. Async prompt (results via computer:progress events)
+      this.promptAsync(session.id, [{ type: 'text', text: request.prompt }]);
+
+      // 3. Return session info
+      return {
+        success: true,
+        project_id: request.project_id || session.id,
+        session_id: session.id,
+        request_id: request.request_id,
+      };
+    } catch (error) {
+      log.error(`${this.logTag} chat() failed:`, error);
+      return {
+        success: false,
+        project_id: request.project_id || '',
+        session_id: '',
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  // === Internal: Build ACP Client Handler ===
+
+  private buildClientHandler(): AcpClientHandler {
+    return {
+      // ACP agent sends session update notifications
+      sessionUpdate: async (params: {
+        sessionId: string;
+        update: AcpSessionUpdate;
+      }): Promise<void> => {
+        this.handleAcpSessionUpdate(params.sessionId, params.update);
+      },
+
+      // ACP agent requests permission
+      requestPermission: async (params: AcpPermissionRequest): Promise<AcpPermissionResponse> => {
+        return this.handlePermissionRequest(params);
+      },
+
+      // File system operations (delegate to Node.js fs)
+      readTextFile: async (params: {
+        sessionId: string;
+        uri: string;
+      }): Promise<{ content: string }> => {
+        const fs = await import('fs/promises');
+        const filePath = params.uri.startsWith('file:///')
+          ? params.uri.slice(7)
+          : params.uri;
+        const content = await fs.readFile(filePath, 'utf-8');
+        return { content };
+      },
+
+      writeTextFile: async (params: {
+        sessionId: string;
+        uri: string;
+        content: string;
+      }): Promise<Record<string, never>> => {
+        const fs = await import('fs/promises');
+        const fspath = await import('path');
+        const filePath = params.uri.startsWith('file:///')
+          ? params.uri.slice(7)
+          : params.uri;
+        // Ensure directory exists
+        await fs.mkdir(fspath.dirname(filePath), { recursive: true });
+        await fs.writeFile(filePath, params.content);
+        return {};
+      },
+    };
+  }
+
+  // === Internal: ACP → SSE Event Mapping ===
+
+  /**
+   * Map ACP sessionUpdate to OpencodeEngine-compatible SSE events.
+   * This ensures the renderer receives the same event format regardless of engine.
+   */
+  private handleAcpSessionUpdate(acpSessionId: string, update: AcpSessionUpdate): void {
+    // Find local session ID from ACP session ID
+    const sessionId = this.findLocalSessionId(acpSessionId);
+    if (!sessionId) {
+      log.warn(`${this.logTag} Unknown ACP session:`, acpSessionId);
       return;
     }
 
-    if (!event || typeof event !== 'object') return;
+    // Update lastActivity
+    const session = this.findSessionByAcpId(acpSessionId);
+    if (session) session.lastActivity = Date.now();
 
-    const payload = event as Record<string, unknown>;
-    const eventType = String(payload.type ?? '');
+    // Emit rcoder-compatible computer:progress event for all updates
+    this.emit('computer:progress', {
+      sessionId: acpSessionId,
+      messageType: 'AgentSessionUpdate',
+      subType: update.sessionUpdate,
+      data: update,
+      timestamp: new Date().toISOString(),
+    } as UnifiedSessionMessage);
 
-    switch (eventType) {
-      case 'system': {
-        const subtype = String(payload.subtype ?? '');
-        if (subtype === 'init' && typeof payload.session_id === 'string') {
-          session._sdkSessionId = payload.session_id;
-          this.emit('session.created', { sessionId, sdkSessionId: payload.session_id });
-        }
-        break;
-      }
-
-      case 'stream_event': {
-        // Partial streaming content
+    switch (update.sessionUpdate) {
+      case 'agent_message_chunk': {
+        // Text streaming → message.part.updated
+        const u = update as AcpAgentMessageChunk;
         this.emit('message.part.updated', {
           sessionId,
-          ...payload,
+          type: 'text',
+          text: u.content?.text || '',
         });
         break;
       }
 
-      case 'assistant': {
-        // Full assistant message
-        this.emit('message.updated', {
+      case 'agent_thought_chunk': {
+        // Reasoning/thinking → message.part.updated
+        const u = update as AcpAgentThoughtChunk;
+        this.emit('message.part.updated', {
           sessionId,
-          ...payload,
+          type: 'reasoning',
+          thinking: u.content?.text || '',
         });
         break;
       }
 
-      case 'result': {
-        const subtype = String(payload.subtype ?? 'success');
-        if (subtype === 'success') {
-          this.emit('session.idle', { sessionId });
-        } else {
-          const errors = Array.isArray(payload.errors)
-            ? payload.errors.filter((e) => typeof e === 'string').join('\n')
-            : String(payload.error || 'Unknown error');
-          this.emit('session.error', { sessionId, error: errors });
+      case 'tool_call': {
+        // Tool invocation → message.part.updated
+        const u = update as AcpToolCall;
+        this.emit('message.part.updated', {
+          sessionId,
+          type: 'tool',
+          toolCallId: u.toolCallId,
+          name: u.title,
+          kind: u.kind,
+          status: u.status,
+          input: u.rawInput,
+          content: u.content,
+        });
+        break;
+      }
+
+      case 'tool_call_update': {
+        // Tool status update → message.part.updated
+        const u = update as AcpToolCallUpdate;
+        this.emit('message.part.updated', {
+          sessionId,
+          type: 'tool',
+          toolCallId: u.toolCallId,
+          status: u.status,
+          output: u.rawOutput,
+          content: u.content,
+        });
+        break;
+      }
+
+      case 'session_info_update': {
+        // Session title/info → session.updated
+        const u = update as AcpSessionInfoUpdate;
+        const session = this.findSessionByAcpId(acpSessionId);
+        if (session && u.title) {
+          session.title = u.title;
         }
-        break;
-      }
-
-      case 'user': {
-        // User message (tool results) — forward
-        this.emit('message.updated', {
+        this.emit('session.updated', {
           sessionId,
-          ...payload,
+          title: u.title,
         });
         break;
       }
 
-      default:
-        log.debug('[ClaudeCodeEngine] Unhandled event type:', eventType);
+      case 'usage_update': {
+        // Usage stats — log only
+        log.debug(`${this.logTag} Usage update:`, update);
+        break;
+      }
+
+      default: {
+        log.debug(`${this.logTag} Unhandled ACP update:`, update.sessionUpdate);
+      }
     }
+  }
+
+  // === Internal: Permission Handling ===
+
+  private async handlePermissionRequest(params: AcpPermissionRequest): Promise<AcpPermissionResponse> {
+    const acpSessionId = params.sessionId;
+    const sessionId = this.findLocalSessionId(acpSessionId);
+    if (!sessionId) {
+      return { outcome: { outcome: 'cancelled' } };
+    }
+
+    const permissionId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // Emit permission request to UI
+    this.emit('permission.updated', {
+      id: permissionId,
+      type: 'tool',
+      sessionId,
+      title: params.toolCall.title || 'Permission Request',
+      details: {
+        toolName: params.toolCall.title,
+        toolInput: params.toolCall.rawInput,
+        description: params.toolCall.description,
+        kind: params.toolCall.kind,
+      },
+      options: params.options,
+      status: 'pending',
+    });
+
+    // Wait for response (with timeout)
+    return new Promise<AcpPermissionResponse>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.pendingPermissions.delete(permissionId);
+        resolve({ outcome: { outcome: 'cancelled' } });
+      }, 60_000);
+
+      this.pendingPermissions.set(permissionId, {
+        resolve: (result) => {
+          clearTimeout(timeout);
+          this.pendingPermissions.delete(permissionId);
+          resolve(result);
+        },
+        options: params.options,
+      });
+    });
+  }
+
+  // === Internal: Session Lookup Helpers ===
+
+  private findLocalSessionId(acpSessionId: string): string | null {
+    for (const [localId, session] of this.sessions) {
+      if (session.acpSessionId === acpSessionId) {
+        return localId;
+      }
+    }
+    return null;
+  }
+
+  private findSessionByAcpId(acpSessionId: string): AcpSession | null {
+    for (const [, session] of this.sessions) {
+      if (session.acpSessionId === acpSessionId) {
+        return session;
+      }
+    }
+    return null;
   }
 }
 
 // ==================== UnifiedAgentService ====================
 
 export class UnifiedAgentService extends EventEmitter {
-  private engine: OpencodeEngine | ClaudeCodeEngine | null = null;
+  private engine: OpencodeEngine | AcpEngine | null = null;
   private engineType: AgentEngineType | null = null;
   private config: AgentConfig | null = null;
 
@@ -1020,14 +1398,14 @@ export class UnifiedAgentService extends EventEmitter {
     this.config = config;
     this.engineType = config.engine;
 
-    if (config.engine === 'claude-code') {
-      const engine = new ClaudeCodeEngine();
+    if (config.engine === 'claude-code' || config.engine === 'nuwaxcode') {
+      const engine = new AcpEngine(config.engine);
       this.engine = engine;
       this.forwardEvents(engine);
       return engine.init(config);
     }
 
-    // opencode and nuwaxcode both use OpencodeEngine
+    // opencode uses OpencodeEngine (HTTP/SSE)
     const engine = new OpencodeEngine();
     this.engine = engine;
     this.forwardEvents(engine);
@@ -1064,29 +1442,29 @@ export class UnifiedAgentService extends EventEmitter {
     return this.engine instanceof OpencodeEngine ? this.engine : null;
   }
 
-  getClaudeCodeEngine(): ClaudeCodeEngine | null {
-    return this.engine instanceof ClaudeCodeEngine ? this.engine : null;
+  getAcpEngine(): AcpEngine | null {
+    return this.engine instanceof AcpEngine ? this.engine : null;
   }
 
   // === Proxy methods ===
 
   async listSessions(): Promise<SdkSession[]> {
-    if (this.engine instanceof ClaudeCodeEngine) return this.engine.listSessions();
+    if (this.engine instanceof AcpEngine) return this.engine.listSessions();
     return this.oc().listSessions();
   }
 
   async createSession(opts?: { parentID?: string; title?: string }): Promise<SdkSession> {
-    if (this.engine instanceof ClaudeCodeEngine) return this.engine.createSession(opts);
+    if (this.engine instanceof AcpEngine) return this.engine.createSession(opts);
     return this.oc().createSession(opts);
   }
 
   async getSession(id: string): Promise<SdkSession> {
-    if (this.engine instanceof ClaudeCodeEngine) return this.engine.getSession(id);
+    if (this.engine instanceof AcpEngine) return this.engine.getSession(id);
     return this.oc().getSession(id);
   }
 
   async deleteSession(id: string): Promise<boolean> {
-    if (this.engine instanceof ClaudeCodeEngine) return this.engine.deleteSession(id);
+    if (this.engine instanceof AcpEngine) return this.engine.deleteSession(id);
     return this.oc().deleteSession(id);
   }
 
@@ -1103,7 +1481,7 @@ export class UnifiedAgentService extends EventEmitter {
   }
 
   async abortSession(id: string): Promise<void> {
-    if (this.engine instanceof ClaudeCodeEngine) {
+    if (this.engine instanceof AcpEngine) {
       return this.engine.abortSession(id);
     }
     return this.oc().abortSession(id);
@@ -1122,7 +1500,7 @@ export class UnifiedAgentService extends EventEmitter {
     parts: Array<TextPartInput | FilePartInput>,
     opts?: PromptOptions,
   ): Promise<MessageWithParts> {
-    if (this.engine instanceof ClaudeCodeEngine) {
+    if (this.engine instanceof AcpEngine) {
       return this.engine.prompt(sessionId, parts as any, opts);
     }
     return this.oc().prompt(sessionId, parts, opts);
@@ -1133,7 +1511,7 @@ export class UnifiedAgentService extends EventEmitter {
     parts: Array<TextPartInput | FilePartInput>,
     opts?: PromptOptions,
   ): Promise<void> {
-    if (this.engine instanceof ClaudeCodeEngine) {
+    if (this.engine instanceof AcpEngine) {
       return this.engine.promptAsync(sessionId, parts as any, opts);
     }
     return this.oc().promptAsync(sessionId, parts, opts);
@@ -1148,7 +1526,7 @@ export class UnifiedAgentService extends EventEmitter {
   }
 
   async respondPermission(sessionId: string, permissionId: string, response: 'once' | 'always' | 'reject'): Promise<boolean> {
-    if (this.engine instanceof ClaudeCodeEngine) {
+    if (this.engine instanceof AcpEngine) {
       this.engine.respondPermission(permissionId, response);
       return true;
     }
@@ -1235,24 +1613,24 @@ export class UnifiedAgentService extends EventEmitter {
     return this.oc().listCommands();
   }
 
-  // === Claude Code specific ===
+  // === ACP engine specific ===
 
   async claudePrompt(message: string): Promise<string> {
-    const claude = this.getClaudeCodeEngine();
-    if (!claude) throw new Error('claude-code engine not active');
-    return claude.claudePrompt(message);
+    const acpEngine = this.getAcpEngine();
+    if (!acpEngine) throw new Error('ACP engine not active');
+    return acpEngine.claudePrompt(message);
   }
 
   // === Helpers ===
 
   private oc(): OpencodeEngine {
     if (!(this.engine instanceof OpencodeEngine)) {
-      throw new Error(`Operation requires opencode/nuwaxcode engine, current: ${this.engineType}`);
+      throw new Error(`Operation requires opencode engine, current: ${this.engineType}`);
     }
     return this.engine;
   }
 
-  private forwardEvents(engine: OpencodeEngine | ClaudeCodeEngine): void {
+  private forwardEvents(engine: OpencodeEngine | AcpEngine): void {
     const events = [
       'message.updated', 'message.removed',
       'message.part.updated', 'message.part.removed',
@@ -1261,6 +1639,8 @@ export class UnifiedAgentService extends EventEmitter {
       'session.status', 'session.idle', 'session.error', 'session.diff',
       'file.edited', 'server.connected',
       'error', 'ready', 'destroyed',
+      // rcoder-compat events
+      'computer:progress', 'computer:promptStart', 'computer:promptEnd',
     ];
 
     for (const event of events) {

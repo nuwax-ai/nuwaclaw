@@ -271,6 +271,50 @@ export interface ShellAPI {
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
 }
 
+// ==================== Computer API (rcoder /computer/* compat) ====================
+
+export interface ComputerChatRequest {
+  user_id: string;
+  project_id?: string;
+  prompt: string;
+  session_id?: string;
+  model_provider?: {
+    provider: string;
+    api_key?: string;
+    base_url?: string;
+    model?: string;
+  };
+  request_id?: string;
+  system_prompt?: string;
+  agent_config?: Record<string, unknown>;
+}
+
+export interface ComputerChatResponse {
+  success: boolean;
+  project_id: string;
+  session_id: string;
+  error?: string;
+  request_id?: string;
+}
+
+export interface UnifiedSessionMessage {
+  sessionId: string;
+  messageType: 'SessionPromptStart' | 'SessionPromptEnd' | 'AgentSessionUpdate' | 'Heartbeat';
+  subType: string;
+  data: unknown;
+  timestamp: string;
+}
+
+export interface ComputerAPI {
+  chat(request: ComputerChatRequest): Promise<ComputerChatResponse>;
+  agentStatus(request: { user_id: string; project_id?: string }): Promise<{ success: boolean; status: string; session_id?: string; project_id?: string }>;
+  agentStop(request: { user_id: string; project_id?: string }): Promise<{ success: boolean; message: string }>;
+  cancelSession(request: { user_id: string; session_id?: string }): Promise<{ success: boolean; session_id?: string; error?: string }>;
+  health(): Promise<{ status: string; engineType?: string | null; timestamp: string }>;
+  onProgress(callback: (event: unknown, data: UnifiedSessionMessage) => void): void;
+  offProgress(callback: (event: unknown, data: UnifiedSessionMessage) => void): void;
+}
+
 export interface MirrorPresets {
   npm: { official: string; taobao: string; tencent: string };
   uv: { official: string; tuna: string; aliyun: string; tencent: string };
@@ -319,6 +363,7 @@ export interface ElectronAPI {
   dialog: DialogAPI;
   engine: EngineAPI;
   agent: AgentAPI;
+  computer: ComputerAPI;
   autolaunch: AutolaunchAPI;
   log: LogAPI;
   app: AppAPI;

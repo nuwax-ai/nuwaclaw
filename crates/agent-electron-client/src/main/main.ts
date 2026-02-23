@@ -5,7 +5,7 @@ import { spawn, ChildProcess } from 'child_process';
 import log from 'electron-log';
 import Database from 'better-sqlite3';
 import { agentService } from '../services/unifiedAgent';
-import type { AgentConfig } from '../services/unifiedAgent';
+import type { AgentConfig, ComputerChatRequest } from '../services/unifiedAgent';
 import { mcpProxyManager, DEFAULT_MCP_PROXY_CONFIG, DEFAULT_MCP_PROXY_PORT } from '../services/mcp';
 import type { McpServersConfig } from '../services/mcp';
 
@@ -1021,6 +1021,79 @@ function setupIpcHandlers() {
     mainWindow?.webContents.send('agent:event', {
       type: 'destroyed',
       data: {},
+    });
+  });
+
+  // ==================== computer:* IPC handlers (对齐 rcoder /computer/* API) ====================
+
+  ipcMain.handle('computer:chat', async (_, request: ComputerChatRequest) => {
+    const acpEngine = agentService.getAcpEngine();
+    if (!acpEngine) return { success: false, project_id: '', session_id: '', error: 'Agent not initialized' };
+    return acpEngine.chat(request);
+  });
+
+  ipcMain.handle('computer:agentStatus', async (_, request: { user_id: string; project_id?: string }) => {
+    const acpEngine = agentService.getAcpEngine();
+    if (!acpEngine) return { success: false, status: 'offline' };
+    const session = acpEngine.findSessionByProjectId(request.project_id || '');
+    return {
+      success: true,
+      status: session?.status === 'active' ? 'Busy' : 'Idle',
+      session_id: session?.id,
+      project_id: request.project_id,
+    };
+  });
+
+  ipcMain.handle('computer:agentStop', async (_, request: { user_id: string; project_id?: string }) => {
+    const acpEngine = agentService.getAcpEngine();
+    if (!acpEngine) return { success: true, message: 'Not running' };
+    if (request.project_id) {
+      const session = acpEngine.findSessionByProjectId(request.project_id);
+      if (session) await acpEngine.abortSession(session.id);
+    } else {
+      await acpEngine.abortSession();
+    }
+    return { success: true, message: 'Stopped' };
+  });
+
+  ipcMain.handle('computer:cancelSession', async (_, request: { user_id: string; session_id?: string }) => {
+    const acpEngine = agentService.getAcpEngine();
+    if (!acpEngine) return { success: false, error: 'Agent not initialized' };
+    await acpEngine.abortSession(request.session_id);
+    return { success: true, session_id: request.session_id };
+  });
+
+  ipcMain.handle('computer:health', async () => {
+    return {
+      status: agentService.isReady ? 'healthy' : 'offline',
+      engineType: agentService.getEngineType(),
+      timestamp: new Date().toISOString(),
+    };
+  });
+
+  // ==================== computer:* Event Forwarding (rcoder format) ====================
+
+  agentService.on('computer:progress', (data: unknown) => {
+    mainWindow?.webContents.send('computer:progress', data);
+  });
+
+  agentService.on('computer:promptStart', (data: { sessionId: string; requestId?: string }) => {
+    mainWindow?.webContents.send('computer:progress', {
+      sessionId: data.sessionId,
+      messageType: 'SessionPromptStart',
+      subType: 'prompt_start',
+      data: { request_id: data.requestId },
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  agentService.on('computer:promptEnd', (data: { sessionId: string; reason?: string; description?: string }) => {
+    mainWindow?.webContents.send('computer:progress', {
+      sessionId: data.sessionId,
+      messageType: 'SessionPromptEnd',
+      subType: data.reason || 'end_turn',
+      data: { reason: data.reason, description: data.description },
+      timestamp: new Date().toISOString(),
     });
   });
 

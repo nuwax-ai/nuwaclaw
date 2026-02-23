@@ -196,6 +196,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('fileServer:status'),
   },
 
+  // Computer API (对齐 rcoder /computer/* API)
+  computer: {
+    chat: (request: any) => ipcRenderer.invoke('computer:chat', request),
+    agentStatus: (request: any) => ipcRenderer.invoke('computer:agentStatus', request),
+    agentStop: (request: any) => ipcRenderer.invoke('computer:agentStop', request),
+    cancelSession: (request: any) => ipcRenderer.invoke('computer:cancelSession', request),
+    health: () => ipcRenderer.invoke('computer:health'),
+    onProgress: (callback: any) => {
+      ipcRenderer.on('computer:progress', callback);
+    },
+    offProgress: (callback: any) => {
+      ipcRenderer.removeListener('computer:progress', callback);
+    },
+  },
+
   // Dependency management
   dependencies: {
     checkAll: () =>
@@ -284,7 +299,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Event listeners
   on: (channel: string, callback: (...args: unknown[]) => void) => {
-    const validChannels = ['menu:new-session', 'menu:settings', 'menu:mcp-settings', 'cowork:message', 'cowork:permission', 'agent:event'];
+    const validChannels = ['menu:new-session', 'menu:settings', 'menu:mcp-settings', 'cowork:message', 'cowork:permission', 'agent:event', 'computer:progress'];
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, (_, ...args) => callback(...args));
     }

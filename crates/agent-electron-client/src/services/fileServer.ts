@@ -131,6 +131,11 @@ class FileServerService {
 
   // POST /computer/chat - 发送聊天消息
   async chat(request: ChatRequest): Promise<ChatResponse> {
+    // 优先通过 IPC（AcpEngine 直接处理）
+    if (window.electronAPI?.computer) {
+      return window.electronAPI.computer.chat(request);
+    }
+    // 回退到 HTTP（agentRunner 进程）
     const response = await fetch(`${this.config.baseUrl}/computer/chat`, {
       method: 'POST',
       headers: {
@@ -207,6 +212,11 @@ class FileServerService {
 
   // POST /computer/agent/status - 获取 Agent 状态
   async getAgentStatus(request: AgentStatusRequest): Promise<AgentStatusResponse> {
+    // 优先通过 IPC
+    if (window.electronAPI?.computer) {
+      return window.electronAPI.computer.agentStatus(request) as Promise<AgentStatusResponse>;
+    }
+    // 回退到 HTTP
     const response = await fetch(`${this.config.baseUrl}/computer/agent/status`, {
       method: 'POST',
       headers: {
@@ -225,6 +235,11 @@ class FileServerService {
 
   // POST /computer/agent/stop - 停止 Agent
   async stopAgent(request: AgentStopRequest): Promise<AgentStopResponse> {
+    // 优先通过 IPC
+    if (window.electronAPI?.computer) {
+      return window.electronAPI.computer.agentStop(request) as Promise<AgentStopResponse>;
+    }
+    // 回退到 HTTP
     const response = await fetch(`${this.config.baseUrl}/computer/agent/stop`, {
       method: 'POST',
       headers: {
@@ -243,6 +258,12 @@ class FileServerService {
 
   // POST /computer/agent/session/cancel - 取消会话
   async cancelSession(request: { user_id: string; session_id: string }): Promise<{ success: boolean; message: string }> {
+    // 优先通过 IPC
+    if (window.electronAPI?.computer) {
+      const result = await window.electronAPI.computer.cancelSession(request);
+      return { success: result.success, message: result.success ? 'Cancelled' : (result.error || 'Failed') };
+    }
+    // 回退到 HTTP
     const response = await fetch(`${this.config.baseUrl}/computer/agent/session/cancel`, {
       method: 'POST',
       headers: {
@@ -555,6 +576,12 @@ class FileServerService {
   // Check connection
   async checkConnection(): Promise<boolean> {
     try {
+      // 优先通过 IPC
+      if (window.electronAPI?.computer) {
+        const result = await window.electronAPI.computer.health();
+        return result.status === 'healthy';
+      }
+      // 回退到 HTTP
       const response = await fetch(`${this.config.baseUrl}/health`, {
         method: 'GET',
       });
