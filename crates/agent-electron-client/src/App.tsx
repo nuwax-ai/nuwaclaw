@@ -149,6 +149,51 @@ function App() {
   }, [isSetupComplete]);
 
   // ============================================
+  // 监听托盘/菜单事件
+  // ============================================
+  useEffect(() => {
+    if (!window.electronAPI) return;
+
+    const cleanupHandlers: (() => void)[] = [];
+
+    // 监听设置菜单
+    const handleSettings = () => {
+      console.log('[App] 收到 menu:settings 事件');
+      setActiveTab('settings');
+    };
+    window.electronAPI.on('menu:settings', handleSettings);
+    cleanupHandlers.push(() => window.electronAPI?.off('menu:settings', handleSettings));
+
+    // 监听依赖管理菜单
+    const handleDependencies = () => {
+      console.log('[App] 收到 menu:dependencies 事件');
+      setActiveTab('dependencies');
+    };
+    window.electronAPI.on('menu:dependencies', handleDependencies);
+    cleanupHandlers.push(() => window.electronAPI?.off('menu:dependencies', handleDependencies));
+
+    // 监听 MCP 设置菜单
+    const handleMcpSettings = () => {
+      console.log('[App] 收到 menu:mcp-settings 事件');
+      setActiveTab('settings');
+    };
+    window.electronAPI.on('menu:mcp-settings', handleMcpSettings);
+    cleanupHandlers.push(() => window.electronAPI?.off('menu:mcp-settings', handleMcpSettings));
+
+    // 监听新建会话菜单
+    const handleNewSession = () => {
+      console.log('[App] 收到 menu:new-session 事件');
+      setActiveTab('client');
+    };
+    window.electronAPI.on('menu:new-session', handleNewSession);
+    cleanupHandlers.push(() => window.electronAPI?.off('menu:new-session', handleNewSession));
+
+    return () => {
+      cleanupHandlers.forEach(fn => fn());
+    };
+  }, []);
+
+  // ============================================
   // 向导完成回调
   // ============================================
   const handleSetupComplete = () => {

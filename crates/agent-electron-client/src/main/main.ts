@@ -201,11 +201,36 @@ function createTray() {
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Show Window',
-      click: () => mainWindow?.show(),
+      label: '显示窗口',
+      click: () => {
+        mainWindow?.show();
+        mainWindow?.focus();
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '设置',
+      click: () => mainWindow?.webContents.send('menu:settings'),
     },
     {
-      label: 'Quit',
+      label: '依赖管理',
+      click: () => mainWindow?.webContents.send('menu:dependencies'),
+    },
+    { type: 'separator' },
+    {
+      label: '关于',
+      click: () => {
+        dialog.showMessageBox({
+          type: 'info',
+          title: `About ${APP_DISPLAY_NAME}`,
+          message: `${APP_DISPLAY_NAME} v${app.getVersion()}`,
+          detail: 'Your AI assistant for productivity.',
+        });
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '退出',
       click: () => app.quit(),
     },
   ]);
@@ -213,8 +238,16 @@ function createTray() {
   tray.setToolTip(APP_DISPLAY_NAME);
   tray.setContextMenu(contextMenu);
 
+  // 左键点击显示窗口
   tray.on('click', () => {
     mainWindow?.show();
+    mainWindow?.focus();
+  });
+
+  // 双击也显示窗口
+  tray.on('double-click', () => {
+    mainWindow?.show();
+    mainWindow?.focus();
   });
 }
 
