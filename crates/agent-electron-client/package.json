@@ -1,6 +1,6 @@
 {
   "name": "@nuwax/agent-electron-client",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Nuwax Agent Desktop Client (Electron)",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
@@ -13,14 +13,27 @@
     "build:renderer": "vite build",
     "build": "npm run build:main && npm run build:renderer",
     "prepare:uv": "node scripts/prepare-uv.js",
+    "prepare:sign-uv": "node scripts/sign-uv-mac.js",
     "prepare:lanproxy": "node scripts/prepare-lanproxy.js",
     "prepare:sdk": "node scripts/prepare-sdk.js",
-    "build:electron": "npm run build && npm run prepare:uv && npm run prepare:lanproxy && npm run prepare:sdk && electron-builder",
+    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:sdk",
+    "build:electron": "npm run build && npm run prepare:all && electron-builder --config.compression=store",
     "dist": "npm run build:electron",
     "dist:mac": "npm run build:electron -- --mac",
+    "dist:mac:arm64": "npm run build:electron -- --mac --arm64",
+    "dist:mac:x64": "npm run build:electron -- --mac --x64",
+    "dist:mac:unsigned": "env CSC_IDENTITY_AUTO_DISCOVERY=false APPLE_SIGNING_IDENTITY= APPLE_API_KEY= APPLE_API_KEY_ID= APPLE_API_ISSUER= npm run build:electron -- --mac",
     "dist:win": "npm run build:electron -- --win",
+    "dist:win:x64": "npm run build:electron -- --win --x64",
+    "dist:win:arm64": "npm run build:electron -- --win --arm64",
     "dist:linux": "npm run build:electron -- --linux",
+    "dist:linux:x64": "npm run build:electron -- --linux --x64",
+    "dist:linux:arm64": "npm run build:electron -- --linux --arm64",
+    "dist:all": "npm run build:electron -- --mac --win --linux",
+    "dist:unsigned": "env CSC_IDENTITY_AUTO_DISCOVERY=false APPLE_SIGNING_IDENTITY= APPLE_API_KEY= APPLE_API_KEY_ID= APPLE_API_ISSUER= npm run build:electron -- --mac --win --linux",
     "clean:electron-cache": "node scripts/clean-electron-cache.js",
+    "clean:release": "rm -rf release",
+    "verify:sign": "node scripts/verify-sign.js",
     "lint": "eslint src --ext .ts,.tsx"
   },
   "dependencies": {
@@ -53,12 +66,16 @@
   "build": {
     "appId": "com.nuwax.agent",
     "productName": "Nuwax Agent",
+    "afterSign": "scripts/after-sign.js",
+    "electronLanguages": ["en", "en-US", "zh_CN", "zh-CN", "zh_TW", "zh-TW"],
     "directories": {
-      "output": "release"
+      "output": "release/${version}",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
-      "package.json"
+      "package.json",
+      "public/**/*"
     ],
     "extraResources": [
       {
@@ -72,7 +89,9 @@
         "from": "resources/uv",
         "to": "uv",
         "filter": [
-          "**/*"
+          "**/*",
+          "!.cache",
+          "!.cache/**"
         ]
       },
       {
@@ -84,24 +103,83 @@
       }
     ],
     "mac": {
+      "gatekeeperAssess": false,
       "category": "public.app-category.productivity",
-      "target": [
-        "dmg",
-        "zip"
+      "target": ["dmg", "zip"],
+      "icon": "public/icon.icns",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "hardenedRuntime": true,
+      "extendInfo": {
+        "CFBundleIdentifier": "com.nuwax.agent",
+        "NSCameraUsageDescription": "需要访问摄像头以支持 Agent 相关功能",
+        "NSMicrophoneUsageDescription": "需要访问麦克风以支持 Agent 相关功能",
+        "NSDesktopFolderUsageDescription": "需要访问桌面文件夹以支持文件操作",
+        "NSDocumentsFolderUsageDescription": "需要访问文档文件夹以支持文件操作",
+        "NSDownloadsFolderUsageDescription": "需要访问下载文件夹以支持文件操作"
+      }
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ],
-      "icon": "public/icon.png"
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    },
+    "mas": {
+      "category": "public.app-category.productivity",
+      "entitlements": "build/entitlements.mas.plist",
+      "entitlementsInherit": "build/entitlements.mas.plist",
+      "hardenedRuntime": true
     },
     "win": {
       "target": [
-        "nsis"
+        {
+          "target": "nsis",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64", "arm64"]
+        }
       ],
       "icon": "public/icon.ico"
     },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "perMachine": false
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
     "linux": {
       "target": [
-        "AppImage"
+        {
+          "target": "AppImage",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64", "arm64"]
+        }
       ],
-      "icon": "public/icon.png"
+      "icon": "public/icon.png",
+      "category": "Productivity",
+      "maintainer": "Nuwax Team"
     },
     "asar": true,
     "asarUnpack": [
