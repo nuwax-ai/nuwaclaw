@@ -91,7 +91,7 @@ function createWindow() {
   }
 
   // Handle load failures
-  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     log.error('Failed to load:', validatedURL, errorCode, errorDescription);
     dialog.showErrorBox(
       'Load Error',
