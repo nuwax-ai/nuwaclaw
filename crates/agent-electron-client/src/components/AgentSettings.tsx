@@ -93,7 +93,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
       } else {
         const step1 = await window.electronAPI?.settings.get('step1_config') as { workspaceDir?: string } | null;
         const result = await window.electronAPI?.agent.init({
-          engine: agentType === 'claude-code' ? 'claude-code' : 'opencode',
+          engine: agentType === 'claude-code' ? 'claude-code' : 'nuwaxcode',
           apiKey,
           baseUrl: apiBaseUrl,
           model,
@@ -149,17 +149,17 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
           <Form.Item label="类型">
             <Select value={agentType} onChange={(v) => {
               setAgentType(v);
-              setBinPath(v === 'claude-code' ? 'claude' : 'opencode');
+              setBinPath(v === 'claude-code' ? 'claude-code' : 'nuwaxcode');
             }}>
               <Select.Option value="claude-code">
                 <Space>
-                  <span>Claude Code (SDK)</span>
-                  <Text type="secondary" style={{ fontSize: 12 }}>Anthropic 官方 SDK</Text>
+                  <span>Claude Code (ACP)</span>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Anthropic 官方 ACP 协议</Text>
                 </Space>
               </Select.Option>
               <Select.Option value="nuwaxcode">
                 <Space>
-                  <span>nuwaxcode (OpenCode)</span>
+                  <span>nuwaxcode (ACP)</span>
                   <Text type="secondary" style={{ fontSize: 12 }}>基于 OpenCode 开发</Text>
                 </Space>
               </Select.Option>
@@ -184,7 +184,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
             <Input
               value={binPath}
               onChange={(e) => setBinPath(e.target.value)}
-              placeholder={agentType === 'nuwaxcode' ? 'opencode' : 'claude-code'}
+              placeholder={agentType === 'nuwaxcode' ? 'nuwaxcode' : 'claude-code-acp-ts'}
             />
           </Form.Item>
 

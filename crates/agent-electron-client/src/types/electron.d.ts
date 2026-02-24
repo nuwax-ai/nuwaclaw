@@ -126,7 +126,7 @@ export interface EngineAPI {
 }
 
 // SDK types (simplified for renderer use)
-export type AgentEngineType = 'opencode' | 'nuwaxcode' | 'claude-code';
+export type AgentEngineType = 'nuwaxcode' | 'claude-code';
 
 export interface AgentInitConfig {
   engine: AgentEngineType;

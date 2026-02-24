@@ -31,15 +31,13 @@ import {
   type AcpEnvVariable,
 } from './acpClient';
 import type {
-  AssistantMessage,
-  TextPart,
-} from '@nuwax-ai/sdk';
-import type {
   AgentConfig,
   AcpSessionStatus,
   SdkSession,
   MessageWithParts,
   PromptOptions,
+  AssistantMessage,
+  TextPart,
 } from '../unifiedAgent';
 import type {
   HttpResult,

@@ -3,7 +3,6 @@
  *
  * Architecture:
  * - AcpEngine: ACP protocol (claude-code via claude-code-acp-ts, nuwaxcode via nuwaxcode acp)
- * - OpencodeEngine: HTTP/SSE API via @nuwax-ai/sdk (opencode only)
  * - UnifiedAgentService: Event bus + engine proxy
  */
 
@@ -12,19 +11,11 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import log from 'electron-log';
-import type {
-  TextPartInput,
-  FilePartInput,
-  FileDiff,
-} from '@nuwax-ai/sdk';
 
-// Re-export engine classes (extracted modules)
-export { OpencodeEngine } from './opcodeEngine';
+// Re-export engine classes
 export { AcpEngine } from './acp/acpEngine';
 export { mapAgentCommand, resolveAgentEnv } from './agentHelpers';
 
-// Re-export from engines for downstream compatibility
-import { OpencodeEngine } from './opcodeEngine';
 import { AcpEngine } from './acp/acpEngine';
 import { mapAgentCommand, resolveAgentEnv } from './agentHelpers';
 
@@ -44,7 +35,7 @@ import { APP_DATA_DIR_NAME } from '../constants';
 
 // ==================== Types ====================
 
-export type AgentEngineType = 'opencode' | 'nuwaxcode' | 'claude-code';
+export type AgentEngineType = 'nuwaxcode' | 'claude-code';
 
 export interface AgentConfig {
   engine: AgentEngineType;
@@ -64,10 +55,101 @@ export interface AgentConfig {
 
 export type AcpSessionStatus = 'idle' | 'pending' | 'active' | 'terminating';
 
-// Re-export SDK types used by downstream
-export type { UserMessage, AssistantMessage, TextPart, ReasoningPart, FilePart, ToolPart, StepStartPart, StepFinishPart, SnapshotPart, PatchPart, TextPartInput, FilePartInput, FileDiff } from '@nuwax-ai/sdk';
-export type Message = import('@nuwax-ai/sdk').UserMessage | import('@nuwax-ai/sdk').AssistantMessage;
-export type Part = import('@nuwax-ai/sdk').TextPart | import('@nuwax-ai/sdk').ReasoningPart | import('@nuwax-ai/sdk').FilePart | import('@nuwax-ai/sdk').ToolPart | import('@nuwax-ai/sdk').StepStartPart | import('@nuwax-ai/sdk').StepFinishPart | import('@nuwax-ai/sdk').SnapshotPart | import('@nuwax-ai/sdk').PatchPart;
+// ==================== Message Types (replacing SDK types) ====================
+
+export type MessageRole = 'user' | 'system' | 'assistant';
+
+export type PartType = 'text' | 'reasoning' | 'file' | 'tool' | 'step_start' | 'step_finish' | 'snapshot' | 'patch';
+
+export interface BasePart {
+  type: PartType;
+}
+
+export interface TextPart extends BasePart {
+  type: 'text';
+  text: string;
+}
+
+export interface ReasoningPart extends BasePart {
+  type: 'reasoning';
+  thinking: string;
+}
+
+export interface FilePart extends BasePart {
+  type: 'file';
+  uri?: string;
+  mimeType?: string;
+}
+
+export interface ToolPart extends BasePart {
+  type: 'tool';
+  toolCallId: string;
+  name: string;
+  kind?: string;
+  status?: string;
+  input?: string;
+  output?: string;
+  content?: string;
+}
+
+export interface StepStartPart extends BasePart {
+  type: 'step_start';
+  stepId: string;
+  title?: string;
+}
+
+export interface StepFinishPart extends BasePart {
+  type: 'step_finish';
+  stepId: string;
+  title?: string;
+  result?: unknown;
+}
+
+export interface SnapshotPart extends BasePart {
+  type: 'snapshot';
+  snapshotId: string;
+}
+
+export interface PatchPart extends BasePart {
+  type: 'patch';
+  patchId: string;
+  filePath?: string;
+}
+
+export type Part = TextPart | ReasoningPart | FilePart | ToolPart | StepStartPart | StepFinishPart | SnapshotPart | PatchPart;
+
+export interface BaseMessage {
+  role: MessageRole;
+  content: Part[];
+}
+
+export interface UserMessage extends BaseMessage {
+  role: 'user';
+}
+
+export interface AssistantMessage extends BaseMessage {
+  role: 'assistant';
+}
+
+export type Message = UserMessage | AssistantMessage;
+
+export interface TextPartInput {
+  type: 'text';
+  text: string;
+}
+
+export interface FilePartInput {
+  type: 'file';
+  uri?: string;
+  mimeType?: string;
+}
+
+export interface FileDiff {
+  filePath: string;
+  oldContent?: string;
+  newContent?: string;
+  hunks?: unknown[];
+}
 
 export interface MessageWithParts {
   info: Message;
@@ -120,7 +202,7 @@ export interface ProviderInfo {
 // ==================== UnifiedAgentService ====================
 
 export class UnifiedAgentService extends EventEmitter {
-  private engine: OpencodeEngine | AcpEngine | null = null;
+  private engine: AcpEngine | null = null;
   private engineType: AgentEngineType | null = null;
   private config: AgentConfig | null = null;
 
@@ -132,24 +214,10 @@ export class UnifiedAgentService extends EventEmitter {
     this.config = config;
     this.engineType = config.engine;
 
-    if (config.engine === 'claude-code' || config.engine === 'nuwaxcode') {
-      const engine = new AcpEngine(config.engine);
-      this.engine = engine;
-      this.forwardEvents(engine);
-      return engine.init(config);
-    }
-
-    // opencode uses OpencodeEngine (HTTP/SSE)
-    const engine = new OpencodeEngine();
+    const engine = new AcpEngine(config.engine);
     this.engine = engine;
     this.forwardEvents(engine);
-    const ok = await engine.init(config);
-
-    if (ok) {
-      engine.startEventStream();
-    }
-
-    return ok;
+    return engine.init(config);
   }
 
   async destroy(): Promise<void> {
@@ -305,62 +373,30 @@ export class UnifiedAgentService extends EventEmitter {
     return this.engine?.isReady ?? false;
   }
 
-  getOpencodeEngine(): OpencodeEngine | null {
-    return this.engine instanceof OpencodeEngine ? this.engine : null;
-  }
-
   getAcpEngine(): AcpEngine | null {
     return this.engine instanceof AcpEngine ? this.engine : null;
   }
 
-  // === Proxy methods ===
+  // === Proxy methods (all delegated to AcpEngine) ===
 
   async listSessions(): Promise<SdkSession[]> {
-    if (this.engine instanceof AcpEngine) return this.engine.listSessions();
-    return this.oc().listSessions();
+    return this.engine!.listSessions();
   }
 
   async createSession(opts?: { parentID?: string; title?: string }): Promise<SdkSession> {
-    if (this.engine instanceof AcpEngine) return this.engine.createSession(opts);
-    return this.oc().createSession(opts);
+    return this.engine!.createSession(opts);
   }
 
   async getSession(id: string): Promise<SdkSession> {
-    if (this.engine instanceof AcpEngine) return this.engine.getSession(id);
-    return this.oc().getSession(id);
+    return this.engine!.getSession(id);
   }
 
   async deleteSession(id: string): Promise<boolean> {
-    if (this.engine instanceof AcpEngine) return this.engine.deleteSession(id);
-    return this.oc().deleteSession(id);
-  }
-
-  async updateSession(id: string, title?: string): Promise<SdkSession> {
-    return this.oc().updateSession(id, title);
-  }
-
-  async getSessionStatus(): Promise<SessionStatus> {
-    return this.oc().getSessionStatus();
-  }
-
-  async forkSession(id: string, messageID?: string): Promise<SdkSession> {
-    return this.oc().forkSession(id, messageID);
+    return this.engine!.deleteSession(id);
   }
 
   async abortSession(id: string): Promise<void> {
-    if (this.engine instanceof AcpEngine) {
-      await this.engine.abortSession(id);
-      return;
-    }
-    return this.oc().abortSession(id);
-  }
-
-  async getMessages(sessionId: string, limit?: number): Promise<MessageWithParts[]> {
-    return this.oc().getMessages(sessionId, limit);
-  }
-
-  async getMessage(sessionId: string, messageId: string): Promise<MessageWithParts> {
-    return this.oc().getMessage(sessionId, messageId);
+    await this.engine!.abortSession(id);
   }
 
   async prompt(
@@ -368,10 +404,7 @@ export class UnifiedAgentService extends EventEmitter {
     parts: Array<TextPartInput | FilePartInput>,
     opts?: PromptOptions,
   ): Promise<MessageWithParts> {
-    if (this.engine instanceof AcpEngine) {
-      return this.engine.prompt(sessionId, parts as any, opts);
-    }
-    return this.oc().prompt(sessionId, parts, opts);
+    return this.engine!.prompt(sessionId, parts as any, opts);
   }
 
   async promptAsync(
@@ -379,106 +412,12 @@ export class UnifiedAgentService extends EventEmitter {
     parts: Array<TextPartInput | FilePartInput>,
     opts?: PromptOptions,
   ): Promise<void> {
-    if (this.engine instanceof AcpEngine) {
-      return this.engine.promptAsync(sessionId, parts as any, opts);
-    }
-    return this.oc().promptAsync(sessionId, parts, opts);
+    return this.engine!.promptAsync(sessionId, parts as any, opts);
   }
 
-  async command(sessionId: string, cmd: string, args?: string, opts?: CommandOptions): Promise<MessageWithParts> {
-    return this.oc().command(sessionId, cmd, args, opts);
-  }
-
-  async shell(sessionId: string, cmd: string, agent?: string, model?: { providerID: string; modelID: string }): Promise<MessageWithParts> {
-    return this.oc().shell(sessionId, cmd, agent, model);
-  }
-
-  async respondPermission(sessionId: string, permissionId: string, response: 'once' | 'always' | 'reject'): Promise<boolean> {
-    if (this.engine instanceof AcpEngine) {
-      this.engine.respondPermission(permissionId, response);
-      return true;
-    }
-    return this.oc().respondPermission(sessionId, permissionId, response);
-  }
-
-  async revertSession(id: string, messageId: string, partId?: string): Promise<SdkSession> {
-    return this.oc().revertSession(id, messageId, partId);
-  }
-
-  async unrevertSession(id: string): Promise<SdkSession> {
-    return this.oc().unrevertSession(id);
-  }
-
-  async diffSession(id: string, messageId?: string): Promise<FileDiff[]> {
-    return this.oc().diffSession(id, messageId);
-  }
-
-  async shareSession(id: string): Promise<SdkSession> {
-    return this.oc().shareSession(id);
-  }
-
-  async unshareSession(id: string): Promise<SdkSession> {
-    return this.oc().unshareSession(id);
-  }
-
-  async getSessionChildren(id: string): Promise<SdkSession[]> {
-    return this.oc().getSessionChildren(id);
-  }
-
-  async listTools(provider?: string, model?: string): Promise<ToolInfo[]> {
-    return this.oc().listTools(provider, model);
-  }
-
-  async getToolIds(): Promise<string[]> {
-    return this.oc().getToolIds();
-  }
-
-  async findText(pattern: string): Promise<unknown[]> {
-    return this.oc().findText(pattern);
-  }
-
-  async findFiles(query: string, dirs?: boolean): Promise<string[]> {
-    return this.oc().findFiles(query, dirs);
-  }
-
-  async listFiles(dirPath: string): Promise<unknown[]> {
-    return this.oc().listFiles(dirPath);
-  }
-
-  async readFile(filePath: string): Promise<unknown> {
-    return this.oc().readFile(filePath);
-  }
-
-  async listProviders(): Promise<ProviderInfo[]> {
-    return this.oc().listProviders();
-  }
-
-  async getConfig(): Promise<unknown> {
-    return this.oc().getConfig();
-  }
-
-  async mcpStatus(): Promise<unknown> {
-    return this.oc().mcpStatus();
-  }
-
-  async mcpConnect(name: string): Promise<void> {
-    return this.oc().mcpConnect(name);
-  }
-
-  async mcpDisconnect(name: string): Promise<void> {
-    return this.oc().mcpDisconnect(name);
-  }
-
-  async getConfigProviders(): Promise<unknown> {
-    return this.oc().getConfigProviders();
-  }
-
-  async listAgents(): Promise<unknown[]> {
-    return this.oc().listAgents();
-  }
-
-  async listCommands(): Promise<unknown[]> {
-    return this.oc().listCommands();
+  respondPermission(permissionId: string, response: 'once' | 'always' | 'reject'): void {
+    // ACP engine's respondPermission is void, returns nothing
+    this.engine!.respondPermission(permissionId, response);
   }
 
   // === ACP engine specific ===
@@ -491,14 +430,7 @@ export class UnifiedAgentService extends EventEmitter {
 
   // === Helpers ===
 
-  private oc(): OpencodeEngine {
-    if (!(this.engine instanceof OpencodeEngine)) {
-      throw new Error(`Operation requires opencode engine, current: ${this.engineType}`);
-    }
-    return this.engine;
-  }
-
-  private forwardEvents(engine: OpencodeEngine | AcpEngine): void {
+  private forwardEvents(engine: AcpEngine): void {
     const events = [
       'message.updated', 'message.removed',
       'message.part.updated', 'message.part.removed',

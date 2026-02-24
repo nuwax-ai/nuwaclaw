@@ -27,7 +27,6 @@ export type {
   FilePartInput,
   FileDiff,
 } from './unifiedAgent';
-export { OpencodeEngine } from './opcodeEngine';
 export { AcpEngine } from './acp/acpEngine';
 export {
   createAcpConnection,

@@ -6,7 +6,7 @@ This is the **Nuwax Agent** Electron client - a multi-engine AI assistant deskto
 
 ### Core Features
 
-- **Multi-Agent Engine**: Supports claude-code and nuwaxcode
+- **Multi-Agent Engine**: Supports claude-code and nuwaxcode via ACP protocol
 - **Cross-Platform**: Windows, macOS, Linux
 - **Local Execution**: Runs locally with sandbox option
 - **IM Integration**: Control via Telegram, Discord, DingTalk, Feishu
@@ -26,7 +26,7 @@ This is the **Nuwax Agent** Electron client - a multi-engine AI assistant deskto
 │  - Window lifecycle                                         │
 │  - System tray                                              │
 │  - SQLite persistence                                       │
-│  - Engine Manager (claude-code/nuwaxcode)                   │
+│  - Engine Manager (claude-code/nuwaxcode via ACP)           │
 │  - Sandbox Manager (Docker/WSL/Firejail)                   │
 │  - IM Gateways (Telegram/Discord/DingTalk/Feishu)          │
 │  - Process cleanup on exit                                  │
@@ -56,8 +56,7 @@ Located in `src/services/main/`, these services use Node/Electron APIs and can o
 | Service | File | Description |
 |---------|------|-------------|
 | **Engines** | | |
-| Unified Agent | `engines/unifiedAgent.ts` | Unified SDK layer for all engines |
-| Opencode Engine | `engines/opcodeEngine.ts` | HTTP/SSE client for opencode |
+| Unified Agent | `engines/unifiedAgent.ts` | Unified ACP layer for all engines |
 | ACP Engine | `engines/acp/acpEngine.ts` | ACP protocol handler |
 | ACP Client | `engines/acp/acpClient.ts` | ACP connection manager |
 | Agent Helpers | `engines/agentHelpers.ts` | Agent utilities |
@@ -119,11 +118,10 @@ Located in `src/services/renderer/`, these services are used by React components
 
 ### Supported Engines
 
-| Engine | SDK/CLI | Package |
-|--------|---------|---------|
-| **opencode** | SDK | @nuwax-ai/sdk (vendors/nuwaxcode-sdk) |
-| **nuwaxcode** | SDK | @nuwax-ai/sdk (vendors/nuwaxcode-sdk) |
-| **claude-code** | CLI | spawn |
+| Engine | Protocol | Binary |
+|--------|----------|--------|
+| **claude-code** | ACP | claude-code-acp-ts |
+| **nuwaxcode** | ACP | nuwaxcode acp |
 
 ### Architecture
 
@@ -134,21 +132,13 @@ Located in `src/services/renderer/`, these services are used by React components
 ├─────────────────────────────────────────────────┤
 │                                                  │
 │  ┌────────────────────────────────────────┐     │
-│  │         OpencodeEngine                  │     │
-│  │   @nuwax-ai/sdk (createOpencode)       │     │
-│  │   - 完整 Session API (22 方法)          │     │
-│  │   - SSE 事件流                          │     │
-│  │   - 工具发现 & 选择                     │     │
-│  │   - 权限请求/响应                       │     │
-│  │   - 文件操作                            │     │
-│  │   - Provider 管理                       │     │
-│  └────────────────────────────────────────┘     │
-│                                                  │
-│  ┌────────────────────────────────────────┐     │
-│  │       ClaudeCodeEngine                  │     │
-│  │   CLI spawn (--print / JSON 模式)      │     │
-│  │   - 基本 chat                           │     │
-│  │   - 命令执行                            │     │
+│  │            AcpEngine                     │     │
+│  │   Agent Client Protocol (NDJSON)        │     │
+│  │   - Session 管理                         │     │
+│  │   - Prompt (同步/异步)                    │     │
+│  │   - 权限自动处理                          │     │
+│  │   - MCP 注入                              │     │
+│  │   - SSE 事件流                            │     │
 │  └────────────────────────────────────────┘     │
 │                                                  │
 └─────────────────────────────────────────────────┘
@@ -159,9 +149,9 @@ Located in `src/services/renderer/`, these services are used by React components
 ```typescript
 import { agentService } from './services/main/engines/unifiedAgent';
 
-// Initialize with opencode/nuwaxcode (SDK engine)
+// Initialize with claude-code or nuwaxcode (ACP engine)
 await agentService.init({
-  engine: 'opencode',  // or 'nuwaxcode' or 'claude-code'
+  engine: 'claude-code',  // or 'nuwaxcode'
   apiKey: 'xxx',
   model: 'claude-sonnet-4-20250514',
   workspaceDir: '/path/to/workspace',
@@ -202,27 +192,7 @@ await agentService.destroy();
 
 ### About
 
-使用 vendor 包 `@nuwax-ai/sdk`（位于 `vendors/nuwaxcode-sdk`，基于 `@opencode-ai/sdk` v1.2.10），提供完整的 22 个 session 方法 + SSE 事件流 + 工具发现 + 权限管理 + 文件操作。
-
-### Supported Engines
-
-| Engine | SDK/CLI | Package |
-|--------|---------|---------|
-| **opencode** | SDK | @nuwax-ai/sdk (vendors/nuwaxcode-sdk) |
-| **nuwaxcode** | SDK | @nuwax-ai/sdk，通过 createOpencodeClient 连接已有服务 |
-| **claude-code** | CLI | spawn |
-
-### Usage
-
-```typescript
-import { createOpencode, createOpencodeClient } from '@nuwax-ai/sdk';
-
-// 启动 opencode 并创建 client
-const { client, server } = await createOpencode({ port: 4096 });
-
-// 或连接已有 opencode/nuwaxcode HTTP 服务
-const client = createOpencodeClient({ baseUrl: 'http://127.0.0.1:4096' });
-```
+使用 ACP (Agent Client Protocol) 通过 NDJSON 与引擎进程通信。
 
 ---
 
@@ -232,8 +202,8 @@ const client = createOpencodeClient({ baseUrl: 'http://127.0.0.1:4096' });
 
 | Engine | Command | Description |
 |--------|---------|-------------|
-| **claude-code** | `claude-code --sACP` | Default recommended |
-| **nuwaxcode** | `nuwaxcode serve --stdio` | Alternative |
+| **claude-code** | `claude-code-acp-ts` | ACP TypeScript 实现 |
+| **nuwaxcode** | `nuwaxcode acp` | ACP Go 实现 |
 
 ### Engine Isolation
 
@@ -325,7 +295,8 @@ permissionManager.approveRequest(requestId, alwaysAllow);
 |------------|------|-------------|
 | **uv** | bundled | Python package manager (>=0.5.0), shipped in extraResources |
 | **nuwax-file-server** | npm-local | File service |
-| **nuwaxcode** | npm-local | Agent engine |
+| **claude-code-acp-ts** | npm-local | Claude Code ACP implementation |
+| **nuwaxcode** | npm-local | Nuwaxcode ACP implementation |
 | **mcp-stdio-proxy** | npm-local | MCP protocol proxy (bin: `mcp-proxy`) |
 
 > **Note**: Node.js is NOT a required dependency — Electron bundles its own Node runtime.

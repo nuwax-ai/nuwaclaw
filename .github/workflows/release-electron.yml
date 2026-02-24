@@ -169,6 +169,7 @@ jobs:
           fi
 
       - name: Upload artifacts to Release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |

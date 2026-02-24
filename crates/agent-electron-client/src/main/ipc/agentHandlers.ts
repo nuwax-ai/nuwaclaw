@@ -58,7 +58,7 @@ export function registerAgentHandlers(): void {
     return agentService.isReady;
   });
 
-  // List SDK sessions
+  // List sessions
   ipcMain.handle('agent:listSessions', async () => {
     try {
       const sessions = await agentService.listSessions();
@@ -68,7 +68,7 @@ export function registerAgentHandlers(): void {
     }
   });
 
-  // Create SDK session
+  // Create session
   ipcMain.handle('agent:createSession', async (_, opts?: { parentID?: string; title?: string }) => {
     try {
       const session = await agentService.createSession(opts);
@@ -78,7 +78,7 @@ export function registerAgentHandlers(): void {
     }
   });
 
-  // Get SDK session
+  // Get session
   ipcMain.handle('agent:getSession', async (_, id: string) => {
     try {
       const session = await agentService.getSession(id);
@@ -88,7 +88,7 @@ export function registerAgentHandlers(): void {
     }
   });
 
-  // Delete SDK session
+  // Delete session
   ipcMain.handle('agent:deleteSession', async (_, id: string) => {
     try {
       await agentService.deleteSession(id);
@@ -98,41 +98,39 @@ export function registerAgentHandlers(): void {
     }
   });
 
-  // Update SDK session
+  // Update session title (ACP doesn't support this, but keep for compatibility)
   ipcMain.handle('agent:updateSession', async (_, id: string, title?: string) => {
     try {
-      const session = await agentService.updateSession(id, title);
-      return { success: true, data: session };
+      // ACP doesn't have a separate update method, title is set via session info updates
+      // Return success for compatibility
+      return { success: true, data: { id, title } };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // Get session status
+  // Get session status (ACP doesn't have this, return empty for compatibility)
   ipcMain.handle('agent:getSessionStatus', async () => {
     try {
-      const status = await agentService.getSessionStatus();
-      return { success: true, data: status };
+      return { success: true, data: {} };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // Get messages
-  ipcMain.handle('agent:getMessages', async (_, sessionId: string, limit?: number) => {
+  // Get messages (ACP doesn't store messages, return empty for compatibility)
+  ipcMain.handle('agent:getMessages', async () => {
     try {
-      const messages = await agentService.getMessages(sessionId, limit);
-      return { success: true, data: messages };
+      return { success: true, data: [] };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // Get single message
+  // Get single message (ACP doesn't store messages, return error for compatibility)
   ipcMain.handle('agent:getMessage', async (_, sessionId: string, messageId: string) => {
     try {
-      const message = await agentService.getMessage(sessionId, messageId);
-      return { success: true, data: message };
+      return { success: false, error: 'ACP engine does not store messages' };
     } catch (error) {
       return { success: false, error: String(error) };
     }
@@ -158,30 +156,10 @@ export function registerAgentHandlers(): void {
     }
   });
 
-  // Command
-  ipcMain.handle('agent:command', async (_, sessionId: string, cmd: string, args?: string, opts?: any) => {
-    try {
-      const result = await agentService.command(sessionId, cmd, args, opts);
-      return { success: true, data: result };
-    } catch (error) {
-      return { success: false, error: String(error) };
-    }
-  });
-
-  // Shell
-  ipcMain.handle('agent:shell', async (_, sessionId: string, cmd: string, agent?: string, model?: any) => {
-    try {
-      const result = await agentService.shell(sessionId, cmd, agent, model);
-      return { success: true, data: result };
-    } catch (error) {
-      return { success: false, error: String(error) };
-    }
-  });
-
   // Abort session
-  ipcMain.handle('agent:abort', async (_, sessionId: string) => {
+  ipcMain.handle('agent:abort', async (_, sessionId?: string) => {
     try {
-      await agentService.abortSession(sessionId);
+      await agentService.abortSession(sessionId || '');
       return { success: true };
     } catch (error) {
       return { success: false, error: String(error) };
@@ -189,136 +167,124 @@ export function registerAgentHandlers(): void {
   });
 
   // Respond to permission request
-  ipcMain.handle('agent:respondPermission', async (_, sessionId: string, permissionId: string, response: 'once' | 'always' | 'reject') => {
+  ipcMain.handle('agent:respondPermission', async (_, permissionId: string, response: 'once' | 'always' | 'reject') => {
     try {
-      await agentService.respondPermission(sessionId, permissionId, response);
+      agentService.respondPermission(permissionId, response);
       return { success: true };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // List tools
-  ipcMain.handle('agent:listTools', async (_, provider?: string, model?: string) => {
+  // List tools (ACP doesn't support this, return empty for compatibility)
+  ipcMain.handle('agent:listTools', async () => {
     try {
-      const tools = await agentService.listTools(provider, model);
-      return { success: true, data: tools };
+      return { success: true, data: [] };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // List providers
+  // List providers (ACP doesn't support this, return empty for compatibility)
   ipcMain.handle('agent:listProviders', async () => {
     try {
-      const providers = await agentService.listProviders();
-      return { success: true, data: providers };
+      return { success: true, data: [] };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // Get session diff
-  ipcMain.handle('agent:getSessionDiff', async (_, sessionId: string, messageId?: string) => {
+  // Get session diff (ACP doesn't support this, return empty for compatibility)
+  ipcMain.handle('agent:getSessionDiff', async () => {
     try {
-      const diffs = await agentService.diffSession(sessionId, messageId);
-      return { success: true, data: diffs };
+      return { success: true, data: [] };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // Revert session
-  ipcMain.handle('agent:revert', async (_, sessionId: string, messageId: string, partId?: string) => {
+  // Revert session (ACP doesn't support this, return error for compatibility)
+  ipcMain.handle('agent:revert', async () => {
     try {
-      const session = await agentService.revertSession(sessionId, messageId, partId);
-      return { success: true, data: session };
+      return { success: false, error: 'ACP engine does not support revert' };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // Unrevert session
-  ipcMain.handle('agent:unrevert', async (_, sessionId: string) => {
+  // Unrevert session (ACP doesn't support this, return error for compatibility)
+  ipcMain.handle('agent:unrevert', async () => {
     try {
-      const session = await agentService.unrevertSession(sessionId);
-      return { success: true, data: session };
+      return { success: false, error: 'ACP engine does not support unrevert' };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // Share session
-  ipcMain.handle('agent:shareSession', async (_, sessionId: string) => {
+  // Share session (ACP doesn't support this, return error for compatibility)
+  ipcMain.handle('agent:shareSession', async () => {
     try {
-      const session = await agentService.shareSession(sessionId);
-      return { success: true, data: session };
+      return { success: false, error: 'ACP engine does not support share' };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // Fork session
-  ipcMain.handle('agent:forkSession', async (_, sessionId: string, messageId?: string) => {
+  // Fork session (ACP doesn't support this, return error for compatibility)
+  ipcMain.handle('agent:forkSession', async () => {
     try {
-      const session = await agentService.forkSession(sessionId, messageId);
-      return { success: true, data: session };
+      return { success: false, error: 'ACP engine does not support fork' };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // Get config
+  // Get config (ACP doesn't support this, return empty for compatibility)
   ipcMain.handle('agent:getConfig', async () => {
     try {
-      const config = await agentService.getConfig();
-      return { success: true, data: config };
+      return { success: true, data: {} };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // Find text
-  ipcMain.handle('agent:findText', async (_, pattern: string) => {
+  // Find text (ACP doesn't support this, return empty for compatibility)
+  ipcMain.handle('agent:findText', async () => {
     try {
-      const results = await agentService.findText(pattern);
-      return { success: true, data: results };
+      return { success: true, data: [] };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // Find files
-  ipcMain.handle('agent:findFiles', async (_, query: string, dirs?: boolean) => {
+  // Find files (ACP doesn't support this, return empty for compatibility)
+  ipcMain.handle('agent:findFiles', async () => {
     try {
-      const results = await agentService.findFiles(query, dirs);
-      return { success: true, data: results };
+      return { success: true, data: [] };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // List files
-  ipcMain.handle('agent:listFiles', async (_, dirPath: string) => {
+  // List files (ACP doesn't support this, return empty for compatibility)
+  ipcMain.handle('agent:listFiles', async () => {
     try {
-      const results = await agentService.listFiles(dirPath);
-      return { success: true, data: results };
+      return { success: true, data: [] };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // Read file
-  ipcMain.handle('agent:readFile', async (_, filePath: string) => {
+  // Read file (ACP doesn't support this, return error for compatibility)
+  ipcMain.handle('agent:readFile', async () => {
     try {
-      const result = await agentService.readFile(filePath);
-      return { success: true, data: result };
+      return { success: false, error: 'ACP engine does not support readFile' };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // Claude Code prompt (CLI engine)
+  // Claude Code prompt (ACP engine)
   ipcMain.handle('agent:claudePrompt', async (_, message: string) => {
     try {
       const result = await agentService.claudePrompt(message);
@@ -328,31 +294,28 @@ export function registerAgentHandlers(): void {
     }
   });
 
-  // MCP status via SDK
+  // MCP status (ACP doesn't support this, return empty for compatibility)
   ipcMain.handle('agent:mcpStatus', async () => {
     try {
-      const result = await agentService.mcpStatus();
-      return { success: true, data: result };
+      return { success: true, data: {} };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // List agents
+  // List agents (ACP doesn't support this, return empty for compatibility)
   ipcMain.handle('agent:listAgents', async () => {
     try {
-      const result = await agentService.listAgents();
-      return { success: true, data: result };
+      return { success: true, data: [] };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // List commands
+  // List commands (ACP doesn't support this, return empty for compatibility)
   ipcMain.handle('agent:listCommands', async () => {
     try {
-      const result = await agentService.listCommands();
-      return { success: true, data: result };
+      return { success: true, data: [] };
     } catch (error) {
       return { success: false, error: String(error) };
     }

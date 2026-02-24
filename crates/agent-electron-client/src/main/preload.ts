@@ -77,9 +77,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('agentRunner:status'),
   },
 
-  // Agent - unified SDK service (@nuwax-ai/sdk)
+  // Agent - unified ACP service (claude-code/nuwaxcode)
   agent: {
-    // Unified Agent SDK
+    // Unified Agent ACP
     init: (config: any) =>
       ipcRenderer.invoke('agent:init', config),
     destroy: () =>
@@ -91,7 +91,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     serviceStatus: () =>
       ipcRenderer.invoke('agent:serviceStatus'),
 
-    // Session management (SDK)
+    // Session management (ACP)
     listSessions: () =>
       ipcRenderer.invoke('agent:listSessions'),
     createSession: (opts?: { parentID?: string; title?: string }) =>
@@ -163,7 +163,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readFile: (filePath: string) =>
       ipcRenderer.invoke('agent:readFile', filePath),
 
-    // MCP via SDK
+    // MCP via ACP
     mcpStatus: () =>
       ipcRenderer.invoke('agent:mcpStatus'),
 
