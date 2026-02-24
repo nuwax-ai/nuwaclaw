@@ -104,8 +104,9 @@ describe('dependencies', () => {
       const { getAppEnv } = await import('../system/dependencies');
       const env = getAppEnv();
 
-      // 使用 path.delimiter 以支持 Windows（;）与 Unix（:）
-      const pathEntries = env.PATH?.split(path.delimiter) || [];
+      // 与实现一致：getAppEnv 用 process.platform 决定分隔符（darwin 在 beforeEach 已 mock）
+      const pathSep = process.platform === 'win32' ? ';' : ':';
+      const pathEntries = env.PATH?.split(pathSep) || [];
       const home = path.join('/mock', 'home');
       const appData = path.join(home, '.nuwax-agent');
       expect(pathEntries).toContain(path.join(appData, 'node_modules', '.bin'));
