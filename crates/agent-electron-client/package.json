@@ -180,11 +180,11 @@
       ],
       "icon": "public/icon.png",
       "category": "Productivity",
-      "maintainer": "Nuwax Team",
-      "deb": {
-        "packageName": "nuwax-agent",
-        "artifactName": "${productName}-${version}-${arch}.${ext}"
-      }
+      "maintainer": "Nuwax Team"
+    },
+    "deb": {
+      "packageName": "nuwax-agent",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "asar": true,
     "asarUnpack": [
