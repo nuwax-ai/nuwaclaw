@@ -121,20 +121,20 @@ function extractArchive(archivePath, outDir) {
   fs.mkdirSync(outDir, { recursive: true });
   const ext = path.extname(archivePath).toLowerCase();
   const isZip = ext === '.zip';
-  const cwd = process.platform === 'win32' ? outDir : outDir;
   if (isZip) {
-    // Windows: tar 可解 zip；Linux/mac 一般有 unzip
-    try {
-      if (process.platform === 'win32') {
-        execSync(`tar -xf "${archivePath}" -C "${outDir}"`, { stdio: 'inherit' });
-      } else {
-        execSync(`unzip -o -q "${archivePath}" -d "${outDir}"`, { stdio: 'inherit' });
-      }
-    } catch (e) {
+    if (process.platform === 'win32') {
+      // Windows: tar 对 D:\ 路径解析有问题，用 PowerShell Expand-Archive 解压 .zip
+      const psPath = archivePath.replace(/'/g, "''");
+      const psDest = outDir.replace(/'/g, "''");
+      execSync(
+        `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${psPath}' -DestinationPath '${psDest}' -Force"`,
+        { stdio: 'inherit' },
+      );
+    } else {
       try {
+        execSync(`unzip -o -q "${archivePath}" -d "${outDir}"`, { stdio: 'inherit' });
+      } catch (e) {
         execSync(`tar -xf "${archivePath}" -C "${outDir}"`, { stdio: 'inherit' });
-      } catch (e2) {
-        throw e;
       }
     }
   } else {
