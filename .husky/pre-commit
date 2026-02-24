@@ -1,1 +1,5 @@
 pnpm exec lint-staged
+
+# 运行 Electron 客户端单元测试
+echo "🧪 Running Electron unit tests..."
+cd crates/agent-electron-client && npm run test:run

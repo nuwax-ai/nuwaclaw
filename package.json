@@ -1,7 +1,8 @@
 {
   "private": true,
   "scripts": {
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:electron": "cd crates/agent-electron-client && npm run test:run"
   },
   "devDependencies": {
     "husky": "^9",
@@ -12,6 +13,9 @@
     "crates/agent-tauri-client/src/**/*.{ts,tsx}": [
       "prettier --write",
       "pnpm --filter agent-tauri-client lint"
+    ],
+    "crates/agent-electron-client/src/**/*.{ts,tsx}": [
+      "prettier --write"
     ]
   }
 }
