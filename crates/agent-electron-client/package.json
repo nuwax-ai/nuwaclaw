@@ -39,11 +39,11 @@
     "lint": "eslint src --ext .ts,.tsx"
   },
   "dependencies": {
-    "@ant-design/icons": "^5.6.1",
     "@agentclientprotocol/sdk": "^0.14.1",
+    "@ant-design/icons": "^5.6.1",
     "@anthropic-ai/sdk": "^0.39.0",
     "antd": "^5.29.3",
-    "better-sqlite3": "^11.7.0",
+    "better-sqlite3": "^12.6.2",
     "dayjs": "^1.11.19",
     "electron-log": "^5.2.4",
     "qrcode.react": "^4.2.0",
@@ -59,7 +59,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^2.1.8",
     "concurrently": "^9.1.2",
-    "electron": "^38.2.0",
+    "electron": "^39.0.0",
     "electron-builder": "^25.1.8",
     "typescript": "^5.7.3",
     "vite": "^6.0.7",
@@ -70,7 +70,14 @@
     "appId": "com.nuwax.agent",
     "productName": "Nuwax Agent",
     "afterSign": "scripts/after-sign.js",
-    "electronLanguages": ["en", "en-US", "zh_CN", "zh-CN", "zh_TW", "zh-TW"],
+    "electronLanguages": [
+      "en",
+      "en-US",
+      "zh_CN",
+      "zh-CN",
+      "zh_TW",
+      "zh-TW"
+    ],
     "directories": {
       "output": "release/${version}",
       "buildResources": "build"
@@ -108,7 +115,10 @@
     "mac": {
       "gatekeeperAssess": false,
       "category": "public.app-category.productivity",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "public/icon.icns",
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
@@ -148,11 +158,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "public/icon.ico"
@@ -171,11 +185,15 @@
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "deb",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "public/icon.png",
