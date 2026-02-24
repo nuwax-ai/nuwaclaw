@@ -20,12 +20,15 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [maskedClientKey, setMaskedClientKey] = useState('');
+  /** 当前平台是否有 lanproxy 二进制（无则显示「当前平台暂不支持」并禁用启动） */
+  const [binaryAvailable, setBinaryAvailable] = useState(true);
 
   useEffect(() => {
     if (isOpen) {
       loadConfig();
       checkStatus();
       loadClientKey();
+      window.electronAPI?.lanproxy.isAvailable?.().then((r) => setBinaryAvailable(r?.available ?? false)).catch(() => setBinaryAvailable(false));
     }
   }, [isOpen]);
 
@@ -89,6 +92,12 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
           <button className="close-btn" onClick={onClose}>×</button>
         </div>
 
+        {!binaryAvailable && (
+          <div className="lanproxy-unavailable" style={{ padding: '10px 14px', margin: '0 14px 12px', background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 6 }}>
+            当前平台暂不支持内网穿透（未检测到 lanproxy 二进制）。请使用带 lanproxy 的安装包或从 Tauri 构建获取对应平台二进制。
+          </div>
+        )}
+
         <div className="lanproxy-section">
           <div className="status-panel">
             <div className={`status-indicator ${status.running ? 'running' : 'stopped'}`}>
@@ -100,7 +109,7 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
           <button
             className={`toggle-lanproxy-btn ${status.running ? 'stop' : 'start'}`}
             onClick={handleStartStop}
-            disabled={loading}
+            disabled={loading || (!binaryAvailable && !status.running)}
           >
             {loading ? '...' : status.running ? '停止' : '启动'}
           </button>

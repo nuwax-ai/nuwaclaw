@@ -1,8 +1,10 @@
 import { ipcMain, app, dialog, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { execSync } from 'child_process';
 import log from 'electron-log';
 import type { HandlerContext } from '../../types/ipc';
+import { LATEST_LOG_BASENAME } from '../logConfig';
 
 export function registerAppHandlers(ctx: HandlerContext): void {
   // Autolaunch
@@ -33,8 +35,23 @@ export function registerAppHandlers(ctx: HandlerContext): void {
 
   ipcMain.handle('log:openDir', async () => {
     try {
-      const logDir = log.transports.file.getFile().path ? path.dirname(log.transports.file.getFile().path) : app.getPath('logs');
-      await shell.openPath(logDir);
+      const currentPath = log.transports.file.getFile().path;
+      const logDir = currentPath ? path.dirname(currentPath) : app.getPath('logs');
+      const latestPath = path.join(logDir, LATEST_LOG_BASENAME);
+      const fileToSelect = fs.existsSync(latestPath) ? latestPath : (currentPath || path.join(logDir, 'main.log'));
+      // 打开日志目录并尽量在资源管理器中选中 latest.log（或 main.log），便于用户直接看到当前日志入口
+      try {
+        if (process.platform === 'darwin') {
+          execSync(`open -R "${fileToSelect}"`, { encoding: 'utf-8' });
+        } else if (process.platform === 'win32') {
+          const winPath = fileToSelect.replace(/\//g, '\\');
+          execSync(`explorer /select,"${winPath}"`, { encoding: 'utf-8' });
+        } else {
+          await shell.openPath(logDir);
+        }
+      } catch (_) {
+        await shell.openPath(logDir);
+      }
       return { success: true };
     } catch (error) {
       log.error('[IPC] log:openDir failed:', error);
@@ -44,7 +61,11 @@ export function registerAppHandlers(ctx: HandlerContext): void {
 
   ipcMain.handle('log:list', async (_, count: number = 200) => {
     try {
-      const logPath = log.transports.file.getFile().path;
+      const currentPath = log.transports.file.getFile().path;
+      const logDir = currentPath ? path.dirname(currentPath) : app.getPath('logs');
+      // 优先读 latest.log（symlink/hardlink 指向当前 main.log），与「只关注一个入口」一致
+      const latestPath = path.join(logDir, LATEST_LOG_BASENAME);
+      const logPath = (fs.existsSync(latestPath) ? latestPath : currentPath) || currentPath;
       if (!logPath || !fs.existsSync(logPath)) {
         return [];
       }

@@ -51,6 +51,8 @@ export interface LanproxyAPI {
   start: (config: { serverIp: string; serverPort: number; clientKey: string; ssl?: boolean }) => Promise<{ success: boolean; error?: string }>;
   stop: () => Promise<{ success: boolean; error?: string }>;
   status: () => Promise<{ running: boolean; pid?: number }>;
+  /** 当前平台是否有 lanproxy 二进制（用于设置页提示「当前平台暂不支持」） */
+  isAvailable: () => Promise<{ available: boolean }>;
 }
 
 export interface AgentRunnerAPI {

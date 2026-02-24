@@ -19,5 +19,5 @@
     "src/commons/**/*",
     "src/types/**/*"
   ],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "**/*.test.ts"]
 }

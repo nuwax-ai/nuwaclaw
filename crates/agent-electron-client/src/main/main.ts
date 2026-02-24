@@ -1,6 +1,5 @@
 import { app, BrowserWindow, Menu, Tray, nativeImage, dialog } from 'electron';
 import * as path from 'path';
-import * as fs from 'fs';
 import log from 'electron-log';
 import { initDatabase, closeDb } from './db';
 import { ManagedProcess } from './processManager';
@@ -10,19 +9,12 @@ import { agentService } from '../services/main/engines/unifiedAgent';
 import { stopComputerServer } from '../services/main/computerServer';
 import { mcpProxyManager } from '../services/main/packages/mcp';
 import type { HandlerContext } from '../types/ipc';
-import { APP_DATA_DIR_NAME, LOGS_DIR_NAME, DEFAULT_DEV_SERVER_PORT } from '../services/main/constants';
+import { DEFAULT_DEV_SERVER_PORT } from '../services/main/constants';
 import { APP_DISPLAY_NAME } from '../commons/constants';
+import { initLogging } from './logConfig';
 
-// Configure logging — 日志统一写入 ~/.nuwax-agent/logs/
-const nuwaxHome = path.join(app.getPath('home'), APP_DATA_DIR_NAME);
-const logDir = path.join(nuwaxHome, LOGS_DIR_NAME);
-if (!fs.existsSync(logDir)) {
-  fs.mkdirSync(logDir, { recursive: true });
-}
-log.transports.file.resolvePathFn = (variables) =>
-  path.join(logDir, variables.fileName || 'main.log');
-log.transports.file.level = 'info';
-log.transports.console.level = 'debug';
+// 日志：轮转 + TTL 清理 + 开发/正式差异化（见 logConfig.ts）
+initLogging();
 log.info('Application starting...');
 
 // Global references

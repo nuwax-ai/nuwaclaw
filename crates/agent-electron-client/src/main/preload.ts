@@ -65,6 +65,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('lanproxy:stop'),
     status: () =>
       ipcRenderer.invoke('lanproxy:status'),
+    isAvailable: () =>
+      ipcRenderer.invoke('lanproxy:isAvailable') as Promise<{ available: boolean }>,
   },
 
   // Agent Runner management (via IPC to main process)

@@ -60,7 +60,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     }
     const binPath = getLanproxyBinPath();
     if (!fs.existsSync(binPath)) {
-      return Promise.resolve({ success: false, error: `二进制文件未找到: ${binPath}` });
+      return Promise.resolve({ success: false, error: '当前平台暂不支持内网穿透（未找到 lanproxy 二进制，请使用带 lanproxy 的安装包或从 Tauri 构建获取）' });
     }
     const useSsl = config.ssl !== false;
     const args = ['-s', config.serverIp, '-p', String(config.serverPort), '-k', config.clientKey, `--ssl=${useSsl}`];
@@ -92,6 +92,12 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
 
   ipcMain.handle('lanproxy:status', () => {
     return ctx.lanproxy.status();
+  });
+
+  /** 供设置页判断是否可显示「启动」并提示不可用原因 */
+  ipcMain.handle('lanproxy:isAvailable', () => {
+    const binPath = getLanproxyBinPath();
+    return { available: fs.existsSync(binPath) };
   });
 
   // Agent Runner handlers
