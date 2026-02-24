@@ -11,6 +11,7 @@
 import log from 'electron-log';
 import * as fs from 'fs';
 import * as path from 'path';
+import { APP_DATA_DIR_NAME } from '../../commons/constants';
 
 // ==================== Types ====================
 
@@ -57,7 +58,7 @@ class LogStore {
 
   private getLogFilePath(): string {
     const home = process.env.HOME || process.env.USERPROFILE || '';
-    return path.join(home, '.nuwax-agent', 'logs', 'app.json');
+    return path.join(home, APP_DATA_DIR_NAME, 'logs', 'app.json');
   }
 
   private loadFromFile(): void {

@@ -23,6 +23,7 @@ import {
   Spin,
 } from 'antd';
 import { FolderOutlined, SaveOutlined, EditOutlined } from '@ant-design/icons';
+import { APP_DISPLAY_NAME, APP_DATA_DIR_NAME } from '../commons/constants';
 import { setupService, Step1Config, DEFAULT_STEP1_CONFIG } from '../services/renderer/setup';
 import {
   DEFAULT_AI_MODEL,
@@ -475,7 +476,7 @@ export default function SettingsPage() {
             <div>
               <div style={{ fontSize: 13, color: '#18181b' }}>开机自启动</div>
               <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 1 }}>
-                系统启动时自动运行 Nuwax Agent
+                系统启动时自动运行 {APP_DISPLAY_NAME}
               </div>
             </div>
             <Switch
@@ -506,7 +507,7 @@ export default function SettingsPage() {
                   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
                 }}
               >
-                ~/.nuwax-agent
+                ~/{APP_DATA_DIR_NAME}
               </div>
             </div>
           </div>

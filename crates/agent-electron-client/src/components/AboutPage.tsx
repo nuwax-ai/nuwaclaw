@@ -9,6 +9,7 @@
 import React, { useState } from "react";
 import { Button, message } from "antd";
 import { RobotOutlined, SyncOutlined } from "@ant-design/icons";
+import { APP_DISPLAY_NAME } from "../commons/constants";
 
 declare const __APP_VERSION__: string;
 
@@ -68,7 +69,7 @@ export default function AboutPage() {
             color: "#18181b",
           }}
         >
-          Nuwax Agent
+          {APP_DISPLAY_NAME}
         </div>
         <div style={{ marginTop: 8, fontSize: 16, color: "#71717a", fontWeight: 500 }}>
           v{__APP_VERSION__}

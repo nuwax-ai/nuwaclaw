@@ -478,6 +478,18 @@ zip: not a valid zip file
    ```
 3. **Windows x64** 在 Mac 上会触发 native 模块（如 better-sqlite3）交叉编译，node-gyp 不支持，故在 Mac 上一般只打 **Windows arm64**；要 **Windows x64** 请在 Windows 本机或 CI（如 GitHub Actions `windows-latest`）上执行 `npm run dist:win`。
 
+### GitHub Actions（与 Tauri 客户端分开）
+
+Electron 客户端有**独立**的 CI/Release workflow，不与 Tauri 的 `v*` tag 或 release 混用：
+
+| Workflow | 触发 | 说明 |
+|----------|------|------|
+| **Release Electron App** (`.github/workflows/release-electron.yml`) | 推送 tag `electron-v*`（如 `electron-v0.4.0`） | 构建 Mac/Win/Linux 安装包并创建**独立** GitHub Release（标题含 "Electron"），可配置 Apple 签名/公证 Secrets。 |
+| **Electron Desktop Client (Testing Build)** (`.github/workflows/ci-electron.yml`) | 仅当 `crates/agent-electron-client/**` 等路径变更时的 push/PR，或手动触发 | 无签名构建，产物以 Actions Artifacts 上传，保留 7 天。 |
+
+- **Tauri 发布**：仍用 tag `v*` → `release-tauri.yml`。
+- **Electron 发布**：用 tag `electron-v*` → `release-electron.yml`，Release 与安装包单独一份。
+
 ### Project Structure
 
 ```

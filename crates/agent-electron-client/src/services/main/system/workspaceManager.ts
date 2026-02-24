@@ -8,6 +8,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import log from 'electron-log';
+import { APP_DATA_DIR_NAME } from '../constants';
 
 // ==================== Paths ====================
 
@@ -16,7 +17,7 @@ import log from 'electron-log';
  */
 export function getAppDataDir(): string {
   const home = process.env.HOME || process.env.USERPROFILE || '';
-  return path.join(home, '.nuwax-agent');
+  return path.join(home, APP_DATA_DIR_NAME);
 }
 
 /**

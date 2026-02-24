@@ -7,6 +7,14 @@
 
 import type { AgentEngineType } from '../types/electron';
 
+// ==================== 应用名称 ====================
+
+/** 应用对外显示名称（窗口标题、关于、安装包名称等），与 package.json build.productName 保持一致 */
+export const APP_DISPLAY_NAME = 'Nuwax Agent';
+
+/** 应用技术标识（进程名、目录名等，小写连字符），与 appId 等保持一致 */
+export const APP_NAME_IDENTIFIER = 'nuwax-agent';
+
 // ==================== 端口配置 ====================
 
 /** MCP Proxy 默认端口 */
@@ -134,8 +142,8 @@ export const DEFAULT_MIRROR_CONFIG = {
 
 // ==================== 应用目录 ====================
 
-/** 应用数据目录名称 */
-export const APP_DATA_DIR_NAME = '.nuwax-agent';
+/** 应用数据目录名称（与 APP_NAME_IDENTIFIER 对应，带点号前缀） */
+export const APP_DATA_DIR_NAME = `.${APP_NAME_IDENTIFIER}`;
 
 /** 日志目录名称 */
 export const LOGS_DIR_NAME = 'logs';

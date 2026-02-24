@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
 import { getAppEnv } from '../system/dependencies';
+import { APP_DATA_DIR_NAME } from '../constants';
 
 export interface AppPaths {
   appData: string;        // 应用数据目录
@@ -14,7 +15,7 @@ export interface AppPaths {
 
 // Get application paths
 export function getAppPaths(): AppPaths {
-  const appData = app?.getPath('userData') || path.join(process.env.HOME || '', '.nuwax-agent');
+  const appData = app?.getPath('userData') || path.join(process.env.HOME || '', APP_DATA_DIR_NAME);
   
   return {
     appData,

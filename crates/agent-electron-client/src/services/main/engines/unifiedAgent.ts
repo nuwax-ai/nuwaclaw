@@ -40,6 +40,7 @@ export type {
   ComputerAgentCancelResponse,
 } from '../../../types/computerTypes';
 import type { ComputerChatRequest, ModelProviderConfig } from '../../../types/computerTypes';
+import { APP_DATA_DIR_NAME } from '../../constants';
 
 // ==================== Types ====================
 
@@ -260,7 +261,7 @@ export class UnifiedAgentService extends EventEmitter {
 
     // OPENCODE_LOG_DIR 容器路径本地化
     if (mergedEnv.OPENCODE_LOG_DIR && !fs.existsSync(mergedEnv.OPENCODE_LOG_DIR)) {
-      const localLogDir = path.join(os.homedir(), '.nuwax-agent', 'logs');
+      const localLogDir = path.join(os.homedir(), APP_DATA_DIR_NAME, 'logs');
       log.info(`[UnifiedAgent] 📂 OPENCODE_LOG_DIR 本地化: ${mergedEnv.OPENCODE_LOG_DIR} → ${localLogDir}`);
       mergedEnv.OPENCODE_LOG_DIR = localLogDir;
     }

@@ -16,6 +16,7 @@ import {
 } from '@ant-design/icons';
 import { setupService, authService } from './services/renderer/setup';
 import { syncConfigToServer } from './services/renderer/auth';
+import { APP_DISPLAY_NAME } from './commons/constants';
 import SetupWizard from './components/SetupWizard';
 import ClientPage from './components/ClientPage';
 import SettingsPage from './components/SettingsPage';
@@ -214,7 +215,7 @@ function App() {
       <div className="app-header">
         <div className="app-header-logo">
           <RobotOutlined style={{ fontSize: 16, color: '#18181b' }} />
-          <span className="app-header-title">Nuwax Agent</span>
+          <span className="app-header-title">{APP_DISPLAY_NAME}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {username && (

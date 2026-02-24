@@ -11,6 +11,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
 import log from 'electron-log';
+import { APP_NAME_IDENTIFIER } from '../../commons/constants';
 
 export type Platform = 'darwin' | 'win32' | 'linux';
 
@@ -210,7 +211,7 @@ class SandboxManager {
    * 启动 Docker 沙箱
    */
   private async startDocker(image: string): Promise<{ success: boolean; error?: string }> {
-    const containerName = `nuwax-agent-${Date.now()}`;
+    const containerName = `${APP_NAME_IDENTIFIER}-${Date.now()}`;
     const workspace = this.config.workspaceDir;
 
     return new Promise((resolve) => {

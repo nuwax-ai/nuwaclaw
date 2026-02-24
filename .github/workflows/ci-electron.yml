@@ -1,0 +1,95 @@
+# Electron 桌面客户端 — 开发构建 CI
+# 与 Tauri 的 ci-tauri.yml 分开：仅监听 Electron 相关路径，构建无签名包并上传 Artifacts。
+#
+# 触发方式：
+#   - 推送到配置的分支时，仅当 crates/agent-electron-client/** 等路径有变更
+#   - Pull Request 时同上路径过滤
+#   - 手动触发 workflow_dispatch（可选平台）
+#
+# 与 release-electron.yml 的区别：
+#   - 不创建 GitHub Release，产物为 Actions Artifacts（保留约 7 天）
+#   - 不签名、不公证（Mac 为无签名包）
+#   - 用于日常开发与 PR 验证
+
+name: Electron Desktop Client (Testing Build)
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - "feature/electron-*"
+    paths:
+      - "crates/agent-electron-client/**"
+      - "vendors/nuwaxcode-sdk/**"
+      - ".github/workflows/ci-electron.yml"
+  pull_request:
+    paths:
+      - "crates/agent-electron-client/**"
+      - "vendors/nuwaxcode-sdk/**"
+      - ".github/workflows/ci-electron.yml"
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "构建平台"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - mac
+          - win
+          - linux
+
+permissions:
+  contents: read
+
+jobs:
+  build-electron:
+    name: Build Electron (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            dist_cmd: dist:mac:unsigned
+            artifact_os: mac
+          - platform: windows-latest
+            dist_cmd: dist:win
+            artifact_os: win
+          - platform: ubuntu-latest
+            dist_cmd: dist:linux
+            artifact_os: linux
+    # 手动触发时仅构建选定平台
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || (inputs.platform == 'mac' && matrix.platform == 'macos-latest') || (inputs.platform == 'win' && matrix.platform == 'windows-latest') || (inputs.platform == 'linux' && matrix.platform == 'ubuntu-latest')
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: crates/agent-electron-client/package-lock.json
+
+      - name: Install dependencies
+        working-directory: crates/agent-electron-client
+        run: npm ci
+
+      - name: Build Electron app (unsigned)
+        working-directory: crates/agent-electron-client
+        run: npm run ${{ matrix.dist_cmd }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-${{ matrix.artifact_os }}-${{ steps.sha.outputs.short }}
+          path: crates/agent-electron-client/release/
+          retention-days: 7

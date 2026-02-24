@@ -42,7 +42,8 @@ import SetupDependencies from './SetupDependencies';
 
 const { Text } = Typography;
 
-const APP_NAME = 'Nuwax Agent';
+import { APP_DISPLAY_NAME } from '../commons/constants';
+const APP_NAME = APP_DISPLAY_NAME;
 
 const WIZARD_STEPS = [
   { key: 1, title: '基础设置', icon: <SettingOutlined /> },

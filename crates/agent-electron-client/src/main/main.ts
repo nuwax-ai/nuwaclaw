@@ -11,6 +11,7 @@ import { stopComputerServer } from '../services/main/computerServer';
 import { mcpProxyManager } from '../services/main/packages/mcp';
 import type { HandlerContext } from '../types/ipc';
 import { APP_DATA_DIR_NAME, LOGS_DIR_NAME, DEFAULT_DEV_SERVER_PORT } from '../services/main/constants';
+import { APP_DISPLAY_NAME } from '../commons/constants';
 
 // Configure logging — 日志统一写入 ~/.nuwax-agent/logs/
 const nuwaxHome = path.join(app.getPath('home'), APP_DATA_DIR_NAME);
@@ -58,7 +59,7 @@ function createWindow() {
     height: 800,
     minWidth: 800,
     minHeight: 600,
-    title: 'Nuwax Agent',
+    title: APP_DISPLAY_NAME,
     icon: getIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -74,7 +75,11 @@ function createWindow() {
     mainWindow.loadURL(`http://localhost:${DEFAULT_DEV_SERVER_PORT}`);
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    // 生产环境：dist 目录被打包到 app.asar 中
+    // 使用 file:// 协议直接加载 asar 内的文件
+    const indexUrl = `file://${process.resourcesPath}/app.asar/dist/index.html`;
+    log.info('Loading app from:', indexUrl);
+    mainWindow.loadURL(indexUrl);
   }
 
   mainWindow.once('ready-to-show', () => {
@@ -154,12 +159,12 @@ function createMenu() {
       label: 'Help',
       submenu: [
         {
-          label: 'About Nuwax Agent',
+          label: `About ${APP_DISPLAY_NAME}`,
           click: () => {
             dialog.showMessageBox({
               type: 'info',
-              title: 'About Nuwax Agent',
-              message: 'Nuwax Agent v0.4.0',
+              title: `About ${APP_DISPLAY_NAME}`,
+              message: `${APP_DISPLAY_NAME} v${app.getVersion()}`,
               detail: 'Your AI assistant for productivity.',
             });
           },
@@ -188,7 +193,7 @@ function createTray() {
     },
   ]);
 
-  tray.setToolTip('Nuwax Agent');
+  tray.setToolTip(APP_DISPLAY_NAME);
   tray.setContextMenu(contextMenu);
 
   tray.on('click', () => {

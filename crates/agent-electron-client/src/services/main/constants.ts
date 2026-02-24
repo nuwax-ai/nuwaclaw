@@ -1,14 +1,13 @@
 /**
  * 主进程常量 (CommonJS)
  *
- * 从 commons/constants.ts 复制过来供主进程使用
- * 因为主进程使用 CommonJS 编译，路径解析与渲染进程不同
+ * 部分从 commons/constants.ts 复用，主进程与渲染进程共用同一数据源
  */
 
-// ==================== 应用目录 ====================
+import { APP_DATA_DIR_NAME } from '../../commons/constants';
+export { APP_DATA_DIR_NAME };
 
-/** 应用数据目录名称 */
-export const APP_DATA_DIR_NAME = '.nuwax-agent';
+// ==================== 应用目录 ====================
 
 /** 日志目录名称 */
 export const LOGS_DIR_NAME = 'logs';

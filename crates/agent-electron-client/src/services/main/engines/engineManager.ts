@@ -14,6 +14,8 @@ import { spawn } from 'child_process';
 import log from 'electron-log';
 import { getAppEnv } from '../system/dependencies';
 import { mcpProxyManager } from '../packages/mcp';
+import { APP_DATA_DIR_NAME } from '../constants';
+import { APP_NAME_IDENTIFIER } from '../../commons/constants';
 
 // ==================== Types ====================
 
@@ -46,7 +48,7 @@ export interface EngineStatus {
 
 function getAppDataDir(): string {
   const home = process.env.HOME || process.env.USERPROFILE || '';
-  return path.join(home, '.nuwax-agent');
+  return path.join(home, APP_DATA_DIR_NAME);
 }
 
 function getEnginesDir(): string {
@@ -58,7 +60,7 @@ function getEngineDir(engine: AgentEngine): string {
 }
 
 function getIsolatedHomeDir(runId: string): string {
-  return path.join(os.tmpdir(), `nuwax-agent-${runId}`);
+  return path.join(os.tmpdir(), `${APP_NAME_IDENTIFIER}-${runId}`);
 }
 
 // ==================== Engine Detection ====================

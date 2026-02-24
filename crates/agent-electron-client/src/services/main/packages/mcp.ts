@@ -14,7 +14,7 @@ import log from 'electron-log';
 import { app } from 'electron';
 import { getAppEnv } from '../system/dependencies';
 import { getAppPaths, isInstalledLocally } from './packageLocator';
-import { DEFAULT_MCP_PROXY_PORT, DEFAULT_MCP_PROXY_HOST } from '../constants';
+import { DEFAULT_MCP_PROXY_PORT, DEFAULT_MCP_PROXY_HOST, APP_DATA_DIR_NAME } from '../constants';
 
 // ========== Types ==========
 
@@ -118,7 +118,7 @@ class McpProxyManager {
     const configJson = JSON.stringify(config);
 
     // 日志目录（对齐 Tauri 客户端）
-    const appDataDir = path.join(app.getPath('home'), '.nuwax-agent');
+    const appDataDir = path.join(app.getPath('home'), APP_DATA_DIR_NAME);
     const mcpLogDir = path.join(appDataDir, 'logs', 'mcp');
     try { fs.mkdirSync(mcpLogDir, { recursive: true }); } catch { /* ignore */ }
 

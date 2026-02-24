@@ -22,6 +22,8 @@ import * as fs from 'fs';
 import { app } from 'electron';
 import log from 'electron-log';
 import { getAppEnv } from '../../system/dependencies';
+import { APP_DATA_DIR_NAME } from '../../../constants';
+import { APP_NAME_IDENTIFIER } from '../../../../commons/constants';
 
 // ==================== Types ====================
 
@@ -224,7 +226,7 @@ export function loadAcpSdk(): Promise<AcpSdkModule> {
 
 /** Get ~/.nuwax-agent/ base directory */
 function getAppDataDir(): string {
-  return path.join(app.getPath('home'), '.nuwax-agent');
+  return path.join(app.getPath('home'), APP_DATA_DIR_NAME);
 }
 
 /**
@@ -281,7 +283,7 @@ export async function createAcpConnection(
   // Create isolated HOME directory with empty .claude/ config
   // This prevents Claude Code from reading user's global ~/.claude/settings.json
   const runId = `acp-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-  const isolatedHome = path.join(os.tmpdir(), `nuwax-agent-${runId}`);
+  const isolatedHome = path.join(os.tmpdir(), `${APP_NAME_IDENTIFIER}-${runId}`);
   fs.mkdirSync(path.join(isolatedHome, '.claude'), { recursive: true });
 
   // 获取应用隔离环境变量（包含隔离的 PATH、npm、uv 配置等）

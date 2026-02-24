@@ -10,6 +10,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { APP_DATA_DIR_NAME } from '../../commons/constants';
 
 export type PermissionType = 'tool' | 'command' | 'file' | 'network' | 'sandbox';
 
@@ -74,7 +75,7 @@ class PermissionManager {
   constructor() {
     // 配置文件路径
     const home = process.env.HOME || process.env.USERPROFILE || '';
-    this.configPath = path.join(home, '.nuwax-agent', 'permissions.json');
+    this.configPath = path.join(home, APP_DATA_DIR_NAME, 'permissions.json');
     this.config = this.loadConfig();
   }
 

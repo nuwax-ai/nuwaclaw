@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { spawn } from 'child_process';
 import { getAppEnv } from '../system/dependencies';
+import { APP_DATA_DIR_NAME } from '../constants';
 
 // ==================== App Paths ====================
 
@@ -21,14 +22,14 @@ export function getAppPaths(basePath?: string): AppPaths {
   if (appPaths) return appPaths;
 
   const base = basePath || os.homedir();
-  
+
   appPaths = {
-    appData: path.join(base, '.nuwax-agent'),
-    nodeModules: path.join(base, '.nuwax-agent', 'node_modules'),
-    mcpModules: path.join(base, '.nuwax-agent', 'node_modules', 'mcp-servers'),
-    temp: path.join(base, '.nuwax-agent', 'temp'),
-    logs: path.join(base, '.nuwax-agent', 'logs'),
-    workspaces: path.join(base, '.nuwax-agent', 'workspaces'),
+    appData: path.join(base, APP_DATA_DIR_NAME),
+    nodeModules: path.join(base, APP_DATA_DIR_NAME, 'node_modules'),
+    mcpModules: path.join(base, APP_DATA_DIR_NAME, 'node_modules', 'mcp-servers'),
+    temp: path.join(base, APP_DATA_DIR_NAME, 'temp'),
+    logs: path.join(base, APP_DATA_DIR_NAME, 'logs'),
+    workspaces: path.join(base, APP_DATA_DIR_NAME, 'workspaces'),
   };
 
   // Ensure directories exist

@@ -16,6 +16,7 @@ import {
   DEFAULT_MIRROR_CONFIG,
   APP_DATA_DIR_NAME,
 } from '../constants';
+import { APP_NAME_IDENTIFIER } from '../../commons/constants';
 
 // ==================== Types ====================
 
@@ -623,7 +624,7 @@ export async function installNpmPackage(
   const packageJsonPath = path.join(appDataDir, 'package.json');
   if (!fs.existsSync(packageJsonPath)) {
     fs.writeFileSync(packageJsonPath, JSON.stringify({
-      name: 'nuwax-agent',
+      name: APP_NAME_IDENTIFIER,
       version: '1.0.0',
       private: true
     }, null, 2));
