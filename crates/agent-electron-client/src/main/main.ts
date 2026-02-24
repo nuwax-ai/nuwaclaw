@@ -28,6 +28,22 @@ log.info('Application starting...');
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 
+// Get icon path (works in both dev and production)
+function getIconPath() {
+  if (app.isPackaged) {
+    // Production: icons in app.asar (Resources)
+    if (process.platform === 'darwin') {
+      return path.join(process.resourcesPath, 'icon.icns');
+    }
+    return path.join(process.resourcesPath, 'icon.png');
+  }
+  // Development: icons in project root
+  if (process.platform === 'darwin') {
+    return path.join(process.cwd(), 'public', 'icon.icns');
+  }
+  return path.join(process.cwd(), 'public', 'icon.png');
+}
+
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 // Managed child processes
@@ -43,7 +59,7 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     title: 'Nuwax Agent',
-    icon: path.join(__dirname, '../../public/icon.png'),
+    icon: getIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -143,7 +159,7 @@ function createMenu() {
             dialog.showMessageBox({
               type: 'info',
               title: 'About Nuwax Agent',
-              message: 'Nuwax Agent v0.1.0',
+              message: 'Nuwax Agent v0.4.0',
               detail: 'Your AI assistant for productivity.',
             });
           },
