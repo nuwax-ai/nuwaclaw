@@ -115,7 +115,8 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       '--default-model', config.defaultModel,
     ];
 
-    log.info('Starting agent runner:', config.binPath, args.join(' '));
+    // 仅记录端口与 URL，不记录 apiKey，避免敏感信息写入日志
+    log.info('Starting agent runner:', config.binPath, '--backend-port', config.backendPort, '--proxy-port', config.proxyPort, '--api-base-url', config.apiBaseUrl);
 
     const result = await ctx.agentRunner.start({
       command: config.binPath,

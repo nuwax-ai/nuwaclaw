@@ -281,8 +281,9 @@ export async function loginAndRegister(
       message.success({ content: '登录成功！', key: loadingKey });
     }
 
+    // 不记录 configKey 全文，避免敏感信息写入控制台/日志
     console.log('[Auth] 登录成功:', {
-      configKey: response.configKey,
+      configKeySet: !!response.configKey,
       name: response.name,
       online: response.online,
       serverHost: response.serverHost,
@@ -293,7 +294,8 @@ export async function loginAndRegister(
     return response;
   } catch (error: any) {
     const errorMessage = getAuthErrorMessage(error);
-    console.error('[Auth] 登录失败:', error);
+    // 仅记录安全信息，避免将含 password/request 的 error 对象写入控制台
+    console.error('[Auth] 登录失败:', errorMessage);
 
     if (!suppressToast) {
       message.error({ content: errorMessage, key: loadingKey });
