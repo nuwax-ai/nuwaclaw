@@ -104,16 +104,20 @@ describe('dependencies', () => {
       const { getAppEnv } = await import('../system/dependencies');
       const env = getAppEnv();
 
-      const pathEntries = env.PATH?.split(':') || [];
-      expect(pathEntries).toContain('/mock/home/.nuwax-agent/node_modules/.bin');
-      expect(pathEntries).toContain('/mock/home/.nuwax-agent/bin');
+      // 使用 path.delimiter 以支持 Windows（;）与 Unix（:）
+      const pathEntries = env.PATH?.split(path.delimiter) || [];
+      const home = path.join('/mock', 'home');
+      const appData = path.join(home, '.nuwax-agent');
+      expect(pathEntries).toContain(path.join(appData, 'node_modules', '.bin'));
+      expect(pathEntries).toContain(path.join(appData, 'bin'));
     });
 
     it('should set NODE_PATH to app node_modules', async () => {
       const { getAppEnv } = await import('../system/dependencies');
       const env = getAppEnv();
 
-      expect(env.NODE_PATH).toBe('/mock/home/.nuwax-agent/node_modules');
+      const expected = path.join('/mock', 'home', '.nuwax-agent', 'node_modules');
+      expect(env.NODE_PATH).toBe(expected);
     });
 
     it('should set npm config registry', async () => {
