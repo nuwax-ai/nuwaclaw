@@ -81,7 +81,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: crates/agent-electron-client
-        run: npm ci
+        run: npm install
 
       - name: Run unit tests
         working-directory: crates/agent-electron-client

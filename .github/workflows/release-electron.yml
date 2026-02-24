@@ -107,9 +107,10 @@ jobs:
           cache: npm
           cache-dependency-path: crates/agent-electron-client/package-lock.json
 
+      # 使用 npm install 替代 npm ci：lock 仅含当前平台的可选依赖，其他平台（esbuild/rollup 等）会报 Missing，install 会在各 runner 上按需解析
       - name: Install dependencies
         working-directory: crates/agent-electron-client
-        run: npm ci
+        run: npm install
 
       - name: Run unit tests
         working-directory: crates/agent-electron-client
