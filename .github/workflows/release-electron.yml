@@ -111,6 +111,10 @@ jobs:
         working-directory: crates/agent-electron-client
         run: npm ci
 
+      - name: Run unit tests
+        working-directory: crates/agent-electron-client
+        run: npm run test:run
+
       # ---- macOS：导入证书并配置公证（可选） ----
       - name: Import Apple certificate (macOS)
         if: runner.os == 'macOS'

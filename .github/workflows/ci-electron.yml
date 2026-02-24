@@ -83,6 +83,10 @@ jobs:
         working-directory: crates/agent-electron-client
         run: npm ci
 
+      - name: Run unit tests
+        working-directory: crates/agent-electron-client
+        run: npm run test:run
+
       - name: Build Electron app (unsigned)
         working-directory: crates/agent-electron-client
         run: npm run ${{ matrix.dist_cmd }}
