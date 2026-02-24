@@ -110,6 +110,7 @@ jobs:
 
       # Python 3.12+ 移除了 distutils，node-gyp（better-sqlite3 等 native 模块）依赖它；安装 setuptools 以提供 distutils
       - name: Install setuptools for node-gyp (Python 3.12+)
+        shell: bash
         run: python3 -m pip install setuptools --break-system-packages 2>/dev/null || python3 -m pip install setuptools
 
       # 使用 npm install 替代 npm ci：lock 仅含当前平台的可选依赖，其他平台（esbuild/rollup 等）会报 Missing，install 会在各 runner 上按需解析
@@ -193,6 +194,7 @@ jobs:
           fi
           for f in "${OUT_DIR}"/*; do
             [ -e "$f" ] || continue
+            [ -f "$f" ] || continue
             echo "Uploading $(basename "$f") ..."
             gh release upload "$TAG" "$f" --clobber --repo "$GITHUB_REPOSITORY"
           done
