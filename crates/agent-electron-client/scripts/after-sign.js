@@ -163,7 +163,11 @@ exports.default = async function (context) {
     }
   }
 
-  // 4. 验证整个 app 的签名
+  // 4. 对主 .app 重新签名，恢复 seal（内部二进制被签过后包内容已变，必须整体再签一次）
+  console.log('[after-sign] 对主 app 重新签名以恢复 seal...');
+  codesign(appPath, identity);
+
+  // 5. 验证整个 app 的签名
   console.log('[after-sign] 验证整个 app 签名...');
   try {
     execSync(`codesign --verify --deep --strict --verbose=2 "${appPath}"`, {
@@ -174,7 +178,7 @@ exports.default = async function (context) {
     console.warn('[after-sign] 签名验证失败（可能需要忽略特定项）');
   }
 
-  // 5. 验证 app 可被 Gatekeeper 接受
+  // 6. 验证 app 可被 Gatekeeper 接受
   console.log('[after-sign] 验证 Gatekeeper 策略...');
   try {
     execSync(`spctl -a -vv "${appPath}"`, {

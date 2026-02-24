@@ -11,10 +11,9 @@
 #
 # 使用的 Secrets（可与 Tauri 共用 Apple 相关，也可单独配置）：
 #   - GH_PAT：创建 Release、上传资产（需 Contents: Write）
-#   - macOS 签名/公证（未配置时 Mac 构建为无签名包）：
+#   - macOS 签名/公证（未配置时 Mac 构建为无签名包，用户打开会提示「已损坏」）：
 #     - APPLE_CERTIFICATE（.p12 Base64）/ APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY
-#     - APPLE_API_KEY：.p8 文件内容的 Base64（workflow 会解码为临时文件并设 APPLE_API_KEY 为路径）
-#     - APPLE_API_KEY_ID / APPLE_API_ISSUER（或与 Tauri 一致的 APPLE_ISSUER_ID）
+#     - 公证（否则 Gatekeeper 仍可能拦）：APPLE_API_KEY（.p8 Base64）/ APPLE_API_KEY_ID / APPLE_API_ISSUER（或 APPLE_ISSUER_ID）
 #
 # 产物目录：crates/agent-electron-client/release/${version}/（由 package.json directories.output 决定）
 
@@ -143,6 +142,7 @@ jobs:
           security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
           security list-keychain -d user -s "$KEYCHAIN_PATH"
           rm -f "$CERTIFICATE_PATH"
+          echo "CSC_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
       - name: Prepare Apple notarization key (macOS)
         if: runner.os == 'macOS'
@@ -167,11 +167,13 @@ jobs:
           echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID" >> "$GITHUB_ENV"
           echo "APPLE_API_ISSUER=$ISSUER" >> "$GITHUB_ENV"
 
+      # 若用户看到「已损坏」：请确认已配置 APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY 及公证用 APPLE_API_KEY 等，且构建日志中有签名与公证成功
       - name: Build Electron app
         shell: bash
         working-directory: crates/agent-electron-client
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           if [ "${{ runner.os }}" = "macOS" ] && [ -z "${{ secrets.APPLE_CERTIFICATE }}" ]; then
             echo "No Apple certificate, building unsigned Mac package"

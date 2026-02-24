@@ -87,7 +87,9 @@ App Store 分发使用的权限配置 (更严格)。
 1. 签名 better-sqlite3 .node 文件
 2. 签名 resources/uv 可执行文件
 3. 签名 resources/lanproxy 可执行文件
-4. 验证整体签名
+4. **对主 .app 重新签名**（恢复 seal，否则会报 "a sealed resource is missing or invalid"）
+5. 验证整体签名
+6. 验证 Gatekeeper 策略
 
 ## 构建命令
 
@@ -127,6 +129,24 @@ npm run verify:sign
 
 # 或指定路径
 npm run verify:sign "release/mac-universal/Nuwax Agent.app"
+```
+
+### 本地打包后验证 seal（推荐）
+
+打完包或从 CI 下载安装后，可用下面命令确认签名与 seal 是否完整（无 "file modified" 即正常）:
+
+```bash
+# 替换成你机器上的实际路径，例如已安装到应用程序时:
+APP_PATH="/Applications/Nuwax Agent.app"
+
+# 严格验证（含 seal）
+codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+```
+
+若仍提示「已损坏」且验证通过，可去掉隔离属性后再打开:
+
+```bash
+xattr -cr "$APP_PATH"
 ```
 
 验证输出包括:
