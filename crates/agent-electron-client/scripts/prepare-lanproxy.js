@@ -72,9 +72,10 @@ function main() {
         return;
       }
     }
-    console.error(`[prepare-lanproxy] 源文件不存在: ${srcPath}`);
-    console.error(`[prepare-lanproxy] 请确保 Tauri binaries 目录包含当前平台的二进制`);
-    process.exit(1);
+    // 源不存在时仍创建目录并继续打包，便于 CI 产出 Win/Linux 安装包；运行时 lanproxy 功能不可用
+    console.warn(`[prepare-lanproxy] 源文件不存在: ${srcPath}，将跳过 lanproxy 二进制（安装包可正常产出，运行时内网穿透不可用）`);
+    fs.mkdirSync(destBinDir, { recursive: true });
+    return;
   }
 
   // 如果目标已存在且大小一致，跳过

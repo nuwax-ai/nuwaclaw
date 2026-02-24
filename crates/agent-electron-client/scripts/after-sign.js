@@ -7,9 +7,10 @@
  * - resources/uv 下的可执行文件
  * - resources/lanproxy 可执行文件
  *
+ * 仅在 macOS 上执行，Windows/Linux 不需要额外签名。
+ *
  * 环境变量：
- * - APPLE_SIGNING_IDENTITY: Developer ID Application 证书 identity (如 "Developer ID Application: Team Name (HASH)")
- * - 若未设置，跳过额外签名（仅使用 electron-builder 默认签名）
+ * - APPLE_SIGNING_IDENTITY: Developer ID Application 证书 identity
  *
  * @param {Object} context - electron-builder 上下文
  */
@@ -54,22 +55,11 @@ function findExecutables(dir, list = []) {
 /**
  * 使用 codesign 对文件进行签名
  */
-function codesign(filePath, options = {}) {
-  const {
-    force = true,
-    optionsRuntime = true,
-    timestamp = true,
-  } = options;
-
-  const args = [];
-  if (force) args.push('--force');
-  if (optionsRuntime) args.push('--options', 'runtime');
-  if (timestamp) args.push('--timestamp');
-  args.push('--sign', options.identity);
-  args.push(filePath);
-
+function codesign(filePath, identity) {
   try {
-    execSync(`codesign ${args.join(' ')}`, { stdio: 'inherit' });
+    execSync(`codesign --force --options runtime --timestamp --sign "${identity}" "${filePath}"`, {
+      stdio: 'inherit',
+    });
     return true;
   } catch (e) {
     console.error(`[after-sign] 签名失败: ${filePath}`);
@@ -84,13 +74,24 @@ function codesign(filePath, options = {}) {
 exports.default = async function (context) {
   // 仅在 macOS 上执行
   if (process.platform !== 'darwin') {
-    console.log('[after-sign] 非 macOS 平台，跳过');
     return;
   }
 
-  const appPath = context.appOutDir && fs.existsSync(context.appOutDir)
-    ? path.join(context.appOutDir, fs.readdirSync(context.appOutDir).find(f => f.endsWith('.app')))
-    : null;
+  const identity = process.env.APPLE_SIGNING_IDENTITY;
+  if (!identity) {
+    // 没有证书，跳过额外签名
+    return;
+  }
+
+  // 查找 .app 路径
+  let appPath = null;
+  if (context.appOutDir && fs.existsSync(context.appOutDir)) {
+    const files = fs.readdirSync(context.appOutDir);
+    const appFile = files.find(f => f.endsWith('.app'));
+    if (appFile) {
+      appPath = path.join(context.appOutDir, appFile);
+    }
+  }
 
   if (!appPath || !fs.existsSync(appPath)) {
     // 回退：在 release 目录中查找最新的 .app
@@ -112,21 +113,11 @@ exports.default = async function (context) {
         }
         return null;
       };
-      const foundApp = findApp(releaseDir);
-      if (foundApp) {
-        appPath = foundApp;
-      }
+      appPath = findApp(releaseDir);
     }
   }
 
   if (!appPath || !fs.existsSync(appPath)) {
-    console.warn('[after-sign] 未找到 app 路径，跳过额外签名');
-    return;
-  }
-
-  const identity = process.env.APPLE_SIGNING_IDENTITY;
-  if (!identity) {
-    console.log('[after-sign] 未设置 APPLE_SIGNING_IDENTITY，使用 electron-builder 默认签名');
     return;
   }
 
@@ -143,7 +134,7 @@ exports.default = async function (context) {
     for (const file of sqliteFiles) {
       if (file.endsWith('.node')) {
         console.log(`[after-sign] 签名: ${path.basename(file)}`);
-        codesign(file, { identity });
+        codesign(file, identity);
       }
     }
   }
@@ -157,7 +148,7 @@ exports.default = async function (context) {
       if (file.includes('.cache')) continue;
       const relative = path.relative(uvPath, file);
       console.log(`[after-sign] 签名 uv/${relative}`);
-      codesign(file, { identity });
+      codesign(file, identity);
     }
   }
 
@@ -168,7 +159,7 @@ exports.default = async function (context) {
     console.log(`[after-sign] 找到 lanproxy 可执行文件: ${lanproxyFiles.length} 个`);
     for (const file of lanproxyFiles) {
       console.log(`[after-sign] 签名 lanproxy/${path.basename(file)}`);
-      codesign(file, { identity });
+      codesign(file, identity);
     }
   }
 
@@ -181,6 +172,17 @@ exports.default = async function (context) {
     console.log('[after-sign] 签名验证通过');
   } catch (e) {
     console.warn('[after-sign] 签名验证失败（可能需要忽略特定项）');
+  }
+
+  // 5. 验证 app 可被 Gatekeeper 接受
+  console.log('[after-sign] 验证 Gatekeeper 策略...');
+  try {
+    execSync(`spctl -a -vv "${appPath}"`, {
+      stdio: 'inherit',
+    });
+    console.log('[after-sign] Gatekeeper 验证通过');
+  } catch (e) {
+    console.warn('[after-sign] Gatekeeper 验证失败（可能需要公证）');
   }
 
   console.log('[after-sign] 完成');

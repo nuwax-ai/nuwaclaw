@@ -15,7 +15,7 @@ import log from 'electron-log';
 import { getAppEnv } from '../system/dependencies';
 import { mcpProxyManager } from '../packages/mcp';
 import { APP_DATA_DIR_NAME } from '../constants';
-import { APP_NAME_IDENTIFIER } from '../../commons/constants';
+import { APP_NAME_IDENTIFIER } from '../../../commons/constants';
 
 // ==================== Types ====================
 

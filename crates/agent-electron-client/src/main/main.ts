@@ -45,6 +45,14 @@ function getIconPath() {
   return path.join(process.cwd(), 'public', 'icon.png');
 }
 
+// Get tray icon path (works in both dev and production)
+function getTrayIconPath() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, '32x32.png');
+  }
+  return path.join(process.cwd(), 'public', '32x32.png');
+}
+
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 // Managed child processes
@@ -81,6 +89,15 @@ function createWindow() {
     log.info('Loading app from:', indexUrl);
     mainWindow.loadURL(indexUrl);
   }
+
+  // Handle load failures
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    log.error('Failed to load:', validatedURL, errorCode, errorDescription);
+    dialog.showErrorBox(
+      'Load Error',
+      `Failed to load application: ${errorDescription}\n\nURL: ${validatedURL}`
+    );
+  });
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
@@ -178,7 +195,7 @@ function createMenu() {
 }
 
 function createTray() {
-  const trayIconPath = path.join(__dirname, '../../public/32x32.png');
+  const trayIconPath = getTrayIconPath();
   const icon = nativeImage.createFromPath(trayIconPath);
   tray = new Tray(icon);
 

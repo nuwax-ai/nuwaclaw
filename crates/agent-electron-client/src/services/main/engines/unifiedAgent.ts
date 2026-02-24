@@ -40,7 +40,7 @@ export type {
   ComputerAgentCancelResponse,
 } from '../../../types/computerTypes';
 import type { ComputerChatRequest, ModelProviderConfig } from '../../../types/computerTypes';
-import { APP_DATA_DIR_NAME } from '../../constants';
+import { APP_DATA_DIR_NAME } from '../constants';
 
 // ==================== Types ====================
 

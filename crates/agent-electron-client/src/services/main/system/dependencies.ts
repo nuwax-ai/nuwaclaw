@@ -16,7 +16,7 @@ import {
   DEFAULT_MIRROR_CONFIG,
   APP_DATA_DIR_NAME,
 } from '../constants';
-import { APP_NAME_IDENTIFIER } from '../../commons/constants';
+import { APP_NAME_IDENTIFIER } from '../../../commons/constants';
 
 // ==================== Types ====================
 
