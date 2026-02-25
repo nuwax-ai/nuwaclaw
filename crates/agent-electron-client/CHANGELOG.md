@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### 跨平台子进程启动方案
+- **spawnNoWindow 工具模块** (`src/services/main/utils/spawnNoWindow.ts`)
+  - 解决 Windows CMD 窗口弹出问题（使用 ELECTRON_RUN_AS_NODE=1 + windowsHide）
+  - 解决 macOS Dock 图标问题（使用系统 node 而非 Electron bundled Node）
+  - `spawnJsFile()` - 跨平台无窗口启动 JS 文件
+  - `spawnNpmPackage()` - 自动解析 npm 包入口并启动
+  - `resolveNpmPackageEntry()` - 从 package.json 解析入口文件
+  - `findSystemNode()` - 从用户 shell PATH 查找系统 node
+  - `resetCache()` - 重置内部缓存（测试用）
+- **完整技术文档** (`docs/electron-spawn-no-window-solution.md`)
+  - 问题根因分析
+  - 社区方案对比
+  - 实现代码示例
+  - 测试验证步骤
+
+### Changed
+
+#### 子进程启动重构
+- **mcp.ts** - 使用 `spawnJsFile` 和 `resolveNpmPackageEntry` 替代原有 spawn
+- **engineManager.ts** - 使用 `spawnJsFile` 和 `resolveNpmPackageEntry` 启动引擎
+- **acpClient.ts** - 使用 `spawnJsFile` 和 `resolveNpmPackageEntry` 启动 ACP 进程
+
 ---
 
 ## [0.2.0] - 2026-02-23
