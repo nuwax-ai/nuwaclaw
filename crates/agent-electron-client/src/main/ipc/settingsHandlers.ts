@@ -3,8 +3,6 @@ import { getDb, readSetting } from '../db';
 import log from 'electron-log';
 
 export function registerSettingsHandlers(): void {
-  const { setMirrorConfig, getMirrorConfig, MIRROR_PRESETS } = require('../services/system/dependencies');
-
   // Settings
   ipcMain.handle('settings:get', (_, key: string) => {
     const db = getDb();
@@ -29,11 +27,13 @@ export function registerSettingsHandlers(): void {
   });
 
   // Mirror / Registry — 动态切换 npm、uv 镜像源
-  ipcMain.handle('mirror:get', () => {
+  ipcMain.handle('mirror:get', async () => {
+    const { getMirrorConfig, MIRROR_PRESETS } = await import('../services/system/dependencies');
     return { success: true, ...getMirrorConfig(), presets: MIRROR_PRESETS };
   });
 
-  ipcMain.handle('mirror:set', (_, config: { npmRegistry?: string; uvIndexUrl?: string }) => {
+  ipcMain.handle('mirror:set', async (_, config: { npmRegistry?: string; uvIndexUrl?: string }) => {
+    const { setMirrorConfig, getMirrorConfig } = await import('../services/system/dependencies');
     try {
       setMirrorConfig(config);
       // 持久化到 SQLite

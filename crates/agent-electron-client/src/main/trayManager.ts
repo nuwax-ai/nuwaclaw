@@ -54,8 +54,7 @@ export class TrayManager {
    * 创建托盘
    */
   async create(): Promise<void> {
-    const iconPath = this.getIconPath('stopped');
-    const icon = nativeImage.createFromPath(iconPath);
+    const icon = this.createTrayIcon('stopped');
 
     this.tray = new Tray(icon);
     this.tray.setToolTip(APP_DISPLAY_NAME);
@@ -103,8 +102,7 @@ export class TrayManager {
   private updateIcon(): void {
     if (!this.tray) return;
 
-    const iconPath = this.getIconPath(this.status);
-    const icon = nativeImage.createFromPath(iconPath);
+    const icon = this.createTrayIcon(this.status);
     this.tray.setImage(icon);
 
     const statusText: Record<TrayStatus, string> = {
@@ -208,6 +206,22 @@ export class TrayManager {
       return path.join(process.resourcesPath, 'tray', iconName);
     }
     return path.join(process.cwd(), 'public', 'tray', iconName);
+  }
+
+  /**
+   * 创建托盘图标 (支持 Retina 和 Template Image)
+   */
+  private createTrayIcon(status: TrayStatus): Electron.NativeImage {
+    const iconPath = this.getIconPath(status);
+    let icon = nativeImage.createFromPath(iconPath);
+
+    // macOS: 设置为 Template Image，自动适配深色/浅色模式
+    if (process.platform === 'darwin') {
+      icon = icon.resize({ width: 22, height: 22 });
+      icon.setTemplateImage(true);
+    }
+
+    return icon;
   }
 
   /**

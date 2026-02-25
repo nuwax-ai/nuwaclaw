@@ -5,7 +5,7 @@ import { mcpProxyManager } from './services/packages/mcp';
 
 export async function runStartupTasks(): Promise<void> {
   // 从 SQLite 恢复镜像配置
-  const { setMirrorConfig } = require('./services/system/dependencies');
+  const { setMirrorConfig } = await import('./services/system/dependencies');
   const mirrorConfig = readSetting('mirror_config');
   if (mirrorConfig) {
     try {

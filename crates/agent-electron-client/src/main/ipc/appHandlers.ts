@@ -1,4 +1,4 @@
-import { ipcMain, app, dialog, shell } from 'electron';
+import { ipcMain, app, dialog, shell, systemPreferences } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
@@ -105,7 +105,6 @@ export function registerAppHandlers(ctx: HandlerContext): void {
       return [];
     }
     try {
-      const { systemPreferences } = require('electron');
       const items = [
         {
           key: 'accessibility',
