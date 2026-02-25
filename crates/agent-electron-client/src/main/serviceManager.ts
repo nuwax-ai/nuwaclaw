@@ -11,6 +11,11 @@ import log from 'electron-log';
 import type { ManagedProcess } from './processManager';
 import { readSetting } from './db';
 import { APP_DATA_DIR_NAME, DEFAULT_STARTUP_DELAY } from '../services/main/constants';
+import { getAppEnv, getLanproxyBinPath } from '../services/main/system/dependencies';
+import { agentService } from '../services/main/engines/unifiedAgent';
+import type { AgentConfig } from '../services/main/engines/unifiedAgent';
+import { mcpProxyManager } from '../services/main/packages/mcp';
+import { stopAllEngines } from '../services/main/engines/engineManager';
 
 export interface ServiceManagerContext {
   lanproxy: ManagedProcess;
@@ -28,16 +33,6 @@ export interface ServiceResult {
  * 创建服务管理器
  */
 export function createServiceManager(ctx: ServiceManagerContext) {
-  const getAppEnv = () => {
-    const { getAppEnv: getEnv } = require('../services/main/system/dependencies');
-    return getEnv();
-  };
-
-  const getLanproxyBinPath = () => {
-    const { getLanproxyBinPath: getPath } = require('../services/main/system/dependencies');
-    return getPath();
-  };
-
   /**
    * 启动文件服务器
    */
@@ -117,16 +112,12 @@ export function createServiceManager(ctx: ServiceManagerContext) {
    * 重启所有服务
    */
   const restartAllServices = async (): Promise<{ success: boolean; results: Record<string, ServiceResult> }> => {
-    const { agentService } = require('../services/main/engines/unifiedAgent');
-    const { mcpProxyManager } = require('../services/main/packages/mcp');
-    type AgentConfigType = import('../services/main/engines/unifiedAgent').AgentConfig;
-
     log.info('[ServiceManager] Restarting all services...');
     const results: Record<string, ServiceResult> = {};
 
     // 读取配置
-    const agentConfig = readSetting('agent_config') as any || {};
-    const step1Config = readSetting('step1_config') as any || {};
+    const agentConfig = readSetting('agent_config') as Record<string, unknown> || {};
+    const step1Config = readSetting('step1_config') as Record<string, unknown> || {};
 
     // 1. 停止现有服务
     try {
@@ -138,17 +129,17 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
     // 2. 启动 Agent
     try {
-      let finalConfig: AgentConfigType = {
-        engine: agentConfig.type || 'claude-code',
-        apiKey: agentConfig.apiKey,
-        baseUrl: agentConfig.apiBaseUrl,
-        model: agentConfig.model,
-        workspaceDir: step1Config.workspaceDir || '',
-        port: agentConfig.backendPort || undefined,
-        engineBinaryPath: agentConfig.binPath || undefined,
+      const finalConfig: AgentConfig = {
+        engine: (agentConfig.type as AgentConfig['engine']) || 'claude-code',
+        apiKey: agentConfig.apiKey as string | undefined,
+        baseUrl: agentConfig.apiBaseUrl as string | undefined,
+        model: agentConfig.model as string | undefined,
+        workspaceDir: (step1Config.workspaceDir as string) || '',
+        port: agentConfig.backendPort as number | undefined,
+        engineBinaryPath: agentConfig.binPath as string | undefined,
       };
       const mcpConfig = mcpProxyManager.getAgentMcpConfig();
-      if (mcpConfig) finalConfig = { ...finalConfig, mcpServers: mcpConfig };
+      if (mcpConfig) Object.assign(finalConfig, { mcpServers: mcpConfig });
       const ok = await agentService.init(finalConfig);
       results.agent = { success: ok };
       log.info('[ServiceManager] Agent started');
@@ -159,7 +150,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
     // 3. 启动文件服务器
     try {
-      results.fileServer = await startFileServer(step1Config.fileServerPort ?? 60000);
+      results.fileServer = await startFileServer((step1Config.fileServerPort as number) ?? 60000);
       log.info('[ServiceManager] FileServer started');
     } catch (e) {
       results.fileServer = { success: false, error: String(e) };
@@ -169,14 +160,14 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     // 4. 启动 Lanproxy
     try {
       const clientKey = readSetting('auth.saved_key') as string | null;
-      const lpConfig = readSetting('lanproxy_config') as any || {};
+      const lpConfig = readSetting('lanproxy_config') as Record<string, unknown> || {};
       const serverHost = readSetting('lanproxy.server_host') as string | null;
       const serverPortStored = readSetting('lanproxy.server_port') as number | null;
-      const serverIp = lpConfig.serverIp || serverHost?.replace(/^https?:\/\//, '');
-      const serverPort = lpConfig.serverPort || serverPortStored;
+      const serverIp = (lpConfig.serverIp as string) || serverHost?.replace(/^https?:\/\//, '');
+      const serverPort = (lpConfig.serverPort as number) || serverPortStored;
 
       if (serverIp && clientKey && serverPort) {
-        results.lanproxy = await startLanproxy({ serverIp, serverPort, clientKey, ssl: lpConfig.ssl });
+        results.lanproxy = await startLanproxy({ serverIp, serverPort, clientKey, ssl: lpConfig.ssl as boolean });
         log.info('[ServiceManager] Lanproxy started');
       } else {
         results.lanproxy = { success: false, error: '缺少 lanproxy 配置' };
@@ -205,10 +196,6 @@ export function createServiceManager(ctx: ServiceManagerContext) {
    * 停止所有服务
    */
   const stopAllServices = async (): Promise<{ success: boolean; results: Record<string, ServiceResult> }> => {
-    const { agentService } = require('../services/main/engines/unifiedAgent');
-    const { mcpProxyManager } = require('../services/main/packages/mcp');
-    const { stopAllEngines } = require('../services/main/engines/engineManager');
-
     log.info('[ServiceManager] Stopping all services...');
     const results: Record<string, ServiceResult> = {};
 

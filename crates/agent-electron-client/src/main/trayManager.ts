@@ -8,7 +8,7 @@
  * - IPC 状态同步
  */
 
-import { Tray, Menu, nativeImage, app, BrowserWindow, dialog } from 'electron';
+import { Tray, Menu, nativeImage, app, dialog } from 'electron';
 import * as path from 'path';
 import log from 'electron-log';
 import { APP_DISPLAY_NAME } from '../commons/constants';
@@ -19,7 +19,6 @@ import { createAutoLaunchManager, AutoLaunchManager } from './autoLaunchManager'
 export type TrayStatus = 'running' | 'stopped' | 'error' | 'starting';
 
 export interface TrayManagerOptions {
-  getMainWindow: () => BrowserWindow | null;
   onShowWindow: () => void;
   onOpenSettings: () => void;
   onOpenDependencies: () => void;
@@ -76,6 +75,7 @@ export class TrayManager {
 
     // 构建初始菜单
     this.updateMenu();
+    log.info('[Tray] Tray created');
   }
 
   /**

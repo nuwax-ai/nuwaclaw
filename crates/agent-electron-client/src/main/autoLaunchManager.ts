@@ -131,9 +131,7 @@ export class AutoLaunchManager {
 let autoLaunchManager: AutoLaunchManager | null = null;
 
 export function createAutoLaunchManager(): AutoLaunchManager {
-  if (autoLaunchManager) {
-    autoLaunchManager.setEnabled(false); // 重置状态
-  }
+  // 直接创建新实例，保留用户设置
   autoLaunchManager = new AutoLaunchManager();
   return autoLaunchManager;
 }

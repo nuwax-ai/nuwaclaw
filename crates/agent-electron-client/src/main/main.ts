@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, Tray, nativeImage } from 'electron';
 import * as path from 'path';
 import log from 'electron-log';
 import { initDatabase, closeDb } from './db';
@@ -191,7 +191,6 @@ async function initTrayManager() {
   const serviceManager = createServiceManager({ lanproxy, fileServer, agentRunner });
 
   trayManager = createTrayManager({
-    getMainWindow: () => mainWindow,
     onShowWindow: () => {
       mainWindow?.show();
       mainWindow?.focus();
