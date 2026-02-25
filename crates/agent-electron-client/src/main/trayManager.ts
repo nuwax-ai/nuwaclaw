@@ -199,29 +199,46 @@ export class TrayManager {
   /**
    * 获取托盘图标路径
    */
-  private getIconPath(status: TrayStatus): string {
+  private getIconPath(status: TrayStatus, retina: boolean = false): string {
     const iconName = TRAY_ICONS[status] || TRAY_ICONS.stopped;
+    const fileName = retina ? iconName.replace('.png', '@2x.png') : iconName;
 
     if (app.isPackaged) {
-      return path.join(process.resourcesPath, 'tray', iconName);
+      return path.join(process.resourcesPath, 'tray', fileName);
     }
-    return path.join(process.cwd(), 'public', 'tray', iconName);
+    return path.join(process.cwd(), 'public', 'tray', fileName);
   }
 
   /**
    * 创建托盘图标 (支持 Retina 和 Template Image)
    */
   private createTrayIcon(status: TrayStatus): Electron.NativeImage {
-    const iconPath = this.getIconPath(status);
-    let icon = nativeImage.createFromPath(iconPath);
-
-    // macOS: 设置为 Template Image，自动适配深色/浅色模式
     if (process.platform === 'darwin') {
-      icon = icon.resize({ width: 22, height: 22 });
+      // macOS: load @2x icon directly - Electron auto-detects @2x from filename
+      // Do NOT resize, as Electron already treats it as 22pt (Retina)
+      const retinaPath = this.getIconPath(status, true);
+      const normalPath = this.getIconPath(status, false);
+
+      log.info('[Tray] Loading icon:', { status, retinaPath });
+
+      let icon = nativeImage.createFromPath(retinaPath);
+      if (icon.isEmpty()) {
+        log.warn('[Tray] Retina icon empty, trying @1x:', normalPath);
+        icon = nativeImage.createFromPath(normalPath);
+      }
+
+      if (icon.isEmpty()) {
+        log.error('[Tray] All tray icons empty!');
+      }
+
+      log.info('[Tray] Icon loaded:', { isEmpty: icon.isEmpty(), size: icon.getSize() });
       icon.setTemplateImage(true);
+      return icon;
     }
 
-    return icon;
+    // Non-macOS: use @1x icon directly
+    const iconPath = this.getIconPath(status);
+    return nativeImage.createFromPath(iconPath);
   }
 
   /**

@@ -58,7 +58,8 @@ interface ClientPageProps {
   onNavigate?: (tab: TabKey) => void;
   services: ServiceItem[];
   servicesLoading: boolean;
-  autoStarting?: boolean;
+  startingServices?: Set<string>;
+  setStartingServices?: React.Dispatch<React.SetStateAction<Set<string>>>;
   onRefreshServices: () => Promise<void>;
 }
 
@@ -71,7 +72,7 @@ interface AuthState {
 
 // ======================== Component ========================
 
-function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRefreshServices }: ClientPageProps) {
+function ClientPage({ onNavigate, services, servicesLoading, startingServices, setStartingServices, onRefreshServices }: ClientPageProps) {
   // ---------- Auth state ----------
   const [authState, setAuthState] = useState<AuthState>({
     isLoggedIn: false,
@@ -87,7 +88,10 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
   const [loginLoading, setLoginLoading] = useState(false);
 
   // ---------- Services ----------
-  const [batchLoading, setBatchLoading] = useState(false);
+  const [stoppingServices, setStoppingServices] = useState<Set<string>>(new Set());
+  const isAnyStarting = (startingServices?.size ?? 0) > 0;
+  const isAnyStopping = stoppingServices.size > 0;
+  const isAnyOperating = isAnyStarting || isAnyStopping;
 
   // ---------- Dependencies ----------
   const [missingDeps, setMissingDeps] = useState<{ name: string; displayName: string }[]>([]);
@@ -227,7 +231,7 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
   // ======================== Services ========================
 
   const handleStartService = async (key: string, silent = false): Promise<boolean> => {
-    if (!silent) setBatchLoading(true);
+    setStartingServices?.(prev => new Set(prev).add(key));
     try {
       let result: { success: boolean; error?: string } | undefined;
 
@@ -247,15 +251,12 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
         const step1 = await window.electronAPI?.settings.get('step1_config') as { fileServerPort?: number } | null;
         result = await window.electronAPI?.fileServer.start(step1?.fileServerPort ?? 60000);
       } else if (key === 'lanproxy') {
-        // clientKey 始终从 auth.saved_key 读取（参考 Tauri 客户端，持久化不可编辑）
         const clientKey = await window.electronAPI?.settings.get('auth.saved_key') as string | null;
-        // serverIp/serverPort/ssl 优先从 lanproxy_config 读取（用户可在 LanproxySettings 中修改）
         const lpConfig = await window.electronAPI?.settings.get('lanproxy_config') as {
           serverIp?: string;
           serverPort?: number;
           ssl?: boolean;
         } | null;
-        // 回退到 auth 存储的值
         const serverIp = lpConfig?.serverIp
           || ((await window.electronAPI?.settings.get('lanproxy.server_host') as string | null)?.replace(/^https?:\/\//, ''));
         const serverPort = lpConfig?.serverPort
@@ -285,13 +286,12 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
       await onRefreshServices();
       return false;
     } finally {
-      if (!silent) setBatchLoading(false);
+      setStartingServices?.(prev => { const next = new Set(prev); next.delete(key); return next; });
     }
   };
 
   const handleStopService = async (key: string) => {
-    setBatchLoading(true);
-    const startTime = Date.now();
+    setStoppingServices(prev => new Set(prev).add(key));
     try {
       if (key === 'agent') await window.electronAPI?.agent.destroy();
       else if (key === 'fileServer') await window.electronAPI?.fileServer.stop();
@@ -299,14 +299,10 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
       else if (key === 'mcpProxy') await window.electronAPI?.mcp.stop();
     } catch (error) {
       message.error(`停止失败: ${error}`);
+    } finally {
+      setStoppingServices(prev => { const next = new Set(prev); next.delete(key); return next; });
+      await onRefreshServices();
     }
-    // 确保 loading 至少显示 300ms
-    const elapsed = Date.now() - startTime;
-    if (elapsed < 300) {
-      await new Promise((resolve) => setTimeout(resolve, 300 - elapsed));
-    }
-    setBatchLoading(false);
-    await onRefreshServices();
   };
 
   const handleStartAll = async () => {
@@ -315,9 +311,7 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
       return;
     }
 
-    setBatchLoading(true);
     try {
-      // 按顺序启动: Agent → File Server → Lanproxy → MCP Proxy（与 Tauri 客户端一致）
       const startOrder = ['agent', 'fileServer', 'lanproxy', 'mcpProxy'];
       let startedCount = 0;
 
@@ -332,25 +326,21 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
       if (startedCount === 0) {
         message.info('所有可自动启动的服务已在运行');
       } else {
-        // 有服务启动后重新调用 reg 接口，通知后端最新的端口配置
         try {
           await syncConfigToServer({ suppressToast: true });
-          console.log('[ClientPage] 全部启动后 reg 同步成功');
         } catch (e) {
-          console.error('[ClientPage] 全部启动后 reg 同步失败:', e);
+          console.error('[ClientPage] 同步失败:', e);
         }
       }
     } finally {
-      setBatchLoading(false);
       await onRefreshServices();
     }
   };
 
   const handleStopAll = async () => {
-    setBatchLoading(true);
-    const startTime = Date.now();
+    const running = services.filter((s) => s.running);
+    setStoppingServices(new Set(running.map(s => s.key)));
     try {
-      const running = services.filter((s) => s.running);
       for (const svc of running) {
         try {
           if (svc.key === 'agent') await window.electronAPI?.agent.destroy();
@@ -362,12 +352,7 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
         }
       }
     } finally {
-      // 确保 loading 至少显示 300ms（以最终停止时间为准）
-      const elapsed = Date.now() - startTime;
-      if (elapsed < 300) {
-        await new Promise((resolve) => setTimeout(resolve, 300 - elapsed));
-      }
-      setBatchLoading(false);
+      setStoppingServices(new Set());
       await onRefreshServices();
     }
   };
@@ -414,7 +399,10 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
 
     if (authState.isLoggedIn) {
       const redirectUrl = getRedirectUrl();
-      const isButtonDisabled = !redirectUrl;
+      // 与 Tauri 一致：服务未全部启动时禁用「开始会话」「扫码使用」
+      const allServicesRunning =
+        services.length > 0 && services.every((s) => s.running);
+      const isButtonDisabled = !redirectUrl || !allServicesRunning;
 
       return (
         <div className={styles.sectionBody}>
@@ -433,7 +421,7 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
               </div>
             </div>
 
-            {/* 右侧：操作按钮 */}
+            {/* 右侧：操作按钮（服务未全部启动时禁用，与 Tauri 行为一致） */}
             <div className={styles.actionButtons}>
               <Button
                 type="primary"
@@ -441,6 +429,7 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
                 onClick={handleStartSession}
                 size="small"
                 disabled={isButtonDisabled}
+                title={!allServicesRunning ? '请先启动全部服务' : undefined}
               >
                 开始会话
               </Button>
@@ -449,6 +438,7 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
                 onClick={handleShowQrCode}
                 size="small"
                 disabled={isButtonDisabled}
+                title={!allServicesRunning ? '请先启动全部服务' : undefined}
               >
                 扫码使用
               </Button>
@@ -543,7 +533,7 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
 
   const renderServicesSection = () => {
     // 首次加载中
-    if (servicesLoading) {
+    if (servicesLoading && services.length === 0) {
       return (
         <div className={styles.sectionBody}>
           <Spin size="small" />
@@ -553,63 +543,69 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
 
     return (
       <div className={styles.sectionBody}>
-        {/* Loading 覆盖层 */}
-        {(batchLoading || autoStarting) && (
-          <div className={styles.loadingOverlay}>
-            <LoadingOutlined style={{ fontSize: 18, color: '#1677ff' }} />
-            <span className={styles.loadingText}>服务启动中...</span>
-          </div>
-        )}
         {/* 服务列表 */}
-        {services.map((svc) => (
-          <div key={svc.key} className={styles.serviceRow}>
-            <div className={styles.serviceInfo}>
-              {svc.running ? (
-                <CheckCircleOutlined style={{ color: '#16a34a', fontSize: 14 }} />
-              ) : (
-                <CloseCircleOutlined style={{ color: '#a1a1aa', fontSize: 14 }} />
-              )}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span className={styles.serviceLabel}>{svc.label}</span>
-                  {svc.running ? (
-                    <Tag color="green" style={{ margin: 0, fontSize: 11 }}>运行中</Tag>
-                  ) : (
-                    <Tag style={{ margin: 0, fontSize: 11 }}>已停止</Tag>
-                  )}
-                  {/* {svc.running && svc.pid && (
-                    <span className={styles.servicePid}>PID: {svc.pid}</span>
-                  )} */}
-                </div>
-                <div className={styles.serviceDescription}>
-                  {svc.description}
+        {services.map((svc) => {
+          const isStarting = startingServices?.has(svc.key);
+          const isStopping = stoppingServices.has(svc.key);
+          return (
+            <div key={svc.key} className={styles.serviceRow}>
+              <div className={styles.serviceInfo}>
+                {(isStarting || isStopping) ? (
+                  <LoadingOutlined style={{ color: '#1677ff', fontSize: 14 }} />
+                ) : svc.running ? (
+                  <CheckCircleOutlined style={{ color: '#16a34a', fontSize: 14 }} />
+                ) : (
+                  <CloseCircleOutlined style={{ color: '#a1a1aa', fontSize: 14 }} />
+                )}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span className={styles.serviceLabel}>{svc.label}</span>
+                    {isStarting ? (
+                      <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>启动中</Tag>
+                    ) : isStopping ? (
+                      <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>停止中</Tag>
+                    ) : svc.running ? (
+                      <Tag color="green" style={{ margin: 0, fontSize: 11 }}>运行中</Tag>
+                    ) : (
+                      <Tag style={{ margin: 0, fontSize: 11 }}>已停止</Tag>
+                    )}
+                  </div>
+                  <div className={styles.serviceDescription}>
+                    {svc.description}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className={styles.serviceActions}>
-              {svc.running ? (
-                <Button
-                  size="small"
-                  danger
-                  icon={<PoweroffOutlined />}
-                  onClick={() => handleStopService(svc.key)}
-                >
-                  停止
-                </Button>
-              ) : (
-                <Button
-                  size="small"
-                  type="primary"
-                  icon={<PlayCircleOutlined />}
-                  onClick={() => handleStartService(svc.key)}
-                >
-                  启动
-                </Button>
-              )}
+              <div className={styles.serviceActions}>
+                {isStarting ? (
+                  <Button size="small" disabled loading>启动中</Button>
+                ) : isStopping ? (
+                  <Button size="small" disabled loading>停止中</Button>
+                ) : svc.running ? (
+                  <Button
+                    size="small"
+                    danger
+                    icon={<PoweroffOutlined />}
+                    onClick={() => handleStopService(svc.key)}
+                    disabled={isAnyOperating}
+                  >
+                    停止
+                  </Button>
+                ) : (
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<PlayCircleOutlined />}
+                    onClick={() => handleStartService(svc.key)}
+                    disabled={isAnyOperating}
+                  >
+                    启动
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
   };
@@ -727,8 +723,8 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
                 type="primary"
                 icon={<PlayCircleOutlined />}
                 onClick={handleStartAll}
-                loading={batchLoading}
-                disabled={!depsChecked || missingDeps.length > 0 || services.every((s) => s.running)}
+                loading={isAnyStarting}
+                disabled={!depsChecked || missingDeps.length > 0 || services.every((s) => s.running) || isAnyStopping}
               >
                 启动全部
               </Button>
@@ -737,8 +733,8 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
                 danger
                 icon={<PoweroffOutlined />}
                 onClick={handleStopAll}
-                loading={batchLoading}
-                disabled={services.every((s) => !s.running)}
+                loading={isAnyStopping}
+                disabled={services.every((s) => !s.running) || isAnyStarting}
               >
                 停止全部
               </Button>

@@ -16,7 +16,7 @@ import { app } from 'electron';
 import { getAppEnv } from '../system/dependencies';
 import { getAppPaths, isInstalledLocally } from './packageLocator';
 import { spawnJsFile, resolveNpmPackageEntry } from '../utils/spawnNoWindow';
-import { DEFAULT_MCP_PROXY_PORT, DEFAULT_MCP_PROXY_HOST, APP_DATA_DIR_NAME } from '../constants';
+import { DEFAULT_MCP_PROXY_PORT, DEFAULT_MCP_PROXY_HOST, APP_DATA_DIR_NAME, DEFAULT_STARTUP_DELAY } from '../constants';
 import { isWindows } from '../system/shellEnv';
 
 // ========== Types ==========
@@ -347,7 +347,7 @@ class McpProxyManager {
         this.host = host;
         this.config = config;
 
-        // 等待进程稳定后返回
+        // 等待进程稳定后返回（与其他服务保持一致的启动延迟）
         setTimeout(() => {
           if (!startResolved) {
             startResolved = true;
@@ -359,7 +359,7 @@ class McpProxyManager {
               resolve({ success: false, error: '进程启动后立即退出' });
             }
           }
-        }, 500);
+        }, DEFAULT_STARTUP_DELAY);
       } catch (error) {
         cleanup();
         resolve({ success: false, error: String(error) });

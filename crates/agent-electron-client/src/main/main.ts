@@ -45,12 +45,12 @@ function getIconPath() {
   return path.join(process.cwd(), 'public', 'icon.png');
 }
 
-// Get PNG icon path for Dock (more reliable in dev mode)
+// Get icon path for Dock (must be PNG - nativeImage cannot load .icns)
 function getDockIconPath() {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'icon.png');
+    return path.join(process.resourcesPath, 'icon-dock.png');
   }
-  return path.join(process.cwd(), 'public', 'icon.png');
+  return path.join(process.cwd(), 'public', 'icon-dock.png');
 }
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;

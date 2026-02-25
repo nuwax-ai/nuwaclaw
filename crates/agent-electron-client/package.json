@@ -120,6 +120,25 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "public/icon.png",
+        "to": "icon.png"
+      },
+      {
+        "from": "public/icon.icns",
+        "to": "icon.icns"
+      },
+      {
+        "from": "public/icon.ico",
+        "to": "icon.ico"
+      },
+      {
+        "from": "public/tray",
+        "to": "tray",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {

@@ -64,7 +64,7 @@ function App() {
   const [agentStatus, setAgentStatus] = useState<string>('idle');
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [servicesLoading, setServicesLoading] = useState(true);
-  const [autoStarting, setAutoStarting] = useState(false);
+  const [startingServices, setStartingServices] = useState<Set<string>>(new Set());
   const servicesPollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ============================================
@@ -105,8 +105,71 @@ function App() {
   }, [isSetupComplete]);
 
   // ============================================
-  // 自动重连（对齐 Tauri 客户端）
-  // setup 完成后检查 savedKey → syncConfigToServer
+  // 服务状态轮询
+  // ============================================
+  const pollServicesStatus = useCallback(async () => {
+    try {
+      const items: ServiceItem[] = [];
+      const [fsStatus, lpStatus, agentSvcStatus, mcpStatus] = await Promise.all([
+        window.electronAPI?.fileServer.status(),
+        window.electronAPI?.lanproxy.status(),
+        window.electronAPI?.agent.serviceStatus(),
+        window.electronAPI?.mcp.status(),
+      ]);
+      items.push({ key: 'fileServer', label: '文件服务', description: 'Agent 工作目录文件远程管理服务', running: fsStatus?.running ?? false, pid: fsStatus?.pid });
+      items.push({ key: 'lanproxy', label: '代理服务', description: '网络通道', running: lpStatus?.running ?? false, pid: lpStatus?.pid });
+      items.push({ key: 'agent', label: 'Agent 服务', description: 'Agent 核心服务', running: agentSvcStatus?.running ?? false });
+      items.push({ key: 'mcpProxy', label: 'MCP 服务', description: 'MCP 协议转换工具', running: mcpStatus?.running ?? false, pid: mcpStatus?.pid });
+      setServices(items);
+    } catch (error) {
+      console.error('[App] pollServicesStatus failed:', error);
+    } finally {
+      setServicesLoading(false);
+    }
+  }, []);
+
+  // ============================================
+  // 逐个启动服务（实时更新状态）
+  // ============================================
+  const startServicesSequentially = useCallback(async (serviceKeys: string[]) => {
+    for (const key of serviceKeys) {
+      setStartingServices(prev => new Set(prev).add(key));
+      try {
+        if (key === 'agent') {
+          const agentConfig = await window.electronAPI?.settings.get('agent_config') as any;
+          const step1 = await window.electronAPI?.settings.get('step1_config') as { workspaceDir?: string } | null;
+          await window.electronAPI?.agent.init({
+            engine: agentConfig?.type || 'claude-code',
+            apiKey: agentConfig?.apiKey,
+            baseUrl: agentConfig?.apiBaseUrl,
+            model: agentConfig?.model,
+            workspaceDir: step1?.workspaceDir || '',
+          });
+        } else if (key === 'fileServer') {
+          const step1 = await window.electronAPI?.settings.get('step1_config') as { fileServerPort?: number } | null;
+          await window.electronAPI?.fileServer.start(step1?.fileServerPort ?? 60000);
+        } else if (key === 'lanproxy') {
+          const clientKey = await window.electronAPI?.settings.get('auth.saved_key') as string | null;
+          const lpConfig = await window.electronAPI?.settings.get('lanproxy_config') as any;
+          const serverIp = lpConfig?.serverIp || (await window.electronAPI?.settings.get('lanproxy.server_host') as string)?.replace(/^https?:\/\//, '');
+          const serverPort = lpConfig?.serverPort || await window.electronAPI?.settings.get('lanproxy.server_port');
+          if (serverIp && clientKey && serverPort) {
+            await window.electronAPI?.lanproxy.start({ serverIp, serverPort, clientKey, ssl: lpConfig?.ssl });
+          }
+        } else if (key === 'mcpProxy') {
+          await window.electronAPI?.mcp.start();
+        }
+        await pollServicesStatus();
+      } catch (e) {
+        console.error(`[App] 启动 ${key} 失败:`, e);
+      } finally {
+        setStartingServices(prev => { const next = new Set(prev); next.delete(key); return next; });
+      }
+    }
+  }, [pollServicesStatus]);
+
+  // ============================================
+  // 自动重连
   // ============================================
   useEffect(() => {
     if (isSetupComplete !== true) return;
@@ -125,15 +188,7 @@ function App() {
       if (setupJustCompleted.current) {
         setupJustCompleted.current = false;
         console.log('[App] 初始化向导刚完成，启动所有服务...');
-        setAutoStarting(true);
-        try {
-          const restartResult = await window.electronAPI?.services.restartAll();
-          console.log('[App] 服务启动结果:', restartResult);
-        } catch (e) {
-          console.error('[App] 服务启动失败:', e);
-        } finally {
-          setAutoStarting(false);
-        }
+        await startServicesSequentially(['agent', 'fileServer', 'lanproxy', 'mcpProxy']);
         return;
       }
 
@@ -150,17 +205,9 @@ function App() {
             if (user) {
               setUsername(user.displayName || user.username || '用户');
             }
-            // 重启所有服务（对齐 Tauri services_restart_all）
-            setAutoStarting(true);
-            try {
-              console.log('[App] 重启所有服务...');
-              const restartResult = await window.electronAPI?.services.restartAll();
-              console.log('[App] 服务重启结果:', restartResult);
-            } catch (e) {
-              console.error('[App] 服务重启失败:', e);
-            } finally {
-              setAutoStarting(false);
-            }
+            // 启动所有服务
+            console.log('[App] 启动所有服务...');
+            await startServicesSequentially(['agent', 'fileServer', 'lanproxy', 'mcpProxy']);
           } else {
             console.warn('[App] 配置同步失败');
           }
@@ -169,68 +216,15 @@ function App() {
         }
       } catch (error) {
         console.error('[App] 自动重连失败:', error);
-        setAutoStarting(false);
       }
     };
 
     autoReconnect();
-  }, [isSetupComplete]);
+  }, [isSetupComplete, startServicesSequentially]);
 
   // ============================================
-  // 服务状态轮询 & 状态计算（对齐 Tauri 客户端）
+  // 根据服务状态计算 Agent 状态
   // ============================================
-  const pollServicesStatus = useCallback(async () => {
-    try {
-      const items: ServiceItem[] = [];
-
-      // File Server
-      const fsStatus = await window.electronAPI?.fileServer.status();
-      items.push({
-        key: 'fileServer',
-        label: '文件服务',
-        description: 'Agent 工作目录文件远程管理服务',
-        running: fsStatus?.running ?? false,
-        pid: fsStatus?.pid,
-      });
-
-      // Lanproxy
-      const lpStatus = await window.electronAPI?.lanproxy.status();
-      items.push({
-        key: 'lanproxy',
-        label: '代理服务',
-        description: '网络通道',
-        running: lpStatus?.running ?? false,
-        pid: lpStatus?.pid,
-      });
-
-      // Agent
-      const agentSvcStatus = await window.electronAPI?.agent.serviceStatus();
-      items.push({
-        key: 'agent',
-        label: 'Agent 服务',
-        description: 'Agent 核心服务',
-        running: agentSvcStatus?.running ?? false,
-      });
-
-      // MCP Proxy
-      const mcpStatus = await window.electronAPI?.mcp.status();
-      items.push({
-        key: 'mcpProxy',
-        label: 'MCP 服务',
-        description: 'MCP 协议转换工具',
-        running: mcpStatus?.running ?? false,
-        pid: mcpStatus?.pid,
-      });
-
-      setServices(items);
-    } catch (error) {
-      console.error('[App] pollServicesStatus failed:', error);
-    } finally {
-      setServicesLoading(false);
-    }
-  }, []);
-
-  // 根据服务状态计算 Agent 状态（对齐 Tauri 客户端逻辑）
   // 根据服务状态计算 Agent 状态（对齐 Tauri 客户端逻辑）
   useEffect(() => {
     // 如果正在加载，保持当前状态不变（避免初始加载时的闪烁）
@@ -421,7 +415,8 @@ function App() {
               onNavigate={setActiveTab}
               services={services}
               servicesLoading={servicesLoading}
-              autoStarting={autoStarting}
+              startingServices={startingServices}
+              setStartingServices={setStartingServices}
               onRefreshServices={pollServicesStatus}
             />
           )}
