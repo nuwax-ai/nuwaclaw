@@ -16,7 +16,7 @@ import { getAppEnv } from '../system/dependencies';
 import { mcpProxyManager } from '../packages/mcp';
 import { spawnJsFile, resolveNpmPackageEntry } from '../utils/spawnNoWindow';
 import { APP_DATA_DIR_NAME } from '../constants';
-import { APP_NAME_IDENTIFIER } from '@shared/constants';
+import { APP_NAME_IDENTIFIER } from '../../shared/constants';
 import { isWindows } from '../system/shellEnv';
 
 // ==================== Types ====================

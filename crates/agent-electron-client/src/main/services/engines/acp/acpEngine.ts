@@ -45,7 +45,7 @@ import type {
   ComputerChatResponse,
   UnifiedSessionMessage,
   ModelProviderConfig,
-} from '@shared/types/computerTypes';
+} from '../../../../shared/types/computerTypes';
 
 /** Safe JSON.stringify that handles circular references */
 function safeStringify(obj: unknown): string {

@@ -103,13 +103,13 @@ export function buildRuntimeEnv(options: BuildRuntimeEnvOptions): Record<string,
 
 建议文件：
 
-- `src/services/main/system/runtimeEnv.ts`
+- `src/main/services/system/runtimeEnv.ts`
 
 规则：
 
-1. 先构建 strict 基础 env  
-2. 按 profile 决定是否应用透传白名单  
-3. 应用 `injected` 时，禁止覆盖 `protectedKeys`  
+1. 先构建 strict 基础 env
+2. 按 profile 决定是否应用透传白名单
+3. 应用 `injected` 时，禁止覆盖 `protectedKeys`
 4. 输出前去除 `undefined` 值
 
 ---
@@ -118,15 +118,15 @@ export function buildRuntimeEnv(options: BuildRuntimeEnvOptions): Record<string,
 
 需要统一接入 `buildRuntimeEnv()` 的位置：
 
-- `src/services/main/system/dependencies.ts` (`getAppEnv`)
-- `src/services/main/engines/acp/acpClient.ts`
-- `src/services/main/packages/mcp.ts`
-- `src/services/main/engines/engineManager.ts`
+- `src/main/services/system/dependencies.ts` (`getAppEnv`)
+- `src/main/services/engines/acp/acpClient.ts`
+- `src/main/services/packages/mcp.ts`
+- `src/main/services/engines/engineManager.ts`
 - `src/main/ipc/processHandlers.ts`（启动子进程路径）
 
 兼容性遗留需处理：
 
-- `src/services/main/packages/packageManager.ts` 仍使用 `userData` 路径，应统一到 `~/.nuwax-agent`
+- `src/main/services/packages/packageManager.ts` 仍使用 `userData` 路径，应统一到 `~/.nuwax-agent`
 
 ---
 

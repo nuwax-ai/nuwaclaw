@@ -16,7 +16,7 @@ import {
   DEFAULT_MIRROR_CONFIG,
   APP_DATA_DIR_NAME,
 } from '../constants';
-import { APP_NAME_IDENTIFIER } from '@shared/constants';
+import { APP_NAME_IDENTIFIER } from '../../../shared/constants';
 import { isWindows } from './shellEnv';
 import { spawnCrossPlatform, getNpmCommand, getNodeCommand, getCommandChecker } from '../utils/spawn';
 
@@ -131,7 +131,7 @@ export function getResourcesPath(): string {
   if (fs.existsSync(resourcesFromCwd)) {
     return resourcesFromCwd;
   }
-  // 回退方案：使用相对路径（编译后 __dirname 是 dist/services/main/system/）
+  // 回退方案：使用相对路径（编译后 __dirname 是 dist/main/services/system/）
   return path.join(__dirname, '../../../../../resources');
 }
 

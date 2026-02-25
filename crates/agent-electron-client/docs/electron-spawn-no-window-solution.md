@@ -404,11 +404,11 @@ describe('spawnNoWindow', () => {
 
 | 文件 | 说明 |
 |------|------|
-| `src/services/main/utils/spawnNoWindow.ts` | 核心工具模块 |
-| `src/services/main/utils/spawnNoWindow.test.ts` | 单元测试 |
-| `src/services/main/packages/mcp.ts` | MCP Proxy 启动（使用此工具） |
-| `src/services/main/engines/engineManager.ts` | 引擎启动（使用此工具） |
-| `src/services/main/engines/acp/acpClient.ts` | ACP 客户端（使用此工具） |
+| `src/main/services/utils/spawnNoWindow.ts` | 核心工具模块 |
+| `src/main/services/utils/spawnNoWindow.test.ts` | 单元测试 |
+| `src/main/services/packages/mcp.ts` | MCP Proxy 启动（使用此工具） |
+| `src/main/services/engines/engineManager.ts` | 引擎启动（使用此工具） |
+| `src/main/services/engines/acp/acpClient.ts` | ACP 客户端（使用此工具） |
 
 ## 参考资料
 

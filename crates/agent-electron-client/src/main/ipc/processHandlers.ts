@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { app } from 'electron';
 import log from 'electron-log';
-import type { HandlerContext } from '@shared/types/ipc';
+import type { HandlerContext } from '../../shared/types/ipc';
 import { readSetting } from '../db';
 import { ManagedProcess } from '../processManager';
 import { APP_DATA_DIR_NAME, DEFAULT_STARTUP_DELAY } from '../services/constants';

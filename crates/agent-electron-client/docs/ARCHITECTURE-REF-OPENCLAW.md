@@ -800,7 +800,7 @@ export class PermissionConfigResolver {
 // src/main/context.ts
 import { app } from 'electron';
 import * as path from 'path';
-import { APP_DATA_DIR_NAME } from '../services/main/constants';
+import { APP_DATA_DIR_NAME } from './services/constants';
 
 /**
  * 程序上下文
@@ -1139,7 +1139,7 @@ export const eventBus = EventBus.getInstance();
 #### 建议实现
 
 ```typescript
-// src/services/main/workflow/lobsterRuntime.ts
+// src/main/services/workflow/lobsterRuntime.ts
 
 export type LobsterRunConfig = {
   workspaceDir: string;
@@ -1210,11 +1210,11 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
 |--------|--------|------|----------|----------|
 | 🔴 P0 | 统一 IPC 注册系统（稳定代理 + 一次加载） | 中 | 高 | `src/main/ipc/*` |
 | 🔴 P0 | 程序上下文模式（路径约束对齐 `~/.nuwax-agent`） | 中 | 高 | `src/main/context.ts` |
-| 🔴 P0 | 运行时环境双模式（strict/compat） | 中 | 高 | `src/services/main/system/*` |
+| 🔴 P0 | 运行时环境双模式（strict/compat） | 中 | 高 | `src/main/services/system/*` |
 | 🟡 P1 | 统一事件总线 | 中 | 高 | `src/services/common/event-bus.ts` |
-| 🟡 P1 | Lobster Runtime 集成（run/resume） | 中 | 高 | `src/services/main/workflow/*` |
+| 🟡 P1 | Lobster Runtime 集成（run/resume） | 中 | 高 | `src/main/services/workflow/*` |
 | 🟡 P1 | 配置解析系统 | 中 | 中 | `src/services/common/config-resolver.ts` |
-| 🟢 P2 | 文档和类型定义 | 低 | 中 | `src/types/*` |
+| 🟢 P2 | 文档和类型定义 | 低 | 中 | `src/shared/types/*` |
 
 ### 5.2 实施步骤
 
@@ -1233,7 +1233,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
    - 添加处理器元数据
 
 3. **环境双模式重构**
-   - 新建 `src/services/main/system/runtimeEnv.ts`
+   - 新建 `src/main/services/system/runtimeEnv.ts`
    - 抽取 `strict/compat` 两套策略和白名单透传
    - 统一替换 `dependencies.ts`、`acpClient.ts`、`mcp.ts` 的 env 拼接逻辑
 
@@ -1251,7 +1251,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
    - 重构权限配置使用解析器
 
 3. **Lobster Runtime 集成**
-   - 新建 `src/services/main/workflow/lobsterRuntime.ts`
+   - 新建 `src/main/services/workflow/lobsterRuntime.ts`
    - 增加 `lobster:run/resume/status` IPC
    - 新增 `workflow_runs` 表并接入状态持久化
 
@@ -1288,10 +1288,10 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
 | 模块 | 文件路径 |
 |------|----------|
 | Agent Handlers | `src/main/ipc/agentHandlers.ts` |
-| UnifiedAgentService | `src/services/main/engines/unifiedAgent.ts` |
-| AcpEngine | `src/services/main/engines/acp/acpEngine.ts` |
-| Permissions | `src/services/renderer/permissions.ts` |
-| Sandbox | `src/services/renderer/sandbox.ts` |
+| UnifiedAgentService | `src/main/services/engines/unifiedAgent.ts` |
+| AcpEngine | `src/main/services/engines/acp/acpEngine.ts` |
+| Permissions | `src/renderer/services/permissions.ts` |
+| Sandbox | `src/renderer/services/sandbox.ts` |
 
 ### C. 参考资料
 

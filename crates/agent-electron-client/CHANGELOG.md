@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 支持文件服务器、Lanproxy、Agent、MCP Proxy 管理
 
 #### 跨平台子进程启动方案
-- **spawnNoWindow 工具模块** (`src/services/main/utils/spawnNoWindow.ts`)
+- **spawnNoWindow 工具模块** (`src/main/services/utils/spawnNoWindow.ts`)
   - 解决 Windows CMD 窗口弹出问题（使用 ELECTRON_RUN_AS_NODE=1 + windowsHide）
   - 解决 macOS Dock 图标问题（使用系统 node 而非 Electron bundled Node）
   - `spawnJsFile()` - 跨平台无窗口启动 JS 文件

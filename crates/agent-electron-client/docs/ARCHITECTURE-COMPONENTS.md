@@ -588,7 +588,7 @@ return {
 创建基础类型定义文件，集中管理进化系统相关的类型：
 
 ```typescript
-// TODO: 创建 src/types/evolution.ts
+// TODO: 创建 src/shared/types/evolution.ts
 
 /**
  * Agent 自我进化系统 - 基础类型定义
@@ -854,7 +854,7 @@ export type Outcome = {
 };
 ```
 
-**预期文件路径**: `src/types/evolution.ts`
+**预期文件路径**: `src/shared/types/evolution.ts`
 
 **预期优先级**: P1 - 核心组件实现前完成
 
