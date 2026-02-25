@@ -254,4 +254,64 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     log.info('[Services] All services restart complete:', results);
     return { success: true, results };
   });
+
+  // ==================== services:stopAll ====================
+
+  ipcMain.handle('services:stopAll', async () => {
+    const { agentService } = require('../../services/main/engines/unifiedAgent');
+    const { mcpProxyManager } = require('../../services/main/packages/mcp');
+    const { stopAllEngines } = require('../../services/main/engines/engineManager');
+
+    log.info('[Services] Stopping all services...');
+    const results: Record<string, { success: boolean; error?: string }> = {};
+
+    // Stop Agent
+    try {
+      await agentService.destroy();
+      results.agent = { success: true };
+      log.info('[Services] Agent stopped');
+    } catch (e) {
+      results.agent = { success: false, error: String(e) };
+      log.error('[Services] Agent stop failed:', e);
+    }
+
+    // Stop File Server
+    try {
+      ctx.fileServer.stop();
+      results.fileServer = { success: true };
+      log.info('[Services] FileServer stopped');
+    } catch (e) {
+      results.fileServer = { success: false, error: String(e) };
+    }
+
+    // Stop Lanproxy
+    try {
+      ctx.lanproxy.stop();
+      results.lanproxy = { success: true };
+      log.info('[Services] Lanproxy stopped');
+    } catch (e) {
+      results.lanproxy = { success: false, error: String(e) };
+    }
+
+    // Stop MCP Proxy
+    try {
+      mcpProxyManager.stop();
+      results.mcpProxy = { success: true };
+      log.info('[Services] MCP Proxy stopped');
+    } catch (e) {
+      results.mcpProxy = { success: false, error: String(e) };
+    }
+
+    // Stop all engines
+    try {
+      stopAllEngines();
+      results.engines = { success: true };
+      log.info('[Services] Engines stopped');
+    } catch (e) {
+      results.engines = { success: false, error: String(e) };
+    }
+
+    log.info('[Services] All services stopped:', results);
+    return { success: true, results };
+  });
 }

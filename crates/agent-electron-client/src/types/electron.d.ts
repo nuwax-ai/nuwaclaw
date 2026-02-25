@@ -308,6 +308,14 @@ export interface ComputerAPI {
 
 export interface ServicesAPI {
   restartAll: () => Promise<{ success: boolean; results?: Record<string, { success: boolean; error?: string }> }>;
+  stopAll: () => Promise<{ success: boolean; results?: Record<string, { success: boolean; error?: string }> }>;
+}
+
+export type TrayStatus = 'running' | 'stopped' | 'error' | 'starting';
+
+export interface TrayAPI {
+  updateStatus: (status: TrayStatus) => Promise<void>;
+  updateServicesStatus: (running: boolean) => Promise<void>;
 }
 
 export interface MirrorPresets {
@@ -360,6 +368,7 @@ export interface ElectronAPI {
   agent: AgentAPI;
   computer: ComputerAPI;
   services: ServicesAPI;
+  tray: TrayAPI;
   autolaunch: AutolaunchAPI;
   log: LogAPI;
   app: AppAPI;

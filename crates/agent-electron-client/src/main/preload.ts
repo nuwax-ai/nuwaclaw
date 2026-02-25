@@ -216,6 +216,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Services (对齐 Tauri services_restart_all)
   services: {
     restartAll: () => ipcRenderer.invoke('services:restartAll'),
+    stopAll: () => ipcRenderer.invoke('services:stopAll'),
+  },
+
+  // Tray status sync
+  tray: {
+    updateStatus: (status: 'running' | 'stopped' | 'error' | 'starting') =>
+      ipcRenderer.invoke('tray:updateStatus', status),
+    updateServicesStatus: (running: boolean) =>
+      ipcRenderer.invoke('tray:updateServicesStatus', running),
   },
 
   // Dependency management

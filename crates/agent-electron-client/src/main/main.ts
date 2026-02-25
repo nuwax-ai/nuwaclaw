@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, nativeImage, dialog } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain } from 'electron';
 import * as path from 'path';
 import log from 'electron-log';
 import { initDatabase, closeDb } from './db';
@@ -12,6 +12,8 @@ import type { HandlerContext } from '../types/ipc';
 import { DEFAULT_DEV_SERVER_PORT } from '../services/main/constants';
 import { APP_DISPLAY_NAME } from '../commons/constants';
 import { initLogging } from './logConfig';
+import { createTrayManager, TrayStatus } from './trayManager';
+import { createServiceManager } from './serviceManager';
 
 // macOS 26 Tahoe 兼容性：禁用 Fontations 字体后端
 // 参考: https://github.com/electron/electron/issues/49522
@@ -25,7 +27,7 @@ log.info('Application starting...');
 
 // Global references
 let mainWindow: BrowserWindow | null = null;
-let tray: Tray | null = null;
+let trayManager: ReturnType<typeof createTrayManager> | null = null;
 
 // Get icon path (works in both dev and production)
 function getIconPath() {
@@ -41,14 +43,6 @@ function getIconPath() {
     return path.join(process.cwd(), 'public', 'icon.icns');
   }
   return path.join(process.cwd(), 'public', 'icon.png');
-}
-
-// Get tray icon path (works in both dev and production)
-function getTrayIconPath() {
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, '32x32.png');
-  }
-  return path.join(process.cwd(), 'public', '32x32.png');
 }
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -192,62 +186,55 @@ function createMenu() {
   Menu.setApplicationMenu(menu);
 }
 
-function createTray() {
-  const trayIconPath = getTrayIconPath();
-  const icon = nativeImage.createFromPath(trayIconPath);
-  tray = new Tray(icon);
+async function initTrayManager() {
+  // 创建服务管理器
+  const serviceManager = createServiceManager({ lanproxy, fileServer, agentRunner });
 
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: '显示窗口',
-      click: () => {
-        mainWindow?.show();
-        mainWindow?.focus();
-      },
+  trayManager = createTrayManager({
+    getMainWindow: () => mainWindow,
+    onShowWindow: () => {
+      mainWindow?.show();
+      mainWindow?.focus();
     },
-    { type: 'separator' },
-    {
-      label: '设置',
-      click: () => mainWindow?.webContents.send('menu:settings'),
+    onOpenSettings: () => {
+      mainWindow?.show();
+      mainWindow?.focus();
+      mainWindow?.webContents.send('menu:settings');
     },
-    {
-      label: '依赖管理',
-      click: () => mainWindow?.webContents.send('menu:dependencies'),
+    onOpenDependencies: () => {
+      mainWindow?.show();
+      mainWindow?.focus();
+      mainWindow?.webContents.send('menu:dependencies');
     },
-    { type: 'separator' },
-    {
-      label: '关于',
-      click: () => {
-        dialog.showMessageBox({
-          type: 'info',
-          title: `About ${APP_DISPLAY_NAME}`,
-          message: `${APP_DISPLAY_NAME} v${app.getVersion()}`,
-          detail: 'Your AI assistant for productivity.',
-        });
-      },
+    onRestartServices: async () => {
+      log.info('[Tray] Restarting all services...');
+      await serviceManager.restartAllServices();
+      trayManager?.updateServicesStatus(true);
     },
-    { type: 'separator' },
-    {
-      label: '退出',
-      click: () => app.quit(),
+    onStopServices: async () => {
+      log.info('[Tray] Stopping all services...');
+      await serviceManager.stopAllServices();
+      trayManager?.updateServicesStatus(false);
+      log.info('[Tray] All services stopped');
     },
-  ]);
-
-  tray.setToolTip(APP_DISPLAY_NAME);
-  tray.setContextMenu(contextMenu);
-
-  // 左键点击显示窗口
-  tray.on('click', () => {
-    mainWindow?.show();
-    mainWindow?.focus();
   });
 
-  // 双击也显示窗口
-  tray.on('double-click', () => {
-    mainWindow?.show();
-    mainWindow?.focus();
-  });
+  await trayManager.create();
+  log.info('[Tray] TrayManager initialized');
 }
+
+// IPC handler for tray status updates from renderer
+ipcMain.handle('tray:updateStatus', (_, status: TrayStatus) => {
+  if (trayManager) {
+    trayManager.setStatus(status);
+  }
+});
+
+ipcMain.handle('tray:updateServicesStatus', (_, running: boolean) => {
+  if (trayManager) {
+    trayManager.updateServicesStatus(running);
+  }
+});
 
 function cleanupAllProcesses(): void {
   log.info('[Cleanup] Stopping all processes...');
@@ -300,7 +287,7 @@ app.whenReady().then(async () => {
   await runStartupTasks();
 
   createWindow();
-  createTray();
+  await initTrayManager();
 });
 
 app.on('window-all-closed', () => {
