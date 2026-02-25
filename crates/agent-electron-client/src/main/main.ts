@@ -45,6 +45,14 @@ function getIconPath() {
   return path.join(process.cwd(), 'public', 'icon.png');
 }
 
+// Get PNG icon path for Dock (more reliable in dev mode)
+function getDockIconPath() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'icon.png');
+  }
+  return path.join(process.cwd(), 'public', 'icon.png');
+}
+
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 // Managed child processes
@@ -274,12 +282,16 @@ app.whenReady().then(async () => {
 
   // Set Dock icon on macOS (development mode needs this)
   if (process.platform === 'darwin' && app.dock) {
-    const iconPath = getIconPath();
+    const iconPath = getDockIconPath();
+    log.info('Setting Dock icon from:', iconPath);
     try {
       const iconImage = nativeImage.createFromPath(iconPath);
+      log.info('Icon image size:', iconImage.getSize(), 'isEmpty:', iconImage.isEmpty());
       if (!iconImage.isEmpty()) {
         app.dock.setIcon(iconImage);
-        log.info('Dock icon set:', iconPath);
+        log.info('Dock icon set successfully');
+      } else {
+        log.warn('Icon image is empty');
       }
     } catch (e) {
       log.warn('Failed to set Dock icon:', e);

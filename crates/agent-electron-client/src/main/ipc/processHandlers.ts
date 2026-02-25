@@ -5,14 +5,14 @@ import { app } from 'electron';
 import log from 'electron-log';
 import type { HandlerContext } from '@shared/types/ipc';
 import { readSetting } from '../db';
-import { ManagedProcess } from '../processManager';
 import { APP_DATA_DIR_NAME, DEFAULT_STARTUP_DELAY } from '../services/constants';
 
 export function registerProcessHandlers(ctx: HandlerContext): void {
-  const { getAppEnv, getLanproxyBinPath } = require('../services/system/dependencies');
 
   // ==================== Helper: Start File Server ====================
-  const startFileServerProcess = (port: number): Promise<{ success: boolean; error?: string }> => {
+  const startFileServerProcess = async (port: number): Promise<{ success: boolean; error?: string }> => {
+    const { getAppEnv } = await import('../services/system/dependencies');
+
     if (ctx.fileServer.running) {
       return Promise.resolve({ success: true, message: 'Already running' } as any);
     }
@@ -52,9 +52,11 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   };
 
   // ==================== Helper: Start Lanproxy ====================
-  const startLanproxyProcess = (config: {
+  const startLanproxyProcess = async (config: {
     serverIp: string; serverPort: number; clientKey: string; ssl?: boolean;
   }): Promise<{ success: boolean; error?: string }> => {
+    const { getAppEnv, getLanproxyBinPath } = await import('../services/system/dependencies');
+
     if (ctx.lanproxy.running) {
       return Promise.resolve({ success: true });
     }
@@ -95,7 +97,8 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   });
 
   /** 供设置页判断是否可显示「启动」并提示不可用原因 */
-  ipcMain.handle('lanproxy:isAvailable', () => {
+  ipcMain.handle('lanproxy:isAvailable', async () => {
+    const { getLanproxyBinPath } = await import('../services/system/dependencies');
     const binPath = getLanproxyBinPath();
     return { available: fs.existsSync(binPath) };
   });
@@ -109,6 +112,8 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     apiBaseUrl: string;
     defaultModel: string;
   }) => {
+    const { getAppEnv } = await import('../services/system/dependencies');
+
     if (ctx.agentRunner.running) {
       return { success: true, message: 'Already running' };
     }
@@ -169,8 +174,10 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   // ==================== services:restartAll ====================
 
   ipcMain.handle('services:restartAll', async () => {
-    const { agentService } = require('../services/engines/unifiedAgent');
-    const { mcpProxyManager } = require('../services/packages/mcp');
+    const [{ agentService }, { mcpProxyManager }] = await Promise.all([
+      import('../services/engines/unifiedAgent'),
+      import('../services/packages/mcp'),
+    ]);
     type AgentConfigType = import('../services/engines/unifiedAgent').AgentConfig;
 
     log.info('[Services] Restarting all services...');
@@ -258,9 +265,11 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   // ==================== services:stopAll ====================
 
   ipcMain.handle('services:stopAll', async () => {
-    const { agentService } = require('../services/engines/unifiedAgent');
-    const { mcpProxyManager } = require('../services/packages/mcp');
-    const { stopAllEngines } = require('../services/engines/engineManager');
+    const [{ agentService }, { mcpProxyManager }, { stopAllEngines }] = await Promise.all([
+      import('../services/engines/unifiedAgent'),
+      import('../services/packages/mcp'),
+      import('../services/engines/engineManager'),
+    ]);
 
     log.info('[Services] Stopping all services...');
     const results: Record<string, { success: boolean; error?: string }> = {};
