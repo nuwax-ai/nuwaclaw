@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### 系统托盘功能
+- **TrayManager** (`src/main/trayManager.ts`)
+  - 动态托盘图标（运行中/已停止/错误/启动中状态）
+  - 服务管理菜单（重启/停止服务）
+  - 开机自启动复选框
+  - 设置和依赖管理快捷入口
+  - IPC 状态同步（`tray:updateStatus`, `tray:updateServicesStatus`）
+- **AutoLaunchManager** (`src/main/autoLaunchManager.ts`)
+  - 跨平台开机自启动支持
+  - macOS/Windows: 使用 Electron 原生 `app.setLoginItemSettings()`
+  - Linux: 使用 `auto-launch` 库（可选依赖）
+- **ServiceManager** (`src/main/serviceManager.ts`)
+  - 统一的服务启停逻辑
+  - 供 IPC handlers 和 Tray 菜单共同使用
+  - 支持文件服务器、Lanproxy、Agent、MCP Proxy 管理
+
 #### 跨平台子进程启动方案
 - **spawnNoWindow 工具模块** (`src/services/main/utils/spawnNoWindow.ts`)
   - 解决 Windows CMD 窗口弹出问题（使用 ELECTRON_RUN_AS_NODE=1 + windowsHide）
