@@ -1,0 +1,22 @@
+# Development files
+*.log
+*.map
+.DS_Store
+
+# Test files
+coverage/
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+
+# Source files (we ship dist)
+src/
+tsconfig*.json
+vite.config.ts
+
+# Development scripts
+scripts/
+
+# Build temp
+node_modules/.cache/

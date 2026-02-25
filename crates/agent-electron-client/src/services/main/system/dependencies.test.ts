@@ -26,9 +26,12 @@ vi.mock('electron-log', () => ({
   },
 }));
 
-// Mock fs
+// Mock fs - will be configured in each test as needed
+const mockExistsSync = vi.fn(() => true);
+const mockReaddirSync = vi.fn(() => []);
 vi.mock('fs', () => ({
-  existsSync: vi.fn(() => true),
+  existsSync: (...args: unknown[]) => mockExistsSync(...args),
+  readdirSync: (...args: unknown[]) => mockReaddirSync(...args),
 }));
 
 describe('dependencies', () => {
@@ -39,16 +42,22 @@ describe('dependencies', () => {
     // Reset module cache to get fresh module state
     vi.resetModules();
 
+    // Reset fs mocks to default behavior
+    mockExistsSync.mockReturnValue(true);
+    mockReaddirSync.mockReturnValue([]);
+
     // Set up test environment
     Object.defineProperty(process, 'platform', {
       value: 'darwin',
       writable: true,
+      configurable: true,
     });
     process.env.HOME = '/mock/home';
     process.env.USER = 'testuser';
     process.env.USERNAME = 'testuser';
     process.env.LANG = 'en_US.UTF-8';
-    process.env.PATH = '/usr/bin:/bin:/usr/local/bin:/home/user/.nvm/versions/node/v20.0.0/bin';
+    process.env.PATH = '/usr/bin:/bin:/usr/local/bin:/mock/home/.nvm/versions/node/v20.0.0/bin';
+    process.env.NVM_DIR = undefined;
   });
 
   afterEach(() => {
@@ -57,6 +66,7 @@ describe('dependencies', () => {
     delete process.env.USERNAME;
     delete process.env.LANG;
     delete process.env.PATH;
+    delete process.env.NVM_DIR;
   });
 
   describe('Mirror Config', () => {
@@ -126,6 +136,21 @@ describe('dependencies', () => {
       const env = getAppEnv();
 
       expect(env.NPM_CONFIG_REGISTRY).toBe('https://registry.npmmirror.com/');
+    });
+
+    it('should set npm userconfig to app directory', async () => {
+      const { getAppEnv } = await import('../system/dependencies');
+      const env = getAppEnv();
+
+      const expected = path.join('/mock', 'home', '.nuwax-agent', '.npmrc');
+      expect(env.NPM_CONFIG_USERCONFIG).toBe(expected);
+    });
+
+    it('should disable npm update notifier', async () => {
+      const { getAppEnv } = await import('../system/dependencies');
+      const env = getAppEnv();
+
+      expect(env.NO_UPDATE_NOTIFIER).toBe('true');
     });
 
     it('should set UV_INDEX_URL to mirror config', async () => {
@@ -214,6 +239,180 @@ describe('dependencies', () => {
       requiredDeps.forEach(dep => {
         expect(dep.required).toBe(true);
       });
+    });
+  });
+
+  describe('getSystemPaths', () => {
+    it('should filter out project-level node_modules paths', async () => {
+      process.env.PATH = '/usr/bin:/project/node_modules/.bin:/usr/local/bin';
+
+      const { getAppEnv } = await import('../system/dependencies');
+      const env = getAppEnv();
+      const pathEntries = env.PATH?.split(':') || [];
+
+      // Should not contain project node_modules
+      expect(pathEntries.find(p => p.includes('node_modules/.bin') && !p.includes('.nuwax-agent'))).toBeUndefined();
+      // Should contain system paths
+      expect(pathEntries.some(p => p === '/usr/bin' || p === '/usr/local/bin')).toBe(true);
+    });
+
+    it('should include NVM node versions in PATH on macOS', async () => {
+      process.env.PATH = '/usr/bin';
+      process.env.NVM_DIR = '/mock/home/.nvm';
+
+      // Mock NVM versions directory
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p.includes('.nvm/versions/node')) return true;
+        if (p.includes('v20.10.0/bin')) return true;
+        return true;
+      });
+      mockReaddirSync.mockImplementation((p: string) => {
+        if (p.includes('.nvm/versions/node')) {
+          return ['v18.0.0', 'v20.10.0', 'v16.5.0'];
+        }
+        return [];
+      });
+
+      const { getAppEnv } = await import('../system/dependencies');
+      const env = getAppEnv();
+      const pathEntries = env.PATH?.split(':') || [];
+
+      // Should include the latest NVM version bin path
+      expect(pathEntries.some(p => p.includes('v20.10.0/bin'))).toBe(true);
+    });
+
+    it('should include fnm node versions in PATH on macOS', async () => {
+      process.env.PATH = '/usr/bin';
+
+      // Mock fnm directory
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p.includes('.fnm')) return true;
+        if (p.includes('node-installations')) return true;
+        if (p.includes('v22.0.0/installation/bin')) return true;
+        return true;
+      });
+      mockReaddirSync.mockImplementation((p: string) => {
+        if (p.includes('node-installations')) {
+          return ['v20.0.0', 'v22.0.0'];
+        }
+        return [];
+      });
+
+      const { getAppEnv } = await import('../system/dependencies');
+      const env = getAppEnv();
+      const pathEntries = env.PATH?.split(':') || [];
+
+      // Should include the latest fnm version bin path
+      expect(pathEntries.some(p => p.includes('v22.0.0/installation/bin'))).toBe(true);
+    });
+
+    it('should include Homebrew paths on macOS', async () => {
+      process.env.PATH = '/usr/bin';
+
+      mockExistsSync.mockReturnValue(true);
+      mockReaddirSync.mockReturnValue([]);
+
+      const { getAppEnv } = await import('../system/dependencies');
+      const env = getAppEnv();
+      const pathEntries = env.PATH?.split(':') || [];
+
+      // Should include common Homebrew paths
+      expect(pathEntries).toContain('/usr/local/bin');
+      expect(pathEntries).toContain('/opt/homebrew/bin');
+    });
+
+    it('should include Windows npm path on Windows', async () => {
+      Object.defineProperty(process, 'platform', {
+        value: 'win32',
+        writable: true,
+        configurable: true,
+      });
+      process.env.PATH = 'C:\\Windows\\System32';
+      process.env.USERPROFILE = 'C:\\Users\\testuser';
+
+      mockExistsSync.mockReturnValue(true);
+      mockReaddirSync.mockReturnValue([]);
+
+      const { getAppEnv } = await import('../system/dependencies');
+      const env = getAppEnv();
+      const pathEntries = env.PATH?.split(';') || [];
+
+      // Should include Windows npm path
+      expect(pathEntries.some(p => p.includes('AppData\\Roaming\\npm') || p.includes('AppData/Roaming/npm'))).toBe(true);
+    });
+
+    it('should preserve system npm paths (not filter out NVM/fnm)', async () => {
+      process.env.PATH = '/usr/bin:/mock/home/.nvm/versions/node/v20.0.0/bin:/mock/home/.fnm/node-installations/v18.0.0/installation/bin';
+
+      mockExistsSync.mockReturnValue(true);
+      mockReaddirSync.mockReturnValue([]);
+
+      const { getAppEnv } = await import('../system/dependencies');
+      const env = getAppEnv();
+      const pathEntries = env.PATH?.split(':') || [];
+
+      // NVM and fnm paths should be preserved (not filtered out)
+      expect(pathEntries.some(p => p.includes('.nvm/versions'))).toBe(true);
+      expect(pathEntries.some(p => p.includes('.fnm'))).toBe(true);
+    });
+
+    it('should not include paths that do not exist', async () => {
+      process.env.PATH = '/usr/bin';
+
+      // Only some paths exist
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === '/usr/local/bin') return false;
+        if (p === '/opt/homebrew/bin') return false;
+        return true;
+      });
+      mockReaddirSync.mockReturnValue([]);
+
+      const { getAppEnv } = await import('../system/dependencies');
+      const env = getAppEnv();
+      const pathEntries = env.PATH?.split(':') || [];
+
+      // Non-existent paths should not be included
+      expect(pathEntries).not.toContain('/usr/local/bin');
+      expect(pathEntries).not.toContain('/opt/homebrew/bin');
+    });
+
+    it('should select latest semantic version from NVM versions', async () => {
+      process.env.PATH = '/usr/bin';
+      process.env.NVM_DIR = '/mock/home/.nvm';
+
+      mockExistsSync.mockReturnValue(true);
+      mockReaddirSync.mockImplementation((p: string) => {
+        if (p.includes('.nvm/versions/node')) {
+          // Test version sorting: v10.0.0 should not be selected over v9.0.0 by string sort
+          return ['v9.0.0', 'v10.0.0', 'v8.15.0'];
+        }
+        return [];
+      });
+
+      const { getAppEnv } = await import('../system/dependencies');
+      const env = getAppEnv();
+      const pathEntries = env.PATH?.split(':') || [];
+
+      // Should select v10.0.0 (highest version), not v9.0.0 (alphabetically last)
+      expect(pathEntries.some(p => p.includes('v10.0.0/bin'))).toBe(true);
+      expect(pathEntries.some(p => p.includes('v9.0.0/bin'))).toBe(false);
+    });
+
+    it('should cache system paths result', async () => {
+      process.env.PATH = '/usr/bin';
+
+      mockExistsSync.mockReturnValue(true);
+      mockReaddirSync.mockReturnValue([]);
+
+      // Import module twice
+      const module1 = await import('../system/dependencies');
+      const env1 = module1.getAppEnv();
+
+      const module2 = await import('../system/dependencies');
+      const env2 = module2.getAppEnv();
+
+      // Both should return the same cached result
+      expect(env1.PATH).toBe(env2.PATH);
     });
   });
 });

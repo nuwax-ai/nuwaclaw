@@ -201,9 +201,6 @@ export function getAppEnv(): Record<string, string> {
     .filter(Boolean)
     .join(pathSep);
 
-  // 平台相关的 null device
-  const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null';
-
   // 构建环境变量对象
   const env: Record<string, string | undefined> = {
     // === PATH：应用内优先，系统回退 ===
@@ -217,9 +214,11 @@ export function getAppEnv(): Record<string, string> {
     NPM_CONFIG_CACHE: npmCacheDir,
     NPM_CONFIG_PREFIX: appDataDir,
     NPM_CONFIG_REGISTRY: mirror.npmRegistry,
-    // 清除用户级别的 npm 配置文件，避免读取用户全局设置
-    npm_config_userconfig: nullDevice,
-    npm_config_globalconfig: nullDevice,
+    // 使用应用内的 npmrc 配置文件（避免读取用户全局设置）
+    // 注意：不要设置为 /dev/null，会导致 npm 配置冲突错误
+    NPM_CONFIG_USERCONFIG: path.join(appDataDir, '.npmrc'),
+    // 禁用 npm 的更新检查，避免不必要的网络请求
+    NO_UPDATE_NOTIFIER: 'true',
 
     // === Python/uv 环境隔离 ===
     UV_TOOL_DIR: path.join(uvDataDir, 'tools'),
@@ -260,13 +259,13 @@ let cachedSystemPaths: string[] | null = null;
 
 /**
  * 获取系统常用工具路径（用于 PATH 回退）
- * 确保可以使用 bash/git/grep 等系统工具
+ * 确保可以使用 bash/git/grep/npm 等系统工具
  *
  * 使用 path 模块保证跨平台兼容性：
- * - macOS/Linux: /usr/bin, /bin, /usr/sbin, /sbin
+ * - macOS/Linux: /usr/bin, /bin, /usr/sbin, /sbin, /usr/local/bin, /opt/homebrew/bin
  * - Windows: C:\Windows\System32, C:\Windows, C:\Program Files\Git\bin, etc.
  *
- * @returns 过滤后的系统路径列表（排除用户 node/npm 相关路径）
+ * @returns 过滤后的系统路径列表（排除用户 node_modules 相关路径，但保留 npm/node 路径）
  */
 function getSystemPaths(): string[] {
   // 返回缓存结果（PATH 在进程生命周期内基本不会变化）
@@ -278,18 +277,11 @@ function getSystemPaths(): string[] {
   const pathSep = process.platform === 'win32' ? ';' : ':';
   const allPaths = systemPath.split(pathSep).filter(Boolean);
 
-  // 排除模式：只排除明确的用户级包管理器路径
-  // 避免误伤系统级路径（如 /usr/local/nodejs/bin）
+  // 排除模式：只排除项目级别的 node_modules，保留系统级包管理器路径
+  // 这样可以找到 npm/node 命令（用户可能通过 Homebrew/NVM/fnm 安装）
   const excludedPatterns = [
-    'node_modules',           // npm 项目本地依赖
-    '.nvm',                  // NVM 用户安装目录
-    '.npm',                  // npm 用户配置目录
-    'yarn/global',           // Yarn 全局安装
-    'pnpm-global',           // pnpm 全局安装
-    'config/yarn/global',    // Yarn 全局配置（macOS）
-    'Library/pnpm',         // pnpm 全局存储（macOS）
-    'AppData/Roaming/npm',  // npm 全局存储（Windows）
-    'AppData/Roaming/yarn', // yarn 全局存储（Windows）
+    '/node_modules/',         // 项目本地依赖（带路径分隔符避免误伤其他路径）
+    '\\node_modules\\',       // Windows 项目本地依赖
   ];
 
   cachedSystemPaths = allPaths.filter(p => {
@@ -297,10 +289,79 @@ function getSystemPaths(): string[] {
     // 然后统一转小写进行比较（Windows 文件系统不区分大小写）
     const normalizedPath = path.normalize(p).toLowerCase();
 
-    // 排除包含用户包管理器特征路径的目录
-    return !excludedPatterns.some(pattern => normalizedPath.includes(pattern));
+    // 排除包含项目级 node_modules 的目录
+    return !excludedPatterns.some(pattern => normalizedPath.includes(pattern.toLowerCase()));
   });
 
+  // 添加常见系统路径作为回退（macOS GUI 应用可能没有完整 PATH）
+  const fallbackPaths: string[] = [];
+  if (process.platform === 'darwin') {
+    // macOS 常见路径
+    fallbackPaths.push(
+      '/usr/local/bin',      // Homebrew Intel
+      '/opt/homebrew/bin',   // Homebrew Apple Silicon
+      '/usr/bin',
+      '/bin',
+    );
+    // 添加常见 Node.js 版本管理器路径
+    const home = process.env.HOME || '';
+    if (home) {
+      // NVM 默认路径
+      const nvmDir = process.env.NVM_DIR || path.join(home, '.nvm');
+      if (fs.existsSync(nvmDir)) {
+        // 尝试找到当前使用的 Node 版本
+        const nvmVersionsDir = path.join(nvmDir, 'versions', 'node');
+        if (fs.existsSync(nvmVersionsDir)) {
+          const versions = fs.readdirSync(nvmVersionsDir).filter(v => v.startsWith('v'));
+          // 使用语义化版本排序，取最新的版本
+          if (versions.length > 0) {
+            const latestVersion = versions
+              .sort((a, b) => compareVersions(a.replace('v', ''), b.replace('v', '')))
+              .pop();
+            if (latestVersion) {
+              fallbackPaths.push(path.join(nvmVersionsDir, latestVersion, 'bin'));
+            }
+          }
+        }
+      }
+      // fnm 默认路径
+      const fnmDir = path.join(home, '.fnm');
+      if (fs.existsSync(fnmDir)) {
+        // fnm 使用 node-versions 目录
+        const fnmNodeDir = path.join(fnmDir, 'node-installations');
+        if (fs.existsSync(fnmNodeDir)) {
+          const versions = fs.readdirSync(fnmNodeDir).filter(v => v.startsWith('v'));
+          if (versions.length > 0) {
+            // 使用语义化版本排序，取最新的版本
+            const latestVersion = versions
+              .sort((a, b) => compareVersions(a.replace('v', ''), b.replace('v', '')))
+              .pop();
+            if (latestVersion) {
+              fallbackPaths.push(path.join(fnmNodeDir, latestVersion, 'installation', 'bin'));
+            }
+          }
+        }
+      }
+    }
+  } else if (process.platform === 'win32') {
+    // Windows 常见路径
+    const home = process.env.USERPROFILE || process.env.HOME || '';
+    if (home) {
+      fallbackPaths.push(
+        path.join(home, 'AppData', 'Roaming', 'npm'),
+      );
+    }
+  }
+
+  // 合并并去重
+  const allSystemPaths = [...cachedSystemPaths];
+  for (const fp of fallbackPaths) {
+    if (fs.existsSync(fp) && !allSystemPaths.includes(fp)) {
+      allSystemPaths.push(fp);
+    }
+  }
+
+  cachedSystemPaths = allSystemPaths;
   return cachedSystemPaths;
 }
 

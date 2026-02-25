@@ -45,23 +45,31 @@ permissions:
   contents: read
 
 jobs:
+  setup-matrix:
+    name: Setup matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.out.outputs.matrix }}
+    steps:
+      - id: out
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            case "${{ github.event.inputs.platform }}" in
+              mac)   echo 'matrix={"include":[{"platform":"macos-latest","dist_cmd":"dist:mac:unsigned","artifact_os":"mac"}]}' >> "$GITHUB_OUTPUT" ;;
+              win)   echo 'matrix={"include":[{"platform":"windows-latest","dist_cmd":"dist:win","artifact_os":"win"}]}' >> "$GITHUB_OUTPUT" ;;
+              linux) echo 'matrix={"include":[{"platform":"ubuntu-latest","dist_cmd":"dist:linux","artifact_os":"linux"}]}' >> "$GITHUB_OUTPUT" ;;
+              *)     echo 'matrix={"include":[{"platform":"macos-latest","dist_cmd":"dist:mac:unsigned","artifact_os":"mac"},{"platform":"windows-latest","dist_cmd":"dist:win","artifact_os":"win"},{"platform":"ubuntu-latest","dist_cmd":"dist:linux","artifact_os":"linux"}]}' >> "$GITHUB_OUTPUT" ;;
+            esac
+          else
+            echo 'matrix={"include":[{"platform":"macos-latest","dist_cmd":"dist:mac:unsigned","artifact_os":"mac"},{"platform":"windows-latest","dist_cmd":"dist:win","artifact_os":"win"},{"platform":"ubuntu-latest","dist_cmd":"dist:linux","artifact_os":"linux"}]}' >> "$GITHUB_OUTPUT"
+          fi
+
   build-electron:
     name: Build Electron (${{ matrix.platform }})
+    needs: setup-matrix
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            dist_cmd: dist:mac:unsigned
-            artifact_os: mac
-          - platform: windows-latest
-            dist_cmd: dist:win
-            artifact_os: win
-          - platform: ubuntu-latest
-            dist_cmd: dist:linux
-            artifact_os: linux
-    # 手动触发时仅构建选定平台
-    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || (inputs.platform == 'mac' && matrix.platform == 'macos-latest') || (inputs.platform == 'win' && matrix.platform == 'windows-latest') || (inputs.platform == 'linux' && matrix.platform == 'ubuntu-latest')
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
     runs-on: ${{ matrix.platform }}
 
     steps:

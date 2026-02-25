@@ -7,9 +7,10 @@
  * 命令格式：mcp-proxy proxy --port <port> --host <host> --config '<json>'
  */
 
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, exec } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as net from 'net';
 import log from 'electron-log';
 import { app } from 'electron';
 import { getAppEnv } from '../system/dependencies';
@@ -61,6 +62,106 @@ export interface McpProxyStartConfig {
 
 // ========== MCP Proxy Manager ==========
 
+/**
+ * 检查端口是否被占用
+ */
+function isPortInUse(port: number, host: string = '127.0.0.1'): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(1000);
+
+    socket.on('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+
+    socket.on('error', () => {
+      resolve(false);
+    });
+
+    socket.connect(port, host);
+  });
+}
+
+/**
+ * 查找并终止占用指定端口的进程
+ */
+async function killProcessOnPort(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const platform = process.platform;
+
+    if (platform === 'darwin' || platform === 'linux') {
+      // 使用 lsof 查找占用端口的进程
+      exec(`lsof -ti:${port}`, (error, stdout) => {
+        if (error || !stdout.trim()) {
+          resolve(false);
+          return;
+        }
+
+        const pids = stdout.trim().split('\n');
+        log.info(`[McpProxy] 发现端口 ${port} 被进程占用: ${pids.join(', ')}`);
+
+        // 终止所有占用端口的进程
+        exec(`kill -9 ${pids.join(' ')}`, (killError) => {
+          if (killError) {
+            log.warn(`[McpProxy] 终止进程失败: ${killError.message}`);
+            resolve(false);
+          } else {
+            log.info(`[McpProxy] 已终止占用端口 ${port} 的进程`);
+            // 等待端口释放
+            setTimeout(() => resolve(true), 500);
+          }
+        });
+      });
+    } else if (platform === 'win32') {
+      // Windows: 使用 netstat 查找进程
+      exec(`netstat -ano | findstr :${port}`, (error, stdout) => {
+        if (error || !stdout.trim()) {
+          resolve(false);
+          return;
+        }
+
+        // 解析 netstat 输出获取 PID
+        const lines = stdout.trim().split('\n');
+        const pids = new Set<string>();
+
+        for (const line of lines) {
+          const parts = line.trim().split(/\s+/);
+          const pid = parts[parts.length - 1];
+          if (pid && /^\d+$/.test(pid)) {
+            pids.add(pid);
+          }
+        }
+
+        if (pids.size === 0) {
+          resolve(false);
+          return;
+        }
+
+        log.info(`[McpProxy] 发现端口 ${port} 被进程占用: ${Array.from(pids).join(', ')}`);
+
+        // 终止进程
+        exec(`taskkill /F /PID ${Array.from(pids).join(' /PID ')}`, (killError) => {
+          if (killError) {
+            log.warn(`[McpProxy] 终止进程失败: ${killError.message}`);
+            resolve(false);
+          } else {
+            log.info(`[McpProxy] 已终止占用端口 ${port} 的进程`);
+            setTimeout(() => resolve(true), 500);
+          }
+        });
+      });
+    } else {
+      resolve(false);
+    }
+  });
+}
+
 class McpProxyManager {
   private process: ChildProcess | null = null;
   private port: number = DEFAULT_MCP_PROXY_PORT;
@@ -104,6 +205,21 @@ class McpProxyManager {
 
     const port = options?.port ?? this.port;
     const host = options?.host ?? this.host;
+
+    // 检查端口是否被占用，如果被占用则尝试终止占用进程
+    const portInUse = await isPortInUse(port, host);
+    if (portInUse) {
+      log.warn(`[McpProxy] 端口 ${port} 已被占用，尝试终止占用进程...`);
+      const killed = await killProcessOnPort(port);
+      if (!killed) {
+        return { success: false, error: `端口 ${port} 被占用且无法终止占用进程` };
+      }
+      // 再次检查端口
+      const stillInUse = await isPortInUse(port, host);
+      if (stillInUse) {
+        return { success: false, error: `端口 ${port} 仍被占用` };
+      }
+    }
 
     // 解析配置
     let config = this.config;
