@@ -256,7 +256,10 @@ describe('dependencies', () => {
       expect(pathEntries.some(p => p === '/usr/bin' || p === '/usr/local/bin')).toBe(true);
     });
 
-    it('should include NVM node versions in PATH on macOS', async () => {
+    // macOS-specific test - skip on Windows
+    const testOnMacOS = process.platform === 'darwin' ? it : it.skip;
+
+    testOnMacOS('should include NVM node versions in PATH on macOS', async () => {
       process.env.PATH = '/usr/bin';
       process.env.NVM_DIR = '/mock/home/.nvm';
 
@@ -281,7 +284,7 @@ describe('dependencies', () => {
       expect(pathEntries.some(p => p.includes('v20.10.0/bin'))).toBe(true);
     });
 
-    it('should include fnm node versions in PATH on macOS', async () => {
+    testOnMacOS('should include fnm node versions in PATH on macOS', async () => {
       process.env.PATH = '/usr/bin';
 
       // Mock fnm directory
@@ -376,7 +379,7 @@ describe('dependencies', () => {
       expect(pathEntries).not.toContain('/opt/homebrew/bin');
     });
 
-    it('should select latest semantic version from NVM versions', async () => {
+    testOnMacOS('should select latest semantic version from NVM versions', async () => {
       process.env.PATH = '/usr/bin';
       process.env.NVM_DIR = '/mock/home/.nvm';
 
