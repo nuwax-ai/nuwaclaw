@@ -1,6 +1,6 @@
 {
   "name": "@nuwax/agent-electron-client",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Nuwax Agent Desktop Client (Electron)",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
