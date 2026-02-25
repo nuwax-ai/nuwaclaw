@@ -83,7 +83,7 @@ jobs:
           - platform: macos-latest
             arch: arm64
             dist_cmd: dist:mac:arm64
-          - platform: macos-13
+          - platform: macos-14-large
             arch: x64
             dist_cmd: dist:mac:x64
           - platform: windows-latest

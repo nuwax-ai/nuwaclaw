@@ -207,10 +207,14 @@ async function main() {
   if (!version) {
     try {
       version = await fetchLatestUvVersion();
+      if (!version) {
+        console.warn('[prepare-uv] 获取最新版本为空，使用默认版本');
+        version = '0.5.29';
+      }
       console.log(`[prepare-uv] 使用最新版本: ${version}`);
     } catch (e) {
-      console.warn('[prepare-uv] 获取最新版本失败，回退 0.10.0:', e.message);
-      version = '0.10.0';
+      console.warn('[prepare-uv] 获取最新版本失败，回退 0.5.29:', e.message);
+      version = '0.5.29';
     }
   }
   try {
