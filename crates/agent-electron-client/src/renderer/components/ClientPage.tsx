@@ -58,6 +58,7 @@ interface ClientPageProps {
   onNavigate?: (tab: TabKey) => void;
   services: ServiceItem[];
   servicesLoading: boolean;
+  autoStarting?: boolean;
   onRefreshServices: () => Promise<void>;
 }
 
@@ -70,7 +71,7 @@ interface AuthState {
 
 // ======================== Component ========================
 
-function ClientPage({ onNavigate, services, servicesLoading, onRefreshServices }: ClientPageProps) {
+function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRefreshServices }: ClientPageProps) {
   // ---------- Auth state ----------
   const [authState, setAuthState] = useState<AuthState>({
     isLoggedIn: false,
@@ -548,10 +549,10 @@ function ClientPage({ onNavigate, services, servicesLoading, onRefreshServices }
     return (
       <div className={styles.sectionBody}>
         {/* Loading 覆盖层 */}
-        {batchLoading && (
+        {(batchLoading || autoStarting) && (
           <div className={styles.loadingOverlay}>
             <LoadingOutlined style={{ fontSize: 18, color: '#1677ff' }} />
-            <span className={styles.loadingText}>正在操作服务...</span>
+            <span className={styles.loadingText}>服务启动中...</span>
           </div>
         )}
         {/* 服务列表 */}

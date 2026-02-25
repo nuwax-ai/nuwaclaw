@@ -271,6 +271,21 @@ function cleanupAllProcesses(): void {
 // App lifecycle
 app.whenReady().then(async () => {
   log.info('App ready');
+
+  // Set Dock icon on macOS (development mode needs this)
+  if (process.platform === 'darwin' && app.dock) {
+    const iconPath = getIconPath();
+    try {
+      const iconImage = nativeImage.createFromPath(iconPath);
+      if (!iconImage.isEmpty()) {
+        app.dock.setIcon(iconImage);
+        log.info('Dock icon set:', iconPath);
+      }
+    } catch (e) {
+      log.warn('Failed to set Dock icon:', e);
+    }
+  }
+
   initDatabase();
 
   const ctx: HandlerContext = {

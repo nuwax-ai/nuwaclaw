@@ -64,6 +64,7 @@ function App() {
   const [agentStatus, setAgentStatus] = useState<string>('idle');
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [servicesLoading, setServicesLoading] = useState(true);
+  const [autoStarting, setAutoStarting] = useState(false);
   const servicesPollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ============================================
@@ -124,11 +125,14 @@ function App() {
       if (setupJustCompleted.current) {
         setupJustCompleted.current = false;
         console.log('[App] 初始化向导刚完成，启动所有服务...');
+        setAutoStarting(true);
         try {
           const restartResult = await window.electronAPI?.services.restartAll();
           console.log('[App] 服务启动结果:', restartResult);
         } catch (e) {
           console.error('[App] 服务启动失败:', e);
+        } finally {
+          setAutoStarting(false);
         }
         return;
       }
@@ -147,12 +151,15 @@ function App() {
               setUsername(user.displayName || user.username || '用户');
             }
             // 重启所有服务（对齐 Tauri services_restart_all）
+            setAutoStarting(true);
             try {
               console.log('[App] 重启所有服务...');
               const restartResult = await window.electronAPI?.services.restartAll();
               console.log('[App] 服务重启结果:', restartResult);
             } catch (e) {
               console.error('[App] 服务重启失败:', e);
+            } finally {
+              setAutoStarting(false);
             }
           } else {
             console.warn('[App] 配置同步失败');
@@ -162,6 +169,7 @@ function App() {
         }
       } catch (error) {
         console.error('[App] 自动重连失败:', error);
+        setAutoStarting(false);
       }
     };
 
@@ -413,6 +421,7 @@ function App() {
               onNavigate={setActiveTab}
               services={services}
               servicesLoading={servicesLoading}
+              autoStarting={autoStarting}
               onRefreshServices={pollServicesStatus}
             />
           )}
