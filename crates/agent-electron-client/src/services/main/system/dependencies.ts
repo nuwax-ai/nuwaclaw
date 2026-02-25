@@ -18,6 +18,7 @@ import {
 } from '../constants';
 import { APP_NAME_IDENTIFIER } from '../../../commons/constants';
 import { isWindows } from './shellEnv';
+import { spawnCrossPlatform, getNpmCommand, getNodeCommand, getCommandChecker } from '../utils/spawn';
 
 // ==================== Types ====================
 
