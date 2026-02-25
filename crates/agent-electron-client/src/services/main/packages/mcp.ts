@@ -15,6 +15,7 @@ import log from 'electron-log';
 import { app } from 'electron';
 import { getAppEnv } from '../system/dependencies';
 import { getAppPaths, isInstalledLocally } from './packageLocator';
+import { spawnJsFile, resolveNpmPackageEntry } from '../utils/spawnNoWindow';
 import { DEFAULT_MCP_PROXY_PORT, DEFAULT_MCP_PROXY_HOST, APP_DATA_DIR_NAME } from '../constants';
 import { isWindows } from '../system/shellEnv';
 
@@ -171,21 +172,19 @@ class McpProxyManager {
   private startPromise: Promise<{ success: boolean; error?: string }> | null = null;
 
   /**
-   * 获取 mcp-proxy 入口 JS 文件路径
-   *
-   * Windows 下绕过 .cmd 文件，直接使用 node 执行 JS 文件，避免弹出 CMD 窗口
+   * 获取 mcp-proxy 包目录
    */
-  private getMcpProxyEntryPath(): string | null {
+  private getMcpProxyPackageDir(): string | null {
     const dirs = getAppPaths();
 
-    // 直接查找 mcp-stdio-proxy 包的入口 JS 文件
-    // npm bin: mcp-proxy -> run-mcp-proxy.js
-    const entryPath = path.join(dirs.nodeModules, 'mcp-stdio-proxy', 'run-mcp-proxy.js');
-    if (fs.existsSync(entryPath)) {
-      return entryPath;
-    }
+    // 检查 main node_modules
+    const mainDir = path.join(dirs.nodeModules, 'mcp-stdio-proxy');
+    if (fs.existsSync(mainDir)) return mainDir;
 
-    // 未找到
+    // 检查 mcp-servers
+    const mcpDir = path.join(dirs.mcpModules, 'mcp-stdio-proxy');
+    if (fs.existsSync(mcpDir)) return mcpDir;
+
     return null;
   }
 
@@ -217,7 +216,13 @@ class McpProxyManager {
       return { success: false, error: 'mcp-stdio-proxy 未安装，请先在依赖管理中安装' };
     }
 
-    const entryPath = this.getMcpProxyEntryPath();
+    // 获取包目录并解析入口文件
+    const packageDir = this.getMcpProxyPackageDir();
+    if (!packageDir) {
+      return { success: false, error: 'mcp-stdio-proxy 包目录未找到' };
+    }
+
+    const entryPath = resolveNpmPackageEntry(packageDir, 'mcp-proxy');
     if (!entryPath) {
       return { success: false, error: 'mcp-proxy 入口文件未找到' };
     }
@@ -283,15 +288,12 @@ class McpProxyManager {
         // 构建 mcp-proxy 专用环境
         // 不继承 process.env，避免传递用户的 npm 配置
         // 只保留必要的环境变量
-        const platform = process.platform;
         const mcpEnv: Record<string, string> = {
           // PATH：应用内优先
           PATH: appEnv.PATH,
           // Node.js 相关
           NODE_PATH: appEnv.NODE_PATH,
           NODE_ENV: process.env.NODE_ENV || 'production',
-          // 使用 Electron 内置 Node.js 运行 JS 文件
-          ELECTRON_RUN_AS_NODE: '1',
           // Python/uv 相关
           UV_TOOL_DIR: appEnv.UV_TOOL_DIR,
           UV_CACHE_DIR: appEnv.UV_CACHE_DIR,
@@ -305,13 +307,10 @@ class McpProxyManager {
           TZ: process.env.TZ || '',
         };
 
-        // 使用 Electron 内置的 Node.js 直接执行 JS 文件
-        // 绕过 .cmd 文件，避免 Windows 下弹出 CMD 窗口
-        const proc = spawn(process.execPath, [entryPath, ...args], {
+        // 使用通用 spawnJsFile 启动，自动处理 Windows 无弹窗
+        const proc = spawnJsFile(entryPath, args, {
           env: mcpEnv,
           stdio: ['ignore', 'pipe', 'pipe'],
-          windowsHide: true,
-          // 不使用 shell，直接执行 node
         });
 
         proc.stdout?.on('data', (data) => {

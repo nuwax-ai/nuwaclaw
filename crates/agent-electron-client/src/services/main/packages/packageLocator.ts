@@ -59,7 +59,7 @@ export interface PackageInfo {
  */
 export function getExecutablePath(packageName: string): string | null {
   const dirs = getAppPaths();
-  
+
   // 1. Check local MCP modules
   const localBin = path.join(dirs.mcpModules, '.bin', packageName);
   if (isWindows()) {
@@ -77,6 +77,89 @@ export function getExecutablePath(packageName: string): string | null {
   if (fs.existsSync(localNodeBin)) return localNodeBin;
 
   // 3. Return null - package not found locally
+  return null;
+}
+
+/**
+ * Get package JS entry file path from package.json bin field.
+ *
+ * This resolves the actual JS entry file instead of using .cmd wrappers,
+ * which avoids CMD window popup on Windows.
+ *
+ * @param packageName - The npm package name
+ * @param binName - Optional bin name (defaults to packageName)
+ * @returns The absolute path to the JS entry file, or null if not found
+ */
+export function getPackageJsEntryPath(packageName: string, binName?: string): string | null {
+  const dirs = getAppPaths();
+
+  // Check in main node_modules
+  const packageDir = path.join(dirs.nodeModules, packageName);
+  if (fs.existsSync(packageDir)) {
+    const entry = resolveBinEntry(packageDir, binName || packageName);
+    if (entry) return entry;
+  }
+
+  // Check in mcp-servers
+  const mcpPackageDir = path.join(dirs.mcpModules, packageName);
+  if (fs.existsSync(mcpPackageDir)) {
+    const entry = resolveBinEntry(mcpPackageDir, binName || packageName);
+    if (entry) return entry;
+  }
+
+  return null;
+}
+
+/**
+ * Resolve bin entry from package.json
+ */
+function resolveBinEntry(packageDir: string, binName: string): string | null {
+  const pkgJsonPath = path.join(packageDir, 'package.json');
+
+  if (!fs.existsSync(pkgJsonPath)) {
+    return null;
+  }
+
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
+
+    // Get bin path from package.json
+    let binPath: string | undefined;
+    if (typeof pkg.bin === 'string') {
+      binPath = pkg.bin;
+    } else if (pkg.bin && typeof pkg.bin === 'object') {
+      // bin: { "command-name": "./path/to/file.js" }
+      const binValue = pkg.bin[binName] ?? Object.values(pkg.bin)[0];
+      if (typeof binValue === 'string') {
+        binPath = binValue;
+      }
+    }
+
+    if (binPath) {
+      const entryPath = path.join(packageDir, binPath);
+      if (fs.existsSync(entryPath)) {
+        return entryPath;
+      }
+    }
+
+    // Fallback: try common entry file locations
+    const fallbacks = [
+      path.join(packageDir, 'index.js'),
+      path.join(packageDir, 'cli.js'),
+      path.join(packageDir, 'dist', 'index.js'),
+      path.join(packageDir, 'bin', binName),
+      path.join(packageDir, 'bin', `${binName}.js`),
+    ];
+
+    for (const p of fallbacks) {
+      if (fs.existsSync(p)) return p;
+    }
+
+  } catch (e) {
+    // Failed to parse package.json - this is expected for malformed packages
+    // Silent fail as we have fallback mechanisms
+  }
+
   return null;
 }
 

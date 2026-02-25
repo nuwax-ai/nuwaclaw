@@ -14,6 +14,7 @@ import { spawn } from 'child_process';
 import log from 'electron-log';
 import { getAppEnv } from '../system/dependencies';
 import { mcpProxyManager } from '../packages/mcp';
+import { spawnJsFile, resolveNpmPackageEntry } from '../utils/spawnNoWindow';
 import { APP_DATA_DIR_NAME } from '../constants';
 import { APP_NAME_IDENTIFIER } from '../../../commons/constants';
 import { isWindows } from '../system/shellEnv';
@@ -154,59 +155,26 @@ export async function getEngineVersion(engine: AgentEngine): Promise<string | nu
 }
 
 /**
+ * 获取引擎包目录
+ */
+function getEnginePackageDir(engine: AgentEngine): string | null {
+  const nodeModules = path.join(getAppDataDir(), 'node_modules');
+  const packageName = engine === 'claude-code' ? 'claude-code' : 'nuwaxcode';
+  const packageDir = path.join(nodeModules, packageName);
+  return fs.existsSync(packageDir) ? packageDir : null;
+}
+
+/**
  * 查找引擎 JS 入口文件路径
  *
- * Windows 下绕过 .cmd 文件，直接使用 node 执行 JS 文件，避免弹出 CMD 窗口
+ * 使用通用工具 resolveNpmPackageEntry 解析入口文件
  */
 export function findEngineBinary(engine: AgentEngine): string | null {
-  const engineDir = getEngineDir(engine);
-  const nodeModules = path.join(getAppDataDir(), 'node_modules');
+  const packageDir = getEnginePackageDir(engine);
+  if (!packageDir) return null;
 
-  if (engine === 'claude-code') {
-    // 直接使用 JS 入口文件，绕过 .cmd
-    const candidates = [
-      path.join(nodeModules, 'claude-code', 'cli.js'),  // npm bin 入口
-      path.join(nodeModules, 'claude-code', 'dist', 'index.js'),
-      path.join(engineDir, 'cli.js'),
-      path.join(engineDir, 'dist', 'index.js'),
-    ];
-
-    for (const p of candidates) {
-      if (fs.existsSync(p)) return p;
-    }
-
-    // Fallback: 检查 .bin 目录的符号链接指向
-    const binLink = path.join(nodeModules, '.bin', 'claude-code');
-    if (fs.existsSync(binLink)) {
-      try {
-        const realPath = fs.realpathSync(binLink);
-        if (fs.existsSync(realPath)) return realPath;
-      } catch {}
-    }
-  }
-
-  if (engine === 'nuwaxcode') {
-    // 直接使用 JS 入口文件，绕过 .cmd
-    const candidates = [
-      path.join(nodeModules, 'nuwaxcode', 'bin', 'nuwaxcode'),  // npm bin 入口
-      path.join(engineDir, 'bin', 'nuwaxcode'),
-    ];
-
-    for (const p of candidates) {
-      if (fs.existsSync(p)) return p;
-    }
-
-    // Fallback: 检查 .bin 目录的符号链接指向
-    const binLink = path.join(nodeModules, '.bin', 'nuwaxcode');
-    if (fs.existsSync(binLink)) {
-      try {
-        const realPath = fs.realpathSync(binLink);
-        if (fs.existsSync(realPath)) return realPath;
-      } catch {}
-    }
-  }
-
-  return null;
+  const packageName = engine === 'claude-code' ? 'claude-code' : 'nuwaxcode';
+  return resolveNpmPackageEntry(packageDir, packageName);
 }
 
 // ==================== Engine Installation ====================
@@ -405,17 +373,11 @@ export async function startEngine(
   log.info(`[Engine] Starting ${config.engine}: node ${engineBinary} ${args.join(' ')}`);
 
   return new Promise((resolve) => {
-    // 使用 Electron 内置的 Node.js 直接执行 JS 文件
-    // 绕过 .cmd 文件，避免 Windows 下弹出 CMD 窗口
-    const proc = spawn(process.execPath, [engineBinary, ...args], {
-      env: {
-        ...env,
-        ELECTRON_RUN_AS_NODE: '1',  // 让 Electron 以 Node.js 模式运行
-      },
+    // 使用通用 spawnJsFile 启动，自动处理 Windows 无弹窗
+    const proc = spawnJsFile(engineBinary, args, {
+      env,
       cwd: config.workspaceDir || getAppDataDir(),
       stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true,
-      // 不使用 shell，直接执行 node
     });
     
     proc.on('error', (error) => {
