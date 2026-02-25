@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
-import { resolveNpmPackageEntry, spawnJsFile, spawnNpmPackage, isWindows, isMacOS, getNodePath, findSystemNode } from './spawnNoWindow';
+import { resolveNpmPackageEntry, spawnJsFile, spawnNpmPackage, isWindows, isMacOS, getNodePath, findSystemNode, resetCache } from './spawnNoWindow';
 
 // Mock child_process
 const mockSpawn = vi.fn();
@@ -33,6 +33,8 @@ const originalPlatform = process.platform;
 describe('spawnNoWindow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset internal caches before each test
+    resetCache();
     // Default mocks
     mockSpawn.mockReturnValue({
       pid: 12345,
@@ -378,6 +380,41 @@ describe('spawnNoWindow', () => {
       try {
         const result = findSystemNode();
         expect(result).toBe('node');
+      } finally {
+        Object.defineProperty(process, 'platform', originalPlatform!);
+      }
+    });
+  });
+
+  describe('resetCache', () => {
+    it('should reset cached values', () => {
+      const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+      Object.defineProperty(process, 'platform', { value: 'darwin' });
+
+      mockExecSync.mockReturnValue('__PATH__=/opt/homebrew/bin');
+      mockExistsSync.mockImplementation((p: string) => {
+        if (p === '/opt/homebrew/bin/node') return true;
+        return false;
+      });
+
+      try {
+        // First call - should cache the result
+        const result1 = findSystemNode();
+        expect(result1).toBe('/opt/homebrew/bin/node');
+
+        // Reset cache
+        resetCache();
+
+        // Change mock behavior
+        mockExistsSync.mockImplementation((p: string) => {
+          if (p === '/usr/local/bin/node') return true;
+          return false;
+        });
+        mockExecSync.mockReturnValue('__PATH__=/usr/local/bin');
+
+        // Second call - should use new mock after cache reset
+        const result2 = findSystemNode();
+        expect(result2).toBe('/usr/local/bin/node');
       } finally {
         Object.defineProperty(process, 'platform', originalPlatform!);
       }

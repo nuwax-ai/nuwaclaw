@@ -155,8 +155,10 @@ export function spawnJsFile(
       PATH: getEnhancedPath(),
     };
 
-    // Log which node is being used (helpful for debugging)
-    console.log(`[spawnNoWindow] Using node: ${node}`);
+    // Log which node is being used in development mode only
+    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+      console.log(`[spawnNoWindow] Using node: ${node}`);
+    }
   }
 
   return spawn(node, [jsFile, ...args], {
@@ -226,6 +228,20 @@ export function getNodePath(): string {
 let cachedUserShellPath: string | null | undefined;
 
 /**
+ * Cached system node path. Resolved once and reused across calls.
+ */
+let cachedSystemNodePath: string | undefined;
+
+/**
+ * Reset all internal caches.
+ * Useful for testing or when PATH may have changed.
+ */
+export function resetCache(): void {
+  cachedUserShellPath = undefined;
+  cachedSystemNodePath = undefined;
+}
+
+/**
  * Resolve the user's login shell PATH on macOS/Linux.
  *
  * Packaged Electron apps on macOS don't inherit the user's shell profile,
@@ -276,6 +292,11 @@ export function findSystemNode(): string {
     return process.execPath;
   }
 
+  // Return cached result if available
+  if (cachedSystemNodePath !== undefined) {
+    return cachedSystemNodePath;
+  }
+
   // Try to get user's shell PATH
   const userPath = resolveUserShellPath();
 
@@ -285,6 +306,7 @@ export function findSystemNode(): string {
     for (const dir of pathDirs) {
       const nodePath = path.join(dir, 'node');
       if (fs.existsSync(nodePath)) {
+        cachedSystemNodePath = nodePath;
         return nodePath;
       }
     }
@@ -303,11 +325,18 @@ export function findSystemNode(): string {
 
   for (const p of commonPaths) {
     if (fs.existsSync(p)) {
+      cachedSystemNodePath = p;
       return p;
     }
   }
 
   // Final fallback: assume 'node' is in PATH
+  // Log warning in development mode
+  if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+    console.warn('[spawnNoWindow] Could not find system node, using "node" from PATH');
+  }
+
+  cachedSystemNodePath = 'node';
   return 'node';
 }
 
