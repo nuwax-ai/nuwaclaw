@@ -1,6 +1,6 @@
 {
   "name": "@nuwax/agent-electron-client",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Nuwax Agent Desktop Client (Electron)",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
@@ -62,7 +62,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^2.1.8",
     "concurrently": "^9.1.2",
-    "electron": "^38.2.0",
+    "electron": "^37.2.0",
     "electron-builder": "^25.1.8",
     "typescript": "^5.7.3",
     "vite": "^6.0.7",
