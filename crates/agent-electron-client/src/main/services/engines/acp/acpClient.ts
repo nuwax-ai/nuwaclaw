@@ -23,7 +23,7 @@ import { app } from 'electron';
 import log from 'electron-log';
 import { getAppEnv } from '../../system/dependencies';
 import { APP_DATA_DIR_NAME } from '../../constants';
-import { APP_NAME_IDENTIFIER } from '../../../../shared/constants';
+import { APP_NAME_IDENTIFIER } from '@shared/constants';
 import { isWindows } from '../../system/shellEnv';
 import { spawnJsFile, resolveNpmPackageEntry } from '../../utils/spawnNoWindow';
 

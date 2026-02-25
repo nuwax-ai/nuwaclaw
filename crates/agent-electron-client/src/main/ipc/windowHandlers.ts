@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron';
-import type { HandlerContext } from '../../shared/types/ipc';
+import type { HandlerContext } from '@shared/types/ipc';
 
 export function registerWindowHandlers(ctx: HandlerContext): void {
   ipcMain.handle('window:minimize', () => {

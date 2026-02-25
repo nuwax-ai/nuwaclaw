@@ -3,7 +3,7 @@ import { app } from 'electron';
 import Database from 'better-sqlite3';
 import log from 'electron-log';
 import { APP_DATA_DIR_NAME } from './services/constants';
-import { APP_NAME_IDENTIFIER } from '../shared/constants';
+import { APP_NAME_IDENTIFIER } from '@shared/constants';
 
 const nuwaxHome = path.join(app.getPath('home'), APP_DATA_DIR_NAME);
 const dbPath = path.join(nuwaxHome, `${APP_NAME_IDENTIFIER}.db`);

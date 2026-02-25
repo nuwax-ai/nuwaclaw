@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import log from 'electron-log';
-import type { HandlerContext } from '../../shared/types/ipc';
+import type { HandlerContext } from '@shared/types/ipc';
 import { LATEST_LOG_BASENAME } from '../logConfig';
 
 export function registerAppHandlers(ctx: HandlerContext): void {

@@ -29,8 +29,8 @@ export type {
   ComputerAgentStatusResponse,
   ComputerAgentStopResponse,
   ComputerAgentCancelResponse,
-} from '../../shared/types/computerTypes';
-import type { ComputerChatRequest, ModelProviderConfig } from '../../shared/types/computerTypes';
+} from '@shared/types/computerTypes';
+import type { ComputerChatRequest, ModelProviderConfig } from '@shared/types/computerTypes';
 import { APP_DATA_DIR_NAME } from '../constants';
 
 // ==================== Types ====================

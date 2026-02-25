@@ -11,7 +11,7 @@ import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import log from 'electron-log';
-import { APP_DISPLAY_NAME } from '../shared/constants';
+import { APP_DISPLAY_NAME } from '@shared/constants';
 
 // auto-launch 库用于 Linux 支持
 let AutoLaunch: any = null;
