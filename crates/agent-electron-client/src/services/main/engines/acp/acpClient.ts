@@ -24,6 +24,7 @@ import log from 'electron-log';
 import { getAppEnv } from '../../system/dependencies';
 import { APP_DATA_DIR_NAME } from '../../constants';
 import { APP_NAME_IDENTIFIER } from '../../../../commons/constants';
+import { isWindows } from '../../system/shellEnv';
 
 // ==================== Types ====================
 
@@ -237,7 +238,7 @@ function getAppDataDir(): string {
  */
 export function resolveAcpBinary(engine: 'claude-code' | 'nuwaxcode'): { binPath: string; binArgs: string[] } {
   const appDataDir = getAppDataDir();
-  const isWin = process.platform === 'win32';
+  const isWin = isWindows();
 
   if (engine === 'claude-code') {
     const binName = isWin ? 'claude-code-acp-ts.cmd' : 'claude-code-acp-ts';
@@ -354,6 +355,7 @@ export async function createAcpConnection(
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
+    shell: isWindows(),
   });
 
   // Log stderr

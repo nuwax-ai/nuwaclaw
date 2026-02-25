@@ -17,6 +17,7 @@ import {
   APP_DATA_DIR_NAME,
 } from '../constants';
 import { APP_NAME_IDENTIFIER } from '../../../commons/constants';
+import { isWindows } from './shellEnv';
 
 // ==================== Types ====================
 
@@ -135,13 +136,13 @@ export function getResourcesPath(): string {
 
 // 获取 bundled uv 二进制路径
 export function getUvBinPath(): string {
-  const uvName = process.platform === 'win32' ? 'uv.exe' : 'uv';
+  const uvName = isWindows() ? 'uv.exe' : 'uv';
   return path.join(getResourcesPath(), 'uv', 'bin', uvName);
 }
 
 // 获取 bundled nuwax-lanproxy 二进制路径
 export function getLanproxyBinPath(): string {
-  const binName = process.platform === 'win32' ? 'nuwax-lanproxy.exe' : 'nuwax-lanproxy';
+  const binName = isWindows() ? 'nuwax-lanproxy.exe' : 'nuwax-lanproxy';
   return path.join(getResourcesPath(), 'lanproxy', 'bin', binName);
 }
 
@@ -178,7 +179,7 @@ export function getAppEnv(): Record<string, string> {
   const appBin = getAppBinDir();
   const uvBin = path.dirname(getUvBinPath());
 
-  const pathSep = process.platform === 'win32' ? ';' : ':';
+  const pathSep = isWindows() ? ';' : ':';
 
   // uv/uvx 数据目录
   const uvDataDir = path.join(appDataDir, 'uv');
@@ -236,7 +237,7 @@ export function getAppEnv(): Record<string, string> {
     LANG: process.env.LANG || 'en_US.UTF-8',
     TZ: process.env.TZ,
     // Windows 特有：确保正确设置 USERPROFILE
-    ...(process.platform === 'win32' ? { USERPROFILE: process.env.USERPROFILE || process.env.HOME } : {}),
+    ...(isWindows() ? { USERPROFILE: process.env.USERPROFILE || process.env.HOME } : {}),
   };
 
   // 过滤掉 undefined 值并返回
@@ -274,7 +275,7 @@ function getSystemPaths(): string[] {
   }
 
   const systemPath = process.env.PATH || '';
-  const pathSep = process.platform === 'win32' ? ';' : ':';
+  const pathSep = isWindows() ? ';' : ':';
   const allPaths = systemPath.split(pathSep).filter(Boolean);
 
   // 排除模式：只排除项目级别的 node_modules，保留系统级包管理器路径
@@ -343,7 +344,7 @@ function getSystemPaths(): string[] {
         }
       }
     }
-  } else if (process.platform === 'win32') {
+  } else if (isWindows()) {
     // Windows 常见路径
     const home = process.env.USERPROFILE || process.env.HOME || '';
     if (home) {
@@ -444,9 +445,10 @@ export async function checkNodeVersion(): Promise<{
         });
       } else {
         // 降级方案：尝试 spawn node 命令
-        const nodeCmd = process.platform === 'win32' ? 'node.cmd' : 'node';
+        const nodeCmd = isWindows() ? 'node.cmd' : 'node';
         const proc = spawn(nodeCmd, ['--version'], {
           stdio: ['ignore', 'pipe', 'ignore'],
+          shell: isWindows(),
         });
 
         let stdout = '';
@@ -589,7 +591,7 @@ export async function detectNpmPackage(
   ];
 
   for (const p of searchPaths) {
-    if (process.platform === 'win32') {
+    if (isWindows()) {
       if (fs.existsSync(p + '.cmd')) {
         binPath = p + '.cmd';
         break;
@@ -617,9 +619,10 @@ export async function detectShellCommand(command: string): Promise<{
 }> {
   return new Promise((resolve) => {
     // 先检查 which/where
-    const checkCmd = process.platform === 'win32' ? 'where' : 'which';
+    const checkCmd = isWindows() ? 'where' : 'which';
     const proc = spawn(checkCmd, [command], {
       stdio: ['ignore', 'pipe', 'ignore'],
+      shell: isWindows(),
     });
 
     proc.on('close', (code) => {
@@ -627,6 +630,7 @@ export async function detectShellCommand(command: string): Promise<{
         // 尝试获取版本
         const versionProc = spawn(command, ['--version'], {
           stdio: ['ignore', 'pipe', 'ignore'],
+          shell: isWindows(),
         });
 
         let stdout = '';
@@ -692,7 +696,7 @@ export async function installNpmPackage(
   }
 
   return new Promise((resolve) => {
-    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const npmCmd = isWindows() ? 'npm.cmd' : 'npm';
     const args = ['install', '--save'];
 
     if (options?.version) {
@@ -711,6 +715,7 @@ export async function installNpmPackage(
       cwd: appDataDir,
       env: { ...process.env, ...getAppEnv() },
       stdio: 'pipe',
+      shell: isWindows(),
     });
 
     let stderr = '';

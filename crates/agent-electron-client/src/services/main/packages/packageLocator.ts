@@ -4,6 +4,7 @@ import * as os from 'os';
 import { spawn } from 'child_process';
 import { getAppEnv } from '../system/dependencies';
 import { APP_DATA_DIR_NAME } from '../constants';
+import { isWindows } from '../system/shellEnv';
 
 // ==================== App Paths ====================
 
@@ -61,7 +62,7 @@ export function getExecutablePath(packageName: string): string | null {
   
   // 1. Check local MCP modules
   const localBin = path.join(dirs.mcpModules, '.bin', packageName);
-  if (process.platform === 'win32') {
+  if (isWindows()) {
     if (fs.existsSync(localBin + '.cmd')) return localBin + '.cmd';
     if (fs.existsSync(localBin + '.exe')) return localBin + '.exe';
   }
@@ -69,7 +70,7 @@ export function getExecutablePath(packageName: string): string | null {
 
   // 2. Check local node_modules
   const localNodeBin = path.join(dirs.nodeModules, '.bin', packageName);
-  if (process.platform === 'win32') {
+  if (isWindows()) {
     if (fs.existsSync(localNodeBin + '.cmd')) return localNodeBin + '.cmd';
     if (fs.existsSync(localNodeBin + '.exe')) return localNodeBin + '.exe';
   }
@@ -101,11 +102,12 @@ export function isInstalledLocally(packageName: string): boolean {
  */
 export async function isInstalledGlobally(packageName: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const npmCmd = isWindows() ? 'npm.cmd' : 'npm';
     const args = ['list', '-g', '--depth=0', packageName];
-    
+
     const proc = spawn(npmCmd, args, {
       stdio: ['ignore', 'pipe', 'ignore'],
+      shell: isWindows(),
     });
     
     let stdout = '';
@@ -191,11 +193,12 @@ export function getLocalVersion(packageName: string): string | null {
  */
 export async function getGlobalVersion(packageName: string): Promise<string | null> {
   return new Promise((resolve) => {
-    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const npmCmd = isWindows() ? 'npm.cmd' : 'npm';
     const args = ['view', packageName, 'version', '--json'];
-    
+
     const proc = spawn(npmCmd, args, {
       stdio: ['ignore', 'pipe', 'ignore'],
+      shell: isWindows(),
     });
     
     let stdout = '';
@@ -320,7 +323,7 @@ export function spawnLocal(
   if (packageName === 'npx' || packageName === 'npm' || packageName === 'yarn' || packageName === 'pnpm') {
     // For package managers, use local installation
     const localBin = path.join(dirs.nodeModules, '.bin', packageName);
-    if (process.platform === 'win32') {
+    if (isWindows()) {
       exePath = localBin + '.cmd';
     } else {
       exePath = localBin;
@@ -336,7 +339,7 @@ export function spawnLocal(
   } else {
     // For other packages, use npx
     exePath = path.join(dirs.nodeModules, '.bin', 'npx');
-    if (process.platform === 'win32') {
+    if (isWindows()) {
       exePath += '.cmd';
     }
     
@@ -363,6 +366,7 @@ export function spawnLocal(
     cwd: options?.cwd || dirs.mcpModules,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
+    shell: isWindows(),
   });
 }
 

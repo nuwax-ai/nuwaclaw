@@ -16,6 +16,7 @@ import { getAppEnv } from '../system/dependencies';
 import { mcpProxyManager } from '../packages/mcp';
 import { APP_DATA_DIR_NAME } from '../constants';
 import { APP_NAME_IDENTIFIER } from '../../../commons/constants';
+import { isWindows } from '../system/shellEnv';
 
 // ==================== Types ====================
 
@@ -108,15 +109,18 @@ export function isEngineInstalledLocally(engine: AgentEngine): boolean {
  */
 export async function isEngineInstalledGlobally(engine: AgentEngine): Promise<boolean> {
   const cmd = engine === 'claude-code' ? 'claude-code' : 'nuwaxcode';
-  
+
   return new Promise((resolve) => {
-    const checkCmd = process.platform === 'win32' ? 'where' : 'which';
-    const proc = spawn(checkCmd, [cmd], { stdio: ['ignore', 'pipe', 'ignore'] });
-    
+    const checkCmd = isWindows() ? 'where' : 'which';
+    const proc = spawn(checkCmd, [cmd], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      shell: isWindows(),
+    });
+
     proc.on('close', (code) => {
       resolve(code === 0);
     });
-    
+
     proc.on('error', () => resolve(false));
   });
 }
@@ -127,21 +131,24 @@ export async function isEngineInstalledGlobally(engine: AgentEngine): Promise<bo
 export async function getEngineVersion(engine: AgentEngine): Promise<string | null> {
   // 先尝试本地
   const localEngine = findEngineBinary(engine);
-  
+
   return new Promise((resolve) => {
     const cmd = localEngine || (engine === 'claude-code' ? 'claude-code' : 'nuwaxcode');
     const args = ['--version'];
-    
-    const proc = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'ignore'] });
-    
+
+    const proc = spawn(cmd, args, {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      shell: isWindows(),
+    });
+
     let stdout = '';
     proc.stdout?.on('data', (data) => { stdout += data.toString(); });
-    
+
     proc.on('close', () => {
       const match = stdout.match(/(\d+\.\d+\.\d+)/);
       resolve(match ? match[1] : null);
     });
-    
+
     proc.on('error', () => resolve(null));
   });
 }
@@ -202,7 +209,7 @@ export async function installEngine(
   const packageName = engine === 'claude-code' ? 'claude-code' : 'nuwaxcode';
   
   return new Promise((resolve) => {
-    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const npmCmd = isWindows() ? 'npm.cmd' : 'npm';
     const args = ['install', '--save', packageName];
     
     if (options?.registry) {
@@ -210,7 +217,7 @@ export async function installEngine(
     }
     
     log.info(`[Engine] Installing ${packageName} to ${engineDir}`);
-    
+
     const proc = spawn(npmCmd, args, {
       cwd: engineDir,
       env: {
@@ -218,6 +225,7 @@ export async function installEngine(
         ...getAppEnv(),
       },
       stdio: 'pipe',
+      shell: isWindows(),
     });
     
     let stderr = '';
@@ -376,13 +384,14 @@ export async function startEngine(
   }
 
   log.info(`[Engine] Starting ${config.engine}: ${engineBinary} ${args.join(' ')}`);
-  
+
   return new Promise((resolve) => {
     const proc = spawn(engineBinary, args, {
       env,
       cwd: config.workspaceDir || getAppDataDir(),
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
+      shell: isWindows(),
     });
     
     proc.on('error', (error) => {

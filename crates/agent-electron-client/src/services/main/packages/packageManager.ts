@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { spawn } from 'child_process';
 import { getAppEnv } from '../system/dependencies';
 import { APP_DATA_DIR_NAME } from '../constants';
+import { isWindows } from '../system/shellEnv';
 
 export interface AppPaths {
   appData: string;        // 应用数据目录
@@ -55,7 +56,7 @@ export function getPackageManager(): string {
   if (fs.existsSync(localNpm)) return localNpm;
   
   // Fallback to system
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  return isWindows() ? 'npm.cmd' : 'npm';
 }
 
 // Install package locally (not globally)
@@ -73,7 +74,7 @@ export async function installPackage(packageName: string, options?: {
   }
   
   // Build command
-  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const npmCmd = isWindows() ? 'npm.cmd' : 'npm';
   const args = ['install', '--save', '--no-save', packageName];
   
   if (registry) {
@@ -82,7 +83,7 @@ export async function installPackage(packageName: string, options?: {
   
   return new Promise((resolve) => {
     console.log(`[Install] Installing ${packageName} in ${cwd}`);
-    
+
     const proc = spawn(npmCmd, args, {
       cwd,
       env: {
@@ -90,6 +91,7 @@ export async function installPackage(packageName: string, options?: {
         ...getAppEnv(),
       },
       stdio: 'pipe',
+      shell: isWindows(),
     });
     
     let stdout = '';
@@ -127,16 +129,17 @@ export async function uninstallPackage(packageName: string, options?: {
   const dirs = getAppPaths();
   const cwd = options?.cwd || dirs.nodeModules;
   
-  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const npmCmd = isWindows() ? 'npm.cmd' : 'npm';
   const args = ['uninstall', packageName];
   
   return new Promise((resolve) => {
     console.log(`[Uninstall] Uninstalling ${packageName} from ${cwd}`);
-    
+
     const proc = spawn(npmCmd, args, {
       cwd,
       env: { ...process.env, ...getAppEnv() },
       stdio: 'pipe',
+      shell: isWindows(),
     });
     
     let stderr = '';

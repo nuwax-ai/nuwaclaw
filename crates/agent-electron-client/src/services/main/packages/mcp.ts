@@ -16,6 +16,7 @@ import { app } from 'electron';
 import { getAppEnv } from '../system/dependencies';
 import { getAppPaths, isInstalledLocally } from './packageLocator';
 import { DEFAULT_MCP_PROXY_PORT, DEFAULT_MCP_PROXY_HOST, APP_DATA_DIR_NAME } from '../constants';
+import { isWindows } from '../system/shellEnv';
 
 // ========== Types ==========
 
@@ -174,7 +175,7 @@ class McpProxyManager {
    */
   private getMcpProxyBinPath(): string | null {
     const dirs = getAppPaths();
-    const binName = process.platform === 'win32' ? 'mcp-proxy.cmd' : 'mcp-proxy';
+    const binName = isWindows() ? 'mcp-proxy.cmd' : 'mcp-proxy';
 
     // 检查应用内安装
     const localBinPath = path.join(dirs.nodeModules, '.bin', binName);
@@ -304,6 +305,7 @@ class McpProxyManager {
           env: mcpEnv,
           stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: true,
+          shell: isWindows(),
         });
 
         proc.stdout?.on('data', (data) => {
