@@ -571,9 +571,9 @@ function ClientPage({ onNavigate, services, servicesLoading, onRefreshServices }
                   ) : (
                     <Tag style={{ margin: 0, fontSize: 11 }}>已停止</Tag>
                   )}
-                  {svc.running && svc.pid && (
+                  {/* {svc.running && svc.pid && (
                     <span className={styles.servicePid}>PID: {svc.pid}</span>
-                  )}
+                  )} */}
                 </div>
                 <div className={styles.serviceDescription}>
                   {svc.description}
