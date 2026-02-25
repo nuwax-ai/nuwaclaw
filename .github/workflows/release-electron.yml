@@ -6,8 +6,9 @@
 #
 # 支持平台：
 #   - macOS arm64（macos-latest）
-#   - Windows x64 / arm64（nsis + portable）
-#   - Linux x64 / arm64（AppImage + deb）
+#   - macOS x64（macos-13）
+#   - Windows x64（nsis + portable）
+#   - Linux x64（AppImage + deb）
 #
 # 使用的 Secrets（可与 Tauri 共用 Apple 相关，也可单独配置）：
 #   - GH_PAT：创建 Release、上传资产（需 Contents: Write）
@@ -73,17 +74,23 @@ jobs:
           fi
 
   build-electron:
-    name: Build Electron (${{ matrix.platform }})
+    name: Build Electron (${{ matrix.platform }} ${{ matrix.arch }})
     needs: prepare
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: macos-latest
-            dist_cmd: dist:mac
+            arch: arm64
+            dist_cmd: dist:mac:arm64
+          - platform: macos-13
+            arch: x64
+            dist_cmd: dist:mac:x64
           - platform: windows-latest
+            arch: x64
             dist_cmd: dist:win
           - platform: ubuntu-latest
+            arch: x64
             dist_cmd: dist:linux
 
     runs-on: ${{ matrix.platform }}
@@ -176,8 +183,8 @@ jobs:
           CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           if [ "${{ runner.os }}" = "macOS" ] && [ -z "${{ secrets.APPLE_CERTIFICATE }}" ]; then
-            echo "No Apple certificate, building unsigned Mac package"
-            npm run dist:mac:unsigned
+            echo "No Apple certificate, building unsigned Mac package for ${{ matrix.arch }}"
+            npm run dist:mac:unsigned:${{ matrix.arch }}
           else
             npm run ${{ matrix.dist_cmd }}
           fi
