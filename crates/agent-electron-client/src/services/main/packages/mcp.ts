@@ -327,6 +327,11 @@ class McpProxyManager {
         proc.on('exit', (code) => {
           log.info(`[McpProxy] 进程退出, code=${code}`);
           this.process = null;
+          // 如果启动还未完成，进程就退出了，返回错误
+          if (!startResolved) {
+            startResolved = true;
+            resolve({ success: false, error: `进程启动后立即退出 (code=${code})` });
+          }
           cleanup();
         });
 
@@ -349,7 +354,7 @@ class McpProxyManager {
           }
         }, 500);
       } catch (error) {
-        this.startPromise = null;
+        cleanup();
         resolve({ success: false, error: String(error) });
       }
     });
