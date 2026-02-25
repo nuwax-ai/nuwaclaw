@@ -111,19 +111,25 @@ function App() {
     if (isSetupComplete !== true) return;
 
     const autoReconnect = async () => {
-      // 如果向导刚完成，服务已在向导中启动，跳过自动重连
-      if (setupJustCompleted.current) {
-        setupJustCompleted.current = false;
-        console.log('[App] 初始化向导刚完成，跳过自动重连');
-        return;
-      }
-
       // 如果 ClientPage handleLogin 已经启动了服务，跳过自动重连
       // 无论是否命中，都先清除标记，防止 crash 后标记残留导致永久跳过
       const loginStarted = await window.electronAPI?.settings.get('_services_started_by_login');
       await window.electronAPI?.settings.set('_services_started_by_login', false);
       if (loginStarted) {
         console.log('[App] 服务已由登录流程启动，跳过自动重连');
+        return;
+      }
+
+      // 如果向导刚完成，启动所有服务
+      if (setupJustCompleted.current) {
+        setupJustCompleted.current = false;
+        console.log('[App] 初始化向导刚完成，启动所有服务...');
+        try {
+          const restartResult = await window.electronAPI?.services.restartAll();
+          console.log('[App] 服务启动结果:', restartResult);
+        } catch (e) {
+          console.error('[App] 服务启动失败:', e);
+        }
         return;
       }
 

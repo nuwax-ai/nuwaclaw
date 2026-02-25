@@ -152,16 +152,12 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
   }, [retryCooldown]);
 
   const handleStep1Submit = async () => {
-    if (!step1Config.serverHost) {
-      message.warning('请输入服务域名');
+    if (!step1Config.fileServerPort) {
+      message.warning('请输入文件服务端口');
       return;
     }
     if (!step1Config.agentPort) {
       message.warning('请输入 Agent 端口');
-      return;
-    }
-    if (!step1Config.fileServerPort) {
-      message.warning('请输入文件服务端口');
       return;
     }
     if (!step1Config.proxyPort) {
@@ -281,28 +277,6 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               style={{ marginBottom: 24 }}
             />
 
-            <Form.Item label="服务域名" required>
-              <Input
-                value={step1Config.serverHost}
-                onChange={(e) =>
-                  setStep1Config({ ...step1Config, serverHost: e.target.value })
-                }
-                placeholder="例如：https://agent.nuwax.com"
-              />
-            </Form.Item>
-
-            <Form.Item label="Agent 端口" required>
-              <InputNumber
-                value={step1Config.agentPort}
-                onChange={(value) =>
-                  setStep1Config({ ...step1Config, agentPort: value as number })
-                }
-                style={{ width: '100%' }}
-                min={1024}
-                max={65535}
-              />
-            </Form.Item>
-
             <Form.Item label="文件服务端口" required>
               <InputNumber
                 value={step1Config.fileServerPort}
@@ -311,6 +285,18 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
                     ...step1Config,
                     fileServerPort: value as number,
                   })
+                }
+                style={{ width: '100%' }}
+                min={1024}
+                max={65535}
+              />
+            </Form.Item>
+
+            <Form.Item label="Agent 端口" required>
+              <InputNumber
+                value={step1Config.agentPort}
+                onChange={(value) =>
+                  setStep1Config({ ...step1Config, agentPort: value as number })
                 }
                 style={{ width: '100%' }}
                 min={1024}
