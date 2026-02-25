@@ -266,6 +266,12 @@ class McpProxyManager {
 
     // 创建启动 Promise 并存储，防止并发调用
     this.startPromise = new Promise((resolve) => {
+      let startResolved = false;
+
+      const cleanup = () => {
+        this.startPromise = null;
+      };
+
       try {
         // MCP Proxy 需要访问系统 npm 以运行 chrome-devtools-mcp 等工具
         // 因此不能完全隔离，只注入必要的应用内路径
@@ -299,12 +305,6 @@ class McpProxyManager {
           stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: true,
         });
-
-        let startResolved = false;
-
-        const cleanup = () => {
-          this.startPromise = null;
-        };
 
         proc.stdout?.on('data', (data) => {
           log.info(`[McpProxy stdout] ${data.toString().trim()}`);
