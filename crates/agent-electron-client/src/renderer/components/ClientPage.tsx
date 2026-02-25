@@ -227,6 +227,7 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
   // ======================== Services ========================
 
   const handleStartService = async (key: string, silent = false): Promise<boolean> => {
+    if (!silent) setBatchLoading(true);
     try {
       let result: { success: boolean; error?: string } | undefined;
 
@@ -283,10 +284,13 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
       if (!silent) message.error(`启动失败: ${error}`);
       await onRefreshServices();
       return false;
+    } finally {
+      if (!silent) setBatchLoading(false);
     }
   };
 
   const handleStopService = async (key: string) => {
+    setBatchLoading(true);
     const startTime = Date.now();
     try {
       if (key === 'agent') await window.electronAPI?.agent.destroy();
@@ -301,6 +305,7 @@ function ClientPage({ onNavigate, services, servicesLoading, autoStarting, onRef
     if (elapsed < 300) {
       await new Promise((resolve) => setTimeout(resolve, 300 - elapsed));
     }
+    setBatchLoading(false);
     await onRefreshServices();
   };
 
