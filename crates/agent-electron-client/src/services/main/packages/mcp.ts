@@ -167,6 +167,7 @@ class McpProxyManager {
   private port: number = DEFAULT_MCP_PROXY_PORT;
   private host: string = DEFAULT_MCP_PROXY_HOST;
   private config: McpServersConfig = JSON.parse(JSON.stringify(DEFAULT_MCP_PROXY_CONFIG));
+  private startPromise: Promise<{ success: boolean; error?: string }> | null = null;
 
   /**
    * 获取 mcp-proxy 可执行文件路径
@@ -186,11 +187,26 @@ class McpProxyManager {
   }
 
   /**
+   * 检查进程是否真正在运行
+   */
+  private isProcessRunning(): boolean {
+    return this.process !== null && !this.process.killed;
+  }
+
+  /**
    * 启动 MCP Proxy
    */
   async start(options?: McpProxyStartConfig): Promise<{ success: boolean; error?: string }> {
-    if (this.process) {
-      return { success: true }; // Already running
+    // 如果进程已经在运行，直接返回成功
+    if (this.isProcessRunning()) {
+      log.info('[McpProxy] 进程已在运行中，跳过启动');
+      return { success: true };
+    }
+
+    // 如果正在启动中，等待启动完成（防止并发调用）
+    if (this.startPromise) {
+      log.info('[McpProxy] 正在启动中，等待完成...');
+      return this.startPromise;
     }
 
     // 检查 mcp-stdio-proxy 是否已安装
@@ -248,7 +264,8 @@ class McpProxyManager {
 
     log.info(`[McpProxy] 启动: ${binPath} ${args.join(' ')}`);
 
-    return new Promise((resolve) => {
+    // 创建启动 Promise 并存储，防止并发调用
+    this.startPromise = new Promise((resolve) => {
       try {
         // MCP Proxy 需要访问系统 npm 以运行 chrome-devtools-mcp 等工具
         // 因此不能完全隔离，只注入必要的应用内路径
@@ -285,6 +302,10 @@ class McpProxyManager {
 
         let startResolved = false;
 
+        const cleanup = () => {
+          this.startPromise = null;
+        };
+
         proc.stdout?.on('data', (data) => {
           log.info(`[McpProxy stdout] ${data.toString().trim()}`);
         });
@@ -296,6 +317,7 @@ class McpProxyManager {
         proc.on('error', (error) => {
           log.error(`[McpProxy] 启动错误:`, error);
           this.process = null;
+          cleanup();
           if (!startResolved) {
             startResolved = true;
             resolve({ success: false, error: error.message });
@@ -305,6 +327,7 @@ class McpProxyManager {
         proc.on('exit', (code) => {
           log.info(`[McpProxy] 进程退出, code=${code}`);
           this.process = null;
+          cleanup();
         });
 
         this.process = proc;
@@ -316,6 +339,7 @@ class McpProxyManager {
         setTimeout(() => {
           if (!startResolved) {
             startResolved = true;
+            cleanup();
             if (this.process && !this.process.killed) {
               log.info(`[McpProxy] 启动成功, port=${port}`);
               resolve({ success: true });
@@ -325,9 +349,12 @@ class McpProxyManager {
           }
         }, 500);
       } catch (error) {
+        this.startPromise = null;
         resolve({ success: false, error: String(error) });
       }
     });
+
+    return this.startPromise;
   }
 
   /**
