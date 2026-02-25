@@ -11,7 +11,7 @@
 import { Tray, Menu, nativeImage, app, dialog } from 'electron';
 import * as path from 'path';
 import log from 'electron-log';
-import { APP_DISPLAY_NAME } from '../commons/constants';
+import { APP_DISPLAY_NAME } from '@shared/constants';
 import { createAutoLaunchManager, AutoLaunchManager } from './autoLaunchManager';
 
 // ==================== Types ====================

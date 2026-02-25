@@ -13,7 +13,7 @@ export function registerEngineHandlers(): void {
     getEngineStatus,
     sendToEngine,
     stopAllEngines,
-  } = require('../../services/main/engines/engineManager');
+  } = require('../services/engines/engineManager');
 
   ipcMain.handle('engine:checkLocal', async (_, engine: string) => {
     return isEngineInstalledLocally(engine);

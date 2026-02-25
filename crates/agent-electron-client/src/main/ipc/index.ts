@@ -1,4 +1,4 @@
-import type { HandlerContext } from '../../types/ipc';
+import type { HandlerContext } from '@shared/types/ipc';
 import { registerWindowHandlers } from './windowHandlers';
 import { registerSessionHandlers } from './sessionHandlers';
 import { registerMessageHandlers } from './messageHandlers';

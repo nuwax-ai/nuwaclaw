@@ -1,7 +1,7 @@
-import { agentService } from '../../services/main/engines/unifiedAgent';
-import type { UnifiedSessionMessage } from '../../services/main/engines/unifiedAgent';
-import { pushSseEvent } from '../../services/main/computerServer';
-import type { HandlerContext } from '../../types/ipc';
+import { agentService } from '../services/engines/unifiedAgent';
+import type { UnifiedSessionMessage } from '../services/engines/unifiedAgent';
+import { pushSseEvent } from '../services/computerServer';
+import type { HandlerContext } from '@shared/types/ipc';
 
 export function registerEventForwarders(ctx: HandlerContext): void {
   // Forward all agent SSE events to the renderer

@@ -1,8 +1,8 @@
 import { ipcMain } from 'electron';
 import log from 'electron-log';
-import { agentService } from '../../services/main/engines/unifiedAgent';
-import type { AgentConfig } from '../../services/main/engines/unifiedAgent';
-import { mcpProxyManager } from '../../services/main/packages/mcp';
+import { agentService } from '../services/engines/unifiedAgent';
+import type { AgentConfig } from '../services/engines/unifiedAgent';
+import { mcpProxyManager } from '../services/packages/mcp';
 
 export function registerAgentHandlers(): void {
   // Initialize unified agent service

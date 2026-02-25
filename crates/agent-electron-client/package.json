@@ -90,7 +90,8 @@
         "from": "dist",
         "to": "dist",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/*.map"
         ]
       },
       "package.json",
@@ -105,12 +106,10 @@
         ]
       },
       {
-        "from": "resources/uv",
-        "to": "uv",
+        "from": "resources/uv/bin",
+        "to": "uv/bin",
         "filter": [
-          "**/*",
-          "!.cache",
-          "!.cache/**"
+          "**/*"
         ]
       },
       {

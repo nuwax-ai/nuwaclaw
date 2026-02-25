@@ -51,7 +51,7 @@ This is the **Nuwax Agent** Electron client - a multi-engine AI assistant deskto
 
 ### Main Process Services (13 files)
 
-Located in `src/services/main/`, these services use Node/Electron APIs and can only run in the main process.
+Located in `src/main/services/`, these services use Node/Electron APIs and can only run in the main process.
 
 | Service | File | Description |
 |---------|------|-------------|
@@ -70,32 +70,34 @@ Located in `src/services/main/`, these services use Node/Electron APIs and can o
 | Package Locator | `packages/packageLocator.ts` | Package detection |
 | Package Manager | `packages/packageManager.ts` | Package installation |
 | **Other** | | |
-| Computer Server | `main/computerServer.ts` | HTTP server for /computer/* API |
+| Computer Server | `computerServer.ts` | HTTP server for /computer/* API |
 
 ### Renderer Process Services (13 files)
 
-Located in `src/services/renderer/`, these services are used by React components.
+Located in `src/renderer/services/`, these services are used by React components.
 
 | Service | File | Description |
 |---------|------|-------------|
 | **Setup** | | |
-| Setup | `renderer/setup.ts` | Setup wizard & auth |
-| Auth | `renderer/auth.ts` | Authentication, API keys |
-| AI | `renderer/ai.ts` | AI configuration |
+| Setup | `setup.ts` | Setup wizard & auth |
+| Auth | `auth.ts` | Authentication, API keys |
+| AI | `ai.ts` | AI configuration |
 | **Services** | | |
-| File Server | `renderer/fileServer.ts` | Local file service |
-| Lanproxy | `renderer/lanproxy.ts` | Intranet penetration |
-| Agent Runner | `renderer/agentRunner.ts` | Agent runner proxy |
+| File Server | `fileServer.ts` | Local file service |
+| Lanproxy | `lanproxy.ts` | Intranet penetration |
+| Agent Runner | `agentRunner.ts` | Agent runner proxy |
 | **Features** | | |
-| Sandbox | `renderer/sandbox.ts` | Cross-platform sandbox |
-| Permissions | `renderer/permissions.ts` | Permission rules |
-| Skills | `renderer/skills.ts` | Skills sync |
-| IM | `renderer/im.ts` | Instant messaging |
-| Scheduler | `renderer/scheduler.ts` | Task scheduling |
-| Log Service | `renderer/logService.ts` | Logging & export |
-| API | `renderer/api.ts` | Backend API client |
+| Sandbox | `sandbox.ts` | Cross-platform sandbox |
+| Permissions | `permissions.ts` | Permission rules |
+| Skills | `skills.ts` | Skills sync |
+| IM | `im.ts` | Instant messaging |
+| Scheduler | `scheduler.ts` | Task scheduling |
+| Log Service | `logService.ts` | Logging & export |
+| API | `api.ts` | Backend API client |
 
 ### Components (12)
+
+Located in `src/renderer/components/`
 
 | Component | Description |
 |-----------|-------------|
@@ -147,7 +149,7 @@ Located in `src/services/renderer/`, these services are used by React components
 ### Usage
 
 ```typescript
-import { agentService } from './services/main/engines/unifiedAgent';
+import { agentService } from '@main/services/engines/unifiedAgent';
 
 // Initialize with claude-code or nuwaxcode (ACP engine)
 await agentService.init({
@@ -240,7 +242,7 @@ Each engine runs in an isolated environment:
 ### Usage
 
 ```typescript
-import { sandboxManager } from './services/renderer/sandbox';
+import { sandboxManager } from '@renderer/services/sandbox';
 
 // Initialize
 await sandboxManager.init({
@@ -270,7 +272,7 @@ const result = await sandboxManager.execute('npm', ['install', 'package']);
 ### Usage
 
 ```typescript
-import { permissionManager } from './services/renderer/permissions';
+import { permissionManager } from '@renderer/services/permissions';
 
 // Check permission
 const { allowed, requiresPrompt } = permissionManager.checkPermission({
@@ -466,29 +468,44 @@ Electron 客户端有**独立**的 CI/Release workflow，不与 Tauri 的 `v*` t
 ```
 crates/agent-electron-client/
 ├── src/
-│   ├── main/        # Electron main process
-│   │   ├── main.ts
-│   │   └── preload.ts
-│   ├── services/    # Services organized by process type
-│   │   ├── main/    # Main process services (Node/Electron APIs)
-│   │   │   ├── engines/
-│   │   │   │   ├── acp/
-│   │   │   │   └── ...
-│   │   │   ├── system/
-│   │   │   └── packages/
-│   │   └── renderer/ # Renderer process services
-│   ├── components/  # React components
-│   │   └── dev/     # Dev-only tools (DevToolsPanel)
-│   └── types/       # TypeScript definitions
-├── resources/       # Bundled resources (extraResources)
-│   └── uv/          # uv 多平台：prepare-uv 按当前平台复制或下载
-│       ├── bin/     # 打包用（prepare-uv 生成，不提交）
-│       ├── .cache/  # 下载缓存（不提交）
-│       └── <platform-arch>/  # 可选：提交各平台到 darwin-arm64、win32-x64 等
+│   ├── main/              # Electron main process
+│   │   ├── main.ts        # Main entry
+│   │   ├── preload.ts     # Preload script
+│   │   ├── ipc/           # IPC handlers
+│   │   └── services/      # Main process services
+│   │       ├── engines/   # Agent engines (ACP, unified)
+│   │       ├── packages/  # Package management (MCP)
+│   │       ├── system/    # System utilities
+│   │       └── utils/     # Utility functions
+│   ├── renderer/          # Renderer process (React)
+│   │   ├── main.tsx       # React entry
+│   │   ├── App.tsx        # Main component
+│   │   ├── index.html     # HTML template
+│   │   ├── components/    # React components
+│   │   │   └── dev/       # Dev-only tools
+│   │   ├── services/      # Renderer services
+│   │   └── styles/        # CSS modules
+│   └── shared/            # Shared code
+│       ├── constants.ts   # Shared constants
+│       └── types/         # TypeScript definitions
+├── resources/             # Bundled resources (extraResources)
+│   └── uv/                # uv multi-platform
+│       ├── bin/           # For packaging (generated)
+│       ├── .cache/        # Download cache
+│       └── <platform>/    # Platform-specific binaries
 ├── scripts/
-│   └── prepare-uv.js # 构建前准备 uv（复制或从 GitHub Release 下载）
+│   └── prepare-uv.js      # Build script for uv
 ├── package.json
 └── vite.config.ts
+```
+
+### Path Aliases
+
+```typescript
+// tsconfig.json & vite.config.ts
+"@main/*"     → "src/main/*"
+"@renderer/*" → "src/renderer/*"
+"@shared/*"   → "src/shared/*"
 ```
 
 ---
@@ -517,4 +534,4 @@ Store sensitive configuration in SQLite, not in code:
 
 ---
 
-*Last updated: 2026-02-24*
+*Last updated: 2026-02-25*

@@ -66,19 +66,26 @@ npm run dist
 
 ```
 src/
-├── main/
-│   ├── main.ts       # Electron main process
-│   └── preload.ts    # Context bridge
-├── services/
-│   ├── ai.ts         # Anthropic Claude API
-│   ├── skills.ts     # Skill system
-│   ├── mcp.ts       # MCP management
-│   └── permissions.ts # Permission manager
-├── components/
-│   ├── SettingsPage.tsx
-│   ├── MCPSettings.tsx
-│   └── PermissionModal.tsx
-└── App.tsx          # Main app
+├── main/              # Electron main process
+│   ├── main.ts        # Main entry
+│   ├── preload.ts     # Context bridge
+│   ├── ipc/           # IPC handlers
+│   └── services/      # Main process services
+│       ├── engines/   # Agent engines
+│       ├── packages/  # Package management (MCP)
+│       └── system/    # System utilities
+├── renderer/          # Renderer process (React)
+│   ├── main.tsx       # React entry
+│   ├── App.tsx        # Main app
+│   ├── components/    # React components
+│   └── services/      # Renderer services
+│       ├── ai.ts      # Anthropic Claude API
+│       ├── skills.ts  # Skill system
+│       ├── mcp.ts     # MCP management
+│       └── permissions.ts # Permission manager
+└── shared/            # Shared code
+    ├── constants.ts   # Shared constants
+    └── types/         # TypeScript definitions
 ```
 
 ## IPC Channels

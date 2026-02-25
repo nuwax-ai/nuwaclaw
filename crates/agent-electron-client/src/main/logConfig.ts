@@ -10,7 +10,7 @@ import log from 'electron-log';
 import * as path from 'path';
 import * as fs from 'fs';
 import { app } from 'electron';
-import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from '../services/main/constants';
+import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from './services/constants';
 
 /** 开发环境：未打包或 NODE_ENV=development */
 function isDev(): boolean {

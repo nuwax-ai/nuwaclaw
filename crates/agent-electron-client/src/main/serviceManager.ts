@@ -10,12 +10,12 @@ import { app } from 'electron';
 import log from 'electron-log';
 import type { ManagedProcess } from './processManager';
 import { readSetting } from './db';
-import { APP_DATA_DIR_NAME, DEFAULT_STARTUP_DELAY } from '../services/main/constants';
-import { getAppEnv, getLanproxyBinPath } from '../services/main/system/dependencies';
-import { agentService } from '../services/main/engines/unifiedAgent';
-import type { AgentConfig } from '../services/main/engines/unifiedAgent';
-import { mcpProxyManager } from '../services/main/packages/mcp';
-import { stopAllEngines } from '../services/main/engines/engineManager';
+import { APP_DATA_DIR_NAME, DEFAULT_STARTUP_DELAY } from './services/constants';
+import { getAppEnv, getLanproxyBinPath } from './services/system/dependencies';
+import { agentService } from './services/engines/unifiedAgent';
+import type { AgentConfig } from './services/engines/unifiedAgent';
+import { mcpProxyManager } from './services/packages/mcp';
+import { stopAllEngines } from './services/engines/engineManager';
 
 export interface ServiceManagerContext {
   lanproxy: ManagedProcess;

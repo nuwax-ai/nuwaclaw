@@ -5,12 +5,12 @@ import { initDatabase, closeDb } from './db';
 import { ManagedProcess } from './processManager';
 import { registerAllHandlers } from './ipc/index';
 import { runStartupTasks } from './startup';
-import { agentService } from '../services/main/engines/unifiedAgent';
-import { stopComputerServer } from '../services/main/computerServer';
-import { mcpProxyManager } from '../services/main/packages/mcp';
-import type { HandlerContext } from '../types/ipc';
-import { DEFAULT_DEV_SERVER_PORT } from '../services/main/constants';
-import { APP_DISPLAY_NAME } from '../commons/constants';
+import { agentService } from './services/engines/unifiedAgent';
+import { stopComputerServer } from './services/computerServer';
+import { mcpProxyManager } from './services/packages/mcp';
+import type { HandlerContext } from '@shared/types/ipc';
+import { DEFAULT_DEV_SERVER_PORT } from './services/constants';
+import { APP_DISPLAY_NAME } from '@shared/constants';
 import { initLogging } from './logConfig';
 import { createTrayManager, TrayStatus } from './trayManager';
 import { createServiceManager } from './serviceManager';
@@ -258,7 +258,7 @@ function cleanupAllProcesses(): void {
   }
 
   try {
-    const { stopAllEngines } = require('../services/main/engines/engineManager');
+    const { stopAllEngines } = require('./services/engines/engineManager');
     stopAllEngines();
     log.info('[Cleanup] Engine processes stopped');
   } catch (e) {

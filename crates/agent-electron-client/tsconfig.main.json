@@ -11,13 +11,16 @@
     "resolveJsonModule": true,
     "outDir": "dist",
     "rootDir": "src",
-    "declaration": false
+    "declaration": false,
+    "baseUrl": ".",
+    "paths": {
+      "@main/*": ["src/main/*"],
+      "@shared/*": ["src/shared/*"]
+    }
   },
   "include": [
     "src/main/**/*",
-    "src/services/main/**/*",
-    "src/commons/**/*",
-    "src/types/**/*"
+    "src/shared/**/*"
   ],
   "exclude": ["node_modules", "**/*.test.ts"]
 }

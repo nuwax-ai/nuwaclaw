@@ -3,13 +3,13 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { app } from 'electron';
 import log from 'electron-log';
-import type { HandlerContext } from '../../types/ipc';
+import type { HandlerContext } from '@shared/types/ipc';
 import { readSetting } from '../db';
 import { ManagedProcess } from '../processManager';
-import { APP_DATA_DIR_NAME, DEFAULT_STARTUP_DELAY } from '../../services/main/constants';
+import { APP_DATA_DIR_NAME, DEFAULT_STARTUP_DELAY } from '../services/constants';
 
 export function registerProcessHandlers(ctx: HandlerContext): void {
-  const { getAppEnv, getLanproxyBinPath } = require('../../services/main/system/dependencies');
+  const { getAppEnv, getLanproxyBinPath } = require('../services/system/dependencies');
 
   // ==================== Helper: Start File Server ====================
   const startFileServerProcess = (port: number): Promise<{ success: boolean; error?: string }> => {
@@ -169,9 +169,9 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   // ==================== services:restartAll ====================
 
   ipcMain.handle('services:restartAll', async () => {
-    const { agentService } = require('../../services/main/engines/unifiedAgent');
-    const { mcpProxyManager } = require('../../services/main/packages/mcp');
-    type AgentConfigType = import('../../services/main/engines/unifiedAgent').AgentConfig;
+    const { agentService } = require('../services/engines/unifiedAgent');
+    const { mcpProxyManager } = require('../services/packages/mcp');
+    type AgentConfigType = import('../services/engines/unifiedAgent').AgentConfig;
 
     log.info('[Services] Restarting all services...');
     const results: Record<string, { success: boolean; error?: string }> = {};
@@ -258,9 +258,9 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   // ==================== services:stopAll ====================
 
   ipcMain.handle('services:stopAll', async () => {
-    const { agentService } = require('../../services/main/engines/unifiedAgent');
-    const { mcpProxyManager } = require('../../services/main/packages/mcp');
-    const { stopAllEngines } = require('../../services/main/engines/engineManager');
+    const { agentService } = require('../services/engines/unifiedAgent');
+    const { mcpProxyManager } = require('../services/packages/mcp');
+    const { stopAllEngines } = require('../services/engines/engineManager');
 
     log.info('[Services] Stopping all services...');
     const results: Record<string, { success: boolean; error?: string }> = {};

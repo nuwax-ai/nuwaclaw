@@ -3,7 +3,7 @@ import { getDb, readSetting } from '../db';
 import log from 'electron-log';
 
 export function registerSettingsHandlers(): void {
-  const { setMirrorConfig, getMirrorConfig, MIRROR_PRESETS } = require('../../services/main/system/dependencies');
+  const { setMirrorConfig, getMirrorConfig, MIRROR_PRESETS } = require('../services/system/dependencies');
 
   // Settings
   ipcMain.handle('settings:get', (_, key: string) => {
