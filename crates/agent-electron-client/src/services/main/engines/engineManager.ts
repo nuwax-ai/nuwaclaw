@@ -154,39 +154,58 @@ export async function getEngineVersion(engine: AgentEngine): Promise<string | nu
 }
 
 /**
- * 查找引擎可执行文件路径
+ * 查找引擎 JS 入口文件路径
+ *
+ * Windows 下绕过 .cmd 文件，直接使用 node 执行 JS 文件，避免弹出 CMD 窗口
  */
 export function findEngineBinary(engine: AgentEngine): string | null {
   const engineDir = getEngineDir(engine);
-  
+  const nodeModules = path.join(getAppDataDir(), 'node_modules');
+
   if (engine === 'claude-code') {
+    // 直接使用 JS 入口文件，绕过 .cmd
     const candidates = [
-      path.join(engineDir, 'bin', 'claude-code'),
-      path.join(engineDir, 'claude-code'),
-      path.join(getAppDataDir(), 'node_modules', '.bin', 'claude-code'),
+      path.join(nodeModules, 'claude-code', 'cli.js'),  // npm bin 入口
+      path.join(nodeModules, 'claude-code', 'dist', 'index.js'),
+      path.join(engineDir, 'cli.js'),
+      path.join(engineDir, 'dist', 'index.js'),
     ];
-    
+
     for (const p of candidates) {
       if (fs.existsSync(p)) return p;
-      if (fs.existsSync(p + '.cmd')) return p + '.cmd';
-      if (fs.existsSync(p + '.exe')) return p + '.exe';
+    }
+
+    // Fallback: 检查 .bin 目录的符号链接指向
+    const binLink = path.join(nodeModules, '.bin', 'claude-code');
+    if (fs.existsSync(binLink)) {
+      try {
+        const realPath = fs.realpathSync(binLink);
+        if (fs.existsSync(realPath)) return realPath;
+      } catch {}
     }
   }
-  
+
   if (engine === 'nuwaxcode') {
+    // 直接使用 JS 入口文件，绕过 .cmd
     const candidates = [
+      path.join(nodeModules, 'nuwaxcode', 'bin', 'nuwaxcode'),  // npm bin 入口
       path.join(engineDir, 'bin', 'nuwaxcode'),
-      path.join(engineDir, 'nuwaxcode'),
-      path.join(getAppDataDir(), 'node_modules', '.bin', 'nuwaxcode'),
     ];
-    
+
     for (const p of candidates) {
       if (fs.existsSync(p)) return p;
-      if (fs.existsSync(p + '.cmd')) return p + '.cmd';
-      if (fs.existsSync(p + '.exe')) return p + '.exe';
+    }
+
+    // Fallback: 检查 .bin 目录的符号链接指向
+    const binLink = path.join(nodeModules, '.bin', 'nuwaxcode');
+    if (fs.existsSync(binLink)) {
+      try {
+        const realPath = fs.realpathSync(binLink);
+        if (fs.existsSync(realPath)) return realPath;
+      } catch {}
     }
   }
-  
+
   return null;
 }
 
@@ -383,15 +402,20 @@ export async function startEngine(
       break;
   }
 
-  log.info(`[Engine] Starting ${config.engine}: ${engineBinary} ${args.join(' ')}`);
+  log.info(`[Engine] Starting ${config.engine}: node ${engineBinary} ${args.join(' ')}`);
 
   return new Promise((resolve) => {
-    const proc = spawn(engineBinary, args, {
-      env,
+    // 使用 Electron 内置的 Node.js 直接执行 JS 文件
+    // 绕过 .cmd 文件，避免 Windows 下弹出 CMD 窗口
+    const proc = spawn(process.execPath, [engineBinary, ...args], {
+      env: {
+        ...env,
+        ELECTRON_RUN_AS_NODE: '1',  // 让 Electron 以 Node.js 模式运行
+      },
       cwd: config.workspaceDir || getAppDataDir(),
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
-      shell: isWindows(),
+      // 不使用 shell，直接执行 node
     });
     
     proc.on('error', (error) => {

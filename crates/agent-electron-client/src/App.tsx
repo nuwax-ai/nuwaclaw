@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Menu,
   Badge,
@@ -24,18 +24,29 @@ import DependenciesPage from './components/DependenciesPage';
 import AboutPage from './components/AboutPage';
 import LogViewer from './components/LogViewer';
 import PermissionsPage from './components/PermissionsPage';
+import styles from './styles/components/App.module.css';
 
 // Tab 类型定义（对齐 Tauri 客户端）
 type TabKey = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'about';
 
-// 状态配置
+// 状态配置（对齐 Tauri 客户端）
 const STATUS_CONFIG: Record<string, { status: PresetStatusColorType; text: string }> = {
   idle: { status: 'default', text: '就绪' },
-  running: { status: 'success', text: '运行中' },
   starting: { status: 'processing', text: '启动中' },
+  running: { status: 'success', text: '运行中' },
+  busy: { status: 'success', text: '繁忙' },
   stopped: { status: 'default', text: '已停止' },
-  error: { status: 'error', text: '异常' },
+  error: { status: 'error', text: '错误' },
 };
+
+// 服务状态接口（与 ClientPage 共享）
+export interface ServiceItem {
+  key: string;
+  label: string;
+  description: string;
+  running: boolean;
+  pid?: number;
+}
 
 function App() {
   // ============================================
@@ -51,6 +62,9 @@ function App() {
   const [username, setUsername] = useState<string>('');
   const [onlineStatus, setOnlineStatus] = useState<boolean | null>(null);
   const [agentStatus, setAgentStatus] = useState<string>('idle');
+  const [services, setServices] = useState<ServiceItem[]>([]);
+  const [servicesLoading, setServicesLoading] = useState(true);
+  const servicesPollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ============================================
   // 检查初始化向导状态
@@ -149,6 +163,104 @@ function App() {
   }, [isSetupComplete]);
 
   // ============================================
+  // 服务状态轮询 & 状态计算（对齐 Tauri 客户端）
+  // ============================================
+  const pollServicesStatus = useCallback(async () => {
+    try {
+      const items: ServiceItem[] = [];
+
+      // File Server
+      const fsStatus = await window.electronAPI?.fileServer.status();
+      items.push({
+        key: 'fileServer',
+        label: '文件服务',
+        description: 'Agent 工作目录文件远程管理服务',
+        running: fsStatus?.running ?? false,
+        pid: fsStatus?.pid,
+      });
+
+      // Lanproxy
+      const lpStatus = await window.electronAPI?.lanproxy.status();
+      items.push({
+        key: 'lanproxy',
+        label: '代理服务',
+        description: '网络通道',
+        running: lpStatus?.running ?? false,
+        pid: lpStatus?.pid,
+      });
+
+      // Agent
+      const agentSvcStatus = await window.electronAPI?.agent.serviceStatus();
+      items.push({
+        key: 'agent',
+        label: 'Agent 服务',
+        description: 'Agent 核心服务',
+        running: agentSvcStatus?.running ?? false,
+      });
+
+      // MCP Proxy
+      const mcpStatus = await window.electronAPI?.mcp.status();
+      items.push({
+        key: 'mcpProxy',
+        label: 'MCP 服务',
+        description: 'MCP 协议转换工具',
+        running: mcpStatus?.running ?? false,
+        pid: mcpStatus?.pid,
+      });
+
+      setServices(items);
+    } catch (error) {
+      console.error('[App] pollServicesStatus failed:', error);
+    } finally {
+      setServicesLoading(false);
+    }
+  }, []);
+
+  // 根据服务状态计算 Agent 状态（对齐 Tauri 客户端逻辑）
+  // 根据服务状态计算 Agent 状态（对齐 Tauri 客户端逻辑）
+  useEffect(() => {
+    // 如果正在加载，保持当前状态不变（避免初始加载时的闪烁）
+    if (servicesLoading) {
+      return;
+    }
+
+    if (services.length === 0) {
+      setAgentStatus('idle');
+      return;
+    }
+
+    const runningCount = services.filter((s) => s.running).length;
+    const totalCount = services.length;
+
+    if (runningCount === totalCount && runningCount > 0) {
+      setAgentStatus('running');
+    } else if (runningCount > 0 && runningCount < totalCount) {
+      setAgentStatus('busy');
+    } else if (runningCount === 0) {
+      setAgentStatus('stopped');
+    } else {
+      setAgentStatus('idle');
+    }
+  }, [services, servicesLoading]);
+
+  // 启动服务状态轮询
+  useEffect(() => {
+    if (isSetupComplete !== true) return;
+
+    // 立即执行一次
+    pollServicesStatus();
+
+    // 每 5 秒轮询一次
+    servicesPollTimer.current = setInterval(pollServicesStatus, 5000);
+
+    return () => {
+      if (servicesPollTimer.current) {
+        clearInterval(servicesPollTimer.current);
+      }
+    };
+  }, [isSetupComplete]);
+
+  // ============================================
   // 监听托盘/菜单事件
   // ============================================
   useEffect(() => {
@@ -237,7 +349,7 @@ function App() {
     return (
       <div className="app-loading">
         <Spin size="large" />
-        <div style={{ marginTop: 16, color: '#71717a', fontSize: 13 }}>
+        <div className="app-loading-text">
           正在加载...
         </div>
       </div>
@@ -262,12 +374,12 @@ function App() {
           <RobotOutlined style={{ fontSize: 16, color: '#18181b' }} />
           <span className="app-header-title">{APP_DISPLAY_NAME}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className={styles.headerRight}>
           {username && (
-            <span style={{ color: '#71717a', fontSize: 12 }}>{username}</span>
+            <span className={styles.username}>{username}</span>
           )}
           <Badge status={badge.status} text={
-            <span style={{ color: '#52525b', fontSize: 12 }}>{badge.text}</span>
+            <span className={styles.badgeText}>{badge.text}</span>
           } />
         </div>
       </div>
@@ -291,7 +403,12 @@ function App() {
         {/* 主内容区 */}
         <div className="app-content">
           {activeTab === 'client' && (
-            <ClientPage onNavigate={setActiveTab} />
+            <ClientPage
+              onNavigate={setActiveTab}
+              services={services}
+              servicesLoading={servicesLoading}
+              onRefreshServices={pollServicesStatus}
+            />
           )}
           {activeTab === 'settings' && <SettingsPage />}
           {activeTab === 'dependencies' && <DependenciesPage />}

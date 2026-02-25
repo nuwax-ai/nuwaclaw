@@ -1,0 +1,23 @@
+/**
+ * App 组件样式
+ * 包含顶部栏、布局等样式
+ */
+
+/* 顶部栏右侧信息区 */
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 用户名 */
+.username {
+  color: #71717a;
+  font-size: 12px;
+}
+
+/* 状态徽章文字 */
+.badgeText {
+  color: #52525b;
+  font-size: 12px;
+}

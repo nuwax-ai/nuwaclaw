@@ -539,6 +539,12 @@ body {
   background: #fafafa;
 }
 
+.app-loading-text {
+  margin-top: 16px;
+  color: #71717a;
+  font-size: 13px;
+}
+
 .app-loading .ant-spin-dot-item {
   background-color: #18181b;
 }

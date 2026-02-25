@@ -171,16 +171,18 @@ class McpProxyManager {
   private startPromise: Promise<{ success: boolean; error?: string }> | null = null;
 
   /**
-   * 获取 mcp-proxy 可执行文件路径
+   * 获取 mcp-proxy 入口 JS 文件路径
+   *
+   * Windows 下绕过 .cmd 文件，直接使用 node 执行 JS 文件，避免弹出 CMD 窗口
    */
-  private getMcpProxyBinPath(): string | null {
+  private getMcpProxyEntryPath(): string | null {
     const dirs = getAppPaths();
-    const binName = isWindows() ? 'mcp-proxy.cmd' : 'mcp-proxy';
 
-    // 检查应用内安装
-    const localBinPath = path.join(dirs.nodeModules, '.bin', binName);
-    if (fs.existsSync(localBinPath)) {
-      return localBinPath;
+    // 直接查找 mcp-stdio-proxy 包的入口 JS 文件
+    // npm bin: mcp-proxy -> run-mcp-proxy.js
+    const entryPath = path.join(dirs.nodeModules, 'mcp-stdio-proxy', 'run-mcp-proxy.js');
+    if (fs.existsSync(entryPath)) {
+      return entryPath;
     }
 
     // 未找到
@@ -215,9 +217,9 @@ class McpProxyManager {
       return { success: false, error: 'mcp-stdio-proxy 未安装，请先在依赖管理中安装' };
     }
 
-    const binPath = this.getMcpProxyBinPath();
-    if (!binPath) {
-      return { success: false, error: 'mcp-proxy 可执行文件未找到' };
+    const entryPath = this.getMcpProxyEntryPath();
+    if (!entryPath) {
+      return { success: false, error: 'mcp-proxy 入口文件未找到' };
     }
 
     const port = options?.port ?? this.port;
@@ -263,7 +265,7 @@ class McpProxyManager {
       '--log-dir', mcpLogDir,
     ];
 
-    log.info(`[McpProxy] 启动: ${binPath} ${args.join(' ')}`);
+    log.info(`[McpProxy] 启动: node ${entryPath} ${args.join(' ')}`);
 
     // 创建启动 Promise 并存储，防止并发调用
     this.startPromise = new Promise((resolve) => {
@@ -288,6 +290,8 @@ class McpProxyManager {
           // Node.js 相关
           NODE_PATH: appEnv.NODE_PATH,
           NODE_ENV: process.env.NODE_ENV || 'production',
+          // 使用 Electron 内置 Node.js 运行 JS 文件
+          ELECTRON_RUN_AS_NODE: '1',
           // Python/uv 相关
           UV_TOOL_DIR: appEnv.UV_TOOL_DIR,
           UV_CACHE_DIR: appEnv.UV_CACHE_DIR,
@@ -301,11 +305,13 @@ class McpProxyManager {
           TZ: process.env.TZ || '',
         };
 
-        const proc = spawn(binPath, args, {
+        // 使用 Electron 内置的 Node.js 直接执行 JS 文件
+        // 绕过 .cmd 文件，避免 Windows 下弹出 CMD 窗口
+        const proc = spawn(process.execPath, [entryPath, ...args], {
           env: mcpEnv,
           stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: true,
-          shell: isWindows(),
+          // 不使用 shell，直接执行 node
         });
 
         proc.stdout?.on('data', (data) => {

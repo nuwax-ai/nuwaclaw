@@ -11,7 +11,7 @@
  *   4. Quick action buttons — navigate to settings / deps / about
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Button,
   Tag,
@@ -37,6 +37,7 @@ import {
   ExclamationCircleOutlined,
   QrcodeOutlined,
   ReloadOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons';
 import { QRCodeSVG } from 'qrcode.react';
 import {
@@ -46,6 +47,8 @@ import {
   getAuthErrorMessage,
   syncConfigToServer,
 } from '../services/renderer/auth';
+import type { ServiceItem } from '../App';
+import styles from '../styles/components/ClientPage.module.css';
 
 // ======================== Types ========================
 
@@ -53,14 +56,9 @@ type TabKey = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 
 
 interface ClientPageProps {
   onNavigate?: (tab: TabKey) => void;
-}
-
-interface ServiceItem {
-  key: string;
-  label: string;
-  description: string;
-  running: boolean;
-  pid?: number;
+  services: ServiceItem[];
+  servicesLoading: boolean;
+  onRefreshServices: () => Promise<void>;
 }
 
 interface AuthState {
@@ -72,7 +70,7 @@ interface AuthState {
 
 // ======================== Component ========================
 
-function ClientPage({ onNavigate }: ClientPageProps) {
+function ClientPage({ onNavigate, services, servicesLoading, onRefreshServices }: ClientPageProps) {
   // ---------- Auth state ----------
   const [authState, setAuthState] = useState<AuthState>({
     isLoggedIn: false,
@@ -88,16 +86,11 @@ function ClientPage({ onNavigate }: ClientPageProps) {
   const [loginLoading, setLoginLoading] = useState(false);
 
   // ---------- Services ----------
-  const [services, setServices] = useState<ServiceItem[]>([]);
-  const [servicesLoading, setServicesLoading] = useState(true);
   const [batchLoading, setBatchLoading] = useState(false);
 
   // ---------- Dependencies ----------
   const [missingDeps, setMissingDeps] = useState<{ name: string; displayName: string }[]>([]);
   const [depsChecked, setDepsChecked] = useState(false);
-
-  // ---------- Polling ----------
-  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ---------- QR Code ----------
   const [qrModalVisible, setQrModalVisible] = useState(false);
@@ -154,7 +147,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
         const success = await handleStartService(key, true);
         if (key === 'agent' && !success) agentFailed = true;
       }
-      await pollServices();
+      await onRefreshServices();
       // 服务启动后重新调用 reg 接口，通知后端最新的端口配置
       try {
         await syncConfigToServer({ suppressToast: true });
@@ -232,57 +225,6 @@ function ClientPage({ onNavigate }: ClientPageProps) {
 
   // ======================== Services ========================
 
-  const pollServices = useCallback(async () => {
-    try {
-      const items: ServiceItem[] = [];
-
-      // File Server
-      const fsStatus = await window.electronAPI?.fileServer.status();
-      items.push({
-        key: 'fileServer',
-        label: '文件服务',
-        description: 'Agent 工作目录文件远程管理服务',
-        running: fsStatus?.running ?? false,
-        pid: fsStatus?.pid,
-      });
-
-      // Lanproxy
-      const lpStatus = await window.electronAPI?.lanproxy.status();
-      items.push({
-        key: 'lanproxy',
-        label: '代理服务',
-        description: '网络通道',
-        running: lpStatus?.running ?? false,
-        pid: lpStatus?.pid,
-      });
-
-      // Agent
-      const agentStatus = await window.electronAPI?.agent.serviceStatus();
-      items.push({
-        key: 'agent',
-        label: 'Agent 服务',
-        description: 'Agent 核心服务',
-        running: agentStatus?.running ?? false,
-      });
-
-      // MCP Proxy
-      const mcpStatus = await window.electronAPI?.mcp.status();
-      items.push({
-        key: 'mcpProxy',
-        label: 'MCP 服务',
-        description: 'MCP 协议转换工具',
-        running: mcpStatus?.running ?? false,
-        pid: mcpStatus?.pid,
-      });
-
-      setServices(items);
-    } catch (error) {
-      console.error('[ClientPage] pollServices failed:', error);
-    } finally {
-      setServicesLoading(false);
-    }
-  }, []);
-
   const handleStartService = async (key: string, silent = false): Promise<boolean> => {
     try {
       let result: { success: boolean; error?: string } | undefined;
@@ -318,7 +260,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
           || (await window.electronAPI?.settings.get('lanproxy.server_port') as number | null);
         if (!serverIp || !clientKey || !serverPort) {
           if (!silent) message.info('请先登录以获取代理服务配置');
-          await pollServices();
+          await onRefreshServices();
           return false;
         }
         result = await window.electronAPI?.lanproxy.start({
@@ -331,31 +273,34 @@ function ClientPage({ onNavigate }: ClientPageProps) {
         result = await window.electronAPI?.mcp.start();
       }
 
-      if (result?.success) {
-        if (!silent) message.success('服务启动成功');
-      } else if (result) {
-        if (!silent) message.error(`启动失败: ${result.error || '未知错误'}`);
+      if (result && !result.success && !silent) {
+        message.error(`启动失败: ${result.error || '未知错误'}`);
       }
-      await pollServices();
+      await onRefreshServices();
       return result?.success ?? false;
     } catch (error) {
       if (!silent) message.error(`启动失败: ${error}`);
-      await pollServices();
+      await onRefreshServices();
       return false;
     }
   };
 
   const handleStopService = async (key: string) => {
+    const startTime = Date.now();
     try {
       if (key === 'agent') await window.electronAPI?.agent.destroy();
       else if (key === 'fileServer') await window.electronAPI?.fileServer.stop();
       else if (key === 'lanproxy') await window.electronAPI?.lanproxy.stop();
       else if (key === 'mcpProxy') await window.electronAPI?.mcp.stop();
-      message.success('服务已停止');
     } catch (error) {
       message.error(`停止失败: ${error}`);
     }
-    await pollServices();
+    // 确保 loading 至少显示 300ms
+    const elapsed = Date.now() - startTime;
+    if (elapsed < 300) {
+      await new Promise((resolve) => setTimeout(resolve, 300 - elapsed));
+    }
+    await onRefreshServices();
   };
 
   const handleStartAll = async () => {
@@ -391,12 +336,13 @@ function ClientPage({ onNavigate }: ClientPageProps) {
       }
     } finally {
       setBatchLoading(false);
-      await pollServices();
+      await onRefreshServices();
     }
   };
 
   const handleStopAll = async () => {
     setBatchLoading(true);
+    const startTime = Date.now();
     try {
       const running = services.filter((s) => s.running);
       for (const svc of running) {
@@ -409,14 +355,14 @@ function ClientPage({ onNavigate }: ClientPageProps) {
           console.error(`停止 ${svc.label} 失败:`, error);
         }
       }
-      if (running.length > 0) {
-        message.success('所有服务已停止');
-      } else {
-        message.info('没有正在运行的服务');
-      }
     } finally {
+      // 确保 loading 至少显示 300ms（以最终停止时间为准）
+      const elapsed = Date.now() - startTime;
+      if (elapsed < 300) {
+        await new Promise((resolve) => setTimeout(resolve, 300 - elapsed));
+      }
       setBatchLoading(false);
-      await pollServices();
+      await onRefreshServices();
     }
   };
 
@@ -445,24 +391,16 @@ function ClientPage({ onNavigate }: ClientPageProps) {
 
   useEffect(() => {
     loadAuth();
-    pollServices();
+    onRefreshServices();
     checkDependencies();
-
-    // Poll services every 5 seconds
-    pollTimer.current = setInterval(pollServices, 5000);
-    return () => {
-      if (pollTimer.current) {
-        clearInterval(pollTimer.current);
-      }
-    };
-  }, [loadAuth, pollServices, checkDependencies]);
+  }, [loadAuth, onRefreshServices, checkDependencies]);
 
   // ======================== Render helpers ========================
 
   const renderLoginSection = () => {
     if (authLoading) {
       return (
-        <div style={styles.sectionBody}>
+        <div className={styles.sectionBody}>
           <Spin size="small" />
         </div>
       );
@@ -473,52 +411,51 @@ function ClientPage({ onNavigate }: ClientPageProps) {
       const isButtonDisabled = !redirectUrl;
 
       return (
-        <div style={styles.sectionBody}>
-          <div style={styles.userInfoRow}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <UserOutlined style={{ fontSize: 16, color: '#18181b' }} />
-              <span style={{ fontSize: 14, fontWeight: 500, color: '#18181b' }}>
-                {authState.username || '用户'}
-              </span>
-              <Tag color="green" style={{ margin: 0, fontSize: 11 }}>
-                已登录
-              </Tag>
+        <div className={styles.sectionBody}>
+          {/* 左右布局：左侧用户信息 + 右侧按钮 */}
+          <div className={styles.loggedInContainer}>
+            {/* 左侧：用户信息 */}
+            <div className={styles.userInfo}>
+              <CheckCircleOutlined style={{ color: '#16a34a', fontSize: 14 }} />
+              <div className={styles.userInfoText}>
+                <span className={styles.username}>
+                  {authState.username || '用户'}
+                </span>
+                <div className={styles.domain}>
+                  {authState.domain || ''}
+                </div>
+              </div>
             </div>
-          </div>
 
-          {authState.domain && (
-            <div style={{ fontSize: 12, color: '#71717a', marginTop: 4, marginBottom: 12 }}>
-              <GlobalOutlined style={{ marginRight: 4 }} />
-              {authState.domain}
+            {/* 右侧：操作按钮 */}
+            <div className={styles.actionButtons}>
+              <Button
+                type="primary"
+                icon={<PlayCircleOutlined />}
+                onClick={handleStartSession}
+                size="small"
+                disabled={isButtonDisabled}
+              >
+                开始会话
+              </Button>
+              <Button
+                icon={<QrcodeOutlined />}
+                onClick={handleShowQrCode}
+                size="small"
+                disabled={isButtonDisabled}
+              >
+                扫码使用
+              </Button>
+              <Button
+                type="text"
+                icon={<LogoutOutlined />}
+                onClick={handleLogout}
+                size="small"
+                danger
+              >
+                退出
+              </Button>
             </div>
-          )}
-
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Button
-              type="primary"
-              icon={<PlayCircleOutlined />}
-              onClick={handleStartSession}
-              size="small"
-              disabled={isButtonDisabled}
-            >
-              开始会话
-            </Button>
-            <Button
-              icon={<QrcodeOutlined />}
-              onClick={handleShowQrCode}
-              size="small"
-              disabled={isButtonDisabled}
-            >
-              扫码使用
-            </Button>
-            <Button
-              icon={<LogoutOutlined />}
-              onClick={handleLogout}
-              size="small"
-              danger
-            >
-              退出登录
-            </Button>
           </div>
 
           {/* 二维码弹窗 */}
@@ -530,14 +467,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
             centered
             width={320}
           >
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                padding: '16px 0',
-              }}
-            >
+            <div className={styles.qrCodeContainer}>
               {redirectUrl && <QRCodeSVG value={redirectUrl} size={200} />}
             </div>
           </Modal>
@@ -547,7 +477,7 @@ function ClientPage({ onNavigate }: ClientPageProps) {
 
     // Not logged in — show login form
     return (
-      <div style={styles.sectionBody}>
+      <div className={styles.sectionBody}>
         <Form layout="vertical" size="small" onFinish={handleLogin}>
           <Form.Item
             style={{ marginBottom: 10 }}
@@ -596,8 +526,8 @@ function ClientPage({ onNavigate }: ClientPageProps) {
           </Button>
         </Form>
 
-        <div style={{ marginTop: 8, textAlign: 'center' }}>
-          <span style={{ fontSize: 11, color: '#a1a1aa' }}>
+        <div className={styles.loginHint}>
+          <span className={styles.loginHintText}>
             支持用户名、邮箱、手机号
           </span>
         </div>
@@ -606,19 +536,28 @@ function ClientPage({ onNavigate }: ClientPageProps) {
   };
 
   const renderServicesSection = () => {
+    // 首次加载中
     if (servicesLoading) {
       return (
-        <div style={styles.sectionBody}>
+        <div className={styles.sectionBody}>
           <Spin size="small" />
         </div>
       );
     }
 
     return (
-      <div style={styles.sectionBody}>
+      <div className={styles.sectionBody}>
+        {/* Loading 覆盖层 */}
+        {batchLoading && (
+          <div className={styles.loadingOverlay}>
+            <LoadingOutlined style={{ fontSize: 18, color: '#1677ff' }} />
+            <span className={styles.loadingText}>正在操作服务...</span>
+          </div>
+        )}
+        {/* 服务列表 */}
         {services.map((svc) => (
-          <div key={svc.key} style={styles.serviceRow}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+          <div key={svc.key} className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
               {svc.running ? (
                 <CheckCircleOutlined style={{ color: '#16a34a', fontSize: 14 }} />
               ) : (
@@ -626,23 +565,23 @@ function ClientPage({ onNavigate }: ClientPageProps) {
               )}
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 13, color: '#18181b' }}>{svc.label}</span>
+                  <span className={styles.serviceLabel}>{svc.label}</span>
                   {svc.running ? (
                     <Tag color="green" style={{ margin: 0, fontSize: 11 }}>运行中</Tag>
                   ) : (
                     <Tag style={{ margin: 0, fontSize: 11 }}>已停止</Tag>
                   )}
                   {svc.running && svc.pid && (
-                    <span style={{ fontSize: 11, color: '#a1a1aa' }}>PID: {svc.pid}</span>
+                    <span className={styles.servicePid}>PID: {svc.pid}</span>
                   )}
                 </div>
-                <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 2 }}>
+                <div className={styles.serviceDescription}>
                   {svc.description}
                 </div>
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 4 }}>
+            <div className={styles.serviceActions}>
               {svc.running ? (
                 <Button
                   size="small"
@@ -705,8 +644,8 @@ function ClientPage({ onNavigate }: ClientPageProps) {
 
   const renderQuickActions = () => {
     return (
-      <div style={styles.sectionBody}>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      <div className={styles.sectionBody}>
+        <div className={styles.quickActions}>
           <Button
             icon={<SettingOutlined />}
             onClick={() => onNavigate?.('settings')}
@@ -736,25 +675,25 @@ function ClientPage({ onNavigate }: ClientPageProps) {
   // ======================== Main render ========================
 
   return (
-    <div style={styles.page}>
+    <div className={styles.page}>
       {/* Dependency alert */}
       {renderDependencyAlert()}
 
       {/* Login status */}
-      <div className="section" style={styles.section}>
-        <div style={styles.sectionHeader}>
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
           <UserOutlined style={{ fontSize: 14, color: '#52525b' }} />
-          <span style={styles.sectionTitle}>账号状态</span>
+          <span className={styles.sectionTitle}>账号状态</span>
         </div>
         {renderLoginSection()}
       </div>
 
       {/* Service status */}
-      <div className="section" style={styles.section}>
-        <div style={{ ...styles.sectionHeader, justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div className={styles.section}>
+        <div className={styles.servicesHeader}>
+          <div className={styles.servicesHeaderLeft}>
             <PlayCircleOutlined style={{ fontSize: 14, color: '#52525b' }} />
-            <span style={styles.sectionTitle}>服务</span>
+            <span className={styles.sectionTitle}>服务</span>
             {!servicesLoading && (() => {
               const runningCount = services.filter((s) => s.running).length;
               const totalCount = services.length;
@@ -769,11 +708,11 @@ function ClientPage({ onNavigate }: ClientPageProps) {
             })()}
           </div>
           {!servicesLoading && (
-            <div style={{ display: 'flex', gap: 4 }}>
+            <div className={styles.servicesHeaderActions}>
               <Button
                 size="small"
                 icon={<ReloadOutlined />}
-                onClick={() => { setServicesLoading(true); pollServices(); }}
+                onClick={() => onRefreshServices()}
               >
                 刷新
               </Button>
@@ -804,59 +743,15 @@ function ClientPage({ onNavigate }: ClientPageProps) {
       </div>
 
       {/* Quick actions */}
-      <div className="section" style={styles.section}>
-        <div style={styles.sectionHeader}>
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
           <AppstoreOutlined style={{ fontSize: 14, color: '#52525b' }} />
-          <span style={styles.sectionTitle}>快捷操作</span>
+          <span className={styles.sectionTitle}>快捷操作</span>
         </div>
         {renderQuickActions()}
       </div>
     </div>
   );
 }
-
-// ======================== Styles ========================
-
-const styles: Record<string, React.CSSProperties> = {
-  page: {
-    padding: 0,
-  },
-  section: {
-    background: '#ffffff',
-    border: '1px solid #e4e4e7',
-    borderRadius: 8,
-    marginBottom: 16,
-    overflow: 'hidden',
-  },
-  sectionHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '10px 16px',
-    borderBottom: '1px solid #f4f4f5',
-    background: '#fafafa',
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: 600,
-    color: '#18181b',
-  },
-  sectionBody: {
-    padding: 16,
-  },
-  userInfoRow: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  serviceRow: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '8px 0',
-    borderBottom: '1px solid #f4f4f5',
-  },
-};
 
 export default ClientPage;

@@ -54,12 +54,18 @@ function findExecutables(dir, list = []) {
 
 /**
  * 使用 codesign 对文件进行签名
+ * @param {string} filePath - 要签名的文件路径
+ * @param {string} identity - 签名证书 identity
+ * @param {string|null} entitlementsPath - entitlements 文件路径（仅主 app 需要）
  */
-function codesign(filePath, identity) {
+function codesign(filePath, identity, entitlementsPath = null) {
   try {
-    execSync(`codesign --force --options runtime --timestamp --sign "${identity}" "${filePath}"`, {
-      stdio: 'inherit',
-    });
+    let cmd = `codesign --force --options runtime --timestamp --sign "${identity}"`;
+    if (entitlementsPath && fs.existsSync(entitlementsPath)) {
+      cmd += ` --entitlements "${entitlementsPath}"`;
+    }
+    cmd += ` "${filePath}"`;
+    execSync(cmd, { stdio: 'inherit' });
     return true;
   } catch (e) {
     console.error(`[after-sign] 签名失败: ${filePath}`);
@@ -164,8 +170,10 @@ exports.default = async function (context) {
   }
 
   // 4. 对主 .app 重新签名，恢复 seal（内部二进制被签过后包内容已变，必须整体再签一次）
+  //    使用 build 目录下的 entitlements.mac.plist 确保权限正确
   console.log('[after-sign] 对主 app 重新签名以恢复 seal...');
-  codesign(appPath, identity);
+  const entitlementsPath = path.join(process.cwd(), 'build', 'entitlements.mac.plist');
+  codesign(appPath, identity, entitlementsPath);
 
   // 5. 验证整个 app 的签名
   console.log('[after-sign] 验证整个 app 签名...');

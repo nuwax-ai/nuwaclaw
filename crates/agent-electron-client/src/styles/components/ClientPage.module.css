@@ -1,0 +1,184 @@
+/**
+ * ClientPage 组件样式
+ * 包含页面、区块、服务行、登录表单等样式
+ */
+
+/* ========== 页面 ========== */
+.page {
+  padding: 0;
+}
+
+/* ========== 区块 ========== */
+.section {
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #f4f4f5;
+  background: #fafafa;
+}
+
+.sectionTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #18181b;
+}
+
+.sectionBody {
+  padding: 16px;
+  position: relative;
+}
+
+/* ========== 服务区块头部 ========== */
+.servicesHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid #f4f4f5;
+  background: #fafafa;
+}
+
+.servicesHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.servicesHeaderActions {
+  display: flex;
+  gap: 4px;
+}
+
+/* ========== 服务行 ========== */
+.serviceRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #f4f4f5;
+}
+
+.serviceRow:last-child {
+  border-bottom: none;
+}
+
+.serviceInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.serviceLabel {
+  font-size: 13px;
+  color: #18181b;
+}
+
+.serviceDescription {
+  font-size: 11px;
+  color: #a1a1aa;
+  margin-top: 2px;
+}
+
+.servicePid {
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+.serviceActions {
+  display: flex;
+  gap: 4px;
+}
+
+/* ========== 登录区块 ========== */
+/* 已登录：左右布局 */
+.loggedInContainer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.userInfoText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.username {
+  font-size: 13px;
+  font-weight: 500;
+  color: #18181b;
+}
+
+.domain {
+  font-size: 11px;
+  color: #71717a;
+}
+
+.actionButtons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 登录提示 */
+.loginHint {
+  margin-top: 8px;
+  text-align: center;
+}
+
+.loginHintText {
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+/* 二维码弹窗 */
+.qrCodeContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0;
+}
+
+/* ========== Loading 覆盖层 ========== */
+.loadingOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  z-index: 10;
+}
+
+.loadingText {
+  font-size: 13px;
+  color: #1677ff;
+  font-weight: 500;
+}
+
+/* ========== 快捷操作 ========== */
+.quickActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

@@ -231,27 +231,29 @@ function getAppDataDir(): string {
 }
 
 /**
- * Resolve ACP binary path for a given engine type.
+ * Resolve ACP entry JS file path for a given engine type.
  *
- * - claude-code → ~/.nuwax-agent/node_modules/.bin/claude-code-acp-ts
- * - nuwaxcode   → ~/.nuwax-agent/node_modules/.bin/nuwaxcode
+ * Windows 下绕过 .cmd 文件，直接使用 node 执行 JS 文件，避免弹出 CMD 窗口。
+ *
+ * - claude-code → ~/.nuwax-agent/node_modules/claude-code-acp-ts/dist/index.js
+ * - nuwaxcode   → ~/.nuwax-agent/node_modules/nuwaxcode/bin/nuwaxcode
  */
 export function resolveAcpBinary(engine: 'claude-code' | 'nuwaxcode'): { binPath: string; binArgs: string[] } {
   const appDataDir = getAppDataDir();
-  const isWin = isWindows();
+  const nodeModules = path.join(appDataDir, 'node_modules');
 
   if (engine === 'claude-code') {
-    const binName = isWin ? 'claude-code-acp-ts.cmd' : 'claude-code-acp-ts';
+    // 直接使用 JS 入口文件，绕过 .cmd
     return {
-      binPath: path.join(appDataDir, 'node_modules', '.bin', binName),
+      binPath: path.join(nodeModules, 'claude-code-acp-ts', 'dist', 'index.js'),
       binArgs: [],
     };
   }
 
   // nuwaxcode
-  const binName = isWin ? 'nuwaxcode.cmd' : 'nuwaxcode';
+  // 直接使用 JS 入口文件，绕过 .cmd
   return {
-    binPath: path.join(appDataDir, 'node_modules', '.bin', binName),
+    binPath: path.join(nodeModules, 'nuwaxcode', 'bin', 'nuwaxcode'),
     binArgs: ['acp'],
   };
 }
@@ -350,12 +352,17 @@ export async function createAcpConnection(
   );
 
   // 1. Spawn ACP binary
-  const proc = spawn(binPath, binArgs, {
+  // 使用 Electron 内置的 Node.js 直接执行 JS 文件
+  // 绕过 .cmd 文件，避免 Windows 下弹出 CMD 窗口
+  const proc = spawn(process.execPath, [binPath, ...binArgs], {
     cwd: config.workspaceDir,
-    env,
+    env: {
+      ...env,
+      ELECTRON_RUN_AS_NODE: '1',  // 让 Electron 以 Node.js 模式运行
+    },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
-    shell: isWindows(),
+    // 不使用 shell，直接执行 node
   });
 
   // Log stderr
