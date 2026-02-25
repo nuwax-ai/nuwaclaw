@@ -13,6 +13,12 @@ import { DEFAULT_DEV_SERVER_PORT } from '../services/main/constants';
 import { APP_DISPLAY_NAME } from '../commons/constants';
 import { initLogging } from './logConfig';
 
+// macOS 26 Tahoe 兼容性：禁用 Fontations 字体后端
+// 参考: https://github.com/electron/electron/issues/49522
+if (process.platform === 'darwin') {
+  app.commandLine.appendSwitch('disable-features', 'FontationsFontBackend');
+}
+
 // 日志：轮转 + TTL 清理 + 开发/正式差异化（见 logConfig.ts）
 initLogging();
 log.info('Application starting...');
