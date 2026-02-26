@@ -145,6 +145,13 @@ export function spawnJsFile(
       // Critical: Tell Electron to run in Node.js mode (Windows only)
       ELECTRON_RUN_AS_NODE: '1',
     };
+    
+    // DEBUG: 记录平台调试信息
+    console.log(`[spawnNoWindow] 平台: ${process.platform}, 调试信息:`);
+    console.log('  - process.execPath:', process.execPath);
+    console.log('  - 使用 node:', node);
+    console.log('  - ELECTRON_RUN_AS_NODE:', mergedEnv.ELECTRON_RUN_AS_NODE);
+    console.log('  - PATH:', mergedEnv.PATH?.split(':').slice(0, 5).join(':'));
   } else {
     // macOS/Linux: Use system node to avoid Dock icon issue
     node = nodePath || findSystemNode();
@@ -155,10 +162,9 @@ export function spawnJsFile(
       PATH: getEnhancedPath(),
     };
 
-    // Log which node is being used in development mode only
-    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
-      console.log(`[spawnNoWindow] Using node: ${node}`);
-    }
+    // Log which node is being used
+    console.log(`[spawnNoWindow] 平台: ${process.platform}, 使用 node: ${node}`);
+    console.log(`[spawnNoWindow] PATH 前5个: ${mergedEnv.PATH?.split(':').slice(0, 5).join(':')}`);
   }
 
   return spawn(node, [jsFile, ...args], {
