@@ -83,7 +83,16 @@ export function resolveNpmPackageEntry(packageDir: string, binName?: string): st
     }
 
     if (binPath) {
-      const entryPath = path.join(packageDir, binPath);
+      // 处理相对路径（如 ./dist/bin.js）
+      // path.join 不会自动规范化，需要手动处理
+      let entryPath: string;
+      if (binPath.startsWith('./')) {
+        // 相对路径：直接拼接并规范化
+        entryPath = path.normalize(path.join(packageDir, binPath));
+      } else {
+        entryPath = path.join(packageDir, binPath);
+      }
+      
       if (fs.existsSync(entryPath)) {
         return entryPath;
       }
