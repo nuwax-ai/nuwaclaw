@@ -38,6 +38,8 @@
 import { spawn, ChildProcess, SpawnOptions, execSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import log from 'electron-log';
+import { getAppEnv } from '../system/dependencies';
 
 /**
  * Options for spawnNoWindow functions
@@ -145,35 +147,40 @@ export function spawnJsFile(
   let mergedEnv: Record<string, string | undefined>;
 
   if (isWindows()) {
-    // Windows: Use Electron's bundled Node with ELECTRON_RUN_AS_NODE
-    // This bypasses .cmd files and prevents console popup
+    // Windows: 使用 getAppEnv() 获取完整的环境变量
+    // 包含：内置 Node.js 24、内置 Git、从注册表读取的 PATH 等
+    const appEnv = getAppEnv();
+    
     node = nodePath || process.execPath;
     mergedEnv = {
-      ...process.env,
+      ...appEnv,  // 使用 getAppEnv() 的完整环境变量
       ...env,
-      // Critical: Tell Electron to run in Node.js mode (Windows only)
+      // 确保 Electron 以 Node.js 模式运行
       ELECTRON_RUN_AS_NODE: '1',
     };
     
     // DEBUG: 记录平台调试信息
-    console.log(`[spawnNoWindow] 平台: ${process.platform}, 调试信息:`);
-    console.log('  - process.execPath:', process.execPath);
-    console.log('  - 使用 node:', node);
-    console.log('  - ELECTRON_RUN_AS_NODE:', mergedEnv.ELECTRON_RUN_AS_NODE);
-    console.log('  - PATH:', mergedEnv.PATH?.split(':').slice(0, 5).join(':'));
+    log.info(`[spawnNoWindow] Windows 调试信息:`);
+    log.info(`[spawnNoWindow]   - process.execPath: ${process.execPath}`);
+    log.info(`[spawnNoWindow]   - 使用 node: ${node}`);
+    log.info(`[spawnNoWindow]   - ELECTRON_RUN_AS_NODE: ${mergedEnv.ELECTRON_RUN_AS_NODE}`);
+    log.info(`[spawnNoWindow]   - PATH 前5个: ${(mergedEnv.PATH || '').split(';').slice(0, 5).join(';')}`);
+    log.info(`[spawnNoWindow]   - NUWAXCODE_GIT_BASH_PATH: ${mergedEnv.NUWAXCODE_GIT_BASH_PATH || '(未设置)'}`);
+    log.info(`[spawnNoWindow]   - MSYS2_PATH_TYPE: ${mergedEnv.MSYS2_PATH_TYPE || '(未设置)'}`);
   } else {
-    // macOS/Linux: Use system node to avoid Dock icon issue
+    // macOS/Linux: 使用 getAppEnv() 获取完整的环境变量
+    const appEnv = getAppEnv();
+    
     node = nodePath || findSystemNode();
     mergedEnv = {
-      ...process.env,
+      ...appEnv,  // 使用 getAppEnv() 的完整环境变量
       ...env,
-      // Ensure subprocess can find node and other tools
-      PATH: getEnhancedPath(),
     };
 
-    // Log which node is being used
-    console.log(`[spawnNoWindow] 平台: ${process.platform}, 使用 node: ${node}`);
-    console.log(`[spawnNoWindow] PATH 前5个: ${mergedEnv.PATH?.split(':').slice(0, 5).join(':')}`);
+    // 记录调试信息
+    log.info(`[spawnNoWindow] ${process.platform} 调试信息:`);
+    log.info(`[spawnNoWindow]   - 使用 node: ${node}`);
+    log.info(`[spawnNoWindow]   - PATH 前5个: ${(mergedEnv.PATH || '').split(':').slice(0, 5).join(':')}`);
   }
 
   return spawn(node, [jsFile, ...args], {
