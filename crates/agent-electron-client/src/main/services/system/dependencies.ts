@@ -296,8 +296,17 @@ function getSystemPaths(): string[] {
   });
 
   // 添加常见系统路径作为回退（macOS GUI 应用可能没有完整 PATH）
+  // 以及 Electron 内置 Node.js 路径
   const fallbackPaths: string[] = [];
+  
+  // ========== Electron 内置 Node.js 路径 ==========
   if (process.platform === 'darwin') {
+    // macOS: Electron 内置 Node.js
+    const electronPath = process.execPath.replace(/\/Contents\/MacOS\/.*/, '/Contents/Frameworks/Electron Framework.framework/Versions/Current/node/bin');
+    if (fs.existsSync(electronPath)) {
+      fallbackPaths.push(electronPath);
+    }
+    
     // macOS 常见路径
     fallbackPaths.push(
       '/usr/local/bin',      // Homebrew Intel
@@ -346,13 +355,41 @@ function getSystemPaths(): string[] {
       }
     }
   } else if (isWindows()) {
+    // Windows: Electron 内置 Node.js
+    // 打包后: resources/app.asar.unpacked/node_modules/electron/dist/node.exe
+    // 开发: 可能不存在，需要用系统 Node
+    const execDir = path.dirname(process.execPath);
+    const electronPaths = [
+      path.join(execDir, 'resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node.exe'),
+      path.join(execDir, '..', 'Resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node.exe'),
+    ];
+    
+    for (const ep of electronPaths) {
+      const electronNodeBin = path.join(path.dirname(ep), 'bin');
+      if (fs.existsSync(electronNodeBin)) {
+        fallbackPaths.push(electronNodeBin);
+        break;
+      }
+    }
+    
     // Windows 常见路径
     const home = process.env.USERPROFILE || process.env.HOME || '';
+    const programFiles = process.env.PROGRAMFILES || 'C:\\Program Files';
+    const programFilesX86 = process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)';
+    
     if (home) {
       fallbackPaths.push(
         path.join(home, 'AppData', 'Roaming', 'npm'),
       );
     }
+    
+    // 添加系统 Node.js 路径
+    fallbackPaths.push(
+      path.join(programFiles, 'nodejs'),
+      path.join(programFilesX86, 'nodejs'),
+      'C:\\Windows\\system32',
+      'C:\\Windows',
+    );
   }
 
   // 合并并去重
