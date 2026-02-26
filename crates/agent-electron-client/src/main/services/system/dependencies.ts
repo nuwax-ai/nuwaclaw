@@ -135,6 +135,49 @@ export function getResourcesPath(): string {
   return path.join(__dirname, '../../../../../resources');
 }
 
+// 获取 Electron 内置 Node.js 的 bin 目录路径
+// 优先级最高：优先使用 Electron 内置的 npm/npx/node
+function getElectronNodeBinDir(): string {
+  const execDir = path.dirname(process.execPath);
+  
+  if (isWindows()) {
+    // Windows: 打包后路径
+    // Electron Framework/Versions/Current/Resources/app.asar.unpacked/node_modules/electron/dist/
+    // 或直接使用 Electron 内置的 node
+    const paths = [
+      path.join(execDir, 'resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node_modules', 'bin'),
+      path.join(execDir, '..', 'Resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node_modules', 'bin'),
+    ];
+    
+    for (const p of paths) {
+      if (fs.existsSync(p)) {
+        return p;
+      }
+    }
+    
+    // 回退：尝试使用 Electron 运行时的 node 所在目录的兄弟目录
+    // Electron 内置 node 通常在 Electron Framework/Contents/Frameworks/Electron Framework.framework/Versions/Current/node/bin
+    const electronFrameworkPath = path.join(execDir, 'Contents', 'Frameworks', 'Electron Framework.framework', 'Versions', 'Current', 'node', 'bin');
+    if (fs.existsSync(electronFrameworkPath)) {
+      return electronFrameworkPath;
+    }
+  } else if (process.platform === 'darwin') {
+    // macOS: Electron Framework/node/bin
+    const electronFrameworkPath = path.join(execDir, 'Contents', 'Frameworks', 'Electron Framework.framework', 'Versions', 'Current', 'node', 'bin');
+    if (fs.existsSync(electronFrameworkPath)) {
+      return electronFrameworkPath;
+    }
+  } else {
+    // Linux: 类似路径
+    const electronFrameworkPath = path.join(execDir, 'resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node_modules', 'bin');
+    if (fs.existsSync(electronFrameworkPath)) {
+      return electronFrameworkPath;
+    }
+  }
+  
+  return ''; // 未找到
+}
+
 // 获取 bundled uv 二进制路径
 export function getUvBinPath(): string {
   const uvName = isWindows() ? 'uv.exe' : 'uv';
@@ -196,12 +239,26 @@ export function getAppEnv(): Record<string, string> {
   // 这样 agent 可以使用 bash/git/grep 等系统工具
   const systemPathPaths = getSystemPaths();
 
-  // PATH 优先级：应用内路径 > 系统 PATH（回退）
-  // - node/npm/npx/uv/uvx 会优先使用应用内版本
-  // - bash/git/grep 等系统工具通过 systemPathPaths 回退到系统版本
-  const priorityPath = [nodeModulesBin, appBin, uvBin, uvToolBinDir, ...systemPathPaths]
+  // 获取 Electron 内置 Node.js 的 bin 目录（npm/npx 所在）
+  const electronNodeBinDir = getElectronNodeBinDir();
+
+  // PATH 优先级：Electron 内置 Node > 应用内路径 > uv > 系统 PATH（回退）
+  // - electronNodeBinDir: Electron 内置的 npm/npx（最高优先级！）
+  // - nodeModulesBin: 应用内 node_modules/.bin
+  // - appBin: 应用内 bin
+  // - uvBin/uvToolBinDir: uv
+  // - systemPathPaths: 系统工具（bash/git 等）
+  const priorityPath = [electronNodeBinDir, nodeModulesBin, appBin, uvBin, uvToolBinDir, ...systemPathPaths]
     .filter(Boolean)
     .join(pathSep);
+
+  // 调试日志：输出 PATH 优先级
+  log.info(`[getAppEnv] PATH 优先级:`);
+  log.info(`[getAppEnv]   1. Electron Node: ${electronNodeBinDir || '(未找到)'}`);
+  log.info(`[getAppEnv]   2. node_modules: ${nodeModulesBin}`);
+  log.info(`[getAppEnv]   3. app bin: ${appBin}`);
+  log.info(`[getAppEnv]   4. uv: ${uvBin}`);
+  log.info(`[getAppEnv]   5. 系统回退: ${systemPathPaths.slice(0, 3).join(', ')}...`);
 
   // 构建环境变量对象
   const env: Record<string, string | undefined> = {
