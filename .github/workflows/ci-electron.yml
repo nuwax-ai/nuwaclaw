@@ -95,6 +95,19 @@ jobs:
         working-directory: crates/agent-electron-client
         run: npm run test:run
 
+      # 缓存内置 Node.js 和 Git（加速后续构建）
+      - name: Cache bundled Node.js
+        uses: actions/cache@v4
+        with:
+          path: crates/agent-electron-client/resources/node
+          key: bundled-node-24-${{ runner.os }}
+
+      - name: Cache bundled Git
+        uses: actions/cache@v4
+        with:
+          path: crates/agent-electron-client/resources/git
+          key: bundled-git-2.47.1-${{ runner.os }}
+
       - name: Build Electron app (unsigned)
         working-directory: crates/agent-electron-client
         run: npm run ${{ matrix.dist_cmd }}
