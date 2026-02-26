@@ -190,6 +190,90 @@ export function getLanproxyBinPath(): string {
   return path.join(getResourcesPath(), 'lanproxy', 'bin', binName);
 }
 
+// 获取 bundled Node.js 24 路径（集成到 resources/node/）
+// 参考 LobsterAI 方案：https://github.com/netease-youdao/LobsterAI
+function getBundledNodeBinDir(): string {
+  // 优先使用 resources/node/bin
+  const resourcesPath = getResourcesPath();
+  const nodeBinPath = path.join(resourcesPath, 'node', 'bin');
+  
+  if (fs.existsSync(nodeBinPath)) {
+    log.info(`[getBundledNodeBinDir] 使用内置 Node.js: ${nodeBinPath}`);
+    return nodeBinPath;
+  }
+  
+  // 开发模式回退
+  const devPath = path.join(process.cwd(), 'resources', 'node', 'bin');
+  if (fs.existsSync(devPath)) {
+    log.info(`[getBundledNodeBinDir] 开发模式使用内置 Node.js: ${devPath}`);
+    return devPath;
+  }
+  
+  return ''; // 未找到
+}
+
+// 获取 bundled Git 路径（集成到 resources/git/）
+// 参考 LobsterAI 方案：https://github.com/netease-youdao/LobsterAI
+// Windows 需要 git-bash 执行 shell 命令
+function getBundledGitBinDir(): string {
+  if (!isWindows()) {
+    return ''; // macOS/Linux 不需要
+  }
+  
+  const resourcesPath = getResourcesPath();
+  const gitBinPath = path.join(resourcesPath, 'git', 'bin');
+  
+  if (fs.existsSync(gitBinPath)) {
+    log.info(`[getBundledGitBinDir] 使用内置 Git: ${gitBinPath}`);
+    return gitBinPath;
+  }
+  
+  // 开发模式回退
+  const devPath = path.join(process.cwd(), 'resources', 'git', 'bin');
+  if (fs.existsSync(devPath)) {
+    log.info(`[getBundledGitBinDir] 开发模式使用内置 Git: ${devPath}`);
+    return devPath;
+  }
+  
+  return ''; // 未找到
+}
+
+// 获取 bundled git-bash.exe 路径（Windows）
+// Claude Code CLI / nuwaxcode 需要 git-bash 执行 shell 命令
+function getBundledGitBashPath(): string {
+  if (!isWindows()) {
+    return '';
+  }
+  
+  const resourcesPath = getResourcesPath();
+  const bashPaths = [
+    path.join(resourcesPath, 'git', 'bin', 'bash.exe'),
+    path.join(resourcesPath, 'git', 'usr', 'bin', 'bash.exe'),
+  ];
+  
+  for (const p of bashPaths) {
+    if (fs.existsSync(p)) {
+      log.info(`[getBundledGitBashPath] 使用内置 git-bash: ${p}`);
+      return p;
+    }
+  }
+  
+  // 开发模式回退
+  const devPaths = [
+    path.join(process.cwd(), 'resources', 'git', 'bin', 'bash.exe'),
+    path.join(process.cwd(), 'resources', 'git', 'usr', 'bin', 'bash.exe'),
+  ];
+  
+  for (const p of devPaths) {
+    if (fs.existsSync(p)) {
+      log.info(`[getBundledGitBashPath] 开发模式使用内置 git-bash: ${p}`);
+      return p;
+    }
+  }
+  
+  return ''; // 未找到
+}
+
 /**
  * 构建注入应用内依赖的环境变量（优先应用内，回退系统）
  *
@@ -239,30 +323,36 @@ export function getAppEnv(): Record<string, string> {
   // 这样 agent 可以使用 bash/git/grep 等系统工具
   const systemPathPaths = getSystemPaths();
 
-  // 获取 Electron 内置 Node.js 的 bin 目录（npm/npx 所在）
-  const electronNodeBinDir = getElectronNodeBinDir();
+  // 获取内置 Node.js 24 和 Git 路径
+  const bundledNodeBinDir = getBundledNodeBinDir();
+  const bundledGitBinDir = getBundledGitBinDir();
+  const bundledGitBashPath = getBundledGitBashPath();
 
-  // PATH 优先级：Electron 内置 Node > 应用内路径 > uv > 系统 PATH（回退）
-  // - electronNodeBinDir: Electron 内置的 npm/npx（最高优先级！）
+  // PATH 优先级：内置 Node.js 24 > Electron > 应用内路径 > uv > 系统 PATH
+  // - bundledNodeBinDir: 内置 Node.js 24（最高优先级！）
+  // - electronNodeBinDir: Electron 内置的 npm/npx
+  // - bundledGitBinDir: 内置 Git bin
   // - nodeModulesBin: 应用内 node_modules/.bin
   // - appBin: 应用内 bin
   // - uvBin/uvToolBinDir: uv
-  // - systemPathPaths: 系统工具（bash/git 等）
-  const priorityPath = [electronNodeBinDir, nodeModulesBin, appBin, uvBin, uvToolBinDir, ...systemPathPaths]
+  // - systemPathPaths: 系统工具
+  const priorityPath = [bundledNodeBinDir, electronNodeBinDir, bundledGitBinDir, nodeModulesBin, appBin, uvBin, uvToolBinDir, ...systemPathPaths]
     .filter(Boolean)
     .join(pathSep);
 
   // 调试日志：输出 PATH 优先级
   log.info(`[getAppEnv] PATH 优先级:`);
-  log.info(`[getAppEnv]   1. Electron Node: ${electronNodeBinDir || '(未找到)'}`);
-  log.info(`[getAppEnv]   2. node_modules: ${nodeModulesBin}`);
-  log.info(`[getAppEnv]   3. app bin: ${appBin}`);
-  log.info(`[getAppEnv]   4. uv: ${uvBin}`);
-  log.info(`[getAppEnv]   5. 系统回退: ${systemPathPaths.slice(0, 3).join(', ')}...`);
+  log.info(`[getAppEnv]   1. 内置 Node.js 24: ${bundledNodeBinDir || '(未找到)'}`);
+  log.info(`[getAppEnv]   2. Electron Node: ${electronNodeBinDir || '(未找到)'}`);
+  log.info(`[getAppEnv]   3. 内置 Git: ${bundledGitBinDir || '(未找到)'}`);
+  log.info(`[getAppEnv]   4. node_modules: ${nodeModulesBin}`);
+  log.info(`[getAppEnv]   5. app bin: ${appBin}`);
+  log.info(`[getAppEnv]   6. uv: ${uvBin}`);
+  log.info(`[getAppEnv]   7. 系统回退: ${systemPathPaths.slice(0, 3).join(', ')}...`);
 
   // 构建环境变量对象
   const env: Record<string, string | undefined> = {
-    // === PATH：应用内优先，系统回退 ===
+    // === PATH：内置 Node.js/Git 优先，应用内，回退系统 ===
     PATH: priorityPath,
 
     // === Node.js 环境隔离 ===
@@ -305,6 +395,38 @@ export function getAppEnv(): Record<string, string> {
       cleanEnv[key] = val;
     }
   }
+
+  // === 为 Agent 引擎设置环境变量 ===
+  // 参考 LobsterAI 方案：https://github.com/netease-youdao/LobsterAI
+  // nuwaxcode-acp (opencode 改造) 使用 NUWAXCODE_* 前缀
+  // claude-code-acp-ts (Claude Code) 使用 CLAUDE_CODE_* 前缀
+
+  // 设置内置 Node.js 24 路径（最高优先级）
+  if (bundledNodeBinDir) {
+    // nuwaxcode-acp
+    cleanEnv.NUWAXCODE_NODE_DIR = bundledNodeBinDir;
+    // claude-code-acp-ts
+    cleanEnv.CLAUDE_CODE_NODE_DIR = bundledNodeBinDir;
+  }
+
+  // 设置内置 Git bash 路径（Windows 必须）
+  if (bundledGitBashPath) {
+    // nuwaxcode-acp (类似 CLAUDE_CODE_GIT_BASH_PATH)
+    cleanEnv.NUWAXCODE_GIT_BASH_PATH = bundledGitBashPath;
+    // claude-code-acp-ts
+    cleanEnv.CLAUDE_CODE_GIT_BASH_PATH = bundledGitBashPath;
+    
+    // 设置 MSYS2_PATH_TYPE=inherit 确保 git-bash 继承完整 PATH
+    // 参考 LobsterAI: 避免 git-bash 的 /etc/profile 重置 PATH
+    cleanEnv.MSYS2_PATH_TYPE = 'inherit';
+  }
+
+  // 设置内置 Git bin 路径
+  if (bundledGitBinDir) {
+    cleanEnv.NUWAXCODE_GIT_BIN_DIR = bundledGitBinDir;
+    cleanEnv.CLAUDE_CODE_GIT_BIN_DIR = bundledGitBinDir;
+  }
+
   return cleanEnv;
 }
 

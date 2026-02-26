@@ -19,7 +19,9 @@
     "prepare:uv": "node scripts/prepare-uv.js",
     "prepare:sign-uv": "node scripts/sign-uv-mac.js",
     "prepare:lanproxy": "node scripts/prepare-lanproxy.js",
-    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy",
+    "prepare:node": "node scripts/prepare-node.js",
+    "prepare:git": "node scripts/prepare-git.js",
+    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git",
     "build:electron": "npm run build && npm run prepare:all && electron-builder --config.compression=store",
     "dist": "npm run build:electron -- --mac",
     "dist:mac": "npm run build:electron -- --mac",
@@ -117,6 +119,20 @@
       {
         "from": "resources/lanproxy",
         "to": "lanproxy",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/node",
+        "to": "node",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/git",
+        "to": "git",
         "filter": [
           "**/*"
         ]
