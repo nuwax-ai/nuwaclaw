@@ -138,41 +138,46 @@ export function getResourcesPath(): string {
 // 获取 Electron 内置 Node.js 的 bin 目录路径
 // 优先级最高：优先使用 Electron 内置的 npm/npx/node
 function getElectronNodeBinDir(): string {
-  const execDir = path.dirname(process.execPath);
-  
-  if (isWindows()) {
-    // Windows: 打包后路径
-    // Electron Framework/Versions/Current/Resources/app.asar.unpacked/node_modules/electron/dist/
-    // 或直接使用 Electron 内置的 node
-    const paths = [
-      path.join(execDir, 'resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node_modules', 'bin'),
-      path.join(execDir, '..', 'Resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node_modules', 'bin'),
-    ];
+  try {
+    const execDir = path.dirname(process.execPath);
     
-    for (const p of paths) {
-      if (fs.existsSync(p)) {
-        return p;
+    if (isWindows()) {
+      // Windows: 打包后路径
+      // Electron Framework/Versions/Current/Resources/app.asar.unpacked/node_modules/electron/dist/
+      // 或直接使用 Electron 内置的 node
+      const paths = [
+        path.join(execDir, 'resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node_modules', 'bin'),
+        path.join(execDir, '..', 'Resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node_modules', 'bin'),
+      ];
+      
+      for (const p of paths) {
+        if (fs.existsSync(p)) {
+          return p;
+        }
+      }
+      
+      // 回退：尝试使用 Electron 运行时的 node 所在目录的兄弟目录
+      // Electron 内置 node 通常在 Electron Framework/Contents/Frameworks/Electron Framework.framework/Versions/Current/node/bin
+      const electronFrameworkPath = path.join(execDir, 'Contents', 'Frameworks', 'Electron Framework.framework', 'Versions', 'Current', 'node', 'bin');
+      if (fs.existsSync(electronFrameworkPath)) {
+        return electronFrameworkPath;
+      }
+    } else if (process.platform === 'darwin') {
+      // macOS: Electron Framework/node/bin
+      const electronFrameworkPath = path.join(execDir, 'Contents', 'Frameworks', 'Electron Framework.framework', 'Versions', 'Current', 'node', 'bin');
+      if (fs.existsSync(electronFrameworkPath)) {
+        return electronFrameworkPath;
+      }
+    } else {
+      // Linux: 类似路径
+      const electronFrameworkPath = path.join(execDir, 'resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node_modules', 'bin');
+      if (fs.existsSync(electronFrameworkPath)) {
+        return electronFrameworkPath;
       }
     }
-    
-    // 回退：尝试使用 Electron 运行时的 node 所在目录的兄弟目录
-    // Electron 内置 node 通常在 Electron Framework/Contents/Frameworks/Electron Framework.framework/Versions/Current/node/bin
-    const electronFrameworkPath = path.join(execDir, 'Contents', 'Frameworks', 'Electron Framework.framework', 'Versions', 'Current', 'node', 'bin');
-    if (fs.existsSync(electronFrameworkPath)) {
-      return electronFrameworkPath;
-    }
-  } else if (process.platform === 'darwin') {
-    // macOS: Electron Framework/node/bin
-    const electronFrameworkPath = path.join(execDir, 'Contents', 'Frameworks', 'Electron Framework.framework', 'Versions', 'Current', 'node', 'bin');
-    if (fs.existsSync(electronFrameworkPath)) {
-      return electronFrameworkPath;
-    }
-  } else {
-    // Linux: 类似路径
-    const electronFrameworkPath = path.join(execDir, 'resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node_modules', 'bin');
-    if (fs.existsSync(electronFrameworkPath)) {
-      return electronFrameworkPath;
-    }
+  } catch (error) {
+    // 测试环境中可能出错，返回空字符串
+    log.warn(`[getElectronNodeBinDir] 错误: ${error}`);
   }
   
   return ''; // 未找到
