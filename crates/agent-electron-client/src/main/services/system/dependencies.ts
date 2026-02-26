@@ -412,22 +412,8 @@ function getSystemPaths(): string[] {
       }
     }
   } else if (isWindows()) {
-    // Windows: Electron 内置 Node.js
-    // 打包后: resources/app.asar.unpacked/node_modules/electron/dist/node.exe
-    // 开发: 可能不存在，需要用系统 Node
-    const execDir = path.dirname(process.execPath);
-    const electronPaths = [
-      path.join(execDir, 'resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node.exe'),
-      path.join(execDir, '..', 'Resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node.exe'),
-    ];
-    
-    for (const ep of electronPaths) {
-      const electronNodeBin = path.join(path.dirname(ep), 'bin');
-      if (fs.existsSync(electronNodeBin)) {
-        fallbackPaths.push(electronNodeBin);
-        break;
-      }
-    }
+    // Windows: 使用 getElectronNodeBinDir() 获取 Electron 内置 Node.js
+    // (在 getSystemPaths 中复用，主要由 getAppEnv 中的优先级控制)
     
     // Windows 常见路径
     const home = process.env.USERPROFILE || process.env.HOME || '';
