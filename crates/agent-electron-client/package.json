@@ -1,6 +1,6 @@
 {
   "name": "@nuwax/agent-electron-client",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "description": "Nuwax Agent Desktop Client (Electron)",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
@@ -126,8 +126,8 @@
         "to": "icon.png"
       },
       {
-        "from": "public/icon.icns",
-        "to": "icon.icns"
+        "from": "public/icon-dock.png",
+        "to": "icon-dock.png"
       },
       {
         "from": "public/icon.ico",
