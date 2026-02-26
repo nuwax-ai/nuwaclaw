@@ -427,6 +427,96 @@ export function getAppEnv(): Record<string, string> {
     cleanEnv.CLAUDE_CODE_GIT_BIN_DIR = bundledGitBinDir;
   }
 
+  // === Windows 特定优化（参考 LobsterAI）===
+  if (isWindows()) {
+    // 1. 确保 Windows 关键系统环境变量存在
+    // 某些系统命令和 DLL 依赖这些变量
+    const windowsCriticalEnvVars: Record<string, string> = {
+      SystemRoot: process.env.SystemRoot || process.env.SYSTEMROOT || 'C:\\windows',
+      windir: process.env.windir || process.env.WINDIR || process.env.SystemRoot || 'C:\\windows',
+      COMSPEC: process.env.COMSPEC || 'C:\\windows\\system32\\cmd.exe',
+      SYSTEMDRIVE: process.env.SYSTEMDRIVE || 'C:',
+    };
+    
+    for (const [key, value] of Object.entries(windowsCriticalEnvVars)) {
+      if (!cleanEnv[key]) {
+        cleanEnv[key] = value;
+        log.info(`[getAppEnv] 添加 Windows 系统环境变量: ${key}=${value}`);
+      }
+    }
+
+    // 2. 确保 Windows 系统目录在 PATH 中
+    const windowsSystemPathEntries = [
+      'C:\\Windows\\System32',
+      'C:\\Windows\\System32\\Wbem',
+      'C:\\Windows\\System32\\WindowsPowerShell\\v1.0',
+      'C:\\Windows\\System32\\OpenSSH',
+    ];
+    
+    const currentPath = cleanEnv.PATH || '';
+    const currentPathLower = currentPath.split(';').map(p => p.toLowerCase());
+    
+    for (const sysPath of windowsSystemPathEntries) {
+      if (!currentPathLower.includes(sysPath.toLowerCase())) {
+        cleanEnv.PATH = currentPath + ';' + sysPath;
+      }
+    }
+
+    // 3. 设置 ORIGINAL_PATH（POSIX 格式）供 git-bash 使用
+    // 参考 LobsterAI: 确保 git-bash 的 /etc/profile 正确处理 PATH
+    if (bundledGitBashPath) {
+      const posixPath = (cleanEnv.PATH || '')
+        .split(';')
+        .map(p => p.replace(/\\/g, '/'))
+        .filter(Boolean)
+        .join(':');
+      cleanEnv.ORIGINAL_PATH = posixPath;
+      log.info(`[getAppEnv] 设置 ORIGINAL_PATH (${posixPath.split(':').length} entries)`);
+    }
+
+    // 4. 从注册表读取最新 PATH（解决用户后安装的工具不在 PATH 中的问题）
+    try {
+      const { execSync } = require('child_process');
+      const psScript = [
+        '$machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")',
+        '$userPath = [Environment]::GetEnvironmentVariable("Path", "User")',
+        '[Console]::Write("$machinePath;$userPath")',
+      ].join('; ');
+      const encodedCommand = Buffer.from(psScript, 'utf16le').toString('base64');
+      const result = execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${encodedCommand}`, {
+        encoding: 'utf-8',
+        timeout: 10000,
+        windowsHide: true,
+      });
+      
+      const registryPath = result.trim();
+      if (registryPath) {
+        const registryEntries = registryPath
+          .split(';')
+          .map((entry: string) => entry.trim())
+          .filter(Boolean);
+        
+        // 去重并追加到 PATH 末尾
+        const existingPaths = new Set(currentPath.split(';').map(p => p.toLowerCase()));
+        const missingEntries: string[] = [];
+        
+        for (const entry of registryEntries) {
+          if (!existingPaths.has(entry.toLowerCase())) {
+            missingEntries.push(entry);
+            existingPaths.add(entry.toLowerCase());
+          }
+        }
+        
+        if (missingEntries.length > 0) {
+          cleanEnv.PATH = currentPath + ';' + missingEntries.join(';');
+          log.info(`[getAppEnv] 从注册表追加 ${missingEntries.length} 个 PATH 条目`);
+        }
+      }
+    } catch (error) {
+      log.warn(`[getAppEnv] 读取注册表 PATH 失败: ${error}`);
+    }
+  }
+
   return cleanEnv;
 }
 
