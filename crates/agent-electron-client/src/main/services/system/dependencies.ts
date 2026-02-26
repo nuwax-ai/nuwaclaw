@@ -191,8 +191,14 @@ export function getLanproxyBinPath(): string {
 }
 
 // 获取 bundled Node.js 24 路径（集成到 resources/node/）
-// 参考 LobsterAI 方案：https://github.com/netease-youdao/LobsterAI
+// 仅 Windows 需要内置 Node.js（用户通常没有预装）
+// macOS/Linux 使用系统 npm/node（用户通常通过 Homebrew 安装）
 function getBundledNodeBinDir(): string {
+  // 仅 Windows 需要内置 Node.js
+  if (!isWindows()) {
+    return ''; // macOS/Linux 使用系统 npm/node
+  }
+  
   // 优先使用 resources/node/bin
   const resourcesPath = getResourcesPath();
   const nodeBinPath = path.join(resourcesPath, 'node', 'bin');
@@ -209,7 +215,7 @@ function getBundledNodeBinDir(): string {
     return devPath;
   }
   
-  return ''; // 未找到
+  return ''; // 未找到，回退到系统 npm
 }
 
 // 获取 bundled Git 路径（集成到 resources/git/）
@@ -328,10 +334,11 @@ export function getAppEnv(): Record<string, string> {
   const bundledGitBinDir = getBundledGitBinDir();
   const bundledGitBashPath = getBundledGitBashPath();
 
-  // PATH 优先级：内置 Node.js 24 > Electron > 应用内路径 > uv > 系统 PATH
-  // - bundledNodeBinDir: 内置 Node.js 24（最高优先级！）
+  // PATH 优先级（Windows: 内置 Node.js 24 > 内置 Git > 应用内 > uv > 系统）
+  // PATH 优先级（macOS/Linux: 系统 npm > 应用内 > uv > 系统）
+  // - bundledNodeBinDir: 内置 Node.js 24（仅 Windows）
+  // - bundledGitBinDir: 内置 Git bin（仅 Windows）
   // - electronNodeBinDir: Electron 内置的 npm/npx
-  // - bundledGitBinDir: 内置 Git bin
   // - nodeModulesBin: 应用内 node_modules/.bin
   // - appBin: 应用内 bin
   // - uvBin/uvToolBinDir: uv
@@ -341,10 +348,10 @@ export function getAppEnv(): Record<string, string> {
     .join(pathSep);
 
   // 调试日志：输出 PATH 优先级
-  log.info(`[getAppEnv] PATH 优先级:`);
-  log.info(`[getAppEnv]   1. 内置 Node.js 24: ${bundledNodeBinDir || '(未找到)'}`);
+  log.info(`[getAppEnv] PATH 优先级 (${process.platform}):`);
+  log.info(`[getAppEnv]   1. 内置 Node.js 24: ${bundledNodeBinDir || (isWindows() ? '(未找到)' : '(macOS/Linux 使用系统 npm)')}`);
   log.info(`[getAppEnv]   2. Electron Node: ${electronNodeBinDir || '(未找到)'}`);
-  log.info(`[getAppEnv]   3. 内置 Git: ${bundledGitBinDir || '(未找到)'}`);
+  log.info(`[getAppEnv]   3. 内置 Git: ${bundledGitBinDir || (isWindows() ? '(未找到)' : '(macOS/Linux 使用系统)')}`);
   log.info(`[getAppEnv]   4. node_modules: ${nodeModulesBin}`);
   log.info(`[getAppEnv]   5. app bin: ${appBin}`);
   log.info(`[getAppEnv]   6. uv: ${uvBin}`);
@@ -396,32 +403,28 @@ export function getAppEnv(): Record<string, string> {
     }
   }
 
-  // === 为 Agent 引擎设置环境变量 ===
+  // === 为 Agent 引擎设置环境变量（仅 Windows 需要内置 Node.js/Git）===
   // 参考 LobsterAI 方案：https://github.com/netease-youdao/LobsterAI
   // nuwaxcode-acp (opencode 改造) 使用 NUWAXCODE_* 前缀
   // claude-code-acp-ts (Claude Code) 使用 CLAUDE_CODE_* 前缀
 
-  // 设置内置 Node.js 24 路径（最高优先级）
+  // 设置内置 Node.js 24 路径（仅 Windows）
+  // macOS/Linux 使用系统 npm/node
   if (bundledNodeBinDir) {
-    // nuwaxcode-acp
     cleanEnv.NUWAXCODE_NODE_DIR = bundledNodeBinDir;
-    // claude-code-acp-ts
     cleanEnv.CLAUDE_CODE_NODE_DIR = bundledNodeBinDir;
   }
 
-  // 设置内置 Git bash 路径（Windows 必须）
+  // 设置内置 Git bash 路径（仅 Windows）
   if (bundledGitBashPath) {
-    // nuwaxcode-acp (类似 CLAUDE_CODE_GIT_BASH_PATH)
     cleanEnv.NUWAXCODE_GIT_BASH_PATH = bundledGitBashPath;
-    // claude-code-acp-ts
     cleanEnv.CLAUDE_CODE_GIT_BASH_PATH = bundledGitBashPath;
     
     // 设置 MSYS2_PATH_TYPE=inherit 确保 git-bash 继承完整 PATH
-    // 参考 LobsterAI: 避免 git-bash 的 /etc/profile 重置 PATH
     cleanEnv.MSYS2_PATH_TYPE = 'inherit';
   }
 
-  // 设置内置 Git bin 路径
+  // 设置内置 Git bin 路径（仅 Windows）
   if (bundledGitBinDir) {
     cleanEnv.NUWAXCODE_GIT_BIN_DIR = bundledGitBinDir;
     cleanEnv.CLAUDE_CODE_GIT_BIN_DIR = bundledGitBinDir;
