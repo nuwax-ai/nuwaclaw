@@ -95,18 +95,20 @@ jobs:
         working-directory: crates/agent-electron-client
         run: npm run test:run
 
-      # 缓存内置 Node.js 和 Git（加速后续构建）
-      - name: Cache bundled Node.js
+      # 缓存内置 Node.js 和 Git（仅 Windows 需要，加速后续构建）
+      - name: Cache bundled Node.js (Windows only)
+        if: matrix.platform == 'windows-latest'
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/node
-          key: bundled-node-24-${{ runner.os }}
+          key: bundled-node-24-windows
 
-      - name: Cache bundled Git
+      - name: Cache bundled Git (Windows only)
+        if: matrix.platform == 'windows-latest'
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/git
-          key: bundled-git-2.47.1-${{ runner.os }}
+          key: bundled-git-2.47.1-windows
 
       - name: Build Electron app (unsigned)
         working-directory: crates/agent-electron-client
