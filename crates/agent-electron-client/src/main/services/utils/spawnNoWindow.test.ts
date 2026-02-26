@@ -11,6 +11,10 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { resolveNpmPackageEntry, spawnJsFile, spawnNpmPackage, isWindows, isMacOS, getNodePath, findSystemNode, resetCache } from './spawnNoWindow';
 
+// Cross-platform path matching helper: normalizes backslashes for endsWith checks
+const pathEndsWith = (p: string, suffix: string) =>
+  p.replace(/\\/g, '/').endsWith(suffix);
+
 // Mock child_process
 const mockSpawn = vi.fn();
 const mockExecSync = vi.fn();
@@ -81,13 +85,13 @@ describe('spawnNoWindow', () => {
       const result = resolveNpmPackageEntry('/nonexistent/package');
 
       expect(result).toBeNull();
-      expect(mockExistsSync).toHaveBeenCalledWith('/nonexistent/package/package.json');
+      expect(mockExistsSync).toHaveBeenCalledWith(path.join('/nonexistent/package', 'package.json'));
     });
 
     it('should resolve entry from string bin field', () => {
       mockExistsSync.mockImplementation((p: string) => {
-        if (p.endsWith('package.json')) return true;
-        if (p.endsWith('cli.js')) return true;
+        if (pathEndsWith(p, 'package.json')) return true;
+        if (pathEndsWith(p, 'cli.js')) return true;
         return false;
       });
       mockReadFileSync.mockReturnValue(JSON.stringify({
@@ -97,13 +101,13 @@ describe('spawnNoWindow', () => {
 
       const result = resolveNpmPackageEntry('/packages/test-package');
 
-      expect(result).toBe('/packages/test-package/cli.js');
+      expect(result).toBe(path.join('/packages/test-package', 'cli.js'));
     });
 
     it('should resolve entry from object bin field', () => {
       mockExistsSync.mockImplementation((p: string) => {
-        if (p.endsWith('package.json')) return true;
-        if (p.endsWith('dist/index.js')) return true;
+        if (pathEndsWith(p, 'package.json')) return true;
+        if (pathEndsWith(p, 'dist/index.js')) return true;
         return false;
       });
       mockReadFileSync.mockReturnValue(JSON.stringify({
@@ -115,13 +119,13 @@ describe('spawnNoWindow', () => {
 
       const result = resolveNpmPackageEntry('/packages/test-package', 'test-command');
 
-      expect(result).toBe('/packages/test-package/dist/index.js');
+      expect(result).toBe(path.join('/packages/test-package', 'dist', 'index.js'));
     });
 
     it('should fallback to common locations if bin not found', () => {
       mockExistsSync.mockImplementation((p: string) => {
-        if (p.endsWith('package.json')) return true;
-        if (p.endsWith('index.js')) return true;
+        if (pathEndsWith(p, 'package.json')) return true;
+        if (pathEndsWith(p, 'index.js')) return true;
         return false;
       });
       mockReadFileSync.mockReturnValue(JSON.stringify({
@@ -131,12 +135,12 @@ describe('spawnNoWindow', () => {
 
       const result = resolveNpmPackageEntry('/packages/test-package');
 
-      expect(result).toBe('/packages/test-package/index.js');
+      expect(result).toBe(path.join('/packages/test-package', 'index.js'));
     });
 
     it('should handle malformed package.json', () => {
       mockExistsSync.mockImplementation((p: string) => {
-        if (p.endsWith('package.json')) return true;
+        if (pathEndsWith(p, 'package.json')) return true;
         return false;
       });
       mockReadFileSync.mockReturnValue('not valid json');
@@ -266,8 +270,8 @@ describe('spawnNoWindow', () => {
       Object.defineProperty(process, 'platform', { value: 'win32' });
 
       mockExistsSync.mockImplementation((p: string) => {
-        if (p.endsWith('package.json')) return true;
-        if (p.endsWith('cli.js')) return true;
+        if (pathEndsWith(p, 'package.json')) return true;
+        if (pathEndsWith(p, 'cli.js')) return true;
         return false;
       });
       mockReadFileSync.mockReturnValue(JSON.stringify({
@@ -281,7 +285,7 @@ describe('spawnNoWindow', () => {
         expect(result).not.toBeNull();
         expect(mockSpawn).toHaveBeenCalledWith(
           process.execPath,
-          ['/packages/test-package/cli.js', '--port', '8080'],
+          [path.join('/packages/test-package', 'cli.js'), '--port', '8080'],
           expect.objectContaining({
             windowsHide: true,
           })
@@ -296,8 +300,8 @@ describe('spawnNoWindow', () => {
       Object.defineProperty(process, 'platform', { value: 'win32' });
 
       mockExistsSync.mockImplementation((p: string) => {
-        if (p.endsWith('package.json')) return true;
-        if (p.endsWith('dist/bin.js')) return true;
+        if (pathEndsWith(p, 'package.json')) return true;
+        if (pathEndsWith(p, 'dist/bin.js')) return true;
         return false;
       });
       mockReadFileSync.mockReturnValue(JSON.stringify({
@@ -312,7 +316,7 @@ describe('spawnNoWindow', () => {
 
         expect(result).not.toBeNull();
         const callArgs = mockSpawn.mock.calls[0];
-        expect(callArgs[1][0]).toBe('/packages/test-package/dist/bin.js');
+        expect(callArgs[1][0]).toBe(path.join('/packages/test-package', 'dist', 'bin.js'));
       } finally {
         Object.defineProperty(process, 'platform', originalPlatform!);
       }
