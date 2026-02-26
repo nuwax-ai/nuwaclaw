@@ -407,6 +407,75 @@ describe('spawnNoWindow', () => {
 | `src/main/services/utils/spawnNoWindow.ts` | 核心工具模块 |
 | `src/main/services/utils/spawnNoWindow.test.ts` | 单元测试 |
 | `src/main/services/packages/mcp.ts` | MCP Proxy 启动（使用此工具） |
+
+---
+
+## 内置 Node.js 24 和 Git 集成（2026-02-27）
+
+### 背景
+
+参考 [LobsterAI 方案](https://github.com/netease-youdao/LobsterAI)：
+
+- Electron 内置的 Node.js **不包含 npm/npx**
+- Windows 用户通常没有预装 Node.js
+- 需要集成独立的 Node.js 和 Git
+
+### 集成方案
+
+#### 1. 脚本准备
+
+| 脚本 | 功能 |
+|------|------|
+| `scripts/prepare-node.js` | 下载 Node.js 24 到 resources/node/ |
+| `scripts/prepare-git.js` | 下载 PortableGit 到 resources/git/（仅 Windows） |
+
+#### 2. 打包配置
+
+```json
+// package.json
+"extraResources": [
+  { "from": "resources/node", "to": "node" },
+  { "from": "resources/git", "to": "git" }
+]
+```
+
+#### 3. PATH 优先级（Windows）
+
+```
+1. resources/node/bin        ← 内置 Node.js 24（最高）
+2. Electron 内置 Node
+3. resources/git/bin       ← 内置 Git
+4. 应用内 node_modules
+5. uv
+6. Windows 系统目录（System32, Wbem, PowerShell）
+7. 注册表最新 PATH        ← 用户后安装的工具
+```
+
+#### 4. 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `NUWAXCODE_NODE_DIR` | nuwaxcode-acp 使用 |
+| `CLAUDE_CODE_NODE_DIR` | claude-code-acp-ts 使用 |
+| `NUWAXCODE_GIT_BASH_PATH` | nuwaxcode-acp 使用 |
+| `CLAUDE_CODE_GIT_BASH_PATH` | claude-code-acp-ts 使用 |
+| `MSYS2_PATH_TYPE=inherit` | git-bash 正确继承 PATH |
+| `ORIGINAL_PATH` | POSIX 格式 PATH |
+
+#### 5. Windows 特殊优化
+
+- **关键系统变量**：SystemRoot, windir, COMSPEC, SYSTEMDRIVE
+- **系统目录 PATH**：System32, System32\Wbem, WindowsPowerShell, OpenSSH
+- **注册表读取**：从注册表读取最新 PATH，解决后安装工具不在 PATH 问题
+- **Electron Node Shim**：创建 node/npm 桥接脚本
+
+### 相关文件
+
+| 文件 | 说明 |
+|------|------|
+| `scripts/prepare-node.js` | Node.js 下载脚本 |
+| `scripts/prepare-git.js` | Git 下载脚本 |
+| `src/main/services/system/dependencies.ts` | 环境变量配置 |
 | `src/main/services/engines/engineManager.ts` | 引擎启动（使用此工具） |
 | `src/main/services/engines/acp/acpClient.ts` | ACP 客户端（使用此工具） |
 

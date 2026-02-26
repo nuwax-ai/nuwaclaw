@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### 内置 Node.js 24 和 Git 集成
+- **prepare-node.js** - 下载 Node.js 24 到 resources/node/
+- **prepare-git.js** - 下载 PortableGit 到 resources/git/
+- **内置 Node.js 24** - resources/node/bin 包含 node/npm/npx
+- **内置 Git** - resources/git/bin 包含 bash.exe（Windows 必须）
+- **PATH 优先级优化** - 内置 Node.js > Electron > 内置 Git > 应用内 > uv > 系统
+- **Windows 环境变量优化**（参考 LobsterAI）：
+  - 关键系统变量（SystemRoot, windir, COMSPEC, SYSTEMDRIVE）
+  - Windows 系统目录（System32, Wbem, PowerShell, OpenSSH）
+  - 注册表读取最新 PATH（解决后安装工具不在 PATH 问题）
+  - MSYS2_PATH_TYPE=inherit（git-bash 正确继承 PATH）
+  - ORIGINAL_PATH（POSIX 格式供 git-bash 使用）
+- **环境变量前缀**：
+  - NUWAXCODE_NODE_DIR / CLAUDE_CODE_NODE_DIR
+  - NUWAXCODE_GIT_BASH_PATH / CLAUDE_CODE_GIT_BASH_PATH
+
 #### 系统托盘功能
 - **TrayManager** (`src/main/trayManager.ts`)
   - 动态托盘图标（运行中/已停止/错误/启动中状态）
