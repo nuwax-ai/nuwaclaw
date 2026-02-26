@@ -146,39 +146,48 @@ export function spawnJsFile(
   let node: string;
   let mergedEnv: Record<string, string | undefined>;
 
+  // 检测是否在 Electron 环境中运行
+  // 测试环境中 app.getPath 不可用，需要使用回退方案
+  const isElectron = typeof process.versions?.electron === 'string';
+
   if (isWindows()) {
-    // Windows: 使用 getAppEnv() 获取完整的环境变量
+    // Windows: 使用 getAppEnv() 获取完整的环境变量（仅在 Electron 环境中）
     // 包含：内置 Node.js 24、内置 Git、从注册表读取的 PATH 等
-    const appEnv = getAppEnv();
+    // 测试环境使用回退方案
+    const appEnv = isElectron ? getAppEnv() : null;
     
     node = nodePath || process.execPath;
-    mergedEnv = {
-      ...appEnv,  // 使用 getAppEnv() 的完整环境变量
-      ...env,
-      // 确保 Electron 以 Node.js 模式运行
-      ELECTRON_RUN_AS_NODE: '1',
-    };
+    mergedEnv = appEnv 
+      ? { ...appEnv, ...env, ELECTRON_RUN_AS_NODE: '1' }
+      : {
+          ...process.env,
+          ...env,
+          ELECTRON_RUN_AS_NODE: '1',
+          PATH: getEnhancedPath(),
+        };
     
     // DEBUG: 记录平台调试信息
-    log.info(`[spawnNoWindow] Windows 调试信息:`);
+    log.info(`[spawnNoWindow] Windows 调试信息 (Electron: ${isElectron}):`);
     log.info(`[spawnNoWindow]   - process.execPath: ${process.execPath}`);
     log.info(`[spawnNoWindow]   - 使用 node: ${node}`);
     log.info(`[spawnNoWindow]   - ELECTRON_RUN_AS_NODE: ${mergedEnv.ELECTRON_RUN_AS_NODE}`);
     log.info(`[spawnNoWindow]   - PATH 前5个: ${(mergedEnv.PATH || '').split(';').slice(0, 5).join(';')}`);
-    log.info(`[spawnNoWindow]   - NUWAXCODE_GIT_BASH_PATH: ${mergedEnv.NUWAXCODE_GIT_BASH_PATH || '(未设置)'}`);
-    log.info(`[spawnNoWindow]   - MSYS2_PATH_TYPE: ${mergedEnv.MSYS2_PATH_TYPE || '(未设置)'}`);
   } else {
-    // macOS/Linux: 使用 getAppEnv() 获取完整的环境变量
-    const appEnv = getAppEnv();
+    // macOS/Linux: 使用 getAppEnv() 获取完整的环境变量（仅在 Electron 环境中）
+    // 测试环境使用回退方案
+    const appEnv = isElectron ? getAppEnv() : null;
     
     node = nodePath || findSystemNode();
-    mergedEnv = {
-      ...appEnv,  // 使用 getAppEnv() 的完整环境变量
-      ...env,
-    };
+    mergedEnv = appEnv 
+      ? { ...appEnv, ...env }
+      : {
+          ...process.env,
+          ...env,
+          PATH: getEnhancedPath(),
+        };
 
     // 记录调试信息
-    log.info(`[spawnNoWindow] ${process.platform} 调试信息:`);
+    log.info(`[spawnNoWindow] ${process.platform} 调试信息 (Electron: ${isElectron}):`);
     log.info(`[spawnNoWindow]   - 使用 node: ${node}`);
     log.info(`[spawnNoWindow]   - PATH 前5个: ${(mergedEnv.PATH || '').split(':').slice(0, 5).join(':')}`);
   }
