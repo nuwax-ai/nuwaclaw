@@ -259,8 +259,8 @@ function cleanupAllProcesses(): void {
   fileServer.kill();
 
   try {
+    // 停止 PersistentMcpBridge（kill 持久化 MCP server 子进程）
     mcpProxyManager.cleanup();
-    log.info('[Cleanup] MCP Proxy stopped');
   } catch (e) {
     // MCP service might not be loaded
   }
@@ -317,6 +317,7 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
+  // 停止 PersistentMcpBridge + 清除代理状态
   mcpProxyManager.cleanup();
   lanproxy.kill();
   agentRunner.kill();

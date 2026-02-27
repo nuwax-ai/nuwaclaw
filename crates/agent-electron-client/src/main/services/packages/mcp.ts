@@ -1,23 +1,25 @@
 /**
  * MCP Proxy Manager (Electron)
  *
- * 与 Tauri 客户端一致，使用 mcp-stdio-proxy (mcp-proxy) 统一管理所有 MCP server。
- * 单一进程启动，通过 JSON config 配置所有 mcpServers。
+ * 使用 nuwax-mcp-stdio-proxy 纯 Node.js stdio 聚合代理。
+ * Agent 引擎直接 spawn proxy 进程（stdio 直通），无需 HTTP 中间层。
  *
- * 命令格式：mcp-proxy proxy --port <port> --host <host> --config '<json>'
+ * Electron 侧仅负责：
+ * - 验证 nuwax-mcp-stdio-proxy 包已安装
+ * - 管理 mcpServers 配置（持久化到 SQLite）
+ * - 提供 getAgentMcpConfig() 供 Agent 引擎初始化时注入
  */
 
-import { spawn, ChildProcess, exec } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as net from 'net';
 import log from 'electron-log';
 import { app } from 'electron';
 import { getAppEnv, getUvBinPath } from '../system/dependencies';
 import { getAppPaths, isInstalledLocally } from './packageLocator';
-import { spawnJsFile, resolveNpmPackageEntry } from '../utils/spawnNoWindow';
-import { DEFAULT_MCP_PROXY_PORT, DEFAULT_MCP_PROXY_HOST, APP_DATA_DIR_NAME, DEFAULT_STARTUP_DELAY } from '../constants';
+import { resolveNpmPackageEntry } from '../utils/spawnNoWindow';
+import { APP_DATA_DIR_NAME } from '../constants';
 import { isWindows } from '../system/shellEnv';
+import { persistentMcpBridge } from './persistentMcpBridge';
 
 // ========== Shared Helpers ==========
 
@@ -73,8 +75,7 @@ export function resolveUvCommand(
 /**
  * Resolve uvx/uv commands inside a `mcp-proxy convert --config '{...}'` bridge entry.
  * Only rewrites inner command paths (uvx → uv tool run); does NOT inject env.
- * The bridge process inherits env from its parent (ACP engine already has getAppEnv()),
- * so env injection in --config is unnecessary and bloats the command line.
+ * Kept for backward compatibility with context_servers that may still use bridge entries.
  */
 export function resolveBridgeEntry(
   command: string,
@@ -139,6 +140,7 @@ export function resolveServersConfig(
       command: resolved.command,
       args: resolved.args,
       env: { ...baseEnv, ...(entry.env || {}) },
+      ...(entry.persistent ? { persistent: true } : {}),
     };
   }
   return result;
@@ -150,421 +152,142 @@ export function resolveServersConfig(
 export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
   mcpServers: {
     'chrome-devtools': {
-      command: 'npx',
-      args: ['-y', 'chrome-devtools-mcp@latest'],
+      command: 'chrome-devtools-mcp',
+      args: [],
+      persistent: true,
     },
   },
 };
-
-// ========== Types ==========
 
 /** 单个 MCP Server 的配置（mcpServers 格式） */
 export interface McpServerEntry {
   command: string;
   args: string[];
   env?: Record<string, string>;
+  /** 标记为持久化 server（生命周期由 PersistentMcpBridge 管理，而非跟随 ACP session） */
+  persistent?: boolean;
 }
 
-/** mcpServers 配置（传给 mcp-proxy 的 JSON） */
+/** mcpServers 配置（传给 nuwax-mcp-stdio-proxy 的 JSON） */
 export interface McpServersConfig {
   mcpServers: Record<string, McpServerEntry>;
 }
 
-/** MCP Proxy 运行状态 */
+/** MCP Proxy 运行状态（语义变更：running = "binary 可用" 而非 "进程在运行"） */
 export interface McpProxyStatus {
   running: boolean;
-  pid?: number;
-  port?: number;
-  host?: string;
   serverCount?: number;
   serverNames?: string[];
 }
 
-/** MCP Proxy 启动配置 */
-export interface McpProxyStartConfig {
-  port?: number;
-  host?: string;
-  configJson?: string;  // 序列化的 McpServersConfig
-}
-
 // ========== MCP Proxy Manager ==========
 
-/**
- * 检查端口是否被占用
- */
-function isPortInUse(port: number, host: string = '127.0.0.1'): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = new net.Socket();
-    socket.setTimeout(1000);
-
-    socket.on('connect', () => {
-      socket.destroy();
-      resolve(true);
-    });
-
-    socket.on('timeout', () => {
-      socket.destroy();
-      resolve(false);
-    });
-
-    socket.on('error', () => {
-      resolve(false);
-    });
-
-    socket.connect(port, host);
-  });
-}
-
-/**
- * 查找并终止占用指定端口的进程
- */
-async function killProcessOnPort(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const platform = process.platform;
-
-    if (platform === 'darwin' || platform === 'linux') {
-      // 使用 lsof 查找占用端口的进程
-      exec(`lsof -ti:${port}`, (error, stdout) => {
-        if (error || !stdout.trim()) {
-          resolve(false);
-          return;
-        }
-
-        const pids = stdout.trim().split('\n');
-        log.info(`[McpProxy] 发现端口 ${port} 被进程占用: ${pids.join(', ')}`);
-
-        // 终止所有占用端口的进程
-        exec(`kill -9 ${pids.join(' ')}`, (killError) => {
-          if (killError) {
-            log.warn(`[McpProxy] 终止进程失败: ${killError.message}`);
-            resolve(false);
-          } else {
-            log.info(`[McpProxy] 已终止占用端口 ${port} 的进程`);
-            // 等待端口释放
-            setTimeout(() => resolve(true), 500);
-          }
-        });
-      });
-    } else if (platform === 'win32') {
-      // Windows: 使用 netstat 查找进程
-      exec(`netstat -ano | findstr :${port}`, (error, stdout) => {
-        if (error || !stdout.trim()) {
-          resolve(false);
-          return;
-        }
-
-        // 解析 netstat 输出获取 PID
-        const lines = stdout.trim().split('\n');
-        const pids = new Set<string>();
-
-        for (const line of lines) {
-          const parts = line.trim().split(/\s+/);
-          const pid = parts[parts.length - 1];
-          if (pid && /^\d+$/.test(pid)) {
-            pids.add(pid);
-          }
-        }
-
-        if (pids.size === 0) {
-          resolve(false);
-          return;
-        }
-
-        log.info(`[McpProxy] 发现端口 ${port} 被进程占用: ${Array.from(pids).join(', ')}`);
-
-        // 终止进程
-        exec(`taskkill /F /PID ${Array.from(pids).join(' /PID ')}`, (killError) => {
-          if (killError) {
-            log.warn(`[McpProxy] 终止进程失败: ${killError.message}`);
-            resolve(false);
-          } else {
-            log.info(`[McpProxy] 已终止占用端口 ${port} 的进程`);
-            setTimeout(() => resolve(true), 500);
-          }
-        });
-      });
-    } else {
-      resolve(false);
-    }
-  });
-}
-
 class McpProxyManager {
-  private process: ChildProcess | null = null;
-  private port: number = DEFAULT_MCP_PROXY_PORT;
-  private host: string = DEFAULT_MCP_PROXY_HOST;
   private config: McpServersConfig = JSON.parse(JSON.stringify(DEFAULT_MCP_PROXY_CONFIG));
-  private startPromise: Promise<{ success: boolean; error?: string }> | null = null;
+  /** Cached script path — set by start(), avoids fs I/O on every getStatus() poll */
+  private cachedScriptPath: string | null = null;
 
   /**
-   * 获取 mcp-proxy 包目录
+   * 解析 nuwax-mcp-stdio-proxy 脚本路径（disk lookup，不使用缓存）
    */
-  private getMcpProxyPackageDir(): string | null {
+  private resolveProxyScriptPath(): string | null {
     const dirs = getAppPaths();
+    const packageDir = path.join(dirs.nodeModules, 'nuwax-mcp-stdio-proxy');
+    if (!fs.existsSync(packageDir)) return null;
+    return resolveNpmPackageEntry(packageDir, 'nuwax-mcp-stdio-proxy');
+  }
 
-    // 检查 main node_modules
-    const mainDir = path.join(dirs.nodeModules, 'mcp-stdio-proxy');
-    if (fs.existsSync(mainDir)) return mainDir;
+  /**
+   * 获取脚本路径（仅返回缓存值，需先调用 start() 填充）
+   */
+  private getProxyScriptPath(): string | null {
+    return this.cachedScriptPath;
+  }
 
-    // 检查 mcp-servers
-    const mcpDir = path.join(dirs.mcpModules, 'mcp-stdio-proxy');
-    if (fs.existsSync(mcpDir)) return mcpDir;
+  /**
+   * 从当前配置中提取标记为 persistent 的 servers
+   */
+  getPersistentServers(): Record<string, McpServerEntry> {
+    const result: Record<string, McpServerEntry> = {};
+    for (const [name, entry] of Object.entries(this.config.mcpServers)) {
+      if (entry.persistent) result[name] = entry;
+    }
+    return result;
+  }
 
+  /**
+   * 解析 mcp-bridge-client.mjs 脚本路径
+   */
+  private getBridgeClientScriptPath(): string | null {
+    // 打包环境: resources/mcp-bridge-client.mjs
+    const packagedPath = path.join(process.resourcesPath || '', 'mcp-bridge-client.mjs');
+    if (fs.existsSync(packagedPath)) return packagedPath;
+
+    // 开发环境: resources/mcp-bridge-client.mjs (相对项目根)
+    const devPath = path.join(app.getAppPath(), 'resources', 'mcp-bridge-client.mjs');
+    if (fs.existsSync(devPath)) return devPath;
+
+    log.warn('[McpProxy] mcp-bridge-client.mjs 未找到');
     return null;
   }
 
   /**
-   * 检查进程是否真正在运行
+   * start() → 验证 binary 可用性并刷新缓存 + 启动 PersistentMcpBridge（持久化 servers）
+   * proxy 进程的生命周期由 Agent 引擎管理（通过 getAgentMcpConfig 注入）
    */
-  private isProcessRunning(): boolean {
-    return this.process !== null && !this.process.killed;
-  }
-
-  /**
-   * 启动 MCP Proxy
-   */
-  async start(options?: McpProxyStartConfig): Promise<{ success: boolean; error?: string }> {
-    // 如果进程已经在运行，直接返回成功
-    if (this.isProcessRunning()) {
-      log.info('[McpProxy] 进程已在运行中，跳过启动');
-      return { success: true };
+  async start(): Promise<{ success: boolean; error?: string }> {
+    if (!isInstalledLocally('nuwax-mcp-stdio-proxy')) {
+      this.cachedScriptPath = null;
+      return { success: false, error: 'nuwax-mcp-stdio-proxy 未安装，请先在依赖管理中安装' };
     }
-
-    // 如果正在启动中，等待启动完成（防止并发调用）
-    if (this.startPromise) {
-      log.info('[McpProxy] 正在启动中，等待完成...');
-      return this.startPromise;
+    // 强制重新解析（安装/更新后路径可能变化）
+    this.cachedScriptPath = this.resolveProxyScriptPath();
+    if (!this.cachedScriptPath) {
+      return { success: false, error: 'nuwax-mcp-stdio-proxy 入口文件未找到' };
     }
+    log.info('[McpProxy] nuwax-mcp-stdio-proxy 就绪:', this.cachedScriptPath);
 
-    // 检查 mcp-stdio-proxy 是否已安装
-    if (!isInstalledLocally('mcp-stdio-proxy')) {
-      return { success: false, error: 'mcp-stdio-proxy 未安装，请先在依赖管理中安装' };
-    }
-
-    // 获取包目录并解析入口文件
-    const packageDir = this.getMcpProxyPackageDir();
-    if (!packageDir) {
-      return { success: false, error: 'mcp-stdio-proxy 包目录未找到' };
-    }
-
-    const entryPath = resolveNpmPackageEntry(packageDir, 'mcp-proxy');
-    if (!entryPath) {
-      return { success: false, error: 'mcp-proxy 入口文件未找到' };
-    }
-
-    const port = options?.port ?? this.port;
-    const host = options?.host ?? this.host;
-
-    // 检查端口是否被占用，如果被占用则尝试终止占用进程
-    const portInUse = await isPortInUse(port, host);
-    if (portInUse) {
-      log.warn(`[McpProxy] 端口 ${port} 已被占用，尝试终止占用进程...`);
-      const killed = await killProcessOnPort(port);
-      if (!killed) {
-        return { success: false, error: `端口 ${port} 被占用且无法终止占用进程` };
-      }
-      // 再次检查端口
-      const stillInUse = await isPortInUse(port, host);
-      if (stillInUse) {
-        return { success: false, error: `端口 ${port} 仍被占用` };
-      }
-    }
-
-    // 解析配置
-    let config = this.config;
-    if (options?.configJson) {
+    // 启动 PersistentMcpBridge（持久化 servers）
+    const persistent = this.getPersistentServers();
+    if (Object.keys(persistent).length > 0) {
       try {
-        config = JSON.parse(options.configJson);
+        await persistentMcpBridge.start(resolveServersConfig(persistent));
+        log.info('[McpProxy] PersistentMcpBridge 已启动');
       } catch (e) {
-        return { success: false, error: `配置 JSON 解析失败: ${e}` };
+        log.error('[McpProxy] PersistentMcpBridge 启动失败:', e);
       }
     }
 
-    // mcp-stdio-proxy 单进程仅支持单服务，且不能运行桥接项（command===mcp-proxy）
-    // 过滤桥接项，若仍有多项则只保留第一项，避免报错「配置包含多个服务，请使用 --name」
-    const servers = config.mcpServers || {};
-    const realEntries = Object.entries(servers).filter(([, entry]) => entry.command !== 'mcp-proxy');
-    if (realEntries.length === 0) {
-      config = JSON.parse(JSON.stringify(DEFAULT_MCP_PROXY_CONFIG));
-      log.info('[McpProxy] 配置中无真实服务（仅桥接项），使用默认配置');
-    } else if (realEntries.length > 1) {
-      const first = Object.fromEntries([realEntries[0]]);
-      config = { mcpServers: first };
-      log.warn('[McpProxy] 配置包含多个真实服务，单进程仅启动第一项:', realEntries[0][0]);
-    } else {
-      config = { mcpServers: Object.fromEntries(realEntries) };
-    }
-
-    // 直接使用应用内环境变量，且 command 指向应用内 uv/uvx 的完整路径，子进程不依赖 PATH
-    const appEnv = getAppEnv();
-    const baseEnv: Record<string, string> = {
-      ...appEnv,
-      HOME: process.env.HOME || process.env.USERPROFILE || '',
-      USER: process.env.USER || process.env.USERNAME || '',
-      USERNAME: process.env.USERNAME || process.env.USER || '',
-      LANG: process.env.LANG || 'en_US.UTF-8',
-      TZ: process.env.TZ || '',
-    };
-    const uvDir = getUvBinDir();
-    const mcpServersWithEnv: Record<string, McpServerEntry> = {};
-    for (const [name, entry] of Object.entries(config.mcpServers || {})) {
-      const resolved = resolveUvCommand(entry.command, entry.args || [], uvDir);
-      if (resolved.command !== entry.command) {
-        log.info(`[McpProxy] 将 ${name} 的 command 指向应用内: ${resolved.command}`);
-      }
-      mcpServersWithEnv[name] = {
-        command: resolved.command,
-        args: resolved.args,
-        env: { ...baseEnv, ...(entry.env || {}) },
-      };
-    }
-    config = { mcpServers: mcpServersWithEnv };
-
-    const configJson = JSON.stringify(config);
-    const finalServers = config.mcpServers || {};
-    const serverNames = Object.keys(finalServers);
-    const serverCommands = serverNames.map((n) => `${n}=${(finalServers[n] as { command?: string })?.command || '?'}`);
-    log.info(`[McpProxy] 追踪: 本次启动的 MCP 配置: 服务数=${serverNames.length}, 列表=${serverCommands.join(', ')}`);
-
-    // 日志目录（对齐 Tauri 客户端）
-    const appDataDir = path.join(app.getPath('home'), APP_DATA_DIR_NAME);
-    const mcpLogDir = path.join(appDataDir, 'logs', 'mcp');
-    try { fs.mkdirSync(mcpLogDir, { recursive: true }); } catch { /* ignore */ }
-
-    const args = [
-      'proxy',
-      '--port', String(port),
-      '--host', host,
-      '--config', configJson,
-      '--log-dir', mcpLogDir,
-    ];
-
-    // 创建启动 Promise 并存储，防止并发调用
-    this.startPromise = new Promise((resolve) => {
-      let startResolved = false;
-
-      const cleanup = () => {
-        this.startPromise = null;
-      };
-
-      try {
-        // 与 Tauri 一致：proxy 进程与 config 内各服务共用同一套应用内环境（baseEnv），子进程通过 config 的 env 直接获得应用内 PATH/UV_*
-        const mcpEnv: Record<string, string> = baseEnv;
-
-        // DEBUG: 输出启动信息（与 Tauri 日志对齐）+ 追踪 uvx 用 env
-        const pathSep = isWindows() ? ';' : ':';
-        const pathArr = (mcpEnv.PATH || '').split(pathSep).filter(Boolean);
-        const pathWithUv = pathArr.filter((p) => p.includes('uv') || p.includes('nuwax-agent'));
-        log.info(`[McpProxy] ====== 启动调试信息 ======`);
-        log.info(`[McpProxy] 入口文件: ${entryPath}`);
-        log.info(`[McpProxy] 参数: ${args.join(' ')}`);
-        log.info(`[McpProxy] 端口: ${port}, 主机: ${host}`);
-        log.info(`[McpProxy] 环境变量 env 键数: ${Object.keys(mcpEnv).length}`);
-        log.info(`[McpProxy] PATH 总段数: ${pathArr.length}, 含 uv/nuwax-agent 的段数: ${pathWithUv.length}`);
-        log.info(`[McpProxy] PATH(含uv) 前8段: ${pathWithUv.slice(0, 8).join(' | ') || '(无)'}`);
-        log.info(`[McpProxy] UV_INDEX_URL: ${mcpEnv.UV_INDEX_URL || '(未设置)'}`);
-        log.info(`[McpProxy] UV_TOOL_DIR: ${mcpEnv.UV_TOOL_DIR || '(未设置)'}`);
-        log.info(`[McpProxy] 传入 spawnJsFile 的 env 将作为子进程唯一环境（callerProvidedFullEnv=true 时）`);
-        log.info(`[McpProxy] ============================`);
-
-        // 传入完整 mcpEnv，spawnJsFile 会直接使用（不再二次 getAppEnv），与 Tauri env_clear + envs(base) + env(PATH) 行为一致
-        const proc = spawnJsFile(entryPath, args, {
-          env: mcpEnv,
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-
-        proc.stdout?.on('data', (data) => {
-          log.info(`[McpProxy stdout] ${data.toString().trim()}`);
-        });
-
-        proc.stderr?.on('data', (data) => {
-          log.warn(`[McpProxy stderr] ${data.toString().trim()}`);
-        });
-
-        proc.on('error', (error) => {
-          log.error(`[McpProxy] 启动错误:`, error);
-          this.process = null;
-          cleanup();
-          if (!startResolved) {
-            startResolved = true;
-            resolve({ success: false, error: error.message });
-          }
-        });
-
-        proc.on('exit', (code) => {
-          log.info(`[McpProxy] 进程退出, code=${code}`);
-          this.process = null;
-          // 如果启动还未完成，进程就退出了，返回错误
-          if (!startResolved) {
-            startResolved = true;
-            resolve({ success: false, error: `进程启动后立即退出 (code=${code})` });
-          }
-          cleanup();
-        });
-
-        this.process = proc;
-        this.port = port;
-        this.host = host;
-        this.config = config;
-
-        // 等待进程稳定后返回（与其他服务保持一致的启动延迟）
-        setTimeout(() => {
-          if (!startResolved) {
-            startResolved = true;
-            cleanup();
-            if (this.process && !this.process.killed) {
-              log.info(`[McpProxy] 启动成功, port=${port}`);
-              resolve({ success: true });
-            } else {
-              resolve({ success: false, error: '进程启动后立即退出' });
-            }
-          }
-        }, DEFAULT_STARTUP_DELAY);
-      } catch (error) {
-        cleanup();
-        resolve({ success: false, error: String(error) });
-      }
-    });
-
-    return this.startPromise;
+    return { success: true };
   }
 
   /**
-   * 停止 MCP Proxy
+   * stop() → 清除缓存状态 + 停止 PersistentMcpBridge
    */
-  async stop(): Promise<{ success: boolean; error?: string }> {
-    if (!this.process) {
-      return { success: true };
-    }
-
+  async stop(): Promise<{ success: boolean }> {
+    this.cachedScriptPath = null;
     try {
-      this.process.kill();
-      this.process = null;
-      log.info('[McpProxy] 已停止');
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: String(error) };
+      await persistentMcpBridge.stop();
+    } catch (e) {
+      log.warn('[McpProxy] PersistentMcpBridge 停止出错:', e);
     }
+    return { success: true };
   }
 
   /**
-   * 重启 MCP Proxy（使用当前配置或新配置）
+   * restart() → 仅验证 binary 可用性
    */
-  async restart(options?: McpProxyStartConfig): Promise<{ success: boolean; error?: string }> {
-    await this.stop();
-    return this.start(options);
+  async restart(): Promise<{ success: boolean; error?: string }> {
+    return this.start();
   }
 
   /**
-   * 获取运行状态
+   * 获取运行状态（使用缓存路径，避免频繁磁盘 I/O）
    */
   getStatus(): McpProxyStatus {
     const serverNames = Object.keys(this.config.mcpServers || {});
     return {
-      running: !!(this.process && !this.process.killed),
-      pid: this.process?.pid,
-      port: this.port,
-      host: this.host,
+      running: !!this.cachedScriptPath,
       serverCount: serverNames.length,
       serverNames,
     };
@@ -578,24 +301,10 @@ class McpProxyManager {
   }
 
   /**
-   * 设置 mcpServers 配置（不会自动重启）
+   * 设置 mcpServers 配置
    */
   setConfig(config: McpServersConfig): void {
     this.config = config;
-  }
-
-  /**
-   * 获取端口
-   */
-  getPort(): number {
-    return this.port;
-  }
-
-  /**
-   * 设置端口（不会自动重启）
-   */
-  setPort(port: number): void {
-    this.port = port;
   }
 
   /**
@@ -615,9 +324,11 @@ class McpProxyManager {
   /**
    * 获取 Agent 引擎需要的 MCP 配置
    *
-   * 返回 claude-code 的 settings.json 格式:
-   * - 如果 MCP Proxy 正在运行，使用 mcp-proxy convert 桥接
-   * - 如果未运行，直接返回各 MCP server 的 stdio 配置
+   * - 临时 server → nuwax-mcp-stdio-proxy 聚合（现有逻辑）
+   * - 持久化 server → mcp-bridge-client.mjs 连接 PersistentMcpBridge HTTP
+   *
+   * 所有平台统一使用 process.execPath (Electron Node.js) + ELECTRON_RUN_AS_NODE=1，
+   * 避免依赖系统 PATH 中的 node。
    */
   getAgentMcpConfig(): Record<string, { command: string; args: string[]; env?: Record<string, string> }> | null {
     const servers = this.config.mcpServers;
@@ -625,39 +336,69 @@ class McpProxyManager {
       return null;
     }
 
-    // MCP Proxy 运行中：通过 mcp-proxy convert 桥接到统一代理
-    if (this.process && !this.process.killed) {
-      const proxyUrl = `http://${this.host}:${this.port}`;
-      return {
-        'mcp-proxy': {
-          command: 'mcp-proxy',
-          args: ['convert', proxyUrl],
-        },
-      };
+    // 分离持久化 vs 临时 server
+    const ephemeral: Record<string, McpServerEntry> = {};
+    const persistent: Record<string, McpServerEntry> = {};
+    for (const [name, entry] of Object.entries(servers)) {
+      if (entry.persistent) {
+        persistent[name] = entry;
+      } else {
+        ephemeral[name] = entry;
+      }
     }
 
-    // MCP Proxy 未运行：回退到直接 stdio 配置（应用路径解析 + env 注入）
-    const resolved = resolveServersConfig(servers);
     const result: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
-    for (const [id, entry] of Object.entries(resolved)) {
-      result[id] = {
-        command: entry.command,
-        args: entry.args,
-        env: entry.env,
+
+    // 临时 server → nuwax-mcp-stdio-proxy 聚合（现有逻辑）
+    const scriptPath = this.getProxyScriptPath();
+    if (Object.keys(ephemeral).length > 0 && scriptPath) {
+      const resolvedConfig: McpServersConfig = {
+        mcpServers: resolveServersConfig(ephemeral),
       };
+      const configJson = JSON.stringify(resolvedConfig);
+      result['mcp-proxy'] = {
+        command: process.execPath,
+        args: [scriptPath, '--config', configJson],
+        env: { ELECTRON_RUN_AS_NODE: '1' },
+      };
+    } else if (Object.keys(ephemeral).length > 0) {
+      // fallback: 无 proxy 脚本时直接返回解析后的各 server stdio 配置（无聚合）
+      const resolved = resolveServersConfig(ephemeral);
+      for (const [name, entry] of Object.entries(resolved)) {
+        result[name] = entry;
+      }
     }
-    return result;
+
+    // 持久化 server → bridge client
+    if (Object.keys(persistent).length > 0 && persistentMcpBridge.isRunning()) {
+      const bridgeUrls: Record<string, string> = {};
+      for (const name of Object.keys(persistent)) {
+        const url = persistentMcpBridge.getBridgeUrl(name);
+        if (url) bridgeUrls[name] = url;
+      }
+      if (Object.keys(bridgeUrls).length > 0) {
+        const bridgeClientScript = this.getBridgeClientScriptPath();
+        if (bridgeClientScript) {
+          const dirs = getAppPaths();
+          result['mcp-bridge'] = {
+            command: process.execPath,
+            args: [bridgeClientScript, JSON.stringify(bridgeUrls)],
+            env: { ELECTRON_RUN_AS_NODE: '1', NODE_PATH: dirs.nodeModules },
+          };
+        }
+      }
+    }
+
+    return Object.keys(result).length > 0 ? result : null;
   }
 
   /**
-   * 清理（退出时调用）
+   * 清理（退出时调用）— 停止 PersistentMcpBridge + kill 子进程
    */
   cleanup(): void {
-    if (this.process) {
-      this.process.kill();
-      this.process = null;
-      log.info('[McpProxy] cleanup: 已停止');
-    }
+    persistentMcpBridge.stop().catch((e) => {
+      log.warn('[McpProxy] PersistentMcpBridge cleanup error:', e);
+    });
   }
 }
 
@@ -666,67 +407,40 @@ class McpProxyManager {
 export const mcpProxyManager = new McpProxyManager();
 
 /**
- * 从 mcpServers 中提取「真实」服务：直连项保留；桥接项（command===mcp-proxy）若带 --config 则解析内嵌 mcpServers 并入结果，用于动态加载会话下发的 Time/Fetch 等。
- */
-function extractRealServersFromMcpServers(
-  mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>,
-): Record<string, { command: string; args: string[]; env?: Record<string, string> }> {
-  const real: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
-  for (const [name, entry] of Object.entries(mcpServers)) {
-    if (!entry) continue;
-    if (entry.command !== 'mcp-proxy') {
-      real[name] = { command: entry.command, args: Array.isArray(entry.args) ? entry.args : [], env: entry.env };
-      continue;
-    }
-    const args = entry.args || [];
-    const idx = args.indexOf('--config');
-    if (idx < 0 || idx + 1 >= args.length) continue;
-    const configStr = args[idx + 1];
-    if (typeof configStr !== 'string') continue;
-    try {
-      const parsed = JSON.parse(configStr) as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> };
-      const inner = parsed?.mcpServers;
-      if (!inner || typeof inner !== 'object') continue;
-      for (const [k, v] of Object.entries(inner)) {
-        if (!v || typeof v.command !== 'string' || v.command === 'mcp-proxy') continue;
-        real[k] = { command: v.command, args: Array.isArray(v.args) ? v.args : [], env: v.env };
-      }
-    } catch {
-      /* ignore parse error */
-    }
-  }
-  return real;
-}
-
-/**
- * 将 mcpServers 配置同步到 MCP Proxy 并可选重启（真实服务：直连项 + 从桥接项 --config 解析出的内嵌服务；
- * 单服务时同步，多服务时优先 time 再取第一项）。支持按会话动态加载：每次请求带 context_servers 时调用，proxy 随会话更新。
+ * 将 mcpServers 配置同步到 MCP Proxy 配置并持久化。
+ * 不再需要重启进程 — Agent 下次 init 时 getAgentMcpConfig() 会使用新配置。
  */
 export async function syncMcpConfigToProxyAndReload(
   mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>,
 ): Promise<void> {
   if (!mcpServers || Object.keys(mcpServers).length === 0) return;
-  let realOnly = extractRealServersFromMcpServers(mcpServers);
-  if (Object.keys(realOnly).length === 0) {
-    log.info('[McpProxy] MCP 配置均为桥接项且无 --config 内嵌真实服务，不同步到 proxy');
-    return;
+
+  // 提取真实服务（过滤旧桥接项 command==='mcp-proxy'）
+  const realOnly: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
+  for (const [name, entry] of Object.entries(mcpServers)) {
+    if (!entry || entry.command === 'mcp-proxy') continue;
+    realOnly[name] = { command: entry.command, args: Array.isArray(entry.args) ? entry.args : [], env: entry.env };
   }
-  log.info('[McpProxy] 同步所有真实服务到 proxy 配置:', Object.keys(realOnly).join(', '));
-  const config = { mcpServers: realOnly };
-  mcpProxyManager.setConfig(config);
+  if (Object.keys(realOnly).length === 0) return;
+
+  // 合并默认服务器（如 chrome-devtools），确保内置 MCP 服务始终存在
+  const merged: typeof realOnly = { ...DEFAULT_MCP_PROXY_CONFIG.mcpServers, ...realOnly };
+
+  log.info('[McpProxy] 同步 MCP 配置:', Object.keys(merged).join(', '));
+  mcpProxyManager.setConfig({ mcpServers: merged });
+
+  // 持久化到 SQLite
   try {
     const { getDb } = await import('../../db');
     const db = getDb();
     if (db) {
-      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('mcp_proxy_config', JSON.stringify(config));
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('mcp_proxy_config', JSON.stringify({ mcpServers: merged }));
       log.info('[McpProxy] MCP 配置已持久化');
     }
   } catch (e) {
     log.warn('[McpProxy] 持久化 MCP 配置失败:', e);
   }
-  const status = mcpProxyManager.getStatus();
-  if (status.running) {
-    await mcpProxyManager.restart();
-    log.info('[McpProxy] 已重启并加载新配置:', Object.keys(realOnly));
-  }
+
+  // 不再需要 restart — 无后台进程
+  // Agent 下次 init 时 getAgentMcpConfig() 会使用新配置
 }

@@ -1,7 +1,7 @@
 import log from 'electron-log';
 import { getDb, readSetting } from './db';
 import { startComputerServer } from './services/computerServer';
-import { mcpProxyManager } from './services/packages/mcp';
+import { mcpProxyManager, DEFAULT_MCP_PROXY_CONFIG } from './services/packages/mcp';
 import { getConfiguredPorts } from './services/startupPorts';
 
 export async function runStartupTasks(): Promise<void> {
@@ -31,16 +31,15 @@ export async function runStartupTasks(): Promise<void> {
     const savedConfig = db?.prepare('SELECT value FROM settings WHERE key = ?').get('mcp_proxy_config') as { value: string } | undefined;
     if (savedConfig) {
       try {
-        mcpProxyManager.setConfig(JSON.parse(savedConfig.value));
+        const parsed = JSON.parse(savedConfig.value);
+        // 合并默认服务器（如 chrome-devtools），确保内置 MCP 服务始终存在
+        const merged = {
+          ...parsed,
+          mcpServers: { ...DEFAULT_MCP_PROXY_CONFIG.mcpServers, ...(parsed.mcpServers || {}) },
+        };
+        mcpProxyManager.setConfig(merged);
       } catch (e) {
         log.warn('[McpProxy] 初始化配置解析失败:', e);
-      }
-    }
-    const savedPort = db?.prepare('SELECT value FROM settings WHERE key = ?').get('mcp_proxy_port') as { value: string } | undefined;
-    if (savedPort) {
-      const port = parseInt(savedPort.value, 10);
-      if (!Number.isNaN(port)) {
-        mcpProxyManager.setPort(port);
       }
     }
     log.info('[McpProxy] 配置已加载');
