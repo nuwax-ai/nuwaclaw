@@ -113,8 +113,6 @@ export function initLogging(): void {
 
   // 轮转时归档为带时间戳的文件，便于 TTL 清理且不覆盖
   log.transports.file.archiveLogFn = (oldLogFile: { path: string; crop?: (n: number) => void }) => {
-    // 调试：确认 electron-log 是否触发轮转（用 console 避免写入 file 造成递归）
-    console.log('[LogConfig] archiveLogFn called, rotating:', oldLogFile.path);
     const oldPath = oldLogFile.path;
     const parsed = path.parse(oldPath);
     const archiveName = `${parsed.name}.${ARCHIVE_TIME_FORMAT(new Date())}${parsed.ext}`;
