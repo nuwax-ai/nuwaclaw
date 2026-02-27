@@ -29,21 +29,20 @@ export interface McpServersConfig {
 
 export interface McpProxyStatus {
   running: boolean;
-  pid?: number;
-  port?: number;
-  host?: string;
   serverCount?: number;
   serverNames?: string[];
 }
 
 export interface MCPAPI {
-  start: (options?: { port?: number; host?: string; configJson?: string }) => Promise<{ success: boolean; error?: string }>;
+  start: () => Promise<{ success: boolean; error?: string }>;
   stop: () => Promise<{ success: boolean; error?: string }>;
-  restart: (options?: { port?: number; host?: string; configJson?: string }) => Promise<{ success: boolean; error?: string }>;
+  restart: () => Promise<{ success: boolean; error?: string }>;
   status: () => Promise<McpProxyStatus>;
   getConfig: () => Promise<McpServersConfig>;
   setConfig: (config: McpServersConfig) => Promise<{ success: boolean; error?: string }>;
+  /** @deprecated no-op, port is no longer used */
   getPort: () => Promise<number>;
+  /** @deprecated no-op, port is no longer used */
   setPort: (port: number) => Promise<{ success: boolean; error?: string }>;
 }
 

@@ -193,19 +193,18 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     } catch (e) { log.warn('[Services] Agent destroy error (ignored):', e); }
     ctx.fileServer.stop();
     ctx.lanproxy.stop();
-    mcpProxyManager.stop();
 
-    // 2. Start MCP Proxy（必须先于 Agent：Agent 初始化时会连 MCP Proxy 注入 mcpServers）
+    // 2. Verify MCP Proxy binary + 启动 PersistentMcpBridge（持久化 servers）
     try {
       await mcpProxyManager.start();
       results.mcpProxy = { success: true };
-      log.info('[Services] MCP Proxy started');
+      log.info('[Services] MCP Proxy verified');
     } catch (e) {
       results.mcpProxy = { success: false, error: String(e) };
-      log.error('[Services] MCP Proxy start failed:', e);
+      log.error('[Services] MCP Proxy verify failed:', e);
     }
 
-    // 3. Start Agent（依赖 MCP Proxy 已就绪以便 getAgentMcpConfig 对应进程可连）
+    // 3. Start Agent（MCP 配置通过 getAgentMcpConfig 注入，无需等 proxy 进程）
     try {
       let finalConfig: AgentConfigType = {
         engine: agentConfig.type || 'claude-code',
@@ -267,9 +266,8 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   // ==================== services:stopAll ====================
 
   ipcMain.handle('services:stopAll', async () => {
-    const [{ agentService }, { mcpProxyManager }, { stopAllEngines }] = await Promise.all([
+    const [{ agentService }, { stopAllEngines }] = await Promise.all([
       import('../services/engines/unifiedAgent'),
-      import('../services/packages/mcp'),
       import('../services/engines/engineManager'),
     ]);
 
@@ -304,10 +302,10 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       results.lanproxy = { success: false, error: String(e) };
     }
 
-    // Stop MCP Proxy
+    // Stop MCP Proxy（清除 running 状态标记 + 停止 PersistentMcpBridge）
     try {
-      mcpProxyManager.stop();
-      results.mcpProxy = { success: true };
+      const { mcpProxyManager } = await import('../services/packages/mcp');
+      results.mcpProxy = await mcpProxyManager.stop();
       log.info('[Services] MCP Proxy stopped');
     } catch (e) {
       results.mcpProxy = { success: false, error: String(e) };

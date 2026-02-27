@@ -37,14 +37,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     close: () => ipcRenderer.invoke('window:close'),
   },
 
-  // MCP Proxy management (mcp-stdio-proxy 统一代理)
+  // MCP Proxy management (nuwax-mcp-stdio-proxy 聚合代理)
   mcp: {
-    start: (options?: { port?: number; host?: string; configJson?: string }) =>
-      ipcRenderer.invoke('mcp:start', options),
+    start: () =>
+      ipcRenderer.invoke('mcp:start'),
     stop: () =>
       ipcRenderer.invoke('mcp:stop'),
-    restart: (options?: { port?: number; host?: string; configJson?: string }) =>
-      ipcRenderer.invoke('mcp:restart', options),
+    restart: () =>
+      ipcRenderer.invoke('mcp:restart'),
     status: () =>
       ipcRenderer.invoke('mcp:status'),
     getConfig: () =>
@@ -52,9 +52,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setConfig: (config: { mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> }) =>
       ipcRenderer.invoke('mcp:setConfig', config),
     getPort: () =>
-      ipcRenderer.invoke('mcp:getPort'),
-    setPort: (port: number) =>
-      ipcRenderer.invoke('mcp:setPort', port),
+      Promise.resolve(0),
+    setPort: (_port: number) =>
+      Promise.resolve({ success: true }),
   },
 
   // Lanproxy management (via IPC to main process)
