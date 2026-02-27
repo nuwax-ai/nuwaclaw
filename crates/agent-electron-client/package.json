@@ -214,6 +214,11 @@
           "from": "resources/git",
           "to": "git",
           "filter": ["**/*"]
+        },
+        {
+          "from": "resources/uv/bin",
+          "to": "uv/bin",
+          "filter": ["**/*"]
         }
       ]
     },
