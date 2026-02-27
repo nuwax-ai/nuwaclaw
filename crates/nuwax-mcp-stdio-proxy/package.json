@@ -17,7 +17,8 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.27.0"
+    "@modelcontextprotocol/sdk": "^1.27.0",
+    "chrome-devtools-mcp": "^0.18.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
