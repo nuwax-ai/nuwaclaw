@@ -20,6 +20,7 @@ function isDev(): boolean {
 /** 单文件最大字节数：开发 5MB，正式 2MB */
 const MAX_SIZE_DEV = 5 * 1024 * 1024;
 const MAX_SIZE_PROD = 2 * 1024 * 1024;
+// 验证轮转时可将上面两行临时改为 50 * 1024（50KB），重启后打日志即可触发 main.YYYY-MM-DD-HHmmss.log，验证完改回
 
 /** 归档日志保留时间（毫秒）：开发 30 天，正式 7 天 */
 const TTL_MS_DEV = 30 * 24 * 60 * 60 * 1000;
@@ -112,6 +113,8 @@ export function initLogging(): void {
 
   // 轮转时归档为带时间戳的文件，便于 TTL 清理且不覆盖
   log.transports.file.archiveLogFn = (oldLogFile: { path: string; crop?: (n: number) => void }) => {
+    // 调试：确认 electron-log 是否触发轮转（用 console 避免写入 file 造成递归）
+    console.log('[LogConfig] archiveLogFn called, rotating:', oldLogFile.path);
     const oldPath = oldLogFile.path;
     const parsed = path.parse(oldPath);
     const archiveName = `${parsed.name}.${ARCHIVE_TIME_FORMAT(new Date())}${parsed.ext}`;
