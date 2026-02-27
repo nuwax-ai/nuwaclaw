@@ -118,7 +118,7 @@ Each engine runs in an isolated environment:
 | **uv** | bundled | Python package manager (>=0.5.0), shipped in extraResources |
 | **nuwax-file-server** | npm-local | File service |
 | **nuwaxcode** | npm-local | Agent engine |
-| **mcp-stdio-proxy** | npm-local | MCP protocol proxy (bin: `mcp-proxy`) |
+| **nuwax-mcp-stdio-proxy** | npm-local | MCP protocol aggregation proxy |
 
 ### Installation Locations
 
