@@ -761,13 +761,13 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     binName: "nuwaxcode",
   },
   {
-    name: "mcp-stdio-proxy",
+    name: "nuwax-mcp-stdio-proxy",
     displayName: "MCP 服务",
     type: "npm-local",
-    description: "MCP 协议转换工具（应用内安装）",
+    description: "MCP 协议聚合代理（应用内安装）",
     required: true,
-    minVersion: "0.1.48",
-    binName: "mcp-proxy",
+    minVersion: "1.0.0",
+    binName: "nuwax-mcp-stdio-proxy",
   },
   {
     name: "claude-code-acp-ts",
@@ -1144,7 +1144,7 @@ export async function checkAllDependencies(): Promise<LocalDependencyItem[]> {
         }
         case 'nuwaxcode':
         case 'nuwax-file-server':
-        case 'mcp-stdio-proxy':
+        case 'nuwax-mcp-stdio-proxy':
         case 'claude-code-acp-ts': {
           const result = await detectNpmPackage(dep.name, dep.binName);
           item.status = result.installed ? 'installed' : 'missing';

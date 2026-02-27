@@ -17,10 +17,10 @@ export const MCP_LOGS_DIR_NAME = 'mcp';
 
 // ==================== 端口配置 ====================
 
-/** MCP Proxy 默认端口 */
+/** @deprecated MCP Proxy 不再使用端口（nuwax-mcp-stdio-proxy 为 stdio 直通模式） */
 export const DEFAULT_MCP_PROXY_PORT = 18099;
 
-/** MCP Proxy 默认监听地址 */
+/** @deprecated MCP Proxy 不再使用监听地址（nuwax-mcp-stdio-proxy 为 stdio 直通模式） */
 export const DEFAULT_MCP_PROXY_HOST = '127.0.0.1';
 
 /** 开发服务器默认端口 */

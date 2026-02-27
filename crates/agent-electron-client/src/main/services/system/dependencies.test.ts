@@ -219,16 +219,16 @@ describe('dependencies', () => {
       expect(agentDep?.required).toBe(true);
     });
 
-    it('should have mcp-stdio-proxy as npm-local dependency', async () => {
+    it('should have nuwax-mcp-stdio-proxy as npm-local dependency', async () => {
       const { SETUP_REQUIRED_DEPENDENCIES } = await import('../system/dependencies');
       const mcpDep = SETUP_REQUIRED_DEPENDENCIES.find(
-        d => d.name === 'mcp-stdio-proxy',
+        d => d.name === 'nuwax-mcp-stdio-proxy',
       );
 
       expect(mcpDep).toBeDefined();
       expect(mcpDep?.type).toBe('npm-local');
       expect(mcpDep?.required).toBe(true);
-      expect(mcpDep?.binName).toBe('mcp-proxy');
+      expect(mcpDep?.binName).toBe('nuwax-mcp-stdio-proxy');
     });
 
     it('should have all required dependencies', async () => {
