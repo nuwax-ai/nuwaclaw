@@ -143,13 +143,20 @@ function extractArchive(archivePath, outDir) {
   const isZip = ext === '.zip';
   if (isZip) {
     if (process.platform === 'win32') {
-      // Windows: tar 对 D:\ 路径解析有问题，用 PowerShell Expand-Archive 解压 .zip
-      const psPath = archivePath.replace(/'/g, "''");
-      const psDest = outDir.replace(/'/g, "''");
-      execSync(
-        `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${psPath}' -DestinationPath '${psDest}' -Force"`,
-        { stdio: 'inherit' },
-      );
+      // Windows: 使用 tar 解压 zip（Windows 10+ 内置 tar）
+      // 注意：需要等待文件流完全关闭，避免 "being used by another process" 错误
+      try {
+        execSync(`tar -xf "${archivePath}" -C "${outDir}"`, { stdio: 'inherit' });
+      } catch (e) {
+        // 如果 tar 失败，尝试使用 PowerShell（可能遇到文件锁定问题）
+        console.log('[prepare-uv] tar 解压失败，尝试 PowerShell...');
+        const psPath = archivePath.replace(/'/g, "''");
+        const psDest = outDir.replace(/'/g, "''");
+        execSync(
+          `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${psPath}' -DestinationPath '${psDest}' -Force"`,
+          { stdio: 'inherit' },
+        );
+      }
     } else {
       try {
         execSync(`unzip -o -q "${archivePath}" -d "${outDir}"`, { stdio: 'inherit' });
