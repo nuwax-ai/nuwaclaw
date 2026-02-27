@@ -275,10 +275,10 @@ class McpProxyManager {
     log.info(`[McpProxy] 入口文件: ${entryPath}`);
     log.info(`[McpProxy] 参数: ${args.join(' ')}`);
     log.info(`[McpProxy] 端口: ${port}, 主机: ${host}`);
-    log.info(`[McpProxy] 环境变量 PATH: ${mcpEnv.PATH}`);
-    log.info(`[McpProxy] NODE_PATH: ${mcpEnv.NODE_PATH}`);
-    log.info(`[McpProxy] NPM_CONFIG_REGISTRY: ${mcpEnv.NPM_CONFIG_REGISTRY}`);
-    log.info(`[McpProxy] UV_INDEX_URL: ${mcpEnv.UV_INDEX_URL}`);
+    log.info(`[McpProxy] 环境变量 PATH: ${appEnv.PATH}`);
+    log.info(`[McpProxy] NODE_PATH: ${appEnv.NODE_PATH}`);
+    log.info(`[McpProxy] NPM_CONFIG_REGISTRY: ${appEnv.NPM_CONFIG_REGISTRY}`);
+    log.info(`[McpProxy] UV_INDEX_URL: ${appEnv.UV_INDEX_URL}`);
     log.info(`[McpProxy] ============================`);
 
     // 创建启动 Promise 并存储，防止并发调用
