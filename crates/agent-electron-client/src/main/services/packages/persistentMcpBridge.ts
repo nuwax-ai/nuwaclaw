@@ -3,7 +3,7 @@
  *
  * 将需要长生命周期的 MCP server（如 chrome-devtools-mcp）从 ACP session
  * 中拉出来，由 Electron 主进程管理。通过 HTTP bridge 供每个 ACP session
- * 连接（via mcp-bridge-client.mjs）。
+ * 连接（via nuwax-mcp-stdio-proxy 的 bridge 入口，config 中 { url } 指向本 HTTP）。
  *
  * 架构:
  *   persistent child process (stdio)
