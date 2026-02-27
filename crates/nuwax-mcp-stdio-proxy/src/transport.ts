@@ -3,8 +3,8 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { CustomStdioClientTransport } from './customStdio.js';
 import type { StdioServerEntry, BridgeServerEntry } from './types.js';
 import { logInfo } from './logger.js';
 
@@ -38,7 +38,7 @@ export async function connectStdio(
 ): Promise<ConnectedClient> {
   logInfo(`Connecting to "${id}" (stdio): ${entry.command} ${(entry.args || []).join(' ')}`);
 
-  const transport = new StdioClientTransport({
+  const transport = new CustomStdioClientTransport({
     command: entry.command,
     args: entry.args || [],
     env: { ...baseEnv, ...(entry.env || {}) },
