@@ -147,7 +147,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/uv
-          key: bundled-uv-${{ runner.os }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
+          key: bundled-uv-${{ runner.os }}-v2-${{ hashFiles('crates/agent-electron-client/package.json') }}
 
       # ---- macOS：导入证书并配置公证（可选） ----
       - name: Import Apple certificate (macOS)
@@ -196,6 +196,13 @@ jobs:
           echo "APPLE_API_ISSUER=$ISSUER" >> "$GITHUB_ENV"
 
       # 若用户看到「已损坏」：请确认已配置 APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY 及公证用 APPLE_API_KEY 等，且构建日志中有签名与公证成功
+      - name: Clean previous build artifacts
+        shell: bash
+        working-directory: crates/agent-electron-client
+        run: |
+          rm -rf release node_modules/.cache
+          echo "Cleaned release and cache directories"
+
       - name: Build Electron app
         shell: bash
         working-directory: crates/agent-electron-client
