@@ -140,8 +140,8 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       await loadAuth();
       // 标记服务已由登录流程启动，防止 App.tsx 自动重连再次启动
       await window.electronAPI?.settings.set('_services_started_by_login', true);
-      // 登录成功后自动启动所有服务（不依赖 services 状态，直接按顺序启动）
-      const startOrder = ['agent', 'fileServer', 'lanproxy', 'mcpProxy'];
+      // 登录成功后自动启动所有服务（顺序：先 MCP 服务，最后代理服务 Lanproxy）
+      const startOrder = ['mcpProxy', 'agent', 'fileServer', 'lanproxy'];
       let agentFailed = false;
       for (const key of startOrder) {
         // 如果 agent 启动失败，跳过 lanproxy（无 agent 时隧道无意义）
@@ -312,7 +312,8 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
     }
 
     try {
-      const startOrder = ['agent', 'fileServer', 'lanproxy', 'mcpProxy'];
+      // 与列表顺序一致：先 MCP，最后代理服务
+      const startOrder = ['mcpProxy', 'agent', 'fileServer', 'lanproxy'];
       let startedCount = 0;
 
       for (const key of startOrder) {

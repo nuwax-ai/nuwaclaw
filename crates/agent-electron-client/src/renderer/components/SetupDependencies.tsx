@@ -67,6 +67,12 @@ export default function SetupDependencies({
   const [currentInstalling, setCurrentInstalling] = useState<string>("");
   const [installError, setInstallError] = useState<string>("");
   const [showAll, setShowAll] = useState(true);
+  /** 初始化安装检查时显式确认 uv 的结果，用于在界面展示「浏览器确认有 uv」 */
+  const [uvConfirm, setUvConfirm] = useState<{
+    installed: boolean;
+    bundled?: boolean;
+    version?: string;
+  } | null>(null);
   const projectInstallTriggered = useRef(false);
 
   const openUrl = useCallback(async (url: string) => {
@@ -105,6 +111,22 @@ export default function SetupDependencies({
             : undefined,
       }));
       setAllDependencies(unified);
+
+      // 初始化安装检查：显式再调一次 checkUv，便于在界面展示「已确认 uv」
+      try {
+        const uvRes = await window.electronAPI?.dependencies.checkUv();
+        if (uvRes?.success && uvRes.installed) {
+          setUvConfirm({
+            installed: true,
+            bundled: uvRes.bundled,
+            version: uvRes.version,
+          });
+        } else {
+          setUvConfirm({ installed: false });
+        }
+      } catch {
+        setUvConfirm({ installed: false });
+      }
 
       // 检查系统依赖
       const systemMissing = unified.some(
@@ -267,6 +289,20 @@ export default function SetupDependencies({
 
   const renderDependencyList = () => (
     <div style={{ marginBottom: 12 }}>
+      {/* 初始化安装检查：浏览器确认 uv 已就绪时展示 */}
+      {uvConfirm?.installed && (
+        <Alert
+          type="success"
+          showIcon
+          message={
+            <span>
+              uv 已确认（{uvConfirm.bundled ? "应用内" : "系统"}
+              {uvConfirm.version ? `，v${uvConfirm.version}` : ""}）
+            </span>
+          }
+          style={{ marginBottom: 12 }}
+        />
+      )}
       <div
         style={{
           display: "flex",
@@ -434,9 +470,17 @@ export default function SetupDependencies({
             </div>
           )}
           {installPhase === "completed" && (
-            <div style={{ fontSize: 12, color: "#71717a" }}>
-              正在进入下一步...
-            </div>
+            <>
+              {uvConfirm?.installed && (
+                <div style={{ fontSize: 12, color: "#16a34a" }}>
+                  uv 已确认（{uvConfirm.bundled ? "应用内" : "系统"}
+                  {uvConfirm.version ? ` v${uvConfirm.version}` : ""}）
+                </div>
+              )}
+              <div style={{ fontSize: 12, color: "#71717a" }}>
+                正在进入下一步...
+              </div>
+            </>
           )}
         </div>
       </div>

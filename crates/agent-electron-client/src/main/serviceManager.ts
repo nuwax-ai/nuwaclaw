@@ -128,7 +128,17 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     ctx.lanproxy.stop();
     mcpProxyManager.stop();
 
-    // 2. 启动 Agent
+    // 2. 启动 MCP Proxy（必须先于 Agent：Agent 初始化时会连 MCP Proxy 注入 mcpServers）
+    try {
+      await mcpProxyManager.start();
+      results.mcpProxy = { success: true };
+      log.info('[ServiceManager] MCP Proxy started');
+    } catch (e) {
+      results.mcpProxy = { success: false, error: String(e) };
+      log.error('[ServiceManager] MCP Proxy start failed:', e);
+    }
+
+    // 3. 启动 Agent（依赖 MCP Proxy 已就绪以便 getAgentMcpConfig 对应进程可连）
     try {
       const finalConfig: AgentConfig = {
         engine: (agentConfig.type as AgentConfig['engine']) || 'claude-code',
@@ -149,7 +159,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       log.error('[ServiceManager] Agent start failed:', e);
     }
 
-    // 3. 启动文件服务器（端口来自聚合配置）
+    // 4. 启动文件服务器（端口来自聚合配置）
     try {
       const { fileServer: fileServerPort } = getConfiguredPorts();
       results.fileServer = await startFileServer(fileServerPort);
@@ -159,7 +169,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       log.error('[ServiceManager] FileServer start failed:', e);
     }
 
-    // 4. 启动 Lanproxy
+    // 5. 启动 Lanproxy
     try {
       const clientKey = readSetting('auth.saved_key') as string | null;
       const lpConfig = readSetting('lanproxy_config') as Record<string, unknown> || {};
@@ -178,16 +188,6 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     } catch (e) {
       results.lanproxy = { success: false, error: String(e) };
       log.error('[ServiceManager] Lanproxy start failed:', e);
-    }
-
-    // 5. 启动 MCP Proxy
-    try {
-      await mcpProxyManager.start();
-      results.mcpProxy = { success: true };
-      log.info('[ServiceManager] MCP Proxy started');
-    } catch (e) {
-      results.mcpProxy = { success: false, error: String(e) };
-      log.error('[ServiceManager] MCP Proxy start failed:', e);
     }
 
     log.info('[ServiceManager] All services restart complete');

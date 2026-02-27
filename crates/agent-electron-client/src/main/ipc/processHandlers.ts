@@ -195,7 +195,17 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     ctx.lanproxy.stop();
     mcpProxyManager.stop();
 
-    // 2. Start Agent
+    // 2. Start MCP Proxy（必须先于 Agent：Agent 初始化时会连 MCP Proxy 注入 mcpServers）
+    try {
+      await mcpProxyManager.start();
+      results.mcpProxy = { success: true };
+      log.info('[Services] MCP Proxy started');
+    } catch (e) {
+      results.mcpProxy = { success: false, error: String(e) };
+      log.error('[Services] MCP Proxy start failed:', e);
+    }
+
+    // 3. Start Agent（依赖 MCP Proxy 已就绪以便 getAgentMcpConfig 对应进程可连）
     try {
       let finalConfig: AgentConfigType = {
         engine: agentConfig.type || 'claude-code',
@@ -216,7 +226,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       log.error('[Services] Agent start failed:', e);
     }
 
-    // 3. Start File Server（端口来自聚合配置）
+    // 4. Start File Server（端口来自聚合配置）
     try {
       const { getConfiguredPorts } = await import('../services/startupPorts');
       const { fileServer: fileServerPort } = getConfiguredPorts();
@@ -227,7 +237,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       log.error('[Services] FileServer start failed:', e);
     }
 
-    // 4. Start Lanproxy
+    // 5. Start Lanproxy
     try {
       const clientKey = readSetting('auth.saved_key') as string | null;
       const lpConfig = readSetting('lanproxy_config') as any || {};
@@ -248,16 +258,6 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     } catch (e) {
       results.lanproxy = { success: false, error: String(e) };
       log.error('[Services] Lanproxy start failed:', e);
-    }
-
-    // 5. Start MCP Proxy
-    try {
-      await mcpProxyManager.start();
-      results.mcpProxy = { success: true };
-      log.info('[Services] MCP Proxy started');
-    } catch (e) {
-      results.mcpProxy = { success: false, error: String(e) };
-      log.error('[Services] MCP Proxy start failed:', e);
     }
 
     log.info('[Services] All services restart complete:', results);

@@ -116,11 +116,11 @@ function App() {
         window.electronAPI?.agent.serviceStatus(),
         window.electronAPI?.mcp.status(),
       ]);
-      // 列表顺序：Agent 放第一位，其余保持与 startOrder 一致
+      // 列表顺序：先 MCP 服务，最后代理服务（与启动顺序一致）
+      items.push({ key: 'mcpProxy', label: 'MCP 服务', description: 'MCP 协议转换工具', running: mcpStatus?.running ?? false, pid: mcpStatus?.pid });
       items.push({ key: 'agent', label: 'Agent 服务', description: 'Agent 核心服务', running: agentSvcStatus?.running ?? false });
       items.push({ key: 'fileServer', label: '文件服务', description: 'Agent 工作目录文件远程管理服务', running: fsStatus?.running ?? false, pid: fsStatus?.pid });
       items.push({ key: 'lanproxy', label: '代理服务', description: '网络通道', running: lpStatus?.running ?? false, pid: lpStatus?.pid });
-      items.push({ key: 'mcpProxy', label: 'MCP 服务', description: 'MCP 协议转换工具', running: mcpStatus?.running ?? false, pid: mcpStatus?.pid });
       setServices(items);
     } catch (error) {
       console.error('[App] pollServicesStatus failed:', error);
@@ -189,7 +189,8 @@ function App() {
       if (setupJustCompleted.current) {
         setupJustCompleted.current = false;
         console.log('[App] 初始化向导刚完成，启动所有服务...');
-        await startServicesSequentially(['agent', 'fileServer', 'lanproxy', 'mcpProxy']);
+        // 顺序：先 MCP 服务（Agent 依赖），最后代理服务（Lanproxy）
+        await startServicesSequentially(['mcpProxy', 'agent', 'fileServer', 'lanproxy']);
         return;
       }
 
@@ -206,9 +207,9 @@ function App() {
             if (user) {
               setUsername(user.displayName || user.username || '用户');
             }
-            // 启动所有服务
+            // 启动所有服务（顺序：先 MCP，最后 Lanproxy）
             console.log('[App] 启动所有服务...');
-            await startServicesSequentially(['agent', 'fileServer', 'lanproxy', 'mcpProxy']);
+            await startServicesSequentially(['mcpProxy', 'agent', 'fileServer', 'lanproxy']);
           } else {
             console.warn('[App] 配置同步失败');
           }
