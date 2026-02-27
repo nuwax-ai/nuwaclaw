@@ -11,6 +11,7 @@ import log from 'electron-log';
 import type { ManagedProcess } from './processManager';
 import { readSetting } from './db';
 import { APP_DATA_DIR_NAME, DEFAULT_STARTUP_DELAY } from './services/constants';
+import { getConfiguredPorts } from './services/startupPorts';
 import { getAppEnv, getLanproxyBinPath } from './services/system/dependencies';
 import { agentService } from './services/engines/unifiedAgent';
 import type { AgentConfig } from './services/engines/unifiedAgent';
@@ -148,9 +149,10 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       log.error('[ServiceManager] Agent start failed:', e);
     }
 
-    // 3. 启动文件服务器
+    // 3. 启动文件服务器（端口来自聚合配置）
     try {
-      results.fileServer = await startFileServer((step1Config.fileServerPort as number) ?? 60000);
+      const { fileServer: fileServerPort } = getConfiguredPorts();
+      results.fileServer = await startFileServer(fileServerPort);
       log.info('[ServiceManager] FileServer started');
     } catch (e) {
       results.fileServer = { success: false, error: String(e) };

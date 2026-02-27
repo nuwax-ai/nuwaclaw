@@ -249,9 +249,8 @@ function getBundledGitBinDir(): string {
   return ''; // 未找到
 }
 
-// 获取 bundled git-bash.exe 路径（Windows）
-// Claude Code CLI / nuwaxcode 需要 git-bash 执行 shell 命令
-function getBundledGitBashPath(): string {
+/** 获取 bundled git-bash 路径（Windows 下为 prepare-git 集成的 bash.exe，供端口检查等统一走 bash） */
+export function getBundledGitBashPath(): string {
   if (!isWindows()) {
     return '';
   }
@@ -1189,6 +1188,7 @@ export default {
   getResourcesPath,
   getUvBinPath,
   getLanproxyBinPath,
+  getBundledGitBashPath,
   getAppEnv,
   setMirrorConfig,
   getMirrorConfig,

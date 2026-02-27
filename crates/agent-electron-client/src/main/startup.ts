@@ -2,6 +2,7 @@ import log from 'electron-log';
 import { getDb, readSetting } from './db';
 import { startComputerServer } from './services/computerServer';
 import { mcpProxyManager } from './services/packages/mcp';
+import { getConfiguredPorts } from './services/startupPorts';
 
 export async function runStartupTasks(): Promise<void> {
   // 从 SQLite 恢复镜像配置
@@ -15,10 +16,9 @@ export async function runStartupTasks(): Promise<void> {
     }
   }
 
-  // 尽早启动 Computer HTTP Server（对齐 rcoder /computer/* API）
+  // 尽早启动 Computer HTTP Server（对齐 rcoder /computer/* API），端口来自聚合配置
   {
-    const s1 = readSetting('step1_config') as { agentPort?: number } | null;
-    const agentPort = s1?.agentPort ?? 60001;
+    const { agent: agentPort } = getConfiguredPorts();
     startComputerServer(agentPort).then((r) => {
       if (r.success) log.info(`[Init] Computer HTTP server listening on port ${agentPort}`);
       else log.warn(`[Init] Computer HTTP server failed: ${r.error}`);

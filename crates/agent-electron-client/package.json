@@ -21,6 +21,8 @@
     "prepare:lanproxy": "node scripts/prepare-lanproxy.js",
     "prepare:node": "node scripts/prepare-node.js",
     "prepare:git": "node scripts/prepare-git.js",
+    "check-ports": "node scripts/check-startup-ports.js",
+    "check-ports:dev": "node scripts/check-startup-ports.js --vite",
     "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git",
     "build:electron": "npm run build && npm run prepare:all && electron-builder --config.compression=store",
     "dist": "npm run build:electron -- --mac",

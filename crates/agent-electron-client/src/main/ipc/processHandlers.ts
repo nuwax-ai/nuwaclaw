@@ -216,9 +216,11 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       log.error('[Services] Agent start failed:', e);
     }
 
-    // 3. Start File Server
+    // 3. Start File Server（端口来自聚合配置）
     try {
-      results.fileServer = await startFileServerProcess(step1Config.fileServerPort ?? 60000);
+      const { getConfiguredPorts } = await import('../services/startupPorts');
+      const { fileServer: fileServerPort } = getConfiguredPorts();
+      results.fileServer = await startFileServerProcess(fileServerPort);
       log.info('[Services] FileServer started:', results.fileServer);
     } catch (e) {
       results.fileServer = { success: false, error: String(e) };
