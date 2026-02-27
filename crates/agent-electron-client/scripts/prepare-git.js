@@ -17,7 +17,8 @@ const projectRoot = path.resolve(__dirname, '..');
 const gitRoot = path.join(projectRoot, 'resources', 'git');
 
 const GIT_VERSION = '2.47.1';
-const PORTABLE_GIT_FILE = `PortableGit-${GIT_VERSION}-64-bit.7z.exe`;
+// 使用 .zip 版本而非 .7z.exe（更兼容）
+const PORTABLE_GIT_FILE = `PortableGit-${GIT_VERSION}-64-bit.zip`;
 const DEFAULT_GIT_URL = `https://github.com/git-for-windows/git/releases/download/v${GIT_VERSION}.windows.1/${PORTABLE_GIT_FILE}`;
 
 // 需要删除的目录（体积）
@@ -134,6 +135,12 @@ async function main() {
   const gitBin = path.join(gitRoot, 'bin', 'bash.exe');
   if (fs.existsSync(gitBin)) {
     console.log(`[prepare-git] Git 已存在，跳过`);
+    return;
+  }
+  
+  // CI 环境中跳过 Git 下载（GitHub 下载经常失败）
+  if (process.env.CI === 'true') {
+    console.log(`[prepare-git] CI 环境跳过 Git 下载`);
     return;
   }
   
