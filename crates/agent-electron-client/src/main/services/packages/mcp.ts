@@ -270,17 +270,6 @@ class McpProxyManager {
       '--log-dir', mcpLogDir,
     ];
 
-    // DEBUG: 输出完整启动信息
-    log.info(`[McpProxy] ====== 启动调试信息 ======`);
-    log.info(`[McpProxy] 入口文件: ${entryPath}`);
-    log.info(`[McpProxy] 参数: ${args.join(' ')}`);
-    log.info(`[McpProxy] 端口: ${port}, 主机: ${host}`);
-    log.info(`[McpProxy] 环境变量 PATH: ${appEnv.PATH}`);
-    log.info(`[McpProxy] NODE_PATH: ${appEnv.NODE_PATH}`);
-    log.info(`[McpProxy] NPM_CONFIG_REGISTRY: ${appEnv.NPM_CONFIG_REGISTRY}`);
-    log.info(`[McpProxy] UV_INDEX_URL: ${appEnv.UV_INDEX_URL}`);
-    log.info(`[McpProxy] ============================`);
-
     // 创建启动 Promise 并存储，防止并发调用
     this.startPromise = new Promise((resolve) => {
       let startResolved = false;
@@ -293,6 +282,17 @@ class McpProxyManager {
         // MCP Proxy 需要访问系统 npm 以运行 chrome-devtools-mcp 等工具
         // 因此不能完全隔离，只注入必要的应用内路径
         const appEnv = getAppEnv();
+
+        // DEBUG: 输出完整启动信息
+        log.info(`[McpProxy] ====== 启动调试信息 ======`);
+        log.info(`[McpProxy] 入口文件: ${entryPath}`);
+        log.info(`[McpProxy] 参数: ${args.join(' ')}`);
+        log.info(`[McpProxy] 端口: ${port}, 主机: ${host}`);
+        log.info(`[McpProxy] 环境变量 PATH: ${appEnv.PATH}`);
+        log.info(`[McpProxy] NODE_PATH: ${appEnv.NODE_PATH}`);
+        log.info(`[McpProxy] NPM_CONFIG_REGISTRY: ${appEnv.NPM_CONFIG_REGISTRY}`);
+        log.info(`[McpProxy] UV_INDEX_URL: ${appEnv.UV_INDEX_URL}`);
+        log.info(`[McpProxy] ============================`);
 
         // 构建 mcp-proxy 专用环境
         // 不继承 process.env，避免传递用户的 npm 配置
