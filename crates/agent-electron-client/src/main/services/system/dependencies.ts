@@ -784,14 +784,21 @@ export async function checkUvVersion(): Promise<{
 }> {
   // 优先检测 bundled uv
   const bundledPath = getUvBinPath();
+  log.info(`[checkUvVersion] 检测 bundled uv: ${bundledPath}`);
+  
   if (fs.existsSync(bundledPath)) {
+    log.info(`[checkUvVersion] bundled uv 文件存在，尝试执行: ${bundledPath}`);
     const result = await _checkUvBin(bundledPath);
+    log.info(`[checkUvVersion] bundled uv 检测结果:`, result);
     if (result.installed) {
       return { ...result, bundled: true, binPath: bundledPath };
     }
+  } else {
+    log.warn(`[checkUvVersion] bundled uv 文件不存在: ${bundledPath}`);
   }
 
   // Fallback 到系统 uv
+  log.info(`[checkUvVersion] 尝试系统 uv...`);
   return new Promise((resolve) => {
     const proc = spawn('uv', ['--version'], {
       stdio: ['ignore', 'pipe', 'ignore'],
