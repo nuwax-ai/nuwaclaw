@@ -13,11 +13,136 @@ import * as fs from 'fs';
 import * as net from 'net';
 import log from 'electron-log';
 import { app } from 'electron';
-import { getAppEnv } from '../system/dependencies';
+import { getAppEnv, getUvBinPath } from '../system/dependencies';
 import { getAppPaths, isInstalledLocally } from './packageLocator';
 import { spawnJsFile, resolveNpmPackageEntry } from '../utils/spawnNoWindow';
 import { DEFAULT_MCP_PROXY_PORT, DEFAULT_MCP_PROXY_HOST, APP_DATA_DIR_NAME, DEFAULT_STARTUP_DELAY } from '../constants';
 import { isWindows } from '../system/shellEnv';
+
+// ========== Shared Helpers ==========
+
+/**
+ * Returns the directory containing the app-internal `uv` binary.
+ * Priority: bundled resources/uv/bin → ~/.nuwax-agent/bin
+ * Returns empty string if uv not found anywhere.
+ */
+export function getUvBinDir(): string {
+  const p = getUvBinPath();
+  if (p && fs.existsSync(p)) return path.dirname(p);
+  const appBin = path.join(app.getPath('home'), APP_DATA_DIR_NAME, 'bin');
+  const uvName = isWindows() ? 'uv.exe' : 'uv';
+  if (fs.existsSync(path.join(appBin, uvName))) return appBin;
+  return '';
+}
+
+/**
+ * Resolves `uvx`/`uv` commands to app-internal binaries.
+ * - If `uvx`: always rewrite to `<uvBinDir>/uv tool run ...`
+ *   (uv >= 0.10 dropped the uvx multicall — invoking the binary as `uvx` no longer
+ *    behaves as `uv tool run`; it shows the full `uv` CLI instead)
+ * - If `uv`: resolve to `<uvBinDir>/uv`
+ */
+export function resolveUvCommand(
+  command: string,
+  args: string[],
+  uvBinDir?: string,
+): { command: string; args: string[] } {
+  const dir = uvBinDir ?? getUvBinDir();
+  if (!dir) return { command, args };
+
+  const base = path.basename(command).replace(/\.(exe)?$/i, '');
+  if (base === 'uvx') {
+    // Always use `uv tool run` — the uvx multicall binary is broken in uv >= 0.10
+    const uvName = isWindows() ? 'uv.exe' : 'uv';
+    const uvPath = path.join(dir, uvName);
+    if (fs.existsSync(uvPath)) {
+      return { command: uvPath, args: ['tool', 'run', ...args] };
+    }
+    return { command, args };
+  }
+  if (base === 'uv') {
+    const uvName = isWindows() ? 'uv.exe' : 'uv';
+    const uvPath = path.join(dir, uvName);
+    if (fs.existsSync(uvPath)) {
+      return { command: uvPath, args };
+    }
+  }
+  return { command, args };
+}
+
+/**
+ * Resolve uvx/uv commands inside a `mcp-proxy convert --config '{...}'` bridge entry.
+ * Only rewrites inner command paths (uvx → uv tool run); does NOT inject env.
+ * The bridge process inherits env from its parent (ACP engine already has getAppEnv()),
+ * so env injection in --config is unnecessary and bloats the command line.
+ */
+export function resolveBridgeEntry(
+  command: string,
+  args: string[],
+  uvBinDir?: string,
+): { command: string; args: string[] } {
+  const dir = uvBinDir ?? getUvBinDir();
+  const idx = args.indexOf('--config');
+  if (idx < 0 || idx + 1 >= args.length) return { command, args };
+  const configStr = args[idx + 1];
+  if (typeof configStr !== 'string') return { command, args };
+
+  let parsed: { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> };
+  try {
+    parsed = JSON.parse(configStr);
+  } catch {
+    return { command, args };
+  }
+  const inner = parsed?.mcpServers;
+  if (!inner || typeof inner !== 'object') return { command, args };
+
+  let changed = false;
+  for (const [, srv] of Object.entries(inner)) {
+    if (!srv || typeof srv.command !== 'string') continue;
+    const resolved = resolveUvCommand(srv.command, srv.args || [], dir);
+    if (resolved.command !== srv.command) {
+      srv.command = resolved.command;
+      srv.args = resolved.args;
+      changed = true;
+    }
+  }
+
+  if (!changed) return { command, args };
+  const newConfigStr = JSON.stringify(parsed);
+  const newArgs = [...args];
+  newArgs[idx + 1] = newConfigStr;
+  return { command, args: newArgs };
+}
+
+/**
+ * Apply resolveUvCommand + inject getAppEnv() env for all server entries.
+ * Filters out mcp-proxy bridge entries.
+ */
+export function resolveServersConfig(
+  servers: Record<string, McpServerEntry>,
+): Record<string, McpServerEntry> {
+  const appEnv = getAppEnv();
+  const baseEnv: Record<string, string> = {
+    ...appEnv,
+    HOME: process.env.HOME || process.env.USERPROFILE || '',
+    USER: process.env.USER || process.env.USERNAME || '',
+    USERNAME: process.env.USERNAME || process.env.USER || '',
+    LANG: process.env.LANG || 'en_US.UTF-8',
+    TZ: process.env.TZ || '',
+  };
+  const dir = getUvBinDir();
+  const result: Record<string, McpServerEntry> = {};
+  for (const [name, entry] of Object.entries(servers)) {
+    if (entry.command === 'mcp-proxy') continue;
+    const resolved = resolveUvCommand(entry.command, entry.args || [], dir);
+    result[name] = {
+      command: resolved.command,
+      args: resolved.args,
+      env: { ...baseEnv, ...(entry.env || {}) },
+    };
+  }
+  return result;
+}
 
 // ========== Types ==========
 
@@ -255,7 +380,51 @@ class McpProxyManager {
       }
     }
 
+    // mcp-stdio-proxy 单进程仅支持单服务，且不能运行桥接项（command===mcp-proxy）
+    // 过滤桥接项，若仍有多项则只保留第一项，避免报错「配置包含多个服务，请使用 --name」
+    const servers = config.mcpServers || {};
+    const realEntries = Object.entries(servers).filter(([, entry]) => entry.command !== 'mcp-proxy');
+    if (realEntries.length === 0) {
+      config = JSON.parse(JSON.stringify(DEFAULT_MCP_PROXY_CONFIG));
+      log.info('[McpProxy] 配置中无真实服务（仅桥接项），使用默认配置');
+    } else if (realEntries.length > 1) {
+      const first = Object.fromEntries([realEntries[0]]);
+      config = { mcpServers: first };
+      log.warn('[McpProxy] 配置包含多个真实服务，单进程仅启动第一项:', realEntries[0][0]);
+    } else {
+      config = { mcpServers: Object.fromEntries(realEntries) };
+    }
+
+    // 直接使用应用内环境变量，且 command 指向应用内 uv/uvx 的完整路径，子进程不依赖 PATH
+    const appEnv = getAppEnv();
+    const baseEnv: Record<string, string> = {
+      ...appEnv,
+      HOME: process.env.HOME || process.env.USERPROFILE || '',
+      USER: process.env.USER || process.env.USERNAME || '',
+      USERNAME: process.env.USERNAME || process.env.USER || '',
+      LANG: process.env.LANG || 'en_US.UTF-8',
+      TZ: process.env.TZ || '',
+    };
+    const uvDir = getUvBinDir();
+    const mcpServersWithEnv: Record<string, McpServerEntry> = {};
+    for (const [name, entry] of Object.entries(config.mcpServers || {})) {
+      const resolved = resolveUvCommand(entry.command, entry.args || [], uvDir);
+      if (resolved.command !== entry.command) {
+        log.info(`[McpProxy] 将 ${name} 的 command 指向应用内: ${resolved.command}`);
+      }
+      mcpServersWithEnv[name] = {
+        command: resolved.command,
+        args: resolved.args,
+        env: { ...baseEnv, ...(entry.env || {}) },
+      };
+    }
+    config = { mcpServers: mcpServersWithEnv };
+
     const configJson = JSON.stringify(config);
+    const finalServers = config.mcpServers || {};
+    const serverNames = Object.keys(finalServers);
+    const serverCommands = serverNames.map((n) => `${n}=${(finalServers[n] as { command?: string })?.command || '?'}`);
+    log.info(`[McpProxy] 追踪: 本次启动的 MCP 配置: 服务数=${serverNames.length}, 列表=${serverCommands.join(', ')}`);
 
     // 日志目录（对齐 Tauri 客户端）
     const appDataDir = path.join(app.getPath('home'), APP_DATA_DIR_NAME);
@@ -279,44 +448,26 @@ class McpProxyManager {
       };
 
       try {
-        // MCP Proxy 需要访问系统 npm 以运行 chrome-devtools-mcp 等工具
-        // 因此不能完全隔离，只注入必要的应用内路径
-        const appEnv = getAppEnv();
+        // 与 Tauri 一致：proxy 进程与 config 内各服务共用同一套应用内环境（baseEnv），子进程通过 config 的 env 直接获得应用内 PATH/UV_*
+        const mcpEnv: Record<string, string> = baseEnv;
 
-        // DEBUG: 输出完整启动信息
+        // DEBUG: 输出启动信息（与 Tauri 日志对齐）+ 追踪 uvx 用 env
+        const pathSep = isWindows() ? ';' : ':';
+        const pathArr = (mcpEnv.PATH || '').split(pathSep).filter(Boolean);
+        const pathWithUv = pathArr.filter((p) => p.includes('uv') || p.includes('nuwax-agent'));
         log.info(`[McpProxy] ====== 启动调试信息 ======`);
         log.info(`[McpProxy] 入口文件: ${entryPath}`);
         log.info(`[McpProxy] 参数: ${args.join(' ')}`);
         log.info(`[McpProxy] 端口: ${port}, 主机: ${host}`);
-        log.info(`[McpProxy] 环境变量 PATH: ${appEnv.PATH}`);
-        log.info(`[McpProxy] NODE_PATH: ${appEnv.NODE_PATH}`);
-        log.info(`[McpProxy] NPM_CONFIG_REGISTRY: ${appEnv.NPM_CONFIG_REGISTRY}`);
-        log.info(`[McpProxy] UV_INDEX_URL: ${appEnv.UV_INDEX_URL}`);
+        log.info(`[McpProxy] 环境变量 env 键数: ${Object.keys(mcpEnv).length}`);
+        log.info(`[McpProxy] PATH 总段数: ${pathArr.length}, 含 uv/nuwax-agent 的段数: ${pathWithUv.length}`);
+        log.info(`[McpProxy] PATH(含uv) 前8段: ${pathWithUv.slice(0, 8).join(' | ') || '(无)'}`);
+        log.info(`[McpProxy] UV_INDEX_URL: ${mcpEnv.UV_INDEX_URL || '(未设置)'}`);
+        log.info(`[McpProxy] UV_TOOL_DIR: ${mcpEnv.UV_TOOL_DIR || '(未设置)'}`);
+        log.info(`[McpProxy] 传入 spawnJsFile 的 env 将作为子进程唯一环境（callerProvidedFullEnv=true 时）`);
         log.info(`[McpProxy] ============================`);
 
-        // 构建 mcp-proxy 专用环境
-        // 不继承 process.env，避免传递用户的 npm 配置
-        // 只保留必要的环境变量
-        const mcpEnv: Record<string, string> = {
-          // PATH：应用内优先
-          PATH: appEnv.PATH,
-          // Node.js 相关
-          NODE_PATH: appEnv.NODE_PATH,
-          NODE_ENV: process.env.NODE_ENV || 'production',
-          // Python/uv 相关
-          UV_TOOL_DIR: appEnv.UV_TOOL_DIR,
-          UV_CACHE_DIR: appEnv.UV_CACHE_DIR,
-          UV_INDEX_URL: appEnv.UV_INDEX_URL,
-          // 用户目录（保持系统默认，不隔离）
-          HOME: process.env.HOME || process.env.USERPROFILE || '',
-          USER: process.env.USER || process.env.USERNAME || '',
-          USERNAME: process.env.USERNAME || process.env.USER || '',
-          // 语言环境
-          LANG: process.env.LANG || 'en_US.UTF-8',
-          TZ: process.env.TZ || '',
-        };
-
-        // 使用通用 spawnJsFile 启动，自动处理 Windows 无弹窗
+        // 传入完整 mcpEnv，spawnJsFile 会直接使用（不再二次 getAppEnv），与 Tauri env_clear + envs(base) + env(PATH) 行为一致
         const proc = spawnJsFile(entryPath, args, {
           env: mcpEnv,
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -468,7 +619,7 @@ class McpProxyManager {
    * - 如果 MCP Proxy 正在运行，使用 mcp-proxy convert 桥接
    * - 如果未运行，直接返回各 MCP server 的 stdio 配置
    */
-  getAgentMcpConfig(): Record<string, { command: string; args: string[] }> | null {
+  getAgentMcpConfig(): Record<string, { command: string; args: string[]; env?: Record<string, string> }> | null {
     const servers = this.config.mcpServers;
     if (!servers || Object.keys(servers).length === 0) {
       return null;
@@ -485,12 +636,14 @@ class McpProxyManager {
       };
     }
 
-    // MCP Proxy 未运行：回退到直接 stdio 配置
-    const result: Record<string, { command: string; args: string[] }> = {};
-    for (const [id, entry] of Object.entries(servers)) {
+    // MCP Proxy 未运行：回退到直接 stdio 配置（应用路径解析 + env 注入）
+    const resolved = resolveServersConfig(servers);
+    const result: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
+    for (const [id, entry] of Object.entries(resolved)) {
       result[id] = {
         command: entry.command,
         args: entry.args,
+        env: entry.env,
       };
     }
     return result;
@@ -511,3 +664,69 @@ class McpProxyManager {
 // ========== Exports ==========
 
 export const mcpProxyManager = new McpProxyManager();
+
+/**
+ * 从 mcpServers 中提取「真实」服务：直连项保留；桥接项（command===mcp-proxy）若带 --config 则解析内嵌 mcpServers 并入结果，用于动态加载会话下发的 Time/Fetch 等。
+ */
+function extractRealServersFromMcpServers(
+  mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>,
+): Record<string, { command: string; args: string[]; env?: Record<string, string> }> {
+  const real: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
+  for (const [name, entry] of Object.entries(mcpServers)) {
+    if (!entry) continue;
+    if (entry.command !== 'mcp-proxy') {
+      real[name] = { command: entry.command, args: Array.isArray(entry.args) ? entry.args : [], env: entry.env };
+      continue;
+    }
+    const args = entry.args || [];
+    const idx = args.indexOf('--config');
+    if (idx < 0 || idx + 1 >= args.length) continue;
+    const configStr = args[idx + 1];
+    if (typeof configStr !== 'string') continue;
+    try {
+      const parsed = JSON.parse(configStr) as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> };
+      const inner = parsed?.mcpServers;
+      if (!inner || typeof inner !== 'object') continue;
+      for (const [k, v] of Object.entries(inner)) {
+        if (!v || typeof v.command !== 'string' || v.command === 'mcp-proxy') continue;
+        real[k] = { command: v.command, args: Array.isArray(v.args) ? v.args : [], env: v.env };
+      }
+    } catch {
+      /* ignore parse error */
+    }
+  }
+  return real;
+}
+
+/**
+ * 将 mcpServers 配置同步到 MCP Proxy 并可选重启（真实服务：直连项 + 从桥接项 --config 解析出的内嵌服务；
+ * 单服务时同步，多服务时优先 time 再取第一项）。支持按会话动态加载：每次请求带 context_servers 时调用，proxy 随会话更新。
+ */
+export async function syncMcpConfigToProxyAndReload(
+  mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>,
+): Promise<void> {
+  if (!mcpServers || Object.keys(mcpServers).length === 0) return;
+  let realOnly = extractRealServersFromMcpServers(mcpServers);
+  if (Object.keys(realOnly).length === 0) {
+    log.info('[McpProxy] MCP 配置均为桥接项且无 --config 内嵌真实服务，不同步到 proxy');
+    return;
+  }
+  log.info('[McpProxy] 同步所有真实服务到 proxy 配置:', Object.keys(realOnly).join(', '));
+  const config = { mcpServers: realOnly };
+  mcpProxyManager.setConfig(config);
+  try {
+    const { getDb } = await import('../../db');
+    const db = getDb();
+    if (db) {
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('mcp_proxy_config', JSON.stringify(config));
+      log.info('[McpProxy] MCP 配置已持久化');
+    }
+  } catch (e) {
+    log.warn('[McpProxy] 持久化 MCP 配置失败:', e);
+  }
+  const status = mcpProxyManager.getStatus();
+  if (status.running) {
+    await mcpProxyManager.restart();
+    log.info('[McpProxy] 已重启并加载新配置:', Object.keys(realOnly));
+  }
+}

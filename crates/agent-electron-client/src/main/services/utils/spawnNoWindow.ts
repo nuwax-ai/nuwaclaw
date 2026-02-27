@@ -150,43 +150,53 @@ export function spawnJsFile(
   // 测试环境中 app.getPath 不可用，需要使用回退方案
   const isElectron = typeof process.versions?.electron === 'string';
 
+  // 与 Tauri 一致：调用方已传入完整 env（如 mcp-proxy 的 getAppEnv）时直接使用，不再二次合并 getAppEnv()，避免 PATH/UV_* 被覆盖或时机不一致
+  const callerProvidedFullEnv = env && typeof env === 'object' && 'PATH' in env && Object.keys(env).length > 5;
+  if (env && !callerProvidedFullEnv && isElectron) {
+    log.info(`[spawnNoWindow] 追踪: 未使用完整 env（PATH=${!!env?.PATH}, 键数=${Object.keys(env || {}).length}），将合并 getAppEnv()`);
+  }
+
   if (isWindows()) {
-    // Windows: 使用 getAppEnv() 获取完整的环境变量（仅在 Electron 环境中）
-    // 包含：内置 Node.js 24、内置 Git、从注册表读取的 PATH 等
-    // 测试环境使用回退方案
-    const appEnv = isElectron ? getAppEnv() : null;
-    
     node = nodePath || process.execPath;
-    mergedEnv = appEnv 
-      ? { ...appEnv, ...env, ELECTRON_RUN_AS_NODE: '1' }
-      : {
-          ...process.env,
-          ...env,
-          ELECTRON_RUN_AS_NODE: '1',
-          PATH: getEnhancedPath(),
-        };
-    
-    // DEBUG: 记录平台调试信息
+    if (callerProvidedFullEnv && isElectron) {
+      mergedEnv = { ...env, ELECTRON_RUN_AS_NODE: '1' } as Record<string, string | undefined>;
+      const pathStr = mergedEnv.PATH || '';
+      const pathWithUv = pathStr.split(';').filter((p) => p && (p.includes('uv') || p.includes('nuwax-agent')));
+      log.info(`[spawnNoWindow] Windows: 使用调用方传入的完整 env (${Object.keys(env).length} 项)`);
+      log.info(`[spawnNoWindow] 追踪: 子进程 PATH 中含 uv 的段数=${pathWithUv.length}, 前5段=${pathWithUv.slice(0, 5).join(';') || '(无)'}`);
+    } else {
+      const appEnv = isElectron ? getAppEnv() : null;
+      mergedEnv = appEnv
+        ? { ...appEnv, ...env, ELECTRON_RUN_AS_NODE: '1' }
+        : {
+            ...process.env,
+            ...env,
+            ELECTRON_RUN_AS_NODE: '1',
+            PATH: getEnhancedPath(),
+          };
+    }
     log.info(`[spawnNoWindow] Windows 调试信息 (Electron: ${isElectron}):`);
     log.info(`[spawnNoWindow]   - process.execPath: ${process.execPath}`);
     log.info(`[spawnNoWindow]   - 使用 node: ${node}`);
-    log.info(`[spawnNoWindow]   - ELECTRON_RUN_AS_NODE: ${mergedEnv.ELECTRON_RUN_AS_NODE}`);
     log.info(`[spawnNoWindow]   - PATH 前5个: ${(mergedEnv.PATH || '').split(';').slice(0, 5).join(';')}`);
   } else {
-    // macOS/Linux: 使用 getAppEnv() 获取完整的环境变量（仅在 Electron 环境中）
-    // 测试环境使用回退方案
-    const appEnv = isElectron ? getAppEnv() : null;
-    
     node = nodePath || findSystemNode();
-    mergedEnv = appEnv 
-      ? { ...appEnv, ...env }
-      : {
-          ...process.env,
-          ...env,
-          PATH: getEnhancedPath(),
-        };
-
-    // 记录调试信息
+    if (callerProvidedFullEnv && isElectron) {
+      mergedEnv = { ...env } as Record<string, string | undefined>;
+      const pathStr = mergedEnv.PATH || '';
+      const pathWithUv = pathStr.split(':').filter((p) => p && (p.includes('uv') || p.includes('nuwax-agent')));
+      log.info(`[spawnNoWindow] ${process.platform}: 使用调用方传入的完整 env (${Object.keys(env).length} 项)`);
+      log.info(`[spawnNoWindow] 追踪: 子进程 PATH 中含 uv 的段数=${pathWithUv.length}, 前5段=${pathWithUv.slice(0, 5).join(':') || '(无)'}`);
+    } else {
+      const appEnv = isElectron ? getAppEnv() : null;
+      mergedEnv = appEnv
+        ? { ...appEnv, ...env }
+        : {
+            ...process.env,
+            ...env,
+            PATH: getEnhancedPath(),
+          };
+    }
     log.info(`[spawnNoWindow] ${process.platform} 调试信息 (Electron: ${isElectron}):`);
     log.info(`[spawnNoWindow]   - 使用 node: ${node}`);
     log.info(`[spawnNoWindow]   - PATH 前5个: ${(mergedEnv.PATH || '').split(':').slice(0, 5).join(':')}`);

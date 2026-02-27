@@ -244,6 +244,46 @@ export class UnifiedAgentService extends EventEmitter {
    * Ensure the correct engine is running for the given chat request.
    */
   async ensureEngineForRequest(request: ComputerChatRequest): Promise<void> {
+    // 按会话动态加载：本请求携带的 context_servers 同步到 MCP Proxy（从桥接项 --config 解析真实服务），一次会话就会更新 proxy 配置
+    const requestMcpServersEarly: NonNullable<AgentConfig['mcpServers']> = {};
+    if (request.agent_config?.context_servers) {
+      // Resolve uvx/uv commands to app-internal binaries for dynamic MCP servers
+      // For bridge entries (mcp-proxy convert --config ...), also resolve inner uvx commands
+      let mcpModule: { resolveUvCommand: (cmd: string, args: string[], dir?: string) => { command: string; args: string[] }; resolveBridgeEntry: (cmd: string, args: string[], dir?: string) => { command: string; args: string[] } } | null = null;
+      try {
+        mcpModule = await import('../packages/mcp');
+      } catch {
+        // mcp module not available, proceed without resolution
+      }
+      for (const [name, srv] of Object.entries(request.agent_config.context_servers)) {
+        if (srv.enabled === false || !srv.command) continue;
+        let command = srv.command;
+        let args = srv.args || [];
+        if (mcpModule) {
+          if (command === 'mcp-proxy' || path.basename(command) === 'mcp-proxy') {
+            // Bridge entry: resolve inner uvx/uv commands inside --config JSON
+            const resolved = mcpModule.resolveBridgeEntry(command, args);
+            command = resolved.command;
+            args = resolved.args;
+          } else {
+            // Direct entry: resolve top-level uvx/uv command
+            const resolved = mcpModule.resolveUvCommand(command, args);
+            command = resolved.command;
+            args = resolved.args;
+          }
+        }
+        requestMcpServersEarly[name] = { command, args, env: srv.env };
+      }
+      if (Object.keys(requestMcpServersEarly).length > 0) {
+        try {
+          const { syncMcpConfigToProxyAndReload } = await import('../packages/mcp');
+          await syncMcpConfigToProxyAndReload(requestMcpServersEarly);
+        } catch (e) {
+          log.warn('[UnifiedAgent] 动态同步 MCP 配置到 proxy 失败（不影响会话）:', e);
+        }
+      }
+    }
+
     const agentServer = request.agent_config?.agent_server;
     const mp = request.model_provider;
 
@@ -281,17 +321,11 @@ export class UnifiedAgentService extends EventEmitter {
     const apiKeyChanged = !!mp?.api_key && mp.api_key !== (this.config?.apiKey || '');
     const baseUrlChanged = !!mp?.base_url && mp.base_url !== (this.config?.baseUrl || '');
 
-    // MCP servers 变更检测
+    // MCP servers 变更检测（与开头已解析的 requestMcpServersEarly 一致）
     const currentMcpStr = this.config?.mcpServers
       ? JSON.stringify(this.config.mcpServers, Object.keys(this.config.mcpServers).sort())
       : '';
-    const requestMcpServers: NonNullable<AgentConfig['mcpServers']> = {};
-    if (request.agent_config?.context_servers) {
-      for (const [name, srv] of Object.entries(request.agent_config.context_servers)) {
-        if (srv.enabled === false || !srv.command) continue;
-        requestMcpServers[name] = { command: srv.command, args: srv.args || [], env: srv.env };
-      }
-    }
+    const requestMcpServers = requestMcpServersEarly;
     const newMcpStr = Object.keys(requestMcpServers).length > 0
       ? JSON.stringify(requestMcpServers, Object.keys(requestMcpServers).sort())
       : '';
@@ -367,6 +401,7 @@ export class UnifiedAgentService extends EventEmitter {
       throw new Error(`Failed to switch engine to ${requiredEngine}`);
     }
     log.info(`[UnifiedAgent] ✅ 引擎已切换到 ${requiredEngine}`);
+    // 与 Tauri 一致：ACP context_servers 不写入本地 proxy，仅用于引擎 createSession 的 mcpServers
   }
 
   get isReady(): boolean {

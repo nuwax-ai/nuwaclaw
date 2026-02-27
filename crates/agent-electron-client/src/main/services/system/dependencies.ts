@@ -183,10 +183,52 @@ function getElectronNodeBinDir(): string {
   return ''; // 未找到
 }
 
-// 获取 bundled uv 二进制路径
+/** 获取 bundled uv 二进制路径（打包后为 process.resourcesPath/uv/bin/uv，开发时为 resources/uv/bin/uv） */
 export function getUvBinPath(): string {
   const uvName = isWindows() ? 'uv.exe' : 'uv';
   return path.join(getResourcesPath(), 'uv', 'bin', uvName);
+}
+
+/**
+ * 应用内集成：确保 uv 在应用内可用。
+ * 若 bundled（getUvBinPath）不存在，但 resources/uv/bin 存在（如开发环境已执行 prepare:uv），
+ * 则一次性复制到 ~/.nuwax-agent/bin，该目录已在 PATH 中，后续 MCP 等子进程即可找到 uv。
+ *
+ * 注意：不创建 uvx 硬链接/复制。uv >= 0.10 的 uvx 多调用已失效（调用 uvx 不等于 uv tool run），
+ * 所以 resolveUvCommand() 统一将 uvx 命令重写为 `uv tool run`。
+ */
+function ensureUvInAppBin(): void {
+  try {
+    const uvBinPath = getUvBinPath();
+    if (fs.existsSync(uvBinPath)) {
+      log.info(`[ensureUvInAppBin] bundled uv 已存在: ${uvBinPath}`);
+      return;
+    }
+    const appBin = getAppBinDir();
+    const uvName = isWindows() ? 'uv.exe' : 'uv';
+    const appBinUv = path.join(appBin, uvName);
+    if (fs.existsSync(appBinUv)) {
+      log.info(`[ensureUvInAppBin] 应用目录已有 uv: ${appBinUv}`);
+      return;
+    }
+    const srcBin = path.join(getResourcesPath(), 'uv', 'bin');
+    const srcUv = path.join(srcBin, uvName);
+    const srcExists = fs.existsSync(srcUv);
+    const srcBinIsDir = fs.existsSync(srcBin) && fs.statSync(srcBin).isDirectory();
+    log.info(`[ensureUvInAppBin] resources/uv/bin: ${srcBin}, uv 存在=${srcExists}, 是目录=${srcBinIsDir}`);
+    if (!srcExists || !srcBinIsDir) return;
+    if (!fs.existsSync(appBin)) fs.mkdirSync(appBin, { recursive: true });
+    for (const name of fs.readdirSync(srcBin)) {
+      const src = path.join(srcBin, name);
+      if (fs.statSync(src).isFile()) {
+        fs.copyFileSync(src, path.join(appBin, name));
+        log.info(`[ensureUvInAppBin] 已复制应用内 uv: ${name} -> ${appBin}`);
+      }
+    }
+    log.info(`[ensureUvInAppBin] 复制完成，appBin=${appBin}`);
+  } catch (e) {
+    log.warn('[ensureUvInAppBin] 应用内 uv 检查/复制失败:', e);
+  }
 }
 
 // 获取 bundled nuwax-lanproxy 二进制路径
@@ -309,13 +351,22 @@ export function getAppEnv(): Record<string, string> {
   const appDataDir = getAppDataDir();
   const nodeModulesBin = path.join(appDataDir, 'node_modules', '.bin');
   const appBin = getAppBinDir();
-  const uvBin = path.dirname(getUvBinPath());
+
+  // 应用内集成：优先使用 bundled uv；若无则尝试从 resources 复制到 appBin（一次），保证 uv/uvx 来自应用内
+  ensureUvInAppBin();
+  const uvBinPath = getUvBinPath();
+  const uvBin =
+    fs.existsSync(uvBinPath)
+      ? path.dirname(uvBinPath)
+      : fs.existsSync(path.join(appBin, isWindows() ? 'uv.exe' : 'uv'))
+        ? appBin
+        : '';
 
   const pathSep = isWindows() ? ';' : ':';
 
-  // uv/uvx 数据目录
+  // uv/uvx 数据目录（仅当应用内 uv 存在时加入，否则依赖系统 PATH 回退）
   const uvDataDir = path.join(appDataDir, 'uv');
-  const uvToolBinDir = path.join(uvDataDir, 'tools', 'bin');
+  const uvToolBinDir = uvBin ? path.join(uvDataDir, 'tools', 'bin') : '';
 
   // npm 缓存和全局前缀
   const npmCacheDir = path.join(appDataDir, 'npm-cache');
@@ -333,28 +384,31 @@ export function getAppEnv(): Record<string, string> {
   const bundledGitBashPath = getBundledGitBashPath();
   const electronNodeBinDir = getElectronNodeBinDir();
 
-  // PATH 优先级（Windows: 内置 Node.js 24 > 内置 Git > 应用内 > uv > 系统）
-  // PATH 优先级（macOS/Linux: 系统 npm > 应用内 > uv > 系统）
+  // PATH 优先级：应用内 uv/uvx 优先，再应用内 node/npm，最后系统回退
   // - bundledNodeBinDir: 内置 Node.js 24（仅 Windows）
   // - bundledGitBinDir: 内置 Git bin（仅 Windows）
   // - electronNodeBinDir: Electron 内置的 npm/npx
+  // - uvBin/uvToolBinDir: 应用内 uv/uvx（优先，保证 MCP 等子进程用应用内版本）
   // - nodeModulesBin: 应用内 node_modules/.bin
   // - appBin: 应用内 bin
-  // - uvBin/uvToolBinDir: uv
-  // - systemPathPaths: 系统工具
-  const priorityPath = [bundledNodeBinDir, electronNodeBinDir, bundledGitBinDir, nodeModulesBin, appBin, uvBin, uvToolBinDir, ...systemPathPaths]
+  // - systemPathPaths: 系统工具回退
+  const priorityPath = [bundledNodeBinDir, electronNodeBinDir, bundledGitBinDir, uvBin, uvToolBinDir, nodeModulesBin, appBin, ...systemPathPaths]
     .filter(Boolean)
     .join(pathSep);
 
-  // 调试日志：输出 PATH 优先级
+  // 调试日志：输出 PATH 优先级（应用内 uv 优先）
   log.info(`[getAppEnv] PATH 优先级 (${process.platform}):`);
   log.info(`[getAppEnv]   1. 内置 Node.js 24: ${bundledNodeBinDir || (isWindows() ? '(未找到)' : '(macOS/Linux 使用系统 npm)')}`);
   log.info(`[getAppEnv]   2. Electron Node: ${electronNodeBinDir || '(未找到)'}`);
   log.info(`[getAppEnv]   3. 内置 Git: ${bundledGitBinDir || (isWindows() ? '(未找到)' : '(macOS/Linux 使用系统)')}`);
-  log.info(`[getAppEnv]   4. node_modules: ${nodeModulesBin}`);
-  log.info(`[getAppEnv]   5. app bin: ${appBin}`);
-  log.info(`[getAppEnv]   6. uv: ${uvBin}`);
+  log.info(`[getAppEnv]   4. uv/uvx(应用内优先): ${uvBin || '(未找到，将使用系统 PATH 回退)'}`);
+  log.info(`[getAppEnv]   5. node_modules: ${nodeModulesBin}`);
+  log.info(`[getAppEnv]   6. app bin: ${appBin}`);
   log.info(`[getAppEnv]   7. 系统回退: ${systemPathPaths.slice(0, 3).join(', ')}...`);
+  // 追踪：PATH 中是否包含可能含 uvx 的目录（便于排查 uvx 类 MCP 不生效）
+  const pathSegments = priorityPath.split(pathSep);
+  const uvRelated = pathSegments.filter((p) => p && (p.includes('uv') || p.includes('nuwax-agent')));
+  log.info(`[getAppEnv] 追踪 uv/uvx: PATH 中与 uv 相关段数=${uvRelated.length}, 前5段=${uvRelated.slice(0, 5).join(' | ') || '(无)'}`);
 
   // 构建环境变量对象
   const env: Record<string, string | undefined> = {
@@ -578,13 +632,18 @@ function getSystemPaths(): string[] {
       fallbackPaths.push(electronPath);
     }
     
-    // macOS 常见路径
+    // macOS 常见路径（含 uv/uvx：Homebrew 与官方安装脚本 ~/.local/bin）
     fallbackPaths.push(
-      '/usr/local/bin',      // Homebrew Intel
+      '/usr/local/bin',      // Homebrew Intel、部分 uv 安装
       '/opt/homebrew/bin',   // Homebrew Apple Silicon
       '/usr/bin',
       '/bin',
     );
+    const homeMac = process.env.HOME || '';
+    if (homeMac) {
+      const localBin = path.join(homeMac, '.local', 'bin');
+      if (fs.existsSync(localBin)) fallbackPaths.push(localBin);
+    }
     // 添加常见 Node.js 版本管理器路径
     const home = process.env.HOME || '';
     if (home) {
@@ -625,6 +684,14 @@ function getSystemPaths(): string[] {
         }
       }
     }
+  } else if (process.platform === 'linux') {
+    // Linux：常见 uv/uvx 安装路径
+    const homeLinux = process.env.HOME || '';
+    if (homeLinux) {
+      const localBin = path.join(homeLinux, '.local', 'bin');
+      if (fs.existsSync(localBin)) fallbackPaths.push(localBin);
+    }
+    fallbackPaths.push('/usr/local/bin', '/usr/bin', '/bin');
   } else if (isWindows()) {
     // Windows: 使用 getElectronNodeBinDir() 获取 Electron 内置 Node.js
     // (在 getSystemPaths 中复用，主要由 getAppEnv 中的优先级控制)

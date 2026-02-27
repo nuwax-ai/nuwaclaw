@@ -2,7 +2,7 @@ import { ipcMain } from 'electron';
 import log from 'electron-log';
 import { agentService } from '../services/engines/unifiedAgent';
 import type { AgentConfig } from '../services/engines/unifiedAgent';
-import { mcpProxyManager } from '../services/packages/mcp';
+import { mcpProxyManager, syncMcpConfigToProxyAndReload } from '../services/packages/mcp';
 
 export function registerAgentHandlers(): void {
   // Initialize unified agent service
@@ -19,6 +19,12 @@ export function registerAgentHandlers(): void {
         }
       }
       const ok = await agentService.init(finalConfig);
+
+      // 仅当调用方显式传入 mcpServers（原始服务器列表）时，同步到 MCP Proxy 并动态加载
+      // auto-inject 时 finalConfig.mcpServers 是桥接配置，不能写回 proxy
+      if (config.mcpServers && Object.keys(config.mcpServers).length > 0) {
+        await syncMcpConfigToProxyAndReload(config.mcpServers);
+      }
 
       return {
         success: ok,
