@@ -99,6 +99,24 @@ function download(url, preferredFilename) {
   return new Promise((resolve, reject) => {
     const filename = preferredFilename || path.basename(url.split('?')[0]) || 'download';
     const file = path.join(cacheDir, filename);
+    
+    // 检查缓存是否存在且有效（Windows: > 1MB）
+    if (fs.existsSync(file)) {
+      try {
+        const stats = fs.statSync(file);
+        const minSize = process.platform === 'win32' ? 1024 * 1024 : 100 * 1024;
+        if (stats.size > minSize) {
+          console.log(`[prepare-uv] 使用缓存: ${filename} (${Math.round(stats.size / 1024 / 1024)} MB)`);
+          resolve(file);
+          return;
+        }
+      } catch (e) {
+        // 文件可能被锁定，删除后重新下载
+        console.log(`[prepare-uv] 缓存文件异常，删除后重新下载`);
+        try { fs.unlinkSync(file); } catch (_) {}
+      }
+    }
+    
     const stream = fs.createWriteStream(file);
     https.get(url, { headers: { 'User-Agent': 'Nuwax-Agent-Build' } }, (res) => {
       if (res.statusCode === 302 || res.statusCode === 301) {
