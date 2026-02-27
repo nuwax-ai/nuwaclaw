@@ -1,6 +1,6 @@
 {
   "name": "@nuwax/agent-electron-client",
-  "version": "0.4.10",
+  "version": "0.4.11",
   "description": "Nuwax Agent Desktop Client (Electron)",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
@@ -73,7 +73,8 @@
     "typescript": "^5.7.3",
     "vite": "^6.0.7",
     "vitest": "^2.1.8",
-    "wait-on": "^8.0.2"
+    "wait-on": "^8.0.2",
+    "7zip-bin": "^5.2.0"
   },
   "build": {
     "appId": "com.nuwax.agent",
@@ -121,20 +122,6 @@
       {
         "from": "resources/lanproxy",
         "to": "lanproxy",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "resources/node",
-        "to": "node",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "resources/git",
-        "to": "git",
         "filter": [
           "**/*"
         ]
@@ -216,7 +203,19 @@
           ]
         }
       ],
-      "icon": "public/icon.ico"
+      "icon": "public/icon.ico",
+      "extraResources": [
+        {
+          "from": "resources/node",
+          "to": "node",
+          "filter": ["**/*"]
+        },
+        {
+          "from": "resources/git",
+          "to": "git",
+          "filter": ["**/*"]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 /**
- * 多平台 Node.js 24 集成：构建前按当前平台准备 resources/node/bin/
+ * Node.js 24 集成（仅 Windows 客户端）
+ *
+ * 仅在 Windows 构建时执行：准备 resources/node/<platform-arch>/，供运行时 PATH 使用。
+ * macOS/Linux 使用系统 Node，不打包内置 Node。
  *
  * 参考 LobsterAI 方案：https://github.com/netease-youdao/LobsterAI
  *
  * 1) 若已存在 resources/node/<platform-arch>/，则跳过
- * 2) 否则从 nodejs.org 下载当前平台包，解压到 <platform-arch>/
+ * 2) 否则从 nodejs.org 下载 Windows 包，解压到 <platform-arch>/
  *
- * 平台 key：darwin-arm64 | darwin-x64 | win32-x64 | linux-x64 | linux-arm64
+ * 平台 key（仅 Windows）：win32-x64 | win32-arm64
  */
 
 const path = require('path');
@@ -155,17 +158,23 @@ async function prepareNode(key, suffix) {
 }
 
 async function main() {
+  // 仅 Windows 客户端需要内置 Node.js 24；macOS/Linux 使用系统 Node
+  if (process.platform !== 'win32') {
+    console.log('[prepare-node] 非 Windows 平台跳过（仅 Windows 客户端集成 Node.js 24）');
+    return;
+  }
+
   const key = getPlatformKey();
   const suffix = NODE_ASSET_SUFFIX[key];
-  
+
   if (!suffix) {
     console.warn(`[prepare-node] 未支持的平台: ${key}`);
     return;
   }
-  
+
   // 创建目录
   fs.mkdirSync(nodeRoot, { recursive: true });
-  
+
   await prepareNode(key, suffix);
 }
 

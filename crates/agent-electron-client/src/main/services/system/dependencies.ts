@@ -195,32 +195,26 @@ export function getLanproxyBinPath(): string {
   return path.join(getResourcesPath(), 'lanproxy', 'bin', binName);
 }
 
-// 获取 bundled Node.js 24 路径（集成到 resources/node/）
-// 仅 Windows 需要内置 Node.js（用户通常没有预装）
-// macOS/Linux 使用系统 npm/node（用户通常通过 Homebrew 安装）
+// 获取 bundled Node.js 24 路径（集成到 resources/node/，仅 Windows）
+// prepare-node 输出到 resources/node/win32-x64 或 win32-arm64，该目录即 node.exe 所在目录
 function getBundledNodeBinDir(): string {
-  // 仅 Windows 需要内置 Node.js
   if (!isWindows()) {
-    return ''; // macOS/Linux 使用系统 npm/node
+    return '';
   }
-  
-  // 优先使用 resources/node/bin
   const resourcesPath = getResourcesPath();
-  const nodeBinPath = path.join(resourcesPath, 'node', 'bin');
-  
+  const arch = process.arch === 'x64' ? 'x64' : process.arch === 'arm64' ? 'arm64' : 'x64';
+  const nodePlatformKey = `win32-${arch}`;
+  const nodeBinPath = path.join(resourcesPath, 'node', nodePlatformKey);
   if (fs.existsSync(nodeBinPath)) {
     log.info(`[getBundledNodeBinDir] 使用内置 Node.js: ${nodeBinPath}`);
     return nodeBinPath;
   }
-  
-  // 开发模式回退
-  const devPath = path.join(process.cwd(), 'resources', 'node', 'bin');
+  const devPath = path.join(process.cwd(), 'resources', 'node', nodePlatformKey);
   if (fs.existsSync(devPath)) {
     log.info(`[getBundledNodeBinDir] 开发模式使用内置 Node.js: ${devPath}`);
     return devPath;
   }
-  
-  return ''; // 未找到，回退到系统 npm
+  return '';
 }
 
 // 获取 bundled Git 路径（集成到 resources/git/）
