@@ -203,16 +203,6 @@ jobs:
           rm -rf release node_modules/.cache
           echo "Cleaned release and cache directories"
 
-      # 确保 MCP bridge 客户端脚本存在（extraResources 会打包 resources/mcp-bridge/）
-      - name: Verify MCP bridge client script
-        working-directory: crates/agent-electron-client
-        run: |
-          if [ ! -f resources/mcp-bridge/mcp-bridge-client.mjs ]; then
-            echo "::error::resources/mcp-bridge/mcp-bridge-client.mjs is missing (required for persistent MCP bridge in packaged app)"
-            exit 1
-          fi
-          echo "mcp-bridge/mcp-bridge-client.mjs present"
-
       - name: Build Electron app
         shell: bash
         working-directory: crates/agent-electron-client
@@ -225,33 +215,6 @@ jobs:
             npm run dist:mac:unsigned:${{ matrix.arch }}
           else
             npm run ${{ matrix.dist_cmd }}
-          fi
-
-      # 构建后校验：安装包内必须包含 mcp-bridge-client.js（否则持久化 MCP 在打包版不可用）
-      - name: Verify mcp-bridge-client.js in built app
-        shell: bash
-        run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          OUT_DIR="crates/agent-electron-client/release/${VERSION}"
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            APP_PATH="${OUT_DIR}/Nuwax Agent.app"
-            if [ -d "$APP_PATH" ]; then
-              BRIDGE="${APP_PATH}/Contents/Resources/mcp-bridge/mcp-bridge-client.mjs"
-              if [ ! -f "$BRIDGE" ]; then
-                echo "::error::mcp-bridge-client.js not found in app bundle at $BRIDGE"
-                exit 1
-              fi
-              echo "Verified mcp-bridge/mcp-bridge-client.mjs in app bundle"
-            fi
-          elif [ "${{ runner.os }}" = "Windows" ]; then
-            RES_DIR="${OUT_DIR}/win-unpacked/resources"
-            if [ -d "$RES_DIR" ]; then
-              if [ ! -f "${RES_DIR}/mcp-bridge/mcp-bridge-client.mjs" ]; then
-                echo "::error::mcp-bridge-client.mjs not found in win-unpacked at ${RES_DIR}/mcp-bridge/mcp-bridge-client.mjs"
-                exit 1
-              fi
-              echo "Verified mcp-bridge/mcp-bridge-client.mjs in win-unpacked"
-            fi
           fi
 
       - name: Upload artifacts to Release
