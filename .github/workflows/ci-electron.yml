@@ -101,14 +101,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/node
-          key: bundled-node-24-windows
+          key: bundled-node-24-windows-${{ hashFiles('crates/agent-electron-client/package.json') }}
 
       - name: Cache bundled Git (Windows only)
         if: matrix.platform == 'windows-latest'
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/git
-          key: bundled-git-2.47.1-windows
+          key: bundled-git-2.47.1-windows-${{ hashFiles('crates/agent-electron-client/package.json') }}
 
       - name: Build Electron app (unsigned)
         working-directory: crates/agent-electron-client
