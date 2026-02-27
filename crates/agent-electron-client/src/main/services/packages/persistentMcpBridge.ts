@@ -16,7 +16,6 @@
  */
 
 import * as http from 'http';
-import { spawn, ChildProcess } from 'child_process';
 import log from 'electron-log';
 import type { McpServerEntry } from './mcp';
 
@@ -33,12 +32,13 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 const LOG_TAG = '[PersistentMcpBridge]';
 const RESTART_COOLDOWN_MS = 5_000;
+const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10 MB
+const SESSION_CLEANUP_INTERVAL_MS = 60_000; // 1 minute
 
 // ========== Types ==========
 
 interface PersistentServerEntry {
   config: McpServerEntry;
-  childProcess: ChildProcess | null;
   client: Client | null;
   transport: StdioClientTransport | null;
   tools: Tool[];
@@ -59,9 +59,10 @@ class PersistentMcpBridge {
   private httpServer: http.Server | null = null;
   private port = 0;
   private servers = new Map<string, PersistentServerEntry>();
-  /** (serverId, sessionId) → HttpSession */
+  /** "serverId:sessionId" → HttpSession */
   private httpSessions = new Map<string, HttpSession>();
   private running = false;
+  private sessionCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
    * 启动 bridge: 为每个 persistent server spawn 子进程并创建 HTTP server
@@ -83,6 +84,9 @@ class PersistentMcpBridge {
     await this.startHttpServer();
     this.running = true;
 
+    // 3. Start periodic session cleanup
+    this.sessionCleanupTimer = setInterval(() => this.cleanupStaleSessions(), SESSION_CLEANUP_INTERVAL_MS);
+
     log.info(`${LOG_TAG} Bridge ready on port ${this.port}`);
   }
 
@@ -92,6 +96,12 @@ class PersistentMcpBridge {
   async stop(): Promise<void> {
     log.info(`${LOG_TAG} Stopping...`);
     this.running = false;
+
+    // Stop session cleanup timer
+    if (this.sessionCleanupTimer) {
+      clearInterval(this.sessionCleanupTimer);
+      this.sessionCleanupTimer = null;
+    }
 
     // Close all HTTP sessions
     for (const [key, session] of this.httpSessions) {
@@ -150,7 +160,6 @@ class PersistentMcpBridge {
   private async startServer(id: string, config: McpServerEntry): Promise<void> {
     const entry: PersistentServerEntry = {
       config,
-      childProcess: null,
       client: null,
       transport: null,
       tools: [],
@@ -196,14 +205,13 @@ class PersistentMcpBridge {
       // Connect client to transport (this starts the subprocess)
       await client.connect(transport);
 
-      // Cache the child process reference for cleanup
-      entry.childProcess = (transport as any)._process ?? null;
       entry.client = client;
       entry.transport = transport;
 
-      // Pipe stderr for debugging
-      if (entry.childProcess?.stderr) {
-        entry.childProcess.stderr.on('data', (chunk: Buffer) => {
+      // Pipe stderr for debugging (using public API)
+      const stderrStream = transport.stderr;
+      if (stderrStream) {
+        stderrStream.on('data', (chunk: Buffer) => {
           const text = chunk.toString().trim();
           if (text) log.info(`${LOG_TAG} [${id}:stderr] ${text}`);
         });
@@ -243,7 +251,6 @@ class PersistentMcpBridge {
       } catch { /* ignore */ }
       entry.client = null;
       entry.transport = null;
-      entry.childProcess = null;
 
       log.info(`${LOG_TAG} Restarting server "${id}"...`);
       await this.spawnAndConnect(id, entry);
@@ -261,42 +268,52 @@ class PersistentMcpBridge {
     entry.restarting = false;
     entry.healthy = false;
 
+    // Capture PID before closing (transport.close() may invalidate the getter)
+    const pid = entry.transport?.pid;
+
     try {
       if (entry.client) await entry.client.close();
     } catch (e) {
       log.warn(`${LOG_TAG} Error closing client for "${id}":`, e);
     }
 
+    // transport.close() terminates the child process
     try {
       if (entry.transport) await entry.transport.close();
     } catch (e) {
       log.warn(`${LOG_TAG} Error closing transport for "${id}":`, e);
     }
 
-    // Force kill if still alive
-    if (entry.childProcess && !entry.childProcess.killed) {
+    // Force kill via PID if still alive after transport.close()
+    if (pid) {
       try {
-        entry.childProcess.kill('SIGTERM');
-        // Give it a moment, then force kill
+        process.kill(pid, 0); // test if alive
+        process.kill(pid, 'SIGTERM');
         setTimeout(() => {
-          if (entry.childProcess && !entry.childProcess.killed) {
-            entry.childProcess.kill('SIGKILL');
-          }
+          try {
+            process.kill(pid, 0);
+            process.kill(pid, 'SIGKILL');
+          } catch { /* already dead */ }
         }, 2000);
-      } catch { /* ignore */ }
+      } catch { /* already dead */ }
     }
 
     entry.client = null;
     entry.transport = null;
-    entry.childProcess = null;
   }
 
   // ==================== Internal: HTTP Server ====================
 
   private async startHttpServer(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const server = http.createServer(async (req, res) => {
-        await this.handleHttpRequest(req, res);
+      const server = http.createServer((req, res) => {
+        this.handleHttpRequest(req, res).catch((e) => {
+          log.error(`${LOG_TAG} HTTP request error:`, e);
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Internal server error' }));
+          }
+        });
       });
 
       // Listen on random port
@@ -363,7 +380,6 @@ class PersistentMcpBridge {
         const key = `${serverId}:${sessionId}`;
         const session = this.httpSessions.get(key);
         if (session) {
-          // Parse body for POST
           if (req.method === 'POST') {
             const body = await this.readBody(req);
             await session.transport.handleRequest(req, res, body);
@@ -379,6 +395,14 @@ class PersistentMcpBridge {
         const body = await this.readBody(req);
         const session = this.createHttpSession(serverId, serverEntry);
         await session.transport.handleRequest(req, res, body);
+
+        // Register session immediately after first handleRequest (sessionId is now set)
+        const sid = session.transport.sessionId;
+        if (sid) {
+          const key = `${serverId}:${sid}`;
+          this.httpSessions.set(key, session);
+          log.info(`${LOG_TAG} New HTTP session: ${key}`);
+        }
         return;
       }
 
@@ -411,7 +435,7 @@ class PersistentMcpBridge {
       return { tools: serverEntry.tools };
     });
 
-    mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+    mcpServer.setRequestHandler(CallToolRequestSchema, async (request: { params: { name: string; arguments?: Record<string, unknown> } }) => {
       if (!serverEntry.client || !serverEntry.healthy) {
         return {
           content: [{ type: 'text', text: `Server "${serverId}" is not available` }],
@@ -425,28 +449,14 @@ class PersistentMcpBridge {
           arguments: request.params.arguments,
         });
         return result as { content: Array<{ type: string; text?: string }>; isError?: boolean };
-      } catch (e: any) {
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
         return {
-          content: [{ type: 'text', text: `Tool call failed: ${e.message}` }],
+          content: [{ type: 'text', text: `Tool call failed: ${msg}` }],
           isError: true,
         };
       }
     });
-
-    // Store session when transport gets its session ID
-    const origOnMessage = transport.onmessage;
-    transport.onmessage = (message, extra) => {
-      // After first message, session ID should be available
-      const sid = transport.sessionId;
-      if (sid) {
-        const key = `${serverId}:${sid}`;
-        if (!this.httpSessions.has(key)) {
-          this.httpSessions.set(key, session);
-          log.info(`${LOG_TAG} New HTTP session: ${key}`);
-        }
-      }
-      if (origOnMessage) origOnMessage(message, extra);
-    };
 
     // Clean up on close
     transport.onclose = () => {
@@ -459,18 +469,44 @@ class PersistentMcpBridge {
     };
 
     // Connect server to transport
-    mcpServer.connect(transport).catch((e) => {
+    mcpServer.connect(transport).catch((e: unknown) => {
       log.error(`${LOG_TAG} Failed to connect HTTP session server:`, e);
     });
 
-    const session: HttpSession = { server: mcpServer, transport };
-    return session;
+    return { server: mcpServer, transport };
+  }
+
+  /**
+   * Remove sessions whose transport has been closed but not cleaned up
+   * (e.g., bridge client crashed without sending DELETE).
+   */
+  private cleanupStaleSessions(): void {
+    let cleaned = 0;
+    for (const [key, session] of this.httpSessions) {
+      // sessionId becomes undefined after transport.close()
+      if (!session.transport.sessionId) {
+        this.httpSessions.delete(key);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) {
+      log.info(`${LOG_TAG} Cleaned up ${cleaned} stale HTTP session(s)`);
+    }
   }
 
   private readBody(req: http.IncomingMessage): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
-      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      let totalSize = 0;
+      req.on('data', (chunk: Buffer) => {
+        totalSize += chunk.length;
+        if (totalSize > MAX_BODY_SIZE) {
+          req.destroy();
+          reject(new Error(`Request body exceeds ${MAX_BODY_SIZE} bytes`));
+          return;
+        }
+        chunks.push(chunk);
+      });
       req.on('end', () => {
         try {
           const raw = Buffer.concat(chunks).toString('utf-8');
