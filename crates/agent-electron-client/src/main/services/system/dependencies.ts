@@ -334,10 +334,11 @@ export function getAppEnv(): Record<string, string> {
   // 这样 agent 可以使用 bash/git/grep 等系统工具
   const systemPathPaths = getSystemPaths();
 
-  // 获取内置 Node.js 24 和 Git 路径
+  // 获取内置 Node.js 24、Git 和 Electron Node 路径
   const bundledNodeBinDir = getBundledNodeBinDir();
   const bundledGitBinDir = getBundledGitBinDir();
   const bundledGitBashPath = getBundledGitBashPath();
+  const electronNodeBinDir = getElectronNodeBinDir();
 
   // PATH 优先级（Windows: 内置 Node.js 24 > 内置 Git > 应用内 > uv > 系统）
   // PATH 优先级（macOS/Linux: 系统 npm > 应用内 > uv > 系统）
