@@ -120,6 +120,8 @@ function download(url, preferredFilename) {
     const stream = fs.createWriteStream(file);
     https.get(url, { headers: { 'User-Agent': 'Nuwax-Agent-Build' } }, (res) => {
       if (res.statusCode === 302 || res.statusCode === 301) {
+        stream.close();
+        fs.unlink(file, () => {});
         const loc = res.headers.location;
         return download(loc.startsWith('http') ? loc : new URL(loc, url).href, preferredFilename).then(resolve).catch(reject);
       }
@@ -130,8 +132,8 @@ function download(url, preferredFilename) {
       }
       res.pipe(stream);
       stream.on('finish', () => { stream.close(); resolve(file); });
-      stream.on('error', reject);
-    }).on('error', reject);
+      stream.on('error', (e) => { stream.close(); reject(e); });
+    }).on('error', (e) => { stream.close(); reject(e); });
   });
 }
 
@@ -174,15 +176,21 @@ function moveExtractedToKey(extractDir, key) {
   } else {
     copyDirRecursive(extractDir, targetRoot);
   }
-  // Windows zip 可能是顶层 uv.exe，无 bin 子目录
+  // Windows zip 解压后 uv.exe 在根目录，需要移动到 bin/
   const binDir = path.join(targetRoot, 'bin');
   const uvExe = path.join(targetRoot, 'uv.exe');
   const uvBin = path.join(targetRoot, 'uv');
+  const uvxExe = path.join(targetRoot, 'uvx.exe');
+  const uvwExe = path.join(targetRoot, 'uvw.exe');
+  // 确保 bin 目录存在
   if (!fs.existsSync(binDir)) {
     fs.mkdirSync(binDir, { recursive: true });
-    if (fs.existsSync(uvExe)) fs.renameSync(uvExe, path.join(binDir, 'uv.exe'));
-    else if (fs.existsSync(uvBin)) fs.renameSync(uvBin, path.join(binDir, 'uv'));
   }
+  // 将根目录的 uv 相关文件移动到 bin/
+  if (fs.existsSync(uvExe)) fs.renameSync(uvExe, path.join(binDir, 'uv.exe'));
+  if (fs.existsSync(uvBin)) fs.renameSync(uvBin, path.join(binDir, 'uv'));
+  if (fs.existsSync(uvxExe)) fs.renameSync(uvxExe, path.join(binDir, 'uvx.exe'));
+  if (fs.existsSync(uvwExe)) fs.renameSync(uvwExe, path.join(binDir, 'uvw.exe'));
 }
 
 async function downloadAndPrepare(key, suffix, version) {
@@ -209,9 +217,24 @@ async function downloadAndPrepare(key, suffix, version) {
 async function main() {
   const key = getPlatformKey();
   const srcDir = path.join(uvRoot, key);
+  const destBin = path.join(uvRoot, 'bin');
+  const uvName = process.platform === 'win32' ? 'uv.exe' : 'uv';
+  const destUv = path.join(destBin, uvName);
 
-  if (fs.existsSync(srcDir) && copyToDestBin(key)) {
+  console.log(`[prepare-uv] 平台: ${key}, 源码目录: ${srcDir}, 目标目录: ${destBin}`);
+
+  // 检查 bin 目录和 uv 文件是否存在，只有完整才跳过
+  if (fs.existsSync(destUv)) {
+    console.log(`[prepare-uv] uv 已存在: ${destUv}, 跳过下载`);
     return;
+  }
+
+  // 如果源码目录存在但 bin 不完整，尝试复制
+  if (fs.existsSync(srcDir) && copyToDestBin(key)) {
+    if (fs.existsSync(destUv)) {
+      console.log(`[prepare-uv] 使用已有 uv (${key}), 已复制到 bin/`);
+      return;
+    }
   }
 
   const suffix = UV_ASSET_SUFFIX[key];
