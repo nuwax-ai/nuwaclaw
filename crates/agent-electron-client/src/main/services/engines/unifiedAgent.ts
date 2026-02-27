@@ -321,11 +321,16 @@ export class UnifiedAgentService extends EventEmitter {
     const apiKeyChanged = !!mp?.api_key && mp.api_key !== (this.config?.apiKey || '');
     const baseUrlChanged = !!mp?.base_url && mp.base_url !== (this.config?.baseUrl || '');
 
-    // MCP servers 变更检测（与开头已解析的 requestMcpServersEarly 一致）
+    // MCP servers 变更检测
+    // 过滤旧桥接项 (command==='mcp-proxy')，避免每次请求都因桥接项触发不必要的 reinit
     const currentMcpStr = this.config?.mcpServers
       ? JSON.stringify(this.config.mcpServers, Object.keys(this.config.mcpServers).sort())
       : '';
-    const requestMcpServers = requestMcpServersEarly;
+    const requestMcpServers: typeof requestMcpServersEarly = {};
+    for (const [name, entry] of Object.entries(requestMcpServersEarly)) {
+      if (entry.command === 'mcp-proxy' || path.basename(entry.command) === 'mcp-proxy') continue;
+      requestMcpServers[name] = entry;
+    }
     const newMcpStr = Object.keys(requestMcpServers).length > 0
       ? JSON.stringify(requestMcpServers, Object.keys(requestMcpServers).sort())
       : '';
@@ -368,6 +373,7 @@ export class UnifiedAgentService extends EventEmitter {
       mergedEnv.OPENCODE_LOG_DIR = localLogDir;
     }
 
+    // requestMcpServers 已在变更检测阶段过滤了旧桥接项 (command==='mcp-proxy')
     const mergedMcpServers = {
       ...(baseConfig.mcpServers || {}),
       ...requestMcpServers,

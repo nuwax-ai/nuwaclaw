@@ -670,13 +670,16 @@ export class AcpEngine extends EventEmitter {
           requestMcpServers = {};
           for (const [name, srv] of Object.entries(request.agent_config.context_servers)) {
             if (srv.enabled === false || !srv.command) continue;
+            // 过滤旧桥接项 command==='mcp-proxy'：这些已由 ensureEngineForRequest()
+            // 解析提取并合并到聚合代理 (nuwax-mcp-stdio-proxy) 中，无需再单独 spawn
+            if (srv.command === 'mcp-proxy' || path.basename(srv.command) === 'mcp-proxy') continue;
             requestMcpServers[name] = {
               command: srv.command,
               args: srv.args,
               env: srv.env,
             };
           }
-          log.info(`${this.logTag} 🔌 请求级 MCP 服务器: ${Object.keys(requestMcpServers).join(', ') || '无'}`);
+          log.info(`${this.logTag} 🔌 请求级 MCP 服务器: ${Object.keys(requestMcpServers).join(', ') || '无 (旧桥接项已由聚合代理处理)'}`);
         }
 
         const newSession = await this.createSession({
