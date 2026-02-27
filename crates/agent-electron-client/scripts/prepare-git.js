@@ -50,9 +50,17 @@ function download(url, filename) {
     const file = path.join(cacheDir, filename);
     
     if (fs.existsSync(file)) {
-      console.log(`[prepare-git] 使用缓存: ${filename}`);
-      resolve(file);
-      return;
+      // 检查缓存文件是否有效（大于 10MB）
+      const stats = fs.statSync(file);
+      if (stats.size > 10 * 1024 * 1024) {
+        console.log(`[prepare-git] 使用缓存: ${filename}`);
+        resolve(file);
+        return;
+      } else {
+        // 缓存文件无效，删除后重新下载
+        console.log(`[prepare-git] 缓存文件无效 (${stats.size} bytes)，重新下载`);
+        fs.unlinkSync(file);
+      }
     }
     
     fs.mkdirSync(cacheDir, { recursive: true });
