@@ -17,7 +17,8 @@ const projectRoot = path.resolve(__dirname, '..');
 const gitRoot = path.join(projectRoot, 'resources', 'git');
 
 const GIT_VERSION = '2.47.1';
-const PORTABLE_GIT_FILE = `PortableGit-${GIT_VERSION}-64-bit.7z.exe`;
+// 使用 .zip 版本而非 .7z.exe（更兼容）
+const PORTABLE_GIT_FILE = `PortableGit-${GIT_VERSION}-64-bit.zip`;
 const DEFAULT_GIT_URL = `https://github.com/git-for-windows/git/releases/download/v${GIT_VERSION}.windows.1/${PORTABLE_GIT_FILE}`;
 
 // 需要删除的目录（体积）
@@ -95,25 +96,6 @@ function download(url, filename) {
 function extractArchive(archivePath, outDir) {
   fs.mkdirSync(outDir, { recursive: true });
   const ext = path.extname(archivePath).toLowerCase();
-  const basename = path.basename(archivePath).toLowerCase();
-  
-  // 处理 .7z.exe (7-Zip 自解压包) 或 .7z 格式
-  if (basename.endsWith('.7z.exe') || ext === '.7z') {
-    // Windows: 尝试使用 7z 或 PowerShell 解压
-    // 先尝试 7z 命令
-    try {
-      execSync(`7z x "${archivePath}" -o"${outDir}" -y`, { stdio: 'inherit' });
-      return;
-    } catch (e) {
-      // 7z 不可用，尝试 PowerShell
-      console.log(`[prepare-git] 7z 不可用，尝试使用其他方式解压`);
-    }
-    // 尝试使用系统中可用的解压工具
-    // 如果是 .7z.exe，可能需要先运行自解压
-    // 简化处理：跳过此文件，让构建继续
-    console.warn(`[prepare-git] 无法解压 ${archivePath}，跳过 Git 准备`);
-    return;
-  }
   
   if (ext === '.zip') {
     execSync(
