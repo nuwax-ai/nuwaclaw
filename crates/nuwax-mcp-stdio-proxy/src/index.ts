@@ -3,53 +3,44 @@
 /**
  * nuwax-mcp-stdio-proxy
  *
- * A pure TypeScript stdio MCP proxy that aggregates multiple child MCP servers
- * into a single MCP server endpoint. Eliminates HTTP/port management and
- * avoids Windows console popup issues when invoked via Node.js directly.
+ * A pure TypeScript stdio MCP proxy that aggregates multiple MCP servers
+ * into a single MCP server endpoint. Supports two upstream transport types:
+ *
+ * - **stdio**: Spawns child MCP server processes (StdioClientTransport)
+ * - **bridge**: Connects to persistent MCP Bridge servers via StreamableHTTP (StreamableHTTPClientTransport)
  *
  * Usage:
- *   nuwax-mcp-stdio-proxy --config '{"mcpServers":{"name":{"command":"...","args":["..."]}}}'
+ *   nuwax-mcp-stdio-proxy --config '{"mcpServers":{
+ *     "local":  {"command":"npx","args":["-y","some-mcp"]},
+ *     "remote": {"url":"http://127.0.0.1:8080/mcp/name"}  // bridge to persistent server
+ *   }}'
  *
  * Architecture:
  *   Agent Engine (stdin/stdout)  ←→  This Proxy (StdioServerTransport)
  *                                         ├→ Child MCP Server A (StdioClientTransport)
- *                                         ├→ Child MCP Server B (StdioClientTransport)
+ *                                         ├→ Bridge MCP Server B (StreamableHTTPClientTransport)
  *                                         └→ ...
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
-// ========== Types ==========
+import { createRequire } from 'node:module';
+import type { McpServersConfig } from './types.js';
+import { isHttpEntry } from './types.js';
+import { logInfo, logWarn, logError } from './logger.js';
+import { buildBaseEnv, connectStdio, connectBridge } from './transport.js';
 
-interface McpServerEntry {
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-}
+const require = createRequire(import.meta.url);
+const { name: PKG_NAME, version: PKG_VERSION } = require('../package.json');
 
-interface McpServersConfig {
-  mcpServers: Record<string, McpServerEntry>;
-}
-
-// ========== Logging (stderr only — stdout is MCP JSON-RPC channel) ==========
-
-function log(level: string, msg: string): void {
-  process.stderr.write(`[nuwax-mcp-proxy] ${level}: ${msg}\n`);
-}
-
-const logInfo = (msg: string) => log('INFO', msg);
-const logWarn = (msg: string) => log('WARN', msg);
-const logError = (msg: string) => log('ERROR', msg);
-
-// ========== CLI Argument Parsing ==========
+// ========== CLI ==========
 
 function parseConfig(): McpServersConfig {
   const args = process.argv.slice(2);
@@ -73,25 +64,6 @@ function parseConfig(): McpServersConfig {
   }
 }
 
-// ========== Build Clean Environment for Child Processes ==========
-
-function buildBaseEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-
-  // Copy current process.env, filtering out undefined values
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined) {
-      env[key] = value;
-    }
-  }
-
-  // Remove ELECTRON_RUN_AS_NODE — child MCP servers should run normally,
-  // not as Electron Node.js instances
-  delete env.ELECTRON_RUN_AS_NODE;
-
-  return env;
-}
-
 // ========== Main ==========
 
 async function main(): Promise<void> {
@@ -104,48 +76,29 @@ async function main(): Promise<void> {
   }
 
   logInfo(
-    `Starting proxy with ${entries.length} child server(s): ${entries.map(([id]) => id).join(', ')}`,
+    `Starting proxy with ${entries.length} server(s): ${entries.map(([id]) => id).join(', ')}`,
   );
 
-  // ---- Phase 1: Connect to all child MCP servers ----
+  // ---- Phase 1: Connect to all MCP servers (stdio + bridge) ----
 
-  // Build base env once — per-server env is merged on top
   const baseEnv = buildBaseEnv();
 
   const clients = new Map<string, Client>();
+  const cleanups = new Map<string, () => Promise<void>>();
   const toolToClient = new Map<string, Client>();
   const toolToServer = new Map<string, string>();
   const toolsByName = new Map<string, Tool>();
 
   for (const [id, entry] of entries) {
-    let transport: StdioClientTransport | null = null;
     try {
-      logInfo(`Connecting to "${id}": ${entry.command} ${(entry.args || []).join(' ')}`);
+      const { client, cleanup } = isHttpEntry(entry)
+        ? await connectBridge(id, entry)
+        : await connectStdio(id, entry, baseEnv);
 
-      transport = new StdioClientTransport({
-        command: entry.command,
-        args: entry.args || [],
-        env: { ...baseEnv, ...(entry.env || {}) },
-        // stderr defaults to 'pipe' in the SDK; child errors captured via transport.stderr
-      });
-
-      // Attach stderr listener BEFORE connect to catch early child errors
-      // (SDK returns a PassThrough stream immediately for this purpose)
-      if (transport.stderr) {
-        transport.stderr.on('data', (chunk: Buffer) => {
-          const text = chunk.toString().trim();
-          if (text) {
-            process.stderr.write(`[child:${id}] ${text}\n`);
-          }
-        });
-      }
-
-      const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
-
-      await client.connect(transport);
       clients.set(id, client);
+      cleanups.set(id, cleanup);
 
-      // Discover tools from this child server (handle pagination)
+      // Discover tools (handle pagination)
       const allServerTools: Tool[] = [];
       let cursor: string | undefined;
       do {
@@ -170,16 +123,12 @@ async function main(): Promise<void> {
       }
     } catch (e) {
       logError(`Failed to connect to server "${id}": ${e}`);
-      // Clean up transport to prevent child process leak
-      if (transport) {
-        try { await transport.close(); } catch { /* ignore */ }
-      }
       // Continue with remaining servers — partial startup is acceptable
     }
   }
 
   if (clients.size === 0) {
-    logError('Failed to connect to any child MCP server');
+    logError('Failed to connect to any MCP server');
     process.exit(1);
   }
 
@@ -189,16 +138,14 @@ async function main(): Promise<void> {
   // ---- Phase 2: Create the aggregating MCP server ----
 
   const server = new Server(
-    { name: 'nuwax-mcp-stdio-proxy', version: '1.0.0' },
+    { name: PKG_NAME, version: PKG_VERSION },
     { capabilities: { tools: {} } },
   );
 
-  // tools/list → return all aggregated tools
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return { tools: aggregatedTools };
   });
 
-  // tools/call → route to the correct child server
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: toolArgs } = request.params;
     const client = toolToClient.get(name);
@@ -243,9 +190,17 @@ async function main(): Promise<void> {
     for (const [id, client] of clients) {
       try {
         await client.close();
-        logInfo(`Closed child client "${id}"`);
+        logInfo(`Closed client "${id}"`);
       } catch (e) {
-        logError(`Failed to close child client "${id}": ${e}`);
+        logError(`Failed to close client "${id}": ${e}`);
+      }
+    }
+
+    for (const [id, cleanup] of cleanups) {
+      try {
+        await cleanup();
+      } catch (e) {
+        logError(`Failed cleanup for "${id}": ${e}`);
       }
     }
 

@@ -53,6 +53,7 @@
     "better-sqlite3": "^12.6.2",
     "dayjs": "^1.11.19",
     "electron-log": "^5.2.4",
+    "nuwax-mcp-stdio-proxy": "^1.1.2",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -126,10 +127,6 @@
         "filter": [
           "**/*"
         ]
-      },
-      {
-        "from": "resources/mcp-bridge-client.mjs",
-        "to": "mcp-bridge-client.mjs"
       },
       {
         "from": "public/icon.png",
@@ -220,7 +217,9 @@
         {
           "from": "resources/git",
           "to": "git",
-          "filter": ["**/*"]
+          "filter": [
+            "**/*"
+          ]
         }
       ]
     },

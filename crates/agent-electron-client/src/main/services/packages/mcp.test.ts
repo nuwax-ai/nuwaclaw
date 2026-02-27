@@ -13,6 +13,7 @@ vi.mock('electron', () => ({
       if (name === 'home') return '/mock/home';
       return '/mock/appdata';
     }),
+    getAppPath: vi.fn(() => '/mock/app'),
     isPackaged: false,
   },
 }));
@@ -153,7 +154,7 @@ describe('McpProxyManager', () => {
   });
 
   describe('getAgentMcpConfig', () => {
-    it('临时 server 应该返回 mcp-proxy 聚合配置', async () => {
+    it('临时 server 应该返回 proxy 聚合配置', async () => {
       const { mcpProxyManager } = await import('./mcp');
 
       // 设置只有临时 server 的配置
@@ -171,7 +172,7 @@ describe('McpProxyManager', () => {
       const mcpConfig = mcpProxyManager.getAgentMcpConfig();
 
       expect(mcpConfig).toBeDefined();
-      // 临时 server → mcp-proxy 聚合
+      // 统一聚合为 proxy key
       expect(mcpConfig?.['mcp-proxy']).toBeDefined();
       expect(mcpConfig?.['mcp-proxy'].args).toContain('--config');
       expect(mcpConfig?.['mcp-proxy'].command).toBe(process.execPath);
@@ -189,14 +190,7 @@ describe('McpProxyManager', () => {
       expect(mcpConfig).toBeNull();
     });
 
-    it('persistent server 在 bridge 运行时应该返回 mcp-bridge 配置', async () => {
-      // Mock bridge 为 running
-      const { persistentMcpBridge } = await import('./persistentMcpBridge');
-      (persistentMcpBridge.isRunning as any).mockReturnValue(true);
-      (persistentMcpBridge.getBridgeUrl as any).mockReturnValue('http://127.0.0.1:12345/mcp/chrome-devtools');
-
-      vi.resetModules();
-      // Re-mock bridge in fresh module
+    it('persistent server 在 bridge 运行时应该返回包含 url 的 proxy 配置', async () => {
       vi.doMock('./persistentMcpBridge', () => ({
         persistentMcpBridge: {
           start: vi.fn().mockResolvedValue(undefined),
@@ -212,14 +206,60 @@ describe('McpProxyManager', () => {
       await mcpProxyManager.start();
       const mcpConfig = mcpProxyManager.getAgentMcpConfig();
 
-      // bridge 运行中 → 应该有 mcp-bridge key
-      // 注意: getBridgeClientScriptPath() 在测试中可能找不到文件
-      // 所以结果可能是 null (没有 bridge client script)
-      // 这里只验证不会报错
-      if (mcpConfig?.['mcp-bridge']) {
-        expect(mcpConfig['mcp-bridge'].command).toBe(process.execPath);
-        expect(mcpConfig['mcp-bridge'].env?.ELECTRON_RUN_AS_NODE).toBe('1');
-      }
+      // bridge 运行中 → proxy 配置中应包含 persistent server 的 url
+      expect(mcpConfig).toBeDefined();
+      expect(mcpConfig?.['mcp-proxy']).toBeDefined();
+      expect(mcpConfig?.['mcp-proxy'].args).toContain('--config');
+
+      // 解析 --config JSON 验证包含 url 类型条目
+      const configIdx = mcpConfig!['mcp-proxy'].args.indexOf('--config');
+      const configJson = JSON.parse(mcpConfig!['mcp-proxy'].args[configIdx + 1]);
+      expect(configJson.mcpServers['chrome-devtools']).toBeDefined();
+      expect(configJson.mcpServers['chrome-devtools'].url).toBe('http://127.0.0.1:12345/mcp/chrome-devtools');
+    });
+
+    it('混合临时和持久化 server 应该聚合到同一个 proxy', async () => {
+      vi.doMock('./persistentMcpBridge', () => ({
+        persistentMcpBridge: {
+          start: vi.fn().mockResolvedValue(undefined),
+          stop: vi.fn().mockResolvedValue(undefined),
+          isRunning: vi.fn(() => true),
+          getBridgeUrl: vi.fn(() => 'http://127.0.0.1:12345/mcp/chrome-devtools'),
+          isServerHealthy: vi.fn(() => true),
+        },
+      }));
+      vi.resetModules();
+
+      const { mcpProxyManager } = await import('./mcp');
+
+      mcpProxyManager.setConfig({
+        mcpServers: {
+          'chrome-devtools': {
+            command: 'chrome-devtools-mcp',
+            args: [],
+            persistent: true,
+          },
+          'test-server': {
+            command: 'npx',
+            args: ['-y', 'test-mcp'],
+          },
+        },
+      });
+
+      await mcpProxyManager.start();
+      const mcpConfig = mcpProxyManager.getAgentMcpConfig();
+
+      // 只有一个 proxy key
+      expect(mcpConfig).toBeDefined();
+      expect(Object.keys(mcpConfig!)).toEqual(['mcp-proxy']);
+
+      // 解析内部配置
+      const configIdx = mcpConfig!['mcp-proxy'].args.indexOf('--config');
+      const configJson = JSON.parse(mcpConfig!['mcp-proxy'].args[configIdx + 1]);
+      // 临时 server → command/args
+      expect(configJson.mcpServers['test-server'].command).toBeDefined();
+      // 持久化 server → url
+      expect(configJson.mcpServers['chrome-devtools'].url).toBe('http://127.0.0.1:12345/mcp/chrome-devtools');
     });
 
     it('没有配置服务器时应该返回 null', async () => {
@@ -253,8 +293,9 @@ describe('McpProxyManager', () => {
       const mcpConfig = mcpProxyManager.getAgentMcpConfig();
 
       expect(mcpConfig).toBeDefined();
-      // fallback: 不应有 mcp-proxy key
+      // fallback: 不应有 proxy key，而是直接有各 server
       expect(mcpConfig?.['mcp-proxy']).toBeUndefined();
+      expect(mcpConfig?.['test-server']).toBeDefined();
 
       // Restore original mock
       vi.doMock('../utils/spawnNoWindow', () => ({
@@ -294,6 +335,11 @@ describe('McpProxyManager', () => {
         })),
         isInstalledLocally: vi.fn(() => false),
       }));
+      vi.doMock('../utils/spawnNoWindow', () => ({
+        resolveNpmPackageEntry: vi.fn(() => null),
+      }));
+      // fs.existsSync 对包目录返回 false
+      mockExistsSync.mockReturnValue(false);
 
       vi.resetModules();
 

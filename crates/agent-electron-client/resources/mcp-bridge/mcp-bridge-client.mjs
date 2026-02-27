@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * mcp-bridge-client.mjs — stdio ↔ HTTP 桥接客户端
+ * mcp-bridge-client.mjs — stdio ↔ HTTP 桥接客户端 (ESM)
  *
  * 由 ACP 引擎每 session spawn，连接 Electron 主进程的 PersistentMcpBridge HTTP server，
  * 聚合持久化 MCP server 的 tools 并暴露为 stdio MCP endpoint。
@@ -8,12 +8,13 @@
  * 用法:
  *   node mcp-bridge-client.mjs '{"chrome-devtools":"http://127.0.0.1:PORT/mcp/chrome-devtools"}'
  *
- * 依赖 @modelcontextprotocol/sdk（通过 NODE_PATH 从 ~/.nuwax-agent/node_modules/ 解析）
+ * 依赖 @modelcontextprotocol/sdk（通过 NODE_PATH 从 ~/.nuwax-agent/node_modules/ 解析；
+ * Node 20+ 需确保运行时可解析到该包，如从含 node_modules 的目录执行或设置 NODE_PATH）
  */
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { Client } from '@modelcontextprotocol/sdk/client';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { Server } from '@modelcontextprotocol/sdk/server';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   ListToolsRequestSchema,
@@ -38,7 +39,7 @@ try {
 
 // ==================== Connect to Persistent Servers ====================
 
-/** @type {Map<string, {client: Client, tools: Array<{name: string}>}>} */
+/** @type {Map<string, {client: InstanceType<typeof Client>, tools: Array<{name: string}>}>} */
 const connectedServers = new Map();
 
 /** @type {Map<string, string>} tool name → server ID */

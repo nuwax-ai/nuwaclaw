@@ -116,6 +116,16 @@ jobs:
           path: crates/agent-electron-client/resources/uv
           key: bundled-uv-${{ matrix.platform }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
 
+      # 确保 MCP bridge 客户端脚本存在（extraResources 会打包 resources/mcp-bridge/）
+      - name: Verify MCP bridge client script
+        working-directory: crates/agent-electron-client
+        run: |
+          if [ ! -f resources/mcp-bridge/mcp-bridge-client.mjs ]; then
+            echo "::error::resources/mcp-bridge/mcp-bridge-client.mjs is missing (required for persistent MCP bridge)"
+            exit 1
+          fi
+          echo "mcp-bridge/mcp-bridge-client.mjs present"
+
       - name: Build Electron app (unsigned)
         working-directory: crates/agent-electron-client
         run: npm run ${{ matrix.dist_cmd }}

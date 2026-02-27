@@ -299,7 +299,7 @@ permissionManager.approveRequest(requestId, alwaysAllow);
 | **nuwax-file-server** | npm-local | File service |
 | **claude-code-acp-ts** | npm-local | Claude Code ACP implementation |
 | **nuwaxcode** | npm-local | Nuwaxcode ACP implementation |
-| **nuwax-mcp-stdio-proxy** | npm-local | MCP protocol aggregation proxy |
+| **nuwax-mcp-stdio-proxy** | npm ^1.0.0 + npm-local | MCP 聚合代理；应用依赖自带，也可在 ~/.nuwax-agent/node_modules 安装覆盖 |
 
 > **Note**: Node.js is NOT a required dependency — Electron bundles its own Node runtime.
 

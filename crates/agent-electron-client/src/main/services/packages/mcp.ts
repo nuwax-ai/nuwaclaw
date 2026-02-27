@@ -4,9 +4,14 @@
  * 使用 nuwax-mcp-stdio-proxy 纯 Node.js stdio 聚合代理。
  * Agent 引擎直接 spawn proxy 进程（stdio 直通），无需 HTTP 中间层。
  *
- * Electron 侧仅负责：
+ * proxy 同时支持两种上游传输:
+ * - stdio: spawn 子进程（临时 server）
+ * - bridge: 连接 PersistentMcpBridge（持久化 server，如 chrome-devtools-mcp）
+ *
+ * Electron 侧负责：
  * - 验证 nuwax-mcp-stdio-proxy 包已安装
  * - 管理 mcpServers 配置（持久化到 SQLite）
+ * - 管理 PersistentMcpBridge 生命周期
  * - 提供 getAgentMcpConfig() 供 Agent 引擎初始化时注入
  */
 
@@ -189,12 +194,32 @@ class McpProxyManager {
 
   /**
    * 解析 nuwax-mcp-stdio-proxy 脚本路径（disk lookup，不使用缓存）
+   * 优先使用应用自带依赖（npm 包 nuwax-mcp-stdio-proxy@^1.0.0），其次 ~/.nuwax-agent/node_modules
    */
   private resolveProxyScriptPath(): string | null {
+    const pkgName = 'nuwax-mcp-stdio-proxy';
+
+    // 1. 应用自身 node_modules（开发时为项目根，打包后可能在 app.asar.unpacked）
+    const appRoot = app.getAppPath();
+    let appPackageDir = path.join(appRoot, 'node_modules', pkgName);
+    if (fs.existsSync(appPackageDir)) {
+      const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
+      if (entry) return entry;
+    }
+    // 打包后部分依赖在 app.asar.unpacked
+    if (process.resourcesPath) {
+      appPackageDir = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', pkgName);
+      if (fs.existsSync(appPackageDir)) {
+        const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
+        if (entry) return entry;
+      }
+    }
+
+    // 2. 应用数据目录 ~/.nuwax-agent/node_modules（用户通过依赖管理安装的版本）
     const dirs = getAppPaths();
-    const packageDir = path.join(dirs.nodeModules, 'nuwax-mcp-stdio-proxy');
+    const packageDir = path.join(dirs.nodeModules, pkgName);
     if (!fs.existsSync(packageDir)) return null;
-    return resolveNpmPackageEntry(packageDir, 'nuwax-mcp-stdio-proxy');
+    return resolveNpmPackageEntry(packageDir, pkgName);
   }
 
   /**
@@ -216,33 +241,17 @@ class McpProxyManager {
   }
 
   /**
-   * 解析 mcp-bridge-client.mjs 脚本路径
-   */
-  private getBridgeClientScriptPath(): string | null {
-    // 打包环境: resources/mcp-bridge-client.mjs
-    const packagedPath = path.join(process.resourcesPath || '', 'mcp-bridge-client.mjs');
-    if (fs.existsSync(packagedPath)) return packagedPath;
-
-    // 开发环境: resources/mcp-bridge-client.mjs (相对项目根)
-    const devPath = path.join(app.getAppPath(), 'resources', 'mcp-bridge-client.mjs');
-    if (fs.existsSync(devPath)) return devPath;
-
-    log.warn('[McpProxy] mcp-bridge-client.mjs 未找到');
-    return null;
-  }
-
-  /**
    * start() → 验证 binary 可用性并刷新缓存 + 启动 PersistentMcpBridge（持久化 servers）
    * proxy 进程的生命周期由 Agent 引擎管理（通过 getAgentMcpConfig 注入）
    */
   async start(): Promise<{ success: boolean; error?: string }> {
-    if (!isInstalledLocally('nuwax-mcp-stdio-proxy')) {
-      this.cachedScriptPath = null;
-      return { success: false, error: 'nuwax-mcp-stdio-proxy 未安装，请先在依赖管理中安装' };
-    }
-    // 强制重新解析（安装/更新后路径可能变化）
+    // 优先从应用 node_modules（npm 依赖）或 ~/.nuwax-agent/node_modules 解析
     this.cachedScriptPath = this.resolveProxyScriptPath();
     if (!this.cachedScriptPath) {
+      this.cachedScriptPath = null;
+      if (!isInstalledLocally('nuwax-mcp-stdio-proxy')) {
+        return { success: false, error: 'nuwax-mcp-stdio-proxy 未安装，请先在依赖管理中安装或确保已 npm install' };
+      }
       return { success: false, error: 'nuwax-mcp-stdio-proxy 入口文件未找到' };
     }
     log.info('[McpProxy] nuwax-mcp-stdio-proxy 就绪:', this.cachedScriptPath);
@@ -324,8 +333,9 @@ class McpProxyManager {
   /**
    * 获取 Agent 引擎需要的 MCP 配置
    *
-   * - 临时 server → nuwax-mcp-stdio-proxy 聚合（现有逻辑）
-   * - 持久化 server → mcp-bridge-client.mjs 连接 PersistentMcpBridge HTTP
+   * 所有 server（临时 + 持久化）统一通过 nuwax-mcp-stdio-proxy 聚合：
+   * - 临时 server → { command, args, env } (stdio 子进程)
+   * - 持久化 server → { url } (bridge 连接 PersistentMcpBridge)
    *
    * 所有平台统一使用 process.execPath (Electron Node.js) + ELECTRON_RUN_AS_NODE=1，
    * 避免依赖系统 PATH 中的 node。
@@ -336,59 +346,55 @@ class McpProxyManager {
       return null;
     }
 
-    // 分离持久化 vs 临时 server
-    const ephemeral: Record<string, McpServerEntry> = {};
-    const persistent: Record<string, McpServerEntry> = {};
-    for (const [name, entry] of Object.entries(servers)) {
-      if (entry.persistent) {
-        persistent[name] = entry;
-      } else {
-        ephemeral[name] = entry;
-      }
-    }
-
-    const result: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
-
-    // 临时 server → nuwax-mcp-stdio-proxy 聚合（现有逻辑）
     const scriptPath = this.getProxyScriptPath();
-    if (Object.keys(ephemeral).length > 0 && scriptPath) {
-      const resolvedConfig: McpServersConfig = {
-        mcpServers: resolveServersConfig(ephemeral),
-      };
-      const configJson = JSON.stringify(resolvedConfig);
-      result['mcp-proxy'] = {
-        command: process.execPath,
-        args: [scriptPath, '--config', configJson],
-        env: { ELECTRON_RUN_AS_NODE: '1' },
-      };
-    } else if (Object.keys(ephemeral).length > 0) {
-      // fallback: 无 proxy 脚本时直接返回解析后的各 server stdio 配置（无聚合）
-      const resolved = resolveServersConfig(ephemeral);
-      for (const [name, entry] of Object.entries(resolved)) {
-        result[name] = entry;
+
+    // 构建统一的 proxy 配置（混合 stdio 和 bridge 类型）
+    const proxyServers: Record<string, { command?: string; args?: string[]; env?: Record<string, string>; url?: string }> = {};
+
+    // 1. 临时 server → resolveServersConfig (command/args/env)
+    for (const [name, entry] of Object.entries(servers)) {
+      if (entry.persistent) continue;
+      // resolveServersConfig 处理单个条目
+      const resolved = resolveServersConfig({ [name]: entry });
+      if (resolved[name]) {
+        proxyServers[name] = resolved[name];
       }
     }
 
-    // 持久化 server → bridge client
-    if (Object.keys(persistent).length > 0 && persistentMcpBridge.isRunning()) {
-      const bridgeUrls: Record<string, string> = {};
-      for (const name of Object.keys(persistent)) {
+    // 2. 持久化 server → bridge URL
+    if (persistentMcpBridge.isRunning()) {
+      for (const [name, entry] of Object.entries(servers)) {
+        if (!entry.persistent) continue;
         const url = persistentMcpBridge.getBridgeUrl(name);
-        if (url) bridgeUrls[name] = url;
-      }
-      if (Object.keys(bridgeUrls).length > 0) {
-        const bridgeClientScript = this.getBridgeClientScriptPath();
-        if (bridgeClientScript) {
-          const dirs = getAppPaths();
-          result['mcp-bridge'] = {
-            command: process.execPath,
-            args: [bridgeClientScript, JSON.stringify(bridgeUrls)],
-            env: { ELECTRON_RUN_AS_NODE: '1', NODE_PATH: dirs.nodeModules },
-          };
+        if (url) {
+          proxyServers[name] = { url };
         }
       }
     }
 
+    if (Object.keys(proxyServers).length === 0) {
+      return null;
+    }
+
+    // 有 proxy 脚本 → 聚合为单个 proxy 入口
+    if (scriptPath) {
+      const configJson = JSON.stringify({ mcpServers: proxyServers });
+      return {
+        'mcp-proxy': {
+          command: process.execPath,
+          args: [scriptPath, '--config', configJson],
+          env: { ELECTRON_RUN_AS_NODE: '1' },
+        },
+      };
+    }
+
+    // fallback: 无 proxy 脚本时直接返回各 server 的 stdio 配置（仅临时 server）
+    const result: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
+    for (const [name, entry] of Object.entries(proxyServers)) {
+      if (entry.command) {
+        result[name] = { command: entry.command, args: entry.args || [], env: entry.env };
+      }
+    }
     return Object.keys(result).length > 0 ? result : null;
   }
 

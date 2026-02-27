@@ -1,7 +1,7 @@
 {
   "name": "nuwax-mcp-stdio-proxy",
-  "version": "1.0.0",
-  "description": "TypeScript stdio MCP proxy — aggregates multiple child MCP servers into one",
+  "version": "1.1.2",
+  "description": "TypeScript stdio MCP proxy — aggregates multiple MCP servers (stdio + bridge) into one",
   "type": "module",
   "bin": {
     "nuwax-mcp-stdio-proxy": "./dist/index.js"
@@ -17,8 +17,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.27.0",
-    "chrome-devtools-mcp": "^0.18.0"
+    "@modelcontextprotocol/sdk": "^1.27.1"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
