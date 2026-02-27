@@ -39,7 +39,7 @@ ACP Session
 | 类型 | 标志 | 生命周期 | 通道 |
 |------|------|---------|------|
 | **临时 server**（ephemeral） | `persistent: false`（默认） | 跟随 ACP session | nuwax-mcp-stdio-proxy 聚合（不变） |
-| **持久化 server**（persistent） | `persistent: true` | 跟随 Electron 主进程 | PersistentMcpBridge HTTP → mcp-bridge-client stdio |
+| **持久化 server**（persistent） | `persistent: true` | 跟随 Electron 主进程 | PersistentMcpBridge HTTP ← nuwax-mcp-stdio-proxy bridge 入口（{ url }） |
 
 ### 架构图
 
@@ -59,19 +59,15 @@ Electron Main Process（长生命周期）
 │   └── 自动重启 + 健康检查 + session 清理
 │
 └── McpProxyManager.getAgentMcpConfig()
-    │
-    ├── 持久化 server → mcp-bridge（mcp-bridge-client.mjs stdio 入口）
-    └── 临时 server → mcp-proxy（nuwax-mcp-stdio-proxy 聚合，不变）
+    └── 单一 mcp-proxy：nuwax-mcp-stdio-proxy --config '{ mcpServers: { stdio... | url... } }'
+        ├── 临时 server → { command, args, env }（stdio 子进程）
+        └── 持久化 server → { url }（bridge，StreamableHTTP → PersistentMcpBridge）
 
 Per ACP Session（短生命周期）
 │
-├── nuwax-mcp-stdio-proxy（聚合临时 MCP servers，不变）
-│   ├── filesystem-mcp（子进程）
-│   └── ...（用户自定义临时 server）
-│
-└── mcp-bridge-client.mjs（连接持久化 bridge）
-    └── StreamableHTTPClientTransport → Electron HTTP Bridge
-        └── 聚合持久化 server 的 tools 为 stdio endpoint
+└── nuwax-mcp-stdio-proxy（单一进程，混合 stdio + bridge）
+    ├── 临时 server：stdio 子进程
+    └── 持久化 server：StreamableHTTPClientTransport → PersistentMcpBridge HTTP
 ```
 
 ### 数据流
@@ -79,17 +75,12 @@ Per ACP Session（短生命周期）
 ```
 Agent 引擎（claude-code / nuwaxcode）
   │
-  ├── mcp_servers.mcp-proxy (stdio)      ← 临时 server 聚合
-  │   └── nuwax-mcp-stdio-proxy
-  │       └── [临时 MCP server 子进程群]
-  │
-  └── mcp_servers.mcp-bridge (stdio)     ← 持久化 server 桥接
-      └── mcp-bridge-client.mjs
-          └── StreamableHTTPClientTransport
-              └── HTTP POST /mcp/<serverId>
-                  └── Electron PersistentMcpBridge
-                      └── MCP Client (StdioClientTransport)
-                          └── chrome-devtools-mcp (持久化子进程)
+  └── mcp_servers.mcp-proxy (stdio)      ← 单一入口
+      └── nuwax-mcp-stdio-proxy --config '{ mcpServers: {...} }'
+          ├── stdio 条目 → 子进程（临时 server）
+          └── bridge 条目 { url } → StreamableHTTPClientTransport
+              └── HTTP POST /mcp/<serverId> → Electron PersistentMcpBridge
+                  └── MCP Client (StdioClientTransport) → chrome-devtools-mcp（持久化子进程）
 ```
 
 ---
@@ -145,81 +136,59 @@ class PersistentMcpBridge {
 export const persistentMcpBridge: PersistentMcpBridge;  // 单例
 ```
 
-### 3. mcp-bridge-client.mjs — Per-Session Stdio Bridge
+### 3. Bridge 入口（已并入 nuwax-mcp-stdio-proxy）
 
-**文件**: `resources/mcp-bridge-client.mjs`
+持久化 server 的桥接不再使用独立脚本，由 **nuwax-mcp-stdio-proxy** 的 `--config` 中 `{ url }` 条目完成：
 
-**职责**：ACP 引擎每个 session spawn 一个实例，连接 PersistentMcpBridge 的 HTTP endpoint，聚合持久化 server 的 tools 暴露为 stdio MCP endpoint。
+- **stdio 条目**：`{ command, args, env }` → proxy 内部 spawn 子进程（临时 server）
+- **bridge 条目**：`{ url: "http://127.0.0.1:PORT/mcp/<serverId>" }` → proxy 内部用 `StreamableHTTPClientTransport` 连接 PersistentMcpBridge
 
-**运行方式**：
-```bash
-# Electron 内置 Node.js 运行 ESM 脚本
-process.execPath mcp-bridge-client.mjs '{"chrome-devtools":"http://127.0.0.1:PORT/mcp/chrome-devtools"}'
-
-# 环境变量:
-#   ELECTRON_RUN_AS_NODE=1    — 让 Electron 作为 Node.js 运行
-#   NODE_PATH=~/.nuwax-agent/node_modules  — 解析 @modelcontextprotocol/sdk
+协议桥接：
 ```
-
-**协议桥接**：
+Agent 引擎 (stdio)
+  ↕
+nuwax-mcp-stdio-proxy（单一进程）
+  ├── stdio 上游 → 子进程
+  └── bridge 上游 → StreamableHTTPClientTransport → PersistentMcpBridge HTTP
 ```
-父进程 (ACP 引擎)
-  ↕ stdio (stdin/stdout, MCP JSON-RPC)
-mcp-bridge-client.mjs
-  ↕ StreamableHTTPClientTransport (HTTP)
-PersistentMcpBridge HTTP Server
-```
-
-**ESM 格式**（`.mjs`）原因：`@modelcontextprotocol/sdk` 的 ESM 导出使用 `.js` 后缀的子路径（如 `@modelcontextprotocol/sdk/client/index.js`），在 ESM 模式下可直接使用 package.json `exports` 解析。
 
 ### 4. McpProxyManager — 配置分发
 
 **文件**: `src/main/services/packages/mcp.ts`
 
-`getAgentMcpConfig()` 方法负责将配置分发到两个通道：
+`getAgentMcpConfig()` 构建**单一** mcp-proxy 配置，临时与持久化 server 均写入同一份 `mcpServers`：
 
 ```typescript
 getAgentMcpConfig() {
-  // 1. 分离 ephemeral vs persistent
-  for (const [name, entry] of Object.entries(servers)) {
-    if (entry.persistent) persistent[name] = entry;
-    else ephemeral[name] = entry;
+  const proxyServers = {};
+  // 临时 server → { command, args, env }
+  for (const [name, entry] of ephemeral) {
+    proxyServers[name] = resolveServersConfig({ [name]: entry })[name];
   }
-
-  // 2. 临时 server → mcp-proxy key (nuwax-mcp-stdio-proxy 聚合)
-  if (ephemeral.length > 0 && proxyScript) {
-    result['mcp-proxy'] = {
+  // 持久化 server → { url: persistentMcpBridge.getBridgeUrl(name) }
+  if (persistentMcpBridge.isRunning()) {
+    for (const [name, entry] of persistent) {
+      const url = persistentMcpBridge.getBridgeUrl(name);
+      if (url) proxyServers[name] = { url };
+    }
+  }
+  return {
+    'mcp-proxy': {
       command: process.execPath,
-      args: [proxyScript, '--config', JSON.stringify(resolvedConfig)],
+      args: [proxyScript, '--config', JSON.stringify({ mcpServers: proxyServers })],
       env: { ELECTRON_RUN_AS_NODE: '1' },
-    };
-  }
-
-  // 3. 持久化 server → mcp-bridge key (bridge client → HTTP)
-  if (persistent.length > 0 && bridge.isRunning()) {
-    result['mcp-bridge'] = {
-      command: process.execPath,
-      args: [bridgeClientScript, JSON.stringify(bridgeUrls)],
-      env: { ELECTRON_RUN_AS_NODE: '1', NODE_PATH: appNodeModules },
-    };
-  }
-
-  return result;
+    },
+  };
 }
 ```
 
-Agent 引擎收到的 MCP 配置结构：
+Agent 引擎收到的 MCP 配置（仅一个 key）：
 ```json
 {
   "mcp-proxy": {
     "command": "/path/to/electron",
-    "args": ["/path/to/nuwax-mcp-stdio-proxy/index.js", "--config", "{...临时servers...}"],
+    "args": ["/path/to/nuwax-mcp-stdio-proxy", "--config", "{\"mcpServers\":{\"filesystem\":{\"command\":\"npx\",\"args\":[\"...\"]},\"chrome-devtools\":{\"url\":\"http://127.0.0.1:PORT/mcp/chrome-devtools\"}}}"],
     "env": { "ELECTRON_RUN_AS_NODE": "1" }
-  },
-  "mcp-bridge": {
-    "command": "/path/to/electron",
-    "args": ["/path/to/mcp-bridge-client.mjs", "{\"chrome-devtools\":\"http://127.0.0.1:PORT/mcp/chrome-devtools\"}"],
-    "env": { "ELECTRON_RUN_AS_NODE": "1", "NODE_PATH": "~/.nuwax-agent/node_modules" }
   }
 }
 ```
@@ -245,15 +214,14 @@ app.whenReady() → runStartupTasks()
 
 ```
 agentService.init() → getAgentMcpConfig()
-  ├── mcp-proxy: ACP 引擎 spawn nuwax-mcp-stdio-proxy（临时 servers）
-  └── mcp-bridge: ACP 引擎 spawn mcp-bridge-client.mjs
-      └── connectAll() → HTTP connect 到 PersistentMcpBridge
-          └── 聚合 tools → stdio 暴露给 ACP 引擎
+  └── mcp-proxy: ACP 引擎 spawn 单一 nuwax-mcp-stdio-proxy
+      ├── stdio 上游 → 临时 server 子进程
+      └── bridge 上游 → HTTP 连接 PersistentMcpBridge（持久化 server）
 
 Session 结束:
-  ├── mcp-proxy 进程退出 → 临时 MCP server 子进程全部退出 ✓
-  └── mcp-bridge-client.mjs 退出 → HTTP 连接关闭
-      └── 持久化 MCP server 子进程继续运行 ✓ (关键!)
+  └── nuwax-mcp-stdio-proxy 进程退出
+      ├── 临时 server 子进程全部退出 ✓
+      └── bridge HTTP 连接关闭，持久化 MCP server 子进程继续运行 ✓ (关键!)
 ```
 
 ### 停止/退出流程
@@ -311,8 +279,7 @@ const DEFAULT_MCP_PROXY_CONFIG = {
 | 依赖 | 用途 | 位置 |
 |------|------|------|
 | `@modelcontextprotocol/sdk` | MCP Client/Server/Transport 实现 | `package.json` devDependencies |
-| `nuwax-mcp-stdio-proxy` | 临时 server 聚合代理（不变） | `~/.nuwax-agent/node_modules/` |
-| `mcp-bridge-client.mjs` | 持久化 bridge 客户端脚本 | `resources/`（打包进 extraResources） |
+| `nuwax-mcp-stdio-proxy` | 临时 + 持久化 聚合（stdio + bridge 入口） | 应用依赖 + `~/.nuwax-agent/node_modules/` |
 
 ### TypeScript 兼容性
 
@@ -334,9 +301,8 @@ MCP SDK 使用 package.json `exports` 字段的子路径导出，但项目 `tsco
 | 文件 | 状态 | 说明 |
 |------|------|------|
 | `src/main/services/packages/persistentMcpBridge.ts` | 新建 | 核心 bridge 服务 |
-| `resources/mcp-bridge-client.mjs` | 新建 | stdio↔HTTP 桥接客户端（ESM） |
+| `src/main/services/packages/mcp.ts` | 修改 | 统一 mcp-proxy 配置（stdio + bridge 合并进一份 config） |
 | `src/shared/types/mcp-sdk.d.ts` | 新建 | MCP SDK 子路径类型声明 |
-| `src/main/services/packages/mcp.ts` | 修改 | 双通道分发逻辑 |
 | `src/main/services/packages/mcp.test.ts` | 修改 | 新增持久化相关测试 |
 | `src/main/main.ts` | 小改 | cleanup 流程说明 |
 | `src/main/ipc/processHandlers.ts` | 小改 | stopAll/restartAll 说明 |
@@ -351,8 +317,8 @@ MCP SDK 使用 package.json `exports` 字段的子路径导出，但项目 `tsco
 3. `npm run electron:dev` → 开发模式验证:
    - PersistentMcpBridge 启动 → chrome-devtools-mcp 成功 spawn → 28 tools 就绪
    - HTTP bridge 监听自动分配端口（如 57278）
-   - ACP session 收到 `mcp-proxy` + `mcp-bridge` 双通道配置
-   - bridge client 连接 HTTP endpoint → tools 正常列出和调用
+   - ACP session 收到单一 `mcp-proxy` 配置（config 内含 stdio + bridge 条目）
+   - nuwax-mcp-stdio-proxy 内 bridge 连接 PersistentMcpBridge HTTP → tools 正常列出和调用
 4. 多 session 测试 → 同一 Chrome 实例跨 session 持续可用
 5. 应用退出 → 无残留进程
 
