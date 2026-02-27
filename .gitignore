@@ -31,6 +31,12 @@ release/
 # Bundled uv: 构建时 prepare-uv 生成，或从 GitHub Release 下载缓存
 crates/agent-electron-client/resources/uv/
 
+# Bundled Node.js: 构建时 prepare-node 下载
+crates/agent-electron-client/resources/node/
+
+# Bundled Git: 构建时 prepare-git 下载
+crates/agent-electron-client/resources/git/
+
 # Bundled lanproxy: 构建时 prepare-lanproxy 从 Tauri binaries 复制当前平台二进制
 crates/agent-electron-client/resources/lanproxy/bin/
 
