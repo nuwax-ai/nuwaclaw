@@ -58,7 +58,7 @@ vi.mock('child_process', () => ({
   exec: (...args: unknown[]) => mockExec(...args),
 }));
 
-// Mock dependencies
+// Mock dependencies（含 getUvBinPath，供 mcp 内 getUvBinDir 等使用）
 vi.mock('../system/dependencies', () => ({
   getAppEnv: vi.fn(() => ({
     PATH: '/mock/path',
@@ -67,6 +67,7 @@ vi.mock('../system/dependencies', () => ({
     UV_CACHE_DIR: '/mock/uv_cache',
     UV_INDEX_URL: '',
   })),
+  getUvBinPath: vi.fn(() => '/mock/uv/bin/uv'),
 }));
 
 vi.mock('./packageLocator', () => ({
