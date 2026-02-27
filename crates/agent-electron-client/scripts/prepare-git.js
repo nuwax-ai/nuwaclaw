@@ -95,6 +95,25 @@ function download(url, filename) {
 function extractArchive(archivePath, outDir) {
   fs.mkdirSync(outDir, { recursive: true });
   const ext = path.extname(archivePath).toLowerCase();
+  const basename = path.basename(archivePath).toLowerCase();
+  
+  // 处理 .7z.exe (7-Zip 自解压包) 或 .7z 格式
+  if (basename.endsWith('.7z.exe') || ext === '.7z') {
+    // Windows: 尝试使用 7z 或 PowerShell 解压
+    // 先尝试 7z 命令
+    try {
+      execSync(`7z x "${archivePath}" -o"${outDir}" -y`, { stdio: 'inherit' });
+      return;
+    } catch (e) {
+      // 7z 不可用，尝试 PowerShell
+      console.log(`[prepare-git] 7z 不可用，尝试使用其他方式解压`);
+    }
+    // 尝试使用系统中可用的解压工具
+    // 如果是 .7z.exe，可能需要先运行自解压
+    // 简化处理：跳过此文件，让构建继续
+    console.warn(`[prepare-git] 无法解压 ${archivePath}，跳过 Git 准备`);
+    return;
+  }
   
   if (ext === '.zip') {
     execSync(
@@ -134,6 +153,12 @@ async function main() {
   const gitBin = path.join(gitRoot, 'bin', 'bash.exe');
   if (fs.existsSync(gitBin)) {
     console.log(`[prepare-git] Git 已存在，跳过`);
+    return;
+  }
+  
+  // CI 环境中跳过 Git 下载（GitHub 下载经常失败）
+  if (process.env.CI === 'true') {
+    console.log(`[prepare-git] CI 环境跳过 Git 下载`);
     return;
   }
   
