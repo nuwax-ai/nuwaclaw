@@ -1,7 +1,7 @@
 /**
  * MCP Proxy 设置组件
  *
- * 使用 mcp-stdio-proxy 统一代理模式管理 MCP 服务。
+ * 使用 nuwax-mcp-stdio-proxy 聚合代理模式管理 MCP 服务。
  * 所有操作通过 window.electronAPI.mcp.* IPC 通道。
  */
 
@@ -12,7 +12,6 @@ import {
   Space,
   Badge,
   Input,
-  InputNumber,
   Form,
   Typography,
   Divider,
@@ -21,14 +20,13 @@ import {
 } from 'antd';
 import {
   PlayCircleOutlined,
-  StopOutlined,
   ReloadOutlined,
   PlusOutlined,
   DeleteOutlined,
   SaveOutlined,
   ApiOutlined,
 } from '@ant-design/icons';
-import type { McpServerEntry, McpServersConfig, McpProxyStatus } from '@shared/types/electron';
+import type { McpServersConfig, McpProxyStatus } from '@shared/types/electron';
 
 const { Text } = Typography;
 
@@ -39,7 +37,6 @@ interface MCPSettingsProps {
 
 function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
   const [config, setConfig] = useState<McpServersConfig>({ mcpServers: {} });
-  const [port, setPort] = useState(18099);
   const [status, setStatus] = useState<McpProxyStatus>({ running: false });
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -59,13 +56,11 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [savedConfig, savedPort, currentStatus] = await Promise.all([
+      const [savedConfig, currentStatus] = await Promise.all([
         window.electronAPI?.mcp.getConfig(),
-        window.electronAPI?.mcp.getPort(),
         window.electronAPI?.mcp.status(),
       ]);
       if (savedConfig) setConfig(savedConfig);
-      if (savedPort) setPort(savedPort);
       if (currentStatus) setStatus(currentStatus);
     } catch (error) {
       console.error('[MCPSettings] 加载失败:', error);
@@ -84,7 +79,6 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
   const handleSaveConfig = async () => {
     try {
       await window.electronAPI?.mcp.setConfig(config);
-      await window.electronAPI?.mcp.setPort(port);
       message.success('MCP 配置已保存');
     } catch (error) {
       message.error('保存失败');
@@ -96,33 +90,12 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
     try {
       // 先保存配置
       await window.electronAPI?.mcp.setConfig(config);
-      await window.electronAPI?.mcp.setPort(port);
 
-      const result = await window.electronAPI?.mcp.start({
-        port,
-        configJson: JSON.stringify(config),
-      });
+      const result = await window.electronAPI?.mcp.start();
       if (result?.success) {
-        message.success('MCP Proxy 启动成功');
+        message.success('MCP Proxy 就绪');
       } else {
-        message.error(`启动失败: ${result?.error}`);
-      }
-    } catch (error) {
-      message.error(`错误: ${error}`);
-    } finally {
-      await refreshStatus();
-      setActionLoading(false);
-    }
-  };
-
-  const handleStop = async () => {
-    setActionLoading(true);
-    try {
-      const result = await window.electronAPI?.mcp.stop();
-      if (result?.success) {
-        message.success('MCP Proxy 已停止');
-      } else {
-        message.error(`停止失败: ${result?.error}`);
+        message.error(`检测失败: ${result?.error}`);
       }
     } catch (error) {
       message.error(`错误: ${error}`);
@@ -136,16 +109,12 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
     setActionLoading(true);
     try {
       await window.electronAPI?.mcp.setConfig(config);
-      await window.electronAPI?.mcp.setPort(port);
 
-      const result = await window.electronAPI?.mcp.restart({
-        port,
-        configJson: JSON.stringify(config),
-      });
+      const result = await window.electronAPI?.mcp.restart();
       if (result?.success) {
-        message.success('MCP Proxy 重启成功');
+        message.success('MCP Proxy 就绪');
       } else {
-        message.error(`重启失败: ${result?.error}`);
+        message.error(`检测失败: ${result?.error}`);
       }
     } catch (error) {
       message.error(`错误: ${error}`);
@@ -226,52 +195,30 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
           <Space wrap>
             <Badge
               status={status.running ? 'success' : 'default'}
-              text={status.running ? '运行中' : '已停止'}
+              text={status.running ? '就绪' : '未就绪'}
             />
-            {status.pid && <Text type="secondary">PID: {status.pid}</Text>}
-            {status.running && status.port && (
-              <Text type="secondary">端口: {status.port}</Text>
-            )}
-            {status.running && (
-              <Text type="secondary">
-                {status.serverCount ?? 0} 个 Server
-              </Text>
-            )}
+            <Text type="secondary">
+              {status.serverCount ?? 0} 个 Server
+            </Text>
             <Button
-              type={status.running ? 'default' : 'primary'}
-              icon={status.running ? <StopOutlined /> : <PlayCircleOutlined />}
-              danger={status.running}
-              onClick={status.running ? handleStop : handleStart}
+              type="primary"
+              icon={<PlayCircleOutlined />}
+              onClick={handleStart}
               loading={actionLoading}
               size="small"
             >
-              {status.running ? '停止' : '启动'}
+              检测可用性
             </Button>
-            {status.running && (
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={handleRestart}
-                loading={actionLoading}
-                size="small"
-              >
-                重启
-              </Button>
-            )}
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={handleRestart}
+              loading={actionLoading}
+              size="small"
+            >
+              刷新
+            </Button>
           </Space>
         </Card>
-
-        {/* Port Config */}
-        <Form layout="vertical" size="small">
-          <Form.Item label="MCP Proxy 端口">
-            <InputNumber
-              value={port}
-              onChange={(v) => setPort(v || 60004)}
-              min={1024}
-              max={65535}
-              style={{ width: 150 }}
-            />
-          </Form.Item>
-        </Form>
 
         <Divider orientation="left" style={{ margin: '8px 0' }}>
           MCP Servers 配置
@@ -384,7 +331,7 @@ function MCPSettings({ isOpen, onClose }: MCPSettingsProps) {
         </Button>
 
         <Text type="secondary" style={{ fontSize: 11, textAlign: 'center', display: 'block' }}>
-          配置修改后需保存并重启 MCP Proxy 才会生效
+          配置修改后需保存，Agent 下次初始化时自动生效
         </Text>
       </Space>
     </Card>
