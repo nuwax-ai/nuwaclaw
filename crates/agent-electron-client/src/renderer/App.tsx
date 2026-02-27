@@ -116,9 +116,10 @@ function App() {
         window.electronAPI?.agent.serviceStatus(),
         window.electronAPI?.mcp.status(),
       ]);
+      // 列表顺序：Agent 放第一位，其余保持与 startOrder 一致
+      items.push({ key: 'agent', label: 'Agent 服务', description: 'Agent 核心服务', running: agentSvcStatus?.running ?? false });
       items.push({ key: 'fileServer', label: '文件服务', description: 'Agent 工作目录文件远程管理服务', running: fsStatus?.running ?? false, pid: fsStatus?.pid });
       items.push({ key: 'lanproxy', label: '代理服务', description: '网络通道', running: lpStatus?.running ?? false, pid: lpStatus?.pid });
-      items.push({ key: 'agent', label: 'Agent 服务', description: 'Agent 核心服务', running: agentSvcStatus?.running ?? false });
       items.push({ key: 'mcpProxy', label: 'MCP 服务', description: 'MCP 协议转换工具', running: mcpStatus?.running ?? false, pid: mcpStatus?.pid });
       setServices(items);
     } catch (error) {
