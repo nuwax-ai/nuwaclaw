@@ -433,52 +433,59 @@ describe('dependencies', () => {
     });
 
     describe('getNodeBinPath', () => {
+      // 归一化路径分隔符，使断言在 Windows CI（反斜杠）与 macOS/Linux（正斜杠）下均通过
+      const normalized = (p: string | null) => (p ?? '').replace(/\\/g, '/');
+
       it('should return correct path on macOS x64', async () => {
-        Object.defineProperty(process, 'platform', { value: 'darwin', writable: true });
-        Object.defineProperty(process, 'arch', { value: 'x64', writable: true });
+        vi.resetModules();
+        Object.defineProperty(process, 'platform', { value: 'darwin', writable: true, configurable: true });
+        Object.defineProperty(process, 'arch', { value: 'x64', writable: true, configurable: true });
 
         const { getNodeBinPath } = await import('../system/dependencies');
         const result = getNodeBinPath();
 
         // Use toContain so both relative path (app) and absolute path (CI) pass
         expect(result).toContain('darwin-x64');
-        expect(result).toContain('bin/node');
-        expect(result).not.toContain('node.exe');
+        expect(normalized(result)).toContain('bin/node');
+        expect(normalized(result)).not.toContain('node.exe');
       });
 
       it('should return correct path on macOS arm64', async () => {
-        Object.defineProperty(process, 'platform', { value: 'darwin', writable: true });
-        Object.defineProperty(process, 'arch', { value: 'arm64', writable: true });
+        vi.resetModules();
+        Object.defineProperty(process, 'platform', { value: 'darwin', writable: true, configurable: true });
+        Object.defineProperty(process, 'arch', { value: 'arm64', writable: true, configurable: true });
 
         const { getNodeBinPath } = await import('../system/dependencies');
         const result = getNodeBinPath();
 
         // Use toContain so both relative path (app) and absolute path (CI) pass
         expect(result).toContain('darwin-arm64');
-        expect(result).toContain('bin/node');
+        expect(normalized(result)).toContain('bin/node');
       });
 
       it('should return correct path on Windows x64', async () => {
-        Object.defineProperty(process, 'platform', { value: 'win32', writable: true });
-        Object.defineProperty(process, 'arch', { value: 'x64', writable: true });
+        vi.resetModules();
+        Object.defineProperty(process, 'platform', { value: 'win32', writable: true, configurable: true });
+        Object.defineProperty(process, 'arch', { value: 'x64', writable: true, configurable: true });
 
         const { getNodeBinPath } = await import('../system/dependencies');
         const result = getNodeBinPath();
 
         // Use toContain so both relative path (app) and absolute path (CI) pass
         expect(result).toContain('win32-x64');
-        expect(result).toContain('bin/node.exe');
+        expect(normalized(result)).toContain('bin/node.exe');
       });
 
       it('should return correct path on Linux x64', async () => {
-        Object.defineProperty(process, 'platform', { value: 'linux', writable: true });
-        Object.defineProperty(process, 'arch', { value: 'x64', writable: true });
+        vi.resetModules();
+        Object.defineProperty(process, 'platform', { value: 'linux', writable: true, configurable: true });
+        Object.defineProperty(process, 'arch', { value: 'x64', writable: true, configurable: true });
 
         const { getNodeBinPath } = await import('../system/dependencies');
         const result = getNodeBinPath();
 
         expect(result).toContain('linux-x64');
-        expect(result).toContain('bin/node');
+        expect(normalized(result)).toContain('bin/node');
       });
 
       it('should return null when node binary does not exist', async () => {
