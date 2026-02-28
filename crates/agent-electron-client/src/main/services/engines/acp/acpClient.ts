@@ -363,9 +363,16 @@ export async function createAcpConnection(
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
-  // Log stderr
+  // Log stderr — MCP/spawn 相关错误突出显示 // TODO: remove after MCP diagnosis
   proc.stderr?.on('data', (data: Buffer) => {
-    log.warn('[AcpClient stderr]', data.toString().trim());
+    const text = data.toString().trim();
+    if (!text) return;
+    const lower = text.toLowerCase();
+    if (lower.includes('failed to connect') || lower.includes('enoent') || lower.includes('spawn') || lower.includes('mcp server')) {
+      log.error('[AcpClient stderr] 🔴', text);
+    } else {
+      log.warn('[AcpClient stderr]', text);
+    }
   });
 
   proc.on('error', (error) => {

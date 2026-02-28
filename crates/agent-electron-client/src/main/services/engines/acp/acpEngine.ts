@@ -319,6 +319,22 @@ export class AcpEngine extends EventEmitter {
       cwd: sessionCwd,
       mcpServers,
     };
+    // TODO: remove after MCP diagnosis — 验证传给 ACP 的 MCP 服务配置
+    for (const srv of mcpServers) {
+      if ('command' in srv) {
+        const cmdCheck = path.isAbsolute(srv.command) ? `exists=${fs.existsSync(srv.command)}` : 'relative';
+        const argsPreview = srv.args.length > 0
+          ? (srv.args[0].length > 80 ? srv.args[0].substring(0, 80) + '...' : srv.args[0])
+          : '(none)';
+        log.info(
+          `${this.logTag} 🔍 MCP 诊断 "${srv.name}":\n` +
+          `├─ command: ${srv.command} (${cmdCheck})\n` +
+          `├─ args[0]: ${argsPreview}\n` +
+          `├─ env count: ${srv.env?.length || 0}\n` +
+          `└─ env keys: ${srv.env?.map((e: AcpEnvVariable) => e.name).join(', ') || '(none)'}`,
+        );
+      }
+    }
     log.info(`${this.logTag} newSession params:`, JSON.stringify(newSessionParams, null, 2));
     const acpResult = await this.acpConnection.newSession(newSessionParams);
 
@@ -336,6 +352,24 @@ export class AcpEngine extends EventEmitter {
       localId,
       acpSessionId: acpResult.sessionId,
     });
+
+    // TODO: remove after MCP diagnosis — 延迟检查 mcp-proxy 进程是否被 SDK 启动
+    const diagLogTag = this.logTag;
+    setTimeout(() => {
+      try {
+        const { execSync } = require('child_process');
+        const ps = execSync('ps aux | grep nuwax-mcp-stdio-proxy | grep -v grep', { timeout: 3000 }).toString().trim();
+        if (ps) {
+          const lines = ps.split('\n');
+          log.info(`${diagLogTag} 🔍 MCP proxy 进程检查: ✅ 运行中 (${lines.length} 个)`);
+          for (const line of lines) log.info(`${diagLogTag}   ${line.substring(0, 200)}`);
+        } else {
+          log.warn(`${diagLogTag} 🔍 MCP proxy 进程检查: ❌ 未找到`);
+        }
+      } catch {
+        log.warn(`${diagLogTag} 🔍 MCP proxy 进程检查: ❌ 未找到`);
+      }
+    }, 5000);
 
     return {
       id: localId,
@@ -778,6 +812,11 @@ export class AcpEngine extends EventEmitter {
 
       case 'tool_call': {
         const u = update as AcpToolCall;
+        // TODO: remove after MCP diagnosis — 仅记录非内置工具（MCP 工具）
+        const builtinKinds = new Set(['bash', 'file', 'text_editor', 'execute', 'read', 'write', 'edit']);
+        if (u.kind && !builtinKinds.has(u.kind)) {
+          log.info(`${this.logTag} 🔧 MCP tool call: ${u.title} (kind=${u.kind}, status=${u.status})`);
+        }
         this.emit('message.part.updated', {
           sessionId,
           type: 'tool',

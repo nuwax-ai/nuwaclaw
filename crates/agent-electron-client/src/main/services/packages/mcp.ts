@@ -278,13 +278,19 @@ class McpProxyManager {
       let appPackageDir = path.join(process.resourcesPath, pkgName);
       if (fs.existsSync(appPackageDir)) {
         const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
-        if (entry) return entry;
+        if (entry) {
+          log.info(`[McpProxy] 🔍 resolveProxyScriptPath: 使用 extraResources 路径: ${entry}`);
+          return entry;
+        }
       }
       // app.asar.unpacked 位置
       appPackageDir = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', pkgName);
       if (fs.existsSync(appPackageDir)) {
         const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
-        if (entry) return entry;
+        if (entry) {
+          log.info(`[McpProxy] 🔍 resolveProxyScriptPath: 使用 asar.unpacked 路径: ${entry}`);
+          return entry;
+        }
       }
     }
 
@@ -293,14 +299,24 @@ class McpProxyManager {
     const appPackageDir = path.join(appRoot, 'node_modules', pkgName);
     if (fs.existsSync(appPackageDir)) {
       const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
-      if (entry) return entry;
+      if (entry) {
+        log.info(`[McpProxy] 🔍 resolveProxyScriptPath: 使用 app node_modules 路径: ${entry}`);
+        return entry;
+      }
     }
 
     // 3. 应用数据目录 ~/.nuwax-agent/node_modules（用户通过依赖管理安装的版本）
     const dirs = getAppPaths();
     const packageDir = path.join(dirs.nodeModules, pkgName);
-    if (!fs.existsSync(packageDir)) return null;
-    return resolveNpmPackageEntry(packageDir, pkgName);
+    if (!fs.existsSync(packageDir)) {
+      log.warn(`[McpProxy] 🔍 resolveProxyScriptPath: 所有路径均未找到 ${pkgName}`);
+      return null;
+    }
+    const entry = resolveNpmPackageEntry(packageDir, pkgName);
+    if (entry) {
+      log.info(`[McpProxy] 🔍 resolveProxyScriptPath: 使用 ~/.nuwax-agent 路径: ${entry}`);
+    }
+    return entry;
   }
 
   /**
@@ -490,6 +506,29 @@ class McpProxyManager {
         LANG: process.env.LANG || 'en_US.UTF-8',
         TZ: process.env.TZ || '',
       };
+
+      // TODO: remove after MCP diagnosis — 验证 MCP proxy 配置的关键路径
+      const nodeExists = fs.existsSync(nodeBinPath);
+      const scriptExists = fs.existsSync(scriptPath);
+      const serverNames = Object.keys(proxyServers);
+      log.info(
+        `[McpProxy] 📋 getAgentMcpConfig 诊断:\n` +
+        `├─ nodeBinPath: ${nodeBinPath} (exists=${nodeExists})\n` +
+        `├─ scriptPath: ${scriptPath} (exists=${scriptExists})\n` +
+        `├─ isPackaged: ${app.isPackaged}\n` +
+        `├─ resourcesPath: ${process.resourcesPath || '(none)'}\n` +
+        `├─ proxyServers: ${serverNames.join(', ')}\n` +
+        `├─ env.PATH (前3段): ${proxyEnv.PATH.split(path.delimiter).slice(0, 3).join(' | ')}\n` +
+        `└─ env.HOME: ${proxyEnv.HOME}`,
+      );
+      for (const [name, srv] of Object.entries(proxyServers)) {
+        if (srv.command) {
+          const cmdCheck = path.isAbsolute(srv.command) ? `exists=${fs.existsSync(srv.command)}` : 'relative';
+          log.info(`[McpProxy]   └─ server "${name}": command=${srv.command} (${cmdCheck}), args=${JSON.stringify(srv.args || []).substring(0, 100)}`);
+        } else if (srv.url) {
+          log.info(`[McpProxy]   └─ server "${name}": url=${srv.url}`);
+        }
+      }
 
       return {
         'mcp-proxy': {
