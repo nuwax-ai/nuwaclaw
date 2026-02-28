@@ -40,5 +40,8 @@ crates/agent-electron-client/resources/git/
 # Bundled lanproxy: 构建时 prepare-lanproxy 从 Tauri binaries 复制当前平台二进制
 crates/agent-electron-client/resources/lanproxy/bin/
 
+# Bundled MCP proxy: 构建时 prepare-mcp-proxy 安装依赖树
+crates/agent-electron-client/resources/mcp-proxy/
+
 # Vitest coverage reports
 crates/agent-electron-client/coverage/

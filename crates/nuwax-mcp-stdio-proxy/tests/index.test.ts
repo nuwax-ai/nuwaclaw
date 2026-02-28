@@ -168,7 +168,7 @@ describe('nuwax-mcp-stdio-proxy', () => {
       const { code, stderr } = await spawnProxy(['--config', config]);
       expect(code).toBe(1);
       expect(stderr).toContain('Failed to connect');
-      expect(stderr).toContain('Failed to connect to any child MCP server');
+      expect(stderr).toContain('Failed to connect to any MCP server');
     });
   });
 

@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 /**
  * nuwax-mcp-stdio-proxy
  *
@@ -31,14 +29,15 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import { createRequire } from 'node:module';
 import type { McpServersConfig } from './types.js';
 import { isHttpEntry } from './types.js';
 import { logInfo, logWarn, logError } from './logger.js';
 import { buildBaseEnv, connectStdio, connectBridge } from './transport.js';
 
-const require = createRequire(import.meta.url);
-const { name: PKG_NAME, version: PKG_VERSION } = require('../package.json');
+// Injected at build time by esbuild define (see build.mjs)
+// Falls back to static values when running via tsc in development
+const PKG_NAME = process.env.__MCP_PROXY_PKG_NAME__ || 'nuwax-mcp-stdio-proxy';
+const PKG_VERSION = process.env.__MCP_PROXY_PKG_VERSION__ || '0.0.0-dev';
 
 // ========== CLI ==========
 

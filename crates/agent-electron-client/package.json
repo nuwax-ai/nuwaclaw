@@ -1,6 +1,6 @@
 {
   "name": "@nuwax/agent-electron-client",
-  "version": "0.5.15",
+  "version": "0.5.16",
   "description": "Nuwax Agent Desktop Client (Electron)",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
@@ -22,9 +22,10 @@
     "prepare:lanproxy": "node scripts/prepare-lanproxy.js",
     "prepare:node": "node scripts/prepare-node.js",
     "prepare:git": "node scripts/prepare-git.js",
+    "prepare:mcp-proxy": "node scripts/prepare-mcp-proxy.js",
     "check-ports": "node scripts/check-startup-ports.js",
     "check-ports:dev": "node scripts/check-startup-ports.js --vite",
-    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git",
+    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy",
     "build:electron": "npm run build && npm run prepare:all && electron-builder --config.compression=maximum",
     "dist": "npm run build:electron -- --mac",
     "dist:mac": "npm run build:electron -- --mac",
@@ -55,7 +56,7 @@
     "better-sqlite3": "^12.6.2",
     "dayjs": "^1.11.19",
     "electron-log": "^5.2.4",
-    "nuwax-mcp-stdio-proxy": "^1.1.5",
+    "nuwax-mcp-stdio-proxy": "^1.2.0",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -117,19 +118,8 @@
         ]
       },
       {
-        "from": "node_modules/nuwax-mcp-stdio-proxy/dist",
-        "to": "nuwax-mcp-stdio-proxy/dist",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "node_modules/nuwax-mcp-stdio-proxy/package.json",
-        "to": "nuwax-mcp-stdio-proxy/package.json"
-      },
-      {
-        "from": "node_modules/@modelcontextprotocol/sdk",
-        "to": "nuwax-mcp-stdio-proxy/node_modules/@modelcontextprotocol/sdk",
+        "from": "resources/mcp-proxy",
+        "to": "nuwax-mcp-stdio-proxy",
         "filter": [
           "**/*"
         ]
