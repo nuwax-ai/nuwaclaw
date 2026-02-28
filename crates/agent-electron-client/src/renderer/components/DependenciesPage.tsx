@@ -28,6 +28,7 @@ interface NodeCheckResult {
   installed?: boolean;
   version?: string;
   meetsRequirement?: boolean;
+  bundled?: boolean;
 }
 
 interface UvCheckResult {
@@ -48,13 +49,17 @@ export default function DependenciesPage() {
   const loadDependencies = useCallback(async () => {
     setDepLoading(true);
     try {
-      // Node.js: Electron 内置，通过 preload 获取版本
-      const nodeVersion = window.electronAPI?.versions?.node || 'unknown';
-      setNodeResult({
-        installed: true,
-        version: nodeVersion,
-        meetsRequirement: true,
-      });
+      // Node.js: 检测内置 Node.js 24 版本
+      const nodeRes = await window.electronAPI?.dependencies.checkNode();
+      const nodeData: NodeCheckResult = nodeRes?.success
+        ? {
+            installed: nodeRes.installed,
+            version: nodeRes.version,
+            meetsRequirement: nodeRes.meetsRequirement,
+            bundled: nodeRes.bundled,
+          }
+        : { installed: false, meetsRequirement: false, bundled: false };
+      setNodeResult(nodeData);
 
       // Check uv
       const uvRes = await window.electronAPI?.dependencies.checkUv();
@@ -253,8 +258,8 @@ export default function DependenciesPage() {
     return DEPENDENCY_STATUS_LABELS[status] || DEPENDENCY_STATUS_LABELS.checking;
   };
 
-  // Node.js is always ready (Electron built-in), only check uv
-  const systemDepsReady = uvResult?.meetsRequirement ?? false;
+  // Node.js and uv must both be ready
+  const systemDepsReady = (nodeResult?.meetsRequirement ?? false) && (uvResult?.meetsRequirement ?? false);
 
   // ==========================================
   // Loading state
@@ -303,7 +308,7 @@ export default function DependenciesPage() {
             overflow: "hidden",
           }}
         >
-          {/* Node.js — Electron 内置 */}
+          {/* Node.js */}
           <div
             style={{
               display: "flex",
@@ -314,15 +319,33 @@ export default function DependenciesPage() {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <CheckCircleOutlined
-                style={{ color: "#16a34a", fontSize: 12 }}
-              />
+              {nodeResult?.meetsRequirement ? (
+                <CheckCircleOutlined
+                  style={{ color: "#16a34a", fontSize: 12 }}
+                />
+              ) : (
+                <ExclamationCircleOutlined
+                  style={{ color: "#ca8a04", fontSize: 12 }}
+                />
+              )}
               <span style={{ fontSize: 13, fontWeight: 500 }}>Node.js</span>
-              <span style={{ fontSize: 12, color: "#71717a" }}>
-                v{nodeResult?.version || 'N/A'}
-              </span>
+              {nodeResult?.version && (
+                <span style={{ fontSize: 12, color: "#71717a" }}>
+                  v{nodeResult.version}
+                </span>
+              )}
             </div>
-            <span style={{ fontSize: 12, color: "#16a34a" }}>{ACTION_MESSAGES.allInstalled}</span>
+            {!nodeResult?.installed ? (
+              <span style={{ fontSize: 12, color: "#ca8a04" }}>未安装</span>
+            ) : nodeResult.bundled ? (
+              <span style={{ fontSize: 12, color: "#16a34a" }}>{DEPENDENCY_STATUS_LABELS.bundled}</span>
+            ) : nodeResult.meetsRequirement ? (
+              <span style={{ fontSize: 12, color: "#16a34a" }}>{ACTION_MESSAGES.allInstalled}</span>
+            ) : (
+              <span style={{ fontSize: 12, color: "#ca8a04" }}>
+                需 &gt;= 22.0.0
+              </span>
+            )}
           </div>
 
           {/* uv */}

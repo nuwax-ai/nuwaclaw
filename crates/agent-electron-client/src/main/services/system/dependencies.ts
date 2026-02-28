@@ -849,57 +849,102 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
 /**
  * 检测 Node.js 版本
  *
- * 在 Electron 环境中，直接使用 process.version 获取内置 Node.js 版本
- * Electron 会绑定特定版本的 Node.js，无需单独安装
+ * 优先检测内置 Node.js 24 (resources/node/<platform>/bin/node)
+ * Fallback 到 Electron 内置 Node.js 或系统 Node.js
  */
 export async function checkNodeVersion(): Promise<{
   installed: boolean;
   version?: string;
   meetsRequirement: boolean;
-  electronBundled: boolean;
+  bundled: boolean;
+  binPath?: string;
+}> {
+  // 优先检测内置 Node.js 24
+  const bundledPath = getNodeBinPath();
+  log.info(`[checkNodeVersion] 检测内置 Node.js: ${bundledPath || '(未找到)'}`);
+
+  if (bundledPath && fs.existsSync(bundledPath)) {
+    log.info(`[checkNodeVersion] 内置 Node.js 文件存在，尝试执行: ${bundledPath}`);
+    const result = await _checkNodeBin(bundledPath);
+    log.info(`[checkNodeVersion] 内置 Node.js 检测结果:`, result);
+    if (result.installed) {
+      return { ...result, bundled: true, binPath: bundledPath };
+    }
+  }
+
+  // Fallback 1: Electron 内置 Node.js
+  if (process.versions && process.versions.node) {
+    const version = process.versions.node;
+    const meets = compareVersions(version, '22.0.0') >= 0;
+    log.info(`[checkNodeVersion] 使用 Electron 内置 Node.js: ${version}`);
+    return {
+      installed: true,
+      version,
+      meetsRequirement: meets,
+      bundled: false,
+      binPath: process.execPath
+    };
+  }
+
+  // Fallback 2: 系统 Node.js
+  log.info(`[checkNodeVersion] 尝试系统 Node.js...`);
+  return new Promise((resolve) => {
+    const nodeCmd = isWindows() ? 'node.exe' : 'node';
+    const proc = spawn(nodeCmd, ['--version'], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      shell: isWindows(),
+    });
+
+    let stdout = '';
+    proc.stdout?.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        const version = stdout.trim().replace('v', '');
+        const meets = compareVersions(version, '22.0.0') >= 0;
+        resolve({ installed: true, version, meetsRequirement: meets, bundled: false, binPath: nodeCmd });
+      } else {
+        resolve({ installed: false, meetsRequirement: false, bundled: false });
+      }
+    });
+
+    proc.on('error', () => {
+      resolve({ installed: false, meetsRequirement: false, bundled: false });
+    });
+  });
+}
+
+/** 检测指定路径的 node 二进制 */
+function _checkNodeBin(binPath: string): Promise<{
+  installed: boolean;
+  version?: string;
+  meetsRequirement: boolean;
 }> {
   return new Promise((resolve) => {
-    try {
-      // Electron 内置 Node.js，直接使用 process.version
-      if (process.versions && process.versions.node) {
-        const version = process.versions.node;
+    const proc = spawn(binPath, ['--version'], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+
+    let stdout = '';
+    proc.stdout?.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        const version = stdout.trim().replace('v', '');
         const meets = compareVersions(version, '22.0.0') >= 0;
-        resolve({
-          installed: true,
-          version,
-          meetsRequirement: meets,
-          electronBundled: true
-        });
+        resolve({ installed: true, version, meetsRequirement: meets });
       } else {
-        // 降级方案：尝试 spawn node 命令
-        const nodeCmd = isWindows() ? 'node.cmd' : 'node';
-        const proc = spawn(nodeCmd, ['--version'], {
-          stdio: ['ignore', 'pipe', 'ignore'],
-          shell: isWindows(),
-        });
-
-        let stdout = '';
-        proc.stdout?.on('data', (data) => {
-          stdout += data.toString();
-        });
-
-        proc.on('close', (code) => {
-          if (code === 0) {
-            const version = stdout.trim().replace('v', '');
-            const meets = compareVersions(version, '22.0.0') >= 0;
-            resolve({ installed: true, version, meetsRequirement: meets, electronBundled: false });
-          } else {
-            resolve({ installed: false, meetsRequirement: false, electronBundled: false });
-          }
-        });
-
-        proc.on('error', () => {
-          resolve({ installed: false, meetsRequirement: false, electronBundled: false });
-        });
+        resolve({ installed: false, meetsRequirement: false });
       }
-    } catch {
-      resolve({ installed: false, meetsRequirement: false, electronBundled: false });
-    }
+    });
+
+    proc.on('error', () => {
+      resolve({ installed: false, meetsRequirement: false });
+    });
   });
 }
 
