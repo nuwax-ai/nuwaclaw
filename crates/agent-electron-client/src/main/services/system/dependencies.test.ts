@@ -440,6 +440,7 @@ describe('dependencies', () => {
         const { getNodeBinPath } = await import('../system/dependencies');
         const result = getNodeBinPath();
 
+        // Use toContain so both relative path (app) and absolute path (CI) pass
         expect(result).toContain('darwin-x64');
         expect(result).toContain('bin/node');
         expect(result).not.toContain('node.exe');
@@ -452,6 +453,7 @@ describe('dependencies', () => {
         const { getNodeBinPath } = await import('../system/dependencies');
         const result = getNodeBinPath();
 
+        // Use toContain so both relative path (app) and absolute path (CI) pass
         expect(result).toContain('darwin-arm64');
         expect(result).toContain('bin/node');
       });
@@ -463,6 +465,7 @@ describe('dependencies', () => {
         const { getNodeBinPath } = await import('../system/dependencies');
         const result = getNodeBinPath();
 
+        // Use toContain so both relative path (app) and absolute path (CI) pass
         expect(result).toContain('win32-x64');
         expect(result).toContain('bin/node.exe');
       });
