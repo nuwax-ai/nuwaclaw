@@ -4,6 +4,12 @@ import type { ComputerChatRequest, ComputerAgentStatusResponse, ComputerAgentSto
 
 export function registerComputerHandlers(): void {
   ipcMain.handle('computer:chat', async (_, request: ComputerChatRequest) => {
+    // 与 HTTP 路径一致：先同步 MCP 配置到 proxy 并确保引擎就绪
+    try {
+      await agentService.ensureEngineForRequest(request);
+    } catch (err: any) {
+      return { code: '5000', message: err.message || 'Engine switch failed', data: null, tid: null, success: false } as HttpResult;
+    }
     const acpEngine = agentService.getAcpEngine();
     if (!acpEngine) {
       return { code: '5000', message: 'Agent not initialized', data: null, tid: null, success: false } as HttpResult;

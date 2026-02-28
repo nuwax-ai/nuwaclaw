@@ -665,27 +665,19 @@ export class AcpEngine extends EventEmitter {
         );
         log.info(`${this.logTag} 📁 项目工作目录: ${projectDir}`);
 
-        let requestMcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> | undefined;
+        // context_servers 已由 ensureEngineForRequest() 同步到 proxy 聚合代理
+        // (nuwax-mcp-stdio-proxy)，不再单独传给 createSession()，
+        // 避免 claude-code 重复 spawn 导致 Windows 弹窗和资源浪费
         if (request.agent_config?.context_servers) {
-          requestMcpServers = {};
-          for (const [name, srv] of Object.entries(request.agent_config.context_servers)) {
-            if (srv.enabled === false || !srv.command) continue;
-            // 过滤旧桥接项 command==='mcp-proxy'：这些已由 ensureEngineForRequest()
-            // 解析提取并合并到聚合代理 (nuwax-mcp-stdio-proxy) 中，无需再单独 spawn
-            if (srv.command === 'mcp-proxy' || path.basename(srv.command) === 'mcp-proxy') continue;
-            requestMcpServers[name] = {
-              command: srv.command,
-              args: srv.args,
-              env: srv.env,
-            };
-          }
-          log.info(`${this.logTag} 🔌 请求级 MCP 服务器: ${Object.keys(requestMcpServers).join(', ') || '无 (旧桥接项已由聚合代理处理)'}`);
+          const servers = request.agent_config.context_servers;
+          const serverNames = Object.keys(servers)
+            .filter((n) => servers[n]?.enabled !== false);
+          log.info(`${this.logTag} 🔌 context_servers (已由 proxy 聚合): ${serverNames.join(', ') || '(无)'}`);
         }
 
         const newSession = await this.createSession({
           title: projectId,
           cwd: projectDir,
-          mcpServers: requestMcpServers,
         });
         session = this.sessions.get(newSession.id)!;
         session.projectId = request.project_id;

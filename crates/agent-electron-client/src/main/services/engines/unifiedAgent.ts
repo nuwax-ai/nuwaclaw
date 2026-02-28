@@ -287,7 +287,9 @@ export class UnifiedAgentService extends EventEmitter {
     const agentServer = request.agent_config?.agent_server;
     const mp = request.model_provider;
 
-    if (!agentServer?.command && !mp) return;
+    // 早期返回条件：既无 agent_server/model_provider（无需引擎切换），也无 context_servers（无需刷新 MCP 配置）
+    // 注意：context_servers 已在上方同步到 proxy (line 280)，但引擎 this.config.mcpServers 需要重新获取
+    if (!agentServer?.command && !mp && Object.keys(requestMcpServersEarly).length === 0) return;
 
     // 1. 确定目标引擎
     const requiredEngine = agentServer?.command
@@ -373,11 +375,23 @@ export class UnifiedAgentService extends EventEmitter {
       mergedEnv.OPENCODE_LOG_DIR = localLogDir;
     }
 
-    // requestMcpServers 已在变更检测阶段过滤了旧桥接项 (command==='mcp-proxy')
-    const mergedMcpServers = {
-      ...(baseConfig.mcpServers || {}),
-      ...requestMcpServers,
-    };
+    // 动态 MCP server 已由 syncMcpConfigToProxyAndReload() 同步到 proxy，
+    // 使用 getAgentMcpConfig() 获取最新的 proxy 配置（--config JSON 包含全部 server），
+    // 而不是使用 baseConfig.mcpServers（可能包含旧的 --config JSON）
+    let freshMcpServers: AgentConfig['mcpServers'] | undefined;
+    try {
+      const { mcpProxyManager } = await import('../packages/mcp');
+      freshMcpServers = mcpProxyManager.getAgentMcpConfig() || undefined;
+    } catch {
+      // fallback: 使用旧合并逻辑
+      const mergedMcpServers = {
+        ...(baseConfig.mcpServers || {}),
+        ...requestMcpServers,
+      };
+      if (Object.keys(mergedMcpServers).length > 0) {
+        freshMcpServers = mergedMcpServers;
+      }
+    }
 
     const newConfig: AgentConfig = {
       ...baseConfig,
@@ -386,7 +400,7 @@ export class UnifiedAgentService extends EventEmitter {
       baseUrl: mp?.base_url || baseConfig.baseUrl,
       model,
       env: mergedEnv,
-      mcpServers: Object.keys(mergedMcpServers).length > 0 ? mergedMcpServers : undefined,
+      mcpServers: freshMcpServers,
     };
 
     log.info(
@@ -407,7 +421,8 @@ export class UnifiedAgentService extends EventEmitter {
       throw new Error(`Failed to switch engine to ${requiredEngine}`);
     }
     log.info(`[UnifiedAgent] ✅ 引擎已切换到 ${requiredEngine}`);
-    // 与 Tauri 一致：ACP context_servers 不写入本地 proxy，仅用于引擎 createSession 的 mcpServers
+    // 动态 MCP servers 已通过 syncMcpConfigToProxyAndReload() 同步到 proxy 聚合代理，
+    // getAgentMcpConfig() 返回的 proxy 入口包含所有 server（临时 + 持久化 + 动态）
   }
 
   get isReady(): boolean {
