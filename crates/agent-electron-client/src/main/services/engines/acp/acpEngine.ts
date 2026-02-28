@@ -358,16 +358,30 @@ export class AcpEngine extends EventEmitter {
     setTimeout(() => {
       try {
         const { execSync } = require('child_process');
-        const ps = execSync('ps aux | grep nuwax-mcp-stdio-proxy | grep -v grep', { timeout: 3000 }).toString().trim();
-        if (ps) {
-          const lines = ps.split('\n');
-          log.info(`${diagLogTag} 🔍 MCP proxy 进程检查: ✅ 运行中 (${lines.length} 个)`);
-          for (const line of lines) log.info(`${diagLogTag}   ${line.substring(0, 200)}`);
+        const os = require('os');
+        let psOutput;
+        
+        if (os.platform() === 'win32') {
+          psOutput = execSync('tasklist /FI "IMAGENAME eq node.exe" /FO LIST /V', { timeout: 3000 }).toString();
+          const hasProxy = psOutput.toLowerCase().includes('nuwax-mcp-stdio-proxy');
+          if (hasProxy) {
+            log.info(`${diagLogTag} 🔍 MCP proxy 进程检查: ✅ 运行中`);
+            log.info(`${diagLogTag}   ${psOutput.substring(0, 500)}`);
+          } else {
+            log.warn(`${diagLogTag} 🔍 MCP proxy 进程检查: ❌ 未找到`);
+          }
         } else {
-          log.warn(`${diagLogTag} 🔍 MCP proxy 进程检查: ❌ 未找到`);
+          psOutput = execSync('ps aux | grep nuwax-mcp-stdio-proxy | grep -v grep', { timeout: 3000 }).toString().trim();
+          if (psOutput) {
+            const lines = psOutput.split('\n');
+            log.info(`${diagLogTag} 🔍 MCP proxy 进程检查: ✅ 运行中 (${lines.length} 个)`);
+            for (const line of lines) log.info(`${diagLogTag}   ${line.substring(0, 200)}`);
+          } else {
+            log.warn(`${diagLogTag} 🔍 MCP proxy 进程检查: ❌ 未找到`);
+          }
         }
-      } catch {
-        log.warn(`${diagLogTag} 🔍 MCP proxy 进程检查: ❌ 未找到`);
+      } catch (e) {
+        log.warn(`${diagLogTag} 🔍 MCP proxy 进程检查: ❌ 检查失败`, e);
       }
     }, 5000);
 
