@@ -15,6 +15,12 @@ import { PassThrough, Readable } from 'stream';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import { serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
+import * as fs from 'fs';
+import * as path from 'path';
+
+function logDebug(msg: string): void {
+  process.stderr.write(`[customStdio] ${msg}\n`);
+}
 
 export interface CustomStdioServerParameters {
   command: string;
@@ -47,13 +53,45 @@ export class CustomStdioClientTransport implements Transport {
     }
 
     return new Promise((resolve, reject) => {
-      this._process = spawn(this._serverParams.command, this._serverParams.args ?? [], {
-        env: {
-          ...getDefaultEnvironment(),
-          ...this._serverParams.env,
-        },
+      const mergedEnv = {
+        ...getDefaultEnvironment(),
+        ...this._serverParams.env,
+      };
+
+      logDebug(`Starting "${this._serverParams.command}" with PATH: ${(mergedEnv.PATH || '').split(';').slice(0, 3).join(';')}...`);
+
+      // On Windows, resolve .cmd/.bat files if command not found directly
+      let command = this._serverParams.command;
+      let useShell = false;
+      const isWindows = process.platform === 'win32';
+      const cmdExtensions = ['.cmd', '.bat', '.exe'];
+
+      if (isWindows && !cmdExtensions.some(ext => command.toLowerCase().endsWith(ext))) {
+        // Try to find the command with .cmd extension in PATH
+        const pathDirs = (mergedEnv.PATH || '').split(';');
+        for (const dir of pathDirs) {
+          for (const ext of cmdExtensions) {
+            const fullPath = path.join(dir, command + ext);
+            if (fs.existsSync(fullPath)) {
+              command = fullPath;
+              logDebug(`Resolved "${this._serverParams.command}" to "${command}"`);
+              break;
+            }
+          }
+          if (command !== this._serverParams.command) break;
+        }
+      }
+
+      // For .cmd/.bat files on Windows, we need shell: true
+      if (isWindows && (command.toLowerCase().endsWith('.cmd') || command.toLowerCase().endsWith('.bat'))) {
+        useShell = true;
+        logDebug(`Using shell: true for ${command}`);
+      }
+
+      this._process = spawn(command, this._serverParams.args ?? [], {
+        env: mergedEnv,
         stdio: ['pipe', 'pipe', this._serverParams.stderr ?? 'inherit'],
-        shell: false,
+        shell: useShell,
         windowsHide: true,
         cwd: this._serverParams.cwd,
       });

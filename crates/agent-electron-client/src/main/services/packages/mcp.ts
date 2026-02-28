@@ -170,15 +170,26 @@ export function extractRealMcpServers(
   const inner = parsed?.mcpServers;
   if (!inner || typeof inner !== 'object') return null;
 
+  // Build base environment variables for child MCP servers
+  const appEnv = getAppEnv();
+  const baseEnv: Record<string, string> = {
+    PATH: appEnv.PATH,
+    HOME: process.env.HOME || process.env.USERPROFILE || '',
+    USER: process.env.USER || process.env.USERNAME || '',
+    USERNAME: process.env.USERNAME || process.env.USER || '',
+    LANG: process.env.LANG || 'en_US.UTF-8',
+    TZ: process.env.TZ || '',
+  };
+
   const result: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
   for (const [name, srv] of Object.entries(inner)) {
     if (!srv || typeof srv.command !== 'string') continue;
     const resolved = resolveUvCommand(srv.command, srv.args || [], dir);
-    // Env merge: external env as base, server-specific env overrides (documented behavior)
+    // Env merge: baseEnv as foundation, external env overrides, server-specific env takes precedence
     result[name] = {
       command: resolved.command,
       args: resolved.args,
-      env: { ...env, ...(srv.env || {}) },
+      env: { ...baseEnv, ...env, ...(srv.env || {}) },
     };
   }
 
@@ -234,6 +245,32 @@ export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
     },
   },
 };
+
+/**
+ * 为 MCP 服务器配置注入基础环境变量
+ */
+function injectBaseEnvToMcpServers(
+  servers: Record<string, McpServerEntry>,
+): Record<string, McpServerEntry> {
+  const appEnv = getAppEnv();
+  const baseEnv: Record<string, string> = {
+    PATH: appEnv.PATH,
+    HOME: process.env.HOME || process.env.USERPROFILE || '',
+    USER: process.env.USER || process.env.USERNAME || '',
+    USERNAME: process.env.USERNAME || process.env.USER || '',
+    LANG: process.env.LANG || 'en_US.UTF-8',
+    TZ: process.env.TZ || '',
+  };
+
+  const result: Record<string, McpServerEntry> = {};
+  for (const [name, entry] of Object.entries(servers)) {
+    result[name] = {
+      ...entry,
+      env: { ...baseEnv, ...(entry.env || {}) },
+    };
+  }
+  return result;
+}
 
 /** 单个 MCP Server 的配置（mcpServers 格式） */
 export interface McpServerEntry {
@@ -560,15 +597,18 @@ export async function syncMcpConfigToProxyAndReload(
   // 合并默认服务器（如 chrome-devtools），确保内置 MCP 服务始终存在
   const merged: typeof realOnly = { ...DEFAULT_MCP_PROXY_CONFIG.mcpServers, ...realOnly };
 
-  log.info('[McpProxy] 同步 MCP 配置:', Object.keys(merged).join(', '));
-  mcpProxyManager.setConfig({ mcpServers: merged });
+  // 为所有 MCP 服务器注入基础环境变量（包括 PATH）
+  const mergedWithEnv = injectBaseEnvToMcpServers(merged);
+
+  log.info('[McpProxy] 同步 MCP 配置:', Object.keys(mergedWithEnv).join(', '));
+  mcpProxyManager.setConfig({ mcpServers: mergedWithEnv });
 
   // 持久化到 SQLite
   try {
     const { getDb } = await import('../../db');
     const db = getDb();
     if (db) {
-      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('mcp_proxy_config', JSON.stringify({ mcpServers: merged }));
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('mcp_proxy_config', JSON.stringify({ mcpServers: mergedWithEnv }));
       log.info('[McpProxy] MCP 配置已持久化');
     }
   } catch (e) {

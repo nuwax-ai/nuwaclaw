@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "whois": {
+      "command": "npx",
+      "args": ["-y", "@bharathvaj/whois-mcp@latest"],
+      "env": {
+        "PATH": "C:\\git-workspace\\nuwax-agent-client\\crates\\agent-electron-client\\resources\\node\\win32-x64\\bin;C:\\Users\\soddygo\\.nuwax-agent\\node_modules\\.bin"
+      }
+    }
+  }
+}
