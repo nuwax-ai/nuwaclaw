@@ -182,6 +182,34 @@ describe('McpProxyManager', () => {
       expect(mcpConfig?.['mcp-proxy'].env?.ELECTRON_RUN_AS_NODE).toBeUndefined();
     });
 
+    it('mcp-proxy 入口应包含基础环境变量', async () => {
+      const { mcpProxyManager } = await import('./mcp');
+
+      // 设置临时 server 配置
+      mcpProxyManager.setConfig({
+        mcpServers: {
+          'test-server': {
+            command: 'npx',
+            args: ['-y', 'test-mcp'],
+          },
+        },
+      });
+
+      await mcpProxyManager.start();
+      const mcpConfig = mcpProxyManager.getAgentMcpConfig();
+
+      expect(mcpConfig).toBeDefined();
+      expect(mcpConfig?.['mcp-proxy']).toBeDefined();
+
+      // 验证 mcp-proxy 入口包含基础环境变量
+      const proxyEnv = mcpConfig?.['mcp-proxy'].env;
+      expect(proxyEnv).toBeDefined();
+      expect(proxyEnv?.PATH).toBeDefined();
+      expect(proxyEnv?.HOME).toBeDefined();
+      expect(proxyEnv?.USER).toBeDefined();
+      expect(proxyEnv?.LANG).toBeDefined();
+    });
+
     it('默认配置只有 persistent server，bridge 未运行时应该返回 null', async () => {
       const { mcpProxyManager } = await import('./mcp');
 

@@ -469,10 +469,23 @@ class McpProxyManager {
         log.error('[McpProxy] 请运行 "npm run prepare:node" 下载 Node.js 资源');
         return null;
       }
+
+      // 构建基础环境变量，确保 mcp-proxy 进程能正确启动子进程
+      const appEnv = getAppEnv();
+      const proxyEnv: Record<string, string> = {
+        PATH: appEnv.PATH,
+        HOME: process.env.HOME || process.env.USERPROFILE || '',
+        USER: process.env.USER || process.env.USERNAME || '',
+        USERNAME: process.env.USERNAME || process.env.USER || '',
+        LANG: process.env.LANG || 'en_US.UTF-8',
+        TZ: process.env.TZ || '',
+      };
+
       return {
         'mcp-proxy': {
           command: nodeBinPath,
           args: [scriptPath, '--config', configJson],
+          env: proxyEnv,
         },
       };
     }
