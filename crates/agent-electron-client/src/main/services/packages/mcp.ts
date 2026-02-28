@@ -186,15 +186,21 @@ export function extractRealMcpServers(
 }
 
 /**
- * Apply resolveUvCommand + inject getAppEnv() env for all server entries.
+ * Apply resolveUvCommand + inject minimal env for all server entries.
  * Filters out mcp-proxy bridge entries.
+ *
+ * Note: Full env (getAppEnv) is not needed here because nuwax-mcp-stdio-proxy
+ * will inject the proper environment when spawning child processes.
+ * We only include essential variables for MCP server operation.
  */
 export function resolveServersConfig(
   servers: Record<string, McpServerEntry>,
 ): Record<string, McpServerEntry> {
   const appEnv = getAppEnv();
+  // Minimal env - only essential variables
+  // PATH is included but other npm/uv config is handled by the proxy
   const baseEnv: Record<string, string> = {
-    ...appEnv,
+    PATH: appEnv.PATH,
     HOME: process.env.HOME || process.env.USERPROFILE || '',
     USER: process.env.USER || process.env.USERNAME || '',
     USERNAME: process.env.USERNAME || process.env.USER || '',
