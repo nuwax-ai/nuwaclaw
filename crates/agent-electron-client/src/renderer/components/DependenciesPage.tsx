@@ -29,6 +29,7 @@ interface NodeCheckResult {
   version?: string;
   meetsRequirement?: boolean;
   bundled?: boolean;
+  binPath?: string;
 }
 
 interface UvCheckResult {

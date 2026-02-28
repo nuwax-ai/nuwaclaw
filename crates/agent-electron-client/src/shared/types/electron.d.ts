@@ -86,7 +86,7 @@ export interface LocalDependencyItem {
 
 export interface DependenciesAPI {
   checkAll: () => Promise<{ success: boolean; results?: LocalDependencyItem[]; error?: string }>;
-  checkNode: () => Promise<{ success: boolean; installed?: boolean; version?: string; meetsRequirement?: boolean; error?: string }>;
+  checkNode: () => Promise<{ success: boolean; installed?: boolean; version?: string; meetsRequirement?: boolean; bundled?: boolean; binPath?: string; error?: string }>;
   checkUv: () => Promise<{ success: boolean; installed?: boolean; version?: string; meetsRequirement?: boolean; bundled?: boolean; error?: string }>;
   detectPackage: (packageName: string, binName?: string) => Promise<{ success: boolean; installed?: boolean; version?: string; binPath?: string; error?: string }>;
   installPackage: (packageName: string, options?: { registry?: string; version?: string }) => Promise<{ success: boolean; version?: string; binPath?: string; error?: string }>;
