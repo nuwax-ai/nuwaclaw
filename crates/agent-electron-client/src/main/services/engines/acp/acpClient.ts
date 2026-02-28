@@ -183,6 +183,8 @@ export interface AcpConnectionConfig {
   binPath: string;
   /** Binary arguments (e.g. [] for claude-code-acp-ts, ['acp'] for nuwaxcode) */
   binArgs: string[];
+  /** Whether the binary is a native executable (not a JS file) */
+  isNative?: boolean;
   workspaceDir: string;
   apiKey?: string;
   baseUrl?: string;
@@ -241,30 +243,110 @@ function getAcpPackageDir(packageName: string): string | null {
 }
 
 /**
- * Resolve ACP entry JS file path for a given engine type.
+ * Resolve ACP binary path for a given engine type.
  *
- * 使用通用工具 resolveNpmPackageEntry 解析入口文件
+ * - claude-code → ~/.nuwax-agent/node_modules/claude-code-acp-ts (JS entry, spawned via node)
+ * - nuwaxcode   → native Go binary (spawned directly, not via node)
  *
- * - claude-code → ~/.nuwax-agent/node_modules/claude-code-acp-ts (bin entry)
- * - nuwaxcode   → ~/.nuwax-agent/node_modules/nuwaxcode (bin entry)
+ * For nuwaxcode, we resolve the platform-specific native binary directly
+ * instead of going through the JS wrapper (nuwaxcode/bin/nuwaxcode).
+ *
+ * Reasons:
+ * 1. The JS wrapper uses `spawnSync(binary, args, { stdio: 'inherit' })`
+ *    without `windowsHide: true`, causing console popup on Windows.
+ * 2. The intermediate Node.js process adds an unnecessary process layer
+ *    that can interfere with SIGTERM propagation and stdio piping.
+ * 3. Spawning the native binary directly is faster and more reliable.
+ *
+ * Returns `isNative: true` when the binary should be spawned directly
+ * (not via `node`).
  */
-export function resolveAcpBinary(engine: 'claude-code' | 'nuwaxcode'): { binPath: string; binArgs: string[] } {
+export function resolveAcpBinary(engine: 'claude-code' | 'nuwaxcode'): {
+  binPath: string;
+  binArgs: string[];
+  isNative: boolean;
+} {
   if (engine === 'claude-code') {
     const packageDir = getAcpPackageDir('claude-code-acp-ts');
     const entryPath = packageDir ? resolveNpmPackageEntry(packageDir, 'claude-code-acp-ts') : null;
     return {
       binPath: entryPath || '',
       binArgs: [],
+      isNative: false,
     };
   }
 
-  // nuwaxcode
+  // nuwaxcode: resolve platform-specific native binary directly
+  const nativePath = resolveNuwaxcodeNativeBinary();
+  if (nativePath) {
+    log.info(`[AcpClient] nuwaxcode: 使用原生二进制: ${nativePath}`);
+    return {
+      binPath: nativePath,
+      binArgs: ['acp'],
+      isNative: true,
+    };
+  }
+
+  // Fallback: use JS wrapper (will have Windows popup issue)
+  log.warn('[AcpClient] nuwaxcode: 未找到原生二进制，回退到 JS wrapper');
   const packageDir = getAcpPackageDir('nuwaxcode');
   const entryPath = packageDir ? resolveNpmPackageEntry(packageDir, 'nuwaxcode') : null;
   return {
     binPath: entryPath || '',
     binArgs: ['acp'],
+    isNative: false,
   };
+}
+
+/**
+ * Resolve the platform-specific nuwaxcode native binary path.
+ *
+ * nuwaxcode npm package uses optionalDependencies with platform-specific packages:
+ * - nuwaxcode-darwin-arm64/bin/nuwaxcode
+ * - nuwaxcode-windows-x64/bin/nuwaxcode.exe
+ * - nuwaxcode-linux-x64/bin/nuwaxcode
+ * etc.
+ *
+ * Logic mirrors nuwaxcode/bin/nuwaxcode JS wrapper.
+ */
+function resolveNuwaxcodeNativeBinary(): string | null {
+  const platformMap: Record<string, string> = {
+    darwin: 'darwin',
+    linux: 'linux',
+    win32: 'windows',
+  };
+  const archMap: Record<string, string> = {
+    x64: 'x64',
+    arm64: 'arm64',
+    arm: 'arm',
+  };
+
+  const platform = platformMap[os.platform()] || os.platform();
+  const arch = archMap[os.arch()] || os.arch();
+  const binary = platform === 'windows' ? 'nuwaxcode.exe' : 'nuwaxcode';
+  const base = `nuwaxcode-${platform}-${arch}`;
+
+  // Search from nuwaxcode package dir upwards for the platform package
+  const nuwaxcodeDir = getAcpPackageDir('nuwaxcode');
+  if (!nuwaxcodeDir) return null;
+
+  let current = path.dirname(nuwaxcodeDir); // node_modules/
+  while (true) {
+    const candidate = path.join(current, base, 'bin', binary);
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+    // Also check inside node_modules/ if current is not already
+    const nmCandidate = path.join(current, 'node_modules', base, 'bin', binary);
+    if (fs.existsSync(nmCandidate)) {
+      return nmCandidate;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+
+  return null;
 }
 
 // ==================== Connection Factory ====================
@@ -356,12 +438,25 @@ export async function createAcpConnection(
   );
 
   // 1. Spawn ACP binary
-  // 使用通用 spawnJsFile 启动，自动处理 Windows 无弹窗
-  const proc = spawnJsFile(binPath, binArgs, {
-    cwd: config.workspaceDir,
-    env,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+  let proc: ChildProcess;
+  if (config.isNative) {
+    // Native binary (e.g. nuwaxcode Go binary): spawn directly, no node wrapper
+    // This avoids Windows console popup and eliminates the intermediate process
+    proc = spawn(binPath, binArgs, {
+      cwd: config.workspaceDir,
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    log.info(`[AcpClient] Spawned native binary directly: ${binPath}`);
+  } else {
+    // JS file (e.g. claude-code-acp-ts): spawn via node using spawnJsFile
+    proc = spawnJsFile(binPath, binArgs, {
+      cwd: config.workspaceDir,
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  }
 
   // Log stderr — MCP/spawn 相关错误突出显示
   proc.stderr?.on('data', (data: Buffer) => {

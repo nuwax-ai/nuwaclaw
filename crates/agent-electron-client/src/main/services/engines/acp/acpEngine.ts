@@ -117,7 +117,7 @@ export class AcpEngine extends EventEmitter {
       const clientHandler = this.buildClientHandler();
 
       // Resolve binary path and args for the engine type
-      const { binPath, binArgs } = resolveAcpBinary(this.engineName);
+      const { binPath, binArgs, isNative } = resolveAcpBinary(this.engineName);
 
       // For nuwaxcode: inject config via OPENCODE_CONFIG_CONTENT env var
       const spawnEnv = { ...(config.env || {}) };
@@ -163,6 +163,7 @@ export class AcpEngine extends EventEmitter {
         {
           binPath,
           binArgs,
+          isNative,
           workspaceDir: config.workspaceDir,
           apiKey: config.apiKey,
           baseUrl: config.baseUrl,
