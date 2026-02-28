@@ -273,6 +273,12 @@ async function prepareNode(key, suffix) {
             fs.renameSync(src, path.join(binDir, cmd));
           }
         });
+        // 移动 node_modules 到 bin/ 目录（npm.cmd 期望 node_modules 在同一目录）
+        const nodeModulesSrc = path.join(platformDir, 'node_modules');
+        const nodeModulesDest = path.join(binDir, 'node_modules');
+        if (fs.existsSync(nodeModulesSrc) && !fs.existsSync(nodeModulesDest)) {
+          fs.renameSync(nodeModulesSrc, nodeModulesDest);
+        }
         console.log(`[prepare-node] 已将 Windows Node.js 重组为 bin/ 结构`);
       }
     }
