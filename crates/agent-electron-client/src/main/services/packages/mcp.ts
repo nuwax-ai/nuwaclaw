@@ -265,34 +265,38 @@ class McpProxyManager {
 
   /**
    * 解析 nuwax-mcp-stdio-proxy 脚本路径（disk lookup，不使用缓存）
-   * 优先使用应用自带依赖（npm 包 nuwax-mcp-stdio-proxy@^1.0.0），其次 ~/.nuwax-agent/node_modules
+   *
+   * 注意：打包后必须使用 extraResources 位置，因为独立 Node.js 无法读取 asar 归档！
+   * 只有 Electron 内置的 Node.js 有 asar 支持。
    */
   private resolveProxyScriptPath(): string | null {
     const pkgName = 'nuwax-mcp-stdio-proxy';
 
-    // 1. 应用自身 node_modules（开发时为项目根，打包后可能在 app.asar.unpacked）
-    const appRoot = app.getAppPath();
-    let appPackageDir = path.join(appRoot, 'node_modules', pkgName);
-    if (fs.existsSync(appPackageDir)) {
-      const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
-      if (entry) return entry;
-    }
-    // 打包后部分依赖在 app.asar.unpacked
+    // 1. 打包后优先使用 extraResources（独立 Node.js 可访问的路径）
     if (process.resourcesPath) {
+      // extraResources 位置
+      let appPackageDir = path.join(process.resourcesPath, pkgName);
+      if (fs.existsSync(appPackageDir)) {
+        const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
+        if (entry) return entry;
+      }
+      // app.asar.unpacked 位置
       appPackageDir = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', pkgName);
       if (fs.existsSync(appPackageDir)) {
         const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
         if (entry) return entry;
       }
-      // 打包后 extraResources 位置（electron-builder 配置的 extraResources）
-      appPackageDir = path.join(process.resourcesPath, pkgName);
-      if (fs.existsSync(appPackageDir)) {
-        const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
-        if (entry) return entry;
-      }
     }
 
-    // 2. 应用数据目录 ~/.nuwax-agent/node_modules（用户通过依赖管理安装的版本）
+    // 2. 开发时：应用自身 node_modules（app.asar 内部，开发时可用）
+    const appRoot = app.getAppPath();
+    const appPackageDir = path.join(appRoot, 'node_modules', pkgName);
+    if (fs.existsSync(appPackageDir)) {
+      const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
+      if (entry) return entry;
+    }
+
+    // 3. 应用数据目录 ~/.nuwax-agent/node_modules（用户通过依赖管理安装的版本）
     const dirs = getAppPaths();
     const packageDir = path.join(dirs.nodeModules, pkgName);
     if (!fs.existsSync(packageDir)) return null;
