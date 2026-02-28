@@ -7,7 +7,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { app } from 'electron';
 import log from 'electron-log';
 import {
@@ -190,6 +190,74 @@ export function getUvBinPath(): string {
 }
 
 /**
+ * 获取 bundled Node.js 二进制路径
+ *
+ * 打包后: process.resourcesPath/node/<platform-arch>/bin/node
+ * 开发时: resources/node/<platform-arch>/bin/node
+ *
+ * 若 Node.js 资源不存在，会记录警告并返回 null。
+ * 调用方应检查返回值并处理缺失情况。
+ */
+export function getNodeBinPath(): string | null {
+  const platformKey = `${process.platform}-${process.arch}`;
+  const nodeName = isWindows() ? 'node.exe' : 'node';
+  const nodePath = path.join(getResourcesPath(), 'node', platformKey, 'bin', nodeName);
+
+  if (!fs.existsSync(nodePath)) {
+    log.warn(`[Dependencies] 内置 Node.js 未找到: ${nodePath}`);
+    log.warn('[Dependencies] 请运行 "npm run prepare:node" 下载 Node.js 资源');
+    return null;
+  }
+
+  return nodePath;
+}
+
+/**
+ * Get Node.js binary path with fallback to system node.
+ *
+ * Priority:
+ * 1. Bundled Node.js 24 (resources/node/<platform>/bin/node)
+ * 2. System node from PATH (macOS/Linux only, for development)
+ *
+ * On Windows, system node fallback is NOT available - bundled Node.js is required.
+ * On macOS/Linux in development, this allows running without prepare:node.
+ *
+ * @returns Node.js binary path, or null if not found
+ */
+export function getNodeBinPathWithFallback(): string | null {
+  // 1. Try bundled Node.js first
+  const bundledPath = getNodeBinPath();
+  if (bundledPath) return bundledPath;
+
+  // 2. Fallback to system node (macOS/Linux only)
+  if (!isWindows()) {
+    const systemNode = findSystemNode();
+    if (systemNode) {
+      log.info(`[Dependencies] 使用系统 Node.js fallback: ${systemNode}`);
+      return systemNode;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Find system node executable from PATH.
+ * Used as fallback when bundled Node.js is not available.
+ */
+function findSystemNode(): string | null {
+  try {
+    const result = execSync('which node', { encoding: 'utf-8', timeout: 5000 }).trim();
+    if (result && fs.existsSync(result)) {
+      return result;
+    }
+  } catch {
+    // which command failed, node not found in PATH
+  }
+  return null;
+}
+
+/**
  * 应用内集成：确保 uv 在应用内可用。
  * 若 bundled（getUvBinPath）不存在，但 resources/uv/bin 存在（如开发环境已执行 prepare:uv），
  * 则一次性复制到 ~/.nuwax-agent/bin，该目录已在 PATH 中，后续 MCP 等子进程即可找到 uv。
@@ -237,21 +305,18 @@ export function getLanproxyBinPath(): string {
   return path.join(getResourcesPath(), 'lanproxy', 'bin', binName);
 }
 
-// 获取 bundled Node.js 24 路径（集成到 resources/node/，仅 Windows）
-// prepare-node 输出到 resources/node/win32-x64 或 win32-arm64，该目录即 node.exe 所在目录
+// 获取 bundled Node.js 24 路径（集成到 resources/node/）
+// prepare-node 输出到 resources/node/<platform>-<arch>/，bin 目录包含 node/npm/npx
 function getBundledNodeBinDir(): string {
-  if (!isWindows()) {
-    return '';
-  }
   const resourcesPath = getResourcesPath();
   const arch = process.arch === 'x64' ? 'x64' : process.arch === 'arm64' ? 'arm64' : 'x64';
-  const nodePlatformKey = `win32-${arch}`;
-  const nodeBinPath = path.join(resourcesPath, 'node', nodePlatformKey);
+  const nodePlatformKey = `${process.platform}-${arch}`;
+  const nodeBinPath = path.join(resourcesPath, 'node', nodePlatformKey, 'bin');
   if (fs.existsSync(nodeBinPath)) {
     log.info(`[getBundledNodeBinDir] 使用内置 Node.js: ${nodeBinPath}`);
     return nodeBinPath;
   }
-  const devPath = path.join(process.cwd(), 'resources', 'node', nodePlatformKey);
+  const devPath = path.join(process.cwd(), 'resources', 'node', nodePlatformKey, 'bin');
   if (fs.existsSync(devPath)) {
     log.info(`[getBundledNodeBinDir] 开发模式使用内置 Node.js: ${devPath}`);
     return devPath;
@@ -398,7 +463,7 @@ export function getAppEnv(): Record<string, string> {
 
   // 调试日志：输出 PATH 优先级（应用内 uv 优先）
   log.info(`[getAppEnv] PATH 优先级 (${process.platform}):`);
-  log.info(`[getAppEnv]   1. 内置 Node.js 24: ${bundledNodeBinDir || (isWindows() ? '(未找到)' : '(macOS/Linux 使用系统 npm)')}`);
+  log.info(`[getAppEnv]   1. 内置 Node.js 24: ${bundledNodeBinDir || '(未找到)'}`);
   log.info(`[getAppEnv]   2. Electron Node: ${electronNodeBinDir || '(未找到)'}`);
   log.info(`[getAppEnv]   3. 内置 Git: ${bundledGitBinDir || (isWindows() ? '(未找到)' : '(macOS/Linux 使用系统)')}`);
   log.info(`[getAppEnv]   4. uv/uvx(应用内优先): ${uvBin || '(未找到，将使用系统 PATH 回退)'}`);

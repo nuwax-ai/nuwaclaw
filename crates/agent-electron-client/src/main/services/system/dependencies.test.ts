@@ -418,4 +418,92 @@ describe('dependencies', () => {
       expect(env1.PATH).toBe(env2.PATH);
     });
   });
+
+  describe('bundled resources', () => {
+    const mockLog = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      mockExistsSync.mockReturnValue(true);
+      mockReaddirSync.mockReturnValue([]);
+    });
+
+    describe('getNodeBinPath', () => {
+      it('should return correct path on macOS x64', async () => {
+        Object.defineProperty(process, 'platform', { value: 'darwin', writable: true });
+        Object.defineProperty(process, 'arch', { value: 'x64', writable: true });
+
+        const { getNodeBinPath } = await import('../system/dependencies');
+        const result = getNodeBinPath();
+
+        expect(result).toContain('darwin-x64');
+        expect(result).toContain('bin/node');
+        expect(result).not.toContain('node.exe');
+      });
+
+      it('should return correct path on macOS arm64', async () => {
+        Object.defineProperty(process, 'platform', { value: 'darwin', writable: true });
+        Object.defineProperty(process, 'arch', { value: 'arm64', writable: true });
+
+        const { getNodeBinPath } = await import('../system/dependencies');
+        const result = getNodeBinPath();
+
+        expect(result).toContain('darwin-arm64');
+        expect(result).toContain('bin/node');
+      });
+
+      it('should return correct path on Windows x64', async () => {
+        Object.defineProperty(process, 'platform', { value: 'win32', writable: true });
+        Object.defineProperty(process, 'arch', { value: 'x64', writable: true });
+
+        const { getNodeBinPath } = await import('../system/dependencies');
+        const result = getNodeBinPath();
+
+        expect(result).toContain('win32-x64');
+        expect(result).toContain('bin/node.exe');
+      });
+
+      it('should return correct path on Linux x64', async () => {
+        Object.defineProperty(process, 'platform', { value: 'linux', writable: true });
+        Object.defineProperty(process, 'arch', { value: 'x64', writable: true });
+
+        const { getNodeBinPath } = await import('../system/dependencies');
+        const result = getNodeBinPath();
+
+        expect(result).toContain('linux-x64');
+        expect(result).toContain('bin/node');
+      });
+
+      it('should return null when node binary does not exist', async () => {
+        mockExistsSync.mockReturnValue(false);
+
+        const { getNodeBinPath } = await import('../system/dependencies');
+        const result = getNodeBinPath();
+
+        expect(result).toBeNull();
+      });
+
+      it('should log warning when node binary does not exist', async () => {
+        mockExistsSync.mockReturnValue(false);
+
+        const { getNodeBinPath } = await import('../system/dependencies');
+        // Mock electron-log after importing
+        const log = await import('electron-log');
+        Object.assign(log.default, mockLog);
+
+        getNodeBinPath();
+
+        expect(mockLog.warn).toHaveBeenCalledWith(
+          expect.stringContaining('内置 Node.js 未找到')
+        );
+        expect(mockLog.warn).toHaveBeenCalledWith(
+          expect.stringContaining('prepare:node')
+        );
+      });
+    });
+  });
 });

@@ -35,7 +35,7 @@ vi.mock('fs', () => ({
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
 }));
 
-// Mock dependencies（含 getUvBinPath，供 mcp 内 getUvBinDir 等使用）
+// Mock dependencies（含 getUvBinPath、getNodeBinPath、getNodeBinPathWithFallback，供 mcp 内 getUvBinDir 等使用）
 vi.mock('../system/dependencies', () => ({
   getAppEnv: vi.fn(() => ({
     PATH: '/mock/path',
@@ -45,6 +45,8 @@ vi.mock('../system/dependencies', () => ({
     UV_INDEX_URL: '',
   })),
   getUvBinPath: vi.fn(() => '/mock/uv/bin/uv'),
+  getNodeBinPath: vi.fn(() => '/mock/resources/node/darwin-arm64/bin/node'),
+  getNodeBinPathWithFallback: vi.fn(() => '/mock/resources/node/darwin-arm64/bin/node'),
 }));
 
 vi.mock('./packageLocator', () => ({
@@ -175,14 +177,15 @@ describe('McpProxyManager', () => {
       // 统一聚合为 proxy key
       expect(mcpConfig?.['mcp-proxy']).toBeDefined();
       expect(mcpConfig?.['mcp-proxy'].args).toContain('--config');
-      expect(mcpConfig?.['mcp-proxy'].command).toBe(process.execPath);
-      expect(mcpConfig?.['mcp-proxy'].env?.ELECTRON_RUN_AS_NODE).toBe('1');
+      // 新方案：使用内置 Node.js 24，不再使用 process.execPath + ELECTRON_RUN_AS_NODE
+      expect(mcpConfig?.['mcp-proxy'].command).toBe('/mock/resources/node/darwin-arm64/bin/node');
+      expect(mcpConfig?.['mcp-proxy'].env?.ELECTRON_RUN_AS_NODE).toBeUndefined();
     });
 
     it('默认配置只有 persistent server，bridge 未运行时应该返回 null', async () => {
       const { mcpProxyManager } = await import('./mcp');
 
-      // start() 填充缓存路径（默认配置只有 chrome-devtools persistent）
+      // start() 填充缓存路径（默认配置包含 chrome-devtools persistent）
       await mcpProxyManager.start();
       const mcpConfig = mcpProxyManager.getAgentMcpConfig();
 
@@ -203,6 +206,18 @@ describe('McpProxyManager', () => {
       vi.resetModules();
 
       const { mcpProxyManager } = await import('./mcp');
+
+      // 手动设置 persistent server 配置
+      mcpProxyManager.setConfig({
+        mcpServers: {
+          'chrome-devtools': {
+            command: 'chrome-devtools-mcp',
+            args: [],
+            persistent: true,
+          },
+        },
+      });
+
       await mcpProxyManager.start();
       const mcpConfig = mcpProxyManager.getAgentMcpConfig();
 
@@ -361,5 +376,233 @@ describe('McpProxyManager', () => {
 
       expect(startSpy).toHaveBeenCalled();
     });
+  });
+});
+
+describe('extractRealMcpServers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+  });
+
+  it('应该从桥接条目中提取真实 MCP 服务', async () => {
+    const { extractRealMcpServers } = await import('./mcp');
+
+    const command = 'mcp-proxy';
+    const args = [
+      'convert',
+      '--config',
+      JSON.stringify({
+        mcpServers: {
+          'test-server': {
+            command: 'uvx',
+            args: ['mcp-server-fetch'],
+          },
+        },
+      }),
+    ];
+
+    const result = extractRealMcpServers(command, args);
+
+    expect(result).toBeDefined();
+    expect(result?.['test-server']).toBeDefined();
+    // uvx 应该被解析为 uv tool run
+    expect(result?.['test-server'].command).toContain('uv');
+    expect(result?.['test-server'].args).toContain('tool');
+    expect(result?.['test-server'].args).toContain('run');
+  });
+
+  it('应该处理多个 MCP 服务', async () => {
+    const { extractRealMcpServers } = await import('./mcp');
+
+    const command = 'mcp-proxy';
+    const args = [
+      'convert',
+      '--config',
+      JSON.stringify({
+        mcpServers: {
+          'fetch': {
+            command: 'uvx',
+            args: ['mcp-server-fetch'],
+          },
+          'time': {
+            command: 'npx',
+            args: ['-y', 'mcp-server-time'],
+          },
+        },
+      }),
+    ];
+
+    const result = extractRealMcpServers(command, args);
+
+    expect(result).toBeDefined();
+    expect(Object.keys(result!)).toHaveLength(2);
+    expect(result?.['fetch']).toBeDefined();
+    expect(result?.['time']).toBeDefined();
+  });
+
+  it('应该合并外部 env 和内部 env', async () => {
+    const { extractRealMcpServers } = await import('./mcp');
+
+    const command = 'mcp-proxy';
+    const args = [
+      'convert',
+      '--config',
+      JSON.stringify({
+        mcpServers: {
+          'test-server': {
+            command: 'npx',
+            args: ['-y', 'test-mcp'],
+            env: { INNER_VAR: 'inner_value' },
+          },
+        },
+      }),
+    ];
+    const externalEnv = { OUTER_VAR: 'outer_value' };
+
+    const result = extractRealMcpServers(command, args, externalEnv);
+
+    expect(result).toBeDefined();
+    expect(result?.['test-server'].env?.OUTER_VAR).toBe('outer_value');
+    expect(result?.['test-server'].env?.INNER_VAR).toBe('inner_value');
+  });
+
+  it('非桥接条目应该返回 null', async () => {
+    const { extractRealMcpServers } = await import('./mcp');
+
+    const command = 'npx';
+    const args = ['-y', 'mcp-server-fetch'];
+
+    const result = extractRealMcpServers(command, args);
+
+    expect(result).toBeNull();
+  });
+
+  it('没有 --config 参数时应该返回 null', async () => {
+    const { extractRealMcpServers } = await import('./mcp');
+
+    const command = 'mcp-proxy';
+    const args = ['convert', 'http://localhost:8080'];
+
+    const result = extractRealMcpServers(command, args);
+
+    expect(result).toBeNull();
+  });
+
+  it('--config JSON 解析失败时应该返回 null', async () => {
+    const { extractRealMcpServers } = await import('./mcp');
+
+    const command = 'mcp-proxy';
+    const args = ['convert', '--config', 'invalid-json'];
+
+    const result = extractRealMcpServers(command, args);
+
+    expect(result).toBeNull();
+  });
+
+  it('--config JSON 中没有 mcpServers 时应该返回 null', async () => {
+    const { extractRealMcpServers } = await import('./mcp');
+
+    const command = 'mcp-proxy';
+    const args = [
+      'convert',
+      '--config',
+      JSON.stringify({ otherKey: 'value' }),
+    ];
+
+    const result = extractRealMcpServers(command, args);
+
+    expect(result).toBeNull();
+  });
+
+  it('空的 mcpServers 应该返回 null', async () => {
+    const { extractRealMcpServers } = await import('./mcp');
+
+    const command = 'mcp-proxy';
+    const args = [
+      'convert',
+      '--config',
+      JSON.stringify({ mcpServers: {} }),
+    ];
+
+    const result = extractRealMcpServers(command, args);
+
+    expect(result).toBeNull();
+  });
+
+  it('应该跳过没有 command 的服务条目', async () => {
+    const { extractRealMcpServers } = await import('./mcp');
+
+    const command = 'mcp-proxy';
+    const args = [
+      'convert',
+      '--config',
+      JSON.stringify({
+        mcpServers: {
+          'valid-server': {
+            command: 'npx',
+            args: ['-y', 'test'],
+          },
+          'invalid-server': {
+            args: ['-y', 'test'],
+            // 缺少 command
+          },
+        },
+      }),
+    ];
+
+    const result = extractRealMcpServers(command, args);
+
+    expect(result).toBeDefined();
+    expect(result?.['valid-server']).toBeDefined();
+    expect(result?.['invalid-server']).toBeUndefined();
+  });
+
+  it('应该处理自定义 uvBinDir 参数', async () => {
+    const { extractRealMcpServers } = await import('./mcp');
+
+    const command = 'mcp-proxy';
+    const args = [
+      'convert',
+      '--config',
+      JSON.stringify({
+        mcpServers: {
+          'test-server': {
+            command: 'uvx',
+            args: ['mcp-server-fetch'],
+          },
+        },
+      }),
+    ];
+    const customUvBinDir = '/custom/uv/bin';
+
+    const result = extractRealMcpServers(command, args, undefined, customUvBinDir);
+
+    expect(result).toBeDefined();
+    // 由于 mock fs.existsSync 返回 false，uvx 不会被解析
+    // 但函数应该正确接收并使用自定义路径参数
+  });
+
+  it('mcp-proxy 使用 basename 匹配也应该工作', async () => {
+    const { extractRealMcpServers } = await import('./mcp');
+
+    const command = '/some/path/to/mcp-proxy';
+    const args = [
+      'convert',
+      '--config',
+      JSON.stringify({
+        mcpServers: {
+          'test-server': {
+            command: 'npx',
+            args: ['-y', 'test-mcp'],
+          },
+        },
+      }),
+    ];
+
+    const result = extractRealMcpServers(command, args);
+
+    expect(result).toBeDefined();
+    expect(result?.['test-server']).toBeDefined();
   });
 });

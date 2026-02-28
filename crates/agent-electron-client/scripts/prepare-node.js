@@ -1,28 +1,32 @@
 #!/usr/bin/env node
 /**
- * Node.js 24 集成（仅 Windows 客户端）
+ * Node.js 24 集成（所有平台）
  *
- * 仅在 Windows 构建时执行：准备 resources/node/<platform-arch>/，供运行时 PATH 使用。
- * macOS/Linux 使用系统 Node，不打包内置 Node。
+ * 为所有平台准备 resources/node/<platform-arch>/，供运行时使用。
  *
  * 参考 LobsterAI 方案：https://github.com/netease-youdao/LobsterAI
  *
  * 1) 若已存在 resources/node/<platform-arch>/，则跳过
- * 2) 否则从 nodejs.org 下载 Windows 包，解压到 <platform-arch>/
+ * 2) 否则从 nodejs.org 下载对应平台的包，解压到 <platform-arch>/
+ * 3) 可选：验证下载文件的 SHA256 校验和
  *
- * 平台 key（仅 Windows）：win32-x64 | win32-arm64
+ * 平台 key：darwin-x64, darwin-arm64, win32-x64, win32-arm64, linux-x64, linux-arm64
  */
 
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const crypto = require('crypto');
 const { execSync } = require('child_process');
 
 const projectRoot = path.resolve(__dirname, '..');
 const nodeRoot = path.join(projectRoot, 'resources', 'node');
 
 // Node.js 版本
-const NODE_VERSION = '24.0.0';
+const NODE_VERSION = '24.14.0';
+
+// 是否验证 SHA256（可通过环境变量禁用：SKIP_SHA256=1 npm run prepare:node）
+const SKIP_SHA256 = process.env.SKIP_SHA256 === '1';
 
 // 平台 key
 function getPlatformKey() {
@@ -92,6 +96,81 @@ function download(url, filename) {
 }
 
 /**
+ * 计算文件的 SHA256 哈希值
+ */
+function computeSha256(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
+}
+
+/**
+ * 获取 Node.js 官方 SHASUMS256.txt 内容
+ */
+async function fetchShasums() {
+  const url = `https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt`;
+  return new Promise((resolve, reject) => {
+    https.get(url, (res) => {
+      if (res.statusCode === 302 || res.statusCode === 301) {
+        const loc = res.headers.location;
+        const fullUrl = loc.startsWith('http') ? loc : new URL(loc, url).href;
+        return fetchShasums(fullUrl).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) {
+        return reject(new Error(`HTTP ${res.statusCode}`));
+      }
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => resolve(data));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+/**
+ * 验证下载文件的 SHA256
+ */
+async function verifySha256(filePath, filename) {
+  if (SKIP_SHA256) {
+    console.log('[prepare-node] SHA256 校验已跳过 (SKIP_SHA256=1)');
+    return true;
+  }
+
+  try {
+    console.log('[prepare-node] 验证 SHA256 校验和...');
+    const shasums = await fetchShasums();
+    const expectedHash = shasums
+      .split('\n')
+      .find(line => line.endsWith(filename))
+      ?.split(/\s+/)[0];
+
+    if (!expectedHash) {
+      console.warn('[prepare-node] ⚠️ 未找到对应的 SHA256 校验和，跳过验证');
+      return true;
+    }
+
+    const actualHash = await computeSha256(filePath);
+    if (actualHash !== expectedHash) {
+      console.error(`[prepare-node] ❌ SHA256 校验失败!`);
+      console.error(`[prepare-node]   期望: ${expectedHash}`);
+      console.error(`[prepare-node]   实际: ${actualHash}`);
+      return false;
+    }
+
+    console.log('[prepare-node] ✅ SHA256 校验通过');
+    return true;
+  } catch (err) {
+    console.warn('[prepare-node] ⚠️ SHA256 校验失败（网络问题?）:', err.message);
+    // 网络问题时允许继续
+    return true;
+  }
+}
+
+/**
  * 解压
  */
 function extractArchive(archivePath, outDir) {
@@ -114,43 +193,73 @@ function extractArchive(archivePath, outDir) {
   }
 }
 
+/**
+ * 复制目录，保留符号链接
+ */
+function copyDirRecursiveWithSymlinks(src, dest) {
+  if (!fs.existsSync(src)) return;
+  fs.mkdirSync(dest, { recursive: true });
+  for (const name of fs.readdirSync(src)) {
+    const s = path.join(src, name);
+    const d = path.join(dest, name);
+    const stat = fs.lstatSync(s);
+    if (stat.isSymbolicLink()) {
+      const linkTarget = fs.readlinkSync(s);
+      fs.symlinkSync(linkTarget, d);
+    } else if (stat.isDirectory()) {
+      copyDirRecursiveWithSymlinks(s, d);
+    } else {
+      fs.copyFileSync(s, d);
+    }
+  }
+}
+
 async function prepareNode(key, suffix) {
   const cacheDir = path.join(nodeRoot, '.cache');
   const platformDir = path.join(nodeRoot, key);
-  
+
   // 检查是否已存在
   if (fs.existsSync(platformDir)) {
     console.log(`[prepare-node] Node.js ${NODE_VERSION} (${key}) 已存在，跳过`);
     return;
   }
-  
+
   const filename = suffix.replace('${VERSION}', NODE_VERSION);
   const downloadUrl = `https://nodejs.org/dist/v${NODE_VERSION}/${filename}`;
-  
+
   console.log(`[prepare-node] 下载 Node.js ${NODE_VERSION} (${filename})...`);
-  
+
   try {
     const archivePath = await download(downloadUrl, filename);
+
+    // 验证 SHA256
+    const sha256Valid = await verifySha256(archivePath, filename);
+    if (!sha256Valid) {
+      fs.unlinkSync(archivePath);
+      console.error('[prepare-node] 下载文件已删除，请重试');
+      process.exit(1);
+    }
+
     const extractDir = path.join(cacheDir, `node-extract-${key}`);
-    
+
     if (fs.existsSync(extractDir)) {
       fs.rmSync(extractDir, { recursive: true, force: true });
     }
-    
+
     console.log(`[prepare-node] 解压...`);
     extractArchive(archivePath, extractDir);
-    
-    // 移动到目标目录
+
+    // 移动到目标目录（保留符号链接）
     const entries = fs.readdirSync(extractDir);
     if (entries.length === 1) {
       const inner = path.join(extractDir, entries[0]);
       if (fs.statSync(inner).isDirectory()) {
-        copyDirRecursive(inner, platformDir);
+        copyDirRecursiveWithSymlinks(inner, platformDir);
       }
     }
-    
+
     console.log(`[prepare-node] Node.js ${NODE_VERSION} (${key}) 准备完成!`);
-    
+
   } catch (err) {
     console.error(`[prepare-node] 下载或解压失败:`, err.message);
     process.exit(1);
@@ -158,12 +267,7 @@ async function prepareNode(key, suffix) {
 }
 
 async function main() {
-  // 仅 Windows 客户端需要内置 Node.js 24；macOS/Linux 使用系统 Node
-  if (process.platform !== 'win32') {
-    console.log('[prepare-node] 非 Windows 平台跳过（仅 Windows 客户端集成 Node.js 24）');
-    return;
-  }
-
+  // 所有平台都需要内置 Node.js 24，不依赖用户系统安装
   const key = getPlatformKey();
   const suffix = NODE_ASSET_SUFFIX[key];
 

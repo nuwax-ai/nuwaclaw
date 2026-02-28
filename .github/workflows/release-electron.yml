@@ -128,26 +128,30 @@ jobs:
         working-directory: crates/agent-electron-client
         run: npm run test:run
 
-      # 缓存内置 Node.js、Git（仅 Windows）和 uv（所有平台）
-      - name: Cache bundled Node.js (Windows only)
-        if: runner.os == 'Windows'
+      # 缓存内置 Node.js（所有平台）、Git（仅 Windows）和 uv（所有平台）
+      - name: Cache bundled Node.js
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/node
-          key: bundled-node-24-windows
+          key: bundled-node-24-${{ matrix.platform }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
 
       - name: Cache bundled Git (Windows only)
-        if: runner.os == 'Windows'
+        if: matrix.platform == 'windows-latest'
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/git
-          key: bundled-git-2.47.1-windows
+          key: bundled-git-2.47.1-windows-${{ hashFiles('crates/agent-electron-client/package.json') }}
 
       - name: Cache uv
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/uv
-          key: bundled-uv-${{ runner.os }}-v2-${{ hashFiles('crates/agent-electron-client/package.json') }}
+          key: bundled-uv-${{ matrix.platform }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
+
+      - name: Prepare bundled resources (uv, node, git)
+        working-directory: crates/agent-electron-client
+        run: npm run prepare:all
+        timeout-minutes: 15
 
       # ---- macOS：导入证书并配置公证（可选） ----
       - name: Import Apple certificate (macOS)

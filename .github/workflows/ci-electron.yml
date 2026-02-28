@@ -95,13 +95,12 @@ jobs:
         working-directory: crates/agent-electron-client
         run: npm run test:run
 
-      # 缓存内置 Node.js、Git（仅 Windows）和 uv（所有平台）
-      - name: Cache bundled Node.js (Windows only)
-        if: matrix.platform == 'windows-latest'
+      # 缓存内置 Node.js（所有平台）、Git（仅 Windows）和 uv（所有平台）
+      - name: Cache bundled Node.js
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/node
-          key: bundled-node-24-windows-${{ hashFiles('crates/agent-electron-client/package.json') }}
+          key: bundled-node-24-${{ matrix.platform }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
 
       - name: Cache bundled Git (Windows only)
         if: matrix.platform == 'windows-latest'
@@ -115,6 +114,11 @@ jobs:
         with:
           path: crates/agent-electron-client/resources/uv
           key: bundled-uv-${{ matrix.platform }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
+
+      - name: Prepare bundled resources (uv, node, git)
+        working-directory: crates/agent-electron-client
+        run: npm run prepare:all
+        timeout-minutes: 15
 
       - name: Build Electron app (unsigned)
         working-directory: crates/agent-electron-client

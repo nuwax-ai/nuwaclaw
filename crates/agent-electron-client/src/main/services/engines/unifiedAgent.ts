@@ -248,8 +248,11 @@ export class UnifiedAgentService extends EventEmitter {
     const requestMcpServersEarly: NonNullable<AgentConfig['mcpServers']> = {};
     if (request.agent_config?.context_servers) {
       // Resolve uvx/uv commands to app-internal binaries for dynamic MCP servers
-      // For bridge entries (mcp-proxy convert --config ...), also resolve inner uvx commands
-      let mcpModule: { resolveUvCommand: (cmd: string, args: string[], dir?: string) => { command: string; args: string[] }; resolveBridgeEntry: (cmd: string, args: string[], dir?: string) => { command: string; args: string[] } } | null = null;
+      // For bridge entries (mcp-proxy convert --config ...), extract inner real MCP servers
+      let mcpModule: {
+        resolveUvCommand: (cmd: string, args: string[], dir?: string) => { command: string; args: string[] };
+        extractRealMcpServers: (cmd: string, args: string[], env?: Record<string, string>, dir?: string) => Record<string, { command: string; args: string[]; env?: Record<string, string> }> | null;
+      } | null = null;
       try {
         mcpModule = await import('../packages/mcp');
       } catch {
@@ -257,22 +260,26 @@ export class UnifiedAgentService extends EventEmitter {
       }
       for (const [name, srv] of Object.entries(request.agent_config.context_servers)) {
         if (srv.enabled === false || !srv.command) continue;
-        let command = srv.command;
-        let args = srv.args || [];
+        const command = srv.command;
+        const args = srv.args || [];
         if (mcpModule) {
           if (command === 'mcp-proxy' || path.basename(command) === 'mcp-proxy') {
-            // Bridge entry: resolve inner uvx/uv commands inside --config JSON
-            const resolved = mcpModule.resolveBridgeEntry(command, args);
-            command = resolved.command;
-            args = resolved.args;
+            // Bridge entry: extract real MCP servers from --config JSON
+            const extracted = mcpModule.extractRealMcpServers(command, args, srv.env);
+            if (extracted) {
+              // Merge extracted servers into requestMcpServersEarly
+              for (const [innerName, innerSrv] of Object.entries(extracted)) {
+                requestMcpServersEarly[innerName] = innerSrv;
+              }
+            }
           } else {
             // Direct entry: resolve top-level uvx/uv command
             const resolved = mcpModule.resolveUvCommand(command, args);
-            command = resolved.command;
-            args = resolved.args;
+            requestMcpServersEarly[name] = { command: resolved.command, args: resolved.args, env: srv.env };
           }
+        } else {
+          requestMcpServersEarly[name] = { command, args, env: srv.env };
         }
-        requestMcpServersEarly[name] = { command, args, env: srv.env };
       }
       if (Object.keys(requestMcpServersEarly).length > 0) {
         try {

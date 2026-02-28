@@ -16,6 +16,7 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:integrated-node": "node scripts/test-integrated-node.js",
     "prepare:uv": "node scripts/prepare-uv.js",
     "prepare:sign-uv": "node scripts/sign-uv-mac.js",
     "prepare:lanproxy": "node scripts/prepare-lanproxy.js",
@@ -50,6 +51,7 @@
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "antd": "^5.29.3",
+    "auto-launch": "^5.0.6",
     "better-sqlite3": "^12.6.2",
     "dayjs": "^1.11.19",
     "electron-log": "^5.2.4",
@@ -69,7 +71,7 @@
     "@vitest/coverage-v8": "^2.1.8",
     "7zip-bin": "^5.2.0",
     "concurrently": "^9.1.2",
-    "electron": "^39.0.0",
+    "electron": "^40.0.0",
     "electron-builder": "^25.1.8",
     "sharp": "^0.34.5",
     "tsc-alias": "^1.8.16",
@@ -161,6 +163,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "resources/node",
+        "to": "node",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
@@ -222,13 +231,6 @@
       ],
       "icon": "public/icon.ico",
       "extraResources": [
-        {
-          "from": "resources/node",
-          "to": "node",
-          "filter": [
-            "**/*"
-          ]
-        },
         {
           "from": "resources/git",
           "to": "git",

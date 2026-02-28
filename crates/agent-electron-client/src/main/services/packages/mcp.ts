@@ -19,7 +19,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import log from 'electron-log';
 import { app } from 'electron';
-import { getAppEnv, getUvBinPath } from '../system/dependencies';
+import { getAppEnv, getUvBinPath, getNodeBinPath, getNodeBinPathWithFallback } from '../system/dependencies';
 import { getAppPaths, isInstalledLocally } from './packageLocator';
 import { resolveNpmPackageEntry } from '../utils/spawnNoWindow';
 import { APP_DATA_DIR_NAME } from '../constants';
@@ -121,6 +121,71 @@ export function resolveBridgeEntry(
 }
 
 /**
+ * Extract real MCP servers from a bridge entry (mcp-proxy convert --config '{...}').
+ *
+ * Bridge entries are a legacy format where the command is "mcp-proxy" and the
+ * actual MCP server config is embedded in the --config JSON argument. This function
+ * extracts the inner server configs and resolves uvx/uv commands to app-internal paths.
+ *
+ * @param command - The command string (e.g., "mcp-proxy" or "/path/to/mcp-proxy")
+ * @param args - Arguments array, should contain "--config" followed by JSON string
+ * @param env - Optional external environment variables to merge with server-specific env.
+ *              Note: Server-specific env takes precedence over external env for the same keys.
+ * @param uvBinDir - Optional uv binary directory override for resolving uvx commands
+ * @returns Extracted MCP servers config, or null if not a valid bridge entry
+ *
+ * @example
+ * ```typescript
+ * const result = extractRealMcpServers(
+ *   'mcp-proxy',
+ *   ['convert', '--config', '{"mcpServers":{"fetch":{"command":"uvx","args":["mcp-server-fetch"]}}}'],
+ *   { MY_VAR: 'value' }
+ * );
+ * // Returns: { fetch: { command: '/path/to/uv', args: ['tool', 'run', 'mcp-server-fetch'], env: { MY_VAR: 'value' } } }
+ * ```
+ */
+export function extractRealMcpServers(
+  command: string,
+  args: string[],
+  env?: Record<string, string>,
+  uvBinDir?: string,
+): Record<string, { command: string; args: string[]; env?: Record<string, string> }> | null {
+  // Must be a bridge entry
+  if (command !== 'mcp-proxy' && path.basename(command) !== 'mcp-proxy') return null;
+
+  const dir = uvBinDir ?? getUvBinDir();
+  const idx = args.indexOf('--config');
+  if (idx < 0 || idx + 1 >= args.length) return null;
+
+  const configStr = args[idx + 1];
+  if (typeof configStr !== 'string') return null;
+
+  let parsed: { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> };
+  try {
+    parsed = JSON.parse(configStr);
+  } catch {
+    return null;
+  }
+
+  const inner = parsed?.mcpServers;
+  if (!inner || typeof inner !== 'object') return null;
+
+  const result: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
+  for (const [name, srv] of Object.entries(inner)) {
+    if (!srv || typeof srv.command !== 'string') continue;
+    const resolved = resolveUvCommand(srv.command, srv.args || [], dir);
+    // Env merge: external env as base, server-specific env overrides (documented behavior)
+    result[name] = {
+      command: resolved.command,
+      args: resolved.args,
+      env: { ...env, ...(srv.env || {}) },
+    };
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+/**
  * Apply resolveUvCommand + inject getAppEnv() env for all server entries.
  * Filters out mcp-proxy bridge entries.
  */
@@ -157,8 +222,8 @@ export function resolveServersConfig(
 export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
   mcpServers: {
     'chrome-devtools': {
-      command: 'chrome-devtools-mcp',
-      args: [],
+      command: 'npx',
+      args: ['-y', 'chrome-devtools-mcp@latest'],
       persistent: true,
     },
   },
@@ -255,6 +320,17 @@ class McpProxyManager {
       return { success: false, error: 'nuwax-mcp-stdio-proxy 入口文件未找到' };
     }
     log.info('[McpProxy] nuwax-mcp-stdio-proxy 就绪:', this.cachedScriptPath);
+
+    // 验证内置 Node.js 资源存在
+    const nodeBinPath = getNodeBinPath();
+    if (!nodeBinPath) {
+      log.warn('[McpProxy] ⚠️ 内置 Node.js 资源未找到');
+      log.warn('[McpProxy] 请运行以下命令下载 Node.js 资源:');
+      log.warn('[McpProxy]   npm run prepare:node');
+      log.warn('[McpProxy] 或运行完整准备:');
+      log.warn('[McpProxy]   npm run prepare:all');
+      // 不返回错误，允许在开发环境下继续（可能使用系统 node）
+    }
 
     // 启动 PersistentMcpBridge（持久化 servers）
     const persistent = this.getPersistentServers();
@@ -379,11 +455,18 @@ class McpProxyManager {
     // 有 proxy 脚本 → 聚合为单个 proxy 入口
     if (scriptPath) {
       const configJson = JSON.stringify({ mcpServers: proxyServers });
+      // 使用应用内置的 Node.js（resources/node/<platform-arch>/bin/node）
+      // 开发环境下可回退到系统 node（仅 macOS/Linux）
+      const nodeBinPath = getNodeBinPathWithFallback();
+      if (!nodeBinPath) {
+        log.error('[McpProxy] Node.js 未找到，MCP proxy 无法启动');
+        log.error('[McpProxy] 请运行 "npm run prepare:node" 下载 Node.js 资源');
+        return null;
+      }
       return {
         'mcp-proxy': {
-          command: process.execPath,
+          command: nodeBinPath,
           args: [scriptPath, '--config', configJson],
-          env: { ELECTRON_RUN_AS_NODE: '1' },
         },
       };
     }
