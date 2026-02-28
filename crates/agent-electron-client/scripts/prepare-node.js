@@ -258,6 +258,22 @@ async function prepareNode(key, suffix) {
       }
     }
 
+    // 清理不需要的文件以减小包体积
+    // 1. 删除 include 目录（C++ 头文件，运行时不需要）
+    const includeDir = path.join(platformDir, 'include');
+    if (fs.existsSync(includeDir)) {
+      fs.rmSync(includeDir, { recursive: true, force: true });
+      console.log(`[prepare-node] 已删除 include/ 目录（运行时不需要）`);
+    }
+
+    // 2. 删除 CHANGELOG.md, LICENSE, README.md（可选，减小体积）
+    ['CHANGELOG.md', 'LICENSE', 'README.md'].forEach(file => {
+      const filePath = path.join(platformDir, file);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    });
+
     // Windows: 统一目录结构，将 node.exe 移动到 bin/ 目录
     // 这样所有平台都使用 resources/node/<platform>/bin/node 结构
     if (key.startsWith('win32-')) {
