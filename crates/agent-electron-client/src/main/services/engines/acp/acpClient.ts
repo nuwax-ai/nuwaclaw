@@ -363,15 +363,13 @@ export async function createAcpConnection(
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
-  // Log stderr — 捕获所有 stderr 输出用于调试
+  // Log stderr — MCP/spawn 相关错误突出显示
   proc.stderr?.on('data', (data: Buffer) => {
     const text = data.toString().trim();
     if (!text) return;
     const lower = text.toLowerCase();
-    if (lower.includes('error') || lower.includes('failed') || lower.includes('enoent') || lower.includes('spawn')) {
+    if (lower.includes('failed to connect') || lower.includes('enoent') || lower.includes('spawn') || lower.includes('mcp server')) {
       log.error('[AcpClient stderr] 🔴', text);
-    } else if (lower.includes('nuwax-mcp') || lower.includes('mcp-proxy') || lower.includes('[child:')) {
-      log.info('[AcpClient stderr] 🟢', text);
     } else {
       log.warn('[AcpClient stderr]', text);
     }
