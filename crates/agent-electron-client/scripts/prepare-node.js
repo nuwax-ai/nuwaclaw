@@ -45,20 +45,6 @@ const NODE_ASSET_SUFFIX = {
   'linux-arm64': 'node-v${VERSION}-linux-arm64.tar.xz',
 };
 
-function copyDirRecursive(src, dest) {
-  if (!fs.existsSync(src)) return;
-  fs.mkdirSync(dest, { recursive: true });
-  for (const name of fs.readdirSync(src)) {
-    const s = path.join(src, name);
-    const d = path.join(dest, name);
-    if (fs.statSync(s).isDirectory()) {
-      copyDirRecursive(s, d);
-    } else {
-      fs.copyFileSync(s, d);
-    }
-  }
-}
-
 /**
  * 下载文件
  */
@@ -111,8 +97,8 @@ function computeSha256(filePath) {
 /**
  * 获取 Node.js 官方 SHASUMS256.txt 内容
  */
-async function fetchShasums() {
-  const url = `https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt`;
+async function fetchShasums(urlOverride) {
+  const url = urlOverride || `https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt`;
   return new Promise((resolve, reject) => {
     https.get(url, (res) => {
       if (res.statusCode === 302 || res.statusCode === 301) {

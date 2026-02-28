@@ -507,29 +507,6 @@ class McpProxyManager {
         TZ: process.env.TZ || '',
       };
 
-      // TODO: remove after MCP diagnosis — 验证 MCP proxy 配置的关键路径
-      const nodeExists = fs.existsSync(nodeBinPath);
-      const scriptExists = fs.existsSync(scriptPath);
-      const serverNames = Object.keys(proxyServers);
-      log.info(
-        `[McpProxy] 📋 getAgentMcpConfig 诊断:\n` +
-        `├─ nodeBinPath: ${nodeBinPath} (exists=${nodeExists})\n` +
-        `├─ scriptPath: ${scriptPath} (exists=${scriptExists})\n` +
-        `├─ isPackaged: ${app.isPackaged}\n` +
-        `├─ resourcesPath: ${process.resourcesPath || '(none)'}\n` +
-        `├─ proxyServers: ${serverNames.join(', ')}\n` +
-        `├─ env.PATH (前3段): ${proxyEnv.PATH.split(path.delimiter).slice(0, 3).join(' | ')}\n` +
-        `└─ env.HOME: ${proxyEnv.HOME}`,
-      );
-      for (const [name, srv] of Object.entries(proxyServers)) {
-        if (srv.command) {
-          const cmdCheck = path.isAbsolute(srv.command) ? `exists=${fs.existsSync(srv.command)}` : 'relative';
-          log.info(`[McpProxy]   └─ server "${name}": command=${srv.command} (${cmdCheck}), args=${JSON.stringify(srv.args || []).substring(0, 100)}`);
-        } else if (srv.url) {
-          log.info(`[McpProxy]   └─ server "${name}": url=${srv.url}`);
-        }
-      }
-
       return {
         'mcp-proxy': {
           command: nodeBinPath,

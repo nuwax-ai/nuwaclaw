@@ -234,6 +234,11 @@ exports.default = async function (context) {
       console.log('[after-sign] 公证成功！');
     } catch (e) {
       console.error('[after-sign] 公证失败:', e.message || e);
+      // 当公证凭据已配置时，失败应中止构建
+      if (process.env.NOTARIZE_ALLOW_FAILURE !== '1') {
+        throw e;
+      }
+      console.warn('[after-sign] NOTARIZE_ALLOW_FAILURE=1，继续构建');
     }
   } else {
     console.log('[after-sign] 跳过公证（缺少环境变量）:');

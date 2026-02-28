@@ -319,23 +319,7 @@ export class AcpEngine extends EventEmitter {
       cwd: sessionCwd,
       mcpServers,
     };
-    // TODO: remove after MCP diagnosis — 验证传给 ACP 的 MCP 服务配置
-    for (const srv of mcpServers) {
-      if ('command' in srv) {
-        const cmdCheck = path.isAbsolute(srv.command) ? `exists=${fs.existsSync(srv.command)}` : 'relative';
-        const argsPreview = srv.args.length > 0
-          ? (srv.args[0].length > 80 ? srv.args[0].substring(0, 80) + '...' : srv.args[0])
-          : '(none)';
-        log.info(
-          `${this.logTag} 🔍 MCP 诊断 "${srv.name}":\n` +
-          `├─ command: ${srv.command} (${cmdCheck})\n` +
-          `├─ args[0]: ${argsPreview}\n` +
-          `├─ env count: ${srv.env?.length || 0}\n` +
-          `└─ env keys: ${srv.env?.map((e: AcpEnvVariable) => e.name).join(', ') || '(none)'}`,
-        );
-      }
-    }
-    log.info(`${this.logTag} newSession params:`, JSON.stringify(newSessionParams, null, 2));
+    log.info(`${this.logTag} newSession: cwd=${sessionCwd}, mcpServers=${mcpServers.length}`);
     const acpResult = await this.acpConnection.newSession(newSessionParams);
 
     const session: AcpSession = {
@@ -352,45 +336,6 @@ export class AcpEngine extends EventEmitter {
       localId,
       acpSessionId: acpResult.sessionId,
     });
-
-    // TODO: remove after MCP diagnosis — 延迟检查 mcp-proxy 进程是否被 SDK 启动
-    const diagLogTag = this.logTag;
-    setTimeout(() => {
-      try {
-        const { execSync } = require('child_process');
-        const os = require('os');
-        let psOutput;
-        
-        if (os.platform() === 'win32') {
-          // 增加超时时间到 5 秒，并且检查命令行参数中是否包含 nuwax-mcp-stdio-proxy
-          psOutput = execSync('wmic process where name="node.exe" get commandline', { timeout: 5000 }).toString();
-          const hasProxy = psOutput.toLowerCase().includes('nuwax-mcp-stdio-proxy');
-          if (hasProxy) {
-            log.info(`${diagLogTag} 🔍 MCP proxy 进程检查: ✅ 运行中`);
-            // 只显示包含 nuwax-mcp-stdio-proxy 的行
-            const lines = psOutput.split('\n').filter((line: string) => line.toLowerCase().includes('nuwax-mcp-stdio-proxy'));
-            for (const line of lines) log.info(`${diagLogTag}   ${line.trim()}`);
-          } else {
-            log.warn(`${diagLogTag} 🔍 MCP proxy 进程检查: ❌ 未找到`);
-            // 显示所有 node.exe 进程以便调试
-            log.warn(`${diagLogTag} 🔍 所有 node.exe 进程:`);
-            const allNodeProcesses = execSync('tasklist /FI "IMAGENAME eq node.exe" /FO LIST /V', { timeout: 3000 }).toString();
-            log.warn(`${diagLogTag}   ${allNodeProcesses.substring(0, 1000)}`);
-          }
-        } else {
-          psOutput = execSync('ps aux | grep nuwax-mcp-stdio-proxy | grep -v grep', { timeout: 5000 }).toString().trim();
-          if (psOutput) {
-            const lines = psOutput.split('\n');
-            log.info(`${diagLogTag} 🔍 MCP proxy 进程检查: ✅ 运行中 (${lines.length} 个)`);
-            for (const line of lines) log.info(`${diagLogTag}   ${line.substring(0, 200)}`);
-          } else {
-            log.warn(`${diagLogTag} 🔍 MCP proxy 进程检查: ❌ 未找到`);
-          }
-        }
-      } catch (e) {
-        log.warn(`${diagLogTag} 🔍 MCP proxy 进程检查: ❌ 检查失败`, e);
-      }
-    }, 10000); // 增加检查延迟到 10 秒，给进程更多启动时间
 
     return {
       id: localId,
@@ -833,11 +778,6 @@ export class AcpEngine extends EventEmitter {
 
       case 'tool_call': {
         const u = update as AcpToolCall;
-        // TODO: remove after MCP diagnosis — 仅记录非内置工具（MCP 工具）
-        const builtinKinds = new Set(['bash', 'file', 'text_editor', 'execute', 'read', 'write', 'edit']);
-        if (u.kind && !builtinKinds.has(u.kind)) {
-          log.info(`${this.logTag} 🔧 MCP tool call: ${u.title} (kind=${u.kind}, status=${u.status})`);
-        }
         this.emit('message.part.updated', {
           sessionId,
           type: 'tool',

@@ -247,9 +247,12 @@ export function getNodeBinPathWithFallback(): string | null {
  */
 function findSystemNode(): string | null {
   try {
-    const result = execSync('which node', { encoding: 'utf-8', timeout: 5000 }).trim();
-    if (result && fs.existsSync(result)) {
-      return result;
+    const cmd = isWindows() ? 'where node' : 'which node';
+    const result = execSync(cmd, { encoding: 'utf-8', timeout: 5000 }).trim();
+    // `where` on Windows may return multiple lines; take the first
+    const firstLine = result.split('\n')[0].trim();
+    if (firstLine && fs.existsSync(firstLine)) {
+      return firstLine;
     }
   } catch {
     // which command failed, node not found in PATH
@@ -722,7 +725,7 @@ function getSystemPaths(): string[] {
           // 使用语义化版本排序，取最新的版本
           if (versions.length > 0) {
             const latestVersion = versions
-              .sort((a, b) => compareVersions(a.replace('v', ''), b.replace('v', '')))
+              .sort((a, b) => compareVersions(a.replace(/^v/, ''), b.replace(/^v/, '')))
               .pop();
             if (latestVersion) {
               fallbackPaths.push(path.join(nvmVersionsDir, latestVersion, 'bin'));
@@ -740,7 +743,7 @@ function getSystemPaths(): string[] {
           if (versions.length > 0) {
             // 使用语义化版本排序，取最新的版本
             const latestVersion = versions
-              .sort((a, b) => compareVersions(a.replace('v', ''), b.replace('v', '')))
+              .sort((a, b) => compareVersions(a.replace(/^v/, ''), b.replace(/^v/, '')))
               .pop();
             if (latestVersion) {
               fallbackPaths.push(path.join(fnmNodeDir, latestVersion, 'installation', 'bin'));
@@ -901,7 +904,7 @@ export async function checkNodeVersion(): Promise<{
 
     proc.on('close', (code) => {
       if (code === 0) {
-        const version = stdout.trim().replace('v', '');
+        const version = stdout.trim().replace(/^v/, '');
         const meets = compareVersions(version, '22.0.0') >= 0;
         resolve({ installed: true, version, meetsRequirement: meets, bundled: false, binPath: nodeCmd });
       } else {
@@ -933,7 +936,7 @@ function _checkNodeBin(binPath: string): Promise<{
 
     proc.on('close', (code) => {
       if (code === 0) {
-        const version = stdout.trim().replace('v', '');
+        const version = stdout.trim().replace(/^v/, '');
         const meets = compareVersions(version, '22.0.0') >= 0;
         resolve({ installed: true, version, meetsRequirement: meets });
       } else {

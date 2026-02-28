@@ -41,10 +41,16 @@ console.log('✅ Node binary exists\n');
 try {
   const result = execSync(`"${nodeBin}" --version`, { encoding: 'utf8' }).trim();
   console.log(`Node version: ${result}`);
-  if (result.includes('v24.0.0')) {
-    console.log('✅ Version is v24.0.0 (correct)\n');
+  // 读取 prepare-node.js 中定义的 NODE_VERSION
+  const prepareScript = fs.readFileSync(path.join(__dirname, 'prepare-node.js'), 'utf8');
+  const versionMatch = prepareScript.match(/const NODE_VERSION = '([^']+)'/);
+  const expectedVersion = versionMatch ? versionMatch[1] : null;
+  if (expectedVersion && result === `v${expectedVersion}`) {
+    console.log(`✅ Version is v${expectedVersion} (correct)\n`);
+  } else if (expectedVersion) {
+    console.log(`⚠️  Expected v${expectedVersion}, got ${result}\n`);
   } else {
-    console.log(`⚠️  Expected v24.0.0, got ${result}\n`);
+    console.log(`⚠️  Could not determine expected version from prepare-node.js\n`);
   }
 } catch (err) {
   console.error(`❌ Failed to run node: ${err.message}`);
