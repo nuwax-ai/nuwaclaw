@@ -177,7 +177,6 @@
     ],
     "mac": {
       "gatekeeperAssess": false,
-      "notarize": true,
       "category": "public.app-category.productivity",
       "target": [
         "dmg",

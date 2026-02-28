@@ -2,15 +2,18 @@
 /**
  * Electron Builder afterSign 钩子
  *
- * 在 app 签名完成后，对 bundled 的原生二进制文件进行额外签名：
- * - better-sqlite3 .node 文件
- * - resources/uv 下的可执行文件
- * - resources/lanproxy 可执行文件
+ * 在 app 签名完成后：
+ * 1. 对 bundled 的原生二进制文件进行额外签名
+ * 2. 重新签名主 app 以恢复 seal
+ * 3. 调用 Apple Notary API 进行公证
  *
  * 仅在 macOS 上执行，Windows/Linux 不需要额外签名。
  *
  * 环境变量：
  * - APPLE_SIGNING_IDENTITY: Developer ID Application 证书 identity
+ * - APPLE_API_KEY: AuthKey .p8 文件路径（公证用）
+ * - APPLE_API_KEY_ID: API Key ID（公证用）
+ * - APPLE_API_ISSUER: Issuer ID（公证用）
  *
  * @param {Object} context - electron-builder 上下文
  */
@@ -169,13 +172,26 @@ exports.default = async function (context) {
     }
   }
 
-  // 4. 对主 .app 重新签名，恢复 seal（内部二进制被签过后包内容已变，必须整体再签一次）
+  // 4. 签名 resources/node 内置 Node.js
+  const nodePath = path.join(resourcesPath, 'node');
+  if (fs.existsSync(nodePath)) {
+    const nodeExecutables = findExecutables(nodePath);
+    console.log(`[after-sign] 找到 Node.js 可执行文件: ${nodeExecutables.length} 个`);
+    for (const file of nodeExecutables) {
+      if (file.includes('.cache')) continue;
+      const relative = path.relative(nodePath, file);
+      console.log(`[after-sign] 签名 node/${relative}`);
+      codesign(file, identity);
+    }
+  }
+
+  // 5. 对主 .app 重新签名，恢复 seal（内部二进制被签过后包内容已变，必须整体再签一次）
   //    使用 build 目录下的 entitlements.mac.plist 确保权限正确
   console.log('[after-sign] 对主 app 重新签名以恢复 seal...');
   const entitlementsPath = path.join(process.cwd(), 'build', 'entitlements.mac.plist');
   codesign(appPath, identity, entitlementsPath);
 
-  // 5. 验证整个 app 的签名
+  // 6. 验证整个 app 的签名
   console.log('[after-sign] 验证整个 app 签名...');
   try {
     execSync(`codesign --verify --deep --strict --verbose=2 "${appPath}"`, {
@@ -186,7 +202,37 @@ exports.default = async function (context) {
     console.warn('[after-sign] 签名验证失败（可能需要忽略特定项）');
   }
 
-  // 6. 验证 app 可被 Gatekeeper 接受
+  // 7. Apple 公证（Notarization）
+  const appleApiKey = process.env.APPLE_API_KEY;
+  const appleApiKeyId = process.env.APPLE_API_KEY_ID;
+  const appleApiIssuer = process.env.APPLE_API_ISSUER;
+
+  if (appleApiKey && appleApiKeyId && appleApiIssuer) {
+    console.log('[after-sign] 开始 Apple 公证...');
+    console.log(`[after-sign]   API Key ID: ${appleApiKeyId}`);
+    console.log(`[after-sign]   Issuer: ${appleApiIssuer}`);
+    console.log(`[after-sign]   Key file: ${appleApiKey} (exists=${fs.existsSync(appleApiKey)})`);
+    try {
+      const { notarize } = require('@electron/notarize');
+      await notarize({
+        appPath,
+        appleApiKey,
+        appleApiKeyId,
+        appleApiIssuer,
+      });
+      console.log('[after-sign] 公证成功！');
+    } catch (e) {
+      console.error('[after-sign] 公证失败:', e.message || e);
+      // 公证失败不阻塞构建，但会输出错误
+    }
+  } else {
+    console.log('[after-sign] 跳过公证（缺少环境变量）:');
+    console.log(`[after-sign]   APPLE_API_KEY: ${appleApiKey ? '✓' : '✗ 未设置'}`);
+    console.log(`[after-sign]   APPLE_API_KEY_ID: ${appleApiKeyId ? '✓' : '✗ 未设置'}`);
+    console.log(`[after-sign]   APPLE_API_ISSUER: ${appleApiIssuer ? '✓' : '✗ 未设置'}`);
+  }
+
+  // 8. 验证 Gatekeeper（公证后应该通过）
   console.log('[after-sign] 验证 Gatekeeper 策略...');
   try {
     execSync(`spctl -a -vv "${appPath}"`, {
