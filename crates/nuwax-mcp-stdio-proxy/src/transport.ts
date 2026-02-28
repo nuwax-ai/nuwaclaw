@@ -42,6 +42,7 @@ export async function connectStdio(
     command: entry.command,
     args: entry.args || [],
     env: { ...baseEnv, ...(entry.env || {}) },
+    stderr: 'pipe',
   });
 
   // Attach stderr listener BEFORE connect to catch early child errors

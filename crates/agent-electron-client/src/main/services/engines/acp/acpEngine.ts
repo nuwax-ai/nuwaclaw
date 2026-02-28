@@ -362,16 +362,23 @@ export class AcpEngine extends EventEmitter {
         let psOutput;
         
         if (os.platform() === 'win32') {
-          psOutput = execSync('tasklist /FI "IMAGENAME eq node.exe" /FO LIST /V', { timeout: 3000 }).toString();
+          // 增加超时时间到 5 秒，并且检查命令行参数中是否包含 nuwax-mcp-stdio-proxy
+          psOutput = execSync('wmic process where name="node.exe" get commandline', { timeout: 5000 }).toString();
           const hasProxy = psOutput.toLowerCase().includes('nuwax-mcp-stdio-proxy');
           if (hasProxy) {
             log.info(`${diagLogTag} 🔍 MCP proxy 进程检查: ✅ 运行中`);
-            log.info(`${diagLogTag}   ${psOutput.substring(0, 500)}`);
+            // 只显示包含 nuwax-mcp-stdio-proxy 的行
+            const lines = psOutput.split('\n').filter((line: string) => line.toLowerCase().includes('nuwax-mcp-stdio-proxy'));
+            for (const line of lines) log.info(`${diagLogTag}   ${line.trim()}`);
           } else {
             log.warn(`${diagLogTag} 🔍 MCP proxy 进程检查: ❌ 未找到`);
+            // 显示所有 node.exe 进程以便调试
+            log.warn(`${diagLogTag} 🔍 所有 node.exe 进程:`);
+            const allNodeProcesses = execSync('tasklist /FI "IMAGENAME eq node.exe" /FO LIST /V', { timeout: 3000 }).toString();
+            log.warn(`${diagLogTag}   ${allNodeProcesses.substring(0, 1000)}`);
           }
         } else {
-          psOutput = execSync('ps aux | grep nuwax-mcp-stdio-proxy | grep -v grep', { timeout: 3000 }).toString().trim();
+          psOutput = execSync('ps aux | grep nuwax-mcp-stdio-proxy | grep -v grep', { timeout: 5000 }).toString().trim();
           if (psOutput) {
             const lines = psOutput.split('\n');
             log.info(`${diagLogTag} 🔍 MCP proxy 进程检查: ✅ 运行中 (${lines.length} 个)`);
@@ -383,7 +390,7 @@ export class AcpEngine extends EventEmitter {
       } catch (e) {
         log.warn(`${diagLogTag} 🔍 MCP proxy 进程检查: ❌ 检查失败`, e);
       }
-    }, 5000);
+    }, 10000); // 增加检查延迟到 10 秒，给进程更多启动时间
 
     return {
       id: localId,

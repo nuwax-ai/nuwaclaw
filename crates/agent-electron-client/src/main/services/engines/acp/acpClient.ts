@@ -370,7 +370,7 @@ export async function createAcpConnection(
     const lower = text.toLowerCase();
     if (lower.includes('error') || lower.includes('failed') || lower.includes('enoent') || lower.includes('spawn')) {
       log.error('[AcpClient stderr] 🔴', text);
-    } else if (lower.includes('nuwax-mcp')) {
+    } else if (lower.includes('nuwax-mcp') || lower.includes('mcp-proxy') || lower.includes('[child:')) {
       log.info('[AcpClient stderr] 🟢', text);
     } else {
       log.warn('[AcpClient stderr]', text);
