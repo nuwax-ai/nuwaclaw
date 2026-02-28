@@ -881,8 +881,7 @@ export async function checkNodeVersion(): Promise<{
       installed: true,
       version,
       meetsRequirement: meets,
-      bundled: false,
-      binPath: process.execPath
+      bundled: true,
     };
   }
 
