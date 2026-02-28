@@ -117,12 +117,15 @@
         ]
       },
       {
-        "from": "node_modules/nuwax-mcp-stdio-proxy",
-        "to": "nuwax-mcp-stdio-proxy",
+        "from": "node_modules/nuwax-mcp-stdio-proxy/dist",
+        "to": "nuwax-mcp-stdio-proxy/dist",
         "filter": [
-          "dist/**",
-          "package.json"
+          "**/*"
         ]
+      },
+      {
+        "from": "node_modules/nuwax-mcp-stdio-proxy/package.json",
+        "to": "nuwax-mcp-stdio-proxy/package.json"
       },
       {
         "from": "node_modules/@modelcontextprotocol/sdk",

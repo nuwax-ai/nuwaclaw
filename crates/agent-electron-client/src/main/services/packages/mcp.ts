@@ -284,6 +284,12 @@ class McpProxyManager {
         const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
         if (entry) return entry;
       }
+      // 打包后 extraResources 位置（electron-builder 配置的 extraResources）
+      appPackageDir = path.join(process.resourcesPath, pkgName);
+      if (fs.existsSync(appPackageDir)) {
+        const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
+        if (entry) return entry;
+      }
     }
 
     // 2. 应用数据目录 ~/.nuwax-agent/node_modules（用户通过依赖管理安装的版本）
