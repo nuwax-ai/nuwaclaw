@@ -258,6 +258,25 @@ async function prepareNode(key, suffix) {
       }
     }
 
+    // Windows: 统一目录结构，将 node.exe 移动到 bin/ 目录
+    // 这样所有平台都使用 resources/node/<platform>/bin/node 结构
+    if (key.startsWith('win32-')) {
+      const nodeExe = path.join(platformDir, 'node.exe');
+      const binDir = path.join(platformDir, 'bin');
+      if (fs.existsSync(nodeExe) && !fs.existsSync(binDir)) {
+        fs.mkdirSync(binDir, { recursive: true });
+        fs.renameSync(nodeExe, path.join(binDir, 'node.exe'));
+        // 移动相关文件到 bin/
+        ['npm.cmd', 'npx.cmd', 'corepack.cmd'].forEach(cmd => {
+          const src = path.join(platformDir, cmd);
+          if (fs.existsSync(src)) {
+            fs.renameSync(src, path.join(binDir, cmd));
+          }
+        });
+        console.log(`[prepare-node] 已将 Windows Node.js 重组为 bin/ 结构`);
+      }
+    }
+
     console.log(`[prepare-node] Node.js ${NODE_VERSION} (${key}) 准备完成!`);
 
   } catch (err) {
