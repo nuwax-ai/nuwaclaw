@@ -3,9 +3,12 @@
  * Electron Builder afterSign 钩子
  *
  * 在 app 签名完成后：
- * 1. 对 bundled 的原生二进制文件进行额外签名
+ * 1. 对 bundled 的原生二进制文件进行额外签名（附带 JIT entitlements）
  * 2. 重新签名主 app 以恢复 seal
  * 3. 调用 Apple Notary API 进行公证
+ *
+ * 重要：Node.js、uv 等子进程二进制必须带 allow-jit entitlement，
+ * 否则 V8 引擎无法分配 JIT 内存，导致 "Failed to reserve virtual memory for CodeRange" 崩溃。
  *
  * 仅在 macOS 上执行，Windows/Linux 不需要额外签名。
  *
@@ -59,7 +62,7 @@ function findExecutables(dir, list = []) {
  * 使用 codesign 对文件进行签名
  * @param {string} filePath - 要签名的文件路径
  * @param {string} identity - 签名证书 identity
- * @param {string|null} entitlementsPath - entitlements 文件路径（仅主 app 需要）
+ * @param {string|null} entitlementsPath - entitlements 文件路径
  */
 function codesign(filePath, identity, entitlementsPath = null) {
   try {
@@ -135,7 +138,16 @@ exports.default = async function (context) {
 
   const resourcesPath = path.join(appPath, 'Contents', 'Resources');
 
-  // 1. 签名 better-sqlite3
+  // 子进程 entitlements（Node.js/uv 等需要 JIT 权限）
+  const childEntitlements = path.join(process.cwd(), 'build', 'entitlements.child.plist');
+  if (fs.existsSync(childEntitlements)) {
+    console.log(`[after-sign] 子进程 entitlements: ${childEntitlements}`);
+  } else {
+    console.warn(`[after-sign] ⚠️ 子进程 entitlements 不存在: ${childEntitlements}`);
+    console.warn('[after-sign] Node.js 等子进程将无法使用 V8 JIT！');
+  }
+
+  // 1. 签名 better-sqlite3（.node 文件不需要 JIT entitlements）
   const sqlitePath = path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', 'better-sqlite3', 'build', 'Release');
   if (fs.existsSync(sqlitePath)) {
     const sqliteFiles = findExecutables(sqlitePath);
@@ -148,7 +160,20 @@ exports.default = async function (context) {
     }
   }
 
-  // 2. 签名 resources/uv
+  // 2. 签名 resources/node（需要 JIT entitlements — V8 依赖 allow-jit）
+  const nodePath = path.join(resourcesPath, 'node');
+  if (fs.existsSync(nodePath)) {
+    const nodeExecutables = findExecutables(nodePath);
+    console.log(`[after-sign] 找到 Node.js 可执行文件: ${nodeExecutables.length} 个`);
+    for (const file of nodeExecutables) {
+      if (file.includes('.cache')) continue;
+      const relative = path.relative(nodePath, file);
+      console.log(`[after-sign] 签名 node/${relative} (with JIT entitlements)`);
+      codesign(file, identity, childEntitlements);
+    }
+  }
+
+  // 3. 签名 resources/uv（不需要 JIT，但需要 runtime 签名）
   const uvPath = path.join(resourcesPath, 'uv');
   if (fs.existsSync(uvPath)) {
     const uvExecutables = findExecutables(uvPath);
@@ -161,7 +186,7 @@ exports.default = async function (context) {
     }
   }
 
-  // 3. 签名 resources/lanproxy
+  // 4. 签名 resources/lanproxy
   const lanproxyPath = path.join(resourcesPath, 'lanproxy', 'bin');
   if (fs.existsSync(lanproxyPath)) {
     const lanproxyFiles = findExecutables(lanproxyPath);
@@ -172,21 +197,7 @@ exports.default = async function (context) {
     }
   }
 
-  // 4. 签名 resources/node 内置 Node.js
-  const nodePath = path.join(resourcesPath, 'node');
-  if (fs.existsSync(nodePath)) {
-    const nodeExecutables = findExecutables(nodePath);
-    console.log(`[after-sign] 找到 Node.js 可执行文件: ${nodeExecutables.length} 个`);
-    for (const file of nodeExecutables) {
-      if (file.includes('.cache')) continue;
-      const relative = path.relative(nodePath, file);
-      console.log(`[after-sign] 签名 node/${relative}`);
-      codesign(file, identity);
-    }
-  }
-
   // 5. 对主 .app 重新签名，恢复 seal（内部二进制被签过后包内容已变，必须整体再签一次）
-  //    使用 build 目录下的 entitlements.mac.plist 确保权限正确
   console.log('[after-sign] 对主 app 重新签名以恢复 seal...');
   const entitlementsPath = path.join(process.cwd(), 'build', 'entitlements.mac.plist');
   codesign(appPath, identity, entitlementsPath);
@@ -223,7 +234,6 @@ exports.default = async function (context) {
       console.log('[after-sign] 公证成功！');
     } catch (e) {
       console.error('[after-sign] 公证失败:', e.message || e);
-      // 公证失败不阻塞构建，但会输出错误
     }
   } else {
     console.log('[after-sign] 跳过公证（缺少环境变量）:');
