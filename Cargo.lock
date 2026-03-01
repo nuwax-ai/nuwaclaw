@@ -159,6 +159,7 @@ dependencies = [
 [[package]]
 name = "agent_abstraction"
 version = "0.1.0"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client-windows#12007fad0ae27cc37c305f2f5bcc759c1983a956"
 dependencies = [
  "agent_config",
  "anyhow",
@@ -187,6 +188,7 @@ dependencies = [
 [[package]]
 name = "agent_config"
 version = "0.1.0"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client-windows#12007fad0ae27cc37c305f2f5bcc759c1983a956"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -204,6 +206,7 @@ dependencies = [
 [[package]]
 name = "agent_runner"
 version = "0.1.0"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client-windows#12007fad0ae27cc37c305f2f5bcc759c1983a956"
 dependencies = [
  "agent_abstraction",
  "agent_config",
@@ -7318,7 +7321,7 @@ checksum = "60302e4db3a61da70c0cb7991976248362f30319e88850c487b9b95bbf059e00"
 [[package]]
 name = "mcp-common"
 version = "0.1.18"
-source = "git+https://github.com/nuwax-ai/mcp-proxy.git?branch=dev-windows#5205e2134701baadb1d8981daa59bb6831f05778"
+source = "git+https://github.com/nuwax-ai/mcp-proxy.git?branch=dev-windows#02dce7082b961f586fe07370fdad7fd434f846e7"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -7340,7 +7343,7 @@ dependencies = [
 [[package]]
 name = "mcp-sse-proxy"
 version = "0.1.18"
-source = "git+https://github.com/nuwax-ai/mcp-proxy.git?branch=dev-windows#5205e2134701baadb1d8981daa59bb6831f05778"
+source = "git+https://github.com/nuwax-ai/mcp-proxy.git?branch=dev-windows#02dce7082b961f586fe07370fdad7fd434f846e7"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -7363,7 +7366,7 @@ dependencies = [
 [[package]]
 name = "mcp-stdio-proxy"
 version = "0.1.56"
-source = "git+https://github.com/nuwax-ai/mcp-proxy.git?branch=dev-windows#5205e2134701baadb1d8981daa59bb6831f05778"
+source = "git+https://github.com/nuwax-ai/mcp-proxy.git?branch=dev-windows#02dce7082b961f586fe07370fdad7fd434f846e7"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -7414,7 +7417,7 @@ dependencies = [
 [[package]]
 name = "mcp-streamable-proxy"
 version = "0.1.18"
-source = "git+https://github.com/nuwax-ai/mcp-proxy.git?branch=dev-windows#5205e2134701baadb1d8981daa59bb6831f05778"
+source = "git+https://github.com/nuwax-ai/mcp-proxy.git?branch=dev-windows#02dce7082b961f586fe07370fdad7fd434f846e7"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -11463,6 +11466,7 @@ dependencies = [
 [[package]]
 name = "rcoder-proxy"
 version = "0.1.0"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client-windows#12007fad0ae27cc37c305f2f5bcc759c1983a956"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -11489,6 +11493,7 @@ dependencies = [
 [[package]]
 name = "rcoder-telemetry"
 version = "0.1.0"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client-windows#12007fad0ae27cc37c305f2f5bcc759c1983a956"
 dependencies = [
  "anyhow",
  "axum",
@@ -13225,6 +13230,7 @@ dependencies = [
 [[package]]
 name = "shared_types"
 version = "0.1.0"
+source = "git+https://github.com/nuwax-ai/rcoder.git?branch=nuwax-client-windows#12007fad0ae27cc37c305f2f5bcc759c1983a956"
 dependencies = [
  "anyhow",
  "arc-swap",

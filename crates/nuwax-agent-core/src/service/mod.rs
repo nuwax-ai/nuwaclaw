@@ -61,33 +61,8 @@ fn find_node_exe_for_windows_launch() -> Option<std::path::PathBuf> {
         return Some(local_node);
     }
 
-    let output = match std::process::Command::new("where")
-        .no_window()
-        .arg("node.exe")
-        .output()
-    {
-        Ok(o) => o,
-        Err(e) => {
-            warn!("[Service] Windows node 解析失败: where node.exe 执行错误: {}", e);
-            return None;
-        }
-    };
-    if !output.status.success() {
-        warn!(
-            "[Service] Windows node 解析失败: where node.exe exit={:?}",
-            output.status.code()
-        );
-        return None;
-    }
-    let binding = String::from_utf8_lossy(&output.stdout);
-    let path = binding
-        .lines()
-        .next()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)?;
-    debug!("[Service] Windows node 解析命中 PATH: {}", path);
-    Some(std::path::PathBuf::from(path))
+    // 使用 which crate 查找，避免启动子进程
+    crate::utils::path_env::find_executable_path("node.exe")
 }
 
 /// 获取 Node.js bin 目录路径（用于设置 PATH 环境变量）

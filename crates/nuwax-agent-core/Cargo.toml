@@ -65,14 +65,14 @@ base64 = { workspace = true }
 # MCP Proxy 库依赖（用于库模式启动 MCP 服务）
 mcp-stdio-proxy = { git = "https://github.com/nuwax-ai/mcp-proxy.git", branch = "dev-windows" }
 
-# rcoder agent_runner (本地路径依赖，用于测试)
-agent_runner = { path = "D:/git_work/rcoder/crates/agent_runner", optional = true, features = ["http-server"] }
+# rcoder agent_runner (git 依赖)
+agent_runner = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client-windows", optional = true, features = ["http-server"] }
 
-# rcoder shared_types (本地路径依赖)
-shared_types = { path = "D:/git_work/rcoder/crates/shared_types", optional = true }
+# rcoder shared_types (git 依赖)
+shared_types = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client-windows", optional = true }
 
-# rcoder agent_abstraction (本地路径依赖)
-agent_abstraction = { path = "D:/git_work/rcoder/crates/agent_abstraction", optional = true }
+# rcoder agent_abstraction (git 依赖)
+agent_abstraction = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client-windows", optional = true }
 
 # arc-swap (用于 API Key 配置的无锁读取)
 arc-swap = { version = "1.7", optional = true }

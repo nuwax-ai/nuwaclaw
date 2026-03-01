@@ -9,6 +9,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 
 use crate::utils::CommandNoWindowExt;
+use crate::utils::path_env::find_executable_path;
 
 use super::detector::{DependencyDetector, DetectionResult, DetectorError};
 
@@ -105,40 +106,8 @@ impl NodeDetector {
 
     /// 获取 node 可执行文件路径
     fn get_node_path(&self) -> Result<PathBuf, NodeError> {
-        #[cfg(unix)]
-        {
-            let output = Command::new("which")
-                .no_window()
-                .arg("node")
-                .output()
-                .map_err(|e| NodeError::CommandFailed(e.to_string()))?;
-
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                return Ok(PathBuf::from(path));
-            }
-        }
-
-        #[cfg(windows)]
-        {
-            let output = Command::new("where")
-                .no_window()
-                .arg("node")
-                .output()
-                .map_err(|e| NodeError::CommandFailed(e.to_string()))?;
-
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout)
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                return Ok(PathBuf::from(path));
-            }
-        }
-
-        Err(NodeError::NotFound)
+        // 使用 which crate 查找，避免启动子进程
+        find_executable_path("node").ok_or(NodeError::NotFound)
     }
 
     /// 检测 macOS 特定路径
@@ -709,46 +678,8 @@ fn find_node_executable() -> Result<PathBuf, NodeError> {
         return Ok(local_node);
     }
 
-    // 使用系统 PATH 中的 node
-    #[cfg(windows)]
-    let node_cmd = "node.exe";
-    #[cfg(not(windows))]
-    let node_cmd = "node";
-
-    #[cfg(windows)]
-    {
-        let output = Command::new("where")
-            .no_window()
-            .arg(node_cmd)
-            .output()
-            .map_err(|e| NodeError::CommandFailed(format!("where node failed: {}", e)))?;
-
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .next()
-                .ok_or(NodeError::NotFound)?
-                .trim()
-                .to_string();
-            return Ok(PathBuf::from(path));
-        }
-    }
-
-    #[cfg(unix)]
-    {
-        let output = Command::new("which")
-            .no_window()
-            .arg(node_cmd)
-            .output()
-            .map_err(|e| NodeError::CommandFailed(format!("which node failed: {}", e)))?;
-
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            return Ok(PathBuf::from(path));
-        }
-    }
-
-    Err(NodeError::NotFound)
+    // 使用 which crate 查找系统 PATH 中的 node，避免启动子进程
+    find_executable_path("node").ok_or(NodeError::NotFound)
 }
 
 /// 查找 npm 全局包的安装目录

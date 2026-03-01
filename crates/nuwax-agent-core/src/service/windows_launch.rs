@@ -43,7 +43,7 @@ fn find_node_exe_for_windows_launch() -> Option<std::path::PathBuf> {
                 exe_dir.join("resources").join("node").join("bin").join("node.exe"),
                 exe_dir.parent().unwrap_or(exe_dir).join("resources").join("node").join("bin").join("node.exe"),
             ];
-            
+
             for resource_path in resource_paths {
                 if resource_path.exists() {
                     debug!(
@@ -65,33 +65,8 @@ fn find_node_exe_for_windows_launch() -> Option<std::path::PathBuf> {
         return Some(local_node);
     }
 
-    let output = match std::process::Command::new("where")
-        .no_window()
-        .arg("node.exe")
-        .output()
-    {
-        Ok(o) => o,
-        Err(e) => {
-            warn!("[Service] Windows node 解析失败: where node.exe 执行错误: {}", e);
-            return None;
-        }
-    };
-    if !output.status.success() {
-        warn!(
-            "[Service] Windows node 解析失败: where node.exe exit={:?}",
-            output.status.code()
-        );
-        return None;
-    }
-    let binding = String::from_utf8_lossy(&output.stdout);
-    let path = binding
-        .lines()
-        .next()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)?;
-    debug!("[Service] Windows node 解析命中 PATH: {}", path);
-    Some(std::path::PathBuf::from(path))
+    // 使用 which crate 查找，避免启动子进程
+    crate::utils::path_env::find_executable_path("node.exe")
 }
 
 fn resolve_js_entry_from_npm_bin_shim(
@@ -656,11 +631,14 @@ pub fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<Stri
             program, package_name
         );
 
-        // 硬防线：file-server 解析失败时禁止进入 cmd.exe /C 回退链路。
-        if package_name == "nuwax-file-server" {
+        // 硬防线：某些关键服务解析失败时禁止进入 cmd.exe /C 回退链路
+        // 这些服务必须通过 node 直连或原生 exe 启动，避免 cmd.exe 窗口闪烁
+        let blocked_cmd_fallback_packages = ["nuwax-file-server", "mcp-proxy", "nuwax-lanproxy"];
+
+        if blocked_cmd_fallback_packages.contains(&package_name) {
             warn!(
-                "[Service] Windows file-server 解析失败，禁止 cmd 回退。保持原命令返回: {}",
-                program
+                "[Service] Windows 关键服务 {} 解析失败，禁止 cmd 回退。保持原命令返回: {}",
+                package_name, program
             );
             return (
                 program.to_string(),
@@ -669,16 +647,35 @@ pub fn resolve_launch_command(program: &str, args: &[&str]) -> (String, Vec<Stri
         }
     }
 
-    if let Some(cmd_script) = cmd_script {
+    // 最后手段：尝试解析 .cmd 文件中的真实命令
+    // 如果成功解析到 JS 入口，使用 node 直连
+    if let Some(cmd_script) = &cmd_script {
+        if let Some(node_exe) = find_node_exe_for_windows_launch() {
+            if let Some(js_entry) = resolve_js_entry_from_cmd_shim(cmd_script) {
+                let mut actual_args = Vec::with_capacity(args.len() + 1);
+                actual_args.push(js_entry.to_string_lossy().to_string());
+                actual_args.extend(args.iter().map(|s| (*s).to_string()));
+                info!(
+                    "[Service] Windows 命令转直连 node 启动(cmd shim 最后尝试): {} -> {} {}",
+                    program,
+                    node_exe.display(),
+                    js_entry.display()
+                );
+                return (node_exe.to_string_lossy().to_string(), actual_args);
+            }
+        }
+
+        // 警告：cmd.exe 回退可能导致窗口闪烁
+        // 这种情况下，调用方需要确保使用 CREATE_NO_WINDOW 标志
+        warn!(
+            "[Service] ⚠️ Windows 命令无法解析到直连路径，回退 cmd.exe 启动（可能导致窗口闪烁）: {} -> {}",
+            program,
+            cmd_script.display()
+        );
         let mut actual_args = Vec::with_capacity(args.len() + 2);
         actual_args.push("/C".to_string());
         actual_args.push(cmd_script.to_string_lossy().to_string());
         actual_args.extend(args.iter().map(|s| (*s).to_string()));
-        info!(
-            "[Service] Windows 命令回退 cmd.exe 启动: {} -> {}",
-            program,
-            cmd_script.display()
-        );
         return ("cmd.exe".to_string(), actual_args);
     }
     warn!(

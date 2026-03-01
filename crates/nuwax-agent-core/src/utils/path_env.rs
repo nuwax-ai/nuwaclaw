@@ -8,8 +8,6 @@
 use std::path::PathBuf;
 use tracing::debug;
 
-use super::command::CommandNoWindowExt;
-
 /// 默认 MCP Proxy 配置（与前端 constants.ts 保持一致）
 /// 添加 --no-usage-statistics 参数禁用 Google 使用统计
 pub const DEFAULT_MCP_PROXY_CONFIG: &str = r#"{"mcpServers":{"chrome-devtools":{"command":"npx","args":["-y","chrome-devtools-mcp@latest","--no-usage-statistics"]}}}"#;
@@ -26,34 +24,33 @@ fn local_bin_dir() -> PathBuf {
         .join("bin")
 }
 
-/// 在系统 PATH 中查找可执行文件
-fn find_in_path(executable: &str) -> Option<String> {
-    // 先检查应用内是否已有（通过命令行参数 NUWAX_APP_RUNTIME_PATH 判断）
-    // 这里只在系统 PATH 中查找
-    let output = if cfg!(windows) {
-        std::process::Command::new("where")
-            .no_window()
-            .arg(executable)
-            .output()
-    } else {
-        std::process::Command::new("which")
-            .no_window()
-            .arg(executable)
-            .output()
-    };
+/// 在系统 PATH 中查找可执行文件（使用 which crate，不启动子进程）
+///
+/// 使用 `which` crate 进行跨平台查找，无需启动 where/which 命令，
+/// 完全避免控制台窗口弹出问题。
+///
+/// # Example
+/// ```ignore
+/// if let Some(path) = find_executable_in_path("node") {
+///     println!("Found node at: {}", path);
+/// }
+/// ```
+pub fn find_executable_in_path(executable: &str) -> Option<String> {
+    which::which(executable)
+        .ok()
+        .map(|path| path.to_string_lossy().to_string())
+}
 
-    match output {
-        Ok(o) if o.status.success() => {
-            let binding = String::from_utf8_lossy(&o.stdout);
-            binding
-                .lines()
-                .next()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-        }
-        _ => None,
-    }
+/// 在系统 PATH 中查找可执行文件并返回其 PathBuf
+///
+/// 与 find_executable_in_path 类似，但返回 PathBuf 类型
+pub fn find_executable_path(executable: &str) -> Option<PathBuf> {
+    which::which(executable).ok()
+}
+
+/// 内部使用的查找函数
+fn find_in_path(executable: &str) -> Option<String> {
+    find_executable_in_path(executable)
 }
 
 /// 在系统 PATH 中查找可执行文件并返回其父目录
