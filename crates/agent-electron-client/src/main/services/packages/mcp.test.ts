@@ -40,6 +40,11 @@ vi.mock('../system/dependencies', () => ({
   getAppEnv: vi.fn(() => ({
     PATH: '/mock/path',
     NODE_PATH: '/mock/node_path',
+    HOME: '/mock/home',
+    USER: 'mockuser',
+    USERNAME: 'mockuser',
+    LANG: 'en_US.UTF-8',
+    TZ: '',
     UV_TOOL_DIR: '/mock/uv_tool',
     UV_CACHE_DIR: '/mock/uv_cache',
     UV_INDEX_URL: '',
