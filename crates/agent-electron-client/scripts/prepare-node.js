@@ -269,7 +269,7 @@ async function prepareNode(key, suffix) {
         fs.mkdirSync(binDir, { recursive: true });
         fs.renameSync(nodeExe, path.join(binDir, 'node.exe'));
         // 移动相关文件到 bin/
-        ['npm.cmd', 'npx.cmd', 'corepack.cmd'].forEach(cmd => {
+        ['npm.cmd', 'npx.cmd', 'corepack.cmd', 'npm', 'npx', 'corepack'].forEach(cmd => {
           const src = path.join(platformDir, cmd);
           if (fs.existsSync(src)) {
             fs.renameSync(src, path.join(binDir, cmd));

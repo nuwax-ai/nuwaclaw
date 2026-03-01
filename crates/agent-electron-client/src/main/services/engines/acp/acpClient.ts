@@ -458,12 +458,14 @@ export async function createAcpConnection(
     });
   }
 
-  // Log stderr — MCP/spawn 相关错误突出显示
+  // Log stderr — 详细输出所有内容
   proc.stderr?.on('data', (data: Buffer) => {
     const text = data.toString().trim();
     if (!text) return;
     const lower = text.toLowerCase();
-    if (lower.includes('failed to connect') || lower.includes('enoent') || lower.includes('spawn') || lower.includes('mcp server')) {
+    if (lower.includes('error') || lower.includes('failed') || lower.includes('enoent') || lower.includes('spawn') ||
+        lower.includes('mcp server') || lower.includes('certificate') || lower.includes('models.dev') ||
+        lower.includes('providers') || lower.includes('rate limit') || lower.includes('使用上限')) {
       log.error('[AcpClient stderr] 🔴', text);
     } else {
       log.warn('[AcpClient stderr]', text);
@@ -477,6 +479,32 @@ export async function createAcpConnection(
   proc.on('exit', (code, signal) => {
     log.info('[AcpClient] Process exited', { code, signal });
   });
+
+  // Debug: log raw stdout NDJSON lines from ACP process
+  proc.stdout?.on('data', (data: Buffer) => {
+    const text = data.toString().trim();
+    if (!text) return;
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      // Truncate long lines to avoid flooding logs
+      const preview = trimmed.length > 500 ? trimmed.substring(0, 500) + '...' : trimmed;
+      log.info('[AcpClient stdout] 📥', preview);
+    }
+  });
+
+  // Debug: log raw stdin NDJSON lines sent to ACP process
+  const originalStdinWrite = proc.stdin!.write.bind(proc.stdin!);
+  proc.stdin!.write = function(chunk: any, ...args: any[]) {
+    const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const preview = trimmed.length > 500 ? trimmed.substring(0, 500) + '...' : trimmed;
+      log.info('[AcpClient stdin] 📤', preview);
+    }
+    return originalStdinWrite(chunk, ...args);
+  } as any;
 
   // 2. Convert Node streams → Web streams
   const readable = Readable.toWeb(proc.stdout!) as ReadableStream<Uint8Array>;

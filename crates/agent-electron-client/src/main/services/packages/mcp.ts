@@ -171,25 +171,19 @@ export function extractRealMcpServers(
   if (!inner || typeof inner !== 'object') return null;
 
   // Build base environment variables for child MCP servers
+  // Use full getAppEnv() to ensure Windows system variables (SystemRoot, COMSPEC, etc.)
+  // and app-internal tool paths (NODE_PATH, NPM_CONFIG_*, UV_*) are available
   const appEnv = getAppEnv();
-  const baseEnv: Record<string, string> = {
-    PATH: appEnv.PATH,
-    HOME: process.env.HOME || process.env.USERPROFILE || '',
-    USER: process.env.USER || process.env.USERNAME || '',
-    USERNAME: process.env.USERNAME || process.env.USER || '',
-    LANG: process.env.LANG || 'en_US.UTF-8',
-    TZ: process.env.TZ || '',
-  };
 
   const result: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
   for (const [name, srv] of Object.entries(inner)) {
     if (!srv || typeof srv.command !== 'string') continue;
     const resolved = resolveUvCommand(srv.command, srv.args || [], dir);
-    // Env merge: baseEnv as foundation, external env overrides, server-specific env takes precedence
+    // Env merge: appEnv as foundation, external env overrides, server-specific env takes precedence
     result[name] = {
       command: resolved.command,
       args: resolved.args,
-      env: { ...baseEnv, ...env, ...(srv.env || {}) },
+      env: { ...appEnv, ...env, ...(srv.env || {}) },
     };
   }
 
@@ -197,27 +191,17 @@ export function extractRealMcpServers(
 }
 
 /**
- * Apply resolveUvCommand + inject minimal env for all server entries.
+ * Apply resolveUvCommand + inject full app env for all server entries.
  * Filters out mcp-proxy bridge entries.
  *
- * Note: Full env (getAppEnv) is not needed here because nuwax-mcp-stdio-proxy
- * will inject the proper environment when spawning child processes.
- * We only include essential variables for MCP server operation.
+ * Uses getAppEnv() to ensure all necessary environment variables are available,
+ * including Windows system variables (SystemRoot, COMSPEC, TEMP, etc.)
+ * and app-internal tool paths (NODE_PATH, NPM_CONFIG_*, UV_*).
  */
 export function resolveServersConfig(
   servers: Record<string, McpServerEntry>,
 ): Record<string, McpServerEntry> {
   const appEnv = getAppEnv();
-  // Minimal env - only essential variables
-  // PATH is included but other npm/uv config is handled by the proxy
-  const baseEnv: Record<string, string> = {
-    PATH: appEnv.PATH,
-    HOME: process.env.HOME || process.env.USERPROFILE || '',
-    USER: process.env.USER || process.env.USERNAME || '',
-    USERNAME: process.env.USERNAME || process.env.USER || '',
-    LANG: process.env.LANG || 'en_US.UTF-8',
-    TZ: process.env.TZ || '',
-  };
   const dir = getUvBinDir();
   const result: Record<string, McpServerEntry> = {};
   for (const [name, entry] of Object.entries(servers)) {
@@ -226,7 +210,7 @@ export function resolveServersConfig(
     result[name] = {
       command: resolved.command,
       args: resolved.args,
-      env: { ...baseEnv, ...(entry.env || {}) },
+      env: { ...appEnv, ...(entry.env || {}) },
       ...(entry.persistent ? { persistent: true } : {}),
     };
   }
@@ -247,26 +231,18 @@ export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
 };
 
 /**
- * 为 MCP 服务器配置注入基础环境变量
+ * 为 MCP 服务器配置注入完整应用环境变量
  */
 function injectBaseEnvToMcpServers(
   servers: Record<string, McpServerEntry>,
 ): Record<string, McpServerEntry> {
   const appEnv = getAppEnv();
-  const baseEnv: Record<string, string> = {
-    PATH: appEnv.PATH,
-    HOME: process.env.HOME || process.env.USERPROFILE || '',
-    USER: process.env.USER || process.env.USERNAME || '',
-    USERNAME: process.env.USERNAME || process.env.USER || '',
-    LANG: process.env.LANG || 'en_US.UTF-8',
-    TZ: process.env.TZ || '',
-  };
 
   const result: Record<string, McpServerEntry> = {};
   for (const [name, entry] of Object.entries(servers)) {
     result[name] = {
       ...entry,
-      env: { ...baseEnv, ...(entry.env || {}) },
+      env: { ...appEnv, ...(entry.env || {}) },
     };
   }
   return result;
@@ -533,16 +509,9 @@ class McpProxyManager {
         return null;
       }
 
-      // 构建基础环境变量，确保 mcp-proxy 进程能正确启动子进程
-      const appEnv = getAppEnv();
-      const proxyEnv: Record<string, string> = {
-        PATH: appEnv.PATH,
-        HOME: process.env.HOME || process.env.USERPROFILE || '',
-        USER: process.env.USER || process.env.USERNAME || '',
-        USERNAME: process.env.USERNAME || process.env.USER || '',
-        LANG: process.env.LANG || 'en_US.UTF-8',
-        TZ: process.env.TZ || '',
-      };
+      // 构建完整环境变量，确保 mcp-proxy 进程能正确启动子进程
+      // 包含 Windows 系统变量 (SystemRoot, COMSPEC 等) 和应用内工具路径
+      const proxyEnv = getAppEnv();
 
       return {
         'mcp-proxy': {

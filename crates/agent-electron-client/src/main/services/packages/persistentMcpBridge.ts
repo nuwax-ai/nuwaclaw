@@ -31,7 +31,8 @@ import {
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 const LOG_TAG = '[PersistentMcpBridge]';
-const RESTART_COOLDOWN_MS = 5_000;
+const BASE_RESTART_COOLDOWN_MS = 5_000;
+const MAX_RESTART_ATTEMPTS = 5;
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10 MB
 const SESSION_CLEANUP_INTERVAL_MS = 60_000; // 1 minute
 
@@ -45,6 +46,7 @@ interface PersistentServerEntry {
   healthy: boolean;
   restarting: boolean;
   restartTimer: ReturnType<typeof setTimeout> | null;
+  restartCount: number;
 }
 
 /** session ID → { server, transport } */
@@ -166,6 +168,7 @@ class PersistentMcpBridge {
       healthy: false,
       restarting: false,
       restartTimer: null,
+      restartCount: 0,
     };
     this.servers.set(id, entry);
 
@@ -221,6 +224,7 @@ class PersistentMcpBridge {
       const result = await client.listTools();
       entry.tools = result.tools;
       entry.healthy = true;
+      entry.restartCount = 0; // reset on success
 
       log.info(`${LOG_TAG} Server "${id}" ready with ${entry.tools.length} tools: ${entry.tools.map((t) => t.name).join(', ')}`);
     } catch (e) {
@@ -234,8 +238,18 @@ class PersistentMcpBridge {
 
   private scheduleRestart(id: string, entry: PersistentServerEntry): void {
     if (entry.restartTimer) return;
+
+    entry.restartCount++;
+    if (entry.restartCount > MAX_RESTART_ATTEMPTS) {
+      log.warn(`${LOG_TAG} Server "${id}" failed ${entry.restartCount - 1} times, giving up (max ${MAX_RESTART_ATTEMPTS})`);
+      entry.restarting = false;
+      return;
+    }
+
     entry.restarting = true;
-    log.info(`${LOG_TAG} Scheduling restart for "${id}" in ${RESTART_COOLDOWN_MS}ms`);
+    // Exponential backoff: 5s, 10s, 20s, 40s, 80s
+    const delay = BASE_RESTART_COOLDOWN_MS * Math.pow(2, entry.restartCount - 1);
+    log.info(`${LOG_TAG} Scheduling restart for "${id}" in ${delay}ms (attempt ${entry.restartCount}/${MAX_RESTART_ATTEMPTS})`);
 
     entry.restartTimer = setTimeout(async () => {
       entry.restartTimer = null;
@@ -252,9 +266,9 @@ class PersistentMcpBridge {
       entry.client = null;
       entry.transport = null;
 
-      log.info(`${LOG_TAG} Restarting server "${id}"...`);
+      log.info(`${LOG_TAG} Restarting server "${id}"... (attempt ${entry.restartCount}/${MAX_RESTART_ATTEMPTS})`);
       await this.spawnAndConnect(id, entry);
-    }, RESTART_COOLDOWN_MS);
+    }, delay);
   }
 
   private async stopServer(id: string): Promise<void> {

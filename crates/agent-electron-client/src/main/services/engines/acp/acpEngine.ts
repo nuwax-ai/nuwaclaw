@@ -321,7 +321,16 @@ export class AcpEngine extends EventEmitter {
       mcpServers,
     };
     log.info(`${this.logTag} newSession: cwd=${sessionCwd}, mcpServers=${mcpServers.length}`);
-    const acpResult = await this.acpConnection.newSession(newSessionParams);
+    log.info(`${this.logTag} 📤 ACP newSession 发送中...`);
+    const t0 = Date.now();
+    let acpResult: { sessionId: string };
+    try {
+      acpResult = await this.acpConnection.newSession(newSessionParams);
+    } catch (err) {
+      log.error(`${this.logTag} ❌ ACP newSession 失败 (${Date.now() - t0}ms):`, err);
+      throw err;
+    }
+    log.info(`${this.logTag} ✅ ACP newSession 完成 (${Date.now() - t0}ms), acpSessionId=${acpResult.sessionId}`);
 
     const session: AcpSession = {
       id: localId,
@@ -463,7 +472,12 @@ export class AcpEngine extends EventEmitter {
       log.info(`${this.logTag} Starting prompt`, {
         sessionId,
         acpSessionId: session.acpSessionId,
+        promptLength: promptContent.length,
+        promptPreview: promptContent.map(p => p.text?.substring(0, 100)).join(', '),
       });
+
+      const promptStartTime = Date.now();
+      log.info(`${this.logTag} 📤 ACP prompt 发送中...`);
 
       const result = await new Promise<{ stopReason: string }>((resolve, reject) => {
         this.activePromptRejects.set(sessionId, reject);
@@ -471,7 +485,16 @@ export class AcpEngine extends EventEmitter {
         this.acpConnection!.prompt({
           sessionId: session.acpSessionId!,
           prompt: promptContent,
-        }).then(resolve, reject);
+        }).then(
+          (res) => {
+            log.info(`${this.logTag} 📥 ACP prompt resolved (${Date.now() - promptStartTime}ms):`, safeStringify(res));
+            resolve(res);
+          },
+          (err) => {
+            log.error(`${this.logTag} 📥 ACP prompt rejected (${Date.now() - promptStartTime}ms):`, err);
+            reject(err);
+          },
+        );
       });
 
       log.info(`${this.logTag} Prompt completed`, {
@@ -748,6 +771,9 @@ export class AcpEngine extends EventEmitter {
     const session = this.findSessionByAcpId(acpSessionId);
     if (session) session.lastActivity = Date.now();
 
+    // Debug: log every ACP session update event
+    log.info(`${this.logTag} 📩 ACP sessionUpdate: type=${update.sessionUpdate}, acpSessionId=${acpSessionId}, localSessionId=${sessionId}`);
+
     this.emit('computer:progress', {
       sessionId: sessionId,
       messageType: 'agentSessionUpdate',
@@ -819,12 +845,12 @@ export class AcpEngine extends EventEmitter {
       }
 
       case 'usage_update': {
-        log.debug(`${this.logTag} Usage update:`, update);
+        log.info(`${this.logTag} 📊 Usage update:`, safeStringify(update));
         break;
       }
 
       default: {
-        log.debug(`${this.logTag} Unhandled ACP update:`, update.sessionUpdate);
+        log.info(`${this.logTag} ❓ Unhandled ACP update: ${update.sessionUpdate}`, safeStringify(update));
       }
     }
   }
