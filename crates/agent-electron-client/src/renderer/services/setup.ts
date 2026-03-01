@@ -13,7 +13,6 @@ import {
   DEFAULT_SERVER_HOST,
   DEFAULT_AGENT_RUNNER_PORT,
   DEFAULT_FILE_SERVER_PORT,
-  DEFAULT_LANPROXY_PORT,
   STORAGE_KEYS,
   AUTH_KEYS,
   DEFAULT_AI_ENGINE,
@@ -25,7 +24,6 @@ export interface Step1Config {
   serverHost: string;
   agentPort: number;
   fileServerPort: number;
-  proxyPort: number;
   workspaceDir: string;
 }
 
@@ -64,7 +62,6 @@ export const DEFAULT_STEP1_CONFIG: Step1Config = {
   serverHost: DEFAULT_SERVER_HOST,
   agentPort: DEFAULT_AGENT_RUNNER_PORT,
   fileServerPort: DEFAULT_FILE_SERVER_PORT,
-  proxyPort: DEFAULT_LANPROXY_PORT,
   workspaceDir: '',
 };
 

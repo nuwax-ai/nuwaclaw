@@ -299,17 +299,6 @@ export default function SettingsPage() {
                   <InputNumber min={1} max={65535} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
-            </Row>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item
-                  name="proxyPort"
-                  label="代理服务端口"
-                  rules={[{ required: true, message: '请输入端口' }]}
-                >
-                  <InputNumber min={1} max={65535} style={{ width: '100%' }} />
-                </Form.Item>
-              </Col>
               <Col span={12}>
                 <Form.Item
                   name="fileServerPort"

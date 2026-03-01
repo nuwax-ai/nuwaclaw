@@ -160,10 +160,6 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
       message.warning('请输入 Agent 端口');
       return;
     }
-    if (!step1Config.proxyPort) {
-      message.warning('请输入代理服务端口');
-      return;
-    }
     if (!step1Config.workspaceDir) {
       message.warning('请选择工作区目录');
       return;
@@ -304,21 +300,6 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               />
             </Form.Item>
 
-            <Form.Item label="代理服务端口" required>
-              <InputNumber
-                value={step1Config.proxyPort}
-                onChange={(value) =>
-                  setStep1Config({
-                    ...step1Config,
-                    proxyPort: value as number,
-                  })
-                }
-                style={{ width: '100%' }}
-                min={1024}
-                max={65535}
-              />
-            </Form.Item>
-
             <Form.Item
               label="工作区目录"
               required
@@ -408,6 +389,8 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
                 value={domain || step1Config.serverHost}
                 onChange={(e) => setDomain(e.target.value)}
                 placeholder="例如：https://agent.nuwax.com"
+                autoComplete="off"
+                spellCheck={false}
               />
             </Form.Item>
 
