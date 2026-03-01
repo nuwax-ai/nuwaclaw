@@ -1,4 +1,8 @@
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
+// Windows GUI 应用程序配置
+// 在 release 模式下，不显示主程序的控制台窗口
+// 注意：这只影响主程序，不影响子进程的 stdout/stdin
+// 子进程的窗口隐藏通过 CREATE_NO_WINDOW 标志实现
+
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {

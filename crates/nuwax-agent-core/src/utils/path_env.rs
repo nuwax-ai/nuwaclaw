@@ -8,8 +8,11 @@
 use std::path::PathBuf;
 use tracing::debug;
 
+use super::command::CommandNoWindowExt;
+
 /// 默认 MCP Proxy 配置（与前端 constants.ts 保持一致）
-pub const DEFAULT_MCP_PROXY_CONFIG: &str = r#"{"mcpServers":{"chrome-devtools":{"command":"npx","args":["-y","chrome-devtools-mcp@latest"]}}}"#;
+/// 添加 --no-usage-statistics 参数禁用 Google 使用统计
+pub const DEFAULT_MCP_PROXY_CONFIG: &str = r#"{"mcpServers":{"chrome-devtools":{"command":"npx","args":["-y","chrome-devtools-mcp@latest","--no-usage-statistics"]}}}"#;
 /// 阿里云 npm 镜像（npx 加速）
 pub const DEFAULT_NPM_REGISTRY: &str = "https://registry.npmmirror.com";
 /// 阿里云 PyPI 镜像（uvx/pip 加速）
@@ -29,10 +32,12 @@ fn find_in_path(executable: &str) -> Option<String> {
     // 这里只在系统 PATH 中查找
     let output = if cfg!(windows) {
         std::process::Command::new("where")
+            .no_window()
             .arg(executable)
             .output()
     } else {
         std::process::Command::new("which")
+            .no_window()
             .arg(executable)
             .output()
     };

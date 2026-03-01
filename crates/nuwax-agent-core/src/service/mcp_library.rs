@@ -50,7 +50,7 @@ impl Default for McpLibraryConfig {
     fn default() -> Self {
         Self {
             mcp_id: "default".to_string(),
-            mcp_json_config: r#"{"mcpServers":{"default":{"command":"npx","args":["-y","chrome-devtools-mcp@latest"]}}}"#
+            mcp_json_config: r#"{"mcpServers":{"default":{"command":"npx","args":["-y","chrome-devtools-mcp@latest","--no-usage-statistics"]}}}"#
                 .to_string(),
             client_protocol: McpProtocol::Stream,
             mcp_type: McpType::Persistent,
