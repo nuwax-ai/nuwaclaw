@@ -55,15 +55,15 @@ export interface AcpSdkModule {
     clientFactory: (agent: unknown) => unknown,
     stream: unknown,
   ) => AcpClientSideConnection;
-  PROTOCOL_VERSION: string;
+  PROTOCOL_VERSION: number;
 }
 
 /** ClientSideConnection interface */
 export interface AcpClientSideConnection {
   initialize(params: {
-    protocolVersion: string;
+    protocolVersion: number;
     clientCapabilities?: Record<string, unknown>;
-  }): Promise<{ protocolVersion: string; agentCapabilities?: Record<string, unknown> }>;
+  }): Promise<{ protocolVersion: number; agentCapabilities?: Record<string, unknown> }>;
 
   newSession(params: {
     cwd: string;
