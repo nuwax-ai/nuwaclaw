@@ -6,12 +6,36 @@
 # ============================================================================
 
 # vcpkg 路径（可通过环境变量覆盖）
+# Windows Git Bash 下请用 Unix 风格路径，如 export VCPKG_ROOT=/c/Users/你的用户名/vcpkg
 VCPKG_ROOT ?= $(HOME)/vcpkg
 
 # 默认目标平台
 UNAME_S := $(shell uname -s)
+# Windows 下若项目内存在 vcpkg（含 x64-windows-static），优先使用以便 scrap 等找到依赖
+ifneq (,$(findstring MINGW,$(UNAME_S)))
+  ifneq (,$(wildcard vcpkg/vcpkg.exe))
+    VCPKG_ROOT := $(CURDIR)/vcpkg
+  endif
+endif
+ifneq (,$(findstring MSYS,$(UNAME_S)))
+  ifneq (,$(wildcard vcpkg/vcpkg.exe))
+    VCPKG_ROOT := $(CURDIR)/vcpkg
+  endif
+endif
 UNAME_M := $(shell uname -m)
-# scrap 期望的 vcpkg triplet：macOS arm64 -> arm64-osx，x86_64 -> x64-osx
+# 在 shell 中使用的路径：Windows 下 C:\Users\... 转为 /c/Users/... 避免反斜杠被解释
+VCPKG_ROOT_SHELL := $(shell echo "$(VCPKG_ROOT)" | sed 's|\\|/|g;s|^\([A-Za-z]\):|/\1|' 2>/dev/null || echo "$(VCPKG_ROOT)")
+# Windows 下 mklink /J 需要的路径（C:\Users\...）
+VCPKG_ROOT_WIN := $(shell echo "$(VCPKG_ROOT)" | sed 's|^/\([a-zA-Z]\)/|\1:/|;s|/|\\|g' 2>/dev/null || echo "$(VCPKG_ROOT)")
+# 传给 cargo/build 脚本的 VCPKG_ROOT：Windows 下用单引号包住的 Windows 路径，避免 Git Bash 吃掉反斜杠
+VCPKG_ROOT_FOR_CARGO := $(VCPKG_ROOT_SHELL)
+ifneq (,$(findstring MINGW,$(UNAME_S)))
+  VCPKG_ROOT_FOR_CARGO := '$(VCPKG_ROOT_WIN)'
+endif
+ifneq (,$(findstring MSYS,$(UNAME_S)))
+  VCPKG_ROOT_FOR_CARGO := '$(VCPKG_ROOT_WIN)'
+endif
+# scrap 期望的 vcpkg triplet：macOS arm64 -> arm64-osx，x86_64 -> x64-osx；Windows -> x64-windows-static
 ifeq ($(UNAME_S),Darwin)
   ifeq ($(UNAME_M),arm64)
     VCPKG_TRIPLET ?= arm64-osx
@@ -19,9 +43,15 @@ ifeq ($(UNAME_S),Darwin)
     VCPKG_TRIPLET ?= x64-osx
   endif
 endif
+ifneq (,$(findstring MINGW,$(UNAME_S)))
+  VCPKG_TRIPLET ?= x64-windows-static
+endif
+ifneq (,$(findstring MSYS,$(UNAME_S)))
+  VCPKG_TRIPLET ?= x64-windows-static
+endif
 
 # Cargo 命令（必须带 VCPKG_ROOT，否则 scrap 会退回到 Homebrew 找 libyuv 并失败）
-CARGO := VCPKG_ROOT=$(VCPKG_ROOT) cargo
+CARGO := VCPKG_ROOT=$(VCPKG_ROOT_FOR_CARGO) cargo
 
 # 客户端 crate 名称
 CLIENT := nuwax-gpui-agent
@@ -450,19 +480,24 @@ setup-repo:
 .PHONY: setup-vcpkg
 setup-vcpkg:
 	@echo ">>> Installing vcpkg..."
-	@if [ ! -d "$(VCPKG_ROOT)" ]; then \
-		git clone https://github.com/microsoft/vcpkg $(VCPKG_ROOT); \
-		cd $(VCPKG_ROOT) && ./bootstrap-vcpkg.sh; \
+	@if [ ! -d "$(VCPKG_ROOT_SHELL)" ]; then \
+		git clone https://github.com/microsoft/vcpkg "$(VCPKG_ROOT_SHELL)"; \
+		cd "$(VCPKG_ROOT_SHELL)" && ./bootstrap-vcpkg.sh; \
 	else \
-		echo "vcpkg already exists at $(VCPKG_ROOT)"; \
+		echo "vcpkg already exists at $(VCPKG_ROOT_SHELL)"; \
 	fi
 	@echo ">>> Installing vcpkg dependencies (triplet: $(VCPKG_TRIPLET))..."
 	@if [ -z "$(VCPKG_TRIPLET)" ]; then \
-		cd $(VCPKG_ROOT) && ./vcpkg install libvpx libyuv opus aom; \
+		cd "$(VCPKG_ROOT_SHELL)" && ./vcpkg install libvpx libyuv opus aom; \
 	else \
-		cd $(VCPKG_ROOT) && ./vcpkg install libvpx libyuv opus aom --triplet $(VCPKG_TRIPLET); \
+		cd "$(VCPKG_ROOT_SHELL)" && ./vcpkg install libvpx libyuv opus aom --triplet $(VCPKG_TRIPLET); \
 	fi
-	@if [ ! -e vcpkg ]; then ln -s "$(VCPKG_ROOT)" vcpkg && echo ">>> Created symlink vcpkg -> $(VCPKG_ROOT), cargo build ready"; fi
+	@if [ ! -e vcpkg ]; then \
+		(ln -s "$(VCPKG_ROOT_SHELL)" vcpkg 2>/dev/null && echo ">>> Created symlink vcpkg -> $(VCPKG_ROOT_SHELL)") || \
+		(case "$(UNAME_S)" in MINGW*|MSYS*|CYGWIN*) cmd //c "mklink /J vcpkg \"$(VCPKG_ROOT_WIN)\"" 2>/dev/null && echo ">>> Created junction vcpkg -> $(VCPKG_ROOT)" ;; *) false ;; esac) || \
+		(echo ">>> WARNING: Could not create vcpkg link."; \
+		 case "$(UNAME_S)" in MINGW*|MSYS*|CYGWIN*) echo ">>> On Windows: run as Admin or enable Developer Mode, or set VCPKG_ROOT when building."; exit 0 ;; *) exit 1 ;; esac); \
+	fi
 	@echo ">>> Done. Use make build or cargo build to build"
 
 .PHONY: update-deps

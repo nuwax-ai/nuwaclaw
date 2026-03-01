@@ -8356,7 +8356,7 @@ dependencies = [
  "which 8.0.0",
  "windows 0.62.2",
  "winreg 0.55.0",
- "zip 7.4.0",
+ "zip 8.1.0",
 ]
 
 [[package]]
@@ -18376,9 +18376,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "7.4.0"
+version = "8.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc12baa6db2b15a140161ce53d72209dacea594230798c24774139b54ecaa980"
+checksum = "6e499faf5c6b97a0d086f4a8733de6d47aee2252b8127962439d8d4311a73f72"
 dependencies = [
  "aes",
  "bzip2 0.6.1",
