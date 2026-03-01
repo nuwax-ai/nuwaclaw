@@ -41,7 +41,7 @@ export const DEFAULT_MCP_PROXY_CONFIG = JSON.stringify({
   mcpServers: {
     "chrome-devtools": {
       command: "npx",
-      args: ["-y", "chrome-devtools-mcp@latest"],
+      args: ["-y", "chrome-devtools-mcp@latest", "--no-usage-statistics"],
     },
   },
 });
