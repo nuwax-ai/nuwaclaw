@@ -85,6 +85,11 @@ export class CustomStdioClientTransport implements Transport {
       // For .cmd/.bat files on Windows, we need shell: true
       if (isWindows && (command.toLowerCase().endsWith('.cmd') || command.toLowerCase().endsWith('.bat'))) {
         useShell = true;
+        // Quote the command if it contains spaces, otherwise cmd.exe
+        // misparses paths like "D:\Program Files\...\npx.cmd"
+        if (command.includes(' ')) {
+          command = `"${command}"`;
+        }
         logDebug(`Using shell: true for ${command}`);
       }
 
