@@ -201,6 +201,8 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
               value={apiBaseUrl}
               onChange={(e) => setApiBaseUrl(e.target.value)}
               placeholder={DEFAULT_ANTHROPIC_API_URL}
+              autoComplete="off"
+              spellCheck={false}
             />
           </Form.Item>
 

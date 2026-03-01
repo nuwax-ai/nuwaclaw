@@ -485,6 +485,8 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
               onChange={(e) => setLoginDomain(e.target.value)}
               placeholder="服务域名（例如：https://agent.nuwax.com）"
               allowClear
+              autoComplete="off"
+              spellCheck={false}
             />
           </Form.Item>
 

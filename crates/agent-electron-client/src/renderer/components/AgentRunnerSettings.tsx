@@ -156,6 +156,8 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
               value={config.apiBaseUrl}
               onChange={(e) => setConfig({ ...config, apiBaseUrl: e.target.value })}
               placeholder={DEFAULT_ANTHROPIC_API_URL}
+              autoComplete="off"
+              spellCheck={false}
             />
           </div>
 
