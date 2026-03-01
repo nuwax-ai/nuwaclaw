@@ -28,6 +28,15 @@ use super::agent_runner::{RcoderAgentRunner, RcoderAgentRunnerConfig};
 #[cfg(target_os = "windows")]
 mod windows_launch;
 
+// MCP 库模式模块
+pub mod mcp_library;
+
+// 重导出 MCP 库模式公共 API
+pub use mcp_library::{
+    McpLibraryConfig, McpLibraryRuntime, get_mcp_service_info, is_mcp_service_running,
+    start_mcp_service, start_mcp_service_standalone, stop_mcp_service_standalone,
+};
+
 // ========== 默认常量 ==========
 
 /// MCP Proxy 默认监听端口
@@ -1299,6 +1308,16 @@ impl Default for NuwaxLanproxyConfig {
     }
 }
 
+/// MCP Proxy 启动模式
+#[derive(Clone, Debug, Default)]
+pub enum McpProxyMode {
+    /// 子进程模式（运行 mcp-proxy 可执行文件）
+    #[default]
+    Subprocess,
+    /// 库模式（直接调用 mcp-stdio-proxy API）
+    Library,
+}
+
 /// MCP Proxy 配置
 #[derive(Debug, Clone)]
 pub struct McpProxyConfig {
@@ -1346,6 +1365,8 @@ pub struct ServiceManager {
     mcp_proxy: Arc<Mutex<Option<ChildWrapperType>>>,
     /// MCP Proxy 配置
     mcp_proxy_config: Arc<McpProxyConfig>,
+    /// MCP Proxy 启动模式（跟踪当前使用的模式）
+    mcp_proxy_mode: Arc<Mutex<Option<McpProxyMode>>>,
 }
 
 impl ServiceManager {
@@ -1363,6 +1384,7 @@ impl ServiceManager {
             rcoder: Arc::new(Mutex::new(None)),
             mcp_proxy: Arc::new(Mutex::new(None)),
             mcp_proxy_config: Arc::new(mcp_proxy_config.unwrap_or_default()),
+            mcp_proxy_mode: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -1974,6 +1996,87 @@ impl ServiceManager {
         Ok(())
     }
 
+    /// 使用指定配置和模式启动 MCP Proxy
+    ///
+    /// # Arguments
+    /// * `config` - MCP Proxy 配置
+    /// * `mode` - 启动模式（子进程或库模式）
+    ///
+    /// # Example
+    /// ```ignore
+    /// // 使用库模式启动
+    /// let config = McpProxyConfig::default();
+    /// manager.mcp_proxy_start_with_config_mode(config, McpProxyMode::Library).await?;
+    /// ```
+    pub async fn mcp_proxy_start_with_config_mode(
+        &self,
+        config: McpProxyConfig,
+        mode: McpProxyMode,
+    ) -> Result<(), String> {
+        match mode {
+            McpProxyMode::Subprocess => {
+                // 原有的子进程启动逻辑
+                let result = self.mcp_proxy_start_with_config(config).await;
+                // 只在成功时保存模式
+                if result.is_ok() {
+                    let mut mode_guard = self.mcp_proxy_mode.lock().await;
+                    *mode_guard = Some(McpProxyMode::Subprocess);
+                }
+                result
+            }
+            McpProxyMode::Library => {
+                // 库模式启动
+                use mcp_stdio_proxy::{McpProtocol, McpType};
+
+                // 从 config_json 中尝试提取第一个 mcpServers 的 key 作为 mcp_id
+                // 如果解析失败，使用默认值
+                let mcp_id = extract_mcp_id_from_config(&config.config_json);
+
+                let lib_config = mcp_library::McpLibraryConfig {
+                    mcp_id: mcp_id.clone(),
+                    mcp_json_config: config.config_json.clone(),
+                    client_protocol: McpProtocol::Stream,
+                    mcp_type: McpType::Persistent,
+                };
+
+                let bind_addr = format!("{}:{}", config.host, config.port);
+                info!("[McpProxy] 使用库模式启动: mcp_id={}, bind_addr={}", mcp_id, bind_addr);
+
+                // 在后台任务中运行
+                let bind_addr_clone = bind_addr.clone();
+                tokio::spawn(async move {
+                    if let Err(e) =
+                        mcp_library::start_mcp_service_standalone(lib_config, &bind_addr_clone).await
+                    {
+                        error!("[McpLibrary] 服务运行错误: {}", e);
+                    }
+                });
+
+                // 等待服务启动并进行健康检查
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                // 使用健康检查确认服务就绪
+                if let Err(e) =
+                    wait_for_mcp_proxy_ready(config.port, &config.host, 10).await
+                {
+                    error!("[McpLibrary] 健康检查失败: {}", e);
+                    // 尝试停止可能已启动的服务
+                    let _ = mcp_library::stop_mcp_service_standalone().await;
+                    return Err(e);
+                }
+
+                // 只在成功时保存模式
+                {
+                    let mut mode_guard = self.mcp_proxy_mode.lock().await;
+                    *mode_guard = Some(McpProxyMode::Library);
+                }
+
+                info!("[McpLibrary] 服务已启动并通过健康检查");
+                Ok(())
+            }
+        }
+    }
+
     /// 启动 MCP Proxy（使用内部配置）
     pub async fn mcp_proxy_start(&self) -> Result<(), String> {
         self.mcp_proxy_start_with_config((*self.mcp_proxy_config).clone())
@@ -1981,43 +2084,73 @@ impl ServiceManager {
     }
 
     /// 停止 MCP Proxy
+    ///
+    /// 根据启动模式自动选择停止方式：
+    /// - 子进程模式：杀死子进程
+    /// - 库模式：通过 CancellationToken 取消
     pub async fn mcp_proxy_stop(&self) -> Result<(), String> {
         info!("[McpProxy] 正在停止 MCP Proxy...");
 
-        let mut guard = self.mcp_proxy.lock().await;
-        if let Some(child) = guard.take() {
-            let mut child = child;
+        // 获取当前模式
+        let mode = {
+            let mode_guard = self.mcp_proxy_mode.lock().await;
+            mode_guard.clone()
+        };
 
-            if let Err(e) = child.start_kill() {
-                warn!(
-                    "[McpProxy] Failed to send kill signal, process may have exited: {}",
-                    e
-                );
+        match mode {
+            Some(McpProxyMode::Library) => {
+                // 库模式停止
+                info!("[McpProxy] 使用库模式停止");
+                if let Err(e) = mcp_library::stop_mcp_service_standalone().await {
+                    warn!("[McpLibrary] 停止服务失败: {}", e);
+                }
+                // 清除模式
+                let mut mode_guard = self.mcp_proxy_mode.lock().await;
+                *mode_guard = None;
             }
+            _ => {
+                // 子进程模式停止（包括 mode 为 None 的情况）
+                info!("[McpProxy] 使用子进程模式停止");
+                let mut guard = self.mcp_proxy.lock().await;
+                if let Some(child) = guard.take() {
+                    let mut child = child;
 
-            use std::time::Duration;
-            use tokio::time::timeout;
-
-            match timeout(Duration::from_secs(5), child.wait()).await {
-                Ok(Ok(status)) => {
-                    if status.success() {
-                        info!("[McpProxy] MCP Proxy stopped gracefully");
-                    } else {
-                        info!(
-                            "[McpProxy] MCP Proxy stopped with exit code: {:?}",
-                            status.code()
+                    if let Err(e) = child.start_kill() {
+                        warn!(
+                            "[McpProxy] Failed to send kill signal, process may have exited: {}",
+                            e
                         );
                     }
+
+                    use std::time::Duration;
+                    use tokio::time::timeout;
+
+                    match timeout(Duration::from_secs(5), child.wait()).await {
+                        Ok(Ok(status)) => {
+                            if status.success() {
+                                info!("[McpProxy] MCP Proxy stopped gracefully");
+                            } else {
+                                info!(
+                                    "[McpProxy] MCP Proxy stopped with exit code: {:?}",
+                                    status.code()
+                                );
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            warn!("[McpProxy] Error waiting for mcp-proxy: {}", e);
+                        }
+                        Err(_) => {
+                            warn!("[McpProxy] MCP Proxy stop timed out");
+                        }
+                    }
+                } else {
+                    warn!("[McpProxy] MCP Proxy is not running");
                 }
-                Ok(Err(e)) => {
-                    warn!("[McpProxy] Error waiting for mcp-proxy: {}", e);
-                }
-                Err(_) => {
-                    warn!("[McpProxy] MCP Proxy stop timed out");
-                }
+
+                // 清除模式
+                let mut mode_guard = self.mcp_proxy_mode.lock().await;
+                *mode_guard = None;
             }
-        } else {
-            warn!("[McpProxy] MCP Proxy is not running");
         }
 
         // 停止后清理可能残留的 Chrome DevTools 进程
@@ -2227,17 +2360,39 @@ impl ServiceManager {
             );
         }
 
-        // MCP Proxy 状态
+        // MCP Proxy 状态（需要检查子进程模式和库模式）
         {
-            let guard = self.mcp_proxy.lock().await;
-            if let Some(child) = &*guard {
+            let mode_guard = self.mcp_proxy_mode.lock().await;
+            let subprocess_guard = self.mcp_proxy.lock().await;
+
+            // 首先检查是否使用库模式
+            if matches!(&*mode_guard, Some(McpProxyMode::Library)) {
+                // 库模式：检查全局运行时状态
+                if mcp_library::is_mcp_service_running().await {
+                    let info = mcp_library::get_mcp_service_info().await;
+                    statuses.push(ServiceInfo {
+                        service_type: ServiceType::McpProxy,
+                        state: ServiceState::Running,
+                        pid: None, // 库模式没有独立 PID
+                    });
+                    debug!("[Services] MCP Proxy (库模式) 运行中, info: {:?}", info);
+                } else {
+                    statuses.push(ServiceInfo {
+                        service_type: ServiceType::McpProxy,
+                        state: ServiceState::Stopped,
+                        pid: None,
+                    });
+                    debug!("[Services] MCP Proxy (库模式) 已停止");
+                }
+            } else if let Some(child) = &*subprocess_guard {
+                // 子进程模式
                 let pid = child.id();
                 statuses.push(ServiceInfo {
                     service_type: ServiceType::McpProxy,
                     state: ServiceState::Running,
                     pid,
                 });
-                debug!("[Services] MCP Proxy 运行中, PID: {:?}", pid);
+                debug!("[Services] MCP Proxy (子进程) 运行中, PID: {:?}", pid);
             } else {
                 statuses.push(ServiceInfo {
                     service_type: ServiceType::McpProxy,
@@ -2250,4 +2405,20 @@ impl ServiceManager {
 
         statuses
     }
+}
+
+// ========== 辅助函数 ==========
+
+/// 从 config_json 中提取第一个 mcpServers 的 key 作为 mcp_id
+fn extract_mcp_id_from_config(config_json: &str) -> String {
+    // 尝试解析 JSON 并提取第一个 mcpServers 的 key
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(config_json) {
+        if let Some(mcp_servers) = json.get("mcpServers").and_then(|v| v.as_object()) {
+            if let Some(first_key) = mcp_servers.keys().next() {
+                return first_key.clone();
+            }
+        }
+    }
+    // 默认值
+    "mcp-service".to_string()
 }

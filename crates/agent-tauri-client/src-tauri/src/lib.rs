@@ -2093,7 +2093,10 @@ async fn mcp_proxy_start(
 
     let manager = state.manager.lock().await;
     manager
-        .mcp_proxy_start_with_config(mcp_proxy_config)
+        .mcp_proxy_start_with_config_mode(
+            mcp_proxy_config,
+            nuwax_agent_core::McpProxyMode::Library,
+        )
         .await?;
     Ok(true)
 }
@@ -2889,7 +2892,10 @@ async fn services_restart_all(
 
         let manager = state.manager.lock().await;
         manager
-            .mcp_proxy_start_with_config(mcp_proxy_config)
+            .mcp_proxy_start_with_config_mode(
+                mcp_proxy_config,
+                nuwax_agent_core::McpProxyMode::Library,
+            )
             .await?;
         info!("[Services]   - MCP Proxy 启动命令已发送");
     }

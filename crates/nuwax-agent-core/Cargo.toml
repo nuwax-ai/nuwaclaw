@@ -62,6 +62,9 @@ regex = { workspace = true }
 semver = { workspace = true }
 base64 = { workspace = true }
 
+# MCP Proxy 库依赖（用于库模式启动 MCP 服务）
+mcp-stdio-proxy = { git = "https://github.com/nuwax-ai/mcp-proxy.git", branch = "dev-windows" }
+
 # rcoder agent_runner (通过 git 依赖)
 agent_runner = { git = "https://github.com/nuwax-ai/rcoder.git", branch = "nuwax-client", optional = true, features = ["http-server"] }
 
@@ -119,8 +122,8 @@ process-wrap = { version = "9", features = ["tokio1", "process-group", "job-obje
 # rustls for crypto provider initialization (仅用于测试)
 rustls = { version = "0.23", features = ["ring"], optional = true }
 
-# HTTP Server (可选)
-axum = { version = "0.8", optional = true, features = ["json", "macros"] }
+# HTTP Server (用于 MCP 库模式)
+axum = { version = "0.8", features = ["json", "macros"] }
 tower-http = { version = "0.6", optional = true }
 
 # Windows 注册表操作（用于开机自启动等）
