@@ -290,34 +290,17 @@ export class PersistentMcpBridge {
     entry.restarting = false;
     entry.healthy = false;
 
-    // Capture PID before closing (transport.close() may invalidate the getter)
-    const pid = entry.transport?.pid;
-
     try {
       if (entry.client) await entry.client.close();
     } catch (e) {
       this.log.warn(`${LOG_TAG} Error closing client for "${id}":`, e);
     }
 
-    // transport.close() terminates the child process
+    // transport.close() handles graceful shutdown: stdin.end → SIGTERM → SIGKILL
     try {
       if (entry.transport) await entry.transport.close();
     } catch (e) {
       this.log.warn(`${LOG_TAG} Error closing transport for "${id}":`, e);
-    }
-
-    // Force kill via PID if still alive after transport.close()
-    if (pid) {
-      try {
-        process.kill(pid, 0); // test if alive
-        process.kill(pid, 'SIGTERM');
-        setTimeout(() => {
-          try {
-            process.kill(pid, 0);
-            process.kill(pid, 'SIGKILL');
-          } catch { /* already dead */ }
-        }, 2000);
-      } catch { /* already dead */ }
     }
 
     entry.client = null;

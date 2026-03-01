@@ -8,5 +8,4 @@
 import log from 'electron-log';
 import { PersistentMcpBridge } from 'nuwax-mcp-stdio-proxy';
 
-export { PersistentMcpBridge };
 export const persistentMcpBridge = new PersistentMcpBridge(log);
