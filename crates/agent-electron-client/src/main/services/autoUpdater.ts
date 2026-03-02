@@ -10,6 +10,21 @@ import { app, BrowserWindow, shell } from 'electron';
 import log from 'electron-log';
 import type { UpdateState, UpdateInfo, UpdateProgress } from '@shared/types/updateTypes';
 
+/**
+ * 语义化版本比较: a > b 返回 1, a < b 返回 -1, 相等返回 0
+ */
+function compareVersions(a: string, b: string): number {
+  const pa = a.replace(/^v/, '').split('.').map(Number);
+  const pb = b.replace(/^v/, '').split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}
+
 let currentState: UpdateState = { status: 'idle' };
 let getMainWindow: (() => BrowserWindow | null) | null = null;
 
@@ -113,7 +128,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
     const result = await autoUpdater.checkForUpdates();
 
     if (result?.updateInfo) {
-      const hasUpdate = result.updateInfo.version !== app.getVersion();
+      const hasUpdate = compareVersions(result.updateInfo.version, app.getVersion()) > 0;
       return {
         hasUpdate,
         version: result.updateInfo.version,

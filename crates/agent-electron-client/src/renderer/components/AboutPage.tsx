@@ -1,8 +1,7 @@
 /**
  * 关于页面 (Electron 版)
  *
- * 从 Tauri 版 AboutPage 适配而来:
- * - 版本号通过 Vite define 注入
+ * - 版本号运行时从 Electron 主进程获取
  * - 检查更新 + 下载 + 安装 完整流程
  */
 
@@ -12,10 +11,9 @@ import { RobotOutlined, SyncOutlined, DownloadOutlined, PoweroffOutlined } from 
 import { APP_DISPLAY_NAME } from "@shared/constants";
 import type { UpdateState } from "@shared/types/updateTypes";
 
-declare const __APP_VERSION__: string;
-
 export default function AboutPage() {
   const [updateState, setUpdateState] = useState<UpdateState>({ status: 'idle' });
+  const [appVersion, setAppVersion] = useState<string>('');
 
   // 监听主进程推送的更新状态
   useEffect(() => {
@@ -23,8 +21,12 @@ export default function AboutPage() {
       setUpdateState(state);
     };
     window.electronAPI?.on('update:status', handler as any);
-    // 初始化时获取一次当前状态
-    window.electronAPI?.app?.getUpdateState().then((state) => {
+    // 获取运行时版本号
+    window.electronAPI?.app?.getVersion().then((v) => {
+      if (v) setAppVersion(v);
+    });
+    // 初始化时获取一次当前更新状态
+    window.electronAPI?.app?.getUpdateState?.()?.then((state) => {
       if (state) setUpdateState(state);
     });
     return () => {
@@ -47,7 +49,7 @@ export default function AboutPage() {
 
   const handleDownload = useCallback(async () => {
     try {
-      const result = await window.electronAPI?.app?.downloadUpdate();
+      const result = await window.electronAPI?.app?.downloadUpdate?.();
       if (result && !result.success) {
         message.error(result.error || "下载失败");
       }
@@ -58,7 +60,7 @@ export default function AboutPage() {
 
   const handleInstall = useCallback(async () => {
     try {
-      await window.electronAPI?.app?.installUpdate();
+      await window.electronAPI?.app?.installUpdate?.();
     } catch {
       message.error("安装更新失败");
     }
@@ -174,7 +176,7 @@ export default function AboutPage() {
           {APP_DISPLAY_NAME}
         </div>
         <div style={{ marginTop: 8, fontSize: 16, color: "#71717a", fontWeight: 500 }}>
-          v{__APP_VERSION__}
+          v{appVersion || '...'}
         </div>
         <div
           style={{
