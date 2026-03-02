@@ -94,10 +94,14 @@ jobs:
         shell: bash
         run: python3 -m pip install setuptools --break-system-packages 2>/dev/null || python3 -m pip install setuptools
 
-      # Linux 构建 rpm 包需要 rpm 工具
-      - name: Install rpm tools (Linux)
+      # Linux 构建 deb/rpm 包需要 rpm 工具；arm64 runner 需要系统 fpm（内置 fpm 仅 x86）
+      - name: Install Linux build tools
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm ruby ruby-dev
+          sudo gem install fpm
+          echo "USE_SYSTEM_FPM=true" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         working-directory: crates/agent-electron-client

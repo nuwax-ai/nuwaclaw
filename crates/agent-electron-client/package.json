@@ -161,7 +161,9 @@
         "from": "resources/node",
         "to": "node",
         "filter": [
-          "**/*"
+          "**/*",
+          "!.cache",
+          "!.cache/**"
         ]
       }
     ],
