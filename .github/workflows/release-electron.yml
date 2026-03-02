@@ -6,9 +6,10 @@
 #
 # 支持平台：
 #   - macOS arm64（macos-latest）
-#   - macOS x64（macos-13）
-#   - Windows x64（nsis + portable）
+#   - macOS x64（macos-14-large）
+#   - Windows x64（msi）
 #   - Linux x64（AppImage + deb）
+#   - Linux arm64（AppImage + deb）
 #
 # 使用的 Secrets（可与 Tauri 共用 Apple 相关，也可单独配置）：
 #   - GH_PAT：创建 Release、上传资产（需 Contents: Write）
@@ -91,7 +92,10 @@ jobs:
             dist_cmd: dist:win
           - platform: ubuntu-latest
             arch: x64
-            dist_cmd: dist:linux
+            dist_cmd: dist:linux:x64
+          - platform: ubuntu-24.04-arm
+            arch: arm64
+            dist_cmd: dist:linux:arm64
 
     runs-on: ${{ matrix.platform }}
 
@@ -118,6 +122,11 @@ jobs:
       - name: Install setuptools for node-gyp (Python 3.12+)
         shell: bash
         run: python3 -m pip install setuptools --break-system-packages 2>/dev/null || python3 -m pip install setuptools
+
+      # Linux 构建 rpm 包需要 rpm 工具
+      - name: Install rpm tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm
 
       # 使用 npm install 替代 npm ci：lock 仅含当前平台的可选依赖，其他平台（esbuild/rollup 等）会报 Missing，install 会在各 runner 上按需解析
       - name: Install dependencies
