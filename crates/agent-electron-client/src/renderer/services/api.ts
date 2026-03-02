@@ -1,5 +1,5 @@
 /**
- * Nuwax Agent API 请求封装
+ * NuwaxBot API 请求封装
  * 统一处理请求、响应、错误码
  */
 

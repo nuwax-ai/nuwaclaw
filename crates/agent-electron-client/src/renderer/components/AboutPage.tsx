@@ -3,32 +3,134 @@
  *
  * 从 Tauri 版 AboutPage 适配而来:
  * - 版本号通过 Vite define 注入
- * - 检查更新按钮
+ * - 检查更新 + 下载 + 安装 完整流程
  */
 
-import React, { useState } from "react";
-import { Button, message } from "antd";
-import { RobotOutlined, SyncOutlined } from "@ant-design/icons";
+import React, { useState, useEffect, useCallback } from "react";
+import { Button, Progress, message, Space } from "antd";
+import { RobotOutlined, SyncOutlined, DownloadOutlined, PoweroffOutlined } from "@ant-design/icons";
 import { APP_DISPLAY_NAME } from "@shared/constants";
+import type { UpdateState } from "@shared/types/updateTypes";
 
 declare const __APP_VERSION__: string;
 
 export default function AboutPage() {
-  const [checking, setChecking] = useState(false);
+  const [updateState, setUpdateState] = useState<UpdateState>({ status: 'idle' });
 
-  const handleCheckUpdate = async () => {
-    setChecking(true);
+  // 监听主进程推送的更新状态
+  useEffect(() => {
+    const handler = (_event: unknown, state: UpdateState) => {
+      setUpdateState(state);
+    };
+    window.electronAPI?.on('update:status', handler as any);
+    // 初始化时获取一次当前状态
+    window.electronAPI?.app?.getUpdateState().then((state) => {
+      if (state) setUpdateState(state);
+    });
+    return () => {
+      window.electronAPI?.off('update:status', handler as any);
+    };
+  }, []);
+
+  const handleCheckUpdate = useCallback(async () => {
     try {
       const result = await window.electronAPI?.app?.checkUpdate();
-      if (result?.hasUpdate) {
-        message.success(`发现新版本: v${result.version}`);
-      } else {
+      if (result && !result.hasUpdate && !result.error) {
         message.info("当前已是最新版本");
+      } else if (result?.error) {
+        message.error(`检查更新失败: ${result.error}`);
       }
     } catch {
-      message.info("当前已是最新版本");
-    } finally {
-      setChecking(false);
+      message.error("检查更新失败");
+    }
+  }, []);
+
+  const handleDownload = useCallback(async () => {
+    try {
+      const result = await window.electronAPI?.app?.downloadUpdate();
+      if (result && !result.success) {
+        message.error(result.error || "下载失败");
+      }
+    } catch {
+      message.error("下载更新失败");
+    }
+  }, []);
+
+  const handleInstall = useCallback(async () => {
+    try {
+      await window.electronAPI?.app?.installUpdate();
+    } catch {
+      message.error("安装更新失败");
+    }
+  }, []);
+
+  const renderUpdateSection = () => {
+    const { status, version, progress, error } = updateState;
+
+    switch (status) {
+      case 'checking':
+        return (
+          <Button icon={<SyncOutlined spin />} disabled>
+            检查中...
+          </Button>
+        );
+
+      case 'available':
+        return (
+          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+            <div style={{ fontSize: 12, color: '#52525b' }}>
+              发现新版本: v{version}
+            </div>
+            <Button type="primary" icon={<DownloadOutlined />} onClick={handleDownload}>
+              下载更新
+            </Button>
+          </Space>
+        );
+
+      case 'downloading':
+        return (
+          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+            <div style={{ fontSize: 12, color: '#52525b' }}>
+              正在下载 v{version}...
+            </div>
+            <Progress
+              percent={Math.round(progress?.percent ?? 0)}
+              size="small"
+              status="active"
+            />
+          </Space>
+        );
+
+      case 'downloaded':
+        return (
+          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+            <div style={{ fontSize: 12, color: '#15803d' }}>
+              v{version} 已下载完成
+            </div>
+            <Button type="primary" icon={<PoweroffOutlined />} onClick={handleInstall}>
+              重启安装
+            </Button>
+          </Space>
+        );
+
+      case 'error':
+        return (
+          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+            <div style={{ fontSize: 12, color: '#dc2626' }}>
+              {error || '更新出错'}
+            </div>
+            <Button icon={<SyncOutlined />} onClick={handleCheckUpdate}>
+              重试
+            </Button>
+          </Space>
+        );
+
+      default:
+        return (
+          <Button icon={<SyncOutlined />} onClick={handleCheckUpdate}>
+            检查更新
+          </Button>
+        );
     }
   };
 
@@ -85,13 +187,7 @@ export default function AboutPage() {
           跨平台 AI 智能体桌面客户端
         </div>
         <div style={{ marginTop: 24 }}>
-          <Button
-            icon={<SyncOutlined />}
-            onClick={handleCheckUpdate}
-            loading={checking}
-          >
-            检查更新
-          </Button>
+          {renderUpdateSection()}
         </div>
       </div>
     </div>

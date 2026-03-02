@@ -48,7 +48,7 @@ import {
 describe('Constants', () => {
   describe('App Identity', () => {
     it('should have consistent app name', () => {
-      expect(APP_DISPLAY_NAME).toBe('Nuwax Agent');
+      expect(APP_DISPLAY_NAME).toBe('NuwaxBot');
       expect(APP_NAME_IDENTIFIER).toBe('nuwax-agent');
     });
 

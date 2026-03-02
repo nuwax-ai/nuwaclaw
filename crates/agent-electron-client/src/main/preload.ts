@@ -305,6 +305,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   app: {
     checkUpdate: () => ipcRenderer.invoke('app:checkUpdate'),
     getVersion: () => ipcRenderer.invoke('app:getVersion'),
+    downloadUpdate: () => ipcRenderer.invoke('app:downloadUpdate'),
+    installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
+    getUpdateState: () => ipcRenderer.invoke('app:getUpdateState'),
   },
 
   // Permissions (macOS)
@@ -315,7 +318,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Event listeners
   on: (channel: string, callback: (...args: unknown[]) => void) => {
-    const validChannels = ['menu:new-session', 'menu:settings', 'menu:mcp-settings', 'menu:dependencies', 'cowork:message', 'cowork:permission', 'agent:event', 'computer:progress'];
+    const validChannels = ['menu:new-session', 'menu:settings', 'menu:mcp-settings', 'menu:dependencies', 'cowork:message', 'cowork:permission', 'agent:event', 'computer:progress', 'update:status'];
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, (_, ...args) => callback(...args));
     }

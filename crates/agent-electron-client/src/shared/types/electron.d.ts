@@ -17,11 +17,9 @@ export interface Message {
   created_at: number;
 }
 
-export interface McpServerEntry {
-  command: string;
-  args: string[];
-  env?: Record<string, string>;
-}
+export type McpServerEntry =
+  | { command: string; args: string[]; env?: Record<string, string> }
+  | { url: string; transport?: 'streamable-http' | 'sse'; headers?: Record<string, string>; authToken?: string };
 
 export interface McpServersConfig {
   mcpServers: Record<string, McpServerEntry>;
@@ -249,9 +247,14 @@ export interface LogAPI {
   list: (count?: number) => Promise<LogEntry[]>;
 }
 
+import type { UpdateInfo, UpdateState } from './updateTypes';
+
 export interface AppAPI {
-  checkUpdate: () => Promise<{ hasUpdate: boolean; version?: string; error?: string }>;
+  checkUpdate: () => Promise<UpdateInfo>;
   getVersion: () => Promise<string>;
+  downloadUpdate: () => Promise<{ success: boolean; error?: string }>;
+  installUpdate: () => Promise<{ success: boolean; error?: string }>;
+  getUpdateState: () => Promise<UpdateState>;
 }
 
 export type PermissionStatus = 'granted' | 'denied' | 'unknown';

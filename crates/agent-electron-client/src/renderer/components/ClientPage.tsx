@@ -510,7 +510,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
               prefix={<LockOutlined />}
               value={loginPassword}
               onChange={(e) => setLoginPassword(e.target.value)}
-              placeholder="请填写动态认证码（在PC端或移动端的个人资料中查看）"
+              placeholder="请输入动态认证码（请在用户中心查看）"
               autoComplete="current-password"
             />
           </Form.Item>

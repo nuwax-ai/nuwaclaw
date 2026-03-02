@@ -409,7 +409,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
                 prefix={<LockOutlined />}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="请填写动态认证码"
+                placeholder="请输入动态认证码（请在用户中心查看）"
                 autoComplete="current-password"
               />
             </Form.Item>

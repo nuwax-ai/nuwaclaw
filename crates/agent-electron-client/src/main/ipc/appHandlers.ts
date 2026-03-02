@@ -5,6 +5,7 @@ import { execSync } from 'child_process';
 import log from 'electron-log';
 import type { HandlerContext } from '@shared/types/ipc';
 import { LATEST_LOG_BASENAME } from '../logConfig';
+import { checkForUpdates, downloadUpdate, installUpdate, getUpdateState } from '../services/autoUpdater';
 
 export function registerAppHandlers(ctx: HandlerContext): void {
   // Autolaunch
@@ -92,11 +93,33 @@ export function registerAppHandlers(ctx: HandlerContext): void {
 
   ipcMain.handle('app:checkUpdate', async () => {
     try {
-      return { hasUpdate: false };
+      return await checkForUpdates();
     } catch (error) {
       log.error('[IPC] app:checkUpdate failed:', error);
       return { hasUpdate: false, error: String(error) };
     }
+  });
+
+  ipcMain.handle('app:downloadUpdate', async () => {
+    try {
+      return await downloadUpdate();
+    } catch (error) {
+      log.error('[IPC] app:downloadUpdate failed:', error);
+      return { success: false, error: String(error) };
+    }
+  });
+
+  ipcMain.handle('app:installUpdate', () => {
+    try {
+      return installUpdate();
+    } catch (error) {
+      log.error('[IPC] app:installUpdate failed:', error);
+      return { success: false, error: String(error) };
+    }
+  });
+
+  ipcMain.handle('app:getUpdateState', () => {
+    return getUpdateState();
   });
 
   // Permissions (macOS)

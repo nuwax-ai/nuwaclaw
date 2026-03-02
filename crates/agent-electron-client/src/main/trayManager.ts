@@ -13,6 +13,7 @@ import * as path from 'path';
 import log from 'electron-log';
 import { APP_DISPLAY_NAME } from '@shared/constants';
 import { createAutoLaunchManager, AutoLaunchManager } from './autoLaunchManager';
+import { checkForUpdates, downloadUpdate, installUpdate } from './services/autoUpdater';
 
 // ==================== Types ====================
 
@@ -171,6 +172,54 @@ export class TrayManager {
             this.updateMenu();
           } else {
             dialog.showErrorBox('错误', '设置开机自启动失败');
+          }
+        },
+      },
+      { type: 'separator' },
+      {
+        label: '检查更新',
+        click: async () => {
+          try {
+            const result = await checkForUpdates();
+            if (result.hasUpdate) {
+              const { response } = await dialog.showMessageBox({
+                type: 'info',
+                title: '发现新版本',
+                message: `发现新版本 v${result.version}`,
+                detail: '是否立即下载更新？',
+                buttons: ['下载更新', '稍后再说'],
+                defaultId: 0,
+                cancelId: 1,
+              });
+              if (response === 0) {
+                const dlResult = await downloadUpdate();
+                if (dlResult.success) {
+                  const { response: installResponse } = await dialog.showMessageBox({
+                    type: 'info',
+                    title: '更新已下载',
+                    message: '更新已下载完成',
+                    detail: '是否立即重启安装？',
+                    buttons: ['重启安装', '退出时安装'],
+                    defaultId: 0,
+                    cancelId: 1,
+                  });
+                  if (installResponse === 0) {
+                    installUpdate();
+                  }
+                } else {
+                  dialog.showErrorBox('下载失败', dlResult.error || '下载更新时出错，请稍后重试');
+                }
+              }
+            } else {
+              dialog.showMessageBox({
+                type: 'info',
+                title: '检查更新',
+                message: '当前已是最新版本',
+              });
+            }
+          } catch (e: any) {
+            log.error('[Tray] Check update failed:', e);
+            dialog.showErrorBox('检查更新失败', e.message || '请稍后重试');
           }
         },
       },

@@ -14,6 +14,7 @@ import { APP_DISPLAY_NAME } from '@shared/constants';
 import { initLogging } from './logConfig';
 import { createTrayManager, TrayStatus } from './trayManager';
 import { createServiceManager } from './serviceManager';
+import { initAutoUpdater } from './services/autoUpdater';
 
 // macOS 26 Tahoe 兼容性：禁用 Fontations 字体后端
 // 参考: https://github.com/electron/electron/issues/49522
@@ -314,6 +315,7 @@ app.whenReady().then(async () => {
 
   createWindow();
   await initTrayManager();
+  initAutoUpdater(() => mainWindow);
 });
 
 app.on('window-all-closed', () => {
