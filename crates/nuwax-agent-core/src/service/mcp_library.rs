@@ -13,6 +13,7 @@
 use anyhow::{Context, Result};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::{debug, info, warn};
 
 // 从 mcp-stdio-proxy 导入类型（从根模块导出）
 use mcp_stdio_proxy::{mcp_start_task, McpConfig, McpProtocol, McpType};
@@ -87,10 +88,16 @@ pub async fn start_mcp_service(
     );
     tracing::info!("[McpLibrary] 配置: {}", config.mcp_json_config);
 
+    // Windows 上预处理 npx 命令，避免 .cmd 文件导致窗口闪烁
+    #[cfg(target_os = "windows")]
+    let mcp_json_config = preprocess_npx_command(&config.mcp_json_config);
+    #[cfg(not(target_os = "windows"))]
+    let mcp_json_config = config.mcp_json_config.clone();
+
     // 构建 McpConfig
     let mcp_config = McpConfig {
         mcp_id: config.mcp_id,
-        mcp_json_config: Some(config.mcp_json_config),
+        mcp_json_config: Some(mcp_json_config),
         mcp_type: config.mcp_type,
         client_protocol: config.client_protocol,
         server_config: None,
@@ -100,6 +107,232 @@ pub async fn start_mcp_service(
     mcp_start_task(mcp_config)
         .await
         .with_context(|| "MCP 服务启动失败")
+}
+
+/// Windows 上预处理 npx 命令
+///
+/// 将 `npx -y package@version` 转换为直接的 `node` 命令，
+/// 避免使用 .cmd 批处理文件导致窗口闪烁。
+///
+/// 转换规则：
+/// 1. 检测 npx 命令
+/// 2. 查找已安装的包的 JS 入口
+/// 3. 如果找到，转换为 `node <js_entry>` 命令
+/// 4. 如果找不到，保持原样
+#[cfg(target_os = "windows")]
+fn preprocess_npx_command(mcp_json_config: &str) -> String {
+    // 解析 JSON 配置
+    let mut config: serde_json::Value = match serde_json::from_str(mcp_json_config) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!("[McpLibrary] 配置解析失败，保持原样: {}", e);
+            return mcp_json_config.to_string();
+        }
+    };
+
+    // 查找 mcpServers 对象
+    let mcp_servers = match config.get_mut("mcpServers") {
+        Some(v) if v.is_object() => v.as_object_mut().unwrap(),
+        _ => {
+            debug!("[McpLibrary] 未找到 mcpServers，保持原样");
+            return mcp_json_config.to_string();
+        }
+    };
+
+    let mut modified = false;
+    for (_server_name, server_config) in mcp_servers.iter_mut() {
+        if let Some(obj) = server_config.as_object_mut() {
+            // 先收集需要的信息，避免借用冲突
+            let command = obj.get("command").and_then(|c| c.as_str()).map(str::to_string);
+            let args = obj.get("args").and_then(|a| a.as_array()).map(|arr| {
+                arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect::<Vec<_>>()
+            });
+
+            if let Some(command) = command {
+                // 检测 npx 命令
+                if command == "npx" || command == "npx.cmd" || command.ends_with("npx") || command.ends_with("npx.cmd") {
+                    if let Some(args) = args {
+                        // 提取包名（跳过 -y 标志）
+                        let package_name = args
+                            .iter()
+                            .find(|s| !s.starts_with('-') && s.contains('@'));
+
+                        if let Some(pkg) = package_name {
+                            // 尝试找到已安装的包
+                            if let Some((node_exe, js_entry)) = find_npx_package_entry(pkg) {
+                                info!(
+                                    "[McpLibrary] Windows npx 转换: npx {} -> node {}",
+                                    pkg,
+                                    js_entry.display()
+                                );
+
+                                // 更新命令和参数
+                                obj.insert("command".to_string(), serde_json::json!(node_exe.to_string_lossy().to_string()));
+
+                                // 移除 -y 和包名，添加 JS 入口
+                                let mut new_args = vec![js_entry.to_string_lossy().to_string()];
+                                // 保留除 -y 和包名之外的参数
+                                for arg in &args {
+                                    if arg != "-y" && arg != pkg {
+                                        new_args.push(arg.clone());
+                                    }
+                                }
+                                obj.insert("args".to_string(), serde_json::json!(new_args));
+                                modified = true;
+                            } else {
+                                debug!(
+                                    "[McpLibrary] 未找到已安装的包: {}，保持 npx 命令",
+                                    pkg
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if modified {
+        serde_json::to_string(&config).unwrap_or_else(|_| mcp_json_config.to_string())
+    } else {
+        mcp_json_config.to_string()
+    }
+}
+
+/// 查找 npx 包的 node 可执行文件和 JS 入口
+#[cfg(target_os = "windows")]
+fn find_npx_package_entry(package_spec: &str) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    // 解析包名（去掉版本号）
+    let package_name = package_spec.split('@').next().unwrap_or(package_spec);
+
+    // 查找 node.exe
+    let node_exe = find_node_exe()?;
+
+    // 在多个可能的位置查找已安装的包
+    let search_paths = get_npx_cache_paths();
+
+    for node_modules_dir in search_paths {
+        let package_dir = node_modules_dir.join(package_name);
+        if !package_dir.exists() {
+            continue;
+        }
+
+        // 读取 package.json 查找入口
+        let package_json_path = package_dir.join("package.json");
+        if let Ok(content) = std::fs::read_to_string(&package_json_path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                // 查找 bin 字段
+                let bin_entry = json.get("bin").and_then(|b| {
+                    if let Some(s) = b.as_str() {
+                        Some(s.to_string())
+                    } else if let Some(obj) = b.as_object() {
+                        obj.get(package_name)
+                            .or_else(|| obj.values().next())
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string)
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(bin_entry) = bin_entry {
+                    let js_entry = package_dir.join(bin_entry);
+                    if js_entry.exists() {
+                        debug!(
+                            "[McpLibrary] 找到包入口: {} -> {}",
+                            package_name,
+                            js_entry.display()
+                        );
+                        return Some((node_exe, js_entry));
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// 查找 node.exe 路径
+#[cfg(target_os = "windows")]
+fn find_node_exe() -> Option<std::path::PathBuf> {
+    // 1. 检查环境变量
+    if let Ok(node_from_env) = std::env::var("NUWAX_NODE_EXE") {
+        let path = std::path::PathBuf::from(node_from_env);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    // 2. 检查应用资源目录
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let resource_paths = [
+                exe_dir.join("resources").join("node").join("bin").join("node.exe"),
+                exe_dir.parent()
+                    .unwrap_or(exe_dir)
+                    .join("resources")
+                    .join("node")
+                    .join("bin")
+                    .join("node.exe"),
+            ];
+
+            for path in resource_paths {
+                if path.exists() {
+                    return Some(path);
+                }
+            }
+        }
+    }
+
+    // 3. 使用 which crate 查找
+    crate::utils::path_env::find_executable_path("node.exe")
+}
+
+/// 获取 npx 缓存搜索路径
+#[cfg(target_os = "windows")]
+fn get_npx_cache_paths() -> Vec<std::path::PathBuf> {
+    let mut paths = Vec::new();
+
+    // npm 全局 node_modules
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let appdata_path = std::path::PathBuf::from(&appdata);
+
+        // npm 全局目录
+        paths.push(appdata_path.join("npm").join("node_modules"));
+
+        // 应用私有目录
+        paths.push(
+            appdata_path
+                .join("com.nuwax.agent-tauri-client")
+                .join("node_modules"),
+        );
+
+        // npx 缓存目录（npm 8.16+）
+        paths.push(appdata_path.join("npm-cache").join("_npx"));
+    }
+
+    // 应用资源目录
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let resource_paths = [
+                exe_dir.join("resources").join("node").join("node_modules"),
+                exe_dir.parent()
+                    .unwrap_or(exe_dir)
+                    .join("resources")
+                    .join("node")
+                    .join("node_modules"),
+            ];
+
+            for path in resource_paths {
+                if path.exists() {
+                    paths.push(path);
+                }
+            }
+        }
+    }
+
+    paths
 }
 
 /// 全局 MCP 库模式运行时状态（用于跟踪和停止服务）
