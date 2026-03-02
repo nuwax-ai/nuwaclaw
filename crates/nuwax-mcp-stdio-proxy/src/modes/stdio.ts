@@ -13,8 +13,14 @@ import { isSseEntry, isStreamableEntry } from '../types.js';
 import { logInfo, logWarn, logError } from '../logger.js';
 import { buildBaseEnv, connectStdio, connectStreamable, connectSse } from '../transport.js';
 import { discoverTools, createToolProxyServer, setupGracefulShutdown } from '../shared.js';
+import { filterTools } from '../filter.js';
+import type { ToolFilter } from '../filter.js';
 
-export async function runStdio(config: McpServersConfig): Promise<void> {
+export async function runStdio(
+  config: McpServersConfig,
+  allowTools?: string[],
+  denyTools?: string[],
+): Promise<void> {
   const entries = Object.entries(config.mcpServers);
 
   if (entries.length === 0) {
@@ -52,13 +58,25 @@ export async function runStdio(config: McpServersConfig): Promise<void> {
       clients.set(id, client);
       cleanups.set(id, cleanup);
 
-      const allServerTools = await discoverTools(client);
+      let serverTools = await discoverTools(client);
+
+      // Per-server tool filtering (allowTools/denyTools in config entry)
+      if (entry.allowTools || entry.denyTools) {
+        const perFilter: ToolFilter = {};
+        if (entry.allowTools) perFilter.allowTools = new Set(entry.allowTools);
+        if (entry.denyTools) perFilter.denyTools = new Set(entry.denyTools);
+        const before = serverTools.length;
+        serverTools = filterTools(serverTools, perFilter);
+        if (serverTools.length !== before) {
+          logInfo(`Server "${id}": filtered ${before} → ${serverTools.length} tool(s)`);
+        }
+      }
 
       logInfo(
-        `Server "${id}": ${allServerTools.length} tool(s)${allServerTools.length > 0 ? ' — ' + allServerTools.map((t) => t.name).join(', ') : ''}`,
+        `Server "${id}": ${serverTools.length} tool(s)${serverTools.length > 0 ? ' — ' + serverTools.map((t) => t.name).join(', ') : ''}`,
       );
 
-      for (const tool of allServerTools) {
+      for (const tool of serverTools) {
         if (toolToClient.has(tool.name)) {
           logWarn(
             `Tool "${tool.name}" from "${id}" shadows existing tool from "${toolToServer.get(tool.name)}"`,
@@ -82,11 +100,24 @@ export async function runStdio(config: McpServersConfig): Promise<void> {
   const aggregatedTools = Array.from(toolsByName.values());
   logInfo(`Aggregated ${aggregatedTools.length} unique tool(s) from ${clients.size} server(s)`);
 
+  // ---- Phase 1.5: Apply tool filtering (allow/deny) ----
+
+  const toolFilter: ToolFilter = {};
+  if (allowTools) toolFilter.allowTools = new Set(allowTools);
+  if (denyTools) toolFilter.denyTools = new Set(denyTools);
+
+  const filteredTools = filterTools(aggregatedTools, toolFilter);
+  const filteredNames = new Set(filteredTools.map((t) => t.name));
+
+  if (filteredTools.length !== aggregatedTools.length) {
+    logInfo(`After filtering: ${filteredTools.length} tool(s) — ${filteredTools.map((t) => t.name).join(', ')}`);
+  }
+
   // ---- Phase 2: Create the aggregating MCP server ----
 
   const { server } = await createToolProxyServer({
-    tools: aggregatedTools,
-    resolveClient: (name) => toolToClient.get(name),
+    tools: filteredTools,
+    resolveClient: (name) => filteredNames.has(name) ? toolToClient.get(name) : undefined,
     errorLabel: (name) => `"${name}" (server: "${toolToServer.get(name) || 'unknown'}")`,
   });
 

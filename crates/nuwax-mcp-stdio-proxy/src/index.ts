@@ -26,7 +26,7 @@ import { runProxy } from './modes/proxy.js';
 // ========== CLI Argument Types ==========
 
 type CliArgs =
-  | { mode: 'stdio'; config: McpServersConfig }
+  | { mode: 'stdio'; config: McpServersConfig; allowTools?: string[]; denyTools?: string[] }
   | {
       mode: 'convert';
       url?: string;
@@ -66,16 +66,37 @@ function parseCliArgs(): CliArgs {
 }
 
 function parseStdioArgs(args: string[]): CliArgs & { mode: 'stdio' } {
-  const idx = args.indexOf('--config');
+  let configJson: string | undefined;
+  let allowTools: string[] | undefined;
+  let denyTools: string[] | undefined;
 
-  if (idx === -1 || idx + 1 >= args.length) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--config' && i + 1 < args.length) {
+      i++;
+      configJson = args[i];
+    } else if (arg === '--allow-tools' && i + 1 < args.length) {
+      i++;
+      allowTools = args[i].split(',').map((s) => s.trim()).filter(Boolean);
+    } else if (arg === '--deny-tools' && i + 1 < args.length) {
+      i++;
+      denyTools = args[i].split(',').map((s) => s.trim()).filter(Boolean);
+    }
+  }
+
+  if (!configJson) {
     logError('Missing --config argument');
     logError('Usage: nuwax-mcp-stdio-proxy --config \'{"mcpServers":{...}}\'');
     process.exit(1);
   }
 
-  const config = parseConfigJson(args[idx + 1]);
-  return { mode: 'stdio', config };
+  if (allowTools && denyTools) {
+    logError('Cannot use both --allow-tools and --deny-tools');
+    process.exit(1);
+  }
+
+  const config = parseConfigJson(configJson);
+  return { mode: 'stdio', config, allowTools, denyTools };
 }
 
 function parseConvertArgs(args: string[]): CliArgs & { mode: 'convert' } {
@@ -187,9 +208,13 @@ function parseConfigJson(json: string): McpServersConfig {
 
 function printUsage(): void {
   logError('Usage:');
-  logError('  nuwax-mcp-stdio-proxy --config \'{"mcpServers":{...}}\'          (stdio aggregation)');
-  logError('  nuwax-mcp-stdio-proxy convert [URL] [OPTIONS]                  (remote → stdio)');
-  logError('  nuwax-mcp-stdio-proxy proxy --port <PORT> --config \'...\'       (HTTP server)');
+  logError('  nuwax-mcp-stdio-proxy --config \'{"mcpServers":{...}}\' [OPTIONS]  (stdio aggregation)');
+  logError('  nuwax-mcp-stdio-proxy convert [URL] [OPTIONS]                    (remote → stdio)');
+  logError('  nuwax-mcp-stdio-proxy proxy --port <PORT> --config \'...\'         (HTTP server)');
+  logError('');
+  logError('Options (stdio / convert):');
+  logError('  --allow-tools <TOOLS>          Tool whitelist (comma-separated)');
+  logError('  --deny-tools <TOOLS>           Tool blacklist (comma-separated)');
 }
 
 function printConvertUsage(): void {
@@ -217,7 +242,7 @@ async function main(): Promise<void> {
 
   switch (args.mode) {
     case 'stdio':
-      await runStdio(args.config);
+      await runStdio(args.config, args.allowTools, args.denyTools);
       break;
     case 'convert':
       await runConvert(args);

@@ -7,6 +7,10 @@ export interface StdioServerEntry {
   command: string;
   args?: string[];
   env?: Record<string, string>;
+  /** 工具白名单（只暴露指定工具） */
+  allowTools?: string[];
+  /** 工具黑名单（排除指定工具） */
+  denyTools?: string[];
 }
 
 /**
@@ -20,6 +24,10 @@ export interface StreamableServerEntry {
   transport?: 'streamable-http';
   headers?: Record<string, string>;
   authToken?: string;
+  /** 工具白名单（只暴露指定工具） */
+  allowTools?: string[];
+  /** 工具黑名单（排除指定工具） */
+  denyTools?: string[];
 }
 
 /**
@@ -32,6 +40,10 @@ export interface SseServerEntry {
   transport: 'sse';
   headers?: Record<string, string>;
   authToken?: string;
+  /** 工具白名单（只暴露指定工具） */
+  allowTools?: string[];
+  /** 工具黑名单（排除指定工具） */
+  denyTools?: string[];
 }
 
 export type McpServerEntry = StdioServerEntry | StreamableServerEntry | SseServerEntry;
