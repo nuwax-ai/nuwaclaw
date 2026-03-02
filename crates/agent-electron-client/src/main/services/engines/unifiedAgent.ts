@@ -245,13 +245,13 @@ export class UnifiedAgentService extends EventEmitter {
    */
   async ensureEngineForRequest(request: ComputerChatRequest): Promise<void> {
     // 按会话动态加载：本请求携带的 context_servers 同步到 MCP Proxy（从桥接项 --config 解析真实服务），一次会话就会更新 proxy 配置
-    const requestMcpServersEarly: NonNullable<AgentConfig['mcpServers']> = {};
+    const requestMcpServersEarly: Record<string, { command: string; args: string[]; env?: Record<string, string>; allowTools?: string[]; denyTools?: string[] }> = {};
     if (request.agent_config?.context_servers) {
       // Resolve uvx/uv commands to app-internal binaries for dynamic MCP servers
       // For bridge entries (mcp-proxy convert --config ...), extract inner real MCP servers
       let mcpModule: {
         resolveUvCommand: (cmd: string, args: string[], dir?: string) => { command: string; args: string[] };
-        extractRealMcpServers: (cmd: string, args: string[], env?: Record<string, string>, dir?: string) => Record<string, { command: string; args: string[]; env?: Record<string, string> }> | null;
+        extractRealMcpServers: (cmd: string, args: string[], env?: Record<string, string>, dir?: string) => Record<string, { command: string; args: string[]; env?: Record<string, string>; allowTools?: string[]; denyTools?: string[] }> | null;
       } | null = null;
       try {
         mcpModule = await import('../packages/mcp');

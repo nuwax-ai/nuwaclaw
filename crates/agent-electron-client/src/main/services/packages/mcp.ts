@@ -149,7 +149,7 @@ export function extractRealMcpServers(
   args: string[],
   env?: Record<string, string>,
   uvBinDir?: string,
-): Record<string, { command: string; args: string[]; env?: Record<string, string> }> | null {
+): Record<string, { command: string; args: string[]; env?: Record<string, string>; allowTools?: string[]; denyTools?: string[] }> | null {
   // Must be a bridge entry
   if (command !== 'mcp-proxy' && path.basename(command) !== 'mcp-proxy') return null;
 
@@ -170,12 +170,23 @@ export function extractRealMcpServers(
   const inner = parsed?.mcpServers;
   if (!inner || typeof inner !== 'object') return null;
 
+  // 解析 --allow-tools / --deny-tools（从 convert 模式的参数中提取）
+  let allowTools: string[] | undefined;
+  let denyTools: string[] | undefined;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--allow-tools' && i + 1 < args.length) {
+      allowTools = args[i + 1].split(',').map((s) => s.trim()).filter(Boolean);
+    } else if (args[i] === '--deny-tools' && i + 1 < args.length) {
+      denyTools = args[i + 1].split(',').map((s) => s.trim()).filter(Boolean);
+    }
+  }
+
   // Build base environment variables for child MCP servers
   // Use full getAppEnv() to ensure Windows system variables (SystemRoot, COMSPEC, etc.)
   // and app-internal tool paths (NODE_PATH, NPM_CONFIG_*, UV_*) are available
   const appEnv = getAppEnv();
 
-  const result: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
+  const result: Record<string, { command: string; args: string[]; env?: Record<string, string>; allowTools?: string[]; denyTools?: string[] }> = {};
   for (const [name, srv] of Object.entries(inner)) {
     if (!srv || typeof srv.command !== 'string') continue;
     const resolved = resolveUvCommand(srv.command, srv.args || [], dir);
@@ -184,6 +195,8 @@ export function extractRealMcpServers(
       command: resolved.command,
       args: resolved.args,
       env: { ...appEnv, ...env, ...(srv.env || {}) },
+      ...(allowTools ? { allowTools } : {}),
+      ...(denyTools ? { denyTools } : {}),
     };
   }
 
@@ -205,6 +218,11 @@ export function resolveServersConfig(
   const dir = getUvBinDir();
   const result: Record<string, McpServerEntry> = {};
   for (const [name, entry] of Object.entries(servers)) {
+    // 远程类型直接透传，无需 env / uv 解析
+    if (isRemoteEntry(entry)) {
+      result[name] = entry;
+      continue;
+    }
     if (entry.command === 'mcp-proxy') continue;
     const resolved = resolveUvCommand(entry.command, entry.args || [], dir);
     result[name] = {
@@ -212,6 +230,8 @@ export function resolveServersConfig(
       args: resolved.args,
       env: { ...appEnv, ...(entry.env || {}) },
       ...(entry.persistent ? { persistent: true } : {}),
+      ...(entry.allowTools ? { allowTools: entry.allowTools } : {}),
+      ...(entry.denyTools ? { denyTools: entry.denyTools } : {}),
     };
   }
   return result;
@@ -240,6 +260,11 @@ function injectBaseEnvToMcpServers(
 
   const result: Record<string, McpServerEntry> = {};
   for (const [name, entry] of Object.entries(servers)) {
+    // 远程类型无需 env 注入
+    if (isRemoteEntry(entry)) {
+      result[name] = entry;
+      continue;
+    }
     result[name] = {
       ...entry,
       env: { ...appEnv, ...(entry.env || {}) },
@@ -248,18 +273,42 @@ function injectBaseEnvToMcpServers(
   return result;
 }
 
-/** 单个 MCP Server 的配置（mcpServers 格式） */
-export interface McpServerEntry {
+/** stdio 类型 MCP Server 配置 */
+export interface StdioMcpServerEntry {
   command: string;
   args: string[];
   env?: Record<string, string>;
   /** 标记为持久化 server（生命周期由 PersistentMcpBridge 管理，而非跟随 ACP session） */
   persistent?: boolean;
+  /** 工具白名单（只暴露指定工具） */
+  allowTools?: string[];
+  /** 工具黑名单（排除指定工具） */
+  denyTools?: string[];
+}
+
+/** 远程类型 MCP Server 配置 (Streamable HTTP / SSE) */
+export interface RemoteMcpServerEntry {
+  url: string;
+  transport?: 'streamable-http' | 'sse';
+  headers?: Record<string, string>;
+  authToken?: string;
+}
+
+/** 单个 MCP Server 的配置（mcpServers 格式） */
+export type McpServerEntry = StdioMcpServerEntry | RemoteMcpServerEntry;
+
+/** 判断是否为远程类型（有 url 字段） */
+export function isRemoteEntry(entry: McpServerEntry): entry is RemoteMcpServerEntry {
+  return 'url' in entry;
 }
 
 /** mcpServers 配置（传给 nuwax-mcp-stdio-proxy 的 JSON） */
 export interface McpServersConfig {
   mcpServers: Record<string, McpServerEntry>;
+  /** 工具白名单（只允许指定的工具） */
+  allowTools?: string[];
+  /** 工具黑名单（排除指定的工具） */
+  denyTools?: string[];
 }
 
 /** MCP Proxy 运行状态（语义变更：running = "binary 可用" 而非 "进程在运行"） */
@@ -342,10 +391,10 @@ class McpProxyManager {
   /**
    * 从当前配置中提取标记为 persistent 的 servers
    */
-  getPersistentServers(): Record<string, McpServerEntry> {
-    const result: Record<string, McpServerEntry> = {};
+  getPersistentServers(): Record<string, StdioMcpServerEntry> {
+    const result: Record<string, StdioMcpServerEntry> = {};
     for (const [name, entry] of Object.entries(this.config.mcpServers)) {
-      if (entry.persistent) result[name] = entry;
+      if (!isRemoteEntry(entry) && entry.persistent) result[name] = entry;
     }
     return result;
   }
@@ -381,7 +430,7 @@ class McpProxyManager {
     const persistent = this.getPersistentServers();
     if (Object.keys(persistent).length > 0) {
       try {
-        await persistentMcpBridge.start(resolveServersConfig(persistent));
+        await persistentMcpBridge.start(resolveServersConfig(persistent) as Record<string, StdioMcpServerEntry>);
         log.info('[McpProxy] PersistentMcpBridge 已启动');
       } catch (e) {
         log.error('[McpProxy] PersistentMcpBridge 启动失败:', e);
@@ -469,22 +518,30 @@ class McpProxyManager {
 
     const scriptPath = this.getProxyScriptPath();
 
-    // 构建统一的 proxy 配置（混合 stdio 和 bridge 类型）
-    const proxyServers: Record<string, { command?: string; args?: string[]; env?: Record<string, string>; url?: string }> = {};
+    // 构建统一的 proxy 配置（混合 stdio、bridge 和远程类型）
+    const proxyServers: Record<string, { command?: string; args?: string[]; env?: Record<string, string>; url?: string; transport?: string; headers?: Record<string, string>; authToken?: string; allowTools?: string[]; denyTools?: string[] }> = {};
 
-    // 1. 临时 server → resolveServersConfig (command/args/env)
+    // 1. 远程 server → 直接透传（url/transport/headers/authToken）
     for (const [name, entry] of Object.entries(servers)) {
-      if (entry.persistent) continue;
-      // resolveServersConfig 处理单个条目
-      const resolved = resolveServersConfig({ [name]: entry });
-      if (resolved[name]) {
-        proxyServers[name] = resolved[name];
+      if (isRemoteEntry(entry)) {
+        proxyServers[name] = entry;
       }
     }
 
-    // 2. 持久化 server → bridge URL
+    // 2. 临时 stdio server → resolveServersConfig (command/args/env)
+    for (const [name, entry] of Object.entries(servers)) {
+      if (isRemoteEntry(entry)) continue;
+      if (entry.persistent) continue;
+      const resolved = resolveServersConfig({ [name]: entry });
+      if (resolved[name]) {
+        proxyServers[name] = resolved[name] as typeof proxyServers[string];
+      }
+    }
+
+    // 3. 持久化 server → bridge URL
     if (persistentMcpBridge.isRunning()) {
       for (const [name, entry] of Object.entries(servers)) {
+        if (isRemoteEntry(entry)) continue;
         if (!entry.persistent) continue;
         const url = persistentMcpBridge.getBridgeUrl(name);
         if (url) {
@@ -513,10 +570,18 @@ class McpProxyManager {
       // 包含 Windows 系统变量 (SystemRoot, COMSPEC 等) 和应用内工具路径
       const proxyEnv = getAppEnv();
 
+      // 构建 proxy 启动参数
+      const proxyArgs = [scriptPath, '--config', configJson];
+      if (this.config.allowTools && this.config.allowTools.length > 0) {
+        proxyArgs.push('--allow-tools', this.config.allowTools.join(','));
+      } else if (this.config.denyTools && this.config.denyTools.length > 0) {
+        proxyArgs.push('--deny-tools', this.config.denyTools.join(','));
+      }
+
       return {
         'mcp-proxy': {
           command: nodeBinPath,
-          args: [scriptPath, '--config', configJson],
+          args: proxyArgs,
           env: proxyEnv,
         },
       };
@@ -551,33 +616,54 @@ export const mcpProxyManager = new McpProxyManager();
  * 不再需要重启进程 — Agent 下次 init 时 getAgentMcpConfig() 会使用新配置。
  */
 export async function syncMcpConfigToProxyAndReload(
-  mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>,
+  mcpServers: Record<string, McpServerEntry>,
 ): Promise<void> {
   if (!mcpServers || Object.keys(mcpServers).length === 0) return;
 
   // 提取真实服务（过滤旧桥接项 command==='mcp-proxy'）
-  const realOnly: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
+  const realOnly: Record<string, McpServerEntry> = {};
   for (const [name, entry] of Object.entries(mcpServers)) {
-    if (!entry || entry.command === 'mcp-proxy') continue;
-    realOnly[name] = { command: entry.command, args: Array.isArray(entry.args) ? entry.args : [], env: entry.env };
+    if (!entry) continue;
+    if (isRemoteEntry(entry)) {
+      // 远程类型直接透传
+      realOnly[name] = entry;
+    } else {
+      if (entry.command === 'mcp-proxy') continue;
+      realOnly[name] = {
+        command: entry.command,
+        args: Array.isArray(entry.args) ? entry.args : [],
+        env: entry.env,
+        ...(entry.allowTools ? { allowTools: entry.allowTools } : {}),
+        ...(entry.denyTools ? { denyTools: entry.denyTools } : {}),
+      };
+    }
   }
   if (Object.keys(realOnly).length === 0) return;
 
   // 合并默认服务器（如 chrome-devtools），确保内置 MCP 服务始终存在
-  const merged: typeof realOnly = { ...DEFAULT_MCP_PROXY_CONFIG.mcpServers, ...realOnly };
+  const merged: Record<string, McpServerEntry> = { ...DEFAULT_MCP_PROXY_CONFIG.mcpServers, ...realOnly };
 
   // 为所有 MCP 服务器注入基础环境变量（包括 PATH）
   const mergedWithEnv = injectBaseEnvToMcpServers(merged);
 
   log.info('[McpProxy] 同步 MCP 配置:', Object.keys(mergedWithEnv).join(', '));
-  mcpProxyManager.setConfig({ mcpServers: mergedWithEnv });
+  // 保留已有的 allowTools/denyTools 配置
+  const existing = mcpProxyManager.getConfig();
+  mcpProxyManager.setConfig({
+    mcpServers: mergedWithEnv,
+    allowTools: existing.allowTools,
+    denyTools: existing.denyTools,
+  });
+
+  // 持久化到 SQLite（包含 allowTools/denyTools）
+  const persistConfig = mcpProxyManager.getConfig();
 
   // 持久化到 SQLite
   try {
     const { getDb } = await import('../../db');
     const db = getDb();
     if (db) {
-      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('mcp_proxy_config', JSON.stringify({ mcpServers: mergedWithEnv }));
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('mcp_proxy_config', JSON.stringify(persistConfig));
       log.info('[McpProxy] MCP 配置已持久化');
     }
   } catch (e) {

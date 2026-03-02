@@ -23,6 +23,8 @@ export type McpServerEntry =
 
 export interface McpServersConfig {
   mcpServers: Record<string, McpServerEntry>;
+  allowTools?: string[];
+  denyTools?: string[];
 }
 
 export interface McpProxyStatus {
