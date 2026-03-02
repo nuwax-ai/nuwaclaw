@@ -1,48 +1,71 @@
 /**
- * nuwax-mcp-stdio-proxy
+ * nuwax-mcp-stdio-proxy — CLI entry point
  *
- * A pure TypeScript stdio MCP proxy that aggregates multiple MCP servers
- * into a single MCP server endpoint. Supports two upstream transport types:
+ * A pure TypeScript MCP proxy with three operating modes:
  *
- * - **stdio**: Spawns child MCP server processes (StdioClientTransport)
- * - **bridge**: Connects to persistent MCP Bridge servers via StreamableHTTP (StreamableHTTPClientTransport)
+ * 1. **Default (stdio aggregation)**: Aggregates multiple MCP servers
+ *    (stdio + streamable-http + SSE) into a single stdio endpoint.
+ *    Usage: nuwax-mcp-stdio-proxy --config '{"mcpServers":{...}}'
  *
- * Usage:
- *   nuwax-mcp-stdio-proxy --config '{"mcpServers":{
- *     "local":  {"command":"npx","args":["-y","some-mcp"]},
- *     "remote": {"url":"http://127.0.0.1:8080/mcp/name"}  // bridge to persistent server
- *   }}'
+ * 2. **convert**: Connects to a single remote MCP service and exposes via stdio.
+ *    Usage: nuwax-mcp-stdio-proxy convert [URL] [OPTIONS]
  *
- * Architecture:
- *   Agent Engine (stdin/stdout)  ←→  This Proxy (StdioServerTransport)
- *                                         ├→ Child MCP Server A (StdioClientTransport)
- *                                         ├→ Bridge MCP Server B (StreamableHTTPClientTransport)
- *                                         └→ ...
+ * 3. **proxy**: Starts PersistentMcpBridge as a Streamable HTTP server.
+ *    Usage: nuwax-mcp-stdio-proxy proxy --port 18099 --config '{"mcpServers":{...}}'
+ *
+ * This file handles CLI argument parsing and routes to the appropriate mode.
+ * Mode implementations live in modes/*.ts.
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-
 import type { McpServersConfig } from './types.js';
-import { isHttpEntry } from './types.js';
-import { logInfo, logWarn, logError } from './logger.js';
-import { buildBaseEnv, connectStdio, connectBridge } from './transport.js';
+import { logError } from './logger.js';
+import { runStdio } from './modes/stdio.js';
+import { runConvert } from './modes/convert.js';
+import { runProxy } from './modes/proxy.js';
 
-// Injected at build time by esbuild define (see build.mjs)
-// Falls back to static values when running via tsc in development
-const PKG_NAME = process.env.__MCP_PROXY_PKG_NAME__ || 'nuwax-mcp-stdio-proxy';
-const PKG_VERSION = process.env.__MCP_PROXY_PKG_VERSION__ || '0.0.0-dev';
+// ========== CLI Argument Types ==========
 
-// ========== CLI ==========
+type CliArgs =
+  | { mode: 'stdio'; config: McpServersConfig }
+  | {
+      mode: 'convert';
+      url?: string;
+      config?: McpServersConfig;
+      name?: string;
+      protocol?: 'sse' | 'stream';
+      allowTools?: string[];
+      denyTools?: string[];
+    }
+  | { mode: 'proxy'; port: number; config: McpServersConfig };
 
-function parseConfig(): McpServersConfig {
+// ========== CLI Parser ==========
+
+function parseCliArgs(): CliArgs {
   const args = process.argv.slice(2);
+
+  if (args.length === 0) {
+    logError('Missing arguments');
+    printUsage();
+    process.exit(1);
+  }
+
+  const subcommand = args[0];
+
+  // Mode: convert
+  if (subcommand === 'convert') {
+    return parseConvertArgs(args.slice(1));
+  }
+
+  // Mode: proxy
+  if (subcommand === 'proxy') {
+    return parseProxyArgs(args.slice(1));
+  }
+
+  // Default mode: stdio aggregation (--config required)
+  return parseStdioArgs(args);
+}
+
+function parseStdioArgs(args: string[]): CliArgs & { mode: 'stdio' } {
   const idx = args.indexOf('--config');
 
   if (idx === -1 || idx + 1 >= args.length) {
@@ -51,8 +74,105 @@ function parseConfig(): McpServersConfig {
     process.exit(1);
   }
 
+  const config = parseConfigJson(args[idx + 1]);
+  return { mode: 'stdio', config };
+}
+
+function parseConvertArgs(args: string[]): CliArgs & { mode: 'convert' } {
+  let url: string | undefined;
+  let config: McpServersConfig | undefined;
+  let name: string | undefined;
+  let protocol: 'sse' | 'stream' | undefined;
+  let allowTools: string[] | undefined;
+  let denyTools: string[] | undefined;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--config' && i + 1 < args.length) {
+      i++;
+      config = parseConfigJson(args[i]);
+    } else if ((arg === '-n' || arg === '--name') && i + 1 < args.length) {
+      i++;
+      name = args[i];
+    } else if (arg === '--protocol' && i + 1 < args.length) {
+      i++;
+      const p = args[i];
+      if (p !== 'sse' && p !== 'stream') {
+        logError(`Invalid protocol: "${p}" (must be "sse" or "stream")`);
+        process.exit(1);
+      }
+      protocol = p;
+    } else if (arg === '--allow-tools' && i + 1 < args.length) {
+      i++;
+      allowTools = args[i].split(',').map((s) => s.trim()).filter(Boolean);
+    } else if (arg === '--deny-tools' && i + 1 < args.length) {
+      i++;
+      denyTools = args[i].split(',').map((s) => s.trim()).filter(Boolean);
+    } else if (!arg.startsWith('-') && !url) {
+      url = arg;
+    } else {
+      logError(`Unknown argument: "${arg}"`);
+      printConvertUsage();
+      process.exit(1);
+    }
+  }
+
+  if (!url && !config) {
+    logError('Either URL or --config is required for convert mode');
+    printConvertUsage();
+    process.exit(1);
+  }
+
+  if (allowTools && denyTools) {
+    logError('Cannot use both --allow-tools and --deny-tools');
+    process.exit(1);
+  }
+
+  return { mode: 'convert', url, config, name, protocol, allowTools, denyTools };
+}
+
+function parseProxyArgs(args: string[]): CliArgs & { mode: 'proxy' } {
+  let port: number | undefined;
+  let config: McpServersConfig | undefined;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--port' && i + 1 < args.length) {
+      i++;
+      const portStr = args[i];
+      port = parseInt(portStr, 10);
+      if (isNaN(port) || port < 0 || port > 65535) {
+        logError(`Invalid port: "${portStr}"`);
+        process.exit(1);
+      }
+    } else if (arg === '--config' && i + 1 < args.length) {
+      i++;
+      config = parseConfigJson(args[i]);
+    } else {
+      logError(`Unknown argument: "${arg}"`);
+      printProxyUsage();
+      process.exit(1);
+    }
+  }
+
+  if (port === undefined) {
+    logError('--port is required for proxy mode');
+    printProxyUsage();
+    process.exit(1);
+  }
+
+  if (!config) {
+    logError('--config is required for proxy mode');
+    printProxyUsage();
+    process.exit(1);
+  }
+
+  return { mode: 'proxy', port, config };
+}
+
+function parseConfigJson(json: string): McpServersConfig {
   try {
-    const config = JSON.parse(args[idx + 1]) as McpServersConfig;
+    const config = JSON.parse(json) as McpServersConfig;
     if (!config.mcpServers || typeof config.mcpServers !== 'object') {
       throw new Error('config must contain a "mcpServers" object');
     }
@@ -63,157 +183,49 @@ function parseConfig(): McpServersConfig {
   }
 }
 
-// ========== Main ==========
+// ========== Usage Messages ==========
+
+function printUsage(): void {
+  logError('Usage:');
+  logError('  nuwax-mcp-stdio-proxy --config \'{"mcpServers":{...}}\'          (stdio aggregation)');
+  logError('  nuwax-mcp-stdio-proxy convert [URL] [OPTIONS]                  (remote → stdio)');
+  logError('  nuwax-mcp-stdio-proxy proxy --port <PORT> --config \'...\'       (HTTP server)');
+}
+
+function printConvertUsage(): void {
+  logError('Usage: nuwax-mcp-stdio-proxy convert [URL] [OPTIONS]');
+  logError('');
+  logError('Arguments:');
+  logError('  [URL]                          MCP service URL');
+  logError('');
+  logError('Options:');
+  logError('  --config <JSON>                MCP config JSON (alternative to URL)');
+  logError('  -n, --name <NAME>              Service name (for multi-service configs)');
+  logError('  --protocol <sse|stream>        Protocol type (auto-detect if omitted)');
+  logError('  --allow-tools <TOOLS>          Tool whitelist (comma-separated)');
+  logError('  --deny-tools <TOOLS>           Tool blacklist (comma-separated)');
+}
+
+function printProxyUsage(): void {
+  logError('Usage: nuwax-mcp-stdio-proxy proxy --port <PORT> --config \'{"mcpServers":{...}}\'');
+}
+
+// ========== Entry Point ==========
 
 async function main(): Promise<void> {
-  const config = parseConfig();
-  const entries = Object.entries(config.mcpServers);
+  const args = parseCliArgs();
 
-  if (entries.length === 0) {
-    logError('No MCP servers configured in mcpServers');
-    process.exit(1);
+  switch (args.mode) {
+    case 'stdio':
+      await runStdio(args.config);
+      break;
+    case 'convert':
+      await runConvert(args);
+      break;
+    case 'proxy':
+      await runProxy(args);
+      break;
   }
-
-  logInfo(
-    `Starting proxy with ${entries.length} server(s): ${entries.map(([id]) => id).join(', ')}`,
-  );
-
-  // ---- Phase 1: Connect to all MCP servers (stdio + bridge) ----
-
-  const baseEnv = buildBaseEnv();
-
-  const clients = new Map<string, Client>();
-  const cleanups = new Map<string, () => Promise<void>>();
-  const toolToClient = new Map<string, Client>();
-  const toolToServer = new Map<string, string>();
-  const toolsByName = new Map<string, Tool>();
-
-  for (const [id, entry] of entries) {
-    try {
-      const { client, cleanup } = isHttpEntry(entry)
-        ? await connectBridge(id, entry)
-        : await connectStdio(id, entry, baseEnv);
-
-      clients.set(id, client);
-      cleanups.set(id, cleanup);
-
-      // Discover tools (handle pagination)
-      const allServerTools: Tool[] = [];
-      let cursor: string | undefined;
-      do {
-        const page = await client.listTools(cursor ? { cursor } : undefined);
-        allServerTools.push(...page.tools);
-        cursor = page.nextCursor;
-      } while (cursor);
-
-      logInfo(
-        `Server "${id}": ${allServerTools.length} tool(s)${allServerTools.length > 0 ? ' — ' + allServerTools.map((t) => t.name).join(', ') : ''}`,
-      );
-
-      for (const tool of allServerTools) {
-        if (toolToClient.has(tool.name)) {
-          logWarn(
-            `Tool "${tool.name}" from "${id}" shadows existing tool from "${toolToServer.get(tool.name)}"`,
-          );
-        }
-        toolToClient.set(tool.name, client);
-        toolToServer.set(tool.name, id);
-        toolsByName.set(tool.name, tool);
-      }
-    } catch (e) {
-      logError(`Failed to connect to server "${id}": ${e}`);
-      // Continue with remaining servers — partial startup is acceptable
-    }
-  }
-
-  if (clients.size === 0) {
-    logError('Failed to connect to any MCP server');
-    process.exit(1);
-  }
-
-  const aggregatedTools = Array.from(toolsByName.values());
-  logInfo(`Aggregated ${aggregatedTools.length} unique tool(s) from ${clients.size} server(s)`);
-
-  // ---- Phase 2: Create the aggregating MCP server ----
-
-  const server = new Server(
-    { name: PKG_NAME, version: PKG_VERSION },
-    { capabilities: { tools: {} } },
-  );
-
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return { tools: aggregatedTools };
-  });
-
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: toolArgs } = request.params;
-    const client = toolToClient.get(name);
-
-    if (!client) {
-      return {
-        content: [{ type: 'text' as const, text: `Unknown tool: "${name}"` }],
-        isError: true,
-      };
-    }
-
-    try {
-      const result = await client.callTool({ name, arguments: toolArgs });
-      return result;
-    } catch (e) {
-      const serverName = toolToServer.get(name) || 'unknown';
-      logError(`Tool "${name}" (server: "${serverName}") call failed: ${e}`);
-      return {
-        content: [{ type: 'text' as const, text: `Tool call failed: ${e}` }],
-        isError: true,
-      };
-    }
-  });
-
-  // ---- Phase 3: Start stdio transport ----
-
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-
-  logInfo('Proxy server running on stdio');
-
-  // ---- Graceful shutdown ----
-
-  let isShuttingDown = false;
-
-  const shutdown = async (signal: string) => {
-    if (isShuttingDown) return;
-    isShuttingDown = true;
-
-    logInfo(`Received ${signal}, shutting down...`);
-
-    for (const [id, client] of clients) {
-      try {
-        await client.close();
-        logInfo(`Closed client "${id}"`);
-      } catch (e) {
-        logError(`Failed to close client "${id}": ${e}`);
-      }
-    }
-
-    for (const [id, cleanup] of cleanups) {
-      try {
-        await cleanup();
-      } catch (e) {
-        logError(`Failed cleanup for "${id}": ${e}`);
-      }
-    }
-
-    try {
-      await server.close();
-    } catch {
-      // Ignore close errors during shutdown
-    }
-
-    process.exit(0);
-  };
-
-  process.on('SIGINT', () => void shutdown('SIGINT'));
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
 process.on('unhandledRejection', (reason) => {

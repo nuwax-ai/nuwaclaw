@@ -15,6 +15,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 // ========== Paths ==========
 
@@ -137,7 +138,7 @@ describe('nuwax-mcp-stdio-proxy', () => {
     it('exits with error when --config is missing', async () => {
       const { code, stderr } = await spawnProxy([]);
       expect(code).toBe(1);
-      expect(stderr).toContain('Missing --config argument');
+      expect(stderr).toContain('Missing');
       expect(stderr).toContain('Usage:');
     });
 
@@ -435,6 +436,131 @@ describe('nuwax-mcp-stdio-proxy', () => {
         'tool.with.dots',
         'tool_with_underscores',
       ]);
+    });
+  });
+
+  // ---- Convert CLI error handling ----
+
+  describe('convert CLI error handling', () => {
+    it('exits with error when no URL or --config provided', async () => {
+      const { code, stderr } = await spawnProxy(['convert']);
+      expect(code).toBe(1);
+      expect(stderr).toContain('Either URL or --config is required');
+    });
+
+    it('exits with error for invalid --protocol value', async () => {
+      const { code, stderr } = await spawnProxy(['convert', 'http://example.com', '--protocol', 'invalid']);
+      expect(code).toBe(1);
+      expect(stderr).toContain('Invalid protocol');
+    });
+
+    it('exits with error when both --allow-tools and --deny-tools used', async () => {
+      const { code, stderr } = await spawnProxy([
+        'convert', 'http://example.com',
+        '--allow-tools', 'a',
+        '--deny-tools', 'b',
+      ]);
+      expect(code).toBe(1);
+      expect(stderr).toContain('Cannot use both --allow-tools and --deny-tools');
+    });
+
+    it('exits with error for unknown convert argument', async () => {
+      const { code, stderr } = await spawnProxy(['convert', '--bad-flag']);
+      expect(code).toBe(1);
+      expect(stderr).toContain('Unknown argument');
+    });
+
+    it('exits with error when --name not found in config', async () => {
+      const config = JSON.stringify({
+        mcpServers: { svc: { url: 'http://example.com' } },
+      });
+      const { code, stderr } = await spawnProxy([
+        'convert', '--config', config, '--name', 'nonexistent',
+      ]);
+      expect(code).toBe(1);
+      expect(stderr).toContain('not found in config');
+    });
+  });
+
+  // ---- Proxy CLI error handling ----
+
+  describe('proxy CLI error handling', () => {
+    it('exits with error when --port is missing', async () => {
+      const config = singleServerConfig(['tool']);
+      const { code, stderr } = await spawnProxy(['proxy', '--config', config]);
+      expect(code).toBe(1);
+      expect(stderr).toContain('--port is required');
+    });
+
+    it('exits with error when --config is missing', async () => {
+      const { code, stderr } = await spawnProxy(['proxy', '--port', '9999']);
+      expect(code).toBe(1);
+      expect(stderr).toContain('--config is required');
+    });
+
+    it('exits with error for invalid port', async () => {
+      const config = singleServerConfig(['tool']);
+      const { code, stderr } = await spawnProxy(['proxy', '--port', '70000', '--config', config]);
+      expect(code).toBe(1);
+      expect(stderr).toContain('Invalid port');
+    });
+  });
+
+  // ---- Proxy mode integration ----
+
+  describe('proxy mode', () => {
+    it('starts HTTP server and serves tools via StreamableHTTP', async () => {
+      const config = singleServerConfig(['proxy-tool'], 'proxy-mock');
+
+      // Start proxy in HTTP server mode (port 0 = random)
+      const proc = spawn('node', [PROXY_SCRIPT, 'proxy', '--port', '0', '--config', config], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let stderrBuf = '';
+
+      // Wait for the proxy to output the port
+      const port = await new Promise<number>((resolve, reject) => {
+        const tryMatch = () => {
+          const match = stderrBuf.match(/HTTP server listening on 127\.0\.0\.1:(\d+)/);
+          if (match) {
+            resolve(parseInt(match[1], 10));
+            return true;
+          }
+          return false;
+        };
+        proc.stderr?.on('data', (data: Buffer) => {
+          stderrBuf += data.toString();
+          tryMatch();
+        });
+        setTimeout(() => reject(new Error(`Timed out waiting for proxy server. stderr: ${stderrBuf}`)), 10000);
+      });
+
+      try {
+        // Connect via StreamableHTTP to the bridge endpoint
+        const transport = new StreamableHTTPClientTransport(
+          new URL(`http://127.0.0.1:${port}/mcp/proxy-mock`),
+        );
+        const client = new Client({ name: 'test', version: '1.0.0' });
+        await client.connect(transport);
+
+        const { tools } = await client.listTools();
+        expect(tools).toHaveLength(1);
+        expect(tools[0].name).toBe('proxy-tool');
+
+        const result = await client.callTool({ name: 'proxy-tool', arguments: {} });
+        const text = (result.content as { type: string; text: string }[])[0]?.text;
+        expect(text).toBe('proxy-mock:proxy-tool');
+
+        await client.close();
+        await transport.close();
+      } finally {
+        proc.kill('SIGTERM');
+        await new Promise<void>((resolve) => {
+          proc.on('exit', () => resolve());
+          setTimeout(() => { proc.kill('SIGKILL'); resolve(); }, 3000);
+        });
+      }
     });
   });
 });

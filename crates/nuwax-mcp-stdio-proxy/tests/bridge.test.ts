@@ -267,4 +267,39 @@ describe('PersistentMcpBridge', () => {
     expect(hasReady).toBe(true);
     expect(hasStopped).toBe(true);
   });
+
+  // ---- Explicit port ----
+
+  it('start() with explicit port listens on that port', async () => {
+    bridge = new PersistentMcpBridge();
+
+    await bridge.start(
+      {
+        'mock': {
+          command: 'node',
+          args: [MOCK_SERVER, '--tools', '["port-tool"]', '--name', 'port-test'],
+        },
+      },
+      { port: 18199 },
+    );
+
+    expect(bridge.isRunning()).toBe(true);
+
+    const url = bridge.getBridgeUrl('mock');
+    expect(url).toBe('http://127.0.0.1:18199/mcp/mock');
+
+    // Verify it's actually listening on that port by connecting
+    const transport = new StreamableHTTPClientTransport(new URL(url!));
+    const client = new Client({ name: 'port-test-client', version: '1.0.0' });
+    await client.connect(transport);
+
+    try {
+      const { tools } = await client.listTools();
+      expect(tools).toHaveLength(1);
+      expect(tools[0].name).toBe('port-tool');
+    } finally {
+      await client.close();
+      await transport.close();
+    }
+  });
 });

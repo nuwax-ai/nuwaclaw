@@ -1,11 +1,12 @@
 /**
- * Transport layer — connect to upstream MCP servers via stdio or bridge (HTTP)
+ * Transport layer — connect to upstream MCP servers via stdio, Streamable HTTP, or SSE
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { CustomStdioClientTransport } from './customStdio.js';
-import type { StdioServerEntry, BridgeServerEntry } from './types.js';
+import type { StdioServerEntry, StreamableServerEntry, SseServerEntry } from './types.js';
 import { logInfo } from './logger.js';
 
 export interface ConnectedClient {
@@ -26,6 +27,22 @@ export function buildBaseEnv(): Record<string, string> {
   // Child MCP servers should run normally, not as Electron Node.js instances
   delete env.ELECTRON_RUN_AS_NODE;
   return env;
+}
+
+/**
+ * Build HTTP headers from entry config (merge headers + authToken)
+ */
+export function buildRequestHeaders(
+  entry: StreamableServerEntry | SseServerEntry,
+): Record<string, string> | undefined {
+  const headers: Record<string, string> = {};
+  if (entry.headers) {
+    Object.assign(headers, entry.headers);
+  }
+  if (entry.authToken) {
+    headers['Authorization'] = `Bearer ${entry.authToken}`;
+  }
+  return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
 /**
@@ -67,18 +84,24 @@ export async function connectStdio(
 }
 
 /**
- * Connect to a bridge MCP server (StreamableHTTP → PersistentMcpBridge)
+ * Connect to a Streamable HTTP MCP server
  *
- * Bridge connections target long-lived MCP servers managed by PersistentMcpBridge
- * in the Electron main process, accessed via HTTP endpoints.
+ * Supports PersistentMcpBridge endpoints and any remote MCP service using
+ * the Streamable HTTP transport protocol.
  */
-export async function connectBridge(
+export async function connectStreamable(
   id: string,
-  entry: BridgeServerEntry,
+  entry: StreamableServerEntry,
 ): Promise<ConnectedClient> {
-  logInfo(`Connecting to "${id}" (bridge): ${entry.url}`);
+  logInfo(`Connecting to "${id}" (streamable-http): ${entry.url}`);
 
-  const transport = new StreamableHTTPClientTransport(new URL(entry.url));
+  const headers = buildRequestHeaders(entry);
+  const url = new URL(entry.url);
+
+  const transport = new StreamableHTTPClientTransport(
+    url,
+    headers ? { requestInit: { headers } } : undefined,
+  );
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
   await client.connect(transport);
 
@@ -90,5 +113,38 @@ export async function connectBridge(
   };
 }
 
-/** @deprecated Use connectBridge instead */
-export const connectHttp = connectBridge;
+/**
+ * Connect to an SSE MCP server
+ *
+ * Uses the legacy SSE (Server-Sent Events) transport for MCP servers
+ * that don't support the newer Streamable HTTP protocol.
+ */
+export async function connectSse(
+  id: string,
+  entry: SseServerEntry,
+): Promise<ConnectedClient> {
+  logInfo(`Connecting to "${id}" (sse): ${entry.url}`);
+
+  const headers = buildRequestHeaders(entry);
+  const url = new URL(entry.url);
+
+  const transport = new SSEClientTransport(
+    url,
+    headers ? { requestInit: { headers } } : undefined,
+  );
+  const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
+  await client.connect(transport);
+
+  return {
+    client,
+    cleanup: async () => {
+      try { await transport.close(); } catch { /* ignore */ }
+    },
+  };
+}
+
+/** @deprecated Use connectStreamable instead */
+export const connectBridge = connectStreamable;
+
+/** @deprecated Use connectStreamable instead */
+export const connectHttp = connectStreamable;

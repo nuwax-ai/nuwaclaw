@@ -76,8 +76,11 @@ export class PersistentMcpBridge {
 
   /**
    * Start bridge: spawn child processes for each persistent server and create HTTP server
+   *
+   * @param servers - Map of server ID to stdio config
+   * @param options - Optional settings (e.g. port to listen on)
    */
-  async start(servers: Record<string, StdioServerEntry>): Promise<void> {
+  async start(servers: Record<string, StdioServerEntry>, options?: { port?: number }): Promise<void> {
     if (this.running) {
       this.log.warn(`${LOG_TAG} Already running, stopping first`);
       await this.stop();
@@ -91,7 +94,7 @@ export class PersistentMcpBridge {
     }
 
     // 2. Start HTTP server
-    await this.startHttpServer();
+    await this.startHttpServer(options?.port);
     this.running = true;
 
     // 3. Start periodic session cleanup
@@ -309,7 +312,7 @@ export class PersistentMcpBridge {
 
   // ==================== Internal: HTTP Server ====================
 
-  private async startHttpServer(): Promise<void> {
+  private async startHttpServer(listenPort?: number): Promise<void> {
     return new Promise((resolve, reject) => {
       const server = http.createServer((req, res) => {
         this.handleHttpRequest(req, res).catch((e) => {
@@ -321,8 +324,8 @@ export class PersistentMcpBridge {
         });
       });
 
-      // Listen on random port
-      server.listen(0, '127.0.0.1', () => {
+      // Listen on specified port or random port (0)
+      server.listen(listenPort ?? 0, '127.0.0.1', () => {
         const addr = server.address();
         if (addr && typeof addr === 'object') {
           this.port = addr.port;

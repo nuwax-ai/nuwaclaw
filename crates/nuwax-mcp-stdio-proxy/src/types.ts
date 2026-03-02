@@ -10,27 +10,55 @@ export interface StdioServerEntry {
 }
 
 /**
- * Bridge 类型: 连接持久化 MCP Bridge (HTTP)
+ * Streamable HTTP 类型: 连接远程 MCP server (Streamable HTTP)
  *
- * 用于连接 PersistentMcpBridge 等长生命周期的 MCP server。
- * Bridge server 通过 StreamableHTTPClientTransport 访问，
- * 其生命周期独立于 proxy 进程。
+ * 用于连接 PersistentMcpBridge 等长生命周期的 MCP server，
+ * 或直接连接支持 Streamable HTTP 协议的远程 MCP 服务。
  */
-export interface BridgeServerEntry {
+export interface StreamableServerEntry {
   url: string;
+  transport?: 'streamable-http';
+  headers?: Record<string, string>;
+  authToken?: string;
 }
 
-/** @deprecated Use BridgeServerEntry instead */
-export type HttpServerEntry = BridgeServerEntry;
-
-export type McpServerEntry = StdioServerEntry | BridgeServerEntry;
-
-export function isBridgeEntry(entry: McpServerEntry): entry is BridgeServerEntry {
-  return 'url' in entry && typeof (entry as BridgeServerEntry).url === 'string';
+/**
+ * SSE 类型: 连接远程 MCP server (Server-Sent Events)
+ *
+ * 用于连接支持 SSE 传输的远程 MCP 服务（旧版 MCP 协议）。
+ */
+export interface SseServerEntry {
+  url: string;
+  transport: 'sse';
+  headers?: Record<string, string>;
+  authToken?: string;
 }
 
-/** @deprecated Use isBridgeEntry instead */
-export const isHttpEntry = isBridgeEntry;
+export type McpServerEntry = StdioServerEntry | StreamableServerEntry | SseServerEntry;
+
+export function isSseEntry(entry: McpServerEntry): entry is SseServerEntry {
+  return 'url' in entry && (entry as SseServerEntry).transport === 'sse';
+}
+
+export function isStreamableEntry(entry: McpServerEntry): entry is StreamableServerEntry {
+  return (
+    'url' in entry &&
+    typeof (entry as StreamableServerEntry).url === 'string' &&
+    !isSseEntry(entry)
+  );
+}
+
+/** @deprecated Use StreamableServerEntry instead */
+export type BridgeServerEntry = StreamableServerEntry;
+
+/** @deprecated Use StreamableServerEntry instead */
+export type HttpServerEntry = StreamableServerEntry;
+
+/** @deprecated Use isStreamableEntry instead */
+export const isBridgeEntry = isStreamableEntry;
+
+/** @deprecated Use isStreamableEntry instead */
+export const isHttpEntry = isStreamableEntry;
 
 export interface McpServersConfig {
   mcpServers: Record<string, McpServerEntry>;
