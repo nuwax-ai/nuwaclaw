@@ -201,35 +201,84 @@ export interface ProviderInfo {
 
 // ==================== UnifiedAgentService ====================
 
-export class UnifiedAgentService extends EventEmitter {
-  private engine: AcpEngine | null = null;
-  private engineType: AgentEngineType | null = null;
-  private config: AgentConfig | null = null;
+/** Maximum number of concurrent per-project engines to prevent resource leaks */
+const MAX_ENGINES = 100;
 
+export class UnifiedAgentService extends EventEmitter {
+  /** Per-project engine registry: projectId → AcpEngine */
+  private engines = new Map<string, AcpEngine>();
+  /** Per-project effective config snapshot (for config-change detection) */
+  private engineConfigs = new Map<string, AgentConfig>();
+  private engineType: AgentEngineType | null = null;
+  private baseConfig: AgentConfig | null = null;
+
+  /**
+   * Initialize the service with a base config.
+   * Does NOT spawn a process — processes are created lazily per project_id
+   * on the first chat request via getOrCreateEngine().
+   */
   async init(config: AgentConfig): Promise<boolean> {
-    if (this.engine) {
+    if (this.engines.size > 0) {
       await this.destroy();
     }
 
-    this.config = config;
+    this.baseConfig = config;
     this.engineType = config.engine;
 
-    const engine = new AcpEngine(config.engine);
-    this.engine = engine;
-    this.forwardEvents(engine);
-    return engine.init(config);
+    log.info('[UnifiedAgent] Service initialized (lazy mode, no process spawned)');
+    this.emit('ready');
+    return true;
   }
 
+  /**
+   * Destroy all engines and reset the service.
+   */
   async destroy(): Promise<void> {
-    if (this.engine) {
-      this.engine.removeAllListeners();
-      await this.engine.destroy();
-      this.engine = null;
+    const destroyPromises: Promise<void>[] = [];
+    for (const [projectId, engine] of this.engines) {
+      log.info(`[UnifiedAgent] Destroying engine for project: ${projectId}`);
+      engine.removeAllListeners();
+      destroyPromises.push(engine.destroy());
     }
+    await Promise.all(destroyPromises);
+    this.engines.clear();
+    this.engineConfigs.clear();
     this.engineType = null;
-    this.config = null;
+    this.baseConfig = null;
     log.info('[UnifiedAgent] Service destroyed');
     this.emit('destroyed');
+  }
+
+  /**
+   * Stop (kill) the engine for a specific project but preserve baseConfig.
+   * Used by /computer/agent/stop — matches rcoder behavior:
+   * cancel sessions + kill process; next /computer/chat will auto-recreate.
+   */
+  async stopEngine(projectId?: string): Promise<void> {
+    if (projectId) {
+      // Resolve the actual engine registry key (projectId may be a session_id)
+      const registryKey = this.resolveEngineKey(projectId);
+      if (registryKey) {
+        const engine = this.engines.get(registryKey)!;
+        engine.removeAllListeners();
+        await engine.destroy();
+        this.engines.delete(registryKey);
+        this.engineConfigs.delete(registryKey);
+        log.info(`[UnifiedAgent] Engine stopped for project: ${registryKey} (query=${projectId}, baseConfig preserved)`);
+      }
+    } else {
+      // Legacy: stop all engines in parallel
+      const destroyPromises: Promise<void>[] = [];
+      for (const [pid, engine] of this.engines) {
+        engine.removeAllListeners();
+        destroyPromises.push(engine.destroy());
+        log.info(`[UnifiedAgent] Engine stopped for project: ${pid}`);
+      }
+      await Promise.all(destroyPromises);
+      this.engines.clear();
+      this.engineConfigs.clear();
+      log.info('[UnifiedAgent] All engines stopped (baseConfig preserved)');
+    }
   }
 
   getEngineType(): AgentEngineType | null {
@@ -237,13 +286,87 @@ export class UnifiedAgentService extends EventEmitter {
   }
 
   getAgentConfig(): AgentConfig | null {
-    return this.config;
+    return this.baseConfig;
+  }
+
+  /**
+   * Get or create an AcpEngine for a given project_id.
+   * - Returns existing ready engine
+   * - Dead engine → cleanup + rebuild
+   * - Missing → create new engine with baseConfig + configOverride
+   */
+  async getOrCreateEngine(projectId: string, effectiveConfig: AgentConfig): Promise<AcpEngine> {
+    const existing = this.engines.get(projectId);
+    if (existing) {
+      if (existing.isReady) {
+        return existing;
+      }
+      // Dead engine — cleanup and rebuild
+      log.info(`[UnifiedAgent] Engine for project ${projectId} is dead, rebuilding`);
+      existing.removeAllListeners();
+      await existing.destroy().catch(() => {});
+      this.engines.delete(projectId);
+      this.engineConfigs.delete(projectId);
+    }
+
+    if (!this.baseConfig) {
+      throw new Error('UnifiedAgentService not initialized (no baseConfig)');
+    }
+
+    // Evict oldest idle engine if at capacity
+    if (this.engines.size >= MAX_ENGINES) {
+      await this.evictIdleEngine();
+    }
+
+    const engineType = effectiveConfig.engine || this.engineType || 'claude-code';
+    const engine = new AcpEngine(engineType);
+    this.forwardEvents(engine);
+
+    log.info(`[UnifiedAgent] Creating engine for project: ${projectId}, engine: ${engineType}`);
+    const ok = await engine.init(effectiveConfig);
+    if (!ok) {
+      engine.removeAllListeners();
+      throw new Error(`Failed to create engine for project ${projectId}`);
+    }
+
+    this.engines.set(projectId, engine);
+    this.engineConfigs.set(projectId, effectiveConfig);
+    log.info(`[UnifiedAgent] ✅ Engine ready for project: ${projectId} (total engines: ${this.engines.size})`);
+    return engine;
+  }
+
+  /**
+   * Evict the oldest idle engine to make room for a new one.
+   * Idle = no active prompts. If all engines are busy, evict the oldest anyway.
+   */
+  private async evictIdleEngine(): Promise<void> {
+    // Prefer evicting idle engines (no active prompts)
+    for (const [pid, engine] of this.engines) {
+      if (engine.getActivePromptCount() === 0) {
+        log.info(`[UnifiedAgent] ♻️ Evicting idle engine for project: ${pid} (at capacity ${MAX_ENGINES})`);
+        engine.removeAllListeners();
+        await engine.destroy().catch(() => {});
+        this.engines.delete(pid);
+        this.engineConfigs.delete(pid);
+        return;
+      }
+    }
+    // All engines busy — evict the first (oldest inserted) one
+    const [oldestPid, oldestEngine] = this.engines.entries().next().value!;
+    log.warn(`[UnifiedAgent] ♻️ All engines busy, force-evicting oldest: ${oldestPid}`);
+    oldestEngine.removeAllListeners();
+    await oldestEngine.destroy().catch(() => {});
+    this.engines.delete(oldestPid);
+    this.engineConfigs.delete(oldestPid);
   }
 
   /**
    * Ensure the correct engine is running for the given chat request.
+   * Returns the AcpEngine to use for this request.
    */
-  async ensureEngineForRequest(request: ComputerChatRequest): Promise<void> {
+  async ensureEngineForRequest(request: ComputerChatRequest): Promise<AcpEngine> {
+    const projectId = request.project_id || 'default';
+
     // 按会话动态加载：本请求携带的 context_servers 同步到 MCP Proxy（从桥接项 --config 解析真实服务），一次会话就会更新 proxy 配置
     const requestMcpServersEarly: Record<string, import('../packages/mcp').McpServerEntry> = {};
     if (request.agent_config?.context_servers) {
@@ -294,46 +417,144 @@ export class UnifiedAgentService extends EventEmitter {
     const agentServer = request.agent_config?.agent_server;
     const mp = request.model_provider;
 
-    // 早期返回条件：既无 agent_server/model_provider（无需引擎切换），也无 context_servers（无需刷新 MCP 配置）
-    // 注意：context_servers 已在上方同步到 proxy (line 280)，但引擎 this.config.mcpServers 需要重新获取
-    if (!agentServer?.command && !mp && Object.keys(requestMcpServersEarly).length === 0) return;
+    // Early return: engine already exists and no config-influencing fields in request
+    const existingEngine = this.engines.get(projectId);
+    if (existingEngine && existingEngine.isReady
+      && !agentServer?.command && !mp && Object.keys(requestMcpServersEarly).length === 0) {
+      return existingEngine;
+    }
 
-    // 1. 确定目标引擎
+    // Determine the target engine type
     const requiredEngine = agentServer?.command
       ? mapAgentCommand(agentServer.command)
       : this.engineType;
-    if (!requiredEngine) {
-      log.warn(`[UnifiedAgent] 未知的 agent command: ${agentServer?.command}，跳过引擎切换`);
-      return;
-    }
 
-    // 2. 解析 agent_server.env 模板变量
+    // Resolve env template variables
     const resolvedEnv = agentServer?.env
       ? resolveAgentEnv(agentServer.env, mp)
       : undefined;
 
-    // 3. 提取最终模型
+    // Extract final model
     let model = mp?.model;
     if (!model && resolvedEnv) {
       model = resolvedEnv.OPENCODE_MODEL || resolvedEnv.ANTHROPIC_MODEL;
     }
-    model = model || this.config?.model;
+    model = model || this.baseConfig?.model;
 
-    // 4. 判断是否需要 reinit
-    const needsSwitch = requiredEngine !== this.engineType;
+    // Check if existing engine needs to be replaced (config changed)
+    if (existingEngine && existingEngine.isReady) {
+      const hasConfigChange = this.detectConfigChange(projectId, {
+        requiredEngine, resolvedEnv, model, mp, requestMcpServersEarly,
+      });
 
-    const currentEnvStr = this.config?.env ? JSON.stringify(this.config.env, Object.keys(this.config.env).sort()) : '';
+      if (!hasConfigChange) {
+        return existingEngine;
+      }
+
+      // Config changed — check if we can safely replace
+      if (existingEngine.getActivePromptCount() > 0) {
+        log.warn(`[UnifiedAgent] ⚠️ Config changed for project ${projectId} but has active prompts (${existingEngine.getActivePromptCount()}), using current engine`);
+        return existingEngine;
+      }
+
+      log.info(`[UnifiedAgent] 🔄 Config changed for project ${projectId}, rebuilding engine`);
+      existingEngine.removeAllListeners();
+      await existingEngine.destroy();
+      this.engines.delete(projectId);
+      this.engineConfigs.delete(projectId);
+    }
+
+    // Build effective config for this project
+    const base = this.baseConfig || { engine: requiredEngine || 'claude-code', workspaceDir: '' };
+
+    if (!model) {
+      log.warn(`[UnifiedAgent] ⚠️ 模型未设置！model_provider.model 和 agent_config env 均无模型信息`);
+    }
+
+    const mergedEnv = { ...(base.env || {}), ...(resolvedEnv || {}) };
+
+    // OPENCODE_LOG_DIR 容器路径本地化
+    if (mergedEnv.OPENCODE_LOG_DIR && !fs.existsSync(mergedEnv.OPENCODE_LOG_DIR)) {
+      const localLogDir = path.join(os.homedir(), APP_DATA_DIR_NAME, 'logs');
+      log.info(`[UnifiedAgent] 📂 OPENCODE_LOG_DIR 本地化: ${mergedEnv.OPENCODE_LOG_DIR} → ${localLogDir}`);
+      mergedEnv.OPENCODE_LOG_DIR = localLogDir;
+    }
+
+    // 动态 MCP server 已由 syncMcpConfigToProxyAndReload() 同步到 proxy，
+    // 使用 getAgentMcpConfig() 获取最新的 proxy 配置
+    let freshMcpServers: AgentConfig['mcpServers'] | undefined;
+    try {
+      const { mcpProxyManager } = await import('../packages/mcp');
+      freshMcpServers = mcpProxyManager.getAgentMcpConfig() || undefined;
+    } catch {
+      // fallback: 使用旧合并逻辑
+      const requestMcpServers: typeof requestMcpServersEarly = {};
+      for (const [name, entry] of Object.entries(requestMcpServersEarly)) {
+        if ('command' in entry && (entry.command === 'mcp-proxy' || path.basename(entry.command) === 'mcp-proxy')) continue;
+        requestMcpServers[name] = entry;
+      }
+      const mergedMcpServers: Record<string, import('../packages/mcp').McpServerEntry> = {
+        ...(base.mcpServers || {}),
+        ...requestMcpServers,
+      };
+      if (Object.keys(mergedMcpServers).length > 0) {
+        freshMcpServers = mergedMcpServers as Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
+      }
+    }
+
+    const effectiveConfig: AgentConfig = {
+      ...base,
+      engine: requiredEngine || base.engine,
+      apiKey: mp?.api_key || base.apiKey,
+      baseUrl: mp?.base_url || base.baseUrl,
+      model,
+      env: mergedEnv,
+      mcpServers: freshMcpServers,
+    };
+
+    log.info(
+      `[UnifiedAgent] 📌 Engine config for project ${projectId}:\n` +
+      `├─ engine: ${effectiveConfig.engine}\n` +
+      `├─ config.model: ${effectiveConfig.model || '⚠️ 未设置'}\n` +
+      `├─ env OPENCODE_MODEL: ${effectiveConfig.env?.OPENCODE_MODEL || '(未设置)'}\n` +
+      `├─ env ANTHROPIC_MODEL: ${effectiveConfig.env?.ANTHROPIC_MODEL || '(未设置)'}\n` +
+      `├─ baseUrl: ${effectiveConfig.baseUrl || '(未设置)'}\n` +
+      `├─ apiKeySet: ${!!effectiveConfig.apiKey}\n` +
+      `└─ mcpServers: ${effectiveConfig.mcpServers ? Object.keys(effectiveConfig.mcpServers).join(', ') : '(none)'}`,
+    );
+
+    return this.getOrCreateEngine(projectId, effectiveConfig);
+  }
+
+  /**
+   * Detect if the effective config differs from the running engine's stored config.
+   */
+  private detectConfigChange(
+    projectId: string,
+    params: {
+      requiredEngine: AgentEngineType | null;
+      resolvedEnv?: Record<string, string>;
+      model?: string;
+      mp?: ModelProviderConfig;
+      requestMcpServersEarly: Record<string, import('../packages/mcp').McpServerEntry>;
+    },
+  ): boolean {
+    const { requiredEngine, resolvedEnv, model, mp, requestMcpServersEarly } = params;
+    const currentConfig = this.engineConfigs.get(projectId) || this.baseConfig;
+
+    const needsSwitch = !!requiredEngine && requiredEngine !== currentConfig?.engine;
+
+    const currentEnvStr = currentConfig?.env ? JSON.stringify(currentConfig.env, Object.keys(currentConfig.env).sort()) : '';
     const newEnvStr = resolvedEnv ? JSON.stringify(resolvedEnv, Object.keys(resolvedEnv).sort()) : '';
     const envChanged = !!resolvedEnv && newEnvStr !== currentEnvStr;
 
-    const modelChanged = !!model && model !== (this.config?.model || '');
-    const apiKeyChanged = !!mp?.api_key && mp.api_key !== (this.config?.apiKey || '');
-    const baseUrlChanged = !!mp?.base_url && mp.base_url !== (this.config?.baseUrl || '');
+    const modelChanged = !!model && model !== (currentConfig?.model || '');
+    const apiKeyChanged = !!mp?.api_key && mp.api_key !== (currentConfig?.apiKey || '');
+    const baseUrlChanged = !!mp?.base_url && mp.base_url !== (currentConfig?.baseUrl || '');
 
-    // MCP servers 变更检测
-    // 过滤旧桥接项 (command==='mcp-proxy')，避免每次请求都因桥接项触发不必要的 reinit
-    const currentMcpStr = this.config?.mcpServers
-      ? JSON.stringify(this.config.mcpServers, Object.keys(this.config.mcpServers).sort())
+    // MCP servers 变更检测 — filter out bridge entries
+    const currentMcpStr = currentConfig?.mcpServers
+      ? JSON.stringify(currentConfig.mcpServers, Object.keys(currentConfig.mcpServers).sort())
       : '';
     const requestMcpServers: typeof requestMcpServersEarly = {};
     for (const [name, entry] of Object.entries(requestMcpServersEarly)) {
@@ -345,121 +566,111 @@ export class UnifiedAgentService extends EventEmitter {
       : '';
     const mcpChanged = !!newMcpStr && newMcpStr !== currentMcpStr;
 
-    if (!needsSwitch && !envChanged && !modelChanged && !apiKeyChanged && !baseUrlChanged && !mcpChanged) return;
-
-    // Safety: don't switch if there are active prompts
-    const acpEngine = this.getAcpEngine();
-    if (acpEngine && acpEngine.getActivePromptCount() > 0) {
-      log.warn(`[UnifiedAgent] ⚠️ 需要切换引擎但有活跃 prompt (${acpEngine.getActivePromptCount()} 个)，跳过切换，使用当前引擎`);
-      return;
-    }
-
-    log.info(
-      `[UnifiedAgent] 🔄 引擎切换:\n` +
-      `├─ 当前引擎: ${this.engineType}\n` +
-      `├─ 目标引擎: ${requiredEngine}\n` +
-      `├─ 引擎变更: ${needsSwitch}\n` +
-      `├─ 环境变更: ${envChanged}\n` +
-      `├─ 模型变更: ${modelChanged} (${this.config?.model || '(无)'} → ${model || '(无)'})\n` +
-      `├─ apiKey变更: ${apiKeyChanged}\n` +
-      `├─ baseUrl变更: ${baseUrlChanged}\n` +
-      `├─ MCP变更: ${mcpChanged}\n` +
-      `└─ env keys: ${resolvedEnv ? Object.keys(resolvedEnv).join(', ') : '(none)'}`,
-    );
-
-    const baseConfig = this.config || { engine: requiredEngine, workspaceDir: '' };
-
-    if (!model) {
-      log.warn(`[UnifiedAgent] ⚠️ 模型未设置！model_provider.model 和 agent_config env 均无模型信息`);
-    }
-
-    const mergedEnv = { ...(baseConfig.env || {}), ...(resolvedEnv || {}) };
-
-    // OPENCODE_LOG_DIR 容器路径本地化
-    if (mergedEnv.OPENCODE_LOG_DIR && !fs.existsSync(mergedEnv.OPENCODE_LOG_DIR)) {
-      const localLogDir = path.join(os.homedir(), APP_DATA_DIR_NAME, 'logs');
-      log.info(`[UnifiedAgent] 📂 OPENCODE_LOG_DIR 本地化: ${mergedEnv.OPENCODE_LOG_DIR} → ${localLogDir}`);
-      mergedEnv.OPENCODE_LOG_DIR = localLogDir;
-    }
-
-    // 动态 MCP server 已由 syncMcpConfigToProxyAndReload() 同步到 proxy，
-    // 使用 getAgentMcpConfig() 获取最新的 proxy 配置（--config JSON 包含全部 server），
-    // 而不是使用 baseConfig.mcpServers（可能包含旧的 --config JSON）
-    let freshMcpServers: AgentConfig['mcpServers'] | undefined;
-    try {
-      const { mcpProxyManager } = await import('../packages/mcp');
-      freshMcpServers = mcpProxyManager.getAgentMcpConfig() || undefined;
-    } catch {
-      // fallback: 使用旧合并逻辑
-      const mergedMcpServers: Record<string, import('../packages/mcp').McpServerEntry> = {
-        ...(baseConfig.mcpServers || {}),
-        ...requestMcpServers,
-      };
-      if (Object.keys(mergedMcpServers).length > 0) {
-        freshMcpServers = mergedMcpServers as Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
-      }
-    }
-
-    const newConfig: AgentConfig = {
-      ...baseConfig,
-      engine: requiredEngine,
-      apiKey: mp?.api_key || baseConfig.apiKey,
-      baseUrl: mp?.base_url || baseConfig.baseUrl,
-      model,
-      env: mergedEnv,
-      mcpServers: freshMcpServers,
-    };
-
-    log.info(
-      `[UnifiedAgent] 📌 最终模型配置:\n` +
-      `├─ engine: ${newConfig.engine}\n` +
-      `├─ config.model: ${newConfig.model || '⚠️ 未设置'}\n` +
-      `├─ env OPENCODE_MODEL: ${newConfig.env?.OPENCODE_MODEL || '(未设置)'}\n` +
-      `├─ env ANTHROPIC_MODEL: ${newConfig.env?.ANTHROPIC_MODEL || '(未设置)'}\n` +
-      `├─ baseUrl: ${newConfig.baseUrl || '(未设置)'}\n` +
-      `├─ env OPENAI_BASE_URL: ${newConfig.env?.OPENAI_BASE_URL || '(未设置)'}\n` +
-      `├─ apiKeySet: ${!!newConfig.apiKey}\n` +
-      `├─ env OPENAI_API_KEY set: ${!!newConfig.env?.OPENAI_API_KEY}\n` +
-      `└─ mcpServers: ${newConfig.mcpServers ? Object.keys(newConfig.mcpServers).join(', ') : '(none)'}`,
-    );
-
-    const ok = await this.init(newConfig);
-    if (!ok) {
-      throw new Error(`Failed to switch engine to ${requiredEngine}`);
-    }
-    log.info(`[UnifiedAgent] ✅ 引擎已切换到 ${requiredEngine}`);
-    // 动态 MCP servers 已通过 syncMcpConfigToProxyAndReload() 同步到 proxy 聚合代理，
-    // getAgentMcpConfig() 返回的 proxy 入口包含所有 server（临时 + 持久化 + 动态）
+    return needsSwitch || envChanged || modelChanged || apiKeyChanged || baseUrlChanged || mcpChanged;
   }
 
+  /**
+   * Get the engine for a specific project.
+   * Looks up by engine registry key first, then searches all engines
+   * for a session whose projectId matches (handles the case where
+   * the backend sends back a session_id as project_id).
+   */
+  getEngineForProject(projectId: string): AcpEngine | null {
+    if (!projectId) return null;
+
+    // 1. Direct lookup by engine registry key
+    const engine = this.engines.get(projectId);
+    if (engine && engine.isReady) return engine;
+
+    // 2. Search all engines for a session matching this projectId
+    //    (covers the case where projectId is actually a session_id or
+    //     the original chat request.project_id differs from the engine key)
+    for (const [, eng] of this.engines) {
+      if (!eng.isReady) continue;
+      const session = eng.findSessionByProjectId(projectId);
+      if (session) return eng;
+    }
+
+    return null;
+  }
+
+  /**
+   * Resolve a projectId (which may be a session_id) to the actual engine registry key.
+   * Returns null if no matching engine is found.
+   */
+  private resolveEngineKey(projectId: string): string | null {
+    if (!projectId) return null;
+
+    // 1. Direct key match
+    if (this.engines.has(projectId)) return projectId;
+
+    // 2. Search by session projectId
+    for (const [key, engine] of this.engines) {
+      const session = engine.findSessionByProjectId(projectId);
+      if (session) return key;
+    }
+
+    return null;
+  }
+
+  /**
+   * Whether the service is configured (baseConfig set).
+   * In lazy mode, engines are created on first chat — this returns true once init() is called.
+   */
   get isReady(): boolean {
-    return this.engine?.isReady ?? false;
+    return this.baseConfig !== null;
   }
 
+  /**
+   * Whether at least one engine process is actually running and ready.
+   */
+  get hasRunningEngines(): boolean {
+    for (const [, engine] of this.engines) {
+      if (engine.isReady) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Backward-compatible: return the first ready engine (for proxy methods and agentHandlers).
+   */
   getAcpEngine(): AcpEngine | null {
-    return this.engine instanceof AcpEngine ? this.engine : null;
+    for (const [, engine] of this.engines) {
+      if (engine.isReady) return engine;
+    }
+    return null;
   }
 
-  // === Proxy methods (all delegated to AcpEngine) ===
+  // === Proxy methods (all delegated to first available AcpEngine for backward compat) ===
 
   async listSessions(): Promise<SdkSession[]> {
-    return this.engine!.listSessions();
+    const engine = this.getAcpEngine();
+    if (!engine) return [];
+    return engine.listSessions();
   }
 
   async createSession(opts?: { parentID?: string; title?: string }): Promise<SdkSession> {
-    return this.engine!.createSession(opts);
+    const engine = this.getAcpEngine();
+    if (!engine) throw new Error('No engine available');
+    return engine.createSession(opts);
   }
 
   async getSession(id: string): Promise<SdkSession> {
-    return this.engine!.getSession(id);
+    const engine = this.getAcpEngine();
+    if (!engine) throw new Error('No engine available');
+    return engine.getSession(id);
   }
 
   async deleteSession(id: string): Promise<boolean> {
-    return this.engine!.deleteSession(id);
+    const engine = this.getAcpEngine();
+    if (!engine) throw new Error('No engine available');
+    return engine.deleteSession(id);
   }
 
   async abortSession(id: string): Promise<void> {
-    await this.engine!.abortSession(id);
+    const engine = this.getAcpEngine();
+    if (!engine) return;
+    await engine.abortSession(id);
   }
 
   async prompt(
@@ -467,7 +678,9 @@ export class UnifiedAgentService extends EventEmitter {
     parts: Array<TextPartInput | FilePartInput>,
     opts?: PromptOptions,
   ): Promise<MessageWithParts> {
-    return this.engine!.prompt(sessionId, parts as any, opts);
+    const engine = this.getAcpEngine();
+    if (!engine) throw new Error('No engine available');
+    return engine.prompt(sessionId, parts as any, opts);
   }
 
   async promptAsync(
@@ -475,12 +688,16 @@ export class UnifiedAgentService extends EventEmitter {
     parts: Array<TextPartInput | FilePartInput>,
     opts?: PromptOptions,
   ): Promise<void> {
-    return this.engine!.promptAsync(sessionId, parts as any, opts);
+    const engine = this.getAcpEngine();
+    if (!engine) throw new Error('No engine available');
+    return engine.promptAsync(sessionId, parts as any, opts);
   }
 
   respondPermission(permissionId: string, response: 'once' | 'always' | 'reject'): void {
-    // ACP engine's respondPermission is void, returns nothing
-    this.engine!.respondPermission(permissionId, response);
+    // Try all engines — permission could belong to any
+    for (const [, engine] of this.engines) {
+      engine.respondPermission(permissionId, response);
+    }
   }
 
   // === ACP engine specific ===

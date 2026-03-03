@@ -149,16 +149,16 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         return;
       }
 
-      // 确保正确的引擎已启动（对齐 rcoder: 根据 agent_config 切换引擎 + 解析模板变量）
+      // 确保正确的引擎已启动（按 project_id 路由到对应 AcpEngine）
+      let acpEngine;
       try {
-        await agentService.ensureEngineForRequest(body);
+        acpEngine = await agentService.ensureEngineForRequest(body);
       } catch (err: any) {
         log.error('❌ [HTTP] Engine switch failed:', err);
         sendJson(res, 200, httpError('5000', err.message || 'Engine switch failed'));
         return;
       }
 
-      const acpEngine = agentService.getAcpEngine();
       if (!acpEngine) {
         log.error('❌ [HTTP] Agent not initialized');
         sendJson(res, 200, httpError('5000', 'Agent not initialized'));
@@ -191,7 +191,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
       // 检查 Agent 是否 idle — 如果是，发送立即结束事件（对齐 rcoder is_agent_idle 逻辑）
       const acpEngine = agentService.getAcpEngine();
-      if (!acpEngine || !acpEngine.isReady) {
+      if (!acpEngine || !agentService.hasRunningEngines) {
         log.info(`💤 [HTTP] Agent 处于 idle 状态，发送 SessionPromptEnd: session_id=${sessionId}`);
         const endEvent: UnifiedSessionMessage = {
           sessionId,
@@ -258,11 +258,12 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         return;
       }
 
-      const acpEngine = agentService.getAcpEngine();
+      const projectEngine = agentService.getEngineForProject(body.project_id);
+      const acpEngine = projectEngine || agentService.getAcpEngine();
       const session = acpEngine?.findSessionByProjectId(body.project_id) ?? null;
 
       if (session) {
-        log.info(`✅ [HTTP] Agent 状态: project_id=${body.project_id}, is_alive=true, session_id=${session.id}`);
+        log.info(`✅ [HTTP] Agent 状态: project_id=${body.project_id}, is_alive=true, session_id=${session.acpSessionId ?? session.id}`);
       } else {
         log.warn(`⚠️ [HTTP] Agent 不存在: project_id=${body.project_id}`);
       }
@@ -270,8 +271,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       sendJson(res, 200, httpResult({
         user_id: body.user_id,
         project_id: body.project_id,
-        is_alive: !!session && session.status === 'active',
-        session_id: session?.id ?? null,
+        is_alive: !!projectEngine,
+        session_id: session?.acpSessionId ?? session?.id ?? null,
         status: session ? (session.status === 'active' ? 'Busy' : 'Idle') : null,
         last_activity: session?.lastActivity ? new Date(session.lastActivity).toISOString() : null,
         created_at: session ? new Date(session.createdAt).toISOString() : null,
@@ -293,15 +294,12 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         return;
       }
 
-      const acpEngine = agentService.getAcpEngine();
+      const acpEngine = agentService.getEngineForProject(body.project_id);
       if (acpEngine) {
-        const session = acpEngine.findSessionByProjectId(body.project_id);
-        if (session) {
-          await acpEngine.abortSession(session.id);
-          log.info(`✅ [HTTP] Agent 已停止: project_id=${body.project_id}`);
-        } else {
-          log.info(`ℹ️ [HTTP] Agent 不存在,幂等返回成功: project_id=${body.project_id}`);
-        }
+        await agentService.stopEngine(body.project_id);
+        log.info(`✅ [HTTP] Agent 已停止: project_id=${body.project_id}`);
+      } else {
+        log.info(`ℹ️ [HTTP] Agent 不存在,幂等返回成功: project_id=${body.project_id}`);
       }
 
       sendJson(res, 200, httpResult({
@@ -333,7 +331,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         return;
       }
 
-      const acpEngine = agentService.getAcpEngine();
+      const acpEngine = agentService.getEngineForProject(projectId) || agentService.getAcpEngine();
       if (acpEngine) {
         if (sessionId) {
           const ok = await acpEngine.abortSession(sessionId);

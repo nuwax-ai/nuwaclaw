@@ -602,7 +602,10 @@ export class AcpEngine extends EventEmitter {
   findSessionByProjectId(projectId: string): AcpSession | null {
     if (!projectId) return null;
     for (const [, session] of this.sessions) {
-      if (session.projectId === projectId) {
+      // Match by explicit projectId, internal session id, or ACP session id
+      if (session.projectId === projectId
+        || session.id === projectId
+        || session.acpSessionId === projectId) {
         return session;
       }
     }
@@ -713,12 +716,12 @@ export class AcpEngine extends EventEmitter {
       // 3. Return HttpResult<ChatResponse>
       const chatResponse: ComputerChatResponse = {
         project_id: request.project_id || session.id,
-        session_id: session.id,
+        session_id: session.acpSessionId ?? session.id,
         error: null,
         request_id: request.request_id,
       };
 
-      log.info(`${this.logTag} ✅ chat() 响应: session_id=${session.id}`);
+      log.info(`${this.logTag} ✅ chat() 响应: session_id=${session.acpSessionId ?? session.id}`);
 
       return {
         code: '0000',
