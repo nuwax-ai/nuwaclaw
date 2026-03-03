@@ -43,5 +43,8 @@ crates/agent-electron-client/resources/lanproxy/bin/
 # Bundled MCP proxy: 构建时 prepare-mcp-proxy 安装依赖树
 crates/agent-electron-client/resources/mcp-proxy/
 
+# Prepare 脚本的临时下载缓存（不入库）
+crates/agent-electron-client/scripts/resources/
+
 # Vitest coverage reports
 crates/agent-electron-client/coverage/

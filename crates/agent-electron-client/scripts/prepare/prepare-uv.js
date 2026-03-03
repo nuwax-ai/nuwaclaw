@@ -15,8 +15,9 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const { execSync } = require('child_process');
+const { getProjectRoot } = require('../utils/project-paths');
 
-const projectRoot = path.resolve(__dirname, '..');
+const projectRoot = getProjectRoot();
 const uvRoot = path.join(projectRoot, 'resources', 'uv');
 const cacheDir = path.join(uvRoot, '.cache');
 

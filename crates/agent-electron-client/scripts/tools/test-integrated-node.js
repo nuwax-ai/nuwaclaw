@@ -6,8 +6,9 @@
 const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
+const { getProjectRoot } = require('../utils/project-paths');
 
-const projectRoot = path.resolve(__dirname, '..');
+const projectRoot = getProjectRoot();
 const distMain = path.join(projectRoot, 'dist/main');
 
 console.log('Testing integrated Node.js 24 configuration...\n');
@@ -42,7 +43,7 @@ try {
   const result = execSync(`"${nodeBin}" --version`, { encoding: 'utf8' }).trim();
   console.log(`Node version: ${result}`);
   // 读取 prepare-node.js 中定义的 NODE_VERSION
-  const prepareScript = fs.readFileSync(path.join(__dirname, 'prepare-node.js'), 'utf8');
+  const prepareScript = fs.readFileSync(path.join(projectRoot, 'scripts', 'prepare', 'prepare-node.js'), 'utf8');
   const versionMatch = prepareScript.match(/const NODE_VERSION = '([^']+)'/);
   const expectedVersion = versionMatch ? versionMatch[1] : null;
   if (expectedVersion && result === `v${expectedVersion}`) {

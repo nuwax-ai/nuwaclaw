@@ -11,8 +11,9 @@
 
 const path = require('path');
 const fs = require('fs');
+const { getProjectRoot } = require('../utils/project-paths');
 
-const projectRoot = path.resolve(__dirname, '..');
+const projectRoot = getProjectRoot();
 const srcPkgDir = path.join(projectRoot, 'node_modules', 'nuwax-mcp-stdio-proxy');
 const outputDir = path.join(projectRoot, 'resources', 'mcp-proxy');
 

@@ -26,6 +26,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
+const { getProjectRoot } = require('../utils/project-paths');
 
 // 与 LobsterAI 保持一致
 const GIT_VERSION = '2.47.1';
@@ -33,7 +34,7 @@ const PORTABLE_GIT_FILE = `PortableGit-${GIT_VERSION}-64-bit.7z.exe`;
 const DEFAULT_PORTABLE_GIT_URL =
   `https://github.com/git-for-windows/git/releases/download/v${GIT_VERSION}.windows.1/${PORTABLE_GIT_FILE}`;
 
-const PROJECT_ROOT = path.resolve(__dirname, '..');
+const PROJECT_ROOT = getProjectRoot();
 const GIT_ROOT = path.join(PROJECT_ROOT, 'resources', 'git');
 const CACHE_DIR = path.join(GIT_ROOT, '.cache');
 const DEFAULT_ARCHIVE_PATH = path.join(CACHE_DIR, PORTABLE_GIT_FILE);

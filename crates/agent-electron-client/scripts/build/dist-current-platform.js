@@ -4,7 +4,7 @@
  * 多平台打包请在 CI 上按系统分别执行 dist:mac / dist:win / dist:linux。
  */
 const { spawn } = require('child_process');
-const path = require('path');
+const { getProjectRoot } = require('../utils/project-paths');
 
 const platform = process.platform;
 const unsignedEnv = {
@@ -28,7 +28,7 @@ const child = spawn(
     stdio: 'inherit',
     shell: true,
     env: unsignedEnv,
-    cwd: path.resolve(__dirname, '..'),
+    cwd: getProjectRoot(),
   }
 );
 child.on('exit', (code) => process.exit(code ?? 0));

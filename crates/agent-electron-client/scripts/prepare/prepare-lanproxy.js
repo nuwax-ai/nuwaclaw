@@ -21,8 +21,9 @@
 
 const path = require('path');
 const fs = require('fs');
+const { getProjectRoot } = require('../utils/project-paths');
 
-const projectRoot = path.resolve(__dirname, '..');
+const projectRoot = getProjectRoot();
 const tauriBinDir = path.resolve(projectRoot, '..', 'agent-tauri-client', 'src-tauri', 'binaries');
 const destBinDir = path.join(projectRoot, 'resources', 'lanproxy', 'bin');
 

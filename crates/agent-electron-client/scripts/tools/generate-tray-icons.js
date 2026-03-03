@@ -16,14 +16,16 @@
 const path = require('path');
 const fs = require('fs');
 const sharp = require('sharp');
+const { getProjectRoot } = require('../utils/project-paths');
 
 const SIZES = {
   normal: 22,
   retina: 44,
 };
 
-const SOURCE_ICON = path.join(__dirname, '..', 'public', 'icon.png');
-const OUTPUT_DIR = path.join(__dirname, '..', 'public', 'tray');
+const projectRoot = getProjectRoot();
+const SOURCE_ICON = path.join(projectRoot, 'public', 'icon.png');
+const OUTPUT_DIR = path.join(projectRoot, 'public', 'tray');
 
 async function generateTrayIcons() {
   if (!fs.existsSync(OUTPUT_DIR)) {

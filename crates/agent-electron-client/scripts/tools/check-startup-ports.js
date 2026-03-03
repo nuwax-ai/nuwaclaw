@@ -12,11 +12,12 @@
 const path = require('path');
 const fs = require('fs');
 const { execSync, spawnSync } = require('child_process');
+const { getProjectRoot } = require('../utils/project-paths');
 
 const isWin = process.platform === 'win32';
 const home = process.env.HOME || process.env.USERPROFILE;
 const dbPath = path.join(home, '.nuwax-agent', 'nuwax-agent.db');
-const projectRoot = path.resolve(__dirname, '..');
+const projectRoot = getProjectRoot();
 const checkPortShPath = path.join(__dirname, 'check-port.sh');
 const winBashPath = path.join(projectRoot, 'resources', 'git', 'bin', 'bash.exe');
 

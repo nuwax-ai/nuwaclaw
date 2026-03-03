@@ -18,8 +18,9 @@ const fs = require('fs');
 const https = require('https');
 const crypto = require('crypto');
 const { execSync } = require('child_process');
+const { getProjectRoot } = require('../utils/project-paths');
 
-const projectRoot = path.resolve(__dirname, '..');
+const projectRoot = getProjectRoot();
 const nodeRoot = path.join(projectRoot, 'resources', 'node');
 
 // Node.js 版本
