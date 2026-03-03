@@ -699,8 +699,6 @@ class McpProxyManager {
           command: nodeBinPath,
           args: proxyArgs,
           env: proxyEnv,
-          // 保存临时文件路径以便后续清理
-          _configFilePath: configFilePath,
         },
       };
     }
