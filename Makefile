@@ -92,6 +92,13 @@ help:
 	@echo "  tauri-bundle-all   - Build Tauri app for all platforms (macOS/Windows/Linux)"
 	@echo "  tauri-dev          - Run Tauri dev mode"
 	@echo ""
+	@echo "=== Electron App Build ==="
+	@echo "  electron-install-deps    - Install Electron client npm dependencies"
+	@echo "  electron-rebuild         - Rebuild native modules (better-sqlite3) for Electron"
+	@echo "  electron-prepare-lanproxy - Prepare lanproxy binary for Electron"
+	@echo "  electron-prepare         - Full prepare (install + rebuild + lanproxy)"
+	@echo "  electron-dev             - Run Electron dev mode (one-click start)"
+	@echo ""
 	@echo "=== Dependencies ==="
 	@echo "  setup-repo     - Initialize Git submodules (including nested hbb_common)"
 	@echo "  setup-vcpkg    - Install vcpkg and dependencies"
@@ -418,6 +425,40 @@ tauri-dev: tauri-install-deps
 	@echo "=== Tauri Dev Started at $$(date) ===" > logs/tauri-dev.log
 	@echo ">>> Frontend deps installed, starting tauri dev..."
 	cd crates/$(TAURI_CLIENT) && RUST_LOG=trace AGENT_RUST_LOG=trace VITE_BUILD_ENV=$(BUILD_ENV) cargo tauri dev 2>&1 | tee -a $(CURDIR)/logs/tauri-dev.log
+
+# ============================================================================
+# Electron 应用开发目标
+# ============================================================================
+
+# Electron 客户端 crate 名称
+ELECTRON_CLIENT := agent-electron-client
+
+.PHONY: electron-install-deps
+electron-install-deps:
+	@echo ">>> Installing Electron client dependencies..."
+	cd crates/$(ELECTRON_CLIENT) && npm install
+
+.PHONY: electron-rebuild
+electron-rebuild:
+	@echo ">>> Rebuilding native modules for Electron..."
+	cd crates/$(ELECTRON_CLIENT) && npx electron-rebuild -f -w better-sqlite3
+
+.PHONY: electron-prepare-lanproxy
+electron-prepare-lanproxy:
+	@echo ">>> Preparing lanproxy binary for Electron..."
+	cd crates/$(ELECTRON_CLIENT) && npm run prepare:lanproxy
+
+.PHONY: electron-prepare
+electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanproxy
+	@echo ">>> Electron client prepared successfully"
+
+.PHONY: electron-dev
+electron-dev: electron-prepare
+	@echo ">>> Starting Electron dev mode..."
+	@echo ">>> Logs will be written to logs/electron-dev.log"
+	mkdir -p logs
+	@echo "=== Electron Dev Started at $$(date) ===" > logs/electron-dev.log
+	cd crates/$(ELECTRON_CLIENT) && npm run dev 2>&1 | tee -a $(CURDIR)/logs/electron-dev.log
 
 .PHONY: tauri-info
 tauri-info:
