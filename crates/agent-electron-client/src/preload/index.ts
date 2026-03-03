@@ -294,6 +294,79 @@ contextBridge.exposeInMainWorld('electronAPI', {
     set: (enabled: boolean) => ipcRenderer.invoke('autolaunch:set', enabled),
   },
 
+  // Long-term Memory
+  memory: {
+    // Lifecycle
+    init: (workspaceDir: string, config?: any) =>
+      ipcRenderer.invoke('memory:init', workspaceDir, config),
+    destroy: () =>
+      ipcRenderer.invoke('memory:destroy'),
+    status: () =>
+      ipcRenderer.invoke('memory:status'),
+    ensureReady: () =>
+      ipcRenderer.invoke('memory:ensureReady') as Promise<{ ready: boolean; synced: boolean }>,
+
+    // Configuration
+    getConfig: () =>
+      ipcRenderer.invoke('memory:getConfig'),
+    updateConfig: (config: any) =>
+      ipcRenderer.invoke('memory:updateConfig', config),
+
+    // Extraction
+    extract: (sessionId: string, messageId: string, messages: any[], modelConfig: any) =>
+      ipcRenderer.invoke('memory:extract', sessionId, messageId, messages, modelConfig),
+    append: (content: string, title?: string) =>
+      ipcRenderer.invoke('memory:append', content, title),
+    addMessageToWindow: (message: { role: 'user' | 'assistant'; content: string }, sessionId: string, modelConfig: any) =>
+      ipcRenderer.invoke('memory:addMessageToWindow', message, sessionId, modelConfig) as Promise<{ success: boolean; turnCount?: number; error?: string }>,
+    resetMessageWindow: () =>
+      ipcRenderer.invoke('memory:resetMessageWindow'),
+    onSessionEnd: (sessionId: string, messages: any[], modelConfig: any) =>
+      ipcRenderer.invoke('memory:onSessionEnd', sessionId, messages, modelConfig) as Promise<{ success: boolean; taskId?: string; error?: string }>,
+
+    // Retrieval
+    search: (query: string, options?: any) =>
+      ipcRenderer.invoke('memory:search', query, options),
+    getContext: (query: string, options?: any) =>
+      ipcRenderer.invoke('memory:getContext', query, options),
+
+    // File operations
+    sync: () =>
+      ipcRenderer.invoke('memory:sync'),
+    rebuildIndex: () =>
+      ipcRenderer.invoke('memory:rebuildIndex'),
+    getFiles: () =>
+      ipcRenderer.invoke('memory:getFiles'),
+
+    // Management
+    add: (entry: any) =>
+      ipcRenderer.invoke('memory:add', entry),
+    update: (id: string, updates: any) =>
+      ipcRenderer.invoke('memory:update', id, updates),
+    delete: (id: string) =>
+      ipcRenderer.invoke('memory:delete', id),
+    list: (options?: any) =>
+      ipcRenderer.invoke('memory:list', options),
+
+    // Scheduled tasks
+    runConsolidation: (modelConfig?: { provider: string; model: string; apiKey: string; baseUrl?: string }) =>
+      ipcRenderer.invoke('memory:runConsolidation', modelConfig),
+    runCleanup: () =>
+      ipcRenderer.invoke('memory:runCleanup'),
+
+    // Vector
+    checkVectorSupport: () =>
+      ipcRenderer.invoke('memory:checkVectorSupport'),
+    setEmbeddingConfig: (config: any) =>
+      ipcRenderer.invoke('memory:setEmbeddingConfig', config),
+
+    // Queue status
+    getQueueStatus: () =>
+      ipcRenderer.invoke('memory:getQueueStatus'),
+    getSchedulerStatus: () =>
+      ipcRenderer.invoke('memory:getSchedulerStatus'),
+  },
+
   // Log
   log: {
     getDir: () => ipcRenderer.invoke('log:getDir'),
@@ -318,7 +391,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Event listeners
   on: (channel: string, callback: (...args: unknown[]) => void) => {
-    const validChannels = ['menu:new-session', 'menu:settings', 'menu:mcp-settings', 'menu:dependencies', 'cowork:message', 'cowork:permission', 'agent:event', 'computer:progress', 'update:status'];
+    const validChannels = ['menu:new-session', 'menu:settings', 'menu:mcp-settings', 'menu:dependencies', 'cowork:message', 'cowork:permission', 'agent:event', 'computer:progress', 'update:status', 'memory:sync', 'memory:consolidation', 'memory:cleanup'];
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, (_, ...args) => callback(...args));
     }
