@@ -1,6 +1,6 @@
 {
   "name": "nuwax-mcp-stdio-proxy",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "TypeScript MCP proxy — aggregates multiple MCP servers (stdio + streamable-http + SSE) with convert & proxy modes",
   "type": "module",
   "bin": {
