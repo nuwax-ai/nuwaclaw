@@ -229,9 +229,9 @@ jobs:
         run: |
           if [ "${{ runner.os }}" = "macOS" ] && [ -z "${{ secrets.APPLE_CERTIFICATE }}" ]; then
             echo "No Apple certificate, building unsigned Mac package for ${{ matrix.arch }}"
-            npm run dist:mac:unsigned:${{ matrix.arch }}
+            npm run dist:mac:unsigned:${{ matrix.arch }} -- --publish never
           else
-            npm run ${{ matrix.dist_cmd }}
+            npm run ${{ matrix.dist_cmd }} -- --publish never
           fi
 
       - name: Upload artifacts to Release
