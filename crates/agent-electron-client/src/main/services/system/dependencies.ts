@@ -484,7 +484,19 @@ export function getBundledGitBashPath(): string {
  *    - 清除用户 npm 配置文件，避免读取用户全局设置
  *    - 禁用 uv 自动安装到全局目录
  */
-export function getAppEnv(): Record<string, string> {
+export interface GetAppEnvOptions {
+  /**
+   * 是否包含系统 PATH 环境变量。
+   * - true: 包含系统 PATH（默认行为，适用于需要访问系统工具的进程）
+   * - false: 只包含应用内集成的 PATH（适用于 MCP 代理等需要精简环境的进程）
+   * @default true
+   */
+  includeSystemPath?: boolean;
+}
+
+export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
+  const { includeSystemPath = true } = opts ?? {};
+
   const appDataDir = getAppDataDir();
   const nodeModulesBin = path.join(appDataDir, "node_modules", ".bin");
   const appBin = getAppBinDir();
@@ -510,15 +522,15 @@ export function getAppEnv(): Record<string, string> {
   // 镜像配置
   const mirror = getMirrorConfig();
 
-  // 构建系统 PATH 的回退路径（仅包含常用系统工具目录）
-  // 这样 agent 可以使用 bash/git/grep 等系统工具
-  const systemPathPaths = getSystemPaths();
-
   // 获取内置 Node.js 24、Git 和 Electron Node 路径
   const bundledNodeBinDir = getBundledNodeBinDir();
   const bundledGitBinDir = getBundledGitBinDir();
   const bundledGitBashPath = getBundledGitBashPath();
   const electronNodeBinDir = getElectronNodeBinDir();
+
+  // 构建系统 PATH 的回退路径（仅包含常用系统工具目录）
+  // 这样 agent 可以使用 bash/git/grep 等系统工具
+  const systemPathPaths = includeSystemPath ? getSystemPaths() : [];
 
   // PATH 优先级：应用内 uv/uvx 优先，再应用内 node/npm，最后系统回退
   // - bundledNodeBinDir: 内置 Node.js 24（仅 Windows）
@@ -527,7 +539,7 @@ export function getAppEnv(): Record<string, string> {
   // - uvBin/uvToolBinDir: 应用内 uv/uvx（优先，保证 MCP 等子进程用应用内版本）
   // - nodeModulesBin: 应用内 node_modules/.bin
   // - appBin: 应用内 bin
-  // - systemPathPaths: 系统工具回退
+  // - systemPathPaths: 系统工具回退（可选，由 includeSystemPath 控制）
   const priorityPath = [
     bundledNodeBinDir,
     electronNodeBinDir,
@@ -667,7 +679,7 @@ export function getAppEnv(): Record<string, string> {
       }
     }
 
-    // 2. 确保 Windows 系统目录在 PATH 中
+    // 2. 确保 Windows 系统目录在 PATH 中（始终添加，这是系统运行必需的）
     const windowsSystemPathEntries = [
       "C:\\Windows\\System32",
       "C:\\Windows\\System32\\Wbem",
@@ -675,19 +687,21 @@ export function getAppEnv(): Record<string, string> {
       "C:\\Windows\\System32\\OpenSSH",
     ];
 
-    const currentPath = cleanEnv.PATH || "";
+    let currentPath = cleanEnv.PATH || "";
     const currentPathLower = currentPath.split(";").map((p) => p.toLowerCase());
 
     for (const sysPath of windowsSystemPathEntries) {
       if (!currentPathLower.includes(sysPath.toLowerCase())) {
-        cleanEnv.PATH = currentPath + ";" + sysPath;
+        currentPath = currentPath + ";" + sysPath;
+        cleanEnv.PATH = currentPath;
       }
     }
 
     // 3. 设置 ORIGINAL_PATH（POSIX 格式）供 git-bash 使用
+    // 注意：当 includeSystemPath 为 false 时，跳过此步骤以精简环境变量
     // 参考 LobsterAI: 确保 git-bash 的 /etc/profile 正确处理 PATH
     // 注意：限制条目数量以避免超过 Windows 环境变量长度限制 (32,767)
-    if (bundledGitBashPath) {
+    if (includeSystemPath && bundledGitBashPath) {
       const MAX_ORIGINAL_PATH_ENTRIES = 20; // 限制条目数量
       const pathEntries = (cleanEnv.PATH || "").split(";").filter(Boolean);
       const limitedEntries = pathEntries.slice(0, MAX_ORIGINAL_PATH_ENTRIES);
@@ -701,62 +715,67 @@ export function getAppEnv(): Record<string, string> {
     }
 
     // 4. 从注册表读取最新 PATH（解决用户后安装的工具不在 PATH 中的问题）
-    try {
-      const { execSync } = require("child_process");
-      const psScript = [
-        '$machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")',
-        '$userPath = [Environment]::GetEnvironmentVariable("Path", "User")',
-        '[Console]::Write("$machinePath;$userPath")',
-      ].join("; ");
-      const encodedCommand = Buffer.from(psScript, "utf16le").toString(
-        "base64",
-      );
-      const result = execSync(
-        `powershell -NoProfile -NonInteractive -EncodedCommand ${encodedCommand}`,
-        {
-          encoding: "utf-8",
-          timeout: 10000,
-          windowsHide: true,
-        },
-      );
-
-      const registryPath = result.trim();
-      if (registryPath) {
-        const registryEntries = registryPath
-          .split(";")
-          .map((entry: string) => entry.trim())
-          .filter(Boolean);
-
-        // 去重并追加到 PATH 末尾
-        // 注意：限制追加的条目数量以避免超过 Windows 环境变量长度限制
-        const MAX_REGISTRY_PATH_ENTRIES = 10; // 最多从注册表追加10个条目
-        const existingPaths = new Set(
-          currentPath.split(";").map((p) => p.toLowerCase()),
+    // 注意：当 includeSystemPath 为 false 时，跳过此步骤以精简环境变量
+    if (includeSystemPath) {
+      try {
+        const { execSync } = require("child_process");
+        const psScript = [
+          '$machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")',
+          '$userPath = [Environment]::GetEnvironmentVariable("Path", "User")',
+          '[Console]::Write("$machinePath;$userPath")',
+        ].join("; ");
+        const encodedCommand = Buffer.from(psScript, "utf16le").toString(
+          "base64",
         );
-        const missingEntries: string[] = [];
+        const result = execSync(
+          `powershell -NoProfile -NonInteractive -EncodedCommand ${encodedCommand}`,
+          {
+            encoding: "utf-8",
+            timeout: 10000,
+            windowsHide: true,
+          },
+        );
 
-        for (const entry of registryEntries) {
-          if (missingEntries.length >= MAX_REGISTRY_PATH_ENTRIES) {
-            log.info(
-              `[getAppEnv] 已达到最大注册表 PATH 条目限制 (${MAX_REGISTRY_PATH_ENTRIES})，跳过剩余条目`,
-            );
-            break;
-          }
-          if (!existingPaths.has(entry.toLowerCase())) {
-            missingEntries.push(entry);
-            existingPaths.add(entry.toLowerCase());
-          }
-        }
+        const registryPath = result.trim();
+        if (registryPath) {
+          const registryEntries = registryPath
+            .split(";")
+            .map((entry: string) => entry.trim())
+            .filter(Boolean);
 
-        if (missingEntries.length > 0) {
-          cleanEnv.PATH = currentPath + ";" + missingEntries.join(";");
-          log.info(
-            `[getAppEnv] 从注册表追加 ${missingEntries.length} 个 PATH 条目`,
+          // 去重并追加到 PATH 末尾
+          // 注意：限制追加的条目数量以避免超过 Windows 环境变量长度限制
+          const MAX_REGISTRY_PATH_ENTRIES = 10; // 最多从注册表追加10个条目
+          const existingPaths = new Set(
+            currentPath.split(";").map((p) => p.toLowerCase()),
           );
+          const missingEntries: string[] = [];
+
+          for (const entry of registryEntries) {
+            if (missingEntries.length >= MAX_REGISTRY_PATH_ENTRIES) {
+              log.info(
+                `[getAppEnv] 已达到最大注册表 PATH 条目限制 (${MAX_REGISTRY_PATH_ENTRIES})，跳过剩余条目`,
+              );
+              break;
+            }
+            if (!existingPaths.has(entry.toLowerCase())) {
+              missingEntries.push(entry);
+              existingPaths.add(entry.toLowerCase());
+            }
+          }
+
+          if (missingEntries.length > 0) {
+            cleanEnv.PATH = currentPath + ";" + missingEntries.join(";");
+            log.info(
+              `[getAppEnv] 从注册表追加 ${missingEntries.length} 个 PATH 条目`,
+            );
+          }
         }
+      } catch (error) {
+        log.warn(`[getAppEnv] 读取注册表 PATH 失败: ${error}`);
       }
-    } catch (error) {
-      log.warn(`[getAppEnv] 读取注册表 PATH 失败: ${error}`);
+    } else {
+      log.info(`[getAppEnv] 跳过注册表 PATH 读取（includeSystemPath=false）`);
     }
   }
 

@@ -682,9 +682,10 @@ class McpProxyManager {
         return null;
       }
 
-      // 构建完整环境变量，确保 mcp-proxy 进程能正确启动子进程
-      // 包含 Windows 系统变量 (SystemRoot, COMSPEC 等) 和应用内工具路径
-      const proxyEnv = getAppEnv();
+      // 构建精简环境变量，避免 Windows 环境变量长度限制 (32,767)
+      // mcp-proxy 只需要应用内集成的工具（node, npm, npx, uv, uvx, git）
+      // 不需要用户的系统 PATH，这样可以显著减少环境变量长度
+      const proxyEnv = getAppEnv({ includeSystemPath: false });
 
       // 构建 proxy 启动参数，使用 --config-file 避免命令行长度限制
       const proxyArgs = [scriptPath, "--config-file", configFilePath];
