@@ -17,6 +17,7 @@
  * Mode implementations live in modes/*.ts.
  */
 
+import * as fs from 'fs';
 import type { McpServersConfig } from './types.js';
 import { logError } from './logger.js';
 import { runStdio } from './modes/stdio.js';
@@ -67,6 +68,7 @@ function parseCliArgs(): CliArgs {
 
 function parseStdioArgs(args: string[]): CliArgs & { mode: 'stdio' } {
   let configJson: string | undefined;
+  let configFile: string | undefined;
   let allowTools: string[] | undefined;
   let denyTools: string[] | undefined;
 
@@ -75,6 +77,9 @@ function parseStdioArgs(args: string[]): CliArgs & { mode: 'stdio' } {
     if (arg === '--config' && i + 1 < args.length) {
       i++;
       configJson = args[i];
+    } else if (arg === '--config-file' && i + 1 < args.length) {
+      i++;
+      configFile = args[i];
     } else if (arg === '--allow-tools' && i + 1 < args.length) {
       i++;
       allowTools = args[i].split(',').map((s) => s.trim()).filter(Boolean);
@@ -84,9 +89,15 @@ function parseStdioArgs(args: string[]): CliArgs & { mode: 'stdio' } {
     }
   }
 
-  if (!configJson) {
-    logError('Missing --config argument');
+  if (!configJson && !configFile) {
+    logError('Missing --config or --config-file argument');
     logError('Usage: nuwax-mcp-stdio-proxy --config \'{"mcpServers":{...}}\'');
+    logError('   or: nuwax-mcp-stdio-proxy --config-file /path/to/config.json');
+    process.exit(1);
+  }
+
+  if (configJson && configFile) {
+    logError('Cannot use both --config and --config-file');
     process.exit(1);
   }
 
@@ -95,7 +106,7 @@ function parseStdioArgs(args: string[]): CliArgs & { mode: 'stdio' } {
     process.exit(1);
   }
 
-  const config = parseConfigJson(configJson);
+  const config = configFile ? parseConfigFile(configFile) : parseConfigJson(configJson!);
   return { mode: 'stdio', config, allowTools, denyTools };
 }
 
@@ -155,6 +166,7 @@ function parseConvertArgs(args: string[]): CliArgs & { mode: 'convert' } {
 function parseProxyArgs(args: string[]): CliArgs & { mode: 'proxy' } {
   let port: number | undefined;
   let config: McpServersConfig | undefined;
+  let configFile: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -169,6 +181,9 @@ function parseProxyArgs(args: string[]): CliArgs & { mode: 'proxy' } {
     } else if (arg === '--config' && i + 1 < args.length) {
       i++;
       config = parseConfigJson(args[i]);
+    } else if (arg === '--config-file' && i + 1 < args.length) {
+      i++;
+      configFile = args[i];
     } else {
       logError(`Unknown argument: "${arg}"`);
       printProxyUsage();
@@ -182,8 +197,12 @@ function parseProxyArgs(args: string[]): CliArgs & { mode: 'proxy' } {
     process.exit(1);
   }
 
+  if (configFile) {
+    config = parseConfigFile(configFile);
+  }
+
   if (!config) {
-    logError('--config is required for proxy mode');
+    logError('--config or --config-file is required for proxy mode');
     printProxyUsage();
     process.exit(1);
   }
@@ -204,15 +223,32 @@ function parseConfigJson(json: string): McpServersConfig {
   }
 }
 
+function parseConfigFile(filePath: string): McpServersConfig {
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const config = JSON.parse(content) as McpServersConfig;
+    if (!config.mcpServers || typeof config.mcpServers !== 'object') {
+      throw new Error('config must contain a "mcpServers" object');
+    }
+    return config;
+  } catch (e) {
+    logError(`Failed to read or parse config file "${filePath}": ${e}`);
+    process.exit(1);
+  }
+}
+
 // ========== Usage Messages ==========
 
 function printUsage(): void {
   logError('Usage:');
   logError('  nuwax-mcp-stdio-proxy --config \'{"mcpServers":{...}}\' [OPTIONS]  (stdio aggregation)');
+  logError('  nuwax-mcp-stdio-proxy --config-file <FILE> [OPTIONS]             (stdio aggregation from file)');
   logError('  nuwax-mcp-stdio-proxy convert [URL] [OPTIONS]                    (remote → stdio)');
   logError('  nuwax-mcp-stdio-proxy proxy --port <PORT> --config \'...\'         (HTTP server)');
   logError('');
   logError('Options (stdio / convert):');
+  logError('  --config <JSON>                MCP config JSON string');
+  logError('  --config-file <FILE>           MCP config JSON file path');
   logError('  --allow-tools <TOOLS>          Tool whitelist (comma-separated)');
   logError('  --deny-tools <TOOLS>           Tool blacklist (comma-separated)');
 }
@@ -233,6 +269,7 @@ function printConvertUsage(): void {
 
 function printProxyUsage(): void {
   logError('Usage: nuwax-mcp-stdio-proxy proxy --port <PORT> --config \'{"mcpServers":{...}}\'');
+  logError('   or: nuwax-mcp-stdio-proxy proxy --port <PORT> --config-file <FILE>');
 }
 
 // ========== Entry Point ==========
