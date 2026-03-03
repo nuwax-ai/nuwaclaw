@@ -92,11 +92,11 @@ scripts/
 ### Phase 0：基线保护（先做）
 
 1. 记录当前可用命令结果：`npm run build`、`npm run test:run`
-2. 新增重构分支：`codex/refactor-plan-v3`
+2. 新增重构分支：`feature/electron-client-0.6`
 3. 将本文件作为总入口，后续每个阶段回填“已完成/阻塞/风险”
 4. 基线结果（2026-03-03）：
    - `npm run build`：通过
-   - `npm run test:run`：通过（144 tests）
+   - `npm run test:run`：通过（147 tests）
    - 已知告警：vite chunk size > 500k、测试阶段 `electron-log` 写系统日志路径出现 EPERM（不影响测试通过）
 
 ### Phase 1：main 顶层归类（中风险，优先）

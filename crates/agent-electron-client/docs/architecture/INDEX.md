@@ -33,10 +33,10 @@ status: design
 
 | 文档 | 描述 |
 |------|------|
-| [签名指南](./SIGNING.md) | 应用签名与公证 |
-| [安全审查](./SECURITY-REVIEW.md) | 安全性审查清单 |
-| [日志规范](./LOGGING.md) | 日志记录标准 |
-| [审查记录](./REVIEW-2026-02.md) | 2026年2月架构审查记录 |
+| [签名指南](../release/SIGNING.md) | 应用签名与公证 |
+| [安全审查](../reviews/SECURITY-REVIEW.md) | 安全性审查清单 |
+| [日志规范](../operations/LOGGING.md) | 日志记录标准 |
+| [审查记录](../reviews/REVIEW-2026-02.md) | 2026年2月架构审查记录 |
 
 ---
 
@@ -81,9 +81,9 @@ status: design
 ### 运维/安全工程师
 
 1. **[隔离策略](./ISOLATION.md)** - 安全隔离机制
-2. **[安全审查](./SECURITY-REVIEW.md)** - 安全检查清单
-3. **[签名指南](./SIGNING.md)** - 应用签名流程
-4. **[日志规范](./LOGGING.md)** - 日志审计要求
+2. **[安全审查](../reviews/SECURITY-REVIEW.md)** - 安全检查清单
+3. **[签名指南](../release/SIGNING.md)** - 应用签名流程
+4. **[日志规范](../operations/LOGGING.md)** - 日志审计要求
 
 ---
 
