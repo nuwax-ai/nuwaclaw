@@ -12,7 +12,7 @@
 #   - Linux arm64（AppImage + deb）
 #
 # 使用的 Secrets（可与 Tauri 共用 Apple 相关，也可单独配置）：
-#   - GH_PAT：创建 Release、上传资产（需 Contents: Write）
+#   - GH_PAT（可选）：创建 Release、上传资产（未配置时自动回退到 github.token，需 Contents: Write）
 #   - macOS 签名/公证（未配置时 Mac 构建为无签名包，用户打开会提示「已损坏」）：
 #     - APPLE_CERTIFICATE（.p12 Base64）/ APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY
 #     - 公证（否则 Gatekeeper 仍可能拦）：APPLE_API_KEY（.p8 Base64）/ APPLE_API_KEY_ID / APPLE_API_ISSUER（或 APPLE_ISSUER_ID）
@@ -61,7 +61,7 @@ jobs:
 
       - name: Create GitHub Release
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           TAG="${{ github.ref_name }}"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" 2>/dev/null; then
@@ -241,7 +241,7 @@ jobs:
       - name: Upload artifacts to Release
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${{ needs.prepare.outputs.version }}"

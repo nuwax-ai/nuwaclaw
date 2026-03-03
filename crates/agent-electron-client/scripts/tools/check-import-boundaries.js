@@ -3,7 +3,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
+const PROJECT_ROOT = process.env.NUWAX_BOUNDARY_PROJECT_ROOT
+  ? path.resolve(process.env.NUWAX_BOUNDARY_PROJECT_ROOT)
+  : path.resolve(__dirname, '..', '..');
 const SRC_ROOT = path.join(PROJECT_ROOT, 'src');
 
 const MAIN_ROOT = path.join(SRC_ROOT, 'main');
@@ -192,7 +194,7 @@ function checkFile(filePath) {
   return violations;
 }
 
-function main() {
+function runBoundaryCheck() {
   const files = walk(SRC_ROOT);
   const allViolations = [];
 
@@ -206,6 +208,12 @@ function main() {
     }
   }
 
+  return allViolations;
+}
+
+function main() {
+  const allViolations = runBoundaryCheck();
+
   if (allViolations.length > 0) {
     console.error('Import boundary check failed:\n');
     for (const v of allViolations) {
@@ -218,4 +226,10 @@ function main() {
   console.log('Import boundary check passed.');
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  runBoundaryCheck,
+};

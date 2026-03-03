@@ -284,7 +284,11 @@ scripts/
 
 1. 已新增 `scripts/tools/check-import-boundaries.js`
 2. 已新增 `npm run check:boundaries`
-3. 规则覆盖：
+3. 已新增 `tests/scripts/check-import-boundaries.test.ts`，覆盖：
+   - 合法 main/renderer 分层通过
+   - renderer 直接引用 main 失败
+   - bridge 文件引用失败
+4. 规则覆盖：
    - 禁止引用 bridge 文件（`src/main/*` 与 `src/renderer/*` 顶层桥接）
    - 禁止 renderer 直接引用 main/preload
    - 禁止 main 直接引用 renderer
