@@ -245,13 +245,13 @@ export class UnifiedAgentService extends EventEmitter {
    */
   async ensureEngineForRequest(request: ComputerChatRequest): Promise<void> {
     // 按会话动态加载：本请求携带的 context_servers 同步到 MCP Proxy（从桥接项 --config 解析真实服务），一次会话就会更新 proxy 配置
-    const requestMcpServersEarly: Record<string, { command: string; args: string[]; env?: Record<string, string>; allowTools?: string[]; denyTools?: string[] }> = {};
+    const requestMcpServersEarly: Record<string, import('../packages/mcp').McpServerEntry> = {};
     if (request.agent_config?.context_servers) {
       // Resolve uvx/uv commands to app-internal binaries for dynamic MCP servers
       // For bridge entries (mcp-proxy convert --config ...), extract inner real MCP servers
       let mcpModule: {
         resolveUvCommand: (cmd: string, args: string[], dir?: string) => { command: string; args: string[] };
-        extractRealMcpServers: (cmd: string, args: string[], env?: Record<string, string>, dir?: string) => Record<string, { command: string; args: string[]; env?: Record<string, string>; allowTools?: string[]; denyTools?: string[] }> | null;
+        extractRealMcpServers: (cmd: string, args: string[], env?: Record<string, string>, dir?: string) => Record<string, import('../packages/mcp').McpServerEntry> | null;
       } | null = null;
       try {
         mcpModule = await import('../packages/mcp');
@@ -337,7 +337,7 @@ export class UnifiedAgentService extends EventEmitter {
       : '';
     const requestMcpServers: typeof requestMcpServersEarly = {};
     for (const [name, entry] of Object.entries(requestMcpServersEarly)) {
-      if (entry.command === 'mcp-proxy' || path.basename(entry.command) === 'mcp-proxy') continue;
+      if ('command' in entry && (entry.command === 'mcp-proxy' || path.basename(entry.command) === 'mcp-proxy')) continue;
       requestMcpServers[name] = entry;
     }
     const newMcpStr = Object.keys(requestMcpServers).length > 0
@@ -391,12 +391,12 @@ export class UnifiedAgentService extends EventEmitter {
       freshMcpServers = mcpProxyManager.getAgentMcpConfig() || undefined;
     } catch {
       // fallback: 使用旧合并逻辑
-      const mergedMcpServers = {
+      const mergedMcpServers: Record<string, import('../packages/mcp').McpServerEntry> = {
         ...(baseConfig.mcpServers || {}),
         ...requestMcpServers,
       };
       if (Object.keys(mergedMcpServers).length > 0) {
-        freshMcpServers = mergedMcpServers;
+        freshMcpServers = mergedMcpServers as Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
       }
     }
 

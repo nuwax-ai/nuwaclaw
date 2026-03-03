@@ -149,7 +149,7 @@ export function extractRealMcpServers(
   args: string[],
   env?: Record<string, string>,
   uvBinDir?: string,
-): Record<string, { command: string; args: string[]; env?: Record<string, string>; allowTools?: string[]; denyTools?: string[] }> | null {
+): Record<string, McpServerEntry> | null {
   // Must be a bridge entry
   if (command !== 'mcp-proxy' && path.basename(command) !== 'mcp-proxy') return null;
 
@@ -160,7 +160,7 @@ export function extractRealMcpServers(
   const configStr = args[idx + 1];
   if (typeof configStr !== 'string') return null;
 
-  let parsed: { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> };
+  let parsed: { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string>; url?: string; transport?: string; headers?: Record<string, string>; authToken?: string }> };
   try {
     parsed = JSON.parse(configStr);
   } catch {
@@ -186,9 +186,28 @@ export function extractRealMcpServers(
   // and app-internal tool paths (NODE_PATH, NPM_CONFIG_*, UV_*) are available
   const appEnv = getAppEnv();
 
-  const result: Record<string, { command: string; args: string[]; env?: Record<string, string>; allowTools?: string[]; denyTools?: string[] }> = {};
+  const result: Record<string, McpServerEntry> = {};
   for (const [name, srv] of Object.entries(inner)) {
-    if (!srv || typeof srv.command !== 'string') continue;
+    if (!srv) continue;
+
+    // URL-based entry (SSE / Streamable HTTP) — pass through as RemoteMcpServerEntry
+    if (typeof srv.url === 'string') {
+      // Auto-detect transport: if URL path ends with /sse or contains /sse?, assume SSE transport
+      const transport: 'sse' | 'streamable-http' | undefined =
+        srv.transport === 'sse' || (!srv.transport && /\/sse(?:\?|$)/i.test(srv.url))
+          ? 'sse'
+          : srv.transport === 'streamable-http' ? 'streamable-http' : undefined;
+      result[name] = {
+        url: srv.url,
+        ...(transport ? { transport } : {}),
+        ...(srv.headers ? { headers: srv.headers } : {}),
+        ...(srv.authToken ? { authToken: srv.authToken } : {}),
+      };
+      continue;
+    }
+
+    // stdio entry — resolve command/args/env
+    if (typeof srv.command !== 'string') continue;
     const resolved = resolveUvCommand(srv.command, srv.args || [], dir);
     // Env merge: appEnv as foundation, external env overrides, server-specific env takes precedence
     result[name] = {
