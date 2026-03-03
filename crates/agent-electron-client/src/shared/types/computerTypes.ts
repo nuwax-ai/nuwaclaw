@@ -75,6 +75,7 @@ export interface ComputerChatResponse {
 // 字段名使用 camelCase 对齐 rcoder #[serde(rename_all = "camelCase")]
 export interface UnifiedSessionMessage {
   sessionId: string;
+  acpSessionId?: string;  // ACP protocol session ID (UUID), used for SSE push
   messageType: 'sessionPromptStart' | 'sessionPromptEnd' | 'agentSessionUpdate' | 'heartbeat';
   subType: string;
   data: unknown;

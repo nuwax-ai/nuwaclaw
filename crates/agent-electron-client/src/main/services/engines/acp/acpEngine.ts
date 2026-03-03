@@ -777,8 +777,10 @@ export class AcpEngine extends EventEmitter {
     // Debug: log every ACP session update event
     log.info(`${this.logTag} 📩 ACP sessionUpdate: type=${update.sessionUpdate}, acpSessionId=${acpSessionId}, localSessionId=${sessionId}`);
 
+    // Include acpSessionId for SSE push - SSE clients connect using acpSessionId from /computer/chat response
     this.emit('computer:progress', {
       sessionId: sessionId,
+      acpSessionId: acpSessionId,
       messageType: 'agentSessionUpdate',
       subType: update.sessionUpdate,
       data: update,

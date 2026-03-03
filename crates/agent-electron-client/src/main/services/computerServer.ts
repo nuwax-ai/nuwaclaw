@@ -377,14 +377,21 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
  */
 export function pushSseEvent(sessionId: string, eventName: string, data: unknown) {
   const clients = sseClients.get(sessionId);
-  if (!clients || clients.length === 0) return;
+  log.debug(`[ComputerServer] pushSseEvent: sessionId=${sessionId}, eventName=${eventName}, clients=${clients?.length || 0}`);
+  if (!clients || clients.length === 0) {
+    log.warn(`[ComputerServer] ⚠ No SSE clients for sessionId=${sessionId}`);
+    return;
+  }
 
   const payload = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const client of clients) {
     try {
-      client.write(payload);
-    } catch {
-      // client disconnected, will be cleaned up on 'close'
+      const written = client.write(payload);
+      if (!written) {
+        log.warn(`[ComputerServer] ⚠ SSE write returned false (buffer full): sessionId=${sessionId}`);
+      }
+    } catch (e) {
+      log.warn(`[ComputerServer] ⚠ SSE write failed:`, e);
     }
   }
 }

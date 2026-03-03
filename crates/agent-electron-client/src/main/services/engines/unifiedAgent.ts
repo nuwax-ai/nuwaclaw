@@ -11,6 +11,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import log from 'electron-log';
+import { memoryService } from '../memory';
+import type { ModelConfig } from '../memory/types';
 
 // Re-export engine classes
 export { AcpEngine } from './acp/acpEngine';
@@ -209,6 +211,8 @@ export class UnifiedAgentService extends EventEmitter {
   private engines = new Map<string, AcpEngine>();
   /** Per-project effective config snapshot (for config-change detection) */
   private engineConfigs = new Map<string, AgentConfig>();
+  /** Per-project session messages for memory extraction */
+  private sessionMessages = new Map<string, Array<{ role: 'user' | 'assistant'; content: string }>>();
   private engineType: AgentEngineType | null = null;
   private baseConfig: AgentConfig | null = null;
 
@@ -225,6 +229,34 @@ export class UnifiedAgentService extends EventEmitter {
     this.baseConfig = config;
     this.engineType = config.engine;
 
+    // Initialize MemoryService with workspace directory
+    if (config.workspaceDir) {
+      try {
+        await memoryService.init(config.workspaceDir, {
+          enabled: true,
+          extraction: {
+            enabled: true,
+            implicitEnabled: true,
+            explicitEnabled: true,
+            guardLevel: 'standard',
+            trigger: {
+              onEveryTurn: false,
+              batchInterval: 3,
+              onSessionEnd: true,
+            },
+            llm: {
+              maxTokensPerExtract: 500,
+              temperature: 0.3,
+              maxRetries: 2,
+            },
+          },
+        });
+        log.info('[UnifiedAgent] MemoryService initialized');
+      } catch (error) {
+        log.error('[UnifiedAgent] MemoryService initialization failed:', error);
+      }
+    }
+
     log.info('[UnifiedAgent] Service initialized (lazy mode, no process spawned)');
     this.emit('ready');
     return true;
@@ -234,6 +266,28 @@ export class UnifiedAgentService extends EventEmitter {
    * Destroy all engines and reset the service.
    */
   async destroy(): Promise<void> {
+    // Trigger session-end memory extraction for each project
+    if (memoryService.isInitialized()) {
+      for (const [projectId, messages] of this.sessionMessages) {
+        if (messages.length > 0 && this.baseConfig) {
+          try {
+            const modelConfig: ModelConfig = {
+              provider: this.engineType === 'claude-code' ? 'anthropic' : 'openai',
+              model: this.baseConfig.model || '',
+              apiKey: this.baseConfig.apiKey || '',
+              baseUrl: this.baseConfig.baseUrl,
+            };
+            await memoryService.onSessionEnd(projectId, messages, modelConfig);
+            log.info(`[UnifiedAgent] Session-end memory extraction completed for: ${projectId}`);
+          } catch (error) {
+            log.error(`[UnifiedAgent] Session-end memory extraction failed for ${projectId}:`, error);
+          }
+        }
+      }
+      this.sessionMessages.clear();
+      await memoryService.destroy();
+    }
+
     const destroyPromises: Promise<void>[] = [];
     for (const [projectId, engine] of this.engines) {
       log.info(`[UnifiedAgent] Destroying engine for project: ${projectId}`);
@@ -311,6 +365,15 @@ export class UnifiedAgentService extends EventEmitter {
 
     if (!this.baseConfig) {
       throw new Error('UnifiedAgentService not initialized (no baseConfig)');
+    }
+
+    // Ensure memory is ready before starting session
+    if (memoryService.isInitialized()) {
+      try {
+        await memoryService.ensureMemoryReadyForSession();
+      } catch (error) {
+        log.warn('[UnifiedAgent] Memory sync check failed:', error);
+      }
     }
 
     // Evict oldest idle engine if at capacity
@@ -690,6 +753,14 @@ export class UnifiedAgentService extends EventEmitter {
   ): Promise<void> {
     const engine = this.getAcpEngine();
     if (!engine) throw new Error('No engine available');
+
+    // Track user message for memory extraction (non-blocking, errors ignored)
+    try {
+      this.handleMessageForMemory(sessionId, parts);
+    } catch (error) {
+      log.warn('[UnifiedAgent] Failed to track message for memory:', error);
+    }
+
     return engine.promptAsync(sessionId, parts as any, opts);
   }
 
@@ -706,6 +777,45 @@ export class UnifiedAgentService extends EventEmitter {
     const acpEngine = this.getAcpEngine();
     if (!acpEngine) throw new Error('ACP engine not active');
     return acpEngine.claudePrompt(message);
+  }
+
+  // === Memory Integration ===
+
+  /**
+   * Handle user message for memory extraction
+   * Called from prompt/promptAsync methods
+   */
+  handleMessageForMemory(
+    projectId: string,
+    parts: Array<TextPartInput | FilePartInput>,
+  ): void {
+    if (!memoryService.isInitialized() || !this.baseConfig) return;
+
+    // Extract text from parts
+    const textParts = parts.filter(p => p.type === 'text') as TextPartInput[];
+    if (textParts.length === 0) return;
+
+    const content = textParts.map(p => p.text).join('\n');
+
+    // Build model config for memory extraction
+    const modelConfig: ModelConfig = {
+      provider: this.engineType === 'claude-code' ? 'anthropic' : 'openai',
+      model: this.baseConfig.model || '',
+      apiKey: this.baseConfig.apiKey || '',
+      baseUrl: this.baseConfig.baseUrl,
+    };
+
+    // Track message
+    const messages = this.sessionMessages.get(projectId) || [];
+    messages.push({ role: 'user', content });
+    this.sessionMessages.set(projectId, messages);
+
+    // Add to sliding window for batch extraction
+    memoryService.addMessageToWindow(
+      { role: 'user', content },
+      projectId,
+      modelConfig
+    );
   }
 
   // === Helpers ===
@@ -725,6 +835,10 @@ export class UnifiedAgentService extends EventEmitter {
 
     for (const event of events) {
       engine.on(event, (...args: unknown[]) => {
+        // Debug: log event forwarding
+        if (event === 'message.part.updated' || event === 'message.updated' || event === 'computer:progress') {
+          log.debug(`[UnifiedAgent] 📤 Forwarding event: ${event}`, JSON.stringify(args).substring(0, 200));
+        }
         this.emit(event, ...args);
       });
     }

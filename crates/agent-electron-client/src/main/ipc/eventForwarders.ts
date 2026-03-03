@@ -2,6 +2,7 @@ import { agentService } from '../services/engines/unifiedAgent';
 import type { UnifiedSessionMessage } from '../services/engines/unifiedAgent';
 import { pushSseEvent } from '../services/computerServer';
 import type { HandlerContext } from '@shared/types/ipc';
+import log from 'electron-log';
 
 export function registerEventForwarders(ctx: HandlerContext): void {
   // Forward all agent SSE events to the renderer
@@ -23,8 +24,14 @@ export function registerEventForwarders(ctx: HandlerContext): void {
     'server.connected',
   ];
 
+  log.info('[EventForwarders] Registering event forwarders for:', sseEventTypes.join(', '));
+
   for (const eventType of sseEventTypes) {
     agentService.on(eventType, (data: unknown) => {
+      // Debug: log message events
+      if (eventType.startsWith('message')) {
+        log.debug(`[EventForwarders] 📨 Received ${eventType}:`, JSON.stringify(data).substring(0, 200));
+      }
       ctx.getMainWindow()?.webContents.send('agent:event', {
         type: eventType,
         data,
@@ -56,32 +63,47 @@ export function registerEventForwarders(ctx: HandlerContext): void {
   // ==================== computer:* Event Forwarding (rcoder camelCase format) ====================
 
   agentService.on('computer:progress', (data: unknown) => {
+    log.debug('[EventForwarders] 📨 Received computer:progress:', JSON.stringify(data).substring(0, 200));
     ctx.getMainWindow()?.webContents.send('computer:progress', data);
     const d = data as UnifiedSessionMessage;
-    if (d?.sessionId) pushSseEvent(d.sessionId, d.subType || 'message', d);
+    if (d?.sessionId) {
+      // Use acpSessionId for SSE push, matching /computer/chat response
+      // d.sessionId is the local session ID (acp-xxx)
+      // d.acpSessionId is the ACP protocol session ID (UUID format)
+      // SSE clients connect using the ACP protocol session ID from /computer/chat response
+      const sseSessionId = d.acpSessionId || d.sessionId;
+      log.debug(`[EventForwarders] 📤 Pushing SSE event: sseSessionId=${sseSessionId}, subType=${d.subType}`);
+      pushSseEvent(sseSessionId, d.subType || 'message', d);
+    }
   });
 
-  agentService.on('computer:promptStart', (data: { sessionId: string; requestId?: string }) => {
+  agentService.on('computer:promptStart', (data: { sessionId: string; acpSessionId?: string; requestId?: string }) => {
+    // Use acpSessionId for SSE push - SSE clients connect using acpSessionId from /computer/chat response
+    const sseSessionId = data.acpSessionId || data.sessionId;
     const event: UnifiedSessionMessage = {
       sessionId: data.sessionId,
+      acpSessionId: data.acpSessionId,
       messageType: 'sessionPromptStart',
       subType: 'prompt_start',
       data: { request_id: data.requestId },
       timestamp: new Date().toISOString(),
     };
     ctx.getMainWindow()?.webContents.send('computer:progress', event);
-    pushSseEvent(data.sessionId, 'prompt_start', event);
+    pushSseEvent(sseSessionId, 'prompt_start', event);
   });
 
-  agentService.on('computer:promptEnd', (data: { sessionId: string; reason?: string; description?: string }) => {
+  agentService.on('computer:promptEnd', (data: { sessionId: string; acpSessionId?: string; reason?: string; description?: string }) => {
+    // Use acpSessionId for SSE push - SSE clients connect using acpSessionId from /computer/chat response
+    const sseSessionId = data.acpSessionId || data.sessionId;
     const event: UnifiedSessionMessage = {
       sessionId: data.sessionId,
+      acpSessionId: data.acpSessionId,
       messageType: 'sessionPromptEnd',
       subType: data.reason || 'end_turn',
       data: { reason: data.reason, description: data.description },
       timestamp: new Date().toISOString(),
     };
     ctx.getMainWindow()?.webContents.send('computer:progress', event);
-    pushSseEvent(data.sessionId, data.reason || 'end_turn', event);
+    pushSseEvent(sseSessionId, data.reason || 'end_turn', event);
   });
 }
