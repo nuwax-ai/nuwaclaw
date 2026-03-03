@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import { execSync } from 'child_process';
 import log from 'electron-log';
 import type { HandlerContext } from '@shared/types/ipc';
-import { LATEST_LOG_BASENAME } from '../logConfig';
+import { LATEST_LOG_BASENAME } from '../bootstrap/logConfig';
 import { checkForUpdates, downloadUpdate, installUpdate, getUpdateState } from '../services/autoUpdater';
 
 export function registerAppHandlers(ctx: HandlerContext): void {

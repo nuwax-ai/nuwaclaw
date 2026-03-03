@@ -4,16 +4,16 @@ import log from 'electron-log';
 import { initDatabase, closeDb } from './db';
 import { ManagedProcess } from './processManager';
 import { registerAllHandlers } from './ipc/index';
-import { runStartupTasks } from './startup';
+import { runStartupTasks } from './bootstrap/startup';
 import { agentService } from './services/engines/unifiedAgent';
 import { stopComputerServer } from './services/computerServer';
 import { mcpProxyManager } from './services/packages/mcp';
 import type { HandlerContext } from '@shared/types/ipc';
 import { DEFAULT_DEV_SERVER_PORT } from './services/constants';
 import { APP_DISPLAY_NAME } from '@shared/constants';
-import { initLogging } from './logConfig';
-import { createTrayManager, TrayStatus } from './trayManager';
-import { createServiceManager } from './serviceManager';
+import { initLogging } from './bootstrap/logConfig';
+import { createTrayManager, TrayStatus } from './window/trayManager';
+import { createServiceManager } from './window/serviceManager';
 import { initAutoUpdater } from './services/autoUpdater';
 
 // macOS 26 Tahoe 兼容性：禁用 Fontations 字体后端
@@ -71,7 +71,7 @@ function createWindow() {
     title: APP_DISPLAY_NAME,
     icon: getIconPath(),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, '..', 'preload', 'index.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false, // Need to access node for MCP

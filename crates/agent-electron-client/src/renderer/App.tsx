@@ -14,16 +14,16 @@ import {
   SafetyOutlined,
   FileTextOutlined,
 } from '@ant-design/icons';
-import { setupService, authService } from './services/setup';
-import { syncConfigToServer } from './services/auth';
+import { setupService, authService } from './services/core/setup';
+import { syncConfigToServer } from './services/core/auth';
 import { APP_DISPLAY_NAME } from '@shared/constants';
-import SetupWizard from './components/SetupWizard';
-import ClientPage from './components/ClientPage';
-import SettingsPage from './components/SettingsPage';
-import DependenciesPage from './components/DependenciesPage';
-import AboutPage from './components/AboutPage';
-import LogViewer from './components/LogViewer';
-import PermissionsPage from './components/PermissionsPage';
+import SetupWizard from './components/setup/SetupWizard';
+import ClientPage from './components/pages/ClientPage';
+import SettingsPage from './components/pages/SettingsPage';
+import DependenciesPage from './components/pages/DependenciesPage';
+import AboutPage from './components/pages/AboutPage';
+import LogViewer from './components/pages/LogViewer';
+import PermissionsPage from './components/pages/PermissionsPage';
 import styles from './styles/components/App.module.css';
 
 // Tab 类型定义（对齐 Tauri 客户端）

@@ -17,7 +17,7 @@ export default defineConfig({
         'src/**/*.test.tsx',
         'src/**/*.spec.ts',
         'src/**/*.spec.tsx',
-        'src/main/preload.ts',
+        'src/preload/**',
         'src/renderer/**', // Renderer process code is harder to test in node environment
       ],
     },
@@ -28,6 +28,7 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@main': path.resolve(__dirname, './src/main'),
+      '@preload': path.resolve(__dirname, './src/preload'),
       '@renderer': path.resolve(__dirname, './src/renderer'),
       '@shared': path.resolve(__dirname, './src/shared'),
     },

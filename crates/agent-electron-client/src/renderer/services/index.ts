@@ -1,5 +1,5 @@
 // Renderer process services
-export { setupService, type Step1Config, DEFAULT_STEP1_CONFIG } from './setup';
+export { setupService, type Step1Config, DEFAULT_STEP1_CONFIG } from './core/setup';
 export {
   loginAndRegister,
   logout,
@@ -8,14 +8,14 @@ export {
   syncConfigToServer,
   isLoggedIn,
   type AuthUserInfo,
-} from './auth';
-export { aiService } from './ai';
-export { fileServerService } from './fileServer';
-export { lanproxyManager } from './lanproxy';
-export { agentRunnerManager } from './agentRunner';
-export { sandboxManager } from './sandbox';
-export { permissionManager } from './permissions';
-export { skillsService } from './skills';
-export { imService } from './im';
-export { taskScheduler } from './scheduler';
-export { logService, exportLogs } from './logService';
+} from './core/auth';
+export { aiService } from './core/ai';
+export { fileServerService } from './integrations/fileServer';
+export { lanproxyManager } from './integrations/lanproxy';
+export { agentRunnerManager } from './agents/agentRunner';
+export { sandboxManager } from './agents/sandbox';
+export { permissionManager } from './agents/permissions';
+export { skillsService } from './integrations/skills';
+export { imService } from './integrations/im';
+export { taskScheduler } from './integrations/scheduler';
+export { logService, exportLogs } from './utils/logService';

@@ -1,7 +1,7 @@
 /**
  * 主进程：启动前端口解析与占用检查（聚合入口）
  *
- * 依赖 shared/startupPorts 的解析逻辑；端口占用检查优先统一走 bash（与 scripts/check-port.sh 一致），
+ * 依赖 shared/startupPorts 的解析逻辑；端口占用检查优先统一走 bash（与 scripts/tools/check-port.sh 一致），
  * Windows 下使用 prepare-git 集成的 Git Bash，无 bash 时回退到 cmd+netstat。
  */
 
@@ -15,7 +15,7 @@ import {
 import { isWindows } from './system/shellEnv';
 import { getBundledGitBashPath } from './system/dependencies';
 
-/** 与 scripts/check-port.sh 保持一致的内嵌脚本（打包后无脚本文件时使用），脚本内端口通过 $1 传入 */
+/** 与 scripts/tools/check-port.sh 保持一致的内嵌脚本（打包后无脚本文件时使用），脚本内端口通过 $1 传入 */
 const CHECK_PORT_SCRIPT = `
 port="$1"
 [[ -z "$port" ]] && exit 2
@@ -71,7 +71,7 @@ export function checkPortsInUse(
 
 /**
  * 检查单个端口是否被占用，返回是否占用及占用进程 PID（若有）
- * 优先统一走 bash（与 scripts/check-port.sh 一致）：Windows 用 prepare-git 集成的 Git Bash，Unix 用系统 bash。
+ * 优先统一走 bash（与 scripts/tools/check-port.sh 一致）：Windows 用 prepare-git 集成的 Git Bash，Unix 用系统 bash。
  * Windows 无集成 bash 时回退到 cmd+netstat。
  */
 function isPortInUse(port: number): { inUse: boolean; pid?: number } {

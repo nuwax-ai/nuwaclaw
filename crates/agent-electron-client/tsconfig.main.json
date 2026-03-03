@@ -15,11 +15,13 @@
     "baseUrl": ".",
     "paths": {
       "@main/*": ["src/main/*"],
+      "@preload/*": ["src/preload/*"],
       "@shared/*": ["src/shared/*"]
     }
   },
   "include": [
     "src/main/**/*",
+    "src/preload/**/*",
     "src/shared/**/*"
   ],
   "exclude": ["node_modules", "**/*.test.ts"]
