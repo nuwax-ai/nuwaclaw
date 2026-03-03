@@ -191,12 +191,12 @@ export function extractRealMcpServers(
     if (!srv) continue;
 
     // URL-based entry (SSE / Streamable HTTP) — pass through as RemoteMcpServerEntry
+    // Transport detection is handled by the proxy via detectProtocol() at runtime
     if (typeof srv.url === 'string') {
-      // Auto-detect transport: if URL path ends with /sse or contains /sse?, assume SSE transport
       const transport: 'sse' | 'streamable-http' | undefined =
-        srv.transport === 'sse' || (!srv.transport && /\/sse(?:\?|$)/i.test(srv.url))
-          ? 'sse'
-          : srv.transport === 'streamable-http' ? 'streamable-http' : undefined;
+        srv.transport === 'sse' ? 'sse'
+          : srv.transport === 'streamable-http' ? 'streamable-http'
+          : undefined;
       result[name] = {
         url: srv.url,
         ...(transport ? { transport } : {}),
