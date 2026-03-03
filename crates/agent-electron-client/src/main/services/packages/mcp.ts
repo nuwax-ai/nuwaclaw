@@ -54,6 +54,7 @@ export function resolveUvCommand(
   args: string[],
   uvBinDir?: string,
 ): { command: string; args: string[] } {
+  if (typeof command !== 'string') return { command, args };
   const dir = uvBinDir ?? getUvBinDir();
   if (!dir) return { command, args };
 
@@ -243,6 +244,7 @@ export function resolveServersConfig(
       continue;
     }
     if (entry.command === 'mcp-proxy') continue;
+    if (typeof entry.command !== 'string') continue;
     const resolved = resolveUvCommand(entry.command, entry.args || [], dir);
     result[name] = {
       command: resolved.command,
@@ -648,6 +650,7 @@ export async function syncMcpConfigToProxyAndReload(
       realOnly[name] = entry;
     } else {
       if (entry.command === 'mcp-proxy') continue;
+      if (typeof entry.command !== 'string') continue;
       realOnly[name] = {
         command: entry.command,
         args: Array.isArray(entry.args) ? entry.args : [],
