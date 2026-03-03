@@ -9,12 +9,13 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import type { McpServersConfig } from '../types.js';
-import { isSseEntry, isStreamableEntry } from '../types.js';
+import { isSseEntry, isStreamableEntry, needsProtocolDetection } from '../types.js';
 import { logInfo, logWarn, logError } from '../logger.js';
-import { buildBaseEnv, connectStdio, connectStreamable, connectSse } from '../transport.js';
+import { buildBaseEnv, connectStdio, connectStreamable, connectSse, buildRequestHeaders } from '../transport.js';
 import { discoverTools, createToolProxyServer, setupGracefulShutdown } from '../shared.js';
 import { filterTools } from '../filter.js';
 import type { ToolFilter } from '../filter.js';
+import { detectProtocol } from '../detect.js';
 
 export async function runStdio(
   config: McpServersConfig,
@@ -50,6 +51,14 @@ export async function runStdio(
         connected = await connectSse(id, entry);
       } else if (isStreamableEntry(entry)) {
         connected = await connectStreamable(id, entry);
+      } else if (needsProtocolDetection(entry)) {
+        // No explicit transport — probe the URL to determine protocol
+        const detected = await detectProtocol(entry.url, buildRequestHeaders(entry));
+        if (detected === 'sse') {
+          connected = await connectSse(id, { ...entry, transport: 'sse' });
+        } else {
+          connected = await connectStreamable(id, entry);
+        }
       } else {
         connected = await connectStdio(id, entry, baseEnv);
       }

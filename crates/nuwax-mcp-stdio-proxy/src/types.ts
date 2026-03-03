@@ -49,17 +49,24 @@ export interface SseServerEntry {
 export type McpServerEntry = StdioServerEntry | StreamableServerEntry | SseServerEntry;
 
 export function isSseEntry(entry: McpServerEntry): entry is SseServerEntry {
-  if (!('url' in entry)) return false;
-  const e = entry as SseServerEntry;
-  // Explicit transport: 'sse' or URL path contains /sse (auto-detect)
-  return e.transport === 'sse' || (!e.transport && /\/sse(?:\?|$)/i.test(e.url));
+  return 'url' in entry && (entry as SseServerEntry).transport === 'sse';
 }
 
 export function isStreamableEntry(entry: McpServerEntry): entry is StreamableServerEntry {
   return (
     'url' in entry &&
     typeof (entry as StreamableServerEntry).url === 'string' &&
-    !isSseEntry(entry)
+    (entry as StreamableServerEntry).transport === 'streamable-http'
+  );
+}
+
+/** Check if URL entry has no explicit transport → needs auto-detection */
+export function needsProtocolDetection(entry: McpServerEntry): entry is StreamableServerEntry {
+  return (
+    'url' in entry &&
+    typeof (entry as StreamableServerEntry).url === 'string' &&
+    !isSseEntry(entry) &&
+    !isStreamableEntry(entry)
   );
 }
 
