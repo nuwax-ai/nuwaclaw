@@ -15,16 +15,23 @@
  * - 提供 getAgentMcpConfig() 供 Agent 引擎初始化时注入
  */
 
-import * as path from 'path';
-import * as fs from 'fs';
-import log from 'electron-log';
-import { app } from 'electron';
-import { getAppEnv, getUvBinPath, getNodeBinPath, getNodeBinPathWithFallback } from '../system/dependencies';
-import { getAppPaths, isInstalledLocally } from './packageLocator';
-import { resolveNpmPackageEntry } from '../utils/spawnNoWindow';
-import { APP_DATA_DIR_NAME } from '../constants';
-import { isWindows } from '../system/shellEnv';
-import { persistentMcpBridge } from './persistentMcpBridge';
+import * as path from "path";
+import * as fs from "fs";
+import * as os from "os";
+import * as crypto from "crypto";
+import log from "electron-log";
+import { app } from "electron";
+import {
+  getAppEnv,
+  getUvBinPath,
+  getNodeBinPath,
+  getNodeBinPathWithFallback,
+} from "../system/dependencies";
+import { getAppPaths, isInstalledLocally } from "./packageLocator";
+import { resolveNpmPackageEntry } from "../utils/spawnNoWindow";
+import { APP_DATA_DIR_NAME } from "../constants";
+import { isWindows } from "../system/shellEnv";
+import { persistentMcpBridge } from "./persistentMcpBridge";
 
 // ========== Shared Helpers ==========
 
@@ -36,10 +43,10 @@ import { persistentMcpBridge } from './persistentMcpBridge';
 export function getUvBinDir(): string {
   const p = getUvBinPath();
   if (p && fs.existsSync(p)) return path.dirname(p);
-  const appBin = path.join(app.getPath('home'), APP_DATA_DIR_NAME, 'bin');
-  const uvName = isWindows() ? 'uv.exe' : 'uv';
+  const appBin = path.join(app.getPath("home"), APP_DATA_DIR_NAME, "bin");
+  const uvName = isWindows() ? "uv.exe" : "uv";
   if (fs.existsSync(path.join(appBin, uvName))) return appBin;
-  return '';
+  return "";
 }
 
 /**
@@ -54,22 +61,22 @@ export function resolveUvCommand(
   args: string[],
   uvBinDir?: string,
 ): { command: string; args: string[] } {
-  if (typeof command !== 'string') return { command, args };
+  if (typeof command !== "string") return { command, args };
   const dir = uvBinDir ?? getUvBinDir();
   if (!dir) return { command, args };
 
-  const base = path.basename(command).replace(/\.(exe)?$/i, '');
-  if (base === 'uvx') {
+  const base = path.basename(command).replace(/\.(exe)?$/i, "");
+  if (base === "uvx") {
     // Always use `uv tool run` — the uvx multicall binary is broken in uv >= 0.10
-    const uvName = isWindows() ? 'uv.exe' : 'uv';
+    const uvName = isWindows() ? "uv.exe" : "uv";
     const uvPath = path.join(dir, uvName);
     if (fs.existsSync(uvPath)) {
-      return { command: uvPath, args: ['tool', 'run', ...args] };
+      return { command: uvPath, args: ["tool", "run", ...args] };
     }
     return { command, args };
   }
-  if (base === 'uv') {
-    const uvName = isWindows() ? 'uv.exe' : 'uv';
+  if (base === "uv") {
+    const uvName = isWindows() ? "uv.exe" : "uv";
     const uvPath = path.join(dir, uvName);
     if (fs.existsSync(uvPath)) {
       return { command: uvPath, args };
@@ -89,23 +96,28 @@ export function resolveBridgeEntry(
   uvBinDir?: string,
 ): { command: string; args: string[] } {
   const dir = uvBinDir ?? getUvBinDir();
-  const idx = args.indexOf('--config');
+  const idx = args.indexOf("--config");
   if (idx < 0 || idx + 1 >= args.length) return { command, args };
   const configStr = args[idx + 1];
-  if (typeof configStr !== 'string') return { command, args };
+  if (typeof configStr !== "string") return { command, args };
 
-  let parsed: { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> };
+  let parsed: {
+    mcpServers?: Record<
+      string,
+      { command?: string; args?: string[]; env?: Record<string, string> }
+    >;
+  };
   try {
     parsed = JSON.parse(configStr);
   } catch {
     return { command, args };
   }
   const inner = parsed?.mcpServers;
-  if (!inner || typeof inner !== 'object') return { command, args };
+  if (!inner || typeof inner !== "object") return { command, args };
 
   let changed = false;
   for (const [, srv] of Object.entries(inner)) {
-    if (!srv || typeof srv.command !== 'string') continue;
+    if (!srv || typeof srv.command !== "string") continue;
     const resolved = resolveUvCommand(srv.command, srv.args || [], dir);
     if (resolved.command !== srv.command) {
       srv.command = resolved.command;
@@ -152,16 +164,30 @@ export function extractRealMcpServers(
   uvBinDir?: string,
 ): Record<string, McpServerEntry> | null {
   // Must be a bridge entry
-  if (command !== 'mcp-proxy' && path.basename(command) !== 'mcp-proxy') return null;
+  if (command !== "mcp-proxy" && path.basename(command) !== "mcp-proxy")
+    return null;
 
   const dir = uvBinDir ?? getUvBinDir();
-  const idx = args.indexOf('--config');
+  const idx = args.indexOf("--config");
   if (idx < 0 || idx + 1 >= args.length) return null;
 
   const configStr = args[idx + 1];
-  if (typeof configStr !== 'string') return null;
+  if (typeof configStr !== "string") return null;
 
-  let parsed: { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string>; url?: string; transport?: string; headers?: Record<string, string>; authToken?: string }> };
+  let parsed: {
+    mcpServers?: Record<
+      string,
+      {
+        command?: string;
+        args?: string[];
+        env?: Record<string, string>;
+        url?: string;
+        transport?: string;
+        headers?: Record<string, string>;
+        authToken?: string;
+      }
+    >;
+  };
   try {
     parsed = JSON.parse(configStr);
   } catch {
@@ -169,16 +195,22 @@ export function extractRealMcpServers(
   }
 
   const inner = parsed?.mcpServers;
-  if (!inner || typeof inner !== 'object') return null;
+  if (!inner || typeof inner !== "object") return null;
 
   // 解析 --allow-tools / --deny-tools（从 convert 模式的参数中提取）
   let allowTools: string[] | undefined;
   let denyTools: string[] | undefined;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--allow-tools' && i + 1 < args.length) {
-      allowTools = args[i + 1].split(',').map((s) => s.trim()).filter(Boolean);
-    } else if (args[i] === '--deny-tools' && i + 1 < args.length) {
-      denyTools = args[i + 1].split(',').map((s) => s.trim()).filter(Boolean);
+    if (args[i] === "--allow-tools" && i + 1 < args.length) {
+      allowTools = args[i + 1]
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } else if (args[i] === "--deny-tools" && i + 1 < args.length) {
+      denyTools = args[i + 1]
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
     }
   }
 
@@ -193,11 +225,13 @@ export function extractRealMcpServers(
 
     // URL-based entry (SSE / Streamable HTTP) — pass through as RemoteMcpServerEntry
     // Transport detection is handled by the proxy via detectProtocol() at runtime
-    if (typeof srv.url === 'string') {
-      const transport: 'sse' | 'streamable-http' | undefined =
-        srv.transport === 'sse' ? 'sse'
-          : srv.transport === 'streamable-http' ? 'streamable-http'
-          : undefined;
+    if (typeof srv.url === "string") {
+      const transport: "sse" | "streamable-http" | undefined =
+        srv.transport === "sse"
+          ? "sse"
+          : srv.transport === "streamable-http"
+            ? "streamable-http"
+            : undefined;
       result[name] = {
         url: srv.url,
         ...(transport ? { transport } : {}),
@@ -208,7 +242,7 @@ export function extractRealMcpServers(
     }
 
     // stdio entry — resolve command/args/env
-    if (typeof srv.command !== 'string') continue;
+    if (typeof srv.command !== "string") continue;
     const resolved = resolveUvCommand(srv.command, srv.args || [], dir);
     // Env merge: appEnv as foundation, external env overrides, server-specific env takes precedence
     result[name] = {
@@ -243,8 +277,8 @@ export function resolveServersConfig(
       result[name] = entry;
       continue;
     }
-    if (entry.command === 'mcp-proxy') continue;
-    if (typeof entry.command !== 'string') continue;
+    if (entry.command === "mcp-proxy") continue;
+    if (typeof entry.command !== "string") continue;
     const resolved = resolveUvCommand(entry.command, entry.args || [], dir);
     result[name] = {
       command: resolved.command,
@@ -263,9 +297,9 @@ export function resolveServersConfig(
 /** 默认 mcpServers 配置 */
 export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
   mcpServers: {
-    'chrome-devtools': {
-      command: 'npx',
-      args: ['-y', 'chrome-devtools-mcp@latest'],
+    "chrome-devtools": {
+      command: "npx",
+      args: ["-y", "chrome-devtools-mcp@latest"],
       persistent: true,
     },
   },
@@ -310,7 +344,7 @@ export interface StdioMcpServerEntry {
 /** 远程类型 MCP Server 配置 (Streamable HTTP / SSE) */
 export interface RemoteMcpServerEntry {
   url: string;
-  transport?: 'streamable-http' | 'sse';
+  transport?: "streamable-http" | "sse";
   headers?: Record<string, string>;
   authToken?: string;
 }
@@ -319,8 +353,10 @@ export interface RemoteMcpServerEntry {
 export type McpServerEntry = StdioMcpServerEntry | RemoteMcpServerEntry;
 
 /** 判断是否为远程类型（有 url 字段） */
-export function isRemoteEntry(entry: McpServerEntry): entry is RemoteMcpServerEntry {
-  return 'url' in entry;
+export function isRemoteEntry(
+  entry: McpServerEntry,
+): entry is RemoteMcpServerEntry {
+  return "url" in entry;
 }
 
 /** mcpServers 配置（传给 nuwax-mcp-stdio-proxy 的 JSON） */
@@ -342,7 +378,9 @@ export interface McpProxyStatus {
 // ========== MCP Proxy Manager ==========
 
 class McpProxyManager {
-  private config: McpServersConfig = JSON.parse(JSON.stringify(DEFAULT_MCP_PROXY_CONFIG));
+  private config: McpServersConfig = JSON.parse(
+    JSON.stringify(DEFAULT_MCP_PROXY_CONFIG),
+  );
   /** Cached script path — set by start(), avoids fs I/O on every getStatus() poll */
   private cachedScriptPath: string | null = null;
 
@@ -353,7 +391,7 @@ class McpProxyManager {
    * 只有 Electron 内置的 Node.js 有 asar 支持。
    */
   private resolveProxyScriptPath(): string | null {
-    const pkgName = 'nuwax-mcp-stdio-proxy';
+    const pkgName = "nuwax-mcp-stdio-proxy";
 
     // 1. 打包后优先使用 extraResources（独立 Node.js 可访问的路径）
     if (process.resourcesPath) {
@@ -362,16 +400,25 @@ class McpProxyManager {
       if (fs.existsSync(appPackageDir)) {
         const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
         if (entry) {
-          log.info(`[McpProxy] 🔍 resolveProxyScriptPath: 使用 extraResources 路径: ${entry}`);
+          log.info(
+            `[McpProxy] 🔍 resolveProxyScriptPath: 使用 extraResources 路径: ${entry}`,
+          );
           return entry;
         }
       }
       // app.asar.unpacked 位置
-      appPackageDir = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', pkgName);
+      appPackageDir = path.join(
+        process.resourcesPath,
+        "app.asar.unpacked",
+        "node_modules",
+        pkgName,
+      );
       if (fs.existsSync(appPackageDir)) {
         const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
         if (entry) {
-          log.info(`[McpProxy] 🔍 resolveProxyScriptPath: 使用 asar.unpacked 路径: ${entry}`);
+          log.info(
+            `[McpProxy] 🔍 resolveProxyScriptPath: 使用 asar.unpacked 路径: ${entry}`,
+          );
           return entry;
         }
       }
@@ -379,11 +426,13 @@ class McpProxyManager {
 
     // 2. 开发时：应用自身 node_modules（app.asar 内部，开发时可用）
     const appRoot = app.getAppPath();
-    const appPackageDir = path.join(appRoot, 'node_modules', pkgName);
+    const appPackageDir = path.join(appRoot, "node_modules", pkgName);
     if (fs.existsSync(appPackageDir)) {
       const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
       if (entry) {
-        log.info(`[McpProxy] 🔍 resolveProxyScriptPath: 使用 app node_modules 路径: ${entry}`);
+        log.info(
+          `[McpProxy] 🔍 resolveProxyScriptPath: 使用 app node_modules 路径: ${entry}`,
+        );
         return entry;
       }
     }
@@ -392,12 +441,16 @@ class McpProxyManager {
     const dirs = getAppPaths();
     const packageDir = path.join(dirs.nodeModules, pkgName);
     if (!fs.existsSync(packageDir)) {
-      log.warn(`[McpProxy] 🔍 resolveProxyScriptPath: 所有路径均未找到 ${pkgName}`);
+      log.warn(
+        `[McpProxy] 🔍 resolveProxyScriptPath: 所有路径均未找到 ${pkgName}`,
+      );
       return null;
     }
     const entry = resolveNpmPackageEntry(packageDir, pkgName);
     if (entry) {
-      log.info(`[McpProxy] 🔍 resolveProxyScriptPath: 使用 ~/.nuwax-agent 路径: ${entry}`);
+      log.info(
+        `[McpProxy] 🔍 resolveProxyScriptPath: 使用 ~/.nuwax-agent 路径: ${entry}`,
+      );
     }
     return entry;
   }
@@ -429,21 +482,25 @@ class McpProxyManager {
     this.cachedScriptPath = this.resolveProxyScriptPath();
     if (!this.cachedScriptPath) {
       this.cachedScriptPath = null;
-      if (!isInstalledLocally('nuwax-mcp-stdio-proxy')) {
-        return { success: false, error: 'nuwax-mcp-stdio-proxy 未安装，请先在依赖管理中安装或确保已 npm install' };
+      if (!isInstalledLocally("nuwax-mcp-stdio-proxy")) {
+        return {
+          success: false,
+          error:
+            "nuwax-mcp-stdio-proxy 未安装，请先在依赖管理中安装或确保已 npm install",
+        };
       }
-      return { success: false, error: 'nuwax-mcp-stdio-proxy 入口文件未找到' };
+      return { success: false, error: "nuwax-mcp-stdio-proxy 入口文件未找到" };
     }
-    log.info('[McpProxy] nuwax-mcp-stdio-proxy 就绪:', this.cachedScriptPath);
+    log.info("[McpProxy] nuwax-mcp-stdio-proxy 就绪:", this.cachedScriptPath);
 
     // 验证内置 Node.js 资源存在
     const nodeBinPath = getNodeBinPath();
     if (!nodeBinPath) {
-      log.warn('[McpProxy] ⚠️ 内置 Node.js 资源未找到');
-      log.warn('[McpProxy] 请运行以下命令下载 Node.js 资源:');
-      log.warn('[McpProxy]   npm run prepare:node');
-      log.warn('[McpProxy] 或运行完整准备:');
-      log.warn('[McpProxy]   npm run prepare:all');
+      log.warn("[McpProxy] ⚠️ 内置 Node.js 资源未找到");
+      log.warn("[McpProxy] 请运行以下命令下载 Node.js 资源:");
+      log.warn("[McpProxy]   npm run prepare:node");
+      log.warn("[McpProxy] 或运行完整准备:");
+      log.warn("[McpProxy]   npm run prepare:all");
       // 不返回错误，允许在开发环境下继续（可能使用系统 node）
     }
 
@@ -451,10 +508,15 @@ class McpProxyManager {
     const persistent = this.getPersistentServers();
     if (Object.keys(persistent).length > 0) {
       try {
-        await persistentMcpBridge.start(resolveServersConfig(persistent) as Record<string, StdioMcpServerEntry>);
-        log.info('[McpProxy] PersistentMcpBridge 已启动');
+        await persistentMcpBridge.start(
+          resolveServersConfig(persistent) as Record<
+            string,
+            StdioMcpServerEntry
+          >,
+        );
+        log.info("[McpProxy] PersistentMcpBridge 已启动");
       } catch (e) {
-        log.error('[McpProxy] PersistentMcpBridge 启动失败:', e);
+        log.error("[McpProxy] PersistentMcpBridge 启动失败:", e);
       }
     }
 
@@ -469,7 +531,7 @@ class McpProxyManager {
     try {
       await persistentMcpBridge.stop();
     } catch (e) {
-      log.warn('[McpProxy] PersistentMcpBridge 停止出错:', e);
+      log.warn("[McpProxy] PersistentMcpBridge 停止出错:", e);
     }
     return { success: true };
   }
@@ -531,7 +593,10 @@ class McpProxyManager {
    * 所有平台统一使用 process.execPath (Electron Node.js) + ELECTRON_RUN_AS_NODE=1，
    * 避免依赖系统 PATH 中的 node。
    */
-  getAgentMcpConfig(): Record<string, { command: string; args: string[]; env?: Record<string, string> }> | null {
+  getAgentMcpConfig(): Record<
+    string,
+    { command: string; args: string[]; env?: Record<string, string> }
+  > | null {
     const servers = this.config.mcpServers;
     if (!servers || Object.keys(servers).length === 0) {
       return null;
@@ -540,7 +605,20 @@ class McpProxyManager {
     const scriptPath = this.getProxyScriptPath();
 
     // 构建统一的 proxy 配置（混合 stdio、bridge 和远程类型）
-    const proxyServers: Record<string, { command?: string; args?: string[]; env?: Record<string, string>; url?: string; transport?: string; headers?: Record<string, string>; authToken?: string; allowTools?: string[]; denyTools?: string[] }> = {};
+    const proxyServers: Record<
+      string,
+      {
+        command?: string;
+        args?: string[];
+        env?: Record<string, string>;
+        url?: string;
+        transport?: string;
+        headers?: Record<string, string>;
+        authToken?: string;
+        allowTools?: string[];
+        denyTools?: string[];
+      }
+    > = {};
 
     // 1. 远程 server → 直接透传（url/transport/headers/authToken）
     for (const [name, entry] of Object.entries(servers)) {
@@ -555,7 +633,7 @@ class McpProxyManager {
       if (entry.persistent) continue;
       const resolved = resolveServersConfig({ [name]: entry });
       if (resolved[name]) {
-        proxyServers[name] = resolved[name] as typeof proxyServers[string];
+        proxyServers[name] = resolved[name] as (typeof proxyServers)[string];
       }
     }
 
@@ -577,13 +655,30 @@ class McpProxyManager {
 
     // 有 proxy 脚本 → 聚合为单个 proxy 入口
     if (scriptPath) {
-      const configJson = JSON.stringify({ mcpServers: proxyServers });
+      // 使用临时文件传递配置，避免 Windows 命令行长度限制 (32,767 字符)
+      // 创建临时配置文件
+      const configDir = path.join(os.tmpdir(), "nuwax-mcp-configs");
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
+      }
+      const configFileName = `mcp-config-${crypto.randomUUID()}.json`;
+      const configFilePath = path.join(configDir, configFileName);
+      const configData = { mcpServers: proxyServers };
+      fs.writeFileSync(configFilePath, JSON.stringify(configData), "utf-8");
+      log.info(`[McpProxy] MCP 配置已写入临时文件: ${configFilePath}`);
+
       // 使用应用内置的 Node.js（resources/node/<platform-arch>/bin/node）
       // 开发环境下可回退到系统 node（仅 macOS/Linux）
       const nodeBinPath = getNodeBinPathWithFallback();
       if (!nodeBinPath) {
-        log.error('[McpProxy] Node.js 未找到，MCP proxy 无法启动');
+        log.error("[McpProxy] Node.js 未找到，MCP proxy 无法启动");
         log.error('[McpProxy] 请运行 "npm run prepare:node" 下载 Node.js 资源');
+        // 清理临时文件
+        try {
+          fs.unlinkSync(configFilePath);
+        } catch {
+          /* ignore */
+        }
         return null;
       }
 
@@ -591,28 +686,37 @@ class McpProxyManager {
       // 包含 Windows 系统变量 (SystemRoot, COMSPEC 等) 和应用内工具路径
       const proxyEnv = getAppEnv();
 
-      // 构建 proxy 启动参数
-      const proxyArgs = [scriptPath, '--config', configJson];
+      // 构建 proxy 启动参数，使用 --config-file 避免命令行长度限制
+      const proxyArgs = [scriptPath, "--config-file", configFilePath];
       if (this.config.allowTools && this.config.allowTools.length > 0) {
-        proxyArgs.push('--allow-tools', this.config.allowTools.join(','));
+        proxyArgs.push("--allow-tools", this.config.allowTools.join(","));
       } else if (this.config.denyTools && this.config.denyTools.length > 0) {
-        proxyArgs.push('--deny-tools', this.config.denyTools.join(','));
+        proxyArgs.push("--deny-tools", this.config.denyTools.join(","));
       }
 
       return {
-        'mcp-proxy': {
+        "mcp-proxy": {
           command: nodeBinPath,
           args: proxyArgs,
           env: proxyEnv,
+          // 保存临时文件路径以便后续清理
+          _configFilePath: configFilePath,
         },
       };
     }
 
     // fallback: 无 proxy 脚本时直接返回各 server 的 stdio 配置（仅临时 server）
-    const result: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
+    const result: Record<
+      string,
+      { command: string; args: string[]; env?: Record<string, string> }
+    > = {};
     for (const [name, entry] of Object.entries(proxyServers)) {
       if (entry.command) {
-        result[name] = { command: entry.command, args: entry.args || [], env: entry.env };
+        result[name] = {
+          command: entry.command,
+          args: entry.args || [],
+          env: entry.env,
+        };
       }
     }
     return Object.keys(result).length > 0 ? result : null;
@@ -623,7 +727,7 @@ class McpProxyManager {
    */
   cleanup(): void {
     persistentMcpBridge.stop().catch((e) => {
-      log.warn('[McpProxy] PersistentMcpBridge cleanup error:', e);
+      log.warn("[McpProxy] PersistentMcpBridge cleanup error:", e);
     });
   }
 }
@@ -649,8 +753,8 @@ export async function syncMcpConfigToProxyAndReload(
       // 远程类型直接透传
       realOnly[name] = entry;
     } else {
-      if (entry.command === 'mcp-proxy') continue;
-      if (typeof entry.command !== 'string') continue;
+      if (entry.command === "mcp-proxy") continue;
+      if (typeof entry.command !== "string") continue;
       realOnly[name] = {
         command: entry.command,
         args: Array.isArray(entry.args) ? entry.args : [],
@@ -663,12 +767,15 @@ export async function syncMcpConfigToProxyAndReload(
   if (Object.keys(realOnly).length === 0) return;
 
   // 合并默认服务器（如 chrome-devtools），确保内置 MCP 服务始终存在
-  const merged: Record<string, McpServerEntry> = { ...DEFAULT_MCP_PROXY_CONFIG.mcpServers, ...realOnly };
+  const merged: Record<string, McpServerEntry> = {
+    ...DEFAULT_MCP_PROXY_CONFIG.mcpServers,
+    ...realOnly,
+  };
 
   // 为所有 MCP 服务器注入基础环境变量（包括 PATH）
   const mergedWithEnv = injectBaseEnvToMcpServers(merged);
 
-  log.info('[McpProxy] 同步 MCP 配置:', Object.keys(mergedWithEnv).join(', '));
+  log.info("[McpProxy] 同步 MCP 配置:", Object.keys(mergedWithEnv).join(", "));
   // 保留已有的 allowTools/denyTools 配置
   const existing = mcpProxyManager.getConfig();
   mcpProxyManager.setConfig({
@@ -682,14 +789,16 @@ export async function syncMcpConfigToProxyAndReload(
 
   // 持久化到 SQLite
   try {
-    const { getDb } = await import('../../db');
+    const { getDb } = await import("../../db");
     const db = getDb();
     if (db) {
-      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('mcp_proxy_config', JSON.stringify(persistConfig));
-      log.info('[McpProxy] MCP 配置已持久化');
+      db.prepare(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+      ).run("mcp_proxy_config", JSON.stringify(persistConfig));
+      log.info("[McpProxy] MCP 配置已持久化");
     }
   } catch (e) {
-    log.warn('[McpProxy] 持久化 MCP 配置失败:', e);
+    log.warn("[McpProxy] 持久化 MCP 配置失败:", e);
   }
 
   // 不再需要 restart — 无后台进程

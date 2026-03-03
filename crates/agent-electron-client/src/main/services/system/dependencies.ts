@@ -5,20 +5,25 @@
  * 管理本地依赖的检测、安装、版本检查
  */
 
-import * as path from 'path';
-import * as fs from 'fs';
-import { spawn, execSync } from 'child_process';
-import { app } from 'electron';
-import log from 'electron-log';
+import * as path from "path";
+import * as fs from "fs";
+import { spawn, execSync } from "child_process";
+import { app } from "electron";
+import log from "electron-log";
 import {
   NPM_MIRRORS,
   UV_MIRRORS,
   DEFAULT_MIRROR_CONFIG,
   APP_DATA_DIR_NAME,
-} from '../constants';
-import { APP_NAME_IDENTIFIER } from '@shared/constants';
-import { isWindows } from './shellEnv';
-import { spawnCrossPlatform, getNpmCommand, getNodeCommand, getCommandChecker } from '../utils/spawn';
+} from "../constants";
+import { APP_NAME_IDENTIFIER } from "@shared/constants";
+import { isWindows } from "./shellEnv";
+import {
+  spawnCrossPlatform,
+  getNpmCommand,
+  getNodeCommand,
+  getCommandChecker,
+} from "../utils/spawn";
 
 // ==================== Types ====================
 
@@ -93,9 +98,11 @@ let _mirrorConfig: MirrorConfig = { ...DEFAULT_MIRROR };
 
 /** 设置镜像配置（同时更新运行时缓存，持久化由调用方负责写 settings） */
 export function setMirrorConfig(config: Partial<MirrorConfig>): void {
-  if (config.npmRegistry !== undefined) _mirrorConfig.npmRegistry = config.npmRegistry;
-  if (config.uvIndexUrl !== undefined) _mirrorConfig.uvIndexUrl = config.uvIndexUrl;
-  log.info('[Dependencies] Mirror config updated:', _mirrorConfig);
+  if (config.npmRegistry !== undefined)
+    _mirrorConfig.npmRegistry = config.npmRegistry;
+  if (config.uvIndexUrl !== undefined)
+    _mirrorConfig.uvIndexUrl = config.uvIndexUrl;
+  log.info("[Dependencies] Mirror config updated:", _mirrorConfig);
 }
 
 /** 获取当前镜像配置 */
@@ -107,15 +114,15 @@ export function getMirrorConfig(): MirrorConfig {
 
 // 获取应用数据目录 — 统一使用 ~/.nuwax-agent/
 function getAppDataDir(): string {
-  return path.join(app.getPath('home'), APP_DATA_DIR_NAME);
+  return path.join(app.getPath("home"), APP_DATA_DIR_NAME);
 }
 
 function getAppBinDir(): string {
-  return path.join(getAppDataDir(), 'bin');
+  return path.join(getAppDataDir(), "bin");
 }
 
 function getAppNodeModules(): string {
-  return path.join(getAppDataDir(), 'node_modules');
+  return path.join(getAppDataDir(), "node_modules");
 }
 
 // 获取 Electron extraResources 路径
@@ -126,13 +133,13 @@ export function getResourcesPath(): string {
   // 开发模式：使用 process.cwd() 获取项目根目录，避免脆弱的相对路径
   // process.cwd() 在开发模式下是 crates/agent-electron-client/
   const projectRoot = process.cwd();
-  const resourcesFromCwd = path.join(projectRoot, 'resources');
+  const resourcesFromCwd = path.join(projectRoot, "resources");
   // 验证 resources 目录是否存在，如果不存在则回退到 __dirname 相对路径
   if (fs.existsSync(resourcesFromCwd)) {
     return resourcesFromCwd;
   }
   // 回退方案：使用相对路径（编译后 __dirname 是 dist/main/services/system/）
-  return path.join(__dirname, '../../../../../resources');
+  return path.join(__dirname, "../../../../../resources");
 }
 
 // 获取 Electron 内置 Node.js 的 bin 目录路径
@@ -140,37 +147,83 @@ export function getResourcesPath(): string {
 function getElectronNodeBinDir(): string {
   try {
     const execDir = path.dirname(process.execPath);
-    
+
     if (isWindows()) {
       // Windows: 打包后路径
       // Electron Framework/Versions/Current/Resources/app.asar.unpacked/node_modules/electron/dist/
       // 或直接使用 Electron 内置的 node
       const paths = [
-        path.join(execDir, 'resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node_modules', 'bin'),
-        path.join(execDir, '..', 'Resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node_modules', 'bin'),
+        path.join(
+          execDir,
+          "resources",
+          "app.asar.unpacked",
+          "node_modules",
+          "electron",
+          "dist",
+          "node_modules",
+          "bin",
+        ),
+        path.join(
+          execDir,
+          "..",
+          "Resources",
+          "app.asar.unpacked",
+          "node_modules",
+          "electron",
+          "dist",
+          "node_modules",
+          "bin",
+        ),
       ];
-      
+
       for (const p of paths) {
         if (fs.existsSync(p)) {
           return p;
         }
       }
-      
+
       // 回退：尝试使用 Electron 运行时的 node 所在目录的兄弟目录
       // Electron 内置 node 通常在 Electron Framework/Contents/Frameworks/Electron Framework.framework/Versions/Current/node/bin
-      const electronFrameworkPath = path.join(execDir, 'Contents', 'Frameworks', 'Electron Framework.framework', 'Versions', 'Current', 'node', 'bin');
+      const electronFrameworkPath = path.join(
+        execDir,
+        "Contents",
+        "Frameworks",
+        "Electron Framework.framework",
+        "Versions",
+        "Current",
+        "node",
+        "bin",
+      );
       if (fs.existsSync(electronFrameworkPath)) {
         return electronFrameworkPath;
       }
-    } else if (process.platform === 'darwin') {
+    } else if (process.platform === "darwin") {
       // macOS: Electron Framework/node/bin
-      const electronFrameworkPath = path.join(execDir, 'Contents', 'Frameworks', 'Electron Framework.framework', 'Versions', 'Current', 'node', 'bin');
+      const electronFrameworkPath = path.join(
+        execDir,
+        "Contents",
+        "Frameworks",
+        "Electron Framework.framework",
+        "Versions",
+        "Current",
+        "node",
+        "bin",
+      );
       if (fs.existsSync(electronFrameworkPath)) {
         return electronFrameworkPath;
       }
     } else {
       // Linux: 类似路径
-      const electronFrameworkPath = path.join(execDir, 'resources', 'app.asar.unpacked', 'node_modules', 'electron', 'dist', 'node_modules', 'bin');
+      const electronFrameworkPath = path.join(
+        execDir,
+        "resources",
+        "app.asar.unpacked",
+        "node_modules",
+        "electron",
+        "dist",
+        "node_modules",
+        "bin",
+      );
       if (fs.existsSync(electronFrameworkPath)) {
         return electronFrameworkPath;
       }
@@ -179,14 +232,14 @@ function getElectronNodeBinDir(): string {
     // 测试环境中可能出错，返回空字符串
     log.warn(`[getElectronNodeBinDir] 错误: ${error}`);
   }
-  
-  return ''; // 未找到
+
+  return ""; // 未找到
 }
 
 /** 获取 bundled uv 二进制路径（打包后为 process.resourcesPath/uv/bin/uv，开发时为 resources/uv/bin/uv） */
 export function getUvBinPath(): string {
-  const uvName = isWindows() ? 'uv.exe' : 'uv';
-  return path.join(getResourcesPath(), 'uv', 'bin', uvName);
+  const uvName = isWindows() ? "uv.exe" : "uv";
+  return path.join(getResourcesPath(), "uv", "bin", uvName);
 }
 
 /**
@@ -200,8 +253,14 @@ export function getUvBinPath(): string {
  */
 export function getNodeBinPath(): string | null {
   const platformKey = `${process.platform}-${process.arch}`;
-  const nodeName = isWindows() ? 'node.exe' : 'node';
-  const nodePath = path.join(getResourcesPath(), 'node', platformKey, 'bin', nodeName);
+  const nodeName = isWindows() ? "node.exe" : "node";
+  const nodePath = path.join(
+    getResourcesPath(),
+    "node",
+    platformKey,
+    "bin",
+    nodeName,
+  );
 
   if (!fs.existsSync(nodePath)) {
     log.warn(`[Dependencies] 内置 Node.js 未找到: ${nodePath}`);
@@ -247,10 +306,10 @@ export function getNodeBinPathWithFallback(): string | null {
  */
 function findSystemNode(): string | null {
   try {
-    const cmd = isWindows() ? 'where node' : 'which node';
-    const result = execSync(cmd, { encoding: 'utf-8', timeout: 5000 }).trim();
+    const cmd = isWindows() ? "where node" : "which node";
+    const result = execSync(cmd, { encoding: "utf-8", timeout: 5000 }).trim();
     // `where` on Windows may return multiple lines; take the first
-    const firstLine = result.split('\n')[0].trim();
+    const firstLine = result.split("\n")[0].trim();
     if (firstLine && fs.existsSync(firstLine)) {
       return firstLine;
     }
@@ -276,17 +335,20 @@ function ensureUvInAppBin(): void {
       return;
     }
     const appBin = getAppBinDir();
-    const uvName = isWindows() ? 'uv.exe' : 'uv';
+    const uvName = isWindows() ? "uv.exe" : "uv";
     const appBinUv = path.join(appBin, uvName);
     if (fs.existsSync(appBinUv)) {
       log.info(`[ensureUvInAppBin] 应用目录已有 uv: ${appBinUv}`);
       return;
     }
-    const srcBin = path.join(getResourcesPath(), 'uv', 'bin');
+    const srcBin = path.join(getResourcesPath(), "uv", "bin");
     const srcUv = path.join(srcBin, uvName);
     const srcExists = fs.existsSync(srcUv);
-    const srcBinIsDir = fs.existsSync(srcBin) && fs.statSync(srcBin).isDirectory();
-    log.info(`[ensureUvInAppBin] resources/uv/bin: ${srcBin}, uv 存在=${srcExists}, 是目录=${srcBinIsDir}`);
+    const srcBinIsDir =
+      fs.existsSync(srcBin) && fs.statSync(srcBin).isDirectory();
+    log.info(
+      `[ensureUvInAppBin] resources/uv/bin: ${srcBin}, uv 存在=${srcExists}, 是目录=${srcBinIsDir}`,
+    );
     if (!srcExists || !srcBinIsDir) return;
     if (!fs.existsSync(appBin)) fs.mkdirSync(appBin, { recursive: true });
     for (const name of fs.readdirSync(srcBin)) {
@@ -298,33 +360,40 @@ function ensureUvInAppBin(): void {
     }
     log.info(`[ensureUvInAppBin] 复制完成，appBin=${appBin}`);
   } catch (e) {
-    log.warn('[ensureUvInAppBin] 应用内 uv 检查/复制失败:', e);
+    log.warn("[ensureUvInAppBin] 应用内 uv 检查/复制失败:", e);
   }
 }
 
 // 获取 bundled nuwax-lanproxy 二进制路径
 export function getLanproxyBinPath(): string {
-  const binName = isWindows() ? 'nuwax-lanproxy.exe' : 'nuwax-lanproxy';
-  return path.join(getResourcesPath(), 'lanproxy', 'bin', binName);
+  const binName = isWindows() ? "nuwax-lanproxy.exe" : "nuwax-lanproxy";
+  return path.join(getResourcesPath(), "lanproxy", "bin", binName);
 }
 
 // 获取 bundled Node.js 24 路径（集成到 resources/node/）
 // prepare-node 输出到 resources/node/<platform>-<arch>/，bin 目录包含 node/npm/npx
 function getBundledNodeBinDir(): string {
   const resourcesPath = getResourcesPath();
-  const arch = process.arch === 'x64' ? 'x64' : process.arch === 'arm64' ? 'arm64' : 'x64';
+  const arch =
+    process.arch === "x64" ? "x64" : process.arch === "arm64" ? "arm64" : "x64";
   const nodePlatformKey = `${process.platform}-${arch}`;
-  const nodeBinPath = path.join(resourcesPath, 'node', nodePlatformKey, 'bin');
+  const nodeBinPath = path.join(resourcesPath, "node", nodePlatformKey, "bin");
   if (fs.existsSync(nodeBinPath)) {
     log.info(`[getBundledNodeBinDir] 使用内置 Node.js: ${nodeBinPath}`);
     return nodeBinPath;
   }
-  const devPath = path.join(process.cwd(), 'resources', 'node', nodePlatformKey, 'bin');
+  const devPath = path.join(
+    process.cwd(),
+    "resources",
+    "node",
+    nodePlatformKey,
+    "bin",
+  );
   if (fs.existsSync(devPath)) {
     log.info(`[getBundledNodeBinDir] 开发模式使用内置 Node.js: ${devPath}`);
     return devPath;
   }
-  return '';
+  return "";
 }
 
 // 获取 bundled Git 路径（集成到 resources/git/）
@@ -332,60 +401,60 @@ function getBundledNodeBinDir(): string {
 // Windows 需要 git-bash 执行 shell 命令
 function getBundledGitBinDir(): string {
   if (!isWindows()) {
-    return ''; // macOS/Linux 不需要
+    return ""; // macOS/Linux 不需要
   }
-  
+
   const resourcesPath = getResourcesPath();
-  const gitBinPath = path.join(resourcesPath, 'git', 'bin');
-  
+  const gitBinPath = path.join(resourcesPath, "git", "bin");
+
   if (fs.existsSync(gitBinPath)) {
     log.info(`[getBundledGitBinDir] 使用内置 Git: ${gitBinPath}`);
     return gitBinPath;
   }
-  
+
   // 开发模式回退
-  const devPath = path.join(process.cwd(), 'resources', 'git', 'bin');
+  const devPath = path.join(process.cwd(), "resources", "git", "bin");
   if (fs.existsSync(devPath)) {
     log.info(`[getBundledGitBinDir] 开发模式使用内置 Git: ${devPath}`);
     return devPath;
   }
-  
-  return ''; // 未找到
+
+  return ""; // 未找到
 }
 
 /** 获取 bundled git-bash 路径（Windows 下为 prepare-git 集成的 bash.exe，供端口检查等统一走 bash） */
 export function getBundledGitBashPath(): string {
   if (!isWindows()) {
-    return '';
+    return "";
   }
-  
+
   const resourcesPath = getResourcesPath();
   const bashPaths = [
-    path.join(resourcesPath, 'git', 'bin', 'bash.exe'),
-    path.join(resourcesPath, 'git', 'usr', 'bin', 'bash.exe'),
+    path.join(resourcesPath, "git", "bin", "bash.exe"),
+    path.join(resourcesPath, "git", "usr", "bin", "bash.exe"),
   ];
-  
+
   for (const p of bashPaths) {
     if (fs.existsSync(p)) {
       log.info(`[getBundledGitBashPath] 使用内置 git-bash: ${p}`);
       return p;
     }
   }
-  
+
   // 开发模式回退
   const devPaths = [
-    path.join(process.cwd(), 'resources', 'git', 'bin', 'bash.exe'),
-    path.join(process.cwd(), 'resources', 'git', 'usr', 'bin', 'bash.exe'),
+    path.join(process.cwd(), "resources", "git", "bin", "bash.exe"),
+    path.join(process.cwd(), "resources", "git", "usr", "bin", "bash.exe"),
   ];
-  
+
   for (const p of devPaths) {
     if (fs.existsSync(p)) {
       log.info(`[getBundledGitBashPath] 开发模式使用内置 git-bash: ${p}`);
       return p;
     }
   }
-  
-  return ''; // 未找到
+
+  return ""; // 未找到
 }
 
 /**
@@ -417,27 +486,26 @@ export function getBundledGitBashPath(): string {
  */
 export function getAppEnv(): Record<string, string> {
   const appDataDir = getAppDataDir();
-  const nodeModulesBin = path.join(appDataDir, 'node_modules', '.bin');
+  const nodeModulesBin = path.join(appDataDir, "node_modules", ".bin");
   const appBin = getAppBinDir();
 
   // 应用内集成：优先使用 bundled uv；若无则尝试从 resources 复制到 appBin（一次），保证 uv/uvx 来自应用内
   ensureUvInAppBin();
   const uvBinPath = getUvBinPath();
-  const uvBin =
-    fs.existsSync(uvBinPath)
-      ? path.dirname(uvBinPath)
-      : fs.existsSync(path.join(appBin, isWindows() ? 'uv.exe' : 'uv'))
-        ? appBin
-        : '';
+  const uvBin = fs.existsSync(uvBinPath)
+    ? path.dirname(uvBinPath)
+    : fs.existsSync(path.join(appBin, isWindows() ? "uv.exe" : "uv"))
+      ? appBin
+      : "";
 
-  const pathSep = isWindows() ? ';' : ':';
+  const pathSep = isWindows() ? ";" : ":";
 
   // uv/uvx 数据目录（仅当应用内 uv 存在时加入，否则依赖系统 PATH 回退）
-  const uvDataDir = path.join(appDataDir, 'uv');
-  const uvToolBinDir = uvBin ? path.join(uvDataDir, 'tools', 'bin') : '';
+  const uvDataDir = path.join(appDataDir, "uv");
+  const uvToolBinDir = uvBin ? path.join(uvDataDir, "tools", "bin") : "";
 
   // npm 缓存和全局前缀
-  const npmCacheDir = path.join(appDataDir, 'npm-cache');
+  const npmCacheDir = path.join(appDataDir, "npm-cache");
 
   // 镜像配置
   const mirror = getMirrorConfig();
@@ -460,23 +528,46 @@ export function getAppEnv(): Record<string, string> {
   // - nodeModulesBin: 应用内 node_modules/.bin
   // - appBin: 应用内 bin
   // - systemPathPaths: 系统工具回退
-  const priorityPath = [bundledNodeBinDir, electronNodeBinDir, bundledGitBinDir, uvBin, uvToolBinDir, nodeModulesBin, appBin, ...systemPathPaths]
+  const priorityPath = [
+    bundledNodeBinDir,
+    electronNodeBinDir,
+    bundledGitBinDir,
+    uvBin,
+    uvToolBinDir,
+    nodeModulesBin,
+    appBin,
+    ...systemPathPaths,
+  ]
     .filter(Boolean)
     .join(pathSep);
 
   // 调试日志：输出 PATH 优先级（应用内 uv 优先）
   log.info(`[getAppEnv] PATH 优先级 (${process.platform}):`);
-  log.info(`[getAppEnv]   1. 内置 Node.js 24: ${bundledNodeBinDir || '(未找到)'}`);
-  log.info(`[getAppEnv]   2. Electron Node: ${electronNodeBinDir || '(未找到)'}`);
-  log.info(`[getAppEnv]   3. 内置 Git: ${bundledGitBinDir || (isWindows() ? '(未找到)' : '(macOS/Linux 使用系统)')}`);
-  log.info(`[getAppEnv]   4. uv/uvx(应用内优先): ${uvBin || '(未找到，将使用系统 PATH 回退)'}`);
+  log.info(
+    `[getAppEnv]   1. 内置 Node.js 24: ${bundledNodeBinDir || "(未找到)"}`,
+  );
+  log.info(
+    `[getAppEnv]   2. Electron Node: ${electronNodeBinDir || "(未找到)"}`,
+  );
+  log.info(
+    `[getAppEnv]   3. 内置 Git: ${bundledGitBinDir || (isWindows() ? "(未找到)" : "(macOS/Linux 使用系统)")}`,
+  );
+  log.info(
+    `[getAppEnv]   4. uv/uvx(应用内优先): ${uvBin || "(未找到，将使用系统 PATH 回退)"}`,
+  );
   log.info(`[getAppEnv]   5. node_modules: ${nodeModulesBin}`);
   log.info(`[getAppEnv]   6. app bin: ${appBin}`);
-  log.info(`[getAppEnv]   7. 系统回退: ${systemPathPaths.slice(0, 3).join(', ')}...`);
+  log.info(
+    `[getAppEnv]   7. 系统回退: ${systemPathPaths.slice(0, 3).join(", ")}...`,
+  );
   // 追踪：PATH 中是否包含可能含 uvx 的目录（便于排查 uvx 类 MCP 不生效）
   const pathSegments = priorityPath.split(pathSep);
-  const uvRelated = pathSegments.filter((p) => p && (p.includes('uv') || p.includes('nuwax-agent')));
-  log.info(`[getAppEnv] 追踪 uv/uvx: PATH 中与 uv 相关段数=${uvRelated.length}, 前5段=${uvRelated.slice(0, 5).join(' | ') || '(无)'}`);
+  const uvRelated = pathSegments.filter(
+    (p) => p && (p.includes("uv") || p.includes("nuwax-agent")),
+  );
+  log.info(
+    `[getAppEnv] 追踪 uv/uvx: PATH 中与 uv 相关段数=${uvRelated.length}, 前5段=${uvRelated.slice(0, 5).join(" | ") || "(无)"}`,
+  );
 
   // 构建环境变量对象
   const env: Record<string, string | undefined> = {
@@ -484,8 +575,8 @@ export function getAppEnv(): Record<string, string> {
     PATH: priorityPath,
 
     // === Node.js 环境隔离 ===
-    NODE_PATH: path.join(appDataDir, 'node_modules'),
-    NODE_ENV: process.env.NODE_ENV || 'production',
+    NODE_PATH: path.join(appDataDir, "node_modules"),
+    NODE_ENV: process.env.NODE_ENV || "production",
 
     // npm/npx: 缓存、全局前缀、镜像源
     NPM_CONFIG_CACHE: npmCacheDir,
@@ -493,27 +584,29 @@ export function getAppEnv(): Record<string, string> {
     NPM_CONFIG_REGISTRY: mirror.npmRegistry,
     // 使用应用内的 npmrc 配置文件（避免读取用户全局设置）
     // 注意：不要设置为 /dev/null，会导致 npm 配置冲突错误
-    NPM_CONFIG_USERCONFIG: path.join(appDataDir, '.npmrc'),
+    NPM_CONFIG_USERCONFIG: path.join(appDataDir, ".npmrc"),
     // 禁用 npm 的更新检查，避免不必要的网络请求
-    NO_UPDATE_NOTIFIER: 'true',
+    NO_UPDATE_NOTIFIER: "true",
 
     // === Python/uv 环境隔离 ===
-    UV_TOOL_DIR: path.join(uvDataDir, 'tools'),
+    UV_TOOL_DIR: path.join(uvDataDir, "tools"),
     UV_TOOL_BIN_DIR: uvToolBinDir,
-    UV_CACHE_DIR: path.join(uvDataDir, 'cache'),
-    UV_PYTHON_INSTALL_DIR: path.join(uvDataDir, 'python'),
+    UV_CACHE_DIR: path.join(uvDataDir, "cache"),
+    UV_PYTHON_INSTALL_DIR: path.join(uvDataDir, "python"),
     UV_INDEX_URL: mirror.uvIndexUrl,
     // 禁止 uv 自动安装到全局目录
-    UV_NO_INSTALL: '1',
+    UV_NO_INSTALL: "1",
 
     // === 保留必要的环境变量（跨平台兼容）===
-    HOME: process.env.HOME || process.env.USERPROFILE,  // Unix: HOME, Windows: USERPROFILE
-    USER: process.env.USER || process.env.USERNAME,     // Unix: USER, Windows: USERNAME
+    HOME: process.env.HOME || process.env.USERPROFILE, // Unix: HOME, Windows: USERPROFILE
+    USER: process.env.USER || process.env.USERNAME, // Unix: USER, Windows: USERNAME
     USERNAME: process.env.USERNAME || process.env.USER, // Windows: USERNAME, Unix: USER
-    LANG: process.env.LANG || 'en_US.UTF-8',
+    LANG: process.env.LANG || "en_US.UTF-8",
     TZ: process.env.TZ,
     // Windows 特有：确保正确设置 USERPROFILE
-    ...(isWindows() ? { USERPROFILE: process.env.USERPROFILE || process.env.HOME } : {}),
+    ...(isWindows()
+      ? { USERPROFILE: process.env.USERPROFILE || process.env.HOME }
+      : {}),
   };
 
   // 过滤掉 undefined 值并返回
@@ -540,9 +633,9 @@ export function getAppEnv(): Record<string, string> {
   if (bundledGitBashPath) {
     cleanEnv.NUWAXCODE_GIT_BASH_PATH = bundledGitBashPath;
     cleanEnv.CLAUDE_CODE_GIT_BASH_PATH = bundledGitBashPath;
-    
+
     // 设置 MSYS2_PATH_TYPE=inherit 确保 git-bash 继承完整 PATH
-    cleanEnv.MSYS2_PATH_TYPE = 'inherit';
+    cleanEnv.MSYS2_PATH_TYPE = "inherit";
   }
 
   // 设置内置 Git bin 路径（仅 Windows）
@@ -556,12 +649,17 @@ export function getAppEnv(): Record<string, string> {
     // 1. 确保 Windows 关键系统环境变量存在
     // 某些系统命令和 DLL 依赖这些变量
     const windowsCriticalEnvVars: Record<string, string> = {
-      SystemRoot: process.env.SystemRoot || process.env.SYSTEMROOT || 'C:\\windows',
-      windir: process.env.windir || process.env.WINDIR || process.env.SystemRoot || 'C:\\windows',
-      COMSPEC: process.env.COMSPEC || 'C:\\windows\\system32\\cmd.exe',
-      SYSTEMDRIVE: process.env.SYSTEMDRIVE || 'C:',
+      SystemRoot:
+        process.env.SystemRoot || process.env.SYSTEMROOT || "C:\\windows",
+      windir:
+        process.env.windir ||
+        process.env.WINDIR ||
+        process.env.SystemRoot ||
+        "C:\\windows",
+      COMSPEC: process.env.COMSPEC || "C:\\windows\\system32\\cmd.exe",
+      SYSTEMDRIVE: process.env.SYSTEMDRIVE || "C:",
     };
-    
+
     for (const [key, value] of Object.entries(windowsCriticalEnvVars)) {
       if (!cleanEnv[key]) {
         cleanEnv[key] = value;
@@ -571,69 +669,90 @@ export function getAppEnv(): Record<string, string> {
 
     // 2. 确保 Windows 系统目录在 PATH 中
     const windowsSystemPathEntries = [
-      'C:\\Windows\\System32',
-      'C:\\Windows\\System32\\Wbem',
-      'C:\\Windows\\System32\\WindowsPowerShell\\v1.0',
-      'C:\\Windows\\System32\\OpenSSH',
+      "C:\\Windows\\System32",
+      "C:\\Windows\\System32\\Wbem",
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0",
+      "C:\\Windows\\System32\\OpenSSH",
     ];
-    
-    const currentPath = cleanEnv.PATH || '';
-    const currentPathLower = currentPath.split(';').map(p => p.toLowerCase());
-    
+
+    const currentPath = cleanEnv.PATH || "";
+    const currentPathLower = currentPath.split(";").map((p) => p.toLowerCase());
+
     for (const sysPath of windowsSystemPathEntries) {
       if (!currentPathLower.includes(sysPath.toLowerCase())) {
-        cleanEnv.PATH = currentPath + ';' + sysPath;
+        cleanEnv.PATH = currentPath + ";" + sysPath;
       }
     }
 
     // 3. 设置 ORIGINAL_PATH（POSIX 格式）供 git-bash 使用
     // 参考 LobsterAI: 确保 git-bash 的 /etc/profile 正确处理 PATH
+    // 注意：限制条目数量以避免超过 Windows 环境变量长度限制 (32,767)
     if (bundledGitBashPath) {
-      const posixPath = (cleanEnv.PATH || '')
-        .split(';')
-        .map(p => p.replace(/\\/g, '/'))
-        .filter(Boolean)
-        .join(':');
+      const MAX_ORIGINAL_PATH_ENTRIES = 20; // 限制条目数量
+      const pathEntries = (cleanEnv.PATH || "").split(";").filter(Boolean);
+      const limitedEntries = pathEntries.slice(0, MAX_ORIGINAL_PATH_ENTRIES);
+      const posixPath = limitedEntries
+        .map((p) => p.replace(/\\/g, "/"))
+        .join(":");
       cleanEnv.ORIGINAL_PATH = posixPath;
-      log.info(`[getAppEnv] 设置 ORIGINAL_PATH (${posixPath.split(':').length} entries)`);
+      log.info(
+        `[getAppEnv] 设置 ORIGINAL_PATH (${limitedEntries.length}/${pathEntries.length} entries)`,
+      );
     }
 
     // 4. 从注册表读取最新 PATH（解决用户后安装的工具不在 PATH 中的问题）
     try {
-      const { execSync } = require('child_process');
+      const { execSync } = require("child_process");
       const psScript = [
         '$machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")',
         '$userPath = [Environment]::GetEnvironmentVariable("Path", "User")',
         '[Console]::Write("$machinePath;$userPath")',
-      ].join('; ');
-      const encodedCommand = Buffer.from(psScript, 'utf16le').toString('base64');
-      const result = execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${encodedCommand}`, {
-        encoding: 'utf-8',
-        timeout: 10000,
-        windowsHide: true,
-      });
-      
+      ].join("; ");
+      const encodedCommand = Buffer.from(psScript, "utf16le").toString(
+        "base64",
+      );
+      const result = execSync(
+        `powershell -NoProfile -NonInteractive -EncodedCommand ${encodedCommand}`,
+        {
+          encoding: "utf-8",
+          timeout: 10000,
+          windowsHide: true,
+        },
+      );
+
       const registryPath = result.trim();
       if (registryPath) {
         const registryEntries = registryPath
-          .split(';')
+          .split(";")
           .map((entry: string) => entry.trim())
           .filter(Boolean);
-        
+
         // 去重并追加到 PATH 末尾
-        const existingPaths = new Set(currentPath.split(';').map(p => p.toLowerCase()));
+        // 注意：限制追加的条目数量以避免超过 Windows 环境变量长度限制
+        const MAX_REGISTRY_PATH_ENTRIES = 10; // 最多从注册表追加10个条目
+        const existingPaths = new Set(
+          currentPath.split(";").map((p) => p.toLowerCase()),
+        );
         const missingEntries: string[] = [];
-        
+
         for (const entry of registryEntries) {
+          if (missingEntries.length >= MAX_REGISTRY_PATH_ENTRIES) {
+            log.info(
+              `[getAppEnv] 已达到最大注册表 PATH 条目限制 (${MAX_REGISTRY_PATH_ENTRIES})，跳过剩余条目`,
+            );
+            break;
+          }
           if (!existingPaths.has(entry.toLowerCase())) {
             missingEntries.push(entry);
             existingPaths.add(entry.toLowerCase());
           }
         }
-        
+
         if (missingEntries.length > 0) {
-          cleanEnv.PATH = currentPath + ';' + missingEntries.join(';');
-          log.info(`[getAppEnv] 从注册表追加 ${missingEntries.length} 个 PATH 条目`);
+          cleanEnv.PATH = currentPath + ";" + missingEntries.join(";");
+          log.info(
+            `[getAppEnv] 从注册表追加 ${missingEntries.length} 个 PATH 条目`,
+          );
         }
       }
     } catch (error) {
@@ -668,119 +787,135 @@ function getSystemPaths(): string[] {
     return cachedSystemPaths;
   }
 
-  const systemPath = process.env.PATH || '';
-  const pathSep = isWindows() ? ';' : ':';
+  const systemPath = process.env.PATH || "";
+  const pathSep = isWindows() ? ";" : ":";
   const allPaths = systemPath.split(pathSep).filter(Boolean);
 
   // 排除模式：只排除项目级别的 node_modules，保留系统级包管理器路径
   // 这样可以找到 npm/node 命令（用户可能通过 Homebrew/NVM/fnm 安装）
   const excludedPatterns = [
-    '/node_modules/',         // 项目本地依赖（带路径分隔符避免误伤其他路径）
-    '\\node_modules\\',       // Windows 项目本地依赖
+    "/node_modules/", // 项目本地依赖（带路径分隔符避免误伤其他路径）
+    "\\node_modules\\", // Windows 项目本地依赖
   ];
 
-  cachedSystemPaths = allPaths.filter(p => {
+  cachedSystemPaths = allPaths.filter((p) => {
     // 使用 path.normalize 标准化路径（处理 Windows 路径分隔符和 . / ..）
     // 然后统一转小写进行比较（Windows 文件系统不区分大小写）
     const normalizedPath = path.normalize(p).toLowerCase();
 
     // 排除包含项目级 node_modules 的目录
-    return !excludedPatterns.some(pattern => normalizedPath.includes(pattern.toLowerCase()));
+    return !excludedPatterns.some((pattern) =>
+      normalizedPath.includes(pattern.toLowerCase()),
+    );
   });
 
   // 添加常见系统路径作为回退（macOS GUI 应用可能没有完整 PATH）
   // 以及 Electron 内置 Node.js 路径
   const fallbackPaths: string[] = [];
-  
+
   // ========== Electron 内置 Node.js 路径 ==========
-  if (process.platform === 'darwin') {
+  if (process.platform === "darwin") {
     // macOS: Electron 内置 Node.js
-    const electronPath = process.execPath.replace(/\/Contents\/MacOS\/.*/, '/Contents/Frameworks/Electron Framework.framework/Versions/Current/node/bin');
+    const electronPath = process.execPath.replace(
+      /\/Contents\/MacOS\/.*/,
+      "/Contents/Frameworks/Electron Framework.framework/Versions/Current/node/bin",
+    );
     if (fs.existsSync(electronPath)) {
       fallbackPaths.push(electronPath);
     }
-    
+
     // macOS 常见路径（含 uv/uvx：Homebrew 与官方安装脚本 ~/.local/bin）
     fallbackPaths.push(
-      '/usr/local/bin',      // Homebrew Intel、部分 uv 安装
-      '/opt/homebrew/bin',   // Homebrew Apple Silicon
-      '/usr/bin',
-      '/bin',
+      "/usr/local/bin", // Homebrew Intel、部分 uv 安装
+      "/opt/homebrew/bin", // Homebrew Apple Silicon
+      "/usr/bin",
+      "/bin",
     );
-    const homeMac = process.env.HOME || '';
+    const homeMac = process.env.HOME || "";
     if (homeMac) {
-      const localBin = path.join(homeMac, '.local', 'bin');
+      const localBin = path.join(homeMac, ".local", "bin");
       if (fs.existsSync(localBin)) fallbackPaths.push(localBin);
     }
     // 添加常见 Node.js 版本管理器路径
-    const home = process.env.HOME || '';
+    const home = process.env.HOME || "";
     if (home) {
       // NVM 默认路径
-      const nvmDir = process.env.NVM_DIR || path.join(home, '.nvm');
+      const nvmDir = process.env.NVM_DIR || path.join(home, ".nvm");
       if (fs.existsSync(nvmDir)) {
         // 尝试找到当前使用的 Node 版本
-        const nvmVersionsDir = path.join(nvmDir, 'versions', 'node');
+        const nvmVersionsDir = path.join(nvmDir, "versions", "node");
         if (fs.existsSync(nvmVersionsDir)) {
-          const versions = fs.readdirSync(nvmVersionsDir).filter(v => v.startsWith('v'));
+          const versions = fs
+            .readdirSync(nvmVersionsDir)
+            .filter((v) => v.startsWith("v"));
           // 使用语义化版本排序，取最新的版本
           if (versions.length > 0) {
             const latestVersion = versions
-              .sort((a, b) => compareVersions(a.replace(/^v/, ''), b.replace(/^v/, '')))
+              .sort((a, b) =>
+                compareVersions(a.replace(/^v/, ""), b.replace(/^v/, "")),
+              )
               .pop();
             if (latestVersion) {
-              fallbackPaths.push(path.join(nvmVersionsDir, latestVersion, 'bin'));
+              fallbackPaths.push(
+                path.join(nvmVersionsDir, latestVersion, "bin"),
+              );
             }
           }
         }
       }
       // fnm 默认路径
-      const fnmDir = path.join(home, '.fnm');
+      const fnmDir = path.join(home, ".fnm");
       if (fs.existsSync(fnmDir)) {
         // fnm 使用 node-versions 目录
-        const fnmNodeDir = path.join(fnmDir, 'node-installations');
+        const fnmNodeDir = path.join(fnmDir, "node-installations");
         if (fs.existsSync(fnmNodeDir)) {
-          const versions = fs.readdirSync(fnmNodeDir).filter(v => v.startsWith('v'));
+          const versions = fs
+            .readdirSync(fnmNodeDir)
+            .filter((v) => v.startsWith("v"));
           if (versions.length > 0) {
             // 使用语义化版本排序，取最新的版本
             const latestVersion = versions
-              .sort((a, b) => compareVersions(a.replace(/^v/, ''), b.replace(/^v/, '')))
+              .sort((a, b) =>
+                compareVersions(a.replace(/^v/, ""), b.replace(/^v/, "")),
+              )
               .pop();
             if (latestVersion) {
-              fallbackPaths.push(path.join(fnmNodeDir, latestVersion, 'installation', 'bin'));
+              fallbackPaths.push(
+                path.join(fnmNodeDir, latestVersion, "installation", "bin"),
+              );
             }
           }
         }
       }
     }
-  } else if (process.platform === 'linux') {
+  } else if (process.platform === "linux") {
     // Linux：常见 uv/uvx 安装路径
-    const homeLinux = process.env.HOME || '';
+    const homeLinux = process.env.HOME || "";
     if (homeLinux) {
-      const localBin = path.join(homeLinux, '.local', 'bin');
+      const localBin = path.join(homeLinux, ".local", "bin");
       if (fs.existsSync(localBin)) fallbackPaths.push(localBin);
     }
-    fallbackPaths.push('/usr/local/bin', '/usr/bin', '/bin');
+    fallbackPaths.push("/usr/local/bin", "/usr/bin", "/bin");
   } else if (isWindows()) {
     // Windows: 使用 getElectronNodeBinDir() 获取 Electron 内置 Node.js
     // (在 getSystemPaths 中复用，主要由 getAppEnv 中的优先级控制)
-    
+
     // Windows 常见路径
-    const home = process.env.USERPROFILE || process.env.HOME || '';
-    const programFiles = process.env.PROGRAMFILES || 'C:\\Program Files';
-    const programFilesX86 = process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)';
-    
+    const home = process.env.USERPROFILE || process.env.HOME || "";
+    const programFiles = process.env.PROGRAMFILES || "C:\\Program Files";
+    const programFilesX86 =
+      process.env["PROGRAMFILES(X86)"] || "C:\\Program Files (x86)";
+
     if (home) {
-      fallbackPaths.push(
-        path.join(home, 'AppData', 'Roaming', 'npm'),
-      );
+      fallbackPaths.push(path.join(home, "AppData", "Roaming", "npm"));
     }
-    
+
     // 添加系统 Node.js 路径
     fallbackPaths.push(
-      path.join(programFiles, 'nodejs'),
-      path.join(programFilesX86, 'nodejs'),
-      'C:\\Windows\\system32',
-      'C:\\Windows',
+      path.join(programFiles, "nodejs"),
+      path.join(programFilesX86, "nodejs"),
+      "C:\\Windows\\system32",
+      "C:\\Windows",
     );
   }
 
@@ -864,10 +999,12 @@ export async function checkNodeVersion(): Promise<{
 }> {
   // 优先检测内置 Node.js 24
   const bundledPath = getNodeBinPath();
-  log.info(`[checkNodeVersion] 检测内置 Node.js: ${bundledPath || '(未找到)'}`);
+  log.info(`[checkNodeVersion] 检测内置 Node.js: ${bundledPath || "(未找到)"}`);
 
   if (bundledPath && fs.existsSync(bundledPath)) {
-    log.info(`[checkNodeVersion] 内置 Node.js 文件存在，尝试执行: ${bundledPath}`);
+    log.info(
+      `[checkNodeVersion] 内置 Node.js 文件存在，尝试执行: ${bundledPath}`,
+    );
     const result = await _checkNodeBin(bundledPath);
     log.info(`[checkNodeVersion] 内置 Node.js 检测结果:`, result);
     if (result.installed) {
@@ -878,7 +1015,7 @@ export async function checkNodeVersion(): Promise<{
   // Fallback 1: Electron 内置 Node.js
   if (process.versions && process.versions.node) {
     const version = process.versions.node;
-    const meets = compareVersions(version, '22.0.0') >= 0;
+    const meets = compareVersions(version, "22.0.0") >= 0;
     log.info(`[checkNodeVersion] 使用 Electron 内置 Node.js: ${version}`);
     return {
       installed: true,
@@ -891,28 +1028,34 @@ export async function checkNodeVersion(): Promise<{
   // Fallback 2: 系统 Node.js
   log.info(`[checkNodeVersion] 尝试系统 Node.js...`);
   return new Promise((resolve) => {
-    const nodeCmd = isWindows() ? 'node.exe' : 'node';
-    const proc = spawn(nodeCmd, ['--version'], {
-      stdio: ['ignore', 'pipe', 'ignore'],
+    const nodeCmd = isWindows() ? "node.exe" : "node";
+    const proc = spawn(nodeCmd, ["--version"], {
+      stdio: ["ignore", "pipe", "ignore"],
       shell: isWindows(),
     });
 
-    let stdout = '';
-    proc.stdout?.on('data', (data) => {
+    let stdout = "";
+    proc.stdout?.on("data", (data) => {
       stdout += data.toString();
     });
 
-    proc.on('close', (code) => {
+    proc.on("close", (code) => {
       if (code === 0) {
-        const version = stdout.trim().replace(/^v/, '');
-        const meets = compareVersions(version, '22.0.0') >= 0;
-        resolve({ installed: true, version, meetsRequirement: meets, bundled: false, binPath: nodeCmd });
+        const version = stdout.trim().replace(/^v/, "");
+        const meets = compareVersions(version, "22.0.0") >= 0;
+        resolve({
+          installed: true,
+          version,
+          meetsRequirement: meets,
+          bundled: false,
+          binPath: nodeCmd,
+        });
       } else {
         resolve({ installed: false, meetsRequirement: false, bundled: false });
       }
     });
 
-    proc.on('error', () => {
+    proc.on("error", () => {
       resolve({ installed: false, meetsRequirement: false, bundled: false });
     });
   });
@@ -925,26 +1068,26 @@ function _checkNodeBin(binPath: string): Promise<{
   meetsRequirement: boolean;
 }> {
   return new Promise((resolve) => {
-    const proc = spawn(binPath, ['--version'], {
-      stdio: ['ignore', 'pipe', 'ignore'],
+    const proc = spawn(binPath, ["--version"], {
+      stdio: ["ignore", "pipe", "ignore"],
     });
 
-    let stdout = '';
-    proc.stdout?.on('data', (data) => {
+    let stdout = "";
+    proc.stdout?.on("data", (data) => {
       stdout += data.toString();
     });
 
-    proc.on('close', (code) => {
+    proc.on("close", (code) => {
       if (code === 0) {
-        const version = stdout.trim().replace(/^v/, '');
-        const meets = compareVersions(version, '22.0.0') >= 0;
+        const version = stdout.trim().replace(/^v/, "");
+        const meets = compareVersions(version, "22.0.0") >= 0;
         resolve({ installed: true, version, meetsRequirement: meets });
       } else {
         resolve({ installed: false, meetsRequirement: false });
       }
     });
 
-    proc.on('error', () => {
+    proc.on("error", () => {
       resolve({ installed: false, meetsRequirement: false });
     });
   });
@@ -964,7 +1107,7 @@ export async function checkUvVersion(): Promise<{
   // 优先检测 bundled uv
   const bundledPath = getUvBinPath();
   log.info(`[checkUvVersion] 检测 bundled uv: ${bundledPath}`);
-  
+
   if (fs.existsSync(bundledPath)) {
     log.info(`[checkUvVersion] bundled uv 文件存在，尝试执行: ${bundledPath}`);
     const result = await _checkUvBin(bundledPath);
@@ -979,27 +1122,33 @@ export async function checkUvVersion(): Promise<{
   // Fallback 到系统 uv
   log.info(`[checkUvVersion] 尝试系统 uv...`);
   return new Promise((resolve) => {
-    const proc = spawn('uv', ['--version'], {
-      stdio: ['ignore', 'pipe', 'ignore'],
+    const proc = spawn("uv", ["--version"], {
+      stdio: ["ignore", "pipe", "ignore"],
     });
 
-    let stdout = '';
-    proc.stdout?.on('data', (data) => {
+    let stdout = "";
+    proc.stdout?.on("data", (data) => {
       stdout += data.toString();
     });
 
-    proc.on('close', (code) => {
+    proc.on("close", (code) => {
       if (code === 0) {
         const match = stdout.match(/(\d+\.\d+\.\d+)/);
-        const version = match ? match[1] : 'unknown';
-        const meets = compareVersions(version, '0.5.0') >= 0;
-        resolve({ installed: true, version, meetsRequirement: meets, bundled: false, binPath: 'uv' });
+        const version = match ? match[1] : "unknown";
+        const meets = compareVersions(version, "0.5.0") >= 0;
+        resolve({
+          installed: true,
+          version,
+          meetsRequirement: meets,
+          bundled: false,
+          binPath: "uv",
+        });
       } else {
         resolve({ installed: false, meetsRequirement: false, bundled: false });
       }
     });
 
-    proc.on('error', () => {
+    proc.on("error", () => {
       resolve({ installed: false, meetsRequirement: false, bundled: false });
     });
   });
@@ -1012,27 +1161,27 @@ function _checkUvBin(binPath: string): Promise<{
   meetsRequirement: boolean;
 }> {
   return new Promise((resolve) => {
-    const proc = spawn(binPath, ['--version'], {
-      stdio: ['ignore', 'pipe', 'ignore'],
+    const proc = spawn(binPath, ["--version"], {
+      stdio: ["ignore", "pipe", "ignore"],
     });
 
-    let stdout = '';
-    proc.stdout?.on('data', (data) => {
+    let stdout = "";
+    proc.stdout?.on("data", (data) => {
       stdout += data.toString();
     });
 
-    proc.on('close', (code) => {
+    proc.on("close", (code) => {
       if (code === 0) {
         const match = stdout.match(/(\d+\.\d+\.\d+)/);
-        const version = match ? match[1] : 'unknown';
-        const meets = compareVersions(version, '0.5.0') >= 0;
+        const version = match ? match[1] : "unknown";
+        const meets = compareVersions(version, "0.5.0") >= 0;
         resolve({ installed: true, version, meetsRequirement: meets });
       } else {
         resolve({ installed: false, meetsRequirement: false });
       }
     });
 
-    proc.on('error', () => {
+    proc.on("error", () => {
       resolve({ installed: false, meetsRequirement: false });
     });
   });
@@ -1043,14 +1192,14 @@ function _checkUvBin(binPath: string): Promise<{
  */
 export async function detectNpmPackage(
   packageName: string,
-  binName?: string
+  binName?: string,
 ): Promise<{
   installed: boolean;
   version?: string;
   binPath?: string;
 }> {
   const nodeModules = getAppNodeModules();
-  const packagePath = path.join(nodeModules, packageName, 'package.json');
+  const packagePath = path.join(nodeModules, packageName, "package.json");
 
   // 检查是否安装
   if (!fs.existsSync(packagePath)) {
@@ -1060,25 +1209,25 @@ export async function detectNpmPackage(
   // 读取版本
   let version: string | undefined;
   try {
-    const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf-8'));
+    const pkg = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
     version = pkg.version;
   } catch {}
 
   // 查找可执行文件
   let binPath: string | undefined;
   const searchPaths = [
-    path.join(nodeModules, '.bin', binName || packageName),
-    path.join(nodeModules, packageName, 'bin', binName || packageName),
+    path.join(nodeModules, ".bin", binName || packageName),
+    path.join(nodeModules, packageName, "bin", binName || packageName),
   ];
 
   for (const p of searchPaths) {
     if (isWindows()) {
-      if (fs.existsSync(p + '.cmd')) {
-        binPath = p + '.cmd';
+      if (fs.existsSync(p + ".cmd")) {
+        binPath = p + ".cmd";
         break;
       }
-      if (fs.existsSync(p + '.exe')) {
-        binPath = p + '.exe';
+      if (fs.existsSync(p + ".exe")) {
+        binPath = p + ".exe";
         break;
       }
     } else if (fs.existsSync(p)) {
@@ -1100,26 +1249,26 @@ export async function detectShellCommand(command: string): Promise<{
 }> {
   return new Promise((resolve) => {
     // 先检查 which/where
-    const checkCmd = isWindows() ? 'where' : 'which';
+    const checkCmd = isWindows() ? "where" : "which";
     const proc = spawn(checkCmd, [command], {
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ["ignore", "pipe", "ignore"],
       shell: isWindows(),
     });
 
-    proc.on('close', (code) => {
+    proc.on("close", (code) => {
       if (code === 0) {
         // 尝试获取版本
-        const versionProc = spawn(command, ['--version'], {
-          stdio: ['ignore', 'pipe', 'ignore'],
+        const versionProc = spawn(command, ["--version"], {
+          stdio: ["ignore", "pipe", "ignore"],
           shell: isWindows(),
         });
 
-        let stdout = '';
-        versionProc.stdout?.on('data', (data) => {
+        let stdout = "";
+        versionProc.stdout?.on("data", (data) => {
           stdout += data.toString();
         });
 
-        versionProc.on('close', () => {
+        versionProc.on("close", () => {
           const versionMatch = stdout.match(/(\d+\.\d+\.\d+)/);
           resolve({
             installed: true,
@@ -1128,7 +1277,7 @@ export async function detectShellCommand(command: string): Promise<{
           });
         });
 
-        versionProc.on('error', () => {
+        versionProc.on("error", () => {
           resolve({ installed: true, binPath: command });
         });
       } else {
@@ -1136,7 +1285,7 @@ export async function detectShellCommand(command: string): Promise<{
       }
     });
 
-    proc.on('error', () => {
+    proc.on("error", () => {
       resolve({ installed: false });
     });
   });
@@ -1152,7 +1301,7 @@ export async function installNpmPackage(
   options?: {
     registry?: string;
     version?: string;
-  }
+  },
 ): Promise<{
   success: boolean;
   version?: string;
@@ -1167,18 +1316,25 @@ export async function installNpmPackage(
   }
 
   // 初始化 package.json 如果不存在（放在 appDataDir，npm 会自动创建 node_modules/）
-  const packageJsonPath = path.join(appDataDir, 'package.json');
+  const packageJsonPath = path.join(appDataDir, "package.json");
   if (!fs.existsSync(packageJsonPath)) {
-    fs.writeFileSync(packageJsonPath, JSON.stringify({
-      name: APP_NAME_IDENTIFIER,
-      version: '1.0.0',
-      private: true
-    }, null, 2));
+    fs.writeFileSync(
+      packageJsonPath,
+      JSON.stringify(
+        {
+          name: APP_NAME_IDENTIFIER,
+          version: "1.0.0",
+          private: true,
+        },
+        null,
+        2,
+      ),
+    );
   }
 
   return new Promise((resolve) => {
-    const npmCmd = isWindows() ? 'npm.cmd' : 'npm';
-    const args = ['install', '--save'];
+    const npmCmd = isWindows() ? "npm.cmd" : "npm";
+    const args = ["install", "--save"];
 
     if (options?.version) {
       args.push(`${packageName}@${options.version}`);
@@ -1195,21 +1351,21 @@ export async function installNpmPackage(
     const proc = spawn(npmCmd, args, {
       cwd: appDataDir,
       env: { ...process.env, ...getAppEnv() },
-      stdio: 'pipe',
+      stdio: "pipe",
       shell: isWindows(),
     });
 
-    let stderr = '';
-    proc.stderr?.on('data', (data) => {
+    let stderr = "";
+    proc.stderr?.on("data", (data) => {
       stderr += data.toString();
     });
 
-    proc.on('error', (error) => {
+    proc.on("error", (error) => {
       log.error(`[Dependencies] Install error:`, error);
       resolve({ success: false, error: error.message });
     });
 
-    proc.on('close', (code) => {
+    proc.on("close", (code) => {
       if (code === 0) {
         // 检测安装结果
         detectNpmPackage(packageName).then((result) => {
@@ -1222,7 +1378,7 @@ export async function installNpmPackage(
         });
       } else {
         log.error(`[Dependencies] Install failed:`, stderr);
-        resolve({ success: false, error: stderr || 'Install failed' });
+        resolve({ success: false, error: stderr || "Install failed" });
       }
     });
   });
@@ -1239,37 +1395,39 @@ export async function checkAllDependencies(): Promise<LocalDependencyItem[]> {
   for (const dep of SETUP_REQUIRED_DEPENDENCIES) {
     const item: LocalDependencyItem = {
       ...dep,
-      status: 'checking',
+      status: "checking",
     };
 
     try {
       switch (dep.name) {
-        case 'uv': {
+        case "uv": {
           const result = await checkUvVersion();
           item.status = result.installed
-            ? (result.bundled ? 'bundled' : 'installed')
-            : 'missing';
+            ? result.bundled
+              ? "bundled"
+              : "installed"
+            : "missing";
           item.version = result.version;
           item.meetsRequirement = result.meetsRequirement;
           item.binPath = result.binPath;
           break;
         }
-        case 'nuwaxcode':
-        case 'nuwax-file-server':
-        case 'nuwax-mcp-stdio-proxy':
-        case 'claude-code-acp-ts': {
+        case "nuwaxcode":
+        case "nuwax-file-server":
+        case "nuwax-mcp-stdio-proxy":
+        case "claude-code-acp-ts": {
           const result = await detectNpmPackage(dep.name, dep.binName);
-          item.status = result.installed ? 'installed' : 'missing';
+          item.status = result.installed ? "installed" : "missing";
           item.version = result.version;
           item.binPath = result.binPath;
           break;
         }
         default: {
-          item.status = 'missing';
+          item.status = "missing";
         }
       }
     } catch (error) {
-      item.status = 'error';
+      item.status = "error";
       item.errorMessage = String(error);
     }
 
@@ -1292,10 +1450,10 @@ export async function installMissingDependencies(): Promise<{
   const deps = await checkAllDependencies();
 
   for (const dep of deps) {
-    if (dep.status === 'missing' && dep.required) {
+    if (dep.status === "missing" && dep.required) {
       log.info(`[Dependencies] Installing missing: ${dep.name}`);
 
-      if (dep.type === 'npm-local') {
+      if (dep.type === "npm-local") {
         const result = await installNpmPackage(dep.name);
         results.push({
           name: dep.name,
@@ -1306,13 +1464,13 @@ export async function installMissingDependencies(): Promise<{
         results.push({
           name: dep.name,
           success: false,
-          error: 'System dependency - manual install required',
+          error: "System dependency - manual install required",
         });
       }
     }
   }
 
-  const allSuccess = results.every(r => r.success);
+  const allSuccess = results.every((r) => r.success);
   return { success: allSuccess, results };
 }
 
@@ -1341,8 +1499,8 @@ export function getDependenciesSummary(): {
  * 返回: 1 = a > b, 0 = a == b, -1 = a < b
  */
 function compareVersions(a: string, b: string): number {
-  const aParts = a.split('.').map(Number);
-  const bParts = b.split('.').map(Number);
+  const aParts = a.split(".").map(Number);
+  const bParts = b.split(".").map(Number);
 
   for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
     const aPart = aParts[i] || 0;
