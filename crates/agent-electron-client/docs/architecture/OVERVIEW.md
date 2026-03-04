@@ -221,7 +221,7 @@ interface EvolutionControl {
 ## 数据目录结构
 
 ```
-~/.nuwax-agent/
+~/.nuwaxbot/
 ├── soul/                          # Agent 自我认知
 │   ├── soul.md                    # 主灵魂文件
 │   ├── principles.md              # 学习到的原则

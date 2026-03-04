@@ -810,7 +810,7 @@ export type ProgramContext = {
   // 版本信息
   version: string;
 
-  // 路径信息（必须与项目约束一致：~/.nuwax-agent）
+  // 路径信息（必须与项目约束一致：~/.nuwaxbot）
   paths: {
     homeDir: string;
     appDataDir: string;
@@ -842,7 +842,7 @@ function resolveAppPaths() {
   return {
     homeDir,
     appDataDir,
-    dbPath: path.join(appDataDir, 'nuwax-agent.db'),
+    dbPath: path.join(appDataDir, 'nuwaxbot.db'),
     logsDir: path.join(appDataDir, 'logs'),
   };
 }
@@ -1209,7 +1209,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
 | 优先级 | 改进项 | 难度 | 预期价值 | 涉及文件 |
 |--------|--------|------|----------|----------|
 | 🔴 P0 | 统一 IPC 注册系统（稳定代理 + 一次加载） | 中 | 高 | `src/main/ipc/*` |
-| 🔴 P0 | 程序上下文模式（路径约束对齐 `~/.nuwax-agent`） | 中 | 高 | `src/main/context.ts` |
+| 🔴 P0 | 程序上下文模式（路径约束对齐 `~/.nuwaxbot`） | 中 | 高 | `src/main/context.ts` |
 | 🔴 P0 | 运行时环境双模式（strict/compat） | 中 | 高 | `src/main/services/system/*` |
 | 🟡 P1 | 统一事件总线 | 中 | 高 | `src/services/common/event-bus.ts` |
 | 🟡 P1 | Lobster Runtime 集成（run/resume） | 中 | 高 | `src/main/services/workflow/*` |
@@ -1222,7 +1222,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
 
 1. **创建程序上下文**
    - 新建 `src/main/context.ts`
-   - 路径统一到 `app.getPath('home') + '/.nuwax-agent'`
+   - 路径统一到 `app.getPath('home') + '/.nuwaxbot'`
    - 重构 `main.ts` 使用上下文
    - 提取服务初始化逻辑
 
@@ -1264,7 +1264,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
 ### 5.3 兼容性考虑
 
 - 保持现有 IPC API 不变（使用适配器模式）
-- 保持数据目录约束不变：所有持久化数据继续落在 `~/.nuwax-agent/`
+- 保持数据目录约束不变：所有持久化数据继续落在 `~/.nuwaxbot/`
 - 默认使用 `strict`，仅在显式配置下切换到 `compat`
 - 分阶段迁移，不破坏现有功能
 - 添加废弃警告，逐步过渡

@@ -118,7 +118,7 @@ describe('dependencies', () => {
       const pathSep = process.platform === 'win32' ? ';' : ':';
       const pathEntries = env.PATH?.split(pathSep) || [];
       const home = path.join('/mock', 'home');
-      const appData = path.join(home, '.nuwax-agent');
+      const appData = path.join(home, '.nuwaxbot');
       expect(pathEntries).toContain(path.join(appData, 'node_modules', '.bin'));
       expect(pathEntries).toContain(path.join(appData, 'bin'));
     });
@@ -127,7 +127,7 @@ describe('dependencies', () => {
       const { getAppEnv } = await import('../system/dependencies');
       const env = getAppEnv();
 
-      const expected = path.join('/mock', 'home', '.nuwax-agent', 'node_modules');
+      const expected = path.join('/mock', 'home', '.nuwaxbot', 'node_modules');
       expect(env.NODE_PATH).toBe(expected);
     });
 
@@ -142,7 +142,7 @@ describe('dependencies', () => {
       const { getAppEnv } = await import('../system/dependencies');
       const env = getAppEnv();
 
-      const expected = path.join('/mock', 'home', '.nuwax-agent', '.npmrc');
+      const expected = path.join('/mock', 'home', '.nuwaxbot', '.npmrc');
       expect(env.NPM_CONFIG_USERCONFIG).toBe(expected);
     });
 
@@ -251,7 +251,7 @@ describe('dependencies', () => {
       const pathEntries = env.PATH?.split(':') || [];
 
       // Should not contain project node_modules
-      expect(pathEntries.find(p => p.includes('node_modules/.bin') && !p.includes('.nuwax-agent'))).toBeUndefined();
+      expect(pathEntries.find(p => p.includes('node_modules/.bin') && !p.includes('.nuwaxbot'))).toBeUndefined();
       // Should contain system paths
       expect(pathEntries.some(p => p === '/usr/bin' || p === '/usr/local/bin')).toBe(true);
     });

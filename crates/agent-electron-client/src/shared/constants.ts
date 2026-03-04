@@ -12,8 +12,8 @@ import type { AgentEngineType } from '@shared/types/electron';
 /** 应用对外显示名称（窗口标题、关于、安装包名称等），与 package.json build.productName 保持一致 */
 export const APP_DISPLAY_NAME = 'NuwaxBot';
 
-/** 应用技术标识（进程名、目录名等，小写连字符），与 appId 等保持一致 */
-export const APP_NAME_IDENTIFIER = 'nuwax-agent';
+/** 应用技术标识（进程名、目录名等，小写字母），与 appId 等保持一致 */
+export const APP_NAME_IDENTIFIER = 'nuwaxbot';
 
 // ==================== 端口配置 ====================
 

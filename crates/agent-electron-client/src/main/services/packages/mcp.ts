@@ -37,7 +37,7 @@ import { persistentMcpBridge } from "./persistentMcpBridge";
 
 /**
  * Returns the directory containing the app-internal `uv` binary.
- * Priority: bundled resources/uv/bin → ~/.nuwax-agent/bin
+ * Priority: bundled resources/uv/bin → ~/.nuwaxbot/bin
  * Returns empty string if uv not found anywhere.
  */
 export function getUvBinDir(): string {
@@ -437,7 +437,7 @@ class McpProxyManager {
       }
     }
 
-    // 3. 应用数据目录 ~/.nuwax-agent/node_modules（用户通过依赖管理安装的版本）
+    // 3. 应用数据目录 ~/.nuwaxbot/node_modules（用户通过依赖管理安装的版本）
     const dirs = getAppPaths();
     const packageDir = path.join(dirs.nodeModules, pkgName);
     if (!fs.existsSync(packageDir)) {
@@ -449,7 +449,7 @@ class McpProxyManager {
     const entry = resolveNpmPackageEntry(packageDir, pkgName);
     if (entry) {
       log.info(
-        `[McpProxy] 🔍 resolveProxyScriptPath: 使用 ~/.nuwax-agent 路径: ${entry}`,
+        `[McpProxy] 🔍 resolveProxyScriptPath: 使用 ~/.nuwaxbot 路径: ${entry}`,
       );
     }
     return entry;
@@ -478,7 +478,7 @@ class McpProxyManager {
    * proxy 进程的生命周期由 Agent 引擎管理（通过 getAgentMcpConfig 注入）
    */
   async start(): Promise<{ success: boolean; error?: string }> {
-    // 优先从应用 node_modules（npm 依赖）或 ~/.nuwax-agent/node_modules 解析
+    // 优先从应用 node_modules（npm 依赖）或 ~/.nuwaxbot/node_modules 解析
     this.cachedScriptPath = this.resolveProxyScriptPath();
     if (!this.cachedScriptPath) {
       this.cachedScriptPath = null;

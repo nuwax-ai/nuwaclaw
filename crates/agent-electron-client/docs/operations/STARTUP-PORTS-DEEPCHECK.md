@@ -41,7 +41,7 @@
 
 - **有 prepare-git**：`getBundledGitBashPath()` 返回 `resources/git/bin/bash.exe`（或 usr/bin），main 与 CLI 均用该 bash 执行脚本；脚本内 `OSTYPE=msys*`，走 cmd+netstat+findstr，一致。
 - **无 prepare-git**：main 回退 cmd+netstat；脚本 `winBashPath` 不存在则回退 Node netstat，逻辑一致。
-- **路径**：DB 路径 `%USERPROFILE%\.nuwax-agent\`；脚本中 sqlite3 路径用正斜杠归一化，避免反斜杠转义问题。
+- **路径**：DB 路径 `%USERPROFILE%\.nuwaxbot\`；脚本中 sqlite3 路径用正斜杠归一化，避免反斜杠转义问题。
 
 ### 3.2 macOS / Linux
 

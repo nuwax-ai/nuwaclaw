@@ -1,6 +1,6 @@
 {
-  "name": "@nuwax/agent-electron-client",
-  "version": "0.6.2",
+  "name": "@nuwax-ai/nuwaxbot",
+  "version": "0.6.4",
   "description": "NuwaxBot Desktop Client (Electron)",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
@@ -87,7 +87,7 @@
     "wait-on": "^8.0.2"
   },
   "build": {
-    "appId": "com.nuwax.agent",
+    "appId": "com.nuwax-ai.nuwaxbot",
     "productName": "NuwaxBot",
     "afterSign": "scripts/build/after-sign.js",
     "electronLanguages": [
@@ -285,11 +285,11 @@
       "maintainer": "Nuwax Team"
     },
     "deb": {
-      "packageName": "nuwax-agent",
+      "packageName": "nuwaxbot",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "rpm": {
-      "packageName": "nuwax-agent",
+      "packageName": "nuwaxbot",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "asar": true,

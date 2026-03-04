@@ -15,6 +15,7 @@ import { initLogging } from './bootstrap/logConfig';
 import { createTrayManager, TrayStatus } from './window/trayManager';
 import { createServiceManager } from './window/serviceManager';
 import { initAutoUpdater } from './services/autoUpdater';
+import { migrateDataDir } from './bootstrap/migrate';
 
 // macOS 26 Tahoe 兼容性：禁用 Fontations 字体后端
 // 参考: https://github.com/electron/electron/issues/49522
@@ -299,6 +300,7 @@ app.whenReady().then(async () => {
     }
   }
 
+  migrateDataDir();
   initDatabase();
 
   const ctx: HandlerContext = {

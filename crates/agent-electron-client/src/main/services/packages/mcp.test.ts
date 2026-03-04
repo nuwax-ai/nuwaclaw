@@ -70,7 +70,7 @@ vi.mock("../system/dependencies", () => ({
 
 vi.mock("./packageLocator", () => ({
   getAppPaths: vi.fn(() => ({
-    nodeModules: "/mock/home/.nuwax-agent/node_modules",
+    nodeModules: "/mock/home/.nuwaxbot/node_modules",
   })),
   isInstalledLocally: vi.fn(() => true),
 }));
@@ -78,7 +78,7 @@ vi.mock("./packageLocator", () => ({
 vi.mock("../utils/spawnNoWindow", () => ({
   resolveNpmPackageEntry: vi.fn(
     () =>
-      "/mock/home/.nuwax-agent/node_modules/nuwax-mcp-stdio-proxy/dist/index.js",
+      "/mock/home/.nuwaxbot/node_modules/nuwax-mcp-stdio-proxy/dist/index.js",
   ),
 }));
 
@@ -174,7 +174,7 @@ describe("McpProxyManager", () => {
       vi.doMock("../utils/spawnNoWindow", () => ({
         resolveNpmPackageEntry: vi.fn(
           () =>
-            "/mock/home/.nuwax-agent/node_modules/nuwax-mcp-stdio-proxy/dist/index.js",
+            "/mock/home/.nuwaxbot/node_modules/nuwax-mcp-stdio-proxy/dist/index.js",
         ),
       }));
     });
@@ -387,7 +387,7 @@ describe("McpProxyManager", () => {
       vi.doMock("../utils/spawnNoWindow", () => ({
         resolveNpmPackageEntry: vi.fn(
           () =>
-            "/mock/home/.nuwax-agent/node_modules/nuwax-mcp-stdio-proxy/dist/index.js",
+            "/mock/home/.nuwaxbot/node_modules/nuwax-mcp-stdio-proxy/dist/index.js",
         ),
       }));
     });
@@ -420,7 +420,7 @@ describe("McpProxyManager", () => {
     it("nuwax-mcp-stdio-proxy 未安装时应该返回错误", async () => {
       vi.doMock("./packageLocator", () => ({
         getAppPaths: vi.fn(() => ({
-          nodeModules: "/mock/home/.nuwax-agent/node_modules",
+          nodeModules: "/mock/home/.nuwaxbot/node_modules",
         })),
         isInstalledLocally: vi.fn(() => false),
       }));
