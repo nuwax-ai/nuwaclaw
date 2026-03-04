@@ -7,11 +7,12 @@
  * - Windows: NSIS 安装支持自动更新，MSI 安装引导到 Releases 页面
  */
 
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, shell, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import log from 'electron-log';
 import type { UpdateState, UpdateInfo, UpdateProgress } from '@shared/types/updateTypes';
+import { APP_DATA_DIR_NAME } from '@shared/constants';
 
 // ==================== 安装类型检测 ====================
 
@@ -55,22 +56,41 @@ function getInstallerType(): InstallerType {
 
 /**
  * 当前安装方式是否支持自动更新
- * - NSIS / mac / linux: electron-updater 原生支持
- * - MSI / dev: 不支持
+ * - NSIS / mac / linux / dev: electron-updater 原生支持（dev 模式下载有单独 guard）
+ * - MSI: 不支持，引导到 Releases 页面
  */
 function canAutoUpdate(): boolean {
   const type = getInstallerType();
-  return type !== 'msi' && type !== 'dev';
+  return type !== 'msi';
+}
+
+// ==================== 跳过版本管理 ====================
+
+function getSkippedVersionFile(): string {
+  return path.join(app.getPath('home'), APP_DATA_DIR_NAME, '.skipped-update-version');
+}
+
+function getSkippedVersion(): string | null {
+  try {
+    const file = getSkippedVersionFile();
+    if (fs.existsSync(file)) {
+      return fs.readFileSync(file, 'utf-8').trim();
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+function setSkippedVersion(version: string): void {
+  try {
+    const file = getSkippedVersionFile();
+    fs.writeFileSync(file, version, 'utf-8');
+    log.info(`[AutoUpdater] Skipped version set: ${version}`);
+  } catch (e) {
+    log.warn('[AutoUpdater] Failed to save skipped version:', e);
+  }
 }
 
 // ==================== 更新状态管理 ====================
-
-/**
- * 是否启用更新检查（生产模式始终启用，开发模式也启用以便调试）
- */
-function isUpdateEnabled(): boolean {
-  return true;
-}
 
 /**
  * 语义化版本比较: a > b 返回 1, a < b 返回 -1, 相等返回 0
@@ -89,6 +109,7 @@ function compareVersions(a: string, b: string): number {
 
 let currentState: UpdateState = { status: 'idle' };
 let getMainWindow: (() => BrowserWindow | null) | null = null;
+let cleanupBeforeInstall: (() => void) | null = null;
 
 function sendStatusToRenderer(): void {
   const win = getMainWindow?.();
@@ -106,14 +127,12 @@ function setState(patch: Partial<UpdateState>): void {
 
 /**
  * 初始化自动更新（应在 app.whenReady 后调用）
+ * @param getWindow 获取主窗口
+ * @param cleanup 安装更新前的清理回调（停止服务、关闭数据库等）
  */
-export function initAutoUpdater(getWindow: () => BrowserWindow | null): void {
+export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?: () => void): void {
   getMainWindow = getWindow;
-
-  if (!isUpdateEnabled()) {
-    log.info('[AutoUpdater] Skipped: updates disabled');
-    return;
-  }
+  cleanupBeforeInstall = cleanup || null;
 
   const installerType = getInstallerType();
   log.info(`[AutoUpdater] Installer type: ${installerType}, canAutoUpdate: ${canAutoUpdate()}`);
@@ -195,13 +214,158 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null): void {
     });
   });
 
-  // 延迟 10s 静默检查一次
-  setTimeout(() => {
-    log.info('[AutoUpdater] Initial silent check');
-    autoUpdater.checkForUpdates().catch((e: Error) => {
-      log.warn('[AutoUpdater] Silent check failed:', e.message);
-    });
+  // 延迟 10s 启动时检查一次，发现新版本弹窗提示
+  setTimeout(async () => {
+    log.info('[AutoUpdater] Initial startup check');
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      if (result?.updateInfo) {
+        const remoteVersion = result.updateInfo.version;
+        const hasUpdate = compareVersions(remoteVersion, app.getVersion()) > 0;
+        if (hasUpdate) {
+          const skipped = getSkippedVersion();
+          if (skipped === remoteVersion) {
+            log.info(`[AutoUpdater] Startup: v${remoteVersion} was skipped by user, not prompting`);
+            return;
+          }
+          log.info(`[AutoUpdater] Startup: found new version v${remoteVersion}`);
+          showStartupUpdateDialog(remoteVersion);
+        }
+      }
+    } catch (e: any) {
+      log.warn('[AutoUpdater] Startup check failed:', e.message);
+    }
   }, 10_000);
+}
+
+/**
+ * 启动时发现新版本的弹窗提示
+ */
+async function showStartupUpdateDialog(version: string): Promise<void> {
+  if (!canAutoUpdate()) {
+    // MSI 用户引导到 Releases 页面
+    const { response } = await dialog.showMessageBox({
+      type: 'info',
+      title: '发现新版本',
+      message: `发现新版本 v${version}`,
+      detail: '当前安装方式不支持自动更新，请前往 Releases 页面下载最新安装包。',
+      buttons: ['前往下载页', '跳过此版本'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response === 0) {
+      openReleasesPage();
+    } else {
+      setSkippedVersion(version);
+    }
+    return;
+  }
+
+  const { response } = await dialog.showMessageBox({
+    type: 'info',
+    title: '发现新版本',
+    message: `发现新版本 v${version}`,
+    detail: '是否立即下载并安装更新？',
+    buttons: ['立即更新', '跳过此版本'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+
+  if (response === 0) {
+    try {
+      const dlResult = await downloadUpdate();
+      if (dlResult.success) {
+        const { response: installResponse } = await dialog.showMessageBox({
+          type: 'info',
+          title: '更新已下载',
+          message: '更新已下载完成',
+          detail: '是否立即重启安装？',
+          buttons: ['立即重启', '退出时安装'],
+          defaultId: 0,
+          cancelId: 1,
+        });
+        if (installResponse === 0) {
+          installUpdate();
+        }
+      } else if (dlResult.error) {
+        dialog.showErrorBox('下载失败', dlResult.error);
+      }
+    } catch (e: any) {
+      log.error('[AutoUpdater] Startup download failed:', e.message);
+    }
+  } else {
+    setSkippedVersion(version);
+  }
+}
+
+/**
+ * 通用更新对话框流程（供托盘菜单等外部调用）
+ * 检查更新 → 有更新则弹窗 → 下载 → 二次确认 → 安装
+ */
+export async function showUpdateDialogFlow(): Promise<void> {
+  try {
+    const result = await checkForUpdates();
+    if (!result.hasUpdate) {
+      dialog.showMessageBox({
+        type: 'info',
+        title: '检查更新',
+        message: '当前已是最新版本',
+      });
+      return;
+    }
+
+    const version = result.version ?? 'unknown';
+    const state = getUpdateState();
+
+    if (state.canAutoUpdate === false) {
+      const { response } = await dialog.showMessageBox({
+        type: 'info',
+        title: '发现新版本',
+        message: `发现新版本 v${version}`,
+        detail: '当前安装方式不支持自动更新，请前往 Releases 页面下载最新安装包。',
+        buttons: ['前往下载页', '稍后再说'],
+        defaultId: 0,
+        cancelId: 1,
+      });
+      if (response === 0) {
+        openReleasesPage();
+      }
+      return;
+    }
+
+    const { response } = await dialog.showMessageBox({
+      type: 'info',
+      title: '发现新版本',
+      message: `发现新版本 v${version}`,
+      detail: '是否立即下载更新？',
+      buttons: ['下载更新', '稍后再说'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response !== 0) return;
+
+    const dlResult = await downloadUpdate();
+    if (!dlResult.success) {
+      if (dlResult.error) dialog.showErrorBox('下载失败', dlResult.error);
+      return;
+    }
+
+    const { response: installResponse } = await dialog.showMessageBox({
+      type: 'info',
+      title: '更新已下载',
+      message: '更新已下载完成',
+      detail: '是否立即重启安装？',
+      buttons: ['立即重启', '退出时安装'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (installResponse === 0) {
+      installUpdate();
+    }
+  } catch (e: any) {
+    log.error('[AutoUpdater] Update dialog flow error:', e.message);
+    dialog.showErrorBox('检查更新失败', e.message || '请稍后重试');
+  }
 }
 
 // ==================== 公开 API ====================
@@ -210,10 +374,6 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null): void {
  * 手动检查更新
  */
 export async function checkForUpdates(): Promise<UpdateInfo> {
-  if (!isUpdateEnabled()) {
-    return { hasUpdate: false };
-  }
-
   try {
     const { autoUpdater } = require('electron-updater');
     setState({ status: 'checking', error: undefined, canAutoUpdate: canAutoUpdate() });
@@ -243,10 +403,6 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
  * 下载更新
  */
 export async function downloadUpdate(): Promise<{ success: boolean; error?: string }> {
-  if (!isUpdateEnabled()) {
-    return { success: false, error: 'Updates disabled' };
-  }
-
   // Dev 模式下 Squirrel.Mac 无法处理更新包（bundle ID 不匹配），只允许检查更新
   if (!app.isPackaged) {
     log.warn('[AutoUpdater] Download skipped in dev mode (Squirrel.Mac requires packaged app)');
@@ -275,10 +431,6 @@ export async function downloadUpdate(): Promise<{ success: boolean; error?: stri
  * 退出并安装更新
  */
 export function installUpdate(): { success: boolean; error?: string } {
-  if (!isUpdateEnabled()) {
-    return { success: false, error: 'Updates disabled' };
-  }
-
   if (!app.isPackaged) {
     return { success: false, error: '开发模式不支持安装更新' };
   }
@@ -289,6 +441,11 @@ export function installUpdate(): { success: boolean; error?: string } {
   }
 
   try {
+    // 先停止所有服务，避免残留进程
+    if (cleanupBeforeInstall) {
+      log.info('[AutoUpdater] Running cleanup before install...');
+      cleanupBeforeInstall();
+    }
     const { autoUpdater } = require('electron-updater');
     autoUpdater.quitAndInstall(false, true);
     return { success: true };

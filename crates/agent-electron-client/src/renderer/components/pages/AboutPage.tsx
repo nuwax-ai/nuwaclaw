@@ -2,19 +2,21 @@
  * 关于页面 (Electron 版)
  *
  * - 版本号运行时从 Electron 主进程获取
- * - 检查更新 + 下载 + 安装 完整流程
+ * - 检查更新 + 下载 + 重启安装 完整流程
+ * - 下载完成后弹窗确认是否立即重启安装
  * - Windows MSI 安装用户引导到 Releases 页面
  */
 
-import React, { useState, useEffect, useCallback } from "react";
-import { Button, Progress, message, Space } from "antd";
-import { SyncOutlined, DownloadOutlined, PoweroffOutlined, LinkOutlined } from "@ant-design/icons";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Button, Progress, message, Space, Modal } from "antd";
+import { SyncOutlined, DownloadOutlined, LinkOutlined } from "@ant-design/icons";
 import { APP_DISPLAY_NAME } from "@shared/constants";
 import type { UpdateState } from "@shared/types/updateTypes";
 
 export default function AboutPage() {
   const [updateState, setUpdateState] = useState<UpdateState>({ status: 'idle' });
   const [appVersion, setAppVersion] = useState<string>('');
+  const hasShownInstallModal = useRef(false);
 
   // 监听主进程推送的更新状态
   useEffect(() => {
@@ -34,6 +36,30 @@ export default function AboutPage() {
       window.electronAPI?.off('update:status', handler as any);
     };
   }, []);
+
+  // 下载完成后自动弹窗确认安装
+  useEffect(() => {
+    if (updateState.status === 'downloaded' && !hasShownInstallModal.current) {
+      hasShownInstallModal.current = true;
+      Modal.confirm({
+        title: '更新已下载完成',
+        content: `v${updateState.version} 已下载完成，是否立即重启安装？`,
+        okText: '立即重启',
+        cancelText: '稍后安装',
+        onOk: async () => {
+          try {
+            await window.electronAPI?.app?.installUpdate?.();
+          } catch {
+            message.error("安装更新失败");
+          }
+        },
+      });
+    }
+    // 状态回到非 downloaded 时重置标记
+    if (updateState.status !== 'downloaded') {
+      hasShownInstallModal.current = false;
+    }
+  }, [updateState.status, updateState.version]);
 
   const handleCheckUpdate = useCallback(async () => {
     setUpdateState((prev) => ({ ...prev, status: 'checking' }));
@@ -125,8 +151,8 @@ export default function AboutPage() {
             <div style={{ fontSize: 12, color: '#15803d' }}>
               v{version} 已下载完成
             </div>
-            <Button type="primary" icon={<PoweroffOutlined />} onClick={handleInstall}>
-              重启安装
+            <Button type="primary" onClick={handleInstall}>
+              立即重启安装
             </Button>
           </Space>
         );
@@ -169,7 +195,7 @@ export default function AboutPage() {
         }}
       >
         <img
-          src="/icon.png"
+          src="./icon.png"
           alt={APP_DISPLAY_NAME}
           style={{
             width: 64,

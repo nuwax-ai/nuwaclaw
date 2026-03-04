@@ -48,3 +48,6 @@ crates/agent-electron-client/scripts/resources/
 
 # Vitest coverage reports
 crates/agent-electron-client/coverage/
+
+# Vite build artifact (generated at Electron client root)
+crates/agent-electron-client/index.html

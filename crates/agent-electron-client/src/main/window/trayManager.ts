@@ -2,7 +2,7 @@
  * 托盘管理器 - Electron 客户端
  *
  * 功能：
- * - 动态托盘图标（运行/停止/错误状态）
+ * - 统一托盘图标（32x32.png，所有状态共用；状态通过 tooltip 区分）
  * - 服务管理菜单（重启/停止服务）
  * - 开机自启动
  * - IPC 状态同步
@@ -13,7 +13,6 @@ import * as path from 'path';
 import log from 'electron-log';
 import { APP_DISPLAY_NAME } from '@shared/constants';
 import { createAutoLaunchManager, AutoLaunchManager } from './autoLaunchManager';
-import { checkForUpdates, downloadUpdate, installUpdate, openReleasesPage, getUpdateState } from '../services/autoUpdater';
 
 // ==================== Types ====================
 
@@ -27,12 +26,9 @@ export interface TrayManagerOptions {
 
 // ==================== Constants ====================
 
-const TRAY_ICONS = {
-  running: 'tray-running.png',
-  stopped: 'tray-stopped.png',
-  error: 'tray-error.png',
-  starting: 'tray-starting.png',
-};
+/** 托盘统一图标文件名（所有状态共用同一图标，状态由 tooltip 区分） */
+const TRAY_ICON_FILE = '32x32.png';
+const TRAY_ICON_FILE_RETINA = '32x32@2x.png';
 
 // ==================== Tray Manager ====================
 
@@ -167,64 +163,8 @@ export class TrayManager {
       {
         label: '检查更新',
         click: async () => {
-          try {
-            const result = await checkForUpdates();
-            if (result.hasUpdate) {
-              const state = getUpdateState();
-              if (state.canAutoUpdate === false) {
-                const { response } = await dialog.showMessageBox({
-                  type: 'info',
-                  title: '发现新版本',
-                  message: `发现新版本 v${result.version}`,
-                  detail: '当前安装方式不支持自动更新，请前往 Releases 页面下载最新安装包。',
-                  buttons: ['前往下载页', '稍后再说'],
-                  defaultId: 0,
-                  cancelId: 1,
-                });
-                if (response === 0) {
-                  openReleasesPage();
-                }
-              } else {
-                const { response } = await dialog.showMessageBox({
-                  type: 'info',
-                  title: '发现新版本',
-                  message: `发现新版本 v${result.version}`,
-                  detail: '是否立即下载更新？',
-                  buttons: ['下载更新', '稍后再说'],
-                  defaultId: 0,
-                  cancelId: 1,
-                });
-                if (response === 0) {
-                  const dlResult = await downloadUpdate();
-                  if (dlResult.success) {
-                    const { response: installResponse } = await dialog.showMessageBox({
-                      type: 'info',
-                      title: '更新已下载',
-                      message: '更新已下载完成',
-                      detail: '是否立即重启安装？',
-                      buttons: ['重启安装', '退出时安装'],
-                      defaultId: 0,
-                      cancelId: 1,
-                    });
-                    if (installResponse === 0) {
-                      installUpdate();
-                    }
-                  } else {
-                    dialog.showErrorBox('下载失败', dlResult.error || '下载更新时出错，请稍后重试');
-                  }
-                }
-              }
-            } else {
-              dialog.showMessageBox({
-                type: 'info',
-                title: '检查更新',
-                message: '当前已是最新版本',
-              });
-            }
-          } catch (e: any) {
-            log.error('[Tray] Check update failed:', e);
-            dialog.showErrorBox('检查更新失败', e.message || '请稍后重试');
-          }
+          const { showUpdateDialogFlow } = require('../services/autoUpdater');
+          await showUpdateDialogFlow();
         },
       },
       { type: 'separator' },
@@ -242,12 +182,11 @@ export class TrayManager {
   }
 
   /**
-   * 获取托盘图标路径
+   * 获取托盘图标路径（统一使用 32x32.png，不按状态区分）
+   * @param retina - 是否使用 @2x 高分辨率版本（macOS Retina）
    */
-  private getIconPath(status: TrayStatus, retina: boolean = false): string {
-    const iconName = TRAY_ICONS[status] || TRAY_ICONS.stopped;
-    const fileName = retina ? iconName.replace('.png', '@2x.png') : iconName;
-
+  private getIconPath(retina: boolean = false): string {
+    const fileName = retina ? TRAY_ICON_FILE_RETINA : TRAY_ICON_FILE;
     if (app.isPackaged) {
       return path.join(process.resourcesPath, 'tray', fileName);
     }
@@ -255,16 +194,16 @@ export class TrayManager {
   }
 
   /**
-   * 创建托盘图标 (支持 Retina 和 Template Image)
+   * 创建托盘图标（统一使用 32x32.png，支持 Retina 与 macOS Template Image）
+   * @param _status - 保留参数以兼容调用方，图标不再按状态切换
    */
-  private createTrayIcon(status: TrayStatus): Electron.NativeImage {
+  private createTrayIcon(_status: TrayStatus): Electron.NativeImage {
     if (process.platform === 'darwin') {
-      // macOS: load @2x icon directly - Electron auto-detects @2x from filename
-      // Do NOT resize, as Electron already treats it as 22pt (Retina)
-      const retinaPath = this.getIconPath(status, true);
-      const normalPath = this.getIconPath(status, false);
+      // macOS: 优先加载 @2x，Electron 会根据文件名识别 Retina
+      const retinaPath = this.getIconPath(true);
+      const normalPath = this.getIconPath(false);
 
-      log.info('[Tray] Loading icon:', { status, retinaPath });
+      log.info('[Tray] Loading unified tray icon:', { retinaPath });
 
       let icon = nativeImage.createFromPath(retinaPath);
       if (icon.isEmpty()) {
@@ -273,7 +212,7 @@ export class TrayManager {
       }
 
       if (icon.isEmpty()) {
-        log.error('[Tray] All tray icons empty!');
+        log.error('[Tray] Tray icon not found (32x32.png / 32x32@2x.png)');
       }
 
       log.info('[Tray] Icon loaded:', { isEmpty: icon.isEmpty(), size: icon.getSize() });
@@ -281,8 +220,8 @@ export class TrayManager {
       return icon;
     }
 
-    // Non-macOS: use @1x icon directly
-    const iconPath = this.getIconPath(status);
+    // 非 macOS：直接使用 @1x 图标
+    const iconPath = this.getIconPath(false);
     return nativeImage.createFromPath(iconPath);
   }
 

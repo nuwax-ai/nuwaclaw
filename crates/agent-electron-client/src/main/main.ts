@@ -240,7 +240,7 @@ app.whenReady().then(async () => {
 
   createWindow();
   await initTrayManager();
-  initAutoUpdater(() => mainWindow);
+  initAutoUpdater(() => mainWindow, cleanupAllProcesses);
 });
 
 app.on('window-all-closed', () => {

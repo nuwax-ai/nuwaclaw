@@ -6,7 +6,6 @@ import {
 } from 'antd';
 import type { PresetStatusColorType } from 'antd/es/_util/colors';
 import {
-  RobotOutlined,
   SettingOutlined,
   DashboardOutlined,
   FolderOutlined,
@@ -381,7 +380,7 @@ function App() {
       {/* 顶部栏 */}
       <div className="app-header">
         <div className="app-header-logo">
-          <RobotOutlined style={{ fontSize: 16, color: '#18181b' }} />
+          <img src="./32x32.png" alt="" style={{ width: 16, height: 16 }} />
           <span className="app-header-title">{APP_DISPLAY_NAME}</span>
         </div>
         <div className={styles.headerRight}>
