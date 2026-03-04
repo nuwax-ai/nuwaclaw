@@ -7,7 +7,7 @@
  * 阶段 4: 完成（Result + 启动服务）
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Steps,
   Form,
@@ -33,11 +33,14 @@ import {
 import { setupService, Step1Config, DEFAULT_STEP1_CONFIG } from '../../services/core/setup';
 import {
   loginAndRegister,
+  normalizeServerHost,
   isLoggedIn as checkIsLoggedIn,
   getCurrentAuth,
   getAuthErrorMessage,
   logout,
 } from '../../services/core/auth';
+import { AUTH_KEYS } from '@shared/constants';
+import type { QuickInitConfig } from '@shared/types/quickInit';
 import SetupDependencies from './SetupDependencies';
 
 const { Text } = Typography;
@@ -68,6 +71,8 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
   const [retryCooldown, setRetryCooldown] = useState(0);
   const [isAlreadyLoggedIn, setIsAlreadyLoggedIn] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(false);
+  const [quickIniting, setQuickIniting] = useState(false);
+  const quickInitAttempted = useRef(false);
 
   useEffect(() => {
     const init = async () => {
@@ -92,6 +97,24 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
             setCompleted(true);
             onComplete();
           } else {
+            // 依赖已就绪、setup 未完成 → 优先尝试快捷初始化
+            if (!quickInitAttempted.current) {
+              quickInitAttempted.current = true;
+              try {
+                const qiConfig = await window.electronAPI?.quickInit.getConfig();
+                if (qiConfig) {
+                  console.log('[SetupWizard] 启动时检测到快捷初始化配置，开始自动配置');
+                  // 先加载已保存的配置（用于回退时显示）
+                  const savedConfig = await setupService.getStep1Config();
+                  setStep1Config(savedConfig);
+                  setLoading(false);
+                  performQuickInit(qiConfig);
+                  return; // performQuickInit 内部处理 loading 和 step
+                }
+              } catch (error) {
+                console.warn('[SetupWizard] 启动时读取快捷配置失败:', error);
+              }
+            }
             setCurrentStep(state.step1Completed ? 2 : 1);
           }
         } else {
@@ -112,10 +135,79 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
     init();
   }, []);
 
+  /**
+   * Quick Init: 使用预置配置自动完成初始化
+   * 失败时回退到正常向导流程
+   */
+  const performQuickInit = useCallback(async (config: QuickInitConfig) => {
+    setQuickIniting(true);
+    try {
+      // 1. 保存 step1 配置
+      const step1: Step1Config = {
+        serverHost: normalizeServerHost(config.serverHost),
+        agentPort: config.agentPort,
+        fileServerPort: config.fileServerPort,
+        workspaceDir: config.workspaceDir,
+      };
+      await setupService.saveStep1Config(step1);
+      setStep1Config(step1);
+
+      // 2. 预存 savedKey 到 DB
+      const domain = normalizeServerHost(config.serverHost);
+      await window.electronAPI?.settings.set(AUTH_KEYS.SAVED_KEY, config.savedKey);
+      if (config.username) {
+        try {
+          const domainKey = `${AUTH_KEYS.SAVED_KEYS_PREFIX}${new URL(domain).hostname}_${config.username}`;
+          await window.electronAPI?.settings.set(domainKey, config.savedKey);
+        } catch {
+          // domain 解析失败时跳过域名级 savedKey 存储
+        }
+      }
+
+      // 3. 调用 loginAndRegister（password 传空字符串，函数内部从 DB 取 savedKey）
+      await loginAndRegister(config.username, '', {
+        suppressToast: true,
+        domain,
+      });
+
+      // 4. 完成 step2 + setup
+      await setupService.completeStep2();
+      await setupService.completeSetup();
+
+      // 5. 触发完成
+      setQuickIniting(false);
+      setCompleted(true);
+      console.log('[SetupWizard] Quick init 完成');
+      setTimeout(() => onComplete(), 1000);
+    } catch (error) {
+      console.error('[SetupWizard] Quick init 失败，回退到手动向导:', error);
+      setQuickIniting(false);
+      // step1 可能已保存，从 step1 或 step2 继续
+      const state = await setupService.getSetupState();
+      setCurrentStep(state.step1Completed ? 2 : 1);
+    }
+  }, [onComplete]);
+
   const handleDepsComplete = useCallback(async () => {
     setDependenciesReady(true);
+
+    // 检查是否有快捷配置
+    if (!quickInitAttempted.current) {
+      quickInitAttempted.current = true;
+      try {
+        const config = await window.electronAPI?.quickInit.getConfig();
+        if (config) {
+          console.log('[SetupWizard] 检测到快捷初始化配置，开始自动配置');
+          performQuickInit(config);
+          return;
+        }
+      } catch (error) {
+        console.warn('[SetupWizard] 读取快捷配置失败:', error);
+      }
+    }
+
     setCurrentStep(1);
-  }, []);
+  }, [performQuickInit]);
 
   // Check login status when entering step 2
   const checkLoginStatus = useCallback(async () => {
@@ -479,6 +571,20 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
 
         <div style={styles.footer}>
           <Text style={{ fontSize: 11, color: '#a1a1aa' }}>{APP_NAME}</Text>
+        </div>
+      </div>
+    );
+  }
+
+  // Quick Init 进行中
+  if (quickIniting) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.center}>
+          <Space direction="vertical" align="center">
+            <Spin size="default" />
+            <Text style={{ fontSize: 13, color: '#52525b' }}>正在自动配置...</Text>
+          </Space>
         </div>
       </div>
     );

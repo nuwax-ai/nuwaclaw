@@ -13,9 +13,10 @@ import {
   SafetyOutlined,
   FileTextOutlined,
 } from '@ant-design/icons';
-import { setupService, authService } from './services/core/setup';
-import { syncConfigToServer } from './services/core/auth';
-import { APP_DISPLAY_NAME } from '@shared/constants';
+import { setupService, authService, Step1Config } from './services/core/setup';
+import { syncConfigToServer, normalizeServerHost, loginAndRegister } from './services/core/auth';
+import { APP_DISPLAY_NAME, AUTH_KEYS } from '@shared/constants';
+import type { QuickInitConfig } from '@shared/types/quickInit';
 import SetupWizard from './components/setup/SetupWizard';
 import ClientPage from './components/pages/ClientPage';
 import SettingsPage from './components/pages/SettingsPage';
@@ -47,6 +48,44 @@ export interface ServiceItem {
   pid?: number;
 }
 
+/**
+ * 将 quick init 配置静默写入 DB（覆盖旧值）
+ * 用于 setup 已完成时，每次启动优先使用配置文件/环境变量中的值
+ */
+async function applyQuickInitToDb(config: QuickInitConfig): Promise<void> {
+  // 1. 更新 step1 配置
+  const step1: Step1Config = {
+    serverHost: normalizeServerHost(config.serverHost),
+    agentPort: config.agentPort,
+    fileServerPort: config.fileServerPort,
+    workspaceDir: config.workspaceDir,
+  };
+  await setupService.saveStep1Config(step1);
+
+  // 2. 更新 savedKey
+  const domain = normalizeServerHost(config.serverHost);
+  await window.electronAPI?.settings.set(AUTH_KEYS.SAVED_KEY, config.savedKey);
+  if (config.username) {
+    try {
+      const domainKey = `${AUTH_KEYS.SAVED_KEYS_PREFIX}${new URL(domain).hostname}_${config.username}`;
+      await window.electronAPI?.settings.set(domainKey, config.savedKey);
+    } catch {
+      // domain 解析失败时跳过域名级 savedKey 存储
+    }
+  }
+
+  // 3. 静默重新注册（更新服务端设备信息）
+  try {
+    await loginAndRegister(config.username, '', {
+      suppressToast: true,
+      domain,
+    });
+  } catch (error) {
+    // 注册失败不阻塞启动，已有的 auth 信息仍可用
+    console.warn('[App] Quick init 静默注册失败:', error);
+  }
+}
+
 function App() {
   // ============================================
   // 初始化向导状态
@@ -67,12 +106,28 @@ function App() {
   const servicesPollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ============================================
-  // 检查初始化向导状态
+  // 检查初始化向导状态（每次启动优先读取 quick init 配置）
   // ============================================
   useEffect(() => {
     const checkSetup = async () => {
       try {
         const completed = await setupService.isSetupCompleted();
+
+        // 每次启动优先读取 quick init 配置
+        // 有配置 → 写入 DB（覆盖旧值），再走后续流程
+        // 无配置 → 使用 DB 中已有的值
+        if (completed) {
+          try {
+            const qiConfig = await window.electronAPI?.quickInit.getConfig();
+            if (qiConfig) {
+              console.log('[App] 检测到快捷配置，静默更新 DB');
+              await applyQuickInitToDb(qiConfig);
+            }
+          } catch (error) {
+            console.warn('[App] 读取快捷配置失败:', error);
+          }
+        }
+
         setIsSetupComplete(completed);
       } catch (error) {
         console.error('[App] 检查初始化状态失败:', error);

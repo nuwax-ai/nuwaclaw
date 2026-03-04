@@ -390,6 +390,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openSettings: (permissionKey: string) => ipcRenderer.invoke('permissions:openSettings', permissionKey),
   },
 
+  // Quick Init — 读取快捷初始化配置
+  quickInit: {
+    getConfig: () => ipcRenderer.invoke('quickInit:getConfig'),
+  },
+
   // Event listeners
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     const validChannels = ['menu:new-session', 'menu:settings', 'menu:mcp-settings', 'menu:dependencies', 'cowork:message', 'cowork:permission', 'agent:event', 'computer:progress', 'update:status', 'memory:sync', 'memory:consolidation', 'memory:cleanup'];

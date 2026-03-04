@@ -22,6 +22,13 @@ status: design
 | [存储实现](./STORAGE.md) | Markdown 格式、索引机制、读写接口 | P0 |
 | [隔离策略](./ISOLATION.md) | 三区模型、环境变量、安全边界 | P0 |
 
+### 功能文档
+
+| 文档 | 描述 | 类型 |
+|------|------|------|
+| [Quick Init](./QUICK-INIT.md) | 快捷初始化（nuwaxbot.json / 环境变量） | stable |
+| [Auto Update](./auto-update.md) | 自动更新机制 | design |
+
 ### 参考文档
 
 | 文档 | 描述 | 类型 |
