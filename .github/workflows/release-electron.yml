@@ -137,6 +137,11 @@ jobs:
         working-directory: crates/agent-electron-client
         run: npm install
 
+      # 为 Electron 内嵌 Node 重编 better-sqlite3，避免 Linux arm64 等平台运行时 "cannot open shared object file"
+      - name: Rebuild native modules for Electron
+        working-directory: crates/agent-electron-client
+        run: npm run electron-rebuild
+
       - name: Run unit tests
         working-directory: crates/agent-electron-client
         run: npm run test:run
