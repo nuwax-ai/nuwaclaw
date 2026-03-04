@@ -1407,6 +1407,7 @@ CREATE INDEX IF NOT EXISTS idx_memories_created
 -- 使用 unicode61 分词器支持中文
 CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
   text,
+  created_at,                    -- 创建时间戳 (方便查看数据)
   content='memories',
   content_rowid='rowid',
   tokenize='unicode61'
@@ -1418,30 +1419,30 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
 -- 插入时同步到 FTS
 CREATE TRIGGER IF NOT EXISTS memory_ai AFTER INSERT ON memories
 WHEN NEW.status = 'active' BEGIN
-  INSERT INTO memory_fts(rowid, text)
-  VALUES (NEW.rowid, NEW.text);
+  INSERT INTO memory_fts(rowid, text, created_at)
+  VALUES (NEW.rowid, NEW.text, NEW.created_at);
 END;
 
 -- 删除时从 FTS 移除
 CREATE TRIGGER IF NOT EXISTS memory_ad AFTER DELETE ON memories BEGIN
-  INSERT INTO memory_fts(memory_fts, rowid, text)
-  VALUES ('delete', OLD.rowid, OLD.text);
+  INSERT INTO memory_fts(memory_fts, rowid, text, created_at)
+  VALUES ('delete', OLD.rowid, OLD.text, OLD.created_at);
 END;
 
 -- 更新时同步 FTS
 CREATE TRIGGER IF NOT EXISTS memory_au AFTER UPDATE ON memories
 WHEN NEW.status = 'active' BEGIN
-  INSERT INTO memory_fts(memory_fts, rowid, text)
-  VALUES ('delete', OLD.rowid, OLD.text);
-  INSERT INTO memory_fts(rowid, text)
-  VALUES (NEW.rowid, NEW.text);
+  INSERT INTO memory_fts(memory_fts, rowid, text, created_at)
+  VALUES ('delete', OLD.rowid, OLD.text, OLD.created_at);
+  INSERT INTO memory_fts(rowid, text, created_at)
+  VALUES (NEW.rowid, NEW.text, NEW.created_at);
 END;
 
 -- 状态变为非活跃时从 FTS 移除
 CREATE TRIGGER IF NOT EXISTS memory_archive AFTER UPDATE OF status ON memories
 WHEN OLD.status = 'active' AND NEW.status != 'active' BEGIN
-  INSERT INTO memory_fts(memory_fts, rowid, text)
-  VALUES ('delete', OLD.rowid, OLD.text);
+  INSERT INTO memory_fts(memory_fts, rowid, text, created_at)
+  VALUES ('delete', OLD.rowid, OLD.text, OLD.created_at);
 END;
 ```
 
@@ -1559,7 +1560,8 @@ CREATE TABLE IF NOT EXISTS file_hashes (
   hash TEXT NOT NULL,               -- 文件内容 SHA256 Hash
   chunk_count INTEGER NOT NULL DEFAULT 0,  -- 该文件的 chunk 数量
   last_modified INTEGER NOT NULL,   -- 文件最后修改时间戳
-  synced_at INTEGER NOT NULL        -- 最后同步时间戳
+  synced_at INTEGER NOT NULL,       -- 最后同步时间戳
+  created_at INTEGER NOT NULL       -- 记录创建时间戳 (Unix ms)
 );
 
 CREATE INDEX IF NOT EXISTS idx_file_hashes_synced
@@ -1660,6 +1662,7 @@ CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at DESC);
 -- 4. FTS5 全文索引
 CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
   text,
+  created_at,
   content='memories',
   content_rowid='rowid',
   tokenize='unicode61'
@@ -1684,7 +1687,8 @@ CREATE TABLE IF NOT EXISTS file_hashes (
   hash TEXT NOT NULL,
   chunk_count INTEGER NOT NULL DEFAULT 0,
   last_modified INTEGER NOT NULL,
-  synced_at INTEGER NOT NULL
+  synced_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_file_hashes_synced ON file_hashes(synced_at DESC);
@@ -1724,22 +1728,22 @@ CREATE INDEX IF NOT EXISTS idx_extraction_progress_session
 -- 9. FTS5 触发器
 CREATE TRIGGER IF NOT EXISTS memory_ai AFTER INSERT ON memories
 WHEN NEW.status = 'active' BEGIN
-  INSERT INTO memory_fts(rowid, text) VALUES (NEW.rowid, NEW.text);
+  INSERT INTO memory_fts(rowid, text, created_at) VALUES (NEW.rowid, NEW.text, NEW.created_at);
 END;
 
 CREATE TRIGGER IF NOT EXISTS memory_ad AFTER DELETE ON memories BEGIN
-  INSERT INTO memory_fts(memory_fts, rowid, text) VALUES ('delete', OLD.rowid, OLD.text);
+  INSERT INTO memory_fts(memory_fts, rowid, text, created_at) VALUES ('delete', OLD.rowid, OLD.text, OLD.created_at);
 END;
 
 CREATE TRIGGER IF NOT EXISTS memory_au AFTER UPDATE ON memories
 WHEN NEW.status = 'active' BEGIN
-  INSERT INTO memory_fts(memory_fts, rowid, text) VALUES ('delete', OLD.rowid, OLD.text);
-  INSERT INTO memory_fts(rowid, text) VALUES (NEW.rowid, NEW.text);
+  INSERT INTO memory_fts(memory_fts, rowid, text, created_at) VALUES ('delete', OLD.rowid, OLD.text, OLD.created_at);
+  INSERT INTO memory_fts(rowid, text, created_at) VALUES (NEW.rowid, NEW.text, NEW.created_at);
 END;
 
 CREATE TRIGGER IF NOT EXISTS memory_archive AFTER UPDATE OF status ON memories
 WHEN OLD.status = 'active' AND NEW.status != 'active' BEGIN
-  INSERT INTO memory_fts(memory_fts, rowid, text) VALUES ('delete', OLD.rowid, OLD.text);
+  INSERT INTO memory_fts(memory_fts, rowid, text, created_at) VALUES ('delete', OLD.rowid, OLD.text, OLD.created_at);
 END;
 
 -- 10. 初始化元数据

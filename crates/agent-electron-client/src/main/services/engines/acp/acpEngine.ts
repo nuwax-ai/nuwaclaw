@@ -684,7 +684,7 @@ export class AcpEngine extends EventEmitter {
         `├─ session_id: ${request.session_id}\n` +
         `├─ request_id: ${request.request_id}\n` +
         `├─ agent_config: ${safeStringify(request.agent_config)}\n` +
-        `├─ model_provider: ${request.model_provider ? `provider=${request.model_provider.provider}, model=${request.model_provider.model}, base_url_set=${!!request.model_provider.base_url}, api_key_len=${request.model_provider.api_key?.length || 0}` : '(无)'}\n` +
+        `├─ model_provider: ${request.model_provider ? JSON.stringify(request.model_provider) : '(无)'}\n` +
         `├─ 📌 config.model: ${this.config.model || '⚠️ 未设置'}\n` +
         `├─ 📌 env model: ${envModel || '(未设置)'}\n` +
         `├─ baseUrl_set: ${!!this.config.baseUrl}\n` +
@@ -703,6 +703,7 @@ export class AcpEngine extends EventEmitter {
             apiKey: request.model_provider.api_key || this.config.apiKey,
             baseUrl: request.model_provider.base_url || this.config.baseUrl,
             model: request.model_provider.model || this.config.model,
+            apiProtocol: request.model_provider.api_protocol || this.config.apiProtocol,
           };
           await this.destroy();
           const ok = await this.init(newConfig);
@@ -758,6 +759,7 @@ export class AcpEngine extends EventEmitter {
             model: this.config.model || '',
             apiKey: this.config.apiKey || '',
             baseUrl: this.config.baseUrl,
+            apiProtocol: request.model_provider?.api_protocol || this.config.apiProtocol,
           };
           memoryService.handleMessage(
             session.id,

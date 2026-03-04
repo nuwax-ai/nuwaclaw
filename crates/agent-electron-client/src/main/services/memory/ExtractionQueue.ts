@@ -332,21 +332,32 @@ export class ExtractionQueue extends EventEmitter {
    * 4. LLM validation for uncertain candidates (existing)
    */
   private async extractMemories(task: ExtractionTask): Promise<ExtractedMemory[]> {
+    log.info('[ExtractionQueue] extractMemories: starting extraction for task');
+
     // Step 1: Regex + rules extraction (no API call needed)
     const regexMemories = await this.extractor.extract(task.messages);
+    log.info('[ExtractionQueue] Step 1 - Regex extraction: ' + regexMemories.length + ' memories');
 
     // Step 2: LLM segmented extraction (requires API key)
     let llmMemories: ExtractedMemory[] = [];
     if (task.modelConfig.apiKey) {
+      log.info('[ExtractionQueue] Step 2 - Calling LLM for extraction (apiKey present)');
       try {
         llmMemories = await this.callLlmForExtraction(task);
+        log.info('[ExtractionQueue] Step 2 - LLM extraction returned: ' + llmMemories.length + ' memories');
+        if (llmMemories.length > 0) {
+          log.info('[ExtractionQueue] LLM memories: ' + llmMemories.map(m => m.text.slice(0, 30)).join(', '));
+        }
       } catch (error) {
         log.warn('[ExtractionQueue] LLM extraction failed, using regex results only:', error);
       }
+    } else {
+      log.info('[ExtractionQueue] Step 2 - Skipping LLM extraction (no apiKey)');
     }
 
     // Step 3: Merge and deduplicate regex + LLM results
     let memories = this.mergeExtractionResults(regexMemories, llmMemories);
+    log.info('[ExtractionQueue] Step 3 - After merge: ' + memories.length + ' memories');
 
     // Step 4: LLM validation for medium-confidence candidates
     if (task.modelConfig.apiKey) {
@@ -355,6 +366,7 @@ export class ExtractionQueue extends EventEmitter {
       );
 
       if (needsValidation.length > 0) {
+        log.info('[ExtractionQueue] Step 4 - ' + needsValidation.length + ' memories need LLM validation');
         try {
           const validatedMemories = await this.callLlmForValidation(task, needsValidation);
 
@@ -370,6 +382,7 @@ export class ExtractionQueue extends EventEmitter {
       }
     }
 
+    log.info('[ExtractionQueue] extractMemories: final result = ' + memories.length + ' memories');
     return memories;
   }
 
@@ -378,14 +391,21 @@ export class ExtractionQueue extends EventEmitter {
    * Uses MemoryExtractor's buildExtractionPrompt/parseExtractionResponse
    */
   private async callLlmForExtraction(task: ExtractionTask): Promise<ExtractedMemory[]> {
-    const { provider, model, apiKey, baseUrl } = task.modelConfig;
+    const { provider, model, apiKey, baseUrl, apiProtocol } = task.modelConfig;
 
-    if (!apiKey) return [];
+    if (!apiKey) {
+      log.info('[ExtractionQueue] callLlmForExtraction: no API key, returning empty');
+      return [];
+    }
+
+    log.info('[ExtractionQueue] callLlmForExtraction: provider=' + provider + ', model=' + model + ', apiProtocol=' + (apiProtocol ?? 'auto'));
 
     // Get existing memories for deduplication context
     const existingMemories = this.database
       ? this.database.getRecentMemoryTexts(30)
       : (this.fileSync?.readCoreMemory() ?? '').split('\n').filter(l => l.startsWith('- ')).map(l => l.slice(2));
+
+    log.info('[ExtractionQueue] callLlmForExtraction: ' + existingMemories.length + ' existing memories for context');
 
     // Build segment metadata if available
     const segmentMeta = task.segmentIndex !== undefined
@@ -399,11 +419,17 @@ export class ExtractionQueue extends EventEmitter {
       existingMemories
     );
 
+    log.info('[ExtractionQueue] callLlmForExtraction: prompt length=' + prompt.length);
+
     // Call LLM API
-    const response = await this.callLlmApiInternal(provider, model, apiKey, baseUrl, prompt);
+    const response = await this.callLlmApiInternal(provider, model, apiKey, baseUrl, apiProtocol, prompt);
+    log.info('[ExtractionQueue] callLlmForExtraction: response length=' + response.length);
 
     // Parse response
-    return this.extractor.parseExtractionResponse(response);
+    const memories = this.extractor.parseExtractionResponse(response);
+    log.info('[ExtractionQueue] callLlmForExtraction: parsed ' + memories.length + ' memories');
+
+    return memories;
   }
 
   /**
@@ -453,7 +479,7 @@ export class ExtractionQueue extends EventEmitter {
     task: ExtractionTask,
     candidates: ExtractedMemory[]
   ): Promise<ExtractedMemory[]> {
-    const { provider, model, apiKey, baseUrl } = task.modelConfig;
+    const { provider, model, apiKey, baseUrl, apiProtocol } = task.modelConfig;
 
     if (!apiKey) {
       log.warn('[ExtractionQueue] No API key available for LLM validation');
@@ -469,7 +495,7 @@ export class ExtractionQueue extends EventEmitter {
 
     try {
       // Call LLM API based on provider
-      const response = await this.callLlmApiInternal(provider, model, apiKey, baseUrl, prompt);
+      const response = await this.callLlmApiInternal(provider, model, apiKey, baseUrl, apiProtocol, prompt);
       const validation = this.parseValidationResponse(response);
 
       if (!validation.accept) {
@@ -559,9 +585,10 @@ ${existingMemories || '(无)'}
     model: string,
     apiKey: string,
     baseUrl: string | undefined,
+    apiProtocol: string | undefined,
     prompt: string
   ): Promise<string> {
-    return callLlmApi(prompt, { provider, model, apiKey, baseUrl, maxTokens: 500 });
+    return callLlmApi(prompt, { provider, model, apiKey, baseUrl, apiProtocol, maxTokens: 500 });
   }
 
   /**

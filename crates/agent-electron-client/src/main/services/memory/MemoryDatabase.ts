@@ -75,6 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at DESC);
 -- 4. FTS5 full-text index (unicode61 for Chinese support)
 CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
   text,
+  created_at,
   content='memories',
   content_rowid='rowid',
   tokenize='unicode61'
@@ -116,33 +117,34 @@ CREATE TABLE IF NOT EXISTS file_hashes (
   hash TEXT NOT NULL,
   chunk_count INTEGER NOT NULL DEFAULT 0,
   last_modified INTEGER NOT NULL,
-  synced_at INTEGER NOT NULL
+  synced_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
 );
 
 -- 7. FTS5 sync triggers
 CREATE TRIGGER IF NOT EXISTS memory_ai AFTER INSERT ON memories
 WHEN NEW.status = 'active' BEGIN
-  INSERT INTO memory_fts(rowid, text) VALUES (NEW.rowid, NEW.text);
+  INSERT INTO memory_fts(rowid, text, created_at) VALUES (NEW.rowid, NEW.text, NEW.created_at);
 END;
 
 CREATE TRIGGER IF NOT EXISTS memory_ad AFTER DELETE ON memories BEGIN
-  INSERT INTO memory_fts(memory_fts, rowid, text) VALUES ('delete', OLD.rowid, OLD.text);
+  INSERT INTO memory_fts(memory_fts, rowid, text, created_at) VALUES ('delete', OLD.rowid, OLD.text, OLD.created_at);
 END;
 
 CREATE TRIGGER IF NOT EXISTS memory_au AFTER UPDATE ON memories
 WHEN NEW.status = 'active' AND NEW.text != OLD.text BEGIN
-  INSERT INTO memory_fts(memory_fts, rowid, text) VALUES ('delete', OLD.rowid, OLD.text);
-  INSERT INTO memory_fts(rowid, text) VALUES (NEW.rowid, NEW.text);
+  INSERT INTO memory_fts(memory_fts, rowid, text, created_at) VALUES ('delete', OLD.rowid, OLD.text, OLD.created_at);
+  INSERT INTO memory_fts(rowid, text, created_at) VALUES (NEW.rowid, NEW.text, NEW.created_at);
 END;
 
 CREATE TRIGGER IF NOT EXISTS memory_reactivate AFTER UPDATE OF status ON memories
 WHEN OLD.status != 'active' AND NEW.status = 'active' BEGIN
-  INSERT INTO memory_fts(rowid, text) VALUES (NEW.rowid, NEW.text);
+  INSERT INTO memory_fts(rowid, text, created_at) VALUES (NEW.rowid, NEW.text, NEW.created_at);
 END;
 
 CREATE TRIGGER IF NOT EXISTS memory_archive AFTER UPDATE OF status ON memories
 WHEN OLD.status = 'active' AND NEW.status != 'active' BEGIN
-  INSERT INTO memory_fts(memory_fts, rowid, text) VALUES ('delete', OLD.rowid, OLD.text);
+  INSERT INTO memory_fts(memory_fts, rowid, text, created_at) VALUES ('delete', OLD.rowid, OLD.text, OLD.created_at);
 END;
 
 -- 8. Initialize meta data
@@ -382,10 +384,11 @@ export class MemoryDatabase {
   setFileHash(record: FileHashRecord): void {
     if (!this.db) return;
 
+    const now = Date.now();
     this.db.prepare(`
-      INSERT OR REPLACE INTO file_hashes (path, hash, chunk_count, last_modified, synced_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(record.path, record.hash, record.chunkCount, record.lastModified, record.syncedAt);
+      INSERT OR REPLACE INTO file_hashes (path, hash, chunk_count, last_modified, synced_at, created_at)
+      VALUES (?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM file_hashes WHERE path = ?), ?))
+    `).run(record.path, record.hash, record.chunkCount, record.lastModified, record.syncedAt, record.path, now);
   }
 
   /**

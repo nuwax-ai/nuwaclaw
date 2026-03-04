@@ -149,6 +149,7 @@ export interface ModelConfig {
   model: string;
   apiKey: string;               // Required! Electron has no global storage
   baseUrl?: string;
+  apiProtocol?: string;         // 'anthropic' or 'openai' - API protocol to use
 }
 
 export interface ExtractionTask {

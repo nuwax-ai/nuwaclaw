@@ -75,8 +75,8 @@ export const DEFAULT_CONFIG: MemoryConfig = {
   },
 
   segmentation: {
-    segmentSize: 5,
-    segmentOverlap: 2,
+    segmentSize: 1,  // Changed from 5 to 1 for testing - triggers extraction after each message
+    segmentOverlap: 0,  // Changed from 2 to 0 for testing
     maxSegmentTokens: 4000,
     maxContentPerMessage: 1500,
   },

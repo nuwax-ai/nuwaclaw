@@ -113,10 +113,14 @@ export class MemoryExtractor extends EventEmitter {
 
     // Detect signals
     const signals = detectSignals(cleanText);
+    log.info('[MemoryExtractor] extractFromMessage: signals=' + signals.length +
+      ', cleanText="' + cleanText.slice(0, 50) + '"');
 
     if (signals.length === 0) {
       return results;
     }
+
+    log.info('[MemoryExtractor] Signal types: ' + signals.map(s => s.pattern).join(', '));
 
     // Process explicit commands
     if (options.explicitEnabled) {
@@ -133,8 +137,9 @@ export class MemoryExtractor extends EventEmitter {
     if (options.implicitEnabled) {
       const implicitSignals = signals.filter(s => s.type === 'implicit');
       if (implicitSignals.length > 0) {
-        const memory = this.processImplicitSignals(implicitSignals, text, options.guardLevel);
+        const memory = this.processImplicitSignals(implicitSignals, cleanText, options.guardLevel);
         if (memory) {
+          log.info('[MemoryExtractor] Extracted implicit memory: "' + memory.text.slice(0, 50) + '"');
           results.push(memory);
         }
       }
@@ -177,6 +182,7 @@ export class MemoryExtractor extends EventEmitter {
   ): ExtractedMemory | null {
     // Score the candidate
     const scoring = this.scoreCandidate(text, signals);
+    log.debug('[MemoryExtractor] processImplicitSignals: score=', scoring.score, 'breakdown=', scoring.breakdown);
 
     // Determine threshold based on guard level
     let threshold = SCORE_MIN_ACCEPT;
@@ -188,6 +194,7 @@ export class MemoryExtractor extends EventEmitter {
 
     // Check if score meets threshold
     if (scoring.score < threshold) {
+      log.debug('[MemoryExtractor] processImplicitSignals: score', scoring.score, '< threshold', threshold, '- rejected');
       return null;
     }
 
@@ -272,23 +279,40 @@ export class MemoryExtractor extends EventEmitter {
   private preprocessText(text: string): string {
     let cleanText = text;
 
-    // Remove XML-style tags and their content
-    cleanText = cleanText.replace(/<context-message>[\s\S]*?<\/context-message>/gi, '');
-    cleanText = cleanText.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '');
-    cleanText = cleanText.replace(/<current-cst-time>[\s\S]*?<\/current-cst-time>/gi, '');
+    // Step 1: Remove XML-style tags and their content
+    // Use more robust patterns that handle various whitespace
+    cleanText = cleanText.replace(/<context-message[^>]*>[\s\S]*?<\/context-message>/gi, '');
+    cleanText = cleanText.replace(/<system-reminder[^>]*>[\s\S]*?<\/system-reminder>/gi, '');
+    cleanText = cleanText.replace(/<current-cst-time[^>]*>[\s\S]*?<\/current-cst-time>/gi, '');
 
-    // Remove markdown headers and everything after them (typically system prompts)
-    // Handle both "\n## " (with newline) and "##" (without newline)
+    // Step 2: Find user content - look for common patterns
+    // User content typically appears after the XML tags and before "## Language Requirements"
+
+    // First, try to find the user content by looking for Chinese characters after the last XML tag
+    const lastTagEnd = cleanText.lastIndexOf('>');
+    if (lastTagEnd >= 0 && lastTagEnd < cleanText.length - 1) {
+      const afterLastTag = cleanText.substring(lastTagEnd + 1).trim();
+      // If there's meaningful content after the last tag, use that
+      if (afterLastTag.length > 0 && /[\u4e00-\u9fff]/.test(afterLastTag)) {
+        cleanText = afterLastTag;
+      }
+    }
+
+    // Step 3: Remove everything after "##" (markdown headers / system prompts)
+    // But only if ## is NOT at the very beginning (which would mean user is asking about ##)
     const headerIndex = cleanText.indexOf('##');
     if (headerIndex > 0) {
       cleanText = cleanText.substring(0, headerIndex);
     }
 
-    // Remove remaining XML tags
+    // Step 4: Remove any remaining XML-like tags
     cleanText = cleanText.replace(/<[^>]+>/g, '');
 
-    // Clean up whitespace
+    // Step 5: Clean up whitespace
     cleanText = cleanText.trim();
+
+    log.info('[MemoryExtractor] preprocessText: input length=' + text.length + ', output length=' + cleanText.length);
+    log.info('[MemoryExtractor] preprocessText result: ' + cleanText.slice(0, 100));
 
     return cleanText;
   }

@@ -45,6 +45,7 @@ export interface AgentConfig {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  apiProtocol?: string;  // 'anthropic' or 'openai' - API protocol to use
   workspaceDir: string;
   hostname?: string;
   port?: number;
@@ -582,6 +583,7 @@ export class UnifiedAgentService extends EventEmitter {
       apiKey: mp?.api_key || base.apiKey,
       baseUrl: mp?.base_url || base.baseUrl,
       model,
+      apiProtocol: mp?.api_protocol || base.apiProtocol,
       env: mergedEnv,
       mcpServers: freshMcpServers,
     };
@@ -893,6 +895,7 @@ export class UnifiedAgentService extends EventEmitter {
           model: engineConfig.model || '',
           apiKey: engineConfig.apiKey || '',
           baseUrl: engineConfig.baseUrl,
+          apiProtocol: engineConfig.apiProtocol,
         };
 
         memoryService.handleMessage(
@@ -928,6 +931,7 @@ export class UnifiedAgentService extends EventEmitter {
           model: engineConfig.model || '',
           apiKey: engineConfig.apiKey,
           baseUrl: engineConfig.baseUrl,
+          apiProtocol: engineConfig.apiProtocol,
         };
 
         // Trigger incremental extraction (async, non-blocking)
