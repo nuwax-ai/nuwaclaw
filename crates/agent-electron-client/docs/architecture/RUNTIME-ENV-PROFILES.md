@@ -35,7 +35,7 @@ status: design
 
 ### 3.1 strict（默认）
 
-- 路径：应用内优先（`~/.nuwax-agent/node_modules/.bin`, `~/.nuwax-agent/bin`）
+- 路径：应用内优先（`~/.nuwaxbot/node_modules/.bin`, `~/.nuwaxbot/bin`）
 - 配置：隔离 `HOME/XDG/CLAUDE_CONFIG_DIR/NUWAXCODE_CONFIG_DIR`
 - npm/uv：使用应用内缓存、镜像和目录
 - 不透传用户级敏感变量
@@ -126,7 +126,7 @@ export function buildRuntimeEnv(options: BuildRuntimeEnvOptions): Record<string,
 
 兼容性遗留需处理：
 
-- `src/main/services/packages/packageManager.ts` 仍使用 `userData` 路径，应统一到 `~/.nuwax-agent`
+- `src/main/services/packages/packageManager.ts` 仍使用 `userData` 路径，应统一到 `~/.nuwaxbot`
 
 ---
 

@@ -161,7 +161,7 @@ export function spawnJsFile(
     if (callerProvidedFullEnv && isElectron) {
       mergedEnv = { ...env, ELECTRON_RUN_AS_NODE: '1' } as Record<string, string | undefined>;
       const pathStr = mergedEnv.PATH || '';
-      const pathWithUv = pathStr.split(';').filter((p) => p && (p.includes('uv') || p.includes('nuwax-agent')));
+      const pathWithUv = pathStr.split(';').filter((p) => p && (p.includes('uv') || p.includes('nuwaxbot')));
       log.info(`[spawnNoWindow] Windows: 使用调用方传入的完整 env (${Object.keys(env).length} 项)`);
       log.info(`[spawnNoWindow] 追踪: 子进程 PATH 中含 uv 的段数=${pathWithUv.length}, 前5段=${pathWithUv.slice(0, 5).join(';') || '(无)'}`);
     } else {
@@ -184,7 +184,7 @@ export function spawnJsFile(
     if (callerProvidedFullEnv && isElectron) {
       mergedEnv = { ...env } as Record<string, string | undefined>;
       const pathStr = mergedEnv.PATH || '';
-      const pathWithUv = pathStr.split(':').filter((p) => p && (p.includes('uv') || p.includes('nuwax-agent')));
+      const pathWithUv = pathStr.split(':').filter((p) => p && (p.includes('uv') || p.includes('nuwaxbot')));
       log.info(`[spawnNoWindow] ${process.platform}: 使用调用方传入的完整 env (${Object.keys(env).length} 项)`);
       log.info(`[spawnNoWindow] 追踪: 子进程 PATH 中含 uv 的段数=${pathWithUv.length}, 前5段=${pathWithUv.slice(0, 5).join(':') || '(无)'}`);
     } else {

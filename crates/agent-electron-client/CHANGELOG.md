@@ -267,13 +267,13 @@ Renderer Process (React)
 
 #### Directory Structure
 ```
-~/.nuwax-agent/
+~/.nuwaxbot/
 ├── engines/           # Agent engines (claude-code, nuwaxcode)
 ├── workspaces/       # Session workspaces
 ├── node_modules/    # Local npm packages
 │   └── mcp-servers # MCP servers (isolated)
 ├── logs/            # Application logs
-└── nuwax-agent.db   # SQLite database
+└── nuwaxbot.db   # SQLite database
 ```
 
 ---

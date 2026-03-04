@@ -214,11 +214,11 @@ Each engine runs in an isolated environment:
 ```typescript
 {
   // App-internal dependencies injected
-  PATH: '~/.nuwax-agent/node_modules/.bin:~/.nuwax-agent/bin:$PATH',
-  NODE_PATH: '~/.nuwax-agent/node_modules',
+  PATH: '~/.nuwaxbot/node_modules/.bin:~/.nuwaxbot/bin:$PATH',
+  NODE_PATH: '~/.nuwaxbot/node_modules',
 
   // Isolated home
-  HOME: '/tmp/nuwax-agent-run-xxx',
+  HOME: '/tmp/nuwaxbot-run-xxx',
   XDG_CONFIG_HOME: '/tmp/.../.config',
   CLAUDE_CONFIG_DIR: '/tmp/.../.claude',
   NUWAXCODE_CONFIG_DIR: '/tmp/.../.nuwaxcode',
@@ -299,14 +299,14 @@ permissionManager.approveRequest(requestId, alwaysAllow);
 | **nuwax-file-server** | npm-local | File service |
 | **claude-code-acp-ts** | npm-local | Claude Code ACP implementation |
 | **nuwaxcode** | npm-local | Nuwaxcode ACP implementation |
-| **nuwax-mcp-stdio-proxy** | npm ^1.0.0 + npm-local | MCP 聚合代理；应用依赖自带，也可在 ~/.nuwax-agent/node_modules 安装覆盖 |
+| **nuwax-mcp-stdio-proxy** | npm ^1.0.0 + npm-local | MCP 聚合代理；应用依赖自带，也可在 ~/.nuwaxbot/node_modules 安装覆盖 |
 
 > **Note**: Node.js is NOT a required dependency — Electron bundles its own Node runtime.
 
 ### Installation Locations
 
 ```
-~/.nuwax-agent/
+~/.nuwaxbot/
 ├── engines/           # Agent engines
 ├── workspaces/       # Session workspaces
 ├── node_modules/    # Local npm packages
@@ -314,10 +314,10 @@ permissionManager.approveRequest(requestId, alwaysAllow);
 │   └── mcp-servers  # MCP servers (isolated)
 ├── bin/              # App binaries
 ├── logs/             # Application logs
-└── nuwax-agent.db   # SQLite database
+└── nuwaxbot.db   # SQLite database
 ```
 
-> **Important**: All data is stored under `~/.nuwax-agent/`. The Electron `app.getPath('userData')` path is NOT used.
+> **Important**: All data is stored under `~/.nuwaxbot/`. The Electron `app.getPath('userData')` path is NOT used.
 
 ### Environment Injection
 
@@ -325,8 +325,8 @@ All child processes (engines, file server, lanproxy, agent runner) receive injec
 
 ```typescript
 {
-  PATH: '~/.nuwax-agent/node_modules/.bin:~/.nuwax-agent/bin:resources/uv/bin:$PATH',
-  NODE_PATH: '~/.nuwax-agent/node_modules',
+  PATH: '~/.nuwaxbot/node_modules/.bin:~/.nuwaxbot/bin:resources/uv/bin:$PATH',
+  NODE_PATH: '~/.nuwaxbot/node_modules',
 }
 ```
 

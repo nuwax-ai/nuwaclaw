@@ -68,7 +68,7 @@ jobs:
             echo "Release $TAG already exists"
           else
             gh release create "$TAG" \
-              --title "Nuwax Agent (Electron) ${{ steps.version.outputs.version }}" \
+              --title "NuwaxBot (Electron) ${{ steps.version.outputs.version }}" \
               --notes-file release_notes.txt \
               --repo "$GITHUB_REPOSITORY"
             echo "Created release $TAG"
