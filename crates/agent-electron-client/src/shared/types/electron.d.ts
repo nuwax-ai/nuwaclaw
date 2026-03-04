@@ -344,6 +344,12 @@ export interface DialogAPI {
   openDirectory: (title?: string) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
 }
 
+import type { QuickInitConfig } from './quickInit';
+
+export interface QuickInitAPI {
+  getConfig: () => Promise<QuickInitConfig | null>;
+}
+
 export interface ElectronAPI {
   versions: {
     node: string;
@@ -386,6 +392,7 @@ export interface ElectronAPI {
   log: LogAPI;
   app: AppAPI;
   permissions: PermissionsAPI;
+  quickInit: QuickInitAPI;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   off: (channel: string, callback: (...args: unknown[]) => void) => void;
 }

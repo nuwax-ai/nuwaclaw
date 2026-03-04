@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import { getDb, readSetting } from '../db';
 import log from 'electron-log';
+import { readQuickInitConfig } from '../bootstrap/quickInit';
 
 export function registerSettingsHandlers(): void {
   // Settings
@@ -46,5 +47,10 @@ export function registerSettingsHandlers(): void {
     } catch (error) {
       return { success: false, error: String(error) };
     }
+  });
+
+  // Quick Init — 读取 ~/.nuwaxbot/nuwaxbot.json 快捷配置
+  ipcMain.handle('quickInit:getConfig', () => {
+    return readQuickInitConfig();
   });
 }
