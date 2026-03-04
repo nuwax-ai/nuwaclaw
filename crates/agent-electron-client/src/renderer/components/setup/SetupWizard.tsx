@@ -602,7 +602,6 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
             marginBottom: 4,
           }}
         >
-          <RobotOutlined style={{ fontSize: 18, color: '#18181b' }} />
           <span style={{ fontSize: 15, fontWeight: 600 }}>初始化向导</span>
         </div>
         <div style={{ fontSize: 12, color: '#a1a1aa', textAlign: 'center' }}>
@@ -627,7 +626,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
 
       <div style={styles.footer}>
         <Text style={{ fontSize: 11, color: '#a1a1aa' }}>
-          {APP_NAME} · 进度自动保存
+          {APP_NAME} v{__APP_VERSION__} · 进度自动保存
         </Text>
       </div>
     </div>
