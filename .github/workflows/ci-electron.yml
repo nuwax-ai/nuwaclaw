@@ -140,9 +140,9 @@ jobs:
         run: npm run prepare:all
         timeout-minutes: 15
 
-      - name: Build Electron app (unsigned)
+      - name: Build Electron app (unsigned, no publish)
         working-directory: crates/agent-electron-client
-        run: npm run ${{ matrix.dist_cmd }}
+        run: npm run ${{ matrix.dist_cmd }} -- --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
