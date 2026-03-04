@@ -58,12 +58,12 @@ jobs:
             case "${{ github.event.inputs.platform }}" in
               mac)       echo 'matrix={"include":[{"platform":"macos-latest","dist_cmd":"dist:mac:unsigned","artifact_os":"mac"}]}' >> "$GITHUB_OUTPUT" ;;
               win)       echo 'matrix={"include":[{"platform":"windows-latest","dist_cmd":"dist:win","artifact_os":"win"}]}' >> "$GITHUB_OUTPUT" ;;
-              linux)     echo 'matrix={"include":[{"platform":"ubuntu-latest","dist_cmd":"dist:linux:x64","artifact_os":"linux-x64"}]}' >> "$GITHUB_OUTPUT" ;;
+              linux)     echo 'matrix={"include":[{"platform":"ubuntu-24.04","dist_cmd":"dist:linux:x64","artifact_os":"linux-x64"}]}' >> "$GITHUB_OUTPUT" ;;
               linux-arm64) echo 'matrix={"include":[{"platform":"ubuntu-24.04-arm","dist_cmd":"dist:linux:arm64","artifact_os":"linux-arm64"}]}' >> "$GITHUB_OUTPUT" ;;
-              *)         echo 'matrix={"include":[{"platform":"macos-latest","dist_cmd":"dist:mac:unsigned","artifact_os":"mac"},{"platform":"windows-latest","dist_cmd":"dist:win","artifact_os":"win"},{"platform":"ubuntu-latest","dist_cmd":"dist:linux:x64","artifact_os":"linux-x64"},{"platform":"ubuntu-24.04-arm","dist_cmd":"dist:linux:arm64","artifact_os":"linux-arm64"}]}' >> "$GITHUB_OUTPUT" ;;
+              *)         echo 'matrix={"include":[{"platform":"macos-latest","dist_cmd":"dist:mac:unsigned","artifact_os":"mac"},{"platform":"windows-latest","dist_cmd":"dist:win","artifact_os":"win"},{"platform":"ubuntu-24.04","dist_cmd":"dist:linux:x64","artifact_os":"linux-x64"},{"platform":"ubuntu-24.04-arm","dist_cmd":"dist:linux:arm64","artifact_os":"linux-arm64"}]}' >> "$GITHUB_OUTPUT" ;;
             esac
           else
-            echo 'matrix={"include":[{"platform":"macos-latest","dist_cmd":"dist:mac:unsigned","artifact_os":"mac"},{"platform":"windows-latest","dist_cmd":"dist:win","artifact_os":"win"},{"platform":"ubuntu-latest","dist_cmd":"dist:linux:x64","artifact_os":"linux-x64"},{"platform":"ubuntu-24.04-arm","dist_cmd":"dist:linux:arm64","artifact_os":"linux-arm64"}]}' >> "$GITHUB_OUTPUT"
+            echo 'matrix={"include":[{"platform":"macos-latest","dist_cmd":"dist:mac:unsigned","artifact_os":"mac"},{"platform":"windows-latest","dist_cmd":"dist:win","artifact_os":"win"},{"platform":"ubuntu-24.04","dist_cmd":"dist:linux:x64","artifact_os":"linux-x64"},{"platform":"ubuntu-24.04-arm","dist_cmd":"dist:linux:arm64","artifact_os":"linux-arm64"}]}' >> "$GITHUB_OUTPUT"
           fi
 
   build-electron:
