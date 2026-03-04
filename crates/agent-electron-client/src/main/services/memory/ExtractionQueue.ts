@@ -168,7 +168,7 @@ export class ExtractionQueue extends EventEmitter {
 
     const taskId = this.generateTaskId(task);
     this.queue.push(task);
-    log.debug('[ExtractionQueue] Task enqueued:', taskId);
+    log.info('[ExtractionQueue] Task enqueued:', taskId);
 
     this.emit('task:enqueued', task);
 

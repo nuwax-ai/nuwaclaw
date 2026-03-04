@@ -443,6 +443,8 @@ export class MemoryService extends EventEmitter {
       return;
     }
 
+    log.debug('[MemoryService] handleMessage:', { sessionId, role: message.role, contentLen: message.content.length });
+
     // 1. Persist to transcript
     if (this.config.transcript.enabled) {
       this.transcriptWriter.appendMessage(
@@ -459,13 +461,19 @@ export class MemoryService extends EventEmitter {
         explicitEnabled: true,
         implicitEnabled: false,
       })) {
-        // Instant extraction for explicit commands
-        this.extractionQueue.enqueue(
-          sessionId,
-          `explicit-${Date.now()}`,
-          [message],
-          modelConfig
-        );
+        // Skip extraction if no API key (required for LLM-based extraction)
+        if (!modelConfig.apiKey) {
+          log.debug('[MemoryService] Skipping explicit extraction: no API key configured');
+        } else {
+          log.info('[MemoryService] Explicit extraction triggered for session:', sessionId);
+          // Instant extraction for explicit commands
+          this.extractionQueue.enqueue(
+            sessionId,
+            `explicit-${Date.now()}`,
+            [message],
+            modelConfig
+          );
+        }
       }
     }
 
@@ -488,6 +496,12 @@ export class MemoryService extends EventEmitter {
    * Trigger extraction for a full segment
    */
   private triggerSegmentExtraction(sessionId: string, modelConfig: ModelConfig): void {
+    // Skip if no API key (required for LLM-based extraction)
+    if (!modelConfig.apiKey) {
+      log.debug('[MemoryService] Skipping segment extraction: no API key configured');
+      return;
+    }
+
     const segmentSize = this.config.segmentation.segmentSize;
     const overlap = this.config.segmentation.segmentOverlap;
 
@@ -571,6 +585,12 @@ export class MemoryService extends EventEmitter {
     }
 
     if (!this.config.extraction.trigger.onSessionEnd) {
+      return '';
+    }
+
+    // Skip if no API key (required for LLM-based extraction)
+    if (!modelConfig.apiKey) {
+      log.debug('[MemoryService] Skipping session end extraction: no API key configured');
       return '';
     }
 

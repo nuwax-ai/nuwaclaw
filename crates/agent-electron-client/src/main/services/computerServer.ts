@@ -32,6 +32,7 @@ import type {
 
 let server: http.Server | null = null;
 let sseClients: Map<string, http.ServerResponse[]> = new Map();
+let lastError: string | null = null;
 
 // ==================== Helpers ====================
 
@@ -404,6 +405,7 @@ export function pushSseEvent(sessionId: string, eventName: string, data: unknown
 export function startComputerServer(port: number): Promise<{ success: boolean; error?: string }> {
   return new Promise((resolve) => {
     if (server) {
+      lastError = null;
       resolve({ success: true });
       return;
     }
@@ -412,17 +414,18 @@ export function startComputerServer(port: number): Promise<{ success: boolean; e
 
     server.on('error', (err: NodeJS.ErrnoException) => {
       log.error('❌ [ComputerServer] Server error:', err);
-      if (err.code === 'EADDRINUSE') {
-        resolve({ success: false, error: `Port ${port} already in use` });
-      } else {
-        resolve({ success: false, error: err.message });
-      }
+      const errorMsg = err.code === 'EADDRINUSE'
+        ? `Port ${port} already in use`
+        : err.message;
+      lastError = errorMsg;
       server = null;
+      resolve({ success: false, error: errorMsg });
     });
 
     // 监听 0.0.0.0：与 Tauri rcoder 行为一致，lanproxy 隧道需要从外部访问此端口
     server.listen(port, '0.0.0.0', () => {
       log.info(`✅ [ComputerServer] Listening on 0.0.0.0:${port} (对齐 rcoder /computer/* API)`);
+      lastError = null;
       resolve({ success: true });
     });
   });
@@ -434,6 +437,7 @@ export function startComputerServer(port: number): Promise<{ success: boolean; e
 export function stopComputerServer(): Promise<void> {
   return new Promise((resolve) => {
     if (!server) {
+      lastError = null;
       resolve();
       return;
     }
@@ -448,6 +452,7 @@ export function stopComputerServer(): Promise<void> {
     server.close(() => {
       log.info('[ComputerServer] Stopped');
       server = null;
+      lastError = null;
       resolve();
     });
   });
@@ -456,8 +461,10 @@ export function stopComputerServer(): Promise<void> {
 /**
  * 获取 Computer Server 状态
  */
-export function getComputerServerStatus(): { running: boolean; port?: number } {
-  if (!server || !server.listening) return { running: false };
+export function getComputerServerStatus(): { running: boolean; port?: number; error?: string } {
+  if (!server || !server.listening) {
+    return { running: false, error: lastError || undefined };
+  }
   const addr = server.address();
   return {
     running: true,

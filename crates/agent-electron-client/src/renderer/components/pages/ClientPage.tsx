@@ -21,6 +21,7 @@ import {
   Form,
   Input,
   Modal,
+  Tooltip,
 } from 'antd';
 import {
   UserOutlined,
@@ -247,6 +248,8 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
           port: agentConfig?.backendPort || undefined,
           engineBinaryPath: agentConfig?.binPath || undefined,
         });
+        // ComputerServer 是 Agent 的 HTTP 接口，随 Agent 一起启动
+        await window.electronAPI?.computerServer.start().catch(() => undefined);
       } else if (key === 'fileServer') {
         const step1 = await window.electronAPI?.settings.get('step1_config') as { fileServerPort?: number } | null;
         result = await window.electronAPI?.fileServer.start(step1?.fileServerPort ?? 60000);
@@ -276,13 +279,10 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
         result = await window.electronAPI?.mcp.start();
       }
 
-      if (result && !result.success && !silent) {
-        message.error(`启动失败: ${result.error || '未知错误'}`);
-      }
       await onRefreshServices();
       return result?.success ?? false;
     } catch (error) {
-      if (!silent) message.error(`启动失败: ${error}`);
+      console.error(`[ClientPage] 启动 ${key} 失败:`, error);
       await onRefreshServices();
       return false;
     } finally {
@@ -293,8 +293,10 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
   const handleStopService = async (key: string) => {
     setStoppingServices(prev => new Set(prev).add(key));
     try {
-      if (key === 'agent') await window.electronAPI?.agent.destroy();
-      else if (key === 'fileServer') await window.electronAPI?.fileServer.stop();
+      if (key === 'agent') {
+        await window.electronAPI?.agent.destroy();
+        await window.electronAPI?.computerServer.stop().catch(() => {});
+      } else if (key === 'fileServer') await window.electronAPI?.fileServer.stop();
       else if (key === 'lanproxy') await window.electronAPI?.lanproxy.stop();
       else if (key === 'mcpProxy') await window.electronAPI?.mcp.stop();
     } catch (error) {
@@ -339,10 +341,10 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
   };
 
   const handleStopAll = async () => {
-    const running = services.filter((s) => s.running);
-    setStoppingServices(new Set(running.map(s => s.key)));
+    const toStop = services.filter((s) => s.running || !!s.error);
+    setStoppingServices(new Set(toStop.map(s => s.key)));
     try {
-      for (const svc of running) {
+      for (const svc of toStop) {
         try {
           if (svc.key === 'agent') await window.electronAPI?.agent.destroy();
           else if (svc.key === 'fileServer') await window.electronAPI?.fileServer.stop();
@@ -352,6 +354,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
           console.error(`停止 ${svc.label} 失败:`, error);
         }
       }
+      await window.electronAPI?.computerServer.stop().catch(() => {});
     } finally {
       setStoppingServices(new Set());
       await onRefreshServices();
@@ -550,6 +553,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
         {services.map((svc) => {
           const isStarting = startingServices?.has(svc.key);
           const isStopping = stoppingServices.has(svc.key);
+          const hasError = !svc.running && !!svc.error;
           return (
             <div key={svc.key} className={styles.serviceRow}>
               <div className={styles.serviceInfo}>
@@ -557,6 +561,10 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
                   <LoadingOutlined style={{ color: '#1677ff', fontSize: 14 }} />
                 ) : svc.running ? (
                   <CheckCircleOutlined style={{ color: '#16a34a', fontSize: 14 }} />
+                ) : hasError ? (
+                  <Tooltip title={svc.error}>
+                    <ExclamationCircleOutlined style={{ color: '#dc2626', fontSize: 14 }} />
+                  </Tooltip>
                 ) : (
                   <CloseCircleOutlined style={{ color: '#a1a1aa', fontSize: 14 }} />
                 )}
@@ -569,6 +577,10 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
                       <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>停止中</Tag>
                     ) : svc.running ? (
                       <Tag color="green" style={{ margin: 0, fontSize: 11 }}>运行中</Tag>
+                    ) : hasError ? (
+                      <Tooltip title={svc.error}>
+                        <Tag color="error" style={{ margin: 0, fontSize: 11, cursor: 'help' }}>启动失败</Tag>
+                      </Tooltip>
                     ) : (
                       <Tag style={{ margin: 0, fontSize: 11 }}>已停止</Tag>
                     )}
@@ -702,7 +714,9 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
             {!servicesLoading && (() => {
               const runningCount = services.filter((s) => s.running).length;
               const totalCount = services.length;
-              const badgeColor = runningCount === totalCount ? 'success'
+              const hasErrors = services.some((s) => !!s.error);
+              const badgeColor = hasErrors ? 'error'
+                : runningCount === totalCount ? 'success'
                 : runningCount === 0 ? 'default'
                 : 'warning';
               return (
@@ -737,7 +751,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
                 icon={<PoweroffOutlined />}
                 onClick={handleStopAll}
                 loading={isAnyStopping}
-                disabled={services.every((s) => !s.running) || isAnyStarting}
+                disabled={services.every((s) => !s.running && !s.error) || isAnyStarting}
               >
                 停止全部
               </Button>

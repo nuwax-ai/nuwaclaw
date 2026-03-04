@@ -46,6 +46,7 @@ export interface ServiceItem {
   description: string;
   running: boolean;
   pid?: number;
+  error?: string;
 }
 
 /**
@@ -164,17 +165,32 @@ function App() {
   const pollServicesStatus = useCallback(async () => {
     try {
       const items: ServiceItem[] = [];
-      const [fsStatus, lpStatus, agentSvcStatus, mcpStatus] = await Promise.all([
+      const [fsStatus, lpStatus, agentSvcStatus, mcpStatus, csStatus] = await Promise.all([
         window.electronAPI?.fileServer.status(),
         window.electronAPI?.lanproxy.status(),
         window.electronAPI?.agent.serviceStatus(),
         window.electronAPI?.mcp.status(),
+        window.electronAPI?.computerServer.status(),
       ]);
-      // 列表顺序：先 MCP 服务，最后代理服务（与启动顺序一致）
-      items.push({ key: 'mcpProxy', label: 'MCP 服务', description: 'MCP 协议聚合代理', running: mcpStatus?.running ?? false });
-      items.push({ key: 'agent', label: 'Agent 服务', description: 'Agent 核心服务', running: agentSvcStatus?.running ?? false });
-      items.push({ key: 'fileServer', label: '文件服务', description: 'Agent 工作目录文件远程管理服务', running: fsStatus?.running ?? false, pid: fsStatus?.pid });
-      items.push({ key: 'lanproxy', label: '代理服务', description: '网络通道', running: lpStatus?.running ?? false, pid: lpStatus?.pid });
+      items.push({ key: 'mcpProxy', label: 'MCP 服务', description: 'MCP 协议聚合代理', running: mcpStatus?.running ?? false, error: mcpStatus?.error });
+
+      // ComputerServer 是 Agent 的 HTTP 接口，仅当 Agent 本身在运行时才检查其状态
+      const agentRunning = agentSvcStatus?.running ?? false;
+      const csRunning = csStatus?.running ?? false;
+      let agentError: string | undefined;
+      if (agentRunning && !csRunning) {
+        agentError = csStatus?.error
+          ? `Agent 接口服务启动失败: ${csStatus.error}`
+          : 'Agent 接口服务未运行';
+      }
+      items.push({
+        key: 'agent', label: 'Agent 服务', description: 'Agent 核心服务',
+        running: agentRunning && csRunning,
+        error: agentError,
+      });
+
+      items.push({ key: 'fileServer', label: '文件服务', description: 'Agent 工作目录文件远程管理服务', running: fsStatus?.running ?? false, pid: fsStatus?.pid, error: fsStatus?.error });
+      items.push({ key: 'lanproxy', label: '代理服务', description: '网络通道', running: lpStatus?.running ?? false, pid: lpStatus?.pid, error: lpStatus?.error });
       setServices(items);
     } catch (error) {
       console.error('[App] pollServicesStatus failed:', error);
@@ -190,30 +206,35 @@ function App() {
     for (const key of serviceKeys) {
       setStartingServices(prev => new Set(prev).add(key));
       try {
+        let result: { success: boolean; error?: string } | undefined;
+
         if (key === 'agent') {
           const agentConfig = await window.electronAPI?.settings.get('agent_config') as any;
           const step1 = await window.electronAPI?.settings.get('step1_config') as { workspaceDir?: string } | null;
-          await window.electronAPI?.agent.init({
+          result = await window.electronAPI?.agent.init({
             engine: agentConfig?.type || 'claude-code',
             apiKey: agentConfig?.apiKey,
             baseUrl: agentConfig?.apiBaseUrl,
             model: agentConfig?.model,
             workspaceDir: step1?.workspaceDir || '',
           });
+          // ComputerServer 是 Agent 的 HTTP 接口，随 Agent 一起启动
+          await window.electronAPI?.computerServer.start().catch(() => undefined);
         } else if (key === 'fileServer') {
           const step1 = await window.electronAPI?.settings.get('step1_config') as { fileServerPort?: number } | null;
-          await window.electronAPI?.fileServer.start(step1?.fileServerPort ?? 60000);
+          result = await window.electronAPI?.fileServer.start(step1?.fileServerPort ?? 60000);
         } else if (key === 'lanproxy') {
           const clientKey = await window.electronAPI?.settings.get('auth.saved_key') as string | null;
           const lpConfig = await window.electronAPI?.settings.get('lanproxy_config') as any;
           const serverIp = lpConfig?.serverIp || (await window.electronAPI?.settings.get('lanproxy.server_host') as string)?.replace(/^https?:\/\//, '');
           const serverPort = lpConfig?.serverPort || await window.electronAPI?.settings.get('lanproxy.server_port');
           if (serverIp && clientKey && serverPort) {
-            await window.electronAPI?.lanproxy.start({ serverIp, serverPort, clientKey, ssl: lpConfig?.ssl });
+            result = await window.electronAPI?.lanproxy.start({ serverIp, serverPort, clientKey, ssl: lpConfig?.ssl });
           }
         } else if (key === 'mcpProxy') {
-          await window.electronAPI?.mcp.start();
+          result = await window.electronAPI?.mcp.start();
         }
+
         await pollServicesStatus();
       } catch (e) {
         console.error(`[App] 启动 ${key} 失败:`, e);
@@ -295,8 +316,11 @@ function App() {
 
     const runningCount = services.filter((s) => s.running).length;
     const totalCount = services.length;
+    const hasErrors = services.some((s) => !!s.error);
 
-    if (runningCount === totalCount && runningCount > 0) {
+    if (hasErrors) {
+      setAgentStatus('error');
+    } else if (runningCount === totalCount && runningCount > 0) {
       setAgentStatus('running');
     } else if (runningCount > 0 && runningCount < totalCount) {
       setAgentStatus('busy');

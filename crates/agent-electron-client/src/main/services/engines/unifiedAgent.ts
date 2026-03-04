@@ -20,6 +20,7 @@ export { mapAgentCommand, resolveAgentEnv } from './agentHelpers';
 
 import { AcpEngine } from './acp/acpEngine';
 import { mapAgentCommand, resolveAgentEnv } from './agentHelpers';
+import dependencies from '../system/dependencies';
 
 // Re-export computer types
 export type {
@@ -230,42 +231,42 @@ export class UnifiedAgentService extends EventEmitter {
     this.baseConfig = config;
     this.engineType = config.engine;
 
-    // Initialize MemoryService with workspace directory
-    if (config.workspaceDir) {
-      try {
-        await memoryService.init(config.workspaceDir, {
+    // Initialize MemoryService with app data directory (~/.nuwaxbot/)
+    // Memory files should be stored in app data dir, not workspace dir
+    try {
+      const appDataDir = dependencies.getAppDataDir();
+      await memoryService.init(appDataDir, {
+        enabled: true,
+        extraction: {
           enabled: true,
-          extraction: {
-            enabled: true,
-            implicitEnabled: true,
-            explicitEnabled: true,
-            guardLevel: 'standard',
-            trigger: {
-              onEveryTurn: false,
-              onSegmentFull: true,
-              onSessionEnd: true,
-            },
-            llm: {
-              maxTokensPerExtract: 800,
-              temperature: 0.3,
-              maxRetries: 2,
-            },
+          implicitEnabled: true,
+          explicitEnabled: true,
+          guardLevel: 'standard',
+          trigger: {
+            onEveryTurn: false,
+            onSegmentFull: true,
+            onSessionEnd: true,
           },
-        });
+          llm: {
+            maxTokensPerExtract: 800,
+            temperature: 0.3,
+            maxRetries: 2,
+          },
+        },
+      });
 
-        // Provide model config to scheduler for cron-triggered LLM consolidation
-        const modelConfig: ModelConfig = {
-          provider: config.engine === 'claude-code' ? 'anthropic' : 'openai',
-          model: config.model || '',
-          apiKey: config.apiKey || '',
-          baseUrl: config.baseUrl,
-        };
-        memoryService.setSchedulerModelConfig(modelConfig);
+      // Provide model config to scheduler for cron-triggered LLM consolidation
+      const modelConfig: ModelConfig = {
+        provider: config.engine === 'claude-code' ? 'anthropic' : 'openai',
+        model: config.model || '',
+        apiKey: config.apiKey || '',
+        baseUrl: config.baseUrl,
+      };
+      memoryService.setSchedulerModelConfig(modelConfig);
 
-        log.info('[UnifiedAgent] MemoryService initialized');
-      } catch (error) {
-        log.error('[UnifiedAgent] MemoryService initialization failed:', error);
-      }
+      log.info('[UnifiedAgent] MemoryService initialized with app data dir:', appDataDir);
+    } catch (error) {
+      log.error('[UnifiedAgent] MemoryService initialization failed:', error);
     }
 
     log.info('[UnifiedAgent] Service initialized (lazy mode, no process spawned)');
@@ -883,13 +884,15 @@ export class UnifiedAgentService extends EventEmitter {
         const buffered = this.assistantTextBuffers.get(sessionId);
         this.assistantTextBuffers.delete(sessionId);
 
-        if (!buffered || !buffered.trim() || !memoryService.isInitialized() || !this.baseConfig) return;
+        // Use engine's current config (may be updated from HTTP request model_provider)
+        const engineConfig = engine.currentConfig;
+        if (!buffered || !buffered.trim() || !memoryService.isInitialized() || !engineConfig) return;
 
         const modelConfig: ModelConfig = {
-          provider: this.engineType === 'claude-code' ? 'anthropic' : 'openai',
-          model: this.baseConfig.model || '',
-          apiKey: this.baseConfig.apiKey || '',
-          baseUrl: this.baseConfig.baseUrl,
+          provider: engine.engineName.includes('claude') ? 'anthropic' : 'openai',
+          model: engineConfig.model || '',
+          apiKey: engineConfig.apiKey || '',
+          baseUrl: engineConfig.baseUrl,
         };
 
         memoryService.handleMessage(
@@ -899,6 +902,41 @@ export class UnifiedAgentService extends EventEmitter {
         );
       } catch (error) {
         log.warn('[UnifiedAgent] Failed to flush assistant text to memory:', error);
+      }
+    });
+
+    // Trigger incremental memory extraction when session becomes idle (after each prompt)
+    // Note: This calls onSessionEnd which internally checks getMaxCompletedMsgIndex()
+    // to only process new messages that haven't been extracted yet.
+    // This provides incremental extraction rather than re-processing all messages.
+    engine.on('session.idle', (...args: unknown[]) => {
+      try {
+        const data = args[0] as { sessionId?: string } | undefined;
+        const sessionId = data?.sessionId;
+        // Use engine's current config (may be updated from HTTP request model_provider)
+        const engineConfig = engine.currentConfig;
+        // Skip if no sessionId, memory not initialized, or no engine config
+        if (!sessionId || !memoryService.isInitialized() || !engineConfig) return;
+        // Skip if no API key (required for LLM-based extraction)
+        if (!engineConfig.apiKey) {
+          log.debug('[UnifiedAgent] Skipping incremental extraction: no API key configured');
+          return;
+        }
+
+        const modelConfig: ModelConfig = {
+          provider: engine.engineName.includes('claude') ? 'anthropic' : 'openai',
+          model: engineConfig.model || '',
+          apiKey: engineConfig.apiKey,
+          baseUrl: engineConfig.baseUrl,
+        };
+
+        // Trigger incremental extraction (async, non-blocking)
+        // This will extract any new messages since the last extraction
+        memoryService.onSessionEnd(sessionId, modelConfig).catch(err => {
+          log.warn('[UnifiedAgent] Incremental memory extraction failed:', err);
+        });
+      } catch (error) {
+        log.warn('[UnifiedAgent] Failed to trigger incremental extraction:', error);
       }
     });
   }

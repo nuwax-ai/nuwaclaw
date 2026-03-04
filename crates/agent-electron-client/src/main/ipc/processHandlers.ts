@@ -171,6 +171,25 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     return ctx.fileServer.status();
   });
 
+  // Computer Server handlers (Agent HTTP 接口服务，对齐 rcoder /computer/* API)
+  ipcMain.handle('computerServer:status', async () => {
+    const { getComputerServerStatus } = await import('../services/computerServer');
+    return getComputerServerStatus();
+  });
+
+  ipcMain.handle('computerServer:start', async (_, port?: number) => {
+    const { startComputerServer } = await import('../services/computerServer');
+    const { getConfiguredPorts } = await import('../services/startupPorts');
+    const resolvedPort = port ?? getConfiguredPorts().agent;
+    return startComputerServer(resolvedPort);
+  });
+
+  ipcMain.handle('computerServer:stop', async () => {
+    const { stopComputerServer } = await import('../services/computerServer');
+    await stopComputerServer();
+    return { success: true };
+  });
+
   // ==================== services:restartAll ====================
 
   ipcMain.handle('services:restartAll', async () => {
@@ -191,6 +210,10 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     try {
       await agentService.destroy();
     } catch (e) { log.warn('[Services] Agent destroy error (ignored):', e); }
+    try {
+      const { stopComputerServer } = await import('../services/computerServer');
+      await stopComputerServer();
+    } catch (e) { log.warn('[Services] ComputerServer stop error (ignored):', e); }
     ctx.fileServer.stop();
     ctx.lanproxy.stop();
 
@@ -225,7 +248,19 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       log.error('[Services] Agent start failed:', e);
     }
 
-    // 4. Start File Server（端口来自聚合配置）
+    // 4. Start Computer Server（Agent HTTP 接口服务）
+    try {
+      const { startComputerServer } = await import('../services/computerServer');
+      const { getConfiguredPorts } = await import('../services/startupPorts');
+      const { agent: agentPort } = getConfiguredPorts();
+      results.computerServer = await startComputerServer(agentPort);
+      log.info('[Services] ComputerServer started:', results.computerServer);
+    } catch (e) {
+      results.computerServer = { success: false, error: String(e) };
+      log.error('[Services] ComputerServer start failed:', e);
+    }
+
+    // 5. Start File Server（端口来自聚合配置）
     try {
       const { getConfiguredPorts } = await import('../services/startupPorts');
       const { fileServer: fileServerPort } = getConfiguredPorts();
@@ -236,7 +271,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       log.error('[Services] FileServer start failed:', e);
     }
 
-    // 5. Start Lanproxy
+    // 6. Start Lanproxy
     try {
       const clientKey = readSetting('auth.saved_key') as string | null;
       const lpConfig = readSetting('lanproxy_config') as any || {};
@@ -282,6 +317,16 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     } catch (e) {
       results.agent = { success: false, error: String(e) };
       log.error('[Services] Agent stop failed:', e);
+    }
+
+    // Stop Computer Server
+    try {
+      const { stopComputerServer } = await import('../services/computerServer');
+      await stopComputerServer();
+      results.computerServer = { success: true };
+      log.info('[Services] ComputerServer stopped');
+    } catch (e) {
+      results.computerServer = { success: false, error: String(e) };
     }
 
     // Stop File Server

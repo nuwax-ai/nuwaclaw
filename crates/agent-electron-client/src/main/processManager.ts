@@ -3,6 +3,7 @@ import log from 'electron-log';
 
 export class ManagedProcess {
   private process: ChildProcess | null = null;
+  private lastError: string | null = null;
 
   constructor(private readonly name: string) {}
 
@@ -16,6 +17,7 @@ export class ManagedProcess {
     startupDelayMs?: number;
   }): Promise<{ success: boolean; error?: string; message?: string }> {
     if (this.process) {
+      this.lastError = null;
       return Promise.resolve({ success: true, message: 'Already running' });
     }
 
@@ -40,6 +42,7 @@ export class ManagedProcess {
         proc.on('error', (error) => {
           log.error(`${this.name} error:`, error);
           this.process = null;
+          this.lastError = error.message;
           resolve({ success: false, error: error.message });
         });
 
@@ -53,19 +56,24 @@ export class ManagedProcess {
         const delay = config.startupDelayMs ?? 1000;
         setTimeout(() => {
           if (this.process) {
+            this.lastError = null;
             resolve({ success: true });
           } else {
-            resolve({ success: false, error: '进程启动后立即退出' });
+            const msg = '进程启动后立即退出';
+            this.lastError = msg;
+            resolve({ success: false, error: msg });
           }
         }, delay);
       } catch (error) {
         this.process = null;
+        this.lastError = String(error);
         resolve({ success: false, error: String(error) });
       }
     });
   }
 
   stop(): { success: boolean; message?: string } {
+    this.lastError = null;
     if (this.process) {
       this.process.kill();
       this.process = null;
@@ -74,10 +82,11 @@ export class ManagedProcess {
     return { success: true, message: 'Not running' };
   }
 
-  status(): { running: boolean; pid?: number } {
+  status(): { running: boolean; pid?: number; error?: string } {
     return {
       running: this.process !== null,
       pid: this.process?.pid,
+      error: this.process === null && this.lastError ? this.lastError : undefined,
     };
   }
 
@@ -91,6 +100,7 @@ export class ManagedProcess {
       }
       this.process = null;
     }
+    this.lastError = null;
   }
 
   get running(): boolean {
