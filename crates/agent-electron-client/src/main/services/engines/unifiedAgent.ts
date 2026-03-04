@@ -211,8 +211,6 @@ export class UnifiedAgentService extends EventEmitter {
   private engines = new Map<string, AcpEngine>();
   /** Per-project effective config snapshot (for config-change detection) */
   private engineConfigs = new Map<string, AgentConfig>();
-  /** Per-project session messages for memory extraction */
-  private sessionMessages = new Map<string, Array<{ role: 'user' | 'assistant'; content: string }>>();
   private engineType: AgentEngineType | null = null;
   private baseConfig: AgentConfig | null = null;
 
@@ -241,11 +239,11 @@ export class UnifiedAgentService extends EventEmitter {
             guardLevel: 'standard',
             trigger: {
               onEveryTurn: false,
-              batchInterval: 3,
+              onSegmentFull: true,
               onSessionEnd: true,
             },
             llm: {
-              maxTokensPerExtract: 500,
+              maxTokensPerExtract: 800,
               temperature: 0.3,
               maxRetries: 2,
             },
@@ -267,24 +265,22 @@ export class UnifiedAgentService extends EventEmitter {
    */
   async destroy(): Promise<void> {
     // Trigger session-end memory extraction for each project
-    if (memoryService.isInitialized()) {
-      for (const [projectId, messages] of this.sessionMessages) {
-        if (messages.length > 0 && this.baseConfig) {
-          try {
-            const modelConfig: ModelConfig = {
-              provider: this.engineType === 'claude-code' ? 'anthropic' : 'openai',
-              model: this.baseConfig.model || '',
-              apiKey: this.baseConfig.apiKey || '',
-              baseUrl: this.baseConfig.baseUrl,
-            };
-            await memoryService.onSessionEnd(projectId, messages, modelConfig);
-            log.info(`[UnifiedAgent] Session-end memory extraction completed for: ${projectId}`);
-          } catch (error) {
-            log.error(`[UnifiedAgent] Session-end memory extraction failed for ${projectId}:`, error);
-          }
+    if (memoryService.isInitialized() && this.baseConfig) {
+      const modelConfig: ModelConfig = {
+        provider: this.engineType === 'claude-code' ? 'anthropic' : 'openai',
+        model: this.baseConfig.model || '',
+        apiKey: this.baseConfig.apiKey || '',
+        baseUrl: this.baseConfig.baseUrl,
+      };
+
+      for (const projectId of this.engines.keys()) {
+        try {
+          await memoryService.onSessionEnd(projectId, modelConfig);
+          log.info(`[UnifiedAgent] Session-end memory extraction completed for: ${projectId}`);
+        } catch (error) {
+          log.error(`[UnifiedAgent] Session-end memory extraction failed for ${projectId}:`, error);
         }
       }
-      this.sessionMessages.clear();
       await memoryService.destroy();
     }
 
@@ -805,15 +801,10 @@ export class UnifiedAgentService extends EventEmitter {
       baseUrl: this.baseConfig.baseUrl,
     };
 
-    // Track message
-    const messages = this.sessionMessages.get(projectId) || [];
-    messages.push({ role: 'user', content });
-    this.sessionMessages.set(projectId, messages);
-
-    // Add to sliding window for batch extraction
-    memoryService.addMessageToWindow(
-      { role: 'user', content },
+    // Delegate to MemoryService handleMessage (writes transcript + triggers segment extraction)
+    memoryService.handleMessage(
       projectId,
+      { role: 'user', content },
       modelConfig
     );
   }

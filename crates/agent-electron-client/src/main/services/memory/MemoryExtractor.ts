@@ -297,6 +297,11 @@ export class MemoryExtractor extends EventEmitter {
       return 'preference';
     }
 
+    // Check for decision indicators
+    if (/决定|选择|采用|使用|方案|decide|choose|adopt|approach/.test(lowerText)) {
+      return 'decision';
+    }
+
     // Check for event indicators
     if (/昨天|今天|明天|上周|下周|yesterday|tomorrow|next|last/.test(lowerText)) {
       return 'event';
@@ -355,13 +360,32 @@ export class MemoryExtractor extends EventEmitter {
 
   /**
    * Build LLM extraction prompt
+   *
+   * @param messages - Conversation messages to extract from
+   * @param segmentMeta - Optional segment metadata for segmented extraction
+   * @param existingMemories - Optional list of existing memories to avoid duplicates
    */
-  buildExtractionPrompt(messages: Array<{ role: string; content: string }>): string {
+  buildExtractionPrompt(
+    messages: Array<{ role: string; content: string }>,
+    segmentMeta?: { index: number; total: number },
+    existingMemories?: string[]
+  ): string {
     const conversationHistory = messages
       .map(m => `${m.role === 'user' ? '用户' : '助手'}: ${m.content}`)
       .join('\n\n');
 
-    return LLM_EXTRACTION_PROMPT.replace('{conversation_history}', conversationHistory);
+    const segmentInfo = segmentMeta
+      ? `(第 ${segmentMeta.index + 1}/${segmentMeta.total} 段)`
+      : '';
+
+    const existingMems = existingMemories && existingMemories.length > 0
+      ? existingMemories.map(m => `- ${m}`).join('\n')
+      : '(无)';
+
+    return LLM_EXTRACTION_PROMPT
+      .replace('{segment_info}', segmentInfo)
+      .replace('{conversation_history}', conversationHistory)
+      .replace('{existing_memories}', existingMems);
   }
 
   /**

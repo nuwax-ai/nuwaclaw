@@ -317,12 +317,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('memory:extract', sessionId, messageId, messages, modelConfig),
     append: (content: string, title?: string) =>
       ipcRenderer.invoke('memory:append', content, title),
-    addMessageToWindow: (message: { role: 'user' | 'assistant'; content: string }, sessionId: string, modelConfig: any) =>
-      ipcRenderer.invoke('memory:addMessageToWindow', message, sessionId, modelConfig) as Promise<{ success: boolean; turnCount?: number; error?: string }>,
-    resetMessageWindow: () =>
-      ipcRenderer.invoke('memory:resetMessageWindow'),
-    onSessionEnd: (sessionId: string, messages: any[], modelConfig: any) =>
-      ipcRenderer.invoke('memory:onSessionEnd', sessionId, messages, modelConfig) as Promise<{ success: boolean; taskId?: string; error?: string }>,
+    handleMessage: (message: { role: 'user' | 'assistant'; content: string }, sessionId: string, modelConfig: any) =>
+      ipcRenderer.invoke('memory:handleMessage', message, sessionId, modelConfig) as Promise<{ success: boolean; error?: string }>,
+    onSessionEnd: (sessionId: string, modelConfig: any) =>
+      ipcRenderer.invoke('memory:onSessionEnd', sessionId, modelConfig) as Promise<{ success: boolean; taskId?: string; error?: string }>,
+    getExtractionProgress: (sessionId: string) =>
+      ipcRenderer.invoke('memory:getExtractionProgress', sessionId) as Promise<{ success: boolean; progress?: any[]; error?: string }>,
 
     // Retrieval
     search: (query: string, options?: any) =>

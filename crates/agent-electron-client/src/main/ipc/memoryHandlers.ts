@@ -87,32 +87,32 @@ export function registerMemoryHandlers(): void {
     }
   });
 
-  ipcMain.handle('memory:addMessageToWindow', (_, message: { role: 'user' | 'assistant'; content: string }, sessionId: string, modelConfig: ModelConfig) => {
+  ipcMain.handle('memory:handleMessage', (_, message: { role: 'user' | 'assistant'; content: string }, sessionId: string, modelConfig: ModelConfig) => {
     try {
-      memoryService.addMessageToWindow(message, sessionId, modelConfig);
-      return { success: true, turnCount: memoryService.getTurnCount() };
+      memoryService.handleMessage(sessionId, message, modelConfig);
+      return { success: true };
     } catch (error) {
-      log.error('[IPC] memory:addMessageToWindow failed:', error);
+      log.error('[IPC] memory:handleMessage failed:', error);
       return { success: false, error: String(error) };
     }
   });
 
-  ipcMain.handle('memory:resetMessageWindow', () => {
+  ipcMain.handle('memory:onSessionEnd', async (_, sessionId: string, modelConfig: ModelConfig) => {
     try {
-      memoryService.resetMessageWindow();
-      return { success: true };
-    } catch (error) {
-      log.error('[IPC] memory:resetMessageWindow failed:', error);
-      return { success: false };
-    }
-  });
-
-  ipcMain.handle('memory:onSessionEnd', async (_, sessionId: string, messages: Array<{ role: 'user' | 'assistant'; content: string }>, modelConfig: ModelConfig) => {
-    try {
-      const taskId = await memoryService.onSessionEnd(sessionId, messages, modelConfig);
+      const taskId = await memoryService.onSessionEnd(sessionId, modelConfig);
       return { success: true, taskId };
     } catch (error) {
       log.error('[IPC] memory:onSessionEnd failed:', error);
+      return { success: false, error: String(error) };
+    }
+  });
+
+  ipcMain.handle('memory:getExtractionProgress', (_, sessionId: string) => {
+    try {
+      const progress = memoryService.getExtractionProgress(sessionId);
+      return { success: true, progress };
+    } catch (error) {
+      log.error('[IPC] memory:getExtractionProgress failed:', error);
       return { success: false, error: String(error) };
     }
   });

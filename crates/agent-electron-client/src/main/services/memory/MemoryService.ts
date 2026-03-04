@@ -17,6 +17,7 @@ import type {
   ModelConfig,
   InjectionOptions,
   HybridSearchOptions,
+  ExtractionProgressRecord,
 } from './types';
 import { DEFAULT_CONFIG } from './constants';
 import { MemoryDatabase, memoryDatabase } from './MemoryDatabase';
@@ -26,6 +27,8 @@ import { ExtractionQueue } from './ExtractionQueue';
 import { MemoryRetriever, memoryRetriever } from './MemoryRetriever';
 import { MemoryInjector, memoryInjector } from './MemoryInjector';
 import { MemoryScheduler, memoryScheduler } from './MemoryScheduler';
+import { TranscriptWriter, transcriptWriter } from './TranscriptWriter';
+import { buildSegments, buildSegmentsFromIndex } from './utils/segmenter';
 
 // ==================== MemoryService Class ====================
 
@@ -42,10 +45,12 @@ export class MemoryService extends EventEmitter {
   private retriever: MemoryRetriever;
   private injector: MemoryInjector;
   private scheduler: MemoryScheduler;
+  private transcriptWriter: TranscriptWriter;
 
-  // Batch extraction tracking (Spec 5.3 方式 2)
-  private messageWindow: Array<{ role: 'user' | 'assistant'; content: string }> = [];
-  private turnCount: number = 0;
+  // Per-session segment tracking: sessionId → message count since last segment
+  private segmentCounters: Map<string, number> = new Map();
+  // Per-session segment index tracking: sessionId → next segment index
+  private segmentIndexCounters: Map<string, number> = new Map();
 
   constructor() {
     super();
@@ -59,6 +64,7 @@ export class MemoryService extends EventEmitter {
     this.retriever = memoryRetriever;
     this.injector = memoryInjector;
     this.scheduler = memoryScheduler;
+    this.transcriptWriter = transcriptWriter;
   }
 
   // ==================== Lifecycle ====================
@@ -98,12 +104,15 @@ export class MemoryService extends EventEmitter {
         guardLevel: this.config.extraction.guardLevel,
       });
 
-      // Initialize extraction queue
+      // Initialize transcript writer
+      this.transcriptWriter.init(workspaceDir);
+
+      // Initialize extraction queue (with database for progress tracking)
       this.extractionQueue.init(this.fileSync, {
         maxRetries: this.config.extraction.llm.maxRetries,
         processingInterval: 1000,
         maxQueueSize: 100,
-      });
+      }, this.database, this.config.deduplication);
 
       // Initialize retriever
       this.retriever.init(this.database);
@@ -119,13 +128,15 @@ export class MemoryService extends EventEmitter {
       this.injector.init(this.retriever);
 
       // Initialize scheduler
-      this.scheduler.init(this.fileSync, this.database);
+      this.scheduler.init(this.fileSync, this.database, this.transcriptWriter);
       this.scheduler.configure({
         consolidationCron: this.config.scheduler.consolidationCron,
         cleanupCron: this.config.scheduler.cleanupCron,
         consolidationEnabled: this.config.scheduler.consolidationEnabled,
         cleanupEnabled: this.config.scheduler.cleanupEnabled,
         dailyRetentionDays: this.config.storage.dailyRetentionDays,
+        transcriptRetentionDays: this.config.transcript.retentionDays,
+        stalePendingHours: 24,
       });
 
       // Start scheduler
@@ -170,6 +181,9 @@ export class MemoryService extends EventEmitter {
     this.extractionQueue.stop();
     this.extractionQueue.destroy();
 
+    // Destroy transcript writer
+    this.transcriptWriter.destroy();
+
     // Close file sync
     this.fileSync.destroy();
 
@@ -178,6 +192,8 @@ export class MemoryService extends EventEmitter {
 
     this.initialized = false;
     this.workspaceDir = null;
+    this.segmentCounters.clear();
+    this.segmentIndexCounters.clear();
 
     log.info('[MemoryService] Destroyed');
     this.emit('destroyed');
@@ -289,6 +305,8 @@ export class MemoryService extends EventEmitter {
       consolidationEnabled: this.config.scheduler.consolidationEnabled,
       cleanupEnabled: this.config.scheduler.cleanupEnabled,
       dailyRetentionDays: this.config.storage.dailyRetentionDays,
+      transcriptRetentionDays: this.config.transcript.retentionDays,
+      stalePendingHours: 24,
     });
 
     log.info('[MemoryService] Configuration updated');
@@ -329,6 +347,18 @@ export class MemoryService extends EventEmitter {
       scheduler: {
         ...this.config.scheduler,
         ...partial.scheduler,
+      },
+      segmentation: {
+        ...this.config.segmentation,
+        ...partial.segmentation,
+      },
+      transcript: {
+        ...this.config.transcript,
+        ...partial.transcript,
+      },
+      deduplication: {
+        ...this.config.deduplication,
+        ...partial.deduplication,
       },
     };
   }
@@ -386,133 +416,235 @@ export class MemoryService extends EventEmitter {
     this.fileSync.appendToDailyMemory(content, title);
   }
 
-  // ==================== Batch Extraction (Spec 5.3 方式 2) ====================
+  // ==================== Segmented Extraction (Spec 5.3-5.5) ====================
 
   /**
-   * Add message to sliding window and check for batch extraction
-   * Call this after each conversation turn
+   * Handle a new conversation message
    *
-   * @param message - The message to add
-   * @param sessionId - Session ID
+   * 1. Writes to transcript (JSONL persistence)
+   * 2. Checks for explicit memory commands (instant extraction)
+   * 3. Tracks segment counter and triggers segment-full extraction
+   *
+   * @param sessionId - Session / project ID
+   * @param message - The message to process
    * @param modelConfig - Model config (MUST include apiKey!)
    */
-  addMessageToWindow(
-    message: { role: 'user' | 'assistant'; content: string },
+  handleMessage(
     sessionId: string,
+    message: { role: 'user' | 'assistant'; content: string },
     modelConfig: ModelConfig
   ): void {
     if (!this.initialized || !this.config.extraction.enabled) {
       return;
     }
 
-    // Add to window
-    this.messageWindow.push(message);
-    this.turnCount++;
-
-    // Keep window size limited (last 10 messages)
-    const maxWindowSize = 10;
-    if (this.messageWindow.length > maxWindowSize) {
-      this.messageWindow.shift();
+    // 1. Persist to transcript
+    if (this.config.transcript.enabled) {
+      this.transcriptWriter.appendMessage(
+        sessionId,
+        message.role,
+        message.content,
+        `msg-${Date.now()}`
+      );
     }
 
-    // Check if batch extraction should trigger
-    const batchInterval = this.config.extraction.trigger?.batchInterval ?? 3;
-    if (this.turnCount % batchInterval === 0) {
-      this.triggerBatchExtraction(sessionId, modelConfig);
+    // 2. Check for explicit commands (user messages only, instant extraction)
+    if (message.role === 'user' && this.config.extraction.explicitEnabled) {
+      if (this.extractor.hasExtractableContent(message.content, {
+        explicitEnabled: true,
+        implicitEnabled: false,
+      })) {
+        // Instant extraction for explicit commands
+        this.extractionQueue.enqueue(
+          sessionId,
+          `explicit-${Date.now()}`,
+          [message],
+          modelConfig
+        );
+      }
     }
-  }
 
-  /**
-   * Trigger batch extraction for implicit memories
-   * Analyzes messages in the sliding window for extractable content
-   */
-  private triggerBatchExtraction(sessionId: string, modelConfig: ModelConfig): void {
-    if (!this.config.extraction.implicitEnabled) {
+    // 3. Segment tracking
+    if (!this.config.extraction.trigger.onSegmentFull) {
       return;
     }
 
-    const messages = [...this.messageWindow];
+    const counter = (this.segmentCounters.get(sessionId) ?? 0) + 1;
+    this.segmentCounters.set(sessionId, counter);
 
-    // Check if any messages have implicit signals
-    const hasImplicitSignals = messages.some(m =>
-      this.extractor.hasExtractableContent(m.content, {
-        explicitEnabled: false,
-        implicitEnabled: true,
-      })
-    );
+    const segmentSize = this.config.segmentation.segmentSize;
 
-    if (hasImplicitSignals) {
-      const taskId = this.extractFromConversation(
-        sessionId,
-        `batch-${Date.now()}`,
-        messages,
-        modelConfig
-      );
-      log.debug('[MemoryService] Batch extraction triggered:', taskId);
+    if (counter >= segmentSize) {
+      this.triggerSegmentExtraction(sessionId, modelConfig);
     }
   }
 
   /**
-   * Get current turn count for session
+   * Trigger extraction for a full segment
    */
-  getTurnCount(): number {
-    return this.turnCount;
+  private triggerSegmentExtraction(sessionId: string, modelConfig: ModelConfig): void {
+    const segmentSize = this.config.segmentation.segmentSize;
+    const overlap = this.config.segmentation.segmentOverlap;
+
+    // Get current total message count from transcript
+    const totalMessages = this.transcriptWriter.countMessages(sessionId);
+    if (totalMessages === 0) return;
+
+    // Calculate segment boundaries
+    const segmentIndex = this.segmentIndexCounters.get(sessionId) ?? 0;
+    const endIndex = totalMessages;
+    const startIndex = Math.max(0, endIndex - segmentSize);
+
+    // Read the segment messages from transcript
+    const entries = this.transcriptWriter.readTranscriptRange(sessionId, startIndex, endIndex);
+    if (entries.length === 0) return;
+
+    const messages = entries.map(e => ({ role: e.role, content: e.content }));
+
+    // Record progress in database
+    this.database.insertExtractionProgress({
+      sessionId,
+      segmentIndex,
+      startMsgIndex: startIndex,
+      endMsgIndex: endIndex,
+      status: 'pending',
+      memoriesExtracted: 0,
+      createdAt: Date.now(),
+      completedAt: null,
+      errorMessage: null,
+    });
+
+    // Enqueue extraction task
+    this.extractionQueue.enqueue(
+      sessionId,
+      `seg-${segmentIndex}`,
+      messages,
+      modelConfig,
+      segmentIndex,
+      startIndex,
+      endIndex
+    );
+
+    // Reset counter (keep overlap messages in next segment)
+    this.segmentCounters.set(sessionId, overlap);
+    this.segmentIndexCounters.set(sessionId, segmentIndex + 1);
+
+    log.debug(`[MemoryService] Segment ${segmentIndex} triggered for session ${sessionId}`);
   }
 
   /**
-   * Reset message window for new session
-   */
-  resetMessageWindow(): void {
-    this.messageWindow = [];
-    this.turnCount = 0;
-    log.debug('[MemoryService] Message window reset');
-  }
-
-  /**
-   * Trigger extraction when session ends (Spec 5.3 方式 3)
-   * Analyzes all session messages for final extraction
+   * Handle session end - extract remaining unprocessed messages
    *
-   * @param sessionId - Session ID
-   * @param messages - All session messages
+   * Reads from transcript file and extraction_progress to determine
+   * which messages haven't been processed yet, then creates segments
+   * for the remaining messages.
+   *
+   * @param sessionId - Session / project ID
    * @param modelConfig - Model config (MUST include apiKey!)
    */
   async onSessionEnd(
     sessionId: string,
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>,
     modelConfig: ModelConfig
   ): Promise<string> {
     if (!this.initialized || !this.config.extraction.enabled) {
       return '';
     }
 
-    // Check if session end extraction is enabled
-    if (!this.config.extraction.trigger?.onSessionEnd) {
-      return '';
-    }
-
-    // Check if any messages have extractable content
-    const hasExtractable = messages.some(m =>
-      this.extractor.hasExtractableContent(m.content)
-    );
-
-    if (!hasExtractable) {
+    if (!this.config.extraction.trigger.onSessionEnd) {
       return '';
     }
 
     log.info('[MemoryService] Session end extraction for session:', sessionId);
 
-    // Extract from all session messages
-    const taskId = this.extractFromConversation(
+    // Get the max completed message index
+    const maxCompletedIndex = this.database.getMaxCompletedMsgIndex(sessionId);
+
+    // Read remaining messages from transcript
+    const startFrom = maxCompletedIndex >= 0 ? maxCompletedIndex : 0;
+    const totalMessages = this.transcriptWriter.countMessages(sessionId);
+
+    if (startFrom >= totalMessages) {
+      log.debug('[MemoryService] All messages already processed for session:', sessionId);
+      this.cleanupSessionState(sessionId);
+      return '';
+    }
+
+    // Read remaining transcript entries
+    const remainingEntries = this.transcriptWriter.readTranscriptRange(
       sessionId,
-      'session-end',
-      messages,
-      modelConfig
+      startFrom,
+      totalMessages
     );
 
-    // Reset window for next session
-    this.resetMessageWindow();
+    if (remainingEntries.length === 0) {
+      this.cleanupSessionState(sessionId);
+      return '';
+    }
 
-    return taskId;
+    // Check if any remaining messages have extractable content
+    const hasExtractable = remainingEntries.some(e =>
+      e.role === 'user' && this.extractor.hasExtractableContent(e.content)
+    );
+
+    if (!hasExtractable) {
+      this.cleanupSessionState(sessionId);
+      return '';
+    }
+
+    // Build segments from remaining messages
+    const segments = buildSegmentsFromIndex(
+      remainingEntries,
+      0,  // Already sliced to remaining
+      this.config.segmentation
+    );
+
+    // Get current segment index counter
+    let segmentIndex = this.segmentIndexCounters.get(sessionId) ?? 0;
+
+    // Enqueue each segment
+    let lastTaskId = '';
+    for (const segment of segments) {
+      const adjustedStartIndex = segment.startMsgIndex + startFrom;
+      const adjustedEndIndex = segment.endMsgIndex + startFrom;
+
+      // Record progress
+      this.database.insertExtractionProgress({
+        sessionId,
+        segmentIndex,
+        startMsgIndex: adjustedStartIndex,
+        endMsgIndex: adjustedEndIndex,
+        status: 'pending',
+        memoriesExtracted: 0,
+        createdAt: Date.now(),
+        completedAt: null,
+        errorMessage: null,
+      });
+
+      lastTaskId = this.extractionQueue.enqueue(
+        sessionId,
+        `session-end-seg-${segmentIndex}`,
+        segment.messages,
+        modelConfig,
+        segmentIndex,
+        adjustedStartIndex,
+        adjustedEndIndex
+      );
+
+      segmentIndex++;
+    }
+
+    // Cleanup session state
+    this.cleanupSessionState(sessionId);
+
+    return lastTaskId;
+  }
+
+  /**
+   * Clean up per-session tracking state
+   */
+  private cleanupSessionState(sessionId: string): void {
+    this.segmentCounters.delete(sessionId);
+    this.segmentIndexCounters.delete(sessionId);
   }
 
   // ==================== Memory Retrieval ====================
@@ -769,6 +901,16 @@ export class MemoryService extends EventEmitter {
       length: this.extractionQueue.getLength(),
       pending: this.extractionQueue.getPendingTasks(),
     };
+  }
+
+  /**
+   * Get extraction progress for a session
+   */
+  getExtractionProgress(sessionId: string): ExtractionProgressRecord[] {
+    if (!this.initialized) {
+      return [];
+    }
+    return this.database.getExtractionProgress(sessionId);
   }
 
   /**

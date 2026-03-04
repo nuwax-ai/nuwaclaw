@@ -9,13 +9,13 @@
 export type GuardLevel = 'strict' | 'standard' | 'relaxed';
 export type EmbeddingBackend = 'auto' | 'sqlite-vec' | 'js' | 'none';
 export type EmbeddingProvider = 'openai' | 'ollama' | 'custom';
-export type MemoryCategory = 'fact' | 'preference' | 'event' | 'skill';
+export type MemoryCategory = 'fact' | 'preference' | 'event' | 'skill' | 'decision';
 export type MemorySource = 'core' | 'daily';
 export type MemoryStatus = 'active' | 'archived' | 'deleted';
 
 export interface ExtractionTriggerConfig {
   onEveryTurn: boolean;      // Check after every conversation turn
-  batchInterval: number;     // Batch extract every N turns (default: 3)
+  onSegmentFull: boolean;    // Extract when segment is full (default: true)
   onSessionEnd: boolean;     // Extract on session end
 }
 
@@ -66,6 +66,23 @@ export interface SchedulerConfig {
   cleanupEnabled: boolean;
 }
 
+export interface SegmentationConfig {
+  segmentSize: number;          // Messages per segment (default: 5)
+  segmentOverlap: number;       // Overlap messages between segments (default: 2)
+  maxSegmentTokens: number;     // Max tokens per segment (default: 4000)
+  maxContentPerMessage: number; // Max chars per message before truncation (default: 1500)
+}
+
+export interface TranscriptConfig {
+  enabled: boolean;
+  retentionDays: number;        // Days to keep transcript files (default: 7)
+}
+
+export interface DeduplicationConfig {
+  textSimilarityThreshold: number;   // Jaccard similarity threshold (default: 0.8)
+  vectorSimilarityThreshold: number; // Cosine similarity threshold (default: 0.95)
+}
+
 export interface MemoryConfig {
   enabled: boolean;
   extraction: ExtractionConfig;
@@ -73,6 +90,9 @@ export interface MemoryConfig {
   embedding: EmbeddingConfig;
   retrieval: RetrievalConfig;
   scheduler: SchedulerConfig;
+  segmentation: SegmentationConfig;
+  transcript: TranscriptConfig;
+  deduplication: DeduplicationConfig;
 }
 
 // ==================== Memory Entry Types ====================
@@ -141,6 +161,9 @@ export interface ExtractionTask {
   modelConfig: ModelConfig;     // Must capture full model config including API key
   timestamp: number;
   retryCount: number;
+  segmentIndex?: number;        // Segment index (0-based)
+  startMsgIndex?: number;       // Segment start message index
+  endMsgIndex?: number;         // Segment end message index (exclusive)
 }
 
 export interface ExtractedMemory {
@@ -239,6 +262,8 @@ export interface CleanupResult {
   success: boolean;
   filesDeleted: number;
   memoriesDeleted: number;
+  transcriptsDeleted: number;
+  progressRecordsCleaned: number;
   error?: string;
 }
 
@@ -267,4 +292,50 @@ export interface EmbeddingCacheEntry {
   accessCount: number;
   createdAt: number;
   lastAccessedAt: number;
+}
+
+// ==================== Transcript Types ====================
+
+export interface TranscriptEntry {
+  ts: number;                   // Unix millisecond timestamp
+  role: 'user' | 'assistant';
+  content: string;              // Text content only (filtered tool_use/tool_result)
+  msgId: string;                // Unique message ID
+}
+
+// ==================== Segmentation Types ====================
+
+export interface Segment {
+  index: number;                // Segment index (0-based)
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  startMsgIndex: number;        // Start message index in transcript (inclusive)
+  endMsgIndex: number;          // End message index in transcript (exclusive)
+}
+
+// ==================== Extraction Progress Types ====================
+
+export type ExtractionProgressStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+export interface ExtractionProgressRecord {
+  sessionId: string;
+  segmentIndex: number;
+  startMsgIndex: number;
+  endMsgIndex: number;
+  status: ExtractionProgressStatus;
+  memoriesExtracted: number;
+  createdAt: number;
+  completedAt: number | null;
+  errorMessage: string | null;
+}
+
+export interface ExtractionProgressRow {
+  session_id: string;
+  segment_index: number;
+  start_msg_index: number;
+  end_msg_index: number;
+  status: string;
+  memories_extracted: number;
+  created_at: number;
+  completed_at: number | null;
+  error_message: string | null;
 }

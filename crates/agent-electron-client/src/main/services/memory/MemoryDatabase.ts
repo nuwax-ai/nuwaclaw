@@ -20,6 +20,8 @@ import type {
   MemorySearchResult,
   MemorySource,
   VectorAvailability,
+  ExtractionProgressRecord,
+  ExtractionProgressRow,
 } from './types';
 import {
   META_KEYS,
@@ -89,7 +91,24 @@ CREATE TABLE IF NOT EXISTS embedding_cache (
 
 CREATE INDEX IF NOT EXISTS idx_embedding_cache_accessed ON embedding_cache(last_accessed_at);
 
--- 6. File hash tracking
+-- 6b. Extraction progress tracking
+CREATE TABLE IF NOT EXISTS extraction_progress (
+  session_id TEXT NOT NULL,
+  segment_index INTEGER NOT NULL,
+  start_msg_index INTEGER NOT NULL,
+  end_msg_index INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  memories_extracted INTEGER DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  completed_at INTEGER,
+  error_message TEXT,
+  PRIMARY KEY (session_id, segment_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_extraction_progress_session
+  ON extraction_progress(session_id, status);
+
+-- 7. File hash tracking
 CREATE TABLE IF NOT EXISTS file_hashes (
   path TEXT PRIMARY KEY,
   hash TEXT NOT NULL,
@@ -810,6 +829,179 @@ export class MemoryDatabase {
       INSERT OR REPLACE INTO embedding_cache (content_hash, embedding, model, dims, access_count, created_at, last_accessed_at)
       VALUES (?, ?, ?, ?, 1, ?, ?)
     `).run(contentHash, float32ToBuffer(embedding), model, embedding.length, now, now);
+  }
+
+  // ==================== Extraction Progress Operations ====================
+
+  /**
+   * Insert extraction progress record
+   */
+  insertExtractionProgress(record: ExtractionProgressRecord): void {
+    if (!this.db) return;
+
+    this.db.prepare(`
+      INSERT OR REPLACE INTO extraction_progress (
+        session_id, segment_index, start_msg_index, end_msg_index,
+        status, memories_extracted, created_at, completed_at, error_message
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      record.sessionId,
+      record.segmentIndex,
+      record.startMsgIndex,
+      record.endMsgIndex,
+      record.status,
+      record.memoriesExtracted,
+      record.createdAt,
+      record.completedAt,
+      record.errorMessage
+    );
+  }
+
+  /**
+   * Update extraction progress record
+   */
+  updateExtractionProgress(
+    sessionId: string,
+    segmentIndex: number,
+    updates: Partial<ExtractionProgressRecord>
+  ): void {
+    if (!this.db) return;
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    if (updates.status !== undefined) {
+      fields.push('status = ?');
+      values.push(updates.status);
+    }
+    if (updates.memoriesExtracted !== undefined) {
+      fields.push('memories_extracted = ?');
+      values.push(updates.memoriesExtracted);
+    }
+    if (updates.completedAt !== undefined) {
+      fields.push('completed_at = ?');
+      values.push(updates.completedAt);
+    }
+    if (updates.errorMessage !== undefined) {
+      fields.push('error_message = ?');
+      values.push(updates.errorMessage);
+    }
+
+    if (fields.length === 0) return;
+
+    values.push(sessionId, segmentIndex);
+    this.db.prepare(
+      `UPDATE extraction_progress SET ${fields.join(', ')} WHERE session_id = ? AND segment_index = ?`
+    ).run(...values);
+  }
+
+  /**
+   * Get extraction progress for a session
+   */
+  getExtractionProgress(sessionId: string): ExtractionProgressRecord[] {
+    if (!this.db) return [];
+
+    const rows = this.db.prepare(
+      'SELECT * FROM extraction_progress WHERE session_id = ? ORDER BY segment_index'
+    ).all(sessionId) as ExtractionProgressRow[];
+
+    return rows.map(row => this.progressRowToRecord(row));
+  }
+
+  /**
+   * Get the maximum completed end_msg_index for a session
+   * Returns -1 if no completed segments exist
+   */
+  getMaxCompletedMsgIndex(sessionId: string): number {
+    if (!this.db) return -1;
+
+    const row = this.db.prepare(
+      `SELECT MAX(end_msg_index) as max_index FROM extraction_progress
+       WHERE session_id = ? AND status = 'completed'`
+    ).get(sessionId) as { max_index: number | null } | undefined;
+
+    return row?.max_index ?? -1;
+  }
+
+  /**
+   * Get all pending extraction progress records (for breakpoint recovery)
+   */
+  getPendingExtractionProgress(): ExtractionProgressRecord[] {
+    if (!this.db) return [];
+
+    const rows = this.db.prepare(
+      `SELECT * FROM extraction_progress WHERE status IN ('pending', 'processing') ORDER BY created_at`
+    ).all() as ExtractionProgressRow[];
+
+    return rows.map(row => this.progressRowToRecord(row));
+  }
+
+  /**
+   * Cleanup old extraction progress records
+   * - Delete completed records older than retentionDays
+   * - Delete failed records older than retentionDays
+   * - Mark stale pending records (older than stalePendingHours) as failed
+   */
+  cleanupExtractionProgress(
+    retentionDays: number,
+    stalePendingHours: number
+  ): { deleted: number; markedFailed: number } {
+    if (!this.db) return { deleted: 0, markedFailed: 0 };
+
+    const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+    const staleCutoff = Date.now() - stalePendingHours * 60 * 60 * 1000;
+
+    // Delete old completed records
+    const deleteCompleted = this.db.prepare(
+      `DELETE FROM extraction_progress WHERE status = 'completed' AND completed_at < ?`
+    ).run(cutoff);
+
+    // Delete old failed records
+    const deleteFailed = this.db.prepare(
+      `DELETE FROM extraction_progress WHERE status = 'failed' AND created_at < ?`
+    ).run(cutoff);
+
+    // Mark stale pending/processing as failed
+    const markStale = this.db.prepare(
+      `UPDATE extraction_progress SET status = 'failed', error_message = 'stale'
+       WHERE status IN ('pending', 'processing') AND created_at < ?`
+    ).run(staleCutoff);
+
+    return {
+      deleted: deleteCompleted.changes + deleteFailed.changes,
+      markedFailed: markStale.changes,
+    };
+  }
+
+  /**
+   * Get recent memory texts for deduplication
+   * Returns texts of recently created memories (for a given session's timeframe)
+   */
+  getRecentMemoryTexts(limit: number = 50): string[] {
+    if (!this.db) return [];
+
+    const rows = this.db.prepare(
+      `SELECT text FROM memories WHERE status = 'active' ORDER BY created_at DESC LIMIT ?`
+    ).all(limit) as { text: string }[];
+
+    return rows.map(row => row.text);
+  }
+
+  /**
+   * Convert extraction progress row to record
+   */
+  private progressRowToRecord(row: ExtractionProgressRow): ExtractionProgressRecord {
+    return {
+      sessionId: row.session_id,
+      segmentIndex: row.segment_index,
+      startMsgIndex: row.start_msg_index,
+      endMsgIndex: row.end_msg_index,
+      status: row.status as ExtractionProgressRecord['status'],
+      memoriesExtracted: row.memories_extracted,
+      createdAt: row.created_at,
+      completedAt: row.completed_at,
+      errorMessage: row.error_message,
+    };
   }
 
   // ==================== Utility Methods ====================

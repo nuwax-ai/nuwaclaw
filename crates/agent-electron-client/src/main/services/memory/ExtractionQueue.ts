@@ -9,9 +9,11 @@
 
 import { EventEmitter } from 'events';
 import log from 'electron-log';
-import type { ExtractionTask, ExtractedMemory, ModelConfig } from './types';
+import type { ExtractionTask, ExtractedMemory, ModelConfig, DeduplicationConfig } from './types';
 import { MemoryExtractor } from './MemoryExtractor';
 import { MemoryFileSync } from './MemoryFileSync';
+import { MemoryDatabase } from './MemoryDatabase';
+import { deduplicateMemories } from './utils/deduplicator';
 
 // ==================== Types ====================
 
@@ -36,6 +38,11 @@ export class ExtractionQueue extends EventEmitter {
   private paused: boolean = false;
   private extractor: MemoryExtractor;
   private fileSync: MemoryFileSync | null = null;
+  private database: MemoryDatabase | null = null;
+  private deduplicationConfig: DeduplicationConfig = {
+    textSimilarityThreshold: 0.8,
+    vectorSimilarityThreshold: 0.95,
+  };
   private options: QueueOptions = {
     maxRetries: 2,
     processingInterval: 1000,
@@ -51,9 +58,18 @@ export class ExtractionQueue extends EventEmitter {
   /**
    * Initialize the queue
    */
-  init(fileSync: MemoryFileSync, options?: Partial<QueueOptions>): void {
+  init(
+    fileSync: MemoryFileSync,
+    options?: Partial<QueueOptions>,
+    database?: MemoryDatabase,
+    deduplicationConfig?: DeduplicationConfig
+  ): void {
     this.fileSync = fileSync;
+    this.database = database ?? null;
     this.options = { ...this.options, ...options };
+    if (deduplicationConfig) {
+      this.deduplicationConfig = deduplicationConfig;
+    }
     log.info('[ExtractionQueue] Initialized');
   }
 
@@ -119,7 +135,10 @@ export class ExtractionQueue extends EventEmitter {
     sessionId: string,
     messageId: string,
     messages: Array<{ role: 'user' | 'assistant'; content: string }>,
-    modelConfig: ModelConfig
+    modelConfig: ModelConfig,
+    segmentIndex?: number,
+    startMsgIndex?: number,
+    endMsgIndex?: number
   ): string {
     // Validate model config - API key is required!
     if (!modelConfig.apiKey) {
@@ -141,6 +160,9 @@ export class ExtractionQueue extends EventEmitter {
       modelConfig,  // Store full config including API key!
       timestamp: Date.now(),
       retryCount: 0,
+      segmentIndex,
+      startMsgIndex,
+      endMsgIndex,
     };
 
     const taskId = this.generateTaskId(task);
@@ -230,15 +252,37 @@ export class ExtractionQueue extends EventEmitter {
     const taskId = this.generateTaskId(task);
     log.info('[ExtractionQueue] Processing task:', taskId);
 
+    // Update progress to 'processing' if tracking segment
+    if (task.segmentIndex !== undefined && this.database) {
+      this.database.updateExtractionProgress(task.sessionId, task.segmentIndex, {
+        status: 'processing',
+      });
+    }
+
     try {
       // Extract memories using stored model config
-      const memories = await this.extractMemories(task);
+      let memories = await this.extractMemories(task);
+
+      // Apply cross-segment deduplication
+      if (memories.length > 0 && this.database) {
+        const existingTexts = this.database.getRecentMemoryTexts(50);
+        memories = deduplicateMemories(memories, existingTexts, this.deduplicationConfig);
+      }
 
       if (memories.length > 0) {
         // Write to daily memory file
         await this.writeToDailyMemory(memories, task.sessionId);
 
         log.info('[ExtractionQueue] Extracted', memories.length, 'memories from task:', taskId);
+      }
+
+      // Update progress to 'completed' if tracking segment
+      if (task.segmentIndex !== undefined && this.database) {
+        this.database.updateExtractionProgress(task.sessionId, task.segmentIndex, {
+          status: 'completed',
+          memoriesExtracted: memories.length,
+          completedAt: Date.now(),
+        });
       }
 
       return {
@@ -258,6 +302,14 @@ export class ExtractionQueue extends EventEmitter {
           success: false,
           error: String(error),
         };
+      }
+
+      // Update progress to 'failed' if tracking segment
+      if (task.segmentIndex !== undefined && this.database) {
+        this.database.updateExtractionProgress(task.sessionId, task.segmentIndex, {
+          status: 'failed',
+          errorMessage: String(error),
+        });
       }
 
       log.error('[ExtractionQueue] Task failed after max retries:', taskId);
@@ -524,6 +576,59 @@ ${existingMemories || '(无)'}
       content,
       `会话 (${sessionId.slice(0, 8)})`
     );
+  }
+
+  // ==================== Breakpoint Recovery ====================
+
+  /**
+   * Resume pending tasks from extraction_progress table
+   * Called during initialization to recover from interruptions
+   */
+  resumePendingTasks(transcriptReader: {
+    readTranscriptRange: (sessionId: string, start: number, end: number) => Array<{ role: 'user' | 'assistant'; content: string }>;
+  }, modelConfig: ModelConfig): void {
+    if (!this.database) {
+      log.warn('[ExtractionQueue] Cannot resume: database not available');
+      return;
+    }
+
+    const pendingRecords = this.database.getPendingExtractionProgress();
+    if (pendingRecords.length === 0) {
+      return;
+    }
+
+    log.info(`[ExtractionQueue] Resuming ${pendingRecords.length} pending extraction tasks`);
+
+    for (const record of pendingRecords) {
+      try {
+        const messages = transcriptReader.readTranscriptRange(
+          record.sessionId,
+          record.startMsgIndex,
+          record.endMsgIndex
+        );
+
+        if (messages.length === 0) {
+          // Transcript no longer available
+          this.database.updateExtractionProgress(record.sessionId, record.segmentIndex, {
+            status: 'failed',
+            errorMessage: 'transcript_expired',
+          });
+          continue;
+        }
+
+        this.enqueue(
+          record.sessionId,
+          `resume-seg-${record.segmentIndex}`,
+          messages,
+          modelConfig,
+          record.segmentIndex,
+          record.startMsgIndex,
+          record.endMsgIndex
+        );
+      } catch (error) {
+        log.error(`[ExtractionQueue] Failed to resume task for session ${record.sessionId}:`, error);
+      }
+    }
   }
 
   // ==================== Utility Methods ====================

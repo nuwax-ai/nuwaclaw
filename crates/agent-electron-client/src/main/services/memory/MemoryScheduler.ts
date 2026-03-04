@@ -11,6 +11,7 @@ import log from 'electron-log';
 import type { MemoryConfig, ConsolidationResult, CleanupResult } from './types';
 import { MemoryFileSync } from './MemoryFileSync';
 import { MemoryDatabase } from './MemoryDatabase';
+import { TranscriptWriter } from './TranscriptWriter';
 import { LLM_CONSOLIDATION_PROMPT } from './constants';
 
 // ==================== Types ====================
@@ -21,6 +22,8 @@ interface SchedulerConfig {
   consolidationEnabled: boolean;
   cleanupEnabled: boolean;
   dailyRetentionDays: number;
+  transcriptRetentionDays: number;
+  stalePendingHours: number;
 }
 
 // ==================== MemoryScheduler Class ====================
@@ -28,6 +31,7 @@ interface SchedulerConfig {
 export class MemoryScheduler extends EventEmitter {
   private fileSync: MemoryFileSync | null = null;
   private database: MemoryDatabase | null = null;
+  private transcriptWriter: TranscriptWriter | null = null;
   private consolidationJob: cron.ScheduledTask | null = null;
   private cleanupJob: cron.ScheduledTask | null = null;
   private running: boolean = false;
@@ -38,14 +42,17 @@ export class MemoryScheduler extends EventEmitter {
     consolidationEnabled: true,
     cleanupEnabled: true,
     dailyRetentionDays: 30,
+    transcriptRetentionDays: 7,
+    stalePendingHours: 24,
   };
 
   /**
    * Initialize scheduler
    */
-  init(fileSync: MemoryFileSync, database: MemoryDatabase): void {
+  init(fileSync: MemoryFileSync, database: MemoryDatabase, transcriptWriter?: TranscriptWriter): void {
     this.fileSync = fileSync;
     this.database = database;
+    this.transcriptWriter = transcriptWriter ?? null;
     log.info('[MemoryScheduler] Initialized');
   }
 
@@ -56,6 +63,7 @@ export class MemoryScheduler extends EventEmitter {
     this.stop();
     this.fileSync = null;
     this.database = null;
+    this.transcriptWriter = null;
     log.info('[MemoryScheduler] Destroyed');
   }
 
@@ -77,6 +85,12 @@ export class MemoryScheduler extends EventEmitter {
     }
     if (config.dailyRetentionDays !== undefined) {
       this.config.dailyRetentionDays = config.dailyRetentionDays;
+    }
+    if (config.transcriptRetentionDays !== undefined) {
+      this.config.transcriptRetentionDays = config.transcriptRetentionDays;
+    }
+    if (config.stalePendingHours !== undefined) {
+      this.config.stalePendingHours = config.stalePendingHours;
     }
 
     // Restart if running
@@ -457,7 +471,10 @@ export class MemoryScheduler extends EventEmitter {
   /**
    * Run cleanup task
    *
-   * Deletes daily memory files older than retention days
+   * Three-part cleanup:
+   * 1. Daily memory files older than dailyRetentionDays
+   * 2. Transcript files older than transcriptRetentionDays
+   * 3. Extraction progress records (completed/failed older than transcriptRetentionDays, stale pending)
    */
   async runCleanup(): Promise<CleanupResult> {
     log.info('[MemoryScheduler] Running cleanup...');
@@ -466,6 +483,8 @@ export class MemoryScheduler extends EventEmitter {
       success: false,
       filesDeleted: 0,
       memoriesDeleted: 0,
+      transcriptsDeleted: 0,
+      progressRecordsCleaned: 0,
     };
 
     if (!this.fileSync || !this.database) {
@@ -474,9 +493,24 @@ export class MemoryScheduler extends EventEmitter {
     }
 
     try {
-      // Delete old daily files
+      // Cleanup 1: Delete old daily memory files
       const filesDeleted = this.fileSync.deleteOldDailyFiles(this.config.dailyRetentionDays);
       result.filesDeleted = filesDeleted;
+
+      // Cleanup 2: Delete old transcript files
+      if (this.transcriptWriter) {
+        const transcriptsDeleted = this.transcriptWriter.cleanupOldTranscripts(
+          this.config.transcriptRetentionDays
+        );
+        result.transcriptsDeleted = transcriptsDeleted;
+      }
+
+      // Cleanup 3: Cleanup extraction progress records
+      const progressCleanup = this.database.cleanupExtractionProgress(
+        this.config.transcriptRetentionDays,
+        this.config.stalePendingHours
+      );
+      result.progressRecordsCleaned = progressCleanup.deleted + progressCleanup.markedFailed;
 
       // Update meta
       this.database.setMeta('cleanup_last_run', Date.now().toString());

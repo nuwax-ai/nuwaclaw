@@ -12,6 +12,7 @@ export const CORE_MEMORY_FILE = 'MEMORY.md';
 export const DAILY_MEMORY_DIR = 'memory';
 export const MEMORY_DB_DIR = '.memory';
 export const MEMORY_DB_FILE = 'index.sqlite';
+export const TRANSCRIPT_DIR = 'transcripts';
 
 // ==================== Default Configuration ====================
 
@@ -25,11 +26,11 @@ export const DEFAULT_CONFIG: MemoryConfig = {
     guardLevel: 'standard',
     trigger: {
       onEveryTurn: true,
-      batchInterval: 3,
+      onSegmentFull: true,
       onSessionEnd: true,
     },
     llm: {
-      maxTokensPerExtract: 500,
+      maxTokensPerExtract: 800,
       temperature: 0.3,
       maxRetries: 2,
     },
@@ -63,6 +64,23 @@ export const DEFAULT_CONFIG: MemoryConfig = {
     cleanupCron: '0 1 * * *',         // 01:00 daily
     consolidationEnabled: true,
     cleanupEnabled: true,
+  },
+
+  segmentation: {
+    segmentSize: 5,
+    segmentOverlap: 2,
+    maxSegmentTokens: 4000,
+    maxContentPerMessage: 1500,
+  },
+
+  transcript: {
+    enabled: true,
+    retentionDays: 7,
+  },
+
+  deduplication: {
+    textSimilarityThreshold: 0.8,
+    vectorSimilarityThreshold: 0.95,
   },
 };
 
@@ -129,7 +147,7 @@ export const META_KEYS = {
 
 // ==================== Schema Version ====================
 
-export const SCHEMA_VERSION = '1';
+export const SCHEMA_VERSION = '2';
 
 // ==================== Memory Status ====================
 
@@ -146,6 +164,7 @@ export const MEMORY_CATEGORIES = {
   PREFERENCE: 'preference',
   EVENT: 'event',
   SKILL: 'skill',
+  DECISION: 'decision',
 } as const;
 
 // ==================== Memory Sources ====================
@@ -157,24 +176,28 @@ export const MEMORY_SOURCES = {
 
 // ==================== LLM Prompts ====================
 
-export const LLM_EXTRACTION_PROMPT = `你是一个记忆提取助手。请从以下对话中提取值得长期记忆的信息。
+export const LLM_EXTRACTION_PROMPT = `你是一个记忆提取助手。请从以下对话片段中提取值得长期记忆的信息。
 
-## 对话内容
+## 对话片段 {segment_info}
 {conversation_history}
 
+## 已知记忆 (避免重复)
+{existing_memories}
+
 ## 提取规则
-1. 只提取关于用户的个人事实、偏好、习惯
+1. 只提取关于用户的个人事实、偏好、习惯、重要决策
 2. 忽略:
    - 临时性信息 (如"我今天很累")
    - 纯粹的问题或指令
    - 已知的重复信息
+   - 代码片段本身 (但代码相关的偏好/决策可以提取)
 3. 每条记忆应该是独立的、完整的陈述
 
 ## 输出格式
 返回 JSON 数组，每条记忆包含:
 {
   "text": "记忆文本",
-  "category": "fact|preference|event",
+  "category": "fact|preference|event|skill|decision",
   "confidence": 0.0-1.0
 }
 
@@ -216,3 +239,8 @@ export const LLM_CONSOLIDATION_PROMPT = `你是一个记忆整合助手。请将
 
 ## 输出
 输出更新后的完整 MEMORY.md 内容，保持 Markdown 格式。`;
+
+// ==================== Cleanup Constants ====================
+
+export const DEFAULT_TRANSCRIPT_RETENTION_DAYS = 7;
+export const DEFAULT_STALE_PENDING_HOURS = 24;
