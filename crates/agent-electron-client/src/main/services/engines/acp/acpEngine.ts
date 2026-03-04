@@ -68,7 +68,7 @@ interface AcpSession {
   lastActivity?: number;
 }
 
-let _acpSessionCounter = 0;
+// Session counter removed — ACP protocol UUID is used as canonical session.id
 
 export class AcpEngine extends EventEmitter {
   private config: AgentConfig | null = null;
@@ -324,8 +324,6 @@ export class AcpEngine extends EventEmitter {
       throw new Error('AcpEngine not initialized');
     }
 
-    const localId = `acp-${++_acpSessionCounter}-${Date.now()}`;
-
     // Build mcpServers array for ACP (McpServerStdio format)
     const mcpServers: AcpMcpServer[] = [];
 
@@ -374,23 +372,23 @@ export class AcpEngine extends EventEmitter {
     }
     log.info(`${this.logTag} ✅ ACP newSession 完成 (${Date.now() - t0}ms), acpSessionId=${acpResult.sessionId}`);
 
+    const sessionId = acpResult.sessionId;
     const session: AcpSession = {
-      id: localId,
+      id: sessionId,
       title: opts?.title,
-      acpSessionId: acpResult.sessionId,
+      acpSessionId: sessionId,
       createdAt: Date.now(),
       status: 'idle',
       lastActivity: Date.now(),
     };
-    this.sessions.set(localId, session);
+    this.sessions.set(sessionId, session);
 
     log.info(`${this.logTag} Session created`, {
-      localId,
-      acpSessionId: acpResult.sessionId,
+      sessionId,
     });
 
     return {
-      id: localId,
+      id: sessionId,
       title: session.title,
       time: { created: session.createdAt },
     };
@@ -753,7 +751,6 @@ export class AcpEngine extends EventEmitter {
       }
 
       // 2. Record user message to MemoryService
-      // Use session.id (local ID like 'acp-1-xxx') to match assistant message recording
       if (memoryService.isInitialized() && this.config) {
         try {
           const modelConfig: ModelConfig = {
@@ -801,12 +798,12 @@ ${memoryContext}
       // 5. Return HttpResult<ChatResponse>
       const chatResponse: ComputerChatResponse = {
         project_id: request.project_id || session.id,
-        session_id: session.acpSessionId ?? session.id,
+        session_id: session.id,
         error: null,
         request_id: request.request_id,
       };
 
-      log.info(`${this.logTag} ✅ chat() 响应: session_id=${session.acpSessionId ?? session.id}`);
+      log.info(`${this.logTag} ✅ chat() 响应: session_id=${session.id}`);
 
       return {
         code: '0000',
@@ -850,21 +847,20 @@ ${memoryContext}
   // === Internal: ACP → SSE Event Mapping ===
 
   private handleAcpSessionUpdate(acpSessionId: string, update: AcpSessionUpdate): void {
-    const sessionId = this.findLocalSessionId(acpSessionId);
-    if (!sessionId) {
+    const session = this.sessions.get(acpSessionId);
+    if (!session) {
       log.warn(`${this.logTag} Unknown ACP session:`, acpSessionId);
       return;
     }
 
-    const session = this.findSessionByAcpId(acpSessionId);
-    if (session) session.lastActivity = Date.now();
+    session.lastActivity = Date.now();
 
     // Debug: log every ACP session update event
-    log.info(`${this.logTag} 📩 ACP sessionUpdate: type=${update.sessionUpdate}, acpSessionId=${acpSessionId}, localSessionId=${sessionId}`);
+    log.info(`${this.logTag} 📩 ACP sessionUpdate: type=${update.sessionUpdate}, sessionId=${acpSessionId}`);
 
-    // Include acpSessionId for SSE push - SSE clients connect using acpSessionId from /computer/chat response
+    // sessionId and acpSessionId are the same UUID
     this.emit('computer:progress', {
-      sessionId: sessionId,
+      sessionId: acpSessionId,
       acpSessionId: acpSessionId,
       messageType: 'agentSessionUpdate',
       subType: update.sessionUpdate,
@@ -876,7 +872,7 @@ ${memoryContext}
       case 'agent_message_chunk': {
         const u = update as AcpAgentMessageChunk;
         this.emit('message.part.updated', {
-          sessionId,
+          sessionId: acpSessionId,
           type: 'text',
           text: u.content?.text || '',
         });
@@ -886,7 +882,7 @@ ${memoryContext}
       case 'agent_thought_chunk': {
         const u = update as AcpAgentThoughtChunk;
         this.emit('message.part.updated', {
-          sessionId,
+          sessionId: acpSessionId,
           type: 'reasoning',
           thinking: u.content?.text || '',
         });
@@ -896,7 +892,7 @@ ${memoryContext}
       case 'tool_call': {
         const u = update as AcpToolCall;
         this.emit('message.part.updated', {
-          sessionId,
+          sessionId: acpSessionId,
           type: 'tool',
           toolCallId: u.toolCallId,
           name: u.title,
@@ -911,7 +907,7 @@ ${memoryContext}
       case 'tool_call_update': {
         const u = update as AcpToolCallUpdate;
         this.emit('message.part.updated', {
-          sessionId,
+          sessionId: acpSessionId,
           type: 'tool',
           toolCallId: u.toolCallId,
           status: u.status,
@@ -923,12 +919,11 @@ ${memoryContext}
 
       case 'session_info_update': {
         const u = update as AcpSessionInfoUpdate;
-        const session = this.findSessionByAcpId(acpSessionId);
-        if (session && u.title) {
+        if (u.title) {
           session.title = u.title;
         }
         this.emit('session.updated', {
-          sessionId,
+          sessionId: acpSessionId,
           title: u.title,
         });
         break;
@@ -949,8 +944,7 @@ ${memoryContext}
 
   private async handlePermissionRequest(params: AcpPermissionRequest): Promise<AcpPermissionResponse> {
     const acpSessionId = params.sessionId;
-    const sessionId = this.findLocalSessionId(acpSessionId);
-    if (!sessionId) {
+    if (!this.sessions.has(acpSessionId)) {
       return { outcome: { outcome: 'cancelled' } };
     }
 
@@ -976,23 +970,4 @@ ${memoryContext}
     return { outcome: { outcome: 'cancelled' } };
   }
 
-  // === Internal: Session Lookup Helpers ===
-
-  private findLocalSessionId(acpSessionId: string): string | null {
-    for (const [localId, session] of this.sessions) {
-      if (session.acpSessionId === acpSessionId) {
-        return localId;
-      }
-    }
-    return null;
-  }
-
-  private findSessionByAcpId(acpSessionId: string): AcpSession | null {
-    for (const [, session] of this.sessions) {
-      if (session.acpSessionId === acpSessionId) {
-        return session;
-      }
-    }
-    return null;
-  }
 }

@@ -26,7 +26,7 @@ export function registerComputerHandlers(): void {
       user_id: request.user_id,
       project_id: projectId,
       is_alive: !!projectEngine,
-      session_id: session?.acpSessionId ?? session?.id ?? null,
+      session_id: session?.id ?? null,
       status: session ? (session.status === 'active' ? 'Busy' : 'Idle') : null,
       last_activity: session?.lastActivity ? new Date(session.lastActivity).toISOString() : null,
       created_at: session ? new Date(session.createdAt).toISOString() : null,

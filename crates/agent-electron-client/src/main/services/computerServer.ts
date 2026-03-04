@@ -264,7 +264,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       const session = acpEngine?.findSessionByProjectId(body.project_id) ?? null;
 
       if (session) {
-        log.info(`✅ [HTTP] Agent 状态: project_id=${body.project_id}, is_alive=true, session_id=${session.acpSessionId ?? session.id}`);
+        log.info(`✅ [HTTP] Agent 状态: project_id=${body.project_id}, is_alive=true, session_id=${session.id}`);
       } else {
         log.warn(`⚠️ [HTTP] Agent 不存在: project_id=${body.project_id}`);
       }
@@ -273,7 +273,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         user_id: body.user_id,
         project_id: body.project_id,
         is_alive: !!projectEngine,
-        session_id: session?.acpSessionId ?? session?.id ?? null,
+        session_id: session?.id ?? null,
         status: session ? (session.status === 'active' ? 'Busy' : 'Idle') : null,
         last_activity: session?.lastActivity ? new Date(session.lastActivity).toISOString() : null,
         created_at: session ? new Date(session.createdAt).toISOString() : null,

@@ -67,19 +67,14 @@ export function registerEventForwarders(ctx: HandlerContext): void {
     ctx.getMainWindow()?.webContents.send('computer:progress', data);
     const d = data as UnifiedSessionMessage;
     if (d?.sessionId) {
-      // Use acpSessionId for SSE push, matching /computer/chat response
-      // d.sessionId is the local session ID (acp-xxx)
-      // d.acpSessionId is the ACP protocol session ID (UUID format)
-      // SSE clients connect using the ACP protocol session ID from /computer/chat response
-      const sseSessionId = d.acpSessionId || d.sessionId;
-      log.debug(`[EventForwarders] 📤 Pushing SSE event: sseSessionId=${sseSessionId}, subType=${d.subType}`);
-      pushSseEvent(sseSessionId, d.subType || 'message', d);
+      // sessionId is now the ACP protocol UUID — same as acpSessionId
+      log.debug(`[EventForwarders] 📤 Pushing SSE event: sessionId=${d.sessionId}, subType=${d.subType}`);
+      pushSseEvent(d.sessionId, d.subType || 'message', d);
     }
   });
 
   agentService.on('computer:promptStart', (data: { sessionId: string; acpSessionId?: string; requestId?: string }) => {
-    // Use acpSessionId for SSE push - SSE clients connect using acpSessionId from /computer/chat response
-    const sseSessionId = data.acpSessionId || data.sessionId;
+    // sessionId is now the ACP protocol UUID
     const event: UnifiedSessionMessage = {
       sessionId: data.sessionId,
       acpSessionId: data.acpSessionId,
@@ -89,12 +84,11 @@ export function registerEventForwarders(ctx: HandlerContext): void {
       timestamp: new Date().toISOString(),
     };
     ctx.getMainWindow()?.webContents.send('computer:progress', event);
-    pushSseEvent(sseSessionId, 'prompt_start', event);
+    pushSseEvent(data.sessionId, 'prompt_start', event);
   });
 
   agentService.on('computer:promptEnd', (data: { sessionId: string; acpSessionId?: string; reason?: string; description?: string }) => {
-    // Use acpSessionId for SSE push - SSE clients connect using acpSessionId from /computer/chat response
-    const sseSessionId = data.acpSessionId || data.sessionId;
+    // sessionId is now the ACP protocol UUID
     const event: UnifiedSessionMessage = {
       sessionId: data.sessionId,
       acpSessionId: data.acpSessionId,
@@ -104,6 +98,6 @@ export function registerEventForwarders(ctx: HandlerContext): void {
       timestamp: new Date().toISOString(),
     };
     ctx.getMainWindow()?.webContents.send('computer:progress', event);
-    pushSseEvent(sseSessionId, data.reason || 'end_turn', event);
+    pushSseEvent(data.sessionId, data.reason || 'end_turn', event);
   });
 }
