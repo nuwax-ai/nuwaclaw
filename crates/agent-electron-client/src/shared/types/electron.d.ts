@@ -82,6 +82,8 @@ export interface LocalDependencyItem {
   description: string;
   required: boolean;
   minVersion?: string;
+  /** 初始化/安装时使用的固定版本；存在时安装或升级到该版本 */
+  installVersion?: string;
   binName?: string;
   status: DependencyStatus;
   version?: string;

@@ -1,4 +1,5 @@
 import log from 'electron-log';
+import { app } from 'electron';
 import { getDb, readSetting } from '../db';
 import { startComputerServer } from '../services/computerServer';
 import { mcpProxyManager, DEFAULT_MCP_PROXY_CONFIG } from '../services/packages/mcp';
@@ -6,7 +7,7 @@ import { getConfiguredPorts } from '../services/startupPorts';
 
 export async function runStartupTasks(): Promise<void> {
   // 从 SQLite 恢复镜像配置
-  const { setMirrorConfig } = await import('../services/system/dependencies');
+  const { setMirrorConfig, getInitDepsState, syncInitDependencies, SETUP_REQUIRED_DEPENDENCIES } = await import('../services/system/dependencies');
   const mirrorConfig = readSetting('mirror_config');
   if (mirrorConfig) {
     try {
@@ -46,4 +47,31 @@ export async function runStartupTasks(): Promise<void> {
   } catch (e) {
     log.warn('[McpProxy] 初始化配置失败:', e);
   }
+
+  // 客户端升级后：若 appVersion 或 installVersion 变化，后台同步初始化依赖到写死版本
+  setImmediate(async () => {
+    try {
+      const state = getInitDepsState();
+      const currentVersion = app.getVersion();
+      const versionChanged = !state || state.appVersion !== currentVersion;
+      let packagesChanged = false;
+      if (state?.packages) {
+        for (const dep of SETUP_REQUIRED_DEPENDENCIES) {
+          if (!dep.installVersion) continue;
+          if (state.packages[dep.name] !== dep.installVersion) {
+            packagesChanged = true;
+            break;
+          }
+        }
+      } else {
+        packagesChanged = true;
+      }
+      if (versionChanged || packagesChanged) {
+        const { updated } = await syncInitDependencies();
+        if (updated.length > 0) log.info('[Init] 初始化依赖已同步:', updated);
+      }
+    } catch (e) {
+      log.warn('[Init] 初始化依赖同步失败:', e);
+    }
+  });
 }

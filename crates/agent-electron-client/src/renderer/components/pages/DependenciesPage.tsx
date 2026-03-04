@@ -46,6 +46,8 @@ export default function DependenciesPage() {
   const [depLoading, setDepLoading] = useState(false);
   const [depInstalling, setDepInstalling] = useState(false);
   const [currentInstallingDep, setCurrentInstallingDep] = useState<string>("");
+  /** 当前正在执行的是「升级」而非「安装」，用于单项安装时的文案（安装中/升级中） */
+  const [currentInstallIsUpgrade, setCurrentInstallIsUpgrade] = useState(false);
 
   const loadDependencies = useCallback(async () => {
     setDepLoading(true);
@@ -107,6 +109,7 @@ export default function DependenciesPage() {
     missing: localDeps.filter(
       (d) => d.status === "missing" || d.status === "error",
     ).length,
+    outdated: localDeps.filter((d) => d.status === "outdated").length,
   };
 
   // ==========================================
@@ -114,8 +117,10 @@ export default function DependenciesPage() {
   // ==========================================
   const handleInstallSingleDep = async (dep: LocalDependencyItem) => {
     const { name: packageName, displayName } = dep;
+    const isUpgrade = dep.status === "outdated";
     setDepInstalling(true);
     setCurrentInstallingDep(displayName);
+    setCurrentInstallIsUpgrade(isUpgrade);
     setLocalDeps((prev) =>
       prev.map((d) =>
         d.name === packageName ? { ...d, status: "installing" as const } : d,
@@ -123,8 +128,15 @@ export default function DependenciesPage() {
     );
 
     try {
+      const options =
+        isUpgrade && dep.installVersion
+          ? { version: dep.installVersion }
+          : undefined;
       const result =
-        await window.electronAPI?.dependencies.installPackage(packageName);
+        await window.electronAPI?.dependencies.installPackage(
+          packageName,
+          options,
+        );
 
       if (result?.success) {
         setLocalDeps((prev) =>
@@ -139,7 +151,8 @@ export default function DependenciesPage() {
               : d,
           ),
         );
-        message.success(`${displayName} 安装成功`);
+        const action = isUpgrade ? "升级" : "安装";
+        message.success(`${displayName} ${action}成功`);
       } else {
         setLocalDeps((prev) =>
           prev.map((d) =>
@@ -148,7 +161,8 @@ export default function DependenciesPage() {
               : d,
           ),
         );
-        message.error(`${displayName} 安装失败`);
+        const action = isUpgrade ? "升级" : "安装";
+        message.error(`${displayName} ${action}失败`);
       }
     } catch (error) {
       setLocalDeps((prev) =>
@@ -162,33 +176,50 @@ export default function DependenciesPage() {
     } finally {
       setDepInstalling(false);
       setCurrentInstallingDep("");
+      setCurrentInstallIsUpgrade(false);
     }
   };
 
   // ==========================================
-  // Install all missing dependencies
+  // Install/upgrade all missing or outdated dependencies
   // ==========================================
   const handleInstallAllDeps = async () => {
-    const missingDeps = localDeps.filter(
-      (d) => d.status === "missing" || d.status === "error",
+    const depsToProcess = localDeps.filter(
+      (d) =>
+        d.status === "missing" ||
+        d.status === "error" ||
+        d.status === "outdated",
     );
-    if (missingDeps.length === 0) {
-      message.info("没有需要安装的依赖");
+    if (depsToProcess.length === 0) {
+      message.info("没有需要安装或升级的依赖");
       return;
     }
 
+    const hadOutdated = depsToProcess.some((d) => d.status === "outdated");
+    const hadMissing = depsToProcess.some(
+      (d) => d.status === "missing" || d.status === "error",
+    );
+
     setDepInstalling(true);
     try {
-      for (const dep of missingDeps) {
+      for (const dep of depsToProcess) {
         setCurrentInstallingDep(dep.displayName);
+        setCurrentInstallIsUpgrade(dep.status === "outdated");
         setLocalDeps((prev) =>
           prev.map((d) =>
             d.name === dep.name ? { ...d, status: "installing" as const } : d,
           ),
         );
 
+        const options =
+          dep.status === "outdated" && dep.installVersion
+            ? { version: dep.installVersion }
+            : undefined;
         const result =
-          await window.electronAPI?.dependencies.installPackage(dep.name);
+          await window.electronAPI?.dependencies.installPackage(
+            dep.name,
+            options,
+          );
 
         if (result?.success) {
           setLocalDeps((prev) =>
@@ -215,11 +246,18 @@ export default function DependenciesPage() {
                 : d,
             ),
           );
-          message.error(`${dep.displayName} 安装失败`);
+          const action = dep.status === "outdated" ? "升级" : "安装";
+          message.error(`${dep.displayName} ${action}失败`);
         }
       }
 
-      message.success("依赖安装完成");
+      const doneMsg =
+        hadMissing && hadOutdated
+          ? "依赖安装并升级完成"
+          : hadOutdated
+            ? "依赖升级完成"
+            : "依赖安装完成";
+      message.success(doneMsg);
     } catch (error) {
       message.error(`安装失败: ${error}`);
     } finally {
@@ -239,6 +277,7 @@ export default function DependenciesPage() {
           <CheckCircleOutlined style={{ color: "#16a34a", fontSize: 12 }} />
         );
       case "missing":
+      case "outdated":
         return (
           <ExclamationCircleOutlined
             style={{ color: "#ca8a04", fontSize: 12 }}
@@ -417,7 +456,7 @@ export default function DependenciesPage() {
             >
               刷新
             </Button>
-            {depSummary.missing > 0 && (
+            {(depSummary.missing > 0 || depSummary.outdated > 0) && (
               <Button
                 size="small"
                 type="primary"
@@ -426,7 +465,11 @@ export default function DependenciesPage() {
                 loading={depInstalling}
                 disabled={!systemDepsReady}
               >
-                全部安装
+                {depSummary.missing > 0 && depSummary.outdated > 0
+                  ? "安装并升级"
+                  : depSummary.outdated > 0
+                    ? "全部升级"
+                    : "全部安装"}
               </Button>
             )}
           </div>
@@ -454,7 +497,9 @@ export default function DependenciesPage() {
           ) : (
             localDeps.map((item, i) => {
               const canInstall =
-                (item.status === "missing" || item.status === "error") &&
+                (item.status === "missing" ||
+                  item.status === "error" ||
+                  item.status === "outdated") &&
                 systemDepsReady &&
                 !depInstalling;
 
@@ -518,7 +563,7 @@ export default function DependenciesPage() {
                         currentInstallingDep === item.displayName && (
                           <span style={{ marginLeft: 8 }}>
                             <LoadingOutlined style={{ marginRight: 4 }} />
-                            安装中...
+                            {currentInstallIsUpgrade ? "升级中..." : "安装中..."}
                           </span>
                         )}
                     </div>
@@ -531,7 +576,7 @@ export default function DependenciesPage() {
                         type="primary"
                         onClick={() => handleInstallSingleDep(item)}
                       >
-                        安装
+                        {item.status === "outdated" ? "升级" : "安装"}
                       </Button>
                     )}
                     {item.status === "bundled" && (

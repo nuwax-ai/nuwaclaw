@@ -40,7 +40,7 @@ type InstallPhase =
 interface DisplayDependencyItem {
   name: string;
   displayName: string;
-  type: "system" | "npm-local" | "npm-global" | "shell-installer";
+  type: "system" | "npm-local" | "npm-global" | "shell-installer" | "bundled";
   description: string;
   status:
     | "checking"
@@ -54,6 +54,8 @@ interface DisplayDependencyItem {
   requiredVersion?: string;
   errorMessage?: string;
   installUrl?: string;
+  /** 初始化安装/升级时使用的固定版本 */
+  installVersion?: string;
 }
 
 export default function SetupDependencies({
@@ -109,6 +111,7 @@ export default function SetupDependencies({
           d.type === "system" && d.name === "uv"
             ? "https://docs.astral.sh/uv/getting-started/installation/"
             : undefined,
+        installVersion: d.installVersion,
       }));
       setAllDependencies(unified);
 
@@ -207,8 +210,12 @@ export default function SetupDependencies({
           ),
         );
 
-        const result =
-          await window.electronAPI?.dependencies.installPackage(pkg.name);
+        const result = await window.electronAPI?.dependencies.installPackage(
+          pkg.name,
+          pkg.status === "outdated" && pkg.installVersion
+            ? { version: pkg.installVersion }
+            : undefined,
+        );
 
         if (result?.success) {
           setAllDependencies((prev) =>
@@ -433,11 +440,13 @@ export default function SetupDependencies({
 
   // 正常自动流程：只显示 loading + 状态文字
   if (!isErrorPhase) {
+    const hasOutdated = allDependencies.some((d) => d.status === "outdated");
+    const installVerb = hasOutdated ? "安装并升级" : "安装";
     const phaseText: Record<string, string> = {
       checking: "正在检测依赖环境...",
       installing: currentInstalling
-        ? `正在安装 ${currentInstalling}...`
-        : "正在安装依赖...",
+        ? `正在${installVerb} ${currentInstalling}...`
+        : `正在${installVerb}依赖...`,
       completed: ACTION_MESSAGES.allReady,
     };
 
@@ -491,14 +500,17 @@ export default function SetupDependencies({
 
   // 通用错误（npm 安装失败等）
   if (installPhase === "error") {
+    const hasOutdated = allDependencies.some((d) => d.status === "outdated");
+    const installLabel = hasOutdated ? "依赖安装与升级" : "依赖安装";
+    const retryLabel = hasOutdated ? "重试安装并升级" : "重试安装";
     return (
       <div>
         <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
-          依赖安装
+          {installLabel}
         </div>
         {renderDependencyList()}
         <Alert
-          message="安装失败"
+          message={hasOutdated ? "安装/升级失败" : "安装失败"}
           description={installError}
           type="error"
           showIcon
@@ -520,7 +532,7 @@ export default function SetupDependencies({
               setInstallPhase("installing");
             }}
           >
-            重试安装
+            {retryLabel}
           </Button>
         </div>
       </div>

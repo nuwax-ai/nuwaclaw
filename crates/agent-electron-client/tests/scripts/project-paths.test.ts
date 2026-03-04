@@ -25,14 +25,10 @@ describe('scripts project path contracts', () => {
   it('resolves resources and node_modules from project root', () => {
     expect(resolveFromProject('resources')).toBe(path.join(projectRootByFs, 'resources'));
     expect(resolveFromProject('node_modules')).toBe(path.join(projectRootByFs, 'node_modules'));
-    expect(resolveFromProject('resources', 'mcp-proxy')).toBe(
-      path.join(projectRootByFs, 'resources', 'mcp-proxy'),
-    );
   });
 
   it('keeps moved scripts wired to shared project-path helper', () => {
     const scripts = [
-      'scripts/prepare/prepare-mcp-proxy.js',
       'scripts/prepare/prepare-uv.js',
       'scripts/prepare/prepare-node.js',
       'scripts/prepare/prepare-git.js',

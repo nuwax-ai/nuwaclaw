@@ -23,10 +23,9 @@
     "prepare:lanproxy": "node scripts/prepare/prepare-lanproxy.js",
     "prepare:node": "node scripts/prepare/prepare-node.js",
     "prepare:git": "node scripts/prepare/prepare-git.js",
-    "prepare:mcp-proxy": "node scripts/prepare/prepare-mcp-proxy.js",
     "check-ports": "node scripts/tools/check-startup-ports.js",
     "check-ports:dev": "node scripts/tools/check-startup-ports.js --vite",
-    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy",
+    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git",
     "build:electron": "npm run build && npm run prepare:all && electron-builder --config.compression=maximum",
     "dist": "npm run build:electron -- --mac",
     "dist:mac": "npm run build:electron -- --mac",
@@ -60,7 +59,6 @@
     "electron-log": "^5.2.4",
     "electron-updater": "^6.8.3",
     "node-cron": "^4.2.1",
-    "nuwax-mcp-stdio-proxy": "^1.4.5",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -120,13 +118,6 @@
         "to": "better-sqlite3",
         "filter": [
           "*.node"
-        ]
-      },
-      {
-        "from": "resources/mcp-proxy",
-        "to": "nuwax-mcp-stdio-proxy",
-        "filter": [
-          "**/*"
         ]
       },
       {

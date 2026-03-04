@@ -27,6 +27,7 @@ status: design
 | 文档 | 描述 | 类型 |
 |------|------|------|
 | [Quick Init](./QUICK-INIT.md) | 快捷初始化（nuwaxbot.json / 环境变量） | stable |
+| [初始化依赖版本固定与安装/升级](./dependency-version-pinning.md) | installVersion、升级同步、文案、尊重已安装版本不降级 | stable |
 | [Auto Update](./auto-update.md) | 自动更新机制 | design |
 
 ### 参考文档

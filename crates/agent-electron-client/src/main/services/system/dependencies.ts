@@ -50,6 +50,8 @@ export interface LocalDependencyConfig {
   description: string;
   required: boolean;
   minVersion?: string;
+  /** 初始化/安装缺失依赖时使用的版本；存在则 npm install <name>@<installVersion> */
+  installVersion?: string;
   installUrl?: string;
   binName?: string;
   installerUrl?: string;
@@ -123,6 +125,42 @@ function getAppBinDir(): string {
 
 function getAppNodeModules(): string {
   return path.join(getAppDataDir(), "node_modules");
+}
+
+/** 初始化依赖同步状态文件名（~/.nuwaxbot/.init-deps-state.json） */
+const INIT_DEPS_STATE_FILENAME = ".init-deps-state.json";
+
+export interface InitDepsState {
+  appVersion: string;
+  packages: Record<string, string>;
+}
+
+/**
+ * 读取上次初始化依赖同步状态（用于检测客户端升级后是否需要重装）
+ */
+export function getInitDepsState(): InitDepsState | null {
+  const filePath = path.join(getAppDataDir(), INIT_DEPS_STATE_FILENAME);
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const data = JSON.parse(raw) as InitDepsState;
+    if (typeof data.appVersion !== "string" || !data.packages || typeof data.packages !== "object")
+      return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 写入初始化依赖同步状态（安装/同步完成后调用）
+ */
+export function setInitDepsState(state: InitDepsState): void {
+  const dir = getAppDataDir();
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, INIT_DEPS_STATE_FILENAME);
+  fs.writeFileSync(filePath, JSON.stringify(state, null, 2), "utf-8");
+  log.info("[Dependencies] init-deps-state 已更新:", state.appVersion, Object.keys(state.packages).length, "packages");
 }
 
 // 获取 Electron extraResources 路径
@@ -973,6 +1011,7 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     description: "Agent 工作目录文件远程管理服务（应用内安装）",
     required: true,
     binName: "nuwax-file-server",
+    installVersion: "1.2.1",
   },
   {
     name: "nuwaxcode",
@@ -981,6 +1020,7 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     description: "Agent 执行引擎（应用内安装）",
     required: true,
     binName: "nuwaxcode",
+    installVersion: "1.1.63",
   },
   {
     name: "nuwax-mcp-stdio-proxy",
@@ -990,6 +1030,7 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     required: true,
     minVersion: "1.0.0",
     binName: "nuwax-mcp-stdio-proxy",
+    installVersion: "1.4.5",
   },
   {
     name: "claude-code-acp-ts",
@@ -998,6 +1039,7 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     description: "Agent 引擎统一适配服务（应用内安装）",
     required: true,
     binName: "claude-code-acp-ts",
+    installVersion: "0.16.1",
   },
 ];
 
@@ -1436,9 +1478,22 @@ export async function checkAllDependencies(): Promise<LocalDependencyItem[]> {
         case "nuwax-mcp-stdio-proxy":
         case "claude-code-acp-ts": {
           const result = await detectNpmPackage(dep.name, dep.binName);
-          item.status = result.installed ? "installed" : "missing";
           item.version = result.version;
           item.binPath = result.binPath;
+          if (!result.installed) {
+            item.status = "missing";
+          } else if (dep.installVersion) {
+            // 用户可在依赖 Tab 下手动升级，故以当前已安装的实际版本为准：仅当已装版本低于配置版本时才视为需升级，不降级
+            const installed = (result.version ?? "0").replace(/^v/, "");
+            const target = dep.installVersion.replace(/^v/, "");
+            if (installed === "0" || compareVersions(installed, target) < 0) {
+              item.status = "outdated";
+            } else {
+              item.status = "installed";
+            }
+          } else {
+            item.status = "installed";
+          }
           break;
         }
         default: {
@@ -1469,28 +1524,82 @@ export async function installMissingDependencies(): Promise<{
   const deps = await checkAllDependencies();
 
   for (const dep of deps) {
-    if (dep.status === "missing" && dep.required) {
-      log.info(`[Dependencies] Installing missing: ${dep.name}`);
+    const needInstall =
+      (dep.status === "missing" && dep.required) ||
+      (dep.status === "outdated" && dep.installVersion && dep.type === "npm-local");
 
-      if (dep.type === "npm-local") {
-        const result = await installNpmPackage(dep.name);
-        results.push({
-          name: dep.name,
-          success: result.success,
-          error: result.error,
-        });
-      } else {
-        results.push({
-          name: dep.name,
-          success: false,
-          error: "System dependency - manual install required",
-        });
-      }
+    if (!needInstall) continue;
+
+    if (dep.status === "outdated") {
+      log.info(`[Dependencies] 按配置版本升级: ${dep.name}@${dep.installVersion}`);
+    } else {
+      log.info(`[Dependencies] Installing missing: ${dep.name}`);
     }
+
+    if (dep.type === "npm-local") {
+      const result = await installNpmPackage(dep.name, dep.installVersion ? { version: dep.installVersion } : undefined);
+      results.push({
+        name: dep.name,
+        success: result.success,
+        error: result.error,
+      });
+    } else {
+      results.push({
+        name: dep.name,
+        success: false,
+        error: "System dependency - manual install required",
+      });
+    }
+  }
+
+  // 若有成功安装/升级，更新 .init-deps-state.json，与升级后同步共用同一份状态
+  if (results.some((r) => r.success)) {
+    const packages: Record<string, string> = {};
+    for (const d of SETUP_REQUIRED_DEPENDENCIES) {
+      if (d.installVersion) packages[d.name] = d.installVersion;
+    }
+    setInitDepsState({ appVersion: app.getVersion(), packages });
   }
 
   const allSuccess = results.every((r) => r.success);
   return { success: allSuccess, results };
+}
+
+/**
+ * 同步初始化依赖：对带 installVersion 的包，若未安装或已装版本与配置不一致则安装到指定版本，并写回 .init-deps-state.json。
+ * 用于客户端升级后按新 installVersion 重新安装已变化的依赖。
+ */
+export async function syncInitDependencies(): Promise<{ updated: string[] }> {
+  const updated: string[] = [];
+  const packages: Record<string, string> = {};
+
+  for (const dep of SETUP_REQUIRED_DEPENDENCIES) {
+    if (!dep.installVersion || dep.type !== "npm-local") continue;
+
+    const detected = await detectNpmPackage(dep.name, dep.binName);
+    // 用户可在依赖 Tab 下手动升级，故以实际已装版本为准：仅当未安装或已装版本低于配置版本时才安装/升级，不降级
+    const installedVer = (detected.version ?? "").replace(/^v/, "");
+    const targetVer = dep.installVersion.replace(/^v/, "");
+    const needInstall =
+      !detected.installed ||
+      !installedVer ||
+      compareVersions(installedVer, targetVer) < 0;
+
+    if (needInstall) {
+      log.info(`[Dependencies] syncInitDependencies: 安装/升级 ${dep.name}@${dep.installVersion}`);
+      const result = await installNpmPackage(dep.name, { version: dep.installVersion });
+      if (result.success) updated.push(dep.name);
+      else log.warn(`[Dependencies] syncInitDependencies: ${dep.name} 安装失败`, result.error);
+    }
+    packages[dep.name] = dep.installVersion;
+  }
+
+  setInitDepsState({
+    appVersion: app.getVersion(),
+    packages,
+  });
+  if (updated.length > 0) log.info("[Dependencies] syncInitDependencies 已更新:", updated);
+  return { updated };
 }
 
 /**
@@ -1514,7 +1623,7 @@ export function getDependenciesSummary(): {
 // ==================== Utils ====================
 
 /**
- * 简单版本比较
+ * 简单版本比较（仅支持纯数字 semver，如 1.2.3；不处理 pre-release 标签）
  * 返回: 1 = a > b, 0 = a == b, -1 = a < b
  */
 function compareVersions(a: string, b: string): number {
@@ -1539,6 +1648,9 @@ export default {
   installNpmPackage,
   checkAllDependencies,
   installMissingDependencies,
+  getInitDepsState,
+  setInitDepsState,
+  syncInitDependencies,
   getAppDataDir,
   getAppBinDir,
   getAppNodeModules,

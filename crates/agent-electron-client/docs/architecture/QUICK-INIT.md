@@ -14,7 +14,7 @@ status: stable
 
 客户端初始化向导需要用户手动填写配置（端口、工作区）和登录（动态认证码）。Quick Init 支持通过预置配置文件或环境变量快速完成初始化——文件中包含 `savedKey`（已完成过登录的设备密钥），直接调 reg 接口（password 传空字符串），跳过动态码流程。
 
-**关键约束**：即使有快捷配置，依赖安装步骤不能跳过，必须先完成依赖检测/安装。
+**关键约束**：即使有快捷配置，依赖安装步骤不能跳过，必须先完成依赖检测/安装。nuwax-file-server、nuwax-mcp-stdio-proxy、nuwaxcode、claude-code-acp-ts 四包均不随包集成，通过 SETUP_REQUIRED_DEPENDENCIES 的 installVersion 在 ~/.nuwaxbot 初始化安装，并参与升级后的 syncInitDependencies。
 
 ---
 

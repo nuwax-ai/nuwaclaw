@@ -389,62 +389,15 @@ class McpProxyManager {
   /**
    * 解析 nuwax-mcp-stdio-proxy 脚本路径（disk lookup，不使用缓存）
    *
-   * 注意：打包后必须使用 extraResources 位置，因为独立 Node.js 无法读取 asar 归档！
-   * 只有 Electron 内置的 Node.js 有 asar 支持。
+   * nuwax-mcp-stdio-proxy 不再随包集成，仅从 ~/.nuwaxbot/node_modules 安装并解析。
    */
   private resolveProxyScriptPath(): string | null {
     const pkgName = "nuwax-mcp-stdio-proxy";
-
-    // 1. 打包后优先使用 extraResources（独立 Node.js 可访问的路径）
-    if (process.resourcesPath) {
-      // extraResources 位置
-      let appPackageDir = path.join(process.resourcesPath, pkgName);
-      if (fs.existsSync(appPackageDir)) {
-        const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
-        if (entry) {
-          log.info(
-            `[McpProxy] 🔍 resolveProxyScriptPath: 使用 extraResources 路径: ${entry}`,
-          );
-          return entry;
-        }
-      }
-      // app.asar.unpacked 位置
-      appPackageDir = path.join(
-        process.resourcesPath,
-        "app.asar.unpacked",
-        "node_modules",
-        pkgName,
-      );
-      if (fs.existsSync(appPackageDir)) {
-        const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
-        if (entry) {
-          log.info(
-            `[McpProxy] 🔍 resolveProxyScriptPath: 使用 asar.unpacked 路径: ${entry}`,
-          );
-          return entry;
-        }
-      }
-    }
-
-    // 2. 开发时：应用自身 node_modules（app.asar 内部，开发时可用）
-    const appRoot = app.getAppPath();
-    const appPackageDir = path.join(appRoot, "node_modules", pkgName);
-    if (fs.existsSync(appPackageDir)) {
-      const entry = resolveNpmPackageEntry(appPackageDir, pkgName);
-      if (entry) {
-        log.info(
-          `[McpProxy] 🔍 resolveProxyScriptPath: 使用 app node_modules 路径: ${entry}`,
-        );
-        return entry;
-      }
-    }
-
-    // 3. 应用数据目录 ~/.nuwaxbot/node_modules（用户通过依赖管理安装的版本）
     const dirs = getAppPaths();
     const packageDir = path.join(dirs.nodeModules, pkgName);
     if (!fs.existsSync(packageDir)) {
       log.warn(
-        `[McpProxy] 🔍 resolveProxyScriptPath: 所有路径均未找到 ${pkgName}`,
+        `[McpProxy] 🔍 resolveProxyScriptPath: 未找到 ${pkgName}（请先在依赖管理中安装）`,
       );
       return null;
     }
@@ -453,8 +406,9 @@ class McpProxyManager {
       log.info(
         `[McpProxy] 🔍 resolveProxyScriptPath: 使用 ~/.nuwaxbot 路径: ${entry}`,
       );
+      return entry;
     }
-    return entry;
+    return null;
   }
 
   /**
