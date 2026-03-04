@@ -257,6 +257,7 @@ export interface AppAPI {
   downloadUpdate: () => Promise<{ success: boolean; error?: string }>;
   installUpdate: () => Promise<{ success: boolean; error?: string }>;
   getUpdateState: () => Promise<UpdateState>;
+  openReleasesPage: () => Promise<{ success: boolean }>;
 }
 
 export type PermissionStatus = 'granted' | 'denied' | 'unknown';

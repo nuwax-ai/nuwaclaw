@@ -13,7 +13,7 @@ import * as path from 'path';
 import log from 'electron-log';
 import { APP_DISPLAY_NAME } from '@shared/constants';
 import { createAutoLaunchManager, AutoLaunchManager } from './autoLaunchManager';
-import { checkForUpdates, downloadUpdate, installUpdate } from '../services/autoUpdater';
+import { checkForUpdates, downloadUpdate, installUpdate, openReleasesPage, getUpdateState } from '../services/autoUpdater';
 
 // ==================== Types ====================
 
@@ -21,8 +21,6 @@ export type TrayStatus = 'running' | 'stopped' | 'error' | 'starting';
 
 export interface TrayManagerOptions {
   onShowWindow: () => void;
-  onOpenSettings: () => void;
-  onOpenDependencies: () => void;
   onRestartServices: () => Promise<void>;
   onStopServices: () => Promise<void>;
 }
@@ -128,15 +126,6 @@ export class TrayManager {
       },
       { type: 'separator' },
       {
-        label: '设置',
-        click: () => this.options.onOpenSettings(),
-      },
-      {
-        label: '依赖管理',
-        click: () => this.options.onOpenDependencies(),
-      },
-      { type: 'separator' },
-      {
         label: '重启服务',
         click: async () => {
           log.info('[Tray] Restarting services...');
@@ -175,39 +164,54 @@ export class TrayManager {
           }
         },
       },
-      { type: 'separator' },
       {
         label: '检查更新',
         click: async () => {
           try {
             const result = await checkForUpdates();
             if (result.hasUpdate) {
-              const { response } = await dialog.showMessageBox({
-                type: 'info',
-                title: '发现新版本',
-                message: `发现新版本 v${result.version}`,
-                detail: '是否立即下载更新？',
-                buttons: ['下载更新', '稍后再说'],
-                defaultId: 0,
-                cancelId: 1,
-              });
-              if (response === 0) {
-                const dlResult = await downloadUpdate();
-                if (dlResult.success) {
-                  const { response: installResponse } = await dialog.showMessageBox({
-                    type: 'info',
-                    title: '更新已下载',
-                    message: '更新已下载完成',
-                    detail: '是否立即重启安装？',
-                    buttons: ['重启安装', '退出时安装'],
-                    defaultId: 0,
-                    cancelId: 1,
-                  });
-                  if (installResponse === 0) {
-                    installUpdate();
+              const state = getUpdateState();
+              if (state.canAutoUpdate === false) {
+                const { response } = await dialog.showMessageBox({
+                  type: 'info',
+                  title: '发现新版本',
+                  message: `发现新版本 v${result.version}`,
+                  detail: '当前安装方式不支持自动更新，请前往 Releases 页面下载最新安装包。',
+                  buttons: ['前往下载页', '稍后再说'],
+                  defaultId: 0,
+                  cancelId: 1,
+                });
+                if (response === 0) {
+                  openReleasesPage();
+                }
+              } else {
+                const { response } = await dialog.showMessageBox({
+                  type: 'info',
+                  title: '发现新版本',
+                  message: `发现新版本 v${result.version}`,
+                  detail: '是否立即下载更新？',
+                  buttons: ['下载更新', '稍后再说'],
+                  defaultId: 0,
+                  cancelId: 1,
+                });
+                if (response === 0) {
+                  const dlResult = await downloadUpdate();
+                  if (dlResult.success) {
+                    const { response: installResponse } = await dialog.showMessageBox({
+                      type: 'info',
+                      title: '更新已下载',
+                      message: '更新已下载完成',
+                      detail: '是否立即重启安装？',
+                      buttons: ['重启安装', '退出时安装'],
+                      defaultId: 0,
+                      cancelId: 1,
+                    });
+                    if (installResponse === 0) {
+                      installUpdate();
+                    }
+                  } else {
+                    dialog.showErrorBox('下载失败', dlResult.error || '下载更新时出错，请稍后重试');
                   }
-                } else {
-                  dialog.showErrorBox('下载失败', dlResult.error || '下载更新时出错，请稍后重试');
                 }
               }
             } else {
@@ -225,17 +229,9 @@ export class TrayManager {
       },
       { type: 'separator' },
       {
-        label: '关于',
-        click: () => {
-          dialog.showMessageBox({
-            type: 'info',
-            title: `关于 ${APP_DISPLAY_NAME}`,
-            message: `${APP_DISPLAY_NAME} v${app.getVersion()}`,
-            detail: 'Your AI assistant for productivity.',
-          });
-        },
+        label: `关于 ${APP_DISPLAY_NAME} v${app.getVersion()}`,
+        enabled: false,
       },
-      { type: 'separator' },
       {
         label: '退出',
         click: () => app.quit(),

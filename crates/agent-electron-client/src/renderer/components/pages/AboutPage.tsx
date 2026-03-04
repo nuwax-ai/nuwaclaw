@@ -3,11 +3,12 @@
  *
  * - 版本号运行时从 Electron 主进程获取
  * - 检查更新 + 下载 + 安装 完整流程
+ * - Windows MSI 安装用户引导到 Releases 页面
  */
 
 import React, { useState, useEffect, useCallback } from "react";
 import { Button, Progress, message, Space } from "antd";
-import { RobotOutlined, SyncOutlined, DownloadOutlined, PoweroffOutlined } from "@ant-design/icons";
+import { SyncOutlined, DownloadOutlined, PoweroffOutlined, LinkOutlined } from "@ant-design/icons";
 import { APP_DISPLAY_NAME } from "@shared/constants";
 import type { UpdateState } from "@shared/types/updateTypes";
 
@@ -18,7 +19,7 @@ export default function AboutPage() {
   // 监听主进程推送的更新状态
   useEffect(() => {
     const handler = (_event: unknown, state: UpdateState) => {
-      setUpdateState(state);
+      if (state) setUpdateState(state);
     };
     window.electronAPI?.on('update:status', handler as any);
     // 获取运行时版本号
@@ -35,15 +36,20 @@ export default function AboutPage() {
   }, []);
 
   const handleCheckUpdate = useCallback(async () => {
+    setUpdateState((prev) => ({ ...prev, status: 'checking' }));
     try {
       const result = await window.electronAPI?.app?.checkUpdate();
       if (result && !result.hasUpdate && !result.error) {
         message.info("当前已是最新版本");
+        setUpdateState((prev) => ({ ...prev, status: 'idle' }));
       } else if (result?.error) {
         message.error(`检查更新失败: ${result.error}`);
+        setUpdateState((prev) => ({ ...prev, status: 'idle' }));
       }
+      // hasUpdate=true 的情况由主进程 update:status 事件推送 'available' 状态
     } catch {
       message.error("检查更新失败");
+      setUpdateState((prev) => ({ ...prev, status: 'idle' }));
     }
   }, []);
 
@@ -66,8 +72,12 @@ export default function AboutPage() {
     }
   }, []);
 
+  const handleOpenReleases = useCallback(() => {
+    window.electronAPI?.app?.openReleasesPage?.();
+  }, []);
+
   const renderUpdateSection = () => {
-    const { status, version, progress, error } = updateState;
+    const { status, version, progress, error, canAutoUpdate: autoUpdate } = updateState ?? { status: 'idle' as const };
 
     switch (status) {
       case 'checking':
@@ -83,9 +93,15 @@ export default function AboutPage() {
             <div style={{ fontSize: 12, color: '#52525b' }}>
               发现新版本: v{version}
             </div>
-            <Button type="primary" icon={<DownloadOutlined />} onClick={handleDownload}>
-              下载更新
-            </Button>
+            {autoUpdate === false ? (
+              <Button type="primary" icon={<LinkOutlined />} onClick={handleOpenReleases}>
+                前往下载页
+              </Button>
+            ) : (
+              <Button type="primary" icon={<DownloadOutlined />} onClick={handleDownload}>
+                下载更新
+              </Button>
+            )}
           </Space>
         );
 
@@ -152,19 +168,15 @@ export default function AboutPage() {
           padding: "40px 32px",
         }}
       >
-        <div
+        <img
+          src="/icon.png"
+          alt={APP_DISPLAY_NAME}
           style={{
             width: 64,
             height: 64,
             borderRadius: 16,
-            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
           }}
-        >
-          <RobotOutlined style={{ fontSize: 32, color: "#fff" }} />
-        </div>
+        />
         <div
           style={{
             marginTop: 20,

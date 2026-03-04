@@ -5,7 +5,7 @@ import { execSync } from 'child_process';
 import log from 'electron-log';
 import type { HandlerContext } from '@shared/types/ipc';
 import { LATEST_LOG_BASENAME } from '../bootstrap/logConfig';
-import { checkForUpdates, downloadUpdate, installUpdate, getUpdateState } from '../services/autoUpdater';
+import { checkForUpdates, downloadUpdate, installUpdate, getUpdateState, openReleasesPage } from '../services/autoUpdater';
 
 export function registerAppHandlers(ctx: HandlerContext): void {
   // Autolaunch
@@ -120,6 +120,11 @@ export function registerAppHandlers(ctx: HandlerContext): void {
 
   ipcMain.handle('app:getUpdateState', () => {
     return getUpdateState();
+  });
+
+  ipcMain.handle('app:openReleasesPage', () => {
+    openReleasesPage();
+    return { success: true };
   });
 
   // Permissions (macOS)

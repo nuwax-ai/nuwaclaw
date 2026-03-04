@@ -3,12 +3,74 @@
  *
  * - autoDownload = false: 用户控制下载时机
  * - autoInstallOnAppQuit = true: 下载完成后退出时自动安装
- * - 仅在 app.isPackaged 时激活
+ * - 生产模式自动激活，开发模式通过 dev-app-update.yml 激活
+ * - Windows: NSIS 安装支持自动更新，MSI 安装引导到 Releases 页面
  */
 
 import { app, BrowserWindow, shell } from 'electron';
+import * as path from 'path';
+import * as fs from 'fs';
 import log from 'electron-log';
 import type { UpdateState, UpdateInfo, UpdateProgress } from '@shared/types/updateTypes';
+
+// ==================== 安装类型检测 ====================
+
+type InstallerType = 'nsis' | 'msi' | 'mac' | 'linux' | 'dev';
+
+/**
+ * 检测 Windows 安装类型（NSIS vs MSI）
+ *
+ * NSIS 安装会在应用目录下创建 `Uninstall {productName}.exe`，
+ * MSI 安装由 Windows Installer 管理，不含此文件。
+ */
+function detectInstallerType(): InstallerType {
+  if (!app.isPackaged) return 'dev';
+  if (process.platform === 'darwin') return 'mac';
+  if (process.platform === 'linux') return 'linux';
+
+  if (process.platform === 'win32') {
+    const appDir = path.dirname(app.getPath('exe'));
+    // electron-builder NSIS 会生成 "Uninstall {productName}.exe"
+    const productName = app.getName();
+    const nsisUninstaller = path.join(appDir, `Uninstall ${productName}.exe`);
+    if (fs.existsSync(nsisUninstaller)) {
+      log.info(`[AutoUpdater] Windows installer type: NSIS (found ${nsisUninstaller})`);
+      return 'nsis';
+    }
+    log.info('[AutoUpdater] Windows installer type: MSI (no NSIS uninstaller found)');
+    return 'msi';
+  }
+
+  return 'nsis'; // fallback
+}
+
+let cachedInstallerType: InstallerType | undefined;
+
+function getInstallerType(): InstallerType {
+  if (!cachedInstallerType) {
+    cachedInstallerType = detectInstallerType();
+  }
+  return cachedInstallerType;
+}
+
+/**
+ * 当前安装方式是否支持自动更新
+ * - NSIS / mac / linux: electron-updater 原生支持
+ * - MSI / dev: 不支持
+ */
+function canAutoUpdate(): boolean {
+  const type = getInstallerType();
+  return type !== 'msi' && type !== 'dev';
+}
+
+// ==================== 更新状态管理 ====================
+
+/**
+ * 是否启用更新检查（生产模式始终启用，开发模式也启用以便调试）
+ */
+function isUpdateEnabled(): boolean {
+  return true;
+}
 
 /**
  * 语义化版本比较: a > b 返回 1, a < b 返回 -1, 相等返回 0
@@ -40,15 +102,25 @@ function setState(patch: Partial<UpdateState>): void {
   sendStatusToRenderer();
 }
 
+// ==================== 初始化 ====================
+
 /**
  * 初始化自动更新（应在 app.whenReady 后调用）
  */
 export function initAutoUpdater(getWindow: () => BrowserWindow | null): void {
   getMainWindow = getWindow;
 
-  if (!app.isPackaged) {
-    log.info('[AutoUpdater] Skipped: not packaged (dev mode)');
+  if (!isUpdateEnabled()) {
+    log.info('[AutoUpdater] Skipped: updates disabled');
     return;
+  }
+
+  const installerType = getInstallerType();
+  log.info(`[AutoUpdater] Installer type: ${installerType}, canAutoUpdate: ${canAutoUpdate()}`);
+
+  // MSI 安装只支持检查更新，不支持自动下载/安装
+  if (installerType === 'msi') {
+    log.info('[AutoUpdater] MSI installation detected: auto-download disabled, will redirect to releases page');
   }
 
   // CJS 兼容导入 electron-updater
@@ -57,13 +129,27 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null): void {
 
   autoUpdater.logger = log;
   autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoInstallOnAppQuit = canAutoUpdate();
+
+  // 开发模式：使用 dev-app-update.yml 配置，禁用自动安装（Squirrel.Mac 无法匹配 dev bundle ID）
+  if (!app.isPackaged) {
+    autoUpdater.forceDevUpdateConfig = true;
+    autoUpdater.autoInstallOnAppQuit = false;
+    log.info('[AutoUpdater] Dev mode: using dev-app-update.yml (autoInstall disabled)');
+  }
+
+  // 支持自定义更新源（用于本地测试）
+  const customServer = process.env.NUWAX_UPDATE_SERVER;
+  if (customServer) {
+    log.info(`[AutoUpdater] Using custom update server: ${customServer}`);
+    autoUpdater.setFeedURL({ provider: 'generic', url: customServer });
+  }
 
   // -------- 事件监听 --------
 
   autoUpdater.on('checking-for-update', () => {
     log.info('[AutoUpdater] Checking for update...');
-    setState({ status: 'checking' });
+    setState({ status: 'checking', canAutoUpdate: canAutoUpdate() });
   });
 
   autoUpdater.on('update-available', (info: any) => {
@@ -71,12 +157,13 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null): void {
     setState({
       status: 'available',
       version: info.version,
+      canAutoUpdate: canAutoUpdate(),
     });
   });
 
   autoUpdater.on('update-not-available', (_info: any) => {
     log.info('[AutoUpdater] Already up to date');
-    setState({ status: 'not-available' });
+    setState({ status: 'not-available', canAutoUpdate: canAutoUpdate() });
   });
 
   autoUpdater.on('download-progress', (progress: UpdateProgress) => {
@@ -84,6 +171,7 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null): void {
     setState({
       status: 'downloading',
       progress,
+      canAutoUpdate: true,
     });
   });
 
@@ -93,6 +181,7 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null): void {
       status: 'downloaded',
       version: info.version,
       progress: undefined,
+      canAutoUpdate: true,
     });
   });
 
@@ -102,6 +191,7 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null): void {
       status: 'error',
       error: err.message,
       progress: undefined,
+      canAutoUpdate: canAutoUpdate(),
     });
   });
 
@@ -114,17 +204,19 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null): void {
   }, 10_000);
 }
 
+// ==================== 公开 API ====================
+
 /**
  * 手动检查更新
  */
 export async function checkForUpdates(): Promise<UpdateInfo> {
-  if (!app.isPackaged) {
+  if (!isUpdateEnabled()) {
     return { hasUpdate: false };
   }
 
   try {
     const { autoUpdater } = require('electron-updater');
-    setState({ status: 'checking', error: undefined });
+    setState({ status: 'checking', error: undefined, canAutoUpdate: canAutoUpdate() });
     const result = await autoUpdater.checkForUpdates();
 
     if (result?.updateInfo) {
@@ -142,7 +234,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
     return { hasUpdate: false };
   } catch (err: any) {
     log.error('[AutoUpdater] checkForUpdates error:', err.message);
-    setState({ status: 'error', error: err.message });
+    setState({ status: 'error', error: err.message, canAutoUpdate: canAutoUpdate() });
     return { hasUpdate: false, error: err.message };
   }
 }
@@ -151,8 +243,21 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
  * 下载更新
  */
 export async function downloadUpdate(): Promise<{ success: boolean; error?: string }> {
+  if (!isUpdateEnabled()) {
+    return { success: false, error: 'Updates disabled' };
+  }
+
+  // Dev 模式下 Squirrel.Mac 无法处理更新包（bundle ID 不匹配），只允许检查更新
   if (!app.isPackaged) {
-    return { success: false, error: 'Not packaged' };
+    log.warn('[AutoUpdater] Download skipped in dev mode (Squirrel.Mac requires packaged app)');
+    return { success: false, error: '开发模式不支持下载更新，请使用打包版本测试' };
+  }
+
+  // MSI 安装不支持自动更新，引导到 Releases 页面
+  if (getInstallerType() === 'msi') {
+    log.info('[AutoUpdater] MSI installation: redirecting to releases page for manual download');
+    openReleasesPage();
+    return { success: false, error: 'MSI 安装请前往 Releases 页面下载最新 MSI 安装包' };
   }
 
   try {
@@ -161,7 +266,7 @@ export async function downloadUpdate(): Promise<{ success: boolean; error?: stri
     return { success: true };
   } catch (err: any) {
     log.error('[AutoUpdater] downloadUpdate error:', err.message);
-    setState({ status: 'error', error: err.message });
+    setState({ status: 'error', error: err.message, canAutoUpdate: canAutoUpdate() });
     return { success: false, error: err.message };
   }
 }
@@ -170,8 +275,17 @@ export async function downloadUpdate(): Promise<{ success: boolean; error?: stri
  * 退出并安装更新
  */
 export function installUpdate(): { success: boolean; error?: string } {
+  if (!isUpdateEnabled()) {
+    return { success: false, error: 'Updates disabled' };
+  }
+
   if (!app.isPackaged) {
-    return { success: false, error: 'Not packaged' };
+    return { success: false, error: '开发模式不支持安装更新' };
+  }
+
+  if (getInstallerType() === 'msi') {
+    openReleasesPage();
+    return { success: false, error: 'MSI 安装请前往 Releases 页面下载最新 MSI 安装包' };
   }
 
   try {
@@ -188,11 +302,11 @@ export function installUpdate(): { success: boolean; error?: string } {
  * 获取当前更新状态
  */
 export function getUpdateState(): UpdateState {
-  return { ...currentState };
+  return { ...currentState, canAutoUpdate: canAutoUpdate() };
 }
 
 /**
- * 打开 GitHub Releases 页面（用于签名失败等降级场景）
+ * 打开 GitHub Releases 页面（用于 MSI 用户或签名失败等降级场景）
  */
 export function openReleasesPage(): void {
   shell.openExternal('https://github.com/nuwax-ai/nuwax-agent-client/releases');

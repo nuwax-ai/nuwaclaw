@@ -115,85 +115,18 @@ function createWindow() {
 }
 
 function createMenu() {
-  const template: Electron.MenuItemConstructorOptions[] = [
-    {
-      label: 'File',
-      submenu: [
-        {
-          label: 'New Session',
-          accelerator: 'CmdOrCtrl+N',
-          click: () => mainWindow?.webContents.send('menu:new-session'),
-        },
-        { type: 'separator' },
-        {
-          label: 'Settings',
-          accelerator: 'CmdOrCtrl+,',
-          click: () => mainWindow?.webContents.send('menu:settings'),
-        },
-        {
-          label: 'MCP Servers',
-          accelerator: 'CmdOrCtrl+M',
-          click: () => mainWindow?.webContents.send('menu:mcp-settings'),
-        },
-        { type: 'separator' },
-        { role: 'quit' },
-      ],
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
-      ],
-    },
-    {
-      label: 'View',
-      submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-      ],
-    },
-    {
-      label: 'Window',
-      submenu: [
-        { role: 'minimize' },
-        { role: 'zoom' },
-        { type: 'separator' },
-        { role: 'close' },
-      ],
-    },
-    {
-      label: 'Help',
-      submenu: [
-        {
-          label: `About ${APP_DISPLAY_NAME}`,
-          click: () => {
-            dialog.showMessageBox({
-              type: 'info',
-              title: `About ${APP_DISPLAY_NAME}`,
-              message: `${APP_DISPLAY_NAME} v${app.getVersion()}`,
-              detail: 'Your AI assistant for productivity.',
-            });
-          },
-        },
-      ],
-    },
-  ];
-
-  const menu = Menu.buildFromTemplate(template);
-  Menu.setApplicationMenu(menu);
+  if (process.platform === 'darwin') {
+    // macOS: 保留最小菜单，确保 Cmd+C/V/Q 等快捷键正常
+    const template: Electron.MenuItemConstructorOptions[] = [
+      { role: 'appMenu' },
+      { role: 'editMenu' },
+      { role: 'windowMenu' },
+    ];
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  } else {
+    // Windows/Linux: 去掉菜单栏，功能由界面和系统托盘提供
+    Menu.setApplicationMenu(null);
+  }
 }
 
 async function initTrayManager() {
@@ -204,16 +137,6 @@ async function initTrayManager() {
     onShowWindow: () => {
       mainWindow?.show();
       mainWindow?.focus();
-    },
-    onOpenSettings: () => {
-      mainWindow?.show();
-      mainWindow?.focus();
-      mainWindow?.webContents.send('menu:settings');
-    },
-    onOpenDependencies: () => {
-      mainWindow?.show();
-      mainWindow?.focus();
-      mainWindow?.webContents.send('menu:dependencies');
     },
     onRestartServices: async () => {
       log.info('[Tray] Restarting all services...');
