@@ -557,7 +557,6 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               marginBottom: 4,
             }}
           >
-            <RobotOutlined style={{ fontSize: 18, color: '#18181b' }} />
             <span style={{ fontSize: 15, fontWeight: 600 }}>{APP_NAME}</span>
           </div>
           <div style={{ fontSize: 12, color: '#a1a1aa', textAlign: 'center' }}>
