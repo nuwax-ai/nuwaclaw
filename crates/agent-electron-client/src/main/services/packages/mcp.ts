@@ -373,6 +373,7 @@ export interface McpProxyStatus {
   running: boolean;
   serverCount?: number;
   serverNames?: string[];
+  error?: string;
 }
 
 // ========== MCP Proxy Manager ==========
@@ -383,6 +384,7 @@ class McpProxyManager {
   );
   /** Cached script path — set by start(), avoids fs I/O on every getStatus() poll */
   private cachedScriptPath: string | null = null;
+  private lastError: string | null = null;
 
   /**
    * 解析 nuwax-mcp-stdio-proxy 脚本路径（disk lookup，不使用缓存）
@@ -483,13 +485,13 @@ class McpProxyManager {
     if (!this.cachedScriptPath) {
       this.cachedScriptPath = null;
       if (!isInstalledLocally("nuwax-mcp-stdio-proxy")) {
-        return {
-          success: false,
-          error:
-            "nuwax-mcp-stdio-proxy 未安装，请先在依赖管理中安装或确保已 npm install",
-        };
+        const err = "nuwax-mcp-stdio-proxy 未安装，请先在依赖管理中安装或确保已 npm install";
+        this.lastError = err;
+        return { success: false, error: err };
       }
-      return { success: false, error: "nuwax-mcp-stdio-proxy 入口文件未找到" };
+      const err = "nuwax-mcp-stdio-proxy 入口文件未找到";
+      this.lastError = err;
+      return { success: false, error: err };
     }
     log.info("[McpProxy] nuwax-mcp-stdio-proxy 就绪:", this.cachedScriptPath);
 
@@ -501,7 +503,6 @@ class McpProxyManager {
       log.warn("[McpProxy]   npm run prepare:node");
       log.warn("[McpProxy] 或运行完整准备:");
       log.warn("[McpProxy]   npm run prepare:all");
-      // 不返回错误，允许在开发环境下继续（可能使用系统 node）
     }
 
     // 启动 PersistentMcpBridge（持久化 servers）
@@ -520,6 +521,7 @@ class McpProxyManager {
       }
     }
 
+    this.lastError = null;
     return { success: true };
   }
 
@@ -528,6 +530,7 @@ class McpProxyManager {
    */
   async stop(): Promise<{ success: boolean }> {
     this.cachedScriptPath = null;
+    this.lastError = null;
     try {
       await persistentMcpBridge.stop();
     } catch (e) {
@@ -552,6 +555,7 @@ class McpProxyManager {
       running: !!this.cachedScriptPath,
       serverCount: serverNames.length,
       serverNames,
+      error: !this.cachedScriptPath && this.lastError ? this.lastError : undefined,
     };
   }
 

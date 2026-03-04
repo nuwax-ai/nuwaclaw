@@ -7,4 +7,4 @@ export {
   DEFAULT_MCP_PROXY_PORT,
   DEFAULT_MCP_PROXY_HOST,
 } from './packages';
-export { startComputerServer, stopComputerServer } from './computerServer';
+export { startComputerServer, stopComputerServer, getComputerServerStatus } from './computerServer';

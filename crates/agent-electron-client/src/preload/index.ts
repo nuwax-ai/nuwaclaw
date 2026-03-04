@@ -198,6 +198,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('fileServer:status'),
   },
 
+  // Computer Server lifecycle (Agent HTTP 接口服务)
+  computerServer: {
+    start: (port?: number) =>
+      ipcRenderer.invoke('computerServer:start', port),
+    stop: () =>
+      ipcRenderer.invoke('computerServer:stop'),
+    status: () =>
+      ipcRenderer.invoke('computerServer:status'),
+  },
+
   // Computer API (对齐 rcoder /computer/* API)
   computer: {
     chat: (request: any) => ipcRenderer.invoke('computer:chat', request),
