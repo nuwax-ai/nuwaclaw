@@ -214,6 +214,9 @@ export class UnifiedAgentService extends EventEmitter {
   private engineType: AgentEngineType | null = null;
   private baseConfig: AgentConfig | null = null;
 
+  /** Buffer assistant text chunks per session for memory tracking */
+  private assistantTextBuffers = new Map<string, string>();
+
   /**
    * Initialize the service with a base config.
    * Does NOT spawn a process — processes are created lazily per project_id
@@ -249,6 +252,16 @@ export class UnifiedAgentService extends EventEmitter {
             },
           },
         });
+
+        // Provide model config to scheduler for cron-triggered LLM consolidation
+        const modelConfig: ModelConfig = {
+          provider: config.engine === 'claude-code' ? 'anthropic' : 'openai',
+          model: config.model || '',
+          apiKey: config.apiKey || '',
+          baseUrl: config.baseUrl,
+        };
+        memoryService.setSchedulerModelConfig(modelConfig);
+
         log.info('[UnifiedAgent] MemoryService initialized');
       } catch (error) {
         log.error('[UnifiedAgent] MemoryService initialization failed:', error);
@@ -293,6 +306,7 @@ export class UnifiedAgentService extends EventEmitter {
     await Promise.all(destroyPromises);
     this.engines.clear();
     this.engineConfigs.clear();
+    this.assistantTextBuffers.clear();
     this.engineType = null;
     this.baseConfig = null;
     log.info('[UnifiedAgent] Service destroyed');
@@ -833,6 +847,60 @@ export class UnifiedAgentService extends EventEmitter {
         this.emit(event, ...args);
       });
     }
+
+    // --- Memory: buffer assistant text chunks and flush on promptEnd ---
+
+    // Clear buffer on promptStart to prevent stale data
+    engine.on('computer:promptStart', (...args: unknown[]) => {
+      try {
+        const data = args[0] as { sessionId?: string } | undefined;
+        const sessionId = data?.sessionId;
+        if (sessionId) {
+          this.assistantTextBuffers.delete(sessionId);
+        }
+      } catch { /* non-blocking */ }
+    });
+
+    // Accumulate assistant text parts
+    engine.on('message.part.updated', (...args: unknown[]) => {
+      try {
+        const data = args[0] as { sessionId?: string; type?: string; text?: string } | undefined;
+        if (!data || data.type !== 'text' || !data.text) return;
+        const sessionId = data.sessionId;
+        if (!sessionId) return;
+        const existing = this.assistantTextBuffers.get(sessionId) ?? '';
+        this.assistantTextBuffers.set(sessionId, existing + data.text);
+      } catch { /* non-blocking */ }
+    });
+
+    // Flush buffered assistant text to memory on promptEnd
+    engine.on('computer:promptEnd', (...args: unknown[]) => {
+      try {
+        const data = args[0] as { sessionId?: string } | undefined;
+        const sessionId = data?.sessionId;
+        if (!sessionId) return;
+
+        const buffered = this.assistantTextBuffers.get(sessionId);
+        this.assistantTextBuffers.delete(sessionId);
+
+        if (!buffered || !buffered.trim() || !memoryService.isInitialized() || !this.baseConfig) return;
+
+        const modelConfig: ModelConfig = {
+          provider: this.engineType === 'claude-code' ? 'anthropic' : 'openai',
+          model: this.baseConfig.model || '',
+          apiKey: this.baseConfig.apiKey || '',
+          baseUrl: this.baseConfig.baseUrl,
+        };
+
+        memoryService.handleMessage(
+          sessionId,
+          { role: 'assistant', content: buffered },
+          modelConfig
+        );
+      } catch (error) {
+        log.warn('[UnifiedAgent] Failed to flush assistant text to memory:', error);
+      }
+    });
   }
 }
 

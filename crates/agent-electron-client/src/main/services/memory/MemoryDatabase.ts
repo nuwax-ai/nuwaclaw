@@ -128,8 +128,13 @@ CREATE TRIGGER IF NOT EXISTS memory_ad AFTER DELETE ON memories BEGIN
 END;
 
 CREATE TRIGGER IF NOT EXISTS memory_au AFTER UPDATE ON memories
-WHEN NEW.status = 'active' BEGIN
+WHEN NEW.status = 'active' AND NEW.text != OLD.text BEGIN
   INSERT INTO memory_fts(memory_fts, rowid, text) VALUES ('delete', OLD.rowid, OLD.text);
+  INSERT INTO memory_fts(rowid, text) VALUES (NEW.rowid, NEW.text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS memory_reactivate AFTER UPDATE OF status ON memories
+WHEN OLD.status != 'active' AND NEW.status = 'active' BEGIN
   INSERT INTO memory_fts(rowid, text) VALUES (NEW.rowid, NEW.text);
 END;
 
@@ -985,6 +990,21 @@ export class MemoryDatabase {
     ).all(limit) as { text: string }[];
 
     return rows.map(row => row.text);
+  }
+
+  /**
+   * Get the next segment index for a session
+   * Returns MAX(segment_index) + 1, or 0 if no segments exist
+   * Used for recovering segment index counters after restart
+   */
+  getNextSegmentIndex(sessionId: string): number {
+    if (!this.db) return 0;
+
+    const row = this.db.prepare(
+      `SELECT MAX(segment_index) as max_idx FROM extraction_progress WHERE session_id = ?`
+    ).get(sessionId) as { max_idx: number | null } | undefined;
+
+    return (row?.max_idx ?? -1) + 1;
   }
 
   /**

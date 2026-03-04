@@ -14,6 +14,7 @@ import { MemoryExtractor } from './MemoryExtractor';
 import { MemoryFileSync } from './MemoryFileSync';
 import { MemoryDatabase } from './MemoryDatabase';
 import { deduplicateMemories } from './utils/deduplicator';
+import { callLlmApi } from './utils/llmClient';
 
 // ==================== Types ====================
 
@@ -323,12 +324,31 @@ export class ExtractionQueue extends EventEmitter {
 
   /**
    * Extract memories from task messages
+   *
+   * Pipeline:
+   * 1. Regex + rules extraction (existing, no API call)
+   * 2. LLM segmented extraction (new, API call)
+   * 3. Merge + deduplicate results
+   * 4. LLM validation for uncertain candidates (existing)
    */
   private async extractMemories(task: ExtractionTask): Promise<ExtractedMemory[]> {
-    // Step 1: Use regex + rules extraction first (no API call needed)
-    let memories = await this.extractor.extract(task.messages);
+    // Step 1: Regex + rules extraction (no API call needed)
+    const regexMemories = await this.extractor.extract(task.messages);
 
-    // Step 2: LLM validation for medium-confidence candidates
+    // Step 2: LLM segmented extraction (requires API key)
+    let llmMemories: ExtractedMemory[] = [];
+    if (task.modelConfig.apiKey) {
+      try {
+        llmMemories = await this.callLlmForExtraction(task);
+      } catch (error) {
+        log.warn('[ExtractionQueue] LLM extraction failed, using regex results only:', error);
+      }
+    }
+
+    // Step 3: Merge and deduplicate regex + LLM results
+    let memories = this.mergeExtractionResults(regexMemories, llmMemories);
+
+    // Step 4: LLM validation for medium-confidence candidates
     if (task.modelConfig.apiKey) {
       const needsValidation = memories.filter(m =>
         this.extractor.needsLlmValidation?.(m.confidence) ?? this.defaultNeedsLlmValidation(m.confidence)
@@ -351,6 +371,70 @@ export class ExtractionQueue extends EventEmitter {
     }
 
     return memories;
+  }
+
+  /**
+   * Call LLM for segmented extraction
+   * Uses MemoryExtractor's buildExtractionPrompt/parseExtractionResponse
+   */
+  private async callLlmForExtraction(task: ExtractionTask): Promise<ExtractedMemory[]> {
+    const { provider, model, apiKey, baseUrl } = task.modelConfig;
+
+    if (!apiKey) return [];
+
+    // Get existing memories for deduplication context
+    const existingMemories = this.database
+      ? this.database.getRecentMemoryTexts(30)
+      : (this.fileSync?.readCoreMemory() ?? '').split('\n').filter(l => l.startsWith('- ')).map(l => l.slice(2));
+
+    // Build segment metadata if available
+    const segmentMeta = task.segmentIndex !== undefined
+      ? { index: task.segmentIndex, total: task.segmentIndex + 1 }
+      : undefined;
+
+    // Build extraction prompt
+    const prompt = this.extractor.buildExtractionPrompt(
+      task.messages,
+      segmentMeta,
+      existingMemories
+    );
+
+    // Call LLM API
+    const response = await this.callLlmApiInternal(provider, model, apiKey, baseUrl, prompt);
+
+    // Parse response
+    return this.extractor.parseExtractionResponse(response);
+  }
+
+  /**
+   * Merge regex and LLM extraction results, deduplicating by normalized text
+   * When duplicates are found, keep the one with higher confidence
+   */
+  private mergeExtractionResults(
+    regexResults: ExtractedMemory[],
+    llmResults: ExtractedMemory[]
+  ): ExtractedMemory[] {
+    if (llmResults.length === 0) return regexResults;
+    if (regexResults.length === 0) return llmResults;
+
+    const merged = new Map<string, ExtractedMemory>();
+
+    // Index regex results by normalized text
+    for (const mem of regexResults) {
+      const key = mem.text.toLowerCase().replace(/\s+/g, ' ').trim();
+      merged.set(key, mem);
+    }
+
+    // Merge LLM results, preferring higher confidence
+    for (const mem of llmResults) {
+      const key = mem.text.toLowerCase().replace(/\s+/g, ' ').trim();
+      const existing = merged.get(key);
+      if (!existing || mem.confidence > existing.confidence) {
+        merged.set(key, mem);
+      }
+    }
+
+    return Array.from(merged.values());
   }
 
   /**
@@ -385,7 +469,7 @@ export class ExtractionQueue extends EventEmitter {
 
     try {
       // Call LLM API based on provider
-      const response = await this.callLlmApi(provider, model, apiKey, baseUrl, prompt);
+      const response = await this.callLlmApiInternal(provider, model, apiKey, baseUrl, prompt);
       const validation = this.parseValidationResponse(response);
 
       if (!validation.accept) {
@@ -468,92 +552,16 @@ ${existingMemories || '(无)'}
   }
 
   /**
-   * Call LLM API (supports Anthropic and OpenAI)
+   * Call LLM API (delegates to shared llmClient)
    */
-  private async callLlmApi(
+  private async callLlmApiInternal(
     provider: string,
     model: string,
     apiKey: string,
     baseUrl: string | undefined,
     prompt: string
   ): Promise<string> {
-    const isAnthropic = provider.toLowerCase().includes('anthropic') ||
-                        model.toLowerCase().includes('claude');
-
-    if (isAnthropic) {
-      return this.callAnthropicApi(apiKey, baseUrl, model, prompt);
-    } else {
-      return this.callOpenAiApi(apiKey, baseUrl, model, prompt);
-    }
-  }
-
-  /**
-   * Call Anthropic API
-   */
-  private async callAnthropicApi(
-    apiKey: string,
-    baseUrl: string | undefined,
-    model: string,
-    prompt: string
-  ): Promise<string> {
-    const url = baseUrl ?? 'https://api.anthropic.com/v1/messages';
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: model || 'claude-3-5-sonnet-20241022',
-        max_tokens: 500,
-        messages: [
-          { role: 'user', content: prompt }
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Anthropic API error: ${response.status}`);
-    }
-
-    const data = await response.json() as { content?: Array<{ text?: string }> };
-    return data.content?.[0]?.text ?? '';
-  }
-
-  /**
-   * Call OpenAI API
-   */
-  private async callOpenAiApi(
-    apiKey: string,
-    baseUrl: string | undefined,
-    model: string,
-    prompt: string
-  ): Promise<string> {
-    const url = baseUrl ?? 'https://api.openai.com/v1/chat/completions';
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: model || 'gpt-4o-mini',
-        max_tokens: 500,
-        messages: [
-          { role: 'user', content: prompt }
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status}`);
-    }
-
-    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-    return data.choices?.[0]?.message?.content ?? '';
+    return callLlmApi(prompt, { provider, model, apiKey, baseUrl, maxTokens: 500 });
   }
 
   /**

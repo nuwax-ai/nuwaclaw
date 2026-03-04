@@ -8,11 +8,12 @@
 import { EventEmitter } from 'events';
 import * as cron from 'node-cron';
 import log from 'electron-log';
-import type { MemoryConfig, ConsolidationResult, CleanupResult } from './types';
+import type { MemoryConfig, ConsolidationResult, CleanupResult, ModelConfig } from './types';
 import { MemoryFileSync } from './MemoryFileSync';
 import { MemoryDatabase } from './MemoryDatabase';
 import { TranscriptWriter } from './TranscriptWriter';
 import { LLM_CONSOLIDATION_PROMPT } from './constants';
+import { callLlmApi } from './utils/llmClient';
 
 // ==================== Types ====================
 
@@ -24,6 +25,7 @@ interface SchedulerConfig {
   dailyRetentionDays: number;
   transcriptRetentionDays: number;
   stalePendingHours: number;
+  timezone: string;
 }
 
 // ==================== MemoryScheduler Class ====================
@@ -36,6 +38,12 @@ export class MemoryScheduler extends EventEmitter {
   private cleanupJob: cron.ScheduledTask | null = null;
   private running: boolean = false;
 
+  /** Stored model config for cron-triggered consolidation */
+  private storedModelConfig: ModelConfig | null = null;
+
+  /** Provider for active session IDs (to protect from cleanup) */
+  private activeSessionProvider: (() => Set<string>) | null = null;
+
   private config: SchedulerConfig = {
     consolidationCron: '0 0 * * *',  // 00:00 daily
     cleanupCron: '0 1 * * *',        // 01:00 daily
@@ -44,6 +52,7 @@ export class MemoryScheduler extends EventEmitter {
     dailyRetentionDays: 30,
     transcriptRetentionDays: 7,
     stalePendingHours: 24,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai',
   };
 
   /**
@@ -57,6 +66,23 @@ export class MemoryScheduler extends EventEmitter {
   }
 
   /**
+   * Set model config for cron-triggered consolidation
+   * This allows the cron job to use LLM consolidation instead of simple merge
+   */
+  setModelConfig(config: ModelConfig): void {
+    this.storedModelConfig = config;
+    log.debug('[MemoryScheduler] Model config stored for cron consolidation');
+  }
+
+  /**
+   * Set active session provider for cleanup protection
+   * Active sessions' transcript files will be skipped during cleanup
+   */
+  setActiveSessionProvider(provider: () => Set<string>): void {
+    this.activeSessionProvider = provider;
+  }
+
+  /**
    * Destroy scheduler
    */
   destroy(): void {
@@ -64,6 +90,8 @@ export class MemoryScheduler extends EventEmitter {
     this.fileSync = null;
     this.database = null;
     this.transcriptWriter = null;
+    this.storedModelConfig = null;
+    this.activeSessionProvider = null;
     log.info('[MemoryScheduler] Destroyed');
   }
 
@@ -92,6 +120,9 @@ export class MemoryScheduler extends EventEmitter {
     if (config.stalePendingHours !== undefined) {
       this.config.stalePendingHours = config.stalePendingHours;
     }
+    if (config.timezone !== undefined) {
+      this.config.timezone = config.timezone;
+    }
 
     // Restart if running
     if (this.running) {
@@ -111,8 +142,8 @@ export class MemoryScheduler extends EventEmitter {
       try {
         this.consolidationJob = cron.schedule(
           this.config.consolidationCron,
-          () => this.runConsolidation(),
-          { timezone: 'Asia/Shanghai' }
+          () => this.runConsolidation(this.storedModelConfig ?? undefined),
+          { timezone: this.config.timezone }
         );
         log.info('[MemoryScheduler] Consolidation job scheduled:', this.config.consolidationCron);
       } catch (error) {
@@ -126,7 +157,7 @@ export class MemoryScheduler extends EventEmitter {
         this.cleanupJob = cron.schedule(
           this.config.cleanupCron,
           () => this.runCleanup(),
-          { timezone: 'Asia/Shanghai' }
+          { timezone: this.config.timezone }
         );
         log.info('[MemoryScheduler] Cleanup job scheduled:', this.config.cleanupCron);
       } catch (error) {
@@ -265,13 +296,13 @@ export class MemoryScheduler extends EventEmitter {
     const prompt = this.buildConsolidationPrompt(dailyMemories, coreMemory);
 
     try {
-      const response = await this.callLlmApi(
-        modelConfig.provider,
-        modelConfig.model,
-        modelConfig.apiKey,
-        modelConfig.baseUrl,
-        prompt
-      );
+      const response = await callLlmApi(prompt, {
+        provider: modelConfig.provider,
+        model: modelConfig.model,
+        apiKey: modelConfig.apiKey,
+        baseUrl: modelConfig.baseUrl,
+        maxTokens: 2000,
+      });
       return this.parseConsolidationResponse(response, coreMemory);
     } catch (error) {
       log.error('[MemoryScheduler] LLM consolidation call failed:', error);
@@ -304,95 +335,6 @@ export class MemoryScheduler extends EventEmitter {
     // Fallback to original
     log.warn('[MemoryScheduler] Could not parse LLM consolidation response, keeping original');
     return originalCoreMemory;
-  }
-
-  /**
-   * Call LLM API (supports Anthropic and OpenAI)
-   */
-  private async callLlmApi(
-    provider: string,
-    model: string,
-    apiKey: string,
-    baseUrl: string | undefined,
-    prompt: string
-  ): Promise<string> {
-    const isAnthropic = provider.toLowerCase().includes('anthropic') ||
-                        model.toLowerCase().includes('claude');
-
-    if (isAnthropic) {
-      return this.callAnthropicApi(apiKey, baseUrl, model, prompt);
-    } else {
-      return this.callOpenAiApi(apiKey, baseUrl, model, prompt);
-    }
-  }
-
-  /**
-   * Call Anthropic API
-   */
-  private async callAnthropicApi(
-    apiKey: string,
-    baseUrl: string | undefined,
-    model: string,
-    prompt: string
-  ): Promise<string> {
-    const url = baseUrl ?? 'https://api.anthropic.com/v1/messages';
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: model || 'claude-3-5-sonnet-20241022',
-        max_tokens: 2000,
-        messages: [
-          { role: 'user', content: prompt }
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Anthropic API error: ${response.status}`);
-    }
-
-    const data = await response.json() as { content?: Array<{ text?: string }> };
-    return data.content?.[0]?.text ?? '';
-  }
-
-  /**
-   * Call OpenAI API
-   */
-  private async callOpenAiApi(
-    apiKey: string,
-    baseUrl: string | undefined,
-    model: string,
-    prompt: string
-  ): Promise<string> {
-    const url = baseUrl ?? 'https://api.openai.com/v1/chat/completions';
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: model || 'gpt-4o-mini',
-        max_tokens: 2000,
-        messages: [
-          { role: 'user', content: prompt }
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status}`);
-    }
-
-    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-    return data.choices?.[0]?.message?.content ?? '';
   }
 
   /**
@@ -439,22 +381,47 @@ export class MemoryScheduler extends EventEmitter {
       return coreMemory;
     }
 
-    // Append new facts to core memory
-    const today = new Date().toISOString().split('T')[0];
-    const newSection = newFacts.map(f => `- ${f}`).join('\n');
+    // Categorize facts by keyword matching
+    const categorized: Record<string, string[]> = {
+      '偏好': [],
+      '用户档案': [],
+      '项目相关': [],
+      '重要决策': [],
+    };
 
-    // Find or create "重要决策" section
+    for (const fact of newFacts) {
+      const lowerFact = fact.toLowerCase();
+      if (/喜欢|偏好|习惯|倾向|prefer|like|usually|favorite|favourite/.test(lowerFact)) {
+        categorized['偏好'].push(fact);
+      } else if (/名字|职业|住在|年龄|邮箱|电话|name|work|live|age|email|phone|occupation/.test(lowerFact)) {
+        categorized['用户档案'].push(fact);
+      } else if (/项目|repo|仓库|project|codebase|代码库|技术栈|框架/.test(lowerFact)) {
+        categorized['项目相关'].push(fact);
+      } else {
+        categorized['重要决策'].push(fact);
+      }
+    }
+
+    const today = new Date().toISOString().split('T')[0];
     let updated = coreMemory;
 
-    if (updated.includes('## 重要决策')) {
-      // Append to existing section
-      updated = updated.replace(
-        /(## 重要决策\n)/,
-        `$1\n### ${today}\n${newSection}\n\n`
-      );
-    } else {
-      // Add new section at end
-      updated += `\n\n## 重要决策\n\n### ${today}\n${newSection}\n`;
+    // Append to each section that has new facts
+    for (const [section, facts] of Object.entries(categorized)) {
+      if (facts.length === 0) continue;
+
+      const newSection = facts.map(f => `- ${f}`).join('\n');
+      const sectionHeader = `## ${section}`;
+
+      if (updated.includes(sectionHeader)) {
+        // Append to existing section (after the header line, handle both \n and \r\n)
+        updated = updated.replace(
+          new RegExp(`(${sectionHeader.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\r?\\n)`),
+          `$1\n### ${today}\n${newSection}\n\n`
+        );
+      } else {
+        // Add new section at end
+        updated += `\n\n${sectionHeader}\n\n### ${today}\n${newSection}\n`;
+      }
     }
 
     // Update footer
@@ -497,10 +464,12 @@ export class MemoryScheduler extends EventEmitter {
       const filesDeleted = this.fileSync.deleteOldDailyFiles(this.config.dailyRetentionDays);
       result.filesDeleted = filesDeleted;
 
-      // Cleanup 2: Delete old transcript files
+      // Cleanup 2: Delete old transcript files (skip active sessions)
       if (this.transcriptWriter) {
+        const activeSessionIds = this.activeSessionProvider?.() ?? undefined;
         const transcriptsDeleted = this.transcriptWriter.cleanupOldTranscripts(
-          this.config.transcriptRetentionDays
+          this.config.transcriptRetentionDays,
+          activeSessionIds
         );
         result.transcriptsDeleted = transcriptsDeleted;
       }

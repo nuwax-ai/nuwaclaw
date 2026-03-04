@@ -88,6 +88,9 @@ export function jaccardSimilarity(textA: string, textB: string): number {
  * 2. Text similarity (Jaccard > threshold)
  * 3. Vector similarity (optional, not implemented here — handled by caller if needed)
  *
+ * For duplicates against existingTexts (from DB): always discard the candidate.
+ * For duplicates within the current batch: keep the one with higher confidence.
+ *
  * @param candidates - Newly extracted memory candidates
  * @param existingTexts - Texts of existing memories to check against
  * @param config - Deduplication config with thresholds
@@ -100,42 +103,73 @@ export function deduplicateMemories(
 ): ExtractedMemory[] {
   if (candidates.length === 0) return [];
 
-  // Build fingerprint set from existing memories
+  // Build fingerprint set from existing memories (DB source)
   const existingFingerprints = new Set(
     existingTexts.map(text => calculateFingerprint(text))
   );
 
-  const result: ExtractedMemory[] = [];
-  const acceptedTexts: string[] = [...existingTexts];
+  // Track accepted candidates with their fingerprints for intra-batch dedup
+  const acceptedCandidates: ExtractedMemory[] = [];
+  const acceptedFingerprints = new Set<string>();
+  // Map from fingerprint to index in acceptedCandidates for efficient lookup
+  const fingerprintToIndex = new Map<string, number>();
 
   for (const candidate of candidates) {
-    // Layer 1: Exact fingerprint match
+    // Layer 1: Exact fingerprint match against DB
     const fingerprint = calculateFingerprint(candidate.text);
     if (existingFingerprints.has(fingerprint)) {
-      continue; // Skip exact duplicate
+      continue; // Skip exact duplicate of DB entry
     }
 
-    // Layer 2: Text similarity check
-    let isDuplicate = false;
-    for (const existingText of acceptedTexts) {
+    // Layer 2: Text similarity check against DB entries
+    let isDuplicateOfExisting = false;
+    for (const existingText of existingTexts) {
       const similarity = jaccardSimilarity(candidate.text, existingText);
       if (similarity > config.textSimilarityThreshold) {
-        isDuplicate = true;
+        isDuplicateOfExisting = true;
+        break;
+      }
+    }
+    if (isDuplicateOfExisting) {
+      continue; // Skip near-duplicate of DB entry
+    }
+
+    // Layer 1b: Exact fingerprint match within batch
+    if (acceptedFingerprints.has(fingerprint)) {
+      // Find the existing batch entry and compare confidence
+      const idx = fingerprintToIndex.get(fingerprint)!;
+      if (candidate.confidence > acceptedCandidates[idx].confidence) {
+        acceptedCandidates[idx] = candidate; // Replace with higher confidence
+      }
+      continue;
+    }
+
+    // Layer 2b: Text similarity check within batch (compare confidence)
+    let batchDuplicateIdx = -1;
+    for (let i = 0; i < acceptedCandidates.length; i++) {
+      const similarity = jaccardSimilarity(candidate.text, acceptedCandidates[i].text);
+      if (similarity > config.textSimilarityThreshold) {
+        batchDuplicateIdx = i;
         break;
       }
     }
 
-    if (isDuplicate) {
-      continue; // Skip near-duplicate
+    if (batchDuplicateIdx >= 0) {
+      // Keep the one with higher confidence
+      if (candidate.confidence > acceptedCandidates[batchDuplicateIdx].confidence) {
+        acceptedCandidates[batchDuplicateIdx] = candidate;
+      }
+      continue;
     }
 
     // Passed all checks — accept this candidate
-    result.push(candidate);
-    acceptedTexts.push(candidate.text);
-    existingFingerprints.add(fingerprint);
+    const idx = acceptedCandidates.length;
+    acceptedCandidates.push(candidate);
+    acceptedFingerprints.add(fingerprint);
+    fingerprintToIndex.set(fingerprint, idx);
   }
 
-  return result;
+  return acceptedCandidates;
 }
 
 /**

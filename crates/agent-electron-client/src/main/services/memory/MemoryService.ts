@@ -139,6 +139,11 @@ export class MemoryService extends EventEmitter {
         stalePendingHours: 24,
       });
 
+      // Set active session provider so cleanup skips active sessions
+      this.scheduler.setActiveSessionProvider(
+        () => new Set(this.segmentCounters.keys())
+      );
+
       // Start scheduler
       this.scheduler.start();
 
@@ -490,8 +495,12 @@ export class MemoryService extends EventEmitter {
     const totalMessages = this.transcriptWriter.countMessages(sessionId);
     if (totalMessages === 0) return;
 
-    // Calculate segment boundaries
-    const segmentIndex = this.segmentIndexCounters.get(sessionId) ?? 0;
+    // Calculate segment boundaries (recover from DB if counter is lost after restart)
+    let segmentIndex = this.segmentIndexCounters.get(sessionId);
+    if (segmentIndex === undefined) {
+      segmentIndex = this.database.getNextSegmentIndex(sessionId);
+      this.segmentIndexCounters.set(sessionId, segmentIndex);
+    }
     const endIndex = totalMessages;
     const startIndex = Math.max(0, endIndex - segmentSize);
 
@@ -501,29 +510,40 @@ export class MemoryService extends EventEmitter {
 
     const messages = entries.map(e => ({ role: e.role, content: e.content }));
 
-    // Record progress in database
-    this.database.insertExtractionProgress({
-      sessionId,
-      segmentIndex,
-      startMsgIndex: startIndex,
-      endMsgIndex: endIndex,
-      status: 'pending',
-      memoriesExtracted: 0,
-      createdAt: Date.now(),
-      completedAt: null,
-      errorMessage: null,
-    });
+    try {
+      // Record progress in database
+      this.database.insertExtractionProgress({
+        sessionId,
+        segmentIndex,
+        startMsgIndex: startIndex,
+        endMsgIndex: endIndex,
+        status: 'pending',
+        memoriesExtracted: 0,
+        createdAt: Date.now(),
+        completedAt: null,
+        errorMessage: null,
+      });
 
-    // Enqueue extraction task
-    this.extractionQueue.enqueue(
-      sessionId,
-      `seg-${segmentIndex}`,
-      messages,
-      modelConfig,
-      segmentIndex,
-      startIndex,
-      endIndex
-    );
+      // Enqueue extraction task
+      this.extractionQueue.enqueue(
+        sessionId,
+        `seg-${segmentIndex}`,
+        messages,
+        modelConfig,
+        segmentIndex,
+        startIndex,
+        endIndex
+      );
+    } catch (error) {
+      log.error(`[MemoryService] Segment extraction failed for session ${sessionId}, segment ${segmentIndex}:`, error);
+      // Mark progress as failed if it was inserted
+      try {
+        this.database.updateExtractionProgress(sessionId, segmentIndex, {
+          status: 'failed',
+          errorMessage: String(error),
+        });
+      } catch { /* best effort */ }
+    }
 
     // Reset counter (keep overlap messages in next segment)
     this.segmentCounters.set(sessionId, overlap);
@@ -598,8 +618,11 @@ export class MemoryService extends EventEmitter {
       this.config.segmentation
     );
 
-    // Get current segment index counter
-    let segmentIndex = this.segmentIndexCounters.get(sessionId) ?? 0;
+    // Get current segment index counter (recover from DB if needed)
+    let segmentIndex = this.segmentIndexCounters.get(sessionId);
+    if (segmentIndex === undefined) {
+      segmentIndex = this.database.getNextSegmentIndex(sessionId);
+    }
 
     // Enqueue each segment
     let lastTaskId = '';
@@ -788,8 +811,13 @@ export class MemoryService extends EventEmitter {
   // ==================== Scheduled Tasks ====================
 
   /**
-   * Run consolidation manually
+   * Set model config for scheduler's cron-triggered consolidation
+   * This allows the cron job to use LLM consolidation instead of simple merge
    */
+  setSchedulerModelConfig(config: ModelConfig): void {
+    this.scheduler.setModelConfig(config);
+  }
+
   /**
    * Run consolidation manually
    * @param modelConfig - Optional model config for LLM-based consolidation
