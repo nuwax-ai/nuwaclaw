@@ -28,6 +28,8 @@ import {
   SCHEMA_VERSION,
   MEMORY_STATUS,
   DEFAULT_SYNC_STATE,
+  MEMORY_DB_DIR,
+  MEMORY_DB_FILE,
 } from './constants';
 import { generateMemoryId, calculateHash } from './utils/hash';
 import { float32ToBuffer, bufferToFloat32, cosineSimilarity } from './utils/vector';
@@ -175,14 +177,14 @@ export class MemoryDatabase {
     this.workspaceDir = workspaceDir;
     this.config = config;
 
-    // Create .memory directory
-    const memoryDir = path.join(workspaceDir, '.memory');
+    // Create memory directory (use MEMORY_DB_DIR constant for cross-platform compatibility)
+    const memoryDir = path.join(workspaceDir, MEMORY_DB_DIR);
     if (!fs.existsSync(memoryDir)) {
       fs.mkdirSync(memoryDir, { recursive: true });
     }
 
     // Database path
-    this.dbPath = path.join(memoryDir, 'index.sqlite');
+    this.dbPath = path.join(memoryDir, MEMORY_DB_FILE);
 
     try {
       // Open database
@@ -677,10 +679,20 @@ export class MemoryDatabase {
   // ==================== Search Operations ====================
 
   /**
-   * FTS5 full-text search
+   * FTS5 full-text search with LIKE fallback for Chinese
    */
   searchFTS(query: string, limit: number = 12): MemorySearchResult[] {
     if (!this.db) return [];
+
+    // Check if query contains Chinese characters
+    const hasChinese = /[\u4e00-\u9fff]/.test(query);
+    log.debug(`[MemoryDatabase] searchFTS: query="${query.slice(0, 50)}", hasChinese=${hasChinese}`);
+
+    // For Chinese queries, use LIKE directly (FTS5 unicode61 doesn't support Chinese segmentation)
+    if (hasChinese) {
+      log.debug('[MemoryDatabase] searchFTS: using LIKE for Chinese query');
+      return this.searchLike(query, limit);
+    }
 
     // Clean query for FTS5
     const cleanQuery = this.cleanFTSQuery(query);
@@ -696,6 +708,11 @@ export class MemoryDatabase {
         LIMIT ?
       `).all(cleanQuery, MEMORY_STATUS.ACTIVE, limit) as (MemoryEntryRow & { score: number })[];
 
+      // If FTS returns no results, fall back to LIKE
+      if (rows.length === 0) {
+        return this.searchLike(query, limit);
+      }
+
       // BM25 returns negative scores, convert to positive and normalize
       const maxScore = Math.max(...rows.map(r => Math.abs(r.score)), 1);
 
@@ -706,8 +723,79 @@ export class MemoryDatabase {
       }));
     } catch (error) {
       log.error('[MemoryDatabase] FTS search failed:', error);
+      // Fall back to LIKE on error
+      return this.searchLike(query, limit);
+    }
+  }
+
+  /**
+   * LIKE-based search as fallback for Chinese and when FTS fails
+   */
+  private searchLike(query: string, limit: number): MemorySearchResult[] {
+    if (!this.db) return [];
+
+    try {
+      // Extract key terms from Chinese query for better matching
+      const keyTerms = this.extractChineseKeyTerms(query);
+      log.debug(`[MemoryDatabase] searchLike: key terms="${keyTerms.join(', ')}"`);
+
+      // Build OR conditions for each key term
+      const conditions = keyTerms.map(() => 'text LIKE ?').join(' OR ');
+      const params = [...keyTerms.map(t => `%${t}%`), MEMORY_STATUS.ACTIVE, limit];
+
+      const rows = this.db.prepare(`
+        SELECT * FROM memories
+        WHERE (${conditions})
+        AND status = ?
+        ORDER BY updated_at DESC
+        LIMIT ?
+      `).all(...params) as MemoryEntryRow[];
+
+      log.debug(`[MemoryDatabase] searchLike: found ${rows.length} results`);
+
+      // Assign scores based on match quality
+      return rows.map((row, index) => ({
+        entry: this.rowToEntry(row),
+        // Simple scoring: earlier results get higher scores, base 0.5
+        score: Math.max(0.5, 0.9 - (index * 0.1)),
+        source: 'fts' as const,
+      }));
+    } catch (error) {
+      log.error('[MemoryDatabase] LIKE search failed:', error);
       return [];
     }
+  }
+
+  /**
+   * Extract key terms from Chinese text for search
+   * Returns meaningful 2-4 character ngrams
+   */
+  private extractChineseKeyTerms(text: string): string[] {
+    // Remove punctuation and common question words
+    const cleanText = text
+      .replace(/[？?！!。，,、]/g, '')
+      .replace(/什么|怎么|如何|为什么|哪|谁|是否|能不能|可以|吗|呢|呀|啊|吗/g, '');
+
+    const terms: string[] = [];
+
+    // Extract 2-4 character ngrams that contain Chinese characters
+    for (let len = 4; len >= 2; len--) {
+      for (let i = 0; i <= cleanText.length - len; i++) {
+        const ngram = cleanText.slice(i, i + len);
+        // Only include if it contains Chinese characters
+        if (/[\u4e00-\u9fff]/.test(ngram)) {
+          terms.push(ngram);
+        }
+      }
+    }
+
+    // Also include the full cleaned text if it's short enough
+    if (cleanText.length <= 10 && /[\u4e00-\u9fff]/.test(cleanText)) {
+      terms.unshift(cleanText);
+    }
+
+    // Remove duplicates and return top terms
+    return [...new Set(terms)].slice(0, 5);
   }
 
   /**

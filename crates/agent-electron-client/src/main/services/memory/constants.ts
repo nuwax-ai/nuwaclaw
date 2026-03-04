@@ -4,15 +4,23 @@
  * Default values and constants based on specs/long-memory/long-memory.md
  */
 
+import * as path from 'path';
 import type { MemoryConfig, SyncState } from './types';
 
 // ==================== File Names ====================
 
 export const CORE_MEMORY_FILE = 'MEMORY.md';
-export const DAILY_MEMORY_DIR = 'memory';
-export const MEMORY_DB_DIR = '.memory';
+
+// Memory directory structure:
+// memory/
+//   ├── index.sqlite      (database)
+//   ├── transcripts/      (session transcripts)
+//   └── daily/            (daily memory files)
+export const MEMORY_ROOT_DIR = 'memory';
+export const DAILY_MEMORY_DIR = path.join('memory', 'daily');  // Daily memory files: memory/daily/
+export const MEMORY_DB_DIR = 'memory';  // Database: memory/index.sqlite
 export const MEMORY_DB_FILE = 'index.sqlite';
-export const TRANSCRIPT_DIR = 'transcripts';
+export const TRANSCRIPT_DIR = path.join('memory', 'transcripts');  // Transcripts: memory/transcripts/
 
 // ==================== Default Configuration ====================
 

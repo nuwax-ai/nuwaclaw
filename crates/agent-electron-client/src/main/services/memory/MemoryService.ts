@@ -708,10 +708,14 @@ export class MemoryService extends EventEmitter {
    */
   async getInjectionContext(query: string, options?: InjectionOptions): Promise<string> {
     if (!this.initialized) {
+      log.debug('[MemoryService] getInjectionContext: not initialized');
       return '';
     }
 
-    return this.injector.buildContext(query, options);
+    log.debug('[MemoryService] getInjectionContext: query=', query.slice(0, 100));
+    const context = await this.injector.buildContext(query, options);
+    log.debug('[MemoryService] getInjectionContext: result length=', context.length);
+    return context;
   }
 
   /**

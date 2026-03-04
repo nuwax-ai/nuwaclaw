@@ -48,6 +48,7 @@ export class MemoryInjector {
     options?: InjectionOptions
   ): Promise<string> {
     if (!this.retriever) {
+      log.debug('[MemoryInjector] buildContext: no retriever');
       return '';
     }
 
@@ -56,7 +57,9 @@ export class MemoryInjector {
     const includeScores = options?.includeScores ?? false;
 
     // Retrieve relevant memories
+    log.debug('[MemoryInjector] buildContext: searching for query=', query.slice(0, 100));
     const results = await this.retriever.search(query);
+    log.debug('[MemoryInjector] buildContext: found', results.length, 'results');
 
     if (results.length === 0) {
       return '';

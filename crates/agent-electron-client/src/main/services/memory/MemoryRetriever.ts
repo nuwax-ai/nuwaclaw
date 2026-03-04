@@ -65,6 +65,7 @@ export class MemoryRetriever {
    */
   async search(query: string, options?: HybridSearchOptions): Promise<MemorySearchResult[]> {
     if (!this.database) {
+      log.debug('[MemoryRetriever] search: no database');
       return [];
     }
 
@@ -84,7 +85,9 @@ export class MemoryRetriever {
     const ftsWeight = options?.ftsWeight ?? this.ftsWeight;
 
     // Layer 1: Always do FTS5 search
+    log.debug('[MemoryRetriever] search: FTS query=', query.slice(0, 100));
     const ftsResults = this.database.searchFTS(query, limit * 2);
+    log.debug('[MemoryRetriever] search: FTS returned', ftsResults.length, 'results');
 
     // Check if embedding is available
     const embeddingEnabled = this.embeddingProvider !== null;

@@ -278,8 +278,8 @@ export class MemoryExtractor extends EventEmitter {
     cleanText = cleanText.replace(/<current-cst-time>[\s\S]*?<\/current-cst-time>/gi, '');
 
     // Remove markdown headers and everything after them (typically system prompts)
-    // Only keep content before the first ## header
-    const headerIndex = cleanText.indexOf('\n## ');
+    // Handle both "\n## " (with newline) and "##" (without newline)
+    const headerIndex = cleanText.indexOf('##');
     if (headerIndex > 0) {
       cleanText = cleanText.substring(0, headerIndex);
     }

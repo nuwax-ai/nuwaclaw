@@ -11,7 +11,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import log from 'electron-log';
 import type { TranscriptEntry } from './types';
-import { DAILY_MEMORY_DIR, TRANSCRIPT_DIR } from './constants';
+import { TRANSCRIPT_DIR } from './constants';
 
 // ==================== Sensitive Data Patterns ====================
 
@@ -45,8 +45,9 @@ export class TranscriptWriter {
    */
   init(workspaceDir: string): void {
     this.workspaceDir = workspaceDir;
-    // Store transcripts in visible memory/transcripts/ directory (not hidden .memory/)
-    this.transcriptsDir = path.join(workspaceDir, DAILY_MEMORY_DIR, TRANSCRIPT_DIR);
+    // Store transcripts in memory/transcripts/ directory
+    // TRANSCRIPT_DIR is already a full relative path (memory/transcripts)
+    this.transcriptsDir = path.join(workspaceDir, TRANSCRIPT_DIR);
 
     // Ensure transcripts directory exists
     if (!fs.existsSync(this.transcriptsDir)) {

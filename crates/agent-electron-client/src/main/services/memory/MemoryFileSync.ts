@@ -541,7 +541,7 @@ export class MemoryFileSync extends EventEmitter {
   }
 
   /**
-   * Append to daily memory file
+   * Append to daily memory file and sync to database
    */
   appendToDailyMemory(content: string, title?: string): string {
     const filePath = this.getDailyMemoryPath();
@@ -568,7 +568,60 @@ ${content}
     fs.appendFileSync(filePath, appendContent, 'utf8');
 
     log.info('[MemoryFileSync] Appended to daily memory:', filePath);
+
+    // Immediately sync this file to database for real-time retrieval
+    this.syncFileImmediate(filePath, content, sessionTitle);
+
     return filePath;
+  }
+
+  /**
+   * Immediately sync appended content to database (without re-reading file)
+   */
+  private syncFileImmediate(filePath: string, content: string, title: string): void {
+    if (!this.database) return;
+
+    try {
+      // Parse the appended content into individual memories
+      const lines = content.split('\n').filter(line => line.trim().startsWith('- '));
+
+      for (const line of lines) {
+        const memoryText = line.replace(/^-\s*/, '').trim();
+        if (!memoryText || memoryText.length < 2) continue;
+
+        // Generate memory entry
+        const now = Date.now();
+        const fingerprint = calculateHash(memoryText);
+        const relativePath = path.relative(this.workspaceDir, filePath).replace(/\\/g, '/');
+
+        const entry = {
+          id: `mem_${fingerprint}`,
+          text: memoryText,
+          fingerprint,
+          category: 'fact' as const,
+          confidence: 0.75,
+          isExplicit: true,
+          importance: 0.5,
+          source: 'daily' as const,
+          sourcePath: relativePath,
+          status: 'active' as const,
+          accessCount: 0,
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        // Check if already exists
+        const exists = this.database.existsByFingerprint(fingerprint);
+        if (!exists) {
+          this.database.insertMemory(entry);
+          log.debug('[MemoryFileSync] Inserted memory to database:', memoryText.slice(0, 50));
+        }
+      }
+
+      log.info('[MemoryFileSync] Synced %d memories to database from append', lines.length);
+    } catch (error) {
+      log.error('[MemoryFileSync] Failed to sync appended content to database:', error);
+    }
   }
 
   /**

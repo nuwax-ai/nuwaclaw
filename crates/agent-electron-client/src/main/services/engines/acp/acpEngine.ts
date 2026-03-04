@@ -231,6 +231,33 @@ export class AcpEngine extends EventEmitter {
     }
   }
 
+  /**
+   * Extract user's actual question from prompt (remove XML tags and system prompts)
+   */
+  private extractUserQuestion(prompt: string): string {
+    let cleanText = prompt;
+
+    // Remove XML-style tags and their content
+    cleanText = cleanText.replace(/<context-message>[\s\S]*?<\/context-message>/gi, '');
+    cleanText = cleanText.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '');
+    cleanText = cleanText.replace(/<current-cst-time>[\s\S]*?<\/current-cst-time>/gi, '');
+
+    // Remove markdown headers and everything after them (typically system prompts)
+    // Handle both "\n## " (with newline) and "##" (without newline)
+    const headerIndex = cleanText.indexOf('##');
+    if (headerIndex > 0) {
+      cleanText = cleanText.substring(0, headerIndex);
+    }
+
+    // Remove remaining XML tags
+    cleanText = cleanText.replace(/<[^>]+>/g, '');
+
+    // Clean up whitespace
+    cleanText = cleanText.trim();
+
+    return cleanText || prompt; // Fallback to original if cleaning results in empty string
+  }
+
   async destroy(): Promise<void> {
     // Cancel all active sessions
     for (const [, session] of this.sessions) {
@@ -749,7 +776,11 @@ export class AcpEngine extends EventEmitter {
       let enhancedPrompt = request.prompt;
       if (memoryService.isInitialized()) {
         try {
-          const memoryContext = await memoryService.getInjectionContext(request.prompt);
+          // Extract actual user question from prompt (remove XML tags and system prompts)
+          const userQuestion = this.extractUserQuestion(request.prompt);
+          log.debug(`${this.logTag} Memory search query: "${userQuestion.slice(0, 100)}"`);
+
+          const memoryContext = await memoryService.getInjectionContext(userQuestion);
           if (memoryContext && memoryContext.trim()) {
             enhancedPrompt = `<memory-context>
 以下是关于用户的已知信息，请在回答时参考：
@@ -757,7 +788,7 @@ ${memoryContext}
 </memory-context>
 
 用户问题：${request.prompt}`;
-            log.debug(`${this.logTag} Injected memory context (${memoryContext.length} chars)`);
+            log.info(`${this.logTag} Injected memory context (${memoryContext.length} chars)`);
           }
         } catch (error) {
           log.warn(`${this.logTag} Failed to inject memory context:`, error);
