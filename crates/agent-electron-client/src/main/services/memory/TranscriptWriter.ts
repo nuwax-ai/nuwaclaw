@@ -2,7 +2,7 @@
  * Transcript Writer Module
  *
  * Manages JSONL session transcript files for memory extraction.
- * Each session's messages are appended to a JSONL file in .memory/transcripts/.
+ * Each session's messages are appended to a JSONL file in memory/transcripts/.
  *
  * Based on specs/long-memory/long-memory.md Section 5.2
  */
@@ -11,7 +11,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import log from 'electron-log';
 import type { TranscriptEntry } from './types';
-import { MEMORY_DB_DIR, TRANSCRIPT_DIR } from './constants';
+import { DAILY_MEMORY_DIR, TRANSCRIPT_DIR } from './constants';
 
 // ==================== Sensitive Data Patterns ====================
 
@@ -45,7 +45,8 @@ export class TranscriptWriter {
    */
   init(workspaceDir: string): void {
     this.workspaceDir = workspaceDir;
-    this.transcriptsDir = path.join(workspaceDir, MEMORY_DB_DIR, TRANSCRIPT_DIR);
+    // Store transcripts in visible memory/transcripts/ directory (not hidden .memory/)
+    this.transcriptsDir = path.join(workspaceDir, DAILY_MEMORY_DIR, TRANSCRIPT_DIR);
 
     // Ensure transcripts directory exists
     if (!fs.existsSync(this.transcriptsDir)) {

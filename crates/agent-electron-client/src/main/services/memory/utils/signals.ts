@@ -10,23 +10,26 @@ import type { SignalMatch } from '../types';
 
 /**
  * Explicit memory commands
- * Matches: "记住: xxx", "remember: xxx", "remember this: xxx"
+ * Matches: "记住: xxx", "记得xxx", "remember: xxx", "remember this: xxx"
  */
 export const EXPLICIT_PATTERNS: Array<{ pattern: RegExp; command: string }> = [
   {
-    pattern: /(?:记住|记得)[:：]\s*(.+?)(?:[。！？\n]|$)/gi,
+    // "记住/记得" + optional colon + content (e.g., "记得我的名字是小花花", "记住：我的名字是小花花")
+    // Stop at common delimiters: punctuation, comma, newline, ## (markdown headers), or end of string
+    pattern: /(?:记住|记得)(?:[:：]\s*)?(.+?)(?:[。！？，,\n#]|$)/gi,
     command: 'remember',
   },
   {
-    pattern: /(?:remember(?:\s+this)?)[:：]\s*(.+?)(?:[.!?\n]|$)/gi,
+    // English: "remember: xxx", "remember this: xxx"
+    pattern: /(?:remember(?:\s+this)?)[:：]\s*(.+?)(?:[.!?,\n#]|$)/gi,
     command: 'remember',
   },
   {
-    pattern: /(?:删除记忆|忘掉|忘记)[:：]\s*(.+?)(?:[。！？\n]|$)/gi,
+    pattern: /(?:删除记忆|忘掉|忘记)[:：]\s*(.+?)(?:[。！？，,\n#]|$)/gi,
     command: 'forget',
   },
   {
-    pattern: /(?:forget)[:：]\s*(.+?)(?:[.!?\n]|$)/gi,
+    pattern: /(?:forget)[:：]\s*(.+?)(?:[.!?,\n#]|$)/gi,
     command: 'forget',
   },
 ];
@@ -167,9 +170,22 @@ export function extractExplicitContent(text: string): { command: string; content
     pattern.lastIndex = 0;
     const match = pattern.exec(text);
     if (match && match[1]) {
+      let content = match[1].trim();
+
+      // Skip if content is just a tone particle (下, 吧, 了, 啊, etc.)
+      // These are common Chinese particles that indicate mood/tone, not actual content
+      if (/^[下吧了啊呢吗呀哦]+$/.test(content)) {
+        continue;
+      }
+
+      // Skip if content is too short (likely noise)
+      if (content.length < 2) {
+        continue;
+      }
+
       return {
         command,
-        content: match[1].trim(),
+        content,
       };
     }
   }

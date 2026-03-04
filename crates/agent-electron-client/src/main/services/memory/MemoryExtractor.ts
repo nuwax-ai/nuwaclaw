@@ -108,8 +108,11 @@ export class MemoryExtractor extends EventEmitter {
   ): Promise<ExtractedMemory[]> {
     const results: ExtractedMemory[] = [];
 
+    // Preprocess: extract user content from system prompts
+    const cleanText = this.preprocessText(text);
+
     // Detect signals
-    const signals = detectSignals(text);
+    const signals = detectSignals(cleanText);
 
     if (signals.length === 0) {
       return results;
@@ -119,7 +122,7 @@ export class MemoryExtractor extends EventEmitter {
     if (options.explicitEnabled) {
       const explicitSignals = signals.filter(s => s.type === 'explicit');
       for (const signal of explicitSignals) {
-        const memory = this.processExplicitSignal(signal, text);
+        const memory = this.processExplicitSignal(signal, cleanText);
         if (memory) {
           results.push(memory);
         }
@@ -263,6 +266,34 @@ export class MemoryExtractor extends EventEmitter {
   }
 
   /**
+   * Preprocess text to extract user content from system prompts
+   * Removes XML tags, system reminders, and other non-user content
+   */
+  private preprocessText(text: string): string {
+    let cleanText = text;
+
+    // Remove XML-style tags and their content
+    cleanText = cleanText.replace(/<context-message>[\s\S]*?<\/context-message>/gi, '');
+    cleanText = cleanText.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '');
+    cleanText = cleanText.replace(/<current-cst-time>[\s\S]*?<\/current-cst-time>/gi, '');
+
+    // Remove markdown headers and everything after them (typically system prompts)
+    // Only keep content before the first ## header
+    const headerIndex = cleanText.indexOf('\n## ');
+    if (headerIndex > 0) {
+      cleanText = cleanText.substring(0, headerIndex);
+    }
+
+    // Remove remaining XML tags
+    cleanText = cleanText.replace(/<[^>]+>/g, '');
+
+    // Clean up whitespace
+    cleanText = cleanText.trim();
+
+    return cleanText;
+  }
+
+  /**
    * Extract relevant text from message based on signals
    */
   private extractRelevantText(text: string, signals: SignalMatch[]): string {
@@ -272,18 +303,38 @@ export class MemoryExtractor extends EventEmitter {
     for (const sentence of sentences) {
       for (const signal of signals) {
         if (sentence.includes(signal.matchedText.replace(/[:：]\s*.*/, ''))) {
-          return sentence.trim();
+          // Clean up the extracted sentence
+          return this.cleanExtractedText(sentence.trim());
         }
       }
     }
 
     // Fallback: return the whole text if it's not too long
     if (text.length <= 200) {
-      return text.trim();
+      return this.cleanExtractedText(text.trim());
     }
 
     // Return first 200 chars
-    return text.trim().slice(0, 200) + '...';
+    return this.cleanExtractedText(text.trim().slice(0, 200));
+  }
+
+  /**
+   * Clean extracted text by removing tone particles and irrelevant suffixes
+   */
+  private cleanExtractedText(text: string): string {
+    let cleaned = text;
+
+    // Remove common Chinese tone particles and suffixes that aren't part of the memory
+    // e.g., "你记住下" should just be the preceding content
+    cleaned = cleaned.replace(/[，,]?你?(?:记住|记得)[下吧了啊]?/g, '');
+
+    // Remove trailing punctuation that looks incomplete
+    cleaned = cleaned.replace(/[，,;；\s]+$/g, '');
+
+    // Remove markdown headers
+    cleaned = cleaned.replace(/#+\s*$/g, '');
+
+    return cleaned.trim();
   }
 
   /**

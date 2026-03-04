@@ -46,6 +46,8 @@ import type {
   UnifiedSessionMessage,
   ModelProviderConfig,
 } from '@shared/types/computerTypes';
+import { memoryService } from '../../memory';
+import type { ModelConfig } from '../../memory/types';
 
 /** Safe JSON.stringify that handles circular references */
 function safeStringify(obj: unknown): string {
@@ -83,13 +85,26 @@ export class AcpEngine extends EventEmitter {
   private activePromptRejects = new Map<string, (reason: Error) => void>();
   private logTag: string;
 
-  constructor(private readonly engineName: 'claude-code' | 'nuwaxcode' = 'claude-code') {
+  private readonly _engineName: 'claude-code' | 'nuwaxcode';
+
+  constructor(engineName: 'claude-code' | 'nuwaxcode' = 'claude-code') {
     super();
+    this._engineName = engineName;
     this.logTag = `[AcpEngine:${engineName}]`;
   }
 
   get isReady(): boolean {
     return this._ready && this.acpConnection !== null;
+  }
+
+  /** Engine type (claude-code | nuwaxcode), used by UnifiedAgent for provider detection */
+  get engineName(): 'claude-code' | 'nuwaxcode' {
+    return this._engineName;
+  }
+
+  /** Get the current engine configuration */
+  get currentConfig(): AgentConfig | null {
+    return this.config;
   }
 
   getActivePromptCount(): number {
@@ -710,10 +725,49 @@ export class AcpEngine extends EventEmitter {
         session.projectId = request.project_id;
       }
 
-      // 2. Async prompt
-      this.promptAsync(session.id, [{ type: 'text', text: request.prompt }]);
+      // 2. Record user message to MemoryService
+      // Use session.id (local ID like 'acp-1-xxx') to match assistant message recording
+      if (memoryService.isInitialized() && this.config) {
+        try {
+          const modelConfig: ModelConfig = {
+            provider: this.engineName.includes('claude') ? 'anthropic' : 'openai',
+            model: this.config.model || '',
+            apiKey: this.config.apiKey || '',
+            baseUrl: this.config.baseUrl,
+          };
+          memoryService.handleMessage(
+            session.id,
+            { role: 'user', content: request.prompt },
+            modelConfig
+          );
+        } catch (error) {
+          log.warn(`${this.logTag} Failed to record user message to memory:`, error);
+        }
+      }
 
-      // 3. Return HttpResult<ChatResponse>
+      // 3. Inject memory context into prompt
+      let enhancedPrompt = request.prompt;
+      if (memoryService.isInitialized()) {
+        try {
+          const memoryContext = await memoryService.getInjectionContext(request.prompt);
+          if (memoryContext && memoryContext.trim()) {
+            enhancedPrompt = `<memory-context>
+以下是关于用户的已知信息，请在回答时参考：
+${memoryContext}
+</memory-context>
+
+用户问题：${request.prompt}`;
+            log.debug(`${this.logTag} Injected memory context (${memoryContext.length} chars)`);
+          }
+        } catch (error) {
+          log.warn(`${this.logTag} Failed to inject memory context:`, error);
+        }
+      }
+
+      // 4. Async prompt
+      this.promptAsync(session.id, [{ type: 'text', text: enhancedPrompt }]);
+
+      // 5. Return HttpResult<ChatResponse>
       const chatResponse: ComputerChatResponse = {
         project_id: request.project_id || session.id,
         session_id: session.acpSessionId ?? session.id,
