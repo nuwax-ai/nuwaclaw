@@ -149,6 +149,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         request_id: body.request_id,
         model_provider: body.model_provider,
         agent_config: body.agent_config,
+        context_servers_json: body.agent_config?.context_servers
+          ? JSON.stringify(body.agent_config.context_servers, null, 2)
+          : undefined,
         system_prompt_length: body.system_prompt ? body.system_prompt.length : 0,
         prompt_length: body.prompt ? body.prompt.length : 0,
       });

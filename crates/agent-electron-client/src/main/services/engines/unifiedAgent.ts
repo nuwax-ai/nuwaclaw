@@ -884,9 +884,12 @@ export class UnifiedAgentService extends EventEmitter {
     // Flush buffered assistant text to memory on promptEnd
     engine.on('computer:promptEnd', (...args: unknown[]) => {
       try {
-        const data = args[0] as { sessionId?: string } | undefined;
+        const data = args[0] as { sessionId?: string; openLongMemory?: boolean } | undefined;
         const sessionId = data?.sessionId;
         if (!sessionId) return;
+
+        // 检查记忆开关，默认 false
+        if (data?.openLongMemory !== true) return;
 
         const buffered = this.assistantTextBuffers.get(sessionId);
         this.assistantTextBuffers.delete(sessionId);
@@ -919,12 +922,14 @@ export class UnifiedAgentService extends EventEmitter {
     // This provides incremental extraction rather than re-processing all messages.
     engine.on('session.idle', (...args: unknown[]) => {
       try {
-        const data = args[0] as { sessionId?: string } | undefined;
+        const data = args[0] as { sessionId?: string; openLongMemory?: boolean } | undefined;
         const sessionId = data?.sessionId;
         // Use engine's current config (may be updated from HTTP request model_provider)
         const engineConfig = engine.currentConfig;
         // Skip if no sessionId, memory not initialized, or no engine config
         if (!sessionId || !memoryService.isInitialized() || !engineConfig) return;
+        // 检查记忆开关，默认 false
+        if (data?.openLongMemory !== true) return;
         // Skip if no API key (required for LLM-based extraction)
         if (!engineConfig.apiKey) {
           log.debug('[UnifiedAgent] Skipping incremental extraction: no API key configured');

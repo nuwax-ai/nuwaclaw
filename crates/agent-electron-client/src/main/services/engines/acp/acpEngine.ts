@@ -66,6 +66,7 @@ interface AcpSession {
   status: AcpSessionStatus;
   projectId?: string;
   lastActivity?: number;
+  openLongMemory?: boolean;  // 记忆开关，用于事件处理器判断
 }
 
 // Session counter removed — ACP protocol UUID is used as canonical session.id
@@ -550,9 +551,10 @@ export class AcpEngine extends EventEmitter {
         acpSessionId: session.acpSessionId,
         reason: result.stopReason,
         description: `Prompt completed: ${result.stopReason}`,
+        openLongMemory: session.openLongMemory,
       });
 
-      this.emit('session.idle', { sessionId });
+      this.emit('session.idle', { sessionId, openLongMemory: session.openLongMemory });
     } catch (error) {
       log.error(`${this.logTag} Prompt failed:`, error);
 
@@ -564,6 +566,7 @@ export class AcpEngine extends EventEmitter {
         acpSessionId: session.acpSessionId,
         reason: 'error',
         description: errMsg,
+        openLongMemory: session.openLongMemory,
       });
 
       this.emit('session.error', {
@@ -762,6 +765,9 @@ export class AcpEngine extends EventEmitter {
       const pureUserPrompt = request.original_user_prompt || '';
       // 决定是否启用记忆（默认 false）
       const enableMemory = request.open_long_memory === true;
+
+      // 存储记忆开关到 session，供事件处理器使用
+      session.openLongMemory = enableMemory;
 
       // 如果 original_user_prompt 为空，打印错误日志
       if (!pureUserPrompt) {
