@@ -1355,44 +1355,13 @@ export async function detectShellCommand(command: string): Promise<{
 // ==================== Install Functions ====================
 
 /**
- * 安装 npm 本地包
+ * 执行一次 npm install
  */
-export async function installNpmPackage(
+function runNpmInstall(
   packageName: string,
-  options?: {
-    registry?: string;
-    version?: string;
-  },
-): Promise<{
-  success: boolean;
-  version?: string;
-  binPath?: string;
-  error?: string;
-}> {
-  const appDataDir = getAppDataDir();
-
-  // 确保目录存在
-  if (!fs.existsSync(appDataDir)) {
-    fs.mkdirSync(appDataDir, { recursive: true });
-  }
-
-  // 初始化 package.json 如果不存在（放在 appDataDir，npm 会自动创建 node_modules/）
-  const packageJsonPath = path.join(appDataDir, "package.json");
-  if (!fs.existsSync(packageJsonPath)) {
-    fs.writeFileSync(
-      packageJsonPath,
-      JSON.stringify(
-        {
-          name: APP_NAME_IDENTIFIER,
-          version: "1.0.0",
-          private: true,
-        },
-        null,
-        2,
-      ),
-    );
-  }
-
+  appDataDir: string,
+  options?: { registry?: string; version?: string },
+): Promise<{ success: boolean; version?: string; binPath?: string; error?: string }> {
   return new Promise((resolve) => {
     const npmCmd = isWindows() ? "npm.cmd" : "npm";
     const args = ["install", "--save"];
@@ -1443,6 +1412,84 @@ export async function installNpmPackage(
       }
     });
   });
+}
+
+/**
+ * 安装 npm 本地包
+ *
+ * ENOTEMPTY 处理：Linux 上 npm install 偶发 rmdir 竞态错误，
+ * 遇到时删除该包的 node_modules 子目录后重试一次。
+ */
+export async function installNpmPackage(
+  packageName: string,
+  options?: {
+    registry?: string;
+    version?: string;
+  },
+): Promise<{
+  success: boolean;
+  version?: string;
+  binPath?: string;
+  error?: string;
+}> {
+  const appDataDir = getAppDataDir();
+
+  // 确保目录存在
+  if (!fs.existsSync(appDataDir)) {
+    fs.mkdirSync(appDataDir, { recursive: true });
+  }
+
+  // 初始化 package.json 如果不存在（放在 appDataDir，npm 会自动创建 node_modules/）
+  const packageJsonPath = path.join(appDataDir, "package.json");
+  if (!fs.existsSync(packageJsonPath)) {
+    fs.writeFileSync(
+      packageJsonPath,
+      JSON.stringify(
+        {
+          name: APP_NAME_IDENTIFIER,
+          version: "1.0.0",
+          private: true,
+        },
+        null,
+        2,
+      ),
+    );
+  }
+
+  const result = await runNpmInstall(packageName, appDataDir, options);
+  if (result.success) return result;
+
+  // ENOTEMPTY: 删除残留目录后重试一次
+  if (result.error && result.error.includes("ENOTEMPTY")) {
+    log.warn(`[Dependencies] ${packageName} 遇到 ENOTEMPTY，清理后重试...`);
+
+    // 从错误信息中提取冲突路径并删除
+    const match = result.error.match(/ENOTEMPTY[^']*'([^']+)'/);
+    if (match) {
+      const conflictDir = match[1];
+      try {
+        fs.rmSync(conflictDir, { recursive: true, force: true });
+        log.info(`[Dependencies] 已清理冲突目录: ${conflictDir}`);
+      } catch (e) {
+        log.warn(`[Dependencies] 清理冲突目录失败: ${conflictDir}`, e);
+      }
+    }
+
+    // 同时清理该包自身的 node_modules 残留
+    const pkgDir = path.join(appDataDir, "node_modules", packageName);
+    try {
+      if (fs.existsSync(pkgDir)) {
+        fs.rmSync(pkgDir, { recursive: true, force: true });
+        log.info(`[Dependencies] 已清理包目录: ${pkgDir}`);
+      }
+    } catch (e) {
+      log.warn(`[Dependencies] 清理包目录失败: ${pkgDir}`, e);
+    }
+
+    return runNpmInstall(packageName, appDataDir, options);
+  }
+
+  return result;
 }
 
 // ==================== Main Service ====================

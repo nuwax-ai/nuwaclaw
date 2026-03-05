@@ -307,11 +307,11 @@ export async function loginAndRegister(
 
 /**
  * 检查是否已登录
+ * savedKey 认证场景下 username/password 可为空，以 configKey 为准
  */
 export async function isLoggedIn(): Promise<boolean> {
-  const username = await getUsername();
   const configKey = await getConfigKey();
-  return !!(username && configKey);
+  return !!configKey;
 }
 
 /**
@@ -326,7 +326,7 @@ export async function getCurrentAuth(): Promise<{
   const username = await getUsername();
   const configKey = await getConfigKey();
   const userInfo = await getUserInfo();
-  const isLogged = !!(username && configKey);
+  const isLogged = !!configKey;
 
   return {
     username,
@@ -342,15 +342,17 @@ export async function getCurrentAuth(): Promise<{
 export async function reRegisterClient(): Promise<ClientRegisterResponse | null> {
   const username = await getUsername();
   const password = await getPassword();
+  const savedKey = await getSavedKey();
 
-  if (!username || !password) {
+  // savedKey 认证场景下 username/password 可为空
+  if (username == null && password == null && !savedKey) {
     console.warn('[Auth] 未保存凭证，无法重新注册');
     return null;
   }
 
   try {
     console.log('[Auth] 重新注册客户端...');
-    const response = await loginAndRegister(username, password, { suppressToast: true });
+    const response = await loginAndRegister(username || '', password || '', { suppressToast: true });
     console.log('[Auth] 重新注册成功');
     return response;
   } catch (error) {
@@ -382,17 +384,18 @@ export async function syncConfigToServer(options?: {
   } | null;
   const domain = normalizeServerHost(step1Config?.serverHost || '');
 
-  if (!username || !password) {
+  // 使用持久化的 savedKey（参考 Tauri 客户端：退出登录不清除，跨会话持久化）
+  const savedKey = await getSavedKey(domain, username || undefined);
+
+  // savedKey 认证场景下 username/password 可为空，仅当既无凭证也无 savedKey 时才拒绝
+  if (username == null && password == null && !savedKey) {
     console.warn('[SyncConfig] 未登录，无法同步配置');
     return null;
   }
 
-  // 使用持久化的 savedKey（参考 Tauri 客户端：退出登录不清除，跨会话持久化）
-  const savedKey = await getSavedKey(domain, username);
-
   const params: ClientRegisterParams = {
-    username,
-    password,
+    username: username || '',
+    password: password || '',
     savedKey: savedKey || undefined,
     sandboxConfigValue: await getLocalSandboxValue(),
   };
@@ -413,7 +416,7 @@ export async function syncConfigToServer(options?: {
     });
 
     await setConfigKey(response.configKey);
-    await setSavedKey(response.configKey, domain, username);
+    await setSavedKey(response.configKey, domain, username || undefined);
     await setOnlineStatus(response.online);
 
     // 保存 lanproxy 服务器配置（参考 Tauri 客户端，与 loginAndRegister 逻辑一致）
@@ -425,7 +428,7 @@ export async function syncConfigToServer(options?: {
     await setUserInfo({
       ...currentUserInfo,
       id: response.id,
-      username,
+      username: username || '',
       displayName: response.name,
       currentDomain: domain,
     } as AuthUserInfo);
