@@ -1,18 +1,75 @@
 /**
- * 自动更新服务 - 基于 electron-updater
+ * 自动更新服务 - 基于 electron-updater + latest.json
+ *
+ * 更新检查流程：
+ * 1. 从阿里云 OSS 拉取 latest.json 获取最新版本号
+ * 2. 比较版本号，如有更新则将 electron-updater 指向版本化 OSS 路径
+ * 3. electron-updater 从版本化路径读取 latest-*.yml 完成下载/安装
  *
  * - autoDownload = false: 用户控制下载时机
  * - autoInstallOnAppQuit = true: 下载完成后退出时自动安装
- * - 生产模式自动激活，开发模式通过 dev-app-update.yml 激活
  * - Windows: NSIS 安装支持自动更新，MSI 安装引导到 Releases 页面
  */
 
-import { app, BrowserWindow, shell, dialog } from 'electron';
+import { app, BrowserWindow, shell, dialog, net } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import log from 'electron-log';
 import type { UpdateState, UpdateInfo, UpdateProgress } from '@shared/types/updateTypes';
 import { APP_DATA_DIR_NAME } from '@shared/constants';
+
+// ==================== OSS latest.json ====================
+
+const OSS_BASE = 'https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaxbot-electron';
+const OSS_LATEST_JSON_URL = `${OSS_BASE}/latest/latest.json`;
+
+interface LatestJson {
+  version: string;
+  notes?: string;
+  pub_date?: string;
+  platforms?: Record<string, { url: string; signature?: string; size?: number }>;
+}
+
+/**
+ * 从 OSS 拉取 latest.json
+ */
+function fetchLatestJson(url: string, timeoutMs = 15_000): Promise<LatestJson> {
+  return new Promise((resolve, reject) => {
+    const request = net.request(url);
+    let body = '';
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        request.abort();
+        reject(new Error(`Timeout after ${timeoutMs}ms fetching ${url}`));
+      }
+    }, timeoutMs);
+
+    request.on('response', (response) => {
+      if (response.statusCode !== 200) {
+        clearTimeout(timer);
+        settled = true;
+        reject(new Error(`HTTP ${response.statusCode} fetching ${url}`));
+        return;
+      }
+      response.on('data', (chunk) => { body += chunk.toString(); });
+      response.on('end', () => {
+        clearTimeout(timer);
+        if (settled) return;
+        settled = true;
+        try { resolve(JSON.parse(body)); }
+        catch (e) { reject(new Error(`Invalid JSON from ${url}`)); }
+      });
+    });
+    request.on('error', (err) => {
+      clearTimeout(timer);
+      if (!settled) { settled = true; reject(err); }
+    });
+    request.end();
+  });
+}
 
 // ==================== 安装类型检测 ====================
 
@@ -110,9 +167,6 @@ function compareVersions(a: string, b: string): number {
 let currentState: UpdateState = { status: 'idle' };
 let getMainWindow: (() => BrowserWindow | null) | null = null;
 let cleanupBeforeInstall: (() => void) | null = null;
-let usingOss = false;
-let retriedWithGithub = false;
-let isCheckingForUpdate = false;
 
 function sendStatusToRenderer(): void {
   const win = getMainWindow?.();
@@ -135,6 +189,99 @@ function showModal(options: Electron.MessageBoxOptions): Promise<Electron.Messag
 function setState(patch: Partial<UpdateState>): void {
   currentState = { ...currentState, ...patch };
   sendStatusToRenderer();
+}
+
+// ==================== latest.json 更新检查 ====================
+
+let checkInProgress = false;
+
+/**
+ * 通过 OSS latest.json 检查更新
+ *
+ * 流程：
+ * 1. 拉取 latest.json 获取最新版本号和 signature
+ * 2. 与本地版本比较
+ * 3. 如果有更新，设置 electron-updater feedURL 指向版本化 OSS 路径，
+ *    并调用 autoUpdater.checkForUpdates() 初始化 electron-updater 下载状态
+ * 4. 如果 OSS 不可达，回退到 GitHub
+ */
+async function checkForUpdatesViaLatestJson(): Promise<UpdateInfo> {
+  if (checkInProgress) {
+    log.info('[AutoUpdater] Check already in progress, skipping');
+    return { hasUpdate: false };
+  }
+  checkInProgress = true;
+
+  try {
+    return await doCheckViaLatestJson();
+  } finally {
+    checkInProgress = false;
+  }
+}
+
+async function doCheckViaLatestJson(): Promise<UpdateInfo> {
+  const { autoUpdater } = require('electron-updater');
+  setState({ status: 'checking', error: undefined, canAutoUpdate: canAutoUpdate() });
+
+  let latestJson: LatestJson | null = null;
+
+  try {
+    latestJson = await fetchLatestJson(OSS_LATEST_JSON_URL);
+  } catch (e: any) {
+    log.warn(`[AutoUpdater] Failed to fetch latest.json from OSS: ${e.message}, falling back to GitHub`);
+  }
+
+  if (latestJson) {
+    const hasUpdate = compareVersions(latestJson.version, app.getVersion()) > 0;
+
+    if (hasUpdate) {
+      // 指向版本化 OSS 路径，electron-updater 从该路径下载安装包
+      const versionedUrl = `${OSS_BASE}/electron-v${latestJson.version}`;
+      log.info(`[AutoUpdater] New version ${latestJson.version} found via latest.json, setting feed URL: ${versionedUrl}`);
+      autoUpdater.setFeedURL({ provider: 'generic', url: versionedUrl });
+      // 初始化 electron-updater 内部状态，为后续 downloadUpdate() 做准备
+      await autoUpdater.checkForUpdates();
+    } else {
+      setState({
+        status: 'not-available',
+        canAutoUpdate: canAutoUpdate(),
+      });
+    }
+
+    return {
+      hasUpdate,
+      version: latestJson.version,
+      releaseNotes: latestJson.notes,
+    };
+  }
+
+  // OSS 不可达，回退到 GitHub（package.json 中已配置 publish.provider: github）
+  log.info('[AutoUpdater] Falling back to GitHub for update check');
+  autoUpdater.setFeedURL({
+    provider: 'github',
+    owner: 'nuwax-ai',
+    repo: 'nuwax-agent-client',
+  });
+
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    if (result?.updateInfo) {
+      const hasUpdate = compareVersions(result.updateInfo.version, app.getVersion()) > 0;
+      return {
+        hasUpdate,
+        version: result.updateInfo.version,
+        releaseDate: result.updateInfo.releaseDate,
+        releaseNotes: typeof result.updateInfo.releaseNotes === 'string'
+          ? result.updateInfo.releaseNotes
+          : undefined,
+      };
+    }
+    return { hasUpdate: false };
+  } catch (err: any) {
+    log.error('[AutoUpdater] GitHub fallback also failed:', err.message);
+    setState({ status: 'error', error: err.message, canAutoUpdate: canAutoUpdate() });
+    return { hasUpdate: false, error: err.message };
+  }
 }
 
 // ==================== 初始化 ====================
@@ -171,32 +318,22 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
     log.info('[AutoUpdater] Dev mode: using dev-app-update.yml (autoInstall disabled)');
   }
 
-  // 更新源优先级：
-  // 1. 环境变量自定义（本地测试）
-  // 2. 阿里云 OSS（默认，国内加速），OSS 失败时自动回退 GitHub Releases
+  // 自定义更新源覆盖（本地测试），直接走 electron-updater 的 generic provider
   const customServer = process.env.NUWAX_UPDATE_SERVER;
   if (customServer) {
     log.info(`[AutoUpdater] Using custom update server: ${customServer}`);
     autoUpdater.setFeedURL({ provider: 'generic', url: customServer });
-  } else {
-    const ossUrl = 'https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaxbot-electron/latest';
-    log.info(`[AutoUpdater] Using Aliyun OSS update server: ${ossUrl}`);
-    autoUpdater.setFeedURL({ provider: 'generic', url: ossUrl });
-    usingOss = true;
   }
 
   // -------- 事件监听 --------
 
   autoUpdater.on('checking-for-update', () => {
     log.info('[AutoUpdater] Checking for update...');
-    isCheckingForUpdate = true;
     setState({ status: 'checking', canAutoUpdate: canAutoUpdate() });
   });
 
   autoUpdater.on('update-available', (info: any) => {
     log.info('[AutoUpdater] Update available:', info.version);
-    isCheckingForUpdate = false;
-    retriedWithGithub = false;
     setState({
       status: 'available',
       version: info.version,
@@ -206,8 +343,6 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
 
   autoUpdater.on('update-not-available', (_info: any) => {
     log.info('[AutoUpdater] Already up to date');
-    isCheckingForUpdate = false;
-    retriedWithGithub = false;
     setState({ status: 'not-available', canAutoUpdate: canAutoUpdate() });
   });
 
@@ -232,23 +367,6 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
 
   autoUpdater.on('error', (err: Error) => {
     log.error('[AutoUpdater] Error:', err.message);
-
-    // OSS 检查更新失败时自动回退到 GitHub Releases（仅在 check 阶段，不影响下载）
-    if (usingOss && !retriedWithGithub && isCheckingForUpdate) {
-      isCheckingForUpdate = false;
-      retriedWithGithub = true;
-      log.info('[AutoUpdater] OSS check failed, falling back to GitHub Releases');
-      autoUpdater.setFeedURL({
-        provider: 'github',
-        owner: 'nuwax-ai',
-        repo: 'nuwax-agent-client',
-      });
-      autoUpdater.checkForUpdates().catch((e: any) => {
-        log.error('[AutoUpdater] GitHub fallback also failed:', e.message);
-      });
-      return;
-    }
-
     setState({
       status: 'error',
       error: err.message,
@@ -257,28 +375,29 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
     });
   });
 
-  // 延迟 10s 启动时检查一次，发现新版本弹窗提示
-  setTimeout(async () => {
+  // 延迟 10s 启动时检查一次，发现新版本弹窗提示；退出时清除避免在已退出状态下弹窗
+  const STARTUP_CHECK_DELAY_MS = 10_000;
+  const startupCheckTimerId = setTimeout(async () => {
     log.info('[AutoUpdater] Initial startup check');
     try {
-      const result = await autoUpdater.checkForUpdates();
-      if (result?.updateInfo) {
-        const remoteVersion = result.updateInfo.version;
-        const hasUpdate = compareVersions(remoteVersion, app.getVersion()) > 0;
-        if (hasUpdate) {
-          const skipped = getSkippedVersion();
-          if (skipped === remoteVersion) {
-            log.info(`[AutoUpdater] Startup: v${remoteVersion} was skipped by user, not prompting`);
-            return;
-          }
-          log.info(`[AutoUpdater] Startup: found new version v${remoteVersion}`);
-          showStartupUpdateDialog(remoteVersion);
+      const result = await checkForUpdatesViaLatestJson();
+      if (result.hasUpdate && result.version) {
+        const skipped = getSkippedVersion();
+        if (skipped === result.version) {
+          log.info(`[AutoUpdater] Startup: v${result.version} was skipped by user, not prompting`);
+          return;
         }
+        log.info(`[AutoUpdater] Startup: found new version v${result.version}`);
+        showStartupUpdateDialog(result.version);
       }
     } catch (e: any) {
       log.warn('[AutoUpdater] Startup check failed:', e.message);
     }
-  }, 10_000);
+  }, STARTUP_CHECK_DELAY_MS);
+
+  app.once('before-quit', () => {
+    clearTimeout(startupCheckTimerId);
+  });
 }
 
 /**
@@ -331,7 +450,7 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
           installUpdate();
         }
       } else if (dlResult.error) {
-        dialog.showErrorBox('下载失败', dlResult.error);
+        showModal({ type: 'error', title: '下载失败', message: dlResult.error });
       }
     } catch (e: any) {
       log.error('[AutoUpdater] Startup download failed:', e.message);
@@ -389,7 +508,7 @@ export async function showUpdateDialogFlow(): Promise<void> {
 
     const dlResult = await downloadUpdate();
     if (!dlResult.success) {
-      if (dlResult.error) dialog.showErrorBox('下载失败', dlResult.error);
+      if (dlResult.error) showModal({ type: 'error', title: '下载失败', message: dlResult.error });
       return;
     }
 
@@ -407,39 +526,42 @@ export async function showUpdateDialogFlow(): Promise<void> {
     }
   } catch (e: any) {
     log.error('[AutoUpdater] Update dialog flow error:', e.message);
-    dialog.showErrorBox('检查更新失败', e.message || '请稍后重试');
+    showModal({ type: 'error', title: '检查更新失败', message: e.message || '请稍后重试' });
   }
 }
 
 // ==================== 公开 API ====================
 
 /**
- * 手动检查更新
+ * 手动检查更新（通过 latest.json）
  */
 export async function checkForUpdates(): Promise<UpdateInfo> {
-  try {
-    const { autoUpdater } = require('electron-updater');
-    setState({ status: 'checking', error: undefined, canAutoUpdate: canAutoUpdate() });
-    const result = await autoUpdater.checkForUpdates();
-
-    if (result?.updateInfo) {
-      const hasUpdate = compareVersions(result.updateInfo.version, app.getVersion()) > 0;
-      return {
-        hasUpdate,
-        version: result.updateInfo.version,
-        releaseDate: result.updateInfo.releaseDate,
-        releaseNotes: typeof result.updateInfo.releaseNotes === 'string'
-          ? result.updateInfo.releaseNotes
-          : undefined,
-      };
+  // 自定义更新源覆盖时，直接走 electron-updater（已在 init 中设置 feedURL）
+  if (process.env.NUWAX_UPDATE_SERVER) {
+    try {
+      const { autoUpdater } = require('electron-updater');
+      setState({ status: 'checking', error: undefined, canAutoUpdate: canAutoUpdate() });
+      const result = await autoUpdater.checkForUpdates();
+      if (result?.updateInfo) {
+        const hasUpdate = compareVersions(result.updateInfo.version, app.getVersion()) > 0;
+        return {
+          hasUpdate,
+          version: result.updateInfo.version,
+          releaseDate: result.updateInfo.releaseDate,
+          releaseNotes: typeof result.updateInfo.releaseNotes === 'string'
+            ? result.updateInfo.releaseNotes
+            : undefined,
+        };
+      }
+      return { hasUpdate: false };
+    } catch (err: any) {
+      log.error('[AutoUpdater] checkForUpdates error:', err.message);
+      setState({ status: 'error', error: err.message, canAutoUpdate: canAutoUpdate() });
+      return { hasUpdate: false, error: err.message };
     }
-
-    return { hasUpdate: false };
-  } catch (err: any) {
-    log.error('[AutoUpdater] checkForUpdates error:', err.message);
-    setState({ status: 'error', error: err.message, canAutoUpdate: canAutoUpdate() });
-    return { hasUpdate: false, error: err.message };
   }
+
+  return checkForUpdatesViaLatestJson();
 }
 
 /**
