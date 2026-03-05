@@ -17,7 +17,6 @@
  *   win32-x64     → x86_64-pc-windows-msvc
  *   linux-x64     → x86_64-unknown-linux-gnu
  *   linux-arm64   → aarch64-unknown-linux-gnu
- *   linux-arm     → arm-unknown-linux-gnueabi
  */
 
 const path = require('path');
@@ -36,7 +35,6 @@ const PLATFORM_MAP = {
   'win32-ia32': 'i686-pc-windows-msvc',
   'linux-x64': 'x86_64-unknown-linux-gnu',
   'linux-arm64': 'aarch64-unknown-linux-gnu',
-  'linux-arm': 'arm-unknown-linux-gnueabi',
 };
 
 // Fallback for macOS arm64 (universal binary)
