@@ -492,6 +492,8 @@ class McpProxyManager {
     this.lastError = null;
     try {
       await persistentMcpBridge.stop();
+      // 重置 bridge 配置缓存，确保下次启动会重新加载
+      lastBridgeConfig = null;
     } catch (e) {
       log.warn("[McpProxy] PersistentMcpBridge 停止出错:", e);
     }
@@ -719,6 +721,31 @@ class McpProxyManager {
 
 export const mcpProxyManager = new McpProxyManager();
 
+/** 上次用于启动 PersistentMcpBridge 的配置（用于避免不必要的重启） */
+let lastBridgeConfig: Record<string, StdioMcpServerEntry> | null = null;
+
+/** 比较两个 stdio 配置是否相等（忽略 env 中的临时变量） */
+function configsEqual(
+  a: Record<string, StdioMcpServerEntry>,
+  b: Record<string, StdioMcpServerEntry> | null,
+): boolean {
+  if (!b) return false;
+  const aKeys = Object.keys(a).sort();
+  const bKeys = Object.keys(b).sort();
+  if (aKeys.length !== bKeys.length) return false;
+  if (aKeys.join(",") !== bKeys.join(",")) return false;
+
+  for (const key of aKeys) {
+    const entryA = a[key];
+    const entryB = b[key];
+    if (entryA.command !== entryB.command) return false;
+    if (JSON.stringify(entryA.args) !== JSON.stringify(entryB.args)) return false;
+    // persistent 标志必须一致
+    if (entryA.persistent !== entryB.persistent) return false;
+  }
+  return true;
+}
+
 /**
  * 将 mcpServers 配置同步到 MCP Proxy 配置并持久化。
  * 不再需要重启进程 — Agent 下次 init 时 getAgentMcpConfig() 会使用新配置。
@@ -787,16 +814,25 @@ export async function syncMcpConfigToProxyAndReload(
   // 不再需要 restart — 无后台进程
   // Agent 下次 init 时 getAgentMcpConfig() 会使用新配置
 
-  // 重启 PersistentMcpBridge 加载更新后的 server（阻塞到所有 server 就绪）
+  // 仅在配置变化时重启 PersistentMcpBridge（避免 chrome-devtools 等持久化服务被反复重启）
   try {
     const allStdio = mcpProxyManager.getAllStdioServers();
-    if (Object.keys(allStdio).length > 0) {
-      await persistentMcpBridge.start(
-        resolveServersConfig(allStdio) as Record<string, StdioMcpServerEntry>,
-      );
+    const resolvedConfig = resolveServersConfig(allStdio) as Record<string, StdioMcpServerEntry>;
+
+    if (Object.keys(resolvedConfig).length > 0) {
+      // 检查配置是否实际发生变化
+      if (configsEqual(resolvedConfig, lastBridgeConfig)) {
+        log.info("[McpProxy] PersistentMcpBridge 配置未变化，跳过重启");
+        return;
+      }
+
+      await persistentMcpBridge.start(resolvedConfig);
+      lastBridgeConfig = resolvedConfig;
       log.info("[McpProxy] PersistentMcpBridge 已使用更新配置重启");
     }
   } catch (e) {
+    // 重置缓存，下次会重试
+    lastBridgeConfig = null;
     log.warn("[McpProxy] PersistentMcpBridge 同步后重启失败:", e);
   }
 }
