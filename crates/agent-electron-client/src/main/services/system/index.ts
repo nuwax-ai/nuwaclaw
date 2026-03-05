@@ -1,4 +1,5 @@
 // Main process system services
+export { getDeviceId } from './deviceId';
 export { getAppEnv, setMirrorConfig } from './dependencies';
 export {
   getAppDataDir,

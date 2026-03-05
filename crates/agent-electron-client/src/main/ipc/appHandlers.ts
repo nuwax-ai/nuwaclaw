@@ -6,6 +6,7 @@ import log from 'electron-log';
 import type { HandlerContext } from '@shared/types/ipc';
 import { LATEST_LOG_BASENAME } from '../bootstrap/logConfig';
 import { checkForUpdates, downloadUpdate, installUpdate, getUpdateState, openReleasesPage } from '../services/autoUpdater';
+import { getDeviceId } from '../services/system/deviceId';
 
 export function registerAppHandlers(ctx: HandlerContext): void {
   // Autolaunch
@@ -89,6 +90,10 @@ export function registerAppHandlers(ctx: HandlerContext): void {
   // App handlers
   ipcMain.handle('app:getVersion', () => {
     return app.getVersion();
+  });
+
+  ipcMain.handle('app:getDeviceId', () => {
+    return getDeviceId();
   });
 
   ipcMain.handle('app:checkUpdate', async () => {
