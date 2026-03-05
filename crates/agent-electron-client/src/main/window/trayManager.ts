@@ -26,9 +26,16 @@ export interface TrayManagerOptions {
 
 // ==================== Constants ====================
 
-/** 托盘统一图标文件名（所有状态共用同一图标，状态由 tooltip 区分） */
-const TRAY_ICON_FILE = '32x32.png';
-const TRAY_ICON_FILE_RETINA = '32x32@2x.png';
+/**
+ * 托盘图标文件名（所有状态共用同一图标，状态由 tooltip 区分）
+ *
+ * macOS: trayTemplate.png / trayTemplate@2x.png — 22x22 / 44x44 黑色剪影，
+ *        Electron 根据 "Template" 后缀自动设为 template image（随系统明暗主题变色）。
+ * Windows / Linux: tray.png — 32x32 彩色图标。
+ */
+const TRAY_ICON_MAC = 'trayTemplate.png';
+const TRAY_ICON_MAC_RETINA = 'trayTemplate@2x.png';
+const TRAY_ICON_DEFAULT = 'tray.png';
 
 // ==================== Tray Manager ====================
 
@@ -182,11 +189,9 @@ export class TrayManager {
   }
 
   /**
-   * 获取托盘图标路径（统一使用 32x32.png，不按状态区分）
-   * @param retina - 是否使用 @2x 高分辨率版本（macOS Retina）
+   * 获取托盘图标路径
    */
-  private getIconPath(retina: boolean = false): string {
-    const fileName = retina ? TRAY_ICON_FILE_RETINA : TRAY_ICON_FILE;
+  private getIconPath(fileName: string): string {
     if (app.isPackaged) {
       return path.join(process.resourcesPath, 'tray', fileName);
     }
@@ -194,35 +199,38 @@ export class TrayManager {
   }
 
   /**
-   * 创建托盘图标（统一使用 32x32.png，支持 Retina 与 macOS Template Image）
-   * @param _status - 保留参数以兼容调用方，图标不再按状态切换
+   * 创建托盘图标
+   *
+   * macOS: 加载 trayTemplate / trayTemplate@2x（黑色剪影），
+   *        setTemplateImage(true) 让系统根据明暗主题自动着色。
+   * Windows / Linux: 加载 tray.png（彩色图标）。
    */
   private createTrayIcon(_status: TrayStatus): Electron.NativeImage {
     if (process.platform === 'darwin') {
-      // macOS: 优先加载 @2x，Electron 会根据文件名识别 Retina
-      const retinaPath = this.getIconPath(true);
-      const normalPath = this.getIconPath(false);
-
-      log.info('[Tray] Loading unified tray icon:', { retinaPath });
+      const retinaPath = this.getIconPath(TRAY_ICON_MAC_RETINA);
+      const normalPath = this.getIconPath(TRAY_ICON_MAC);
 
       let icon = nativeImage.createFromPath(retinaPath);
       if (icon.isEmpty()) {
-        log.warn('[Tray] Retina icon empty, trying @1x:', normalPath);
+        log.warn('[Tray] Retina template icon not found, trying @1x:', normalPath);
         icon = nativeImage.createFromPath(normalPath);
       }
 
       if (icon.isEmpty()) {
-        log.error('[Tray] Tray icon not found (32x32.png / 32x32@2x.png)');
+        log.error('[Tray] macOS tray icon not found:', retinaPath);
       }
 
-      log.info('[Tray] Icon loaded:', { isEmpty: icon.isEmpty(), size: icon.getSize() });
       icon.setTemplateImage(true);
       return icon;
     }
 
-    // 非 macOS：直接使用 @1x 图标
-    const iconPath = this.getIconPath(false);
-    return nativeImage.createFromPath(iconPath);
+    // Windows / Linux: 彩色图标
+    const iconPath = this.getIconPath(TRAY_ICON_DEFAULT);
+    const icon = nativeImage.createFromPath(iconPath);
+    if (icon.isEmpty()) {
+      log.error('[Tray] Tray icon not found:', iconPath);
+    }
+    return icon;
   }
 
   /**

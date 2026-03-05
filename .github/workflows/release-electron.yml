@@ -336,7 +336,8 @@ jobs:
 
           # Helper: add platform entry with signature (sha512 base64) and size
           add_platform() {
-            local key="$1" file="$2" filepath="${ASSETS_DIR}/${file}"
+            local key="$1" file="$2"
+            local filepath="${ASSETS_DIR}/${file}"
             if [ -f "$filepath" ]; then
               local sig size
               sig=$(sha512sum "$filepath" | awk '{print $1}' | xxd -r -p | base64 -w0)
