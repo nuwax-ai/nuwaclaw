@@ -2,7 +2,7 @@
 /**
  * 多平台 nuwax-lanproxy 集成：构建前按当前平台准备 resources/lanproxy/bin/
  *
- * 源：../agent-tauri-client/src-tauri/binaries/ 下的多平台二进制
+ * 源：resources/lanproxy/binaries/ 下的多平台二进制
  *     文件名格式：nuwax-lanproxy-<rust-target>[.exe]
  *
  * 目标：resources/lanproxy/bin/nuwax-lanproxy (或 .exe)
@@ -16,7 +16,7 @@
  *   darwin-x64    → x86_64-apple-darwin
  *   win32-x64     → x86_64-pc-windows-msvc
  *   linux-x64     → x86_64-unknown-linux-gnu
- *   linux-arm64   → (暂无，需要时补充)
+ *   linux-arm64   → aarch64-unknown-linux-gnu
  */
 
 const path = require('path');
@@ -24,7 +24,7 @@ const fs = require('fs');
 const { getProjectRoot } = require('../utils/project-paths');
 
 const projectRoot = getProjectRoot();
-const tauriBinDir = path.resolve(projectRoot, '..', 'agent-tauri-client', 'src-tauri', 'binaries');
+const srcBinDir = path.join(projectRoot, 'resources', 'lanproxy', 'binaries');
 const destBinDir = path.join(projectRoot, 'resources', 'lanproxy', 'bin');
 
 // Node platform-arch → Rust target triple
@@ -56,14 +56,14 @@ function main() {
   const srcName = `nuwax-lanproxy-${target}${isWin ? '.exe' : ''}`;
   const destName = `nuwax-lanproxy${isWin ? '.exe' : ''}`;
 
-  const srcPath = path.join(tauriBinDir, srcName);
+  const srcPath = path.join(srcBinDir, srcName);
   const destPath = path.join(destBinDir, destName);
 
   // 检查源文件
   if (!fs.existsSync(srcPath)) {
     // macOS: 尝试 universal binary 作为 fallback
     if (process.platform === 'darwin') {
-      const universalSrc = path.join(tauriBinDir, 'nuwax-lanproxy-universal-apple-darwin');
+      const universalSrc = path.join(srcBinDir, 'nuwax-lanproxy-universal-apple-darwin');
       if (fs.existsSync(universalSrc)) {
         console.log(`[prepare-lanproxy] ${key} → universal-apple-darwin (fallback)`);
         fs.mkdirSync(destBinDir, { recursive: true });
@@ -73,7 +73,7 @@ function main() {
         return;
       }
     }
-    // 源不存在时仍创建目录并继续打包，便于 CI 产出 Win/Linux 安装包；运行时 lanproxy 功能不可用
+    // 源不存在时仍创建目录并继续打包，便于 CI 产出安装包；运行时 lanproxy 功能不可用
     console.warn(`[prepare-lanproxy] 源文件不存在: ${srcPath}，将跳过 lanproxy 二进制（安装包可正常产出，运行时内网穿透不可用）`);
     fs.mkdirSync(destBinDir, { recursive: true });
     return;
