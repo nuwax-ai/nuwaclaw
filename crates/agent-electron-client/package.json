@@ -1,6 +1,6 @@
 {
   "name": "@nuwax-ai/nuwaxbot",
-  "version": "0.6.24",
+  "version": "0.6.25",
   "description": "NuwaxBot Desktop Client (Electron)",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
