@@ -17,24 +17,6 @@ export function initDatabase(): void {
 
     // Create tables
     db.exec(`
-      CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        title TEXT,
-        model TEXT,
-        system_prompt TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS messages (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        content TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        FOREIGN KEY (session_id) REFERENCES sessions(id)
-      );
-
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL

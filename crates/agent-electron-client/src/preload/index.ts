@@ -9,21 +9,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     chrome: process.versions.chrome,
   },
 
-  // Session management (SQLite)
-  session: {
-    list: () => ipcRenderer.invoke('session:list'),
-    create: (session: { id: string; title: string; model: string; system_prompt?: string }) =>
-      ipcRenderer.invoke('session:create', session),
-    delete: (sessionId: string) => ipcRenderer.invoke('session:delete', sessionId),
-  },
-
-  // Message management (SQLite)
-  message: {
-    list: (sessionId: string) => ipcRenderer.invoke('message:list', sessionId),
-    add: (message: { id: string; session_id: string; role: string; content: string }) =>
-      ipcRenderer.invoke('message:add', message),
-  },
-
   // Settings
   settings: {
     get: (key: string) => ipcRenderer.invoke('settings:get', key),
