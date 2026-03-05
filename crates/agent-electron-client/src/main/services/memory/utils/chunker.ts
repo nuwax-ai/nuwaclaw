@@ -18,7 +18,8 @@ export interface ChunkOptions {
 
 /**
  * Parse Markdown file into chunks
- * Splits by ## headings (level 2)
+ * - Core memory (MEMORY.md): splits by ## headings (level 2)
+ * - Daily memory (daily/*.md): splits by --- separator
  */
 export function chunkMarkdown(
   content: string,
@@ -27,8 +28,27 @@ export function chunkMarkdown(
 ): MemoryChunk[] {
   const maxChars = options.maxChars ?? CHUNK_MAX_CHARS;
   const overlapChars = options.overlapChars ?? CHUNK_OVERLAP_CHARS;
-  const chunks: MemoryChunk[] = [];
 
+  // Detect file type based on source path
+  const isDailyMemory = sourcePath.includes('daily/');
+
+  if (isDailyMemory) {
+    return chunkDailyMemory(content, maxChars);
+  } else {
+    return chunkCoreMemory(content, maxChars, overlapChars);
+  }
+}
+
+/**
+ * Chunk core memory file (MEMORY.md)
+ * Splits by ## headings (level 2)
+ */
+function chunkCoreMemory(
+  content: string,
+  maxChars: number,
+  overlapChars: number
+): MemoryChunk[] {
+  const chunks: MemoryChunk[] = [];
   const lines = content.split('\n');
   let currentChunk: string[] = [];
   let startLine = 1;
@@ -92,6 +112,81 @@ export function chunkMarkdown(
   }
 
   return chunks;
+}
+
+/**
+ * Chunk daily memory file (daily/*.md)
+ * Splits by --- separator
+ */
+function chunkDailyMemory(
+  content: string,
+  maxChars: number
+): MemoryChunk[] {
+  const chunks: MemoryChunk[] = [];
+  const lines = content.split('\n');
+  let currentChunk: string[] = [];
+  let startLine = 1;
+  let currentLine = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    currentLine = i + 1;  // 1-indexed
+
+    // Check for --- separator (section boundary for daily memory)
+    const isSeparator = /^---$/.test(line.trim());
+
+    if (isSeparator && currentChunk.length > 0) {
+      // Save current chunk
+      const chunkText = currentChunk.join('\n').trim();
+      if (chunkText && chunkText.length >= 2) {
+        chunks.push(createChunk(chunkText, startLine, currentLine - 1));
+      }
+
+      // Start new chunk (skip the separator line itself)
+      currentChunk = [];
+      startLine = currentLine + 1;
+    } else {
+      currentChunk.push(line);
+
+      // Check if chunk exceeds max size (split by ### session heading as fallback)
+      const chunkText = currentChunk.join('\n');
+      if (chunkText.length > maxChars) {
+        // Try to find a ### heading to split on
+        const splitIndex = findSessionSplitPoint(currentChunk);
+        if (splitIndex >= 0) {
+          const before = currentChunk.slice(0, splitIndex);
+          const beforeText = before.join('\n').trim();
+          if (beforeText && beforeText.length >= 2) {
+            chunks.push(createChunk(beforeText, startLine, startLine + before.length - 1));
+          }
+          currentChunk = currentChunk.slice(splitIndex);
+          startLine = startLine + splitIndex;
+        }
+      }
+    }
+  }
+
+  // Save remaining chunk
+  if (currentChunk.length > 0) {
+    const chunkText = currentChunk.join('\n').trim();
+    if (chunkText && chunkText.length >= 2) {
+      chunks.push(createChunk(chunkText, startLine, currentLine));
+    }
+  }
+
+  return chunks;
+}
+
+/**
+ * Find a good split point in daily memory chunk (### session heading)
+ */
+function findSessionSplitPoint(lines: string[]): number {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/^###\s/.test(lines[i])) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 /**
