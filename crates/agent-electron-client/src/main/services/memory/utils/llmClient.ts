@@ -129,11 +129,14 @@ async function callOpenAiApi(
   model: string,
   maxTokens: number
 ): Promise<string> {
-  // Build URL: if baseUrl doesn't end with /v1/chat/completions, append it
+  // Build URL: if baseUrl doesn't contain /chat/completions, append it
+  // Note: Use /chat/completions (not /v1/chat/completions) because:
+  // - For official OpenAI API, baseUrl should be provided as "https://api.openai.com/v1"
+  // - For proxy servers, they typically expect path like "/api/proxy/model/chat/completions"
   let url = baseUrl ?? 'https://api.openai.com/v1/chat/completions';
-  if (baseUrl && !baseUrl.includes('/v1/chat/completions')) {
-    // Remove trailing slash and append /v1/chat/completions
-    url = baseUrl.replace(/\/$/, '') + '/v1/chat/completions';
+  if (baseUrl && !baseUrl.includes('/chat/completions')) {
+    // Remove trailing slash and append /chat/completions
+    url = baseUrl.replace(/\/$/, '') + '/chat/completions';
   }
 
   log.info('[llmClient] Calling OpenAI API: ' + url);

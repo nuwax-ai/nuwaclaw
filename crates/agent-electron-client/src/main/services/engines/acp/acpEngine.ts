@@ -67,6 +67,7 @@ interface AcpSession {
   projectId?: string;
   lastActivity?: number;
   openLongMemory?: boolean;  // 记忆开关，用于事件处理器判断
+  memoryModel?: string;       // 记忆处理使用的模型名（来自 model_provider.default_model）
 }
 
 // Session counter removed — ACP protocol UUID is used as canonical session.id
@@ -330,29 +331,18 @@ export class AcpEngine extends EventEmitter {
       return { name, command: srv.command!, args: srv.args || [], env: envVars };
     };
 
+    // 1. Global MCP servers from config
+    if (this.config.mcpServers) {
+      for (const [name, srv] of Object.entries(this.config.mcpServers)) {
+        mcpServers.push(toAcpMcpServer(name, srv));
+      }
+    }
 
     // 2. Per-request MCP servers
     if (opts?.mcpServers) {
       for (const [name, srv] of Object.entries(opts.mcpServers)) {
         if (mcpServers.some((m) => m.name === name)) continue;
         mcpServers.push(toAcpMcpServer(name, srv));
-      }
-    }
-
-    // 启动 PersistentMcpBridge（懒加载：仅在创建带 MCP 的会话时启动）
-    if (opts?.mcpServers && Object.keys(opts.mcpServers).length > 0) {
-      try {
-        const { persistentMcpBridge } = await import("../../packages/persistentMcpBridge");
-        await persistentMcpBridge.start(
-          Object.fromEntries(
-            Object.entries(opts.mcpServers)
-              .filter(([_, srv]) => "command" in srv || "url" in srv)
-              .map(([name, srv]) => [name, srv] as [string, typeof srv]),
-          ),
-        );
-        log.info(`${this.logTag} ✅ PersistentMcpBridge 已启动 (会话: ${opts.title || "untitled"})`);
-      } catch (e) {
-        log.error(`${this.logTag} ❌ PersistentMcpBridge 启动失败:`, e);
       }
     }
 
@@ -563,9 +553,10 @@ export class AcpEngine extends EventEmitter {
         reason: result.stopReason,
         description: `Prompt completed: ${result.stopReason}`,
         openLongMemory: session.openLongMemory,
+        memoryModel: session.memoryModel,
       });
 
-      this.emit('session.idle', { sessionId, openLongMemory: session.openLongMemory });
+      this.emit('session.idle', { sessionId, openLongMemory: session.openLongMemory, memoryModel: session.memoryModel });
     } catch (error) {
       log.error(`${this.logTag} Prompt failed:`, error);
 
@@ -578,6 +569,7 @@ export class AcpEngine extends EventEmitter {
         reason: 'error',
         description: errMsg,
         openLongMemory: session.openLongMemory,
+        memoryModel: session.memoryModel,
       });
 
       this.emit('session.error', {
@@ -779,6 +771,8 @@ export class AcpEngine extends EventEmitter {
 
       // 存储记忆开关到 session，供事件处理器使用
       session.openLongMemory = enableMemory;
+      // 存储记忆处理使用的模型名（优先使用 model_provider.default_model）
+      session.memoryModel = request.model_provider?.default_model || this.config.model || '';
 
       // 如果 original_user_prompt 为空，打印错误日志
       if (!pureUserPrompt) {
@@ -792,7 +786,7 @@ export class AcpEngine extends EventEmitter {
         try {
           const modelConfig: ModelConfig = {
             provider: this.engineName.includes('claude') ? 'anthropic' : 'openai',
-            model: this.config.model || '',
+            model: request.model_provider?.default_model || this.config.model || '',
             apiKey: this.config.apiKey || '',
             baseUrl: this.config.baseUrl,
             apiProtocol: request.model_provider?.api_protocol || this.config.apiProtocol,

@@ -45,8 +45,16 @@ export interface ModelProviderConfig {
   base_url?: string;
   /** 默认模型名称 */
   model?: string;
+  /** 默认模型名称 (别名) */
+  default_model?: string;
   /** 模型接口协议类型 (anthropic/openai)，默认为 openai */
   api_protocol?: string;
+  /** 模型配置 ID */
+  id?: string;
+  /** 模型配置名称 */
+  name?: string;
+  /** 是否需要 OpenAI 认证 */
+  requires_openai_auth?: boolean;
 }
 
 // 对应 rcoder ComputerChatRequest

@@ -972,6 +972,7 @@ export class MemoryService extends EventEmitter {
     model: string;
     apiKey: string;
     baseUrl?: string;
+    apiProtocol?: string;
   }) {
     if (!this.initialized) {
       return { success: false, error: 'Not initialized' };

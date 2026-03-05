@@ -267,6 +267,7 @@ export class UnifiedAgentService extends EventEmitter {
         model: config.model || '',
         apiKey: config.apiKey || '',
         baseUrl: config.baseUrl,
+        apiProtocol: config.apiProtocol,
       };
       memoryService.setSchedulerModelConfig(modelConfig);
 
@@ -291,6 +292,7 @@ export class UnifiedAgentService extends EventEmitter {
         model: this.baseConfig.model || '',
         apiKey: this.baseConfig.apiKey || '',
         baseUrl: this.baseConfig.baseUrl,
+        apiProtocol: this.baseConfig.apiProtocol,
       };
 
       for (const projectId of this.engines.keys()) {
@@ -562,21 +564,23 @@ export class UnifiedAgentService extends EventEmitter {
 
     // 动态 MCP server 已由 syncMcpConfigToProxyAndReload() 同步到 proxy，
     // 使用 getAgentMcpConfig() 获取最新的 proxy 配置
-    // 使用 ACP 请求中的 MCP 配置（requestMcpServersEarly）
-    let freshMcpServers: AgentConfig["mcpServers"] | undefined;
-    if (Object.keys(requestMcpServersEarly).length > 0) {
-      // 过滤掉 bridge 入口（mcp-proxy），只保留真实 MCP 服务器
-      const realMcpServers: Record<string, import("../packages/mcp").McpServerEntry> = {};
+    let freshMcpServers: AgentConfig['mcpServers'] | undefined;
+    try {
+      const { mcpProxyManager } = await import('../packages/mcp');
+      freshMcpServers = mcpProxyManager.getAgentMcpConfig() || undefined;
+    } catch {
+      // fallback: 使用旧合并逻辑
+      const requestMcpServers: typeof requestMcpServersEarly = {};
       for (const [name, entry] of Object.entries(requestMcpServersEarly)) {
-        if ("command" in entry && (entry.command === "mcp-proxy" || path.basename(entry.command) === "mcp-proxy")) continue;
-        realMcpServers[name] = entry;
+        if ('command' in entry && (entry.command === 'mcp-proxy' || path.basename(entry.command) === 'mcp-proxy')) continue;
+        requestMcpServers[name] = entry;
       }
-      if (Object.keys(realMcpServers).length > 0) {
-        freshMcpServers = realMcpServers;
-        // 暂存到 proxy manager 并启动 bridge
-        const { mcpProxyManager } = await import("../packages/mcp");
-        mcpProxyManager.setConfig({ ...mcpProxyManager.getConfig(), mcpServers: realMcpServers });
-        await mcpProxyManager.ensureBridgeStarted();
+      const mergedMcpServers: Record<string, import('../packages/mcp').McpServerEntry> = {
+        ...(base.mcpServers || {}),
+        ...requestMcpServers,
+      };
+      if (Object.keys(mergedMcpServers).length > 0) {
+        freshMcpServers = mergedMcpServers as Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
       }
     }
 
@@ -819,6 +823,7 @@ export class UnifiedAgentService extends EventEmitter {
       model: this.baseConfig.model || '',
       apiKey: this.baseConfig.apiKey || '',
       baseUrl: this.baseConfig.baseUrl,
+      apiProtocol: this.baseConfig.apiProtocol,
     };
 
     // Delegate to MemoryService handleMessage (writes transcript + triggers segment extraction)
@@ -882,7 +887,7 @@ export class UnifiedAgentService extends EventEmitter {
     // Flush buffered assistant text to memory on promptEnd
     engine.on('computer:promptEnd', (...args: unknown[]) => {
       try {
-        const data = args[0] as { sessionId?: string; openLongMemory?: boolean } | undefined;
+        const data = args[0] as { sessionId?: string; openLongMemory?: boolean; memoryModel?: string } | undefined;
         const sessionId = data?.sessionId;
         if (!sessionId) return;
 
@@ -898,7 +903,7 @@ export class UnifiedAgentService extends EventEmitter {
 
         const modelConfig: ModelConfig = {
           provider: engine.engineName.includes('claude') ? 'anthropic' : 'openai',
-          model: engineConfig.model || '',
+          model: data?.memoryModel || engineConfig.model || '',
           apiKey: engineConfig.apiKey || '',
           baseUrl: engineConfig.baseUrl,
           apiProtocol: engineConfig.apiProtocol,
@@ -920,7 +925,7 @@ export class UnifiedAgentService extends EventEmitter {
     // This provides incremental extraction rather than re-processing all messages.
     engine.on('session.idle', (...args: unknown[]) => {
       try {
-        const data = args[0] as { sessionId?: string; openLongMemory?: boolean } | undefined;
+        const data = args[0] as { sessionId?: string; openLongMemory?: boolean; memoryModel?: string } | undefined;
         const sessionId = data?.sessionId;
         // Use engine's current config (may be updated from HTTP request model_provider)
         const engineConfig = engine.currentConfig;
@@ -936,7 +941,7 @@ export class UnifiedAgentService extends EventEmitter {
 
         const modelConfig: ModelConfig = {
           provider: engine.engineName.includes('claude') ? 'anthropic' : 'openai',
-          model: engineConfig.model || '',
+          model: data?.memoryModel || engineConfig.model || '',
           apiKey: engineConfig.apiKey,
           baseUrl: engineConfig.baseUrl,
           apiProtocol: engineConfig.apiProtocol,

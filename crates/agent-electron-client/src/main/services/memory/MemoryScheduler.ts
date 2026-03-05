@@ -209,6 +209,7 @@ export class MemoryScheduler extends EventEmitter {
     model: string;
     apiKey: string;
     baseUrl?: string;
+    apiProtocol?: string;
   }): Promise<ConsolidationResult> {
     log.info('[MemoryScheduler] Running consolidation...');
 
@@ -291,6 +292,7 @@ export class MemoryScheduler extends EventEmitter {
       model: string;
       apiKey: string;
       baseUrl?: string;
+      apiProtocol?: string;
     }
   ): Promise<string> {
     const prompt = this.buildConsolidationPrompt(dailyMemories, coreMemory);
@@ -301,6 +303,7 @@ export class MemoryScheduler extends EventEmitter {
         model: modelConfig.model,
         apiKey: modelConfig.apiKey,
         baseUrl: modelConfig.baseUrl,
+        apiProtocol: modelConfig.apiProtocol,
         maxTokens: 2000,
       });
       return this.parseConsolidationResponse(response, coreMemory);
