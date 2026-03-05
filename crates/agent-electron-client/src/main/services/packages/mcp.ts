@@ -384,6 +384,8 @@ class McpProxyManager {
   );
   /** Cached script path — set by start(), avoids fs I/O on every getStatus() poll */
   private cachedScriptPath: string | null = null;
+  /** Track whether PersistentMcpBridge has been started (lazy initialization) */
+  private bridgeStarted = false;
   private lastError: string | null = null;
 
   /**
@@ -468,23 +470,7 @@ class McpProxyManager {
       log.warn("[McpProxy]   npm run prepare:node");
       log.warn("[McpProxy] 或运行完整准备:");
       log.warn("[McpProxy]   npm run prepare:all");
-    }
-
-    // 启动 PersistentMcpBridge（所有 stdio servers，确保首次提示词时 MCP 已就绪）
-    const allStdio = this.getAllStdioServers();
-    if (Object.keys(allStdio).length > 0) {
-      try {
-        await persistentMcpBridge.start(
-          resolveServersConfig(allStdio) as Record<
-            string,
-            StdioMcpServerEntry
-          >,
-        );
-        log.info("[McpProxy] PersistentMcpBridge 已启动");
-      } catch (e) {
-        log.error("[McpProxy] PersistentMcpBridge 启动失败:", e);
       }
-    }
 
     this.lastError = null;
     return { success: true };
@@ -495,6 +481,7 @@ class McpProxyManager {
    */
   async stop(): Promise<{ success: boolean }> {
     this.cachedScriptPath = null;
+    this.bridgeStarted = false;
     this.lastError = null;
     try {
       await persistentMcpBridge.stop();
@@ -502,6 +489,28 @@ class McpProxyManager {
       log.warn("[McpProxy] PersistentMcpBridge 停止出错:", e);
     }
     return { success: true };
+  }
+
+  /**
+   * ensureBridgeStarted() → 懒加载启动 PersistentMcpBridge（仅在首次需要时启动）
+   */
+  async ensureBridgeStarted(): Promise<void> {
+    if (this.bridgeStarted) return;
+    const allStdio = this.getAllStdioServers();
+    if (Object.keys(allStdio).length > 0) {
+      try {
+        await persistentMcpBridge.start(
+          resolveServersConfig(allStdio) as Record<string, StdioMcpServerEntry>,
+        );
+        this.bridgeStarted = true;
+        log.info("[McpProxy] PersistentMcpBridge 已启动 (懒加载)");
+      } catch (e) {
+        log.error("[McpProxy] PersistentMcpBridge 启动失败:", e);
+        throw e;
+      }
+    } else {
+      this.bridgeStarted = true;
+    }
   }
 
   /**

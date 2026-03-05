@@ -566,6 +566,9 @@ export class UnifiedAgentService extends EventEmitter {
     try {
       const { mcpProxyManager } = await import('../packages/mcp');
       freshMcpServers = mcpProxyManager.getAgentMcpConfig() || undefined;
+      if (freshMcpServers && Object.keys(freshMcpServers).length > 0) {
+        await mcpProxyManager.ensureBridgeStarted();
+      }
     } catch {
       // fallback: 使用旧合并逻辑
       const requestMcpServers: typeof requestMcpServersEarly = {};
