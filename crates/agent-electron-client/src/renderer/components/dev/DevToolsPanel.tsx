@@ -6,6 +6,7 @@
  * - 清除登录状态
  * - 清除全部数据并刷新
  * - 查看应用存储数据
+ * - MCP Proxy 服务管理（仅开发可见，不对正式用户开放）
  */
 
 import { useState } from 'react';
@@ -17,6 +18,7 @@ import {
   DatabaseOutlined,
 } from '@ant-design/icons';
 import { setupService } from '../../services/core/setup';
+import MCPSettings from '../settings/MCPSettings';
 
 export default function DevToolsPanel() {
   const [storeData, setStoreData] = useState<Record<string, unknown> | null>(null);
@@ -201,6 +203,33 @@ export default function DevToolsPanel() {
           >
             查看
           </Button>
+        </div>
+      </div>
+
+      {/* MCP Proxy 服务管理：仅开发模式展示，不对正式用户开放 */}
+      <div style={{ marginTop: 16 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            marginBottom: 10,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 500, color: '#18181b' }}>
+            MCP Proxy 服务管理
+          </span>
+          <Tag color="orange" style={{ margin: 0, fontSize: 10 }}>DEV</Tag>
+        </div>
+        <div
+          style={{
+            border: '1px solid #e4e4e7',
+            borderRadius: 8,
+            background: '#fff',
+            overflow: 'hidden',
+          }}
+        >
+          <MCPSettings />
         </div>
       </div>
 

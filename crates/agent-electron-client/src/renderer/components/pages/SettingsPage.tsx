@@ -25,7 +25,6 @@ import {
 import { FolderOutlined, SaveOutlined, EditOutlined } from '@ant-design/icons';
 import { APP_DISPLAY_NAME, APP_DATA_DIR_NAME } from '@shared/constants';
 import { setupService, Step1Config, DEFAULT_STEP1_CONFIG } from '../../services/core/setup';
-import MCPSettings from '../settings/MCPSettings';
 import {
   DEFAULT_AI_MODEL,
   DEFAULT_MAX_TOKENS,
@@ -343,11 +342,6 @@ export default function SettingsPage() {
             </div>
           )}
         </div>
-      </div>
-
-      {/* MCP Servers 配置 */}
-      <div className="section" style={{ marginTop: 20 }}>
-        <MCPSettings />
       </div>
 
       {/* AI 配置 - 暂时隐藏，当前需求不需要 */}
