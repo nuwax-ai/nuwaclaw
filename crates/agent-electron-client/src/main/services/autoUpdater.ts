@@ -110,6 +110,9 @@ function compareVersions(a: string, b: string): number {
 let currentState: UpdateState = { status: 'idle' };
 let getMainWindow: (() => BrowserWindow | null) | null = null;
 let cleanupBeforeInstall: (() => void) | null = null;
+let usingOss = false;
+let retriedWithGithub = false;
+let isCheckingForUpdate = false;
 
 function sendStatusToRenderer(): void {
   const win = getMainWindow?.();
@@ -157,22 +160,32 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
     log.info('[AutoUpdater] Dev mode: using dev-app-update.yml (autoInstall disabled)');
   }
 
-  // 支持自定义更新源（用于本地测试）
+  // 更新源优先级：
+  // 1. 环境变量自定义（本地测试）
+  // 2. 阿里云 OSS（默认，国内加速），OSS 失败时自动回退 GitHub Releases
   const customServer = process.env.NUWAX_UPDATE_SERVER;
   if (customServer) {
     log.info(`[AutoUpdater] Using custom update server: ${customServer}`);
     autoUpdater.setFeedURL({ provider: 'generic', url: customServer });
+  } else {
+    const ossUrl = 'https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaxbot-electron/latest';
+    log.info(`[AutoUpdater] Using Aliyun OSS update server: ${ossUrl}`);
+    autoUpdater.setFeedURL({ provider: 'generic', url: ossUrl });
+    usingOss = true;
   }
 
   // -------- 事件监听 --------
 
   autoUpdater.on('checking-for-update', () => {
     log.info('[AutoUpdater] Checking for update...');
+    isCheckingForUpdate = true;
     setState({ status: 'checking', canAutoUpdate: canAutoUpdate() });
   });
 
   autoUpdater.on('update-available', (info: any) => {
     log.info('[AutoUpdater] Update available:', info.version);
+    isCheckingForUpdate = false;
+    retriedWithGithub = false;
     setState({
       status: 'available',
       version: info.version,
@@ -182,6 +195,8 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
 
   autoUpdater.on('update-not-available', (_info: any) => {
     log.info('[AutoUpdater] Already up to date');
+    isCheckingForUpdate = false;
+    retriedWithGithub = false;
     setState({ status: 'not-available', canAutoUpdate: canAutoUpdate() });
   });
 
@@ -206,6 +221,23 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
 
   autoUpdater.on('error', (err: Error) => {
     log.error('[AutoUpdater] Error:', err.message);
+
+    // OSS 检查更新失败时自动回退到 GitHub Releases（仅在 check 阶段，不影响下载）
+    if (usingOss && !retriedWithGithub && isCheckingForUpdate) {
+      isCheckingForUpdate = false;
+      retriedWithGithub = true;
+      log.info('[AutoUpdater] OSS check failed, falling back to GitHub Releases');
+      autoUpdater.setFeedURL({
+        provider: 'github',
+        owner: 'nuwax-ai',
+        repo: 'nuwax-agent-client',
+      });
+      autoUpdater.checkForUpdates().catch((e: any) => {
+        log.error('[AutoUpdater] GitHub fallback also failed:', e.message);
+      });
+      return;
+    }
+
     setState({
       status: 'error',
       error: err.message,
