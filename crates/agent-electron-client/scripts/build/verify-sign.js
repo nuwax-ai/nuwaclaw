@@ -144,18 +144,22 @@ if (fs.existsSync(uvPath)) {
   }
 }
 
-// lanproxy
-const lanproxyPath = path.join(resourcesPath, 'lanproxy', 'bin');
-if (fs.existsSync(lanproxyPath)) {
+// lanproxy（bin/ 与 binaries/ 下可执行文件均需验证）
+const lanproxyRoot = path.join(resourcesPath, 'lanproxy');
+if (fs.existsSync(lanproxyRoot)) {
   console.log('\n  resources/lanproxy:');
-  const files = fs.readdirSync(lanproxyPath);
-  for (const file of files) {
-    const filePath = path.join(lanproxyPath, file);
-    try {
-      execSync(`codesign -v "${filePath}"`, { stdio: 'ignore' });
-      console.log(`    ✅ ${file}: 已签名`);
-    } catch {
-      console.log(`    ❌ ${file}: 未签名或签名无效`);
+  for (const subdir of ['bin', 'binaries']) {
+    const dir = path.join(lanproxyRoot, subdir);
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (!fs.statSync(full).isFile()) continue;
+      try {
+        execSync(`codesign -v "${full}"`, { stdio: 'ignore' });
+        console.log(`    ✅ ${subdir}/${name}: 已签名`);
+      } catch {
+        console.log(`    ❌ ${subdir}/${name}: 未签名或签名无效`);
+      }
     }
   }
 }

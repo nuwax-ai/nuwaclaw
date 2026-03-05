@@ -186,13 +186,14 @@ exports.default = async function (context) {
     }
   }
 
-  // 4. 签名 resources/lanproxy
-  const lanproxyPath = path.join(resourcesPath, 'lanproxy', 'bin');
+  // 4. 签名 resources/lanproxy（bin/ 与 binaries/ 均可能被运行时使用）
+  const lanproxyPath = path.join(resourcesPath, 'lanproxy');
   if (fs.existsSync(lanproxyPath)) {
     const lanproxyFiles = findExecutables(lanproxyPath);
     console.log(`[after-sign] 找到 lanproxy 可执行文件: ${lanproxyFiles.length} 个`);
     for (const file of lanproxyFiles) {
-      console.log(`[after-sign] 签名 lanproxy/${path.basename(file)}`);
+      const relative = path.relative(lanproxyPath, file);
+      console.log(`[after-sign] 签名 lanproxy/${relative}`);
       codesign(file, identity);
     }
   }

@@ -438,14 +438,18 @@ export function getLanproxyBinPath(): string {
     return binPath;
   }
 
-  // 3. Windows 额外回退：binaries/ 下任意 nuwax-lanproxy*.exe（跨平台打包时 bin/ 可能是其他平台）
+  // 3. Windows 额外回退：binaries/ 下 nuwax-lanproxy*.exe（跨平台打包时 bin/ 可能是其他平台）
+  //    优先选与 process.arch 匹配的（x64→x86_64，ia32→i686）
   if (isWindows() && fs.existsSync(binariesDir)) {
     try {
       const entries = fs.readdirSync(binariesDir, { withFileTypes: true });
-      const exe = entries.find(
+      const exes = entries.filter(
         (e) => e.isFile() && e.name.endsWith(".exe") && e.name.toLowerCase().includes("lanproxy")
       );
-      if (exe) {
+      if (exes.length > 0) {
+        const preferArch = process.arch === "x64" ? "x86_64" : "i686";
+        const preferred = exes.find((e) => e.name.includes(preferArch));
+        const exe = preferred ?? exes[0];
         const found = path.join(binariesDir, exe.name);
         log.info("[getLanproxyBinPath] 使用 binaries 内发现的 exe:", exe.name);
         return found;
