@@ -16,7 +16,8 @@
  *   darwin-x64    → x86_64-apple-darwin
  *   win32-x64     → x86_64-pc-windows-msvc
  *   linux-x64     → x86_64-unknown-linux-gnu
- *   linux-arm64   → aarch64-unknown-linux-gnu
+ *   linux-arm     → arm-unknown-linux-gnueabi
+ *   (linux-arm64/aarch64 binary not available)
  */
 
 const path = require('path');
@@ -34,8 +35,8 @@ const PLATFORM_MAP = {
   'win32-x64': 'x86_64-pc-windows-msvc',
   'win32-ia32': 'i686-pc-windows-msvc',
   'linux-x64': 'x86_64-unknown-linux-gnu',
-  'linux-arm64': 'aarch64-unknown-linux-gnu',
   'linux-arm': 'arm-unknown-linux-gnueabi',
+  // Note: linux-arm64 (aarch64-unknown-linux-gnu) binary not available
 };
 
 function getPlatformKey() {
