@@ -40,14 +40,18 @@ export class ManagedProcess {
         });
 
         proc.on('error', (error) => {
-          log.error(`${this.name} error:`, error);
+          log.error(`[${this.name}] 进程错误:`, error.message, { stack: error.stack });
           this.process = null;
           this.lastError = error.message;
           resolve({ success: false, error: error.message });
         });
 
-        proc.on('exit', (code) => {
-          log.info(`${this.name} exited with code ${code}`);
+        proc.on('exit', (code, signal) => {
+          if (code !== 0 && code !== null) {
+            log.warn(`[${this.name}] 进程退出 code=${code} signal=${signal ?? 'none'}`, { lastError: this.lastError });
+          } else {
+            log.info(`[${this.name}] 进程已退出`, { code, signal: signal ?? 'none' });
+          }
           this.process = null;
         });
 
@@ -61,12 +65,14 @@ export class ManagedProcess {
           } else {
             const msg = '进程启动后立即退出';
             this.lastError = msg;
+            log.warn(`[${this.name}] 启动失败: ${msg}`, { command: config.command, args: config.args });
             resolve({ success: false, error: msg });
           }
         }, delay);
       } catch (error) {
         this.process = null;
         this.lastError = String(error);
+        log.error(`[${this.name}] 启动异常:`, error instanceof Error ? error.message : String(error), { stack: error instanceof Error ? error.stack : undefined });
         resolve({ success: false, error: String(error) });
       }
     });

@@ -430,6 +430,17 @@ class McpProxyManager {
   }
 
   /**
+   * 从当前配置中提取所有 stdio 类型 servers（包括 persistent 和临时）
+   */
+  getAllStdioServers(): Record<string, StdioMcpServerEntry> {
+    const result: Record<string, StdioMcpServerEntry> = {};
+    for (const [name, entry] of Object.entries(this.config.mcpServers)) {
+      if (!isRemoteEntry(entry)) result[name] = entry;
+    }
+    return result;
+  }
+
+  /**
    * start() → 验证 binary 可用性并刷新缓存 + 启动 PersistentMcpBridge（持久化 servers）
    * proxy 进程的生命周期由 Agent 引擎管理（通过 getAgentMcpConfig 注入）
    */
@@ -459,12 +470,12 @@ class McpProxyManager {
       log.warn("[McpProxy]   npm run prepare:all");
     }
 
-    // 启动 PersistentMcpBridge（持久化 servers）
-    const persistent = this.getPersistentServers();
-    if (Object.keys(persistent).length > 0) {
+    // 启动 PersistentMcpBridge（所有 stdio servers，确保首次提示词时 MCP 已就绪）
+    const allStdio = this.getAllStdioServers();
+    if (Object.keys(allStdio).length > 0) {
       try {
         await persistentMcpBridge.start(
-          resolveServersConfig(persistent) as Record<
+          resolveServersConfig(allStdio) as Record<
             string,
             StdioMcpServerEntry
           >,
@@ -579,31 +590,28 @@ class McpProxyManager {
     > = {};
 
     // 1. 远程 server → 直接透传（url/transport/headers/authToken）
+    // 2. stdio server → 优先使用 bridge URL（所有 server 已通过 bridge 预启动），降级到 stdio 配置
     for (const [name, entry] of Object.entries(servers)) {
       if (isRemoteEntry(entry)) {
         proxyServers[name] = entry;
+        continue;
       }
-    }
-
-    // 2. 临时 stdio server → resolveServersConfig (command/args/env)
-    for (const [name, entry] of Object.entries(servers)) {
-      if (isRemoteEntry(entry)) continue;
-      if (entry.persistent) continue;
+      // 优先使用 bridge URL（所有 server 已通过 bridge 预启动）
+      if (persistentMcpBridge.isRunning()) {
+        const url = persistentMcpBridge.getBridgeUrl(name);
+        if (url) {
+          proxyServers[name] = {
+            url,
+            ...(entry.allowTools ? { allowTools: entry.allowTools } : {}),
+            ...(entry.denyTools ? { denyTools: entry.denyTools } : {}),
+          };
+          continue;
+        }
+      }
+      // 降级：stdio 配置（bridge 未运行或 server 未就绪）
       const resolved = resolveServersConfig({ [name]: entry });
       if (resolved[name]) {
         proxyServers[name] = resolved[name] as (typeof proxyServers)[string];
-      }
-    }
-
-    // 3. 持久化 server → bridge URL
-    if (persistentMcpBridge.isRunning()) {
-      for (const [name, entry] of Object.entries(servers)) {
-        if (isRemoteEntry(entry)) continue;
-        if (!entry.persistent) continue;
-        const url = persistentMcpBridge.getBridgeUrl(name);
-        if (url) {
-          proxyServers[name] = { url };
-        }
       }
     }
 
@@ -682,10 +690,12 @@ class McpProxyManager {
   /**
    * 清理（退出时调用）— 停止 PersistentMcpBridge + kill 子进程
    */
-  cleanup(): void {
-    persistentMcpBridge.stop().catch((e) => {
+  async cleanup(): Promise<void> {
+    try {
+      await persistentMcpBridge.stop();
+    } catch (e) {
       log.warn("[McpProxy] PersistentMcpBridge cleanup error:", e);
-    });
+    }
   }
 }
 
@@ -760,4 +770,17 @@ export async function syncMcpConfigToProxyAndReload(
 
   // 不再需要 restart — 无后台进程
   // Agent 下次 init 时 getAgentMcpConfig() 会使用新配置
+
+  // 重启 PersistentMcpBridge 加载更新后的 server（阻塞到所有 server 就绪）
+  try {
+    const allStdio = mcpProxyManager.getAllStdioServers();
+    if (Object.keys(allStdio).length > 0) {
+      await persistentMcpBridge.start(
+        resolveServersConfig(allStdio) as Record<string, StdioMcpServerEntry>,
+      );
+      log.info("[McpProxy] PersistentMcpBridge 已使用更新配置重启");
+    }
+  } catch (e) {
+    log.warn("[McpProxy] PersistentMcpBridge 同步后重启失败:", e);
+  }
 }

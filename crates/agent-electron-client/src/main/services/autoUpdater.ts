@@ -110,12 +110,26 @@ function compareVersions(a: string, b: string): number {
 let currentState: UpdateState = { status: 'idle' };
 let getMainWindow: (() => BrowserWindow | null) | null = null;
 let cleanupBeforeInstall: (() => void) | null = null;
+let usingOss = false;
+let retriedWithGithub = false;
+let isCheckingForUpdate = false;
 
 function sendStatusToRenderer(): void {
   const win = getMainWindow?.();
   if (win && !win.isDestroyed()) {
     win.webContents.send('update:status', currentState);
   }
+}
+
+/**
+ * 显示模态对话框（挂载到主窗口，避免 Linux 标题栏图标显示异常）
+ */
+function showModal(options: Electron.MessageBoxOptions): Promise<Electron.MessageBoxReturnValue> {
+  const win = getMainWindow?.();
+  if (win && !win.isDestroyed()) {
+    return dialog.showMessageBox(win, options);
+  }
+  return dialog.showMessageBox(options);
 }
 
 function setState(patch: Partial<UpdateState>): void {
@@ -157,22 +171,32 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
     log.info('[AutoUpdater] Dev mode: using dev-app-update.yml (autoInstall disabled)');
   }
 
-  // 支持自定义更新源（用于本地测试）
+  // 更新源优先级：
+  // 1. 环境变量自定义（本地测试）
+  // 2. 阿里云 OSS（默认，国内加速），OSS 失败时自动回退 GitHub Releases
   const customServer = process.env.NUWAX_UPDATE_SERVER;
   if (customServer) {
     log.info(`[AutoUpdater] Using custom update server: ${customServer}`);
     autoUpdater.setFeedURL({ provider: 'generic', url: customServer });
+  } else {
+    const ossUrl = 'https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaxbot-electron/latest';
+    log.info(`[AutoUpdater] Using Aliyun OSS update server: ${ossUrl}`);
+    autoUpdater.setFeedURL({ provider: 'generic', url: ossUrl });
+    usingOss = true;
   }
 
   // -------- 事件监听 --------
 
   autoUpdater.on('checking-for-update', () => {
     log.info('[AutoUpdater] Checking for update...');
+    isCheckingForUpdate = true;
     setState({ status: 'checking', canAutoUpdate: canAutoUpdate() });
   });
 
   autoUpdater.on('update-available', (info: any) => {
     log.info('[AutoUpdater] Update available:', info.version);
+    isCheckingForUpdate = false;
+    retriedWithGithub = false;
     setState({
       status: 'available',
       version: info.version,
@@ -182,6 +206,8 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
 
   autoUpdater.on('update-not-available', (_info: any) => {
     log.info('[AutoUpdater] Already up to date');
+    isCheckingForUpdate = false;
+    retriedWithGithub = false;
     setState({ status: 'not-available', canAutoUpdate: canAutoUpdate() });
   });
 
@@ -206,6 +232,23 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
 
   autoUpdater.on('error', (err: Error) => {
     log.error('[AutoUpdater] Error:', err.message);
+
+    // OSS 检查更新失败时自动回退到 GitHub Releases（仅在 check 阶段，不影响下载）
+    if (usingOss && !retriedWithGithub && isCheckingForUpdate) {
+      isCheckingForUpdate = false;
+      retriedWithGithub = true;
+      log.info('[AutoUpdater] OSS check failed, falling back to GitHub Releases');
+      autoUpdater.setFeedURL({
+        provider: 'github',
+        owner: 'nuwax-ai',
+        repo: 'nuwax-agent-client',
+      });
+      autoUpdater.checkForUpdates().catch((e: any) => {
+        log.error('[AutoUpdater] GitHub fallback also failed:', e.message);
+      });
+      return;
+    }
+
     setState({
       status: 'error',
       error: err.message,
@@ -244,7 +287,7 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
 async function showStartupUpdateDialog(version: string): Promise<void> {
   if (!canAutoUpdate()) {
     // MSI 用户引导到 Releases 页面
-    const { response } = await dialog.showMessageBox({
+    const { response } = await showModal({
       type: 'info',
       title: '发现新版本',
       message: `发现新版本 v${version}`,
@@ -261,7 +304,7 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
     return;
   }
 
-  const { response } = await dialog.showMessageBox({
+  const { response } = await showModal({
     type: 'info',
     title: '发现新版本',
     message: `发现新版本 v${version}`,
@@ -275,7 +318,7 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
     try {
       const dlResult = await downloadUpdate();
       if (dlResult.success) {
-        const { response: installResponse } = await dialog.showMessageBox({
+        const { response: installResponse } = await showModal({
           type: 'info',
           title: '更新已下载',
           message: '更新已下载完成',
@@ -306,7 +349,7 @@ export async function showUpdateDialogFlow(): Promise<void> {
   try {
     const result = await checkForUpdates();
     if (!result.hasUpdate) {
-      dialog.showMessageBox({
+      showModal({
         type: 'info',
         title: '检查更新',
         message: '当前已是最新版本',
@@ -318,7 +361,7 @@ export async function showUpdateDialogFlow(): Promise<void> {
     const state = getUpdateState();
 
     if (state.canAutoUpdate === false) {
-      const { response } = await dialog.showMessageBox({
+      const { response } = await showModal({
         type: 'info',
         title: '发现新版本',
         message: `发现新版本 v${version}`,
@@ -333,7 +376,7 @@ export async function showUpdateDialogFlow(): Promise<void> {
       return;
     }
 
-    const { response } = await dialog.showMessageBox({
+    const { response } = await showModal({
       type: 'info',
       title: '发现新版本',
       message: `发现新版本 v${version}`,
@@ -350,7 +393,7 @@ export async function showUpdateDialogFlow(): Promise<void> {
       return;
     }
 
-    const { response: installResponse } = await dialog.showMessageBox({
+    const { response: installResponse } = await showModal({
       type: 'info',
       title: '更新已下载',
       message: '更新已下载完成',
