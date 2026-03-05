@@ -342,20 +342,136 @@ jobs:
               --access-key-secret "$OSS_ACCESS_KEY_SECRET"
           done
 
+      - name: Generate and upload latest.json
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#electron-v}"
+          OSS_URL_PREFIX="${OSS_CDN_BASE}/nuwaxbot-electron/${TAG}"
+          ASSETS_DIR="/tmp/release-assets"
+
+          # Get release notes and pub_date from GitHub Release
+          RELEASE_JSON=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body,createdAt 2>/dev/null || echo '{}')
+          NOTES=$(echo "$RELEASE_JSON" | jq -r '.body // "功能优化和问题修复。建议更新到最新版本以获得更好的体验。"' | head -c 500)
+          PUB_DATE=$(echo "$RELEASE_JSON" | jq -r '.createdAt // empty')
+          if [ -z "$PUB_DATE" ]; then
+            PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+          fi
+
+          # Build platforms object by scanning release assets
+          # Electron artifact naming: NuwaxBot-{version}-{arch}.{ext} or NuwaxBot-{version}-{arch}-mac.zip
+          PLATFORMS="{}"
+
+          # Helper: add platform entry
+          add_platform() {
+            local key="$1" file="$2"
+            if [ -f "${ASSETS_DIR}/${file}" ]; then
+              PLATFORMS=$(echo "$PLATFORMS" | jq --arg k "$key" --arg u "${OSS_URL_PREFIX}/${file}" \
+                '. + {($k): {"url": $u}}')
+              echo "  Added: ${key} -> ${file}"
+            fi
+          }
+
+          echo "==> Scanning release assets for platforms..."
+
+          # macOS
+          add_platform "darwin-aarch64"     "NuwaxBot-${VERSION}-arm64.dmg"
+          add_platform "darwin-aarch64-zip" "NuwaxBot-${VERSION}-arm64-mac.zip"
+          add_platform "darwin-x86_64"      "NuwaxBot-${VERSION}-x64.dmg"
+          add_platform "darwin-x86_64-zip"  "NuwaxBot-${VERSION}-x64-mac.zip"
+
+          # Windows
+          add_platform "windows-x86_64"      "NuwaxBot-Setup-${VERSION}.exe"
+          add_platform "windows-x86_64-nsis" "NuwaxBot-Setup-${VERSION}.exe"
+          add_platform "windows-x86_64-msi"  "NuwaxBot-${VERSION}.msi"
+
+          # Linux x64
+          add_platform "linux-x86_64"          "NuwaxBot-${VERSION}.AppImage"
+          add_platform "linux-x86_64-appimage" "NuwaxBot-${VERSION}.AppImage"
+          add_platform "linux-x86_64-deb"      "NuwaxBot-${VERSION}-amd64.deb"
+          add_platform "linux-x86_64-rpm"      "NuwaxBot-${VERSION}.x86_64.rpm"
+
+          # Linux arm64
+          add_platform "linux-aarch64"          "NuwaxBot-${VERSION}-arm64.AppImage"
+          add_platform "linux-aarch64-appimage" "NuwaxBot-${VERSION}-arm64.AppImage"
+          add_platform "linux-aarch64-deb"      "NuwaxBot-${VERSION}-arm64.deb"
+          add_platform "linux-aarch64-rpm"      "NuwaxBot-${VERSION}.aarch64.rpm"
+
+          # If no exact matches, try fuzzy matching by scanning all files
+          if [ "$(echo "$PLATFORMS" | jq 'length')" = "0" ]; then
+            echo "::warning::No exact filename matches, falling back to fuzzy scan"
+            for file in "${ASSETS_DIR}"/*; do
+              filename=$(basename "$file")
+              case "$filename" in
+                *.dmg|*.zip|*.exe|*.msi|*.AppImage|*.deb|*.rpm)
+                  # Detect platform from filename
+                  key=""
+                  case "$filename" in
+                    *arm64*mac*|*arm64*.dmg)  key="darwin-aarch64" ;;
+                    *x64*mac*|*x64*.dmg)      key="darwin-x86_64" ;;
+                    *Setup*.exe|*setup*.exe)   key="windows-x86_64" ;;
+                    *.msi)                     key="windows-x86_64-msi" ;;
+                    *arm64*.AppImage)          key="linux-aarch64" ;;
+                    *amd64*.AppImage|*x64*.AppImage|*.AppImage) key="linux-x86_64" ;;
+                    *arm64*.deb)               key="linux-aarch64-deb" ;;
+                    *amd64*.deb|*x64*.deb)     key="linux-x86_64-deb" ;;
+                    *aarch64*.rpm)             key="linux-aarch64-rpm" ;;
+                    *x86_64*.rpm|*x64*.rpm)   key="linux-x86_64-rpm" ;;
+                  esac
+                  if [ -n "$key" ]; then
+                    PLATFORMS=$(echo "$PLATFORMS" | jq --arg k "$key" --arg u "${OSS_URL_PREFIX}/${filename}" \
+                      '. + {($k): {"url": $u}}')
+                    echo "  Fuzzy: ${key} -> ${filename}"
+                  fi
+                  ;;
+              esac
+            done
+          fi
+
+          # Assemble final JSON
+          LATEST_JSON=$(jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --argjson platforms "$PLATFORMS" \
+            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms}')
+
+          echo "==> Generated latest.json:"
+          echo "$LATEST_JSON" | jq .
+
+          echo "$LATEST_JSON" > /tmp/latest.json
+
+          # Upload to versioned path
+          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaxbot-electron/${TAG}/latest.json" \
+            --endpoint "$OSS_ENDPOINT" \
+            --region "$OSS_REGION" \
+            --access-key-id "$OSS_ACCESS_KEY_ID" \
+            --access-key-secret "$OSS_ACCESS_KEY_SECRET"
+
+          # Upload to latest/ stable path
+          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaxbot-electron/latest/latest.json" \
+            --endpoint "$OSS_ENDPOINT" \
+            --region "$OSS_REGION" \
+            --access-key-id "$OSS_ACCESS_KEY_ID" \
+            --access-key-secret "$OSS_ACCESS_KEY_SECRET"
+
       - name: Verify OSS upload
         run: |
           PASS=0; TOTAL=0
-          for yml in latest-mac.yml latest.yml latest-linux.yml; do
+          for f in latest.json latest-mac.yml latest.yml latest-linux.yml; do
             TOTAL=$((TOTAL + 1))
-            VERIFY_URL="${OSS_CDN_BASE}/nuwaxbot-electron/latest/${yml}"
-            HTTP_STATUS=$(curl -sS -o /tmp/oss-${yml} -w "%{http_code}" "$VERIFY_URL")
+            VERIFY_URL="${OSS_CDN_BASE}/nuwaxbot-electron/latest/${f}"
+            HTTP_STATUS=$(curl -sS -o "/tmp/oss-${f}" -w "%{http_code}" "$VERIFY_URL")
             if [ "$HTTP_STATUS" = "200" ]; then
-              echo "==> ${yml}: OK (HTTP ${HTTP_STATUS})"
-              cat /tmp/oss-${yml}
+              echo "==> ${f}: OK (HTTP ${HTTP_STATUS})"
+              cat "/tmp/oss-${f}"
               echo ""
               PASS=$((PASS + 1))
             else
-              echo "::warning::${yml} not found on OSS (HTTP ${HTTP_STATUS})"
+              echo "::warning::${f} not found on OSS (HTTP ${HTTP_STATUS})"
             fi
           done
           echo ""

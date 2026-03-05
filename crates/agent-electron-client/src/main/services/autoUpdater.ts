@@ -121,6 +121,17 @@ function sendStatusToRenderer(): void {
   }
 }
 
+/**
+ * 显示模态对话框（挂载到主窗口，避免 Linux 标题栏图标显示异常）
+ */
+function showModal(options: Electron.MessageBoxOptions): Promise<Electron.MessageBoxReturnValue> {
+  const win = getMainWindow?.();
+  if (win && !win.isDestroyed()) {
+    return dialog.showMessageBox(win, options);
+  }
+  return dialog.showMessageBox(options);
+}
+
 function setState(patch: Partial<UpdateState>): void {
   currentState = { ...currentState, ...patch };
   sendStatusToRenderer();
@@ -276,7 +287,7 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
 async function showStartupUpdateDialog(version: string): Promise<void> {
   if (!canAutoUpdate()) {
     // MSI 用户引导到 Releases 页面
-    const { response } = await dialog.showMessageBox({
+    const { response } = await showModal({
       type: 'info',
       title: '发现新版本',
       message: `发现新版本 v${version}`,
@@ -293,7 +304,7 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
     return;
   }
 
-  const { response } = await dialog.showMessageBox({
+  const { response } = await showModal({
     type: 'info',
     title: '发现新版本',
     message: `发现新版本 v${version}`,
@@ -307,7 +318,7 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
     try {
       const dlResult = await downloadUpdate();
       if (dlResult.success) {
-        const { response: installResponse } = await dialog.showMessageBox({
+        const { response: installResponse } = await showModal({
           type: 'info',
           title: '更新已下载',
           message: '更新已下载完成',
@@ -338,7 +349,7 @@ export async function showUpdateDialogFlow(): Promise<void> {
   try {
     const result = await checkForUpdates();
     if (!result.hasUpdate) {
-      dialog.showMessageBox({
+      showModal({
         type: 'info',
         title: '检查更新',
         message: '当前已是最新版本',
@@ -350,7 +361,7 @@ export async function showUpdateDialogFlow(): Promise<void> {
     const state = getUpdateState();
 
     if (state.canAutoUpdate === false) {
-      const { response } = await dialog.showMessageBox({
+      const { response } = await showModal({
         type: 'info',
         title: '发现新版本',
         message: `发现新版本 v${version}`,
@@ -365,7 +376,7 @@ export async function showUpdateDialogFlow(): Promise<void> {
       return;
     }
 
-    const { response } = await dialog.showMessageBox({
+    const { response } = await showModal({
       type: 'info',
       title: '发现新版本',
       message: `发现新版本 v${version}`,
@@ -382,7 +393,7 @@ export async function showUpdateDialogFlow(): Promise<void> {
       return;
     }
 
-    const { response: installResponse } = await dialog.showMessageBox({
+    const { response: installResponse } = await showModal({
       type: 'info',
       title: '更新已下载',
       message: '更新已下载完成',
