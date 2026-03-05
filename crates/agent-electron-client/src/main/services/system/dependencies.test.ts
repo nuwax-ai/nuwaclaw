@@ -420,6 +420,107 @@ describe('dependencies', () => {
     });
   });
 
+  describe('installNpmPackage queue serialization', () => {
+    // Track spawn calls and allow controlling process behavior per call
+    let spawnCalls: Array<{ command: string; args: string[] }>;
+    let spawnResolvers: Array<{ resolve: (code: number) => void }>;
+
+    beforeEach(() => {
+      vi.resetModules();
+      spawnCalls = [];
+      spawnResolvers = [];
+
+      // Mock child_process.spawn to return controllable fake processes
+      vi.doMock('child_process', () => {
+        const { EventEmitter } = require('events');
+        return {
+          spawn: vi.fn((command: string, args: string[]) => {
+            spawnCalls.push({ command, args });
+            const proc = new EventEmitter();
+            proc.stderr = new EventEmitter();
+            proc.stdin = null;
+            proc.stdout = new EventEmitter();
+            const entry = {
+              resolve: (code: number) => {
+                proc.emit('close', code);
+              },
+            };
+            spawnResolvers.push(entry);
+            return proc;
+          }),
+          execSync: vi.fn(),
+        };
+      });
+
+      // Extend existing fs mock with methods needed by installNpmPackage
+      vi.doMock('fs', () => ({
+        existsSync: (...args: unknown[]) => mockExistsSync(...args),
+        readdirSync: (...args: unknown[]) => mockReaddirSync(...args),
+        mkdirSync: vi.fn(),
+        writeFileSync: vi.fn(),
+        readFileSync: vi.fn(() => '{}'),
+        rmSync: vi.fn(),
+      }));
+    });
+
+    it('should serialize concurrent installNpmPackage calls', async () => {
+      const { installNpmPackage } = await import('../system/dependencies');
+
+      // Fire 3 installs concurrently
+      const p1 = installNpmPackage('pkg-a');
+      const p2 = installNpmPackage('pkg-b');
+      const p3 = installNpmPackage('pkg-c');
+
+      // Only the first spawn should have been called (queue serializes)
+      await vi.waitFor(() => expect(spawnCalls.length).toBe(1));
+      expect(spawnCalls[0].args).toContain('pkg-a');
+
+      // pkg-b and pkg-c should NOT have spawned yet
+      expect(spawnCalls.length).toBe(1);
+
+      // Complete first install
+      spawnResolvers[0].resolve(0);
+      await vi.waitFor(() => expect(spawnCalls.length).toBe(2));
+      expect(spawnCalls[1].args).toContain('pkg-b');
+
+      // Complete second install
+      spawnResolvers[1].resolve(0);
+      await vi.waitFor(() => expect(spawnCalls.length).toBe(3));
+      expect(spawnCalls[2].args).toContain('pkg-c');
+
+      // Complete third install
+      spawnResolvers[2].resolve(0);
+
+      const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
+      expect(r1.success).toBe(true);
+      expect(r2.success).toBe(true);
+      expect(r3.success).toBe(true);
+    });
+
+    it('should continue queue after a failed install', async () => {
+      const { installNpmPackage } = await import('../system/dependencies');
+
+      const p1 = installNpmPackage('fail-pkg');
+      const p2 = installNpmPackage('ok-pkg');
+
+      await vi.waitFor(() => expect(spawnCalls.length).toBe(1));
+
+      // Fail the first install (non-zero exit code)
+      spawnResolvers[0].resolve(1);
+
+      // Second install should still proceed
+      await vi.waitFor(() => expect(spawnCalls.length).toBe(2));
+      expect(spawnCalls[1].args).toContain('ok-pkg');
+
+      // Complete second install successfully
+      spawnResolvers[1].resolve(0);
+
+      const [r1, r2] = await Promise.all([p1, p2]);
+      expect(r1.success).toBe(false);
+      expect(r2.success).toBe(true);
+    });
+  });
+
   describe('bundled resources', () => {
     const mockLog = {
       info: vi.fn(),

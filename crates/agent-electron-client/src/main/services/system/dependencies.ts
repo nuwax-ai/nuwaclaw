@@ -1470,12 +1470,38 @@ function runNpmInstall(
 }
 
 /**
+ * npm install 串行锁，防止多个并发 npm install 操作互相干扰
+ * （syncInitDependencies 和 IPC installPackage 可能同时触发）
+ */
+let _npmInstallQueue: Promise<unknown> = Promise.resolve();
+
+/**
  * 安装 npm 本地包
+ *
+ * 所有调用自动排队串行执行，避免并发 npm install 导致 ENOENT/ENOTEMPTY 等竞态错误。
  *
  * ENOTEMPTY 处理：Linux 上 npm install 偶发 rmdir 竞态错误，
  * 遇到时删除该包的 node_modules 子目录后重试一次。
  */
-export async function installNpmPackage(
+export function installNpmPackage(
+  packageName: string,
+  options?: {
+    registry?: string;
+    version?: string;
+  },
+): Promise<{
+  success: boolean;
+  version?: string;
+  binPath?: string;
+  error?: string;
+}> {
+  const task = _npmInstallQueue.then(() => _installNpmPackageImpl(packageName, options));
+  // 无论成功失败都推进队列，防止一个失败阻塞后续
+  _npmInstallQueue = task.catch(() => {});
+  return task;
+}
+
+async function _installNpmPackageImpl(
   packageName: string,
   options?: {
     registry?: string;
