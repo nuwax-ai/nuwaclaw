@@ -402,10 +402,43 @@ function ensureUvInAppBin(): void {
   }
 }
 
+
 // 获取 bundled nuwax-lanproxy 二进制路径
+// 运行时根据平台选择正确的二进制文件
 export function getLanproxyBinPath(): string {
+  const resourcesPath = getResourcesPath();
+  const binariesDir = path.join(resourcesPath, "lanproxy", "binaries");
+
+  // 平台映射 (Node → Rust target)
+  const platformMap: Record<string, string> = {
+    "darwin-arm64": "nuwax-lanproxy-aarch64-apple-darwin",
+    "darwin-x64": "nuwax-lanproxy-x86_64-apple-darwin",
+    "win32-x64": "nuwax-lanproxy-x86_64-pc-windows-msvc.exe",
+    "win32-ia32": "nuwax-lanproxy-i686-pc-windows-msvc.exe",
+    "linux-x64": "nuwax-lanproxy-x86_64-unknown-linux-gnu",
+    "linux-arm64": "nuwax-lanproxy-aarch64-unknown-linux-gnu",
+  };
+
+  const platformKey = `${process.platform}-${process.arch}`;
+  const binaryName = platformMap[platformKey];
+
+  // 尝试从 binaries/ 目录获取平台特定二进制
+  if (binaryName) {
+    const binaryPath = path.join(binariesDir, binaryName);
+    if (fs.existsSync(binaryPath)) {
+      return binaryPath;
+    }
+  }
+
+  // Fallback: 旧版 bin/ 目录（向后兼容）
   const binName = isWindows() ? "nuwax-lanproxy.exe" : "nuwax-lanproxy";
-  return path.join(getResourcesPath(), "lanproxy", "bin", binName);
+  const binPath = path.join(resourcesPath, "lanproxy", "bin", binName);
+  if (fs.existsSync(binPath)) {
+    return binPath;
+  }
+
+  // 都不存在时返回预期路径（让调用者处理错误）
+  return path.join(resourcesPath, "lanproxy", "bin", binName);
 }
 
 // 获取 bundled Node.js 24 路径（集成到 resources/node/）

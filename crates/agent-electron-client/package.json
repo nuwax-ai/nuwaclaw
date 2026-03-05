@@ -133,7 +133,7 @@
         "from": "resources/lanproxy",
         "to": "lanproxy",
         "filter": [
-          "bin/**/*"
+          "bin/**/*", "binaries/**/*"
         ]
       },
       {
