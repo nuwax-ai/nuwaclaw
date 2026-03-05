@@ -1463,9 +1463,10 @@ export async function installNpmPackage(
   if (result.error && result.error.includes("ENOTEMPTY")) {
     log.warn(`[Dependencies] ${packageName} 遇到 ENOTEMPTY，清理后重试...`);
 
-    // 从错误信息中提取冲突路径并删除
+    // 从错误信息中提取冲突路径并删除（仅限 node_modules 内）
     const match = result.error.match(/ENOTEMPTY[^']*'([^']+)'/);
-    if (match) {
+    const nodeModulesDir = path.join(appDataDir, "node_modules");
+    if (match && match[1].startsWith(nodeModulesDir + path.sep)) {
       const conflictDir = match[1];
       try {
         fs.rmSync(conflictDir, { recursive: true, force: true });

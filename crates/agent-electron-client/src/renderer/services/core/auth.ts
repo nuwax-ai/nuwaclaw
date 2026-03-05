@@ -344,8 +344,8 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
   const password = await getPassword();
   const savedKey = await getSavedKey();
 
-  // savedKey 认证场景下 username/password 可为空
-  if (username == null && password == null && !savedKey) {
+  // 有 savedKey 即可认证，无需 username/password
+  if (!savedKey && username == null && password == null) {
     console.warn('[Auth] 未保存凭证，无法重新注册');
     return null;
   }
@@ -387,8 +387,8 @@ export async function syncConfigToServer(options?: {
   // 使用持久化的 savedKey（参考 Tauri 客户端：退出登录不清除，跨会话持久化）
   const savedKey = await getSavedKey(domain, username || undefined);
 
-  // savedKey 认证场景下 username/password 可为空，仅当既无凭证也无 savedKey 时才拒绝
-  if (username == null && password == null && !savedKey) {
+  // 有 savedKey 即可认证，无需 username/password
+  if (!savedKey && username == null && password == null) {
     console.warn('[SyncConfig] 未登录，无法同步配置');
     return null;
   }
