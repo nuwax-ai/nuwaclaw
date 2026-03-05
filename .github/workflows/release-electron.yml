@@ -377,28 +377,28 @@ jobs:
 
           echo "==> Scanning release assets for platforms..."
 
-          # macOS
+          # macOS (x64 has no arch suffix, arm64 does)
           add_platform "darwin-aarch64"     "NuwaxBot-${VERSION}-arm64.dmg"
           add_platform "darwin-aarch64-zip" "NuwaxBot-${VERSION}-arm64-mac.zip"
-          add_platform "darwin-x86_64"      "NuwaxBot-${VERSION}-x64.dmg"
-          add_platform "darwin-x86_64-zip"  "NuwaxBot-${VERSION}-x64-mac.zip"
+          add_platform "darwin-x86_64"      "NuwaxBot-${VERSION}.dmg"
+          add_platform "darwin-x86_64-zip"  "NuwaxBot-${VERSION}-mac.zip"
 
-          # Windows
-          add_platform "windows-x86_64"      "NuwaxBot-Setup-${VERSION}.exe"
-          add_platform "windows-x86_64-nsis" "NuwaxBot-Setup-${VERSION}.exe"
-          add_platform "windows-x86_64-msi"  "NuwaxBot-${VERSION}.msi"
+          # Windows (electron-builder uses dots in NSIS/MSI filenames)
+          add_platform "windows-x86_64"      "NuwaxBot.Setup.${VERSION}.exe"
+          add_platform "windows-x86_64-nsis" "NuwaxBot.Setup.${VERSION}.exe"
+          add_platform "windows-x86_64-msi"  "NuwaxBot.${VERSION}.msi"
 
-          # Linux x64
+          # Linux x64 (no arch suffix for AppImage, amd64 for deb, x86_64 for rpm)
           add_platform "linux-x86_64"          "NuwaxBot-${VERSION}.AppImage"
           add_platform "linux-x86_64-appimage" "NuwaxBot-${VERSION}.AppImage"
           add_platform "linux-x86_64-deb"      "NuwaxBot-${VERSION}-amd64.deb"
-          add_platform "linux-x86_64-rpm"      "NuwaxBot-${VERSION}.x86_64.rpm"
+          add_platform "linux-x86_64-rpm"      "NuwaxBot-${VERSION}-x86_64.rpm"
 
           # Linux arm64
           add_platform "linux-aarch64"          "NuwaxBot-${VERSION}-arm64.AppImage"
           add_platform "linux-aarch64-appimage" "NuwaxBot-${VERSION}-arm64.AppImage"
           add_platform "linux-aarch64-deb"      "NuwaxBot-${VERSION}-arm64.deb"
-          add_platform "linux-aarch64-rpm"      "NuwaxBot-${VERSION}.aarch64.rpm"
+          add_platform "linux-aarch64-rpm"      "NuwaxBot-${VERSION}-aarch64.rpm"
 
           # If no exact matches, try fuzzy matching by scanning all files
           if [ "$(echo "$PLATFORMS" | jq 'length')" = "0" ]; then
@@ -461,7 +461,7 @@ jobs:
       - name: Verify OSS upload
         run: |
           PASS=0; TOTAL=0
-          for f in latest.json latest-mac.yml latest.yml latest-linux.yml; do
+          for f in latest.json latest-mac.yml latest.yml latest-linux.yml latest-linux-arm64.yml; do
             TOTAL=$((TOTAL + 1))
             VERIFY_URL="${OSS_CDN_BASE}/nuwaxbot-electron/latest/${f}"
             HTTP_STATUS=$(curl -sS -o "/tmp/oss-${f}" -w "%{http_code}" "$VERIFY_URL")
