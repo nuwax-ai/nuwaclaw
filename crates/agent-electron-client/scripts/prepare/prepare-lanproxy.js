@@ -9,7 +9,7 @@
  *
  * 打包时 electron-builder 的 extraResources 会打包
  *   resources/lanproxy → .app/Contents/Resources/lanproxy
- * 运行时 getLanproxyBinPath() 使用 Resources/lanproxy/bin/nuwax-lanproxy
+ * 运行时 getLanproxyBinPath() 优先用 lanproxy/binaries/<平台名>，其次 bin/nuwax-lanproxy[.exe]
  *
  * 平台映射 (Node → Rust target)：
  *   darwin-arm64  → aarch64-apple-darwin

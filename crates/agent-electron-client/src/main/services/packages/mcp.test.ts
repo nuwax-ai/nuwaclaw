@@ -1137,7 +1137,7 @@ describe("McpProxyManager - start 启动所有 stdio servers", () => {
     mockExistsSync.mockReturnValue(true);
   });
 
-  it("start() 应通过 bridge 启动所有 stdio server（非仅 persistent）", async () => {
+  it("ensureBridgeStarted() 应通过 bridge 启动所有 stdio server（懒加载）", async () => {
     vi.doMock("./persistentMcpBridge", () => ({
       persistentMcpBridge: {
         start: vi.fn().mockResolvedValue(undefined),
@@ -1168,13 +1168,22 @@ describe("McpProxyManager - start 启动所有 stdio servers", () => {
 
     await mcpProxyManager.start();
 
-    // bridge.start() 应该被调用
+    // start() 不再自动启动 bridge
+    expect(persistentMcpBridge.start).toHaveBeenCalledTimes(0);
+
+    // 调用 ensureBridgeStarted() 应启动 bridge
+    await mcpProxyManager.ensureBridgeStarted();
     expect(persistentMcpBridge.start).toHaveBeenCalledTimes(1);
+
     // 传入的 servers 应包含两种类型
     const startArg = (persistentMcpBridge.start as ReturnType<typeof vi.fn>)
       .mock.calls[0][0] as Record<string, unknown>;
     expect(Object.keys(startArg)).toContain("persistent-server");
     expect(Object.keys(startArg)).toContain("temp-server");
+
+    // 再次调用 ensureBridgeStarted() 不应重复启动
+    await mcpProxyManager.ensureBridgeStarted();
+    expect(persistentMcpBridge.start).toHaveBeenCalledTimes(1);
   });
 
   it("start() 只有远程 server 时不应启动 bridge", async () => {
