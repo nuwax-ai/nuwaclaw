@@ -180,14 +180,21 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
       if (serverIp && clientKey && serverPort) {
         results.lanproxy = await startLanproxy({ serverIp, serverPort, clientKey, ssl: lpConfig.ssl as boolean });
-        log.info('[ServiceManager] Lanproxy started');
+        if (!results.lanproxy.success) {
+          log.error('[Lanproxy] 批量启动失败', { error: results.lanproxy.error });
+        }
       } else {
         results.lanproxy = { success: false, error: '缺少 lanproxy 配置' };
-        log.warn('[ServiceManager] Lanproxy skipped (missing config)');
+        log.warn('[Lanproxy] 已跳过: 缺少配置', {
+          hasServerIp: !!serverIp,
+          hasClientKey: !!clientKey,
+          hasServerPort: !!serverPort,
+          hint: '请配置 server_host / server_port 与 saved_key（或 lanproxy_config）',
+        });
       }
     } catch (e) {
       results.lanproxy = { success: false, error: String(e) };
-      log.error('[ServiceManager] Lanproxy start failed:', e);
+      log.error('[Lanproxy] 启动异常', { error: String(e), stack: e instanceof Error ? e.stack : undefined });
     }
 
     log.info('[ServiceManager] All services restart complete');
@@ -224,9 +231,10 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     try {
       ctx.lanproxy.stop();
       results.lanproxy = { success: true };
-      log.info('[ServiceManager] Lanproxy stopped');
+      log.info('[Lanproxy] 已停止');
     } catch (e) {
       results.lanproxy = { success: false, error: String(e) };
+      log.error('[Lanproxy] 停止异常', { error: String(e), stack: e instanceof Error ? e.stack : undefined });
     }
 
     // 停止 MCP Proxy

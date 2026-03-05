@@ -58,24 +58,33 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     const { getAppEnv, getLanproxyBinPath } = await import('../services/system/dependencies');
 
     if (ctx.lanproxy.running) {
+      log.info('[Lanproxy] 已在运行，跳过启动');
       return Promise.resolve({ success: true });
     }
     const binPath = getLanproxyBinPath();
     if (!fs.existsSync(binPath)) {
-      return Promise.resolve({ success: false, error: '当前平台暂不支持内网穿透（未找到 lanproxy 二进制，请使用带 lanproxy 的安装包或从 Tauri 构建获取）' });
+      const msg = '当前平台暂不支持内网穿透（未找到 lanproxy 二进制，请使用带 lanproxy 的安装包或从 Tauri 构建获取）';
+      log.warn('[Lanproxy] 启动失败: 二进制不存在', { binPath, reason: msg });
+      return Promise.resolve({ success: false, error: msg });
     }
     const useSsl = config.ssl !== false;
     const args = ['-s', config.serverIp, '-p', String(config.serverPort), '-k', config.clientKey, `--ssl=${useSsl}`];
     const maskedKey = config.clientKey.length > 8
       ? `${config.clientKey.slice(0, 4)}****${config.clientKey.slice(-4)}`
       : '****';
-    log.info(`Starting lanproxy: ${binPath} -s ${config.serverIp} -p ${config.serverPort} -k ${maskedKey} --ssl=${useSsl}`);
-    return ctx.lanproxy.start({
+    log.info('[Lanproxy] 正在启动', { server: config.serverIp, port: config.serverPort, keyMasked: maskedKey, ssl: useSsl });
+    const result = await ctx.lanproxy.start({
       command: binPath,
       args,
       env: getAppEnv(),
       startupDelayMs: 1000,
     });
+    if (result.success) {
+      log.info('[Lanproxy] 已启动', { server: config.serverIp, port: config.serverPort });
+    } else {
+      log.error('[Lanproxy] 启动失败', { error: result.error, server: config.serverIp, port: config.serverPort });
+    }
+    return result;
   };
 
   // Lanproxy handlers
@@ -284,14 +293,21 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
         results.lanproxy = await startLanproxyProcess({
           serverIp, serverPort, clientKey, ssl: lpConfig.ssl,
         });
-        log.info('[Services] Lanproxy started');
+        if (!results.lanproxy.success) {
+          log.error('[Lanproxy] 批量启动失败', { error: results.lanproxy.error });
+        }
       } else {
         results.lanproxy = { success: false, error: '缺少 lanproxy 配置' };
-        log.warn('[Services] Lanproxy skipped (missing config)');
+        log.warn('[Lanproxy] 已跳过: 缺少配置', {
+          hasServerIp: !!serverIp,
+          hasClientKey: !!clientKey,
+          hasServerPort: !!serverPort,
+          hint: '请配置 server_host / server_port 与 saved_key（或 lanproxy_config）',
+        });
       }
     } catch (e) {
       results.lanproxy = { success: false, error: String(e) };
-      log.error('[Services] Lanproxy start failed:', e);
+      log.error('[Lanproxy] 启动异常', { error: String(e), stack: e instanceof Error ? e.stack : undefined });
     }
 
     log.info('[Services] All services restart complete:', results);
@@ -342,9 +358,10 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     try {
       ctx.lanproxy.stop();
       results.lanproxy = { success: true };
-      log.info('[Services] Lanproxy stopped');
+      log.info('[Lanproxy] 已停止');
     } catch (e) {
       results.lanproxy = { success: false, error: String(e) };
+      log.error('[Lanproxy] 停止异常', { error: String(e), stack: e instanceof Error ? e.stack : undefined });
     }
 
     // Stop MCP Proxy（清除 running 状态标记 + 停止 PersistentMcpBridge）
