@@ -595,9 +595,17 @@ export class UnifiedAgentService extends EventEmitter {
         freshMcpServers = realMcpServers;
         // 暂存到 proxy manager 并启动 bridge
         const { mcpProxyManager } = await import("../packages/mcp");
-        mcpProxyManager.setConfig({ ...mcpProxyManager.getConfig(), mcpServers: realMcpServers });
+        // 合并现有配置（保留默认服务如 chrome-devtools）
+        mcpProxyManager.setConfig({ ...mcpProxyManager.getConfig(), mcpServers: { ...(mcpProxyManager.getConfig().mcpServers || {}), ...realMcpServers } });
         await mcpProxyManager.ensureBridgeStarted();
+        // 获取代理格式的配置（包含 bridge URL 和 allowTools）
+        freshMcpServers = mcpProxyManager.getAgentMcpConfig() || undefined;
       }
+    } else {
+      // 无动态 MCP 服务器时，仍需确保 bridge 启动（包含默认服务如 chrome-devtools）
+      const { mcpProxyManager } = await import("../packages/mcp");
+      await mcpProxyManager.ensureBridgeStarted();
+      freshMcpServers = mcpProxyManager.getAgentMcpConfig() || undefined;
     }
 
     const effectiveConfig: AgentConfig = {
