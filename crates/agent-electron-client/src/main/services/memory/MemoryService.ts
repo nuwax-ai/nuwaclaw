@@ -51,6 +51,10 @@ export class MemoryService extends EventEmitter {
   private segmentCounters: Map<string, number> = new Map();
   // Per-session segment index tracking: sessionId → next segment index
   private segmentIndexCounters: Map<string, number> = new Map();
+  // Per-session idle timers: sessionId → timer handle
+  private idleTimers: Map<string, NodeJS.Timeout> = new Map();
+  // Per-session model config for idle timeout extraction
+  private sessionModelConfigs: Map<string, ModelConfig> = new Map();
 
   constructor() {
     super();
@@ -199,6 +203,13 @@ export class MemoryService extends EventEmitter {
     this.workspaceDir = null;
     this.segmentCounters.clear();
     this.segmentIndexCounters.clear();
+
+    // Clear all idle timers
+    for (const timer of this.idleTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.idleTimers.clear();
+    this.sessionModelConfigs.clear();
 
     log.info('[MemoryService] Destroyed');
     this.emit('destroyed');
@@ -485,10 +496,112 @@ export class MemoryService extends EventEmitter {
     const counter = (this.segmentCounters.get(sessionId) ?? 0) + 1;
     this.segmentCounters.set(sessionId, counter);
 
+    // Store model config for idle timeout extraction
+    this.sessionModelConfigs.set(sessionId, modelConfig);
+
     const segmentSize = this.config.segmentation.segmentSize;
 
     if (counter >= segmentSize) {
+      // Segment full - trigger extraction immediately
       this.triggerSegmentExtraction(sessionId, modelConfig);
+      // Clear idle timer since we just extracted
+      this.clearIdleTimer(sessionId);
+    } else {
+      // Not full yet - start/reset idle timer
+      this.resetIdleTimer(sessionId);
+    }
+  }
+
+  /**
+   * Clear idle timer for a session
+   */
+  private clearIdleTimer(sessionId: string): void {
+    const timer = this.idleTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.idleTimers.delete(sessionId);
+    }
+  }
+
+  /**
+   * Reset idle timer for a session
+   * If idle timeout is enabled, starts a timer that will trigger extraction
+   * after idleTimeoutMs milliseconds of no new messages
+   */
+  private resetIdleTimer(sessionId: string): void {
+    // Skip if idle timeout is disabled
+    if (!this.config.extraction.trigger.onIdleTimeout) {
+      return;
+    }
+
+    // Clear existing timer
+    this.clearIdleTimer(sessionId);
+
+    const idleTimeoutMs = this.config.extraction.trigger.idleTimeoutMs ?? 60000;
+
+    // Start new timer
+    const timer = setTimeout(() => {
+      this.onIdleTimeout(sessionId);
+    }, idleTimeoutMs);
+
+    this.idleTimers.set(sessionId, timer);
+    log.debug(`[MemoryService] Idle timer reset for session ${sessionId}, timeout: ${idleTimeoutMs}ms`);
+  }
+
+  /**
+   * Handle idle timeout - trigger extraction for accumulated messages
+   */
+  private onIdleTimeout(sessionId: string): void {
+    try {
+      log.info(`[MemoryService] Idle timeout triggered for session ${sessionId}`);
+
+      // Remove timer from map
+      this.idleTimers.delete(sessionId);
+
+      // Get accumulated message count
+      const counter = this.segmentCounters.get(sessionId) ?? 0;
+      if (counter === 0) {
+        log.debug(`[MemoryService] No messages to extract for session ${sessionId}`);
+        return;
+      }
+
+      // Get stored model config
+      const modelConfig = this.sessionModelConfigs.get(sessionId);
+      if (!modelConfig) {
+        log.warn(`[MemoryService] No model config for session ${sessionId}, skipping idle extraction`);
+        return;
+      }
+
+      // Skip if no API key
+      if (!modelConfig.apiKey) {
+        log.debug(`[MemoryService] Skipping idle extraction: no API key for session ${sessionId}`);
+        return;
+      }
+
+      // Check if there's extractable content in pending messages
+      const totalMessages = this.transcriptWriter.countMessages(sessionId);
+      if (totalMessages === 0) {
+        return;
+      }
+
+      // Read recent messages to check for extractable content
+      const startIndex = Math.max(0, totalMessages - counter);
+      const entries = this.transcriptWriter.readTranscriptRange(sessionId, startIndex, totalMessages);
+
+      const hasExtractable = entries.some(e =>
+        e.role === 'user' && this.extractor.hasExtractableContent(e.content)
+      );
+
+      if (!hasExtractable) {
+        log.debug(`[MemoryService] No extractable content in pending messages for session ${sessionId}`);
+        return;
+      }
+
+      // Trigger extraction for accumulated messages
+      log.info(`[MemoryService] Triggering idle extraction for ${counter} messages in session ${sessionId}`);
+      this.triggerSegmentExtraction(sessionId, modelConfig);
+    } catch (error) {
+      log.error(`[MemoryService] Idle timeout error for session ${sessionId}:`, error);
     }
   }
 
@@ -548,6 +661,12 @@ export class MemoryService extends EventEmitter {
         startIndex,
         endIndex
       );
+
+      // Reset counter only after successful enqueue (keep overlap messages in next segment)
+      this.segmentCounters.set(sessionId, overlap);
+      this.segmentIndexCounters.set(sessionId, segmentIndex + 1);
+
+      log.debug(`[MemoryService] Segment ${segmentIndex} triggered for session ${sessionId}`);
     } catch (error) {
       log.error(`[MemoryService] Segment extraction failed for session ${sessionId}, segment ${segmentIndex}:`, error);
       // Mark progress as failed if it was inserted
@@ -557,13 +676,8 @@ export class MemoryService extends EventEmitter {
           errorMessage: String(error),
         });
       } catch { /* best effort */ }
+      // Do NOT reset counter on failure - allow retry on next message
     }
-
-    // Reset counter (keep overlap messages in next segment)
-    this.segmentCounters.set(sessionId, overlap);
-    this.segmentIndexCounters.set(sessionId, segmentIndex + 1);
-
-    log.debug(`[MemoryService] Segment ${segmentIndex} triggered for session ${sessionId}`);
   }
 
   /**
@@ -585,101 +699,106 @@ export class MemoryService extends EventEmitter {
     }
 
     if (!this.config.extraction.trigger.onSessionEnd) {
+      // Still cleanup session state even if extraction is disabled
+      this.cleanupSessionState(sessionId);
       return '';
     }
 
     // Skip if no API key (required for LLM-based extraction)
     if (!modelConfig.apiKey) {
       log.debug('[MemoryService] Skipping session end extraction: no API key configured');
+      this.cleanupSessionState(sessionId);
       return '';
     }
 
     log.info('[MemoryService] Session end extraction for session:', sessionId);
 
-    // Get the max completed message index
-    const maxCompletedIndex = this.database.getMaxCompletedMsgIndex(sessionId);
+    try {
+      // Get the max completed message index
+      const maxCompletedIndex = this.database.getMaxCompletedMsgIndex(sessionId);
 
-    // Read remaining messages from transcript
-    const startFrom = maxCompletedIndex >= 0 ? maxCompletedIndex : 0;
-    const totalMessages = this.transcriptWriter.countMessages(sessionId);
+      // Read remaining messages from transcript
+      const startFrom = maxCompletedIndex >= 0 ? maxCompletedIndex : 0;
+      const totalMessages = this.transcriptWriter.countMessages(sessionId);
 
-    if (startFrom >= totalMessages) {
-      log.debug('[MemoryService] All messages already processed for session:', sessionId);
-      this.cleanupSessionState(sessionId);
-      return '';
-    }
+      if (startFrom >= totalMessages) {
+        log.debug('[MemoryService] All messages already processed for session:', sessionId);
+        return '';
+      }
 
-    // Read remaining transcript entries
-    const remainingEntries = this.transcriptWriter.readTranscriptRange(
-      sessionId,
-      startFrom,
-      totalMessages
-    );
-
-    if (remainingEntries.length === 0) {
-      this.cleanupSessionState(sessionId);
-      return '';
-    }
-
-    // Check if any remaining messages have extractable content
-    const hasExtractable = remainingEntries.some(e =>
-      e.role === 'user' && this.extractor.hasExtractableContent(e.content)
-    );
-
-    if (!hasExtractable) {
-      this.cleanupSessionState(sessionId);
-      return '';
-    }
-
-    // Build segments from remaining messages
-    const segments = buildSegmentsFromIndex(
-      remainingEntries,
-      0,  // Already sliced to remaining
-      this.config.segmentation
-    );
-
-    // Get current segment index counter (recover from DB if needed)
-    let segmentIndex = this.segmentIndexCounters.get(sessionId);
-    if (segmentIndex === undefined) {
-      segmentIndex = this.database.getNextSegmentIndex(sessionId);
-    }
-
-    // Enqueue each segment
-    let lastTaskId = '';
-    for (const segment of segments) {
-      const adjustedStartIndex = segment.startMsgIndex + startFrom;
-      const adjustedEndIndex = segment.endMsgIndex + startFrom;
-
-      // Record progress
-      this.database.insertExtractionProgress({
+      // Read remaining transcript entries
+      const remainingEntries = this.transcriptWriter.readTranscriptRange(
         sessionId,
-        segmentIndex,
-        startMsgIndex: adjustedStartIndex,
-        endMsgIndex: adjustedEndIndex,
-        status: 'pending',
-        memoriesExtracted: 0,
-        createdAt: Date.now(),
-        completedAt: null,
-        errorMessage: null,
-      });
-
-      lastTaskId = this.extractionQueue.enqueue(
-        sessionId,
-        `session-end-seg-${segmentIndex}`,
-        segment.messages,
-        modelConfig,
-        segmentIndex,
-        adjustedStartIndex,
-        adjustedEndIndex
+        startFrom,
+        totalMessages
       );
 
-      segmentIndex++;
+      if (remainingEntries.length === 0) {
+        return '';
+      }
+
+      // Check if any remaining messages have extractable content
+      const hasExtractable = remainingEntries.some(e =>
+        e.role === 'user' && this.extractor.hasExtractableContent(e.content)
+      );
+
+      if (!hasExtractable) {
+        return '';
+      }
+
+      // Build segments from remaining messages
+      const segments = buildSegmentsFromIndex(
+        remainingEntries,
+        0,  // Already sliced to remaining
+        this.config.segmentation
+      );
+
+      // Get current segment index counter (recover from DB if needed)
+      let segmentIndex = this.segmentIndexCounters.get(sessionId);
+      if (segmentIndex === undefined) {
+        segmentIndex = this.database.getNextSegmentIndex(sessionId);
+      }
+
+      // Enqueue each segment
+      let lastTaskId = '';
+      for (const segment of segments) {
+        const adjustedStartIndex = segment.startMsgIndex + startFrom;
+        const adjustedEndIndex = segment.endMsgIndex + startFrom;
+
+        // Record progress
+        this.database.insertExtractionProgress({
+          sessionId,
+          segmentIndex,
+          startMsgIndex: adjustedStartIndex,
+          endMsgIndex: adjustedEndIndex,
+          status: 'pending',
+          memoriesExtracted: 0,
+          createdAt: Date.now(),
+          completedAt: null,
+          errorMessage: null,
+        });
+
+        lastTaskId = this.extractionQueue.enqueue(
+          sessionId,
+          `session-end-seg-${segmentIndex}`,
+          segment.messages,
+          modelConfig,
+          segmentIndex,
+          adjustedStartIndex,
+          adjustedEndIndex
+        );
+
+        segmentIndex++;
+      }
+
+      return lastTaskId;
+    } catch (error) {
+      log.error(`[MemoryService] Session end extraction failed for session ${sessionId}:`, error);
+      return '';
+    } finally {
+      // Always cleanup session state, even on error
+      this.cleanupSessionState(sessionId);
     }
-
-    // Cleanup session state
-    this.cleanupSessionState(sessionId);
-
-    return lastTaskId;
   }
 
   /**
@@ -688,6 +807,8 @@ export class MemoryService extends EventEmitter {
   private cleanupSessionState(sessionId: string): void {
     this.segmentCounters.delete(sessionId);
     this.segmentIndexCounters.delete(sessionId);
+    this.clearIdleTimer(sessionId);
+    this.sessionModelConfigs.delete(sessionId);
   }
 
   // ==================== Memory Retrieval ====================

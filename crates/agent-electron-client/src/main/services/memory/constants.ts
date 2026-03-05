@@ -36,6 +36,8 @@ export const DEFAULT_CONFIG: MemoryConfig = {
       onEveryTurn: true,
       onSegmentFull: true,
       onSessionEnd: true,
+      onIdleTimeout: true,       // Extract after idle timeout
+      idleTimeoutMs: 60000,      // 60 seconds idle timeout
     },
     llm: {
       maxTokensPerExtract: 800,
@@ -75,7 +77,7 @@ export const DEFAULT_CONFIG: MemoryConfig = {
   },
 
   segmentation: {
-    segmentSize: 1,  // Changed from 5 to 1 for testing - triggers extraction after each message
+    segmentSize: 5,  // Changed from 5 to 1 for testing - triggers extraction after each message
     segmentOverlap: 0,  // Changed from 2 to 0 for testing
     maxSegmentTokens: 4000,
     maxContentPerMessage: 1500,

@@ -17,6 +17,8 @@ export interface ExtractionTriggerConfig {
   onEveryTurn: boolean;      // Check after every conversation turn
   onSegmentFull: boolean;    // Extract when segment is full (default: true)
   onSessionEnd: boolean;     // Extract on session end
+  onIdleTimeout: boolean;    // Extract after idle timeout (default: true)
+  idleTimeoutMs: number;     // Idle timeout in milliseconds (default: 60000)
 }
 
 export interface ExtractionLlmConfig {

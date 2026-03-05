@@ -247,6 +247,8 @@ export class UnifiedAgentService extends EventEmitter {
             onEveryTurn: false,
             onSegmentFull: true,
             onSessionEnd: true,
+            onIdleTimeout: true,
+            idleTimeoutMs: 60000,
           },
           llm: {
             maxTokensPerExtract: 800,
