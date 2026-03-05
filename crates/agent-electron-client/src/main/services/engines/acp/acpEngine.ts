@@ -619,14 +619,6 @@ export class AcpEngine extends EventEmitter {
     }
   }
 
-  /**
-   * Get clean user message from prompt
-   * Currently returns the prompt as-is, waiting for new API field for pure user input
-   */
-  private getCleanUserMessage(prompt: string): string {
-    return (prompt || '').trim();
-  }
-
   // === Legacy compat ===
 
   async claudePrompt(message: string): Promise<string> {
@@ -702,6 +694,8 @@ export class AcpEngine extends EventEmitter {
         env_keys: this.config.env ? Object.keys(this.config.env) : [],
         system_prompt_length: request.system_prompt ? request.system_prompt.length : 0,
         prompt_length: request.prompt?.length ?? 0,
+        has_original_user_prompt: !!request.original_user_prompt,
+        open_long_memory: request.open_long_memory === true,
       });
 
       if (request.model_provider && this.shouldReinitForModelProvider(request.model_provider)) {
@@ -764,7 +758,20 @@ export class AcpEngine extends EventEmitter {
       }
 
       // 2. Record user message to MemoryService
-      if (memoryService.isInitialized() && this.config) {
+      // 获取纯净用户输入（仅使用 original_user_prompt，不回退到 prompt）
+      const pureUserPrompt = request.original_user_prompt || '';
+      // 决定是否启用记忆（默认 false）
+      const enableMemory = request.open_long_memory === true;
+
+      // 如果 original_user_prompt 为空，打印错误日志
+      if (!pureUserPrompt) {
+        log.error(`${this.logTag} original_user_prompt 为空，无法进行记忆处理`, {
+          session_id: session.id,
+          request_id: request.request_id,
+        });
+      }
+
+      if (memoryService.isInitialized() && this.config && enableMemory && pureUserPrompt) {
         try {
           const modelConfig: ModelConfig = {
             provider: this.engineName.includes('claude') ? 'anthropic' : 'openai',
@@ -775,7 +782,7 @@ export class AcpEngine extends EventEmitter {
           };
           memoryService.handleMessage(
             session.id,
-            { role: 'user', content: request.prompt },
+            { role: 'user', content: pureUserPrompt },
             modelConfig
           );
         } catch (error) {
@@ -785,11 +792,10 @@ export class AcpEngine extends EventEmitter {
 
       // 3. Inject memory context into prompt
       let enhancedPrompt = request.prompt;
-      if (memoryService.isInitialized()) {
+      if (memoryService.isInitialized() && enableMemory && pureUserPrompt) {
         try {
-          // Extract clean user message for memory search
-          // (compatibility for clients that don't separate prompt/system_prompt)
-          const promptForMemory = this.getCleanUserMessage(request.prompt || '');
+          // 使用纯净用户输入进行记忆搜索
+          const promptForMemory = pureUserPrompt.trim();
           log.debug(`${this.logTag} Memory search query: "${promptForMemory.slice(0, 100)}"`);
 
           const memoryContext = await memoryService.getInjectionContext(promptForMemory);

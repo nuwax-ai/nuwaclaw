@@ -59,6 +59,9 @@ export interface ComputerChatRequest {
   request_id?: string;
   system_prompt?: string;
   agent_config?: ChatAgentConfig;
+  // 记忆相关字段
+  original_user_prompt?: string;  // 原始用户提示词（纯净用户输入，不含系统提示）
+  open_long_memory?: boolean;     // 是否开启长期记忆（默认 false）
 }
 
 // 对应 rcoder ChatResponse（HttpResult.data 的内容，不含 success）

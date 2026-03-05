@@ -2435,3 +2435,61 @@ sqlite-vec 向量索引表需要根据配置的向量维度动态创建：
 3. **双重保障** - 文件监控 + 启动校验确保数据一致
 4. **渐进增强** - 向量化可选，零配置可用
 5. **迭代优化** - 根据使用反馈调整
+
+---
+
+## 16. API 接口约定
+
+### 16.1 ComputerChatRequest 记忆相关字段
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `prompt` | string | 是 | 完整提示词（可能包含系统提示） |
+| `original_user_prompt` | string | 否 | 原始用户提示词（纯净用户输入） |
+| `open_long_memory` | boolean | 否 | 是否开启长期记忆（默认 false） |
+| `system_prompt` | string | 否 | 系统提示词（通过 ACP _meta 传递） |
+
+### 16.2 字段使用逻辑
+
+```
+记忆提取 → 仅使用 original_user_prompt，为空时打印错误日志并跳过
+记忆搜索 → 仅使用 original_user_prompt，为空时打印错误日志并跳过
+记忆注入 → 根据 open_long_memory 决定是否注入（默认 false）
+```
+
+### 16.3 字段要求
+
+- `original_user_prompt` **必须**由客户端提供纯净用户输入
+- 如果 `original_user_prompt` 为空，打印错误日志，不回退到 `prompt`
+- 如果 `open_long_memory` 未提供，默认为 false（禁用记忆）
+
+### 16.4 请求示例
+
+**开启记忆（需显式设置）**:
+```json
+{
+  "prompt": "混合内容（系统提示+用户消息）...",
+  "original_user_prompt": "我喜欢看NBA比赛",
+  "open_long_memory": true
+}
+```
+预期: 记忆正常提取和注入
+
+**关闭记忆（默认行为）**:
+```json
+{
+  "prompt": "混合内容（系统提示+用户消息）...",
+  "original_user_prompt": "我喜欢看NBA比赛",
+  "open_long_memory": false
+}
+```
+预期: 不注入记忆内容，不记录用户消息
+
+**original_user_prompt 为空（错误情况）**:
+```json
+{
+  "prompt": "混合内容...",
+  "original_user_prompt": ""
+}
+```
+预期: 打印错误日志，跳过记忆处理，不影响正常对话
