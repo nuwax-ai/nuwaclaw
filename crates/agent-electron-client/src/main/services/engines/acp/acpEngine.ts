@@ -116,17 +116,16 @@ export class AcpEngine extends EventEmitter {
   async init(config: AgentConfig): Promise<boolean> {
     this.config = config;
     const envModel = config.env?.OPENCODE_MODEL || config.env?.ANTHROPIC_MODEL;
-    log.info(
-      `${this.logTag} 🚀 初始化配置:\n` +
-      `├─ engine: ${this.engineName}\n` +
-      `├─ config.model: ${config.model || '⚠️ 未设置'}\n` +
-      `├─ env model: ${envModel || '(未设置)'}\n` +
-      `├─ baseUrl: ${config.baseUrl || '(default)'}\n` +
-      `├─ apiKeySet: ${!!config.apiKey}\n` +
-      `├─ workspaceDir: ${config.workspaceDir}\n` +
-      `├─ env keys: ${config.env ? Object.keys(config.env).join(', ') : '(none)'}\n` +
-      `└─ mcpServers: ${config.mcpServers ? Object.keys(config.mcpServers).join(', ') : '(none)'}`,
-    );
+    log.info(`${this.logTag} 🚀 初始化配置`, {
+      engine: this.engineName,
+      config_model: config.model || '未设置',
+      env_model: envModel || '未设置',
+      baseUrl: config.baseUrl || '(default)',
+      apiKey_set: !!config.apiKey,
+      workspaceDir: config.workspaceDir,
+      env_keys: config.env ? Object.keys(config.env) : [],
+      mcpServers: config.mcpServers ? Object.keys(config.mcpServers) : [],
+    });
     try {
       // Build ACP client handler (callbacks from agent → client)
       const clientHandler = this.buildClientHandler();
@@ -177,12 +176,11 @@ export class AcpEngine extends EventEmitter {
 
         const configContent = JSON.stringify(configObj);
         spawnEnv.OPENCODE_CONFIG_CONTENT = configContent;
-        log.info(
-          `${this.logTag} 🔌 nuwaxcode config 注入 (OPENCODE_CONFIG_CONTENT):\n` +
-          `├─ mcp servers: ${configObj.mcp ? Object.keys(configObj.mcp as Record<string, unknown>).join(', ') : '(none)'}\n` +
-          `├─ permission: all allow\n` +
-          `└─ content: ${configContent}`,
-        );
+        log.info(`${this.logTag} 🔌 nuwaxcode config 注入 (OPENCODE_CONFIG_CONTENT)`, {
+          mcp_servers: configObj.mcp ? Object.keys(configObj.mcp as Record<string, unknown>) : [],
+          permission: 'all allow',
+          content: configContent,
+        });
       }
 
       // Spawn ACP binary and create ClientSideConnection
@@ -241,33 +239,6 @@ export class AcpEngine extends EventEmitter {
       this.emit('error', error instanceof Error ? error : new Error(String(error)));
       return false;
     }
-  }
-
-  /**
-   * Extract user's actual question from prompt (remove XML tags and system prompts)
-   */
-  private extractUserQuestion(prompt: string): string {
-    let cleanText = prompt;
-
-    // Remove XML-style tags and their content
-    cleanText = cleanText.replace(/<context-message>[\s\S]*?<\/context-message>/gi, '');
-    cleanText = cleanText.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '');
-    cleanText = cleanText.replace(/<current-cst-time>[\s\S]*?<\/current-cst-time>/gi, '');
-
-    // Remove markdown headers and everything after them (typically system prompts)
-    // Handle both "\n## " (with newline) and "##" (without newline)
-    const headerIndex = cleanText.indexOf('##');
-    if (headerIndex > 0) {
-      cleanText = cleanText.substring(0, headerIndex);
-    }
-
-    // Remove remaining XML tags
-    cleanText = cleanText.replace(/<[^>]+>/g, '');
-
-    // Clean up whitespace
-    cleanText = cleanText.trim();
-
-    return cleanText || prompt; // Fallback to original if cleaning results in empty string
   }
 
   async destroy(): Promise<void> {
@@ -331,6 +302,7 @@ export class AcpEngine extends EventEmitter {
     title?: string;
     cwd?: string;
     mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string>; url?: string; type?: string }>;
+    systemPrompt?: string;
   }): Promise<SdkSession> {
     if (!this.acpConnection || !this.config) {
       throw new Error('AcpEngine not initialized');
@@ -373,12 +345,26 @@ export class AcpEngine extends EventEmitter {
     }
 
     const sessionCwd = opts?.cwd || this.config.workspaceDir;
+
+    // Build _meta with systemPrompt if provided (skip if empty or whitespace only)
+    const systemPromptTrimmed = opts?.systemPrompt?.trim();
+    const _meta = systemPromptTrimmed ? {
+      systemPrompt: {
+        append: systemPromptTrimmed
+      }
+    } : undefined;
+
     const newSessionParams = {
       cwd: sessionCwd,
       mcpServers,
+      _meta,
     };
-    log.info(`${this.logTag} newSession: cwd=${sessionCwd}, mcpServers=${mcpServers.length}`);
-    log.info(`${this.logTag} 📤 ACP newSession 发送中...`);
+    log.info(`${this.logTag} newSession: cwd=${sessionCwd}, mcpServers=${mcpServers.length}, hasSystemPrompt=${!!opts?.systemPrompt}`);
+    log.debug(`${this.logTag} newSession debug`, {
+      systemPrompt: systemPromptTrimmed,
+      systemPromptLength: systemPromptTrimmed?.length ?? 0,
+      mcpServersJson: JSON.stringify(mcpServers, null, 2),
+    });
     const t0 = Date.now();
     let acpResult: { sessionId: string };
     try {
@@ -633,6 +619,14 @@ export class AcpEngine extends EventEmitter {
     }
   }
 
+  /**
+   * Get clean user message from prompt
+   * Currently returns the prompt as-is, waiting for new API field for pure user input
+   */
+  private getCleanUserMessage(prompt: string): string {
+    return (prompt || '').trim();
+  }
+
   // === Legacy compat ===
 
   async claudePrompt(message: string): Promise<string> {
@@ -694,21 +688,21 @@ export class AcpEngine extends EventEmitter {
 
     try {
       const envModel = this.config.env?.OPENCODE_MODEL || this.config.env?.ANTHROPIC_MODEL;
-      log.info(
-        `${this.logTag} 📨 chat() 收到请求:\n` +
-        `├─ user_id: ${request.user_id}\n` +
-        `├─ project_id: ${request.project_id}\n` +
-        `├─ session_id: ${request.session_id}\n` +
-        `├─ request_id: ${request.request_id}\n` +
-        `├─ agent_config: ${safeStringify(request.agent_config)}\n` +
-        `├─ model_provider: ${request.model_provider ? JSON.stringify(request.model_provider) : '(无)'}\n` +
-        `├─ 📌 config.model: ${this.config.model || '⚠️ 未设置'}\n` +
-        `├─ 📌 env model: ${envModel || '(未设置)'}\n` +
-        `├─ baseUrl_set: ${!!this.config.baseUrl}\n` +
-        `├─ apiKeySet: ${!!this.config.apiKey}\n` +
-        `├─ env keys: ${this.config.env ? Object.keys(this.config.env).join(', ') : '(none)'}\n` +
-        `└─ prompt (${request.prompt.length}字符)`,
-      );
+      log.info(`${this.logTag} 📨 chat() 收到请求`, {
+        user_id: request.user_id,
+        project_id: request.project_id,
+        session_id: request.session_id,
+        request_id: request.request_id,
+        agent_config: safeStringify(request.agent_config),
+        model_provider: request.model_provider,
+        config_model: this.config.model || '未设置',
+        env_model: envModel || '未设置',
+        baseUrl_set: !!this.config.baseUrl,
+        apiKey_set: !!this.config.apiKey,
+        env_keys: this.config.env ? Object.keys(this.config.env) : [],
+        system_prompt_length: request.system_prompt ? request.system_prompt.length : 0,
+        prompt_length: request.prompt?.length ?? 0,
+      });
 
       if (request.model_provider && this.shouldReinitForModelProvider(request.model_provider)) {
         if (this.activePromptSessions.size > 0) {
@@ -763,6 +757,7 @@ export class AcpEngine extends EventEmitter {
         const newSession = await this.createSession({
           title: projectId,
           cwd: projectDir,
+          systemPrompt: request.system_prompt,
         });
         session = this.sessions.get(newSession.id)!;
         session.projectId = request.project_id;
@@ -792,11 +787,12 @@ export class AcpEngine extends EventEmitter {
       let enhancedPrompt = request.prompt;
       if (memoryService.isInitialized()) {
         try {
-          // Extract actual user question from prompt (remove XML tags and system prompts)
-          const userQuestion = this.extractUserQuestion(request.prompt);
-          log.debug(`${this.logTag} Memory search query: "${userQuestion.slice(0, 100)}"`);
+          // Extract clean user message for memory search
+          // (compatibility for clients that don't separate prompt/system_prompt)
+          const promptForMemory = this.getCleanUserMessage(request.prompt || '');
+          log.debug(`${this.logTag} Memory search query: "${promptForMemory.slice(0, 100)}"`);
 
-          const memoryContext = await memoryService.getInjectionContext(userQuestion);
+          const memoryContext = await memoryService.getInjectionContext(promptForMemory);
           if (memoryContext && memoryContext.trim()) {
             enhancedPrompt = `<memory-context>
 以下是关于用户的已知信息，请在回答时参考：

@@ -68,6 +68,7 @@ export interface AcpClientSideConnection {
   newSession(params: {
     cwd: string;
     mcpServers: Array<AcpMcpServer>;
+    _meta?: { [key: string]: unknown } | null;
   }): Promise<{ sessionId: string }>;
 
   prompt(params: {
@@ -424,18 +425,22 @@ export async function createAcpConnection(
   }
 
   // 打印最终生效的模型配置（关键调试信息）
-  log.info(`[AcpClient] 🚀 Spawning ACP binary:\n` +
-    `├─ binPath: ${binPath}\n` +
-    `├─ binArgs: ${JSON.stringify(binArgs)}\n` +
-    `├─ cwd: ${config.workspaceDir}\n` +
-    `├─ isolatedHome: ${isolatedHome}\n` +
-    `├─ 📌 ANTHROPIC_MODEL: ${env.ANTHROPIC_MODEL || '⚠️ 未设置'}\n` +
-    `├─ ANTHROPIC_BASE_URL: ${env.ANTHROPIC_BASE_URL || '(未设置)'}\n` +
-    `├─ ANTHROPIC_API_KEY: ${env.ANTHROPIC_API_KEY ? env.ANTHROPIC_API_KEY.slice(0, Math.min(8, Math.floor(env.ANTHROPIC_API_KEY.length / 2))) + '...' : '(未设置)'}\n` +
-    `├─ 📌 OPENCODE_MODEL: ${env.OPENCODE_MODEL || '(未设置)'}\n` +
-    `├─ OPENAI_BASE_URL: ${env.OPENAI_BASE_URL || '(未设置)'}\n` +
-    `└─ OPENAI_API_KEY: ${env.OPENAI_API_KEY ? env.OPENAI_API_KEY.slice(0, Math.min(8, Math.floor(env.OPENAI_API_KEY.length / 2))) + '...' : '(未设置)'}`,
-  );
+  log.info('[AcpClient] 🚀 Spawning ACP binary', {
+    binPath,
+    binArgs,
+    cwd: config.workspaceDir,
+    isolatedHome,
+    ANTHROPIC_MODEL: env.ANTHROPIC_MODEL || '未设置',
+    ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL || '未设置',
+    ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY
+      ? env.ANTHROPIC_API_KEY.slice(0, Math.min(8, Math.floor(env.ANTHROPIC_API_KEY.length / 2))) + '...'
+      : '未设置',
+    OPENCODE_MODEL: env.OPENCODE_MODEL || '未设置',
+    OPENAI_BASE_URL: env.OPENAI_BASE_URL || '未设置',
+    OPENAI_API_KEY: env.OPENAI_API_KEY
+      ? env.OPENAI_API_KEY.slice(0, Math.min(8, Math.floor(env.OPENAI_API_KEY.length / 2))) + '...'
+      : '未设置',
+  });
 
   // 1. Spawn ACP binary
   let proc: ChildProcess;

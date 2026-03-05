@@ -273,41 +273,13 @@ export class MemoryExtractor extends EventEmitter {
   }
 
   /**
-   * Preprocess text to extract user content from system prompts
-   * Removes XML tags, system reminders, and other non-user content
+   * Preprocess text for memory extraction
+   * Currently returns the text as-is, waiting for new API field for pure user input
    */
   private preprocessText(text: string): string {
-    let cleanText = text;
-
-    // Step 1: Remove all XML-style tags and their content
-    // This handles <context-message>, <system-reminder>, <current-cst-time>, etc.
-    cleanText = cleanText.replace(/<[\w-]+[^>]*>[\s\S]*?<\/[\w-]+>/gi, '');
-    // Also remove self-closing tags
-    cleanText = cleanText.replace(/<[\w-]+[^>]*\/>/gi, '');
-    // Remove any remaining opening/closing tags without proper structure
-    cleanText = cleanText.replace(/<[^>]+>/g, '');
-
-    // Step 2: Find user content - look for the first Chinese character sequence
-    // User content typically starts with Chinese after XML tags are removed
-    const chineseMatch = cleanText.match(/[\u4e00-\u9fff][\u4e00-\u9fff\w\s,.!?，。！？、；：""''（）【】《》]*/);
-    if (chineseMatch && chineseMatch.index !== undefined) {
-      cleanText = cleanText.substring(chineseMatch.index);
-    }
-
-    // Step 3: Remove everything after "##" (markdown headers / system prompts)
-    // But only if ## is NOT at the very beginning (which would mean user is asking about ##)
-    const headerIndex = cleanText.indexOf('##');
-    if (headerIndex > 0) {
-      cleanText = cleanText.substring(0, headerIndex);
-    }
-
-    // Step 4: Clean up whitespace
-    cleanText = cleanText.trim();
-
-    log.info('[MemoryExtractor] preprocessText: input length=' + text.length + ', output length=' + cleanText.length);
-    log.info('[MemoryExtractor] preprocessText result: ' + cleanText.slice(0, 100));
-
-    return cleanText;
+    if (!text) return '';
+    log.info('[MemoryExtractor] preprocessText: length=' + text.length);
+    return text.trim();
   }
 
   /**

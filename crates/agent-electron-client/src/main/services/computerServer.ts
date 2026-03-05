@@ -134,14 +134,24 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     // POST /computer/chat
     if (pathname === '/computer/chat' && method === 'POST') {
       const body = await parseBody(req) as ComputerChatRequest;
-      log.info(
-        `📨 [HTTP] 收到 Computer Chat 请求:\n` +
-        `├─ user_id: ${body.user_id}\n` +
-        `├─ project_id: ${body.project_id}\n` +
-        `├─ session_id: ${body.session_id}\n` +
-        `├─ request_id: ${body.request_id}\n` +
-        `└─ prompt (${body.prompt?.length || 0}字符)`,
+
+      // 开发调试：完整打印入参
+      log.debug(
+        '📨 [HTTP][DEBUG] Computer Chat 请求 body =',
+        JSON.stringify(body, null, 2),
       );
+
+      // 业务级别 info 日志：重点字段摘要（单行 / 对象形式）
+      log.info('📨 [HTTP] 收到 Computer Chat 请求', {
+        user_id: body.user_id,
+        project_id: body.project_id,
+        session_id: body.session_id,
+        request_id: body.request_id,
+        model_provider: body.model_provider,
+        agent_config: body.agent_config,
+        system_prompt_length: body.system_prompt ? body.system_prompt.length : 0,
+        prompt_length: body.prompt ? body.prompt.length : 0,
+      });
 
       // 验证必填字段
       if (!body.user_id) {
