@@ -226,7 +226,7 @@ app.whenReady().then(async () => {
 
   migrateDataDir();
   initDatabase();
-  log.info('DeviceId:', getDeviceId());
+  getDeviceId();
 
   const ctx: HandlerContext = {
     getMainWindow: () => mainWindow,
