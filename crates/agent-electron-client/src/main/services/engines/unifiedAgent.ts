@@ -562,26 +562,21 @@ export class UnifiedAgentService extends EventEmitter {
 
     // 动态 MCP server 已由 syncMcpConfigToProxyAndReload() 同步到 proxy，
     // 使用 getAgentMcpConfig() 获取最新的 proxy 配置
-    let freshMcpServers: AgentConfig['mcpServers'] | undefined;
-    try {
-      const { mcpProxyManager } = await import('../packages/mcp');
-      freshMcpServers = mcpProxyManager.getAgentMcpConfig() || undefined;
-      if (freshMcpServers && Object.keys(freshMcpServers).length > 0) {
-        await mcpProxyManager.ensureBridgeStarted();
-      }
-    } catch {
-      // fallback: 使用旧合并逻辑
-      const requestMcpServers: typeof requestMcpServersEarly = {};
+    // 使用 ACP 请求中的 MCP 配置（requestMcpServersEarly）
+    let freshMcpServers: AgentConfig["mcpServers"] | undefined;
+    if (Object.keys(requestMcpServersEarly).length > 0) {
+      // 过滤掉 bridge 入口（mcp-proxy），只保留真实 MCP 服务器
+      const realMcpServers: Record<string, import("../packages/mcp").McpServerEntry> = {};
       for (const [name, entry] of Object.entries(requestMcpServersEarly)) {
-        if ('command' in entry && (entry.command === 'mcp-proxy' || path.basename(entry.command) === 'mcp-proxy')) continue;
-        requestMcpServers[name] = entry;
+        if ("command" in entry && (entry.command === "mcp-proxy" || path.basename(entry.command) === "mcp-proxy")) continue;
+        realMcpServers[name] = entry;
       }
-      const mergedMcpServers: Record<string, import('../packages/mcp').McpServerEntry> = {
-        ...(base.mcpServers || {}),
-        ...requestMcpServers,
-      };
-      if (Object.keys(mergedMcpServers).length > 0) {
-        freshMcpServers = mergedMcpServers as Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
+      if (Object.keys(realMcpServers).length > 0) {
+        freshMcpServers = realMcpServers;
+        // 暂存到 proxy manager 并启动 bridge
+        const { mcpProxyManager } = await import("../packages/mcp");
+        mcpProxyManager.setConfig({ ...mcpProxyManager.getConfig(), mcpServers: realMcpServers });
+        await mcpProxyManager.ensureBridgeStarted();
       }
     }
 

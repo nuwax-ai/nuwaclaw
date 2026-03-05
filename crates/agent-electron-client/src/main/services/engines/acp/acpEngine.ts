@@ -330,18 +330,29 @@ export class AcpEngine extends EventEmitter {
       return { name, command: srv.command!, args: srv.args || [], env: envVars };
     };
 
-    // 1. Global MCP servers from config
-    if (this.config.mcpServers) {
-      for (const [name, srv] of Object.entries(this.config.mcpServers)) {
-        mcpServers.push(toAcpMcpServer(name, srv));
-      }
-    }
 
     // 2. Per-request MCP servers
     if (opts?.mcpServers) {
       for (const [name, srv] of Object.entries(opts.mcpServers)) {
         if (mcpServers.some((m) => m.name === name)) continue;
         mcpServers.push(toAcpMcpServer(name, srv));
+      }
+    }
+
+    // 启动 PersistentMcpBridge（懒加载：仅在创建带 MCP 的会话时启动）
+    if (opts?.mcpServers && Object.keys(opts.mcpServers).length > 0) {
+      try {
+        const { persistentMcpBridge } = await import("../../packages/persistentMcpBridge");
+        await persistentMcpBridge.start(
+          Object.fromEntries(
+            Object.entries(opts.mcpServers)
+              .filter(([_, srv]) => "command" in srv || "url" in srv)
+              .map(([name, srv]) => [name, srv] as [string, typeof srv]),
+          ),
+        );
+        log.info(`${this.logTag} ✅ PersistentMcpBridge 已启动 (会话: ${opts.title || "untitled"})`);
+      } catch (e) {
+        log.error(`${this.logTag} ❌ PersistentMcpBridge 启动失败:`, e);
       }
     }
 

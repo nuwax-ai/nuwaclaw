@@ -404,10 +404,11 @@ function ensureUvInAppBin(): void {
 
 
 // 获取 bundled nuwax-lanproxy 二进制路径
-// 运行时根据平台选择正确的二进制文件
+// 运行时根据平台选择正确的二进制文件；优先 binaries/<平台名>，其次 bin/nuwax-lanproxy[.exe]
 export function getLanproxyBinPath(): string {
   const resourcesPath = getResourcesPath();
   const binariesDir = path.join(resourcesPath, "lanproxy", "binaries");
+  const binDir = path.join(resourcesPath, "lanproxy", "bin");
 
   // 平台映射 (Node → Rust target)
   const platformMap: Record<string, string> = {
@@ -422,7 +423,7 @@ export function getLanproxyBinPath(): string {
   const platformKey = `${process.platform}-${process.arch}`;
   const binaryName = platformMap[platformKey];
 
-  // 尝试从 binaries/ 目录获取平台特定二进制
+  // 1. 优先：binaries/ 下平台对应文件名
   if (binaryName) {
     const binaryPath = path.join(binariesDir, binaryName);
     if (fs.existsSync(binaryPath)) {
@@ -430,15 +431,32 @@ export function getLanproxyBinPath(): string {
     }
   }
 
-  // Fallback: 旧版 bin/ 目录（向后兼容）
+  // 2. Fallback：旧版 bin/ 目录（prepare:lanproxy 按当前平台复制的单文件）
   const binName = isWindows() ? "nuwax-lanproxy.exe" : "nuwax-lanproxy";
-  const binPath = path.join(resourcesPath, "lanproxy", "bin", binName);
+  const binPath = path.join(binDir, binName);
   if (fs.existsSync(binPath)) {
     return binPath;
   }
 
-  // 都不存在时返回预期路径（让调用者处理错误）
-  return path.join(resourcesPath, "lanproxy", "bin", binName);
+  // 3. Windows 额外回退：binaries/ 下任意 nuwax-lanproxy*.exe（跨平台打包时 bin/ 可能是其他平台）
+  if (isWindows() && fs.existsSync(binariesDir)) {
+    try {
+      const entries = fs.readdirSync(binariesDir, { withFileTypes: true });
+      const exe = entries.find(
+        (e) => e.isFile() && e.name.endsWith(".exe") && e.name.toLowerCase().includes("lanproxy")
+      );
+      if (exe) {
+        const found = path.join(binariesDir, exe.name);
+        log.info("[getLanproxyBinPath] 使用 binaries 内发现的 exe:", exe.name);
+        return found;
+      }
+    } catch {
+      // 忽略读目录失败，继续返回统一错误路径
+    }
+  }
+
+  // 都不存在时返回预期路径（让调用者报错）
+  return path.join(binDir, binName);
 }
 
 // 获取 bundled Node.js 24 路径（集成到 resources/node/）
