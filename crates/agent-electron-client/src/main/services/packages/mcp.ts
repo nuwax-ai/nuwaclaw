@@ -237,6 +237,9 @@ export function extractRealMcpServers(
         ...(transport ? { transport } : {}),
         ...(srv.headers ? { headers: srv.headers } : {}),
         ...(srv.authToken ? { authToken: srv.authToken } : {}),
+        // 继承 bridge 入口的 allowTools/denyTools 限制
+        ...(allowTools ? { allowTools } : {}),
+        ...(denyTools ? { denyTools } : {}),
       };
       continue;
     }
@@ -347,6 +350,10 @@ export interface RemoteMcpServerEntry {
   transport?: "streamable-http" | "sse";
   headers?: Record<string, string>;
   authToken?: string;
+  /** 工具白名单（只暴露指定工具） */
+  allowTools?: string[];
+  /** 工具黑名单（排除指定工具） */
+  denyTools?: string[];
 }
 
 /** 单个 MCP Server 的配置（mcpServers 格式） */
