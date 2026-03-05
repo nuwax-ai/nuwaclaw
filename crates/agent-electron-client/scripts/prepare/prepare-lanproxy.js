@@ -16,7 +16,7 @@
  *   darwin-x64    → x86_64-apple-darwin
  *   win32-x64     → x86_64-pc-windows-msvc
  *   linux-x64     → x86_64-unknown-linux-gnu
- *   linux-arm64   → aarch64-unknown-linux-gnu (fallback to armv7)
+ *   linux-arm64   → aarch64-unknown-linux-gnu
  *   linux-arm     → arm-unknown-linux-gnueabi
  */
 
@@ -39,11 +39,13 @@ const PLATFORM_MAP = {
   'linux-arm': 'arm-unknown-linux-gnueabi',
 };
 
-// Fallback mappings when primary binary is not available
-const FALLBACK_MAP = {
-  'linux-arm64': ['armv7-unknown-linux-gnueabihf', 'arm-unknown-linux-gnueabi'],
-  'darwin-arm64': ['universal-apple-darwin'],
-};
+// Fallback for macOS arm64 (universal binary)
+function getFallbackPath(key) {
+  if (key === 'darwin-arm64') {
+    return 'nuwax-lanproxy-universal-apple-darwin';
+  }
+  return null;
+}
 
 function getPlatformKey() {
   return `${process.platform}-${process.arch}`;
@@ -66,20 +68,14 @@ function main() {
   let srcPath = path.join(srcBinDir, srcName);
   const destPath = path.join(destBinDir, destName);
 
-  // 检查源文件，尝试 fallback
+  // macOS arm64: 尝试 universal binary 作为 fallback
   if (!fs.existsSync(srcPath)) {
-    const fallbackTargets = FALLBACK_MAP[key];
-    if (fallbackTargets) {
-      for (const fallback of fallbackTargets) {
-        const fallbackPath = path.join(srcBinDir, `nuwax-lanproxy-${fallback}${isWin ? '.exe' : ''}`);
-        if (fs.existsSync(fallbackPath)) {
-          console.warn(`[prepare-lanproxy] ${key}: ${srcName} 不存在，使用 fallback: ${fallback}`);
-          if (key === 'linux-arm64') {
-            console.warn(`[prepare-lanproxy] ⚠️  ARM32 binary on ARM64 may not work on all systems`);
-          }
-          srcPath = fallbackPath;
-          break;
-        }
+    const fallbackName = getFallbackPath(key);
+    if (fallbackName) {
+      const fallbackPath = path.join(srcBinDir, fallbackName);
+      if (fs.existsSync(fallbackPath)) {
+        console.log(`[prepare-lanproxy] ${key} → ${fallbackName} (fallback)`);
+        srcPath = fallbackPath;
       }
     }
   }
