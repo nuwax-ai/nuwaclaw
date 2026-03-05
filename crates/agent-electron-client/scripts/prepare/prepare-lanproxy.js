@@ -16,8 +16,8 @@
  *   darwin-x64    → x86_64-apple-darwin
  *   win32-x64     → x86_64-pc-windows-msvc
  *   linux-x64     → x86_64-unknown-linux-gnu
+ *   linux-arm64   → aarch64-unknown-linux-gnu (fallback to armv7)
  *   linux-arm     → arm-unknown-linux-gnueabi
- *   (linux-arm64/aarch64 binary not available)
  */
 
 const path = require('path');
@@ -35,8 +35,14 @@ const PLATFORM_MAP = {
   'win32-x64': 'x86_64-pc-windows-msvc',
   'win32-ia32': 'i686-pc-windows-msvc',
   'linux-x64': 'x86_64-unknown-linux-gnu',
+  'linux-arm64': 'aarch64-unknown-linux-gnu',
   'linux-arm': 'arm-unknown-linux-gnueabi',
-  // Note: linux-arm64 (aarch64-unknown-linux-gnu) binary not available
+};
+
+// Fallback mappings when primary binary is not available
+const FALLBACK_MAP = {
+  'linux-arm64': ['armv7-unknown-linux-gnueabihf', 'arm-unknown-linux-gnueabi'],
+  'darwin-arm64': ['universal-apple-darwin'],
 };
 
 function getPlatformKey() {
@@ -57,24 +63,29 @@ function main() {
   const srcName = `nuwax-lanproxy-${target}${isWin ? '.exe' : ''}`;
   const destName = `nuwax-lanproxy${isWin ? '.exe' : ''}`;
 
-  const srcPath = path.join(srcBinDir, srcName);
+  let srcPath = path.join(srcBinDir, srcName);
   const destPath = path.join(destBinDir, destName);
 
-  // 检查源文件
+  // 检查源文件，尝试 fallback
   if (!fs.existsSync(srcPath)) {
-    // macOS: 尝试 universal binary 作为 fallback
-    if (process.platform === 'darwin') {
-      const universalSrc = path.join(srcBinDir, 'nuwax-lanproxy-universal-apple-darwin');
-      if (fs.existsSync(universalSrc)) {
-        console.log(`[prepare-lanproxy] ${key} → universal-apple-darwin (fallback)`);
-        fs.mkdirSync(destBinDir, { recursive: true });
-        fs.copyFileSync(universalSrc, destPath);
-        fs.chmodSync(destPath, 0o755);
-        console.log(`[prepare-lanproxy] ✓ ${destPath}`);
-        return;
+    const fallbackTargets = FALLBACK_MAP[key];
+    if (fallbackTargets) {
+      for (const fallback of fallbackTargets) {
+        const fallbackPath = path.join(srcBinDir, `nuwax-lanproxy-${fallback}${isWin ? '.exe' : ''}`);
+        if (fs.existsSync(fallbackPath)) {
+          console.warn(`[prepare-lanproxy] ${key}: ${srcName} 不存在，使用 fallback: ${fallback}`);
+          if (key === 'linux-arm64') {
+            console.warn(`[prepare-lanproxy] ⚠️  ARM32 binary on ARM64 may not work on all systems`);
+          }
+          srcPath = fallbackPath;
+          break;
+        }
       }
     }
-    // 源不存在时仍创建目录并继续打包，便于 CI 产出安装包；运行时 lanproxy 功能不可用
+  }
+
+  // 如果源文件仍不存在，创建空目录并继续
+  if (!fs.existsSync(srcPath)) {
     console.warn(`[prepare-lanproxy] 源文件不存在: ${srcPath}，将跳过 lanproxy 二进制（安装包可正常产出，运行时内网穿透不可用）`);
     fs.mkdirSync(destBinDir, { recursive: true });
     return;
@@ -91,7 +102,8 @@ function main() {
   }
 
   // 复制
-  console.log(`[prepare-lanproxy] ${key} → ${srcName}`);
+  const srcBasename = path.basename(srcPath);
+  console.log(`[prepare-lanproxy] ${key} → ${srcBasename}`);
   fs.mkdirSync(destBinDir, { recursive: true });
   fs.copyFileSync(srcPath, destPath);
   fs.chmodSync(destPath, 0o755);

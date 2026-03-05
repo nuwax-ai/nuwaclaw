@@ -94,6 +94,10 @@ jobs:
             arch: x64
             dist_cmd: dist:linux:x64
 
+          - platform: ubuntu-24.04-arm
+            arch: arm64
+            dist_cmd: dist:linux:arm64
+
     runs-on: ${{ matrix.platform }}
 
     steps:
