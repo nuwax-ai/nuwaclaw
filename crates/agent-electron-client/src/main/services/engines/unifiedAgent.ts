@@ -52,7 +52,10 @@ export interface AgentConfig {
   timeout?: number;
   engineBinaryPath?: string;
   env?: Record<string, string>;
-  mcpServers?: Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
+  mcpServers?: Record<string,
+    | { command: string; args: string[]; env?: Record<string, string> }
+    | { url: string; type?: 'http' | 'sse' }
+  >;
   permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions';
   systemPrompt?: string;
 }

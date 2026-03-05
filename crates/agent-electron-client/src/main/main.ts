@@ -169,26 +169,29 @@ ipcMain.handle('tray:updateServicesStatus', (_, running: boolean) => {
   }
 });
 
-function cleanupAllProcesses(): void {
+async function cleanupAllProcesses(): Promise<void> {
   log.info('[Cleanup] Stopping all processes...');
 
-  stopComputerServer().catch((e) => {
+  try {
+    await stopComputerServer();
+  } catch (e) {
     log.error('[Cleanup] Computer server stop error:', e);
-  });
+  }
 
-  agentService.destroy().catch((e) => {
+  try {
+    await agentService.destroy();
+  } catch (e) {
     log.error('[Cleanup] Agent service destroy error:', e);
-  });
+  }
 
   agentRunner.kill();
   lanproxy.kill();
   fileServer.kill();
 
   try {
-    // 停止 PersistentMcpBridge（kill 持久化 MCP server 子进程）
-    mcpProxyManager.cleanup();
+    await mcpProxyManager.cleanup();
   } catch (e) {
-    // MCP service might not be loaded
+    log.warn('[Cleanup] MCP proxy cleanup error:', e);
   }
 
   try {
@@ -246,15 +249,15 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  // 停止 PersistentMcpBridge + 清除代理状态
-  mcpProxyManager.cleanup();
-  lanproxy.kill();
-  agentRunner.kill();
-  agentRunnerPorts = null;
-  fileServer.kill();
-
   if (process.platform !== 'darwin') {
-    app.quit();
+    app.quit();  // 触发 before-quit -> cleanupAllProcesses
+  } else {
+    // macOS: 清理服务但保持 app 存活
+    mcpProxyManager.cleanup().catch(() => {});
+    lanproxy.kill();
+    agentRunner.kill();
+    agentRunnerPorts = null;
+    fileServer.kill();
   }
 });
 
@@ -264,10 +267,24 @@ app.on('activate', () => {
   }
 });
 
-app.on('before-quit', () => {
+let isCleaningUp = false;
+
+app.on('before-quit', (e) => {
+  if (isCleaningUp) return;
+  isCleaningUp = true;
+  e.preventDefault();
+
   log.info('[App] Before quit - starting cleanup');
-  cleanupAllProcesses();
-  closeDb();
+  const CLEANUP_TIMEOUT = 5000; // 5秒硬超时
+
+  Promise.race([
+    cleanupAllProcesses(),
+    new Promise<void>(resolve => setTimeout(resolve, CLEANUP_TIMEOUT)),
+  ]).finally(() => {
+    closeDb();
+    log.info('[App] Cleanup complete, exiting');
+    app.exit(0);
+  });
 });
 
 app.on('will-quit', () => {

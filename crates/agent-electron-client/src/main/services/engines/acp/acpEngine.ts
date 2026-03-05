@@ -143,12 +143,24 @@ export class AcpEngine extends EventEmitter {
         if (config.mcpServers && Object.keys(config.mcpServers).length > 0) {
           const mcpConfig: Record<string, unknown> = {};
           for (const [name, srv] of Object.entries(config.mcpServers)) {
-            mcpConfig[name] = {
-              type: 'local',
-              command: [srv.command, ...(srv.args || [])],
-              environment: srv.env || {},
-              enabled: true,
-            };
+            if ('url' in srv && srv.url) {
+              // URL 类型（来自 PersistentMcpBridge）
+              const urlSrv = srv as { url: string; type?: string };
+              mcpConfig[name] = {
+                type: urlSrv.type === 'sse' ? 'sse' : 'streamable-http',
+                url: urlSrv.url,
+                enabled: true,
+              };
+            } else if ('command' in srv) {
+              // stdio 类型（降级）
+              const stdioSrv = srv as { command: string; args?: string[]; env?: Record<string, string> };
+              mcpConfig[name] = {
+                type: 'local',
+                command: [stdioSrv.command, ...(stdioSrv.args || [])],
+                environment: stdioSrv.env || {},
+                enabled: true,
+              };
+            }
           }
           configObj.mcp = mcpConfig;
         }
@@ -318,7 +330,7 @@ export class AcpEngine extends EventEmitter {
   async createSession(opts?: {
     title?: string;
     cwd?: string;
-    mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
+    mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string>; url?: string; type?: string }>;
   }): Promise<SdkSession> {
     if (!this.acpConnection || !this.config) {
       throw new Error('AcpEngine not initialized');
@@ -329,15 +341,20 @@ export class AcpEngine extends EventEmitter {
 
     const toAcpMcpServer = (
       name: string,
-      srv: { command: string; args?: string[]; env?: Record<string, string> },
+      srv: { command?: string; args?: string[]; env?: Record<string, string>; url?: string; type?: string },
     ): AcpMcpServer => {
+      // HTTP/SSE URL 类型（来自 PersistentMcpBridge）
+      if ('url' in srv && srv.url) {
+        return { name, url: srv.url, headers: [], type: (srv.type || 'http') as 'http' | 'sse' };
+      }
+      // stdio 类型（降级）
       const envVars: AcpEnvVariable[] = [];
       if (srv.env) {
         for (const [k, v] of Object.entries(srv.env)) {
           envVars.push({ name: k, value: v });
         }
       }
-      return { name, command: srv.command, args: srv.args || [], env: envVars };
+      return { name, command: srv.command!, args: srv.args || [], env: envVars };
     };
 
     // 1. Global MCP servers from config
