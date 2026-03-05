@@ -80,13 +80,17 @@ export default function AboutPage() {
   }, []);
 
   const handleDownload = useCallback(async () => {
+    // 立即切换到 downloading 状态，避免点击后无反馈
+    setUpdateState((prev) => ({ ...prev, status: 'downloading', progress: undefined }));
     try {
       const result = await window.electronAPI?.app?.downloadUpdate?.();
       if (result && !result.success) {
         message.error(result.error || "下载失败");
+        setUpdateState((prev) => ({ ...prev, status: 'available' }));
       }
     } catch {
       message.error("下载更新失败");
+      setUpdateState((prev) => ({ ...prev, status: 'available' }));
     }
   }, []);
 
@@ -135,7 +139,7 @@ export default function AboutPage() {
         return (
           <Space direction="vertical" size={8} style={{ width: '100%' }}>
             <div style={{ fontSize: 12, color: '#52525b' }}>
-              正在下载 v{version}...
+              {progress ? `正在下载 v${version}...` : '准备下载...'}
             </div>
             <Progress
               percent={Math.round(progress?.percent ?? 0)}
