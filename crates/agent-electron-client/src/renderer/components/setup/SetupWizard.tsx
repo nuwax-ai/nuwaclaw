@@ -625,6 +625,8 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
       <div style={styles.content}>{renderStepContent()}</div>
 
       <div style={styles.footer}>
+        {/* 版本号由 Vite 在构建时从 crates/agent-electron-client/package.json 的 version 注入；
+            修改版本后需重启开发服务器或重新打包才能生效 */}
         <Text style={{ fontSize: 11, color: '#a1a1aa' }}>
           {APP_NAME} v{__APP_VERSION__} · 进度自动保存
         </Text>

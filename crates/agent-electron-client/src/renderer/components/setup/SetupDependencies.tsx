@@ -480,12 +480,12 @@ export default function SetupDependencies({
           )}
           {installPhase === "completed" && (
             <>
-              {uvConfirm?.installed && (
+              {/* {uvConfirm?.installed && (
                 <div style={{ fontSize: 12, color: "#16a34a" }}>
                   uv 已确认（{uvConfirm.bundled ? "应用内" : "系统"}
                   {uvConfirm.version ? ` v${uvConfirm.version}` : ""}）
                 </div>
-              )}
+              )} */}
               <div style={{ fontSize: 12, color: "#71717a" }}>
                 正在进入下一步...
               </div>
