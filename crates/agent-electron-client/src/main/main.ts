@@ -75,6 +75,7 @@ log.info('Application starting...');
 // Global references
 let mainWindow: BrowserWindow | null = null;
 let trayManager: ReturnType<typeof createTrayManager> | null = null;
+let isQuitting = false; // 标志：是否正在真正退出应用
 
 // Get icon path (works in both dev and production)
 function getIconPath() {
@@ -159,6 +160,19 @@ function createWindow() {
     mainWindow = null;
   });
 
+  // 所有平台：点击关闭按钮时隐藏到托盘，而不是退出应用
+  // 只有从托盘菜单点击"退出"时才真正退出
+  mainWindow.on('close', (e) => {
+    if (isQuitting) {
+      // 正在退出，允许关闭
+      return;
+    }
+    // 阻止关闭，改为隐藏
+    e.preventDefault();
+    mainWindow?.hide();
+    log.info('[App] Window hidden to tray (close intercepted)');
+  });
+
   // Create application menu
   createMenu();
 }
@@ -184,8 +198,13 @@ async function initTrayManager() {
 
   trayManager = createTrayManager({
     onShowWindow: () => {
-      mainWindow?.show();
-      mainWindow?.focus();
+      if (mainWindow) {
+        mainWindow.show();
+        mainWindow.focus();
+      } else {
+        // 窗口不存在时重新创建
+        createWindow();
+      }
     },
     onRestartServices: async () => {
       log.info('[Tray] Restarting all services...');
@@ -303,16 +322,9 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();  // 触发 before-quit -> cleanupAllProcesses
-  } else {
-    // macOS: 清理服务但保持 app 存活
-    mcpProxyManager.cleanup().catch(() => {});
-    lanproxy.kill();
-    agentRunner.kill();
-    agentRunnerPorts = null;
-    fileServer.kill();
-  }
+  // 窗口已隐藏到托盘，此事件不应触发
+  // 如果触发，说明窗口被意外关闭，不退出应用
+  log.info('[App] window-all-closed event fired (should not happen with tray mode)');
 });
 
 app.on('activate', () => {
@@ -326,6 +338,7 @@ let isCleaningUp = false;
 app.on('before-quit', (e) => {
   if (isCleaningUp) return;
   isCleaningUp = true;
+  isQuitting = true; // 通知窗口 close 事件允许关闭
   e.preventDefault();
 
   log.info('[App] Before quit - starting cleanup');

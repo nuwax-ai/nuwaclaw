@@ -221,7 +221,7 @@ export class TrayManager {
    * macOS 开发模式：从终端运行时 template 图标常不显示，故一律使用彩色图标 tray.png，
    *        并缩放到 22x22 以符合菜单栏尺寸，保证托盘可见。
    * macOS 打包后：使用 trayTemplate / trayTemplate@2x + setTemplateImage(true)。
-   * Windows / Linux: 加载 tray.png（彩色图标）。
+   * Windows / Linux: 使用彩色图标，优先高清版，并缩放到合适尺寸。
    */
   private createTrayIcon(_status: TrayStatus): Electron.NativeImage {
     if (process.platform === 'darwin') {
@@ -264,13 +264,30 @@ export class TrayManager {
       return icon;
     }
 
-    // Windows / Linux: 彩色图标
-    const iconPath = this.getIconPath(TRAY_ICON_DEFAULT);
-    const icon = nativeImage.createFromPath(iconPath);
+    // Windows / Linux: 彩色图标，参考 macOS 的处理方式
+    const targetSize = process.platform === 'win32' ? 16 : 22; // Windows 托盘图标标准尺寸 16x16
+    const pathNormal = this.getIconPath(TRAY_ICON_DEFAULT);
+    const pathRetina = this.getIconPath('tray@2x.png');
+
+    // 优先使用高清图标
+    let icon = nativeImage.createFromPath(pathRetina);
     if (icon.isEmpty()) {
-      log.error('[Tray] Tray icon not found (tray may not show):', iconPath);
+      icon = nativeImage.createFromPath(pathNormal);
     }
-    return icon;
+
+    if (!icon.isEmpty()) {
+      const size = icon.getSize();
+      // 如果图标尺寸过大，缩放到目标尺寸
+      if (size.width > targetSize || size.height > targetSize) {
+        icon = icon.resize({ width: targetSize, height: targetSize });
+      }
+      log.info(`[Tray] ${process.platform} tray icon loaded, size:`, icon.getSize());
+      return icon;
+    }
+
+    // 兜底：生成占位图
+    log.error('[Tray] Tray icon not found. Paths tried:', { pathNormal, pathRetina });
+    return this.createPlaceholderTrayImage(targetSize);
   }
 
   /** 生成灰色占位图（1x1 PNG 放大），用于图标缺失时保证 Tray 收到非空图 */
