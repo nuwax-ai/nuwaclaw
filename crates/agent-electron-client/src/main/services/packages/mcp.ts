@@ -501,6 +501,14 @@ class McpProxyManager {
   }
 
   /**
+   * markBridgeStarted() → 外部调用方（如 syncMcpConfigToProxyAndReload）直接启动了 bridge 后，
+   * 通过此方法同步 bridgeStarted 标志，防止 ensureBridgeStarted() 在同一请求内再次重启 bridge。
+   */
+  markBridgeStarted(): void {
+    this.bridgeStarted = true;
+  }
+
+  /**
    * ensureBridgeStarted() → 懒加载启动 PersistentMcpBridge（仅在首次需要时启动）
    */
   async ensureBridgeStarted(): Promise<void> {
@@ -639,16 +647,20 @@ class McpProxyManager {
 
     // 有 proxy 脚本 → 聚合为单个 proxy 入口
     if (scriptPath) {
-      // 使用临时文件传递配置，避免 Windows 命令行长度限制 (32,767 字符)
-      // 创建临时配置文件
+      // 使用临时文件传递配置，避免 Windows 命令行长度限制 (32,767 字符)。
+      // 文件名使用配置内容的 MD5 哈希（前 16 位），相同配置复用同一文件，
+      // 避免每次调用生成新路径，从而防止 detectConfigChange 因文件名变化误判配置变更。
+      const configData = { mcpServers: proxyServers };
+      const configJson = JSON.stringify(configData);
+      const configHash = crypto.createHash("md5").update(configJson).digest("hex").slice(0, 16);
       const configDir = path.join(os.tmpdir(), "nuwax-mcp-configs");
       if (!fs.existsSync(configDir)) {
         fs.mkdirSync(configDir, { recursive: true });
       }
-      const configFileName = `mcp-config-${crypto.randomUUID()}.json`;
+      const configFileName = `mcp-config-${configHash}.json`;
       const configFilePath = path.join(configDir, configFileName);
-      const configData = { mcpServers: proxyServers };
-      fs.writeFileSync(configFilePath, JSON.stringify(configData), "utf-8");
+      // 写入配置（覆盖写入保证内容最新，哈希文件名保证相同内容使用相同路径）
+      fs.writeFileSync(configFilePath, configJson, "utf-8");
       log.info(`[McpProxy] MCP 配置已写入临时文件: ${configFilePath}`);
 
       // 使用应用内置的 Node.js（resources/node/<platform-arch>/bin/node）
@@ -823,11 +835,15 @@ export async function syncMcpConfigToProxyAndReload(
       // 检查配置是否实际发生变化
       if (configsEqual(resolvedConfig, lastBridgeConfig)) {
         log.info("[McpProxy] PersistentMcpBridge 配置未变化，跳过重启");
+        // bridge 已在运行，确保 bridgeStarted 标志与实际状态一致
+        mcpProxyManager.markBridgeStarted();
         return;
       }
 
       await persistentMcpBridge.start(resolvedConfig);
       lastBridgeConfig = resolvedConfig;
+      // 同步 McpProxyManager 的 bridgeStarted 标志，防止后续 ensureBridgeStarted() 在同一请求内再次重启
+      mcpProxyManager.markBridgeStarted();
       log.info("[McpProxy] PersistentMcpBridge 已使用更新配置重启");
     }
   } catch (e) {

@@ -35,6 +35,8 @@ export type {
 } from '@shared/types/computerTypes';
 import type { ComputerChatRequest, ModelProviderConfig } from '@shared/types/computerTypes';
 import { APP_DATA_DIR_NAME } from '../constants';
+import type { McpServerEntry } from '../packages/mcp';
+import { filterBridgeEntries, rawMcpServersEqual } from '../packages/mcpHelpers';
 
 // ==================== Types ====================
 
@@ -216,6 +218,11 @@ export class UnifiedAgentService extends EventEmitter {
   private engines = new Map<string, AcpEngine>();
   /** Per-project effective config snapshot (for config-change detection) */
   private engineConfigs = new Map<string, AgentConfig>();
+  /**
+   * Per-project raw MCP servers snapshot (原始 request 格式，非 proxy 包装格式).
+   * 用于 detectConfigChange 的 MCP 变更检测，避免与 proxy 包装格式的 currentConfig.mcpServers 做跨格式比较。
+   */
+  private engineRawMcpServers = new Map<string, Record<string, McpServerEntry>>();
   private engineType: AgentEngineType | null = null;
   private baseConfig: AgentConfig | null = null;
 
@@ -313,6 +320,7 @@ export class UnifiedAgentService extends EventEmitter {
     await Promise.all(destroyPromises);
     this.engines.clear();
     this.engineConfigs.clear();
+    this.engineRawMcpServers.clear();
     this.assistantTextBuffers.clear();
     this.engineType = null;
     this.baseConfig = null;
@@ -335,6 +343,7 @@ export class UnifiedAgentService extends EventEmitter {
         await engine.destroy();
         this.engines.delete(registryKey);
         this.engineConfigs.delete(registryKey);
+        this.engineRawMcpServers.delete(registryKey);
         log.info(`[UnifiedAgent] Engine stopped for project: ${registryKey} (query=${projectId}, baseConfig preserved)`);
       }
     } else {
@@ -348,6 +357,7 @@ export class UnifiedAgentService extends EventEmitter {
       await Promise.all(destroyPromises);
       this.engines.clear();
       this.engineConfigs.clear();
+      this.engineRawMcpServers.clear();
       log.info('[UnifiedAgent] All engines stopped (baseConfig preserved)');
     }
   }
@@ -382,6 +392,7 @@ export class UnifiedAgentService extends EventEmitter {
       await existing.destroy().catch(() => {});
       this.engines.delete(projectId);
       this.engineConfigs.delete(projectId);
+      this.engineRawMcpServers.delete(projectId);
     }
 
     if (!this.baseConfig) {
@@ -441,6 +452,7 @@ export class UnifiedAgentService extends EventEmitter {
         await engine.destroy().catch(() => {});
         this.engines.delete(pid);
         this.engineConfigs.delete(pid);
+        this.engineRawMcpServers.delete(pid);
         return;
       }
     }
@@ -451,6 +463,7 @@ export class UnifiedAgentService extends EventEmitter {
     await oldestEngine.destroy().catch(() => {});
     this.engines.delete(oldestPid);
     this.engineConfigs.delete(oldestPid);
+    this.engineRawMcpServers.delete(oldestPid);
   }
 
   /**
@@ -464,7 +477,7 @@ export class UnifiedAgentService extends EventEmitter {
     const projectId = request.project_id || 'default';
 
     // 按会话动态加载：本请求携带的 context_servers 同步到 MCP Proxy（从桥接项 --config 解析真实服务），一次会话就会更新 proxy 配置
-    const requestMcpServersEarly: Record<string, import('../packages/mcp').McpServerEntry> = {};
+    const requestMcpServersEarly: Record<string, McpServerEntry> = {};
     if (request.agent_config?.context_servers) {
       // Resolve uvx/uv commands to app-internal binaries for dynamic MCP servers
       // For bridge entries (mcp-proxy convert --config ...), extract inner real MCP servers
@@ -567,6 +580,7 @@ export class UnifiedAgentService extends EventEmitter {
       await existingEngine.destroy();
       this.engines.delete(projectId);
       this.engineConfigs.delete(projectId);
+      this.engineRawMcpServers.delete(projectId);
     }
 
     // Build effective config for this project
@@ -670,6 +684,16 @@ export class UnifiedAgentService extends EventEmitter {
     t5 = Date.now();
     log.debug(`⏱️ [ensureEngine][PERF] getOrCreateEngine 耗时: ${t5 - t4}ms`);
     log.debug(`⏱️ [ensureEngine][PERF] 总耗时: ${t5 - t0}ms (parseCtxServers=${t1 - t0}ms, syncMcp=${(t2 || t1) - t1}ms, extractReal=${t3 - (t2 || t1)}ms, ensureBridge=${t4 - t3}ms, getOrCreate=${t5 - t4}ms)`);
+
+    // 仅在引擎实际被创建/重建时到达此处（detectConfigChange 返回 false 时已 early-return）。
+    // 将本次过滤好的原始 MCP servers 存入快照，供下次 detectConfigChange 做同格式（raw vs raw）比较。
+    // 即使为空也写入：空集合表示"本次请求无 MCP server"，
+    // 支持用户清空所有 MCP server 后正确触发下次引擎重建。
+    this.engineRawMcpServers.set(
+      projectId,
+      filterBridgeEntries(requestMcpServersEarly),
+    );
+
     return engine;
   }
 
@@ -683,7 +707,7 @@ export class UnifiedAgentService extends EventEmitter {
       resolvedEnv?: Record<string, string>;
       model?: string;
       mp?: ModelProviderConfig;
-      requestMcpServersEarly: Record<string, import('../packages/mcp').McpServerEntry>;
+      requestMcpServersEarly: Record<string, McpServerEntry>;
     },
   ): boolean {
     const { requiredEngine, resolvedEnv, model, mp, requestMcpServersEarly } = params;
@@ -699,19 +723,13 @@ export class UnifiedAgentService extends EventEmitter {
     const apiKeyChanged = !!mp?.api_key && mp.api_key !== (currentConfig?.apiKey || '');
     const baseUrlChanged = !!mp?.base_url && mp.base_url !== (currentConfig?.baseUrl || '');
 
-    // MCP servers 变更检测 — filter out bridge entries
-    const currentMcpStr = currentConfig?.mcpServers
-      ? JSON.stringify(currentConfig.mcpServers, Object.keys(currentConfig.mcpServers).sort())
-      : '';
-    const requestMcpServers: typeof requestMcpServersEarly = {};
-    for (const [name, entry] of Object.entries(requestMcpServersEarly)) {
-      if ('command' in entry && (entry.command === 'mcp-proxy' || path.basename(entry.command) === 'mcp-proxy')) continue;
-      requestMcpServers[name] = entry;
-    }
-    const newMcpStr = Object.keys(requestMcpServers).length > 0
-      ? JSON.stringify(requestMcpServers, Object.keys(requestMcpServers).sort())
-      : '';
-    const mcpChanged = !!newMcpStr && newMcpStr !== currentMcpStr;
+    // MCP servers 变更检测 — 过滤掉 mcp-proxy bridge 入口，然后与上次请求的原始配置做同格式比较。
+    // 修复：engineConfigs.mcpServers 存储的是 proxy 包装格式（command=mcp-proxy），
+    //       而 requestMcpServersEarly 是原始格式（command=uvx/npx/...），两者直接对比永远不等。
+    //       改为将上次请求的原始格式存入 engineRawMcpServers，本次与之比较，消除跨格式误判。
+    const requestMcpServers = filterBridgeEntries(requestMcpServersEarly);
+    const storedRawMcp = this.engineRawMcpServers.get(projectId);
+    const mcpChanged = !rawMcpServersEqual(requestMcpServers, storedRawMcp);
 
     return needsSwitch || envChanged || modelChanged || apiKeyChanged || baseUrlChanged || mcpChanged;
   }

@@ -17,7 +17,7 @@ export function registerAppHandlers(ctx: HandlerContext): void {
       const mgr = getAutoLaunchManager();
       if (mgr) return mgr.isEnabled();
       // fallback: AutoLaunchManager 未初始化时直接读
-      const settings = app.getLoginItemSettings();
+      const settings = app.getLoginItemSettings({ args: ['--hidden'] });
       return settings.openAtLogin;
     } catch (error) {
       log.error('[IPC] autolaunch:get failed:', error);

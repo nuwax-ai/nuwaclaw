@@ -32,6 +32,9 @@ export class AutoLaunchManager {
   private enabled: boolean = false;
   private supported: boolean = true;
 
+  /** Windows 需要 args 一致才能正确匹配注册表项 */
+  private readonly loginItemArgs = ['--hidden'];
+
   /**
    * 检查是否支持自启动
    */
@@ -61,7 +64,9 @@ export class AutoLaunchManager {
         return this.enabled;
       } else {
         // Windows/macOS: 使用 Electron 原生 API
-        const settings = app.getLoginItemSettings();
+        const settings = app.getLoginItemSettings({
+          args: this.loginItemArgs,
+        });
         this.enabled = settings.openAtLogin;
         return this.enabled;
       }
@@ -104,7 +109,7 @@ export class AutoLaunchManager {
         app.setLoginItemSettings({
           openAtLogin: enabled,
           openAsHidden: true, // macOS: 启动时隐藏
-          args: ['--hidden'], // 启动参数
+          args: this.loginItemArgs,
         });
 
         this.enabled = enabled;

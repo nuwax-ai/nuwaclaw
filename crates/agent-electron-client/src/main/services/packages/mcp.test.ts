@@ -24,6 +24,7 @@ vi.mock("electron-log", () => ({
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
+    debug: vi.fn(),
   },
 }));
 
@@ -45,6 +46,11 @@ vi.mock("os", () => ({
 // Mock crypto
 vi.mock("crypto", () => ({
   randomUUID: vi.fn(() => "mock-uuid-12345"),
+  // createHash 用于 getAgentMcpConfig 的内容哈希文件名（Fix: UUID → hash）
+  createHash: vi.fn(() => ({
+    update: vi.fn().mockReturnThis(),
+    digest: vi.fn(() => "abcdef1234567890abcdef1234567890"), // 模拟 32 位 hex
+  })),
 }));
 
 // Mock dependencies（含 getUvBinPath、getNodeBinPath、getNodeBinPathWithFallback，供 mcp 内 getUvBinDir 等使用）
@@ -1424,5 +1430,175 @@ describe("syncMcpConfigToProxyAndReload - 真实 context_servers 场景", () => 
     expect(Object.keys(bridgeStartArg)).not.toContain(
       "image-understanding-and-generation",
     );
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// markBridgeStarted — 修复：syncMcpConfigToProxyAndReload 重启 bridge 后同步 bridgeStarted
+// ────────────────────────────────────────────────────────────────────────────
+describe("markBridgeStarted — bridge 状态同步", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.doMock("./persistentMcpBridge", () => ({
+      persistentMcpBridge: {
+        start: vi.fn().mockResolvedValue(undefined),
+        stop: vi.fn().mockResolvedValue(undefined),
+        isRunning: vi.fn(() => false),
+        getBridgeUrl: vi.fn(() => null),
+        isServerHealthy: vi.fn(() => false),
+      },
+    }));
+    vi.resetModules();
+    mockExistsSync.mockReturnValue(true);
+  });
+
+  it("markBridgeStarted() 后，ensureBridgeStarted() 应跳过重复启动", async () => {
+    const { mcpProxyManager } = await import("./mcp");
+    // 通过同一 import 循环获取被 mock 替换的 persistentMcpBridge
+    const { persistentMcpBridge: bridge } = await import("./persistentMcpBridge");
+
+    // 首先把 cachedScriptPath 初始化（调用 start）
+    await mcpProxyManager.start();
+
+    // 注入 stdio server，使 ensureBridgeStarted 在没有标记时本该调用 bridge.start
+    mcpProxyManager.setConfig({
+      mcpServers: { time: { command: "/uv", args: ["tool", "run", "mcp-time"] } },
+    });
+
+    // 手动标记 bridge 已启动（模拟 syncMcpConfigToProxyAndReload 调用后的状态）
+    mcpProxyManager.markBridgeStarted();
+
+    // 此时 ensureBridgeStarted 应直接返回，不再调用 persistentMcpBridge.start
+    const callsBefore = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    await mcpProxyManager.ensureBridgeStarted();
+    const callsAfter = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    expect(callsAfter).toBe(callsBefore); // 没有额外的 start 调用
+  });
+
+  it("syncMcpConfigToProxyAndReload 配置未变化时 early-return 也应调用 markBridgeStarted()", async () => {
+    const { mcpProxyManager, syncMcpConfigToProxyAndReload } = await import("./mcp");
+    const { persistentMcpBridge: bridge } = await import("./persistentMcpBridge");
+
+    await mcpProxyManager.start();
+
+    const servers = {
+      time: { command: "/uv", args: ["tool", "run", "mcp-time"] },
+    };
+    mcpProxyManager.setConfig({ mcpServers: servers });
+
+    // 第一次同步：bridge.start 被调用，bridgeStarted 被标记
+    await syncMcpConfigToProxyAndReload(servers);
+    const callsAfterFirst = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    // 第二次相同配置：进入 early-return 分支
+    await syncMcpConfigToProxyAndReload(servers);
+    const callsAfterSecond = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    // bridge.start 不应被再次调用（配置未变化）
+    expect(callsAfterSecond).toBe(callsAfterFirst);
+    // bridgeStarted 仍然为 true，ensureBridgeStarted 应跳过
+    const callsBeforeEnsure = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    await mcpProxyManager.ensureBridgeStarted();
+    expect((bridge.start as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsBeforeEnsure);
+  });
+
+  it("stop() 后 markBridgeStarted 标志被重置，ensureBridgeStarted() 会重新启动", async () => {
+    const { mcpProxyManager } = await import("./mcp");
+    const { persistentMcpBridge: bridge } = await import("./persistentMcpBridge");
+
+    await mcpProxyManager.start();
+    mcpProxyManager.markBridgeStarted();
+
+    // stop 应重置标志
+    await mcpProxyManager.stop();
+
+    // 记录 stop 后的调用次数
+    const callsBefore = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    // 注入一些 stdio server 使 ensureBridgeStarted 有服务可以启动
+    mcpProxyManager.setConfig({
+      mcpServers: { time: { command: "/uv", args: ["tool", "run", "mcp-time"] } },
+    });
+    await mcpProxyManager.ensureBridgeStarted();
+    const callsAfter = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    // stop 后 bridgeStarted 被重置，所以会再次调用 bridge.start
+    expect(callsAfter).toBeGreaterThan(callsBefore);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// getAgentMcpConfig — 修复：内容哈希替代 UUID，相同配置复用文件
+// ────────────────────────────────────────────────────────────────────────────
+describe("getAgentMcpConfig — 内容哈希临时文件", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.doMock("./persistentMcpBridge", () => ({
+      persistentMcpBridge: {
+        start: vi.fn().mockResolvedValue(undefined),
+        stop: vi.fn().mockResolvedValue(undefined),
+        isRunning: vi.fn(() => false),
+        getBridgeUrl: vi.fn(() => null),
+        isServerHealthy: vi.fn(() => false),
+      },
+    }));
+    vi.resetModules();
+    mockExistsSync.mockImplementation((p: unknown) => {
+      // configDir 存在，config 文件首次不存在（触发写入）
+      if (typeof p === "string" && p.endsWith(".json")) return false;
+      return true;
+    });
+    mockWriteFileSync.mockClear();
+  });
+
+  it("相同配置两次调用应生成相同文件名（哈希稳定）", async () => {
+    const { mcpProxyManager } = await import("./mcp");
+
+    await mcpProxyManager.start();
+
+    // 写入相同 MCP servers
+    const servers = {
+      time: { command: "/uv", args: ["tool", "run", "mcp-time"] },
+    };
+    mcpProxyManager.setConfig({ mcpServers: servers });
+
+    // 第一次获取配置
+    mcpProxyManager.getAgentMcpConfig();
+    const firstWritePath = mockWriteFileSync.mock.calls[0]?.[0] as string | undefined;
+    mockWriteFileSync.mockClear();
+
+    // 第二次获取配置
+    mcpProxyManager.getAgentMcpConfig();
+    const secondWritePath = mockWriteFileSync.mock.calls[0]?.[0] as string | undefined;
+
+    // 两次调用应写入相同路径（哈希稳定）
+    expect(firstWritePath).toBeDefined();
+    expect(secondWritePath).toBeDefined();
+    expect(firstWritePath).toBe(secondWritePath);
+
+    // 文件名格式应为 mcp-config-<16位hex>.json（非 mcp-config-<uuid>.json）
+    if (firstWritePath) {
+      const fileName = firstWritePath.split("/").pop() ?? "";
+      expect(fileName).toMatch(/^mcp-config-[0-9a-f]{16}\.json$/);
+    }
+  });
+
+  it("配置内容变化时文件名应不同（哈希随内容变化 — 用真实 MD5 验证）", async () => {
+    // 此测试不调用 mcp 模块，直接验证 MD5 哈希的稳定性
+    // 使用 vi.importActual 获取真实 crypto，绕过测试文件顶部对 crypto 的 mock
+    const realCrypto = await vi.importActual<typeof import("crypto")>("crypto");
+
+    const json1 = JSON.stringify({ mcpServers: { time: { command: "/uv", args: ["tool", "run", "mcp-time"] } } });
+    const json2 = JSON.stringify({ mcpServers: { fetch: { command: "/uv", args: ["tool", "run", "mcp-fetch"] } } });
+
+    const hash1 = realCrypto.createHash("md5").update(json1).digest("hex").slice(0, 16);
+    const hash2 = realCrypto.createHash("md5").update(json2).digest("hex").slice(0, 16);
+
+    // 不同内容 → 不同哈希 → 不同文件名 → detectConfigChange 不会误判
+    expect(hash1).not.toBe(hash2);
+    // 哈希格式应为 16 位小写 hex
+    expect(hash1).toMatch(/^[0-9a-f]{16}$/);
+    expect(hash2).toMatch(/^[0-9a-f]{16}$/);
   });
 });
