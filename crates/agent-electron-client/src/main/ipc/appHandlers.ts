@@ -8,11 +8,15 @@ import { LATEST_LOG_BASENAME } from '../bootstrap/logConfig';
 import { checkForUpdates, downloadUpdate, installUpdate, getUpdateState, openReleasesPage } from '../services/autoUpdater';
 import { getDeviceId } from '../services/system/deviceId';
 import { getTrayManager } from '../window/trayManager';
+import { getAutoLaunchManager } from '../window/autoLaunchManager';
 
 export function registerAppHandlers(ctx: HandlerContext): void {
-  // Autolaunch
+  // Autolaunch — 统一通过 AutoLaunchManager 操作，确保 args 一致（Windows 注册表 entry 一致）
   ipcMain.handle('autolaunch:get', async () => {
     try {
+      const mgr = getAutoLaunchManager();
+      if (mgr) return mgr.isEnabled();
+      // fallback: AutoLaunchManager 未初始化时直接读
       const settings = app.getLoginItemSettings();
       return settings.openAtLogin;
     } catch (error) {
@@ -23,7 +27,16 @@ export function registerAppHandlers(ctx: HandlerContext): void {
 
   ipcMain.handle('autolaunch:set', async (_, enabled: boolean) => {
     try {
-      app.setLoginItemSettings({ openAtLogin: enabled });
+      const mgr = getAutoLaunchManager();
+      let success = false;
+      if (mgr) {
+        success = await mgr.setEnabled(enabled);
+      } else {
+        // fallback
+        app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true, args: ['--hidden'] });
+        success = true;
+      }
+      if (!success) return { success: false, error: '设置失败' };
       // 同步托盘缓存状态
       getTrayManager()?.refreshAutoLaunchState();
       // 通知所有渲染进程
