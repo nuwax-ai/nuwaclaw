@@ -293,8 +293,8 @@ jobs:
           echo "==> Downloaded assets:"
           ls -lh /tmp/release-assets/
 
-      # 以 latest.json 为唯一数据源：生成 latest.json，并据此生成 electron-updater 所需的 yml（latest-mac.yml / latest-linux.yml / latest.yml），
-      # 写入 release-assets 以便随后一并上传；不再使用或上传 GitHub 的 yml。
+      # 以 latest.json 为唯一数据源：生成 latest.json，并据此生成 electron-updater 所需的 yml（与 macOS 一致，Linux 也走 latest/latest.json）：
+      # latest-mac.yml、latest-linux.yml、latest-linux-arm64.yml、latest-linux-x64.yml、latest.yml；写入 release-assets 后一并上传。
       - name: Generate latest.json and platform yml from assets
         env:
           OSS_CDN_BASE: "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com"
@@ -413,11 +413,17 @@ jobs:
             } > "${ASSETS_DIR}/${channel}.yml"
             echo "  Generated ${channel}.yml (primary: $first_file)"
           }
+          # 与 macOS 一致：所有 yml 均由同一份 latest.json 的 platforms 派生，Linux 也走 latest/latest.json 的更新链路
           DARWIN_KEYS='["darwin-aarch64-zip","darwin-x86_64-zip","darwin-aarch64","darwin-x86_64"]'
           LINUX_KEYS='["linux-x86_64-appimage","linux-aarch64-appimage","linux-x86_64","linux-aarch64","linux-x86_64-deb","linux-aarch64-deb","linux-x86_64-rpm","linux-aarch64-rpm"]'
+          LINUX_ARM64_KEYS='["linux-aarch64-appimage","linux-aarch64","linux-aarch64-deb","linux-aarch64-rpm"]'
+          LINUX_X64_KEYS='["linux-x86_64-appimage","linux-x86_64","linux-x86_64-deb","linux-x86_64-rpm"]'
           WIN_KEYS='["windows-x86_64","windows-x86_64-nsis","windows-x86_64-msi"]'
           gen_yml "latest-mac" "$DARWIN_KEYS"
           gen_yml "latest-linux" "$LINUX_KEYS"
+          # electron-updater 在 Linux 上按架构请求 latest-linux-arm64.yml / latest-linux-x64.yml，与 macOS 一样由 latest.json 派生
+          gen_yml "latest-linux-arm64" "$LINUX_ARM64_KEYS"
+          gen_yml "latest-linux-x64" "$LINUX_X64_KEYS"
           gen_yml "latest" "$WIN_KEYS"
           echo "==> Platform yml written to ${ASSETS_DIR}"
 

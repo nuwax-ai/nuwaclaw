@@ -39,7 +39,7 @@ import { spawn, ChildProcess, SpawnOptions, execSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import log from 'electron-log';
-import { getAppEnv } from '../system/dependencies';
+import { getAppEnv, getNodeBinPath } from '../system/dependencies';
 
 /**
  * Options for spawnNoWindow functions
@@ -180,7 +180,13 @@ export function spawnJsFile(
     log.info(`[spawnNoWindow]   - 使用 node: ${node}`);
     log.info(`[spawnNoWindow]   - PATH 前5个: ${(mergedEnv.PATH || '').split(';').slice(0, 5).join(';')}`);
   } else {
-    node = nodePath || findSystemNode();
+    // Linux/macOS：必须走应用集成的 Node 24（resources/node/<platform-arch>/bin/node），避免容器内 /usr/bin/node 不存在导致 ENOENT
+    // 调用方未传 nodePath 时，Electron 下优先 getNodeBinPath()（应用集成 Node 24），无集成 node 时才回退 findSystemNode()
+    const integratedNode = isElectron ? getNodeBinPath() : null;
+    node = nodePath || (integratedNode ?? findSystemNode());
+    if (integratedNode && node === integratedNode) {
+      log.info(`[spawnNoWindow] ${process.platform}: 使用应用集成 Node 24: ${node}`);
+    }
     if (callerProvidedFullEnv && isElectron) {
       mergedEnv = { ...env } as Record<string, string | undefined>;
       const pathStr = mergedEnv.PATH || '';
@@ -196,6 +202,15 @@ export function spawnJsFile(
             ...env,
             PATH: getEnhancedPath(),
           };
+    }
+    // 使用绝对路径的 node 时，将其所在目录插入 PATH 最前，确保子进程内再 spawn('node') 或 process.execPath 能解析到同一可执行文件（避免容器内 /usr/bin/node 不存在导致 ENOENT）
+    if (node && path.isAbsolute(node)) {
+      const nodeDir = path.dirname(node);
+      const currentPath = mergedEnv.PATH || '';
+      if (!currentPath.startsWith(nodeDir + path.delimiter)) {
+        mergedEnv.PATH = currentPath ? `${nodeDir}${path.delimiter}${currentPath}` : nodeDir;
+        log.info(`[spawnNoWindow] ${process.platform}: 已将 node 目录置于 PATH 最前: ${nodeDir}`);
+      }
     }
     log.info(`[spawnNoWindow] ${process.platform} 调试信息 (Electron: ${isElectron}):`);
     log.info(`[spawnNoWindow]   - 使用 node: ${node}`);
