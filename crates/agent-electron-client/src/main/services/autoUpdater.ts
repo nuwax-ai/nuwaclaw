@@ -630,8 +630,60 @@ export function getUpdateState(): UpdateState {
 }
 
 /**
- * 打开 GitHub Releases 页面（用于 MSI 用户或签名失败等降级场景）
+ * OSS latest.json 中的 platform key（与 electron-builder publish 配置一致）:
+ * - windows-x86_64       → NSIS .exe（通用 key，默认指向 NSIS）
+ * - windows-x86_64-nsis  → NSIS .exe（显式标记）
+ * - windows-x86_64-msi   → MSI .msi
  */
-export function openReleasesPage(): void {
-  shell.openExternal('https://github.com/nuwax-ai/nuwax-agent-client/releases');
+const WINDOWS_PLATFORM_KEYS_NSIS_FIRST = ['windows-x86_64', 'windows-x86_64-nsis', 'windows-x86_64-msi'];
+const WINDOWS_PLATFORM_KEYS_MSI_FIRST = ['windows-x86_64-msi', 'windows-x86_64', 'windows-x86_64-nsis'];
+
+const GITHUB_RELEASES_URL = 'https://github.com/nuwax-ai/nuwax-agent-client/releases';
+
+/**
+ * 从 OSS latest.json 解析当前 Windows 安装类型对应的下载地址。
+ * - NSIS 用户：优先 .exe（windows-x86_64 / windows-x86_64-nsis），其次 .msi
+ * - MSI 用户：优先 .msi（windows-x86_64-msi），其次 .exe
+ * 返回空字符串表示未解析到。
+ * 注意：调用方需确保仅在 Windows 平台下调用。
+ */
+function getWindowsDownloadUrlFromLatestJson(
+  platforms: LatestJson['platforms'],
+  installerType: InstallerType,
+): string {
+  if (!platforms) return '';
+  const keys =
+    installerType === 'msi' ? WINDOWS_PLATFORM_KEYS_MSI_FIRST : WINDOWS_PLATFORM_KEYS_NSIS_FIRST;
+  for (const key of keys) {
+    const entry = platforms[key];
+    if (entry?.url) return entry.url;
+  }
+  return '';
+}
+
+/**
+ * 打开下载页：Windows 按当前安装包类型打开 OSS 对应安装包地址，失败则回退 GitHub Releases；
+ * 非 Windows 打开 GitHub Releases 页面。
+ * - NSIS 安装：优先打开 .exe 下载链接
+ * - MSI 安装：优先打开 .msi 下载链接
+ */
+export async function openReleasesPage(): Promise<void> {
+  if (process.platform === 'win32') {
+    try {
+      const installerType = getInstallerType();
+      const latest = await fetchLatestJson(OSS_LATEST_JSON_URL);
+      const url = getWindowsDownloadUrlFromLatestJson(latest.platforms, installerType);
+      if (url) {
+        log.info(
+          `[AutoUpdater] Opening Windows download URL from OSS (installer=${installerType}): ${url}`,
+        );
+        await shell.openExternal(url);
+        return;
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      log.warn(`[AutoUpdater] Failed to get Windows URL from OSS latest.json: ${msg}, falling back to GitHub`);
+    }
+  }
+  await shell.openExternal(GITHUB_RELEASES_URL);
 }

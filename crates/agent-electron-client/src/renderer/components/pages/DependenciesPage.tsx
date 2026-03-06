@@ -3,9 +3,8 @@
  *
  * 从 Tauri 版 DependenciesPage 适配而来:
  * - invoke() → window.electronAPI.dependencies.*
- * - 移除 checkLatestNpmVersion / isNewerVersion（Electron 暂无此功能）
- * - 移除 restartAllServices（Electron 暂无此功能）
  * - 类型来自 ../types/electron.d.ts
+ * - 刷新时由后端查询 npm registry 获取 latestVersion，有新版本时显示"更新到 x.y.z"按钮
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -46,8 +45,8 @@ export default function DependenciesPage() {
   const [depLoading, setDepLoading] = useState(false);
   const [depInstalling, setDepInstalling] = useState(false);
   const [currentInstallingDep, setCurrentInstallingDep] = useState<string>("");
-  /** 当前正在执行的是「升级」而非「安装」，用于单项安装时的文案（安装中/升级中） */
-  const [currentInstallIsUpgrade, setCurrentInstallIsUpgrade] = useState(false);
+  /** 当前正在执行的操作类型，用于进度文案 */
+  const [currentInstallAction, setCurrentInstallAction] = useState<"install" | "upgrade" | "update">("install");
 
   const loadDependencies = useCallback(async () => {
     setDepLoading(true);
@@ -77,7 +76,7 @@ export default function DependenciesPage() {
       setUvResult(uvData);
 
       // Check all local/installable dependencies
-      const depsResult = await window.electronAPI?.dependencies.checkAll();
+      const depsResult = await window.electronAPI?.dependencies.checkAll({ checkLatest: true });
       if (depsResult?.success && depsResult.results) {
         const installableDeps = depsResult.results.filter(
           (d) =>
@@ -131,25 +130,36 @@ export default function DependenciesPage() {
   }, []);
 
   // ==========================================
-  // Install a single dependency
+  // Install / upgrade / update-to-latest a single dependency
   // ==========================================
-  const handleInstallSingleDep = async (dep: LocalDependencyItem) => {
+  const handleInstallSingleDep = async (
+    dep: LocalDependencyItem,
+    mode: "install" | "upgrade" | "update" = dep.status === "outdated" ? "upgrade" : "install",
+  ) => {
     const { name: packageName, displayName } = dep;
-    const isUpgrade = dep.status === "outdated";
     setDepInstalling(true);
     setCurrentInstallingDep(displayName);
-    setCurrentInstallIsUpgrade(isUpgrade);
+    setCurrentInstallAction(mode);
     setLocalDeps((prev) =>
       prev.map((d) =>
         d.name === packageName ? { ...d, status: "installing" as const } : d,
       ),
     );
 
-    try {
-      const options =
-        dep.installVersion
+    // "update" 模式不传 version → @latest；其余走 installVersion
+    const options =
+      mode === "update"
+        ? undefined
+        : dep.installVersion
           ? { version: dep.installVersion }
           : undefined;
+    // "update" 失败时回退 installed（不破坏已安装状态）；其余标记 error
+    const failStatus = mode === "update" ? ("installed" as const) : ("error" as const);
+
+    const actionLabel =
+      mode === "update" ? "更新" : mode === "upgrade" ? "升级" : "安装";
+
+    try {
       const result =
         await window.electronAPI?.dependencies.installPackage(
           packageName,
@@ -169,34 +179,33 @@ export default function DependenciesPage() {
               : d,
           ),
         );
-        const action = isUpgrade ? "升级" : "安装";
-        message.success(`${displayName} ${action}成功`);
-        // 手动安装/升级后关闭并重启服务，使新依赖生效
+        const versionHint =
+          mode === "update" && result.version ? ` ${result.version}` : "";
+        message.success(`${displayName} ${actionLabel}成功${versionHint}`);
         await restartServicesAfterDepChange();
       } else {
         setLocalDeps((prev) =>
           prev.map((d) =>
             d.name === packageName
-              ? { ...d, status: "error" as const, errorMessage: result?.error }
+              ? { ...d, status: failStatus, errorMessage: result?.error }
               : d,
           ),
         );
-        const action = isUpgrade ? "升级" : "安装";
-        message.error(`${displayName} ${action}失败`);
+        message.error(`${displayName} ${actionLabel}失败`);
       }
     } catch (error) {
       setLocalDeps((prev) =>
         prev.map((d) =>
           d.name === packageName
-            ? { ...d, status: "error" as const, errorMessage: String(error) }
+            ? { ...d, status: failStatus, errorMessage: String(error) }
             : d,
         ),
       );
-      message.error(`安装失败: ${error}`);
+      message.error(`${actionLabel}失败: ${error}`);
     } finally {
       setDepInstalling(false);
       setCurrentInstallingDep("");
-      setCurrentInstallIsUpgrade(false);
+      setCurrentInstallAction("install");
     }
   };
 
@@ -225,7 +234,7 @@ export default function DependenciesPage() {
     try {
       for (const dep of depsToProcess) {
         setCurrentInstallingDep(dep.displayName);
-        setCurrentInstallIsUpgrade(dep.status === "outdated");
+        setCurrentInstallAction(dep.status === "outdated" ? "upgrade" : "install");
         setLocalDeps((prev) =>
           prev.map((d) =>
             d.name === dep.name ? { ...d, status: "installing" as const } : d,
@@ -288,6 +297,7 @@ export default function DependenciesPage() {
     } finally {
       setDepInstalling(false);
       setCurrentInstallingDep("");
+      setCurrentInstallAction("install");
     }
   };
 
@@ -588,7 +598,11 @@ export default function DependenciesPage() {
                         currentInstallingDep === item.displayName && (
                           <span style={{ marginLeft: 8 }}>
                             <LoadingOutlined style={{ marginRight: 4 }} />
-                            {currentInstallIsUpgrade ? "升级中..." : "安装中..."}
+                            {currentInstallAction === "upgrade"
+                              ? "升级中..."
+                              : currentInstallAction === "update"
+                                ? "更新中..."
+                                : "安装中..."}
                           </span>
                         )}
                     </div>
@@ -610,9 +624,23 @@ export default function DependenciesPage() {
                       </span>
                     )}
                     {item.status === "installed" && (
-                      <span style={{ fontSize: 12, color: "#16a34a" }}>
-                        {getStatusText(item.status)}
-                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 12, color: "#16a34a" }}>
+                          {getStatusText(item.status)}
+                        </span>
+                        {item.latestVersion &&
+                          item.latestVersion.replace(/^v/, "") !==
+                            (item.version ?? "").replace(/^v/, "") &&
+                          systemDepsReady &&
+                          !depInstalling && (
+                          <Button
+                            size="small"
+                            onClick={() => handleInstallSingleDep(item, "update")}
+                          >
+                            更新到 {item.latestVersion}
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

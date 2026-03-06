@@ -127,8 +127,8 @@ export function registerAppHandlers(ctx: HandlerContext): void {
     return getUpdateState();
   });
 
-  ipcMain.handle('app:openReleasesPage', () => {
-    openReleasesPage();
+  ipcMain.handle('app:openReleasesPage', async () => {
+    await openReleasesPage();
     return { success: true };
   });
 
