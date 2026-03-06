@@ -22,8 +22,9 @@ export default function AboutPage() {
   const hasShownInstallModal = useRef(false);
 
   // 监听主进程推送的更新状态
+  // 注意：preload 的 on() 已剥离 IPC event，callback 直接收到 (...args)
   useEffect(() => {
-    const handler = (_event: unknown, state: UpdateState) => {
+    const handler = (state: UpdateState) => {
       if (state) setUpdateState(state);
     };
     window.electronAPI?.on('update:status', handler as any);
@@ -162,13 +163,18 @@ export default function AboutPage() {
         return (
           <Space direction="vertical" size={8} style={{ width: '100%' }}>
             <div style={{ fontSize: 12, color: '#52525b' }}>
-              {progress ? `正在下载 v${version}...` : '准备下载...'}
+              {progress ? `正在下载 v${version}... ${Math.round(progress.percent)}%` : `正在下载 v${version}...`}
             </div>
-            <Progress
-              percent={Math.round(progress?.percent ?? 0)}
-              size="small"
-              status="active"
-            />
+            {progress ? (
+              <Progress
+                percent={Math.round(progress.percent)}
+                size="small"
+                status="active"
+              />
+            ) : (
+              /* macOS Squirrel.Mac 不发送 download-progress 事件，显示不确定进度条 */
+              <Progress percent={100} size="small" status="active" showInfo={false} />
+            )}
           </Space>
         );
 

@@ -392,14 +392,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Event listeners
+  // 保存 callback → wrapper 映射，使 off() 能正确移除 on() 注册的 listener
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     const validChannels = ['menu:new-session', 'menu:settings', 'menu:mcp-settings', 'menu:dependencies', 'cowork:message', 'cowork:permission', 'agent:event', 'computer:progress', 'update:status', 'deps:syncCompleted', 'autolaunch:changed', 'memory:sync', 'memory:consolidation', 'memory:cleanup'];
     if (validChannels.includes(channel)) {
-      ipcRenderer.on(channel, (_, ...args) => callback(...args));
+      const wrapper = (_: unknown, ...args: unknown[]) => callback(...args);
+      (callback as any).__ipcWrapper = wrapper;
+      ipcRenderer.on(channel, wrapper as any);
     }
   },
 
   off: (channel: string, callback: (...args: unknown[]) => void) => {
-    ipcRenderer.removeListener(channel, callback);
+    const wrapper = (callback as any).__ipcWrapper || callback;
+    ipcRenderer.removeListener(channel, wrapper);
   },
 });
