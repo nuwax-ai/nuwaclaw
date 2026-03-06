@@ -1086,7 +1086,7 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     description: "Agent 工作目录文件远程管理服务（应用内安装）",
     required: true,
     binName: "nuwax-file-server",
-    installVersion: "1.2.1",
+    installVersion: "1.2.2",
   },
   {
     name: "nuwaxcode",
