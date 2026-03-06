@@ -612,6 +612,9 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
   // npm 缓存和全局前缀
   const npmCacheDir = path.join(appDataDir, "npm-cache");
 
+  // pnpm 全局 bin 目录（pnpm global 安装的可执行文件放在 PNPM_HOME 下）
+  const pnpmHome = path.join(appDataDir, "pnpm", "global");
+
   // 镜像配置
   const mirror = getMirrorConfig();
 
@@ -630,6 +633,7 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
   // - bundledGitBinDir: 内置 Git bin（仅 Windows）
   // - electronNodeBinDir: Electron 内置的 npm/npx
   // - uvBin/uvToolBinDir: 应用内 uv/uvx（优先，保证 MCP 等子进程用应用内版本）
+  // - pnpmHome: 应用内 pnpm global bin
   // - nodeModulesBin: 应用内 node_modules/.bin
   // - appBin: 应用内 bin
   // - systemPathPaths: 系统工具回退（可选，由 includeSystemPath 控制）
@@ -639,6 +643,7 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     bundledGitBinDir,
     uvBin,
     uvToolBinDir,
+    pnpmHome,
     nodeModulesBin,
     appBin,
     ...systemPathPaths,
@@ -692,6 +697,12 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     NPM_CONFIG_USERCONFIG: path.join(appDataDir, ".npmrc"),
     // 禁用 npm 的更新检查，避免不必要的网络请求
     NO_UPDATE_NOTIFIER: "true",
+
+    // pnpm: 全局目录、store、缓存、状态目录隔离到应用内
+    PNPM_HOME: pnpmHome,
+    PNPM_STORE_DIR: path.join(appDataDir, "pnpm", "store"),
+    PNPM_CACHE_DIR: path.join(appDataDir, "pnpm", "cache"),
+    PNPM_STATE_DIR: path.join(appDataDir, "pnpm", "state"),
 
     // === Python/uv 环境隔离 ===
     UV_TOOL_DIR: path.join(uvDataDir, "tools"),
@@ -1058,6 +1069,15 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     required: true,
     minVersion: "0.5.0",
     installUrl: "https://docs.astral.sh/uv/getting-started/installation/",
+  },
+  {
+    name: "pnpm",
+    displayName: "pnpm 包管理器",
+    type: "npm-local",
+    description: "高性能 Node.js 包管理器（应用内安装）",
+    required: true,
+    binName: "pnpm",
+    installVersion: "10.30.3",
   },
   {
     name: "nuwax-file-server",
@@ -1602,6 +1622,7 @@ export async function checkAllDependencies(): Promise<LocalDependencyItem[]> {
           item.binPath = result.binPath;
           break;
         }
+        case "pnpm":
         case "nuwaxcode":
         case "nuwax-file-server":
         case "nuwax-mcp-stdio-proxy":
