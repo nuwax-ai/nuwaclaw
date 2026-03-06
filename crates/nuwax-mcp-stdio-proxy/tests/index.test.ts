@@ -495,7 +495,9 @@ describe('nuwax-mcp-stdio-proxy', () => {
     it('exits with error when --config is missing', async () => {
       const { code, stderr } = await spawnProxy(['proxy', '--port', '9999']);
       expect(code).toBe(1);
-      expect(stderr).toContain('--config is required');
+      // CLI 支持 --config 或 --config-file，错误信息为 "--config or --config-file is required"
+      expect(stderr).toContain('--config');
+      expect(stderr).toContain('required');
     });
 
     it('exits with error for invalid port', async () => {
@@ -519,7 +521,7 @@ describe('nuwax-mcp-stdio-proxy', () => {
 
       let stderrBuf = '';
 
-      // Wait for the proxy to output the port
+      // 1) 等待 HTTP 端口输出
       const port = await new Promise<number>((resolve, reject) => {
         const tryMatch = () => {
           const match = stderrBuf.match(/HTTP server listening on 127\.0\.0\.1:(\d+)/);
@@ -534,6 +536,23 @@ describe('nuwax-mcp-stdio-proxy', () => {
           tryMatch();
         });
         setTimeout(() => reject(new Error(`Timed out waiting for proxy server. stderr: ${stderrBuf}`)), 10000);
+      });
+
+      // 2) 等待 bridge 就绪（子进程 spawn 与 listTools 完成后再接受 /mcp/<serverId> 请求）
+      await new Promise<void>((resolve, reject) => {
+        if (stderrBuf.includes('Bridge ready on port')) {
+          resolve();
+          return;
+        }
+        const onData = (data: Buffer) => {
+          stderrBuf += data.toString();
+          if (stderrBuf.includes('Bridge ready on port')) {
+            proc.stderr?.off('data', onData);
+            resolve();
+          }
+        };
+        proc.stderr?.on('data', onData);
+        setTimeout(() => reject(new Error(`Timed out waiting for bridge ready. stderr: ${stderrBuf}`)), 15000);
       });
 
       try {
