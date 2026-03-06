@@ -411,13 +411,13 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
       title: '发现新版本',
       message: `发现新版本 v${version}`,
       detail: '当前安装方式不支持自动更新，请前往 Releases 页面下载最新安装包。',
-      buttons: ['前往下载页', '跳过此版本'],
+      buttons: ['前往下载页', '跳过此版本', '关闭'],
       defaultId: 0,
-      cancelId: 1,
+      cancelId: 2,
     });
     if (response === 0) {
       openReleasesPage();
-    } else {
+    } else if (response === 1) {
       setSkippedVersion(version);
     }
     return;
@@ -428,9 +428,9 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
     title: '发现新版本',
     message: `发现新版本 v${version}`,
     detail: '是否立即下载并安装更新？',
-    buttons: ['立即更新', '跳过此版本'],
+    buttons: ['立即更新', '跳过此版本', '关闭'],
     defaultId: 0,
-    cancelId: 1,
+    cancelId: 2,
   });
 
   if (response === 0) {
@@ -582,6 +582,8 @@ export async function downloadUpdate(): Promise<{ success: boolean; error?: stri
   }
 
   try {
+    // 立即设置 downloading 状态，让渲染进程马上显示 loading
+    setState({ status: 'downloading', progress: undefined, canAutoUpdate: true });
     const { autoUpdater } = require('electron-updater');
     await autoUpdater.downloadUpdate();
     return { success: true };

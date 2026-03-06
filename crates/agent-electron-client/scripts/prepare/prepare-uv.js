@@ -17,6 +17,8 @@ const https = require('https');
 const { execSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
+const UV_VERSION = '0.10.8';
+
 const projectRoot = getProjectRoot();
 const uvRoot = path.join(projectRoot, 'resources', 'uv');
 const cacheDir = path.join(uvRoot, '.cache');
@@ -26,30 +28,6 @@ function getPlatformKey() {
   const p = process.platform;
   const a = process.arch === 'x64' ? 'x64' : process.arch;
   return `${p}-${a}`;
-}
-
-/** 从 GitHub API 获取 astral-sh/uv 最新 release 版本号（如 0.10.4） */
-function fetchLatestUvVersion() {
-  return new Promise((resolve, reject) => {
-    const opts = {
-      hostname: 'api.github.com',
-      path: '/repos/astral-sh/uv/releases/latest',
-      headers: { 'User-Agent': 'Nuwax-Agent-Build' },
-    };
-    https.get(opts, (res) => {
-      let data = '';
-      res.on('data', (ch) => { data += ch; });
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          const tag = json.tag_name || '';
-          resolve(tag.replace(/^v/, ''));
-        } catch (e) {
-          reject(e);
-        }
-      });
-    }).on('error', reject);
-  });
 }
 
 // 当前平台对应的 uv 官方 release 资源文件名（不含 .tar.gz / .zip）
@@ -251,21 +229,8 @@ async function main() {
     return;
   }
 
-// 未设置时使用 GitHub 最新 release；设置 UV_VERSION 可固定版本
-  let version = process.env.UV_VERSION;
-  if (!version) {
-    try {
-      version = await fetchLatestUvVersion();
-      if (!version) {
-        console.warn('[prepare-uv] 获取最新版本为空，使用默认版本');
-        version = '0.5.29';
-      }
-      console.log(`[prepare-uv] 使用最新版本: ${version}`);
-    } catch (e) {
-      console.warn('[prepare-uv] 获取最新版本失败，回退 0.5.29:', e.message);
-      version = '0.5.29';
-    }
-  }
+  const version = UV_VERSION;
+  console.log(`[prepare-uv] 使用 uv 版本: ${version}`);
   try {
     await downloadAndPrepare(key, suffix, version);
   } catch (err) {
