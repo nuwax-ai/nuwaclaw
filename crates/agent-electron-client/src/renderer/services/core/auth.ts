@@ -214,10 +214,18 @@ export async function loginAndRegister(
   const suppressToast = options?.suppressToast === true;
 
   // 获取并规范化域名
+  // 优先级：用户显式传入 > lanproxy.server_host > step1_config.serverHost
   const step1Config = await window.electronAPI?.settings.get('step1_config') as {
     serverHost?: string;
   } | null;
-  const domain = normalizeServerHost(options?.domain || step1Config?.serverHost || '');
+  let rawDomain = options?.domain || '';
+  if (!rawDomain) {
+    rawDomain = await settingsGet<string>(AUTH_KEYS.LANPROXY_SERVER_HOST) || '';
+  }
+  if (!rawDomain) {
+    rawDomain = step1Config?.serverHost || '';
+  }
+  const domain = normalizeServerHost(rawDomain);
 
   // 域名变更时写回设置
   if (domain && step1Config && domain !== step1Config.serverHost) {
@@ -379,10 +387,8 @@ export async function syncConfigToServer(options?: {
   const username = await getUsername();
   const password = await getPassword();
 
-  const step1Config = await window.electronAPI?.settings.get('step1_config') as {
-    serverHost?: string;
-  } | null;
-  const domain = normalizeServerHost(step1Config?.serverHost || '');
+  const lanproxyHost = await settingsGet<string>(AUTH_KEYS.LANPROXY_SERVER_HOST);
+  const domain = normalizeServerHost(lanproxyHost || '');
 
   // 使用持久化的 savedKey（参考 Tauri 客户端：退出登录不清除，跨会话持久化）
   const savedKey = await getSavedKey(domain, username || undefined);

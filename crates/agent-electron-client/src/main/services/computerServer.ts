@@ -133,7 +133,12 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
     // POST /computer/chat
     if (pathname === '/computer/chat' && method === 'POST') {
+      const t0 = Date.now();
+      let t1: number, t2: number, t3: number, t4: number;
+
       const body = await parseBody(req) as ComputerChatRequest;
+      t1 = Date.now();
+      log.debug(`⏱️ [HTTP][PERF] parseBody 耗时: ${t1 - t0}ms`);
 
       // 开发调试：完整打印入参
       log.debug(
@@ -162,6 +167,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         sendJson(res, 400, httpError('VALIDATION_ERROR', 'user_id is required for ComputerAgentRunner'));
         return;
       }
+      t2 = Date.now();
+      log.debug(`⏱️ [HTTP][PERF] 验证字段 耗时: ${t2 - t1}ms`);
 
       // 确保正确的引擎已启动（按 project_id 路由到对应 AcpEngine）
       let acpEngine;
@@ -172,6 +179,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         sendJson(res, 200, httpError('5000', err.message || 'Engine switch failed'));
         return;
       }
+      t3 = Date.now();
+      log.debug(`⏱️ [HTTP][PERF] ensureEngineForRequest 耗时: ${t3 - t2}ms`);
 
       if (!acpEngine) {
         log.error('❌ [HTTP] Agent not initialized');
@@ -181,19 +190,25 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
       // chat() 已返回 HttpResult<ComputerChatResponse> 格式
       const result = await acpEngine.chat(body);
+      t4 = Date.now();
+      log.debug(`⏱️ [HTTP][PERF] acpEngine.chat 耗时: ${t4 - t3}ms`);
+
       if (result.success) {
         log.info(`✅ [HTTP] Computer Chat 响应: session_id=${result.data?.session_id}`);
       } else {
         log.error(`❌ [HTTP] Computer Chat 失败: ${result.message}`);
       }
+
+      log.info(`⏱️ [HTTP][PERF] /computer/chat 总耗时: ${t4 - t0}ms (parseBody=${t1 - t0}ms, validate=${t2 - t1}ms, ensureEngine=${t3 - t2}ms, chat=${t4 - t3}ms)`);
       sendJson(res, 200, result);
       return;
     }
 
     // GET /computer/progress/{session_id} — SSE
     if (pathname.startsWith('/computer/progress/') && method === 'GET') {
+      const sseStartTime = Date.now();
       const sessionId = pathname.replace('/computer/progress/', '');
-      log.info(`📡 [HTTP] Computer Agent 进度流订阅: session_id=${sessionId}`);
+      log.info(`📡 [HTTP] SSE 连接请求: session_id=${sessionId}, time=${new Date().toISOString()}`);
 
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -224,6 +239,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         sseClients.set(sessionId, []);
       }
       sseClients.get(sessionId)!.push(res);
+      log.debug(`⏱️ [SSE][PERF] SSE 客户端注册完成: session_id=${sessionId}, 耗时=${Date.now() - sseStartTime}ms`);
 
       // 心跳：发送符合 UnifiedSessionMessage 格式的心跳消息（对齐 rcoder heartbeat）
       const heartbeat = setInterval(() => {
@@ -245,7 +261,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
       req.on('close', () => {
         clearInterval(heartbeat);
-        log.debug(`[HTTP] 客户端已断开连接: session_id=${sessionId}`);
+        log.debug(`[HTTP] 客户端已断开连接: session_id=${sessionId}, 存活时间=${Date.now() - sseStartTime}ms`);
         const clients = sseClients.get(sessionId);
         if (clients) {
           const idx = clients.indexOf(res);
@@ -254,7 +270,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         }
       });
 
-      log.info(`✅ [HTTP] SSE 流已建立: session_id=${sessionId}`);
+      log.info(`✅ [HTTP] SSE 流已建立: session_id=${sessionId}, 建立耗时=${Date.now() - sseStartTime}ms`);
       return;
     }
 
@@ -391,7 +407,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
  */
 export function pushSseEvent(sessionId: string, eventName: string, data: unknown) {
   const clients = sseClients.get(sessionId);
-  log.debug(`[ComputerServer] pushSseEvent: sessionId=${sessionId}, eventName=${eventName}, clients=${clients?.length || 0}`);
+  log.debug(`[SSE] pushSseEvent: sessionId=${sessionId}, eventName=${eventName}, time=${Date.now()}, clients=${clients?.length || 0}`);
+
   if (!clients || clients.length === 0) {
     log.warn(`[ComputerServer] ⚠ No SSE clients for sessionId=${sessionId}`);
     return;

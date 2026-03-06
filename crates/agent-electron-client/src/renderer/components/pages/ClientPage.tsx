@@ -141,26 +141,24 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       await loadAuth();
       // 标记服务已由登录流程启动，防止 App.tsx 自动重连再次启动
       await window.electronAPI?.settings.set('_services_started_by_login', true);
-      // 登录成功后自动启动所有服务（顺序：先 MCP 服务，最后代理服务 Lanproxy）
-      const startOrder = ['mcpProxy', 'agent', 'fileServer', 'lanproxy'];
+      // 登录成功后自动启动服务（先启动非代理服务，同步配置后再启动代理服务）
+      const preProxyServices = ['mcpProxy', 'agent', 'fileServer'];
       let agentFailed = false;
-      for (const key of startOrder) {
-        // 如果 agent 启动失败，跳过 lanproxy（无 agent 时隧道无意义）
-        if (key === 'lanproxy' && agentFailed) {
-          console.warn('[ClientPage] Agent 启动失败，跳过 lanproxy');
-          continue;
-        }
+      for (const key of preProxyServices) {
         const success = await handleStartService(key, true);
         if (key === 'agent' && !success) agentFailed = true;
       }
-      await onRefreshServices();
-      // 服务启动后重新调用 reg 接口，通知后端最新的端口配置
+      // 先同步配置到后端（更新端口映射），再启动代理服务
       try {
         await syncConfigToServer({ suppressToast: true });
-        console.log('[ClientPage] 登录后服务启动，reg 同步成功');
+        console.log('[ClientPage] 登录后 reg 同步成功');
       } catch (e) {
         console.error('[ClientPage] 登录后 reg 同步失败:', e);
       }
+      if (!agentFailed) {
+        await handleStartService('lanproxy', true);
+      }
+      await onRefreshServices();
     } catch (error: any) {
       const errorMsg = getAuthErrorMessage(error);
       message.error(errorMsg);
@@ -314,11 +312,27 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
     }
 
     try {
-      // 与列表顺序一致：先 MCP，最后代理服务
-      const startOrder = ['mcpProxy', 'agent', 'fileServer', 'lanproxy'];
+      // 先启动非代理服务，同步配置后再启动代理服务
+      const preProxyServices = ['mcpProxy', 'agent', 'fileServer'];
+      const proxyServices = ['lanproxy'];
       let startedCount = 0;
 
-      for (const key of startOrder) {
+      for (const key of preProxyServices) {
+        const svc = services.find((s) => s.key === key);
+        if (svc && !svc.running) {
+          await handleStartService(key);
+          startedCount++;
+        }
+      }
+
+      // 先同步配置到后端（更新端口映射），再启动代理服务
+      try {
+        await syncConfigToServer({ suppressToast: true });
+      } catch (e) {
+        console.error('[ClientPage] 同步失败:', e);
+      }
+
+      for (const key of proxyServices) {
         const svc = services.find((s) => s.key === key);
         if (svc && !svc.running) {
           await handleStartService(key);
@@ -328,12 +342,6 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
 
       if (startedCount === 0) {
         message.info('所有可自动启动的服务已在运行');
-      } else {
-        try {
-          await syncConfigToServer({ suppressToast: true });
-        } catch (e) {
-          console.error('[ClientPage] 同步失败:', e);
-        }
       }
     } finally {
       await onRefreshServices();

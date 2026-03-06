@@ -155,7 +155,8 @@ export default function SettingsPage() {
         onOk: async () => {
           setSaving(true);
           try {
-            await setupService.saveStep1Config(values);
+            const existing = await setupService.getStep1Config();
+            await setupService.saveStep1Config({ ...existing, ...values });
             setOriginalConfig(values);
             setEditing(false);
             message.success(MSG_SUCCESS.CONFIG_SAVED);
