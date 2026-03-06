@@ -86,21 +86,40 @@ export class PersistentMcpBridge {
       await this.stop();
     }
 
-    this.log.info(`${LOG_TAG} Starting with ${Object.keys(servers).length} persistent servers`);
+    const serverCount = Object.keys(servers).length;
+    this.log.info(`${LOG_TAG} Starting with ${serverCount} persistent servers (parallel)`);
 
-    // 1. Spawn each persistent server + create MCP Client
-    for (const [id, config] of Object.entries(servers)) {
-      await this.startServer(id, config);
+    // 1. 并行启动 HTTP server 和所有 MCP server 子进程。
+    //    两者完全独立：HTTP server 在请求时才查询 this.servers，
+    //    startServer 会在异步 spawnAndConnect 前先同步写入 this.servers，
+    //    所以 HTTP server 收到第一个请求时所有 entry 都已注册。
+    //
+    //    提前保存 serverPromises 引用：若 startHttpServer 抛出，在 catch 中先
+    //    await Promise.allSettled(serverPromises) 等所有 spawnAndConnect 跑完
+    //    （保证 entry.client / entry.transport 已赋值），再调用 stopServer，
+    //    才能可靠关闭子进程，防止孤儿进程残留。
+    const serverPromises = Object.entries(servers).map(([id, config]) => this.startServer(id, config));
+
+    try {
+      await Promise.all([
+        this.startHttpServer(options?.port),
+        ...serverPromises,
+      ]);
+    } catch (e) {
+      this.log.error(`${LOG_TAG} 启动失败，清理已 spawn 的子进程:`, e);
+      // 等待所有 spawnAndConnect 完成，确保 entry.client/transport 已赋值后再清理
+      await Promise.allSettled(serverPromises);
+      await Promise.all(Array.from(this.servers.keys()).map((id) => this.stopServer(id)));
+      this.servers.clear();
+      throw e;
     }
 
-    // 2. Start HTTP server
-    await this.startHttpServer(options?.port);
     this.running = true;
 
-    // 3. Start periodic session cleanup
+    // 2. Start periodic session cleanup
     this.sessionCleanupTimer = setInterval(() => this.cleanupStaleSessions(), SESSION_CLEANUP_INTERVAL_MS);
 
-    this.log.info(`${LOG_TAG} Bridge ready on port ${this.port}`);
+    this.log.info(`${LOG_TAG} Bridge ready on port ${this.port} (${serverCount} servers)`);
   }
 
   /**
@@ -116,14 +135,17 @@ export class PersistentMcpBridge {
       this.sessionCleanupTimer = null;
     }
 
-    // Close all HTTP sessions
-    for (const [key, session] of this.httpSessions) {
-      try {
-        await session.transport.close();
-      } catch (e) {
-        this.log.warn(`${LOG_TAG} Error closing HTTP session ${key}:`, e);
-      }
-    }
+    // 并行关闭所有 HTTP sessions（各 session transport 独立，无顺序依赖）。
+    // 内层 async 函数自行 catch 错误后不再 throw，Promise.all 足够，不需要 allSettled。
+    await Promise.all(
+      Array.from(this.httpSessions.entries()).map(async ([key, session]) => {
+        try {
+          await session.transport.close();
+        } catch (e) {
+          this.log.warn(`${LOG_TAG} Error closing HTTP session ${key}:`, e);
+        }
+      }),
+    );
     this.httpSessions.clear();
 
     // Close HTTP server
@@ -135,10 +157,10 @@ export class PersistentMcpBridge {
       this.port = 0;
     }
 
-    // Stop all persistent servers
-    for (const [id] of this.servers) {
-      await this.stopServer(id);
-    }
+    // 并行关闭所有 MCP server 子进程（各自独立，无顺序依赖）
+    await Promise.all(
+      Array.from(this.servers.keys()).map((id) => this.stopServer(id)),
+    );
     this.servers.clear();
 
     this.log.info(`${LOG_TAG} Stopped`);

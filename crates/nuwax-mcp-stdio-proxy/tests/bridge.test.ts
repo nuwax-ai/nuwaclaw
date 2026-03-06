@@ -7,10 +7,29 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import * as path from 'path';
+import * as net from 'net';
 import { PersistentMcpBridge } from '../src/bridge.js';
 import type { BridgeLogger } from '../src/bridge.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+
+/**
+ * 动态占用一个随机可用端口，返回端口号和释放函数。
+ * 用于模拟端口冲突，测试 start() 的容错清理逻辑。
+ */
+function occupyRandomPort(): Promise<{ port: number; release: () => Promise<void> }> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address() as net.AddressInfo;
+      resolve({
+        port: addr.port,
+        release: () => new Promise<void>((res) => server.close(() => res())),
+      });
+    });
+    server.on('error', reject);
+  });
+}
 
 const MOCK_SERVER = path.resolve('tests/fixtures/mock-mcp-server.mjs');
 
@@ -180,7 +199,84 @@ describe('PersistentMcpBridge', () => {
     expect(res.status).toBe(503);
   });
 
-  // ---- Multiple servers ----
+  // ---- Multiple servers (parallel start/stop) ----
+
+  /**
+   * 验证 3 个 server 并行启动：start() 返回后全部健康，且各自 URL 正确路由。
+   * 如果内部退化为串行，此测试仍应通过（正确性不变），但性能会下降。
+   */
+  it('starts 3 servers in parallel and all become healthy', async () => {
+    bridge = new PersistentMcpBridge();
+
+    await bridge.start({
+      'svc-alpha': {
+        command: 'node',
+        args: [MOCK_SERVER, '--tools', '["alpha-tool"]', '--name', 'alpha'],
+      },
+      'svc-beta': {
+        command: 'node',
+        args: [MOCK_SERVER, '--tools', '["beta-tool"]', '--name', 'beta'],
+      },
+      'svc-gamma': {
+        command: 'node',
+        args: [MOCK_SERVER, '--tools', '["gamma-tool"]', '--name', 'gamma'],
+      },
+    });
+
+    // 全部健康
+    expect(bridge.isServerHealthy('svc-alpha')).toBe(true);
+    expect(bridge.isServerHealthy('svc-beta')).toBe(true);
+    expect(bridge.isServerHealthy('svc-gamma')).toBe(true);
+
+    // URL 路由各自独立
+    expect(bridge.getBridgeUrl('svc-alpha')).toMatch(/\/mcp\/svc-alpha$/);
+    expect(bridge.getBridgeUrl('svc-beta')).toMatch(/\/mcp\/svc-beta$/);
+    expect(bridge.getBridgeUrl('svc-gamma')).toMatch(/\/mcp\/svc-gamma$/);
+
+    // 每个 server 只暴露自己的工具
+    for (const [serverId, toolName, namePrefix] of [
+      ['svc-alpha', 'alpha-tool', 'alpha'],
+      ['svc-beta', 'beta-tool', 'beta'],
+      ['svc-gamma', 'gamma-tool', 'gamma'],
+    ] as const) {
+      const url = bridge.getBridgeUrl(serverId)!;
+      const transport = new StreamableHTTPClientTransport(new URL(url));
+      const client = new Client({ name: 'parallel-test', version: '1.0.0' });
+      await client.connect(transport);
+      try {
+        const { tools } = await client.listTools();
+        expect(tools).toHaveLength(1);
+        expect(tools[0].name).toBe(toolName);
+        const result = await client.callTool({ name: toolName, arguments: {} });
+        expect(result.content).toEqual([{ type: 'text', text: `${namePrefix}:${toolName}` }]);
+      } finally {
+        await client.close();
+        await transport.close();
+      }
+    }
+  });
+
+  it('stops all servers and bridge becomes not running', async () => {
+    bridge = new PersistentMcpBridge();
+
+    await bridge.start({
+      'stop-a': { command: 'node', args: [MOCK_SERVER, '--name', 'stop-a'] },
+      'stop-b': { command: 'node', args: [MOCK_SERVER, '--name', 'stop-b'] },
+      'stop-c': { command: 'node', args: [MOCK_SERVER, '--name', 'stop-c'] },
+    });
+
+    expect(bridge.isRunning()).toBe(true);
+
+    await bridge.stop();
+
+    // 并行停止后整体不再运行
+    expect(bridge.isRunning()).toBe(false);
+    // 每个 server 均已清理
+    expect(bridge.isServerHealthy('stop-a')).toBe(false);
+    expect(bridge.isServerHealthy('stop-b')).toBe(false);
+    expect(bridge.isServerHealthy('stop-c')).toBe(false);
+    expect(bridge.getBridgeUrl('stop-a')).toBeNull();
+  });
 
   it('handles multiple concurrent servers', async () => {
     bridge = new PersistentMcpBridge();
@@ -246,6 +342,88 @@ describe('PersistentMcpBridge', () => {
     // Logger should capture the failure
     const hasError = logger.messages.some((m) => m.includes('Failed to start server'));
     expect(hasError).toBe(true);
+  });
+
+  /**
+   * 验证 start() 中 HTTP server 启动失败（端口冲突）时：
+   * 1. start() 应抛出异常
+   * 2. bridge 处于未运行状态（isRunning = false）
+   * 3. 所有 spawnAndConnect 完成后子进程被正确关闭（无孤儿进程）
+   * 4. bridge 实例回到可重用状态，可以重新正常启动
+   */
+  it('start() throws and cleans up spawned processes when HTTP server fails to bind', async () => {
+    const { port, release } = await occupyRandomPort();
+
+    try {
+      const logger = createTestLogger();
+      bridge = new PersistentMcpBridge(logger);
+
+      // 使用被占用的端口 → startHttpServer 应抛 EADDRINUSE
+      await expect(
+        bridge.start(
+          { 'mock': { command: 'node', args: [MOCK_SERVER, '--name', 'cleanup-test'] } },
+          { port },
+        ),
+      ).rejects.toThrow();
+
+      // 失败后 bridge 必须处于未运行状态
+      expect(bridge.isRunning()).toBe(false);
+      expect(bridge.getBridgeUrl('mock')).toBeNull();
+
+      // 失败日志记录（来自 catch 块）
+      expect(logger.messages.some((m) => m.includes('启动失败'))).toBe(true);
+    } finally {
+      await release();
+    }
+
+    // 释放端口后，同一个 bridge 实例应能正常重新启动
+    await bridge.start({
+      'mock-retry': { command: 'node', args: [MOCK_SERVER, '--name', 'retry'] },
+    });
+    expect(bridge.isRunning()).toBe(true);
+    expect(bridge.isServerHealthy('mock-retry')).toBe(true);
+  });
+
+  /**
+   * 验证 stop() 并行关闭多个活跃 HTTP session：
+   * 即使同时存在多个 session，stop() 也能正确完成并清理全部 session。
+   */
+  it('stop() closes multiple active HTTP sessions in parallel', async () => {
+    bridge = new PersistentMcpBridge();
+
+    await bridge.start({
+      'mock': {
+        command: 'node',
+        args: [MOCK_SERVER, '--tools', '["tool-x","tool-y"]', '--name', 'multi-session'],
+      },
+    });
+
+    const url = bridge.getBridgeUrl('mock')!;
+
+    // 建立 3 个独立 HTTP session
+    const connections: Array<{ client: Client; transport: StreamableHTTPClientTransport }> = [];
+    for (let i = 0; i < 3; i++) {
+      const transport = new StreamableHTTPClientTransport(new URL(url));
+      const client = new Client({ name: `multi-session-client-${i}`, version: '1.0.0' });
+      await client.connect(transport);
+      connections.push({ client, transport });
+    }
+
+    // 3 个 session 建立期间，bridge 应保持健康
+    expect(bridge.isServerHealthy('mock')).toBe(true);
+
+    // 调用 stop()，验证多 session 并行关闭后 bridge 完全停止
+    await bridge.stop();
+
+    expect(bridge.isRunning()).toBe(false);
+    expect(bridge.isServerHealthy('mock')).toBe(false);
+    expect(bridge.getBridgeUrl('mock')).toBeNull();
+
+    // 清理客户端（stop 后 transport 可能已关闭，忽略错误）
+    for (const { client, transport } of connections) {
+      try { await client.close(); } catch { /* ignore */ }
+      try { await transport.close(); } catch { /* ignore */ }
+    }
   });
 
   // ---- Logger ----
