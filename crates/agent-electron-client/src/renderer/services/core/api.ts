@@ -58,7 +58,8 @@ export async function apiRequest<T>(
   const config = { ...DEFAULT_CONFIG, ...options };
   const fullUrl = `${config.baseUrl}${url}`;
 
-  // 使用 AbortSignal.timeout 实现请求超时，避免网络挂起时永久阻塞
+  // 使用 AbortSignal.timeout 实现请求超时，避免网络挂起时永久阻塞。
+  // 运行时要求：Electron 40+（Chromium 120+）支持 AbortSignal.timeout；若需兼容更旧版本需 polyfill（如 setTimeout + AbortController）。
   const timeoutMs = config.timeout ?? DEFAULT_API_TIMEOUT;
   const fetchOptions: RequestInit = {
     method: options.method || "POST",

@@ -128,6 +128,7 @@
 
 - **restartAll**：主进程 `processHandlers.ts` 中 `services:restartAll` IPC handler 的实现会先停止 Agent、ComputerServer、FileServer、Lanproxy（**不停 MCP**），再按顺序启动 MCP → Agent → ComputerServer → FileServer → Lanproxy。MCP 在 restartAll 中只做 start/verify，不先停。
 - **stopAll**：主进程 `processHandlers.ts` 中 `services:stopAll` IPC handler 会停止所有服务**包括 MCP**。
+- **用户登出**：渲染进程 `ClientPage.handleLogout` 在停止 agent/fileServer/lanproxy/mcp 后，会单独调用 `computerServer.stop()`，避免登出后进程残留导致端口冲突；详见 [认证机制与 SavedKey 生命周期](./auth-savedkey-lifecycle.md#退出登录)。
 - **serviceManager.ts**：`serviceManager.restartAllServices()` 是另一套实现（供 `main.ts` 内部和 Tray 菜单使用），行为与 IPC `restartAll` 略有不同：会先停 MCP 再启动，且不包含 ComputerServer。渲染进程通过 `window.electronAPI.services.restartAll()` 调用的是 `processHandlers.ts` 中的 IPC handler 版本。
 - **无需单独 stopAll**：`restartAll` 内部已包含停止逻辑（Agent / ComputerServer / FileServer / Lanproxy）；若需停止所有服务（含 MCP）且不重启，可调用 `services.stopAll()`。
 
