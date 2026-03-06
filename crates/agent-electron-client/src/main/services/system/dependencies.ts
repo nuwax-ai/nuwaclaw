@@ -1597,9 +1597,39 @@ async function _installNpmPackageImpl(
 // ==================== Main Service ====================
 
 /**
- * 检查所有依赖状态
+ * 从 npm registry 查询包的 latest 版本号。
+ * 使用 abbreviated metadata（Accept header）减少响应体积。
+ * 超时或失败静默返回 null，不影响主流程。
  */
-export async function checkAllDependencies(): Promise<LocalDependencyItem[]> {
+async function fetchNpmLatestVersion(
+  packageName: string,
+  timeoutMs = 8_000,
+): Promise<string | null> {
+  try {
+    const registry = _mirrorConfig.npmRegistry.replace(/\/$/, "");
+    const url = `${registry}/${packageName}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const resp = await fetch(url, {
+      headers: { Accept: "application/vnd.npm.install-v1+json" },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!resp.ok) return null;
+    const data = (await resp.json()) as { "dist-tags"?: Record<string, string> };
+    return data?.["dist-tags"]?.latest ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 检查所有依赖状态
+ * @param options.checkLatest 是否并行查询 npm registry 最新版本（默认 false，仅依赖管理页需要）
+ */
+export async function checkAllDependencies(
+  options?: { checkLatest?: boolean },
+): Promise<LocalDependencyItem[]> {
   const results: LocalDependencyItem[] = [];
 
   for (const dep of SETUP_REQUIRED_DEPENDENCIES) {
@@ -1656,6 +1686,21 @@ export async function checkAllDependencies(): Promise<LocalDependencyItem[]> {
     }
 
     results.push(item);
+  }
+
+  // 并行查询已安装的 npm 包的 latest 版本（仅在 checkLatest 时执行）
+  if (options?.checkLatest) {
+    const npmInstalled = results.filter(
+      (r) => r.type === "npm-local" && (r.status === "installed" || r.status === "outdated"),
+    );
+    if (npmInstalled.length > 0) {
+      const latestResults = await Promise.all(
+        npmInstalled.map((r) => fetchNpmLatestVersion(r.name)),
+      );
+      for (let i = 0; i < npmInstalled.length; i++) {
+        npmInstalled[i].latestVersion = latestResults[i] ?? undefined;
+      }
+    }
   }
 
   return results;

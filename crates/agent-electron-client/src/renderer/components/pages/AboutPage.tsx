@@ -13,6 +13,9 @@ import { SyncOutlined, DownloadOutlined, LinkOutlined } from "@ant-design/icons"
 import { APP_DISPLAY_NAME } from "@shared/constants";
 import type { UpdateState } from "@shared/types/updateTypes";
 
+/** 官网地址，用于关于页「官网」链接 */
+const OFFICIAL_WEBSITE_URL = "https://nuwax.com";
+
 export default function AboutPage() {
   const [updateState, setUpdateState] = useState<UpdateState>({ status: 'idle' });
   const [appVersion, setAppVersion] = useState<string>('');
@@ -104,6 +107,15 @@ export default function AboutPage() {
 
   const handleOpenReleases = useCallback(() => {
     window.electronAPI?.app?.openReleasesPage?.();
+  }, []);
+
+  /** 在系统默认浏览器中打开官网 */
+  const handleOpenOfficialWebsite = useCallback(async () => {
+    try {
+      await window.electronAPI?.shell?.openExternal(OFFICIAL_WEBSITE_URL);
+    } catch (e) {
+      console.error("[AboutPage] openExternal failed:", e);
+    }
   }, []);
 
   const renderUpdateSection = () => {
@@ -229,6 +241,26 @@ export default function AboutPage() {
           }}
         >
           跨平台 AI 智能体桌面客户端
+        </div>
+        {/* 官网链接：点击在系统浏览器打开 nuwax.com */}
+        <div style={{ marginTop: 12 }}>
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={handleOpenOfficialWebsite}
+            onKeyDown={(e) => e.key === "Enter" && handleOpenOfficialWebsite()}
+            style={{
+              fontSize: 13,
+              color: "#71717a",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <LinkOutlined />
+            官网 {OFFICIAL_WEBSITE_URL}
+          </span>
         </div>
         <div style={{ marginTop: 24 }}>
           {renderUpdateSection()}

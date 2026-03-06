@@ -2,11 +2,11 @@ import { ipcMain } from 'electron';
 import log from 'electron-log';
 
 export function registerDependencyHandlers(): void {
-  ipcMain.handle('dependencies:checkAll', async () => {
+  ipcMain.handle('dependencies:checkAll', async (_, options?: { checkLatest?: boolean }) => {
     const { checkAllDependencies } = await import('../services/system/dependencies');
     log.info('[IPC] Checking all dependencies...');
     try {
-      const results = await checkAllDependencies();
+      const results = await checkAllDependencies(options);
       return { success: true, results };
     } catch (error) {
       log.error('[IPC] Dependency check failed:', error);

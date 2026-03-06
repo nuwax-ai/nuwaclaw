@@ -224,8 +224,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Dependency management
   dependencies: {
-    checkAll: () =>
-      ipcRenderer.invoke('dependencies:checkAll'),
+    checkAll: (options?: { checkLatest?: boolean }) =>
+      ipcRenderer.invoke('dependencies:checkAll', options),
     checkNode: () =>
       ipcRenderer.invoke('dependencies:checkNode'),
     checkUv: () =>
