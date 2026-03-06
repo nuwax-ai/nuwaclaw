@@ -395,7 +395,8 @@ export async function logout(): Promise<void> {
 }
 
 /**
- * 同步本地配置到后端
+ * 同步本地配置到后端（调用 reg 接口）。
+ * reg 返回内容可能会变化（如 serverHost、serverPort 等），本函数会将本次返回的最新值写入配置并返回，调用方应在 reg 成功后再启动服务，以使用最新配置。
  */
 export async function syncConfigToServer(options?: {
   suppressToast?: boolean;
@@ -443,7 +444,7 @@ export async function syncConfigToServer(options?: {
     await setSavedKey(response.configKey, domain, username || undefined);
     await setOnlineStatus(response.online);
 
-    // 保存 lanproxy 服务器配置（参考 Tauri 客户端，与 loginAndRegister 逻辑一致）
+    // 使用本次 reg 返回的最新 serverHost/serverPort 覆盖本地配置（reg 返回可能随服务端策略变化）
     if (response.serverHost && response.serverPort) {
       await saveServerConfig(response.serverHost, response.serverPort);
     }

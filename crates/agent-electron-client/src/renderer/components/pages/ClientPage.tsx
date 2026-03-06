@@ -62,6 +62,8 @@ interface ClientPageProps {
   startingServices?: Set<string>;
   setStartingServices?: React.Dispatch<React.SetStateAction<Set<string>>>;
   onRefreshServices: () => Promise<void>;
+  /** 当 reg 成功或登录后由父组件递增，用于刷新账号状态（用户名等）以与 reg 返回一致 */
+  authRefreshTrigger?: number;
 }
 
 interface AuthState {
@@ -73,7 +75,7 @@ interface AuthState {
 
 // ======================== Component ========================
 
-function ClientPage({ onNavigate, services, servicesLoading, startingServices, setStartingServices, onRefreshServices }: ClientPageProps) {
+function ClientPage({ onNavigate, services, servicesLoading, startingServices, setStartingServices, onRefreshServices, authRefreshTrigger }: ClientPageProps) {
   // ---------- Auth state ----------
   const [authState, setAuthState] = useState<AuthState>({
     isLoggedIn: false,
@@ -422,6 +424,13 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       window.electronAPI?.off('deps:syncCompleted', handleDepsSyncCompleted as any);
     };
   }, [loadAuth, onRefreshServices, checkDependencies]);
+
+  // reg 成功或登录后父组件递增 authRefreshTrigger，刷新账号状态（用户名等）以与 reg 返回一致
+  useEffect(() => {
+    if (authRefreshTrigger != null && authRefreshTrigger > 0) {
+      loadAuth();
+    }
+  }, [authRefreshTrigger, loadAuth]);
 
   // ======================== Render helpers ========================
 

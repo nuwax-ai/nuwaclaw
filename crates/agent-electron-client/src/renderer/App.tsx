@@ -128,6 +128,8 @@ function App() {
   const [servicesLoading, setServicesLoading] = useState(true);
   const [startingServices, setStartingServices] = useState<Set<string>>(new Set());
   const servicesPollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** 递增后通知 ClientPage 刷新账号状态（用户名等），与 reg 返回保持一致 */
+  const [authRefreshTrigger, setAuthRefreshTrigger] = useState(0);
 
   // ============================================
   // 检查初始化向导状态（每次启动优先读取 quick init 配置）
@@ -300,6 +302,8 @@ function App() {
     // 等待依赖检查完成；若有缺失依赖则跳过（依赖安装完成后会通过 restartAll 启动服务）
     if (needsRequiredDepsReinstall !== false) return;
 
+    // 重新打开客户端时：若有 savedKey，先调 reg 接口，仅当 reg 成功返回后才启动服务。
+    // 因 reg 返回内容可能会变化（如 serverHost/serverPort 等），必须先拿到本次最新结果并写入配置，再启动服务，避免用到旧配置。
     const autoReconnect = async () => {
       // 如果 ClientPage handleLogin 已经启动了服务，跳过自动重连
       // 无论是否命中，都先清除标记，防止 crash 后标记残留导致永久跳过
@@ -322,29 +326,33 @@ function App() {
       try {
         const savedKey = await window.electronAPI?.settings.get('auth.saved_key');
         if (savedKey) {
-          console.log('[App] 检测到 savedKey，自动重连...');
+          console.log('[App] 检测到 savedKey，自动重连（先调 reg 接口）...');
+          // 必须等待 reg 成功返回后再启动服务；syncConfigToServer 会把本次 reg 返回的 serverHost/serverPort 等写入配置，供后续启动使用
           const result = await syncConfigToServer({ suppressToast: true });
           if (result) {
-            console.log('[App] 重连成功');
+            console.log('[App] reg 成功，使用本次返回配置启动服务');
             setOnlineStatus(result.online);
-            // 更新用户名显示
+            // 更新用户名显示（顶部栏）
             const user = await authService.getAuthUser();
             if (user) {
               setUsername(user.displayName || user.username || '用户');
             }
-            // 启动所有服务（顺序：先 MCP，最后 Lanproxy）
-            console.log('[App] 启动所有服务...');
+            // 通知客户端 Tab 刷新账号状态（用户名等）以与 reg 返回一致
+            setAuthRefreshTrigger((t) => t + 1);
+            // reg 已成功，此时再启动所有服务（顺序：先 MCP，最后 Lanproxy）
             await startServicesSequentially(['mcpProxy', 'agent', 'fileServer', 'lanproxy']);
           } else {
-            // 配置同步失败（网络断开 / token 过期），服务不自动启动
-            // 给用户可见的提示，引导其手动处理
-            console.warn('[App] 配置同步失败，服务未自动启动');
-            notification.warning({
+            // 配置同步失败：reg 请求失败（网络断开 / 服务器不可达 / token 过期等）。仍使用本地已保存的配置尝试启动服务，避免 Windows 等环境下完全无法使用。
+            console.warn('[App] 配置同步失败，使用本地已保存配置尝试启动服务');
+            notification.info({
               message: '自动重连失败',
-              description: '无法连接到服务器，服务未自动启动。请检查网络后在主界面手动点击"启动全部"，或重新登录。',
+              description:
+                '无法连接到服务器。正在使用本地已保存的配置尝试启动服务；若需最新配置请检查网络后重新登录。',
               duration: 8,
               placement: 'bottomRight',
             });
+            // 使用本地已保存的 lanproxy_config / step1_config 等尝试启动，保证至少能尝试拉起服务（含 Windows 客户端）
+            await startServicesSequentially(['mcpProxy', 'agent', 'fileServer', 'lanproxy']);
           }
         } else {
           console.log('[App] 未检测到 savedKey，跳过自动重连');
@@ -576,6 +584,7 @@ function App() {
               startingServices={startingServices}
               setStartingServices={setStartingServices}
               onRefreshServices={pollServicesStatus}
+              authRefreshTrigger={authRefreshTrigger}
             />
           )}
           {activeTab === 'settings' && <SettingsPage />}
