@@ -18,6 +18,7 @@ import { syncConfigToServer, normalizeServerHost, loginAndRegister } from './ser
 import { APP_DISPLAY_NAME, AUTH_KEYS } from '@shared/constants';
 import type { QuickInitConfig } from '@shared/types/quickInit';
 import SetupWizard from './components/setup/SetupWizard';
+import SetupDependencies from './components/setup/SetupDependencies';
 import ClientPage from './components/pages/ClientPage';
 import SettingsPage from './components/pages/SettingsPage';
 import DependenciesPage from './components/pages/DependenciesPage';
@@ -30,11 +31,12 @@ import styles from './styles/components/App.module.css';
 type TabKey = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'about';
 
 // 状态配置（对齐 Tauri 客户端）
+// 就绪、繁忙使用橙色（warning）、小点展示
 const STATUS_CONFIG: Record<string, { status: PresetStatusColorType; text: string }> = {
-  idle: { status: 'default', text: '就绪' },
+  idle: { status: 'warning', text: '就绪' },
   starting: { status: 'processing', text: '启动中' },
   running: { status: 'success', text: '运行中' },
-  busy: { status: 'success', text: '繁忙' },
+  busy: { status: 'warning', text: '繁忙' },
   stopped: { status: 'default', text: '已停止' },
   error: { status: 'error', text: '错误' },
 };
@@ -93,6 +95,26 @@ function App() {
   // ============================================
   const [isSetupComplete, setIsSetupComplete] = useState<boolean | null>(null);
   const setupJustCompleted = useRef(false);
+
+  /**
+   * 主界面下「必需依赖未完全安装」时是否强制进入依赖安装流程。
+   * - null: 进入主界面后尚未完成检查
+   * - true: 存在 missing/error 的必需依赖，全屏显示依赖安装，完成后回到主界面
+   * - false: 必需依赖均已安装（含 outdated，以当前真实安装版本为准，不强制重装）
+   */
+  const [needsRequiredDepsReinstall, setNeedsRequiredDepsReinstall] = useState<boolean | null>(null);
+
+  /**
+   * 重启所有服务（使新安装的依赖/二进制生效）。
+   * restartAll 内部已包含停止逻辑，无需额外调用 stopAll。
+   */
+  const restartAllServices = useCallback(async () => {
+    try {
+      await window.electronAPI?.services.restartAll();
+    } catch (e) {
+      console.error('[App] 重启服务失败:', e);
+    }
+  }, []);
 
   // ============================================
   // 核心状态
@@ -157,6 +179,31 @@ function App() {
     };
 
     init();
+  }, [isSetupComplete]);
+
+  // ============================================
+  // 主界面下必需依赖检查：仅当存在「未安装」或「错误」时进入依赖安装
+  // 版本以当前真实安装为准，outdated 不触发（用户可在依赖 Tab 手动升级）
+  // ============================================
+  useEffect(() => {
+    if (isSetupComplete !== true) return;
+
+    const checkRequiredDeps = async () => {
+      try {
+        const result = await window.electronAPI?.dependencies.checkAll();
+        const deps = result?.results ?? [];
+        // 仅当存在 missing 或 error 时需要重新进入依赖安装；outdated 视为已安装，不强制
+        const hasMissingOrError = deps.some(
+          (d: { status: string }) => d.status === 'missing' || d.status === 'error',
+        );
+        setNeedsRequiredDepsReinstall(hasMissingOrError);
+      } catch (error) {
+        console.error('[App] 必需依赖检查失败:', error);
+        setNeedsRequiredDepsReinstall(false);
+      }
+    };
+
+    checkRequiredDeps();
   }, [isSetupComplete]);
 
   // ============================================
@@ -245,10 +292,12 @@ function App() {
   }, [pollServicesStatus]);
 
   // ============================================
-  // 自动重连
+  // 自动重连（等待依赖检查完成后再执行，避免竞态）
   // ============================================
   useEffect(() => {
     if (isSetupComplete !== true) return;
+    // 等待依赖检查完成；若有缺失依赖则跳过（依赖安装完成后会通过 restartAll 启动服务）
+    if (needsRequiredDepsReinstall !== false) return;
 
     const autoReconnect = async () => {
       // 如果 ClientPage handleLogin 已经启动了服务，跳过自动重连
@@ -297,7 +346,7 @@ function App() {
     };
 
     autoReconnect();
-  }, [isSetupComplete, startServicesSequentially]);
+  }, [isSetupComplete, needsRequiredDepsReinstall, startServicesSequentially]);
 
   // ============================================
   // 根据服务状态计算 Agent 状态
@@ -431,9 +480,9 @@ function App() {
   }, [isMacOS]);
 
   // ============================================
-  // 渲染：加载中
+  // 渲染：加载中（含等待依赖检查完成）
   // ============================================
-  if (isSetupComplete === null) {
+  if (isSetupComplete === null || (isSetupComplete && needsRequiredDepsReinstall === null)) {
     return (
       <div className="app-loading">
         <Spin size="large" />
@@ -452,6 +501,21 @@ function App() {
   }
 
   // ============================================
+  // 渲染：主界面下必需依赖未满足 → 全屏依赖安装，完成后重启服务回到主界面
+  // ============================================
+  if (needsRequiredDepsReinstall === true) {
+    return (
+      <SetupDependencies
+        onComplete={async () => {
+          // 先回到主界面，再在后台重启服务（使新安装的依赖生效）
+          setNeedsRequiredDepsReinstall(false);
+          await restartAllServices();
+        }}
+      />
+    );
+  }
+
+  // ============================================
   // 渲染：主界面
   // ============================================
   return (
@@ -466,9 +530,13 @@ function App() {
           {username && (
             <span className={styles.username}>{username}</span>
           )}
-          <Badge status={badge.status} text={
-            <span className={styles.badgeText}>{badge.text}</span>
-          } />
+          <Badge
+            status={badge.status}
+            className={agentStatus === 'idle' || agentStatus === 'busy' ? styles.badgeIdle : undefined}
+            text={
+              <span className={styles.badgeText}>{badge.text}</span>
+            }
+          />
         </div>
       </div>
 

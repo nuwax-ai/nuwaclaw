@@ -105,6 +105,10 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
     log.info('Main window shown');
+    // macOS 开发模式：窗口显示后再创建托盘，提高菜单栏图标出现概率
+    if (process.platform === 'darwin' && !app.isPackaged && !trayManager) {
+      setTimeout(() => initTrayManager().catch((e) => log.warn('[Tray] Delayed init failed:', e)), 300);
+    }
   });
 
   mainWindow.on('closed', () => {
@@ -244,7 +248,13 @@ app.whenReady().then(async () => {
   await runStartupTasks();
 
   createWindow();
-  await initTrayManager();
+
+  // 非 macOS 或已打包：立即创建托盘。macOS 开发模式改为在 ready-to-show 后创建
+  if (!(process.platform === 'darwin' && !app.isPackaged)) {
+    if (process.platform === 'darwin' && app.dock) app.dock.show();
+    await initTrayManager();
+  }
+
   initAutoUpdater(() => mainWindow, cleanupAllProcesses);
 });
 

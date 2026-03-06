@@ -21,3 +21,10 @@
   color: #52525b;
   font-size: 12px;
 }
+
+/* 就绪、繁忙状态：橙色小点 */
+.badgeIdle :global(.ant-badge-status-dot) {
+  width: 6px;
+  height: 6px;
+  min-width: 6px;
+}

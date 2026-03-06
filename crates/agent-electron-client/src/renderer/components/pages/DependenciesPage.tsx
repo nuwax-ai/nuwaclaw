@@ -112,6 +112,24 @@ export default function DependenciesPage() {
     outdated: localDeps.filter((d) => d.status === "outdated").length,
   };
 
+  /**
+   * 依赖安装/升级后重启所有服务，使新版本二进制生效。
+   * restartAll 内部已包含停止逻辑，无需额外调用 stopAll。
+   */
+  const restartServicesAfterDepChange = useCallback(async () => {
+    try {
+      message.loading({ content: "正在重启服务…", key: "restart-services" });
+      await window.electronAPI?.services.restartAll();
+      message.success({ content: "服务已重启", key: "restart-services" });
+    } catch (e) {
+      console.error("[DependenciesPage] 重启服务失败:", e);
+      message.error({
+        content: "重启服务失败",
+        key: "restart-services",
+      });
+    }
+  }, []);
+
   // ==========================================
   // Install a single dependency
   // ==========================================
@@ -153,6 +171,8 @@ export default function DependenciesPage() {
         );
         const action = isUpgrade ? "升级" : "安装";
         message.success(`${displayName} ${action}成功`);
+        // 手动安装/升级后关闭并重启服务，使新依赖生效
+        await restartServicesAfterDepChange();
       } else {
         setLocalDeps((prev) =>
           prev.map((d) =>
@@ -201,6 +221,7 @@ export default function DependenciesPage() {
     );
 
     setDepInstalling(true);
+    let anySucceeded = false;
     try {
       for (const dep of depsToProcess) {
         setCurrentInstallingDep(dep.displayName);
@@ -222,6 +243,7 @@ export default function DependenciesPage() {
           );
 
         if (result?.success) {
+          anySucceeded = true;
           setLocalDeps((prev) =>
             prev.map((d) =>
               d.name === dep.name
@@ -258,6 +280,10 @@ export default function DependenciesPage() {
             ? "依赖升级完成"
             : "依赖安装完成";
       message.success(doneMsg);
+      // 若有任意一项安装/升级成功，关闭并重启服务使新依赖生效
+      if (anySucceeded) {
+        await restartServicesAfterDepChange();
+      }
     } catch (error) {
       message.error(`安装失败: ${error}`);
     } finally {

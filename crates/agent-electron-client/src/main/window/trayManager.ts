@@ -190,36 +190,62 @@ export class TrayManager {
 
   /**
    * 获取托盘图标路径
+   * 开发模式：使用 __dirname 相对路径，避免 process.cwd() 在 monorepo 或从其他目录启动时指向错误目录导致图标加载失败、托盘不显示。
+   * 编译后 main 在 dist/main/，window 在 dist/main/window/，故 ../../../ 为包根目录。
    */
   private getIconPath(fileName: string): string {
     if (app.isPackaged) {
       return path.join(process.resourcesPath, 'tray', fileName);
     }
-    return path.join(process.cwd(), 'public', 'tray', fileName);
+    const devPath = path.join(__dirname, '..', '..', '..', 'public', 'tray', fileName);
+    return devPath;
   }
 
   /**
    * 创建托盘图标
    *
-   * macOS: 加载 trayTemplate / trayTemplate@2x（黑色剪影），
-   *        setTemplateImage(true) 让系统根据明暗主题自动着色。
+   * macOS 开发模式：从终端运行时 template 图标常不显示，故一律使用彩色图标 tray.png，
+   *        并缩放到 22x22 以符合菜单栏尺寸，保证托盘可见。
+   * macOS 打包后：使用 trayTemplate / trayTemplate@2x + setTemplateImage(true)。
    * Windows / Linux: 加载 tray.png（彩色图标）。
    */
   private createTrayIcon(_status: TrayStatus): Electron.NativeImage {
     if (process.platform === 'darwin') {
+      const isDev = !app.isPackaged;
+
+      if (isDev) {
+        // 开发模式：始终用彩色图标，避免 template 在菜单栏不显示
+        const path22 = this.getIconPath(TRAY_ICON_DEFAULT);
+        const path44 = this.getIconPath('tray@2x.png');
+        let icon = nativeImage.createFromPath(path44);
+        if (icon.isEmpty()) icon = nativeImage.createFromPath(path22);
+        if (!icon.isEmpty()) {
+          const size = icon.getSize();
+          if (size.width > 22 || size.height > 22) {
+            icon = icon.resize({ width: 22, height: 22 });
+          }
+          log.info('[Tray] macOS dev: using non-template icon (menu bar visibility):', icon.getSize().width > 22 ? path44 : path22);
+          return icon;
+        }
+        // 最后兜底：生成 22x22 占位图，确保 Tray 收到非空图
+        icon = this.createPlaceholderTrayImage(22);
+        log.warn('[Tray] macOS dev: tray icon files not found, using placeholder');
+        return icon;
+      }
+
+      // 打包后：template 图标
       const retinaPath = this.getIconPath(TRAY_ICON_MAC_RETINA);
       const normalPath = this.getIconPath(TRAY_ICON_MAC);
-
       let icon = nativeImage.createFromPath(retinaPath);
       if (icon.isEmpty()) {
         log.warn('[Tray] Retina template icon not found, trying @1x:', normalPath);
         icon = nativeImage.createFromPath(normalPath);
       }
-
       if (icon.isEmpty()) {
-        log.error('[Tray] macOS tray icon not found:', retinaPath);
+        log.error('[Tray] macOS tray icon not found. Paths tried:', { retinaPath, normalPath });
+        return this.createPlaceholderTrayImage(22);
       }
-
+      log.info('[Tray] macOS tray icon loaded from:', icon.getSize().width ? retinaPath : normalPath);
       icon.setTemplateImage(true);
       return icon;
     }
@@ -228,9 +254,17 @@ export class TrayManager {
     const iconPath = this.getIconPath(TRAY_ICON_DEFAULT);
     const icon = nativeImage.createFromPath(iconPath);
     if (icon.isEmpty()) {
-      log.error('[Tray] Tray icon not found:', iconPath);
+      log.error('[Tray] Tray icon not found (tray may not show):', iconPath);
     }
     return icon;
+  }
+
+  /** 生成灰色占位图（1x1 PNG 放大），用于图标缺失时保证 Tray 收到非空图 */
+  private createPlaceholderTrayImage(size: number): Electron.NativeImage {
+    const s = Math.max(16, Math.min(22, size));
+    const dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const img = nativeImage.createFromDataURL(dataUrl);
+    return img.isEmpty() ? img : img.resize({ width: s, height: s });
   }
 
   /**
