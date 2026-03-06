@@ -20,10 +20,13 @@
  */
 
 import * as http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
 import { EventEmitter } from 'events';
 import log from 'electron-log';
 import { agentService } from './engines/unifiedAgent';
 import { LOCALHOST_HOSTNAME } from './constants';
+import { getConfiguredPorts } from './startupPorts';
 import type {
   ComputerChatRequest,
   HttpResult,
@@ -41,6 +44,94 @@ let lastError: string | null = null;
  * 解析 POST body (JSON)，限制最大 10MB 防止内存耗尽
  */
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
+
+/**
+ * 检测项目工作空间目录是否存在，不存在则通过 file-server 创建空目录结构。
+ *
+ * 规则：
+ * - 目录已存在 → 直接返回，不做任何写入（保护已有 .claude/skills/ 等内容）
+ * - 目录不存在 → 调用 file-server create-workspace（不传 zip，仅建目录）
+ * - workspaceDir 未配置 → 跳过整个检测，不调用 file-server
+ *
+ * file-server create-workspace 使用 multer，必须发送 multipart/form-data。
+ */
+async function ensureProjectWorkspace(
+  userId: string,
+  projectId: string,
+  fileServerPort: number,
+): Promise<void> {
+  // workspaceDir 未配置时跳过，避免在无法确认目录状态时误调用 file-server
+  const agentConfig = agentService.getAgentConfig();
+  if (!agentConfig?.workspaceDir) {
+    log.debug('[ensureProjectWorkspace] workspaceDir 未配置，跳过检测');
+    return;
+  }
+
+  // 本地快速检测：COMPUTER_WORKSPACE_DIR = workspaceDir/computer-project-workspace
+  const projectDir = path.join(
+    agentConfig.workspaceDir,
+    'computer-project-workspace',
+    userId,
+    projectId,
+  );
+  if (fs.existsSync(projectDir)) {
+    log.debug(`[ensureProjectWorkspace] 目录已存在，跳过: ${projectDir}`);
+    return;
+  }
+
+  // 目录不存在，通知 file-server 创建空目录结构（不传 zip，不写入 skills）
+  log.info(`[ensureProjectWorkspace] 目录不存在，创建: ${projectDir}`);
+
+  // multer 要求 multipart/form-data，手动拼接 boundary
+  const boundary = `----FormBoundary${Date.now()}`;
+  const formBody = [
+    `--${boundary}`,
+    `Content-Disposition: form-data; name="userId"`,
+    '',
+    userId,
+    `--${boundary}`,
+    `Content-Disposition: form-data; name="cId"`,
+    '',
+    projectId,
+    `--${boundary}--`,
+  ].join('\r\n');
+
+  const response = await new Promise<http.IncomingMessage>((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: LOCALHOST_HOSTNAME,
+        port: fileServerPort,
+        path: '/api/computer/create-workspace',
+        method: 'POST',
+        headers: {
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Content-Length': Buffer.byteLength(formBody),
+        },
+        timeout: 30000,
+      },
+      resolve,
+    );
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timeout'));
+    });
+    req.write(formBody);
+    req.end();
+  });
+
+  let body = '';
+  for await (const chunk of response) {
+    body += chunk;
+  }
+
+  const result = JSON.parse(body);
+  if (result.success || result.workspaceRoot) {
+    log.info(`[ensureProjectWorkspace] ✅ 目录创建成功: ${result.workspaceRoot || projectDir}`);
+  } else {
+    log.warn(`[ensureProjectWorkspace] file-server 返回失败:`, result.message || result);
+  }
+}
 
 function parseBody(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -172,6 +263,19 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       t2 = Date.now();
       log.debug(`⏱️ [HTTP][PERF] 验证字段 耗时: ${t2 - t1}ms`);
 
+      // 确保项目工作空间存在（客户端快速重新登录后工作空间可能被清空）
+      if (body.project_id) {
+        try {
+          const { fileServer: fileServerPort } = getConfiguredPorts();
+          await ensureProjectWorkspace(body.user_id, body.project_id, fileServerPort);
+        } catch (wsErr: any) {
+          log.warn('[HTTP] ensureProjectWorkspace failed (non-blocking):', wsErr.message);
+          // 不阻断请求，继续执行
+        }
+      }
+      const t2_5 = Date.now();
+      log.debug(`⏱️ [HTTP][PERF] ensureProjectWorkspace 耗时: ${t2_5 - t2}ms`);
+
       // 确保正确的引擎已启动（按 project_id 路由到对应 AcpEngine）
       let acpEngine;
       try {
@@ -182,7 +286,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         return;
       }
       t3 = Date.now();
-      log.debug(`⏱️ [HTTP][PERF] ensureEngineForRequest 耗时: ${t3 - t2}ms`);
+      log.debug(`⏱️ [HTTP][PERF] ensureEngineForRequest 耗时: ${t3 - t2_5}ms`);
 
       if (!acpEngine) {
         log.error('❌ [HTTP] Agent not initialized');
@@ -201,7 +305,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         log.error(`❌ [HTTP] Computer Chat 失败: ${result.message}`);
       }
 
-      log.info(`⏱️ [HTTP][PERF] /computer/chat 总耗时: ${t4 - t0}ms (parseBody=${t1 - t0}ms, validate=${t2 - t1}ms, ensureEngine=${t3 - t2}ms, chat=${t4 - t3}ms)`);
+      log.info(`⏱️ [HTTP][PERF] /computer/chat 总耗时: ${t4 - t0}ms (parseBody=${t1 - t0}ms, validate=${t2 - t1}ms, ensureWorkspace=${t2_5 - t2}ms, ensureEngine=${t3 - t2_5}ms, chat=${t4 - t3}ms)`);
       sendJson(res, 200, result);
       return;
     }
