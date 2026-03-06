@@ -3,6 +3,7 @@ import {
   Menu,
   Badge,
   Spin,
+  Button,
   notification,
 } from 'antd';
 import type { PresetStatusColorType } from 'antd/es/_util/colors';
@@ -108,8 +109,40 @@ function App() {
   /**
    * 重启所有服务（使新安装的依赖/二进制生效）。
    * restartAll 内部已包含停止逻辑，无需额外调用 stopAll。
+   *
+   * 重启前先调 reg 接口，将本次返回的最新 serverHost/serverPort 写入配置，
+   * 确保 lanproxy 使用最新服务端地址，而不是 SQLite 里的旧缓存值。
    */
   const restartAllServices = useCallback(async () => {
+    try {
+      // 先 reg 拿最新 serverHost/serverPort 写入配置，成功后再重启服务。
+      // reg 失败（网络不通/token 过期）时中止重启，并弹出通知让用户手动重试。
+      await syncConfigToServer({ suppressToast: true });
+    } catch (e) {
+      console.error('[App] reg 同步失败，中止重启服务:', e);
+      const notifKey = 'restartRegFailed';
+      notification.error({
+        key: notifKey,
+        message: '配置同步失败',
+        description: '无法连接到服务器获取最新配置，服务未重启。请检查网络后重试。',
+        duration: 0,
+        placement: 'bottomRight',
+        btn: (
+          <Button
+            type="primary"
+            size="small"
+            onClick={() => {
+              notification.destroy(notifKey);
+              restartAllServices();
+            }}
+          >
+            重试
+          </Button>
+        ),
+      });
+      return;
+    }
+
     try {
       await window.electronAPI?.services.restartAll();
     } catch (e) {
