@@ -69,28 +69,41 @@ export default function AboutPage() {
     setUpdateState((prev) => ({ ...prev, status: 'checking' }));
     try {
       const result = await window.electronAPI?.app?.checkUpdate();
+
+      // IPC 不可用（API 层返回空），直接恢复 idle
       if (!result) {
-        // IPC 返回空（API 不可用等），恢复 idle
-        setUpdateState((prev) => ({ ...prev, status: 'idle' }));
+        setUpdateState({ status: 'idle' });
         return;
       }
+
+      // 上一次检查仍在进行中，本次被跳过；不显示 toast，等待 update:status 事件。
+      // 但启动检查可能在 IPC 往返途中恰好已完成且不再发事件，
+      // 调一次 getUpdateState() 防止 'checking' 状态永久卡住。
+      if (result.alreadyChecking) {
+        const s = await window.electronAPI?.app?.getUpdateState?.();
+        if (s) setUpdateState(s);
+        return;
+      }
+
+      // 根据检查结果显示 toast（仅负责消息提示，不在这里推算状态）
       if (result.error) {
         message.error(`检查更新失败: ${result.error}`);
-        setUpdateState((prev) => ({ ...prev, status: 'idle' }));
-      } else if (result.hasUpdate) {
-        // 主进程 update:status 事件可能已推送 'available'，这里兜底确保状态更新
-        setUpdateState((prev) =>
-          prev.status === 'checking'
-            ? { ...prev, status: 'available', version: result.version }
-            : prev,
-        );
-      } else {
+      } else if (!result.hasUpdate) {
         message.info("当前已是最新版本");
-        setUpdateState((prev) => ({ ...prev, status: 'idle' }));
+      }
+
+      // 从主进程获取权威状态（含 canAutoUpdate），避免 IPC 事件与 invoke 响应
+      // 竞争条件导致 Windows MSI 用户看到错误按钮或状态卡住
+      const authoritative = await window.electronAPI?.app?.getUpdateState?.();
+      if (authoritative) {
+        setUpdateState(authoritative);
+      } else if (result.error || !result.hasUpdate) {
+        // getUpdateState 不可用时的兜底
+        setUpdateState({ status: 'idle' });
       }
     } catch {
       message.error("检查更新失败");
-      setUpdateState((prev) => ({ ...prev, status: 'idle' }));
+      setUpdateState({ status: 'idle' });
     }
   }, []);
 

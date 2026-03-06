@@ -13,6 +13,8 @@ export interface UpdateInfo {
   releaseDate?: string;
   releaseNotes?: string;
   error?: string;
+  /** 上一次检查仍在进行中，本次调用被跳过 */
+  alreadyChecking?: boolean;
 }
 
 export interface UpdateState {

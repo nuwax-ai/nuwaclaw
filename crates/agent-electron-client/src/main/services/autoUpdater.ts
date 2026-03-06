@@ -208,7 +208,8 @@ let checkInProgress = false;
 async function checkForUpdatesViaLatestJson(): Promise<UpdateInfo> {
   if (checkInProgress) {
     log.info('[AutoUpdater] Check already in progress, skipping');
-    return { hasUpdate: false };
+    // 返回 alreadyChecking: true，让调用方知道检查正在进行，避免误报"当前已是最新版本"
+    return { hasUpdate: false, alreadyChecking: true };
   }
   checkInProgress = true;
 
