@@ -58,12 +58,15 @@ export async function apiRequest<T>(
   const config = { ...DEFAULT_CONFIG, ...options };
   const fullUrl = `${config.baseUrl}${url}`;
 
+  // 使用 AbortSignal.timeout 实现请求超时，避免网络挂起时永久阻塞
+  const timeoutMs = config.timeout ?? DEFAULT_API_TIMEOUT;
   const fetchOptions: RequestInit = {
     method: options.method || "POST",
     headers: {
       "Content-Type": "application/json",
       ...config.headers,
     },
+    signal: AbortSignal.timeout(timeoutMs),
   };
 
   if (options.data) {
@@ -111,6 +114,17 @@ export async function apiRequest<T>(
 
     return result.data;
   } catch (error: any) {
+    // AbortSignal.timeout 超时后抛出 TimeoutError（name === 'TimeoutError'）
+    // 或 AbortError（某些环境），统一转为可读错误
+    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+      const timeoutMsg = `请求超时（>${timeoutMs}ms），请检查网络或服务器状态`;
+      console.error("API Request Timeout:", finalUrl, error);
+      if (options.showError !== false) {
+        message.error(timeoutMsg);
+      }
+      throw new Error(timeoutMsg);
+    }
+
     console.error("API Request Error:", error);
 
     // 检测是否是重定向到登录页面的情况（后端返回 HTML）

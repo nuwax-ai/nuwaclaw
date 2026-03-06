@@ -130,6 +130,21 @@ describe('auth - savedKey 认证 (快捷登录)', () => {
   // ---------- syncConfigToServer ----------
 
   describe('syncConfigToServer', () => {
+    it('username 和 password 均为空字符串 + 无 savedKey → 应拒绝（P1-5 修复验证）', async () => {
+      // 修复前：空字符串不等于 null，会绕过 guard 向后端发空凭证请求
+      // 修复后：!'' === true，正确拦截
+      store['auth.username'] = '';
+      store['auth.password'] = '';
+      // 不设置 savedKey
+      store['step1_config'] = { serverHost: DOMAIN };
+
+      const { syncConfigToServer } = await loadAuth();
+      const result = await syncConfigToServer({ suppressToast: true });
+
+      expect(result).toBeNull();
+      expect(mockRegisterClient).not.toHaveBeenCalled();
+    });
+
     it('username/password 为空字符串 + 有 savedKey → 应正常同步', async () => {
       store['auth.username'] = '';
       store['auth.password'] = '';
@@ -210,6 +225,54 @@ describe('auth - savedKey 认证 (快捷登录)', () => {
 
       expect(result).toBeNull();
       expect(mockRegisterClient).not.toHaveBeenCalled();
+    });
+
+    it('有 domain+username → 应使用域名级 savedKey，而非全局 key（P0-1 修复验证）', async () => {
+      // 域名级 key 与全局 key 故意不同，验证使用的是域名级
+      store['auth.username'] = 'user1';
+      store['lanproxy.server_host'] = DOMAIN; // AUTH_KEYS.LANPROXY_SERVER_HOST
+      store['auth.saved_keys.testagent.xspaceagi.com_user1'] = 'domain-specific-key';
+      store['auth.saved_key'] = 'global-key-different';
+
+      const { reRegisterClient } = await loadAuth();
+      await reRegisterClient();
+
+      const [params] = mockRegisterClient.mock.calls[0];
+      // 应使用域名级 savedKey，不应使用全局 key
+      expect(params.savedKey).toBe('domain-specific-key');
+    });
+
+    it('多账号切换：当前用户无专属 savedKey 时，不应使用全局 key 中其他账号的凭证（P0-1 修复验证）', async () => {
+      // 模拟用户A之前登录，全局 key 被覆盖为 A 的凭证
+      store['auth.saved_keys.testagent.xspaceagi.com_userA'] = 'key-for-userA';
+      store['auth.saved_key'] = 'key-for-userA'; // 全局 key 指向 A
+
+      // 当前切换为用户B（没有域名级专属 key）
+      store['auth.username'] = 'userB';
+      store['lanproxy.server_host'] = DOMAIN; // AUTH_KEYS.LANPROXY_SERVER_HOST
+      // 不设置 auth.saved_keys.*.userB
+
+      const { reRegisterClient } = await loadAuth();
+      await reRegisterClient();
+
+      const [params] = mockRegisterClient.mock.calls[0];
+      // 用户B无专属 key，savedKey 应为 undefined，不应传入用户A的 key
+      expect(params.savedKey).toBeUndefined();
+    });
+
+    it('无 domain 信息时 → 应回退到全局 savedKey', async () => {
+      // 没有 domain 配置，只有全局 key
+      store['auth.username'] = 'user1';
+      // 不设置 lanproxy_server_host 和 step1_config
+      store['auth.saved_key'] = SAVED_KEY;
+
+      const { reRegisterClient } = await loadAuth();
+      const result = await reRegisterClient();
+
+      expect(result).not.toBeNull();
+      const [params] = mockRegisterClient.mock.calls[0];
+      // 无 domain 时 fallback 到全局 key
+      expect(params.savedKey).toBe(SAVED_KEY);
     });
   });
 

@@ -177,9 +177,9 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
-          // 先停止所有运行中的服务
-          const running = services.filter((s) => s.running);
-          for (const svc of running) {
+          // 停止所有运行中或处于 error 状态的服务（error 状态进程可能仍驻留）
+          const toStop = services.filter((s) => s.running || !!s.error);
+          for (const svc of toStop) {
             try {
               if (svc.key === 'agent') await window.electronAPI?.agent.destroy();
               else if (svc.key === 'fileServer') await window.electronAPI?.fileServer.stop();
@@ -189,6 +189,10 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
               console.error(`停止 ${svc.label} 失败:`, e);
             }
           }
+          // computerServer 不在 services 列表中，需单独停止，避免进程残留导致端口冲突
+          await window.electronAPI?.computerServer.stop().catch((e: unknown) => {
+            console.error('停止 computerServer 失败:', e);
+          });
 
           await logout();
           setAuthState({ isLoggedIn: false, username: null, domain: null });
@@ -306,6 +310,11 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
   };
 
   const handleStartAll = async () => {
+    // 未登录时禁止启动全部服务，避免 agent 无 apiKey / lanproxy 无 clientKey 的半启动状态
+    if (!authState.isLoggedIn) {
+      message.warning('请先登录后再启动服务');
+      return;
+    }
     if (missingDeps.length > 0) {
       message.warning('存在缺失依赖，请先安装');
       return;
@@ -380,10 +389,10 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       if (syncInProgress) {
         setMissingDeps([]);
       } else {
+        // 与 App.tsx 保持一致：outdated 视为"已安装"，不阻断服务启动
+        // 仅 missing / error 才视为缺失依赖
         const missing = deps.filter(
-          (d: any) =>
-            d.required &&
-            (d.status === 'missing' || d.status === 'outdated' || d.status === 'error'),
+          (d: any) => d.required && (d.status === 'missing' || d.status === 'error'),
         );
         setMissingDeps(
           missing.map((d: any) => ({ name: d.name, displayName: d.displayName || d.name })),

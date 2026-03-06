@@ -346,21 +346,38 @@ export async function getCurrentAuth(): Promise<{
 
 /**
  * 重新注册客户端（使用已保存的凭证）
+ *
+ * 修复：使用 domain + username 级别的 savedKey，避免多账号切换时读取到错误账号的凭证
  */
 export async function reRegisterClient(): Promise<ClientRegisterResponse | null> {
   const username = await getUsername();
   const password = await getPassword();
-  const savedKey = await getSavedKey();
+
+  // 读取 domain，与 syncConfigToServer / loginAndRegister 保持一致的优先级
+  const lanproxyHost = await settingsGet<string>(AUTH_KEYS.LANPROXY_SERVER_HOST);
+  const step1Config = await window.electronAPI?.settings.get('step1_config') as {
+    serverHost?: string;
+  } | null;
+  const rawDomain = lanproxyHost || step1Config?.serverHost || '';
+  const domain = normalizeServerHost(rawDomain);
+
+  // 按 domain + username 取对应账号的 savedKey，而非读全局 key，避免多账号混淆
+  const savedKey = domain && username
+    ? await getSavedKey(domain, username)
+    : await getSavedKey();
 
   // 有 savedKey 即可认证，无需 username/password
-  if (!savedKey && username == null && password == null) {
+  if (!savedKey && !username && !password) {
     console.warn('[Auth] 未保存凭证，无法重新注册');
     return null;
   }
 
   try {
     console.log('[Auth] 重新注册客户端...');
-    const response = await loginAndRegister(username || '', password || '', { suppressToast: true });
+    const response = await loginAndRegister(username || '', password || '', {
+      suppressToast: true,
+      domain: domain || undefined,
+    });
     console.log('[Auth] 重新注册成功');
     return response;
   } catch (error) {
@@ -394,7 +411,8 @@ export async function syncConfigToServer(options?: {
   const savedKey = await getSavedKey(domain, username || undefined);
 
   // 有 savedKey 即可认证，无需 username/password
-  if (!savedKey && username == null && password == null) {
+  // 使用严格布尔检查（!x），避免空字符串绕过校验向后端发起空凭证请求
+  if (!savedKey && !username && !password) {
     console.warn('[SyncConfig] 未登录，无法同步配置');
     return null;
   }

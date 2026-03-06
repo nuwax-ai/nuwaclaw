@@ -3,6 +3,7 @@ import {
   Menu,
   Badge,
   Spin,
+  notification,
 } from 'antd';
 import type { PresetStatusColorType } from 'antd/es/_util/colors';
 import {
@@ -335,7 +336,15 @@ function App() {
             console.log('[App] 启动所有服务...');
             await startServicesSequentially(['mcpProxy', 'agent', 'fileServer', 'lanproxy']);
           } else {
-            console.warn('[App] 配置同步失败');
+            // 配置同步失败（网络断开 / token 过期），服务不自动启动
+            // 给用户可见的提示，引导其手动处理
+            console.warn('[App] 配置同步失败，服务未自动启动');
+            notification.warning({
+              message: '自动重连失败',
+              description: '无法连接到服务器，服务未自动启动。请检查网络后在主界面手动点击"启动全部"，或重新登录。',
+              duration: 8,
+              placement: 'bottomRight',
+            });
           }
         } else {
           console.log('[App] 未检测到 savedKey，跳过自动重连');
