@@ -29,6 +29,7 @@ status: design
 | [Quick Init](./QUICK-INIT.md) | 快捷初始化（nuwaxbot.json / 环境变量） | stable |
 | [初始化依赖版本固定与安装/升级](./dependency-version-pinning.md) | installVersion、升级同步、文案、尊重已安装版本不降级 | stable |
 | [Auto Update](./auto-update.md) | 自动更新机制 | design |
+| [认证机制与 SavedKey 生命周期](./auth-savedkey-lifecycle.md) | savedKey 设计、多账号隔离、退出登录与服务联动规则 | stable |
 
 ### 参考文档
 
@@ -107,6 +108,7 @@ status: design
 | ARCHITECTURE-ISOLATION.md | - | - |
 | ARCHITECTURE-REF-OPENCLAW.md | 2.3 | 2026-02-24 |
 | ARCHITECTURE-RUNTIME-ENV-PROFILES.md | - | 2026-02-24 |
+| auth-savedkey-lifecycle.md | 1.0 | 2026-03-06 |
 
 ---
 

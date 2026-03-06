@@ -20,7 +20,7 @@
 | pnpm | pnpm 包管理器 | npm-local | Node 包管理器 | 10.30.3 |
 | nuwax-file-server | 文件服务 | npm-local | 工作目录文件远程管理 | 1.2.2 |
 | nuwaxcode | Agent 引擎 | npm-local | 执行引擎 | 1.1.63 |
-| nuwax-mcp-stdio-proxy | MCP 服务 | npm-local | MCP 协议聚合代理 | 1.4.5 |
+| nuwax-mcp-stdio-proxy | MCP 服务 | npm-local | MCP 协议聚合代理 | 1.4.6 |
 | claude-code-acp-ts | ACP 协议 | npm-local | 引擎统一适配 | 0.16.1 |
 
 - **配置位置**：`src/main/services/system/dependencies.ts` 中的 `SETUP_REQUIRED_DEPENDENCIES`。
