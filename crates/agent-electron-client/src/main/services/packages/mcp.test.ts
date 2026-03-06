@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import * as path from "path";
 
 // Mock electron
 vi.mock("electron", () => ({
@@ -1579,7 +1580,7 @@ describe("getAgentMcpConfig — 内容哈希临时文件", () => {
 
     // 文件名格式应为 mcp-config-<16位hex>.json（非 mcp-config-<uuid>.json）
     if (firstWritePath) {
-      const fileName = firstWritePath.split("/").pop() ?? "";
+      const fileName = path.basename(firstWritePath);
       expect(fileName).toMatch(/^mcp-config-[0-9a-f]{16}\.json$/);
     }
   });
