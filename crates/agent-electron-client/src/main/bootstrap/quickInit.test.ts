@@ -115,8 +115,8 @@ describe('readQuickInitConfig', () => {
     expect(config!.serverHost).toBe('https://agent.nuwax.com');
     expect(config!.savedKey).toBe('key-123');
     expect(config!.username).toBe('');
-    expect(config!.agentPort).toBe(60001);
-    expect(config!.fileServerPort).toBe(60000);
+    expect(config!.agentPort).toBe(60006);
+    expect(config!.fileServerPort).toBe(60005);
     expect(config!.workspaceDir).toBe(path.join('/mock/home', '.nuwaxbot', 'workspace'));
   });
 
@@ -187,8 +187,8 @@ describe('readQuickInitConfig', () => {
     expect(config).not.toBeNull();
     expect(config!.serverHost).toBe('https://env.nuwax.com');
     expect(config!.savedKey).toBe('env-key-456');
-    expect(config!.agentPort).toBe(60001);
-    expect(config!.fileServerPort).toBe(60000);
+    expect(config!.agentPort).toBe(60006);
+    expect(config!.fileServerPort).toBe(60005);
     expect(config!.workspaceDir).toBe(path.join('/mock/home', '.nuwaxbot', 'workspace'));
   });
 
@@ -235,7 +235,7 @@ describe('readQuickInitConfig', () => {
     const readQuickInitConfig = await loadReader();
     const config = readQuickInitConfig();
 
-    expect(config!.agentPort).toBe(60001); // fallback to default
+    expect(config!.agentPort).toBe(60006); // fallback to default
   });
 
   // ==================== 优先级: JSON > env > default ====================
@@ -299,8 +299,8 @@ describe('readQuickInitConfig', () => {
     const readQuickInitConfig = await loadReader();
     const config = readQuickInitConfig();
 
-    expect(config!.agentPort).toBe(60001);
-    expect(config!.fileServerPort).toBe(60000);
+    expect(config!.agentPort).toBe(60006);
+    expect(config!.fileServerPort).toBe(60005);
     expect(config!.workspaceDir).toBe(path.join('/mock/home', '.nuwaxbot', 'workspace'));
     expect(config!.username).toBe('');
   });

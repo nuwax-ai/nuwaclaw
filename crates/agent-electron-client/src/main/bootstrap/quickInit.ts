@@ -6,14 +6,14 @@
  * 环境变量:
  *   NUWAX_SERVER_HOST      → serverHost       (必填)
  *   NUWAX_SAVED_KEY        → savedKey          (必填)
- *   NUWAX_AGENT_PORT       → agentPort         (可选, 默认 60001)
- *   NUWAX_FILE_SERVER_PORT → fileServerPort    (可选, 默认 60000)
+ *   NUWAX_AGENT_PORT       → agentPort         (可选, 默认 60006)
+ *   NUWAX_FILE_SERVER_PORT → fileServerPort    (可选, 默认 60005)
  *   NUWAX_WORKSPACE_DIR    → workspaceDir      (可选, 默认 ~/.nuwaxbot/workspace)
  *   NUWAX_USER_NAME        → username          (可选, 默认 '')
  *
  * 最低必填: serverHost + savedKey（来自任意源），其余用客户端默认值
- *   agentPort      → DEFAULT_AGENT_RUNNER_PORT (60001)
- *   fileServerPort → DEFAULT_FILE_SERVER_PORT  (60000)
+ *   agentPort      → DEFAULT_AGENT_RUNNER_PORT (60006)
+ *   fileServerPort → DEFAULT_FILE_SERVER_PORT  (60005)
  *   workspaceDir   → ~/.nuwaxbot/workspace
  *   username       → ''
  */

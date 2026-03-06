@@ -61,8 +61,8 @@ describe('Constants', () => {
     it('should have valid port numbers', () => {
       expect(DEFAULT_MCP_PROXY_PORT).toBeGreaterThan(0);
       expect(DEFAULT_MCP_PROXY_PORT).toBeLessThan(65536);
-      expect(DEFAULT_FILE_SERVER_PORT).toBe(60000);
-      expect(DEFAULT_AGENT_RUNNER_PORT).toBe(60001);
+      expect(DEFAULT_FILE_SERVER_PORT).toBe(60005);
+      expect(DEFAULT_AGENT_RUNNER_PORT).toBe(60006);
       expect(DEFAULT_LANPROXY_PORT).toBe(60002);
       expect(DEFAULT_DEV_SERVER_PORT).toBe(60173);
     });
