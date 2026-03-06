@@ -24,4 +24,6 @@ export interface UpdateState {
   error?: string;
   /** false 表示当前安装方式不支持自动更新（如 Windows MSI），需要手动下载 */
   canAutoUpdate?: boolean;
+  /** true 表示因应用在只读卷运行（如从「下载」直接打开）导致无法就地更新，应引导用户前往下载页 */
+  isReadOnlyVolumeError?: boolean;
 }

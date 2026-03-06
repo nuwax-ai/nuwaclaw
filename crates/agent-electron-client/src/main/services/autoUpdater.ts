@@ -23,6 +23,13 @@ import { APP_DATA_DIR_NAME } from '@shared/constants';
 const OSS_BASE = 'https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaxbot-electron';
 const OSS_LATEST_JSON_URL = `${OSS_BASE}/latest/latest.json`;
 
+/** Squirrel.Mac 在只读卷（如从「下载」直接打开）上无法就地更新时的错误信息特征 */
+const READ_ONLY_VOLUME_ERROR_SUBSTR = 'read-only volume';
+
+function isReadOnlyVolumeError(err: Error): boolean {
+  return err?.message?.includes(READ_ONLY_VOLUME_ERROR_SUBSTR) ?? false;
+}
+
 interface LatestJson {
   version: string;
   notes?: string;
@@ -222,7 +229,7 @@ async function checkForUpdatesViaLatestJson(): Promise<UpdateInfo> {
 
 async function doCheckViaLatestJson(): Promise<UpdateInfo> {
   const { autoUpdater } = require('electron-updater');
-  setState({ status: 'checking', error: undefined, canAutoUpdate: canAutoUpdate() });
+  setState({ status: 'checking', error: undefined, isReadOnlyVolumeError: undefined, canAutoUpdate: canAutoUpdate() });
 
   let latestJson: LatestJson | null = null;
 
@@ -330,7 +337,7 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
 
   autoUpdater.on('checking-for-update', () => {
     log.info('[AutoUpdater] Checking for update...');
-    setState({ status: 'checking', canAutoUpdate: canAutoUpdate() });
+    setState({ status: 'checking', isReadOnlyVolumeError: undefined, canAutoUpdate: canAutoUpdate() });
   });
 
   autoUpdater.on('update-available', (info: any) => {
@@ -338,13 +345,14 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
     setState({
       status: 'available',
       version: info.version,
+      isReadOnlyVolumeError: undefined,
       canAutoUpdate: canAutoUpdate(),
     });
   });
 
   autoUpdater.on('update-not-available', (_info: any) => {
     log.info('[AutoUpdater] Already up to date');
-    setState({ status: 'not-available', canAutoUpdate: canAutoUpdate() });
+    setState({ status: 'not-available', isReadOnlyVolumeError: undefined, canAutoUpdate: canAutoUpdate() });
   });
 
   autoUpdater.on('download-progress', (progress: UpdateProgress) => {
@@ -373,6 +381,7 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
       error: err.message,
       progress: undefined,
       canAutoUpdate: canAutoUpdate(),
+      isReadOnlyVolumeError: isReadOnlyVolumeError(err),
     });
   });
 
@@ -541,7 +550,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
   if (process.env.NUWAX_UPDATE_SERVER) {
     try {
       const { autoUpdater } = require('electron-updater');
-      setState({ status: 'checking', error: undefined, canAutoUpdate: canAutoUpdate() });
+      setState({ status: 'checking', error: undefined, isReadOnlyVolumeError: undefined, canAutoUpdate: canAutoUpdate() });
       const result = await autoUpdater.checkForUpdates();
       if (result?.updateInfo) {
         const hasUpdate = compareVersions(result.updateInfo.version, app.getVersion()) > 0;
@@ -590,7 +599,12 @@ export async function downloadUpdate(): Promise<{ success: boolean; error?: stri
     return { success: true };
   } catch (err: any) {
     log.error('[AutoUpdater] downloadUpdate error:', err.message);
-    setState({ status: 'error', error: err.message, canAutoUpdate: canAutoUpdate() });
+    setState({
+      status: 'error',
+      error: err.message,
+      canAutoUpdate: canAutoUpdate(),
+      isReadOnlyVolumeError: isReadOnlyVolumeError(err),
+    });
     return { success: false, error: err.message };
   }
 }

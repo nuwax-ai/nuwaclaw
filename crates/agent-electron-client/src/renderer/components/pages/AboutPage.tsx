@@ -5,6 +5,7 @@
  * - 检查更新 + 下载 + 重启安装 完整流程
  * - 下载完成后弹窗确认是否立即重启安装
  * - Windows MSI 安装用户引导到 Releases 页面
+ * - macOS/Linux 上 Squirrel 不发送 download-progress，用本地模拟进度保证进度条有变化
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -16,10 +17,20 @@ import type { UpdateState } from "@shared/types/updateTypes";
 /** 官网地址，用于关于页「官网」链接 */
 const OFFICIAL_WEBSITE_URL = "https://nuwax.com";
 
+/** macOS/Linux 无 download-progress 时，模拟进度从 0 增长到该值（%） */
+const SIMULATED_PROGRESS_CAP = 90;
+/** 模拟进度更新间隔（ms） */
+const SIMULATED_PROGRESS_INTERVAL_MS = 500;
+/** 预计下载时长（ms），用于计算每 tick 的增量，约 45s 内从 0 到 SIMULATED_PROGRESS_CAP */
+const SIMULATED_DURATION_MS = 45_000;
+
 export default function AboutPage() {
   const [updateState, setUpdateState] = useState<UpdateState>({ status: 'idle' });
   const [appVersion, setAppVersion] = useState<string>('');
   const hasShownInstallModal = useRef(false);
+  /** macOS/Linux 无真实进度时的模拟进度（0..SIMULATED_PROGRESS_CAP），有 progress 时不用 */
+  const [simulatedPercent, setSimulatedPercent] = useState(0);
+  const simulatedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 监听主进程推送的更新状态
   // 注意：preload 的 on() 已剥离 IPC event，callback 直接收到 (...args)
@@ -40,6 +51,37 @@ export default function AboutPage() {
       window.electronAPI?.off('update:status', handler as any);
     };
   }, []);
+
+  // macOS/Linux：Squirrel 不发送 download-progress，用定时器模拟进度使进度条有变化
+  useEffect(() => {
+    const isDownloading = updateState.status === 'downloading';
+    const hasRealProgress = updateState.progress != null;
+
+    if (isDownloading && !hasRealProgress) {
+      setSimulatedPercent(0);
+      const increment =
+        (SIMULATED_PROGRESS_CAP / SIMULATED_DURATION_MS) * SIMULATED_PROGRESS_INTERVAL_MS;
+      const id = setInterval(() => {
+        setSimulatedPercent((prev) => {
+          const next = prev + increment;
+          return next >= SIMULATED_PROGRESS_CAP ? SIMULATED_PROGRESS_CAP : next;
+        });
+      }, SIMULATED_PROGRESS_INTERVAL_MS);
+      simulatedIntervalRef.current = id;
+      return () => {
+        clearInterval(id);
+        simulatedIntervalRef.current = null;
+      };
+    }
+
+    if (!isDownloading || hasRealProgress) {
+      if (simulatedIntervalRef.current) {
+        clearInterval(simulatedIntervalRef.current);
+        simulatedIntervalRef.current = null;
+      }
+      setSimulatedPercent(0);
+    }
+  }, [updateState.status, updateState.progress]);
 
   // 下载完成后自动弹窗确认安装
   useEffect(() => {
@@ -144,7 +186,14 @@ export default function AboutPage() {
   }, []);
 
   const renderUpdateSection = () => {
-    const { status, version, progress, error, canAutoUpdate: autoUpdate } = updateState ?? { status: 'idle' as const };
+    const {
+      status,
+      version,
+      progress,
+      error,
+      canAutoUpdate: autoUpdate,
+      isReadOnlyVolumeError: readOnlyVolume,
+    } = updateState ?? { status: 'idle' as const };
 
     switch (status) {
       case 'checking':
@@ -172,24 +221,23 @@ export default function AboutPage() {
           </Space>
         );
 
-      case 'downloading':
+      case 'downloading': {
+        // 有真实进度（如 Windows）用主进程推送的 progress；无则用本地模拟进度（macOS/Linux）
+        const displayPercent = progress != null ? Math.round(progress.percent) : Math.round(simulatedPercent);
         return (
           <Space direction="vertical" size={8} style={{ width: '100%' }}>
             <div style={{ fontSize: 12, color: '#52525b' }}>
-              {progress ? `正在下载 v${version}... ${Math.round(progress.percent)}%` : `正在下载 v${version}...`}
+              正在下载 v{version}... {displayPercent}%
             </div>
-            {progress ? (
-              <Progress
-                percent={Math.round(progress.percent)}
-                size="small"
-                status="active"
-              />
-            ) : (
-              /* macOS Squirrel.Mac 不发送 download-progress 事件，显示不确定进度条 */
-              <Progress percent={100} size="small" status="active" showInfo={false} />
-            )}
+            <Progress
+              percent={displayPercent}
+              size="small"
+              status="active"
+              showInfo={progress == null}
+            />
           </Space>
         );
+      }
 
       case 'downloaded':
         return (
@@ -204,6 +252,24 @@ export default function AboutPage() {
         );
 
       case 'error':
+        // 只读卷错误（如从「下载」直接打开）：无法就地更新，引导用户前往下载页或移动应用后重试
+        if (readOnlyVolume) {
+          return (
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              <div style={{ fontSize: 12, color: '#52525b', lineHeight: 1.5 }}>
+                当前应用在只读位置运行（如从「下载」直接打开），无法就地更新。请将应用移到「应用程序」文件夹后重试，或通过下方按钮前往下载页手动下载新版本。
+              </div>
+              <Space>
+                <Button type="primary" icon={<LinkOutlined />} onClick={handleOpenReleases}>
+                  前往下载页
+                </Button>
+                <Button icon={<SyncOutlined />} onClick={handleCheckUpdate}>
+                  重试
+                </Button>
+              </Space>
+            </Space>
+          );
+        }
         return (
           <Space direction="vertical" size={8} style={{ width: '100%' }}>
             <div style={{ fontSize: 12, color: '#dc2626' }}>
