@@ -17,6 +17,12 @@ import * as fs from 'fs';
 import log from 'electron-log';
 import type { UpdateState, UpdateInfo, UpdateProgress } from '@shared/types/updateTypes';
 import { APP_DATA_DIR_NAME } from '@shared/constants';
+import {
+  getWindowsDownloadUrl,
+  getMacosDownloadUrl,
+  getLinuxDownloadUrl,
+  type Platforms,
+} from './updatePlatformUtils';
 
 // ==================== OSS latest.json ====================
 
@@ -210,7 +216,7 @@ let checkInProgress = false;
  * 2. 与本地版本比较
  * 3. 如果有更新，设置 electron-updater feedURL 指向版本化 OSS 路径，
  *    并调用 autoUpdater.checkForUpdates() 初始化 electron-updater 下载状态
- * 4. 如果 OSS 不可达，回退到 GitHub
+ * 4. OSS 不可达时直接报错，不 fallback 到 GitHub
  */
 async function checkForUpdatesViaLatestJson(): Promise<UpdateInfo> {
   if (checkInProgress) {
@@ -231,65 +237,37 @@ async function doCheckViaLatestJson(): Promise<UpdateInfo> {
   const { autoUpdater } = require('electron-updater');
   setState({ status: 'checking', error: undefined, isReadOnlyVolumeError: undefined, canAutoUpdate: canAutoUpdate() });
 
-  let latestJson: LatestJson | null = null;
+  let latestJson: LatestJson;
 
   try {
     latestJson = await fetchLatestJson(OSS_LATEST_JSON_URL);
   } catch (e: any) {
-    log.warn(`[AutoUpdater] Failed to fetch latest.json from OSS: ${e.message}, falling back to GitHub`);
+    log.error(`[AutoUpdater] Failed to fetch latest.json from OSS: ${e.message}`);
+    setState({ status: 'error', error: `无法获取更新信息: ${e.message}`, canAutoUpdate: canAutoUpdate() });
+    return { hasUpdate: false, error: `无法获取更新信息: ${e.message}` };
   }
 
-  if (latestJson) {
-    const hasUpdate = compareVersions(latestJson.version, app.getVersion()) > 0;
+  const hasUpdate = compareVersions(latestJson.version, app.getVersion()) > 0;
 
-    if (hasUpdate) {
-      // 指向版本化 OSS 路径，electron-updater 从该路径下载安装包
-      const versionedUrl = `${OSS_BASE}/electron-v${latestJson.version}`;
-      log.info(`[AutoUpdater] New version ${latestJson.version} found via latest.json, setting feed URL: ${versionedUrl}`);
-      autoUpdater.setFeedURL({ provider: 'generic', url: versionedUrl });
-      // 初始化 electron-updater 内部状态，为后续 downloadUpdate() 做准备
-      await autoUpdater.checkForUpdates();
-    } else {
-      setState({
-        status: 'not-available',
-        canAutoUpdate: canAutoUpdate(),
-      });
-    }
-
-    return {
-      hasUpdate,
-      version: latestJson.version,
-      releaseNotes: latestJson.notes,
-    };
+  if (hasUpdate) {
+    // 指向版本化 OSS 路径，electron-updater 从该路径下载安装包
+    const versionedUrl = `${OSS_BASE}/electron-v${latestJson.version}`;
+    log.info(`[AutoUpdater] New version ${latestJson.version} found via latest.json, setting feed URL: ${versionedUrl}`);
+    autoUpdater.setFeedURL({ provider: 'generic', url: versionedUrl });
+    // 初始化 electron-updater 内部状态，为后续 downloadUpdate() 做准备
+    await autoUpdater.checkForUpdates();
+  } else {
+    setState({
+      status: 'not-available',
+      canAutoUpdate: canAutoUpdate(),
+    });
   }
 
-  // OSS 不可达，回退到 GitHub（package.json 中已配置 publish.provider: github）
-  log.info('[AutoUpdater] Falling back to GitHub for update check');
-  autoUpdater.setFeedURL({
-    provider: 'github',
-    owner: 'nuwax-ai',
-    repo: 'nuwax-agent-client',
-  });
-
-  try {
-    const result = await autoUpdater.checkForUpdates();
-    if (result?.updateInfo) {
-      const hasUpdate = compareVersions(result.updateInfo.version, app.getVersion()) > 0;
-      return {
-        hasUpdate,
-        version: result.updateInfo.version,
-        releaseDate: result.updateInfo.releaseDate,
-        releaseNotes: typeof result.updateInfo.releaseNotes === 'string'
-          ? result.updateInfo.releaseNotes
-          : undefined,
-      };
-    }
-    return { hasUpdate: false };
-  } catch (err: any) {
-    log.error('[AutoUpdater] GitHub fallback also failed:', err.message);
-    setState({ status: 'error', error: err.message, canAutoUpdate: canAutoUpdate() });
-    return { hasUpdate: false, error: err.message };
-  }
+  return {
+    hasUpdate,
+    version: latestJson.version,
+    releaseNotes: latestJson.notes,
+  };
 }
 
 // ==================== 初始化 ====================
@@ -645,61 +623,47 @@ export function getUpdateState(): UpdateState {
 }
 
 /**
- * OSS latest.json 中的 platform key（与 electron-builder publish 配置一致）:
- * - windows-x86_64       → NSIS .exe（通用 key，默认指向 NSIS）
- * - windows-x86_64-nsis  → NSIS .exe（显式标记）
- * - windows-x86_64-msi   → MSI .msi
- * 当前仅处理 x86_64；若后续支持 Windows ARM64，需在 key 列表中增加 windows-aarch64 等。
- */
-const WINDOWS_PLATFORM_KEYS_NSIS_FIRST = ['windows-x86_64', 'windows-x86_64-nsis', 'windows-x86_64-msi'];
-const WINDOWS_PLATFORM_KEYS_MSI_FIRST = ['windows-x86_64-msi', 'windows-x86_64', 'windows-x86_64-nsis'];
-
-const GITHUB_RELEASES_URL = 'https://github.com/nuwax-ai/nuwax-agent-client/releases';
-
-/**
- * 从 OSS latest.json 解析当前 Windows 安装类型对应的下载地址。
- * - NSIS 用户：优先 .exe（windows-x86_64 / windows-x86_64-nsis），其次 .msi
- * - MSI 用户：优先 .msi（windows-x86_64-msi），其次 .exe
- * 返回空字符串表示未解析到。
- * 注意：调用方需确保仅在 Windows 平台下调用。
- */
-function getWindowsDownloadUrlFromLatestJson(
-  platforms: LatestJson['platforms'],
-  installerType: InstallerType,
-): string {
-  if (!platforms) return '';
-  const keys =
-    installerType === 'msi' ? WINDOWS_PLATFORM_KEYS_MSI_FIRST : WINDOWS_PLATFORM_KEYS_NSIS_FIRST;
-  for (const key of keys) {
-    const entry = platforms[key];
-    if (entry?.url) return entry.url;
-  }
-  return '';
-}
-
-/**
- * 打开下载页：Windows 按当前安装包类型打开 OSS 对应安装包地址，失败则回退 GitHub Releases；
- * 非 Windows 打开 GitHub Releases 页面。
- * - NSIS 安装：优先打开 .exe 下载链接
- * - MSI 安装：优先打开 .msi 下载链接
+ * 打开下载页：从 OSS latest.json 获取当前平台对应的下载链接
+ * - Windows: 按安装类型（NSIS/MSI）选择 .exe 或 .msi
+ * - macOS: 根据架构选择 arm64/x64 .zip
+ * - Linux: 根据架构选择 arm64/x64 AppImage
+ * OSS 不可达时弹窗提示错误，不 fallback 到 GitHub
  */
 export async function openReleasesPage(): Promise<void> {
-  if (process.platform === 'win32') {
-    try {
+  let url: string;
+  let platformName: string;
+
+  try {
+    const latest = await fetchLatestJson(OSS_LATEST_JSON_URL);
+    const platforms: Platforms | undefined = latest.platforms;
+
+    if (process.platform === 'win32') {
       const installerType = getInstallerType();
-      const latest = await fetchLatestJson(OSS_LATEST_JSON_URL);
-      const url = getWindowsDownloadUrlFromLatestJson(latest.platforms, installerType);
-      if (url) {
-        log.info(
-          `[AutoUpdater] Opening Windows download URL from OSS (installer=${installerType}): ${url}`,
-        );
-        await shell.openExternal(url);
-        return;
-      }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      log.warn(`[AutoUpdater] Failed to get Windows URL from OSS latest.json: ${msg}, falling back to GitHub`);
+      url = getWindowsDownloadUrl(platforms, installerType);
+      platformName = `Windows (${installerType})`;
+    } else if (process.platform === 'darwin') {
+      url = getMacosDownloadUrl(platforms);
+      platformName = `macOS (${process.arch})`;
+    } else {
+      url = getLinuxDownloadUrl(platforms);
+      platformName = `Linux (${process.arch})`;
     }
+
+    if (!url) {
+      throw new Error(`未找到 ${platformName} 对应的下载包`);
+    }
+
+    log.info(`[AutoUpdater] Opening ${platformName} download URL from OSS: ${url}`);
+    await shell.openExternal(url);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log.error(`[AutoUpdater] Failed to get download URL from OSS: ${msg}`);
+    // 弹窗提示用户，不 fallback 到 GitHub
+    await showModal({
+      type: 'error',
+      title: '获取下载链接失败',
+      message: '无法从服务器获取下载链接',
+      detail: `错误: ${msg}\n\n请检查网络连接后重试。`,
+    });
   }
-  await shell.openExternal(GITHUB_RELEASES_URL);
 }
