@@ -556,8 +556,9 @@ function App() {
           />
         </div>
 
-        {/* 主内容区 */}
+        {/* 主内容区：flex 子撑满，便于日志等页占满高度 */}
         <div className="app-content">
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {activeTab === 'client' && (
             <ClientPage
               onNavigate={setActiveTab}
@@ -573,6 +574,7 @@ function App() {
           {activeTab === 'permissions' && <PermissionsPage />}
           {activeTab === 'logs' && <LogViewer />}
           {activeTab === 'about' && <AboutPage />}
+          </div>
         </div>
       </div>
     </div>

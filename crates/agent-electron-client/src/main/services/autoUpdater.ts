@@ -634,6 +634,7 @@ export function getUpdateState(): UpdateState {
  * - windows-x86_64       → NSIS .exe（通用 key，默认指向 NSIS）
  * - windows-x86_64-nsis  → NSIS .exe（显式标记）
  * - windows-x86_64-msi   → MSI .msi
+ * 当前仅处理 x86_64；若后续支持 Windows ARM64，需在 key 列表中增加 windows-aarch64 等。
  */
 const WINDOWS_PLATFORM_KEYS_NSIS_FIRST = ['windows-x86_64', 'windows-x86_64-nsis', 'windows-x86_64-msi'];
 const WINDOWS_PLATFORM_KEYS_MSI_FIRST = ['windows-x86_64-msi', 'windows-x86_64', 'windows-x86_64-nsis'];

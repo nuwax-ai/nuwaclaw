@@ -197,7 +197,7 @@ export default function AboutPage() {
   return (
     <div
       style={{
-        maxWidth: 400,
+        width: 400,
         margin: "48px auto",
         textAlign: "center",
       }}

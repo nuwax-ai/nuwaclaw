@@ -1086,7 +1086,7 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     description: "Agent 工作目录文件远程管理服务（应用内安装）",
     required: true,
     binName: "nuwax-file-server",
-    installVersion: "1.2.2",
+    installVersion: "1.2.3",
   },
   {
     name: "nuwaxcode",
@@ -1600,26 +1600,32 @@ async function _installNpmPackageImpl(
  * 从 npm registry 查询包的 latest 版本号。
  * 使用 abbreviated metadata（Accept header）减少响应体积。
  * 超时或失败静默返回 null，不影响主流程。
+ * scoped 包（@scope/pkg）路径会编码为 @scope%2Fpkg 以符合 registry API。
  */
 async function fetchNpmLatestVersion(
   packageName: string,
   timeoutMs = 8_000,
 ): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const registry = _mirrorConfig.npmRegistry.replace(/\/$/, "");
-    const url = `${registry}/${packageName}`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    // scoped 包需编码：@scope/pkg → @scope%2Fpkg（保留 @，编码 /）
+    const pathSegment = packageName.startsWith("@")
+      ? "@" + encodeURIComponent(packageName.slice(1))
+      : encodeURIComponent(packageName);
+    const url = `${registry}/${pathSegment}`;
     const resp = await fetch(url, {
       headers: { Accept: "application/vnd.npm.install-v1+json" },
       signal: controller.signal,
     });
-    clearTimeout(timer);
     if (!resp.ok) return null;
     const data = (await resp.json()) as { "dist-tags"?: Record<string, string> };
     return data?.["dist-tags"]?.latest ?? null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -1689,6 +1695,7 @@ export async function checkAllDependencies(
   }
 
   // 并行查询已安装的 npm 包的 latest 版本（仅在 checkLatest 时执行）
+  // 仅当 registry 返回的 latest 严格大于当前已装版本时才设置 latestVersion，避免展示「更新到更旧版本」
   if (options?.checkLatest) {
     const npmInstalled = results.filter(
       (r) => r.type === "npm-local" && (r.status === "installed" || r.status === "outdated"),
@@ -1698,7 +1705,13 @@ export async function checkAllDependencies(
         npmInstalled.map((r) => fetchNpmLatestVersion(r.name)),
       );
       for (let i = 0; i < npmInstalled.length; i++) {
-        npmInstalled[i].latestVersion = latestResults[i] ?? undefined;
+        const latest = latestResults[i];
+        if (latest == null) continue;
+        const installed = (npmInstalled[i].version ?? "").replace(/^v/, "");
+        const latestNorm = latest.replace(/^v/, "");
+        if (compareVersions(latestNorm, installed) > 0) {
+          npmInstalled[i].latestVersion = latest;
+        }
       }
     }
   }

@@ -78,7 +78,14 @@ export default function LogViewer() {
     : logs.filter((l) => l.level === levelFilter);
 
   return (
-    <div>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        flex: 1,
+        minHeight: 0,
+      }}
+    >
       {/* Header */}
       <div
         style={{
@@ -86,6 +93,7 @@ export default function LogViewer() {
           alignItems: 'center',
           justifyContent: 'space-between',
           marginBottom: 12,
+          flexShrink: 0,
         }}
       >
         <span style={{ fontSize: 13, fontWeight: 500, color: '#18181b' }}>
@@ -125,21 +133,41 @@ export default function LogViewer() {
         </div>
       </div>
 
-      {/* Log list */}
+      {/* Log list：占满剩余高度，无日志时空状态也撑满 */}
       <div
         style={{
+          flex: 1,
+          minHeight: 0,
           border: '1px solid #e4e4e7',
           borderRadius: 8,
           background: '#18181b',
           overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
         {loading && logs.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 40 }}>
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minHeight: 200,
+            }}
+          >
             <Spin size="small" />
           </div>
         ) : filteredLogs.length === 0 ? (
-          <div style={{ padding: 40 }}>
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minHeight: 200,
+            }}
+          >
             <Empty
               description="暂无日志"
               image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -149,7 +177,8 @@ export default function LogViewer() {
           <div
             ref={listRef}
             style={{
-              height: 480,
+              flex: 1,
+              minHeight: 0,
               overflowY: 'auto',
               padding: '8px 0',
               fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
@@ -203,6 +232,7 @@ export default function LogViewer() {
           justifyContent: 'space-between',
           fontSize: 11,
           color: '#a1a1aa',
+          flexShrink: 0,
         }}
       >
         <span>共 {filteredLogs.length} 条日志</span>
