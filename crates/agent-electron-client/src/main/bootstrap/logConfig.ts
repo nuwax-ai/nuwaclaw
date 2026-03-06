@@ -17,9 +17,9 @@ function isDev(): boolean {
   return process.env.NODE_ENV === "development" || !app.isPackaged;
 }
 
-/** 单文件最大字节数：开发 5MB，正式 2MB */
-const MAX_SIZE_DEV = 5 * 1024 * 1024;
-const MAX_SIZE_PROD = 2 * 1024 * 1024;
+/** 单文件最大字节数：默认 100MB */
+const MAX_SIZE_DEV = 100 * 1024 * 1024;
+const MAX_SIZE_PROD = 100 * 1024 * 1024;
 // 验证轮转时可将上面两行临时改为 50 * 1024（50KB），重启后打日志即可触发 main.YYYY-MM-DD-HHmmss.log，验证完改回
 
 /** 归档日志保留时间（毫秒）：开发 30 天，正式 7 天 */
