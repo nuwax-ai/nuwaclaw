@@ -147,7 +147,7 @@ export default function DependenciesPage() {
 
     try {
       const options =
-        isUpgrade && dep.installVersion
+        dep.installVersion
           ? { version: dep.installVersion }
           : undefined;
       const result =
@@ -232,10 +232,9 @@ export default function DependenciesPage() {
           ),
         );
 
-        const options =
-          dep.status === "outdated" && dep.installVersion
-            ? { version: dep.installVersion }
-            : undefined;
+        const options = dep.installVersion
+          ? { version: dep.installVersion }
+          : undefined;
         const result =
           await window.electronAPI?.dependencies.installPackage(
             dep.name,

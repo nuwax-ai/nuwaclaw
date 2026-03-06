@@ -212,7 +212,7 @@ export default function SetupDependencies({
 
         const result = await window.electronAPI?.dependencies.installPackage(
           pkg.name,
-          pkg.status === "outdated" && pkg.installVersion
+          pkg.installVersion
             ? { version: pkg.installVersion }
             : undefined,
         );
