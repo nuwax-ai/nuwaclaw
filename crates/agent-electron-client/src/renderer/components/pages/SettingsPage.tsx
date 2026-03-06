@@ -126,6 +126,15 @@ export default function SettingsPage() {
     loadConfig();
     loadAiConfig();
     loadSystemSettings();
+
+    // 监听来自托盘等外部修改的自启动状态变化
+    const handleAutolaunchChanged = (enabled: boolean) => {
+      setAutolaunchEnabled(enabled);
+    };
+    window.electronAPI?.on('autolaunch:changed', handleAutolaunchChanged as any);
+    return () => {
+      window.electronAPI?.off('autolaunch:changed', handleAutolaunchChanged as any);
+    };
   }, [loadConfig, loadAiConfig, loadSystemSettings]);
 
   // ========== 服务配置操作 ==========

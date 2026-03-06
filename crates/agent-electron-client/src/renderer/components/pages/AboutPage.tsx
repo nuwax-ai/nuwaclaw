@@ -68,14 +68,25 @@ export default function AboutPage() {
     setUpdateState((prev) => ({ ...prev, status: 'checking' }));
     try {
       const result = await window.electronAPI?.app?.checkUpdate();
-      if (result && !result.hasUpdate && !result.error) {
-        message.info("当前已是最新版本");
+      if (!result) {
+        // IPC 返回空（API 不可用等），恢复 idle
         setUpdateState((prev) => ({ ...prev, status: 'idle' }));
-      } else if (result?.error) {
+        return;
+      }
+      if (result.error) {
         message.error(`检查更新失败: ${result.error}`);
         setUpdateState((prev) => ({ ...prev, status: 'idle' }));
+      } else if (result.hasUpdate) {
+        // 主进程 update:status 事件可能已推送 'available'，这里兜底确保状态更新
+        setUpdateState((prev) =>
+          prev.status === 'checking'
+            ? { ...prev, status: 'available', version: result.version }
+            : prev,
+        );
+      } else {
+        message.info("当前已是最新版本");
+        setUpdateState((prev) => ({ ...prev, status: 'idle' }));
       }
-      // hasUpdate=true 的情况由主进程 update:status 事件推送 'available' 状态
     } catch {
       message.error("检查更新失败");
       setUpdateState((prev) => ({ ...prev, status: 'idle' }));

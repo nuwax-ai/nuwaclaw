@@ -8,7 +8,7 @@
  * - IPC 状态同步
  */
 
-import { Tray, Menu, nativeImage, app, dialog } from 'electron';
+import { Tray, Menu, nativeImage, app, dialog, BrowserWindow } from 'electron';
 import * as path from 'path';
 import log from 'electron-log';
 import { APP_DISPLAY_NAME } from '@shared/constants';
@@ -99,6 +99,14 @@ export class TrayManager {
   }
 
   /**
+   * 刷新自启动缓存状态（当外部修改了自启动设置时调用）
+   */
+  async refreshAutoLaunchState(): Promise<void> {
+    this.autoLaunchEnabled = await this.autoLaunchManager.isEnabled();
+    this.updateMenu();
+  }
+
+  /**
    * 更新托盘图标
    */
   private updateIcon(): void {
@@ -162,6 +170,12 @@ export class TrayManager {
           if (success) {
             this.autoLaunchEnabled = newEnabled;
             this.updateMenu();
+            // 通知渲染进程同步状态
+            for (const win of BrowserWindow.getAllWindows()) {
+              if (!win.isDestroyed()) {
+                win.webContents.send('autolaunch:changed', newEnabled);
+              }
+            }
           } else {
             dialog.showErrorBox('错误', '设置开机自启动失败');
           }

@@ -375,14 +375,20 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
     try {
       const result = await window.electronAPI?.dependencies.checkAll();
       const deps = result?.results || [];
-      const missing = deps.filter(
-        (d: any) =>
-          d.required &&
-          (d.status === 'missing' || d.status === 'outdated' || d.status === 'error'),
-      );
-      setMissingDeps(
-        missing.map((d: any) => ({ name: d.name, displayName: d.displayName || d.name })),
-      );
+      const syncInProgress = result?.syncInProgress ?? false;
+      // 依赖同步进行中时不显示缺失提示（升级后正在自动安装新版本）
+      if (syncInProgress) {
+        setMissingDeps([]);
+      } else {
+        const missing = deps.filter(
+          (d: any) =>
+            d.required &&
+            (d.status === 'missing' || d.status === 'outdated' || d.status === 'error'),
+        );
+        setMissingDeps(
+          missing.map((d: any) => ({ name: d.name, displayName: d.displayName || d.name })),
+        );
+      }
     } catch (error) {
       console.error('[ClientPage] checkDependencies failed:', error);
     } finally {
@@ -396,6 +402,16 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
     loadAuth();
     onRefreshServices();
     checkDependencies();
+
+    // 监听依赖同步完成事件（客户端升级后自动安装新版本依赖），重新检测
+    const handleDepsSyncCompleted = () => {
+      console.log('[ClientPage] deps:syncCompleted, re-checking dependencies');
+      checkDependencies();
+    };
+    window.electronAPI?.on('deps:syncCompleted', handleDepsSyncCompleted as any);
+    return () => {
+      window.electronAPI?.off('deps:syncCompleted', handleDepsSyncCompleted as any);
+    };
   }, [loadAuth, onRefreshServices, checkDependencies]);
 
   // ======================== Render helpers ========================

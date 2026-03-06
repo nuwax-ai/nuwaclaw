@@ -1,4 +1,4 @@
-import { ipcMain, app, dialog, shell, systemPreferences } from 'electron';
+import { ipcMain, app, dialog, shell, systemPreferences, BrowserWindow } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
@@ -7,6 +7,7 @@ import type { HandlerContext } from '@shared/types/ipc';
 import { LATEST_LOG_BASENAME } from '../bootstrap/logConfig';
 import { checkForUpdates, downloadUpdate, installUpdate, getUpdateState, openReleasesPage } from '../services/autoUpdater';
 import { getDeviceId } from '../services/system/deviceId';
+import { getTrayManager } from '../window/trayManager';
 
 export function registerAppHandlers(ctx: HandlerContext): void {
   // Autolaunch
@@ -23,6 +24,14 @@ export function registerAppHandlers(ctx: HandlerContext): void {
   ipcMain.handle('autolaunch:set', async (_, enabled: boolean) => {
     try {
       app.setLoginItemSettings({ openAtLogin: enabled });
+      // 同步托盘缓存状态
+      getTrayManager()?.refreshAutoLaunchState();
+      // 通知所有渲染进程
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) {
+          win.webContents.send('autolaunch:changed', enabled);
+        }
+      }
       return { success: true };
     } catch (error) {
       log.error('[IPC] autolaunch:set failed:', error);

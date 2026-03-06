@@ -393,7 +393,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Event listeners
   on: (channel: string, callback: (...args: unknown[]) => void) => {
-    const validChannels = ['menu:new-session', 'menu:settings', 'menu:mcp-settings', 'menu:dependencies', 'cowork:message', 'cowork:permission', 'agent:event', 'computer:progress', 'update:status', 'memory:sync', 'memory:consolidation', 'memory:cleanup'];
+    const validChannels = ['menu:new-session', 'menu:settings', 'menu:mcp-settings', 'menu:dependencies', 'cowork:message', 'cowork:permission', 'agent:event', 'computer:progress', 'update:status', 'deps:syncCompleted', 'autolaunch:changed', 'memory:sync', 'memory:consolidation', 'memory:cleanup'];
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, (_, ...args) => callback(...args));
     }

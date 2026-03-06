@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron';
 import log from 'electron-log';
+import { isDepsSyncInProgress } from '../bootstrap/startup';
 
 export function registerDependencyHandlers(): void {
   ipcMain.handle('dependencies:checkAll', async (_, options?: { checkLatest?: boolean }) => {
@@ -7,7 +8,7 @@ export function registerDependencyHandlers(): void {
     log.info('[IPC] Checking all dependencies...');
     try {
       const results = await checkAllDependencies(options);
-      return { success: true, results };
+      return { success: true, results, syncInProgress: isDepsSyncInProgress() };
     } catch (error) {
       log.error('[IPC] Dependency check failed:', error);
       return { success: false, error: String(error) };

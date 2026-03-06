@@ -94,7 +94,7 @@ export interface LocalDependencyItem {
 }
 
 export interface DependenciesAPI {
-  checkAll: (options?: { checkLatest?: boolean }) => Promise<{ success: boolean; results?: LocalDependencyItem[]; error?: string }>;
+  checkAll: (options?: { checkLatest?: boolean }) => Promise<{ success: boolean; results?: LocalDependencyItem[]; error?: string; syncInProgress?: boolean }>;
   checkNode: () => Promise<{ success: boolean; installed?: boolean; version?: string; meetsRequirement?: boolean; bundled?: boolean; binPath?: string; error?: string }>;
   checkUv: () => Promise<{ success: boolean; installed?: boolean; version?: string; meetsRequirement?: boolean; bundled?: boolean; error?: string }>;
   detectPackage: (packageName: string, binName?: string) => Promise<{ success: boolean; installed?: boolean; version?: string; binPath?: string; error?: string }>;

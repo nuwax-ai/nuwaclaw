@@ -1,9 +1,13 @@
 import log from 'electron-log';
-import { app } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import { getDb, readSetting } from '../db';
 import { startComputerServer } from '../services/computerServer';
 import { mcpProxyManager, DEFAULT_MCP_PROXY_CONFIG } from '../services/packages/mcp';
 import { getConfiguredPorts } from '../services/startupPorts';
+
+/** 依赖同步是否正在进行 */
+let _depsSyncInProgress = false;
+export function isDepsSyncInProgress(): boolean { return _depsSyncInProgress; }
 
 export async function runStartupTasks(): Promise<void> {
   // 从 SQLite 恢复镜像配置
@@ -67,10 +71,28 @@ export async function runStartupTasks(): Promise<void> {
         packagesChanged = true;
       }
       if (versionChanged || packagesChanged) {
-        const { updated } = await syncInitDependencies();
-        if (updated.length > 0) log.info('[Init] 初始化依赖已同步:', updated);
+        _depsSyncInProgress = true;
+        try {
+          const { updated } = await syncInitDependencies();
+          if (updated.length > 0) log.info('[Init] 初始化依赖已同步:', updated);
+        } finally {
+          _depsSyncInProgress = false;
+          // 通知所有渲染进程依赖同步完成，重新检测
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) {
+              win.webContents.send('deps:syncCompleted');
+            }
+          }
+        }
       }
     } catch (e) {
+      _depsSyncInProgress = false;
+      // 同步失败也通知渲染进程重新检测实际状态
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) {
+          win.webContents.send('deps:syncCompleted');
+        }
+      }
       log.warn('[Init] 初始化依赖同步失败:', e);
     }
   });
