@@ -367,9 +367,13 @@ export class UnifiedAgentService extends EventEmitter {
    * - Missing → create new engine with baseConfig + configOverride
    */
   async getOrCreateEngine(projectId: string, effectiveConfig: AgentConfig): Promise<AcpEngine> {
+    const t0 = Date.now();
+    let t1 = t0, t2 = t0, t3 = t0;
+
     const existing = this.engines.get(projectId);
     if (existing) {
       if (existing.isReady) {
+        log.debug(`⏱️ [getOrCreateEngine][PERF] 复用已有引擎，耗时: ${Date.now() - t0}ms`);
         return existing;
       }
       // Dead engine — cleanup and rebuild
@@ -388,15 +392,20 @@ export class UnifiedAgentService extends EventEmitter {
     if (memoryService.isInitialized()) {
       try {
         await memoryService.ensureMemoryReadyForSession();
+        t1 = Date.now();
+        log.debug(`⏱️ [getOrCreateEngine][PERF] ensureMemoryReady 耗时: ${t1 - t0}ms`);
       } catch (error) {
         log.warn('[UnifiedAgent] Memory sync check failed:', error);
       }
     }
+    t1 = t1 || t0;
 
     // Evict oldest idle engine if at capacity
     if (this.engines.size >= MAX_ENGINES) {
       await this.evictIdleEngine();
     }
+    t2 = Date.now();
+    log.debug(`⏱️ [getOrCreateEngine][PERF] evictIdleEngine 检查耗时: ${t2 - t1}ms`);
 
     const engineType = effectiveConfig.engine || this.engineType || 'claude-code';
     const engine = new AcpEngine(engineType);
@@ -404,6 +413,9 @@ export class UnifiedAgentService extends EventEmitter {
 
     log.info(`[UnifiedAgent] Creating engine for project: ${projectId}, engine: ${engineType}`);
     const ok = await engine.init(effectiveConfig);
+    t3 = Date.now();
+    log.debug(`⏱️ [getOrCreateEngine][PERF] engine.init 耗时: ${t3 - t2}ms`);
+
     if (!ok) {
       engine.removeAllListeners();
       throw new Error(`Failed to create engine for project ${projectId}`);
@@ -412,6 +424,7 @@ export class UnifiedAgentService extends EventEmitter {
     this.engines.set(projectId, engine);
     this.engineConfigs.set(projectId, effectiveConfig);
     log.info(`[UnifiedAgent] ✅ Engine ready for project: ${projectId} (total engines: ${this.engines.size})`);
+    log.debug(`⏱️ [getOrCreateEngine][PERF] 总耗时: ${t3 - t0}ms (memory=${t1 - t0}ms, evict=${t2 - t1}ms, init=${t3 - t2}ms)`);
     return engine;
   }
 
@@ -445,6 +458,9 @@ export class UnifiedAgentService extends EventEmitter {
    * Returns the AcpEngine to use for this request.
    */
   async ensureEngineForRequest(request: ComputerChatRequest): Promise<AcpEngine> {
+    const t0 = Date.now();
+    let t1 = t0, t2 = t0, t3 = t0, t4 = t0, t5 = t0;
+
     const projectId = request.project_id || 'default';
 
     // 按会话动态加载：本请求携带的 context_servers 同步到 MCP Proxy（从桥接项 --config 解析真实服务），一次会话就会更新 proxy 配置
@@ -484,15 +500,24 @@ export class UnifiedAgentService extends EventEmitter {
           requestMcpServersEarly[name] = { command, args, env: srv.env };
         }
       }
+      t1 = Date.now();
+      log.debug(`⏱️ [ensureEngine][PERF] 解析 context_servers 耗时: ${t1 - t0}ms`);
+
       if (Object.keys(requestMcpServersEarly).length > 0) {
         try {
           const { syncMcpConfigToProxyAndReload } = await import('../packages/mcp');
           await syncMcpConfigToProxyAndReload(requestMcpServersEarly);
+          t2 = Date.now();
+          log.debug(`⏱️ [ensureEngine][PERF] syncMcpConfigToProxyAndReload 耗时: ${t2 - t1}ms`);
         } catch (e) {
           log.warn('[UnifiedAgent] 动态同步 MCP 配置到 proxy 失败（不影响会话）:', e);
         }
       }
+    } else {
+      t1 = Date.now();
+      log.debug(`⏱️ [ensureEngine][PERF] 无 context_servers，跳过解析`);
     }
+    t2 = t2 || t1;
 
     const agentServer = request.agent_config?.agent_server;
     const mp = request.model_provider;
@@ -591,6 +616,9 @@ export class UnifiedAgentService extends EventEmitter {
           realMcpServers[name] = entry;
         }
       }
+      t3 = Date.now();
+      log.debug(`⏱️ [ensureEngine][PERF] 提取 real MCP servers 耗时: ${t3 - t2}ms`);
+
       if (Object.keys(realMcpServers).length > 0) {
         freshMcpServers = realMcpServers;
         // 暂存到 proxy manager 并启动 bridge
@@ -598,15 +626,23 @@ export class UnifiedAgentService extends EventEmitter {
         // 合并现有配置（保留默认服务如 chrome-devtools）
         mcpProxyManager.setConfig({ ...mcpProxyManager.getConfig(), mcpServers: { ...(mcpProxyManager.getConfig().mcpServers || {}), ...realMcpServers } });
         await mcpProxyManager.ensureBridgeStarted();
+        t4 = Date.now();
+        log.debug(`⏱️ [ensureEngine][PERF] ensureBridgeStarted(有MCP) 耗时: ${t4 - t3}ms`);
         // 获取代理格式的配置（包含 bridge URL 和 allowTools）
         freshMcpServers = mcpProxyManager.getAgentMcpConfig() || undefined;
+      } else {
+        t4 = t3;
       }
     } else {
       // 无动态 MCP 服务器时，仍需确保 bridge 启动（包含默认服务如 chrome-devtools）
       const { mcpProxyManager } = await import("../packages/mcp");
+      t3 = Date.now();
       await mcpProxyManager.ensureBridgeStarted();
+      t4 = Date.now();
+      log.debug(`⏱️ [ensureEngine][PERF] ensureBridgeStarted(无MCP) 耗时: ${t4 - t3}ms`);
       freshMcpServers = mcpProxyManager.getAgentMcpConfig() || undefined;
     }
+    t4 = t4 || t3;
 
     const effectiveConfig: AgentConfig = {
       ...base,
@@ -630,7 +666,11 @@ export class UnifiedAgentService extends EventEmitter {
       `└─ mcpServers: ${effectiveConfig.mcpServers ? Object.keys(effectiveConfig.mcpServers).join(', ') : '(none)'}`,
     );
 
-    return this.getOrCreateEngine(projectId, effectiveConfig);
+    const engine = await this.getOrCreateEngine(projectId, effectiveConfig);
+    t5 = Date.now();
+    log.debug(`⏱️ [ensureEngine][PERF] getOrCreateEngine 耗时: ${t5 - t4}ms`);
+    log.debug(`⏱️ [ensureEngine][PERF] 总耗时: ${t5 - t0}ms (parseCtxServers=${t1 - t0}ms, syncMcp=${(t2 || t1) - t1}ms, extractReal=${t3 - (t2 || t1)}ms, ensureBridge=${t4 - t3}ms, getOrCreate=${t5 - t4}ms)`);
+    return engine;
   }
 
   /**

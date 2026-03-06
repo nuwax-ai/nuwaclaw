@@ -21,10 +21,10 @@ export const APP_NAME_IDENTIFIER = 'nuwaxbot';
 export const DEFAULT_MCP_PROXY_PORT = 18099;
 
 /** Agent Runner 默认端口 */
-export const DEFAULT_AGENT_RUNNER_PORT = 60001;
+export const DEFAULT_AGENT_RUNNER_PORT = 60006;
 
 /** File Server 默认端口 */
-export const DEFAULT_FILE_SERVER_PORT = 60000;
+export const DEFAULT_FILE_SERVER_PORT = 60005;
 
 /** Lanproxy 默认端口 */
 export const DEFAULT_LANPROXY_PORT = 60002;
