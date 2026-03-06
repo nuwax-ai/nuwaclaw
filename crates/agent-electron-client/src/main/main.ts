@@ -24,6 +24,50 @@ if (process.platform === 'darwin') {
   app.commandLine.appendSwitch('disable-features', 'FontationsFontBackend');
 }
 
+// Linux 沙箱处理
+// 参考: https://github.com/electron/electron/issues/17972
+// 参考: https://github.com/electron-userland/electron-builder/issues/8951
+//
+// 沙箱启用策略：
+// 1. deb/rpm 包：通过 postinst 脚本设置 chrome-sandbox 的 SUID 权限
+// 2. AppImage：依赖 unprivileged user namespaces（内核需要支持）
+// 3. 开发模式：禁用沙箱以方便调试
+// 4. 用户可通过环境变量 ELECTRON_DISABLE_SANDBOX=1 强制禁用
+//
+// 注意: 此代码在 initLogging() 之前执行，所以使用 console 而不是 log
+if (process.platform === 'linux') {
+  const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+  const isAppImage = process.env.APPIMAGE !== undefined;
+  const disableSandbox = process.env.ELECTRON_DISABLE_SANDBOX === '1';
+  const isDev = !app.isPackaged;
+
+  // 警告: 以 root 身份运行存在安全风险
+  if (isRoot) {
+    console.warn('[Security] Running as root is not recommended.');
+    console.warn('[Security] This poses significant security risks.');
+  }
+
+  // AppImage 使用 namespace-based sandbox
+  if (isAppImage) {
+    console.info('[AppImage] Using namespace-based sandbox (requires kernel unprivileged user namespaces)');
+  }
+
+  if (disableSandbox) {
+    // 用户显式禁用沙箱
+    console.warn('[Security] Sandbox disabled by ELECTRON_DISABLE_SANDBOX=1');
+    app.commandLine.appendSwitch('no-sandbox');
+    app.commandLine.appendSwitch('disable-setuid-sandbox');
+  } else if (isDev) {
+    // 开发模式：禁用沙箱
+    console.info('[Dev] Sandbox disabled in development mode');
+    app.commandLine.appendSwitch('no-sandbox');
+    app.commandLine.appendSwitch('disable-setuid-sandbox');
+  } else {
+    // 生产模式：默认启用沙箱
+    console.info('[Production] Sandbox enabled (SUID for deb/rpm, namespace for AppImage)');
+  }
+}
+
 // 日志：轮转 + TTL 清理 + 开发/正式差异化（见 logConfig.ts）
 initLogging();
 log.info('Application starting...');
