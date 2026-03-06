@@ -48,6 +48,7 @@ import type {
 } from '@shared/types/computerTypes';
 import { memoryService } from '../../memory';
 import type { ModelConfig } from '../../memory/types';
+import { redactForLog, redactStringForLog } from '../../utils/logRedact';
 
 /** Safe JSON.stringify that handles circular references */
 function safeStringify(obj: unknown): string {
@@ -691,8 +692,8 @@ export class AcpEngine extends EventEmitter {
         project_id: request.project_id,
         session_id: request.session_id,
         request_id: request.request_id,
-        agent_config: safeStringify(request.agent_config),
-        model_provider: request.model_provider,
+        agent_config: redactStringForLog(safeStringify(redactForLog(request.agent_config))),
+        model_provider: redactForLog(request.model_provider),
         config_model: this.config.model || '未设置',
         env_model: envModel || '未设置',
         baseUrl_set: !!this.config.baseUrl,

@@ -29,6 +29,7 @@ import type {
   HttpResult,
   UnifiedSessionMessage,
 } from './engines/unifiedAgent';
+import { redactForLog, redactStringForLog } from './utils/logRedact';
 
 let server: http.Server | null = null;
 let sseClients: Map<string, http.ServerResponse[]> = new Map();
@@ -140,22 +141,23 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       t1 = Date.now();
       log.debug(`⏱️ [HTTP][PERF] parseBody 耗时: ${t1 - t0}ms`);
 
-      // 开发调试：完整打印入参
+      // 开发调试：完整打印入参（脱敏后，避免 api_key / agent_config.env / URL 中 ak= 写入日志）
       log.debug(
         '📨 [HTTP][DEBUG] Computer Chat 请求 body =',
-        JSON.stringify(body, null, 2),
+        redactStringForLog(JSON.stringify(redactForLog(body), null, 2)),
       );
 
-      // 业务级别 info 日志：重点字段摘要（单行 / 对象形式）
+      // 业务级别 info 日志：重点字段摘要（脱敏 model_provider / agent_config，避免 api_key 泄露）
       log.info('📨 [HTTP] 收到 Computer Chat 请求', {
         user_id: body.user_id,
         project_id: body.project_id,
         session_id: body.session_id,
         request_id: body.request_id,
-        model_provider: body.model_provider,
-        agent_config: body.agent_config,
+        model_provider: redactForLog(body.model_provider),
+        agent_config: redactForLog(body.agent_config),
+        // 先 redactForLog 脱敏键值，再 redactStringForLog 脱敏字符串内 URL 的 ak= / ts=
         context_servers_json: body.agent_config?.context_servers
-          ? JSON.stringify(body.agent_config.context_servers, null, 2)
+          ? redactStringForLog(JSON.stringify(redactForLog(body.agent_config.context_servers)))
           : undefined,
         system_prompt_length: body.system_prompt ? body.system_prompt.length : 0,
         prompt_length: body.prompt ? body.prompt.length : 0,
