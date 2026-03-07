@@ -24,6 +24,64 @@ import {
 } from "@shared/constants";
 import styles from "../../styles/components/ClientPage.module.css";
 
+// Dev mock 模式：设为 true 可预览骨架屏 loading 效果
+const MOCK_LOADING = false;
+
+// Mock 数据用于测试
+const MOCK_NODE_RESULT = {
+  installed: true,
+  version: "24.0.0",
+  meetsRequirement: true,
+  bundled: true,
+};
+
+const MOCK_UV_RESULT = {
+  installed: true,
+  version: "0.5.0",
+  meetsRequirement: true,
+  bundled: true,
+};
+
+const MOCK_LOCAL_DEPS: LocalDependencyItem[] = [
+  {
+    name: "@anthropic-ai/sdk",
+    displayName: "Anthropic SDK",
+    description: "Claude API 客户端",
+    type: "npm-local",
+    status: "installed",
+    version: "0.30.0",
+    latestVersion: "0.32.0",
+    required: true,
+  },
+  {
+    name: "claude-code-acp-ts",
+    displayName: "Claude Code ACP",
+    description: "ACP 协议实现",
+    type: "npm-local",
+    status: "installed",
+    version: "1.0.0",
+    required: true,
+  },
+  {
+    name: "nuwax-file-server",
+    displayName: "文件服务",
+    description: "本地文件 HTTP 服务",
+    type: "npm-local",
+    status: "outdated",
+    version: "1.2.0",
+    latestVersion: "1.3.0",
+    required: true,
+  },
+  {
+    name: "nuwax-mcp-stdio-proxy",
+    displayName: "MCP 代理",
+    description: "MCP 协议聚合代理",
+    type: "npm-local",
+    status: "missing",
+    required: true,
+  },
+];
+
 interface NodeCheckResult {
   installed?: boolean;
   version?: string;
@@ -40,16 +98,31 @@ interface UvCheckResult {
 }
 
 export default function DependenciesPage() {
-  const [nodeResult, setNodeResult] = useState<NodeCheckResult | null>(null);
+  const [nodeResult, setNodeResult] = useState<NodeCheckResult | null>(
+    MOCK_LOADING ? null : null
+  );
   const [uvResult, setUvResult] = useState<UvCheckResult | null>(null);
-  const [localDeps, setLocalDeps] = useState<LocalDependencyItem[]>([]);
-  const [depLoading, setDepLoading] = useState(false);
+  const [localDeps, setLocalDeps] = useState<LocalDependencyItem[]>(
+    MOCK_LOADING ? [] : []
+  );
+  const [depLoading, setDepLoading] = useState(MOCK_LOADING);
   const [depInstalling, setDepInstalling] = useState(false);
   const [currentInstallingDep, setCurrentInstallingDep] = useState<string>("");
   /** 当前正在执行的操作类型，用于进度文案 */
   const [currentInstallAction, setCurrentInstallAction] = useState<"install" | "upgrade" | "update">("install");
 
   const loadDependencies = useCallback(async () => {
+    // Mock 模式：模拟加载延迟后使用 mock 数据
+    if (MOCK_LOADING) {
+      setDepLoading(true);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      setNodeResult(MOCK_NODE_RESULT);
+      setUvResult(MOCK_UV_RESULT);
+      setLocalDeps(MOCK_LOCAL_DEPS);
+      setDepLoading(false);
+      return;
+    }
+
     setDepLoading(true);
     try {
       // Node.js: 检测内置 Node.js 24 版本
@@ -338,15 +411,61 @@ export default function DependenciesPage() {
   const systemDepsReady = (nodeResult?.meetsRequirement ?? false) && (uvResult?.meetsRequirement ?? false);
 
   // ==========================================
-  // Loading state
+  // Loading state - 骨架屏
   // ==========================================
   if (depLoading && !nodeResult) {
     return (
       <div className={styles.page}>
-        <div style={{ textAlign: "center", padding: 40 }}>
-          <Spin size="small" />
-          <div style={{ marginTop: 8, fontSize: 12, color: "var(--color-text-tertiary)" }}>
-            正在检测依赖...
+        {/* 系统环境骨架 */}
+        <div className={styles.section}>
+          <div className={styles.servicesHeader}>
+            <div className={styles.servicesHeaderLeft}>
+              <span className={styles.sectionTitle}>系统环境</span>
+              <Tag color="default">检测中...</Tag>
+            </div>
+          </div>
+          <div className={styles.sectionBody} style={{ padding: '0 16px' }}>
+            {[1, 2].map((i) => (
+              <div key={i} className={styles.serviceRow}>
+                <div className={styles.serviceInfo}>
+                  <Spin size="small" />
+                  <div>
+                    <span className={styles.serviceLabel} style={{ color: 'var(--color-text-tertiary)' }}>
+                      {i === 1 ? 'Node.js' : 'uv'}
+                    </span>
+                    <span className={styles.serviceDescription}>检测中...</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 依赖包骨架 */}
+        <div className={styles.section}>
+          <div className={styles.servicesHeader}>
+            <div className={styles.servicesHeaderLeft}>
+              <span className={styles.sectionTitle}>依赖包</span>
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>检测中...</span>
+            </div>
+            <Button size="small" icon={<ReloadOutlined spin />} disabled>
+              刷新
+            </Button>
+          </div>
+          <div className={styles.sectionBody} style={{ padding: '0 16px' }}>
+            {[1, 2, 3].map((i) => (
+              <div key={i} className={styles.serviceRow}>
+                <div className={styles.serviceInfo}>
+                  <Spin size="small" />
+                  <div>
+                    <span className={styles.serviceLabel} style={{ color: 'var(--color-text-tertiary)' }}>
+                      加载中...
+                    </span>
+                    <div className={styles.serviceDescription}>正在检测依赖状态</div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -475,9 +594,9 @@ export default function DependenciesPage() {
 
               return (
                 <div key={item.name} className={styles.serviceRow}>
-                  <div className={styles.serviceInfo} style={{ flex: 1, minWidth: 0 }}>
+                  {getStatusIcon(item.status)}
+                  <div className={styles.serviceInfo} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "flex-start", minWidth: 0, gap:3, paddingLeft: 8 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      {getStatusIcon(item.status)}
                       <span className={styles.serviceLabel}>{item.displayName}</span>
                       {item.required && (
                         <Tag color="blue" style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px" }}>
@@ -490,7 +609,7 @@ export default function DependenciesPage() {
                         </span>
                       )}
                     </div>
-                    <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginTop: 2, marginLeft: 20 }}>
+                    <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginTop: 2 }}>
                       {item.description}
                       {item.errorMessage && (
                         <span style={{ color: "var(--color-error)", marginLeft: 8 }}>
