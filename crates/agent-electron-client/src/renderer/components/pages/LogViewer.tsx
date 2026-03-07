@@ -1,14 +1,11 @@
 /**
  * LogViewer - 日志查看器 (Electron 版)
  *
- * 从 Tauri 客户端 LogViewerWithBackend 简化移植：
- * - 日志列表显示（时间戳 + 级别 + 消息）
- * - 级别筛选（All/Info/Warn/Error）
- * - 自动滚动开关
- * - 刷新按钮
+ * - 日志列表（时间戳 + 级别 + 消息）、级别筛选、自动滚动、刷新
+ * - 向上滚动到顶部时自动加载更早的日志（分页，保持滚动位置）
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import { Button, Select, Switch, Empty, Spin, Tag } from 'antd';
 import { ReloadOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons';
 
@@ -32,18 +29,29 @@ const LEVEL_TAG_COLORS: Record<string, string> = {
   debug: 'default',
 };
 
+/** 每页条数，与主进程默认一致 */
+const PAGE_SIZE = 2000;
+/** 距顶部多少 px 时触发加载更多 */
+const LOAD_MORE_THRESHOLD = 80;
+
 export default function LogViewer() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [levelFilter, setLevelFilter] = useState<string>('all');
   const [autoScroll, setAutoScroll] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
+  /**  prepend 后用于恢复滚动位置 */
+  const scrollRestoreRef = useRef<{ height: number; top: number } | null>(null);
 
+  /** 首次加载或刷新：取最新一页 */
   const fetchLogs = useCallback(async () => {
     try {
-      const result = await window.electronAPI?.log?.list(500);
+      const result = await window.electronAPI?.log?.list(PAGE_SIZE, 0);
       if (result) {
         setLogs(result);
+        setHasMore(result.length >= PAGE_SIZE);
       }
     } catch (error) {
       console.error('[LogViewer] Failed to fetch logs:', error);
@@ -52,11 +60,46 @@ export default function LogViewer() {
     }
   }, []);
 
+  /** 向上加载更早的一页，prepend 并保持滚动位置 */
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    const el = listRef.current;
+    if (!el) return;
+    setLoadingMore(true);
+    try {
+      const offset = logs.length;
+      const older = await window.electronAPI?.log?.list(PAGE_SIZE, offset);
+      if (older && older.length > 0) {
+        scrollRestoreRef.current = { height: el.scrollHeight, top: el.scrollTop };
+        setLogs((prev) => [...older, ...prev]);
+        setHasMore(older.length >= PAGE_SIZE);
+      } else {
+        setHasMore(false);
+      }
+    } catch (error) {
+      console.error('[LogViewer] Load more failed:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [logs.length, hasMore, loadingMore]);
+
   useEffect(() => {
     fetchLogs();
     const timer = setInterval(fetchLogs, 5000);
     return () => clearInterval(timer);
   }, [fetchLogs]);
+
+  /** prepend 后恢复滚动位置，避免列表跳动 */
+  useLayoutEffect(() => {
+    const ref = scrollRestoreRef.current;
+    const el = listRef.current;
+    if (!ref || !el) return;
+    const diff = el.scrollHeight - ref.height;
+    if (diff > 0) {
+      el.scrollTop = ref.top + diff;
+    }
+    scrollRestoreRef.current = null;
+  }, [logs]);
 
   useEffect(() => {
     if (autoScroll && listRef.current) {
@@ -64,8 +107,18 @@ export default function LogViewer() {
     }
   }, [logs, autoScroll]);
 
+  /** 滚动到顶时加载更多 */
+  const handleScroll = useCallback(() => {
+    const el = listRef.current;
+    if (!el || autoScroll || loadingMore || !hasMore) return;
+    if (el.scrollTop <= LOAD_MORE_THRESHOLD) {
+      loadMore();
+    }
+  }, [autoScroll, loadingMore, hasMore, loadMore]);
+
   const handleRefresh = () => {
     setLoading(true);
+    setHasMore(true);
     fetchLogs();
   };
 
@@ -73,9 +126,10 @@ export default function LogViewer() {
     await window.electronAPI?.log?.openDir();
   };
 
-  const filteredLogs = levelFilter === 'all'
-    ? logs
-    : logs.filter((l) => l.level === levelFilter);
+  const filteredLogs =
+    levelFilter === 'all'
+      ? logs
+      : logs.filter((l) => l.level === levelFilter);
 
   return (
     <div
@@ -176,6 +230,7 @@ export default function LogViewer() {
         ) : (
           <div
             ref={listRef}
+            onScroll={handleScroll}
             style={{
               flex: 1,
               minHeight: 0,
@@ -186,9 +241,25 @@ export default function LogViewer() {
               lineHeight: 1.7,
             }}
           >
+            {hasMore && (
+              <div
+                style={{
+                  padding: '8px 12px',
+                  color: '#71717a',
+                  fontSize: 11,
+                  textAlign: 'center',
+                }}
+              >
+                {loadingMore ? (
+                  <Spin size="small" />
+                ) : (
+                  '向上滚动加载更早日志'
+                )}
+              </div>
+            )}
             {filteredLogs.map((entry, idx) => (
               <div
-                key={idx}
+                key={`${entry.timestamp}-${entry.message?.slice(0, 100)}`}
                 style={{
                   padding: '1px 12px',
                   display: 'flex',

@@ -366,7 +366,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   log: {
     getDir: () => ipcRenderer.invoke('log:getDir'),
     openDir: () => ipcRenderer.invoke('log:openDir'),
-    list: (count?: number) => ipcRenderer.invoke('log:list', count),
+    list: (count?: number, offset?: number) => ipcRenderer.invoke('log:list', count, offset),
   },
 
   // App

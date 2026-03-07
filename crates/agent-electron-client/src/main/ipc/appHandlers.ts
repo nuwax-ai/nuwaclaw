@@ -83,11 +83,13 @@ export function registerAppHandlers(ctx: HandlerContext): void {
     }
   });
 
-  ipcMain.handle('log:list', async (_, count: number = 200) => {
+  // 应用日志列表：默认 2000 条，单次最多 10000 条；offset 为“从最新往前跳过条数”，用于向上滚动加载更多
+  const DEFAULT_LOG_LIST = 2000;
+  const MAX_LOG_LIST = 10000;
+  ipcMain.handle('log:list', async (_, count: number = DEFAULT_LOG_LIST, offset: number = 0) => {
     try {
       const currentPath = log.transports.file.getFile().path;
       const logDir = currentPath ? path.dirname(currentPath) : app.getPath('logs');
-      // 优先读 latest.log（symlink/hardlink 指向当前 main.log），与「只关注一个入口」一致
       const latestPath = path.join(logDir, LATEST_LOG_BASENAME);
       const logPath = (fs.existsSync(latestPath) ? latestPath : currentPath) || currentPath;
       if (!logPath || !fs.existsSync(logPath)) {
@@ -95,8 +97,14 @@ export function registerAppHandlers(ctx: HandlerContext): void {
       }
       const content = fs.readFileSync(logPath, 'utf-8');
       const lines = content.split('\n').filter(Boolean);
-      const recent = lines.slice(-count);
-      return recent.map((line) => {
+      const limit = Math.min(Math.max(1, count ?? DEFAULT_LOG_LIST), MAX_LOG_LIST);
+      const safeOffset = Math.max(0, offset);
+      // 取“从文件末尾往前 offset+limit 到 offset”的一段（时间顺序：旧→新）
+      const slice =
+        safeOffset === 0
+          ? lines.slice(-limit)
+          : lines.slice(-(safeOffset + limit), -safeOffset);
+      return slice.map((line) => {
         const match = line.match(/^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d{3})\]\s\[(\w+)\]\s(.*)$/);
         if (match) {
           return { timestamp: match[1], level: match[2].toLowerCase(), message: match[3] };

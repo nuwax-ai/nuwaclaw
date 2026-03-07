@@ -255,7 +255,7 @@ export interface LogEntry {
 export interface LogAPI {
   getDir: () => Promise<string>;
   openDir: () => Promise<{ success: boolean; error?: string }>;
-  list: (count?: number) => Promise<LogEntry[]>;
+  list: (count?: number, offset?: number) => Promise<LogEntry[]>;
 }
 
 import type { UpdateInfo, UpdateState } from './updateTypes';
