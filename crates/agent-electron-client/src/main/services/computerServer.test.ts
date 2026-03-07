@@ -8,7 +8,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { pushSseEvent, getSseEventBufferSize } from './computerServer';
+import {
+  pushSseEvent,
+  getSseEventBufferSize,
+  clearSseEventBuffer,
+  clearAllSseEventBuffers,
+} from './computerServer';
 
 // 避免拉起 unifiedAgent 与 Electron 等重模块
 vi.mock('./engines/unifiedAgent', () => ({
@@ -75,5 +80,52 @@ describe('ComputerServer — SSE 事件缓冲', () => {
     // 旧 buffer 被 prune，当前 push 写入新 buffer，应只有 1 条
     expect(getSseEventBufferSize(ttlSessionId)).toBe(1);
     vi.useRealTimers();
+  });
+
+  it('clearSseEventBuffer 清除指定 session 的缓冲', () => {
+    const ses1 = 'ses-clear-001';
+    const ses2 = 'ses-clear-002';
+    pushSseEvent(ses1, 'ev', { data: 1 });
+    pushSseEvent(ses1, 'ev', { data: 2 });
+    pushSseEvent(ses2, 'ev', { data: 3 });
+    expect(getSseEventBufferSize(ses1)).toBe(2);
+    expect(getSseEventBufferSize(ses2)).toBe(1);
+
+    clearSseEventBuffer(ses1);
+    expect(getSseEventBufferSize(ses1)).toBe(0);
+    expect(getSseEventBufferSize(ses2)).toBe(1); // ses2 不受影响
+  });
+
+  it('clearSseEventBuffer 对不存在的 session 是幂等的', () => {
+    expect(() => clearSseEventBuffer('nonexistent')).not.toThrow();
+    expect(getSseEventBufferSize('nonexistent')).toBe(0);
+  });
+
+  it('clearSseEventBuffer 传入空字符串/null/undefined 不报错', () => {
+    expect(() => clearSseEventBuffer('')).not.toThrow();
+    expect(() => clearSseEventBuffer(null as any)).not.toThrow();
+    expect(() => clearSseEventBuffer(undefined as any)).not.toThrow();
+  });
+
+  it('clearAllSseEventBuffers 清除所有 session 的缓冲', () => {
+    const ses1 = 'ses-clearall-001';
+    const ses2 = 'ses-clearall-002';
+    const ses3 = 'ses-clearall-003';
+    pushSseEvent(ses1, 'ev', {});
+    pushSseEvent(ses2, 'ev', {});
+    pushSseEvent(ses3, 'ev', {});
+    expect(getSseEventBufferSize(ses1)).toBe(1);
+    expect(getSseEventBufferSize(ses2)).toBe(1);
+    expect(getSseEventBufferSize(ses3)).toBe(1);
+
+    clearAllSseEventBuffers();
+    expect(getSseEventBufferSize(ses1)).toBe(0);
+    expect(getSseEventBufferSize(ses2)).toBe(0);
+    expect(getSseEventBufferSize(ses3)).toBe(0);
+  });
+
+  it('clearAllSseEventBuffers 对空缓冲也是幂等的', () => {
+    clearAllSseEventBuffers(); // 清空
+    expect(() => clearAllSseEventBuffers()).not.toThrow(); // 再次清空
   });
 });

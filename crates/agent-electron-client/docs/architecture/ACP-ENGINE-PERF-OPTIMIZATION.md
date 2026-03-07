@@ -90,6 +90,9 @@ loadAcpSdk().catch(() => {});
 - **pushSseEvent()**：无客户端时，创建或取已有 buffer，若 `events.length < SSE_EVENT_BUFFER_MAX` 则 push 当前 payload 后 return；有客户端时逻辑不变，直接写 response。
 - **GET /computer/progress/{session_id}**：在把 `res` 注册到 `sseClients` 之后，若存在该 sessionId 的 buffer，则依次 `res.write(eventPayload)` 回放，然后 `sseEventBuffers.delete(sessionId)`，并打日志。
 - **stopComputerServer()**：在清空 `sseClients` 后调用 `sseEventBuffers.clear()`。
+- **Cancel 与缓冲**：`POST /computer/agent/session/cancel` 会调用 `acpEngine.abortSession(sessionId)`，**会中止 ACP 会话**（停止产生 SSE 的进程）；取消成功后调用 `clearSseEventBuffer(sessionId)` **清除该 session 的 SSE 缓冲**，避免用户重连 `GET /computer/progress/{session_id}` 时仍回放已取消会话的旧事件。
+- **Stop（重启动/停止）与缓冲**：`POST /computer/agent/stop` 会调用 `agentService.stopEngine(project_id)`，**会停止该 project 的整个引擎**（进程销毁，其下所有 session 终止）；停止前先通过 `acpEngine.listSessions()` 取得该引擎下所有 session id，并逐一调用 `clearSseEventBuffer(sessionId)` **清除这些 session 的 SSE 缓冲**，避免之后重连或新建 SSE 时仍回放旧事件。
+- **客户端停止/重启所有服务**：客户端通过 `services.stopAll()` 或 `services.restartAll()` 停止/重启时，会调用 `serviceManager.stopAllServices()` 或 `restartAllServices()`，在调用 `agentService.destroy()` **之前**调用 **`clearAllSseEventBuffers()`**（computerServer 导出），清空全部 SSE 事件缓冲，避免重启后前端重连仍回放旧会话事件。
 
 ---
 

@@ -64,6 +64,20 @@ export function getSseEventBufferSize(sessionId: string): number {
   return sseEventBuffers.get(sessionId)?.events.length ?? 0;
 }
 
+/**
+ * 清除指定 session 的 SSE 事件缓冲（cancel/stop 接口调用，避免取消后重连仍回放旧事件）。
+ */
+export function clearSseEventBuffer(sessionId: string): void {
+  if (sessionId) sseEventBuffers.delete(sessionId);
+}
+
+/**
+ * 清除所有 SSE 事件缓冲（客户端停止/重启所有服务时调用，避免重启后仍回放旧会话事件）。
+ */
+export function clearAllSseEventBuffers(): void {
+  sseEventBuffers.clear();
+}
+
 // ==================== Helpers ====================
 
 /**
@@ -461,7 +475,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       return;
     }
 
-    // POST /computer/agent/stop
+    // POST /computer/agent/stop（停止该 project 的引擎，下次 chat 会冷启动）
     if (pathname === '/computer/agent/stop' && method === 'POST') {
       const body = await parseBody(req);
       log.info(`🛑 [HTTP] Computer Agent 停止请求: user_id=${body.user_id}, project_id=${body.project_id}`);
@@ -477,6 +491,15 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
       const acpEngine = agentService.getEngineForProject(body.project_id);
       if (acpEngine) {
+        // 停止前清除该引擎下所有 session 的 SSE 缓冲，避免重连仍回放旧事件
+        try {
+          const sessions = await acpEngine.listSessions();
+          for (const s of sessions) {
+            clearSseEventBuffer(s.id);
+          }
+        } catch {
+          /* 忽略 listSessions 失败，继续执行 stop */
+        }
         await agentService.stopEngine(body.project_id);
         log.info(`✅ [HTTP] Agent 已停止: project_id=${body.project_id}`);
       } else {
@@ -512,6 +535,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         return;
       }
 
+      let cancelledSessionId = sessionId;
       const acpEngine = agentService.getEngineForProject(projectId) || agentService.getAcpEngine();
       if (acpEngine) {
         if (sessionId) {
@@ -524,12 +548,17 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         } else {
           const session = acpEngine.findSessionByProjectId(projectId);
           if (session) {
+            cancelledSessionId = session.id;
             await acpEngine.abortSession(session.id);
             log.info(`✅ [HTTP] 取消成功: session_id=${session.id}`);
           } else {
             log.info(`ℹ️ [HTTP] Agent 不存在,幂等返回成功: project_id=${projectId}`);
           }
         }
+      }
+      // 取消后清除该 session 的 SSE 事件缓冲，避免后续 GET /computer/progress 仍回放已取消会话的旧事件
+      if (cancelledSessionId) {
+        clearSseEventBuffer(cancelledSessionId);
       }
 
       sendJson(res, 200, httpResult({

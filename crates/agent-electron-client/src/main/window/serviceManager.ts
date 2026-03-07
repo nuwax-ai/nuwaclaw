@@ -17,6 +17,7 @@ import { agentService } from '../services/engines/unifiedAgent';
 import type { AgentConfig } from '../services/engines/unifiedAgent';
 import { mcpProxyManager } from '../services/packages/mcp';
 import { stopAllEngines } from '../services/engines/engineManager';
+import { clearAllSseEventBuffers } from '../services/computerServer';
 
 export interface ServiceManagerContext {
   lanproxy: ManagedProcess;
@@ -120,7 +121,8 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     const agentConfig = readSetting('agent_config') as Record<string, unknown> || {};
     const step1Config = readSetting('step1_config') as Record<string, unknown> || {};
 
-    // 1. 停止现有服务
+    // 1. 停止现有服务（先清 SSE 缓冲，再 destroy Agent，避免重启后回放旧事件）
+    clearAllSseEventBuffers();
     try {
       await agentService.destroy();
     } catch (e) { log.warn('[ServiceManager] Agent destroy error (ignored):', e); }
@@ -207,6 +209,9 @@ export function createServiceManager(ctx: ServiceManagerContext) {
   const stopAllServices = async (): Promise<{ success: boolean; results: Record<string, ServiceResult> }> => {
     log.info('[ServiceManager] Stopping all services...');
     const results: Record<string, ServiceResult> = {};
+
+    // 停止 Agent 前清除所有 SSE 事件缓冲，避免重启/重连后仍回放旧会话事件
+    clearAllSseEventBuffers();
 
     // 停止 Agent
     try {
