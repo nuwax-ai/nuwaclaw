@@ -76,6 +76,7 @@ log.info('Application starting...');
 let mainWindow: BrowserWindow | null = null;
 let trayManager: ReturnType<typeof createTrayManager> | null = null;
 let isQuitting = false; // 标志：是否正在真正退出应用
+let isInstallingUpdate = false; // 标志：是否正在执行 quitAndInstall 安装更新
 
 // Get icon path (works in both dev and production)
 function getIconPath() {
@@ -318,7 +319,15 @@ app.whenReady().then(async () => {
     await initTrayManager();
   }
 
-  initAutoUpdater(() => mainWindow, cleanupAllProcesses);
+  initAutoUpdater(() => mainWindow, cleanupAllProcesses, () => {
+    // 在 quitAndInstall 前被调用：
+    // - isQuitting=true 防止窗口 close 事件被拦截到托盘
+    // - isInstallingUpdate=true 让 before-quit 跳过 e.preventDefault()，
+    //   保留 Squirrel.Mac 的正常退出流程
+    isQuitting = true;
+    isInstallingUpdate = true;
+    log.info('[App] Update install flagged: isQuitting=true, isInstallingUpdate=true');
+  });
 });
 
 app.on('window-all-closed', () => {
@@ -339,6 +348,19 @@ app.on('before-quit', (e) => {
   if (isCleaningUp) return;
   isCleaningUp = true;
   isQuitting = true; // 通知窗口 close 事件允许关闭
+
+  if (isInstallingUpdate) {
+    // quitAndInstall 场景（macOS Squirrel.Mac / Windows NSIS / Linux AppImage 均走此路径）：
+    // - cleanup 已在 installUpdate() 中先行触发，无需重复执行
+    // - 不能调用 e.preventDefault()：各平台安装器依赖 app.quit() 的正常退出流程；
+    //   若阻止退出再 app.exit(0)，安装器可能已经失去对退出时机的感知，导致安装失败
+    // 只关闭数据库后直接 return，让 Electron 正常完成退出，安装器接管
+    log.info('[App] Before quit - update install in progress, skipping preventDefault to allow installer');
+    closeDb();
+    return;
+  }
+
+  // 普通退出流程：阻止立即退出，异步清理完成后再调用 app.exit(0)
   e.preventDefault();
 
   log.info('[App] Before quit - starting cleanup');

@@ -180,6 +180,13 @@ function compareVersions(a: string, b: string): number {
 let currentState: UpdateState = { status: 'idle' };
 let getMainWindow: (() => BrowserWindow | null) | null = null;
 let cleanupBeforeInstall: (() => void) | null = null;
+/**
+ * 在 quitAndInstall 前调用，通知主进程：
+ * 1. 设置 isQuitting = true，防止窗口 close 事件被拦截到托盘
+ * 2. 设置 isInstallingUpdate = true，让 before-quit 跳过 e.preventDefault()，
+ *    允许 Squirrel.Mac 正常接管退出流程完成安装
+ */
+let markQuitting: (() => void) | null = null;
 
 function sendStatusToRenderer(): void {
   const win = getMainWindow?.();
@@ -276,10 +283,13 @@ async function doCheckViaLatestJson(): Promise<UpdateInfo> {
  * 初始化自动更新（应在 app.whenReady 后调用）
  * @param getWindow 获取主窗口
  * @param cleanup 安装更新前的清理回调（停止服务、关闭数据库等）
+ * @param onMarkQuitting 在调用 quitAndInstall 前调用，用于设置主进程的 isQuitting/isInstallingUpdate 标志，
+ *                       防止窗口 close 被拦截，并让 before-quit 不阻止退出
  */
-export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?: () => void): void {
+export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?: () => void, onMarkQuitting?: () => void): void {
   getMainWindow = getWindow;
   cleanupBeforeInstall = cleanup || null;
+  markQuitting = onMarkQuitting || null;
 
   const installerType = getInstallerType();
   log.info(`[AutoUpdater] Installer type: ${installerType}, canAutoUpdate: ${canAutoUpdate()}`);
@@ -601,7 +611,18 @@ export function installUpdate(): { success: boolean; error?: string } {
   }
 
   try {
-    // 先停止所有服务，避免残留进程
+    // 关键：在 quitAndInstall 前设置退出标志（所有平台通用）
+    // 原因1：quitAndInstall 会触发 app.quit()，进而触发窗口 close 事件；
+    //   若 isQuitting 未设置，close 会被拦截到托盘，app 无法正常退出
+    // 原因2：通知 before-quit handler 跳过 e.preventDefault()，
+    //   让各平台的安装器（macOS Squirrel.Mac / Windows NSIS / Linux AppImage）
+    //   正常接管退出流程完成安装；否则 e.preventDefault() 会阻止安装器触发
+    if (markQuitting) {
+      log.info('[AutoUpdater] Marking app as quitting for update install...');
+      markQuitting();
+    }
+
+    // 先停止所有服务，避免残留进程（cleanup 是同步触发的异步操作）
     if (cleanupBeforeInstall) {
       log.info('[AutoUpdater] Running cleanup before install...');
       cleanupBeforeInstall();
