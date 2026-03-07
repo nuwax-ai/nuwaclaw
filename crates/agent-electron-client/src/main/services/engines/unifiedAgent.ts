@@ -516,15 +516,16 @@ export class UnifiedAgentService extends EventEmitter {
       t1 = Date.now();
       log.debug(`⏱️ [ensureEngine][PERF] 解析 context_servers 耗时: ${t1 - t0}ms`);
 
-      if (Object.keys(requestMcpServersEarly).length > 0) {
-        try {
-          const { syncMcpConfigToProxyAndReload } = await import('../packages/mcp');
-          await syncMcpConfigToProxyAndReload(requestMcpServersEarly);
-          t2 = Date.now();
-          log.debug(`⏱️ [ensureEngine][PERF] syncMcpConfigToProxyAndReload 耗时: ${t2 - t1}ms`);
-        } catch (e) {
-          log.warn('[UnifiedAgent] 动态同步 MCP 配置到 proxy 失败（不影响会话）:', e);
-        }
+      // 始终同步 MCP 配置，即使 requestMcpServersEarly 为空（表示用户删除了所有动态 MCP）。
+      // syncMcpConfigToProxyAndReload 内部保证 chrome-devtools 等默认服务始终存在，
+      // 动态 MCP server 根据传入配置动态启停：空列表 → bridge 重置为仅 chrome-devtools。
+      try {
+        const { syncMcpConfigToProxyAndReload } = await import('../packages/mcp');
+        await syncMcpConfigToProxyAndReload(requestMcpServersEarly);
+        t2 = Date.now();
+        log.debug(`⏱️ [ensureEngine][PERF] syncMcpConfigToProxyAndReload 耗时: ${t2 - t1}ms`);
+      } catch (e) {
+        log.warn('[UnifiedAgent] 动态同步 MCP 配置到 proxy 失败（不影响会话）:', e);
       }
     } else {
       t1 = Date.now();
