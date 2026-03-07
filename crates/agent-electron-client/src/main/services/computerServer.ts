@@ -38,6 +38,32 @@ let server: http.Server | null = null;
 let sseClients: Map<string, http.ServerResponse[]> = new Map();
 let lastError: string | null = null;
 
+/** 每个 sessionId 最多缓冲的早期 SSE 事件条数，防止内存泄漏 */
+const SSE_EVENT_BUFFER_MAX = 50;
+/** 无客户端连接的 buffer 保留时长，超时删除避免 Map 只增不减 */
+const SSE_EVENT_BUFFER_TTL_MS = 30000;
+/** SSE 事件缓冲：SSE 连接晚于 chat 响应时，先缓冲事件，连接建立后回放 */
+const sseEventBuffers = new Map<string, { events: string[]; createdAt: number }>();
+
+/**
+ * 删除已过 TTL 且仍无客户端连接的 buffer 条目（在 pushSseEvent 无客户端路径中调用）。
+ */
+function pruneExpiredSseEventBuffers(): void {
+  const now = Date.now();
+  for (const [sessionId, buf] of sseEventBuffers.entries()) {
+    if (now - buf.createdAt >= SSE_EVENT_BUFFER_TTL_MS && !sseClients.has(sessionId)) {
+      sseEventBuffers.delete(sessionId);
+    }
+  }
+}
+
+/**
+ * 返回某 session 当前缓冲的 SSE 事件条数（仅用于单测，勿在生产逻辑中依赖）。
+ */
+export function getSseEventBufferSize(sessionId: string): number {
+  return sseEventBuffers.get(sessionId)?.events.length ?? 0;
+}
+
 // ==================== Helpers ====================
 
 /**
@@ -347,6 +373,25 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       sseClients.get(sessionId)!.push(res);
       log.debug(`⏱️ [SSE][PERF] SSE 客户端注册完成: session_id=${sessionId}, 耗时=${Date.now() - sseStartTime}ms`);
 
+      // 回放缓冲的早期事件（chat 响应先于 SSE 连接时 pushSseEvent 已写入缓冲）
+      const buffered = sseEventBuffers.get(sessionId);
+      if (buffered) {
+        sseEventBuffers.delete(sessionId);
+        let replayed = 0;
+        for (const eventPayload of buffered.events) {
+          try {
+            res.write(eventPayload);
+            replayed++;
+          } catch {
+            /* 客户端已断开，停止回放 */
+            break;
+          }
+        }
+        if (replayed > 0) {
+          log.info(`[SSE] 回放缓冲事件 ${replayed} 条: session_id=${sessionId}`);
+        }
+      }
+
       // 心跳：发送符合 UnifiedSessionMessage 格式的心跳消息（对齐 rcoder heartbeat）
       const heartbeat = setInterval(() => {
         try {
@@ -510,17 +555,29 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
  * 对齐 rcoder SSE 格式：使用 subType 作为 SSE event name
  *   event: <eventName>\n
  *   data: <json>\n\n
+ *
+ * 若当前无客户端连接（chat 响应先于 SSE 连接建立），则先写入缓冲，
+ * 等 GET /computer/progress/{session_id} 连接时回放，避免丢失 prompt_start 等早期事件。
  */
 export function pushSseEvent(sessionId: string, eventName: string, data: unknown) {
   const clients = sseClients.get(sessionId);
-  log.debug(`[SSE] pushSseEvent: sessionId=${sessionId}, eventName=${eventName}, time=${Date.now()}, clients=${clients?.length || 0}`);
+  const payload = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
+  log.debug(
+    `[SSE] pushSseEvent: sessionId=${sessionId}, eventName=${eventName}, time=${Date.now()}, clients=${clients?.length || 0}`,
+  );
 
   if (!clients || clients.length === 0) {
-    log.warn(`[ComputerServer] ⚠ No SSE clients for sessionId=${sessionId}`);
+    pruneExpiredSseEventBuffers();
+    if (!sseEventBuffers.has(sessionId)) {
+      sseEventBuffers.set(sessionId, { events: [], createdAt: Date.now() });
+    }
+    const buf = sseEventBuffers.get(sessionId)!;
+    if (buf.events.length < SSE_EVENT_BUFFER_MAX) {
+      buf.events.push(payload);
+    }
     return;
   }
 
-  const payload = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const client of clients) {
     try {
       const written = client.write(payload);
@@ -580,10 +637,15 @@ export function stopComputerServer(): Promise<void> {
     // 关闭所有 SSE 连接
     for (const [, clients] of sseClients) {
       for (const client of clients) {
-        try { client.end(); } catch { /* ignore */ }
+        try {
+          client.end();
+        } catch {
+          /* ignore */
+        }
       }
     }
     sseClients.clear();
+    sseEventBuffers.clear();
 
     server.close(() => {
       log.info('[ComputerServer] Stopped');

@@ -30,6 +30,7 @@ status: design
 | [初始化依赖版本固定与安装/升级](./dependency-version-pinning.md) | installVersion、升级同步、文案、尊重已安装版本不降级 | stable |
 | [Auto Update](./auto-update.md) | 自动更新机制 | design |
 | [认证机制与 SavedKey 生命周期](./auth-savedkey-lifecycle.md) | savedKey 设计、多账号隔离、退出登录与服务联动规则 | stable |
+| [ACP 引擎性能优化](./ACP-ENGINE-PERF-OPTIMIZATION.md) | 引擎预热池、SDK 预加载、SSE 缓冲，降低 /computer/chat 首包延迟 | stable |
 
 ### 参考文档
 

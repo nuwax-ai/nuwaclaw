@@ -110,6 +110,14 @@ export class AcpEngine extends EventEmitter {
     return this.config;
   }
 
+  /**
+   * 更新引擎配置（复用预热引擎时调用，确保 mcpServers 等与本请求的 effectiveConfig 一致，
+   * 否则 createSession 会使用 init 时的旧 MCP 配置，导致动态 context_servers 不生效）。
+   */
+  updateConfig(config: AgentConfig): void {
+    this.config = config;
+  }
+
   getActivePromptCount(): number {
     return this.activePromptSessions.size;
   }

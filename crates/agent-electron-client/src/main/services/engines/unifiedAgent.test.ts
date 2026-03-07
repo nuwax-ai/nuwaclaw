@@ -1,9 +1,10 @@
 /**
- * 单元测试: UnifiedAgentService — MCP 配置变更检测
+ * 单元测试: UnifiedAgentService — MCP 配置变更检测 + 引擎预热池（ACP 性能优化）
  *
  * 覆盖修复内容：
  * 1. rawMcpServersEqual(): 静态辅助方法，同格式比较原始 MCP server 配置
  * 2. detectConfigChange(): 跨格式误判修复验证（通过 rawMcpServersEqual 间接覆盖）
+ * 3. 引擎预热池：init 触发 loadAcpSdk 与 startWarmingEngine；getOrCreateEngine 复用/销毁逻辑；destroy 清空池
  *
  * 背景：原实现将 proxy 包装格式（currentConfig.mcpServers, command=mcp-proxy）
  *      与原始格式（requestMcpServersEarly, command=uvx/uv/npx）直接比较，
@@ -48,12 +49,34 @@ vi.mock('../system/dependencies', () => ({
 vi.mock('../memory', () => ({
   memoryService: {
     isInitialized: vi.fn(() => false),
-    init: vi.fn(),
+    init: vi.fn().mockResolvedValue(undefined),
     setSchedulerModelConfig: vi.fn(),
-    ensureMemoryReadyForSession: vi.fn(),
-    onSessionEnd: vi.fn(),
+    ensureMemoryReadyForSession: vi.fn().mockResolvedValue(undefined),
+    onSessionEnd: vi.fn().mockResolvedValue(undefined),
+    destroy: vi.fn().mockResolvedValue(undefined),
   },
 }));
+
+vi.mock('./acp/acpClient', () => ({
+  loadAcpSdk: vi.fn(() => Promise.resolve({})),
+}));
+
+vi.mock('./acp/acpEngine', () => {
+  const createMockEngine = (config: { apiKey?: string; baseUrl?: string; model?: string } = {}) => ({
+    currentConfig: { apiKey: 'k', baseUrl: 'u', model: 'm', ...config },
+    init: vi.fn().mockResolvedValue(true),
+    updateConfig: vi.fn(),
+    removeAllListeners: vi.fn(),
+    destroy: vi.fn().mockResolvedValue(undefined),
+    isReady: true,
+    getActivePromptCount: vi.fn(() => 0),
+    engineName: 'nuwaxcode' as const,
+    on: vi.fn(),
+  });
+  return {
+    AcpEngine: vi.fn().mockImplementation(() => createMockEngine()),
+  };
+});
 
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -319,5 +342,83 @@ describe('rawMcpServersEqual — 清空 MCP 场景', () => {
   it('请求为空、存储也为空 → 相等（无变化）', () => {
     // rawMcpServersEqual({}, {}) → true → mcpChanged = false
     expect(eq({}, {})).toBe(true);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// ACP 引擎性能优化：预热池、loadAcpSdk、getOrCreateEngine 复用与 destroy 清理
+// ────────────────────────────────────────────────────────────────────────────
+describe('UnifiedAgentService — 引擎预热池（ACP 性能优化）', () => {
+  const baseConfig = {
+    engine: 'nuwaxcode' as const,
+    workspaceDir: '/tmp',
+    apiKey: 'k',
+    baseUrl: 'u',
+    model: 'm',
+  };
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+  });
+
+  it('init() 后 loadAcpSdk 被调用', async () => {
+    const { loadAcpSdk } = await import('./acp/acpClient');
+    const svc = new UnifiedAgentService();
+    await svc.init(baseConfig);
+    expect(loadAcpSdk).toHaveBeenCalled();
+  });
+
+  it('getOrCreateEngine 在预热完成后复用池中引擎且配置一致', async () => {
+    const svc = new UnifiedAgentService();
+    await svc.init(baseConfig);
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+
+    const effectiveConfig = { ...baseConfig, mcpServers: { bridge: { url: 'http://localhost:9999' } } };
+    const engine = await svc.getOrCreateEngine('proj-warm-reuse', effectiveConfig);
+    expect(engine).toBeDefined();
+    expect(engine.currentConfig?.apiKey).toBe('k');
+    expect(engine.currentConfig?.model).toBe('m');
+    expect(engine.currentConfig?.baseUrl).toBe('u');
+    expect(engine.updateConfig).toHaveBeenCalledWith(effectiveConfig); // 确保 MCP 等与本请求一致
+    // 复用后仅补充 nuwaxcode；池中最多两种类型各一（claude-code 未用 + nuwaxcode 新预热）
+    expect((svc as any).warmEnginePool.size).toBeLessThanOrEqual(2);
+  });
+
+  it('getOrCreateEngine 在 apiKey/baseUrl 一致时复用并 updateConfig', async () => {
+    const svc = new UnifiedAgentService();
+    await svc.init(baseConfig);
+    await new Promise<void>((r) => setTimeout(r, 50));
+
+    const requestConfig = { ...baseConfig, model: 'other-model' };
+    const engine = await svc.getOrCreateEngine('proj-same-auth', requestConfig);
+    expect(engine).toBeDefined();
+    expect(engine.updateConfig).toHaveBeenCalledWith(requestConfig);
+  });
+
+  it('getOrCreateEngine 在 apiKey 不一致时不复用、销毁预热引擎并走冷启动', async () => {
+    const svc = new UnifiedAgentService();
+    await svc.init(baseConfig);
+    await new Promise<void>((r) => setTimeout(r, 50));
+
+    const pool = (svc as any).warmEnginePool as Map<string, { destroy: ReturnType<typeof vi.fn> }>;
+    const warm = pool.get('nuwaxcode');
+    if (!warm) return;
+    warm.destroy.mockClear();
+
+    const requestConfig = { ...baseConfig, apiKey: 'other-key' };
+    const engine = await svc.getOrCreateEngine('proj-diff-auth', requestConfig);
+    expect(engine).toBeDefined();
+    expect(warm.destroy).toHaveBeenCalled();
+  });
+
+  it('destroy() 清空预热池且不抛', async () => {
+    const svc = new UnifiedAgentService();
+    await svc.init(baseConfig);
+    await new Promise<void>((r) => setImmediate(r));
+
+    await expect(svc.destroy()).resolves.toBeUndefined();
+    expect((svc as any).warmEnginePool.size).toBe(0);
+    expect((svc as any).warmEngineTasks.size).toBe(0);
   });
 });

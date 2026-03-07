@@ -19,6 +19,7 @@ export { AcpEngine } from './acp/acpEngine';
 export { mapAgentCommand, resolveAgentEnv } from './agentHelpers';
 
 import { AcpEngine } from './acp/acpEngine';
+import { loadAcpSdk } from './acp/acpClient';
 import { mapAgentCommand, resolveAgentEnv } from './agentHelpers';
 import dependencies from '../system/dependencies';
 
@@ -230,6 +231,14 @@ export class UnifiedAgentService extends EventEmitter {
   private assistantTextBuffers = new Map<string, string>();
 
   /**
+   * 预热引擎池：按引擎类型各保留 1 个已初始化的 AcpEngine，请求到来时按 requestedEngine 复用，省掉冷启动（~4s）。
+   * init 时同时预热 claude-code 与 nuwaxcode，避免「init 用 claude-code、请求用 nuwaxcode」导致永远无法复用。
+   */
+  private warmEnginePool = new Map<AgentEngineType, AcpEngine>();
+  /** 当前正在执行的预热任务，按引擎类型去重，避免同一类型重复启动 */
+  private warmEngineTasks = new Map<AgentEngineType, Promise<void>>();
+
+  /**
    * Initialize the service with a base config.
    * Does NOT spawn a process — processes are created lazily per project_id
    * on the first chat request via getOrCreateEngine().
@@ -283,6 +292,15 @@ export class UnifiedAgentService extends EventEmitter {
     }
 
     log.info('[UnifiedAgent] Service initialized (lazy mode, no process spawned)');
+    // 预加载 ACP SDK ESM 模块（claude-code-acp-ts 专项，避免首次 init 时串在关键路径）
+    loadAcpSdk().catch(() => {});
+    // 后台预做 memory 同步，避免首包 getOrCreateEngine 时 ensureMemoryReady 阻塞 ~500ms
+    if (memoryService.isInitialized()) {
+      memoryService.ensureMemoryReadyForSession().catch(() => {});
+    }
+    // 后台同时预热两种引擎，避免 init 为 claude-code 而请求为 nuwaxcode 时永远无法复用
+    this.startWarmingEngine('claude-code');
+    this.startWarmingEngine('nuwaxcode');
     this.emit('ready');
     return true;
   }
@@ -317,6 +335,18 @@ export class UnifiedAgentService extends EventEmitter {
       engine.removeAllListeners();
       destroyPromises.push(engine.destroy());
     }
+    // 先等待所有预热任务结束（任务可能正在向 warmEnginePool 推送新引擎）
+    const warmTasks = [...this.warmEngineTasks.values()];
+    this.warmEngineTasks.clear();
+    if (warmTasks.length > 0) {
+      await Promise.all(warmTasks.map((p) => p.catch(() => {})));
+    }
+    // 再销毁预热池中所有引擎（含任务刚放入的）
+    for (const engine of this.warmEnginePool.values()) {
+      engine.removeAllListeners();
+      destroyPromises.push(engine.destroy().catch(() => {}));
+    }
+    this.warmEnginePool.clear();
     await Promise.all(destroyPromises);
     this.engines.clear();
     this.engineConfigs.clear();
@@ -371,6 +401,37 @@ export class UnifiedAgentService extends EventEmitter {
   }
 
   /**
+   * 后台预热指定类型的 AcpEngine，放入 warmEnginePool。
+   * 不阻塞调用方；复用后由 getOrCreateEngine 再次调用 startWarmingEngine(同一类型) 以补充池子。
+   * @param engineType 要预热的引擎类型；init 时会对 claude-code 与 nuwaxcode 各调一次。
+   */
+  private startWarmingEngine(engineType: AgentEngineType): void {
+    if (this.warmEnginePool.has(engineType) || this.warmEngineTasks.has(engineType) || !this.baseConfig) {
+      return;
+    }
+    const config: AgentConfig = { ...this.baseConfig, engine: engineType };
+    const task = (async () => {
+      try {
+        const engine = new AcpEngine(engineType);
+        log.info('[UnifiedAgent] 🔥 后台预热 Engine:', engineType);
+        const ok = await engine.init(config);
+        if (ok) {
+          this.warmEnginePool.set(engineType, engine);
+          log.info('[UnifiedAgent] ✅ 预热 Engine 就绪，等待复用:', engineType);
+        } else {
+          engine.removeAllListeners();
+          await engine.destroy().catch(() => {});
+        }
+      } catch (err) {
+        log.warn('[UnifiedAgent] 预热 Engine 失败:', engineType, err);
+      } finally {
+        this.warmEngineTasks.delete(engineType);
+      }
+    })();
+    this.warmEngineTasks.set(engineType, task);
+  }
+
+  /**
    * Get or create an AcpEngine for a given project_id.
    * - Returns existing ready engine
    * - Dead engine → cleanup + rebuild
@@ -398,6 +459,38 @@ export class UnifiedAgentService extends EventEmitter {
     if (!this.baseConfig) {
       throw new Error('UnifiedAgentService not initialized (no baseConfig)');
     }
+
+    // 检查预热池：按请求的引擎类型取用，且必须 apiKey/baseUrl 一致才复用。
+    // 否则复用的进程仍是 init 时的认证，claude-code-acp-ts 会返回 "Authentication required"、内容为空。
+    const requestedEngine = effectiveConfig.engine || this.engineType || 'claude-code';
+    const warm = this.warmEnginePool.get(requestedEngine);
+    if (warm) {
+      const wc = warm.currentConfig;
+      const authOk =
+        wc &&
+        (wc.apiKey ?? '') === (effectiveConfig.apiKey ?? '') &&
+        (wc.baseUrl ?? '') === (effectiveConfig.baseUrl ?? '');
+      if (authOk) {
+        this.warmEnginePool.delete(requestedEngine);
+        this.forwardEvents(warm);
+        warm.updateConfig(effectiveConfig); // 使 model/mcpServers 等与本请求一致
+        this.engines.set(projectId, warm);
+        this.engineConfigs.set(projectId, effectiveConfig);
+        log.info(
+          `[UnifiedAgent] 🚀 复用预热引擎 for project: ${projectId}, engine: ${requestedEngine}, 耗时: ${Date.now() - t0}ms`,
+        );
+        this.startWarmingEngine(requestedEngine);
+        return warm;
+      }
+      // 认证信息不一致，不能复用（否则 claude-code 会报 Authentication required、内容为空）
+      warm.removeAllListeners();
+      await warm.destroy().catch(() => {});
+      this.warmEnginePool.delete(requestedEngine);
+    }
+    const poolKeys = [...this.warmEnginePool.keys()].join(',') || '(空)';
+    log.info(
+      `[UnifiedAgent] 池中无对应预热引擎，走冷启动 requestedEngine=${requestedEngine} poolKeys=${poolKeys}`,
+    );
 
     // Ensure memory is ready before starting session
     if (memoryService.isInitialized()) {
@@ -474,7 +567,10 @@ export class UnifiedAgentService extends EventEmitter {
     const t0 = Date.now();
     let t1 = t0, t2 = t0, t3 = t0, t4 = t0, t5 = t0;
 
-    const projectId = request.project_id || 'default';
+    // 只要 session_id 相同就复用同一引擎；无 session_id 时用 project_id。
+    // 查找时用 getEngineForProject(engineKey)，可命中「以 project_id 存储但已含该 session」的引擎（首次请求无 session_id，后续带 session_id）。
+    const engineKey = request.session_id || request.project_id || 'default';
+    const registryKey = this.resolveEngineKey(engineKey) || engineKey; // 引擎在 Map 中实际使用的 key
 
     // 按会话动态加载：本请求携带的 context_servers 同步到 MCP Proxy（从桥接项 --config 解析真实服务），一次会话就会更新 proxy 配置
     const requestMcpServersEarly: Record<string, McpServerEntry> = {};
@@ -536,8 +632,8 @@ export class UnifiedAgentService extends EventEmitter {
     const agentServer = request.agent_config?.agent_server;
     const mp = request.model_provider;
 
-    // Early return: engine already exists and no config-influencing fields in request
-    const existingEngine = this.engines.get(projectId);
+    // Early return: 已有引擎且无影响配置的字段时直接复用（按 session_id 或 project_id 查找，可命中「key=project_id 但含该 session」的引擎）
+    const existingEngine = this.getEngineForProject(engineKey);
     if (existingEngine && existingEngine.isReady
       && !agentServer?.command && !mp && Object.keys(requestMcpServersEarly).length === 0) {
       return existingEngine;
@@ -547,6 +643,12 @@ export class UnifiedAgentService extends EventEmitter {
     const requiredEngine = agentServer?.command
       ? mapAgentCommand(agentServer.command)
       : this.engineType;
+
+    // 同一 project/session：已找到引擎且未切换引擎类型时直接复用，不做 MCP/env/model 等细粒度检测，避免 detectConfigChange 误判导致每次请求都重建
+    const currentEngineType = this.engineConfigs.get(registryKey)?.engine || this.engineType;
+    if (existingEngine && existingEngine.isReady && (!requiredEngine || requiredEngine === currentEngineType)) {
+      return existingEngine;
+    }
 
     // Resolve env template variables
     const resolvedEnv = agentServer?.env
@@ -562,7 +664,7 @@ export class UnifiedAgentService extends EventEmitter {
 
     // Check if existing engine needs to be replaced (config changed)
     if (existingEngine && existingEngine.isReady) {
-      const hasConfigChange = this.detectConfigChange(projectId, {
+      const hasConfigChange = this.detectConfigChange(registryKey, {
         requiredEngine, resolvedEnv, model, mp, requestMcpServersEarly,
       });
 
@@ -572,16 +674,16 @@ export class UnifiedAgentService extends EventEmitter {
 
       // Config changed — check if we can safely replace
       if (existingEngine.getActivePromptCount() > 0) {
-        log.warn(`[UnifiedAgent] ⚠️ Config changed for project ${projectId} but has active prompts (${existingEngine.getActivePromptCount()}), using current engine`);
+        log.warn(`[UnifiedAgent] ⚠️ Config changed for project ${registryKey} but has active prompts (${existingEngine.getActivePromptCount()}), using current engine`);
         return existingEngine;
       }
 
-      log.info(`[UnifiedAgent] 🔄 Config changed for project ${projectId}, rebuilding engine`);
+      log.info(`[UnifiedAgent] 🔄 Config changed for project ${registryKey}, rebuilding engine`);
       existingEngine.removeAllListeners();
       await existingEngine.destroy();
-      this.engines.delete(projectId);
-      this.engineConfigs.delete(projectId);
-      this.engineRawMcpServers.delete(projectId);
+      this.engines.delete(registryKey);
+      this.engineConfigs.delete(registryKey);
+      this.engineRawMcpServers.delete(registryKey);
     }
 
     // Build effective config for this project
@@ -671,7 +773,7 @@ export class UnifiedAgentService extends EventEmitter {
     };
 
     log.info(
-      `[UnifiedAgent] 📌 Engine config for project ${projectId}:\n` +
+      `[UnifiedAgent] 📌 Engine config for project ${engineKey}:\n` +
       `├─ engine: ${effectiveConfig.engine}\n` +
       `├─ config.model: ${effectiveConfig.model || '⚠️ 未设置'}\n` +
       `├─ env OPENCODE_MODEL: ${effectiveConfig.env?.OPENCODE_MODEL || '(未设置)'}\n` +
@@ -681,17 +783,16 @@ export class UnifiedAgentService extends EventEmitter {
       `└─ mcpServers: ${effectiveConfig.mcpServers ? Object.keys(effectiveConfig.mcpServers).join(', ') : '(none)'}`,
     );
 
-    const engine = await this.getOrCreateEngine(projectId, effectiveConfig);
+    const engine = await this.getOrCreateEngine(engineKey, effectiveConfig);
     t5 = Date.now();
     log.debug(`⏱️ [ensureEngine][PERF] getOrCreateEngine 耗时: ${t5 - t4}ms`);
     log.debug(`⏱️ [ensureEngine][PERF] 总耗时: ${t5 - t0}ms (parseCtxServers=${t1 - t0}ms, syncMcp=${(t2 || t1) - t1}ms, extractReal=${t3 - (t2 || t1)}ms, ensureBridge=${t4 - t3}ms, getOrCreate=${t5 - t4}ms)`);
 
     // 仅在引擎实际被创建/重建时到达此处（detectConfigChange 返回 false 时已 early-return）。
-    // 将本次过滤好的原始 MCP servers 存入快照，供下次 detectConfigChange 做同格式（raw vs raw）比较。
-    // 即使为空也写入：空集合表示"本次请求无 MCP server"，
-    // 支持用户清空所有 MCP server 后正确触发下次引擎重建。
+    // 将本次过滤好的原始 MCP servers 存入快照，key 用实际注册表 key 以便 detectConfigChange 能命中。
+    const finalRegistryKey = this.resolveEngineKey(engineKey) || engineKey;
     this.engineRawMcpServers.set(
-      projectId,
+      finalRegistryKey,
       filterBridgeEntries(requestMcpServersEarly),
     );
 
