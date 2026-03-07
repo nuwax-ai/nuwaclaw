@@ -456,7 +456,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
           <div className={styles.loggedInContainer}>
             {/* 左侧：用户信息 */}
             <div className={styles.userInfo}>
-              <CheckCircleOutlined style={{ color: '#16a34a', fontSize: 14 }} />
+              <CheckCircleOutlined style={{ color: 'var(--color-success)', fontSize: 14 }} />
               <div className={styles.userInfoText}>
                 <span className={styles.username}>
                   {authState.username || '用户'}
@@ -590,7 +590,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
     }
 
     return (
-      <div className={styles.sectionBody}>
+      <div className={styles.sectionBody} style={{ padding: '0 16px' }}>
         {/* 服务列表 */}
         {services.map((svc) => {
           const isStarting = startingServices?.has(svc.key);
@@ -600,15 +600,15 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
             <div key={svc.key} className={styles.serviceRow}>
               <div className={styles.serviceInfo}>
                 {(isStarting || isStopping) ? (
-                  <LoadingOutlined style={{ color: '#1677ff', fontSize: 14 }} />
+                  <LoadingOutlined style={{ color: 'var(--color-info)', fontSize: 14 }} />
                 ) : svc.running ? (
-                  <CheckCircleOutlined style={{ color: '#16a34a', fontSize: 14 }} />
+                  <CheckCircleOutlined style={{ color: 'var(--color-success)', fontSize: 14 }} />
                 ) : hasError ? (
                   <Tooltip title={svc.error}>
-                    <ExclamationCircleOutlined style={{ color: '#dc2626', fontSize: 14 }} />
+                    <ExclamationCircleOutlined style={{ color: 'var(--color-error)', fontSize: 14 }} />
                   </Tooltip>
                 ) : (
-                  <CloseCircleOutlined style={{ color: '#a1a1aa', fontSize: 14 }} />
+                  <CloseCircleOutlined style={{ color: 'var(--color-text-tertiary)', fontSize: 14 }} />
                 )}
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -642,6 +642,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
                   <Button
                     size="small"
                     danger
+                    className={styles.dangerButton}
                     icon={<PoweroffOutlined />}
                     onClick={() => handleStopService(svc.key)}
                     disabled={isAnyOperating}
@@ -741,7 +742,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       {/* Login status */}
       <div className={styles.section}>
         <div className={styles.sectionHeader}>
-          <UserOutlined style={{ fontSize: 14, color: '#52525b' }} />
+          <UserOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
           <span className={styles.sectionTitle}>账号状态</span>
         </div>
         {renderLoginSection()}
@@ -751,7 +752,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       <div className={styles.section}>
         <div className={styles.servicesHeader}>
           <div className={styles.servicesHeaderLeft}>
-            <PlayCircleOutlined style={{ fontSize: 14, color: '#52525b' }} />
+            <PlayCircleOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
             <span className={styles.sectionTitle}>服务</span>
             {!servicesLoading && (() => {
               const runningCount = services.filter((s) => s.running).length;
@@ -790,6 +791,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
               <Button
                 size="small"
                 danger
+                className={styles.dangerButton}
                 icon={<PoweroffOutlined />}
                 onClick={handleStopAll}
                 loading={isAnyStopping}
@@ -806,7 +808,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       {/* Quick actions */}
       <div className={styles.section}>
         <div className={styles.sectionHeader}>
-          <AppstoreOutlined style={{ fontSize: 14, color: '#52525b' }} />
+          <AppstoreOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
           <span className={styles.sectionTitle}>快捷操作</span>
         </div>
         {renderQuickActions()}

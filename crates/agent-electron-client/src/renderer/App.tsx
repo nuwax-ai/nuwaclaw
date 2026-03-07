@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, createContext, useContext } from 'react';
 import {
+  ConfigProvider,
   Menu,
   Badge,
   Spin,
@@ -28,6 +29,28 @@ import AboutPage from './components/pages/AboutPage';
 import LogViewer from './components/pages/LogViewer';
 import PermissionsPage from './components/pages/PermissionsPage';
 import styles from './styles/components/App.module.css';
+import { lightTheme, darkTheme } from './styles/theme';
+
+// 主题类型
+export type ThemeMode = 'light' | 'dark' | 'system';
+
+// 主题 Context
+interface ThemeContextValue {
+  themeMode: ThemeMode;
+  isDarkMode: boolean;
+  setThemeMode: (mode: ThemeMode) => void;
+}
+
+export const ThemeContext = createContext<ThemeContextValue | null>(null);
+
+// Hook to use theme context
+export function useTheme(): ThemeContextValue {
+  const context = useContext(ThemeContext);
+  if (!context) {
+    throw new Error('useTheme must be used within App component');
+  }
+  return context;
+}
 
 // Tab 类型定义（对齐 Tauri 客户端）
 type TabKey = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'about';
@@ -97,6 +120,62 @@ function App() {
   // ============================================
   const [isSetupComplete, setIsSetupComplete] = useState<boolean | null>(null);
   const setupJustCompleted = useRef(false);
+
+  // ============================================
+  // 主题状态
+  // ============================================
+  const [themeMode, setThemeMode] = useState<ThemeMode>('system');
+  const [systemIsDark, setSystemIsDark] = useState(false);
+
+  // 计算实际使用的主题
+  const isDarkMode = useMemo(() => {
+    if (themeMode === 'system') {
+      return systemIsDark;
+    }
+    return themeMode === 'dark';
+  }, [themeMode, systemIsDark]);
+
+  const currentTheme = useMemo(() => isDarkMode ? darkTheme : lightTheme, [isDarkMode]);
+
+  // 监听系统主题变化
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    setSystemIsDark(mediaQuery.matches);
+
+    const handler = (e: MediaQueryListEvent) => setSystemIsDark(e.matches);
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, []);
+
+  // 加载保存的主题设置
+  useEffect(() => {
+    const loadThemeSetting = async () => {
+      try {
+        const saved = await window.electronAPI?.settings.get('theme_mode') as ThemeMode | null;
+        if (saved && ['light', 'dark', 'system'].includes(saved)) {
+          setThemeMode(saved);
+        }
+      } catch (e) {
+        console.warn('[App] 加载主题设置失败:', e);
+      }
+    };
+    loadThemeSetting();
+  }, []);
+
+  // 保存主题设置
+  const handleSetThemeMode = useCallback(async (mode: ThemeMode) => {
+    setThemeMode(mode);
+    try {
+      await window.electronAPI?.settings.set('theme_mode', mode);
+    } catch (e) {
+      console.warn('[App] 保存主题设置失败:', e);
+    }
+  }, []);
+
+  // 应用主题到 body
+  useEffect(() => {
+    document.body.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
+  }, [isDarkMode]);
 
   /**
    * 主界面下「必需依赖未完全安装」时是否强制进入依赖安装流程。
@@ -534,12 +613,14 @@ function App() {
   // ============================================
   if (isSetupComplete === null || (isSetupComplete && needsRequiredDepsReinstall === null)) {
     return (
-      <div className="app-loading">
-        <Spin size="large" />
-        <div className="app-loading-text">
-          正在加载...
+      <ConfigProvider theme={currentTheme}>
+        <div className="app-loading">
+          <Spin size="large" />
+          <div className="app-loading-text">
+            正在加载...
+          </div>
         </div>
-      </div>
+      </ConfigProvider>
     );
   }
 
@@ -547,7 +628,11 @@ function App() {
   // 渲染：初始化向导
   // ============================================
   if (!isSetupComplete) {
-    return <SetupWizard onComplete={handleSetupComplete} />;
+    return (
+      <ConfigProvider theme={currentTheme}>
+        <SetupWizard onComplete={handleSetupComplete} />
+      </ConfigProvider>
+    );
   }
 
   // ============================================
@@ -555,13 +640,15 @@ function App() {
   // ============================================
   if (needsRequiredDepsReinstall === true) {
     return (
-      <SetupDependencies
-        onComplete={async () => {
-          // 先回到主界面，再在后台重启服务（使新安装的依赖生效）
-          setNeedsRequiredDepsReinstall(false);
-          await restartAllServices();
-        }}
-      />
+      <ConfigProvider theme={currentTheme}>
+        <SetupDependencies
+          onComplete={async () => {
+            // 先回到主界面，再在后台重启服务（使新安装的依赖生效）
+            setNeedsRequiredDepsReinstall(false);
+            await restartAllServices();
+          }}
+        />
+      </ConfigProvider>
     );
   }
 
@@ -569,66 +656,70 @@ function App() {
   // 渲染：主界面
   // ============================================
   return (
-    <div className="app-container">
-      {/* 顶部栏 */}
-      <div className="app-header">
-        <div className="app-header-logo">
-          <img src="./32x32.png" alt="" style={{ width: 16, height: 16 }} />
-          <span className="app-header-title">{APP_DISPLAY_NAME}</span>
-        </div>
-        <div className={styles.headerRight}>
-          {username && (
-            <span className={styles.username}>{username}</span>
-          )}
-          <Badge
-            status={badge.status}
-            className={agentStatus === 'idle' || agentStatus === 'busy' ? styles.badgeIdle : undefined}
-            text={
-              <span className={styles.badgeText}>{badge.text}</span>
-            }
-          />
-        </div>
-      </div>
-
-      {/* 主体部分 */}
-      <div className="app-body">
-        {/* 左侧边栏 */}
-        <div className="app-sider">
-          <Menu
-            mode="inline"
-            selectedKeys={[activeTab]}
-            items={menuItems.map((item) => ({
-              key: item.key,
-              icon: item.icon,
-              label: item.label,
-              onClick: () => setActiveTab(item.key as TabKey),
-            }))}
-          />
-        </div>
-
-        {/* 主内容区：flex 子撑满，便于日志等页占满高度 */}
-        <div className="app-content">
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          {activeTab === 'client' && (
-            <ClientPage
-              onNavigate={setActiveTab}
-              services={services}
-              servicesLoading={servicesLoading}
-              startingServices={startingServices}
-              setStartingServices={setStartingServices}
-              onRefreshServices={pollServicesStatus}
-              authRefreshTrigger={authRefreshTrigger}
+    <ConfigProvider theme={currentTheme}>
+      <ThemeContext.Provider value={{ themeMode, isDarkMode, setThemeMode: handleSetThemeMode }}>
+      <div className="app-container">
+        {/* 顶部栏 */}
+        <div className="app-header">
+          <div className="app-header-logo">
+            <img src="./32x32.png" alt="" style={{ width: 16, height: 16 }} />
+            <span className="app-header-title">{APP_DISPLAY_NAME}</span>
+          </div>
+          <div className={styles.headerRight}>
+            {username && (
+              <span className={styles.username}>{username}</span>
+            )}
+            <Badge
+              status={badge.status}
+              className={agentStatus === 'idle' || agentStatus === 'busy' ? styles.badgeIdle : undefined}
+              text={
+                <span className={styles.badgeText}>{badge.text}</span>
+              }
             />
-          )}
-          {activeTab === 'settings' && <SettingsPage />}
-          {activeTab === 'dependencies' && <DependenciesPage />}
-          {activeTab === 'permissions' && <PermissionsPage />}
-          {activeTab === 'logs' && <LogViewer />}
-          {activeTab === 'about' && <AboutPage />}
+          </div>
+        </div>
+
+        {/* 主体部分 */}
+        <div className="app-body">
+          {/* 左侧边栏 */}
+          <div className="app-sider">
+            <Menu
+              mode="inline"
+              selectedKeys={[activeTab]}
+              items={menuItems.map((item) => ({
+                key: item.key,
+                icon: item.icon,
+                label: item.label,
+                onClick: () => setActiveTab(item.key as TabKey),
+              }))}
+            />
+          </div>
+
+          {/* 主内容区：flex 子撑满，便于日志等页占满高度 */}
+          <div className="app-content">
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: 'var(--color-bg-layout)' }}>
+            {activeTab === 'client' && (
+              <ClientPage
+                onNavigate={setActiveTab}
+                services={services}
+                servicesLoading={servicesLoading}
+                startingServices={startingServices}
+                setStartingServices={setStartingServices}
+                onRefreshServices={pollServicesStatus}
+                authRefreshTrigger={authRefreshTrigger}
+              />
+            )}
+            {activeTab === 'settings' && <SettingsPage />}
+            {activeTab === 'dependencies' && <DependenciesPage />}
+            {activeTab === 'permissions' && <PermissionsPage />}
+            {activeTab === 'logs' && <LogViewer />}
+            {activeTab === 'about' && <AboutPage />}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+      </ThemeContext.Provider>
+    </ConfigProvider>
   );
 }
 

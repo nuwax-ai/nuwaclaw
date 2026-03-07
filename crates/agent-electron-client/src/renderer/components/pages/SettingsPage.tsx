@@ -4,7 +4,7 @@
  * 功能：
  * - 服务配置（端口、工作区目录）
  * - AI 配置（API key、模型、max_tokens、温度）
- * - 系统设置
+ * - 系统设置（主题、开机自启动、日志目录）
  */
 
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
@@ -22,7 +22,7 @@ import {
   Modal,
   Spin,
 } from 'antd';
-import { FolderOutlined, SaveOutlined, EditOutlined } from '@ant-design/icons';
+import { FolderOutlined, SaveOutlined, EditOutlined, SettingOutlined, DesktopOutlined } from '@ant-design/icons';
 import { APP_DISPLAY_NAME, APP_DATA_DIR_NAME } from '@shared/constants';
 import { setupService, Step1Config, DEFAULT_STEP1_CONFIG } from '../../services/core/setup';
 import {
@@ -34,6 +34,8 @@ import {
   MSG_SUCCESS,
   MSG_ERROR,
 } from '@shared/constants';
+import styles from '../../styles/components/ClientPage.module.css';
+import { useTheme, type ThemeMode } from '../../App';
 
 // Dev tools: 仅开发模式加载
 const IS_DEV = import.meta.env.DEV;
@@ -55,6 +57,9 @@ const DEFAULT_AI_SETTINGS: AISettings = {
 };
 
 export default function SettingsPage() {
+  // 主题
+  const { themeMode, setThemeMode } = useTheme();
+
   // 服务配置
   const [form] = Form.useForm<Step1Config>();
   const [loading, setLoading] = useState(true);
@@ -250,22 +255,16 @@ export default function SettingsPage() {
   }
 
   return (
-    <div>
+    <div className={styles.page}>
       {/* 服务配置 */}
-      <div className="section">
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: 12,
-          }}
-        >
-          <span style={{ fontSize: 13, fontWeight: 500, color: '#18181b' }}>
-            服务配置
-          </span>
+      <div className={styles.section}>
+        <div className={styles.servicesHeader}>
+          <div className={styles.servicesHeaderLeft}>
+            <SettingOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
+            <span className={styles.sectionTitle}>服务配置</span>
+          </div>
           {editing ? (
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div className={styles.servicesHeaderActions}>
               <Button size="small" onClick={handleCancelEdit} disabled={saving}>
                 取消
               </Button>
@@ -289,15 +288,7 @@ export default function SettingsPage() {
             </Button>
           )}
         </div>
-
-        <div
-          style={{
-            border: '1px solid #e4e4e7',
-            borderRadius: 8,
-            background: '#fff',
-            padding: 16,
-          }}
-        >
+        <div className={styles.sectionBody}>
           <Form form={form} layout="vertical" disabled={!editing} size="small">
             <Row gutter={16}>
               <Col span={12}>
@@ -347,7 +338,7 @@ export default function SettingsPage() {
           </Form>
 
           {!editing && (
-            <div style={{ marginTop: 12, fontSize: 12, color: '#a1a1aa' }}>
+            <div style={{ marginTop: 12, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
               修改配置后需要重启服务才能生效
             </div>
           )}
@@ -364,7 +355,7 @@ export default function SettingsPage() {
             marginBottom: 12,
           }}
         >
-          <span style={{ fontSize: 13, fontWeight: 500, color: '#18181b' }}>
+          <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text)' }}>
             AI 配置
           </span>
           {aiEditing ? (
@@ -395,7 +386,7 @@ export default function SettingsPage() {
 
         <div
           style={{
-            border: '1px solid #e4e4e7',
+            border: '1px solid var(--color-border)',
             borderRadius: 8,
             background: '#fff',
             padding: 16,
@@ -444,38 +435,20 @@ export default function SettingsPage() {
       </div> */}
 
       {/* 系统设置 */}
-      <div className="section" style={{ marginTop: 20 }}>
-        <div
-          style={{
-            fontSize: 13,
-            fontWeight: 500,
-            color: '#18181b',
-            marginBottom: 10,
-          }}
-        >
-          系统
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <DesktopOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
+          <span className={styles.sectionTitle}>系统</span>
         </div>
-        <div
-          style={{
-            border: '1px solid #e4e4e7',
-            borderRadius: 8,
-            background: '#fff',
-          }}
-        >
+        <div className={styles.sectionBody} style={{ padding: '0 16px' }}>
           {/* 开机自启动 */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '10px 14px',
-              borderBottom: '1px solid #f4f4f5',
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 13, color: '#18181b' }}>开机自启动</div>
-              <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 1 }}>
-                系统启动时自动运行 {APP_DISPLAY_NAME}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              <div>
+                <span className={styles.serviceLabel}>开机自启动</span>
+                <div className={styles.serviceDescription}>
+                  系统启动时自动运行 {APP_DISPLAY_NAME}
+                </div>
               </div>
             </div>
             <Switch
@@ -486,55 +459,58 @@ export default function SettingsPage() {
             />
           </div>
 
+          {/* 主题设置 */}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              <div>
+                <span className={styles.serviceLabel}>主题</span>
+                <div className={styles.serviceDescription}>
+                  选择界面配色方案
+                </div>
+              </div>
+            </div>
+            <Select
+              size="small"
+              value={themeMode}
+              onChange={(value) => setThemeMode(value)}
+              style={{ width: 100 }}
+              options={[
+                { value: 'system', label: '跟随系统' },
+                { value: 'light', label: '亮色' },
+                { value: 'dark', label: '暗色' },
+              ]}
+            />
+          </div>
+
           {/* 应用数据目录 */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '10px 14px',
-              borderBottom: '1px solid #f4f4f5',
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 13, color: '#18181b' }}>应用数据目录</div>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: '#a1a1aa',
-                  marginTop: 1,
-                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                }}
-              >
-                ~/{APP_DATA_DIR_NAME}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              <div>
+                <span className={styles.serviceLabel}>应用数据目录</span>
+                <div className={styles.serviceDescription}>
+                  ~/{APP_DATA_DIR_NAME}
+                </div>
               </div>
             </div>
           </div>
 
           {/* 日志目录 */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '10px 14px',
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 13, color: '#18181b' }}>日志目录</div>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: '#a1a1aa',
-                  marginTop: 1,
-                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                  maxWidth: 280,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {logDir || '加载中...'}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              <div>
+                <span className={styles.serviceLabel}>日志目录</span>
+                <div
+                  className={styles.serviceDescription}
+                  style={{
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    maxWidth: 280,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {logDir || '加载中...'}
+                </div>
               </div>
             </div>
             <Button size="small" onClick={handleOpenLogDir}>
@@ -546,7 +522,7 @@ export default function SettingsPage() {
 
       {/* 开发工具 (仅开发模式) */}
       {IS_DEV && DevToolsPanel && (
-        <div style={{ marginTop: 20 }}>
+        <div className={styles.section}>
           <Suspense fallback={<Spin size="small" />}>
             <DevToolsPanel />
           </Suspense>

@@ -14,9 +14,9 @@ import {
   CloseCircleOutlined,
   QuestionCircleOutlined,
   ReloadOutlined,
-  SafetyOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
+import styles from '../../styles/components/ClientPage.module.css';
 
 interface PermissionItem {
   key: string;
@@ -26,9 +26,9 @@ interface PermissionItem {
 }
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
-  granted: <CheckCircleOutlined style={{ color: '#16a34a', fontSize: 16 }} />,
-  denied: <CloseCircleOutlined style={{ color: '#ef4444', fontSize: 16 }} />,
-  unknown: <QuestionCircleOutlined style={{ color: '#a1a1aa', fontSize: 16 }} />,
+  granted: <CheckCircleOutlined style={{ color: 'var(--color-success)', fontSize: 16 }} />,
+  denied: <CloseCircleOutlined style={{ color: 'var(--color-error)', fontSize: 16 }} />,
+  unknown: <QuestionCircleOutlined style={{ color: 'var(--color-text-secondary)', fontSize: 16 }} />,
 };
 
 const STATUS_TAG: Record<string, { color: string; text: string }> = {
@@ -81,110 +81,83 @@ export default function PermissionsPage() {
 
   if (loading && permissions.length === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: 40 }}>
-        <Spin size="small" />
+      <div className={styles.page}>
+        <div style={{ textAlign: 'center', padding: 40 }}>
+          <Spin size="small" />
+        </div>
       </div>
     );
   }
 
   return (
-    <div>
+    <div className={styles.page}>
       {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 12,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 500, color: '#18181b' }}>
-            系统授权
-          </span>
-          {totalCount > 0 && (
-            <Tag color={grantedCount === totalCount ? 'green' : 'orange'}>
-              {grantedCount}/{totalCount}
-            </Tag>
-          )}
-        </div>
-        <Button
-          size="small"
-          icon={<ReloadOutlined />}
-          onClick={handleRefresh}
-          loading={loading}
-        >
-          刷新
-        </Button>
-      </div>
-
-      <div style={{ fontSize: 12, color: '#71717a', marginBottom: 16 }}>
-        以下权限可能影响应用的正常运行，请根据需要授权。
-      </div>
-
-      {/* Permission list */}
-      <div
-        style={{
-          border: '1px solid #e4e4e7',
-          borderRadius: 8,
-          background: '#fff',
-          overflow: 'hidden',
-        }}
-      >
-        {permissions.map((perm, idx) => (
-          <div
-            key={perm.key}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '12px 16px',
-              borderBottom: idx < permissions.length - 1 ? '1px solid #f4f4f5' : 'none',
-            }}
+      <div className={styles.section}>
+        <div className={styles.servicesHeader}>
+          <div className={styles.servicesHeaderLeft}>
+            <span className={styles.sectionTitle}>系统授权</span>
+            {totalCount > 0 && (
+              <Tag color={grantedCount === totalCount ? 'green' : 'orange'}>
+                {grantedCount}/{totalCount}
+              </Tag>
+            )}
+            <span className={styles.sectionDescription} style={{ marginTop: 0, marginLeft: 12 }}>
+              以下权限可能影响应用的正常运行，请根据需要授权
+            </span>
+          </div>
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={handleRefresh}
+            loading={loading}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              {STATUS_ICON[perm.status]}
-              <div>
-                <div style={{ fontSize: 13, color: '#18181b', fontWeight: 500 }}>
-                  {perm.name}
-                </div>
-                <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 2 }}>
-                  {perm.description}
+            刷新
+          </Button>
+        </div>
+
+        {/* Permission list */}
+        <div className={styles.sectionBody} style={{ padding: '0 16px' }}>
+          {permissions.map((perm) => (
+            <div key={perm.key} className={styles.serviceRow}>
+              <div className={styles.serviceInfo}>
+                {STATUS_ICON[perm.status]}
+                <div>
+                  <span className={styles.serviceLabel}>{perm.name}</span>
+                  <div className={styles.serviceDescription}>{perm.description}</div>
                 </div>
               </div>
-            </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Tag
-                color={STATUS_TAG[perm.status]?.color || 'default'}
-                style={{ margin: 0, fontSize: 11 }}
-              >
-                {STATUS_TAG[perm.status]?.text || '未知'}
-              </Tag>
-              {perm.status !== 'granted' && (
-                <Button
-                  size="small"
-                  icon={<SettingOutlined />}
-                  onClick={() => handleOpenSettings(perm.key)}
+              <div className={styles.serviceActions}>
+                <Tag
+                  color={STATUS_TAG[perm.status]?.color || 'default'}
+                  style={{ margin: 0, fontSize: 11 }}
                 >
-                  前往设置
-                </Button>
-              )}
+                  {STATUS_TAG[perm.status]?.text || '未知'}
+                </Tag>
+                {perm.status !== 'granted' && (
+                  <Button
+                    size="small"
+                    icon={<SettingOutlined />}
+                    onClick={() => handleOpenSettings(perm.key)}
+                  >
+                    前往设置
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       {grantedCount === totalCount && totalCount > 0 && (
         <div
           style={{
-            marginTop: 16,
             padding: '10px 14px',
-            background: '#f0fdf4',
-            border: '1px solid #bbf7d0',
-            borderRadius: 8,
+            background: 'var(--color-bg-section)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--border-radius-lg)',
             fontSize: 12,
-            color: '#16a34a',
+            color: 'var(--color-success)',
             display: 'flex',
             alignItems: 'center',
             gap: 6,

@@ -206,7 +206,7 @@ export default function AboutPage() {
       case 'available':
         return (
           <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <div style={{ fontSize: 12, color: '#52525b' }}>
+            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
               发现新版本: v{version}
             </div>
             {autoUpdate === false ? (
@@ -226,7 +226,7 @@ export default function AboutPage() {
         const displayPercent = progress != null ? Math.round(progress.percent) : Math.round(simulatedPercent);
         return (
           <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <div style={{ fontSize: 12, color: '#52525b' }}>
+            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
               正在下载 v{version}... {displayPercent}%
             </div>
             <Progress
@@ -242,7 +242,7 @@ export default function AboutPage() {
       case 'downloaded':
         return (
           <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <div style={{ fontSize: 12, color: '#15803d' }}>
+            <div style={{ fontSize: 12, color: 'var(--color-success)' }}>
               v{version} 已下载完成
             </div>
             <Button type="primary" onClick={handleInstall}>
@@ -256,7 +256,7 @@ export default function AboutPage() {
         if (readOnlyVolume) {
           return (
             <Space direction="vertical" size={8} style={{ width: '100%' }}>
-              <div style={{ fontSize: 12, color: '#52525b', lineHeight: 1.5 }}>
+              <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
                 当前应用在只读位置运行（如从「下载」直接打开），无法就地更新。请将应用移到「应用程序」文件夹后重试，或通过下方按钮前往下载页手动下载新版本。
               </div>
               <Space>
@@ -272,7 +272,7 @@ export default function AboutPage() {
         }
         return (
           <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <div style={{ fontSize: 12, color: '#dc2626' }}>
+            <div style={{ fontSize: 12, color: 'var(--color-error)' }}>
               {error || '更新出错'}
             </div>
             <Button icon={<SyncOutlined />} onClick={handleCheckUpdate}>
@@ -300,9 +300,9 @@ export default function AboutPage() {
     >
       <div
         style={{
-          border: "1px solid #e4e4e7",
+          border: "1px solid var(--color-border)",
           borderRadius: 12,
-          background: "#fff",
+          background: "var(--color-bg-section)",
           padding: "40px 32px",
         }}
       >
@@ -320,19 +320,19 @@ export default function AboutPage() {
             marginTop: 20,
             fontSize: 20,
             fontWeight: 600,
-            color: "#18181b",
+            color: "var(--color-text)",
           }}
         >
           {APP_DISPLAY_NAME}
         </div>
-        <div style={{ marginTop: 8, fontSize: 16, color: "#71717a", fontWeight: 500 }}>
+        <div style={{ marginTop: 8, fontSize: 16, color: "var(--color-text-secondary)", fontWeight: 500 }}>
           v{appVersion || '...'}
         </div>
         <div
           style={{
             marginTop: 16,
             fontSize: 14,
-            color: "#a1a1aa",
+            color: "var(--color-text-tertiary)",
             lineHeight: 1.6,
           }}
         >
@@ -347,7 +347,7 @@ export default function AboutPage() {
             onKeyDown={(e) => e.key === "Enter" && handleOpenOfficialWebsite()}
             style={{
               fontSize: 13,
-              color: "#71717a",
+              color: "var(--color-text-secondary)",
               cursor: "pointer",
               display: "inline-flex",
               alignItems: "center",

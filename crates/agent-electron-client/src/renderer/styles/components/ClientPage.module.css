@@ -1,6 +1,7 @@
 /**
  * ClientPage 组件样式
  * 包含页面、区块、服务行、登录表单等样式
+ * 支持亮色/暗色主题
  */
 
 /* ========== 页面 ========== */
@@ -10,26 +11,35 @@
 
 /* ========== 区块 ========== */
 .section {
-  background: #ffffff;
-  border: 1px solid #e4e4e7;
-  border-radius: 8px;
-  margin-bottom: 16px;
+  background: var(--color-bg-section);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-lg);
+  margin-bottom: 20px;
   overflow: hidden;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .sectionHeader {
   display: flex;
-  align-items: center;
+  flex-direction: row;
   gap: 6px;
   padding: 10px 16px;
-  border-bottom: 1px solid #f4f4f5;
-  background: #fafafa;
+  height: 46px;
+  align-items: center;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-section-header);
 }
 
 .sectionTitle {
   font-size: 13px;
   font-weight: 600;
-  color: #18181b;
+  color: var(--color-text);
+}
+
+.sectionDescription {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
 }
 
 .sectionBody {
@@ -43,8 +53,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
-  border-bottom: 1px solid #f4f4f5;
-  background: #fafafa;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-section-header);
 }
 
 .servicesHeaderLeft {
@@ -55,7 +65,23 @@
 
 .servicesHeaderActions {
   display: flex;
-  gap: 4px;
+  gap: 8px;
+}
+
+/* 停止按钮红色边框 */
+.dangerButton {
+  border-color: var(--color-error) !important;
+  color: var(--color-error) !important;
+}
+
+.dangerButton:hover:not(:disabled) {
+  border-color: #DC2626 !important;
+  color: #DC2626 !important;
+  background: rgba(254, 242, 242, 0.8) !important;
+}
+
+[data-theme="dark"] .dangerButton:hover:not(:disabled) {
+  background: rgba(127, 29, 29, 0.3) !important;
 }
 
 /* ========== 服务行 ========== */
@@ -63,8 +89,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 0;
-  border-bottom: 1px solid #f4f4f5;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .serviceRow:last-child {
@@ -80,18 +106,18 @@
 
 .serviceLabel {
   font-size: 13px;
-  color: #18181b;
+  color: var(--color-text);
 }
 
 .serviceDescription {
   font-size: 11px;
-  color: #a1a1aa;
+  color: var(--color-text-tertiary);
   margin-top: 2px;
 }
 
 .servicePid {
   font-size: 11px;
-  color: #a1a1aa;
+  color: var(--color-text-tertiary);
 }
 
 .serviceActions {
@@ -122,12 +148,12 @@
 .username {
   font-size: 13px;
   font-weight: 500;
-  color: #18181b;
+  color: var(--color-text);
 }
 
 .domain {
   font-size: 11px;
-  color: #71717a;
+  color: var(--color-text-secondary);
 }
 
 .actionButtons {
@@ -144,7 +170,7 @@
 
 .loginHintText {
   font-size: 11px;
-  color: #a1a1aa;
+  color: var(--color-text-tertiary);
 }
 
 /* 二维码弹窗 */
@@ -170,9 +196,13 @@
   z-index: 10;
 }
 
+[data-theme="dark"] .loadingOverlay {
+  background: rgba(24, 24, 27, 0.9);
+}
+
 .loadingText {
   font-size: 13px;
-  color: #1677ff;
+  color: var(--color-text);
   font-weight: 500;
 }
 

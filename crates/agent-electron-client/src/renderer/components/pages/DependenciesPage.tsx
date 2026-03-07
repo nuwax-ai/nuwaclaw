@@ -22,6 +22,7 @@ import {
   DEPENDENCY_STATUS_LABELS,
   ACTION_MESSAGES,
 } from "@shared/constants";
+import styles from "../../styles/components/ClientPage.module.css";
 
 interface NodeCheckResult {
   installed?: boolean;
@@ -309,20 +310,20 @@ export default function DependenciesPage() {
       case "installed":
       case "bundled":
         return (
-          <CheckCircleOutlined style={{ color: "#16a34a", fontSize: 12 }} />
+          <CheckCircleOutlined style={{ color: "var(--color-success)", fontSize: 12 }} />
         );
       case "missing":
       case "outdated":
         return (
           <ExclamationCircleOutlined
-            style={{ color: "#ca8a04", fontSize: 12 }}
+            style={{ color: "var(--color-warning)", fontSize: 12 }}
           />
         );
       case "installing":
-        return <LoadingOutlined style={{ color: "#71717a", fontSize: 12 }} />;
+        return <LoadingOutlined style={{ color: "var(--color-text-tertiary)", fontSize: 12 }} />;
       case "error":
         return (
-          <CloseCircleOutlined style={{ color: "#dc2626", fontSize: 12 }} />
+          <CloseCircleOutlined style={{ color: "var(--color-error)", fontSize: 12 }} />
         );
       default:
         return <LoadingOutlined style={{ fontSize: 12 }} />;
@@ -341,10 +342,12 @@ export default function DependenciesPage() {
   // ==========================================
   if (depLoading && !nodeResult) {
     return (
-      <div style={{ textAlign: "center", padding: 40 }}>
-        <Spin size="small" />
-        <div style={{ marginTop: 8, fontSize: 12, color: "#a1a1aa" }}>
-          正在检测依赖...
+      <div className={styles.page}>
+        <div style={{ textAlign: "center", padding: 40 }}>
+          <Spin size="small" />
+          <div style={{ marginTop: 8, fontSize: 12, color: "var(--color-text-tertiary)" }}>
+            正在检测依赖...
+          </div>
         </div>
       </div>
     );
@@ -354,135 +357,82 @@ export default function DependenciesPage() {
   // Main render
   // ==========================================
   return (
-    <div>
+    <div className={styles.page}>
       {/* 系统依赖 */}
-      <div style={{ marginBottom: 20 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 10,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "#18181b" }}>
-              系统环境
-            </span>
+      <div className={styles.section}>
+        <div className={styles.servicesHeader}>
+          <div className={styles.servicesHeaderLeft}>
+            <span className={styles.sectionTitle}>系统环境</span>
             <Tag color={systemDepsReady ? "success" : "warning"}>
               {systemDepsReady ? ACTION_MESSAGES.ready : ACTION_MESSAGES.needConfig}
             </Tag>
           </div>
         </div>
-
-        <div
-          style={{
-            border: "1px solid #e4e4e7",
-            borderRadius: 8,
-            background: "#fff",
-            overflow: "hidden",
-          }}
-        >
+        <div className={styles.sectionBody} style={{ padding: '0 16px' }}>
           {/* Node.js */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "10px 14px",
-              borderBottom: "1px solid #f4f4f5",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
               {nodeResult?.meetsRequirement ? (
-                <CheckCircleOutlined
-                  style={{ color: "#16a34a", fontSize: 12 }}
-                />
+                <CheckCircleOutlined style={{ color: "var(--color-success)", fontSize: 12 }} />
               ) : (
-                <ExclamationCircleOutlined
-                  style={{ color: "#ca8a04", fontSize: 12 }}
-                />
+                <ExclamationCircleOutlined style={{ color: "var(--color-warning)", fontSize: 12 }} />
               )}
-              <span style={{ fontSize: 13, fontWeight: 500 }}>Node.js</span>
-              {nodeResult?.version && (
-                <span style={{ fontSize: 12, color: "#71717a" }}>
-                  v{nodeResult.version}
-                </span>
-              )}
+              <div>
+                <span className={styles.serviceLabel}>Node.js</span>
+                {nodeResult?.version && (
+                  <span className={styles.serviceDescription}>v{nodeResult.version}</span>
+                )}
+              </div>
             </div>
-            {!nodeResult?.installed ? (
-              <span style={{ fontSize: 12, color: "#ca8a04" }}>未安装</span>
-            ) : nodeResult.bundled ? (
-              <span style={{ fontSize: 12, color: "#16a34a" }}>{DEPENDENCY_STATUS_LABELS.bundled}</span>
-            ) : nodeResult.meetsRequirement ? (
-              <span style={{ fontSize: 12, color: "#16a34a" }}>{ACTION_MESSAGES.allInstalled}</span>
-            ) : (
-              <span style={{ fontSize: 12, color: "#ca8a04" }}>
-                需 &gt;= 22.0.0
-              </span>
-            )}
+            <span style={{ fontSize: 12, color: nodeResult?.meetsRequirement ? "var(--color-success)" : "var(--color-warning)" }}>
+              {!nodeResult?.installed
+                ? "未安装"
+                : nodeResult.bundled
+                  ? DEPENDENCY_STATUS_LABELS.bundled
+                  : nodeResult.meetsRequirement
+                    ? ACTION_MESSAGES.allInstalled
+                    : "需 >= 22.0.0"}
+            </span>
           </div>
 
           {/* uv */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "10px 14px",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
               {uvResult?.meetsRequirement ? (
-                <CheckCircleOutlined
-                  style={{ color: "#16a34a", fontSize: 12 }}
-                />
+                <CheckCircleOutlined style={{ color: "var(--color-success)", fontSize: 12 }} />
               ) : (
-                <ExclamationCircleOutlined
-                  style={{ color: "#ca8a04", fontSize: 12 }}
-                />
+                <ExclamationCircleOutlined style={{ color: "var(--color-warning)", fontSize: 12 }} />
               )}
-              <span style={{ fontSize: 13, fontWeight: 500 }}>uv</span>
-              {uvResult?.installed && (
-                <span style={{ fontSize: 12, color: "#71717a" }}>
-                  v{uvResult.version}
-                </span>
-              )}
+              <div>
+                <span className={styles.serviceLabel}>uv</span>
+                {uvResult?.installed && (
+                  <span className={styles.serviceDescription}>v{uvResult.version}</span>
+                )}
+              </div>
             </div>
-            {!uvResult?.installed ? (
-              <span style={{ fontSize: 12, color: "#ca8a04" }}>未安装</span>
-            ) : uvResult.bundled ? (
-              <span style={{ fontSize: 12, color: "#16a34a" }}>{DEPENDENCY_STATUS_LABELS.bundled}</span>
-            ) : uvResult.meetsRequirement ? (
-              <span style={{ fontSize: 12, color: "#16a34a" }}>{ACTION_MESSAGES.allInstalled}</span>
-            ) : (
-              <span style={{ fontSize: 12, color: "#ca8a04" }}>
-                需 &gt;= 0.5.0
-              </span>
-            )}
+            <span style={{ fontSize: 12, color: uvResult?.meetsRequirement ? "var(--color-success)" : "var(--color-warning)" }}>
+              {!uvResult?.installed
+                ? "未安装"
+                : uvResult.bundled
+                  ? DEPENDENCY_STATUS_LABELS.bundled
+                  : uvResult.meetsRequirement
+                    ? ACTION_MESSAGES.allInstalled
+                    : "需 >= 0.5.0"}
+            </span>
           </div>
         </div>
       </div>
 
       {/* 可安装依赖 */}
-      <div style={{ marginBottom: 20 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 10,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "#18181b" }}>
-              依赖包
-            </span>
-            <span style={{ fontSize: 12, color: "#a1a1aa" }}>
+      <div className={styles.section}>
+        <div className={styles.servicesHeader}>
+          <div className={styles.servicesHeaderLeft}>
+            <span className={styles.sectionTitle}>依赖包</span>
+            <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>
               {depSummary.installed}/{depSummary.total} 已安装
             </span>
           </div>
-          <div style={{ display: "flex", gap: 6 }}>
+          <div className={styles.servicesHeaderActions}>
             <Button
               size="small"
               icon={<ReloadOutlined />}
@@ -509,24 +459,9 @@ export default function DependenciesPage() {
             )}
           </div>
         </div>
-
-        <div
-          style={{
-            border: "1px solid #e4e4e7",
-            borderRadius: 8,
-            background: "#fff",
-            overflow: "hidden",
-          }}
-        >
+        <div className={styles.sectionBody} style={{ padding: '0 16px' }}>
           {localDeps.length === 0 ? (
-            <div
-              style={{
-                padding: 16,
-                textAlign: "center",
-                fontSize: 12,
-                color: "#a1a1aa",
-              }}
-            >
+            <div style={{ padding: 16, textAlign: "center", fontSize: 12, color: "var(--color-text-tertiary)" }}>
               {depLoading ? "正在加载..." : "暂无依赖包"}
             </div>
           ) : (
@@ -539,76 +474,43 @@ export default function DependenciesPage() {
                 !depInstalling;
 
               return (
-                <div
-                  key={item.name}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "10px 14px",
-                    borderBottom:
-                      i < localDeps.length - 1 ? "1px solid #f4f4f5" : "none",
-                  }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
+                <div key={item.name} className={styles.serviceRow}>
+                  <div className={styles.serviceInfo} style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       {getStatusIcon(item.status)}
-                      <span style={{ fontSize: 13, fontWeight: 500 }}>
-                        {item.displayName}
-                      </span>
+                      <span className={styles.serviceLabel}>{item.displayName}</span>
                       {item.required && (
-                        <Tag
-                          color="blue"
-                          style={{
-                            fontSize: 10,
-                            lineHeight: "16px",
-                            padding: "0 4px",
-                          }}
-                        >
+                        <Tag color="blue" style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px" }}>
                           必需
                         </Tag>
                       )}
                       {item.version && (
-                        <span style={{ fontSize: 11, color: "#a1a1aa" }}>
+                        <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
                           {item.version}
                         </span>
                       )}
                     </div>
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: "#a1a1aa",
-                        marginTop: 1,
-                        marginLeft: 20,
-                      }}
-                    >
+                    <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginTop: 2, marginLeft: 20 }}>
                       {item.description}
                       {item.errorMessage && (
-                        <span style={{ color: "#dc2626", marginLeft: 8 }}>
+                        <span style={{ color: "var(--color-error)", marginLeft: 8 }}>
                           {item.errorMessage}
                         </span>
                       )}
-                      {item.status === "installing" &&
-                        currentInstallingDep === item.displayName && (
-                          <span style={{ marginLeft: 8 }}>
-                            <LoadingOutlined style={{ marginRight: 4 }} />
-                            {currentInstallAction === "upgrade"
-                              ? "升级中..."
-                              : currentInstallAction === "update"
-                                ? "更新中..."
-                                : "安装中..."}
-                          </span>
-                        )}
+                      {item.status === "installing" && currentInstallingDep === item.displayName && (
+                        <span style={{ marginLeft: 8 }}>
+                          <LoadingOutlined style={{ marginRight: 4 }} />
+                          {currentInstallAction === "upgrade"
+                            ? "升级中..."
+                            : currentInstallAction === "update"
+                              ? "更新中..."
+                              : "安装中..."}
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  <div style={{ flexShrink: 0, marginLeft: 12 }}>
+                  <div className={styles.serviceActions}>
                     {canInstall && (
                       <Button
                         size="small"
@@ -619,13 +521,13 @@ export default function DependenciesPage() {
                       </Button>
                     )}
                     {item.status === "bundled" && (
-                      <span style={{ fontSize: 12, color: "#16a34a" }}>
+                      <span style={{ fontSize: 12, color: "var(--color-success)" }}>
                         {getStatusText(item.status)}
                       </span>
                     )}
                     {item.status === "installed" && (
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 12, color: "#16a34a" }}>
+                        <span style={{ fontSize: 12, color: "var(--color-success)" }}>
                           {getStatusText(item.status)}
                         </span>
                         {item.latestVersion &&
