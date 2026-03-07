@@ -231,6 +231,13 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       await mcpProxyManager.start();
       results.mcpProxy = { success: true };
       log.info('[Services] MCP Proxy verified');
+
+      // 非阻塞预热：app 启动时提前启动 PersistentMcpBridge（chrome-devtools-mcp 等持久化 MCP）。
+      // 使用 fire-and-forget 模式——若失败只记录警告，不阻断其他服务启动。
+      // 这样第一次发起会话时 bridge 已就绪，消除会话侧的 30 秒启动延迟。
+      mcpProxyManager.ensureBridgeStarted().catch((e) =>
+        log.warn('[Services] PersistentMcpBridge 预热失败（将在首次会话时重试）:', e),
+      );
     } catch (e) {
       results.mcpProxy = { success: false, error: String(e) };
       log.error('[Services] MCP Proxy verify failed:', e);

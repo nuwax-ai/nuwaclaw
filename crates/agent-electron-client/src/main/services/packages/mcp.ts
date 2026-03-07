@@ -509,18 +509,26 @@ class McpProxyManager {
   }
 
   /**
-   * ensureBridgeStarted() → 懒加载启动 PersistentMcpBridge（仅在首次需要时启动）
+   * ensureBridgeStarted() → 启动 PersistentMcpBridge（已启动则直接命中缓存返回）
+   *
+   * 缓存逻辑：bridgeStarted 标志为 true 时，直接 return，不重复启动。
+   * chrome-devtools-mcp 使用固定版本号，npm/npx 首次下载后缓存，后续启动 <1s。
    */
   async ensureBridgeStarted(): Promise<void> {
-    if (this.bridgeStarted) return;
+    if (this.bridgeStarted) {
+      // 缓存命中：bridge 已在运行，无需重复启动
+      log.debug("[McpProxy] ✅ PersistentMcpBridge 缓存命中，跳过重复启动");
+      return;
+    }
     const allStdio = this.getAllStdioServers();
     if (Object.keys(allStdio).length > 0) {
       try {
-        await persistentMcpBridge.start(
-          resolveServersConfig(allStdio) as Record<string, StdioMcpServerEntry>,
-        );
+        const resolvedServers = resolveServersConfig(
+          allStdio,
+        ) as Record<string, StdioMcpServerEntry>;
+        await persistentMcpBridge.start(resolvedServers);
         this.bridgeStarted = true;
-        log.info("[McpProxy] PersistentMcpBridge 已启动 (懒加载)");
+        log.info("[McpProxy] PersistentMcpBridge 已启动");
       } catch (e) {
         log.error("[McpProxy] PersistentMcpBridge 启动失败:", e);
         throw e;
@@ -829,12 +837,14 @@ export async function syncMcpConfigToProxyAndReload(
   // 仅在配置变化时重启 PersistentMcpBridge（避免 chrome-devtools 等持久化服务被反复重启）
   try {
     const allStdio = mcpProxyManager.getAllStdioServers();
-    const resolvedConfig = resolveServersConfig(allStdio) as Record<string, StdioMcpServerEntry>;
+    const resolvedConfig = resolveServersConfig(
+      allStdio,
+    ) as Record<string, StdioMcpServerEntry>;
 
     if (Object.keys(resolvedConfig).length > 0) {
-      // 检查配置是否实际发生变化
+      // 检查配置是否实际发生变化（缓存检查：相同配置不重启 bridge）
       if (configsEqual(resolvedConfig, lastBridgeConfig)) {
-        log.info("[McpProxy] PersistentMcpBridge 配置未变化，跳过重启");
+        log.info("[McpProxy] ✅ PersistentMcpBridge 配置未变化，缓存命中，跳过重启");
         // bridge 已在运行，确保 bridgeStarted 标志与实际状态一致
         mcpProxyManager.markBridgeStarted();
         return;
