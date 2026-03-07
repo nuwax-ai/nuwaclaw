@@ -1028,14 +1028,20 @@ describe("syncMcpConfigToProxyAndReload - bridge 重启", () => {
     expect(persistentMcpBridge.start).toHaveBeenCalled();
   });
 
-  it("同步空配置后不应重启 bridge", async () => {
+  it("同步空配置后应重启 bridge 为仅默认服务", async () => {
     const { syncMcpConfigToProxyAndReload } = await import("./mcp");
     const { persistentMcpBridge } = await import("./persistentMcpBridge");
 
     await syncMcpConfigToProxyAndReload({});
 
-    // 空配置不触发同步
-    expect(persistentMcpBridge.start).not.toHaveBeenCalled();
+    // 空配置触发重置为仅默认服务（chrome-devtools）
+    expect(persistentMcpBridge.start).toHaveBeenCalled();
+    const startArg = (persistentMcpBridge.start as ReturnType<typeof vi.fn>)
+      .mock.calls[0][0] as Record<string, unknown>;
+    // 只包含 chrome-devtools（persistent server）
+    expect(Object.keys(startArg)).toContain("chrome-devtools");
+    // 不包含动态 MCP（因为传入为空）
+    expect(Object.keys(startArg).length).toBe(1);
   });
 
   it("bridge 重启失败不应阻断同步流程", async () => {
@@ -1182,11 +1188,12 @@ describe("McpProxyManager - start 启动所有 stdio servers", () => {
     await mcpProxyManager.ensureBridgeStarted();
     expect(persistentMcpBridge.start).toHaveBeenCalledTimes(1);
 
-    // 传入的 servers 应包含两种类型
+    // 传入的 servers 应仅包含 persistent 类型（temp-server 不进 bridge）
     const startArg = (persistentMcpBridge.start as ReturnType<typeof vi.fn>)
       .mock.calls[0][0] as Record<string, unknown>;
     expect(Object.keys(startArg)).toContain("persistent-server");
-    expect(Object.keys(startArg)).toContain("temp-server");
+    // temp-server 没有 persistent 标记，不应出现在 bridge 中
+    expect(Object.keys(startArg)).not.toContain("temp-server");
 
     // 再次调用 ensureBridgeStarted() 不应重复启动
     await mcpProxyManager.ensureBridgeStarted();
@@ -1416,18 +1423,20 @@ describe("syncMcpConfigToProxyAndReload - 真实 context_servers 场景", () => 
     expect(serverNames).toContain("Fetch 网页内容抓取");
     expect(serverNames).toContain("time");
 
-    // bridge 应该被重启以加载所有 stdio server
+    // bridge 应该被重启以加载 persistent server
     expect(persistentMcpBridge.start).toHaveBeenCalled();
 
-    // bridge 传入的 servers 应仅包含 stdio 类型（排除远程 URL）
+    // bridge 传入的 servers 应仅包含 persistent 类型（chrome-devtools）
+    // 动态 MCP（Markdown/Fetch/time）不进 bridge，由 mcp-proxy 按需 spawn
     const bridgeStartArg = (
       persistentMcpBridge.start as ReturnType<typeof vi.fn>
     ).mock.calls[0][0] as Record<string, unknown>;
     expect(Object.keys(bridgeStartArg)).toContain("chrome-devtools");
-    expect(Object.keys(bridgeStartArg)).toContain("Markdown 万能转成");
-    expect(Object.keys(bridgeStartArg)).toContain("Fetch 网页内容抓取");
-    expect(Object.keys(bridgeStartArg)).toContain("time");
-    // 远程 URL 不应出现在 bridge 参数中
+    // 动态 MCP 不应在 bridge 参数中
+    expect(Object.keys(bridgeStartArg)).not.toContain("Markdown 万能转成");
+    expect(Object.keys(bridgeStartArg)).not.toContain("Fetch 网页内容抓取");
+    expect(Object.keys(bridgeStartArg)).not.toContain("time");
+    // 远程 URL 也不应出现在 bridge 参数中
     expect(Object.keys(bridgeStartArg)).not.toContain(
       "image-understanding-and-generation",
     );
@@ -1517,9 +1526,9 @@ describe("markBridgeStarted — bridge 状态同步", () => {
     // 记录 stop 后的调用次数
     const callsBefore = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
 
-    // 注入一些 stdio server 使 ensureBridgeStarted 有服务可以启动
+    // 注入一些 persistent server 使 ensureBridgeStarted 有服务可以启动
     mcpProxyManager.setConfig({
-      mcpServers: { time: { command: "/uv", args: ["tool", "run", "mcp-time"] } },
+      mcpServers: { time: { command: "/uv", args: ["tool", "run", "mcp-time"], persistent: true } },
     });
     await mcpProxyManager.ensureBridgeStarted();
     const callsAfter = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
