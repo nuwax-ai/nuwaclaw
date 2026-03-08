@@ -682,6 +682,12 @@ body {
     background: var(--color-bg-elevated);
   }
 
+  .ant-btn:disabled {
+    border-color: var(--color-border);
+    color: var(--color-text-quaternary);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
   /* 卡片 */
   .ant-card {
     border-color: var(--color-border);
@@ -797,6 +803,14 @@ body {
   /* 进度条 */
   .ant-progress-text {
     color: var(--color-text-secondary);
+  }
+
+  /* 开关 */
+  .ant-switch:not(.ant-switch-checked) {
+    background: rgba(255, 255, 255, 0.15);
+  }
+  .ant-switch:not(.ant-switch-checked):hover {
+    background: rgba(255, 255, 255, 0.25);
   }
 
   /* Modal */
