@@ -7,6 +7,7 @@
  * - 清除全部数据并刷新
  * - 查看应用存储数据
  * - MCP Proxy 服务管理（仅开发可见，不对正式用户开放）
+ * - SetupDependencies UI 测试
  */
 
 import { useState } from 'react';
@@ -16,13 +17,18 @@ import {
   DeleteOutlined,
   ClearOutlined,
   DatabaseOutlined,
+  ExperimentOutlined,
 } from '@ant-design/icons';
 import { setupService } from '../../services/core/setup';
 import MCPSettings from '../settings/MCPSettings';
+import SetupDependenciesTest from './SetupDependenciesTest';
+import SetupWizardTest from './SetupWizardTest';
 
 export default function DevToolsPanel() {
   const [storeData, setStoreData] = useState<Record<string, unknown> | null>(null);
   const [storeModalVisible, setStoreModalVisible] = useState(false);
+  const [setupDepsTestVisible, setSetupDepsTestVisible] = useState(false);
+  const [setupWizardTestVisible, setSetupWizardTestVisible] = useState(false);
 
   // 重置初始化
   const handleResetSetup = async () => {
@@ -257,6 +263,99 @@ export default function DevToolsPanel() {
             {JSON.stringify(storeData, null, 2)}
           </pre>
         )}
+      </Modal>
+
+      {/* SetupDependencies UI 测试入口 */}
+      <div style={{ marginTop: 16 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            marginBottom: 10,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 500, color: '#18181b' }}>
+            UI 测试
+          </span>
+          <Tag color="purple" style={{ margin: 0, fontSize: 10 }}>TEST</Tag>
+        </div>
+        <div
+          style={{
+            border: '1px solid #e4e4e7',
+            borderRadius: 8,
+            background: '#fff',
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{ ...rowStyle }}>
+            <div>
+              <div style={{ fontSize: 13, color: '#18181b' }}>初始化安装向导</div>
+              <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 1 }}>
+                测试 SetupDependencies 各阶段 UI 效果
+              </div>
+            </div>
+            <Button
+              size="small"
+              icon={<ExperimentOutlined />}
+              onClick={() => setSetupDepsTestVisible(true)}
+            >
+              测试
+            </Button>
+          </div>
+          <div style={{ ...rowStyle, borderBottom: 'none' }}>
+            <div>
+              <div style={{ fontSize: 13, color: '#18181b' }}>完整初始化流程</div>
+              <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 1 }}>
+                测试依赖安装 + 配置 + 登录完整流程
+              </div>
+            </div>
+            <Button
+              size="small"
+              type="primary"
+              icon={<ExperimentOutlined />}
+              onClick={() => setSetupWizardTestVisible(true)}
+            >
+              测试
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* SetupDependencies 测试弹窗 */}
+      <Modal
+        title="SetupDependencies UI 测试"
+        open={setupDepsTestVisible}
+        onCancel={() => setSetupDepsTestVisible(false)}
+        footer={null}
+        width={680}
+        styles={{
+          body: {
+            maxHeight: '70vh',
+            overflow: 'auto',
+            padding: 0,
+          },
+        }}
+      >
+        <SetupDependenciesTest />
+      </Modal>
+
+      {/* SetupWizardTest 测试弹窗 */}
+      <Modal
+        title="初始化向导完整流程测试"
+        open={setupWizardTestVisible}
+        onCancel={() => setSetupWizardTestVisible(false)}
+        footer={null}
+        width={800}
+        styles={{
+          body: {
+            maxHeight: '80vh',
+            overflow: 'auto',
+            padding: 0,
+          },
+        }}
+      >
+        <SetupWizardTest />
       </Modal>
     </div>
   );

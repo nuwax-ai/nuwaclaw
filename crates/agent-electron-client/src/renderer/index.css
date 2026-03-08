@@ -14,6 +14,9 @@
   --color-error: #EF4444;
   --color-warning: #F59E0B;
   --color-info: #3B82F6;
+  --color-success-bg: #f0fdf4;
+  --color-error-bg: #fef2f2;
+  --color-warning-bg: #fffbeb;
 
   --color-bg-layout: #F8F9FA;
   --color-bg-container: #ffffff;
@@ -48,6 +51,9 @@
   --color-error: #EF4444;
   --color-warning: #F59E0B;
   --color-info: #3B82F6;
+  --color-success-bg: #052e16;
+  --color-error-bg: #450a0a;
+  --color-warning-bg: #422006;
 
   --color-bg-layout: #09090b;
   --color-bg-container: #18181b;

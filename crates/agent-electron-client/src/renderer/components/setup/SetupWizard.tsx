@@ -41,7 +41,7 @@ import {
 } from '../../services/core/auth';
 import { AUTH_KEYS } from '@shared/constants';
 import type { QuickInitConfig } from '@shared/types/quickInit';
-import SetupDependencies from './SetupDependencies';
+import SetupDependencies, { type MockDependenciesApi } from './SetupDependencies';
 
 const { Text } = Typography;
 
@@ -55,9 +55,15 @@ const WIZARD_STEPS = [
 
 interface SetupWizardProps {
   onComplete: () => void;
+  /** 可选：注入 Mock API 用于测试 */
+  mockApi?: MockDependenciesApi;
+  /** 可选：跳过依赖检测（模拟依赖已就绪） */
+  skipDependencyCheck?: boolean;
+  /** 可选：模拟已登录状态 */
+  mockLoggedIn?: boolean;
 }
 
-function SetupWizard({ onComplete }: SetupWizardProps) {
+function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }: SetupWizardProps) {
   const [dependenciesReady, setDependenciesReady] = useState<boolean | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -77,8 +83,26 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
   useEffect(() => {
     const init = async () => {
       try {
-        // 检测所有依赖状态
-        const result = await window.electronAPI?.dependencies.checkAll();
+        // 如果指定跳过依赖检查，直接进入配置步骤
+        if (skipDependencyCheck) {
+          console.log('[SetupWizard] 跳过依赖检查 (skipDependencyCheck=true)');
+          setDependenciesReady(true);
+          const state = await setupService.getSetupState();
+          if (state.completed) {
+            setCompleted(true);
+            onCompleteRef.current();
+          } else {
+            setCurrentStep(state.step1Completed ? 2 : 1);
+          }
+          const config = await setupService.getStep1Config();
+          setStep1Config(config);
+          setLoading(false);
+          return;
+        }
+
+        // 检测所有依赖状态（支持 mock API）
+        const checkAllApi = mockApi?.checkAll || window.electronAPI?.dependencies.checkAll;
+        const result = await checkAllApi?.();
         const deps = result?.results || [];
         const allInstalled = deps.every(
           (d) => d.status === 'installed' || d.status === 'bundled',
@@ -86,6 +110,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
         console.log(
           '[SetupWizard] 依赖检测:',
           deps.map((d) => `${d.name}:${d.status}`).join(', '),
+          mockApi ? '(mock)' : '(real)',
         );
 
         if (allInstalled) {
@@ -345,7 +370,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
     if (completed) {
       return (
         <Result
-          icon={<CheckCircleOutlined style={{ color: '#16a34a' }} />}
+          icon={<CheckCircleOutlined style={{ color: 'var(--color-success)' }} />}
           title="初始化完成"
           subTitle="正在进入主界面..."
           extra={<Spin size="small" />}
@@ -438,7 +463,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
         if (isAlreadyLoggedIn) {
           return (
             <Result
-              icon={<CheckCircleOutlined style={{ color: '#16a34a' }} />}
+              icon={<CheckCircleOutlined style={{ color: 'var(--color-success)' }} />}
               title="已登录"
               subTitle={`当前域名：${domain || '-'}`}
               extra={
@@ -464,7 +489,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
                 description={
                   <Text
                     copyable={{ text: loginError }}
-                    style={{ fontSize: 12, color: '#52525b' }}
+                    style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}
                   >
                     {loginError}
                   </Text>
@@ -519,7 +544,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
                 </Button>
               </Space>
               <div style={{ textAlign: 'center' }}>
-                <Text style={{ fontSize: 11, color: '#a1a1aa' }}>
+                <Text style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
                   支持用户名、邮箱、手机号登录
                 </Text>
               </div>
@@ -559,17 +584,17 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
           >
             <span style={{ fontSize: 15, fontWeight: 600 }}>{APP_NAME}</span>
           </div>
-          <div style={{ fontSize: 12, color: '#a1a1aa', textAlign: 'center' }}>
+          <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', textAlign: 'center' }}>
             检查和安装必需依赖
           </div>
         </div>
 
         <div style={styles.content}>
-          <SetupDependencies onComplete={handleDepsComplete} />
+          <SetupDependencies onComplete={handleDepsComplete} mockApi={mockApi} />
         </div>
 
         <div style={styles.footer}>
-          <Text style={{ fontSize: 11, color: '#a1a1aa' }}>{APP_NAME}</Text>
+          <Text style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{APP_NAME}</Text>
         </div>
       </div>
     );
@@ -582,7 +607,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
         <div style={styles.center}>
           <Space direction="vertical" align="center">
             <Spin size="default" />
-            <Text style={{ fontSize: 13, color: '#52525b' }}>正在自动配置...</Text>
+            <Text style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>正在自动配置...</Text>
           </Space>
         </div>
       </div>
@@ -640,7 +665,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     height: '100vh',
-    background: '#fafafa',
+    background: 'var(--color-bg-layout)',
     padding: 16,
   },
   center: {
@@ -658,8 +683,8 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
     margin: '0 auto',
     overflowY: 'auto',
-    background: '#fff',
-    border: '1px solid #e4e4e7',
+    background: 'var(--color-bg-container)',
+    border: '1px solid var(--color-border)',
     borderRadius: 8,
     padding: 20,
   },

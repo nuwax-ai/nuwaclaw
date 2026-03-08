@@ -13,7 +13,7 @@
  * - openUrl() → window.electronAPI.shell.openExternal()
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Button, Progress, Alert, Spin } from "antd";
 import {
   CheckCircleOutlined,
@@ -26,18 +26,14 @@ import {
 import type { LocalDependencyItem } from "@shared/types/electron";
 import { ACTION_MESSAGES } from "@shared/constants";
 
-interface SetupDependenciesProps {
-  onComplete: () => void;
-}
-
-type InstallPhase =
+export type InstallPhase =
   | "checking"
   | "system-deps-missing"
   | "installing"
   | "completed"
   | "error";
 
-interface DisplayDependencyItem {
+export interface DisplayDependencyItem {
   name: string;
   displayName: string;
   type: "system" | "npm-local" | "npm-global" | "shell-installer" | "bundled";
@@ -58,8 +54,23 @@ interface DisplayDependencyItem {
   installVersion?: string;
 }
 
+/** Mock API 接口（用于测试） */
+export interface MockDependenciesApi {
+  checkAll: () => Promise<{ success: boolean; results?: LocalDependencyItem[]; error?: string }>;
+  checkUv: () => Promise<{ success: boolean; installed: boolean; bundled?: boolean; version?: string }>;
+  installPackage: (name: string, options?: { version?: string }) => Promise<{ success: boolean; version?: string; error?: string }>;
+  openExternal: (url: string) => Promise<void>;
+}
+
+interface SetupDependenciesProps {
+  onComplete: () => void;
+  /** 可选：注入 Mock API 用于测试 */
+  mockApi?: MockDependenciesApi;
+}
+
 export default function SetupDependencies({
   onComplete,
+  mockApi,
 }: SetupDependenciesProps) {
   const [allDependencies, setAllDependencies] = useState<
     DisplayDependencyItem[]
@@ -77,20 +88,33 @@ export default function SetupDependencies({
   } | null>(null);
   const projectInstallTriggered = useRef(false);
 
+  // 使用 ref 存储 onComplete，避免 useCallback 依赖
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+
+  // API 访问器（支持 mock 注入，使用 useMemo 避免每次渲染重建）
+  const api = useMemo(() => mockApi || {
+    checkAll: () => window.electronAPI?.dependencies.checkAll() as Promise<{ success: boolean; results?: LocalDependencyItem[]; error?: string }>,
+    checkUv: () => window.electronAPI?.dependencies.checkUv() as Promise<{ success: boolean; installed: boolean; bundled?: boolean; version?: string }>,
+    installPackage: (name: string, options?: { version?: string }) =>
+      window.electronAPI?.dependencies.installPackage(name, options) as Promise<{ success: boolean; version?: string; error?: string }>,
+    openExternal: (url: string) => window.electronAPI?.shell.openExternal(url) as Promise<void>,
+  }, [mockApi]);
+
   const openUrl = useCallback(async (url: string) => {
     try {
-      await window.electronAPI?.shell.openExternal(url);
+      await api.openExternal(url);
     } catch (e) {
       console.error("[SetupDeps] openExternal failed:", e);
     }
-  }, []);
+  }, [api]);
 
   const checkAllDeps = useCallback(async () => {
     console.log("[SetupDeps] checkAllDeps 开始");
     setInstallPhase("checking");
 
     try {
-      const result = await window.electronAPI?.dependencies.checkAll();
+      const result = await api.checkAll();
       if (!result?.success || !result.results) {
         throw new Error(result?.error || "检测依赖失败");
       }
@@ -117,7 +141,7 @@ export default function SetupDependencies({
 
       // 初始化安装检查：显式再调一次 checkUv，便于在界面展示「已确认 uv」
       try {
-        const uvRes = await window.electronAPI?.dependencies.checkUv();
+        const uvRes = await api.checkUv();
         if (uvRes?.success && uvRes.installed) {
           setUvConfirm({
             installed: true,
@@ -150,7 +174,7 @@ export default function SetupDependencies({
       ) {
         console.log("[SetupDeps] 所有依赖已就绪");
         setInstallPhase("completed");
-        setTimeout(() => onComplete(), 1500);
+        setTimeout(() => onCompleteRef.current(), 1500);
       } else {
         // 有 npm 包需要安装
         setInstallPhase("installing");
@@ -162,27 +186,30 @@ export default function SetupDependencies({
         error instanceof Error ? error.message : "检测依赖失败",
       );
     }
-  }, [onComplete]);
+  }, [api]);
 
   // 组件挂载后立即检测依赖
   useEffect(() => {
     checkAllDeps();
-  }, []);
+  }, [checkAllDeps]);
 
-  // 进入 installing 阶段后自动开始安装
+  // 安装逻辑（移入 useEffect 避免闭包问题）
   useEffect(() => {
-    if (installPhase === "installing" && !projectInstallTriggered.current) {
-      projectInstallTriggered.current = true;
-      handleStartInstall();
-    }
-  }, [installPhase]);
+    if (installPhase !== "installing" || projectInstallTriggered.current) return;
 
-  const handleStartInstall = async () => {
+    projectInstallTriggered.current = true;
     setInstallProgress(0);
     setInstallError("");
 
-    try {
-      const toInstall = allDependencies.filter(
+    const runInstall = async () => {
+      // 使用函数式更新获取最新状态
+      let currentDeps: DisplayDependencyItem[] = [];
+      setAllDependencies((prev) => {
+        currentDeps = prev;
+        return prev;
+      });
+
+      const toInstall = currentDeps.filter(
         (d) =>
           (d.type === "npm-local" ||
             d.type === "npm-global" ||
@@ -195,7 +222,7 @@ export default function SetupDependencies({
       if (total === 0) {
         setInstallProgress(100);
         setInstallPhase("completed");
-        setTimeout(() => onComplete(), 1500);
+        setTimeout(() => onCompleteRef.current(), 1500);
         return;
       }
 
@@ -210,71 +237,85 @@ export default function SetupDependencies({
           ),
         );
 
-        const result = await window.electronAPI?.dependencies.installPackage(
-          pkg.name,
-          pkg.installVersion
-            ? { version: pkg.installVersion }
-            : undefined,
-        );
-
-        if (result?.success) {
-          setAllDependencies((prev) =>
-            prev.map((d) =>
-              d.name === pkg.name
-                ? {
-                    ...d,
-                    status: "installed" as const,
-                    version: result.version,
-                  }
-                : d,
-            ),
+        try {
+          const result = await api.installPackage(
+            pkg.name,
+            pkg.installVersion ? { version: pkg.installVersion } : undefined,
           );
-        } else {
+
+          if (result?.success) {
+            setAllDependencies((prev) =>
+              prev.map((d) =>
+                d.name === pkg.name
+                  ? {
+                      ...d,
+                      status: "installed" as const,
+                      version: result.version,
+                    }
+                  : d,
+              ),
+            );
+          } else {
+            setAllDependencies((prev) =>
+              prev.map((d) =>
+                d.name === pkg.name
+                  ? {
+                      ...d,
+                      status: "error" as const,
+                      errorMessage: result?.error,
+                    }
+                  : d,
+              ),
+            );
+            setInstallPhase("error");
+            setInstallError(result?.error || `安装 ${pkg.displayName} 失败`);
+            return;
+          }
+        } catch (error) {
           setAllDependencies((prev) =>
             prev.map((d) =>
               d.name === pkg.name
                 ? {
                     ...d,
                     status: "error" as const,
-                    errorMessage: result?.error,
+                    errorMessage: error instanceof Error ? error.message : "安装失败",
                   }
                 : d,
             ),
           );
           setInstallPhase("error");
-          setInstallError(result?.error || `安装 ${pkg.displayName} 失败`);
+          setInstallError(error instanceof Error ? error.message : "安装失败");
           return;
         }
       }
 
       setInstallProgress(100);
       setInstallPhase("completed");
-      setTimeout(() => onComplete(), 1500);
-    } catch (error) {
-      setInstallPhase("error");
-      setInstallError(error instanceof Error ? error.message : "安装失败");
-    }
-  };
+      setTimeout(() => onCompleteRef.current(), 1500);
+    };
+
+    runInstall();
+  }, [installPhase, api]);
 
   const getStatusIcon = (item: DisplayDependencyItem) => {
     switch (item.status) {
       case "installed":
       case "bundled":
         return (
-          <CheckCircleOutlined style={{ color: "#16a34a", fontSize: 12 }} />
+          <CheckCircleOutlined style={{ color: "var(--color-success)", fontSize: 12 }} />
         );
       case "missing":
       case "outdated":
         return (
           <ExclamationCircleOutlined
-            style={{ color: "#ca8a04", fontSize: 12 }}
+            style={{ color: "var(--color-warning)", fontSize: 12 }}
           />
         );
       case "installing":
-        return <LoadingOutlined style={{ color: "#71717a", fontSize: 12 }} />;
+        return <LoadingOutlined style={{ color: "var(--color-text-tertiary)", fontSize: 12 }} />;
       case "error":
         return (
-          <CloseCircleOutlined style={{ color: "#dc2626", fontSize: 12 }} />
+          <CloseCircleOutlined style={{ color: "var(--color-error)", fontSize: 12 }} />
         );
       default:
         return <LoadingOutlined style={{ fontSize: 12 }} />;
@@ -320,7 +361,7 @@ export default function SetupDependencies({
       >
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontSize: 12, fontWeight: 500 }}>依赖清单</span>
-          <span style={{ fontSize: 11, color: "#a1a1aa" }}>
+          <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
             {stats.ready}/{stats.total}
           </span>
         </div>
@@ -336,10 +377,10 @@ export default function SetupDependencies({
 
       <div
         style={{
-          border: "1px solid #e4e4e7",
+          border: "1px solid var(--color-border)",
           borderRadius: 6,
           overflow: "hidden",
-          background: "#fff",
+          background: "var(--color-bg-container)",
         }}
       >
         {displayDeps.length === 0 ? (
@@ -348,7 +389,7 @@ export default function SetupDependencies({
               padding: 12,
               textAlign: "center",
               fontSize: 12,
-              color: "#a1a1aa",
+              color: "var(--color-text-tertiary)",
             }}
           >
             暂无问题项
@@ -361,6 +402,17 @@ export default function SetupDependencies({
             const needsAction =
               item.status === "missing" || item.status === "outdated";
 
+            // 状态对应的背景色
+            const getBgColor = () => {
+              if (item.status === "installed" || item.status === "bundled") {
+                return "var(--color-success-bg)";
+              }
+              if (item.status === "error") {
+                return "var(--color-error-bg)";
+              }
+              return "var(--color-warning-bg)";
+            };
+
             return (
               <div
                 key={item.name}
@@ -370,13 +422,8 @@ export default function SetupDependencies({
                   justifyContent: "space-between",
                   padding: "8px 12px",
                   borderBottom:
-                    i < displayDeps.length - 1 ? "1px solid #f4f4f5" : "none",
-                  background:
-                    item.status === "installed" || item.status === "bundled"
-                      ? "#f0fdf4"
-                      : item.status === "error"
-                        ? "#fef2f2"
-                        : "#fffbeb",
+                    i < displayDeps.length - 1 ? "1px solid var(--color-border-secondary)" : "none",
+                  background: getBgColor(),
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -388,7 +435,7 @@ export default function SetupDependencies({
                       {item.displayName}
                     </span>
                     {item.version && (
-                      <span style={{ fontSize: 11, color: "#a1a1aa" }}>
+                      <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
                         v{item.version}
                       </span>
                     )}
@@ -397,7 +444,7 @@ export default function SetupDependencies({
                     <div
                       style={{
                         fontSize: 11,
-                        color: "#71717a",
+                        color: "var(--color-text-secondary)",
                         marginTop: 2,
                         marginLeft: 18,
                       }}
@@ -407,7 +454,7 @@ export default function SetupDependencies({
                         <span> ({item.requiredVersion})</span>
                       )}
                       {item.errorMessage && (
-                        <span style={{ color: "#dc2626", marginLeft: 4 }}>
+                        <span style={{ color: "var(--color-error)", marginLeft: 4 }}>
                           {item.errorMessage}
                         </span>
                       )}
@@ -462,7 +509,7 @@ export default function SetupDependencies({
           }}
         >
           {installPhase === "completed" ? (
-            <CheckCircleOutlined style={{ fontSize: 40, color: "#16a34a" }} />
+            <CheckCircleOutlined style={{ fontSize: 40, color: "var(--color-success)" }} />
           ) : (
             <Spin size="large" />
           )}
@@ -479,17 +526,9 @@ export default function SetupDependencies({
             </div>
           )}
           {installPhase === "completed" && (
-            <>
-              {/* {uvConfirm?.installed && (
-                <div style={{ fontSize: 12, color: "#16a34a" }}>
-                  uv 已确认（{uvConfirm.bundled ? "应用内" : "系统"}
-                  {uvConfirm.version ? ` v${uvConfirm.version}` : ""}）
-                </div>
-              )} */}
-              <div style={{ fontSize: 12, color: "#71717a" }}>
-                正在进入下一步...
-              </div>
-            </>
+            <div style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>
+              正在进入下一步...
+            </div>
           )}
         </div>
       </div>
@@ -561,7 +600,7 @@ export default function SetupDependencies({
           gap: 8,
           justifyContent: "flex-end",
           paddingTop: 8,
-          borderTop: "1px solid #f4f4f5",
+          borderTop: "1px solid var(--color-border-secondary)",
         }}
       >
         <Button
