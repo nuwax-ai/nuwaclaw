@@ -878,8 +878,8 @@ body {
 
   /* 消息气泡 */
   .message-user {
-    background: var(--color-bg-elevated);
-    color: var(--color-text);
+    background: var(--color-primary);
+    color: var(--color-bg-container);
   }
 
   .message-assistant {
