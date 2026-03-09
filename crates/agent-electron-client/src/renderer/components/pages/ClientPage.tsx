@@ -45,7 +45,6 @@ import {
   loginAndRegister,
   logout,
   getCurrentAuth,
-  getAuthErrorMessage,
   syncConfigToServer,
 } from '../../services/core/auth';
 import type { ServiceItem } from '../../App';
@@ -161,9 +160,8 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
         await handleStartService('lanproxy', true);
       }
       await onRefreshServices();
-    } catch (error: any) {
-      const errorMsg = getAuthErrorMessage(error);
-      message.error(errorMsg);
+    } catch {
+      // 错误提示由 loginAndRegister 内部统一展示，此处不再重复 toast
       setLoginPassword('');
     } finally {
       setLoginLoading(false);
