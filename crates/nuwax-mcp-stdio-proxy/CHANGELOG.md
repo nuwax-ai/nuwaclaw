@@ -2,6 +2,29 @@
 
 本项目的所有显著更改都将记录在此文件中。
 
+## [1.4.10] - 2026-03-10
+
+### 修复 (Fixed)
+
+- **重连后自动重放 MCP initialize 握手**: 修复了 `ResilientTransportWrapper` 重连后不重放 MCP `initialize` 握手导致服务端返回 `"Server not initialized"` 并进入无限重连循环（~21s 周期）的关键 bug。
+  - 在 `send()` 中捕获 `initialize` 和 `notifications/initialized` 消息
+  - 重连后自动调用 `performReInitialize()` 重放握手
+  - re-initialize 失败时保持指数退避，不重置 `retryAttempt`
+  - 使用 `respl-init-*` 前缀拦截内部握手响应，不转发给下游 Client
+
+### 改进 (Changed)
+
+- **`cleanupTransport()` 提取**: 将 transport 清理逻辑（detach handlers + close）提取为独立方法，消除 `performConnect` 和 `triggerReconnect` 中的重复代码。
+- **`retryAttempt` 重置时机修正**: 从 transport 连接成功后立即重置，改为 re-initialize 成功后才重置，确保指数退避在握手失败时正常工作。
+- **`pendingReInit` 泄漏修复**: `performReInitialize()` 中 `send()` 抛异常时正确清理 `pendingReInit`，避免悬空的超时定时器。
+
+### 测试 (Tests)
+
+- 新增 4 个单元测试覆盖 re-initialize 相关场景（重放、超时、send 异常、无 initialize 边界）
+- 修复 1 个已有的错误测试用例
+- 新增 `demo/` 目录：Streamable HTTP / SSE demo server + 一键重连测试脚本
+- 新增 `demo/TESTING.md` 测试文档
+
 ## [1.4.9] - 2026-03-09
 
 ### 新增 (Added)
