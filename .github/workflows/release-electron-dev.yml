@@ -1,111 +1,118 @@
-# Electron 桌面客户端 — 测试构建 CI
-# 与 release-electron.yml 分开：构建安装包并上传到 Draft Release，不影响正式版本。
+# Electron 桌面客户端 — 预发布版本构建
+# 通过 prerelease-v* tag 触发，构建全平台安装包并创建 GitHub Draft Release。
 #
 # 触发方式：
-#   - 推送 tag 匹配 test*（例如 test0.8.0）→ 构建全平台安装包，上传到 Draft Release
-#   - 手动触发 workflow_dispatch（可选平台）
+#   - 推送 tag 匹配 prerelease-v*（例如 prerelease-v0.8.0）→ 构建全平台安装包并创建 Draft Release
 #
-# 与 release-electron.yml 的区别：
-#   - 创建 Draft Release（草稿），用户在 Releases 页面不可见，不影响正式版本
-#   - macOS 签名/公证可选（配置了 APPLE_CERTIFICATE 等 Secrets 即自动签名，未配置则无签名包）
-#   - 用于测试构建与安装验证
+# 支持平台：
+#   - macOS arm64（macos-latest）
+#   - macOS x64（macos-14-large）
+#   - Windows x64（msi）
+#   - Linux x64（AppImage + deb）
+#   - Linux arm64（AppImage + deb）
+#
+# 使用的 Secrets（可与 Tauri 共用 Apple 相关，也可单独配置）：
+#   - GH_PAT（可选）：创建 Release、上传资产（未配置时自动回退到 github.token，需 Contents: Write）
+#   - macOS 签名/公证（未配置时 Mac 构建为无签名包，用户打开会提示「已损坏」）：
+#     - APPLE_CERTIFICATE（.p12 Base64）/ APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY
+#     - 公证（否则 Gatekeeper 仍可能拦）：APPLE_API_KEY（.p8 Base64）/ APPLE_API_KEY_ID / APPLE_API_ISSUER（或 APPLE_ISSUER_ID）
+#
+# 产物目录：crates/agent-electron-client/release/${version}/（由 package.json directories.output 决定）
 
-name: Electron Desktop Client (Testing Build)
+name: Release Electron App (Prerelease)
 
 on:
   push:
     tags:
-      - "test*"
-  workflow_dispatch:
-    inputs:
-      platform:
-        description: "构建平台"
-        required: true
-        default: "all"
-        type: choice
-        options:
-          - all
-          - mac
-          - win
-          - linux
-          - linux-arm64
+      - "prerelease-v*"
 
 permissions:
   contents: write
 
 jobs:
   prepare:
-    name: Prepare draft release
+    name: Prepare release
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/test')
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Get version from tag
         id: version
         run: |
-          VERSION="${GITHUB_REF_NAME#test}"
+          VERSION="${GITHUB_REF_NAME#prerelease-v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Test build version: $VERSION"
+          echo "Electron prerelease version: $VERSION"
 
-      - name: Create draft release
+      - name: Read release notes
+        id: notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ github.ref_name }}"
+          NOTES_FILE="release-notes/${TAG}.md"
+          if [ -f "$NOTES_FILE" ]; then
+            echo "Using release notes from $NOTES_FILE"
+            cp "$NOTES_FILE" release_notes.txt
+          else
+            echo "NuwaxBot ${VERSION} (Prerelease)。请在 Assets 中下载对应平台安装包。" > release_notes.txt
+          fi
+
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          VERSION="${TAG#test}"
+          TAG="${{ github.ref_name }}"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" 2>/dev/null; then
-            echo "Release $TAG already exists, deleting and recreating"
-            gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes
-          fi
-          gh release create "$TAG" \
-            --title "NuwaxBot Test Build ${VERSION}" \
-            --notes "测试构建 ${VERSION}，仅供内部测试安装。" \
-            --draft \
-            --repo "$GITHUB_REPOSITORY"
-          echo "Created draft release $TAG"
-
-  setup-matrix:
-    name: Setup matrix
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.out.outputs.matrix }}
-    steps:
-      - id: out
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            case "${{ github.event.inputs.platform }}" in
-              mac)       echo 'matrix={"include":[{"platform":"macos-latest","arch":"arm64","dist_cmd":"dist:mac:arm64","artifact_os":"mac"}]}' >> "$GITHUB_OUTPUT" ;;
-              win)       echo 'matrix={"include":[{"platform":"windows-latest","arch":"x64","dist_cmd":"dist:win","artifact_os":"win"}]}' >> "$GITHUB_OUTPUT" ;;
-              linux)     echo 'matrix={"include":[{"platform":"ubuntu-24.04","arch":"x64","dist_cmd":"dist:linux:x64","artifact_os":"linux-x64"}]}' >> "$GITHUB_OUTPUT" ;;
-              linux-arm64) echo 'matrix={"include":[{"platform":"ubuntu-24.04-arm","arch":"arm64","dist_cmd":"dist:linux:arm64","artifact_os":"linux-arm64"}]}' >> "$GITHUB_OUTPUT" ;;
-              *)         echo 'matrix={"include":[{"platform":"macos-latest","arch":"arm64","dist_cmd":"dist:mac:arm64","artifact_os":"mac"},{"platform":"windows-latest","arch":"x64","dist_cmd":"dist:win","artifact_os":"win"},{"platform":"ubuntu-24.04","arch":"x64","dist_cmd":"dist:linux:x64","artifact_os":"linux-x64"},{"platform":"ubuntu-24.04-arm","arch":"arm64","dist_cmd":"dist:linux:arm64","artifact_os":"linux-arm64"}]}' >> "$GITHUB_OUTPUT" ;;
-            esac
+            echo "Release $TAG already exists"
           else
-            echo 'matrix={"include":[{"platform":"macos-latest","arch":"arm64","dist_cmd":"dist:mac:arm64","artifact_os":"mac"},{"platform":"windows-latest","arch":"x64","dist_cmd":"dist:win","artifact_os":"win"},{"platform":"ubuntu-24.04","arch":"x64","dist_cmd":"dist:linux:x64","artifact_os":"linux-x64"},{"platform":"ubuntu-24.04-arm","arch":"arm64","dist_cmd":"dist:linux:arm64","artifact_os":"linux-arm64"}]}' >> "$GITHUB_OUTPUT"
+            gh release create "$TAG" \
+              --title "NuwaxBot (Electron) ${{ steps.version.outputs.version }} - Prerelease" \
+              --notes-file release_notes.txt \
+              --draft \
+              --prerelease \
+              --repo "$GITHUB_REPOSITORY"
+            echo "Created release $TAG"
           fi
 
   build-electron:
-    name: Build Electron (${{ matrix.platform }})
-    needs: [prepare, setup-matrix]
-    if: ${{ !cancelled() && !failure() }}
+    name: Build Electron (${{ matrix.platform }} ${{ matrix.arch }})
+    needs: prepare
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
+      matrix:
+        include:
+          - platform: macos-latest
+            arch: arm64
+            dist_cmd: dist:mac:arm64
+          - platform: macos-14-large
+            arch: x64
+            dist_cmd: dist:mac:x64
+          - platform: windows-latest
+            arch: x64
+            dist_cmd: dist:win
+          - platform: ubuntu-24.04
+            arch: x64
+            dist_cmd: dist:linux:x64
+
+          - platform: ubuntu-24.04-arm
+            arch: arm64
+            dist_cmd: dist:linux:arm64
+
     runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set version from tag
-        if: startsWith(github.ref, 'refs/tags/test')
+      - name: Set version in package.json
         shell: bash
         working-directory: crates/agent-electron-client
         run: |
-          VERSION="${GITHUB_REF_NAME#test}"
+          VERSION="${{ needs.prepare.outputs.version }}"
           npm pkg set version="$VERSION"
-          echo "Set package.json version to: $VERSION"
+          echo "package.json version: $(npm pkg get version)"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -114,7 +121,7 @@ jobs:
           cache: npm
           cache-dependency-path: crates/agent-electron-client/package-lock.json
 
-      # Python 3.12+ 移除了 distutils，node-gyp（better-sqlite3 等 native 模块）依赖它
+      # Python 3.12+ 移除了 distutils，node-gyp（better-sqlite3 等 native 模块）依赖它；安装 setuptools 以提供 distutils
       - name: Install setuptools for node-gyp (Python 3.12+)
         shell: bash
         run: python3 -m pip install setuptools --break-system-packages 2>/dev/null || python3 -m pip install setuptools
@@ -128,6 +135,7 @@ jobs:
           sudo gem install fpm
           echo "USE_SYSTEM_FPM=true" >> "$GITHUB_ENV"
 
+      # 使用 npm install 替代 npm ci：lock 仅含当前平台的可选依赖，其他平台（esbuild/rollup 等）会报 Missing，install 会在各 runner 上按需解析
       - name: Install dependencies
         working-directory: crates/agent-electron-client
         run: npm install
@@ -208,6 +216,14 @@ jobs:
           echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID" >> "$GITHUB_ENV"
           echo "APPLE_API_ISSUER=$ISSUER" >> "$GITHUB_ENV"
 
+      # 若用户看到「已损坏」：请确认已配置 APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY 及公证用 APPLE_API_KEY 等，且构建日志中有签名与公证成功
+      - name: Clean previous build artifacts
+        shell: bash
+        working-directory: crates/agent-electron-client
+        run: |
+          rm -rf release node_modules/.cache
+          echo "Cleaned release and cache directories"
+
       - name: Build Electron app
         shell: bash
         working-directory: crates/agent-electron-client
@@ -222,29 +238,21 @@ jobs:
             npm run ${{ matrix.dist_cmd }} -- --publish never
           fi
 
-      - name: Upload to draft release
-        if: startsWith(github.ref, 'refs/tags/test')
+      - name: Upload artifacts to Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          VERSION="${TAG#test}"
+          TAG="${{ github.ref_name }}"
+          VERSION="${{ needs.prepare.outputs.version }}"
           OUT_DIR="crates/agent-electron-client/release/${VERSION}"
           if [ ! -d "$OUT_DIR" ]; then
             echo "::error::Output directory not found: $OUT_DIR"
             exit 1
           fi
-          for f in "${OUT_DIR}"/*.{dmg,exe,msi,AppImage,deb,rpm}; do
+          for f in "${OUT_DIR}"/*; do
             [ -e "$f" ] || continue
+            [ -f "$f" ] || continue
             echo "Uploading $(basename "$f") ..."
             gh release upload "$TAG" "$f" --clobber --repo "$GITHUB_REPOSITORY"
           done
-
-      - name: Upload artifacts (workflow_dispatch fallback)
-        if: ${{ !startsWith(github.ref, 'refs/tags/test') }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: electron-${{ matrix.artifact_os }}
-          path: crates/agent-electron-client/release/
-          retention-days: 7
