@@ -1,12 +1,12 @@
 # Electron 桌面客户端 — 测试构建 CI
-# 与 release-electron.yml 分开：构建无签名包并上传 Artifacts，不创建 GitHub Release。
+# 与 release-electron.yml 分开：构建无签名包并上传到 Draft Release，不影响正式版本。
 #
 # 触发方式：
-#   - 推送 tag 匹配 test*（例如 test0.8.0）→ 构建全平台安装包，上传为 Artifacts 供测试安装
+#   - 推送 tag 匹配 test*（例如 test0.8.0）→ 构建全平台安装包，上传到 Draft Release
 #   - 手动触发 workflow_dispatch（可选平台）
 #
 # 与 release-electron.yml 的区别：
-#   - 不创建 GitHub Release，产物为 Actions Artifacts（保留约 7 天）
+#   - 创建 Draft Release（草稿），用户在 Releases 页面不可见，不影响正式版本
 #   - 不签名、不公证（Mac 为无签名包）
 #   - 用于测试构建与安装验证
 
@@ -31,9 +31,40 @@ on:
           - linux-arm64
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  prepare:
+    name: Prepare draft release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/test')
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#test}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Test build version: $VERSION"
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#test}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" 2>/dev/null; then
+            echo "Release $TAG already exists, deleting and recreating"
+            gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes
+          fi
+          gh release create "$TAG" \
+            --title "NuwaxBot Test Build ${VERSION}" \
+            --notes "测试构建 ${VERSION}，仅供内部测试安装。" \
+            --draft \
+            --repo "$GITHUB_REPOSITORY"
+          echo "Created draft release $TAG"
+
   setup-matrix:
     name: Setup matrix
     runs-on: ubuntu-latest
@@ -56,7 +87,8 @@ jobs:
 
   build-electron:
     name: Build Electron (${{ matrix.platform }})
-    needs: setup-matrix
+    needs: [prepare, setup-matrix]
+    if: ${{ !cancelled() && !failure() }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
@@ -74,10 +106,6 @@ jobs:
           VERSION="${GITHUB_REF_NAME#test}"
           npm pkg set version="$VERSION"
           echo "Set package.json version to: $VERSION"
-
-      - name: Set short SHA
-        id: sha
-        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -138,16 +166,29 @@ jobs:
         working-directory: crates/agent-electron-client
         run: npm run ${{ matrix.dist_cmd }} -- --publish never
 
-      - name: Upload artifacts
+      - name: Upload to draft release
+        if: startsWith(github.ref, 'refs/tags/test')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#test}"
+          OUT_DIR="crates/agent-electron-client/release/${VERSION}"
+          if [ ! -d "$OUT_DIR" ]; then
+            echo "::error::Output directory not found: $OUT_DIR"
+            exit 1
+          fi
+          for f in "${OUT_DIR}"/*.{dmg,exe,msi,AppImage,deb,rpm}; do
+            [ -e "$f" ] || continue
+            echo "Uploading $(basename "$f") ..."
+            gh release upload "$TAG" "$f" --clobber --repo "$GITHUB_REPOSITORY"
+          done
+
+      - name: Upload artifacts (workflow_dispatch fallback)
+        if: ${{ !startsWith(github.ref, 'refs/tags/test') }}
         uses: actions/upload-artifact@v4
         with:
-          name: electron-${{ matrix.artifact_os }}-${{ steps.sha.outputs.short }}
-          path: |
-            crates/agent-electron-client/release/**/*.dmg
-            crates/agent-electron-client/release/**/*.zip
-            crates/agent-electron-client/release/**/*.exe
-            crates/agent-electron-client/release/**/*.msi
-            crates/agent-electron-client/release/**/*.AppImage
-            crates/agent-electron-client/release/**/*.deb
-            crates/agent-electron-client/release/**/*.rpm
+          name: electron-${{ matrix.artifact_os }}
+          path: crates/agent-electron-client/release/
           retention-days: 7
