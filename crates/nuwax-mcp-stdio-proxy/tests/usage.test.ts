@@ -49,6 +49,7 @@ describe('Proxy Usage Examples (from agent-electron-client)', () => {
         'test-mcp': {
           command: 'node',
           args: ['-e', 'console.log("dummy-server")'],
+          connectionTimeoutMs: 5000,
         },
       },
     };
@@ -73,20 +74,20 @@ describe('Proxy Usage Examples (from agent-electron-client)', () => {
       mcpServers: {
         'chrome-devtools': {
           url: 'http://127.0.0.1:12345/mcp/chrome-devtools',
+          connectionTimeoutMs: 5000,
         },
       },
     };
-    
+
     const configString = JSON.stringify(proxyConfig);
-    
+
     // The downstream client spawns the proxy expecting it to convert that HTTP URL into stdio
     const { code, stderr } = await spawnProxy(['--config', configString]);
-    
-    // It should fail to connect (fetch error) since port 12345 has no real server,
-    // but the CLI should parse it cleanly as a bridged remote server.
-    // Due to the timeout wrapper, it throws "timed out after 5s".
+
+    // It should fail to connect since port 12345 has no real server.
+    // Protocol detection defaults to SSE, then SSE connection fails with ECONNREFUSED.
     expect(stderr).toContain('chrome-devtools');
-    expect(stderr).toContain('timed out'); // fetch failed via timeout wrapper
+    expect(stderr).toContain('Failed to connect');
   }, 20000);
 
   it('Example 3: Downstream client mixed temporary and bridged configs', async () => {
@@ -97,17 +98,19 @@ describe('Proxy Usage Examples (from agent-electron-client)', () => {
         'local-tool': {
           command: 'node',
           args: ['-e', 'process.exit(1)'],
+          connectionTimeoutMs: 5000,
         },
         'remote-bridge': {
-          url: 'http://127.0.0.1:12346/mcp/remote-bridge'
+          url: 'http://127.0.0.1:12346/mcp/remote-bridge',
+          connectionTimeoutMs: 5000,
         }
       }
     };
-    
+
     const { code, stderr } = await spawnProxy(['--config', JSON.stringify(mixedConfig)]);
-    
+
     // Proxy should try to aggregate both
     expect(stderr).toContain('local-tool');
-    expect(stderr).toContain('timed out');
+    expect(stderr).toContain('Failed to connect');
   }, 20000);
 });

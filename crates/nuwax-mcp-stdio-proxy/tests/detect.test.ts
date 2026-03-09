@@ -51,7 +51,7 @@ describe('detectProtocol', () => {
     expect(result).toBe('stream');
   });
 
-  it('detects SSE when server responds with text/event-stream to GET', async () => {
+  it('defaults to SSE when POST probe is rejected (e.g. 405)', async () => {
     const mock = await startMockServer((req, res) => {
       if (req.method === 'POST') {
         // Reject POST so streamable-http probe fails
@@ -73,7 +73,7 @@ describe('detectProtocol', () => {
     expect(result).toBe('sse');
   });
 
-  it('defaults to stream when server rejects both probes', async () => {
+  it('defaults to sse when server rejects probe', async () => {
     const mock = await startMockServer((_req, res) => {
       res.writeHead(500);
       res.end('Internal Server Error');
@@ -81,13 +81,13 @@ describe('detectProtocol', () => {
     servers.push(mock);
 
     const result = await detectProtocol(mock.url);
-    expect(result).toBe('stream');
+    expect(result).toBe('sse');
   });
 
-  it('defaults to stream when server is unreachable', async () => {
+  it('defaults to sse when server is unreachable', async () => {
     // Use a port that's almost certainly not listening
     const result = await detectProtocol('http://127.0.0.1:1');
-    expect(result).toBe('stream');
+    expect(result).toBe('sse');
   });
 
   it('passes custom headers to probes', async () => {

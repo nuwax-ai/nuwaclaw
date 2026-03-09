@@ -232,8 +232,7 @@ export class PersistentMcpBridge {
           }
           return t;
         },
-        pingIntervalMs: entry.config.pingIntervalMs,
-        pingTimeoutMs: entry.config.pingTimeoutMs,
+        pingIntervalMs: 0, // No heartbeat for stdio — child process close/error events handle detection
       });
 
       const client = new Client(
@@ -257,11 +256,6 @@ export class PersistentMcpBridge {
       // Connect client to transport (this starts the subprocess)
       await wrapper.start();
       await client.connect(wrapper);
-
-      // Enable heartbeat monitoring AFTER the MCP initialize handshake
-      // completes — sending pings before initialize causes "Server not
-      // initialized" errors from the MCP server.
-      wrapper.enableHeartbeat();
 
       entry.client = client;
       entry.transport = wrapper;

@@ -43,61 +43,82 @@ export async function runStdio(
   const toolToServer = new Map<string, string>();
   const toolsByName = new Map<string, Tool>();
 
-  for (const [id, entry] of entries) {
-    try {
-      let connected: { client: Client; cleanup: () => Promise<void> };
+  // Filter out persistent entries (handled by PersistentMcpBridge, not this proxy)
+  const connectableEntries = entries.filter(([id, entry]) => {
+    if ((entry as any).persistent) {
+      logWarn(`Skipping persistent server "${id}" (handled by PersistentMcpBridge)`);
+      return false;
+    }
+    return true;
+  });
 
-      if (isSseEntry(entry)) {
-        connected = await connectSse(id, entry);
-      } else if (isStreamableEntry(entry)) {
-        connected = await connectStreamable(id, entry);
-      } else if (needsProtocolDetection(entry)) {
-        // No explicit transport — probe the URL to determine protocol
-        const detected = await detectProtocol(entry.url, buildRequestHeaders(entry));
-        if (detected === 'sse') {
-          connected = await connectSse(id, { ...entry, transport: 'sse' });
-        } else {
+  // Connect to all servers in parallel
+  const results = await Promise.allSettled(
+    connectableEntries.map(async ([id, entry]) => {
+      try {
+        let connected: { client: Client; cleanup: () => Promise<void> };
+
+        if (isSseEntry(entry)) {
+          connected = await connectSse(id, entry);
+        } else if (isStreamableEntry(entry)) {
           connected = await connectStreamable(id, entry);
+        } else if (needsProtocolDetection(entry)) {
+          // No explicit transport — probe the URL to determine protocol
+          const detected = await detectProtocol(entry.url, buildRequestHeaders(entry));
+          if (detected === 'sse') {
+            connected = await connectSse(id, { ...entry, transport: 'sse' });
+          } else {
+            connected = await connectStreamable(id, entry);
+          }
+        } else {
+          connected = await connectStdio(id, entry, baseEnv);
         }
-      } else {
-        connected = await connectStdio(id, entry, baseEnv);
+
+        return { id, entry, connected };
+      } catch (e) {
+        throw new Error(`Server "${id}": ${e}`);
       }
+    }),
+  );
 
-      const { client, cleanup } = connected;
-      clients.set(id, client);
-      cleanups.set(id, cleanup);
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      logError(`Failed to connect: ${result.reason}`);
+      continue;
+    }
 
-      let serverTools = await discoverTools(client);
+    const { id, entry, connected } = result.value;
+    const { client, cleanup } = connected;
+    clients.set(id, client);
+    cleanups.set(id, cleanup);
 
-      // Per-server tool filtering (allowTools/denyTools in config entry)
-      if (entry.allowTools || entry.denyTools) {
-        const perFilter: ToolFilter = {};
-        if (entry.allowTools) perFilter.allowTools = new Set(entry.allowTools);
-        if (entry.denyTools) perFilter.denyTools = new Set(entry.denyTools);
-        const before = serverTools.length;
-        serverTools = filterTools(serverTools, perFilter);
-        if (serverTools.length !== before) {
-          logInfo(`Server "${id}": filtered ${before} → ${serverTools.length} tool(s)`);
-        }
+    let serverTools = await discoverTools(client);
+
+    // Per-server tool filtering (allowTools/denyTools in config entry)
+    if (entry.allowTools || entry.denyTools) {
+      const perFilter: ToolFilter = {};
+      if (entry.allowTools) perFilter.allowTools = new Set(entry.allowTools);
+      if (entry.denyTools) perFilter.denyTools = new Set(entry.denyTools);
+      const before = serverTools.length;
+      serverTools = filterTools(serverTools, perFilter);
+      if (serverTools.length !== before) {
+        logInfo(`Server "${id}": filtered ${before} → ${serverTools.length} tool(s)`);
       }
+    }
 
-      logInfo(
-        `Server "${id}": ${serverTools.length} tool(s)${serverTools.length > 0 ? ' — ' + serverTools.map((t) => t.name).join(', ') : ''}`,
-      );
+    logInfo(
+      `Server "${id}": ${serverTools.length} tool(s)${serverTools.length > 0 ? ' — ' + serverTools.map((t) => t.name).join(', ') : ''}`,
+    );
 
-      for (const tool of serverTools) {
-        if (toolToClient.has(tool.name)) {
-          logWarn(
-            `Tool "${tool.name}" from "${id}" shadows existing tool from "${toolToServer.get(tool.name)}"`,
-          );
-        }
-        toolToClient.set(tool.name, client);
-        toolToServer.set(tool.name, id);
-        toolsByName.set(tool.name, tool);
+    for (const tool of serverTools) {
+      if (toolToClient.has(tool.name)) {
+        logWarn(
+          `Tool "${tool.name}" from "${id}" shadows existing tool from "${toolToServer.get(tool.name)}"`,
+        );
       }
-    } catch (e) {
-      logError(`Failed to connect to server "${id}": ${e}`);
-      // Continue with remaining servers — partial startup is acceptable
+      toolToClient.set(tool.name, client);
+      toolToServer.set(tool.name, id);
+      toolsByName.set(tool.name, tool);
     }
   }
 

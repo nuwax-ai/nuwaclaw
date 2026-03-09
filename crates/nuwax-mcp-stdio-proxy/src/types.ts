@@ -11,10 +11,8 @@ export interface StdioServerEntry {
   allowTools?: string[];
   /** 工具黑名单（排除指定工具） */
   denyTools?: string[];
-  /** Heartbeat ping interval configuration (ms) */
-  pingIntervalMs?: number;
-  /** Heartbeat ping timeout configuration (ms) */
-  pingTimeoutMs?: number;
+  /** Connection initialization timeout (ms). Defaults to 60000 for stdio. */
+  connectionTimeoutMs?: number;
 }
 
 /**
@@ -36,6 +34,8 @@ export interface StreamableServerEntry {
   pingIntervalMs?: number;
   /** Heartbeat ping timeout configuration (ms) */
   pingTimeoutMs?: number;
+  /** Connection initialization timeout (ms). Defaults to 30000. */
+  connectionTimeoutMs?: number;
 }
 
 /**
@@ -56,6 +56,8 @@ export interface SseServerEntry {
   pingIntervalMs?: number;
   /** Heartbeat ping timeout configuration (ms) */
   pingTimeoutMs?: number;
+  /** Connection initialization timeout (ms). Defaults to 30000. */
+  connectionTimeoutMs?: number;
 }
 
 export type McpServerEntry = StdioServerEntry | StreamableServerEntry | SseServerEntry;

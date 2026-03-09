@@ -1,5 +1,9 @@
 /**
  * Protocol auto-detection — determine whether a URL serves Streamable HTTP or SSE
+ *
+ * Aligned with workspace/mcp-proxy (Rust) detection logic:
+ * - Only probe Streamable HTTP (POST initialize)
+ * - Default to SSE if probe fails
  */
 
 import { logInfo, logWarn } from './logger.js';
@@ -7,12 +11,14 @@ import { logInfo, logWarn } from './logger.js';
 /**
  * Detect the MCP transport protocol of a remote URL.
  *
- * Strategy:
- * 1. Try Streamable HTTP first: send a JSON-RPC initialize POST.
- *    If the server responds with 200 and JSON, it's streamable-http.
- *    Then clean up the orphan session via DELETE.
- * 2. If that fails, try SSE: send a GET and check for text/event-stream content-type.
- * 3. Default to 'stream' (Streamable HTTP) if both probes fail.
+ * Strategy (matches Rust mcp-proxy):
+ * 1. Send a JSON-RPC initialize POST to probe for Streamable HTTP.
+ * 2. Check 4 criteria — any match means streamable-http:
+ *    a. Response has `mcp-session-id` header
+ *    b. Content-Type is `text/event-stream` with 2xx status
+ *    c. Response body is valid JSON-RPC 2.0
+ *    d. Status is 406 Not Acceptable
+ * 3. If probe fails or no criteria match → default to SSE.
  */
 export async function detectProtocol(
   url: string,
@@ -20,7 +26,6 @@ export async function detectProtocol(
 ): Promise<'sse' | 'stream'> {
   logInfo(`Auto-detecting protocol for ${url}...`);
 
-  // 1. Try Streamable HTTP — POST a JSON-RPC initialize request
   try {
     const reqHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -29,7 +34,7 @@ export async function detectProtocol(
     };
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
+    const timeout = setTimeout(() => controller.abort(), 5_000);
 
     const res = await fetch(url, {
       method: 'POST',
@@ -49,63 +54,66 @@ export async function detectProtocol(
 
     clearTimeout(timeout);
 
-    const ct = res.headers.get('content-type') || '';
-    if (res.ok && (ct.includes('application/json') || ct.includes('text/event-stream'))) {
-      logInfo(`Detected streamable-http protocol for ${url}`);
-      // Consume body to avoid socket hang
+    // Check 1: mcp-session-id header (definitive Streamable HTTP marker)
+    if (res.headers.get('mcp-session-id')) {
+      logInfo(`Detected streamable-http protocol for ${url} (mcp-session-id header)`);
+      cleanupSession(url, res.headers.get('mcp-session-id')!, headers);
       await res.text().catch(() => {});
-
-      // Clean up orphan session — fire-and-forget DELETE so the server
-      // can discard the half-initialized session we created during probing.
-      // Not awaited: cleanup is best-effort and must not block detection.
-      const sessionId = res.headers.get('mcp-session-id');
-      if (sessionId) {
-        fetch(url, {
-          method: 'DELETE',
-          headers: { 'mcp-session-id': sessionId, ...headers },
-          signal: AbortSignal.timeout(5_000),
-        }).catch(() => {});
-      }
-
       return 'stream';
     }
-    await res.text().catch(() => {});
-  } catch {
-    // Streamable HTTP probe failed, try SSE
-  }
-
-  // 2. Try SSE — GET and check for event-stream
-  try {
-    const reqHeaders: Record<string, string> = {
-      Accept: 'text/event-stream',
-      ...headers,
-    };
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
-
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: reqHeaders,
-      signal: controller.signal,
-    });
 
     const ct = res.headers.get('content-type') || '';
-    if (ct.includes('text/event-stream')) {
-      // Detected SSE — abort the stream before clearing the timeout
-      clearTimeout(timeout);
-      logInfo(`Detected SSE protocol for ${url}`);
+
+    // Check 2: text/event-stream content-type with success status
+    if (ct.includes('text/event-stream') && res.ok) {
+      logInfo(`Detected streamable-http protocol for ${url} (event-stream response)`);
+      cleanupSession(url, res.headers.get('mcp-session-id'), headers);
+      // Abort the stream to free the connection
       controller.abort();
-      return 'sse';
+      return 'stream';
     }
 
-    clearTimeout(timeout);
-    await res.text().catch(() => {});
+    // Read body for JSON-RPC check
+    let bodyText = '';
+    try { bodyText = await res.text(); } catch { /* ignore */ }
+
+    // Check 3: valid JSON-RPC 2.0 response
+    try {
+      const json = JSON.parse(bodyText);
+      if (json && json.jsonrpc === '2.0') {
+        logInfo(`Detected streamable-http protocol for ${url} (JSON-RPC 2.0 response)`);
+        cleanupSession(url, res.headers.get('mcp-session-id'), headers);
+        return 'stream';
+      }
+    } catch { /* not JSON */ }
+
+    // Check 4: 406 Not Acceptable (may indicate Streamable HTTP)
+    if (res.status === 406) {
+      logInfo(`Detected streamable-http protocol for ${url} (406 Not Acceptable)`);
+      return 'stream';
+    }
   } catch {
-    // SSE probe failed
+    // Probe failed (timeout, connection refused, etc.)
   }
 
-  // 3. Default to streamable-http
-  logWarn(`Could not auto-detect protocol for ${url}, defaulting to streamable-http`);
-  return 'stream';
+  // Default to SSE (matches Rust mcp-proxy behavior)
+  logWarn(`Could not detect streamable-http for ${url}, defaulting to SSE`);
+  return 'sse';
+}
+
+/**
+ * Clean up orphan session — fire-and-forget DELETE so the server
+ * can discard the half-initialized session we created during probing.
+ */
+function cleanupSession(
+  url: string,
+  sessionId: string | null,
+  headers?: Record<string, string>,
+): void {
+  if (!sessionId) return;
+  fetch(url, {
+    method: 'DELETE',
+    headers: { 'mcp-session-id': sessionId, ...headers },
+    signal: AbortSignal.timeout(5_000),
+  }).catch(() => {});
 }
