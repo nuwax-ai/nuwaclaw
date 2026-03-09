@@ -158,6 +158,7 @@ export class ResilientTransportWrapper implements Transport {
       this.consecutiveFailures = 0;
       this.consecutivePingTimeouts = 0;
       this.retryAttempt = 0;
+      this.heartbeatOkCount = 0;
 
       this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] ✅ Connected via ${this.activeTransport.constructor.name}`);
 
@@ -241,6 +242,8 @@ export class ResilientTransportWrapper implements Transport {
 
   /** Track consecutive ping timeouts (no response at all, not even an error) */
   private consecutivePingTimeouts = 0;
+  /** Successful heartbeat counter (for reducing log volume) */
+  private heartbeatOkCount = 0;
 
   private async checkHealth() {
     if (this.state !== 'connected' || !this.activeTransport) return;
@@ -263,7 +266,6 @@ export class ResilientTransportWrapper implements Transport {
 
       // Try to send tools/list — if send() throws, the transport itself is broken
       try {
-        this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 💓 Sending heartbeat (id: ${healthId})`);
         await this.activeTransport.send({
           jsonrpc: '2.0',
           id: healthId,
@@ -286,7 +288,11 @@ export class ResilientTransportWrapper implements Transport {
       }
 
       // Got a response — server is alive
-      this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 💖 Heartbeat OK (id: ${healthId})`);
+      this.heartbeatOkCount++;
+      // Only log every 5th success to reduce log volume (~100s interval)
+      if (this.heartbeatOkCount % 5 === 1 || this.consecutiveFailures > 0 || this.consecutivePingTimeouts > 0) {
+        this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 💖 Heartbeat OK (count: ${this.heartbeatOkCount})`);
+      }
       this.consecutiveFailures = 0;
       this.consecutivePingTimeouts = 0;
     } catch (err) {

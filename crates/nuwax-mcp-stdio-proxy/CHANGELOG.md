@@ -2,6 +2,22 @@
 
 本项目的所有显著更改都将记录在此文件中。
 
+## [1.4.9] - 2026-03-09
+
+### 新增 (Added)
+
+- **日志文件输出 (File Logging)**: 新增 `MCP_PROXY_LOG_FILE` 环境变量支持。设置后，`logger.ts` 会将所有日志同时写入指定文件（append 模式），便于 Electron 宿主通过 tail 机制将 proxy stderr 日志转发到 `main.log`。
+- **日志时间戳 (Timestamps)**: 日志格式改为 `[YYYY-MM-DD HH:mm:ss.SSS] [level]  [nuwax-mcp-proxy] message`，与 electron-log 输出格式保持一致，方便日志对照排查。
+
+### 改进 (Changed)
+
+- **指数退避重连 (Exponential Backoff Reconnect)**: `ResilientTransportWrapper` 重连策略从固定延迟（3s）改为指数退避（1s → 2s → 4s → ... → 60s cap），与 Rust mcp-proxy 的 `CappedExponentialBackoff` 保持一致。
+- **初次连接失败自动重试**: `performConnect()` 初次连接失败不再抛出异常，而是进入指数退避重试循环，不限次数。此前初次连接失败会直接 `throw`，导致上游无法恢复。
+- **重连不限次数**: `triggerReconnect()` 和 `performConnect()` 均不限重试次数。通过 `retryAttempt` 计数器驱动退避延迟，连接成功后重置为 0。
+- **修复重连死循环 Bug**: `performConnect()` 失败后不再调用 `triggerReconnect()`（该方法有 `state === 'reconnecting'` 守卫导致重入失败），改为直接调度下一次 `performConnect()`。
+- **新增 `maxReconnectDelayMs` 选项**: 退避延迟上限，默认 60000ms (60s)。
+- **`start()` 幂等性增强**: 在 `reconnecting` 状态下调用 `start()` 也直接返回，避免重复连接。
+
 ## [1.4.7] - 2026-03-09
 
 ### 新增 (Added)

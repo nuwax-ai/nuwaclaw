@@ -396,65 +396,109 @@ class McpProxyManager {
   private lastError: string | null = null;
 
   // --- Proxy log tail ---
-  private logTailWatcher: ReturnType<typeof setTimeout> | null = null;
+  private logTailTimer: ReturnType<typeof setInterval> | null = null;
   private logTailOffset = 0;
   private logTailPath: string | null = null;
+  /** Base log file path (without date suffix) for computing dated file names */
+  private logTailBasePath: string | null = null;
+
+  /**
+   * Compute today's dated log file path from base path.
+   * e.g. /logs/mcp-proxy.log → /logs/mcp-proxy-2026-03-09.log
+   */
+  private getDatedLogPath(basePath: string): string {
+    const d = new Date();
+    const pad2 = (n: number) => String(n).padStart(2, "0");
+    const dateStr = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const ext = path.extname(basePath);
+    const base = basePath.slice(0, basePath.length - ext.length);
+    return `${base}-${dateStr}${ext}`;
+  }
+
+  /**
+   * Switch the watcher to today's dated log file if the date has changed.
+   */
+  private switchLogTailFile(): void {
+    if (!this.logTailBasePath) return;
+    const datedPath = this.getDatedLogPath(this.logTailBasePath);
+    if (datedPath === this.logTailPath) return;
+
+    // Date changed or first start — switch to new file
+    if (this.logTailPath) {
+      fs.unwatchFile(this.logTailPath);
+    }
+    this.logTailPath = datedPath;
+    this.logTailOffset = 0;
+    // Skip to end of existing file
+    try {
+      const stat = fs.statSync(datedPath);
+      this.logTailOffset = stat.size;
+    } catch {
+      // File doesn't exist yet
+    }
+    fs.watchFile(datedPath, { interval: 2000 }, () => {
+      this.readLogTailLines();
+    });
+  }
+
+  /**
+   * Read new lines from the current log file and forward to electron-log.
+   */
+  private readLogTailLines(): void {
+    if (!this.logTailPath) return;
+    try {
+      const stat = fs.statSync(this.logTailPath);
+      if (stat.size <= this.logTailOffset) return;
+      const fd = fs.openSync(this.logTailPath, "r");
+      try {
+        const buf = Buffer.alloc(stat.size - this.logTailOffset);
+        fs.readSync(fd, buf, 0, buf.length, this.logTailOffset);
+        this.logTailOffset = stat.size;
+        const text = buf.toString("utf-8");
+        for (const line of text.split("\n")) {
+          if (line.trim()) {
+            log.info(line);
+          }
+        }
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {
+      // File may not exist yet or was rotated — ignore
+    }
+  }
 
   /**
    * Start tailing the proxy log file and forwarding new lines to electron-log.
+   * Handles date-based log rotation via a periodic check (every 60s).
    */
-  private startLogTail(logFilePath: string): void {
+  private startLogTail(logBasePath: string): void {
     this.stopLogTail();
-    this.logTailPath = logFilePath;
+    this.logTailBasePath = logBasePath;
     this.logTailOffset = 0;
 
-    // If file already exists, skip to end so we don't replay old logs
-    try {
-      const stat = fs.statSync(logFilePath);
-      this.logTailOffset = stat.size;
-    } catch {
-      // File doesn't exist yet — will start from 0
-    }
+    // Watch today's file immediately
+    this.switchLogTailFile();
 
-    const readNewLines = () => {
-      if (!this.logTailPath) return;
-      try {
-        const stat = fs.statSync(this.logTailPath);
-        if (stat.size <= this.logTailOffset) return;
-        const fd = fs.openSync(this.logTailPath, "r");
-        try {
-          const buf = Buffer.alloc(stat.size - this.logTailOffset);
-          fs.readSync(fd, buf, 0, buf.length, this.logTailOffset);
-          this.logTailOffset = stat.size;
-          const text = buf.toString("utf-8");
-          for (const line of text.split("\n")) {
-            if (line.trim()) {
-              log.info(line);
-            }
-          }
-        } finally {
-          fs.closeSync(fd);
-        }
-      } catch {
-        // File may not exist yet or was rotated — ignore
-      }
-    };
-
-    fs.watchFile(logFilePath, { interval: 2000 }, () => {
-      readNewLines();
-    });
-    this.logTailWatcher = {} as ReturnType<typeof setTimeout>; // sentinel
+    // Periodically check for date rollover (every 60s)
+    this.logTailTimer = setInterval(() => {
+      this.switchLogTailFile();
+    }, 60_000);
   }
 
   /**
    * Stop tailing the proxy log file.
    */
   private stopLogTail(): void {
+    if (this.logTailTimer) {
+      clearInterval(this.logTailTimer);
+      this.logTailTimer = null;
+    }
     if (this.logTailPath) {
       fs.unwatchFile(this.logTailPath);
       this.logTailPath = null;
     }
-    this.logTailWatcher = null;
+    this.logTailBasePath = null;
     this.logTailOffset = 0;
   }
 
