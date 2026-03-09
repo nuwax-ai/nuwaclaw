@@ -12,6 +12,9 @@ import { logInfo } from './logger.js';
 
 import { ResilientTransportWrapper } from './resilient.js';
 
+const DEFAULT_STDIO_CONNECTION_TIMEOUT_MS = 60_000;
+const DEFAULT_HTTP_CONNECTION_TIMEOUT_MS = 30_000;
+
 export interface ConnectedClient {
   client: Client;
   cleanup: () => Promise<void>;
@@ -93,21 +96,22 @@ export async function connectStdio(
       }
       return t;
     },
-    pingIntervalMs: entry.pingIntervalMs,
-    pingTimeoutMs: entry.pingTimeoutMs,
+    // No heartbeat for stdio — child process close/error events handle detection
+    pingIntervalMs: 0,
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
-  
+
+  const timeoutMs = entry.connectionTimeoutMs ?? DEFAULT_STDIO_CONNECTION_TIMEOUT_MS;
+
   try {
     await withTimeout(
       (async () => {
         await wrapper.start();
         await client.connect(wrapper);
-        wrapper.enableHeartbeat(); // Start heartbeat AFTER MCP initialize completes
       })(),
-      5000,
-      `Connection initialization timed out after 5s`
+      timeoutMs,
+      `Connection initialization timed out after ${timeoutMs / 1000}s`
     );
   } catch (err) {
     try { await wrapper.close(); } catch { /* ignore */ }
@@ -151,7 +155,9 @@ export async function connectStreamable(
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
-  
+
+  const timeoutMs = entry.connectionTimeoutMs ?? DEFAULT_HTTP_CONNECTION_TIMEOUT_MS;
+
   try {
     await withTimeout(
       (async () => {
@@ -159,8 +165,8 @@ export async function connectStreamable(
         await client.connect(wrapper);
         wrapper.enableHeartbeat(); // Start heartbeat AFTER MCP initialize completes
       })(),
-      5000,
-      `Connection initialization timed out after 5s`
+      timeoutMs,
+      `Connection initialization timed out after ${timeoutMs / 1000}s`
     );
   } catch (err) {
     try { await wrapper.close(); } catch { /* ignore */ }
@@ -204,7 +210,9 @@ export async function connectSse(
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
-  
+
+  const timeoutMs = entry.connectionTimeoutMs ?? DEFAULT_HTTP_CONNECTION_TIMEOUT_MS;
+
   try {
     await withTimeout(
       (async () => {
@@ -212,8 +220,8 @@ export async function connectSse(
         await client.connect(wrapper);
         wrapper.enableHeartbeat(); // Start heartbeat AFTER MCP initialize completes
       })(),
-      5000,
-      `Connection initialization timed out after 5s`
+      timeoutMs,
+      `Connection initialization timed out after ${timeoutMs / 1000}s`
     );
   } catch (err) {
     try { await wrapper.close(); } catch { /* ignore */ }

@@ -163,7 +163,7 @@ describe('nuwax-mcp-stdio-proxy', () => {
     it('exits with error when all child servers fail to connect', async () => {
       const config = JSON.stringify({
         mcpServers: {
-          bad: { command: 'node', args: ['-e', 'process.exit(1)'] },
+          bad: { command: 'node', args: ['-e', 'process.exit(1)'], connectionTimeoutMs: 5000 },
         },
       });
       const { code, stderr } = await spawnProxy(['--config', config]);
@@ -292,6 +292,7 @@ describe('nuwax-mcp-stdio-proxy', () => {
           'bad-server': {
             command: 'node',
             args: ['-e', 'process.exit(1)'],
+            connectionTimeoutMs: 5000,
           },
           'good-server': {
             command: 'node',

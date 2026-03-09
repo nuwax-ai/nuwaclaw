@@ -66,7 +66,7 @@ export class ResilientTransportWrapper implements Transport {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private consecutiveFailures = 0;
   
-  private state: 'connecting' | 'connected' | 'reconnecting' | 'closed' = 'connecting';
+  private state: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'closed' = 'idle';
   
   // Handlers required by the Transport interface
   onclose?: () => void;
@@ -81,7 +81,21 @@ export class ResilientTransportWrapper implements Transport {
 
   constructor(options: ResilientTransportOptions) {
     this.log = options.logger ?? defaultLogger;
-    this.options = { ...DEFAULT_OPTIONS, logger: this.log, ...options };
+    // Build options by starting from defaults and only overriding with
+    // explicitly provided values. Spreading { pingIntervalMs: undefined }
+    // would clobber the default 20000, causing setInterval(fn, undefined)
+    // → interval ~0ms (fires every tick).
+    this.options = {
+      ...DEFAULT_OPTIONS,
+      logger: this.log,
+      connectParams: options.connectParams,
+      ...(options.name !== undefined && { name: options.name }),
+      ...(options.pingIntervalMs !== undefined && { pingIntervalMs: options.pingIntervalMs }),
+      ...(options.pingTimeoutMs !== undefined && { pingTimeoutMs: options.pingTimeoutMs }),
+      ...(options.maxConsecutiveFailures !== undefined && { maxConsecutiveFailures: options.maxConsecutiveFailures }),
+      ...(options.reconnectDelayMs !== undefined && { reconnectDelayMs: options.reconnectDelayMs }),
+      ...(options.maxQueueSize !== undefined && { maxQueueSize: options.maxQueueSize }),
+    };
   }
 
   /**
@@ -104,7 +118,7 @@ export class ResilientTransportWrapper implements Transport {
   /**
    * Enable heartbeat monitoring. Call this AFTER the MCP client has
    * completed its initialize handshake (client.connect()), otherwise
-   * the server will reject ping requests with "Server not initialized".
+   * the server will reject requests with "Server not initialized".
    */
   enableHeartbeat(): void {
     this.startHeartbeat();
@@ -121,6 +135,7 @@ export class ResilientTransportWrapper implements Transport {
       
       this.state = 'connected';
       this.consecutiveFailures = 0;
+      this.consecutivePingTimeouts = 0;
       
       this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] Connected via ${this.activeTransport.constructor.name}`);
       
@@ -167,7 +182,7 @@ export class ResilientTransportWrapper implements Transport {
     };
 
     transport.onmessage = (message: JSONRPCMessage) => {
-      // Intercept our own ping responses here (both success and error responses)
+      // Intercept our own heartbeat responses (tools/list used as health check)
       if ('id' in message && typeof message.id === 'string' && message.id.startsWith('respl-ping-')) {
         const resolve = this.pendingPings.get(message.id);
         if (resolve) {
@@ -202,66 +217,57 @@ export class ResilientTransportWrapper implements Transport {
 
   /** Track consecutive ping timeouts (no response at all, not even an error) */
   private consecutivePingTimeouts = 0;
-  /** If server doesn't support ping, auto-disable heartbeat after maxConsecutiveFailures timeouts */
-  private pingDisabled = false;
 
   private async checkHealth() {
     if (this.state !== 'connected' || !this.activeTransport) return;
-    if (this.pingDisabled) return;
 
     try {
-      // Send raw ping JSON-RPC
-      const pingId = `respl-ping-${Date.now()}`;
-      
+      // Use tools/list as health check (all MCP servers must support it).
+      // Unlike ping, which is optional and many servers ignore, tools/list
+      // is a required MCP method — matching Rust mcp-proxy behavior.
+      const healthId = `respl-ping-${Date.now()}`;
+
       const responsePromise = new Promise<boolean>((resolve) => {
-        this.pendingPings.set(pingId, resolve);
+        this.pendingPings.set(healthId, resolve);
         setTimeout(() => {
-          if (this.pendingPings.has(pingId)) {
-            this.pendingPings.delete(pingId);
+          if (this.pendingPings.has(healthId)) {
+            this.pendingPings.delete(healthId);
             resolve(false); // Timeout
           }
         }, this.options.pingTimeoutMs);
       });
 
-      // Try to send ping — if send() throws, the transport itself is broken
-      let sendFailed = false;
+      // Try to send tools/list — if send() throws, the transport itself is broken
       try {
-        this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 💓 Sending heartbeat ping (id: ${pingId})`);
+        this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 💓 Sending heartbeat (id: ${healthId})`);
         await this.activeTransport.send({
           jsonrpc: '2.0',
-          id: pingId,
-          method: 'ping',
+          id: healthId,
+          method: 'tools/list',
+          params: {},
         });
       } catch (sendErr) {
-        sendFailed = true;
         throw sendErr; // Transport broken, treat as real failure
       }
-      
+
       const success = await responsePromise;
       if (!success) {
-        // Ping was sent successfully but timed out — server might not support ping
         this.consecutivePingTimeouts++;
+        this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Heartbeat timeout (${this.consecutivePingTimeouts}/${this.options.maxConsecutiveFailures})`);
         if (this.consecutivePingTimeouts >= this.options.maxConsecutiveFailures) {
-          // Server consistently never responds to ping — it probably doesn't support
-          // the ping method. Auto-disable heartbeat instead of reconnecting, since
-          // the transport is likely healthy (sends succeed, no errors from transport).
-          this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Server does not respond to ping. Disabling heartbeat monitoring.`);
-          this.pingDisabled = true;
-          this.stopHeartbeat();
-          return;
+          this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] Max consecutive heartbeat timeouts reached. Force reconnecting.`);
+          this.triggerReconnect();
         }
-        // Still count as a failure for logging, but don't reconnect yet
-        this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Ping timeout (${this.consecutivePingTimeouts}/${this.options.maxConsecutiveFailures})`);
         return;
       }
-      
+
       // Got a response — server is alive
-      this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 💖 Heartbeat successful (id: ${pingId})`);
+      this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 💖 Heartbeat OK (id: ${healthId})`);
       this.consecutiveFailures = 0;
       this.consecutivePingTimeouts = 0;
     } catch (err) {
       this.consecutiveFailures++;
-      this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] 💔 Heartbeat error (attempt ${this.consecutiveFailures}/${this.options.maxConsecutiveFailures}): ${err}`);
+      this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] 💔 Heartbeat error (${this.consecutiveFailures}/${this.options.maxConsecutiveFailures}): ${err}`);
       if (this.consecutiveFailures >= this.options.maxConsecutiveFailures) {
         this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] Max consecutive heartbeat failures reached. Force reconnecting.`);
         this.triggerReconnect();
