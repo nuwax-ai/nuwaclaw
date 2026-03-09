@@ -163,14 +163,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/uv
-          key: bundled-uv-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
+          key: bundled-uv-${{ matrix.platform }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
 
       - name: Prepare bundled resources (uv, node, git)
         working-directory: crates/agent-electron-client
         run: npm run prepare:all
         timeout-minutes: 15
-        env:
-          TARGET_ARCH: ${{ matrix.arch }}
 
       # ---- macOS：导入证书并配置公证（可选） ----
       - name: Import Apple certificate (macOS)
