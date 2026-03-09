@@ -43,6 +43,81 @@
 - `src/bridge.ts`: `PersistentMcpBridge` 的具体实现代码。
 - `src/customStdio.ts`: 自定义的 StdioClientTransport 实现，具备更健壮的子进程管理能力及降级处理（这对 Windows 环境下的进程终止尤为重要）。
 - `src/modes/`: 包含 `stdio`, `convert` 和 `proxy` 三种模式的具体实现逻辑。
+- `src/logger.ts`: 统一日志模块，同时输出到 stderr 和可选的日志文件。
+- `src/resilient.ts`: `ResilientTransportWrapper`，为 URL-based MCP Server 提供心跳监测、指数退避重连和请求队列。
+
+## 日志系统 (logger.ts)
+
+所有日志通过 `logger.ts` 统一输出，stdout 保留给 MCP JSON-RPC 通信。
+
+### 输出通道
+
+| 通道 | 说明 |
+|------|------|
+| **stderr** | 始终输出，Agent 引擎可捕获 |
+| **日志文件** | 通过环境变量 `MCP_PROXY_LOG_FILE` 启用，append 模式写入 |
+
+### 环境变量
+
+| 变量 | 说明 | 示例 |
+|------|------|------|
+| `MCP_PROXY_LOG_FILE` | 日志文件路径，设置后日志同时写入该文件 | `~/.nuwaxbot/logs/mcp-proxy.log` |
+
+### 日志格式
+
+```
+[2026-03-09 19:29:37.650] [info]  [nuwax-mcp-proxy] Proxy server running on stdio
+```
+
+与 electron-log 格式一致：`[时间戳] [级别]  [标签] 消息`
+
+### Electron 集成
+
+Electron 宿主无法直接捕获 proxy 的 stderr（proxy 由 ACP 引擎 spawn，是 ACP 的子进程）。
+集成方式：Electron 在 proxy 环境变量中设置 `MCP_PROXY_LOG_FILE`，然后通过 `fs.watchFile` tail 读取日志文件，逐行转发到 `electron-log`，最终出现在 `~/.nuwaxbot/logs/main.log`。
+
+## 弹性传输层 (ResilientTransportWrapper)
+
+`src/resilient.ts` 为 URL-based MCP Server（SSE / Streamable HTTP）提供连接弹性保障。
+
+### 核心参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `pingIntervalMs` | 20000 | 心跳检测间隔 (ms) |
+| `maxConsecutiveFailures` | 3 | 连续失败次数阈值，达到后触发重连 |
+| `pingTimeoutMs` | 5000 | 单次心跳超时 (ms) |
+| `reconnectDelayMs` | 1000 | 退避基础延迟 (ms) |
+| `maxReconnectDelayMs` | 60000 | 退避延迟上限 (ms) |
+| `maxQueueSize` | 100 | 重连期间请求队列最大容量 |
+
+### 重连策略
+
+- **指数退避**: `1s → 2s → 4s → 8s → 16s → 32s → 60s`（capped），与 Rust mcp-proxy 的 `CappedExponentialBackoff` 一致
+- **不限重试**: 初次连接和 heartbeat 触发的重连均不限次数
+- **成功重置**: 连接成功后 `retryAttempt` 重置为 0，退避延迟回归 1s
+
+### 重连流程
+
+```
+初次连接 / Heartbeat 失败 ×3
+    ↓
+关闭当前 transport（清理 handler、停止 heartbeat）
+    ↓
+指数退避等待（1s → 2s → ... → 60s）
+    ↓
+performConnect() 创建新 transport
+    ├── 成功 → state='connected'，重置 retryAttempt=0，恢复 heartbeat
+    └── 失败 → 继续退避重试（不限次数）
+```
+
+### 状态机
+
+```
+idle → connecting → connected ←→ reconnecting
+                        ↓
+                     closed（永久停止）
+```
 
 ## 如何修改与扩展
 

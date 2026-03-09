@@ -1,6 +1,6 @@
 {
   "name": "nuwax-mcp-stdio-proxy",
-  "version": "1.4.8",
+  "version": "1.4.9",
   "description": "TypeScript MCP proxy — aggregates multiple MCP servers (stdio + streamable-http + SSE) with convert & proxy modes",
   "type": "module",
   "bin": {
@@ -18,7 +18,8 @@
     "test:run": "npm run build:tsc && vitest run",
     "test:coverage": "npm run build:tsc && vitest run --coverage",
     "prepublishOnly": "npm run build",
-    "publish:non-latest": "npm publish --tag beta"
+    "publish:non-latest": "npm publish --tag beta",
+    "publish:prerelease": "npm publish --tag prerelease"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1"

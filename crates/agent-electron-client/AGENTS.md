@@ -314,6 +314,9 @@ permissionManager.approveRequest(requestId, alwaysAllow);
 │   └── mcp-servers  # MCP servers (isolated)
 ├── bin/              # App binaries
 ├── logs/             # Application logs
+│   ├── main.log     # Electron main process log (electron-log)
+│   ├── latest.log   # Symlink to current main.log
+│   └── mcp-proxy.log # MCP proxy stderr log (via MCP_PROXY_LOG_FILE)
 └── nuwaxbot.db   # SQLite database
 ```
 
@@ -365,6 +368,56 @@ User creates session
             └── Save to config
                 │
                 └── Engine uses this directory
+```
+
+---
+
+## MCP Proxy Logging & Resilience
+
+### Proxy Log Pipeline
+
+MCP Proxy（nuwax-mcp-stdio-proxy）由 ACP 引擎 spawn，其 stderr 日志无法直接被 Electron 捕获。
+通过 `MCP_PROXY_LOG_FILE` 环境变量 + Electron 侧 tail watcher 实现日志转发：
+
+```
+mcp-proxy process                    Electron main process
+┌──────────────────┐                ┌──────────────────────┐
+│  logger.ts       │                │  mcp.ts              │
+│  ┌─────────────┐ │   write        │  ┌────────────────┐  │
+│  │ log(msg)    │─┼──────────────►│  │ startLogTail() │  │
+│  │  → stderr   │ │  mcp-proxy.log│  │  fs.watchFile   │  │
+│  │  → logStream│ │               │  │  → electron-log │  │
+│  └─────────────┘ │               │  └────────────────┘  │
+└──────────────────┘               └──────────────────────┘
+                                          │
+                                          ▼
+                                    ~/.nuwaxbot/logs/main.log
+```
+
+- **MCP_PROXY_LOG_FILE**: 环境变量，proxy 启动时设置，指向 `~/.nuwaxbot/logs/mcp-proxy.log`
+- **Log format**: `[2026-03-09 19:29:37.650] [info]  [nuwax-mcp-proxy] message`（与 electron-log 格式一致）
+- **Tail watcher**: `fs.watchFile` 每 2s 轮询，增量读取新行，转发到 `electron-log`
+- 在 `McpProxyManager.start()` 启动，`stop()` / `cleanup()` 停止
+
+### Resilient Transport (ResilientTransportWrapper)
+
+URL-based MCP server（SSE / Streamable HTTP）使用 `ResilientTransportWrapper` 提供：
+
+| 特性 | 配置 | 说明 |
+|------|------|------|
+| **Heartbeat** | `pingIntervalMs: 20000` | 每 20s 发送 `tools/list` 健康检查 |
+| **失败阈值** | `maxConsecutiveFailures: 3` | 连续 3 次失败后关闭连接并重试 |
+| **指数退避** | `1s → 2s → 4s → ... → 60s` | 与 Rust mcp-proxy CappedExponentialBackoff 一致 |
+| **重试次数** | 不限 | 初次连接失败和 heartbeat 触发的重连均不限次数 |
+| **请求队列** | `maxQueueSize: 100` | 重连期间缓存请求，连接恢复后 flush |
+
+重连流程：
+
+```
+Heartbeat 失败 ×3 → 关闭 transport → 指数退避等待 → 重新连接
+                                                      ↓
+                                               成功 → 恢复 heartbeat
+                                               失败 → 继续退避重试（不限次数）
 ```
 
 ---
