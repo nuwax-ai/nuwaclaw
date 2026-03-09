@@ -244,7 +244,7 @@ export default function LogViewer() {
               )}
               {filteredLogs.map((entry, idx) => (
                 <div
-                  key={`${entry.timestamp}-${entry.message?.slice(0, 100)}`}
+                  key={`${idx}-${entry.timestamp}-${entry.message?.slice(0, 100)}`}
                   style={{
                     padding: '1px 12px',
                     display: 'flex',
