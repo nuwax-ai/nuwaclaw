@@ -46,7 +46,10 @@ function getFallbackPath(key) {
 }
 
 function getPlatformKey() {
-  return `${process.platform}-${process.arch}`;
+  const p = process.platform;
+  // 支持 TARGET_ARCH 环境变量覆盖，用于跨架构构建
+  const a = process.env.TARGET_ARCH || process.arch;
+  return `${p}-${a}`;
 }
 
 function main() {

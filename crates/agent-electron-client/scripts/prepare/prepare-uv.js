@@ -23,11 +23,35 @@ const projectRoot = getProjectRoot();
 const uvRoot = path.join(projectRoot, 'resources', 'uv');
 const cacheDir = path.join(uvRoot, '.cache');
 
+/**
+ * 解析目标架构：优先 --arch CLI 参数 > TARGET_ARCH 环境变量 > process.arch
+ * 这样在 ARM64 Mac 上构建 x64 包时，可以通过 --arch x64 或 TARGET_ARCH=x64 来指定目标架构
+ */
+function getTargetArch() {
+  // 1. 检查 --arch CLI 参数
+  const archIdx = process.argv.indexOf('--arch');
+  if (archIdx !== -1 && process.argv[archIdx + 1]) {
+    return process.argv[archIdx + 1];
+  }
+  // 支持 --arch=x64 格式
+  const archArg = process.argv.find(a => a.startsWith('--arch='));
+  if (archArg) {
+    return archArg.split('=')[1];
+  }
+  // 2. 检查 TARGET_ARCH 环境变量
+  if (process.env.TARGET_ARCH) {
+    return process.env.TARGET_ARCH;
+  }
+  // 3. 回退到当前进程架构
+  return process.arch;
+}
+
 // Node 与 Electron 一致：darwin | win32 | linux；x64 | arm64
 function getPlatformKey() {
   const p = process.platform;
-  const a = process.arch === 'x64' ? 'x64' : process.arch;
-  return `${p}-${a}`;
+  const a = getTargetArch();
+  const normalized = a === 'x64' ? 'x64' : a;
+  return `${p}-${normalized}`;
 }
 
 // 当前平台对应的 uv 官方 release 资源文件名（不含 .tar.gz / .zip）
@@ -202,22 +226,34 @@ async function downloadAndPrepare(key, suffix, version) {
 
 async function main() {
   const key = getPlatformKey();
+  const targetArch = getTargetArch();
   const srcDir = path.join(uvRoot, key);
   const destBin = path.join(uvRoot, 'bin');
   const uvName = process.platform === 'win32' ? 'uv.exe' : 'uv';
   const destUv = path.join(destBin, uvName);
 
-  console.log(`[prepare-uv] 平台: ${key}, 源码目录: ${srcDir}, 目标目录: ${destBin}`);
+  // 记录当前 bin/ 对应的平台 key，用于检测架构变更
+  const markerFile = path.join(destBin, '.platform-key');
 
-  // 检查 bin 目录和 uv 文件是否存在，只有完整才跳过
+  console.log(`[prepare-uv] 平台: ${key}, 目标架构: ${targetArch}, 源码目录: ${srcDir}, 目标目录: ${destBin}`);
+
+  // 检查 bin 目录和 uv 文件是否存在，且架构匹配才跳过
   if (fs.existsSync(destUv)) {
-    console.log(`[prepare-uv] uv 已存在: ${destUv}, 跳过下载`);
-    return;
+    const cachedKey = fs.existsSync(markerFile) ? fs.readFileSync(markerFile, 'utf8').trim() : '';
+    if (cachedKey === key) {
+      console.log(`[prepare-uv] uv 已存在且架构匹配 (${key}), 跳过下载`);
+      return;
+    }
+    // 架构不匹配，清除旧 binary
+    console.log(`[prepare-uv] 架构变更: ${cachedKey || '未知'} -> ${key}, 重新准备`);
+    fs.rmSync(destBin, { recursive: true, force: true });
+    fs.mkdirSync(destBin, { recursive: true });
   }
 
   // 如果源码目录存在但 bin 不完整，尝试复制
   if (fs.existsSync(srcDir) && copyToDestBin(key)) {
     if (fs.existsSync(destUv)) {
+      fs.writeFileSync(markerFile, key);
       console.log(`[prepare-uv] 使用已有 uv (${key}), 已复制到 bin/`);
       return;
     }
@@ -233,6 +269,7 @@ async function main() {
   console.log(`[prepare-uv] 使用 uv 版本: ${version}`);
   try {
     await downloadAndPrepare(key, suffix, version);
+    fs.writeFileSync(markerFile, key);
   } catch (err) {
     console.error('[prepare-uv] 下载或解压失败:', err.message);
     process.exit(1);
