@@ -28,7 +28,7 @@ import { CustomStdioClientTransport } from './customStdio.js';
 import { ResilientTransportWrapper } from './resilient.js';
 import type { StdioServerEntry } from './types.js';
 
-const LOG_TAG = '[PersistentMcpBridge]';
+const LOG_TAG = '[McpProxy] [PersistentMcpBridge]';
 const BASE_RESTART_COOLDOWN_MS = 5_000;
 const MAX_RESTART_ATTEMPTS = 5;
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -216,6 +216,7 @@ export class PersistentMcpBridge {
       // Create MCP Client + ResilientTransportWrapper
       const wrapper = new ResilientTransportWrapper({
         name: id,
+        logger: this.log,
         connectParams: async () => {
           const t = new CustomStdioClientTransport({
             command: entry.config.command,
@@ -256,6 +257,11 @@ export class PersistentMcpBridge {
       // Connect client to transport (this starts the subprocess)
       await wrapper.start();
       await client.connect(wrapper);
+
+      // Enable heartbeat monitoring AFTER the MCP initialize handshake
+      // completes — sending pings before initialize causes "Server not
+      // initialized" errors from the MCP server.
+      wrapper.enableHeartbeat();
 
       entry.client = client;
       entry.transport = wrapper;

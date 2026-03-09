@@ -4,7 +4,7 @@
   "description": "TypeScript MCP proxy — aggregates multiple MCP servers (stdio + streamable-http + SSE) with convert & proxy modes",
   "type": "module",
   "bin": {
-    "nuwax-mcp-stdio-proxy": "./dist/index.js"
+    "nuwax-mcp-stdio-proxy": "dist/index.js"
   },
   "main": "./dist/lib.js",
   "types": "./dist/lib.d.ts",
@@ -17,7 +17,8 @@
     "test": "npm run build:tsc && vitest",
     "test:run": "npm run build:tsc && vitest run",
     "test:coverage": "npm run build:tsc && vitest run --coverage",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "publish:non-latest": "npm publish --tag beta"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1"

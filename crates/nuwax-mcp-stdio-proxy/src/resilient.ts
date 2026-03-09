@@ -10,6 +10,13 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import { logInfo, logWarn, logError } from './logger.js';
 
+/** Logger interface — compatible with console, electron-log, and BridgeLogger */
+export interface ResilientLogger {
+  info: (...args: unknown[]) => void;
+  warn: (...args: unknown[]) => void;
+  error: (...args: unknown[]) => void;
+}
+
 export interface ResilientTransportOptions {
   /** Connection factory function */
   connectParams: () => Promise<Transport>;
@@ -25,6 +32,13 @@ export interface ResilientTransportOptions {
   maxQueueSize?: number;
   /** Server name/ID for logging */
   name?: string;
+  /**
+   * Optional custom logger. When running inside the Electron main process
+   * (e.g. PersistentMcpBridge), pass electron-log so heartbeat/reconnect
+   * logs appear in main.log alongside other application logs.
+   * Defaults to the built-in stderr logger (logger.js).
+   */
+  logger?: ResilientLogger;
 }
 
 const DEFAULT_OPTIONS = {
@@ -36,8 +50,16 @@ const DEFAULT_OPTIONS = {
   name: 'remote',
 };
 
+/** Default logger that delegates to logger.js (stderr) */
+const defaultLogger: ResilientLogger = {
+  info: (...args) => logInfo(args.map(String).join(' ')),
+  warn: (...args) => logWarn(args.map(String).join(' ')),
+  error: (...args) => logError(args.map(String).join(' ')),
+};
+
 export class ResilientTransportWrapper implements Transport {
   private options: Required<ResilientTransportOptions>;
+  private log: ResilientLogger;
   private activeTransport: Transport | null = null;
   private mcpClient: Client | null = null;
   
@@ -58,13 +80,23 @@ export class ResilientTransportWrapper implements Transport {
   private pendingPings = new Map<string, (resolve: boolean) => void>();
 
   constructor(options: ResilientTransportOptions) {
-    this.options = { ...DEFAULT_OPTIONS, ...options };
+    this.log = options.logger ?? defaultLogger;
+    this.options = { ...DEFAULT_OPTIONS, logger: this.log, ...options };
   }
 
   /**
    * Initializes the transport and connects to the backend
+   *
+   * This method is idempotent - if the transport is already connected or
+   * connecting, subsequent calls will return immediately without creating
+   * duplicate connections. This is important because MCP SDK's client.connect()
+   * internally calls transport.start(), and we also call it explicitly in bridge.ts.
    */
   async start(): Promise<void> {
+    // Idempotent check: if already connected or connecting, return early
+    if (this.state === 'connected' || this.state === 'connecting') {
+      return;
+    }
     this.state = 'connecting';
     await this.performConnect(true);
   }
@@ -90,7 +122,7 @@ export class ResilientTransportWrapper implements Transport {
       this.state = 'connected';
       this.consecutiveFailures = 0;
       
-      logInfo(`[ResilientTransport:${this.options.name}] Connected via ${this.activeTransport.constructor.name}`);
+      this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] Connected via ${this.activeTransport.constructor.name}`);
       
       // Flush any queued messages
       this.flushQueue();
@@ -104,7 +136,7 @@ export class ResilientTransportWrapper implements Transport {
       }
 
     } catch (err) {
-      logError(`[ResilientTransport:${this.options.name}] Connect failed: ${err}`);
+      this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] Connect failed: ${err}`);
       if (initial) {
         this.state = 'closed';
         throw err;
@@ -117,7 +149,7 @@ export class ResilientTransportWrapper implements Transport {
     transport.onclose = () => {
       // If the inner transport closes but we are not intentionally closed
       if (this.state !== 'closed') {
-        logWarn(`[ResilientTransport:${this.options.name}] Inner transport closed unexpectedly. Reconnecting...`);
+        this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Inner transport closed unexpectedly. Reconnecting...`);
         this.triggerReconnect();
       }
     };
@@ -125,7 +157,7 @@ export class ResilientTransportWrapper implements Transport {
     transport.onerror = (error) => {
       // If it throws ENOENT or similar before we even catch it, we might be here.
       if (this.state !== 'closed') {
-        logWarn(`[ResilientTransport:${this.options.name}] Inner transport error: ${error.message}`);
+        this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Inner transport error: ${error.message}`);
         if (this.state === 'connecting') {
            if (this.onerror) this.onerror(error);
            return;
@@ -194,7 +226,7 @@ export class ResilientTransportWrapper implements Transport {
       // Try to send ping — if send() throws, the transport itself is broken
       let sendFailed = false;
       try {
-        logInfo(`[ResilientTransport:${this.options.name}] 💓 Sending heartbeat ping (id: ${pingId})`);
+        this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 💓 Sending heartbeat ping (id: ${pingId})`);
         await this.activeTransport.send({
           jsonrpc: '2.0',
           id: pingId,
@@ -213,25 +245,25 @@ export class ResilientTransportWrapper implements Transport {
           // Server consistently never responds to ping — it probably doesn't support
           // the ping method. Auto-disable heartbeat instead of reconnecting, since
           // the transport is likely healthy (sends succeed, no errors from transport).
-          logWarn(`[ResilientTransport:${this.options.name}] Server does not respond to ping. Disabling heartbeat monitoring.`);
+          this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Server does not respond to ping. Disabling heartbeat monitoring.`);
           this.pingDisabled = true;
           this.stopHeartbeat();
           return;
         }
         // Still count as a failure for logging, but don't reconnect yet
-        logWarn(`[ResilientTransport:${this.options.name}] Ping timeout (${this.consecutivePingTimeouts}/${this.options.maxConsecutiveFailures})`);
+        this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Ping timeout (${this.consecutivePingTimeouts}/${this.options.maxConsecutiveFailures})`);
         return;
       }
       
       // Got a response — server is alive
-      logInfo(`[ResilientTransport:${this.options.name}] 💖 Heartbeat successful (id: ${pingId})`);
+      this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 💖 Heartbeat successful (id: ${pingId})`);
       this.consecutiveFailures = 0;
       this.consecutivePingTimeouts = 0;
     } catch (err) {
       this.consecutiveFailures++;
-      logWarn(`[ResilientTransport:${this.options.name}] 💔 Heartbeat error (attempt ${this.consecutiveFailures}/${this.options.maxConsecutiveFailures}): ${err}`);
+      this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] 💔 Heartbeat error (attempt ${this.consecutiveFailures}/${this.options.maxConsecutiveFailures}): ${err}`);
       if (this.consecutiveFailures >= this.options.maxConsecutiveFailures) {
-        logError(`[ResilientTransport:${this.options.name}] Max consecutive heartbeat failures reached. Force reconnecting.`);
+        this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] Max consecutive heartbeat failures reached. Force reconnecting.`);
         this.triggerReconnect();
       }
     }
@@ -240,7 +272,7 @@ export class ResilientTransportWrapper implements Transport {
   private triggerReconnect() {
     if (this.state === 'reconnecting' || this.state === 'closed') return;
     
-    logWarn(`[ResilientTransport:${this.options.name}] 🔄 Triggering reconnect (previous state: ${this.state})`);
+    this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] 🔄 Triggering reconnect (previous state: ${this.state})`);
     this.state = 'reconnecting';
     this.stopHeartbeat();
 
@@ -264,7 +296,7 @@ export class ResilientTransportWrapper implements Transport {
     if (!this.activeTransport || this.state !== 'connected') return;
 
     if (this.messageQueue.length > 0) {
-      logInfo(`[ResilientTransport:${this.options.name}] Flushing ${this.messageQueue.length} queued requests...`);
+      this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] Flushing ${this.messageQueue.length} queued requests...`);
     }
 
     const queueToFlush = [...this.messageQueue];
@@ -275,7 +307,7 @@ export class ResilientTransportWrapper implements Transport {
       try {
         await this.activeTransport.send(msg);
       } catch (e) {
-        logError(`[ResilientTransport:${this.options.name}] Error flushing queue: ${e}`);
+        this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] Error flushing queue: ${e}`);
         // If sending fails, put this message and remaining ones back at the front of the queue
         const failedAndRemaining = queueToFlush.slice(i);
         this.messageQueue = [...failedAndRemaining, ...this.messageQueue];
@@ -295,7 +327,7 @@ export class ResilientTransportWrapper implements Transport {
     if (this.state === 'reconnecting' || this.state === 'connecting') {
       // Queue the message
       if (this.messageQueue.length >= this.options.maxQueueSize) {
-        logWarn(`[ResilientTransport:${this.options.name}] Message queue full, dropping oldest request.`);
+        this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Message queue full, dropping oldest request.`);
         this.messageQueue.shift(); // Drop oldest
       }
       this.messageQueue.push(message);
