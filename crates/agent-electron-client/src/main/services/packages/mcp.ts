@@ -395,6 +395,69 @@ class McpProxyManager {
   private bridgeStarted = false;
   private lastError: string | null = null;
 
+  // --- Proxy log tail ---
+  private logTailWatcher: ReturnType<typeof setTimeout> | null = null;
+  private logTailOffset = 0;
+  private logTailPath: string | null = null;
+
+  /**
+   * Start tailing the proxy log file and forwarding new lines to electron-log.
+   */
+  private startLogTail(logFilePath: string): void {
+    this.stopLogTail();
+    this.logTailPath = logFilePath;
+    this.logTailOffset = 0;
+
+    // If file already exists, skip to end so we don't replay old logs
+    try {
+      const stat = fs.statSync(logFilePath);
+      this.logTailOffset = stat.size;
+    } catch {
+      // File doesn't exist yet — will start from 0
+    }
+
+    const readNewLines = () => {
+      if (!this.logTailPath) return;
+      try {
+        const stat = fs.statSync(this.logTailPath);
+        if (stat.size <= this.logTailOffset) return;
+        const fd = fs.openSync(this.logTailPath, "r");
+        try {
+          const buf = Buffer.alloc(stat.size - this.logTailOffset);
+          fs.readSync(fd, buf, 0, buf.length, this.logTailOffset);
+          this.logTailOffset = stat.size;
+          const text = buf.toString("utf-8");
+          for (const line of text.split("\n")) {
+            if (line.trim()) {
+              log.info(line);
+            }
+          }
+        } finally {
+          fs.closeSync(fd);
+        }
+      } catch {
+        // File may not exist yet or was rotated — ignore
+      }
+    };
+
+    fs.watchFile(logFilePath, { interval: 2000 }, () => {
+      readNewLines();
+    });
+    this.logTailWatcher = {} as ReturnType<typeof setTimeout>; // sentinel
+  }
+
+  /**
+   * Stop tailing the proxy log file.
+   */
+  private stopLogTail(): void {
+    if (this.logTailPath) {
+      fs.unwatchFile(this.logTailPath);
+      this.logTailPath = null;
+    }
+    this.logTailWatcher = null;
+    this.logTailOffset = 0;
+  }
+
   /**
    * 解析 nuwax-mcp-stdio-proxy 脚本路径（disk lookup，不使用缓存）
    *
@@ -469,6 +532,15 @@ class McpProxyManager {
     }
     log.info("[McpProxy] nuwax-mcp-stdio-proxy 就绪:", this.cachedScriptPath);
 
+    // Start tailing proxy log file so its output appears in main.log
+    const proxyLogFile = path.join(
+      app.getPath("home"),
+      APP_DATA_DIR_NAME,
+      "logs",
+      "mcp-proxy.log",
+    );
+    this.startLogTail(proxyLogFile);
+
     // 验证内置 Node.js 资源存在
     const nodeBinPath = getNodeBinPath();
     if (!nodeBinPath) {
@@ -487,6 +559,7 @@ class McpProxyManager {
    * stop() → 清除缓存状态 + 停止 PersistentMcpBridge
    */
   async stop(): Promise<{ success: boolean }> {
+    this.stopLogTail();
     this.cachedScriptPath = null;
     this.bridgeStarted = false;
     this.lastError = null;
@@ -698,6 +771,14 @@ class McpProxyManager {
       // 不需要用户的系统 PATH，这样可以显著减少环境变量长度
       const proxyEnv = getAppEnv({ includeSystemPath: false });
 
+      // Tell proxy to write logs to a file that we tail into main.log
+      proxyEnv.MCP_PROXY_LOG_FILE = path.join(
+        app.getPath("home"),
+        APP_DATA_DIR_NAME,
+        "logs",
+        "mcp-proxy.log",
+      );
+
       // 构建 proxy 启动参数，使用 --config-file 避免命令行长度限制
       const proxyArgs = [scriptPath, "--config-file", configFilePath];
       if (this.config.allowTools && this.config.allowTools.length > 0) {
@@ -736,6 +817,7 @@ class McpProxyManager {
    * 清理（退出时调用）— 停止 PersistentMcpBridge + kill 子进程
    */
   async cleanup(): Promise<void> {
+    this.stopLogTail();
     try {
       await persistentMcpBridge.stop();
     } catch (e) {

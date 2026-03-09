@@ -3,6 +3,9 @@
  *
  * Provides heartbeat monitoring, automatic reconnection, and request queueing
  * for MCP transports (HTTP, SSE, Stdio).
+ *
+ * Retry strategy: exponential backoff 1s → 2s → 4s → ... → 60s (capped),
+ * unlimited retries. Matches the Rust mcp-proxy CappedExponentialBackoff.
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -26,8 +29,10 @@ export interface ResilientTransportOptions {
   maxConsecutiveFailures?: number;
   /** Timeout for checking ping or listTools (ms). Default: 5000 */
   pingTimeoutMs?: number;
-  /** Backoff delay before reconnect attempt (ms). Default: 3000 */
+  /** Base backoff delay for reconnect (ms). Default: 1000 */
   reconnectDelayMs?: number;
+  /** Max backoff delay cap (ms). Default: 60000 */
+  maxReconnectDelayMs?: number;
   /** Max queued requests during reconnect. Default: 100 */
   maxQueueSize?: number;
   /** Server name/ID for logging */
@@ -45,7 +50,8 @@ const DEFAULT_OPTIONS = {
   pingIntervalMs: 20000,
   maxConsecutiveFailures: 3,
   pingTimeoutMs: 5000,
-  reconnectDelayMs: 3000,
+  reconnectDelayMs: 1000,
+  maxReconnectDelayMs: 60000,
   maxQueueSize: 100,
   name: 'remote',
 };
@@ -62,12 +68,15 @@ export class ResilientTransportWrapper implements Transport {
   private log: ResilientLogger;
   private activeTransport: Transport | null = null;
   private mcpClient: Client | null = null;
-  
+
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private consecutiveFailures = 0;
-  
+
   private state: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'closed' = 'idle';
-  
+
+  /** Current retry attempt count (reset on successful connect) */
+  private retryAttempt = 0;
+
   // Handlers required by the Transport interface
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -75,7 +84,7 @@ export class ResilientTransportWrapper implements Transport {
 
   // Queue for messages sent while reconnecting
   private messageQueue: JSONRPCMessage[] = [];
-  
+
   // Pending ping requests awaiting a response
   private pendingPings = new Map<string, (resolve: boolean) => void>();
 
@@ -94,8 +103,18 @@ export class ResilientTransportWrapper implements Transport {
       ...(options.pingTimeoutMs !== undefined && { pingTimeoutMs: options.pingTimeoutMs }),
       ...(options.maxConsecutiveFailures !== undefined && { maxConsecutiveFailures: options.maxConsecutiveFailures }),
       ...(options.reconnectDelayMs !== undefined && { reconnectDelayMs: options.reconnectDelayMs }),
+      ...(options.maxReconnectDelayMs !== undefined && { maxReconnectDelayMs: options.maxReconnectDelayMs }),
       ...(options.maxQueueSize !== undefined && { maxQueueSize: options.maxQueueSize }),
     };
+  }
+
+  /**
+   * Calculate backoff delay using capped exponential backoff.
+   * 1s → 2s → 4s → 8s → 16s → 32s → 60s (capped)
+   */
+  private getBackoffDelay(): number {
+    const delay = this.options.reconnectDelayMs * Math.pow(2, this.retryAttempt);
+    return Math.min(delay, this.options.maxReconnectDelayMs);
   }
 
   /**
@@ -107,8 +126,8 @@ export class ResilientTransportWrapper implements Transport {
    * internally calls transport.start(), and we also call it explicitly in bridge.ts.
    */
   async start(): Promise<void> {
-    // Idempotent check: if already connected or connecting, return early
-    if (this.state === 'connected' || this.state === 'connecting') {
+    // Idempotent check: if already connected, connecting, or retrying, return early
+    if (this.state === 'connected' || this.state === 'connecting' || this.state === 'reconnecting') {
       return;
     }
     this.state = 'connecting';
@@ -125,20 +144,23 @@ export class ResilientTransportWrapper implements Transport {
   }
 
   private async performConnect(initial = false): Promise<void> {
+    if (this.state === 'closed') return;
+
     try {
       this.activeTransport = await this.options.connectParams();
-      
+
       // Inherit the handlers from this wrapper
       this.bindInnerTransport(this.activeTransport);
-      
+
       await this.activeTransport.start();
-      
+
       this.state = 'connected';
       this.consecutiveFailures = 0;
       this.consecutivePingTimeouts = 0;
-      
-      this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] Connected via ${this.activeTransport.constructor.name}`);
-      
+      this.retryAttempt = 0;
+
+      this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] ✅ Connected via ${this.activeTransport.constructor.name}`);
+
       // Flush any queued messages
       this.flushQueue();
 
@@ -151,12 +173,14 @@ export class ResilientTransportWrapper implements Transport {
       }
 
     } catch (err) {
-      this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] Connect failed: ${err}`);
-      if (initial) {
-        this.state = 'closed';
-        throw err;
-      }
-      this.triggerReconnect(); // Retry connection
+      const delay = this.getBackoffDelay();
+      this.retryAttempt++;
+      this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] ❌ Connect failed (attempt ${this.retryAttempt}): ${err}`);
+      this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 🔄 Retrying in ${delay}ms...`);
+      this.state = 'reconnecting';
+      setTimeout(() => {
+        this.performConnect();
+      }, delay);
     }
   }
 
@@ -253,9 +277,9 @@ export class ResilientTransportWrapper implements Transport {
       const success = await responsePromise;
       if (!success) {
         this.consecutivePingTimeouts++;
-        this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Heartbeat timeout (${this.consecutivePingTimeouts}/${this.options.maxConsecutiveFailures})`);
+        this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] ⏱️ Heartbeat timeout (${this.consecutivePingTimeouts}/${this.options.maxConsecutiveFailures})`);
         if (this.consecutivePingTimeouts >= this.options.maxConsecutiveFailures) {
-          this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] Max consecutive heartbeat timeouts reached. Force reconnecting.`);
+          this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] Max consecutive heartbeat timeouts reached. Closing and retrying...`);
           this.triggerReconnect();
         }
         return;
@@ -269,16 +293,18 @@ export class ResilientTransportWrapper implements Transport {
       this.consecutiveFailures++;
       this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] 💔 Heartbeat error (${this.consecutiveFailures}/${this.options.maxConsecutiveFailures}): ${err}`);
       if (this.consecutiveFailures >= this.options.maxConsecutiveFailures) {
-        this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] Max consecutive heartbeat failures reached. Force reconnecting.`);
+        this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] Max consecutive heartbeat failures reached. Closing and retrying...`);
         this.triggerReconnect();
       }
     }
   }
 
+  /**
+   * Close the current transport and schedule a reconnect with exponential backoff.
+   */
   private triggerReconnect() {
     if (this.state === 'reconnecting' || this.state === 'closed') return;
-    
-    this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] 🔄 Triggering reconnect (previous state: ${this.state})`);
+
     this.state = 'reconnecting';
     this.stopHeartbeat();
 
@@ -293,9 +319,13 @@ export class ResilientTransportWrapper implements Transport {
       this.activeTransport = null;
     }
 
+    const delay = this.getBackoffDelay();
+    this.retryAttempt++;
+    this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] 🔄 Closed. Retrying in ${delay}ms (attempt ${this.retryAttempt})...`);
+
     setTimeout(() => {
       this.performConnect();
-    }, this.options.reconnectDelayMs);
+    }, delay);
   }
 
   private async flushQueue() {
@@ -358,10 +388,10 @@ export class ResilientTransportWrapper implements Transport {
     this.state = 'closed';
     this.stopHeartbeat();
     this.messageQueue = [];
-    
+
     if (this.activeTransport) {
       // Prevent bubble up closure
-      this.activeTransport.onclose = undefined; 
+      this.activeTransport.onclose = undefined;
       this.activeTransport.onerror = undefined;
       await this.activeTransport.close();
       this.activeTransport = null;
