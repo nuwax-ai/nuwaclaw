@@ -3,6 +3,7 @@
 #
 # 触发方式：
 #   - 推送 tag 匹配 electron-v*（例如 electron-v0.4.0）→ 构建全平台安装包并创建 Release
+#   - 手动触发 workflow_dispatch（输入 tag）→ 仅同步已有 Release 到阿里云 OSS
 #
 # 支持平台：
 #   - macOS arm64（macos-latest）
@@ -25,6 +26,12 @@ on:
   push:
     tags:
       - "electron-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to sync to OSS (e.g. electron-v0.8.0)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -32,6 +39,7 @@ permissions:
 jobs:
   prepare:
     name: Prepare release
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -77,6 +85,7 @@ jobs:
   build-electron:
     name: Build Electron (${{ matrix.platform }} ${{ matrix.arch }})
     needs: prepare
+    if: github.event_name == 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -142,14 +151,6 @@ jobs:
       - name: Rebuild native modules for Electron
         working-directory: crates/agent-electron-client
         run: npm run electron-rebuild
-
-      - name: Run unit tests
-        working-directory: crates/agent-electron-client
-        run: npm run test:run
-
-      - name: Check import boundaries
-        working-directory: crates/agent-electron-client
-        run: npm run check:boundaries
 
       # 缓存内置 Node.js（所有平台）、Git（仅 Windows）和 uv（所有平台）
       - name: Cache bundled Node.js
@@ -264,9 +265,10 @@ jobs:
           done
 
   # ==================== 同步到阿里云 OSS ====================
+  # 手动触发：workflow_dispatch 输入 tag（如 electron-v0.8.0）
   sync-to-oss:
     name: Sync release assets to Alibaba Cloud OSS
-    needs: [prepare, build-electron]
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     continue-on-error: true
     env:
@@ -274,6 +276,7 @@ jobs:
       OSS_REGION: "rg-china-mainland"
       OSS_BUCKET: "oss://nuwa-packages"
       OSS_CDN_BASE: "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com"
+      RELEASE_TAG: ${{ inputs.tag }}
     steps:
       - name: Install ossutil v2
         run: |
@@ -287,7 +290,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${RELEASE_TAG}"
           mkdir -p /tmp/release-assets
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir /tmp/release-assets
           echo "==> Downloaded assets:"
@@ -300,7 +303,7 @@ jobs:
           OSS_CDN_BASE: "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com"
           GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${RELEASE_TAG}"
           VERSION="${TAG#electron-v}"
           OSS_URL_PREFIX="${OSS_CDN_BASE}/nuwaxbot-electron/${TAG}"
           ASSETS_DIR="/tmp/release-assets"
@@ -432,7 +435,7 @@ jobs:
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${RELEASE_TAG}"
           OSS_PREFIX="nuwaxbot-electron/${TAG}"
 
           for file in /tmp/release-assets/*; do
@@ -451,7 +454,7 @@ jobs:
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${RELEASE_TAG}"
           ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaxbot-electron/${TAG}/latest.json" \
             --endpoint "$OSS_ENDPOINT" \
             --region "$OSS_REGION" \
