@@ -29,11 +29,10 @@ const NODE_VERSION = '24.14.0';
 // 是否验证 SHA256（可通过环境变量禁用：SKIP_SHA256=1 npm run prepare:node）
 const SKIP_SHA256 = process.env.SKIP_SHA256 === '1';
 
-// 平台 key（支持 TARGET_ARCH 环境变量覆盖，用于跨架构构建）
+// 平台 key
 function getPlatformKey() {
   const p = process.platform;
-  const raw = process.env.TARGET_ARCH || process.arch;
-  const a = raw === 'x64' ? 'x64' : raw === 'arm64' ? 'arm64' : raw;
+  const a = process.arch === 'x64' ? 'x64' : process.arch ===('arm64') ? 'arm64' : process.arch;
   return `${p}-${a}`;
 }
 
