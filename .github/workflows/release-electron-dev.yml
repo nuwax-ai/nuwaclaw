@@ -86,7 +86,7 @@ jobs:
           - platform: macos-latest
             arch: arm64
             dist_cmd: dist:mac:arm64
-          - platform: macos-13
+          - platform: macos-latest
             arch: x64
             dist_cmd: dist:mac:x64
           - platform: windows-latest
@@ -169,6 +169,8 @@ jobs:
         working-directory: crates/agent-electron-client
         run: npm run prepare:all
         timeout-minutes: 15
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
 
       # ---- macOS：导入证书并配置公证（可选） ----
       - name: Import Apple certificate (macOS)

@@ -24,9 +24,10 @@ const uvRoot = path.join(projectRoot, 'resources', 'uv');
 const cacheDir = path.join(uvRoot, '.cache');
 
 // Node 与 Electron 一致：darwin | win32 | linux；x64 | arm64
+// 支持 TARGET_ARCH 环境变量覆盖，用于 ARM64 runner 构建 x64 包
 function getPlatformKey() {
   const p = process.platform;
-  const a = process.arch === 'x64' ? 'x64' : process.arch;
+  const a = process.env.TARGET_ARCH || (process.arch === 'x64' ? 'x64' : process.arch);
   return `${p}-${a}`;
 }
 
