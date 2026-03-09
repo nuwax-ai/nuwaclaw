@@ -526,7 +526,7 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
                 prefix={<LockOutlined />}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="请输入动态认证码（请在用户中心查看）"
+                placeholder="请输入密码或动态认证码（在浏览器打开你的域名登录，然后在用户资料中查看）"
                 autoComplete="current-password"
               />
             </Form.Item>
