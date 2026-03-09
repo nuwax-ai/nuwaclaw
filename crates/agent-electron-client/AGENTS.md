@@ -515,6 +515,7 @@ Electron 客户端有**独立**的 CI/Release workflow，不与 Tauri 的 `v*` t
 
 - **Tauri 发布**：仍用 tag `v*` → `release-tauri.yml`。
 - **Electron 发布**：用 tag `electron-v*` → `release-electron.yml`，Release 与安装包单独一份。
+- **本地触发 OSS 同步**：在 crate 内执行 `./scripts/sync-oss.sh <tag>`（如 `electron-v0.8.0`），会触发上述 workflow 并将产物同步到 OSS；依赖 `gh`、`jq`。
 
 ### Project Structure
 
@@ -547,7 +548,8 @@ crates/agent-electron-client/
 │       ├── .cache/        # Download cache
 │       └── <platform>/    # Platform-specific binaries
 ├── scripts/
-│   └── prepare-uv.js      # Build script for uv
+│   ├── prepare-uv.js      # Build script for uv
+│   └── sync-oss.sh        # 触发 release-electron.yml 并同步到 OSS
 ├── package.json
 └── vite.config.ts
 ```

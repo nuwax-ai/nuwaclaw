@@ -36,6 +36,22 @@ npm run dev
 npm run dist
 ```
 
+### 发布与 OSS 同步
+
+将指定 tag 的 Electron 构建产物同步到阿里云 OSS（用于自动更新等）时，可在本 crate 目录下执行：
+
+```bash
+./scripts/sync-oss.sh electron-v0.8.0
+```
+
+或从仓库根目录：
+
+```bash
+./crates/agent-electron-client/scripts/sync-oss.sh electron-v0.8.0
+```
+
+依赖：`gh`（GitHub CLI）、`jq`，且需已 `gh auth login`。脚本会触发 `release-electron.yml` workflow 并轮询直至完成。
+
 ## Skills & Commands
 
 | Command | Description | Requires Permission |
