@@ -142,5 +142,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: electron-${{ matrix.artifact_os }}-${{ steps.sha.outputs.short }}
-          path: crates/agent-electron-client/release/
+          path: |
+            crates/agent-electron-client/release/**/*.dmg
+            crates/agent-electron-client/release/**/*.zip
+            crates/agent-electron-client/release/**/*.exe
+            crates/agent-electron-client/release/**/*.msi
+            crates/agent-electron-client/release/**/*.AppImage
+            crates/agent-electron-client/release/**/*.deb
+            crates/agent-electron-client/release/**/*.rpm
           retention-days: 7
