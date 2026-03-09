@@ -6,7 +6,7 @@
 #
 # 支持平台：
 #   - macOS arm64（macos-latest）
-#   - macOS x64（macos-14-large）
+#   - macOS x64（macos-latest, cross-compile）
 #   - Windows x64（msi）
 #   - Linux x64（AppImage + deb）
 #   - Linux arm64（AppImage + deb）
@@ -84,7 +84,7 @@ jobs:
           - platform: macos-latest
             arch: arm64
             dist_cmd: dist:mac:arm64
-          - platform: macos-14-large
+          - platform: macos-latest
             arch: x64
             dist_cmd: dist:mac:x64
           - platform: windows-latest
