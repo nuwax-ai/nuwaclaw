@@ -229,7 +229,7 @@ describe('dependencies', () => {
       expect(mcpDep?.type).toBe('npm-local');
       expect(mcpDep?.required).toBe(true);
       expect(mcpDep?.binName).toBe('nuwax-mcp-stdio-proxy');
-      expect(mcpDep?.installVersion).toBe('1.4.9');
+      expect(mcpDep?.installVersion).toBe('1.4.10');
     });
 
     it('should have all required dependencies', async () => {
