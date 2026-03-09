@@ -48,3 +48,13 @@
 
 - 若要添加新的 CLI 选项，请更新 `src/index.ts` 以及位于 `src/modes/` 下对应的模式文件。
 - 若需修改 Bridge 的 HTTP 路由策略或 Session 处理逻辑，请参考 `src/bridge.ts` 中的 `handleHttpRequest` 方法。
+
+## 测试与质量保障
+
+项目使用 Vitest 作为主要的测试框架。测试文件位于 `tests/` 目录中，主要覆盖组件的功能完整性、集成逻辑及内部封装（如 `ResilientTransportWrapper` 心跳检测和连接重试）。
+
+运行相关指令获取覆盖率等指标：
+
+- `npm run test`：以 Watch 模式启动测试监听。
+- `npm run test:run`：单次运行所有测试用例。
+- `npm run test:coverage`：运行所有测试用例并生成 v8 代码行级和分支覆盖率报告，输出结果将存在于根目录下的 `coverage/` 文件夹中。

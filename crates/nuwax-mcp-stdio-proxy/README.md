@@ -81,12 +81,12 @@ Agent / ACP 引擎客户端 (stdin/stdout)
 
 ## 开发指令
 
-| 指令                    | 描述                                  |
-| ----------------------- | ------------------------------------- |
-| `npm run build`         | 编译 TypeScript 输出到 `dist/` 目录。 |
-| `npm run test`          | 运行测试 (Vitest)。                   |
-| `npm run test:run`      | 单次运行测试 (免监控模式)。           |
-| `npm run test:coverage` | 运行测试并生成覆盖率报告。            |
+| 指令                    | 描述                                                         |
+| ----------------------- | ------------------------------------------------------------ |
+| `npm run build`         | 编译 TypeScript 输出到 `dist/` 目录。                        |
+| `npm run test`          | 运行测试 (Vitest)。                                          |
+| `npm run test:run`      | 单次运行所有的单元与集成测试 (无监控交互)。                  |
+| `npm run test:coverage` | 运行测试并生成详细的覆盖率统计报告 (存于 `coverage/` 目录)。 |
 
 ## 许可证
 

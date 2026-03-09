@@ -3,15 +3,34 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { CustomStdioClientTransport } from './customStdio.js';
 import type { StdioServerEntry, StreamableServerEntry, SseServerEntry } from './types.js';
 import { logInfo } from './logger.js';
 
+import { ResilientTransportWrapper } from './resilient.js';
+
 export interface ConnectedClient {
   client: Client;
   cleanup: () => Promise<void>;
+  transport: Transport;
+}
+
+/**
+ * Helper to wrap a promise with a timeout
+ */
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId!);
+  }
 }
 
 /**
@@ -55,30 +74,50 @@ export async function connectStdio(
 ): Promise<ConnectedClient> {
   logInfo(`Connecting to "${id}" (stdio): ${entry.command} ${(entry.args || []).join(' ')}`);
 
-  const transport = new CustomStdioClientTransport({
-    command: entry.command,
-    args: entry.args || [],
-    env: { ...baseEnv, ...(entry.env || {}) },
-    stderr: 'pipe',
+  const wrapper = new ResilientTransportWrapper({
+    name: id,
+    connectParams: async () => {
+      const t = new CustomStdioClientTransport({
+        command: entry.command,
+        args: entry.args || [],
+        env: { ...baseEnv, ...(entry.env || {}) },
+        stderr: 'pipe',
+      });
+      if (t.stderr) {
+        t.stderr.on('data', (chunk: Buffer) => {
+          const text = chunk.toString().trim();
+          if (text) {
+            process.stderr.write(`[child:${id}] ${text}\n`);
+          }
+        });
+      }
+      return t;
+    },
+    pingIntervalMs: entry.pingIntervalMs,
+    pingTimeoutMs: entry.pingTimeoutMs,
   });
 
-  // Attach stderr listener BEFORE connect to catch early child errors
-  if (transport.stderr) {
-    transport.stderr.on('data', (chunk: Buffer) => {
-      const text = chunk.toString().trim();
-      if (text) {
-        process.stderr.write(`[child:${id}] ${text}\n`);
-      }
-    });
-  }
-
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
-  await client.connect(transport);
+  
+  try {
+    await withTimeout(
+      (async () => {
+        await wrapper.start();
+        await client.connect(wrapper);
+      })(),
+      5000,
+      `Connection initialization timed out after 5s`
+    );
+  } catch (err) {
+    try { await wrapper.close(); } catch { /* ignore */ }
+    throw err;
+  }
 
   return {
     client,
+    transport: wrapper,
     cleanup: async () => {
-      try { await transport.close(); } catch { /* ignore */ }
+      try { await wrapper.close(); } catch { /* ignore */ }
     },
   };
 }
@@ -98,17 +137,39 @@ export async function connectStreamable(
   const headers = buildRequestHeaders(entry);
   const url = new URL(entry.url);
 
-  const transport = new StreamableHTTPClientTransport(
-    url,
-    headers ? { requestInit: { headers } } : undefined,
-  );
+  const wrapper = new ResilientTransportWrapper({
+    name: id,
+    connectParams: async () => {
+      return new StreamableHTTPClientTransport(
+        url,
+        headers ? { requestInit: { headers } } : undefined,
+      );
+    },
+    pingIntervalMs: entry.pingIntervalMs,
+    pingTimeoutMs: entry.pingTimeoutMs,
+  });
+
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
-  await client.connect(transport);
+  
+  try {
+    await withTimeout(
+      (async () => {
+        await wrapper.start();
+        await client.connect(wrapper);
+      })(),
+      5000,
+      `Connection initialization timed out after 5s`
+    );
+  } catch (err) {
+    try { await wrapper.close(); } catch { /* ignore */ }
+    throw err;
+  }
 
   return {
     client,
+    transport: wrapper,
     cleanup: async () => {
-      try { await transport.close(); } catch { /* ignore */ }
+      try { await wrapper.close(); } catch { /* ignore */ }
     },
   };
 }
@@ -128,17 +189,39 @@ export async function connectSse(
   const headers = buildRequestHeaders(entry);
   const url = new URL(entry.url);
 
-  const transport = new SSEClientTransport(
-    url,
-    headers ? { requestInit: { headers } } : undefined,
-  );
+  const wrapper = new ResilientTransportWrapper({
+    name: id,
+    connectParams: async () => {
+      return new SSEClientTransport(
+        url,
+        headers ? { requestInit: { headers } } : undefined,
+      );
+    },
+    pingIntervalMs: entry.pingIntervalMs,
+    pingTimeoutMs: entry.pingTimeoutMs,
+  });
+
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
-  await client.connect(transport);
+  
+  try {
+    await withTimeout(
+      (async () => {
+        await wrapper.start();
+        await client.connect(wrapper);
+      })(),
+      5000,
+      `Connection initialization timed out after 5s`
+    );
+  } catch (err) {
+    try { await wrapper.close(); } catch { /* ignore */ }
+    throw err;
+  }
 
   return {
     client,
+    transport: wrapper,
     cleanup: async () => {
-      try { await transport.close(); } catch { /* ignore */ }
+      try { await wrapper.close(); } catch { /* ignore */ }
     },
   };
 }

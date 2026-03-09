@@ -25,6 +25,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { CustomStdioClientTransport } from './customStdio.js';
+import { ResilientTransportWrapper } from './resilient.js';
 import type { StdioServerEntry } from './types.js';
 
 const LOG_TAG = '[PersistentMcpBridge]';
@@ -44,7 +45,7 @@ export interface BridgeLogger {
 interface PersistentServerEntry {
   config: StdioServerEntry;
   client: Client | null;
-  transport: CustomStdioClientTransport | null;
+  transport: ResilientTransportWrapper | null;
   tools: Tool[];
   healthy: boolean;
   restarting: boolean;
@@ -212,12 +213,26 @@ export class PersistentMcpBridge {
     try {
       this.log.info(`${LOG_TAG} Spawning server "${id}": ${entry.config.command} ${(entry.config.args || []).join(' ')}`);
 
-      // Create MCP Client + CustomStdioClientTransport (handles spawn internally)
-      const transport = new CustomStdioClientTransport({
-        command: entry.config.command,
-        args: entry.config.args || [],
-        env: entry.config.env,
-        stderr: 'pipe',
+      // Create MCP Client + ResilientTransportWrapper
+      const wrapper = new ResilientTransportWrapper({
+        name: id,
+        connectParams: async () => {
+          const t = new CustomStdioClientTransport({
+            command: entry.config.command,
+            args: entry.config.args || [],
+            env: entry.config.env,
+            stderr: 'pipe',
+          });
+          if (t.stderr) {
+            t.stderr.on('data', (chunk: Buffer) => {
+              const text = chunk.toString().trim();
+              if (text) this.log.info(`${LOG_TAG} [${id}:stderr] ${text}`);
+            });
+          }
+          return t;
+        },
+        pingIntervalMs: entry.config.pingIntervalMs,
+        pingTimeoutMs: entry.config.pingTimeoutMs,
       });
 
       const client = new Client(
@@ -226,7 +241,7 @@ export class PersistentMcpBridge {
       );
 
       // Handle transport close → auto restart
-      transport.onclose = () => {
+      wrapper.onclose = () => {
         this.log.warn(`${LOG_TAG} Server "${id}" transport closed`);
         entry.healthy = false;
         if (this.running && !entry.restarting) {
@@ -234,24 +249,16 @@ export class PersistentMcpBridge {
         }
       };
 
-      transport.onerror = (err) => {
+      wrapper.onerror = (err: Error) => {
         this.log.error(`${LOG_TAG} Server "${id}" transport error:`, err.message);
       };
 
       // Connect client to transport (this starts the subprocess)
-      await client.connect(transport);
+      await wrapper.start();
+      await client.connect(wrapper);
 
       entry.client = client;
-      entry.transport = transport;
-
-      // Pipe stderr for debugging
-      const stderrStream = transport.stderr;
-      if (stderrStream) {
-        stderrStream.on('data', (chunk: Buffer) => {
-          const text = chunk.toString().trim();
-          if (text) this.log.info(`${LOG_TAG} [${id}:stderr] ${text}`);
-        });
-      }
+      entry.transport = wrapper;
 
       // List tools (cached)
       const result = await client.listTools();

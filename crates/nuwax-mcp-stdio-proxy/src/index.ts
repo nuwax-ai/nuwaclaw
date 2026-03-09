@@ -36,6 +36,8 @@ type CliArgs =
       protocol?: 'sse' | 'stream';
       allowTools?: string[];
       denyTools?: string[];
+      pingIntervalMs?: number;
+      pingTimeoutMs?: number;
     }
   | { mode: 'proxy'; port: number; config: McpServersConfig };
 
@@ -117,6 +119,8 @@ function parseConvertArgs(args: string[]): CliArgs & { mode: 'convert' } {
   let protocol: 'sse' | 'stream' | undefined;
   let allowTools: string[] | undefined;
   let denyTools: string[] | undefined;
+  let pingIntervalMs: number | undefined;
+  let pingTimeoutMs: number | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -140,6 +144,20 @@ function parseConvertArgs(args: string[]): CliArgs & { mode: 'convert' } {
     } else if (arg === '--deny-tools' && i + 1 < args.length) {
       i++;
       denyTools = args[i].split(',').map((s) => s.trim()).filter(Boolean);
+    } else if (arg === '--ping-interval' && i + 1 < args.length) {
+      i++;
+      pingIntervalMs = parseInt(args[i], 10);
+      if (isNaN(pingIntervalMs)) {
+        logError(`Invalid ping interval: "${args[i]}"`);
+        process.exit(1);
+      }
+    } else if (arg === '--ping-timeout' && i + 1 < args.length) {
+      i++;
+      pingTimeoutMs = parseInt(args[i], 10);
+      if (isNaN(pingTimeoutMs)) {
+        logError(`Invalid ping timeout: "${args[i]}"`);
+        process.exit(1);
+      }
     } else if (!arg.startsWith('-') && !url) {
       url = arg;
     } else {
@@ -160,7 +178,7 @@ function parseConvertArgs(args: string[]): CliArgs & { mode: 'convert' } {
     process.exit(1);
   }
 
-  return { mode: 'convert', url, config, name, protocol, allowTools, denyTools };
+  return { mode: 'convert', url, config, name, protocol, allowTools, denyTools, pingIntervalMs, pingTimeoutMs };
 }
 
 function parseProxyArgs(args: string[]): CliArgs & { mode: 'proxy' } {
@@ -265,6 +283,8 @@ function printConvertUsage(): void {
   logError('  --protocol <sse|stream>        Protocol type (auto-detect if omitted)');
   logError('  --allow-tools <TOOLS>          Tool whitelist (comma-separated)');
   logError('  --deny-tools <TOOLS>           Tool blacklist (comma-separated)');
+  logError('  --ping-interval <MS>           Heartbeat ping interval (default: 20000)');
+  logError('  --ping-timeout <MS>            Heartbeat ping timeout (default: 5000)');
 }
 
 function printProxyUsage(): void {

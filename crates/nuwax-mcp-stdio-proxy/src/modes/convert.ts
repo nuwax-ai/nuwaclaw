@@ -22,6 +22,8 @@ export interface ConvertArgs {
   protocol?: 'sse' | 'stream';
   allowTools?: string[];
   denyTools?: string[];
+  pingIntervalMs?: number;
+  pingTimeoutMs?: number;
 }
 
 export async function runConvert(args: ConvertArgs): Promise<void> {
@@ -87,11 +89,11 @@ export async function runConvert(args: ConvertArgs): Promise<void> {
   let connected: { client: Client; cleanup: () => Promise<void> };
 
   if (protocol === 'sse') {
-    const sseEntry: SseServerEntry = { url: targetUrl, transport: 'sse' };
+    const sseEntry: SseServerEntry = { url: targetUrl, transport: 'sse', pingIntervalMs: args.pingIntervalMs, pingTimeoutMs: args.pingTimeoutMs };
     if (targetHeaders) sseEntry.headers = targetHeaders;
     connected = await connectSse(entryId, sseEntry);
   } else {
-    const streamEntry: StreamableServerEntry = { url: targetUrl };
+    const streamEntry: StreamableServerEntry = { url: targetUrl, pingIntervalMs: args.pingIntervalMs, pingTimeoutMs: args.pingTimeoutMs };
     if (targetHeaders) streamEntry.headers = targetHeaders;
     connected = await connectStreamable(entryId, streamEntry);
   }
