@@ -63,6 +63,8 @@ interface ClientPageProps {
   onRefreshServices: () => Promise<void>;
   /** 当 reg 成功或登录后由父组件递增，用于刷新账号状态（用户名等）以与 reg 返回一致 */
   authRefreshTrigger?: number;
+  /** 登录/注销后通知父组件刷新顶部栏用户名等 */
+  onAuthChange?: () => void;
 }
 
 interface AuthState {
@@ -74,7 +76,7 @@ interface AuthState {
 
 // ======================== Component ========================
 
-function ClientPage({ onNavigate, services, servicesLoading, startingServices, setStartingServices, onRefreshServices, authRefreshTrigger }: ClientPageProps) {
+function ClientPage({ onNavigate, services, servicesLoading, startingServices, setStartingServices, onRefreshServices, authRefreshTrigger, onAuthChange }: ClientPageProps) {
   // ---------- Auth state ----------
   const [authState, setAuthState] = useState<AuthState>({
     isLoggedIn: false,
@@ -156,6 +158,8 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       } catch (e) {
         console.error('[ClientPage] 登录后 reg 同步失败:', e);
       }
+      // reg 完成后（无论成败）通知父组件刷新顶部栏用户名/电脑名称
+      onAuthChange?.();
       if (!agentFailed) {
         await handleStartService('lanproxy', true);
       }
@@ -196,6 +200,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
 
           await logout();
           setAuthState({ isLoggedIn: false, username: null, domain: null });
+          onAuthChange?.();
         } catch {
           message.error('退出登录失败');
         }

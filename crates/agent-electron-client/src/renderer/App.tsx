@@ -184,6 +184,8 @@ function App() {
    * - false: 必需依赖均已安装（含 outdated，以当前真实安装版本为准，不强制重装）
    */
   const [needsRequiredDepsReinstall, setNeedsRequiredDepsReinstall] = useState<boolean | null>(null);
+  /** 主进程初始化依赖同步是否仍在进行（客户端升级后后台安装新版本依赖） */
+  const [depsSyncInProgress, setDepsSyncInProgress] = useState<boolean>(false);
 
   /**
    * 重启所有服务（使新安装的依赖/二进制生效）。
@@ -297,28 +299,66 @@ function App() {
   }, [isSetupComplete]);
 
   // ============================================
+  // 子组件登录/注销后刷新顶部栏用户名
+  // ============================================
+  const handleAuthChange = useCallback(async () => {
+    const user = await authService.getAuthUser();
+    if (user) {
+      setUsername(user.displayName || user.username || '用户');
+    } else {
+      setUsername('');
+    }
+  }, []);
+
+  // ============================================
   // 主界面下必需依赖检查：仅当存在「未安装」或「错误」时进入依赖安装
   // 版本以当前真实安装为准，outdated 不触发（用户可在依赖 Tab 手动升级）
+  // 同时检测主进程初始化依赖同步状态，避免服务启动时依赖尚未安装完成
   // ============================================
   useEffect(() => {
     if (isSetupComplete !== true) return;
+    let cancelled = false;
+
+    // 先注册事件监听，再做 checkAll，避免事件在 checkAll 返回前触发而丢失
+    const handleDepsSyncCompleted = () => {
+      console.log('[App] deps:syncCompleted, 依赖同步完成');
+      setDepsSyncInProgress(false);
+    };
+    window.electronAPI?.on('deps:syncCompleted', handleDepsSyncCompleted as any);
 
     const checkRequiredDeps = async () => {
       try {
         const result = await window.electronAPI?.dependencies.checkAll();
+        if (cancelled) return;
         const deps = result?.results ?? [];
         // 仅当存在 missing 或 error 时需要重新进入依赖安装；outdated 视为已安装，不强制
         const hasMissingOrError = deps.some(
           (d: { status: string }) => d.status === 'missing' || d.status === 'error',
         );
         setNeedsRequiredDepsReinstall(hasMissingOrError);
+        // 记录主进程初始化依赖同步状态
+        if (result?.syncInProgress) {
+          setDepsSyncInProgress(true);
+          // 防竞态：checkAll 返回 syncInProgress=true 但事件可能已经在 checkAll IPC 期间触发过了，
+          // 再次确认主进程当前真实状态，避免 depsSyncInProgress 永远卡在 true
+          const recheck = await window.electronAPI?.dependencies.checkAll();
+          if (cancelled) return;
+          if (!recheck?.syncInProgress) {
+            setDepsSyncInProgress(false);
+          }
+        }
       } catch (error) {
         console.error('[App] 必需依赖检查失败:', error);
-        setNeedsRequiredDepsReinstall(false);
+        if (!cancelled) setNeedsRequiredDepsReinstall(false);
       }
     };
 
     checkRequiredDeps();
+
+    return () => {
+      cancelled = true;
+      window.electronAPI?.off('deps:syncCompleted', handleDepsSyncCompleted as any);
+    };
   }, [isSetupComplete]);
 
   // ============================================
@@ -407,12 +447,17 @@ function App() {
   }, [pollServicesStatus]);
 
   // ============================================
-  // 自动重连（等待依赖检查完成后再执行，避免竞态）
+  // 自动重连（等待依赖检查及同步完成后再执行，避免竞态）
   // ============================================
   useEffect(() => {
     if (isSetupComplete !== true) return;
     // 等待依赖检查完成；若有缺失依赖则跳过（依赖安装完成后会通过 restartAll 启动服务）
     if (needsRequiredDepsReinstall !== false) return;
+    // 等待主进程初始化依赖同步完成，避免服务使用旧版本二进制
+    if (depsSyncInProgress) {
+      console.log('[App] 主进程依赖同步中，延迟自动启动服务');
+      return;
+    }
 
     // 重新打开客户端时：若有 savedKey，先调 reg 接口，仅当 reg 成功返回后才启动服务。
     // 因 reg 返回内容可能会变化（如 serverHost/serverPort 等），必须先拿到本次最新结果并写入配置，再启动服务，避免用到旧配置。
@@ -438,6 +483,12 @@ function App() {
       try {
         const savedKey = await window.electronAPI?.settings.get('auth.saved_key');
         if (savedKey) {
+          // 用户已退出登录时（configKey 被清除），不自动重连，需用户手动登录
+          const configKey = await window.electronAPI?.settings.get('auth.config_key');
+          if (!configKey) {
+            console.log('[App] 检测到 savedKey 但用户已退出登录，跳过自动重连');
+            return;
+          }
           console.log('[App] 检测到 savedKey，自动重连（先调 reg 接口）...');
           // 必须等待 reg 成功返回后再启动服务；syncConfigToServer 会把本次 reg 返回的 serverHost/serverPort 等写入配置，供后续启动使用
           const result = await syncConfigToServer({ suppressToast: true });
@@ -475,7 +526,7 @@ function App() {
     };
 
     autoReconnect();
-  }, [isSetupComplete, needsRequiredDepsReinstall, startServicesSequentially]);
+  }, [isSetupComplete, needsRequiredDepsReinstall, depsSyncInProgress, startServicesSequentially]);
 
   // ============================================
   // 根据服务状态计算 Agent 状态
@@ -707,6 +758,7 @@ function App() {
                 setStartingServices={setStartingServices}
                 onRefreshServices={pollServicesStatus}
                 authRefreshTrigger={authRefreshTrigger}
+                onAuthChange={handleAuthChange}
               />
             )}
             {activeTab === 'settings' && <SettingsPage />}
