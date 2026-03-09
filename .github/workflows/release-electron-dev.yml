@@ -14,8 +14,8 @@
 # 使用的 Secrets（可与 Tauri 共用 Apple 相关，也可单独配置）：
 #   - GH_PAT（可选）：创建 Release、上传资产（未配置时自动回退到 github.token，需 Contents: Write）
 #   - macOS 签名/公证（未配置时 Mac 构建为无签名包，用户打开会提示「已损坏」）：
-#     - APPLE_CERTIFICATE（.p12 Base64）/ APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY
-#     - 公证（否则 Gatekeeper 仍可能拦）：APPLE_API_KEY（.p8 Base64）/ APPLE_API_KEY_ID / APPLE_API_ISSUER（或 APPLE_ISSUER_ID）
+#     - APPLE_TEAM_ID / APPLE_SIGNING_IDENTITY / APPLE_CERTIFICATE（.p12 Base64）/ APPLE_CERTIFICATE_PASSWORD
+#     - 公证：APPLE_API_KEY（.p8 Base64）/ APPLE_API_KEY_ID / APPLE_ISSUER_ID
 #
 # 产物目录：crates/agent-electron-client/release/${version}/（由 package.json directories.output 决定）
 
@@ -196,25 +196,23 @@ jobs:
       - name: Prepare Apple notarization key (macOS)
         if: runner.os == 'macOS'
         env:
-          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_ISSUER_ID: ${{ secrets.APPLE_ISSUER_ID }}
         run: |
-          if [ -z "${APPLE_API_KEY_BASE64:-}" ] || [ -z "${APPLE_API_KEY_ID:-}" ]; then
+          if [ -z "${APPLE_API_KEY:-}" ] || [ -z "${APPLE_API_KEY_ID:-}" ]; then
             echo "Apple notarization secrets not set, notarization will be skipped"
             exit 0
           fi
-          ISSUER="${APPLE_API_ISSUER:-$APPLE_ISSUER_ID}"
-          if [ -z "$ISSUER" ]; then
-            echo "APPLE_API_ISSUER or APPLE_ISSUER_ID required for notarization"
+          if [ -z "${APPLE_ISSUER_ID:-}" ]; then
+            echo "APPLE_ISSUER_ID required for notarization"
             exit 0
           fi
           mkdir -p "$RUNNER_TEMP/apple-api-key"
-          echo -n "$APPLE_API_KEY_BASE64" | base64 --decode -o "$RUNNER_TEMP/apple-api-key/AuthKey.p8"
+          echo -n "$APPLE_API_KEY" | base64 --decode -o "$RUNNER_TEMP/apple-api-key/AuthKey.p8"
           echo "APPLE_API_KEY=$RUNNER_TEMP/apple-api-key/AuthKey.p8" >> "$GITHUB_ENV"
           echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID" >> "$GITHUB_ENV"
-          echo "APPLE_API_ISSUER=$ISSUER" >> "$GITHUB_ENV"
+          echo "APPLE_ISSUER_ID=$APPLE_ISSUER_ID" >> "$GITHUB_ENV"
 
       # 若用户看到「已损坏」：请确认已配置 APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY 及公证用 APPLE_API_KEY 等，且构建日志中有签名与公证成功
       - name: Clean previous build artifacts

@@ -32,7 +32,7 @@
 | **API Key 占位符** | UI 中 `placeholder="sk-ant-..."` 仅为占位文案，非真实密钥。 |
 | **acpClient 日志** | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` 仅打印前若干字符 + `...`，已脱敏。 |
 | **凭证存储** | API key、password、configKey、saved_key 等均通过 IPC 存 SQLite（settings），未写进代码或仓库。 |
-| **环境变量** | `dist:mac:unsigned` 等脚本中 `APPLE_API_KEY=` 为空字符串，用于关闭签名，不涉及真实密钥。 |
+| **环境变量** | `dist:mac:unsigned` 等脚本中 `APPLE_API_KEY=` / `APPLE_ISSUER_ID=` 等置空，用于关闭签名与公证，不涉及真实密钥。 |
 | **文档** | SIGNING.md、verify-sign.js 仅说明 env 名称，无密钥内容。 |
 | **公开 URL** | `DEFAULT_SERVER_HOST`、npm/pypi 镜像等为公开默认配置，非敏感。 |
 

@@ -13,7 +13,7 @@ const unsignedEnv = {
   APPLE_SIGNING_IDENTITY: '',
   APPLE_API_KEY: '',
   APPLE_API_KEY_ID: '',
-  APPLE_API_ISSUER: '',
+  APPLE_ISSUER_ID: '',
 };
 
 let target = '';

@@ -127,7 +127,7 @@ cargo tauri info
    export APPLE_ID="your@email"
    export APPLE_PASSWORD="app-specific-password"
    export APPLE_TEAM_ID="TEAM_ID"
-   # 或使用 App Store Connect API Key：APPLE_API_ISSUER / APPLE_API_KEY / APPLE_API_KEY_PATH
+   # 或使用 App Store Connect API Key（与 Electron 统一）：APPLE_ISSUER_ID / APPLE_API_KEY / APPLE_API_KEY_ID
    ```
 
 4. **执行打包**（会先签资源再打包）：

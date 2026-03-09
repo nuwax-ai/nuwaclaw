@@ -12,11 +12,13 @@
  *
  * 仅在 macOS 上执行，Windows/Linux 不需要额外签名。
  *
- * 环境变量：
+ * 环境变量（与 workflow Secrets 统一）：
+ * - APPLE_TEAM_ID: Team ID（可选，Electron 公证未使用）
  * - APPLE_SIGNING_IDENTITY: Developer ID Application 证书 identity
- * - APPLE_API_KEY: AuthKey .p8 文件路径（公证用）
+ * - APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD: 由 workflow 导入 keychain，本脚本不直接读取
+ * - APPLE_API_KEY: AuthKey .p8 文件路径（公证用，workflow 中由 Base64 解码得到）
  * - APPLE_API_KEY_ID: API Key ID（公证用）
- * - APPLE_API_ISSUER: Issuer ID（公证用）
+ * - APPLE_ISSUER_ID: Issuer ID（公证用）
  *
  * @param {Object} context - electron-builder 上下文
  */
@@ -217,12 +219,12 @@ exports.default = async function (context) {
   // 7. Apple 公证（Notarization）
   const appleApiKey = process.env.APPLE_API_KEY;
   const appleApiKeyId = process.env.APPLE_API_KEY_ID;
-  const appleApiIssuer = process.env.APPLE_API_ISSUER;
+  const appleIssuerId = process.env.APPLE_ISSUER_ID;
 
-  if (appleApiKey && appleApiKeyId && appleApiIssuer) {
+  if (appleApiKey && appleApiKeyId && appleIssuerId) {
     console.log('[after-sign] 开始 Apple 公证...');
     console.log(`[after-sign]   API Key ID: ${appleApiKeyId}`);
-    console.log(`[after-sign]   Issuer: ${appleApiIssuer}`);
+    console.log(`[after-sign]   Issuer ID: ${appleIssuerId}`);
     console.log(`[after-sign]   Key file: ${appleApiKey} (exists=${fs.existsSync(appleApiKey)})`);
     try {
       const { notarize } = require('@electron/notarize');
@@ -230,7 +232,7 @@ exports.default = async function (context) {
         appPath,
         appleApiKey,
         appleApiKeyId,
-        appleApiIssuer,
+        appleApiIssuer: appleIssuerId,
       });
       console.log('[after-sign] 公证成功！');
     } catch (e) {
@@ -245,7 +247,7 @@ exports.default = async function (context) {
     console.log('[after-sign] 跳过公证（缺少环境变量）:');
     console.log(`[after-sign]   APPLE_API_KEY: ${appleApiKey ? '✓' : '✗ 未设置'}`);
     console.log(`[after-sign]   APPLE_API_KEY_ID: ${appleApiKeyId ? '✓' : '✗ 未设置'}`);
-    console.log(`[after-sign]   APPLE_API_ISSUER: ${appleApiIssuer ? '✓' : '✗ 未设置'}`);
+    console.log(`[after-sign]   APPLE_ISSUER_ID: ${appleIssuerId ? '✓' : '✗ 未设置'}`);
   }
 
   // 8. 验证 Gatekeeper（公证后应该通过）
