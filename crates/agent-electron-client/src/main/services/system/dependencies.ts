@@ -1105,7 +1105,7 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     required: true,
     minVersion: "1.0.0",
     binName: "nuwax-mcp-stdio-proxy",
-    installVersion: "1.4.7",
+    installVersion: "1.4.8",
   },
   {
     name: "claude-code-acp-ts",
