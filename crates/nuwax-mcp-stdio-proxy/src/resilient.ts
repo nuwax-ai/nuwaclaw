@@ -194,6 +194,7 @@ export class ResilientTransportWrapper implements Transport {
       // Try to send ping — if send() throws, the transport itself is broken
       let sendFailed = false;
       try {
+        logInfo(`[ResilientTransport:${this.options.name}] 💓 Sending heartbeat ping (id: ${pingId})`);
         await this.activeTransport.send({
           jsonrpc: '2.0',
           id: pingId,
@@ -223,11 +224,12 @@ export class ResilientTransportWrapper implements Transport {
       }
       
       // Got a response — server is alive
+      logInfo(`[ResilientTransport:${this.options.name}] 💖 Heartbeat successful (id: ${pingId})`);
       this.consecutiveFailures = 0;
       this.consecutivePingTimeouts = 0;
     } catch (err) {
       this.consecutiveFailures++;
-      logWarn(`[ResilientTransport:${this.options.name}] Heartbeat failed (attempt ${this.consecutiveFailures}): ${err}`);
+      logWarn(`[ResilientTransport:${this.options.name}] 💔 Heartbeat error (attempt ${this.consecutiveFailures}/${this.options.maxConsecutiveFailures}): ${err}`);
       if (this.consecutiveFailures >= this.options.maxConsecutiveFailures) {
         logError(`[ResilientTransport:${this.options.name}] Max consecutive heartbeat failures reached. Force reconnecting.`);
         this.triggerReconnect();
@@ -237,6 +239,8 @@ export class ResilientTransportWrapper implements Transport {
 
   private triggerReconnect() {
     if (this.state === 'reconnecting' || this.state === 'closed') return;
+    
+    logWarn(`[ResilientTransport:${this.options.name}] 🔄 Triggering reconnect (previous state: ${this.state})`);
     this.state = 'reconnecting';
     this.stopHeartbeat();
 
