@@ -147,6 +147,8 @@ describe('ResilientTransportWrapper', () => {
     });
     
     await wrapper.start();
+    wrapper.enableHeartbeat();
+    await vi.advanceTimersByTimeAsync(10); // Allow heartbeat to initialize
     
     const firstTransport = mockTransports[0];
     // Disable auto ping responses

@@ -69,6 +69,15 @@ export class ResilientTransportWrapper implements Transport {
     await this.performConnect(true);
   }
 
+  /**
+   * Enable heartbeat monitoring. Call this AFTER the MCP client has
+   * completed its initialize handshake (client.connect()), otherwise
+   * the server will reject ping requests with "Server not initialized".
+   */
+  enableHeartbeat(): void {
+    this.startHeartbeat();
+  }
+
   private async performConnect(initial = false): Promise<void> {
     try {
       this.activeTransport = await this.options.connectParams();
@@ -86,14 +95,13 @@ export class ResilientTransportWrapper implements Transport {
       // Flush any queued messages
       this.flushQueue();
 
-      // Start inner client for health checks if needed
-      // To perform RPC 'ping' or 'listTools', we need a Client wrapper over this *active* transport
-      // However, creating a full Client here just for pinging intercepts all inbound 'onmessage'.
-      // Wait, if we intercept `onmessage` for pinging, we'll break the downstream proxy!
-      // Actually, we can just send raw JSON-RPC ping requests directly to `activeTransport.send()`
-      // and intercept its response in our own `onmessage` wrapper before passing up.
-
-      this.startHeartbeat();
+      // Only start heartbeat on reconnects — initial connections need
+      // the caller to invoke enableHeartbeat() after client.connect()
+      // completes the MCP initialize handshake. Sending pings before
+      // initialize causes "Server not initialized" errors.
+      if (!initial) {
+        this.startHeartbeat();
+      }
 
     } catch (err) {
       logError(`[ResilientTransport:${this.options.name}] Connect failed: ${err}`);
@@ -127,14 +135,15 @@ export class ResilientTransportWrapper implements Transport {
     };
 
     transport.onmessage = (message: JSONRPCMessage) => {
-      // Intercept our own ping responses here
+      // Intercept our own ping responses here (both success and error responses)
       if ('id' in message && typeof message.id === 'string' && message.id.startsWith('respl-ping-')) {
         const resolve = this.pendingPings.get(message.id);
         if (resolve) {
-          resolve(true); // Got a response, server is alive
+          // Any response (even error like "Method not found") means server is alive
+          resolve(true);
           this.pendingPings.delete(message.id);
         }
-        return;
+        return; // Don't forward ping responses to downstream
       }
 
       if (this.onmessage) {
@@ -159,8 +168,14 @@ export class ResilientTransportWrapper implements Transport {
     }
   }
 
+  /** Track consecutive ping timeouts (no response at all, not even an error) */
+  private consecutivePingTimeouts = 0;
+  /** If server doesn't support ping, auto-disable heartbeat after maxConsecutiveFailures timeouts */
+  private pingDisabled = false;
+
   private async checkHealth() {
     if (this.state !== 'connected' || !this.activeTransport) return;
+    if (this.pingDisabled) return;
 
     try {
       // Send raw ping JSON-RPC
@@ -176,18 +191,40 @@ export class ResilientTransportWrapper implements Transport {
         }, this.options.pingTimeoutMs);
       });
 
-      await this.activeTransport.send({
-        jsonrpc: '2.0',
-        id: pingId,
-        method: 'ping',
-      });
+      // Try to send ping — if send() throws, the transport itself is broken
+      let sendFailed = false;
+      try {
+        await this.activeTransport.send({
+          jsonrpc: '2.0',
+          id: pingId,
+          method: 'ping',
+        });
+      } catch (sendErr) {
+        sendFailed = true;
+        throw sendErr; // Transport broken, treat as real failure
+      }
       
       const success = await responsePromise;
       if (!success) {
-        throw new Error('Ping response timed out');
+        // Ping was sent successfully but timed out — server might not support ping
+        this.consecutivePingTimeouts++;
+        if (this.consecutivePingTimeouts >= this.options.maxConsecutiveFailures) {
+          // Server consistently never responds to ping — it probably doesn't support
+          // the ping method. Auto-disable heartbeat instead of reconnecting, since
+          // the transport is likely healthy (sends succeed, no errors from transport).
+          logWarn(`[ResilientTransport:${this.options.name}] Server does not respond to ping. Disabling heartbeat monitoring.`);
+          this.pingDisabled = true;
+          this.stopHeartbeat();
+          return;
+        }
+        // Still count as a failure for logging, but don't reconnect yet
+        logWarn(`[ResilientTransport:${this.options.name}] Ping timeout (${this.consecutivePingTimeouts}/${this.options.maxConsecutiveFailures})`);
+        return;
       }
       
-      this.consecutiveFailures = 0; // Reset on successful response
+      // Got a response — server is alive
+      this.consecutiveFailures = 0;
+      this.consecutivePingTimeouts = 0;
     } catch (err) {
       this.consecutiveFailures++;
       logWarn(`[ResilientTransport:${this.options.name}] Heartbeat failed (attempt ${this.consecutiveFailures}): ${err}`);

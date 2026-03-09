@@ -104,6 +104,7 @@ export async function connectStdio(
       (async () => {
         await wrapper.start();
         await client.connect(wrapper);
+        wrapper.enableHeartbeat(); // Start heartbeat AFTER MCP initialize completes
       })(),
       5000,
       `Connection initialization timed out after 5s`
@@ -156,6 +157,7 @@ export async function connectStreamable(
       (async () => {
         await wrapper.start();
         await client.connect(wrapper);
+        wrapper.enableHeartbeat(); // Start heartbeat AFTER MCP initialize completes
       })(),
       5000,
       `Connection initialization timed out after 5s`
@@ -208,6 +210,7 @@ export async function connectSse(
       (async () => {
         await wrapper.start();
         await client.connect(wrapper);
+        wrapper.enableHeartbeat(); // Start heartbeat AFTER MCP initialize completes
       })(),
       5000,
       `Connection initialization timed out after 5s`
