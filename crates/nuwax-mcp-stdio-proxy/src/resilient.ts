@@ -72,6 +72,13 @@ export class ResilientTransportWrapper implements Transport {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private consecutiveFailures = 0;
 
+  /** Captured MCP initialize request for replay on reconnect */
+  private initializeMessage: JSONRPCMessage | null = null;
+  /** Captured MCP notifications/initialized for replay on reconnect */
+  private initializedNotification: JSONRPCMessage | null = null;
+  /** Pending re-initialize promise resolver */
+  private pendingReInit: ((success: boolean) => void) | null = null;
+
   private state: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'closed' = 'idle';
 
   /** Current retry attempt count (reset on successful connect) */
@@ -157,10 +164,35 @@ export class ResilientTransportWrapper implements Transport {
       this.state = 'connected';
       this.consecutiveFailures = 0;
       this.consecutivePingTimeouts = 0;
-      this.retryAttempt = 0;
       this.heartbeatOkCount = 0;
 
       this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] ✅ Connected via ${this.activeTransport.constructor.name}`);
+
+      // On reconnect, replay MCP initialize handshake before doing anything else.
+      // The server requires initialize + notifications/initialized before accepting
+      // any other requests (tools/list, etc).
+      if (!initial && this.initializeMessage) {
+        this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 🔄 Re-initializing MCP session...`);
+        try {
+          await this.performReInitialize();
+          this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] ✅ MCP session re-initialized`);
+        } catch (err) {
+          // Re-initialize failed — treat as a connect failure, preserve backoff
+          this.retryAttempt++;
+          const delay = this.getBackoffDelay();
+          this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] ❌ Re-initialize failed: ${err}`);
+          this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 🔄 Retrying in ${delay}ms (attempt ${this.retryAttempt})...`);
+          this.state = 'reconnecting';
+          this.cleanupTransport();
+          setTimeout(() => {
+            this.performConnect();
+          }, delay);
+          return;
+        }
+      }
+
+      // Reset retry count only after successful connect + re-initialize
+      this.retryAttempt = 0;
 
       // Flush any queued messages
       this.flushQueue();
@@ -182,6 +214,52 @@ export class ResilientTransportWrapper implements Transport {
       setTimeout(() => {
         this.performConnect();
       }, delay);
+    }
+  }
+
+  /**
+   * Replay the MCP initialize handshake on a reconnected transport.
+   * Sends the captured `initialize` request with a unique internal ID,
+   * waits for the response, then sends `notifications/initialized`.
+   */
+  private async performReInitialize(): Promise<void> {
+    if (!this.activeTransport || !this.initializeMessage) {
+      throw new Error('No transport or no captured initialize message');
+    }
+
+    const initId = `respl-init-${Date.now()}`;
+
+    // Build the re-initialize request using the original params but with our internal ID
+    const initRequest: JSONRPCMessage = {
+      ...(this.initializeMessage as any),
+      id: initId,
+    };
+
+    const initPromise = new Promise<boolean>((resolve) => {
+      this.pendingReInit = resolve;
+      setTimeout(() => {
+        if (this.pendingReInit) {
+          this.pendingReInit = null;
+          resolve(false); // Timeout
+        }
+      }, this.options.pingTimeoutMs);
+    });
+
+    try {
+      await this.activeTransport.send(initRequest);
+    } catch (err) {
+      this.pendingReInit = null;
+      throw err;
+    }
+    const success = await initPromise;
+
+    if (!success) {
+      throw new Error('Re-initialize timed out');
+    }
+
+    // Send notifications/initialized if we captured it
+    if (this.initializedNotification) {
+      await this.activeTransport.send(this.initializedNotification);
     }
   }
 
@@ -207,6 +285,15 @@ export class ResilientTransportWrapper implements Transport {
     };
 
     transport.onmessage = (message: JSONRPCMessage) => {
+      // Intercept re-initialize responses (don't forward to Client)
+      if ('id' in message && typeof message.id === 'string' && message.id.startsWith('respl-init-')) {
+        if (this.pendingReInit) {
+          this.pendingReInit(true);
+          this.pendingReInit = null;
+        }
+        return;
+      }
+
       // Intercept our own heartbeat responses (tools/list used as health check)
       if ('id' in message && typeof message.id === 'string' && message.id.startsWith('respl-ping-')) {
         const resolve = this.pendingPings.get(message.id);
@@ -306,17 +393,10 @@ export class ResilientTransportWrapper implements Transport {
   }
 
   /**
-   * Close the current transport and schedule a reconnect with exponential backoff.
+   * Detach handlers from and close the current active transport.
    */
-  private triggerReconnect() {
-    if (this.state === 'reconnecting' || this.state === 'closed') return;
-
-    this.state = 'reconnecting';
-    this.stopHeartbeat();
-
-    // Clean up old transport
+  private cleanupTransport() {
     if (this.activeTransport) {
-      // Avoid triggering our own onclose
       this.activeTransport.onclose = undefined;
       this.activeTransport.onerror = undefined;
       try {
@@ -324,6 +404,17 @@ export class ResilientTransportWrapper implements Transport {
       } catch { /* ignore */ }
       this.activeTransport = null;
     }
+  }
+
+  /**
+   * Close the current transport and schedule a reconnect with exponential backoff.
+   */
+  private triggerReconnect() {
+    if (this.state === 'reconnecting' || this.state === 'closed') return;
+
+    this.state = 'reconnecting';
+    this.stopHeartbeat();
+    this.cleanupTransport();
 
     const delay = this.getBackoffDelay();
     this.retryAttempt++;
@@ -374,6 +465,12 @@ export class ResilientTransportWrapper implements Transport {
       }
       this.messageQueue.push(message);
       return;
+    }
+
+    // Capture initialize handshake messages for replay on reconnect
+    if ('method' in message) {
+      if (message.method === 'initialize') this.initializeMessage = message;
+      else if (message.method === 'notifications/initialized') this.initializedNotification = message;
     }
 
     if (!this.activeTransport) {

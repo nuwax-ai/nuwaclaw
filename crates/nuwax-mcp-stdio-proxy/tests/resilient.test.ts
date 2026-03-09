@@ -33,7 +33,20 @@ class MockTransport implements Transport {
       throw new Error('Mock send failure');
     }
     this.sentMessages.push(message);
-    
+
+    // Auto-respond to re-initialize requests
+    if ('id' in message && typeof message.id === 'string' && message.id.startsWith('respl-init-')) {
+      setTimeout(() => {
+        if (this.onmessage) {
+          this.onmessage({
+            jsonrpc: '2.0',
+            id: message.id,
+            result: { protocolVersion: '2024-11-05', capabilities: {}, serverInfo: { name: 'mock', version: '1.0' } }
+          });
+        }
+      }, 10 as number);
+    }
+
     // Auto-respond to pings for health checks
     if ('id' in message && typeof message.id === 'string' && message.id.startsWith('respl-ping-')) {
       setTimeout(() => {
@@ -254,14 +267,195 @@ describe('ResilientTransportWrapper', () => {
     await expect(wrapper.send({ jsonrpc: '2.0', method: 'test' })).rejects.toThrow('Transport is closed');
   });
 
-  it('should throw when ping response times out gracefully during initial connect', async () => {
+  it('should schedule retry when initial connect fails', async () => {
      const wrapper = new ResilientTransportWrapper({
        name: 'fail-connect',
+       reconnectDelayMs: 100,
        connectParams: async () => {
          throw new Error('Initial network error');
        }
      });
 
-     await expect(wrapper.start()).rejects.toThrow('Initial network error');
+     // start() doesn't reject — it catches and schedules retry
+     await wrapper.start();
+     // Clean up
+     await wrapper.close();
+  });
+
+  it('should capture initialize messages and replay on reconnect', async () => {
+    const wrapper = createWrapper({ reconnectDelayMs: 100, pingTimeoutMs: 5000 });
+    await wrapper.start();
+
+    // Simulate the MCP client sending initialize handshake
+    const initMsg: JSONRPCMessage = {
+      jsonrpc: '2.0',
+      id: 'client-init-1',
+      method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } }
+    };
+    const initializedMsg: JSONRPCMessage = {
+      jsonrpc: '2.0',
+      method: 'notifications/initialized',
+    };
+    await wrapper.send(initMsg);
+    await wrapper.send(initializedMsg);
+
+    // Verify they were sent to the first transport
+    expect(mockTransports[0].sentMessages).toContainEqual(initMsg);
+    expect(mockTransports[0].sentMessages).toContainEqual(initializedMsg);
+
+    // Simulate disconnect
+    mockTransports[0].simulateClose();
+
+    // Advance time to trigger reconnect
+    await vi.advanceTimersByTimeAsync(150);
+
+    // A new transport should be created
+    expect(mockTransports.length).toBe(2);
+    const secondTransport = mockTransports[1];
+
+    // The re-initialize request should have been sent with a respl-init- id
+    const reInitMsg = secondTransport.sentMessages.find(
+      (m: any) => m.method === 'initialize' && typeof m.id === 'string' && m.id.startsWith('respl-init-')
+    );
+    expect(reInitMsg).toBeDefined();
+
+    // Wait for the auto-response and notifications/initialized to be sent
+    await vi.advanceTimersByTimeAsync(50);
+
+    // notifications/initialized should also have been sent
+    const reInitNotification = secondTransport.sentMessages.find(
+      (m: any) => m.method === 'notifications/initialized'
+    );
+    expect(reInitNotification).toBeDefined();
+
+    await wrapper.close();
+  });
+
+  it('should retry with backoff when re-initialize times out', async () => {
+    let transportCount = 0;
+    const wrapper = new ResilientTransportWrapper({
+      name: 'reinit-timeout',
+      reconnectDelayMs: 100,
+      pingTimeoutMs: 200,
+      connectParams: async () => {
+        const t = new MockTransport();
+        transportCount++;
+        // Second transport onwards: don't auto-respond to respl-init- (simulate timeout)
+        if (transportCount > 1) {
+          const origSend = t.send.bind(t);
+          t.send = async (msg: JSONRPCMessage) => {
+            if ('id' in msg && typeof msg.id === 'string' && msg.id.startsWith('respl-init-')) {
+              t.sentMessages.push(msg);
+              // Don't respond — simulate timeout
+              return;
+            }
+            return origSend(msg);
+          };
+        }
+        mockTransports.push(t);
+        return t;
+      },
+    });
+
+    await wrapper.start();
+
+    // Send initialize to capture it
+    await wrapper.send({
+      jsonrpc: '2.0',
+      id: 'init-1',
+      method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } }
+    });
+
+    // Simulate disconnect
+    mockTransports[0].simulateClose();
+
+    // Advance time for reconnect (100ms) + re-init timeout (200ms) + next retry delay
+    await vi.advanceTimersByTimeAsync(100); // reconnect fires, transport connects
+    await vi.advanceTimersByTimeAsync(250); // re-init timeout fires
+
+    // Should have attempted a second transport and be scheduling another retry
+    expect(mockTransports.length).toBe(2);
+
+    // Advance more time for the next retry attempt
+    await vi.advanceTimersByTimeAsync(500);
+    expect(mockTransports.length).toBe(3);
+
+    await wrapper.close();
+  });
+
+  it('should not replay initialize on reconnect if none was captured', async () => {
+    const wrapper = createWrapper({ reconnectDelayMs: 100 });
+    await wrapper.start();
+
+    // Don't send any initialize — simulate a scenario where wrapper reconnects
+    // before client.connect() completed (edge case)
+
+    mockTransports[0].simulateClose();
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(mockTransports.length).toBe(2);
+    const secondTransport = mockTransports[1];
+
+    // No respl-init- messages should have been sent
+    const reInitMsg = secondTransport.sentMessages.find(
+      (m: any) => typeof m.id === 'string' && m.id.startsWith('respl-init-')
+    );
+    expect(reInitMsg).toBeUndefined();
+
+    await wrapper.close();
+  });
+
+  it('should retry with backoff when re-initialize send throws', async () => {
+    let transportCount = 0;
+    const wrapper = new ResilientTransportWrapper({
+      name: 'reinit-send-fail',
+      reconnectDelayMs: 100,
+      pingTimeoutMs: 5000,
+      connectParams: async () => {
+        const t = new MockTransport();
+        transportCount++;
+        // Second transport onwards: throw on respl-init- send
+        if (transportCount > 1) {
+          const origSend = t.send.bind(t);
+          t.send = async (msg: JSONRPCMessage) => {
+            if ('id' in msg && typeof msg.id === 'string' && msg.id.startsWith('respl-init-')) {
+              throw new Error('Connection reset');
+            }
+            return origSend(msg);
+          };
+        }
+        mockTransports.push(t);
+        return t;
+      },
+    });
+
+    await wrapper.start();
+
+    // Send initialize to capture it
+    await wrapper.send({
+      jsonrpc: '2.0',
+      id: 'init-1',
+      method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } }
+    });
+
+    // Simulate disconnect
+    mockTransports[0].simulateClose();
+
+    // Advance time for reconnect (100ms) — transport connects, re-init send throws
+    await vi.advanceTimersByTimeAsync(150);
+
+    // Should have attempted a second transport
+    expect(mockTransports.length).toBe(2);
+
+    // Advance more time for the backoff retry
+    await vi.advanceTimersByTimeAsync(500);
+
+    // Should have created a third transport for the retry
+    expect(mockTransports.length).toBe(3);
+
+    await wrapper.close();
   });
 });
