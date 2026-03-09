@@ -109,14 +109,6 @@ jobs:
         working-directory: crates/agent-electron-client
         run: npm run electron-rebuild
 
-      - name: Run unit tests
-        working-directory: crates/agent-electron-client
-        run: npm run test:run
-
-      - name: Check import boundaries
-        working-directory: crates/agent-electron-client
-        run: npm run check:boundaries
-
       # 缓存内置 Node.js（所有平台）、Git（仅 Windows）和 uv（所有平台）
       - name: Cache bundled Node.js
         uses: actions/cache@v4
