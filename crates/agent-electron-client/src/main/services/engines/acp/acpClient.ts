@@ -199,6 +199,13 @@ export interface AcpConnectionResult {
   process: ChildProcess;
   /** Isolated HOME directory created for this ACP process (for cleanup) */
   isolatedHome: string;
+  /**
+   * 🔧 FIX: Cleanup function to properly dispose of the ACP process.
+   * Removes all event listeners to prevent handle leaks.
+   *
+   * IMPORTANT: Call this before destroying the process to release Windows handles!
+   */
+  cleanup: () => void;
 }
 
 // ==================== SDK Loader ====================
@@ -525,5 +532,23 @@ export async function createAcpConnection(
     stream,
   ) as AcpClientSideConnection;
 
-  return { connection, process: proc, isolatedHome };
+  // 🔧 FIX: Create cleanup function to properly dispose of event listeners
+  // This prevents handle leaks by removing all event listeners before process termination
+  const cleanup = () => {
+    try {
+      // Remove stdout listener (prevents handle leak)
+      proc.stdout?.removeAllListeners();
+      // Remove stderr listener (prevents handle leak)
+      proc.stderr?.removeAllListeners();
+      // Remove stdin listener (also restores the wrapped write function)
+      proc.stdin?.removeAllListeners();
+      // Remove process-level listeners (error, exit)
+      proc.removeAllListeners();
+      log.info('[AcpClient] 🧹 Cleaned up event listeners to prevent handle leaks');
+    } catch (e) {
+      log.warn('[AcpClient] Cleanup error:', e);
+    }
+  };
+
+  return { connection, process: proc, isolatedHome, cleanup };
 }

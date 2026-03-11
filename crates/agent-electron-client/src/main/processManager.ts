@@ -99,6 +99,14 @@ export class ManagedProcess {
   kill(): void {
     if (this.process) {
       try {
+        // 🔧 FIX: Remove all event listeners to prevent handle leaks
+        // Event listeners maintain references to stdout/stderr streams
+        // which prevents Windows from releasing file handles
+        this.process.stdout?.removeAllListeners();
+        this.process.stderr?.removeAllListeners();
+        this.process.stdin?.removeAllListeners();
+        this.process.removeAllListeners();
+
         this.process.kill();
         log.info(`[Cleanup] ${this.name} stopped`);
       } catch (e) {

@@ -79,6 +79,8 @@ export class AcpEngine extends EventEmitter {
   private acpConnection: AcpClientSideConnection | null = null;
   private acpProcess: ChildProcess | null = null;
   private isolatedHome: string | null = null;
+  /** 🔧 FIX: Store cleanup function to properly dispose of event listeners */
+  private processCleanup: (() => void) | null = null;
   private sessions = new Map<string, AcpSession>();
   private pendingPermissions = new Map<string, {
     resolve: (r: AcpPermissionResponse) => void;
@@ -195,7 +197,7 @@ export class AcpEngine extends EventEmitter {
       }
 
       // Spawn ACP binary and create ClientSideConnection
-      const { connection, process: proc, isolatedHome } = await createAcpConnection(
+      const { connection, process: proc, isolatedHome, cleanup } = await createAcpConnection(
         {
           binPath,
           binArgs,
@@ -212,6 +214,7 @@ export class AcpEngine extends EventEmitter {
       this.acpConnection = connection;
       this.acpProcess = proc;
       this.isolatedHome = isolatedHome;
+      this.processCleanup = cleanup; // 🔧 FIX: Store cleanup function
 
       // Handle process exit
       proc.on('exit', (code, signal) => {
@@ -279,6 +282,19 @@ export class AcpEngine extends EventEmitter {
     // Kill ACP process
     if (this.acpProcess) {
       try {
+        // 🔧 FIX: Call cleanup function first to remove all event listeners
+        // This prevents handle leaks by releasing references to stdout/stderr/stdin
+        if (this.processCleanup) {
+          this.processCleanup();
+          this.processCleanup = null;
+        }
+
+        // Additional safety: remove listeners directly
+        this.acpProcess.stdout?.removeAllListeners();
+        this.acpProcess.stderr?.removeAllListeners();
+        this.acpProcess.stdin?.removeAllListeners();
+        this.acpProcess.removeAllListeners();
+
         this.acpProcess.kill();
       } catch (e) {
         log.warn(`${this.logTag} Process kill error:`, e);
