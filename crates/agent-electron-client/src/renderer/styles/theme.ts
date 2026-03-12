@@ -1,7 +1,7 @@
 import type { ThemeConfig } from 'antd';
 
 /**
- * NuwaxBot 主题配置
+ * NuwaClaw 主题配置
  * shadcn/ui 风格，支持亮色/暗色主题
  */
 

@@ -1,7 +1,7 @@
 {
   "name": "@nuwax-ai/nuwaxbot",
   "version": "0.7.7",
-  "description": "NuwaxBot Desktop Client (Electron)",
+  "description": "NuwaClaw Desktop Client (Electron)",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
   "license": "MIT",
@@ -88,7 +88,7 @@
   },
   "build": {
     "appId": "com.nuwax-ai.nuwaxbot",
-    "productName": "NuwaxBot",
+    "productName": "NuwaClaw",
     "afterSign": "scripts/build/after-sign.js",
     "electronLanguages": [
       "en",
