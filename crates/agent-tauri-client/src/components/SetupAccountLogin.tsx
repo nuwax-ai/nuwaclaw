@@ -164,7 +164,7 @@ export default function SetupStep2({ onComplete, onBack }: SetupStep2Props) {
             账号登录
           </div>
           <div style={{ fontSize: 12, color: "#a1a1aa" }}>
-            登录 NuWax 账号以使用完整功能
+            登录账号以使用完整功能
           </div>
         </div>
       </div>
