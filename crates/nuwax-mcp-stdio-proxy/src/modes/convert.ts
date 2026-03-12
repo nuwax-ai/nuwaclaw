@@ -9,11 +9,11 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 import type { McpServersConfig, StreamableServerEntry, SseServerEntry } from '../types.js';
 import { logInfo, logWarn, logError } from '../logger.js';
-import { connectStreamable, connectSse, buildRequestHeaders } from '../transport.js';
+import { connectStreamable, connectSse, buildRequestHeaders } from '../transport/index.js';
 import { filterTools } from '../filter.js';
 import type { ToolFilter } from '../filter.js';
 import { detectProtocol } from '../detect.js';
-import { discoverTools, createToolProxyServer, setupGracefulShutdown } from '../shared.js';
+import { discoverTools, createToolProxyServer, setupGracefulShutdown } from '../shared/index.js';
 
 export interface ConvertArgs {
   url?: string;

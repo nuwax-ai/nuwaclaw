@@ -96,7 +96,9 @@ help:
 	@echo "  electron-install-deps    - Install Electron client npm dependencies"
 	@echo "  electron-rebuild         - Rebuild native modules (better-sqlite3) for Electron"
 	@echo "  electron-prepare-lanproxy - Prepare lanproxy binary for Electron"
-	@echo "  electron-prepare         - Full prepare (install + rebuild + lanproxy)"
+	@echo "  electron-prepare-node    - Prepare bundled Node.js 24 for Electron"
+	@echo "  electron-prepare-uv      - Prepare bundled uv for Electron"
+	@echo "  electron-prepare         - Full prepare (install + rebuild + all binaries)"
 	@echo "  electron-dev             - Run Electron dev mode (one-click start)"
 	@echo ""
 	@echo "=== Dependencies ==="
@@ -448,17 +450,31 @@ electron-prepare-lanproxy:
 	@echo ">>> Preparing lanproxy binary for Electron..."
 	cd crates/$(ELECTRON_CLIENT) && npm run prepare:lanproxy
 
+.PHONY: electron-prepare-node
+electron-prepare-node:
+	@echo ">>> Preparing bundled Node.js 24 for Electron..."
+	cd crates/$(ELECTRON_CLIENT) && npm run prepare:node
+
+.PHONY: electron-prepare-uv
+electron-prepare-uv:
+	@echo ">>> Preparing bundled uv for Electron..."
+	cd crates/$(ELECTRON_CLIENT) && npm run prepare:uv
+
 .PHONY: electron-prepare
-electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanproxy
+electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanproxy electron-prepare-node electron-prepare-uv
 	@echo ">>> Electron client prepared successfully"
 
 .PHONY: electron-dev
 electron-dev: electron-prepare
+	@echo ">>> Building local nuwax-mcp-stdio-proxy..."
+	cd crates/nuwax-mcp-stdio-proxy && npm run build
 	@echo ">>> Starting Electron dev mode..."
 	@echo ">>> Logs will be written to logs/electron-dev.log"
 	mkdir -p logs
 	@echo "=== Electron Dev Started at $$(date) ===" > logs/electron-dev.log
-	cd crates/$(ELECTRON_CLIENT) && npm run dev 2>&1 | tee -a $(CURDIR)/logs/electron-dev.log
+	cd crates/$(ELECTRON_CLIENT) && \
+		NUWAX_MCP_PROXY_LOCAL_PATH=$(CURDIR)/crates/nuwax-mcp-stdio-proxy \
+		npm run dev 2>&1 | tee -a $(CURDIR)/logs/electron-dev.log
 
 .PHONY: tauri-info
 tauri-info:

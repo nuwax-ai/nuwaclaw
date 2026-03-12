@@ -197,9 +197,10 @@ export function extractRealMcpServers(
   const inner = parsed?.mcpServers;
   if (!inner || typeof inner !== "object") return null;
 
-  // 解析 --allow-tools / --deny-tools（从 convert 模式的参数中提取）
+  // 解析 --allow-tools / --deny-tools / -H（从 convert 模式的参数中提取）
   let allowTools: string[] | undefined;
   let denyTools: string[] | undefined;
+  const extraHeaders: Record<string, string> = {};
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--allow-tools" && i + 1 < args.length) {
       allowTools = args[i + 1]
@@ -211,6 +212,23 @@ export function extractRealMcpServers(
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
+    } else if ((args[i] === "-H" || args[i] === "--header") && i + 1 < args.length) {
+      // Parse header format: "Key=Value" or "Key: Value"
+      const headerArg = args[i + 1];
+      const separatorIndex = headerArg.indexOf("=");
+      if (separatorIndex > 0) {
+        const key = headerArg.substring(0, separatorIndex).trim();
+        const value = headerArg.substring(separatorIndex + 1).trim();
+        extraHeaders[key] = value;
+      } else {
+        // Also support colon format: "Key: Value"
+        const colonIndex = headerArg.indexOf(":");
+        if (colonIndex > 0) {
+          const key = headerArg.substring(0, colonIndex).trim();
+          const value = headerArg.substring(colonIndex + 1).trim();
+          extraHeaders[key] = value;
+        }
+      }
     }
   }
 
@@ -232,10 +250,15 @@ export function extractRealMcpServers(
           : srv.transport === "streamable-http"
             ? "streamable-http"
             : undefined;
+      // 合并 headers： srv.headers < extraHeaders（extraHeaders 优先， 可覆盖）
+      const mergedHeaders = {
+        ...srv.headers,
+        ...extraHeaders,
+      };
       result[name] = {
         url: srv.url,
         ...(transport ? { transport } : {}),
-        ...(srv.headers ? { headers: srv.headers } : {}),
+        ...(Object.keys(mergedHeaders).length > 0 ? { headers: mergedHeaders } : {}),
         ...(srv.authToken ? { authToken: srv.authToken } : {}),
         // 继承 bridge 入口的 allowTools/denyTools 限制
         ...(allowTools ? { allowTools } : {}),
@@ -506,9 +529,27 @@ class McpProxyManager {
    * 解析 nuwax-mcp-stdio-proxy 脚本路径（disk lookup，不使用缓存）
    *
    * nuwax-mcp-stdio-proxy 不再随包集成，仅从 ~/.nuwaxbot/node_modules 安装并解析。
+   * 开发模式下可通过 NUWAX_MCP_PROXY_LOCAL_PATH 环境变量使用本地编译版本。
    */
   private resolveProxyScriptPath(): string | null {
     const pkgName = "nuwax-mcp-stdio-proxy";
+
+    // 开发模式：优先使用本地编译版本
+    const localDevPath = process.env.NUWAX_MCP_PROXY_LOCAL_PATH;
+    if (localDevPath) {
+      const entry = resolveNpmPackageEntry(localDevPath, pkgName);
+      if (entry) {
+        log.info(
+          `[McpProxy] 🔍 resolveProxyScriptPath: 使用本地开发版本: ${entry}`,
+        );
+        return entry;
+      }
+      log.warn(
+        `[McpProxy] 🔍 NUWAX_MCP_PROXY_LOCAL_PATH=${localDevPath} 未找到有效入口，回退到正式版本`,
+      );
+    }
+
+    // 正常路径: ~/.nuwaxbot/node_modules
     const dirs = getAppPaths();
     const packageDir = path.join(dirs.nodeModules, pkgName);
     if (!fs.existsSync(packageDir)) {
@@ -777,67 +818,67 @@ class McpProxyManager {
       return null;
     }
 
-    // 有 proxy 脚本 → 聚合为单个 proxy 入口
+    // 有 proxy 脚本 → 每个服务独立 proxy 入口（拆分模式，避免一个服务失败阻塞整体）
     if (scriptPath) {
-      // 使用临时文件传递配置，避免 Windows 命令行长度限制 (32,767 字符)。
-      // 文件名使用配置内容的 MD5 哈希（前 16 位），相同配置复用同一文件，
-      // 避免每次调用生成新路径，从而防止 detectConfigChange 因文件名变化误判配置变更。
-      const configData = { mcpServers: proxyServers };
-      const configJson = JSON.stringify(configData);
-      const configHash = crypto.createHash("md5").update(configJson).digest("hex").slice(0, 16);
-      const configDir = path.join(os.tmpdir(), "nuwax-mcp-configs");
-      if (!fs.existsSync(configDir)) {
-        fs.mkdirSync(configDir, { recursive: true });
-      }
-      const configFileName = `mcp-config-${configHash}.json`;
-      const configFilePath = path.join(configDir, configFileName);
-      // 写入配置（覆盖写入保证内容最新，哈希文件名保证相同内容使用相同路径）
-      fs.writeFileSync(configFilePath, configJson, "utf-8");
-      log.info(`[McpProxy] MCP 配置已写入临时文件: ${configFilePath}`);
-
       // 使用应用内置的 Node.js（resources/node/<platform-arch>/bin/node）
       // 开发环境下可回退到系统 node（仅 macOS/Linux）
       const nodeBinPath = getNodeBinPathWithFallback();
       if (!nodeBinPath) {
         log.error("[McpProxy] Node.js 未找到，MCP proxy 无法启动");
         log.error('[McpProxy] 请运行 "npm run prepare:node" 下载 Node.js 资源');
-        // 清理临时文件
-        try {
-          fs.unlinkSync(configFilePath);
-        } catch {
-          /* ignore */
-        }
         return null;
       }
 
-      // 构建精简环境变量，避免 Windows 环境变量长度限制 (32,767)
-      // mcp-proxy 只需要应用内集成的工具（node, npm, npx, uv, uvx, git）
-      // 不需要用户的系统 PATH，这样可以显著减少环境变量长度
-      const proxyEnv = getAppEnv({ includeSystemPath: false });
-
-      // Tell proxy to write logs to a file that we tail into main.log
-      proxyEnv.MCP_PROXY_LOG_FILE = path.join(
-        app.getPath("home"),
-        APP_DATA_DIR_NAME,
-        "logs",
-        "mcp-proxy.log",
-      );
-
-      // 构建 proxy 启动参数，使用 --config-file 避免命令行长度限制
-      const proxyArgs = [scriptPath, "--config-file", configFilePath];
-      if (this.config.allowTools && this.config.allowTools.length > 0) {
-        proxyArgs.push("--allow-tools", this.config.allowTools.join(","));
-      } else if (this.config.denyTools && this.config.denyTools.length > 0) {
-        proxyArgs.push("--deny-tools", this.config.denyTools.join(","));
+      const configDir = path.join(os.tmpdir(), "nuwax-mcp-configs");
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
       }
 
-      return {
-        "mcp-proxy": {
+      const logsDir = path.join(app.getPath("home"), APP_DATA_DIR_NAME, "logs");
+      if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true });
+      }
+
+      const result: Record<
+        string,
+        { command: string; args: string[]; env?: Record<string, string> }
+      > = {};
+
+      for (const [name, entry] of Object.entries(proxyServers)) {
+        // 每个服务生成独立的配置文件
+        const singleConfig = { mcpServers: { [name]: entry } };
+        const configJson = JSON.stringify(singleConfig);
+        const configHash = crypto.createHash("md5").update(configJson).digest("hex").slice(0, 16);
+        // 文件名包含服务名，便于调试识别
+        const safeName = name.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const configFileName = `mcp-config-${safeName}-${configHash}.json`;
+        const configFilePath = path.join(configDir, configFileName);
+        fs.writeFileSync(configFilePath, configJson, "utf-8");
+
+        // 每个服务独立的日志文件
+        const proxyEnvOverrides: Record<string, string> = {
+          MCP_PROXY_LOG_FILE: path.join(logsDir, `mcp-proxy-${safeName}.log`),
+        };
+
+        // 构建该服务的 proxy 启动参数
+        const proxyArgs = [scriptPath, "--config-file", configFilePath];
+
+        // 应用该服务的工具过滤（如果有）
+        if (entry.allowTools && entry.allowTools.length > 0) {
+          proxyArgs.push("--allow-tools", entry.allowTools.join(","));
+        } else if (entry.denyTools && entry.denyTools.length > 0) {
+          proxyArgs.push("--deny-tools", entry.denyTools.join(","));
+        }
+
+        result[name] = {
           command: nodeBinPath,
           args: proxyArgs,
-          env: proxyEnv,
-        },
-      };
+          env: proxyEnvOverrides,
+        };
+      }
+
+      log.info(`[McpProxy] 生成 ${Object.keys(result).length} 个独立 MCP 服务配置`);
+      return result;
     }
 
     // fallback: 无 proxy 脚本时直接返回各 server 的 stdio 配置（仅临时 server）

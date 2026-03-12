@@ -27,6 +27,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { CustomStdioClientTransport } from './customStdio.js';
 import { ResilientTransportWrapper } from './resilient.js';
 import type { StdioServerEntry } from './types.js';
+import { MCP_SESSION_ID_HEADER } from './constants.js';
 
 const LOG_TAG = '[McpProxy] [PersistentMcpBridge]';
 const BASE_RESTART_COOLDOWN_MS = 5_000;
@@ -240,17 +241,54 @@ export class PersistentMcpBridge {
         { capabilities: {} },
       );
 
-      // Handle transport close → auto restart
+      // Handle wrapper intentional close → mark unhealthy
       wrapper.onclose = () => {
-        this.log.warn(`${LOG_TAG} Server "${id}" transport closed`);
+        this.log.warn(`${LOG_TAG} Server "${id}" wrapper closed`);
         entry.healthy = false;
-        if (this.running && !entry.restarting) {
-          this.scheduleRestart(id, entry);
-        }
       };
 
       wrapper.onerror = (err: Error) => {
         this.log.error(`${LOG_TAG} Server "${id}" transport error:`, err.message);
+      };
+
+      // Handle reconnect → re-establish MCP session
+      wrapper.onreconnect = async () => {
+        this.log.info(`${LOG_TAG} Server "${id}" reconnecting MCP session...`);
+
+        // Track reconnect attempts for this server
+        entry.restartCount++;
+        if (entry.restartCount > MAX_RESTART_ATTEMPTS) {
+          this.log.warn(`${LOG_TAG} Server "${id}" failed ${entry.restartCount - 1} reconnect attempts, giving up (max ${MAX_RESTART_ATTEMPTS})`);
+          // Close the wrapper to stop further reconnect attempts
+          await wrapper.close();
+          return;
+        }
+
+        try {
+          // Close old client if exists
+          if (entry.client) {
+            try { await entry.client.close(); } catch { /* ignore */ }
+          }
+
+          // Create new client and connect
+          const newClient = new Client(
+            { name: 'nuwax-persistent-bridge', version: '1.0.0' },
+            { capabilities: {} },
+          );
+          await newClient.connect(wrapper);
+
+          // Update entry with new client and refresh tools
+          entry.client = newClient;
+          const result = await newClient.listTools();
+          entry.tools = result.tools;
+          entry.healthy = true;
+          entry.restartCount = 0; // reset on success
+
+          this.log.info(`${LOG_TAG} Server "${id}" reconnected with ${entry.tools.length} tools`);
+        } catch (err) {
+          this.log.error(`${LOG_TAG} Server "${id}" reconnect failed (attempt ${entry.restartCount}/${MAX_RESTART_ATTEMPTS}):`, err);
+          throw err; // Re-throw to let ResilientTransportWrapper trigger another reconnect
+        }
       };
 
       // Connect client to transport (this starts the subprocess)
@@ -392,7 +430,7 @@ export class PersistentMcpBridge {
 
     // Handle DELETE → terminate session
     if (req.method === 'DELETE') {
-      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      const sessionId = req.headers[MCP_SESSION_ID_HEADER] as string | undefined;
       if (sessionId) {
         const key = `${serverId}:${sessionId}`;
         const session = this.httpSessions.get(key);
@@ -410,7 +448,7 @@ export class PersistentMcpBridge {
 
     // POST or GET → route to session
     if (req.method === 'POST' || req.method === 'GET') {
-      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      const sessionId = req.headers[MCP_SESSION_ID_HEADER] as string | undefined;
 
       // Try to find existing session
       if (sessionId) {
@@ -445,7 +483,7 @@ export class PersistentMcpBridge {
 
       // GET without session → 400
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing mcp-session-id header for GET' }));
+      res.end(JSON.stringify({ error: `Missing ${MCP_SESSION_ID_HEADER} header for GET` }));
       return;
     }
 

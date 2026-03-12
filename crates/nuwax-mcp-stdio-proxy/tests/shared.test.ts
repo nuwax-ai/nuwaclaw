@@ -13,7 +13,7 @@ import {
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { discoverTools, setupGracefulShutdown } from '../src/shared.js';
+import { discoverTools, setupGracefulShutdown } from '../src/shared/index.js';
 
 // ========== Helpers ==========
 
