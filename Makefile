@@ -454,11 +454,15 @@ electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanpro
 
 .PHONY: electron-dev
 electron-dev: electron-prepare
+	@echo ">>> Building local nuwax-mcp-stdio-proxy..."
+	cd crates/nuwax-mcp-stdio-proxy && npm run build
 	@echo ">>> Starting Electron dev mode..."
 	@echo ">>> Logs will be written to logs/electron-dev.log"
 	mkdir -p logs
 	@echo "=== Electron Dev Started at $$(date) ===" > logs/electron-dev.log
-	cd crates/$(ELECTRON_CLIENT) && npm run dev 2>&1 | tee -a $(CURDIR)/logs/electron-dev.log
+	cd crates/$(ELECTRON_CLIENT) && \
+		NUWAX_MCP_PROXY_LOCAL_PATH=$(CURDIR)/crates/nuwax-mcp-stdio-proxy \
+		npm run dev 2>&1 | tee -a $(CURDIR)/logs/electron-dev.log
 
 .PHONY: tauri-info
 tauri-info:

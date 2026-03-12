@@ -16,7 +16,10 @@ export { buildRequestHeaders } from './headers.js';
 export type { ConnectedClient } from './types.js';
 
 const DEFAULT_STDIO_CONNECTION_TIMEOUT_MS = 60_000;
-const DEFAULT_HTTP_CONNECTION_TIMEOUT_MS = 30_000;
+// HTTP timeout reduced to 20s to avoid race with nuwaxcode's 30s session/new timeout
+// When a server fails (e.g., auth error), ResilientTransportWrapper retries indefinitely,
+// but this timeout ensures we fail fast and let other servers load.
+const DEFAULT_HTTP_CONNECTION_TIMEOUT_MS = 20_000;
 
 /**
  * Helper to wrap a promise with a timeout
@@ -69,7 +72,9 @@ export async function connectStdio(
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
 
   // Set reconnect handler to re-establish MCP session via client.connect()
+  // Note: Must close the client first to clear the "already connected" state
   wrapper.onreconnect = async () => {
+    try { await client.close(); } catch { /* ignore */ }
     await client.connect(wrapper);
   };
 
@@ -139,7 +144,9 @@ export async function connectStreamable(
   });
 
   // Set reconnect handler to re-establish MCP session via client.connect()
+  // Note: Must close the client first to clear the "already connected" state
   wrapper.onreconnect = async () => {
+    try { await client.close(); } catch { /* ignore */ }
     await client.connect(wrapper);
   };
 
@@ -210,7 +217,9 @@ export async function connectSse(
   });
 
   // Set reconnect handler to re-establish MCP session via client.connect()
+  // Note: Must close the client first to clear the "already connected" state
   wrapper.onreconnect = async () => {
+    try { await client.close(); } catch { /* ignore */ }
     await client.connect(wrapper);
   };
 
