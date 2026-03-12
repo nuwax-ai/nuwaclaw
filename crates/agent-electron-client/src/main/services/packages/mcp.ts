@@ -810,18 +810,17 @@ class McpProxyManager {
         return null;
       }
 
-      // 构建精简环境变量，避免 Windows 环境变量长度限制 (32,767)
-      // mcp-proxy 只需要应用内集成的工具（node, npm, npx, uv, uvx, git）
-      // 不需要用户的系统 PATH，这样可以显著减少环境变量长度
-      const proxyEnv = getAppEnv({ includeSystemPath: false });
-
-      // Tell proxy to write logs to a file that we tail into main.log
-      proxyEnv.MCP_PROXY_LOG_FILE = path.join(
-        app.getPath("home"),
-        APP_DATA_DIR_NAME,
-        "logs",
-        "mcp-proxy.log",
-      );
+      // 只传递需要覆盖的增量环境变量
+      // 基础环境由 ACP 引擎进程继承（acpClient.ts 已用 getAppEnv() 构建）
+      const proxyEnvOverrides: Record<string, string> = {
+        // 告诉 proxy 写日志到文件，Electron 侧通过 fs.watchFile tail 读取
+        MCP_PROXY_LOG_FILE: path.join(
+          app.getPath("home"),
+          APP_DATA_DIR_NAME,
+          "logs",
+          "mcp-proxy.log",
+        ),
+      };
 
       // 构建 proxy 启动参数，使用 --config-file 避免命令行长度限制
       const proxyArgs = [scriptPath, "--config-file", configFilePath];
@@ -835,7 +834,7 @@ class McpProxyManager {
         "mcp-proxy": {
           command: nodeBinPath,
           args: proxyArgs,
-          env: proxyEnv,
+          env: proxyEnvOverrides,
         },
       };
     }

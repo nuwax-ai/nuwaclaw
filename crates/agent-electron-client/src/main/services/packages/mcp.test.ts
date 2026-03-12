@@ -33,10 +33,14 @@ vi.mock("electron-log", () => ({
 const mockExistsSync = vi.fn(() => true);
 const mockMkdirSync = vi.fn();
 const mockWriteFileSync = vi.fn();
+const mockWatchFile = vi.fn();
+const mockUnwatchFile = vi.fn();
 vi.mock("fs", () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
   writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
+  watchFile: (...args: unknown[]) => mockWatchFile(...args),
+  unwatchFile: (...args: unknown[]) => mockUnwatchFile(...args),
 }));
 
 // Mock os
@@ -229,7 +233,7 @@ describe("McpProxyManager", () => {
       ).toBeUndefined();
     });
 
-    it("mcp-proxy 入口应包含基础环境变量", async () => {
+    it("mcp-proxy env 只包含增量覆盖项（基础环境由 ACP 引擎继承）", async () => {
       const { mcpProxyManager } = await import("./mcp");
 
       // 设置临时 server 配置
@@ -248,13 +252,13 @@ describe("McpProxyManager", () => {
       expect(mcpConfig).toBeDefined();
       expect(mcpConfig?.["mcp-proxy"]).toBeDefined();
 
-      // 验证 mcp-proxy 入口包含基础环境变量
+      // env 字段现在只包含增量覆盖项，基础环境由 ACP 引擎进程继承
+      // 参考: acpClient.ts 的 env = { ...getAppEnv(), ... } + Object.assign(env, config.env)
       const proxyEnv = mcpConfig?.["mcp-proxy"].env;
       expect(proxyEnv).toBeDefined();
-      expect(proxyEnv?.PATH).toBeDefined();
-      expect(proxyEnv?.HOME).toBeDefined();
-      expect(proxyEnv?.USER).toBeDefined();
-      expect(proxyEnv?.LANG).toBeDefined();
+      // 只传递 MCP_PROXY_LOG_FILE 覆盖项
+      expect(proxyEnv?.MCP_PROXY_LOG_FILE).toBeDefined();
+      expect(proxyEnv?.MCP_PROXY_LOG_FILE).toContain("mcp-proxy.log");
     });
 
     it("默认配置只有 persistent server，bridge 未运行时应降级到 stdio 配置", async () => {

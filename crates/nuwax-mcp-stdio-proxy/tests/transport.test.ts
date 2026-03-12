@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildRequestHeaders } from '../src/transport.js';
+import { buildRequestHeaders } from '../src/transport/index.js';
 import type { StreamableServerEntry, SseServerEntry } from '../src/types.js';
 
 describe('buildRequestHeaders', () => {

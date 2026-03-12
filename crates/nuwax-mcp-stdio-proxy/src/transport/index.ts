@@ -3,23 +3,20 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import { CustomStdioClientTransport } from './customStdio.js';
-import type { StdioServerEntry, StreamableServerEntry, SseServerEntry } from './types.js';
-import { logInfo } from './logger.js';
+import { CustomStdioClientTransport } from '../customStdio.js';
+import type { StdioServerEntry, StreamableServerEntry, SseServerEntry } from '../types.js';
+import { logInfo } from '../logger.js';
+import { ResilientTransportWrapper } from '../resilient.js';
 
-import { ResilientTransportWrapper } from './resilient.js';
+// Re-export sub-modules
+export { buildBaseEnv } from './env.js';
+export { buildRequestHeaders } from './headers.js';
+export type { ConnectedClient } from './types.js';
 
 const DEFAULT_STDIO_CONNECTION_TIMEOUT_MS = 60_000;
 const DEFAULT_HTTP_CONNECTION_TIMEOUT_MS = 30_000;
-
-export interface ConnectedClient {
-  client: Client;
-  cleanup: () => Promise<void>;
-  transport: Transport;
-}
 
 /**
  * Helper to wrap a promise with a timeout
@@ -37,44 +34,13 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
 }
 
 /**
- * Build a clean env for child processes (strips ELECTRON_RUN_AS_NODE)
- */
-export function buildBaseEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined) {
-      env[key] = value;
-    }
-  }
-  // Child MCP servers should run normally, not as Electron Node.js instances
-  delete env.ELECTRON_RUN_AS_NODE;
-  return env;
-}
-
-/**
- * Build HTTP headers from entry config (merge headers + authToken)
- */
-export function buildRequestHeaders(
-  entry: StreamableServerEntry | SseServerEntry,
-): Record<string, string> | undefined {
-  const headers: Record<string, string> = {};
-  if (entry.headers) {
-    Object.assign(headers, entry.headers);
-  }
-  if (entry.authToken) {
-    headers['Authorization'] = `Bearer ${entry.authToken}`;
-  }
-  return Object.keys(headers).length > 0 ? headers : undefined;
-}
-
-/**
  * Connect to a stdio MCP server (spawn child process)
  */
 export async function connectStdio(
   id: string,
   entry: StdioServerEntry,
   baseEnv: Record<string, string>,
-): Promise<ConnectedClient> {
+): Promise<import('./types.js').ConnectedClient> {
   logInfo(`Connecting to "${id}" (stdio): ${entry.command} ${(entry.args || []).join(' ')}`);
 
   const wrapper = new ResilientTransportWrapper({
@@ -101,6 +67,11 @@ export async function connectStdio(
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
+
+  // Set reconnect handler to re-establish MCP session via client.connect()
+  wrapper.onreconnect = async () => {
+    await client.connect(wrapper);
+  };
 
   const timeoutMs = entry.connectionTimeoutMs ?? DEFAULT_STDIO_CONNECTION_TIMEOUT_MS;
 
@@ -136,9 +107,10 @@ export async function connectStdio(
 export async function connectStreamable(
   id: string,
   entry: StreamableServerEntry,
-): Promise<ConnectedClient> {
+): Promise<import('./types.js').ConnectedClient> {
   logInfo(`Connecting to "${id}" (streamable-http): ${entry.url}`);
 
+  const { buildRequestHeaders } = await import('./headers.js');
   const headers = buildRequestHeaders(entry);
   const url = new URL(entry.url);
 
@@ -155,6 +127,21 @@ export async function connectStreamable(
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
+
+  // Set health check function using Client's listTools()
+  wrapper.setHealthCheckFn(async () => {
+    try {
+      await client.listTools();
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  // Set reconnect handler to re-establish MCP session via client.connect()
+  wrapper.onreconnect = async () => {
+    await client.connect(wrapper);
+  };
 
   const timeoutMs = entry.connectionTimeoutMs ?? DEFAULT_HTTP_CONNECTION_TIMEOUT_MS;
 
@@ -191,9 +178,10 @@ export async function connectStreamable(
 export async function connectSse(
   id: string,
   entry: SseServerEntry,
-): Promise<ConnectedClient> {
+): Promise<import('./types.js').ConnectedClient> {
   logInfo(`Connecting to "${id}" (sse): ${entry.url}`);
 
+  const { buildRequestHeaders } = await import('./headers.js');
   const headers = buildRequestHeaders(entry);
   const url = new URL(entry.url);
 
@@ -210,6 +198,21 @@ export async function connectSse(
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
+
+  // Set health check using Client's listTools() method
+  wrapper.setHealthCheckFn(async () => {
+    try {
+      await client.listTools();
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  // Set reconnect handler to re-establish MCP session via client.connect()
+  wrapper.onreconnect = async () => {
+    await client.connect(wrapper);
+  };
 
   const timeoutMs = entry.connectionTimeoutMs ?? DEFAULT_HTTP_CONNECTION_TIMEOUT_MS;
 
