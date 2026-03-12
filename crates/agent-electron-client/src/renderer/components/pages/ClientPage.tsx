@@ -249,11 +249,11 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
 
     // 打开独立的 WebView 窗口
     try {
-      // 获取屏幕尺寸，设置合理的窗口大小（80% 屏幕，最大 1200x800）
+      // 窗口大小：90% 屏幕，最大 1400x900
       const screenWidth = window.screen.availWidth || 1366;
       const screenHeight = window.screen.availHeight || 768;
-      const windowWidth = Math.min(Math.floor(screenWidth * 0.8), 1200);
-      const windowHeight = Math.min(Math.floor(screenHeight * 0.85), 800);
+      const windowWidth = Math.min(Math.floor(screenWidth * 0.9), 1400);
+      const windowHeight = Math.min(Math.floor(screenHeight * 0.9), 900);
 
       const result = await window.electronAPI?.webview.openWindow({
         url,
