@@ -297,6 +297,23 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
     }
   };
 
+  /**
+   * 手动启动单个服务（UI 按钮触发）。
+   * 先调用 reg 同步配置（获取最新 serverHost/serverPort 等），再启动服务。
+   * 与 handleStartAll / handleLogin 区分：它们有自己的 reg 调用时机。
+   */
+  const handleStartServiceManual = async (key: string) => {
+    // 先 reg，确保 lanproxy 等服务启动时使用最新的后端返回数据
+    try {
+      await syncConfigToServer({ suppressToast: true });
+      console.log('[ClientPage] 手动启动服务前 reg 同步成功');
+    } catch (e) {
+      console.error('[ClientPage] 手动启动服务前 reg 同步失败:', e);
+    }
+    await handleStartService(key);
+    onAuthChange?.();
+  };
+
   const handleStopService = async (key: string) => {
     setStoppingServices(prev => new Set(prev).add(key));
     try {
@@ -657,7 +674,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
                     size="small"
                     type="primary"
                     icon={<PlayCircleOutlined />}
-                    onClick={() => handleStartService(svc.key)}
+                    onClick={() => handleStartServiceManual(svc.key)}
                     disabled={isAnyOperating}
                   >
                     启动

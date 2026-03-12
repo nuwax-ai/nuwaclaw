@@ -60,6 +60,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+#### 手动启动单个服务时补充 reg 同步
+- **ClientPage.tsx** - 新增 `handleStartServiceManual` 包装函数，用户点击单个服务「启动」按钮时先调用 `syncConfigToServer()`（即 `/api/sandbox/config/reg`）获取最新的 `serverHost`/`serverPort`，再启动目标服务
+- 此前仅「登录」和「启动全部」会在启动服务前调用 reg，手动启动单个服务（特别是 lanproxy）可能使用过期的后端配置
+- 三种启动场景（登录/启动全部/手动单个）现在均保证 reg 在服务启动之前完成
+
 #### Lanproxy 切换账号后会话显示客户端离线
 - **processHandlers.ts** - `startLanproxyProcess` 在 lanproxy 已运行时先停止旧进程再用本次传入的新 config（含新 clientKey/serverIp/serverPort）重启，而非直接跳过
 - **processManager.ts** - 新增 `stopAsync()` 方法，发送 SIGTERM 并等待进程退出（5s 超时后 SIGKILL），确保端口/资源释放后再重启；含 stdio 监听器清理防止 Windows 句柄泄漏

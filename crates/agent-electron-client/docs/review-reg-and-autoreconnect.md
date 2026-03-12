@@ -103,5 +103,50 @@ if (ctx.lanproxy.running) {
 | 失败分支与提示   | 正确，catch 可考虑补用户提示 |
 | 向导完成路径     | 合理，若需统一可先 reg 再启动 |
 | 账号切换时先停旧服务 | 已修复（2026-03-12） |
+| 手动启动单个服务时先 reg | 已补充（2026-03-12） |
 
-**结论**：当前实现满足「等待 reg 成功返回后才启动服务」且「使用 reg 可能变化后的最新配置」；账号切换场景已通过先停后启修复。
+**结论**：当前实现满足「等待 reg 成功返回后才启动服务」且「使用 reg 可能变化后的最新配置」；账号切换场景已通过先停后启修复；手动启动单个服务场景已补充先 reg 再启动。
+
+---
+
+## 6. 手动启动单个服务时补充 reg 调用（2026-03-12）
+
+### 问题
+
+**场景**：用户在 ClientPage 点击某个服务的「启动」按钮（非「启动全部」、非登录流程）。
+
+此前 `handleStartService(svc.key)` 直接启动目标服务，**不调用 reg**。这意味着：
+
+- 如果后端 `serverHost`/`serverPort` 发生过变化（如服务端重新分配端口），lanproxy 启动时读到的是旧值。
+- 与「登录」和「启动全部」行为不一致——它们都在启动服务前/后调用 `syncConfigToServer()`。
+
+### 修复
+
+新增 `handleStartServiceManual` 包装函数，UI 按钮 onClick 改为调用此函数：
+
+```typescript
+const handleStartServiceManual = async (key: string) => {
+  // 先 reg，确保 lanproxy 等服务启动时使用最新的后端返回数据
+  try {
+    await syncConfigToServer({ suppressToast: true });
+  } catch (e) {
+    console.error('[ClientPage] 手动启动服务前 reg 同步失败:', e);
+  }
+  await handleStartService(key);
+  onAuthChange?.();
+};
+```
+
+### 时序对比
+
+| 场景 | reg 时机 | 启动时机 |
+|------|----------|----------|
+| 登录流程 (`handleLogin`) | `loginAndRegister()` + 启动非代理服务后 `syncConfigToServer()` | reg 后启动 lanproxy |
+| 启动全部 (`handleStartAll`) | 启动非代理服务后 `syncConfigToServer()` | reg 后启动 lanproxy |
+| **手动启动单个** (`handleStartServiceManual`) | **先 `syncConfigToServer()`** | **reg 后启动目标服务** |
+
+三个场景均保证 **reg 在服务启动之前完成**，lanproxy 读到的 `serverIp`/`serverPort` 为 reg 返回的最新值。
+
+### 修改点
+
+- `src/renderer/components/pages/ClientPage.tsx`：新增 `handleStartServiceManual`，单个服务「启动」按钮 onClick 改用此函数
