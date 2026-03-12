@@ -249,11 +249,17 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
 
     // 打开独立的 WebView 窗口
     try {
+      // 获取屏幕尺寸，设置合理的窗口大小（80% 屏幕，最大 1200x800）
+      const screenWidth = window.screen.availWidth || 1366;
+      const screenHeight = window.screen.availHeight || 768;
+      const windowWidth = Math.min(Math.floor(screenWidth * 0.8), 1200);
+      const windowHeight = Math.min(Math.floor(screenHeight * 0.85), 800);
+
       const result = await window.electronAPI?.webview.openWindow({
         url,
         title: `${authState.username || '用户'}的会话`,
-        width: 1400,
-        height: 900,
+        width: windowWidth,
+        height: windowHeight,
       });
       if (result?.success) {
         message.success(result.reused ? '已切换到现有窗口' : '已打开会话窗口');
