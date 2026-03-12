@@ -9,6 +9,10 @@ import { checkForUpdates, downloadUpdate, installUpdate, getUpdateState, openRel
 import { getDeviceId } from '../services/system/deviceId';
 import { getTrayManager } from '../window/trayManager';
 import { getAutoLaunchManager } from '../window/autoLaunchManager';
+import { APP_DISPLAY_NAME } from '@shared/constants';
+
+// WebView 窗口缓存
+let webviewWindow: BrowserWindow | null = null;
 
 export function registerAppHandlers(ctx: HandlerContext): void {
   // Autolaunch — 统一通过 AutoLaunchManager 操作，确保 args 一致（Windows 注册表 entry 一致）
@@ -268,5 +272,108 @@ export function registerAppHandlers(ctx: HandlerContext): void {
       log.error('[IPC] session:setCookie failed:', error);
       return { success: false, error: String(error) };
     }
+  });
+
+  // ========== WebView Window ==========
+
+  /**
+   * 打开独立的 WebView 窗口
+   * 使用 defaultSession，与主窗口共享 Cookie
+   */
+  ipcMain.handle('webview:openWindow', async (_, params: {
+    url: string;
+    title?: string;
+    width?: number;
+    height?: number;
+  }) => {
+    try {
+      const { url, title, width = 1200, height = 800 } = params;
+
+      // 如果窗口已存在，聚焦并导航
+      if (webviewWindow && !webviewWindow.isDestroyed()) {
+        webviewWindow.loadURL(url);
+        webviewWindow.focus();
+        if (title) webviewWindow.setTitle(title);
+        log.info('[IPC] webview:openWindow - reused existing window for:', url);
+        return { success: true, reused: true };
+      }
+
+      // 获取图标路径
+      const getIconPath = () => {
+        if (app.isPackaged) {
+          if (process.platform === 'darwin') {
+            return path.join(process.resourcesPath, 'icon.icns');
+          }
+          return path.join(process.resourcesPath, 'icon.png');
+        }
+        if (process.platform === 'darwin') {
+          return path.join(process.cwd(), 'public', 'icon.icns');
+        }
+        return path.join(process.cwd(), 'public', 'icon.png');
+      };
+
+      // 创建新窗口
+      webviewWindow = new BrowserWindow({
+        width,
+        height,
+        minWidth: 600,
+        minHeight: 400,
+        title: title || `${APP_DISPLAY_NAME} - 会话浏览器`,
+        icon: getIconPath(),
+        webPreferences: {
+          // 使用 defaultSession，与主窗口共享 Cookie
+          partition: '', // 空 = defaultSession
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          webviewTag: false, // 直接加载 URL，不需要 webview tag
+        },
+        show: false,
+        backgroundColor: '#ffffff',
+      });
+
+      // 加载 URL
+      await webviewWindow.loadURL(url);
+
+      // 窗口显示
+      webviewWindow.once('ready-to-show', () => {
+        webviewWindow?.show();
+        log.info('[IPC] webview:openWindow - window shown for:', url);
+      });
+
+      // 窗口关闭时清理引用
+      webviewWindow.on('closed', () => {
+        webviewWindow = null;
+        log.info('[IPC] webview:openWindow - window closed');
+      });
+
+      return { success: true, reused: false };
+    } catch (error) {
+      log.error('[IPC] webview:openWindow failed:', error);
+      return { success: false, error: String(error) };
+    }
+  });
+
+  /**
+   * 关闭 WebView 窗口
+   */
+  ipcMain.handle('webview:closeWindow', async () => {
+    try {
+      if (webviewWindow && !webviewWindow.isDestroyed()) {
+        webviewWindow.close();
+        webviewWindow = null;
+      }
+      return { success: true };
+    } catch (error) {
+      log.error('[IPC] webview:closeWindow failed:', error);
+      return { success: false, error: String(error) };
+    }
+  });
+
+  /**
+   * 检查 WebView 窗口是否打开
+   */
+  ipcMain.handle('webview:isWindowOpen', async () => {
+    return webviewWindow !== null && !webviewWindow.isDestroyed();
   });
 }

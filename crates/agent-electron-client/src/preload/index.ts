@@ -283,6 +283,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }) => ipcRenderer.invoke('session:setCookie', params),
   },
 
+  // WebView Window - 独立窗口打开会话浏览器
+  webview: {
+    openWindow: (params: {
+      url: string;
+      title?: string;
+      width?: number;
+      height?: number;
+    }) => ipcRenderer.invoke('webview:openWindow', params) as Promise<{ success: boolean; reused?: boolean; error?: string }>,
+    closeWindow: () => ipcRenderer.invoke('webview:closeWindow') as Promise<{ success: boolean; error?: string }>,
+    isWindowOpen: () => ipcRenderer.invoke('webview:isWindowOpen') as Promise<boolean>,
+  },
+
   // Mirror / Registry
   mirror: {
     get: () => ipcRenderer.invoke('mirror:get'),

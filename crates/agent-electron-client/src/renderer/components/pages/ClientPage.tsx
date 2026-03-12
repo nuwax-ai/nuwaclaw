@@ -48,7 +48,6 @@ import {
   syncConfigToServer,
 } from '../../services/core/auth';
 import type { ServiceItem } from '../../App';
-import EmbeddedWebview from '../EmbeddedWebview';
 import styles from '../../styles/components/ClientPage.module.css';
 
 // ======================== Types ========================
@@ -104,10 +103,6 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
 
   // ---------- QR Code ----------
   const [qrModalVisible, setQrModalVisible] = useState(false);
-
-  // ---------- Webview ----------
-  const [webviewVisible, setWebviewVisible] = useState(false);
-  const [webviewUrl, setWebviewUrl] = useState('');
 
   // ======================== Auth ========================
 
@@ -252,8 +247,23 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       // cookie 失败不阻止 webview 显示
     }
 
-    setWebviewUrl(url);
-    setWebviewVisible(true);
+    // 打开独立的 WebView 窗口
+    try {
+      const result = await window.electronAPI?.webview.openWindow({
+        url,
+        title: `${authState.username || '用户'}的会话`,
+        width: 1400,
+        height: 900,
+      });
+      if (result?.success) {
+        message.success(result.reused ? '已切换到现有窗口' : '已打开会话窗口');
+      } else {
+        message.error('打开会话窗口失败: ' + (result?.error || '未知错误'));
+      }
+    } catch (error) {
+      console.error('[ClientPage] Failed to open webview window:', error);
+      message.error('打开会话窗口失败');
+    }
   };
 
   const handleShowQrCode = () => {
@@ -263,11 +273,6 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       return;
     }
     setQrModalVisible(true);
-  };
-
-  const handleCloseWebview = () => {
-    setWebviewVisible(false);
-    setWebviewUrl('');
   };
 
   // ======================== Services ========================
@@ -776,42 +781,38 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
 
   return (
     <div className={styles.page}>
-      {webviewVisible ? (
-        <EmbeddedWebview url={webviewUrl} onClose={handleCloseWebview} />
-      ) : (
-        <>
-          {/* Dependency alert */}
-          {renderDependencyAlert()}
+      {/* Dependency alert */}
+      {renderDependencyAlert()}
 
-          {/* Login status */}
-          <div className={styles.section}>
-            <div className={styles.sectionHeader}>
-              <UserOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
-              <span className={styles.sectionTitle}>账号状态</span>
-            </div>
-            {renderLoginSection()}
-          </div>
+      {/* Login status */}
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <UserOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
+          <span className={styles.sectionTitle}>账号状态</span>
+        </div>
+        {renderLoginSection()}
+      </div>
 
-          {/* Service status */}
-          <div className={styles.section}>
-            <div className={styles.servicesHeader}>
-              <div className={styles.servicesHeaderLeft}>
-                <PlayCircleOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
-                <span className={styles.sectionTitle}>服务</span>
-                {!servicesLoading && (() => {
-                  const runningCount = services.filter((s) => s.running).length;
-                  const totalCount = services.length;
-                  const hasErrors = services.some((s) => !!s.error);
-                  const badgeColor = hasErrors ? 'error'
-                    : runningCount === totalCount ? 'success'
-                    : runningCount === 0 ? 'default'
-                    : 'warning';
-                  return (
-                    <Tag color={badgeColor} style={{ margin: 0, fontSize: 11 }}>
-                      {runningCount}/{totalCount}
-                    </Tag>
-                  );
-                })()}
+      {/* Service status */}
+      <div className={styles.section}>
+        <div className={styles.servicesHeader}>
+          <div className={styles.servicesHeaderLeft}>
+            <PlayCircleOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
+            <span className={styles.sectionTitle}>服务</span>
+            {!servicesLoading && (() => {
+              const runningCount = services.filter((s) => s.running).length;
+              const totalCount = services.length;
+              const hasErrors = services.some((s) => !!s.error);
+              const badgeColor = hasErrors ? 'error'
+                : runningCount === totalCount ? 'success'
+                : runningCount === 0 ? 'default'
+                : 'warning';
+              return (
+                <Tag color={badgeColor} style={{ margin: 0, fontSize: 11 }}>
+                  {runningCount}/{totalCount}
+                </Tag>
+              );
+            })()}
               </div>
               {!servicesLoading && (
                 <div className={styles.servicesHeaderActions}>
@@ -857,8 +858,6 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
             </div>
             {renderQuickActions()}
           </div>
-        </>
-      )}
 
       {/* QR code modal - always available */}
       <Modal

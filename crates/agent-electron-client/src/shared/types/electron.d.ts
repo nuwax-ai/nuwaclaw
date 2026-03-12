@@ -351,6 +351,16 @@ export interface ElectronAPI {
       secure?: boolean;
     }) => Promise<{ success: boolean; error?: string }>;
   };
+  webview: {
+    openWindow: (params: {
+      url: string;
+      title?: string;
+      width?: number;
+      height?: number;
+    }) => Promise<{ success: boolean; reused?: boolean; error?: string }>;
+    closeWindow: () => Promise<{ success: boolean; error?: string }>;
+    isWindowOpen: () => Promise<boolean>;
+  };
   settings: {
     get: (key: string) => Promise<unknown>;
     set: (key: string, value: unknown) => Promise<boolean>;
