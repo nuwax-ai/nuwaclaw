@@ -288,8 +288,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openWindow: (params: {
       url: string;
       title?: string;
-      width?: number;
-      height?: number;
     }) => ipcRenderer.invoke('webview:openWindow', params) as Promise<{ success: boolean; reused?: boolean; error?: string }>,
     closeWindow: () => ipcRenderer.invoke('webview:closeWindow') as Promise<{ success: boolean; error?: string }>,
     isWindowOpen: () => ipcRenderer.invoke('webview:isWindowOpen') as Promise<boolean>,

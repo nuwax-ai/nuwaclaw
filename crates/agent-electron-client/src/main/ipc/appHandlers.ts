@@ -276,18 +276,19 @@ export function registerAppHandlers(ctx: HandlerContext): void {
 
   // ========== WebView Window ==========
 
+  const WEBVIEW_BOUNDS_KEY = 'webview_window_bounds';
+
   /**
    * 打开独立的 WebView 窗口
    * 使用 defaultSession，与主窗口共享 Cookie
+   * 首次最大化，记住用户调整后的尺寸
    */
   ipcMain.handle('webview:openWindow', async (_, params: {
     url: string;
     title?: string;
-    width?: number;
-    height?: number;
   }) => {
     try {
-      const { url, title, width = 1200, height = 800 } = params;
+      const { url, title } = params;
 
       // 如果窗口已存在，聚焦并导航
       if (webviewWindow && !webviewWindow.isDestroyed()) {
@@ -312,10 +313,23 @@ export function registerAppHandlers(ctx: HandlerContext): void {
         return path.join(process.cwd(), 'public', 'icon.png');
       };
 
+      // 读取上次保存的窗口尺寸
+      let savedBounds: { width: number; height: number; x?: number; y?: number; maximized?: boolean } | null = null;
+      try {
+        const saved = await ctx.getMainWindow()?.webContents?.executeJavaScript(`localStorage.getItem('${WEBVIEW_BOUNDS_KEY}')`);
+        if (saved && typeof saved === 'string') {
+          savedBounds = JSON.parse(saved);
+        }
+      } catch {
+        // 忽略读取错误
+      }
+
       // 创建新窗口
       webviewWindow = new BrowserWindow({
-        width,
-        height,
+        width: savedBounds?.width || 1200,
+        height: savedBounds?.height || 800,
+        x: savedBounds?.x,
+        y: savedBounds?.y,
         minWidth: 600,
         minHeight: 400,
         title: title || `${APP_DISPLAY_NAME} - 会话浏览器`,
@@ -332,6 +346,13 @@ export function registerAppHandlers(ctx: HandlerContext): void {
         backgroundColor: '#ffffff',
       });
 
+      // 首次打开时最大化（没有保存的尺寸时）
+      if (!savedBounds) {
+        webviewWindow.maximize();
+      } else if (savedBounds.maximized) {
+        webviewWindow.maximize();
+      }
+
       // 加载 URL
       await webviewWindow.loadURL(url);
 
@@ -341,9 +362,33 @@ export function registerAppHandlers(ctx: HandlerContext): void {
         log.info('[IPC] webview:openWindow - window shown for:', url);
       });
 
+      // 保存窗口尺寸（防抖）
+      let saveBoundsTimeout: NodeJS.Timeout | null = null;
+      const saveBounds = () => {
+        if (saveBoundsTimeout) clearTimeout(saveBoundsTimeout);
+        saveBoundsTimeout = setTimeout(() => {
+          if (webviewWindow && !webviewWindow.isDestroyed()) {
+            const bounds = webviewWindow.getBounds();
+            const isMaximized = webviewWindow.isMaximized();
+            const data = JSON.stringify({ ...bounds, maximized: isMaximized });
+            // 写入 localStorage（通过主窗口）
+            ctx.getMainWindow()?.webContents?.executeJavaScript(
+              `localStorage.setItem('${WEBVIEW_BOUNDS_KEY}', '${data}')`
+            ).catch(() => {});
+          }
+        }, 500);
+      };
+
+      // 监听窗口调整和移动
+      webviewWindow.on('resize', saveBounds);
+      webviewWindow.on('move', saveBounds);
+      webviewWindow.on('maximize', saveBounds);
+      webviewWindow.on('unmaximize', saveBounds);
+
       // 窗口关闭时清理引用
       webviewWindow.on('closed', () => {
         webviewWindow = null;
+        if (saveBoundsTimeout) clearTimeout(saveBoundsTimeout);
         log.info('[IPC] webview:openWindow - window closed');
       });
 

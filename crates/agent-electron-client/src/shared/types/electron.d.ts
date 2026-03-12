@@ -355,8 +355,6 @@ export interface ElectronAPI {
     openWindow: (params: {
       url: string;
       title?: string;
-      width?: number;
-      height?: number;
     }) => Promise<{ success: boolean; reused?: boolean; error?: string }>;
     closeWindow: () => Promise<{ success: boolean; error?: string }>;
     isWindowOpen: () => Promise<boolean>;

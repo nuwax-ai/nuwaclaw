@@ -247,19 +247,11 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       // cookie 失败不阻止 webview 显示
     }
 
-    // 打开独立的 WebView 窗口
+    // 打开独立的 WebView 窗口（首次最大化，记住用户调整）
     try {
-      // 窗口大小：90% 屏幕，最大 1400x900
-      const screenWidth = window.screen.availWidth || 1366;
-      const screenHeight = window.screen.availHeight || 768;
-      const windowWidth = Math.min(Math.floor(screenWidth * 0.9), 1400);
-      const windowHeight = Math.min(Math.floor(screenHeight * 0.9), 900);
-
       const result = await window.electronAPI?.webview.openWindow({
         url,
         title: `${authState.username || '用户'}的会话`,
-        width: windowWidth,
-        height: windowHeight,
       });
       if (result?.success) {
         message.success(result.reused ? '已切换到现有窗口' : '已打开会话窗口');
