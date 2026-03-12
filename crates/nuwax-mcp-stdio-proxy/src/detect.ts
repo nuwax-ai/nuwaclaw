@@ -7,6 +7,7 @@
  */
 
 import { logInfo, logWarn } from './logger.js';
+import { MCP_SESSION_ID_HEADER } from './constants.js';
 
 /**
  * Detect the MCP transport protocol of a remote URL.
@@ -55,9 +56,9 @@ export async function detectProtocol(
     clearTimeout(timeout);
 
     // Check 1: mcp-session-id header (definitive Streamable HTTP marker)
-    if (res.headers.get('mcp-session-id')) {
-      logInfo(`Detected streamable-http protocol for ${url} (mcp-session-id header)`);
-      cleanupSession(url, res.headers.get('mcp-session-id')!, headers);
+    if (res.headers.get(MCP_SESSION_ID_HEADER)) {
+      logInfo(`Detected streamable-http protocol for ${url} (${MCP_SESSION_ID_HEADER} header)`);
+      cleanupSession(url, res.headers.get(MCP_SESSION_ID_HEADER)!, headers);
       await res.text().catch(() => {});
       return 'stream';
     }
@@ -67,7 +68,7 @@ export async function detectProtocol(
     // Check 2: text/event-stream content-type with success status
     if (ct.includes('text/event-stream') && res.ok) {
       logInfo(`Detected streamable-http protocol for ${url} (event-stream response)`);
-      cleanupSession(url, res.headers.get('mcp-session-id'), headers);
+      cleanupSession(url, res.headers.get(MCP_SESSION_ID_HEADER), headers);
       // Abort the stream to free the connection
       controller.abort();
       return 'stream';
@@ -82,7 +83,7 @@ export async function detectProtocol(
       const json = JSON.parse(bodyText);
       if (json && json.jsonrpc === '2.0') {
         logInfo(`Detected streamable-http protocol for ${url} (JSON-RPC 2.0 response)`);
-        cleanupSession(url, res.headers.get('mcp-session-id'), headers);
+        cleanupSession(url, res.headers.get(MCP_SESSION_ID_HEADER), headers);
         return 'stream';
       }
     } catch { /* not JSON */ }
@@ -113,7 +114,7 @@ function cleanupSession(
   if (!sessionId) return;
   fetch(url, {
     method: 'DELETE',
-    headers: { 'mcp-session-id': sessionId, ...headers },
+    headers: { [MCP_SESSION_ID_HEADER]: sessionId, ...headers },
     signal: AbortSignal.timeout(5_000),
   }).catch(() => {});
 }

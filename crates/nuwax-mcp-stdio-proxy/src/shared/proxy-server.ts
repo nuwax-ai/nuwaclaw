@@ -1,5 +1,5 @@
 /**
- * Shared helpers — deduplicated logic used across modes
+ * Tool proxy server creation
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -11,26 +11,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import { logInfo, logError } from './logger.js';
-import { PKG_NAME, PKG_VERSION } from './constants.js';
-
-// ========== Tool Discovery ==========
-
-/**
- * Discover all tools from a connected MCP client, handling pagination.
- */
-export async function discoverTools(client: Client): Promise<Tool[]> {
-  const tools: Tool[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await client.listTools(cursor ? { cursor } : undefined);
-    tools.push(...page.tools);
-    cursor = page.nextCursor;
-  } while (cursor);
-  return tools;
-}
-
-// ========== Tool Proxy Server ==========
+import { logError } from '../logger.js';
+import { PKG_NAME, PKG_VERSION } from '../constants.js';
 
 /**
  * Callback that resolves a tool name to the client that owns it.
@@ -95,31 +77,4 @@ export async function createToolProxyServer(
   await server.connect(transport);
 
   return { server, transport };
-}
-
-// ========== Graceful Shutdown ==========
-
-/**
- * Register SIGINT/SIGTERM handlers that run a cleanup function once,
- * then exit. Guards against double-invocation.
- */
-export function setupGracefulShutdown(cleanupFn: () => Promise<void>): void {
-  let isShuttingDown = false;
-
-  const shutdown = async (signal: string) => {
-    if (isShuttingDown) return;
-    isShuttingDown = true;
-    logInfo(`Received ${signal}, shutting down...`);
-
-    try {
-      await cleanupFn();
-    } catch (e) {
-      logError(`Shutdown cleanup error: ${e}`);
-    }
-
-    process.exit(0);
-  };
-
-  process.on('SIGINT', () => void shutdown('SIGINT'));
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
