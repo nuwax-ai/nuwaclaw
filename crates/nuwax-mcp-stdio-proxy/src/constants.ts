@@ -6,3 +6,9 @@
 
 export const PKG_NAME = process.env.__MCP_PROXY_PKG_NAME__ || 'nuwax-mcp-stdio-proxy';
 export const PKG_VERSION = process.env.__MCP_PROXY_PKG_VERSION__ || '0.0.0-dev';
+
+/**
+ * MCP protocol header names
+ * Defined by MCP Streamable HTTP specification
+ */
+export const MCP_SESSION_ID_HEADER = 'mcp-session-id';
