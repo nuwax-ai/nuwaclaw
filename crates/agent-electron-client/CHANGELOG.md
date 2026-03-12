@@ -58,6 +58,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 实现代码示例
   - 测试验证步骤
 
+### Fixed
+
+#### Lanproxy 切换账号后会话显示客户端离线
+- **processHandlers.ts** - `startLanproxyProcess` 在 lanproxy 已运行时先停止旧进程再用本次传入的新 config（含新 clientKey/serverIp/serverPort）重启，而非直接跳过
+- **processManager.ts** - 新增 `stopAsync()` 方法，发送 SIGTERM 并等待进程退出（5s 超时后 SIGKILL），确保端口/资源释放后再重启；含 stdio 监听器清理防止 Windows 句柄泄漏
+- 覆盖场景：不退出登录直接切换账号 / 退出后用新账号登录 / 任何路径调用 `lanproxy:start`
+
 ### Changed
 
 #### 子进程启动重构

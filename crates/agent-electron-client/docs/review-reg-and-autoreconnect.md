@@ -54,7 +54,46 @@
 
 ---
 
-## 4. 总结
+## 4. 已修复：账号切换后 lanproxy 使用旧 clientKey（2026-03-12）
+
+### 问题
+
+**场景一：不退出直接切换账号**
+
+`handleLogin` 在 `handleStartService('lanproxy')` 时传入新账号的 `clientKey`，但主进程 `startLanproxyProcess` 检测到 `ctx.lanproxy.running === true`（旧进程仍在），直接返回 `success: true` 而不重启 → 旧 key 继续使用 → 服务端认为是旧账号 → 新账号会话显示「客户端离线」。
+
+**场景二：退出登录后用新账号登录**
+
+`handleLogout` 会停止所有服务（agent/fileServer/lanproxy/mcpProxy/computerServer）并清除 auth 信息。用户用新账号登录时 `handleLogin` 执行 `loginAndRegister` → 写入新 configKey/savedKey → 启动服务。由于 logout 已停掉所有服务，lanproxy 的 `ctx.lanproxy.running === false`，新进程用新 `clientKey` 正常启动。此场景在修复前已能正常工作。
+
+### 修复
+
+在 `processHandlers.ts` 的 `startLanproxyProcess` 中，将「已运行则跳过」改为「已运行则异步停止（等待进程退出）再用本次传入的 config 重启」：
+
+```typescript
+if (ctx.lanproxy.running) {
+  // 切换账号后 clientKey 会变化，必须用新配置重启，不能跳过。
+  // 否则旧进程继续使用旧 clientKey 导致「本地显示已联通、会话显示离线」。
+  log.info('[Lanproxy] 已在运行，先停止再用新配置重启');
+  await ctx.lanproxy.stopAsync();
+}
+```
+
+`stopAsync()` 发送 SIGTERM 并等待进程 `exit` 事件（5s 超时后 SIGKILL），确保端口/资源释放后再启动新进程。
+
+**修改点**：
+- `src/main/processManager.ts`：新增 `stopAsync()` 方法（含 stdio 监听器清理，防止 Windows 句柄泄漏）
+- `src/main/ipc/processHandlers.ts`：`startLanproxyProcess` 内的 running 守卫改用 `await stopAsync()`
+
+| 场景 | 修复前 | 修复后 |
+|------|--------|--------|
+| 不退出直接切换 | ❌ lanproxy 用旧 key，新账号离线 | ✅ 先停旧进程再用新 config 启动 |
+| 退出后用新账号登录 | ✅ logout 已停服务，正常启动 | ✅ 未运行，直接启动 |
+| 任何路径调用 lanproxy:start | ❌ 已运行时跳过 | ✅ 始终应用本次传入的配置 |
+
+---
+
+## 5. 总结
 
 | 项目           | 状态 |
 |----------------|------|
@@ -63,5 +102,6 @@
 | 注释与行为一致   | 是 |
 | 失败分支与提示   | 正确，catch 可考虑补用户提示 |
 | 向导完成路径     | 合理，若需统一可先 reg 再启动 |
+| 账号切换时先停旧服务 | 已修复（2026-03-12） |
 
-**结论**：当前实现满足「等待 reg 成功返回后才启动服务」且「使用 reg 可能变化后的最新配置」；可按需采纳上述小改进。
+**结论**：当前实现满足「等待 reg 成功返回后才启动服务」且「使用 reg 可能变化后的最新配置」；账号切换场景已通过先停后启修复。

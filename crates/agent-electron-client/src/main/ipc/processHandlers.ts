@@ -58,8 +58,10 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     const { getAppEnv, getLanproxyBinPath } = await import('../services/system/dependencies');
 
     if (ctx.lanproxy.running) {
-      log.info('[Lanproxy] 已在运行，跳过启动');
-      return Promise.resolve({ success: true });
+      // 切换账号后 clientKey 会变化，必须用新配置重启，不能跳过。
+      // 否则旧进程继续使用旧 clientKey 导致「本地显示已联通、会话显示离线」。
+      log.info('[Lanproxy] 已在运行，先停止再用新配置重启');
+      await ctx.lanproxy.stopAsync();
     }
     const binPath = getLanproxyBinPath();
     if (!fs.existsSync(binPath)) {

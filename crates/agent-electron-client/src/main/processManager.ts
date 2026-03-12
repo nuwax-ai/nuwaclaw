@@ -88,6 +88,41 @@ export class ManagedProcess {
     return { success: true, message: 'Not running' };
   }
 
+  /**
+   * 异步停止进程，等待其真正退出后再返回。
+   * 用于需要确保端口/资源已释放后再重启的场景（如 lanproxy 切换账号）。
+   */
+  stopAsync(timeoutMs = 5000): Promise<{ success: boolean; message?: string }> {
+    this.lastError = null;
+    if (!this.process) {
+      return Promise.resolve({ success: true, message: 'Not running' });
+    }
+    const proc = this.process;
+    this.process = null;
+
+    // 与 kill() 保持一致：清理 stdio 监听器，防止 Windows 句柄泄漏。
+    proc.stdout?.removeAllListeners();
+    proc.stderr?.removeAllListeners();
+    proc.stdin?.removeAllListeners();
+    // 移除 start() 注册的 exit handler，防止旧进程退出时错误清空新进程引用。
+    proc.removeAllListeners('exit');
+
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        try { proc.kill('SIGKILL'); } catch { /* ignore */ }
+        log.warn(`[${this.name}] stopAsync: 进程未在 ${timeoutMs}ms 内退出，已强制终止`);
+        resolve({ success: true, message: 'Force killed after timeout' });
+      }, timeoutMs);
+
+      proc.once('exit', () => {
+        clearTimeout(timer);
+        resolve({ success: true });
+      });
+
+      proc.kill();
+    });
+  }
+
   status(): { running: boolean; pid?: number; error?: string } {
     return {
       running: this.process !== null,
