@@ -48,6 +48,7 @@ import {
   syncConfigToServer,
 } from '../../services/core/auth';
 import type { ServiceItem } from '../../App';
+import EmbeddedWebview from '../EmbeddedWebview';
 import styles from '../../styles/components/ClientPage.module.css';
 
 // ======================== Types ========================
@@ -103,6 +104,10 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
 
   // ---------- QR Code ----------
   const [qrModalVisible, setQrModalVisible] = useState(false);
+
+  // ---------- Webview ----------
+  const [webviewVisible, setWebviewVisible] = useState(false);
+  const [webviewUrl, setWebviewUrl] = useState('');
 
   // ======================== Auth ========================
 
@@ -200,6 +205,8 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
 
           await logout();
           setAuthState({ isLoggedIn: false, username: null, domain: null });
+          setWebviewVisible(false);
+          setWebviewUrl('');
           onAuthChange?.();
         } catch {
           message.error('退出登录失败');
@@ -220,11 +227,33 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       message.warning('登录信息不完整，请重新登录');
       return;
     }
+
+    // Cookie sync: 读取 token，设置 httpOnly cookie
     try {
-      await window.electronAPI?.shell.openExternal(url);
-    } catch {
-      message.error('无法打开浏览器');
+      const token = await window.electronAPI?.settings.get('auth.token') as string | null;
+      if (token && authState.domain) {
+        let cookieDomain: string;
+        try {
+          cookieDomain = new URL(authState.domain).hostname;
+        } catch {
+          cookieDomain = authState.domain.replace(/^https?:\/\//, '');
+        }
+        await window.electronAPI?.session.setCookie({
+          url: authState.domain,
+          name: 'ticket',
+          value: token,
+          domain: cookieDomain,
+          httpOnly: true,
+          secure: authState.domain.startsWith('https'),
+        });
+      }
+    } catch (error) {
+      console.error('[ClientPage] Failed to set cookie:', error);
+      // cookie 失败不阻止 webview 显示
     }
+
+    setWebviewUrl(url);
+    setWebviewVisible(true);
   };
 
   const handleShowQrCode = () => {
@@ -234,6 +263,11 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       return;
     }
     setQrModalVisible(true);
+  };
+
+  const handleCloseWebview = () => {
+    setWebviewVisible(false);
+    setWebviewUrl('');
   };
 
   // ======================== Services ========================
@@ -519,20 +553,6 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
               </Button>
             </div>
           </div>
-
-          {/* 二维码弹窗 */}
-          <Modal
-            title="扫码使用"
-            open={qrModalVisible}
-            onCancel={() => setQrModalVisible(false)}
-            footer={null}
-            centered
-            width={320}
-          >
-            <div className={styles.qrCodeContainer}>
-              {redirectUrl && <QRCodeSVG value={redirectUrl} size={200} />}
-            </div>
-          </Modal>
         </div>
       );
     }
@@ -756,83 +776,103 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
 
   return (
     <div className={styles.page}>
-      {/* Dependency alert */}
-      {renderDependencyAlert()}
+      {webviewVisible ? (
+        <EmbeddedWebview url={webviewUrl} onClose={handleCloseWebview} />
+      ) : (
+        <>
+          {/* Dependency alert */}
+          {renderDependencyAlert()}
 
-      {/* Login status */}
-      <div className={styles.section}>
-        <div className={styles.sectionHeader}>
-          <UserOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
-          <span className={styles.sectionTitle}>账号状态</span>
-        </div>
-        {renderLoginSection()}
-      </div>
-
-      {/* Service status */}
-      <div className={styles.section}>
-        <div className={styles.servicesHeader}>
-          <div className={styles.servicesHeaderLeft}>
-            <PlayCircleOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
-            <span className={styles.sectionTitle}>服务</span>
-            {!servicesLoading && (() => {
-              const runningCount = services.filter((s) => s.running).length;
-              const totalCount = services.length;
-              const hasErrors = services.some((s) => !!s.error);
-              const badgeColor = hasErrors ? 'error'
-                : runningCount === totalCount ? 'success'
-                : runningCount === 0 ? 'default'
-                : 'warning';
-              return (
-                <Tag color={badgeColor} style={{ margin: 0, fontSize: 11 }}>
-                  {runningCount}/{totalCount}
-                </Tag>
-              );
-            })()}
-          </div>
-          {!servicesLoading && (
-            <div className={styles.servicesHeaderActions}>
-              <Button
-                size="small"
-                icon={<ReloadOutlined />}
-                onClick={() => onRefreshServices()}
-              >
-                刷新
-              </Button>
-              <Button
-                size="small"
-                type="primary"
-                icon={<PlayCircleOutlined />}
-                onClick={handleStartAll}
-                loading={isAnyStarting}
-                disabled={!depsChecked || missingDeps.length > 0 || services.every((s) => s.running) || isAnyStopping}
-              >
-                启动全部
-              </Button>
-              <Button
-                size="small"
-                danger
-                className={styles.dangerButton}
-                icon={<PoweroffOutlined />}
-                onClick={handleStopAll}
-                loading={isAnyStopping}
-                disabled={services.every((s) => !s.running && !s.error) || isAnyStarting}
-              >
-                停止全部
-              </Button>
+          {/* Login status */}
+          <div className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <UserOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
+              <span className={styles.sectionTitle}>账号状态</span>
             </div>
-          )}
-        </div>
-        {renderServicesSection()}
-      </div>
+            {renderLoginSection()}
+          </div>
 
-      {/* Quick actions */}
-      <div className={styles.section}>
-        <div className={styles.sectionHeader}>
-          <AppstoreOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
-          <span className={styles.sectionTitle}>快捷操作</span>
+          {/* Service status */}
+          <div className={styles.section}>
+            <div className={styles.servicesHeader}>
+              <div className={styles.servicesHeaderLeft}>
+                <PlayCircleOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
+                <span className={styles.sectionTitle}>服务</span>
+                {!servicesLoading && (() => {
+                  const runningCount = services.filter((s) => s.running).length;
+                  const totalCount = services.length;
+                  const hasErrors = services.some((s) => !!s.error);
+                  const badgeColor = hasErrors ? 'error'
+                    : runningCount === totalCount ? 'success'
+                    : runningCount === 0 ? 'default'
+                    : 'warning';
+                  return (
+                    <Tag color={badgeColor} style={{ margin: 0, fontSize: 11 }}>
+                      {runningCount}/{totalCount}
+                    </Tag>
+                  );
+                })()}
+              </div>
+              {!servicesLoading && (
+                <div className={styles.servicesHeaderActions}>
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    onClick={() => onRefreshServices()}
+                  >
+                    刷新
+                  </Button>
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<PlayCircleOutlined />}
+                    onClick={handleStartAll}
+                    loading={isAnyStarting}
+                    disabled={!depsChecked || missingDeps.length > 0 || services.every((s) => s.running) || isAnyStopping}
+                  >
+                    启动全部
+                  </Button>
+                  <Button
+                    size="small"
+                    danger
+                    className={styles.dangerButton}
+                    icon={<PoweroffOutlined />}
+                    onClick={handleStopAll}
+                    loading={isAnyStopping}
+                    disabled={services.every((s) => !s.running && !s.error) || isAnyStarting}
+                  >
+                    停止全部
+                  </Button>
+                </div>
+              )}
+            </div>
+            {renderServicesSection()}
+          </div>
+
+          {/* Quick actions */}
+          <div className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <AppstoreOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
+              <span className={styles.sectionTitle}>快捷操作</span>
+            </div>
+            {renderQuickActions()}
+          </div>
+        </>
+      )}
+
+      {/* QR code modal - always available */}
+      <Modal
+        title="扫码使用"
+        open={qrModalVisible}
+        onCancel={() => setQrModalVisible(false)}
+        footer={null}
+        centered
+        width={320}
+      >
+        <div className={styles.qrCodeContainer}>
+          {(() => { const url = getRedirectUrl(); return url && <QRCodeSVG value={url} size={200} />; })()}
         </div>
-        {renderQuickActions()}
-      </div>
+      </Modal>
     </div>
   );
 }

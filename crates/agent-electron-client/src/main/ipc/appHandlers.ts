@@ -1,4 +1,4 @@
-import { ipcMain, app, dialog, shell, systemPreferences, BrowserWindow } from 'electron';
+import { ipcMain, app, dialog, shell, session as electronSession, systemPreferences, BrowserWindow } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
@@ -240,5 +240,33 @@ export function registerAppHandlers(ctx: HandlerContext): void {
       return { success: false, canceled: true };
     }
     return { success: true, path: result.filePaths[0] };
+  });
+
+  // ========== Session / Cookie ==========
+
+  ipcMain.handle('session:setCookie', async (_, params: {
+    url: string;
+    name: string;
+    value: string;
+    domain: string;
+    httpOnly?: boolean;
+    secure?: boolean;
+  }) => {
+    try {
+      await electronSession.defaultSession.cookies.set({
+        url: params.url,
+        name: params.name,
+        value: params.value,
+        domain: params.domain,
+        httpOnly: params.httpOnly ?? true,
+        secure: params.secure ?? true,
+        sameSite: 'no_restriction' as const,
+      });
+      log.info('[IPC] session:setCookie success for domain:', params.domain);
+      return { success: true };
+    } catch (error) {
+      log.error('[IPC] session:setCookie failed:', error);
+      return { success: false, error: String(error) };
+    }
   });
 }

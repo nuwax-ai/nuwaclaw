@@ -1,22 +1,5 @@
 // Type definitions for Electron API exposed via preload
 
-export interface Session {
-  id: string;
-  created_at: number;
-  updated_at: number;
-  title: string;
-  model: string;
-  system_prompt: string | null;
-}
-
-export interface Message {
-  id: string;
-  session_id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  created_at: number;
-}
-
 export type McpServerEntry =
   | { command: string; args: string[]; env?: Record<string, string> }
   | { url: string; transport?: 'streamable-http' | 'sse'; headers?: Record<string, string>; authToken?: string };
@@ -359,13 +342,14 @@ export interface ElectronAPI {
     chrome: string;
   };
   session: {
-    list: () => Promise<Session[]>;
-    create: (session: { id: string; title: string; model: string; system_prompt?: string }) => Promise<Session>;
-    delete: (sessionId: string) => Promise<boolean>;
-  };
-  message: {
-    list: (sessionId: string) => Promise<Message[]>;
-    add: (message: { id: string; session_id: string; role: string; content: string }) => Promise<Message>;
+    setCookie: (params: {
+      url: string;
+      name: string;
+      value: string;
+      domain: string;
+      httpOnly?: boolean;
+      secure?: boolean;
+    }) => Promise<{ success: boolean; error?: string }>;
   };
   settings: {
     get: (key: string) => Promise<unknown>;

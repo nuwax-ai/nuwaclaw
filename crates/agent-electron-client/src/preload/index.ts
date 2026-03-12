@@ -271,6 +271,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   },
 
+  // Session / Cookie management (for embedded webview)
+  session: {
+    setCookie: (params: {
+      url: string;
+      name: string;
+      value: string;
+      domain: string;
+      httpOnly?: boolean;
+      secure?: boolean;
+    }) => ipcRenderer.invoke('session:setCookie', params),
+  },
+
   // Mirror / Registry
   mirror: {
     get: () => ipcRenderer.invoke('mirror:get'),

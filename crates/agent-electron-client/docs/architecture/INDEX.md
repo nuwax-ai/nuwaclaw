@@ -31,6 +31,7 @@ status: design
 | [Auto Update](./auto-update.md) | 自动更新机制 | design |
 | [认证机制与 SavedKey 生命周期](./auth-savedkey-lifecycle.md) | savedKey 设计、多账号隔离、退出登录与服务联动规则 | stable |
 | [ACP 引擎性能优化](./ACP-ENGINE-PERF-OPTIMIZATION.md) | 引擎预热池、SDK 预加载、SSE 缓冲，降低 /computer/chat 首包延迟 | stable |
+| [内嵌 Webview 与 Cookie 同步](./embedded-webview-cookie-sync.md) | 会话页面内嵌 webview + reg token 自动同步 httpOnly cookie 免登录 | stable |
 
 ### 参考文档
 
@@ -110,6 +111,7 @@ status: design
 | ARCHITECTURE-REF-OPENCLAW.md | 2.3 | 2026-02-24 |
 | ARCHITECTURE-RUNTIME-ENV-PROFILES.md | - | 2026-02-24 |
 | auth-savedkey-lifecycle.md | 1.0 | 2026-03-06 |
+| embedded-webview-cookie-sync.md | 1.0 | 2026-03-12 |
 
 ---
 

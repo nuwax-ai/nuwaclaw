@@ -134,6 +134,7 @@ async function clearAuthInfo(): Promise<void> {
   await settingsSet(AUTH_KEYS.CONFIG_KEY, null);
   await settingsSet(AUTH_KEYS.USER_INFO, null);
   await settingsSet(AUTH_KEYS.ONLINE_STATUS, null);
+  await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
   // 不清除 savedKey，跨登录会话持久化
 }
 
@@ -271,6 +272,11 @@ export async function loginAndRegister(
     });
 
     await setOnlineStatus(response.online);
+
+    // 持久化 token（用于 webview cookie 同步）
+    if (response.token) {
+      await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
+    }
 
     // 保存 lanproxy 服务器配置
     console.log('[Auth] API 返回的 lanproxy 配置:', {
@@ -443,6 +449,10 @@ export async function syncConfigToServer(options?: {
     await setConfigKey(response.configKey);
     await setSavedKey(response.configKey, domain, username || undefined);
     await setOnlineStatus(response.online);
+
+    if (response.token) {
+      await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
+    }
 
     // 使用本次 reg 返回的最新 serverHost/serverPort 覆盖本地配置（reg 返回可能随服务端策略变化）
     if (response.serverHost && response.serverPort) {

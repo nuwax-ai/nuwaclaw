@@ -123,6 +123,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false, // Need to access node for MCP
+      webviewTag: true,
     },
     show: false,
   });

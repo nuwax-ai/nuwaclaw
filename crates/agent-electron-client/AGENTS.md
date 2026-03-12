@@ -95,12 +95,13 @@ Located in `src/renderer/services/`, these services are used by React components
 | Log Service | `logService.ts` | Logging & export |
 | API | `api.ts` | Backend API client |
 
-### Components (12)
+### Components (13)
 
 Located in `src/renderer/components/`
 
 | Component | Description |
 |-----------|-------------|
+| `EmbeddedWebview.tsx` | Reusable embedded webview with toolbar |
 | `SetupWizard.tsx` | 3-step setup wizard |
 | `SetupDependencies.tsx` | Dependency detection & auto-install |
 | `ClientPage.tsx` | Dashboard (login, services, deps) |

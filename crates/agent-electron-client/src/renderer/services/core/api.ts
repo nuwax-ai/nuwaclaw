@@ -191,6 +191,8 @@ export interface ClientRegisterResponse {
   serverHost?: string;
   /** 服务器端口（客户端连接用） */
   serverPort?: number;
+  /** 登录态 token，用于 webview cookie 同步 */
+  token?: string;
 }
 
 /**
