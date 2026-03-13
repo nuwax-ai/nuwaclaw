@@ -152,7 +152,6 @@ nuwax-mcp-stdio-proxy proxy --port 18099 --config '{"mcpServers":{...}}'
 | MCP | MCP server management |
 | Dependencies | Package management |
 | Permissions | Permission control |
-| IM | Instant messaging integration |
 
 ### Data Storage
 
