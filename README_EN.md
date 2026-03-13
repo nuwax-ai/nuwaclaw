@@ -25,7 +25,7 @@ NuwaClaw uses [ACP (Agent Client Protocol)](https://agentclientprotocol.com/) to
 | **Qwen Code** | Alibaba's Qwen code Agent |
 | **Junie** | JetBrains' AI Agent |
 | **OpenCode** | Open-source code Agent |
-| **Nuwaxcode** | Nuwax's custom Agent engine |
+| **Nuwaxcode** | Agent engine based on OpenCode |
 | **More...** | [View full list](https://agentclientprotocol.com/get-started/agents) |
 
 > **ACP Protocol**: Agent Client Protocol standardizes communication between code editors/IDEs and AI coding agents. Similar to how LSP works for language services, ACP lets you connect any ACP-compatible Agent to any supporting client.

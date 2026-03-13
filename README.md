@@ -25,7 +25,7 @@ NuwaClaw 采用 [ACP (Agent Client Protocol)](https://agentclientprotocol.com/) 
 | **Qwen Code** | 阿里通义千问代码 Agent |
 | **Junie** | JetBrains 的 AI Agent |
 | **OpenCode** | 开源代码 Agent |
-| **Nuwaxcode** | Nuwax 自研 Agent 引擎 |
+| **Nuwaxcode** | 基于 OpenCode 修改的 Agent 引擎 |
 | **更多...** | [查看完整列表](https://agentclientprotocol.com/get-started/agents) |
 
 > **ACP 协议**: Agent Client Protocol，标准化编辑器/IDE 与 AI Agent 之间的通信协议，基于 NDJSON 格式。类似 LSP 之于语言服务，ACP 让你可以将任何 ACP 兼容的 Agent 接入到任何支持的客户端。
