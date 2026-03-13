@@ -214,11 +214,11 @@ Each engine runs in an isolated environment:
 ```typescript
 {
   // App-internal dependencies injected
-  PATH: '~/.nuwaxbot/node_modules/.bin:~/.nuwaxbot/bin:$PATH',
-  NODE_PATH: '~/.nuwaxbot/node_modules',
+  PATH: '~/.nuwaclaw/node_modules/.bin:~/.nuwaclaw/bin:$PATH',
+  NODE_PATH: '~/.nuwaclaw/node_modules',
 
   // Isolated home
-  HOME: '/tmp/nuwaxbot-run-xxx',
+  HOME: '/tmp/nuwaclaw-run-xxx',
   XDG_CONFIG_HOME: '/tmp/.../.config',
   CLAUDE_CONFIG_DIR: '/tmp/.../.claude',
   NUWAXCODE_CONFIG_DIR: '/tmp/.../.nuwaxcode',
@@ -299,14 +299,14 @@ permissionManager.approveRequest(requestId, alwaysAllow);
 | **nuwax-file-server** | npm-local | File service |
 | **claude-code-acp-ts** | npm-local | Claude Code ACP implementation |
 | **nuwaxcode** | npm-local | Nuwaxcode ACP implementation |
-| **nuwax-mcp-stdio-proxy** | npm-local | MCP 聚合代理（通过 installVersion 在 ~/.nuwaxbot 初始化安装） |
+| **nuwax-mcp-stdio-proxy** | npm-local | MCP 聚合代理（通过 installVersion 在 ~/.nuwaclaw 初始化安装） |
 
 > **Note**: Node.js is NOT a required dependency — Electron bundles its own Node runtime.
 
 ### Installation Locations
 
 ```
-~/.nuwaxbot/
+~/.nuwaclaw/
 ├── engines/           # Agent engines
 ├── workspaces/       # Session workspaces
 ├── node_modules/    # Local npm packages
@@ -317,10 +317,10 @@ permissionManager.approveRequest(requestId, alwaysAllow);
 │   ├── main.log     # Electron main process log (electron-log)
 │   ├── latest.log   # Symlink to current main.log
 │   └── mcp-proxy.log # MCP proxy stderr log (via MCP_PROXY_LOG_FILE)
-└── nuwaxbot.db   # SQLite database
+└── nuwaclaw.db   # SQLite database
 ```
 
-> **Important**: All data is stored under `~/.nuwaxbot/`. The Electron `app.getPath('userData')` path is NOT used.
+> **Important**: All data is stored under `~/.nuwaclaw/`. The Electron `app.getPath('userData')` path is NOT used.
 
 ### Environment Injection
 
@@ -328,8 +328,8 @@ All child processes (engines, file server, lanproxy, agent runner) receive injec
 
 ```typescript
 {
-  PATH: '~/.nuwaxbot/node_modules/.bin:~/.nuwaxbot/bin:resources/uv/bin:$PATH',
-  NODE_PATH: '~/.nuwaxbot/node_modules',
+  PATH: '~/.nuwaclaw/node_modules/.bin:~/.nuwaclaw/bin:resources/uv/bin:$PATH',
+  NODE_PATH: '~/.nuwaclaw/node_modules',
 }
 ```
 
@@ -391,10 +391,10 @@ mcp-proxy process                    Electron main process
 └──────────────────┘               └──────────────────────┘
                                           │
                                           ▼
-                                    ~/.nuwaxbot/logs/main.log
+                                    ~/.nuwaclaw/logs/main.log
 ```
 
-- **MCP_PROXY_LOG_FILE**: 环境变量，proxy 启动时设置，指向 `~/.nuwaxbot/logs/mcp-proxy.log`
+- **MCP_PROXY_LOG_FILE**: 环境变量，proxy 启动时设置，指向 `~/.nuwaclaw/logs/mcp-proxy.log`
 - **Log format**: `[2026-03-09 19:29:37.650] [info]  [nuwax-mcp-proxy] message`（与 electron-log 格式一致）
 - **Tail watcher**: `fs.watchFile` 每 2s 轮询，增量读取新行，转发到 `electron-log`
 - 在 `McpProxyManager.start()` 启动，`stop()` / `cleanup()` 停止

@@ -12,7 +12,7 @@ status: stable
 
 ## 概述
 
-以下四类 npm 包不随应用打包，在 `~/.nuwaxbot` 下按配置版本进行初始化安装，并在客户端升级后按新版本同步；同时需尊重用户在「依赖」Tab 下的手动升级结果，不降级已安装的更高版本。
+以下四类 npm 包不随应用打包，在 `~/.nuwaclaw` 下按配置版本进行初始化安装，并在客户端升级后按新版本同步；同时需尊重用户在「依赖」Tab 下的手动升级结果，不降级已安装的更高版本。
 
 | 包名 | 用途 |
 |------|------|
@@ -35,7 +35,7 @@ status: stable
 
 - **目的**：应用发新版本时，若配置中的 `installVersion` 发生变化，用户环境中的依赖应被同步到新版本，无需用户手动操作。
 - **实现**：
-  - 持久化：`~/.nuwaxbot/.init-deps-state.json` 记录当前应用版本及各包「上次同步时的目标版本」。
+  - 持久化：`~/.nuwaclaw/.init-deps-state.json` 记录当前应用版本及各包「上次同步时的目标版本」。
   - 启动时：若检测到应用版本或某包的 `installVersion` 与持久化状态不一致，在后台调用 `syncInitDependencies()`，对需要更新的包执行安装/升级并写回状态。
 - **注意**：同步逻辑必须结合「当前已安装的实际版本」判断是否需要升级，避免对用户已手动升级的更高版本做降级（见下节）。
 
@@ -67,7 +67,7 @@ status: stable
 | 类型 | 路径/说明 |
 |------|-----------|
 | 配置与检测 | `src/main/services/system/dependencies.ts`：`SETUP_REQUIRED_DEPENDENCIES`、`checkAllDependencies`、`installMissingDependencies`、`syncInitDependencies`、`compareVersions` |
-| 持久化 | `~/.nuwaxbot/.init-deps-state.json`，读写通过 `getInitDepsState` / `setInitDepsState` |
+| 持久化 | `~/.nuwaclaw/.init-deps-state.json`，读写通过 `getInitDepsState` / `setInitDepsState` |
 | 启动触发 | `src/main/bootstrap/startup.ts`：应用启动后根据状态决定是否调用 `syncInitDependencies` |
 | 向导 UI | `src/renderer/components/setup/SetupDependencies.tsx`：阶段文案、错误态标题与按钮、安装时传入 `installVersion` |
 | 依赖页 UI | `src/renderer/components/pages/DependenciesPage.tsx`：批量/单项按钮文案、安装中/升级中文案、`installVersion` 传入 |

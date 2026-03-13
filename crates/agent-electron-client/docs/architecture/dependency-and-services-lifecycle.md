@@ -6,7 +6,7 @@
 
 ## 1. 概述
 
-- **必需依赖**：由 `SETUP_REQUIRED_DEPENDENCIES` 定义，不随应用打包，需在「初始化」或「依赖 Tab」中安装到 `~/.nuwaxbot/`（或项目配置的数据目录）下的 `node_modules`。
+- **必需依赖**：由 `SETUP_REQUIRED_DEPENDENCIES` 定义，不随应用打包，需在「初始化」或「依赖 Tab」中安装到 `~/.nuwaclaw/`（或项目配置的数据目录）下的 `node_modules`。
 - **版本判定**：以**当前已真实安装的版本**为准；用户可在依赖 Tab 下手动升级，已安装版本 ≥ 配置的 `installVersion` 即视为就绪，**不降级**。
 - **安装/升级后**：在主界面下（含重装流程和依赖 Tab），依赖安装或升级成功后会调用 `services.restartAll()` 重启所有服务，使新二进制生效。初始化向导中的依赖安装不触发重启（此时服务尚未启动，向导完成后由自动重连流程启动服务）。
 
@@ -111,7 +111,7 @@
 - **触发**：主进程启动任务（`bootstrap/startup.ts`）中，通过 `getInitDepsState()` 读取上次同步状态，与当前 `app.getVersion()` 及各包 `installVersion` 逐一比较。满足以下任一条件即触发 `syncInitDependencies()`：
   - 应用版本（`appVersion`）与上次记录不同（含首次无记录）；
   - 任一包的 `installVersion` 与上次记录的对应值不同（含上次无该包记录）。
-- **行为**：对 `SETUP_REQUIRED_DEPENDENCIES` 中带 `installVersion` 的 npm-local 包，若未安装或已装版本低于配置，则安装到指定版本，并写回 `~/.nuwaxbot/.init-deps-state.json`（或当前数据目录下的同名文件）。
+- **行为**：对 `SETUP_REQUIRED_DEPENDENCIES` 中带 `installVersion` 的 npm-local 包，若未安装或已装版本低于配置，则安装到指定版本，并写回 `~/.nuwaclaw/.init-deps-state.json`（或当前数据目录下的同名文件）。
 - **不降级**：已安装版本 ≥ `installVersion` 的包不会被执行安装，避免覆盖用户手动升级的更高版本。
 
 ---
@@ -145,7 +145,7 @@
 | 初始化向导 | `src/renderer/components/setup/SetupWizard.tsx`、`SetupDependencies.tsx`：向导内依赖步骤与完成回调 |
 | 主界面重装 | `src/renderer/App.tsx`：`needsRequiredDepsReinstall`、全屏 `SetupDependencies`、`checkRequiredDeps`、`restartAllServices` |
 | 依赖 Tab | `src/renderer/components/pages/DependenciesPage.tsx`：单项/批量安装与 `restartServicesAfterDepChange` |
-| 持久化 | `~/.nuwaxbot/.init-deps-state.json`（或当前数据目录）：应用版本与各包上次同步版本，读写在 `dependencies.ts` 的 `getInitDepsState` / `setInitDepsState` |
+| 持久化 | `~/.nuwaclaw/.init-deps-state.json`（或当前数据目录）：应用版本与各包上次同步版本，读写在 `dependencies.ts` 的 `getInitDepsState` / `setInitDepsState` |
 
 ---
 

@@ -30,7 +30,7 @@ status: design
 
 ### 2.1 核心思路
 
-> **关键特色**：NuwaxBot 配置的域名（如 `https://testagent.xspaceagi.com`）本身已是一个完整的 Agent 服务。Channel 网关的核心职责是将各 IM 平台的消息**转发到该 Agent 服务**，并将 Agent 的响应**回推到 IM 平台**。
+> **关键特色**：NuwaClaw 配置的域名（如 `https://testagent.xspaceagi.com`）本身已是一个完整的 Agent 服务。Channel 网关的核心职责是将各 IM 平台的消息**转发到该 Agent 服务**，并将 Agent 的响应**回推到 IM 平台**。
 
 ```
 ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
@@ -491,7 +491,7 @@ class ChannelAdapterFactory {
 │            Provider: [OpenAI ▾]   Model: [gpt-4o ▾]     │
 │                                                          │
 │  行为:                                                   │
-│  ☑ 自动回复     触发词: [@NuwaxBot ]                     │
+│  ☑ 自动回复     触发词: [@NuwaClaw ]                     │
 │  ☑ 群聊回复     回复格式: [卡片消息 ▾]                    │
 │  最大并发: [5]                                           │
 │                                                          │
