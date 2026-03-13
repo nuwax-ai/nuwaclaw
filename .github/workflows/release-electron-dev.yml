@@ -56,7 +56,7 @@ jobs:
             echo "Using release notes from $NOTES_FILE"
             cp "$NOTES_FILE" release_notes.txt
           else
-            echo "NuwaxBot ${VERSION} (Prerelease)。请在 Assets 中下载对应平台安装包。" > release_notes.txt
+            echo "NuwaClaw ${VERSION} (Prerelease)。请在 Assets 中下载对应平台安装包。" > release_notes.txt
           fi
 
       - name: Create GitHub Release
@@ -68,7 +68,7 @@ jobs:
             echo "Release $TAG already exists"
           else
             gh release create "$TAG" \
-              --title "NuwaxBot (Electron) ${{ steps.version.outputs.version }} - Prerelease" \
+              --title "NuwaClaw (Electron) ${{ steps.version.outputs.version }} - Prerelease" \
               --notes-file release_notes.txt \
               --draft \
               --prerelease \

@@ -64,7 +64,7 @@ jobs:
             echo "Using release notes from $NOTES_FILE"
             cp "$NOTES_FILE" release_notes.txt
           else
-            echo "NuwaxBot ${VERSION}。请在 Assets 中下载对应平台安装包。" > release_notes.txt
+            echo "NuwaClaw ${VERSION}。请在 Assets 中下载对应平台安装包。" > release_notes.txt
           fi
 
       - name: Create GitHub Release
@@ -76,7 +76,7 @@ jobs:
             echo "Release $TAG already exists"
           else
             gh release create "$TAG" \
-              --title "NuwaxBot (Electron) ${{ steps.version.outputs.version }}" \
+              --title "NuwaClaw (Electron) ${{ steps.version.outputs.version }}" \
               --notes-file release_notes.txt \
               --repo "$GITHUB_REPOSITORY"
             echo "Created release $TAG"
@@ -304,7 +304,7 @@ jobs:
         run: |
           TAG="${RELEASE_TAG}"
           VERSION="${TAG#electron-v}"
-          OSS_URL_PREFIX="${OSS_CDN_BASE}/nuwaxbot-electron/${TAG}"
+          OSS_URL_PREFIX="${OSS_CDN_BASE}/nuwaclaw-electron/${TAG}"
           ASSETS_DIR="/tmp/release-assets"
 
           # 删除 GitHub 自带的 yml，仅保留由 latest.json 派生的 yml
@@ -312,7 +312,7 @@ jobs:
 
           # 获取 release notes 与 pub_date
           RELEASE_JSON=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body,createdAt 2>/dev/null || echo '{}')
-          NOTES=$(echo "$RELEASE_JSON" | jq -r '.body // "NuwaxBot 功能优化和问题修复。建议更新到最新版本以获得更好的体验。"' | head -c 500)
+          NOTES=$(echo "$RELEASE_JSON" | jq -r '.body // "NuwaClaw 功能优化和问题修复。建议更新到最新版本以获得更好的体验。"' | head -c 500)
           PUB_DATE=$(echo "$RELEASE_JSON" | jq -r '.createdAt // empty')
           if [ -z "$PUB_DATE" ]; then
             PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
@@ -341,21 +341,21 @@ jobs:
 
           PLATFORMS="{}"
           echo "==> Scanning release assets for platforms..."
-          add_platform "darwin-aarch64"     "NuwaxBot-${VERSION}-arm64.dmg"
-          add_platform "darwin-aarch64-zip" "NuwaxBot-${VERSION}-arm64-mac.zip"
-          add_platform "darwin-x86_64"      "NuwaxBot-${VERSION}.dmg"
-          add_platform "darwin-x86_64-zip"  "NuwaxBot-${VERSION}-mac.zip"
-          add_platform "windows-x86_64"      "NuwaxBot.Setup.${VERSION}.exe"
-          add_platform "windows-x86_64-nsis" "NuwaxBot.Setup.${VERSION}.exe"
-          add_platform "windows-x86_64-msi"  "NuwaxBot.${VERSION}.msi"
-          add_platform "linux-x86_64"          "NuwaxBot-${VERSION}.AppImage"
-          add_platform "linux-x86_64-appimage" "NuwaxBot-${VERSION}.AppImage"
-          add_platform "linux-x86_64-deb"      "NuwaxBot-${VERSION}-amd64.deb"
-          add_platform "linux-x86_64-rpm"      "NuwaxBot-${VERSION}-x86_64.rpm"
-          add_platform "linux-aarch64"          "NuwaxBot-${VERSION}-arm64.AppImage"
-          add_platform "linux-aarch64-appimage" "NuwaxBot-${VERSION}-arm64.AppImage"
-          add_platform "linux-aarch64-deb"      "NuwaxBot-${VERSION}-arm64.deb"
-          add_platform "linux-aarch64-rpm"      "NuwaxBot-${VERSION}-aarch64.rpm"
+          add_platform "darwin-aarch64"     "NuwaClaw-${VERSION}-arm64.dmg"
+          add_platform "darwin-aarch64-zip" "NuwaClaw-${VERSION}-arm64-mac.zip"
+          add_platform "darwin-x86_64"      "NuwaClaw-${VERSION}.dmg"
+          add_platform "darwin-x86_64-zip"  "NuwaClaw-${VERSION}-mac.zip"
+          add_platform "windows-x86_64"      "NuwaClaw.Setup.${VERSION}.exe"
+          add_platform "windows-x86_64-nsis" "NuwaClaw.Setup.${VERSION}.exe"
+          add_platform "windows-x86_64-msi"  "NuwaClaw.${VERSION}.msi"
+          add_platform "linux-x86_64"          "NuwaClaw-${VERSION}.AppImage"
+          add_platform "linux-x86_64-appimage" "NuwaClaw-${VERSION}.AppImage"
+          add_platform "linux-x86_64-deb"      "NuwaClaw-${VERSION}-amd64.deb"
+          add_platform "linux-x86_64-rpm"      "NuwaClaw-${VERSION}-x86_64.rpm"
+          add_platform "linux-aarch64"          "NuwaClaw-${VERSION}-arm64.AppImage"
+          add_platform "linux-aarch64-appimage" "NuwaClaw-${VERSION}-arm64.AppImage"
+          add_platform "linux-aarch64-deb"      "NuwaClaw-${VERSION}-arm64.deb"
+          add_platform "linux-aarch64-rpm"      "NuwaClaw-${VERSION}-aarch64.rpm"
 
           if [ "$(echo "$PLATFORMS" | jq 'length')" = "0" ]; then
             echo "::warning::No exact filename matches, falling back to fuzzy scan"
@@ -435,7 +435,7 @@ jobs:
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
         run: |
           TAG="${RELEASE_TAG}"
-          OSS_PREFIX="nuwaxbot-electron/${TAG}"
+          OSS_PREFIX="nuwaclaw-electron/${TAG}"
 
           for file in /tmp/release-assets/*; do
             filename=$(basename "$file")
@@ -454,12 +454,12 @@ jobs:
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
         run: |
           TAG="${RELEASE_TAG}"
-          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaxbot-electron/${TAG}/latest.json" \
+          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/${TAG}/latest.json" \
             --endpoint "$OSS_ENDPOINT" \
             --region "$OSS_REGION" \
             --access-key-id "$OSS_ACCESS_KEY_ID" \
             --access-key-secret "$OSS_ACCESS_KEY_SECRET"
-          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaxbot-electron/latest/latest.json" \
+          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/latest/latest.json" \
             --endpoint "$OSS_ENDPOINT" \
             --region "$OSS_REGION" \
             --access-key-id "$OSS_ACCESS_KEY_ID" \
@@ -469,7 +469,7 @@ jobs:
       - name: Verify OSS upload
         run: |
           # Verify latest.json in stable path
-          VERIFY_URL="${OSS_CDN_BASE}/nuwaxbot-electron/latest/latest.json"
+          VERIFY_URL="${OSS_CDN_BASE}/nuwaclaw-electron/latest/latest.json"
           HTTP_STATUS=$(curl -sS -o /tmp/oss-latest.json -w "%{http_code}" "$VERIFY_URL")
           if [ "$HTTP_STATUS" = "200" ]; then
             echo "==> latest.json: OK (HTTP ${HTTP_STATUS})"

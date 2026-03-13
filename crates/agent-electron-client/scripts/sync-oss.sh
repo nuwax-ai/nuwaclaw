@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 同步 Electron Release 到阿里云 OSS
 # 触发 GitHub Actions workflow release-electron.yml，将指定 tag 的构建产物同步到 OSS。
+# 仅根据 tag 同步，分支固定为仓库默认分支（用于取 workflow 定义），用户无需关心分支。
 #
 # 用法（在 crates/agent-electron-client 目录下）:
 #   ./scripts/sync-oss.sh <tag>
@@ -13,10 +14,10 @@
 
 set -e
 
-REPO="${GITHUB_REPOSITORY:-nuwax-ai/nuwax-agent-client}"
-BRANCH="${GITHUB_BRANCH:-feature/electron-client-0.8}"
+# 正式发布仓库：Electron 包在 nuwaclaw 仓库的 Releases 中（如 electron-v0.9.0）
+REPO="${GITHUB_REPOSITORY:-nuwax-ai/nuwaclaw}"
 
-# 解析参数
+# 解析参数：只接受 tag，不涉及分支
 if [ $# -eq 0 ]; then
   echo "用法: $0 <tag>"
   echo "示例: $0 electron-v0.8.0"
@@ -32,21 +33,23 @@ if [[ ! "$TAG" =~ ^electron-v ]]; then
   exit 1
 fi
 
-echo "==> 触发 OSS 同步"
+# workflow_dispatch 需要 ref：使用仓库默认分支，仅 tag 由用户指定
+REF=$(gh repo view "$REPO" --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo "main")
+
+echo "==> 触发 OSS 同步（仅按 tag，分支使用仓库默认）"
 echo "  仓库: $REPO"
-echo "  分支: $BRANCH"
 echo "  Tag: $TAG"
 echo ""
 
 # 获取 GitHub token
 TOKEN=$(gh auth token)
 
-# 触发 workflow_dispatch
+# 触发 workflow_dispatch：ref 用默认分支，inputs 只传 tag
 RESPONSE=$(curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Accept: application/vnd.github.v3+json" \
   "https://api.github.com/repos/$REPO/actions/workflows/release-electron.yml/dispatches" \
-  -d "{\"ref\":\"$BRANCH\",\"inputs\":{\"tag\":\"$TAG\"}}")
+  -d "{\"ref\":\"$REF\",\"inputs\":{\"tag\":\"$TAG\"}}")
 
 if [ -n "$RESPONSE" ]; then
   echo "错误: $RESPONSE"

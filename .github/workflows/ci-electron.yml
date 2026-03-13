@@ -59,7 +59,7 @@ jobs:
             gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes
           fi
           gh release create "$TAG" \
-            --title "NuwaxBot Test Build ${VERSION}" \
+            --title "NuwaClaw Test Build ${VERSION}" \
             --notes "测试构建 ${VERSION}，仅供内部测试安装。" \
             --draft \
             --repo "$GITHUB_REPOSITORY"

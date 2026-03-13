@@ -5,7 +5,7 @@
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
   "license": "MIT",
-  "homepage": "https://github.com/nuwax-ai/nuwax-agent-client",
+  "homepage": "https://github.com/nuwax-ai/nuwaclaw",
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
@@ -169,7 +169,7 @@
       {
         "provider": "github",
         "owner": "nuwax-ai",
-        "repo": "nuwax-agent-client"
+        "repo": "nuwaclaw"
       }
     ],
     "mac": {
