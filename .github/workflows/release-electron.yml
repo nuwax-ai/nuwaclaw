@@ -1,9 +1,7 @@
 # Electron 桌面客户端 — 正式版本发布
 # 与 Tauri 客户端完全分开：使用独立 tag 与独立 GitHub Release，不共用 v* tag。
 #
-# 触发方式：
-#   - 推送 tag 匹配 electron-v*（例如 electron-v0.4.0）→ 构建全平台安装包并创建 Release
-#   - 手动触发 workflow_dispatch（输入 tag）→ 仅同步已有 Release 到阿里云 OSS
+# 触发：推送 tag electron-v* → 构建并创建 Release。OSS 同步请用 sync-oss.sh。
 #
 # 支持平台：
 #   - macOS arm64（macos-latest）
@@ -26,12 +24,6 @@ on:
   push:
     tags:
       - "electron-v*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag to sync to OSS (e.g. electron-v0.8.0)"
-        required: true
-        type: string
 
 permissions:
   contents: write
