@@ -27,7 +27,11 @@ import {
   getNodeBinPath,
   getNodeBinPathWithFallback,
 } from "../system/dependencies";
-import { getAppPaths, getBundledMcpProxyDir, isInstalledLocally } from "./packageLocator";
+import {
+  getAppPaths,
+  getBundledMcpProxyDir,
+  isInstalledLocally,
+} from "./packageLocator";
 import { resolveNpmPackageEntry } from "../utils/spawnNoWindow";
 import { APP_DATA_DIR_NAME } from "../constants";
 import { isWindows } from "../system/shellEnv";
@@ -212,7 +216,10 @@ export function extractRealMcpServers(
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
-    } else if ((args[i] === "-H" || args[i] === "--header") && i + 1 < args.length) {
+    } else if (
+      (args[i] === "-H" || args[i] === "--header") &&
+      i + 1 < args.length
+    ) {
       // Parse header format: "Key=Value" or "Key: Value"
       const headerArg = args[i + 1];
       const separatorIndex = headerArg.indexOf("=");
@@ -258,7 +265,9 @@ export function extractRealMcpServers(
       result[name] = {
         url: srv.url,
         ...(transport ? { transport } : {}),
-        ...(Object.keys(mergedHeaders).length > 0 ? { headers: mergedHeaders } : {}),
+        ...(Object.keys(mergedHeaders).length > 0
+          ? { headers: mergedHeaders }
+          : {}),
         ...(srv.authToken ? { authToken: srv.authToken } : {}),
         // 继承 bridge 入口的 allowTools/denyTools 限制
         ...(allowTools ? { allowTools } : {}),
@@ -529,14 +538,15 @@ class McpProxyManager {
    * 解析 nuwax-mcp-stdio-proxy 脚本路径（disk lookup，不使用缓存）
    *
    * 优先级：
-   * 1. NUWAX_MCP_PROXY_LOCAL_PATH 环境变量（开发调试）
+   * 1. NUWAX_MCP_PROXY_LOCAL_PATH 环境变量（开发调试，可选）
    * 2. 应用内集成版本（resources/nuwax-mcp-stdio-proxy）
-   * 3. ~/.nuwaxbot/node_modules（旧版本回退兼容）
+   *
+   * 开发和生产模式统一使用 resources/ 目录，确保行为一致
    */
   private resolveProxyScriptPath(): string | null {
     const pkgName = "nuwax-mcp-stdio-proxy";
 
-    // 1. 开发模式：优先使用本地编译版本
+    // 1. 开发模式：优先使用环境变量指定的本地路径（可选）
     const localDevPath = process.env.NUWAX_MCP_PROXY_LOCAL_PATH;
     if (localDevPath) {
       const entry = resolveNpmPackageEntry(localDevPath, pkgName);
@@ -547,11 +557,11 @@ class McpProxyManager {
         return entry;
       }
       log.warn(
-        `[McpProxy] 🔍 NUWAX_MCP_PROXY_LOCAL_PATH=${localDevPath} 未找到有效入口，回退到正式版本`,
+        `[McpProxy] 🔍 NUWAX_MCP_PROXY_LOCAL_PATH=${localDevPath} 未找到有效入口，继续尝试其他路径`,
       );
     }
 
-    // 2. 应用内集成版本（bundled resources）
+    // 2. 应用内集成版本（bundled resources）- 开发和生产统一
     const bundledDir = getBundledMcpProxyDir();
     if (bundledDir) {
       const entry = resolveNpmPackageEntry(bundledDir, pkgName);
@@ -563,22 +573,9 @@ class McpProxyManager {
       }
     }
 
-    // 3. 回退兼容: ~/.nuwaxbot/node_modules
-    const dirs = getAppPaths();
-    const packageDir = path.join(dirs.nodeModules, pkgName);
-    if (!fs.existsSync(packageDir)) {
-      log.warn(
-        `[McpProxy] 🔍 resolveProxyScriptPath: 未找到 ${pkgName}（应用内集成版本和 node_modules 均不可用）`,
-      );
-      return null;
-    }
-    const entry = resolveNpmPackageEntry(packageDir, pkgName);
-    if (entry) {
-      log.info(
-        `[McpProxy] 🔍 resolveProxyScriptPath: 使用 ~/.nuwaxbot 路径（回退兼容）: ${entry}`,
-      );
-      return entry;
-    }
+    log.warn(
+      `[McpProxy] 🔍 resolveProxyScriptPath: 未找到 ${pkgName}，请运行 npm run prepare:mcp-proxy`,
+    );
     return null;
   }
 
@@ -621,7 +618,8 @@ class McpProxyManager {
     if (!this.cachedScriptPath) {
       this.cachedScriptPath = null;
       if (!isInstalledLocally("nuwax-mcp-stdio-proxy")) {
-        const err = "nuwax-mcp-stdio-proxy 未安装，请先在依赖管理中安装或确保已 npm install";
+        const err =
+          "nuwax-mcp-stdio-proxy 未安装，请先在依赖管理中安装或确保已 npm install";
         this.lastError = err;
         return { success: false, error: err };
       }
@@ -648,7 +646,7 @@ class McpProxyManager {
       log.warn("[McpProxy]   npm run prepare:node");
       log.warn("[McpProxy] 或运行完整准备:");
       log.warn("[McpProxy]   npm run prepare:all");
-      }
+    }
 
     this.lastError = null;
     return { success: true };
@@ -704,7 +702,10 @@ class McpProxyManager {
         ) as Record<string, StdioMcpServerEntry>;
         await persistentMcpBridge.start(resolvedServers);
         this.bridgeStarted = true;
-        log.info("[McpProxy] PersistentMcpBridge 已启动（persistent servers）:", Object.keys(resolvedServers).join(", "));
+        log.info(
+          "[McpProxy] PersistentMcpBridge 已启动（persistent servers）:",
+          Object.keys(resolvedServers).join(", "),
+        );
       } catch (e) {
         log.error("[McpProxy] PersistentMcpBridge 启动失败:", e);
         throw e;
@@ -730,7 +731,8 @@ class McpProxyManager {
       running: !!this.cachedScriptPath,
       serverCount: serverNames.length,
       serverNames,
-      error: !this.cachedScriptPath && this.lastError ? this.lastError : undefined,
+      error:
+        !this.cachedScriptPath && this.lastError ? this.lastError : undefined,
     };
   }
 
@@ -862,7 +864,11 @@ class McpProxyManager {
         // 每个服务生成独立的配置文件
         const singleConfig = { mcpServers: { [name]: entry } };
         const configJson = JSON.stringify(singleConfig);
-        const configHash = crypto.createHash("md5").update(configJson).digest("hex").slice(0, 16);
+        const configHash = crypto
+          .createHash("md5")
+          .update(configJson)
+          .digest("hex")
+          .slice(0, 16);
         // 文件名包含服务名，便于调试识别
         const safeName = name.replace(/[^a-zA-Z0-9_-]/g, "_");
         const configFileName = `mcp-config-${safeName}-${configHash}.json`;
@@ -891,7 +897,9 @@ class McpProxyManager {
         };
       }
 
-      log.info(`[McpProxy] 生成 ${Object.keys(result).length} 个独立 MCP 服务配置`);
+      log.info(
+        `[McpProxy] 生成 ${Object.keys(result).length} 个独立 MCP 服务配置`,
+      );
       return result;
     }
 
@@ -947,7 +955,8 @@ function configsEqual(
     const entryA = a[key];
     const entryB = b[key];
     if (entryA.command !== entryB.command) return false;
-    if (JSON.stringify(entryA.args) !== JSON.stringify(entryB.args)) return false;
+    if (JSON.stringify(entryA.args) !== JSON.stringify(entryB.args))
+      return false;
     // persistent 标志必须一致
     if (entryA.persistent !== entryB.persistent) return false;
   }
@@ -1007,11 +1016,14 @@ export async function syncMcpConfigToProxyAndReload(
   // Bridge 只管理 persistent 服务（如 chrome-devtools），动态 MCP 不进 bridge。
   // 变更检测和重启均只针对 persistent servers，避免动态 MCP 变化时重启 chrome-devtools。
   const persistentOnly = Object.fromEntries(
-    Object.entries(mergedWithEnv).filter(([, e]) => !isRemoteEntry(e) && (e as StdioMcpServerEntry).persistent),
+    Object.entries(mergedWithEnv).filter(
+      ([, e]) => !isRemoteEntry(e) && (e as StdioMcpServerEntry).persistent,
+    ),
   ) as Record<string, StdioMcpServerEntry>;
-  const resolvedPersistent = resolveServersConfig(
-    persistentOnly,
-  ) as Record<string, StdioMcpServerEntry>;
+  const resolvedPersistent = resolveServersConfig(persistentOnly) as Record<
+    string,
+    StdioMcpServerEntry
+  >;
 
   // 更新内存配置（动态 MCP + 默认服务一并写入，供 getAgentMcpConfig 使用）
   const existing = mcpProxyManager.getConfig();
@@ -1023,13 +1035,18 @@ export async function syncMcpConfigToProxyAndReload(
 
   // Persistent servers 未变化 → 跳过 DB 写入和 bridge 重启（动态 MCP 变化不影响 bridge）
   if (configsEqual(resolvedPersistent, lastBridgeConfig)) {
-    log.info("[McpProxy] ✅ Persistent bridge 配置未变化，跳过重启（动态 MCP 走 stdio）");
+    log.info(
+      "[McpProxy] ✅ Persistent bridge 配置未变化，跳过重启（动态 MCP 走 stdio）",
+    );
     mcpProxyManager.markBridgeStarted();
     return;
   }
 
   // Persistent servers 有变化（如 chrome-devtools 配置变更）→ 持久化并重启 bridge
-  log.info("[McpProxy] 同步 MCP 配置 — 全量:", Object.keys(mergedWithEnv).join(", "));
+  log.info(
+    "[McpProxy] 同步 MCP 配置 — 全量:",
+    Object.keys(mergedWithEnv).join(", "),
+  );
   try {
     const { getDb } = await import("../../db");
     const db = getDb();

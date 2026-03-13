@@ -12,6 +12,7 @@
     "dist"
   ],
   "scripts": {
+    "prepare": "npm run build",
     "build": "tsc && node scripts/build.mjs",
     "build:tsc": "tsc",
     "test": "npm run build:tsc && vitest",
