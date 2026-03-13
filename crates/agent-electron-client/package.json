@@ -88,7 +88,7 @@
   },
   "build": {
     "appId": "com.nuwax-ai.nuwaxbot",
-    "productName": "NuwaClaw",
+    "productName": "NuwaxBot",
     "afterSign": "scripts/build/after-sign.js",
     "electronLanguages": [
       "en",
