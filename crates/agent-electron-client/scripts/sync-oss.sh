@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# 同步 Electron Release 到阿里云 OSS
-# 触发 GitHub Actions workflow release-electron.yml，将指定 tag 的构建产物同步到 OSS。
+# 同步 Electron Release 到阿里云 OSS（仅同步，不重新打包）
+# 触发 nuwaclaw 仓库的 release-electron.yml 的 workflow_dispatch，
+# 仅执行 sync-to-oss：从 GitHub Release 下载已有资产 → 生成 latest.json → 上传到 OSS。
 # 仅根据 tag 同步，分支固定为仓库默认分支（用于取 workflow 定义），用户无需关心分支。
 #
 # 用法（在 crates/agent-electron-client 目录下）:
 #   ./scripts/sync-oss.sh <tag>
 # 用法（在仓库根目录）:
 #   ./crates/agent-electron-client/scripts/sync-oss.sh <tag>
-# 示例:
-#   ./scripts/sync-oss.sh electron-v0.8.0
+# 示例（已有 Release 时只推 OSS，不触发构建）:
+#   ./scripts/sync-oss.sh electron-v0.9.0
 #
 # 依赖: gh (GitHub CLI)、jq，且需已 gh auth login。
 
