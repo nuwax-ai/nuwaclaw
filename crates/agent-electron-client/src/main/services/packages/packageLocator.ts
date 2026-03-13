@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { spawn } from 'child_process';
-import { getAppEnv } from '../system/dependencies';
+import { getAppEnv, getResourcesPath } from '../system/dependencies';
 import { APP_DATA_DIR_NAME } from '../constants';
 import { isWindows } from '../system/shellEnv';
 
@@ -451,6 +451,24 @@ export function spawnLocal(
     stdio: ['ignore', 'pipe', 'pipe'],
     shell: isWindows(),
   });
+}
+
+// ==================== Bundled MCP Proxy ====================
+
+/**
+ * 获取应用内集成的 nuwax-mcp-stdio-proxy 目录
+ *
+ * 打包后: process.resourcesPath/nuwax-mcp-stdio-proxy/
+ * 开发时: resources/nuwax-mcp-stdio-proxy/
+ *
+ * @returns 目录路径（存在且含 package.json），或 null
+ */
+export function getBundledMcpProxyDir(): string | null {
+  const bundledDir = path.join(getResourcesPath(), 'nuwax-mcp-stdio-proxy');
+  if (fs.existsSync(path.join(bundledDir, 'package.json'))) {
+    return bundledDir;
+  }
+  return null;
 }
 
 export default {

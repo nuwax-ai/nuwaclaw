@@ -40,8 +40,8 @@ crates/agent-electron-client/resources/git/
 # Bundled lanproxy: 构建时 prepare-lanproxy 从 Tauri binaries 复制当前平台二进制
 crates/agent-electron-client/resources/lanproxy/bin/
 
-# Bundled MCP proxy: 构建时 prepare-mcp-proxy 安装依赖树
-crates/agent-electron-client/resources/mcp-proxy/
+# Bundled MCP proxy: 构建时 prepare-mcp-proxy 从源码 build 并集成
+crates/agent-electron-client/resources/nuwax-mcp-stdio-proxy/
 
 # Prepare 脚本的临时下载缓存（不入库）
 crates/agent-electron-client/scripts/resources/

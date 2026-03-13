@@ -25,7 +25,8 @@
     "prepare:git": "node scripts/prepare/prepare-git.js",
     "check-ports": "node scripts/tools/check-startup-ports.js",
     "check-ports:dev": "node scripts/tools/check-startup-ports.js --vite",
-    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git",
+    "prepare:mcp-proxy": "node scripts/prepare/prepare-mcp-proxy.js",
+    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy",
     "electron-rebuild": "electron-rebuild -f -w better-sqlite3",
     "build:electron": "npm run build && npm run prepare:all && electron-builder --config.compression=maximum",
     "dist": "npm run build:electron -- --mac",
@@ -162,6 +163,13 @@
           "**/*",
           "!.cache",
           "!.cache/**"
+        ]
+      },
+      {
+        "from": "resources/nuwax-mcp-stdio-proxy",
+        "to": "nuwax-mcp-stdio-proxy",
+        "filter": [
+          "**/*"
         ]
       }
     ],

@@ -1098,16 +1098,6 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     installVersion: "1.1.63",
   },
   {
-    name: "nuwax-mcp-stdio-proxy",
-    displayName: "MCP 服务",
-    type: "npm-local",
-    description: "MCP 协议聚合代理（应用内安装）",
-    required: true,
-    minVersion: "1.0.0",
-    binName: "nuwax-mcp-stdio-proxy",
-    installVersion: "1.4.10",
-  },
-  {
     name: "claude-code-acp-ts",
     displayName: "ACP 协议",
     type: "npm-local",

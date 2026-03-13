@@ -1,7 +1,7 @@
 /**
  * MCP Proxy Manager (Electron)
  *
- * 使用 nuwax-mcp-stdio-proxy 纯 Node.js stdio 聚合代理。
+ * 使用 nuwax-mcp-stdio-proxy 纯 Node.js stdio 聚合代理（应用内集成）。
  * Agent 引擎直接 spawn proxy 进程（stdio 直通），无需 HTTP 中间层。
  *
  * proxy 同时支持两种上游传输:
@@ -9,7 +9,7 @@
  * - bridge: 连接 PersistentMcpBridge（持久化 server，如 chrome-devtools-mcp）
  *
  * Electron 侧负责：
- * - 验证 nuwax-mcp-stdio-proxy 包已安装
+ * - 从应用内集成资源加载 nuwax-mcp-stdio-proxy
  * - 管理 mcpServers 配置（持久化到 SQLite）
  * - 管理 PersistentMcpBridge 生命周期
  * - 提供 getAgentMcpConfig() 供 Agent 引擎初始化时注入
@@ -27,7 +27,7 @@ import {
   getNodeBinPath,
   getNodeBinPathWithFallback,
 } from "../system/dependencies";
-import { getAppPaths, isInstalledLocally } from "./packageLocator";
+import { getAppPaths, getBundledMcpProxyDir, isInstalledLocally } from "./packageLocator";
 import { resolveNpmPackageEntry } from "../utils/spawnNoWindow";
 import { APP_DATA_DIR_NAME } from "../constants";
 import { isWindows } from "../system/shellEnv";
@@ -528,13 +528,15 @@ class McpProxyManager {
   /**
    * 解析 nuwax-mcp-stdio-proxy 脚本路径（disk lookup，不使用缓存）
    *
-   * nuwax-mcp-stdio-proxy 不再随包集成，仅从 ~/.nuwaxbot/node_modules 安装并解析。
-   * 开发模式下可通过 NUWAX_MCP_PROXY_LOCAL_PATH 环境变量使用本地编译版本。
+   * 优先级：
+   * 1. NUWAX_MCP_PROXY_LOCAL_PATH 环境变量（开发调试）
+   * 2. 应用内集成版本（resources/nuwax-mcp-stdio-proxy）
+   * 3. ~/.nuwaxbot/node_modules（旧版本回退兼容）
    */
   private resolveProxyScriptPath(): string | null {
     const pkgName = "nuwax-mcp-stdio-proxy";
 
-    // 开发模式：优先使用本地编译版本
+    // 1. 开发模式：优先使用本地编译版本
     const localDevPath = process.env.NUWAX_MCP_PROXY_LOCAL_PATH;
     if (localDevPath) {
       const entry = resolveNpmPackageEntry(localDevPath, pkgName);
@@ -549,19 +551,31 @@ class McpProxyManager {
       );
     }
 
-    // 正常路径: ~/.nuwaxbot/node_modules
+    // 2. 应用内集成版本（bundled resources）
+    const bundledDir = getBundledMcpProxyDir();
+    if (bundledDir) {
+      const entry = resolveNpmPackageEntry(bundledDir, pkgName);
+      if (entry) {
+        log.info(
+          `[McpProxy] 🔍 resolveProxyScriptPath: 使用应用内集成版本: ${entry}`,
+        );
+        return entry;
+      }
+    }
+
+    // 3. 回退兼容: ~/.nuwaxbot/node_modules
     const dirs = getAppPaths();
     const packageDir = path.join(dirs.nodeModules, pkgName);
     if (!fs.existsSync(packageDir)) {
       log.warn(
-        `[McpProxy] 🔍 resolveProxyScriptPath: 未找到 ${pkgName}（请先在依赖管理中安装）`,
+        `[McpProxy] 🔍 resolveProxyScriptPath: 未找到 ${pkgName}（应用内集成版本和 node_modules 均不可用）`,
       );
       return null;
     }
     const entry = resolveNpmPackageEntry(packageDir, pkgName);
     if (entry) {
       log.info(
-        `[McpProxy] 🔍 resolveProxyScriptPath: 使用 ~/.nuwaxbot 路径: ${entry}`,
+        `[McpProxy] 🔍 resolveProxyScriptPath: 使用 ~/.nuwaxbot 路径（回退兼容）: ${entry}`,
       );
       return entry;
     }
