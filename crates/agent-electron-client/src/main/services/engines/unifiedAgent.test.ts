@@ -287,7 +287,7 @@ describe('filterBridgeEntries', () => {
   });
 
   it('过滤掉 basename 为 mcp-proxy 的绝对路径入口', () => {
-    const proxyAbsPath = path.join('/home', '.nuwaxbot', 'node_modules', '.bin', 'mcp-proxy');
+    const proxyAbsPath = path.join('/home', '.nuwaclaw', 'node_modules', '.bin', 'mcp-proxy');
     const input = {
       time: makeStdio('/uv', ['tool', 'run', 'mcp-time']),
       proxy: makeStdio(proxyAbsPath, ['--config-file', '/tmp/cfg.json']),

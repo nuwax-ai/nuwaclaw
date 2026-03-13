@@ -117,7 +117,7 @@ describe('readQuickInitConfig', () => {
     expect(config!.username).toBe('');
     expect(config!.agentPort).toBe(60006);
     expect(config!.fileServerPort).toBe(60005);
-    expect(config!.workspaceDir).toBe(path.join('/mock/home', '.nuwaxbot', 'workspace'));
+    expect(config!.workspaceDir).toBe(path.join('/mock/home', '.nuwaclaw', 'workspace'));
   });
 
   it('should return null when JSON has enabled: false', async () => {
@@ -189,7 +189,7 @@ describe('readQuickInitConfig', () => {
     expect(config!.savedKey).toBe('env-key-456');
     expect(config!.agentPort).toBe(60006);
     expect(config!.fileServerPort).toBe(60005);
-    expect(config!.workspaceDir).toBe(path.join('/mock/home', '.nuwaxbot', 'workspace'));
+    expect(config!.workspaceDir).toBe(path.join('/mock/home', '.nuwaclaw', 'workspace'));
   });
 
   it('should read optional env vars', async () => {
@@ -301,7 +301,7 @@ describe('readQuickInitConfig', () => {
 
     expect(config!.agentPort).toBe(60006);
     expect(config!.fileServerPort).toBe(60005);
-    expect(config!.workspaceDir).toBe(path.join('/mock/home', '.nuwaxbot', 'workspace'));
+    expect(config!.workspaceDir).toBe(path.join('/mock/home', '.nuwaclaw', 'workspace'));
     expect(config!.username).toBe('');
   });
 

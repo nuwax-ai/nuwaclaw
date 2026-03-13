@@ -13,7 +13,7 @@ import type { AgentEngineType } from '@shared/types/electron';
 export const APP_DISPLAY_NAME = 'NuwaClaw';
 
 /** 应用技术标识（进程名、目录名等，小写字母），与 appId 等保持一致 */
-export const APP_NAME_IDENTIFIER = 'nuwaxbot';
+export const APP_NAME_IDENTIFIER = 'nuwaclaw';
 
 // ==================== 端口配置 ====================
 

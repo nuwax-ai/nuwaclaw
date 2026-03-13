@@ -1,9 +1,9 @@
 /**
  * Quick Init 配置类型定义
  *
- * 通过预置 ~/.nuwaxbot/nuwaxbot.json 或环境变量快速完成初始化
+ * 通过预置 ~/.nuwaclaw/nuwaclaw.json 或环境变量快速完成初始化
  *
- * 配置优先级: nuwaxbot.json → 环境变量 → 无配置（走正常向导）
+ * 配置优先级: nuwaclaw.json → 环境变量 → 无配置（走正常向导）
  */
 
 /**

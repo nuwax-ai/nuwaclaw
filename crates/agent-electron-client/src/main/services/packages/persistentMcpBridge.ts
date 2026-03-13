@@ -1,9 +1,9 @@
 /**
  * PersistentMcpBridge — thin wrapper
  *
- * The implementation lives in nuwax-mcp-stdio-proxy, installed to ~/.nuwaxbot/node_modules.
+ * The implementation lives in nuwax-mcp-stdio-proxy, installed to ~/.nuwaclaw/node_modules.
  * This module creates a singleton with electron-log injected as the logger.
- * Uses dynamic require from ~/.nuwaxbot so the app does not bundle the package.
+ * Uses dynamic require from ~/.nuwaclaw so the app does not bundle the package.
  */
 
 import * as path from "path";

@@ -49,7 +49,7 @@ export function registerSettingsHandlers(): void {
     }
   });
 
-  // Quick Init — 读取 ~/.nuwaxbot/nuwaxbot.json 快捷配置
+  // Quick Init — 读取 ~/.nuwaclaw/nuwaclaw.json 快捷配置
   ipcMain.handle('quickInit:getConfig', () => {
     return readQuickInitConfig();
   });

@@ -3,7 +3,7 @@
  * 启动前端口检查脚本（聚合逻辑的 CLI 入口）
  *
  * 端口默认值与解析规则与 src/shared/startupPorts.ts 保持一致，请同步修改。
- * 从 ~/.nuwaxbot/nuwaxbot.db（Windows: %USERPROFILE%\.nuwaxbot\）读取配置。
+ * 从 ~/.nuwaclaw/nuwaclaw.db（Windows: %USERPROFILE%\.nuwaclaw\）读取配置。
  * 端口占用检查：优先统一用 bash 执行 scripts/tools/check-port.sh（Windows 需先 npm run prepare:git 集成 Git Bash），
  * 无 bash 或脚本时回退到 Node 内联 netstat/lsof。
  * 依赖：Node；读取 DB 需系统 sqlite3（Windows 上多数未预装，无则用默认端口）。
@@ -16,7 +16,7 @@ const { getProjectRoot } = require('../utils/project-paths');
 
 const isWin = process.platform === 'win32';
 const home = process.env.HOME || process.env.USERPROFILE;
-const dbPath = path.join(home, '.nuwaxbot', 'nuwaxbot.db');
+const dbPath = path.join(home, '.nuwaclaw', 'nuwaclaw.db');
 const projectRoot = getProjectRoot();
 const checkPortShPath = path.join(__dirname, 'check-port.sh');
 const winBashPath = path.join(projectRoot, 'resources', 'git', 'bin', 'bash.exe');

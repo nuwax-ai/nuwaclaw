@@ -49,11 +49,11 @@ describe('Constants', () => {
   describe('App Identity', () => {
     it('should have consistent app name', () => {
       expect(APP_DISPLAY_NAME).toBe('NuwaClaw');
-      expect(APP_NAME_IDENTIFIER).toBe('nuwaxbot');
+      expect(APP_NAME_IDENTIFIER).toBe('nuwaclaw');
     });
 
     it('should have app data dir name with dot prefix', () => {
-      expect(APP_DATA_DIR_NAME).toBe('.nuwaxbot');
+      expect(APP_DATA_DIR_NAME).toBe('.nuwaclaw');
     });
   });
 
