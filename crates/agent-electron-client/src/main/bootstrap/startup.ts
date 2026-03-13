@@ -53,35 +53,40 @@ export async function runStartupTasks(): Promise<void> {
   }
 
   // 客户端升级后：若 appVersion 或 installVersion 变化，后台同步初始化依赖到写死版本
-  setImmediate(async () => {
-    try {
-      const state = getInitDepsState();
-      const currentVersion = app.getVersion();
-      const versionChanged = !state || state.appVersion !== currentVersion;
-      let packagesChanged = false;
-      if (state?.packages) {
-        for (const dep of SETUP_REQUIRED_DEPENDENCIES) {
-          if (!dep.installVersion) continue;
-          if (state.packages[dep.name] !== dep.installVersion) {
-            packagesChanged = true;
-            break;
-          }
-        }
-      } else {
+  // 同步检查是否需要 dep sync，提前设置标志，避免 renderer 在 setImmediate 之前
+  // 读到 syncInProgress=false 而过早启动服务（竞态条件）
+  const state = getInitDepsState();
+  const currentVersion = app.getVersion();
+  const versionChanged = !state || state.appVersion !== currentVersion;
+  let packagesChanged = false;
+  if (state?.packages) {
+    for (const dep of SETUP_REQUIRED_DEPENDENCIES) {
+      if (!dep.installVersion) continue;
+      if (state.packages[dep.name] !== dep.installVersion) {
         packagesChanged = true;
+        break;
       }
-      if (versionChanged || packagesChanged) {
-        _depsSyncInProgress = true;
-        try {
-          const { updated } = await syncInitDependencies();
-          if (updated.length > 0) log.info('[Init] 初始化依赖已同步:', updated);
-        } finally {
-          _depsSyncInProgress = false;
-          // 通知所有渲染进程依赖同步完成，重新检测
-          for (const win of BrowserWindow.getAllWindows()) {
-            if (!win.isDestroyed()) {
-              win.webContents.send('deps:syncCompleted');
-            }
+    }
+  } else {
+    packagesChanged = true;
+  }
+  const needsSync = versionChanged || packagesChanged;
+  if (needsSync) {
+    _depsSyncInProgress = true;
+  }
+
+  setImmediate(async () => {
+    if (!needsSync) return;
+    try {
+      try {
+        const { updated } = await syncInitDependencies();
+        if (updated.length > 0) log.info('[Init] 初始化依赖已同步:', updated);
+      } finally {
+        _depsSyncInProgress = false;
+        // 通知所有渲染进程依赖同步完成，重新检测
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send('deps:syncCompleted');
           }
         }
       }

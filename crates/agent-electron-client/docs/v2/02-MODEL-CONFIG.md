@@ -221,7 +221,7 @@ class ElectronCredentialStore implements CredentialStore {
 
 ```
 ┌─────────────┐                        ┌──────────────────┐
-│  NuwaxBot   │                        │  Nuwax Agent OS  │
+│  NuwaClaw   │                        │  Nuwax Agent OS  │
 │  Desktop    │                        │  (用户部署)       │
 └──────┬──────┘                        └──────┬───────────┘
        │                                      │

@@ -41,7 +41,7 @@ import { persistentMcpBridge } from "./persistentMcpBridge";
 
 /**
  * Returns the directory containing the app-internal `uv` binary.
- * Priority: bundled resources/uv/bin → ~/.nuwaxbot/bin
+ * Priority: bundled resources/uv/bin → ~/.nuwaclaw/bin
  * Returns empty string if uv not found anywhere.
  */
 export function getUvBinDir(): string {
@@ -613,7 +613,7 @@ class McpProxyManager {
    * proxy 进程的生命周期由 Agent 引擎管理（通过 getAgentMcpConfig 注入）
    */
   async start(): Promise<{ success: boolean; error?: string }> {
-    // 优先从应用 node_modules（npm 依赖）或 ~/.nuwaxbot/node_modules 解析
+    // 优先从应用 node_modules（npm 依赖）或 ~/.nuwaclaw/node_modules 解析
     this.cachedScriptPath = this.resolveProxyScriptPath();
     if (!this.cachedScriptPath) {
       this.cachedScriptPath = null;

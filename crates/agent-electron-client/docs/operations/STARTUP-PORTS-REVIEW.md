@@ -75,7 +75,7 @@
 | **管道与 shell** | 主进程与脚本在 Windows 上执行 netstat 与 findstr 管道命令时，必须传入 `shell: true`（脚本）或 `shell: process.env.ComSpec \|\| 'cmd.exe'`（main，满足 @types/node 的 shell: string），否则管道不生效。 |
 | **PID 解析** | netstat 输出可能多行（IPv4/IPv6），取首行并用 `split(/\s+/).pop()` 取最后一列作为 PID；行分隔用 `/\r?\n/` 兼容 CRLF。 |
 | **findstr 无匹配** | 无匹配时 exit code 1，execSync 抛错，catch 后返回 inUse: false，行为正确。 |
-| **DB 路径** | 脚本用 `path.join(home, '.nuwaxbot', 'nuwaxbot.db')`，Windows 为 `%USERPROFILE%\\.nuwaxbot\\nuwaxbot.db`；调用 sqlite3 时路径可转为正斜杠以规避反斜杠转义，且 Windows 下传 `shell: true` 便于执行 sqlite3.cmd。 |
+| **DB 路径** | 脚本用 `path.join(home, '.nuwaclaw', 'nuwaclaw.db')`，Windows 为 `%USERPROFILE%\\.nuwaclaw\\nuwaclaw.db`；调用 sqlite3 时路径可转为正斜杠以规避反斜杠转义，且 Windows 下传 `shell: true` 便于执行 sqlite3.cmd。 |
 | **sqlite3** | Windows 上多数环境未预装 sqlite3，脚本读 DB 失败时已回退到默认端口并提示。 |
 
 ---

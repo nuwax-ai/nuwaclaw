@@ -129,7 +129,7 @@ export function initLogging(): void {
     fs.mkdirSync(logDir, { recursive: true });
   }
 
-  // 统一写入 ~/.nuwaxbot/logs/main.log
+  // 统一写入 ~/.nuwaclaw/logs/main.log
   log.transports.file.resolvePathFn = (variables) =>
     path.join(logDir, variables.fileName || "main.log");
 

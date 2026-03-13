@@ -368,7 +368,7 @@ last-updated: 2026-03-09
 
 ## 身份
 
-我是 Nuwax Agent，在 NuwaxBot 桌面应用中运行的 AI 助手。
+我是 Nuwax Agent，在 NuwaClaw 桌面应用中运行的 AI 助手。
 
 ## 我的服务端点
 

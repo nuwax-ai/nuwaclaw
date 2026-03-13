@@ -114,7 +114,7 @@ export function getMirrorConfig(): MirrorConfig {
 
 // ==================== App Paths ====================
 
-// 获取应用数据目录 — 统一使用 ~/.nuwaxbot/
+// 获取应用数据目录 — 统一使用 ~/.nuwaclaw/
 function getAppDataDir(): string {
   return path.join(app.getPath("home"), APP_DATA_DIR_NAME);
 }
@@ -127,7 +127,7 @@ function getAppNodeModules(): string {
   return path.join(getAppDataDir(), "node_modules");
 }
 
-/** 初始化依赖同步状态文件名（~/.nuwaxbot/.init-deps-state.json） */
+/** 初始化依赖同步状态文件名（~/.nuwaclaw/.init-deps-state.json） */
 const INIT_DEPS_STATE_FILENAME = ".init-deps-state.json";
 
 export interface InitDepsState {
@@ -360,7 +360,7 @@ function findSystemNode(): string | null {
 /**
  * 应用内集成：确保 uv 在应用内可用。
  * 若 bundled（getUvBinPath）不存在，但 resources/uv/bin 存在（如开发环境已执行 prepare:uv），
- * 则一次性复制到 ~/.nuwaxbot/bin，该目录已在 PATH 中，后续 MCP 等子进程即可找到 uv。
+ * 则一次性复制到 ~/.nuwaclaw/bin，该目录已在 PATH 中，后续 MCP 等子进程即可找到 uv。
  *
  * 注意：不创建 uvx 硬链接/复制。uv >= 0.10 的 uvx 多调用已失效（调用 uvx 不等于 uv tool run），
  * 所以 resolveUvCommand() 统一将 uvx 命令重写为 `uv tool run`。
@@ -673,7 +673,7 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
   // 追踪：PATH 中是否包含可能含 uvx 的目录（便于排查 uvx 类 MCP 不生效）
   const pathSegments = priorityPath.split(pathSep);
   const uvRelated = pathSegments.filter(
-    (p) => p && (p.includes("uv") || p.includes("nuwaxbot")),
+    (p) => p && (p.includes("uv") || p.includes("nuwaclaw")),
   );
   log.info(
     `[getAppEnv] 追踪 uv/uvx: PATH 中与 uv 相关段数=${uvRelated.length}, 前5段=${uvRelated.slice(0, 5).join(" | ") || "(无)"}`,

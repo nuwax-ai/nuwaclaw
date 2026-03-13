@@ -1,20 +1,20 @@
 /**
  * Quick Init — Main 进程读取快捷初始化配置
  *
- * 配置优先级（per-field）: nuwaxbot.json (quickInit scope) → 环境变量 → 客户端默认值
+ * 配置优先级（per-field）: nuwaclaw.json (quickInit scope) → 环境变量 → 客户端默认值
  *
  * 环境变量:
  *   NUWAX_SERVER_HOST      → serverHost       (必填)
  *   NUWAX_SAVED_KEY        → savedKey          (必填)
  *   NUWAX_AGENT_PORT       → agentPort         (可选, 默认 60006)
  *   NUWAX_FILE_SERVER_PORT → fileServerPort    (可选, 默认 60005)
- *   NUWAX_WORKSPACE_DIR    → workspaceDir      (可选, 默认 ~/.nuwaxbot/workspace)
+ *   NUWAX_WORKSPACE_DIR    → workspaceDir      (可选, 默认 ~/.nuwaclaw/workspace)
  *   NUWAX_USER_NAME        → username          (可选, 默认 '')
  *
  * 最低必填: serverHost + savedKey（来自任意源），其余用客户端默认值
  *   agentPort      → DEFAULT_AGENT_RUNNER_PORT (60006)
  *   fileServerPort → DEFAULT_FILE_SERVER_PORT  (60005)
- *   workspaceDir   → ~/.nuwaxbot/workspace
+ *   workspaceDir   → ~/.nuwaclaw/workspace
  *   username       → ''
  */
 
@@ -64,7 +64,7 @@ function pickPort(...values: (unknown)[]): number {
 /**
  * 读取快捷初始化配置
  *
- * 优先级（per-field）: nuwaxbot.json → 环境变量 → 默认值
+ * 优先级（per-field）: nuwaclaw.json → 环境变量 → 默认值
  * 结果缓存，每次启动只读一次
  */
 export function readQuickInitConfig(): QuickInitConfig | null {
@@ -72,9 +72,9 @@ export function readQuickInitConfig(): QuickInitConfig | null {
 
   const appDataDir = path.join(os.homedir(), APP_DATA_DIR_NAME);
   const defaultWorkspace = path.join(appDataDir, 'workspace');
-  const filePath = path.join(appDataDir, 'nuwaxbot.json');
+  const filePath = path.join(appDataDir, 'nuwaclaw.json');
 
-  // --- 读取 nuwaxbot.json (quickInit scope) ---
+  // --- 读取 nuwaclaw.json (quickInit scope) ---
   let json: Record<string, unknown> | null = null;
   try {
     if (fs.existsSync(filePath)) {

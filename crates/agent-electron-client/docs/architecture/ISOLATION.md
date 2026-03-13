@@ -70,7 +70,7 @@ status: design
 ## 目录结构设计
 
 ```
-~/.nuwaxbot/
+~/.nuwaclaw/
 ├── core/                      # 应用核心区（只读）
 │   ├── engines/               # 引擎二进制（应用管理）
 │   └── config/                # 应用配置（用户通过 UI 修改）
@@ -99,8 +99,8 @@ status: design
 // 应用核心：严格隔离
 const coreEnv = {
   PATH: [
-    '~/.nuwaxbot/core/engines',
-    '~/.nuwaxbot/core/bin',
+    '~/.nuwaclaw/core/engines',
+    '~/.nuwaclaw/core/bin',
   ].join(':'),
   // 最小化环境变量
 };
@@ -113,8 +113,8 @@ const coreEnv = {
 const agentEnv = {
   // 核心工具（来自应用）
   PATH: [
-    '~/.nuwaxbot/core/engines',
-    '~/.nuwaxbot/core/bin',
+    '~/.nuwaclaw/core/engines',
+    '~/.nuwaclaw/core/bin',
   ],
 
   // Agent 工作区（Agent 可添加）
@@ -174,7 +174,7 @@ interface AgentCapabilities {
 await capabilities.installNpmPackage('jq');  // 安装到工作区
 
 // 结果
-~/.nuwaxbot/workspace/{session-id}/node_modules/.bin/jq
+~/.nuwaclaw/workspace/{session-id}/node_modules/.bin/jq
 // ✅ Agent 可以使用
 // ✅ 不污染用户环境
 // ✅ 会话结束可清理
@@ -190,7 +190,7 @@ await capabilities.installNpmPackage('jq');  // 安装到工作区
 await capabilities.installNpmPackage('@nuwax/nuwaxcode@latest');
 
 // 结果
-~/.nuwaxbot/workspace/{session-id}/node_modules/.bin/nuwaxcode
+~/.nuwaclaw/workspace/{session-id}/node_modules/.bin/nuwaxcode
 // ✅ Agent 使用新版本
 // ✅ 应用核心引擎不受影响
 // ✅ 可以回滚
@@ -209,7 +209,7 @@ if (!await capabilities.hasCommand('cargo')) {
 }
 
 // 结果
-~/.nuwaxbot/workspace/{session-id}/tools/bin/cargo
+~/.nuwaclaw/workspace/{session-id}/tools/bin/cargo
 // ✅ Agent 可以编译项目
 // ✅ 不影响用户系统
 ```

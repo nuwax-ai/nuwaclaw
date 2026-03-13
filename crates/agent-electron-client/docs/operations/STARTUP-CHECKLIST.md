@@ -31,7 +31,7 @@
 **方式二：从 SQLite 读取（应用未运行时）**
 
 ```bash
-DB="$HOME/.nuwaxbot/nuwaxbot.db"
+DB="$HOME/.nuwaclaw/nuwaclaw.db"
 
 # step1_config 内含 agentPort、fileServerPort（JSON）
 sqlite3 "$DB" "SELECT value FROM settings WHERE key='step1_config';"
@@ -73,7 +73,7 @@ lsof -i :$LANPROXY_LOCAL_PORT
 **一键检查（推荐，与应用内聚合逻辑一致）：**
 
 ```bash
-# 从 ~/.nuwaxbot/nuwaxbot.db 读配置并检查占用（需系统有 sqlite3）
+# 从 ~/.nuwaclaw/nuwaclaw.db 读配置并检查占用（需系统有 sqlite3）
 npm run check-ports
 # 开发模式含 Vite 端口
 npm run check-ports:dev
@@ -82,7 +82,7 @@ npm run check-ports:dev
 **或手动从 SQLite 读取后检查（需已安装 sqlite3）：**
 
 ```bash
-DB="$HOME/.nuwaxbot/nuwaxbot.db"
+DB="$HOME/.nuwaclaw/nuwaclaw.db"
 get_port() { sqlite3 "$DB" "SELECT value FROM settings WHERE key='$1';" 2>/dev/null; }
 step1=$(get_port 'step1_config')
 agent_port=$(echo "$step1" | sed -n 's/.*"agentPort":\([0-9]*\).*/\1/p'); agent_port=${agent_port:-60001}
@@ -212,4 +212,4 @@ npm run dev
 
 ---
 
-*文档依据 `~/.nuwaxbot/logs/latest.log` 常见错误整理，最后更新：2026-02-27*
+*文档依据 `~/.nuwaclaw/logs/latest.log` 常见错误整理，最后更新：2026-02-27*

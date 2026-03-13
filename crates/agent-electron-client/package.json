@@ -1,11 +1,11 @@
 {
-  "name": "@nuwax-ai/nuwaxbot",
+  "name": "@nuwax-ai/nuwaclaw",
   "version": "0.9.0",
   "description": "NuwaClaw Desktop Client (Electron)",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
   "license": "MIT",
-  "homepage": "https://github.com/nuwax-ai/nuwax-agent-client",
+  "homepage": "https://github.com/nuwax-ai/nuwaclaw",
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
@@ -89,8 +89,8 @@
     "wait-on": "^8.0.2"
   },
   "build": {
-    "appId": "com.nuwax-ai.nuwaxbot",
-    "productName": "NuwaxBot",
+    "appId": "com.nuwax-ai.nuwaclaw",
+    "productName": "NuwaClaw",
     "afterSign": "scripts/build/after-sign.js",
     "electronLanguages": [
       "en",
@@ -178,7 +178,7 @@
       {
         "provider": "github",
         "owner": "nuwax-ai",
-        "repo": "nuwax-agent-client"
+        "repo": "nuwaclaw"
       }
     ],
     "mac": {
@@ -269,12 +269,12 @@
       "maintainer": "Nuwax Team"
     },
     "deb": {
-      "packageName": "nuwaxbot",
+      "packageName": "nuwaclaw",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "afterInstall": "scripts/linux/postinst.sh"
     },
     "rpm": {
-      "packageName": "nuwaxbot",
+      "packageName": "nuwaclaw",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "afterInstall": "scripts/linux/postinst.sh"
     },

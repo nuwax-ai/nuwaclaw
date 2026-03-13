@@ -9,7 +9,7 @@
  * - nuwaxcode:    spawn `nuwaxcode acp` (npm-local dependency)
  *
  * References Tauri client's rcoder_impl.rs pattern:
- * - Binaries installed as npm-local dependencies in ~/.nuwaxbot/node_modules/.bin/
+ * - Binaries installed as npm-local dependencies in ~/.nuwaclaw/node_modules/.bin/
  * - CLAUDE_CODE_ACP_PATH env var points to claude-code-acp-ts binary
  * - ACP protocol uses NDJSON (newline-delimited JSON) over stdin/stdout
  */
@@ -236,7 +236,7 @@ export function loadAcpSdk(): Promise<AcpSdkModule> {
 
 // ==================== Binary Path ====================
 
-/** Get ~/.nuwaxbot/ base directory */
+/** Get ~/.nuwaclaw/ base directory */
 function getAppDataDir(): string {
   return path.join(app.getPath('home'), APP_DATA_DIR_NAME);
 }
@@ -253,7 +253,7 @@ function getAcpPackageDir(packageName: string): string | null {
 /**
  * Resolve ACP binary path for a given engine type.
  *
- * - claude-code → ~/.nuwaxbot/node_modules/claude-code-acp-ts (JS entry, spawned via node)
+ * - claude-code → ~/.nuwaclaw/node_modules/claude-code-acp-ts (JS entry, spawned via node)
  * - nuwaxcode   → native Go binary (spawned directly, not via node)
  *
  * For nuwaxcode, we resolve the platform-specific native binary directly

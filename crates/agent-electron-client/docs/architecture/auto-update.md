@@ -88,7 +88,7 @@ function detectInstallerType(): InstallerType {
 
 ## 跳过版本
 
-- 用户在启动弹窗中选择"跳过此版本"后，版本号写入 `~/.nuwaxbot/.skipped-update-version`
+- 用户在启动弹窗中选择"跳过此版本"后，版本号写入 `~/.nuwaclaw/.skipped-update-version`
 - 下次启动时，若远程最新版本与已跳过版本相同，不弹窗
 - 出现更新的版本（高于已跳过版本）时，重新弹窗提示
 - 手动检查更新（About 页面 / 托盘菜单）不受跳过逻辑影响

@@ -4,9 +4,9 @@ last-updated: 2026-03-09
 status: design
 ---
 
-# NuwaxBot V2 — 完整体服务方案
+# NuwaClaw V2 — 完整体服务方案
 
-> 将 NuwaxBot 升级为**完整体智能服务平台**，
+> 将 NuwaClaw 升级为**完整体智能服务平台**，
 > 与 Nuwax 服务端（如 `https://testagent.xspaceagi.com`）深度整合，
 > 实现配置同步、技能同步、会话同步、多渠道接入和自我进化。
 
@@ -33,7 +33,7 @@ status: design
 >
 > 例如 `https://testagent.xspaceagi.com` 是一个已经运行的 Nuwax Agent 服务，
 > 拥有完整的 API 体系（模型管理、技能管理、MCP、知识库、工作流、插件、会话、Agent 配置等）。
-> NuwaxBot（Electron 客户端）是这个服务的**桌面增强体**——不是替代，而是**协同**。
+> NuwaClaw（Electron 客户端）是这个服务的**桌面增强体**——不是替代，而是**协同**。
 
 ### Space（空间）概念
 

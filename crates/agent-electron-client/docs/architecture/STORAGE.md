@@ -26,7 +26,7 @@ status: design
 ## 目录结构
 
 ```
-~/.nuwaxbot/
+~/.nuwaclaw/
 ├── soul/                          # Agent 自我认知
 │   ├── soul.md                    # 主灵魂文件
 │   ├── principles.md              # 学习到的原则
@@ -645,7 +645,7 @@ class MarkdownMemoryReader implements MemoryReader {
 向量可以存储在以下位置：
 
 ```
-~/.nuwaxbot/
+~/.nuwaclaw/
 ├── memory/
 │   ├── index.json              # 原有索引
 │   └── embeddings.json         # 新增：向量索引（可选）

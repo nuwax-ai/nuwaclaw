@@ -12,7 +12,7 @@ status: design
 用户部署后即拥有一个完整的 Agent 服务（如 `https://testagent.xspaceagi.com`），
 具备 Agent 配置、模型管理、技能管理、MCP、知识库、工作流、插件、会话等全套能力。
 
-**NuwaxBot（Electron 客户端）** 是 Nuwax Agent OS 的**桌面增强体**：
+**NuwaClaw（Electron 客户端）** 是 Nuwax Agent OS 的**桌面增强体**：
 
 - 运行在**用户电脑**或**云电脑**上（如云桌面、远程 VM）
 - **侧重使用和便捷配置**——不是复制服务器全部功能，而是提供一体化的 Agent 使用体验
@@ -33,7 +33,7 @@ status: design
 │            ↕  API 同步 (/api/model/*, /api/skill/*, ...)             │
 │                                                                      │
 │  ┌────────────────────────────────────────────────────────────────┐  │
-│  │  NuwaxBot Client — 桌面增强体（用户电脑 / 云电脑）              │  │
+│  │  NuwaClaw Client — 桌面增强体（用户电脑 / 云电脑）              │  │
 │  │                                                                │  │
 │  │  • 引擎管理 (ACP 子进程)      • 本地代码执行                    │  │
 │  │  • MCP Server 本地运行        • IM Channel 网关                │  │
@@ -260,7 +260,7 @@ interface ServiceOrchestrator {
 
 ## 四、客户端与服务器的职责划分
 
-| 能力         | 服务器 (Nuwax Agent OS)    | 客户端 (NuwaxBot · 用户电脑/云电脑) |
+| 能力         | 服务器 (Nuwax Agent OS)    | 客户端 (NuwaClaw · 用户电脑/云电脑) |
 | ------------ | -------------------------- | ----------------------------------- |
 | Agent 配置   | ✅ 权威来源                | 🔧 便捷配置入口 + 拉取同步          |
 | 模型管理     | ✅ CRUD + 连通性测试       | 🔧 便捷配置 + 本地 Provider 扩展    |
@@ -834,8 +834,8 @@ interface McpSandboxConfig {
 const DEFAULT_SANDBOX: McpSandboxConfig = {
   enabled: true,
   filesystem: {
-    allowedPaths: ["~/.nuwaxbot/workspace"],
-    deniedPaths: ["~/.ssh", "~/.gnupg", "~/.nuwaxbot/config"],
+    allowedPaths: ["~/.nuwaclaw/workspace"],
+    deniedPaths: ["~/.ssh", "~/.gnupg", "~/.nuwaclaw/config"],
     readOnlyPaths: [],
   },
   commands: {
@@ -900,7 +900,7 @@ const DEFAULT_TRANSPORT_SECURITY: TransportSecurity = {
 ## 九、数据目录结构 V2
 
 ```
-~/.nuwaxbot/
+~/.nuwaclaw/
 ├── config/
 │   ├── server.json             # Nuwax 服务端点配置（URL + Auth）
 │   ├── providers.json          # 本地 Provider 配置（加密凭据）
@@ -908,7 +908,7 @@ const DEFAULT_TRANSPORT_SECURITY: TransportSecurity = {
 │   └── settings.json           # 通用设置
 │
 ├── data/
-│   ├── nuwaxbot.db             # SQLite 主数据库
+│   ├── nuwaclaw.db             # SQLite 主数据库
 │   │   ├── sessions 表         # 会话（本地缓存 + 服务器同步）
 │   │   ├── messages 表         # 消息
 │   │   ├── skills 表           # 技能注册（与服务器同步）
