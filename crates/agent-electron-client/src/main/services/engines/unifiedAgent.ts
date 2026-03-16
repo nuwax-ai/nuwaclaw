@@ -21,6 +21,7 @@ export { mapAgentCommand, resolveAgentEnv } from './agentHelpers';
 import { AcpEngine } from './acp/acpEngine';
 import { loadAcpSdk } from './acp/acpClient';
 import { mapAgentCommand, resolveAgentEnv } from './agentHelpers';
+import { collectEnvFromProviders } from './engineHooks';
 import dependencies from '../system/dependencies';
 
 // Re-export computer types
@@ -700,6 +701,12 @@ export class UnifiedAgentService extends EventEmitter {
       const localLogDir = path.join(os.homedir(), APP_DATA_DIR_NAME, 'logs');
       log.info(`[UnifiedAgent] 📂 OPENCODE_LOG_DIR 本地化: ${mergedEnv.OPENCODE_LOG_DIR} → ${localLogDir}`);
       mergedEnv.OPENCODE_LOG_DIR = localLogDir;
+    }
+
+    // Collect env vars from registered providers (e.g., GUI Agent)
+    const hookEnv = collectEnvFromProviders();
+    if (Object.keys(hookEnv).length > 0) {
+      Object.assign(mergedEnv, hookEnv);
     }
 
     // 动态 MCP server 已由 syncMcpConfigToProxyAndReload() 同步到 proxy，

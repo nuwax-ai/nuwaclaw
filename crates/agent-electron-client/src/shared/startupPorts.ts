@@ -12,6 +12,7 @@ import {
   DEFAULT_MCP_PROXY_PORT,
   DEFAULT_LANPROXY_PORT,
   DEFAULT_DEV_SERVER_PORT,
+  DEFAULT_GUI_AGENT_PORT,
   STORAGE_KEYS,
 } from './constants';
 
@@ -26,6 +27,8 @@ export const STARTUP_PORT_DEFAULTS = {
   mcp: DEFAULT_MCP_PROXY_PORT,
   /** Lanproxy 相关本地端口（如 Agent Runner 代理） */
   lanproxyLocal: DEFAULT_LANPROXY_PORT,
+  /** GUI Agent HTTP 服务 */
+  guiAgent: DEFAULT_GUI_AGENT_PORT,
   /** Vite 开发服务器（仅开发模式） */
   vite: DEFAULT_DEV_SERVER_PORT,
 } as const;
@@ -35,6 +38,7 @@ export type StartupPorts = {
   fileServer: number;
   mcp: number;
   lanproxyLocal: number;
+  guiAgent: number;
   vite: number;
 };
 
@@ -44,6 +48,7 @@ export const STARTUP_PORT_LABELS: Record<keyof StartupPorts, string> = {
   fileServer: 'FileServer',
   mcp: 'MCP Proxy',
   lanproxyLocal: 'Lanproxy',
+  guiAgent: 'GUI Agent',
   vite: 'Vite',
 };
 
@@ -68,11 +73,15 @@ export function resolvePortsFromSettings(getSetting: GetSettingFn): StartupPorts
         ? (parseInt(mcpRaw, 10) || STARTUP_PORT_DEFAULTS.mcp)
         : STARTUP_PORT_DEFAULTS.mcp;
 
+  const guiAgentConfig = getSetting(STORAGE_KEYS.GUI_AGENT_CONFIG) as { port?: number } | null;
+  const guiAgent = guiAgentConfig?.port ?? STARTUP_PORT_DEFAULTS.guiAgent;
+
   return {
     agent,
     fileServer,
     mcp,
     lanproxyLocal: STARTUP_PORT_DEFAULTS.lanproxyLocal,
+    guiAgent,
     vite: STARTUP_PORT_DEFAULTS.vite,
   };
 }
@@ -91,6 +100,7 @@ export function getPortsToCheck(
     { name: 'fileServer', label: STARTUP_PORT_LABELS.fileServer, port: ports.fileServer },
     { name: 'mcp', label: STARTUP_PORT_LABELS.mcp, port: ports.mcp },
     { name: 'lanproxyLocal', label: STARTUP_PORT_LABELS.lanproxyLocal, port: ports.lanproxyLocal },
+    { name: 'guiAgent', label: STARTUP_PORT_LABELS.guiAgent, port: ports.guiAgent },
   ];
   if (includeVite) {
     list.push({ name: 'vite', label: STARTUP_PORT_LABELS.vite, port: ports.vite });

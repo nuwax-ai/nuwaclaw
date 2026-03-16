@@ -408,6 +408,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openSettings: (permissionKey: string) => ipcRenderer.invoke('permissions:openSettings', permissionKey),
   },
 
+  // GUI Agent
+  guiAgent: {
+    start: (config?: any) =>
+      ipcRenderer.invoke('guiAgent:start', config),
+    stop: () =>
+      ipcRenderer.invoke('guiAgent:stop'),
+    status: () =>
+      ipcRenderer.invoke('guiAgent:status'),
+    getConfig: () =>
+      ipcRenderer.invoke('guiAgent:getConfig'),
+    setConfig: (config: any) =>
+      ipcRenderer.invoke('guiAgent:setConfig', config),
+    checkPermissions: () =>
+      ipcRenderer.invoke('guiAgent:checkPermissions'),
+    requestPermission: (type: 'screenCapture' | 'accessibility') =>
+      ipcRenderer.invoke('guiAgent:requestPermission', type),
+    openPermissionSettings: (type: 'screenCapture' | 'accessibility') =>
+      ipcRenderer.invoke('guiAgent:openPermissionSettings', type),
+  },
+
   // Quick Init — 读取快捷初始化配置
   quickInit: {
     getConfig: () => ipcRenderer.invoke('quickInit:getConfig'),
