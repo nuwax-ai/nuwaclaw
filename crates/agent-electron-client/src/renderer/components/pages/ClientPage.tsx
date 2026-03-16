@@ -11,7 +11,7 @@
  *   4. Quick action buttons — navigate to settings / deps / about
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Button,
   Tag,
@@ -22,7 +22,7 @@ import {
   Input,
   Modal,
   Tooltip,
-} from 'antd';
+} from "antd";
 import {
   UserOutlined,
   LockOutlined,
@@ -39,20 +39,27 @@ import {
   QrcodeOutlined,
   ReloadOutlined,
   LoadingOutlined,
-} from '@ant-design/icons';
-import { QRCodeSVG } from 'qrcode.react';
+} from "@ant-design/icons";
+import { QRCodeSVG } from "qrcode.react";
 import {
   loginAndRegister,
   logout,
   getCurrentAuth,
   syncConfigToServer,
-} from '../../services/core/auth';
-import type { ServiceItem } from '../../App';
-import styles from '../../styles/components/ClientPage.module.css';
+} from "../../services/core/auth";
+import type { ServiceItem } from "../../App";
+import styles from "../../styles/components/ClientPage.module.css";
 
 // ======================== Types ========================
 
-type TabKey = 'client' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'about';
+type TabKey =
+  | "client"
+  | "sessions"
+  | "settings"
+  | "dependencies"
+  | "permissions"
+  | "logs"
+  | "about";
 
 interface ClientPageProps {
   onNavigate?: (tab: TabKey) => void;
@@ -76,7 +83,16 @@ interface AuthState {
 
 // ======================== Component ========================
 
-function ClientPage({ onNavigate, services, servicesLoading, startingServices, setStartingServices, onRefreshServices, authRefreshTrigger, onAuthChange }: ClientPageProps) {
+function ClientPage({
+  onNavigate,
+  services,
+  servicesLoading,
+  startingServices,
+  setStartingServices,
+  onRefreshServices,
+  authRefreshTrigger,
+  onAuthChange,
+}: ClientPageProps) {
   // ---------- Auth state ----------
   const [authState, setAuthState] = useState<AuthState>({
     isLoggedIn: false,
@@ -86,19 +102,23 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
   const [authLoading, setAuthLoading] = useState(true);
 
   // ---------- Login form ----------
-  const [loginDomain, setLoginDomain] = useState('');
-  const [loginUsername, setLoginUsername] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
+  const [loginDomain, setLoginDomain] = useState("");
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
 
   // ---------- Services ----------
-  const [stoppingServices, setStoppingServices] = useState<Set<string>>(new Set());
+  const [stoppingServices, setStoppingServices] = useState<Set<string>>(
+    new Set(),
+  );
   const isAnyStarting = (startingServices?.size ?? 0) > 0;
   const isAnyStopping = stoppingServices.size > 0;
   const isAnyOperating = isAnyStarting || isAnyStopping;
 
   // ---------- Dependencies ----------
-  const [missingDeps, setMissingDeps] = useState<{ name: string; displayName: string }[]>([]);
+  const [missingDeps, setMissingDeps] = useState<
+    { name: string; displayName: string }[]
+  >([]);
   const [depsChecked, setDepsChecked] = useState(false);
 
   // ---------- QR Code ----------
@@ -118,55 +138,69 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       });
       if (!auth.isLoggedIn) {
         // Pre-fill domain from step1 config
-        const step1 = await window.electronAPI?.settings.get('step1_config') as { serverHost?: string } | null;
+        const step1 = (await window.electronAPI?.settings.get(
+          "step1_config",
+        )) as { serverHost?: string } | null;
         if (step1?.serverHost) {
           setLoginDomain(step1.serverHost);
         }
       }
     } catch (error) {
-      console.error('[ClientPage] loadAuth failed:', error);
+      console.error("[ClientPage] loadAuth failed:", error);
     } finally {
       setAuthLoading(false);
     }
   }, []);
 
   const handleLogin = async () => {
-    if (!loginDomain) { message.warning('请输入服务域名'); return; }
-    if (!loginUsername) { message.warning('请输入账号'); return; }
-    if (!loginPassword) { message.warning('请填写动态认证码'); return; }
+    if (!loginDomain) {
+      message.warning("请输入服务域名");
+      return;
+    }
+    if (!loginUsername) {
+      message.warning("请输入账号");
+      return;
+    }
+    if (!loginPassword) {
+      message.warning("请填写动态认证码");
+      return;
+    }
 
     setLoginLoading(true);
     try {
       await loginAndRegister(loginUsername, loginPassword, {
         domain: loginDomain,
       });
-      setLoginPassword('');
+      setLoginPassword("");
       await loadAuth();
       // 标记服务已由登录流程启动，防止 App.tsx 自动重连再次启动
-      await window.electronAPI?.settings.set('_services_started_by_login', true);
+      await window.electronAPI?.settings.set(
+        "_services_started_by_login",
+        true,
+      );
       // 登录成功后自动启动服务（先启动非代理服务，同步配置后再启动代理服务）
-      const preProxyServices = ['mcpProxy', 'agent', 'fileServer'];
+      const preProxyServices = ["mcpProxy", "agent", "fileServer"];
       let agentFailed = false;
       for (const key of preProxyServices) {
         const success = await handleStartService(key, true);
-        if (key === 'agent' && !success) agentFailed = true;
+        if (key === "agent" && !success) agentFailed = true;
       }
       // 先同步配置到后端（更新端口映射），再启动代理服务
       try {
         await syncConfigToServer({ suppressToast: true });
-        console.log('[ClientPage] 登录后 reg 同步成功');
+        console.log("[ClientPage] 登录后 reg 同步成功");
       } catch (e) {
-        console.error('[ClientPage] 登录后 reg 同步失败:', e);
+        console.error("[ClientPage] 登录后 reg 同步失败:", e);
       }
       // reg 完成后（无论成败）通知父组件刷新顶部栏用户名/电脑名称
       onAuthChange?.();
       if (!agentFailed) {
-        await handleStartService('lanproxy', true);
+        await handleStartService("lanproxy", true);
       }
       await onRefreshServices();
     } catch {
       // 错误提示由 loginAndRegister 内部统一展示，此处不再重复 toast
-      setLoginPassword('');
+      setLoginPassword("");
     } finally {
       setLoginLoading(false);
     }
@@ -174,10 +208,10 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
 
   const handleLogout = async () => {
     Modal.confirm({
-      title: '确认退出登录',
-      content: '退出后将停止所有运行中的服务，需要重新登录才能使用在线功能。',
-      okText: '退出',
-      cancelText: '取消',
+      title: "确认退出登录",
+      content: "退出后将停止所有运行中的服务，需要重新登录才能使用在线功能。",
+      okText: "退出",
+      cancelText: "取消",
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
@@ -185,89 +219,50 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
           const toStop = services.filter((s) => s.running || !!s.error);
           for (const svc of toStop) {
             try {
-              if (svc.key === 'agent') await window.electronAPI?.agent.destroy();
-              else if (svc.key === 'fileServer') await window.electronAPI?.fileServer.stop();
-              else if (svc.key === 'lanproxy') await window.electronAPI?.lanproxy.stop();
-              else if (svc.key === 'mcpProxy') await window.electronAPI?.mcp.stop();
+              if (svc.key === "agent")
+                await window.electronAPI?.agent.destroy();
+              else if (svc.key === "fileServer")
+                await window.electronAPI?.fileServer.stop();
+              else if (svc.key === "lanproxy")
+                await window.electronAPI?.lanproxy.stop();
+              else if (svc.key === "mcpProxy")
+                await window.electronAPI?.mcp.stop();
             } catch (e) {
               console.error(`停止 ${svc.label} 失败:`, e);
             }
           }
           // computerServer 不在 services 列表中，需单独停止，避免进程残留导致端口冲突
-          await window.electronAPI?.computerServer.stop().catch((e: unknown) => {
-            console.error('停止 computerServer 失败:', e);
-          });
+          await window.electronAPI?.computerServer
+            .stop()
+            .catch((e: unknown) => {
+              console.error("停止 computerServer 失败:", e);
+            });
 
           await logout();
           setAuthState({ isLoggedIn: false, username: null, domain: null });
-          setWebviewVisible(false);
-          setWebviewUrl('');
           onAuthChange?.();
         } catch {
-          message.error('退出登录失败');
+          message.error("退出登录失败");
         }
       },
     });
   };
 
   const getRedirectUrl = useCallback(() => {
-    if (!authState.domain || !authState.userId) return '';
-    const normalizedDomain = authState.domain.replace(/\/+$/, '');
+    if (!authState.domain || !authState.userId) return "";
+    const normalizedDomain = authState.domain.replace(/\/+$/, "");
     return `${normalizedDomain}/api/sandbox/config/redirect/${authState.userId}`;
   }, [authState.domain, authState.userId]);
 
   const handleStartSession = async () => {
-    const url = getRedirectUrl();
-    if (!url) {
-      message.warning('登录信息不完整，请重新登录');
-      return;
-    }
-
-    // Cookie sync: 读取 token，设置 httpOnly cookie
-    try {
-      const token = await window.electronAPI?.settings.get('auth.token') as string | null;
-      if (token && authState.domain) {
-        let cookieDomain: string;
-        try {
-          cookieDomain = new URL(authState.domain).hostname;
-        } catch {
-          cookieDomain = authState.domain.replace(/^https?:\/\//, '');
-        }
-        await window.electronAPI?.session.setCookie({
-          url: authState.domain,
-          name: 'ticket',
-          value: token,
-          domain: cookieDomain,
-          httpOnly: true,
-          secure: authState.domain.startsWith('https'),
-        });
-      }
-    } catch (error) {
-      console.error('[ClientPage] Failed to set cookie:', error);
-      // cookie 失败不阻止 webview 显示
-    }
-
-    // 打开独立的 WebView 窗口（首次最大化，记住用户调整）
-    try {
-      const result = await window.electronAPI?.webview.openWindow({
-        url,
-        title: `${authState.username || '用户'}的会话`,
-      });
-      if (result?.success) {
-        message.success(result.reused ? '已切换到现有窗口' : '已打开会话窗口');
-      } else {
-        message.error('打开会话窗口失败: ' + (result?.error || '未知错误'));
-      }
-    } catch (error) {
-      console.error('[ClientPage] Failed to open webview window:', error);
-      message.error('打开会话窗口失败');
-    }
+    // Navigate to the Sessions tab (embedded webview) instead of opening a new window
+    onNavigate?.("sessions");
   };
 
   const handleShowQrCode = () => {
     const url = getRedirectUrl();
     if (!url) {
-      message.warning('无法获取会话地址');
+      message.warning("无法获取会话地址");
       return;
     }
     setQrModalVisible(true);
@@ -275,41 +270,64 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
 
   // ======================== Services ========================
 
-  const handleStartService = async (key: string, silent = false): Promise<boolean> => {
-    setStartingServices?.(prev => new Set(prev).add(key));
+  const handleStartService = async (
+    key: string,
+    silent = false,
+  ): Promise<boolean> => {
+    setStartingServices?.((prev) => new Set(prev).add(key));
     try {
       let result: { success: boolean; error?: string } | undefined;
 
-      if (key === 'agent') {
-        const agentConfig = await window.electronAPI?.settings.get('agent_config') as any;
-        const step1 = await window.electronAPI?.settings.get('step1_config') as { workspaceDir?: string } | null;
+      if (key === "agent") {
+        const agentConfig = (await window.electronAPI?.settings.get(
+          "agent_config",
+        )) as any;
+        const step1 = (await window.electronAPI?.settings.get(
+          "step1_config",
+        )) as { workspaceDir?: string } | null;
         result = await window.electronAPI?.agent.init({
-          engine: agentConfig?.type || 'claude-code',
+          engine: agentConfig?.type || "claude-code",
           apiKey: agentConfig?.apiKey,
           baseUrl: agentConfig?.apiBaseUrl,
           model: agentConfig?.model,
-          workspaceDir: step1?.workspaceDir || '',
+          workspaceDir: step1?.workspaceDir || "",
           port: agentConfig?.backendPort || undefined,
           engineBinaryPath: agentConfig?.binPath || undefined,
         });
         // ComputerServer 是 Agent 的 HTTP 接口，随 Agent 一起启动
         await window.electronAPI?.computerServer.start().catch(() => undefined);
-      } else if (key === 'fileServer') {
-        const step1 = await window.electronAPI?.settings.get('step1_config') as { fileServerPort?: number } | null;
-        result = await window.electronAPI?.fileServer.start(step1?.fileServerPort ?? 60000);
-      } else if (key === 'lanproxy') {
-        const clientKey = await window.electronAPI?.settings.get('auth.saved_key') as string | null;
-        const lpConfig = await window.electronAPI?.settings.get('lanproxy_config') as {
+      } else if (key === "fileServer") {
+        const step1 = (await window.electronAPI?.settings.get(
+          "step1_config",
+        )) as { fileServerPort?: number } | null;
+        result = await window.electronAPI?.fileServer.start(
+          step1?.fileServerPort ?? 60000,
+        );
+      } else if (key === "lanproxy") {
+        const clientKey = (await window.electronAPI?.settings.get(
+          "auth.saved_key",
+        )) as string | null;
+        const lpConfig = (await window.electronAPI?.settings.get(
+          "lanproxy_config",
+        )) as {
           serverIp?: string;
           serverPort?: number;
           ssl?: boolean;
         } | null;
-        const serverIp = lpConfig?.serverIp
-          || ((await window.electronAPI?.settings.get('lanproxy.server_host') as string | null)?.replace(/^https?:\/\//, ''));
-        const serverPort = lpConfig?.serverPort
-          || (await window.electronAPI?.settings.get('lanproxy.server_port') as number | null);
+        const serverIp =
+          lpConfig?.serverIp ||
+          (
+            (await window.electronAPI?.settings.get("lanproxy.server_host")) as
+              | string
+              | null
+          )?.replace(/^https?:\/\//, "");
+        const serverPort =
+          lpConfig?.serverPort ||
+          ((await window.electronAPI?.settings.get("lanproxy.server_port")) as
+            | number
+            | null);
         if (!serverIp || !clientKey || !serverPort) {
-          if (!silent) message.info('请先登录以获取代理服务配置');
+          if (!silent) message.info("请先登录以获取代理服务配置");
           await onRefreshServices();
           return false;
         }
@@ -319,7 +337,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
           clientKey,
           ssl: lpConfig?.ssl,
         });
-      } else if (key === 'mcpProxy') {
+      } else if (key === "mcpProxy") {
         result = await window.electronAPI?.mcp.start();
       }
 
@@ -330,7 +348,11 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       await onRefreshServices();
       return false;
     } finally {
-      setStartingServices?.(prev => { const next = new Set(prev); next.delete(key); return next; });
+      setStartingServices?.((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
     }
   };
 
@@ -343,27 +365,32 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
     // 先 reg，确保 lanproxy 等服务启动时使用最新的后端返回数据
     try {
       await syncConfigToServer({ suppressToast: true });
-      console.log('[ClientPage] 手动启动服务前 reg 同步成功');
+      console.log("[ClientPage] 手动启动服务前 reg 同步成功");
     } catch (e) {
-      console.error('[ClientPage] 手动启动服务前 reg 同步失败:', e);
+      console.error("[ClientPage] 手动启动服务前 reg 同步失败:", e);
     }
     await handleStartService(key);
     onAuthChange?.();
   };
 
   const handleStopService = async (key: string) => {
-    setStoppingServices(prev => new Set(prev).add(key));
+    setStoppingServices((prev) => new Set(prev).add(key));
     try {
-      if (key === 'agent') {
+      if (key === "agent") {
         await window.electronAPI?.agent.destroy();
         await window.electronAPI?.computerServer.stop().catch(() => {});
-      } else if (key === 'fileServer') await window.electronAPI?.fileServer.stop();
-      else if (key === 'lanproxy') await window.electronAPI?.lanproxy.stop();
-      else if (key === 'mcpProxy') await window.electronAPI?.mcp.stop();
+      } else if (key === "fileServer")
+        await window.electronAPI?.fileServer.stop();
+      else if (key === "lanproxy") await window.electronAPI?.lanproxy.stop();
+      else if (key === "mcpProxy") await window.electronAPI?.mcp.stop();
     } catch (error) {
       message.error(`停止失败: ${error}`);
     } finally {
-      setStoppingServices(prev => { const next = new Set(prev); next.delete(key); return next; });
+      setStoppingServices((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
       await onRefreshServices();
     }
   };
@@ -371,18 +398,18 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
   const handleStartAll = async () => {
     // 未登录时禁止启动全部服务，避免 agent 无 apiKey / lanproxy 无 clientKey 的半启动状态
     if (!authState.isLoggedIn) {
-      message.warning('请先登录后再启动服务');
+      message.warning("请先登录后再启动服务");
       return;
     }
     if (missingDeps.length > 0) {
-      message.warning('存在缺失依赖，请先安装');
+      message.warning("存在缺失依赖，请先安装");
       return;
     }
 
     try {
       // 先启动非代理服务，同步配置后再启动代理服务
-      const preProxyServices = ['mcpProxy', 'agent', 'fileServer'];
-      const proxyServices = ['lanproxy'];
+      const preProxyServices = ["mcpProxy", "agent", "fileServer"];
+      const proxyServices = ["lanproxy"];
       let startedCount = 0;
 
       for (const key of preProxyServices) {
@@ -397,7 +424,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       try {
         await syncConfigToServer({ suppressToast: true });
       } catch (e) {
-        console.error('[ClientPage] 同步失败:', e);
+        console.error("[ClientPage] 同步失败:", e);
       }
 
       for (const key of proxyServices) {
@@ -409,7 +436,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       }
 
       if (startedCount === 0) {
-        message.info('所有可自动启动的服务已在运行');
+        message.info("所有可自动启动的服务已在运行");
       }
     } finally {
       await onRefreshServices();
@@ -418,14 +445,16 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
 
   const handleStopAll = async () => {
     const toStop = services.filter((s) => s.running || !!s.error);
-    setStoppingServices(new Set(toStop.map(s => s.key)));
+    setStoppingServices(new Set(toStop.map((s) => s.key)));
     try {
       for (const svc of toStop) {
         try {
-          if (svc.key === 'agent') await window.electronAPI?.agent.destroy();
-          else if (svc.key === 'fileServer') await window.electronAPI?.fileServer.stop();
-          else if (svc.key === 'lanproxy') await window.electronAPI?.lanproxy.stop();
-          else if (svc.key === 'mcpProxy') await window.electronAPI?.mcp.stop();
+          if (svc.key === "agent") await window.electronAPI?.agent.destroy();
+          else if (svc.key === "fileServer")
+            await window.electronAPI?.fileServer.stop();
+          else if (svc.key === "lanproxy")
+            await window.electronAPI?.lanproxy.stop();
+          else if (svc.key === "mcpProxy") await window.electronAPI?.mcp.stop();
         } catch (error) {
           console.error(`停止 ${svc.label} 失败:`, error);
         }
@@ -451,14 +480,18 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
         // 与 App.tsx 保持一致：outdated 视为"已安装"，不阻断服务启动
         // 仅 missing / error 才视为缺失依赖
         const missing = deps.filter(
-          (d: any) => d.required && (d.status === 'missing' || d.status === 'error'),
+          (d: any) =>
+            d.required && (d.status === "missing" || d.status === "error"),
         );
         setMissingDeps(
-          missing.map((d: any) => ({ name: d.name, displayName: d.displayName || d.name })),
+          missing.map((d: any) => ({
+            name: d.name,
+            displayName: d.displayName || d.name,
+          })),
         );
       }
     } catch (error) {
-      console.error('[ClientPage] checkDependencies failed:', error);
+      console.error("[ClientPage] checkDependencies failed:", error);
     } finally {
       setDepsChecked(true);
     }
@@ -473,12 +506,18 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
 
     // 监听依赖同步完成事件（客户端升级后自动安装新版本依赖），重新检测
     const handleDepsSyncCompleted = () => {
-      console.log('[ClientPage] deps:syncCompleted, re-checking dependencies');
+      console.log("[ClientPage] deps:syncCompleted, re-checking dependencies");
       checkDependencies();
     };
-    window.electronAPI?.on('deps:syncCompleted', handleDepsSyncCompleted as any);
+    window.electronAPI?.on(
+      "deps:syncCompleted",
+      handleDepsSyncCompleted as any,
+    );
     return () => {
-      window.electronAPI?.off('deps:syncCompleted', handleDepsSyncCompleted as any);
+      window.electronAPI?.off(
+        "deps:syncCompleted",
+        handleDepsSyncCompleted as any,
+      );
     };
   }, [loadAuth, onRefreshServices, checkDependencies]);
 
@@ -513,14 +552,14 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
           <div className={styles.loggedInContainer}>
             {/* 左侧：用户信息 */}
             <div className={styles.userInfo}>
-              <CheckCircleOutlined style={{ color: 'var(--color-success)', fontSize: 14 }} />
+              <CheckCircleOutlined
+                style={{ color: "var(--color-success)", fontSize: 14 }}
+              />
               <div className={styles.userInfoText}>
                 <span className={styles.username}>
-                  {authState.username || '用户'}
+                  {authState.username || "用户"}
                 </span>
-                <div className={styles.domain}>
-                  {authState.domain || ''}
-                </div>
+                <div className={styles.domain}>{authState.domain || ""}</div>
               </div>
             </div>
 
@@ -532,7 +571,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
                 onClick={handleStartSession}
                 size="small"
                 disabled={isButtonDisabled}
-                title={!allServicesRunning ? '请先启动全部服务' : undefined}
+                title={!allServicesRunning ? "请先启动全部服务" : undefined}
               >
                 开始会话
               </Button>
@@ -541,7 +580,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
                 onClick={handleShowQrCode}
                 size="small"
                 disabled={isButtonDisabled}
-                title={!allServicesRunning ? '请先启动全部服务' : undefined}
+                title={!allServicesRunning ? "请先启动全部服务" : undefined}
               >
                 扫码使用
               </Button>
@@ -564,9 +603,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
     return (
       <div className={styles.sectionBody}>
         <Form layout="vertical" size="small" onFinish={handleLogin}>
-          <Form.Item
-            style={{ marginBottom: 10 }}
-          >
+          <Form.Item style={{ marginBottom: 10 }}>
             <Input
               prefix={<GlobalOutlined />}
               value={loginDomain}
@@ -578,9 +615,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
             />
           </Form.Item>
 
-          <Form.Item
-            style={{ marginBottom: 10 }}
-          >
+          <Form.Item style={{ marginBottom: 10 }}>
             <Input
               prefix={<UserOutlined />}
               value={loginUsername}
@@ -591,9 +626,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
             />
           </Form.Item>
 
-          <Form.Item
-            style={{ marginBottom: 12 }}
-          >
+          <Form.Item style={{ marginBottom: 12 }}>
             <Input.Password
               prefix={<LockOutlined />}
               value={loginPassword}
@@ -603,20 +636,13 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
             />
           </Form.Item>
 
-          <Button
-            type="primary"
-            htmlType="submit"
-            loading={loginLoading}
-            block
-          >
+          <Button type="primary" htmlType="submit" loading={loginLoading} block>
             登录
           </Button>
         </Form>
 
         <div className={styles.loginHint}>
-          <span className={styles.loginHintText}>
-            支持用户名、邮箱、手机号
-          </span>
+          <span className={styles.loginHintText}>支持用户名、邮箱、手机号</span>
         </div>
       </div>
     );
@@ -633,7 +659,7 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
     }
 
     return (
-      <div className={styles.sectionBody} style={{ padding: '0 16px' }}>
+      <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
         {/* 服务列表 */}
         {services.map((svc) => {
           const isStarting = startingServices?.has(svc.key);
@@ -642,29 +668,59 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
           return (
             <div key={svc.key} className={styles.serviceRow}>
               <div className={styles.serviceInfo}>
-                {(isStarting || isStopping) ? (
-                  <LoadingOutlined style={{ color: 'var(--color-info)', fontSize: 14 }} />
+                {isStarting || isStopping ? (
+                  <LoadingOutlined
+                    style={{ color: "var(--color-info)", fontSize: 14 }}
+                  />
                 ) : svc.running ? (
-                  <CheckCircleOutlined style={{ color: 'var(--color-success)', fontSize: 14 }} />
+                  <CheckCircleOutlined
+                    style={{ color: "var(--color-success)", fontSize: 14 }}
+                  />
                 ) : hasError ? (
                   <Tooltip title={svc.error}>
-                    <ExclamationCircleOutlined style={{ color: 'var(--color-error)', fontSize: 14 }} />
+                    <ExclamationCircleOutlined
+                      style={{ color: "var(--color-error)", fontSize: 14 }}
+                    />
                   </Tooltip>
                 ) : (
-                  <CloseCircleOutlined style={{ color: 'var(--color-text-tertiary)', fontSize: 14 }} />
+                  <CloseCircleOutlined
+                    style={{
+                      color: "var(--color-text-tertiary)",
+                      fontSize: 14,
+                    }}
+                  />
                 )}
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 6 }}
+                  >
                     <span className={styles.serviceLabel}>{svc.label}</span>
                     {isStarting ? (
-                      <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>启动中</Tag>
+                      <Tag
+                        color="processing"
+                        style={{ margin: 0, fontSize: 11 }}
+                      >
+                        启动中
+                      </Tag>
                     ) : isStopping ? (
-                      <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>停止中</Tag>
+                      <Tag
+                        color="processing"
+                        style={{ margin: 0, fontSize: 11 }}
+                      >
+                        停止中
+                      </Tag>
                     ) : svc.running ? (
-                      <Tag color="green" style={{ margin: 0, fontSize: 11 }}>运行中</Tag>
+                      <Tag color="green" style={{ margin: 0, fontSize: 11 }}>
+                        运行中
+                      </Tag>
                     ) : hasError ? (
                       <Tooltip title={svc.error}>
-                        <Tag color="error" style={{ margin: 0, fontSize: 11, cursor: 'help' }}>启动失败</Tag>
+                        <Tag
+                          color="error"
+                          style={{ margin: 0, fontSize: 11, cursor: "help" }}
+                        >
+                          启动失败
+                        </Tag>
                       </Tooltip>
                     ) : (
                       <Tag style={{ margin: 0, fontSize: 11 }}>已停止</Tag>
@@ -678,9 +734,13 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
 
               <div className={styles.serviceActions}>
                 {isStarting ? (
-                  <Button size="small" disabled loading>启动中</Button>
+                  <Button size="small" disabled loading>
+                    启动中
+                  </Button>
                 ) : isStopping ? (
-                  <Button size="small" disabled loading>停止中</Button>
+                  <Button size="small" disabled loading>
+                    停止中
+                  </Button>
                 ) : svc.running ? (
                   <Button
                     size="small"
@@ -731,13 +791,13 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
             <Button
               size="small"
               type="primary"
-              onClick={() => onNavigate?.('dependencies')}
+              onClick={() => onNavigate?.("dependencies")}
             >
               前往安装
             </Button>
           </div>
         }
-        type={allStopped ? 'error' : 'warning'}
+        type={allStopped ? "error" : "warning"}
         showIcon
         icon={<ExclamationCircleOutlined />}
         style={{ marginBottom: 16 }}
@@ -751,21 +811,21 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
         <div className={styles.quickActions}>
           <Button
             icon={<SettingOutlined />}
-            onClick={() => onNavigate?.('settings')}
+            onClick={() => onNavigate?.("settings")}
             size="small"
           >
             设置
           </Button>
           <Button
             icon={<AppstoreOutlined />}
-            onClick={() => onNavigate?.('dependencies')}
+            onClick={() => onNavigate?.("dependencies")}
             size="small"
           >
             依赖
           </Button>
           <Button
             icon={<InfoCircleOutlined />}
-            onClick={() => onNavigate?.('about')}
+            onClick={() => onNavigate?.("about")}
             size="small"
           >
             关于
@@ -785,7 +845,9 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       {/* Login status */}
       <div className={styles.section}>
         <div className={styles.sectionHeader}>
-          <UserOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
+          <UserOutlined
+            style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
+          />
           <span className={styles.sectionTitle}>账号状态</span>
         </div>
         {renderLoginSection()}
@@ -795,67 +857,82 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
       <div className={styles.section}>
         <div className={styles.servicesHeader}>
           <div className={styles.servicesHeaderLeft}>
-            <PlayCircleOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
+            <PlayCircleOutlined
+              style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
+            />
             <span className={styles.sectionTitle}>服务</span>
-            {!servicesLoading && (() => {
-              const runningCount = services.filter((s) => s.running).length;
-              const totalCount = services.length;
-              const hasErrors = services.some((s) => !!s.error);
-              const badgeColor = hasErrors ? 'error'
-                : runningCount === totalCount ? 'success'
-                : runningCount === 0 ? 'default'
-                : 'warning';
-              return (
-                <Tag color={badgeColor} style={{ margin: 0, fontSize: 11 }}>
-                  {runningCount}/{totalCount}
-                </Tag>
-              );
-            })()}
-              </div>
-              {!servicesLoading && (
-                <div className={styles.servicesHeaderActions}>
-                  <Button
-                    size="small"
-                    icon={<ReloadOutlined />}
-                    onClick={() => onRefreshServices()}
-                  >
-                    刷新
-                  </Button>
-                  <Button
-                    size="small"
-                    type="primary"
-                    icon={<PlayCircleOutlined />}
-                    onClick={handleStartAll}
-                    loading={isAnyStarting}
-                    disabled={!depsChecked || missingDeps.length > 0 || services.every((s) => s.running) || isAnyStopping}
-                  >
-                    启动全部
-                  </Button>
-                  <Button
-                    size="small"
-                    danger
-                    className={styles.dangerButton}
-                    icon={<PoweroffOutlined />}
-                    onClick={handleStopAll}
-                    loading={isAnyStopping}
-                    disabled={services.every((s) => !s.running && !s.error) || isAnyStarting}
-                  >
-                    停止全部
-                  </Button>
-                </div>
-              )}
-            </div>
-            {renderServicesSection()}
+            {!servicesLoading &&
+              (() => {
+                const runningCount = services.filter((s) => s.running).length;
+                const totalCount = services.length;
+                const hasErrors = services.some((s) => !!s.error);
+                const badgeColor = hasErrors
+                  ? "error"
+                  : runningCount === totalCount
+                    ? "success"
+                    : runningCount === 0
+                      ? "default"
+                      : "warning";
+                return (
+                  <Tag color={badgeColor} style={{ margin: 0, fontSize: 11 }}>
+                    {runningCount}/{totalCount}
+                  </Tag>
+                );
+              })()}
           </div>
+          {!servicesLoading && (
+            <div className={styles.servicesHeaderActions}>
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                onClick={() => onRefreshServices()}
+              >
+                刷新
+              </Button>
+              <Button
+                size="small"
+                type="primary"
+                icon={<PlayCircleOutlined />}
+                onClick={handleStartAll}
+                loading={isAnyStarting}
+                disabled={
+                  !depsChecked ||
+                  missingDeps.length > 0 ||
+                  services.every((s) => s.running) ||
+                  isAnyStopping
+                }
+              >
+                启动全部
+              </Button>
+              <Button
+                size="small"
+                danger
+                className={styles.dangerButton}
+                icon={<PoweroffOutlined />}
+                onClick={handleStopAll}
+                loading={isAnyStopping}
+                disabled={
+                  services.every((s) => !s.running && !s.error) || isAnyStarting
+                }
+              >
+                停止全部
+              </Button>
+            </div>
+          )}
+        </div>
+        {renderServicesSection()}
+      </div>
 
-          {/* Quick actions */}
-          <div className={styles.section}>
-            <div className={styles.sectionHeader}>
-              <AppstoreOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
-              <span className={styles.sectionTitle}>快捷操作</span>
-            </div>
-            {renderQuickActions()}
-          </div>
+      {/* Quick actions */}
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <AppstoreOutlined
+            style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
+          />
+          <span className={styles.sectionTitle}>快捷操作</span>
+        </div>
+        {renderQuickActions()}
+      </div>
 
       {/* QR code modal - always available */}
       <Modal
@@ -867,7 +944,10 @@ function ClientPage({ onNavigate, services, servicesLoading, startingServices, s
         width={320}
       >
         <div className={styles.qrCodeContainer}>
-          {(() => { const url = getRedirectUrl(); return url && <QRCodeSVG value={url} size={200} />; })()}
+          {(() => {
+            const url = getRedirectUrl();
+            return url && <QRCodeSVG value={url} size={200} />;
+          })()}
         </div>
       </Modal>
     </div>
