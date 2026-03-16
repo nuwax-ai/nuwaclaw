@@ -108,9 +108,7 @@ export interface LocalDependencyItem {
 }
 
 export interface DependenciesAPI {
-  checkAll: (options?: {
-    checkLatest?: boolean;
-  }) => Promise<{
+  checkAll: (options?: { checkLatest?: boolean }) => Promise<{
     success: boolean;
     results?: LocalDependencyItem[];
     error?: string;
@@ -389,6 +387,7 @@ export interface AppAPI {
   installUpdate: () => Promise<{ success: boolean; error?: string }>;
   getUpdateState: () => Promise<UpdateState>;
   openReleasesPage: () => Promise<{ success: boolean }>;
+  getDeviceId: () => Promise<string>;
 }
 
 export type PermissionStatus = "granted" | "denied" | "unknown";
@@ -499,9 +498,7 @@ export interface MirrorAPI {
 }
 
 export interface DialogAPI {
-  openDirectory: (
-    title?: string,
-  ) => Promise<{
+  openDirectory: (title?: string) => Promise<{
     success: boolean;
     path?: string;
     canceled?: boolean;
