@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   buildRedirectUrl,
+  buildNewSessionUrl,
+  buildChatSessionUrl,
   syncSessionCookie,
   syncCookieAndGetRedirectUrl,
+  syncCookieAndGetNewSessionUrl,
+  syncCookieAndGetChatUrl,
 } from "./sessionUrl";
 
 const mockSettings = { get: vi.fn() };
@@ -24,19 +28,47 @@ beforeEach(() => {
 describe("buildRedirectUrl", () => {
   it("strips trailing slashes and builds correct URL", () => {
     expect(buildRedirectUrl("https://example.com///", "user1")).toBe(
-      "https://example.com/api/sandbox/config/redirect/user1",
+      "https://example.com/api/sandbox/config/redirect/user1?hideMenu=true",
     );
     expect(buildRedirectUrl("https://example.com/", "user1")).toBe(
-      "https://example.com/api/sandbox/config/redirect/user1",
+      "https://example.com/api/sandbox/config/redirect/user1?hideMenu=true",
     );
     expect(buildRedirectUrl("https://example.com", "user1")).toBe(
-      "https://example.com/api/sandbox/config/redirect/user1",
+      "https://example.com/api/sandbox/config/redirect/user1?hideMenu=true",
     );
   });
 
-  it("works with numeric userId", () => {
+  it("works with numeric configId", () => {
     expect(buildRedirectUrl("https://example.com", 42)).toBe(
-      "https://example.com/api/sandbox/config/redirect/42",
+      "https://example.com/api/sandbox/config/redirect/42?hideMenu=true",
+    );
+  });
+});
+
+describe("buildNewSessionUrl", () => {
+  it("builds correct new-session URL", () => {
+    expect(buildNewSessionUrl("https://example.com", 42)).toBe(
+      "https://example.com/api/sandbox/config/redirect/new/42?hideMenu=true",
+    );
+  });
+
+  it("strips trailing slashes", () => {
+    expect(buildNewSessionUrl("https://example.com///", 42)).toBe(
+      "https://example.com/api/sandbox/config/redirect/new/42?hideMenu=true",
+    );
+  });
+});
+
+describe("buildChatSessionUrl", () => {
+  it("builds correct URL with session id", () => {
+    expect(buildChatSessionUrl("https://example.com", "sess-abc-123")).toBe(
+      "https://example.com/api/sandbox/config/redirect/chat/sess-abc-123?hideMenu=true",
+    );
+  });
+
+  it("strips trailing slashes", () => {
+    expect(buildChatSessionUrl("https://example.com///", "s1")).toBe(
+      "https://example.com/api/sandbox/config/redirect/chat/s1?hideMenu=true",
     );
   });
 });
@@ -117,7 +149,7 @@ describe("syncCookieAndGetRedirectUrl", () => {
     expect(mockSession.setCookie).not.toHaveBeenCalled();
   });
 
-  it("returns URL and syncs cookie when all present", async () => {
+  it("returns redirect URL and syncs cookie when all present", async () => {
     mockGetCurrentAuth.mockResolvedValue({
       isLoggedIn: true,
       userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
@@ -125,7 +157,9 @@ describe("syncCookieAndGetRedirectUrl", () => {
     mockSettings.get.mockResolvedValue("my-token");
 
     const result = await syncCookieAndGetRedirectUrl();
-    expect(result).toBe("https://example.com/api/sandbox/config/redirect/7");
+    expect(result).toBe(
+      "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
+    );
     expect(mockSession.setCookie).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "https://example.com",
@@ -144,7 +178,85 @@ describe("syncCookieAndGetRedirectUrl", () => {
     mockSettings.get.mockResolvedValue(null);
 
     const result = await syncCookieAndGetRedirectUrl();
-    expect(result).toBe("https://example.com/api/sandbox/config/redirect/7");
+    expect(result).toBe(
+      "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
+    );
+    expect(mockSession.setCookie).not.toHaveBeenCalled();
+  });
+});
+
+describe("syncCookieAndGetNewSessionUrl", () => {
+  it("returns null when not logged in", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: false,
+      userInfo: null,
+    });
+
+    const result = await syncCookieAndGetNewSessionUrl();
+    expect(result).toBeNull();
+  });
+
+  it("returns new-session URL and syncs cookie", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
+    });
+    mockSettings.get.mockResolvedValue("my-token");
+
+    const result = await syncCookieAndGetNewSessionUrl();
+    expect(result).toBe(
+      "https://example.com/api/sandbox/config/redirect/new/7?hideMenu=true",
+    );
+    expect(mockSession.setCookie).toHaveBeenCalled();
+  });
+});
+
+describe("syncCookieAndGetChatUrl", () => {
+  it("returns null when not logged in", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: false,
+      userInfo: null,
+    });
+
+    const result = await syncCookieAndGetChatUrl("sess-1");
+    expect(result).toBeNull();
+  });
+
+  it("returns null when domain is missing", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { id: 1, username: "u" },
+    });
+
+    const result = await syncCookieAndGetChatUrl("sess-1");
+    expect(result).toBeNull();
+  });
+
+  it("returns chat URL and syncs cookie", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
+    });
+    mockSettings.get.mockResolvedValue("my-token");
+
+    const result = await syncCookieAndGetChatUrl("sess-abc");
+    expect(result).toBe(
+      "https://example.com/api/sandbox/config/redirect/chat/sess-abc?hideMenu=true",
+    );
+    expect(mockSession.setCookie).toHaveBeenCalled();
+  });
+
+  it("returns chat URL without cookie when token is null", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
+    });
+    mockSettings.get.mockResolvedValue(null);
+
+    const result = await syncCookieAndGetChatUrl("sess-abc");
+    expect(result).toBe(
+      "https://example.com/api/sandbox/config/redirect/chat/sess-abc?hideMenu=true",
+    );
     expect(mockSession.setCookie).not.toHaveBeenCalled();
   });
 });

@@ -48,6 +48,7 @@ import {
   syncConfigToServer,
 } from "../../services/core/auth";
 import type { ServiceItem } from "../../App";
+import { buildRedirectUrl } from "../../services/utils/sessionUrl";
 import styles from "../../styles/components/ClientPage.module.css";
 
 // ======================== Types ========================
@@ -250,8 +251,7 @@ function ClientPage({
 
   const getRedirectUrl = useCallback(() => {
     if (!authState.domain || !authState.userId) return "";
-    const normalizedDomain = authState.domain.replace(/\/+$/, "");
-    return `${normalizedDomain}/api/sandbox/config/redirect/${authState.userId}`;
+    return buildRedirectUrl(authState.domain, authState.userId);
   }, [authState.domain, authState.userId]);
 
   const handleStartSession = async () => {
