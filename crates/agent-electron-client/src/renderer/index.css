@@ -172,6 +172,12 @@ body {
   transition: background-color 0.2s ease;
 }
 
+/* Full-width mode: no padding (used when webview is active) */
+.app-content.app-content-fullwidth {
+  padding: 0;
+  overflow: hidden;
+}
+
 /* ========== 滚动条 ========== */
 ::-webkit-scrollbar {
   width: 5px;

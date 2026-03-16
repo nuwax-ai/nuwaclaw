@@ -23,6 +23,7 @@ import {
   Spin,
 } from 'antd';
 import { FolderOutlined, SaveOutlined, EditOutlined, SettingOutlined, DesktopOutlined } from '@ant-design/icons';
+import GUIAgentSettings from '../settings/GUIAgentSettings';
 import { APP_DISPLAY_NAME, APP_DATA_DIR_NAME } from '@shared/constants';
 import { setupService, Step1Config, DEFAULT_STEP1_CONFIG } from '../../services/core/setup';
 import {
@@ -433,6 +434,11 @@ export default function SettingsPage() {
           </Form>
         </div>
       </div> */}
+
+      {/* GUI Agent 设置 */}
+      <div className={styles.section}>
+        <GUIAgentSettings />
+      </div>
 
       {/* 系统设置 */}
       <div className={styles.section}>

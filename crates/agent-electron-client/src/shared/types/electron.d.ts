@@ -2,7 +2,12 @@
 
 export type McpServerEntry =
   | { command: string; args: string[]; env?: Record<string, string> }
-  | { url: string; transport?: 'streamable-http' | 'sse'; headers?: Record<string, string>; authToken?: string };
+  | {
+      url: string;
+      transport?: "streamable-http" | "sse";
+      headers?: Record<string, string>;
+      authToken?: string;
+    };
 
 export interface McpServersConfig {
   mcpServers: Record<string, McpServerEntry>;
@@ -23,7 +28,9 @@ export interface MCPAPI {
   restart: () => Promise<{ success: boolean; error?: string }>;
   status: () => Promise<McpProxyStatus>;
   getConfig: () => Promise<McpServersConfig>;
-  setConfig: (config: McpServersConfig) => Promise<{ success: boolean; error?: string }>;
+  setConfig: (
+    config: McpServersConfig,
+  ) => Promise<{ success: boolean; error?: string }>;
   /** @deprecated no-op, port is no longer used */
   getPort: () => Promise<number>;
   /** @deprecated no-op, port is no longer used */
@@ -31,7 +38,12 @@ export interface MCPAPI {
 }
 
 export interface LanproxyAPI {
-  start: (config: { serverIp: string; serverPort: number; clientKey: string; ssl?: boolean }) => Promise<{ success: boolean; error?: string }>;
+  start: (config: {
+    serverIp: string;
+    serverPort: number;
+    clientKey: string;
+    ssl?: boolean;
+  }) => Promise<{ success: boolean; error?: string }>;
   stop: () => Promise<{ success: boolean; error?: string }>;
   status: () => Promise<{ running: boolean; pid?: number; error?: string }>;
   /** 当前平台是否有 lanproxy 二进制（用于设置页提示「当前平台暂不支持」） */
@@ -39,9 +51,21 @@ export interface LanproxyAPI {
 }
 
 export interface AgentRunnerAPI {
-  start: (config: { binPath: string; backendPort: number; proxyPort: number; apiKey: string; apiBaseUrl: string; defaultModel: string }) => Promise<{ success: boolean; error?: string }>;
+  start: (config: {
+    binPath: string;
+    backendPort: number;
+    proxyPort: number;
+    apiKey: string;
+    apiBaseUrl: string;
+    defaultModel: string;
+  }) => Promise<{ success: boolean; error?: string }>;
   stop: () => Promise<{ success: boolean; error?: string }>;
-  status: () => Promise<{ running: boolean; pid?: number; backendUrl?: string; proxyUrl?: string }>;
+  status: () => Promise<{
+    running: boolean;
+    pid?: number;
+    backendUrl?: string;
+    proxyUrl?: string;
+  }>;
 }
 
 export interface FileServerAPI {
@@ -56,12 +80,19 @@ export interface ComputerServerAPI {
   status: () => Promise<{ running: boolean; port?: number; error?: string }>;
 }
 
-export type DependencyStatus = 'checking' | 'installed' | 'missing' | 'outdated' | 'installing' | 'bundled' | 'error';
+export type DependencyStatus =
+  | "checking"
+  | "installed"
+  | "missing"
+  | "outdated"
+  | "installing"
+  | "bundled"
+  | "error";
 
 export interface LocalDependencyItem {
   name: string;
   displayName: string;
-  type: 'system' | 'bundled' | 'npm-local' | 'npm-global' | 'shell-installer';
+  type: "system" | "bundled" | "npm-local" | "npm-global" | "shell-installer";
   description: string;
   required: boolean;
   minVersion?: string;
@@ -77,17 +108,57 @@ export interface LocalDependencyItem {
 }
 
 export interface DependenciesAPI {
-  checkAll: (options?: { checkLatest?: boolean }) => Promise<{ success: boolean; results?: LocalDependencyItem[]; error?: string; syncInProgress?: boolean }>;
-  checkNode: () => Promise<{ success: boolean; installed?: boolean; version?: string; meetsRequirement?: boolean; bundled?: boolean; binPath?: string; error?: string }>;
-  checkUv: () => Promise<{ success: boolean; installed?: boolean; version?: string; meetsRequirement?: boolean; bundled?: boolean; error?: string }>;
-  detectPackage: (packageName: string, binName?: string) => Promise<{ success: boolean; installed?: boolean; version?: string; binPath?: string; error?: string }>;
-  installPackage: (packageName: string, options?: { registry?: string; version?: string }) => Promise<{ success: boolean; version?: string; binPath?: string; error?: string }>;
-  installMissing: () => Promise<{ success: boolean; results?: Array<{ name: string; success: boolean; error?: string }> }>;
+  checkAll: (options?: { checkLatest?: boolean }) => Promise<{
+    success: boolean;
+    results?: LocalDependencyItem[];
+    error?: string;
+    syncInProgress?: boolean;
+  }>;
+  checkNode: () => Promise<{
+    success: boolean;
+    installed?: boolean;
+    version?: string;
+    meetsRequirement?: boolean;
+    bundled?: boolean;
+    binPath?: string;
+    error?: string;
+  }>;
+  checkUv: () => Promise<{
+    success: boolean;
+    installed?: boolean;
+    version?: string;
+    meetsRequirement?: boolean;
+    bundled?: boolean;
+    error?: string;
+  }>;
+  detectPackage: (
+    packageName: string,
+    binName?: string,
+  ) => Promise<{
+    success: boolean;
+    installed?: boolean;
+    version?: string;
+    binPath?: string;
+    error?: string;
+  }>;
+  installPackage: (
+    packageName: string,
+    options?: { registry?: string; version?: string },
+  ) => Promise<{
+    success: boolean;
+    version?: string;
+    binPath?: string;
+    error?: string;
+  }>;
+  installMissing: () => Promise<{
+    success: boolean;
+    results?: Array<{ name: string; success: boolean; error?: string }>;
+  }>;
   getAppDataDir: () => Promise<string>;
   getRequiredList: () => Promise<LocalDependencyItem[]>;
 }
 
-export type AgentEngine = 'claude-code' | 'nuwaxcode';
+export type AgentEngine = "claude-code" | "nuwaxcode";
 
 export interface EngineStartConfig {
   engine: AgentEngine;
@@ -110,16 +181,26 @@ export interface EngineAPI {
   checkGlobal: (engine: string) => Promise<boolean>;
   getVersion: (engine: string) => Promise<string | null>;
   findBinary: (engine: string) => Promise<string | null>;
-  install: (engine: string, options?: { registry?: string }) => Promise<{ success: boolean; error?: string }>;
-  start: (config: EngineStartConfig) => Promise<{ success: boolean; error?: string; engineId?: string }>;
+  install: (
+    engine: string,
+    options?: { registry?: string },
+  ) => Promise<{ success: boolean; error?: string }>;
+  start: (
+    config: EngineStartConfig,
+  ) => Promise<{ success: boolean; error?: string; engineId?: string }>;
   stop: (engineId: string) => Promise<{ success: boolean; error?: string }>;
-  status: (engineId?: string) => Promise<EngineStatus | Record<string, EngineStatus>>;
-  send: (engineId: string, message: string) => Promise<{ success: boolean; error?: string }>;
+  status: (
+    engineId?: string,
+  ) => Promise<EngineStatus | Record<string, EngineStatus>>;
+  send: (
+    engineId: string,
+    message: string,
+  ) => Promise<{ success: boolean; error?: string }>;
   stopAll: () => Promise<{ success: boolean }>;
 }
 
 // SDK types (simplified for renderer use)
-export type AgentEngineType = 'nuwaxcode' | 'claude-code';
+export type AgentEngineType = "nuwaxcode" | "claude-code";
 
 export interface AgentInitConfig {
   engine: AgentEngineType;
@@ -132,8 +213,11 @@ export interface AgentInitConfig {
   timeout?: number;
   engineBinaryPath?: string;
   env?: Record<string, string>;
-  mcpServers?: Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
-  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions';
+  mcpServers?: Record<
+    string,
+    { command: string; args: string[]; env?: Record<string, string> }
+  >;
+  permissionMode?: "default" | "acceptEdits" | "bypassPermissions";
   systemPrompt?: string;
 }
 
@@ -155,7 +239,11 @@ export interface AgentEventPayload {
   data: unknown;
 }
 
-type ApiResult<T = unknown> = Promise<{ success: boolean; data?: T; error?: string }>;
+type ApiResult<T = unknown> = Promise<{
+  success: boolean;
+  data?: T;
+  error?: string;
+}>;
 
 export interface AgentAPI {
   // Unified Agent SDK
@@ -163,11 +251,17 @@ export interface AgentAPI {
   destroy: () => ApiResult;
   getEngineType: () => Promise<AgentEngineType | null>;
   isReady: () => Promise<boolean>;
-  serviceStatus: () => Promise<{ running: boolean; engineType?: AgentEngineType | null }>;
+  serviceStatus: () => Promise<{
+    running: boolean;
+    engineType?: AgentEngineType | null;
+  }>;
 
   // Session management (SDK)
   listSessions: () => ApiResult<SdkSession[]>;
-  createSession: (opts?: { parentID?: string; title?: string }) => ApiResult<SdkSession>;
+  createSession: (opts?: {
+    parentID?: string;
+    title?: string;
+  }) => ApiResult<SdkSession>;
   getSession: (id: string) => ApiResult<SdkSession>;
   deleteSession: (id: string) => ApiResult;
   updateSession: (id: string, title?: string) => ApiResult<SdkSession>;
@@ -175,24 +269,59 @@ export interface AgentAPI {
   forkSession: (id: string, messageId?: string) => ApiResult<SdkSession>;
 
   // Messages
-  getMessages: (sessionId: string, limit?: number) => ApiResult<MessageWithParts[]>;
-  getMessage: (sessionId: string, messageId: string) => ApiResult<MessageWithParts>;
+  getMessages: (
+    sessionId: string,
+    limit?: number,
+  ) => ApiResult<MessageWithParts[]>;
+  getMessage: (
+    sessionId: string,
+    messageId: string,
+  ) => ApiResult<MessageWithParts>;
 
   // Prompt / Command / Shell
-  prompt: (sessionId: string, parts: unknown[], opts?: unknown) => ApiResult<MessageWithParts>;
-  promptAsync: (sessionId: string, parts: unknown[], opts?: unknown) => ApiResult;
-  command: (sessionId: string, cmd: string, args?: string, opts?: unknown) => ApiResult<MessageWithParts>;
-  shell: (sessionId: string, cmd: string, agent?: string, model?: unknown) => ApiResult<MessageWithParts>;
+  prompt: (
+    sessionId: string,
+    parts: unknown[],
+    opts?: unknown,
+  ) => ApiResult<MessageWithParts>;
+  promptAsync: (
+    sessionId: string,
+    parts: unknown[],
+    opts?: unknown,
+  ) => ApiResult;
+  command: (
+    sessionId: string,
+    cmd: string,
+    args?: string,
+    opts?: unknown,
+  ) => ApiResult<MessageWithParts>;
+  shell: (
+    sessionId: string,
+    cmd: string,
+    agent?: string,
+    model?: unknown,
+  ) => ApiResult<MessageWithParts>;
 
   // Abort
   abort: (sessionId: string) => ApiResult;
 
   // Permission
-  respondPermission: (sessionId: string, permissionId: string, response: 'once' | 'always' | 'reject') => ApiResult;
+  respondPermission: (
+    sessionId: string,
+    permissionId: string,
+    response: "once" | "always" | "reject",
+  ) => ApiResult;
 
   // Session operations
-  getSessionDiff: (sessionId: string, messageId?: string) => ApiResult<unknown[]>;
-  revert: (sessionId: string, messageId: string, partId?: string) => ApiResult<SdkSession>;
+  getSessionDiff: (
+    sessionId: string,
+    messageId?: string,
+  ) => ApiResult<unknown[]>;
+  revert: (
+    sessionId: string,
+    messageId: string,
+    partId?: string,
+  ) => ApiResult<SdkSession>;
   unrevert: (sessionId: string) => ApiResult<SdkSession>;
   shareSession: (sessionId: string) => ApiResult<SdkSession>;
 
@@ -219,9 +348,17 @@ export interface AgentAPI {
   // Claude Code specific
   claudePrompt: (message: string) => ApiResult<string>;
 
+  // Sessions tab (detailed view)
+  listSessionsDetailed: () => ApiResult<import("./sessions").DetailedSession[]>;
+  stopSession: (sessionId: string) => ApiResult;
+
   // SSE Event listening
-  onEvent: (callback: (event: unknown, data: AgentEventPayload) => void) => void;
-  offEvent: (callback: (event: unknown, data: AgentEventPayload) => void) => void;
+  onEvent: (
+    callback: (event: unknown, data: AgentEventPayload) => void,
+  ) => void;
+  offEvent: (
+    callback: (event: unknown, data: AgentEventPayload) => void,
+  ) => void;
 }
 
 export interface AutolaunchAPI {
@@ -231,7 +368,7 @@ export interface AutolaunchAPI {
 
 export interface LogEntry {
   timestamp: string;
-  level: 'info' | 'warn' | 'error' | 'debug';
+  level: "info" | "warn" | "error" | "debug";
   message: string;
 }
 
@@ -241,7 +378,7 @@ export interface LogAPI {
   list: (count?: number, offset?: number) => Promise<LogEntry[]>;
 }
 
-import type { UpdateInfo, UpdateState } from './updateTypes';
+import type { UpdateInfo, UpdateState } from "./updateTypes";
 
 export interface AppAPI {
   checkUpdate: () => Promise<UpdateInfo>;
@@ -250,9 +387,10 @@ export interface AppAPI {
   installUpdate: () => Promise<{ success: boolean; error?: string }>;
   getUpdateState: () => Promise<UpdateState>;
   openReleasesPage: () => Promise<{ success: boolean }>;
+  getDeviceId: () => Promise<string>;
 }
 
-export type PermissionStatus = 'granted' | 'denied' | 'unknown';
+export type PermissionStatus = "granted" | "denied" | "unknown";
 
 export interface PermissionItem {
   key: string;
@@ -263,7 +401,9 @@ export interface PermissionItem {
 
 export interface PermissionsAPI {
   check: () => Promise<PermissionItem[]>;
-  openSettings: (permissionKey: string) => Promise<{ success: boolean; error?: string }>;
+  openSettings: (
+    permissionKey: string,
+  ) => Promise<{ success: boolean; error?: string }>;
 }
 
 import type { GuiAgentConfig, GuiAgentStatus, GuiPermissionInfo } from './guiAgentTypes';
@@ -294,7 +434,7 @@ export type {
   ComputerAgentStatusResponse,
   ComputerAgentStopResponse,
   ComputerAgentCancelResponse,
-} from './computerTypes';
+} from "./computerTypes";
 
 import type {
   HttpResult,
@@ -304,24 +444,48 @@ import type {
   ComputerAgentStatusResponse,
   ComputerAgentStopResponse,
   ComputerAgentCancelResponse,
-} from './computerTypes';
+} from "./computerTypes";
 
 export interface ComputerAPI {
   chat(request: ComputerChatRequest): Promise<HttpResult<ComputerChatResponse>>;
-  agentStatus(request: { user_id: string; project_id?: string }): Promise<HttpResult<ComputerAgentStatusResponse>>;
-  agentStop(request: { user_id: string; project_id?: string }): Promise<HttpResult<ComputerAgentStopResponse>>;
-  cancelSession(request: { user_id: string; project_id?: string; session_id?: string }): Promise<HttpResult<ComputerAgentCancelResponse>>;
-  health(): Promise<{ status: string; engineType?: string | null; timestamp: string }>;
-  onProgress(callback: (event: unknown, data: UnifiedSessionMessage) => void): void;
-  offProgress(callback: (event: unknown, data: UnifiedSessionMessage) => void): void;
+  agentStatus(request: {
+    user_id: string;
+    project_id?: string;
+  }): Promise<HttpResult<ComputerAgentStatusResponse>>;
+  agentStop(request: {
+    user_id: string;
+    project_id?: string;
+  }): Promise<HttpResult<ComputerAgentStopResponse>>;
+  cancelSession(request: {
+    user_id: string;
+    project_id?: string;
+    session_id?: string;
+  }): Promise<HttpResult<ComputerAgentCancelResponse>>;
+  health(): Promise<{
+    status: string;
+    engineType?: string | null;
+    timestamp: string;
+  }>;
+  onProgress(
+    callback: (event: unknown, data: UnifiedSessionMessage) => void,
+  ): void;
+  offProgress(
+    callback: (event: unknown, data: UnifiedSessionMessage) => void,
+  ): void;
 }
 
 export interface ServicesAPI {
-  restartAll: () => Promise<{ success: boolean; results?: Record<string, { success: boolean; error?: string }> }>;
-  stopAll: () => Promise<{ success: boolean; results?: Record<string, { success: boolean; error?: string }> }>;
+  restartAll: () => Promise<{
+    success: boolean;
+    results?: Record<string, { success: boolean; error?: string }>;
+  }>;
+  stopAll: () => Promise<{
+    success: boolean;
+    results?: Record<string, { success: boolean; error?: string }>;
+  }>;
 }
 
-export type TrayStatus = 'running' | 'stopped' | 'error' | 'starting';
+export type TrayStatus = "running" | "stopped" | "error" | "starting";
 
 export interface TrayAPI {
   updateStatus: (status: TrayStatus) => Promise<void>;
@@ -334,15 +498,28 @@ export interface MirrorPresets {
 }
 
 export interface MirrorAPI {
-  get: () => Promise<{ success: boolean; npmRegistry: string; uvIndexUrl: string; presets: MirrorPresets }>;
-  set: (config: { npmRegistry?: string; uvIndexUrl?: string }) => Promise<{ success: boolean; error?: string }>;
+  get: () => Promise<{
+    success: boolean;
+    npmRegistry: string;
+    uvIndexUrl: string;
+    presets: MirrorPresets;
+  }>;
+  set: (config: {
+    npmRegistry?: string;
+    uvIndexUrl?: string;
+  }) => Promise<{ success: boolean; error?: string }>;
 }
 
 export interface DialogAPI {
-  openDirectory: (title?: string) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
+  openDirectory: (title?: string) => Promise<{
+    success: boolean;
+    path?: string;
+    canceled?: boolean;
+    error?: string;
+  }>;
 }
 
-import type { QuickInitConfig } from './quickInit';
+import type { QuickInitConfig } from "./quickInit";
 
 export interface QuickInitAPI {
   getConfig: () => Promise<QuickInitConfig | null>;

@@ -139,7 +139,7 @@ jobs:
 
       # pnpm install 会建立 workspace 链接，nuwax-mcp-stdio-proxy 通过 prepare 脚本自动构建
       - name: Install workspace dependencies
-        run: pnpm install --filter @nuwax-ai/nuwaxbot...
+        run: pnpm install --filter @nuwax-ai/nuwaclaw...
 
       # 为 Electron 内嵌 Node 重编 better-sqlite3，避免 Linux arm64 等平台运行时 "cannot open shared object file"
       - name: Rebuild native modules for Electron

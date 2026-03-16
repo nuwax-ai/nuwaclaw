@@ -248,6 +248,13 @@ async function cleanupAllProcesses(): Promise<void> {
   }
 
   try {
+    const { stopGuiAgentServer } = require('./services/gui');
+    await stopGuiAgentServer();
+  } catch (e) {
+    log.warn('[Cleanup] GUI Agent server stop error:', e);
+  }
+
+  try {
     await agentService.destroy();
   } catch (e) {
     log.error('[Cleanup] Agent service destroy error:', e);

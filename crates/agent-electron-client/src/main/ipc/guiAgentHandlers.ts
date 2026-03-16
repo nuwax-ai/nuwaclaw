@@ -153,4 +153,19 @@ export function registerGuiAgentHandlers(): void {
   });
 
   log.info('[GuiAgent] IPC handlers + engine hooks registered');
+
+  // Auto-start if config has enabled: true
+  (async () => {
+    try {
+      const saved = readSetting(STORAGE_KEYS.GUI_AGENT_CONFIG) as GuiAgentConfig | null;
+      const config = { ...DEFAULT_GUI_AGENT_CONFIG, ...saved };
+      if (config.enabled) {
+        log.info('[GuiAgent] Auto-starting (config.enabled=true)...');
+        await startGuiAgentServer(config);
+        log.info('[GuiAgent] Auto-start complete');
+      }
+    } catch (e) {
+      log.warn('[GuiAgent] Auto-start failed (non-fatal):', e);
+    }
+  })();
 }

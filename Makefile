@@ -439,7 +439,7 @@ ELECTRON_CLIENT := agent-electron-client
 electron-install-deps:
 	@echo ">>> Installing Electron client dependencies (via pnpm workspace)..."
 	@echo ">>> nuwax-mcp-stdio-proxy will be auto-built via prepare script"
-	pnpm install --filter @nuwax-ai/nuwaxbot...
+	pnpm install --filter @nuwax-ai/nuwaclaw...
 
 .PHONY: electron-rebuild
 electron-rebuild:
