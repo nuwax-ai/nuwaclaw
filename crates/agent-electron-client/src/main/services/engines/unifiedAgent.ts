@@ -1159,8 +1159,9 @@ export class UnifiedAgentService extends EventEmitter {
     for (const [projectId, engine] of this.engines) {
       const session = engine.findSessionByProjectId(sessionId);
       if (session) {
+        const pid = engine.getProcessPid();
         log.info(
-          `[UnifiedAgent] Stopping session ${sessionId} in engine ${projectId}`,
+          `[UnifiedAgent] Stopping session ${sessionId} (internal=${session.id}) in engine ${projectId}, pid=${pid}, sessionCount=${engine.sessionCount}`,
         );
         try {
           await engine.abortSession(session.id);
@@ -1173,24 +1174,43 @@ export class UnifiedAgentService extends EventEmitter {
           log.warn(`[UnifiedAgent] Delete session error:`, e);
         }
 
+        log.info(
+          `[UnifiedAgent] After delete: sessionCount=${engine.sessionCount}`,
+        );
+
         // If no sessions remain in this engine, destroy it to clean up MCP child processes.
         // PersistentMcpBridge (browser MCP) is unaffected — it runs in the Electron main process.
         // Next session creation will auto-create a new engine via ensureEngineForRequest().
         if (engine.sessionCount === 0) {
           log.info(
-            `[UnifiedAgent] No sessions left, destroying engine ${projectId}`,
+            `[UnifiedAgent] No sessions left, destroying engine ${projectId} (pid=${pid})`,
           );
           engine.removeAllListeners();
           await engine.destroy();
           this.engines.delete(projectId);
           this.engineConfigs.delete(projectId);
           this.engineRawMcpServers.delete(projectId);
+          log.info(
+            `[UnifiedAgent] Engine ${projectId} destroyed, remaining engines: ${this.engines.size}`,
+          );
+        } else {
+          log.info(
+            `[UnifiedAgent] Engine ${projectId} still has ${engine.sessionCount} session(s), NOT destroying`,
+          );
         }
 
         return true;
       }
     }
-    log.warn(`[UnifiedAgent] Session not found for stop: ${sessionId}`);
+    log.warn(
+      `[UnifiedAgent] Session not found for stop: ${sessionId}, engines=${this.engines.size}, all sessions: ${JSON.stringify(
+        this.listAllSessionsDetailed().map((s) => ({
+          id: s.id,
+          projectId: s.projectId,
+          title: s.title,
+        })),
+      )}`,
+    );
     return false;
   }
 

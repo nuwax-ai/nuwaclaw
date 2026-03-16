@@ -2,9 +2,16 @@
  * Process tree kill utility.
  *
  * Kills a process and all its descendants to prevent zombie processes.
- * - Unix: Uses process group kill (-pid) when spawned with detached: true
- * - Windows: Uses taskkill /T /F /PID for tree kill
- * - Fallback: SIGTERM → wait → SIGKILL
+ *
+ * Strategy (Unix):
+ * 1. Try process group kill (-pid) — works when spawned with detached: true
+ *    and setsid() succeeds (PGID = pid).
+ * 2. Fall back to recursive descendant kill via `pgrep -P` — handles the case
+ *    where detached: true didn't create a new process group (e.g. dev mode
+ *    under make → Electron, where all processes share the terminal's PGID).
+ * 3. Kill the root process directly.
+ *
+ * Windows: Uses taskkill /T /F /PID for tree kill.
  */
 
 import { execFile } from "child_process";
@@ -30,8 +37,8 @@ export async function killProcessTree(
 
 /**
  * Kill a process tree with graceful escalation:
- * 1. Send SIGTERM (or specified signal) to the process tree
- * 2. Wait up to `timeoutMs` for the process to exit
+ * 1. Send SIGTERM to the process tree
+ * 2. Wait up to `timeoutMs` for the root process to exit
  * 3. If still alive, send SIGKILL to the process tree
  *
  * @param pid - Process ID to kill
@@ -41,14 +48,14 @@ export async function killProcessTreeGraceful(
   pid: number,
   timeoutMs = 5000,
 ): Promise<void> {
-  // Step 1: Send SIGTERM
+  // Step 1: Send SIGTERM to the entire tree
   try {
     await killProcessTree(pid, "SIGTERM");
   } catch (e) {
     log.warn(`[processTree] SIGTERM failed for pid ${pid}:`, e);
   }
 
-  // Step 2: Wait for process to exit
+  // Step 2: Wait for root process to exit
   const alive = await waitForExit(pid, timeoutMs);
 
   // Step 3: Escalate to SIGKILL if still alive
@@ -84,38 +91,102 @@ function killProcessTreeWindows(pid: number): Promise<void> {
   });
 }
 
-function killProcessTreeUnix(
+/**
+ * Kill a process and all its descendants on Unix.
+ *
+ * Two strategies, tried in order:
+ * 1. Process group kill: `kill(-pid, signal)` — fast, kills all processes whose
+ *    PGID equals `pid`. Works when child was spawned with `detached: true` and
+ *    setsid() actually created a new process group.
+ * 2. Recursive descendant kill: walks the process tree using `pgrep -P` and
+ *    kills each descendant bottom-up. This handles the case where the process
+ *    group was NOT changed (e.g. Electron dev mode under make, where all
+ *    processes share the terminal's PGID).
+ */
+async function killProcessTreeUnix(
   pid: number,
   signal: NodeJS.Signals,
 ): Promise<void> {
-  return new Promise((resolve) => {
-    try {
-      // Try process group kill first (requires detached: true on spawn)
-      process.kill(-pid, signal);
-      log.info(`[processTree] Sent ${signal} to process group -${pid}`);
-    } catch (e: any) {
-      if (e.code === "ESRCH") {
-        // Process already gone
-        log.info(`[processTree] Process group -${pid} already exited`);
-      } else {
-        // Process group kill failed, try direct kill
-        log.warn(
-          `[processTree] Group kill failed, trying direct kill for pid ${pid}:`,
-          e.message,
-        );
-        try {
-          process.kill(pid, signal);
-        } catch (e2: any) {
-          if (e2.code !== "ESRCH") {
-            log.warn(
-              `[processTree] Direct kill also failed for pid ${pid}:`,
-              e2.message,
-            );
-          }
-        }
+  let groupKillWorked = false;
+
+  // Strategy 1: Try process group kill
+  try {
+    process.kill(-pid, signal);
+    groupKillWorked = true;
+    log.info(`[processTree] Sent ${signal} to process group -${pid}`);
+  } catch (e: any) {
+    if (e.code === "ESRCH") {
+      // ESRCH from group kill means no process with PGID=pid exists.
+      // But the process itself may still be alive with a different PGID
+      // (e.g. dev mode where detached: true didn't create a new group).
+      log.info(
+        `[processTree] No process group -${pid}, falling back to descendant kill`,
+      );
+    } else {
+      log.warn(`[processTree] Group kill failed for pid ${pid}:`, e.message);
+    }
+  }
+
+  // Strategy 2: Recursive descendant kill (always run as safety net)
+  if (!groupKillWorked) {
+    const descendants = await getDescendants(pid);
+    if (descendants.length > 0) {
+      log.info(
+        `[processTree] Killing ${descendants.length} descendant(s) of pid ${pid}: ${descendants.join(",")}`,
+      );
+    }
+    // Kill bottom-up (children first, then parent)
+    for (const childPid of descendants.reverse()) {
+      try {
+        process.kill(childPid, signal);
+      } catch {
+        // ESRCH — already dead, ignore
       }
     }
-    resolve();
+    // Kill root process
+    try {
+      process.kill(pid, signal);
+    } catch (e: any) {
+      if (e.code !== "ESRCH") {
+        log.warn(`[processTree] Direct kill failed for pid ${pid}:`, e.message);
+      }
+    }
+  }
+}
+
+/**
+ * Get all descendant PIDs of a process (children, grandchildren, etc.)
+ * using `pgrep -P`. Returns PIDs in depth-first order.
+ */
+async function getDescendants(pid: number): Promise<number[]> {
+  const result: number[] = [];
+  const children = await getChildPids(pid);
+  for (const child of children) {
+    result.push(child);
+    const grandchildren = await getDescendants(child);
+    result.push(...grandchildren);
+  }
+  return result;
+}
+
+/**
+ * Get direct child PIDs of a process using `pgrep -P`.
+ */
+function getChildPids(pid: number): Promise<number[]> {
+  return new Promise((resolve) => {
+    execFile("pgrep", ["-P", String(pid)], (err, stdout) => {
+      if (err || !stdout.trim()) {
+        // No children or pgrep failed
+        resolve([]);
+        return;
+      }
+      const pids = stdout
+        .trim()
+        .split("\n")
+        .map((s) => parseInt(s, 10))
+        .filter((n) => !isNaN(n));
+      resolve(pids);
+    });
   });
 }
 

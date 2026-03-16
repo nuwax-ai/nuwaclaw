@@ -49,7 +49,10 @@ import type {
 import { memoryService } from "../../memory";
 import type { ModelConfig } from "../../memory/types";
 import { redactForLog, redactStringForLog } from "../../utils/logRedact";
-import { killProcessTreeGraceful } from "../../utils/processTree";
+import {
+  killProcessTree,
+  killProcessTreeGraceful,
+} from "../../utils/processTree";
 import { processRegistry } from "../../system/processRegistry";
 import type { DetailedSession } from "@shared/types/sessions";
 
@@ -255,14 +258,11 @@ export class AcpEngine extends EventEmitter {
         // Unregister from process registry
         if (exitPid) {
           processRegistry.unregister(exitPid);
-          // Send SIGTERM to the process group to clean up MCP child processes.
-          // The parent ACP process is already dead, but children in the same
-          // process group (spawned with detached: true) may still be alive.
-          try {
-            process.kill(-exitPid, "SIGTERM");
-          } catch {
-            // ESRCH = group already gone, expected
-          }
+          // Kill remaining child processes (MCP proxy + MCP servers).
+          // The parent ACP process is already dead, but children may still be alive.
+          // Use killProcessTree which handles both process group kill and
+          // recursive descendant kill (for when detached didn't create a new PGID).
+          killProcessTree(exitPid, "SIGTERM").catch(() => {});
         }
         if (this._ready) {
           this._ready = false;
@@ -335,6 +335,7 @@ export class AcpEngine extends EventEmitter {
     // Kill ACP process tree (prevents zombie child processes)
     if (this.acpProcess) {
       const pid = this.acpProcess.pid;
+      log.info(`${this.logTag} Killing ACP process tree, pid=${pid}`);
       // Unregister from process registry before killing
       if (pid) {
         processRegistry.unregister(pid);
@@ -356,6 +357,9 @@ export class AcpEngine extends EventEmitter {
         if (pid) {
           // Use process tree kill to ensure all child processes are cleaned up
           await killProcessTreeGraceful(pid, 5000);
+          log.info(
+            `${this.logTag} killProcessTreeGraceful completed for pid=${pid}`,
+          );
         } else {
           this.acpProcess.kill();
         }
