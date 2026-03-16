@@ -87,7 +87,13 @@ function updateLatestLog(logDir: string): void {
   if (!fs.existsSync(mainPath)) return;
   const latestPath = path.join(logDir, LATEST_LOG_FILENAME);
   try {
-    if (fs.existsSync(latestPath)) fs.unlinkSync(latestPath);
+    // 用 lstatSync 检测：existsSync 对 dangling symlink 返回 false，导致无法删除旧链接
+    try {
+      fs.lstatSync(latestPath);
+      fs.unlinkSync(latestPath);
+    } catch {
+      /* 不存在 */
+    }
     if (process.platform === "win32") {
       fs.linkSync(mainPath, latestPath);
     } else {

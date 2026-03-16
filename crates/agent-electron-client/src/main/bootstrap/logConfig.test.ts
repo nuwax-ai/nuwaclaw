@@ -53,6 +53,7 @@ const mockUnlinkSync = vi.fn();
 const mockSymlinkSync = vi.fn();
 const mockLinkSync = vi.fn();
 const mockStatSync = vi.fn();
+const mockLstatSync = vi.fn();
 const mockReaddirSync = vi.fn((..._args: unknown[]) => [] as unknown[]);
 
 vi.mock("fs", () => ({
@@ -63,6 +64,7 @@ vi.mock("fs", () => ({
   symlinkSync: (...args: unknown[]) => mockSymlinkSync(...args),
   linkSync: (...args: unknown[]) => mockLinkSync(...args),
   statSync: (...args: unknown[]) => mockStatSync(...args),
+  lstatSync: (...args: unknown[]) => mockLstatSync(...args),
   readdirSync: (...args: unknown[]) => mockReaddirSync(...args),
 }));
 
@@ -435,6 +437,50 @@ describe("logConfig", () => {
       initLogging();
 
       // 应先 unlink 旧的 latest.log
+      const unlinkCalls = mockUnlinkSync.mock.calls.map((c) => c[0] as string);
+      expect(unlinkCalls).toContain(path.join(LOG_DIR, "latest.log"));
+
+      // 再创建新的符号链接
+      expect(mockSymlinkSync).toHaveBeenCalledWith(
+        "main.2026-03-16.log",
+        path.join(LOG_DIR, "latest.log"),
+        "file",
+      );
+
+      Object.defineProperty(process, "platform", {
+        value: originalPlatform,
+        configurable: true,
+      });
+    });
+
+    it("dangling symlink 应被正确替换", async () => {
+      freezeDate("2026-03-16");
+
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, "platform", {
+        value: "darwin",
+        configurable: true,
+      });
+
+      // existsSync 对 dangling symlink 返回 false（目标不存在）
+      // lstatSync 对 dangling symlink 成功返回（链接本身存在）
+      mockExistsSync.mockImplementation((p: unknown) => {
+        const s = p as string;
+        if (s.endsWith("main.2026-03-16.log")) return true;
+        if (s.endsWith("latest.log")) return false; // dangling: 目标不存在
+        return true;
+      });
+      mockLstatSync.mockImplementation((p: unknown) => {
+        const s = p as string;
+        if (s.endsWith("latest.log")) return {}; // lstat 成功 → 链接本身存在
+        return {};
+      });
+      mockReaddirSync.mockReturnValue([]);
+
+      const { initLogging } = await import("./logConfig");
+      initLogging();
+
+      // lstatSync 发现链接存在 → unlinkSync 删除 dangling symlink
       const unlinkCalls = mockUnlinkSync.mock.calls.map((c) => c[0] as string);
       expect(unlinkCalls).toContain(path.join(LOG_DIR, "latest.log"));
 
