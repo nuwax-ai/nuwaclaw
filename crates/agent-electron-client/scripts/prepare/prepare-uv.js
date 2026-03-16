@@ -245,7 +245,6 @@ async function main() {
   try {
     await downloadAndPrepare(key, suffix, version);
     // Write .platform-key marker after successful download
-    const platformKeyFile = path.join(destBin, '.platform-key');
     if (fs.existsSync(destBin)) {
       fs.writeFileSync(platformKeyFile, key, 'utf-8');
       console.log(`[prepare-uv] 已写入 .platform-key: ${key}`);
