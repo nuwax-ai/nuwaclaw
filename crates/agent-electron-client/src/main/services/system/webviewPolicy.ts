@@ -65,6 +65,20 @@ function setupWindowOpen(): void {
         }
         return { action: "deny" };
       });
+
+      // Webview captures keyboard events — they don't bubble to the host page.
+      // Intercept Ctrl/Cmd+Shift+I here to open webview DevTools.
+      webContents.on("before-input-event", (event, input) => {
+        if (
+          input.type === "keyDown" &&
+          input.shift &&
+          (input.control || input.meta) &&
+          input.key.toLowerCase() === "i"
+        ) {
+          event.preventDefault();
+          webContents.openDevTools();
+        }
+      });
     });
 
     // BrowserWindow 内部的 window.open（独立 webview 窗口等）

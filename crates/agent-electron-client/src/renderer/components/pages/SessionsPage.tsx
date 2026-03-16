@@ -81,18 +81,9 @@ function SessionsPage({
     };
   }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Ctrl+Shift+I to open webview DevTools (dev mode only)
-  useEffect(() => {
-    if (view !== "webview") return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "I") {
-        e.preventDefault();
-        (webviewRef.current as any)?.openDevTools?.();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [view]);
+  // Note: Ctrl/Cmd+Shift+I for webview DevTools is handled in the main process
+  // (webviewPolicy.ts) via before-input-event, because keyboard events inside
+  // a <webview> don't bubble to the host renderer page.
 
   // ---------- Sessions ----------
   const [sessions, setSessions] = useState<DetailedSession[]>([]);
