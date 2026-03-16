@@ -129,7 +129,7 @@ export function registerGuiAgentHandlers(): void {
   ipcMain.handle('guiAgent:requestPermission', async (_, type: 'screenCapture' | 'accessibility') => {
     try {
       if (type === 'screenCapture') {
-        const result = requestScreenCapturePermission();
+        const result = await requestScreenCapturePermission();
         return { success: result };
       }
       if (type === 'accessibility') {

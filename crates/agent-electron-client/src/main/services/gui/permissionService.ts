@@ -7,7 +7,7 @@
  * - Linux: X11 自动支持；Wayland 受限；需要 xdotool
  */
 
-import { systemPreferences, shell } from 'electron';
+import { desktopCapturer, systemPreferences, shell } from 'electron';
 import { execSync } from 'child_process';
 import log from 'electron-log';
 import type { GuiPermissionInfo, GuiPermissionState } from '@shared/types/guiAgentTypes';
@@ -107,12 +107,23 @@ function checkLinuxPermissions(): GuiPermissionInfo {
 
 /**
  * macOS: 请求屏幕录制权限 (触发系统弹窗)
+ *
+ * 调用 desktopCapturer.getSources() 触发 macOS 的屏幕录制授权弹窗。
+ * 如果用户已经授权或拒绝过，不会再弹窗。
  */
-export function requestScreenCapturePermission(): boolean {
+export async function requestScreenCapturePermission(): Promise<boolean> {
   if (process.platform !== 'darwin') return false;
-  // desktopCapturer 调用会触发系统弹窗
-  log.info(`${TAG} Requesting screen capture permission (will trigger system prompt)`);
-  return true;
+  try {
+    log.info(`${TAG} Requesting screen capture permission via desktopCapturer`);
+    // Calling getSources triggers the macOS screen recording permission prompt
+    const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } });
+    const granted = sources.length > 0 && !sources[0].thumbnail.isEmpty();
+    log.info(`${TAG} Screen capture permission: ${granted ? 'granted' : 'not granted'}`);
+    return granted;
+  } catch (e) {
+    log.error(`${TAG} Failed to request screen capture permission:`, e);
+    return false;
+  }
 }
 
 /**

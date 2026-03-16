@@ -30,7 +30,7 @@ import {
   resetRateLimiter,
   getToken,
 } from './securityManager';
-import type { GuiAgentConfig, GuiAgentStatus } from '@shared/types/guiAgentTypes';
+import type { GuiAgentConfig, GuiAgentStatus, InputAction, ScreenshotRequest } from '@shared/types/guiAgentTypes';
 import { DEFAULT_GUI_AGENT_CONFIG } from '@shared/types/guiAgentTypes';
 
 const TAG = '[GuiAgentServer]';
@@ -42,7 +42,7 @@ let currentConfig: GuiAgentConfig = { ...DEFAULT_GUI_AGENT_CONFIG };
 
 // ==================== Helpers ====================
 
-function parseBody(req: http.IncomingMessage): Promise<any> {
+function parseBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     let body = '';
     let size = 0;
@@ -57,13 +57,103 @@ function parseBody(req: http.IncomingMessage): Promise<any> {
     });
     req.on('end', () => {
       try {
-        resolve(body ? JSON.parse(body) : {});
+        const parsed = body ? JSON.parse(body) : {};
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+          reject(new Error('Request body must be a JSON object'));
+          return;
+        }
+        resolve(parsed as Record<string, unknown>);
       } catch (e) {
         reject(e);
       }
     });
     req.on('error', reject);
   });
+}
+
+const VALID_INPUT_TYPES = new Set([
+  'mouse_move', 'mouse_click', 'mouse_double_click',
+  'mouse_drag', 'mouse_scroll', 'keyboard_type',
+  'keyboard_press', 'keyboard_hotkey',
+]);
+
+function validateInputAction(body: Record<string, unknown>): InputAction {
+  const action = body.action;
+  if (!action || typeof action !== 'object' || Array.isArray(action)) {
+    throw new Error('Missing or invalid action object');
+  }
+  const act = action as Record<string, unknown>;
+  if (typeof act.type !== 'string' || !VALID_INPUT_TYPES.has(act.type)) {
+    throw new Error(`Invalid action type: ${String(act.type)}`);
+  }
+
+  // Validate required fields per action type
+  switch (act.type) {
+    case 'mouse_move':
+    case 'mouse_click':
+    case 'mouse_double_click':
+    case 'mouse_scroll':
+      if (typeof act.x !== 'number' || typeof act.y !== 'number') {
+        throw new Error(`Action ${act.type} requires numeric x and y`);
+      }
+      if (act.type === 'mouse_scroll' && typeof act.deltaY !== 'number') {
+        throw new Error('mouse_scroll requires numeric deltaY');
+      }
+      break;
+    case 'mouse_drag':
+      if (typeof act.startX !== 'number' || typeof act.startY !== 'number' ||
+          typeof act.endX !== 'number' || typeof act.endY !== 'number') {
+        throw new Error('mouse_drag requires numeric startX, startY, endX, endY');
+      }
+      break;
+    case 'keyboard_type':
+      if (typeof act.text !== 'string') {
+        throw new Error('keyboard_type requires string text');
+      }
+      break;
+    case 'keyboard_press':
+      if (typeof act.key !== 'string') {
+        throw new Error('keyboard_press requires string key');
+      }
+      break;
+    case 'keyboard_hotkey':
+      if (!Array.isArray(act.keys) || !act.keys.every((k: unknown) => typeof k === 'string')) {
+        throw new Error('keyboard_hotkey requires string[] keys');
+      }
+      break;
+  }
+
+  return act as unknown as InputAction;
+}
+
+function validateScreenshotRequest(body: Record<string, unknown>): ScreenshotRequest {
+  const opts: ScreenshotRequest = {};
+  if (body.scale !== undefined) {
+    if (typeof body.scale !== 'number') throw new Error('scale must be a number');
+    opts.scale = body.scale;
+  }
+  if (body.format !== undefined) {
+    if (body.format !== 'png' && body.format !== 'jpeg') throw new Error('format must be "png" or "jpeg"');
+    opts.format = body.format;
+  }
+  if (body.quality !== undefined) {
+    if (typeof body.quality !== 'number') throw new Error('quality must be a number');
+    opts.quality = body.quality;
+  }
+  if (body.displayIndex !== undefined) {
+    if (typeof body.displayIndex !== 'number') throw new Error('displayIndex must be a number');
+    opts.displayIndex = body.displayIndex;
+  }
+  if (body.region !== undefined) {
+    const r = body.region as Record<string, unknown>;
+    if (!r || typeof r !== 'object' ||
+        typeof r.x !== 'number' || typeof r.y !== 'number' ||
+        typeof r.width !== 'number' || typeof r.height !== 'number') {
+      throw new Error('region must have numeric x, y, width, height');
+    }
+    opts.region = { x: r.x, y: r.y, width: r.width, height: r.height };
+  }
+  return opts;
 }
 
 function sendJson(res: http.ServerResponse, statusCode: number, data: unknown) {
@@ -116,8 +206,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     // POST /gui/screenshot
     if (pathname === '/gui/screenshot' && method === 'POST') {
       const body = await parseBody(req);
+      const opts = validateScreenshotRequest(body);
       const result = await takeScreenshot(
-        body,
+        opts,
         currentConfig.screenshotScale,
         currentConfig.screenshotFormat,
         currentConfig.screenshotQuality,
@@ -130,13 +221,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     // POST /gui/input
     if (pathname === '/gui/input' && method === 'POST') {
       const body = await parseBody(req);
-      if (!body.action || !body.action.type) {
-        sendError(res, 400, 'Missing action or action.type');
-        return;
-      }
-      const result = await executeInput(body.action, body.delay);
+      const action = validateInputAction(body);
+      const delayMs = typeof body.delay === 'number' ? body.delay : undefined;
+      const result = await executeInput(action, delayMs);
       sendSuccess(res, result);
-      logAudit({ path: pathname, action: `input:${body.action.type}`, success: true, elapsed: Date.now() - t0 });
+      logAudit({ path: pathname, action: `input:${action.type}`, success: true, elapsed: Date.now() - t0 });
       return;
     }
 
@@ -167,8 +256,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     // 404
     sendError(res, 404, `Not found: ${pathname}`);
     logAudit({ path: pathname, action: 'not_found', success: false, error: '404' });
-  } catch (error: any) {
-    const msg = error.message || String(error);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
     log.error(`${TAG} Request error: ${pathname}`, msg);
     sendError(res, 500, msg);
     logAudit({ path: pathname, action: 'error', success: false, error: msg, elapsed: Date.now() - t0 });
@@ -225,19 +314,26 @@ export function startGuiAgentServer(config?: Partial<GuiAgentConfig>): Promise<{
  * 停止 GUI Agent HTTP Server
  */
 export function stopGuiAgentServer(): Promise<void> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     if (!server) {
       resolve();
       return;
     }
 
-    server.close(() => {
-      log.info(`${TAG} Stopped`);
-      server = null;
-      lastError = null;
-      clearToken();
-      resetRateLimiter();
-      resolve();
+    const s = server;
+    server = null;
+    lastError = null;
+    clearToken();
+    resetRateLimiter();
+
+    s.close((err) => {
+      if (err) {
+        log.error(`${TAG} Stop error:`, err);
+        reject(err);
+      } else {
+        log.info(`${TAG} Stopped`);
+        resolve();
+      }
     });
   });
 }

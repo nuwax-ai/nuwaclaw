@@ -18,9 +18,13 @@ export type EnvProvider = () => Record<string, string> | undefined;
 
 const envProviders: EnvProvider[] = [];
 
-/** Register a function that returns extra env vars to inject into engine processes. */
-export function registerEnvProvider(provider: EnvProvider): void {
+/** Register a function that returns extra env vars to inject into engine processes. Returns an unregister function. */
+export function registerEnvProvider(provider: EnvProvider): () => void {
   envProviders.push(provider);
+  return () => {
+    const idx = envProviders.indexOf(provider);
+    if (idx >= 0) envProviders.splice(idx, 1);
+  };
 }
 
 /** Collect env vars from all registered providers. */
@@ -43,9 +47,13 @@ export type PromptEnhancer = (basePrompt: string | undefined) => string | undefi
 
 const promptEnhancers: PromptEnhancer[] = [];
 
-/** Register a function that can append/modify the system prompt. */
-export function registerPromptEnhancer(enhancer: PromptEnhancer): void {
+/** Register a function that can append/modify the system prompt. Returns an unregister function. */
+export function registerPromptEnhancer(enhancer: PromptEnhancer): () => void {
   promptEnhancers.push(enhancer);
+  return () => {
+    const idx = promptEnhancers.indexOf(enhancer);
+    if (idx >= 0) promptEnhancers.splice(idx, 1);
+  };
 }
 
 /** Run all registered enhancers on the base system prompt. */

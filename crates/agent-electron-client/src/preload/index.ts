@@ -410,7 +410,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // GUI Agent
   guiAgent: {
-    start: (config?: any) =>
+    start: (config?: Record<string, unknown>) =>
       ipcRenderer.invoke('guiAgent:start', config),
     stop: () =>
       ipcRenderer.invoke('guiAgent:stop'),
@@ -418,7 +418,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('guiAgent:status'),
     getConfig: () =>
       ipcRenderer.invoke('guiAgent:getConfig'),
-    setConfig: (config: any) =>
+    setConfig: (config: Record<string, unknown>) =>
       ipcRenderer.invoke('guiAgent:setConfig', config),
     checkPermissions: () =>
       ipcRenderer.invoke('guiAgent:checkPermissions'),
