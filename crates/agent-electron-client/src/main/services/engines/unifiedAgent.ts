@@ -22,6 +22,7 @@ import { AcpEngine } from "./acp/acpEngine";
 import { loadAcpSdk } from "./acp/acpClient";
 import { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 import dependencies from "../system/dependencies";
+import { processRegistry } from "../system/processRegistry";
 import type { DetailedSession } from "@shared/types/sessions";
 
 // Re-export computer types
@@ -69,6 +70,8 @@ export interface AgentConfig {
   >;
   permissionMode?: "default" | "acceptEdits" | "bypassPermissions";
   systemPrompt?: string;
+  /** Process purpose for registry tracking (set internally by warm pool) */
+  purpose?: "engine" | "warm-pool";
 }
 
 export type AcpSessionStatus = "idle" | "pending" | "active" | "terminating";
@@ -264,6 +267,8 @@ export class UnifiedAgentService extends EventEmitter {
   private warmEnginePool = new Map<AgentEngineType, AcpEngine>();
   /** 当前正在执行的预热任务，按引擎类型去重，避免同一类型重复启动 */
   private warmEngineTasks = new Map<AgentEngineType, Promise<void>>();
+  /** In-flight warming engines (not yet in warmEnginePool), tracked for process registry */
+  private warmingEngines = new Set<AcpEngine>();
 
   /**
    * Initialize the service with a base config.
@@ -333,6 +338,9 @@ export class UnifiedAgentService extends EventEmitter {
     // 后台同时预热两种引擎，避免 init 为 claude-code 而请求为 nuwaxcode 时永远无法复用
     this.startWarmingEngine("claude-code");
     this.startWarmingEngine("nuwaxcode");
+    // Start process registry sweep to detect orphan ACP processes
+    processRegistry.bindActivePidsFn(() => this.getActivePids());
+    processRegistry.startPeriodicSweep(60_000);
     this.emit("ready");
     return true;
   }
@@ -341,6 +349,9 @@ export class UnifiedAgentService extends EventEmitter {
    * Destroy all engines and reset the service.
    */
   async destroy(): Promise<void> {
+    // Stop process registry sweep
+    processRegistry.stopPeriodicSweep();
+
     // Trigger session-end memory extraction for each project
     if (memoryService.isInitialized() && this.baseConfig) {
       const modelConfig: ModelConfig = {
@@ -397,6 +408,8 @@ export class UnifiedAgentService extends EventEmitter {
     }
     this.warmEnginePool.clear();
     await Promise.all(destroyPromises);
+    // Final sweep to kill any orphaned processes missed by normal destroy
+    await processRegistry.killOrphans().catch(() => {});
     this.engines.clear();
     this.engineConfigs.clear();
     this.engineRawMcpServers.clear();
@@ -452,6 +465,27 @@ export class UnifiedAgentService extends EventEmitter {
   }
 
   /**
+   * Get PIDs of all active ACP processes (engines + warm pool).
+   * Used by ProcessRegistry sweep to distinguish active processes from orphans.
+   */
+  getActivePids(): Set<number> {
+    const pids = new Set<number>();
+    for (const engine of this.engines.values()) {
+      const pid = engine.getProcessPid();
+      if (pid) pids.add(pid);
+    }
+    for (const engine of this.warmEnginePool.values()) {
+      const pid = engine.getProcessPid();
+      if (pid) pids.add(pid);
+    }
+    for (const engine of this.warmingEngines) {
+      const pid = engine.getProcessPid();
+      if (pid) pids.add(pid);
+    }
+    return pids;
+  }
+
+  /**
    * 后台预热指定类型的 AcpEngine，放入 warmEnginePool。
    * 不阻塞调用方；复用后由 getOrCreateEngine 再次调用 startWarmingEngine(同一类型) 以补充池子。
    * @param engineType 要预热的引擎类型；init 时会对 claude-code 与 nuwaxcode 各调一次。
@@ -464,10 +498,15 @@ export class UnifiedAgentService extends EventEmitter {
     ) {
       return;
     }
-    const config: AgentConfig = { ...this.baseConfig, engine: engineType };
+    const config: AgentConfig = {
+      ...this.baseConfig,
+      engine: engineType,
+      purpose: "warm-pool",
+    };
     const task = (async () => {
+      const engine = new AcpEngine(engineType);
+      this.warmingEngines.add(engine);
       try {
-        const engine = new AcpEngine(engineType);
         log.info("[UnifiedAgent] 🔥 后台预热 Engine:", engineType);
         const ok = await engine.init(config);
         if (ok) {
@@ -480,6 +519,7 @@ export class UnifiedAgentService extends EventEmitter {
       } catch (err) {
         log.warn("[UnifiedAgent] 预热 Engine 失败:", engineType, err);
       } finally {
+        this.warmingEngines.delete(engine);
         this.warmEngineTasks.delete(engineType);
       }
     })();
@@ -594,6 +634,7 @@ export class UnifiedAgentService extends EventEmitter {
 
     if (!ok) {
       engine.removeAllListeners();
+      await engine.destroy().catch(() => {});
       throw new Error(`Failed to create engine for project ${projectId}`);
     }
 

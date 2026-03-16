@@ -50,6 +50,7 @@ import { memoryService } from "../../memory";
 import type { ModelConfig } from "../../memory/types";
 import { redactForLog, redactStringForLog } from "../../utils/logRedact";
 import { killProcessTreeGraceful } from "../../utils/processTree";
+import { processRegistry } from "../../system/processRegistry";
 import type { DetailedSession } from "@shared/types/sessions";
 
 /** Safe JSON.stringify that handles circular references */
@@ -132,6 +133,11 @@ export class AcpEngine extends EventEmitter {
 
   getActivePromptCount(): number {
     return this.activePromptSessions.size;
+  }
+
+  /** Get the PID of the underlying ACP process (for process registry) */
+  getProcessPid(): number | undefined {
+    return this.acpProcess?.pid;
   }
 
   // === Lifecycle ===
@@ -231,6 +237,8 @@ export class AcpEngine extends EventEmitter {
           baseUrl: config.baseUrl,
           model: config.model,
           env: spawnEnv,
+          engineType: this.engineName,
+          purpose: config.purpose ?? "engine",
         },
         clientHandler,
       );
@@ -242,7 +250,20 @@ export class AcpEngine extends EventEmitter {
 
       // Handle process exit
       proc.on("exit", (code, signal) => {
+        const exitPid = proc.pid;
         log.info(`${this.logTag} ACP process exited`, { code, signal });
+        // Unregister from process registry
+        if (exitPid) {
+          processRegistry.unregister(exitPid);
+          // Send SIGTERM to the process group to clean up MCP child processes.
+          // The parent ACP process is already dead, but children in the same
+          // process group (spawned with detached: true) may still be alive.
+          try {
+            process.kill(-exitPid, "SIGTERM");
+          } catch {
+            // ESRCH = group already gone, expected
+          }
+        }
         if (this._ready) {
           this._ready = false;
           this.acpConnection = null;
@@ -277,6 +298,8 @@ export class AcpEngine extends EventEmitter {
       return true;
     } catch (error) {
       log.error(`${this.logTag} Init failed:`, error);
+      // Ensure spawned process is cleaned up on init failure
+      await this.destroy().catch(() => {});
       this.emit(
         "error",
         error instanceof Error ? error : new Error(String(error)),
@@ -312,6 +335,10 @@ export class AcpEngine extends EventEmitter {
     // Kill ACP process tree (prevents zombie child processes)
     if (this.acpProcess) {
       const pid = this.acpProcess.pid;
+      // Unregister from process registry before killing
+      if (pid) {
+        processRegistry.unregister(pid);
+      }
       try {
         // 🔧 FIX: Call cleanup function first to remove all event listeners
         // This prevents handle leaks by releasing references to stdout/stderr/stdin

@@ -26,6 +26,8 @@ import { APP_DATA_DIR_NAME } from "../../constants";
 import { APP_NAME_IDENTIFIER } from "../../../../shared/constants";
 import { isWindows } from "../../system/shellEnv";
 import { spawnJsFile, resolveNpmPackageEntry } from "../../utils/spawnNoWindow";
+import { processRegistry } from "../../system/processRegistry";
+import { killProcessTreeGraceful } from "../../utils/processTree";
 
 // ==================== Types ====================
 
@@ -205,6 +207,10 @@ export interface AcpConnectionConfig {
   baseUrl?: string;
   model?: string;
   env?: Record<string, string>;
+  /** Engine type for process registry tracking */
+  engineType?: "claude-code" | "nuwaxcode";
+  /** Purpose of this process (for process registry) */
+  purpose?: "engine" | "warm-pool";
 }
 
 /** Result of creating an ACP connection */
@@ -520,6 +526,15 @@ export async function createAcpConnection(
     proc.unref();
   }
 
+  // Register process in the process registry for orphan detection
+  if (proc.pid) {
+    processRegistry.register(proc.pid, {
+      engineId: runId,
+      engineType: config.engineType ?? "claude-code",
+      purpose: config.purpose ?? "engine",
+    });
+  }
+
   // Log stderr — 详细输出所有内容
   proc.stderr?.on("data", (data: Buffer) => {
     const text = data.toString().trim();
@@ -581,18 +596,38 @@ export async function createAcpConnection(
   } as any;
 
   // 2. Convert Node streams → Web streams
-  const readable = Readable.toWeb(proc.stdout!) as ReadableStream<Uint8Array>;
-  const writable = Writable.toWeb(proc.stdin!) as WritableStream;
+  // Wrap post-spawn setup in try/catch: if anything fails after spawn,
+  // we must kill the process and unregister it to prevent orphans.
+  let readable: ReadableStream<Uint8Array>;
+  let writable: WritableStream;
+  let acp: any;
+  let stream: any;
+  let connection: AcpClientSideConnection;
 
-  // 3. Load ACP SDK and create NDJSON stream
-  const acp = await loadAcpSdk();
-  const stream = acp.ndJsonStream(writable, readable);
+  try {
+    readable = Readable.toWeb(proc.stdout!) as ReadableStream<Uint8Array>;
+    writable = Writable.toWeb(proc.stdin!) as WritableStream;
 
-  // 4. Create ClientSideConnection with client handler
-  const connection = new acp.ClientSideConnection(
-    (_agent: unknown) => clientHandler,
-    stream,
-  ) as AcpClientSideConnection;
+    // 3. Load ACP SDK and create NDJSON stream
+    acp = await loadAcpSdk();
+    stream = acp.ndJsonStream(writable, readable);
+
+    // 4. Create ClientSideConnection with client handler
+    connection = new acp.ClientSideConnection(
+      (_agent: unknown) => clientHandler,
+      stream,
+    ) as AcpClientSideConnection;
+  } catch (e) {
+    // Post-spawn setup failed — kill the spawned process to prevent orphan
+    log.error("[AcpClient] Post-spawn setup failed, killing process:", e);
+    if (proc.pid) {
+      processRegistry.unregister(proc.pid);
+      await killProcessTreeGraceful(proc.pid, 3000).catch(() => {});
+    } else {
+      proc.kill();
+    }
+    throw e;
+  }
 
   // 🔧 FIX: Create cleanup function to properly dispose of event listeners
   // This prevents handle leaks by removing all event listeners before process termination

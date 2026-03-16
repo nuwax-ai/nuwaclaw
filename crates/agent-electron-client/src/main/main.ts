@@ -297,6 +297,15 @@ async function cleanupAllProcesses(): Promise<void> {
     // Engine service might not be loaded
   }
 
+  // Final safety net: kill all registered ACP processes
+  try {
+    const { processRegistry } = require("./services/system/processRegistry");
+    await processRegistry.killAll();
+    log.info("[Cleanup] Process registry cleared");
+  } catch (e) {
+    log.warn("[Cleanup] Process registry cleanup error:", e);
+  }
+
   log.info("[Cleanup] All processes stopped");
 }
 
