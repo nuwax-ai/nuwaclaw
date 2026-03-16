@@ -17,6 +17,8 @@ import {
   SafetyOutlined,
   FileTextOutlined,
   TeamOutlined,
+  ArrowLeftOutlined,
+  ReloadOutlined,
 } from "@ant-design/icons";
 import { setupService, authService, Step1Config } from "./services/core/setup";
 import {
@@ -35,6 +37,7 @@ import AboutPage from "./components/pages/AboutPage";
 import LogViewer from "./components/pages/LogViewer";
 import PermissionsPage from "./components/pages/PermissionsPage";
 import SessionsPage from "./components/pages/SessionsPage";
+import type { WebviewHeaderActions } from "./components/pages/SessionsPage";
 import styles from "./styles/components/App.module.css";
 import { lightTheme, darkTheme } from "./styles/theme";
 
@@ -260,6 +263,9 @@ function App() {
   // 核心状态
   // ============================================
   const [activeTab, setActiveTab] = useState<TabKey>("client");
+  const [sessionsAutoOpen, setSessionsAutoOpen] = useState(false);
+  const [webviewActions, setWebviewActions] =
+    useState<WebviewHeaderActions | null>(null);
   const [username, setUsername] = useState<string>("");
   const [onlineStatus, setOnlineStatus] = useState<boolean | null>(null);
   const [agentStatus, setAgentStatus] = useState<string>("idle");
@@ -737,6 +743,7 @@ function App() {
     // 监听新建会话菜单
     const handleNewSession = () => {
       console.log("[App] 收到 menu:new-session 事件");
+      setSessionsAutoOpen(true);
       setActiveTab("sessions");
     };
     window.electronAPI.on("menu:new-session", handleNewSession);
@@ -847,10 +854,33 @@ function App() {
         <div className="app-container">
           {/* 顶部栏 */}
           <div className="app-header">
-            <div className="app-header-logo">
-              <img src="./32x32.png" alt="" style={{ width: 16, height: 16 }} />
-              <span className="app-header-title">{APP_DISPLAY_NAME}</span>
-            </div>
+            {webviewActions ? (
+              <div className={styles.headerWebviewActions}>
+                <Button
+                  size="small"
+                  icon={<ArrowLeftOutlined />}
+                  onClick={webviewActions.onBack}
+                >
+                  返回
+                </Button>
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  onClick={webviewActions.onReload}
+                >
+                  刷新
+                </Button>
+              </div>
+            ) : (
+              <div className="app-header-logo">
+                <img
+                  src="./32x32.png"
+                  alt=""
+                  style={{ width: 16, height: 16 }}
+                />
+                <span className="app-header-title">{APP_DISPLAY_NAME}</span>
+              </div>
+            )}
             <div className={styles.headerRight}>
               {username && <span className={styles.username}>{username}</span>}
               <Badge
@@ -867,22 +897,30 @@ function App() {
 
           {/* 主体部分 */}
           <div className="app-body">
-            {/* 左侧边栏 */}
-            <div className="app-sider">
-              <Menu
-                mode="inline"
-                selectedKeys={[activeTab]}
-                items={menuItems.map((item) => ({
-                  key: item.key,
-                  icon: item.icon,
-                  label: item.label,
-                  onClick: () => setActiveTab(item.key as TabKey),
-                }))}
-              />
-            </div>
+            {/* 左侧边栏 (hidden when webview is active) */}
+            {!webviewActions && (
+              <div className="app-sider">
+                <Menu
+                  mode="inline"
+                  selectedKeys={[activeTab]}
+                  items={menuItems.map((item) => ({
+                    key: item.key,
+                    icon: item.icon,
+                    label: item.label,
+                    onClick: () => setActiveTab(item.key as TabKey),
+                  }))}
+                />
+              </div>
+            )}
 
             {/* 主内容区：flex 子撑满，便于日志等页占满高度 */}
-            <div className="app-content">
+            <div
+              className={
+                webviewActions
+                  ? "app-content app-content-fullwidth"
+                  : "app-content"
+              }
+            >
               <div
                 style={{
                   flex: 1,
@@ -894,7 +932,10 @@ function App() {
               >
                 {activeTab === "client" && (
                   <ClientPage
-                    onNavigate={setActiveTab}
+                    onNavigate={(tab) => {
+                      if (tab === "sessions") setSessionsAutoOpen(true);
+                      setActiveTab(tab);
+                    }}
                     services={services}
                     servicesLoading={servicesLoading}
                     startingServices={startingServices}
@@ -904,7 +945,13 @@ function App() {
                     onAuthChange={handleAuthChange}
                   />
                 )}
-                {activeTab === "sessions" && <SessionsPage />}
+                {activeTab === "sessions" && (
+                  <SessionsPage
+                    autoOpen={sessionsAutoOpen}
+                    onAutoOpenConsumed={() => setSessionsAutoOpen(false)}
+                    onWebviewChange={setWebviewActions}
+                  />
+                )}
                 {activeTab === "settings" && <SettingsPage />}
                 {activeTab === "dependencies" && <DependenciesPage />}
                 {activeTab === "permissions" && <PermissionsPage />}

@@ -6,7 +6,7 @@
  * B. 内嵌 webview - 在主窗口内展示会话页面
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button, Tag, message, Spin } from "antd";
 import {
   PlusOutlined,
@@ -15,15 +15,67 @@ import {
   PlayCircleOutlined,
   StopOutlined,
 } from "@ant-design/icons";
-import EmbeddedWebview from "../EmbeddedWebview";
 import { syncCookieAndGetRedirectUrl } from "../../services/utils/sessionUrl";
+import { APP_DISPLAY_NAME } from "@shared/constants";
 import type { DetailedSession } from "@shared/types/sessions";
 import styles from "../../styles/components/SessionsPage.module.css";
 
-function SessionsPage() {
+export interface WebviewHeaderActions {
+  onBack: () => void;
+  onReload: () => void;
+}
+
+interface SessionsPageProps {
+  /** When true, automatically open webview on mount (used by "开始会话" button). */
+  autoOpen?: boolean;
+  /** Called after autoOpen has been consumed, so it doesn't re-trigger. */
+  onAutoOpenConsumed?: () => void;
+  /** Notify parent when entering/leaving webview mode (for hiding sidebar/logo). */
+  onWebviewChange?: (actions: WebviewHeaderActions | null) => void;
+}
+
+function SessionsPage({
+  autoOpen,
+  onAutoOpenConsumed,
+  onWebviewChange,
+}: SessionsPageProps) {
   // ---------- View state ----------
   const [view, setView] = useState<"list" | "webview">("list");
   const [webviewUrl, setWebviewUrl] = useState("");
+  const [webviewUA, setWebviewUA] = useState<string | undefined>();
+  const webviewRef = useRef<HTMLElement | null>(null);
+
+  // Build custom user agent with app version
+  useEffect(() => {
+    window.electronAPI?.app
+      .getVersion()
+      .then((version) => {
+        const ua = navigator.userAgent + ` ${APP_DISPLAY_NAME}/${version}`;
+        setWebviewUA(ua);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Notify parent when entering/leaving webview
+  useEffect(() => {
+    if (view === "webview") {
+      onWebviewChange?.({
+        onBack: () => {
+          setView("list");
+          setWebviewUrl("");
+          fetchSessions();
+        },
+        onReload: () => {
+          (webviewRef.current as any)?.reload?.();
+        },
+      });
+    } else {
+      onWebviewChange?.(null);
+    }
+    return () => {
+      onWebviewChange?.(null);
+    };
+  }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- Sessions ----------
   const [sessions, setSessions] = useState<DetailedSession[]>([]);
@@ -73,6 +125,14 @@ function SessionsPage() {
     }
   }, []);
 
+  // Auto-open webview when navigated from "开始会话"
+  useEffect(() => {
+    if (autoOpen) {
+      onAutoOpenConsumed?.();
+      handleOpenWebview();
+    }
+  }, [autoOpen, handleOpenWebview, onAutoOpenConsumed]);
+
   const handleStopSession = useCallback(
     async (sessionId: string) => {
       setStoppingSessions((prev) => new Set(prev).add(sessionId));
@@ -97,12 +157,6 @@ function SessionsPage() {
     },
     [fetchSessions],
   );
-
-  const handleBackToList = useCallback(() => {
-    setView("list");
-    setWebviewUrl("");
-    fetchSessions();
-  }, [fetchSessions]);
 
   // ======================== Render helpers ========================
 
@@ -136,13 +190,17 @@ function SessionsPage() {
 
   // ======================== Render ========================
 
-  // View B: Embedded webview
+  // View B: Embedded webview (toolbar is in the app header via onWebviewChange)
   if (view === "webview" && webviewUrl) {
     return (
-      <div className={styles.page}>
-        <div className={styles.webviewView}>
-          <EmbeddedWebview url={webviewUrl} onClose={handleBackToList} />
-        </div>
+      <div className={styles.webviewFullscreen}>
+        <webview
+          ref={webviewRef as any}
+          src={webviewUrl}
+          useragent={webviewUA}
+          style={{ flex: 1, width: "100%", border: "none" }}
+          allowpopups={"true" as any}
+        />
       </div>
     );
   }

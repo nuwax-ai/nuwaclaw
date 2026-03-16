@@ -3,6 +3,9 @@
  * Used by both ClientPage and SessionsPage.
  */
 
+import { getCurrentAuth } from "../core/auth";
+import { AUTH_KEYS } from "@shared/constants";
+
 export function buildRedirectUrl(
   domain: string,
   userId: string | number,
@@ -33,17 +36,19 @@ export async function syncSessionCookie(
 
 /**
  * Read auth settings, sync cookie, and return the redirect URL.
- * Returns null if auth info is incomplete.
+ * Returns null if auth info is incomplete (not logged in, or missing domain/userId).
  */
 export async function syncCookieAndGetRedirectUrl(): Promise<string | null> {
-  const [domain, userId, token] = await Promise.all([
-    window.electronAPI?.settings.get("auth.domain") as Promise<string | null>,
-    window.electronAPI?.settings.get("auth.user_id") as Promise<number | null>,
-    window.electronAPI?.settings.get("auth.token") as Promise<string | null>,
-  ]);
+  const auth = await getCurrentAuth();
+  if (!auth.isLoggedIn) return null;
 
+  const domain = auth.userInfo?.currentDomain;
+  const userId = auth.userInfo?.id;
   if (!domain || !userId) return null;
 
+  const token = (await window.electronAPI?.settings.get(
+    AUTH_KEYS.AUTH_TOKEN,
+  )) as string | null;
   if (token) {
     await syncSessionCookie(domain, token);
   }

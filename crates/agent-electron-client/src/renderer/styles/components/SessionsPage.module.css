@@ -115,8 +115,8 @@
   opacity: 0.4;
 }
 
-/* ========== 视图 B: 内嵌 webview ========== */
-.webviewView {
+/* ========== 视图 B: 全屏 webview (sidebar/logo hidden) ========== */
+.webviewFullscreen {
   display: flex;
   flex-direction: column;
   flex: 1;

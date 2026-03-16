@@ -12,6 +12,11 @@ vi.stubGlobal("window", {
   electronAPI: { settings: mockSettings, session: mockSession },
 });
 
+const mockGetCurrentAuth = vi.fn();
+vi.mock("../core/auth", () => ({
+  getCurrentAuth: (...args: unknown[]) => mockGetCurrentAuth(...args),
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -79,12 +84,21 @@ describe("syncSessionCookie", () => {
 });
 
 describe("syncCookieAndGetRedirectUrl", () => {
+  it("returns null when not logged in", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: false,
+      userInfo: null,
+    });
+
+    const result = await syncCookieAndGetRedirectUrl();
+    expect(result).toBeNull();
+    expect(mockSession.setCookie).not.toHaveBeenCalled();
+  });
+
   it("returns null when domain is missing", async () => {
-    mockSettings.get.mockImplementation((key: string) => {
-      if (key === "auth.domain") return Promise.resolve(null);
-      if (key === "auth.user_id") return Promise.resolve(1);
-      if (key === "auth.token") return Promise.resolve("tok");
-      return Promise.resolve(null);
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { id: 1, username: "u" },
     });
 
     const result = await syncCookieAndGetRedirectUrl();
@@ -93,11 +107,9 @@ describe("syncCookieAndGetRedirectUrl", () => {
   });
 
   it("returns null when userId is missing", async () => {
-    mockSettings.get.mockImplementation((key: string) => {
-      if (key === "auth.domain") return Promise.resolve("https://example.com");
-      if (key === "auth.user_id") return Promise.resolve(null);
-      if (key === "auth.token") return Promise.resolve("tok");
-      return Promise.resolve(null);
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { currentDomain: "https://example.com", username: "u" },
     });
 
     const result = await syncCookieAndGetRedirectUrl();
@@ -106,12 +118,11 @@ describe("syncCookieAndGetRedirectUrl", () => {
   });
 
   it("returns URL and syncs cookie when all present", async () => {
-    mockSettings.get.mockImplementation((key: string) => {
-      if (key === "auth.domain") return Promise.resolve("https://example.com");
-      if (key === "auth.user_id") return Promise.resolve(7);
-      if (key === "auth.token") return Promise.resolve("my-token");
-      return Promise.resolve(null);
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
     });
+    mockSettings.get.mockResolvedValue("my-token");
 
     const result = await syncCookieAndGetRedirectUrl();
     expect(result).toBe("https://example.com/api/sandbox/config/redirect/7");
@@ -126,12 +137,11 @@ describe("syncCookieAndGetRedirectUrl", () => {
   });
 
   it("returns URL without syncing cookie when token is null", async () => {
-    mockSettings.get.mockImplementation((key: string) => {
-      if (key === "auth.domain") return Promise.resolve("https://example.com");
-      if (key === "auth.user_id") return Promise.resolve(7);
-      if (key === "auth.token") return Promise.resolve(null);
-      return Promise.resolve(null);
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
     });
+    mockSettings.get.mockResolvedValue(null);
 
     const result = await syncCookieAndGetRedirectUrl();
     expect(result).toBe("https://example.com/api/sandbox/config/redirect/7");
