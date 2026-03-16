@@ -266,6 +266,19 @@ export interface PermissionsAPI {
   openSettings: (permissionKey: string) => Promise<{ success: boolean; error?: string }>;
 }
 
+import type { GuiAgentConfig, GuiAgentStatus, GuiPermissionInfo } from './guiAgentTypes';
+
+export interface GuiAgentAPI {
+  start: (config?: Partial<GuiAgentConfig>) => Promise<{ success: boolean; token?: string; error?: string }>;
+  stop: () => Promise<{ success: boolean; error?: string }>;
+  status: () => Promise<GuiAgentStatus>;
+  getConfig: () => Promise<GuiAgentConfig>;
+  setConfig: (config: Partial<GuiAgentConfig>) => Promise<{ success: boolean; error?: string }>;
+  checkPermissions: () => Promise<GuiPermissionInfo>;
+  requestPermission: (type: 'screenCapture' | 'accessibility') => Promise<{ success: boolean; error?: string }>;
+  openPermissionSettings: (type: 'screenCapture' | 'accessibility') => Promise<{ success: boolean; error?: string }>;
+}
+
 export interface ShellAPI {
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
 }
@@ -386,6 +399,7 @@ export interface ElectronAPI {
   log: LogAPI;
   app: AppAPI;
   permissions: PermissionsAPI;
+  guiAgent: GuiAgentAPI;
   quickInit: QuickInitAPI;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   off: (channel: string, callback: (...args: unknown[]) => void) => void;

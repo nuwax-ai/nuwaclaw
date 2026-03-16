@@ -30,6 +30,7 @@ import {
   type AcpMcpServer,
   type AcpEnvVariable,
 } from './acpClient';
+import { enhanceSystemPrompt } from '../engineHooks';
 import type {
   AgentConfig,
   AcpSessionStatus,
@@ -783,7 +784,7 @@ export class AcpEngine extends EventEmitter {
           title: projectId,
           cwd: projectDir,
           mcpServers: this.config.mcpServers,
-          systemPrompt: request.system_prompt,
+          systemPrompt: enhanceSystemPrompt(request.system_prompt),
         });
         session = this.sessions.get(newSession.id)!;
         session.projectId = request.project_id;

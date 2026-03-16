@@ -29,6 +29,9 @@ export const DEFAULT_FILE_SERVER_PORT = 60005;
 /** Lanproxy 默认端口 */
 export const DEFAULT_LANPROXY_PORT = 60002;
 
+/** GUI Agent 默认端口 */
+export const DEFAULT_GUI_AGENT_PORT = 60010;
+
 /** 开发服务器默认端口 */
 export const DEFAULT_DEV_SERVER_PORT = 60173;
 
@@ -102,6 +105,7 @@ export const STORAGE_KEYS = {
   MCP_PROXY_PORT: 'mcp_proxy_port',
   LANPROXY_CONFIG: 'lanproxy_config',
   AGENT_CONFIG: 'agent_config',
+  GUI_AGENT_CONFIG: 'gui_agent_config',
 } as const;
 
 /** Auth 相关存储键 */

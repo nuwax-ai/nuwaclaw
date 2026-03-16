@@ -8,3 +8,10 @@ export {
   DEFAULT_MCP_PROXY_HOST,
 } from './packages';
 export { startComputerServer, stopComputerServer, getComputerServerStatus } from './computerServer';
+export {
+  startGuiAgentServer,
+  stopGuiAgentServer,
+  getGuiAgentStatus,
+  getGuiAgentConfig,
+  setGuiAgentConfig,
+} from './gui';
