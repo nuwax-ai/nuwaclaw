@@ -77,8 +77,8 @@ const VALID_INPUT_TYPES = new Set([
   'keyboard_press', 'keyboard_hotkey',
 ]);
 
-function validateInputAction(body: Record<string, unknown>): InputAction {
-  const action = body.action;
+/** @internal Exported for testing */
+export function validateInputAction(body: Record<string, unknown>): InputAction {  const action = body.action;
   if (!action || typeof action !== 'object' || Array.isArray(action)) {
     throw new Error('Missing or invalid action object');
   }
@@ -126,7 +126,8 @@ function validateInputAction(body: Record<string, unknown>): InputAction {
   return act as unknown as InputAction;
 }
 
-function validateScreenshotRequest(body: Record<string, unknown>): ScreenshotRequest {
+/** @internal Exported for testing */
+export function validateScreenshotRequest(body: Record<string, unknown>): ScreenshotRequest {
   const opts: ScreenshotRequest = {};
   if (body.scale !== undefined) {
     if (typeof body.scale !== 'number') throw new Error('scale must be a number');

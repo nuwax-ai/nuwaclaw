@@ -101,7 +101,9 @@ export function resetRateLimiter(): void {
 // ==================== Audit Log (Ring Buffer) ====================
 
 const MAX_AUDIT_ENTRIES = 1000;
-const auditLog: AuditLogEntry[] = [];
+const auditBuffer: (AuditLogEntry | null)[] = new Array(MAX_AUDIT_ENTRIES).fill(null);
+let auditWriteIdx = 0;
+let auditCount = 0;
 
 /** 记录审计日志 */
 export function logAudit(entry: Omit<AuditLogEntry, 'timestamp'>): void {
@@ -110,22 +112,31 @@ export function logAudit(entry: Omit<AuditLogEntry, 'timestamp'>): void {
     timestamp: Date.now(),
   };
 
-  auditLog.push(fullEntry);
-  if (auditLog.length > MAX_AUDIT_ENTRIES) {
-    auditLog.shift();
-  }
+  auditBuffer[auditWriteIdx] = fullEntry;
+  auditWriteIdx = (auditWriteIdx + 1) % MAX_AUDIT_ENTRIES;
+  if (auditCount < MAX_AUDIT_ENTRIES) auditCount++;
 
   if (!entry.success) {
     log.warn(`${TAG} Audit: ${entry.path} ${entry.action} FAILED: ${entry.error}`);
   }
 }
 
-/** 获取审计日志（最近 N 条） */
+/** 获取审计日志（最近 N 条，按时间正序） */
 export function getAuditLog(limit = 100): AuditLogEntry[] {
-  return auditLog.slice(-limit);
+  const n = Math.min(limit, auditCount);
+  const result: AuditLogEntry[] = [];
+  // Read the last n entries in chronological order
+  const start = (auditWriteIdx - n + MAX_AUDIT_ENTRIES) % MAX_AUDIT_ENTRIES;
+  for (let i = 0; i < n; i++) {
+    const entry = auditBuffer[(start + i) % MAX_AUDIT_ENTRIES];
+    if (entry) result.push(entry);
+  }
+  return result;
 }
 
 /** 清除审计日志 */
 export function clearAuditLog(): void {
-  auditLog.length = 0;
+  auditBuffer.fill(null);
+  auditWriteIdx = 0;
+  auditCount = 0;
 }

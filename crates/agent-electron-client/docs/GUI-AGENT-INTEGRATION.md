@@ -5,6 +5,8 @@
 **版本**: v3.0 (深度研究版)
 **日期**: 2026-03-15
 
+> **注意**: 本文档是实现前的技术调研报告，其中的 API 设计（如独立的 `/click`、`/type` 端点和 `X-GUI-Agent-Token` 头部）与最终实现有所不同。实际实现采用了统一的 `/gui/input` 端点和标准 `Authorization: Bearer` 认证。请参阅 [`docs/GUI-AGENT-IMPLEMENTATION.md`](../../docs/GUI-AGENT-IMPLEMENTATION.md) 获取最终 API 文档。
+
 ---
 
 ## 1. ACP 协议深度分析
