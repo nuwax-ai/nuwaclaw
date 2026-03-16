@@ -6,7 +6,7 @@
  * 核心模块无需直接依赖 GUI Agent。
  */
 
-import { app, ipcMain } from 'electron';
+import { ipcMain } from 'electron';
 import log from 'electron-log';
 import { readSetting, writeSetting } from '../db';
 import { STORAGE_KEYS } from '@shared/constants';
@@ -60,14 +60,8 @@ export function registerGuiAgentHandlers(): void {
     }
   });
 
-  // Self-register cleanup on app quit
-  app.on('will-quit', async () => {
-    try {
-      await stopGuiAgentServer();
-    } catch (e) {
-      log.error('[GuiAgent] Cleanup error:', e);
-    }
-  });
+  // Cleanup is handled by cleanupAllProcesses() in main.ts.
+  // No separate will-quit handler needed (avoids double stop).
 
   // ==================== IPC Handlers ====================
 

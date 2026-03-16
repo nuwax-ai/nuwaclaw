@@ -156,7 +156,7 @@ export async function executeInput(action: InputAction, delayMs = 50): Promise<I
 
       case 'mouse_scroll': {
         await nutMouse.setPosition({ x: action.x, y: action.y });
-        if (action.deltaY) {
+        if (action.deltaY !== 0) {
           if (action.deltaY > 0) {
             await nutMouse.scrollDown(action.deltaY);
           } else {

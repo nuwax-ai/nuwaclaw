@@ -46,12 +46,12 @@ describe('validateInputAction', () => {
 
   it('rejects mouse_move without x', () => {
     expect(() => validateInputAction({ action: { type: 'mouse_move', y: 200 } }))
-      .toThrow('requires numeric x and y');
+      .toThrow('x must be a finite number');
   });
 
   it('rejects mouse_move with string x', () => {
     expect(() => validateInputAction({ action: { type: 'mouse_move', x: '100', y: 200 } }))
-      .toThrow('requires numeric x and y');
+      .toThrow('x must be a finite number');
   });
 
   // mouse_click
@@ -87,7 +87,7 @@ describe('validateInputAction', () => {
   it('rejects mouse_drag with missing endX', () => {
     expect(() => validateInputAction({
       action: { type: 'mouse_drag', startX: 0, startY: 0, endY: 100 },
-    })).toThrow('requires numeric startX, startY, endX, endY');
+    })).toThrow('endX must be a finite number');
   });
 
   // keyboard_type
@@ -137,6 +137,40 @@ describe('validateInputAction', () => {
     expect(() => validateInputAction({ action: { type: 'keyboard_hotkey', keys: 'ctrl+c' } }))
       .toThrow('keyboard_hotkey requires string[] keys');
   });
+
+  // Coordinate validation
+  it('rejects NaN coordinates', () => {
+    expect(() => validateInputAction({ action: { type: 'mouse_move', x: NaN, y: 100 } }))
+      .toThrow('x must be a finite number');
+  });
+
+  it('rejects Infinity coordinates', () => {
+    expect(() => validateInputAction({ action: { type: 'mouse_move', x: Infinity, y: 100 } }))
+      .toThrow('x must be a finite number');
+  });
+
+  it('rejects out-of-range coordinates', () => {
+    expect(() => validateInputAction({ action: { type: 'mouse_move', x: 200000, y: 100 } }))
+      .toThrow('x out of range');
+  });
+
+  // Text length limit
+  it('rejects keyboard_type with text exceeding max length', () => {
+    const longText = 'a'.repeat(10001);
+    expect(() => validateInputAction({ action: { type: 'keyboard_type', text: longText } }))
+      .toThrow('keyboard_type text too long');
+  });
+
+  // Blocked hotkeys
+  it('blocks dangerous key combinations', () => {
+    expect(() => validateInputAction({ action: { type: 'keyboard_hotkey', keys: ['cmd', 'q'] } }))
+      .toThrow('blocked for safety');
+  });
+
+  it('blocks alt+f4', () => {
+    expect(() => validateInputAction({ action: { type: 'keyboard_hotkey', keys: ['alt', 'f4'] } }))
+      .toThrow('blocked for safety');
+  });
 });
 
 describe('validateScreenshotRequest', () => {
@@ -177,13 +211,22 @@ describe('validateScreenshotRequest', () => {
     expect(() => validateScreenshotRequest({ quality: 'high' })).toThrow('quality must be a number');
   });
 
+  it('clamps quality to valid range', () => {
+    expect(validateScreenshotRequest({ quality: 0 }).quality).toBe(1);
+    expect(validateScreenshotRequest({ quality: 200 }).quality).toBe(100);
+  });
+
   it('accepts valid displayIndex', () => {
     const result = validateScreenshotRequest({ displayIndex: 1 });
     expect(result.displayIndex).toBe(1);
   });
 
   it('rejects non-numeric displayIndex', () => {
-    expect(() => validateScreenshotRequest({ displayIndex: '1' })).toThrow('displayIndex must be a number');
+    expect(() => validateScreenshotRequest({ displayIndex: '1' })).toThrow('displayIndex must be a non-negative integer');
+  });
+
+  it('rejects negative displayIndex', () => {
+    expect(() => validateScreenshotRequest({ displayIndex: -1 })).toThrow('displayIndex must be a non-negative integer');
   });
 
   it('accepts valid region', () => {

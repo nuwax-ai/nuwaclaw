@@ -34,10 +34,10 @@ export async function takeScreenshot(
   // Get display info
   const displays = screen.getAllDisplays();
   const displayIndex = opts.displayIndex ?? 0;
-  const targetDisplay = displays[displayIndex] || displays[0];
+  const targetDisplay = displays[displayIndex];
 
   if (!targetDisplay) {
-    throw new Error('No display available');
+    throw new Error(`Invalid displayIndex: ${displayIndex} (${displays.length} displays available)`);
   }
 
   const { width: screenWidth, height: screenHeight } = targetDisplay.size;
@@ -60,7 +60,10 @@ export async function takeScreenshot(
   }
 
   // Match the target display
-  const source = sources[displayIndex] || sources[0];
+  const source = sources[displayIndex];
+  if (!source) {
+    throw new Error(`No screen source for display ${displayIndex}`);
+  }
   let image = source.thumbnail;
 
   if (image.isEmpty()) {
@@ -70,11 +73,12 @@ export async function takeScreenshot(
   // Crop region if specified
   if (opts.region) {
     const { x, y, width, height } = opts.region;
-    // Scale region coordinates to match the thumbnail
-    const cropX = Math.round(x * scale);
-    const cropY = Math.round(y * scale);
-    const cropW = Math.round(width * scale);
-    const cropH = Math.round(height * scale);
+    // Scale region coordinates to match the thumbnail (logical → thumbnail pixels)
+    const factor = scaleFactor * scale;
+    const cropX = Math.round(x * factor);
+    const cropY = Math.round(y * factor);
+    const cropW = Math.round(width * factor);
+    const cropH = Math.round(height * factor);
     image = image.crop({ x: cropX, y: cropY, width: cropW, height: cropH });
   }
 

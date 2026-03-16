@@ -15,9 +15,9 @@ export interface SystemPromptParams {
  * 生成 GUI Agent System Prompt
  */
 export function generateGuiAgentSystemPrompt(params: SystemPromptParams): string {
-  const { port, token, platform } = params;
+  const { port, platform } = params;
   const base = `http://127.0.0.1:${port}`;
-  const auth = `Authorization: Bearer ${token}`;
+  const auth = 'Authorization: Bearer $GUI_AGENT_TOKEN';
 
   const modKey = platform === 'darwin' ? 'Cmd' : 'Ctrl';
 
@@ -26,7 +26,8 @@ export function generateGuiAgentSystemPrompt(params: SystemPromptParams): string
 ## GUI Automation
 
 You have access to a local GUI automation HTTP service at ${base}.
-All requests require the header: ${auth}
+All requests require the header: \`${auth}\`
+The token is available in your environment variable \`GUI_AGENT_TOKEN\`.
 
 ### Available Endpoints
 

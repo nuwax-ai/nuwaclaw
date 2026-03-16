@@ -29,16 +29,20 @@ import {
   initRateLimiter,
   resetRateLimiter,
   getToken,
+  clearAuditLog,
 } from './securityManager';
 import type { GuiAgentConfig, GuiAgentStatus, InputAction, ScreenshotRequest } from '@shared/types/guiAgentTypes';
 import { DEFAULT_GUI_AGENT_CONFIG } from '@shared/types/guiAgentTypes';
 
 const TAG = '[GuiAgentServer]';
 const MAX_BODY_SIZE = 1 * 1024 * 1024; // 1MB
+const MAX_DELAY_MS = 5000;
+const MAX_TEXT_LENGTH = 10000;
 
 let server: http.Server | null = null;
 let lastError: string | null = null;
 let currentConfig: GuiAgentConfig = { ...DEFAULT_GUI_AGENT_CONFIG };
+let starting = false; // mutex to prevent concurrent startGuiAgentServer calls
 
 // ==================== Helpers ====================
 
@@ -46,9 +50,11 @@ function parseBody(req: http.IncomingMessage): Promise<Record<string, unknown>> 
   return new Promise((resolve, reject) => {
     let body = '';
     let size = 0;
+    let rejected = false;
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > MAX_BODY_SIZE) {
+      if (size > MAX_BODY_SIZE && !rejected) {
+        rejected = true;
         req.destroy();
         reject(new Error('Request body too large'));
         return;
@@ -56,6 +62,7 @@ function parseBody(req: http.IncomingMessage): Promise<Record<string, unknown>> 
       body += chunk;
     });
     req.on('end', () => {
+      if (rejected) return;
       try {
         const parsed = body ? JSON.parse(body) : {};
         if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
@@ -67,7 +74,9 @@ function parseBody(req: http.IncomingMessage): Promise<Record<string, unknown>> 
         reject(e);
       }
     });
-    req.on('error', reject);
+    req.on('error', (err) => {
+      if (!rejected) reject(err);
+    });
   });
 }
 
@@ -77,8 +86,32 @@ const VALID_INPUT_TYPES = new Set([
   'keyboard_press', 'keyboard_hotkey',
 ]);
 
+/** Dangerous key combinations that should be blocked */
+const BLOCKED_HOTKEYS = new Set([
+  'ctrl+alt+delete',
+  'cmd+q',
+  'alt+f4',
+  'ctrl+alt+backspace',
+]);
+
+function isBlockedHotkey(keys: string[]): boolean {
+  const normalized = keys.map(k => k.toLowerCase()).sort().join('+');
+  return BLOCKED_HOTKEYS.has(normalized);
+}
+
+function validateCoordinate(value: unknown, name: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`${name} must be a finite number`);
+  }
+  if (value < -10000 || value > 100000) {
+    throw new Error(`${name} out of range (-10000..100000)`);
+  }
+  return value;
+}
+
 /** @internal Exported for testing */
-export function validateInputAction(body: Record<string, unknown>): InputAction {  const action = body.action;
+export function validateInputAction(body: Record<string, unknown>): InputAction {
+  const action = body.action;
   if (!action || typeof action !== 'object' || Array.isArray(action)) {
     throw new Error('Missing or invalid action object');
   }
@@ -93,22 +126,24 @@ export function validateInputAction(body: Record<string, unknown>): InputAction 
     case 'mouse_click':
     case 'mouse_double_click':
     case 'mouse_scroll':
-      if (typeof act.x !== 'number' || typeof act.y !== 'number') {
-        throw new Error(`Action ${act.type} requires numeric x and y`);
-      }
+      validateCoordinate(act.x, 'x');
+      validateCoordinate(act.y, 'y');
       if (act.type === 'mouse_scroll' && typeof act.deltaY !== 'number') {
         throw new Error('mouse_scroll requires numeric deltaY');
       }
       break;
     case 'mouse_drag':
-      if (typeof act.startX !== 'number' || typeof act.startY !== 'number' ||
-          typeof act.endX !== 'number' || typeof act.endY !== 'number') {
-        throw new Error('mouse_drag requires numeric startX, startY, endX, endY');
-      }
+      validateCoordinate(act.startX, 'startX');
+      validateCoordinate(act.startY, 'startY');
+      validateCoordinate(act.endX, 'endX');
+      validateCoordinate(act.endY, 'endY');
       break;
     case 'keyboard_type':
       if (typeof act.text !== 'string') {
         throw new Error('keyboard_type requires string text');
+      }
+      if (act.text.length > MAX_TEXT_LENGTH) {
+        throw new Error(`keyboard_type text too long (max ${MAX_TEXT_LENGTH} chars)`);
       }
       break;
     case 'keyboard_press':
@@ -119,6 +154,9 @@ export function validateInputAction(body: Record<string, unknown>): InputAction 
     case 'keyboard_hotkey':
       if (!Array.isArray(act.keys) || !act.keys.every((k: unknown) => typeof k === 'string')) {
         throw new Error('keyboard_hotkey requires string[] keys');
+      }
+      if (isBlockedHotkey(act.keys as string[])) {
+        throw new Error('This key combination is blocked for safety');
       }
       break;
   }
@@ -139,10 +177,12 @@ export function validateScreenshotRequest(body: Record<string, unknown>): Screen
   }
   if (body.quality !== undefined) {
     if (typeof body.quality !== 'number') throw new Error('quality must be a number');
-    opts.quality = body.quality;
+    opts.quality = Math.max(1, Math.min(100, Math.round(body.quality)));
   }
   if (body.displayIndex !== undefined) {
-    if (typeof body.displayIndex !== 'number') throw new Error('displayIndex must be a number');
+    if (typeof body.displayIndex !== 'number' || !Number.isInteger(body.displayIndex) || body.displayIndex < 0) {
+      throw new Error('displayIndex must be a non-negative integer');
+    }
     opts.displayIndex = body.displayIndex;
   }
   if (body.region !== undefined) {
@@ -223,7 +263,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     if (pathname === '/gui/input' && method === 'POST') {
       const body = await parseBody(req);
       const action = validateInputAction(body);
-      const delayMs = typeof body.delay === 'number' ? body.delay : undefined;
+      const rawDelay = typeof body.delay === 'number' ? body.delay : undefined;
+      const delayMs = rawDelay !== undefined ? Math.max(0, Math.min(MAX_DELAY_MS, rawDelay)) : undefined;
       const result = await executeInput(action, delayMs);
       sendSuccess(res, result);
       logAudit({ path: pathname, action: `input:${action.type}`, success: true, elapsed: Date.now() - t0 });
@@ -276,6 +317,11 @@ export function startGuiAgentServer(config?: Partial<GuiAgentConfig>): Promise<{
       resolve({ success: true, token: getToken() || undefined });
       return;
     }
+    if (starting) {
+      resolve({ success: false, error: 'Server is already starting' });
+      return;
+    }
+    starting = true;
 
     // Merge config
     if (config) {
@@ -299,6 +345,7 @@ export function startGuiAgentServer(config?: Partial<GuiAgentConfig>): Promise<{
       server = null;
       clearToken();
       resetRateLimiter();
+      starting = false;
       resolve({ success: false, error: errorMsg });
     });
 
@@ -306,6 +353,7 @@ export function startGuiAgentServer(config?: Partial<GuiAgentConfig>): Promise<{
     server.listen(port, LOCALHOST_IP, () => {
       log.info(`${TAG} Listening on ${LOCALHOST_IP}:${port}`);
       lastError = null;
+      starting = false;
       resolve({ success: true, token });
     });
   });
@@ -316,6 +364,7 @@ export function startGuiAgentServer(config?: Partial<GuiAgentConfig>): Promise<{
  */
 export function stopGuiAgentServer(): Promise<void> {
   return new Promise((resolve, reject) => {
+    starting = false;
     if (!server) {
       resolve();
       return;
@@ -326,6 +375,12 @@ export function stopGuiAgentServer(): Promise<void> {
     lastError = null;
     clearToken();
     resetRateLimiter();
+    clearAuditLog();
+
+    // Force-close existing keep-alive connections (Node 18.2+)
+    if (typeof s.closeAllConnections === 'function') {
+      s.closeAllConnections();
+    }
 
     s.close((err) => {
       if (err) {

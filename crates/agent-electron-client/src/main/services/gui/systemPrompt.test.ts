@@ -23,9 +23,12 @@ describe('generateGuiAgentSystemPrompt', () => {
     expect(result).toContain('http://127.0.0.1:60010');
   });
 
-  it('contains the Bearer token in auth header', () => {
+  it('references the GUI_AGENT_TOKEN env var instead of literal token', () => {
     const result = generateGuiAgentSystemPrompt(baseParams);
-    expect(result).toContain('Authorization: Bearer test-token-uuid');
+    expect(result).toContain('$GUI_AGENT_TOKEN');
+    expect(result).toContain('GUI_AGENT_TOKEN');
+    // Should NOT contain the literal token value
+    expect(result).not.toContain('test-token-uuid');
   });
 
   it('wraps content in <gui-agent> tags', () => {
