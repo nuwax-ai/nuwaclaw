@@ -1131,6 +1131,21 @@ export class UnifiedAgentService extends EventEmitter {
         } catch (e) {
           log.warn(`[UnifiedAgent] Delete session error:`, e);
         }
+
+        // If no sessions remain in this engine, destroy it to clean up MCP child processes.
+        // PersistentMcpBridge (browser MCP) is unaffected — it runs in the Electron main process.
+        // Next session creation will auto-create a new engine via ensureEngineForRequest().
+        if (engine.sessionCount === 0) {
+          log.info(
+            `[UnifiedAgent] No sessions left, destroying engine ${projectId}`,
+          );
+          engine.removeAllListeners();
+          await engine.destroy();
+          this.engines.delete(projectId);
+          this.engineConfigs.delete(projectId);
+          this.engineRawMcpServers.delete(projectId);
+        }
+
         return true;
       }
     }

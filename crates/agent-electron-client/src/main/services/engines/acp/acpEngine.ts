@@ -112,6 +112,11 @@ export class AcpEngine extends EventEmitter {
     return this._engineName;
   }
 
+  /** Number of active sessions in this engine */
+  get sessionCount(): number {
+    return this.sessions.size;
+  }
+
   /** Get the current engine configuration */
   get currentConfig(): AgentConfig | null {
     return this.config;
