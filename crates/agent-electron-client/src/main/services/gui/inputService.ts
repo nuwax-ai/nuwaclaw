@@ -157,7 +157,11 @@ export async function executeInput(action: InputAction, delayMs = 50): Promise<I
       case 'mouse_scroll': {
         await nutMouse.setPosition({ x: action.x, y: action.y });
         if (action.deltaY) {
-          await nutMouse.scrollDown(Math.abs(action.deltaY));
+          if (action.deltaY > 0) {
+            await nutMouse.scrollDown(action.deltaY);
+          } else {
+            await nutMouse.scrollUp(Math.abs(action.deltaY));
+          }
         }
         break;
       }
@@ -182,7 +186,7 @@ export async function executeInput(action: InputAction, delayMs = 50): Promise<I
           return resolved;
         });
         for (const k of keys) await nutKeyboard.pressKey(k);
-        for (const k of keys.reverse()) await nutKeyboard.releaseKey(k);
+        for (const k of [...keys].reverse()) await nutKeyboard.releaseKey(k);
         break;
       }
 

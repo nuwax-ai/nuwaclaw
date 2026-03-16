@@ -6,7 +6,7 @@
  * - 环形缓冲审计日志
  */
 
-import { randomUUID } from 'crypto';
+import { randomUUID, timingSafeEqual } from 'crypto';
 import log from 'electron-log';
 import type { AuditLogEntry } from '@shared/types/guiAgentTypes';
 
@@ -28,14 +28,19 @@ export function getToken(): string | null {
   return currentToken;
 }
 
-/** 验证 Bearer Token */
+/** 验证 Bearer Token (timing-safe) */
 export function validateToken(authHeader: string | undefined): boolean {
   if (!currentToken) return false;
   if (!authHeader) return false;
   const token = authHeader.startsWith('Bearer ')
     ? authHeader.slice(7)
     : authHeader;
-  return token === currentToken;
+  if (token.length !== currentToken.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(token), Buffer.from(currentToken));
+  } catch {
+    return false;
+  }
 }
 
 /** 轮换 Token（返回新 Token） */
