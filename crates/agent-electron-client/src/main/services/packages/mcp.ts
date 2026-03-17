@@ -806,9 +806,29 @@ class McpProxyManager {
     // 2. stdio server：
     //    - persistent server（如 chrome-devtools）→ 优先使用 bridge URL（已在 PersistentMcpBridge 中运行）
     //    - 动态 MCP server → bridge 中没有注册，降级到 stdio 配置（由 mcp-proxy 按需 spawn）
+    const globalAllowTools = this.config.allowTools;
+    const globalDenyTools = this.config.denyTools;
+
     for (const [name, entry] of Object.entries(servers)) {
+      const effectiveAllowTools =
+        entry.allowTools && entry.allowTools.length > 0
+          ? entry.allowTools
+          : globalAllowTools && globalAllowTools.length > 0
+            ? globalAllowTools
+            : undefined;
+      const effectiveDenyTools =
+        entry.denyTools && entry.denyTools.length > 0
+          ? entry.denyTools
+          : globalDenyTools && globalDenyTools.length > 0
+            ? globalDenyTools
+            : undefined;
+
       if (isRemoteEntry(entry)) {
-        proxyServers[name] = entry;
+        proxyServers[name] = {
+          ...entry,
+          ...(effectiveAllowTools ? { allowTools: effectiveAllowTools } : {}),
+          ...(effectiveDenyTools ? { denyTools: effectiveDenyTools } : {}),
+        };
         continue;
       }
       // 尝试获取 bridge URL（persistent server 有，动态 MCP 没有 → 降级 stdio）
@@ -817,8 +837,8 @@ class McpProxyManager {
         if (url) {
           proxyServers[name] = {
             url,
-            ...(entry.allowTools ? { allowTools: entry.allowTools } : {}),
-            ...(entry.denyTools ? { denyTools: entry.denyTools } : {}),
+            ...(effectiveAllowTools ? { allowTools: effectiveAllowTools } : {}),
+            ...(effectiveDenyTools ? { denyTools: effectiveDenyTools } : {}),
           };
           continue;
         }
@@ -826,7 +846,11 @@ class McpProxyManager {
       // 降级：stdio 配置（bridge 未运行或 server 未就绪）
       const resolved = resolveServersConfig({ [name]: entry });
       if (resolved[name]) {
-        proxyServers[name] = resolved[name] as (typeof proxyServers)[string];
+        proxyServers[name] = {
+          ...(resolved[name] as (typeof proxyServers)[string]),
+          ...(effectiveAllowTools ? { allowTools: effectiveAllowTools } : {}),
+          ...(effectiveDenyTools ? { denyTools: effectiveDenyTools } : {}),
+        };
       }
     }
 

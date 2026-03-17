@@ -144,7 +144,11 @@ export function getInitDepsState(): InitDepsState | null {
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
     const data = JSON.parse(raw) as InitDepsState;
-    if (typeof data.appVersion !== "string" || !data.packages || typeof data.packages !== "object")
+    if (
+      typeof data.appVersion !== "string" ||
+      !data.packages ||
+      typeof data.packages !== "object"
+    )
       return null;
     return data;
   } catch {
@@ -160,7 +164,12 @@ export function setInitDepsState(state: InitDepsState): void {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, INIT_DEPS_STATE_FILENAME);
   fs.writeFileSync(filePath, JSON.stringify(state, null, 2), "utf-8");
-  log.info("[Dependencies] init-deps-state 已更新:", state.appVersion, Object.keys(state.packages).length, "packages");
+  log.info(
+    "[Dependencies] init-deps-state 已更新:",
+    state.appVersion,
+    Object.keys(state.packages).length,
+    "packages",
+  );
 }
 
 // 获取 Electron extraResources 路径
@@ -402,7 +411,6 @@ function ensureUvInAppBin(): void {
   }
 }
 
-
 // 获取 bundled nuwax-lanproxy 二进制路径
 // 运行时根据平台选择正确的二进制文件；优先 binaries/<平台名>，其次 bin/nuwax-lanproxy[.exe]
 export function getLanproxyBinPath(): string {
@@ -444,7 +452,10 @@ export function getLanproxyBinPath(): string {
     try {
       const entries = fs.readdirSync(binariesDir, { withFileTypes: true });
       const exes = entries.filter(
-        (e) => e.isFile() && e.name.endsWith(".exe") && e.name.toLowerCase().includes("lanproxy")
+        (e) =>
+          e.isFile() &&
+          e.name.endsWith(".exe") &&
+          e.name.toLowerCase().includes("lanproxy"),
       );
       if (exes.length > 0) {
         const preferArch = process.arch === "x64" ? "x86_64" : "i686";
@@ -1426,7 +1437,12 @@ function runNpmInstall(
   packageName: string,
   appDataDir: string,
   options?: { registry?: string; version?: string },
-): Promise<{ success: boolean; version?: string; binPath?: string; error?: string }> {
+): Promise<{
+  success: boolean;
+  version?: string;
+  binPath?: string;
+  error?: string;
+}> {
   return new Promise((resolve) => {
     const npmCmd = isWindows() ? "npm.cmd" : "npm";
     const args = ["install", "--save"];
@@ -1505,7 +1521,9 @@ export function installNpmPackage(
   binPath?: string;
   error?: string;
 }> {
-  const task = _npmInstallQueue.then(() => _installNpmPackageImpl(packageName, options));
+  const task = _npmInstallQueue.then(() =>
+    _installNpmPackageImpl(packageName, options),
+  );
   // 无论成功失败都推进队列，防止一个失败阻塞后续
   _npmInstallQueue = task.catch(() => {});
   return task;
@@ -1610,7 +1628,9 @@ async function fetchNpmLatestVersion(
       signal: controller.signal,
     });
     if (!resp.ok) return null;
-    const data = (await resp.json()) as { "dist-tags"?: Record<string, string> };
+    const data = (await resp.json()) as {
+      "dist-tags"?: Record<string, string>;
+    };
     return data?.["dist-tags"]?.latest ?? null;
   } catch {
     return null;
@@ -1623,9 +1643,9 @@ async function fetchNpmLatestVersion(
  * 检查所有依赖状态
  * @param options.checkLatest 是否并行查询 npm registry 最新版本（默认 false，仅依赖管理页需要）
  */
-export async function checkAllDependencies(
-  options?: { checkLatest?: boolean },
-): Promise<LocalDependencyItem[]> {
+export async function checkAllDependencies(options?: {
+  checkLatest?: boolean;
+}): Promise<LocalDependencyItem[]> {
   const results: LocalDependencyItem[] = [];
 
   for (const dep of SETUP_REQUIRED_DEPENDENCIES) {
@@ -1651,7 +1671,6 @@ export async function checkAllDependencies(
         case "pnpm":
         case "nuwaxcode":
         case "nuwax-file-server":
-        case "nuwax-mcp-stdio-proxy":
         case "claude-code-acp-ts": {
           const result = await detectNpmPackage(dep.name, dep.binName);
           item.version = result.version;
@@ -1688,7 +1707,9 @@ export async function checkAllDependencies(
   // 仅当 registry 返回的 latest 严格大于当前已装版本时才设置 latestVersion，避免展示「更新到更旧版本」
   if (options?.checkLatest) {
     const npmInstalled = results.filter(
-      (r) => r.type === "npm-local" && (r.status === "installed" || r.status === "outdated"),
+      (r) =>
+        r.type === "npm-local" &&
+        (r.status === "installed" || r.status === "outdated"),
     );
     if (npmInstalled.length > 0) {
       const latestResults = await Promise.all(
@@ -1724,18 +1745,25 @@ export async function installMissingDependencies(): Promise<{
   for (const dep of deps) {
     const needInstall =
       (dep.status === "missing" && dep.required) ||
-      (dep.status === "outdated" && dep.installVersion && dep.type === "npm-local");
+      (dep.status === "outdated" &&
+        dep.installVersion &&
+        dep.type === "npm-local");
 
     if (!needInstall) continue;
 
     if (dep.status === "outdated") {
-      log.info(`[Dependencies] 按配置版本升级: ${dep.name}@${dep.installVersion}`);
+      log.info(
+        `[Dependencies] 按配置版本升级: ${dep.name}@${dep.installVersion}`,
+      );
     } else {
       log.info(`[Dependencies] Installing missing: ${dep.name}`);
     }
 
     if (dep.type === "npm-local") {
-      const result = await installNpmPackage(dep.name, dep.installVersion ? { version: dep.installVersion } : undefined);
+      const result = await installNpmPackage(
+        dep.name,
+        dep.installVersion ? { version: dep.installVersion } : undefined,
+      );
       results.push({
         name: dep.name,
         success: result.success,
@@ -1784,10 +1812,18 @@ export async function syncInitDependencies(): Promise<{ updated: string[] }> {
       compareVersions(installedVer, targetVer) < 0;
 
     if (needInstall) {
-      log.info(`[Dependencies] syncInitDependencies: 安装/升级 ${dep.name}@${dep.installVersion}`);
-      const result = await installNpmPackage(dep.name, { version: dep.installVersion });
+      log.info(
+        `[Dependencies] syncInitDependencies: 安装/升级 ${dep.name}@${dep.installVersion}`,
+      );
+      const result = await installNpmPackage(dep.name, {
+        version: dep.installVersion,
+      });
       if (result.success) updated.push(dep.name);
-      else log.warn(`[Dependencies] syncInitDependencies: ${dep.name} 安装失败`, result.error);
+      else
+        log.warn(
+          `[Dependencies] syncInitDependencies: ${dep.name} 安装失败`,
+          result.error,
+        );
     }
     packages[dep.name] = dep.installVersion;
   }
@@ -1796,7 +1832,8 @@ export async function syncInitDependencies(): Promise<{ updated: string[] }> {
     appVersion: app.getVersion(),
     packages,
   });
-  if (updated.length > 0) log.info("[Dependencies] syncInitDependencies 已更新:", updated);
+  if (updated.length > 0)
+    log.info("[Dependencies] syncInitDependencies 已更新:", updated);
   return { updated };
 }
 
