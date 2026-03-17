@@ -229,6 +229,7 @@ jobs:
         shell: bash
         working-directory: crates/agent-electron-client
         env:
+          TARGET_ARCH: ${{ matrix.arch }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
