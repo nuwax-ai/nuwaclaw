@@ -81,6 +81,9 @@ importers:
       '@electron/rebuild':
         specifier: ^4.0.3
         version: 4.0.3
+      '@eslint/js':
+        specifier: ^9.39.2
+        version: 9.39.4
       '@types/better-sqlite3':
         specifier: ^7.6.12
         version: 7.6.13
@@ -108,6 +111,18 @@ importers:
       electron-builder:
         specifier: ^25.1.8
         version: 25.1.8(electron-builder-squirrel-windows@25.1.8)
+      eslint:
+        specifier: ^9.39.2
+        version: 9.39.4
+      eslint-config-prettier:
+        specifier: ^10.1.8
+        version: 10.1.8(eslint@9.39.4)
+      eslint-plugin-react-hooks:
+        specifier: ^7.0.1
+        version: 7.0.1(eslint@9.39.4)
+      eslint-plugin-react-refresh:
+        specifier: ^0.5.0
+        version: 0.5.2(eslint@9.39.4)
       nuwax-mcp-stdio-proxy:
         specifier: workspace:*
         version: link:../nuwax-mcp-stdio-proxy
@@ -120,6 +135,9 @@ importers:
       typescript:
         specifier: ^5.7.3
         version: 5.8.3
+      typescript-eslint:
+        specifier: ^8.55.0
+        version: 8.57.0(eslint@9.39.4)(typescript@5.8.3)
       vite:
         specifier: ^6.0.7
         version: 6.4.1(@types/node@22.19.15)(yaml@2.8.2)
@@ -226,6 +244,18 @@ importers:
       vitest:
         specifier: ^4.0.18
         version: 4.1.0(@types/node@24.12.0)(@vitest/ui@4.1.0)(jsdom@28.1.0)(vite@7.3.1(@types/node@24.12.0)(yaml@2.8.2))
+
+  crates/nuwax-agent-gui-research:
+    devDependencies:
+      husky:
+        specifier: ^9
+        version: 9.1.7
+      lint-staged:
+        specifier: ^16
+        version: 16.2.7
+      prettier:
+        specifier: ^3.8.1
+        version: 3.8.1
 
   crates/nuwax-mcp-stdio-proxy:
     dependencies:
