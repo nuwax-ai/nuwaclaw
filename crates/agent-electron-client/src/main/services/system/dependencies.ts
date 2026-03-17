@@ -367,12 +367,9 @@ function findSystemNode(): string | null {
 }
 
 /**
- * 应用内集成：确保 uv 在应用内可用。
+ * 应用内集成：确保 uv/uvx 在应用内可用。
  * 若 bundled（getUvBinPath）不存在，但 resources/uv/bin 存在（如开发环境已执行 prepare:uv），
- * 则一次性复制到 ~/.nuwaclaw/bin，该目录已在 PATH 中，后续 MCP 等子进程即可找到 uv。
- *
- * 注意：不创建 uvx 硬链接/复制。uv >= 0.10 的 uvx 多调用已失效（调用 uvx 不等于 uv tool run），
- * 所以 resolveUvCommand() 统一将 uvx 命令重写为 `uv tool run`。
+ * 则一次性复制到 ~/.nuwaclaw/bin，该目录已在 PATH 中，后续 MCP 等子进程即可找到 uv/uvx。
  */
 function ensureUvInAppBin(): void {
   try {

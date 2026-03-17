@@ -164,7 +164,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/uv
-          key: bundled-uv-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
+          key: bundled-uv-v2-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-uv.js') }}
 
       - name: Prepare bundled resources (uv, node, git)
         working-directory: crates/agent-electron-client
