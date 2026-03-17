@@ -131,6 +131,13 @@ export interface DependenciesAPI {
     bundled?: boolean;
     error?: string;
   }>;
+  /** 应用包内集成的 nuwax-mcp-stdio-proxy，与 Node/uv 一起在系统环境中展示 */
+  checkMcpProxyBundled: () => Promise<{
+    success: boolean;
+    available?: boolean;
+    version?: string;
+    error?: string;
+  }>;
   detectPackage: (
     packageName: string,
     binName?: string,

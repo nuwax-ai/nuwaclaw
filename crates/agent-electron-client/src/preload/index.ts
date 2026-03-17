@@ -236,6 +236,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("dependencies:checkAll", options),
     checkNode: () => ipcRenderer.invoke("dependencies:checkNode"),
     checkUv: () => ipcRenderer.invoke("dependencies:checkUv"),
+    checkMcpProxyBundled: () =>
+      ipcRenderer.invoke("dependencies:checkMcpProxyBundled"),
     detectPackage: (packageName: string, binName?: string) =>
       ipcRenderer.invoke("dependencies:detectPackage", packageName, binName),
     installPackage: (

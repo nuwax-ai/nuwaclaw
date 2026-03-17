@@ -1291,6 +1291,35 @@ export async function checkUvVersion(): Promise<{
   });
 }
 
+/**
+ * 检测应用包内集成的 nuwax-mcp-stdio-proxy 是否可用
+ * 打包后为 process.resourcesPath/nuwax-mcp-stdio-proxy/，开发时为 resources/nuwax-mcp-stdio-proxy/
+ * 与 Node、uv 一起在「系统环境」中展示为「应用包内集成」
+ */
+export async function checkMcpProxyBundled(): Promise<{
+  available: boolean;
+  version?: string;
+}> {
+  const bundledDir = path.join(getResourcesPath(), "nuwax-mcp-stdio-proxy");
+  const pkgPath = path.join(bundledDir, "package.json");
+  if (!fs.existsSync(pkgPath)) {
+    log.info(`[checkMcpProxyBundled] 未找到包内集成: ${pkgPath}`);
+    return { available: false };
+  }
+  try {
+    const raw = fs.readFileSync(pkgPath, "utf-8");
+    const pkg = JSON.parse(raw) as { version?: string };
+    const version = pkg?.version;
+    log.info(
+      `[checkMcpProxyBundled] 包内集成可用: ${bundledDir}, version=${version ?? "未知"}`,
+    );
+    return { available: true, version };
+  } catch (e) {
+    log.warn("[checkMcpProxyBundled] 读取 package.json 失败:", e);
+    return { available: true };
+  }
+}
+
 /** 检测指定路径的 uv 二进制 */
 function _checkUvBin(binPath: string): Promise<{
   installed: boolean;
@@ -1878,6 +1907,7 @@ export default {
   SETUP_REQUIRED_DEPENDENCIES,
   checkNodeVersion,
   checkUvVersion,
+  checkMcpProxyBundled,
   detectNpmPackage,
   detectShellCommand,
   installNpmPackage,
