@@ -116,6 +116,7 @@
   font-size: 11px;
   color: var(--color-text-tertiary);
   margin-top: 2px;
+  margin-left: 4px;
 }
 
 .servicePid {

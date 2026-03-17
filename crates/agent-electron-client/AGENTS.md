@@ -2,666 +2,121 @@
 
 ## Project Overview
 
-This is the **Nuwax Agent** Electron client - a multi-engine AI assistant desktop application.
-
-### Core Features
-
-- **Multi-Agent Engine**: Supports claude-code and nuwaxcode via ACP protocol
-- **Cross-Platform**: Windows, macOS, Linux
-- **Local Execution**: Runs locally with sandbox option
-- **IM Integration**: Control via Telegram, Discord, DingTalk, Feishu
-- **Persistent Memory**: Remembers user preferences
-- **Sandbox Execution**: Docker/WSL/Firejail isolation
+**Nuwax Agent** Electron client — multi-engine AI assistant (claude-code / nuwaxcode via ACP). Cross-platform, local + sandbox, IM (Telegram/Discord/DingTalk/Feishu), persistent prefs. Sandbox: Docker / WSL / Firejail.
 
 ---
 
 ## Architecture
 
-### Process Model
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Electron Main Process                      │
-├─────────────────────────────────────────────────────────────┤
-│  - Window lifecycle                                         │
-│  - System tray                                              │
-│  - SQLite persistence                                       │
-│  - Engine Manager (claude-code/nuwaxcode via ACP)           │
-│  - Sandbox Manager (Docker/WSL/Firejail)                   │
-│  - IM Gateways (Telegram/Discord/DingTalk/Feishu)          │
-│  - Process cleanup on exit                                  │
-│  - IPC handlers (40+)                                      │
-│  - Context isolation enabled                                │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              │ IPC
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  Electron Renderer Process                   │
-├─────────────────────────────────────────────────────────────┤
-│  - React 18 + Ant Design                                   │
-│  - UI and business logic                                   │
-│  - Communicates via IPC only                               │
-└─────────────────────────────────────────────────────────────┘
-```
+- **Main**: Window, tray, SQLite, Engine Manager (ACP), Sandbox Manager, IM gateways, process cleanup, 40+ IPC, context isolation.
+- **Renderer**: React 18 + Ant Design, IPC only. State via React Context + useState + IPC + SQLite (no Redux).
 
 ---
 
 ## Services
 
-### Main Process Services (13 files)
+**Main** (`src/main/services/`): Unified Agent `engines/unifiedAgent.ts`, ACP `engines/acp/`, Engine Manager, Dependencies/Shell/Workspace `system/`, MCP/Package Locator/Manager `packages/`, Computer Server `computerServer.ts`.
 
-Located in `src/main/services/`, these services use Node/Electron APIs and can only run in the main process.
+**Renderer** (`src/renderer/services/`): Setup/Auth/AI, File Server/Lanproxy/Agent Runner, Sandbox/Permissions/Skills/IM/Scheduler/Log/API.
 
-| Service | File | Description |
-|---------|------|-------------|
-| **Engines** | | |
-| Unified Agent | `engines/unifiedAgent.ts` | Unified ACP layer for all engines |
-| ACP Engine | `engines/acp/acpEngine.ts` | ACP protocol handler |
-| ACP Client | `engines/acp/acpClient.ts` | ACP connection manager |
-| Agent Helpers | `engines/agentHelpers.ts` | Agent utilities |
-| Engine Manager | `engines/engineManager.ts` | Engine lifecycle, isolation |
-| **System** | | |
-| Dependencies | `system/dependencies.ts` | Package management, env injection |
-| Shell Environment | `system/shellEnv.ts` | Cross-platform shell |
-| Workspace Manager | `system/workspaceManager.ts` | Session workspaces |
-| **Packages** | | |
-| MCP | `packages/mcp.ts` | MCP server management |
-| Package Locator | `packages/packageLocator.ts` | Package detection |
-| Package Manager | `packages/packageManager.ts` | Package installation |
-| **Other** | | |
-| Computer Server | `computerServer.ts` | HTTP server for /computer/* API |
-
-### Renderer Process Services (13 files)
-
-Located in `src/renderer/services/`, these services are used by React components.
-
-| Service | File | Description |
-|---------|------|-------------|
-| **Setup** | | |
-| Setup | `setup.ts` | Setup wizard & auth |
-| Auth | `auth.ts` | Authentication, API keys |
-| AI | `ai.ts` | AI configuration |
-| **Services** | | |
-| File Server | `fileServer.ts` | Local file service |
-| Lanproxy | `lanproxy.ts` | Intranet penetration |
-| Agent Runner | `agentRunner.ts` | Agent runner proxy |
-| **Features** | | |
-| Sandbox | `sandbox.ts` | Cross-platform sandbox |
-| Permissions | `permissions.ts` | Permission rules |
-| Skills | `skills.ts` | Skills sync |
-| IM | `im.ts` | Instant messaging |
-| Scheduler | `scheduler.ts` | Task scheduling |
-| Log Service | `logService.ts` | Logging & export |
-| API | `api.ts` | Backend API client |
-
-### Components (13)
-
-Located in `src/renderer/components/`
-
-| Component | Description |
-|-----------|-------------|
-| `EmbeddedWebview.tsx` | Reusable embedded webview with toolbar |
-| `SetupWizard.tsx` | 3-step setup wizard |
-| `SetupDependencies.tsx` | Dependency detection & auto-install |
-| `ClientPage.tsx` | Dashboard (login, services, deps) |
-| `SettingsPage.tsx` | Settings UI |
-| `DependenciesPage.tsx` | Dependency management UI |
-| `AgentSettings.tsx` | Agent configuration |
-| `AgentRunnerSettings.tsx` | Runner configuration |
-| `MCPSettings.tsx` | MCP management |
-| `LanproxySettings.tsx` | Lanproxy config |
-| `SkillsSync.tsx` | Skills sync UI |
-| `IMSettings.tsx` | IM configuration |
-| `TaskSettings.tsx` | Task settings |
+**Components** (`src/renderer/components/`): EmbeddedWebview, SetupWizard, SetupDependencies, ClientPage, SettingsPage, DependenciesPage, AgentSettings, AgentRunnerSettings, MCPSettings, LanproxySettings, SkillsSync, IMSettings, TaskSettings.
 
 ---
 
-## Unified Agent Service
+## Unified Agent & Engines
 
-### Supported Engines
-
-| Engine | Protocol | Binary |
-|--------|----------|--------|
-| **claude-code** | ACP | claude-code-acp-ts |
-| **nuwaxcode** | ACP | nuwaxcode acp |
-
-### Architecture
-
-```
-┌─────────────────────────────────────────────────┐
-│            UnifiedAgentService                   │
-│         （统一入口，事件总线）                      │
-├─────────────────────────────────────────────────┤
-│                                                  │
-│  ┌────────────────────────────────────────┐     │
-│  │            AcpEngine                     │     │
-│  │   Agent Client Protocol (NDJSON)        │     │
-│  │   - Session 管理                         │     │
-│  │   - Prompt (同步/异步)                    │     │
-│  │   - 权限自动处理                          │     │
-│  │   - MCP 注入                              │     │
-│  │   - SSE 事件流                            │     │
-│  └────────────────────────────────────────┘     │
-│                                                  │
-└─────────────────────────────────────────────────┘
-```
-
-### Usage
-
-```typescript
-import { agentService } from '@main/services/engines/unifiedAgent';
-
-// Initialize with claude-code or nuwaxcode (ACP engine)
-await agentService.init({
-  engine: 'claude-code',  // or 'nuwaxcode'
-  apiKey: 'xxx',
-  model: 'claude-sonnet-4-20250514',
-  workspaceDir: '/path/to/workspace',
-  // Optional: custom env and MCP servers
-  env: { MY_VAR: 'value' },
-  mcpServers: {
-    'my-mcp': { command: 'npx', args: ['-y', 'my-mcp-server'] },
-  },
-});
-
-// Create session
-const session = await agentService.createSession({ title: 'My Session' });
-
-// Send prompt (blocking)
-const result = await agentService.prompt(session.id, [
-  { type: 'text', text: 'Hello!' }
-]);
-
-// Send prompt (async, results via SSE events)
-await agentService.promptAsync(session.id, [
-  { type: 'text', text: 'Build a todo app' }
-]);
-
-// Listen for SSE events
-agentService.on('message.updated', (data) => { /* ... */ });
-agentService.on('permission.updated', (data) => { /* ... */ });
-
-// Respond to permission request
-await agentService.respondPermission(session.id, permissionId, 'once');
-
-// Destroy
-await agentService.destroy();
-```
+- **Engines**: claude-code → `claude-code-acp-ts` (npm-local, no args), nuwaxcode → `nuwaxcode acp` (npm-local, args: `['acp']`). Both use ACP/NDJSON over stdin/stdout.
+- **Arch**: UnifiedAgentService (unified entry, event bus) → AcpEngine (session, sync/async prompt, permissions, MCP injection, SSE).
+- **Usage**: `agentService.init({ engine, apiKey, model, workspaceDir, env?, mcpServers? })` → `createSession` → `prompt` / `promptAsync` → `on('message.updated'|'permission.updated')` → `respondPermission` → `destroy`. See `unifiedAgent.ts`.
+- **Isolation**: `PATH`/`NODE_PATH` point to `~/.nuwaclaw`, `HOME` etc. set to `/tmp/nuwaclaw-run-*`, API keys injected via env.
 
 ---
 
-## Unified Agent SDK (@nuwax-ai/sdk)
+## Sandbox & Permissions
 
-### About
-
-使用 ACP (Agent Client Protocol) 通过 NDJSON 与引擎进程通信。
-
----
-
-## Agent Engines
-
-### Supported Engines
-
-| Engine | Command | Description |
-|--------|---------|-------------|
-| **claude-code** | `claude-code-acp-ts` | ACP TypeScript 实现 |
-| **nuwaxcode** | `nuwaxcode acp` | ACP Go 实现 |
-
-### Engine Isolation
-
-Each engine runs in an isolated environment:
-
-```typescript
-{
-  // App-internal dependencies injected
-  PATH: '~/.nuwaclaw/node_modules/.bin:~/.nuwaclaw/bin:$PATH',
-  NODE_PATH: '~/.nuwaclaw/node_modules',
-
-  // Isolated home
-  HOME: '/tmp/nuwaclaw-run-xxx',
-  XDG_CONFIG_HOME: '/tmp/.../.config',
-  CLAUDE_CONFIG_DIR: '/tmp/.../.claude',
-  NUWAXCODE_CONFIG_DIR: '/tmp/.../.nuwaxcode',
-  ANTHROPIC_API_KEY: 'xxx',
-  ANTHROPIC_BASE_URL: 'xxx',
-}
-```
+- **Sandbox**: macOS Docker/App Sandbox, Windows Docker/WSL, Linux Docker/Firejail. `sandboxManager.init({ enabled, workspaceDir })` → `execute(cmd, args)`. See `sandbox.ts`.
+- **Permissions**: tool:read/file:read → Allow; tool:edit/file:write/command:bash/network:http → Prompt. `permissionManager.checkPermission(...)` / `approveRequest(...)`. See `permissions.ts`.
 
 ---
 
-## Sandbox Execution
+## Dependencies & Paths
 
-### Supported Platforms
-
-| Platform | Sandbox Type | Requirements |
-|----------|-------------|--------------|
-| **macOS** | Docker / App Sandbox | Docker (optional) |
-| **Windows** | Docker / WSL | Docker or WSL |
-| **Linux** | Docker / Firejail | Docker or Firejail |
-
-### Usage
-
-```typescript
-import { sandboxManager } from '@renderer/services/sandbox';
-
-// Initialize
-await sandboxManager.init({
-  enabled: true,
-  workspaceDir: '/path/to/workspace'
-});
-
-// Execute in sandbox
-const result = await sandboxManager.execute('npm', ['install', 'package']);
-```
-
----
-
-## Permissions
-
-### Default Rules
-
-| Pattern | Action |
-|---------|--------|
-| `tool:read` | Allow |
-| `tool:edit` | Prompt |
-| `command:bash` | Prompt |
-| `file:read` | Allow |
-| `file:write` | Prompt |
-| `network:http` | Prompt |
-
-### Usage
-
-```typescript
-import { permissionManager } from '@renderer/services/permissions';
-
-// Check permission
-const { allowed, requiresPrompt } = permissionManager.checkPermission({
-  type: 'command',
-  sessionId: 'xxx',
-  title: 'Run command',
-  description: 'Execute npm install',
-  details: { command: 'npm' }
-});
-
-// Approve request
-permissionManager.approveRequest(requestId, alwaysAllow);
-```
-
----
-
-## Dependencies
-
-### Required Dependencies
-
-| Dependency | Type | Description |
-|------------|------|-------------|
-| **uv** | bundled | Python package manager (>=0.5.0), shipped in extraResources |
-| **nuwax-file-server** | npm-local | File service |
-| **claude-code-acp-ts** | npm-local | Claude Code ACP implementation |
-| **nuwaxcode** | npm-local | Nuwaxcode ACP implementation |
-| **nuwax-mcp-stdio-proxy** | npm-local | MCP 聚合代理（通过 installVersion 在 ~/.nuwaclaw 初始化安装） |
-
-> **Note**: Node.js is NOT a required dependency — Electron bundles its own Node runtime.
-
-### Installation Locations
-
-```
-~/.nuwaclaw/
-├── engines/           # Agent engines
-├── workspaces/       # Session workspaces
-├── node_modules/    # Local npm packages
-│   ├── .bin/        # Executable symlinks (injected into PATH)
-│   └── mcp-servers  # MCP servers (isolated)
-├── bin/              # App binaries
-├── logs/             # Application logs
-│   ├── main.log     # Electron main process log (electron-log)
-│   ├── latest.log   # Symlink to current main.log
-│   └── mcp-proxy.log # MCP proxy stderr log (via MCP_PROXY_LOG_FILE)
-└── nuwaclaw.db   # SQLite database
-```
-
-> **Important**: All data is stored under `~/.nuwaclaw/`. The Electron `app.getPath('userData')` path is NOT used.
-
-### Environment Injection
-
-All child processes (engines, file server, lanproxy, agent runner) receive injected environment variables:
-
-```typescript
-{
-  PATH: '~/.nuwaclaw/node_modules/.bin:~/.nuwaclaw/bin:resources/uv/bin:$PATH',
-  NODE_PATH: '~/.nuwaclaw/node_modules',
-}
-```
-
-This ensures app-internal dependencies are always found first. Provided by `getAppEnv()` in `system/dependencies.ts`.
-
-### Bundled Resources
-
-```
-resources/
-└── uv/
-    └── bin/
-        └── uv          # Bundled uv binary (platform-specific)
-```
-
-In packaged mode, these are accessible via `process.resourcesPath`. In dev mode, via `resources/` relative to project root.
+- **Required**: uv (bundled), nuwax-file-server, claude-code-acp-ts, nuwaxcode, nuwax-mcp-stdio-proxy (npm-local). Node provided by Electron.
+- **Data**: `~/.nuwaclaw/` (engines, workspaces, node_modules, bin, logs, nuwaclaw.db). Does NOT use `app.getPath('userData')`.
+- **Env**: Child processes get injected `PATH` (includes `.nuwaclaw/node_modules/.bin`, `resources/uv/bin`) and `NODE_PATH`. See `system/dependencies.ts` `getAppEnv()`.
+- **Bundled**: `resources/uv/bin/uv` (after packaging: `process.resourcesPath`).
 
 ---
 
 ## Session & Workspace
 
-### Rule
-
-- **One Session = One Workspace**
-- Workspace directory is **user-specified**
-- Each session has independent configuration
-
-### Workflow
-
-```
-User creates session
-    │
-    └── Specify workspace directory
-        │
-        └── Validate directory
-            │
-            └── Save to config
-                │
-                └── Engine uses this directory
-```
+One Session = One Workspace. Directory is user-specified, validated before saving to config, then used by the engine.
 
 ---
 
-## MCP Proxy Logging & Resilience
+## MCP Proxy & Resilience
 
-### Proxy Log Pipeline
-
-MCP Proxy（nuwax-mcp-stdio-proxy）由 ACP 引擎 spawn，其 stderr 日志无法直接被 Electron 捕获。
-通过 `MCP_PROXY_LOG_FILE` 环境变量 + Electron 侧 tail watcher 实现日志转发：
-
-```
-mcp-proxy process                    Electron main process
-┌──────────────────┐                ┌──────────────────────┐
-│  logger.ts       │                │  mcp.ts              │
-│  ┌─────────────┐ │   write        │  ┌────────────────┐  │
-│  │ log(msg)    │─┼──────────────►│  │ startLogTail() │  │
-│  │  → stderr   │ │  mcp-proxy.log│  │  fs.watchFile   │  │
-│  │  → logStream│ │               │  │  → electron-log │  │
-│  └─────────────┘ │               │  └────────────────┘  │
-└──────────────────┘               └──────────────────────┘
-                                          │
-                                          ▼
-                                    ~/.nuwaclaw/logs/main.log
-```
-
-- **MCP_PROXY_LOG_FILE**: 环境变量，proxy 启动时设置，指向 `~/.nuwaclaw/logs/mcp-proxy.log`
-- **Log format**: `[2026-03-09 19:29:37.650] [info]  [nuwax-mcp-proxy] message`（与 electron-log 格式一致）
-- **Tail watcher**: `fs.watchFile` 每 2s 轮询，增量读取新行，转发到 `electron-log`
-- 在 `McpProxyManager.start()` 启动，`stop()` / `cleanup()` 停止
-
-### Resilient Transport (ResilientTransportWrapper)
-
-URL-based MCP server（SSE / Streamable HTTP）使用 `ResilientTransportWrapper` 提供：
-
-| 特性 | 配置 | 说明 |
-|------|------|------|
-| **Heartbeat** | `pingIntervalMs: 20000` | 每 20s 发送 `tools/list` 健康检查 |
-| **失败阈值** | `maxConsecutiveFailures: 3` | 连续 3 次失败后关闭连接并重试 |
-| **指数退避** | `1s → 2s → 4s → ... → 60s` | 与 Rust mcp-proxy CappedExponentialBackoff 一致 |
-| **重试次数** | 不限 | 初次连接失败和 heartbeat 触发的重连均不限次数 |
-| **请求队列** | `maxQueueSize: 100` | 重连期间缓存请求，连接恢复后 flush |
-
-重连流程：
-
-```
-Heartbeat 失败 ×3 → 关闭 transport → 指数退避等待 → 重新连接
-                                                      ↓
-                                               成功 → 恢复 heartbeat
-                                               失败 → 继续退避重试（不限次数）
-```
+- **Log**: MCP proxy writes to `MCP_PROXY_LOG_FILE` (default `~/.nuwaclaw/logs/mcp-proxy.log`). Electron tails it to electron-log via `fs.watchFile`. Controlled in `McpProxyManager.start/stop`.
+- **ResilientTransport**: URL-based MCP uses heartbeat 20s, reconnect after 3 consecutive failures, exponential backoff up to 60s, request queue limit 100.
 
 ---
 
-## Service Startup & Reg Sync
+## Logging
 
-### Reg 接口
+Uses **electron-log v5** with daily rotation. Config in `src/main/bootstrap/logConfig.ts`.
 
-- **端点**: `POST /api/sandbox/config/reg`
-- **函数**: `registerClient()` in `src/renderer/services/core/api.ts`
-- **封装**: `syncConfigToServer()` in `src/renderer/services/core/auth.ts`
-- **作用**: 向后端注册/同步本地沙箱配置（agentPort, fileServerPort 等），返回最新的 `serverHost`/`serverPort`（lanproxy 连接地址）、`configKey`、`online` 状态等
-- **返回写入**: reg 返回的 `serverHost`/`serverPort` 会覆盖本地 `lanproxy_config`，供 lanproxy 启动时读取
+- **Log directory**: `~/.nuwaclaw/logs/main.YYYY-MM-DD.log` with `latest.log` symlink.
+- **Levels**: File → debug/info, Console → debug.
+- **Retention**: 7 days (production), 30 days (development).
 
-### 关键约束
+---
 
-**reg 必须在 lanproxy 启动之前调用**，因为 lanproxy 启动时从 `lanproxy_config` 读取 `serverIp`/`serverPort`，这些值来自 reg 返回。
+## Reg Sync & Startup
 
-### 服务启动场景及 Reg 调用时序
-
-#### 1. 登录流程 (`handleLogin` in `ClientPage.tsx`)
-
-```
-loginAndRegister() → 第一次 reg（认证 + 获取 configKey）
-  ↓
-启动 mcpProxy / agent / fileServer（非代理服务）
-  ↓
-syncConfigToServer() → 第二次 reg（同步端口映射，获取最新 serverHost/serverPort）
-  ↓
-onAuthChange() → 刷新顶部栏
-  ↓
-启动 lanproxy（使用 reg 返回的最新地址）
-```
-
-#### 2. 启动全部 (`handleStartAll` in `ClientPage.tsx`)
-
-```
-启动 mcpProxy / agent / fileServer（非代理服务）
-  ↓
-syncConfigToServer() → reg 同步端口映射
-  ↓
-启动 lanproxy（使用 reg 返回的最新地址）
-```
-
-#### 3. 手动启动单个服务 (`handleStartServiceManual` in `ClientPage.tsx`)
-
-```
-syncConfigToServer() → reg 同步（确保 lanproxy 等获取最新配置）
-  ↓
-handleStartService(key) → 启动目标服务
-  ↓
-onAuthChange() → 刷新顶部栏
-```
-
-#### 4. 自动启动（App.tsx 自动重连）
-
-自动重连由 `App.tsx` 触发，会主动调用 `reRegisterClient()`（内部调用 `loginAndRegister`），然后启动服务。
-
-### Reg 请求参数 (ClientRegisterParams)
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `username` | string | 用户名 |
-| `password` | string | 密码 |
-| `savedKey` | string? | 持久化凭证，跨会话有效 |
-| `sandboxConfigValue` | object | `{ hostWithScheme, agentPort, vncPort, fileServerPort, apiKey?, maxUsers? }` |
-
-### Reg 响应关键字段 (ClientRegisterResponse)
-
-| 字段 | 说明 |
-|------|------|
-| `configKey` | 客户端标识 |
-| `serverHost` / `serverPort` | lanproxy 服务端地址（写入 `lanproxy_config`） |
-| `online` | 在线状态 |
-| `name` | 显示名称 |
+- **Reg**: `POST /api/sandbox/config/reg`, `registerClient()` (core/api.ts), `syncConfigToServer()` (core/auth.ts). Syncs ports etc., returns `serverHost`/`serverPort` written to `lanproxy_config`. **Must be called before lanproxy starts.**
+- **Scenarios**: Login → loginAndRegister → start mcpProxy/agent/fileServer → syncConfigToServer → start lanproxy. Start all → non-proxy services first, then sync, then lanproxy. Manual single service → sync then start. Auto-reconnect → App calls reRegisterClient.
+- **Reg params**: username, password, savedKey?, sandboxConfigValue. Response: configKey, serverHost/serverPort, online, name.
 
 ---
 
 ## Process Cleanup
 
-### Exit Flow
+On exit, in order: agentService.destroy, Agent Runner, Lanproxy, File Server, MCP Proxy, engine processes, DB. Main process variables: agentRunnerProcess (`agentRunner:*`), lanproxyProcess (`lanproxy:*`), fileServerProcess (`fileServer:*`). Engine uses IPC `agent:init`/`agent:destroy`/`agent:serviceStatus`.
 
+---
+
+## Testing
+
+Uses **Vitest**. 22+ test files across main, renderer, and shared.
+
+```bash
+npm test              # Watch mode
+npm run test:run      # Single run
+npm run test:coverage # With coverage
 ```
-App quit requested
-    │
-    ├── Stop Unified Agent Service (agentService.destroy())
-    ├── Stop Agent Runner
-    ├── Stop Lanproxy
-    ├── Stop File Server
-    ├── Stop MCP Proxy
-    ├── Stop Engine processes
-    └── Close database
-```
-
-### Process Variables
-
-Main process manages 3 independent child process variables:
-
-| Variable | IPC Prefix | Description |
-|----------|-----------|-------------|
-| `agentRunnerProcess` | `agentRunner:*` | Agent Runner proxy |
-| `lanproxyProcess` | `lanproxy:*` | Lanproxy tunnel |
-| `fileServerProcess` | `fileServer:*` | File server |
-
-> **Note**: Agent engine lifecycle is managed by `UnifiedAgentService` (not a raw `ChildProcess`). Use `agent:init` / `agent:destroy` / `agent:serviceStatus` IPC.
-
-### Prevents
-
-- Zombie processes
-- Port conflicts
-- Resource leaks
 
 ---
 
 ## Development
 
-### Commands
-
 ```bash
-# Install dependencies
-npm install
-
-# Development
-npm run electron:dev
-
-# Build
+npm install && npm run dev
 npm run build
-
-# Package
 npm run dist:mac    # macOS
 npm run dist:win    # Windows
 npm run dist:linux  # Linux
 ```
 
-### 在 macOS 上打 Windows 包（跨平台构建）
+- **Cross-platform packaging (Mac → Win)**: Supported. If `zip: not a valid zip file`, clear caches (`~/Library/Caches/electron`, `electron-builder`, or `node_modules/app-builder-bin`) and retry. Win x64 must be built on Windows/CI (native module cross-compile limitation).
+- **CI**: Tag `electron-v*` → `release-electron.yml` (standalone Release). Path changes on push/PR → `ci-electron.yml` (test build). Tauri still uses `v*` → release-tauri. Local OSS sync: `./scripts/sync-oss.sh <tag>` (requires gh, jq).
 
-**可以。** electron-builder 支持在 Mac 上打包 Windows（会下载 win32 版 Electron 并打包）。若出现：
-
-```text
-zip: not a valid zip file
-```
-
-多为 **Electron 的 win32 zip 缓存损坏**。处理步骤：
-
-1. **清掉 Electron 相关缓存后重试：**
-   ```bash
-   # macOS 上 Electron 缓存
-   rm -rf ~/Library/Caches/electron
-   rm -rf ~/Library/Caches/electron-builder
-   # 然后重新打包
-   CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:electron -- --win
-   ```
-2. 若仍报错，可删掉项目内 builder 缓存再试：
-   ```bash
-   rm -rf node_modules/app-builder-bin
-   npm install
-   CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:electron -- --win
-   ```
-3. **Windows x64** 在 Mac 上会触发 native 模块（如 better-sqlite3）交叉编译，node-gyp 不支持，故在 Mac 上一般只打 **Windows arm64**；要 **Windows x64** 请在 Windows 本机或 CI（如 GitHub Actions `windows-latest`）上执行 `npm run dist:win`。
-
-### GitHub Actions（与 Tauri 客户端分开）
-
-Electron 客户端有**独立**的 CI/Release workflow，不与 Tauri 的 `v*` tag 或 release 混用：
-
-| Workflow | 触发 | 说明 |
-|----------|------|------|
-| **Release Electron App** (`.github/workflows/release-electron.yml`) | 推送 tag `electron-v*`（如 `electron-v0.4.0`） | 构建 Mac/Win/Linux 安装包并创建**独立** GitHub Release（标题含 "Electron"），可配置 Apple 签名/公证 Secrets。 |
-| **Electron Desktop Client (Testing Build)** (`.github/workflows/ci-electron.yml`) | 仅当 `crates/agent-electron-client/**` 等路径变更时的 push/PR，或手动触发 | 无签名构建，产物以 Actions Artifacts 上传，保留 7 天。 |
-
-- **Tauri 发布**：仍用 tag `v*` → `release-tauri.yml`。
-- **Electron 发布**：用 tag `electron-v*` → `release-electron.yml`，Release 与安装包单独一份。
-- **本地触发 OSS 同步**：在 crate 内执行 `./scripts/sync-oss.sh <tag>`（如 `electron-v0.8.0`），会触发上述 workflow 并将产物同步到 OSS；依赖 `gh`、`jq`。
-
-### Project Structure
-
-```
-crates/agent-electron-client/
-├── src/
-│   ├── main/              # Electron main process
-│   │   ├── main.ts        # Main entry
-│   │   ├── preload.ts     # Preload script
-│   │   ├── ipc/           # IPC handlers
-│   │   └── services/      # Main process services
-│   │       ├── engines/   # Agent engines (ACP, unified)
-│   │       ├── packages/  # Package management (MCP)
-│   │       ├── system/    # System utilities
-│   │       └── utils/     # Utility functions
-│   ├── renderer/          # Renderer process (React)
-│   │   ├── main.tsx       # React entry
-│   │   ├── App.tsx        # Main component
-│   │   ├── index.html     # HTML template
-│   │   ├── components/    # React components
-│   │   │   └── dev/       # Dev-only tools
-│   │   ├── services/      # Renderer services
-│   │   └── styles/        # CSS modules
-│   └── shared/            # Shared code
-│       ├── constants.ts   # Shared constants
-│       └── types/         # TypeScript definitions
-├── resources/             # Bundled resources (extraResources)
-│   └── uv/                # uv multi-platform
-│       ├── bin/           # For packaging (generated)
-│       ├── .cache/        # Download cache
-│       └── <platform>/    # Platform-specific binaries
-├── scripts/
-│   ├── prepare-uv.js      # Build script for uv
-│   └── sync-oss.sh        # 触发 release-electron.yml 并同步到 OSS
-├── package.json
-└── vite.config.ts
-```
-
-### Path Aliases
-
-```typescript
-// tsconfig.json & vite.config.ts
-"@main/*"     → "src/main/*"
-"@renderer/*" → "src/renderer/*"
-"@shared/*"   → "src/shared/*"
-```
+**Structure**: `src/main/` (main.ts, preload, ipc, services/engines|packages|system|utils), `src/renderer/` (main.tsx, App, components, services, styles), `src/shared/`, `resources/uv/`, `scripts/`. Aliases: `@main/*` → main, `@renderer/*` → renderer, `@shared/*` → shared.
 
 ---
 
-## API Keys
+## Config & Platform
 
-Store sensitive configuration in SQLite, not in code:
+- **Sensitive config stored in SQLite** (plain text, no encryption): anthropic_api_key, default_model, server_host.
+- **Compatibility**: Multi-engine / Sandbox(Docker) / IM / Tray / No cmd popup — all platforms. WSL: Windows only. Firejail: Linux only.
 
-- `anthropic_api_key` - Claude API key
-- `default_model` - Default model
-- `server_host` - Backend server
-
----
-
-## Platform Compatibility
-
-| Feature | macOS | Windows | Linux |
-|---------|:-----:|:-------:|:-----:|
-| Multi-engine | ✅ | ✅ | ✅ |
-| Sandbox (Docker) | ✅ | ✅ | ✅ |
-| Sandbox (WSL) | - | ✅ | - |
-| Sandbox (Firejail) | - | - | ✅ |
-| IM Integration | ✅ | ✅ | ✅ |
-| System Tray | ✅ | ✅ | ✅ |
-| No cmd popup | ✅ | ✅ | ✅ |
-
----
-
-*Last updated: 2026-02-25*
+*Last updated: 2026-03-17*
