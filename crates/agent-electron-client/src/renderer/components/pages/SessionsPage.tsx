@@ -322,7 +322,7 @@ function SessionsPage({
                     <Button
                       size="small"
                       icon={<PlayCircleOutlined />}
-                      onClick={() => handleOpenSession(session.id)}
+                      onClick={() => handleOpenSession(session.projectId || "")}
                     >
                       打开
                     </Button>
