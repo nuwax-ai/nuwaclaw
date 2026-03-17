@@ -757,9 +757,8 @@ export class AcpEngine extends EventEmitter {
     } finally {
       this.activePromptSessions.delete(sessionId);
       this.activePromptRejects.delete(sessionId);
-      if (session.status !== "terminating") {
-        session.status = "idle";
-      }
+      // Always set idle: normal completion or after cancel (cancelOne may have set terminating).
+      session.status = "idle";
       session.lastActivity = Date.now();
     }
 
