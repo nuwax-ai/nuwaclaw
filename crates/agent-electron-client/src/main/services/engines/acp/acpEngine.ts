@@ -65,6 +65,9 @@ function safeStringify(obj: unknown): string {
   }
 }
 
+// Align with rcoder default (10s) to avoid long cancel waits.
+const ABORT_TIMEOUT_MS = 10_000;
+
 interface AcpSession {
   id: string;
   title?: string;
@@ -561,8 +564,6 @@ export class AcpEngine extends EventEmitter {
   async abortSession(id?: string): Promise<boolean> {
     if (!this.acpConnection) return false;
 
-    const ABORT_TIMEOUT = 30_000;
-
     const cancelOne = async (
       sessionId: string,
       session: AcpSession,
@@ -576,7 +577,16 @@ export class AcpEngine extends EventEmitter {
 
       session.status = "terminating";
 
-      // 1. Send cancel to ACP binary
+      // 1. Reject local prompt immediately for fast UX feedback.
+      const reject = this.activePromptRejects.get(sessionId);
+      if (reject) {
+        reject(new Error("Session cancelled"));
+        this.activePromptRejects.delete(sessionId);
+      }
+
+      this.activePromptSessions.delete(sessionId);
+
+      // 2. Send cancel to ACP binary
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         await Promise.race([
@@ -584,7 +594,7 @@ export class AcpEngine extends EventEmitter {
           new Promise<void>((_, reject) => {
             timer = setTimeout(
               () => reject(new Error("Abort timeout")),
-              ABORT_TIMEOUT,
+              ABORT_TIMEOUT_MS,
             );
           }),
         ]);
@@ -594,35 +604,28 @@ export class AcpEngine extends EventEmitter {
         if (timer !== undefined) clearTimeout(timer);
       }
 
-      // 2. Reject the running prompt promise so prompt() returns immediately
-      const reject = this.activePromptRejects.get(sessionId);
-      if (reject) {
-        reject(new Error("Session cancelled"));
-        this.activePromptRejects.delete(sessionId);
-      }
-
-      this.activePromptSessions.delete(sessionId);
       session.status = "idle";
       session.lastActivity = Date.now();
     };
 
     if (id) {
       const session = this.sessions.get(id);
-      if (!session) {
-        log.warn(`${this.logTag} abortSession: session not found: ${id}`);
+      if (!session || !this.activePromptSessions.has(id)) {
         return false;
       }
       await cancelOne(id, session);
       return true;
     } else {
-      let cancelled = false;
-      for (const [sessionId, session] of this.sessions) {
-        if (session.acpSessionId && this.activePromptSessions.has(sessionId)) {
-          await cancelOne(sessionId, session);
-          cancelled = true;
-        }
-      }
-      this.activePromptSessions.clear();
+      const cancellable = Array.from(this.sessions.entries()).filter(
+        ([sessionId, session]) =>
+          session.acpSessionId && this.activePromptSessions.has(sessionId),
+      );
+      const cancelled = cancellable.length > 0;
+      await Promise.all(
+        cancellable.map(([sessionId, session]) =>
+          cancelOne(sessionId, session),
+        ),
+      );
       return cancelled;
     }
   }
@@ -642,6 +645,9 @@ export class AcpEngine extends EventEmitter {
     if (!session) throw new Error(`Session not found: ${sessionId}`);
     if (!session.acpSessionId)
       throw new Error(`Session has no ACP session: ${sessionId}`);
+    if (session.status === "terminating") {
+      throw new Error("Session is terminating");
+    }
 
     const promptContent: Array<{
       type: string;
@@ -751,7 +757,9 @@ export class AcpEngine extends EventEmitter {
     } finally {
       this.activePromptSessions.delete(sessionId);
       this.activePromptRejects.delete(sessionId);
-      session.status = "idle";
+      if (session.status !== "terminating") {
+        session.status = "idle";
+      }
       session.lastActivity = Date.now();
     }
 
@@ -1133,6 +1141,17 @@ ${memoryContext}
     }
 
     session.lastActivity = Date.now();
+
+    const shouldSuppressUpdates =
+      session.status === "terminating" &&
+      update.sessionUpdate !== "session_end" &&
+      update.sessionUpdate !== "error";
+    if (shouldSuppressUpdates) {
+      log.debug(
+        `${this.logTag} Suppress update while terminating: ${update.sessionUpdate}`,
+      );
+      return;
+    }
 
     // Debug: log every ACP session update event
     log.info(
