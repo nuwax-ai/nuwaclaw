@@ -32,7 +32,7 @@ const SKIP_SHA256 = process.env.SKIP_SHA256 === '1';
 // 平台 key
 function getPlatformKey() {
   const p = process.platform;
-  const a = process.arch === 'x64' ? 'x64' : process.arch ===('arm64') ? 'arm64' : process.arch;
+  const a = process.env.TARGET_ARCH || process.arch;
   return `${p}-${a}`;
 }
 
@@ -206,9 +206,21 @@ async function prepareNode(key, suffix) {
   const platformDir = path.join(nodeRoot, key);
 
   // 检查是否已存在
+  const platformKeyFile = path.join(platformDir, '.platform-key');
   if (fs.existsSync(platformDir)) {
-    console.log(`[prepare-node] Node.js ${NODE_VERSION} (${key}) 已存在，跳过`);
-    return;
+    if (fs.existsSync(platformKeyFile)) {
+      const existingKey = fs.readFileSync(platformKeyFile, 'utf-8').trim();
+      if (existingKey === key) {
+        console.log(`[prepare-node] Node.js ${NODE_VERSION} (${key}) 已存在且架构匹配，跳过`);
+        return;
+      }
+      console.log(`[prepare-node] 架构不匹配: 已有 ${existingKey}, 需要 ${key}, 清理并重新下载`);
+      fs.rmSync(platformDir, { recursive: true, force: true });
+    } else {
+      // No .platform-key — legacy, treat as matching
+      console.log(`[prepare-node] Node.js ${NODE_VERSION} (${key}) 已存在，跳过`);
+      return;
+    }
   }
 
   const filename = suffix.replace('${VERSION}', NODE_VERSION);
@@ -287,6 +299,10 @@ async function prepareNode(key, suffix) {
     }
 
     console.log(`[prepare-node] Node.js ${NODE_VERSION} (${key}) 准备完成!`);
+
+    // Write .platform-key marker
+    fs.writeFileSync(platformKeyFile, key, 'utf-8');
+    console.log(`[prepare-node] 已写入 .platform-key: ${key}`);
 
   } catch (err) {
     console.error(`[prepare-node] 下载或解压失败:`, err.message);

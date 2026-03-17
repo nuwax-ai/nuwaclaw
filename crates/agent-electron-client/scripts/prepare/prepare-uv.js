@@ -26,7 +26,7 @@ const cacheDir = path.join(uvRoot, '.cache');
 // Node 与 Electron 一致：darwin | win32 | linux；x64 | arm64
 function getPlatformKey() {
   const p = process.platform;
-  const a = process.arch === 'x64' ? 'x64' : process.arch;
+  const a = process.env.TARGET_ARCH || process.arch;
   return `${p}-${a}`;
 }
 
@@ -207,10 +207,21 @@ async function main() {
   const uvName = process.platform === 'win32' ? 'uv.exe' : 'uv';
   const destUv = path.join(destBin, uvName);
 
+  const platformKeyFile = path.join(destBin, '.platform-key');
+
   console.log(`[prepare-uv] 平台: ${key}, 源码目录: ${srcDir}, 目标目录: ${destBin}`);
 
-  // 检查 bin 目录和 uv 文件是否存在，只有完整才跳过
-  if (fs.existsSync(destUv)) {
+  // 检查 .platform-key 是否匹配，不匹配则清理并重新下载
+  if (fs.existsSync(destUv) && fs.existsSync(platformKeyFile)) {
+    const existingKey = fs.readFileSync(platformKeyFile, 'utf-8').trim();
+    if (existingKey === key) {
+      console.log(`[prepare-uv] uv 已存在且架构匹配 (${key}), 跳过下载`);
+      return;
+    }
+    console.log(`[prepare-uv] 架构不匹配: 已有 ${existingKey}, 需要 ${key}, 清理并重新下载`);
+    fs.rmSync(destBin, { recursive: true, force: true });
+  } else if (fs.existsSync(destUv)) {
+    // destUv exists but no .platform-key — legacy, treat as matching for backwards compat
     console.log(`[prepare-uv] uv 已存在: ${destUv}, 跳过下载`);
     return;
   }
@@ -233,6 +244,11 @@ async function main() {
   console.log(`[prepare-uv] 使用 uv 版本: ${version}`);
   try {
     await downloadAndPrepare(key, suffix, version);
+    // Write .platform-key marker after successful download
+    if (fs.existsSync(destBin)) {
+      fs.writeFileSync(platformKeyFile, key, 'utf-8');
+      console.log(`[prepare-uv] 已写入 .platform-key: ${key}`);
+    }
   } catch (err) {
     console.error('[prepare-uv] 下载或解压失败:', err.message);
     process.exit(1);
