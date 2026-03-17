@@ -1,0 +1,21 @@
+{
+  "name": "@nuwaclaw/gui-agent-poc",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0",
+    "robotjs": "^0.6.0",
+    "screenshot-desktop": "^1.15.0",
+    "sharp": "^0.33.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}
