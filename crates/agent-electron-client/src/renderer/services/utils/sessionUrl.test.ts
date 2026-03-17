@@ -9,7 +9,7 @@ import {
   syncCookieAndGetChatUrl,
 } from "./sessionUrl";
 
-const mockSettings = { get: vi.fn() };
+const mockSettings = { get: vi.fn(), set: vi.fn() };
 const mockSession = { setCookie: vi.fn() };
 
 vi.stubGlobal("window", {
@@ -168,6 +168,19 @@ describe("syncCookieAndGetRedirectUrl", () => {
         domain: "example.com",
       }),
     );
+  });
+
+  it("clears local auth token after syncing to webview cookie", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
+    });
+    mockSettings.get.mockResolvedValue("my-token");
+
+    await syncCookieAndGetRedirectUrl();
+
+    expect(mockSession.setCookie).toHaveBeenCalled();
+    expect(mockSettings.set).toHaveBeenCalledWith("auth.token", null);
   });
 
   it("returns URL without syncing cookie when token is null", async () => {

@@ -79,6 +79,9 @@ async function syncCookieAndBuildUrl(
   )) as string | null;
   if (token) {
     await syncSessionCookie(domain, token);
+    // token 已同步给 webview cookie，立即清除本地缓存，
+    // 避免 token 失效后被持久缓存再次写入 webview 导致登录异常
+    await window.electronAPI?.settings.set(AUTH_KEYS.AUTH_TOKEN, null);
   }
 
   return buildUrl(domain, configId);
