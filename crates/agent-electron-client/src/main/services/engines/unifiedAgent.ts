@@ -340,7 +340,7 @@ export class UnifiedAgentService extends EventEmitter {
     this.startWarmingEngine("nuwaxcode");
     // Start process registry sweep to detect orphan ACP processes
     processRegistry.bindActivePidsFn(() => this.getActivePids());
-    processRegistry.startPeriodicSweep(60_000);
+    processRegistry.startPeriodicSweep(300_000);
     this.emit("ready");
     return true;
   }

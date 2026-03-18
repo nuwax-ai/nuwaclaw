@@ -62,7 +62,7 @@ class ProcessRegistry {
 
   // === Periodic Sweep ===
 
-  startPeriodicSweep(intervalMs = 60_000): void {
+  startPeriodicSweep(intervalMs = 300_000): void {
     if (this.sweepTimer) return;
     this.sweepTimer = setInterval(() => {
       this.sweepNow().catch((e) => {
@@ -129,9 +129,13 @@ class ProcessRegistry {
       this.registry.delete(pid);
     }
 
-    if (scanned > 0 || orphans > 0) {
+    if (orphans > 0) {
       log.info(
         `[ProcessRegistry] Sweep complete: scanned=${scanned}, orphans=${orphans}, killed=${killed}`,
+      );
+    } else {
+      log.debug(
+        `[ProcessRegistry] Sweep complete: scanned=${scanned}, orphans=0`,
       );
     }
 
