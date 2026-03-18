@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "nuwaclaw-gui-agent": {
+      "command": "python3",
+      "args": [
+        "/Users/apple/workspace/nuwax-agent/crates/nuwax-agent-gui-alt/poc/osworld-gui-agent/mcp_server.py"
+      ],
+      "env": {
+        "PYTHONPATH": "/Users/apple/workspace/nuwax-agent/crates/nuwax-agent-gui-alt/poc/osworld-gui-agent",
+        "ZHIPU_API_KEY": "${ZHIPU_API_KEY}",
+        "DASHSCOPE_API_KEY": "${DASHSCOPE_API_KEY}",
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+      },
+      "disabled": false,
+      "autoApprove": [
+        "gui_screenshot",
+        "gui_locate"
+      ],
+      "alwaysAllow": [
+        "gui_execute",
+        "gui_batch"
+      ]
+    }
+  }
+}

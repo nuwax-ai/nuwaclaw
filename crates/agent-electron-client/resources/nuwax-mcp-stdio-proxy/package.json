@@ -1,0 +1,8 @@
+{
+  "name": "nuwax-mcp-stdio-proxy",
+  "version": "1.4.10",
+  "bin": {
+    "nuwax-mcp-stdio-proxy": "./dist/index.js"
+  },
+  "main": "./dist/lib.bundle.js"
+}
