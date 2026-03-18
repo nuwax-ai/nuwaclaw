@@ -6,6 +6,7 @@ import {
   ipcMain,
   Tray,
   nativeImage,
+  session,
 } from "electron";
 import * as path from "path";
 import log from "electron-log";
@@ -312,6 +313,27 @@ async function cleanupAllProcesses(): Promise<void> {
 // App lifecycle
 app.whenReady().then(async () => {
   log.info("App ready");
+
+  // Dev mode: fix CORS duplicate header issue
+  // Server returns both specific origin and '*', causing browser to reject.
+  // Strip duplicate Access-Control-Allow-Origin values.
+  if (isDev) {
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      const headers = details.responseHeaders;
+      if (headers) {
+        const acoKey = Object.keys(headers).find(
+          (k) => k.toLowerCase() === "access-control-allow-origin",
+        );
+        if (acoKey && headers[acoKey] && headers[acoKey].length > 1) {
+          // Keep only the specific origin (not '*')
+          const specific = headers[acoKey].find((v) => v !== "*");
+          headers[acoKey] = [specific || "*"];
+        }
+      }
+      callback({ responseHeaders: headers });
+    });
+    log.info("Dev CORS fix enabled");
+  }
 
   // Set Dock icon on macOS (development mode needs this)
   if (process.platform === "darwin" && app.dock) {

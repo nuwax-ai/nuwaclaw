@@ -263,6 +263,9 @@ importers:
         specifier: ^1.27.1
         version: 1.27.1(zod@3.25.76)
     devDependencies:
+      '@types/estree':
+        specifier: ^1.0.6
+        version: 1.0.8
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
