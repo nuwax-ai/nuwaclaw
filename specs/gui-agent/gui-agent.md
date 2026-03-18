@@ -96,9 +96,17 @@ GUI Agent 的**唯一入口**是 MCP 协议。暴露两类 Tool：
 
 | MCP Tool | 描述 | 入参 | 出参 |
 |----------|------|------|------|
-| `gui_execute_task` | 执行完整的 GUI 任务 | `task: string`, `maxSteps?` | `{ success, result, finalScreenshot?, steps[], error? }` |
-| `gui_task_status` | 查询当前任务状态 | 无 | `{ busy, currentTask?, stepsCompleted }` |
-| `gui_abort_task` | 中止正在执行的任务 | 无 | `{ aborted }` |
+| `gui_execute_task` | 执行完整的 GUI 任务（同步阻塞） | `task: string`, `maxSteps?` | `{ success, result?, finalScreenshot?, steps[], error? }` |
+
+**同步阻塞执行**：`gui_execute_task` 是标准的 MCP tool call，handler 内部 await Agent 循环完成后返回结果。利用 MCP SDK 原生机制：
+
+| 能力 | MCP SDK 机制 | 说明 |
+|------|-------------|------|
+| **进度通知** | `notifications/progress` + `extra.sendNotification()` | 每步操作通过 progressToken 推送进度 |
+| **请求取消** | `extra.signal`（AbortSignal） | 客户端可随时取消，handler 中监听 signal 终止 Agent 循环 |
+| **连接断开** | Transport 关闭自动触发 AbortSignal | 无需手动管理 session 清理 |
+
+**互斥执行**：桌面同一时间只能有一个 GUI 操作者。通过互斥锁（Mutex）确保同时只有一个 `gui_execute_task` 在执行，第二个调用等待锁释放后再执行。
 
 #### 3.1.3 MCP Resources（信息暴露）
 
@@ -112,8 +120,18 @@ GUI Agent 的**唯一入口**是 MCP 协议。暴露两类 Tool：
 
 | 传输 | 启动方式 | 适用场景 |
 |------|---------|---------|
-| **stdio**（默认） | `gui-agent` | 文本 Agent spawn 子进程，最常用 |
-| **Streamable HTTP**（可选） | `gui-agent --transport http --port 8080` | NuwaClaw 客户端集成、远程调用 |
+| **Streamable HTTP**（主模式） | `gui-agent --port 60008` | 持久化本地 HTTP 服务，多个 Agent 客户端通过 URL 连接 |
+| **stdio**（备选） | `gui-agent --transport stdio` | 单个文本 Agent spawn 子进程，简单场景 |
+
+**Streamable HTTP 主模式说明**：
+
+参考 `nuwax-mcp-stdio-proxy` 的 proxy 模式，GUI Agent 作为**持久化本地 HTTP 服务**启动：
+
+- 监听 `127.0.0.1:<port>`，长期运行
+- 多个文本 Agent（claude-code、nuwaxcode 等）通过 MCP URL 连接，各自独立 session
+- 每个客户端连接创建独立的 `StreamableHTTPServerTransport` + MCP Server 实例
+- Session 通过 `mcp-session-id` HTTP header 跟踪，支持 session 清理
+- 桌面是共享资源，`gui_execute_task` 通过互斥锁确保同时只有一个在执行（见 3.1.2）
 
 ---
 
@@ -147,11 +165,13 @@ CoordinateResolver: 模型坐标 → 归一化 → 逻辑坐标
 - 桌面操作工具通过 pi-mono 的 **extension/tool 注册机制**注入
 - 利用 pi-mono 的 **context compaction** 处理长任务的 token 溢出
 
-**借鉴 TuriX-CUA 的多层记忆管理**：
-- **Recent**：最近 N 步的详细操作记录
-- **Summary**：更早步骤的压缩摘要（由 LLM 总结）
+**借鉴 TuriX-CUA 的三层记忆管理**：
+- **Summary**：更早步骤的高度压缩摘要（由 LLM 总结），超限时做"摘要的摘要"
+- **Recent**：最近完成的步骤记录 + 评估结果
+- **Pending**：当前正在执行的步骤，完成后移入 Recent
 - **目的**：Agent 循环每步都带截图（base64 很大），历史截图如果不压缩会迅速撑爆 context window
-- 当 token 接近上限时自动触发摘要压缩：丢弃旧截图 base64，保留文字描述
+- 当 Recent 超预算时触发 LLM 摘要压缩：总结文字 → 移入 Summary，丢弃旧截图 base64，保留文字描述
+- 记忆摘要可使用独立的更便宜模型（通过 `GUI_AGENT_MEMORY_MODEL` 配置）
 
 ### 3.3 多模型 LLM 支持
 
@@ -209,61 +229,88 @@ GUI Agent 的核心循环是"截图 → 视觉模型分析 → 输出坐标 → 
 | **归一化千分制** | UI-TARS、Gemini | 0-999 或 0-1000，与图片尺寸无关 |
 | **归一化小数** | SeeClick、ShowUI | 0.0-1.0，与图片尺寸无关 |
 
-#### 3.4.4 截图策略：按模型要求缩放
+#### 3.4.4 截图策略：统一分级缩放
 
-**核心原则**：截图必须缩放到模型训练时使用的目标分辨率再发送，而不是随意缩放后让模型自己算。
+**核心原则**：截图必须从物理分辨率缩放到逻辑分辨率（吸收 scaleFactor），否则坐标会偏移 scaleFactor 倍。逻辑分辨率过大时进一步等比缩放。
+
+**统一分级缩放策略**（参考 TuriX-CUA，不按模型区分）：
+
+不同模型的坐标转换都会经过归一化步骤（`modelX / imageWidth` 或 `modelX / 1000` 等），数学上与截图发送的分辨率无关。因此**不需要按模型匹配不同截图分辨率**。
 
 ```
 屏幕 (逻辑 1440×900, 物理 2880×1800)
   │
   │  全屏截图 → 原始图片 (物理分辨率 2880×1800)
   │
-  │  按模型要求缩放 (targetWidth × targetHeight)
+  │  Step 1: 缩放到逻辑分辨率 (吸收 scaleFactor)
+  │          2880×1800 → 1440×900
+  │
+  │  Step 2: 逻辑分辨率最长边 > 1920 时，等比缩放到最长边 1920
+  │          例: 2560×1440 → 1920×1080
+  │
+  │  Step 3: 转 JPEG quality=75 进一步压缩
   ▼
-发送给模型的图片
-  ├── Claude CU:  缩放到 1280×800
-  ├── GPT CUA:    保持原始或适当缩小
-  ├── Gemini:     缩放到 1440×900
-  ├── UI-TARS:    任意合理尺寸
-  └── Qwen2.5-VL: 任意合理尺寸
+发送给视觉模型 (base64 JPEG)
 ```
 
-每种模型需要配置一个 **目标截图分辨率** (`targetWidth` × `targetHeight`)，系统负责把原始截图缩放到该尺寸。
+| 逻辑分辨率最长边 | 缩放策略 | 示例 |
+|----------------|---------|------|
+| ≤ 1920 | 不缩放（保持逻辑分辨率） | 1440×900 → 1440×900 |
+| 1921 ~ 2560 | 等比缩放到最长边 1920 | 2560×1440 → 1920×1080 |
+| > 2560 | 等比缩放到最长边 1920 | 3840×2160 → 1920×1080 |
 
 #### 3.4.5 坐标转换链路
 
 ```
 截图 (全屏, 物理分辨率)
   │
-  │  系统缩放到模型目标分辨率 (targetW × targetH)
+  │  统一分级缩放（见 3.4.4）
   ▼
 发送给视觉模型
   │
   │  模型输出坐标 (model_x, model_y)，格式由训练决定
   ▼
-CoordinateResolver
+CoordinateResolver（四步转换）
   │
-  │  Step 1: 模型坐标 → 归一化 (0~1)
-  │  Step 2: 归一化 → 逻辑坐标
+  │  Step 1: 坐标顺序修正（Gemini yx → xy swap）
+  │  Step 2: 模型坐标 → 归一化 (0~1)
+  │  Step 3: 归一化 → 逻辑坐标（相对于目标显示器）
+  │  Step 4: 逻辑坐标 + 显示器偏移 → 全局坐标
   ▼
-nut.js mouse.click(logical_x, logical_y)
+nut.js mouse.click(global_x, global_y)
 ```
 
-**Step 1 — 模型坐标 → 归一化 (0~1)**：
+**Step 1 — 坐标顺序修正**：
+
+| 坐标顺序 | 处理 | 适用模型 |
+|----------|------|---------|
+| `xy`（默认） | 不变，`rawX = model_x, rawY = model_y` | Claude、GPT、UI-TARS、Qwen 等 |
+| `yx`（Gemini） | swap，`rawX = model_y, rawY = model_x` | Gemini 系列 |
+
+**Step 2 — 模型坐标 → 归一化 (0~1)**：
 
 | 坐标家族 | 归一化公式 |
 |----------|-----------|
-| 图片绝对像素 (Claude/GPT/Qwen) | `norm_x = model_x / imageWidth` <br> `norm_y = model_y / imageHeight` |
-| 归一化 0-1000 (UI-TARS) | `norm_x = model_x / 1000` <br> `norm_y = model_y / 1000` |
-| 归一化 0-999 (Gemini) | `norm_x = model_x / 999` <br> `norm_y = model_y / 999` |
-| 归一化 0-1 (SeeClick/ShowUI) | `norm_x = model_x` <br> `norm_y = model_y` |
+| 图片绝对像素 (Claude/GPT/Qwen) | `norm_x = rawX / imageWidth` <br> `norm_y = rawY / imageHeight` |
+| 归一化 0-1000 (UI-TARS) | `norm_x = rawX / 1000` <br> `norm_y = rawY / 1000` |
+| 归一化 0-999 (Gemini) | `norm_x = rawX / 999` <br> `norm_y = rawY / 999` |
+| 归一化 0-1 (SeeClick/ShowUI) | `norm_x = rawX` <br> `norm_y = rawY` |
 
-**Step 2 — 归一化 → 逻辑坐标**（所有模型统一）：
+**Step 3 — 归一化 → 逻辑坐标**（所有模型统一）：
 
 ```
-logical_x = norm_x × logicalWidth
-logical_y = norm_y × logicalHeight
+local_x = norm_x × logicalWidth
+local_y = norm_y × logicalHeight
 ```
+
+**Step 4 — 逻辑坐标 + 显示器偏移 → 全局坐标**（多显示器场景）：
+
+```
+global_x = local_x + display.origin.x
+global_y = local_y + display.origin.y
+```
+
+> 主显示器 origin 为 (0,0)，副屏有偏移（见 3.6.5）。边界校验：结果 clamp 到目标显示器范围内。
 
 #### 3.4.6 完整示例
 
@@ -327,11 +374,10 @@ logical_y = norm_y × logicalHeight
 ```
 全屏截图（物理分辨率，PNG lossless）
   │
-  │  1. 查找模型配置表，确定目标分辨率
-  │     ├── 已知模型 → 缩放到模型目标分辨率 (targetWidth × targetHeight)
-  │     └── 未知模型 → 缩放到屏幕逻辑分辨率 (logicalWidth × logicalHeight)
-  │     注意：物理截图必须缩放，至少缩到逻辑分辨率，
+  │  1. 缩放到逻辑分辨率（吸收 scaleFactor）
+  │     物理截图必须缩放，至少缩到逻辑分辨率，
   │     否则模型坐标 → 逻辑坐标的转换会因 scaleFactor 偏移
+  │     逻辑分辨率最长边 > 1920 时，等比缩放到最长边 1920
   │     使用 LANCZOS 重采样保证质量
   ▼
   │  2. 转为 JPEG 格式 + 调整质量
@@ -382,26 +428,30 @@ interface ScreenshotResult {
 
 ```
 CoordinateResolver
-  ├── 输入: model_x, model_y, coordinateMode, screenshotMeta
-  ├── 输出: logical_x, logical_y
-  ├── 中间步骤: 模型坐标 → 归一化(0~1) → 逻辑坐标
-  └── coordinateMode 来源:
+  ├── 输入: model_x, model_y, coordinateMode, coordinateOrder, screenshotMeta, displayInfo
+  ├── 输出: global_x, global_y
+  ├── 四步: 坐标顺序修正 → 归一化(0~1) → 逻辑坐标 → 全局偏移
+  └── coordinateMode/coordinateOrder 来源:
         ├── 内置模型配置表（已知模型自动匹配）
         └── 环境变量 GUI_AGENT_COORDINATE_MODE 手动覆盖
 ```
 
 **内置模型配置表**（可扩展）：
 
-| 模型名匹配规则 | 坐标模式 | 目标截图分辨率 |
-|---------------|---------|---------------|
-| `claude-*` (computer_use) | `image-absolute` | 1280×800 |
-| `gpt-4o*`, `gpt-5*` (CUA) | `image-absolute` | 原始逻辑分辨率 |
-| `gemini*` | `normalized-999` | 1440×900 |
-| `ui-tars*` | `normalized-1000` | 1280×800 |
-| `qwen2.5-vl*`, `qwen-vl*` | `image-absolute` | 1280×800 |
-| `cogagent*` | `image-absolute` | 1120×1120 |
-| `seeclick*`, `showui*` | `normalized-0-1` | 1280×800 |
-| **未匹配模型（fallback）** | `image-absolute` | 屏幕逻辑分辨率（不额外缩放，但必须从物理分辨率降到逻辑分辨率） |
+| 模型名匹配规则 | 坐标模式 | 坐标顺序 | 说明 |
+|---------------|---------|---------|------|
+| `claude-*` | `image-absolute` | `xy` | Anthropic Computer Use API 标准格式 |
+| `gpt-4o*`, `gpt-5*` | `image-absolute` | `xy` | OpenAI CUA |
+| `gemini*` | `normalized-999` | **`yx`** | Google Gemini，坐标顺序是 `[y, x]` 而非 `[x, y]`，这是 Google 训练数据的固有格式 |
+| `ui-tars*` | `normalized-1000` | `xy` | UI-TARS |
+| `qwen2.5-vl*`, `qwen-vl*` | `image-absolute` | `xy` | 通义千问 VL |
+| `cogagent*` | `image-absolute` | `xy` | CogAgent |
+| `seeclick*`, `showui*` | `normalized-0-1` | `xy` | SeeClick/ShowUI |
+| **未匹配（fallback）** | `image-absolute` | `xy` | 保守策略 |
+
+> **截图分辨率不按模型区分**：统一使用分级缩放策略（见 3.4.4），不在模型配置表中配置目标分辨率。
+>
+> **Gemini 坐标顺序**：Gemini 输出坐标格式为 `[y, x]`（非 `[x, y]`），这是 Google 训练数据的固有格式。CoordinateResolver 必须在归一化前根据 `coordinateOrder` 做 swap。
 
 #### 3.4.10 原子操作中的坐标处理
 
@@ -619,23 +669,18 @@ nut.js mouse.click(global_x, global_y)
 - 阻断危险热键：`Cmd+Q`/`Alt+F4`（关闭应用）、`Ctrl+Alt+Delete` 等
 - 可配置的热键黑名单
 
-#### S2: 速率限制
-
-- 可配置的操作频率上限（防止失控循环快速点击）
-- 默认上限：10 ops/s
-
-#### S3: 审计日志
+#### S2: 审计日志
 
 - 记录所有操作：时间戳、操作类型、坐标/文本、成功/失败
 - 通过 MCP Resource `gui://audit-log` 可查询
 - 环形缓冲（默认 1000 条）
 
-#### S4: 最大轮次限制
+#### S3: 最大轮次限制
 
 - `gui_execute_task` 的 Agent 循环有 `maxSteps` 上限（默认 50）
 - 超限后自动终止并返回当前状态和已完成的步骤
 
-#### S5: 输入校验
+#### S4: 输入校验
 
 - 坐标范围校验
 - 文本长度限制（≤10000 字符）
@@ -657,7 +702,7 @@ nut.js mouse.click(global_x, global_y)
 
 | 模式 | 描述 | 入口 |
 |------|------|------|
-| **MCP Server 模式**（主要） | 作为 MCP Server 启动，等待文本 Agent 调用 | `gui-agent`（stdio） 或 `gui-agent --transport http` |
+| **MCP Server 模式**（主要） | 作为持久化本地 HTTP 服务启动，多 Agent 通过 URL 连接 | `gui-agent --port 60008`（Streamable HTTP）或 `gui-agent --transport stdio`（stdio 备选） |
 | **SDK 嵌入模式** | 被 NuwaClaw Electron 客户端等应用集成 | `import { createGuiAgentMcpServer }` |
 
 > 注意：**没有 CLI 交互模式**。用户不直接与 GUI Agent 对话。
@@ -705,7 +750,7 @@ nut.js mouse.click(global_x, global_y)
 │         │                                             │
 │  ┌─────────────┐                                     │
 │  │  安全层      │                                     │
-│  │  限流/审计   │                                     │
+│  │  热键审计    │                                     │
 │  └─────────────┘                                     │
 └─────────────────────────────────────────────────────┘
 ```
@@ -841,8 +886,8 @@ interface GuiVisionModelConfig {
 }
 ```
 
-> **设计决策**：`target_width/height` 和 `jpeg_quality` 不暴露给外部接口。
-> - **截图分辨率**：内部根据模型名自动匹配（已知模型→训练分辨率，未知模型→逻辑分辨率）
+> **设计决策**：`jpeg_quality` 不暴露给外部接口。
+> - **截图分辨率**：统一分级缩放（逻辑分辨率 + 最长边 ≤1920），不按模型区分
 > - **JPEG 质量**：内部默认 75（清晰度与文件大小的最佳平衡），无需外部配置
 
 与现有 `/computer/chat` 的 `ModelProviderConfig` 对比：
@@ -890,13 +935,13 @@ interface GuiVisionModelConfig {
     "model": "claude-sonnet-4-20250514",
     "api_protocol": "anthropic",
     "coordinate_mode": "image-absolute",
-    "target_resolution": "1280x800",
+    "screenshot_strategy": "logical_resolution, max_longest_edge=1920",
     "jpeg_quality": 75
   }
 }
 ```
 
-> GET 响应中的 `target_resolution` 和 `jpeg_quality` 仅供查看，不可通过 POST 设置。
+> GET 响应中的 `screenshot_strategy` 和 `jpeg_quality` 仅供查看，不可通过 POST 设置。
 
 **GET `/computer/gui-agent/displays`** — 获取显示器列表：
 
@@ -970,23 +1015,44 @@ Electron 客户端
 | `GUI_AGENT_API_KEY` | API Key | 必填 |
 | `GUI_AGENT_BASE_URL` | API Base URL（OpenAI 兼容端点） | Provider 默认 |
 | `GUI_AGENT_MAX_STEPS` | Agent 循环最大轮次 | `50` |
-| `GUI_AGENT_RATE_LIMIT` | 操作频率上限 (ops/s) | `10` |
 | `GUI_AGENT_STEP_DELAY_MS` | 步骤间等待时间 (ms)，操作完成到截图验证之间 | `1500` |
 | `GUI_AGENT_STUCK_THRESHOLD` | 连续无变化步数阈值，超过则判定卡死 | `3` |
-| `GUI_AGENT_TRANSPORT` | MCP 传输方式 (stdio/http) | `stdio` |
-| `GUI_AGENT_PORT` | HTTP 传输端口 | `8080` |
+| `GUI_AGENT_TRANSPORT` | MCP 传输方式 (http/stdio) | `http` |
+| `GUI_AGENT_PORT` | HTTP 传输端口 | `60008` |
 | `GUI_AGENT_COORDINATE_MODE` | 坐标模式覆盖 (image-absolute/normalized-1000/normalized-999/normalized-0-1) | 自动按模型匹配 |
 | `GUI_AGENT_JPEG_QUALITY` | JPEG 编码质量 (1-100)，仅内部调试用 | `75` |
 | `GUI_AGENT_DISPLAY_INDEX` | 目标显示器索引 | `0`（主显示器） |
+| `GUI_AGENT_MEMORY_MODEL` | 记忆摘要用的模型（可选，可用更便宜的模型降低成本） | 复用 `GUI_AGENT_MODEL` |
+| `GUI_AGENT_MEMORY_PROVIDER` | 记忆模型 Provider（可选） | 复用 `GUI_AGENT_PROVIDER` |
 
 ### 8.2 文本 Agent 的 MCP 配置示例
+
+**Streamable HTTP 模式**（推荐，多 Agent 共享）：
+
+先启动 GUI Agent 服务：
+```bash
+GUI_AGENT_API_KEY=sk-xxx gui-agent --port 60008
+```
+
+文本 Agent 通过 URL 连接：
+```json
+{
+  "mcpServers": {
+    "gui-agent": {
+      "url": "http://127.0.0.1:60008/mcp"
+    }
+  }
+}
+```
+
+**stdio 模式**（单 Agent 专用）：
 
 ```json
 {
   "mcpServers": {
     "gui-agent": {
       "command": "npx",
-      "args": ["-y", "@nuwax-ai/gui-agent"],
+      "args": ["-y", "@nuwax-ai/gui-agent", "--transport", "stdio"],
       "env": {
         "GUI_AGENT_PROVIDER": "anthropic",
         "GUI_AGENT_MODEL": "claude-sonnet-4-20250514",
@@ -1007,7 +1073,9 @@ Electron 客户端
 - [ ] 文本 Agent 可通过 MCP 调用所有原子操作工具（13 个）
 - [ ] 文本 Agent 可通过 MCP 调用 `gui_execute_task` 执行完整 GUI 任务
 - [ ] `gui_execute_task` 返回结果包含步骤日志和最终截图
-- [ ] `gui_task_status` 和 `gui_abort_task` 正常工作
+- [ ] `gui_execute_task` 通过 MCP progress notification 推送每步进度
+- [ ] `gui_execute_task` 支持通过 MCP AbortSignal 取消执行
+- [ ] 互斥锁生效：同时只有一个 `gui_execute_task` 在执行
 
 ### 9.2 Agent 循环
 
@@ -1040,7 +1108,6 @@ Electron 客户端
 ### 9.5 安全与稳定
 
 - [ ] 危险热键被阻断
-- [ ] 速率限制生效
 - [ ] 审计日志完整记录
 
 ### 9.6 平台兼容
@@ -1056,14 +1123,14 @@ Electron 客户端
 | # | 问题 | 影响 | 建议 |
 |---|------|------|------|
 | Q1 | pi-mono 不支持 MCP，MCP Server 与 Agent 循环如何协同？ | 架构核心 | MCP Server 是外壳，收到 `gui_execute_task` 后创建 pi-mono AgentSession 执行，完成后返回 MCP 结果。原子操作不经过 pi-mono |
-| Q2 | `gui_execute_task` 执行期间是阻塞还是异步？ | 调用体验 | 建议同步阻塞（MCP tool call 本身支持长时间执行），通过 `gui_task_status` 提供进度查询 |
-| Q3 | 长任务的上下文管理？ | token 溢出 | 利用 pi-mono context compaction，或在 N 步后自动压缩历史截图 |
+| Q2 | ~~`gui_execute_task` 执行期间是阻塞还是异步？~~ | ~~调用体验~~ | **已解决**，同步阻塞。MCP SDK 原生支持长时间 tool call + progress notification + AbortSignal 取消。无需自定义 TaskQueue/gui_task_status/gui_abort_task |
+| Q3 | ~~长任务的上下文管理？~~ | ~~token 溢出~~ | **已解决**，三层记忆管理（Summary/Recent/Pending）+ LLM 摘要压缩 + pi-mono transformContext hook。见 3.2 及 Plan 3.7 |
 | Q4 | nut.js prebuilt binary 分发？ | 安装体验 | 跟随 npm 安装自动下载，需评估离线场景 |
 | Q5 | `gui_execute_task` 中 Agent 循环的模型，是否可以与文本 Agent 的模型不同？ | 灵活性 | 是，通过 `model` 参数覆盖，允许用更便宜/更快的模型做 GUI 决策 |
 | Q6 | 新增视觉模型的坐标格式如何扩展？ | 可维护性 | 内置模型映射表 + 环境变量覆盖。新增模型只需在映射表中加一行 |
 | Q7 | ~~多显示器场景下的坐标如何处理？~~ | ~~多屏用户~~ | **已解决**，见 3.6.5 多显示器坐标偏移 |
 | Q8 | ~~Agent 循环中连续失败如何处理？~~ | ~~稳定性~~ | **已解决**，见 3.6.4 stuck 检测 + 3.7 S4 最大轮次限制。参考 TuriX-CUA 连续失败计数器 |
-| Q9 | 截图中的历史图片如何管理 token？ | token 爆炸 | Agent 循环每步带截图，历史截图 base64 极大。需要分层记忆：近期保留原图，历史步骤压缩为文字摘要并丢弃图片 |
+| Q9 | ~~截图中的历史图片如何管理 token？~~ | ~~token 爆炸~~ | **已解决**，pruneScreenshots 策略：保留最近 3 步完整截图，更早步骤移除 base64 替换为文字描述。见 Plan 3.7.5 |
 
 ---
 
@@ -1074,34 +1141,47 @@ Electron 客户端
 ```
 crates/agent-gui-server/
 ├── src/
-│   ├── index.ts              # 入口，启动 MCP Server
-│   ├── mcp/
-│   │   ├── server.ts         # MCP Server（stdio / HTTP）
-│   │   ├── atomicTools.ts    # 原子操作 MCP tool handlers
-│   │   ├── taskTools.ts      # gui_execute_task / status / abort handlers
-│   │   └── resources.ts      # MCP Resources (status/permissions/audit)
-│   ├── agent/
-│   │   ├── taskRunner.ts     # Agent 循环（pi-mono session 管理）
-│   │   ├── systemPrompt.ts   # GUI Agent 专用 system prompt
-│   │   └── config.ts         # Agent 配置（模型、轮次等）
-│   ├── tools/
-│   │   ├── screenshot.ts     # 截图 + 缩放到目标分辨率 + JPEG 编码
-│   │   ├── mouse.ts          # 鼠标操作 (nut.js mouse)
-│   │   ├── keyboard.ts       # 键盘操作 (nut.js keyboard)
-│   │   ├── clipboard.ts      # 剪贴板操作（CJK/长文本粘贴、剪贴板备份恢复）
-│   │   ├── display.ts        # 显示器信息
-│   │   └── imageSearch.ts    # 图像查找 (nut.js template matcher)
-│   ├── safety/
-│   │   ├── hotkeys.ts        # 危险热键拦截
-│   │   ├── rateLimiter.ts    # 令牌桶速率限制
-│   │   └── auditLog.ts       # 审计日志（环形缓冲）
+│   ├── index.ts                  # CLI 入口: 参数解析 + 启动 MCP Server
+│   ├── lib.ts                    # SDK 入口: 导出 createGuiAgentMcpServer()
+│   ├── config.ts                 # 统一配置: 环境变量解析、校验、Fail Fast
+│   │
+│   ├── mcp/                      # MCP 协议层（外部接口）
+│   │   ├── server.ts             # MCP Server 实例 (stdio + HTTP 双模式)
+│   │   ├── atomicTools.ts        # 13 个原子操作 tool handler
+│   │   ├── taskTools.ts          # gui_execute_task 互斥执行 + 进度通知
+│   │   └── resources.ts          # MCP Resources (status/permissions/audit)
+│   │
+│   ├── agent/                    # Agent 循环引擎（gui_execute_task 内部）
+│   │   ├── taskRunner.ts         # 循环核心: pi-mono Agent + 截图→LLM→操作
+│   │   ├── systemPrompt.ts       # GUI Agent 专用 system prompt
+│   │   ├── memoryManager.ts      # 三层记忆管理 (Summary/Recent/Pending) + LLM 摘要压缩
+│   │   └── stuckDetector.ts      # 卡死检测: 连续截图相似度比对
+│   │
+│   ├── desktop/                  # 桌面操作层（底层能力封装，不依赖 MCP）
+│   │   ├── screenshot.ts         # 截图管线: capture → scale → JPEG → base64
+│   │   ├── mouse.ts              # 鼠标操作 (nut.js mouse)
+│   │   ├── keyboard.ts           # 键盘操作 (nut.js keyboard)
+│   │   ├── clipboard.ts          # 剪贴板操作（CJK/长文本粘贴、剪贴板备份恢复）
+│   │   ├── display.ts            # 显示器信息
+│   │   └── imageSearch.ts        # 图像查找 (nut.js template matcher)
+│   │
+│   ├── coordinates/              # 坐标系统（核心难点，独立目录）
+│   │   ├── resolver.ts           # CoordinateResolver: 模型坐标 → 逻辑坐标 → 全局坐标
+│   │   └── modelProfiles.ts      # 模型配置表: 坐标模式、坐标顺序、缩放策略
+│   │
+│   ├── safety/                   # 安全层
+│   │   ├── hotkeys.ts            # 危险热键黑名单拦截
+│   │   └── auditLog.ts           # 环形缓冲审计日志
+│   │
 │   └── utils/
-│       ├── platform.ts       # 平台检测与权限检查
-│       ├── coordinates.ts    # CoordinateResolver: 模型坐标 → 逻辑坐标转换
-│       └── modelProfiles.ts  # 模型配置表（坐标模式、目标分辨率、图片限制）
+│       ├── logger.ts             # 日志: stderr + 可选文件
+│       ├── platform.ts           # 平台检测与权限检查
+│       └── errors.ts             # 结构化错误类型
+│
+├── tests/                        # Vitest 测试
 ├── package.json
 ├── tsconfig.json
-└── README.md
+└── vitest.config.ts
 ```
 
 ---
@@ -1122,7 +1202,7 @@ crates/agent-gui-server/
 | **截图分级缩放** | ≤1080p 不缩放，2K-4K 缩 50%，8K 缩 25%，LANCZOS 重采样 | 比固定 scale 更合理，按实际分辨率自适应 |
 | **Accessibility Tree 标注** | 截图上叠加编号框标注可交互元素（红/蓝/绿/黄/紫循环） | v2 可引入，显著提升点击准确率 |
 | **连续失败熔断** | `consecutive_failures` 计数，超过 `max_failures`（默认 5）自动终止 | 必须实现，防止 Agent 卡在无效循环 |
-| **强制停止热键** | `pynput.keyboard.GlobalHotKeys` 监听，用户可随时中断 | MCP 模式下通过 `gui_abort_task` 实现等价功能 |
+| **强制停止热键** | `pynput.keyboard.GlobalHotKeys` 监听，用户可随时中断 | MCP 模式下通过 AbortSignal（客户端取消请求）实现等价功能 |
 | **隐形点击** | 鼠标事件通过 Quartz `kCGHIDEventTap` 直发，不移动光标 | 减少视觉干扰，但可能影响某些应用的响应 |
 | **操作后等待** | 每步操作后固定等待 2s 再截图验证 | 等待是必要的（UI 动画/渲染需要时间），但应可配置 |
 
