@@ -55,6 +55,7 @@ import {
 } from "../../utils/processTree";
 import { processRegistry } from "../../system/processRegistry";
 import type { DetailedSession } from "@shared/types/sessions";
+import { ACP_ABORT_TIMEOUT } from "@shared/constants";
 
 /** Safe JSON.stringify that handles circular references */
 function safeStringify(obj: unknown): string {
@@ -64,9 +65,6 @@ function safeStringify(obj: unknown): string {
     return String(obj);
   }
 }
-
-// Align with rcoder default (10s) to avoid long cancel waits.
-const ABORT_TIMEOUT_MS = 10_000;
 
 interface AcpSession {
   id: string;
@@ -594,7 +592,7 @@ export class AcpEngine extends EventEmitter {
           new Promise<void>((_, reject) => {
             timer = setTimeout(
               () => reject(new Error("Abort timeout")),
-              ABORT_TIMEOUT_MS,
+              ACP_ABORT_TIMEOUT,
             );
           }),
         ]);

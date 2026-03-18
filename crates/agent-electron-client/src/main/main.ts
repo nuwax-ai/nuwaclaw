@@ -13,13 +13,14 @@ import log from "electron-log";
 import { initDatabase, closeDb } from "./db";
 import { ManagedProcess } from "./processManager";
 import { registerAllHandlers } from "./ipc/index";
+import { unregisterEventForwarders } from "./ipc/eventForwarders";
 import { runStartupTasks } from "./bootstrap/startup";
 import { agentService } from "./services/engines/unifiedAgent";
 import { stopComputerServer } from "./services/computerServer";
 import { mcpProxyManager } from "./services/packages/mcp";
 import type { HandlerContext } from "@shared/types/ipc";
 import { DEFAULT_DEV_SERVER_PORT } from "./services/constants";
-import { APP_DISPLAY_NAME } from "@shared/constants";
+import { APP_DISPLAY_NAME, CLEANUP_TIMEOUT } from "@shared/constants";
 import { initLogging } from "./bootstrap/logConfig";
 import { createTrayManager, TrayStatus } from "./window/trayManager";
 import { createServiceManager } from "./window/serviceManager";
@@ -275,6 +276,12 @@ async function cleanupAllProcesses(): Promise<void> {
   }
 
   try {
+    unregisterEventForwarders();
+  } catch (e) {
+    log.error("[Cleanup] Event forwarders unregister error:", e);
+  }
+
+  try {
     await agentService.destroy();
   } catch (e) {
     log.error("[Cleanup] Agent service destroy error:", e);
@@ -443,7 +450,6 @@ app.on("before-quit", (e) => {
   e.preventDefault();
 
   log.info("[App] Before quit - starting cleanup");
-  const CLEANUP_TIMEOUT = 5000; // 5秒硬超时
 
   Promise.race([
     cleanupAllProcesses(),

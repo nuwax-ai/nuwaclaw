@@ -124,7 +124,7 @@ describe("AcpEngine.abortSession", () => {
 
     vi.useFakeTimers();
     const abortPromise = engine.abortSession(sessionId);
-    await vi.advanceTimersByTimeAsync(10_001);
+    await vi.advanceTimersByTimeAsync(15_001);
 
     await expect(abortPromise).resolves.toBe(true);
     expect(session.status).toBe("idle");

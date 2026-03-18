@@ -24,6 +24,7 @@ import { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 import dependencies from "../system/dependencies";
 import { processRegistry } from "../system/processRegistry";
 import type { DetailedSession } from "@shared/types/sessions";
+import { ENGINE_DESTROY_TIMEOUT } from "@shared/constants";
 
 // Re-export computer types
 export type {
@@ -381,7 +382,7 @@ export class UnifiedAgentService extends EventEmitter {
     for (const [projectId, engine] of this.engines) {
       log.info(`[UnifiedAgent] Destroying engine for project: ${projectId}`);
       engine.removeAllListeners();
-      // Wrap each engine destroy with a 10s timeout to prevent hanging
+      // Wrap each engine destroy with a timeout to prevent hanging
       const destroyWithTimeout = Promise.race([
         engine.destroy(),
         new Promise<void>((resolve) => {
@@ -390,7 +391,7 @@ export class UnifiedAgentService extends EventEmitter {
               `[UnifiedAgent] Engine destroy timeout for project: ${projectId}, force proceeding`,
             );
             resolve();
-          }, 10_000);
+          }, ENGINE_DESTROY_TIMEOUT);
         }),
       ]);
       destroyPromises.push(destroyWithTimeout);

@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from "child_process";
 import log from "electron-log";
+import { PROCESS_KILL_ESCALATION_TIMEOUT } from "@shared/constants";
 
 export class ManagedProcess {
   private process: ChildProcess | null = null;
@@ -96,8 +97,14 @@ export class ManagedProcess {
   stop(): { success: boolean; message?: string } {
     this.lastError = null;
     if (this.process) {
-      this.process.kill();
+      const proc = this.process;
       this.process = null;
+      // Remove all event listeners to prevent handle leaks (matching kill() behavior)
+      proc.stdout?.removeAllListeners();
+      proc.stderr?.removeAllListeners();
+      proc.stdin?.removeAllListeners();
+      proc.removeAllListeners();
+      proc.kill();
       return { success: true };
     }
     return { success: true, message: "Not running" };
@@ -169,17 +176,19 @@ export class ManagedProcess {
         proc.kill();
         log.info(`[Cleanup] ${this.name} sent SIGTERM`);
 
-        // Escalate to SIGKILL after 3s if process doesn't exit
+        // Escalate to SIGKILL if process doesn't exit in time
         const escalationTimer = setTimeout(() => {
           try {
             if (proc.pid) {
               process.kill(proc.pid, "SIGKILL");
-              log.warn(`[Cleanup] ${this.name} escalated to SIGKILL after 3s`);
+              log.warn(
+                `[Cleanup] ${this.name} escalated to SIGKILL after ${PROCESS_KILL_ESCALATION_TIMEOUT}ms`,
+              );
             }
           } catch {
             // Process already exited, ignore
           }
-        }, 3000);
+        }, PROCESS_KILL_ESCALATION_TIMEOUT);
 
         // Clear timer if process exits promptly
         proc.once("exit", () => {

@@ -5,21 +5,21 @@
  * Based on specs/long-memory/long-memory.md
  */
 
-import * as path from 'path';
-import * as fs from 'fs';
-import { EventEmitter } from 'events';
-import chokidar, { FSWatcher } from 'chokidar';
-import log from 'electron-log';
-import type { MemoryChunk, SyncResult, SyncState, MemorySource } from './types';
-import { MemoryDatabase } from './MemoryDatabase';
+import * as path from "path";
+import * as fs from "fs";
+import { EventEmitter } from "events";
+import chokidar, { FSWatcher } from "chokidar";
+import log from "electron-log";
+import type { MemoryChunk, SyncResult, SyncState, MemorySource } from "./types";
+import { MemoryDatabase } from "./MemoryDatabase";
 import {
   CORE_MEMORY_FILE,
   DAILY_MEMORY_DIR,
   WATCH_DEBOUNCE_MS,
   DEFAULT_SYNC_STATE,
-} from './constants';
-import { calculateHash } from './utils/hash';
-import { chunkMarkdown, compareChunks } from './utils/chunker';
+} from "./constants";
+import { calculateHash } from "./utils/hash";
+import { chunkMarkdown, compareChunks } from "./utils/chunker";
 
 // ==================== Types ====================
 
@@ -31,14 +31,14 @@ interface FileSyncOptions {
 
 interface PendingSync {
   filePath: string;
-  eventType: 'add' | 'change' | 'unlink';
+  eventType: "add" | "change" | "unlink";
   timestamp: number;
 }
 
 // ==================== MemoryFileSync Class ====================
 
 export class MemoryFileSync extends EventEmitter {
-  private workspaceDir: string = '';
+  private workspaceDir: string = "";
   private database: MemoryDatabase | null = null;
   private watcher: FSWatcher | null = null;
   private debounceMs: number;
@@ -66,17 +66,17 @@ export class MemoryFileSync extends EventEmitter {
     this.startWatcher();
 
     this.initialized = true;
-    log.info('[MemoryFileSync] Initialized for:', this.workspaceDir);
+    log.info("[MemoryFileSync] Initialized for:", this.workspaceDir);
   }
 
   /**
    * Destroy file sync
    */
   destroy(): void {
-    this.stopWatcher();
-    this.clearAllTimers();
     this.initialized = false;
-    log.info('[MemoryFileSync] Destroyed');
+    this.clearAllTimers();
+    this.stopWatcher();
+    log.info("[MemoryFileSync] Destroyed");
   }
 
   /**
@@ -98,14 +98,14 @@ export class MemoryFileSync extends EventEmitter {
     // Create daily memory directory
     if (!fs.existsSync(dailyDir)) {
       fs.mkdirSync(dailyDir, { recursive: true });
-      log.info('[MemoryFileSync] Created daily memory directory:', dailyDir);
+      log.info("[MemoryFileSync] Created daily memory directory:", dailyDir);
     }
 
     // Create core memory file if not exists
     if (!fs.existsSync(coreFile)) {
       const defaultContent = this.getDefaultCoreMemoryContent();
-      fs.writeFileSync(coreFile, defaultContent, 'utf8');
-      log.info('[MemoryFileSync] Created core memory file:', coreFile);
+      fs.writeFileSync(coreFile, defaultContent, "utf8");
+      log.info("[MemoryFileSync] Created core memory file:", coreFile);
     }
   }
 
@@ -126,7 +126,7 @@ export class MemoryFileSync extends EventEmitter {
 ## 重要决策
 
 ---
-*最后更新: ${new Date().toISOString().split('T')[0]}*
+*最后更新: ${new Date().toISOString().split("T")[0]}*
 `;
   }
 
@@ -149,7 +149,7 @@ export class MemoryFileSync extends EventEmitter {
    */
   getDailyMemoryPath(date?: Date): string {
     const d = date ?? new Date();
-    const dateStr = d.toISOString().split('T')[0]; // YYYY-MM-DD
+    const dateStr = d.toISOString().split("T")[0]; // YYYY-MM-DD
     return path.join(this.getDailyMemoryDir(), `${dateStr}.md`);
   }
 
@@ -165,7 +165,7 @@ export class MemoryFileSync extends EventEmitter {
 
     const watchPatterns = [
       this.getCoreMemoryPath(),
-      path.join(this.getDailyMemoryDir(), '*.md'),
+      path.join(this.getDailyMemoryDir(), "*.md"),
     ];
 
     this.watcher = chokidar.watch(watchPatterns, {
@@ -179,15 +179,15 @@ export class MemoryFileSync extends EventEmitter {
     });
 
     this.watcher
-      .on('add', (filePath) => this.handleFileEvent(filePath, 'add'))
-      .on('change', (filePath) => this.handleFileEvent(filePath, 'change'))
-      .on('unlink', (filePath) => this.handleFileEvent(filePath, 'unlink'))
-      .on('error', (error) => {
-        log.error('[MemoryFileSync] Watcher error:', error);
-        this.emit('error', error);
+      .on("add", (filePath) => this.handleFileEvent(filePath, "add"))
+      .on("change", (filePath) => this.handleFileEvent(filePath, "change"))
+      .on("unlink", (filePath) => this.handleFileEvent(filePath, "unlink"))
+      .on("error", (error) => {
+        log.error("[MemoryFileSync] Watcher error:", error);
+        this.emit("error", error);
       });
 
-    log.info('[MemoryFileSync] Watcher started');
+    log.info("[MemoryFileSync] Watcher started");
   }
 
   /**
@@ -197,14 +197,17 @@ export class MemoryFileSync extends EventEmitter {
     if (this.watcher) {
       this.watcher.close();
       this.watcher = null;
-      log.info('[MemoryFileSync] Watcher stopped');
+      log.info("[MemoryFileSync] Watcher stopped");
     }
   }
 
   /**
    * Handle file system event
    */
-  private handleFileEvent(filePath: string, eventType: 'add' | 'change' | 'unlink'): void {
+  private handleFileEvent(
+    filePath: string,
+    eventType: "add" | "change" | "unlink",
+  ): void {
     log.debug(`[MemoryFileSync] File event: ${eventType} - ${filePath}`);
 
     // Mark as dirty
@@ -217,7 +220,10 @@ export class MemoryFileSync extends EventEmitter {
   /**
    * Debounce sync operation
    */
-  private debounceSync(filePath: string, eventType: 'add' | 'change' | 'unlink'): void {
+  private debounceSync(
+    filePath: string,
+    eventType: "add" | "change" | "unlink",
+  ): void {
     // Clear existing timer for this file
     const existingTimer = this.debounceTimers.get(filePath);
     if (existingTimer) {
@@ -244,6 +250,8 @@ export class MemoryFileSync extends EventEmitter {
    * Process pending sync for a file
    */
   private async processPendingSync(filePath: string): Promise<void> {
+    if (!this.initialized) return;
+
     const pending = this.pendingSyncs.get(filePath);
     if (!pending) return;
 
@@ -252,8 +260,8 @@ export class MemoryFileSync extends EventEmitter {
     try {
       await this.syncFile(filePath, pending.eventType);
     } catch (error) {
-      log.error('[MemoryFileSync] Failed to sync file:', filePath, error);
-      this.emit('sync:error', { filePath, error });
+      log.error("[MemoryFileSync] Failed to sync file:", filePath, error);
+      this.emit("sync:error", { filePath, error });
     }
   }
 
@@ -274,7 +282,7 @@ export class MemoryFileSync extends EventEmitter {
    * Sync on startup (full hash verification)
    */
   async syncOnStartup(): Promise<SyncResult> {
-    log.info('[MemoryFileSync] Starting startup sync...');
+    log.info("[MemoryFileSync] Starting startup sync...");
 
     const result: SyncResult = {
       added: 0,
@@ -311,10 +319,10 @@ export class MemoryFileSync extends EventEmitter {
         lastSyncTime: Date.now(),
       });
 
-      log.info('[MemoryFileSync] Startup sync complete:', result);
-      this.emit('sync:complete', result);
+      log.info("[MemoryFileSync] Startup sync complete:", result);
+      this.emit("sync:complete", result);
     } catch (error) {
-      log.error('[MemoryFileSync] Startup sync failed:', error);
+      log.error("[MemoryFileSync] Startup sync failed:", error);
       result.errors.push(String(error));
     }
 
@@ -324,7 +332,10 @@ export class MemoryFileSync extends EventEmitter {
   /**
    * Sync a single file
    */
-  async syncFile(filePath: string, eventType: 'add' | 'change' | 'unlink'): Promise<SyncResult> {
+  async syncFile(
+    filePath: string,
+    eventType: "add" | "change" | "unlink",
+  ): Promise<SyncResult> {
     const result: SyncResult = {
       added: 0,
       removed: 0,
@@ -335,7 +346,7 @@ export class MemoryFileSync extends EventEmitter {
     const db = this.database!;
     const relativePath = path.relative(this.workspaceDir, filePath);
 
-    if (eventType === 'unlink') {
+    if (eventType === "unlink") {
       // File deleted
       const deleted = db.deleteBySourcePath(relativePath);
       db.deleteFileHash(relativePath);
@@ -354,7 +365,7 @@ export class MemoryFileSync extends EventEmitter {
       lastSyncTime: Date.now(),
     });
 
-    this.emit('sync:file', { filePath, result });
+    this.emit("sync:file", { filePath, result });
     return result;
   }
 
@@ -378,7 +389,7 @@ export class MemoryFileSync extends EventEmitter {
     }
 
     // Read file content
-    const content = fs.readFileSync(filePath, 'utf8');
+    const content = fs.readFileSync(filePath, "utf8");
     const fileHash = calculateHash(content);
     const stats = fs.statSync(filePath);
 
@@ -390,18 +401,21 @@ export class MemoryFileSync extends EventEmitter {
     }
 
     // Determine source type
-    const source: MemorySource = path.basename(filePath) === CORE_MEMORY_FILE ? 'core' : 'daily';
+    const source: MemorySource =
+      path.basename(filePath) === CORE_MEMORY_FILE ? "core" : "daily";
 
     // Parse and chunk file
     const newChunks = chunkMarkdown(content, relativePath);
 
     // Get existing chunks from database
-    const existingMemories = db.getMemories({
-      status: 'active',
-      source,
-    }).filter(m => m.sourcePath === relativePath);
+    const existingMemories = db
+      .getMemories({
+        status: "active",
+        source,
+      })
+      .filter((m) => m.sourcePath === relativePath);
 
-    const oldChunks: MemoryChunk[] = existingMemories.map(m => ({
+    const oldChunks: MemoryChunk[] = existingMemories.map((m) => ({
       text: m.text,
       hash: m.fingerprint,
       startLine: m.startLine!,
@@ -413,7 +427,9 @@ export class MemoryFileSync extends EventEmitter {
 
     // Delete removed chunks
     for (const removedHash of removed) {
-      const memory = existingMemories.find(m => m.fingerprint === removedHash);
+      const memory = existingMemories.find(
+        (m) => m.fingerprint === removedHash,
+      );
       if (memory) {
         db.deleteMemory(memory.id);
         result.removed++;
@@ -450,7 +466,7 @@ export class MemoryFileSync extends EventEmitter {
     let deleted = 0;
 
     const existingRelativePaths = new Set(
-      existingFiles.map(f => path.relative(this.workspaceDir, f))
+      existingFiles.map((f) => path.relative(this.workspaceDir, f)),
     );
 
     for (const record of dbHashes) {
@@ -469,7 +485,7 @@ export class MemoryFileSync extends EventEmitter {
    * Rebuild entire index
    */
   async rebuildIndex(): Promise<SyncResult> {
-    log.info('[MemoryFileSync] Rebuilding index...');
+    log.info("[MemoryFileSync] Rebuilding index...");
 
     const result: SyncResult = {
       added: 0,
@@ -484,8 +500,8 @@ export class MemoryFileSync extends EventEmitter {
     // Note: This is a destructive operation
     const dbInstance = db.getDb();
     if (dbInstance) {
-      dbInstance.exec('DELETE FROM memories');
-      dbInstance.exec('DELETE FROM file_hashes');
+      dbInstance.exec("DELETE FROM memories");
+      dbInstance.exec("DELETE FROM file_hashes");
     }
 
     // Re-sync all files
@@ -508,8 +524,8 @@ export class MemoryFileSync extends EventEmitter {
       lastSyncTime: Date.now(),
     });
 
-    log.info('[MemoryFileSync] Index rebuild complete:', result);
-    this.emit('rebuild:complete', result);
+    log.info("[MemoryFileSync] Index rebuild complete:", result);
+    this.emit("rebuild:complete", result);
 
     return result;
   }
@@ -531,9 +547,10 @@ export class MemoryFileSync extends EventEmitter {
     // Daily memory files
     const dailyDir = this.getDailyMemoryDir();
     if (fs.existsSync(dailyDir)) {
-      const dailyFiles = fs.readdirSync(dailyDir)
-        .filter(f => f.endsWith('.md') && /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
-        .map(f => path.join(dailyDir, f));
+      const dailyFiles = fs
+        .readdirSync(dailyDir)
+        .filter((f) => f.endsWith(".md") && /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
+        .map((f) => path.join(dailyDir, f));
       files.push(...dailyFiles);
     }
 
@@ -547,7 +564,7 @@ export class MemoryFileSync extends EventEmitter {
     const filePath = this.getDailyMemoryPath();
     const now = new Date();
     const timeStr = now.toTimeString().slice(0, 5); // HH:MM
-    const sessionTitle = title ?? '会话';
+    const sessionTitle = title ?? "会话";
 
     // Build content to append
     const appendContent = `
@@ -559,15 +576,15 @@ ${content}
 
     // Create file if not exists
     if (!fs.existsSync(filePath)) {
-      const dateStr = now.toISOString().split('T')[0];
+      const dateStr = now.toISOString().split("T")[0];
       const header = `# ${dateStr}\n\n---\n`;
-      fs.writeFileSync(filePath, header, 'utf8');
+      fs.writeFileSync(filePath, header, "utf8");
     }
 
     // Append content
-    fs.appendFileSync(filePath, appendContent, 'utf8');
+    fs.appendFileSync(filePath, appendContent, "utf8");
 
-    log.info('[MemoryFileSync] Appended to daily memory:', filePath);
+    log.info("[MemoryFileSync] Appended to daily memory:", filePath);
 
     // Immediately sync this file to database for real-time retrieval
     this.syncFileImmediate(filePath, content, sessionTitle);
@@ -578,33 +595,41 @@ ${content}
   /**
    * Immediately sync appended content to database (without re-reading file)
    */
-  private syncFileImmediate(filePath: string, content: string, title: string): void {
+  private syncFileImmediate(
+    filePath: string,
+    content: string,
+    title: string,
+  ): void {
     if (!this.database) return;
 
     try {
       // Parse the appended content into individual memories
-      const lines = content.split('\n').filter(line => line.trim().startsWith('- '));
+      const lines = content
+        .split("\n")
+        .filter((line) => line.trim().startsWith("- "));
 
       for (const line of lines) {
-        const memoryText = line.replace(/^-\s*/, '').trim();
+        const memoryText = line.replace(/^-\s*/, "").trim();
         if (!memoryText || memoryText.length < 2) continue;
 
         // Generate memory entry
         const now = Date.now();
         const fingerprint = calculateHash(memoryText);
-        const relativePath = path.relative(this.workspaceDir, filePath).replace(/\\/g, '/');
+        const relativePath = path
+          .relative(this.workspaceDir, filePath)
+          .replace(/\\/g, "/");
 
         const entry = {
           id: `mem_${fingerprint}`,
           text: memoryText,
           fingerprint,
-          category: 'fact' as const,
+          category: "fact" as const,
           confidence: 0.75,
           isExplicit: true,
           importance: 0.5,
-          source: 'daily' as const,
+          source: "daily" as const,
           sourcePath: relativePath,
-          status: 'active' as const,
+          status: "active" as const,
           accessCount: 0,
           createdAt: now,
           updatedAt: now,
@@ -614,13 +639,22 @@ ${content}
         const exists = this.database.existsByFingerprint(fingerprint);
         if (!exists) {
           this.database.insertMemory(entry);
-          log.debug('[MemoryFileSync] Inserted memory to database:', memoryText.slice(0, 50));
+          log.debug(
+            "[MemoryFileSync] Inserted memory to database:",
+            memoryText.slice(0, 50),
+          );
         }
       }
 
-      log.info('[MemoryFileSync] Synced %d memories to database from append', lines.length);
+      log.info(
+        "[MemoryFileSync] Synced %d memories to database from append",
+        lines.length,
+      );
     } catch (error) {
-      log.error('[MemoryFileSync] Failed to sync appended content to database:', error);
+      log.error(
+        "[MemoryFileSync] Failed to sync appended content to database:",
+        error,
+      );
     }
   }
 
@@ -630,9 +664,9 @@ ${content}
   readCoreMemory(): string {
     const filePath = this.getCoreMemoryPath();
     if (fs.existsSync(filePath)) {
-      return fs.readFileSync(filePath, 'utf8');
+      return fs.readFileSync(filePath, "utf8");
     }
-    return '';
+    return "";
   }
 
   /**
@@ -640,8 +674,8 @@ ${content}
    */
   writeCoreMemory(content: string): void {
     const filePath = this.getCoreMemoryPath();
-    fs.writeFileSync(filePath, content, 'utf8');
-    log.info('[MemoryFileSync] Wrote core memory:', filePath);
+    fs.writeFileSync(filePath, content, "utf8");
+    log.info("[MemoryFileSync] Wrote core memory:", filePath);
   }
 
   /**
@@ -656,8 +690,8 @@ ${content}
       const filePath = this.getDailyMemoryPath(date);
 
       if (fs.existsSync(filePath)) {
-        const content = fs.readFileSync(filePath, 'utf8');
-        const dateStr = date.toISOString().split('T')[0];
+        const content = fs.readFileSync(filePath, "utf8");
+        const dateStr = date.toISOString().split("T")[0];
         result.set(dateStr, content);
       }
     }
@@ -676,14 +710,15 @@ ${content}
 
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
-    const cutoffStr = cutoffDate.toISOString().split('T')[0];
+    const cutoffStr = cutoffDate.toISOString().split("T")[0];
 
     let deleted = 0;
-    const files = fs.readdirSync(dailyDir)
-      .filter(f => f.endsWith('.md') && /^\d{4}-\d{2}-\d{2}\.md$/.test(f));
+    const files = fs
+      .readdirSync(dailyDir)
+      .filter((f) => f.endsWith(".md") && /^\d{4}-\d{2}-\d{2}\.md$/.test(f));
 
     for (const file of files) {
-      const dateStr = file.replace('.md', '');
+      const dateStr = file.replace(".md", "");
       if (dateStr < cutoffStr) {
         const filePath = path.join(dailyDir, file);
         fs.unlinkSync(filePath);
@@ -692,7 +727,7 @@ ${content}
         this.database?.deleteBySourcePath(file);
 
         deleted++;
-        log.info('[MemoryFileSync] Deleted old daily file:', file);
+        log.info("[MemoryFileSync] Deleted old daily file:", file);
       }
     }
 
