@@ -44,35 +44,49 @@
 cd /Users/apple/workspace/nuwax-agent/crates/nuwax-agent-gui-alt/poc/osworld-gui-agent
 source venv/bin/activate
 
-# Claude Vision
-pip install anthropic
+# 国内模型（推荐）
+pip install zhipuai        # GLM-4V (智谱AI)
+pip install dashscope      # Qwen-VL (阿里云)
 
-# 或 GPT-4 Vision
-pip install openai
+# 国际模型
+pip install anthropic      # Claude Vision
+pip install openai         # GPT-4 Vision
 ```
 
 ### 2. 配置 API Key
 
 ```bash
-# Claude Vision
-export ANTHROPIC_API_KEY='your-anthropic-api-key'
+# 国内模型（推荐）
+export ZHIPU_API_KEY='your-zhipu-api-key'        # GLM-4V
+export DASHSCOPE_API_KEY='your-dashscope-key'    # Qwen-VL
 
-# 或 GPT-4 Vision
-export OPENAI_API_KEY='your-openai-api-key'
+# 国际模型
+export ANTHROPIC_API_KEY='your-anthropic-key'    # Claude Vision
+export OPENAI_API_KEY='your-openai-key'          # GPT-4 Vision
 ```
+
+### 3. 获取 API Key
+
+**国内模型：**
+- **GLM-4V**: https://open.bigmodel.cn/
+- **Qwen-VL**: https://dashscope.console.aliyun.com/
+
+**国际模型：**
+- **Claude Vision**: https://console.anthropic.com/
+- **GPT-4 Vision**: https://platform.openai.com/
 
 ## 使用方法
 
-### 基础用法
+### 基础用法（GLM-4V）
 
 ```python
 from vlm_integration import VLMGUIAgent, VLMConfig, VLMProvider
 
-# 创建配置
+# 创建配置（使用 GLM-4V）
 config = VLMConfig(
-    provider=VLMProvider.CLAUDE_VISION,
-    model="claude-3-5-sonnet-20241022",
-    api_key="your-api-key"
+    provider=VLMProvider.GLM_4V,
+    model="glm-4v",
+    api_key="your-zhipu-api-key"
 )
 
 # 创建 VLM GUI Agent
@@ -80,6 +94,23 @@ agent = VLMGUIAgent(config)
 
 # 执行自然语言指令
 result = await agent.execute_instruction("点击登录按钮")
+```
+
+### 基础用法（Qwen-VL）
+
+```python
+# 创建配置（使用 Qwen-VL）
+config = VLMConfig(
+    provider=VLMProvider.QWEN_VL,
+    model="qwen-vl-max",
+    api_key="your-dashscope-key"
+)
+
+# 创建 VLM GUI Agent
+agent = VLMGUIAgent(config)
+
+# 执行自然语言指令
+result = await agent.execute_instruction("在搜索框输入 NuwaClaw")
 ```
 
 ### 示例：自动化登录
