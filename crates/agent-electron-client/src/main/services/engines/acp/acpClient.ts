@@ -15,7 +15,7 @@
  */
 
 import { spawn, ChildProcess } from "child_process";
-import { Readable, Writable } from "stream";
+import { Readable, Writable, Transform } from "stream";
 import * as path from "path";
 import * as os from "os";
 import * as fs from "fs";
@@ -566,21 +566,30 @@ export async function createAcpConnection(
     log.info("[AcpClient] Process exited", { code, signal });
   });
 
-  // Debug: log raw stdout NDJSON lines from ACP process
-  proc.stdout?.on("data", (data: Buffer) => {
-    const text = data.toString().trim();
-    if (!text) return;
-    for (const line of text.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      // Truncate long lines to avoid flooding logs
-      const preview =
-        trimmed.length > 500 ? trimmed.substring(0, 500) + "..." : trimmed;
-      log.info("[AcpClient stdout] 📥", preview);
-    }
+  /**
+   * 使用 Transform 流对 stdout 做“仅打日志并透传”，避免与 SDK 争抢同一 Readable。
+   * 若直接对 proc.stdout 同时 on('data') 和 Readable.toWeb(proc.stdout)，
+   * Node 会形成两个消费者竞争，session/update 通知可能被 data 监听器消费，
+   * SDK 收不到，导致没有 agent_message_chunk / agent_thought_chunk，前端无消息返回。
+   * 0.8.1 能正常返回正是因为只有 SDK 一个消费者；新版曾加的 stdout 调试监听器导致回退。
+   */
+  const stdoutLogTransform = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      const text = chunk.toString();
+      for (const line of text.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const preview =
+          trimmed.length > 500 ? trimmed.substring(0, 500) + "..." : trimmed;
+        log.info("[AcpClient stdout] 📥", preview);
+      }
+      this.push(chunk);
+      callback();
+    },
   });
+  proc.stdout!.pipe(stdoutLogTransform);
 
-  // Debug: log raw stdin NDJSON lines sent to ACP process
+  // Debug: log raw stdin NDJSON lines sent to ACP process (stdin 只写不读，无多消费者问题)
   const originalStdinWrite = proc.stdin!.write.bind(proc.stdin!);
   proc.stdin!.write = function (chunk: any, ...args: any[]) {
     const text =
@@ -595,7 +604,7 @@ export async function createAcpConnection(
     return originalStdinWrite(chunk, ...args);
   } as any;
 
-  // 2. Convert Node streams → Web streams
+  // 2. Convert Node streams → Web streams（仅从 stdoutLogTransform 读，保证唯一消费者）
   // Wrap post-spawn setup in try/catch: if anything fails after spawn,
   // we must kill the process and unregister it to prevent orphans.
   let readable: ReadableStream<Uint8Array>;
@@ -605,7 +614,7 @@ export async function createAcpConnection(
   let connection: AcpClientSideConnection;
 
   try {
-    readable = Readable.toWeb(proc.stdout!) as ReadableStream<Uint8Array>;
+    readable = Readable.toWeb(stdoutLogTransform) as ReadableStream<Uint8Array>;
     writable = Writable.toWeb(proc.stdin!) as WritableStream;
 
     // 3. Load ACP SDK and create NDJSON stream
