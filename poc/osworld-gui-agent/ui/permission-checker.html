@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NuwaClaw GUI Agent - 权限检查</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 600px;
+      width: 100%;
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 40px 30px;
+      text-align: center;
+    }
+
+    .header .icon {
+      font-size: 64px;
+      margin-bottom: 16px;
+    }
+
+    .header h1 {
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    .header p {
+      opacity: 0.9;
+      font-size: 14px;
+    }
+
+    .content {
+      padding: 30px;
+    }
+
+    .progress-circle {
+      text-align: center;
+      margin: 30px 0;
+    }
+
+    .progress-circle .circle {
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      background: conic-gradient(#52c41a 0deg, #52c41a 360deg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+      position: relative;
+    }
+
+    .progress-circle .circle::before {
+      content: '';
+      position: absolute;
+      width: 130px;
+      height: 130px;
+      border-radius: 50%;
+      background: white;
+    }
+
+    .progress-circle .circle .text {
+      position: relative;
+      z-index: 1;
+      font-size: 32px;
+      font-weight: bold;
+      color: #52c41a;
+    }
+
+    .progress-circle .status {
+      font-size: 16px;
+      color: #52c41a;
+      font-weight: 500;
+    }
+
+    .permission-card {
+      border: 2px solid #f0f0f0;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+      transition: all 0.3s;
+      cursor: pointer;
+    }
+
+    .permission-card:hover {
+      border-color: #1890ff;
+      box-shadow: 0 4px 12px rgba(24, 144, 255, 0.15);
+    }
+
+    .permission-card.granted {
+      border-color: #52c41a;
+      background: #f6ffed;
+    }
+
+    .permission-card.denied {
+      border-color: #ff4d4f;
+      background: #fff2f0;
+    }
+
+    .permission-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .permission-info {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .permission-icon {
+      font-size: 32px;
+    }
+
+    .permission-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .permission-desc {
+      font-size: 13px;
+      color: #8c8c8c;
+    }
+
+    .permission-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-icon {
+      font-size: 20px;
+    }
+
+    .status-icon.granted {
+      color: #52c41a;
+    }
+
+    .status-icon.denied {
+      color: #ff4d4f;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .btn-primary {
+      background: #1890ff;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #40a9ff;
+    }
+
+    .btn-default {
+      background: #f0f0f0;
+      color: #595959;
+    }
+
+    .btn-default:hover {
+      background: #d9d9d9;
+    }
+
+    .actions {
+      text-align: center;
+      margin-top: 30px;
+    }
+
+    .alert {
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-top: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .alert-success {
+      background: #f6ffed;
+      border: 1px solid #b7eb8f;
+      color: #52c41a;
+    }
+
+    .alert-warning {
+      background: #fffbe6;
+      border: 1px solid #ffe58f;
+      color: #faad14;
+    }
+
+    .footer {
+      text-align: center;
+      padding: 20px 30px;
+      background: #fafafa;
+      color: #8c8c8c;
+      font-size: 13px;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal {
+      background: white;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 500px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+
+    .modal-header {
+      padding: 20px;
+      border-bottom: 1px solid #f0f0f0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .modal-body {
+      padding: 20px;
+    }
+
+    .modal-footer {
+      padding: 16px 20px;
+      border-top: 1px solid #f0f0f0;
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+    }
+
+    .steps {
+      margin-top: 16px;
+    }
+
+    .step {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .step-number {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #1890ff;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+
+    .step-content h4 {
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .step-content p {
+      font-size: 13px;
+      color: #8c8c8c;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="icon">🛡️</div>
+      <h1>macOS 权限检查</h1>
+      <p>GUI Agent 需要以下权限才能正常工作</p>
+    </div>
+
+    <div class="content">
+      <!-- 进度圈 -->
+      <div class="progress-circle">
+        <div class="circle" id="progressCircle">
+          <div class="text" id="progressText">0/2</div>
+        </div>
+        <div class="status" id="progressStatus">检查中...</div>
+      </div>
+
+      <!-- 权限卡片 -->
+      <div id="permissionsList"></div>
+
+      <!-- 提示 -->
+      <div class="alert alert-warning" id="alertBox" style="display: none;">
+        <span>⚠️</span>
+        <span id="alertText"></span>
+      </div>
+
+      <!-- 操作按钮 -->
+      <div class="actions">
+        <button class="btn btn-default" onclick="checkPermissions()">
+          🔄 重新检查
+        </button>
+      </div>
+    </div>
+
+    <div class="footer">
+      NuwaClaw GUI Agent v0.1.0 | 权限检查
+    </div>
+  </div>
+
+  <!-- 授权引导 Modal -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <span>⚠️</span>
+        <div class="modal-title" id="modalTitle">授权权限</div>
+      </div>
+
+      <div class="modal-body">
+        <p id="modalDesc" style="margin-bottom: 16px;"></p>
+
+        <div class="steps" id="modalSteps"></div>
+
+        <div class="alert alert-warning" style="margin-top: 16px;">
+          <span>ℹ️</span>
+          <span>授权后需要重启应用才能生效</span>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-default" onclick="closeModal()">取消</button>
+        <button class="btn btn-primary" id="modalButton" onclick="openSettings()">
+          打开系统设置
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 权限数据
+    let permissions = [
+      {
+        type: 'screen_recording',
+        granted: false,
+        label: '屏幕录制',
+        description: '截图、屏幕定位功能需要此权限',
+        icon: '🖥️',
+      },
+      {
+        type: 'accessibility',
+        granted: false,
+        label: '辅助功能',
+        description: '鼠标键盘控制、操作录制需要此权限',
+        icon: '⌨️',
+      },
+    ];
+
+    let currentPermission = null;
+
+    // 检查权限
+    async function checkPermissions() {
+      // 模拟检查（实际应调用 Electron API）
+      // const result = await window.electronAPI.gui.checkPermissions();
+      
+      // 模拟结果
+      permissions[0].granted = false; // 屏幕录制
+      permissions[1].granted = true;  // 辅助功能
+
+      renderPermissions();
+    }
+
+    // 渲染权限列表
+    function renderPermissions() {
+      const container = document.getElementById('permissionsList');
+      const grantedCount = permissions.filter(p => p.granted).length;
+      const progress = (grantedCount / permissions.length) * 100;
+
+      // 更新进度圈
+      document.getElementById('progressText').textContent = `${grantedCount}/${permissions.length}`;
+      document.getElementById('progressCircle').style.background = 
+        `conic-gradient(#52c41a 0deg, #52c41a ${progress * 3.6}deg, #f0f0f0 ${progress * 3.6}deg)`;
+      
+      document.getElementById('progressStatus').textContent = 
+        grantedCount === permissions.length ? '✅ 所有权限已授予' : '⚠️ 部分权限未授予';
+      document.getElementById('progressStatus').style.color = 
+        grantedCount === permissions.length ? '#52c41a' : '#faad14';
+
+      // 渲染卡片
+      container.innerHTML = permissions.map(p => `
+        <div class="permission-card ${p.granted ? 'granted' : 'denied'}" onclick="showGuide('${p.type}')">
+          <div class="permission-header">
+            <div class="permission-info">
+              <div class="permission-icon">${p.icon}</div>
+              <div>
+                <div class="permission-title">
+                  ${p.label}
+                </div>
+                <div class="permission-desc">${p.description}</div>
+              </div>
+            </div>
+            <div class="permission-status">
+              <span class="status-icon ${p.granted ? 'granted' : 'denied'}">
+                ${p.granted ? '✅' : '❌'}
+              </span>
+              ${!p.granted ? '<button class="btn btn-primary" onclick="event.stopPropagation(); showGuide(\'' + p.type + '\')">授权</button>' : ''}
+            </div>
+          </div>
+        </div>
+      `).join('');
+
+      // 更新提示
+      const alertBox = document.getElementById('alertBox');
+      const alertText = document.getElementById('alertText');
+      
+      if (grantedCount === permissions.length) {
+        alertBox.className = 'alert alert-success';
+        alertText.textContent = '✅ 所有权限已授予，GUI Agent 可以正常工作';
+      } else {
+        alertBox.className = 'alert alert-warning';
+        alertText.textContent = '⚠️ 部分权限未授予，部分功能可能受限';
+      }
+      alertBox.style.display = 'flex';
+    }
+
+    // 显示授权引导
+    function showGuide(type) {
+      currentPermission = permissions.find(p => p.type === type);
+      if (!currentPermission || currentPermission.granted) return;
+
+      document.getElementById('modalTitle').textContent = `授权 ${currentPermission.label}`;
+      document.getElementById('modalDesc').textContent = `为什么需要此权限？\n${currentPermission.description}`;
+
+      // 步骤
+      const steps = type === 'screen_recording' ? [
+        { title: '打开系统设置', desc: '点击下方按钮自动跳转' },
+        { title: '找到对应权限', desc: '隐私与安全性 → 屏幕录制' },
+        { title: '勾选应用', desc: '找到并勾选「Terminal」或「Python」' },
+        { title: '重启应用', desc: '重启终端或应用，重新检查权限' },
+      ] : [
+        { title: '打开系统设置', desc: '点击下方按钮自动跳转' },
+        { title: '找到对应权限', desc: '隐私与安全性 → 辅助功能' },
+        { title: '点击解锁', desc: '点击左下角的锁图标解锁' },
+        { title: '勾选应用', desc: '找到并勾选「Terminal」或「Python」' },
+        { title: '重启应用', desc: '重启终端或应用，重新检查权限' },
+      ];
+
+      document.getElementById('modalSteps').innerHTML = steps.map((s, i) => `
+        <div class="step">
+          <div class="step-number">${i + 1}</div>
+          <div class="step-content">
+            <h4>${s.title}</h4>
+            <p>${s.desc}</p>
+          </div>
+        </div>
+      `).join('');
+
+      document.getElementById('modalOverlay').classList.add('active');
+    }
+
+    // 关闭 Modal
+    function closeModal() {
+      document.getElementById('modalOverlay').classList.remove('active');
+    }
+
+    // 打开系统设置
+    function openSettings() {
+      if (currentPermission) {
+        // 实际应调用 Electron API
+        // window.electronAPI.gui.openPermissionSettings(currentPermission.type);
+        
+        alert(`即将打开系统设置：${currentPermission.label}`);
+        closeModal();
+      }
+    }
+
+    // 初始化
+    checkPermissions();
+  </script>
+</body>
+</html>
