@@ -116,6 +116,9 @@ function ClientPage({
   const isAnyStopping = stoppingServices.size > 0;
   const isAnyOperating = isAnyStarting || isAnyStopping;
 
+  // ---------- Reg syncing ----------
+  const [regSyncing, setRegSyncing] = useState(false);
+
   // ---------- Dependencies ----------
   const [missingDeps, setMissingDeps] = useState<
     { name: string; displayName: string }[]
@@ -187,11 +190,14 @@ function ClientPage({
         if (key === "agent" && !success) agentFailed = true;
       }
       // 先同步配置到后端（更新端口映射），再启动代理服务
+      setRegSyncing(true);
       try {
         await syncConfigToServer({ suppressToast: true });
         console.log("[ClientPage] 登录后 reg 同步成功");
       } catch (e) {
         console.error("[ClientPage] 登录后 reg 同步失败:", e);
+      } finally {
+        setRegSyncing(false);
       }
       // reg 完成后（无论成败）通知父组件刷新顶部栏用户名/电脑名称
       onAuthChange?.();
@@ -363,11 +369,14 @@ function ClientPage({
    */
   const handleStartServiceManual = async (key: string) => {
     // 先 reg，确保 lanproxy 等服务启动时使用最新的后端返回数据
+    setRegSyncing(true);
     try {
       await syncConfigToServer({ suppressToast: true });
       console.log("[ClientPage] 手动启动服务前 reg 同步成功");
     } catch (e) {
       console.error("[ClientPage] 手动启动服务前 reg 同步失败:", e);
+    } finally {
+      setRegSyncing(false);
     }
     await handleStartService(key);
     onAuthChange?.();
@@ -421,10 +430,13 @@ function ClientPage({
       }
 
       // 先同步配置到后端（更新端口映射），再启动代理服务
+      setRegSyncing(true);
       try {
         await syncConfigToServer({ suppressToast: true });
       } catch (e) {
         console.error("[ClientPage] 同步失败:", e);
+      } finally {
+        setRegSyncing(false);
       }
 
       for (const key of proxyServices) {
@@ -854,7 +866,7 @@ function ClientPage({
       </div>
 
       {/* Service status */}
-      <div className={styles.section}>
+      <div className={styles.section} style={{ position: "relative" }}>
         <div className={styles.servicesHeader}>
           <div className={styles.servicesHeaderLeft}>
             <PlayCircleOutlined
@@ -921,6 +933,12 @@ function ClientPage({
           )}
         </div>
         {renderServicesSection()}
+        {regSyncing && (
+          <div className={styles.loadingOverlay}>
+            <Spin size="small" />
+            <span className={styles.loadingText}>正在同步配置...</span>
+          </div>
+        )}
       </div>
 
       {/* Quick actions */}
