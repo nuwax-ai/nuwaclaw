@@ -22,6 +22,19 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
+# 国内 VLM SDK
+try:
+    from zhipuai import ZhipuAI
+    ZHIPU_AVAILABLE = True
+except ImportError:
+    ZHIPU_AVAILABLE = False
+
+try:
+    import dashscope
+    DASHSCOPE_AVAILABLE = True
+except ImportError:
+    DASHSCOPE_AVAILABLE = False
+
 # 导入 GUI Agent
 from hybrid_agent import Action, ActionType
 
@@ -91,6 +104,17 @@ class VLMClient:
                 raise ImportError("请安装 openai: pip install openai")
             self.client = openai.OpenAI(api_key=config.api_key)
         
+        elif config.provider == VLMProvider.GLM_4V:
+            if not ZHIPU_AVAILABLE:
+                raise ImportError("请安装 zhipuai: pip install zhipuai")
+            self.client = ZhipuAI(api_key=config.api_key)
+        
+        elif config.provider == VLMProvider.QWEN_VL:
+            if not DASHSCOPE_AVAILABLE:
+                raise ImportError("请安装 dashscope: pip install dashscope")
+            dashscope.api_key = config.api_key
+            self.client = dashscope
+        
         else:
             raise ValueError(f"不支持的 VLM 提供商: {config.provider}")
     
@@ -113,6 +137,10 @@ class VLMClient:
             return self._plan_with_claude(instruction, screenshot_b64, context)
         elif self.config.provider == VLMProvider.GPT4_VISION:
             return self._plan_with_gpt4(instruction, screenshot_b64, context)
+        elif self.config.provider == VLMProvider.GLM_4V:
+            return self._plan_with_glm4v(instruction, screenshot_b64, context)
+        elif self.config.provider == VLMProvider.QWEN_VL:
+            return self._plan_with_qwen_vl(instruction, screenshot_b64, context)
         else:
             raise ValueError(f"不支持的提供商: {self.config.provider}")
     
@@ -196,6 +224,87 @@ class VLMClient:
         
         # 解析响应
         return self._parse_response(response.choices[0].message.content)
+    
+    def _plan_with_glm4v(self,
+                         instruction: str,
+                         screenshot_b64: str,
+                         context: Optional[Dict[str, Any]]) -> VLMActionPlan:
+        """使用 GLM-4V 规划动作（智谱AI）"""
+        
+        # 构造提示词
+        system_prompt = self._build_system_prompt()
+        user_prompt = self._build_user_prompt(instruction, context)
+        
+        # 调用 GLM-4V API
+        response = self.client.chat.completions.create(
+            model="glm-4v",  # GLM-4V 模型
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{screenshot_b64}"
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": user_prompt
+                        }
+                    ]
+                }
+            ]
+        )
+        
+        # 解析响应
+        return self._parse_response(response.choices[0].message.content)
+    
+    def _plan_with_qwen_vl(self,
+                           instruction: str,
+                           screenshot_b64: str,
+                           context: Optional[Dict[str, Any]]) -> VLMActionPlan:
+        """使用 Qwen-VL 规划动作（阿里云）"""
+        
+        from dashscope import MultiModalConversation
+        
+        # 构造提示词
+        system_prompt = self._build_system_prompt()
+        user_prompt = self._build_user_prompt(instruction, context)
+        
+        # 调用 Qwen-VL API
+        messages = [
+            {
+                "role": "system",
+                "content": [{"text": system_prompt}]
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"image": f"data:image/png;base64,{screenshot_b64}"},
+                    {"text": user_prompt}
+                ]
+            }
+        ]
+        
+        response = MultiModalConversation.call(
+            model='qwen-vl-max',
+            messages=messages
+        )
+        
+        # 解析响应
+        if response.status_code == 200:
+            return self._parse_response(response.output.choices[0].message.content[0]["text"])
+        else:
+            return VLMActionPlan(
+                reasoning=f"API 调用失败: {response.message}",
+                actions=[],
+                confidence=0.0
+            )
     
     def _build_system_prompt(self) -> str:
         """构建系统提示词"""
@@ -381,15 +490,29 @@ if __name__ == "__main__":
     # 检查 API Key
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
     openai_key = os.environ.get("OPENAI_API_KEY")
+    zhipu_key = os.environ.get("ZHIPU_API_KEY")
+    dashscope_key = os.environ.get("DASHSCOPE_API_KEY")
     
-    if not anthropic_key and not openai_key:
-        print("\n⚠️  请设置环境变量：")
-        print("  export ANTHROPIC_API_KEY='your-key'  # Claude Vision")
-        print("  export OPENAI_API_KEY='your-key'     # GPT-4 Vision")
+    if not any([anthropic_key, openai_key, zhipu_key, dashscope_key]):
+        print("\n⚠️  请设置环境变量（任选其一）：")
+        print("  export ANTHROPIC_API_KEY='your-key'      # Claude Vision")
+        print("  export OPENAI_API_KEY='your-key'         # GPT-4 Vision")
+        print("  export ZHIPU_API_KEY='your-key'          # GLM-4V（推荐）")
+        print("  export DASHSCOPE_API_KEY='your-key'      # Qwen-VL")
         exit(1)
     
-    # 选择提供商
-    if anthropic_key:
+    # 选择提供商（优先国内模型）
+    if zhipu_key:
+        provider = VLMProvider.GLM_4V
+        model = "glm-4v"
+        api_key = zhipu_key
+        print(f"\n✅ 使用 GLM-4V（智谱AI）: {model}")
+    elif dashscope_key:
+        provider = VLMProvider.QWEN_VL
+        model = "qwen-vl-max"
+        api_key = dashscope_key
+        print(f"\n✅ 使用 Qwen-VL-Max（阿里云）: {model}")
+    elif anthropic_key:
         provider = VLMProvider.CLAUDE_VISION
         model = "claude-3-5-sonnet-20241022"
         api_key = anthropic_key
