@@ -29,9 +29,17 @@ from hybrid_agent import Action, ActionType
 
 class VLMProvider(Enum):
     """VLM 提供商"""
+    # 国际
     CLAUDE_VISION = "claude-vision"
     GPT4_VISION = "gpt4-vision"
     GEMINI_VISION = "gemini-vision"
+    
+    # 国内（推荐）
+    GLM_4V = "glm-4v"           # 智谱AI
+    QWEN_VL = "qwen-vl"         # 阿里云通义
+    ERNIE_4V = "ernie-4v"       # 百度文心
+    HUNYUAN_VISION = "hunyuan"  # 腾讯混元
+    DOUBAO_VISION = "doubao"    # 字节豆包
 
 # ========== 数据结构 ==========
 
