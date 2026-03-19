@@ -49,6 +49,7 @@ import {
 } from "../../services/core/auth";
 import type { ServiceItem } from "../../App";
 import { buildRedirectUrl } from "../../services/utils/sessionUrl";
+import { SERVICE_NAMES } from "@shared/constants";
 import styles from "../../styles/components/ClientPage.module.css";
 
 // ======================== Types ========================
@@ -266,6 +267,15 @@ function ClientPage({
     setQrModalVisible(true);
   };
 
+  // 服务名称映射（使用 constants.ts 中的 SERVICE_NAMES）
+  const serviceNameMap: Record<string, string> = {
+    agent: SERVICE_NAMES.Rcoder,
+    fileServer: SERVICE_NAMES.NuwaxFileServer,
+    lanproxy: SERVICE_NAMES.NuwaxLanproxy,
+    mcpProxy: SERVICE_NAMES.McpProxy,
+  };
+  const getServiceLabel = (key: string) => serviceNameMap[key] || key;
+
   // ======================== Services ========================
 
   const handleStartService = async (
@@ -340,9 +350,17 @@ function ClientPage({
       }
 
       await onRefreshServices();
+
+      // 启动失败时直接展示错误信息
+      if (result && !result.success) {
+        const errorMsg = result.error || "启动失败";
+        message.error(`${getServiceLabel(key)} 启动失败: ${errorMsg}`);
+      }
+
       return result?.success ?? false;
     } catch (error) {
       console.error(`[ClientPage] 启动 ${key} 失败:`, error);
+      message.error(`${getServiceLabel(key)} 启动失败: ${error}`);
       await onRefreshServices();
       return false;
     } finally {
@@ -670,11 +688,9 @@ function ClientPage({
                     style={{ color: "var(--color-success)", fontSize: 14 }}
                   />
                 ) : hasError ? (
-                  <Tooltip title={svc.error}>
-                    <ExclamationCircleOutlined
-                      style={{ color: "var(--color-error)", fontSize: 14 }}
-                    />
-                  </Tooltip>
+                  <ExclamationCircleOutlined
+                    style={{ color: "var(--color-error)", fontSize: 14 }}
+                  />
                 ) : (
                   <CloseCircleOutlined
                     style={{
@@ -707,20 +723,31 @@ function ClientPage({
                         运行中
                       </Tag>
                     ) : hasError ? (
-                      <Tooltip title={svc.error}>
-                        <Tag
-                          color="error"
-                          style={{ margin: 0, fontSize: 11, cursor: "help" }}
-                        >
-                          启动失败
-                        </Tag>
-                      </Tooltip>
+                      <Tag color="error" style={{ margin: 0, fontSize: 11 }}>
+                        启动失败
+                      </Tag>
                     ) : (
                       <Tag style={{ margin: 0, fontSize: 11 }}>已停止</Tag>
                     )}
                   </div>
                   <div className={styles.serviceDescription}>
-                    {svc.description}
+                    {hasError ? (
+                      <Tooltip title={svc.error}>
+                        <span
+                          style={{
+                            color: "var(--color-error)",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            display: "block",
+                          }}
+                        >
+                          {svc.error}
+                        </span>
+                      </Tooltip>
+                    ) : (
+                      svc.description
+                    )}
                   </div>
                 </div>
               </div>
