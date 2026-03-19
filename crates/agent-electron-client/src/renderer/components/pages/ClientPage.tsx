@@ -239,6 +239,11 @@ function ClientPage({
             });
 
           await logout();
+          // 清除登录流程标志，允许下次启动时 autoReconnect 正常执行
+          await window.electronAPI?.settings.set(
+            "_services_started_by_login",
+            false,
+          );
           setAuthState({ isLoggedIn: false, username: null, domain: null });
           onAuthChange?.();
         } catch {
