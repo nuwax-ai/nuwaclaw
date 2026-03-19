@@ -81,6 +81,28 @@ export function registerAppHandlers(ctx: HandlerContext): void {
       : app.getPath("logs");
   });
 
+  // Renderer 进程写入日志到主进程日志文件
+  ipcMain.handle(
+    "log:write",
+    async (
+      _,
+      level: "info" | "warn" | "error",
+      message: string,
+      ...args: unknown[]
+    ) => {
+      switch (level) {
+        case "error":
+          log.error(message, ...args);
+          break;
+        case "warn":
+          log.warn(message, ...args);
+          break;
+        default:
+          log.info(message, ...args);
+      }
+    },
+  );
+
   ipcMain.handle("log:openDir", async () => {
     try {
       const currentPath = log.transports.file.getFile().path;
