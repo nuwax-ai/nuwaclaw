@@ -475,13 +475,18 @@ electron-prepare-gui-server:
 electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-gui-server
 	@echo ">>> Electron client prepared successfully"
 
+.PHONY: electron-bundle
+electron-bundle:
+	@echo ">>> Building Electron app (unsigned, current platform, with GUI Agent MCP)..."
+	cd crates/$(ELECTRON_CLIENT) && NUWAX_INJECT_GUI_MCP=1 npm run dist:unsigned:local
+
 .PHONY: electron-dev
 electron-dev: electron-prepare
 	@echo ">>> Starting Electron dev mode..."
 	@echo ">>> Logs will be written to logs/electron-dev.log"
 	mkdir -p logs
 	@echo "=== Electron Dev Started at $$(date) ===" > logs/electron-dev.log
-	cd crates/$(ELECTRON_CLIENT) && npm run dev 2>&1 | tee -a $(CURDIR)/logs/electron-dev.log
+	cd crates/$(ELECTRON_CLIENT) && NUWAX_INJECT_GUI_MCP=1 npm run dev 2>&1 | tee -a $(CURDIR)/logs/electron-dev.log
 
 .PHONY: tauri-info
 tauri-info:
