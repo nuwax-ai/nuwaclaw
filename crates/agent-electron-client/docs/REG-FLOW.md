@@ -48,8 +48,8 @@ reg 调用 → mcpProxy → agent → fileServer → lanproxy
 ```typescript
 interface ClientRegisterParams {
   username: string;
-  password: string;
-  savedKey?: string;      // 持久化密钥，跨会话有效
+  password: string;        // 手动登录时传入，自动认证时为空字符串
+  savedKey?: string;       // 持久化密钥，跨会话有效（用于自动认证）
   deviceId?: string;
   sandboxConfigValue: {
     hostWithScheme: string;
@@ -61,6 +61,8 @@ interface ClientRegisterParams {
   };
 }
 ```
+
+**注意**：密码不持久化保存。首次登录后，后续自动认证仅依赖 `savedKey`。
 
 ## reg 接口返回
 
@@ -88,7 +90,8 @@ interface ClientRegisterResponse {
 
 ### 防止重复启动
 
-- 登录流程设置 `_services_started_by_login = true`，防止 App.tsx 自动重连再次启动
+- 登录流程调用 `onLoginStarted()` 设置内存变量 `loginStartedRef.current = true`
+- App.tsx 自动重连检查该内存变量，若为 true 则跳过（同一会话内有效，不持久化）
 
 ---
 
