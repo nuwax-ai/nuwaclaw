@@ -21,6 +21,12 @@ await esbuild.build({
   format: 'esm',
   outfile: 'dist/index.js',
   banner: { js: '#!/usr/bin/env node' },
+  // 原生模块不能被 bundle，运行时需要在 node_modules 中可用
+  external: [
+    'sharp',
+    '@nut-tree-fork/*',
+    'clipboardy',
+  ],
   define: {
     'process.env.__GUI_AGENT_PKG_NAME__': JSON.stringify(pkg.name),
     'process.env.__GUI_AGENT_PKG_VERSION__': JSON.stringify(pkg.version),

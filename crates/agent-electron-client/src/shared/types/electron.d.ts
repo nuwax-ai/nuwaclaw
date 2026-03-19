@@ -80,6 +80,12 @@ export interface ComputerServerAPI {
   status: () => Promise<{ running: boolean; port?: number; error?: string }>;
 }
 
+export interface GuiServerAPI {
+  start: () => Promise<{ success: boolean; error?: string }>;
+  stop: () => Promise<{ success: boolean; error?: string }>;
+  status: () => Promise<{ running: boolean; pid?: number; error?: string }>;
+}
+
 export type DependencyStatus =
   | "checking"
   | "installed"
@@ -562,6 +568,7 @@ export interface ElectronAPI {
   agentRunner: AgentRunnerAPI;
   fileServer: FileServerAPI;
   computerServer: ComputerServerAPI;
+  guiServer: GuiServerAPI;
   dependencies: DependenciesAPI;
   shell: ShellAPI;
   mirror: MirrorAPI;

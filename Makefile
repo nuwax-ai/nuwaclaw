@@ -466,8 +466,13 @@ electron-prepare-mcp-proxy:
 	@echo ">>> Preparing nuwax-mcp-stdio-proxy for Electron..."
 	cd crates/$(ELECTRON_CLIENT) && npm run prepare:mcp-proxy
 
+.PHONY: electron-prepare-gui-server
+electron-prepare-gui-server:
+	@echo ">>> Preparing agent-gui-server for Electron..."
+	cd crates/$(ELECTRON_CLIENT) && npm run prepare:gui-server
+
 .PHONY: electron-prepare
-electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy
+electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-gui-server
 	@echo ">>> Electron client prepared successfully"
 
 .PHONY: electron-dev

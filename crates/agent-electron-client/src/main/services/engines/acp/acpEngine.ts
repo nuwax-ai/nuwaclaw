@@ -464,6 +464,24 @@ export class AcpEngine extends EventEmitter {
       }
     }
 
+    // [DEV] 开发模式：注入 GUI Agent MCP 服务用于本地测试
+    try {
+      const { app } = await import("electron");
+      if (!app.isPackaged && !mcpServers.some((m) => m.name === "gui-agent")) {
+        mcpServers.push({
+          name: "gui-agent",
+          command: "mcp-proxy",
+          args: ["convert", "http://127.0.0.1:60008/mcp"],
+          env: [],
+        });
+        log.info(
+          `${this.logTag} 🔧 [DEV] 注入 GUI Agent MCP: mcp-proxy convert http://127.0.0.1:60008/mcp`,
+        );
+      }
+    } catch {
+      /* ignore */
+    }
+
     const sessionCwd = opts?.cwd || this.config.workspaceDir;
 
     // Build _meta with systemPrompt if provided (skip if empty or whitespace only)
