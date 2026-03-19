@@ -276,9 +276,9 @@ export async function loginAndRegister(
       suppressToast: true,
     });
 
-    // 保存认证信息
+    // 保存认证信息（不保存密码，后续认证使用 savedKey）
     await setUsername(username);
-    await setPassword(password);
+    // 密码不持久化保存，savedKey（configKey）用于后续自动认证
     await setConfigKey(response.configKey);
     await setSavedKey(response.configKey, domain, username);
 
@@ -371,24 +371,25 @@ export async function getCurrentAuth(): Promise<{
 }
 
 /**
- * 重新注册客户端（使用已保存的凭证）
+ * 重新注册客户端（使用已保存的 savedKey）
  *
  * 修复：使用 domain + username 级别的 savedKey，避免多账号切换时读取到错误账号的凭证
+ * 注意：密码不持久化，仅依赖 savedKey 进行认证
  */
 export async function reRegisterClient(): Promise<ClientRegisterResponse | null> {
   const username = await getUsername();
-  const password = await getPassword();
 
-  // 读取 domain，与 syncConfigToServer / loginAndRegister 保持一致的优先级
-  const lanproxyHost = await settingsGet<string>(
-    AUTH_KEYS.LANPROXY_SERVER_HOST,
-  );
+  // 读取 domain，优先级：step1_config.serverHost > lanproxy.server_host
+  // 因为 savedKey 是用 step1_config.serverHost 保存的
   const step1Config = (await window.electronAPI?.settings.get(
     "step1_config",
   )) as {
     serverHost?: string;
   } | null;
-  const rawDomain = lanproxyHost || step1Config?.serverHost || "";
+  const lanproxyHost = await settingsGet<string>(
+    AUTH_KEYS.LANPROXY_SERVER_HOST,
+  );
+  const rawDomain = step1Config?.serverHost || lanproxyHost || "";
   const domain = normalizeServerHost(rawDomain);
 
   // 按 domain + username 取对应账号的 savedKey，而非读全局 key，避免多账号混淆
@@ -397,18 +398,38 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
       ? await getSavedKey(domain, username)
       : await getSavedKey();
 
-  // 有 savedKey 即可认证，无需 username/password
-  if (!savedKey && !username && !password) {
-    console.warn("[Auth] 未保存凭证，无法重新注册");
+  // 必须有 savedKey 才能重新注册（密码不持久化）
+  if (!savedKey) {
+    console.warn("[Auth] 未保存 savedKey，无法重新注册，请重新登录");
     return null;
   }
 
   try {
-    console.log("[Auth] 重新注册客户端...");
-    const response = await loginAndRegister(username || "", password || "", {
+    console.log("[Auth] 重新注册客户端（使用 savedKey）...");
+
+    const deviceId = await window.electronAPI?.app.getDeviceId();
+    const params: ClientRegisterParams = {
+      username: username || "",
+      password: "", // 密码不持久化，使用 savedKey 认证
+      savedKey,
+      deviceId: deviceId || undefined,
+      sandboxConfigValue: await getLocalSandboxValue(),
+    };
+
+    const response = await registerClient(params, {
+      baseUrl: domain || undefined,
       suppressToast: true,
-      domain: domain || undefined,
     });
+
+    // 更新 savedKey（服务端可能返回新的）
+    await setConfigKey(response.configKey);
+    await setSavedKey(response.configKey, domain, username || undefined);
+    await setOnlineStatus(response.online);
+
+    if (response.token) {
+      await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
+    }
+
     console.log("[Auth] 重新注册成功");
     return response;
   } catch (error) {
@@ -428,34 +449,41 @@ export async function logout(): Promise<void> {
 /**
  * 同步本地配置到后端（调用 reg 接口）。
  * reg 返回内容可能会变化（如 serverHost、serverPort 等），本函数会将本次返回的最新值写入配置并返回，调用方应在 reg 成功后再启动服务，以使用最新配置。
+ * 注意：密码不持久化，仅依赖 savedKey 进行认证
  */
 export async function syncConfigToServer(options?: {
   suppressToast?: boolean;
 }): Promise<ClientRegisterResponse | null> {
   const suppressToast = options?.suppressToast === true;
   const username = await getUsername();
-  const password = await getPassword();
 
+  // 读取 domain，优先级：step1_config.serverHost > lanproxy.server_host
+  // 因为 savedKey 是用 step1_config.serverHost 保存的
+  const step1Config = (await window.electronAPI?.settings.get(
+    "step1_config",
+  )) as {
+    serverHost?: string;
+  } | null;
   const lanproxyHost = await settingsGet<string>(
     AUTH_KEYS.LANPROXY_SERVER_HOST,
   );
-  const domain = normalizeServerHost(lanproxyHost || "");
+  const rawDomain = step1Config?.serverHost || lanproxyHost || "";
+  const domain = normalizeServerHost(rawDomain);
 
   // 使用持久化的 savedKey（参考 Tauri 客户端：退出登录不清除，跨会话持久化）
   const savedKey = await getSavedKey(domain, username || undefined);
 
-  // 有 savedKey 即可认证，无需 username/password
-  // 使用严格布尔检查（!x），避免空字符串绕过校验向后端发起空凭证请求
-  if (!savedKey && !username && !password) {
-    console.warn("[SyncConfig] 未登录，无法同步配置");
+  // 必须有 savedKey 才能同步（密码不持久化）
+  if (!savedKey) {
+    console.warn("[SyncConfig] 未保存 savedKey，无法同步配置，请重新登录");
     return null;
   }
 
   const deviceId = await window.electronAPI?.app.getDeviceId();
   const params: ClientRegisterParams = {
     username: username || "",
-    password: password || "",
-    savedKey: savedKey || undefined,
+    password: "", // 密码不持久化，使用 savedKey 认证
+    savedKey,
     deviceId: deviceId || undefined,
     sandboxConfigValue: await getLocalSandboxValue(),
   };
