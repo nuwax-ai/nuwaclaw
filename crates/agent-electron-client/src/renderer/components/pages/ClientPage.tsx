@@ -116,9 +116,6 @@ function ClientPage({
   const isAnyStopping = stoppingServices.size > 0;
   const isAnyOperating = isAnyStarting || isAnyStopping;
 
-  // ---------- Reg syncing ----------
-  const [regSyncing, setRegSyncing] = useState(false);
-
   // ---------- Dependencies ----------
   const [missingDeps, setMissingDeps] = useState<
     { name: string; displayName: string }[]
@@ -182,28 +179,23 @@ function ClientPage({
         "_services_started_by_login",
         true,
       );
-      // 登录成功后自动启动服务（先启动非代理服务，同步配置后再启动代理服务）
-      const preProxyServices = ["mcpProxy", "agent", "fileServer"];
-      let agentFailed = false;
-      for (const key of preProxyServices) {
-        const success = await handleStartService(key, true);
-        if (key === "agent" && !success) agentFailed = true;
-      }
-      // 先同步配置到后端（更新端口映射），再启动代理服务
-      setRegSyncing(true);
+
+      // 1. 先调用 reg 接口，获取最新配置（serverHost/serverPort）
       try {
         await syncConfigToServer({ suppressToast: true });
         console.log("[ClientPage] 登录后 reg 同步成功");
       } catch (e) {
         console.error("[ClientPage] 登录后 reg 同步失败:", e);
-      } finally {
-        setRegSyncing(false);
       }
-      // reg 完成后（无论成败）通知父组件刷新顶部栏用户名/电脑名称
+
+      // 2. reg 返回后，step by step 启动服务
+      const allServices = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+      for (const key of allServices) {
+        await handleStartService(key, true);
+      }
+
+      // 通知父组件刷新顶部栏用户名/电脑名称
       onAuthChange?.();
-      if (!agentFailed) {
-        await handleStartService("lanproxy", true);
-      }
       await onRefreshServices();
     } catch {
       // 错误提示由 loginAndRegister 内部统一展示，此处不再重复 toast
@@ -364,22 +356,11 @@ function ClientPage({
 
   /**
    * 手动启动单个服务（UI 按钮触发）。
-   * 先调用 reg 同步配置（获取最新 serverHost/serverPort 等），再启动服务。
-   * 与 handleStartAll / handleLogin 区分：它们有自己的 reg 调用时机。
+   * 手动启动不调用 reg 接口，直接启动服务。
+   * reg 调用仅在「登录」「启动全部」「自动重连」场景触发。
    */
   const handleStartServiceManual = async (key: string) => {
-    // 先 reg，确保 lanproxy 等服务启动时使用最新的后端返回数据
-    setRegSyncing(true);
-    try {
-      await syncConfigToServer({ suppressToast: true });
-      console.log("[ClientPage] 手动启动服务前 reg 同步成功");
-    } catch (e) {
-      console.error("[ClientPage] 手动启动服务前 reg 同步失败:", e);
-    } finally {
-      setRegSyncing(false);
-    }
     await handleStartService(key);
-    onAuthChange?.();
   };
 
   const handleStopService = async (key: string) => {
@@ -415,36 +396,36 @@ function ClientPage({
       return;
     }
 
+    // 确定需要启动的服务，提前设置 starting 状态（覆盖 reg 调用期间）
+    const allServices = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    const servicesToStart = allServices.filter((key) => {
+      const svc = services.find((s) => s.key === key);
+      return svc && !svc.running;
+    });
+
+    // 提前设置所有待启动服务的 starting 状态
+    if (servicesToStart.length > 0) {
+      setStartingServices?.((prev) => {
+        const next = new Set(prev);
+        servicesToStart.forEach((key) => next.add(key));
+        return next;
+      });
+    }
+
     try {
-      // 先启动非代理服务，同步配置后再启动代理服务
-      const preProxyServices = ["mcpProxy", "agent", "fileServer"];
-      const proxyServices = ["lanproxy"];
       let startedCount = 0;
 
-      for (const key of preProxyServices) {
-        const svc = services.find((s) => s.key === key);
-        if (svc && !svc.running) {
-          await handleStartService(key);
-          startedCount++;
-        }
-      }
-
-      // 先同步配置到后端（更新端口映射），再启动代理服务
-      setRegSyncing(true);
+      // 1. 先调用 reg 接口，获取最新配置（serverHost/serverPort）
       try {
         await syncConfigToServer({ suppressToast: true });
       } catch (e) {
-        console.error("[ClientPage] 同步失败:", e);
-      } finally {
-        setRegSyncing(false);
+        console.error("[ClientPage] reg 同步失败:", e);
       }
 
-      for (const key of proxyServices) {
-        const svc = services.find((s) => s.key === key);
-        if (svc && !svc.running) {
-          await handleStartService(key);
-          startedCount++;
-        }
+      // 2. reg 返回后，step by step 启动服务
+      for (const key of servicesToStart) {
+        await handleStartService(key);
+        startedCount++;
       }
 
       if (startedCount === 0) {
@@ -933,12 +914,6 @@ function ClientPage({
           )}
         </div>
         {renderServicesSection()}
-        {regSyncing && (
-          <div className={styles.loadingOverlay}>
-            <Spin size="small" />
-            <span className={styles.loadingText}>正在同步配置...</span>
-          </div>
-        )}
       </div>
 
       {/* Quick actions */}
