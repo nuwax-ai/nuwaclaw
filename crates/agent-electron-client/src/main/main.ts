@@ -139,6 +139,7 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false, // Need to access node for MCP
       webviewTag: true,
+      spellcheck: false, // 禁用拼写检查
     },
     show: false,
   });

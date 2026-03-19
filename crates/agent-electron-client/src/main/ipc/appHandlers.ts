@@ -414,6 +414,7 @@ export function registerAppHandlers(ctx: HandlerContext): void {
             nodeIntegration: false,
             sandbox: true,
             webviewTag: false, // 直接加载 URL，不需要 webview tag
+            spellcheck: false, // 禁用拼写检查
           },
           show: false,
           backgroundColor: "#ffffff",
