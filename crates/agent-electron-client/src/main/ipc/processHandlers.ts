@@ -297,7 +297,8 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     success: boolean;
     error?: string;
   }> => {
-    const { getAppEnv } = await import("../services/system/dependencies");
+    const { getAppEnv, getResourcesPath, getNodeBinPathWithFallback } =
+      await import("../services/system/dependencies");
 
     if (ctx.guiServer.running) {
       return { success: true, message: "Already running" } as any;
@@ -325,8 +326,6 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     }
 
     // 3. 定位 gui-server 入口文件（与 mcp-proxy 一致：resources/ 目录，由 prepare 脚本复制）
-    const { getResourcesPath } =
-      await import("../services/system/dependencies");
     const guiServerDir = path.join(getResourcesPath(), "agent-gui-server");
     const serverJsPath = path.join(guiServerDir, "dist", "index.js");
 
@@ -337,12 +336,22 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       };
     }
 
+    // 3.5 定位 Node.js 二进制（使用内置 Node 24，由 prepare:node 下载到 resources/node/）
+    // 不使用 process.execPath（Electron 二进制），因为 nut-js 原生模块会初始化 macOS AppKit，
+    // 导致 Dock 出现第二个应用图标
+    const nodeBin = getNodeBinPathWithFallback();
+    if (!nodeBin) {
+      return {
+        success: false,
+        error: "内置 Node.js 未找到，请确认 prepare:node 已执行",
+      };
+    }
+
     // 4. 构建环境变量（从视觉模型配置转为 GUI_AGENT_* env）
     // NODE_PATH 指向 resources/agent-gui-server/node_modules，让 external 原生依赖可被加载
     const guiNodeModules = path.join(guiServerDir, "node_modules");
     const env: Record<string, string> = {
       ...getAppEnv(),
-      ELECTRON_RUN_AS_NODE: "1",
       NODE_PATH: guiNodeModules,
       GUI_AGENT_API_KEY: apiKey,
       GUI_AGENT_PROVIDER: visionConfig.provider,
@@ -371,8 +380,10 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       model: visionConfig.model,
     });
 
+    log.info("[GuiServer] 使用 Node.js:", nodeBin);
+
     return ctx.guiServer.start({
-      command: process.execPath,
+      command: nodeBin,
       args: [serverJsPath, "--transport", "http"],
       env,
       startupDelayMs: DEFAULT_STARTUP_DELAY,
