@@ -1,6 +1,6 @@
 {
   "name": "@nuwax-ai/nuwaclaw",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "NuwaClaw Desktop Client (Electron)",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
