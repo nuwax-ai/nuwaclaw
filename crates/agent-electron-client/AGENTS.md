@@ -113,18 +113,7 @@ npm run test:coverage # 带覆盖率
 | 层级 | 范围 | 说明 |
 |------|------|------|
 | **Unit** | 单文件/类，外部依赖 mock | 纯逻辑与状态断言 |
-| **Harness（日志驱动）** | 真实写 main 日志，解析 `[Harness]` marker | 断言关键步骤顺序 |
 | **Integration** | 多模块协作 | 如 IPC handler + serviceManager |
-
-### Harness-Engineering
-
-部分用例用「主进程落盘日志」做证据，保证关键步骤顺序可复现、可断言。
-
-- **工具位置**：`src/test/harness/logHarness.ts`
-- **Marker 约定**：统一前缀 `[Harness]`，级别 `log.debug()`（正式包不落盘）
-- **Harness 用例**：文件名带 `.harness.test.ts`，如 `serviceManager.harness.test.ts`
-
-详见 `docs/TESTING-0.9.1-2026-03-19.md`。
 
 ### 可测试性设计
 
