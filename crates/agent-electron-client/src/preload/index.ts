@@ -432,6 +432,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     openDir: () => ipcRenderer.invoke("log:openDir"),
     list: (count?: number, offset?: number) =>
       ipcRenderer.invoke("log:list", count, offset),
+    write: (
+      level: "info" | "warn" | "error",
+      message: string,
+      ...args: unknown[]
+    ) => ipcRenderer.invoke("log:write", level, message, ...args),
   },
 
   // App
