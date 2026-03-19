@@ -33,10 +33,14 @@ vi.mock("electron-log", () => ({
 const mockExistsSync = vi.fn(() => true);
 const mockMkdirSync = vi.fn();
 const mockWriteFileSync = vi.fn();
+const mockWatchFile = vi.fn();
+const mockUnwatchFile = vi.fn();
 vi.mock("fs", () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
   writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
+  watchFile: (...args: unknown[]) => mockWatchFile(...args),
+  unwatchFile: (...args: unknown[]) => mockUnwatchFile(...args),
 }));
 
 // Mock os
@@ -895,12 +899,12 @@ describe("McpProxyManager - bridge URL 优先策略", () => {
 
     mcpProxyManager.setConfig({
       mcpServers: {
-        "markdownify": {
+        markdownify: {
           command: "uvx",
           args: ["markdownify-mcp-server"],
           allowTools: ["youtube-to-markdown", "pdf-to-markdown"],
         },
-        "fetch": {
+        fetch: {
           command: "uvx",
           args: ["mcp-server-fetch"],
           allowTools: ["fetch"],
@@ -1255,26 +1259,23 @@ describe("extractRealMcpServers - 真实 context_servers 配置", () => {
     const { extractRealMcpServers } = await import("./mcp");
 
     // 真实日志: "Markdown 万能转成" 使用 uvx + --allow-tools
-    const result = extractRealMcpServers(
-      "mcp-proxy",
-      [
-        "convert",
-        "--config",
-        JSON.stringify({
-          mcpServers: {
-            "Markdown 万能转成": {
-              command: "uvx",
-              args: ["markdownify-mcp-server"],
-              env: {},
-              source: "custom",
-              enabled: true,
-            },
+    const result = extractRealMcpServers("mcp-proxy", [
+      "convert",
+      "--config",
+      JSON.stringify({
+        mcpServers: {
+          "Markdown 万能转成": {
+            command: "uvx",
+            args: ["markdownify-mcp-server"],
+            env: {},
+            source: "custom",
+            enabled: true,
           },
-        }),
-        "--allow-tools",
-        "youtube-to-markdown,pdf-to-markdown",
-      ],
-    );
+        },
+      }),
+      "--allow-tools",
+      "youtube-to-markdown,pdf-to-markdown",
+    ]);
 
     expect(result).toBeDefined();
     expect(result!["Markdown 万能转成"]).toBeDefined();
@@ -1295,22 +1296,19 @@ describe("extractRealMcpServers - 真实 context_servers 配置", () => {
     const { extractRealMcpServers } = await import("./mcp");
 
     // 真实日志: "image-understanding-and-generation" 使用远程 SSE URL
-    const result = extractRealMcpServers(
-      "mcp-proxy",
-      [
-        "convert",
-        "--config",
-        JSON.stringify({
-          mcpServers: {
-            "image-understanding-and-generation": {
-              url: "https://mcp-api.nuwax.com/api/mcp/sse?ak=ak-test123",
-            },
+    const result = extractRealMcpServers("mcp-proxy", [
+      "convert",
+      "--config",
+      JSON.stringify({
+        mcpServers: {
+          "image-understanding-and-generation": {
+            url: "https://mcp-api.nuwax.com/api/mcp/sse?ak=ak-test123",
           },
-        }),
-        "--allow-tools",
-        "ocr_image_text_extraction,image_understanding,generate_image",
-      ],
-    );
+        },
+      }),
+      "--allow-tools",
+      "ocr_image_text_extraction,image_understanding,generate_image",
+    ]);
 
     expect(result).toBeDefined();
     const srv = result!["image-understanding-and-generation"];
@@ -1350,9 +1348,12 @@ describe("extractRealMcpServers - 真实 context_servers 配置", () => {
       "-y",
       "@bharathvaj/whois-mcp@latest",
     ]);
-    expect(
-      (result!["whois"] as { allowTools?: string[] }).allowTools,
-    ).toEqual(["whois_domain", "whois_tld", "whois_ip", "whois_as"]);
+    expect((result!["whois"] as { allowTools?: string[] }).allowTools).toEqual([
+      "whois_domain",
+      "whois_tld",
+      "whois_ip",
+      "whois_as",
+    ]);
   });
 });
 
@@ -1465,30 +1466,37 @@ describe("markBridgeStarted — bridge 状态同步", () => {
   it("markBridgeStarted() 后，ensureBridgeStarted() 应跳过重复启动", async () => {
     const { mcpProxyManager } = await import("./mcp");
     // 通过同一 import 循环获取被 mock 替换的 persistentMcpBridge
-    const { persistentMcpBridge: bridge } = await import("./persistentMcpBridge");
+    const { persistentMcpBridge: bridge } =
+      await import("./persistentMcpBridge");
 
     // 首先把 cachedScriptPath 初始化（调用 start）
     await mcpProxyManager.start();
 
     // 注入 stdio server，使 ensureBridgeStarted 在没有标记时本该调用 bridge.start
     mcpProxyManager.setConfig({
-      mcpServers: { time: { command: "/uv", args: ["tool", "run", "mcp-time"] } },
+      mcpServers: {
+        time: { command: "/uv", args: ["tool", "run", "mcp-time"] },
+      },
     });
 
     // 手动标记 bridge 已启动（模拟 syncMcpConfigToProxyAndReload 调用后的状态）
     mcpProxyManager.markBridgeStarted();
 
     // 此时 ensureBridgeStarted 应直接返回，不再调用 persistentMcpBridge.start
-    const callsBefore = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsBefore = (bridge.start as ReturnType<typeof vi.fn>).mock.calls
+      .length;
     await mcpProxyManager.ensureBridgeStarted();
-    const callsAfter = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsAfter = (bridge.start as ReturnType<typeof vi.fn>).mock.calls
+      .length;
 
     expect(callsAfter).toBe(callsBefore); // 没有额外的 start 调用
   });
 
   it("syncMcpConfigToProxyAndReload 配置未变化时 early-return 也应调用 markBridgeStarted()", async () => {
-    const { mcpProxyManager, syncMcpConfigToProxyAndReload } = await import("./mcp");
-    const { persistentMcpBridge: bridge } = await import("./persistentMcpBridge");
+    const { mcpProxyManager, syncMcpConfigToProxyAndReload } =
+      await import("./mcp");
+    const { persistentMcpBridge: bridge } =
+      await import("./persistentMcpBridge");
 
     await mcpProxyManager.start();
 
@@ -1499,23 +1507,29 @@ describe("markBridgeStarted — bridge 状态同步", () => {
 
     // 第一次同步：bridge.start 被调用，bridgeStarted 被标记
     await syncMcpConfigToProxyAndReload(servers);
-    const callsAfterFirst = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsAfterFirst = (bridge.start as ReturnType<typeof vi.fn>).mock
+      .calls.length;
 
     // 第二次相同配置：进入 early-return 分支
     await syncMcpConfigToProxyAndReload(servers);
-    const callsAfterSecond = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsAfterSecond = (bridge.start as ReturnType<typeof vi.fn>).mock
+      .calls.length;
 
     // bridge.start 不应被再次调用（配置未变化）
     expect(callsAfterSecond).toBe(callsAfterFirst);
     // bridgeStarted 仍然为 true，ensureBridgeStarted 应跳过
-    const callsBeforeEnsure = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsBeforeEnsure = (bridge.start as ReturnType<typeof vi.fn>).mock
+      .calls.length;
     await mcpProxyManager.ensureBridgeStarted();
-    expect((bridge.start as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsBeforeEnsure);
+    expect((bridge.start as ReturnType<typeof vi.fn>).mock.calls.length).toBe(
+      callsBeforeEnsure,
+    );
   });
 
   it("stop() 后 markBridgeStarted 标志被重置，ensureBridgeStarted() 会重新启动", async () => {
     const { mcpProxyManager } = await import("./mcp");
-    const { persistentMcpBridge: bridge } = await import("./persistentMcpBridge");
+    const { persistentMcpBridge: bridge } =
+      await import("./persistentMcpBridge");
 
     await mcpProxyManager.start();
     mcpProxyManager.markBridgeStarted();
@@ -1524,14 +1538,22 @@ describe("markBridgeStarted — bridge 状态同步", () => {
     await mcpProxyManager.stop();
 
     // 记录 stop 后的调用次数
-    const callsBefore = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsBefore = (bridge.start as ReturnType<typeof vi.fn>).mock.calls
+      .length;
 
     // 注入一些 persistent server 使 ensureBridgeStarted 有服务可以启动
     mcpProxyManager.setConfig({
-      mcpServers: { time: { command: "/uv", args: ["tool", "run", "mcp-time"], persistent: true } },
+      mcpServers: {
+        time: {
+          command: "/uv",
+          args: ["tool", "run", "mcp-time"],
+          persistent: true,
+        },
+      },
     });
     await mcpProxyManager.ensureBridgeStarted();
-    const callsAfter = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsAfter = (bridge.start as ReturnType<typeof vi.fn>).mock.calls
+      .length;
 
     // stop 后 bridgeStarted 被重置，所以会再次调用 bridge.start
     expect(callsAfter).toBeGreaterThan(callsBefore);
@@ -1575,12 +1597,16 @@ describe("getAgentMcpConfig — 内容哈希临时文件", () => {
 
     // 第一次获取配置
     mcpProxyManager.getAgentMcpConfig();
-    const firstWritePath = mockWriteFileSync.mock.calls[0]?.[0] as string | undefined;
+    const firstWritePath = mockWriteFileSync.mock.calls[0]?.[0] as
+      | string
+      | undefined;
     mockWriteFileSync.mockClear();
 
     // 第二次获取配置
     mcpProxyManager.getAgentMcpConfig();
-    const secondWritePath = mockWriteFileSync.mock.calls[0]?.[0] as string | undefined;
+    const secondWritePath = mockWriteFileSync.mock.calls[0]?.[0] as
+      | string
+      | undefined;
 
     // 两次调用应写入相同路径（哈希稳定）
     expect(firstWritePath).toBeDefined();
@@ -1599,11 +1625,27 @@ describe("getAgentMcpConfig — 内容哈希临时文件", () => {
     // 使用 vi.importActual 获取真实 crypto，绕过测试文件顶部对 crypto 的 mock
     const realCrypto = await vi.importActual<typeof import("crypto")>("crypto");
 
-    const json1 = JSON.stringify({ mcpServers: { time: { command: "/uv", args: ["tool", "run", "mcp-time"] } } });
-    const json2 = JSON.stringify({ mcpServers: { fetch: { command: "/uv", args: ["tool", "run", "mcp-fetch"] } } });
+    const json1 = JSON.stringify({
+      mcpServers: {
+        time: { command: "/uv", args: ["tool", "run", "mcp-time"] },
+      },
+    });
+    const json2 = JSON.stringify({
+      mcpServers: {
+        fetch: { command: "/uv", args: ["tool", "run", "mcp-fetch"] },
+      },
+    });
 
-    const hash1 = realCrypto.createHash("md5").update(json1).digest("hex").slice(0, 16);
-    const hash2 = realCrypto.createHash("md5").update(json2).digest("hex").slice(0, 16);
+    const hash1 = realCrypto
+      .createHash("md5")
+      .update(json1)
+      .digest("hex")
+      .slice(0, 16);
+    const hash2 = realCrypto
+      .createHash("md5")
+      .update(json2)
+      .digest("hex")
+      .slice(0, 16);
 
     // 不同内容 → 不同哈希 → 不同文件名 → detectConfigChange 不会误判
     expect(hash1).not.toBe(hash2);
