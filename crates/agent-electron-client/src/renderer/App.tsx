@@ -38,6 +38,7 @@ import LogViewer from "./components/pages/LogViewer";
 import PermissionsPage from "./components/pages/PermissionsPage";
 import SessionsPage from "./components/pages/SessionsPage";
 import type { WebviewHeaderActions } from "./components/pages/SessionsPage";
+import { createLogger } from "./services/utils/rendererLog";
 import styles from "./styles/components/App.module.css";
 import { lightTheme, darkTheme } from "./styles/theme";
 
@@ -140,6 +141,8 @@ function App() {
   // ============================================
   const [isSetupComplete, setIsSetupComplete] = useState<boolean | null>(null);
   const setupJustCompleted = useRef(false);
+  // 内存变量：标记服务是否由登录流程启动（不持久化）
+  const loginStartedRef = useRef(false);
 
   // ============================================
   // 主题状态
@@ -282,28 +285,28 @@ function App() {
   // 检查初始化向导状态（每次启动优先读取 quick init 配置）
   // ============================================
   useEffect(() => {
+    const log = createLogger("SetupCheck");
     const checkSetup = async () => {
       try {
         const completed = await setupService.isSetupCompleted();
 
         // 每次启动优先读取 quick init 配置
-        // 有配置 → 写入 DB（覆盖旧值），再走后续流程
-        // 无配置 → 使用 DB 中已有的值
         if (completed) {
           try {
             const qiConfig = await window.electronAPI?.quickInit.getConfig();
             if (qiConfig) {
-              console.log("[App] 检测到快捷配置，静默更新 DB");
+              log.info("Applying quick init config");
               await applyQuickInitToDb(qiConfig);
             }
           } catch (error) {
-            console.warn("[App] 读取快捷配置失败:", error);
+            log.warn("Failed to read quick init config:", error);
           }
         }
 
+        log.info("isSetupComplete:", completed);
         setIsSetupComplete(completed);
       } catch (error) {
-        console.error("[App] 检查初始化状态失败:", error);
+        log.error("Failed to check setup status:", error);
         setIsSetupComplete(true);
       }
     };
@@ -344,6 +347,11 @@ function App() {
     }
   }, []);
 
+  // 标记服务由登录流程启动（内存变量，不持久化）
+  const handleLoginStarted = useCallback(() => {
+    loginStartedRef.current = true;
+  }, []);
+
   // ============================================
   // 主界面下必需依赖检查：仅当存在「未安装」或「错误」时进入依赖安装
   // 版本以当前真实安装为准，outdated 不触发（用户可在依赖 Tab 手动升级）
@@ -351,11 +359,12 @@ function App() {
   // ============================================
   useEffect(() => {
     if (isSetupComplete !== true) return;
+    const log = createLogger("DepsCheck");
     let cancelled = false;
 
     // 先注册事件监听，再做 checkAll，避免事件在 checkAll 返回前触发而丢失
     const handleDepsSyncCompleted = () => {
-      console.log("[App] deps:syncCompleted, 依赖同步完成");
+      log.info("syncCompleted");
       setDepsSyncInProgress(false);
     };
     window.electronAPI?.on(
@@ -367,13 +376,27 @@ function App() {
       try {
         const result = await window.electronAPI?.dependencies.checkAll();
         if (cancelled) return;
+
         const deps = result?.results ?? [];
-        // 仅当存在 missing 或 error 时需要重新进入依赖安装；outdated 视为已安装，不强制
         const hasMissingOrError = deps.some(
           (d: { status: string }) =>
             d.status === "missing" || d.status === "error",
         );
+        const missingDeps = deps
+          .filter(
+            (d: { status: string }) =>
+              d.status === "missing" || d.status === "error",
+          )
+          .map((d: { name: string; status: string }) => d.name);
+
+        log.info("result:", {
+          hasMissingOrError,
+          missingDeps: missingDeps.length > 0 ? missingDeps : undefined,
+          syncInProgress: result?.syncInProgress,
+        });
+
         setNeedsRequiredDepsReinstall(hasMissingOrError);
+
         // 记录主进程初始化依赖同步状态
         if (result?.syncInProgress) {
           setDepsSyncInProgress(true);
@@ -386,8 +409,10 @@ function App() {
           }
         }
       } catch (error) {
-        console.error("[App] 必需依赖检查失败:", error);
-        if (!cancelled) setNeedsRequiredDepsReinstall(false);
+        log.error("failed:", error);
+        if (!cancelled) {
+          setNeedsRequiredDepsReinstall(false);
+        }
       }
     };
 
@@ -470,6 +495,7 @@ function App() {
   // ============================================
   const startServicesSequentially = useCallback(
     async (serviceKeys: string[]) => {
+      const log = createLogger("StartServices");
       for (const key of serviceKeys) {
         setStartingServices((prev) => new Set(prev).add(key));
         try {
@@ -489,6 +515,10 @@ function App() {
               model: agentConfig?.model,
               workspaceDir: step1?.workspaceDir || "",
             });
+            log.info(
+              `agent: ${result?.success ? "ok" : "failed"}`,
+              result?.error,
+            );
             // ComputerServer 是 Agent 的 HTTP 接口，随 Agent 一起启动
             await window.electronAPI?.computerServer
               .start()
@@ -497,8 +527,11 @@ function App() {
             const step1 = (await window.electronAPI?.settings.get(
               "step1_config",
             )) as { fileServerPort?: number } | null;
-            result = await window.electronAPI?.fileServer.start(
-              step1?.fileServerPort ?? 60000,
+            const port = step1?.fileServerPort ?? 60000;
+            result = await window.electronAPI?.fileServer.start(port);
+            log.info(
+              `fileServer: ${result?.success ? "ok" : "failed"}`,
+              result?.error,
             );
           } else if (key === "lanproxy") {
             const clientKey = (await window.electronAPI?.settings.get(
@@ -524,14 +557,24 @@ function App() {
                 clientKey,
                 ssl: lpConfig?.ssl,
               });
+              log.info(
+                `lanproxy: ${result?.success ? "ok" : "failed"}`,
+                result?.error,
+              );
+            } else {
+              log.warn("lanproxy: skipped (missing config)");
             }
           } else if (key === "mcpProxy") {
             result = await window.electronAPI?.mcp.start();
+            log.info(
+              `mcpProxy: ${result?.success ? "ok" : "failed"}`,
+              result?.error,
+            );
           }
 
           await pollServicesStatus();
         } catch (e) {
-          console.error(`[App] 启动 ${key} 失败:`, e);
+          log.error(`${key} failed:`, e);
         } finally {
           setStartingServices((prev) => {
             const next = new Set(prev);
@@ -540,6 +583,7 @@ function App() {
           });
         }
       }
+      log.info("completed");
     },
     [pollServicesStatus],
   );
@@ -549,36 +593,22 @@ function App() {
   // ============================================
   useEffect(() => {
     if (isSetupComplete !== true) return;
-    // 等待依赖检查完成；若有缺失依赖则跳过（依赖安装完成后会通过 restartAll 启动服务）
     if (needsRequiredDepsReinstall !== false) return;
-    // 等待主进程初始化依赖同步完成，避免服务使用旧版本二进制
-    if (depsSyncInProgress) {
-      console.log("[App] 主进程依赖同步中，延迟自动启动服务");
-      return;
-    }
+    if (depsSyncInProgress) return;
 
-    // 重新打开客户端时：若有 savedKey，先调 reg 接口，仅当 reg 成功返回后才启动服务。
-    // 因 reg 返回内容可能会变化（如 serverHost/serverPort 等），必须先拿到本次最新结果并写入配置，再启动服务，避免用到旧配置。
+    const log = createLogger("AutoReconnect");
     const autoReconnect = async () => {
       // 如果 ClientPage handleLogin 已经启动了服务，跳过自动重连
-      // 无论是否命中，都先清除标记，防止 crash 后标记残留导致永久跳过
-      const loginStarted = await window.electronAPI?.settings.get(
-        "_services_started_by_login",
-      );
-      await window.electronAPI?.settings.set(
-        "_services_started_by_login",
-        false,
-      );
-      if (loginStarted) {
-        console.log("[App] 服务已由登录流程启动，跳过自动重连");
+      if (loginStartedRef.current) {
+        loginStartedRef.current = false;
+        log.info("skipped (login flow)");
         return;
       }
 
       // 如果向导刚完成，启动所有服务
       if (setupJustCompleted.current) {
         setupJustCompleted.current = false;
-        console.log("[App] 初始化向导刚完成，启动所有服务...");
-        // 顺序：先 MCP 服务（Agent 依赖），最后代理服务（Lanproxy）
+        log.info("setup completed, starting services");
         await startServicesSequentially([
           "mcpProxy",
           "agent",
@@ -591,28 +621,26 @@ function App() {
       try {
         const savedKey =
           await window.electronAPI?.settings.get("auth.saved_key");
+
         if (savedKey) {
-          // 用户已退出登录时（configKey 被清除），不自动重连，需用户手动登录
+          // 用户已退出登录时（configKey 被清除），不自动重连
           const configKey =
             await window.electronAPI?.settings.get("auth.config_key");
           if (!configKey) {
-            console.log("[App] 检测到 savedKey 但用户已退出登录，跳过自动重连");
+            log.info("skipped (logged out)");
             return;
           }
-          console.log("[App] 检测到 savedKey，自动重连（先调 reg 接口）...");
-          // 必须等待 reg 成功返回后再启动服务；syncConfigToServer 会把本次 reg 返回的 serverHost/serverPort 等写入配置，供后续启动使用
+
           const result = await syncConfigToServer({ suppressToast: true });
+
           if (result) {
-            console.log("[App] reg 成功，使用本次返回配置启动服务");
+            log.info("reg ok, starting services");
             setOnlineStatus(result.online);
-            // 更新用户名显示（顶部栏）
             const user = await authService.getAuthUser();
             if (user) {
               setUsername(user.displayName || user.username || "用户");
             }
-            // 通知客户端 Tab 刷新账号状态（用户名等）以与 reg 返回一致
             setAuthRefreshTrigger((t) => t + 1);
-            // reg 已成功，此时再启动所有服务（顺序：先 MCP，最后 Lanproxy）
             await startServicesSequentially([
               "mcpProxy",
               "agent",
@@ -620,8 +648,7 @@ function App() {
               "lanproxy",
             ]);
           } else {
-            // 配置同步失败：reg 请求失败（网络断开 / 服务器不可达 / token 过期等）。仍使用本地已保存的配置尝试启动服务，避免 Windows 等环境下完全无法使用。
-            console.warn("[App] 配置同步失败，使用本地已保存配置尝试启动服务");
+            log.warn("reg failed, using local config");
             notification.info({
               message: "自动重连失败",
               description:
@@ -629,7 +656,6 @@ function App() {
               duration: 8,
               placement: "bottomRight",
             });
-            // 使用本地已保存的 lanproxy_config / step1_config 等尝试启动，保证至少能尝试拉起服务（含 Windows 客户端）
             await startServicesSequentially([
               "mcpProxy",
               "agent",
@@ -638,10 +664,10 @@ function App() {
             ]);
           }
         } else {
-          console.log("[App] 未检测到 savedKey，跳过自动重连");
+          log.info("skipped (no savedKey)");
         }
       } catch (error) {
-        console.error("[App] 自动重连失败:", error);
+        log.error("failed:", error);
       }
     };
 
@@ -943,6 +969,7 @@ function App() {
                     onRefreshServices={pollServicesStatus}
                     authRefreshTrigger={authRefreshTrigger}
                     onAuthChange={handleAuthChange}
+                    onLoginStarted={handleLoginStarted}
                   />
                 )}
                 {activeTab === "sessions" && (

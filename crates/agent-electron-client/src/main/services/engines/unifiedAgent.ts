@@ -1146,7 +1146,17 @@ export class UnifiedAgentService extends EventEmitter {
    */
   listAllSessionsDetailed(): DetailedSession[] {
     const all: DetailedSession[] = [];
-    for (const [, engine] of this.engines) {
+    for (const [projectId, engine] of this.engines) {
+      // Only include sessions from engines that are known to be alive/ready.
+      // This prevents stale sessions from a crashed/terminated ACP process from
+      // polluting the "活跃会话" list.
+      if (!engine.isReady) {
+        log.debug("[UnifiedAgent] Skipping non-ready engine", {
+          projectId,
+          engineType: engine.engineName,
+        });
+        continue;
+      }
       all.push(...engine.listSessionsDetailed());
     }
     return all;

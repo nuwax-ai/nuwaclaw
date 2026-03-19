@@ -163,3 +163,18 @@ describe("AcpEngine.handleAcpSessionUpdate", () => {
     expect(onProgress).not.toHaveBeenCalled();
   });
 });
+
+/** listSessionsDetailed：会话 title 透传到列表（L1 数据断言） */
+describe("AcpEngine.listSessionsDetailed", () => {
+  it("返回的会话列表应包含 createSession 时传入的 title", () => {
+    const { engine, sessionId, session } = setupEngine();
+    const expectedTitle = "我的会话标题";
+    (session as any).title = expectedTitle;
+
+    const list = engine.listSessionsDetailed();
+
+    expect(list).toHaveLength(1);
+    expect(list[0].id).toBe(sessionId);
+    expect(list[0].title).toBe(expectedTitle);
+  });
+});

@@ -193,19 +193,16 @@ describe("auth - savedKey 认证 (快捷登录)", () => {
       expect(mockRegisterClient).not.toHaveBeenCalled();
     });
 
-    it("有正常 username/password + 无 savedKey → 应正常同步", async () => {
+    it("有 username 但无 savedKey → 应拒绝（密码不再持久化，必须依赖 savedKey）", async () => {
       store["auth.username"] = "user1";
-      store["auth.password"] = "pass1";
+      // 密码不再持久化保存，不设置 savedKey 时无法同步
       store["step1_config"] = { serverHost: DOMAIN };
 
       const { syncConfigToServer } = await loadAuth();
       const result = await syncConfigToServer({ suppressToast: true });
 
-      expect(result).not.toBeNull();
-      const [params] = mockRegisterClient.mock.calls[0];
-      expect(params.username).toBe("user1");
-      expect(params.password).toBe("pass1");
-      expect(params.savedKey).toBeUndefined();
+      expect(result).toBeNull();
+      expect(mockRegisterClient).not.toHaveBeenCalled();
     });
   });
 
@@ -246,7 +243,7 @@ describe("auth - savedKey 认证 (快捷登录)", () => {
       expect(params.savedKey).toBe("domain-specific-key");
     });
 
-    it("多账号切换：当前用户无专属 savedKey 时，不应使用全局 key 中其他账号的凭证（P0-1 修复验证）", async () => {
+    it("多账号切换：当前用户无专属 savedKey 时，应拒绝（不应使用全局 key 中其他账号的凭证）", async () => {
       // 模拟用户A之前登录，全局 key 被覆盖为 A 的凭证
       store["auth.saved_keys.testagent.xspaceagi.com_userA"] = "key-for-userA";
       store["auth.saved_key"] = "key-for-userA"; // 全局 key 指向 A
@@ -257,11 +254,11 @@ describe("auth - savedKey 认证 (快捷登录)", () => {
       // 不设置 auth.saved_keys.*.userB
 
       const { reRegisterClient } = await loadAuth();
-      await reRegisterClient();
+      const result = await reRegisterClient();
 
-      const [params] = mockRegisterClient.mock.calls[0];
-      // 用户B无专属 key，savedKey 应为 undefined，不应传入用户A的 key
-      expect(params.savedKey).toBeUndefined();
+      // 用户B无专属 key，应拒绝重注册，不应使用用户A的 key
+      expect(result).toBeNull();
+      expect(mockRegisterClient).not.toHaveBeenCalled();
     });
 
     it("无 domain 信息时 → 应回退到全局 savedKey", async () => {
@@ -301,7 +298,7 @@ describe("auth - savedKey 认证 (快捷登录)", () => {
       expect(store["auth.saved_key"]).toBe(CONFIG_KEY_FROM_SERVER);
     });
 
-    it("正常 username + password → 应正常登录", async () => {
+    it("正常 username + password → 应正常登录（密码不持久化）", async () => {
       store["step1_config"] = { serverHost: DOMAIN };
 
       const { loginAndRegister } = await loadAuth();
@@ -312,7 +309,10 @@ describe("auth - savedKey 认证 (快捷登录)", () => {
 
       expect(result.configKey).toBe(CONFIG_KEY_FROM_SERVER);
       expect(store["auth.username"]).toBe("zhangsan");
-      expect(store["auth.password"]).toBe("abc123");
+      // 密码不再持久化保存
+      expect(store["auth.password"]).toBeUndefined();
+      // savedKey 应保存
+      expect(store["auth.saved_key"]).toBe(CONFIG_KEY_FROM_SERVER);
     });
   });
 

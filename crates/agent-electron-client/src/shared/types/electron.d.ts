@@ -383,6 +383,11 @@ export interface LogAPI {
   getDir: () => Promise<string>;
   openDir: () => Promise<{ success: boolean; error?: string }>;
   list: (count?: number, offset?: number) => Promise<LogEntry[]>;
+  write: (
+    level: "info" | "warn" | "error",
+    message: string,
+    ...args: unknown[]
+  ) => Promise<void>;
 }
 
 import type { UpdateInfo, UpdateState } from "./updateTypes";
