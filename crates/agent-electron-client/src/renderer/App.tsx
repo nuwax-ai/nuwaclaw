@@ -141,6 +141,8 @@ function App() {
   // ============================================
   const [isSetupComplete, setIsSetupComplete] = useState<boolean | null>(null);
   const setupJustCompleted = useRef(false);
+  // 内存变量：标记服务是否由登录流程启动（不持久化）
+  const loginStartedRef = useRef(false);
 
   // ============================================
   // 主题状态
@@ -343,6 +345,11 @@ function App() {
     } else {
       setUsername("");
     }
+  }, []);
+
+  // 标记服务由登录流程启动（内存变量，不持久化）
+  const handleLoginStarted = useCallback(() => {
+    loginStartedRef.current = true;
   }, []);
 
   // ============================================
@@ -592,14 +599,8 @@ function App() {
     const log = createLogger("AutoReconnect");
     const autoReconnect = async () => {
       // 如果 ClientPage handleLogin 已经启动了服务，跳过自动重连
-      const loginStarted = await window.electronAPI?.settings.get(
-        "_services_started_by_login",
-      );
-      await window.electronAPI?.settings.set(
-        "_services_started_by_login",
-        false,
-      );
-      if (loginStarted) {
+      if (loginStartedRef.current) {
+        loginStartedRef.current = false;
         log.info("skipped (login flow)");
         return;
       }
@@ -968,6 +969,7 @@ function App() {
                     onRefreshServices={pollServicesStatus}
                     authRefreshTrigger={authRefreshTrigger}
                     onAuthChange={handleAuthChange}
+                    onLoginStarted={handleLoginStarted}
                   />
                 )}
                 {activeTab === "sessions" && (

@@ -74,6 +74,8 @@ interface ClientPageProps {
   authRefreshTrigger?: number;
   /** 登录/注销后通知父组件刷新顶部栏用户名等 */
   onAuthChange?: () => void;
+  /** 登录流程启动服务前通知父组件标记（内存变量，不持久化） */
+  onLoginStarted?: () => void;
 }
 
 interface AuthState {
@@ -94,6 +96,7 @@ function ClientPage({
   onRefreshServices,
   authRefreshTrigger,
   onAuthChange,
+  onLoginStarted,
 }: ClientPageProps) {
   // ---------- Auth state ----------
   const [authState, setAuthState] = useState<AuthState>({
@@ -175,11 +178,8 @@ function ClientPage({
       });
       setLoginPassword("");
       await loadAuth();
-      // 标记服务已由登录流程启动，防止 App.tsx 自动重连再次启动
-      await window.electronAPI?.settings.set(
-        "_services_started_by_login",
-        true,
-      );
+      // 通知父组件：服务由登录流程启动（内存变量，不持久化)
+      onLoginStarted?.();
 
       // 1. 先调用 reg 接口，获取最新配置（serverHost/serverPort）
       try {
@@ -239,11 +239,6 @@ function ClientPage({
             });
 
           await logout();
-          // 清除登录流程标志，允许下次启动时 autoReconnect 正常执行
-          await window.electronAPI?.settings.set(
-            "_services_started_by_login",
-            false,
-          );
           setAuthState({ isLoggedIn: false, username: null, domain: null });
           onAuthChange?.();
         } catch {
