@@ -952,7 +952,8 @@ export class UnifiedAgentService extends EventEmitter {
           `⏱️ [ensureEngine][PERF] ensureBridgeStarted(有MCP) 耗时: ${t4 - t3}ms`,
         );
         // 获取代理格式的配置（包含 bridge URL 和 allowTools）
-        freshMcpServers = mcpProxyManager.getAgentMcpConfig() || undefined;
+        freshMcpServers =
+          mcpProxyManager.getAgentMcpConfig(engineKey) || undefined;
       } else {
         t4 = t3;
       }
@@ -965,7 +966,8 @@ export class UnifiedAgentService extends EventEmitter {
       log.debug(
         `⏱️ [ensureEngine][PERF] ensureBridgeStarted(无MCP) 耗时: ${t4 - t3}ms`,
       );
-      freshMcpServers = mcpProxyManager.getAgentMcpConfig() || undefined;
+      freshMcpServers =
+        mcpProxyManager.getAgentMcpConfig(engineKey) || undefined;
     }
     t4 = t4 || t3;
 

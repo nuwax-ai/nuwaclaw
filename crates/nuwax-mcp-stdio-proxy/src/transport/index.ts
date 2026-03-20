@@ -72,10 +72,14 @@ export async function connectStdio(
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
 
   // Set reconnect handler to re-establish MCP session via client.connect()
-  // Note: Must close the client first to clear the "already connected" state
+  // Note: We need to clear the SDK's internal _transport reference without closing it.
+  // client.close() would close the wrapper transport, so we manually clear the reference.
   wrapper.onreconnect = async () => {
-    try { await client.close(); } catch { /* ignore */ }
+    logInfo(`[${id}] Reconnecting MCP session...`);
+    // Clear SDK's transport reference without closing it (wrapper is already reconnected)
+    (client as any)._transport = undefined;
     await client.connect(wrapper);
+    logInfo(`[${id}] MCP session reconnected`);
   };
 
   const timeoutMs = entry.connectionTimeoutMs ?? DEFAULT_STDIO_CONNECTION_TIMEOUT_MS;
@@ -127,18 +131,18 @@ export async function connectStreamable(
         headers ? { requestInit: { headers } } : undefined,
       );
     },
-    // Use provided interval or default (15s)
+    // Use provided interval or default (30s)
     pingIntervalMs: entry.pingIntervalMs,
     pingTimeoutMs: entry.pingTimeoutMs,
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
 
-  // Set health check function to use listTools() for keeping connection alive
-  // Each heartbeat is a new HTTP request but reuses session via mcp-session-id
+  // Set health check function to use ping() for HTTP-based transports
+  // ping() is lighter than listTools() and sufficient for connection health
   wrapper.setHealthCheckFn(async () => {
     try {
-      await client.listTools();
+      await client.ping();
       return true;
     } catch {
       return false;
@@ -146,10 +150,16 @@ export async function connectStreamable(
   });
 
   // Set reconnect handler to re-establish MCP session via client.connect()
-  // Note: Must close the client first to clear the "already connected" state
+  // Note: We need to clear the SDK's internal _transport reference without closing it.
+  // client.close() would close the wrapper transport, so we manually clear the reference.
   wrapper.onreconnect = async () => {
-    try { await client.close(); } catch { /* ignore */ }
+    logInfo(`[${id}] Reconnecting MCP session...`);
+    // Clear SDK's transport reference without closing it (wrapper is already reconnected)
+    (client as any)._transport = undefined;
     await client.connect(wrapper);
+    // Restart heartbeat after reconnect (heartbeat was stopped during reconnect)
+    wrapper.enableHeartbeat();
+    logInfo(`[${id}] MCP session reconnected`);
   };
 
   const timeoutMs = entry.connectionTimeoutMs ?? DEFAULT_HTTP_CONNECTION_TIMEOUT_MS;
@@ -202,18 +212,18 @@ export async function connectSse(
         headers ? { requestInit: { headers } } : undefined,
       );
     },
-    // Use provided interval or default (15s)
+    // Use provided interval or default (30s)
     pingIntervalMs: entry.pingIntervalMs,
     pingTimeoutMs: entry.pingTimeoutMs,
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
 
-  // Set health check function to use listTools() for keeping connection alive
-  // Each heartbeat is a new HTTP request but reuses session via mcp-session-id
+  // Set health check function to use ping() for HTTP-based transports
+  // ping() is lighter than listTools() and sufficient for connection health
   wrapper.setHealthCheckFn(async () => {
     try {
-      await client.listTools();
+      await client.ping();
       return true;
     } catch {
       return false;
@@ -221,10 +231,16 @@ export async function connectSse(
   });
 
   // Set reconnect handler to re-establish MCP session via client.connect()
-  // Note: Must close the client first to clear the "already connected" state
+  // Note: We need to clear the SDK's internal _transport reference without closing it.
+  // client.close() would close the wrapper transport, so we manually clear the reference.
   wrapper.onreconnect = async () => {
-    try { await client.close(); } catch { /* ignore */ }
+    logInfo(`[${id}] Reconnecting MCP session...`);
+    // Clear SDK's transport reference without closing it (wrapper is already reconnected)
+    (client as any)._transport = undefined;
     await client.connect(wrapper);
+    // Restart heartbeat after reconnect (heartbeat was stopped during reconnect)
+    wrapper.enableHeartbeat();
+    logInfo(`[${id}] MCP session reconnected`);
   };
 
   const timeoutMs = entry.connectionTimeoutMs ?? DEFAULT_HTTP_CONNECTION_TIMEOUT_MS;

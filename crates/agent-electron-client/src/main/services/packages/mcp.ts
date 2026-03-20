@@ -774,8 +774,12 @@ class McpProxyManager {
    *
    * 所有平台统一使用 process.execPath (Electron Node.js) + ELECTRON_RUN_AS_NODE=1，
    * 避免依赖系统 PATH 中的 node。
+   *
+   * @param projectId - 可选的项目/会话标识，用于区分不同会话的日志文件
    */
-  getAgentMcpConfig(): Record<
+  getAgentMcpConfig(
+    projectId?: string,
+  ): Record<
     string,
     { command: string; args: string[]; env?: Record<string, string> }
   > | null {
@@ -884,6 +888,17 @@ class McpProxyManager {
         { command: string; args: string[]; env?: Record<string, string> }
       > = {};
 
+      // 生成项目标识的安全文件名部分
+      const safeProjectId = projectId
+        ? projectId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 32)
+        : "shared";
+
+      // 为每个项目创建独立的日志目录 mcp-proxy/{projectId}/
+      const projectLogDir = path.join(logsDir, "mcp-proxy", safeProjectId);
+      if (!fs.existsSync(projectLogDir)) {
+        fs.mkdirSync(projectLogDir, { recursive: true });
+      }
+
       for (const [name, entry] of Object.entries(proxyServers)) {
         // 每个服务生成独立的配置文件
         const singleConfig = { mcpServers: { [name]: entry } };
@@ -899,9 +914,9 @@ class McpProxyManager {
         const configFilePath = path.join(configDir, configFileName);
         fs.writeFileSync(configFilePath, configJson, "utf-8");
 
-        // 每个服务独立的日志文件
+        // 每个服务独立的日志文件，按项目分目录存放
         const proxyEnvOverrides: Record<string, string> = {
-          MCP_PROXY_LOG_FILE: path.join(logsDir, `mcp-proxy-${safeName}.log`),
+          MCP_PROXY_LOG_FILE: path.join(projectLogDir, `${safeName}.log`),
         };
 
         // 构建该服务的 proxy 启动参数
