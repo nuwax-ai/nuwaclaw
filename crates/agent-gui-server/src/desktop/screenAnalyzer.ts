@@ -15,6 +15,24 @@ export interface AnalyzeResult {
   imageHeight: number;
 }
 
+const SCREEN_ANALYSIS_SYSTEM_PROMPT = `You are a GUI screen analysis assistant specialized in desktop automation.
+
+Your task is to analyze screenshots and provide actionable information for automation tasks.
+
+When analyzing the screen:
+1. Identify UI elements: buttons, menus, input fields, icons, windows, dialogs
+2. Provide approximate coordinates when asked (as percentages like "top-left quadrant" or pixel estimates)
+3. Describe element states: enabled/disabled, focused, selected, minimized, etc.
+4. Read visible text content accurately
+5. Identify the active application and window focus
+
+Be concise but thorough. Format your response clearly with:
+- Element descriptions
+- Locations (when relevant)
+- States and any actionable details
+
+If the user asks about specific elements, locate them precisely and describe their position relative to the screen or window.`;
+
 /**
  * Capture screenshot and analyze with vision model.
  *
@@ -54,7 +72,7 @@ export async function analyzeScreen(
 
     // Call vision model using pi-ai complete function
     const response = await complete(model, {
-      systemPrompt: 'You are a screen analysis assistant. Analyze the screenshot and answer the user\'s question accurately and concisely.',
+      systemPrompt: SCREEN_ANALYSIS_SYSTEM_PROMPT,
       messages,
     }, {
       apiKey,

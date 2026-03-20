@@ -20,10 +20,12 @@ export interface ScreenshotMeta {
 }
 
 export interface DisplayInfo {
-  /** Global origin of this display */
+  /** Global origin of this display (in logical coordinates) */
   origin: { x: number; y: number };
-  /** Display bounds */
+  /** Display bounds (in logical coordinates) */
   bounds: { width: number; height: number };
+  /** Display scale factor (1 for standard, 2 for Retina/HiDPI) */
+  scaleFactor?: number;
 }
 
 export interface ResolvedCoordinate {
@@ -48,7 +50,8 @@ export interface ResolvedCoordinate {
  * 1. Coordinate order correction (yx swap for Gemini)
  * 2. Normalize to 0-1 based on coordinateMode
  * 3. Logical coordinate = norm × logicalWidth/Height
- * 4. Global offset = local + display.origin
+ * 4. Physical coordinate = logical × scaleFactor (for Retina/HiDPI)
+ * 5. Global offset = physical + display.origin × scaleFactor
  */
 export function resolveCoordinate(
   modelX: number,
@@ -76,15 +79,21 @@ export function resolveCoordinate(
   const localX = Math.round(normalizedX * meta.logicalWidth);
   const localY = Math.round(normalizedY * meta.logicalHeight);
 
-  // Step 4: Global offset
-  let globalX = localX + display.origin.x;
-  let globalY = localY + display.origin.y;
+  // Step 4: Convert to physical coordinates (for Retina/HiDPI displays)
+  // nut.js uses physical pixels, not logical points
+  const scaleFactor = display.scaleFactor ?? 1;
+  const physicalX = localX * scaleFactor;
+  const physicalY = localY * scaleFactor;
 
-  // Boundary clamp
-  const minX = display.origin.x;
-  const minY = display.origin.y;
-  const maxX = display.origin.x + display.bounds.width - 1;
-  const maxY = display.origin.y + display.bounds.height - 1;
+  // Step 5: Global offset (in physical coordinates)
+  let globalX = physicalX + display.origin.x * scaleFactor;
+  let globalY = physicalY + display.origin.y * scaleFactor;
+
+  // Boundary clamp (in physical coordinates)
+  const minX = display.origin.x * scaleFactor;
+  const minY = display.origin.y * scaleFactor;
+  const maxX = (display.origin.x + display.bounds.width) * scaleFactor - 1;
+  const maxY = (display.origin.y + display.bounds.height) * scaleFactor - 1;
 
   if (globalX < minX || globalX > maxX || globalY < minY || globalY > maxY) {
     logWarn(`Coordinate out of bounds: (${globalX}, ${globalY}) clamped to display [${minX}-${maxX}, ${minY}-${maxY}]`);

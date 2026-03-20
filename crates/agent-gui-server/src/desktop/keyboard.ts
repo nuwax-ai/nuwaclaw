@@ -15,6 +15,7 @@ const MAX_TYPE_LENGTH = 50;
  * Key name aliases mapping to nut.js Key enum names.
  * LLMs may return various names like "Meta", "Command", "Cmd", "Win", "Super".
  * nut.js uses: LeftSuper, RightSuper, LeftControl, RightControl, etc.
+ * Arrow keys in nut.js are: Up, Down, Left, Right (not ArrowUp, etc.)
  */
 const KEY_ALIASES: Record<string, string> = {
   // macOS Command key aliases → Super
@@ -37,6 +38,16 @@ const KEY_ALIASES: Record<string, string> = {
   // Shift key aliases
   Shift: 'LeftShift',
   '⇧': 'LeftShift',
+  // Arrow key aliases (nut.js uses Up/Down/Left/Right, not ArrowUp/ArrowDown)
+  ArrowUp: 'Up',
+  ArrowDown: 'Down',
+  ArrowLeft: 'Left',
+  ArrowRight: 'Right',
+  // Common alternative names
+  Return: 'Enter',
+  Esc: 'Escape',
+  Del: 'Delete',
+  Ins: 'Insert',
 };
 
 /**
@@ -90,6 +101,10 @@ export async function pressKey(key: string): Promise<void> {
 
 /**
  * Press a key combination (hotkey).
+ *
+ * Note: nut.js pressKey doesn't support multiple keys, but type() does.
+ * For hotkeys, we use keyboard.type(Key1, Key2, ...) which simulates
+ * pressing keys together as a combination.
  */
 export async function hotkey(keys: string[]): Promise<void> {
   try {
@@ -102,8 +117,8 @@ export async function hotkey(keys: string[]): Promise<void> {
       }
       return keyObj;
     });
-    await keyboard.pressKey(...keyObjs);
-    await keyboard.releaseKey(...keyObjs.reverse());
+    // Use keyboard.type() for hotkeys - it handles key combinations correctly
+    await keyboard.type(...keyObjs);
   } catch (err) {
     throw new DesktopError('keyboard.hotkey', err instanceof Error ? err : new Error(String(err)));
   }

@@ -71,7 +71,7 @@ vi.mock('../../src/coordinates/resolver.js', () => ({
   resolveCoordinate: (_x: number, _y: number) => ({ globalX: _x, globalY: _y }),
 }));
 
-import { handleAtomicToolCall, ATOMIC_TOOLS } from '../../src/mcp/atomicTools.js';
+import { handleAtomicToolCall, ATOMIC_TOOLS, clearScreenshotDimensionCache } from '../../src/mcp/atomicTools.js';
 import { AuditLog } from '../../src/safety/auditLog.js';
 import type { GuiAgentConfig } from '../../src/config.js';
 
@@ -89,8 +89,8 @@ const baseConfig: GuiAgentConfig = {
 };
 
 describe('ATOMIC_TOOLS', () => {
-  it('defines exactly 13 tools', () => {
-    expect(ATOMIC_TOOLS).toHaveLength(13);
+  it('defines exactly 14 tools', () => {
+    expect(ATOMIC_TOOLS).toHaveLength(14);
   });
 
   it('all tools have name, description, and inputSchema', () => {
@@ -116,6 +116,7 @@ describe('ATOMIC_TOOLS', () => {
     expect(names).toContain('gui_list_displays');
     expect(names).toContain('gui_find_image');
     expect(names).toContain('gui_wait_for_image');
+    expect(names).toContain('gui_analyze_screen');
   });
 });
 
@@ -124,11 +125,25 @@ describe('handleAtomicToolCall', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    clearScreenshotDimensionCache();
     auditLog = new AuditLog();
     // Default mock for getDisplay (needed by coordinate resolution)
     mockGetDisplay.mockResolvedValue({
       index: 0, label: 'Primary', width: 1920, height: 1080,
       scaleFactor: 1, isPrimary: true, origin: { x: 0, y: 0 },
+    });
+    // Default mock for captureScreenshot (needed by resolveXY for coordinate modes)
+    mockCaptureScreenshot.mockResolvedValue({
+      image: 'base64data',
+      mimeType: 'image/jpeg',
+      imageWidth: 1920,
+      imageHeight: 1080,
+      logicalWidth: 1920,
+      logicalHeight: 1080,
+      physicalWidth: 1920,
+      physicalHeight: 1080,
+      scaleFactor: 1,
+      displayIndex: 0,
     });
   });
 
@@ -169,7 +184,8 @@ describe('handleAtomicToolCall', () => {
     mockClick.mockResolvedValue(undefined);
     const result = await handleAtomicToolCall('gui_click', { x: 100, y: 200 }, baseConfig, auditLog);
     expect(result?.isError).toBeUndefined();
-    expect(mockClick).toHaveBeenCalledWith(100, 200, undefined);
+    // Without coordinateMode, click uses logical coords directly (no screenshot needed)
+    expect(mockClick).toHaveBeenCalledWith(100, 200, 'left');
     expect(result?.content[0].text).toContain('100');
     expect(result?.content[0].text).toContain('200');
   });
@@ -178,7 +194,8 @@ describe('handleAtomicToolCall', () => {
     mockTypeText.mockResolvedValue(undefined);
     const result = await handleAtomicToolCall('gui_type', { text: 'hello' }, baseConfig, auditLog);
     expect(mockTypeText).toHaveBeenCalledWith('hello');
-    expect(result?.content[0].text).toContain('5 characters');
+    const parsed = JSON.parse(result!.content[0].text!);
+    expect(parsed.characterCount).toBe(5);
   });
 
   it('gui_press_key calls keyboard.pressKey', async () => {
@@ -192,17 +209,18 @@ describe('handleAtomicToolCall', () => {
     mockGetMousePosition.mockResolvedValue({ x: 350, y: 450 });
     const result = await handleAtomicToolCall('gui_cursor_position', {}, baseConfig, auditLog);
     const parsed = JSON.parse(result!.content[0].text!);
-    expect(parsed).toEqual({ x: 350, y: 450 });
+    expect(parsed.logicalCoords).toEqual({ x: 350, y: 450 });
+    expect(parsed.success).toBe(true);
   });
 
   it('gui_list_displays returns display list', async () => {
     mockListDisplays.mockResolvedValue([
-      { index: 0, label: 'Primary', width: 1920, height: 1080 },
+      { index: 0, label: 'Primary', width: 1920, height: 1080, scaleFactor: 1, isPrimary: true, origin: { x: 0, y: 0 } },
     ]);
     const result = await handleAtomicToolCall('gui_list_displays', {}, baseConfig, auditLog);
     const parsed = JSON.parse(result!.content[0].text!);
-    expect(parsed).toHaveLength(1);
-    expect(parsed[0].label).toBe('Primary');
+    expect(parsed.count).toBe(1);
+    expect(parsed.displays[0].label).toBe('Primary');
   });
 
   it('gui_screenshot returns image and metadata', async () => {
@@ -292,6 +310,169 @@ describe('handleAtomicToolCall', () => {
     const result = await handleAtomicToolCall('gui_find_image', { template: 'base64data' }, baseConfig, auditLog);
     const parsed = JSON.parse(result!.content[0].text!);
     expect(parsed.found).toBe(true);
-    expect(parsed.region.x).toBe(10);
+    expect(parsed.logicalCoords.x).toBe(10);
+    expect(parsed.logicalCoords.y).toBe(20);
+  });
+});
+
+describe('resolveXY coordinate mode and caching', () => {
+  let auditLog: AuditLog;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearScreenshotDimensionCache();
+    auditLog = new AuditLog();
+    mockGetDisplay.mockResolvedValue({
+      index: 0, label: 'Primary', width: 1920, height: 1080,
+      scaleFactor: 1, isPrimary: true, origin: { x: 0, y: 0 },
+    });
+    mockClick.mockResolvedValue(undefined);
+  });
+
+  it('captures screenshot when coordinateMode is provided', async () => {
+    mockCaptureScreenshot.mockResolvedValue({
+      image: 'base64data',
+      mimeType: 'image/jpeg',
+      imageWidth: 1920,
+      imageHeight: 1080,
+      logicalWidth: 1920,
+      logicalHeight: 1080,
+      physicalWidth: 1920,
+      physicalHeight: 1080,
+      scaleFactor: 1,
+      displayIndex: 0,
+    });
+
+    await handleAtomicToolCall('gui_click', { x: 100, y: 200, coordinateMode: 'image-absolute' }, baseConfig, auditLog);
+
+    expect(mockCaptureScreenshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses cached dimensions for subsequent coordinate mode calls', async () => {
+    mockCaptureScreenshot.mockResolvedValue({
+      image: 'base64data',
+      mimeType: 'image/jpeg',
+      imageWidth: 1920,
+      imageHeight: 1080,
+      logicalWidth: 1920,
+      logicalHeight: 1080,
+      physicalWidth: 1920,
+      physicalHeight: 1080,
+      scaleFactor: 1,
+      displayIndex: 0,
+    });
+
+    // First call - should capture screenshot
+    await handleAtomicToolCall('gui_click', { x: 100, y: 200, coordinateMode: 'image-absolute' }, baseConfig, auditLog);
+    expect(mockCaptureScreenshot).toHaveBeenCalledTimes(1);
+
+    // Second call - should use cached dimensions
+    await handleAtomicToolCall('gui_click', { x: 150, y: 250, coordinateMode: 'image-absolute' }, baseConfig, auditLog);
+    expect(mockCaptureScreenshot).toHaveBeenCalledTimes(1); // Still 1, not 2
+  });
+
+  it('captures new screenshot after cache TTL expires', async () => {
+    vi.useFakeTimers();
+
+    mockCaptureScreenshot.mockResolvedValue({
+      image: 'base64data',
+      mimeType: 'image/jpeg',
+      imageWidth: 1920,
+      imageHeight: 1080,
+      logicalWidth: 1920,
+      logicalHeight: 1080,
+      physicalWidth: 1920,
+      physicalHeight: 1080,
+      scaleFactor: 1,
+      displayIndex: 0,
+    });
+
+    // First call
+    await handleAtomicToolCall('gui_click', { x: 100, y: 200, coordinateMode: 'image-absolute' }, baseConfig, auditLog);
+    expect(mockCaptureScreenshot).toHaveBeenCalledTimes(1);
+
+    // Advance time past TTL (5001ms)
+    vi.advanceTimersByTime(5001);
+
+    // Second call - should capture new screenshot
+    await handleAtomicToolCall('gui_click', { x: 150, y: 250, coordinateMode: 'image-absolute' }, baseConfig, auditLog);
+    expect(mockCaptureScreenshot).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
+  it('falls back to display dimensions when screenshot fails', async () => {
+    mockCaptureScreenshot.mockRejectedValue(new Error('Screenshot failed'));
+
+    // Should not throw, should use display dimensions as fallback
+    const result = await handleAtomicToolCall('gui_click', { x: 100, y: 200, coordinateMode: 'image-absolute' }, baseConfig, auditLog);
+
+    expect(result?.isError).toBeUndefined();
+    expect(mockClick).toHaveBeenCalled();
+  });
+});
+
+describe('Retina display coordinate scaling', () => {
+  let auditLog: AuditLog;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearScreenshotDimensionCache();
+    auditLog = new AuditLog();
+    mockClick.mockResolvedValue(undefined);
+    mockGetDisplay.mockResolvedValue({
+      index: 0, label: 'Primary', width: 1440, height: 900,
+      scaleFactor: 2, // Retina display
+      isPrimary: true, origin: { x: 0, y: 0 },
+    });
+  });
+
+  it('scales logical coordinates by scaleFactor for Retina displays', async () => {
+    // logical (100, 200) with scaleFactor 2 should become physical (200, 400)
+    await handleAtomicToolCall('gui_click', { x: 100, y: 200 }, baseConfig, auditLog);
+
+    expect(mockClick).toHaveBeenCalledWith(200, 400, 'left');
+  });
+
+  it('handles non-origin display offset with Retina scaling', async () => {
+    mockGetDisplay.mockResolvedValue({
+      index: 1, label: 'External', width: 1920, height: 1080,
+      scaleFactor: 2, // Retina external display
+      isPrimary: false, origin: { x: 1440, y: 0 }, // Right of primary
+    });
+
+    // logical (100, 200) + origin (1440, 0) * scaleFactor 2 = physical (3080, 400)
+    await handleAtomicToolCall('gui_click', { x: 100, y: 200 }, baseConfig, auditLog);
+
+    expect(mockClick).toHaveBeenCalledWith(3080, 400, 'left');
+  });
+
+  it('gui_cursor_position returns logical coords divided by scaleFactor', async () => {
+    mockGetMousePosition.mockResolvedValue({ x: 400, y: 600 }); // Physical coords
+
+    const result = await handleAtomicToolCall('gui_cursor_position', {}, baseConfig, auditLog);
+    const parsed = JSON.parse(result!.content[0].text!);
+
+    // Physical (400, 600) / scaleFactor 2 = logical (200, 300)
+    expect(parsed.logicalCoords).toEqual({ x: 200, y: 300 });
+    expect(parsed.physicalCoords).toEqual({ x: 400, y: 600 });
+    expect(parsed.scaleFactor).toBe(2);
+  });
+
+  it('gui_find_image returns logical coords divided by scaleFactor', async () => {
+    mockFindImage.mockResolvedValue({
+      found: true,
+      region: { x: 200, y: 400, width: 100, height: 60 }, // Physical coords
+      confidence: 0.95,
+    });
+
+    const result = await handleAtomicToolCall('gui_find_image', { template: 'base64data' }, baseConfig, auditLog);
+    const parsed = JSON.parse(result!.content[0].text!);
+
+    // Physical / scaleFactor 2 = logical
+    expect(parsed.logicalCoords.x).toBe(100);
+    expect(parsed.logicalCoords.y).toBe(200);
+    expect(parsed.logicalCoords.width).toBe(50);
+    expect(parsed.logicalCoords.height).toBe(30);
   });
 });

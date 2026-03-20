@@ -49,6 +49,7 @@ const EXPECTED_ATOMIC_TOOLS = [
   'gui_list_displays',
   'gui_find_image',
   'gui_wait_for_image',
+  'gui_analyze_screen',
 ];
 
 const EXPECTED_TASK_TOOLS = [
@@ -78,9 +79,9 @@ describe('MCP Integration', () => {
     try { await server?.stop(); } catch { /* ignore */ }
   }, 10000);
 
-  it('should list all 14 tools', async () => {
+  it('should list all 15 tools', async () => {
     const result = await client.listTools();
-    expect(result.tools).toHaveLength(14);
+    expect(result.tools).toHaveLength(15);
   });
 
   it('should include all atomic tools', async () => {

@@ -18,7 +18,10 @@ vi.mock('@nut-tree-fork/nut-js', () => ({
     Enter: 'Enter_Val',
     Tab: 'Tab_Val',
     Escape: 'Escape_Val',
-    Meta: 'Meta_Val',
+    LeftSuper: 'LeftSuper_Val',  // Meta/Command/Cmd alias
+    LeftControl: 'LeftControl_Val',
+    LeftAlt: 'LeftAlt_Val',
+    LeftShift: 'LeftShift_Val',
     C: 'C_Val',
     V: 'V_Val',
   },
@@ -96,11 +99,10 @@ describe('hotkey', () => {
     vi.clearAllMocks();
   });
 
-  it('presses keys together and releases in reverse order', async () => {
+  it('uses keyboard.type() for hotkey combinations', async () => {
     await hotkey(['Meta', 'C']);
-    expect(mockPressKey).toHaveBeenCalledWith('Meta_Val', 'C_Val');
-    // reverse order: C first, then Meta
-    expect(mockReleaseKey).toHaveBeenCalledWith('C_Val', 'Meta_Val');
+    // Meta is aliased to LeftSuper
+    expect(mockType).toHaveBeenCalledWith('LeftSuper_Val', 'C_Val');
   });
 
   it('throws DesktopError for unknown key in combination', async () => {

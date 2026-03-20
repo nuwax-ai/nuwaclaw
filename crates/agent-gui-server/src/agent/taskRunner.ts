@@ -119,6 +119,7 @@ export function createTaskRunner(
       const di: DisplayInfo = {
         origin: displayInfo.origin,
         bounds: { width: displayInfo.width, height: displayInfo.height },
+        scaleFactor: displayInfo.scaleFactor,
       };
       return resolveCoordinate(x, y, profile, meta, di);
     }
