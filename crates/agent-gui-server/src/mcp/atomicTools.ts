@@ -1,5 +1,5 @@
 /**
- * 13 atomic MCP tool handlers.
+ * 14 atomic MCP tool handlers.
  *
  * Each handler: validate input → safety check → coordinate resolve → desktop operation → audit → response
  */
@@ -14,6 +14,8 @@ import * as mouse from '../desktop/mouse.js';
 import * as keyboard from '../desktop/keyboard.js';
 import * as display from '../desktop/display.js';
 import { findImage, waitForImage } from '../desktop/imageSearch.js';
+import { analyzeScreen } from '../desktop/screenAnalyzer.js';
+import { createModel } from '../agent/taskRunner.js';
 import { logError } from '../utils/logger.js';
 import { SafetyError } from '../utils/errors.js';
 
@@ -166,6 +168,18 @@ const ATOMIC_TOOLS = [
         confidence: { type: 'number', description: 'Match confidence threshold (0-1, default 0.9)' },
       },
       required: ['template'],
+    },
+  },
+  {
+    name: 'gui_analyze_screen',
+    description: 'Capture screenshot and analyze with vision model. Returns text description of screen content, UI elements, text, buttons, etc.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        prompt: { type: 'string', description: 'Analysis instruction (e.g., "What buttons are visible?", "Find the search box location", "Is there an error dialog?")' },
+        displayIndex: { type: 'number', description: 'Display index (default: configured display)' },
+      },
+      required: ['prompt'],
     },
   },
 ];
@@ -361,6 +375,34 @@ async function handleAtomicTool(name: string, args: Record<string, unknown>, con
       const template = requireString('template', args.template);
       const result = await waitForImage(template, args.timeout as number, args.confidence as number);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+    }
+
+    case 'gui_analyze_screen': {
+      const prompt = requireString('prompt', args.prompt);
+      const displayIdx = typeof args.displayIndex === 'number' ? args.displayIndex : config.displayIndex;
+
+      // Create vision model
+      const model = createModel(config.provider, config.apiProtocol, config.model, config.baseUrl);
+      const apiKey = config.apiKey;
+
+      if (!apiKey) {
+        return {
+          content: [{ type: 'text', text: 'Error: API key not configured' }],
+          isError: true,
+        };
+      }
+
+      const result = await analyzeScreen(model, apiKey, prompt, displayIdx);
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            analysis: result.analysis,
+            imageWidth: result.imageWidth,
+            imageHeight: result.imageHeight,
+          }, null, 2),
+        }],
+      };
     }
 
     default:

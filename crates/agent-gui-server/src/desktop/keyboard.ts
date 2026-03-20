@@ -12,6 +12,34 @@ const NON_ASCII_RE = /[^\x00-\x7F]/;
 const MAX_TYPE_LENGTH = 50;
 
 /**
+ * Key name aliases mapping to nut.js Key enum names.
+ * LLMs may return various names like "Meta", "Command", "Cmd", "Win", "Super".
+ * nut.js uses: LeftSuper, RightSuper, LeftControl, RightControl, etc.
+ */
+const KEY_ALIASES: Record<string, string> = {
+  // macOS Command key aliases → Super
+  Meta: 'LeftSuper',
+  Command: 'LeftSuper',
+  Cmd: 'LeftSuper',
+  '⌘': 'LeftSuper',
+  // Windows/Linux Super/Win key aliases
+  Win: 'LeftSuper',
+  Super: 'LeftSuper',
+  // Control key aliases
+  Control: 'LeftControl',
+  Ctrl: 'LeftControl',
+  '⌃': 'LeftControl',
+  // Alt/Option key aliases
+  Alt: 'LeftAlt',
+  Option: 'LeftAlt',
+  Opt: 'LeftAlt',
+  '⌥': 'LeftAlt',
+  // Shift key aliases
+  Shift: 'LeftShift',
+  '⇧': 'LeftShift',
+};
+
+/**
  * Type text with smart routing:
  * - CJK/non-ASCII or long text → clipboard paste
  * - Short ASCII → direct nut.js typing
@@ -31,14 +59,27 @@ export async function typeText(text: string): Promise<void> {
 }
 
 /**
+ * Normalize key name using aliases mapping.
+ */
+function normalizeKeyName(key: string): string {
+  // First check aliases
+  if (KEY_ALIASES[key]) {
+    return KEY_ALIASES[key];
+  }
+  // Then return as-is (for F1-F24, ArrowUp, Escape, etc.)
+  return key;
+}
+
+/**
  * Press a single key by name.
  */
 export async function pressKey(key: string): Promise<void> {
   try {
     const { keyboard, Key } = await import('@nut-tree-fork/nut-js');
-    const keyObj = Key[key as keyof typeof Key];
+    const normalizedKey = normalizeKeyName(key);
+    const keyObj = Key[normalizedKey as keyof typeof Key];
     if (keyObj === undefined) {
-      throw new Error(`Unknown key: ${key}`);
+      throw new Error(`Unknown key: ${key} (normalized: ${normalizedKey})`);
     }
     await keyboard.pressKey(keyObj);
     await keyboard.releaseKey(keyObj);
@@ -54,9 +95,10 @@ export async function hotkey(keys: string[]): Promise<void> {
   try {
     const { keyboard, Key } = await import('@nut-tree-fork/nut-js');
     const keyObjs = keys.map(k => {
-      const keyObj = Key[k as keyof typeof Key];
+      const normalizedKey = normalizeKeyName(k);
+      const keyObj = Key[normalizedKey as keyof typeof Key];
       if (keyObj === undefined) {
-        throw new Error(`Unknown key: ${k}`);
+        throw new Error(`Unknown key: ${k} (normalized: ${normalizedKey})`);
       }
       return keyObj;
     });
