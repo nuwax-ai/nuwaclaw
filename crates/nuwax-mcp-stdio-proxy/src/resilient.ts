@@ -64,7 +64,7 @@ export interface ResilientTransportOptions {
 const DEFAULT_OPTIONS = {
   // Heartbeat interval for SSE/HTTP connections using ping()
   // Reduced to 20s to keep connection alive (servers may close idle connections after 60s)
-  pingIntervalMs: 20000,
+  pingIntervalMs: 30000,
   maxConsecutiveFailures: 3,
   pingTimeoutMs: 5000,
   reconnectDelayMs: 1000,
