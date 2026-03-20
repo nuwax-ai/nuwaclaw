@@ -268,11 +268,50 @@ describe("McpProxyManager", () => {
       // 参考: acpClient.ts 的 env = { ...getAppEnv(), ... } + Object.assign(env, config.env)
       const proxyEnv = mcpConfig?.["test-server"].env;
       expect(proxyEnv).toBeDefined();
-      // 每个服务有独立的日志文件
+      // 每个服务有独立的日志文件，无 projectId 时使用 "shared" 作为默认标识
+      // 日志路径格式: mcp-proxy/shared/{serverName}.log
       expect(proxyEnv?.MCP_PROXY_LOG_FILE).toBeDefined();
+      expect(proxyEnv?.MCP_PROXY_LOG_FILE).toContain("mcp-proxy/shared");
+      expect(proxyEnv?.MCP_PROXY_LOG_FILE).toContain("test-server.log");
+    });
+
+    it("传入 projectId 时日志文件名应包含项目标识", async () => {
+      const { mcpProxyManager } = await import("./mcp");
+
+      // 手动设置配置
+      mcpProxyManager.setConfig({
+        mcpServers: {
+          "fetch-server": {
+            command: "uvx",
+            args: ["mcp-server-fetch"],
+          },
+        },
+      });
+
+      await mcpProxyManager.start();
+
+      // 测试带 projectId 的调用
+      const mcpConfig = mcpProxyManager.getAgentMcpConfig("my-project-123");
+      expect(mcpConfig).toBeDefined();
+      expect(mcpConfig?.["fetch-server"]).toBeDefined();
+
+      const proxyEnv = mcpConfig?.["fetch-server"].env;
+      expect(proxyEnv?.MCP_PROXY_LOG_FILE).toBeDefined();
+      // 日志路径格式: mcp-proxy/{projectId}/{serverName}.log
       expect(proxyEnv?.MCP_PROXY_LOG_FILE).toContain(
-        "mcp-proxy-test-server.log",
+        "mcp-proxy/my-project-123",
       );
+      expect(proxyEnv?.MCP_PROXY_LOG_FILE).toContain("fetch-server.log");
+
+      // 测试 projectId 包含特殊字符时会被安全化
+      const mcpConfig2 = mcpProxyManager.getAgentMcpConfig(
+        "project/with:special@chars",
+      );
+      const proxyEnv2 = mcpConfig2?.["fetch-server"].env;
+      expect(proxyEnv2?.MCP_PROXY_LOG_FILE).toContain(
+        "mcp-proxy/project_with_special_chars",
+      );
+      expect(proxyEnv2?.MCP_PROXY_LOG_FILE).toContain("fetch-server.log");
     });
 
     it("默认配置只有 persistent server，bridge 未运行时应降级到 stdio 配置", async () => {
