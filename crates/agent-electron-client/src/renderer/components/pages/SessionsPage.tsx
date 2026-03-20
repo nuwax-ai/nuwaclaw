@@ -217,9 +217,9 @@ function SessionsPage({
 
   const getEngineTag = (engineType: DetailedSession["engineType"]) => {
     return engineType === "claude-code" ? (
-      <Tag color="blue">Claude Code</Tag>
+      <Tag color="blue">Agent 引擎01</Tag>
     ) : (
-      <Tag color="purple">NuwaxCode</Tag>
+      <Tag color="purple">Agent 引擎02</Tag>
     );
   };
 

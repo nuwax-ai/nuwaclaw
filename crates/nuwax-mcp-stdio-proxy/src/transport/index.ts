@@ -127,13 +127,15 @@ export async function connectStreamable(
         headers ? { requestInit: { headers } } : undefined,
       );
     },
+    // Use provided interval or default (15s)
     pingIntervalMs: entry.pingIntervalMs,
     pingTimeoutMs: entry.pingTimeoutMs,
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
 
-  // Set health check function using Client's listTools()
+  // Set health check function to use listTools() for keeping connection alive
+  // Each heartbeat is a new HTTP request but reuses session via mcp-session-id
   wrapper.setHealthCheckFn(async () => {
     try {
       await client.listTools();
@@ -200,13 +202,15 @@ export async function connectSse(
         headers ? { requestInit: { headers } } : undefined,
       );
     },
+    // Use provided interval or default (15s)
     pingIntervalMs: entry.pingIntervalMs,
     pingTimeoutMs: entry.pingTimeoutMs,
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
 
-  // Set health check using Client's listTools() method
+  // Set health check function to use listTools() for keeping connection alive
+  // Each heartbeat is a new HTTP request but reuses session via mcp-session-id
   wrapper.setHealthCheckFn(async () => {
     try {
       await client.listTools();

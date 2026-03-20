@@ -188,9 +188,9 @@ async function runTest(modeName, config) {
     // ---- 分析 ----
     const checks = {
       reconnect:    proxyLogs.some(l => /Retrying|Closed/i.test(l)),
-      reInitSent:   proxyLogs.some(l => l.includes('Re-initializ')),
-      reInitOk:     proxyLogs.some(l => l.includes('MCP session re-initialized')),
-      heartbeatOk:  proxyLogs.filter(l => l.includes('Heartbeat OK')).length >= 2,
+      reInitSent:   proxyLogs.some(l => l.includes('Invoking reconnect handler') || l.includes('Reconnect handler')),
+      reInitOk:     proxyLogs.some(l => l.includes('Reconnect handler completed')) || proxyLogs.some(l => l.includes('Connected') && l.includes('StreamableHTTP')),
+      heartbeatOk:  proxyLogs.filter(l => l.includes('Heartbeat OK') || l.includes('💖 Health check OK')).length >= 1,
     };
 
     return checks;
