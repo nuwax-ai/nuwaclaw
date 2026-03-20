@@ -62,8 +62,9 @@ export interface ResilientTransportOptions {
 }
 
 const DEFAULT_OPTIONS = {
-  // Heartbeat interval for SSE/HTTP connections using listTools()
-  pingIntervalMs: 30000,
+  // Heartbeat interval for SSE/HTTP connections using ping()
+  // Reduced to 20s to keep connection alive (servers may close idle connections after 60s)
+  pingIntervalMs: 20000,
   maxConsecutiveFailures: 3,
   pingTimeoutMs: 5000,
   reconnectDelayMs: 1000,
@@ -101,6 +102,7 @@ export class ResilientTransportWrapper implements Transport {
   private retryAttempt = 0;
 
   // Handlers required by the Transport interface
+  // These are set by SDK's Protocol.connect() and should be called when events occur
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
@@ -117,6 +119,9 @@ export class ResilientTransportWrapper implements Transport {
 
   // Queue for messages sent while reconnecting
   private messageQueue: JSONRPCMessage[] = [];
+
+  /** Flag to track if we've already logged an error during this reconnect cycle */
+  private hasLoggedError = false;
 
   constructor(options: ResilientTransportOptions) {
     this.log = options.logger ?? defaultLogger;
@@ -170,6 +175,8 @@ export class ResilientTransportWrapper implements Transport {
   async start(): Promise<void> {
     // Idempotent check: if already connected, connecting, or retrying, return early
     if (this.state === 'connected' || this.state === 'connecting' || this.state === 'reconnecting') {
+      // DEBUG: Log when start() is skipped due to idempotent check
+      // this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] ⏭️ start() skipped (state: ${this.state})`);
       return;
     }
     this.state = 'connecting';
@@ -200,6 +207,8 @@ export class ResilientTransportWrapper implements Transport {
       this.consecutiveFailures = 0;
       this.consecutivePingTimeouts = 0;
       this.heartbeatOkCount = 0;
+      // Reset error logging flag on successful connect
+      this.hasLoggedError = false;
 
       this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] ✅ Connected via ${this.activeTransport.constructor.name}`);
 
@@ -227,8 +236,8 @@ export class ResilientTransportWrapper implements Transport {
       // Reset retry count only after successful connect (and reconnect handler if applicable)
       this.retryAttempt = 0;
 
-      // Flush any queued messages
-      this.flushQueue();
+      // Flush any queued messages (await to ensure all queued requests are sent)
+      await this.flushQueue();
 
       // Only start heartbeat on reconnects — initial connections need
       // the caller to invoke enableHeartbeat() after client.connect()
@@ -262,27 +271,46 @@ export class ResilientTransportWrapper implements Transport {
 
   private bindInnerTransport(transport: Transport) {
     transport.onclose = () => {
-      // If the inner transport closes but we are not intentionally closed
       if (this.state !== 'closed') {
         this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Inner transport closed unexpectedly. Reconnecting...`);
-        this.triggerReconnect();
-      }
-    };
-
-    transport.onerror = (error: Error) => {
-      // If it throws ENOENT or similar before we even catch it, we might be here.
-      if (this.state !== 'closed') {
-        this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Inner transport error: ${error.message}`);
-        if (this.state === 'connecting') {
-          if (this.onerror) this.onerror(error);
-          return;
+        // Forward to SDK handler (protected to ensure reconnect always triggers)
+        if (this.onclose) {
+          try { this.onclose(); } catch { /* ignore */ }
         }
         this.triggerReconnect();
       }
     };
 
+    transport.onerror = (error: Error) => {
+      if (this.state !== 'closed') {
+        // Handle undefined error.message (e.g., SDK's SseError)
+        const errorMsg = error?.message ?? String(error);
+
+        // Log once per reconnect cycle to avoid spam from multiple SSE error events
+        if (!this.hasLoggedError || this.state === 'connecting') {
+          this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Inner transport error: ${errorMsg}`);
+          if (this.state !== 'connecting') {
+            this.hasLoggedError = true;
+          }
+        }
+
+        // Forward to SDK handler (protected to ensure reconnect logic continues)
+        if (this.onerror) {
+          try { this.onerror(error); } catch { /* ignore */ }
+        }
+
+        if (this.state === 'connecting') {
+          return; // Let performConnect handle initial connection errors
+        }
+
+        if (this.state !== 'reconnecting') {
+          this.triggerReconnect();
+        }
+      }
+    };
+
     transport.onmessage = (message: JSONRPCMessage) => {
-      // Pure pass-through - no message interception
+      // Forward to SDK handler
       if (this.onmessage) {
         this.onmessage(message);
       }
@@ -359,10 +387,7 @@ export class ResilientTransportWrapper implements Transport {
 
       // Health check passed — server is alive
       this.heartbeatOkCount++;
-      // Only log every 5th success to reduce log volume
-      if (this.heartbeatOkCount % 5 === 1 || this.consecutiveFailures > 0 || this.consecutivePingTimeouts > 0) {
-        this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 💖 Health check OK (count: ${this.heartbeatOkCount})`);
-      }
+      this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 💖 Health check OK (count: ${this.heartbeatOkCount})`);
       this.consecutiveFailures = 0;
       this.consecutivePingTimeouts = 0;
     } catch (err) {
