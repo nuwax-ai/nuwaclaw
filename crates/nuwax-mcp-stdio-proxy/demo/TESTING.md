@@ -12,7 +12,7 @@
 
 | 项目 | 值 |
 |------|-----|
-| nuwax-mcp-stdio-proxy | v1.4.10 |
+| nuwax-mcp-stdio-proxy | v1.4.11 |
 | @modelcontextprotocol/sdk | v1.27.1 |
 | Node.js | v22.14.0 |
 | 平台 | macOS (Darwin 25.3.0) |
@@ -78,15 +78,15 @@ node demo/test-reconnect.mjs sse
     [SERVER] 🚀 Streamable HTTP MCP Server listening on http://127.0.0.1:18080/mcp
     [15:57:32.206] PROXY   ✅ Connected via StreamableHTTPClientTransport
     [15:57:34.137] RESP    initialize OK -> protocol 2024-11-05
-    [15:57:35.232] PROXY   💖 Heartbeat OK (count: 1)
+    [15:57:35.232] PROXY   💖 Health check OK (count: 1)
     [15:57:35.639] RESP    tools/list -> 2 tools: [echo, time]
     [15:57:41.641] STEP 6  SIGKILL 杀掉 server
     [15:57:41.646] PROXY   🔄 Closed. Retrying in 1000ms (attempt 1)...
-    [15:57:42.647] PROXY   🔄 Re-initializing MCP session...
-    [15:57:42.647] PROXY   ❌ Re-initialize failed: TypeError: fetch failed
+    [15:57:42.647] PROXY   🔄 Invoking reconnect handler...
+    [15:57:42.647] PROXY   ❌ Reconnect handler failed: TypeError: fetch failed
     [15:57:49.642] STEP 8  重启 server
-    [15:57:50.668] PROXY   ✅ MCP session re-initialized
-    [15:57:55.664] PROXY   💖 Heartbeat OK (count: 1)
+    [15:57:50.668] PROXY   ✅ Reconnect handler completed
+    [15:57:55.664] PROXY   💖 Health check OK (count: 1)
     [15:58:03.148] RESP    tools/list -> 2 tools: [echo, time]
 
   ────────────────────────────────────────────────────────
@@ -158,10 +158,12 @@ heartbeat → 💖 OK → 正常服务
 
 ```bash
 cd crates/nuwax-mcp-stdio-proxy
-npx vitest run tests/resilient.test.ts
+npx vitest run tests/resilient.test.ts tests/resilient-integration.test.ts
 ```
 
-12/12 测试通过，覆盖场景：
+18/18 测试通过，覆盖场景：
+
+### 基础单元测试 (resilient.test.ts)
 
 | # | 测试场景 |
 |---|----------|
@@ -173,10 +175,25 @@ npx vitest run tests/resilient.test.ts
 | 6 | 队列溢出处理 |
 | 7 | 关闭后发送抛异常 |
 | 8 | 初始连接失败重试 |
-| 9 | **重连后 initialize 重放（新增）** |
-| 10 | **re-initialize 超时退避重试（新增）** |
-| 11 | **无 initialize 时跳过重放（新增）** |
-| 12 | **re-initialize send 异常退避重试（新增）** |
+| 9 | 重连后 initialize 重放 |
+| 10 | re-initialize 超时退避重试 |
+| 11 | 无 initialize 时跳过重放 |
+| 12 | re-initialize send 异常退避重试 |
+| 13 | **并发健康检查防护 (v1.4.11)** |
+| 14 | **响应驱动调度 (v1.4.11)** |
+| 15 | **状态变化时不调度下次检查 (v1.4.11)** |
+| 16 | **finally 块中仅在 connected 状态调度 (v1.4.11)** |
+
+### 集成测试 (resilient-integration.test.ts)
+
+| # | 测试场景 |
+|---|----------|
+| 1 | **慢网络下的并发保护 (v1.4.11)** |
+| 2 | **快速定时器触发不堆积 (v1.4.11)** |
+| 3 | **当前检查完成后才调度下次 (v1.4.11)** |
+| 4 | **健康检查期间状态变化处理 (v1.4.11)** |
+| 5 | **服务器重启场景 (v1.4.11)** |
+| 6 | **可变检查时长下的心跳节奏 (v1.4.11)** |
 
 ---
 
@@ -189,4 +206,4 @@ npx vitest run tests/resilient.test.ts
 
 ---
 
-*测试日期: 2026-03-09*
+*测试日期: 2026-03-20*

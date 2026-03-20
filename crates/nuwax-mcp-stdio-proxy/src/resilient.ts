@@ -62,7 +62,9 @@ export interface ResilientTransportOptions {
 }
 
 const DEFAULT_OPTIONS = {
-  pingIntervalMs: 20000,
+  // Increased from 20s to 30s to reduce unnecessary health checks
+  // SSE/HTTP connections are self-monitoring via onclose/onerror
+  pingIntervalMs: 30000,
   maxConsecutiveFailures: 3,
   pingTimeoutMs: 5000,
   reconnectDelayMs: 1000,
@@ -85,10 +87,14 @@ export class ResilientTransportWrapper implements Transport {
   private activeTransport: Transport | null = null;
   private healthCheckFn?: () => Promise<boolean>;
 
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  // Note: Using setTimeout for response-driven heartbeat (not setInterval)
+  private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
   private consecutiveFailures = 0;
   private consecutivePingTimeouts = 0;
   private heartbeatOkCount = 0;
+
+  /** Guard to prevent concurrent health check executions */
+  private healthCheckInProgress = false;
 
   private state: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'closed' = 'idle';
 
@@ -288,32 +294,56 @@ export class ResilientTransportWrapper implements Transport {
     this.stopHeartbeat();
     if (this.options.pingIntervalMs <= 0) return;
 
-    this.heartbeatTimer = setInterval(() => {
-      this.checkHealth();
-    }, this.options.pingIntervalMs);
+    // Use response-driven scheduling: schedule next check AFTER current one completes.
+    // This prevents request piling when network is slow.
+    this.scheduleNextHealthCheck();
   }
 
   private stopHeartbeat() {
     if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
+      clearTimeout(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
   }
 
+  /**
+   * Schedule the next health check after pingIntervalMs.
+   * Called after each health check completes (response-driven heartbeat).
+   */
+  private scheduleNextHealthCheck() {
+    if (this.state !== 'connected' || this.options.pingIntervalMs <= 0) return;
+    // Clear any existing timer before scheduling new one
+    if (this.heartbeatTimer) {
+      clearTimeout(this.heartbeatTimer);
+    }
+    this.heartbeatTimer = setTimeout(() => {
+      this.checkHealth();
+    }, this.options.pingIntervalMs);
+  }
+
   private async checkHealth() {
+    // Prevent concurrent health check executions
+    if (this.healthCheckInProgress) {
+      this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] ⚠️ Health check already in progress, skipping`);
+      // Don't schedule here - let the in-progress check's finally block handle scheduling
+      return;
+    }
     if (this.state !== 'connected' || !this.activeTransport) return;
 
+    this.healthCheckInProgress = true;
     try {
       let isHealthy: boolean;
 
       if (this.healthCheckFn) {
-        // Use caller-provided health check function
+        // Use caller-provided health check function with timeout
         isHealthy = await Promise.race([
           this.healthCheckFn(),
           this.createTimeoutPromise(this.options.pingTimeoutMs, false),
         ]);
       } else {
-        // No health check function - just verify transport is still alive
+        // No health check function - use lightweight transport liveness check
+        // For SSE/HTTP transports, onclose/onerror handlers already monitor connection health
+        // This avoids creating new connections for each health check
         isHealthy = this.activeTransport !== null && this.state === 'connected';
       }
 
@@ -323,13 +353,14 @@ export class ResilientTransportWrapper implements Transport {
         if (this.consecutivePingTimeouts >= this.options.maxConsecutiveFailures) {
           this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] Max consecutive health check failures reached. Reconnecting...`);
           this.triggerReconnect();
+          return; // Don't schedule next check when reconnecting
         }
         return;
       }
 
       // Health check passed — server is alive
       this.heartbeatOkCount++;
-      // Only log every 5th success to reduce log volume (~100s interval)
+      // Only log every 5th success to reduce log volume
       if (this.heartbeatOkCount % 5 === 1 || this.consecutiveFailures > 0 || this.consecutivePingTimeouts > 0) {
         this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 💖 Health check OK (count: ${this.heartbeatOkCount})`);
       }
@@ -341,6 +372,13 @@ export class ResilientTransportWrapper implements Transport {
       if (this.consecutiveFailures >= this.options.maxConsecutiveFailures) {
         this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] Max consecutive health check errors reached. Reconnecting...`);
         this.triggerReconnect();
+        return; // Don't schedule next check when reconnecting
+      }
+    } finally {
+      this.healthCheckInProgress = false;
+      // Only schedule next check if still connected (not reconnecting/closing)
+      if (this.state === 'connected') {
+        this.scheduleNextHealthCheck();
       }
     }
   }

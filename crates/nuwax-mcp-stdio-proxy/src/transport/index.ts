@@ -127,21 +127,19 @@ export async function connectStreamable(
         headers ? { requestInit: { headers } } : undefined,
       );
     },
+    // Use provided interval or default (30s). SSE/HTTP transports monitor
+    // connection health via onclose/onerror, so we don't need listTools() checks.
     pingIntervalMs: entry.pingIntervalMs,
     pingTimeoutMs: entry.pingTimeoutMs,
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
 
-  // Set health check function using Client's listTools()
-  wrapper.setHealthCheckFn(async () => {
-    try {
-      await client.listTools();
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  // NOTE: We intentionally do NOT set a healthCheckFn here.
+  // SSE/HTTP transports already monitor connection health via onclose/onerror
+  // callbacks bound in ResilientTransportWrapper.bindInnerTransport().
+  // Using client.listTools() for health checks would create new HTTP
+  // connections on each check, causing unnecessary load and potential issues.
 
   // Set reconnect handler to re-establish MCP session via client.connect()
   // Note: Must close the client first to clear the "already connected" state
@@ -200,21 +198,19 @@ export async function connectSse(
         headers ? { requestInit: { headers } } : undefined,
       );
     },
+    // Use provided interval or default (30s). SSE transports monitor
+    // connection health via onclose/onerror, so we don't need listTools() checks.
     pingIntervalMs: entry.pingIntervalMs,
     pingTimeoutMs: entry.pingTimeoutMs,
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
 
-  // Set health check using Client's listTools() method
-  wrapper.setHealthCheckFn(async () => {
-    try {
-      await client.listTools();
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  // NOTE: We intentionally do NOT set a healthCheckFn here.
+  // SSE transports already monitor connection health via onclose/onerror
+  // callbacks bound in ResilientTransportWrapper.bindInnerTransport().
+  // Using client.listTools() for health checks would create new HTTP
+  // connections on each check, causing unnecessary load and potential issues.
 
   // Set reconnect handler to re-establish MCP session via client.connect()
   // Note: Must close the client first to clear the "already connected" state
