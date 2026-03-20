@@ -62,8 +62,7 @@ export interface ResilientTransportOptions {
 }
 
 const DEFAULT_OPTIONS = {
-  // Increased from 20s to 30s to reduce unnecessary health checks
-  // SSE/HTTP connections are self-monitoring via onclose/onerror
+  // Heartbeat interval for SSE/HTTP connections using listTools()
   pingIntervalMs: 30000,
   maxConsecutiveFailures: 3,
   pingTimeoutMs: 5000,

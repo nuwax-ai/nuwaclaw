@@ -127,19 +127,23 @@ export async function connectStreamable(
         headers ? { requestInit: { headers } } : undefined,
       );
     },
-    // Use provided interval or default (30s). SSE/HTTP transports monitor
-    // connection health via onclose/onerror, so we don't need listTools() checks.
+    // Use provided interval or default (15s)
     pingIntervalMs: entry.pingIntervalMs,
     pingTimeoutMs: entry.pingTimeoutMs,
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
 
-  // NOTE: We intentionally do NOT set a healthCheckFn here.
-  // SSE/HTTP transports already monitor connection health via onclose/onerror
-  // callbacks bound in ResilientTransportWrapper.bindInnerTransport().
-  // Using client.listTools() for health checks would create new HTTP
-  // connections on each check, causing unnecessary load and potential issues.
+  // Set health check function to use listTools() for keeping connection alive
+  // Each heartbeat is a new HTTP request but reuses session via mcp-session-id
+  wrapper.setHealthCheckFn(async () => {
+    try {
+      await client.listTools();
+      return true;
+    } catch {
+      return false;
+    }
+  });
 
   // Set reconnect handler to re-establish MCP session via client.connect()
   // Note: Must close the client first to clear the "already connected" state
@@ -198,19 +202,23 @@ export async function connectSse(
         headers ? { requestInit: { headers } } : undefined,
       );
     },
-    // Use provided interval or default (30s). SSE transports monitor
-    // connection health via onclose/onerror, so we don't need listTools() checks.
+    // Use provided interval or default (15s)
     pingIntervalMs: entry.pingIntervalMs,
     pingTimeoutMs: entry.pingTimeoutMs,
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
 
-  // NOTE: We intentionally do NOT set a healthCheckFn here.
-  // SSE transports already monitor connection health via onclose/onerror
-  // callbacks bound in ResilientTransportWrapper.bindInnerTransport().
-  // Using client.listTools() for health checks would create new HTTP
-  // connections on each check, causing unnecessary load and potential issues.
+  // Set health check function to use listTools() for keeping connection alive
+  // Each heartbeat is a new HTTP request but reuses session via mcp-session-id
+  wrapper.setHealthCheckFn(async () => {
+    try {
+      await client.listTools();
+      return true;
+    } catch {
+      return false;
+    }
+  });
 
   // Set reconnect handler to re-establish MCP session via client.connect()
   // Note: Must close the client first to clear the "already connected" state
