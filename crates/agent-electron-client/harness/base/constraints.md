@@ -1,6 +1,6 @@
 # 沙箱安全约束
 
-> 版本: 2.0.0  
+> 版本: 2.1.0  
 > 更新: 2026-03-22  
 > 状态: 建设中
 
@@ -10,6 +10,9 @@
 
 **默认拒绝 (Default Deny)**  
 不在白名单中的路径、命令一律禁止。
+
+**沙箱内信任**  
+在沙箱内的操作完全信任（隔离环境）。
 
 ---
 
@@ -60,9 +63,6 @@ pwd, whoami, uname, date, env, which, whereis
 
 ### 需要确认 ⚠️
 ```
-# 文件操作
-rm, rmdir, unlink, mv, cp, touch, mkdir, chmod, chown
-
 # 包安装
 npm install, pnpm add, pip install, pip3 install, cargo install
 
@@ -71,34 +71,27 @@ curl, wget, fetch, git clone
 
 # 构建
 npm run, pnpm build, cargo build, make, cmake
-
-# Git 写入
-git add, git commit, git push, git checkout
 ```
 
-### 绝对禁止 ❌
+### 绝对禁止 ❌（沙箱内也禁止）
 ```
-# 递归删除
-rm -rf /
-rm -rf /*
-rm -rf ..
-
-# 危险命令
-dd if=, mkfs, fdisk, losetup
-:(){ :|:& };:  # Fork bomb
-
 # 权限提升
 sudo, su, chmod 777, chmod -R 777
 
-# 系统修改
-apt-get install, yum install, dnf install
-brew install --without, pacman -S, snap install
+# 系统包管理
+apt-get install, yum install, dnf install, brew install, pacman -S, snap install
 
 # 网络扫描
-nmap, masscan, netcat -l, nc -l
+nmap, masscan, netcat, nc -l
+```
 
-# 敏感操作
-chmod u+s, setfacl, mount, umount
+### 沙箱内完全允许 ✅
+```
+# 所有文件操作（包括 rm -rf）
+rm, rm -rf, rmdir, mv, cp, touch, mkdir
+
+# Git 所有操作
+git add, git commit, git push, git checkout
 ```
 
 ---
@@ -110,7 +103,7 @@ chmod u+s, setfacl, mount, umount
 | 0 | **只读** | 只能读取白名单路径 |
 | 1 | **受限写入** | 可以在工作区创建/修改文件 |
 | 2 | **标准执行** | 可以执行编译、测试等命令 |
-| 3 | **完全访问** | 可以安装包、创建目录 |
+| 3 | **完全访问** | 沙箱内无限制 |
 
 ---
 
@@ -208,5 +201,6 @@ interface SandboxConfig {
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-03-22 | 2.1.0 | 沙箱内 rm -rf 允许 |
 | 2026-03-22 | 2.0.0 | 全面重构，增加路径白名单、命令分类 |
 | 2026-03-22 | 1.0.0 | 初始版本 |

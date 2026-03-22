@@ -101,16 +101,10 @@ export const DEFAULT_PERMISSION_POLICY: PermissionPolicy = {
 
 /**
  * 危险命令黑名单
+ * 注意：在沙箱内 rm -rf 是允许的，因为沙箱是隔离的
  */
 const DANGEROUS_COMMANDS = [
-  // 系统破坏
-  "rm -rf /",
-  "rm -rf /*",
-  "mkfs",
-  "dd if=",
-  ":(){ :|:& };:",
-
-  // 权限提升
+  // 权限提升（沙箱内也不允许）
   "sudo",
   "su",
   "chmod 777",
@@ -130,12 +124,6 @@ const DANGEROUS_COMMANDS = [
   "netcat",
   "nmap",
   "masscan",
-
-  // 敏感目录访问
-  "~/.ssh",
-  "/etc/passwd",
-  "/etc/shadow",
-  "/root",
 ];
 
 /**
