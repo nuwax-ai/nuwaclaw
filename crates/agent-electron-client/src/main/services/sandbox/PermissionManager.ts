@@ -12,7 +12,8 @@
  */
 
 import { EventEmitter } from "events";
-import { v4 as uuidv4 } from "uuid";
+const uuidv4 = () =>
+  Math.random().toString(36).substring(2) + Date.now().toString(36);
 import log from "electron-log";
 import type {
   PermissionType,
@@ -173,7 +174,7 @@ export class PermissionManager extends EventEmitter {
       log.warn("[PermissionManager] 检测到危险操作:", target);
       return {
         allowed: false,
-        reason: dangerCheck.reason,
+        reason: dangerCheck.reason || "Unknown",
       };
     }
 

@@ -217,7 +217,10 @@ export class WorkspaceManager extends EventEmitter {
    * @param sessionId 会话 ID
    * @param force 是否强制销毁
    */
-  async destroy(sessionId: string, force: boolean = false): Promise<void> {
+  async destroyWorkspace(
+    sessionId: string,
+    force: boolean = false,
+  ): Promise<void> {
     log.info("[WorkspaceManager] 销毁工作区:", sessionId, "force:", force);
 
     try {
@@ -526,7 +529,7 @@ export class WorkspaceManager extends EventEmitter {
 
       if (shouldCleanup) {
         try {
-          await this.destroy(workspace.sessionId);
+          await this.destroyWorkspace(workspace.sessionId);
           result.deletedCount++;
         } catch (error) {
           result.errors.push(`清理工作区失败 ${workspace.sessionId}: ${error}`);
@@ -550,7 +553,7 @@ export class WorkspaceManager extends EventEmitter {
 
     for (const workspace of workspaces) {
       try {
-        await this.destroy(workspace.sessionId, true);
+        await this.destroyWorkspace(workspace.sessionId, true);
       } catch (error) {
         log.error(
           "[WorkspaceManager] 清理工作区失败:",

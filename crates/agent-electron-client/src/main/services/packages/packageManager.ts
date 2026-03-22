@@ -36,7 +36,6 @@ export function ensureAppDirs(): AppPaths {
   for (const [key, dir] of Object.entries(dirs)) {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
-      console.log(`[Paths] Created ${key}: ${dir}`);
     }
   }
 
@@ -87,8 +86,6 @@ export async function installPackage(
   }
 
   return new Promise((resolve) => {
-    console.log(`[Install] Installing ${packageName} in ${cwd}`);
-
     const proc = spawn(npmCmd, args, {
       cwd,
       env: {
@@ -117,7 +114,6 @@ export async function installPackage(
 
     proc.on("close", (code) => {
       if (code === 0) {
-        console.log(`[Install] Success: ${packageName}`);
         resolve({ success: true });
       } else {
         console.error(`[Install] Failed: ${stderr}`);
@@ -141,8 +137,6 @@ export async function uninstallPackage(
   const args = ["uninstall", packageName];
 
   return new Promise((resolve) => {
-    console.log(`[Uninstall] Uninstalling ${packageName} from ${cwd}`);
-
     const proc = spawn(npmCmd, args, {
       cwd,
       env: { ...process.env, ...getAppEnv() },
