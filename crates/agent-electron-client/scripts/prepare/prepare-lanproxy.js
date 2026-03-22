@@ -46,7 +46,8 @@ function getFallbackPath(key) {
 }
 
 function getPlatformKey() {
-  return `${process.platform}-${process.arch}`;
+  const a = process.env.TARGET_ARCH || process.arch;
+  return `${process.platform}-${a}`;
 }
 
 function main() {
@@ -85,13 +86,30 @@ function main() {
     return;
   }
 
-  // 如果目标已存在且大小一致，跳过
+  // 如果目标已存在且大小一致，检查架构匹配
+  const platformKeyFile = path.join(destBinDir, '.platform-key');
   if (fs.existsSync(destPath)) {
-    const srcStat = fs.statSync(srcPath);
-    const destStat = fs.statSync(destPath);
-    if (srcStat.size === destStat.size) {
-      console.log(`[prepare-lanproxy] ${key} → ${destName} (已是最新，跳过)`);
-      return;
+    if (fs.existsSync(platformKeyFile)) {
+      const existingKey = fs.readFileSync(platformKeyFile, 'utf-8').trim();
+      if (existingKey !== key) {
+        console.log(`[prepare-lanproxy] 架构不匹配: 已有 ${existingKey}, 需要 ${key}, 清理并重新复制`);
+        fs.rmSync(destBinDir, { recursive: true, force: true });
+      } else {
+        const srcStat = fs.statSync(srcPath);
+        const destStat = fs.statSync(destPath);
+        if (srcStat.size === destStat.size) {
+          console.log(`[prepare-lanproxy] ${key} → ${destName} (已是最新，跳过)`);
+          return;
+        }
+      }
+    } else {
+      // No .platform-key — legacy check by size only
+      const srcStat = fs.statSync(srcPath);
+      const destStat = fs.statSync(destPath);
+      if (srcStat.size === destStat.size) {
+        console.log(`[prepare-lanproxy] ${key} → ${destName} (已是最新，跳过)`);
+        return;
+      }
     }
   }
 
@@ -101,7 +119,9 @@ function main() {
   fs.mkdirSync(destBinDir, { recursive: true });
   fs.copyFileSync(srcPath, destPath);
   fs.chmodSync(destPath, 0o755);
+  fs.writeFileSync(platformKeyFile, key, 'utf-8');
   console.log(`[prepare-lanproxy] ✓ ${destPath} (${(fs.statSync(destPath).size / 1024 / 1024).toFixed(1)} MB)`);
+  console.log(`[prepare-lanproxy] 已写入 .platform-key: ${key}`);
 }
 
 main();

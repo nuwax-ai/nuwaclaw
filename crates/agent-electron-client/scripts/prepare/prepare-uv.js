@@ -26,7 +26,7 @@ const cacheDir = path.join(uvRoot, '.cache');
 // Node 与 Electron 一致：darwin | win32 | linux；x64 | arm64
 function getPlatformKey() {
   const p = process.platform;
-  const a = process.arch === 'x64' ? 'x64' : process.arch;
+  const a = process.env.TARGET_ARCH || process.arch;
   return `${p}-${a}`;
 }
 
@@ -167,6 +167,7 @@ function moveExtractedToKey(extractDir, key) {
   const uvExe = path.join(targetRoot, 'uv.exe');
   const uvBin = path.join(targetRoot, 'uv');
   const uvxExe = path.join(targetRoot, 'uvx.exe');
+  const uvxBin = path.join(targetRoot, 'uvx');
   const uvwExe = path.join(targetRoot, 'uvw.exe');
   // 确保 bin 目录存在
   if (!fs.existsSync(binDir)) {
@@ -176,6 +177,7 @@ function moveExtractedToKey(extractDir, key) {
   if (fs.existsSync(uvExe)) fs.renameSync(uvExe, path.join(binDir, 'uv.exe'));
   if (fs.existsSync(uvBin)) fs.renameSync(uvBin, path.join(binDir, 'uv'));
   if (fs.existsSync(uvxExe)) fs.renameSync(uvxExe, path.join(binDir, 'uvx.exe'));
+  if (fs.existsSync(uvxBin)) fs.renameSync(uvxBin, path.join(binDir, 'uvx'));
   if (fs.existsSync(uvwExe)) fs.renameSync(uvwExe, path.join(binDir, 'uvw.exe'));
 }
 
@@ -207,18 +209,30 @@ async function main() {
   const uvName = process.platform === 'win32' ? 'uv.exe' : 'uv';
   const destUv = path.join(destBin, uvName);
 
+  const platformKeyFile = path.join(destBin, '.platform-key');
+
   console.log(`[prepare-uv] 平台: ${key}, 源码目录: ${srcDir}, 目标目录: ${destBin}`);
 
-  // 检查 bin 目录和 uv 文件是否存在，只有完整才跳过
+  // 检查 .platform-key 是否匹配，不匹配则清理并重新下载
   if (fs.existsSync(destUv)) {
-    console.log(`[prepare-uv] uv 已存在: ${destUv}, 跳过下载`);
-    return;
+    if (fs.existsSync(platformKeyFile)) {
+      const existingKey = fs.readFileSync(platformKeyFile, 'utf-8').trim();
+      if (existingKey === key) {
+        console.log(`[prepare-uv] uv 已存在且架构匹配 (${key}), 跳过下载`);
+        return;
+      }
+      console.log(`[prepare-uv] 架构不匹配: 已有 ${existingKey}, 需要 ${key}, 清理并重新下载`);
+    } else {
+      console.log(`[prepare-uv] uv 已存在但缺少 .platform-key, 无法确认架构, 清理并重新下载`);
+    }
+    fs.rmSync(destBin, { recursive: true, force: true });
   }
 
   // 如果源码目录存在但 bin 不完整，尝试复制
   if (fs.existsSync(srcDir) && copyToDestBin(key)) {
     if (fs.existsSync(destUv)) {
-      console.log(`[prepare-uv] 使用已有 uv (${key}), 已复制到 bin/`);
+      fs.writeFileSync(platformKeyFile, key, 'utf-8');
+      console.log(`[prepare-uv] 使用已有 uv (${key}), 已复制到 bin/ 并写入 .platform-key`);
       return;
     }
   }
@@ -233,6 +247,11 @@ async function main() {
   console.log(`[prepare-uv] 使用 uv 版本: ${version}`);
   try {
     await downloadAndPrepare(key, suffix, version);
+    // Write .platform-key marker after successful download
+    if (fs.existsSync(destBin)) {
+      fs.writeFileSync(platformKeyFile, key, 'utf-8');
+      console.log(`[prepare-uv] 已写入 .platform-key: ${key}`);
+    }
   } catch (err) {
     console.error('[prepare-uv] 下载或解压失败:', err.message);
     process.exit(1);

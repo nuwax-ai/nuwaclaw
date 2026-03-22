@@ -2,7 +2,7 @@
  * Unit tests: processTree (process tree kill utility)
  *
  * Covers:
- * 1. killProcessTree on Unix — group kill, fallback, ESRCH
+ * 1. killProcessTree on Unix — group kill, descendant fallback, ESRCH
  * 2. killProcessTree on Windows — taskkill args, exit code 128, other errors
  * 3. killProcessTreeGraceful — SIGTERM-only, SIGKILL escalation
  */
@@ -26,6 +26,29 @@ const mockLog = {
 
 vi.mock("electron-log", () => ({ default: mockLog }));
 
+// ── Helpers ──────────────────────────────────────────────────
+
+/**
+ * Set up mockExecFile to handle pgrep calls (return no children by default).
+ * Can be overridden by setting up a custom implementation before the test.
+ */
+function mockPgrepNoChildren() {
+  mockExecFile.mockImplementation(
+    (
+      cmd: string,
+      _args: string[],
+      cb: (err: Error | null, stdout?: string) => void,
+    ) => {
+      if (cmd === "pgrep") {
+        // No children found
+        cb(new Error("no match"), "");
+        return;
+      }
+      cb(null);
+    },
+  );
+}
+
 // ── Tests ──────────────────────────────────────────────────
 
 describe("processTree", () => {
@@ -39,6 +62,7 @@ describe("processTree", () => {
       // Default: process.kill succeeds (no-op)
       () => true,
     );
+    mockPgrepNoChildren();
   });
 
   afterEach(() => {
@@ -68,7 +92,7 @@ describe("processTree", () => {
       expect(processKillSpy).toHaveBeenCalledWith(-1234, "SIGTERM");
     });
 
-    it("should fall back to direct kill when group kill fails with non-ESRCH error", async () => {
+    it("should fall back to descendant kill when group kill fails with non-ESRCH error", async () => {
       setPlatform("darwin");
 
       const epermError = Object.assign(new Error("EPERM"), { code: "EPERM" });
@@ -82,27 +106,69 @@ describe("processTree", () => {
       const { killProcessTree } = await import("./processTree");
       await killProcessTree(1234, "SIGTERM");
 
-      // First call: group kill (-1234)
+      // First call: group kill (-1234) — fails with EPERM
       expect(processKillSpy).toHaveBeenCalledWith(-1234, "SIGTERM");
-      // Second call: direct kill (1234)
+      // Falls back to descendant kill: pgrep returns no children, so kills root directly
       expect(processKillSpy).toHaveBeenCalledWith(1234, "SIGTERM");
     });
 
-    it("should resolve when process already exited (ESRCH on group kill)", async () => {
+    it("should fall back to descendant kill on ESRCH (group doesn't exist but process may be alive)", async () => {
       setPlatform("darwin");
 
       const esrchError = Object.assign(new Error("ESRCH"), { code: "ESRCH" });
-      processKillSpy.mockImplementation(() => {
-        throw esrchError;
-      });
+      processKillSpy.mockImplementation(
+        (pid: number, _signal?: string | number) => {
+          if (pid < 0) throw esrchError; // group doesn't exist
+          return true; // direct kill succeeds
+        },
+      );
 
       const { killProcessTree } = await import("./processTree");
-      // Should resolve without error
-      await expect(killProcessTree(1234, "SIGTERM")).resolves.toBeUndefined();
+      await killProcessTree(1234, "SIGTERM");
 
-      // Only the group kill should be attempted, not the direct kill
-      expect(processKillSpy).toHaveBeenCalledTimes(1);
+      // Group kill attempted first
       expect(processKillSpy).toHaveBeenCalledWith(-1234, "SIGTERM");
+      // Falls back to descendant kill: kills root process directly
+      expect(processKillSpy).toHaveBeenCalledWith(1234, "SIGTERM");
+    });
+
+    it("should kill descendants found by pgrep", async () => {
+      setPlatform("darwin");
+
+      const esrchError = Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+      processKillSpy.mockImplementation(
+        (pid: number, _signal?: string | number) => {
+          if (pid < 0) throw esrchError; // group doesn't exist
+          return true;
+        },
+      );
+
+      // pgrep returns children for pid 1234, no grandchildren
+      mockExecFile.mockImplementation(
+        (
+          cmd: string,
+          args: string[],
+          cb: (err: Error | null, stdout?: string) => void,
+        ) => {
+          if (cmd === "pgrep" && args[1] === "1234") {
+            cb(null, "5555\n6666\n");
+            return;
+          }
+          if (cmd === "pgrep") {
+            cb(new Error("no match"), "");
+            return;
+          }
+          cb(null);
+        },
+      );
+
+      const { killProcessTree } = await import("./processTree");
+      await killProcessTree(1234, "SIGTERM");
+
+      // Should kill children (bottom-up: reversed) then root
+      expect(processKillSpy).toHaveBeenCalledWith(6666, "SIGTERM");
+      expect(processKillSpy).toHaveBeenCalledWith(5555, "SIGTERM");
+      expect(processKillSpy).toHaveBeenCalledWith(1234, "SIGTERM");
     });
 
     it("should use SIGTERM as default signal", async () => {

@@ -423,4 +423,177 @@ describe('ResilientTransportWrapper', () => {
 
     await wrapper.close();
   });
+
+  it('should prevent concurrent health check executions', async () => {
+    let healthCheckCalls = 0;
+    let healthCheckResolve: () => void;
+    let healthCheckPromise: Promise<boolean>;
+
+    const wrapper = createWrapper({
+      pingIntervalMs: 1000,
+      pingTimeoutMs: 5000, // Long timeout to test concurrency
+      maxConsecutiveFailures: 3,
+      healthCheckFn: async () => {
+        healthCheckCalls++;
+        // Return a promise that doesn't resolve immediately
+        healthCheckPromise = new Promise((resolve) => {
+          healthCheckResolve = () => resolve(true);
+        });
+        return healthCheckPromise;
+      }
+    });
+
+    await wrapper.start();
+    wrapper.enableHeartbeat();
+
+    // Trigger first heartbeat - this will start but not complete
+    await vi.advanceTimersByTimeAsync(1001);
+
+    // healthCheckFn should have been called once and is now pending
+    expect(healthCheckCalls).toBe(1);
+
+    // Trigger more timers while health check is in progress
+    // These should be skipped due to healthCheckInProgress guard
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    // Still only 1 call because the first one hasn't resolved yet
+    expect(healthCheckCalls).toBe(1);
+
+    // Now resolve the health check
+    healthCheckResolve!();
+    await vi.advanceTimersByTimeAsync(10);
+
+    // Now the next heartbeat can run
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(healthCheckCalls).toBe(2);
+
+    await wrapper.close();
+  });
+
+  it('should use response-driven scheduling (setTimeout not setInterval)', async () => {
+    let healthCheckCalls = 0;
+    const healthCheckTimes: number[] = [];
+
+    const wrapper = createWrapper({
+      pingIntervalMs: 1000,
+      healthCheckFn: async () => {
+        healthCheckCalls++;
+        healthCheckTimes.push(Date.now());
+        return true;
+      }
+    });
+
+    await wrapper.start();
+    wrapper.enableHeartbeat();
+
+    // Run for 5 heartbeat cycles
+    for (let i = 0; i < 5; i++) {
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(10); // Allow async to complete
+    }
+
+    expect(healthCheckCalls).toBe(5);
+
+    // Verify timing - each check should be ~1000ms apart
+    // (not stacked up like setInterval would do if checks were slow)
+    for (let i = 1; i < healthCheckTimes.length; i++) {
+      const diff = healthCheckTimes[i] - healthCheckTimes[i - 1];
+      expect(diff).toBeGreaterThanOrEqual(1000);
+    }
+
+    await wrapper.close();
+  });
+
+  it('should not schedule next health check when state changes to reconnecting', async () => {
+    let healthCheckCalls = 0;
+
+    const wrapper = createWrapper({
+      pingIntervalMs: 1000,
+      maxConsecutiveFailures: 2,
+      reconnectDelayMs: 100,
+      healthCheckFn: async () => {
+        healthCheckCalls++;
+        return false; // Always fail
+      }
+    });
+
+    await wrapper.start();
+    wrapper.enableHeartbeat();
+
+    // Trigger first failure
+    await vi.advanceTimersByTimeAsync(1001);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(healthCheckCalls).toBe(1);
+
+    // Trigger second failure - should trigger reconnect
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(healthCheckCalls).toBe(2);
+
+    // After hitting maxConsecutiveFailures, no more health checks should be scheduled
+    // because state is now 'reconnecting'
+    const callsBeforeReconnect = healthCheckCalls;
+
+    // Advance time - no new health checks should run during reconnect
+    await vi.advanceTimersByTimeAsync(50);
+    expect(healthCheckCalls).toBe(callsBeforeReconnect);
+
+    // Complete the reconnect
+    await vi.advanceTimersByTimeAsync(100);
+
+    // After reconnect, heartbeat should restart
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(healthCheckCalls).toBeGreaterThan(callsBeforeReconnect);
+
+    await wrapper.close();
+  });
+
+  it('should schedule next check in finally block only when connected', async () => {
+    let healthCheckCalls = 0;
+    let shouldFailHealthCheck = true;
+
+    const wrapper = createWrapper({
+      pingIntervalMs: 1000,
+      maxConsecutiveFailures: 2,
+      reconnectDelayMs: 100,
+      healthCheckFn: async () => {
+        healthCheckCalls++;
+        if (shouldFailHealthCheck) {
+          return false;
+        }
+        return true;
+      }
+    });
+
+    await wrapper.start();
+    wrapper.enableHeartbeat();
+
+    // Trigger failures to cause reconnect
+    await vi.advanceTimersByTimeAsync(1001);
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(10);
+
+    // Now let health checks pass
+    shouldFailHealthCheck = false;
+
+    // Complete reconnect
+    await vi.advanceTimersByTimeAsync(150);
+
+    // Should be reconnected now
+    expect(mockTransports.length).toBe(2);
+
+    // Heartbeat should resume with new transport
+    const callsAfterReconnect = healthCheckCalls;
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(10);
+
+    // New health check should have been scheduled after reconnect
+    expect(healthCheckCalls).toBeGreaterThan(callsAfterReconnect);
+
+    await wrapper.close();
+  });
 });

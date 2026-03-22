@@ -15,7 +15,11 @@ import {
   PlayCircleOutlined,
   StopOutlined,
 } from "@ant-design/icons";
-import { syncCookieAndGetRedirectUrl } from "../../services/utils/sessionUrl";
+import {
+  syncCookieAndGetRedirectUrl,
+  syncCookieAndGetNewSessionUrl,
+  syncCookieAndGetChatUrl,
+} from "../../services/utils/sessionUrl";
 import { APP_DISPLAY_NAME } from "@shared/constants";
 import type { DetailedSession } from "@shared/types/sessions";
 import styles from "../../styles/components/SessionsPage.module.css";
@@ -77,6 +81,10 @@ function SessionsPage({
     };
   }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Note: Ctrl/Cmd+Shift+I for webview DevTools is handled in the main process
+  // (webviewPolicy.ts) via before-input-event, because keyboard events inside
+  // a <webview> don't bubble to the host renderer page.
+
   // ---------- Sessions ----------
   const [sessions, setSessions] = useState<DetailedSession[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,6 +129,39 @@ function SessionsPage({
       setView("webview");
     } catch (error) {
       console.error("[SessionsPage] syncCookieAndGetUrl failed:", error);
+      message.error("获取会话地址失败");
+    }
+  }, []);
+
+  const handleNewSession = useCallback(async () => {
+    try {
+      const url = await syncCookieAndGetNewSessionUrl();
+      if (!url) {
+        message.warning("登录信息不完整，请先登录");
+        return;
+      }
+      setWebviewUrl(url);
+      setView("webview");
+    } catch (error) {
+      console.error(
+        "[SessionsPage] syncCookieAndGetNewSessionUrl failed:",
+        error,
+      );
+      message.error("获取会话地址失败");
+    }
+  }, []);
+
+  const handleOpenSession = useCallback(async (sessionId: string) => {
+    try {
+      const url = await syncCookieAndGetChatUrl(sessionId);
+      if (!url) {
+        message.warning("登录信息不完整，请先登录");
+        return;
+      }
+      setWebviewUrl(url);
+      setView("webview");
+    } catch (error) {
+      console.error("[SessionsPage] syncCookieAndGetChatUrl failed:", error);
       message.error("获取会话地址失败");
     }
   }, []);
@@ -176,9 +217,9 @@ function SessionsPage({
 
   const getEngineTag = (engineType: DetailedSession["engineType"]) => {
     return engineType === "claude-code" ? (
-      <Tag color="blue">Claude Code</Tag>
+      <Tag color="blue">Agent 引擎01</Tag>
     ) : (
-      <Tag color="purple">NuwaxCode</Tag>
+      <Tag color="purple">Agent 引擎02</Tag>
     );
   };
 
@@ -232,7 +273,7 @@ function SessionsPage({
               size="small"
               type="primary"
               icon={<PlusOutlined />}
-              onClick={handleOpenWebview}
+              onClick={handleNewSession}
             >
               新建会话
             </Button>
@@ -251,7 +292,7 @@ function SessionsPage({
             <Button
               type="primary"
               icon={<PlusOutlined />}
-              onClick={handleOpenWebview}
+              onClick={handleNewSession}
             >
               新建会话
             </Button>
@@ -281,7 +322,7 @@ function SessionsPage({
                     <Button
                       size="small"
                       icon={<PlayCircleOutlined />}
-                      onClick={handleOpenWebview}
+                      onClick={() => handleOpenSession(session.projectId || "")}
                     >
                       打开
                     </Button>

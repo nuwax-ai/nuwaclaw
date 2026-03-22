@@ -2,6 +2,21 @@
 
 本项目的所有显著更改都将记录在此文件中。
 
+## [1.4.11] - 2026-03-20
+
+### 修复 (Fixed)
+
+- **心跳并发问题修复**: 解决了 `ResilientTransportWrapper` 中多个心跳检查同时执行的并发问题，该问题会导致创建多个 SSE/HTTP 连接。
+  - 添加 `healthCheckInProgress` 标志位防止并发执行
+  - `finally` 块中显式检查 `state === 'connected'` 后才调度下一次检查
+  - 修复 `heartbeatTimer` 类型定义（`setInterval` → `setTimeout`）
+
+### 改进 (Changed)
+
+- **响应驱动心跳机制**: 将固定间隔 `setInterval` 改为响应驱动的 `setTimeout` 调度。上一次心跳检查完成后才开始计时下一次，避免网络慢时请求堆积。
+- **移除 listTools() 健康检查**: SSE/HTTP 连接不再使用 `client.listTools()` 进行心跳检查（该方法会创建新的 HTTP 连接），改为依赖 transport 层的 `onclose`/`onerror` 回调监控连接健康状态。
+- **心跳间隔调整**: 默认心跳间隔从 20s 增加到 30s，减少不必要的检查频率。
+
 ## [1.4.10] - 2026-03-10
 
 ### 修复 (Fixed)

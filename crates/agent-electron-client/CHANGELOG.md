@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### 会话过滤回归测试
+- **unifiedAgent.test.ts** — 新增 `listAllSessionsDetailed` 过滤非 ready 引擎的测试
+- **acpEngine.test.ts** — 新增 `listSessionsDetailed` title 透传测试
+
+### Changed
+
+#### 会话列表过滤
+- **unifiedAgent.ts** — `listAllSessionsDetailed()` 仅返回 `isReady` 为 true 的引擎会话，避免崩溃/终止的 ACP 进程污染「活跃会话」列表
+
+#### 服务启动流程优化
+- **ClientPage.tsx** — `handleStartAll` 先调用 reg 接口，返回后再 step by step 启动服务
+- **ClientPage.tsx** — `handleStartServiceManual` 简化为直接启动，不调用 reg
+- **ClientPage.tsx** — 服务启动失败时错误信息常驻显示在服务描述区域
+
+#### 文档同步
+- **AGENTS.md** — 更新注册同步与启动顺序章节
+- **docs/REG-FLOW.md** — 新增 reg 调用流程说明文档
+
+---
+
+### Added (Previous)
+
 #### 内置 Node.js 24 和 Git 集成
 - **prepare-node.js** - 下载 Node.js 24 到 resources/node/
 - **prepare-git.js** - 下载 PortableGit 到 resources/git/

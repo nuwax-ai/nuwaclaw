@@ -62,7 +62,9 @@ export interface ResilientTransportOptions {
 }
 
 const DEFAULT_OPTIONS = {
-  pingIntervalMs: 20000,
+  // Heartbeat interval for SSE/HTTP connections using ping()
+  // Reduced to 20s to keep connection alive (servers may close idle connections after 60s)
+  pingIntervalMs: 30000,
   maxConsecutiveFailures: 3,
   pingTimeoutMs: 5000,
   reconnectDelayMs: 1000,
@@ -85,10 +87,14 @@ export class ResilientTransportWrapper implements Transport {
   private activeTransport: Transport | null = null;
   private healthCheckFn?: () => Promise<boolean>;
 
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  // Note: Using setTimeout for response-driven heartbeat (not setInterval)
+  private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
   private consecutiveFailures = 0;
   private consecutivePingTimeouts = 0;
   private heartbeatOkCount = 0;
+
+  /** Guard to prevent concurrent health check executions */
+  private healthCheckInProgress = false;
 
   private state: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'closed' = 'idle';
 
@@ -96,6 +102,7 @@ export class ResilientTransportWrapper implements Transport {
   private retryAttempt = 0;
 
   // Handlers required by the Transport interface
+  // These are set by SDK's Protocol.connect() and should be called when events occur
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
@@ -112,6 +119,9 @@ export class ResilientTransportWrapper implements Transport {
 
   // Queue for messages sent while reconnecting
   private messageQueue: JSONRPCMessage[] = [];
+
+  /** Flag to track if we've already logged an error during this reconnect cycle */
+  private hasLoggedError = false;
 
   constructor(options: ResilientTransportOptions) {
     this.log = options.logger ?? defaultLogger;
@@ -165,6 +175,8 @@ export class ResilientTransportWrapper implements Transport {
   async start(): Promise<void> {
     // Idempotent check: if already connected, connecting, or retrying, return early
     if (this.state === 'connected' || this.state === 'connecting' || this.state === 'reconnecting') {
+      // DEBUG: Log when start() is skipped due to idempotent check
+      // this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] ⏭️ start() skipped (state: ${this.state})`);
       return;
     }
     this.state = 'connecting';
@@ -184,7 +196,27 @@ export class ResilientTransportWrapper implements Transport {
     if (this.state === 'closed') return;
 
     try {
+      // Clean up old transport BEFORE creating new one to prevent stale event handlers
+      if (this.activeTransport) {
+        const oldTransport = this.activeTransport;
+        const endpoint = (oldTransport as any)?._endpoint?.href || (oldTransport as any)?._endpoint || 'no-endpoint';
+        const sessionId = endpoint.includes('sessionId=')
+          ? endpoint.split('sessionId=')[1].split('&')[0]
+          : 'n/a';
+        this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 🧹 Cleaning up old transport (session: ${sessionId})`);
+
+        // Detach handlers first to prevent stale events
+        oldTransport.onclose = undefined;
+        oldTransport.onerror = undefined;
+        oldTransport.onmessage = undefined;
+        try {
+          await oldTransport.close();
+        } catch { /* ignore */ }
+        this.activeTransport = null;
+      }
+
       this.activeTransport = await this.options.connectParams();
+      this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 🔧 Created new transport (${this.activeTransport.constructor.name})`);
 
       // Bind handlers to the inner transport
       this.bindInnerTransport(this.activeTransport);
@@ -195,8 +227,18 @@ export class ResilientTransportWrapper implements Transport {
       this.consecutiveFailures = 0;
       this.consecutivePingTimeouts = 0;
       this.heartbeatOkCount = 0;
+      // Reset error logging flag on successful connect
+      this.hasLoggedError = false;
 
-      this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] ✅ Connected via ${this.activeTransport.constructor.name}`);
+      // Extract session info from SSE endpoint (if available)
+      const endpoint = (this.activeTransport as any)?._endpoint;
+      if (endpoint) {
+        const endpointUrl = new URL(endpoint);
+        const sessionId = endpointUrl.searchParams.get('session_id') || endpointUrl.pathname.split('/').pop() || endpoint;
+        this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] ✅ Connected via ${this.activeTransport.constructor.name} (session: ${sessionId}, endpoint: ${endpoint})`);
+      } else {
+        this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] ✅ Connected via ${this.activeTransport.constructor.name}`);
+      }
 
       // On reconnect (not initial), invoke the onreconnect handler for MCP session re-initialization
       if (!initial && this.onreconnect) {
@@ -222,8 +264,11 @@ export class ResilientTransportWrapper implements Transport {
       // Reset retry count only after successful connect (and reconnect handler if applicable)
       this.retryAttempt = 0;
 
-      // Flush any queued messages
-      this.flushQueue();
+      // Clear any requests queued during onreconnect (they may use stale session)
+      if (this.messageQueue.length > 0) {
+        this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] 🗑️ Dropping ${this.messageQueue.length} requests queued during reconnect`);
+        this.messageQueue = [];
+      }
 
       // Only start heartbeat on reconnects — initial connections need
       // the caller to invoke enableHeartbeat() after client.connect()
@@ -256,28 +301,63 @@ export class ResilientTransportWrapper implements Transport {
   }
 
   private bindInnerTransport(transport: Transport) {
+    // Flag to prevent both onerror and onclose from triggering reconnect
+    let hasInitiatedReconnect = false;
+
     transport.onclose = () => {
-      // If the inner transport closes but we are not intentionally closed
       if (this.state !== 'closed') {
-        this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Inner transport closed unexpectedly. Reconnecting...`);
-        this.triggerReconnect();
+        // Get session_id from current transport
+        const endpoint = (transport as any)?._endpoint?.href || (transport as any)?._endpoint || 'no-endpoint';
+        const sessionId = endpoint.includes('sessionId=')
+          ? endpoint.split('sessionId=')[1].split('&')[0]
+          : 'n/a';
+
+        // Forward to SDK handler (protected to ensure reconnect always triggers)
+        if (this.onclose) {
+          try { this.onclose(); } catch { /* ignore */ }
+        }
+
+        // Only trigger reconnect if onerror hasn't already done so
+        if (!hasInitiatedReconnect && this.state !== 'reconnecting') {
+          hasInitiatedReconnect = true;
+          this.triggerReconnect(sessionId);
+        }
       }
     };
 
     transport.onerror = (error: Error) => {
-      // If it throws ENOENT or similar before we even catch it, we might be here.
       if (this.state !== 'closed') {
-        this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Inner transport error: ${error.message}`);
+        // Handle undefined error.message (e.g., SDK's SseError)
+        const errorMsg = error?.message ?? String(error);
+
+        // Get session_id from current transport
+        const endpoint = (transport as any)?._endpoint?.href || (transport as any)?._endpoint || 'no-endpoint';
+        const sessionId = endpoint.includes('sessionId=')
+          ? endpoint.split('sessionId=')[1].split('&')[0]
+          : 'n/a';
+
+        // Forward to SDK handler (protected to ensure reconnect logic continues)
+        if (this.onerror) {
+          try { this.onerror(error); } catch { /* ignore */ }
+        }
+
         if (this.state === 'connecting') {
-          if (this.onerror) this.onerror(error);
+          // Log during initial connection - performConnect will handle the error
+          this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Connection error (session: ${sessionId}): ${errorMsg}`);
           return;
         }
-        this.triggerReconnect();
+
+        // Only trigger reconnect once per transport
+        if (!hasInitiatedReconnect && this.state !== 'reconnecting') {
+          hasInitiatedReconnect = true;
+          this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] Transport error (session: ${sessionId}): ${errorMsg}`);
+          this.triggerReconnect(sessionId);
+        }
       }
     };
 
     transport.onmessage = (message: JSONRPCMessage) => {
-      // Pure pass-through - no message interception
+      // Forward to SDK handler
       if (this.onmessage) {
         this.onmessage(message);
       }
@@ -288,32 +368,56 @@ export class ResilientTransportWrapper implements Transport {
     this.stopHeartbeat();
     if (this.options.pingIntervalMs <= 0) return;
 
-    this.heartbeatTimer = setInterval(() => {
-      this.checkHealth();
-    }, this.options.pingIntervalMs);
+    // Use response-driven scheduling: schedule next check AFTER current one completes.
+    // This prevents request piling when network is slow.
+    this.scheduleNextHealthCheck();
   }
 
   private stopHeartbeat() {
     if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
+      clearTimeout(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
   }
 
+  /**
+   * Schedule the next health check after pingIntervalMs.
+   * Called after each health check completes (response-driven heartbeat).
+   */
+  private scheduleNextHealthCheck() {
+    if (this.state !== 'connected' || this.options.pingIntervalMs <= 0) return;
+    // Clear any existing timer before scheduling new one
+    if (this.heartbeatTimer) {
+      clearTimeout(this.heartbeatTimer);
+    }
+    this.heartbeatTimer = setTimeout(() => {
+      this.checkHealth();
+    }, this.options.pingIntervalMs);
+  }
+
   private async checkHealth() {
+    // Prevent concurrent health check executions
+    if (this.healthCheckInProgress) {
+      this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] ⚠️ Health check already in progress, skipping`);
+      // Don't schedule here - let the in-progress check's finally block handle scheduling
+      return;
+    }
     if (this.state !== 'connected' || !this.activeTransport) return;
 
+    this.healthCheckInProgress = true;
     try {
       let isHealthy: boolean;
 
       if (this.healthCheckFn) {
-        // Use caller-provided health check function
+        // Use caller-provided health check function with timeout
         isHealthy = await Promise.race([
           this.healthCheckFn(),
           this.createTimeoutPromise(this.options.pingTimeoutMs, false),
         ]);
       } else {
-        // No health check function - just verify transport is still alive
+        // No health check function - use lightweight transport liveness check
+        // For SSE/HTTP transports, onclose/onerror handlers already monitor connection health
+        // This avoids creating new connections for each health check
         isHealthy = this.activeTransport !== null && this.state === 'connected';
       }
 
@@ -323,16 +427,14 @@ export class ResilientTransportWrapper implements Transport {
         if (this.consecutivePingTimeouts >= this.options.maxConsecutiveFailures) {
           this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] Max consecutive health check failures reached. Reconnecting...`);
           this.triggerReconnect();
+          return; // Don't schedule next check when reconnecting
         }
         return;
       }
 
       // Health check passed — server is alive
       this.heartbeatOkCount++;
-      // Only log every 5th success to reduce log volume (~100s interval)
-      if (this.heartbeatOkCount % 5 === 1 || this.consecutiveFailures > 0 || this.consecutivePingTimeouts > 0) {
-        this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 💖 Health check OK (count: ${this.heartbeatOkCount})`);
-      }
+      this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] 💖 Health check OK (count: ${this.heartbeatOkCount})`);
       this.consecutiveFailures = 0;
       this.consecutivePingTimeouts = 0;
     } catch (err) {
@@ -341,6 +443,13 @@ export class ResilientTransportWrapper implements Transport {
       if (this.consecutiveFailures >= this.options.maxConsecutiveFailures) {
         this.log.error(`[McpProxy] [ResilientTransport:${this.options.name}] Max consecutive health check errors reached. Reconnecting...`);
         this.triggerReconnect();
+        return; // Don't schedule next check when reconnecting
+      }
+    } finally {
+      this.healthCheckInProgress = false;
+      // Only schedule next check if still connected (not reconnecting/closing)
+      if (this.state === 'connected') {
+        this.scheduleNextHealthCheck();
       }
     }
   }
@@ -369,16 +478,24 @@ export class ResilientTransportWrapper implements Transport {
   /**
    * Close the current transport and schedule a reconnect with exponential backoff.
    */
-  private triggerReconnect() {
+  private triggerReconnect(fromSessionId?: string) {
     if (this.state === 'reconnecting' || this.state === 'closed') return;
 
     this.state = 'reconnecting';
     this.stopHeartbeat();
     this.cleanupTransport();
 
+    // Clear queued messages from old session - they use stale session_id
+    const droppedCount = this.messageQueue.length;
+    if (droppedCount > 0) {
+      this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] 🗑️ Dropping ${droppedCount} queued requests from old session`);
+      this.messageQueue = [];
+    }
+
     const delay = this.getBackoffDelay();
     this.retryAttempt++;
-    this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] 🔄 Closed. Retrying in ${delay}ms (attempt ${this.retryAttempt})...`);
+    const sessionInfo = fromSessionId ? ` (session: ${fromSessionId})` : '';
+    this.log.warn(`[McpProxy] [ResilientTransport:${this.options.name}] 🔄 Reconnecting in ${delay}ms (attempt ${this.retryAttempt})${sessionInfo}...`);
 
     setTimeout(() => {
       this.performConnect();
@@ -389,7 +506,12 @@ export class ResilientTransportWrapper implements Transport {
     if (!this.activeTransport || this.state !== 'connected') return;
 
     if (this.messageQueue.length > 0) {
-      this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] Flushing ${this.messageQueue.length} queued requests...`);
+      // Get current session for logging
+      const endpoint = (this.activeTransport as any)?._endpoint?.href || 'no-endpoint';
+      const sessionId = endpoint.includes('sessionId=')
+        ? endpoint.split('sessionId=')[1].split('&')[0]
+        : 'n/a';
+      this.log.info(`[McpProxy] [ResilientTransport:${this.options.name}] Flushing ${this.messageQueue.length} queued requests (new session: ${sessionId})...`);
     }
 
     const queueToFlush = [...this.messageQueue];

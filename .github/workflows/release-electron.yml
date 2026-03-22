@@ -150,7 +150,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/node
-          key: bundled-node-24-${{ matrix.platform }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
+          key: bundled-node-24-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
 
       - name: Cache bundled Git (Windows only)
         if: matrix.platform == 'windows-latest'
@@ -163,10 +163,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/uv
-          key: bundled-uv-${{ matrix.platform }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
+          key: bundled-uv-v2-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-uv.js') }}
 
       - name: Prepare bundled resources (uv, node, git)
         working-directory: crates/agent-electron-client
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
         run: npm run prepare:all
         timeout-minutes: 15
 
@@ -227,6 +229,7 @@ jobs:
         shell: bash
         working-directory: crates/agent-electron-client
         env:
+          TARGET_ARCH: ${{ matrix.arch }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |

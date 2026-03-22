@@ -7,7 +7,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { CustomStdioClientTransport } from '../customStdio.js';
 import type { StdioServerEntry, StreamableServerEntry, SseServerEntry } from '../types.js';
-import { logInfo } from '../logger.js';
+import { logError, logInfo, logWarn } from '../logger.js';
 import { ResilientTransportWrapper } from '../resilient.js';
 
 // Re-export sub-modules
@@ -72,10 +72,14 @@ export async function connectStdio(
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
 
   // Set reconnect handler to re-establish MCP session via client.connect()
-  // Note: Must close the client first to clear the "already connected" state
+  // Note: We need to clear the SDK's internal _transport reference without closing it.
+  // client.close() would close the wrapper transport, so we manually clear the reference.
   wrapper.onreconnect = async () => {
-    try { await client.close(); } catch { /* ignore */ }
+    logInfo(`[${id}] Reconnecting MCP session...`);
+    // Clear SDK's transport reference without closing it (wrapper is already reconnected)
+    (client as any)._transport = undefined;
     await client.connect(wrapper);
+    logInfo(`[${id}] MCP session reconnected`);
   };
 
   const timeoutMs = entry.connectionTimeoutMs ?? DEFAULT_STDIO_CONNECTION_TIMEOUT_MS;
@@ -127,27 +131,38 @@ export async function connectStreamable(
         headers ? { requestInit: { headers } } : undefined,
       );
     },
+    // Use provided interval or default (30s)
     pingIntervalMs: entry.pingIntervalMs,
     pingTimeoutMs: entry.pingTimeoutMs,
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
 
-  // Set health check function using Client's listTools()
+  // Set health check function to use ping() for HTTP-based transports
+  // ping() is lighter than listTools() and sufficient for connection health
   wrapper.setHealthCheckFn(async () => {
     try {
-      await client.listTools();
+      const { tools } = await client.listTools();
+      logInfo(`[proxy-${id}] Streamable HTTP health check OK: ${tools?.length ?? 0} tools`);
       return true;
-    } catch {
+    } catch(error) {
+      logError(`[proxy-${id}] Streamable HTTP health check failed: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   });
 
   // Set reconnect handler to re-establish MCP session via client.connect()
-  // Note: Must close the client first to clear the "already connected" state
+  // Note: We need to clear the SDK's internal _transport reference without closing it.
+  // client.close() would close the wrapper transport, so we manually clear the reference.
+  // Note: Do NOT call enableHeartbeat() here - performConnect will call startHeartbeat()
+  // after flushQueue() completes, ensuring health checks use the correct session.
   wrapper.onreconnect = async () => {
-    try { await client.close(); } catch { /* ignore */ }
+    logInfo(`[${id}] Reconnecting MCP session...`);
+    // Clear SDK's transport reference without closing it (wrapper is already reconnected)
+    (client as any)._transport = undefined;
     await client.connect(wrapper);
+    // Note: heartbeat is restarted by ResilientTransport.performConnect after flushQueue()
+    logInfo(`[${id}] MCP session reconnected`);
   };
 
   const timeoutMs = entry.connectionTimeoutMs ?? DEFAULT_HTTP_CONNECTION_TIMEOUT_MS;
@@ -200,27 +215,46 @@ export async function connectSse(
         headers ? { requestInit: { headers } } : undefined,
       );
     },
+    // Use provided interval or default (30s)
     pingIntervalMs: entry.pingIntervalMs,
     pingTimeoutMs: entry.pingTimeoutMs,
   });
 
   const client = new Client({ name: `proxy-${id}`, version: '1.0.0' });
 
-  // Set health check using Client's listTools() method
+  // Set health check function to use ping() for HTTP-based transports
+  // ping() is lighter than listTools() and sufficient for connection health
   wrapper.setHealthCheckFn(async () => {
     try {
-      await client.listTools();
+      // Get current session_id from transport
+      const innerTransport = (wrapper as any).activeTransport;
+      const endpoint = innerTransport?._endpoint?.href || innerTransport?._endpoint || 'no-endpoint';
+
+      const { tools } = await client.listTools();
+      logInfo(`[proxy-${id}] SSE health check OK: ${Array.isArray(tools) ? tools.length : 0} tools (endpoint: ${endpoint})`);
       return true;
-    } catch {
+    } catch(error) {
+      logError(`[proxy-${id}] SSE health check failed: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   });
 
   // Set reconnect handler to re-establish MCP session via client.connect()
-  // Note: Must close the client first to clear the "already connected" state
+  // Note: We need to clear the SDK's internal _transport reference without closing it.
+  // client.close() would close the wrapper transport, so we manually clear the reference.
+  // Note: Do NOT call enableHeartbeat() here - performConnect will call startHeartbeat()
+  // after flushQueue() completes, ensuring health checks use the correct session.
   wrapper.onreconnect = async () => {
-    try { await client.close(); } catch { /* ignore */ }
+    // Get new session_id from transport
+    const innerTransport = (wrapper as any).activeTransport;
+    const endpoint = innerTransport?._endpoint?.href || innerTransport?._endpoint || 'no-endpoint';
+
+    logInfo(`[${id}] Reconnecting MCP session (endpoint: ${endpoint})...`);
+    // Clear SDK's transport reference without closing it (wrapper is already reconnected)
+    (client as any)._transport = undefined;
     await client.connect(wrapper);
+    // Note: heartbeat is restarted by ResilientTransport.performConnect after flushQueue()
+    logInfo(`[${id}] MCP session reconnected (endpoint: ${endpoint})`);
   };
 
   const timeoutMs = entry.connectionTimeoutMs ?? DEFAULT_HTTP_CONNECTION_TIMEOUT_MS;
