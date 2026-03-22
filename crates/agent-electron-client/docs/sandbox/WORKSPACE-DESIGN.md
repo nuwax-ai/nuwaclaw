@@ -1,6 +1,6 @@
 # 沙箱工作空间设计方案
 
-> 多平台支持的 Agent 沙箱工作空间架构设计
+> 基于 Harness 架构的多平台 Agent 沙箱工作空间
 > 
 > **版本**: 1.0.0  
 > **更新**: 2026-03-22  
@@ -31,469 +31,414 @@
 
 ---
 
-## 2. 目录结构
+## 2. Harness 架构
 
-### 2.1 整体结构
+### 2.1 目录结构
 
 ```
-~/.nuwaclaw/
-├── core/                       # 应用核心（只读）
-│   ├── engines/               # 引擎二进制
-│   ├── bin/                   # 核心工具
-│   └── config/                # 应用配置
+harness/
+├── base/                      # 基础约束和任务模板
+│   ├── constraints.md        # Agent 基础约束
+│   ├── tasks/
+│   │   ├── sandbox-create.md
+│   │   ├── sandbox-destroy.md
+│   │   ├── workspace-execute.md
+│   │   └── permission-request.md
+│   └── state.json            # 沙箱状态追踪
 │
-├── workspaces/                 # 沙箱工作区根目录
-│   ├── .shared/              # 跨会话共享资源
-│   │   ├── tools/            # 共享工具（预安装）
-│   │   └── cache/            # 共享缓存
-│   │
-│   ├── {session-id}/         # 会话工作区（隔离）
-│   │   ├── projects/         # 项目代码
-│   │   ├── node_modules/     # npm 包
-│   │   ├── .venv/           # Python 环境
-│   │   ├── .bin/            # 可执行文件
-│   │   ├── cache/           # 会话缓存
-│   │   └── sandbox.json     # 会话沙箱配置
-│   │
-│   └── {session-id-2}/
-│       └── ...
+├── input/                     # 输入约束
+│   ├── sandbox-config.md
+│   ├── platform-config.md
+│   └── retention-policy.md
 │
-├── logs/                      # 日志目录
-├── data/                      # 应用数据
-└── nuwaclaw.db               # SQLite 数据库
+├── feedback/                  # 反馈机制
+│   ├── state/
+│   │   └── state.json        # 当前工作区状态
+│   ├── autonomy.md           # 自主性评估
+│   ├── quality-gates.md      # 质量门禁记录
+│   └── metrics.json          # 执行指标
+│
+├── projects/                  # 项目配置
+│   ├── macos/
+│   │   ├── constraints.md
+│   │   └── docker.md
+│   ├── windows/
+│   │   ├── constraints.md
+│   │   └── wsl.md
+│   └── linux/
+│       ├── constraints.md
+│       └── firejail.md
+│
+└── universal/                 # 通用配置
+    ├── commands.md
+    └── security.md
 ```
 
-### 2.2 Windows 路径差异
+### 2.2 CP 工作流
 
-| 概念 | macOS/Linux | Windows |
-|------|-------------|---------|
-| 用户目录 | `~/.nuwaclaw/` | `%USERPROFILE%\.nuwaclaw\` |
-| 工作区 | `~/.nuwaclaw/workspaces/` | `%USERPROFILE%\.nuwaclaw\workspaces\` |
-| 临时目录 | `/tmp/nuwaclaw-*` | `%TEMP%\nuwaclaw-*` |
-
----
-
-## 3. 多平台沙箱方案
-
-### 3.1 平台支持矩阵
-
-| 平台 | 主要方案 | 备选方案 | 说明 |
-|------|---------|---------|------|
-| **macOS** | Docker | App Sandbox + Bubblewrap | Docker 跨平台一致性好 |
-| **Windows** | Docker + WSL2 | Hyper-V | WSL2 提供良好 Linux 兼容 |
-| **Linux** | Docker | Firejail | Docker 在 Linux 原生支持 |
-
-### 3.2 Docker 沙箱（推荐）
-
-```typescript
-interface DockerSandboxConfig {
-  image: string;              // 基础镜像
-  workspaceDir: string;       // 容器内工作区路径
-  memoryLimit: string;        // 内存限制，如 "2g"
-  cpuLimit: number;           // CPU 限制，如 2
-  networkEnabled: boolean;     // 是否启用网络
-  diskQuota: string;          // 磁盘限额，如 "10g"
-  readonly: boolean;          // 是否只读（用于安全要求高的场景）
-}
 ```
+CP1: 任务确认 → CP2: 规划分解 → CP3: 执行实现 → CP4: 质量门禁 → CP5: 审查完成
 
-### 3.3 WSL2 沙箱（Windows 备选）
-
-```typescript
-interface WslSandboxConfig {
-  distribution: string;        // WSL 发行版，如 "Ubuntu-22.04"
-  workspaceDir: string;       // WSL 内工作区路径
-  memoryLimit: string;        // 内存限制
-  networkEnabled: boolean;    // 网络配置
-}
-```
-
-### 3.4 Firejail 沙箱（Linux 备选）
-
-```typescript
-interface FirejailSandboxConfig {
-  profile: string;           // firejail profile 名称
-  workspaceDir: string;       // 工作区路径
-  whitelist: string[];       # 白名单路径
-  blacklist: string[];       # 黑名单路径
-  netdev?: string;           # 网络设备
-}
-```
-
----
-
-## 4. 沙箱管理器
-
-### 4.1 核心接口
-
-```typescript
-interface SandboxManager {
-  // 初始化
-  init(config: SandboxConfig): Promise<void>;
-  
-  // 创建会话工作区
-  createWorkspace(sessionId: string): Promise<Workspace>;
-  
-  // 销毁会话工作区
-  destroyWorkspace(sessionId: string): Promise<void>;
-  
-  // 执行命令（在沙箱内）
-  execute(
-    sessionId: string, 
-    command: string, 
-    args: string[],
-    options?: ExecuteOptions
-  ): Promise<ExecuteResult>;
-  
-  // 文件操作（在沙箱内）
-  readFile(sessionId: string, path: string): Promise<string>;
-  writeFile(sessionId: string, path: string, content: string): Promise<void>;
-  
-  // 获取工作区信息
-  getWorkspaceInfo(sessionId: string): WorkspaceInfo;
-  
-  // 清理所有工作区
-  cleanupAll(): Promise<void>;
-}
-```
-
-### 4.2 工作区接口
-
-```typescript
-interface Workspace {
-  id: string;                 // 会话 ID
-  rootPath: string;           // 工作区根目录
-  projectsPath: string;        // 项目目录
-  nodeModulesPath: string;     // npm 包目录
-  pythonEnvPath: string;       // Python 环境目录
-  binPath: string;             // 可执行文件目录
-  createdAt: Date;             // 创建时间
-  lastAccessedAt: Date;        // 最后访问时间
-  platform: 'darwin' | 'win32' | 'linux';
-  sandboxType: 'docker' | 'wsl' | 'firejail' | 'none';
-}
-```
-
-### 4.3 执行选项
-
-```typescript
-interface ExecuteOptions {
-  cwd?: string;               // 工作目录
-  env?: Record<string, string>; // 环境变量
-  timeout?: number;            // 超时（毫秒）
-  maxMemory?: string;          // 内存限制
-  stdio?: 'pipe' | 'inherit'; // 标准输入输出
-}
+┌──────────────────────────────────────────────────────────────────┐
+│  CP1 - 任务确认                                                   │
+│  ─────────────                                                   │
+│  - 解析 sandbox 请求（类型、平台、工作区）                           │
+│  - 验证参数完整性                                                  │
+│  - 输出: validated sandbox config                                  │
+├──────────────────────────────────────────────────────────────────┤
+│  CP2 - 规划分解                                                   │
+│  ─────────────                                                   │
+│  - 确定沙箱类型（docker/wsl/firejail）                             │
+│  - 分配工作区资源                                                  │
+│  - 输出: execution plan                                           │
+├──────────────────────────────────────────────────────────────────┤
+│  CP3 - 执行实现                                                   │
+│  ─────────────                                                   │
+│  - 创建/销毁沙箱                                                  │
+│  - 执行命令（带权限检查）                                          │
+│  - 输出: execution result                                        │
+├──────────────────────────────────────────────────────────────────┤
+│  CP4 - 质量门禁                                                   │
+│  ─────────────                                                   │
+│  - 验证输出格式                                                   │
+│  - 检查资源使用                                                   │
+│  - 输出: gate results                                             │
+├──────────────────────────────────────────────────────────────────┤
+│  CP5 - 审查完成                                                   │
+│  ─────────────                                                   │
+│  - 更新 state.json                                                │
+│  - 记录 metrics                                                  │
+│  - 输出: final report                                            │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 5. 权限管理
+## 3. 状态管理
 
-### 5.1 权限级别
+### 3.1 State JSON
 
-| 级别 | 名称 | 说明 |
+```json
+{
+  "project": "sandbox-workspace",
+  "version": "1.0.0",
+  "type": "sandbox",
+  "platform": "darwin",
+  "lastUpdated": "2026-03-22",
+  
+  "currentTask": null,
+  "taskStatus": "idle",
+  "stage": "none",
+  
+  "checkpoints": {
+    "CP1": "pending",
+    "CP2": "pending", 
+    "CP3": "pending",
+    "CP4": "pending",
+    "CP5": "pending"
+  },
+  
+  "gates": {
+    "config-validate": "pending",
+    "sandbox-create": "pending",
+    "execute": "pending",
+    "cleanup": "pending"
+  },
+  
+  "metrics": {
+    "sandboxesCreated": 0,
+    "sandboxesDestroyed": 0,
+    "executionsCompleted": 0,
+    "executionsBlocked": 0,
+    "averageExecutionTime": 0,
+    "humanInterventions": 0
+  },
+  
+  "workspaces": {
+    "{session-id}": {
+      "createdAt": "2026-03-22",
+      "lastAccessed": "2026-03-22",
+      "sandboxType": "docker",
+      "status": "active"
+    }
+  },
+  
+  "recentChanges": []
+}
+```
+
+### 3.2 Metrics JSON
+
+```json
+{
+  "sessionId": "{session-id}",
+  "timestamp": "2026-03-22T12:00:00Z",
+  
+  "execution": {
+    "total": 10,
+    "success": 9,
+    "failed": 1,
+    "blocked": 0,
+    "averageDuration": 2500
+  },
+  
+  "permissions": {
+    "requested": 5,
+    "approved": 3,
+    "denied": 2,
+    "autoApproved": 3
+  },
+  
+  "resources": {
+    "memoryUsed": "512mb",
+    "cpuTime": "30s",
+    "diskUsed": "100mb",
+    "networkCalls": 5
+  }
+}
+```
+
+---
+
+## 4. 质量门禁
+
+### 4.1 Gate 定义
+
+| Gate | 说明 | 检查项 |
+|------|------|--------|
+| **config-validate** | 配置验证 | platform 有效、memory limit 合理 |
+| **sandbox-create** | 沙箱创建 | 容器启动成功、目录创建成功 |
+| **execute** | 命令执行 | exit code 0、超时检查 |
+| **cleanup** | 清理验证 | 资源释放、临时文件删除 |
+
+### 4.2 质量门禁示例
+
+```typescript
+const QUALITY_GATES = {
+  'config-validate': async (config: SandboxConfig) => {
+    const validPlatforms = ['darwin', 'win32', 'linux'];
+    const validTypes = ['docker', 'wsl', 'firejail', 'none'];
+    
+    if (!validPlatforms.includes(config.platform)) {
+      return { pass: false, reason: `Invalid platform: ${config.platform}` };
+    }
+    
+    if (!validTypes.includes(config.type)) {
+      return { pass: false, reason: `Invalid sandbox type: ${config.type}` };
+    }
+    
+    // Memory limit 检查 (1GB - 8GB)
+    const memoryMB = parseMemory(config.memoryLimit);
+    if (memoryMB < 1024 || memoryMB > 8192) {
+      return { pass: false, reason: 'Memory limit must be between 1GB and 8GB' };
+    }
+    
+    return { pass: true };
+  },
+  
+  'sandbox-create': async (workspace: Workspace) => {
+    // 检查目录存在
+    // 检查 Docker 容器运行中
+    // 检查网络连接
+    return { pass: true };
+  },
+  
+  'execute': async (result: ExecuteResult) => {
+    if (result.timedOut) {
+      return { pass: false, reason: 'Execution timed out' };
+    }
+    return { pass: result.exitCode === 0, reason: `Exit code: ${result.exitCode}` };
+  },
+  
+  'cleanup': async (workspaceId: string) => {
+    // 检查目录已删除
+    // 检查容器已停止
+    // 检查进程已终止
+    return { pass: true };
+  }
+};
+```
+
+---
+
+## 5. 任务模板
+
+### 5.1 沙箱创建任务
+
+```markdown
+# 任务: 创建沙箱工作区
+
+## 输入
+- sessionId: string
+- platform: darwin | win32 | linux
+- sandboxType: docker | wsl | firejail | none
+- memoryLimit?: string (默认 "2g")
+- diskQuota?: string (默认 "10g")
+
+## CP1: 任务确认
+- [ ] 验证 sessionId 非空
+- [ ] 验证 platform 与当前系统匹配
+- [ ] 验证 sandboxType 可用
+
+## CP2: 规划分解
+- [ ] 确定沙箱镜像/配置
+- [ ] 分配工作区路径
+- [ ] 设置资源限额
+
+## CP3: 执行实现
+- [ ] 创建工作区目录结构
+- [ ] 启动沙箱容器/进程
+- [ ] 注入环境变量
+
+## CP4: 质量门禁
+- [ ] config-validate gate
+- [ ] sandbox-create gate
+
+## CP5: 审查完成
+- [ ] 更新 state.json
+- [ ] 记录 metrics
+- [ ] 返回 workspace 对象
+```
+
+### 5.2 命令执行任务
+
+```markdown
+# 任务: 在沙箱中执行命令
+
+## 输入
+- sessionId: string
+- command: string
+- args: string[]
+- options?: ExecuteOptions
+
+## CP1: 任务确认
+- [ ] 验证 sessionId 存在
+- [ ] 验证 command 非空
+- [ ] 检查命令白名单
+
+## CP2: 规划分解
+- [ ] 确定工作目录
+- [ ] 检查权限
+- [ ] 设置超时
+
+## CP3: 执行实现
+- [ ] 请求权限（如需要）
+- [ ] 执行命令
+- [ ] 捕获输出
+
+## CP4: 质量门禁
+- [ ] execute gate (exit code, timeout)
+
+## CP5: 审查完成
+- [ ] 记录 execution metrics
+- [ ] 返回 ExecuteResult
+```
+
+---
+
+## 6. 约束定义
+
+### 6.1 基础约束
+
+```markdown
+# Agent 沙箱基础约束
+
+## 绝对禁止
+- ❌ 访问 ~/.ssh/ 目录
+- ❌ 修改系统配置文件
+- ❌ 安装系统级包（apt-get install, brew install 等）
+- ❌ 执行危险命令（rm -rf /, dd, mkfs 等）
+- ❌ 网络扫描或端口探测
+
+## 需要确认
+- ⚠️ 安装 npm 包（超过 10 个）
+- ⚠️ 安装 Python 包（超过 10 个）
+- ⚠️ 下载外部资源
+- ⚠️ 执行时间超过 5 分钟的命令
+
+## 自动允许
+- ✅ 读取工作区文件
+- ✅ 执行 git, npm, pnpm, node, python, cargo, make
+- ✅ 访问已配置的 API 端点
+```
+
+### 6.2 平台约束
+
+```markdown
+# macOS 沙箱约束
+
+## 特定限制
+- App Sandbox 模式: 网络访问受限
+- Docker 模式: 使用 Docker Desktop 容器
+- 资源限制: CPU 2核, 内存 2GB
+
+# Windows 沙箱约束
+
+## 特定限制
+- WSL 模式: 需要 WSL2 安装
+- Docker 模式: 使用 Docker Desktop
+- 路径转换: 自动处理 \ 和 /
+
+# Linux 沙箱约束
+
+## 特定限制
+- Docker 模式: 原生 Docker 支持
+- Firejail 模式: 需要 firejail 安装
+- 资源限制: 按 cgroup 强制执行
+```
+
+---
+
+## 7. 自主性评估
+
+### 7.1 评分维度
+
+| 维度 | 权重 | 说明 |
 |------|------|------|
-| 0 | **只读** | 只能读取工作区内文件 |
-| 1 | **受限写入** | 可以在工作区内创建/修改文件 |
-| 2 | **标准执行** | 可以执行编译、测试等命令 |
-| 3 | **完全访问** | 可以安装包、创建目录等 |
+| **自动化率** | 40% | 多少次操作是自动批准无需用户确认 |
+| **任务完成率** | 30% | 多少任务成功完成 |
+| **拦截有效率** | 20% | 拦截的危险操作有多少是真正的威胁 |
+| **用户满意度** | 10% | 用户批准 vs 拒绝的比例 |
 
-### 5.2 权限检查
+### 7.2 自主性报告
 
-```typescript
-interface Permission {
-  type: 'file:read' | 'file:write' | 'command:execute' | 'network:access' | 'package:install';
-  target: string;              // 操作目标
-  sessionId: string;           // 会话 ID
-  approvedBy: 'system' | 'user' | 'policy';
-  timestamp: Date;
-}
+```markdown
+# 沙箱自主性报告
 
-// 自动放行：工作区内只读操作
-// 需要确认：工作区内写入、网络访问、包安装
-// 禁止：工作区外任何操作
-```
+## 概览
+- 总执行次数: 100
+- 自动批准: 85
+- 需要确认: 12
+- 拦截危险: 3
 
-### 5.3 权限策略
+## 评分
+- 自动化率: 85% (A)
+- 任务完成率: 97% (A)
+- 拦截有效率: 100% (A)
+- 用户满意度: 85% (B+)
 
-```typescript
-const PERMISSION_POLICY = {
-  // 文件操作
-  'file:read': {
-    workspace: true,           // 工作区内自动放行
-    outside: false             // 工作区外禁止
-  },
-  
-  // 写入操作
-  'file:write': {
-    workspace: 'confirm',       // 工作区内需确认
-    outside: false             // 工作区外禁止
-  },
-  
-  // 命令执行
-  'command:execute': {
-    safe: ['git', 'npm', 'pnpm', 'node', 'python', 'cargo', 'make'], // 白名单
-    workspace: 'confirm',       // 其他命令需确认
-    outside: false
-  },
-  
-  // 网络访问
-  'network:access': {
-    api: true,                 // 已配置的 API 允许
-    download: 'confirm',        // 下载需确认
-    arbitrary: false           // 任意网络禁止
-  },
-  
-  // 包安装
-  'package:install': {
-    npm: 'confirm',            // npm 安装需确认
-    python: 'confirm',         // Python 包安装需确认
-    system: false              // 系统包禁止
-  }
-};
+## 综合评分: A (92/100)
+
+## 改进建议
+1. 考虑将 'npm install' 加入自动批准白名单
+2. 增加常见开发工具的预安装
+3. 优化网络访问的白名单策略
 ```
 
 ---
 
-## 6. 多平台路径处理
-
-### 6.1 路径抽象层
-
-```typescript
-// src/shared/utils/path.ts
-export function getWorkspaceRoot(): string {
-  if (process.platform === 'win32') {
-    return path.join(process.env.USERPROFILE || '', '.nuwaclaw');
-  }
-  return path.join(os.homedir(), '.nuwaclaw');
-}
-
-export function getWorkspacePath(sessionId: string): string {
-  return path.join(getWorkspaceRoot(), 'workspaces', sessionId);
-}
-
-export function getSandboxConfigPath(sessionId: string): string {
-  return path.join(getWorkspacePath(sessionId), 'sandbox.json');
-}
-
-// 跨平台路径转换（用于 Docker 容器内路径）
-export function toSandboxPath(localPath: string): string {
-  // Docker 中 Linux 路径
-  return localPath.replace(/\\/g, '/').replace(/^[A-Z]:/, '');
-}
-```
-
-### 6.2 环境变量注入
-
-```typescript
-function getSandboxEnv(sessionId: string, workspace: Workspace): NodeJS.ProcessEnv {
-  return {
-    // 核心路径
-    HOME: workspace.rootPath,
-    PATH: [
-      workspace.binPath,
-      workspace.rootPath + '/core/bin',
-      '/usr/bin',
-      '/bin',
-      '/usr/sbin',
-      '/sbin',
-    ].join(platform === 'win32' ? ';' : ':'),
-    
-    // Python 环境
-    PYTHONPATH: workspace.pythonEnvPath,
-    VIRTUAL_ENV: workspace.pythonEnvPath,
-    UV_TOOL_DIR: workspace.binPath,
-    
-    // Node 环境
-    NODE_PATH: workspace.nodeModulesPath,
-    npm_config_prefix: workspace.rootPath,
-    
-    // 临时目录
-    TMPDIR: workspace.rootPath + '/tmp',
-    TEMP: workspace.rootPath + '/tmp',
-    
-    // 安全限制
-    // 注意：实际限制由沙箱机制（Docker/WSL/Firejail）强制执行
-  };
-}
-```
-
----
-
-## 7. 会话生命周期
-
-### 7.1 创建会话工作区
-
-```
-用户启动会话
-    ↓
-SandboxManager.createWorkspace(sessionId)
-    ↓
-检查 Docker/WSL/Firejail 可用性
-    ↓
-创建工作区目录结构
-    ↓
-写入 sandbox.json 配置
-    ↓
-初始化 Git 配置（用户信息）
-    ↓
-返回 Workspace 实例
-```
-
-### 7.2 销毁会话工作区
-
-```
-用户关闭会话 / 会话超时
-    ↓
-SandboxManager.destroyWorkspace(sessionId)
-    ↓
-通知沙箱停止所有进程
-    ↓
-清理临时文件
-    ↓
-删除工作区目录（或按配置保留）
-    ↓
-更新会话状态
-```
-
-### 7.3 保留策略
-
-```typescript
-interface RetentionPolicy {
-  mode: 'always' | 'timeout' | 'manual';
-  maxAge?: number;              // 最大保留天数
-  maxSize?: string;             // 最大总大小
-  maxWorkspaces?: number;       // 最大工作区数量
-  preserveOnError?: boolean;    // 错误时保留
-}
-
-// 默认策略：保留 7 天，最多 10 个工作区，总大小 50GB
-const DEFAULT_RETENTION: RetentionPolicy = {
-  mode: 'timeout',
-  maxAge: 7 * 24 * 60 * 60 * 1000,
-  maxWorkspaces: 10,
-  maxSize: '50g',
-  preserveOnError: true
-};
-```
-
----
-
-## 8. 安全考虑
-
-### 8.1 沙箱边界
-
-```typescript
-const SANDBOX_BOUNDARIES = {
-  // 文件系统
-  fileSystem: {
-    allowed: ['${workspace}/**'],              // 仅工作区
-    readonly: ['${core}/**'],                  // 核心只读
-    denied: ['/system/**', '/proc/**', '~/.ssh/**']  // 禁止
-  },
-  
-  // 网络
-  network: {
-    outbound: 'whitelist',                    // 白名单出站
-    inbound: false,                            // 禁止入站
-    dns: true                                  // 允许 DNS
-  },
-  
-  // 进程
-  process: {
-    maxProcesses: 100,                         // 最大进程数
-    maxMemory: '2g',                           // 最大内存
-    maxCpu: 2,                                 // 最大 CPU 核数
-    maxFileSize: '100m'                        // 最大文件大小
-  },
-  
-  // 执行
-  execution: {
-    allowedCommands: ['git', 'npm', 'pnpm', 'node', 'python', 'cargo', 'make', 'cmake'],
-    dangerousCommands: ['rm', 'dd', 'mkfs', 'fdisk'],  // 禁止
-    shellExecution: false                      // 禁止 shell 执行
-  }
-};
-```
-
-### 8.2 Docker 安全配置
-
-```yaml
-# 容器安全配置
-security_opt:
-  - no-new-privileges:true
-  - seccomp:default
-  
-cap_drop:
-  - ALL
-  
-read_only: false  # 工作区需要写入
-
-# 网络（按需启用）
-network_mode: "bridge"  # 或 "none" 完全禁用
-
-# 资源限制
-resources:
-  memory: "2g"
-  cpus: 2
-  pids: 100
-```
-
----
-
-## 9. 实现计划
-
-### 阶段一：基础框架（1-2 天）
-
-- [ ] 创建 `SandboxManager` 基类
-- [ ] 实现 `DockerSandbox` 子类
-- [ ] 创建目录结构生成逻辑
-- [ ] 基础路径抽象层
-
-### 阶段二：工作区管理（2-3 天）
-
-- [ ] 会话工作区创建/销毁
-- [ ] 保留策略实现
-- [ ] 工作区信息持久化
-- [ ] 清理任务调度
-
-### 阶段三：权限集成（2 天）
-
-- [ ] 权限检查接口
-- [ ] 与现有 permissionManager 集成
-- [ ] 用户确认流程
-- [ ] 审计日志
-
-### 阶段四：平台适配（2-3 天）
-
-- [ ] WSL2 沙箱实现（Windows）
-- [ ] Firejail 沙箱实现（Linux）
-- [ ] 路径抽象完善
-- [ ] 跨平台测试
-
-### 阶段五：测试与文档（2 天）
-
-- [ ] 单元测试
-- [ ] 集成测试
-- [ ] 用户文档
-- [ ] 开发者文档
-
----
-
-## 10. 相关文档
+## 8. 相关文档
 
 | 文档 | 说明 |
 |------|------|
-| [ISOLATION.md](../architecture/ISOLATION.md) | 三区隔离模型 |
-| [ARCHITECTURE.md](../v2/01-ARCHITECTURE.md) | 应用架构 |
-| [PERMISSIONS.md](./PERMISSIONS.md) | 权限系统设计（待创建） |
-| [SANDBOX-API.md](./SANDBOX-API.md) | API 接口文档（待创建） |
+| [IMPLANTATION-PLAN.md](./IMPLEMENTATION-PLAN.md) | 基于 Harness 的实施计划 |
+| [SANDBOX-API.md](./SANDBOX-API.md) | API 接口文档 |
+| [../architecture/ISOLATION.md](../architecture/ISOLATION.md) | 三区隔离模型 |
 
 ---
 
-## 11. 变更记录
+## 9. 变更记录
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
-| 2026-03-22 | 1.0.0 | 初始版本 |
+| 2026-03-22 | 1.0.0 | 初始版本，基于 Harness 架构重构 |

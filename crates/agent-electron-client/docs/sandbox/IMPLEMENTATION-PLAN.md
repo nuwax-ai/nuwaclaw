@@ -1,4 +1,4 @@
-# 沙箱方案实施计划
+# 沙箱方案实施计划（基于 Harness）
 
 > **版本**: 1.0.0  
 > **更新**: 2026-03-22  
@@ -10,36 +10,33 @@
 
 ### 1.1 目标
 
-为 Nuwax Agent Electron 客户端实现一个**多平台沙箱工作空间系统**，提供：
+为 Nuwax Agent Electron 客户端实现一个**多平台沙箱工作空间系统**，基于 Harness 架构：
 - 安全隔离的 Agent 执行环境
+- CP 工作流：CP1→CP2→CP3→CP4→CP5
 - 多会话并行支持
 - 跨平台（macOS / Windows / Linux）一致体验
 - 可视化的权限管理和审计
 
-### 1.2 依赖关系
+### 1.2 Harness 架构
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    渲染进程 (React)                          │
-│  - WorkspaceManager UI                                       │
-│  - PermissionApprovalDialog                                  │
-└─────────────────────────┬───────────────────────────────────┘
-                          │ IPC
-┌─────────────────────────▼───────────────────────────────────┐
-│                    主进程 (Main)                             │
-│  ┌─────────────────┐  ┌─────────────────┐                  │
-│  │ WorkspaceManager │  │PermissionManager│                  │
-│  └────────┬─────────┘  └────────┬────────┘                  │
-│           │                     │                            │
-│  ┌────────▼─────────┐  ┌────────▼─────────┐                  │
-│  │ SandboxManager   │  │ PermissionPolicy│                  │
-│  │ (基类/抽象)      │  │                 │                  │
-│  └────────┬─────────┘  └─────────────────┘                  │
-│           │                                                  │
-│  ┌────────▼─────────┐  ┌────────┐  ┌────────┐               │
-│  │ DockerSandbox    │  │WslSand│  │Firejail│               │
-│  │                 │  │box    │  │Sandbox │               │
-│  └─────────────────┘  └────────┘  └────────┘               │
+│                    Harness 工作流                             │
+│                                                              │
+│   CP1 ──→ CP2 ──→ CP3 ──→ CP4 ──→ CP5                      │
+│   任务     规划     执行     门禁     审查                   │
+│   确认                                                   │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                    文件结构                                    │
+│                                                              │
+│   harness/                                                  │
+│   ├── base/          # 基础约束和任务模板                     │
+│   ├── input/         # 输入约束                              │
+│   ├── feedback/      # 反馈机制                              │
+│   ├── projects/      # 项目配置                              │
+│   └── universal/     # 通用配置                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -52,502 +49,438 @@ src/
 ├── main/
 │   └── services/
 │       └── sandbox/
+│           ├── harness/
+│           │   ├── base/
+│           │   │   ├── constraints.md
+│           │   │   └── tasks/
+│           │   │       ├── sandbox-create.md
+│           │   │       ├── sandbox-destroy.md
+│           │   │       └── workspace-execute.md
+│           │   ├── feedback/
+│           │   │   ├── state.json
+│           │   │   └── metrics.json
+│           │   ├── projects/
+│           │   │   ├── darwin/
+│           │   │   ├── windows/
+│           │   │   └── linux/
+│           │   └── universal/
+│           │       ├── commands.md
+│           │       └── security.md
+│           │
 │           ├── SandboxManager.ts      # 抽象基类
 │           ├── DockerSandbox.ts       # Docker 实现
 │           ├── WslSandbox.ts         # WSL 实现
 │           ├── FirejailSandbox.ts     # Firejail 实现
-│           ├── WorkspaceManager.ts    # 工作区管理
-│           ├── PermissionManager.ts  # 权限管理
-│           ├── PermissionPolicy.ts   # 权限策略
-│           ├── WorkspaceStore.ts     # 工作区持久化
-│           └── index.ts              # 导出
+│           ├── WorkspaceManager.ts     # 工作区管理
+│           ├── PermissionManager.ts   # 权限管理
+│           └── index.ts               # 导出
 │
 ├── renderer/
 │   ├── components/
 │   │   └── sandbox/
-│   │       ├── WorkspaceList.tsx     # 工作区列表
-│   │       ├── WorkspaceCard.tsx     # 工作区卡片
-│   │       ├── SandboxSettings.tsx   # 沙箱设置
-│   │       └── PermissionDialog.tsx  # 权限审批弹窗
+│   │       ├── HarnessWorkflow.tsx   # Harness 工作流可视化
+│   │       ├── WorkspaceList.tsx      # 工作区列表
+│   │       ├── QualityGates.tsx       # 门禁状态
+│   │       └── PermissionDialog.tsx   # 权限审批弹窗
 │   │
 │   └── services/
 │       └── sandbox/
-│           └── sandboxService.ts    # 渲染进程沙箱服务
+│           └── sandboxService.ts
 │
-├── shared/
-│   ├── types/
-│   │   └── sandbox.ts               # 共享类型定义
-│   ├── events/
-│   │   └── sandbox.ts               # 沙箱事件定义
-│   └── errors/
-│       └── sandbox.ts               # 沙箱错误类
-│
-└── main/
-    └── ipc/
-        └── sandbox.ts               # IPC 通道定义
+└── shared/
+    ├── types/
+    │   └── sandbox.ts
+    ├── events/
+    │   └── sandbox.ts
+    └── errors/
+        └── sandbox.ts
 ```
 
 ---
 
-## 3. 开发阶段
+## 3. Harness 工作流
 
-### 阶段一：基础设施（预计 1-2 天）
-
-#### 3.1.1 创建类型定义
+### 3.1 CP 阶段定义
 
 ```typescript
-// src/shared/types/sandbox.ts
-// - Platform, SandboxType, PermissionLevel
-// - Workspace, SandboxConfig, ExecuteOptions, ExecuteResult
-// - RetentionPolicy, Permission, PermissionType
-```
+enum Checkpoint {
+  CP1 = 'CP1', // 任务确认
+  CP2 = 'CP2', // 规划分解
+  CP3 = 'CP3', // 执行实现
+  CP4 = 'CP4', // 质量门禁
+  CP5 = 'CP5', // 审查完成
+}
 
-#### 3.1.2 创建错误类
-
-```typescript
-// src/shared/errors/sandbox.ts
-// - SandboxError
-// - SandboxErrorCode enum
-```
-
-#### 3.1.3 创建事件定义
-
-```typescript
-// src/shared/events/sandbox.ts
-// - SANDBOX_EVENTS
-```
-
-#### 3.1.4 创建 SandboxManager 基类
-
-```typescript
-// src/main/services/sandbox/SandboxManager.ts
-// - 抽象方法: init, isAvailable, createWorkspace, destroyWorkspace, execute, readFile, writeFile
-// - 具体方法: getWorkspace, listWorkspaces
-```
-
----
-
-### 阶段二：Docker 沙箱实现（预计 2-3 天）
-
-#### 3.2.1 DockerSandbox 类
-
-```typescript
-// src/main/services/sandbox/DockerSandbox.ts
-// - constructor: 检查 Docker 是否安装
-// - init(): docker info 验证
-// - isAvailable(): docker version 检查
-// - createWorkspace(): docker run --rm -v 创建工作区
-// - destroyWorkspace(): docker stop + rm
-// - execute(): docker exec
-// - readFile/writeFile: docker cp
-```
-
-#### 3.2.2 Docker 镜像选择
-
-```dockerfile
-# 建议使用官方 Node.js 镜像作为基础
-FROM node:20-slim
-
-# 安装常用工具
-RUN apt-get update && apt-get install -y \
-    git \
-    curl \
-    wget \
-    python3 \
-    python3-pip \
-    && rm -rf /var/lib/apt/lists/*
-
-# 设置默认工作目录
-WORKDIR /workspace
-```
-
-#### 3.2.3 Docker 安全配置
-
-```typescript
-// 资源限制
-const dockerRunArgs = [
-  '--memory', config.memoryLimit || '2g',
-  '--cpus', config.cpuLimit || '2',
-  '--pids-limit', '100',
-  '--network', config.networkEnabled ? 'bridge' : 'none',
-  '--read-only', 'false', // 需要写入
-  '--security-opt', 'no-new-privileges:true',
-  '--cap-drop', 'ALL'
-];
-```
-
----
-
-### 阶段三：WorkspaceManager（预计 2 天）
-
-#### 3.3.1 工作区创建流程
-
-```typescript
-async create(sessionId: string): Promise<Workspace> {
-  // 1. 验证沙箱可用
-  if (!await this.sandboxManager.isAvailable()) {
-    throw new SandboxError('Sandbox not available', SandboxErrorCode.SANDBOX_UNAVAILABLE);
-  }
-  
-  // 2. 创建工作区目录
-  await this.sandboxManager.createWorkspace(sessionId);
-  
-  // 3. 初始化工作区配置
-  await this.writeSandboxConfig(sessionId);
-  
-  // 4. 初始化 Git 配置（可选）
-  await this.initGitConfig(sessionId);
-  
-  // 5. 持久化工作区信息
-  await this.workspaceStore.save(workspace);
-  
-  // 6. 发布事件
-  this.emit('workspace:created', { workspace });
-  
-  return workspace;
+interface WorkflowState {
+  currentCheckpoint: Checkpoint;
+  checkpoints: Record<Checkpoint, CheckpointStatus>;
+  gates: Record<string, GateStatus>;
+  metrics: Metrics;
 }
 ```
 
-#### 3.3.2 WorkspaceStore
+### 3.2 工作流执行器
 
 ```typescript
-// src/main/services/sandbox/WorkspaceStore.ts
-// - 使用 SQLite 或 JSON 文件持久化
-// - 方法: save, load, delete, list
+// src/main/services/sandbox/harness/SandboxWorkflow.ts
+
+export class SandboxWorkflow {
+  private state: WorkflowState;
+  private harness: Harness;
+  
+  constructor(sessionId: string) {
+    this.state = this.loadState(sessionId);
+    this.harness = new Harness(this.state);
+  }
+  
+  async run(task: SandboxTask): Promise<WorkflowResult> {
+    // CP1: 任务确认
+    const cp1Result = await this.cp1_validate(task);
+    if (!cp1Result.valid) return { success: false, reason: cp1Result.reason };
+    
+    // CP2: 规划分解
+    const plan = await this.cp2_plan(task);
+    
+    // CP3: 执行实现
+    const execution = await this.cp3_execute(plan);
+    
+    // CP4: 质量门禁
+    const gates = await this.cp4_gates(execution);
+    if (!gates.allPassed) return { success: false, gates };
+    
+    // CP5: 审查完成
+    const result = await this.cp5_finalize(execution);
+    
+    return { success: true, result };
+  }
+  
+  private async cp1_validate(task: SandboxTask): Promise<CP1Result> {
+    // 验证输入参数
+    // 检查沙箱可用性
+    // 更新 state.checkpoints.CP1
+    return { valid: true };
+  }
+  
+  private async cp2_plan(task: SandboxTask): Promise<ExecutionPlan> {
+    // 分解任务
+    // 分配资源
+    // 更新 state.checkpoints.CP2
+    return plan;
+  }
+  
+  private async cp3_execute(plan: ExecutionPlan): Promise<ExecutionResult> {
+    // 执行计划
+    // 记录日志
+    // 更新 state.checkpoints.CP3
+    return result;
+  }
+  
+  private async cp4_gates(result: ExecutionResult): Promise<GateResult> {
+    // 运行所有门禁检查
+    // 更新 state.gates
+    return gates;
+  }
+  
+  private async cp5_finalize(result: ExecutionResult): Promise<FinalResult> {
+    // 更新 metrics
+    // 持久化 state
+    // 更新 state.checkpoints.CP5
+    return finalResult;
+  }
+}
 ```
 
 ---
 
-### 阶段四：PermissionManager（预计 2 天）
+## 4. 任务定义
 
-#### 3.4.1 权限策略
+### 4.1 沙箱创建任务
 
 ```typescript
-// src/main/services/sandbox/PermissionPolicy.ts
-const DEFAULT_POLICY: PermissionPolicy = {
-  autoApprove: ['file:read'],
-  requireConfirm: [
-    'file:write',
-    'command:execute',
-    'network:access',
-    'package:install:npm',
-    'package:install:python'
+// src/main/services/sandbox/harness/tasks/sandbox-create.ts
+
+export const SANDBOX_CREATE_TASK = {
+  name: 'sandbox-create',
+  description: '创建沙箱工作区',
+  
+  input: {
+    sessionId: { type: 'string', required: true },
+    platform: { type: 'enum', values: ['darwin', 'win32', 'linux'], required: true },
+    sandboxType: { type: 'enum', values: ['docker', 'wsl', 'firejail', 'none'], required: true },
+    memoryLimit: { type: 'string', default: '2g' },
+    diskQuota: { type: 'string', default: '10g' },
+  },
+  
+  checkpoints: {
+    CP1: {
+      name: '任务确认',
+      checks: [
+        { type: 'required', field: 'sessionId' },
+        { type: 'platform-match' },
+        { type: 'sandbox-available' },
+      ]
+    },
+    CP2: {
+      name: '规划分解',
+      checks: [
+        { type: 'resource-allocate' },
+        { type: 'path-resolve' },
+      ]
+    },
+    CP3: {
+      name: '执行实现',
+      steps: [
+        { action: 'create-directories' },
+        { action: 'start-sandbox' },
+        { action: 'inject-env' },
+      ]
+    },
+    CP4: {
+      name: '质量门禁',
+      gates: ['config-validate', 'sandbox-create']
+    },
+    CP5: {
+      name: '审查完成',
+      actions: [
+        { action: 'update-state' },
+        { action: 'record-metrics' },
+      ]
+    }
+  },
+  
+  constraints: [
+    'memory-limit:1g-8g',
+    'disk-quota:1g-100g',
+    'no-system-modification',
   ],
-  denyList: [
-    'package:install:system',
-    'command:execute:dangerous'
-  ],
-  workspaceOnly: true,
-  safeCommands: ['git', 'npm', 'pnpm', 'node', 'python', 'cargo', 'make']
 };
 ```
 
-#### 3.4.2 权限检查流程
+### 4.2 命令执行任务
 
 ```typescript
-async checkPermission(
-  sessionId: string,
-  type: PermissionType,
-  target: string
-): Promise<PermissionResult> {
-  // 1. 检查是否工作区路径
-  const workspace = await this.workspaceStore.load(sessionId);
-  const isInWorkspace = target.startsWith(workspace.rootPath);
+// src/main/services/sandbox/harness/tasks/workspace-execute.ts
+
+export const WORKSPACE_EXECUTE_TASK = {
+  name: 'workspace-execute',
+  description: '在沙箱中执行命令',
   
-  // 2. 如果 workspaceOnly 但目标不在工作区，直接拒绝
-  if (this.policy.workspaceOnly && !isInWorkspace) {
-    return { allowed: false, reason: 'Outside workspace' };
+  input: {
+    sessionId: { type: 'string', required: true },
+    command: { type: 'string', required: true },
+    args: { type: 'array', itemType: 'string', default: [] },
+    cwd: { type: 'string', required: false },
+    timeout: { type: 'number', default: 300000 },
+  },
+  
+  checkpoints: {
+    CP1: {
+      name: '任务确认',
+      checks: [
+        { type: 'workspace-exists' },
+        { type: 'command-not-empty' },
+        { type: 'command-whitelisted' },
+      ]
+    },
+    CP2: {
+      name: '规划分解',
+      checks: [
+        { type: 'permission-check' },
+        { type: 'timeout-set' },
+      ]
+    },
+    CP3: {
+      name: '执行实现',
+      steps: [
+        { action: 'request-permission', if: 'needs-confirmation' },
+        { action: 'execute-command' },
+        { action: 'capture-output' },
+      ]
+    },
+    CP4: {
+      name: '质量门禁',
+      gates: ['execute']
+    },
+    CP5: {
+      name: '审查完成',
+      actions: [
+        { action: 'record-metrics' },
+        { action: 'update-state' },
+      ]
+    }
+  },
+  
+  constraints: [
+    'max-timeout:600000',
+    'no-dangerous-commands',
+    'workspace-only',
+  ],
+};
+```
+
+---
+
+## 5. 质量门禁
+
+### 5.1 Gate 定义
+
+```typescript
+// src/main/services/sandbox/harness/gates/index.ts
+
+export const GATES = {
+  'config-validate': {
+    name: '配置验证',
+    check: async (config: SandboxConfig): Promise<GateResult> => {
+      const validPlatforms = ['darwin', 'win32', 'linux'];
+      const validTypes = ['docker', 'wsl', 'firejail', 'none'];
+      
+      if (!validPlatforms.includes(config.platform)) {
+        return { pass: false, reason: `Invalid platform: ${config.platform}` };
+      }
+      
+      if (!validTypes.includes(config.type)) {
+        return { pass: false, reason: `Invalid sandbox type: ${config.type}` };
+      }
+      
+      return { pass: true };
+    }
+  },
+  
+  'sandbox-create': {
+    name: '沙箱创建',
+    check: async (workspace: Workspace): Promise<GateResult> => {
+      // 检查目录存在
+      // 检查容器运行中
+      // 检查网络连接
+      return { pass: true };
+    }
+  },
+  
+  'execute': {
+    name: '命令执行',
+    check: async (result: ExecuteResult): Promise<GateResult> => {
+      if (result.timedOut) {
+        return { pass: false, reason: 'Execution timed out' };
+      }
+      return { pass: result.exitCode === 0, reason: `Exit code: ${result.exitCode}` };
+    }
+  },
+  
+  'cleanup': {
+    name: '清理验证',
+    check: async (workspaceId: string): Promise<GateResult> => {
+      // 检查目录已删除
+      // 检查容器已停止
+      return { pass: true };
+    }
+  },
+};
+```
+
+### 5.2 Gate 执行器
+
+```typescript
+// src/main/services/sandbox/harness/gates/GateRunner.ts
+
+export class GateRunner {
+  async runGates(gateNames: string[], context: any): Promise<GateReport> {
+    const results: Record<string, GateResult> = {};
+    
+    for (const gateName of gateNames) {
+      const gate = GATES[gateName];
+      if (!gate) {
+        results[gateName] = { pass: false, reason: `Gate not found: ${gateName}` };
+        continue;
+      }
+      
+      try {
+        results[gateName] = await gate.check(context);
+      } catch (error) {
+        results[gateName] = { pass: false, reason: `Gate error: ${error.message}` };
+      }
+    }
+    
+    const allPassed = Object.values(results).every(r => r.pass);
+    
+    return { results, allPassed };
   }
-  
-  // 3. 检查自动批准列表
-  if (this.policy.autoApprove.includes(type)) {
-    return { allowed: true, reason: 'Auto-approved' };
-  }
-  
-  // 4. 检查拒绝列表
-  if (this.policy.denyList.includes(type)) {
-    return { allowed: false, reason: 'Denied by policy' };
-  }
-  
-  // 5. 需要用户确认
-  if (this.policy.requireConfirm.includes(type)) {
-    const request = await this.requestPermission(sessionId, type, target);
-    return { 
-      allowed: false, 
-      reason: 'User confirmation required',
-      requestId: request.id 
-    };
-  }
-  
-  return { allowed: false, reason: 'Unknown permission type' };
 }
 ```
 
 ---
 
-### 阶段五：Windows WSL 沙箱（预计 2 天）
+## 6. 开发阶段
 
-#### 3.5.1 WSL 检测与初始化
+### 阶段一：Harness 基础设施（2 天）
 
-```typescript
-async isAvailable(): Promise<boolean> {
-  try {
-    const result = await execAsync('wsl --status');
-    return result.exitCode === 0;
-  } catch {
-    return false;
-  }
-}
-```
+- [ ] 创建 harness 目录结构
+- [ ] 创建 base/constraints.md
+- [ ] 创建任务模板（sandbox-create.md, sandbox-destroy.md, workspace-execute.md）
+- [ ] 创建 state.json 和 metrics.json
+- [ ] 实现 WorkflowState 管理
 
-#### 3.5.2 WSL 工作区管理
+### 阶段二：工作流引擎（2 天）
 
-```typescript
-// WSL 路径映射
-private toWslPath(windowsPath: string): string {
-  // C:\Users\xxx -> /mnt/c/Users/xxx
-  return windowsPath
-    .replace(/\\/g, '/')
-    .replace(/^([A-Z]):/, (_, letter) => `/mnt/${letter.toLowerCase()}`);
-}
+- [ ] 实现 SandboxWorkflow 类
+- [ ] 实现 Checkpoint 转换逻辑
+- [ ] 实现 GateRunner
+- [ ] 实现 Metrics 收集
 
-// WSL 命令执行
-async execute(
-  sessionId: string,
-  command: string,
-  args: string[],
-  options?: ExecuteOptions
-): Promise<ExecuteResult> {
-  const workspace = this.getWorkspace(sessionId);
-  const wslCommand = `wsl -d ${this.distribution} -- ${command} ${args.join(' ')}`;
-  
-  return this.execAsync(wslCommand, {
-    cwd: this.toWslPath(workspace.rootPath),
-    timeout: options?.timeout,
-    env: this.getEnv(workspace)
-  });
-}
-```
+### 阶段三：沙箱实现（3 天）
 
----
+- [ ] DockerSandbox 实现
+- [ ] WslSandbox 实现（Windows）
+- [ ] FirejailSandbox 实现（Linux）
+- [ ] 跨平台路径处理
 
-### 阶段六：Linux Firejail 沙箱（预计 1-2 天）
+### 阶段四：权限管理（2 天）
 
-#### 3.6.1 Firejail 检测
+- [ ] PermissionPolicy 定义
+- [ ] PermissionManager 实现
+- [ ] 用户确认流程
+- [ ] 审计日志
 
-```typescript
-async isAvailable(): Promise<boolean> {
-  try {
-    const result = await execAsync('firejail --version');
-    return result.exitCode === 0;
-  } catch {
-    return false;
-  }
-}
-```
+### 阶段五：UI 集成（3 天）
 
-#### 3.6.2 Firejail 命令执行
+- [ ] HarnessWorkflow 可视化组件
+- [ ] QualityGates 状态显示
+- [ ] PermissionDialog
+- [ ] WorkspaceList
 
-```typescript
-async execute(
-  sessionId: string,
-  command: string,
-  args: string[],
-  options?: ExecuteOptions
-): Promise<ExecuteResult> {
-  const workspace = this.getWorkspace(sessionId);
-  const firejailArgs = [
-    '--profile=' + this.getProfilePath(sessionId),
-    '--whitelist=' + workspace.rootPath,
-    command,
-    ...args
-  ];
-  
-  return this.execAsync('firejail', firejailArgs, {
-    cwd: workspace.rootPath,
-    timeout: options?.timeout
-  });
-}
-```
+### 阶段六：测试与文档（2 天）
 
----
-
-### 阶段七：UI 开发（预计 3-4 天）
-
-#### 3.7.1 工作区列表页面
-
-```tsx
-// src/renderer/components/sandbox/WorkspaceList.tsx
-function WorkspaceList() {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  
-  useEffect(() => {
-    const unsubscribe = window.api.on('workspace:created', (data) => {
-      setWorkspaces(prev => [...prev, data.workspace]);
-    });
-    return unsubscribe;
-  }, []);
-  
-  return (
-    <div className="workspace-list">
-      {workspaces.map(ws => (
-        <WorkspaceCard key={ws.id} workspace={ws} />
-      ))}
-    </div>
-  );
-}
-```
-
-#### 3.7.2 权限审批弹窗
-
-```tsx
-// src/renderer/components/sandbox/PermissionDialog.tsx
-function PermissionDialog({ request, onApprove, onDeny }) {
-  return (
-    <Dialog open={true}>
-      <DialogTitle>权限请求</DialogTitle>
-      <DialogContent>
-        <p>应用请求执行以下操作：</p>
-        <code>{request.type}: {request.target}</code>
-        {request.reason && <p>原因: {request.reason}</p>}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onDeny}>拒绝</Button>
-        <Button onClick={onApprove} variant="contained">批准</Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
-```
-
----
-
-### 阶段八：测试与文档（预计 2 天）
-
-#### 3.8.1 单元测试
-
-```typescript
-// src/test/services/sandbox/DockerSandbox.test.ts
-describe('DockerSandbox', () => {
-  it('should detect Docker availability', async () => {
-    const sandbox = new DockerSandbox(defaultConfig);
-    const available = await sandbox.isAvailable();
-    expect(typeof available).toBe('boolean');
-  });
-  
-  it('should create and destroy workspace', async () => {
-    const sandbox = new DockerSandbox(defaultConfig);
-    const workspace = await sandbox.createWorkspace('test-session');
-    expect(workspace.id).toBe('test-session');
-    await sandbox.destroyWorkspace('test-session');
-  });
-});
-```
-
-#### 3.8.2 集成测试
-
-```typescript
-// src/test/services/sandbox/integration.test.ts
-describe('Sandbox Integration', () => {
-  it('should execute command in sandbox', async () => {
-    const workspace = await workspaceManager.create('test-session');
-    const result = await workspaceManager.execute(
-      'test-session',
-      'echo',
-      ['hello']
-    );
-    expect(result.stdout.trim()).toBe('hello');
-  });
-});
-```
-
----
-
-## 4. 任务清单
-
-### 基础设施
-- [ ] 创建 `src/shared/types/sandbox.ts`
-- [ ] 创建 `src/shared/errors/sandbox.ts`
-- [ ] 创建 `src/shared/events/sandbox.ts`
-- [ ] 创建 `src/main/services/sandbox/SandboxManager.ts` (基类)
-
-### Docker 沙箱
-- [ ] 创建 `src/main/services/sandbox/DockerSandbox.ts`
-- [ ] 测试 Docker 检测
-- [ ] 测试工作区创建/销毁
-- [ ] 测试命令执行
-
-### WorkspaceManager
-- [ ] 创建 `src/main/services/sandbox/WorkspaceManager.ts`
-- [ ] 创建 `src/main/services/sandbox/WorkspaceStore.ts`
-- [ ] 实现保留策略
-- [ ] 实现清理任务
-
-### 权限管理
-- [ ] 创建 `src/main/services/sandbox/PermissionPolicy.ts`
-- [ ] 创建 `src/main/services/sandbox/PermissionManager.ts`
-- [ ] 与 IPC 集成
-- [ ] 实现用户确认流程
-
-### Windows WSL
-- [ ] 创建 `src/main/services/sandbox/WslSandbox.ts`
-- [ ] 测试 WSL 检测
-- [ ] 测试路径转换
-- [ ] 测试命令执行
-
-### Linux Firejail
-- [ ] 创建 `src/main/services/sandbox/FirejailSandbox.ts`
-- [ ] 测试 Firejail 检测
-- [ ] 创建 profile 模板
-- [ ] 测试命令执行
-
-### UI
-- [ ] 创建 `src/renderer/components/sandbox/WorkspaceList.tsx`
-- [ ] 创建 `src/renderer/components/sandbox/WorkspaceCard.tsx`
-- [ ] 创建 `src/renderer/components/sandbox/SandboxSettings.tsx`
-- [ ] 创建 `src/renderer/components/sandbox/PermissionDialog.tsx`
-
-### 测试
-- [ ] 单元测试（每个类）
+- [ ] 单元测试
 - [ ] 集成测试
-- [ ] 跨平台测试（手动）
-
-### 文档
 - [ ] 更新 README
-- [ ] API 文档
-- [ ] 使用指南
 
 ---
 
-## 5. 预计工期
+## 7. 预计工期
 
 | 阶段 | 内容 | 预计时间 |
 |------|------|---------|
-| 一 | 基础设施 | 1-2 天 |
-| 二 | Docker 沙箱 | 2-3 天 |
-| 三 | WorkspaceManager | 2 天 |
-| 四 | PermissionManager | 2 天 |
-| 五 | Windows WSL | 2 天 |
-| 六 | Linux Firejail | 1-2 天 |
-| 七 | UI 开发 | 3-4 天 |
-| 八 | 测试与文档 | 2 天 |
-| **总计** | | **15-19 天** |
+| 一 | Harness 基础设施 | 2 天 |
+| 二 | 工作流引擎 | 2 天 |
+| 三 | 沙箱实现 | 3 天 |
+| 四 | 权限管理 | 2 天 |
+| 五 | UI 集成 | 3 天 |
+| 六 | 测试与文档 | 2 天 |
+| **总计** | | **14 天** |
 
 ---
 
-## 6. 风险与缓解
+## 8. 相关文档
 
-| 风险 | 影响 | 缓解措施 |
-|------|------|---------|
-| Docker 不可用 | macOS/Linux 沙箱失效 | 提供 `--sandbox=none` 回退到本地执行 |
-| WSL 配置复杂 | Windows 沙箱延迟 | 提供 Docker 作为 Windows 主方案 |
-| 权限确认流程影响体验 | 用户频繁被中断 | 提供"记住选择"和"自动批准"选项 |
-| 跨平台路径处理 | Windows 路径问题 | 使用 `path` 模块统一处理 |
+| 文档 | 说明 |
+|------|------|
+| [WORKSPACE-DESIGN.md](./WORKSPACE-DESIGN.md) | 基于 Harness 的设计 |
+| [SANDBOX-API.md](./SANDBOX-API.md) | API 接口文档 |
+| [README.md](./README.md) | 文档索引 |
 
 ---
 
-## 7. 变更记录
+## 9. 变更记录
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
-| 2026-03-22 | 1.0.0 | 初始版本 |
+| 2026-03-22 | 1.0.0 | 初始版本，基于 Harness 架构 |
