@@ -80,6 +80,8 @@ export interface SandboxConfig {
   dockerImage?: string;
   /** Docker Host 地址（可选） */
   dockerHost?: string;
+  /** 只读模式（禁止写入操作） */
+  readOnly?: boolean;
   /** WSL 发行版名称（仅 WSL 沙箱） */
   wslDistribution?: string;
   /** Firejail 配置目录（仅 Firejail 沙箱） */
