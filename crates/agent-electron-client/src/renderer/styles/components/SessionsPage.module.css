@@ -1,0 +1,124 @@
+/**
+ * SessionsPage 组件样式
+ * 包含会话列表视图和内嵌 webview 视图
+ * 支持亮色/暗色主题
+ */
+
+/* ========== 页面容器 ========== */
+.page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ========== 视图 A: 会话列表 ========== */
+.listView {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* 顶部操作栏 */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--color-bg-section-header);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.toolbarLeft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbarTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.toolbarActions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 会话列表 */
+.sessionList {
+  padding: 0 16px;
+  flex: 1;
+}
+
+.sessionRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sessionRow:last-child {
+  border-bottom: none;
+}
+
+.sessionInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sessionTitle {
+  font-size: 13px;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sessionMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.sessionActions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+/* 空状态 */
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 16px;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+  gap: 12px;
+}
+
+.emptyIcon {
+  font-size: 36px;
+  opacity: 0.4;
+}
+
+/* ========== 视图 B: 全屏 webview (sidebar/logo hidden) ========== */
+.webviewFullscreen {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
