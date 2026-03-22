@@ -8,6 +8,8 @@
  */
 
 import { EventEmitter } from "events";
+import * as fs from "fs";
+import * as path from "path";
 import log from "electron-log";
 import type {
   Workspace,
@@ -33,6 +35,43 @@ import {
 } from "@shared/errors/sandbox";
 
 /**
+ * Harness 状态结构
+ */
+interface HarnessState {
+  project: string;
+  version: string;
+  type: string;
+  platform: string;
+  lastUpdated: string;
+  currentTask: string | null;
+  taskStatus: string;
+  stage: string;
+  checkpoints: {
+    CP1: string;
+    CP2: string;
+    CP3: string;
+    CP4: string;
+    CP5: string;
+  };
+  gates: {
+    "config-validate": string;
+    "sandbox-create": string;
+    execute: string;
+    cleanup: string;
+  };
+  metrics: {
+    sandboxesCreated: number;
+    sandboxesDestroyed: number;
+    executionsCompleted: number;
+    executionsBlocked: number;
+    averageExecutionTime: number;
+    humanInterventions: number;
+  };
+  workspaces: Record<string, unknown>;
+  recentChanges: Array<{ timestamp: string; change: string }>;
+}
+
+/**
  * 工作区管理器配置
  */
 export interface WorkspaceManagerConfig {
@@ -50,11 +89,28 @@ export interface WorkspaceManagerConfig {
 export class WorkspaceManager extends EventEmitter {
   private sandboxManager: SandboxManager;
   private permissionManager: PermissionManager;
+  private harnessStatePath: string;
+  private harnessState: HarnessState | null = null;
 
   constructor(config: WorkspaceManagerConfig) {
     super();
     this.sandboxManager = config.sandboxManager;
     this.permissionManager = config.permissionManager;
+
+    // 初始化 Harness 状态文件路径
+    this.harnessStatePath = path.join(
+      __dirname,
+      "..",
+      "..",
+      "..",
+      "..",
+      "harness",
+      "base",
+      "state.json",
+    );
+
+    // 加载 Harness 状态
+    this.loadHarnessState();
 
     // 转发沙箱事件
     this.forwardSandboxEvents();
@@ -125,6 +181,22 @@ export class WorkspaceManager extends EventEmitter {
       // 发出事件
       this.emitEvent("workspace:created", { workspace });
 
+      // 更新 Harness 状态
+      this.updateHarnessState({
+        checkpoints: {
+          CP1: "completed",
+          CP2: "completed",
+          CP3: "completed",
+        },
+        gates: {
+          "sandbox-create": "passed",
+        },
+        metrics: {
+          sandboxesCreated:
+            (this.harnessState?.metrics.sandboxesCreated ?? 0) + 1,
+        },
+      });
+
       log.info("[WorkspaceManager] 工作区创建成功:", sessionId);
       return workspace;
     } catch (error) {
@@ -159,6 +231,14 @@ export class WorkspaceManager extends EventEmitter {
       this.emitEvent("workspace:destroyed", {
         workspaceId: sessionId,
         sessionId,
+      });
+
+      // 更新 Harness 状态
+      this.updateHarnessState({
+        metrics: {
+          sandboxesDestroyed:
+            (this.harnessState?.metrics.sandboxesDestroyed ?? 0) + 1,
+        },
       });
 
       log.info("[WorkspaceManager] 工作区销毁成功:", sessionId);
@@ -269,10 +349,36 @@ export class WorkspaceManager extends EventEmitter {
     // 跳过权限检查（如果明确指定）
     if (!options.skipPermissionCheck) {
       const commandStr = `${command} ${args.join(" ")}`.trim();
-      await this.checkPermission(sessionId, "command:execute", commandStr);
+      try {
+        await this.checkPermission(sessionId, "command:execute", commandStr);
+      } catch (error) {
+        // 权限被阻止，更新 Harness 状态
+        this.updateHarnessState({
+          metrics: {
+            executionsBlocked:
+              (this.harnessState?.metrics.executionsBlocked ?? 0) + 1,
+          },
+        });
+        throw error;
+      }
     }
 
-    return this.sandboxManager.execute(sessionId, command, args, options);
+    const result = await this.sandboxManager.execute(
+      sessionId,
+      command,
+      args,
+      options,
+    );
+
+    // 执行成功，更新 Harness 状态
+    this.updateHarnessState({
+      metrics: {
+        executionsCompleted:
+          (this.harnessState?.metrics.executionsCompleted ?? 0) + 1,
+      },
+    });
+
+    return result;
   }
 
   // ============================================================================
@@ -337,6 +443,14 @@ export class WorkspaceManager extends EventEmitter {
       target,
       reason,
     );
+
+    // 更新 Harness 状态：人工干预
+    this.updateHarnessState({
+      metrics: {
+        humanInterventions:
+          (this.harnessState?.metrics.humanInterventions ?? 0) + 1,
+      },
+    });
   }
 
   /**
@@ -590,6 +704,91 @@ export class WorkspaceManager extends EventEmitter {
    */
   private emitEvent<T extends string>(event: T, data?: unknown): void {
     this.emit(event, data);
+  }
+
+  // ============================================================================
+  // Harness 状态管理
+  // ============================================================================
+
+  /**
+   * 加载 Harness 状态
+   */
+  private loadHarnessState(): void {
+    try {
+      if (fs.existsSync(this.harnessStatePath)) {
+        const content = fs.readFileSync(this.harnessStatePath, "utf-8");
+        this.harnessState = JSON.parse(content) as HarnessState;
+        log.info("[WorkspaceManager] Harness 状态加载成功");
+      } else {
+        log.warn(
+          "[WorkspaceManager] Harness 状态文件不存在:",
+          this.harnessStatePath,
+        );
+      }
+    } catch (error) {
+      log.error("[WorkspaceManager] 加载 Harness 状态失败:", error);
+    }
+  }
+
+  /**
+   * 更新 Harness 状态
+   * @param updates 状态更新
+   */
+  private updateHarnessState(
+    updates: Partial<{
+      checkpoints: Partial<HarnessState["checkpoints"]>;
+      gates: Partial<HarnessState["gates"]>;
+      metrics: Partial<HarnessState["metrics"]>;
+    }>,
+  ): void {
+    try {
+      if (!this.harnessState) {
+        this.loadHarnessState();
+      }
+
+      if (!this.harnessState) {
+        log.warn("[WorkspaceManager] 无法更新 Harness 状态：状态未加载");
+        return;
+      }
+
+      // 更新 checkpoints
+      if (updates.checkpoints) {
+        this.harnessState.checkpoints = {
+          ...this.harnessState.checkpoints,
+          ...updates.checkpoints,
+        };
+      }
+
+      // 更新 gates
+      if (updates.gates) {
+        this.harnessState.gates = {
+          ...this.harnessState.gates,
+          ...updates.gates,
+        };
+      }
+
+      // 更新 metrics
+      if (updates.metrics) {
+        this.harnessState.metrics = {
+          ...this.harnessState.metrics,
+          ...updates.metrics,
+        };
+      }
+
+      // 更新时间戳
+      this.harnessState.lastUpdated = new Date().toISOString().split("T")[0];
+
+      // 写入文件
+      fs.writeFileSync(
+        this.harnessStatePath,
+        JSON.stringify(this.harnessState, null, 2),
+        "utf-8",
+      );
+
+      log.info("[WorkspaceManager] Harness 状态更新成功");
+    } catch (error) {
+      log.error("[WorkspaceManager] 更新 Harness 状态失败:", error);
+    }
   }
 }
 
