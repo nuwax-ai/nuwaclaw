@@ -1,70 +1,110 @@
 {
-  "project": "sandbox-workspace",
-  "version": "1.0.0",
-  "type": "sandbox",
-  "platform": "darwin",
-  "lastUpdated": "2026-03-23",
+  "_schema": "harness-feedback-v2",
+  "project": "nuwaclaw-sandbox",
+  "version": "2.0.0",
+  "lastUpdated": "2026-03-23T00:56:00Z",
   
-  "currentTask": null,
+  "activeTask": null,
   "taskStatus": "idle",
-  "stage": "none",
   
   "checkpoints": {
-    "CP1": "completed",
-    "CP2": "completed",
-    "CP3": "completed",
-    "CP4": "completed",
-    "CP5": "completed"
-  },
-  
-  "gates": {
-    "config-validate": "passed",
-    "sandbox-create": "passed",
-    "execute": "passed",
-    "cleanup": "passed"
-  },
-  
-  "metrics": {
-    "tasksCompleted": 127,
-    "tasksBlocked": 2,
-    "sandboxesCreated": 5,
-    "sandboxesDestroyed": 3,
-    "executionsCompleted": 127,
-    "executionsBlocked": 2,
-    "averageExecutionTime": 2340,
-    "humanInterventions": 1
-  },
-  
-  "workspaces": {
-    "demo-session-1": {
-      "createdAt": "2026-03-20",
-      "lastAccessed": "2026-03-23",
-      "sandboxType": "docker",
-      "status": "active"
+    "CP0_INIT": {
+      "status": "completed",
+      "timestamp": "2026-03-22T00:00:00Z",
+      "duration": 0
     },
-    "demo-session-2": {
-      "createdAt": "2026-03-21",
-      "lastAccessed": "2026-03-22",
-      "sandboxType": "docker",
-      "status": "destroyed"
+    "CP1_PLAN": {
+      "status": "completed",
+      "timestamp": "2026-03-22T00:00:00Z",
+      "duration": 0
+    },
+    "CP2_EXEC": {
+      "status": "completed",
+      "timestamp": "2026-03-22T00:00:00Z",
+      "duration": 0
+    },
+    "CP3_VERIFY": {
+      "status": "completed",
+      "timestamp": "2026-03-22T00:00:00Z",
+      "duration": 0
+    },
+    "CP4_COMPLETE": {
+      "status": "completed",
+      "timestamp": "2026-03-22T00:00:00Z",
+      "duration": 0
     }
   },
   
+  "gates": {
+    "config-validate": {
+      "status": "passed",
+      "lastCheck": "2026-03-22T00:00:00Z"
+    },
+    "sandbox-create": {
+      "status": "passed",
+      "lastCheck": "2026-03-22T00:00:00Z"
+    },
+    "execute": {
+      "status": "passed",
+      "lastCheck": "2026-03-22T00:00:00Z"
+    },
+    "cleanup": {
+      "status": "passed",
+      "lastCheck": "2026-03-22T00:00:00Z"
+    }
+  },
+  
+  "metrics": {
+    "tasks": {
+      "total": 127,
+      "completed": 127,
+      "failed": 0,
+      "blocked": 2,
+      "averageDuration": 2340
+    },
+    "checkpoints": {
+      "total": 635,
+      "passed": 633,
+      "failed": 0,
+      "skipped": 2,
+      "averageDuration": 150
+    },
+    "recovery": {
+      "attempts": 0,
+      "successes": 0,
+      "failures": 0
+    },
+    "humanLoop": {
+      "requests": 1,
+      "approvals": 1,
+      "denials": 0,
+      "averageResponseTime": 30
+    }
+  },
+  
+  "securityMetrics": {
+    "totalOperations": 127,
+    "blockedOperations": 2,
+    "allowedOperations": 125,
+    "pathViolations": 0,
+    "commandViolations": 2
+  },
+  
+  "recentSecurityEvents": [
+    {
+      "timestamp": "2026-03-22T10:00:00Z",
+      "type": "command_blocked",
+      "operation": "nmap",
+      "allowed": false,
+      "reason": "Network scan not allowed"
+    }
+  ],
+  
   "recentChanges": [
     {
-      "timestamp": "2026-03-23T00:00:00Z",
-      "type": "sandbox_created",
-      "description": "Sandbox workspace initialized"
-    },
-    {
-      "timestamp": "2026-03-22T18:30:00Z",
-      "type": "security_audit",
-      "description": "Security audit completed - all gates passed"
-    },
-    {
-      "timestamp": "2026-03-22T15:00:00Z",
-      "type": "permission_policy_updated",
-      "description": "Permission policy updated - rm -rf allowed in sandbox"
+      "timestamp": "2026-03-23T00:56:00Z",
+      "type": "checkpoint_update",
+      "description": "Updated to harness v2 schema"
     }
   ]
 }
