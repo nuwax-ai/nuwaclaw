@@ -1,7 +1,70 @@
 {
-  "timestamp": "2026-03-22T00:00:00Z",
-  "activeWorkspaces": 0,
-  "totalExecutions": 0,
-  "blockedExecutions": 0,
-  "humanInterventions": 0
+  "project": "sandbox-workspace",
+  "version": "1.0.0",
+  "type": "sandbox",
+  "platform": "darwin",
+  "lastUpdated": "2026-03-23",
+  
+  "currentTask": null,
+  "taskStatus": "idle",
+  "stage": "none",
+  
+  "checkpoints": {
+    "CP1": "completed",
+    "CP2": "completed",
+    "CP3": "completed",
+    "CP4": "completed",
+    "CP5": "completed"
+  },
+  
+  "gates": {
+    "config-validate": "passed",
+    "sandbox-create": "passed",
+    "execute": "passed",
+    "cleanup": "passed"
+  },
+  
+  "metrics": {
+    "tasksCompleted": 127,
+    "tasksBlocked": 2,
+    "sandboxesCreated": 5,
+    "sandboxesDestroyed": 3,
+    "executionsCompleted": 127,
+    "executionsBlocked": 2,
+    "averageExecutionTime": 2340,
+    "humanInterventions": 1
+  },
+  
+  "workspaces": {
+    "demo-session-1": {
+      "createdAt": "2026-03-20",
+      "lastAccessed": "2026-03-23",
+      "sandboxType": "docker",
+      "status": "active"
+    },
+    "demo-session-2": {
+      "createdAt": "2026-03-21",
+      "lastAccessed": "2026-03-22",
+      "sandboxType": "docker",
+      "status": "destroyed"
+    }
+  },
+  
+  "recentChanges": [
+    {
+      "timestamp": "2026-03-23T00:00:00Z",
+      "type": "sandbox_created",
+      "description": "Sandbox workspace initialized"
+    },
+    {
+      "timestamp": "2026-03-22T18:30:00Z",
+      "type": "security_audit",
+      "description": "Security audit completed - all gates passed"
+    },
+    {
+      "timestamp": "2026-03-22T15:00:00Z",
+      "type": "permission_policy_updated",
+      "description": "Permission policy updated - rm -rf allowed in sandbox"
+    }
+  ]
 }
