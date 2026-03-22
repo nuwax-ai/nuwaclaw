@@ -1,0 +1,33 @@
+{
+  "project": "sandbox-workspace",
+  "version": "1.0.0",
+  "type": "sandbox",
+  "platform": "darwin",
+  "lastUpdated": "2026-03-22",
+  "currentTask": null,
+  "taskStatus": "idle",
+  "stage": "none",
+  "checkpoints": {
+    "CP1": "pending",
+    "CP2": "pending",
+    "CP3": "pending",
+    "CP4": "pending",
+    "CP5": "pending"
+  },
+  "gates": {
+    "config-validate": "pending",
+    "sandbox-create": "pending",
+    "execute": "pending",
+    "cleanup": "pending"
+  },
+  "metrics": {
+    "sandboxesCreated": 0,
+    "sandboxesDestroyed": 0,
+    "executionsCompleted": 0,
+    "executionsBlocked": 0,
+    "averageExecutionTime": 0,
+    "humanInterventions": 0
+  },
+  "workspaces": {},
+  "recentChanges": []
+}

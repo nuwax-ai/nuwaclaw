@@ -1,32 +1,7 @@
 {
-  "project": "agent-electron-client",
-  "version": "0.9.0",
-  "type": "electron",
-  "lastUpdated": "2026-03-22",
-  "currentTask": null,
-  "taskStatus": "idle",
-  "stage": "none",
-  "checkpoints": {
-    "CP1": "pending",
-    "CP2": "pending",
-    "CP3": "pending",
-    "CP4": "pending",
-    "CP5": "pending"
-  },
-  "gates": {
-    "lint": "pending",
-    "typecheck": "pending",
-    "test": "pending",
-    "build": "pending"
-  },
-  "constraints": {
-    "maxFilesPerTask": 5
-  },
-  "metrics": {
-    "tasksCompleted": 0,
-    "tasksBlocked": 0,
-    "averageTaskDuration": 0,
-    "humanInterventions": 0
-  },
-  "recentChanges": []
+  "timestamp": "2026-03-22T00:00:00Z",
+  "activeWorkspaces": 0,
+  "totalExecutions": 0,
+  "blockedExecutions": 0,
+  "humanInterventions": 0
 }
