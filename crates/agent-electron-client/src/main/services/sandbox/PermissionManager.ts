@@ -629,7 +629,13 @@ export class PermissionManager extends EventEmitter {
 
     // 检查危险命令
     for (const dangerous of DANGEROUS_COMMANDS) {
-      if (lowerTarget.includes(dangerous.toLowerCase())) {
+      // Check with word boundaries to avoid partial matches
+      const escapedDangerous = dangerous.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const dangerousPattern = new RegExp(
+        `(^|\\\\s|\\\\/|\\\\b)${escapedDangerous}(\\\\s|\\\\/|$|\\\\b)`,
+        "i",
+      );
+      if (dangerousPattern.test(lowerTarget)) {
         return {
           isDangerous: true,
           reason: `检测到危险操作: ${dangerous}`,
@@ -648,7 +654,14 @@ export class PermissionManager extends EventEmitter {
       }
 
       // 检查系统配置文件
-      if (lowerTarget.startsWith("/etc/") && !lowerTarget.startsWith("/etc/")) {
+      // Check specific sensitive /etc paths
+      const sensitiveEtcPaths = [
+        "/etc/passwd",
+        "/etc/shadow",
+        "/etc/sudoers",
+        "/etc/group",
+      ];
+      if (sensitiveEtcPaths.some((path) => lowerTarget === path)) {
         return {
           isDangerous: true,
           reason: "禁止访问系统配置目录",

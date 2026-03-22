@@ -132,10 +132,37 @@ export class DockerSandbox extends SandboxManager {
   }
 
   /**
+   * 验证 Docker 镜像名称
+   * 只允许字母、数字、冒号、斜杠、点、下划线和连字符
+   */
+  private validateImageName(image: string): void {
+    if (!/^[a-zA-Z0-9_/.:-]+$/.test(image)) {
+      throw new SandboxError(
+        `Invalid Docker image name: ${image}`,
+        SandboxErrorCode.CONFIG_INVALID,
+      );
+    }
+  }
+
+  /**
+   * 验证容器 ID
+   * 只允许字母、数字和连字符
+   */
+  private validateContainerId(containerId: string): void {
+    if (!/^[a-zA-Z0-9-]+$/.test(containerId)) {
+      throw new SandboxError(
+        `Invalid container ID: ${containerId}`,
+        SandboxErrorCode.CONTAINER_OPERATION_FAILED,
+      );
+    }
+  }
+
+  /**
    * 确保镜像存在
    */
   private async ensureImageExists(): Promise<void> {
     const image = this.dockerConfig.dockerImage;
+    this.validateImageName(image);
 
     try {
       // 检查镜像是否存在
@@ -575,6 +602,8 @@ export class DockerSandbox extends SandboxManager {
       );
     }
 
+    this.validateContainerId(containerId);
+
     try {
       const { stdout } = await execAsync(`docker logs ${containerId}`, {
         timeout: 10000,
@@ -687,6 +716,8 @@ export class DockerSandbox extends SandboxManager {
    * 停止并删除容器
    */
   private async stopContainer(containerId: string): Promise<void> {
+    this.validateContainerId(containerId);
+
     try {
       await execAsync(`docker stop ${containerId}`, { timeout: 30000 });
       await execAsync(`docker rm ${containerId}`, { timeout: 30000 });
