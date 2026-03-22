@@ -738,7 +738,6 @@ function App() {
 
     // 监听设置菜单
     const handleSettings = () => {
-      console.log("[App] 收到 menu:settings 事件");
       setActiveTab("settings");
     };
     window.electronAPI.on("menu:settings", handleSettings);
@@ -748,7 +747,6 @@ function App() {
 
     // 监听依赖管理菜单
     const handleDependencies = () => {
-      console.log("[App] 收到 menu:dependencies 事件");
       setActiveTab("dependencies");
     };
     window.electronAPI.on("menu:dependencies", handleDependencies);
@@ -758,7 +756,6 @@ function App() {
 
     // 监听 MCP 设置菜单
     const handleMcpSettings = () => {
-      console.log("[App] 收到 menu:mcp-settings 事件");
       setActiveTab("settings");
     };
     window.electronAPI.on("menu:mcp-settings", handleMcpSettings);
@@ -768,7 +765,6 @@ function App() {
 
     // 监听新建会话菜单
     const handleNewSession = () => {
-      console.log("[App] 收到 menu:new-session 事件");
       setSessionsAutoOpen(true);
       setActiveTab("sessions");
     };

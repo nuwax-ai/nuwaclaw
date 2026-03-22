@@ -56,9 +56,21 @@ export interface DisplayDependencyItem {
 
 /** Mock API 接口（用于测试） */
 export interface MockDependenciesApi {
-  checkAll: () => Promise<{ success: boolean; results?: LocalDependencyItem[]; error?: string }>;
-  checkUv: () => Promise<{ success: boolean; installed: boolean; bundled?: boolean; version?: string }>;
-  installPackage: (name: string, options?: { version?: string }) => Promise<{ success: boolean; version?: string; error?: string }>;
+  checkAll: () => Promise<{
+    success: boolean;
+    results?: LocalDependencyItem[];
+    error?: string;
+  }>;
+  checkUv: () => Promise<{
+    success: boolean;
+    installed: boolean;
+    bundled?: boolean;
+    version?: string;
+  }>;
+  installPackage: (
+    name: string,
+    options?: { version?: string },
+  ) => Promise<{ success: boolean; version?: string; error?: string }>;
   openExternal: (url: string) => Promise<void>;
 }
 
@@ -93,24 +105,45 @@ export default function SetupDependencies({
   onCompleteRef.current = onComplete;
 
   // API 访问器（支持 mock 注入，使用 useMemo 避免每次渲染重建）
-  const api = useMemo(() => mockApi || {
-    checkAll: () => window.electronAPI?.dependencies.checkAll() as Promise<{ success: boolean; results?: LocalDependencyItem[]; error?: string }>,
-    checkUv: () => window.electronAPI?.dependencies.checkUv() as Promise<{ success: boolean; installed: boolean; bundled?: boolean; version?: string }>,
-    installPackage: (name: string, options?: { version?: string }) =>
-      window.electronAPI?.dependencies.installPackage(name, options) as Promise<{ success: boolean; version?: string; error?: string }>,
-    openExternal: (url: string) => window.electronAPI?.shell.openExternal(url) as Promise<void>,
-  }, [mockApi]);
+  const api = useMemo(
+    () =>
+      mockApi || {
+        checkAll: () =>
+          window.electronAPI?.dependencies.checkAll() as Promise<{
+            success: boolean;
+            results?: LocalDependencyItem[];
+            error?: string;
+          }>,
+        checkUv: () =>
+          window.electronAPI?.dependencies.checkUv() as Promise<{
+            success: boolean;
+            installed: boolean;
+            bundled?: boolean;
+            version?: string;
+          }>,
+        installPackage: (name: string, options?: { version?: string }) =>
+          window.electronAPI?.dependencies.installPackage(
+            name,
+            options,
+          ) as Promise<{ success: boolean; version?: string; error?: string }>,
+        openExternal: (url: string) =>
+          window.electronAPI?.shell.openExternal(url) as Promise<void>,
+      },
+    [mockApi],
+  );
 
-  const openUrl = useCallback(async (url: string) => {
-    try {
-      await api.openExternal(url);
-    } catch (e) {
-      console.error("[SetupDeps] openExternal failed:", e);
-    }
-  }, [api]);
+  const openUrl = useCallback(
+    async (url: string) => {
+      try {
+        await api.openExternal(url);
+      } catch (e) {
+        console.error("[SetupDeps] openExternal failed:", e);
+      }
+    },
+    [api],
+  );
 
   const checkAllDeps = useCallback(async () => {
-    console.log("[SetupDeps] checkAllDeps 开始");
     setInstallPhase("checking");
 
     try {
@@ -120,7 +153,6 @@ export default function SetupDependencies({
       }
 
       const deps: LocalDependencyItem[] = result.results;
-      console.log("[SetupDeps] 依赖检测完成:", deps.length, "项");
 
       const unified: DisplayDependencyItem[] = deps.map((d) => ({
         name: d.name,
@@ -172,7 +204,6 @@ export default function SetupDependencies({
       if (
         unified.every((d) => d.status === "installed" || d.status === "bundled")
       ) {
-        console.log("[SetupDeps] 所有依赖已就绪");
         setInstallPhase("completed");
         setTimeout(() => onCompleteRef.current(), 1500);
       } else {
@@ -182,9 +213,7 @@ export default function SetupDependencies({
     } catch (error) {
       console.error("[SetupDeps] 检测失败:", error);
       setInstallPhase("error");
-      setInstallError(
-        error instanceof Error ? error.message : "检测依赖失败",
-      );
+      setInstallError(error instanceof Error ? error.message : "检测依赖失败");
     }
   }, [api]);
 
@@ -195,7 +224,8 @@ export default function SetupDependencies({
 
   // 安装逻辑（移入 useEffect 避免闭包问题）
   useEffect(() => {
-    if (installPhase !== "installing" || projectInstallTriggered.current) return;
+    if (installPhase !== "installing" || projectInstallTriggered.current)
+      return;
 
     projectInstallTriggered.current = true;
     setInstallProgress(0);
@@ -278,7 +308,8 @@ export default function SetupDependencies({
                 ? {
                     ...d,
                     status: "error" as const,
-                    errorMessage: error instanceof Error ? error.message : "安装失败",
+                    errorMessage:
+                      error instanceof Error ? error.message : "安装失败",
                   }
                 : d,
             ),
@@ -302,7 +333,9 @@ export default function SetupDependencies({
       case "installed":
       case "bundled":
         return (
-          <CheckCircleOutlined style={{ color: "var(--color-success)", fontSize: 12 }} />
+          <CheckCircleOutlined
+            style={{ color: "var(--color-success)", fontSize: 12 }}
+          />
         );
       case "missing":
       case "outdated":
@@ -312,10 +345,16 @@ export default function SetupDependencies({
           />
         );
       case "installing":
-        return <LoadingOutlined style={{ color: "var(--color-text-tertiary)", fontSize: 12 }} />;
+        return (
+          <LoadingOutlined
+            style={{ color: "var(--color-text-tertiary)", fontSize: 12 }}
+          />
+        );
       case "error":
         return (
-          <CloseCircleOutlined style={{ color: "var(--color-error)", fontSize: 12 }} />
+          <CloseCircleOutlined
+            style={{ color: "var(--color-error)", fontSize: 12 }}
+          />
         );
       default:
         return <LoadingOutlined style={{ fontSize: 12 }} />;
@@ -422,7 +461,9 @@ export default function SetupDependencies({
                   justifyContent: "space-between",
                   padding: "8px 12px",
                   borderBottom:
-                    i < displayDeps.length - 1 ? "1px solid var(--color-border-secondary)" : "none",
+                    i < displayDeps.length - 1
+                      ? "1px solid var(--color-border-secondary)"
+                      : "none",
                   background: getBgColor(),
                 }}
               >
@@ -435,7 +476,12 @@ export default function SetupDependencies({
                       {item.displayName}
                     </span>
                     {item.version && (
-                      <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: "var(--color-text-tertiary)",
+                        }}
+                      >
                         v{item.version}
                       </span>
                     )}
@@ -454,7 +500,9 @@ export default function SetupDependencies({
                         <span> ({item.requiredVersion})</span>
                       )}
                       {item.errorMessage && (
-                        <span style={{ color: "var(--color-error)", marginLeft: 4 }}>
+                        <span
+                          style={{ color: "var(--color-error)", marginLeft: 4 }}
+                        >
                           {item.errorMessage}
                         </span>
                       )}
@@ -509,7 +557,9 @@ export default function SetupDependencies({
           }}
         >
           {installPhase === "completed" ? (
-            <CheckCircleOutlined style={{ fontSize: 40, color: "var(--color-success)" }} />
+            <CheckCircleOutlined
+              style={{ fontSize: 40, color: "var(--color-success)" }}
+            />
           ) : (
             <Spin size="large" />
           )}

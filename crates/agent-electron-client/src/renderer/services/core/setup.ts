@@ -8,7 +8,7 @@
  * - Persistence
  */
 
-import { message } from 'antd';
+import { message } from "antd";
 import {
   DEFAULT_SERVER_HOST,
   DEFAULT_AGENT_RUNNER_PORT,
@@ -16,7 +16,7 @@ import {
   STORAGE_KEYS,
   AUTH_KEYS,
   DEFAULT_AI_ENGINE,
-} from '@shared/constants';
+} from "@shared/constants";
 
 // ==================== Types ====================
 
@@ -62,7 +62,7 @@ export const DEFAULT_STEP1_CONFIG: Step1Config = {
   serverHost: DEFAULT_SERVER_HOST,
   agentPort: DEFAULT_AGENT_RUNNER_PORT,
   fileServerPort: DEFAULT_FILE_SERVER_PORT,
-  workspaceDir: '',
+  workspaceDir: "",
 };
 
 export const DEFAULT_SETUP_STATE: SetupState = {
@@ -91,7 +91,7 @@ class SetupService {
       const state = await this.getSetupState();
       return state.completed;
     } catch (error) {
-      console.error('[Setup] Check failed:', error);
+      console.error("[Setup] Check failed:", error);
       return false;
     }
   }
@@ -101,10 +101,14 @@ class SetupService {
    */
   async getSetupState(): Promise<SetupState> {
     try {
-      const state = await window.electronAPI?.settings.get(STORAGE_KEYS.SETUP_STATE);
-      return state ? { ...DEFAULT_SETUP_STATE, ...(state as SetupState) } : DEFAULT_SETUP_STATE;
+      const state = await window.electronAPI?.settings.get(
+        STORAGE_KEYS.SETUP_STATE,
+      );
+      return state
+        ? { ...DEFAULT_SETUP_STATE, ...(state as SetupState) }
+        : DEFAULT_SETUP_STATE;
     } catch (error) {
-      console.error('[Setup] Get state failed:', error);
+      console.error("[Setup] Get state failed:", error);
       return DEFAULT_SETUP_STATE;
     }
   }
@@ -114,10 +118,14 @@ class SetupService {
    */
   async getStep1Config(): Promise<Step1Config> {
     try {
-      const config = await window.electronAPI?.settings.get(STORAGE_KEYS.STEP1_CONFIG);
-      return config ? { ...DEFAULT_STEP1_CONFIG, ...(config as Step1Config) } : DEFAULT_STEP1_CONFIG;
+      const config = await window.electronAPI?.settings.get(
+        STORAGE_KEYS.STEP1_CONFIG,
+      );
+      return config
+        ? { ...DEFAULT_STEP1_CONFIG, ...(config as Step1Config) }
+        : DEFAULT_STEP1_CONFIG;
     } catch (error) {
-      console.error('[Setup] Get Step1 failed:', error);
+      console.error("[Setup] Get Step1 failed:", error);
       return DEFAULT_STEP1_CONFIG;
     }
   }
@@ -128,16 +136,16 @@ class SetupService {
   async saveStep1Config(config: Step1Config): Promise<void> {
     try {
       await window.electronAPI?.settings.set(STORAGE_KEYS.STEP1_CONFIG, config);
-      
+
       // Mark step 1 as completed
       const state = await this.getSetupState();
       state.step1Completed = true;
       state.currentStep = 2;
       await window.electronAPI?.settings.set(STORAGE_KEYS.SETUP_STATE, state);
-      
-      console.log('[Setup] Step 1 saved:', config);
+
+      console.log("[Setup] Step 1 saved:", config);
     } catch (error) {
-      console.error('[Setup] Save Step1 failed:', error);
+      console.error("[Setup] Save Step1 failed:", error);
       throw error;
     }
   }
@@ -151,9 +159,8 @@ class SetupService {
       state.step2Completed = true;
       state.currentStep = 3;
       await window.electronAPI?.settings.set(STORAGE_KEYS.SETUP_STATE, state);
-      console.log('[Setup] Step 2 completed');
     } catch (error) {
-      console.error('[Setup] Complete Step2 failed:', error);
+      console.error("[Setup] Complete Step2 failed:", error);
       throw error;
     }
   }
@@ -167,9 +174,8 @@ class SetupService {
       state.completed = true;
       state.currentStep = 0;
       await window.electronAPI?.settings.set(STORAGE_KEYS.SETUP_STATE, state);
-      console.log('[Setup] Setup completed');
     } catch (error) {
-      console.error('[Setup] Complete failed:', error);
+      console.error("[Setup] Complete failed:", error);
       throw error;
     }
   }
@@ -180,14 +186,19 @@ class SetupService {
    */
   async resetSetup(): Promise<void> {
     try {
-      await window.electronAPI?.settings.set(STORAGE_KEYS.SETUP_STATE, DEFAULT_SETUP_STATE);
+      await window.electronAPI?.settings.set(
+        STORAGE_KEYS.SETUP_STATE,
+        DEFAULT_SETUP_STATE,
+      );
       await window.electronAPI?.settings.set(STORAGE_KEYS.STEP1_CONFIG, null);
       await window.electronAPI?.settings.set(STORAGE_KEYS.AGENT_CONFIG, null);
-      await window.electronAPI?.settings.set(STORAGE_KEYS.LANPROXY_CONFIG, null);
+      await window.electronAPI?.settings.set(
+        STORAGE_KEYS.LANPROXY_CONFIG,
+        null,
+      );
       await window.electronAPI?.settings.set(STORAGE_KEYS.MCP_CONFIG, null);
-      console.log('[Setup] Reset completed');
     } catch (error) {
-      console.error('[Setup] Reset failed:', error);
+      console.error("[Setup] Reset failed:", error);
       throw error;
     }
   }
@@ -201,10 +212,10 @@ class AuthService {
    */
   async getAuthUser(): Promise<AuthUserInfo | null> {
     try {
-      const user = await window.electronAPI?.settings.get('auth.user_info');
+      const user = await window.electronAPI?.settings.get("auth.user_info");
       return user as AuthUserInfo | null;
     } catch (error) {
-      console.error('[Auth] Get user failed:', error);
+      console.error("[Auth] Get user failed:", error);
       return null;
     }
   }
@@ -214,14 +225,13 @@ class AuthService {
    */
   async clearAuth(): Promise<void> {
     try {
-      await window.electronAPI?.settings.set('auth.username', null);
-      await window.electronAPI?.settings.set('auth.password', null);
-      await window.electronAPI?.settings.set('auth.config_key', null);
-      await window.electronAPI?.settings.set('auth.user_info', null);
-      await window.electronAPI?.settings.set('auth.online_status', null);
-      console.log('[Auth] Cleared');
+      await window.electronAPI?.settings.set("auth.username", null);
+      await window.electronAPI?.settings.set("auth.password", null);
+      await window.electronAPI?.settings.set("auth.config_key", null);
+      await window.electronAPI?.settings.set("auth.user_info", null);
+      await window.electronAPI?.settings.set("auth.online_status", null);
     } catch (error) {
-      console.error('[Auth] Clear failed:', error);
+      console.error("[Auth] Clear failed:", error);
       throw error;
     }
   }
@@ -259,9 +269,8 @@ class ServiceManager {
 
       // Check File Server (if implemented)
       // const fsStatus = await window.electronAPI?.fileServer.status();
-
     } catch (error) {
-      console.error('[Service] Get status failed:', error);
+      console.error("[Service] Get status failed:", error);
     }
 
     return status;
@@ -278,14 +287,16 @@ class ServiceManager {
     workspaceDir?: string;
   }): Promise<{ success: boolean; error?: string }> {
     try {
-      return await window.electronAPI?.agent.init({
-        engine: (config.engine || DEFAULT_AI_ENGINE) as AgentEngineType,
-        apiKey: config.apiKey,
-        baseUrl: config.baseUrl,
-        model: config.model,
-        workspaceDir: config.workspaceDir || '',
-        // mcpServers auto-injected by agent:init handler
-      }) || { success: false, error: 'IPC failed' };
+      return (
+        (await window.electronAPI?.agent.init({
+          engine: (config.engine || DEFAULT_AI_ENGINE) as AgentEngineType,
+          apiKey: config.apiKey,
+          baseUrl: config.baseUrl,
+          model: config.model,
+          workspaceDir: config.workspaceDir || "",
+          // mcpServers auto-injected by agent:init handler
+        })) || { success: false, error: "IPC failed" }
+      );
     } catch (error) {
       return { success: false, error: String(error) };
     }
@@ -296,7 +307,12 @@ class ServiceManager {
    */
   async stopAgent(): Promise<{ success: boolean; error?: string }> {
     try {
-      return await window.electronAPI?.agent.destroy() || { success: false, error: 'IPC failed' };
+      return (
+        (await window.electronAPI?.agent.destroy()) || {
+          success: false,
+          error: "IPC failed",
+        }
+      );
     } catch (error) {
       return { success: false, error: String(error) };
     }
@@ -305,9 +321,16 @@ class ServiceManager {
   /**
    * Start File Server
    */
-  async startFileServer(port: number = 60000): Promise<{ success: boolean; error?: string }> {
+  async startFileServer(
+    port: number = 60000,
+  ): Promise<{ success: boolean; error?: string }> {
     try {
-      return await window.electronAPI?.fileServer?.start?.(port) || { success: false, error: 'Not implemented' };
+      return (
+        (await window.electronAPI?.fileServer?.start?.(port)) || {
+          success: false,
+          error: "Not implemented",
+        }
+      );
     } catch (error) {
       return { success: false, error: String(error) };
     }
@@ -318,7 +341,12 @@ class ServiceManager {
    */
   async stopFileServer(): Promise<{ success: boolean; error?: string }> {
     try {
-      return await window.electronAPI?.fileServer?.stop?.() || { success: false, error: 'Not implemented' };
+      return (
+        (await window.electronAPI?.fileServer?.stop?.()) || {
+          success: false,
+          error: "Not implemented",
+        }
+      );
     } catch (error) {
       return { success: false, error: String(error) };
     }

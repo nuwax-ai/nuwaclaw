@@ -184,7 +184,6 @@ function ClientPage({
       // 1. 先调用 reg 接口，获取最新配置（serverHost/serverPort）
       try {
         await syncConfigToServer({ suppressToast: true });
-        console.log("[ClientPage] 登录后 reg 同步成功");
       } catch (e) {
         console.error("[ClientPage] 登录后 reg 同步失败:", e);
       }
@@ -517,7 +516,6 @@ function ClientPage({
 
     // 监听依赖同步完成事件（客户端升级后自动安装新版本依赖），重新检测
     const handleDepsSyncCompleted = () => {
-      console.log("[ClientPage] deps:syncCompleted, re-checking dependencies");
       checkDependencies();
     };
     window.electronAPI?.on(

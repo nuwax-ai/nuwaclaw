@@ -405,8 +405,6 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
   }
 
   try {
-    console.log("[Auth] 重新注册客户端（使用 savedKey）...");
-
     const deviceId = await window.electronAPI?.app.getDeviceId();
     const params: ClientRegisterParams = {
       username: username || "",
@@ -430,7 +428,6 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
       await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
     }
 
-    console.log("[Auth] 重新注册成功");
     return response;
   } catch (error) {
     console.error("[Auth] 重新注册失败:", error);
