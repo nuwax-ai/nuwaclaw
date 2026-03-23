@@ -36,6 +36,7 @@ import { resolveNpmPackageEntry } from "../utils/spawnNoWindow";
 import { APP_DATA_DIR_NAME } from "../constants";
 import { isWindows } from "../system/shellEnv";
 import { persistentMcpBridge } from "./persistentMcpBridge";
+import { windowsMcpManager, getWindowsMcpUrl } from "./windowsMcp.js";
 
 // ========== Shared Helpers ==========
 
@@ -1048,6 +1049,18 @@ export async function syncMcpConfigToProxyAndReload(
     ...DEFAULT_MCP_PROXY_CONFIG.mcpServers,
     ...realOnly,
   };
+
+  // Windows 平台：注入 windows-mcp（如果运行中）
+  if (isWindows()) {
+    const windowsMcpUrl = getWindowsMcpUrl();
+    if (windowsMcpUrl) {
+      merged["windows-mcp"] = {
+        url: windowsMcpUrl,
+        transport: "streamable-http",
+      };
+      log.info(`[McpProxy] Windows-MCP injected: ${windowsMcpUrl}`);
+    }
+  }
 
   // 为所有 MCP 服务器注入基础环境变量（包括 PATH）
   const mergedWithEnv = injectBaseEnvToMcpServers(merged);

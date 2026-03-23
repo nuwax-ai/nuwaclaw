@@ -7,3 +7,16 @@ export { loadConfig, type GuiAgentConfig } from './config.js';
 export type { ScreenshotResult } from './desktop/screenshot.js';
 export type { DisplayDescriptor } from './desktop/display.js';
 export type { TaskResult, ProgressInfo, StepRecord } from './agent/taskRunner.js';
+
+// Windows-MCP 管理
+export { WindowsMcpManager, healthCheck, waitForReady } from './windowsMcp/index.js';
+export type {
+  WindowsMcpStatus,
+  ProcessConfig,
+  ProcessRunner,
+  StartResult,
+  StopResult,
+  WindowsMcpConfig,
+  HealthCheckOptions,
+  HealthCheckResult,
+} from './windowsMcp/index.js';
