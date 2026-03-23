@@ -10,7 +10,7 @@
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
     "dev:electron": "wait-on http://localhost:60173 && npm run build:main && electron .",
-    "build:main": "tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
+    "build:main": "node scripts/build/generate-build-flags.js && tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
     "build:renderer": "vite build",
     "build": "npm run build:main && npm run build:renderer",
     "test": "vitest",
@@ -26,7 +26,8 @@
     "check-ports": "node scripts/tools/check-startup-ports.js",
     "check-ports:dev": "node scripts/tools/check-startup-ports.js --vite",
     "prepare:mcp-proxy": "node scripts/prepare/prepare-mcp-proxy.js",
-    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy",
+    "prepare:gui-server": "node scripts/prepare/prepare-gui-server.js",
+    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy && npm run prepare:gui-server",
     "electron-rebuild": "electron-rebuild -f -w better-sqlite3",
     "build:electron": "npm run build && npm run prepare:all && electron-builder --config.compression=maximum",
     "dist": "npm run build:electron -- --mac",
@@ -87,6 +88,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.0",
     "nuwax-mcp-stdio-proxy": "workspace:*",
+    "agent-gui-server": "workspace:*",
     "sharp": "^0.34.5",
     "tsc-alias": "^1.8.16",
     "typescript-eslint": "^8.55.0",
@@ -176,6 +178,13 @@
       {
         "from": "resources/nuwax-mcp-stdio-proxy",
         "to": "nuwax-mcp-stdio-proxy",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/agent-gui-server",
+        "to": "agent-gui-server",
         "filter": [
           "**/*"
         ]

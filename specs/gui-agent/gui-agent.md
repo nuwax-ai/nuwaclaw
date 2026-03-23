@@ -89,6 +89,7 @@ GUI Agent 的**唯一入口**是 MCP 协议。暴露两类 Tool：
 | `gui_list_displays` | 获取显示器列表 | 无 | `{ displays: [...] }` |
 | `gui_find_image` | 在屏幕上查找图像 | `templateImage`, `confidence?` | `{ found, region?, confidence? }` |
 | `gui_wait_for_image` | 等待图像出现 | `templateImage`, `timeout?`, `confidence?` | `{ found, region?, elapsed }` |
+| `gui_analyze_screen` | 视觉模型分析屏幕 | `prompt`, `displayIndex?` | `{ analysis, imageWidth, imageHeight }` |
 
 #### 3.1.2 完整任务工具（GUI Agent 自主执行）
 

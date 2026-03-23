@@ -271,6 +271,7 @@ export const SERVICE_NAMES = {
   NuwaxLanproxy: "代理服务",
   Rcoder: "Agent 服务",
   McpProxy: "MCP Proxy 服务",
+  GuiAgent: "GUI Agent 服务",
 } as const;
 
 /** 服务描述 */
@@ -279,6 +280,7 @@ export const SERVICE_DESCRIPTIONS = {
   NuwaxLanproxy: "网络通道",
   Rcoder: "Agent 核心服务",
   McpProxy: "MCP 协议转换工具",
+  GuiAgent: "桌面自动化视觉操作服务",
 } as const;
 
 /** Agent 状态配置 */

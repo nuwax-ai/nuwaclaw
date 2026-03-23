@@ -705,6 +705,7 @@ export class UnifiedAgentService extends EventEmitter {
     if (request.agent_config?.context_servers) {
       // Resolve uvx/uv commands to app-internal binaries for dynamic MCP servers
       // For bridge entries (mcp-proxy convert --config ...), extract inner real MCP servers
+      // For bridge entries (mcp-proxy convert --config ...), extract inner real MCP servers
       let mcpModule: {
         resolveUvCommand: (
           cmd: string,

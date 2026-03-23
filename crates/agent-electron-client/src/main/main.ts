@@ -123,6 +123,7 @@ const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 const lanproxy = new ManagedProcess("lanproxy");
 const fileServer = new ManagedProcess("fileServer");
 const agentRunner = new ManagedProcess("agentRunner");
+const guiServer = new ManagedProcess("gui-agent-server");
 let agentRunnerPorts: { backendPort: number; proxyPort: number } | null = null;
 
 function createWindow() {
@@ -291,6 +292,7 @@ async function cleanupAllProcesses(): Promise<void> {
   agentRunner.kill();
   lanproxy.kill();
   fileServer.kill();
+  guiServer.kill();
 
   try {
     await mcpProxyManager.cleanup();
@@ -376,6 +378,7 @@ app.whenReady().then(async () => {
     lanproxy,
     fileServer,
     agentRunner,
+    guiServer,
     get agentRunnerPorts() {
       return agentRunnerPorts;
     },

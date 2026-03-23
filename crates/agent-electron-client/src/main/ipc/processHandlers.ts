@@ -4,6 +4,7 @@ import * as fs from "fs";
 import { app } from "electron";
 import log from "electron-log";
 import type { HandlerContext } from "@shared/types/ipc";
+import type { GuiVisionModelConfig } from "@shared/types/computerTypes";
 import { readSetting } from "../db";
 import {
   APP_DATA_DIR_NAME,
@@ -291,6 +292,117 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     return { success: true };
   });
 
+  // ==================== Helper: Start GUI Agent Server ====================
+  const startGuiServerProcess = async (): Promise<{
+    success: boolean;
+    error?: string;
+  }> => {
+    const { getAppEnv, getResourcesPath, getNodeBinPathWithFallback } =
+      await import("../services/system/dependencies");
+
+    if (ctx.guiServer.running) {
+      return { success: true, message: "Already running" } as any;
+    }
+
+    // 1. 从 SQLite 读取视觉模型配置
+    const visionConfig = readSetting(
+      "gui_agent_vision_model",
+    ) as GuiVisionModelConfig | null;
+    if (!visionConfig) {
+      return {
+        success: false,
+        error: "未配置 GUI Agent 视觉模型，请先在设置中配置",
+      };
+    }
+
+    // 2. 确定 API Key（专用 > 全局）
+    const globalConfig = readSetting("agent_config") as any;
+    const apiKey = visionConfig.apiKey || globalConfig?.apiKey;
+    if (!apiKey) {
+      return {
+        success: false,
+        error: "缺少 API Key，请在 GUI Agent 设置或全局设置中配置",
+      };
+    }
+
+    // 3. 定位 gui-server 入口文件（与 mcp-proxy 一致：resources/ 目录，由 prepare 脚本复制）
+    const guiServerDir = path.join(getResourcesPath(), "agent-gui-server");
+    const serverJsPath = path.join(guiServerDir, "dist", "index.js");
+
+    if (!fs.existsSync(serverJsPath)) {
+      return {
+        success: false,
+        error: `GUI Agent Server 未就绪: ${serverJsPath}（请执行 npm run prepare:gui-server）`,
+      };
+    }
+
+    // 3.5 定位 Node.js 二进制（使用内置 Node 24，由 prepare:node 下载到 resources/node/）
+    // 不使用 process.execPath（Electron 二进制），因为 nut-js 原生模块会初始化 macOS AppKit，
+    // 导致 Dock 出现第二个应用图标
+    const nodeBin = getNodeBinPathWithFallback();
+    if (!nodeBin) {
+      return {
+        success: false,
+        error: "内置 Node.js 未找到，请确认 prepare:node 已执行",
+      };
+    }
+
+    // 4. 构建环境变量（从视觉模型配置转为 GUI_AGENT_* env）
+    // NODE_PATH 指向 resources/agent-gui-server/node_modules，让 external 原生依赖可被加载
+    const guiNodeModules = path.join(guiServerDir, "node_modules");
+    const env: Record<string, string> = {
+      ...getAppEnv(),
+      NODE_PATH: guiNodeModules,
+      GUI_AGENT_API_KEY: apiKey,
+      GUI_AGENT_PROVIDER: visionConfig.provider,
+      GUI_AGENT_API_PROTOCOL: visionConfig.apiProtocol || "anthropic",
+      GUI_AGENT_MODEL: visionConfig.model,
+      GUI_AGENT_DISPLAY_INDEX: String(visionConfig.displayIndex ?? 0),
+    };
+
+    if (visionConfig.baseUrl) env.GUI_AGENT_BASE_URL = visionConfig.baseUrl;
+    if (visionConfig.coordinateMode && visionConfig.coordinateMode !== "auto") {
+      env.GUI_AGENT_COORDINATE_MODE = visionConfig.coordinateMode;
+    }
+    if (visionConfig.memoryProvider)
+      env.GUI_AGENT_MEMORY_PROVIDER = visionConfig.memoryProvider;
+    if (visionConfig.memoryModel)
+      env.GUI_AGENT_MEMORY_MODEL = visionConfig.memoryModel;
+    if (visionConfig.maxSteps)
+      env.GUI_AGENT_MAX_STEPS = String(visionConfig.maxSteps);
+    if (visionConfig.stepDelayMs)
+      env.GUI_AGENT_STEP_DELAY_MS = String(visionConfig.stepDelayMs);
+    if (visionConfig.jpegQuality)
+      env.GUI_AGENT_JPEG_QUALITY = String(visionConfig.jpegQuality);
+
+    log.info("[GuiServer] 正在启动", {
+      provider: visionConfig.provider,
+      model: visionConfig.model,
+    });
+
+    log.info("[GuiServer] 使用 Node.js:", nodeBin);
+
+    return ctx.guiServer.start({
+      command: nodeBin,
+      args: [serverJsPath, "--transport", "http"],
+      env,
+      startupDelayMs: DEFAULT_STARTUP_DELAY,
+    });
+  };
+
+  // GUI Agent Server handlers
+  ipcMain.handle("guiServer:start", async () => {
+    return startGuiServerProcess();
+  });
+
+  ipcMain.handle("guiServer:stop", async () => {
+    return ctx.guiServer.stop();
+  });
+
+  ipcMain.handle("guiServer:status", () => {
+    return ctx.guiServer.status();
+  });
+
   // ==================== services:restartAll ====================
 
   ipcMain.handle("services:restartAll", async () => {
@@ -322,6 +434,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     }
     ctx.fileServer.stop();
     ctx.lanproxy.stop();
+    ctx.guiServer.stop();
 
     // 2. Verify MCP Proxy binary + 启动 PersistentMcpBridge（持久化 servers）
     try {
@@ -390,7 +503,20 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       log.error("[Services] FileServer start failed:", e);
     }
 
-    // 6. Start Lanproxy
+    // 6. Start GUI Agent Server（独立服务，无依赖）
+    try {
+      results.guiServer = await startGuiServerProcess();
+      if (results.guiServer.success) {
+        log.info("[Services] GuiServer started");
+      } else {
+        log.warn("[Services] GuiServer skipped:", results.guiServer.error);
+      }
+    } catch (e) {
+      results.guiServer = { success: false, error: String(e) };
+      log.error("[Services] GuiServer start failed:", e);
+    }
+
+    // 7. Start Lanproxy
     try {
       const clientKey = readSetting("auth.saved_key") as string | null;
       const lpConfig = (readSetting("lanproxy_config") as any) || {};
@@ -473,6 +599,15 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       log.info("[Services] FileServer stopped");
     } catch (e) {
       results.fileServer = { success: false, error: String(e) };
+    }
+
+    // Stop GUI Agent Server
+    try {
+      ctx.guiServer.stop();
+      results.guiServer = { success: true };
+      log.info("[Services] GuiServer stopped");
+    } catch (e) {
+      results.guiServer = { success: false, error: String(e) };
     }
 
     // Stop Lanproxy

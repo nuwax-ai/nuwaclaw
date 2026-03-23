@@ -198,6 +198,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     status: () => ipcRenderer.invoke("computerServer:status"),
   },
 
+  // GUI Agent Server lifecycle (桌面自动化视觉操作服务)
+  guiServer: {
+    start: () => ipcRenderer.invoke("guiServer:start"),
+    stop: () => ipcRenderer.invoke("guiServer:stop"),
+    status: () => ipcRenderer.invoke("guiServer:status"),
+  },
+
   // Computer API (对齐 rcoder /computer/* API)
   computer: {
     chat: (request: any) => ipcRenderer.invoke("computer:chat", request),

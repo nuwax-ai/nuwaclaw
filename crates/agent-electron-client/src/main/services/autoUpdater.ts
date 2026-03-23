@@ -56,11 +56,7 @@ interface LatestJson {
  */
 function fetchLatestJson(url: string, timeoutMs = 15_000): Promise<LatestJson> {
   return new Promise((resolve, reject) => {
-    // 添加时间戳参数绕过 CDN/浏览器缓存，确保每次都获取最新版本信息
-    const cacheBustUrl = url.includes("?")
-      ? `${url}&_t=${Date.now()}`
-      : `${url}?_t=${Date.now()}`;
-    const request = net.request(cacheBustUrl);
+    const request = net.request(url);
     let body = "";
     let settled = false;
 
