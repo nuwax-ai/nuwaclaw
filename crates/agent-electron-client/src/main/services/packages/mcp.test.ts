@@ -33,10 +33,14 @@ vi.mock("electron-log", () => ({
 const mockExistsSync = vi.fn(() => true);
 const mockMkdirSync = vi.fn();
 const mockWriteFileSync = vi.fn();
+const mockWatchFile = vi.fn();
+const mockUnwatchFile = vi.fn();
 vi.mock("fs", () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
   writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
+  watchFile: (...args: unknown[]) => mockWatchFile(...args),
+  unwatchFile: (...args: unknown[]) => mockUnwatchFile(...args),
 }));
 
 // Mock os
@@ -79,6 +83,7 @@ vi.mock("./packageLocator", () => ({
   getAppPaths: vi.fn(() => ({
     nodeModules: "/mock/home/.nuwaclaw/node_modules",
   })),
+  getBundledMcpProxyDir: vi.fn(() => "/mock/resources/nuwax-mcp-stdio-proxy"),
   isInstalledLocally: vi.fn(() => true),
 }));
 
@@ -112,6 +117,16 @@ describe("McpProxyManager", () => {
         getBridgeUrl: vi.fn(() => null),
         isServerHealthy: vi.fn(() => false),
       },
+    }));
+    // 恢复 packageLocator 到默认 mock（防止 vi.doMock 跨测试泄漏）
+    vi.doMock("./packageLocator", () => ({
+      getAppPaths: vi.fn(() => ({
+        nodeModules: "/mock/home/.nuwaclaw/node_modules",
+      })),
+      getBundledMcpProxyDir: vi.fn(
+        () => "/mock/resources/nuwax-mcp-stdio-proxy",
+      ),
+      isInstalledLocally: vi.fn(() => true),
     }));
     vi.resetModules();
 
@@ -216,20 +231,20 @@ describe("McpProxyManager", () => {
       const mcpConfig = mcpProxyManager.getAgentMcpConfig();
 
       expect(mcpConfig).toBeDefined();
-      // 统一聚合为 proxy key
-      expect(mcpConfig?.["mcp-proxy"]).toBeDefined();
+      // 拆分模式：每个服务独立入口
+      expect(mcpConfig?.["test-server"]).toBeDefined();
       // 使用 --config-file 避免 Windows 命令行长度限制
-      expect(mcpConfig?.["mcp-proxy"].args).toContain("--config-file");
+      expect(mcpConfig?.["test-server"].args).toContain("--config-file");
       // 新方案：使用内置 Node.js 24，不再使用 process.execPath + ELECTRON_RUN_AS_NODE
-      expect(mcpConfig?.["mcp-proxy"].command).toBe(
+      expect(mcpConfig?.["test-server"].command).toBe(
         "/mock/resources/node/darwin-arm64/bin/node",
       );
       expect(
-        mcpConfig?.["mcp-proxy"].env?.ELECTRON_RUN_AS_NODE,
+        mcpConfig?.["test-server"].env?.ELECTRON_RUN_AS_NODE,
       ).toBeUndefined();
     });
 
-    it("mcp-proxy 入口应包含基础环境变量", async () => {
+    it("mcp-proxy env 只包含增量覆盖项（基础环境由 ACP 引擎继承）", async () => {
       const { mcpProxyManager } = await import("./mcp");
 
       // 设置临时 server 配置
@@ -246,15 +261,57 @@ describe("McpProxyManager", () => {
       const mcpConfig = mcpProxyManager.getAgentMcpConfig();
 
       expect(mcpConfig).toBeDefined();
-      expect(mcpConfig?.["mcp-proxy"]).toBeDefined();
+      // 拆分模式：每个服务独立入口
+      expect(mcpConfig?.["test-server"]).toBeDefined();
 
-      // 验证 mcp-proxy 入口包含基础环境变量
-      const proxyEnv = mcpConfig?.["mcp-proxy"].env;
+      // env 字段现在只包含增量覆盖项，基础环境由 ACP 引擎进程继承
+      // 参考: acpClient.ts 的 env = { ...getAppEnv(), ... } + Object.assign(env, config.env)
+      const proxyEnv = mcpConfig?.["test-server"].env;
       expect(proxyEnv).toBeDefined();
-      expect(proxyEnv?.PATH).toBeDefined();
-      expect(proxyEnv?.HOME).toBeDefined();
-      expect(proxyEnv?.USER).toBeDefined();
-      expect(proxyEnv?.LANG).toBeDefined();
+      // 每个服务有独立的日志文件，无 projectId 时使用 "shared" 作为默认标识
+      // 日志路径格式: mcp-proxy/shared/{serverName}.log
+      expect(proxyEnv?.MCP_PROXY_LOG_FILE).toBeDefined();
+      expect(proxyEnv?.MCP_PROXY_LOG_FILE).toContain("mcp-proxy/shared");
+      expect(proxyEnv?.MCP_PROXY_LOG_FILE).toContain("test-server.log");
+    });
+
+    it("传入 projectId 时日志文件名应包含项目标识", async () => {
+      const { mcpProxyManager } = await import("./mcp");
+
+      // 手动设置配置
+      mcpProxyManager.setConfig({
+        mcpServers: {
+          "fetch-server": {
+            command: "uvx",
+            args: ["mcp-server-fetch"],
+          },
+        },
+      });
+
+      await mcpProxyManager.start();
+
+      // 测试带 projectId 的调用
+      const mcpConfig = mcpProxyManager.getAgentMcpConfig("my-project-123");
+      expect(mcpConfig).toBeDefined();
+      expect(mcpConfig?.["fetch-server"]).toBeDefined();
+
+      const proxyEnv = mcpConfig?.["fetch-server"].env;
+      expect(proxyEnv?.MCP_PROXY_LOG_FILE).toBeDefined();
+      // 日志路径格式: mcp-proxy/{projectId}/{serverName}.log
+      expect(proxyEnv?.MCP_PROXY_LOG_FILE).toContain(
+        "mcp-proxy/my-project-123",
+      );
+      expect(proxyEnv?.MCP_PROXY_LOG_FILE).toContain("fetch-server.log");
+
+      // 测试 projectId 包含特殊字符时会被安全化
+      const mcpConfig2 = mcpProxyManager.getAgentMcpConfig(
+        "project/with:special@chars",
+      );
+      const proxyEnv2 = mcpConfig2?.["fetch-server"].env;
+      expect(proxyEnv2?.MCP_PROXY_LOG_FILE).toContain(
+        "mcp-proxy/project_with_special_chars",
+      );
+      expect(proxyEnv2?.MCP_PROXY_LOG_FILE).toContain("fetch-server.log");
     });
 
     it("默认配置只有 persistent server，bridge 未运行时应降级到 stdio 配置", async () => {
@@ -266,9 +323,13 @@ describe("McpProxyManager", () => {
 
       // PersistentMcpBridge 未运行（mock isRunning=false），persistent server 降级到 stdio 配置
       expect(mcpConfig).toBeDefined();
-      expect(mcpConfig?.["mcp-proxy"]).toBeDefined();
-      // 使用 --config-file
-      expect(mcpConfig?.["mcp-proxy"].args).toContain("--config-file");
+      // 拆分模式：每个服务独立入口
+      const serverNames = Object.keys(mcpConfig || {});
+      expect(serverNames.length).toBeGreaterThan(0);
+      // 每个服务都使用 --config-file
+      for (const name of serverNames) {
+        expect(mcpConfig?.[name].args).toContain("--config-file");
+      }
     });
 
     it("persistent server 在 bridge 运行时应该返回包含 url 的 proxy 配置", async () => {
@@ -303,14 +364,16 @@ describe("McpProxyManager", () => {
 
       // bridge 运行中 → proxy 配置中应包含 persistent server 的 url
       expect(mcpConfig).toBeDefined();
-      expect(mcpConfig?.["mcp-proxy"]).toBeDefined();
+      // 拆分模式：每个服务独立入口，key 为服务名
+      expect(mcpConfig?.["chrome-devtools"]).toBeDefined();
       // 使用 --config-file 避免 Windows 命令行长度限制
-      expect(mcpConfig?.["mcp-proxy"].args).toContain("--config-file");
+      expect(mcpConfig?.["chrome-devtools"].args).toContain("--config-file");
 
-      // 验证临时配置文件路径格式正确
-      const configIdx = mcpConfig!["mcp-proxy"].args.indexOf("--config-file");
-      const configFilePath = mcpConfig!["mcp-proxy"].args[configIdx + 1];
-      expect(configFilePath).toContain("mcp-config-");
+      // 验证临时配置文件路径格式正确（拆分模式：包含服务名 chrome-devtools）
+      const configIdx =
+        mcpConfig!["chrome-devtools"].args.indexOf("--config-file");
+      const configFilePath = mcpConfig!["chrome-devtools"].args[configIdx + 1];
+      expect(configFilePath).toContain("mcp-config-chrome-devtools-");
       expect(configFilePath).toContain(".json");
       // 验证 writeFileSync 被调用以写入配置
       expect(mockWriteFileSync).toHaveBeenCalled();
@@ -349,23 +412,34 @@ describe("McpProxyManager", () => {
       await mcpProxyManager.start();
       const mcpConfig = mcpProxyManager.getAgentMcpConfig();
 
-      // 只有一个 proxy key
+      // 拆分模式：每个服务独立入口
       expect(mcpConfig).toBeDefined();
-      expect(Object.keys(mcpConfig!)).toEqual(["mcp-proxy"]);
+      const serverNames = Object.keys(mcpConfig!);
+      expect(serverNames.length).toBe(2); // chrome-devtools + test-server
 
-      // 使用 --config-file 避免 Windows 命令行长度限制
-      expect(mcpConfig!["mcp-proxy"].args).toContain("--config-file");
-      // 验证 writeFileSync 被调用，配置已写入临时文件
+      // 每个服务都使用 --config-file
+      for (const name of serverNames) {
+        expect(mcpConfig![name].args).toContain("--config-file");
+      }
+
+      // 验证 writeFileSync 被调用（每个服务一个配置文件）
       expect(mockWriteFileSync).toHaveBeenCalled();
-      // 验证配置内容：bridge 运行中，所有 server 都使用 bridge URL
-      const writeCall = mockWriteFileSync.mock.calls[0];
-      const configJson = JSON.parse(writeCall[1] as string);
-      expect(configJson.mcpServers["test-server"].url).toBe(
-        "http://127.0.0.1:12345/mcp/test-server",
-      );
-      expect(configJson.mcpServers["chrome-devtools"].url).toBe(
-        "http://127.0.0.1:12345/mcp/chrome-devtools",
-      );
+      expect(mockWriteFileSync.mock.calls.length).toBe(2);
+
+      // 验证配置内容：bridge 运行中，每个服务的配置包含 bridge URL
+      for (const call of mockWriteFileSync.mock.calls) {
+        const configJson = JSON.parse(call[1] as string);
+        const serverName = Object.keys(configJson.mcpServers)[0];
+        if (serverName === "test-server") {
+          expect(configJson.mcpServers["test-server"].url).toBe(
+            "http://127.0.0.1:12345/mcp/test-server",
+          );
+        } else if (serverName === "chrome-devtools") {
+          expect(configJson.mcpServers["chrome-devtools"].url).toBe(
+            "http://127.0.0.1:12345/mcp/chrome-devtools",
+          );
+        }
+      }
     });
 
     it("没有配置服务器时应该返回 null", async () => {
@@ -442,6 +516,7 @@ describe("McpProxyManager", () => {
         getAppPaths: vi.fn(() => ({
           nodeModules: "/mock/home/.nuwaclaw/node_modules",
         })),
+        getBundledMcpProxyDir: vi.fn(() => null),
         isInstalledLocally: vi.fn(() => false),
       }));
       vi.doMock("../utils/spawnNoWindow", () => ({
@@ -826,15 +901,17 @@ describe("McpProxyManager - bridge URL 优先策略", () => {
     const mcpConfig = mcpProxyManager.getAgentMcpConfig();
 
     expect(mcpConfig).toBeDefined();
-    // 验证配置文件中所有 server 都使用 bridge URL
-    const writeCall = mockWriteFileSync.mock.calls[0];
-    const configJson = JSON.parse(writeCall[1] as string);
-    expect(configJson.mcpServers["server-a"].url).toBe(
-      "http://127.0.0.1:12345/mcp/server-a",
-    );
-    expect(configJson.mcpServers["server-b"].url).toBe(
-      "http://127.0.0.1:12345/mcp/server-b",
-    );
+    // 拆分模式：每个服务独立配置文件
+    // 验证所有配置文件中的 server 都使用 bridge URL
+    expect(mockWriteFileSync.mock.calls.length).toBe(2); // 2 个服务
+
+    for (const call of mockWriteFileSync.mock.calls) {
+      const configJson = JSON.parse(call[1] as string);
+      const serverName = Object.keys(configJson.mcpServers)[0];
+      expect(configJson.mcpServers[serverName].url).toBe(
+        `http://127.0.0.1:12345/mcp/${serverName}`,
+      );
+    }
   });
 
   it("bridge 运行但某 server 未就绪时应降级到 stdio", async () => {
@@ -866,15 +943,24 @@ describe("McpProxyManager - bridge URL 优先策略", () => {
     const mcpConfig = mcpProxyManager.getAgentMcpConfig();
 
     expect(mcpConfig).toBeDefined();
-    const writeCall = mockWriteFileSync.mock.calls[0];
-    const configJson = JSON.parse(writeCall[1] as string);
-    // server-a: bridge URL
-    expect(configJson.mcpServers["server-a"].url).toBe(
-      "http://127.0.0.1:12345/mcp/server-a",
-    );
-    // server-b: 降级到 stdio 配置
-    expect(configJson.mcpServers["server-b"].command).toBeDefined();
-    expect(configJson.mcpServers["server-b"].url).toBeUndefined();
+    // 拆分模式：每个服务独立配置文件
+    expect(mockWriteFileSync.mock.calls.length).toBe(2); // 2 个服务
+
+    // 遍历所有配置文件验证
+    for (const call of mockWriteFileSync.mock.calls) {
+      const configJson = JSON.parse(call[1] as string);
+      const serverName = Object.keys(configJson.mcpServers)[0];
+      if (serverName === "server-a") {
+        // server-a: bridge URL
+        expect(configJson.mcpServers["server-a"].url).toBe(
+          "http://127.0.0.1:12345/mcp/server-a",
+        );
+      } else if (serverName === "server-b") {
+        // server-b: 降级到 stdio 配置
+        expect(configJson.mcpServers["server-b"].command).toBeDefined();
+        expect(configJson.mcpServers["server-b"].url).toBeUndefined();
+      }
+    }
   });
 
   it("bridge URL 应保留 allowTools/denyTools", async () => {
@@ -895,12 +981,12 @@ describe("McpProxyManager - bridge URL 优先策略", () => {
 
     mcpProxyManager.setConfig({
       mcpServers: {
-        "markdownify": {
+        markdownify: {
           command: "uvx",
           args: ["markdownify-mcp-server"],
           allowTools: ["youtube-to-markdown", "pdf-to-markdown"],
         },
-        "fetch": {
+        fetch: {
           command: "uvx",
           args: ["mcp-server-fetch"],
           allowTools: ["fetch"],
@@ -916,31 +1002,37 @@ describe("McpProxyManager - bridge URL 优先策略", () => {
     await mcpProxyManager.start();
     mcpProxyManager.getAgentMcpConfig();
 
-    const writeCall = mockWriteFileSync.mock.calls[0];
-    const configJson = JSON.parse(writeCall[1] as string);
+    // 拆分模式：每个服务独立配置文件
+    expect(mockWriteFileSync.mock.calls.length).toBe(3); // 3 个服务
+
+    // 解析所有配置文件
+    const configs: Record<string, any> = {};
+    for (const call of mockWriteFileSync.mock.calls) {
+      const configJson = JSON.parse(call[1] as string);
+      const serverName = Object.keys(configJson.mcpServers)[0];
+      configs[serverName] = configJson.mcpServers[serverName];
+    }
 
     // allowTools 应保留在 bridge URL 条目中
-    expect(configJson.mcpServers["markdownify"].url).toBe(
+    expect(configs["markdownify"].url).toBe(
       "http://127.0.0.1:12345/mcp/markdownify",
     );
-    expect(configJson.mcpServers["markdownify"].allowTools).toEqual([
+    expect(configs["markdownify"].allowTools).toEqual([
       "youtube-to-markdown",
       "pdf-to-markdown",
     ]);
 
     // allowTools + denyTools 都应保留
-    expect(configJson.mcpServers["fetch"].url).toBe(
-      "http://127.0.0.1:12345/mcp/fetch",
-    );
-    expect(configJson.mcpServers["fetch"].allowTools).toEqual(["fetch"]);
-    expect(configJson.mcpServers["fetch"].denyTools).toEqual(["fetch_html"]);
+    expect(configs["fetch"].url).toBe("http://127.0.0.1:12345/mcp/fetch");
+    expect(configs["fetch"].allowTools).toEqual(["fetch"]);
+    expect(configs["fetch"].denyTools).toEqual(["fetch_html"]);
 
     // 无 allowTools 的 server 不应有该字段
-    expect(configJson.mcpServers["no-filter"].url).toBe(
+    expect(configs["no-filter"].url).toBe(
       "http://127.0.0.1:12345/mcp/no-filter",
     );
-    expect(configJson.mcpServers["no-filter"].allowTools).toBeUndefined();
-    expect(configJson.mcpServers["no-filter"].denyTools).toBeUndefined();
+    expect(configs["no-filter"].allowTools).toBeUndefined();
+    expect(configs["no-filter"].denyTools).toBeUndefined();
   });
 
   it("远程 server 应不受 bridge 影响直接透传", async () => {
@@ -973,14 +1065,23 @@ describe("McpProxyManager - bridge URL 优先策略", () => {
     const mcpConfig = mcpProxyManager.getAgentMcpConfig();
 
     expect(mcpConfig).toBeDefined();
-    const writeCall = mockWriteFileSync.mock.calls[0];
-    const configJson = JSON.parse(writeCall[1] as string);
+    // 拆分模式：每个服务独立配置文件
+    expect(mockWriteFileSync.mock.calls.length).toBe(2); // 2 个服务
+
+    // 解析所有配置文件
+    const configs: Record<string, any> = {};
+    for (const call of mockWriteFileSync.mock.calls) {
+      const configJson = JSON.parse(call[1] as string);
+      const serverName = Object.keys(configJson.mcpServers)[0];
+      configs[serverName] = configJson.mcpServers[serverName];
+    }
+
     // 远程 server 保持原始 URL
-    expect(configJson.mcpServers["remote-server"].url).toBe(
+    expect(configs["remote-server"].url).toBe(
       "https://external.example.com/mcp",
     );
     // stdio server 使用 bridge URL
-    expect(configJson.mcpServers["stdio-server"].url).toBe(
+    expect(configs["stdio-server"].url).toBe(
       "http://127.0.0.1:12345/mcp/stdio-server",
     );
   });
@@ -1255,26 +1356,23 @@ describe("extractRealMcpServers - 真实 context_servers 配置", () => {
     const { extractRealMcpServers } = await import("./mcp");
 
     // 真实日志: "Markdown 万能转成" 使用 uvx + --allow-tools
-    const result = extractRealMcpServers(
-      "mcp-proxy",
-      [
-        "convert",
-        "--config",
-        JSON.stringify({
-          mcpServers: {
-            "Markdown 万能转成": {
-              command: "uvx",
-              args: ["markdownify-mcp-server"],
-              env: {},
-              source: "custom",
-              enabled: true,
-            },
+    const result = extractRealMcpServers("mcp-proxy", [
+      "convert",
+      "--config",
+      JSON.stringify({
+        mcpServers: {
+          "Markdown 万能转成": {
+            command: "uvx",
+            args: ["markdownify-mcp-server"],
+            env: {},
+            source: "custom",
+            enabled: true,
           },
-        }),
-        "--allow-tools",
-        "youtube-to-markdown,pdf-to-markdown",
-      ],
-    );
+        },
+      }),
+      "--allow-tools",
+      "youtube-to-markdown,pdf-to-markdown",
+    ]);
 
     expect(result).toBeDefined();
     expect(result!["Markdown 万能转成"]).toBeDefined();
@@ -1295,22 +1393,19 @@ describe("extractRealMcpServers - 真实 context_servers 配置", () => {
     const { extractRealMcpServers } = await import("./mcp");
 
     // 真实日志: "image-understanding-and-generation" 使用远程 SSE URL
-    const result = extractRealMcpServers(
-      "mcp-proxy",
-      [
-        "convert",
-        "--config",
-        JSON.stringify({
-          mcpServers: {
-            "image-understanding-and-generation": {
-              url: "https://mcp-api.nuwax.com/api/mcp/sse?ak=ak-test123",
-            },
+    const result = extractRealMcpServers("mcp-proxy", [
+      "convert",
+      "--config",
+      JSON.stringify({
+        mcpServers: {
+          "image-understanding-and-generation": {
+            url: "https://mcp-api.nuwax.com/api/mcp/sse?ak=ak-test123",
           },
-        }),
-        "--allow-tools",
-        "ocr_image_text_extraction,image_understanding,generate_image",
-      ],
-    );
+        },
+      }),
+      "--allow-tools",
+      "ocr_image_text_extraction,image_understanding,generate_image",
+    ]);
 
     expect(result).toBeDefined();
     const srv = result!["image-understanding-and-generation"];
@@ -1350,9 +1445,155 @@ describe("extractRealMcpServers - 真实 context_servers 配置", () => {
       "-y",
       "@bharathvaj/whois-mcp@latest",
     ]);
+    expect((result!["whois"] as { allowTools?: string[] }).allowTools).toEqual([
+      "whois_domain",
+      "whois_tld",
+      "whois_ip",
+      "whois_as",
+    ]);
+  });
+
+  it("应该从 -H 参数中提取 headers 并合并到 URL-based entry", async () => {
+    const { extractRealMcpServers } = await import("./mcp");
+
+    // 模拟 nuwaxcode 传递的配置格式
+    // mcp-proxy convert --config '{"mcpServers":{"天眼查-test":{"url":"https://mcp.coze.cn/v1/plugins/xxx"}}}' -H 'Authorization=Bearer xxx'
+    const result = extractRealMcpServers("mcp-proxy", [
+      "convert",
+      "--config",
+      JSON.stringify({
+        mcpServers: {
+          "天眼查-test": {
+            url: "https://mcp.coze.cn/v1/plugins/7407724292865130515",
+          },
+        },
+      }),
+      "-H",
+      "Authorization=Bearer cztei_test_token",
+      "--allow-tools",
+      "abnormal_operation,change_log,company_detail",
+    ]);
+
+    expect(result).toBeDefined();
+    expect(result!["天眼查-test"]).toBeDefined();
+    // 验证 headers 被正确提取
     expect(
-      (result!["whois"] as { allowTools?: string[] }).allowTools,
-    ).toEqual(["whois_domain", "whois_tld", "whois_ip", "whois_as"]);
+      (result!["天眼查-test"] as { headers?: Record<string, string> }).headers,
+    ).toEqual({
+      Authorization: "Bearer cztei_test_token",
+    });
+    // 验证 allowTools 也被正确提取
+    expect(
+      (result!["天眼查-test"] as { allowTools?: string[] }).allowTools,
+    ).toEqual(["abnormal_operation", "change_log", "company_detail"]);
+  });
+
+  it("应该支持 -H 参数的冒号格式 (Key: Value)", async () => {
+    const { extractRealMcpServers } = await import("./mcp");
+
+    const result = extractRealMcpServers("mcp-proxy", [
+      "convert",
+      "--config",
+      JSON.stringify({
+        mcpServers: {
+          "test-server": {
+            url: "https://example.com/mcp",
+          },
+        },
+      }),
+      "-H",
+      "X-Custom-Header: custom-value",
+    ]);
+
+    expect(result).toBeDefined();
+    expect(
+      (result!["test-server"] as { headers?: Record<string, string> }).headers,
+    ).toEqual({
+      "X-Custom-Header": "custom-value",
+    });
+  });
+
+  it("应该支持多个 -H 参数", async () => {
+    const { extractRealMcpServers } = await import("./mcp");
+
+    const result = extractRealMcpServers("mcp-proxy", [
+      "convert",
+      "--config",
+      JSON.stringify({
+        mcpServers: {
+          "test-server": {
+            url: "https://example.com/mcp",
+          },
+        },
+      }),
+      "-H",
+      "Authorization=Bearer token123",
+      "-H",
+      "X-Api-Key=apikey456",
+    ]);
+
+    expect(result).toBeDefined();
+    expect(
+      (result!["test-server"] as { headers?: Record<string, string> }).headers,
+    ).toEqual({
+      Authorization: "Bearer token123",
+      "X-Api-Key": "apikey456",
+    });
+  });
+
+  it("extraHeaders 应该覆盖 srv.headers 中的同名 key", async () => {
+    const { extractRealMcpServers } = await import("./mcp");
+
+    const result = extractRealMcpServers("mcp-proxy", [
+      "convert",
+      "--config",
+      JSON.stringify({
+        mcpServers: {
+          "test-server": {
+            url: "https://example.com/mcp",
+            headers: {
+              Authorization: "old-token",
+              "X-Keep": "keep-value",
+            },
+          },
+        },
+      }),
+      "-H",
+      "Authorization=new-token",
+    ]);
+
+    expect(result).toBeDefined();
+    expect(
+      (result!["test-server"] as { headers?: Record<string, string> }).headers,
+    ).toEqual({
+      Authorization: "new-token", // extraHeaders 覆盖
+      "X-Keep": "keep-value", // srv.headers 保留
+    });
+  });
+
+  it("应该支持 --header 作为 -H 的别名", async () => {
+    const { extractRealMcpServers } = await import("./mcp");
+
+    const result = extractRealMcpServers("mcp-proxy", [
+      "convert",
+      "--config",
+      JSON.stringify({
+        mcpServers: {
+          "test-server": {
+            url: "https://example.com/mcp",
+          },
+        },
+      }),
+      "--header",
+      "X-Custom=value",
+    ]);
+
+    expect(result).toBeDefined();
+    expect(
+      (result!["test-server"] as { headers?: Record<string, string> }).headers,
+    ).toEqual({
+      "X-Custom": "value",
+    });
   });
 });
 
@@ -1465,30 +1706,37 @@ describe("markBridgeStarted — bridge 状态同步", () => {
   it("markBridgeStarted() 后，ensureBridgeStarted() 应跳过重复启动", async () => {
     const { mcpProxyManager } = await import("./mcp");
     // 通过同一 import 循环获取被 mock 替换的 persistentMcpBridge
-    const { persistentMcpBridge: bridge } = await import("./persistentMcpBridge");
+    const { persistentMcpBridge: bridge } =
+      await import("./persistentMcpBridge");
 
     // 首先把 cachedScriptPath 初始化（调用 start）
     await mcpProxyManager.start();
 
     // 注入 stdio server，使 ensureBridgeStarted 在没有标记时本该调用 bridge.start
     mcpProxyManager.setConfig({
-      mcpServers: { time: { command: "/uv", args: ["tool", "run", "mcp-time"] } },
+      mcpServers: {
+        time: { command: "/uv", args: ["tool", "run", "mcp-time"] },
+      },
     });
 
     // 手动标记 bridge 已启动（模拟 syncMcpConfigToProxyAndReload 调用后的状态）
     mcpProxyManager.markBridgeStarted();
 
     // 此时 ensureBridgeStarted 应直接返回，不再调用 persistentMcpBridge.start
-    const callsBefore = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsBefore = (bridge.start as ReturnType<typeof vi.fn>).mock.calls
+      .length;
     await mcpProxyManager.ensureBridgeStarted();
-    const callsAfter = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsAfter = (bridge.start as ReturnType<typeof vi.fn>).mock.calls
+      .length;
 
     expect(callsAfter).toBe(callsBefore); // 没有额外的 start 调用
   });
 
   it("syncMcpConfigToProxyAndReload 配置未变化时 early-return 也应调用 markBridgeStarted()", async () => {
-    const { mcpProxyManager, syncMcpConfigToProxyAndReload } = await import("./mcp");
-    const { persistentMcpBridge: bridge } = await import("./persistentMcpBridge");
+    const { mcpProxyManager, syncMcpConfigToProxyAndReload } =
+      await import("./mcp");
+    const { persistentMcpBridge: bridge } =
+      await import("./persistentMcpBridge");
 
     await mcpProxyManager.start();
 
@@ -1499,23 +1747,29 @@ describe("markBridgeStarted — bridge 状态同步", () => {
 
     // 第一次同步：bridge.start 被调用，bridgeStarted 被标记
     await syncMcpConfigToProxyAndReload(servers);
-    const callsAfterFirst = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsAfterFirst = (bridge.start as ReturnType<typeof vi.fn>).mock
+      .calls.length;
 
     // 第二次相同配置：进入 early-return 分支
     await syncMcpConfigToProxyAndReload(servers);
-    const callsAfterSecond = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsAfterSecond = (bridge.start as ReturnType<typeof vi.fn>).mock
+      .calls.length;
 
     // bridge.start 不应被再次调用（配置未变化）
     expect(callsAfterSecond).toBe(callsAfterFirst);
     // bridgeStarted 仍然为 true，ensureBridgeStarted 应跳过
-    const callsBeforeEnsure = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsBeforeEnsure = (bridge.start as ReturnType<typeof vi.fn>).mock
+      .calls.length;
     await mcpProxyManager.ensureBridgeStarted();
-    expect((bridge.start as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsBeforeEnsure);
+    expect((bridge.start as ReturnType<typeof vi.fn>).mock.calls.length).toBe(
+      callsBeforeEnsure,
+    );
   });
 
   it("stop() 后 markBridgeStarted 标志被重置，ensureBridgeStarted() 会重新启动", async () => {
     const { mcpProxyManager } = await import("./mcp");
-    const { persistentMcpBridge: bridge } = await import("./persistentMcpBridge");
+    const { persistentMcpBridge: bridge } =
+      await import("./persistentMcpBridge");
 
     await mcpProxyManager.start();
     mcpProxyManager.markBridgeStarted();
@@ -1524,14 +1778,22 @@ describe("markBridgeStarted — bridge 状态同步", () => {
     await mcpProxyManager.stop();
 
     // 记录 stop 后的调用次数
-    const callsBefore = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsBefore = (bridge.start as ReturnType<typeof vi.fn>).mock.calls
+      .length;
 
     // 注入一些 persistent server 使 ensureBridgeStarted 有服务可以启动
     mcpProxyManager.setConfig({
-      mcpServers: { time: { command: "/uv", args: ["tool", "run", "mcp-time"], persistent: true } },
+      mcpServers: {
+        time: {
+          command: "/uv",
+          args: ["tool", "run", "mcp-time"],
+          persistent: true,
+        },
+      },
     });
     await mcpProxyManager.ensureBridgeStarted();
-    const callsAfter = (bridge.start as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsAfter = (bridge.start as ReturnType<typeof vi.fn>).mock.calls
+      .length;
 
     // stop 后 bridgeStarted 被重置，所以会再次调用 bridge.start
     expect(callsAfter).toBeGreaterThan(callsBefore);
@@ -1575,22 +1837,27 @@ describe("getAgentMcpConfig — 内容哈希临时文件", () => {
 
     // 第一次获取配置
     mcpProxyManager.getAgentMcpConfig();
-    const firstWritePath = mockWriteFileSync.mock.calls[0]?.[0] as string | undefined;
+    const firstWritePath = mockWriteFileSync.mock.calls[0]?.[0] as
+      | string
+      | undefined;
     mockWriteFileSync.mockClear();
 
     // 第二次获取配置
     mcpProxyManager.getAgentMcpConfig();
-    const secondWritePath = mockWriteFileSync.mock.calls[0]?.[0] as string | undefined;
+    const secondWritePath = mockWriteFileSync.mock.calls[0]?.[0] as
+      | string
+      | undefined;
 
     // 两次调用应写入相同路径（哈希稳定）
     expect(firstWritePath).toBeDefined();
     expect(secondWritePath).toBeDefined();
     expect(firstWritePath).toBe(secondWritePath);
 
-    // 文件名格式应为 mcp-config-<16位hex>.json（非 mcp-config-<uuid>.json）
+    // 文件名格式应为 mcp-config-<serverName>-<16位hex>.json（拆分模式）
     if (firstWritePath) {
       const fileName = path.basename(firstWritePath);
-      expect(fileName).toMatch(/^mcp-config-[0-9a-f]{16}\.json$/);
+      // 拆分模式：包含服务名 time
+      expect(fileName).toMatch(/^mcp-config-time-[0-9a-f]{16}\.json$/);
     }
   });
 
@@ -1599,11 +1866,27 @@ describe("getAgentMcpConfig — 内容哈希临时文件", () => {
     // 使用 vi.importActual 获取真实 crypto，绕过测试文件顶部对 crypto 的 mock
     const realCrypto = await vi.importActual<typeof import("crypto")>("crypto");
 
-    const json1 = JSON.stringify({ mcpServers: { time: { command: "/uv", args: ["tool", "run", "mcp-time"] } } });
-    const json2 = JSON.stringify({ mcpServers: { fetch: { command: "/uv", args: ["tool", "run", "mcp-fetch"] } } });
+    const json1 = JSON.stringify({
+      mcpServers: {
+        time: { command: "/uv", args: ["tool", "run", "mcp-time"] },
+      },
+    });
+    const json2 = JSON.stringify({
+      mcpServers: {
+        fetch: { command: "/uv", args: ["tool", "run", "mcp-fetch"] },
+      },
+    });
 
-    const hash1 = realCrypto.createHash("md5").update(json1).digest("hex").slice(0, 16);
-    const hash2 = realCrypto.createHash("md5").update(json2).digest("hex").slice(0, 16);
+    const hash1 = realCrypto
+      .createHash("md5")
+      .update(json1)
+      .digest("hex")
+      .slice(0, 16);
+    const hash2 = realCrypto
+      .createHash("md5")
+      .update(json2)
+      .digest("hex")
+      .slice(0, 16);
 
     // 不同内容 → 不同哈希 → 不同文件名 → detectConfigChange 不会误判
     expect(hash1).not.toBe(hash2);

@@ -24,6 +24,7 @@ status: design
 | 06  | [Agent 自我进化架构](./06-SELF-EVOLUTION.md)                | Memory、EvoMap、Soul.md 在完整体系中的落地          | P1     |
 | 07  | [知识库 · 工作流 · 插件](./07-KNOWLEDGE-WORKFLOW-PLUGIN.md) | Knowledge/RAG 同步、Workflow 编排同步、Plugin 同步  | P0     |
 | 08  | [Heartbeat 与 Cron 定时任务](./08-SCHEDULER.md)             | 心跳检查、定时任务调度、与服务器同步                | P1     |
+| 09  | [GUI Agent 实现](./09-GUI-AGENT-IMPLEMENTATION.md)          | 独立 GUI Agent 方案、MCP 集成、跨平台实现           | P0     |
 
 ---
 

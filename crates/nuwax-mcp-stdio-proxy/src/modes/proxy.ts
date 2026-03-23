@@ -8,7 +8,7 @@
 import type { McpServersConfig } from '../types.js';
 import { logInfo, logWarn, logError } from '../logger.js';
 import { PersistentMcpBridge } from '../bridge.js';
-import { setupGracefulShutdown } from '../shared.js';
+import { setupGracefulShutdown } from '../shared/index.js';
 
 export interface ProxyArgs {
   port: number;

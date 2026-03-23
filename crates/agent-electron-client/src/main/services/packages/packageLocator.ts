@@ -1,10 +1,10 @@
-import * as path from 'path';
-import * as fs from 'fs';
-import * as os from 'os';
-import { spawn } from 'child_process';
-import { getAppEnv } from '../system/dependencies';
-import { APP_DATA_DIR_NAME } from '../constants';
-import { isWindows } from '../system/shellEnv';
+import * as path from "path";
+import * as fs from "fs";
+import * as os from "os";
+import { spawn } from "child_process";
+import { getAppEnv, getResourcesPath } from "../system/dependencies";
+import { APP_DATA_DIR_NAME } from "../constants";
+import { isWindows } from "../system/shellEnv";
 
 // ==================== App Paths ====================
 
@@ -26,11 +26,16 @@ export function getAppPaths(basePath?: string): AppPaths {
 
   appPaths = {
     appData: path.join(base, APP_DATA_DIR_NAME),
-    nodeModules: path.join(base, APP_DATA_DIR_NAME, 'node_modules'),
-    mcpModules: path.join(base, APP_DATA_DIR_NAME, 'node_modules', 'mcp-servers'),
-    temp: path.join(base, APP_DATA_DIR_NAME, 'temp'),
-    logs: path.join(base, APP_DATA_DIR_NAME, 'logs'),
-    workspaces: path.join(base, APP_DATA_DIR_NAME, 'workspaces'),
+    nodeModules: path.join(base, APP_DATA_DIR_NAME, "node_modules"),
+    mcpModules: path.join(
+      base,
+      APP_DATA_DIR_NAME,
+      "node_modules",
+      "mcp-servers",
+    ),
+    temp: path.join(base, APP_DATA_DIR_NAME, "temp"),
+    logs: path.join(base, APP_DATA_DIR_NAME, "logs"),
+    workspaces: path.join(base, APP_DATA_DIR_NAME, "workspaces"),
   };
 
   // Ensure directories exist
@@ -61,18 +66,18 @@ export function getExecutablePath(packageName: string): string | null {
   const dirs = getAppPaths();
 
   // 1. Check local MCP modules
-  const localBin = path.join(dirs.mcpModules, '.bin', packageName);
+  const localBin = path.join(dirs.mcpModules, ".bin", packageName);
   if (isWindows()) {
-    if (fs.existsSync(localBin + '.cmd')) return localBin + '.cmd';
-    if (fs.existsSync(localBin + '.exe')) return localBin + '.exe';
+    if (fs.existsSync(localBin + ".cmd")) return localBin + ".cmd";
+    if (fs.existsSync(localBin + ".exe")) return localBin + ".exe";
   }
   if (fs.existsSync(localBin)) return localBin;
 
   // 2. Check local node_modules
-  const localNodeBin = path.join(dirs.nodeModules, '.bin', packageName);
+  const localNodeBin = path.join(dirs.nodeModules, ".bin", packageName);
   if (isWindows()) {
-    if (fs.existsSync(localNodeBin + '.cmd')) return localNodeBin + '.cmd';
-    if (fs.existsSync(localNodeBin + '.exe')) return localNodeBin + '.exe';
+    if (fs.existsSync(localNodeBin + ".cmd")) return localNodeBin + ".cmd";
+    if (fs.existsSync(localNodeBin + ".exe")) return localNodeBin + ".exe";
   }
   if (fs.existsSync(localNodeBin)) return localNodeBin;
 
@@ -90,7 +95,10 @@ export function getExecutablePath(packageName: string): string | null {
  * @param binName - Optional bin name (defaults to packageName)
  * @returns The absolute path to the JS entry file, or null if not found
  */
-export function getPackageJsEntryPath(packageName: string, binName?: string): string | null {
+export function getPackageJsEntryPath(
+  packageName: string,
+  binName?: string,
+): string | null {
   const dirs = getAppPaths();
 
   // Check in main node_modules
@@ -114,23 +122,23 @@ export function getPackageJsEntryPath(packageName: string, binName?: string): st
  * Resolve bin entry from package.json
  */
 function resolveBinEntry(packageDir: string, binName: string): string | null {
-  const pkgJsonPath = path.join(packageDir, 'package.json');
+  const pkgJsonPath = path.join(packageDir, "package.json");
 
   if (!fs.existsSync(pkgJsonPath)) {
     return null;
   }
 
   try {
-    const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
+    const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8"));
 
     // Get bin path from package.json
     let binPath: string | undefined;
-    if (typeof pkg.bin === 'string') {
+    if (typeof pkg.bin === "string") {
       binPath = pkg.bin;
-    } else if (pkg.bin && typeof pkg.bin === 'object') {
+    } else if (pkg.bin && typeof pkg.bin === "object") {
       // bin: { "command-name": "./path/to/file.js" }
       const binValue = pkg.bin[binName] ?? Object.values(pkg.bin)[0];
-      if (typeof binValue === 'string') {
+      if (typeof binValue === "string") {
         binPath = binValue;
       }
     }
@@ -144,17 +152,16 @@ function resolveBinEntry(packageDir: string, binName: string): string | null {
 
     // Fallback: try common entry file locations
     const fallbacks = [
-      path.join(packageDir, 'index.js'),
-      path.join(packageDir, 'cli.js'),
-      path.join(packageDir, 'dist', 'index.js'),
-      path.join(packageDir, 'bin', binName),
-      path.join(packageDir, 'bin', `${binName}.js`),
+      path.join(packageDir, "index.js"),
+      path.join(packageDir, "cli.js"),
+      path.join(packageDir, "dist", "index.js"),
+      path.join(packageDir, "bin", binName),
+      path.join(packageDir, "bin", `${binName}.js`),
     ];
 
     for (const p of fallbacks) {
       if (fs.existsSync(p)) return p;
     }
-
   } catch (e) {
     // Failed to parse package.json - this is expected for malformed packages
     // Silent fail as we have fallback mechanisms
@@ -168,41 +175,43 @@ function resolveBinEntry(packageDir: string, binName: string): string | null {
  */
 export function isInstalledLocally(packageName: string): boolean {
   const dirs = getAppPaths();
-  
+
   // Check in mcp-servers
   const mcpPath = path.join(dirs.mcpModules, packageName);
   if (fs.existsSync(mcpPath)) return true;
-  
+
   // Check in main node_modules
   const nodePath = path.join(dirs.nodeModules, packageName);
   if (fs.existsSync(nodePath)) return true;
-  
+
   return false;
 }
 
 /**
  * Check if a package is installed globally (system-wide)
  */
-export async function isInstalledGlobally(packageName: string): Promise<boolean> {
+export async function isInstalledGlobally(
+  packageName: string,
+): Promise<boolean> {
   return new Promise((resolve) => {
-    const npmCmd = isWindows() ? 'npm.cmd' : 'npm';
-    const args = ['list', '-g', '--depth=0', packageName];
+    const npmCmd = isWindows() ? "npm.cmd" : "npm";
+    const args = ["list", "-g", "--depth=0", packageName];
 
     const proc = spawn(npmCmd, args, {
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ["ignore", "pipe", "ignore"],
       shell: isWindows(),
     });
-    
-    let stdout = '';
-    proc.stdout?.on('data', (data) => {
+
+    let stdout = "";
+    proc.stdout?.on("data", (data) => {
       stdout += data.toString();
     });
-    
-    proc.on('close', (code) => {
+
+    proc.on("close", (code) => {
       resolve(code === 0 && stdout.includes(packageName));
     });
-    
-    proc.on('error', () => {
+
+    proc.on("error", () => {
       resolve(false);
     });
   });
@@ -211,34 +220,40 @@ export async function isInstalledGlobally(packageName: string): Promise<boolean>
 /**
  * Get detailed package info - local vs global
  */
-export async function getPackageInfo(packageName: string): Promise<PackageInfo> {
+export async function getPackageInfo(
+  packageName: string,
+): Promise<PackageInfo> {
   const dirs = getAppPaths();
-  
+
   // Check local first
   const localPath = path.join(dirs.mcpModules, packageName);
   const localNodePath = path.join(dirs.nodeModules, packageName);
-  
+
   let localVersion: string | undefined;
-  
+
   if (fs.existsSync(localPath)) {
     try {
-      const pkg = JSON.parse(fs.readFileSync(path.join(localPath, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(
+        fs.readFileSync(path.join(localPath, "package.json"), "utf-8"),
+      );
       localVersion = pkg.version;
     } catch {}
   } else if (fs.existsSync(localNodePath)) {
     try {
-      const pkg = JSON.parse(fs.readFileSync(path.join(localNodePath, 'package.json'), 'utf-8'));
+      const pkg = JSON.parse(
+        fs.readFileSync(path.join(localNodePath, "package.json"), "utf-8"),
+      );
       localVersion = pkg.version;
     } catch {}
   }
-  
+
   const isLocal = fs.existsSync(localPath) || fs.existsSync(localNodePath);
   const isGlobal = await isInstalledGlobally(packageName);
-  
+
   return {
     name: packageName,
     version: localVersion,
-    path: isLocal ? (fs.existsSync(localPath) ? localPath : localNodePath) : '',
+    path: isLocal ? (fs.existsSync(localPath) ? localPath : localNodePath) : "",
     isLocal,
     isGlobal,
   };
@@ -249,48 +264,50 @@ export async function getPackageInfo(packageName: string): Promise<PackageInfo> 
  */
 export function getLocalVersion(packageName: string): string | null {
   const dirs = getAppPaths();
-  
+
   // Check mcp-modules first
-  const mcpPath = path.join(dirs.mcpModules, packageName, 'package.json');
+  const mcpPath = path.join(dirs.mcpModules, packageName, "package.json");
   if (fs.existsSync(mcpPath)) {
     try {
-      const pkg = JSON.parse(fs.readFileSync(mcpPath, 'utf-8'));
+      const pkg = JSON.parse(fs.readFileSync(mcpPath, "utf-8"));
       return pkg.version || null;
     } catch {}
   }
-  
+
   // Check node_modules
-  const nodePath = path.join(dirs.nodeModules, packageName, 'package.json');
+  const nodePath = path.join(dirs.nodeModules, packageName, "package.json");
   if (fs.existsSync(nodePath)) {
     try {
-      const pkg = JSON.parse(fs.readFileSync(nodePath, 'utf-8'));
+      const pkg = JSON.parse(fs.readFileSync(nodePath, "utf-8"));
       return pkg.version || null;
     } catch {}
   }
-  
+
   return null;
 }
 
 /**
  * Get version of globally installed package
  */
-export async function getGlobalVersion(packageName: string): Promise<string | null> {
+export async function getGlobalVersion(
+  packageName: string,
+): Promise<string | null> {
   return new Promise((resolve) => {
-    const npmCmd = isWindows() ? 'npm.cmd' : 'npm';
-    const args = ['view', packageName, 'version', '--json'];
+    const npmCmd = isWindows() ? "npm.cmd" : "npm";
+    const args = ["view", packageName, "version", "--json"];
 
     const proc = spawn(npmCmd, args, {
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ["ignore", "pipe", "ignore"],
       shell: isWindows(),
     });
-    
-    let stdout = '';
-    
-    proc.stdout?.on('data', (data) => {
+
+    let stdout = "";
+
+    proc.stdout?.on("data", (data) => {
       stdout += data.toString();
     });
-    
-    proc.on('close', () => {
+
+    proc.on("close", () => {
       try {
         const version = JSON.parse(stdout.trim());
         resolve(version || null);
@@ -298,8 +315,8 @@ export async function getGlobalVersion(packageName: string): Promise<string | nu
         resolve(null);
       }
     });
-    
-    proc.on('error', () => {
+
+    proc.on("error", () => {
       resolve(null);
     });
   });
@@ -315,41 +332,46 @@ export async function checkForUpdate(packageName: string): Promise<{
 }> {
   const localVersion = getLocalVersion(packageName);
   const latestVersion = await getGlobalVersion(packageName);
-  
+
   if (!localVersion || !latestVersion) {
     return { hasUpdate: false, localVersion, latestVersion };
   }
-  
+
   // Simple version compare (would use semver in production)
   const hasUpdate = localVersion !== latestVersion;
-  
+
   return { hasUpdate, localVersion, latestVersion };
 }
 
 /**
  * Get detailed version info for all MCP packages
  */
-export async function getAllMCPVersions(): Promise<Record<string, {
-  local: string | null;
-  global: string | null;
-  latest: string | null;
-  hasUpdate: boolean;
-}>> {
+export async function getAllMCPVersions(): Promise<
+  Record<
+    string,
+    {
+      local: string | null;
+      global: string | null;
+      latest: string | null;
+      hasUpdate: boolean;
+    }
+  >
+> {
   const mcpPackages = [
-    '@modelcontextprotocol/server-filesystem',
-    '@modelcontextprotocol/server-brave-search',
-    '@modelcontextprotocol/server-github',
-    '@modelcontextprotocol/server-sqlite',
-    '@modelcontextprotocol/server-puppeteer',
-    '@modelcontextprotocol/server-fetch',
+    "@modelcontextprotocol/server-filesystem",
+    "@modelcontextprotocol/server-brave-search",
+    "@modelcontextprotocol/server-github",
+    "@modelcontextprotocol/server-sqlite",
+    "@modelcontextprotocol/server-puppeteer",
+    "@modelcontextprotocol/server-fetch",
   ];
-  
+
   const results: Record<string, any> = {};
-  
+
   for (const pkg of mcpPackages) {
     const localVersion = getLocalVersion(pkg);
     const latestVersion = await getGlobalVersion(pkg);
-    
+
     results[pkg] = {
       local: localVersion,
       global: null, // Would need separate check
@@ -357,7 +379,7 @@ export async function getAllMCPVersions(): Promise<Record<string, {
       hasUpdate: localVersion !== latestVersion && latestVersion !== null,
     };
   }
-  
+
   return results;
 }
 
@@ -367,12 +389,12 @@ export async function getAllMCPVersions(): Promise<Record<string, {
 export function getLocalPackages(): string[] {
   const dirs = getAppPaths();
   const packages: string[] = [];
-  
+
   // Check mcp-modules
   if (fs.existsSync(dirs.mcpModules)) {
     const entries = fs.readdirSync(dirs.mcpModules);
     for (const entry of entries) {
-      if (!entry.startsWith('.')) {
+      if (!entry.startsWith(".")) {
         const stat = fs.statSync(path.join(dirs.mcpModules, entry));
         if (stat.isDirectory()) {
           packages.push(entry);
@@ -380,7 +402,7 @@ export function getLocalPackages(): string[] {
       }
     }
   }
-  
+
   return packages;
 }
 
@@ -395,23 +417,28 @@ export function spawnLocal(
     cwd?: string;
     env?: Record<string, string>;
     registry?: string;
-  }
+  },
 ): ReturnType<typeof spawn> {
   const dirs = getAppPaths();
-  
+
   // Find local executable
   let exePath: string;
   let useArgs: string[];
-  
-  if (packageName === 'npx' || packageName === 'npm' || packageName === 'yarn' || packageName === 'pnpm') {
+
+  if (
+    packageName === "npx" ||
+    packageName === "npm" ||
+    packageName === "yarn" ||
+    packageName === "pnpm"
+  ) {
     // For package managers, use local installation
-    const localBin = path.join(dirs.nodeModules, '.bin', packageName);
+    const localBin = path.join(dirs.nodeModules, ".bin", packageName);
     if (isWindows()) {
-      exePath = localBin + '.cmd';
+      exePath = localBin + ".cmd";
     } else {
       exePath = localBin;
     }
-    
+
     // Check if exists
     if (!fs.existsSync(exePath)) {
       // Fallback to system, but warn
@@ -421,18 +448,18 @@ export function spawnLocal(
     useArgs = args;
   } else {
     // For other packages, use npx
-    exePath = path.join(dirs.nodeModules, '.bin', 'npx');
+    exePath = path.join(dirs.nodeModules, ".bin", "npx");
     if (isWindows()) {
-      exePath += '.cmd';
+      exePath += ".cmd";
     }
-    
+
     if (!fs.existsSync(exePath)) {
-      exePath = 'npx';
+      exePath = "npx";
     }
-    
-    useArgs = ['-y', packageName, ...args];
+
+    useArgs = ["-y", packageName, ...args];
   }
-  
+
   // Build environment — getAppEnv() 提供完整的应用内隔离环境
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -444,13 +471,31 @@ export function spawnLocal(
   if (options?.registry) {
     env.NPM_CONFIG_REGISTRY = options.registry;
   }
-  
+
   return spawn(exePath, useArgs, {
     cwd: options?.cwd || dirs.mcpModules,
     env,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ["ignore", "pipe", "pipe"],
     shell: isWindows(),
   });
+}
+
+// ==================== Bundled MCP Proxy ====================
+
+/**
+ * 获取应用内集成的 nuwax-mcp-stdio-proxy 目录
+ *
+ * 打包后: process.resourcesPath/nuwax-mcp-stdio-proxy/
+ * 开发时: resources/nuwax-mcp-stdio-proxy/
+ *
+ * @returns 目录路径（存在且含 package.json），或 null
+ */
+export function getBundledMcpProxyDir(): string | null {
+  const bundledDir = path.join(getResourcesPath(), "nuwax-mcp-stdio-proxy");
+  if (fs.existsSync(path.join(bundledDir, "package.json"))) {
+    return bundledDir;
+  }
+  return null;
 }
 
 export default {

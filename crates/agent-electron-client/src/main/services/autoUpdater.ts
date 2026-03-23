@@ -11,26 +11,31 @@
  * - Windows: NSIS 安装支持自动更新，MSI 安装引导到 Releases 页面
  */
 
-import { app, BrowserWindow, shell, dialog, net } from 'electron';
-import * as path from 'path';
-import * as fs from 'fs';
-import log from 'electron-log';
-import type { UpdateState, UpdateInfo, UpdateProgress } from '@shared/types/updateTypes';
-import { APP_DATA_DIR_NAME } from '@shared/constants';
+import { app, BrowserWindow, shell, dialog, net } from "electron";
+import * as path from "path";
+import * as fs from "fs";
+import log from "electron-log";
+import type {
+  UpdateState,
+  UpdateInfo,
+  UpdateProgress,
+} from "@shared/types/updateTypes";
+import { APP_DATA_DIR_NAME } from "@shared/constants";
 import {
   getWindowsDownloadUrl,
   getMacosDownloadUrl,
   getLinuxDownloadUrl,
   type Platforms,
-} from './updatePlatformUtils';
+} from "./updatePlatformUtils";
 
 // ==================== OSS latest.json ====================
 
-const OSS_BASE = 'https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron';
+const OSS_BASE =
+  "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron";
 const OSS_LATEST_JSON_URL = `${OSS_BASE}/latest/latest.json`;
 
 /** Squirrel.Mac 在只读卷（如从「下载」直接打开）上无法就地更新时的错误信息特征 */
-const READ_ONLY_VOLUME_ERROR_SUBSTR = 'read-only volume';
+const READ_ONLY_VOLUME_ERROR_SUBSTR = "read-only volume";
 
 function isReadOnlyVolumeError(err: Error): boolean {
   return err?.message?.includes(READ_ONLY_VOLUME_ERROR_SUBSTR) ?? false;
@@ -40,7 +45,10 @@ interface LatestJson {
   version: string;
   notes?: string;
   pub_date?: string;
-  platforms?: Record<string, { url: string; signature?: string; size?: number }>;
+  platforms?: Record<
+    string,
+    { url: string; signature?: string; size?: number }
+  >;
 }
 
 /**
@@ -48,8 +56,12 @@ interface LatestJson {
  */
 function fetchLatestJson(url: string, timeoutMs = 15_000): Promise<LatestJson> {
   return new Promise((resolve, reject) => {
-    const request = net.request(url);
-    let body = '';
+    // 添加时间戳参数绕过 CDN/浏览器缓存，确保每次都获取最新版本信息
+    const cacheBustUrl = url.includes("?")
+      ? `${url}&_t=${Date.now()}`
+      : `${url}?_t=${Date.now()}`;
+    const request = net.request(cacheBustUrl);
+    let body = "";
     let settled = false;
 
     const timer = setTimeout(() => {
@@ -60,25 +72,33 @@ function fetchLatestJson(url: string, timeoutMs = 15_000): Promise<LatestJson> {
       }
     }, timeoutMs);
 
-    request.on('response', (response) => {
+    request.on("response", (response) => {
       if (response.statusCode !== 200) {
         clearTimeout(timer);
         settled = true;
         reject(new Error(`HTTP ${response.statusCode} fetching ${url}`));
         return;
       }
-      response.on('data', (chunk) => { body += chunk.toString(); });
-      response.on('end', () => {
+      response.on("data", (chunk) => {
+        body += chunk.toString();
+      });
+      response.on("end", () => {
         clearTimeout(timer);
         if (settled) return;
         settled = true;
-        try { resolve(JSON.parse(body)); }
-        catch (e) { reject(new Error(`Invalid JSON from ${url}`)); }
+        try {
+          resolve(JSON.parse(body));
+        } catch (e) {
+          reject(new Error(`Invalid JSON from ${url}`));
+        }
       });
     });
-    request.on('error', (err) => {
+    request.on("error", (err) => {
       clearTimeout(timer);
-      if (!settled) { settled = true; reject(err); }
+      if (!settled) {
+        settled = true;
+        reject(err);
+      }
     });
     request.end();
   });
@@ -86,7 +106,7 @@ function fetchLatestJson(url: string, timeoutMs = 15_000): Promise<LatestJson> {
 
 // ==================== 安装类型检测 ====================
 
-type InstallerType = 'nsis' | 'msi' | 'mac' | 'linux' | 'dev';
+type InstallerType = "nsis" | "msi" | "mac" | "linux" | "dev";
 
 /**
  * 检测 Windows 安装类型（NSIS vs MSI）
@@ -95,24 +115,28 @@ type InstallerType = 'nsis' | 'msi' | 'mac' | 'linux' | 'dev';
  * MSI 安装由 Windows Installer 管理，不含此文件。
  */
 function detectInstallerType(): InstallerType {
-  if (!app.isPackaged) return 'dev';
-  if (process.platform === 'darwin') return 'mac';
-  if (process.platform === 'linux') return 'linux';
+  if (!app.isPackaged) return "dev";
+  if (process.platform === "darwin") return "mac";
+  if (process.platform === "linux") return "linux";
 
-  if (process.platform === 'win32') {
-    const appDir = path.dirname(app.getPath('exe'));
+  if (process.platform === "win32") {
+    const appDir = path.dirname(app.getPath("exe"));
     // electron-builder NSIS 会生成 "Uninstall {productName}.exe"
     const productName = app.getName();
     const nsisUninstaller = path.join(appDir, `Uninstall ${productName}.exe`);
     if (fs.existsSync(nsisUninstaller)) {
-      log.info(`[AutoUpdater] Windows installer type: NSIS (found ${nsisUninstaller})`);
-      return 'nsis';
+      log.info(
+        `[AutoUpdater] Windows installer type: NSIS (found ${nsisUninstaller})`,
+      );
+      return "nsis";
     }
-    log.info('[AutoUpdater] Windows installer type: MSI (no NSIS uninstaller found)');
-    return 'msi';
+    log.info(
+      "[AutoUpdater] Windows installer type: MSI (no NSIS uninstaller found)",
+    );
+    return "msi";
   }
 
-  return 'nsis'; // fallback
+  return "nsis"; // fallback
 }
 
 let cachedInstallerType: InstallerType | undefined;
@@ -131,32 +155,38 @@ function getInstallerType(): InstallerType {
  */
 function canAutoUpdate(): boolean {
   const type = getInstallerType();
-  return type !== 'msi';
+  return type !== "msi";
 }
 
 // ==================== 跳过版本管理 ====================
 
 function getSkippedVersionFile(): string {
-  return path.join(app.getPath('home'), APP_DATA_DIR_NAME, '.skipped-update-version');
+  return path.join(
+    app.getPath("home"),
+    APP_DATA_DIR_NAME,
+    ".skipped-update-version",
+  );
 }
 
 function getSkippedVersion(): string | null {
   try {
     const file = getSkippedVersionFile();
     if (fs.existsSync(file)) {
-      return fs.readFileSync(file, 'utf-8').trim();
+      return fs.readFileSync(file, "utf-8").trim();
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return null;
 }
 
 function setSkippedVersion(version: string): void {
   try {
     const file = getSkippedVersionFile();
-    fs.writeFileSync(file, version, 'utf-8');
+    fs.writeFileSync(file, version, "utf-8");
     log.info(`[AutoUpdater] Skipped version set: ${version}`);
   } catch (e) {
-    log.warn('[AutoUpdater] Failed to save skipped version:', e);
+    log.warn("[AutoUpdater] Failed to save skipped version:", e);
   }
 }
 
@@ -166,8 +196,8 @@ function setSkippedVersion(version: string): void {
  * 语义化版本比较: a > b 返回 1, a < b 返回 -1, 相等返回 0
  */
 function compareVersions(a: string, b: string): number {
-  const pa = a.replace(/^v/, '').split('.').map(Number);
-  const pb = b.replace(/^v/, '').split('.').map(Number);
+  const pa = a.replace(/^v/, "").split(".").map(Number);
+  const pb = b.replace(/^v/, "").split(".").map(Number);
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
     const na = pa[i] || 0;
     const nb = pb[i] || 0;
@@ -177,7 +207,7 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-let currentState: UpdateState = { status: 'idle' };
+let currentState: UpdateState = { status: "idle" };
 let getMainWindow: (() => BrowserWindow | null) | null = null;
 let cleanupBeforeInstall: (() => void) | null = null;
 /**
@@ -191,14 +221,16 @@ let markQuitting: (() => void) | null = null;
 function sendStatusToRenderer(): void {
   const win = getMainWindow?.();
   if (win && !win.isDestroyed()) {
-    win.webContents.send('update:status', currentState);
+    win.webContents.send("update:status", currentState);
   }
 }
 
 /**
  * 显示模态对话框（挂载到主窗口，避免 Linux 标题栏图标显示异常）
  */
-function showModal(options: Electron.MessageBoxOptions): Promise<Electron.MessageBoxReturnValue> {
+function showModal(
+  options: Electron.MessageBoxOptions,
+): Promise<Electron.MessageBoxReturnValue> {
   const win = getMainWindow?.();
   if (win && !win.isDestroyed()) {
     return dialog.showMessageBox(win, options);
@@ -227,7 +259,7 @@ let checkInProgress = false;
  */
 async function checkForUpdatesViaLatestJson(): Promise<UpdateInfo> {
   if (checkInProgress) {
-    log.info('[AutoUpdater] Check already in progress, skipping');
+    log.info("[AutoUpdater] Check already in progress, skipping");
     // 返回 alreadyChecking: true，让调用方知道检查正在进行，避免误报"当前已是最新版本"
     return { hasUpdate: false, alreadyChecking: true };
   }
@@ -241,16 +273,27 @@ async function checkForUpdatesViaLatestJson(): Promise<UpdateInfo> {
 }
 
 async function doCheckViaLatestJson(): Promise<UpdateInfo> {
-  const { autoUpdater } = require('electron-updater');
-  setState({ status: 'checking', error: undefined, isReadOnlyVolumeError: undefined, canAutoUpdate: canAutoUpdate() });
+  const { autoUpdater } = require("electron-updater");
+  setState({
+    status: "checking",
+    error: undefined,
+    isReadOnlyVolumeError: undefined,
+    canAutoUpdate: canAutoUpdate(),
+  });
 
   let latestJson: LatestJson;
 
   try {
     latestJson = await fetchLatestJson(OSS_LATEST_JSON_URL);
   } catch (e: any) {
-    log.error(`[AutoUpdater] Failed to fetch latest.json from OSS: ${e.message}`);
-    setState({ status: 'error', error: `无法获取更新信息: ${e.message}`, canAutoUpdate: canAutoUpdate() });
+    log.error(
+      `[AutoUpdater] Failed to fetch latest.json from OSS: ${e.message}`,
+    );
+    setState({
+      status: "error",
+      error: `无法获取更新信息: ${e.message}`,
+      canAutoUpdate: canAutoUpdate(),
+    });
     return { hasUpdate: false, error: `无法获取更新信息: ${e.message}` };
   }
 
@@ -259,13 +302,15 @@ async function doCheckViaLatestJson(): Promise<UpdateInfo> {
   if (hasUpdate) {
     // 指向版本化 OSS 路径，electron-updater 从该路径下载安装包
     const versionedUrl = `${OSS_BASE}/electron-v${latestJson.version}`;
-    log.info(`[AutoUpdater] New version ${latestJson.version} found via latest.json, setting feed URL: ${versionedUrl}`);
-    autoUpdater.setFeedURL({ provider: 'generic', url: versionedUrl });
+    log.info(
+      `[AutoUpdater] New version ${latestJson.version} found via latest.json, setting feed URL: ${versionedUrl}`,
+    );
+    autoUpdater.setFeedURL({ provider: "generic", url: versionedUrl });
     // 初始化 electron-updater 内部状态，为后续 downloadUpdate() 做准备
     await autoUpdater.checkForUpdates();
   } else {
     setState({
-      status: 'not-available',
+      status: "not-available",
       canAutoUpdate: canAutoUpdate(),
     });
   }
@@ -286,22 +331,30 @@ async function doCheckViaLatestJson(): Promise<UpdateInfo> {
  * @param onMarkQuitting 在调用 quitAndInstall 前调用，用于设置主进程的 isQuitting/isInstallingUpdate 标志，
  *                       防止窗口 close 被拦截，并让 before-quit 不阻止退出
  */
-export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?: () => void, onMarkQuitting?: () => void): void {
+export function initAutoUpdater(
+  getWindow: () => BrowserWindow | null,
+  cleanup?: () => void,
+  onMarkQuitting?: () => void,
+): void {
   getMainWindow = getWindow;
   cleanupBeforeInstall = cleanup || null;
   markQuitting = onMarkQuitting || null;
 
   const installerType = getInstallerType();
-  log.info(`[AutoUpdater] Installer type: ${installerType}, canAutoUpdate: ${canAutoUpdate()}`);
+  log.info(
+    `[AutoUpdater] Installer type: ${installerType}, canAutoUpdate: ${canAutoUpdate()}`,
+  );
 
   // MSI 安装只支持检查更新，不支持自动下载/安装
-  if (installerType === 'msi') {
-    log.info('[AutoUpdater] MSI installation detected: auto-download disabled, will redirect to releases page');
+  if (installerType === "msi") {
+    log.info(
+      "[AutoUpdater] MSI installation detected: auto-download disabled, will redirect to releases page",
+    );
   }
 
   // CJS 兼容导入 electron-updater
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { autoUpdater } = require('electron-updater');
+  const { autoUpdater } = require("electron-updater");
 
   autoUpdater.logger = log;
   autoUpdater.autoDownload = false;
@@ -311,61 +364,73 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
   if (!app.isPackaged) {
     autoUpdater.forceDevUpdateConfig = true;
     autoUpdater.autoInstallOnAppQuit = false;
-    log.info('[AutoUpdater] Dev mode: using dev-app-update.yml (autoInstall disabled)');
+    log.info(
+      "[AutoUpdater] Dev mode: using dev-app-update.yml (autoInstall disabled)",
+    );
   }
 
   // 自定义更新源覆盖（本地测试），直接走 electron-updater 的 generic provider
   const customServer = process.env.NUWAX_UPDATE_SERVER;
   if (customServer) {
     log.info(`[AutoUpdater] Using custom update server: ${customServer}`);
-    autoUpdater.setFeedURL({ provider: 'generic', url: customServer });
+    autoUpdater.setFeedURL({ provider: "generic", url: customServer });
   }
 
   // -------- 事件监听 --------
 
-  autoUpdater.on('checking-for-update', () => {
-    log.info('[AutoUpdater] Checking for update...');
-    setState({ status: 'checking', isReadOnlyVolumeError: undefined, canAutoUpdate: canAutoUpdate() });
+  autoUpdater.on("checking-for-update", () => {
+    log.info("[AutoUpdater] Checking for update...");
+    setState({
+      status: "checking",
+      isReadOnlyVolumeError: undefined,
+      canAutoUpdate: canAutoUpdate(),
+    });
   });
 
-  autoUpdater.on('update-available', (info: any) => {
-    log.info('[AutoUpdater] Update available:', info.version);
+  autoUpdater.on("update-available", (info: any) => {
+    log.info("[AutoUpdater] Update available:", info.version);
     setState({
-      status: 'available',
+      status: "available",
       version: info.version,
       isReadOnlyVolumeError: undefined,
       canAutoUpdate: canAutoUpdate(),
     });
   });
 
-  autoUpdater.on('update-not-available', (_info: any) => {
-    log.info('[AutoUpdater] Already up to date');
-    setState({ status: 'not-available', isReadOnlyVolumeError: undefined, canAutoUpdate: canAutoUpdate() });
+  autoUpdater.on("update-not-available", (_info: any) => {
+    log.info("[AutoUpdater] Already up to date");
+    setState({
+      status: "not-available",
+      isReadOnlyVolumeError: undefined,
+      canAutoUpdate: canAutoUpdate(),
+    });
   });
 
-  autoUpdater.on('download-progress', (progress: UpdateProgress) => {
-    log.info(`[AutoUpdater] Download progress: ${progress.percent.toFixed(1)}%`);
+  autoUpdater.on("download-progress", (progress: UpdateProgress) => {
+    log.info(
+      `[AutoUpdater] Download progress: ${progress.percent.toFixed(1)}%`,
+    );
     setState({
-      status: 'downloading',
+      status: "downloading",
       progress,
       canAutoUpdate: true,
     });
   });
 
-  autoUpdater.on('update-downloaded', (info: any) => {
-    log.info('[AutoUpdater] Update downloaded:', info.version);
+  autoUpdater.on("update-downloaded", (info: any) => {
+    log.info("[AutoUpdater] Update downloaded:", info.version);
     setState({
-      status: 'downloaded',
+      status: "downloaded",
       version: info.version,
       progress: undefined,
       canAutoUpdate: true,
     });
   });
 
-  autoUpdater.on('error', (err: Error) => {
-    log.error('[AutoUpdater] Error:', err.message);
+  autoUpdater.on("error", (err: Error) => {
+    log.error("[AutoUpdater] Error:", err.message);
     setState({
-      status: 'error',
+      status: "error",
       error: err.message,
       progress: undefined,
       canAutoUpdate: canAutoUpdate(),
@@ -376,24 +441,26 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null, cleanup?:
   // 延迟 10s 启动时检查一次，发现新版本弹窗提示；退出时清除避免在已退出状态下弹窗
   const STARTUP_CHECK_DELAY_MS = 10_000;
   const startupCheckTimerId = setTimeout(async () => {
-    log.info('[AutoUpdater] Initial startup check');
+    log.info("[AutoUpdater] Initial startup check");
     try {
       const result = await checkForUpdatesViaLatestJson();
       if (result.hasUpdate && result.version) {
         const skipped = getSkippedVersion();
         if (skipped === result.version) {
-          log.info(`[AutoUpdater] Startup: v${result.version} was skipped by user, not prompting`);
+          log.info(
+            `[AutoUpdater] Startup: v${result.version} was skipped by user, not prompting`,
+          );
           return;
         }
         log.info(`[AutoUpdater] Startup: found new version v${result.version}`);
         showStartupUpdateDialog(result.version);
       }
     } catch (e: any) {
-      log.warn('[AutoUpdater] Startup check failed:', e.message);
+      log.warn("[AutoUpdater] Startup check failed:", e.message);
     }
   }, STARTUP_CHECK_DELAY_MS);
 
-  app.once('before-quit', () => {
+  app.once("before-quit", () => {
     clearTimeout(startupCheckTimerId);
   });
 }
@@ -405,11 +472,12 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
   if (!canAutoUpdate()) {
     // MSI 用户引导到 Releases 页面
     const { response } = await showModal({
-      type: 'info',
-      title: '发现新版本',
+      type: "info",
+      title: "发现新版本",
       message: `发现新版本 v${version}`,
-      detail: '当前安装方式不支持自动更新，请前往 Releases 页面下载最新安装包。',
-      buttons: ['前往下载页', '跳过此版本', '关闭'],
+      detail:
+        "当前安装方式不支持自动更新，请前往 Releases 页面下载最新安装包。",
+      buttons: ["前往下载页", "跳过此版本", "关闭"],
       defaultId: 0,
       cancelId: 2,
     });
@@ -422,11 +490,11 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
   }
 
   const { response } = await showModal({
-    type: 'info',
-    title: '发现新版本',
+    type: "info",
+    title: "发现新版本",
     message: `发现新版本 v${version}`,
-    detail: '是否立即下载并安装更新？',
-    buttons: ['立即更新', '跳过此版本', '关闭'],
+    detail: "是否立即下载并安装更新？",
+    buttons: ["立即更新", "跳过此版本", "关闭"],
     defaultId: 0,
     cancelId: 2,
   });
@@ -436,11 +504,11 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
       const dlResult = await downloadUpdate();
       if (dlResult.success) {
         const { response: installResponse } = await showModal({
-          type: 'info',
-          title: '更新已下载',
-          message: '更新已下载完成',
-          detail: '是否立即重启安装？',
-          buttons: ['立即重启', '退出时安装'],
+          type: "info",
+          title: "更新已下载",
+          message: "更新已下载完成",
+          detail: "是否立即重启安装？",
+          buttons: ["立即重启", "退出时安装"],
           defaultId: 0,
           cancelId: 1,
         });
@@ -448,10 +516,14 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
           installUpdate();
         }
       } else if (dlResult.error) {
-        showModal({ type: 'error', title: '下载失败', message: dlResult.error });
+        showModal({
+          type: "error",
+          title: "下载失败",
+          message: dlResult.error,
+        });
       }
     } catch (e: any) {
-      log.error('[AutoUpdater] Startup download failed:', e.message);
+      log.error("[AutoUpdater] Startup download failed:", e.message);
     }
   } else {
     setSkippedVersion(version);
@@ -467,23 +539,24 @@ export async function showUpdateDialogFlow(): Promise<void> {
     const result = await checkForUpdates();
     if (!result.hasUpdate) {
       showModal({
-        type: 'info',
-        title: '检查更新',
-        message: '当前已是最新版本',
+        type: "info",
+        title: "检查更新",
+        message: "当前已是最新版本",
       });
       return;
     }
 
-    const version = result.version ?? 'unknown';
+    const version = result.version ?? "unknown";
     const state = getUpdateState();
 
     if (state.canAutoUpdate === false) {
       const { response } = await showModal({
-        type: 'info',
-        title: '发现新版本',
+        type: "info",
+        title: "发现新版本",
         message: `发现新版本 v${version}`,
-        detail: '当前安装方式不支持自动更新，请前往 Releases 页面下载最新安装包。',
-        buttons: ['前往下载页', '稍后再说'],
+        detail:
+          "当前安装方式不支持自动更新，请前往 Releases 页面下载最新安装包。",
+        buttons: ["前往下载页", "稍后再说"],
         defaultId: 0,
         cancelId: 1,
       });
@@ -494,11 +567,11 @@ export async function showUpdateDialogFlow(): Promise<void> {
     }
 
     const { response } = await showModal({
-      type: 'info',
-      title: '发现新版本',
+      type: "info",
+      title: "发现新版本",
       message: `发现新版本 v${version}`,
-      detail: '是否立即下载更新？',
-      buttons: ['下载更新', '稍后再说'],
+      detail: "是否立即下载更新？",
+      buttons: ["下载更新", "稍后再说"],
       defaultId: 0,
       cancelId: 1,
     });
@@ -506,16 +579,21 @@ export async function showUpdateDialogFlow(): Promise<void> {
 
     const dlResult = await downloadUpdate();
     if (!dlResult.success) {
-      if (dlResult.error) showModal({ type: 'error', title: '下载失败', message: dlResult.error });
+      if (dlResult.error)
+        showModal({
+          type: "error",
+          title: "下载失败",
+          message: dlResult.error,
+        });
       return;
     }
 
     const { response: installResponse } = await showModal({
-      type: 'info',
-      title: '更新已下载',
-      message: '更新已下载完成',
-      detail: '是否立即重启安装？',
-      buttons: ['立即重启', '退出时安装'],
+      type: "info",
+      title: "更新已下载",
+      message: "更新已下载完成",
+      detail: "是否立即重启安装？",
+      buttons: ["立即重启", "退出时安装"],
       defaultId: 0,
       cancelId: 1,
     });
@@ -523,8 +601,12 @@ export async function showUpdateDialogFlow(): Promise<void> {
       installUpdate();
     }
   } catch (e: any) {
-    log.error('[AutoUpdater] Update dialog flow error:', e.message);
-    showModal({ type: 'error', title: '检查更新失败', message: e.message || '请稍后重试' });
+    log.error("[AutoUpdater] Update dialog flow error:", e.message);
+    showModal({
+      type: "error",
+      title: "检查更新失败",
+      message: e.message || "请稍后重试",
+    });
   }
 }
 
@@ -537,24 +619,35 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
   // 自定义更新源覆盖时，直接走 electron-updater（已在 init 中设置 feedURL）
   if (process.env.NUWAX_UPDATE_SERVER) {
     try {
-      const { autoUpdater } = require('electron-updater');
-      setState({ status: 'checking', error: undefined, isReadOnlyVolumeError: undefined, canAutoUpdate: canAutoUpdate() });
+      const { autoUpdater } = require("electron-updater");
+      setState({
+        status: "checking",
+        error: undefined,
+        isReadOnlyVolumeError: undefined,
+        canAutoUpdate: canAutoUpdate(),
+      });
       const result = await autoUpdater.checkForUpdates();
       if (result?.updateInfo) {
-        const hasUpdate = compareVersions(result.updateInfo.version, app.getVersion()) > 0;
+        const hasUpdate =
+          compareVersions(result.updateInfo.version, app.getVersion()) > 0;
         return {
           hasUpdate,
           version: result.updateInfo.version,
           releaseDate: result.updateInfo.releaseDate,
-          releaseNotes: typeof result.updateInfo.releaseNotes === 'string'
-            ? result.updateInfo.releaseNotes
-            : undefined,
+          releaseNotes:
+            typeof result.updateInfo.releaseNotes === "string"
+              ? result.updateInfo.releaseNotes
+              : undefined,
         };
       }
       return { hasUpdate: false };
     } catch (err: any) {
-      log.error('[AutoUpdater] checkForUpdates error:', err.message);
-      setState({ status: 'error', error: err.message, canAutoUpdate: canAutoUpdate() });
+      log.error("[AutoUpdater] checkForUpdates error:", err.message);
+      setState({
+        status: "error",
+        error: err.message,
+        canAutoUpdate: canAutoUpdate(),
+      });
       return { hasUpdate: false, error: err.message };
     }
   }
@@ -565,30 +658,47 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
 /**
  * 下载更新
  */
-export async function downloadUpdate(): Promise<{ success: boolean; error?: string }> {
+export async function downloadUpdate(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
   // Dev 模式下 Squirrel.Mac 无法处理更新包（bundle ID 不匹配），只允许检查更新
   if (!app.isPackaged) {
-    log.warn('[AutoUpdater] Download skipped in dev mode (Squirrel.Mac requires packaged app)');
-    return { success: false, error: '开发模式不支持下载更新，请使用打包版本测试' };
+    log.warn(
+      "[AutoUpdater] Download skipped in dev mode (Squirrel.Mac requires packaged app)",
+    );
+    return {
+      success: false,
+      error: "开发模式不支持下载更新，请使用打包版本测试",
+    };
   }
 
   // MSI 安装不支持自动更新，引导到 Releases 页面
-  if (getInstallerType() === 'msi') {
-    log.info('[AutoUpdater] MSI installation: redirecting to releases page for manual download');
+  if (getInstallerType() === "msi") {
+    log.info(
+      "[AutoUpdater] MSI installation: redirecting to releases page for manual download",
+    );
     openReleasesPage();
-    return { success: false, error: 'MSI 安装请前往 Releases 页面下载最新 MSI 安装包' };
+    return {
+      success: false,
+      error: "MSI 安装请前往 Releases 页面下载最新 MSI 安装包",
+    };
   }
 
   try {
     // 立即设置 downloading 状态，让渲染进程马上显示 loading
-    setState({ status: 'downloading', progress: undefined, canAutoUpdate: true });
-    const { autoUpdater } = require('electron-updater');
+    setState({
+      status: "downloading",
+      progress: undefined,
+      canAutoUpdate: true,
+    });
+    const { autoUpdater } = require("electron-updater");
     await autoUpdater.downloadUpdate();
     return { success: true };
   } catch (err: any) {
-    log.error('[AutoUpdater] downloadUpdate error:', err.message);
+    log.error("[AutoUpdater] downloadUpdate error:", err.message);
     setState({
-      status: 'error',
+      status: "error",
       error: err.message,
       canAutoUpdate: canAutoUpdate(),
       isReadOnlyVolumeError: isReadOnlyVolumeError(err),
@@ -602,12 +712,15 @@ export async function downloadUpdate(): Promise<{ success: boolean; error?: stri
  */
 export function installUpdate(): { success: boolean; error?: string } {
   if (!app.isPackaged) {
-    return { success: false, error: '开发模式不支持安装更新' };
+    return { success: false, error: "开发模式不支持安装更新" };
   }
 
-  if (getInstallerType() === 'msi') {
+  if (getInstallerType() === "msi") {
     openReleasesPage();
-    return { success: false, error: 'MSI 安装请前往 Releases 页面下载最新 MSI 安装包' };
+    return {
+      success: false,
+      error: "MSI 安装请前往 Releases 页面下载最新 MSI 安装包",
+    };
   }
 
   try {
@@ -618,20 +731,20 @@ export function installUpdate(): { success: boolean; error?: string } {
     //   让各平台的安装器（macOS Squirrel.Mac / Windows NSIS / Linux AppImage）
     //   正常接管退出流程完成安装；否则 e.preventDefault() 会阻止安装器触发
     if (markQuitting) {
-      log.info('[AutoUpdater] Marking app as quitting for update install...');
+      log.info("[AutoUpdater] Marking app as quitting for update install...");
       markQuitting();
     }
 
     // 先停止所有服务，避免残留进程（cleanup 是同步触发的异步操作）
     if (cleanupBeforeInstall) {
-      log.info('[AutoUpdater] Running cleanup before install...');
+      log.info("[AutoUpdater] Running cleanup before install...");
       cleanupBeforeInstall();
     }
-    const { autoUpdater } = require('electron-updater');
+    const { autoUpdater } = require("electron-updater");
     autoUpdater.quitAndInstall(false, true);
     return { success: true };
   } catch (err: any) {
-    log.error('[AutoUpdater] installUpdate error:', err.message);
+    log.error("[AutoUpdater] installUpdate error:", err.message);
     return { success: false, error: err.message };
   }
 }
@@ -658,11 +771,11 @@ export async function openReleasesPage(): Promise<void> {
     const latest = await fetchLatestJson(OSS_LATEST_JSON_URL);
     const platforms: Platforms | undefined = latest.platforms;
 
-    if (process.platform === 'win32') {
+    if (process.platform === "win32") {
       const installerType = getInstallerType();
       url = getWindowsDownloadUrl(platforms, installerType);
       platformName = `Windows (${installerType})`;
-    } else if (process.platform === 'darwin') {
+    } else if (process.platform === "darwin") {
       url = getMacosDownloadUrl(platforms);
       platformName = `macOS (${process.arch})`;
     } else {
@@ -674,16 +787,18 @@ export async function openReleasesPage(): Promise<void> {
       throw new Error(`未找到 ${platformName} 对应的下载包`);
     }
 
-    log.info(`[AutoUpdater] Opening ${platformName} download URL from OSS: ${url}`);
+    log.info(
+      `[AutoUpdater] Opening ${platformName} download URL from OSS: ${url}`,
+    );
     await shell.openExternal(url);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     log.error(`[AutoUpdater] Failed to get download URL from OSS: ${msg}`);
     // 弹窗提示用户，不 fallback 到 GitHub
     await showModal({
-      type: 'error',
-      title: '获取下载链接失败',
-      message: '无法从服务器获取下载链接',
+      type: "error",
+      title: "获取下载链接失败",
+      message: "无法从服务器获取下载链接",
       detail: `错误: ${msg}\n\n请检查网络连接后重试。`,
     });
   }

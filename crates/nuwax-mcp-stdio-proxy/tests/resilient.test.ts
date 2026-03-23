@@ -33,32 +33,6 @@ class MockTransport implements Transport {
       throw new Error('Mock send failure');
     }
     this.sentMessages.push(message);
-
-    // Auto-respond to re-initialize requests
-    if ('id' in message && typeof message.id === 'string' && message.id.startsWith('respl-init-')) {
-      setTimeout(() => {
-        if (this.onmessage) {
-          this.onmessage({
-            jsonrpc: '2.0',
-            id: message.id,
-            result: { protocolVersion: '2024-11-05', capabilities: {}, serverInfo: { name: 'mock', version: '1.0' } }
-          });
-        }
-      }, 10 as number);
-    }
-
-    // Auto-respond to pings for health checks
-    if ('id' in message && typeof message.id === 'string' && message.id.startsWith('respl-ping-')) {
-      setTimeout(() => {
-        if (this.onmessage) {
-          this.onmessage({
-            jsonrpc: '2.0',
-            id: message.id,
-            result: {}
-          });
-        }
-      }, 10 as number);
-    }
   }
 
   // Helper to simulate incoming messages
@@ -152,40 +126,36 @@ describe('ResilientTransportWrapper', () => {
   });
 
   it('should reconnect if heartbeat fails repeatedly', async () => {
-    const wrapper = createWrapper({ 
-      pingIntervalMs: 1000, 
+    let healthCheckCalls = 0;
+    const wrapper = createWrapper({
+      pingIntervalMs: 1000,
       pingTimeoutMs: 500,
       maxConsecutiveFailures: 2,
-      reconnectDelayMs: 100
+      reconnectDelayMs: 100,
+      healthCheckFn: async () => {
+        healthCheckCalls++;
+        return false; // Always fail health check
+      }
     });
-    
+
     await wrapper.start();
     wrapper.enableHeartbeat();
-    await vi.advanceTimersByTimeAsync(10); // Allow heartbeat to initialize
-    
-    const firstTransport = mockTransports[0];
-    // Disable auto ping responses
-    firstTransport.shouldFailSend = true;
-    
-    // Advance timer to trigger first heartbeat attempt
-    await vi.advanceTimersByTimeAsync(1001); // Trigger interval
-    await vi.advanceTimersByTimeAsync(501);  // Trigger timeout
-    
-    // 1 failure at this point, should still be same transport
-    expect(mockTransports.length).toBe(1);
-    
-    // Advance timer to trigger second heartbeat attempt
-    await vi.advanceTimersByTimeAsync(1001); // Trigger interval
-    await vi.advanceTimersByTimeAsync(501);  // Trigger timeout
-    
-    // 2 failures = maxConsecutiveFailures, should trigger reconnect
-    
-    // Advance time for reconnect delay
+
+    // Trigger first heartbeat failure
+    await vi.advanceTimersByTimeAsync(1001);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(mockTransports.length).toBe(1); // Still same transport
+
+    // Trigger second heartbeat failure (maxConsecutiveFailures = 2)
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(10);
+
+    // Advance for reconnect delay
     await vi.advanceTimersByTimeAsync(150);
-    
-    // Should have reconnected
+
+    // Should have reconnected (new transport created)
     expect(mockTransports.length).toBe(2);
-    
+
     await wrapper.close();
   });
 
@@ -267,7 +237,7 @@ describe('ResilientTransportWrapper', () => {
     await expect(wrapper.send({ jsonrpc: '2.0', method: 'test' })).rejects.toThrow('Transport is closed');
   });
 
-  it('should schedule retry when initial connect fails', async () => {
+  it('should throw when initial connect fails', async () => {
      const wrapper = new ResilientTransportWrapper({
        name: 'fail-connect',
        reconnectDelayMs: 100,
@@ -276,185 +246,353 @@ describe('ResilientTransportWrapper', () => {
        }
      });
 
-     // start() doesn't reject — it catches and schedules retry
-     await wrapper.start();
+     // start() should throw on initial connection failure
+     // Caller is responsible for retry logic
+     await expect(wrapper.start()).rejects.toThrow('Initial network error');
+
      // Clean up
      await wrapper.close();
   });
 
-  it('should capture initialize messages and replay on reconnect', async () => {
-    const wrapper = createWrapper({ reconnectDelayMs: 100, pingTimeoutMs: 5000 });
+  it('should call healthCheckFn for heartbeat', async () => {
+    let healthCheckCalls = 0;
+    const wrapper = createWrapper({
+      pingIntervalMs: 1000,
+      pingTimeoutMs: 500,
+      maxConsecutiveFailures: 3,
+      reconnectDelayMs: 100,
+      healthCheckFn: async () => {
+        healthCheckCalls++;
+        return true;
+      }
+    });
+
     await wrapper.start();
+    wrapper.enableHeartbeat();
 
-    // Simulate the MCP client sending initialize handshake
-    const initMsg: JSONRPCMessage = {
-      jsonrpc: '2.0',
-      id: 'client-init-1',
-      method: 'initialize',
-      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } }
-    };
-    const initializedMsg: JSONRPCMessage = {
-      jsonrpc: '2.0',
-      method: 'notifications/initialized',
-    };
-    await wrapper.send(initMsg);
-    await wrapper.send(initializedMsg);
+    // Advance timer to trigger first heartbeat
+    await vi.advanceTimersByTimeAsync(1001);
+    // Allow async healthCheckFn to complete
+    await vi.advanceTimersByTimeAsync(10);
 
-    // Verify they were sent to the first transport
-    expect(mockTransports[0].sentMessages).toContainEqual(initMsg);
-    expect(mockTransports[0].sentMessages).toContainEqual(initializedMsg);
+    // healthCheckFn should have been called once
+    expect(healthCheckCalls).toBe(1);
 
-    // Simulate disconnect
-    mockTransports[0].simulateClose();
+    // Advance for another heartbeat
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(healthCheckCalls).toBe(2);
 
-    // Advance time to trigger reconnect
+    await wrapper.close();
+  });
+
+  it('should trigger reconnect when healthCheckFn fails repeatedly', async () => {
+    const wrapper = createWrapper({
+      pingIntervalMs: 1000,
+      pingTimeoutMs: 500,
+      maxConsecutiveFailures: 2,
+      reconnectDelayMs: 100,
+      healthCheckFn: async () => {
+        return false; // Always fail
+      }
+    });
+
+    await wrapper.start();
+    wrapper.enableHeartbeat();
+
+    // Trigger first heartbeat failure
+    await vi.advanceTimersByTimeAsync(1001);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(mockTransports.length).toBe(1); // Still same transport
+
+    // Trigger second heartbeat failure (maxConsecutiveFailures = 2)
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(10);
+
+    // Advance for reconnect delay
     await vi.advanceTimersByTimeAsync(150);
 
-    // A new transport should be created
+    // Should have reconnected (new transport created)
     expect(mockTransports.length).toBe(2);
-    const secondTransport = mockTransports[1];
-
-    // The re-initialize request should have been sent with a respl-init- id
-    const reInitMsg = secondTransport.sentMessages.find(
-      (m: any) => m.method === 'initialize' && typeof m.id === 'string' && m.id.startsWith('respl-init-')
-    );
-    expect(reInitMsg).toBeDefined();
-
-    // Wait for the auto-response and notifications/initialized to be sent
-    await vi.advanceTimersByTimeAsync(50);
-
-    // notifications/initialized should also have been sent
-    const reInitNotification = secondTransport.sentMessages.find(
-      (m: any) => m.method === 'notifications/initialized'
-    );
-    expect(reInitNotification).toBeDefined();
 
     await wrapper.close();
   });
 
-  it('should retry with backoff when re-initialize times out', async () => {
-    let transportCount = 0;
-    const wrapper = new ResilientTransportWrapper({
-      name: 'reinit-timeout',
-      reconnectDelayMs: 100,
-      pingTimeoutMs: 200,
-      connectParams: async () => {
-        const t = new MockTransport();
-        transportCount++;
-        // Second transport onwards: don't auto-respond to respl-init- (simulate timeout)
-        if (transportCount > 1) {
-          const origSend = t.send.bind(t);
-          t.send = async (msg: JSONRPCMessage) => {
-            if ('id' in msg && typeof msg.id === 'string' && msg.id.startsWith('respl-init-')) {
-              t.sentMessages.push(msg);
-              // Don't respond — simulate timeout
-              return;
-            }
-            return origSend(msg);
-          };
-        }
-        mockTransports.push(t);
-        return t;
-      },
-    });
-
-    await wrapper.start();
-
-    // Send initialize to capture it
-    await wrapper.send({
-      jsonrpc: '2.0',
-      id: 'init-1',
-      method: 'initialize',
-      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } }
-    });
-
-    // Simulate disconnect
-    mockTransports[0].simulateClose();
-
-    // Advance time for reconnect (100ms) + re-init timeout (200ms) + next retry delay
-    await vi.advanceTimersByTimeAsync(100); // reconnect fires, transport connects
-    await vi.advanceTimersByTimeAsync(250); // re-init timeout fires
-
-    // Should have attempted a second transport and be scheduling another retry
-    expect(mockTransports.length).toBe(2);
-
-    // Advance more time for the next retry attempt
-    await vi.advanceTimersByTimeAsync(500);
-    expect(mockTransports.length).toBe(3);
-
-    await wrapper.close();
-  });
-
-  it('should not replay initialize on reconnect if none was captured', async () => {
+  it('should trigger onreconnect event on reconnect', async () => {
+    let onreconnectCalls = 0;
     const wrapper = createWrapper({ reconnectDelayMs: 100 });
-    await wrapper.start();
 
-    // Don't send any initialize — simulate a scenario where wrapper reconnects
-    // before client.connect() completed (edge case)
-
-    mockTransports[0].simulateClose();
-    await vi.advanceTimersByTimeAsync(150);
-
-    expect(mockTransports.length).toBe(2);
-    const secondTransport = mockTransports[1];
-
-    // No respl-init- messages should have been sent
-    const reInitMsg = secondTransport.sentMessages.find(
-      (m: any) => typeof m.id === 'string' && m.id.startsWith('respl-init-')
-    );
-    expect(reInitMsg).toBeUndefined();
-
-    await wrapper.close();
-  });
-
-  it('should retry with backoff when re-initialize send throws', async () => {
-    let transportCount = 0;
-    const wrapper = new ResilientTransportWrapper({
-      name: 'reinit-send-fail',
-      reconnectDelayMs: 100,
-      pingTimeoutMs: 5000,
-      connectParams: async () => {
-        const t = new MockTransport();
-        transportCount++;
-        // Second transport onwards: throw on respl-init- send
-        if (transportCount > 1) {
-          const origSend = t.send.bind(t);
-          t.send = async (msg: JSONRPCMessage) => {
-            if ('id' in msg && typeof msg.id === 'string' && msg.id.startsWith('respl-init-')) {
-              throw new Error('Connection reset');
-            }
-            return origSend(msg);
-          };
-        }
-        mockTransports.push(t);
-        return t;
-      },
-    });
+    wrapper.onreconnect = async () => {
+      onreconnectCalls++;
+    };
 
     await wrapper.start();
-
-    // Send initialize to capture it
-    await wrapper.send({
-      jsonrpc: '2.0',
-      id: 'init-1',
-      method: 'initialize',
-      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } }
-    });
 
     // Simulate disconnect
     mockTransports[0].simulateClose();
 
-    // Advance time for reconnect (100ms) — transport connects, re-init send throws
+    // Advance time for reconnect
     await vi.advanceTimersByTimeAsync(150);
 
-    // Should have attempted a second transport
+    // onreconnect should have been called
+    expect(onreconnectCalls).toBe(1);
     expect(mockTransports.length).toBe(2);
 
-    // Advance more time for the backoff retry
-    await vi.advanceTimersByTimeAsync(500);
+    await wrapper.close();
+  });
 
-    // Should have created a third transport for the retry
+  it('should handle onreconnect failure with backoff', async () => {
+    let reconnectAttempts = 0;
+    const wrapper = createWrapper({ reconnectDelayMs: 100 });
+
+    wrapper.onreconnect = async () => {
+      reconnectAttempts++;
+      throw new Error('Reconnect handler failed');
+    };
+
+    await wrapper.start();
+
+    // Simulate disconnect
+    mockTransports[0].simulateClose();
+
+    // Advance time for first reconnect attempt (100ms delay)
+    await vi.advanceTimersByTimeAsync(150);
+    expect(reconnectAttempts).toBe(1);
+    expect(mockTransports.length).toBe(2);
+
+    // onreconnect failed, should retry with backoff (400ms = 100 * 2^2)
+    await vi.advanceTimersByTimeAsync(450);
+    expect(reconnectAttempts).toBe(2);
     expect(mockTransports.length).toBe(3);
+
+    // Next retry with backoff (800ms = 100 * 2^3)
+    await vi.advanceTimersByTimeAsync(850);
+    expect(reconnectAttempts).toBe(3);
+    expect(mockTransports.length).toBe(4);
+
+    await wrapper.close();
+  });
+
+  it('should succeed when onreconnect handler succeeds', async () => {
+    let reconnectAttempts = 0;
+    const wrapper = createWrapper({ reconnectDelayMs: 100 });
+
+    wrapper.onreconnect = async () => {
+      reconnectAttempts++;
+      // Success - no throw
+    };
+
+    await wrapper.start();
+
+    // Simulate disconnect
+    mockTransports[0].simulateClose();
+
+    // Advance time for reconnect
+    await vi.advanceTimersByTimeAsync(150);
+
+    // onreconnect should have succeeded
+    expect(reconnectAttempts).toBe(1);
+    expect(mockTransports.length).toBe(2);
+
+    // No more reconnects should happen
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(reconnectAttempts).toBe(1);
+    expect(mockTransports.length).toBe(2);
+
+    await wrapper.close();
+  });
+
+  it('should use transport liveness check when no healthCheckFn provided', async () => {
+    const wrapper = createWrapper({
+      pingIntervalMs: 1000,
+      pingTimeoutMs: 500,
+      maxConsecutiveFailures: 2,
+      reconnectDelayMs: 100,
+      // No healthCheckFn provided
+    });
+
+    await wrapper.start();
+    wrapper.enableHeartbeat();
+    await vi.advanceTimersByTimeAsync(10);
+
+    // Trigger heartbeat - should pass because transport is alive
+    await vi.advanceTimersByTimeAsync(1001);
+
+    // Should still be on same transport (health check passed via liveness)
+    expect(mockTransports.length).toBe(1);
+
+    await wrapper.close();
+  });
+
+  it('should prevent concurrent health check executions', async () => {
+    let healthCheckCalls = 0;
+    let healthCheckResolve: () => void;
+    let healthCheckPromise: Promise<boolean>;
+
+    const wrapper = createWrapper({
+      pingIntervalMs: 1000,
+      pingTimeoutMs: 5000, // Long timeout to test concurrency
+      maxConsecutiveFailures: 3,
+      healthCheckFn: async () => {
+        healthCheckCalls++;
+        // Return a promise that doesn't resolve immediately
+        healthCheckPromise = new Promise((resolve) => {
+          healthCheckResolve = () => resolve(true);
+        });
+        return healthCheckPromise;
+      }
+    });
+
+    await wrapper.start();
+    wrapper.enableHeartbeat();
+
+    // Trigger first heartbeat - this will start but not complete
+    await vi.advanceTimersByTimeAsync(1001);
+
+    // healthCheckFn should have been called once and is now pending
+    expect(healthCheckCalls).toBe(1);
+
+    // Trigger more timers while health check is in progress
+    // These should be skipped due to healthCheckInProgress guard
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    // Still only 1 call because the first one hasn't resolved yet
+    expect(healthCheckCalls).toBe(1);
+
+    // Now resolve the health check
+    healthCheckResolve!();
+    await vi.advanceTimersByTimeAsync(10);
+
+    // Now the next heartbeat can run
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(healthCheckCalls).toBe(2);
+
+    await wrapper.close();
+  });
+
+  it('should use response-driven scheduling (setTimeout not setInterval)', async () => {
+    let healthCheckCalls = 0;
+    const healthCheckTimes: number[] = [];
+
+    const wrapper = createWrapper({
+      pingIntervalMs: 1000,
+      healthCheckFn: async () => {
+        healthCheckCalls++;
+        healthCheckTimes.push(Date.now());
+        return true;
+      }
+    });
+
+    await wrapper.start();
+    wrapper.enableHeartbeat();
+
+    // Run for 5 heartbeat cycles
+    for (let i = 0; i < 5; i++) {
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(10); // Allow async to complete
+    }
+
+    expect(healthCheckCalls).toBe(5);
+
+    // Verify timing - each check should be ~1000ms apart
+    // (not stacked up like setInterval would do if checks were slow)
+    for (let i = 1; i < healthCheckTimes.length; i++) {
+      const diff = healthCheckTimes[i] - healthCheckTimes[i - 1];
+      expect(diff).toBeGreaterThanOrEqual(1000);
+    }
+
+    await wrapper.close();
+  });
+
+  it('should not schedule next health check when state changes to reconnecting', async () => {
+    let healthCheckCalls = 0;
+
+    const wrapper = createWrapper({
+      pingIntervalMs: 1000,
+      maxConsecutiveFailures: 2,
+      reconnectDelayMs: 100,
+      healthCheckFn: async () => {
+        healthCheckCalls++;
+        return false; // Always fail
+      }
+    });
+
+    await wrapper.start();
+    wrapper.enableHeartbeat();
+
+    // Trigger first failure
+    await vi.advanceTimersByTimeAsync(1001);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(healthCheckCalls).toBe(1);
+
+    // Trigger second failure - should trigger reconnect
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(healthCheckCalls).toBe(2);
+
+    // After hitting maxConsecutiveFailures, no more health checks should be scheduled
+    // because state is now 'reconnecting'
+    const callsBeforeReconnect = healthCheckCalls;
+
+    // Advance time - no new health checks should run during reconnect
+    await vi.advanceTimersByTimeAsync(50);
+    expect(healthCheckCalls).toBe(callsBeforeReconnect);
+
+    // Complete the reconnect
+    await vi.advanceTimersByTimeAsync(100);
+
+    // After reconnect, heartbeat should restart
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(healthCheckCalls).toBeGreaterThan(callsBeforeReconnect);
+
+    await wrapper.close();
+  });
+
+  it('should schedule next check in finally block only when connected', async () => {
+    let healthCheckCalls = 0;
+    let shouldFailHealthCheck = true;
+
+    const wrapper = createWrapper({
+      pingIntervalMs: 1000,
+      maxConsecutiveFailures: 2,
+      reconnectDelayMs: 100,
+      healthCheckFn: async () => {
+        healthCheckCalls++;
+        if (shouldFailHealthCheck) {
+          return false;
+        }
+        return true;
+      }
+    });
+
+    await wrapper.start();
+    wrapper.enableHeartbeat();
+
+    // Trigger failures to cause reconnect
+    await vi.advanceTimersByTimeAsync(1001);
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(10);
+
+    // Now let health checks pass
+    shouldFailHealthCheck = false;
+
+    // Complete reconnect
+    await vi.advanceTimersByTimeAsync(150);
+
+    // Should be reconnected now
+    expect(mockTransports.length).toBe(2);
+
+    // Heartbeat should resume with new transport
+    const callsAfterReconnect = healthCheckCalls;
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(10);
+
+    // New health check should have been scheduled after reconnect
+    expect(healthCheckCalls).toBeGreaterThan(callsAfterReconnect);
 
     await wrapper.close();
   });

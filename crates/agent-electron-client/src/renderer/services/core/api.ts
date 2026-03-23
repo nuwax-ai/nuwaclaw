@@ -117,7 +117,7 @@ export async function apiRequest<T>(
   } catch (error: any) {
     // AbortSignal.timeout 超时后抛出 TimeoutError（name === 'TimeoutError'）
     // 或 AbortError（某些环境），统一转为可读错误
-    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+    if (error.name === "TimeoutError" || error.name === "AbortError") {
       const timeoutMsg = `请求超时（>${timeoutMs}ms），请检查网络或服务器状态`;
       console.error("API Request Timeout:", finalUrl, error);
       if (options.showError !== false) {
@@ -169,6 +169,7 @@ export interface ClientRegisterParams {
   username: string;
   password: string;
   savedKey?: string;
+  deviceId?: string;
   sandboxConfigValue: SandboxValue;
 }
 
@@ -191,6 +192,8 @@ export interface ClientRegisterResponse {
   serverHost?: string;
   /** 服务器端口（客户端连接用） */
   serverPort?: number;
+  /** 登录态 token，用于 webview cookie 同步 */
+  token?: string;
 }
 
 /**

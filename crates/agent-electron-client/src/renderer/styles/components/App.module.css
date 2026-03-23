@@ -28,3 +28,10 @@
   height: 6px;
   min-width: 6px;
 }
+
+/* Webview 模式下顶部栏左侧操作区（替代 logo） */
+.headerWebviewActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

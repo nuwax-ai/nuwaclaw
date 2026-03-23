@@ -23,6 +23,7 @@ import { logError } from './logger.js';
 import { runStdio } from './modes/stdio.js';
 import { runConvert } from './modes/convert.js';
 import { runProxy } from './modes/proxy.js';
+import { validateConfig } from './validation.js';
 
 // ========== CLI Argument Types ==========
 
@@ -230,11 +231,8 @@ function parseProxyArgs(args: string[]): CliArgs & { mode: 'proxy' } {
 
 function parseConfigJson(json: string): McpServersConfig {
   try {
-    const config = JSON.parse(json) as McpServersConfig;
-    if (!config.mcpServers || typeof config.mcpServers !== 'object') {
-      throw new Error('config must contain a "mcpServers" object');
-    }
-    return config;
+    const raw = JSON.parse(json);
+    return validateConfig(raw);
   } catch (e) {
     logError(`Failed to parse --config JSON: ${e}`);
     process.exit(1);
@@ -244,11 +242,8 @@ function parseConfigJson(json: string): McpServersConfig {
 function parseConfigFile(filePath: string): McpServersConfig {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
-    const config = JSON.parse(content) as McpServersConfig;
-    if (!config.mcpServers || typeof config.mcpServers !== 'object') {
-      throw new Error('config must contain a "mcpServers" object');
-    }
-    return config;
+    const raw = JSON.parse(content);
+    return validateConfig(raw);
   } catch (e) {
     logError(`Failed to read or parse config file "${filePath}": ${e}`);
     process.exit(1);

@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### 会话过滤回归测试
+- **unifiedAgent.test.ts** — 新增 `listAllSessionsDetailed` 过滤非 ready 引擎的测试
+- **acpEngine.test.ts** — 新增 `listSessionsDetailed` title 透传测试
+
+### Changed
+
+#### 会话列表过滤
+- **unifiedAgent.ts** — `listAllSessionsDetailed()` 仅返回 `isReady` 为 true 的引擎会话，避免崩溃/终止的 ACP 进程污染「活跃会话」列表
+
+#### 服务启动流程优化
+- **ClientPage.tsx** — `handleStartAll` 先调用 reg 接口，返回后再 step by step 启动服务
+- **ClientPage.tsx** — `handleStartServiceManual` 简化为直接启动，不调用 reg
+- **ClientPage.tsx** — 服务启动失败时错误信息常驻显示在服务描述区域
+
+#### 文档同步
+- **AGENTS.md** — 更新注册同步与启动顺序章节
+- **docs/REG-FLOW.md** — 新增 reg 调用流程说明文档
+
+---
+
+### Added (Previous)
+
 #### 内置 Node.js 24 和 Git 集成
 - **prepare-node.js** - 下载 Node.js 24 到 resources/node/
 - **prepare-git.js** - 下载 PortableGit 到 resources/git/
@@ -57,6 +79,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 社区方案对比
   - 实现代码示例
   - 测试验证步骤
+
+### Fixed
+
+#### 手动启动单个服务时补充 reg 同步
+- **ClientPage.tsx** - 新增 `handleStartServiceManual` 包装函数，用户点击单个服务「启动」按钮时先调用 `syncConfigToServer()`（即 `/api/sandbox/config/reg`）获取最新的 `serverHost`/`serverPort`，再启动目标服务
+- 此前仅「登录」和「启动全部」会在启动服务前调用 reg，手动启动单个服务（特别是 lanproxy）可能使用过期的后端配置
+- 三种启动场景（登录/启动全部/手动单个）现在均保证 reg 在服务启动之前完成
+
+#### Lanproxy 切换账号后会话显示客户端离线
+- **processHandlers.ts** - `startLanproxyProcess` 在 lanproxy 已运行时先停止旧进程再用本次传入的新 config（含新 clientKey/serverIp/serverPort）重启，而非直接跳过
+- **processManager.ts** - 新增 `stopAsync()` 方法，发送 SIGTERM 并等待进程退出（5s 超时后 SIGKILL），确保端口/资源释放后再重启；含 stdio 监听器清理防止 Windows 句柄泄漏
+- 覆盖场景：不退出登录直接切换账号 / 退出后用新账号登录 / 任何路径调用 `lanproxy:start`
 
 ### Changed
 

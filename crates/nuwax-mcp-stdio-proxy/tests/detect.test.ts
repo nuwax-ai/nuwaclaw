@@ -8,6 +8,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import * as http from 'http';
 import { detectProtocol } from '../src/detect.js';
+import { MCP_SESSION_ID_HEADER } from '../src/constants.js';
 
 /** Start an HTTP server that responds according to the handler, returns URL + close fn */
 async function startMockServer(
@@ -118,12 +119,12 @@ describe('detectProtocol', () => {
       if (req.method === 'POST') {
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'mcp-session-id': 'test-session-123',
+          [MCP_SESSION_ID_HEADER]: 'test-session-123',
         });
         res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }));
       } else if (req.method === 'DELETE') {
         deleteReceived = true;
-        deleteSessionId = req.headers['mcp-session-id'] as string;
+        deleteSessionId = req.headers[MCP_SESSION_ID_HEADER] as string;
         res.writeHead(200);
         res.end();
       } else {

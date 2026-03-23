@@ -117,8 +117,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
-          cache: npm
-          cache-dependency-path: crates/agent-electron-client/package-lock.json
+
+      # 安装 pnpm（用于 workspace 管理，版本由根 package.json packageManager 字段指定）
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
 
       # Python 3.12+ 移除了 distutils，node-gyp（better-sqlite3 等 native 模块）依赖它；安装 setuptools 以提供 distutils
       - name: Install setuptools for node-gyp (Python 3.12+)
@@ -134,10 +136,9 @@ jobs:
           sudo gem install fpm
           echo "USE_SYSTEM_FPM=true" >> "$GITHUB_ENV"
 
-      # 使用 npm install 替代 npm ci：lock 仅含当前平台的可选依赖，其他平台（esbuild/rollup 等）会报 Missing，install 会在各 runner 上按需解析
-      - name: Install dependencies
-        working-directory: crates/agent-electron-client
-        run: npm install
+      # pnpm install 会建立 workspace 链接，nuwax-mcp-stdio-proxy 通过 prepare 脚本自动构建
+      - name: Install workspace dependencies
+        run: pnpm install --filter @nuwax-ai/nuwaclaw...
 
       # 为 Electron 内嵌 Node 重编 better-sqlite3，避免 Linux arm64 等平台运行时 "cannot open shared object file"
       - name: Rebuild native modules for Electron
@@ -149,7 +150,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/node
-          key: bundled-node-24-${{ matrix.platform }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
+          key: bundled-node-24-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
 
       - name: Cache bundled Git (Windows only)
         if: matrix.platform == 'windows-latest'
@@ -162,10 +163,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/uv
-          key: bundled-uv-${{ matrix.platform }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
+          key: bundled-uv-v2-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-uv.js') }}
 
       - name: Prepare bundled resources (uv, node, git)
         working-directory: crates/agent-electron-client
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
         run: npm run prepare:all
         timeout-minutes: 15
 
@@ -226,6 +229,7 @@ jobs:
         shell: bash
         working-directory: crates/agent-electron-client
         env:
+          TARGET_ARCH: ${{ matrix.arch }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |

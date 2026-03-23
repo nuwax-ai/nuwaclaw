@@ -96,7 +96,9 @@ help:
 	@echo "  electron-install-deps    - Install Electron client npm dependencies"
 	@echo "  electron-rebuild         - Rebuild native modules (better-sqlite3) for Electron"
 	@echo "  electron-prepare-lanproxy - Prepare lanproxy binary for Electron"
-	@echo "  electron-prepare         - Full prepare (install + rebuild + lanproxy)"
+	@echo "  electron-prepare-node    - Prepare bundled Node.js 24 for Electron"
+	@echo "  electron-prepare-uv      - Prepare bundled uv for Electron"
+	@echo "  electron-prepare         - Full prepare (install + rebuild + all binaries)"
 	@echo "  electron-dev             - Run Electron dev mode (one-click start)"
 	@echo ""
 	@echo "=== Dependencies ==="
@@ -435,8 +437,9 @@ ELECTRON_CLIENT := agent-electron-client
 
 .PHONY: electron-install-deps
 electron-install-deps:
-	@echo ">>> Installing Electron client dependencies..."
-	cd crates/$(ELECTRON_CLIENT) && npm install
+	@echo ">>> Installing Electron client dependencies (via pnpm workspace)..."
+	@echo ">>> nuwax-mcp-stdio-proxy will be auto-built via prepare script"
+	pnpm install --filter @nuwax-ai/nuwaclaw...
 
 .PHONY: electron-rebuild
 electron-rebuild:
@@ -448,8 +451,23 @@ electron-prepare-lanproxy:
 	@echo ">>> Preparing lanproxy binary for Electron..."
 	cd crates/$(ELECTRON_CLIENT) && npm run prepare:lanproxy
 
+.PHONY: electron-prepare-node
+electron-prepare-node:
+	@echo ">>> Preparing bundled Node.js 24 for Electron..."
+	cd crates/$(ELECTRON_CLIENT) && npm run prepare:node
+
+.PHONY: electron-prepare-uv
+electron-prepare-uv:
+	@echo ">>> Preparing bundled uv for Electron..."
+	cd crates/$(ELECTRON_CLIENT) && npm run prepare:uv
+
+.PHONY: electron-prepare-mcp-proxy
+electron-prepare-mcp-proxy:
+	@echo ">>> Preparing nuwax-mcp-stdio-proxy for Electron..."
+	cd crates/$(ELECTRON_CLIENT) && npm run prepare:mcp-proxy
+
 .PHONY: electron-prepare
-electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanproxy
+electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy
 	@echo ">>> Electron client prepared successfully"
 
 .PHONY: electron-dev

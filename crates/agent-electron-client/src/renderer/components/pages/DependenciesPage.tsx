@@ -17,11 +17,11 @@ import {
   LoadingOutlined,
   CloseCircleOutlined,
 } from "@ant-design/icons";
-import type { LocalDependencyItem, DependencyStatus } from "@shared/types/electron";
-import {
-  DEPENDENCY_STATUS_LABELS,
-  ACTION_MESSAGES,
-} from "@shared/constants";
+import type {
+  LocalDependencyItem,
+  DependencyStatus,
+} from "@shared/types/electron";
+import { DEPENDENCY_STATUS_LABELS, ACTION_MESSAGES } from "@shared/constants";
 import styles from "../../styles/components/ClientPage.module.css";
 
 // Dev mock 模式：设为 true 可预览骨架屏 loading 效果
@@ -97,19 +97,29 @@ interface UvCheckResult {
   bundled?: boolean;
 }
 
+/** 应用包内集成的 nuwax-mcp-stdio-proxy 检测结果，与 Node/uv 一起在系统环境中展示 */
+interface McpProxyBundledResult {
+  available: boolean;
+  version?: string;
+}
+
 export default function DependenciesPage() {
   const [nodeResult, setNodeResult] = useState<NodeCheckResult | null>(
-    MOCK_LOADING ? null : null
+    MOCK_LOADING ? null : null,
   );
   const [uvResult, setUvResult] = useState<UvCheckResult | null>(null);
+  const [mcpProxyBundled, setMcpProxyBundled] =
+    useState<McpProxyBundledResult | null>(null);
   const [localDeps, setLocalDeps] = useState<LocalDependencyItem[]>(
-    MOCK_LOADING ? [] : []
+    MOCK_LOADING ? [] : [],
   );
   const [depLoading, setDepLoading] = useState(MOCK_LOADING);
   const [depInstalling, setDepInstalling] = useState(false);
   const [currentInstallingDep, setCurrentInstallingDep] = useState<string>("");
   /** 当前正在执行的操作类型，用于进度文案 */
-  const [currentInstallAction, setCurrentInstallAction] = useState<"install" | "upgrade" | "update">("install");
+  const [currentInstallAction, setCurrentInstallAction] = useState<
+    "install" | "upgrade" | "update"
+  >("install");
 
   const loadDependencies = useCallback(async () => {
     // Mock 模式：模拟加载延迟后使用 mock 数据
@@ -118,6 +128,7 @@ export default function DependenciesPage() {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       setNodeResult(MOCK_NODE_RESULT);
       setUvResult(MOCK_UV_RESULT);
+      setMcpProxyBundled({ available: true, version: "1.0.0" });
       setLocalDeps(MOCK_LOCAL_DEPS);
       setDepLoading(false);
       return;
@@ -149,8 +160,19 @@ export default function DependenciesPage() {
         : { installed: false, meetsRequirement: false, bundled: false };
       setUvResult(uvData);
 
+      // 应用包内集成的 MCP Proxy (nuwax-mcp-stdio-proxy)，与 Node/uv 一起在系统环境中展示
+      const mcpRes =
+        await window.electronAPI?.dependencies.checkMcpProxyBundled();
+      const mcpData: McpProxyBundledResult =
+        mcpRes?.success && mcpRes.available
+          ? { available: true, version: mcpRes.version }
+          : { available: false };
+      setMcpProxyBundled(mcpData);
+
       // Check all local/installable dependencies
-      const depsResult = await window.electronAPI?.dependencies.checkAll({ checkLatest: true });
+      const depsResult = await window.electronAPI?.dependencies.checkAll({
+        checkLatest: true,
+      });
       if (depsResult?.success && depsResult.results) {
         const installableDeps = depsResult.results.filter(
           (d) =>
@@ -208,7 +230,9 @@ export default function DependenciesPage() {
   // ==========================================
   const handleInstallSingleDep = async (
     dep: LocalDependencyItem,
-    mode: "install" | "upgrade" | "update" = dep.status === "outdated" ? "upgrade" : "install",
+    mode: "install" | "upgrade" | "update" = dep.status === "outdated"
+      ? "upgrade"
+      : "install",
   ) => {
     const { name: packageName, displayName } = dep;
     setDepInstalling(true);
@@ -228,17 +252,17 @@ export default function DependenciesPage() {
           ? { version: dep.installVersion }
           : undefined;
     // "update" 失败时回退 installed（不破坏已安装状态）；其余标记 error
-    const failStatus = mode === "update" ? ("installed" as const) : ("error" as const);
+    const failStatus =
+      mode === "update" ? ("installed" as const) : ("error" as const);
 
     const actionLabel =
       mode === "update" ? "更新" : mode === "upgrade" ? "升级" : "安装";
 
     try {
-      const result =
-        await window.electronAPI?.dependencies.installPackage(
-          packageName,
-          options,
-        );
+      const result = await window.electronAPI?.dependencies.installPackage(
+        packageName,
+        options,
+      );
 
       if (result?.success) {
         setLocalDeps((prev) =>
@@ -308,7 +332,9 @@ export default function DependenciesPage() {
     try {
       for (const dep of depsToProcess) {
         setCurrentInstallingDep(dep.displayName);
-        setCurrentInstallAction(dep.status === "outdated" ? "upgrade" : "install");
+        setCurrentInstallAction(
+          dep.status === "outdated" ? "upgrade" : "install",
+        );
         setLocalDeps((prev) =>
           prev.map((d) =>
             d.name === dep.name ? { ...d, status: "installing" as const } : d,
@@ -318,11 +344,10 @@ export default function DependenciesPage() {
         const options = dep.installVersion
           ? { version: dep.installVersion }
           : undefined;
-        const result =
-          await window.electronAPI?.dependencies.installPackage(
-            dep.name,
-            options,
-          );
+        const result = await window.electronAPI?.dependencies.installPackage(
+          dep.name,
+          options,
+        );
 
         if (result?.success) {
           anySucceeded = true;
@@ -383,7 +408,9 @@ export default function DependenciesPage() {
       case "installed":
       case "bundled":
         return (
-          <CheckCircleOutlined style={{ color: "var(--color-success)", fontSize: 12 }} />
+          <CheckCircleOutlined
+            style={{ color: "var(--color-success)", fontSize: 12 }}
+          />
         );
       case "missing":
       case "outdated":
@@ -393,10 +420,16 @@ export default function DependenciesPage() {
           />
         );
       case "installing":
-        return <LoadingOutlined style={{ color: "var(--color-text-tertiary)", fontSize: 12 }} />;
+        return (
+          <LoadingOutlined
+            style={{ color: "var(--color-text-tertiary)", fontSize: 12 }}
+          />
+        );
       case "error":
         return (
-          <CloseCircleOutlined style={{ color: "var(--color-error)", fontSize: 12 }} />
+          <CloseCircleOutlined
+            style={{ color: "var(--color-error)", fontSize: 12 }}
+          />
         );
       default:
         return <LoadingOutlined style={{ fontSize: 12 }} />;
@@ -404,11 +437,15 @@ export default function DependenciesPage() {
   };
 
   const getStatusText = (status: DependencyStatus) => {
-    return DEPENDENCY_STATUS_LABELS[status] || DEPENDENCY_STATUS_LABELS.checking;
+    return (
+      DEPENDENCY_STATUS_LABELS[status] || DEPENDENCY_STATUS_LABELS.checking
+    );
   };
 
   // Node.js and uv must both be ready
-  const systemDepsReady = (nodeResult?.meetsRequirement ?? false) && (uvResult?.meetsRequirement ?? false);
+  const systemDepsReady =
+    (nodeResult?.meetsRequirement ?? false) &&
+    (uvResult?.meetsRequirement ?? false);
 
   // ==========================================
   // Loading state - 骨架屏
@@ -424,20 +461,38 @@ export default function DependenciesPage() {
               <Tag color="default">检测中...</Tag>
             </div>
           </div>
-          <div className={styles.sectionBody} style={{ padding: '0 16px' }}>
+          <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
             {[1, 2].map((i) => (
               <div key={i} className={styles.serviceRow}>
                 <div className={styles.serviceInfo}>
                   <Spin size="small" />
                   <div>
-                    <span className={styles.serviceLabel} style={{ color: 'var(--color-text-tertiary)' }}>
-                      {i === 1 ? 'Node.js' : 'uv'}
+                    <span
+                      className={styles.serviceLabel}
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
+                      {i === 1 ? "Node.js" : "uv"}
                     </span>
                     <span className={styles.serviceDescription}>检测中...</span>
                   </div>
                 </div>
               </div>
             ))}
+            {/* 应用包内集成 MCP Proxy，与 Node/uv 同区展示 */}
+            <div className={styles.serviceRow}>
+              <div className={styles.serviceInfo}>
+                <Spin size="small" />
+                <div>
+                  <span
+                    className={styles.serviceLabel}
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    MCP Proxy
+                  </span>
+                  <span className={styles.serviceDescription}>检测中...</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -446,22 +501,31 @@ export default function DependenciesPage() {
           <div className={styles.servicesHeader}>
             <div className={styles.servicesHeaderLeft}>
               <span className={styles.sectionTitle}>依赖包</span>
-              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>检测中...</span>
+              <span
+                style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}
+              >
+                检测中...
+              </span>
             </div>
             <Button size="small" icon={<ReloadOutlined spin />} disabled>
               刷新
             </Button>
           </div>
-          <div className={styles.sectionBody} style={{ padding: '0 16px' }}>
+          <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
             {[1, 2, 3].map((i) => (
               <div key={i} className={styles.serviceRow}>
                 <div className={styles.serviceInfo}>
                   <Spin size="small" />
                   <div>
-                    <span className={styles.serviceLabel} style={{ color: 'var(--color-text-tertiary)' }}>
+                    <span
+                      className={styles.serviceLabel}
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
                       加载中...
                     </span>
-                    <div className={styles.serviceDescription}>正在检测依赖状态</div>
+                    <div className={styles.serviceDescription}>
+                      正在检测依赖状态
+                    </div>
                   </div>
                 </div>
               </div>
@@ -483,27 +547,42 @@ export default function DependenciesPage() {
           <div className={styles.servicesHeaderLeft}>
             <span className={styles.sectionTitle}>系统环境</span>
             <Tag color={systemDepsReady ? "success" : "warning"}>
-              {systemDepsReady ? ACTION_MESSAGES.ready : ACTION_MESSAGES.needConfig}
+              {systemDepsReady
+                ? ACTION_MESSAGES.ready
+                : ACTION_MESSAGES.needConfig}
             </Tag>
           </div>
         </div>
-        <div className={styles.sectionBody} style={{ padding: '0 16px' }}>
+        <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
           {/* Node.js */}
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
               {nodeResult?.meetsRequirement ? (
-                <CheckCircleOutlined style={{ color: "var(--color-success)", fontSize: 12 }} />
+                <CheckCircleOutlined
+                  style={{ color: "var(--color-success)", fontSize: 12 }}
+                />
               ) : (
-                <ExclamationCircleOutlined style={{ color: "var(--color-warning)", fontSize: 12 }} />
+                <ExclamationCircleOutlined
+                  style={{ color: "var(--color-warning)", fontSize: 12 }}
+                />
               )}
               <div>
                 <span className={styles.serviceLabel}>Node.js</span>
                 {nodeResult?.version && (
-                  <span className={styles.serviceDescription}>v{nodeResult.version}</span>
+                  <span className={styles.serviceDescription}>
+                    {nodeResult.version}
+                  </span>
                 )}
               </div>
             </div>
-            <span style={{ fontSize: 12, color: nodeResult?.meetsRequirement ? "var(--color-success)" : "var(--color-warning)" }}>
+            <span
+              style={{
+                fontSize: 12,
+                color: nodeResult?.meetsRequirement
+                  ? "var(--color-success)"
+                  : "var(--color-warning)",
+              }}
+            >
               {!nodeResult?.installed
                 ? "未安装"
                 : nodeResult.bundled
@@ -518,18 +597,31 @@ export default function DependenciesPage() {
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
               {uvResult?.meetsRequirement ? (
-                <CheckCircleOutlined style={{ color: "var(--color-success)", fontSize: 12 }} />
+                <CheckCircleOutlined
+                  style={{ color: "var(--color-success)", fontSize: 12 }}
+                />
               ) : (
-                <ExclamationCircleOutlined style={{ color: "var(--color-warning)", fontSize: 12 }} />
+                <ExclamationCircleOutlined
+                  style={{ color: "var(--color-warning)", fontSize: 12 }}
+                />
               )}
               <div>
                 <span className={styles.serviceLabel}>uv</span>
                 {uvResult?.installed && (
-                  <span className={styles.serviceDescription}>v{uvResult.version}</span>
+                  <span className={styles.serviceDescription}>
+                    {uvResult.version}
+                  </span>
                 )}
               </div>
             </div>
-            <span style={{ fontSize: 12, color: uvResult?.meetsRequirement ? "var(--color-success)" : "var(--color-warning)" }}>
+            <span
+              style={{
+                fontSize: 12,
+                color: uvResult?.meetsRequirement
+                  ? "var(--color-success)"
+                  : "var(--color-warning)",
+              }}
+            >
               {!uvResult?.installed
                 ? "未安装"
                 : uvResult.bundled
@@ -537,6 +629,40 @@ export default function DependenciesPage() {
                   : uvResult.meetsRequirement
                     ? ACTION_MESSAGES.allInstalled
                     : "需 >= 0.5.0"}
+            </span>
+          </div>
+
+          {/* MCP Proxy (nuwax-mcp-stdio-proxy)：应用包内集成，与 Node/uv 一起展示 */}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              {mcpProxyBundled?.available ? (
+                <CheckCircleOutlined
+                  style={{ color: "var(--color-success)", fontSize: 12 }}
+                />
+              ) : (
+                <ExclamationCircleOutlined
+                  style={{ color: "var(--color-warning)", fontSize: 12 }}
+                />
+              )}
+              <div>
+                <span className={styles.serviceLabel}>MCP Proxy</span>
+                {mcpProxyBundled?.available && mcpProxyBundled.version && (
+                  <span className={styles.serviceDescription}>
+                    {" "}
+                    {mcpProxyBundled.version}
+                  </span>
+                )}
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: mcpProxyBundled?.available
+                  ? "var(--color-success)"
+                  : "var(--color-text-tertiary)",
+              }}
+            >
+              {mcpProxyBundled?.available ? "应用集成" : "未集成"}
             </span>
           </div>
         </div>
@@ -578,9 +704,16 @@ export default function DependenciesPage() {
             )}
           </div>
         </div>
-        <div className={styles.sectionBody} style={{ padding: '0 16px' }}>
+        <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
           {localDeps.length === 0 ? (
-            <div style={{ padding: 16, textAlign: "center", fontSize: 12, color: "var(--color-text-tertiary)" }}>
+            <div
+              style={{
+                padding: 16,
+                textAlign: "center",
+                fontSize: 12,
+                color: "var(--color-text-tertiary)",
+              }}
+            >
               {depLoading ? "正在加载..." : "暂无依赖包"}
             </div>
           ) : (
@@ -595,37 +728,73 @@ export default function DependenciesPage() {
               return (
                 <div key={item.name} className={styles.serviceRow}>
                   {getStatusIcon(item.status)}
-                  <div className={styles.serviceInfo} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "flex-start", minWidth: 0, gap:3, paddingLeft: 8 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span className={styles.serviceLabel}>{item.displayName}</span>
+                  <div
+                    className={styles.serviceInfo}
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "flex-start",
+                      minWidth: 0,
+                      gap: 3,
+                      paddingLeft: 8,
+                    }}
+                  >
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 8 }}
+                    >
+                      <span className={styles.serviceLabel}>
+                        {item.displayName}
+                      </span>
                       {item.required && (
-                        <Tag color="blue" style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px" }}>
+                        <Tag
+                          color="blue"
+                          style={{
+                            fontSize: 10,
+                            lineHeight: "16px",
+                            padding: "0 4px",
+                          }}
+                        >
                           必需
                         </Tag>
                       )}
                       {item.version && (
-                        <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: "var(--color-text-tertiary)",
+                          }}
+                        >
                           {item.version}
                         </span>
                       )}
                     </div>
-                    <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginTop: 2 }}>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: "var(--color-text-tertiary)",
+                        marginTop: 2,
+                      }}
+                    >
                       {item.description}
                       {item.errorMessage && (
-                        <span style={{ color: "var(--color-error)", marginLeft: 8 }}>
+                        <span
+                          style={{ color: "var(--color-error)", marginLeft: 8 }}
+                        >
                           {item.errorMessage}
                         </span>
                       )}
-                      {item.status === "installing" && currentInstallingDep === item.displayName && (
-                        <span style={{ marginLeft: 8 }}>
-                          <LoadingOutlined style={{ marginRight: 4 }} />
-                          {currentInstallAction === "upgrade"
-                            ? "升级中..."
-                            : currentInstallAction === "update"
-                              ? "更新中..."
-                              : "安装中..."}
-                        </span>
-                      )}
+                      {item.status === "installing" &&
+                        currentInstallingDep === item.displayName && (
+                          <span style={{ marginLeft: 8 }}>
+                            <LoadingOutlined style={{ marginRight: 4 }} />
+                            {currentInstallAction === "upgrade"
+                              ? "升级中..."
+                              : currentInstallAction === "update"
+                                ? "更新中..."
+                                : "安装中..."}
+                          </span>
+                        )}
                     </div>
                   </div>
 
@@ -640,13 +809,26 @@ export default function DependenciesPage() {
                       </Button>
                     )}
                     {item.status === "bundled" && (
-                      <span style={{ fontSize: 12, color: "var(--color-success)" }}>
+                      <span
+                        style={{ fontSize: 12, color: "var(--color-success)" }}
+                      >
                         {getStatusText(item.status)}
                       </span>
                     )}
                     {item.status === "installed" && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 12, color: "var(--color-success)" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: 12,
+                            color: "var(--color-success)",
+                          }}
+                        >
                           {getStatusText(item.status)}
                         </span>
                         {item.latestVersion &&
@@ -654,13 +836,15 @@ export default function DependenciesPage() {
                             (item.version ?? "").replace(/^v/, "") &&
                           systemDepsReady &&
                           !depInstalling && (
-                          <Button
-                            size="small"
-                            onClick={() => handleInstallSingleDep(item, "update")}
-                          >
-                            更新到 {item.latestVersion}
-                          </Button>
-                        )}
+                            <Button
+                              size="small"
+                              onClick={() =>
+                                handleInstallSingleDep(item, "update")
+                              }
+                            >
+                              更新到 {item.latestVersion}
+                            </Button>
+                          )}
                       </div>
                     )}
                   </div>
