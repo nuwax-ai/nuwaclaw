@@ -336,6 +336,8 @@ export class UnifiedAgentService extends EventEmitter {
     if (memoryService.isInitialized()) {
       memoryService.ensureMemoryReadyForSession().catch(() => {});
     }
+    // 后台预热 MCP proxy bridge
+    this.warmupMcpBridge();
     // 后台同时预热两种引擎，避免 init 为 claude-code 而请求为 nuwaxcode 时永远无法复用
     this.startWarmingEngine("claude-code");
     this.startWarmingEngine("nuwaxcode");
@@ -486,6 +488,20 @@ export class UnifiedAgentService extends EventEmitter {
     return pids;
   }
 
+  /** 后台预热 MCP proxy bridge */
+  private warmupMcpBridge(): void {
+    (async () => {
+      try {
+        const { syncMcpConfigToProxyAndReload } =
+          await import("../packages/mcp");
+        await syncMcpConfigToProxyAndReload({});
+        log.debug("[UnifiedAgent] MCP proxy bridge 预热完成");
+      } catch (err) {
+        log.warn("[UnifiedAgent] MCP proxy bridge 预热失败:", err);
+      }
+    })().catch(() => {});
+  }
+
   /**
    * 后台预热指定类型的 AcpEngine，放入 warmEnginePool。
    * 不阻塞调用方；复用后由 getOrCreateEngine 再次调用 startWarmingEngine(同一类型) 以补充池子。
@@ -536,6 +552,7 @@ export class UnifiedAgentService extends EventEmitter {
   async getOrCreateEngine(
     projectId: string,
     effectiveConfig: AgentConfig,
+    memoryReadyPromise?: Promise<void> | null,
   ): Promise<AcpEngine> {
     const t0 = Date.now();
     let t1 = t0,
@@ -583,7 +600,7 @@ export class UnifiedAgentService extends EventEmitter {
         this.engines.set(projectId, warm);
         this.engineConfigs.set(projectId, effectiveConfig);
         log.info(
-          `[UnifiedAgent] 🚀 复用预热引擎 for project: ${projectId}, engine: ${requestedEngine}, 耗时: ${Date.now() - t0}ms`,
+          `[UnifiedAgent] 复用预热引擎 for project: ${projectId}, engine: ${requestedEngine}, 耗时: ${Date.now() - t0}ms`,
         );
         this.startWarmingEngine(requestedEngine);
         return warm;
@@ -599,18 +616,12 @@ export class UnifiedAgentService extends EventEmitter {
     );
 
     // Ensure memory is ready before starting session
-    if (memoryService.isInitialized()) {
-      try {
-        await memoryService.ensureMemoryReadyForSession();
-        t1 = Date.now();
-        log.debug(
-          `⏱️ [getOrCreateEngine][PERF] ensureMemoryReady 耗时: ${t1 - t0}ms`,
-        );
-      } catch (error) {
-        log.warn("[UnifiedAgent] Memory sync check failed:", error);
-      }
+    if (memoryReadyPromise) {
+      await memoryReadyPromise;
+    } else if (memoryService.isInitialized()) {
+      await memoryService.ensureMemoryReadyForSession().catch(() => {});
     }
-    t1 = t1 || t0;
+    t1 = Date.now();
 
     // Evict oldest idle engine if at capacity
     if (this.engines.size >= MAX_ENGINES) {
@@ -631,7 +642,6 @@ export class UnifiedAgentService extends EventEmitter {
     );
     const ok = await engine.init(effectiveConfig);
     t3 = Date.now();
-    log.debug(`⏱️ [getOrCreateEngine][PERF] engine.init 耗时: ${t3 - t2}ms`);
 
     if (!ok) {
       engine.removeAllListeners();
@@ -641,11 +651,8 @@ export class UnifiedAgentService extends EventEmitter {
 
     this.engines.set(projectId, engine);
     this.engineConfigs.set(projectId, effectiveConfig);
-    log.info(
-      `[UnifiedAgent] ✅ Engine ready for project: ${projectId} (total engines: ${this.engines.size})`,
-    );
     log.debug(
-      `⏱️ [getOrCreateEngine][PERF] 总耗时: ${t3 - t0}ms (memory=${t1 - t0}ms, evict=${t2 - t1}ms, init=${t3 - t2}ms)`,
+      `[PERF] getOrCreateEngine: ${t3 - t0}ms | projectId=${projectId}`,
     );
     return engine;
   }
@@ -700,11 +707,9 @@ export class UnifiedAgentService extends EventEmitter {
     const engineKey = request.session_id || request.project_id || "default";
     const registryKey = this.resolveEngineKey(engineKey) || engineKey; // 引擎在 Map 中实际使用的 key
 
-    // 按会话动态加载：本请求携带的 context_servers 同步到 MCP Proxy（从桥接项 --config 解析真实服务），一次会话就会更新 proxy 配置
+    // 性能优化：先解析 context_servers（仅解析，不同步），用于后续的快速路径判断
     const requestMcpServersEarly: Record<string, McpServerEntry> = {};
     if (request.agent_config?.context_servers) {
-      // Resolve uvx/uv commands to app-internal binaries for dynamic MCP servers
-      // For bridge entries (mcp-proxy convert --config ...), extract inner real MCP servers
       let mcpModule: {
         resolveUvCommand: (
           cmd: string,
@@ -734,20 +739,17 @@ export class UnifiedAgentService extends EventEmitter {
             command === "mcp-proxy" ||
             path.basename(command) === "mcp-proxy"
           ) {
-            // Bridge entry: extract real MCP servers from --config JSON
             const extracted = mcpModule.extractRealMcpServers(
               command,
               args,
               srv.env,
             );
             if (extracted) {
-              // Merge extracted servers into requestMcpServersEarly
               for (const [innerName, innerSrv] of Object.entries(extracted)) {
                 requestMcpServersEarly[innerName] = innerSrv;
               }
             }
           } else {
-            // Direct entry: resolve top-level uvx/uv command
             const resolved = mcpModule.resolveUvCommand(command, args);
             requestMcpServersEarly[name] = {
               command: resolved.command,
@@ -760,63 +762,74 @@ export class UnifiedAgentService extends EventEmitter {
         }
       }
       t1 = Date.now();
-      log.debug(
-        `⏱️ [ensureEngine][PERF] 解析 context_servers 耗时: ${t1 - t0}ms`,
-      );
-
-      // 始终同步 MCP 配置，即使 requestMcpServersEarly 为空（表示用户删除了所有动态 MCP）。
-      // syncMcpConfigToProxyAndReload 内部保证 chrome-devtools 等默认服务始终存在，
-      // 动态 MCP server 根据传入配置动态启停：空列表 → bridge 重置为仅 chrome-devtools。
-      try {
-        const { syncMcpConfigToProxyAndReload } =
-          await import("../packages/mcp");
-        await syncMcpConfigToProxyAndReload(requestMcpServersEarly);
-        t2 = Date.now();
-        log.debug(
-          `⏱️ [ensureEngine][PERF] syncMcpConfigToProxyAndReload 耗时: ${t2 - t1}ms`,
-        );
-      } catch (e) {
-        log.warn(
-          "[UnifiedAgent] 动态同步 MCP 配置到 proxy 失败（不影响会话）:",
-          e,
-        );
-      }
     } else {
       t1 = Date.now();
-      log.debug(`⏱️ [ensureEngine][PERF] 无 context_servers，跳过解析`);
     }
-    t2 = t2 || t1;
 
     const agentServer = request.agent_config?.agent_server;
     const mp = request.model_provider;
 
-    // Early return: 已有引擎且无影响配置的字段时直接复用（按 session_id 或 project_id 查找，可命中「key=project_id 但含该 session」的引擎）
+    // 性能优化：快速路径检测
     const existingEngine = this.getEngineForProject(engineKey);
-    if (
-      existingEngine &&
-      existingEngine.isReady &&
-      !agentServer?.command &&
-      !mp &&
-      Object.keys(requestMcpServersEarly).length === 0
-    ) {
-      return existingEngine;
-    }
-
-    // Determine the target engine type
+    const currentEngineType =
+      this.engineConfigs.get(registryKey)?.engine || this.engineType;
+    const storedRawMcp = this.engineRawMcpServers.get(registryKey);
+    const requestMcpFiltered = filterBridgeEntries(requestMcpServersEarly);
+    const mcpChanged = !rawMcpServersEqual(requestMcpFiltered, storedRawMcp);
     const requiredEngine = agentServer?.command
       ? mapAgentCommand(agentServer.command)
       : this.engineType;
 
-    // 同一 project/session：已找到引擎且未切换引擎类型时直接复用，不做 MCP/env/model 等细粒度检测，避免 detectConfigChange 误判导致每次请求都重建
-    const currentEngineType =
-      this.engineConfigs.get(registryKey)?.engine || this.engineType;
+    // 快速路径：已有就绪引擎 + 无配置变更
     if (
-      existingEngine &&
-      existingEngine.isReady &&
-      (!requiredEngine || requiredEngine === currentEngineType)
+      existingEngine?.isReady &&
+      !agentServer?.command &&
+      !mp &&
+      (Object.keys(requestMcpServersEarly).length === 0 || !mcpChanged)
     ) {
+      log.debug(
+        `[PERF] fastPath: ${Date.now() - t0}ms | engineKey=${engineKey}`,
+      );
       return existingEngine;
     }
+
+    log.debug(`[PERF] fullPath: engineKey=${engineKey}`);
+
+    // 性能优化：只有在 MCP 配置变更时才调用 syncMcpConfigToProxyAndReload
+    // 并行执行 syncMcp 和 ensureMemoryReady
+    const needCreateEngine = !existingEngine || !existingEngine.isReady;
+    let memoryReadyPromise: Promise<void> | null = null;
+
+    if (mcpChanged) {
+      try {
+        const { syncMcpConfigToProxyAndReload } =
+          await import("../packages/mcp");
+        const syncPromise = syncMcpConfigToProxyAndReload(
+          requestMcpServersEarly,
+        );
+
+        // 并行执行 memory ready
+        if (needCreateEngine && memoryService.isInitialized()) {
+          memoryReadyPromise = memoryService
+            .ensureMemoryReadyForSession()
+            .then(() => {})
+            .catch(() => {});
+        }
+
+        await syncPromise;
+        t2 = Date.now();
+        log.debug(`[PERF] syncMcp: ${t2 - t1}ms`);
+      } catch (e) {
+        log.warn("[UnifiedAgent] syncMcp 失败:", e);
+      }
+    } else if (needCreateEngine && memoryService.isInitialized()) {
+      // MCP 未变更但需要创建引擎，仍并行启动 memory ready
+      memoryReadyPromise = memoryService
+        .ensureMemoryReadyForSession()
+        .then(() => {})
+        .catch(() => {});
+    }
+    t2 = t2 || t1;
 
     // Resolve env template variables
     const resolvedEnv = agentServer?.env
@@ -992,12 +1005,14 @@ export class UnifiedAgentService extends EventEmitter {
         `└─ mcpServers: ${effectiveConfig.mcpServers ? Object.keys(effectiveConfig.mcpServers).join(", ") : "(none)"}`,
     );
 
-    const engine = await this.getOrCreateEngine(engineKey, effectiveConfig);
-    t5 = Date.now();
-    log.debug(`⏱️ [ensureEngine][PERF] getOrCreateEngine 耗时: ${t5 - t4}ms`);
-    log.debug(
-      `⏱️ [ensureEngine][PERF] 总耗时: ${t5 - t0}ms (parseCtxServers=${t1 - t0}ms, syncMcp=${(t2 || t1) - t1}ms, extractReal=${t3 - (t2 || t1)}ms, ensureBridge=${t4 - t3}ms, getOrCreate=${t5 - t4}ms)`,
+    // 传递 memoryReadyPromise，避免 getOrCreateEngine 重复等待 memory
+    const engine = await this.getOrCreateEngine(
+      engineKey,
+      effectiveConfig,
+      memoryReadyPromise,
     );
+    t5 = Date.now();
+    log.debug(`[PERF] ensureEngine: ${t5 - t0}ms | engineKey=${engineKey}`);
 
     // 仅在引擎实际被创建/重建时到达此处（detectConfigChange 返回 false 时已 early-return）。
     // 将本次过滤好的原始 MCP servers 存入快照，key 用实际注册表 key 以便 detectConfigChange 能命中。
