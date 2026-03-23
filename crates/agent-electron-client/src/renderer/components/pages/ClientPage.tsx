@@ -181,15 +181,8 @@ function ClientPage({
       // 通知父组件：服务由登录流程启动（内存变量，不持久化)
       onLoginStarted?.();
 
-      // 1. 先调用 reg 接口，获取最新配置（serverHost/serverPort）
-      try {
-        await syncConfigToServer({ suppressToast: true });
-        console.log("[ClientPage] 登录后 reg 同步成功");
-      } catch (e) {
-        console.error("[ClientPage] 登录后 reg 同步失败:", e);
-      }
-
-      // 2. reg 返回后，step by step 启动服务
+      // loginAndRegister 内部已调用 reg 接口并保存 serverHost/serverPort，无需再次调用
+      // step by step 启动服务
       const allServices = ["mcpProxy", "agent", "fileServer", "lanproxy"];
       for (const key of allServices) {
         await handleStartService(key, true);
