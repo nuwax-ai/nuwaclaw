@@ -7,7 +7,7 @@
  * - 系统设置（主题、开机自启动、日志目录）
  */
 
-import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 import {
   Button,
   Form,
@@ -21,10 +21,20 @@ import {
   message,
   Modal,
   Spin,
-} from 'antd';
-import { FolderOutlined, SaveOutlined, EditOutlined, SettingOutlined, DesktopOutlined } from '@ant-design/icons';
-import { APP_DISPLAY_NAME, APP_DATA_DIR_NAME } from '@shared/constants';
-import { setupService, Step1Config, DEFAULT_STEP1_CONFIG } from '../../services/core/setup';
+} from "antd";
+import {
+  FolderOutlined,
+  SaveOutlined,
+  EditOutlined,
+  SettingOutlined,
+  DesktopOutlined,
+} from "@ant-design/icons";
+import { APP_DISPLAY_NAME, APP_DATA_DIR_NAME } from "@shared/constants";
+import {
+  setupService,
+  Step1Config,
+  DEFAULT_STEP1_CONFIG,
+} from "../../services/core/setup";
 import {
   DEFAULT_AI_MODEL,
   DEFAULT_MAX_TOKENS,
@@ -33,14 +43,14 @@ import {
   STORAGE_KEYS,
   MSG_SUCCESS,
   MSG_ERROR,
-} from '@shared/constants';
-import styles from '../../styles/components/ClientPage.module.css';
-import { useTheme, type ThemeMode } from '../../App';
+} from "@shared/constants";
+import styles from "../../styles/components/ClientPage.module.css";
+import { useTheme, type ThemeMode } from "../../App";
 
 // Dev tools: 仅开发模式加载
 const IS_DEV = import.meta.env.DEV;
 const DevToolsPanel = IS_DEV
-  ? React.lazy(() => import('../dev/DevToolsPanel'))
+  ? React.lazy(() => import("../dev/DevToolsPanel"))
   : null;
 
 // AI 配置接口
@@ -65,18 +75,24 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [originalConfig, setOriginalConfig] = useState<Step1Config | null>(null);
+  const [originalConfig, setOriginalConfig] = useState<Step1Config | null>(
+    null,
+  );
 
   // AI 配置
   const [aiForm] = Form.useForm<AISettings & { apiKey: string }>();
   const [aiEditing, setAiEditing] = useState(false);
   const [aiSaving, setAiSaving] = useState(false);
-  const [originalAiConfig, setOriginalAiConfig] = useState<(AISettings & { apiKey: string }) | null>(null);
+  const [originalAiConfig, setOriginalAiConfig] = useState<
+    (AISettings & { apiKey: string }) | null
+  >(null);
 
   // 系统设置
   const [autolaunchEnabled, setAutolaunchEnabled] = useState(false);
   const [autolaunchLoading, setAutolaunchLoading] = useState(false);
-  const [logDir, setLogDir] = useState('');
+  const [logDir, setLogDir] = useState("");
+  // 使用表单中的 workspaceDir 作为“系统模块”的展示源，确保编辑保存后展示保持实时一致。
+  const workspaceDir = Form.useWatch("workspaceDir", form) || "";
 
   // ========== 加载服务配置 ==========
   const loadConfig = useCallback(async () => {
@@ -86,7 +102,7 @@ export default function SettingsPage() {
       form.setFieldsValue(config);
       setOriginalConfig(config);
     } catch (error) {
-      console.error('加载配置失败:', error);
+      console.error("加载配置失败:", error);
       message.error(MSG_ERROR.LOAD_FAILED);
     } finally {
       setLoading(false);
@@ -96,18 +112,23 @@ export default function SettingsPage() {
   // ========== 加载 AI 配置 ==========
   const loadAiConfig = useCallback(async () => {
     try {
-      const apiKey = await window.electronAPI?.settings.get(STORAGE_KEYS.API_KEY) as string | null;
-      const settings = await window.electronAPI?.settings.get('app_settings') as AISettings | null;
+      const apiKey = (await window.electronAPI?.settings.get(
+        STORAGE_KEYS.API_KEY,
+      )) as string | null;
+      const settings = (await window.electronAPI?.settings.get(
+        "app_settings",
+      )) as AISettings | null;
       const aiConfig = {
-        apiKey: apiKey || '',
-        default_model: settings?.default_model || DEFAULT_AI_SETTINGS.default_model,
+        apiKey: apiKey || "",
+        default_model:
+          settings?.default_model || DEFAULT_AI_SETTINGS.default_model,
         max_tokens: settings?.max_tokens || DEFAULT_AI_SETTINGS.max_tokens,
         temperature: settings?.temperature ?? DEFAULT_AI_SETTINGS.temperature,
       };
       aiForm.setFieldsValue(aiConfig);
       setOriginalAiConfig(aiConfig);
     } catch (error) {
-      console.error('加载 AI 配置失败:', error);
+      console.error("加载 AI 配置失败:", error);
     }
   }, [aiForm]);
 
@@ -117,13 +138,13 @@ export default function SettingsPage() {
       const enabled = await window.electronAPI?.autolaunch?.get();
       setAutolaunchEnabled(enabled ?? false);
     } catch (error) {
-      console.error('加载自启动状态失败:', error);
+      console.error("加载自启动状态失败:", error);
     }
     try {
       const dir = await window.electronAPI?.log?.getDir();
-      setLogDir(dir || '');
+      setLogDir(dir || "");
     } catch (error) {
-      console.error('加载日志目录失败:', error);
+      console.error("加载日志目录失败:", error);
     }
   }, []);
 
@@ -136,17 +157,24 @@ export default function SettingsPage() {
     const handleAutolaunchChanged = (enabled: boolean) => {
       setAutolaunchEnabled(enabled);
     };
-    window.electronAPI?.on('autolaunch:changed', handleAutolaunchChanged as any);
+    window.electronAPI?.on(
+      "autolaunch:changed",
+      handleAutolaunchChanged as any,
+    );
     return () => {
-      window.electronAPI?.off('autolaunch:changed', handleAutolaunchChanged as any);
+      window.electronAPI?.off(
+        "autolaunch:changed",
+        handleAutolaunchChanged as any,
+      );
     };
   }, [loadConfig, loadAiConfig, loadSystemSettings]);
 
   // ========== 服务配置操作 ==========
   const handleSelectWorkspace = async () => {
-    const result = await window.electronAPI?.dialog.openDirectory('选择工作区目录');
+    const result =
+      await window.electronAPI?.dialog.openDirectory("选择工作区目录");
     if (result?.success && result.path) {
-      form.setFieldValue('workspaceDir', result.path);
+      form.setFieldValue("workspaceDir", result.path);
     }
   };
 
@@ -162,10 +190,10 @@ export default function SettingsPage() {
       const values = await form.validateFields();
 
       Modal.confirm({
-        title: '保存配置',
-        content: '保存后需要重启服务才能生效，确定保存吗？',
-        okText: '保存',
-        cancelText: '取消',
+        title: "保存配置",
+        content: "保存后需要重启服务才能生效，确定保存吗？",
+        okText: "保存",
+        cancelText: "取消",
         onOk: async () => {
           setSaving(true);
           try {
@@ -200,9 +228,12 @@ export default function SettingsPage() {
       setAiSaving(true);
       try {
         // 保存 API Key
-        await window.electronAPI?.settings.set(STORAGE_KEYS.API_KEY, values.apiKey || '');
+        await window.electronAPI?.settings.set(
+          STORAGE_KEYS.API_KEY,
+          values.apiKey || "",
+        );
         // 保存其他 AI 设置
-        await window.electronAPI?.settings.set('app_settings', {
+        await window.electronAPI?.settings.set("app_settings", {
           default_model: values.default_model,
           max_tokens: values.max_tokens,
           temperature: values.temperature,
@@ -227,9 +258,9 @@ export default function SettingsPage() {
       const result = await window.electronAPI?.autolaunch?.set(enabled);
       if (result?.success) {
         setAutolaunchEnabled(enabled);
-        message.success(enabled ? '已开启开机自启动' : '已关闭开机自启动');
+        message.success(enabled ? "已开启开机自启动" : "已关闭开机自启动");
       } else {
-        message.error(result?.error || '设置失败');
+        message.error(result?.error || "设置失败");
       }
     } catch (error) {
       message.error(MSG_ERROR.OPEN_SETTINGS_FAILED);
@@ -246,9 +277,25 @@ export default function SettingsPage() {
     }
   };
 
+  const handleOpenWorkspaceDir = async () => {
+    // 没有有效目录时直接提示，避免触发无意义 IPC 调用。
+    if (!workspaceDir) {
+      message.warning("未配置工作空间目录");
+      return;
+    }
+    try {
+      const result = await window.electronAPI?.shell?.openPath(workspaceDir);
+      if (!result?.success) {
+        message.error(result?.error || "打开工作空间目录失败");
+      }
+    } catch {
+      message.error("打开工作空间目录失败");
+    }
+  };
+
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: 40 }}>
+      <div style={{ textAlign: "center", padding: 40 }}>
         <Spin size="small" />
       </div>
     );
@@ -260,7 +307,9 @@ export default function SettingsPage() {
       <div className={styles.section}>
         <div className={styles.servicesHeader}>
           <div className={styles.servicesHeaderLeft}>
-            <SettingOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
+            <SettingOutlined
+              style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
+            />
             <span className={styles.sectionTitle}>服务配置</span>
           </div>
           {editing ? (
@@ -295,18 +344,18 @@ export default function SettingsPage() {
                 <Form.Item
                   name="fileServerPort"
                   label="文件服务端口"
-                  rules={[{ required: true, message: '请输入端口' }]}
+                  rules={[{ required: true, message: "请输入端口" }]}
                 >
-                  <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+                  <InputNumber min={1} max={65535} style={{ width: "100%" }} />
                 </Form.Item>
               </Col>
               <Col span={12}>
                 <Form.Item
                   name="agentPort"
                   label="Agent 端口"
-                  rules={[{ required: true, message: '请输入端口' }]}
+                  rules={[{ required: true, message: "请输入端口" }]}
                 >
-                  <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+                  <InputNumber min={1} max={65535} style={{ width: "100%" }} />
                 </Form.Item>
               </Col>
             </Row>
@@ -314,7 +363,7 @@ export default function SettingsPage() {
             <Form.Item
               name="workspaceDir"
               label="工作区目录"
-              rules={[{ required: true, message: '请选择工作区目录' }]}
+              rules={[{ required: true, message: "请选择工作区目录" }]}
               style={{ marginBottom: 0 }}
             >
               <Input
@@ -338,7 +387,13 @@ export default function SettingsPage() {
           </Form>
 
           {!editing && (
-            <div style={{ marginTop: 12, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            <div
+              style={{
+                marginTop: 12,
+                fontSize: 12,
+                color: "var(--color-text-tertiary)",
+              }}
+            >
               修改配置后需要重启服务才能生效
             </div>
           )}
@@ -437,10 +492,12 @@ export default function SettingsPage() {
       {/* 系统设置 */}
       <div className={styles.section}>
         <div className={styles.sectionHeader}>
-          <DesktopOutlined style={{ fontSize: 14, color: 'var(--color-text-secondary)' }} />
+          <DesktopOutlined
+            style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
+          />
           <span className={styles.sectionTitle}>系统</span>
         </div>
-        <div className={styles.sectionBody} style={{ padding: '0 16px' }}>
+        <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
           {/* 开机自启动 */}
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
@@ -475,9 +532,9 @@ export default function SettingsPage() {
               onChange={(value) => setThemeMode(value)}
               style={{ width: 100 }}
               options={[
-                { value: 'system', label: '跟随系统' },
-                { value: 'light', label: '亮色' },
-                { value: 'dark', label: '暗色' },
+                { value: "system", label: "跟随系统" },
+                { value: "light", label: "亮色" },
+                { value: "dark", label: "暗色" },
               ]}
             />
           </div>
@@ -502,18 +559,48 @@ export default function SettingsPage() {
                 <div
                   className={styles.serviceDescription}
                   style={{
-                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    fontFamily:
+                      "ui-monospace, SFMono-Regular, Menlo, monospace",
                     maxWidth: 280,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
                   }}
                 >
-                  {logDir || '加载中...'}
+                  {logDir || "加载中..."}
                 </div>
               </div>
             </div>
             <Button size="small" onClick={handleOpenLogDir}>
+              打开
+            </Button>
+          </div>
+
+          {/* 工作空间目录 */}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              <div>
+                <span className={styles.serviceLabel}>工作空间目录</span>
+                <div
+                  className={styles.serviceDescription}
+                  style={{
+                    fontFamily:
+                      "ui-monospace, SFMono-Regular, Menlo, monospace",
+                    maxWidth: 280,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {workspaceDir || "未设置"}
+                </div>
+              </div>
+            </div>
+            <Button
+              size="small"
+              onClick={handleOpenWorkspaceDir}
+              disabled={!workspaceDir}
+            >
               打开
             </Button>
           </div>

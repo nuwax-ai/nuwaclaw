@@ -420,6 +420,9 @@ export interface PermissionsAPI {
 
 export interface ShellAPI {
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+  openPath: (
+    targetPath: string,
+  ) => Promise<{ success: boolean; error?: string }>;
 }
 
 // ==================== Computer API (rcoder /computer/* compat) ====================

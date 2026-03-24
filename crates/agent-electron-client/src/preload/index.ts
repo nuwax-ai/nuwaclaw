@@ -281,6 +281,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   shell: {
     openExternal: (url: string) =>
       ipcRenderer.invoke("shell:openExternal", url),
+    // 打开本地目录/文件到系统文件管理器，供设置页“打开工作空间目录”等功能复用。
+    openPath: (targetPath: string) =>
+      ipcRenderer.invoke("shell:openPath", targetPath),
   },
 
   // Session / Cookie management (for embedded webview)

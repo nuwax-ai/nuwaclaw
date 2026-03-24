@@ -304,6 +304,24 @@ export function registerAppHandlers(ctx: HandlerContext): void {
     }
   });
 
+  // 打开本地路径（目录或文件），用于设置页等“在系统文件管理器中打开”场景。
+  // 说明：Electron 的 shell.openPath 成功时返回空字符串，失败时返回错误文本。
+  ipcMain.handle("shell:openPath", async (_, targetPath: string) => {
+    try {
+      if (!targetPath || typeof targetPath !== "string") {
+        return { success: false, error: "Path is required" };
+      }
+      const openResult = await shell.openPath(targetPath);
+      if (openResult) {
+        return { success: false, error: openResult };
+      }
+      return { success: true };
+    } catch (error) {
+      log.error("[IPC] shell:openPath failed:", error);
+      return { success: false, error: String(error) };
+    }
+  });
+
   // Dialog
   ipcMain.handle("dialog:openDirectory", async (_, title?: string) => {
     const mainWindow = ctx.getMainWindow();
