@@ -11,9 +11,9 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import log from "electron-log";
-import { getPerfLogger } from "../../bootstrap/logConfig";
 import { memoryService } from "../memory";
 import type { ModelConfig } from "../memory/types";
+import { perfEmitter } from "./perf/perfEmitter";
 
 // Re-export engine classes
 export { AcpEngine } from "./acp/acpEngine";
@@ -488,9 +488,7 @@ export class UnifiedAgentService extends EventEmitter {
     const existing = this.engines.get(projectId);
     if (existing) {
       if (existing.isReady) {
-        getPerfLogger().info(
-          `[PERF] engine.getOrCreate (reuse): ${Date.now() - t0}ms`,
-        );
+        perfEmitter.duration("engine.getOrCreate (reuse)", Date.now() - t0);
         return existing;
       }
       // Dead engine — cleanup and rebuild
@@ -521,7 +519,7 @@ export class UnifiedAgentService extends EventEmitter {
       await this.evictIdleEngine();
     }
     t2 = Date.now();
-    getPerfLogger().info(`[PERF] engine.evictCheck: ${t2 - t1}ms`);
+    perfEmitter.duration("engine.evictCheck", t2 - t1);
 
     const engineType =
       effectiveConfig.engine || this.engineType || "claude-code";
@@ -542,9 +540,7 @@ export class UnifiedAgentService extends EventEmitter {
 
     this.engines.set(projectId, engine);
     this.engineConfigs.set(projectId, effectiveConfig);
-    getPerfLogger().info(
-      `[PERF] engine.getOrCreate: ${t3 - t0}ms  project=${projectId}`,
-    );
+    perfEmitter.duration("engine.getOrCreate", t3 - t0, { project: projectId });
     return engine;
   }
 
@@ -678,13 +674,11 @@ export class UnifiedAgentService extends EventEmitter {
       !mp &&
       (Object.keys(requestMcpServersEarly).length === 0 || !mcpChanged)
     ) {
-      getPerfLogger().info(
-        `[PERF] engine.fastPath: ${Date.now() - t0}ms  engineKey=${engineKey}`,
-      );
+      perfEmitter.duration("engine.fastPath", Date.now() - t0, { engineKey });
       return existingEngine;
     }
 
-    getPerfLogger().info(`[PERF] engine.fullPath  engineKey=${engineKey}`);
+    perfEmitter.point("engine.fullPath", { engineKey });
 
     // 性能优化：只有在 MCP 配置变更时才调用 syncMcpConfigToProxyAndReload
     // 并行执行 syncMcp 和 ensureMemoryReady
@@ -709,7 +703,7 @@ export class UnifiedAgentService extends EventEmitter {
 
         await syncPromise;
         t2 = Date.now();
-        getPerfLogger().info(`[PERF] engine.syncMcp: ${t2 - t1}ms`);
+        perfEmitter.duration("engine.syncMcp", t2 - t1);
       } catch (e) {
         log.warn("[UnifiedAgent] syncMcp 失败:", e);
       }
@@ -833,7 +827,7 @@ export class UnifiedAgentService extends EventEmitter {
         }
       }
       t3 = Date.now();
-      getPerfLogger().info(`[PERF] engine.extractMcp: ${t3 - t2}ms`);
+      perfEmitter.duration("engine.extractMcp", t3 - t2);
 
       if (Object.keys(realMcpServers).length > 0) {
         freshMcpServers = realMcpServers;
@@ -849,7 +843,7 @@ export class UnifiedAgentService extends EventEmitter {
         });
         await mcpProxyManager.ensureBridgeStarted();
         t4 = Date.now();
-        getPerfLogger().info(`[PERF] engine.ensureBridge(mcp): ${t4 - t3}ms`);
+        perfEmitter.duration("engine.ensureBridge(mcp)", t4 - t3);
         // 获取代理格式的配置（包含 bridge URL 和 allowTools）
         freshMcpServers =
           mcpProxyManager.getAgentMcpConfig(engineKey) || undefined;
@@ -862,7 +856,7 @@ export class UnifiedAgentService extends EventEmitter {
       t3 = Date.now();
       await mcpProxyManager.ensureBridgeStarted();
       t4 = Date.now();
-      getPerfLogger().info(`[PERF] engine.ensureBridge(no-mcp): ${t4 - t3}ms`);
+      perfEmitter.duration("engine.ensureBridge(no-mcp)", t4 - t3);
       freshMcpServers =
         mcpProxyManager.getAgentMcpConfig(engineKey) || undefined;
     }
@@ -897,9 +891,7 @@ export class UnifiedAgentService extends EventEmitter {
       memoryReadyPromise,
     );
     t5 = Date.now();
-    getPerfLogger().info(
-      `[PERF] engine.ensure: ${t5 - t0}ms  engineKey=${engineKey}`,
-    );
+    perfEmitter.duration("engine.ensure", t5 - t0, { engineKey });
 
     // 仅在引擎实际被创建/重建时到达此处（detectConfigChange 返回 false 时已 early-return）。
     // 将本次过滤好的原始 MCP servers 存入快照，key 用实际注册表 key 以便 detectConfigChange 能命中。
@@ -932,13 +924,29 @@ export class UnifiedAgentService extends EventEmitter {
     const needsSwitch =
       !!requiredEngine && requiredEngine !== currentConfig?.engine;
 
+    // 先对 resolvedEnv 进行本地化处理（与 ensureEngineForRequest 中的逻辑一致）
+    // 避免因为路径本地化导致的误判
+    let normalizedResolvedEnv = resolvedEnv;
+    if (
+      resolvedEnv?.OPENCODE_LOG_DIR &&
+      !fs.existsSync(resolvedEnv.OPENCODE_LOG_DIR)
+    ) {
+      normalizedResolvedEnv = {
+        ...resolvedEnv,
+        OPENCODE_LOG_DIR: path.join(os.homedir(), APP_DATA_DIR_NAME, "logs"),
+      };
+    }
+
     const currentEnvStr = currentConfig?.env
       ? JSON.stringify(currentConfig.env, Object.keys(currentConfig.env).sort())
       : "";
-    const newEnvStr = resolvedEnv
-      ? JSON.stringify(resolvedEnv, Object.keys(resolvedEnv).sort())
+    const newEnvStr = normalizedResolvedEnv
+      ? JSON.stringify(
+          normalizedResolvedEnv,
+          Object.keys(normalizedResolvedEnv).sort(),
+        )
       : "";
-    const envChanged = !!resolvedEnv && newEnvStr !== currentEnvStr;
+    const envChanged = !!normalizedResolvedEnv && newEnvStr !== currentEnvStr;
 
     const modelChanged = !!model && model !== (currentConfig?.model || "");
     const apiKeyChanged =
@@ -954,14 +962,77 @@ export class UnifiedAgentService extends EventEmitter {
     const storedRawMcp = this.engineRawMcpServers.get(projectId);
     const mcpChanged = !rawMcpServersEqual(requestMcpServers, storedRawMcp);
 
-    return (
+    const result =
       needsSwitch ||
       envChanged ||
       modelChanged ||
       apiKeyChanged ||
       baseUrlChanged ||
-      mcpChanged
-    );
+      mcpChanged;
+
+    // 调试日志：输出触发配置变更的具体原因
+    if (result) {
+      // 计算环境变量差异（敏感字段仅记录掩码，避免日志泄露 secret/token/apiKey）。
+      const envDiffDetails: Record<string, unknown> = {};
+      if (envChanged && resolvedEnv && currentConfig?.env) {
+        const allKeys = new Set([
+          ...Object.keys(currentConfig.env),
+          ...Object.keys(resolvedEnv),
+        ]);
+        const isSensitiveEnvKey = (key: string) =>
+          /(key|token|secret|password|authorization|credential)/i.test(key);
+        const normalizeEnvValue = (key: string, value: unknown) => {
+          if (isSensitiveEnvKey(key)) return "***";
+          if (typeof value !== "string") return value;
+          return value.length > 50 ? value.slice(0, 50) + "..." : value;
+        };
+        for (const key of allKeys) {
+          const oldVal = (currentConfig.env as Record<string, unknown>)?.[key];
+          const newVal = resolvedEnv[key];
+          if (oldVal !== newVal) {
+            envDiffDetails[key] = {
+              old: normalizeEnvValue(key, oldVal),
+              new: normalizeEnvValue(key, newVal),
+            };
+          }
+        }
+      } else if (envChanged && resolvedEnv && !currentConfig?.env) {
+        envDiffDetails["reason"] =
+          "currentConfig.env is empty but resolvedEnv has values";
+        envDiffDetails["resolvedEnvKeys"] = Object.keys(resolvedEnv);
+      }
+      log.info(
+        `[UnifiedAgent] 🔍 detectConfigChange(${projectId}): ${result ? "CHANGED" : "unchanged"}`,
+        {
+          needsSwitch,
+          envChanged,
+          modelChanged,
+          apiKeyChanged,
+          baseUrlChanged,
+          mcpChanged,
+          details: {
+            currentModel: currentConfig?.model,
+            newModel: model,
+            currentApiKeyLen: currentConfig?.apiKey?.length,
+            newApiKeyLen: mp?.api_key?.length,
+            currentBaseUrl: currentConfig?.baseUrl,
+            newBaseUrl: mp?.base_url,
+            storedMcpKeys: storedRawMcp ? Object.keys(storedRawMcp) : "(none)",
+            requestMcpKeys: Object.keys(requestMcpServers),
+            currentEnvKeys: currentConfig?.env
+              ? Object.keys(currentConfig.env)
+              : "(none)",
+            resolvedEnvKeys: resolvedEnv ? Object.keys(resolvedEnv) : "(none)",
+            envDiff:
+              Object.keys(envDiffDetails).length > 0
+                ? envDiffDetails
+                : "(no diff)",
+          },
+        },
+      );
+    }
+
+    return result;
   }
 
   /**

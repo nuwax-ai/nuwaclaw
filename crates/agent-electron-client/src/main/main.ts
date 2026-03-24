@@ -118,6 +118,20 @@ function getDockIconPath() {
 }
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+const WEBVIEW_PERF_BRIDGE_PRELOAD = path.join(
+  __dirname,
+  "..",
+  "preload",
+  "webviewPerfBridge.js",
+);
+function shouldInjectWebviewPerfBridge(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return /^https?:$/.test(parsed.protocol);
+  } catch {
+    return false;
+  }
+}
 
 // Managed child processes
 const lanproxy = new ManagedProcess("lanproxy");
@@ -143,6 +157,20 @@ function createWindow() {
     },
     show: false,
   });
+
+  // 为 webview guest 注入轻量 Bridge（NuwaClawBridge）。
+  // 当前策略：对所有 http/https 页面注入；真正是否生效由 guest 侧路由+容器二次判断。
+  mainWindow.webContents.on(
+    "will-attach-webview",
+    (_event, webPreferences, params) => {
+      const targetUrl = String(params.src || "");
+      if (!shouldInjectWebviewPerfBridge(targetUrl)) {
+        return;
+      }
+      webPreferences.preload = WEBVIEW_PERF_BRIDGE_PRELOAD;
+      log.info("[WebviewBridge] Injected guest preload for:", targetUrl);
+    },
+  );
 
   // Load the app
   if (isDev) {
