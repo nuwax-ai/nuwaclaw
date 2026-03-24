@@ -10,6 +10,7 @@
 
 import { getCurrentAuth } from "../core/auth";
 import { AUTH_KEYS } from "@shared/constants";
+import { logger } from "./logService";
 
 /**
  * Build redirect URL for entering the sandbox dashboard (开始会话).
@@ -51,7 +52,7 @@ export async function syncSessionCookie(
   } catch {
     cookieDomain = domain.replace(/^https?:\/\//, "");
   }
-  await window.electronAPI?.session.setCookie({
+  const result = await window.electronAPI?.session.setCookie({
     url: domain,
     name: "ticket",
     value: token,
@@ -59,6 +60,10 @@ export async function syncSessionCookie(
     httpOnly: true,
     secure: domain.startsWith("https"),
   });
+  if (!result?.success) {
+    // 只记录域名和错误，不记录 token 等敏感信息
+    throw new Error(result?.error || `session:setCookie failed for ${domain}`);
+  }
 }
 
 /**
@@ -77,11 +82,39 @@ async function syncCookieAndBuildUrl(
   const token = (await window.electronAPI?.settings.get(
     AUTH_KEYS.AUTH_TOKEN,
   )) as string | null;
+  logger.info("[SessionUrl][Diag] 会话前状态", "SessionUrl", {
+    domain,
+    configId,
+    hasToken: !!token,
+  });
   if (token) {
-    await syncSessionCookie(domain, token);
-    // token 已同步给 webview cookie，立即清除本地缓存，
-    // 避免 token 失效后被持久缓存再次写入 webview 导致登录异常
-    await window.electronAPI?.settings.set(AUTH_KEYS.AUTH_TOKEN, null);
+    try {
+      logger.info("[SessionUrl][Diag] 准备同步 ticket cookie", "SessionUrl", {
+        domain,
+      });
+      await syncSessionCookie(domain, token);
+      logger.info("[SessionUrl][Diag] ticket cookie 同步成功", "SessionUrl", {
+        domain,
+      });
+      // token 已同步给 webview cookie，立即清除本地缓存，
+      // 避免 token 失效后被持久缓存再次写入 webview 导致登录异常
+      await window.electronAPI?.settings.set(AUTH_KEYS.AUTH_TOKEN, null);
+    } catch (error) {
+      logger.warn("[SessionUrl][Diag] ticket cookie 同步失败", "SessionUrl", {
+        domain,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // 失败时不要清空 token，保留重试机会
+      logger.error(
+        "[SessionUrl] Cookie 同步失败，保留本地 token 以便重试",
+        "SessionUrl",
+        {
+          domain,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      throw error;
+    }
   }
 
   return buildUrl(domain, configId);

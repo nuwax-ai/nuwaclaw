@@ -49,6 +49,9 @@ import {
   rawMcpServersEqual,
 } from "../packages/mcpHelpers";
 
+/** 环境变量记录类型 */
+type EnvRecord = Record<string, string | undefined>;
+
 // ==================== Types ====================
 
 export type AgentEngineType = "nuwaxcode" | "claude-code";
@@ -975,19 +978,20 @@ export class UnifiedAgentService extends EventEmitter {
       // 计算环境变量差异（敏感字段仅记录掩码，避免日志泄露 secret/token/apiKey）。
       const envDiffDetails: Record<string, unknown> = {};
       if (envChanged && resolvedEnv && currentConfig?.env) {
+        const currentEnv = currentConfig.env as EnvRecord;
         const allKeys = new Set([
-          ...Object.keys(currentConfig.env),
+          ...Object.keys(currentEnv),
           ...Object.keys(resolvedEnv),
         ]);
         const isSensitiveEnvKey = (key: string) =>
           /(key|token|secret|password|authorization|credential)/i.test(key);
-        const normalizeEnvValue = (key: string, value: unknown) => {
+        const normalizeEnvValue = (key: string, value: string | undefined) => {
           if (isSensitiveEnvKey(key)) return "***";
           if (typeof value !== "string") return value;
           return value.length > 50 ? value.slice(0, 50) + "..." : value;
         };
         for (const key of allKeys) {
-          const oldVal = (currentConfig.env as Record<string, unknown>)?.[key];
+          const oldVal = currentEnv[key];
           const newVal = resolvedEnv[key];
           if (oldVal !== newVal) {
             envDiffDetails[key] = {

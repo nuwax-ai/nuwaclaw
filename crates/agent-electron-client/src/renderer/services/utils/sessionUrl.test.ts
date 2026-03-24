@@ -9,8 +9,15 @@ import {
   syncCookieAndGetChatUrl,
 } from "./sessionUrl";
 
-const mockSettings = { get: vi.fn(), set: vi.fn() };
-const mockSession = { setCookie: vi.fn() };
+const { mockSettings, mockSession, mockLogger } = vi.hoisted(() => ({
+  mockSettings: { get: vi.fn(), set: vi.fn() },
+  mockSession: { setCookie: vi.fn() },
+  mockLogger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}));
 
 vi.stubGlobal("window", {
   electronAPI: { settings: mockSettings, session: mockSession },
@@ -20,9 +27,13 @@ const mockGetCurrentAuth = vi.fn();
 vi.mock("../core/auth", () => ({
   getCurrentAuth: (...args: unknown[]) => mockGetCurrentAuth(...args),
 }));
+vi.mock("./logService", () => ({
+  logger: mockLogger,
+}));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockSession.setCookie.mockResolvedValue({ success: true });
 });
 
 describe("buildRedirectUrl", () => {
@@ -183,6 +194,23 @@ describe("syncCookieAndGetRedirectUrl", () => {
     expect(mockSettings.set).toHaveBeenCalledWith("auth.token", null);
   });
 
+  it("keeps local auth token when cookie sync fails", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
+    });
+    mockSettings.get.mockResolvedValue("my-token");
+    mockSession.setCookie.mockResolvedValue({
+      success: false,
+      error: "cookie write failed",
+    });
+
+    await expect(syncCookieAndGetRedirectUrl()).rejects.toThrow(
+      "cookie write failed",
+    );
+    expect(mockSettings.set).not.toHaveBeenCalledWith("auth.token", null);
+  });
+
   it("returns URL without syncing cookie when token is null", async () => {
     mockGetCurrentAuth.mockResolvedValue({
       isLoggedIn: true,
@@ -195,6 +223,37 @@ describe("syncCookieAndGetRedirectUrl", () => {
       "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
     );
     expect(mockSession.setCookie).not.toHaveBeenCalled();
+  });
+
+  it("prints diagnostic logs regardless of NODE_ENV", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
+    });
+    mockSettings.get.mockResolvedValue("my-token");
+
+    const result = await syncCookieAndGetRedirectUrl();
+    expect(result).toBe(
+      "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
+    );
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      "[SessionUrl][Diag] 会话前状态",
+      "SessionUrl",
+      expect.objectContaining({
+        domain: "https://example.com",
+        hasToken: true,
+      }),
+    );
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      "[SessionUrl][Diag] 准备同步 ticket cookie",
+      "SessionUrl",
+      expect.objectContaining({ domain: "https://example.com" }),
+    );
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      "[SessionUrl][Diag] ticket cookie 同步成功",
+      "SessionUrl",
+      expect.objectContaining({ domain: "https://example.com" }),
+    );
   });
 });
 
