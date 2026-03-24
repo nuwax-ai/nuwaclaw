@@ -1003,7 +1003,12 @@ export class UnifiedAgentService extends EventEmitter {
       } else if (envChanged && resolvedEnv && !currentConfig?.env) {
         envDiffDetails["reason"] =
           "currentConfig.env is empty but resolvedEnv has values";
-        envDiffDetails["resolvedEnvKeys"] = Object.keys(resolvedEnv);
+        // 过滤敏感 key 名，避免泄露业务特征
+        const isSensitiveEnvKey = (key: string) =>
+          /(key|token|secret|password|authorization|credential)/i.test(key);
+        envDiffDetails["resolvedEnvKeys"] = Object.keys(resolvedEnv).filter(
+          (k) => !isSensitiveEnvKey(k),
+        );
       }
       log.info(
         `[UnifiedAgent] 🔍 detectConfigChange(${projectId}): ${result ? "CHANGED" : "unchanged"}`,

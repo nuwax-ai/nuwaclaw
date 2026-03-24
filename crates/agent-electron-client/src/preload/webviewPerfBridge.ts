@@ -33,6 +33,18 @@ function safeStringify(data: unknown): string {
   }
 }
 
+/**
+ * onceKeySet 用于 markOnce 去重，确保同一 key 只触发一次日志。
+ * 清理策略：
+ * - 当集合大小超过 ONCE_KEY_MAX_SIZE 时，直接清空（简单粗暴但有效）。
+ * - 对于单个消息的生命周期，在 stream_end 时调用 cleanupMessageOnceKeys
+ *   清理该消息相关的 key，允许同一条消息在重新加载后再次触发 markOnce。
+ *
+ * 设计说明：
+ * markOnce 的 key 格式为 `${mid}:first_chunk` 和 `${mid}:stream_end`。
+ * 当消息流结束时，我们清理这些 key，这样如果用户刷新页面或重新进入同一会话，
+ * 该消息的性能日志可以重新记录一次（而不是被 markOnce 永久跳过）。
+ */
 const onceKeySet = new Set<string>();
 const ONCE_KEY_MAX_SIZE = 5000;
 
@@ -42,6 +54,10 @@ function maybeCompactOnceKeys(): void {
   onceKeySet.clear();
 }
 
+/**
+ * 清理指定消息的 once keys，允许该消息在下次加载时重新记录性能日志。
+ * 仅在 stream_end 阶段调用（见 markOnce 内部）。
+ */
 function cleanupMessageOnceKeys(payload: PerfPayload): void {
   const mid = payload.mid;
   if (typeof mid !== "string" || !mid) return;
