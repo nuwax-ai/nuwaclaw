@@ -99,7 +99,7 @@ help:
 	@echo "  electron-prepare-node    - Prepare bundled Node.js 24 for Electron"
 	@echo "  electron-prepare-uv      - Prepare bundled uv for Electron"
 	@echo "  electron-prepare         - Full prepare (install + rebuild + all binaries)"
-	@echo "  electron-dev             - Run Electron dev mode (one-click start)"
+	@echo "  electron-dev             - Run Electron dev mode (default: NUWAX_AGENT_LOG_FULL_SECRETS=1, full keys in logs)"
 	@echo ""
 	@echo "=== Dependencies ==="
 	@echo "  setup-repo     - Initialize Git submodules (including nested hbb_common)"
@@ -434,6 +434,9 @@ tauri-dev: tauri-install-deps
 
 # Electron 客户端 crate 名称
 ELECTRON_CLIENT := agent-electron-client
+# electron-dev 默认 NUWAX_AGENT_LOG_FULL_SECRETS=1（主进程 logRedact 不截断密钥，便于本地调试）
+# 需要脱敏日志： NUWAX_AGENT_LOG_FULL_SECRETS=0 make electron-dev
+NUWAX_AGENT_LOG_FULL_SECRETS ?= 1
 
 .PHONY: electron-install-deps
 electron-install-deps:
@@ -473,10 +476,11 @@ electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanpro
 .PHONY: electron-dev
 electron-dev: electron-prepare
 	@echo ">>> Starting Electron dev mode..."
+	@echo ">>> NUWAX_AGENT_LOG_FULL_SECRETS=$(NUWAX_AGENT_LOG_FULL_SECRETS) (1=日志中完整密钥, 0=脱敏)"
 	@echo ">>> Logs will be written to logs/electron-dev.log"
 	mkdir -p logs
 	@echo "=== Electron Dev Started at $$(date) ===" > logs/electron-dev.log
-	cd crates/$(ELECTRON_CLIENT) && npm run dev 2>&1 | tee -a $(CURDIR)/logs/electron-dev.log
+	cd crates/$(ELECTRON_CLIENT) && NUWAX_AGENT_LOG_FULL_SECRETS=$(NUWAX_AGENT_LOG_FULL_SECRETS) npm run dev 2>&1 | tee -a $(CURDIR)/logs/electron-dev.log
 
 .PHONY: tauri-info
 tauri-info:
