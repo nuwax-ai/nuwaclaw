@@ -210,7 +210,7 @@ export interface AcpConnectionConfig {
   /** Engine type for process registry tracking */
   engineType?: "claude-code" | "nuwaxcode";
   /** Purpose of this process (for process registry) */
-  purpose?: "engine" | "warm-pool";
+  purpose?: "engine";
 }
 
 /** Result of creating an ACP connection */

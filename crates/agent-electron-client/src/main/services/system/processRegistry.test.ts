@@ -72,7 +72,7 @@ describe("ProcessRegistry", () => {
       processRegistry.register(1234, {
         engineId: "acp-2",
         engineType: "nuwaxcode",
-        purpose: "warm-pool",
+        purpose: "engine",
       });
 
       expect(processRegistry.size).toBe(1);
@@ -87,7 +87,7 @@ describe("ProcessRegistry", () => {
       processRegistry.register(200, {
         engineId: "acp-2",
         engineType: "nuwaxcode",
-        purpose: "warm-pool",
+        purpose: "engine",
       });
 
       expect(processRegistry.size).toBe(2);
@@ -291,7 +291,7 @@ describe("ProcessRegistry", () => {
       processRegistry.register(200, {
         engineId: "acp-2",
         engineType: "nuwaxcode",
-        purpose: "warm-pool",
+        purpose: "engine",
       });
 
       // Mock both as alive

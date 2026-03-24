@@ -72,8 +72,7 @@ export interface AgentConfig {
   >;
   permissionMode?: "default" | "acceptEdits" | "bypassPermissions";
   systemPrompt?: string;
-  /** Process purpose for registry tracking (set internally by warm pool) */
-  purpose?: "engine" | "warm-pool";
+  purpose?: "engine";
 }
 
 export type AcpSessionStatus = "idle" | "pending" | "active" | "terminating";
@@ -263,16 +262,6 @@ export class UnifiedAgentService extends EventEmitter {
   private assistantTextBuffers = new Map<string, string>();
 
   /**
-   * 预热引擎池：按引擎类型各保留 1 个已初始化的 AcpEngine，请求到来时按 requestedEngine 复用，省掉冷启动（~4s）。
-   * init 时同时预热 claude-code 与 nuwaxcode，避免「init 用 claude-code、请求用 nuwaxcode」导致永远无法复用。
-   */
-  private warmEnginePool = new Map<AgentEngineType, AcpEngine>();
-  /** 当前正在执行的预热任务，按引擎类型去重，避免同一类型重复启动 */
-  private warmEngineTasks = new Map<AgentEngineType, Promise<void>>();
-  /** In-flight warming engines (not yet in warmEnginePool), tracked for process registry */
-  private warmingEngines = new Set<AcpEngine>();
-
-  /**
    * Initialize the service with a base config.
    * Does NOT spawn a process — processes are created lazily per project_id
    * on the first chat request via getOrCreateEngine().
@@ -339,9 +328,6 @@ export class UnifiedAgentService extends EventEmitter {
     }
     // 后台预热 MCP proxy bridge
     this.warmupMcpBridge();
-    // 后台同时预热两种引擎，避免 init 为 claude-code 而请求为 nuwaxcode 时永远无法复用
-    this.startWarmingEngine("claude-code");
-    this.startWarmingEngine("nuwaxcode");
     // Start process registry sweep to detect orphan ACP processes
     processRegistry.bindActivePidsFn(() => this.getActivePids());
     processRegistry.startPeriodicSweep(300_000);
@@ -399,18 +385,6 @@ export class UnifiedAgentService extends EventEmitter {
       ]);
       destroyPromises.push(destroyWithTimeout);
     }
-    // 先等待所有预热任务结束（任务可能正在向 warmEnginePool 推送新引擎）
-    const warmTasks = [...this.warmEngineTasks.values()];
-    this.warmEngineTasks.clear();
-    if (warmTasks.length > 0) {
-      await Promise.all(warmTasks.map((p) => p.catch(() => {})));
-    }
-    // 再销毁预热池中所有引擎（含任务刚放入的）
-    for (const engine of this.warmEnginePool.values()) {
-      engine.removeAllListeners();
-      destroyPromises.push(engine.destroy().catch(() => {}));
-    }
-    this.warmEnginePool.clear();
     await Promise.all(destroyPromises);
     // Final sweep to kill any orphaned processes missed by normal destroy
     await processRegistry.killOrphans().catch(() => {});
@@ -478,14 +452,6 @@ export class UnifiedAgentService extends EventEmitter {
       const pid = engine.getProcessPid();
       if (pid) pids.add(pid);
     }
-    for (const engine of this.warmEnginePool.values()) {
-      const pid = engine.getProcessPid();
-      if (pid) pids.add(pid);
-    }
-    for (const engine of this.warmingEngines) {
-      const pid = engine.getProcessPid();
-      if (pid) pids.add(pid);
-    }
     return pids;
   }
 
@@ -501,47 +467,6 @@ export class UnifiedAgentService extends EventEmitter {
         log.warn("[UnifiedAgent] MCP proxy bridge 预热失败:", err);
       }
     })().catch(() => {});
-  }
-
-  /**
-   * 后台预热指定类型的 AcpEngine，放入 warmEnginePool。
-   * 不阻塞调用方；复用后由 getOrCreateEngine 再次调用 startWarmingEngine(同一类型) 以补充池子。
-   * @param engineType 要预热的引擎类型；init 时会对 claude-code 与 nuwaxcode 各调一次。
-   */
-  private startWarmingEngine(engineType: AgentEngineType): void {
-    if (
-      this.warmEnginePool.has(engineType) ||
-      this.warmEngineTasks.has(engineType) ||
-      !this.baseConfig
-    ) {
-      return;
-    }
-    const config: AgentConfig = {
-      ...this.baseConfig,
-      engine: engineType,
-      purpose: "warm-pool",
-    };
-    const task = (async () => {
-      const engine = new AcpEngine(engineType);
-      this.warmingEngines.add(engine);
-      try {
-        log.info("[UnifiedAgent] 🔥 后台预热 Engine:", engineType);
-        const ok = await engine.init(config);
-        if (ok) {
-          this.warmEnginePool.set(engineType, engine);
-          log.info("[UnifiedAgent] ✅ 预热 Engine 就绪，等待复用:", engineType);
-        } else {
-          engine.removeAllListeners();
-          await engine.destroy().catch(() => {});
-        }
-      } catch (err) {
-        log.warn("[UnifiedAgent] 预热 Engine 失败:", engineType, err);
-      } finally {
-        this.warmingEngines.delete(engine);
-        this.warmEngineTasks.delete(engineType);
-      }
-    })();
-    this.warmEngineTasks.set(engineType, task);
   }
 
   /**
@@ -582,39 +507,6 @@ export class UnifiedAgentService extends EventEmitter {
     if (!this.baseConfig) {
       throw new Error("UnifiedAgentService not initialized (no baseConfig)");
     }
-
-    // 检查预热池：按请求的引擎类型取用，且必须 apiKey/baseUrl 一致才复用。
-    // 否则复用的进程仍是 init 时的认证，claude-code-acp-ts 会返回 "Authentication required"、内容为空。
-    const requestedEngine =
-      effectiveConfig.engine || this.engineType || "claude-code";
-    const warm = this.warmEnginePool.get(requestedEngine);
-    if (warm) {
-      const wc = warm.currentConfig;
-      const authOk =
-        wc &&
-        (wc.apiKey ?? "") === (effectiveConfig.apiKey ?? "") &&
-        (wc.baseUrl ?? "") === (effectiveConfig.baseUrl ?? "");
-      if (authOk) {
-        this.warmEnginePool.delete(requestedEngine);
-        this.forwardEvents(warm);
-        warm.updateConfig(effectiveConfig); // 使 model/mcpServers 等与本请求一致
-        this.engines.set(projectId, warm);
-        this.engineConfigs.set(projectId, effectiveConfig);
-        log.info(
-          `[UnifiedAgent] 复用预热引擎 for project: ${projectId}, engine: ${requestedEngine}, 耗时: ${Date.now() - t0}ms`,
-        );
-        this.startWarmingEngine(requestedEngine);
-        return warm;
-      }
-      // 认证信息不一致，不能复用（否则 claude-code 会报 Authentication required、内容为空）
-      warm.removeAllListeners();
-      await warm.destroy().catch(() => {});
-      this.warmEnginePool.delete(requestedEngine);
-    }
-    const poolKeys = [...this.warmEnginePool.keys()].join(",") || "(空)";
-    log.info(
-      `[UnifiedAgent] 池中无对应预热引擎，走冷启动 requestedEngine=${requestedEngine} poolKeys=${poolKeys}`,
-    );
 
     // Ensure memory is ready before starting session
     if (memoryReadyPromise) {
