@@ -11,6 +11,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import log from "electron-log";
+import { getPerfLogger } from "../../bootstrap/logConfig";
 import { memoryService } from "../memory";
 import type { ModelConfig } from "../memory/types";
 
@@ -562,8 +563,8 @@ export class UnifiedAgentService extends EventEmitter {
     const existing = this.engines.get(projectId);
     if (existing) {
       if (existing.isReady) {
-        log.debug(
-          `⏱️ [getOrCreateEngine][PERF] 复用已有引擎，耗时: ${Date.now() - t0}ms`,
+        getPerfLogger().info(
+          `[PERF] engine.getOrCreate (reuse): ${Date.now() - t0}ms`,
         );
         return existing;
       }
@@ -628,9 +629,7 @@ export class UnifiedAgentService extends EventEmitter {
       await this.evictIdleEngine();
     }
     t2 = Date.now();
-    log.debug(
-      `⏱️ [getOrCreateEngine][PERF] evictIdleEngine 检查耗时: ${t2 - t1}ms`,
-    );
+    getPerfLogger().info(`[PERF] engine.evictCheck: ${t2 - t1}ms`);
 
     const engineType =
       effectiveConfig.engine || this.engineType || "claude-code";
@@ -651,8 +650,8 @@ export class UnifiedAgentService extends EventEmitter {
 
     this.engines.set(projectId, engine);
     this.engineConfigs.set(projectId, effectiveConfig);
-    log.debug(
-      `[PERF] getOrCreateEngine: ${t3 - t0}ms | projectId=${projectId}`,
+    getPerfLogger().info(
+      `[PERF] engine.getOrCreate: ${t3 - t0}ms  project=${projectId}`,
     );
     return engine;
   }
@@ -787,13 +786,13 @@ export class UnifiedAgentService extends EventEmitter {
       !mp &&
       (Object.keys(requestMcpServersEarly).length === 0 || !mcpChanged)
     ) {
-      log.debug(
-        `[PERF] fastPath: ${Date.now() - t0}ms | engineKey=${engineKey}`,
+      getPerfLogger().info(
+        `[PERF] engine.fastPath: ${Date.now() - t0}ms  engineKey=${engineKey}`,
       );
       return existingEngine;
     }
 
-    log.debug(`[PERF] fullPath: engineKey=${engineKey}`);
+    getPerfLogger().info(`[PERF] engine.fullPath  engineKey=${engineKey}`);
 
     // 性能优化：只有在 MCP 配置变更时才调用 syncMcpConfigToProxyAndReload
     // 并行执行 syncMcp 和 ensureMemoryReady
@@ -818,7 +817,7 @@ export class UnifiedAgentService extends EventEmitter {
 
         await syncPromise;
         t2 = Date.now();
-        log.debug(`[PERF] syncMcp: ${t2 - t1}ms`);
+        getPerfLogger().info(`[PERF] engine.syncMcp: ${t2 - t1}ms`);
       } catch (e) {
         log.warn("[UnifiedAgent] syncMcp 失败:", e);
       }
@@ -942,9 +941,7 @@ export class UnifiedAgentService extends EventEmitter {
         }
       }
       t3 = Date.now();
-      log.debug(
-        `⏱️ [ensureEngine][PERF] 提取 real MCP servers 耗时: ${t3 - t2}ms`,
-      );
+      getPerfLogger().info(`[PERF] engine.extractMcp: ${t3 - t2}ms`);
 
       if (Object.keys(realMcpServers).length > 0) {
         freshMcpServers = realMcpServers;
@@ -960,9 +957,7 @@ export class UnifiedAgentService extends EventEmitter {
         });
         await mcpProxyManager.ensureBridgeStarted();
         t4 = Date.now();
-        log.debug(
-          `⏱️ [ensureEngine][PERF] ensureBridgeStarted(有MCP) 耗时: ${t4 - t3}ms`,
-        );
+        getPerfLogger().info(`[PERF] engine.ensureBridge(mcp): ${t4 - t3}ms`);
         // 获取代理格式的配置（包含 bridge URL 和 allowTools）
         freshMcpServers =
           mcpProxyManager.getAgentMcpConfig(engineKey) || undefined;
@@ -975,9 +970,7 @@ export class UnifiedAgentService extends EventEmitter {
       t3 = Date.now();
       await mcpProxyManager.ensureBridgeStarted();
       t4 = Date.now();
-      log.debug(
-        `⏱️ [ensureEngine][PERF] ensureBridgeStarted(无MCP) 耗时: ${t4 - t3}ms`,
-      );
+      getPerfLogger().info(`[PERF] engine.ensureBridge(no-mcp): ${t4 - t3}ms`);
       freshMcpServers =
         mcpProxyManager.getAgentMcpConfig(engineKey) || undefined;
     }
@@ -1012,7 +1005,9 @@ export class UnifiedAgentService extends EventEmitter {
       memoryReadyPromise,
     );
     t5 = Date.now();
-    log.debug(`[PERF] ensureEngine: ${t5 - t0}ms | engineKey=${engineKey}`);
+    getPerfLogger().info(
+      `[PERF] engine.ensure: ${t5 - t0}ms  engineKey=${engineKey}`,
+    );
 
     // 仅在引擎实际被创建/重建时到达此处（detectConfigChange 返回 false 时已 early-return）。
     // 将本次过滤好的原始 MCP servers 存入快照，key 用实际注册表 key 以便 detectConfigChange 能命中。

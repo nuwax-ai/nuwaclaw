@@ -492,4 +492,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     const wrapper = (callback as any).__ipcWrapper || callback;
     ipcRenderer.removeListener(channel, wrapper);
   },
+
+  // PERF 专用日志（fire-and-forget，写入主进程 perf.YYYY-MM-DD.log）
+  perf: {
+    log: (msg: string) => ipcRenderer.send("perf:log", msg),
+  },
 });

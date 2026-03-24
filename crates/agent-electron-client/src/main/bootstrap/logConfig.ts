@@ -12,7 +12,11 @@ import log from "electron-log";
 import * as path from "path";
 import * as fs from "fs";
 import { app } from "electron";
-import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../services/constants";
+import {
+  APP_DATA_DIR_NAME,
+  LOGS_DIR_NAME,
+  PERF_LOG_FILENAME_PREFIX,
+} from "../services/constants";
 
 /** 开发环境：未打包或 NODE_ENV=development */
 function isDev(): boolean {
@@ -69,8 +73,13 @@ function isArchiveLogName(name: string): boolean {
   // 当日活跃日志不归档
   const today = todayDateStr();
   if (n === `main.${today}.log`) return false;
-  // main.* 开头的其他日志都视为归档
-  return n.startsWith("main.") || n.startsWith("renderer.");
+  if (n === `${PERF_LOG_FILENAME_PREFIX}.${today}.log`) return false;
+  // main.* / perf.* 开头的其他日志都视为归档
+  return (
+    n.startsWith("main.") ||
+    n.startsWith("renderer.") ||
+    n.startsWith(`${PERF_LOG_FILENAME_PREFIX}.`)
+  );
 }
 
 const LATEST_LOG_FILENAME = "latest.log";
@@ -175,6 +184,35 @@ function migrateOldMainLog(logDir: string): void {
   }
 }
 
+// ==================== PERF 专用日志 ====================
+
+let _perfLogger: ReturnType<typeof log.create> | null = null;
+
+/**
+ * 初始化 PERF 专用 logger，写入 perf.YYYY-MM-DD.log
+ * 由 initLogging() 内部调用，logDir 已保证存在
+ */
+function initPerfLogging(logDir: string): void {
+  _perfLogger = log.create({ logId: "perf" });
+  _perfLogger.transports.file.resolvePathFn = () => {
+    const dateStr = todayDateStr();
+    return path.join(logDir, `${PERF_LOG_FILENAME_PREFIX}.${dateStr}.log`);
+  };
+  // perf 日志无论开发/正式均写 info 级别（性能数据本身有价值）
+  _perfLogger.transports.file.level = "info";
+  // 不重复打到控制台（main logger 已输出）；electron-log v5 level=false 禁用该 transport
+  (_perfLogger.transports.console as any).level = false;
+  _perfLogger.transports.file.maxSize = 50 * 1024 * 1024;
+}
+
+/**
+ * 获取 PERF 专用 logger（main 进程使用）
+ * 若 initLogging() 未调用（如测试环境），返回默认 log 作为降级
+ */
+export function getPerfLogger(): ReturnType<typeof log.create> {
+  return _perfLogger ?? log;
+}
+
 /**
  * 初始化 electron-log 文件输出：按日分割、大小轮转、TTL 清理
  */
@@ -271,6 +309,9 @@ export function initLogging(): void {
 
   // 首次写入后让 latest.log 指向当日日志
   updateLatestLogWithRetry(logDir);
+
+  // 初始化 perf 专用日志
+  initPerfLogging(logDir);
 }
 
 /** 供 IPC/客户端解析：优先读取的日志入口文件名（始终为当前主进程日志） */

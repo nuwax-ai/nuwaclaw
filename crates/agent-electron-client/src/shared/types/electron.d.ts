@@ -509,6 +509,11 @@ export interface MirrorAPI {
   }) => Promise<{ success: boolean; error?: string }>;
 }
 
+export interface PerfAPI {
+  /** Fire-and-forget：将 PERF 日志发送到主进程写入 perf.YYYY-MM-DD.log */
+  log: (msg: string) => void;
+}
+
 export interface DialogAPI {
   openDirectory: (title?: string) => Promise<{
     success: boolean;
@@ -576,6 +581,7 @@ export interface ElectronAPI {
   app: AppAPI;
   permissions: PermissionsAPI;
   quickInit: QuickInitAPI;
+  perf: PerfAPI;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   off: (channel: string, callback: (...args: unknown[]) => void) => void;
 }

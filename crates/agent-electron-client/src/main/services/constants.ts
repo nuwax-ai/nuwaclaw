@@ -4,16 +4,19 @@
  * 部分从 @shared/constants 复用，主进程与渲染进程共用同一数据源
  */
 
-import { APP_DATA_DIR_NAME } from '@shared/constants';
+import { APP_DATA_DIR_NAME } from "@shared/constants";
 export { APP_DATA_DIR_NAME };
 
 // ==================== 应用目录 ====================
 
 /** 日志目录名称 */
-export const LOGS_DIR_NAME = 'logs';
+export const LOGS_DIR_NAME = "logs";
 
 /** MCP 日志目录名称 */
-export const MCP_LOGS_DIR_NAME = 'mcp';
+export const MCP_LOGS_DIR_NAME = "mcp";
+
+/** PERF 专用日志文件名前缀（perf.YYYY-MM-DD.log） */
+export const PERF_LOG_FILENAME_PREFIX = "perf";
 
 // ==================== 端口配置 ====================
 
@@ -21,7 +24,7 @@ export const MCP_LOGS_DIR_NAME = 'mcp';
 export const DEFAULT_MCP_PROXY_PORT = 18099;
 
 /** @deprecated MCP Proxy 不再使用监听地址（nuwax-mcp-stdio-proxy 为 stdio 直通模式） */
-export const DEFAULT_MCP_PROXY_HOST = '127.0.0.1';
+export const DEFAULT_MCP_PROXY_HOST = "127.0.0.1";
 
 /** 开发服务器默认端口 */
 export const DEFAULT_DEV_SERVER_PORT = 60173;
@@ -29,10 +32,10 @@ export const DEFAULT_DEV_SERVER_PORT = 60173;
 // ==================== 主机/IP 配置 ====================
 
 /** 本地回环地址 */
-export const LOCALHOST_IP = '127.0.0.1';
+export const LOCALHOST_IP = "127.0.0.1";
 
 /** localhost 主机名 */
-export const LOCALHOST_HOSTNAME = 'localhost';
+export const LOCALHOST_HOSTNAME = "localhost";
 
 // ==================== 超时配置 ====================
 
@@ -49,17 +52,17 @@ export const DEFAULT_SSE_MAX_RETRY_DELAY = 30000;
 
 /** NPM 镜像源预设 */
 export const NPM_MIRRORS = {
-  OFFICIAL: 'https://registry.npmjs.org/',
-  TAOBAO: 'https://registry.npmmirror.com/',
-  TENCENT: 'https://mirrors.cloud.tencent.com/npm/',
+  OFFICIAL: "https://registry.npmjs.org/",
+  TAOBAO: "https://registry.npmmirror.com/",
+  TENCENT: "https://mirrors.cloud.tencent.com/npm/",
 } as const;
 
 /** UV (PyPI) 镜像源预设 */
 export const UV_MIRRORS = {
-  OFFICIAL: 'https://pypi.org/simple/',
-  TUNA: 'https://pypi.tuna.tsinghua.edu.cn/simple/',
-  ALIYUN: 'https://mirrors.aliyun.com/pypi/simple/',
-  TENCENT: 'https://mirrors.cloud.tencent.com/pypi/simple/',
+  OFFICIAL: "https://pypi.org/simple/",
+  TUNA: "https://pypi.tuna.tsinghua.edu.cn/simple/",
+  ALIYUN: "https://mirrors.aliyun.com/pypi/simple/",
+  TENCENT: "https://mirrors.cloud.tencent.com/pypi/simple/",
 } as const;
 
 /** 默认镜像源配置 */
@@ -67,4 +70,3 @@ export const DEFAULT_MIRROR_CONFIG = {
   npmRegistry: NPM_MIRRORS.TAOBAO,
   uvIndexUrl: UV_MIRRORS.ALIYUN,
 } as const;
-
