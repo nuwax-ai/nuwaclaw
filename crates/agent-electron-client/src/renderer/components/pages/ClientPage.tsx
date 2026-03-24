@@ -129,6 +129,11 @@ function ClientPage({
   // ---------- QR Code ----------
   const [qrModalVisible, setQrModalVisible] = useState(false);
 
+  // 登录页“用户输入业务域名”的本地兜底缓存。
+  // 用途：当 authState.domain 在短时间内尚未刷新，或被历史配置影响时，UI 仍优先展示用户最近一次明确输入/确认的业务域名。
+  // 注意：该值仅用于渲染显示，不参与 reg/lanproxy 的服务端配置逻辑。
+  const [displayDomainFallback, setDisplayDomainFallback] = useState("");
+
   // ======================== Auth ========================
 
   const loadAuth = useCallback(async () => {
@@ -148,7 +153,13 @@ function ClientPage({
         )) as { serverHost?: string } | null;
         if (step1?.serverHost) {
           setLoginDomain(step1.serverHost);
+          // 未登录时，同步更新展示兜底，确保输入框默认域名可用于后续显示兜底。
+          setDisplayDomainFallback(step1.serverHost);
         }
+      } else {
+        // 已登录时，优先使用认证状态中的业务域名作为展示兜底。
+        // 这样在服务状态刷新或局部重载期间，域名显示更稳定，不会闪回到代理配置地址。
+        setDisplayDomainFallback(auth.userInfo?.currentDomain || "");
       }
     } catch (error) {
       console.error("[ClientPage] loadAuth failed:", error);
@@ -173,6 +184,9 @@ function ClientPage({
 
     setLoginLoading(true);
     try {
+      // 记录用户本次明确输入的业务域名，作为登录成功后的展示兜底来源之一。
+      // 说明：这里的域名语义是“业务访问域名”，与 reg 返回的 lanproxy serverHost 不是同一概念。
+      setDisplayDomainFallback(loginDomain);
       await loginAndRegister(loginUsername, loginPassword, {
         domain: loginDomain,
       });
@@ -232,6 +246,23 @@ function ClientPage({
             });
 
           await logout();
+          // 退出登录后，默认回填上一次“服务域名”到登录输入框，减少用户重复输入。
+          // 回填优先级说明（从高到低）：
+          // 1) displayDomainFallback：本页面内最近一次明确业务域名（用户输入/认证状态同步得到）；
+          // 2) authState.domain：当前登录态里记录的业务域名；
+          // 3) step1_config.serverHost：持久化配置兜底（首次进入或刷新后也可恢复）。
+          // 说明：这里回填的是“业务域名”，仅用于登录输入体验，不改变 reg/lanproxy 的代理地址逻辑。
+          const step1 = (await window.electronAPI?.settings.get(
+            "step1_config",
+          )) as { serverHost?: string } | null;
+          const lastDomain =
+            displayDomainFallback ||
+            authState.domain ||
+            step1?.serverHost ||
+            "";
+          setLoginDomain(lastDomain);
+          setDisplayDomainFallback(lastDomain);
+
           setAuthState({ isLoggedIn: false, username: null, domain: null });
           onAuthChange?.();
         } catch {
@@ -545,6 +576,12 @@ function ClientPage({
 
     if (authState.isLoggedIn) {
       const redirectUrl = getRedirectUrl();
+      // 域名展示优先级：
+      // 1) authState.domain：当前登录态中明确的业务域名（首选）；
+      // 2) displayDomainFallback：用户最近输入或最近一次已知业务域名（兜底）；
+      // 3) 空字符串：无可用信息时不展示。
+      // 这样可避免在 reg 同步/状态切换瞬间，UI 被代理地址或空值“覆盖”导致的域名跳变。
+      const displayDomain = authState.domain || displayDomainFallback || "";
       // 与 Tauri 一致：服务未全部启动时禁用「开始会话」「扫码使用」
       const allServicesRunning =
         services.length > 0 && services.every((s) => s.running);
@@ -563,7 +600,7 @@ function ClientPage({
                 <span className={styles.username}>
                   {authState.username || "用户"}
                 </span>
-                <div className={styles.domain}>{authState.domain || ""}</div>
+                <div className={styles.domain}>{displayDomain}</div>
               </div>
             </div>
 

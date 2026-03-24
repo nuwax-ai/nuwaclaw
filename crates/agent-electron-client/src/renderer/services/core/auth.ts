@@ -457,8 +457,11 @@ export async function syncConfigToServer(options?: {
   const suppressToast = options?.suppressToast === true;
   const username = await getUsername();
 
-  // 读取 domain，优先级：step1_config.serverHost > lanproxy.server_host
-  // 因为 savedKey 是用 step1_config.serverHost 保存的
+  // 读取 domain，优先级：step1_config.serverHost > lanproxy.server_host。
+  // 说明：
+  // 1) step1_config.serverHost 表示“用户访问业务系统的域名”（登录页输入的域名）；
+  // 2) lanproxy.server_host 表示“代理链路连接地址”（reg 返回的 serverHost）；
+  // 3) 这里仍保留旧优先级用于请求 reg 与读取 savedKey，避免影响既有登录/同步流程。
   const step1Config = (await window.electronAPI?.settings.get(
     "step1_config",
   )) as {
@@ -511,18 +514,25 @@ export async function syncConfigToServer(options?: {
       await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
     }
 
-    // 使用本次 reg 返回的最新 serverHost/serverPort 覆盖本地配置（reg 返回可能随服务端策略变化）
+    // 使用本次 reg 返回的最新 serverHost/serverPort 覆盖本地“代理配置”。
+    // 注意：serverHost 是 lanproxy 链路地址，不应回写为 UI 展示/跳转使用的业务域名。
     if (response.serverHost && response.serverPort) {
       await saveServerConfig(response.serverHost, response.serverPort);
     }
 
     const currentUserInfo = await getUserInfo();
+    // 关键修复：
+    // - currentDomain 只代表“业务域名”（用于 UI 展示、会话跳转、后续登录目标）；
+    // - reg 返回的 serverHost 仅用于代理配置，不参与 currentDomain 的决定；
+    // - 当本次同步拿不到明确业务域名（domain 为空）时，保留已有 currentDomain，避免被代理地址“间接覆盖”。
+    const preservedCurrentDomain =
+      domain || currentUserInfo?.currentDomain || undefined;
     await setUserInfo({
       ...currentUserInfo,
       id: response.id,
       username: username || "",
       displayName: response.name,
-      currentDomain: domain,
+      currentDomain: preservedCurrentDomain,
     } as AuthUserInfo);
 
     if (!suppressToast) {
