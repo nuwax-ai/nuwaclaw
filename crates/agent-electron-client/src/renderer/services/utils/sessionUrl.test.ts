@@ -261,7 +261,11 @@ describe("syncCookieAndGetRedirectUrl", () => {
       isLoggedIn: true,
       userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
     });
-    mockSettings.get.mockResolvedValue("my-token");
+    mockSettings.get.mockImplementation((key: string) => {
+      if (key === "auth.token") return Promise.resolve(null);
+      if (key === "auth.tokens.example.com") return Promise.resolve("my-token");
+      return Promise.resolve(null);
+    });
     mockSession.getCookie.mockResolvedValue({ success: true, found: true });
 
     const result = await syncCookieAndGetRedirectUrl();
@@ -269,6 +273,22 @@ describe("syncCookieAndGetRedirectUrl", () => {
       "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
     );
     expect(mockSession.setCookie).not.toHaveBeenCalled();
+    expect(mockSettings.set).not.toHaveBeenCalledWith("auth.token", null);
+  });
+
+  it("overwrites existing ticket when one-shot auth token is present", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
+    });
+    mockSettings.get.mockResolvedValue("fresh-token");
+    mockSession.getCookie.mockResolvedValue({ success: true, found: true });
+
+    const result = await syncCookieAndGetRedirectUrl();
+    expect(result).toBe(
+      "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
+    );
+    expect(mockSession.setCookie).toHaveBeenCalled();
     expect(mockSettings.set).toHaveBeenCalledWith("auth.token", null);
   });
 

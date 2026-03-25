@@ -12,6 +12,22 @@ import { getCurrentAuth } from "../core/auth";
 import { AUTH_KEYS } from "@shared/constants";
 import { logger } from "./logService";
 
+function normalizeDomainForTokenKey(domain: string): string {
+  try {
+    return new URL(domain).hostname.toLowerCase();
+  } catch {
+    return domain
+      .replace(/^https?:\/\//i, "")
+      .split("/")[0]
+      .split(":")[0]
+      .toLowerCase();
+  }
+}
+
+function getDomainTokenKey(domain: string): string {
+  return `auth.tokens.${normalizeDomainForTokenKey(domain)}`;
+}
+
 /**
  * Build redirect URL for entering the sandbox dashboard (开始会话).
  */
@@ -132,40 +148,79 @@ async function syncCookieAndBuildUrl<T>(
   if (!domain) return null;
   if (requireConfigId && !configId) return null;
 
-  const token = (await window.electronAPI?.settings.get(
+  const oneShotToken = (await window.electronAPI?.settings.get(
     AUTH_KEYS.AUTH_TOKEN,
   )) as string | null;
+  const domainTokenKey = getDomainTokenKey(domain);
+  let tokenSource: "one_shot" | "domain_cache" | "none" = "none";
+  let token = oneShotToken;
+  if (token) {
+    tokenSource = "one_shot";
+  } else {
+    token = (await window.electronAPI?.settings.get(domainTokenKey)) as
+      | string
+      | null;
+    if (token) tokenSource = "domain_cache";
+  }
   logger.info("[SessionUrl][Diag] 会话前状态", "SessionUrl", {
     domain,
     configId,
     hasToken: !!token,
+    tokenSource,
+    oneShotTokenPresent: !!oneShotToken,
+    domainTokenKey,
+    domainTokenPresent: !!token && tokenSource === "domain_cache",
   });
+  if (!token) {
+    logger.warn(
+      "[SessionUrl][Diag] 缺少可用 token，跳过 ticket 同步",
+      "SessionUrl",
+      {
+        domain,
+        domainTokenKey,
+      },
+    );
+  }
   if (token) {
     try {
-      const existing = await window.electronAPI?.session.getCookie({
-        url: domain,
-        name: "ticket",
-      });
-      if (existing?.success && existing?.found) {
-        // 已有 ticket 时不覆盖，避免和 webview 内登录/退出行为冲突
-        await window.electronAPI?.settings.set(AUTH_KEYS.AUTH_TOKEN, null);
-        logger.info(
-          "[SessionUrl][Diag] 检测到已有 ticket，跳过本地 token 同步",
-          "SessionUrl",
-          { domain },
-        );
-        return buildUrl(domain, configId);
+      if (tokenSource === "domain_cache") {
+        const existing = await window.electronAPI?.session.getCookie({
+          url: domain,
+          name: "ticket",
+        });
+        if (existing?.success && existing?.found) {
+          // 域名缓存 token 仅做兜底；已有 ticket 时不覆盖，避免和 webview 内登录/退出行为冲突
+          logger.info(
+            "[SessionUrl][Diag] 检测到已有 ticket，跳过域名缓存 token 同步",
+            "SessionUrl",
+            {
+              domain,
+              found: !!existing?.found,
+              count: existing?.count ?? 0,
+            },
+          );
+          return buildUrl(domain, configId);
+        }
       }
 
       logger.info("[SessionUrl][Diag] 准备同步 ticket cookie", "SessionUrl", {
         domain,
+        tokenSource,
       });
       await syncSessionCookie(domain, token);
       logger.info("[SessionUrl][Diag] ticket cookie 同步成功", "SessionUrl", {
         domain,
+        tokenSource,
       });
       // token 作为一次性补写凭据，成功后清除，避免反复覆盖 webview 内 ticket
       await window.electronAPI?.settings.set(AUTH_KEYS.AUTH_TOKEN, null);
+      logger.info(
+        "[SessionUrl][Diag] 已清理 one-shot auth.token",
+        "SessionUrl",
+        {
+          domain,
+        },
+      );
     } catch (error) {
       logger.warn("[SessionUrl][Diag] ticket cookie 同步失败", "SessionUrl", {
         domain,

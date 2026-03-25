@@ -59,6 +59,10 @@ function normalizeDomain(domain: string): string {
   }
 }
 
+function getDomainTokenKey(domain: string): string {
+  return `auth.tokens.${normalizeDomain(domain)}`;
+}
+
 // ========== 存储操作 ==========
 
 async function getUsername(): Promise<string | null> {
@@ -297,6 +301,14 @@ export async function loginAndRegister(
     // 尝试立即同步，成功后清除；失败时保留给后续页面打开时重试
     if (response.token) {
       await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
+      const domainTokenKey = domain ? getDomainTokenKey(domain) : null;
+      if (domain) {
+        await settingsSet(domainTokenKey!, response.token);
+      }
+      logger.info("已写入登录 token 缓存", "Auth", {
+        domain,
+        domainTokenKey,
+      });
       try {
         await syncSessionCookie(domain, response.token);
         await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
@@ -304,6 +316,10 @@ export async function loginAndRegister(
       } catch (e) {
         logger.warn("token 同步失败，保留本地缓存", "Auth", e);
       }
+    } else {
+      logger.warn("reg 未返回 token，本次无法主动同步 webview 登录态", "Auth", {
+        domain,
+      });
     }
 
     // 保存 lanproxy 服务器配置
@@ -441,6 +457,14 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
     // 尝试立即同步，成功后清除；失败时保留给后续页面打开时重试
     if (response.token) {
       await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
+      const domainTokenKey = domain ? getDomainTokenKey(domain) : null;
+      if (domain) {
+        await settingsSet(domainTokenKey!, response.token);
+      }
+      logger.info("已写入登录 token 缓存", "Auth", {
+        domain,
+        domainTokenKey,
+      });
       try {
         await syncSessionCookie(domain, response.token);
         await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
@@ -448,6 +472,10 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
       } catch (e) {
         logger.warn("token 同步失败，保留本地缓存", "Auth", e);
       }
+    } else {
+      logger.warn("reg 未返回 token，本次无法主动同步 webview 登录态", "Auth", {
+        domain,
+      });
     }
 
     logger.info("重新注册成功", "Auth");
@@ -534,6 +562,14 @@ export async function syncConfigToServer(options?: {
     // 尝试立即同步，成功后清除；失败时保留给后续页面打开时重试
     if (response.token) {
       await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
+      const domainTokenKey = domain ? getDomainTokenKey(domain) : null;
+      if (domain) {
+        await settingsSet(domainTokenKey!, response.token);
+      }
+      logger.info("已写入登录 token 缓存", "SyncConfig", {
+        domain,
+        domainTokenKey,
+      });
       try {
         await syncSessionCookie(domain, response.token);
         await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
@@ -541,6 +577,14 @@ export async function syncConfigToServer(options?: {
       } catch (e) {
         logger.warn("token 同步失败，保留本地缓存", "SyncConfig", e);
       }
+    } else {
+      logger.warn(
+        "reg 未返回 token，本次无法主动同步 webview 登录态",
+        "SyncConfig",
+        {
+          domain,
+        },
+      );
     }
 
     // 使用本次 reg 返回的最新 serverHost/serverPort 覆盖本地"代理配置"。

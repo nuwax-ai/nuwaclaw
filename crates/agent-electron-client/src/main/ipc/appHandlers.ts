@@ -44,6 +44,16 @@ function resolveCookieDomain(url: string): string | undefined {
   }
 }
 
+function resolveDomainTokenKey(url: string): string | null {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (!host) return null;
+    return `auth.tokens.${host}`;
+  } catch {
+    return null;
+  }
+}
+
 function parseJwtExp(token: string): number | null {
   try {
     const parts = token.split(".");
@@ -541,20 +551,48 @@ export function registerAppHandlers(ctx: HandlerContext): void {
         const syncTicketCookie = async () => {
           if (!/^https?:\/\//i.test(url)) return;
 
-          const token = readSetting("auth.token");
-          if (typeof token !== "string" || !token) return;
-
-          const current = await electronSession.defaultSession.cookies.get({
-            url,
-            name: "ticket",
-          });
-          if (current.length > 0) {
-            // 目标站点已存在 ticket，不再用本地 token 覆盖
-            writeSetting("auth.token", null);
-            log.info(
-              "[IPC] webview:openWindow detected existing ticket, skip token sync",
-            );
+          const oneShotToken = readSetting("auth.token");
+          const domainTokenKey = resolveDomainTokenKey(url);
+          const domainToken = domainTokenKey
+            ? readSetting(domainTokenKey)
+            : null;
+          const hasOneShotToken =
+            typeof oneShotToken === "string" && oneShotToken.length > 0;
+          const token = hasOneShotToken ? oneShotToken : domainToken;
+          const tokenSource = hasOneShotToken ? "one_shot" : "domain_cache";
+          if (typeof token !== "string" || !token) {
+            log.info("[IPC] webview:openWindow no token available for sync", {
+              url,
+              domainTokenKey,
+              oneShotTokenPresent: hasOneShotToken,
+              domainTokenPresent:
+                typeof domainToken === "string" && domainToken.length > 0,
+            });
             return;
+          }
+          log.info("[IPC] webview:openWindow token selected", {
+            url,
+            tokenSource,
+            domainTokenKey,
+          });
+
+          if (!hasOneShotToken) {
+            const current = await electronSession.defaultSession.cookies.get({
+              url,
+              name: "ticket",
+            });
+            if (current.length > 0) {
+              // 域名缓存 token 仅做兜底；目标站点已有 ticket 时不覆盖
+              writeSetting("auth.token", null);
+              log.info(
+                "[IPC] webview:openWindow detected existing ticket, skip domain-token sync",
+                {
+                  url,
+                  count: current.length,
+                },
+              );
+              return;
+            }
           }
 
           await removeSameNameCookies({
@@ -587,7 +625,13 @@ export function registerAppHandlers(ctx: HandlerContext): void {
           await electronSession.defaultSession.cookies.set(cookieDetails);
           await electronSession.defaultSession.cookies.flushStore();
           writeSetting("auth.token", null);
-          log.info("[IPC] webview:openWindow synced ticket cookie");
+          log.info("[IPC] webview:openWindow synced ticket cookie", {
+            url,
+            tokenSource,
+            secure,
+            domain: cookieDetails.domain || "(host-only)",
+            hasExpirationDate: typeof cookieDetails.expirationDate === "number",
+          });
         };
         try {
           await syncTicketCookie();
