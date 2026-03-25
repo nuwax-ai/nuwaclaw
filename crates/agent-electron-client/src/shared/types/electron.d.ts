@@ -543,10 +543,32 @@ export interface ElectronAPI {
       url: string;
       name: string;
       value: string;
-      domain: string;
+      domain?: string;
       httpOnly?: boolean;
       secure?: boolean;
     }) => Promise<{ success: boolean; error?: string }>;
+    getCookie: (params: { url: string; name: string }) => Promise<{
+      success: boolean;
+      found?: boolean;
+      count?: number;
+      cookies?: Array<{
+        name: string;
+        domain: string;
+        path: string;
+        httpOnly: boolean;
+        secure: boolean;
+        sameSite: string;
+      }>;
+      cookie?: {
+        name: string;
+        domain: string;
+        path: string;
+        httpOnly: boolean;
+        secure: boolean;
+        sameSite: string;
+      };
+      error?: string;
+    }>;
   };
   webview: {
     openWindow: (params: {

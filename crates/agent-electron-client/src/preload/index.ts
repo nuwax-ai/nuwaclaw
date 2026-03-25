@@ -292,10 +292,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
       url: string;
       name: string;
       value: string;
-      domain: string;
+      domain?: string;
       httpOnly?: boolean;
       secure?: boolean;
     }) => ipcRenderer.invoke("session:setCookie", params),
+    getCookie: (params: { url: string; name: string }) =>
+      ipcRenderer.invoke("session:getCookie", params),
   },
 
   // WebView Window - 独立窗口打开会话浏览器

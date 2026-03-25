@@ -166,13 +166,23 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     }
     ctx.fileServer.stop();
     ctx.lanproxy.stop();
-    mcpProxyManager.stop();
+    await mcpProxyManager.stop();
 
     // 2. 启动 MCP Proxy（必须先于 Agent：Agent 初始化时会连 MCP Proxy 注入 mcpServers）
     try {
       await mcpProxyManager.start();
       results.mcpProxy = { success: true };
       log.info("[ServiceManager] MCP Proxy started");
+
+      // 非阻塞预热：提前启动 PersistentMcpBridge，避免首次会话启动延迟
+      mcpProxyManager
+        .ensureBridgeStarted()
+        .catch((e) =>
+          log.warn(
+            "[ServiceManager] PersistentMcpBridge prewarm failed (will retry on first session):",
+            e,
+          ),
+        );
     } catch (e) {
       results.mcpProxy = { success: false, error: String(e) };
       log.error("[ServiceManager] MCP Proxy start failed:", e);
@@ -303,7 +313,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
     // 停止 MCP Proxy
     try {
-      mcpProxyManager.stop();
+      await mcpProxyManager.stop();
       results.mcpProxy = { success: true };
       log.info("[ServiceManager] MCP Proxy stopped");
     } catch (e) {

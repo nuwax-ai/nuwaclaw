@@ -5,6 +5,7 @@
 
 import { message } from "antd";
 import { DEFAULT_SERVER_HOST, DEFAULT_API_TIMEOUT } from "@shared/constants";
+import { logger } from "../utils/logService";
 
 // 错误码定义
 const SUCCESS_CODE = "0000";
@@ -104,7 +105,10 @@ export async function apiRequest<T>(
         ERROR_MESSAGES[result.code] ||
         `请求失败 (错误码: ${result.code})`;
 
-      console.error("API Error:", result);
+      logger.error("API Error", "API", {
+        code: result.code,
+        message: result.message,
+      });
 
       if (options.showError !== false) {
         message.error(errorMsg);
@@ -119,14 +123,14 @@ export async function apiRequest<T>(
     // 或 AbortError（某些环境），统一转为可读错误
     if (error.name === "TimeoutError" || error.name === "AbortError") {
       const timeoutMsg = `请求超时（>${timeoutMs}ms），请检查网络或服务器状态`;
-      console.error("API Request Timeout:", finalUrl, error);
+      logger.error("Request Timeout", "API", { url: finalUrl });
       if (options.showError !== false) {
         message.error(timeoutMsg);
       }
       throw new Error(timeoutMsg);
     }
 
-    console.error("API Request Error:", error);
+    logger.error("Request Error", "API", error);
 
     // 检测是否是重定向到登录页面的情况（后端返回 HTML）
     const isLoginRedirect =

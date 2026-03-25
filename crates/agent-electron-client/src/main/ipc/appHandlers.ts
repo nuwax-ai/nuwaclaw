@@ -24,9 +24,86 @@ import { getDeviceId } from "../services/system/deviceId";
 import { getTrayManager } from "../window/trayManager";
 import { getAutoLaunchManager } from "../window/autoLaunchManager";
 import { APP_DISPLAY_NAME } from "@shared/constants";
+import { readSetting, writeSetting } from "../db";
 
 // WebView 窗口缓存
 let webviewWindow: BrowserWindow | null = null;
+
+const isIpv4Host = (host: string): boolean =>
+  /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(host);
+const isIpv6Host = (host: string): boolean => /^[0-9a-f:]+$/i.test(host);
+const useHostOnlyCookie = (host: string): boolean =>
+  host === "localhost" || isIpv4Host(host) || isIpv6Host(host);
+
+function resolveCookieDomain(url: string): string | undefined {
+  try {
+    const host = new URL(url).hostname;
+    return useHostOnlyCookie(host) ? undefined : host;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseJwtExp(token: string): number | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const payload = Buffer.from(parts[1], "base64url").toString("utf8");
+    const parsed = JSON.parse(payload) as { exp?: unknown };
+    if (typeof parsed.exp !== "number" || !Number.isFinite(parsed.exp)) {
+      return null;
+    }
+    return parsed.exp;
+  } catch {
+    return null;
+  }
+}
+
+function resolveTicketExpirationDate(token: string): number | undefined {
+  const exp = parseJwtExp(token);
+  if (!exp) return undefined;
+  // 过期时间太近（<60s）时不写持久过期，避免写入立即过期 cookie
+  if (exp <= Math.floor(Date.now() / 1000) + 60) return undefined;
+  return exp;
+}
+
+function getHostname(url: string): string | null {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+async function removeSameNameCookies(params: {
+  url: string;
+  name: string;
+  domain?: string;
+}): Promise<void> {
+  const host = getHostname(params.url);
+  if (!host) return;
+  const targetDomain = params.domain?.toLowerCase();
+  const all = await electronSession.defaultSession.cookies.get({
+    name: params.name,
+  });
+
+  for (const c of all) {
+    const cookieDomain = (c.domain || "").toLowerCase().replace(/^\./, "");
+    const domainMatched = targetDomain
+      ? cookieDomain === targetDomain
+      : cookieDomain === host || host.endsWith(`.${cookieDomain}`);
+    if (!domainMatched) continue;
+
+    const removeHost = cookieDomain || host;
+    const removePath = c.path?.startsWith("/") ? c.path : `/${c.path || ""}`;
+    const removeUrl = `${c.secure ? "https" : "http"}://${removeHost}${removePath}`;
+    try {
+      await electronSession.defaultSession.cookies.remove(removeUrl, c.name);
+    } catch (error) {
+      log.warn("[IPC] session:setCookie remove old cookie failed:", error);
+    }
+  }
+}
 
 export function registerAppHandlers(ctx: HandlerContext): void {
   // Autolaunch — 统一通过 AutoLaunchManager 操作，确保 args 一致（Windows 注册表 entry 一致）
@@ -346,25 +423,96 @@ export function registerAppHandlers(ctx: HandlerContext): void {
         url: string;
         name: string;
         value: string;
-        domain: string;
+        domain?: string;
+        expirationDate?: number;
         httpOnly?: boolean;
         secure?: boolean;
       },
     ) => {
       try {
-        await electronSession.defaultSession.cookies.set({
+        await removeSameNameCookies({
+          url: params.url,
+          name: params.name,
+          domain: params.domain,
+        });
+
+        const cookieDetails: Electron.CookiesSetDetails = {
           url: params.url,
           name: params.name,
           value: params.value,
-          domain: params.domain,
+          path: "/",
           httpOnly: params.httpOnly ?? true,
           secure: params.secure ?? true,
-          sameSite: "no_restriction" as const,
-        });
+        };
+        const expirationDate =
+          typeof params.expirationDate === "number"
+            ? params.expirationDate
+            : params.name === "ticket"
+              ? resolveTicketExpirationDate(params.value)
+              : undefined;
+        if (typeof expirationDate === "number") {
+          cookieDetails.expirationDate = expirationDate;
+        }
+        if (params.domain) {
+          cookieDetails.domain = params.domain;
+        }
+
+        // Chromium rejects SameSite=None without Secure.
+        // For non-HTTPS domains, omit sameSite to keep cookie write compatible.
+        if (cookieDetails.secure) {
+          cookieDetails.sameSite = "no_restriction";
+        }
+
+        await electronSession.defaultSession.cookies.set(cookieDetails);
+        await electronSession.defaultSession.cookies.flushStore();
         log.info("[IPC] session:setCookie success for domain:", params.domain);
         return { success: true };
       } catch (error) {
         log.error("[IPC] session:setCookie failed:", error);
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "session:getCookie",
+    async (
+      _,
+      params: {
+        url: string;
+        name: string;
+      },
+    ) => {
+      try {
+        const cookies = await electronSession.defaultSession.cookies.get({
+          url: params.url,
+          name: params.name,
+        });
+        const hit = cookies[0];
+        if (!hit) return { success: true, found: false };
+        return {
+          success: true,
+          found: true,
+          count: cookies.length,
+          cookies: cookies.map((c) => ({
+            name: c.name,
+            domain: c.domain,
+            path: c.path,
+            httpOnly: c.httpOnly,
+            secure: c.secure,
+            sameSite: c.sameSite,
+          })),
+          cookie: {
+            name: hit.name,
+            domain: hit.domain,
+            path: hit.path,
+            httpOnly: hit.httpOnly,
+            secure: hit.secure,
+            sameSite: hit.sameSite,
+          },
+        };
+      } catch (error) {
+        log.error("[IPC] session:getCookie failed:", error);
         return { success: false, error: String(error) };
       }
     },
@@ -390,6 +538,66 @@ export function registerAppHandlers(ctx: HandlerContext): void {
     ) => {
       try {
         const { url, title } = params;
+        const syncTicketCookie = async () => {
+          if (!/^https?:\/\//i.test(url)) return;
+
+          const token = readSetting("auth.token");
+          if (typeof token !== "string" || !token) return;
+
+          const current = await electronSession.defaultSession.cookies.get({
+            url,
+            name: "ticket",
+          });
+          if (current.length > 0) {
+            // 目标站点已存在 ticket，不再用本地 token 覆盖
+            writeSetting("auth.token", null);
+            log.info(
+              "[IPC] webview:openWindow detected existing ticket, skip token sync",
+            );
+            return;
+          }
+
+          await removeSameNameCookies({
+            url,
+            name: "ticket",
+            domain: resolveCookieDomain(url),
+          });
+
+          const secure = url.startsWith("https://");
+          const cookieDetails: Electron.CookiesSetDetails = {
+            url,
+            name: "ticket",
+            value: token,
+            path: "/",
+            httpOnly: true,
+            secure,
+          };
+          const cookieDomain = resolveCookieDomain(url);
+          if (cookieDomain) {
+            cookieDetails.domain = cookieDomain;
+          }
+          const expirationDate = resolveTicketExpirationDate(token);
+          if (typeof expirationDate === "number") {
+            cookieDetails.expirationDate = expirationDate;
+          }
+          if (secure) {
+            cookieDetails.sameSite = "no_restriction";
+          }
+
+          await electronSession.defaultSession.cookies.set(cookieDetails);
+          await electronSession.defaultSession.cookies.flushStore();
+          writeSetting("auth.token", null);
+          log.info("[IPC] webview:openWindow synced ticket cookie");
+        };
+        try {
+          await syncTicketCookie();
+        } catch (error) {
+          // 不阻塞页面打开；保留 token 供下次重试。
+          log.warn(
+            "[IPC] webview:openWindow ticket cookie sync failed:",
+            error,
+          );
+        }
 
         // 如果窗口已存在，聚焦并导航
         if (webviewWindow && !webviewWindow.isDestroyed()) {
