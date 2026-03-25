@@ -3,30 +3,15 @@
  * Used by both ClientPage and SessionsPage.
  *
  * Redirect URL patterns:
- *   /api/sandbox/config/redirect/{sandboxConfigId}       — enter sandbox (开始会话)
- *   /api/sandbox/config/redirect/new/{sandboxConfigId}   — create new session (新建会话)
- *   /api/sandbox/config/redirect/chat/{sessionId}        — enter history session (进入历史会话)
+ *   /api/sandbox/config/redirect/{sandboxConfigId}       - enter sandbox (开始会话)
+ *   /api/sandbox/config/redirect/new/{sandboxConfigId}   - create new session (新建会话)
+ *   /api/sandbox/config/redirect/chat/{sessionId}        - enter history session (进入历史会话)
  */
 
 import { getCurrentAuth } from "../core/auth";
 import { AUTH_KEYS } from "@shared/constants";
 import { logger } from "./logService";
-
-function normalizeDomainForTokenKey(domain: string): string {
-  try {
-    return new URL(domain).hostname.toLowerCase();
-  } catch {
-    return domain
-      .replace(/^https?:\/\//i, "")
-      .split("/")[0]
-      .split(":")[0]
-      .toLowerCase();
-  }
-}
-
-function getDomainTokenKey(domain: string): string {
-  return `auth.tokens.${normalizeDomainForTokenKey(domain)}`;
-}
+import { getDomainTokenKey } from "@shared/utils/domain";
 
 /**
  * Build redirect URL for entering the sandbox dashboard (开始会话).
@@ -102,30 +87,19 @@ export async function syncSessionCookie(
     throw new Error(result?.error || `session:setCookie failed for ${domain}`);
   }
 
-  // 写入后立即回读，便于定位“已写入但页面仍未登录”的问题
+  // 写入后立即回读，便于定位"已写入但页面仍未登录"的问题
   try {
     const verify = await window.electronAPI?.session.getCookie({
       url: domain,
       name: "ticket",
     });
-    logger.info("[SessionUrl][Diag] ticket cookie 回读结果", "SessionUrl", {
+    logger.debug("[SessionUrl] ticket cookie 回读结果", "SessionUrl", {
       domain,
       found: !!verify?.found,
       count: verify?.count ?? 0,
-      cookies: verify?.cookies || [],
-      cookie: verify?.cookie
-        ? {
-            domain: verify.cookie.domain,
-            path: verify.cookie.path,
-            httpOnly: verify.cookie.httpOnly,
-            secure: verify.cookie.secure,
-            sameSite: verify.cookie.sameSite,
-          }
-        : null,
-      error: verify?.success ? null : verify?.error || "unknown",
     });
   } catch (error) {
-    logger.warn("[SessionUrl][Diag] ticket cookie 回读异常", "SessionUrl", {
+    logger.debug("[SessionUrl] ticket cookie 回读异常", "SessionUrl", {
       domain,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -162,22 +136,17 @@ async function syncCookieAndBuildUrl<T>(
       | null;
     if (token) tokenSource = "domain_cache";
   }
-  logger.info("[SessionUrl][Diag] 会话前状态", "SessionUrl", {
+  logger.debug("[SessionUrl] 会话前状态", "SessionUrl", {
     domain,
-    configId,
     hasToken: !!token,
     tokenSource,
-    oneShotTokenPresent: !!oneShotToken,
-    domainTokenKey,
-    domainTokenPresent: !!token && tokenSource === "domain_cache",
   });
   if (!token) {
-    logger.warn(
-      "[SessionUrl][Diag] 缺少可用 token，跳过 ticket 同步",
+    logger.debug(
+      "[SessionUrl] 缺少可用 token，跳过 ticket 同步",
       "SessionUrl",
       {
         domain,
-        domainTokenKey,
       },
     );
   }
@@ -203,26 +172,22 @@ async function syncCookieAndBuildUrl<T>(
         }
       }
 
-      logger.info("[SessionUrl][Diag] 准备同步 ticket cookie", "SessionUrl", {
+      logger.debug("[SessionUrl] 准备同步 ticket cookie", "SessionUrl", {
         domain,
         tokenSource,
       });
       await syncSessionCookie(domain, token);
-      logger.info("[SessionUrl][Diag] ticket cookie 同步成功", "SessionUrl", {
+      logger.debug("[SessionUrl] ticket cookie 同步成功", "SessionUrl", {
         domain,
         tokenSource,
       });
       // token 作为一次性补写凭据，成功后清除，避免反复覆盖 webview 内 ticket
       await window.electronAPI?.settings.set(AUTH_KEYS.AUTH_TOKEN, null);
-      logger.info(
-        "[SessionUrl][Diag] 已清理 one-shot auth.token",
-        "SessionUrl",
-        {
-          domain,
-        },
-      );
+      logger.debug("[SessionUrl] 已清理 one-shot auth.token", "SessionUrl", {
+        domain,
+      });
     } catch (error) {
-      logger.warn("[SessionUrl][Diag] ticket cookie 同步失败", "SessionUrl", {
+      logger.debug("[SessionUrl] ticket cookie 同步失败", "SessionUrl", {
         domain,
         error: error instanceof Error ? error.message : String(error),
       });

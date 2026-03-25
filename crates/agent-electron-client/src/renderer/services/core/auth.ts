@@ -19,6 +19,10 @@ import {
 } from "@shared/constants";
 import { syncSessionCookie } from "../utils/sessionUrl";
 import { logger } from "../utils/logService";
+import {
+  getDomainTokenKey,
+  normalizeDomainForTokenKey,
+} from "@shared/utils/domain";
 
 // ========== 类型定义 ==========
 
@@ -47,21 +51,9 @@ async function settingsSet(key: string, value: unknown): Promise<void> {
   await window.electronAPI?.settings.set(key, value);
 }
 
-/**
- * 将域名标准化为存储键的一部分
- */
-function normalizeDomain(domain: string): string {
-  try {
-    const url = new URL(domain);
-    return url.hostname;
-  } catch {
-    return domain.replace(/^https?:\/\//, "").replace(/[:/]/g, "_");
-  }
-}
-
-function getDomainTokenKey(domain: string): string {
-  return `auth.tokens.${normalizeDomain(domain)}`;
-}
+// 域名标准化使用共享函数 normalizeDomainForTokenKey
+// 保留别名以兼容现有调用
+const normalizeDomain = normalizeDomainForTokenKey;
 
 // ========== 存储操作 ==========
 
@@ -153,6 +145,36 @@ async function clearAuthInfo(): Promise<void> {
   await settingsSet(AUTH_KEYS.ONLINE_STATUS, null);
   await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
   // 不清除 savedKey，跨登录会话持久化
+}
+
+// ========== Token 缓存辅助函数 ==========
+
+/**
+ * 缓存登录 token 到 one-shot 和域名级别存储
+ * 尝试立即同步到 webview cookie，成功后清除 one-shot token
+ */
+async function cacheAndSyncToken(
+  domain: string,
+  token: string,
+  logTag: string = "Auth",
+): Promise<void> {
+  // 写入 one-shot token（给后续打开 webview 用）
+  await settingsSet(AUTH_KEYS.AUTH_TOKEN, token);
+
+  // 写入域名级别缓存（兜底）
+  const domainTokenKey = getDomainTokenKey(domain);
+  await settingsSet(domainTokenKey, token);
+
+  logger.info("已写入登录 token 缓存", logTag, { domain, domainTokenKey });
+
+  // 尝试立即同步到 webview cookie
+  try {
+    await syncSessionCookie(domain, token);
+    await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
+    logger.info("token 已同步到 webview cookie", logTag);
+  } catch (e) {
+    logger.warn("token 同步失败，保留本地缓存", logTag, e);
+  }
 }
 
 // ========== 获取本地沙箱配置 ==========
@@ -302,8 +324,8 @@ export async function loginAndRegister(
     if (response.token) {
       await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
       const domainTokenKey = domain ? getDomainTokenKey(domain) : null;
-      if (domain) {
-        await settingsSet(domainTokenKey!, response.token);
+      if (domainTokenKey) {
+        await settingsSet(domainTokenKey, response.token);
       }
       logger.info("已写入登录 token 缓存", "Auth", {
         domain,
@@ -458,8 +480,8 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
     if (response.token) {
       await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
       const domainTokenKey = domain ? getDomainTokenKey(domain) : null;
-      if (domain) {
-        await settingsSet(domainTokenKey!, response.token);
+      if (domainTokenKey) {
+        await settingsSet(domainTokenKey, response.token);
       }
       logger.info("已写入登录 token 缓存", "Auth", {
         domain,

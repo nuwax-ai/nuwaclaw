@@ -13,6 +13,7 @@ const { mockSettings, mockSession, mockLogger } = vi.hoisted(() => ({
   mockSettings: { get: vi.fn(), set: vi.fn() },
   mockSession: { setCookie: vi.fn(), getCookie: vi.fn() },
   mockLogger: {
+    debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
@@ -303,21 +304,21 @@ describe("syncCookieAndGetRedirectUrl", () => {
     expect(result).toBe(
       "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
     );
-    expect(mockLogger.info).toHaveBeenCalledWith(
-      "[SessionUrl][Diag] 会话前状态",
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      "[SessionUrl] 会话前状态",
       "SessionUrl",
       expect.objectContaining({
         domain: "https://example.com",
         hasToken: true,
       }),
     );
-    expect(mockLogger.info).toHaveBeenCalledWith(
-      "[SessionUrl][Diag] 准备同步 ticket cookie",
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      "[SessionUrl] 准备同步 ticket cookie",
       "SessionUrl",
       expect.objectContaining({ domain: "https://example.com" }),
     );
-    expect(mockLogger.info).toHaveBeenCalledWith(
-      "[SessionUrl][Diag] ticket cookie 同步成功",
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      "[SessionUrl] ticket cookie 同步成功",
       "SessionUrl",
       expect.objectContaining({ domain: "https://example.com" }),
     );

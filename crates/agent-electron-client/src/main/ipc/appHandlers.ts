@@ -25,6 +25,7 @@ import { getTrayManager } from "../window/trayManager";
 import { getAutoLaunchManager } from "../window/autoLaunchManager";
 import { APP_DISPLAY_NAME } from "@shared/constants";
 import { readSetting, writeSetting } from "../db";
+import { getDomainTokenKey } from "@shared/utils/domain";
 
 // WebView 窗口缓存
 let webviewWindow: BrowserWindow | null = null;
@@ -41,16 +42,6 @@ function resolveCookieDomain(url: string): string | undefined {
     return useHostOnlyCookie(host) ? undefined : host;
   } catch {
     return undefined;
-  }
-}
-
-function resolveDomainTokenKey(url: string): string | null {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    if (!host) return null;
-    return `auth.tokens.${host}`;
-  } catch {
-    return null;
   }
 }
 
@@ -552,16 +543,14 @@ export function registerAppHandlers(ctx: HandlerContext): void {
           if (!/^https?:\/\//i.test(url)) return;
 
           const oneShotToken = readSetting("auth.token");
-          const domainTokenKey = resolveDomainTokenKey(url);
-          const domainToken = domainTokenKey
-            ? readSetting(domainTokenKey)
-            : null;
+          const domainTokenKey = getDomainTokenKey(url);
+          const domainToken = readSetting(domainTokenKey);
           const hasOneShotToken =
             typeof oneShotToken === "string" && oneShotToken.length > 0;
           const token = hasOneShotToken ? oneShotToken : domainToken;
           const tokenSource = hasOneShotToken ? "one_shot" : "domain_cache";
           if (typeof token !== "string" || !token) {
-            log.info("[IPC] webview:openWindow no token available for sync", {
+            log.debug("[IPC] webview:openWindow no token available for sync", {
               url,
               domainTokenKey,
               oneShotTokenPresent: hasOneShotToken,
@@ -570,7 +559,7 @@ export function registerAppHandlers(ctx: HandlerContext): void {
             });
             return;
           }
-          log.info("[IPC] webview:openWindow token selected", {
+          log.debug("[IPC] webview:openWindow token selected", {
             url,
             tokenSource,
             domainTokenKey,
@@ -625,19 +614,18 @@ export function registerAppHandlers(ctx: HandlerContext): void {
           await electronSession.defaultSession.cookies.set(cookieDetails);
           await electronSession.defaultSession.cookies.flushStore();
           writeSetting("auth.token", null);
-          log.info("[IPC] webview:openWindow synced ticket cookie", {
+          log.debug("[IPC] webview:openWindow synced ticket cookie", {
             url,
             tokenSource,
             secure,
             domain: cookieDetails.domain || "(host-only)",
-            hasExpirationDate: typeof cookieDetails.expirationDate === "number",
           });
         };
         try {
           await syncTicketCookie();
         } catch (error) {
           // 不阻塞页面打开；保留 token 供下次重试。
-          log.warn(
+          log.debug(
             "[IPC] webview:openWindow ticket cookie sync failed:",
             error,
           );
@@ -648,7 +636,7 @@ export function registerAppHandlers(ctx: HandlerContext): void {
           webviewWindow.loadURL(url);
           webviewWindow.focus();
           if (title) webviewWindow.setTitle(title);
-          log.info(
+          log.debug(
             "[IPC] webview:openWindow - reused existing window for:",
             url,
           );
@@ -725,7 +713,7 @@ export function registerAppHandlers(ctx: HandlerContext): void {
         // 窗口显示
         webviewWindow.once("ready-to-show", () => {
           webviewWindow?.show();
-          log.info("[IPC] webview:openWindow - window shown for:", url);
+          log.debug("[IPC] webview:openWindow - window shown for:", url);
         });
 
         // 保存窗口尺寸（防抖）
@@ -761,7 +749,7 @@ export function registerAppHandlers(ctx: HandlerContext): void {
         webviewWindow.on("closed", () => {
           webviewWindow = null;
           if (saveBoundsTimeout) clearTimeout(saveBoundsTimeout);
-          log.info("[IPC] webview:openWindow - window closed");
+          log.debug("[IPC] webview:openWindow - window closed");
         });
 
         return { success: true, reused: false };

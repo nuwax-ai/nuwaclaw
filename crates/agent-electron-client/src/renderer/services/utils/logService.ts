@@ -299,6 +299,10 @@ export const logger = {
   info: (message: string, source?: string, details?: unknown) =>
     addLog("info", message, source, details),
 
+  // debug 使用 info 级别（LogStore 无 debug 级别），语义上表示诊断日志
+  debug: (message: string, source?: string, details?: unknown) =>
+    addLog("info", message, source, details),
+
   log: (message: string, source?: string, details?: unknown) =>
     addLog("info", message, source, details),
 };
