@@ -75,6 +75,7 @@
 - **日志目录**：`~/.nuwaclaw/logs/main.YYYY-MM-DD.log`，并有 `latest.log` 符号链接。
 - **级别**：文件 → debug/info，控制台 → debug。
 - **保留**：生产 7 天，开发 30 天。
+- **PERF 性能日志**：独立文件 `perf.YYYY-MM-DD.log`，详见 [docs/PERF-LOG-REFACTOR-2026-03-24.md](docs/PERF-LOG-REFACTOR-2026-03-24.md)
 
 ---
 
