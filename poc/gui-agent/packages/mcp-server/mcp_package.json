@@ -1,0 +1,20 @@
+{
+  "name": "@nuwaclaw/gui-agent",
+  "version": "0.1.0",
+  "description": "NuwaClaw GUI Agent - MCP Server",
+  "main": "mcp_server.py",
+  "scripts": {
+    "start": "python mcp_server.py",
+    "test": "python test_mcp_server.py"
+  },
+  "keywords": ["mcp", "gui", "agent", "automation"],
+  "author": "NuwaClaw Team",
+  "license": "MIT",
+  "mcp": {
+    "server": {
+      "command": "python",
+      "args": ["mcp_server.py"],
+      "env": {}
+    }
+  }
+}

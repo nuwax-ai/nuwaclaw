@@ -1,0 +1,14 @@
+[project]
+name = "nuwaclaw-osworld-gui-agent"
+version = "0.1.0"
+description = "OSWorld-based GUI Agent implementation for NuwaClaw"
+requires-python = ">=3.10"
+dependencies = [
+    "desktop-env>=0.1.0",
+    "pyautogui>=0.9.54",
+    "pillow>=10.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

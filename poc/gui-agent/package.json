@@ -1,0 +1,21 @@
+{
+  "name": "@nuwaclaw/gui-agent-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NuwaClaw GUI Agent - Unified (OSWorld + Pi-Agent)",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "demo": "npm run demo -w @nuwaclaw/gui-agent"
+  },
+  "keywords": [
+    "gui-agent",
+    "osworld",
+    "automation"
+  ],
+  "author": "Nuwax AI",
+  "license": "Apache-2.0"
+}
