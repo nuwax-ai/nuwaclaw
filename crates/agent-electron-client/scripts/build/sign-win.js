@@ -122,7 +122,7 @@ function getSignConfig() {
   const timestampUrl =
     process.env.WINDOWS_TIMESTAMP_URL ||
     process.env.CS_TIMESTAMP_URL ||
-    'https://timestamp.sectigo.com';
+    'http://timestamp.sectigo.com';
   const publisherName =
     process.env.WINDOWS_PUBLISHER_NAME ||
     process.env.CS_PUBLISHER_NAME ||

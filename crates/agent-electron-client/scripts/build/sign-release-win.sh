@@ -68,13 +68,135 @@ if [[ -z "$VERSION" ]]; then
     exit 1
 fi
 
+resolve_gh() {
+    # Allow manual override: GH_BIN can be set to a gh executable path
+    if [[ -n "${GH_BIN:-}" ]]; then
+        echo "$GH_BIN"
+        return 0
+    fi
+
+    if command -v gh >/dev/null 2>&1; then
+        echo "gh"
+        return 0
+    fi
+
+    local gh_win_path=""
+    gh_win_path="$(where.exe gh 2>/dev/null | awk 'NR==1{print;exit}' | tr -d '\r')"
+    if [[ -n "$gh_win_path" ]] && command -v cygpath >/dev/null 2>&1; then
+        cygpath -u "$gh_win_path"
+        return 0
+    fi
+
+    # Common GitHub CLI install locations (when PATH isn't propagated to Git Bash)
+    # - winget default (machine): C:\Program Files\GitHub CLI\gh.exe
+    # - user install:            %LOCALAPPDATA%\Programs\GitHub CLI\gh.exe
+    # - scoop:                   %USERPROFILE%\scoop\apps\gh\current\bin\gh.exe
+    local candidate_win_paths=(
+        "C:\\Program Files\\GitHub CLI\\gh.exe"
+        "C:\\Program Files (x86)\\GitHub CLI\\gh.exe"
+        "${LOCALAPPDATA:-}\\Programs\\GitHub CLI\\gh.exe"
+        "${USERPROFILE:-}\\scoop\\apps\\gh\\current\\bin\\gh.exe"
+    )
+    local p=""
+    for p in "${candidate_win_paths[@]}"; do
+        if [[ -z "$p" ]]; then
+            continue
+        fi
+        # Normalize any bash-style env expansions that might be empty
+        p="$(echo "$p" | tr -d '\r')"
+        if [[ -n "$p" ]] && [[ -f "$(cygpath -u "$p" 2>/dev/null)" ]]; then
+            cygpath -u "$p"
+            return 0
+        fi
+    done
+
+    # As a last resort, try to run gh via PowerShell (may rely on user's profile/alias)
+    local ps_bin=""
+    ps_bin="$(resolve_powershell || true)"
+    if [[ -n "$ps_bin" ]]; then
+        if "$ps_bin" -Command "gh --version" >/dev/null 2>&1; then
+            echo "__POWERSHELL_GH__:$ps_bin"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+resolve_powershell() {
+    # Prefer pwsh (PowerShell 7) if available, else Windows PowerShell.
+    if command -v pwsh.exe >/dev/null 2>&1; then
+        echo "pwsh.exe"
+        return 0
+    fi
+    if command -v pwsh >/dev/null 2>&1; then
+        echo "pwsh"
+        return 0
+    fi
+    if command -v powershell.exe >/dev/null 2>&1; then
+        echo "powershell.exe"
+        return 0
+    fi
+    if command -v powershell >/dev/null 2>&1; then
+        echo "powershell"
+        return 0
+    fi
+
+    # Absolute fallback path for Windows PowerShell
+    local win_ps="/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+    if [[ -x "$win_ps" ]]; then
+        echo "$win_ps"
+        return 0
+    fi
+
+    return 1
+}
+
+GH_BIN="$(resolve_gh || true)"
+if [[ -z "$GH_BIN" ]]; then
+    echo "Error: GitHub CLI (gh) not found in this shell."
+    echo "Diagnostics:"
+    echo "  - which gh:        $(command -v gh 2>/dev/null || echo 'N/A')"
+    echo "  - which where.exe: $(command -v where.exe 2>/dev/null || echo 'N/A')"
+    echo "  - which cygpath:   $(command -v cygpath 2>/dev/null || echo 'N/A')"
+    local ps_diag=""
+    ps_diag="$(resolve_powershell || true)"
+    echo "  - powershell:      ${ps_diag:-N/A}"
+    if [[ -n "$ps_diag" ]]; then
+        echo ""
+        echo "Diagnostics (PowerShell Get-Command gh):"
+        "$ps_diag" -Command "Get-Command gh -ErrorAction SilentlyContinue | Format-List CommandType,Source,Definition"
+    fi
+    echo ""
+    echo "Fix options:"
+    echo "  - Install GitHub CLI (gh.exe) and restart Git Bash"
+    echo "  - Or run with GH_BIN pointing to gh.exe, e.g.:"
+    echo "      GH_BIN=\"/c/Program Files/GitHub CLI/gh.exe\" $0 $VERSION"
+    exit 127
+fi
+
+gh_release_ps() {
+    local ps_bin="$1"
+    local cmd="$2"
+    "$ps_bin" -Command "$cmd"
+}
+
+gh_release() {
+    if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
+        local ps_bin="${GH_BIN#__POWERSHELL_GH__:}"
+        gh_release_ps "$ps_bin" "$1"
+        return $?
+    fi
+    "$GH_BIN" "${@:2}"
+}
+
 # File names
 # CI builds: NuwaClaw-Setup-{version}-unsigned.exe, NuwaClaw-{version}-unsigned.msi
-# Signed:    NuwaClaw-Setup-{version}.exe,         NuwaClaw-{version}.msi
+# Signed:    NuwaClaw.Setup.{version}.exe,         NuwaClaw.{version}.msi
 UNSIGNED_EXE="NuwaClaw-Setup-$VERSION-unsigned.exe"
 UNSIGNED_MSI="NuwaClaw-$VERSION-unsigned.msi"
-SIGNED_EXE="NuwaClaw-Setup-$VERSION.exe"
-SIGNED_MSI="NuwaClaw-$VERSION.msi"
+SIGNED_EXE="NuwaClaw.Setup.$VERSION.exe"
+SIGNED_MSI="NuwaClaw.$VERSION.msi"
 
 echo ""
 echo "==> Setting up directories"
@@ -90,11 +212,16 @@ if [[ "$SKIP_DOWNLOAD" == "false" ]]; then
     rm -f "$UNSIGNED_DIR/$UNSIGNED_EXE" "$UNSIGNED_DIR/$UNSIGNED_MSI"
 
     # Download only Windows installers with -unsigned suffix
-    gh release download "electron-v$VERSION" \
-        --repo "$REPO" \
-        --dir "$UNSIGNED_DIR" \
-        --pattern "NuwaClaw-Setup-*-unsigned.exe" \
-        --pattern "NuwaClaw-*-unsigned.msi"
+    if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
+        UNSIGNED_DIR_WIN="$(cygpath -w "$UNSIGNED_DIR")"
+        gh_release "gh release download \"electron-v$VERSION\" --repo \"$REPO\" --dir \"$UNSIGNED_DIR_WIN\" --pattern \"NuwaClaw-Setup-*-unsigned.exe\" --pattern \"NuwaClaw-*-unsigned.msi\""
+    else
+        gh_release "" release download "electron-v$VERSION" \
+            --repo "$REPO" \
+            --dir "$UNSIGNED_DIR" \
+            --pattern "NuwaClaw-Setup-*-unsigned.exe" \
+            --pattern "NuwaClaw-*-unsigned.msi"
+    fi
 
     echo "  Downloaded: $UNSIGNED_EXE, $UNSIGNED_MSI"
 else
@@ -183,15 +310,26 @@ if [[ "$SKIP_UPLOAD" == "false" ]]; then
     echo "==> Uploading signed files to release electron-v$VERSION"
 
     # Delete unsigned files from release
-    gh release delete-asset "electron-v$VERSION" "$UNSIGNED_EXE" --yes --repo "$REPO" 2>/dev/null || true
-    gh release delete-asset "electron-v$VERSION" "$UNSIGNED_MSI" --yes --repo "$REPO" 2>/dev/null || true
+    if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
+        gh_release "gh release delete-asset \"electron-v$VERSION\" \"$UNSIGNED_EXE\" --yes --repo \"$REPO\"" 2>/dev/null || true
+        gh_release "gh release delete-asset \"electron-v$VERSION\" \"$UNSIGNED_MSI\" --yes --repo \"$REPO\"" 2>/dev/null || true
+    else
+        gh_release "" release delete-asset "electron-v$VERSION" "$UNSIGNED_EXE" --yes --repo "$REPO" 2>/dev/null || true
+        gh_release "" release delete-asset "electron-v$VERSION" "$UNSIGNED_MSI" --yes --repo "$REPO" 2>/dev/null || true
+    fi
 
     # Upload signed files with original names
-    gh release upload "electron-v$VERSION" \
-        "$SIGNED_DIR/$SIGNED_EXE" \
-        "$SIGNED_DIR/$SIGNED_MSI" \
-        --clobber \
-        --repo "$REPO"
+    if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
+        SIGNED_EXE_WIN="$(cygpath -w "$SIGNED_DIR/$SIGNED_EXE")"
+        SIGNED_MSI_WIN="$(cygpath -w "$SIGNED_DIR/$SIGNED_MSI")"
+        gh_release "gh release upload \"electron-v$VERSION\" \"$SIGNED_EXE_WIN\" \"$SIGNED_MSI_WIN\" --clobber --repo \"$REPO\""
+    else
+        gh_release "" release upload "electron-v$VERSION" \
+            "$SIGNED_DIR/$SIGNED_EXE" \
+            "$SIGNED_DIR/$SIGNED_MSI" \
+            --clobber \
+            --repo "$REPO"
+    fi
 
     echo "  Uploaded successfully!"
 else
