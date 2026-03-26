@@ -45,6 +45,11 @@ function resolveCookieDomain(url: string): string | undefined {
   }
 }
 
+/**
+ * 解析 JWT token 的过期时间
+ * 注意：仅解析过期时间，不验证签名。过期时间来自不可信来源（外部 token）。
+ * 这里的用途是设置 cookie 的过期时间，即使被伪造也只是影响本地 cookie 生命周期。
+ */
 function parseJwtExp(token: string): number | null {
   try {
     const parts = token.split(".");
@@ -539,7 +544,7 @@ export function registerAppHandlers(ctx: HandlerContext): void {
     ) => {
       try {
         const { url, title } = params;
-        const syncTicketCookie = async () => {
+        const syncTicketCookie = async (retries = 3): Promise<void> => {
           if (!/^https?:\/\//i.test(url)) return;
 
           const oneShotToken = readSetting("auth.token");
@@ -621,12 +626,32 @@ export function registerAppHandlers(ctx: HandlerContext): void {
             domain: cookieDetails.domain || "(host-only)",
           });
         };
+
+        // 带重试的 Cookie 同步
+        const syncWithRetry = async (maxRetries = 3): Promise<void> => {
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+              await syncTicketCookie();
+              return;
+            } catch (error) {
+              if (attempt === maxRetries) {
+                throw error;
+              }
+              log.debug(
+                `[IPC] webview:openWindow ticket cookie sync attempt ${attempt}/${maxRetries} failed, retrying...`,
+                error,
+              );
+              await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+            }
+          }
+        };
+
         try {
-          await syncTicketCookie();
+          await syncWithRetry(3);
         } catch (error) {
           // 不阻塞页面打开；保留 token 供下次重试。
           log.debug(
-            "[IPC] webview:openWindow ticket cookie sync failed:",
+            "[IPC] webview:openWindow ticket cookie sync failed after retries:",
             error,
           );
         }
