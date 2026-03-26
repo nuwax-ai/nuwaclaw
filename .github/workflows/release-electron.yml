@@ -6,7 +6,7 @@
 # 支持平台：
 #   - macOS arm64（macos-latest）
 #   - macOS x64（macos-latest, cross-compile）
-#   - Windows x64（msi）
+#   - Windows x64（self-hosted, msi）
 #   - Linux x64（AppImage + deb）
 #   - Linux arm64（AppImage + deb）
 #
@@ -15,6 +15,10 @@
 #   - macOS 签名/公证（未配置时 Mac 构建为无签名包，用户打开会提示「已损坏」）：
 #     - APPLE_TEAM_ID / APPLE_SIGNING_IDENTITY / APPLE_CERTIFICATE（.p12 Base64）/ APPLE_CERTIFICATE_PASSWORD
 #     - 公证：APPLE_API_KEY（.p8 Base64）/ APPLE_API_KEY_ID / APPLE_ISSUER_ID
+#   - Windows 签名（至少提供一种证书来源）：
+#     - 证书来源 A（证书存储）：WINDOWS_CERTIFICATE_SHA1
+#     - 证书来源 B（PFX）：WINDOWS_CERTIFICATE_PFX_BASE64 + WINDOWS_CERTIFICATE_PASSWORD
+#     - 可选：WINDOWS_TIMESTAMP_URL / WINDOWS_PUBLISHER_NAME
 #
 # 产物目录：crates/agent-electron-client/release/${version}/（由 package.json directories.output 决定）
 
@@ -83,23 +87,28 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
+            runs_on: '["macos-latest"]'
             arch: arm64
             dist_cmd: dist:mac:arm64
           - platform: macos-latest
+            runs_on: '["macos-latest"]'
             arch: x64
             dist_cmd: dist:mac:x64
-          - platform: windows-latest
+          - platform: windows-self-hosted
+            runs_on: '["self-hosted","Windows"]'
             arch: x64
             dist_cmd: dist:win
           - platform: ubuntu-24.04
+            runs_on: '["ubuntu-24.04"]'
             arch: x64
             dist_cmd: dist:linux:x64
 
           - platform: ubuntu-24.04-arm
+            runs_on: '["ubuntu-24.04-arm"]'
             arch: arm64
             dist_cmd: dist:linux:arm64
 
-    runs-on: ${{ matrix.platform }}
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
 
     steps:
       - name: Checkout
@@ -153,7 +162,7 @@ jobs:
           key: bundled-node-24-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
 
       - name: Cache bundled Git (Windows only)
-        if: matrix.platform == 'windows-latest'
+        if: runner.os == 'Windows'
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/git
@@ -217,6 +226,42 @@ jobs:
           echo "APPLE_API_ISSUER=$APPLE_ISSUER_ID" >> "$GITHUB_ENV"
           echo "APPLE_ISSUER_ID=$APPLE_ISSUER_ID" >> "$GITHUB_ENV"
 
+      - name: Prepare Windows signing environment
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          WINDOWS_CERTIFICATE_SHA1: ${{ secrets.WINDOWS_CERTIFICATE_SHA1 }}
+          WINDOWS_CERTIFICATE_PFX_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+          WINDOWS_PUBLISHER_NAME: ${{ secrets.WINDOWS_PUBLISHER_NAME }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${WINDOWS_CERTIFICATE_SHA1:-}" ] && [ -z "${WINDOWS_CERTIFICATE_PFX_BASE64:-}" ]; then
+            echo "::error::Windows signing is not configured. Set WINDOWS_CERTIFICATE_SHA1 or WINDOWS_CERTIFICATE_PFX_BASE64."
+            exit 1
+          fi
+
+          if [ -n "${WINDOWS_CERTIFICATE_PFX_BASE64:-}" ]; then
+            CERT_PATH="$RUNNER_TEMP/windows-signing.pfx"
+            echo -n "$WINDOWS_CERTIFICATE_PFX_BASE64" | base64 --decode > "$CERT_PATH"
+            echo "WINDOWS_CERTIFICATE_PATH=$CERT_PATH" >> "$GITHUB_ENV"
+            echo "WIN_CSC_LINK=$CERT_PATH" >> "$GITHUB_ENV"
+          fi
+
+          if [ -n "${WINDOWS_CERTIFICATE_PASSWORD:-}" ]; then
+            echo "WINDOWS_CERTIFICATE_PASSWORD=$WINDOWS_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
+            echo "WIN_CSC_KEY_PASSWORD=$WINDOWS_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
+          fi
+
+          if [ -n "${WINDOWS_CERTIFICATE_SHA1:-}" ]; then
+            echo "WINDOWS_CERTIFICATE_SHA1=$WINDOWS_CERTIFICATE_SHA1" >> "$GITHUB_ENV"
+          fi
+
+          echo "WINDOWS_TIMESTAMP_URL=${WINDOWS_TIMESTAMP_URL:-http://timestamp.sectigo.com}" >> "$GITHUB_ENV"
+          echo "WINDOWS_PUBLISHER_NAME=${WINDOWS_PUBLISHER_NAME:-成都第二空间智能科技有限公司}" >> "$GITHUB_ENV"
+
       # 若用户看到「已损坏」：请确认已配置 APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY 及公证用 APPLE_API_KEY 等，且构建日志中有签名与公证成功
       - name: Clean previous build artifacts
         shell: bash
@@ -232,13 +277,49 @@ jobs:
           TARGET_ARCH: ${{ matrix.arch }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          WINDOWS_CERTIFICATE_SHA1: ${{ secrets.WINDOWS_CERTIFICATE_SHA1 }}
         run: |
           if [ "${{ runner.os }}" = "macOS" ] && [ -z "${{ secrets.APPLE_CERTIFICATE }}" ]; then
             echo "No Apple certificate, building unsigned Mac package for ${{ matrix.arch }}"
             npm run dist:mac:unsigned:${{ matrix.arch }} -- --publish never
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            BUILD_ARGS=(--publish never)
+            if [ -n "${WINDOWS_CERTIFICATE_SHA1:-}" ]; then
+              BUILD_ARGS+=("-c.win.certificateSha1=${WINDOWS_CERTIFICATE_SHA1}")
+            fi
+            npm run ${{ matrix.dist_cmd }} -- "${BUILD_ARGS[@]}"
           else
             npm run ${{ matrix.dist_cmd }} -- --publish never
           fi
+
+      - name: Verify Windows signatures
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: crates/agent-electron-client
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          BASE_DIR="release/${VERSION}"
+          TARGETS=(
+            "${BASE_DIR}/NuwaClaw.Setup.${VERSION}.exe"
+            "${BASE_DIR}/NuwaClaw.${VERSION}.msi"
+          )
+
+          OPTIONAL_DIRS=(
+            "${BASE_DIR}/win-unpacked/resources/uv/bin"
+            "${BASE_DIR}/win-unpacked/resources/node"
+            "${BASE_DIR}/win-unpacked/resources/lanproxy"
+            "${BASE_DIR}/win-unpacked/resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release"
+            "${BASE_DIR}/win-unpacked/resources/nuwax-mcp-stdio-proxy"
+            "${BASE_DIR}/win-unpacked/resources/git"
+          )
+
+          for d in "${OPTIONAL_DIRS[@]}"; do
+            if [ -d "$d" ]; then
+              TARGETS+=("$d")
+            fi
+          done
+
+          npm run verify:sign:win -- "${TARGETS[@]}"
 
       - name: Upload artifacts to Release
         shell: bash
