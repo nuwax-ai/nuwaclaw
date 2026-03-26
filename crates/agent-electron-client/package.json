@@ -247,11 +247,6 @@
         }
       ],
       "icon": "public/icon.ico",
-      "signingHashAlgorithms": [
-        "sha256"
-      ],
-      "publisherName": "成都第二空间智能科技有限公司",
-      "rfc3161TimeStampServer": "http://timestamp.sectigo.com",
       "extraResources": [
         {
           "from": "resources/git",
@@ -263,13 +258,15 @@
       ]
     },
     "msi": {
-      "perMachine": false
+      "perMachine": false,
+      "artifactName": "${productName}-${version}-unsigned.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "${productName}-Setup-${version}-unsigned.${ext}"
     },
     "linux": {
       "target": [

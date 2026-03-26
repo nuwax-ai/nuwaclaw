@@ -12,6 +12,10 @@
  * - WINDOWS_TIMESTAMP_URL: 时间戳服务器 URL（默认: http://timestamp.sectigo.com）
  * - WINDOWS_PUBLISHER_NAME: 发布者名称（可选，用于日志）
  *
+ * 相关文件：
+ * - sign-release-win.sh: 完整签名流程脚本
+ * - README-SIGNING.md: 使用文档
+ *
  * @module sign-win
  */
 
