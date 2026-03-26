@@ -1,17 +1,25 @@
 import { describe, it, expect } from "vitest";
-
-// 直接测试 schema 定义（从 processHandlers.ts 中提取）
 import { z } from "zod";
 
-// 复制 schema 定义用于测试（实际使用时从模块导入）
-const lanproxyConfigSchema = z.object({
+/**
+ * Schema 验证测试
+ *
+ * 注意：这些 schema 定义与 processHandlers.ts 中保持同步。
+ * 不能直接从 processHandlers.ts 导入，因为该模块依赖 Electron API (app.getPath)，
+ * 在单元测试环境中无法初始化。
+ *
+ * 如果 schema 定义更新，请同步修改此文件。
+ */
+
+// 与 processHandlers.ts 中的定义保持同步
+export const lanproxyConfigSchema = z.object({
   serverIp: z.string().min(1),
   serverPort: z.number().int().positive(),
   clientKey: z.string().min(1),
   ssl: z.boolean().optional(),
 });
 
-const agentRunnerConfigSchema = z.object({
+export const agentRunnerConfigSchema = z.object({
   binPath: z.string().min(1),
   backendPort: z.number().int().positive(),
   proxyPort: z.number().int().positive(),
@@ -20,7 +28,7 @@ const agentRunnerConfigSchema = z.object({
   defaultModel: z.string().min(1),
 });
 
-const portSchema = z.number().int().positive();
+export const portSchema = z.number().int().positive();
 
 describe("lanproxyConfigSchema", () => {
   it("should accept valid config", () => {

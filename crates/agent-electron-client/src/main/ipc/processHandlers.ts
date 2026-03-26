@@ -5,14 +5,14 @@ import { z } from "zod";
 import type { HandlerContext } from "@shared/types/ipc";
 import { createServiceManager } from "../window/serviceManager";
 
-const lanproxyConfigSchema = z.object({
+export const lanproxyConfigSchema = z.object({
   serverIp: z.string().min(1),
   serverPort: z.number().int().positive(),
   clientKey: z.string().min(1),
   ssl: z.boolean().optional(),
 });
 
-const agentRunnerConfigSchema = z.object({
+export const agentRunnerConfigSchema = z.object({
   binPath: z.string().min(1),
   backendPort: z.number().int().positive(),
   proxyPort: z.number().int().positive(),
@@ -21,7 +21,7 @@ const agentRunnerConfigSchema = z.object({
   defaultModel: z.string().min(1),
 });
 
-const portSchema = z.number().int().positive();
+export const portSchema = z.number().int().positive();
 
 function invalidArgs(channel: string, issues: unknown) {
   log.warn(`[IPC] ${channel} invalid args:`, issues);

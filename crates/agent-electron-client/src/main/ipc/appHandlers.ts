@@ -637,7 +637,7 @@ export function registerAppHandlers(ctx: HandlerContext): void {
               if (attempt === maxRetries) {
                 throw error;
               }
-              log.debug(
+              log.warn(
                 `[IPC] webview:openWindow ticket cookie sync attempt ${attempt}/${maxRetries} failed, retrying...`,
                 error,
               );
