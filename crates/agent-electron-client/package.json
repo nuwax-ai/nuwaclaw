@@ -202,6 +202,8 @@
       "hardenedRuntime": true,
       "extendInfo": {
         "CFBundleIdentifier": "com.nuwax.agent",
+        "CFBundleName": "NuwaClaw",
+        "CFBundleDisplayName": "NuwaClaw",
         "NSDesktopFolderUsageDescription": "需要访问桌面文件夹以支持文件操作",
         "NSDocumentsFolderUsageDescription": "需要访问文档文件夹以支持文件操作",
         "NSDownloadsFolderUsageDescription": "需要访问下载文件夹以支持文件操作"
