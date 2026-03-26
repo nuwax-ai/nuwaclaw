@@ -93,6 +93,41 @@ export WINDOWS_PUBLISHER_NAME="成都第二空间智能科技有限公司"
 
 > 💡 建议将环境变量添加到 `~/.bashrc` 或 `~/.bash_profile` 中持久化保存。
 
+## 检查签名状态
+
+在签名前，建议先检查 release 的签名状态，避免重复操作。
+
+### 方法一：检查 Release 文件列表
+
+```bash
+# 查看 release 中的 Windows 安装包
+gh release view electron-v0.9.2 --repo nuwax-ai/nuwaclaw --json assets \
+  --jq '.assets[] | select(.name | test("NuwaClaw.*\\.(exe|msi)$")) | .name'
+```
+
+**判断标准：**
+| 文件名模式 | 签名状态 | 操作 |
+|-----------|---------|------|
+| `*-unsigned.exe` / `*-unsigned.msi` | 未签名 | 需要执行签名 |
+| `NuwaClaw-Setup-x.x.x.exe` / `NuwaClaw-x.x.x.msi` | 已签名 | 无需操作 |
+
+### 方法二：下载并验证签名
+
+```bash
+# 下载文件到临时目录
+mkdir -p /c/tmp/nuwaclaw-sign/check && cd /c/tmp/nuwaclaw-sign/check
+gh release download electron-v0.9.2 --repo nuwax-ai/nuwaclaw \
+  --pattern "NuwaClaw-Setup-*.exe" --pattern "NuwaClaw-*.msi"
+
+# 验证签名
+"/c/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/signtool.exe" \
+  verify //pa //all NuwaClaw-Setup-0.9.2.exe
+```
+
+**输出解读：**
+- `Successfully verified` → 已签名 ✓
+- `SignerTool does not support...` 或错误 → 未签名或签名无效
+
 ## 使用方法
 
 ### 完整流程（推荐）
@@ -124,6 +159,53 @@ cd crates/agent-electron-client
 
 ```bash
 ./scripts/build/sign-release-win.sh 0.9.2 --skip-download --skip-upload
+```
+
+## 多次构建/签名场景
+
+### 场景一：同一版本重新打包后签名
+
+如果 CI 重新构建了同一版本（修复构建问题等），release 中会出现新的 `-unsigned` 文件：
+
+```
+Release 资产列表:
+├── NuwaClaw-Setup-0.9.2.exe          # 旧的已签名文件
+├── NuwaClaw-0.9.2.msi                # 旧的已签名文件
+├── NuwaClaw-Setup-0.9.2-unsigned.exe # 新的未签名文件 (CI 重新构建)
+└── NuwaClaw-0.9.2-unsigned.msi       # 新的未签名文件 (CI 重新构建)
+```
+
+**处理方式：** 直接运行签名脚本，它会：
+1. 下载新的 `-unsigned` 文件
+2. 签名后覆盖旧的已签名文件
+3. 删除 `-unsigned` 文件
+
+```bash
+./scripts/build/sign-release-win.sh 0.9.2  # 正常执行即可
+```
+
+### 场景二：重新签名已签名的文件
+
+如果需要重新签名（证书更新等），需要先让 CI 重新构建：
+
+```bash
+# 1. 触发 CI 重新构建（推送 tag 或手动触发）
+# 2. CI 会生成新的 -unsigned 文件
+# 3. 然后执行签名脚本
+./scripts/build/sign-release-win.sh 0.9.2
+```
+
+> ⚠️ **注意**：不能直接对已签名的文件再次签名，需要从 CI 获取新的未签名文件。
+
+### 场景三：检查是否需要签名
+
+```bash
+# 快速检查 release 中是否有 -unsigned 文件
+gh release view electron-v0.9.2 --repo nuwax-ai/nuwaclaw --json assets \
+  --jq '.assets[] | select(.name | test("-unsigned\\.(exe|msi)$")) | .name'
+
+# 有输出 → 需要签名
+# 无输出 → 已签名或无 Windows 构建
 ```
 
 ## 目录结构
@@ -223,4 +305,5 @@ Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.EnhancedKeyUsageList -mat
 
 | 日期 | 说明 |
 |------|------|
+| 2026-03-26 | 添加签名状态检查和多次构建/签名场景说明 |
 | 2026-03-26 | 创建签名流程文档，明确仅支持本地手签方案 |
