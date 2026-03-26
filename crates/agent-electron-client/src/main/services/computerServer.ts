@@ -24,6 +24,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { EventEmitter } from "events";
 import log from "electron-log";
+import { getPerfLogger } from "../bootstrap/logConfig";
 import { agentService } from "./engines/unifiedAgent";
 import { LOCALHOST_HOSTNAME } from "./constants";
 import { getConfiguredPorts } from "./startupPorts";
@@ -292,7 +293,10 @@ async function handleRequest(
 
       const body = (await parseBody(req)) as ComputerChatRequest;
       t1 = Date.now();
-      log.debug(`⏱️ [HTTP][PERF] parseBody 耗时: ${t1 - t0}ms`);
+      // 记录 Electron 侧收到请求的时间（Java 后端经 lanproxy 转发过来），含 parseBody
+      getPerfLogger().info(
+        `[PERF] /chat received: parseBody=${t1 - t0}ms  rid=${body.request_id?.slice(0, 8)}  project=${body.project_id}`,
+      );
 
       // 开发调试：完整打印入参（脱敏后，避免 api_key / agent_config.env / URL 中 ak= 写入日志）
       log.debug(
@@ -334,7 +338,7 @@ async function handleRequest(
         return;
       }
       t2 = Date.now();
-      log.debug(`⏱️ [HTTP][PERF] 验证字段 耗时: ${t2 - t1}ms`);
+      getPerfLogger().info(`[PERF] /chat.validate: ${t2 - t1}ms`);
 
       // 确保项目工作空间存在（客户端快速重新登录后工作空间可能被清空）
       if (body.project_id) {
@@ -354,7 +358,7 @@ async function handleRequest(
         }
       }
       const t2_5 = Date.now();
-      log.debug(`⏱️ [HTTP][PERF] ensureProjectWorkspace 耗时: ${t2_5 - t2}ms`);
+      getPerfLogger().info(`[PERF] /chat.ensureWorkspace: ${t2_5 - t2}ms`);
 
       // 确保正确的引擎已启动（按 project_id 路由到对应 AcpEngine）
       let acpEngine;
@@ -370,7 +374,7 @@ async function handleRequest(
         return;
       }
       t3 = Date.now();
-      log.debug(`⏱️ [HTTP][PERF] ensureEngineForRequest 耗时: ${t3 - t2_5}ms`);
+      getPerfLogger().info(`[PERF] /chat.ensureEngine: ${t3 - t2_5}ms`);
 
       if (!acpEngine) {
         log.error("❌ [HTTP] Agent not initialized");
@@ -381,7 +385,7 @@ async function handleRequest(
       // chat() 已返回 HttpResult<ComputerChatResponse> 格式
       const result = await acpEngine.chat(body);
       t4 = Date.now();
-      log.debug(`⏱️ [HTTP][PERF] acpEngine.chat 耗时: ${t4 - t3}ms`);
+      getPerfLogger().info(`[PERF] /chat.acpChat: ${t4 - t3}ms`);
 
       if (result.success) {
         log.info(
@@ -391,8 +395,8 @@ async function handleRequest(
         log.error(`❌ [HTTP] Computer Chat 失败: ${result.message}`);
       }
 
-      log.info(
-        `⏱️ [HTTP][PERF] /computer/chat 总耗时: ${t4 - t0}ms (parseBody=${t1 - t0}ms, validate=${t2 - t1}ms, ensureWorkspace=${t2_5 - t2}ms, ensureEngine=${t3 - t2_5}ms, chat=${t4 - t3}ms)`,
+      getPerfLogger().info(
+        `[PERF] /chat: ${t4 - t0}ms  rid=${body.request_id?.slice(0, 8)}  (parseBody=${t1 - t0}ms validate=${t2 - t1}ms workspace=${t2_5 - t2}ms engine=${t3 - t2_5}ms chat=${t4 - t3}ms)`,
       );
       sendJson(res, 200, result);
       return;
@@ -402,6 +406,7 @@ async function handleRequest(
     if (pathname.startsWith("/computer/progress/") && method === "GET") {
       const sseStartTime = Date.now();
       const sessionId = pathname.replace("/computer/progress/", "");
+      getPerfLogger().info(`[PERF] sse.connect  session=${sessionId}`);
       log.info(
         `📡 [HTTP] SSE 连接请求: session_id=${sessionId}, time=${new Date().toISOString()}`,
       );
@@ -437,8 +442,8 @@ async function handleRequest(
         sseClients.set(sessionId, []);
       }
       sseClients.get(sessionId)!.push(res);
-      log.debug(
-        `⏱️ [SSE][PERF] SSE 客户端注册完成: session_id=${sessionId}, 耗时=${Date.now() - sseStartTime}ms`,
+      getPerfLogger().info(
+        `[PERF] sse.register: ${Date.now() - sseStartTime}ms  session=${sessionId}`,
       );
 
       // 回放缓冲的早期事件（chat 响应先于 SSE 连接时 pushSseEvent 已写入缓冲）
@@ -493,6 +498,8 @@ async function handleRequest(
           if (idx >= 0) clients.splice(idx, 1);
           if (clients.length === 0) sseClients.delete(sessionId);
         }
+        // 清理 perf 首事件状态，防止连接中断（无 end_turn）时 Map 泄漏
+        sseFirstEventSent.delete(sessionId);
       });
 
       res.on("error", () => {
@@ -507,6 +514,8 @@ async function handleRequest(
 
     // POST /computer/agent/status
     if (pathname === "/computer/agent/status" && method === "POST") {
+      // t0Handler 计时从请求到达开始，包含 parseBody 在内的全程 handler 耗时
+      const t0Handler = Date.now();
       const body = await parseBody(req);
       log.info(
         `🔍 [HTTP] Computer Agent 状态查询: user_id=${body.user_id}, project_id=${body.project_id}`,
@@ -541,6 +550,9 @@ async function handleRequest(
       } else {
         log.warn(`⚠️ [HTTP] Agent 不存在: project_id=${body.project_id}`);
       }
+      getPerfLogger().info(
+        `[PERF] /agent/status: ${Date.now() - t0Handler}ms  project=${body.project_id} alive=${!!projectEngine}`,
+      );
 
       sendJson(
         res,
@@ -719,6 +731,9 @@ async function handleRequest(
  * 若当前无客户端连接（chat 响应先于 SSE 连接建立），则先写入缓冲，
  * 等 GET /computer/progress/{session_id} 连接时回放，避免丢失 prompt_start 等早期事件。
  */
+// 跟踪每个 session 的首事件时间戳（用于计算流式总耗时）
+const sseFirstEventSent = new Map<string, number>();
+
 export function pushSseEvent(
   sessionId: string,
   eventName: string,
@@ -726,8 +741,29 @@ export function pushSseEvent(
 ) {
   const clients = sseClients.get(sessionId);
   const payload = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
+  const now = Date.now();
+
+  // 记录首事件和结束事件
+  const isFirstMessage =
+    eventName === "agent_message_chunk" && !sseFirstEventSent.has(sessionId);
+  const isEndTurn = eventName === "end_turn";
+
+  if (isFirstMessage) {
+    sseFirstEventSent.set(sessionId, now);
+    getPerfLogger().info(`[PERF] sse.firstChunk  session=${sessionId}`);
+  }
+  if (isEndTurn) {
+    const firstChunkTime = sseFirstEventSent.get(sessionId);
+    sseFirstEventSent.delete(sessionId);
+    const streamingMs =
+      firstChunkTime !== undefined ? now - firstChunkTime : -1;
+    getPerfLogger().info(
+      `[PERF] sse.end${streamingMs >= 0 ? `: ${streamingMs}ms streaming` : ""}  session=${sessionId}`,
+    );
+  }
+
   log.debug(
-    `[SSE] pushSseEvent: sessionId=${sessionId}, eventName=${eventName}, time=${Date.now()}, clients=${clients?.length || 0}`,
+    `[SSE] pushSseEvent: sessionId=${sessionId}, eventName=${eventName}, time=${now}, clients=${clients?.length || 0}`,
   );
 
   if (!clients || clients.length === 0) {

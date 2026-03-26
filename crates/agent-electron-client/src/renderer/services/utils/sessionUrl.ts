@@ -3,13 +3,15 @@
  * Used by both ClientPage and SessionsPage.
  *
  * Redirect URL patterns:
- *   /api/sandbox/config/redirect/{sandboxConfigId}       — enter sandbox (开始会话)
- *   /api/sandbox/config/redirect/new/{sandboxConfigId}   — create new session (新建会话)
- *   /api/sandbox/config/redirect/chat/{sessionId}        — enter history session (进入历史会话)
+ *   /api/sandbox/config/redirect/{sandboxConfigId}       - enter sandbox (开始会话)
+ *   /api/sandbox/config/redirect/new/{sandboxConfigId}   - create new session (新建会话)
+ *   /api/sandbox/config/redirect/chat/{sessionId}        - enter history session (进入历史会话)
  */
 
 import { getCurrentAuth } from "../core/auth";
 import { AUTH_KEYS } from "@shared/constants";
+import { logger } from "./logService";
+import { getDomainTokenKey } from "@shared/utils/domain";
 
 /**
  * Build redirect URL for entering the sandbox dashboard (开始会话).
@@ -45,43 +47,161 @@ export async function syncSessionCookie(
   domain: string,
   token: string,
 ): Promise<void> {
-  let cookieDomain: string;
+  const isIpv4 = (host: string): boolean =>
+    /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(host);
+  const isIpv6 = (host: string): boolean => /^[0-9a-f:]+$/i.test(host);
+  const useHostOnlyCookie = (host: string): boolean =>
+    host === "localhost" || isIpv4(host) || isIpv6(host);
+
+  let cookieDomain: string | undefined;
   try {
-    cookieDomain = new URL(domain).hostname;
+    const host = new URL(domain).hostname;
+    cookieDomain = useHostOnlyCookie(host) ? undefined : host;
   } catch {
-    cookieDomain = domain.replace(/^https?:\/\//, "");
+    const rawHost = domain
+      .replace(/^https?:\/\//, "")
+      .split("/")[0]
+      .split(":")[0];
+    cookieDomain = useHostOnlyCookie(rawHost) ? undefined : rawHost;
   }
-  await window.electronAPI?.session.setCookie({
+  const payload: {
+    url: string;
+    name: string;
+    value: string;
+    domain?: string;
+    httpOnly: boolean;
+    secure: boolean;
+  } = {
     url: domain,
     name: "ticket",
     value: token,
-    domain: cookieDomain,
     httpOnly: true,
     secure: domain.startsWith("https"),
-  });
+  };
+  if (cookieDomain) {
+    payload.domain = cookieDomain;
+  }
+  const result = await window.electronAPI?.session.setCookie(payload);
+  if (!result?.success) {
+    // 只记录域名和错误，不记录 token 等敏感信息
+    throw new Error(result?.error || `session:setCookie failed for ${domain}`);
+  }
+
+  // 写入后立即回读，便于定位"已写入但页面仍未登录"的问题
+  try {
+    const verify = await window.electronAPI?.session.getCookie({
+      url: domain,
+      name: "ticket",
+    });
+    logger.debug("[SessionUrl] ticket cookie 回读结果", "SessionUrl", {
+      domain,
+      found: !!verify?.found,
+      count: verify?.count ?? 0,
+    });
+  } catch (error) {
+    logger.debug("[SessionUrl] ticket cookie 回读异常", "SessionUrl", {
+      domain,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /**
  * Shared helper: check auth, sync cookie, then call buildUrl to produce the final URL.
  */
-async function syncCookieAndBuildUrl(
-  buildUrl: (domain: string, configId: number) => string,
-): Promise<string | null> {
+async function syncCookieAndBuildUrl<T>(
+  buildUrl: (domain: string, configId?: number) => T,
+  options?: { requireConfigId?: boolean },
+): Promise<T | null> {
+  const requireConfigId = options?.requireConfigId ?? true;
   const auth = await getCurrentAuth();
   if (!auth.isLoggedIn) return null;
 
   const domain = auth.userInfo?.currentDomain;
   const configId = auth.userInfo?.id;
-  if (!domain || !configId) return null;
+  if (!domain) return null;
+  if (requireConfigId && !configId) return null;
 
-  const token = (await window.electronAPI?.settings.get(
+  const oneShotToken = (await window.electronAPI?.settings.get(
     AUTH_KEYS.AUTH_TOKEN,
   )) as string | null;
+  const domainTokenKey = getDomainTokenKey(domain);
+  let tokenSource: "one_shot" | "domain_cache" | "none" = "none";
+  let token = oneShotToken;
   if (token) {
-    await syncSessionCookie(domain, token);
-    // token 已同步给 webview cookie，立即清除本地缓存，
-    // 避免 token 失效后被持久缓存再次写入 webview 导致登录异常
-    await window.electronAPI?.settings.set(AUTH_KEYS.AUTH_TOKEN, null);
+    tokenSource = "one_shot";
+  } else {
+    token = (await window.electronAPI?.settings.get(domainTokenKey)) as
+      | string
+      | null;
+    if (token) tokenSource = "domain_cache";
+  }
+  logger.debug("[SessionUrl] 会话前状态", "SessionUrl", {
+    domain,
+    hasToken: !!token,
+    tokenSource,
+  });
+  if (!token) {
+    logger.debug(
+      "[SessionUrl] 缺少可用 token，跳过 ticket 同步",
+      "SessionUrl",
+      {
+        domain,
+      },
+    );
+  }
+  if (token) {
+    try {
+      if (tokenSource === "domain_cache") {
+        const existing = await window.electronAPI?.session.getCookie({
+          url: domain,
+          name: "ticket",
+        });
+        if (existing?.success && existing?.found) {
+          // 域名缓存 token 仅做兜底；已有 ticket 时不覆盖，避免和 webview 内登录/退出行为冲突
+          logger.info(
+            "[SessionUrl][Diag] 检测到已有 ticket，跳过域名缓存 token 同步",
+            "SessionUrl",
+            {
+              domain,
+              found: !!existing?.found,
+              count: existing?.count ?? 0,
+            },
+          );
+          return buildUrl(domain, configId);
+        }
+      }
+
+      logger.debug("[SessionUrl] 准备同步 ticket cookie", "SessionUrl", {
+        domain,
+        tokenSource,
+      });
+      await syncSessionCookie(domain, token);
+      logger.debug("[SessionUrl] ticket cookie 同步成功", "SessionUrl", {
+        domain,
+        tokenSource,
+      });
+      // token 作为一次性补写凭据，成功后清除，避免反复覆盖 webview 内 ticket
+      await window.electronAPI?.settings.set(AUTH_KEYS.AUTH_TOKEN, null);
+      logger.debug("[SessionUrl] 已清理 one-shot auth.token", "SessionUrl", {
+        domain,
+      });
+    } catch (error) {
+      logger.debug("[SessionUrl] ticket cookie 同步失败", "SessionUrl", {
+        domain,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // 失败时不要清空 token，保留重试机会
+      logger.error(
+        "[SessionUrl] Cookie 同步失败，保留本地 token 以便重试",
+        "SessionUrl",
+        {
+          domain,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      throw error;
+    }
   }
 
   return buildUrl(domain, configId);
@@ -91,14 +211,14 @@ async function syncCookieAndBuildUrl(
  * Sync cookie and return the sandbox redirect URL (开始会话).
  */
 export async function syncCookieAndGetRedirectUrl(): Promise<string | null> {
-  return syncCookieAndBuildUrl(buildRedirectUrl);
+  return syncCookieAndBuildUrl(buildRedirectUrl, { requireConfigId: true });
 }
 
 /**
  * Sync cookie and return the new-session redirect URL (新建会话).
  */
 export async function syncCookieAndGetNewSessionUrl(): Promise<string | null> {
-  return syncCookieAndBuildUrl(buildNewSessionUrl);
+  return syncCookieAndBuildUrl(buildNewSessionUrl, { requireConfigId: true });
 }
 
 /**
@@ -107,7 +227,8 @@ export async function syncCookieAndGetNewSessionUrl(): Promise<string | null> {
 export async function syncCookieAndGetChatUrl(
   sessionId: string,
 ): Promise<string | null> {
-  return syncCookieAndBuildUrl((domain) =>
-    buildChatSessionUrl(domain, sessionId),
+  return syncCookieAndBuildUrl(
+    (domain) => buildChatSessionUrl(domain, sessionId),
+    { requireConfigId: false },
   );
 }

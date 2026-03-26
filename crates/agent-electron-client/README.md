@@ -1,4 +1,4 @@
-# Nuwax Agent Electron Client
+# NuwaClaw
 
 Electron-based desktop client for Nuwax Agent, inspired by LobsterAI architecture.
 

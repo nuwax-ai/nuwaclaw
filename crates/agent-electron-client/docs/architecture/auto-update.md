@@ -10,7 +10,7 @@
 
 - **检查更新**：**仅**拉取 OSS `latest/latest.json` 获取最新版本；其中 `platforms` 已包含各平台完整的 OSS 下载包地址（url、signature、size）。若有更新则将 electron-updater 的 feed 设为版本化 OSS 路径 `${OSS_BASE}/electron-v${version}`。
 - **下载安装包**：安装包地址**仅**来自 `latest.json` 的 `platforms`（已是完整 OSS URL）。electron-updater 实际下载时从 feed 请求的 `latest-mac.yml` / `latest-linux.yml` 等，**必须**由同一份 `latest.json` 的 `platforms` 在 Release 流程中派生生成，不得使用 GitHub 自带的 yml。
-- **回退**：仅当 OSS 不可达时，才回退为 GitHub（检查与下载均走 GitHub）。
+- **失败处理**：OSS 不可达或元数据异常时，直接报错并引导用户前往下载页，不回退到 GitHub。
 
 ## 核心文件
 
@@ -82,7 +82,7 @@ function detectInstallerType(): InstallerType {
 | 安装类型 | 自动更新 | 行为 |
 |----------|---------|------|
 | NSIS (.exe) | 支持 | 下载 → 重启安装 |
-| MSI (.msi) | 不支持 | 引导到下载页（OSS 安装包直链，来源为 latest.json） |
+| MSI (.msi) | 不支持 | 引导到下载页（按 MSI 优先解析下载包） |
 | macOS (.dmg) | 支持 | 下载 → 重启安装 |
 | Linux (.AppImage/.deb) | 支持 | 下载 → 重启安装 |
 
@@ -111,15 +111,16 @@ function detectInstallerType(): InstallerType {
 - 下载和安装被阻止（Squirrel.Mac bundle ID 不匹配会导致崩溃）
 - `autoInstallOnAppQuit = false`
 
-## OSS 与 GitHub 分工（强制 latest.json）
+## OSS 单源策略（强制 latest.json）
 
 所有更新元数据**强制以 latest.json 为准**：应用端只读 OSS `latest/latest.json` 做版本判断与地址解析；Release 流程只产出并上传由该文件派生的 yml，禁止使用或上传 GitHub 自带的 yml。
 
-| 步骤         | 正常路径（强制 latest.json）     | 回退（OSS 不可达） |
-|--------------|----------------------------------|--------------------|
-| 检查更新     | 仅 OSS latest.json               | GitHub API         |
-| Feed 基地址  | OSS 版本化路径                   | GitHub provider    |
-| 下载安装包   | 仅 OSS（yml 必须由 latest.json 的 platforms 派生） | GitHub Release 资产 |
+| 步骤         | 策略 |
+|--------------|------|
+| 检查更新     | 仅 OSS latest.json |
+| Feed 基地址  | 仅 OSS 版本化路径 |
+| 下载安装包   | 仅 OSS（yml 必须由 latest.json 的 platforms 派生） |
+| OSS 异常     | 报错 + 引导下载页，不回退 GitHub |
 
 **数据源规则**：OSS 上**只**维护并信任 `latest.json`（含 version、notes、pub_date、platforms 多架构与完整 OSS 下载地址）。Release 流程（`.github/workflows/release-electron.yml`）**必须**根据该 `latest.json` 的 `platforms` 生成 electron-updater 所需的 `latest-mac.yml`、`latest-linux.yml`、`latest.yml`，并写入 release-assets 后一并上传；**禁止**使用或上传 GitHub 自带的 yml；yml 内下载地址为相对路径（相对 feed 基地址即 OSS 版本化路径）。
 
@@ -155,5 +156,5 @@ interface UpdateState {
 | `app:downloadUpdate` | renderer → main | 下载更新 |
 | `app:installUpdate` | renderer → main | 重启安装 |
 | `app:getUpdateState` | renderer → main | 获取当前更新状态 |
-| `app:openReleasesPage` | renderer → main | 打开下载页（Windows 优先从 latest.json 解析 OSS 安装包直链，否则 GitHub Releases） |
+| `app:openReleasesPage` | renderer → main | 打开下载页（从 latest.json 解析 OSS 安装包直链） |
 | `update:status` | main → renderer | 推送更新状态变化 |

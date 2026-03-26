@@ -1,21 +1,16 @@
 /**
- * 日志服务 - Electron Client 版本
- * 
+ * 日志服务 - Renderer 安全版本
+ *
  * 功能:
  * - 日志获取、过滤、导出
  * - 实时日志订阅
  * - 日志统计
- * - 结合 electron-log
+ * - 通过 IPC 转发到主进程日志
  */
-
-import log from 'electron-log';
-import * as fs from 'fs';
-import * as path from 'path';
-import { APP_DATA_DIR_NAME } from '@shared/constants';
 
 // ==================== Types ====================
 
-export type LogLevel = 'error' | 'warning' | 'success' | 'info';
+export type LogLevel = "error" | "warning" | "success" | "info";
 
 export interface LogEntry {
   id: string;
@@ -35,58 +30,67 @@ export interface LogStats {
 }
 
 export interface LogFilter {
-  level?: LogLevel | 'all';
+  level?: LogLevel | "all";
   keyword?: string;
   startTime?: string;
   endTime?: string;
   source?: string;
 }
 
-export type ExportFormat = 'json' | 'csv' | 'txt';
+export type ExportFormat = "json" | "csv" | "txt";
 
 // ==================== Log Store ====================
 
 class LogStore {
   private logs: LogEntry[] = [];
   private maxLogs = 1000;
+  private persistMaxLogs = 100;
   private subscribers: Set<(log: LogEntry) => void> = new Set();
+  private readonly storageKey = "app_logs_cache";
 
   constructor() {
-    // 从文件加载历史日志
-    this.loadFromFile();
+    // 从 localStorage 加载历史日志（renderer 可用）
+    this.loadFromStorage();
   }
 
-  private getLogFilePath(): string {
-    const home = process.env.HOME || process.env.USERPROFILE || '';
-    return path.join(home, APP_DATA_DIR_NAME, 'logs', 'app.json');
-  }
-
-  private loadFromFile(): void {
+  private getStorage(): Storage | null {
+    if (typeof window === "undefined") return null;
     try {
-      const logPath = this.getLogFilePath();
-      if (fs.existsSync(logPath)) {
-        const data = fs.readFileSync(logPath, 'utf-8');
-        this.logs = JSON.parse(data);
-      }
-    } catch (error) {
-      console.error('[LogService] Failed to load logs:', error);
+      return window.localStorage;
+    } catch {
+      return null;
     }
   }
 
-  private saveToFile(): void {
+  private loadFromStorage(): void {
     try {
-      const logPath = this.getLogFilePath();
-      const dir = path.dirname(logPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+      const storage = this.getStorage();
+      if (!storage) return;
+      const raw = storage.getItem(this.storageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        this.logs = parsed as LogEntry[];
       }
-      fs.writeFileSync(logPath, JSON.stringify(this.logs.slice(0, 100)));
     } catch (error) {
-      console.error('[LogService] Failed to save logs:', error);
+      console.error("[LogService] Failed to load logs:", error);
     }
   }
 
-  addLog(entry: Omit<LogEntry, 'id' | 'timestamp'>): LogEntry {
+  private saveToStorage(): void {
+    try {
+      const storage = this.getStorage();
+      if (!storage) return;
+      storage.setItem(
+        this.storageKey,
+        JSON.stringify(this.logs.slice(0, this.persistMaxLogs)),
+      );
+    } catch (error) {
+      console.error("[LogService] Failed to save logs:", error);
+    }
+  }
+
+  addLog(entry: Omit<LogEntry, "id" | "timestamp">): LogEntry {
     const newLog: LogEntry = {
       ...entry,
       id: Date.now().toString(36) + Math.random().toString(36).substr(2, 9),
@@ -99,26 +103,22 @@ class LogStore {
       this.logs = this.logs.slice(0, this.maxLogs);
     }
 
-    // 保存到文件
-    this.saveToFile();
+    // 保存到 localStorage
+    this.saveToStorage();
 
     // 通知订阅者
     this.subscribers.forEach((cb) => cb(newLog));
 
-    // 同时写入 electron-log
-    switch (entry.level) {
-      case 'error':
-        log.error(`[${entry.source || 'app'}] ${entry.message}`);
-        break;
-      case 'warning':
-        log.warn(`[${entry.source || 'app'}] ${entry.message}`);
-        break;
-      case 'success':
-        log.info(`[${entry.source || 'app'}] ✓ ${entry.message}`);
-        break;
-      case 'info':
-      default:
-        log.info(`[${entry.source || 'app'}] ${entry.message}`);
+    // 同步转发到主进程日志（避免 renderer 直接依赖 electron-log）
+    const msg = `[${entry.source || "app"}]${entry.level === "success" ? " ✓" : ""} ${entry.message}`;
+    const level: "info" | "warn" | "error" =
+      entry.level === "error"
+        ? "error"
+        : entry.level === "warning"
+          ? "warn"
+          : "info";
+    if (typeof window !== "undefined") {
+      void window.electronAPI?.log?.write(level, msg, entry.details);
     }
 
     return newLog;
@@ -129,7 +129,7 @@ class LogStore {
 
     if (!filter) return result;
 
-    if (filter.level && filter.level !== 'all') {
+    if (filter.level && filter.level !== "all") {
       result = result.filter((log) => log.level === filter.level);
     }
 
@@ -138,7 +138,7 @@ class LogStore {
       result = result.filter(
         (log) =>
           log.message.toLowerCase().includes(keyword) ||
-          log.source?.toLowerCase().includes(keyword)
+          log.source?.toLowerCase().includes(keyword),
       );
     }
 
@@ -155,23 +155,24 @@ class LogStore {
     }
 
     return result.sort(
-      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      (a, b) =>
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     );
   }
 
   getStats(): LogStats {
     return {
       total: this.logs.length,
-      error: this.logs.filter((l) => l.level === 'error').length,
-      warning: this.logs.filter((l) => l.level === 'warning').length,
-      success: this.logs.filter((l) => l.level === 'success').length,
-      info: this.logs.filter((l) => l.level === 'info').length,
+      error: this.logs.filter((l) => l.level === "error").length,
+      warning: this.logs.filter((l) => l.level === "warning").length,
+      success: this.logs.filter((l) => l.level === "success").length,
+      info: this.logs.filter((l) => l.level === "info").length,
     };
   }
 
   clearLogs(): void {
     this.logs = [];
-    this.saveToFile();
+    this.saveToStorage();
   }
 
   subscribe(callback: (log: LogEntry) => void): () => void {
@@ -199,7 +200,7 @@ export function addLog(
   level: LogLevel,
   message: string,
   source?: string,
-  details?: unknown
+  details?: unknown,
 ): LogEntry {
   return logStore.addLog({ level, message, source, details });
 }
@@ -242,31 +243,31 @@ export function getLogSources(): string[] {
 /**
  * 导出日志
  */
-export function exportLogs(format: ExportFormat = 'json'): string {
+export function exportLogs(format: ExportFormat = "json"): string {
   const logs = logStore.getLogs();
 
   switch (format) {
-    case 'json':
+    case "json":
       return JSON.stringify(logs, null, 2);
 
-    case 'csv': {
-      const headers = '时间,级别,来源,消息\n';
+    case "csv": {
+      const headers = "时间,级别,来源,消息\n";
       const rows = logs
         .map(
           (log) =>
-            `${log.timestamp},${log.level},${log.source || ''},"${log.message.replace(/"/g, '""')}"`
+            `${log.timestamp},${log.level},${log.source || ""},"${log.message.replace(/"/g, '""')}"`,
         )
-        .join('\n');
+        .join("\n");
       return headers + rows;
     }
 
-    case 'txt':
+    case "txt":
       return logs
         .map(
           (log) =>
-            `[${log.timestamp}] [${log.level.toUpperCase()}] ${log.source ? `[${log.source}] ` : ''}${log.message}`
+            `[${log.timestamp}] [${log.level.toUpperCase()}] ${log.source ? `[${log.source}] ` : ""}${log.message}`,
         )
-        .join('\n');
+        .join("\n");
 
     default:
       return JSON.stringify(logs, null, 2);
@@ -277,29 +278,33 @@ export function exportLogs(format: ExportFormat = 'json'): string {
  * 获取日志文件路径
  */
 export function getLogFilePath(): string {
-  return logStore.getLogs ? '' : '';
+  return "localStorage:app_logs_cache";
 }
 
 // ==================== Quick Log Methods ====================
 
 export const logger = {
   error: (message: string, source?: string, details?: unknown) =>
-    addLog('error', message, source, details),
-  
+    addLog("error", message, source, details),
+
   warn: (message: string, source?: string, details?: unknown) =>
-    addLog('warning', message, source, details),
-  
+    addLog("warning", message, source, details),
+
   warning: (message: string, source?: string, details?: unknown) =>
-    addLog('warning', message, source, details),
-  
+    addLog("warning", message, source, details),
+
   success: (message: string, source?: string, details?: unknown) =>
-    addLog('success', message, source, details),
-  
+    addLog("success", message, source, details),
+
   info: (message: string, source?: string, details?: unknown) =>
-    addLog('info', message, source, details),
-  
+    addLog("info", message, source, details),
+
+  // debug 使用 info 级别（LogStore 无 debug 级别），语义上表示诊断日志
+  debug: (message: string, source?: string, details?: unknown) =>
+    addLog("info", message, source, details),
+
   log: (message: string, source?: string, details?: unknown) =>
-    addLog('info', message, source, details),
+    addLog("info", message, source, details),
 };
 
 export default {

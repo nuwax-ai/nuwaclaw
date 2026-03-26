@@ -16,6 +16,8 @@ export class ManagedProcess {
     shell?: boolean;
     stdio?: ("ignore" | "pipe")[];
     startupDelayMs?: number;
+    /** 每行 stdout 的额外回调，在 log.info 之后调用 */
+    onStdoutLine?: (line: string) => void;
   }): Promise<{ success: boolean; error?: string; message?: string }> {
     if (this.process) {
       this.lastError = null;
@@ -33,7 +35,9 @@ export class ManagedProcess {
         });
 
         proc.stdout?.on("data", (data: Buffer) => {
-          log.info(`[${this.name}]`, data.toString().trim());
+          const line = data.toString().trim();
+          log.info(`[${this.name}]`, line);
+          config.onStdoutLine?.(line);
         });
 
         proc.stderr?.on("data", (data: Buffer) => {

@@ -420,6 +420,9 @@ export interface PermissionsAPI {
 
 export interface ShellAPI {
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+  openPath: (
+    targetPath: string,
+  ) => Promise<{ success: boolean; error?: string }>;
 }
 
 // ==================== Computer API (rcoder /computer/* compat) ====================
@@ -509,6 +512,11 @@ export interface MirrorAPI {
   }) => Promise<{ success: boolean; error?: string }>;
 }
 
+export interface PerfAPI {
+  /** Fire-and-forget：将 PERF 日志发送到主进程写入 perf.YYYY-MM-DD.log */
+  log: (msg: string) => void;
+}
+
 export interface DialogAPI {
   openDirectory: (title?: string) => Promise<{
     success: boolean;
@@ -535,10 +543,32 @@ export interface ElectronAPI {
       url: string;
       name: string;
       value: string;
-      domain: string;
+      domain?: string;
       httpOnly?: boolean;
       secure?: boolean;
     }) => Promise<{ success: boolean; error?: string }>;
+    getCookie: (params: { url: string; name: string }) => Promise<{
+      success: boolean;
+      found?: boolean;
+      count?: number;
+      cookies?: Array<{
+        name: string;
+        domain: string;
+        path: string;
+        httpOnly: boolean;
+        secure: boolean;
+        sameSite: string;
+      }>;
+      cookie?: {
+        name: string;
+        domain: string;
+        path: string;
+        httpOnly: boolean;
+        secure: boolean;
+        sameSite: string;
+      };
+      error?: string;
+    }>;
   };
   webview: {
     openWindow: (params: {
@@ -576,6 +606,7 @@ export interface ElectronAPI {
   app: AppAPI;
   permissions: PermissionsAPI;
   quickInit: QuickInitAPI;
+  perf: PerfAPI;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   off: (channel: string, callback: (...args: unknown[]) => void) => void;
 }

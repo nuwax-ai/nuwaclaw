@@ -1,7 +1,7 @@
 {
   "name": "@nuwax-ai/nuwaclaw",
-  "version": "0.9.1",
-  "description": "NuwaClaw Desktop Client (Electron)",
+  "version": "0.9.2",
+  "description": "NuwaClaw",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
   "license": "MIT",
@@ -46,6 +46,7 @@
     "clean:electron-cache": "node scripts/tools/clean-electron-cache.js",
     "clean:release": "rm -rf release",
     "verify:sign": "node scripts/build/verify-sign.js",
+    "verify:sign:win": "node scripts/build/verify-sign-win.js",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix"
   },
@@ -201,6 +202,8 @@
       "hardenedRuntime": true,
       "extendInfo": {
         "CFBundleIdentifier": "com.nuwax.agent",
+        "CFBundleName": "NuwaClaw",
+        "CFBundleDisplayName": "NuwaClaw",
         "NSDesktopFolderUsageDescription": "需要访问桌面文件夹以支持文件操作",
         "NSDocumentsFolderUsageDescription": "需要访问文档文件夹以支持文件操作",
         "NSDownloadsFolderUsageDescription": "需要访问下载文件夹以支持文件操作"
@@ -257,13 +260,15 @@
       ]
     },
     "msi": {
-      "perMachine": false
+      "perMachine": false,
+      "artifactName": "${productName}-${version}-unsigned.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "${productName}-Setup-${version}-unsigned.${ext}"
     },
     "linux": {
       "target": [

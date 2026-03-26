@@ -1,10 +1,10 @@
 /**
- * 单元测试: UnifiedAgentService — MCP 配置变更检测 + 引擎预热池（ACP 性能优化）
+ * 单元测试: UnifiedAgentService — MCP 配置变更检测 + 懒加载引擎生命周期
  *
  * 覆盖修复内容：
  * 1. rawMcpServersEqual(): 静态辅助方法，同格式比较原始 MCP server 配置
  * 2. detectConfigChange(): 跨格式误判修复验证（通过 rawMcpServersEqual 间接覆盖）
- * 3. 引擎预热池：init 触发 loadAcpSdk 与 startWarmingEngine；getOrCreateEngine 复用/销毁逻辑；destroy 清空池
+ * 3. 懒加载引擎：init 触发 loadAcpSdk；getOrCreateEngine 创建/复用；destroy 清理引擎
  *
  * 背景：原实现将 proxy 包装格式（currentConfig.mcpServers, command=mcp-proxy）
  *      与原始格式（requestMcpServersEarly, command=uvx/uv/npx）直接比较，
@@ -410,9 +410,9 @@ describe("rawMcpServersEqual — 清空 MCP 场景", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
-// ACP 引擎性能优化：预热池、loadAcpSdk、getOrCreateEngine 复用与 destroy 清理
+// ACP 引擎生命周期：loadAcpSdk、getOrCreateEngine 复用与 destroy 清理
 // ────────────────────────────────────────────────────────────────────────────
-describe("UnifiedAgentService — 引擎预热池（ACP 性能优化）", () => {
+describe("UnifiedAgentService — 懒加载引擎生命周期", () => {
   const baseConfig = {
     engine: "nuwaxcode" as const,
     workspaceDir: "/tmp",
@@ -432,11 +432,9 @@ describe("UnifiedAgentService — 引擎预热池（ACP 性能优化）", () => 
     expect(loadAcpSdk).toHaveBeenCalled();
   });
 
-  it("getOrCreateEngine 在预热完成后复用池中引擎且配置一致", async () => {
+  it("getOrCreateEngine 可按 project 创建引擎并记录配置", async () => {
     const svc = new UnifiedAgentService();
     await svc.init(baseConfig);
-    await new Promise<void>((r) => setImmediate(r));
-    await new Promise<void>((r) => setImmediate(r));
 
     const effectiveConfig = {
       ...baseConfig,
@@ -450,49 +448,37 @@ describe("UnifiedAgentService — 引擎预热池（ACP 性能优化）", () => 
     expect(engine.currentConfig?.apiKey).toBe("k");
     expect(engine.currentConfig?.model).toBe("m");
     expect(engine.currentConfig?.baseUrl).toBe("u");
-    expect(engine.updateConfig).toHaveBeenCalledWith(effectiveConfig); // 确保 MCP 等与本请求一致
-    // 复用后仅补充 nuwaxcode；池中最多两种类型各一（claude-code 未用 + nuwaxcode 新预热）
-    expect((svc as any).warmEnginePool.size).toBeLessThanOrEqual(2);
+    expect((svc as any).engines.has("proj-warm-reuse")).toBe(true);
+    expect((svc as any).engineConfigs.get("proj-warm-reuse")).toEqual(
+      effectiveConfig,
+    );
   });
 
-  it("getOrCreateEngine 在 apiKey/baseUrl 一致时复用并 updateConfig", async () => {
+  it("getOrCreateEngine 对同一 project 复用现有 ready 引擎", async () => {
     const svc = new UnifiedAgentService();
     await svc.init(baseConfig);
-    await new Promise<void>((r) => setTimeout(r, 50));
 
     const requestConfig = { ...baseConfig, model: "other-model" };
-    const engine = await svc.getOrCreateEngine("proj-same-auth", requestConfig);
-    expect(engine).toBeDefined();
-    expect(engine.updateConfig).toHaveBeenCalledWith(requestConfig);
+    const engine1 = await svc.getOrCreateEngine(
+      "proj-same-auth",
+      requestConfig,
+    );
+    const engine2 = await svc.getOrCreateEngine("proj-same-auth", {
+      ...requestConfig,
+      model: "another-model",
+    });
+    expect(engine1).toBe(engine2);
   });
 
-  it("getOrCreateEngine 在 apiKey 不一致时不复用、销毁预热引擎并走冷启动", async () => {
+  it("destroy() 清空引擎与配置缓存且不抛", async () => {
     const svc = new UnifiedAgentService();
     await svc.init(baseConfig);
-    await new Promise<void>((r) => setTimeout(r, 50));
-
-    const pool = (svc as any).warmEnginePool as Map<
-      string,
-      { destroy: ReturnType<typeof vi.fn> }
-    >;
-    const warm = pool.get("nuwaxcode");
-    if (!warm) return;
-    warm.destroy.mockClear();
-
-    const requestConfig = { ...baseConfig, apiKey: "other-key" };
-    const engine = await svc.getOrCreateEngine("proj-diff-auth", requestConfig);
-    expect(engine).toBeDefined();
-    expect(warm.destroy).toHaveBeenCalled();
-  });
-
-  it("destroy() 清空预热池且不抛", async () => {
-    const svc = new UnifiedAgentService();
-    await svc.init(baseConfig);
-    await new Promise<void>((r) => setImmediate(r));
+    await svc.getOrCreateEngine("proj-destroy", baseConfig);
 
     await expect(svc.destroy()).resolves.toBeUndefined();
-    expect((svc as any).warmEnginePool.size).toBe(0);
-    expect((svc as any).warmEngineTasks.size).toBe(0);
+    expect((svc as any).engines.size).toBe(0);
+    expect((svc as any).engineConfigs.size).toBe(0);
+    expect((svc as any).engineRawMcpServers.size).toBe(0);
   });
 });
 

@@ -29,6 +29,18 @@ const mockLog = {
   warn: vi.fn(),
   error: vi.fn(),
   debug: vi.fn(),
+  create: vi.fn(() => ({
+    transports: {
+      file: {
+        resolvePathFn: null as null | ((...args: unknown[]) => string),
+        level: "info",
+        maxSize: 0,
+      },
+      console: {
+        level: "debug",
+      },
+    },
+  })),
   transports: {
     file: {
       resolvePathFn: null as null | ((...args: unknown[]) => string),

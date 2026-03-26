@@ -281,6 +281,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   shell: {
     openExternal: (url: string) =>
       ipcRenderer.invoke("shell:openExternal", url),
+    // 打开本地目录/文件到系统文件管理器，供设置页“打开工作空间目录”等功能复用。
+    openPath: (targetPath: string) =>
+      ipcRenderer.invoke("shell:openPath", targetPath),
   },
 
   // Session / Cookie management (for embedded webview)
@@ -289,10 +292,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
       url: string;
       name: string;
       value: string;
-      domain: string;
+      domain?: string;
       httpOnly?: boolean;
       secure?: boolean;
     }) => ipcRenderer.invoke("session:setCookie", params),
+    getCookie: (params: { url: string; name: string }) =>
+      ipcRenderer.invoke("session:getCookie", params),
   },
 
   // WebView Window - 独立窗口打开会话浏览器
@@ -491,5 +496,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   off: (channel: string, callback: (...args: unknown[]) => void) => {
     const wrapper = (callback as any).__ipcWrapper || callback;
     ipcRenderer.removeListener(channel, wrapper);
+  },
+
+  // PERF 专用日志（fire-and-forget，写入主进程 perf.YYYY-MM-DD.log）
+  perf: {
+    log: (msg: string) => ipcRenderer.send("perf:log", msg),
   },
 });

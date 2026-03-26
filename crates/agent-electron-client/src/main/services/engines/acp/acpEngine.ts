@@ -56,6 +56,7 @@ import {
 import { processRegistry } from "../../system/processRegistry";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ACP_ABORT_TIMEOUT } from "@shared/constants";
+import { perfEmitter } from "../perf/perfEmitter";
 
 /** Safe JSON.stringify that handles circular references */
 function safeStringify(obj: unknown): string {
@@ -147,6 +148,7 @@ export class AcpEngine extends EventEmitter {
   // === Lifecycle ===
 
   async init(config: AgentConfig): Promise<boolean> {
+    const timer = perfEmitter.start();
     this.config = config;
     const envModel = config.env?.OPENCODE_MODEL || config.env?.ANTHROPIC_MODEL;
     log.info(`${this.logTag} 🚀 初始化配置`, {
@@ -160,6 +162,7 @@ export class AcpEngine extends EventEmitter {
       mcpServers: config.mcpServers ? Object.keys(config.mcpServers) : [],
     });
     try {
+      const configTimer = perfEmitter.start();
       // Build ACP client handler (callbacks from agent → client)
       const clientHandler = this.buildClientHandler();
 
@@ -226,6 +229,9 @@ export class AcpEngine extends EventEmitter {
       }
 
       // Spawn ACP binary and create ClientSideConnection
+      configTimer.end("acp.init.config", { engine: this.engineName });
+
+      const spawnTimer = perfEmitter.start();
       const {
         connection,
         process: proc,
@@ -246,6 +252,8 @@ export class AcpEngine extends EventEmitter {
         },
         clientHandler,
       );
+
+      spawnTimer.end("acp.init.spawn", { engine: this.engineName });
 
       this.acpConnection = connection;
       this.acpProcess = proc;
@@ -284,11 +292,14 @@ export class AcpEngine extends EventEmitter {
       });
 
       // Initialize ACP protocol handshake
+      const handshakeTimer = perfEmitter.start();
       const acp = await loadAcpSdk();
       const initResult = await connection.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {},
       });
+
+      handshakeTimer.end("acp.init.handshake", { engine: this.engineName });
 
       log.info(`${this.logTag} ACP initialized`, {
         protocolVersion: initResult.protocolVersion,
@@ -296,6 +307,7 @@ export class AcpEngine extends EventEmitter {
 
       this._ready = true;
       this.emit("ready");
+      timer.end("acp.init.total", { engine: this.engineName });
       return true;
     } catch (error) {
       log.error(`${this.logTag} Init failed:`, error);
@@ -489,19 +501,20 @@ export class AcpEngine extends EventEmitter {
       systemPromptLength: systemPromptTrimmed?.length ?? 0,
       mcpServersJson: JSON.stringify(mcpServers, null, 2),
     });
-    const t0 = Date.now();
+    const timer = perfEmitter.start();
     let acpResult: { sessionId: string };
     try {
       acpResult = await this.acpConnection.newSession(newSessionParams);
     } catch (err) {
-      log.error(
-        `${this.logTag} ❌ ACP newSession 失败 (${Date.now() - t0}ms):`,
-        err,
-      );
+      log.error(`${this.logTag} ❌ ACP newSession 失败:`, err);
       throw err;
     }
+    const createMs = timer.end("acp.session.create", {
+      mcpCount: mcpServers.length,
+    });
+
     log.info(
-      `${this.logTag} ✅ ACP newSession 完成 (${Date.now() - t0}ms), acpSessionId=${acpResult.sessionId}`,
+      `${this.logTag} ✅ ACP newSession 完成 (${createMs}ms), acpSessionId=${acpResult.sessionId}`,
     );
 
     const sessionId = acpResult.sessionId;
@@ -635,6 +648,7 @@ export class AcpEngine extends EventEmitter {
     parts: Array<{ type: string; text?: string; [key: string]: unknown }>,
     _opts?: PromptOptions,
   ): Promise<MessageWithParts> {
+    const timer = perfEmitter.start();
     if (!this.acpConnection || !this.config) {
       throw new Error("AcpEngine not initialized");
     }
@@ -664,6 +678,9 @@ export class AcpEngine extends EventEmitter {
     this.activePromptSessions.add(sessionId);
     session.status = "active";
     session.lastActivity = Date.now();
+
+    const waitTimer = perfEmitter.start();
+    timer.end("acp.prompt.prepare", { sessionId });
 
     this.emit("computer:promptStart", {
       sessionId,
@@ -710,6 +727,11 @@ export class AcpEngine extends EventEmitter {
           );
         },
       );
+
+      waitTimer.end("acp.prompt.wait", {
+        sessionId,
+        stopReason: result.stopReason,
+      });
 
       log.info(`${this.logTag} Prompt completed`, {
         sessionId,
@@ -874,6 +896,7 @@ export class AcpEngine extends EventEmitter {
   async chat(
     request: ComputerChatRequest,
   ): Promise<HttpResult<ComputerChatResponse>> {
+    const timer = perfEmitter.start();
     if (!this.acpConnection || !this.config) {
       return {
         code: "5000",
@@ -963,6 +986,8 @@ export class AcpEngine extends EventEmitter {
         );
         log.info(`${this.logTag} 📁 项目工作目录: ${projectDir}`);
 
+        // PERF: 会话创建阶段
+
         // context_servers 已由 ensureEngineForRequest() 同步到 proxy 聚合代理
         // (nuwax-mcp-stdio-proxy)，不再单独传给 createSession()，
         // 避免 claude-code 重复 spawn 导致 Windows 弹窗和资源浪费
@@ -985,6 +1010,14 @@ export class AcpEngine extends EventEmitter {
         session = this.sessions.get(newSession.id)!;
         session.projectId = request.project_id;
       }
+
+      timer.end("acp.chat.sessionSetup", {
+        stage: "会话准备",
+        sessionId: session.id,
+        isNewSession: !request.session_id,
+        engine: this.engineName,
+        model: this.config.model || envModel || "(未设置)",
+      });
 
       // 2. Record user message to MemoryService
       // 获取纯净用户输入（仅使用 original_user_prompt，不回退到 prompt）
@@ -1042,6 +1075,7 @@ export class AcpEngine extends EventEmitter {
 
       // 3. Inject memory context into prompt
       let enhancedPrompt = request.prompt;
+      const memoryTimer = perfEmitter.start();
       if (memoryService.isInitialized() && enableMemory && pureUserPrompt) {
         try {
           // 使用纯净用户输入进行记忆搜索
@@ -1067,9 +1101,21 @@ ${memoryContext}
           log.warn(`${this.logTag} Failed to inject memory context:`, error);
         }
       }
+      memoryTimer.end("acp.chat.memoryInject", {
+        stage: "记忆注入",
+        enabled: enableMemory,
+      });
 
       // 4. Async prompt
       this.promptAsync(session.id, [{ type: "text", text: enhancedPrompt }]);
+
+      timer.end("acp.chat.total", {
+        stage: "总耗时",
+        sessionId: session.id,
+        isNewSession: !request.session_id,
+        engine: this.engineName,
+        model: this.config.model || "(未设置)",
+      });
 
       // 5. Return HttpResult<ChatResponse>
       const chatResponse: ComputerChatResponse = {

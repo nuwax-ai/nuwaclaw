@@ -75,6 +75,7 @@
 - **日志目录**：`~/.nuwaclaw/logs/main.YYYY-MM-DD.log`，并有 `latest.log` 符号链接。
 - **级别**：文件 → debug/info，控制台 → debug。
 - **保留**：生产 7 天，开发 30 天。
+- **PERF 性能日志**：独立文件 `perf.YYYY-MM-DD.log`，详见 [docs/PERF-LOG-REFACTOR-2026-03-24.md](docs/PERF-LOG-REFACTOR-2026-03-24.md)
 
 ---
 
@@ -87,8 +88,48 @@
   - 启动全部 → **reg** → 启动所有服务
   - 手动启动单个 → 直接启动（不调用 reg）
   - 自动重连 → **reg** → 启动所有服务
-- **注册参数**：username、password、savedKey?、sandboxConfigValue。响应：configKey、serverHost/serverPort、online、name。
+- **注册参数**：username、password、savedKey?、sandboxConfigValue。响应：configKey、serverHost/serverPort、online、name、**token**。
 - **详细文档**：见 `docs/REG-FLOW.md`。
+
+---
+
+## 登录状态同步（Token → Webview Cookie）
+
+reg 接口返回的 `token` 用于同步登录状态到 webview，实现桌面端与 web 端的登录打通。
+
+### 流程
+
+```
+reg 接口返回 token
+  ↓
+1. 保存到 AUTH_TOKEN（持久化）      ← 给后续打开 webview 用
+  ↓
+2. 尝试立即同步到 webview cookie（name="ticket"）
+  ↓
+  ├─ 成功 → 清除 AUTH_TOKEN        ← 已消费，清空
+  │
+  └─ 失败 → 保留 AUTH_TOKEN        ← 等 webview 打开时再同步
+```
+
+### 触发点
+
+| 函数 | 场景 | 文件 |
+|------|------|------|
+| `loginAndRegister` | 用户登录 | `core/auth.ts` |
+| `reRegisterClient` | 自动重注册 | `core/auth.ts` |
+| `syncConfigToServer` | 配置同步 | `core/auth.ts` |
+| `syncCookieAndBuildUrl` | 打开 webview（兜底） | `utils/sessionUrl.ts` |
+
+### 核心函数
+
+- **`syncSessionCookie(domain, token)`**：将 token 写入 webview cookie（name="ticket"）
+- **`syncCookieAndBuildUrl()`**：打开 webview 前检查并同步 token
+
+### 安全考虑
+
+- token 不长期驻留内存，同步成功后立即清除
+- 日志中不记录敏感 token 值
+- 失败时保留 token 以便重试，但不影响用户体验
 
 ---
 
@@ -144,4 +185,4 @@ npm run dist:linux  # Linux
 - **敏感配置存于 SQLite**（明文，未加密）：anthropic_api_key、default_model、server_host。
 - **兼容性**：多引擎 / 沙箱(Docker) / IM / 托盘 / 无命令行弹窗 — 全平台。WSL 仅 Windows。Firejail 仅 Linux。
 
-*最后更新：2026-03-19*
+*最后更新：2026-03-25*

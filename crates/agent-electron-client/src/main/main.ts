@@ -92,6 +92,32 @@ let mainWindow: BrowserWindow | null = null;
 let trayManager: ReturnType<typeof createTrayManager> | null = null;
 let isQuitting = false; // 标志：是否正在真正退出应用
 let isInstallingUpdate = false; // 标志：是否正在执行 quitAndInstall 安装更新
+let pendingSecondInstanceFocus = false; // 标志：窗口未创建前收到 second-instance 事件
+
+// 单实例保护：Windows 托盘常驻场景下再次启动时，复用当前实例而不是创建新实例
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  log.warn("[App] Another instance is already running, quitting current one");
+  app.quit();
+}
+
+app.on("second-instance", () => {
+  log.info("[App] second-instance event received");
+  if (!mainWindow) {
+    pendingSecondInstanceFocus = true;
+    if (app.isReady()) {
+      createWindow();
+    }
+    return;
+  }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+  mainWindow.focus();
+});
 
 // Get icon path (works in both dev and production)
 function getIconPath() {
@@ -118,6 +144,20 @@ function getDockIconPath() {
 }
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+const WEBVIEW_PERF_BRIDGE_PRELOAD = path.join(
+  __dirname,
+  "..",
+  "preload",
+  "webviewPerfBridge.js",
+);
+function shouldInjectWebviewPerfBridge(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return /^https?:$/.test(parsed.protocol);
+  } catch {
+    return false;
+  }
+}
 
 // Managed child processes
 const lanproxy = new ManagedProcess("lanproxy");
@@ -143,6 +183,20 @@ function createWindow() {
     },
     show: false,
   });
+
+  // 为 webview guest 注入轻量 Bridge（NuwaClawBridge）。
+  // 当前策略：对所有 http/https 页面注入；真正是否生效由 guest 侧路由+容器二次判断。
+  mainWindow.webContents.on(
+    "will-attach-webview",
+    (_event, webPreferences, params) => {
+      const targetUrl = String(params.src || "");
+      if (!shouldInjectWebviewPerfBridge(targetUrl)) {
+        return;
+      }
+      webPreferences.preload = WEBVIEW_PERF_BRIDGE_PRELOAD;
+      log.info("[WebviewBridge] Injected guest preload for:", targetUrl);
+    },
+  );
 
   // Load the app
   if (isDev) {
@@ -320,6 +374,10 @@ async function cleanupAllProcesses(): Promise<void> {
 
 // App lifecycle
 app.whenReady().then(async () => {
+  if (!hasSingleInstanceLock) {
+    return;
+  }
+
   log.info("App ready");
 
   // Dev mode: fix CORS duplicate header issue
@@ -388,6 +446,11 @@ app.whenReady().then(async () => {
   await runStartupTasks();
 
   createWindow();
+  if (pendingSecondInstanceFocus && mainWindow) {
+    pendingSecondInstanceFocus = false;
+    mainWindow.show();
+    mainWindow.focus();
+  }
   initWebviewPolicy(() => mainWindow);
 
   // 非 macOS 或已打包：立即创建托盘。macOS 开发模式改为在 ready-to-show 后创建

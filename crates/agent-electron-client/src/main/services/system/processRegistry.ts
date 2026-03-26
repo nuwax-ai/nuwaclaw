@@ -12,7 +12,7 @@ export interface RegisteredProcess {
   pid: number;
   engineId: string;
   engineType: "claude-code" | "nuwaxcode";
-  purpose: "engine" | "warm-pool";
+  purpose: "engine";
   registeredAt: number;
 }
 

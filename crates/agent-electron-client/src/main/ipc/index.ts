@@ -11,6 +11,7 @@ import { registerAppHandlers } from "./appHandlers";
 import { registerEventForwarders } from "./eventForwarders";
 import { registerMemoryHandlers } from "./memoryHandlers";
 import { registerSandboxHandlers } from "./sandboxHandlers";
+import { registerPerfHandlers } from "./perfHandlers";
 import log from "electron-log";
 
 export function registerAllHandlers(ctx: HandlerContext): void {
@@ -26,6 +27,7 @@ export function registerAllHandlers(ctx: HandlerContext): void {
   registerEventForwarders(ctx);
   registerMemoryHandlers();
   registerSandboxHandlers();
+  registerPerfHandlers();
 
   log.info("IPC handlers registered");
 }
