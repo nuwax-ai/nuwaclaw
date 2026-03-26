@@ -154,7 +154,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Core Architecture
-- **Electron Client** - Cross-platform desktop application
+- **NuwaClaw** - Cross-platform desktop application
 - **Multi-Agent Engine Support** - Support for claude-code and nuwaxcode
 - **Session-Based Workspace** - Each conversation has its own workspace
 

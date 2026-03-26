@@ -1,5 +1,5 @@
 /**
- * Setup & Auth Service for Electron Client
+ * Setup & Auth Service for NuwaClaw
  *
  * Manages:
  * - Setup Wizard (first launch)

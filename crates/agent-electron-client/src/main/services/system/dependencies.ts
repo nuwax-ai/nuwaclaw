@@ -1,5 +1,5 @@
 /**
- * 依赖管理服务 - Electron Client 版本
+ * 依赖管理服务 - NuwaClaw 版本
  *
  * 对应 Tauri 版本的 dependencies.ts
  * 管理本地依赖的检测、安装、版本检查
