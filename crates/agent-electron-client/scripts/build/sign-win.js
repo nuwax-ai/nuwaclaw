@@ -14,7 +14,7 @@
  *
  * 相关文件：
  * - sign-release-win.sh: 完整签名流程脚本
- * - ../../../docs/windows-signing.md: 使用文档
+ * - ../docs/windows-signing.md: 使用文档
  *
  * @module sign-win
  */

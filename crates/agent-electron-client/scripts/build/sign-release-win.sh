@@ -18,7 +18,7 @@
 #   WINDOWS_TIMESTAMP_URL     - Timestamp server URL (default: http://timestamp.sectigo.com)
 #   WINDOWS_PUBLISHER_NAME    - Publisher name (optional)
 #
-# Documentation: ../../../docs/windows-signing.md
+# Documentation: ../docs/windows-signing.md
 # Related: sign-win.js
 #
 
