@@ -16,7 +16,7 @@
 #     - APPLE_TEAM_ID / APPLE_SIGNING_IDENTITY / APPLE_CERTIFICATE（.p12 Base64）/ APPLE_CERTIFICATE_PASSWORD
 #     - 公证：APPLE_API_KEY（.p8 Base64）/ APPLE_API_KEY_ID / APPLE_ISSUER_ID
 #   - Windows：本 workflow 仅构建产物，不在 CI 内签名；签名在本地 Windows（SimplySign）手动完成
-#     详见 crates/agent-electron-client/scripts/build/README-SIGNING.md
+#     详见 docs/windows-signing.md
 #
 # 产物目录：crates/agent-electron-client/release/${version}/（由 package.json directories.output 决定）
 
