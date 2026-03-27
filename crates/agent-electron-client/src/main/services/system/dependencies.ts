@@ -1103,7 +1103,7 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     description: "Agent 执行引擎（应用内安装）",
     required: true,
     binName: "nuwaxcode",
-    installVersion: "1.1.63",
+    installVersion: "1.1.64",
   },
   {
     name: "claude-code-acp-ts",
