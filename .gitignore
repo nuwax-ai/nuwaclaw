@@ -52,3 +52,6 @@ crates/nuwax-mcp-stdio-proxy/coverage/
 
 # Vite build artifact (generated at Electron client root)
 crates/agent-electron-client/index.html
+
+# Deprecated Tauri client (not shipping)
+crates/agent-tauri-client/
