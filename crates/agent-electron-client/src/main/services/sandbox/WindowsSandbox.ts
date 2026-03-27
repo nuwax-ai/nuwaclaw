@@ -64,7 +64,7 @@ export class WindowsSandbox implements SandboxInterface {
     // 生成沙箱配置
     const sandboxConfig = this.generateSandboxConfig(cwd, options);
     const configPath = path.join(
-      require("os").tmpdir(),
+      os.tmpdir(),
       `sandbox-config-${Date.now()}.json`,
     );
 
