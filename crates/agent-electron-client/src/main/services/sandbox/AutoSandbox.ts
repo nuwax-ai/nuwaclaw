@@ -6,6 +6,8 @@
  */
 
 import * as os from "os";
+import { spawn } from "child_process";
+import { promises as fsPromises } from "fs";
 import log from "electron-log";
 import type {
   SandboxInterface,
@@ -36,32 +38,34 @@ export class AutoSandbox implements SandboxInterface {
 
     // 根据平台选择实现
     const platform = os.platform();
+    let sandboxImpl: SandboxInterface;
 
     switch (platform) {
       case "darwin":
         log.info("[AutoSandbox] Using macOS Seatbelt sandbox");
-        this.sandbox = new MacSandbox();
+        sandboxImpl = new MacSandbox();
         break;
 
       case "linux":
         log.info("[AutoSandbox] Using Linux bubblewrap sandbox");
-        const { LinuxSandbox } = await import("./LinuxSandbox");
-        this.sandbox = new LinuxSandbox();
+        const LinuxSandboxModule = await import("./LinuxSandbox");
+        sandboxImpl = new LinuxSandboxModule.LinuxSandbox();
         break;
 
       case "win32":
         log.info("[AutoSandbox] Using Windows Codex sandbox");
-        const { WindowsSandbox } = await import("./WindowsSandbox");
-        this.sandbox = new WindowsSandbox();
+        const WindowsSandboxModule = await import("./WindowsSandbox");
+        sandboxImpl = new WindowsSandboxModule.WindowsSandbox();
         break;
 
       default:
         log.warn(
           `[AutoSandbox] Unsupported platform: ${platform}, using unsandboxed execution`,
         );
-        this.sandbox = new NoneSandbox();
+        sandboxImpl = new NoneSandbox();
     }
 
+    this.sandbox = sandboxImpl;
     await this.sandbox.initialize(config);
   }
 
@@ -148,8 +152,6 @@ class NoneSandbox implements SandboxInterface {
     cwd: string,
     options?: ExecuteOptions,
   ): Promise<ExecuteResult> {
-    const { spawn } = require("child_process");
-
     return new Promise((resolve, reject) => {
       const proc = spawn("bash", ["-c", command], {
         cwd,
@@ -184,14 +186,12 @@ class NoneSandbox implements SandboxInterface {
     });
   }
 
-  async readFile(path: string): Promise<string> {
-    const fs = require("fs").promises;
-    return fs.readFile(path, "utf-8");
+  async readFile(filePath: string): Promise<string> {
+    return fsPromises.readFile(filePath, "utf-8");
   }
 
-  async writeFile(path: string, content: string): Promise<void> {
-    const fs = require("fs").promises;
-    return fs.writeFile(path, content, "utf-8");
+  async writeFile(filePath: string, content: string): Promise<void> {
+    return fsPromises.writeFile(filePath, content, "utf-8");
   }
 
   async isAvailable(): Promise<boolean> {

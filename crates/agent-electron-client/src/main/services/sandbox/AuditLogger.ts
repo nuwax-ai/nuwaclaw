@@ -408,7 +408,7 @@ export class AuditLogger extends EventEmitter {
     const start = startDate || new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const end = endDate || now;
 
-    let current = new Date(start);
+    const current = new Date(start);
     while (current <= end) {
       dates.push(current.toISOString().split("T")[0]);
       current.setDate(current.getDate() + 1);
