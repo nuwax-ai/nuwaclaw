@@ -237,17 +237,16 @@ get_remote_sha256() {
 
     if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
         local ps_bin="${GH_BIN#__POWERSHELL_GH__:}"
-        # Use gh api to get asset info and extract sha256
-        hash=$("$ps_bin" -Command "gh api repos/$REPO/releases/tags/$tag --jq '.assets[] | select(.name == \"$asset_name\") | .body' 2>\$null" 2>/dev/null | grep -iE 'sha256[:\s]+' | head -1 | sed -E 's/.*sha256[:\s]+([a-fA-F0-9]{64}).*/\1/i')
-        if [[ -z "$hash" ]]; then
-            # Fallback: download asset metadata
-            hash=$("$ps_bin" -Command "gh api repos/$REPO/releases/tags/$tag --jq '.assets[] | select(.name == \"$asset_name\") | .digest' 2>\$null" 2>/dev/null)
-        fi
+        # Prefer GitHub's asset digest field (e.g. "sha256:abcd...")
+        hash=$("$ps_bin" -Command "gh api repos/$REPO/releases/tags/$tag --jq '.assets[] | select(.name == \"$asset_name\") | .digest' 2>\$null" 2>/dev/null | tr -d '\r\n')
     else
-        # Try to get hash from release body or asset metadata
-        hash=$("$GH_BIN" api "repos/$REPO/releases/tags/$tag" --jq '.assets[] | select(.name == "'"$asset_name"'")' 2>/dev/null)
-        # GitHub API doesn't directly provide SHA256 in standard asset response
-        # We need to check if there's a checksums file or use an alternative approach
+        # Prefer GitHub's asset digest field (e.g. "sha256:abcd...")
+        hash=$("$GH_BIN" api "repos/$REPO/releases/tags/$tag" --jq '.assets[] | select(.name == "'"$asset_name"'") | .digest' 2>/dev/null | tr -d '\r\n')
+    fi
+
+    # Normalize "sha256:<hex>" to "<hex>"
+    if [[ -n "$hash" ]]; then
+        hash="${hash#sha256:}"
     fi
 
     # If we couldn't get it from API, try to download checksums file
