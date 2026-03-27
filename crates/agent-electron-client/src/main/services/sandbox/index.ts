@@ -7,6 +7,7 @@
 
 export { SandboxManager } from "./SandboxManager";
 export { DockerSandbox, type DockerSandboxConfig } from "./DockerSandbox";
+export { CommandSandbox } from "./CommandSandbox";
 export {
   PermissionManager,
   DEFAULT_PERMISSION_POLICY,
@@ -16,6 +17,16 @@ export {
   type WorkspaceManagerConfig,
 } from "./WorkspaceManager";
 export { AuditLogger } from "./AuditLogger";
+export {
+  DEFAULT_SANDBOX_POLICY,
+  SANDBOX_POLICY_KEY,
+  getSandboxPolicy,
+  setSandboxPolicy,
+  getSandboxCapabilities,
+  resolveSandboxType,
+  getBundledLinuxBwrapPath,
+  getBundledWindowsCodexHelperPath,
+} from "./policy";
 export {
   startSandboxService,
   stopSandboxService,

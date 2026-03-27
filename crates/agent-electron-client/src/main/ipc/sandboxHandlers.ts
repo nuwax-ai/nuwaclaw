@@ -20,6 +20,8 @@ import type {
   PermissionRequest,
   CleanupResult,
   SandboxStatus,
+  SandboxPolicy,
+  SandboxCapabilities,
 } from "@shared/types/sandbox";
 import {
   SandboxError,
@@ -70,6 +72,15 @@ let permissionService: {
   deny(requestId: string, reason?: string): Promise<void>;
 } | null = null;
 
+let sandboxControlService: {
+  getPolicy(): Promise<SandboxPolicy>;
+  setPolicy(patch: Partial<SandboxPolicy>): Promise<SandboxPolicy>;
+  getCapabilities(): Promise<SandboxCapabilities>;
+  setup(params?: {
+    windows?: { codex?: { mode?: "unelevated" | "elevated" } };
+  }): Promise<{ success: boolean; message?: string }>;
+} | null = null;
+
 /**
  * 设置沙箱服务实例
  */
@@ -84,6 +95,16 @@ export function setSandboxService(service: typeof sandboxService): void {
 export function setPermissionService(service: typeof permissionService): void {
   permissionService = service;
   log.info("[IPC] Permission service injected");
+}
+
+/**
+ * 设置沙箱控制服务（策略/能力/setup）
+ */
+export function setSandboxControlService(
+  service: typeof sandboxControlService,
+): void {
+  sandboxControlService = service;
+  log.info("[IPC] Sandbox control service injected");
 }
 
 /**
@@ -107,6 +128,16 @@ function getPermissionService(): NonNullable<typeof permissionService> {
     throw new SandboxError("权限服务未初始化", SandboxErrorCode.INTERNAL_ERROR);
   }
   return permissionService;
+}
+
+function getSandboxControlService(): NonNullable<typeof sandboxControlService> {
+  if (!sandboxControlService) {
+    throw new SandboxError(
+      "沙箱控制服务未初始化",
+      SandboxErrorCode.SANDBOX_UNAVAILABLE,
+    );
+  }
+  return sandboxControlService;
 }
 
 /**
@@ -448,6 +479,77 @@ export function registerSandboxHandlers(): void {
       return handleError(error, "status");
     }
   });
+
+  /**
+   * 获取沙箱策略
+   * @channel sandbox:policy:get
+   */
+  ipcMain.handle("sandbox:policy:get", async () => {
+    log.info("[IPC] sandbox:policy:get");
+    try {
+      const control = getSandboxControlService();
+      const policy = await control.getPolicy();
+      return { success: true, data: policy };
+    } catch (error) {
+      return handleError(error, "policy:get");
+    }
+  });
+
+  /**
+   * 更新沙箱策略
+   * @channel sandbox:policy:set
+   */
+  ipcMain.handle(
+    "sandbox:policy:set",
+    async (_, patch: Partial<SandboxPolicy>) => {
+      log.info("[IPC] sandbox:policy:set:", { patch });
+      try {
+        const control = getSandboxControlService();
+        const policy = await control.setPolicy(patch);
+        return { success: true, data: policy };
+      } catch (error) {
+        return handleError(error, "policy:set");
+      }
+    },
+  );
+
+  /**
+   * 获取后端能力
+   * @channel sandbox:capabilities
+   */
+  ipcMain.handle("sandbox:capabilities", async () => {
+    log.info("[IPC] sandbox:capabilities");
+    try {
+      const control = getSandboxControlService();
+      const capabilities = await control.getCapabilities();
+      return { success: true, data: capabilities };
+    } catch (error) {
+      return handleError(error, "capabilities");
+    }
+  });
+
+  /**
+   * 执行后端 setup（当前主要用于 Windows Codex）
+   * @channel sandbox:setup
+   */
+  ipcMain.handle(
+    "sandbox:setup",
+    async (
+      _,
+      params?: {
+        windows?: { codex?: { mode?: "unelevated" | "elevated" } };
+      },
+    ) => {
+      log.info("[IPC] sandbox:setup:", { params });
+      try {
+        const control = getSandboxControlService();
+        const result = await control.setup(params);
+        return { success: true, data: result };
+      } catch (error) {
+        return handleError(error, "setup");
+      }
+    },
+  );
 
   log.info("[IPC] Sandbox handlers registered");
 }

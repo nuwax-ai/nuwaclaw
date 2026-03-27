@@ -18,11 +18,89 @@ export type Platform = "darwin" | "win32" | "linux";
 /**
  * 沙箱类型
  * - docker: Docker 容器（全平台）
- * - wsl: Windows Subsystem for Linux（仅 Windows）
- * - firejail: Firejail 沙箱（仅 Linux）
+ * - macos-seatbelt: macOS seatbelt（sandbox-exec）
+ * - linux-bwrap: Linux bubblewrap
+ * - windows-codex: Windows Codex 沙箱 helper
+ * - wsl: Windows Subsystem for Linux（兼容保留）
+ * - firejail: Firejail（兼容保留）
  * - none: 无沙箱（直接执行）
  */
-export type SandboxType = "docker" | "wsl" | "firejail" | "none";
+export type SandboxType =
+  | "docker"
+  | "macos-seatbelt"
+  | "linux-bwrap"
+  | "windows-codex"
+  | "wsl"
+  | "firejail"
+  | "none";
+
+/**
+ * 沙箱策略模式
+ * - off: 关闭沙箱
+ * - non-main: 仅高风险命令走沙箱
+ * - all: 所有命令走沙箱
+ */
+export type SandboxMode = "off" | "non-main" | "all";
+
+/**
+ * 沙箱后端
+ * - auto: 按平台自动选择
+ */
+export type SandboxBackend =
+  | "auto"
+  | "docker"
+  | "macos-seatbelt"
+  | "linux-bwrap"
+  | "windows-codex";
+
+/**
+ * 降级策略
+ * - degrade_to_off: 后端不可用时降级为 off
+ * - fail_closed: 后端不可用时阻断执行
+ */
+export type SandboxFallback = "degrade_to_off" | "fail_closed";
+
+/**
+ * Windows Codex 模式
+ */
+export type WindowsCodexMode = "unelevated" | "elevated";
+
+/**
+ * 统一沙箱策略
+ */
+export interface SandboxPolicy {
+  enabled: boolean;
+  mode: SandboxMode;
+  backend: SandboxBackend;
+  fallback: SandboxFallback;
+  windows: {
+    codex: {
+      mode: WindowsCodexMode;
+      privateDesktop: boolean;
+    };
+  };
+}
+
+/**
+ * 单个后端能力状态
+ */
+export interface SandboxCapabilityItem {
+  available: boolean;
+  reason?: string;
+  binaryPath?: string;
+}
+
+/**
+ * 多后端能力探测结果
+ */
+export interface SandboxCapabilities {
+  platform: Platform;
+  recommendedBackend: SandboxBackend;
+  docker: SandboxCapabilityItem;
+  macosSeatbelt: SandboxCapabilityItem;
+  linuxBwrap: SandboxCapabilityItem;
+  windowsCodex: SandboxCapabilityItem;
+}
 
 /**
  * 权限级别
@@ -470,10 +548,18 @@ export interface SandboxStatus {
   available: boolean;
   /** 沙箱类型 */
   type: SandboxType;
+  /** 当前后端 */
+  backend?: SandboxBackend;
   /** 平台 */
   platform: Platform;
   /** 活跃工作区数量 */
   activeWorkspaces: number;
+  /** 是否发生降级 */
+  degraded?: boolean;
+  /** 状态说明 */
+  reason?: string;
+  /** 能力探测快照 */
+  capabilities?: SandboxCapabilities;
   /** 总内存使用 */
   totalMemory?: string;
   /** 磁盘使用 */

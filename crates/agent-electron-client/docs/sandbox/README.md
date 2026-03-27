@@ -13,6 +13,8 @@
 | [WORKSPACE-DESIGN.md](./WORKSPACE-DESIGN.md) | 基于 Harness 的核心设计方案 |
 | [IMPLEMENTATION-PLAN.md](./IMPLEMENTATION-PLAN.md) | 实施计划（6 个阶段） |
 | [SANDBOX-API.md](./SANDBOX-API.md) | API 接口文档 |
+| [SANDBOX-SUBMODULE-INTEGRATION.md](./SANDBOX-SUBMODULE-INTEGRATION.md) | 三端沙箱子模块接入 |
+| [../operations/SANDBOX-SUBMODULE-UPDATE-RUNBOOK.md](../operations/SANDBOX-SUBMODULE-UPDATE-RUNBOOK.md) | 子模块升级与回滚 Runbook |
 
 ---
 
@@ -62,11 +64,11 @@
 
 ## 🔧 平台支持
 
-| 平台 | 主要沙箱 | 备选沙箱 |
-|------|---------|---------|
-| macOS | Docker | App Sandbox |
-| Windows | Docker + WSL2 | Hyper-V |
-| Linux | Docker | Firejail |
+| 平台 | 主要沙箱 | 备选 |
+|------|---------|------|
+| macOS | sandbox-exec | Docker |
+| Windows | Codex Sandbox helper | Docker |
+| Linux | bubblewrap | Docker |
 
 ---
 
@@ -145,3 +147,4 @@ harness/
 | 日期 | 版本 | 变更 |
 |------|------|------|
 | 2026-03-22 | 1.0.0 | 初始版本，基于 Harness 架构 |
+| 2026-03-27 | 1.1.0 | 增加 sandbox_policy、子模块资源接入与签名链路 |

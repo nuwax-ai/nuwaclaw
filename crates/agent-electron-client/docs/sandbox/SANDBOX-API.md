@@ -448,16 +448,57 @@ export const SANDBOX_CHANNELS = {
   'sandbox:status': {
     request: void,
     response: SandboxStatus
+  },
+
+  // 策略
+  'sandbox:policy:get': {
+    request: void,
+    response: SandboxPolicy
+  },
+
+  'sandbox:policy:set': {
+    request: Partial<SandboxPolicy>,
+    response: SandboxPolicy
+  },
+
+  'sandbox:capabilities': {
+    request: void,
+    response: SandboxCapabilities
+  },
+
+  // 后端初始化（Windows Codex setup）
+  'sandbox:setup': {
+    request: {
+      windows?: { codex?: { mode?: 'unelevated' | 'elevated' } }
+    },
+    response: { success: boolean; message?: string }
   }
 } as const;
 
 export interface SandboxStatus {
   available: boolean;
   type: SandboxType;
+  backend?: SandboxBackend;
   platform: Platform;
   activeWorkspaces: number;
+  degraded?: boolean;
+  reason?: string;
+  capabilities?: SandboxCapabilities;
   totalMemory?: string;
   diskUsage?: string;
+}
+
+export interface SandboxPolicy {
+  enabled: boolean;
+  mode: 'off' | 'non-main' | 'all';
+  backend: 'auto' | 'docker' | 'macos-seatbelt' | 'linux-bwrap' | 'windows-codex';
+  fallback: 'degrade_to_off' | 'fail_closed';
+  windows: {
+    codex: {
+      mode: 'unelevated' | 'elevated';
+      privateDesktop: boolean;
+    };
+  };
 }
 ```
 

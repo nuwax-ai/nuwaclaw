@@ -213,6 +213,16 @@ export class WorkspaceManager extends EventEmitter {
   }
 
   /**
+   * 兼容旧接口：createWorkspace
+   */
+  async createWorkspace(
+    sessionId: string,
+    options: CreateWorkspaceOptions = {},
+  ): Promise<Workspace> {
+    return this.create(sessionId, options);
+  }
+
+  /**
    * 销毁工作区
    * @param sessionId 会话 ID
    * @param force 是否强制销毁
@@ -273,9 +283,23 @@ export class WorkspaceManager extends EventEmitter {
   }
 
   /**
+   * 兼容旧接口：getWorkspace（同步）
+   */
+  getWorkspace(sessionId: string): Workspace | undefined {
+    return this.sandboxManager.getWorkspace(sessionId);
+  }
+
+  /**
    * 列出所有工作区
    */
   async list(): Promise<Workspace[]> {
+    return this.sandboxManager.listWorkspaces();
+  }
+
+  /**
+   * 兼容旧接口：listWorkspaces（同步）
+   */
+  listWorkspaces(): Workspace[] {
     return this.sandboxManager.listWorkspaces();
   }
 
@@ -541,6 +565,13 @@ export class WorkspaceManager extends EventEmitter {
     this.emitEvent("cleanup:complete", { result });
 
     return result;
+  }
+
+  /**
+   * 兼容旧接口：cleanup
+   */
+  async cleanup(): Promise<CleanupResult> {
+    return this.cleanupExpired();
   }
 
   /**
