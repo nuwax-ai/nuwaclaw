@@ -45,16 +45,14 @@ export class AutoSandbox implements SandboxInterface {
 
       case "linux":
         log.info("[AutoSandbox] Using Linux bubblewrap sandbox");
-        // TODO: 实现 LinuxSandbox
-        // this.sandbox = new LinuxSandbox();
-        this.sandbox = new NoneSandbox();
+        const { LinuxSandbox } = await import("./LinuxSandbox");
+        this.sandbox = new LinuxSandbox();
         break;
 
       case "win32":
         log.info("[AutoSandbox] Using Windows Codex sandbox");
-        // TODO: 实现 WindowsSandbox
-        // this.sandbox = new WindowsSandbox();
-        this.sandbox = new NoneSandbox();
+        const { WindowsSandbox } = await import("./WindowsSandbox");
+        this.sandbox = new WindowsSandbox();
         break;
 
       default:
