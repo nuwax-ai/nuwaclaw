@@ -138,6 +138,14 @@ export interface DependenciesAPI {
     version?: string;
     error?: string;
   }>;
+  /** 应用包内集成的 nuwaxcode 引擎二进制 */
+  checkNuwaxcodeBundled: () => Promise<{
+    success: boolean;
+    available?: boolean;
+    version?: string;
+    binPath?: string;
+    error?: string;
+  }>;
   detectPackage: (
     packageName: string,
     binName?: string,

@@ -1364,6 +1364,34 @@ export async function checkMcpProxyBundled(): Promise<{
   }
 }
 
+/**
+ * 检测应用包内集成的 nuwaxcode 是否可用
+ * 打包后为 process.resourcesPath/nuwaxcode/，开发时为 resources/nuwaxcode/
+ */
+export async function checkNuwaxcodeBundled(): Promise<{
+  available: boolean;
+  version?: string;
+  binPath?: string;
+}> {
+  const bundledPath = getNuwaxcodeBundledBinPath();
+  if (!bundledPath) {
+    log.info("[checkNuwaxcodeBundled] 未找到包内集成二进制");
+    return { available: false };
+  }
+  // 读取版本标记文件
+  const versionFile = path.join(getResourcesPath(), "nuwaxcode", ".version");
+  let version: string | undefined;
+  try {
+    if (fs.existsSync(versionFile)) {
+      version = fs.readFileSync(versionFile, "utf-8").trim();
+    }
+  } catch {}
+  log.info(
+    `[checkNuwaxcodeBundled] 包内集成可用: ${bundledPath}, version=${version ?? "未知"}`,
+  );
+  return { available: true, version, binPath: bundledPath };
+}
+
 /** 检测指定路径的 uv 二进制 */
 function _checkUvBin(binPath: string): Promise<{
   installed: boolean;

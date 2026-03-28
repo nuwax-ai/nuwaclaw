@@ -238,6 +238,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     checkUv: () => ipcRenderer.invoke("dependencies:checkUv"),
     checkMcpProxyBundled: () =>
       ipcRenderer.invoke("dependencies:checkMcpProxyBundled"),
+    checkNuwaxcodeBundled: () =>
+      ipcRenderer.invoke("dependencies:checkNuwaxcodeBundled"),
     detectPackage: (packageName: string, binName?: string) =>
       ipcRenderer.invoke("dependencies:detectPackage", packageName, binName),
     installPackage: (
