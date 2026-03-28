@@ -174,12 +174,13 @@ export class AcpEngine extends EventEmitter {
       if (this.engineName === "nuwaxcode") {
         const configObj: Record<string, unknown> = {};
 
-        // 1. MCP servers injection
+        // A/B test mode: inject MCP into OPENCODE_CONFIG_CONTENT again.
+        // This restores legacy dual-path injection (static config + ACP newSession).
+        // It is intentionally kept for controlled regression verification.
         if (config.mcpServers && Object.keys(config.mcpServers).length > 0) {
           const mcpConfig: Record<string, unknown> = {};
           for (const [name, srv] of Object.entries(config.mcpServers)) {
             if ("url" in srv && srv.url) {
-              // URL 类型（来自 PersistentMcpBridge）
               const urlSrv = srv as { url: string; type?: string };
               mcpConfig[name] = {
                 type: urlSrv.type === "sse" ? "sse" : "streamable-http",
@@ -187,7 +188,6 @@ export class AcpEngine extends EventEmitter {
                 enabled: true,
               };
             } else if ("command" in srv) {
-              // stdio 类型（降级）
               const stdioSrv = srv as {
                 command: string;
                 args?: string[];
@@ -204,7 +204,7 @@ export class AcpEngine extends EventEmitter {
           configObj.mcp = mcpConfig;
         }
 
-        // 2. Permission bypass (question: deny to avoid interactive prompts)
+        // 1. Permission bypass (question: deny to avoid interactive prompts)
         configObj.permission = {
           edit: "allow",
           bash: "allow",
@@ -219,10 +219,18 @@ export class AcpEngine extends EventEmitter {
         log.info(
           `${this.logTag} 🔌 nuwaxcode config 注入 (OPENCODE_CONFIG_CONTENT)`,
           {
+            mcp_injection: "enabled (legacy dual-path for A/B)",
             mcp_servers: configObj.mcp
               ? Object.keys(configObj.mcp as Record<string, unknown>)
               : [],
-            permission: "all allow",
+            permission: {
+              edit: "allow",
+              bash: "allow",
+              webfetch: "allow",
+              doom_loop: "allow",
+              external_directory: "allow",
+              question: "deny",
+            },
             content: configContent,
           },
         );

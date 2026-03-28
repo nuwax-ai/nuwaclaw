@@ -31,6 +31,7 @@ import { isWindows } from "../../system/shellEnv";
 import { spawnJsFile, resolveNpmPackageEntry } from "../../utils/spawnNoWindow";
 import { processRegistry } from "../../system/processRegistry";
 import { killProcessTreeGraceful } from "../../utils/processTree";
+import { perfEmitter } from "../perf/perfEmitter";
 
 // ==================== Types ====================
 
@@ -262,11 +263,6 @@ export function loadAcpSdk(): Promise<AcpSdkModule> {
 
 // ==================== Binary Path ====================
 
-/** Get ~/.nuwaclaw/ base directory */
-function getAppDataDir(): string {
-  return path.join(app.getPath("home"), APP_DATA_DIR_NAME);
-}
-
 /**
  * Get ACP package directory
  */
@@ -385,6 +381,8 @@ export async function createAcpConnection(
     );
   }
 
+  const setupTimer = perfEmitter.start();
+
   // Build isolated environment (aligned with rcoder + engineManager pattern)
   // 1. Start with getAppEnv() for complete isolation (node/npm/uv paths, no system PATH)
   // 2. Create isolated HOME/config dir so Claude Code uses empty config (not user's global ~/.claude/)
@@ -444,6 +442,10 @@ export async function createAcpConnection(
     env.CLAUDE_CODE_ACP_PATH = binPath;
   }
 
+  const envMs = setupTimer.end("acp.conn.env", {
+    engine: config.engineType ?? "unknown",
+  });
+
   // 打印最终生效的模型配置（关键调试信息）
   log.info("[AcpClient] 🚀 Spawning ACP binary", {
     binPath,
@@ -471,6 +473,7 @@ export async function createAcpConnection(
   // 1. Spawn ACP binary
   // On Unix, use detached: true so the child gets its own process group,
   // enabling process.kill(-pid) to kill the entire tree on cleanup.
+  const spawnTimer = perfEmitter.start();
   const useDetached = !isWindows;
   let proc: ChildProcess;
   if (config.isNative) {
@@ -500,6 +503,11 @@ export async function createAcpConnection(
   if (useDetached) {
     proc.unref();
   }
+
+  const spawnMs = spawnTimer.end("acp.conn.spawn", {
+    engine: config.engineType ?? "unknown",
+    native: !!config.isNative,
+  });
 
   // Register process in the process registry for orphan detection
   if (proc.pid) {
@@ -582,6 +590,7 @@ export async function createAcpConnection(
   // 2. Convert Node streams → Web streams（仅从 stdoutLogTransform 读，保证唯一消费者）
   // Wrap post-spawn setup in try/catch: if anything fails after spawn,
   // we must kill the process and unregister it to prevent orphans.
+  const bridgeTimer = perfEmitter.start();
   let readable: ReadableStream<Uint8Array>;
   let writable: WritableStream;
   let acp: any;
@@ -589,18 +598,35 @@ export async function createAcpConnection(
   let connection: AcpClientSideConnection;
 
   try {
+    const ioBridgeTimer = perfEmitter.start();
     readable = Readable.toWeb(stdoutLogTransform) as ReadableStream<Uint8Array>;
     writable = Writable.toWeb(proc.stdin!) as WritableStream;
+    ioBridgeTimer.end("acp.conn.ioBridge", {
+      engine: config.engineType ?? "unknown",
+    });
 
     // 3. Load ACP SDK and create NDJSON stream
+    const sdkTimer = perfEmitter.start();
     acp = await loadAcpSdk();
+    sdkTimer.end("acp.conn.sdkLoad", {
+      engine: config.engineType ?? "unknown",
+    });
+
+    const streamTimer = perfEmitter.start();
     stream = acp.ndJsonStream(writable, readable);
+    streamTimer.end("acp.conn.ndjson", {
+      engine: config.engineType ?? "unknown",
+    });
 
     // 4. Create ClientSideConnection with client handler
+    const connTimer = perfEmitter.start();
     connection = new acp.ClientSideConnection(
       (_agent: unknown) => clientHandler,
       stream,
     ) as AcpClientSideConnection;
+    connTimer.end("acp.conn.connection", {
+      engine: config.engineType ?? "unknown",
+    });
   } catch (e) {
     // Post-spawn setup failed — kill the spawned process to prevent orphan
     log.error("[AcpClient] Post-spawn setup failed, killing process:", e);
@@ -612,6 +638,14 @@ export async function createAcpConnection(
     }
     throw e;
   }
+
+  const bridgeMs = bridgeTimer.end("acp.conn.bridgeTotal", {
+    engine: config.engineType ?? "unknown",
+  });
+
+  perfEmitter.duration("acp.conn.create.total", envMs + spawnMs + bridgeMs, {
+    engine: config.engineType ?? "unknown",
+  });
 
   // 🔧 FIX: Create cleanup function to properly dispose of event listeners
   // This prevents handle leaks by removing all event listeners before process termination
