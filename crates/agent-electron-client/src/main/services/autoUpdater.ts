@@ -111,8 +111,12 @@ type InstallerType = "nsis" | "msi" | "mac" | "linux" | "dev";
 /**
  * 检测 Windows 安装类型（NSIS vs MSI）
  *
- * NSIS 安装会在应用目录下创建 `Uninstall {productName}.exe`，
- * MSI 安装由 Windows Installer 管理，不含此文件。
+ * NSIS 安装会在应用目录下创建卸载程序文件，按优先级检测：
+ * 1. 标准命名：Uninstall {productName}.exe
+ * 2. NSIS 通用命名：unins000.exe, unins001.exe 等
+ * 3. 匹配 Uninstall*.exe 或 unins*.exe（避免误判其他文件）
+ *
+ * MSI 安装由 Windows Installer 管理，通常不含卸载程序文件。
  */
 function detectInstallerType(): InstallerType {
   if (!app.isPackaged) return "dev";
@@ -121,22 +125,71 @@ function detectInstallerType(): InstallerType {
 
   if (process.platform === "win32") {
     const appDir = path.dirname(app.getPath("exe"));
-    // electron-builder NSIS 会生成 "Uninstall {productName}.exe"
+
+    // 方式1: 标准的 electron-builder NSIS 卸载程序
+    // 文件名格式: "Uninstall {productName}.exe"
     const productName = app.getName();
-    const nsisUninstaller = path.join(appDir, `Uninstall ${productName}.exe`);
-    if (fs.existsSync(nsisUninstaller)) {
+    const standardNsisUninstaller = path.join(
+      appDir,
+      `Uninstall ${productName}.exe`,
+    );
+    if (fs.existsSync(standardNsisUninstaller)) {
       log.info(
-        `[AutoUpdater] Windows installer type: NSIS (found ${nsisUninstaller})`,
+        `[AutoUpdater] Windows installer type: NSIS (found standard uninstaller: ${standardNsisUninstaller})`,
       );
       return "nsis";
     }
+
+    // 方式2和3: 读取目录一次，检查多种 NSIS 卸载程序模式
+    // 避免重复调用 readdirSync，提高性能
+    let appFiles: string[] | undefined;
+    try {
+      appFiles = fs.readdirSync(appDir);
+    } catch (e) {
+      log.warn("[AutoUpdater] Failed to read app directory:", e);
+    }
+
+    if (appFiles && appFiles.length > 0) {
+      // 方式2: NSIS 通用卸载程序模式 (unins000.exe, unins001.exe 等)
+      const genericNsisUninstaller = appFiles.find((f) =>
+        /^unins\d{3}\.exe$/i.test(f),
+      );
+      if (genericNsisUninstaller) {
+        log.info(
+          `[AutoUpdater] Windows installer type: NSIS (found generic NSIS uninstaller: ${genericNsisUninstaller})`,
+        );
+        return "nsis";
+      }
+
+      // 方式3: 匹配 Uninstall*.exe 或 unins*.exe 开头的文件
+      // 严格模式：避免误判如 "uninstaller_helper.exe" 等非卸载程序文件
+      const anyUninstaller = appFiles.find((f) => {
+        const lowerName = f.toLowerCase();
+        return (
+          // Uninstall 开头 + .exe 结尾（如 Uninstall.exe, Uninstall-1.0.0.exe）
+          (lowerName.startsWith("uninstall") && lowerName.endsWith(".exe")) ||
+          // unins 开头但不是 uninsNNN.exe 模式的（兼容其他 NSIS 变体）
+          (lowerName.startsWith("unins") &&
+            !/^unins\d{3}\.exe$/i.test(f) &&
+            lowerName.endsWith(".exe"))
+        );
+      });
+      if (anyUninstaller) {
+        log.info(
+          `[AutoUpdater] Windows installer type: NSIS (found uninstaller: ${anyUninstaller})`,
+        );
+        return "nsis";
+      }
+    }
+
+    // Fallback: 找不到任何卸载程序文件，判定为 MSI
     log.info(
-      "[AutoUpdater] Windows installer type: MSI (no NSIS uninstaller found)",
+      "[AutoUpdater] Windows installer type: MSI (no uninstaller found in app directory)",
     );
     return "msi";
   }
 
-  return "nsis"; // fallback
+  return "nsis"; // 非平台的 fallback
 }
 
 let cachedInstallerType: InstallerType | undefined;
