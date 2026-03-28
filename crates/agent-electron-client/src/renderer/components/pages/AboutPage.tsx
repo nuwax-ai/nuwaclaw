@@ -4,13 +4,17 @@
  * - 版本号运行时从 Electron 主进程获取
  * - 检查更新 + 下载 + 重启安装 完整流程
  * - 下载完成后弹窗确认是否立即重启安装
- * - Windows MSI 安装用户引导到 Releases 页面
+ * - Windows MSI 安装用户引导到官网下载安装页
  * - macOS/Linux 上 Squirrel 不发送 download-progress，用本地模拟进度保证进度条有变化
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button, Progress, message, Space, Modal } from "antd";
-import { SyncOutlined, DownloadOutlined, LinkOutlined } from "@ant-design/icons";
+import {
+  SyncOutlined,
+  DownloadOutlined,
+  LinkOutlined,
+} from "@ant-design/icons";
 import { APP_DISPLAY_NAME } from "@shared/constants";
 import type { UpdateState } from "@shared/types/updateTypes";
 
@@ -25,12 +29,16 @@ const SIMULATED_PROGRESS_INTERVAL_MS = 500;
 const SIMULATED_DURATION_MS = 45_000;
 
 export default function AboutPage() {
-  const [updateState, setUpdateState] = useState<UpdateState>({ status: 'idle' });
-  const [appVersion, setAppVersion] = useState<string>('');
+  const [updateState, setUpdateState] = useState<UpdateState>({
+    status: "idle",
+  });
+  const [appVersion, setAppVersion] = useState<string>("");
   const hasShownInstallModal = useRef(false);
   /** macOS/Linux 无真实进度时的模拟进度（0..SIMULATED_PROGRESS_CAP），有 progress 时不用 */
   const [simulatedPercent, setSimulatedPercent] = useState(0);
-  const simulatedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const simulatedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
 
   // 监听主进程推送的更新状态
   // 注意：preload 的 on() 已剥离 IPC event，callback 直接收到 (...args)
@@ -38,7 +46,7 @@ export default function AboutPage() {
     const handler = (state: UpdateState) => {
       if (state) setUpdateState(state);
     };
-    window.electronAPI?.on('update:status', handler as any);
+    window.electronAPI?.on("update:status", handler as any);
     // 获取运行时版本号
     window.electronAPI?.app?.getVersion().then((v) => {
       if (v) setAppVersion(v);
@@ -48,19 +56,20 @@ export default function AboutPage() {
       if (state) setUpdateState(state);
     });
     return () => {
-      window.electronAPI?.off('update:status', handler as any);
+      window.electronAPI?.off("update:status", handler as any);
     };
   }, []);
 
   // macOS/Linux：Squirrel 不发送 download-progress，用定时器模拟进度使进度条有变化
   useEffect(() => {
-    const isDownloading = updateState.status === 'downloading';
+    const isDownloading = updateState.status === "downloading";
     const hasRealProgress = updateState.progress != null;
 
     if (isDownloading && !hasRealProgress) {
       setSimulatedPercent(0);
       const increment =
-        (SIMULATED_PROGRESS_CAP / SIMULATED_DURATION_MS) * SIMULATED_PROGRESS_INTERVAL_MS;
+        (SIMULATED_PROGRESS_CAP / SIMULATED_DURATION_MS) *
+        SIMULATED_PROGRESS_INTERVAL_MS;
       const id = setInterval(() => {
         setSimulatedPercent((prev) => {
           const next = prev + increment;
@@ -85,13 +94,13 @@ export default function AboutPage() {
 
   // 下载完成后自动弹窗确认安装
   useEffect(() => {
-    if (updateState.status === 'downloaded' && !hasShownInstallModal.current) {
+    if (updateState.status === "downloaded" && !hasShownInstallModal.current) {
       hasShownInstallModal.current = true;
       Modal.confirm({
-        title: '更新已下载完成',
+        title: "更新已下载完成",
         content: `v${updateState.version} 已下载完成，是否立即重启安装？`,
-        okText: '立即重启',
-        cancelText: '稍后安装',
+        okText: "立即重启",
+        cancelText: "稍后安装",
         onOk: async () => {
           try {
             await window.electronAPI?.app?.installUpdate?.();
@@ -102,19 +111,19 @@ export default function AboutPage() {
       });
     }
     // 状态回到非 downloaded 时重置标记
-    if (updateState.status !== 'downloaded') {
+    if (updateState.status !== "downloaded") {
       hasShownInstallModal.current = false;
     }
   }, [updateState.status, updateState.version]);
 
   const handleCheckUpdate = useCallback(async () => {
-    setUpdateState((prev) => ({ ...prev, status: 'checking' }));
+    setUpdateState((prev) => ({ ...prev, status: "checking" }));
     try {
       const result = await window.electronAPI?.app?.checkUpdate();
 
       // IPC 不可用（API 层返回空），直接恢复 idle
       if (!result) {
-        setUpdateState({ status: 'idle' });
+        setUpdateState({ status: "idle" });
         return;
       }
 
@@ -141,26 +150,30 @@ export default function AboutPage() {
         setUpdateState(authoritative);
       } else if (result.error || !result.hasUpdate) {
         // getUpdateState 不可用时的兜底
-        setUpdateState({ status: 'idle' });
+        setUpdateState({ status: "idle" });
       }
     } catch {
       message.error("检查更新失败");
-      setUpdateState({ status: 'idle' });
+      setUpdateState({ status: "idle" });
     }
   }, []);
 
   const handleDownload = useCallback(async () => {
     // 立即切换到 downloading 状态，避免点击后无反馈
-    setUpdateState((prev) => ({ ...prev, status: 'downloading', progress: undefined }));
+    setUpdateState((prev) => ({
+      ...prev,
+      status: "downloading",
+      progress: undefined,
+    }));
     try {
       const result = await window.electronAPI?.app?.downloadUpdate?.();
       if (result && !result.success) {
         message.error(result.error || "下载失败");
-        setUpdateState((prev) => ({ ...prev, status: 'available' }));
+        setUpdateState((prev) => ({ ...prev, status: "available" }));
       }
     } catch {
       message.error("下载更新失败");
-      setUpdateState((prev) => ({ ...prev, status: 'available' }));
+      setUpdateState((prev) => ({ ...prev, status: "available" }));
     }
   }, []);
 
@@ -193,40 +206,51 @@ export default function AboutPage() {
       error,
       canAutoUpdate: autoUpdate,
       isReadOnlyVolumeError: readOnlyVolume,
-    } = updateState ?? { status: 'idle' as const };
+    } = updateState ?? { status: "idle" as const };
 
     switch (status) {
-      case 'checking':
+      case "checking":
         return (
           <Button icon={<SyncOutlined spin />} disabled>
             检查中...
           </Button>
         );
 
-      case 'available':
+      case "available":
         return (
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+          <Space direction="vertical" size={8} style={{ width: "100%" }}>
+            <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
               发现新版本: v{version}
             </div>
             {autoUpdate === false ? (
-              <Button type="primary" icon={<LinkOutlined />} onClick={handleOpenReleases}>
+              <Button
+                type="primary"
+                icon={<LinkOutlined />}
+                onClick={handleOpenReleases}
+              >
                 前往下载页
               </Button>
             ) : (
-              <Button type="primary" icon={<DownloadOutlined />} onClick={handleDownload}>
+              <Button
+                type="primary"
+                icon={<DownloadOutlined />}
+                onClick={handleDownload}
+              >
                 下载更新
               </Button>
             )}
           </Space>
         );
 
-      case 'downloading': {
+      case "downloading": {
         // 有真实进度（如 Windows）用主进程推送的 progress；无则用本地模拟进度（macOS/Linux）
-        const displayPercent = progress != null ? Math.round(progress.percent) : Math.round(simulatedPercent);
+        const displayPercent =
+          progress != null
+            ? Math.round(progress.percent)
+            : Math.round(simulatedPercent);
         return (
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+          <Space direction="vertical" size={8} style={{ width: "100%" }}>
+            <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
               正在下载 v{version}... {displayPercent}%
             </div>
             <Progress
@@ -239,10 +263,10 @@ export default function AboutPage() {
         );
       }
 
-      case 'downloaded':
+      case "downloaded":
         return (
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <div style={{ fontSize: 12, color: 'var(--color-success)' }}>
+          <Space direction="vertical" size={8} style={{ width: "100%" }}>
+            <div style={{ fontSize: 12, color: "var(--color-success)" }}>
               v{version} 已下载完成
             </div>
             <Button type="primary" onClick={handleInstall}>
@@ -251,16 +275,26 @@ export default function AboutPage() {
           </Space>
         );
 
-      case 'error':
+      case "error":
         // 只读卷错误（如从「下载」直接打开）：无法就地更新，引导用户前往下载页或移动应用后重试
         if (readOnlyVolume) {
           return (
-            <Space direction="vertical" size={8} style={{ width: '100%' }}>
-              <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+            <Space direction="vertical" size={8} style={{ width: "100%" }}>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--color-text-secondary)",
+                  lineHeight: 1.5,
+                }}
+              >
                 当前应用在只读位置运行（如从「下载」直接打开），无法就地更新。请将应用移到「应用程序」文件夹后重试，或通过下方按钮前往下载页手动下载新版本。
               </div>
               <Space>
-                <Button type="primary" icon={<LinkOutlined />} onClick={handleOpenReleases}>
+                <Button
+                  type="primary"
+                  icon={<LinkOutlined />}
+                  onClick={handleOpenReleases}
+                >
                   前往下载页
                 </Button>
                 <Button icon={<SyncOutlined />} onClick={handleCheckUpdate}>
@@ -271,9 +305,9 @@ export default function AboutPage() {
           );
         }
         return (
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <div style={{ fontSize: 12, color: 'var(--color-error)' }}>
-              {error || '更新出错'}
+          <Space direction="vertical" size={8} style={{ width: "100%" }}>
+            <div style={{ fontSize: 12, color: "var(--color-error)" }}>
+              {error || "更新出错"}
             </div>
             <Button icon={<SyncOutlined />} onClick={handleCheckUpdate}>
               重试
@@ -325,8 +359,15 @@ export default function AboutPage() {
         >
           {APP_DISPLAY_NAME}
         </div>
-        <div style={{ marginTop: 8, fontSize: 16, color: "var(--color-text-secondary)", fontWeight: 500 }}>
-          v{appVersion || '...'}
+        <div
+          style={{
+            marginTop: 8,
+            fontSize: 16,
+            color: "var(--color-text-secondary)",
+            fontWeight: 500,
+          }}
+        >
+          v{appVersion || "..."}
         </div>
         <div
           style={{
@@ -358,9 +399,7 @@ export default function AboutPage() {
             官网 {OFFICIAL_WEBSITE_URL}
           </span>
         </div>
-        <div style={{ marginTop: 24 }}>
-          {renderUpdateSection()}
-        </div>
+        <div style={{ marginTop: 24 }}>{renderUpdateSection()}</div>
       </div>
     </div>
   );
