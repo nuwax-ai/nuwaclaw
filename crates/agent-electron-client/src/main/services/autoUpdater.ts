@@ -195,7 +195,7 @@ function detectInstallerType(): InstallerType {
 
 let cachedInstallerType: InstallerType | undefined;
 
-function getInstallerType(): InstallerType {
+export function getInstallerType(): InstallerType {
   if (!cachedInstallerType) {
     cachedInstallerType = detectInstallerType();
   }
@@ -207,7 +207,7 @@ function getInstallerType(): InstallerType {
  * - NSIS / mac / linux / dev: electron-updater 原生支持（dev 模式下载有单独 guard）
  * - MSI: 不支持，引导到官网下载安装页
  */
-function canAutoUpdate(): boolean {
+export function canAutoUpdate(): boolean {
   const type = getInstallerType();
   return type !== "msi";
 }
