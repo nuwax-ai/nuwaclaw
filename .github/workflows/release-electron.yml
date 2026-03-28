@@ -147,7 +147,7 @@ jobs:
         working-directory: crates/agent-electron-client
         run: npm run electron-rebuild
 
-      # 缓存内置 Node.js（所有平台）、Git（仅 Windows）和 uv（所有平台）
+      # 缓存内置 Node.js（所有平台）、Git（仅 Windows）、uv（所有平台）和 nuwaxcode（所有平台）
       - name: Cache bundled Node.js
         uses: actions/cache@v4
         with:
@@ -167,7 +167,13 @@ jobs:
           path: crates/agent-electron-client/resources/uv
           key: bundled-uv-v2-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-uv.js') }}
 
-      - name: Prepare bundled resources (uv, node, git)
+      - name: Cache nuwaxcode
+        uses: actions/cache@v4
+        with:
+          path: crates/agent-electron-client/resources/nuwaxcode
+          key: bundled-nuwaxcode-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
+
+      - name: Prepare bundled resources (uv, node, git, nuwaxcode)
         working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}

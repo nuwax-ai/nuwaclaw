@@ -181,6 +181,15 @@ function getEnginePackageDir(engine: AgentEngine): string | null {
  * 使用通用工具 resolveNpmPackageEntry 解析入口文件
  */
 export function findEngineBinary(engine: AgentEngine): string | null {
+  // nuwaxcode：优先使用应用内打包的二进制
+  if (engine === "nuwaxcode") {
+    const bundledPath = getNuwaxcodeBundledBinPath();
+    if (bundledPath) {
+      log.info(`[Engine] nuwaxcode: using bundled binary: ${bundledPath}`);
+      return bundledPath;
+    }
+  }
+
   const packageDir = getEnginePackageDir(engine);
   if (!packageDir) return null;
 

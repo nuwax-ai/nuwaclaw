@@ -2,15 +2,24 @@
  * 单元测试: autoUpdater - 安装类型检测
  *
  * 测试 Windows 安装类型检测逻辑（NSIS vs MSI）
+ * 通过 mock electron 和 fs 模块验证 getInstallerType() / canAutoUpdate() 的行为
  *
- * 注意: detectInstallerType 是私有函数，这里测试其行为
- * 通过模拟文件系统环境验证检测逻辑的正确性
+ * 注意: detectInstallerType 是私有函数，但 getInstallerType / canAutoUpdate 已导出
+ * 每个测试重置模块缓存以清除 cachedInstallerType
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import * as fs from "fs";
 
-// Mock electron-log
+// ── Mocks ──
+
+const mockExistsSync = vi.fn((...args: unknown[]) => false);
+const mockReaddirSync = vi.fn((...args: unknown[]) => [] as string[]);
+
+vi.mock("fs", () => ({
+  existsSync: (...args: unknown[]) => mockExistsSync(...args),
+  readdirSync: (...args: unknown[]) => mockReaddirSync(...args),
+}));
+
 vi.mock("electron-log", () => ({
   default: {
     info: vi.fn(),
@@ -19,229 +28,224 @@ vi.mock("electron-log", () => ({
   },
 }));
 
-describe("autoUpdater - Windows installer type detection", () => {
-  // 测试文件名匹配模式
-  describe("文件名匹配模式", () => {
-    it("标准 NSIS 卸载程序格式: Uninstall {productName}.exe", () => {
-      const pattern = /^Uninstall .*\.exe$/i;
-      expect(pattern.test("Uninstall NuwaClaw.exe")).toBe(true);
-      expect(pattern.test("Uninstall Nuwax Agent.exe")).toBe(true);
-      expect(pattern.test("Uninstall MyApp.exe")).toBe(true);
-      expect(pattern.test("uninstall MyApp.exe")).toBe(true);
-      expect(pattern.test("Setup.exe")).toBe(false);
+vi.mock("electron", () => ({
+  app: {
+    isPackaged: true,
+    getName: () => "NuwaClaw",
+    getPath: (name: string) => {
+      if (name === "exe")
+        return "C:\\Users\\user\\AppData\\Local\\Programs\\NuwaClaw\\NuwaClaw.exe";
+      return "";
+    },
+    getAppPath: () => "/app",
+    getVersion: () => "0.9.4",
+  },
+  BrowserWindow: class {},
+  shell: {},
+  dialog: {},
+  net: {},
+}));
+
+vi.mock("electron-updater", () => ({
+  autoUpdater: {
+    on: vi.fn(),
+    setFeedURL: vi.fn(),
+    checkForUpdates: vi.fn(),
+    downloadUpdate: vi.fn(),
+    quitAndInstall: vi.fn(),
+    autoDownload: false,
+    autoInstallOnAppQuit: true,
+  },
+}));
+
+// ── Helper ──
+
+/** 重置模块缓存并重新导入，确保 cachedInstallerType 被清除 */
+async function importFresh() {
+  // 清除已缓存的模块
+  const moduleId = require.resolve("./autoUpdater");
+  delete require.cache[moduleId];
+  // vi.resetModules 也清 vite 的模块缓存
+  vi.resetModules();
+  return import("./autoUpdater");
+}
+
+/** 让 process.platform 模拟为 win32 */
+function mockWin32() {
+  Object.defineProperty(process, "platform", {
+    value: "win32",
+    configurable: true,
+  });
+}
+
+/** 让 process.platform 模拟为 darwin */
+function mockDarwin() {
+  Object.defineProperty(process, "platform", {
+    value: "darwin",
+    configurable: true,
+  });
+}
+
+/** 让 process.platform 模拟为 linux */
+function mockLinux() {
+  Object.defineProperty(process, "platform", {
+    value: "linux",
+    configurable: true,
+  });
+}
+
+/** 恢复 platform */
+function restorePlatform() {
+  // vitest 在 Node 中 process.platform 原值已丢失，记录初始值
+  // 这里不做恢复，每个测试自己设 platform
+}
+
+// ── Tests ──
+
+describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
+  beforeEach(() => {
+    mockExistsSync.mockReset();
+    mockReaddirSync.mockReset();
+    mockExistsSync.mockReturnValue(false);
+    mockReaddirSync.mockReturnValue([]);
+  });
+
+  describe("macOS / Linux 平台", () => {
+    it("macOS 应返回 'mac'", async () => {
+      mockDarwin();
+      const { getInstallerType } = await importFresh();
+      expect(getInstallerType()).toBe("mac");
     });
 
-    it("NSIS 通用卸载程序格式: unins000.exe, unins001.exe", () => {
-      const pattern = /^unins\d{3}\.exe$/i;
-      expect(pattern.test("unins000.exe")).toBe(true);
-      expect(pattern.test("unins001.exe")).toBe(true);
-      expect(pattern.test("unins123.exe")).toBe(true);
-      expect(pattern.test("unins12.exe")).toBe(false);
-      expect(pattern.test("unins1234.exe")).toBe(false);
-      expect(pattern.test("uninstall.exe")).toBe(false);
+    it("Linux 应返回 'linux'", async () => {
+      mockLinux();
+      const { getInstallerType } = await importFresh();
+      expect(getInstallerType()).toBe("linux");
+    });
+  });
+
+  describe("Windows NSIS 检测", () => {
+    beforeEach(() => {
+      mockWin32();
     });
 
-    describe("改进后的匹配逻辑（避免误判）", () => {
-      it("Uninstall*.exe 模式应该匹配", () => {
-        const files = [
-          "Uninstall.exe",
-          "Uninstall-1.0.0.exe",
-          "uninstall.exe",
-          "uninstall_app.exe",
-        ];
-        const matched: string[] = [];
-
-        for (const f of files) {
-          const lowerName = f.toLowerCase();
-          if (lowerName.startsWith("uninstall") && lowerName.endsWith(".exe")) {
-            matched.push(f);
-          }
-        }
-
-        expect(matched).toEqual([
-          "Uninstall.exe",
-          "Uninstall-1.0.0.exe",
-          "uninstall.exe",
-          "uninstall_app.exe",
-        ]);
-      });
-
-      it("unins*.exe 但不是 uninsNNN.exe 的应该匹配", () => {
-        const files = ["unins.exe", "unins_setup.exe", "uninstaller.exe"];
-        const matched: string[] = [];
-
-        for (const f of files) {
-          const lowerName = f.toLowerCase();
-          const isGenericNsis = /^unins\d{3}\.exe$/i.test(f);
-          if (
-            lowerName.startsWith("unins") &&
-            !isGenericNsis &&
-            lowerName.endsWith(".exe")
-          ) {
-            matched.push(f);
-          }
-        }
-
-        // unins.exe, unins_setup.exe, uninstaller.exe 都以 unins 开头
-        // 且都不是 uninsNNN.exe 模式，都应该匹配
-        expect(matched).toEqual([
-          "unins.exe",
-          "unins_setup.exe",
-          "uninstaller.exe",
-        ]);
-      });
-
-      it("不应该匹配非卸载程序文件", () => {
-        const shouldNotMatch = [
-          "uninstaller_helper.exe", // 可能被误判
-          "myuninstalltool.exe", // 不是 uninstall 开头
-          "setup.exe", // 完全不相关
-          "nuwaclaw.exe", // 主程序
-          "uninstall.dat", // 不是 .exe
-          "uninstall", // 没有扩展名
-        ];
-
-        const lowerName = (name: string) => name.toLowerCase();
-
-        // 模拟检测逻辑
-        const detected = shouldNotMatch.filter((f) => {
-          const n = lowerName(f);
-          return (
-            (n.startsWith("uninstall") && n.endsWith(".exe")) ||
-            (n.startsWith("unins") &&
-              !/^unins\d{3}\.exe$/i.test(f) &&
-              n.endsWith(".exe"))
-          );
-        });
-
-        // uninstaller_helper.exe 会被匹配（这是预期行为，因为它确实是卸载相关）
-        // 但其他文件不应该被匹配
-        expect(detected).not.toContain("setup.exe");
-        expect(detected).not.toContain("nuwaclaw.exe");
-        expect(detected).not.toContain("uninstall.dat");
-        expect(detected).not.toContain("uninstall");
-      });
-    });
-
-    it("uninsNNN.exe 优先级高于 unins*.exe", () => {
-      const files = [
-        "unins000.exe",
-        "unins.exe",
-        "Uninstall MyApp.exe",
-        "app.exe",
-      ];
-
-      // 优先级1: uninsNNN.exe 应该首先被找到
-      const genericNsis = files.find((f) => /^unins\d{3}\.exe$/i.test(f));
-      expect(genericNsis).toBe("unins000.exe");
-
-      // 优先级2: 在没有 uninsNNN.exe 的列表中，应该找到 unins.exe 或 Uninstall*.exe
-      const filesWithoutGeneric = files.filter(
-        (f) => !/^unins\d{3}\.exe$/i.test(f),
+    it("标准 NSIS: 存在 'Uninstall NuwaClaw.exe' 应返回 'nsis'", async () => {
+      mockExistsSync.mockImplementation((...args: unknown[]) =>
+        String(args[0]).includes("Uninstall NuwaClaw.exe"),
       );
-      const otherUninstaller = filesWithoutGeneric.find((f) => {
-        const n = f.toLowerCase();
-        return (
-          (n.startsWith("uninstall") && n.endsWith(".exe")) ||
-          (n.startsWith("unins") && n.endsWith(".exe"))
-        );
-      });
-      // unins.exe 匹配 unins* 模式，应该被找到
-      expect(otherUninstaller).toBe("unins.exe");
+
+      const { getInstallerType } = await importFresh();
+      expect(getInstallerType()).toBe("nsis");
     });
 
-    it("当只有 unins*.exe 和 Uninstall*.exe 时，unins*.exe 优先", () => {
-      const files = ["unins.exe", "Uninstall MyApp.exe", "app.exe"];
+    it("通用 NSIS: 存在 unins000.exe 应返回 'nsis'", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe", "resources", "unins000.exe"]);
 
-      // unins.exe 和 Uninstall MyApp.exe 都匹配
-      // 但 unins*.exe 在列表中更靠前（find 返回第一个匹配）
-      const found = files.find((f) => {
-        const n = f.toLowerCase();
-        return (
-          (n.startsWith("uninstall") && n.endsWith(".exe")) ||
-          (n.startsWith("unins") &&
-            !/^unins\d{3}\.exe$/i.test(f) &&
-            n.endsWith(".exe"))
-        );
-      });
+      const { getInstallerType } = await importFresh();
+      expect(getInstallerType()).toBe("nsis");
+    });
 
-      expect(found).toBe("unins.exe");
+    it("通用 NSIS: unins001.exe 也应返回 'nsis'", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe", "unins001.exe"]);
+
+      const { getInstallerType } = await importFresh();
+      expect(getInstallerType()).toBe("nsis");
+    });
+
+    it("方式3: Uninstall.exe (无产品名) 应返回 'nsis'", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe", "Uninstall.exe"]);
+
+      const { getInstallerType } = await importFresh();
+      expect(getInstallerType()).toBe("nsis");
+    });
+
+    it("方式3: unins.exe 应返回 'nsis'", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe", "unins.exe"]);
+
+      const { getInstallerType } = await importFresh();
+      expect(getInstallerType()).toBe("nsis");
+    });
+
+    it("优先级: 标准 NSIS 优先于通用 NSIS", async () => {
+      mockExistsSync.mockImplementation((...args: unknown[]) =>
+        String(args[0]).includes("Uninstall NuwaClaw.exe"),
+      );
+      // 即使目录中也有 unins000.exe，应该先走 existsSync 的标准检测
+      mockReaddirSync.mockReturnValue(["app.exe", "unins000.exe"]);
+
+      const { getInstallerType } = await importFresh();
+      expect(getInstallerType()).toBe("nsis");
+      // readdirSync 不应被调用（标准检测先命中）
+      expect(mockReaddirSync).not.toHaveBeenCalled();
     });
   });
 
-  // 检测优先级
-  describe("检测优先级", () => {
-    it("应该按以下优先级检测: 标准 NSIS → 通用 NSIS → 任意 uninstall → MSI fallback", () => {
-      // 优先级验证:
-      // 1. 标准: "Uninstall {productName}.exe"
-      // 2. 通用: "unins000.exe" 等
-      // 3. 任意: "uninstall*.exe" 或 "unins*.exe"
-      // 4. fallback: MSI
-      expect(["standard", "generic", "any", "msi"]).toEqual([
-        "standard",
-        "generic",
-        "any",
-        "msi",
+  describe("Windows MSI 检测 (fallback)", () => {
+    beforeEach(() => {
+      mockWin32();
+    });
+
+    it("目录中无卸载程序文件应返回 'msi'", async () => {
+      mockReaddirSync.mockReturnValue(["app.exe", "resources", "locales"]);
+
+      const { getInstallerType } = await importFresh();
+      expect(getInstallerType()).toBe("msi");
+    });
+
+    it("readdirSync 抛出异常应 fallback 为 'msi'", async () => {
+      mockReaddirSync.mockImplementation(() => {
+        throw new Error("ENOENT");
+      });
+
+      const { getInstallerType } = await importFresh();
+      expect(getInstallerType()).toBe("msi");
+    });
+
+    it("目录为空应返回 'msi'", async () => {
+      mockReaddirSync.mockReturnValue([]);
+
+      const { getInstallerType } = await importFresh();
+      expect(getInstallerType()).toBe("msi");
+    });
+
+    it("不应将无关文件误判为 NSIS", async () => {
+      mockReaddirSync.mockReturnValue([
+        "app.exe",
+        "nuwaclaw.exe",
+        "setup.exe",
+        "uninstall.dat",
+        "uninstall", // 无扩展名
+        "helper.dll",
       ]);
+
+      const { getInstallerType } = await importFresh();
+      expect(getInstallerType()).toBe("msi");
     });
   });
 
-  // 平台检测
-  describe("平台检测", () => {
-    it("非 Windows 平台应返回对应平台类型", () => {
-      expect(process.platform).toBeDefined();
-      expect(["darwin", "linux", "win32"]).toContain(process.platform);
+  describe("canAutoUpdate", () => {
+    it("NSIS 应支持自动更新", async () => {
+      mockWin32();
+      mockExistsSync.mockImplementation((...args: unknown[]) =>
+        String(args[0]).includes("Uninstall NuwaClaw.exe"),
+      );
+
+      const { canAutoUpdate } = await importFresh();
+      expect(canAutoUpdate()).toBe(true);
     });
-  });
 
-  // 错误处理
-  describe("错误处理", () => {
-    it("readdirSync 失败时应继续尝试其他检测方式", () => {
-      // 验证即使目录读取失败，也能优雅降级
-      expect(() => {
-        // 模拟 readdirSync 抛出错误
-        try {
-          fs.readdirSync("/non/existent/path");
-        } catch (e) {
-          // 预期会抛出错误
-          expect(e).toBeDefined();
-        }
-      }).not.toThrow();
+    it("MSI 不支持自动更新", async () => {
+      mockWin32();
+      mockReaddirSync.mockReturnValue(["app.exe"]);
+
+      const { canAutoUpdate } = await importFresh();
+      expect(canAutoUpdate()).toBe(false);
     });
-  });
 
-  // 缓存行为
-  describe("缓存行为", () => {
-    it("getInstallerType 应缓存检测结果", () => {
-      // 验证缓存机制避免重复文件系统操作
-      const cache = new Map<string, string>();
-      const key = "installer-type";
-
-      cache.set(key, "nsis");
-      expect(cache.get(key)).toBe("nsis");
-
-      // 后续调用应返回缓存值
-      expect(cache.get(key)).toBe("nsis");
-      expect(cache.size).toBe(1);
-    });
-  });
-
-  // 性能优化验证
-  describe("性能优化", () => {
-    it("应该只调用一次 readdirSync", () => {
-      // 验证优化后的代码只读取目录一次
-      const readdirCalls: number[] = [];
-      const mockReaddirSync = vi.fn(() => {
-        readdirCalls.push(Date.now());
-        return ["app.exe", "resources"];
-      });
-
-      // 模拟多次检测逻辑
-      mockReaddirSync(); // 第一次调用
-      mockReaddirSync(); // 如果不优化会有第二次调用
-
-      expect(readdirCalls.length).toBe(2);
-      // 实际代码中应该只调用一次，复用结果
+    it("macOS 应支持自动更新", async () => {
+      mockDarwin();
+      const { canAutoUpdate } = await importFresh();
+      expect(canAutoUpdate()).toBe(true);
     });
   });
 });

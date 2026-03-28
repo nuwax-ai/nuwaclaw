@@ -700,7 +700,7 @@ export default function DependenciesPage() {
                 {nuwaxcodeBundled?.available && nuwaxcodeBundled.version && (
                   <span className={styles.serviceDescription}>
                     {" "}
-                    v{nuwaxcodeBundled.version}
+                    {nuwaxcodeBundled.version}
                   </span>
                 )}
               </div>

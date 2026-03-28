@@ -98,6 +98,7 @@ help:
 	@echo "  electron-prepare-lanproxy - Prepare lanproxy binary for Electron"
 	@echo "  electron-prepare-node    - Prepare bundled Node.js 24 for Electron"
 	@echo "  electron-prepare-uv      - Prepare bundled uv for Electron"
+	@echo "  electron-prepare-nuwaxcode - Prepare bundled nuwaxcode for Electron"
 	@echo "  electron-prepare         - Full prepare (install + rebuild + all binaries)"
 	@echo "  electron-dev             - Run Electron dev mode (default: NUWAX_AGENT_LOG_FULL_SECRETS=1, full keys in logs)"
 	@echo ""
@@ -469,8 +470,13 @@ electron-prepare-mcp-proxy:
 	@echo ">>> Preparing nuwax-mcp-stdio-proxy for Electron..."
 	cd crates/$(ELECTRON_CLIENT) && npm run prepare:mcp-proxy
 
+.PHONY: electron-prepare-nuwaxcode
+electron-prepare-nuwaxcode:
+	@echo ">>> Preparing bundled nuwaxcode for Electron..."
+	cd crates/$(ELECTRON_CLIENT) && npm run prepare:nuwaxcode
+
 .PHONY: electron-prepare
-electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy
+electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-nuwaxcode
 	@echo ">>> Electron client prepared successfully"
 
 .PHONY: electron-dev

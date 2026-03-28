@@ -476,7 +476,6 @@ export function getLanproxyBinPath(): string {
 // 打包时 extraResources 将 resources/nuwaxcode/ 复制到应用内
 // 运行时根据 platform-arch 选择正确二进制
 export function getNuwaxcodeBundledBinPath(): string | null {
-  const resourcesPath = getResourcesPath();
   const platformMap: Record<string, string> = {
     darwin: "darwin",
     linux: "linux",
@@ -492,7 +491,7 @@ export function getNuwaxcodeBundledBinPath(): string | null {
   const binary = platform === "windows" ? "nuwaxcode.exe" : "nuwaxcode";
 
   const bundledPath = path.join(
-    resourcesPath,
+    getResourcesPath(),
     "nuwaxcode",
     `${platform}-${arch}`,
     "bin",
@@ -500,19 +499,6 @@ export function getNuwaxcodeBundledBinPath(): string | null {
   );
   if (fs.existsSync(bundledPath)) {
     return bundledPath;
-  }
-
-  // 开发模式：检查项目 resources 目录
-  const devPath = path.join(
-    process.cwd(),
-    "resources",
-    "nuwaxcode",
-    `${platform}-${arch}`,
-    "bin",
-    binary,
-  );
-  if (fs.existsSync(devPath)) {
-    return devPath;
   }
 
   return null;

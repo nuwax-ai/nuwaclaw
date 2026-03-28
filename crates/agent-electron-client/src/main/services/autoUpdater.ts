@@ -190,7 +190,7 @@ function detectInstallerType(): InstallerType {
     return "msi";
   }
 
-  return "nsis"; // 非平台的 fallback
+  return "nsis"; // 非预期平台 fallback（实际 win32/mac/linux 已覆盖）
 }
 
 let cachedInstallerType: InstallerType | undefined;

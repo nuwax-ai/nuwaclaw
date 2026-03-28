@@ -512,15 +512,23 @@ export default function AboutPage() {
               {debugInfo.canAutoUpdate ? "是" : "否"}
             </span>
 
-            <span style={{ color: "var(--color-text-secondary)" }}>
-              应用目录:
-            </span>
-            <span style={{ wordBreak: "break-all" }}>{debugInfo.appDir}</span>
+            {!debugInfo.isPackaged && (
+              <>
+                <span style={{ color: "var(--color-text-secondary)" }}>
+                  应用目录:
+                </span>
+                <span style={{ wordBreak: "break-all" }}>
+                  {debugInfo.appDir}
+                </span>
 
-            <span style={{ color: "var(--color-text-secondary)" }}>
-              可执行文件:
-            </span>
-            <span style={{ wordBreak: "break-all" }}>{debugInfo.exePath}</span>
+                <span style={{ color: "var(--color-text-secondary)" }}>
+                  可执行文件:
+                </span>
+                <span style={{ wordBreak: "break-all" }}>
+                  {debugInfo.exePath}
+                </span>
+              </>
+            )}
 
             {debugInfo.uninstallerFiles &&
               debugInfo.uninstallerFiles.length > 0 && (

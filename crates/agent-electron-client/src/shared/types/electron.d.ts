@@ -407,6 +407,21 @@ export interface AppAPI {
   installUpdate: () => Promise<{ success: boolean; error?: string }>;
   getUpdateState: () => Promise<UpdateState>;
   openReleasesPage: () => Promise<{ success: boolean }>;
+  getUpdateDebugInfo: () => Promise<{
+    success: boolean;
+    platform?: string;
+    arch?: string;
+    isPackaged?: boolean;
+    appVersion?: string;
+    appName?: string;
+    installerType?: string;
+    canAutoUpdate?: boolean;
+    appDir?: string | null;
+    exePath?: string;
+    uninstallerFiles?: string[];
+    totalAppFiles?: number;
+    error?: string;
+  }>;
   getDeviceId: () => Promise<string>;
 }
 
