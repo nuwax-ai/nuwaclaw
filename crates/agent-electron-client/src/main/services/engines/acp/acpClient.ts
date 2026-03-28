@@ -21,7 +21,10 @@ import * as os from "os";
 import * as fs from "fs";
 import { app } from "electron";
 import log from "electron-log";
-import { getAppEnv } from "../../system/dependencies";
+import {
+  getAppEnv,
+  getNuwaxcodeBundledBinPath,
+} from "../../system/dependencies";
 import { APP_DATA_DIR_NAME } from "../../constants";
 import { APP_NAME_IDENTIFIER } from "../../../../shared/constants";
 import { isWindows } from "../../system/shellEnv";
@@ -349,42 +352,14 @@ export function resolveAcpBinary(engine: "claude-code" | "nuwaxcode"): {
  * Logic mirrors nuwaxcode/bin/nuwaxcode JS wrapper.
  */
 function resolveNuwaxcodeNativeBinary(): string | null {
-  const platformMap: Record<string, string> = {
-    darwin: "darwin",
-    linux: "linux",
-    win32: "windows",
-  };
-  const archMap: Record<string, string> = {
-    x64: "x64",
-    arm64: "arm64",
-    arm: "arm",
-  };
-
-  const platform = platformMap[os.platform()] || os.platform();
-  const arch = archMap[os.arch()] || os.arch();
-  const binary = platform === "windows" ? "nuwaxcode.exe" : "nuwaxcode";
-  const base = `nuwaxcode-${platform}-${arch}`;
-
-  // Search from nuwaxcode package dir upwards for the platform package
-  const nuwaxcodeDir = getAcpPackageDir("nuwaxcode");
-  if (!nuwaxcodeDir) return null;
-
-  let current = path.dirname(nuwaxcodeDir); // node_modules/
-  while (true) {
-    const candidate = path.join(current, base, "bin", binary);
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-    // Also check inside node_modules/ if current is not already
-    const nmCandidate = path.join(current, "node_modules", base, "bin", binary);
-    if (fs.existsSync(nmCandidate)) {
-      return nmCandidate;
-    }
-    const parent = path.dirname(current);
-    if (parent === current) break;
-    current = parent;
+  // 应用内打包的二进制（唯一来源）
+  const bundledPath = getNuwaxcodeBundledBinPath();
+  if (bundledPath) {
+    log.info("[AcpClient] nuwaxcode: 使用应用内打包二进制:", bundledPath);
+    return bundledPath;
   }
 
+  log.error("[AcpClient] nuwaxcode: 未找到应用内打包二进制");
   return null;
 }
 
