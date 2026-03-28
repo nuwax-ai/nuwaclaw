@@ -39,6 +39,9 @@ export default function AboutPage() {
   const simulatedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
     null,
   );
+  /** 调试模式：显示升级检测详细信息 */
+  const [showDebugInfo, setShowDebugInfo] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
 
   // 监听主进程推送的更新状态
   // 注意：preload 的 on() 已剥离 IPC event，callback 直接收到 (...args)
@@ -195,6 +198,22 @@ export default function AboutPage() {
       await window.electronAPI?.shell?.openExternal(OFFICIAL_WEBSITE_URL);
     } catch (e) {
       console.error("[AboutPage] openExternal failed:", e);
+    }
+  }, []);
+
+  /** 获取调试信息 */
+  const handleGetDebugInfo = useCallback(async () => {
+    try {
+      const info = await window.electronAPI?.app?.getUpdateDebugInfo?.();
+      if (info && info.success) {
+        setDebugInfo(info);
+        setShowDebugInfo(true);
+      } else {
+        message.error("获取调试信息失败");
+      }
+    } catch (e) {
+      console.error("[AboutPage] getUpdateDebugInfo failed:", e);
+      message.error("获取调试信息失败");
     }
   }, []);
 
@@ -401,6 +420,125 @@ export default function AboutPage() {
         </div>
         <div style={{ marginTop: 24 }}>{renderUpdateSection()}</div>
       </div>
+
+      {/* 调试面板 */}
+      <div style={{ marginTop: 16, textAlign: "center" }}>
+        <Button
+          type="link"
+          size="small"
+          onClick={
+            showDebugInfo ? () => setShowDebugInfo(false) : handleGetDebugInfo
+          }
+          style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}
+        >
+          {showDebugInfo ? "隐藏" : "显示"}调试信息
+        </Button>
+      </div>
+
+      {showDebugInfo && debugInfo && (
+        <div
+          style={{
+            marginTop: 16,
+            padding: 16,
+            border: "1px dashed var(--color-border)",
+            borderRadius: 8,
+            background: "var(--color-bg-elevated)",
+            fontSize: 12,
+            fontFamily: "monospace",
+            textAlign: "left",
+          }}
+        >
+          <div style={{ marginBottom: 8, fontWeight: 600 }}>
+            升级检测调试信息
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "auto 1fr",
+              gap: "8px 16px",
+            }}
+          >
+            <span style={{ color: "var(--color-text-secondary)" }}>平台:</span>
+            <span>{debugInfo.platform}</span>
+
+            <span style={{ color: "var(--color-text-secondary)" }}>架构:</span>
+            <span>{debugInfo.arch}</span>
+
+            <span style={{ color: "var(--color-text-secondary)" }}>
+              打包状态:
+            </span>
+            <span>{debugInfo.isPackaged ? "是" : "否 (开发模式)"}</span>
+
+            <span style={{ color: "var(--color-text-secondary)" }}>
+              应用版本:
+            </span>
+            <span>{debugInfo.appVersion}</span>
+
+            <span style={{ color: "var(--color-text-secondary)" }}>
+              应用名称:
+            </span>
+            <span>{debugInfo.appName}</span>
+
+            <span style={{ color: "var(--color-text-secondary)" }}>
+              安装类型:
+            </span>
+            <span
+              style={{
+                color:
+                  debugInfo.installerType === "nsis"
+                    ? "var(--color-success)"
+                    : debugInfo.installerType === "msi"
+                      ? "var(--color-warning)"
+                      : "inherit",
+                fontWeight: 500,
+              }}
+            >
+              {debugInfo.installerType?.toUpperCase()}
+              {debugInfo.installerType === "nsis" && " ✅ 支持应用内升级"}
+              {debugInfo.installerType === "msi" && " ⚠️ 需手动下载"}
+            </span>
+
+            <span style={{ color: "var(--color-text-secondary)" }}>
+              可自动更新:
+            </span>
+            <span
+              style={{
+                color: debugInfo.canAutoUpdate
+                  ? "var(--color-success)"
+                  : "var(--color-error)",
+                fontWeight: 500,
+              }}
+            >
+              {debugInfo.canAutoUpdate ? "是" : "否"}
+            </span>
+
+            <span style={{ color: "var(--color-text-secondary)" }}>
+              应用目录:
+            </span>
+            <span style={{ wordBreak: "break-all" }}>{debugInfo.appDir}</span>
+
+            <span style={{ color: "var(--color-text-secondary)" }}>
+              可执行文件:
+            </span>
+            <span style={{ wordBreak: "break-all" }}>{debugInfo.exePath}</span>
+
+            {debugInfo.uninstallerFiles &&
+              debugInfo.uninstallerFiles.length > 0 && (
+                <>
+                  <span style={{ color: "var(--color-text-secondary)" }}>
+                    卸载程序:
+                  </span>
+                  <span>{debugInfo.uninstallerFiles.join(", ")}</span>
+                </>
+              )}
+
+            <span style={{ color: "var(--color-text-secondary)" }}>
+              目录文件数:
+            </span>
+            <span>{debugInfo.totalAppFiles}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

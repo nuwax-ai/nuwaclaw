@@ -452,6 +452,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     installUpdate: () => ipcRenderer.invoke("app:installUpdate"),
     getUpdateState: () => ipcRenderer.invoke("app:getUpdateState"),
     openReleasesPage: () => ipcRenderer.invoke("app:openReleasesPage"),
+    getUpdateDebugInfo: () => ipcRenderer.invoke("app:getUpdateDebugInfo"),
     getDeviceId: () => ipcRenderer.invoke("app:getDeviceId"),
   },
 

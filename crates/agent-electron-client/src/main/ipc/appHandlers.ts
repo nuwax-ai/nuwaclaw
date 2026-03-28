@@ -310,6 +310,55 @@ export function registerAppHandlers(ctx: HandlerContext): void {
     return { success: true };
   });
 
+  // 调试：获取升级检测详细信息
+  ipcMain.handle("app:getUpdateDebugInfo", async () => {
+    try {
+      const { getInstallerType, canAutoUpdate } =
+        await import("../services/autoUpdater");
+      const installerType = getInstallerType();
+      const canUpdate = canAutoUpdate();
+
+      // 获取应用目录和文件列表（仅用于调试）
+      let appFiles: string[] = [];
+      if (process.platform === "win32") {
+        try {
+          const appDir = path.dirname(app.getPath("exe"));
+          appFiles = require("fs").readdirSync(appDir);
+        } catch (e) {
+          log.error("[IPC] Failed to read app directory for debug:", e);
+        }
+      }
+
+      // 查找可能的卸载程序
+      const uninstallers = appFiles.filter((f) => {
+        const lower = f.toLowerCase();
+        return lower.startsWith("uninstall") || lower.startsWith("unins");
+      });
+
+      return {
+        success: true,
+        platform: process.platform,
+        arch: process.arch,
+        isPackaged: app.isPackaged,
+        appVersion: app.getVersion(),
+        appName: app.getName(),
+        appPath: app.getAppPath(),
+        exePath: app.getPath("exe"),
+        installerType,
+        canAutoUpdate: canUpdate,
+        appDir:
+          process.platform === "win32"
+            ? path.dirname(app.getPath("exe"))
+            : null,
+        uninstallerFiles: uninstallers,
+        totalAppFiles: appFiles.length,
+      };
+    } catch (error) {
+      log.error("[IPC] app:getUpdateDebugInfo failed:", error);
+      return { success: false, error: String(error) };
+    }
+  });
+
   // Permissions (macOS)
   ipcMain.handle("permissions:check", async () => {
     if (process.platform !== "darwin") {
@@ -641,7 +690,9 @@ export function registerAppHandlers(ctx: HandlerContext): void {
                 `[IPC] webview:openWindow ticket cookie sync attempt ${attempt}/${maxRetries} failed, retrying...`,
                 error,
               );
-              await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+              await new Promise((resolve) =>
+                setTimeout(resolve, 100 * attempt),
+              );
             }
           }
         };
