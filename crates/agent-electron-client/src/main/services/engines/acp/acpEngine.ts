@@ -591,7 +591,7 @@ export class AcpEngine extends EventEmitter {
       // 1. Reject local prompt immediately for fast UX feedback.
       const reject = this.activePromptRejects.get(sessionId);
       if (reject) {
-        reject(new Error("Session cancelled"));
+        reject(new Error("会话已取消"));
         this.activePromptRejects.delete(sessionId);
       }
 
