@@ -24,6 +24,7 @@
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const { URL } = require('url');
 const { execSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
@@ -45,9 +46,18 @@ const PLATFORM_MAP = {
   'win32-x64': 'nuwaxcode-windows-x64',
 };
 
+// 资源目录名需与运行时 getNuwaxcodeBundledBinPath() 一致
+const RESOURCE_PLATFORM_KEY_MAP = {
+  'win32-x64': 'windows-x64',
+};
+
 function getPlatformKey() {
   const a = process.env.TARGET_ARCH || process.arch;
   return `${process.platform}-${a}`;
+}
+
+function getResourcePlatformKey(key) {
+  return RESOURCE_PLATFORM_KEY_MAP[key] || key;
 }
 
 function isWindows(key) {
@@ -71,9 +81,10 @@ function copyFromDist(key) {
     return false;
   }
 
+  const resourceKey = getResourcePlatformKey(key);
   const binary = getBinaryName(key);
   const srcPath = path.join(nuwaxcodeDist, distName, 'bin', binary);
-  const destDir = path.join(resDir, key, 'bin');
+  const destDir = path.join(resDir, resourceKey, 'bin');
   const destPath = path.join(destDir, binary);
 
   if (!fs.existsSync(srcPath)) {
@@ -137,26 +148,30 @@ function download(url, preferredFilename) {
     }
 
     fs.mkdirSync(cacheDir, { recursive: true });
-    const stream = fs.createWriteStream(file);
     const doRequest = (reqUrl, redirects) => {
       if (redirects > 10) return reject(new Error('Too many redirects'));
       https.get(reqUrl, { headers }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          stream.close();
-          try { fs.unlinkSync(file); } catch (_) {}
+          res.resume();
           const loc = res.headers.location;
           const nextUrl = loc.startsWith('http') ? loc : new URL(loc, reqUrl).href;
-          return doRequest(nextUrl, redirects + 1).then(resolve).catch(reject);
+          doRequest(nextUrl, redirects + 1);
+          return;
         }
         if (res.statusCode !== 200) {
-          stream.close();
+          res.resume();
           try { fs.unlinkSync(file); } catch (_) {}
           return reject(new Error(`HTTP ${res.statusCode} for ${reqUrl}`));
         }
+        const stream = fs.createWriteStream(file);
         res.pipe(stream);
         stream.on('finish', () => { stream.close(); resolve(file); });
-        stream.on('error', (e) => { stream.close(); reject(e); });
-      }).on('error', (e) => { stream.close(); reject(e); });
+        stream.on('error', (e) => {
+          stream.close();
+          try { fs.unlinkSync(file); } catch (_) {}
+          reject(e);
+        });
+      }).on('error', reject);
     };
     doRequest(url, 0);
   });
@@ -172,8 +187,9 @@ async function downloadFromRelease(key) {
     return false;
   }
 
+  const resourceKey = getResourcePlatformKey(key);
   const binary = getBinaryName(key);
-  const destDir = path.join(resDir, key, 'bin');
+  const destDir = path.join(resDir, resourceKey, 'bin');
   const destPath = path.join(destDir, binary);
 
   // 检查是否已是最新（版本匹配 + 文件存在）

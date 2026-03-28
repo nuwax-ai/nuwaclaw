@@ -7,6 +7,7 @@
 
 import * as path from "path";
 import * as fs from "fs";
+import * as os from "os";
 import { spawn, execSync } from "child_process";
 import { app } from "electron";
 import log from "electron-log";
