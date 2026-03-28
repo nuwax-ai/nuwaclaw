@@ -13,6 +13,7 @@ logs/
 
 book
 .DS_Store
+.pi/
 
 # vcpkg：软链接或项目内安装目录，由 make setup-vcpkg 使用
 vcpkg
