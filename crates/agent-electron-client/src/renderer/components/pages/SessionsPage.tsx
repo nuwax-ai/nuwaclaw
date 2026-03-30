@@ -20,6 +20,7 @@ import {
   syncCookieAndGetNewSessionUrl,
   syncCookieAndGetChatUrl,
 } from "../../services/utils/sessionUrl";
+import { logger } from "../../services/utils/logService";
 import { APP_DISPLAY_NAME } from "@shared/constants";
 import type { DetailedSession } from "@shared/types/sessions";
 import styles from "../../styles/components/SessionsPage.module.css";
@@ -59,6 +60,38 @@ function SessionsPage({
       })
       .catch(() => {});
   }, []);
+
+  // Debug: log webview navigation events to track login redirects
+  useEffect(() => {
+    const el = webviewRef.current as any;
+    if (!el || view !== "webview") return;
+
+    const onDidNavigate = (e: any) => {
+      const url: string = e.url || "(unknown)";
+      const isLogin = url.includes("/login");
+      const level = isLogin ? "warn" : "info";
+      logger[level](
+        `[SessionsPage][WebviewNav] did-navigate${isLogin ? " ⚠️ LOGIN DETECTED" : ""}`,
+        "SessionsPage",
+        { url, httpCode: e.httpResponseCode, isLogin },
+      );
+    };
+    const onWillRedirect = (e: any) => {
+      logger.info("[SessionsPage][WebviewNav] will-redirect", "SessionsPage", {
+        from: e.oldURL,
+        to: e.newURL,
+      });
+    };
+
+    el.addEventListener("did-navigate", onDidNavigate);
+    el.addEventListener("did-navigate-in-page", onDidNavigate);
+    el.addEventListener("will-redirect", onWillRedirect);
+    return () => {
+      el.removeEventListener("did-navigate", onDidNavigate);
+      el.removeEventListener("did-navigate-in-page", onDidNavigate);
+      el.removeEventListener("will-redirect", onWillRedirect);
+    };
+  }, [view, webviewUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Notify parent when entering/leaving webview
   useEffect(() => {
