@@ -537,3 +537,117 @@ describe("UnifiedAgentService.listAllSessionsDetailed — 仅返回 ready 引擎
     expect(result).toEqual(readySessions);
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// warmupEngine：nuwaxcode 热启动预创建
+// ────────────────────────────────────────────────────────────────────────────
+describe("UnifiedAgentService — warmupEngine 热启动", () => {
+  const baseConfig = {
+    engine: "nuwaxcode" as const,
+    workspaceDir: "/tmp",
+    apiKey: "k",
+    baseUrl: "u",
+    model: "m",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("init() 后 engines 中存在 __warmup__ 占位", async () => {
+    const svc = new UnifiedAgentService() as any;
+    await svc.init(baseConfig);
+    // AcpEngine mock 的 init 是同步 resolve，所以 warmup 立即完成
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    expect(svc.engines.get("__warmup__").isReady).toBe(true);
+  });
+
+  it("engine 非 nuwaxcode 时不触发 warmup", async () => {
+    const claudeConfig = { ...baseConfig, engine: "claude-code" as const };
+    const svc = new UnifiedAgentService() as any;
+    await svc.init(claudeConfig);
+    expect(svc.engines.has("__warmup__")).toBe(false);
+  });
+
+  it("getOrCreateEngine 复用 warmup 引擎并 re-key", async () => {
+    const svc = new UnifiedAgentService();
+    await svc.init(baseConfig);
+
+    // warmup 引擎已就绪
+    expect((svc as any).engines.has("__warmup__")).toBe(true);
+
+    const engine = await svc.getOrCreateEngine("proj-test", baseConfig);
+    expect(engine).toBeDefined();
+    // __warmup__ 已被 re-key 为实际 projectId
+    expect((svc as any).engines.has("__warmup__")).toBe(false);
+    expect((svc as any).engines.has("proj-test")).toBe(true);
+  });
+
+  it("destroy() 清理 warmup 引擎", async () => {
+    const svc = new UnifiedAgentService();
+    await svc.init(baseConfig);
+    expect((svc as any).engines.has("__warmup__")).toBe(true);
+
+    await svc.destroy();
+    expect((svc as any).engines.size).toBe(0);
+  });
+
+  it("warmup 未完成时请求到达 → 清理 warmup 并正常创建新引擎", async () => {
+    const { AcpEngine } = await import("./acp/acpEngine");
+
+    // 创建一个 init 慢速 resolve 的 mock engine（模拟 warmup 进行中）
+    let resolveInit: (ok: boolean) => void;
+    const slowInit = new Promise<boolean>((r) => {
+      resolveInit = r;
+    });
+
+    const mockWarmupEngine = {
+      currentConfig: { apiKey: "k", baseUrl: "u", model: "m" },
+      init: vi.fn(() => slowInit),
+      updateConfig: vi.fn(),
+      removeAllListeners: vi.fn(),
+      destroy: vi.fn().mockResolvedValue(undefined),
+      isReady: false, // warmup 尚未完成
+      getActivePromptCount: vi.fn(() => 0),
+      engineName: "nuwaxcode" as const,
+      on: vi.fn(),
+    };
+
+    // 后续创建的 engine 用正常 mock（快速 resolve）
+    const mockNewEngine = {
+      currentConfig: { apiKey: "k", baseUrl: "u", model: "m" },
+      init: vi.fn().mockResolvedValue(true),
+      updateConfig: vi.fn(),
+      removeAllListeners: vi.fn(),
+      destroy: vi.fn().mockResolvedValue(undefined),
+      isReady: true,
+      getActivePromptCount: vi.fn(() => 0),
+      engineName: "nuwaxcode" as const,
+      on: vi.fn(),
+    };
+
+    // 第一次 AcpEngine 构造返回慢 warmup 引擎，第二次返回正常引擎
+    let callCount = 0;
+    (AcpEngine as any).mockImplementation(() => {
+      callCount++;
+      return callCount === 1 ? mockWarmupEngine : mockNewEngine;
+    });
+
+    const svc = new UnifiedAgentService() as any;
+    await svc.init(baseConfig);
+
+    // warmup 引擎已占位但未就绪
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    expect(svc.engines.get("__warmup__").isReady).toBe(false);
+
+    // 请求到达 → tryReuse 发现 warmup 未就绪 → 清理 → 创建新引擎
+    const engine = await svc.getOrCreateEngine("proj-late", baseConfig);
+    expect(engine).toBe(mockNewEngine);
+    // warmup 引擎被清理
+    expect(svc.engines.has("__warmup__")).toBe(false);
+    // 新引擎已注册
+    expect(svc.engines.has("proj-late")).toBe(true);
+    // warmup engine 的 destroy 被调用
+    expect(mockWarmupEngine.destroy).toHaveBeenCalled();
+  });
+});

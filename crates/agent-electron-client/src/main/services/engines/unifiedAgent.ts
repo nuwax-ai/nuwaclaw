@@ -22,6 +22,7 @@ export { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 import { AcpEngine } from "./acp/acpEngine";
 import { loadAcpSdk } from "./acp/acpClient";
 import { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
+import { EngineWarmup } from "./engineWarmup";
 import dependencies from "../system/dependencies";
 import { processRegistry } from "../system/processRegistry";
 import type { DetailedSession } from "@shared/types/sessions";
@@ -54,29 +55,8 @@ type EnvRecord = Record<string, string | undefined>;
 
 // ==================== Types ====================
 
-export type AgentEngineType = "nuwaxcode" | "claude-code";
-
-export interface AgentConfig {
-  engine: AgentEngineType;
-  apiKey?: string;
-  baseUrl?: string;
-  model?: string;
-  apiProtocol?: string; // 'anthropic' or 'openai' - API protocol to use
-  workspaceDir: string;
-  hostname?: string;
-  port?: number;
-  timeout?: number;
-  engineBinaryPath?: string;
-  env?: Record<string, string>;
-  mcpServers?: Record<
-    string,
-    | { command: string; args: string[]; env?: Record<string, string> }
-    | { url: string; type?: "http" | "sse" }
-  >;
-  permissionMode?: "default" | "acceptEdits" | "bypassPermissions";
-  systemPrompt?: string;
-  purpose?: "engine";
-}
+import type { AgentConfig, AgentEngineType } from "./types";
+export type { AgentConfig, AgentEngineType };
 
 export type AcpSessionStatus = "idle" | "pending" | "active" | "terminating";
 
@@ -260,6 +240,11 @@ export class UnifiedAgentService extends EventEmitter {
   >();
   private engineType: AgentEngineType | null = null;
   private baseConfig: AgentConfig | null = null;
+  private warmup: EngineWarmup = new EngineWarmup(
+    this.engines,
+    this.engineConfigs,
+    this.engineRawMcpServers,
+  );
 
   /** Buffer assistant text chunks per session for memory tracking */
   private assistantTextBuffers = new Map<string, string>();
@@ -331,6 +316,10 @@ export class UnifiedAgentService extends EventEmitter {
     }
     // 后台预热 MCP proxy bridge
     this.warmupMcpBridge();
+    // 后台预热 nuwaxcode 引擎（非阻塞，省掉首次会话 ~2s 冷启动）
+    this.warmup.start(this.engineType, this.baseConfig, (e) =>
+      this.forwardEvents(e),
+    );
     // Start process registry sweep to detect orphan ACP processes
     processRegistry.bindActivePidsFn(() => this.getActivePids());
     processRegistry.startPeriodicSweep(300_000);
@@ -503,6 +492,16 @@ export class UnifiedAgentService extends EventEmitter {
       this.engines.delete(projectId);
       this.engineConfigs.delete(projectId);
       this.engineRawMcpServers.delete(projectId);
+    }
+
+    // Try to reuse warmup engine (pre-spawned during init)
+    const reused = await this.warmup.tryReuse(projectId, effectiveConfig);
+    if (reused) {
+      perfEmitter.duration(
+        "engine.getOrCreate (warmup reuse)",
+        Date.now() - t0,
+      );
+      return reused;
     }
 
     if (!this.baseConfig) {
