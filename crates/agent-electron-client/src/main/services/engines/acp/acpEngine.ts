@@ -697,6 +697,24 @@ export class AcpEngine extends EventEmitter {
     });
 
     let resultText = "";
+    const promptSentAt = Date.now();
+    let firstUpdateAt: number | undefined;
+    const onProgress = (message: UnifiedSessionMessage) => {
+      if (message.sessionId !== sessionId) return;
+      if (message.subType !== "agent_message_chunk") return;
+      if (firstUpdateAt !== undefined) return;
+      firstUpdateAt = Date.now();
+      perfEmitter.duration(
+        "acp.prompt.sendToFirstUpdate",
+        firstUpdateAt - promptSentAt,
+        {
+          sessionId,
+        },
+      );
+      perfEmitter.point("acp.prompt.firstUpdate", { sessionId });
+    };
+    this.on("computer:progress", onProgress);
+
     try {
       log.info(`${this.logTag} Starting prompt`, {
         sessionId,
@@ -708,6 +726,7 @@ export class AcpEngine extends EventEmitter {
       });
 
       const promptStartTime = Date.now();
+      perfEmitter.point("acp.prompt.sent", { sessionId });
       log.info(`${this.logTag} 📤 ACP prompt 发送中...`);
 
       const result = await new Promise<{ stopReason: string }>(
@@ -736,10 +755,25 @@ export class AcpEngine extends EventEmitter {
         },
       );
 
+      const completedAt = Date.now();
       waitTimer.end("acp.prompt.wait", {
         sessionId,
         stopReason: result.stopReason,
       });
+      perfEmitter.point("acp.prompt.completed", {
+        sessionId,
+        stopReason: result.stopReason,
+      });
+      if (firstUpdateAt !== undefined) {
+        perfEmitter.duration(
+          "acp.prompt.firstUpdateToDone",
+          completedAt - firstUpdateAt,
+          {
+            sessionId,
+            stopReason: result.stopReason,
+          },
+        );
+      }
 
       log.info(`${this.logTag} Prompt completed`, {
         sessionId,
@@ -783,6 +817,7 @@ export class AcpEngine extends EventEmitter {
         error: errMsg,
       });
     } finally {
+      this.off("computer:progress", onProgress);
       this.activePromptSessions.delete(sessionId);
       this.activePromptRejects.delete(sessionId);
       // Always set idle: normal completion or after cancel (cancelOne may have set terminating).

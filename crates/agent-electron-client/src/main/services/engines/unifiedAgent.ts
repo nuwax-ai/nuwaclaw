@@ -493,8 +493,18 @@ export class UnifiedAgentService extends EventEmitter {
       this.engineRawMcpServers.delete(projectId);
     }
 
-    // Clean up warmup engine (pre-spawned during init, not reused due to MCP loading issue)
-    this.warmup.cleanup();
+    // Try to reuse warmup engine (pre-spawned during init)
+    const reused = await this.warmup.tryReuse(projectId, effectiveConfig, t0);
+    if (reused) {
+      // 同步引擎内部 config 为 effectiveConfig，
+      // 防止 chat() 中 shouldReinitForModelProvider 因 config 不一致而 kill + reinit
+      reused.updateConfig(effectiveConfig);
+      perfEmitter.duration(
+        "engine.getOrCreate (warmup reuse)",
+        Date.now() - t0,
+      );
+      return reused;
+    }
 
     if (!this.baseConfig) {
       throw new Error("UnifiedAgentService not initialized (no baseConfig)");
@@ -554,6 +564,8 @@ export class UnifiedAgentService extends EventEmitter {
         this.engines.delete(pid);
         this.engineConfigs.delete(pid);
         this.engineRawMcpServers.delete(pid);
+        // 引擎被驱逐后，重新预热 warmup
+        this.warmup.respawn(this.baseConfig, (e) => this.forwardEvents(e));
         return;
       }
     }
@@ -567,6 +579,8 @@ export class UnifiedAgentService extends EventEmitter {
     this.engines.delete(oldestPid);
     this.engineConfigs.delete(oldestPid);
     this.engineRawMcpServers.delete(oldestPid);
+    // 引擎被驱逐后，重新预热 warmup
+    this.warmup.respawn(this.baseConfig, (e) => this.forwardEvents(e));
   }
 
   /**
@@ -1179,6 +1193,8 @@ export class UnifiedAgentService extends EventEmitter {
           log.info(
             `[UnifiedAgent] Engine ${projectId} destroyed, remaining engines: ${this.engines.size}`,
           );
+          // 引擎销毁后，重新预热 warmup（如果当前没有其他引擎）
+          this.warmup.respawn(this.baseConfig, (e) => this.forwardEvents(e));
         } else {
           log.info(
             `[UnifiedAgent] Engine ${projectId} still has ${engine.sessionCount} session(s), NOT destroying`,

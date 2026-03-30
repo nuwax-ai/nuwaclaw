@@ -500,6 +500,7 @@ async function handleRequest(
         }
         // 清理 perf 首事件状态，防止连接中断（无 end_turn）时 Map 泄漏
         sseFirstEventSent.delete(sessionId);
+        sseFirstTokenSent.delete(sessionId);
       });
 
       res.on("error", () => {
@@ -733,6 +734,22 @@ async function handleRequest(
  */
 // 跟踪每个 session 的首事件时间戳（用于计算流式总耗时）
 const sseFirstEventSent = new Map<string, number>();
+// 跟踪每个 session 的首个真实文本 token 时间戳（排除 heartbeat 等非文本事件）
+const sseFirstTokenSent = new Map<string, number>();
+
+let _chunkStructureLogged = false;
+
+function extractAgentChunkText(data: unknown): string {
+  const text = (data as { data?: { content?: { text?: unknown } } })?.data
+    ?.content?.text;
+  if (!_chunkStructureLogged) {
+    _chunkStructureLogged = true;
+    log.debug(
+      `[PERF] sse.firstChunk 结构采样: ${JSON.stringify(data).slice(0, 200)}`,
+    );
+  }
+  return typeof text === "string" ? text : "";
+}
 
 export function pushSseEvent(
   sessionId: string,
@@ -744,22 +761,40 @@ export function pushSseEvent(
   const now = Date.now();
 
   // 记录首事件和结束事件
-  const isFirstMessage =
-    eventName === "agent_message_chunk" && !sseFirstEventSent.has(sessionId);
+  const isAgentChunk = eventName === "agent_message_chunk";
+  const isFirstMessage = isAgentChunk && !sseFirstEventSent.has(sessionId);
+  const chunkText = isAgentChunk ? extractAgentChunkText(data) : "";
+  const isFirstToken =
+    isAgentChunk && !!chunkText.trim() && !sseFirstTokenSent.has(sessionId);
   const isEndTurn = eventName === "end_turn";
 
   if (isFirstMessage) {
     sseFirstEventSent.set(sessionId, now);
     getPerfLogger().info(`[PERF] sse.firstChunk  session=${sessionId}`);
   }
+  if (isFirstToken) {
+    sseFirstTokenSent.set(sessionId, now);
+    getPerfLogger().info(`[PERF] sse.firstToken  session=${sessionId}`);
+  }
   if (isEndTurn) {
     const firstChunkTime = sseFirstEventSent.get(sessionId);
+    const firstTokenTime = sseFirstTokenSent.get(sessionId);
     sseFirstEventSent.delete(sessionId);
+    sseFirstTokenSent.delete(sessionId);
+
     const streamingMs =
       firstChunkTime !== undefined ? now - firstChunkTime : -1;
+    const firstTokenMs =
+      firstTokenTime !== undefined ? now - firstTokenTime : -1;
+
     getPerfLogger().info(
       `[PERF] sse.end${streamingMs >= 0 ? `: ${streamingMs}ms streaming` : ""}  session=${sessionId}`,
     );
+    if (firstTokenMs >= 0) {
+      getPerfLogger().info(
+        `[PERF] sse.end.fromFirstToken: ${firstTokenMs}ms  session=${sessionId}`,
+      );
+    }
   }
 
   log.debug(
@@ -851,6 +886,8 @@ export function stopComputerServer(): Promise<void> {
     }
     sseClients.clear();
     sseEventBuffers.clear();
+    sseFirstEventSent.clear();
+    sseFirstTokenSent.clear();
 
     server.close(() => {
       log.info("[ComputerServer] Stopped");
