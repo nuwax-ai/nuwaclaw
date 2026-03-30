@@ -317,9 +317,8 @@ export class UnifiedAgentService extends EventEmitter {
     // 后台预热 MCP proxy bridge
     this.warmupMcpBridge();
     // 后台预热 nuwaxcode 引擎（非阻塞，省掉首次会话 ~2s 冷启动）
-    this.warmup.start(this.engineType, this.baseConfig, (e) =>
-      this.forwardEvents(e),
-    );
+    // 始终预热 nuwaxcode，与 init engineType 无关
+    this.warmup.start(this.baseConfig, (e) => this.forwardEvents(e));
     // Start process registry sweep to detect orphan ACP processes
     processRegistry.bindActivePidsFn(() => this.getActivePids());
     processRegistry.startPeriodicSweep(300_000);
