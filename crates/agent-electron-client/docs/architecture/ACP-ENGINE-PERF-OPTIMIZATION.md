@@ -109,9 +109,9 @@ loadAcpSdk().catch(() => {});
 |------|--------|--------|
 | ensureEngine（新 project） | ~4.35s | ~0ms（复用预热时） |
 | loadAcpSdk 首次加载（claude-code） | 串在 init 内 | 预加载，已缓存 |
-| ACP newSession | ~3.1s | ~3.1s（不变） |
+| ACP newSession | ~3.1s | ~10ms（nuwaxcode v1.1.66+ MCP 懒加载） |
 | 模型推理 | ~2.7s | ~2.7s（不变） |
-| **HTTP 响应总时间** | **~7.5s** | **~3.1s** |
+| **HTTP 响应总时间** | **~7.5s** | **~2.7s** |
 | SSE 早期事件 | 易丢失 | 缓冲回放，不丢失 |
 
 同项目再次请求仍走现有 session 复用，无变更。
