@@ -581,6 +581,8 @@ export interface ElectronAPI {
         httpOnly: boolean;
         secure: boolean;
         sameSite: string;
+        session?: boolean;
+        expirationDate?: number;
       }>;
       cookie?: {
         name: string;
@@ -589,6 +591,8 @@ export interface ElectronAPI {
         httpOnly: boolean;
         secure: boolean;
         sameSite: string;
+        session?: boolean;
+        expirationDate?: number;
       };
       error?: string;
     }>;
