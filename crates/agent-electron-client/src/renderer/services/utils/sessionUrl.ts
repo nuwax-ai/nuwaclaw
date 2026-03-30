@@ -14,6 +14,26 @@ import { logger } from "./logService";
 import { getDomainTokenKey } from "@shared/utils/domain";
 
 /**
+ * 解析 JWT exp 字段，返回 ISO 时间字符串或 null。
+ * 仅读取 exp，不验证签名。
+ */
+function parseJwtExpDate(token: string): string | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const payload = JSON.parse(
+      atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")),
+    );
+    if (typeof payload.exp === "number") {
+      return new Date(payload.exp * 1000).toISOString();
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/**
  * Build redirect URL for entering the sandbox dashboard (开始会话).
  */
 export function buildRedirectUrl(
@@ -164,6 +184,7 @@ async function syncCookieAndBuildUrl<T>(
             typeof c?.expirationDate === "number" &&
             c.expirationDate * 1000 < Date.now();
           if (!isExpired) {
+            const jwtExpDate = parseJwtExpDate(token as string);
             // 域名缓存 token 仅做兜底；已有有效 ticket 时不覆盖，避免和 webview 内登录/退出行为冲突
             logger.info(
               "[SessionUrl][Diag] 检测到有效 ticket，跳过域名缓存 token 同步",
@@ -172,6 +193,17 @@ async function syncCookieAndBuildUrl<T>(
                 domain,
                 found: !!existing?.found,
                 count: existing?.count ?? 0,
+                cookieExpDate: c?.expirationDate
+                  ? new Date(c.expirationDate * 1000).toISOString()
+                  : "(session cookie)",
+                cookieDomain: c?.domain,
+                cookieSecure: c?.secure,
+                cookieHttpOnly: c?.httpOnly,
+                jwtExp: jwtExpDate ?? "N/A",
+                jwtExpired: jwtExpDate
+                  ? new Date(jwtExpDate).getTime() < Date.now()
+                  : null,
+                now: new Date().toISOString(),
               },
             );
             return buildUrl(domain, configId);
@@ -193,9 +225,15 @@ async function syncCookieAndBuildUrl<T>(
         tokenSource,
       });
       await syncSessionCookie(domain, token);
+      const jwtExpDate = parseJwtExpDate(token as string);
       logger.debug("[SessionUrl] ticket cookie 同步成功", "SessionUrl", {
         domain,
         tokenSource,
+        jwtExp: jwtExpDate ?? "N/A",
+        jwtExpired: jwtExpDate
+          ? new Date(jwtExpDate).getTime() < Date.now()
+          : null,
+        now: new Date().toISOString(),
       });
       // token 作为一次性补写凭据，成功后清除，避免反复覆盖 webview 内 ticket
       await window.electronAPI?.settings.set(AUTH_KEYS.AUTH_TOKEN, null);
