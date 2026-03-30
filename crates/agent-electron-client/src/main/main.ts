@@ -394,9 +394,14 @@ app.whenReady().then(async () => {
           // Keep only the specific origin (not '*')
           const specific = headers[acoKey].find((v) => v !== "*");
           headers[acoKey] = [specific || "*"];
+          // 仅在确实修改了 ACO 时才回传 responseHeaders，
+          // 避免无条件替换导致 Set-Cookie 被 Chromium 网络服务丢弃
+          callback({ responseHeaders: headers });
+          return;
         }
       }
-      callback({ responseHeaders: headers });
+      // 未修改任何 header → 不传 responseHeaders，Chromium 原样传递
+      callback({});
     });
     log.info("Dev CORS fix enabled");
   }
