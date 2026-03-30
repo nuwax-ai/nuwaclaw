@@ -2,7 +2,8 @@
  * EngineWarmup — nuwaxcode 引擎热启动管理
  *
  * 在服务 init() 后台预创建一个 nuwaxcode ACP 引擎进程，以 "__warmup__" 占位。
- * 首次会话请求时复用并 re-key 为实际 projectId，省掉 ~2s 进程冷启动。
+ * 当前不复用（因浏览器 MCP 加载问题），仅用于预热 OS 缓存。
+ * 首次会话请求时 cleanup() 销毁 warmup 引擎，正常创建新引擎。
  *
  * 注意：始终预热 nuwaxcode，与 init() 传入的 engineType 无关。
  *       因为实际请求中 agent_server.command 会动态决定引擎类型。
@@ -10,7 +11,7 @@
  * 用法（UnifiedAgentService 中仅两行）：
  *   this.warmup.start(baseConfig, (e) => this.forwardEvents(e));
  *   // getOrCreateEngine 中：
- *   const reused = await this.warmup.tryReuse(projectId, effectiveConfig);
+ *   await this.warmup.cleanup();
  */
 
 import log from "electron-log";
@@ -80,34 +81,20 @@ export class EngineWarmup {
   }
 
   /**
-   * 尝试复用 warmup 引擎。成功时 re-key 为 projectId 并返回引擎；
-   * 未就绪/已死时清理并返回 null。
+   * 清理 warmup 引擎（不复用，因浏览器 MCP 加载问题）。
+   * 无论引擎是否就绪均销毁，为首次真实请求让路。
    */
-  async tryReuse(
-    projectId: string,
-    effectiveConfig: AgentConfig,
-  ): Promise<AcpEngine | null> {
-    if (!this.engines.has(WARMUP_KEY)) return null;
+  async cleanup(): Promise<void> {
+    if (!this.engines.has(WARMUP_KEY)) return;
 
-    const engine = this.engines.get(WARMUP_KEY)!;
-    if (engine.isReady) {
-      log.info(
-        `[EngineWarmup] ♻️ 复用 warmup 引擎，分配给 project: ${projectId}`,
-      );
+    setTimeout(async () => {
+      const engine = this.engines.get(WARMUP_KEY)!;
       this.engines.delete(WARMUP_KEY);
       this.configs.delete(WARMUP_KEY);
       this.rawMcpServers.delete(WARMUP_KEY);
-      this.engines.set(projectId, engine);
-      this.configs.set(projectId, effectiveConfig);
-      return engine;
-    }
-
-    // 未就绪或已死，清理
-    engine.removeAllListeners();
-    await engine.destroy().catch(() => {});
-    this.engines.delete(WARMUP_KEY);
-    this.configs.delete(WARMUP_KEY);
-    this.rawMcpServers.delete(WARMUP_KEY);
-    return null;
+      engine.removeAllListeners();
+      await engine.destroy().catch(() => {});
+      log.info("[EngineWarmup] 🧹 warmup 引擎已清理（不复用）");
+    }, 1000);
   }
 }

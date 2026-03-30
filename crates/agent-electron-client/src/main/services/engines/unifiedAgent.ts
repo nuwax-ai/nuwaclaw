@@ -493,18 +493,8 @@ export class UnifiedAgentService extends EventEmitter {
       this.engineRawMcpServers.delete(projectId);
     }
 
-    // Try to reuse warmup engine (pre-spawned during init)
-    const reused = await this.warmup.tryReuse(projectId, effectiveConfig);
-    if (reused) {
-      // 同步引擎内部 config 为 effectiveConfig，
-      // 否则 chat() 中 shouldReinitForModelProvider 会因 config 不一致而 kill + reinit
-      reused.updateConfig(effectiveConfig);
-      perfEmitter.duration(
-        "engine.getOrCreate (warmup reuse)",
-        Date.now() - t0,
-      );
-      return reused;
-    }
+    // Clean up warmup engine (pre-spawned during init, not reused due to MCP loading issue)
+    this.warmup.cleanup();
 
     if (!this.baseConfig) {
       throw new Error("UnifiedAgentService not initialized (no baseConfig)");

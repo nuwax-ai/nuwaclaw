@@ -571,7 +571,7 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
     expect(svc.engines.get("__warmup__").isReady).toBe(true);
   });
 
-  it("getOrCreateEngine 复用 warmup 引擎并 re-key", async () => {
+  it("getOrCreateEngine 清理 warmup 引擎并创建新引擎（不复用）", async () => {
     const svc = new UnifiedAgentService();
     await svc.init(baseConfig);
 
@@ -580,12 +580,13 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
 
     const engine = await svc.getOrCreateEngine("proj-test", baseConfig);
     expect(engine).toBeDefined();
-    // __warmup__ 已被 re-key 为实际 projectId
+    // __warmup__ 已被清理（不复用）
     expect((svc as any).engines.has("__warmup__")).toBe(false);
+    // 新引擎以实际 projectId 注册
     expect((svc as any).engines.has("proj-test")).toBe(true);
   });
 
-  it("claude-code 请求会复用 nuwaxcode warmup", async () => {
+  it("claude-code 请求清理 nuwaxcode warmup 并创建新引擎", async () => {
     const claudeConfig = { ...baseConfig, engine: "claude-code" as const };
     const svc = new UnifiedAgentService() as any;
     await svc.init(claudeConfig);
@@ -595,7 +596,7 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
 
     const engine = await svc.getOrCreateEngine("proj-claude", claudeConfig);
     expect(engine).toBeDefined();
-    // warmup 会被 re-key 复用
+    // warmup 被清理，不复用
     expect(svc.engines.has("__warmup__")).toBe(false);
     expect(svc.engines.get("proj-claude")).toBe(engine);
   });
@@ -657,7 +658,7 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
     expect(svc.engines.has("__warmup__")).toBe(true);
     expect(svc.engines.get("__warmup__").isReady).toBe(false);
 
-    // 请求到达 → tryReuse 发现 warmup 未就绪 → 清理 → 创建新引擎
+    // 请求到达 → cleanup 清理 warmup → 创建新引擎
     const engine = await svc.getOrCreateEngine("proj-late", baseConfig);
     expect(engine).toBe(mockNewEngine);
     // warmup 引擎被清理
