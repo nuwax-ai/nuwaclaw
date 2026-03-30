@@ -496,6 +496,9 @@ export class UnifiedAgentService extends EventEmitter {
     // Try to reuse warmup engine (pre-spawned during init)
     const reused = await this.warmup.tryReuse(projectId, effectiveConfig);
     if (reused) {
+      // 同步引擎内部 config 为 effectiveConfig，
+      // 否则 chat() 中 shouldReinitForModelProvider 会因 config 不一致而 kill + reinit
+      reused.updateConfig(effectiveConfig);
       perfEmitter.duration(
         "engine.getOrCreate (warmup reuse)",
         Date.now() - t0,
