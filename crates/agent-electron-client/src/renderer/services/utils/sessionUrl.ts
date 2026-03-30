@@ -158,17 +158,33 @@ async function syncCookieAndBuildUrl<T>(
           name: "ticket",
         });
         if (existing?.success && existing?.found) {
-          // 域名缓存 token 仅做兜底；已有 ticket 时不覆盖，避免和 webview 内登录/退出行为冲突
+          // 检查 cookie 是否过期（Chromium cookies.get() 会返回已过期但未清理的 cookie）
+          const c = existing.cookies?.[0] || existing.cookie;
+          const isExpired =
+            typeof c?.expirationDate === "number" &&
+            c.expirationDate * 1000 < Date.now();
+          if (!isExpired) {
+            // 域名缓存 token 仅做兜底；已有有效 ticket 时不覆盖，避免和 webview 内登录/退出行为冲突
+            logger.info(
+              "[SessionUrl][Diag] 检测到有效 ticket，跳过域名缓存 token 同步",
+              "SessionUrl",
+              {
+                domain,
+                found: !!existing?.found,
+                count: existing?.count ?? 0,
+              },
+            );
+            return buildUrl(domain, configId);
+          }
+          // cookie 已过期，继续走同步流程
           logger.info(
-            "[SessionUrl][Diag] 检测到已有 ticket，跳过域名缓存 token 同步",
+            "[SessionUrl][Diag] ticket 已过期，使用域名缓存 token 重新同步",
             "SessionUrl",
             {
               domain,
-              found: !!existing?.found,
-              count: existing?.count ?? 0,
+              expirationDate: c?.expirationDate,
             },
           );
-          return buildUrl(domain, configId);
         }
       }
 

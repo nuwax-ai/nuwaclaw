@@ -65,11 +65,16 @@ function parseJwtExp(token: string): number | null {
   }
 }
 
+// JWT 无 exp 或 exp 即将到期时的兜底 cookie TTL（7 天）
+const TICKET_COOKIE_FALLBACK_TTL_SECONDS = 7 * 24 * 60 * 60;
+
 function resolveTicketExpirationDate(token: string): number | undefined {
   const exp = parseJwtExp(token);
-  if (!exp) return undefined;
-  // 过期时间太近（<60s）时不写持久过期，避免写入立即过期 cookie
-  if (exp <= Math.floor(Date.now() / 1000) + 60) return undefined;
+  const fallback =
+    Math.floor(Date.now() / 1000) + TICKET_COOKIE_FALLBACK_TTL_SECONDS;
+  if (!exp) return fallback;
+  // 过期时间太近（<60s）时使用兜底 TTL，避免创建 session cookie
+  if (exp <= Math.floor(Date.now() / 1000) + 60) return fallback;
   return exp;
 }
 
@@ -556,6 +561,8 @@ export function registerAppHandlers(ctx: HandlerContext): void {
             httpOnly: c.httpOnly,
             secure: c.secure,
             sameSite: c.sameSite,
+            session: c.session,
+            expirationDate: c.expirationDate,
           })),
           cookie: {
             name: hit.name,
@@ -564,6 +571,8 @@ export function registerAppHandlers(ctx: HandlerContext): void {
             httpOnly: hit.httpOnly,
             secure: hit.secure,
             sameSite: hit.sameSite,
+            session: hit.session,
+            expirationDate: hit.expirationDate,
           },
         };
       } catch (error) {
@@ -624,17 +633,36 @@ export function registerAppHandlers(ctx: HandlerContext): void {
               url,
               name: "ticket",
             });
-            if (current.length > 0) {
-              // 域名缓存 token 仅做兜底；目标站点已有 ticket 时不覆盖
+            // 检查已有 cookie 是否有效（未过期）
+            const hasValidCookie =
+              current.length > 0 &&
+              current.some((c) => {
+                // session cookie（无 expirationDate）视为有效
+                if (!c.expirationDate) return true;
+                // 持久 cookie：仅在未过期时有效
+                return c.expirationDate * 1000 > Date.now();
+              });
+            if (hasValidCookie) {
+              // 域名缓存 token 仅做兜底；目标站点已有有效 ticket 时不覆盖
               writeSetting("auth.token", null);
               log.info(
-                "[IPC] webview:openWindow detected existing ticket, skip domain-token sync",
+                "[IPC] webview:openWindow detected valid ticket, skip domain-token sync",
                 {
                   url,
                   count: current.length,
                 },
               );
               return;
+            }
+            // cookie 已过期或不存在，继续走同步流程
+            if (current.length > 0) {
+              log.info(
+                "[IPC] webview:openWindow detected expired ticket, re-syncing",
+                {
+                  url,
+                  count: current.length,
+                },
+              );
             }
           }
 

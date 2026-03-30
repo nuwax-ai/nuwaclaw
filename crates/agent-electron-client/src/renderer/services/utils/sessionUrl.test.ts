@@ -277,6 +277,70 @@ describe("syncCookieAndGetRedirectUrl", () => {
     expect(mockSettings.set).not.toHaveBeenCalledWith("auth.token", null);
   });
 
+  it("re-syncs when existing ticket cookie is expired", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
+    });
+    mockSettings.get.mockImplementation((key: string) => {
+      if (key === "auth.token") return Promise.resolve(null);
+      if (key === "auth.tokens.example.com")
+        return Promise.resolve("cached-token");
+      return Promise.resolve(null);
+    });
+    // 返回已过期的 cookie（expirationDate 在过去）
+    const expiredTimestamp = Math.floor(Date.now() / 1000) - 3600; // 1 小时前过期
+    mockSession.getCookie.mockResolvedValue({
+      success: true,
+      found: true,
+      count: 1,
+      cookies: [{ name: "ticket", expirationDate: expiredTimestamp }],
+      cookie: { name: "ticket", expirationDate: expiredTimestamp },
+    });
+
+    const result = await syncCookieAndGetRedirectUrl();
+    expect(result).toBe(
+      "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
+    );
+    // 过期 cookie 应触发重新同步
+    expect(mockSession.setCookie).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://example.com",
+        name: "ticket",
+        value: "cached-token",
+      }),
+    );
+  });
+
+  it("skips syncing when ticket cookie is valid (not expired)", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
+    });
+    mockSettings.get.mockImplementation((key: string) => {
+      if (key === "auth.token") return Promise.resolve(null);
+      if (key === "auth.tokens.example.com")
+        return Promise.resolve("cached-token");
+      return Promise.resolve(null);
+    });
+    // 返回未过期的 cookie（expirationDate 在未来）
+    const futureTimestamp = Math.floor(Date.now() / 1000) + 3600; // 1 小时后过期
+    mockSession.getCookie.mockResolvedValue({
+      success: true,
+      found: true,
+      count: 1,
+      cookies: [{ name: "ticket", expirationDate: futureTimestamp }],
+      cookie: { name: "ticket", expirationDate: futureTimestamp },
+    });
+
+    const result = await syncCookieAndGetRedirectUrl();
+    expect(result).toBe(
+      "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
+    );
+    // 未过期 cookie 不应触发重新同步
+    expect(mockSession.setCookie).not.toHaveBeenCalled();
+  });
+
   it("overwrites existing ticket when one-shot auth token is present", async () => {
     mockGetCurrentAuth.mockResolvedValue({
       isLoggedIn: true,
