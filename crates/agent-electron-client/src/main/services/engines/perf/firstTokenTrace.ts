@@ -113,6 +113,16 @@ export class FirstTokenTrace {
   private readonly projectToRequest = new Map<string, string>();
   private readonly sampled = new Map<string, boolean>();
 
+  // 缓冲写入：累积 trace 行，达到阈值或超时时 flush
+  private writeBuffer: string[] = [];
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly FLUSH_SIZE = 50;
+  private static readonly FLUSH_INTERVAL_MS = 2000;
+
+  // prune debounce：最多每秒执行一次
+  private lastPruneAt = 0;
+  private static readonly PRUNE_INTERVAL_MS = 1000;
+
   constructor() {
     if (!this.enabled) return;
     try {
@@ -121,20 +131,22 @@ export class FirstTokenTrace {
       if (this.level === "deep") {
         fs.mkdirSync(this.nuwaxcodeLogDir, { recursive: true });
       }
-      this.writeRaw({
-        ts: Date.now(),
-        iso: new Date().toISOString(),
-        stage: "trace.config",
-        data: {
-          enabled: this.enabled,
-          level: this.level,
-          sampleRate: this.sampleRate,
-          logFile: this.logFile,
-          reportFile: this.reportFile,
-          nuwaxcodeLogDir:
-            this.level === "deep" ? this.nuwaxcodeLogDir : "(disabled)",
-        },
-      });
+      this.enqueueWrite(
+        safeStringify({
+          ts: Date.now(),
+          iso: new Date().toISOString(),
+          stage: "trace.config",
+          data: {
+            enabled: this.enabled,
+            level: this.level,
+            sampleRate: this.sampleRate,
+            logFile: this.logFile,
+            reportFile: this.reportFile,
+            nuwaxcodeLogDir:
+              this.level === "deep" ? this.nuwaxcodeLogDir : "(disabled)",
+          },
+        }),
+      );
       log.info(
         `[FirstTokenTrace] enabled level=${this.level} sample=${this.sampleRate} log=${this.logFile} report=${this.reportFile}`,
       );
@@ -171,7 +183,7 @@ export class FirstTokenTrace {
   ): void {
     if (!this.enabled) return;
     const now = Date.now();
-    this.prune(now);
+    this.maybePrune(now);
 
     const requestId =
       context.requestId ||
@@ -229,7 +241,7 @@ export class FirstTokenTrace {
     if (state) {
       state.events.push(event);
     }
-    this.writeRaw(event);
+    this.enqueueWrite(safeStringify(event));
 
     if (stage === "sse.first_token" && state && !state.firstTokenReported) {
       state.firstTokenReported = true;
@@ -262,15 +274,41 @@ export class FirstTokenTrace {
     return keep;
   }
 
-  private writeRaw(event: TraceEvent): void {
-    try {
-      fs.appendFileSync(this.logFile, `${safeStringify(event)}\n`, "utf8");
-    } catch (e) {
-      log.warn("[FirstTokenTrace] append trace failed:", e);
+  private enqueueWrite(line: string): void {
+    this.writeBuffer.push(line);
+    if (this.writeBuffer.length >= FirstTokenTrace.FLUSH_SIZE) {
+      this.flushBuffer();
+      return;
+    }
+    if (!this.flushTimer) {
+      this.flushTimer = setTimeout(
+        () => this.flushBuffer(),
+        FirstTokenTrace.FLUSH_INTERVAL_MS,
+      );
     }
   }
 
-  private prune(now: number): void {
+  private flushBuffer(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    if (this.writeBuffer.length === 0) return;
+    const batch = this.writeBuffer.join("\n") + "\n";
+    this.writeBuffer = [];
+    fs.writeFile(
+      this.logFile,
+      batch,
+      { flag: "a", encoding: "utf8" },
+      (err) => {
+        if (err) log.warn("[FirstTokenTrace] flush trace failed:", err);
+      },
+    );
+  }
+
+  private maybePrune(now: number): void {
+    if (now - this.lastPruneAt < FirstTokenTrace.PRUNE_INTERVAL_MS) return;
+    this.lastPruneAt = now;
     for (const [requestId, state] of this.requests.entries()) {
       if (now - state.firstEventAt <= TRACE_TTL_MS) continue;
       this.requests.delete(requestId);

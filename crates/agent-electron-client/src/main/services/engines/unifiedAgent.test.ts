@@ -587,6 +587,64 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
     expect((svc as any).engines.has("proj-test")).toBe(true);
   });
 
+  it("warmup 运行时配置缺失时不复用，回退冷启动", async () => {
+    const svc = new UnifiedAgentService() as any;
+    await svc.init({
+      ...baseConfig,
+      apiKey: undefined,
+      baseUrl: undefined,
+      model: undefined,
+    });
+
+    const warmupEngine = svc.engines.get("__warmup__");
+    expect(warmupEngine).toBeDefined();
+
+    const engine = await svc.getOrCreateEngine("proj-runtime-mismatch", {
+      ...baseConfig,
+      apiKey: "runtime-key",
+      baseUrl: "https://runtime.example.com",
+      model: "runtime-model",
+      apiProtocol: "openai",
+    });
+
+    expect(engine).not.toBe(warmupEngine);
+    expect(warmupEngine.destroy).toHaveBeenCalled();
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    expect(svc.engines.get("proj-runtime-mismatch")).toBe(engine);
+  });
+
+  it("warmup 缺少 MCP ready 标记时不复用，回退冷启动", async () => {
+    const mcpConfig = {
+      bridge: {
+        command: "/mock/node",
+        args: ["/mock/proxy.js", "--config-file", "/tmp/mcp-ready.json"],
+        env: { MCP_PROXY_LOG_FILE: "/tmp/warmup.log" },
+      },
+    };
+    const svc = new UnifiedAgentService() as any;
+    await svc.init({ ...baseConfig, mcpServers: mcpConfig });
+
+    const warmupEngine = svc.engines.get("__warmup__");
+    expect(warmupEngine).toBeDefined();
+
+    const warmupCfg = svc.engineConfigs.get("__warmup__");
+    expect(warmupCfg).toBeDefined();
+    expect(warmupCfg.env?.NUWAX_AGENT_WARMUP_MCP_READY).toBe("1");
+
+    // 模拟老版本 warmup：没有 MCP ready 标记
+    delete warmupCfg.env.NUWAX_AGENT_WARMUP_MCP_READY;
+
+    const engine = await svc.getOrCreateEngine("proj-legacy-warmup", {
+      ...baseConfig,
+      mcpServers: mcpConfig,
+    });
+
+    expect(engine).not.toBe(warmupEngine);
+    expect(warmupEngine.destroy).toHaveBeenCalled();
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    expect(svc.engines.get("proj-legacy-warmup")).toBe(engine);
+  });
+
   it("claude-code 请求保持原逻辑：不复用 nuwaxcode warmup", async () => {
     const claudeConfig = { ...baseConfig, engine: "claude-code" as const };
     const svc = new UnifiedAgentService() as any;

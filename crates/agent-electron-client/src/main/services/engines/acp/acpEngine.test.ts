@@ -40,6 +40,7 @@ vi.mock("../../system/processRegistry", () => ({
 }));
 
 import { AcpEngine } from "./acpEngine";
+import * as acpClient from "./acpClient";
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -57,8 +58,8 @@ function createDeferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
-function setupEngine() {
-  const engine = new AcpEngine("nuwaxcode");
+function setupEngine(engineType: "claude-code" | "nuwaxcode" = "nuwaxcode") {
+  const engine = new AcpEngine(engineType);
   const sessionId = "session-test-001";
   const session = {
     id: sessionId,
@@ -67,7 +68,7 @@ function setupEngine() {
     status: "active",
   } as any;
 
-  (engine as any).config = { engine: "nuwaxcode", workspaceDir: "/tmp" } as any;
+  (engine as any).config = { engine: engineType, workspaceDir: "/tmp" } as any;
   (engine as any).acpConnection = {
     cancel: vi.fn(),
     prompt: vi.fn(),
@@ -142,6 +143,58 @@ describe("AcpEngine.prompt", () => {
 
     expect(acpConnection.prompt).not.toHaveBeenCalled();
   });
+
+  it("nuwaxcode 在 MCP 断连窗口内自动重试一次", async () => {
+    const { engine, sessionId, acpConnection } = setupEngine("nuwaxcode");
+    acpConnection.prompt
+      .mockRejectedValueOnce(
+        new Error("SSE stream disconnected: TypeError: terminated"),
+      )
+      .mockResolvedValueOnce({ stopReason: "end_turn" });
+
+    vi.useFakeTimers();
+    const promptPromise = engine.prompt(sessionId, [
+      { type: "text", text: "hi" },
+    ]);
+    await vi.advanceTimersByTimeAsync(1_200);
+
+    await expect(promptPromise).resolves.toBeDefined();
+    expect(acpConnection.prompt).toHaveBeenCalledTimes(2);
+  });
+
+  it("claude-code 保持原逻辑，不执行 MCP 自动重试", async () => {
+    const { engine, sessionId, acpConnection } = setupEngine("claude-code");
+    acpConnection.prompt.mockRejectedValueOnce(
+      new Error("SSE stream disconnected: TypeError: terminated"),
+    );
+
+    await expect(
+      engine.prompt(sessionId, [{ type: "text", text: "hi" }]),
+    ).resolves.toBeDefined();
+    expect(acpConnection.prompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("nuwaxcode MCP 断连失败时上报 mcp_reconnecting", async () => {
+    const { engine, sessionId, acpConnection } = setupEngine("nuwaxcode");
+    const onPromptEnd = vi.fn();
+    engine.on("computer:promptEnd", onPromptEnd);
+
+    acpConnection.prompt.mockRejectedValue(
+      new Error("SSE stream disconnected: TypeError: terminated"),
+    );
+
+    vi.useFakeTimers();
+    const promptPromise = engine.prompt(sessionId, [
+      { type: "text", text: "hi" },
+    ]);
+    await vi.advanceTimersByTimeAsync(1_200);
+    await promptPromise;
+
+    expect(acpConnection.prompt).toHaveBeenCalledTimes(2);
+    expect(onPromptEnd).toHaveBeenCalled();
+    const event = onPromptEnd.mock.calls.at(-1)?.[0];
+    expect(event.reason).toBe("mcp_reconnecting");
+  });
 });
 
 describe("AcpEngine.handleAcpSessionUpdate", () => {
@@ -161,6 +214,74 @@ describe("AcpEngine.handleAcpSessionUpdate", () => {
 
     expect(onMessage).not.toHaveBeenCalled();
     expect(onProgress).not.toHaveBeenCalled();
+  });
+});
+
+describe("AcpEngine.init", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("warmup 进程也应注入 MCP 配置，避免复用后工具列表为空", async () => {
+    const engine = new AcpEngine("nuwaxcode");
+    let capturedEnv: Record<string, string> | undefined;
+
+    const mockConnection = {
+      initialize: vi.fn().mockResolvedValue({ protocolVersion: "1.0.0" }),
+    } as any;
+
+    const mockProcess = {
+      pid: 12345,
+      on: vi.fn(),
+      stdout: { removeAllListeners: vi.fn() },
+      stderr: { removeAllListeners: vi.fn() },
+      stdin: { removeAllListeners: vi.fn() },
+      removeAllListeners: vi.fn(),
+      kill: vi.fn(),
+    } as any;
+
+    vi.spyOn(acpClient, "resolveAcpBinary").mockReturnValue({
+      binPath: "nuwaxcode",
+      binArgs: ["acp"],
+      isNative: false,
+    });
+    vi.spyOn(acpClient, "createAcpConnection").mockImplementation(
+      async (cfg: any) => {
+        capturedEnv = cfg.env as Record<string, string>;
+        return {
+          connection: mockConnection,
+          process: mockProcess,
+          isolatedHome: null,
+          cleanup: vi.fn(),
+        } as any;
+      },
+    );
+    vi.spyOn(acpClient, "loadAcpSdk").mockResolvedValue({
+      PROTOCOL_VERSION: "1.0.0",
+    } as any);
+
+    const ok = await engine.init({
+      engine: "nuwaxcode",
+      workspaceDir: "/tmp",
+      env: { NUWAX_AGENT_WARMUP: "1" },
+      mcpServers: {
+        "chrome-devtools": {
+          command: "node",
+          args: ["proxy.js", "--config-file", "/tmp/mcp.json"],
+          env: {},
+        },
+      },
+    } as any);
+
+    expect(ok).toBe(true);
+    expect(capturedEnv?.OPENCODE_CONFIG_CONTENT).toBeTruthy();
+
+    const injected = JSON.parse(capturedEnv!.OPENCODE_CONFIG_CONTENT!);
+    expect(injected.mcp).toBeDefined();
+    expect(injected.mcp["chrome-devtools"]).toBeDefined();
+    expect(injected.permission.question).toBe("deny");
+
+    await engine.destroy();
   });
 });
 

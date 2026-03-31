@@ -59,6 +59,108 @@ function extractSessionIdFromLine(line: string): string | undefined {
   }
 }
 
+type McpTransportStatus = "stable" | "reconnecting";
+
+interface McpTransportTelemetry {
+  status: McpTransportStatus;
+  lastDisconnectAt?: number;
+  lastReconnectAttemptAt?: number;
+  lastReconnectAt?: number;
+  lastSignal?: string;
+}
+
+const mcpTransportTelemetry = new WeakMap<
+  ChildProcess,
+  McpTransportTelemetry
+>();
+
+export interface McpTransportSnapshot {
+  status: McpTransportStatus;
+  lastDisconnectAt?: number;
+  lastReconnectAttemptAt?: number;
+  lastReconnectAt?: number;
+  lastSignal?: string;
+}
+
+function ensureTelemetry(proc: ChildProcess): McpTransportTelemetry {
+  const existing = mcpTransportTelemetry.get(proc);
+  if (existing) return existing;
+  const initial: McpTransportTelemetry = { status: "stable" };
+  mcpTransportTelemetry.set(proc, initial);
+  return initial;
+}
+
+function updateMcpTransportTelemetry(proc: ChildProcess, line: string): void {
+  const telemetry = ensureTelemetry(proc);
+  const lower = line.toLowerCase();
+  const now = Date.now();
+  const preview = line.length > 240 ? line.slice(0, 240) + "..." : line;
+
+  const isDisconnect =
+    (lower.includes("transport error") &&
+      (lower.includes("sse stream disconnected") ||
+        lower.includes("typeerror: terminated"))) ||
+    lower.includes("sse stream disconnected");
+  if (isDisconnect) {
+    telemetry.status = "reconnecting";
+    telemetry.lastDisconnectAt = now;
+    telemetry.lastSignal = preview;
+    return;
+  }
+
+  if (lower.includes("reconnecting in")) {
+    telemetry.status = "reconnecting";
+    telemetry.lastReconnectAttemptAt = now;
+    telemetry.lastSignal = preview;
+    return;
+  }
+
+  const isReconnected =
+    lower.includes("mcp session reconnected") ||
+    lower.includes("connected via streamablehttpclienttransport");
+  if (isReconnected) {
+    telemetry.status = "stable";
+    telemetry.lastReconnectAt = now;
+    telemetry.lastSignal = preview;
+  }
+}
+
+export function getMcpTransportSnapshot(
+  proc?: ChildProcess | null,
+): McpTransportSnapshot | null {
+  if (!proc) return null;
+  const telemetry = mcpTransportTelemetry.get(proc);
+  if (!telemetry) return null;
+  return {
+    status: telemetry.status,
+    lastDisconnectAt: telemetry.lastDisconnectAt,
+    lastReconnectAttemptAt: telemetry.lastReconnectAttemptAt,
+    lastReconnectAt: telemetry.lastReconnectAt,
+    lastSignal: telemetry.lastSignal,
+  };
+}
+
+export function isMcpReconnectWindowActive(
+  proc?: ChildProcess | null,
+  windowMs = 4000,
+): boolean {
+  if (!proc) return false;
+  const telemetry = mcpTransportTelemetry.get(proc);
+  if (!telemetry) return false;
+  const now = Date.now();
+  const hasRecentDisconnect =
+    telemetry.lastDisconnectAt !== undefined &&
+    now - telemetry.lastDisconnectAt <= windowMs;
+  const hasRecentReconnect =
+    telemetry.lastReconnectAt !== undefined &&
+    now - telemetry.lastReconnectAt <= Math.min(windowMs, 1500);
+  return (
+    telemetry.status === "reconnecting" ||
+    hasRecentDisconnect ||
+    hasRecentReconnect
+  );
+}
+
 // ==================== Types ====================
 
 /** ACP MCP Server types (matching @agentclientprotocol/sdk schema) */
@@ -237,6 +339,7 @@ export interface AcpConnectionConfig {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  apiProtocol?: string;
   env?: Record<string, string>;
   /** Engine type for process registry tracking */
   engineType?: "claude-code" | "nuwaxcode";
@@ -482,6 +585,8 @@ export async function createAcpConnection(
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
   };
 
+  const isNuwaxcodeEngine = config.engineType === "nuwaxcode";
+
   // Set model/api vars from ACP config only (never from user's global env)
   if (config.apiKey) {
     env.ANTHROPIC_API_KEY = config.apiKey;
@@ -497,6 +602,37 @@ export async function createAcpConnection(
     );
   }
   if (config.env) Object.assign(env, config.env);
+
+  // nuwaxcode runs on opencode and prefers OPENCODE_MODEL.
+  // For openai-compatible models, OPENAI_* creds are required for provider autoload.
+  if (isNuwaxcodeEngine) {
+    if (config.model && !env.OPENCODE_MODEL) {
+      env.OPENCODE_MODEL = config.model;
+    }
+
+    const effectiveModel = env.OPENCODE_MODEL || config.model || "";
+    const apiProtocol = (config.apiProtocol || "").toLowerCase();
+    const isOpenAICompatible =
+      apiProtocol === "openai" ||
+      effectiveModel.startsWith("openai-compatible/");
+
+    if (isOpenAICompatible) {
+      if (config.apiKey && !env.OPENAI_API_KEY) {
+        env.OPENAI_API_KEY = config.apiKey;
+      }
+      if (config.baseUrl && !env.OPENAI_BASE_URL) {
+        env.OPENAI_BASE_URL = config.baseUrl;
+      }
+
+      // Compatibility aliases used by some opencode paths.
+      if (env.OPENAI_API_KEY && !env.OPENCODE_OPENAI_API_KEY) {
+        env.OPENCODE_OPENAI_API_KEY = env.OPENAI_API_KEY;
+      }
+      if (env.OPENAI_BASE_URL && !env.OPENCODE_OPENAI_API_BASE) {
+        env.OPENCODE_OPENAI_API_BASE = env.OPENAI_BASE_URL;
+      }
+    }
+  }
 
   // Ensure nuwaxcode writes detailed logs to persistent app logs directory.
   // Without this, logs default to isolated XDG paths under /tmp and are removed on destroy.
@@ -536,6 +672,13 @@ export async function createAcpConnection(
       ? env.OPENAI_API_KEY.slice(
           0,
           Math.min(8, Math.floor(env.OPENAI_API_KEY.length / 2)),
+        ) + "..."
+      : "未设置",
+    OPENCODE_OPENAI_API_BASE: env.OPENCODE_OPENAI_API_BASE || "未设置",
+    OPENCODE_OPENAI_API_KEY: env.OPENCODE_OPENAI_API_KEY
+      ? env.OPENCODE_OPENAI_API_KEY.slice(
+          0,
+          Math.min(8, Math.floor(env.OPENCODE_OPENAI_API_KEY.length / 2)),
         ) + "..."
       : "未设置",
   });
@@ -587,6 +730,7 @@ export async function createAcpConnection(
       purpose: config.purpose ?? "engine",
     });
   }
+  ensureTelemetry(proc);
 
   // Log stderr — 详细输出所有内容
   proc.stderr?.on("data", (data: Buffer) => {
@@ -608,6 +752,11 @@ export async function createAcpConnection(
       log.error("[AcpClient stderr] 🔴", text);
     } else {
       log.warn("[AcpClient stderr]", text);
+    }
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      updateMcpTransportTelemetry(proc, trimmed);
     }
     if (firstTokenTrace.isDeepMode()) {
       for (const line of text.split("\n")) {
@@ -765,6 +914,7 @@ export async function createAcpConnection(
       proc.stdin?.removeAllListeners();
       // Remove process-level listeners (error, exit)
       proc.removeAllListeners();
+      mcpTransportTelemetry.delete(proc);
       log.info(
         "[AcpClient] 🧹 Cleaned up event listeners to prevent handle leaks",
       );

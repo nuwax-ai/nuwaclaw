@@ -27,6 +27,7 @@ const WARMUP_ENGINE_TYPE: AgentEngineType = "nuwaxcode";
 const RESPAWN_DELAY_MS = 500; // 防抖延迟
 const MCP_CONFIG_HASH_RE = /mcp-config-[^-]+-([0-9a-f]{16})\.json$/i;
 const WARMUP_ENV_FLAG = "NUWAX_AGENT_WARMUP";
+const WARMUP_MCP_READY_FLAG = "NUWAX_AGENT_WARMUP_MCP_READY";
 
 type WarmupStartOptions = {
   /** 允许在已有活跃 project 引擎时补仓 warmup */
@@ -118,6 +119,10 @@ export class EngineWarmup {
         : (this.lastMcpServers ?? baseConfig.mcpServers);
     if (seededMcpServers) {
       warmupConfig.mcpServers = seededMcpServers;
+      warmupConfig.env = {
+        ...(warmupConfig.env || {}),
+        [WARMUP_MCP_READY_FLAG]: "1",
+      };
     }
 
     // 立即占位，避免 warmup 进行中 getOrCreateEngine 创建重复引擎
@@ -417,8 +422,8 @@ export class EngineWarmup {
    * 尝试复用 warmup 引擎。成功时 re-key 为 projectId 并返回引擎；
    * 未就绪或已死时清理并返回 null。
    *
-   * MCP 限制：由于 MCP 在引擎启动时通过环境变量 OPENCODE_CONFIG_CONTENT 注入，
-   * updateConfig() 无法改变已启动进程的环境。因此：
+   * 复用限制：由于 updateConfig() 无法改变已启动进程的环境，因此：
+   * - 仅当 warmup 的运行时配置（model/api/baseUrl/apiProtocol）与请求兼容时才复用
    * - 仅当 warmup MCP 与请求 MCP 语义完全兼容时才复用
    * - 不兼容时立即回退冷启动，避免首个 MCP 加载失败
    *
@@ -464,10 +469,97 @@ export class EngineWarmup {
         return null;
       }
 
+      // Runtime config compatibility check.
+      // updateConfig() cannot patch process env after spawn, so mismatched
+      // model/auth/baseUrl/protocol must fallback to cold create.
+      const runtimeMismatch: string[] = [];
+      if (
+        effectiveConfig.model &&
+        effectiveConfig.model !== (warmupConfig.model || "")
+      ) {
+        runtimeMismatch.push("model");
+      }
+      if (
+        effectiveConfig.apiKey &&
+        effectiveConfig.apiKey !== (warmupConfig.apiKey || "")
+      ) {
+        runtimeMismatch.push("apiKey");
+      }
+      if (
+        effectiveConfig.baseUrl &&
+        effectiveConfig.baseUrl !== (warmupConfig.baseUrl || "")
+      ) {
+        runtimeMismatch.push("baseUrl");
+      }
+      if (
+        effectiveConfig.apiProtocol &&
+        effectiveConfig.apiProtocol !== (warmupConfig.apiProtocol || "")
+      ) {
+        runtimeMismatch.push("apiProtocol");
+      }
+
+      if (runtimeMismatch.length > 0) {
+        const requestMcp = effectiveConfig.mcpServers || {};
+        const requestMcpKeys = Object.keys(requestMcp).sort();
+        log.info(
+          `[EngineWarmup] ⚠️ 运行时配置不兼容，不复用 warmup（${runtimeMismatch.join(",")}）`,
+          {
+            warmupModel: warmupConfig.model || "(none)",
+            requestModel: effectiveConfig.model || "(none)",
+            warmupBaseUrl: warmupConfig.baseUrl || "(none)",
+            requestBaseUrl: effectiveConfig.baseUrl || "(none)",
+            warmupApiKeySet: !!warmupConfig.apiKey,
+            requestApiKeySet: !!effectiveConfig.apiKey,
+            warmupApiProtocol: warmupConfig.apiProtocol || "(none)",
+            requestApiProtocol: effectiveConfig.apiProtocol || "(none)",
+          },
+        );
+        firstTokenTrace.trace(
+          "warmup.reuse.miss",
+          { projectId, engine: requestEngineType || warmupEngineType },
+          {
+            reason: "runtime_config_incompatible",
+            mismatch: runtimeMismatch,
+          },
+        );
+        this.lastMcpServers = requestMcpKeys.length > 0 ? requestMcp : null;
+        engine.removeAllListeners();
+        await engine.destroy().catch(() => {});
+        this.engines.delete(WARMUP_KEY);
+        this.configs.delete(WARMUP_KEY);
+        this.rawMcpServers.delete(WARMUP_KEY);
+        return null;
+      }
+
       const warmupMcp = warmupConfig.mcpServers || {};
       const requestMcp = effectiveConfig.mcpServers || {};
       const warmupMcpKeys = Object.keys(warmupMcp).sort();
       const requestMcpKeys = Object.keys(requestMcp).sort();
+
+      // 兼容旧 warmup 进程：
+      // 历史版本 warmup 进程未注入 MCP（仅 permission），即使 mcpServers 配置看起来一致，
+      // 实际运行时仍可能出现 MCP.tools()=0。检测到缺少新标记时强制放弃复用，回退冷启动。
+      const warmupMcpReady =
+        (warmupConfig.env || {})[WARMUP_MCP_READY_FLAG] === "1";
+      if (requestMcpKeys.length > 0 && !warmupMcpReady) {
+        log.info(
+          "[EngineWarmup] ⚠️ 检测到旧 warmup 进程（缺少 MCP ready 标记），不复用",
+          { requestMcpKeys, warmupMcpKeys },
+        );
+        firstTokenTrace.trace(
+          "warmup.reuse.miss",
+          { projectId, engine: requestEngineType || warmupEngineType },
+          { reason: "legacy_warmup_without_mcp_ready_marker", requestMcpKeys },
+        );
+        this.lastMcpServers = requestMcp;
+        engine.removeAllListeners();
+        await engine.destroy().catch(() => {});
+        this.engines.delete(WARMUP_KEY);
+        this.configs.delete(WARMUP_KEY);
+        this.rawMcpServers.delete(WARMUP_KEY);
+        return null;
+      }
+
       const { compatible, reason, detail } = this.checkMcpCompatibility(
         warmupMcp,
         requestMcp,

@@ -474,9 +474,29 @@ export class UnifiedAgentService extends EventEmitter {
     mcpServers?: AgentConfig["mcpServers"];
     reason?: string;
     allowWhenActiveEngines?: boolean;
+    seedConfig?: Pick<
+      AgentConfig,
+      "apiKey" | "baseUrl" | "model" | "apiProtocol" | "env"
+    >;
   }): void {
     if (!this.baseConfig) return;
-    this.warmup.start(this.baseConfig, (e) => this.forwardEvents(e), {
+    const warmupBaseConfig: AgentConfig = {
+      ...this.baseConfig,
+      ...(options?.seedConfig
+        ? {
+            apiKey: options.seedConfig.apiKey ?? this.baseConfig.apiKey,
+            baseUrl: options.seedConfig.baseUrl ?? this.baseConfig.baseUrl,
+            model: options.seedConfig.model ?? this.baseConfig.model,
+            apiProtocol:
+              options.seedConfig.apiProtocol ?? this.baseConfig.apiProtocol,
+            env: {
+              ...(this.baseConfig.env || {}),
+              ...(options.seedConfig.env || {}),
+            },
+          }
+        : {}),
+    };
+    this.warmup.start(warmupBaseConfig, (e) => this.forwardEvents(e), {
       allowWhenActiveEngines: options?.allowWhenActiveEngines ?? true,
       mcpServers: options?.mcpServers,
       reason: options?.reason,
@@ -546,6 +566,13 @@ export class UnifiedAgentService extends EventEmitter {
         // warmup 被消费后立即补仓，保证后续新会话仍有预热可命中
         this.ensureNuwaxWarmup({
           mcpServers: effectiveConfig.mcpServers,
+          seedConfig: {
+            apiKey: effectiveConfig.apiKey,
+            baseUrl: effectiveConfig.baseUrl,
+            model: effectiveConfig.model,
+            apiProtocol: effectiveConfig.apiProtocol,
+            env: effectiveConfig.env,
+          },
           reason: "reuse_refill",
           allowWhenActiveEngines: true,
         });
@@ -603,6 +630,13 @@ export class UnifiedAgentService extends EventEmitter {
       // 冷启动后也立即补仓，保证连续新 project 有机会持续命中 warmup
       this.ensureNuwaxWarmup({
         mcpServers: effectiveConfig.mcpServers,
+        seedConfig: {
+          apiKey: effectiveConfig.apiKey,
+          baseUrl: effectiveConfig.baseUrl,
+          model: effectiveConfig.model,
+          apiProtocol: effectiveConfig.apiProtocol,
+          env: effectiveConfig.env,
+        },
         reason: "create_refill",
         allowWhenActiveEngines: true,
       });
