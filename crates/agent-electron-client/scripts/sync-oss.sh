@@ -45,6 +45,9 @@ echo ""
 # 获取 GitHub token
 TOKEN=$(gh auth token)
 
+# 触发前记录 epoch，用于在「并行多次 dispatch」时锁定本次 run，避免误跟别人的最新一条
+START_EPOCH=$(($(date -u +%s) - 10))
+
 # 触发 workflow_dispatch：ref 用默认分支，inputs 只传 tag
 RESPONSE=$(curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
@@ -64,12 +67,29 @@ fi
 echo "✓ 触发成功"
 echo ""
 
-# 等待并获取 run ID
-echo "==> 获取 workflow run ID..."
-sleep 3
+# 解析本次 workflow run：必须带 --repo "$REPO"，否则在 nuwax-agent 仓库里跑脚本时会错列本仓库的 run
+echo "==> 获取 workflow run ID（匹配 workflow_dispatch 且创建时间不早于触发前窗口）..."
+RUN_ID=""
+for _ in $(seq 1 45); do
+  RUN_ID=$(gh run list --repo "$REPO" --workflow="sync-electron-to-oss.yml" \
+    --limit 25 \
+    --json databaseId,createdAt,event \
+    --jq --argjson start "$START_EPOCH" '
+      [.[] | select(.event == "workflow_dispatch") |
+        select(
+          (.createdAt
+            | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end
+            | fromdateiso8601) >= $start
+        )
+      ] | sort_by(.createdAt) | reverse | .[0].databaseId // empty')
+  [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ] && break
+  sleep 1
+done
 
-RUN_INFO=$(gh run list --workflow="sync-electron-to-oss.yml" --limit 1 --json databaseId,status,conclusion,displayTitle)
-RUN_ID=$(echo "$RUN_INFO" | jq -r '.[0].databaseId')
+if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+  echo "错误: 无法在 ${REPO} 中解析本次触发的 workflow run（请用 gh run list --repo \"$REPO\" 手动查看）"
+  exit 1
+fi
 
 echo "✓ Run ID: $RUN_ID"
 echo ""
@@ -79,18 +99,18 @@ echo "==> 监控进度..."
 echo ""
 
 while true; do
-  STATUS=$(gh run view "$RUN_ID" --json status --jq '.status')
-  CONCLUSION=$(gh run view "$RUN_ID" --json conclusion --jq '.conclusion')
+  STATUS=$(gh run view "$RUN_ID" --repo "$REPO" --json status --jq '.status')
+  CONCLUSION=$(gh run view "$RUN_ID" --repo "$REPO" --json conclusion --jq '.conclusion')
 
   case "$STATUS" in
     completed)
       if [ "$CONCLUSION" = "success" ]; then
         echo "✓ OSS 同步成功!"
-        gh run view "$RUN_ID" --url
+        gh run view "$RUN_ID" --repo "$REPO" --url
         exit 0
       else
         echo "✗ OSS 同步失败: $CONCLUSION"
-        gh run view "$RUN_ID" --url
+        gh run view "$RUN_ID" --repo "$REPO" --url
         exit 1
       fi
       ;;
