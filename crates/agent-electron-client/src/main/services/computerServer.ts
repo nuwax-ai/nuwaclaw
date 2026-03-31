@@ -26,6 +26,7 @@ import { EventEmitter } from "events";
 import log from "electron-log";
 import { getPerfLogger } from "../bootstrap/logConfig";
 import { agentService } from "./engines/unifiedAgent";
+import { firstTokenTrace } from "./engines/perf/firstTokenTrace";
 import { LOCALHOST_HOSTNAME } from "./constants";
 import { getConfiguredPorts } from "./startupPorts";
 import type {
@@ -293,6 +294,15 @@ async function handleRequest(
 
       const body = (await parseBody(req)) as ComputerChatRequest;
       t1 = Date.now();
+      firstTokenTrace.trace(
+        "chat.received",
+        {
+          requestId: body.request_id,
+          projectId: body.project_id,
+          sessionId: body.session_id,
+        },
+        { parseBodyMs: t1 - t0, userId: body.user_id },
+      );
       // 记录 Electron 侧收到请求的时间（Java 后端经 lanproxy 转发过来），含 parseBody
       getPerfLogger().info(
         `[PERF] /chat received: parseBody=${t1 - t0}ms  rid=${body.request_id?.slice(0, 8)}  project=${body.project_id}`,
@@ -327,6 +337,15 @@ async function handleRequest(
       // 验证必填字段
       if (!body.user_id) {
         log.error("❌ [HTTP] user_id is required for ComputerAgentRunner");
+        firstTokenTrace.trace(
+          "chat.failed",
+          {
+            requestId: body.request_id,
+            projectId: body.project_id,
+            sessionId: body.session_id,
+          },
+          { reason: "missing_user_id" },
+        );
         sendJson(
           res,
           400,
@@ -338,6 +357,15 @@ async function handleRequest(
         return;
       }
       t2 = Date.now();
+      firstTokenTrace.trace(
+        "chat.validated",
+        {
+          requestId: body.request_id,
+          projectId: body.project_id,
+          sessionId: body.session_id,
+        },
+        { validateMs: t2 - t1 },
+      );
       getPerfLogger().info(`[PERF] /chat.validate: ${t2 - t1}ms`);
 
       // 确保项目工作空间存在（客户端快速重新登录后工作空间可能被清空）
@@ -358,6 +386,15 @@ async function handleRequest(
         }
       }
       const t2_5 = Date.now();
+      firstTokenTrace.trace(
+        "chat.workspace.ready",
+        {
+          requestId: body.request_id,
+          projectId: body.project_id,
+          sessionId: body.session_id,
+        },
+        { workspaceMs: t2_5 - t2 },
+      );
       getPerfLogger().info(`[PERF] /chat.ensureWorkspace: ${t2_5 - t2}ms`);
 
       // 确保正确的引擎已启动（按 project_id 路由到对应 AcpEngine）
@@ -366,6 +403,18 @@ async function handleRequest(
         acpEngine = await agentService.ensureEngineForRequest(body);
       } catch (err: any) {
         log.error("❌ [HTTP] Engine switch failed:", err);
+        firstTokenTrace.trace(
+          "chat.failed",
+          {
+            requestId: body.request_id,
+            projectId: body.project_id,
+            sessionId: body.session_id,
+          },
+          {
+            reason: "ensure_engine_failed",
+            error: err?.message || String(err),
+          },
+        );
         sendJson(
           res,
           200,
@@ -374,6 +423,16 @@ async function handleRequest(
         return;
       }
       t3 = Date.now();
+      firstTokenTrace.trace(
+        "chat.engine.ready",
+        {
+          requestId: body.request_id,
+          projectId: body.project_id,
+          sessionId: body.session_id,
+          engine: acpEngine?.engineName,
+        },
+        { ensureEngineMs: t3 - t2_5 },
+      );
       getPerfLogger().info(`[PERF] /chat.ensureEngine: ${t3 - t2_5}ms`);
 
       if (!acpEngine) {
@@ -385,6 +444,22 @@ async function handleRequest(
       // chat() 已返回 HttpResult<ComputerChatResponse> 格式
       const result = await acpEngine.chat(body);
       t4 = Date.now();
+      firstTokenTrace.trace(
+        result.success ? "chat.response.sent" : "chat.failed",
+        {
+          requestId: body.request_id,
+          projectId: body.project_id,
+          sessionId: result.data?.session_id || body.session_id,
+          engine: acpEngine.engineName,
+        },
+        {
+          acpChatMs: t4 - t3,
+          totalMs: t4 - t0,
+          success: result.success,
+          code: result.code,
+          message: result.success ? "ok" : result.message,
+        },
+      );
       getPerfLogger().info(`[PERF] /chat.acpChat: ${t4 - t3}ms`);
 
       if (result.success) {
@@ -406,6 +481,7 @@ async function handleRequest(
     if (pathname.startsWith("/computer/progress/") && method === "GET") {
       const sseStartTime = Date.now();
       const sessionId = pathname.replace("/computer/progress/", "");
+      firstTokenTrace.trace("sse.connect", { sessionId });
       getPerfLogger().info(`[PERF] sse.connect  session=${sessionId}`);
       log.info(
         `📡 [HTTP] SSE 连接请求: session_id=${sessionId}, time=${new Date().toISOString()}`,
@@ -712,6 +788,15 @@ async function handleRequest(
     sendJson(res, 404, httpError("NOT_FOUND", `Path not found: ${pathname}`));
   } catch (error: any) {
     log.error(`❌ [HTTP] 请求处理异常: ${pathname}`, error);
+    firstTokenTrace.trace(
+      "chat.failed",
+      {},
+      {
+        reason: "request_handler_exception",
+        path: pathname,
+        error: error?.message || String(error),
+      },
+    );
     sendJson(
       res,
       500,
@@ -770,13 +855,16 @@ export function pushSseEvent(
 
   if (isFirstMessage) {
     sseFirstEventSent.set(sessionId, now);
+    firstTokenTrace.trace("sse.first_chunk", { sessionId });
     getPerfLogger().info(`[PERF] sse.firstChunk  session=${sessionId}`);
   }
   if (isFirstToken) {
     sseFirstTokenSent.set(sessionId, now);
+    firstTokenTrace.trace("sse.first_token", { sessionId });
     getPerfLogger().info(`[PERF] sse.firstToken  session=${sessionId}`);
   }
   if (isEndTurn) {
+    firstTokenTrace.trace("sse.end_turn", { sessionId });
     const firstChunkTime = sseFirstEventSent.get(sessionId);
     const firstTokenTime = sseFirstTokenSent.get(sessionId);
     sseFirstEventSent.delete(sessionId);

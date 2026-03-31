@@ -13,14 +13,22 @@
  *   const reused = await this.warmup.tryReuse(projectId, effectiveConfig);
  */
 
+import * as crypto from "crypto";
+import * as fs from "fs";
+import * as path from "path";
 import log from "electron-log";
 import { AcpEngine } from "./acp/acpEngine";
 import type { AgentConfig, AgentEngineType } from "./types";
 import type { McpServerEntry } from "../packages/mcp";
+import { firstTokenTrace } from "./perf/firstTokenTrace";
 
 const WARMUP_KEY = "__warmup__";
 const WARMUP_ENGINE_TYPE: AgentEngineType = "nuwaxcode";
 const RESPAWN_DELAY_MS = 500; // 防抖延迟
+const MCP_CONFIG_HASH_RE = /mcp-config-[^-]+-([0-9a-f]{16})\.json$/i;
+
+type StdioMcpEntry = Extract<McpServerEntry, { command: string }>;
+type RemoteMcpEntry = Extract<McpServerEntry, { url: string }>;
 
 export class EngineWarmup {
   private respawnScheduled = false;
@@ -44,6 +52,13 @@ export class EngineWarmup {
     }
     this.respawnScheduled = false;
     this.lastMcpServers = null;
+  }
+
+  /** 重新启用 warmup（用于 service destroy 后再次 init）。 */
+  reactivate(): void {
+    this.disposed = false;
+    this.respawnScheduled = false;
+    this.respawnTimer = null;
   }
 
   /** 后台预创建 nuwaxcode 引擎。非阻塞，失败不影响正常流程。始终预热 nuwaxcode。 */
@@ -103,25 +118,175 @@ export class EngineWarmup {
       });
   }
 
-  /** serializeMcpEntry(entry: McpServerEntry): string {
+  private sortValue(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map((v) => this.sortValue(v));
+    if (!value || typeof value !== "object") return value;
+    const src = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(src).sort()) {
+      out[key] = this.sortValue(src[key]);
+    }
+    return out;
+  }
+
+  private stableStringify(value: unknown): string {
+    return JSON.stringify(this.sortValue(value));
+  }
+
+  private digest(value: string): string {
+    return crypto.createHash("sha1").update(value).digest("hex").slice(0, 12);
+  }
+
+  private sortedStringRecord(
+    record: Record<string, string | undefined> | undefined,
+  ): Record<string, string> {
+    const out: Record<string, string> = {};
+    if (!record) return out;
+    for (const key of Object.keys(record).sort()) {
+      const value = record[key];
+      if (typeof value === "string") {
+        out[key] = value;
+      }
+    }
+    return out;
+  }
+
+  private normalizeTransport(
+    value: string | undefined,
+  ): "sse" | "streamable-http" {
+    return value === "sse" ? "sse" : "streamable-http";
+  }
+
+  private readConfigFileFingerprint(
+    configFilePath: string | undefined,
+  ): string {
+    if (!configFilePath) return "missing";
+    try {
+      const raw = fs.readFileSync(configFilePath, "utf8");
+      const parsed = JSON.parse(raw);
+      return this.stableStringify(parsed);
+    } catch {
+      const match = path.basename(configFilePath).match(MCP_CONFIG_HASH_RE);
+      if (match?.[1]) return `hash:${match[1].toLowerCase()}`;
+      return `basename:${path.basename(configFilePath)}`;
+    }
+  }
+
+  private extractConfigFilePath(args: string[]): string | undefined {
+    const idx = args.indexOf("--config-file");
+    if (idx < 0 || idx + 1 >= args.length) return undefined;
+    return args[idx + 1];
+  }
+
+  private isProxyLikeStdio(entry: StdioMcpEntry): boolean {
+    const commandBase = path.basename(entry.command).toLowerCase();
+    const args = entry.args || [];
+    if (commandBase === "mcp-proxy") return true;
+    if (args.includes("--config-file")) return true;
+    const scriptPath = args[0];
+    if (typeof scriptPath === "string") {
+      const scriptBase = path.basename(scriptPath).toLowerCase();
+      if (scriptBase.includes("mcp") && scriptBase.endsWith(".js")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private normalizeProxyArgs(args: string[]): string[] {
+    const normalized: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (arg === "--config-file") {
+        i += 1; // Skip the transient config file path argument.
+        continue;
+      }
+      if (
+        i === 0 &&
+        (arg.endsWith(".js") || arg.endsWith(".cjs") || arg.endsWith(".mjs"))
+      ) {
+        normalized.push(path.basename(arg));
+        continue;
+      }
+      normalized.push(arg);
+    }
+    return normalized;
+  }
+
+  private serializeRemoteEntry(entry: RemoteMcpEntry): string {
+    const transportSource =
+      (entry as { type?: string; transport?: string }).type ??
+      (entry as { type?: string; transport?: string }).transport;
+    const transport = this.normalizeTransport(transportSource);
+    const headers = this.sortedStringRecord(
+      (entry as { headers?: Record<string, string> }).headers,
+    );
+    const allowTools = [
+      ...((entry as { allowTools?: string[] }).allowTools || []),
+    ].sort();
+    const denyTools = [
+      ...((entry as { denyTools?: string[] }).denyTools || []),
+    ].sort();
+    const authToken = (entry as { authToken?: string }).authToken;
+    const authTokenDigest = authToken ? this.digest(authToken) : undefined;
+    return this.stableStringify({
+      mode: "remote",
+      url: entry.url,
+      transport,
+      headers,
+      authTokenDigest,
+      allowTools,
+      denyTools,
+    });
+  }
+
+  private serializeStdioEntry(entry: StdioMcpEntry): string {
+    const env = { ...(entry.env || {}) };
+    delete env.MCP_PROXY_LOG_FILE;
+    const isProxy = this.isProxyLikeStdio(entry);
+    const args = [...(entry.args || [])];
+    const allowTools = [...(entry.allowTools || [])].sort();
+    const denyTools = [...(entry.denyTools || [])].sort();
+
+    if (isProxy) {
+      return this.stableStringify({
+        mode: "proxy-stdio",
+        // Node path may differ between warmup and request; compare basename only.
+        command: path.basename(entry.command).toLowerCase(),
+        args: this.normalizeProxyArgs(args),
+        configFingerprint: this.readConfigFileFingerprint(
+          this.extractConfigFilePath(args),
+        ),
+        env: this.sortedStringRecord(env),
+        allowTools,
+        denyTools,
+      });
+    }
+
+    return this.stableStringify({
+      mode: "stdio",
+      command: entry.command,
+      args,
+      env: this.sortedStringRecord(env),
+      allowTools,
+      denyTools,
+    });
+  }
+
+  private serializeMcpEntry(entry: McpServerEntry): string {
     if ("url" in entry && typeof entry.url === "string") {
-      // Remote MCP
-      const t = ("type" in entry ? entry.type : (entry as { transport?: string }).transport) || "";
-      return `remote:${entry.url}:${t}`;
+      return this.serializeRemoteEntry(entry as RemoteMcpEntry);
     }
     if ("command" in entry) {
-      // Stdio MCP — 排除 MCP_PROXY_LOG_FILE
-      const env = { ...entry.env };
-      delete (env as Record<string, string>).MCP_PROXY_LOG_FILE;
-      return `stdio:${entry.command}:${JSON.stringify(entry.args || [])}:${JSON.stringify(env, Object.keys(env).sort())}`;
+      return this.serializeStdioEntry(entry as StdioMcpEntry);
     }
-    return JSON.stringify(entry);
+    return this.stableStringify(entry);
   }
 
   private checkMcpCompatibility(
     warmupMcp: NonNullable<AgentConfig["mcpServers"]>,
     requestMcp: NonNullable<AgentConfig["mcpServers"]>,
-  ): { compatible: boolean; reason: string } {
+  ): { compatible: boolean; reason: string; detail?: Record<string, string> } {
     const warmupKeys = Object.keys(warmupMcp).sort();
     const requestKeys = Object.keys(requestMcp).sort();
 
@@ -139,6 +304,10 @@ export class EngineWarmup {
         return {
           compatible: false,
           reason: `MCP[${key}] 配置不一致`,
+          detail: {
+            warmupDigest: this.digest(aSer),
+            requestDigest: this.digest(bSer),
+          },
         };
       }
     }
@@ -180,6 +349,15 @@ export class EngineWarmup {
         log.info(
           `[EngineWarmup] ⚠️ 引擎类型不兼容 (warmup=${warmupEngineType}, request=${requestEngineType})，不复用`,
         );
+        firstTokenTrace.trace(
+          "warmup.reuse.miss",
+          { projectId, engine: requestEngineType },
+          {
+            reason: "engine_type_incompatible",
+            warmupEngineType,
+            requestEngineType,
+          },
+        );
         engine.removeAllListeners();
         await engine.destroy().catch(() => {});
         this.engines.delete(WARMUP_KEY);
@@ -192,7 +370,7 @@ export class EngineWarmup {
       const requestMcp = effectiveConfig.mcpServers || {};
       const warmupMcpKeys = Object.keys(warmupMcp).sort();
       const requestMcpKeys = Object.keys(requestMcp).sort();
-      const { compatible, reason } = this.checkMcpCompatibility(
+      const { compatible, reason, detail } = this.checkMcpCompatibility(
         warmupMcp,
         requestMcp,
       );
@@ -200,6 +378,18 @@ export class EngineWarmup {
       if (!compatible) {
         log.info(
           `[EngineWarmup] ⚠️ MCP 配置不兼容，不复用 warmup（${reason}）`,
+        );
+        if (detail) {
+          log.debug("[EngineWarmup] MCP 兼容性对比详情:", detail);
+        }
+        firstTokenTrace.trace(
+          "warmup.reuse.miss",
+          { projectId, engine: requestEngineType || warmupEngineType },
+          {
+            reason,
+            warmupMcpKeys,
+            requestMcpKeys,
+          },
         );
         // 缓存本次请求的 MCP 配置，供 respawn() 使用
         if (requestMcpKeys.length > 0) {
@@ -221,6 +411,14 @@ export class EngineWarmup {
       log.info(
         `[EngineWarmup] ♻️ 复用 warmup 引擎，分配给 project: ${projectId} (节省 ~${savedTime}ms, MCP: ${requestMcpKeys.join(",") || "(none)"})`,
       );
+      firstTokenTrace.trace(
+        "warmup.reuse.hit",
+        { projectId, engine: warmupEngineType },
+        {
+          savedMs: savedTime,
+          mcpKeys: requestMcpKeys,
+        },
+      );
       this.lastMcpServers = requestMcpKeys.length > 0 ? requestMcp : null;
 
       this.engines.delete(WARMUP_KEY);
@@ -232,6 +430,11 @@ export class EngineWarmup {
     }
 
     // 未就绪或已死，清理
+    firstTokenTrace.trace(
+      "warmup.reuse.miss",
+      { projectId, engine: effectiveConfig.engine },
+      { reason: "warmup_not_ready" },
+    );
     engine.removeAllListeners();
     await engine.destroy().catch(() => {});
     this.engines.delete(WARMUP_KEY);

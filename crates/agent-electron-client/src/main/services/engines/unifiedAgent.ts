@@ -14,6 +14,7 @@ import log from "electron-log";
 import { memoryService } from "../memory";
 import type { ModelConfig } from "../memory/types";
 import { perfEmitter } from "./perf/perfEmitter";
+import { firstTokenTrace } from "./perf/firstTokenTrace";
 
 // Re-export engine classes
 export { AcpEngine } from "./acp/acpEngine";
@@ -259,6 +260,7 @@ export class UnifiedAgentService extends EventEmitter {
       await this.destroy();
     }
 
+    this.warmup.reactivate();
     this.baseConfig = config;
     this.engineType = config.engine;
 
@@ -330,6 +332,9 @@ export class UnifiedAgentService extends EventEmitter {
    * Destroy all engines and reset the service.
    */
   async destroy(): Promise<void> {
+    // Stop warmup timers first so no respawn callback runs during/after destroy.
+    this.warmup.dispose();
+
     // Stop process registry sweep
     processRegistry.stopPeriodicSweep();
 
@@ -471,6 +476,11 @@ export class UnifiedAgentService extends EventEmitter {
     effectiveConfig: AgentConfig,
     memoryReadyPromise?: Promise<void> | null,
   ): Promise<AcpEngine> {
+    firstTokenTrace.trace(
+      "engine.get_or_create.start",
+      { projectId, engine: effectiveConfig.engine },
+      { hasMemoryReadyPromise: !!memoryReadyPromise },
+    );
     const t0 = Date.now();
     let t1 = t0,
       t2 = t0,
@@ -480,6 +490,10 @@ export class UnifiedAgentService extends EventEmitter {
     if (existing) {
       if (existing.isReady) {
         perfEmitter.duration("engine.getOrCreate (reuse)", Date.now() - t0);
+        firstTokenTrace.trace("engine.get_or_create.reuse", {
+          projectId,
+          engine: existing.engineName,
+        });
         return existing;
       }
       // Dead engine — cleanup and rebuild
@@ -503,6 +517,10 @@ export class UnifiedAgentService extends EventEmitter {
         "engine.getOrCreate (warmup reuse)",
         Date.now() - t0,
       );
+      firstTokenTrace.trace("engine.get_or_create.warmup_reuse", {
+        projectId,
+        engine: reused.engineName,
+      });
       return reused;
     }
 
@@ -545,6 +563,11 @@ export class UnifiedAgentService extends EventEmitter {
     this.engines.set(projectId, engine);
     this.engineConfigs.set(projectId, effectiveConfig);
     perfEmitter.duration("engine.getOrCreate", t3 - t0, { project: projectId });
+    firstTokenTrace.trace(
+      "engine.get_or_create.created",
+      { projectId, engine: engine.engineName },
+      { latencyMs: t3 - t0 },
+    );
     return engine;
   }
 
@@ -590,6 +613,15 @@ export class UnifiedAgentService extends EventEmitter {
   async ensureEngineForRequest(
     request: ComputerChatRequest,
   ): Promise<AcpEngine> {
+    firstTokenTrace.trace("engine.ensure.start", {
+      requestId: request.request_id,
+      sessionId: request.session_id,
+      projectId: request.project_id,
+      engine: request.agent_config?.agent_server?.command
+        ? (mapAgentCommand(request.agent_config.agent_server.command) ??
+          undefined)
+        : (this.engineType ?? undefined),
+    });
     const t0 = Date.now();
     let t1 = t0,
       t2 = t0,
@@ -683,6 +715,16 @@ export class UnifiedAgentService extends EventEmitter {
       (Object.keys(requestMcpServersEarly).length === 0 || !mcpChanged)
     ) {
       perfEmitter.duration("engine.fastPath", Date.now() - t0, { engineKey });
+      firstTokenTrace.trace(
+        "engine.ensure.fast_path",
+        {
+          requestId: request.request_id,
+          sessionId: request.session_id,
+          projectId: request.project_id,
+          engine: existingEngine.engineName,
+        },
+        { engineKey },
+      );
       return existingEngine;
     }
 
@@ -747,6 +789,12 @@ export class UnifiedAgentService extends EventEmitter {
       });
 
       if (!hasConfigChange) {
+        firstTokenTrace.trace("engine.ensure.config_unchanged", {
+          requestId: request.request_id,
+          sessionId: request.session_id,
+          projectId: request.project_id,
+          engine: existingEngine.engineName,
+        });
         return existingEngine;
       }
 
@@ -900,6 +948,16 @@ export class UnifiedAgentService extends EventEmitter {
     );
     t5 = Date.now();
     perfEmitter.duration("engine.ensure", t5 - t0, { engineKey });
+    firstTokenTrace.trace(
+      "engine.ensure.done",
+      {
+        requestId: request.request_id,
+        sessionId: request.session_id,
+        projectId: request.project_id,
+        engine: engine.engineName,
+      },
+      { latencyMs: t5 - t0, engineKey },
+    );
 
     // 仅在引擎实际被创建/重建时到达此处（detectConfigChange 返回 false 时已 early-return）。
     // 将本次过滤好的原始 MCP servers 存入快照，key 用实际注册表 key 以便 detectConfigChange 能命中。

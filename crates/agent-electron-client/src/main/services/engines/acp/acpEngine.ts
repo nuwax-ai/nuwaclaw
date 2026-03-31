@@ -57,6 +57,7 @@ import { processRegistry } from "../../system/processRegistry";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ACP_ABORT_TIMEOUT } from "@shared/constants";
 import { perfEmitter } from "../perf/perfEmitter";
+import { firstTokenTrace } from "../perf/firstTokenTrace";
 
 /** Safe JSON.stringify that handles circular references */
 function safeStringify(obj: unknown): string {
@@ -149,6 +150,7 @@ export class AcpEngine extends EventEmitter {
 
   async init(config: AgentConfig): Promise<boolean> {
     const timer = perfEmitter.start();
+    firstTokenTrace.trace("acp.init.start", { engine: this.engineName });
     this.config = config;
     const envModel = config.env?.OPENCODE_MODEL || config.env?.ANTHROPIC_MODEL;
     log.info(`${this.logTag} 🚀 初始化配置`, {
@@ -316,9 +318,22 @@ export class AcpEngine extends EventEmitter {
       this._ready = true;
       this.emit("ready");
       timer.end("acp.init.total", { engine: this.engineName });
+      firstTokenTrace.trace("acp.init.ready", { engine: this.engineName });
       return true;
     } catch (error) {
       log.error(`${this.logTag} Init failed:`, error);
+      firstTokenTrace.trace(
+        "acp.init.failed",
+        { engine: this.engineName },
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : typeof error === "object"
+                ? safeStringify(error)
+                : String(error),
+        },
+      );
       // Ensure spawned process is cleaned up on init failure
       await this.destroy().catch(() => {});
       this.emit(
@@ -501,6 +516,11 @@ export class AcpEngine extends EventEmitter {
       mcpServers,
       _meta,
     };
+    firstTokenTrace.trace(
+      "acp.new_session.sent",
+      { projectId: opts?.title, engine: this.engineName },
+      { cwd: sessionCwd, mcpCount: mcpServers.length },
+    );
     log.info(
       `${this.logTag} newSession: cwd=${sessionCwd}, mcpServers=${mcpServers.length}, hasSystemPrompt=${!!opts?.systemPrompt}`,
     );
@@ -523,6 +543,15 @@ export class AcpEngine extends EventEmitter {
 
     log.info(
       `${this.logTag} ✅ ACP newSession 完成 (${createMs}ms), acpSessionId=${acpResult.sessionId}`,
+    );
+    firstTokenTrace.trace(
+      "acp.new_session.done",
+      {
+        sessionId: acpResult.sessionId,
+        projectId: opts?.title,
+        engine: this.engineName,
+      },
+      { createMs, mcpCount: mcpServers.length },
     );
 
     const sessionId = acpResult.sessionId;
@@ -695,6 +724,16 @@ export class AcpEngine extends EventEmitter {
       acpSessionId: session.acpSessionId,
       requestId: _opts?.messageID,
     });
+    firstTokenTrace.trace(
+      "acp.prompt.start_event",
+      {
+        requestId: _opts?.messageID,
+        sessionId,
+        projectId: session.projectId,
+        engine: this.engineName,
+      },
+      { acpSessionId: session.acpSessionId },
+    );
 
     let resultText = "";
     const promptSentAt = Date.now();
@@ -704,6 +743,16 @@ export class AcpEngine extends EventEmitter {
       if (message.subType !== "agent_message_chunk") return;
       if (firstUpdateAt !== undefined) return;
       firstUpdateAt = Date.now();
+      firstTokenTrace.trace(
+        "acp.prompt.first_update",
+        {
+          requestId: _opts?.messageID,
+          sessionId,
+          projectId: session.projectId,
+          engine: this.engineName,
+        },
+        { latencyMs: firstUpdateAt - promptSentAt },
+      );
       perfEmitter.duration(
         "acp.prompt.sendToFirstUpdate",
         firstUpdateAt - promptSentAt,
@@ -728,6 +777,12 @@ export class AcpEngine extends EventEmitter {
       const promptStartTime = Date.now();
       perfEmitter.point("acp.prompt.sent", { sessionId });
       log.info(`${this.logTag} 📤 ACP prompt 发送中...`);
+      firstTokenTrace.trace("acp.prompt.sent", {
+        requestId: _opts?.messageID,
+        sessionId,
+        projectId: session.projectId,
+        engine: this.engineName,
+      });
 
       const result = await new Promise<{ stopReason: string }>(
         (resolve, reject) => {
@@ -764,6 +819,23 @@ export class AcpEngine extends EventEmitter {
         sessionId,
         stopReason: result.stopReason,
       });
+      firstTokenTrace.trace(
+        "acp.prompt.completed",
+        {
+          requestId: _opts?.messageID,
+          sessionId,
+          projectId: session.projectId,
+          engine: this.engineName,
+        },
+        {
+          stopReason: result.stopReason,
+          totalMs: completedAt - promptSentAt,
+          firstUpdateToDoneMs:
+            firstUpdateAt !== undefined
+              ? completedAt - firstUpdateAt
+              : undefined,
+        },
+      );
       if (firstUpdateAt !== undefined) {
         perfEmitter.duration(
           "acp.prompt.firstUpdateToDone",
@@ -796,6 +868,23 @@ export class AcpEngine extends EventEmitter {
       });
     } catch (error) {
       log.error(`${this.logTag} Prompt failed:`, error);
+      firstTokenTrace.trace(
+        "acp.prompt.failed",
+        {
+          requestId: _opts?.messageID,
+          sessionId,
+          projectId: session.projectId,
+          engine: this.engineName,
+        },
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : typeof error === "object"
+                ? safeStringify(error)
+                : String(error),
+        },
+      );
 
       const errMsg =
         error instanceof Error
@@ -940,6 +1029,12 @@ export class AcpEngine extends EventEmitter {
     request: ComputerChatRequest,
   ): Promise<HttpResult<ComputerChatResponse>> {
     const timer = perfEmitter.start();
+    firstTokenTrace.trace("acp.chat.enter", {
+      requestId: request.request_id,
+      sessionId: request.session_id,
+      projectId: request.project_id,
+      engine: this.engineName,
+    });
     if (!this.acpConnection || !this.config) {
       return {
         code: "5000",
@@ -1011,6 +1106,7 @@ export class AcpEngine extends EventEmitter {
 
       // 1. Find existing session or create new
       let session: AcpSession | undefined;
+      let isNewSession = false;
 
       if (request.session_id) {
         session = this.sessions.get(request.session_id);
@@ -1020,6 +1116,7 @@ export class AcpEngine extends EventEmitter {
       }
 
       if (!session) {
+        isNewSession = true;
         const projectId = request.project_id || `proj-${Date.now()}`;
         const projectDir = path.join(
           this.config.workspaceDir,
@@ -1052,15 +1149,42 @@ export class AcpEngine extends EventEmitter {
         });
         session = this.sessions.get(newSession.id)!;
         session.projectId = request.project_id;
+        firstTokenTrace.trace(
+          "acp.chat.session_created",
+          {
+            requestId: request.request_id,
+            sessionId: session.id,
+            projectId: request.project_id,
+            engine: this.engineName,
+          },
+          { projectDir },
+        );
+      } else {
+        firstTokenTrace.trace("acp.chat.session_reused", {
+          requestId: request.request_id,
+          sessionId: session.id,
+          projectId: request.project_id,
+          engine: this.engineName,
+        });
       }
 
       timer.end("acp.chat.sessionSetup", {
         stage: "会话准备",
         sessionId: session.id,
-        isNewSession: !request.session_id,
+        isNewSession,
         engine: this.engineName,
         model: this.config.model || envModel || "(未设置)",
       });
+      firstTokenTrace.trace(
+        "acp.chat.session_ready",
+        {
+          requestId: request.request_id,
+          sessionId: session.id,
+          projectId: request.project_id,
+          engine: this.engineName,
+        },
+        { isNewSession },
+      );
 
       // 2. Record user message to MemoryService
       // 获取纯净用户输入（仅使用 original_user_prompt，不回退到 prompt）
@@ -1151,11 +1275,17 @@ ${memoryContext}
 
       // 4. Async prompt
       this.promptAsync(session.id, [{ type: "text", text: enhancedPrompt }]);
+      firstTokenTrace.trace("acp.prompt.dispatched", {
+        requestId: request.request_id,
+        sessionId: session.id,
+        projectId: request.project_id,
+        engine: this.engineName,
+      });
 
       timer.end("acp.chat.total", {
         stage: "总耗时",
         sessionId: session.id,
-        isNewSession: !request.session_id,
+        isNewSession,
         engine: this.engineName,
         model: this.config.model || "(未设置)",
       });
@@ -1169,6 +1299,16 @@ ${memoryContext}
       };
 
       log.info(`${this.logTag} ✅ chat() 响应: session_id=${session.id}`);
+      firstTokenTrace.trace(
+        "acp.chat.return",
+        {
+          requestId: request.request_id,
+          sessionId: session.id,
+          projectId: request.project_id,
+          engine: this.engineName,
+        },
+        { success: true },
+      );
 
       return {
         code: "0000",
@@ -1185,6 +1325,16 @@ ${memoryContext}
             ? safeStringify(error)
             : String(error);
       log.error(`${this.logTag} ❌ chat() 失败: ${errorMsg}`);
+      firstTokenTrace.trace(
+        "acp.chat.failed",
+        {
+          requestId: request.request_id,
+          sessionId: request.session_id,
+          projectId: request.project_id,
+          engine: this.engineName,
+        },
+        { error: errorMsg },
+      );
       return {
         code: "5000",
         message: errorMsg,

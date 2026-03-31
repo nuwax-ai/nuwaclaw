@@ -32,6 +32,32 @@ import { spawnJsFile, resolveNpmPackageEntry } from "../../utils/spawnNoWindow";
 import { processRegistry } from "../../system/processRegistry";
 import { killProcessTreeGraceful } from "../../utils/processTree";
 import { perfEmitter } from "../perf/perfEmitter";
+import { firstTokenTrace } from "../perf/firstTokenTrace";
+
+function extractSessionIdFromLine(line: string): string | undefined {
+  try {
+    const obj = JSON.parse(line) as {
+      sessionId?: unknown;
+      params?: { sessionId?: unknown };
+      result?: { sessionId?: unknown };
+      data?: { sessionId?: unknown };
+      update?: { sessionId?: unknown };
+    };
+    const candidates = [
+      obj.sessionId,
+      obj.params?.sessionId,
+      obj.result?.sessionId,
+      obj.data?.sessionId,
+      obj.update?.sessionId,
+    ];
+    for (const c of candidates) {
+      if (typeof c === "string" && c) return c;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 // ==================== Types ====================
 
@@ -374,10 +400,35 @@ export async function createAcpConnection(
   clientHandler: AcpClientHandler,
 ): Promise<AcpConnectionResult> {
   const { binPath, binArgs } = config;
+  let effectiveBinArgs = [...binArgs];
 
   if (!fs.existsSync(binPath)) {
     throw new Error(
       `ACP binary not found at: ${binPath}. Please install it first.`,
+    );
+  }
+
+  if (config.engineType === "nuwaxcode" && firstTokenTrace.isDeepMode()) {
+    if (!effectiveBinArgs.includes("--print-logs")) {
+      effectiveBinArgs.push("--print-logs");
+    }
+    if (!effectiveBinArgs.includes("--log-level")) {
+      effectiveBinArgs.push(
+        "--log-level",
+        process.env.NUWAX_TRACE_NUWAXCODE_LOG_LEVEL || "DEBUG",
+      );
+    }
+    if (!effectiveBinArgs.includes("--log-dir")) {
+      const traceLogDir = firstTokenTrace.getNuwaxcodeLogDir();
+      if (traceLogDir) {
+        fs.mkdirSync(traceLogDir, { recursive: true });
+        effectiveBinArgs.push("--log-dir", traceLogDir);
+      }
+    }
+    firstTokenTrace.trace(
+      "acp.conn.nuwaxcode.trace_flags",
+      { engine: config.engineType },
+      { binPath, args: effectiveBinArgs },
     );
   }
 
@@ -449,7 +500,7 @@ export async function createAcpConnection(
   // 打印最终生效的模型配置（关键调试信息）
   log.info("[AcpClient] 🚀 Spawning ACP binary", {
     binPath,
-    binArgs,
+    binArgs: effectiveBinArgs,
     cwd: config.workspaceDir,
     isolatedHome,
     ANTHROPIC_MODEL: env.ANTHROPIC_MODEL || "未设置",
@@ -479,7 +530,7 @@ export async function createAcpConnection(
   if (config.isNative) {
     // Native binary (e.g. nuwaxcode Go binary): spawn directly, no node wrapper
     // This avoids Windows console popup and eliminates the intermediate process
-    proc = spawn(binPath, binArgs, {
+    proc = spawn(binPath, effectiveBinArgs, {
       cwd: config.workspaceDir,
       env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -491,7 +542,7 @@ export async function createAcpConnection(
     );
   } else {
     // JS file (e.g. claude-code-acp-ts): spawn via node using spawnJsFile
-    proc = spawnJsFile(binPath, binArgs, {
+    proc = spawnJsFile(binPath, effectiveBinArgs, {
       cwd: config.workspaceDir,
       env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -539,6 +590,22 @@ export async function createAcpConnection(
     } else {
       log.warn("[AcpClient stderr]", text);
     }
+    if (firstTokenTrace.isDeepMode()) {
+      for (const line of text.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const preview =
+          trimmed.length > 1000 ? trimmed.substring(0, 1000) + "..." : trimmed;
+        firstTokenTrace.trace(
+          "acp.stderr.line",
+          {
+            engine: config.engineType,
+            sessionId: extractSessionIdFromLine(trimmed),
+          },
+          { pid: proc.pid, line: preview },
+        );
+      }
+    }
   });
 
   proc.on("error", (error) => {
@@ -565,6 +632,16 @@ export async function createAcpConnection(
         const preview =
           trimmed.length > 500 ? trimmed.substring(0, 500) + "..." : trimmed;
         log.info("[AcpClient stdout] 📥", preview);
+        if (firstTokenTrace.isDeepMode()) {
+          firstTokenTrace.trace(
+            "acp.stdout.line",
+            {
+              engine: config.engineType,
+              sessionId: extractSessionIdFromLine(trimmed),
+            },
+            { pid: proc.pid, line: preview },
+          );
+        }
       }
       this.push(chunk);
       callback();
@@ -583,6 +660,16 @@ export async function createAcpConnection(
       const preview =
         trimmed.length > 500 ? trimmed.substring(0, 500) + "..." : trimmed;
       log.info("[AcpClient stdin] 📤", preview);
+      if (firstTokenTrace.isDeepMode()) {
+        firstTokenTrace.trace(
+          "acp.stdin.line",
+          {
+            engine: config.engineType,
+            sessionId: extractSessionIdFromLine(trimmed),
+          },
+          { pid: proc.pid, line: preview },
+        );
+      }
     }
     return originalStdinWrite(chunk, ...args);
   } as any;

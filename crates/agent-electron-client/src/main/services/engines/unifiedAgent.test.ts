@@ -13,6 +13,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 
 // ───── 必需 Mocks（防止导入链拉起 Electron / IPC 等重模块）──────────────────
@@ -609,6 +611,16 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
     expect((svc as any).engines.size).toBe(0);
   });
 
+  it("destroy() 会调用 warmup.dispose 清理 respawn 定时器", async () => {
+    const svc = new UnifiedAgentService() as any;
+    await svc.init(baseConfig);
+    const disposeSpy = vi.spyOn(svc.warmup, "dispose");
+
+    await svc.destroy();
+
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("warmup MCP 与请求 MCP 同名但 args 不同 → 不复用，回退冷启动", async () => {
     const { AcpEngine } = await import("./acp/acpEngine");
 
@@ -697,6 +709,54 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
     expect(engine).toBe(warmupEngine);
     expect(svc.engines.has("__warmup__")).toBe(false);
     expect(svc.engines.get("proj-mcp-logonly")).toBe(warmupEngine);
+  });
+
+  it("mcp-proxy --config-file 路径不同但配置内容相同仍复用 warmup", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "warmup-mcp-"));
+    try {
+      const configAPath = path.join(tmpDir, "mcp-config-a.json");
+      const configBPath = path.join(tmpDir, "mcp-config-b.json");
+      const sameConfig = {
+        mcpServers: {
+          "chrome-devtools": {
+            url: "http://127.0.0.1:3344/mcp/chrome-devtools",
+            transport: "streamable-http",
+          },
+        },
+      };
+      fs.writeFileSync(configAPath, JSON.stringify(sameConfig), "utf8");
+      fs.writeFileSync(configBPath, JSON.stringify(sameConfig), "utf8");
+
+      const warmupMcp = {
+        bridge: {
+          command: "/mock/node",
+          args: ["/mock/proxy.js", "--config-file", configAPath],
+          env: { MCP_PROXY_LOG_FILE: "/tmp/warmup.log", FOO: "bar" },
+        },
+      };
+      const requestMcp = {
+        bridge: {
+          command: "/mock/node",
+          args: ["/mock/proxy.js", "--config-file", configBPath],
+          env: { MCP_PROXY_LOG_FILE: "/tmp/project.log", FOO: "bar" },
+        },
+      };
+
+      const svc = new UnifiedAgentService() as any;
+      await svc.init({ ...baseConfig, mcpServers: warmupMcp });
+      const warmupEngine = svc.engines.get("__warmup__");
+
+      const engine = await svc.getOrCreateEngine("proj-mcp-config-semantic", {
+        ...baseConfig,
+        mcpServers: requestMcp,
+      });
+
+      expect(engine).toBe(warmupEngine);
+      expect(svc.engines.has("__warmup__")).toBe(false);
+      expect(svc.engines.get("proj-mcp-config-semantic")).toBe(warmupEngine);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it("warmup 未完成时请求到达 → tryReuse 发现未就绪 → 清理 → 创建新引擎", async () => {
