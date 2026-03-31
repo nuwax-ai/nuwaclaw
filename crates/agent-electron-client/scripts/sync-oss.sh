@@ -2,14 +2,17 @@
 # 同步 Electron Release 到阿里云 OSS（仅同步，不重新打包）
 # 触发 nuwaclaw 仓库的 sync-electron-to-oss.yml（仅同步、不构建），
 # 从 GitHub Release 下载已有资产 → 生成 latest.json → 上传到 OSS。
-# 仅根据 tag 同步，分支固定为仓库默认分支（用于取 workflow 定义），用户无需关心分支。
+# 仅根据 tag + channel 同步，分支固定为仓库默认分支（用于取 workflow 定义），用户无需关心分支。
+# 注意：真正执行同步的是目标 release 仓库（默认 nuwaclaw）里的 workflow，
+# 若本仓库 workflow 有更新，请同步到目标仓库后再使用。
 #
 # 用法（在 crates/agent-electron-client 目录下）:
-#   ./scripts/sync-oss.sh <tag>
+#   ./scripts/sync-oss.sh <tag> [channel]
 # 用法（在仓库根目录）:
-#   ./crates/agent-electron-client/scripts/sync-oss.sh <tag>
+#   ./crates/agent-electron-client/scripts/sync-oss.sh <tag> [channel]
 # 示例（已有 Release 时只推 OSS，不触发构建）:
-#   ./scripts/sync-oss.sh electron-v0.9.0
+#   ./scripts/sync-oss.sh electron-v0.9.0           # 默认 stable
+#   ./scripts/sync-oss.sh electron-v0.9.0 beta      # 仅更新 beta/latest.json
 #
 # 依赖: gh (GitHub CLI)、jq，且需已 gh auth login。
 
@@ -18,19 +21,27 @@ set -e
 # 正式发布仓库：Electron 包在 nuwaclaw 仓库的 Releases 中（如 electron-v0.9.0）
 REPO="${GITHUB_REPOSITORY:-nuwax-ai/nuwaclaw}"
 
-# 解析参数：只接受 tag，不涉及分支
+# 解析参数：tag + 可选 channel，不涉及分支
 if [ $# -eq 0 ]; then
-  echo "用法: $0 <tag>"
-  echo "示例: $0 electron-v0.8.0"
+  echo "用法: $0 <tag> [channel]"
+  echo "示例: $0 electron-v0.8.0 stable"
+  echo "示例: $0 electron-v0.8.0 beta"
   exit 1
 fi
 
 TAG="$1"
+CHANNEL="${2:-stable}"
 
 # 验证 tag 格式
 if [[ ! "$TAG" =~ ^electron-v ]]; then
   echo "错误: tag 必须以 'electron-v' 开头"
   echo "当前: $TAG"
+  exit 1
+fi
+
+if [[ "$CHANNEL" != "stable" && "$CHANNEL" != "beta" ]]; then
+  echo "错误: channel 仅支持 stable 或 beta"
+  echo "当前: $CHANNEL"
   exit 1
 fi
 
@@ -40,17 +51,21 @@ REF=$(gh repo view "$REPO" --json defaultBranchRef -q .defaultBranchRef.name 2>/
 echo "==> 触发 OSS 同步（仅按 tag，分支使用仓库默认）"
 echo "  仓库: $REPO"
 echo "  Tag: $TAG"
+echo "  Channel: $CHANNEL"
 echo ""
 
 # 获取 GitHub token
 TOKEN=$(gh auth token)
 
-# 触发 workflow_dispatch：ref 用默认分支，inputs 只传 tag
+# 触发前记录 epoch，用于在「并行多次 dispatch」时锁定本次 run，避免误跟别人的最新一条
+START_EPOCH=$(($(date -u +%s) - 10))
+
+# 触发 workflow_dispatch：ref 用默认分支，inputs 传 tag + channel
 RESPONSE=$(curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Accept: application/vnd.github.v3+json" \
   "https://api.github.com/repos/$REPO/actions/workflows/sync-electron-to-oss.yml/dispatches" \
-  -d "{\"ref\":\"$REF\",\"inputs\":{\"tag\":\"$TAG\"}}")
+  -d "{\"ref\":\"$REF\",\"inputs\":{\"tag\":\"$TAG\",\"channel\":\"$CHANNEL\"}}")
 
 if [ -n "$RESPONSE" ]; then
   echo "错误: $RESPONSE"
@@ -64,12 +79,29 @@ fi
 echo "✓ 触发成功"
 echo ""
 
-# 等待并获取 run ID
-echo "==> 获取 workflow run ID..."
-sleep 3
+# 解析本次 workflow run：必须带 --repo "$REPO"，否则在 nuwax-agent 仓库里跑脚本时会错列本仓库的 run
+echo "==> 获取 workflow run ID（匹配 workflow_dispatch 且创建时间不早于触发前窗口）..."
+RUN_ID=""
+for _ in $(seq 1 45); do
+  RUN_ID=$(gh run list --repo "$REPO" --workflow="sync-electron-to-oss.yml" \
+    --limit 25 \
+    --json databaseId,createdAt,event \
+    --jq --argjson start "$START_EPOCH" '
+      [.[] | select(.event == "workflow_dispatch") |
+        select(
+          (.createdAt
+            | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end
+            | fromdateiso8601) >= $start
+        )
+      ] | sort_by(.createdAt) | reverse | .[0].databaseId // empty')
+  [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ] && break
+  sleep 1
+done
 
-RUN_INFO=$(gh run list --workflow="sync-electron-to-oss.yml" --limit 1 --json databaseId,status,conclusion,displayTitle)
-RUN_ID=$(echo "$RUN_INFO" | jq -r '.[0].databaseId')
+if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+  echo "错误: 无法在 ${REPO} 中解析本次触发的 workflow run（请用 gh run list --repo \"$REPO\" 手动查看）"
+  exit 1
+fi
 
 echo "✓ Run ID: $RUN_ID"
 echo ""
@@ -79,18 +111,18 @@ echo "==> 监控进度..."
 echo ""
 
 while true; do
-  STATUS=$(gh run view "$RUN_ID" --json status --jq '.status')
-  CONCLUSION=$(gh run view "$RUN_ID" --json conclusion --jq '.conclusion')
+  STATUS=$(gh run view "$RUN_ID" --repo "$REPO" --json status --jq '.status')
+  CONCLUSION=$(gh run view "$RUN_ID" --repo "$REPO" --json conclusion --jq '.conclusion')
 
   case "$STATUS" in
     completed)
       if [ "$CONCLUSION" = "success" ]; then
         echo "✓ OSS 同步成功!"
-        gh run view "$RUN_ID" --url
+        gh run view "$RUN_ID" --repo "$REPO" --url
         exit 0
       else
         echo "✗ OSS 同步失败: $CONCLUSION"
-        gh run view "$RUN_ID" --url
+        gh run view "$RUN_ID" --repo "$REPO" --url
         exit 1
       fi
       ;;
