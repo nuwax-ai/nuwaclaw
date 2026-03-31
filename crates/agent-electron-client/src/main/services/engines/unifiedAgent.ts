@@ -185,6 +185,8 @@ export interface PromptOptions {
   system?: string;
   tools?: Record<string, boolean>;
   messageID?: string;
+  mcpInitPolicy?: "blocking" | "non_blocking";
+  mcpInitTimeoutMs?: number;
 }
 
 export interface CommandOptions {
@@ -785,6 +787,7 @@ export class UnifiedAgentService extends EventEmitter {
     const requiredEngine = agentServer?.command
       ? mapAgentCommand(agentServer.command)
       : this.engineType;
+    const requestMcpServersRuntime = requestMcpServersEarly;
 
     // 快速路径：已有就绪引擎 + 无配置变更
     if (
@@ -819,7 +822,7 @@ export class UnifiedAgentService extends EventEmitter {
         const { syncMcpConfigToProxyAndReload } =
           await import("../packages/mcp");
         const syncPromise = syncMcpConfigToProxyAndReload(
-          requestMcpServersEarly,
+          requestMcpServersRuntime,
         );
 
         // 并行执行 memory ready
@@ -925,7 +928,7 @@ export class UnifiedAgentService extends EventEmitter {
     // 使用 getAgentMcpConfig() 获取最新的 proxy 配置
     // 使用 ACP 请求中的 MCP 配置（requestMcpServersEarly）
     let freshMcpServers: AgentConfig["mcpServers"] | undefined;
-    if (Object.keys(requestMcpServersEarly).length > 0) {
+    if (Object.keys(requestMcpServersRuntime).length > 0) {
       // 处理 bridge 入口（mcp-proxy）：提取内部真实 MCP 服务器配置
       // 并转换为 bridge URL 格式（用于传递给 agent）
       const { extractRealMcpServers } = await import("../packages/mcp");
@@ -933,7 +936,7 @@ export class UnifiedAgentService extends EventEmitter {
         string,
         import("../packages/mcp").McpServerEntry
       > = {};
-      for (const [name, entry] of Object.entries(requestMcpServersEarly)) {
+      for (const [name, entry] of Object.entries(requestMcpServersRuntime)) {
         if (!("command" in entry)) {
           // URL 类型（RemoteMcpServerEntry），直接保留
           realMcpServers[name] = entry;

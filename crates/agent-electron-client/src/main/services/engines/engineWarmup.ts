@@ -46,6 +46,11 @@ export class EngineWarmup {
   private respawnTimer: NodeJS.Timeout | null = null;
   // 缓存上一次会话的 MCP 配置，用于 respawn() 时预热
   private lastMcpServers: AgentConfig["mcpServers"] | null = null;
+  // 缓存上一次请求的运行时配置，确保 refill warmup 能命中后续请求
+  private lastRuntimeConfig: Pick<
+    AgentConfig,
+    "model" | "apiKey" | "baseUrl" | "apiProtocol"
+  > | null = null;
   private disposed = false;
 
   constructor(
@@ -63,6 +68,7 @@ export class EngineWarmup {
     }
     this.respawnScheduled = false;
     this.lastMcpServers = null;
+    this.lastRuntimeConfig = null;
   }
 
   /** 重新启用 warmup（用于 service destroy 后再次 init）。 */
@@ -105,9 +111,19 @@ export class EngineWarmup {
     onEngineCreated(engine);
 
     // 确保 config.engine 与实际引擎类型一致（init 时 engineType 可能是 claude-code）
+    // 应用缓存的运行时配置（model/apiKey/baseUrl/apiProtocol），确保 refill warmup 可命中后续请求
     const warmupConfig: AgentConfig = {
       ...baseConfig,
       engine: WARMUP_ENGINE_TYPE,
+      ...(this.lastRuntimeConfig
+        ? {
+            model: this.lastRuntimeConfig.model || baseConfig.model,
+            apiKey: this.lastRuntimeConfig.apiKey || baseConfig.apiKey,
+            baseUrl: this.lastRuntimeConfig.baseUrl || baseConfig.baseUrl,
+            apiProtocol:
+              this.lastRuntimeConfig.apiProtocol || baseConfig.apiProtocol,
+          }
+        : {}),
       env: {
         ...(baseConfig.env || {}),
         [WARMUP_ENV_FLAG]: "1",
@@ -419,6 +435,27 @@ export class EngineWarmup {
   }
 
   /**
+   * 缓存请求中的运行时配置（model/apiKey/baseUrl/apiProtocol），
+   * 确保后续 warmup refill 创建的引擎与实际请求配置一致。
+   */
+  private cacheRuntimeConfig(config: AgentConfig): void {
+    if (config.model || config.apiKey || config.baseUrl || config.apiProtocol) {
+      this.lastRuntimeConfig = {
+        model: config.model,
+        apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
+        apiProtocol: config.apiProtocol,
+      };
+      log.debug("[EngineWarmup] 💾 缓存运行时配置供后续 warmup 使用", {
+        model: config.model || "(none)",
+        baseUrl: config.baseUrl || "(none)",
+        apiKeySet: !!config.apiKey,
+        apiProtocol: config.apiProtocol || "(none)",
+      });
+    }
+  }
+
+  /**
    * 尝试复用 warmup 引擎。成功时 re-key 为 projectId 并返回引擎；
    * 未就绪或已死时清理并返回 null。
    *
@@ -501,6 +538,8 @@ export class EngineWarmup {
       if (runtimeMismatch.length > 0) {
         const requestMcp = effectiveConfig.mcpServers || {};
         const requestMcpKeys = Object.keys(requestMcp).sort();
+        // 缓存本次请求的运行时配置，供后续 warmup refill 使用
+        this.cacheRuntimeConfig(effectiveConfig);
         log.info(
           `[EngineWarmup] ⚠️ 运行时配置不兼容，不复用 warmup（${runtimeMismatch.join(",")}）`,
           {
@@ -601,6 +640,8 @@ export class EngineWarmup {
       log.info(
         `[EngineWarmup] ♻️ 复用 warmup 引擎，分配给 project: ${projectId} (节省 ~${savedTime}ms, MCP: ${requestMcpKeys.join(",") || "(none)"})`,
       );
+      // 复用成功时也缓存运行时配置，确保 refill warmup 有一致的配置
+      this.cacheRuntimeConfig(effectiveConfig);
       firstTokenTrace.trace(
         "warmup.reuse.hit",
         { projectId, engine: warmupEngineType },
@@ -625,6 +666,8 @@ export class EngineWarmup {
       { projectId, engine: effectiveConfig.engine },
       { reason: "warmup_not_ready" },
     );
+    // 缓存运行时配置，确保后续 refill warmup 有正确的 model/apiKey/baseUrl/apiProtocol
+    this.cacheRuntimeConfig(effectiveConfig);
     engine.removeAllListeners();
     await engine.destroy().catch(() => {});
     this.engines.delete(WARMUP_KEY);

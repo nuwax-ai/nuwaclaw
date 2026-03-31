@@ -144,6 +144,46 @@ describe("AcpEngine.prompt", () => {
     expect(acpConnection.prompt).not.toHaveBeenCalled();
   });
 
+  it("nuwaxcode 默认透传 mcpInit 非阻塞元信息", async () => {
+    const { engine, sessionId, acpConnection } = setupEngine("nuwaxcode");
+    acpConnection.prompt.mockResolvedValueOnce({ stopReason: "end_turn" });
+
+    await engine.prompt(sessionId, [{ type: "text", text: "hi" }], {
+      messageID: "rid-meta-001",
+    });
+
+    expect(acpConnection.prompt).toHaveBeenCalledTimes(1);
+    expect(acpConnection.prompt).toHaveBeenCalledWith({
+      sessionId,
+      prompt: [{ type: "text", text: "hi" }],
+      _meta: {
+        requestId: "rid-meta-001",
+        request_id: "rid-meta-001",
+        mcpInitPolicy: "non_blocking",
+        mcpInitTimeoutMs: 500,
+      },
+    });
+  });
+
+  it("claude-code 不透传 nuwaxcode 专属 mcpInit 元信息", async () => {
+    const { engine, sessionId, acpConnection } = setupEngine("claude-code");
+    acpConnection.prompt.mockResolvedValueOnce({ stopReason: "end_turn" });
+
+    await engine.prompt(sessionId, [{ type: "text", text: "hi" }], {
+      messageID: "rid-meta-002",
+    });
+
+    expect(acpConnection.prompt).toHaveBeenCalledTimes(1);
+    expect(acpConnection.prompt).toHaveBeenCalledWith({
+      sessionId,
+      prompt: [{ type: "text", text: "hi" }],
+      _meta: {
+        requestId: "rid-meta-002",
+        request_id: "rid-meta-002",
+      },
+    });
+  });
+
   it("nuwaxcode 在 MCP 断连窗口内自动重试一次", async () => {
     const { engine, sessionId, acpConnection } = setupEngine("nuwaxcode");
     acpConnection.prompt
@@ -286,7 +326,7 @@ describe("AcpEngine.init", () => {
 });
 
 describe("AcpEngine.chat", () => {
-  it("将 request_id 透传为 promptAsync 的 messageID", async () => {
+  it("nuwaxcode: 将 request_id 透传并附带 mcpInit 默认策略", async () => {
     const { engine, sessionId, session } = setupEngine();
     session.projectId = "project-test-001";
 
@@ -306,7 +346,35 @@ describe("AcpEngine.chat", () => {
     expect(promptAsyncSpy).toHaveBeenCalledWith(
       sessionId,
       [{ type: "text", text: "hello trace" }],
-      { messageID: "rid-chat-001" },
+      {
+        messageID: "rid-chat-001",
+        mcpInitPolicy: "non_blocking",
+        mcpInitTimeoutMs: 500,
+      },
+    );
+  });
+
+  it("claude-code: chat 保持原逻辑仅透传 messageID", async () => {
+    const { engine, sessionId, session } = setupEngine("claude-code");
+    session.projectId = "project-test-001";
+
+    const promptAsyncSpy = vi
+      .spyOn(engine, "promptAsync")
+      .mockResolvedValue(undefined);
+
+    const result = await engine.chat({
+      user_id: "user-1",
+      project_id: "project-test-001",
+      session_id: sessionId,
+      request_id: "rid-chat-claude-001",
+      prompt: "hello trace",
+    } as any);
+
+    expect(result.success).toBe(true);
+    expect(promptAsyncSpy).toHaveBeenCalledWith(
+      sessionId,
+      [{ type: "text", text: "hello trace" }],
+      { messageID: "rid-chat-claude-001" },
     );
   });
 });

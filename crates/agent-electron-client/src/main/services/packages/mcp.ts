@@ -21,6 +21,7 @@ import * as os from "os";
 import * as crypto from "crypto";
 import log from "electron-log";
 import { app } from "electron";
+import { getPerfLogger } from "../../bootstrap/logConfig";
 import {
   getAppEnv,
   getUvBinPath,
@@ -36,6 +37,43 @@ import { resolveNpmPackageEntry } from "../utils/spawnNoWindow";
 import { APP_DATA_DIR_NAME } from "../constants";
 import { isWindows } from "../system/shellEnv";
 import { persistentMcpBridge } from "./persistentMcpBridge";
+
+type PerfValue = string | number | boolean | null | undefined;
+
+function formatPerfValue(value: PerfValue): string {
+  if (value === null) return "null";
+  if (typeof value === "string") {
+    return /\s/.test(value) ? JSON.stringify(value) : value;
+  }
+  return String(value);
+}
+
+function formatPerfFields(fields: Record<string, PerfValue>): string {
+  const entries = Object.entries(fields).filter(
+    ([, value]) => value !== undefined,
+  );
+  if (entries.length === 0) return "";
+  return `  ${entries.map(([key, value]) => `${key}=${formatPerfValue(value)}`).join(" ")}`;
+}
+
+function logMcpPerfSummary(
+  event: string,
+  fields: Record<string, PerfValue>,
+  level: "info" | "warn" = "info",
+): void {
+  const suffix = formatPerfFields(fields);
+  const mainMessage = `[McpProxy][perf] ${event}${suffix}`;
+  const perfMessage = `[PERF] mcp.${event}${suffix}`;
+
+  if (level === "warn") {
+    log.warn(mainMessage);
+    getPerfLogger().warn(perfMessage);
+    return;
+  }
+
+  log.info(mainMessage);
+  getPerfLogger().info(perfMessage);
+}
 
 // ========== Shared Helpers ==========
 
@@ -687,9 +725,13 @@ class McpProxyManager {
    * 缓存逻辑：bridgeStarted 标志为 true 时，直接 return，不重复启动。
    */
   async ensureBridgeStarted(): Promise<void> {
+    const startedAt = Date.now();
     if (this.bridgeStarted) {
       // 缓存命中：bridge 已在运行，无需重复启动
-      log.debug("[McpProxy] ✅ PersistentMcpBridge 缓存命中，跳过重复启动");
+      logMcpPerfSummary("ensureBridge.summary", {
+        branch: "cache_hit",
+        elapsedMs: Date.now() - startedAt,
+      });
       return;
     }
     // 只将 persistent 标记的 server 纳入 bridge（如 chrome-devtools）
@@ -706,12 +748,31 @@ class McpProxyManager {
           "[McpProxy] PersistentMcpBridge 已启动（persistent servers）:",
           Object.keys(resolvedServers).join(", "),
         );
+        logMcpPerfSummary("ensureBridge.summary", {
+          branch: "started",
+          persistentCount: Object.keys(resolvedServers).length,
+          elapsedMs: Date.now() - startedAt,
+        });
       } catch (e) {
         log.error("[McpProxy] PersistentMcpBridge 启动失败:", e);
+        logMcpPerfSummary(
+          "ensureBridge.summary",
+          {
+            branch: "failed",
+            persistentCount: Object.keys(persistentServers).length,
+            elapsedMs: Date.now() - startedAt,
+            error: e instanceof Error ? e.message : String(e),
+          },
+          "warn",
+        );
         throw e;
       }
     } else {
       this.bridgeStarted = true;
+      logMcpPerfSummary("ensureBridge.summary", {
+        branch: "no_persistent",
+        elapsedMs: Date.now() - startedAt,
+      });
     }
   }
 
@@ -987,6 +1048,7 @@ let lastBridgeConfig: Record<string, StdioMcpServerEntry> | null = null;
 let syncMcpLock: Promise<void> = Promise.resolve();
 
 async function withSyncMcpLock<T>(fn: () => Promise<T>): Promise<T> {
+  const requestedAt = Date.now();
   const previousLock = syncMcpLock;
   let releaseLock: () => void;
   const currentLock = new Promise<void>((resolve) => {
@@ -995,9 +1057,18 @@ async function withSyncMcpLock<T>(fn: () => Promise<T>): Promise<T> {
   syncMcpLock = currentLock;
 
   await previousLock; // 等待前一个锁释放
+  const lockWaitMs = Date.now() - requestedAt;
+  const runStartedAt = Date.now();
   try {
     return await fn();
   } finally {
+    const runMs = Date.now() - runStartedAt;
+    const totalMs = Date.now() - requestedAt;
+    logMcpPerfSummary("sync.lock.summary", {
+      lockWaitMs,
+      runMs,
+      totalMs,
+    });
     releaseLock!();
   }
 }
@@ -1039,10 +1110,12 @@ export async function syncMcpConfigToProxyAndReload(
   mcpServers: Record<string, McpServerEntry>,
 ): Promise<void> {
   await withSyncMcpLock(async () => {
+    const syncStartedAt = Date.now();
     // 注意：mcpServers 可以为空（用户删除了所有动态 MCP).此时应重置为仅默认服务，
     // 不在这里提前返回，让后续逻辑重置 bridge 到仅含 chrome-devtools 的状态。
 
     // 提取真实服务（过滤旧桥接项 command==='mcp-proxy')
+    const extractStartedAt = Date.now();
     const realOnly: Record<string, McpServerEntry> = {};
     for (const [name, entry] of Object.entries(mcpServers || {})) {
       if (!entry) continue;
@@ -1061,6 +1134,7 @@ export async function syncMcpConfigToProxyAndReload(
         };
       }
     }
+    const extractMs = Date.now() - extractStartedAt;
     // realOnly 为空时（用户删除了所有动态 MCP）不提前返回，
     // 继续执行以确保 bridge 仅运行默认服务（chrome-devtools）
 
@@ -1074,6 +1148,7 @@ export async function syncMcpConfigToProxyAndReload(
     };
 
     // 为所有 MCP 服务器注入基础环境变量（包括 PATH）
+    const prepareStartedAt = Date.now();
     const mergedWithEnv = injectBaseEnvToMcpServers(merged);
 
     // Bridge 只管理 persistent 服务（如 chrome-devtools），动态 MCP 不进 bridge。
@@ -1087,14 +1162,17 @@ export async function syncMcpConfigToProxyAndReload(
       string,
       StdioMcpServerEntry
     >;
+    const prepareMs = Date.now() - prepareStartedAt;
 
     // 更新内存配置（动态 MCP + 默认服务一并写入，供 getAgentMcpConfig 使用）
+    const setConfigStartedAt = Date.now();
     const existing = mcpProxyManager.getConfig();
     mcpProxyManager.setConfig({
       mcpServers: mergedWithEnv,
       allowTools: existing.allowTools,
       denyTools: existing.denyTools,
     });
+    const setConfigMs = Date.now() - setConfigStartedAt;
 
     // Persistent servers 未变化 → 跳过 DB 写入和 bridge 重启（动态 MCP 变化不影响 bridge）
     if (configsEqual(resolvedPersistent, lastBridgeConfig)) {
@@ -1102,6 +1180,17 @@ export async function syncMcpConfigToProxyAndReload(
         "[McpProxy] ✅ Persistent bridge 配置未变化，跳过重启（动态 MCP 走 stdio）",
       );
       mcpProxyManager.markBridgeStarted();
+      logMcpPerfSummary("sync.summary", {
+        branch: "persistent_unchanged",
+        inputCount: Object.keys(mcpServers || {}).length,
+        dynamicCount: Object.keys(realOnly).length,
+        mergedCount: Object.keys(mergedWithEnv).length,
+        persistentCount: Object.keys(resolvedPersistent).length,
+        extractMs,
+        prepareMs,
+        setConfigMs,
+        totalMs: Date.now() - syncStartedAt,
+      });
       return;
     }
 
@@ -1110,6 +1199,7 @@ export async function syncMcpConfigToProxyAndReload(
       "[McpProxy] 同步 MCP 配置 — 全量:",
       Object.keys(mergedWithEnv).join(", "),
     );
+    const persistStartedAt = Date.now();
     try {
       const { getDb } = await import("../../db");
       const db = getDb();
@@ -1122,20 +1212,55 @@ export async function syncMcpConfigToProxyAndReload(
     } catch (e) {
       log.warn("[McpProxy] 持久化 MCP 配置失败:", e);
     }
+    const persistMs = Date.now() - persistStartedAt;
 
     // 只重启 persistent servers（chrome-devtools），动态 MCP 不进 bridge，走 mcp-proxy stdio
+    const bridgeRestartStartedAt = Date.now();
     try {
       log.info(
         "[McpProxy] 🔄 Persistent bridge 配置变化，重启:",
         Object.keys(resolvedPersistent).join(", "),
       );
       await persistentMcpBridge.start(resolvedPersistent);
+      const bridgeRestartMs = Date.now() - bridgeRestartStartedAt;
       lastBridgeConfig = resolvedPersistent;
       mcpProxyManager.markBridgeStarted();
       log.info("[McpProxy] PersistentMcpBridge 已使用更新配置重启");
+      logMcpPerfSummary("sync.summary", {
+        branch: "persistent_restarted",
+        inputCount: Object.keys(mcpServers || {}).length,
+        dynamicCount: Object.keys(realOnly).length,
+        mergedCount: Object.keys(mergedWithEnv).length,
+        persistentCount: Object.keys(resolvedPersistent).length,
+        extractMs,
+        prepareMs,
+        setConfigMs,
+        persistMs,
+        bridgeRestartMs,
+        totalMs: Date.now() - syncStartedAt,
+      });
     } catch (e) {
+      const bridgeRestartMs = Date.now() - bridgeRestartStartedAt;
       lastBridgeConfig = null;
       log.warn("[McpProxy] PersistentMcpBridge 同步后重启失败:", e);
+      logMcpPerfSummary(
+        "sync.summary",
+        {
+          branch: "persistent_restart_failed",
+          inputCount: Object.keys(mcpServers || {}).length,
+          dynamicCount: Object.keys(realOnly).length,
+          mergedCount: Object.keys(mergedWithEnv).length,
+          persistentCount: Object.keys(resolvedPersistent).length,
+          extractMs,
+          prepareMs,
+          setConfigMs,
+          persistMs,
+          bridgeRestartMs,
+          totalMs: Date.now() - syncStartedAt,
+          error: e instanceof Error ? e.message : String(e),
+        },
+        "warn",
+      );
     }
   });
 }

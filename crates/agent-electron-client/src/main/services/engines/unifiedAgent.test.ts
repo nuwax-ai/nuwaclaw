@@ -613,6 +613,88 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
     expect(svc.engines.get("proj-runtime-mismatch")).toBe(engine);
   });
 
+  it("warmup runtime config 缓存：首次 miss 后 refill 命中后续请求", async () => {
+    const svc = new UnifiedAgentService() as any;
+    // init 时 baseConfig 没有 runtime 配置
+    await svc.init({
+      ...baseConfig,
+      apiKey: undefined,
+      baseUrl: undefined,
+      model: undefined,
+    });
+
+    const runtimeConfig = {
+      ...baseConfig,
+      apiKey: "cached-key",
+      baseUrl: "https://cached.example.com",
+      model: "cached-model",
+      apiProtocol: "openai",
+    };
+
+    // 第一次请求：runtime mismatch → 冷启动，缓存 runtime config
+    const engine1 = await svc.getOrCreateEngine("proj-cache-1", runtimeConfig);
+    expect(svc.engines.has("__warmup__")).toBe(true);
+
+    // refill warmup 应该带缓存的 runtime config，第二个请求可命中
+    const refillWarmup = svc.engines.get("__warmup__");
+    expect(refillWarmup).toBeDefined();
+
+    const engine2 = await svc.getOrCreateEngine("proj-cache-2", runtimeConfig);
+    // refill warmup 应该被复用
+    expect(engine2).toBe(refillWarmup);
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    expect(svc.engines.get("proj-cache-2")).toBe(refillWarmup);
+  });
+
+  it("warmup runtime config 缓存：配置变更时回退冷启动并更新缓存", async () => {
+    const svc = new UnifiedAgentService() as any;
+    await svc.init({
+      ...baseConfig,
+      apiKey: undefined,
+      baseUrl: undefined,
+      model: undefined,
+    });
+
+    const runtimeConfigA = {
+      ...baseConfig,
+      apiKey: "key-a",
+      baseUrl: "https://a.example.com",
+      model: "model-a",
+      apiProtocol: "openai",
+    };
+    const runtimeConfigB = {
+      ...baseConfig,
+      apiKey: "key-b",
+      baseUrl: "https://b.example.com",
+      model: "model-b",
+      apiProtocol: "anthropic",
+    };
+
+    // 第一次请求：缓存 configA
+    await svc.getOrCreateEngine("proj-change-1", runtimeConfigA);
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    const refillA = svc.engines.get("__warmup__");
+
+    // 第二次请求：configB 与缓存不匹配 → 回退冷启动，更新缓存
+    const engine2 = await svc.getOrCreateEngine(
+      "proj-change-2",
+      runtimeConfigB,
+    );
+    expect(engine2).not.toBe(refillA);
+    expect(refillA.destroy).toHaveBeenCalled();
+
+    // refill 应该用 configB 创建
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    const refillB = svc.engines.get("__warmup__");
+
+    // 第三次请求：configB 命中 refill
+    const engine3 = await svc.getOrCreateEngine(
+      "proj-change-3",
+      runtimeConfigB,
+    );
+    expect(engine3).toBe(refillB);
+  });
+
   it("warmup 缺少 MCP ready 标记时不复用，回退冷启动", async () => {
     const mcpConfig = {
       bridge: {

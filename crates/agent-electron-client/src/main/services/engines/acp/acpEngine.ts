@@ -73,6 +73,10 @@ function safeStringify(obj: unknown): string {
 const MCP_RETRY_DELAY_MS = 1200;
 const MCP_RECONNECT_WINDOW_MS = 4000;
 const MCP_RECONNECT_PROMPT_MESSAGE = "MCP 连接抖动，正在自动重连，请稍后重试";
+const NUWAX_MCP_INIT_POLICY_DEFAULT: NonNullable<
+  PromptOptions["mcpInitPolicy"]
+> = "non_blocking";
+const NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT = 500;
 
 interface AcpSession {
   id: string;
@@ -185,6 +189,32 @@ export class AcpEngine extends EventEmitter {
       this.isMcpReconnectErrorMessage(errorMsg) ||
       isMcpReconnectWindowActive(this.acpProcess, MCP_RECONNECT_WINDOW_MS)
     );
+  }
+
+  private buildPromptMeta(
+    opts?: PromptOptions,
+  ): Record<string, unknown> | undefined {
+    const meta: Record<string, unknown> = {};
+    if (opts?.messageID) {
+      meta.requestId = opts.messageID;
+      meta.request_id = opts.messageID;
+    }
+    if (this.engineName === "nuwaxcode") {
+      const policy = opts?.mcpInitPolicy ?? NUWAX_MCP_INIT_POLICY_DEFAULT;
+      if (policy) {
+        meta.mcpInitPolicy = policy;
+      }
+      const timeoutMs =
+        opts?.mcpInitTimeoutMs ?? NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT;
+      if (
+        typeof timeoutMs === "number" &&
+        Number.isFinite(timeoutMs) &&
+        timeoutMs >= 0
+      ) {
+        meta.mcpInitTimeoutMs = Math.floor(timeoutMs);
+      }
+    }
+    return Object.keys(meta).length > 0 ? meta : undefined;
   }
 
   private async sleep(ms: number): Promise<void> {
@@ -864,13 +894,16 @@ export class AcpEngine extends EventEmitter {
           const promptParams = {
             sessionId: session.acpSessionId!,
             prompt: promptContent,
-            _meta: _opts?.messageID
-              ? {
-                  requestId: _opts.messageID,
-                  request_id: _opts.messageID,
-                }
-              : undefined,
+            _meta: this.buildPromptMeta(_opts),
           };
+          if (this.engineName === "nuwaxcode") {
+            log.info(`${this.logTag} acp.prompt.meta`, {
+              sessionId,
+              requestId: _opts?.messageID,
+              mcpInitPolicy: promptParams._meta?.mcpInitPolicy,
+              mcpInitTimeoutMs: promptParams._meta?.mcpInitTimeoutMs,
+            });
+          }
 
           const runPromptWithRetry = async () => {
             const maxAttempts = this.engineName === "nuwaxcode" ? 2 : 1;
@@ -1395,8 +1428,15 @@ ${memoryContext}
       });
 
       // 4. Async prompt
-      this.promptAsync(session.id, [{ type: "text", text: enhancedPrompt }], {
+      const promptOptions: PromptOptions = {
         messageID: request.request_id,
+      };
+      if (this.engineName === "nuwaxcode") {
+        promptOptions.mcpInitPolicy = NUWAX_MCP_INIT_POLICY_DEFAULT;
+        promptOptions.mcpInitTimeoutMs = NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT;
+      }
+      this.promptAsync(session.id, [{ type: "text", text: enhancedPrompt }], {
+        ...promptOptions,
       });
       firstTokenTrace.trace("acp.prompt.dispatched", {
         requestId: request.request_id,
