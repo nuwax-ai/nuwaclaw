@@ -25,7 +25,7 @@ import {
   getAppEnv,
   getNuwaxcodeBundledBinPath,
 } from "../../system/dependencies";
-import { APP_DATA_DIR_NAME } from "../../constants";
+import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../../constants";
 import { APP_NAME_IDENTIFIER } from "../../../../shared/constants";
 import { isWindows } from "../../system/shellEnv";
 import { spawnJsFile, resolveNpmPackageEntry } from "../../utils/spawnNoWindow";
@@ -303,6 +303,15 @@ function getAcpPackageDir(packageName: string): string | null {
   return fs.existsSync(packageDir) ? packageDir : null;
 }
 
+function getNuwaxcodePersistentLogDir(): string {
+  return path.join(
+    app.getPath("home"),
+    APP_DATA_DIR_NAME,
+    LOGS_DIR_NAME,
+    "nuwaxcode",
+  );
+}
+
 /**
  * Resolve ACP binary path for a given engine type.
  *
@@ -489,6 +498,14 @@ export async function createAcpConnection(
   }
   if (config.env) Object.assign(env, config.env);
 
+  // Ensure nuwaxcode writes detailed logs to persistent app logs directory.
+  // Without this, logs default to isolated XDG paths under /tmp and are removed on destroy.
+  if (config.engineType === "nuwaxcode" && !env.OPENCODE_LOG_DIR) {
+    const persistentLogDir = getNuwaxcodePersistentLogDir();
+    fs.mkdirSync(persistentLogDir, { recursive: true });
+    env.OPENCODE_LOG_DIR = persistentLogDir;
+  }
+
   // Set CLAUDE_CODE_ACP_PATH for claude-code-acp-ts (matching Tauri's rcoder pattern)
   if (binPath.includes("claude-code-acp-ts")) {
     env.CLAUDE_CODE_ACP_PATH = binPath;
@@ -513,6 +530,7 @@ export async function createAcpConnection(
         ) + "..."
       : "未设置",
     OPENCODE_MODEL: env.OPENCODE_MODEL || "未设置",
+    OPENCODE_LOG_DIR: env.OPENCODE_LOG_DIR || "未设置",
     OPENAI_BASE_URL: env.OPENAI_BASE_URL || "未设置",
     OPENAI_API_KEY: env.OPENAI_API_KEY
       ? env.OPENAI_API_KEY.slice(
