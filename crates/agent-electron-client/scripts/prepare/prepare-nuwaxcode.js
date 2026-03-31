@@ -28,7 +28,7 @@ const { URL } = require('url');
 const { execSync, execFileSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
-const NUWAXCODE_VERSION = '1.1.67';
+const NUWAXCODE_VERSION = '1.1.68';
 const NUWAXCODE_REPO = process.env.NUWAXCODE_REPO || 'nuwax-ai/nuwaxcode';
 
 const projectRoot = getProjectRoot();
@@ -234,8 +234,17 @@ async function downloadFromRelease(key) {
     const tarExtractDir = toTarPath(extractDir);
 
     // 使用参数数组调用 tar，避免在 Windows/MSYS 下对 C:\ 路径的错误解析。
-    // --force-local: 防止将 "C:" 误判为远程主机前缀，解决 "Cannot connect to C: resolve failed"。
-    execFileSync('tar', ['--force-local', '-xzf', tarArchivePath, '-C', tarExtractDir], { stdio: 'pipe' });
+    // --force-local 仅在 win32 且 tar 支持时使用（macOS BSD tar 不支持该选项）。
+    const tarArgs = ['-xzf', tarArchivePath, '-C', tarExtractDir];
+    if (process.platform === 'win32') {
+      try {
+        const tarHelp = execFileSync('tar', ['--help'], { encoding: 'utf-8', stdio: 'pipe' });
+        if (typeof tarHelp === 'string' && tarHelp.includes('--force-local')) {
+          tarArgs.unshift('--force-local');
+        }
+      } catch (_) {}
+    }
+    execFileSync('tar', tarArgs, { stdio: 'pipe' });
 
     // 查找二进制文件：可能在 package/bin/ 或 bin/ 下
     const binaryPath = findBinary(extractDir, binary);
