@@ -332,11 +332,11 @@ export function resolveServersConfig(
 /** 默认 mcpServers 配置 */
 export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
   mcpServers: {
-    "chrome-devtools": {
-      command: "npx",
-      args: ["-y", "chrome-devtools-mcp@latest"],
-      persistent: true,
-    },
+    // "chrome-devtools": {
+    //   command: "npx",
+    //   args: ["-y", "chrome-devtools-mcp@latest"],
+    //   persistent: true,
+    // },
   },
 };
 
