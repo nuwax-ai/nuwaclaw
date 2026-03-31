@@ -25,7 +25,7 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const { URL } = require('url');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
 const NUWAXCODE_VERSION = '1.1.67';
@@ -217,7 +217,25 @@ async function downloadFromRelease(key) {
       try { fs.rmSync(extractDir, { recursive: true }); } catch (_) {}
     }
     fs.mkdirSync(extractDir, { recursive: true });
-    execSync(`tar -xzf "${archivePath}" -C "${extractDir}"`, { stdio: 'pipe' });
+
+    // 在 Windows + Git Bash/MSYS 环境下，tar 通常期望的是 /c/... 形式的路径，
+    // 而 Node 默认返回的是 C:\... 形式，这会导致 "-C <dir>" 找不到目录。
+    // 这里在 win32 平台上将盘符路径转换为 /c/... POSIX 风格，再传给 tar。
+    const toTarPath = (p) => {
+      if (process.platform !== 'win32') return p;
+      const match = /^[A-Za-z]:[\\/](.*)$/.exec(p);
+      if (!match) return p.replace(/\\/g, '/');
+      const drive = p[0].toLowerCase();
+      const rest = match[1].replace(/\\/g, '/');
+      return `/${drive}/${rest}`;
+    };
+
+    const tarArchivePath = toTarPath(archivePath);
+    const tarExtractDir = toTarPath(extractDir);
+
+    // 使用参数数组调用 tar，避免在 Windows/MSYS 下对 C:\ 路径的错误解析。
+    // --force-local: 防止将 "C:" 误判为远程主机前缀，解决 "Cannot connect to C: resolve failed"。
+    execFileSync('tar', ['--force-local', '-xzf', tarArchivePath, '-C', tarExtractDir], { stdio: 'pipe' });
 
     // 查找二进制文件：可能在 package/bin/ 或 bin/ 下
     const binaryPath = findBinary(extractDir, binary);
