@@ -164,6 +164,32 @@ describe("AcpEngine.handleAcpSessionUpdate", () => {
   });
 });
 
+describe("AcpEngine.chat", () => {
+  it("将 request_id 透传为 promptAsync 的 messageID", async () => {
+    const { engine, sessionId, session } = setupEngine();
+    session.projectId = "project-test-001";
+
+    const promptAsyncSpy = vi
+      .spyOn(engine, "promptAsync")
+      .mockResolvedValue(undefined);
+
+    const result = await engine.chat({
+      user_id: "user-1",
+      project_id: "project-test-001",
+      session_id: sessionId,
+      request_id: "rid-chat-001",
+      prompt: "hello trace",
+    } as any);
+
+    expect(result.success).toBe(true);
+    expect(promptAsyncSpy).toHaveBeenCalledWith(
+      sessionId,
+      [{ type: "text", text: "hello trace" }],
+      { messageID: "rid-chat-001" },
+    );
+  });
+});
+
 /** listSessionsDetailed：会话 title 透传到列表（L1 数据断言） */
 describe("AcpEngine.listSessionsDetailed", () => {
   it("返回的会话列表应包含 createSession 时传入的 title", () => {

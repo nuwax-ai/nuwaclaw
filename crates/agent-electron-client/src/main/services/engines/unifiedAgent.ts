@@ -466,6 +466,24 @@ export class UnifiedAgentService extends EventEmitter {
   }
 
   /**
+   * 维护一个常驻 nuwaxcode warmup 池（与当前请求引擎解耦）。
+   * - 不影响 claude-code 的原有请求路径
+   * - 仅用于确保后续 nuwaxcode 新会话可命中预热
+   */
+  private ensureNuwaxWarmup(options?: {
+    mcpServers?: AgentConfig["mcpServers"];
+    reason?: string;
+    allowWhenActiveEngines?: boolean;
+  }): void {
+    if (!this.baseConfig) return;
+    this.warmup.start(this.baseConfig, (e) => this.forwardEvents(e), {
+      allowWhenActiveEngines: options?.allowWhenActiveEngines ?? true,
+      mcpServers: options?.mcpServers,
+      reason: options?.reason,
+    });
+  }
+
+  /**
    * Get or create an AcpEngine for a given project_id.
    * - Returns existing ready engine
    * - Dead engine → cleanup + rebuild
@@ -485,6 +503,17 @@ export class UnifiedAgentService extends EventEmitter {
     let t1 = t0,
       t2 = t0,
       t3 = t0;
+    const requestEngineType =
+      effectiveConfig.engine || this.engineType || "claude-code";
+    const isNuwaxRequest = requestEngineType === "nuwaxcode";
+
+    // 不管当前请求引擎类型，尽量维持一个 nuwaxcode warmup 在池中。
+    if (!this.warmup.getWarmupStatus().hasWarmup) {
+      this.ensureNuwaxWarmup({
+        reason: "get_or_create_guard",
+        allowWhenActiveEngines: true,
+      });
+    }
 
     const existing = this.engines.get(projectId);
     if (existing) {
@@ -507,21 +536,29 @@ export class UnifiedAgentService extends EventEmitter {
       this.engineRawMcpServers.delete(projectId);
     }
 
-    // Try to reuse warmup engine (pre-spawned during init)
-    const reused = await this.warmup.tryReuse(projectId, effectiveConfig, t0);
-    if (reused) {
-      // 同步引擎内部 config 为 effectiveConfig，
-      // 防止 chat() 中 shouldReinitForModelProvider 因 config 不一致而 kill + reinit
-      reused.updateConfig(effectiveConfig);
-      perfEmitter.duration(
-        "engine.getOrCreate (warmup reuse)",
-        Date.now() - t0,
-      );
-      firstTokenTrace.trace("engine.get_or_create.warmup_reuse", {
-        projectId,
-        engine: reused.engineName,
-      });
-      return reused;
+    // 仅 nuwaxcode 请求走 warmup 复用，claude-code 保持原路径
+    if (isNuwaxRequest) {
+      const reused = await this.warmup.tryReuse(projectId, effectiveConfig, t0);
+      if (reused) {
+        // 同步引擎内部 config 为 effectiveConfig，
+        // 防止 chat() 中 shouldReinitForModelProvider 因 config 不一致而 kill + reinit
+        reused.updateConfig(effectiveConfig);
+        // warmup 被消费后立即补仓，保证后续新会话仍有预热可命中
+        this.ensureNuwaxWarmup({
+          mcpServers: effectiveConfig.mcpServers,
+          reason: "reuse_refill",
+          allowWhenActiveEngines: true,
+        });
+        perfEmitter.duration(
+          "engine.getOrCreate (warmup reuse)",
+          Date.now() - t0,
+        );
+        firstTokenTrace.trace("engine.get_or_create.warmup_reuse", {
+          projectId,
+          engine: reused.engineName,
+        });
+        return reused;
+      }
     }
 
     if (!this.baseConfig) {
@@ -562,6 +599,14 @@ export class UnifiedAgentService extends EventEmitter {
 
     this.engines.set(projectId, engine);
     this.engineConfigs.set(projectId, effectiveConfig);
+    if (isNuwaxRequest) {
+      // 冷启动后也立即补仓，保证连续新 project 有机会持续命中 warmup
+      this.ensureNuwaxWarmup({
+        mcpServers: effectiveConfig.mcpServers,
+        reason: "create_refill",
+        allowWhenActiveEngines: true,
+      });
+    }
     perfEmitter.duration("engine.getOrCreate", t3 - t0, { project: projectId });
     firstTokenTrace.trace(
       "engine.get_or_create.created",

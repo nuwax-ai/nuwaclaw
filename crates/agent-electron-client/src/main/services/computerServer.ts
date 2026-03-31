@@ -51,6 +51,17 @@ const sseEventBuffers = new Map<
   { events: string[]; createdAt: number }
 >();
 
+interface SessionFirstTokenContext {
+  requestId?: string;
+  projectId?: string;
+  engine?: string;
+  chatReceivedAt: number;
+  createdAt: number;
+  isNewSession: boolean;
+}
+
+const sessionFirstTokenContexts = new Map<string, SessionFirstTokenContext>();
+
 /**
  * 删除已过 TTL 且仍无客户端连接的 buffer 条目（在 pushSseEvent 无客户端路径中调用）。
  */
@@ -62,8 +73,35 @@ function pruneExpiredSseEventBuffers(): void {
       !sseClients.has(sessionId)
     ) {
       sseEventBuffers.delete(sessionId);
+      sessionFirstTokenContexts.delete(sessionId);
     }
   }
+}
+
+function pruneExpiredSessionFirstTokenContexts(): void {
+  const now = Date.now();
+  for (const [sessionId, ctx] of sessionFirstTokenContexts.entries()) {
+    if (
+      now - ctx.createdAt >= SSE_EVENT_BUFFER_TTL_MS &&
+      !sseClients.has(sessionId)
+    ) {
+      sessionFirstTokenContexts.delete(sessionId);
+    }
+  }
+}
+
+function bindSessionFirstTokenContext(
+  sessionId: string,
+  context: Omit<SessionFirstTokenContext, "createdAt">,
+): void {
+  sessionFirstTokenContexts.set(sessionId, {
+    ...context,
+    createdAt: Date.now(),
+  });
+}
+
+function clearSessionFirstTokenContext(sessionId: string): void {
+  sessionFirstTokenContexts.delete(sessionId);
 }
 
 /**
@@ -74,10 +112,29 @@ export function getSseEventBufferSize(sessionId: string): number {
 }
 
 /**
+ * 返回某 session 的首字追踪上下文是否存在（仅用于单测，勿在生产逻辑中依赖）。
+ */
+export function hasSessionFirstTokenContext(sessionId: string): boolean {
+  return sessionFirstTokenContexts.has(sessionId);
+}
+
+/**
+ * 设置首字追踪上下文（仅用于单测）。
+ */
+export function setSessionFirstTokenContextForTest(
+  sessionId: string,
+  context: Omit<SessionFirstTokenContext, "createdAt">,
+): void {
+  bindSessionFirstTokenContext(sessionId, context);
+}
+
+/**
  * 清除指定 session 的 SSE 事件缓冲（cancel/stop 接口调用，避免取消后重连仍回放旧事件）。
  */
 export function clearSseEventBuffer(sessionId: string): void {
-  if (sessionId) sseEventBuffers.delete(sessionId);
+  if (!sessionId) return;
+  sseEventBuffers.delete(sessionId);
+  clearSessionFirstTokenContext(sessionId);
 }
 
 /**
@@ -85,6 +142,7 @@ export function clearSseEventBuffer(sessionId: string): void {
  */
 export function clearAllSseEventBuffers(): void {
   sseEventBuffers.clear();
+  sessionFirstTokenContexts.clear();
 }
 
 // ==================== Helpers ====================
@@ -466,6 +524,16 @@ async function handleRequest(
         log.info(
           `✅ [HTTP] Computer Chat 响应: session_id=${result.data?.session_id}`,
         );
+        if (result.data?.session_id) {
+          bindSessionFirstTokenContext(result.data.session_id, {
+            requestId: body.request_id || result.data.request_id,
+            projectId: body.project_id || result.data.project_id,
+            engine: acpEngine.engineName,
+            // TTFT 口径：/computer/chat 收到请求（handler 入口）到首个真实 token。
+            chatReceivedAt: t0,
+            isNewSession: result.data.is_new_session === true,
+          });
+        }
       } else {
         log.error(`❌ [HTTP] Computer Chat 失败: ${result.message}`);
       }
@@ -509,6 +577,7 @@ async function handleRequest(
           timestamp: new Date().toISOString(),
         };
         res.write(`event: end_turn\ndata: ${JSON.stringify(endEvent)}\n\n`);
+        clearSessionFirstTokenContext(sessionId);
         res.end();
         return;
       }
@@ -577,6 +646,7 @@ async function handleRequest(
         // 清理 perf 首事件状态，防止连接中断（无 end_turn）时 Map 泄漏
         sseFirstEventSent.delete(sessionId);
         sseFirstTokenSent.delete(sessionId);
+        clearSessionFirstTokenContext(sessionId);
       });
 
       res.on("error", () => {
@@ -862,6 +932,33 @@ export function pushSseEvent(
     sseFirstTokenSent.set(sessionId, now);
     firstTokenTrace.trace("sse.first_token", { sessionId });
     getPerfLogger().info(`[PERF] sse.firstToken  session=${sessionId}`);
+    const firstTokenCtx = sessionFirstTokenContexts.get(sessionId);
+    if (firstTokenCtx) {
+      const ttftMs = Math.max(0, now - firstTokenCtx.chatReceivedAt);
+      const rid = firstTokenCtx.requestId?.slice(0, 8) || "(none)";
+      const project = firstTokenCtx.projectId || "(none)";
+      getPerfLogger().info(
+        `[PERF] /chat.firstToken: ${ttftMs}ms  rid=${rid}  session=${sessionId}  project=${project}  isNewSession=${firstTokenCtx.isNewSession}`,
+      );
+      if (firstTokenCtx.isNewSession) {
+        getPerfLogger().info(
+          `[PERF] /chat.newSession.firstToken: ${ttftMs}ms  rid=${rid}  session=${sessionId}  project=${project}`,
+        );
+      }
+      firstTokenTrace.trace(
+        "chat.first_token.returned",
+        {
+          requestId: firstTokenCtx.requestId,
+          sessionId,
+          projectId: firstTokenCtx.projectId,
+          engine: firstTokenCtx.engine,
+        },
+        {
+          ttftMs,
+          isNewSession: firstTokenCtx.isNewSession,
+        },
+      );
+    }
   }
   if (isEndTurn) {
     firstTokenTrace.trace("sse.end_turn", { sessionId });
@@ -869,6 +966,7 @@ export function pushSseEvent(
     const firstTokenTime = sseFirstTokenSent.get(sessionId);
     sseFirstEventSent.delete(sessionId);
     sseFirstTokenSent.delete(sessionId);
+    clearSessionFirstTokenContext(sessionId);
 
     const streamingMs =
       firstChunkTime !== undefined ? now - firstChunkTime : -1;
@@ -891,6 +989,7 @@ export function pushSseEvent(
 
   if (!clients || clients.length === 0) {
     pruneExpiredSseEventBuffers();
+    pruneExpiredSessionFirstTokenContexts();
     if (!sseEventBuffers.has(sessionId)) {
       sseEventBuffers.set(sessionId, { events: [], createdAt: Date.now() });
     }
@@ -976,6 +1075,7 @@ export function stopComputerServer(): Promise<void> {
     sseEventBuffers.clear();
     sseFirstEventSent.clear();
     sseFirstTokenSent.clear();
+    sessionFirstTokenContexts.clear();
 
     server.close(() => {
       log.info("[ComputerServer] Stopped");

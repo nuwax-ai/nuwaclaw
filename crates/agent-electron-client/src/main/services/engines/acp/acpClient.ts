@@ -114,6 +114,7 @@ export interface AcpClientSideConnection {
       uri?: string;
       mimeType?: string;
     }>;
+    _meta?: { [key: string]: unknown } | null;
   }): Promise<{ stopReason: string }>;
 
   cancel(params: { sessionId: string }): Promise<void>;

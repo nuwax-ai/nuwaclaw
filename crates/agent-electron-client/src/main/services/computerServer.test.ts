@@ -13,7 +13,16 @@ import {
   getSseEventBufferSize,
   clearSseEventBuffer,
   clearAllSseEventBuffers,
+  setSessionFirstTokenContextForTest,
+  hasSessionFirstTokenContext,
 } from "./computerServer";
+
+const mockPerfLogger = vi.hoisted(() => ({
+  info: vi.fn(),
+}));
+const mockFirstTokenTrace = vi.hoisted(() => ({
+  trace: vi.fn(),
+}));
 
 // 避免拉起 unifiedAgent 与 Electron 等重模块
 vi.mock("./engines/unifiedAgent", () => ({
@@ -46,12 +55,19 @@ vi.mock("./utils/logRedact", () => ({
   redactForLog: (x: unknown) => x,
   redactStringForLog: (s: string) => s,
 }));
+vi.mock("../bootstrap/logConfig", () => ({
+  getPerfLogger: () => mockPerfLogger,
+}));
+vi.mock("./engines/perf/firstTokenTrace", () => ({
+  firstTokenTrace: mockFirstTokenTrace,
+}));
 
 describe("ComputerServer — SSE 事件缓冲", () => {
   const sessionId = "ses-test-buffer-001";
 
   beforeEach(() => {
     vi.clearAllMocks();
+    clearAllSseEventBuffers();
     // 清空该 session 的缓冲（通过多次 push 触发内部逻辑会累积，这里依赖模块状态）
     // 注意：pushSseEvent 依赖 computerServer 模块内的 sseClients/sseEventBuffers
     // 无客户端时会写入 buffer；测试间若复用 sessionId 会累积，故用唯一 sessionId 或单测内只测一次
@@ -136,5 +152,95 @@ describe("ComputerServer — SSE 事件缓冲", () => {
   it("clearAllSseEventBuffers 对空缓冲也是幂等的", () => {
     clearAllSseEventBuffers(); // 清空
     expect(() => clearAllSseEventBuffers()).not.toThrow(); // 再次清空
+  });
+
+  it("首个真实 token 输出 /chat.firstToken 与 /chat.newSession.firstToken", () => {
+    vi.useFakeTimers({ now: 10_000 });
+    const session = "ses-ttft-new-001";
+    setSessionFirstTokenContextForTest(session, {
+      requestId: "rid-ttft-new-001",
+      projectId: "project-ttft",
+      engine: "nuwaxcode",
+      chatReceivedAt: 8_500,
+      isNewSession: true,
+    });
+
+    pushSseEvent(session, "agent_message_chunk", {
+      data: { content: { text: "hello" } },
+    });
+
+    const perfLogs = mockPerfLogger.info.mock.calls.map((call) => call[0]);
+    expect(
+      perfLogs.some((msg: string) =>
+        msg.includes("[PERF] /chat.firstToken: 1500ms"),
+      ),
+    ).toBe(true);
+    expect(
+      perfLogs.some((msg: string) =>
+        msg.includes("[PERF] /chat.newSession.firstToken: 1500ms"),
+      ),
+    ).toBe(true);
+    expect(mockFirstTokenTrace.trace).toHaveBeenCalledWith(
+      "chat.first_token.returned",
+      expect.objectContaining({
+        requestId: "rid-ttft-new-001",
+        sessionId: session,
+        projectId: "project-ttft",
+        engine: "nuwaxcode",
+      }),
+      expect.objectContaining({
+        ttftMs: 1500,
+        isNewSession: true,
+      }),
+    );
+
+    // 在 end_turn 前上下文仍保留，便于统计后续阶段
+    expect(hasSessionFirstTokenContext(session)).toBe(true);
+    pushSseEvent(session, "end_turn", {});
+    expect(hasSessionFirstTokenContext(session)).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("复用会话只输出 /chat.firstToken，不输出 newSession 专属日志", () => {
+    vi.useFakeTimers({ now: 30_000 });
+    const session = "ses-ttft-reuse-001";
+    setSessionFirstTokenContextForTest(session, {
+      requestId: "rid-ttft-reuse-001",
+      projectId: "project-reuse",
+      engine: "nuwaxcode",
+      chatReceivedAt: 29_200,
+      isNewSession: false,
+    });
+
+    pushSseEvent(session, "agent_message_chunk", {
+      data: { content: { text: "reuse" } },
+    });
+
+    const perfLogs = mockPerfLogger.info.mock.calls.map((call) => call[0]);
+    expect(
+      perfLogs.some((msg: string) =>
+        msg.includes("[PERF] /chat.firstToken: 800ms"),
+      ),
+    ).toBe(true);
+    expect(
+      perfLogs.some((msg: string) =>
+        msg.includes("/chat.newSession.firstToken"),
+      ),
+    ).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("clearSseEventBuffer 会清理对应 session 的首字上下文", () => {
+    const session = "ses-clear-context-001";
+    setSessionFirstTokenContextForTest(session, {
+      requestId: "rid-clear-ctx-001",
+      projectId: "project-clear",
+      engine: "nuwaxcode",
+      chatReceivedAt: Date.now(),
+      isNewSession: true,
+    });
+    expect(hasSessionFirstTokenContext(session)).toBe(true);
+    clearSseEventBuffer(session);
+    expect(hasSessionFirstTokenContext(session)).toBe(false);
   });
 });

@@ -175,11 +175,16 @@ export class AcpEngine extends EventEmitter {
       const spawnEnv = { ...(config.env || {}) };
       if (this.engineName === "nuwaxcode") {
         const configObj: Record<string, unknown> = {};
+        const isWarmupProcess = spawnEnv.NUWAX_AGENT_WARMUP === "1";
 
         // A/B test mode: inject MCP into OPENCODE_CONFIG_CONTENT again.
         // This restores legacy dual-path injection (static config + ACP newSession).
         // It is intentionally kept for controlled regression verification.
-        if (config.mcpServers && Object.keys(config.mcpServers).length > 0) {
+        if (
+          !isWarmupProcess &&
+          config.mcpServers &&
+          Object.keys(config.mcpServers).length > 0
+        ) {
           const mcpConfig: Record<string, unknown> = {};
           for (const [name, srv] of Object.entries(config.mcpServers)) {
             if ("url" in srv && srv.url) {
@@ -221,7 +226,9 @@ export class AcpEngine extends EventEmitter {
         log.info(
           `${this.logTag} 🔌 nuwaxcode config 注入 (OPENCODE_CONFIG_CONTENT)`,
           {
-            mcp_injection: "enabled (legacy dual-path for A/B)",
+            mcp_injection: isWarmupProcess
+              ? "disabled (warmup process)"
+              : "enabled (legacy dual-path for A/B)",
             mcp_servers: configObj.mcp
               ? Object.keys(configObj.mcp as Record<string, unknown>)
               : [],
@@ -442,6 +449,7 @@ export class AcpEngine extends EventEmitter {
       }
     >;
     systemPrompt?: string;
+    requestId?: string;
   }): Promise<SdkSession> {
     if (!this.acpConnection || !this.config) {
       throw new Error("AcpEngine not initialized");
@@ -503,13 +511,25 @@ export class AcpEngine extends EventEmitter {
 
     // Build _meta with systemPrompt if provided (skip if empty or whitespace only)
     const systemPromptTrimmed = opts?.systemPrompt?.trim();
-    const _meta = systemPromptTrimmed
-      ? {
-          systemPrompt: {
-            append: systemPromptTrimmed,
-          },
-        }
-      : undefined;
+    const requestId = opts?.requestId;
+    const _meta =
+      systemPromptTrimmed || requestId
+        ? {
+            ...(systemPromptTrimmed
+              ? {
+                  systemPrompt: {
+                    append: systemPromptTrimmed,
+                  },
+                }
+              : {}),
+            ...(requestId
+              ? {
+                  requestId,
+                  request_id: requestId,
+                }
+              : {}),
+          }
+        : undefined;
 
     const newSessionParams = {
       cwd: sessionCwd,
@@ -518,8 +538,12 @@ export class AcpEngine extends EventEmitter {
     };
     firstTokenTrace.trace(
       "acp.new_session.sent",
-      { projectId: opts?.title, engine: this.engineName },
-      { cwd: sessionCwd, mcpCount: mcpServers.length },
+      { projectId: opts?.title, engine: this.engineName, requestId },
+      {
+        cwd: sessionCwd,
+        mcpCount: mcpServers.length,
+        hasMetaRequestId: !!requestId,
+      },
     );
     log.info(
       `${this.logTag} newSession: cwd=${sessionCwd}, mcpServers=${mcpServers.length}, hasSystemPrompt=${!!opts?.systemPrompt}`,
@@ -791,6 +815,12 @@ export class AcpEngine extends EventEmitter {
           this.acpConnection!.prompt({
             sessionId: session.acpSessionId!,
             prompt: promptContent,
+            _meta: _opts?.messageID
+              ? {
+                  requestId: _opts.messageID,
+                  request_id: _opts.messageID,
+                }
+              : undefined,
           }).then(
             (res) => {
               log.info(
@@ -1146,6 +1176,7 @@ export class AcpEngine extends EventEmitter {
           cwd: projectDir,
           mcpServers: this.config.mcpServers,
           systemPrompt: request.system_prompt,
+          requestId: request.request_id,
         });
         session = this.sessions.get(newSession.id)!;
         session.projectId = request.project_id;
@@ -1274,7 +1305,9 @@ ${memoryContext}
       });
 
       // 4. Async prompt
-      this.promptAsync(session.id, [{ type: "text", text: enhancedPrompt }]);
+      this.promptAsync(session.id, [{ type: "text", text: enhancedPrompt }], {
+        messageID: request.request_id,
+      });
       firstTokenTrace.trace("acp.prompt.dispatched", {
         requestId: request.request_id,
         sessionId: session.id,
@@ -1296,6 +1329,7 @@ ${memoryContext}
         session_id: session.id,
         error: null,
         request_id: request.request_id,
+        is_new_session: isNewSession,
       };
 
       log.info(`${this.logTag} ✅ chat() 响应: session_id=${session.id}`);

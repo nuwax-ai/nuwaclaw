@@ -7,11 +7,11 @@
 
 // 对应 rcoder HttpResult<T> 响应包装
 export interface HttpResult<T = unknown> {
-  code: string;       // "0000" = 成功，其他为错误码
-  message: string;    // 状态描述
-  data: T | null;     // 实际数据
+  code: string; // "0000" = 成功，其他为错误码
+  message: string; // 状态描述
+  data: T | null; // 实际数据
   tid: string | null; // trace ID（Electron 端始终为 null）
-  success: boolean;   // code === "0000"
+  success: boolean; // code === "0000"
 }
 
 // 对应 rcoder ChatContextServerConfig（MCP 服务器配置）
@@ -68,8 +68,8 @@ export interface ComputerChatRequest {
   system_prompt?: string;
   agent_config?: ChatAgentConfig;
   // 记忆相关字段
-  original_user_prompt?: string;  // 原始用户提示词（纯净用户输入，不含系统提示）
-  open_long_memory?: boolean;     // 是否开启长期记忆（默认 false）
+  original_user_prompt?: string; // 原始用户提示词（纯净用户输入，不含系统提示）
+  open_long_memory?: boolean; // 是否开启长期记忆（默认 false）
 }
 
 // 对应 rcoder ChatResponse（HttpResult.data 的内容，不含 success）
@@ -78,6 +78,7 @@ export interface ComputerChatResponse {
   session_id: string;
   error?: string | null;
   request_id?: string;
+  is_new_session?: boolean;
   need_fallback?: boolean | null;
   fallback_reason?: string | null;
 }
@@ -86,8 +87,12 @@ export interface ComputerChatResponse {
 // 字段名使用 camelCase 对齐 rcoder #[serde(rename_all = "camelCase")]
 export interface UnifiedSessionMessage {
   sessionId: string;
-  acpSessionId?: string;  // ACP protocol session ID (UUID), used for SSE push
-  messageType: 'sessionPromptStart' | 'sessionPromptEnd' | 'agentSessionUpdate' | 'heartbeat';
+  acpSessionId?: string; // ACP protocol session ID (UUID), used for SSE push
+  messageType:
+    | "sessionPromptStart"
+    | "sessionPromptEnd"
+    | "agentSessionUpdate"
+    | "heartbeat";
   subType: string;
   data: unknown;
   timestamp: string;

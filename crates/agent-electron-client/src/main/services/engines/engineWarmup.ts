@@ -26,6 +26,16 @@ const WARMUP_KEY = "__warmup__";
 const WARMUP_ENGINE_TYPE: AgentEngineType = "nuwaxcode";
 const RESPAWN_DELAY_MS = 500; // 防抖延迟
 const MCP_CONFIG_HASH_RE = /mcp-config-[^-]+-([0-9a-f]{16})\.json$/i;
+const WARMUP_ENV_FLAG = "NUWAX_AGENT_WARMUP";
+
+type WarmupStartOptions = {
+  /** 允许在已有活跃 project 引擎时补仓 warmup */
+  allowWhenActiveEngines?: boolean;
+  /** 用最新请求的 MCP 覆盖 warmup 配置，避免后续复用 miss */
+  mcpServers?: AgentConfig["mcpServers"];
+  /** 触发原因，仅用于日志 */
+  reason?: string;
+};
 
 type StdioMcpEntry = Extract<McpServerEntry, { command: string }>;
 type RemoteMcpEntry = Extract<McpServerEntry, { url: string }>;
@@ -65,6 +75,7 @@ export class EngineWarmup {
   start(
     baseConfig: AgentConfig | null,
     onEngineCreated: (engine: AcpEngine) => void,
+    options?: WarmupStartOptions,
   ): void {
     if (!baseConfig || this.disposed) return;
     // 仅检查是否已有 warmup 引擎，不检查其他引擎
@@ -73,19 +84,41 @@ export class EngineWarmup {
       log.debug("[EngineWarmup] warmup 引擎已存在，跳过预热");
       return;
     }
-    if (this.engines.size > 0) {
+    const activeEngineCount = this.engines.size;
+    if (activeEngineCount > 0 && !options?.allowWhenActiveEngines) {
       log.debug(
-        `[EngineWarmup] 当前有 ${this.engines.size} 个活跃引擎，跳过预热`,
+        `[EngineWarmup] 当前有 ${activeEngineCount} 个活跃引擎，跳过预热`,
       );
       return;
     }
+    if (options?.mcpServers !== undefined) {
+      this.lastMcpServers =
+        options.mcpServers && Object.keys(options.mcpServers).length > 0
+          ? options.mcpServers
+          : null;
+    }
 
-    log.info("[EngineWarmup] 🔥 后台预热 nuwaxcode 引擎...");
+    const reason = options?.reason ? `, reason=${options.reason}` : "";
+    log.info(`[EngineWarmup] 🔥 后台预热 nuwaxcode 引擎...${reason}`);
     const engine = new AcpEngine(WARMUP_ENGINE_TYPE);
     onEngineCreated(engine);
 
     // 确保 config.engine 与实际引擎类型一致（init 时 engineType 可能是 claude-code）
-    const warmupConfig = { ...baseConfig, engine: WARMUP_ENGINE_TYPE };
+    const warmupConfig: AgentConfig = {
+      ...baseConfig,
+      engine: WARMUP_ENGINE_TYPE,
+      env: {
+        ...(baseConfig.env || {}),
+        [WARMUP_ENV_FLAG]: "1",
+      },
+    };
+    const seededMcpServers =
+      options?.mcpServers !== undefined
+        ? options.mcpServers
+        : (this.lastMcpServers ?? baseConfig.mcpServers);
+    if (seededMcpServers) {
+      warmupConfig.mcpServers = seededMcpServers;
+    }
 
     // 立即占位，避免 warmup 进行中 getOrCreateEngine 创建重复引擎
     this.engines.set(WARMUP_KEY, engine);
@@ -213,6 +246,49 @@ export class EngineWarmup {
     return normalized;
   }
 
+  private tryExtractBridgeServerFromUrl(urlValue: string): string | null {
+    try {
+      const parsed = new URL(urlValue);
+      const host = parsed.hostname.toLowerCase();
+      if (host !== "127.0.0.1" && host !== "localhost") return null;
+      const segments = parsed.pathname.split("/").filter(Boolean);
+      if (segments.length === 2 && segments[0] === "mcp" && segments[1]) {
+        return decodeURIComponent(segments[1]);
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private readProxyConfigMeta(configFilePath: string | undefined): {
+    serverName: string;
+    persistent: boolean;
+  } | null {
+    if (!configFilePath) return null;
+    try {
+      const raw = fs.readFileSync(configFilePath, "utf8");
+      const parsed = JSON.parse(raw) as {
+        mcpServers?: Record<string, { persistent?: boolean }>;
+      };
+      const servers = parsed.mcpServers;
+      if (!servers) return null;
+      const serverNames = Object.keys(servers);
+      if (serverNames.length !== 1) return null;
+      const keyName = serverNames[0];
+      const server = servers[keyName] as { persistent?: boolean; url?: string };
+      const urlServerName =
+        typeof server?.url === "string"
+          ? this.tryExtractBridgeServerFromUrl(server.url)
+          : null;
+      const serverName = urlServerName || keyName;
+      const persistent = server?.persistent === true || !!urlServerName;
+      return { serverName, persistent };
+    } catch {
+      return null;
+    }
+  }
+
   private serializeRemoteEntry(entry: RemoteMcpEntry): string {
     const transportSource =
       (entry as { type?: string; transport?: string }).type ??
@@ -227,6 +303,17 @@ export class EngineWarmup {
     const denyTools = [
       ...((entry as { denyTools?: string[] }).denyTools || []),
     ].sort();
+    // PersistentMcpBridge 的 URL 形态（http://127.0.0.1:<port>/mcp/<name>）
+    // 与 warmup 时可能出现的 proxy-stdio 形态语义等价，统一归一化。
+    const bridgeServerName = this.tryExtractBridgeServerFromUrl(entry.url);
+    if (bridgeServerName) {
+      return this.stableStringify({
+        mode: "persistent-bridge",
+        server: bridgeServerName,
+        allowTools,
+        denyTools,
+      });
+    }
     const authToken = (entry as { authToken?: string }).authToken;
     const authTokenDigest = authToken ? this.digest(authToken) : undefined;
     return this.stableStringify({
@@ -245,18 +332,29 @@ export class EngineWarmup {
     delete env.MCP_PROXY_LOG_FILE;
     const isProxy = this.isProxyLikeStdio(entry);
     const args = [...(entry.args || [])];
+    const configFilePath = this.extractConfigFilePath(args);
     const allowTools = [...(entry.allowTools || [])].sort();
     const denyTools = [...(entry.denyTools || [])].sort();
 
     if (isProxy) {
+      // getAgentMcpConfig() 在 bridge 未 ready 时会返回 proxy-stdio 入口；
+      // bridge ready 后同一 persistent server 会变成 URL 入口。
+      // 若 config-file 解析到 persistent server，则归一化为同一语义键，避免误判不兼容。
+      const meta = this.readProxyConfigMeta(configFilePath);
+      if (meta?.persistent) {
+        return this.stableStringify({
+          mode: "persistent-bridge",
+          server: meta.serverName,
+          allowTools,
+          denyTools,
+        });
+      }
       return this.stableStringify({
         mode: "proxy-stdio",
         // Node path may differ between warmup and request; compare basename only.
         command: path.basename(entry.command).toLowerCase(),
         args: this.normalizeProxyArgs(args),
-        configFingerprint: this.readConfigFileFingerprint(
-          this.extractConfigFilePath(args),
-        ),
+        configFingerprint: this.readConfigFileFingerprint(configFilePath),
         env: this.sortedStringRecord(env),
         allowTools,
         denyTools,
