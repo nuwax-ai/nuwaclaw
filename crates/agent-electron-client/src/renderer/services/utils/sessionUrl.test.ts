@@ -87,73 +87,64 @@ describe("buildChatSessionUrl", () => {
 });
 
 describe("syncSessionCookie", () => {
-  it("extracts hostname from valid URL for cookie domain", async () => {
+  it("不设 domain 和 secure，由主进程根据 URL scheme 判断", async () => {
     await syncSessionCookie("https://app.example.com:8080/path", "tok123");
 
-    expect(mockSession.setCookie).toHaveBeenCalledWith({
+    const payload = mockSession.setCookie.mock.calls[0][0];
+    expect(payload).toEqual({
       url: "https://app.example.com:8080/path",
       name: "ticket",
       value: "tok123",
-      domain: "app.example.com",
       httpOnly: true,
-      secure: true,
     });
+    expect(payload).not.toHaveProperty("domain");
+    expect(payload).not.toHaveProperty("secure");
   });
 
-  it("falls back to stripping protocol for invalid URL", async () => {
+  it("invalid URL 也不设 domain 和 secure", async () => {
     await syncSessionCookie("not-a-valid-url", "tok123");
 
-    expect(mockSession.setCookie).toHaveBeenCalledWith({
+    const payload = mockSession.setCookie.mock.calls[0][0];
+    expect(payload).toEqual({
       url: "not-a-valid-url",
       name: "ticket",
       value: "tok123",
-      domain: "not-a-valid-url",
       httpOnly: true,
-      secure: false,
     });
+    expect(payload).not.toHaveProperty("domain");
+    expect(payload).not.toHaveProperty("secure");
   });
 
-  it("sets secure: true for https, false for http", async () => {
+  it("host-only cookie — 不设 domain，与 webview Set-Cookie 行为一致", async () => {
     await syncSessionCookie("https://example.com", "tok");
-    expect(mockSession.setCookie).toHaveBeenCalledWith(
-      expect.objectContaining({ secure: true }),
-    );
 
-    mockSession.setCookie.mockClear();
-
-    await syncSessionCookie("http://example.com", "tok");
-    expect(mockSession.setCookie).toHaveBeenCalledWith(
-      expect.objectContaining({ secure: false }),
-    );
-  });
-
-  it("omits domain for IPv4 host (host-only cookie)", async () => {
-    await syncSessionCookie("http://127.0.0.1:8080", "tok-ip");
-
-    expect(mockSession.setCookie).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: "http://127.0.0.1:8080",
-        name: "ticket",
-        value: "tok-ip",
-        secure: false,
-      }),
-    );
     const payload = mockSession.setCookie.mock.calls[0][0];
     expect(payload).not.toHaveProperty("domain");
   });
 
-  it("omits domain for localhost (host-only cookie)", async () => {
+  it("IPv4 host 也不设 domain", async () => {
+    await syncSessionCookie("http://127.0.0.1:8080", "tok-ip");
+
+    const payload = mockSession.setCookie.mock.calls[0][0];
+    expect(payload).toEqual({
+      url: "http://127.0.0.1:8080",
+      name: "ticket",
+      value: "tok-ip",
+      httpOnly: true,
+    });
+    expect(payload).not.toHaveProperty("domain");
+  });
+
+  it("localhost 也不设 domain", async () => {
     await syncSessionCookie("http://localhost:3000", "tok-local");
 
-    expect(mockSession.setCookie).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: "http://localhost:3000",
-        name: "ticket",
-        value: "tok-local",
-        secure: false,
-      }),
-    );
     const payload = mockSession.setCookie.mock.calls[0][0];
+    expect(payload).toEqual({
+      url: "http://localhost:3000",
+      name: "ticket",
+      value: "tok-local",
+      httpOnly: true,
+    });
     expect(payload).not.toHaveProperty("domain");
   });
 });
@@ -208,9 +199,11 @@ describe("syncCookieAndGetRedirectUrl", () => {
         url: "https://example.com",
         name: "ticket",
         value: "my-token",
-        domain: "example.com",
       }),
     );
+    // host-only cookie，不设 domain
+    const payload = mockSession.setCookie.mock.calls[0][0];
+    expect(payload).not.toHaveProperty("domain");
   });
 
   it("clears local auth token after syncing to webview cookie", async () => {
@@ -257,7 +250,7 @@ describe("syncCookieAndGetRedirectUrl", () => {
     expect(mockSession.setCookie).not.toHaveBeenCalled();
   });
 
-  it("skips syncing when target already has ticket cookie", async () => {
+  it("overwrites cookie when domain cache token exists (regardless of existing cookie)", async () => {
     mockGetCurrentAuth.mockResolvedValue({
       isLoggedIn: true,
       userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
@@ -267,78 +260,19 @@ describe("syncCookieAndGetRedirectUrl", () => {
       if (key === "auth.tokens.example.com") return Promise.resolve("my-token");
       return Promise.resolve(null);
     });
-    mockSession.getCookie.mockResolvedValue({ success: true, found: true });
 
     const result = await syncCookieAndGetRedirectUrl();
     expect(result).toBe(
       "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
     );
-    expect(mockSession.setCookie).not.toHaveBeenCalled();
-    expect(mockSettings.set).not.toHaveBeenCalledWith("auth.token", null);
-  });
-
-  it("re-syncs when existing ticket cookie is expired", async () => {
-    mockGetCurrentAuth.mockResolvedValue({
-      isLoggedIn: true,
-      userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
-    });
-    mockSettings.get.mockImplementation((key: string) => {
-      if (key === "auth.token") return Promise.resolve(null);
-      if (key === "auth.tokens.example.com")
-        return Promise.resolve("cached-token");
-      return Promise.resolve(null);
-    });
-    // 返回已过期的 cookie（expirationDate 在过去）
-    const expiredTimestamp = Math.floor(Date.now() / 1000) - 3600; // 1 小时前过期
-    mockSession.getCookie.mockResolvedValue({
-      success: true,
-      found: true,
-      count: 1,
-      cookies: [{ name: "ticket", expirationDate: expiredTimestamp }],
-      cookie: { name: "ticket", expirationDate: expiredTimestamp },
-    });
-
-    const result = await syncCookieAndGetRedirectUrl();
-    expect(result).toBe(
-      "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
-    );
-    // 过期 cookie 应触发重新同步
+    // 有 token 时无条件覆盖，不管现有 cookie 状态
     expect(mockSession.setCookie).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "https://example.com",
         name: "ticket",
-        value: "cached-token",
+        value: "my-token",
       }),
     );
-  });
-
-  it("skips syncing when ticket cookie is valid (not expired)", async () => {
-    mockGetCurrentAuth.mockResolvedValue({
-      isLoggedIn: true,
-      userInfo: { id: 7, currentDomain: "https://example.com", username: "u" },
-    });
-    mockSettings.get.mockImplementation((key: string) => {
-      if (key === "auth.token") return Promise.resolve(null);
-      if (key === "auth.tokens.example.com")
-        return Promise.resolve("cached-token");
-      return Promise.resolve(null);
-    });
-    // 返回未过期的 cookie（expirationDate 在未来）
-    const futureTimestamp = Math.floor(Date.now() / 1000) + 3600; // 1 小时后过期
-    mockSession.getCookie.mockResolvedValue({
-      success: true,
-      found: true,
-      count: 1,
-      cookies: [{ name: "ticket", expirationDate: futureTimestamp }],
-      cookie: { name: "ticket", expirationDate: futureTimestamp },
-    });
-
-    const result = await syncCookieAndGetRedirectUrl();
-    expect(result).toBe(
-      "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
-    );
-    // 未过期 cookie 不应触发重新同步
-    expect(mockSession.setCookie).not.toHaveBeenCalled();
   });
 
   it("overwrites existing ticket when one-shot auth token is present", async () => {
@@ -375,11 +309,6 @@ describe("syncCookieAndGetRedirectUrl", () => {
         domain: "https://example.com",
         hasToken: true,
       }),
-    );
-    expect(mockLogger.debug).toHaveBeenCalledWith(
-      "[SessionUrl] 准备同步 ticket cookie",
-      "SessionUrl",
-      expect.objectContaining({ domain: "https://example.com" }),
     );
     expect(mockLogger.debug).toHaveBeenCalledWith(
       "[SessionUrl] ticket cookie 同步成功",

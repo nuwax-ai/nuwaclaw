@@ -67,40 +67,20 @@ export async function syncSessionCookie(
   domain: string,
   token: string,
 ): Promise<void> {
-  const isIpv4 = (host: string): boolean =>
-    /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(host);
-  const isIpv6 = (host: string): boolean => /^[0-9a-f:]+$/i.test(host);
-  const useHostOnlyCookie = (host: string): boolean =>
-    host === "localhost" || isIpv4(host) || isIpv6(host);
-
-  let cookieDomain: string | undefined;
-  try {
-    const host = new URL(domain).hostname;
-    cookieDomain = useHostOnlyCookie(host) ? undefined : host;
-  } catch {
-    const rawHost = domain
-      .replace(/^https?:\/\//, "")
-      .split("/")[0]
-      .split(":")[0];
-    cookieDomain = useHostOnlyCookie(rawHost) ? undefined : rawHost;
-  }
+  // 不设置 domain → host-only cookie，与 webview 内 Set-Cookie 行为一致，
+  // 确保 webview 登录后能覆盖 Electron 侧写入的 ticket，避免 count=2 冲突
+  // 不设置 secure → 由主进程根据 URL scheme 自动判断（支持 HTTP 场景）
   const payload: {
     url: string;
     name: string;
     value: string;
-    domain?: string;
     httpOnly: boolean;
-    secure: boolean;
   } = {
     url: domain,
     name: "ticket",
     value: token,
     httpOnly: true,
-    secure: domain.startsWith("https"),
   };
-  if (cookieDomain) {
-    payload.domain = cookieDomain;
-  }
   const result = await window.electronAPI?.session.setCookie(payload);
   if (!result?.success) {
     // 只记录域名和错误，不记录 token 等敏感信息
@@ -162,100 +142,39 @@ async function syncCookieAndBuildUrl<T>(
     tokenSource,
   });
   if (!token) {
+    // reg 未返回 token → 不做任何操作（不清空现有 cookie）
     logger.debug(
       "[SessionUrl] 缺少可用 token，跳过 ticket 同步",
       "SessionUrl",
+      { domain },
+    );
+    return buildUrl(domain, configId);
+  }
+
+  // 有 token → 无条件覆盖 cookie，不管现有 cookie 是否有效
+  try {
+    await syncSessionCookie(domain, token);
+    // one-shot token 成功后清除，避免反复覆盖 webview 内 ticket
+    await window.electronAPI?.settings.set(AUTH_KEYS.AUTH_TOKEN, null);
+    logger.debug("[SessionUrl] ticket cookie 同步成功", "SessionUrl", {
+      domain,
+      tokenSource,
+    });
+  } catch (error) {
+    logger.debug("[SessionUrl] ticket cookie 同步失败", "SessionUrl", {
+      domain,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    // 失败时不要清空 token，保留重试机会
+    logger.error(
+      "[SessionUrl] Cookie 同步失败，保留本地 token 以便重试",
+      "SessionUrl",
       {
         domain,
+        error: error instanceof Error ? error.message : String(error),
       },
     );
-  }
-  if (token) {
-    try {
-      if (tokenSource === "domain_cache") {
-        const existing = await window.electronAPI?.session.getCookie({
-          url: domain,
-          name: "ticket",
-        });
-        if (existing?.success && existing?.found) {
-          // 检查 cookie 是否过期（Chromium cookies.get() 会返回已过期但未清理的 cookie）
-          const c = existing.cookies?.[0] || existing.cookie;
-          const isExpired =
-            typeof c?.expirationDate === "number" &&
-            c.expirationDate * 1000 < Date.now();
-          if (!isExpired) {
-            const jwtExpDate = parseJwtExpDate(token as string);
-            // 域名缓存 token 仅做兜底；已有有效 ticket 时不覆盖，避免和 webview 内登录/退出行为冲突
-            logger.info(
-              "[SessionUrl][Diag] 检测到有效 ticket，跳过域名缓存 token 同步",
-              "SessionUrl",
-              {
-                domain,
-                found: !!existing?.found,
-                count: existing?.count ?? 0,
-                cookieExpDate: c?.expirationDate
-                  ? new Date(c.expirationDate * 1000).toISOString()
-                  : "(session cookie)",
-                cookieDomain: c?.domain,
-                cookieSecure: c?.secure,
-                cookieHttpOnly: c?.httpOnly,
-                jwtExp: jwtExpDate ?? "N/A",
-                jwtExpired: jwtExpDate
-                  ? new Date(jwtExpDate).getTime() < Date.now()
-                  : null,
-                now: new Date().toISOString(),
-              },
-            );
-            return buildUrl(domain, configId);
-          }
-          // cookie 已过期，继续走同步流程
-          logger.info(
-            "[SessionUrl][Diag] ticket 已过期，使用域名缓存 token 重新同步",
-            "SessionUrl",
-            {
-              domain,
-              expirationDate: c?.expirationDate,
-            },
-          );
-        }
-      }
-
-      logger.debug("[SessionUrl] 准备同步 ticket cookie", "SessionUrl", {
-        domain,
-        tokenSource,
-      });
-      await syncSessionCookie(domain, token);
-      const jwtExpDate = parseJwtExpDate(token as string);
-      logger.debug("[SessionUrl] ticket cookie 同步成功", "SessionUrl", {
-        domain,
-        tokenSource,
-        jwtExp: jwtExpDate ?? "N/A",
-        jwtExpired: jwtExpDate
-          ? new Date(jwtExpDate).getTime() < Date.now()
-          : null,
-        now: new Date().toISOString(),
-      });
-      // token 作为一次性补写凭据，成功后清除，避免反复覆盖 webview 内 ticket
-      await window.electronAPI?.settings.set(AUTH_KEYS.AUTH_TOKEN, null);
-      logger.debug("[SessionUrl] 已清理 one-shot auth.token", "SessionUrl", {
-        domain,
-      });
-    } catch (error) {
-      logger.debug("[SessionUrl] ticket cookie 同步失败", "SessionUrl", {
-        domain,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      // 失败时不要清空 token，保留重试机会
-      logger.error(
-        "[SessionUrl] Cookie 同步失败，保留本地 token 以便重试",
-        "SessionUrl",
-        {
-          domain,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
-      throw error;
-    }
+    throw error;
   }
 
   return buildUrl(domain, configId);
@@ -285,4 +204,43 @@ export async function syncCookieAndGetChatUrl(
     (domain) => buildChatSessionUrl(domain, sessionId),
     { requireConfigId: false },
   );
+}
+
+/**
+ * 将 webview 内登录产生的 ticket cookie 刷到磁盘。
+ *
+ * webview 内 Set-Cookie 产生的 ticket 带有 Max-Age（持久 cookie），
+ * 但 Chromium 不保证立即写入磁盘。如果 Electron 在 flush 前退出（开发调试常见），
+ * cookie 会丢失。此函数主动调用 flushStore 确保持久化。
+ *
+ * 应在检测到 webview 登录成功（从 /login 跳转到非 login 页面）时调用。
+ */
+export async function persistTicketCookie(domain: string): Promise<void> {
+  try {
+    const result = await window.electronAPI?.session.getCookie({
+      url: domain,
+      name: "ticket",
+    });
+    if (!result?.found) {
+      logger.debug(
+        "[SessionUrl] persistTicketCookie: 无 ticket cookie，跳过",
+        "SessionUrl",
+        { domain },
+      );
+      return;
+    }
+
+    // 主动刷盘，确保 Chromium 将 cookie 写入磁盘
+    await window.electronAPI?.session.flushStore();
+    logger.info(
+      "[SessionUrl] persistTicketCookie: cookie store 已刷盘",
+      "SessionUrl",
+      { domain },
+    );
+  } catch (error) {
+    logger.warn("[SessionUrl] persistTicketCookie 失败", "SessionUrl", {
+      domain,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }

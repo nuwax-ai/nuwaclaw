@@ -502,7 +502,9 @@ export function registerAppHandlers(ctx: HandlerContext): void {
           value: params.value,
           path: "/",
           httpOnly: params.httpOnly ?? true,
-          secure: params.secure ?? true,
+          // secure 跟随 URL scheme：HTTPS → true，HTTP → false
+          // 渲染进程不传时根据 URL 自动判断
+          secure: params.secure ?? params.url.startsWith("https://"),
         };
         const expirationDate =
           typeof params.expirationDate === "number"
@@ -581,6 +583,37 @@ export function registerAppHandlers(ctx: HandlerContext): void {
       }
     },
   );
+
+  ipcMain.handle(
+    "session:removeCookie",
+    async (_, params: { url: string; name: string }) => {
+      try {
+        await removeSameNameCookies({
+          url: params.url,
+          name: params.name,
+        });
+        await electronSession.defaultSession.cookies.flushStore();
+        log.info("[IPC] session:removeCookie success", {
+          url: params.url,
+          name: params.name,
+        });
+        return { success: true };
+      } catch (error) {
+        log.error("[IPC] session:removeCookie failed:", error);
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  ipcMain.handle("session:flushStore", async () => {
+    try {
+      await electronSession.defaultSession.cookies.flushStore();
+      return { success: true };
+    } catch (error) {
+      log.error("[IPC] session:flushStore failed:", error);
+      return { success: false, error: String(error) };
+    }
+  });
 
   // ========== WebView Window ==========
 

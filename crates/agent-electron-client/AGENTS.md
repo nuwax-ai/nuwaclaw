@@ -122,14 +122,15 @@ reg 接口返回 token
 
 ### 核心函数
 
-- **`syncSessionCookie(domain, token)`**：将 token 写入 webview cookie（name="ticket"）
-- **`syncCookieAndBuildUrl()`**：打开 webview 前检查并同步 token
+- **`syncSessionCookie(domain, token)`**：将 token 写入 webview cookie（name="ticket"），不设 domain（host-only），不设 secure（主进程根据 URL scheme 自动判断）
+- **`syncCookieAndBuildUrl()`**：打开 webview 前同步 token。有 token → 无条件覆盖 cookie；无 token → 跳过（不清空）
 
 ### 安全考虑
 
 - token 不长期驻留内存，同步成功后立即清除
 - 日志中不记录敏感 token 值
 - 失败时保留 token 以便重试，但不影响用户体验
+- Cookie 属性：host-only（不设 domain，避免 count=2）、httpOnly、secure 由主进程根据 URL scheme 自动判断
 
 ---
 
@@ -185,4 +186,4 @@ npm run dist:linux  # Linux
 - **敏感配置存于 SQLite**（明文，未加密）：anthropic_api_key、default_model、server_host。
 - **兼容性**：多引擎 / 沙箱(Docker) / IM / 托盘 / 无命令行弹窗 — 全平台。WSL 仅 Windows。Firejail 仅 Linux。
 
-*最后更新：2026-03-25*
+*最后更新：2026-04-01*

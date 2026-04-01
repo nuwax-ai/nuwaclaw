@@ -570,6 +570,11 @@ export interface ElectronAPI {
       httpOnly?: boolean;
       secure?: boolean;
     }) => Promise<{ success: boolean; error?: string }>;
+    removeCookie: (params: { url: string; name: string }) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+    flushStore: () => Promise<{ success: boolean; error?: string }>;
     getCookie: (params: { url: string; name: string }) => Promise<{
       success: boolean;
       found?: boolean;

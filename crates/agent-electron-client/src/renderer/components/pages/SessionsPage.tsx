@@ -19,6 +19,7 @@ import {
   syncCookieAndGetRedirectUrl,
   syncCookieAndGetNewSessionUrl,
   syncCookieAndGetChatUrl,
+  persistTicketCookie,
 } from "../../services/utils/sessionUrl";
 import { logger } from "../../services/utils/logService";
 import { APP_DISPLAY_NAME } from "@shared/constants";
@@ -75,6 +76,16 @@ function SessionsPage({
         "SessionsPage",
         { url, httpCode: e.httpResponseCode, isLogin },
       );
+
+      // webview 登录成功后（从 /login 跳到非 login 页面），持久化 ticket cookie
+      if (!isLogin && url.startsWith("http")) {
+        try {
+          const origin = new URL(url).origin;
+          persistTicketCookie(origin).catch(() => {});
+        } catch {
+          // URL 解析失败，忽略
+        }
+      }
     };
     const onWillRedirect = (e: any) => {
       logger.info("[SessionsPage][WebviewNav] will-redirect", "SessionsPage", {
