@@ -19,7 +19,6 @@ import {
   TeamOutlined,
   ArrowLeftOutlined,
   ReloadOutlined,
-  RobotOutlined,
 } from "@ant-design/icons";
 import { setupService, authService, Step1Config } from "./services/core/setup";
 import {
@@ -38,7 +37,6 @@ import AboutPage from "./components/pages/AboutPage";
 import LogViewer from "./components/pages/LogViewer";
 import PermissionsPage from "./components/pages/PermissionsPage";
 import SessionsPage from "./components/pages/SessionsPage";
-import ModelPage from "./components/pages/ModelPage";
 import type { WebviewHeaderActions } from "./components/pages/SessionsPage";
 import { createLogger } from "./services/utils/rendererLog";
 import styles from "./styles/components/App.module.css";
@@ -832,7 +830,6 @@ function App() {
       { key: "sessions", icon: <TeamOutlined />, label: "会话" },
       { key: "settings", icon: <SettingOutlined />, label: "设置" },
       { key: "dependencies", icon: <FolderOutlined />, label: "依赖" },
-      { key: "model", icon: <RobotOutlined />, label: "模型" },
     ];
     if (isMacOS) {
       items.push({
@@ -1008,7 +1005,6 @@ function App() {
                 {activeTab === "permissions" && <PermissionsPage />}
                 {activeTab === "logs" && <LogViewer />}
                 {activeTab === "about" && <AboutPage />}
-                {activeTab === "model" && <ModelPage />}
               </div>
             </div>
           </div>
