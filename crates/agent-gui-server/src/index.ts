@@ -48,7 +48,7 @@ Options:
   --help, -h              Show this help
 
 Environment Variables:
-  GUI_AGENT_API_KEY       (required) LLM API key
+  GUI_AGENT_API_KEY       LLM API key (optional, only needed for gui_analyze_screen tool)
   GUI_AGENT_PROVIDER      LLM provider (default: anthropic)
   GUI_AGENT_MODEL         LLM model (default: claude-sonnet-4-20250514)
   GUI_AGENT_BASE_URL      Custom API base URL

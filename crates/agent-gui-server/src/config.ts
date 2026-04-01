@@ -18,8 +18,8 @@ export interface GuiAgentConfig {
   apiProtocol: 'anthropic' | 'openai';
   /** LLM model name */
   model: string;
-  /** API key for the LLM provider */
-  apiKey: string;
+  /** API key for the LLM provider (optional - only required for gui_analyze_screen tool) */
+  apiKey?: string;
   /** Optional base URL for the LLM API */
   baseUrl?: string;
 
@@ -63,10 +63,9 @@ function parseIntRange(name: string, value: string | undefined, min: number, max
 export function loadConfig(overrides?: Partial<GuiAgentConfig>): GuiAgentConfig {
   const env = process.env;
 
+  // API Key is optional at startup - it's only required when gui_analyze_screen tool is used
+  // (which requires GUI_AGENT_VISION_MODEL to be configured)
   const apiKey = overrides?.apiKey ?? env.GUI_AGENT_API_KEY;
-  if (!apiKey) {
-    throw new ConfigError('GUI_AGENT_API_KEY is required');
-  }
 
   const transport = (overrides?.transport ?? env.GUI_AGENT_TRANSPORT ?? 'http') as 'http' | 'stdio';
   if (transport !== 'http' && transport !== 'stdio') {

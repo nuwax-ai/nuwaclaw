@@ -109,7 +109,7 @@ export function createTaskRunner(
       config.memoryModel ?? config.model,
       config.baseUrl,
     );
-    const memoryManager = new MemoryManager(memoryModel, config.apiKey);
+    const memoryManager = new MemoryManager(memoryModel, config.apiKey ?? '');
     const stuckDetector = new StuckDetector(config.stuckThreshold);
     const profile = getModelProfile(config.model, config.coordinateMode as any);
     const displayInfo = await getDisplay(config.displayIndex);

@@ -227,8 +227,14 @@ export class MemoryManager {
 
   /**
    * Call the memory model to generate a summary.
+   * If apiKey is empty, just returns the original text (no-op compression).
    */
   private async summarize(text: string): Promise<string> {
+    // If no API key is configured, skip summarization and return original text
+    if (!this.apiKey) {
+      return text;
+    }
+
     const result: AssistantMessage = await complete(this.memoryModel, {
       systemPrompt: MEMORY_SUMMARIZATION_PROMPT,
       messages: [
