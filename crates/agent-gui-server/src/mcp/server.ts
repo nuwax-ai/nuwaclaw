@@ -13,7 +13,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { GuiAgentConfig } from '../config.js';
 import { AuditLog } from '../safety/auditLog.js';
-import { ATOMIC_TOOLS, handleAtomicToolCall } from './atomicTools.js';
+import { getAvailableTools, handleAtomicToolCall } from './atomicTools.js';
 import { TASK_TOOLS, handleTaskTool } from './taskTools.js';
 import { registerResources } from './resources.js';
 import { logInfo, logWarn, logError } from '../utils/logger.js';
@@ -34,7 +34,8 @@ function createMcpServer(config: GuiAgentConfig, auditLog: AuditLog): Server {
   );
 
   // Unified tool registration — combines atomic tools + task tools
-  const allTools = [...ATOMIC_TOOLS, ...TASK_TOOLS];
+  // 使用动态工具列表（根据视觉模型配置过滤 gui_analyze_screen）
+  const allTools = [...getAvailableTools(), ...TASK_TOOLS];
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: allTools,

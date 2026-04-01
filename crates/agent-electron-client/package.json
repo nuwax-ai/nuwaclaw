@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
-    "dev:electron": "wait-on http://localhost:60173 && npm run build:main && electron .",
+    "dev:electron": "wait-on http://localhost:60173 && NUWAX_INJECT_GUI_MCP=1 npm run build:main && electron .",
     "build:main": "node scripts/build/generate-build-flags.js && tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
     "build:renderer": "vite build",
     "build": "npm run build:main && npm run build:renderer",

@@ -340,7 +340,7 @@ export default function SettingsPage() {
         <div className={styles.sectionBody}>
           <Form form={form} layout="vertical" disabled={!editing} size="small">
             <Row gutter={16}>
-              <Col span={12}>
+              <Col span={8}>
                 <Form.Item
                   name="fileServerPort"
                   label="文件服务端口"
@@ -349,10 +349,19 @@ export default function SettingsPage() {
                   <InputNumber min={1} max={65535} style={{ width: "100%" }} />
                 </Form.Item>
               </Col>
-              <Col span={12}>
+              <Col span={8}>
                 <Form.Item
                   name="agentPort"
                   label="Agent 端口"
+                  rules={[{ required: true, message: "请输入端口" }]}
+                >
+                  <InputNumber min={1} max={65535} style={{ width: "100%" }} />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item
+                  name="guiMcpPort"
+                  label="GUI MCP 端口"
                   rules={[{ required: true, message: "请输入端口" }]}
                 >
                   <InputNumber min={1} max={65535} style={{ width: "100%" }} />

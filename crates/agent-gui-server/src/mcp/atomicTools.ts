@@ -282,6 +282,18 @@ async function resolveXY(
 
 export { ATOMIC_TOOLS };
 
+/**
+ * 获取可用的工具列表
+ * 如果未配置视觉模型，则不包含 gui_analyze_screen
+ */
+export function getAvailableTools(): typeof ATOMIC_TOOLS {
+  const visionModel = process.env.GUI_AGENT_VISION_MODEL;
+  if (!visionModel) {
+    return ATOMIC_TOOLS.filter(t => t.name !== 'gui_analyze_screen');
+  }
+  return ATOMIC_TOOLS;
+}
+
 /** Validate that a value is a finite number */
 function requireNumber(name: string, value: unknown): number {
   if (typeof value !== 'number' || !isFinite(value)) {

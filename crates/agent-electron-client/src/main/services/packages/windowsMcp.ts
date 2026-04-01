@@ -11,35 +11,7 @@ import { WindowsMcpManager, type ProcessConfig } from "agent-gui-server";
 import { ElectronProcessRunner } from "./windowsMcpRunner.js";
 import { getUvBinPath, getAppEnv } from "../system/dependencies";
 import { isWindows } from "../system/shellEnv";
-import { isPortInUse } from "../startupPorts";
-
-/** Windows-MCP 端口范围 */
-const WINDOWS_MCP_PORT_RANGE = {
-  min: 60020,
-  max: 60029,
-};
-
-/** Windows-MCP 默认端口 */
-const DEFAULT_WINDOWS_MCP_PORT = 60020;
-
-/**
- * 查找可用端口
- *
- * 从指定范围查找未被占用的端口。
- */
-function findAvailablePort(range: { min: number; max: number }): number {
-  for (let port = range.min; port <= range.max; port++) {
-    const { inUse } = isPortInUse(port);
-    if (!inUse) {
-      return port;
-    }
-  }
-  // 如果所有端口都被占用，返回默认端口（启动时会失败）
-  log.warn(
-    `[WindowsMcp] No available port in range ${range.min}-${range.max}, using default ${DEFAULT_WINDOWS_MCP_PORT}`,
-  );
-  return DEFAULT_WINDOWS_MCP_PORT;
-}
+import { getGuiMcpPort } from "./guiAgentServer";
 
 /**
  * Windows-MCP 管理器实例
@@ -84,11 +56,10 @@ export async function startWindowsMcp(): Promise<{
     return { success: false, error };
   }
 
-  // 查找可用端口
-  const port = findAvailablePort(WINDOWS_MCP_PORT_RANGE);
-
   // 构建进程配置
-  const buildConfig = (p: number): ProcessConfig => ({
+  // 注意：_port 参数被忽略，端口从 DB 配置读取（通过 getGuiMcpPort()）
+  // 这是因为 windows-mcp 的端口由启动参数决定，而不是由 McpProxyManager 分配
+  const buildConfig = (_port: number): ProcessConfig => ({
     command: uvPath,
     args: [
       "tool",
@@ -99,7 +70,7 @@ export async function startWindowsMcp(): Promise<{
       "--host",
       "127.0.0.1",
       "--port",
-      p.toString(),
+      getGuiMcpPort().toString(),
     ],
     env: {
       ...getAppEnv({ includeSystemPath: true }),
@@ -108,9 +79,9 @@ export async function startWindowsMcp(): Promise<{
     },
   });
 
-  log.info(`[WindowsMcp] Starting on port ${port}...`);
+  log.info(`[WindowsMcp] Starting on port ${getGuiMcpPort()}...`);
 
-  const result = await windowsMcpManager.start(port, buildConfig);
+  const result = await windowsMcpManager.start(getGuiMcpPort(), buildConfig);
 
   if (result.success) {
     log.info(`[WindowsMcp] Started successfully on port ${result.port}`);
@@ -158,7 +129,11 @@ export function getWindowsMcpUrl(): string | null {
   if (!isWindows()) {
     return null;
   }
-  return windowsMcpManager.getMcpUrl();
+  const status = windowsMcpManager.getStatus();
+  if (!status.running || status.port === undefined) {
+    return null;
+  }
+  return `http://127.0.0.1:${status.port}/mcp`;
 }
 
 /**

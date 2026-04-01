@@ -13,6 +13,7 @@ import * as fs from "fs";
 import log from "electron-log";
 import type { ChildProcess } from "child_process";
 import { BUILD_FLAGS } from "../../../buildFlags";
+import { getGuiAgentServerUrl } from "@main/services/packages/guiAgentServer";
 import {
   createAcpConnection,
   getMcpTransportSnapshot,
@@ -590,19 +591,21 @@ export class AcpEngine extends EventEmitter {
     // [临时测试代码 - 正式发布前将 BUILD_FLAGS.INJECT_GUI_MCP 设为 false]
     // 通过编译时常量控制是否注入 GUI Agent MCP（由 NUWAX_INJECT_GUI_MCP=1 环境变量在构建时决定）
     // 用于本地开发/打包测试 GUI 桌面自动化功能，正式发布时由服务器下发 context_servers
+    // 使用 getGuiAgentServerUrl() 动态获取 URL（支持用户配置的端口）
     if (
       BUILD_FLAGS.INJECT_GUI_MCP &&
       !mcpServers.some((m) => m.name === "gui-agent")
     ) {
-      mcpServers.push({
-        name: "gui-agent",
-        url: BUILD_FLAGS.GUI_MCP_URL,
-        headers: [],
-        type: "http",
-      });
-      log.info(
-        `${this.logTag} 🔧 注入 GUI Agent MCP: ${BUILD_FLAGS.GUI_MCP_URL}`,
-      );
+      const guiMcpUrl = getGuiAgentServerUrl();
+      if (guiMcpUrl) {
+        mcpServers.push({
+          name: "gui-agent",
+          url: guiMcpUrl,
+          headers: [],
+          type: "http",
+        });
+        log.info(`${this.logTag} 🔧 注入 GUI Agent MCP: ${guiMcpUrl}`);
+      }
     }
 
     const sessionCwd = opts?.cwd || this.config.workspaceDir;
