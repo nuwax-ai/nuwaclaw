@@ -197,7 +197,13 @@ function ClientPage({
 
       // loginAndRegister 内部已调用 reg 接口并保存 serverHost/serverPort，无需再次调用
       // step by step 启动服务
-      const allServices = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+      const allServices = [
+        "mcpProxy",
+        "agent",
+        "fileServer",
+        "guiServer",
+        "lanproxy",
+      ];
       for (const key of allServices) {
         await handleStartService(key, true);
       }
@@ -295,6 +301,7 @@ function ClientPage({
   const serviceNameMap: Record<string, string> = {
     agent: SERVICE_NAMES.Rcoder,
     fileServer: SERVICE_NAMES.NuwaxFileServer,
+    guiServer: SERVICE_NAMES.GuiAgent,
     lanproxy: SERVICE_NAMES.NuwaxLanproxy,
     mcpProxy: SERVICE_NAMES.McpProxy,
   };
@@ -371,6 +378,8 @@ function ClientPage({
         });
       } else if (key === "mcpProxy") {
         result = await window.electronAPI?.mcp.start();
+      } else if (key === "guiServer") {
+        result = await window.electronAPI?.guiServer?.start();
       }
 
       await onRefreshServices();
@@ -415,6 +424,7 @@ function ClientPage({
         await window.electronAPI?.fileServer.stop();
       else if (key === "lanproxy") await window.electronAPI?.lanproxy.stop();
       else if (key === "mcpProxy") await window.electronAPI?.mcp.stop();
+      else if (key === "guiServer") await window.electronAPI?.guiServer?.stop();
     } catch (error) {
       message.error(`停止失败: ${error}`);
     } finally {
@@ -439,7 +449,13 @@ function ClientPage({
     }
 
     // 确定需要启动的服务，提前设置 starting 状态（覆盖 reg 调用期间）
-    const allServices = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    const allServices = [
+      "mcpProxy",
+      "agent",
+      "fileServer",
+      "guiServer",
+      "lanproxy",
+    ];
     const servicesToStart = allServices.filter((key) => {
       const svc = services.find((s) => s.key === key);
       return svc && !svc.running;
@@ -490,6 +506,8 @@ function ClientPage({
           else if (svc.key === "lanproxy")
             await window.electronAPI?.lanproxy.stop();
           else if (svc.key === "mcpProxy") await window.electronAPI?.mcp.stop();
+          else if (svc.key === "guiServer")
+            await window.electronAPI?.guiServer?.stop();
         } catch (error) {
           console.error(`停止 ${svc.label} 失败:`, error);
         }

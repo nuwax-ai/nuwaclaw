@@ -807,7 +807,7 @@ Guidelines:
 | 依赖 | 用途 |
 |------|------|
 | `@modelcontextprotocol/sdk` ^1.27.1 | MCP Server |
-| `@nut-tree/nut-js` ^4.2.0 | 桌面自动化 |
+| `@nut-tree-fork/nut-js` ^4.2.6 | 桌面自动化（社区 fork，`@nut-tree/nut-js` 需要付费订阅） |
 | `@mariozechner/pi-ai` | 多 Provider LLM 调用 |
 | `@mariozechner/pi-agent-core` | Agent 循环 + tool calling |
 | `@sinclair/typebox` | AgentTool 参数 schema 定义 |

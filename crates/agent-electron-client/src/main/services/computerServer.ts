@@ -34,6 +34,10 @@ import type {
   HttpResult,
   UnifiedSessionMessage,
 } from "./engines/unifiedAgent";
+import type {
+  GuiVisionModelConfig,
+  GuiDisplayInfo,
+} from "@shared/types/computerTypes";
 import { redactForLog, redactStringForLog } from "./utils/logRedact";
 import { DEFAULT_SSE_HEARTBEAT_INTERVAL } from "@shared/constants";
 
@@ -851,6 +855,84 @@ async function handleRequest(
           session_id: sessionId,
         }),
       );
+      return;
+    }
+
+    // POST /computer/gui-agent/vision-model — 保存 GUI Agent 视觉模型配置
+    if (pathname === "/computer/gui-agent/vision-model" && method === "POST") {
+      const body = await parseBody(req);
+      log.info("[HTTP] 保存 GUI Agent 视觉模型配置");
+      const { writeSetting } = await import("../db");
+      writeSetting("gui_agent_vision_model", body);
+      sendJson(res, 200, httpResult({ success: true }));
+      return;
+    }
+
+    // GET /computer/gui-agent/vision-model — 获取 GUI Agent 视觉模型配置
+    if (pathname === "/computer/gui-agent/vision-model" && method === "GET") {
+      const { readSetting } = await import("../db");
+      const config = readSetting(
+        "gui_agent_vision_model",
+      ) as GuiVisionModelConfig | null;
+      sendJson(
+        res,
+        200,
+        httpResult(
+          config || {
+            provider: "anthropic",
+            apiProtocol: "anthropic",
+            model: "claude-sonnet-4-20250514",
+            displayIndex: 0,
+            coordinateMode: "auto",
+            maxSteps: 50,
+            stepDelayMs: 1500,
+            jpegQuality: 75,
+          },
+        ),
+      );
+      return;
+    }
+
+    // GET /computer/gui-agent/displays — 获取可用显示器列表
+    if (pathname === "/computer/gui-agent/displays" && method === "GET") {
+      try {
+        const { screen } = await import("electron");
+        const displays = screen.getAllDisplays();
+        const result: GuiDisplayInfo[] = displays.map((d, idx) => ({
+          index: idx,
+          label:
+            idx === 0
+              ? `主显示器 (${d.size.width}x${d.size.height})`
+              : `显示器 ${idx + 1} (${d.size.width}x${d.size.height})`,
+          width: d.size.width,
+          height: d.size.height,
+          scaleFactor: d.scaleFactor,
+          isPrimary: d.bounds.x === 0 && d.bounds.y === 0,
+        }));
+        sendJson(res, 200, httpResult(result));
+      } catch (err: any) {
+        log.error("[HTTP] 获取显示器列表失败:", err);
+        sendJson(
+          res,
+          200,
+          httpError("5000", err.message || "Failed to get displays"),
+        );
+      }
+      return;
+    }
+
+    // POST /computer/gui-agent/display — 设置目标显示器
+    if (pathname === "/computer/gui-agent/display" && method === "POST") {
+      const body = await parseBody(req);
+      const displayIndex = body.displayIndex as number;
+      log.info(`[HTTP] 设置 GUI Agent 目标显示器: ${displayIndex}`);
+      const { readSetting, writeSetting } = await import("../db");
+      const existing = (readSetting("gui_agent_vision_model") || {}) as Record<
+        string,
+        unknown
+      >;
+      writeSetting("gui_agent_vision_model", { ...existing, displayIndex });
+      sendJson(res, 200, httpResult({ success: true, displayIndex }));
       return;
     }
 

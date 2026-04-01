@@ -44,6 +44,9 @@ crates/agent-electron-client/resources/lanproxy/bin/
 # Bundled MCP proxy: 构建时 prepare-mcp-proxy 从源码 build 并集成
 crates/agent-electron-client/resources/nuwax-mcp-stdio-proxy/
 
+# Bundled GUI Agent Server: 构建时 prepare-gui-server 从源码 build 并集成
+crates/agent-electron-client/resources/agent-gui-server/
+
 # Bundled nuwaxcode: 构建时从 GitHub Release 下载，不入库
 crates/agent-electron-client/resources/nuwaxcode/
 

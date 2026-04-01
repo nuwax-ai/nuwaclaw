@@ -12,6 +12,7 @@ import * as path from "path";
 import * as fs from "fs";
 import log from "electron-log";
 import type { ChildProcess } from "child_process";
+import { BUILD_FLAGS } from "../../../buildFlags";
 import {
   createAcpConnection,
   getMcpTransportSnapshot,
@@ -584,6 +585,24 @@ export class AcpEngine extends EventEmitter {
         if (mcpServers.some((m) => m.name === name)) continue;
         mcpServers.push(toAcpMcpServer(name, srv));
       }
+    }
+
+    // [临时测试代码 - 正式发布前将 BUILD_FLAGS.INJECT_GUI_MCP 设为 false]
+    // 通过编译时常量控制是否注入 GUI Agent MCP（由 NUWAX_INJECT_GUI_MCP=1 环境变量在构建时决定）
+    // 用于本地开发/打包测试 GUI 桌面自动化功能，正式发布时由服务器下发 context_servers
+    if (
+      BUILD_FLAGS.INJECT_GUI_MCP &&
+      !mcpServers.some((m) => m.name === "gui-agent")
+    ) {
+      mcpServers.push({
+        name: "gui-agent",
+        url: BUILD_FLAGS.GUI_MCP_URL,
+        headers: [],
+        type: "http",
+      });
+      log.info(
+        `${this.logTag} 🔧 注入 GUI Agent MCP: ${BUILD_FLAGS.GUI_MCP_URL}`,
+      );
     }
 
     const sessionCwd = opts?.cwd || this.config.workspaceDir;

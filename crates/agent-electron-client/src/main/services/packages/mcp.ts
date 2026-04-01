@@ -37,6 +37,7 @@ import { resolveNpmPackageEntry } from "../utils/spawnNoWindow";
 import { APP_DATA_DIR_NAME } from "../constants";
 import { isWindows } from "../system/shellEnv";
 import { persistentMcpBridge } from "./persistentMcpBridge";
+import { windowsMcpManager, getWindowsMcpUrl } from "./windowsMcp.js";
 
 type PerfValue = string | number | boolean | null | undefined;
 
