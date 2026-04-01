@@ -3,17 +3,17 @@
  *
  * 使用方式：在 log.info/debug 前对对象调用 redactForLog(obj)，或对字符串调用 redactStringForLog(s).
  *
- * 本地调试需要看完整密钥时（勿用于生产/勿提交日志）：启动前设置
- * `NUWAX_AGENT_LOG_FULL_SECRETS=1`，将跳过脱敏。
+ * 本地调试需要看完整密钥时（勿用于生产/勿提交日志）：通过 .env.development 配置
+ * `NUWAX_AGENT_LOG_FULL_SECRETS=true`，将跳过脱敏。
  */
 
+import { FEATURES } from "@shared/featureFlags";
+
 /**
- * 未设置 `NUWAX_AGENT_LOG_FULL_SECRETS` 时默认为 false → 始终脱敏。
+ * 未设置 LOG_FULL_SECRETS 时默认为 false → 始终脱敏。
  * 为 true 时不脱敏（仅本机调试用）。
  */
-const logRedactDisabled: boolean =
-  process.env.NUWAX_AGENT_LOG_FULL_SECRETS === "1" ||
-  process.env.NUWAX_AGENT_LOG_FULL_SECRETS === "true";
+const logRedactDisabled: boolean = FEATURES.LOG_FULL_SECRETS;
 
 /** 需要脱敏的键名（小写匹配），值替换为前缀 + "..." */
 const SENSITIVE_KEYS_LOWER = new Set([
