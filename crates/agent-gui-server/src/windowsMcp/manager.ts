@@ -51,7 +51,10 @@ export class WindowsMcpManager {
   private running: boolean = false;
   private lastError: string | null = null;
   private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
+  /** 历史累计重启/失败次数（观测用） */
   private restartCount: number = 0;
+  /** 连续健康检查失败次数，达到 maxRestarts 后结束子进程释放端口 */
+  private healthFailStreak: number = 0;
   private config: Required<WindowsMcpConfig>;
 
   constructor(config?: WindowsMcpConfig) {
@@ -117,39 +120,51 @@ export class WindowsMcpManager {
       this.port = port;
       this.running = true;
       this.restartCount = 0;
+      this.healthFailStreak = 0;
 
       // 启动健康检查
       this.startHealthCheck();
 
       return { success: true, port };
     } catch (error) {
+      // 若 runner.start 之后、置 running 之前抛错，避免遗留子进程
+      try {
+        await this.runner.stop();
+      } catch {
+        /* ignore */
+      }
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.lastError = errorMessage;
+      this.running = false;
+      this.port = 0;
       return { success: false, error: errorMessage };
     }
   }
 
   /**
    * 停止 windows-mcp 服务
+   *
+   * 注意：即使 `this.running === false`（例如健康检查失败时已把标记清掉），仍必须调用
+   * runner.stop()，否则子进程（uv/python）可能仍在监听端口，导致退出 Electron 后残留。
    */
   async stop(): Promise<StopResult> {
-    // 停止健康检查
     this.stopHealthCheck();
 
-    if (!this.running || !this.runner) {
+    if (!this.runner) {
       this.running = false;
+      this.port = 0;
       return { success: true };
     }
 
     try {
       const result = await this.runner.stop();
-      if (result.success) {
-        this.running = false;
-        this.port = 0;
-      }
-      return result;
+      this.running = false;
+      this.port = 0;
+      return result.success ? { success: true } : result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      this.running = false;
+      this.port = 0;
       return { success: false, error: errorMessage };
     }
   }
@@ -192,31 +207,41 @@ export class WindowsMcpManager {
   private startHealthCheck(): void {
     this.stopHealthCheck();
 
-    this.healthCheckTimer = setInterval(async () => {
-      if (!this.running || !this.port) {
-        return;
-      }
-
-      const result = await healthCheck({
-        port: this.port,
-        timeout: this.config.healthCheckTimeout,
-      });
-
-      if (!result.healthy) {
-        this.lastError = `Health check failed: ${result.error}`;
-
-        // 尝试重启
-        if (this.restartCount < this.config.maxRestarts) {
-          this.restartCount++;
-          // 注意：这里不能直接调用 restart()，因为需要 buildConfig
-          // 调用方应该监听状态变化并处理重启
-          this.running = false;
-          this.stopHealthCheck();
+    this.healthCheckTimer = setInterval(() => {
+      void (async () => {
+        if (!this.running || !this.port || !this.runner) {
+          return;
         }
-      } else {
-        // 健康检查通过，清除错误
+
+        const port = this.port;
+        const result = await healthCheck({
+          port,
+          timeout: this.config.healthCheckTimeout,
+        });
+
+        if (!result.healthy) {
+          this.lastError = `Health check failed: ${result.error}`;
+          this.healthFailStreak++;
+          if (this.healthFailStreak < this.config.maxRestarts) {
+            return;
+          }
+          // 连续失败达到阈值：结束子进程，避免端口占用且与 stop() 状态一致
+          this.stopHealthCheck();
+          this.running = false;
+          this.port = 0;
+          this.healthFailStreak = 0;
+          this.restartCount++;
+          try {
+            await this.runner.stop();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+
+        this.healthFailStreak = 0;
         this.lastError = null;
-      }
+      })();
     }, this.config.healthCheckInterval);
   }
 

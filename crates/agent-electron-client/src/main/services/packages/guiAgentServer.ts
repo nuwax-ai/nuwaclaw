@@ -312,7 +312,8 @@ export function getGuiAgentServerStatus(): {
  * 获取 GUI Agent Server MCP URL（供 Agent 引擎注入使用）
  *
  * 返回 http://127.0.0.1:{runningPort}/mcp，使用实际运行的端口。
- * 仅在非 Windows 平台且服务已启动时返回非 null。
+ * 仅在非 Windows 平台且内嵌 gui 服务已启动时返回非 null。
+ * Windows 桌面自动化由 windows-mcp 提供，请使用 getWindowsMcpUrl()（见 acpEngine）。
  */
 export function getGuiAgentServerUrl(): string | null {
   if (isWindows()) {

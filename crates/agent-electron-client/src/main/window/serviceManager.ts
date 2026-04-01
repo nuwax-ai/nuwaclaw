@@ -356,22 +356,21 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       results.mcpProxy = { success: false, error: String(e) };
     }
 
-    // 停止 GUI Agent Server
-    try {
-      await stopGuiAgentServer();
-      results.guiAgentServer = { success: true };
-      log.info("[ServiceManager] GUI Agent Server stopped");
-    } catch (e) {
-      results.guiAgentServer = { success: false, error: String(e) };
-    }
-
-    // 停止 Windows MCP
+    // 停止 GUI MCP：先 Windows（uv/python），再非 Windows 的 agent-gui-server，与 main cleanupAllProcesses 顺序一致
     try {
       await stopWindowsMcp();
       results.windowsMcp = { success: true };
       log.info("[ServiceManager] Windows MCP stopped");
     } catch (e) {
       results.windowsMcp = { success: false, error: String(e) };
+    }
+
+    try {
+      await stopGuiAgentServer();
+      results.guiAgentServer = { success: true };
+      log.info("[ServiceManager] GUI Agent Server stopped");
+    } catch (e) {
+      results.guiAgentServer = { success: false, error: String(e) };
     }
 
     // 停止所有引擎

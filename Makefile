@@ -438,7 +438,6 @@ ELECTRON_CLIENT := agent-electron-client
 # electron-dev 默认 NUWAX_AGENT_LOG_FULL_SECRETS=1（主进程 logRedact 不截断密钥，便于本地调试）
 # 需要脱敏日志： NUWAX_AGENT_LOG_FULL_SECRETS=0 make electron-dev
 NUWAX_AGENT_LOG_FULL_SECRETS ?= 1
-
 .PHONY: electron-install-deps
 electron-install-deps:
 	@echo ">>> Installing Electron client dependencies (via pnpm workspace)..."
@@ -493,10 +492,11 @@ electron-bundle:
 electron-dev: electron-prepare
 	@echo ">>> Starting Electron dev mode..."
 	@echo ">>> NUWAX_AGENT_LOG_FULL_SECRETS=$(NUWAX_AGENT_LOG_FULL_SECRETS) (1=日志中完整密钥, 0=脱敏)"
+	@echo ">>> NUWAX_INJECT_GUI_MCP=1（向 ACP 注入 gui-agent MCP：macOS/Linux 为内嵌 GUI 服务，Windows 为 windows-mcp）"
 	@echo ">>> Logs will be written to logs/electron-dev.log"
 	mkdir -p logs
 	@echo "=== Electron Dev Started at $$(date) ===" > logs/electron-dev.log
-	cd crates/$(ELECTRON_CLIENT) && NUWAX_AGENT_LOG_FULL_SECRETS=$(NUWAX_AGENT_LOG_FULL_SECRETS) npm run dev 2>&1 | tee -a $(CURDIR)/logs/electron-dev.log
+	cd crates/$(ELECTRON_CLIENT) && NUWAX_AGENT_LOG_FULL_SECRETS=$(NUWAX_AGENT_LOG_FULL_SECRETS) NUWAX_INJECT_GUI_MCP=1 npm run dev 2>&1 | tee -a $(CURDIR)/logs/electron-dev.log
 
 .PHONY: tauri-info
 tauri-info:

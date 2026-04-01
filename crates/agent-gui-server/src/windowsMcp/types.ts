@@ -77,5 +77,6 @@ export interface WindowsMcpConfig {
   /** 健康检查超时（毫秒），默认 5000 */
   healthCheckTimeout?: number;
   /** 最大重启次数，默认 3 */
+  /** 连续健康检查失败多少次后结束子进程（防抖，避免单次抖动误杀） */
   maxRestarts?: number;
 }

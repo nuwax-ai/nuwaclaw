@@ -18,6 +18,8 @@ import { runStartupTasks } from "./bootstrap/startup";
 import { agentService } from "./services/engines/unifiedAgent";
 import { stopComputerServer } from "./services/computerServer";
 import { mcpProxyManager } from "./services/packages/mcp";
+import { stopGuiAgentServer } from "./services/packages/guiAgentServer";
+import { stopWindowsMcp } from "./services/packages/windowsMcp";
 import type { HandlerContext } from "@shared/types/ipc";
 import { DEFAULT_DEV_SERVER_PORT } from "./services/constants";
 import { APP_DISPLAY_NAME, CLEANUP_TIMEOUT } from "@shared/constants";
@@ -352,6 +354,20 @@ async function cleanupAllProcesses(): Promise<void> {
     await mcpProxyManager.cleanup();
   } catch (e) {
     log.warn("[Cleanup] MCP proxy cleanup error:", e);
+  }
+
+  // Windows：windows-mcp（uv/python）由独立 ManagedProcess 管理，main 里的 guiServer.kill() 不会结束它
+  try {
+    await stopWindowsMcp();
+  } catch (e) {
+    log.warn("[Cleanup] Windows MCP stop error:", e);
+  }
+
+  // 非 Windows：agent-gui-server 进程
+  try {
+    await stopGuiAgentServer();
+  } catch (e) {
+    log.warn("[Cleanup] GUI Agent server stop error:", e);
   }
 
   try {
