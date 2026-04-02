@@ -5,12 +5,13 @@
  * - none（直接执行）
  * - macos-seatbelt（sandbox-exec）
  * - linux-bwrap（bubblewrap）
- * - windows-codex（Codex helper）
+ * - windows-restricted（Windows Restricted Token helper）
  */
 
 import { spawn } from "child_process";
 import * as fs from "fs";
 import * as fsp from "fs/promises";
+import * as os from "os";
 import * as path from "path";
 import log from "electron-log";
 import { SandboxManager } from "./SandboxManager";
@@ -21,7 +22,7 @@ import type {
   ExecuteResult,
   FileInfo,
   SandboxConfig,
-  WindowsCodexMode,
+  WindowsRestrictedMode,
   Workspace,
 } from "@shared/types/sandbox";
 import {
@@ -35,11 +36,11 @@ import {
 interface CommandSandboxOptions {
   linuxBwrapPath?: string;
   windowsCodexHelperPath?: string;
-  windowsCodexMode?: WindowsCodexMode;
+  windowsRestrictedMode?: WindowsRestrictedMode;
   windowsCodexPrivateDesktop?: boolean;
 }
 
-interface Invocation {
+export interface Invocation {
   command: string;
   args: string[];
   cwd: string;
@@ -379,21 +380,21 @@ export class CommandSandbox extends SandboxManager {
       return result;
     }
 
-    if (type === "windows-codex") {
+    if (type === "windows-restricted") {
       if (process.platform !== "win32") {
         log.debug(
-          "[CommandSandbox] windows-codex: not win32, platform=",
+          "[CommandSandbox] windows-restricted: not win32, platform=",
           process.platform,
         );
         return false;
       }
       const result =
-        !!this.options.windowsCodexHelperPath &&
-        fs.existsSync(this.options.windowsCodexHelperPath);
-      log.debug("[CommandSandbox] windows-codex check:", {
-        helperPath: this.options.windowsCodexHelperPath,
-        exists: this.options.windowsCodexHelperPath
-          ? fs.existsSync(this.options.windowsCodexHelperPath)
+        !!this.options.windowsRestrictedHelperPath &&
+        fs.existsSync(this.options.windowsRestrictedHelperPath);
+      log.debug("[CommandSandbox] windows-restricted check:", {
+        helperPath: this.options.windowsRestrictedHelperPath,
+        exists: this.options.windowsRestrictedHelperPath
+          ? fs.existsSync(this.options.windowsRestrictedHelperPath)
           : false,
         result,
       });
@@ -476,11 +477,11 @@ export class CommandSandbox extends SandboxManager {
       };
     }
 
-    if (type === "windows-codex") {
-      const helper = this.options.windowsCodexHelperPath;
+    if (type === "windows-restricted") {
+      const helper = this.options.windowsRestrictedHelperPath;
       if (!helper || !fs.existsSync(helper)) {
         throw new SandboxError(
-          "Codex helper 未找到",
+          "Windows Restricted helper 未找到",
           SandboxErrorCode.SANDBOX_UNAVAILABLE,
         );
       }
@@ -488,10 +489,10 @@ export class CommandSandbox extends SandboxManager {
       const helperArgs = [
         "run",
         "--mode",
-        this.options.windowsCodexMode ?? "unelevated",
+        this.options.windowsRestrictedMode ?? "unelevated",
         "--cwd",
         cwd,
-        ...(this.options.windowsCodexPrivateDesktop
+        ...(this.options.windowsRestrictedPrivateDesktop
           ? ["--private-desktop"]
           : []),
         "--",
@@ -499,10 +500,10 @@ export class CommandSandbox extends SandboxManager {
         ...args,
       ];
 
-      log.debug("[CommandSandbox] windows-codex invocation:", {
+      log.debug("[CommandSandbox] windows-restricted invocation:", {
         helper,
-        mode: this.options.windowsCodexMode ?? "unelevated",
-        privateDesktop: this.options.windowsCodexPrivateDesktop,
+        mode: this.options.windowsRestrictedMode ?? "unelevated",
+        privateDesktop: this.options.windowsRestrictedPrivateDesktop,
         cwd,
       });
       return {
@@ -528,6 +529,184 @@ export class CommandSandbox extends SandboxManager {
       : base;
     this.validatePathInWorkspace(workspace, resolved);
     return resolved;
+  }
+
+  /**
+   * 为长运行进程构建沙箱包装调用（不执行 spawn）
+   *
+   * 与 buildInvocation 不同，此方法不依赖 Workspace 对象，
+   * 而是接受显式的可写路径列表，适用于 ACP 引擎进程级沙箱化。
+   *
+   * @returns Invocation 对象，调用方自行 spawn
+   */
+  async buildProcessInvocation(
+    command: string,
+    args: string[],
+    cwd: string,
+    options: {
+      env?: Record<string, string>;
+      writablePaths: string[];
+      networkEnabled: boolean;
+    },
+  ): Promise<Invocation> {
+    const type = this.config.type;
+
+    if (type === "none") {
+      return { command, args, cwd, env: options.env };
+    }
+
+    if (type === "macos-seatbelt") {
+      const profilePath = path.join(
+        fs.realpathSync(os.tmpdir()),
+        `nuwaclaw-sandbox-acp-${Date.now()}.sb`,
+      );
+      const profile = this.buildSeatbeltProfile(
+        options.writablePaths,
+        options.networkEnabled,
+      );
+      await fsp.writeFile(profilePath, profile, "utf-8");
+      log.info("[CommandSandbox] seatbelt profile written:", profilePath);
+      return {
+        command: "/usr/bin/sandbox-exec",
+        args: ["-f", profilePath, command, ...args],
+        cwd,
+        env: options.env,
+      };
+    }
+
+    if (type === "linux-bwrap") {
+      const bwrapPath = this.options.linuxBwrapPath || "bwrap";
+      const bwrapArgs: string[] = [
+        "--die-with-parent",
+        "--new-session",
+        "--unshare-user-try",
+        "--unshare-pid",
+        "--unshare-uts",
+        "--unshare-cgroup-try",
+        ...(options.networkEnabled ? [] : ["--unshare-net"]),
+        "--dev-bind",
+        "/dev",
+        "/dev",
+        "--proc",
+        "/proc",
+        "--ro-bind",
+        "/",
+        "/",
+      ];
+      // 可写路径使用读写 bind mount（覆盖上面的 ro-bind）
+      for (const wp of options.writablePaths) {
+        bwrapArgs.push("--bind", wp, wp);
+      }
+      bwrapArgs.push("--chdir", cwd, "--", command, ...args);
+      log.info("[CommandSandbox] bwrap invocation built:", {
+        bwrapPath,
+        writablePaths: options.writablePaths,
+        networkEnabled: options.networkEnabled,
+        cwd,
+      });
+      return {
+        command: bwrapPath,
+        args: bwrapArgs,
+        cwd,
+        env: options.env,
+      };
+    }
+
+    if (type === "windows-codex") {
+      const helper = this.options.windowsCodexHelperPath;
+      if (!helper || !fs.existsSync(helper)) {
+        throw new SandboxError(
+          "Codex helper 未找到",
+          SandboxErrorCode.SANDBOX_UNAVAILABLE,
+        );
+      }
+      const helperArgs = [
+        "run",
+        "--mode",
+        this.options.windowsCodexMode ?? "unelevated",
+        "--cwd",
+        cwd,
+        ...(this.options.windowsCodexPrivateDesktop
+          ? ["--private-desktop"]
+          : []),
+        "--",
+        command,
+        ...args,
+      ];
+      log.info("[CommandSandbox] windows-codex invocation built:", {
+        helper,
+        mode: this.options.windowsCodexMode ?? "unelevated",
+        cwd,
+      });
+      return {
+        command: helper,
+        args: helperArgs,
+        cwd,
+        env: options.env,
+      };
+    }
+
+    if (type === "docker") {
+      log.warn("[CommandSandbox] Docker 进程级沙箱暂不支持，返回未包装调用");
+      return { command, args, cwd, env: options.env };
+    }
+
+    throw new SandboxError(
+      `不支持的沙箱类型: ${String(type)}`,
+      SandboxErrorCode.CONFIG_INVALID,
+    );
+  }
+
+  /**
+   * 构建 macOS Seatbelt 沙箱 profile
+   *
+   * 注意：macOS 上 /var 是 /private/var 的符号链接，
+   * seatbelt 使用真实路径匹配，因此需要对可写路径做 realpath 解析。
+   */
+  private buildSeatbeltProfile(
+    writablePaths: string[],
+    networkEnabled: boolean,
+  ): string {
+    const lines: string[] = ["(version 1)", "(deny default)"];
+    if (networkEnabled) {
+      lines.push("(allow network*)");
+    }
+    lines.push(
+      "(allow file-read*)",
+      "(allow process-exec)",
+      "(allow process-fork)",
+      "(allow signal)",
+      "(allow sysctl-read)",
+      "(allow mach-lookup)",
+      "(allow ipc-posix*)",
+      "(allow file-lock)",
+    );
+    // 可写路径 — 同时添加原始路径和 realpath（处理 macOS 符号链接）
+    const seen = new Set<string>();
+    for (const wp of writablePaths) {
+      const pathsToAdd = [wp];
+      try {
+        const resolved = fs.realpathSync(wp);
+        if (resolved !== wp) {
+          pathsToAdd.push(resolved);
+        }
+      } catch {
+        // 路径尚不存在，跳过 realpath
+      }
+      for (const p of pathsToAdd) {
+        if (!seen.has(p)) {
+          seen.add(p);
+          lines.push(`(allow file-write* (subpath "${p}"))`);
+        }
+      }
+    }
+    // 必要的系统写入
+    lines.push(
+      '(allow file-write* (literal "/dev/null"))',
+      '(allow file-write* (literal "/dev/dtracehelper"))',
+      '(allow file-write* (literal "/dev/urandom"))',
+    );
+    return lines.join("\n") + "\n";
   }
 
   private async runInvocation(

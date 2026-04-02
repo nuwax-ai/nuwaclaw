@@ -17,6 +17,13 @@ import { getGuiAgentServerUrl } from "@main/services/packages/guiAgentServer";
 import { getWindowsMcpUrl } from "@main/services/packages/windowsMcp";
 import { isWindows } from "@main/services/system/shellEnv";
 import {
+  getSandboxPolicy,
+  resolveSandboxType,
+  getBundledLinuxBwrapPath,
+  getBundledWindowsCodexHelperPath,
+} from "@main/services/sandbox/policy";
+import type { SandboxProcessConfig } from "@shared/types/sandbox";
+import {
   createAcpConnection,
   getMcpTransportSnapshot,
   isMcpReconnectWindowActive,
@@ -104,6 +111,8 @@ export class AcpEngine extends EventEmitter {
   private isolatedHome: string | null = null;
   /** 🔧 FIX: Store cleanup function to properly dispose of event listeners */
   private processCleanup: (() => void) | null = null;
+  /** Sandbox resource cleanup (temp profiles, etc.) */
+  private sandboxCleanup: (() => void) | null = null;
   private sessions = new Map<string, AcpSession>();
   private pendingPermissions = new Map<
     string,
@@ -330,12 +339,42 @@ export class AcpEngine extends EventEmitter {
       // Spawn ACP binary and create ClientSideConnection
       configTimer.end("acp.init.config", { engine: this.engineName });
 
+      // Resolve sandbox policy for process-level wrapping
+      let sandboxConfig: SandboxProcessConfig | undefined;
+      try {
+        const policy = getSandboxPolicy();
+        if (policy.enabled && policy.mode !== "off") {
+          const resolved = await resolveSandboxType(policy);
+          if (resolved.type !== "none") {
+            sandboxConfig = {
+              enabled: true,
+              type: resolved.type,
+              projectWorkspaceDir: config.workspaceDir,
+              networkEnabled: true, // 引擎需要网络访问（API 调用）
+              fallback: policy.fallback,
+              linuxBwrapPath: getBundledLinuxBwrapPath() ?? undefined,
+              windowsCodexHelperPath:
+                getBundledWindowsCodexHelperPath() ?? undefined,
+              windowsCodexMode: policy.windows.codex.mode,
+              windowsCodexPrivateDesktop: policy.windows.codex.privateDesktop,
+            };
+            log.info(`${this.logTag} 沙箱配置已解析:`, {
+              type: resolved.type,
+              degraded: resolved.degraded,
+            });
+          }
+        }
+      } catch (e) {
+        log.warn(`${this.logTag} 沙箱策略解析失败，将以无沙箱模式运行:`, e);
+      }
+
       const spawnTimer = perfEmitter.start();
       const {
         connection,
         process: proc,
         isolatedHome,
         cleanup,
+        sandboxCleanup: acpSandboxCleanup,
       } = await createAcpConnection(
         {
           binPath,
@@ -349,6 +388,7 @@ export class AcpEngine extends EventEmitter {
           env: spawnEnv,
           engineType: this.engineName,
           purpose: config.purpose ?? "engine",
+          sandbox: sandboxConfig,
         },
         clientHandler,
       );
@@ -359,6 +399,7 @@ export class AcpEngine extends EventEmitter {
       this.acpProcess = proc;
       this.isolatedHome = isolatedHome;
       this.processCleanup = cleanup; // 🔧 FIX: Store cleanup function
+      this.sandboxCleanup = acpSandboxCleanup ?? null;
 
       // Handle process exit
       proc.on("exit", (code, signal) => {
@@ -504,6 +545,16 @@ export class AcpEngine extends EventEmitter {
         log.warn(`${this.logTag} 隔离目录清理失败:`, e);
       }
       this.isolatedHome = null;
+    }
+
+    // Cleanup sandbox resources (temp seatbelt profiles, etc.)
+    if (this.sandboxCleanup) {
+      try {
+        this.sandboxCleanup();
+      } catch (e) {
+        log.warn(`${this.logTag} 沙箱资源清理失败:`, e);
+      }
+      this.sandboxCleanup = null;
     }
 
     this.acpConnection = null;

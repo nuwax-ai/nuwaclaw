@@ -24,6 +24,7 @@ import log from "electron-log";
 import {
   getAppEnv,
   getNuwaxcodeBundledBinPath,
+  getNodeBinPathWithFallback,
 } from "../../system/dependencies";
 import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../../constants";
 import { APP_NAME_IDENTIFIER } from "../../../../shared/constants";
@@ -33,6 +34,8 @@ import { processRegistry } from "../../system/processRegistry";
 import { killProcessTreeGraceful } from "../../utils/processTree";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
+import { buildSandboxedSpawnArgs } from "../../sandbox/sandboxProcessWrapper";
+import type { SandboxProcessConfig } from "@shared/types/sandbox";
 
 function extractSessionIdFromLine(line: string): string | undefined {
   try {
@@ -345,6 +348,8 @@ export interface AcpConnectionConfig {
   engineType?: "claude-code" | "nuwaxcode";
   /** Purpose of this process (for process registry) */
   purpose?: "engine";
+  /** Sandbox wrapping configuration (omit to disable) */
+  sandbox?: SandboxProcessConfig;
 }
 
 /** Result of creating an ACP connection */
@@ -360,6 +365,8 @@ export interface AcpConnectionResult {
    * IMPORTANT: Call this before destroying the process to release Windows handles!
    */
   cleanup: () => void;
+  /** Cleanup sandbox resources (temp profiles, etc.) */
+  sandboxCleanup?: () => void;
 }
 
 // ==================== SDK Loader ====================
@@ -689,7 +696,69 @@ export async function createAcpConnection(
   const spawnTimer = perfEmitter.start();
   const useDetached = !isWindows;
   let proc: ChildProcess;
-  if (config.isNative) {
+  let sandboxCleanup: (() => void) | undefined;
+
+  // --- Sandbox wrapping ---
+  // 沙箱启用时，将引擎二进制包装在 sandbox-exec / bwrap / codex helper 中
+  let spawnCommand = binPath;
+  let spawnArgs = effectiveBinArgs;
+  let sandboxed = false;
+
+  if (config.sandbox?.enabled) {
+    try {
+      // 对于 JS 引擎（非 native），使用 node 二进制作为底层 command。
+      // 避免沙箱内运行 Electron 主程序导致 IOKit/PNG 操作崩溃（SIGSEGV）。
+      // 对于原生引擎（nuwaxcode Go 二进制），直接使用 binPath。
+      const effectiveCommand = config.isNative
+        ? binPath
+        : (getNodeBinPathWithFallback() ?? "node");
+      const effectiveSpawnArgs = config.isNative
+        ? effectiveBinArgs
+        : [binPath, ...effectiveBinArgs];
+
+      const wrapped = await buildSandboxedSpawnArgs(
+        effectiveCommand,
+        effectiveSpawnArgs,
+        config.workspaceDir,
+        config.sandbox,
+        !!config.isNative,
+        [isolatedHome], // isolatedHome 作为额外可写路径
+      );
+      spawnCommand = wrapped.command;
+      spawnArgs = wrapped.args;
+      sandboxCleanup = wrapped.cleanupSandbox;
+      sandboxed = spawnCommand !== effectiveCommand;
+      log.info("[AcpClient] Sandbox wrapping applied:", {
+        type: config.sandbox.type,
+        originalCommand: binPath,
+        wrappedCommand: spawnCommand,
+        sandboxed,
+      });
+    } catch (sandboxError) {
+      log.error("[AcpClient] Sandbox wrapping failed:", sandboxError);
+      if (config.sandbox.fallback === "fail_closed") {
+        throw new Error(
+          `Sandbox setup failed: ${sandboxError instanceof Error ? sandboxError.message : String(sandboxError)}`,
+        );
+      }
+      // degrade_to_off: 继续无沙箱启动
+      log.warn("[AcpClient] Degrading to non-sandboxed execution");
+    }
+  }
+
+  if (sandboxed) {
+    // 沙箱已包装：直接 spawn（沙箱 wrapper 本身就是 command）
+    proc = spawn(spawnCommand, spawnArgs, {
+      cwd: config.workspaceDir,
+      env,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      detached: useDetached,
+    });
+    log.info(
+      `[AcpClient] Spawned sandboxed process: ${spawnCommand} (detached=${useDetached})`,
+    );
+  } else if (config.isNative) {
     // Native binary (e.g. nuwaxcode Go binary): spawn directly, no node wrapper
     // This avoids Windows console popup and eliminates the intermediate process
     proc = spawn(binPath, effectiveBinArgs, {
@@ -923,5 +992,11 @@ export async function createAcpConnection(
     }
   };
 
-  return { connection, process: proc, isolatedHome, cleanup };
+  return {
+    connection,
+    process: proc,
+    isolatedHome,
+    cleanup,
+    sandboxCleanup,
+  };
 }
