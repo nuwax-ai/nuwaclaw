@@ -83,9 +83,9 @@ export async function buildSandboxedSpawnArgs(
 
   const options = {
     linuxBwrapPath: sandboxConfig.linuxBwrapPath,
-    windowsCodexHelperPath: sandboxConfig.windowsCodexHelperPath,
-    windowsCodexMode: sandboxConfig.windowsCodexMode,
-    windowsCodexPrivateDesktop: sandboxConfig.windowsCodexPrivateDesktop,
+    windowsSandboxHelperPath: sandboxConfig.windowsSandboxHelperPath,
+    windowsSandboxMode: sandboxConfig.windowsSandboxMode,
+    windowsSandboxPrivateDesktop: sandboxConfig.windowsSandboxPrivateDesktop,
   };
 
   const sandbox = new CommandSandbox(tempConfig, options);

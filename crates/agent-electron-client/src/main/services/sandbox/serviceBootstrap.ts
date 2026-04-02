@@ -34,7 +34,7 @@ import type {
 import {
   DEFAULT_SANDBOX_POLICY,
   getBundledLinuxBwrapPath,
-  getBundledWindowsRestrictedHelperPath,
+  getBundledWindowsSandboxHelperPath,
   getSandboxCapabilities,
   getSandboxPolicy,
   resolveSandboxType,
@@ -98,9 +98,9 @@ function createSandboxManager(type: SandboxType): SandboxManager {
 
   return new CommandSandbox(config, {
     linuxBwrapPath: getBundledLinuxBwrapPath() ?? undefined,
-    windowsCodexHelperPath: getBundledWindowsCodexHelperPath() ?? undefined,
-    windowsCodexMode: lastPolicy.windows.codex.mode,
-    windowsCodexPrivateDesktop: lastPolicy.windows.codex.privateDesktop,
+    windowsSandboxHelperPath: getBundledWindowsSandboxHelperPath() ?? undefined,
+    windowsSandboxMode: lastPolicy.windows.sandbox.mode,
+    windowsSandboxPrivateDesktop: lastPolicy.windows.sandbox.privateDesktop,
   });
 }
 
@@ -120,7 +120,7 @@ function setupControlService(): void {
     },
     async setup(params) {
       const mode = params?.windows?.codex?.mode ?? "unelevated";
-      const helperPath = getBundledWindowsCodexHelperPath();
+      const helperPath = getBundledWindowsSandboxHelperPath();
       if (!helperPath) {
         return {
           success: false,

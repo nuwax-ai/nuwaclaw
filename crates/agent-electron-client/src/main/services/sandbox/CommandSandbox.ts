@@ -5,7 +5,7 @@
  * - none（直接执行）
  * - macos-seatbelt（sandbox-exec）
  * - linux-bwrap（bubblewrap）
- * - windows-restricted（Windows Restricted Token helper）
+ * - windows-sandbox（Windows Restricted Token helper）
  */
 
 import { spawn } from "child_process";
@@ -22,7 +22,7 @@ import type {
   ExecuteResult,
   FileInfo,
   SandboxConfig,
-  WindowsRestrictedMode,
+  WindowsSandboxMode,
   Workspace,
 } from "@shared/types/sandbox";
 import {
@@ -35,9 +35,9 @@ import {
 
 interface CommandSandboxOptions {
   linuxBwrapPath?: string;
-  windowsCodexHelperPath?: string;
-  windowsRestrictedMode?: WindowsRestrictedMode;
-  windowsCodexPrivateDesktop?: boolean;
+  windowsSandboxHelperPath?: string;
+  windowsSandboxMode?: WindowsSandboxMode;
+  windowsSandboxPrivateDesktop?: boolean;
 }
 
 export interface Invocation {
@@ -71,9 +71,9 @@ export class CommandSandbox extends SandboxManager {
       networkEnabled: this.config.networkEnabled,
       options: {
         linuxBwrapPath: this.options.linuxBwrapPath,
-        windowsCodexHelperPath: this.options.windowsCodexHelperPath,
-        windowsCodexMode: this.options.windowsCodexMode,
-        windowsCodexPrivateDesktop: this.options.windowsCodexPrivateDesktop,
+        windowsSandboxHelperPath: this.options.windowsSandboxHelperPath,
+        windowsSandboxMode: this.options.windowsSandboxMode,
+        windowsSandboxPrivateDesktop: this.options.windowsSandboxPrivateDesktop,
       },
     });
     this.backendAvailable = await this.checkBackendAvailable();
@@ -380,21 +380,21 @@ export class CommandSandbox extends SandboxManager {
       return result;
     }
 
-    if (type === "windows-restricted") {
+    if (type === "windows-sandbox") {
       if (process.platform !== "win32") {
         log.debug(
-          "[CommandSandbox] windows-restricted: not win32, platform=",
+          "[CommandSandbox] windows-sandbox: not win32, platform=",
           process.platform,
         );
         return false;
       }
       const result =
-        !!this.options.windowsRestrictedHelperPath &&
-        fs.existsSync(this.options.windowsRestrictedHelperPath);
-      log.debug("[CommandSandbox] windows-restricted check:", {
-        helperPath: this.options.windowsRestrictedHelperPath,
-        exists: this.options.windowsRestrictedHelperPath
-          ? fs.existsSync(this.options.windowsRestrictedHelperPath)
+        !!this.options.windowsSandboxHelperPath &&
+        fs.existsSync(this.options.windowsSandboxHelperPath);
+      log.debug("[CommandSandbox] windows-sandbox check:", {
+        helperPath: this.options.windowsSandboxHelperPath,
+        exists: this.options.windowsSandboxHelperPath
+          ? fs.existsSync(this.options.windowsSandboxHelperPath)
           : false,
         result,
       });
@@ -477,8 +477,8 @@ export class CommandSandbox extends SandboxManager {
       };
     }
 
-    if (type === "windows-restricted") {
-      const helper = this.options.windowsRestrictedHelperPath;
+    if (type === "windows-sandbox") {
+      const helper = this.options.windowsSandboxHelperPath;
       if (!helper || !fs.existsSync(helper)) {
         throw new SandboxError(
           "Windows Restricted helper 未找到",
@@ -489,10 +489,10 @@ export class CommandSandbox extends SandboxManager {
       const helperArgs = [
         "run",
         "--mode",
-        this.options.windowsRestrictedMode ?? "unelevated",
+        this.options.windowsSandboxMode ?? "unelevated",
         "--cwd",
         cwd,
-        ...(this.options.windowsRestrictedPrivateDesktop
+        ...(this.options.windowsSandboxPrivateDesktop
           ? ["--private-desktop"]
           : []),
         "--",
@@ -500,10 +500,10 @@ export class CommandSandbox extends SandboxManager {
         ...args,
       ];
 
-      log.debug("[CommandSandbox] windows-restricted invocation:", {
+      log.debug("[CommandSandbox] windows-sandbox invocation:", {
         helper,
-        mode: this.options.windowsRestrictedMode ?? "unelevated",
-        privateDesktop: this.options.windowsRestrictedPrivateDesktop,
+        mode: this.options.windowsSandboxMode ?? "unelevated",
+        privateDesktop: this.options.windowsSandboxPrivateDesktop,
         cwd,
       });
       return {
@@ -612,30 +612,30 @@ export class CommandSandbox extends SandboxManager {
       };
     }
 
-    if (type === "windows-codex") {
-      const helper = this.options.windowsCodexHelperPath;
+    if (type === "windows-sandbox") {
+      const helper = this.options.windowsSandboxHelperPath;
       if (!helper || !fs.existsSync(helper)) {
         throw new SandboxError(
-          "Codex helper 未找到",
+          "Windows Restricted helper 未找到",
           SandboxErrorCode.SANDBOX_UNAVAILABLE,
         );
       }
       const helperArgs = [
         "run",
         "--mode",
-        this.options.windowsCodexMode ?? "unelevated",
+        this.options.windowsSandboxMode ?? "unelevated",
         "--cwd",
         cwd,
-        ...(this.options.windowsCodexPrivateDesktop
+        ...(this.options.windowsSandboxPrivateDesktop
           ? ["--private-desktop"]
           : []),
         "--",
         command,
         ...args,
       ];
-      log.info("[CommandSandbox] windows-codex invocation built:", {
+      log.info("[CommandSandbox] windows-sandbox invocation built:", {
         helper,
-        mode: this.options.windowsCodexMode ?? "unelevated",
+        mode: this.options.windowsSandboxMode ?? "unelevated",
         cwd,
       });
       return {

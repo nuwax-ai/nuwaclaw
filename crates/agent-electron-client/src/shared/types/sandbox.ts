@@ -20,7 +20,7 @@ export type Platform = "darwin" | "win32" | "linux";
  * - docker: Docker 容器（全平台）
  * - macos-seatbelt: macOS seatbelt（sandbox-exec）
  * - linux-bwrap: Linux bubblewrap
- * - windows-restricted: Windows Restricted Token 沙箱 helper
+ * - windows-sandbox: Windows Sandbox helper
  * - wsl: Windows Subsystem for Linux（兼容保留）
  * - firejail: Firejail（兼容保留）
  * - none: 无沙箱（直接执行）
@@ -29,7 +29,7 @@ export type SandboxType =
   | "docker"
   | "macos-seatbelt"
   | "linux-bwrap"
-  | "windows-restricted"
+  | "windows-sandbox"
   | "wsl"
   | "firejail"
   | "none";
@@ -51,7 +51,7 @@ export type SandboxBackend =
   | "docker"
   | "macos-seatbelt"
   | "linux-bwrap"
-  | "windows-restricted";
+  | "windows-sandbox";
 
 /**
  * 降级策略
@@ -63,7 +63,7 @@ export type SandboxFallback = "degrade_to_off" | "fail_closed";
 /**
  * Windows Restricted Token 沙箱模式
  */
-export type WindowsRestrictedMode = "unelevated" | "elevated";
+export type WindowsSandboxMode = "unelevated" | "elevated";
 
 /**
  * 统一沙箱策略
@@ -74,8 +74,8 @@ export interface SandboxPolicy {
   backend: SandboxBackend;
   fallback: SandboxFallback;
   windows: {
-    restricted: {
-      mode: WindowsRestrictedMode;
+    sandbox: {
+      mode: WindowsSandboxMode;
       privateDesktop: boolean;
     };
   };
@@ -99,7 +99,7 @@ export interface SandboxCapabilities {
   docker: SandboxCapabilityItem;
   macosSeatbelt: SandboxCapabilityItem;
   linuxBwrap: SandboxCapabilityItem;
-  windowsRestricted: SandboxCapabilityItem;
+  windowsSandbox: SandboxCapabilityItem;
 }
 
 /**
@@ -152,11 +152,11 @@ export interface SandboxProcessConfig {
   /** Linux bwrap 二进制路径（可选） */
   linuxBwrapPath?: string;
   /** Windows Restricted helper 路径（可选） */
-  windowsRestrictedHelperPath?: string;
+  windowsSandboxHelperPath?: string;
   /** Windows Restricted 模式（可选） */
-  windowsRestrictedMode?: WindowsRestrictedMode;
+  windowsSandboxMode?: WindowsSandboxMode;
   /** Windows Restricted 私有桌面（可选） */
-  windowsRestrictedPrivateDesktop?: boolean;
+  windowsSandboxPrivateDesktop?: boolean;
 }
 
 // ============================================================================

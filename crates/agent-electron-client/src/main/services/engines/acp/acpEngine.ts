@@ -20,7 +20,7 @@ import {
   getSandboxPolicy,
   resolveSandboxType,
   getBundledLinuxBwrapPath,
-  getBundledWindowsCodexHelperPath,
+  getBundledWindowsSandboxHelperPath,
 } from "@main/services/sandbox/policy";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
 import {
@@ -353,10 +353,11 @@ export class AcpEngine extends EventEmitter {
               networkEnabled: true, // 引擎需要网络访问（API 调用）
               fallback: policy.fallback,
               linuxBwrapPath: getBundledLinuxBwrapPath() ?? undefined,
-              windowsCodexHelperPath:
-                getBundledWindowsCodexHelperPath() ?? undefined,
-              windowsCodexMode: policy.windows.codex.mode,
-              windowsCodexPrivateDesktop: policy.windows.codex.privateDesktop,
+              windowsSandboxHelperPath:
+                getBundledWindowsSandboxHelperPath() ?? undefined,
+              windowsSandboxMode: policy.windows.sandbox.mode,
+              windowsSandboxPrivateDesktop:
+                policy.windows.sandbox.privateDesktop,
             };
             log.info(`${this.logTag} 沙箱配置已解析:`, {
               type: resolved.type,

@@ -22,7 +22,7 @@ export const DEFAULT_SANDBOX_POLICY: SandboxPolicy = {
   backend: "auto",
   fallback: "degrade_to_off",
   windows: {
-    restricted: {
+    sandbox: {
       mode: "unelevated",
       privateDesktop: true,
     },
@@ -39,7 +39,7 @@ function normalizeSandboxPolicy(input: unknown): SandboxPolicy {
   }
 
   const windows = isObject(input.windows) ? input.windows : {};
-  const restricted = isObject(windows.restricted) ? windows.restricted : {};
+  const sandbox = isObject(windows.sandbox) ? windows.sandbox : {};
 
   const enabled =
     typeof input.enabled === "boolean"
@@ -54,7 +54,7 @@ function normalizeSandboxPolicy(input: unknown): SandboxPolicy {
     input.backend === "docker" ||
     input.backend === "macos-seatbelt" ||
     input.backend === "linux-bwrap" ||
-    input.backend === "windows-restricted"
+    input.backend === "windows-sandbox"
       ? input.backend
       : DEFAULT_SANDBOX_POLICY.backend;
   const fallback =
@@ -62,13 +62,13 @@ function normalizeSandboxPolicy(input: unknown): SandboxPolicy {
       ? input.fallback
       : DEFAULT_SANDBOX_POLICY.fallback;
   const windowsMode =
-    restricted.mode === "unelevated" || restricted.mode === "elevated"
-      ? restricted.mode
-      : DEFAULT_SANDBOX_POLICY.windows.restricted.mode;
+    sandbox.mode === "unelevated" || sandbox.mode === "elevated"
+      ? sandbox.mode
+      : DEFAULT_SANDBOX_POLICY.windows.sandbox.mode;
   const privateDesktop =
-    typeof restricted.privateDesktop === "boolean"
-      ? restricted.privateDesktop
-      : DEFAULT_SANDBOX_POLICY.windows.restricted.privateDesktop;
+    typeof sandbox.privateDesktop === "boolean"
+      ? sandbox.privateDesktop
+      : DEFAULT_SANDBOX_POLICY.windows.sandbox.privateDesktop;
 
   return {
     enabled,
@@ -76,7 +76,7 @@ function normalizeSandboxPolicy(input: unknown): SandboxPolicy {
     backend,
     fallback,
     windows: {
-      restricted: {
+      sandbox: {
         mode: windowsMode,
         privateDesktop,
       },
@@ -92,9 +92,9 @@ function mergeSandboxPolicy(
     ...current,
     ...patch,
     windows: {
-      restricted: {
-        ...current.windows.restricted,
-        ...(patch.windows?.restricted ?? {}),
+      sandbox: {
+        ...current.windows.sandbox,
+        ...(patch.windows?.sandbox ?? {}),
       },
     },
   };
@@ -137,7 +137,7 @@ export function getBundledLinuxBwrapPath(): string | null {
   return null;
 }
 
-export function getBundledWindowsRestrictedHelperPath(): string | null {
+export function getBundledWindowsSandboxHelperPath(): string | null {
   const runtimeDir = getSandboxRuntimeDir();
   const candidates = [
     path.join(runtimeDir, "bin", "codex-sandbox-helper.exe"),
@@ -163,7 +163,7 @@ function unavailable(reason: string): SandboxCapabilityItem {
 }
 
 function getRecommendedBackend(platform: Platform): SandboxBackend {
-  if (platform === "win32") return "windows-restricted";
+  if (platform === "win32") return "windows-sandbox";
   if (platform === "darwin") return "macos-seatbelt";
   return "linux-bwrap";
 }
@@ -175,7 +175,7 @@ export async function getSandboxCapabilities(): Promise<SandboxCapabilities> {
   const bwrapCmdAvailable =
     platform === "linux" ? await checkCommand("bwrap") : false;
   const bundledBwrap = getBundledLinuxBwrapPath();
-  const restrictedHelper = getBundledWindowsRestrictedHelperPath();
+  const sandboxHelper = getBundledWindowsSandboxHelperPath();
   const seatbeltPath = "/usr/bin/sandbox-exec";
 
   const docker: SandboxCapabilityItem = dockerAvailable
@@ -195,12 +195,12 @@ export async function getSandboxCapabilities(): Promise<SandboxCapabilities> {
         : bundledBwrap
           ? { available: true, binaryPath: bundledBwrap }
           : unavailable("bwrap not found (system or bundled)");
-  const windowsRestricted: SandboxCapabilityItem =
+  const windowsSandbox: SandboxCapabilityItem =
     platform !== "win32"
       ? unavailable("not on Windows")
-      : restrictedHelper
-        ? { available: true, binaryPath: restrictedHelper }
-        : unavailable("codex sandbox helper not found");
+      : sandboxHelper
+        ? { available: true, binaryPath: sandboxHelper }
+        : unavailable("windows sandbox helper not found");
 
   return {
     platform,
@@ -208,7 +208,7 @@ export async function getSandboxCapabilities(): Promise<SandboxCapabilities> {
     docker,
     macosSeatbelt,
     linuxBwrap,
-    windowsRestricted,
+    windowsSandbox,
   };
 }
 
@@ -217,14 +217,14 @@ function backendToSandboxType(
   platform: Platform,
 ): SandboxType {
   if (backend === "auto") {
-    if (platform === "win32") return "windows-restricted";
+    if (platform === "win32") return "windows-sandbox";
     if (platform === "darwin") return "macos-seatbelt";
     return "linux-bwrap";
   }
   if (backend === "docker") return "docker";
   if (backend === "macos-seatbelt") return "macos-seatbelt";
   if (backend === "linux-bwrap") return "linux-bwrap";
-  return "windows-restricted";
+  return "windows-sandbox";
 }
 
 function isBackendAvailable(
@@ -238,8 +238,8 @@ function isBackendAvailable(
       return caps.macosSeatbelt.available;
     case "linux-bwrap":
       return caps.linuxBwrap.available;
-    case "windows-restricted":
-      return caps.windowsRestricted.available;
+    case "windows-sandbox":
+      return caps.windowsSandbox.available;
     case "wsl":
     case "firejail":
       return false;
@@ -259,8 +259,8 @@ function getBackendUnavailableReason(
       return caps.macosSeatbelt.reason ?? "macos seatbelt unavailable";
     case "linux-bwrap":
       return caps.linuxBwrap.reason ?? "linux bwrap unavailable";
-    case "windows-restricted":
-      return caps.windowsRestricted.reason ?? "windows restricted unavailable";
+    case "windows-sandbox":
+      return caps.windowsSandbox.reason ?? "windows restricted unavailable";
     default:
       return "backend unavailable";
   }
