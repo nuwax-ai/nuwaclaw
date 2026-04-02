@@ -44,6 +44,7 @@ help:
 	@echo "  electron-prepare-nuwaxcode  - Prepare bundled nuwaxcode for Electron"
 	@echo "  electron-prepare-gui-server - Prepare agent-gui-server for Electron"
 	@echo "  electron-prepare-sandbox-runtime - Sync Windows sandbox helper (skipped on non-Windows hosts)"
+	@echo "  electron-prepare-windows-mcp - Bundle windows-mcp into resources (Windows only, skipped elsewhere)"
 	@echo "  electron-prepare            - Full prepare (install + rebuild + all binaries)"
 	@echo "  electron-bundle             - Build Electron app (unsigned, current platform)"
 	@echo "  electron-dev                - Run Electron dev mode"
@@ -156,8 +157,20 @@ electron-prepare-sandbox-runtime:
 	@echo ">>> Skipping electron-prepare-sandbox-runtime (Windows-only step, host=$(UNAME_S))"
 endif
 
+# prepare:windows-mcp 将 windows-mcp 安装到 resources/windows-mcp（非 Windows 开发机跳过）
+ifneq ($(ELECTRON_ON_WINDOWS),)
+.PHONY: electron-prepare-windows-mcp
+electron-prepare-windows-mcp:
+	@echo ">>> Preparing bundled windows-mcp for Electron (prepare:windows-mcp)..."
+	cd crates/$(ELECTRON_CLIENT) && npm run prepare:windows-mcp
+else
+.PHONY: electron-prepare-windows-mcp
+electron-prepare-windows-mcp:
+	@echo ">>> Skipping electron-prepare-windows-mcp (Windows-only step, host=$(UNAME_S))"
+endif
+
 .PHONY: electron-prepare
-electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-nuwaxcode electron-prepare-gui-server electron-prepare-sandbox-runtime
+electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-nuwaxcode electron-prepare-gui-server electron-prepare-sandbox-runtime electron-prepare-windows-mcp
 	@echo ">>> Electron client prepared successfully"
 
 .PHONY: electron-bundle

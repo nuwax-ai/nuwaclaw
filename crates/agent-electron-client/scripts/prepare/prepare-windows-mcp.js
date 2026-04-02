@@ -2,7 +2,8 @@
 /**
  * windows-mcp 预安装到 resources/windows-mcp/
  *
- * 使用 uv tool install --target 将 windows-mcp 安装到本地目录，
+ * 使用 uv tool install + UV_TOOL_DIR / UV_TOOL_BIN_DIR 将 windows-mcp 安装到本地目录
+ * （uv 0.10+ 已移除 tool install --target，需用环境变量指定目录）
  * 避免首次运行时从 PyPI 下载。
  *
  * 前提：
@@ -25,7 +26,10 @@ const { getProjectRoot, resolveFromProject } = require('../utils/project-paths')
 
 const projectRoot = getProjectRoot();
 const resDir = path.join(projectRoot, 'resources', 'windows-mcp');
+/** 安装到 resources/windows-mcp/bin/（与 getWindowsMcpBinPath 一致） */
 const targetDir = path.join(resDir, 'bin');
+/** 工具隔离环境目录（随 resources 一并打包时只需 bin + 依赖在 venv 内；见 UV_TOOL_DIR） */
+const toolDataDir = path.join(resDir, '.uv-tool');
 
 function getUvBinPath() {
   const uvBinName = process.platform === 'win32' ? 'uv.exe' : 'uv';
@@ -51,19 +55,23 @@ function main() {
   console.log('[prepare-windows-mcp] Using uv:', uvBin);
 
   // 3. 清理旧版本（确保每次打包获取最新 windows-mcp latest 版本）
-  if (fs.existsSync(targetDir)) {
+  if (fs.existsSync(resDir)) {
     console.log('[prepare-windows-mcp] Removing old version...');
-    fs.rmSync(targetDir, { recursive: true });
+    fs.rmSync(resDir, { recursive: true });
   }
   fs.mkdirSync(targetDir, { recursive: true });
 
-  // 4. 执行 uv tool install --target
+  // 4. uv tool install：通过环境变量指定安装目录（替代已移除的 --target）
   console.log('[prepare-windows-mcp] Installing windows-mcp to resources/...');
   try {
-    execSync(
-      `"${uvBin}" tool install windows-mcp --target "${targetDir}"`,
-      { stdio: 'inherit' }
-    );
+    execSync(`"${uvBin}" tool install windows-mcp`, {
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        UV_TOOL_DIR: toolDataDir,
+        UV_TOOL_BIN_DIR: targetDir,
+      },
+    });
     console.log('[prepare-windows-mcp] ✓ windows-mcp installed successfully');
   } catch (err) {
     console.error('[prepare-windows-mcp] Failed to install windows-mcp:', err.message);

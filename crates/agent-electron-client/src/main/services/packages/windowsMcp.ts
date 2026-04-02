@@ -126,7 +126,7 @@ export async function startWindowsMcp(): Promise<{
     log.warn("[WindowsMcp] Pre-start port sweep:", e);
   }
 
-  log.info(`[WindowsMcp] Starting on port ${port}...`);
+  log.info(`[WindowsMcp] Starting (bundled) on port ${port}...`);
 
   const result = await windowsMcpManager.start(port, buildConfig);
 
