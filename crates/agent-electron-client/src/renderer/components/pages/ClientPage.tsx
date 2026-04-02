@@ -426,6 +426,7 @@ function ClientPage({
   };
 
   const handleStopService = async (key: string) => {
+    console.log("[ClientPage] handleStopService called with key:", key);
     setStoppingServices((prev) => new Set(prev).add(key));
     try {
       if (key === "agent") {
@@ -468,6 +469,7 @@ function ClientPage({
       "fileServer",
       "guiServer",
       "lanproxy",
+      "adminServer",
     ];
     const servicesToStart = allServices.filter((key) => {
       const svc = services.find((s) => s.key === key);
@@ -521,6 +523,8 @@ function ClientPage({
           else if (svc.key === "mcpProxy") await window.electronAPI?.mcp.stop();
           else if (svc.key === "guiServer")
             await window.electronAPI?.guiServer?.stop();
+          else if (svc.key === "adminServer")
+            await window.electronAPI?.adminServer?.stop();
         } catch (error) {
           console.error(`停止 ${svc.label} 失败:`, error);
         }
