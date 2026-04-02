@@ -504,6 +504,27 @@ export function getNuwaxcodeBundledBinPath(): string | null {
   return null;
 }
 
+// 获取 bundled windows-mcp 二进制路径
+// 打包时 extraResources 将 resources/windows-mcp/ 复制到应用内
+// 通过 uv tool install --target 安装，结构为 resources/windows-mcp/bin/windows-mcp.exe
+export function getWindowsMcpBinPath(): string | null {
+  if (os.platform() !== "win32") {
+    return null;
+  }
+
+  const bundledPath = path.join(
+    getResourcesPath(),
+    "windows-mcp",
+    "bin",
+    "windows-mcp.exe",
+  );
+  if (fs.existsSync(bundledPath)) {
+    return bundledPath;
+  }
+
+  return null;
+}
+
 // 获取 bundled Node.js 24 路径（集成到 resources/node/）
 // prepare-node 输出到 resources/node/<platform>-<arch>/，bin 目录包含 node/npm/npx
 function getBundledNodeBinDir(): string {
