@@ -1,6 +1,6 @@
 # Agent Client 实现计划文档
 
-> 版本：v2.0.0
+> 版本：v2.1.0
 > 创建日期：2026-01-29
 > 基于设计文档：agent-client-spec.md
 > 状态：深度实现计划
@@ -14,9 +14,11 @@
 **目标**：验证 `agent-server-admin` 与 `agent-client` 之间的双向通信能力，确保 `data-server` 的 P2P/TCP/WebSocket 通信正常工作。
 
 **包含 Phase**：
-- Phase 1：基础框架（UI、脚手架、托盘、自启动）
-- Phase 2：核心功能（连接管理、业务通道、设置界面、客户端信息）
+- Phase 1：基础框架（UI、脚手架、托盘、自启动、协议版本、安全存储）
+- Phase 2：核心功能（连接管理、业务通道、设置界面、客户端信息、安全机制）
 - Phase 3：依赖管理（Node.js、npm 工具）
+- Phase 3.5：agent-server-admin 最小实现（用于通信验证）
+- Phase 3.6：跨平台打包（cargo-packager、CI/CD）
 
 **验证里程碑**：
 - [ ] 客户端可在 macOS/Windows/Linux 打包安装
@@ -3782,6 +3784,322 @@ impl BuildInfo {
 ---
 
 ## 8. 安全与网络实现
+
+### 8.0 协议版本协商
+
+```rust
+// crates/agent-protocol/src/version.rs
+
+use semver::Version;
+use thiserror::Error;
+
+/// 协议版本
+pub const PROTOCOL_VERSION: &str = "1.0.0";
+
+/// 支持的最低版本
+pub const MIN_SUPPORTED_VERSION: &str = "1.0.0";
+
+/// 版本协商错误
+#[derive(Error, Debug)]
+pub enum VersionError {
+    #[error("协议版本不兼容: 需要 >= {min}, 实际 {actual}")]
+    Incompatible { min: String, actual: String },
+    #[error("无效的版本格式: {0}")]
+    InvalidFormat(String),
+}
+
+/// 版本协商器
+pub struct VersionNegotiator {
+    /// 当前协议版本
+    current: Version,
+    /// 最低支持版本
+    min_supported: Version,
+}
+
+impl VersionNegotiator {
+    pub fn new() -> Self {
+        Self {
+            current: Version::parse(PROTOCOL_VERSION).unwrap(),
+            min_supported: Version::parse(MIN_SUPPORTED_VERSION).unwrap(),
+        }
+    }
+
+    /// 检查版本兼容性
+    pub fn check_compatibility(&self, remote_version: &str) -> Result<bool, VersionError> {
+        let remote = Version::parse(remote_version)
+            .map_err(|_| VersionError::InvalidFormat(remote_version.to_string()))?;
+
+        if remote < self.min_supported {
+            return Err(VersionError::Incompatible {
+                min: self.min_supported.to_string(),
+                actual: remote.to_string(),
+            });
+        }
+
+        Ok(true)
+    }
+
+    /// 获取当前版本
+    pub fn current_version(&self) -> &str {
+        PROTOCOL_VERSION
+    }
+
+    /// 协商版本（返回双方都支持的最高版本）
+    pub fn negotiate(&self, remote_version: &str) -> Result<String, VersionError> {
+        let remote = Version::parse(remote_version)
+            .map_err(|_| VersionError::InvalidFormat(remote_version.to_string()))?;
+
+        // 检查兼容性
+        self.check_compatibility(remote_version)?;
+
+        // 返回较低的版本作为协商结果
+        let negotiated = if remote < self.current {
+            remote
+        } else {
+            self.current.clone()
+        };
+
+        Ok(negotiated.to_string())
+    }
+}
+
+/// 在握手消息中使用
+impl HandshakeRequest {
+    pub fn with_version() -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            // ... 其他字段
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compatible_version() {
+        let negotiator = VersionNegotiator::new();
+        assert!(negotiator.check_compatibility("1.0.0").is_ok());
+        assert!(negotiator.check_compatibility("1.1.0").is_ok());
+        assert!(negotiator.check_compatibility("2.0.0").is_ok());
+    }
+
+    #[test]
+    fn test_incompatible_version() {
+        let negotiator = VersionNegotiator::new();
+        assert!(negotiator.check_compatibility("0.9.0").is_err());
+    }
+
+    #[test]
+    fn test_negotiate() {
+        let negotiator = VersionNegotiator::new();
+        // 远程版本更高，使用本地版本
+        assert_eq!(negotiator.negotiate("2.0.0").unwrap(), "1.0.0");
+        // 远程版本相同
+        assert_eq!(negotiator.negotiate("1.0.0").unwrap(), "1.0.0");
+    }
+}
+```
+
+### 8.0.1 配置文件加密存储
+
+```rust
+// crates/agent-client/src/core/security/config_encryption.rs
+
+use aes_gcm::{
+    aead::{Aead, KeyInit, OsRng},
+    Aes256Gcm, Nonce,
+};
+use argon2::Argon2;
+use rand::RngCore;
+use std::fs;
+use std::path::Path;
+use thiserror::Error;
+
+/// 加密错误
+#[derive(Error, Debug)]
+pub enum EncryptionError {
+    #[error("加密失败: {0}")]
+    EncryptionFailed(String),
+    #[error("解密失败: {0}")]
+    DecryptionFailed(String),
+    #[error("密钥派生失败")]
+    KeyDerivationFailed,
+    #[error("IO 错误: {0}")]
+    IoError(#[from] std::io::Error),
+}
+
+/// 配置加密器
+pub struct ConfigEncryptor {
+    /// 机器唯一标识（用于派生密钥）
+    machine_id: String,
+}
+
+impl ConfigEncryptor {
+    pub fn new() -> Result<Self, EncryptionError> {
+        let machine_id = Self::get_machine_id()?;
+        Ok(Self { machine_id })
+    }
+
+    /// 获取机器唯一标识
+    #[cfg(target_os = "macos")]
+    fn get_machine_id() -> Result<String, EncryptionError> {
+        use std::process::Command;
+        let output = Command::new("ioreg")
+            .args(["-rd1", "-c", "IOPlatformExpertDevice"])
+            .output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // 解析 IOPlatformUUID
+        for line in stdout.lines() {
+            if line.contains("IOPlatformUUID") {
+                if let Some(uuid) = line.split('"').nth(3) {
+                    return Ok(uuid.to_string());
+                }
+            }
+        }
+        Err(EncryptionError::KeyDerivationFailed)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn get_machine_id() -> Result<String, EncryptionError> {
+        use winreg::enums::*;
+        use winreg::RegKey;
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        let key = hklm.open_subkey("SOFTWARE\\Microsoft\\Cryptography")?;
+        let guid: String = key.get_value("MachineGuid")?;
+        Ok(guid)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn get_machine_id() -> Result<String, EncryptionError> {
+        let id = fs::read_to_string("/etc/machine-id")
+            .or_else(|_| fs::read_to_string("/var/lib/dbus/machine-id"))?;
+        Ok(id.trim().to_string())
+    }
+
+    /// 派生加密密钥
+    fn derive_key(&self, salt: &[u8]) -> Result<[u8; 32], EncryptionError> {
+        let mut key = [0u8; 32];
+        Argon2::default()
+            .hash_password_into(self.machine_id.as_bytes(), salt, &mut key)
+            .map_err(|_| EncryptionError::KeyDerivationFailed)?;
+        Ok(key)
+    }
+
+    /// 加密配置
+    pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>, EncryptionError> {
+        // 生成随机盐和 nonce
+        let mut salt = [0u8; 16];
+        let mut nonce_bytes = [0u8; 12];
+        OsRng.fill_bytes(&mut salt);
+        OsRng.fill_bytes(&mut nonce_bytes);
+
+        // 派生密钥
+        let key = self.derive_key(&salt)?;
+        let cipher = Aes256Gcm::new_from_slice(&key)
+            .map_err(|e| EncryptionError::EncryptionFailed(e.to_string()))?;
+
+        // 加密
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let ciphertext = cipher
+            .encrypt(nonce, plaintext)
+            .map_err(|e| EncryptionError::EncryptionFailed(e.to_string()))?;
+
+        // 格式: salt (16) + nonce (12) + ciphertext
+        let mut result = Vec::with_capacity(16 + 12 + ciphertext.len());
+        result.extend_from_slice(&salt);
+        result.extend_from_slice(&nonce_bytes);
+        result.extend_from_slice(&ciphertext);
+
+        Ok(result)
+    }
+
+    /// 解密配置
+    pub fn decrypt(&self, encrypted: &[u8]) -> Result<Vec<u8>, EncryptionError> {
+        if encrypted.len() < 28 {
+            return Err(EncryptionError::DecryptionFailed("数据太短".to_string()));
+        }
+
+        // 解析 salt、nonce 和密文
+        let salt = &encrypted[..16];
+        let nonce_bytes = &encrypted[16..28];
+        let ciphertext = &encrypted[28..];
+
+        // 派生密钥
+        let key = self.derive_key(salt)?;
+        let cipher = Aes256Gcm::new_from_slice(&key)
+            .map_err(|e| EncryptionError::DecryptionFailed(e.to_string()))?;
+
+        // 解密
+        let nonce = Nonce::from_slice(nonce_bytes);
+        let plaintext = cipher
+            .decrypt(nonce, ciphertext)
+            .map_err(|e| EncryptionError::DecryptionFailed(e.to_string()))?;
+
+        Ok(plaintext)
+    }
+
+    /// 加密并保存到文件
+    pub fn encrypt_to_file(&self, plaintext: &[u8], path: &Path) -> Result<(), EncryptionError> {
+        let encrypted = self.encrypt(plaintext)?;
+        fs::write(path, encrypted)?;
+        Ok(())
+    }
+
+    /// 从文件读取并解密
+    pub fn decrypt_from_file(&self, path: &Path) -> Result<Vec<u8>, EncryptionError> {
+        let encrypted = fs::read(path)?;
+        self.decrypt(&encrypted)
+    }
+}
+
+/// 敏感配置字段标记
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct SensitiveConfig {
+    /// 连接密码（加密存储）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password_hash: Option<String>,
+
+    /// API Token（加密存储）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_token: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_encrypt_decrypt() {
+        let encryptor = ConfigEncryptor::new().unwrap();
+        let plaintext = b"sensitive data";
+
+        let encrypted = encryptor.encrypt(plaintext).unwrap();
+        let decrypted = encryptor.decrypt(&encrypted).unwrap();
+
+        assert_eq!(plaintext.to_vec(), decrypted);
+    }
+
+    #[test]
+    fn test_different_encryption_each_time() {
+        let encryptor = ConfigEncryptor::new().unwrap();
+        let plaintext = b"same data";
+
+        let encrypted1 = encryptor.encrypt(plaintext).unwrap();
+        let encrypted2 = encryptor.encrypt(plaintext).unwrap();
+
+        // 每次加密结果不同（因为随机 salt 和 nonce）
+        assert_ne!(encrypted1, encrypted2);
+
+        // 但解密结果相同
+        assert_eq!(
+            encryptor.decrypt(&encrypted1).unwrap(),
+            encryptor.decrypt(&encrypted2).unwrap()
+        );
+    }
+}
+```
 
 ### 8.1 密码存储与认证
 
