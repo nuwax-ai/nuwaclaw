@@ -1,49 +1,25 @@
-# 沙箱方案文档（基于 Harness）
+# 沙箱方案文档
 
 > 多平台 Agent 沙箱工作空间技术文档
 
 ---
 
-## 📚 文档索引
-
-### 设计文档
+## 文档索引
 
 | 文档 | 说明 |
 |------|------|
-| [WORKSPACE-DESIGN.md](./WORKSPACE-DESIGN.md) | 基于 Harness 的核心设计方案 |
-| [IMPLEMENTATION-PLAN.md](./IMPLEMENTATION-PLAN.md) | 实施计划（6 个阶段） |
-| [SANDBOX-API.md](./SANDBOX-API.md) | API 接口文档 |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | 沙箱架构设计 |
+| [IMPLEMENTATION.md](./IMPLEMENTATION.md) | 沙箱实现说明 |
+| [API.md](./API.md) | 通用 API 文档 |
+| [SANDBOX-API.md](./SANDBOX-API.md) | 沙箱 API 接口文档 |
+| [SANDBOX-COMMANDS.md](./SANDBOX-COMMANDS.md) | 沙箱命令白名单 |
 | [SANDBOX-SUBMODULE-INTEGRATION.md](./SANDBOX-SUBMODULE-INTEGRATION.md) | 三端沙箱子模块接入 |
+| [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) | 故障排查 |
 | [../operations/SANDBOX-SUBMODULE-UPDATE-RUNBOOK.md](../operations/SANDBOX-SUBMODULE-UPDATE-RUNBOOK.md) | 子模块升级与回滚 Runbook |
 
 ---
 
-## 🎯 核心概念
-
-### Harness 架构
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   CP 工作流                                   │
-│                                                              │
-│   CP1 ──→ CP2 ──→ CP3 ──→ CP4 ──→ CP5                     │
-│   任务     规划     执行     门禁     审查                    │
-│   确认                                                   │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                   文件结构                                    │
-│                                                              │
-│   harness/                                                  │
-│   ├── base/          # 基础约束和任务模板                     │
-│   ├── input/         # 输入约束                              │
-│   ├── feedback/      # 反馈机制                              │
-│   ├── projects/      # 项目配置                              │
-│   └── universal/     # 通用配置                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 三区隔离模型
+## 三区隔离模型
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -62,89 +38,26 @@
 
 ---
 
-## 🔧 平台支持
+## 平台支持
 
 | 平台 | 主要沙箱 | 备选 |
 |------|---------|------|
 | macOS | sandbox-exec | Docker |
-| Windows | Codex Sandbox helper | Docker |
+| Windows | Windows Sandbox helper | Docker |
 | Linux | bubblewrap | Docker |
 
 ---
 
-## 📁 Harness 目录结构
+## 阅读顺序
 
-```
-harness/
-├── base/
-│   ├── constraints.md           # Agent 基础约束
-│   ├── tasks/
-│   │   ├── sandbox-create.md    # 创建任务模板
-│   │   ├── sandbox-destroy.md  # 销毁任务模板
-│   │   └── workspace-execute.md # 执行任务模板
-│   └── state.json              # 沙箱状态
-│
-├── input/
-│   ├── sandbox-config.md        # 沙箱配置约束
-│   ├── platform-config.md       # 平台配置约束
-│   └── retention-policy.md      # 保留策略
-│
-├── feedback/
-│   ├── state/
-│   │   └── state.json          # 当前状态
-│   ├── autonomy.md              # 自主性评估
-│   ├── quality-gates.md        # 质量门禁
-│   └── metrics.json             # 执行指标
-│
-└── projects/
-    ├── darwin/
-    │   ├── constraints.md
-    │   └── docker.md
-    ├── windows/
-    │   ├── constraints.md
-    │   └── wsl.md
-    └── linux/
-        ├── constraints.md
-        └── firejail.md
-```
+1. **ARCHITECTURE.md** - 了解沙箱核心架构
+2. **IMPLEMENTATION.md** - 查看实现细节
+3. **SANDBOX-API.md** - 参考 API 接口
 
 ---
 
-## 🚀 开发状态
-
-| 组件 | 状态 |
-|------|------|
-| 设计文档 | ✅ 完成 |
-| Harness 目录结构 | 🔄 待创建 |
-| 工作流引擎 | 🔄 待实现 |
-| Docker 沙箱 | 🔄 待实现 |
-| WSL 沙箱 | 🔄 待实现 |
-| Firejail 沙箱 | 🔄 待实现 |
-| WorkspaceManager | 🔄 待实现 |
-| PermissionManager | 🔄 待实现 |
-| UI 组件 | 🔄 待实现 |
-
----
-
-## 📖 阅读顺序
-
-1. **WORKSPACE-DESIGN.md** - 了解 Harness 核心设计理念
-2. **IMPLEMENTATION-PLAN.md** - 查看实施计划和任务分解
-3. **SANDBOX-API.md** - 参考 API 接口进行开发
-
----
-
-## 🔗 相关文档
+## 相关文档
 
 - [../architecture/ISOLATION.md](../architecture/ISOLATION.md) - 三区隔离模型
 - [../v2/01-ARCHITECTURE.md](../v2/01-ARCHITECTURE.md) - 应用架构
 - [../AGENTS.md](../AGENTS.md) - Agent 开发指南
-
----
-
-## 📝 更新日志
-
-| 日期 | 版本 | 变更 |
-|------|------|------|
-| 2026-03-22 | 1.0.0 | 初始版本，基于 Harness 架构 |
-| 2026-03-27 | 1.1.0 | 增加 sandbox_policy、子模块资源接入与签名链路 |

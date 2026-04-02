@@ -177,7 +177,7 @@ npm run dist:linux  # Linux
 - **跨平台打包（Mac → Win）**：支持。若出现 `zip: not a valid zip file`，清理缓存（`~/Library/Caches/electron`、`electron-builder` 或 `node_modules/app-builder-bin`）后重试。Win x64 须在 Windows/CI 上构建（原生模块跨平台编译限制）。
 - **CI**：标签 `electron-v*` → `release-electron.yml`（独立 Release）。push/PR 导致路径变更 → `ci-electron.yml`（测试构建）。Tauri 仍使用 `v*` → release-tauri。本地 OSS 同步：`./scripts/sync-oss.sh <tag>`（需 gh、jq）。
 
-**目录结构**：`src/main/`（main.ts、preload、ipc、services/engines|packages|system|utils），`src/renderer/`（main.tsx、App、components、services、styles），`src/shared/`，`src/test/harness/`（日志驱动测试工具），`resources/uv/`，`scripts/`，`docs/`（项目文档如 TESTING-0.9.1-2026-03-19.md）。别名：`@main/*` → main，`@renderer/*` → renderer，`@shared/*` → shared。
+**目录结构**：`src/main/`（main.ts、preload、ipc、services/engines|packages|system|utils），`src/renderer/`（main.tsx、App、components、services、styles），`src/shared/`，`resources/uv/`，`scripts/`，`docs/`（项目文档如 TESTING-0.9.1-2026-03-19.md）。别名：`@main/*` → main，`@renderer/*` → renderer，`@shared/*` → shared。
 
 ---
 
