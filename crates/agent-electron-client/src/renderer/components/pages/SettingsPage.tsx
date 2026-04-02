@@ -684,7 +684,7 @@ export default function SettingsPage() {
                   <div>
                     <span className={styles.serviceLabel}>Windows Setup</span>
                     <div className={styles.serviceDescription}>
-                      校验 Codex helper 是否已随运行时接入
+                      校验 Sandbox helper 是否已随运行时接入
                     </div>
                   </div>
                 </div>
