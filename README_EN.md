@@ -5,7 +5,7 @@ English | [简体中文](README.md)
 [![CI](https://img.shields.io/github/actions/workflow/status/soddygo/nuwax-agent/ci.yml?branch=main)](https://github.com/soddygo/nuwax-agent/actions)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-A cross-platform Agent client supporting remote desktop control and AI Agent task execution. Built with native UI using [gpui](https://github.com/zed-industries/zed), and secure P2P/Relay communication via [nuwax-rustdesk](https://github.com/rustdesk/rustdesk).
+A cross-platform Agent client supporting remote desktop control and AI Agent task execution. Built with [Electron](https://electronjs.org/).
 
 ## Features
 
@@ -38,64 +38,38 @@ A cross-platform Agent client supporting remote desktop control and AI Agent tas
 ```
 nuwax-agent/
 ├── crates/
-│   ├── agent-client/       # Client main program
-│   ├── agent-protocol/     # Communication protocol definitions
-│   ├── agent-server-admin/ # Admin API service
-│   └── data-server/        # Signaling/Relay server wrapper
-├── vendors/
-│   ├── nuwax-rustdesk/     # RustDesk communication library
-│   ├── gpui-component/     # UI component library
-│   └── ...
-└── tests/
-    ├── e2e/                # End-to-end tests
-    └── integration/        # Integration tests
+│   ├── agent-electron-client/  # Electron client
+│   ├── agent-gui-server/       # GUI Agent server (Node.js)
+│   └── nuwax-mcp-stdio-proxy/  # MCP proxy (Node.js)
+├── docs/                      # Documentation
+├── scripts/                   # Build scripts
+└── tests/                     # Tests
 ```
 
 ## Quick Start
 
 ### Requirements
 
-- Rust 1.75+
-- Node.js 18+ (optional, client will auto-install)
-- vcpkg (for nuwax-rustdesk dependencies)
+- Node.js 18+
+- pnpm 9+
 
-### Install vcpkg Dependencies
+### Install Dependencies
 
 ```bash
-# Clone vcpkg
-git clone https://github.com/microsoft/vcpkg /tmp/vcpkg
-cd /tmp/vcpkg && ./bootstrap-vcpkg.sh
-
-# Install dependencies (macOS)
-./vcpkg install libvpx libyuv opus aom
+pnpm install
 ```
 
 ### Build and Run
 
 ```bash
-# Set vcpkg environment variable
-export VCPKG_ROOT=/tmp/vcpkg
+# Prepare dependencies (Node.js, uv, lanproxy, etc.)
+make electron-prepare
 
-# Build client
-cargo build -p nuwax-agent
+# Run in development mode
+make electron-dev
 
-# Run client
-cargo run -p nuwax-agent
-
-# Run tests
-cargo test -p nuwax-agent
-```
-
-### Package for Release
-
-```bash
-# Install cargo-packager
-cargo install cargo-packager
-
-# Package for macOS (.dmg)
-cargo packager --release
-
-# See .github/workflows/release.yml for details
+# Package for release
+make electron-bundle
 ```
 
 ## Configuration
@@ -125,98 +99,48 @@ language = "en-US"
 theme = "system"
 ```
 
-## Feature Flags
+## Features
 
-| Feature | Description | Default |
-|---------|-------------|---------|
-| `tray` | System tray support | ✅ |
-| `auto-launch` | Auto-start on boot | ✅ |
-| `dependency-management` | Auto dependency installation | ✅ |
-| `remote-desktop` | Remote desktop feature | ❌ |
-| `chat-ui` | Chat interface | ❌ |
-| `file-transfer` | File transfer | ❌ |
-| `dev-mode` | Developer logging | ❌ |
-
-```bash
-# Enable all features
-cargo build -p nuwax-agent --all-features
-
-# Enable specific features only
-cargo build -p nuwax-agent --features "remote-desktop,chat-ui"
-```
+| Feature | Description |
+|---------|-------------|
+| **System Tray** | Run in background with quick tray icon operations |
+| **AI Agent** | Supports claude-code and nuwaxcode engines |
+| **MCP Integration** | Model Context Protocol support |
+| **IM Integration** | Telegram, Discord, DingTalk, Feishu support |
+| **Dependency Management** | Auto-detect and install runtime dependencies |
 
 ## Development Guide
 
 ### Directory Structure
 
 ```
-crates/agent-client/src/
-├── main.rs              # Program entry
-├── app.rs               # Application state management
-├── lib.rs               # Library exports
-├── components/          # UI components
-│   ├── root.rs          # Root component
-│   ├── status_bar.rs    # Status bar
-│   ├── client_info.rs   # Client info
-│   ├── settings.rs      # Settings interface
-│   ├── dependency_manager.rs  # Dependency management
-│   ├── remote_desktop.rs      # Remote desktop
-│   ├── chat.rs          # Chat interface
-│   └── about.rs         # About page
-├── core/                # Core logic
-│   ├── connection/      # Connection management
-│   ├── dependency/      # Dependency detection/installation
-│   ├── platform/        # Platform adaptation
-│   ├── permissions/     # Permission management
-│   ├── agent.rs         # Agent task management
-│   ├── business_channel.rs  # Business channel
-│   ├── crypto.rs        # Encryption utilities
-│   └── upgrade.rs       # Upgrade management
-├── tray/                # System tray
-├── i18n/                # Internationalization
-├── message/             # Message handling
-└── utils/               # Utility functions
-```
-
-### Running Tests
-
-```bash
-# Unit tests
-cargo test -p nuwax-agent
-
-# Integration tests (requires data-server running)
-cargo test --test communication_test -- --ignored
-
-# Code linting
-cargo clippy -p nuwax-agent
+crates/agent-electron-client/
+├── src/
+│   ├── main/            # Electron main process
+│   │   ├── main.ts     # Entry point
+│   │   └── services/   # Services
+│   ├── preload/        # Preload script
+│   ├── renderer/       # React renderer process
+│   └── shared/        # Shared types
+└── resources/         # Resources (Node.js, uv, etc.)
 ```
 
 ### Debug Mode
 
 ```bash
-# Enable verbose logging
-RUST_LOG=debug cargo run -p nuwax-agent
-
-# Enable development mode
-cargo run -p nuwax-agent --features dev-mode
+# Run in development mode (verbose logging)
+make electron-dev
 ```
 
 ## Communication Protocol
 
-Client and admin communicate through data-server (based on RustDesk protocol):
+Client and admin communicate through WebSocket connection:
 
 ```
-┌─────────────┐     P2P/Relay      ┌─────────────┐
-│   Client    │◄──────────────────►│    Admin    │
-│ (agent-cli) │                    │  (server)   │
-└──────┬──────┘                    └──────┬──────┘
-       │                                  │
-       │  Register/Heartbeat              │
-       ▼                                  ▼
-┌─────────────────────────────────────────────────┐
-│              data-server (hbbs/hbbr)            │
-│       Signaling (21116) + Relay (21117)         │
-└─────────────────────────────────────────────────┘
+┌─────────────┐      WebSocket       ┌─────────────┐
+│   Client    │◄───────────────────►│   Admin     │
+│  (Electron) │                      │   Server    │
+└─────────────┘                      └─────────────┘
 ```
 
 ### Message Types
@@ -229,10 +153,9 @@ Client and admin communicate through data-server (based on RustDesk protocol):
 
 ## Security Mechanisms
 
-- **Password Encryption** - AES-GCM encrypted storage with key derived from machine ID
-- **Communication Encryption** - End-to-end encryption based on RustDesk
-- **SHA256 Verification** - Upgrade package integrity verification
-- **File Permissions** - Sensitive files set to 0600 permissions (Unix)
+- **Password Encryption** - AES-GCM encrypted storage
+- **Communication Encryption** - WebSocket TLS encryption
+- **Permission Control** - Sensitive operations require confirmation
 
 ## License
 
@@ -252,6 +175,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Related Projects
 
-- [gpui](https://github.com/zed-industries/zed) - GPU-accelerated UI framework
-- [RustDesk](https://github.com/rustdesk/rustdesk) - Open source remote desktop
-- [gpui-component](https://github.com/longbridge/gpui-component) - gpui component library
+- [Electron](https://electronjs.org/) - Cross-platform desktop application framework
+- [React](https://react.dev/) - UI library
+- [MCP](https://modelcontextprotocol.io/) - Model Context Protocol

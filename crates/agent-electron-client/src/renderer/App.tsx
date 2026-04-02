@@ -279,6 +279,14 @@ function App() {
     new Set(),
   );
   const servicesPollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** 代理服务健康检查定时器（每 30 秒） */
+  const healthCheckTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** 代理服务通道健康检查错误（用 ref 存储，避免闭包问题） */
+  const lanproxyHealthErrorRef = useRef<string | undefined>(undefined);
+  /** 上一次的健康检查错误，用于比较是否变化 */
+  const prevLanproxyHealthErrorRef = useRef<string | undefined>(undefined);
+  /** 用于触发健康检查结果更新 */
+  const [, forceUpdate] = useState(0);
   /** 递增后通知 ClientPage 刷新账号状态（用户名等），与 reg 返回保持一致 */
   const [authRefreshTrigger, setAuthRefreshTrigger] = useState(0);
 
@@ -496,7 +504,8 @@ function App() {
         description: "网络通道",
         running: lpStatus?.running ?? false,
         pid: lpStatus?.pid,
-        error: lpStatus?.error,
+        // 优先显示健康检查错误，其次显示进程错误
+        error: lanproxyHealthErrorRef.current ?? lpStatus?.error,
       });
       setServices(items);
     } catch (error) {
@@ -750,6 +759,76 @@ function App() {
   }, [isSetupComplete]);
 
   // ============================================
+  // 代理服务健康检查（每 30 秒，仅在 lanproxy 运行时执行）
+  // ============================================
+  useEffect(() => {
+    if (isSetupComplete !== true) return;
+
+    const doHealthCheck = async () => {
+      try {
+        // 先检查 lanproxy 是否在运行
+        const lpStatus = await window.electronAPI?.lanproxy.status();
+        if (!lpStatus?.running) {
+          // lanproxy 未运行，不显示通道检查错误
+          if (lanproxyHealthErrorRef.current !== undefined) {
+            lanproxyHealthErrorRef.current = undefined;
+            forceUpdate((n) => n + 1);
+          }
+          return;
+        }
+
+        // 获取 agent port
+        const step1 = (await window.electronAPI?.settings.get(
+          "step1_config",
+        )) as { agentPort?: number } | null;
+        const agentPort = step1?.agentPort ?? 60006;
+
+        const resp = await fetch(
+          `http://127.0.0.1:${agentPort}/services/lanproxy-health`,
+          { signal: AbortSignal.timeout(15000) },
+        );
+        const health = (await resp.json()) as {
+          healthy: boolean;
+          error?: string;
+        };
+        if (!health.healthy) {
+          lanproxyHealthErrorRef.current = `通道检查失败: ${health.error}`;
+        } else {
+          lanproxyHealthErrorRef.current = undefined;
+        }
+        // 仅在值变化时触发更新，避免不必要的渲染
+        if (
+          prevLanproxyHealthErrorRef.current !== lanproxyHealthErrorRef.current
+        ) {
+          prevLanproxyHealthErrorRef.current = lanproxyHealthErrorRef.current;
+          forceUpdate((n) => n + 1);
+        }
+      } catch (e) {
+        // 健康检查失败时设置错误，但不在这里频繁打印日志
+        const errorMsg = `通道检查失败: ${e instanceof Error ? e.message : String(e)}`;
+        lanproxyHealthErrorRef.current = errorMsg;
+        // 仅在值变化时触发更新
+        if (prevLanproxyHealthErrorRef.current !== errorMsg) {
+          prevLanproxyHealthErrorRef.current = errorMsg;
+          forceUpdate((n) => n + 1);
+        }
+      }
+    };
+
+    // 立即执行一次
+    doHealthCheck();
+
+    // 每 30 秒检查一次
+    healthCheckTimer.current = setInterval(doHealthCheck, 30000);
+
+    return () => {
+      if (healthCheckTimer.current) {
+        clearInterval(healthCheckTimer.current);
+      }
+    };
+  }, [isSetupComplete]);
+
+  // ============================================
   // 监听托盘/菜单事件
   // ============================================
   useEffect(() => {
@@ -759,6 +838,7 @@ function App() {
 
     // 监听设置菜单
     const handleSettings = () => {
+      console.log("[App] 收到 menu:settings 事件");
       setActiveTab("settings");
     };
     window.electronAPI.on("menu:settings", handleSettings);
@@ -768,6 +848,7 @@ function App() {
 
     // 监听依赖管理菜单
     const handleDependencies = () => {
+      console.log("[App] 收到 menu:dependencies 事件");
       setActiveTab("dependencies");
     };
     window.electronAPI.on("menu:dependencies", handleDependencies);
@@ -777,6 +858,7 @@ function App() {
 
     // 监听 MCP 设置菜单
     const handleMcpSettings = () => {
+      console.log("[App] 收到 menu:mcp-settings 事件");
       setActiveTab("settings");
     };
     window.electronAPI.on("menu:mcp-settings", handleMcpSettings);
@@ -786,6 +868,7 @@ function App() {
 
     // 监听新建会话菜单
     const handleNewSession = () => {
+      console.log("[App] 收到 menu:new-session 事件");
       setSessionsAutoOpen(true);
       setActiveTab("sessions");
     };

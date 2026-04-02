@@ -188,8 +188,8 @@ npm run dist:linux  # Linux
 nuwax-agent/
 ├── crates/
 │   ├── agent-electron-client/  # Electron client
-│   ├── agent-tauri-client/     # Tauri client
-│   └── nuwax-agent-core/       # Core (Rust)
+│   ├── agent-gui-server/       # GUI agent server (Node.js)
+│   └── nuwax-mcp-stdio-proxy/  # MCP proxy (Node.js)
 │
 ├── docs/                      # Documentation
 ├── scripts/                   # Build scripts

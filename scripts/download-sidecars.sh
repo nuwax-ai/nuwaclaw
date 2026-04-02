@@ -1,5 +1,5 @@
 #!/bin/bash
-# 下载 sidecar 二进制到本地缓存目录（多平台），可按需投放到 src-tauri/binaries
+# 下载 sidecar 二进制到本地缓存目录（多平台）
 #
 # 支持 target:
 # - x86_64-pc-windows-msvc
@@ -13,7 +13,7 @@
 #   ./scripts/download-sidecars.sh                          # 自动从 GitHub 获取最新 mcp-proxy 版本
 #   ./scripts/download-sidecars.sh --target x86_64-pc-windows-msvc
 #   ./scripts/download-sidecars.sh --all-common
-#   ./scripts/download-sidecars.sh --all-common --materialize
+#   ./scripts/download-sidecars.sh --all-common
 #   ./scripts/download-sidecars.sh --cache-dir .cache/sidecars
 #   ./scripts/download-sidecars.sh --mcp-version 0.1.48     # 指定 mcp-proxy 版本
 #   ./scripts/download-sidecars.sh --force                  # 强制重新下载
@@ -22,7 +22,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-BIN_DIR="$ROOT_DIR/crates/agent-tauri-client/src-tauri/binaries"
 CACHE_DIR="$ROOT_DIR/.cache/sidecars"
 TMP_DIR="/tmp/nuwax-sidecar-download"
 
@@ -32,7 +31,6 @@ FORCE=0
 DRY_RUN=0
 ALL_COMMON=0
 NO_CHECK=0
-MATERIALIZE=0
 TARGETS=()
 LAST_SUCCESS_URL=""
 MCP_GITHUB_REPO="nuwax-ai/mcp-proxy"
@@ -78,10 +76,6 @@ while [[ $# -gt 0 ]]; do
       CACHE_DIR="${2:-}"
       shift 2
       ;;
-    --materialize)
-      MATERIALIZE=1
-      shift 1
-      ;;
     --mcp-version)
       MCP_VERSION="${2:-}"
       shift 2
@@ -117,7 +111,25 @@ if [[ $ALL_COMMON -eq 1 ]]; then
   TARGETS=("${COMMON_TARGETS[@]}")
 fi
 if [[ ${#TARGETS[@]} -eq 0 ]]; then
-  TARGETS=("$(rustc -vV | awk '/^host:/ {print $2}')")
+  # Default to current platform
+  case "$(uname -s)" in
+    Darwin)
+      case "$(uname -m)" in
+        arm64) TARGETS=("aarch64-apple-darwin") ;;
+        *) TARGETS=("x86_64-apple-darwin") ;;
+      esac
+      ;;
+    Linux)
+      case "$(uname -m)" in
+        aarch64) TARGETS=("aarch64-unknown-linux-gnu") ;;
+        armv7l) TARGETS=("aarch64-unknown-linux-gnu") ;;
+        *) TARGETS=("x86_64-unknown-linux-gnu") ;;
+      esac
+      ;;
+    MINGW*|MSYS*|CYGWIN*)
+      TARGETS=("x86_64-pc-windows-msvc")
+      ;;
+  esac
 fi
 
 # 如果未指定 MCP 版本，从 GitHub 获取最新版本
@@ -127,7 +139,7 @@ if [[ -z "$MCP_VERSION" ]]; then
   echo "检测到最新版本: $MCP_VERSION"
 fi
 
-mkdir -p "$CACHE_DIR" "$BIN_DIR" "$TMP_DIR"
+mkdir -p "$CACHE_DIR" "$TMP_DIR"
 MANIFEST_FILE="$CACHE_DIR/sidecar-download-manifest.txt"
 
 download_file() {
@@ -257,8 +269,6 @@ for TARGET in "${TARGETS[@]}"; do
 
   MCP_CACHE="$CACHE_DIR/mcp-proxy-${TARGET}${DEST_EXT}"
   NODE_CACHE="$CACHE_DIR/node-runtime-${TARGET}${DEST_EXT}"
-  MCP_DST="$BIN_DIR/mcp-proxy-${TARGET}${DEST_EXT}"
-  NODE_DST="$BIN_DIR/node-runtime-${TARGET}${DEST_EXT}"
 
   # 从第一个候选 artifact 得到压缩包后缀（.zip 或 .tar.xz），保证 extract_archive 能正确选择 unzip/tar
   MCP_ARCHIVE_SUFFIX="${MCP_ARTIFACT_CANDIDATES[0]#*${TARGET}}"
@@ -351,35 +361,16 @@ for TARGET in "${TARGETS[@]}"; do
     echo "$TARGET node-runtime $(basename "$NODE_CACHE") $NODE_URL" >> "$MANIFEST_FILE"
   fi
 
-  if [[ $MATERIALIZE -eq 1 ]]; then
-    if [[ $DRY_RUN -eq 1 ]]; then
-      echo "  DRY  materialize -> $MCP_DST"
-      echo "  DRY  materialize -> $NODE_DST"
-    else
-      cp -f "$MCP_CACHE" "$MCP_DST"
-      cp -f "$NODE_CACHE" "$NODE_DST"
-      chmod +x "$MCP_DST" "$NODE_DST" || true
-      echo "  MAT  $(basename "$MCP_DST")"
-      echo "  MAT  $(basename "$NODE_DST")"
-    fi
-  fi
   echo ""
 done
 
 echo "完成。"
 echo "  cache: $CACHE_DIR"
-if [[ $MATERIALIZE -eq 1 ]]; then
-  echo "  materialized binaries: $BIN_DIR"
-fi
 
 if [[ $NO_CHECK -eq 0 && $DRY_RUN -eq 0 ]]; then
   echo ""
   echo "开始自动校验下载项 sidecar..."
   for t in "${TARGETS[@]}"; do
-    if [[ $MATERIALIZE -eq 1 ]]; then
-      "$SCRIPT_DIR/check-sidecars.sh" --downloaded-only --target "$t" --dir "$BIN_DIR"
-    else
-      "$SCRIPT_DIR/check-sidecars.sh" --downloaded-only --target "$t" --dir "$CACHE_DIR"
-    fi
+    "$SCRIPT_DIR/check-sidecars.sh" --downloaded-only --target "$t" --dir "$CACHE_DIR"
   done
 fi
