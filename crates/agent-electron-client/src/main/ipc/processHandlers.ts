@@ -3,7 +3,10 @@ import * as fs from "fs";
 import log from "electron-log";
 import { z } from "zod";
 import type { HandlerContext } from "@shared/types/ipc";
-import { createServiceManager } from "../window/serviceManager";
+import {
+  createServiceManager,
+  checkLanproxyHealth,
+} from "../window/serviceManager";
 
 export const lanproxyConfigSchema = z.object({
   serverIp: z.string().min(1),
@@ -28,18 +31,31 @@ function invalidArgs(channel: string, issues: unknown) {
   return { success: false, error: `Invalid arguments for ${channel}` };
 }
 
+/** 模块级 _serviceManager，供其他模块（如 computerServer）访问 */
+let _serviceManager: ReturnType<typeof createServiceManager> | null = null;
+
+/** 获取 _serviceManager 实例（需先调用 registerProcessHandlers） */
+export function getServiceManager(): ReturnType<
+  typeof createServiceManager
+> | null {
+  return _serviceManager;
+}
+
 export function registerProcessHandlers(ctx: HandlerContext): void {
-  const serviceManager = createServiceManager({
+  _serviceManager = createServiceManager({
     lanproxy: ctx.lanproxy,
     fileServer: ctx.fileServer,
     agentRunner: ctx.agentRunner,
   });
 
+  // 本地别名，确保 TypeScript 知道它已被赋值
+  const sm = _serviceManager;
+
   // ==================== Helper: Start File Server ====================
   const startFileServerProcess = async (
     port: number,
   ): Promise<{ success: boolean; error?: string }> => {
-    return serviceManager.startFileServer(port);
+    return sm.startFileServer(port);
   };
 
   // ==================== Helper: Start Lanproxy ====================
@@ -48,7 +64,11 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     serverPort: number;
     clientKey: string;
     ssl?: boolean;
-  }): Promise<{ success: boolean; error?: string }> => {
+  }): Promise<{
+    success: boolean;
+    error?: string;
+    healthCheck?: { healthy: boolean; error?: string };
+  }> => {
     if (ctx.lanproxy.running) {
       // 切换账号后 clientKey 会变化，必须用新配置重启，不能跳过。
       // 否则旧进程继续使用旧 clientKey 导致「本地显示已联通、会话显示离线」。
@@ -66,12 +86,18 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       keyMasked: maskedKey,
       ssl: useSsl,
     });
-    const result = await serviceManager.startLanproxy(config);
+    const result = await sm.startLanproxy(config);
     if (result.success) {
       log.info("[Lanproxy] 已启动", {
         server: config.serverIp,
         port: config.serverPort,
       });
+      // 健康检查
+      const health = await checkLanproxyHealth(config.clientKey);
+      result.healthCheck = health;
+      if (!health.healthy) {
+        log.warn("[Lanproxy] 健康检查失败:", health.error);
+      }
     } else {
       log.error("[Lanproxy] 启动失败", {
         error: result.error,
@@ -257,7 +283,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     } catch (e) {
       log.warn("[Services] ComputerServer stop error (ignored):", e);
     }
-    const base = await serviceManager.restartAllServices();
+    const base = await sm.restartAllServices();
     const results: Record<string, { success: boolean; error?: string }> = {
       ...base.results,
     };
@@ -283,7 +309,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
 
   ipcMain.handle("services:stopAll", async () => {
     log.info("[Services] Stopping all services...");
-    const base = await serviceManager.stopAllServices();
+    const base = await sm.stopAllServices();
     const results: Record<string, { success: boolean; error?: string }> = {
       ...base.results,
     };
@@ -300,6 +326,35 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     }
 
     log.info("[Services] All services stopped:", results);
+    return { success: true, results };
+  });
+
+  // ==================== services:restartAllExceptLanproxy ====================
+
+  ipcMain.handle("services:restartAllExceptLanproxy", async () => {
+    log.info("[Services] Restarting all services except lanproxy...");
+    const base = await sm.restartAllServicesExceptLanproxy();
+    const results: Record<string, { success: boolean; error?: string }> = {
+      ...base.results,
+    };
+
+    // 补充 processHandlers 特有步骤：Computer Server
+    try {
+      const { startComputerServer } =
+        await import("../services/computerServer");
+      const { getConfiguredPorts } = await import("../services/startupPorts");
+      const { agent: agentPort } = getConfiguredPorts();
+      results.computerServer = await startComputerServer(agentPort);
+      log.info("[Services] ComputerServer started:", results.computerServer);
+    } catch (e) {
+      results.computerServer = { success: false, error: String(e) };
+      log.error("[Services] ComputerServer start failed:", e);
+    }
+
+    log.info(
+      "[Services] All services (except lanproxy) restart complete:",
+      results,
+    );
     return { success: true, results };
   });
 }

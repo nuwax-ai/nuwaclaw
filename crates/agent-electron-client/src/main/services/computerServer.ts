@@ -936,6 +936,60 @@ async function handleRequest(
       return;
     }
 
+    // GET /services/lanproxy-health — 检查代理服务通道健康状态
+    if (pathname === "/services/lanproxy-health" && method === "GET") {
+      const { readSetting } = await import("../db");
+      const savedKey = readSetting("auth.saved_key") as string | null;
+      if (!savedKey) {
+        sendJson(res, 200, { healthy: false, error: "未配置 savedKey" });
+        return;
+      }
+      const { checkLanproxyHealth } = await import("../window/serviceManager");
+      const health = await checkLanproxyHealth(savedKey);
+      sendJson(res, 200, health);
+      return;
+    }
+
+    // POST /services/restart — 重启除 Lanproxy 外的所有服务
+    if (pathname === "/services/restart" && method === "POST") {
+      log.info("[HTTP] /services/restart called");
+
+      // 先停止 Computer Server（它自己）
+      await stopComputerServer();
+
+      // 通过 getServiceManager 获取已创建的 serviceManager
+      const { getServiceManager } = await import("../ipc/processHandlers");
+      const serviceManager = getServiceManager();
+      if (!serviceManager) {
+        sendJson(res, 500, {
+          success: false,
+          error: "ServiceManager 未初始化",
+        });
+        return;
+      }
+
+      const base = await serviceManager.restartAllServicesExceptLanproxy();
+
+      // 重新启动 Computer Server
+      const { getConfiguredPorts } = await import("./startupPorts");
+      const { agent: agentPort } = getConfiguredPorts();
+      const { startComputerServer } = await import("./computerServer");
+      let csResult: { success: boolean; error?: string };
+      try {
+        await startComputerServer(agentPort);
+        csResult = { success: true };
+      } catch (e) {
+        csResult = { success: false, error: String(e) };
+      }
+
+      const results: Record<string, { success: boolean; error?: string }> = {
+        ...base.results,
+        computerServer: csResult,
+      };
+      sendJson(res, 200, { success: true, results });
+      return;
+    }
+
     // 404
     sendJson(res, 404, httpError("NOT_FOUND", `Path not found: ${pathname}`));
   } catch (error: any) {

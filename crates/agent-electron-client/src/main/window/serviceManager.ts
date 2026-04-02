@@ -41,6 +41,42 @@ export interface ServiceResult {
   success: boolean;
   error?: string;
   message?: string;
+  healthCheck?: {
+    healthy: boolean;
+    error?: string;
+  };
+}
+
+/**
+ * 检查 Lanproxy 通道健康状态
+ */
+export async function checkLanproxyHealth(savedKey: string): Promise<{
+  healthy: boolean;
+  error?: string;
+}> {
+  const serverHost = readSetting("lanproxy.server_host") as string | null;
+  const serverPort = readSetting("lanproxy.server_port") as number | null;
+
+  if (!serverHost || !serverPort) {
+    return { healthy: false, error: "缺少服务器配置" };
+  }
+
+  try {
+    const url = `${serverHost}/api/sandbox/config/health/${savedKey}`;
+    const response = await fetch(url, {
+      method: "GET",
+      signal: AbortSignal.timeout(10000),
+    });
+    if (response.ok) {
+      return { healthy: true };
+    }
+    return { healthy: false, error: `HTTP ${response.status}` };
+  } catch (e) {
+    return {
+      healthy: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
 }
 
 /**
@@ -276,7 +312,14 @@ export function createServiceManager(ctx: ServiceManagerContext) {
           clientKey,
           ssl: lpConfig.ssl as boolean,
         });
-        if (!results.lanproxy.success) {
+        if (results.lanproxy.success) {
+          // 健康检查
+          const health = await checkLanproxyHealth(clientKey);
+          results.lanproxy.healthCheck = health;
+          if (!health.healthy) {
+            log.warn("[Lanproxy] 健康检查失败:", health.error);
+          }
+        } else {
           log.error("[Lanproxy] 批量启动失败", {
             error: results.lanproxy.error,
           });
@@ -299,6 +342,125 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     }
 
     log.info("[ServiceManager] All services restart complete");
+    return { success: true, results };
+  };
+
+  /**
+   * 重启除 Lanproxy 外的所有服务
+   *
+   * 用于 HTTP 重启接口，不停止/启动 lanproxy
+   */
+  const restartAllServicesExceptLanproxy = async (): Promise<{
+    success: boolean;
+    results: Record<string, ServiceResult>;
+  }> => {
+    log.info("[ServiceManager] Restarting all services except lanproxy...");
+    const results: Record<string, ServiceResult> = {};
+
+    // 读取配置
+    const agentConfig =
+      (readSetting("agent_config") as Record<string, unknown>) || {};
+    const step1Config =
+      (readSetting("step1_config") as Record<string, unknown>) || {};
+
+    // 1. 停止现有服务（先清 SSE 缓冲，再 destroy Agent，避免重启后回放旧事件）
+    // 注意：不停止 lanproxy
+    clearAllSseEventBuffers();
+    try {
+      await agentService.destroy();
+    } catch (e) {
+      log.warn("[ServiceManager] Agent destroy error (ignored):", e);
+    }
+    ctx.fileServer.stop();
+    // 不停止 lanproxy: ctx.lanproxy.stop();
+    // 先停止 GUI agents（它们依赖 MCP Proxy，先停 MCP 再停 GUI）
+    await mcpProxyManager.stop();
+    await stopGuiAgentServer();
+    await stopWindowsMcp();
+
+    // 2. 启动 MCP Proxy（必须先于 Agent：Agent 初始化时会连 MCP Proxy 注入 mcpServers）
+    try {
+      await mcpProxyManager.start();
+      results.mcpProxy = { success: true };
+      log.info("[ServiceManager] MCP Proxy started");
+
+      mcpProxyManager
+        .ensureBridgeStarted()
+        .catch((e) =>
+          log.warn(
+            "[ServiceManager] PersistentMcpBridge prewarm failed (will retry on first session):",
+            e,
+          ),
+        );
+    } catch (e) {
+      results.mcpProxy = { success: false, error: String(e) };
+      log.error("[ServiceManager] MCP Proxy start failed:", e);
+    }
+
+    // 2.5. 启动 GUI Agent Server（非 Windows 平台）
+    try {
+      const guiResult = await startGuiAgentServer();
+      results.guiAgentServer = guiResult;
+      if (!guiResult.success) {
+        log.warn(
+          `[ServiceManager] GUI Agent Server start failed: ${guiResult.error}`,
+        );
+      }
+    } catch (e) {
+      results.guiAgentServer = { success: false, error: String(e) };
+      log.warn("[ServiceManager] GUI Agent Server start exception:", e);
+    }
+
+    // 2.6. 启动 Windows MCP（Windows 平台）
+    try {
+      const winResult = await startWindowsMcp();
+      results.windowsMcp = winResult;
+      if (!winResult.success) {
+        log.warn(
+          `[ServiceManager] Windows MCP start failed: ${winResult.error}`,
+        );
+      }
+    } catch (e) {
+      results.windowsMcp = { success: false, error: String(e) };
+      log.warn("[ServiceManager] Windows MCP start exception:", e);
+    }
+
+    // 3. 启动 Agent（依赖 MCP Proxy 已就绪）
+    try {
+      const finalConfig: AgentConfig = {
+        engine: (agentConfig.type as AgentConfig["engine"]) || "claude-code",
+        apiKey: agentConfig.apiKey as string | undefined,
+        baseUrl: agentConfig.apiBaseUrl as string | undefined,
+        model: agentConfig.model as string | undefined,
+        workspaceDir: (step1Config.workspaceDir as string) || "",
+        port: agentConfig.backendPort as number | undefined,
+        engineBinaryPath: agentConfig.binPath as string | undefined,
+      };
+      const mcpConfig = mcpProxyManager.getAgentMcpConfig();
+      if (mcpConfig) Object.assign(finalConfig, { mcpServers: mcpConfig });
+      const ok = await agentService.init(finalConfig);
+      results.agent = { success: ok };
+      log.info("[ServiceManager] Agent started");
+    } catch (e) {
+      results.agent = { success: false, error: String(e) };
+      log.error("[ServiceManager] Agent start failed:", e);
+    }
+
+    // 4. 启动文件服务器
+    try {
+      const { fileServer: fileServerPort } = getConfiguredPorts();
+      results.fileServer = await startFileServer(fileServerPort);
+      log.info("[ServiceManager] FileServer started");
+    } catch (e) {
+      results.fileServer = { success: false, error: String(e) };
+      log.error("[ServiceManager] FileServer start failed:", e);
+    }
+
+    // 注意：不启动 lanproxy
+    // 注意：computerServer 的重启由调用方（processHandlers）处理
+    log.info(
+      "[ServiceManager] All services (except lanproxy) restart complete",
+    );
     return { success: true, results };
   };
 
@@ -390,6 +552,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     startFileServer,
     startLanproxy,
     restartAllServices,
+    restartAllServicesExceptLanproxy,
     stopAllServices,
   };
 }
