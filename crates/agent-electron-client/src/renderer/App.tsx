@@ -484,7 +484,7 @@ function App() {
       });
       items.push({
         key: "guiServer",
-        label: "GUI Agent 服务",
+        label: "GUI MCP 服务",
         description: "桌面自动化视觉操作服务",
         running: guiStatus?.running ?? false,
         pid: guiStatus?.pid,

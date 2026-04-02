@@ -274,7 +274,7 @@ export const SERVICE_NAMES = {
   NuwaxLanproxy: "代理服务",
   Rcoder: "Agent 服务",
   McpProxy: "MCP Proxy 服务",
-  GuiAgent: "GUI Agent 服务",
+  GuiAgent: "GUI MCP 服务",
 } as const;
 
 /** 服务描述 */
