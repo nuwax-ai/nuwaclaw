@@ -73,6 +73,17 @@ export class DockerSandbox extends SandboxManager {
 
   async init(): Promise<void> {
     log.info("[DockerSandbox] 初始化 Docker 沙箱...");
+    log.debug("[DockerSandbox] config:", {
+      type: this.config.type,
+      platform: this.config.platform,
+      enabled: this.config.enabled,
+      workspaceRoot: this.config.workspaceRoot,
+      memoryLimit: this.config.memoryLimit,
+      cpuLimit: this.config.cpuLimit,
+      networkEnabled: this.config.networkEnabled,
+      dockerImage: this.dockerConfig.dockerImage,
+      dockerHost: this.dockerConfig.dockerHost,
+    });
 
     try {
       // 检查 Docker 是否可用
@@ -112,16 +123,23 @@ export class DockerSandbox extends SandboxManager {
    */
   private async checkDockerAvailable(): Promise<boolean> {
     try {
-      const { stdout } = await execAsync("docker --version", {
+      const { stdout: versionOut } = await execAsync("docker --version", {
         timeout: 5000,
       });
 
       // 提取版本号
-      const match = stdout.match(/Docker version ([\d.]+)/);
-      this.dockerVersion = match ? match[1] : stdout.trim();
+      const match = versionOut.match(/Docker version ([\d.]+)/);
+      this.dockerVersion = match ? match[1] : versionOut.trim();
+      log.debug("[DockerSandbox] docker --version:", versionOut.trim());
 
       // 检查 Docker daemon 是否运行
-      await execAsync("docker info", { timeout: 5000 });
+      const { stdout: infoOut } = await execAsync("docker info", {
+        timeout: 5000,
+      });
+      log.debug(
+        "[DockerSandbox] docker info (first 500 chars):",
+        infoOut.slice(0, 500),
+      );
 
       log.info("[DockerSandbox] Docker 可用，版本:", this.dockerVersion);
       return true;
@@ -319,6 +337,14 @@ export class DockerSandbox extends SandboxManager {
     const timeout = options.timeout || 300000; // 默认 5 分钟
 
     log.info("[DockerSandbox] 执行命令:", sessionId, command, args.join(" "));
+    log.debug("[DockerSandbox] execute detail:", {
+      sessionId,
+      command,
+      args,
+      timeout,
+      cwd: options.cwd,
+      envKeys: options.env ? Object.keys(options.env) : [],
+    });
 
     // 发出执行开始事件
     this.emitEvent("execute:start", { sessionId, command, args });
@@ -698,6 +724,8 @@ export class DockerSandbox extends SandboxManager {
       "/dev/null",
     ];
 
+    log.debug("[DockerSandbox] startContainer args:", args.join(" "));
+
     const { stdout } = await execAsync(`docker ${args.join(" ")}`, {
       timeout: 60000,
     });
@@ -754,6 +782,7 @@ export class DockerSandbox extends SandboxManager {
     // 执行命令
     dockerArgs.push(containerId, command, ...args);
 
+    log.debug("[DockerSandbox] docker exec args:", dockerArgs.join(" "));
     return dockerArgs;
   }
 
@@ -792,6 +821,13 @@ export class DockerSandbox extends SandboxManager {
 
       proc.on("close", (code) => {
         clearTimeout(timer);
+        log.debug("[DockerSandbox] docker exec completed:", {
+          exitCode: code,
+          timedOut,
+          stdoutLen: stdout.length,
+          stderrLen: stderr.length,
+          stderrPreview: stderr.slice(0, 200),
+        });
         resolve({
           stdout,
           stderr,
@@ -802,6 +838,7 @@ export class DockerSandbox extends SandboxManager {
 
       proc.on("error", (error) => {
         clearTimeout(timer);
+        log.debug("[DockerSandbox] docker exec error:", error.message);
         reject(error);
       });
     });

@@ -142,7 +142,11 @@ export function getBundledWindowsCodexHelperPath(): string | null {
   const candidates = [
     path.join(runtimeDir, "bin", "codex-sandbox-helper.exe"),
     path.join(runtimeDir, "windows", "codex-sandbox-helper.exe"),
-    path.join(getResourcesPath(), "windows-sandbox", "codex-sandbox-helper.exe"),
+    path.join(
+      getResourcesPath(),
+      "windows-sandbox",
+      "codex-sandbox-helper.exe",
+    ),
   ];
 
   for (const candidate of candidates) {
@@ -168,7 +172,8 @@ export async function getSandboxCapabilities(): Promise<SandboxCapabilities> {
   const platform = getPlatform();
   const recommendedBackend = getRecommendedBackend(platform);
   const dockerAvailable = await checkCommand("docker");
-  const bwrapCmdAvailable = platform === "linux" ? await checkCommand("bwrap") : false;
+  const bwrapCmdAvailable =
+    platform === "linux" ? await checkCommand("bwrap") : false;
   const bundledBwrap = getBundledLinuxBwrapPath();
   const codexHelper = getBundledWindowsCodexHelperPath();
   const seatbeltPath = "/usr/bin/sandbox-exec";
@@ -207,7 +212,10 @@ export async function getSandboxCapabilities(): Promise<SandboxCapabilities> {
   };
 }
 
-function backendToSandboxType(backend: SandboxBackend, platform: Platform): SandboxType {
+function backendToSandboxType(
+  backend: SandboxBackend,
+  platform: Platform,
+): SandboxType {
   if (backend === "auto") {
     if (platform === "win32") return "windows-codex";
     if (platform === "darwin") return "macos-seatbelt";
@@ -219,7 +227,10 @@ function backendToSandboxType(backend: SandboxBackend, platform: Platform): Sand
   return "windows-codex";
 }
 
-function isBackendAvailable(type: SandboxType, caps: SandboxCapabilities): boolean {
+function isBackendAvailable(
+  type: SandboxType,
+  caps: SandboxCapabilities,
+): boolean {
   switch (type) {
     case "docker":
       return caps.docker.available;
@@ -259,16 +270,40 @@ export async function resolveSandboxType(
   policy: SandboxPolicy,
 ): Promise<{ type: SandboxType; degraded: boolean; reason?: string }> {
   if (!policy.enabled || policy.mode === "off") {
-    return { type: "none", degraded: false, reason: "sandbox policy is disabled" };
+    log.debug(
+      "[SandboxPolicy] resolve: disabled (enabled=%s, mode=%s)",
+      policy.enabled,
+      policy.mode,
+    );
+    return {
+      type: "none",
+      degraded: false,
+      reason: "sandbox policy is disabled",
+    };
   }
 
   const caps = await getSandboxCapabilities();
   const selectedType = backendToSandboxType(policy.backend, caps.platform);
+  log.debug(
+    "[SandboxPolicy] resolve: backend=%s → type=%s, platform=%s",
+    policy.backend,
+    selectedType,
+    caps.platform,
+  );
+
   if (isBackendAvailable(selectedType, caps)) {
+    log.debug("[SandboxPolicy] resolve: backend %s available", selectedType);
     return { type: selectedType, degraded: false };
   }
 
   const reason = getBackendUnavailableReason(selectedType, caps);
+  log.debug(
+    "[SandboxPolicy] resolve: backend %s unavailable, reason=%s, fallback=%s",
+    selectedType,
+    reason,
+    policy.fallback,
+  );
+
   if (policy.fallback === "degrade_to_off") {
     return { type: "none", degraded: true, reason };
   }

@@ -60,6 +60,21 @@ export class CommandSandbox extends SandboxManager {
 
   async init(): Promise<void> {
     await fsp.mkdir(this.config.workspaceRoot, { recursive: true });
+    log.debug("[CommandSandbox] config:", {
+      type: this.config.type,
+      platform: this.config.platform,
+      enabled: this.config.enabled,
+      workspaceRoot: this.config.workspaceRoot,
+      memoryLimit: this.config.memoryLimit,
+      cpuLimit: this.config.cpuLimit,
+      networkEnabled: this.config.networkEnabled,
+      options: {
+        linuxBwrapPath: this.options.linuxBwrapPath,
+        windowsCodexHelperPath: this.options.windowsCodexHelperPath,
+        windowsCodexMode: this.options.windowsCodexMode,
+        windowsCodexPrivateDesktop: this.options.windowsCodexPrivateDesktop,
+      },
+    });
     this.backendAvailable = await this.checkBackendAvailable();
     if (!this.backendAvailable) {
       throw new SandboxError(
@@ -195,9 +210,14 @@ export class CommandSandbox extends SandboxManager {
         command,
         error: error instanceof Error ? error.message : String(error),
       });
-      throw toSandboxError(error, "命令执行失败", SandboxErrorCode.EXECUTION_FAILED, {
-        sessionId,
-      });
+      throw toSandboxError(
+        error,
+        "命令执行失败",
+        SandboxErrorCode.EXECUTION_FAILED,
+        {
+          sessionId,
+        },
+      );
     }
   }
 
@@ -320,26 +340,67 @@ export class CommandSandbox extends SandboxManager {
 
   private async checkBackendAvailable(): Promise<boolean> {
     const type = this.config.type;
-    if (type === "none") return true;
+    if (type === "none") {
+      log.debug("[CommandSandbox] type=none, skipping backend check");
+      return true;
+    }
 
     if (type === "macos-seatbelt") {
-      return process.platform === "darwin" && fs.existsSync("/usr/bin/sandbox-exec");
+      const result =
+        process.platform === "darwin" && fs.existsSync("/usr/bin/sandbox-exec");
+      log.debug("[CommandSandbox] macos-seatbelt check:", {
+        platform: process.platform,
+        exists: fs.existsSync("/usr/bin/sandbox-exec"),
+        result,
+      });
+      return result;
     }
 
     if (type === "linux-bwrap") {
-      if (process.platform !== "linux") return false;
-      if (this.options.linuxBwrapPath && fs.existsSync(this.options.linuxBwrapPath)) {
+      if (process.platform !== "linux") {
+        log.debug(
+          "[CommandSandbox] linux-bwrap: not linux, platform=",
+          process.platform,
+        );
+        return false;
+      }
+      if (
+        this.options.linuxBwrapPath &&
+        fs.existsSync(this.options.linuxBwrapPath)
+      ) {
+        log.debug(
+          "[CommandSandbox] linux-bwrap: bundled path exists:",
+          this.options.linuxBwrapPath,
+        );
         return true;
       }
-      return checkCommand("bwrap");
+      const result = checkCommand("bwrap");
+      log.debug("[CommandSandbox] linux-bwrap: bwrap in PATH:", result);
+      return result;
     }
 
     if (type === "windows-codex") {
-      if (process.platform !== "win32") return false;
-      return !!this.options.windowsCodexHelperPath
-        && fs.existsSync(this.options.windowsCodexHelperPath);
+      if (process.platform !== "win32") {
+        log.debug(
+          "[CommandSandbox] windows-codex: not win32, platform=",
+          process.platform,
+        );
+        return false;
+      }
+      const result =
+        !!this.options.windowsCodexHelperPath &&
+        fs.existsSync(this.options.windowsCodexHelperPath);
+      log.debug("[CommandSandbox] windows-codex check:", {
+        helperPath: this.options.windowsCodexHelperPath,
+        exists: this.options.windowsCodexHelperPath
+          ? fs.existsSync(this.options.windowsCodexHelperPath)
+          : false,
+        result,
+      });
+      return result;
     }
 
+    log.debug("[CommandSandbox] unknown type:", type);
     return false;
   }
 
@@ -400,6 +461,13 @@ export class CommandSandbox extends SandboxManager {
         command,
         ...args,
       ];
+      log.debug("[CommandSandbox] linux-bwrap invocation:", {
+        bwrapPath,
+        argsCount: bwrapArgs.length,
+        networkEnabled: this.config.networkEnabled,
+        workspaceRoot: workspace.rootPath,
+        cwd,
+      });
       return {
         command: bwrapPath,
         args: bwrapArgs,
@@ -423,12 +491,20 @@ export class CommandSandbox extends SandboxManager {
         this.options.windowsCodexMode ?? "unelevated",
         "--cwd",
         cwd,
-        ...(this.options.windowsCodexPrivateDesktop ? ["--private-desktop"] : []),
+        ...(this.options.windowsCodexPrivateDesktop
+          ? ["--private-desktop"]
+          : []),
         "--",
         command,
         ...args,
       ];
 
+      log.debug("[CommandSandbox] windows-codex invocation:", {
+        helper,
+        mode: this.options.windowsCodexMode ?? "unelevated",
+        privateDesktop: this.options.windowsCodexPrivateDesktop,
+        cwd,
+      });
       return {
         command: helper,
         args: helperArgs,
@@ -457,7 +533,20 @@ export class CommandSandbox extends SandboxManager {
   private async runInvocation(
     invocation: Invocation,
     timeout: number,
-  ): Promise<{ stdout: string; stderr: string; exitCode: number; timedOut: boolean }> {
+  ): Promise<{
+    stdout: string;
+    stderr: string;
+    exitCode: number;
+    timedOut: boolean;
+  }> {
+    log.debug("[CommandSandbox] runInvocation:", {
+      command: invocation.command,
+      args: invocation.args,
+      cwd: invocation.cwd,
+      envKeys: invocation.env ? Object.keys(invocation.env) : [],
+      timeout,
+    });
+
     return new Promise((resolve, reject) => {
       const proc = spawn(invocation.command, invocation.args, {
         cwd: invocation.cwd,
@@ -487,6 +576,13 @@ export class CommandSandbox extends SandboxManager {
 
       proc.on("close", (code) => {
         clearTimeout(timer);
+        log.debug("[CommandSandbox] runInvocation completed:", {
+          exitCode: code,
+          timedOut,
+          stdoutLen: stdout.length,
+          stderrLen: stderr.length,
+          stderrPreview: stderr.slice(0, 200),
+        });
         resolve({
           stdout,
           stderr,
@@ -497,12 +593,15 @@ export class CommandSandbox extends SandboxManager {
 
       proc.on("error", (error) => {
         clearTimeout(timer);
+        log.debug("[CommandSandbox] runInvocation error:", error.message);
         reject(error);
       });
     });
   }
 
-  private async createWorkspaceDirectories(workspaceRoot: string): Promise<void> {
+  private async createWorkspaceDirectories(
+    workspaceRoot: string,
+  ): Promise<void> {
     const dirs = [
       workspaceRoot,
       path.join(workspaceRoot, "projects"),

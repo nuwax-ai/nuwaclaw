@@ -13,7 +13,10 @@ import * as path from "path";
 import { app } from "electron";
 import { DockerSandbox } from "./DockerSandbox";
 import { CommandSandbox } from "./CommandSandbox";
-import { PermissionManager, DEFAULT_PERMISSION_POLICY } from "./PermissionManager";
+import {
+  PermissionManager,
+  DEFAULT_PERMISSION_POLICY,
+} from "./PermissionManager";
 import { WorkspaceManager } from "./WorkspaceManager";
 import type { SandboxManager } from "./SandboxManager";
 import {
@@ -121,7 +124,8 @@ function setupControlService(): void {
       if (!helperPath) {
         return {
           success: false,
-          message: "Windows Codex helper 不存在，请先执行 prepare:sandbox-runtime",
+          message:
+            "Windows Codex helper 不存在，请先执行 prepare:sandbox-runtime",
         };
       }
       return {
@@ -145,6 +149,22 @@ export async function startSandboxService(): Promise<void> {
     activeSandboxType = resolved.type;
     degraded = resolved.degraded;
     degradeReason = resolved.reason;
+
+    log.debug("[SandboxService] resolved:", {
+      type: resolved.type,
+      degraded: resolved.degraded,
+      reason: resolved.reason,
+    });
+    log.debug("[SandboxService] policy:", {
+      enabled: lastPolicy.enabled,
+      mode: lastPolicy.mode,
+      backend: lastPolicy.backend,
+      fallback: lastPolicy.fallback,
+      windows: lastPolicy.windows,
+    });
+    log.debug("[SandboxService] capabilities:", lastCapabilities);
+    log.debug("[SandboxService] workspaceRoot:", getWorkspaceRoot());
+
     sandboxManager = createSandboxManager(activeSandboxType);
     await sandboxManager.init();
 
