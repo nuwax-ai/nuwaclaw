@@ -50,7 +50,7 @@ help:
 	@echo "  electron-dev                - Run Electron dev mode"
 	@echo ""
 	@echo "=== Dependencies ==="
-	@echo "  setup-repo     - Initialize Git submodules"
+	@echo "  setup-repo     - No-op (repository does not use Git submodules)"
 	@echo ""
 	@echo "=== Clean ==="
 	@echo "  clean-electron - Clean Electron build artifacts"
@@ -194,9 +194,7 @@ electron-dev: electron-prepare
 
 .PHONY: setup-repo
 setup-repo:
-	@echo ">>> Initializing Git submodules..."
-	git submodule update --init
-	@echo ">>> Submodules initialized"
+	@echo ">>> setup-repo: skipped — this repository no longer uses Git submodules (vendors/ removed)."
 
 # ============================================================================
 # 清理目标
