@@ -49,6 +49,8 @@ export class WindowsMcpManager {
   private runner: ProcessRunner | null = null;
   private port: number = 0;
   private running: boolean = false;
+  /** 合并并发 start()，避免双实例抢同一端口 */
+  private startInFlight: Promise<StartResult> | null = null;
   private lastError: string | null = null;
   private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
   /** 历史累计重启/失败次数（观测用） */
@@ -87,7 +89,28 @@ export class WindowsMcpManager {
       return { success: true, port: this.port };
     }
 
+    if (this.startInFlight) {
+      return this.startInFlight;
+    }
+
     if (!this.runner) {
+      const error = 'ProcessRunner not set. Call setProcessRunner() first.';
+      this.lastError = error;
+      return { success: false, error };
+    }
+
+    this.startInFlight = this.startImpl(port, buildConfig).finally(() => {
+      this.startInFlight = null;
+    });
+    return this.startInFlight;
+  }
+
+  private async startImpl(
+    port: number,
+    buildConfig: (port: number) => ProcessConfig
+  ): Promise<StartResult> {
+    const runner = this.runner;
+    if (!runner) {
       const error = 'ProcessRunner not set. Call setProcessRunner() first.';
       this.lastError = error;
       return { success: false, error };
@@ -98,7 +121,7 @@ export class WindowsMcpManager {
 
     try {
       // 启动进程
-      const result = await this.runner.start(config);
+      const result = await runner.start(config);
       if (!result.success) {
         this.lastError = result.error || 'Failed to start process';
         return { success: false, error: this.lastError };
@@ -111,7 +134,7 @@ export class WindowsMcpManager {
       });
 
       if (!ready) {
-        await this.runner.stop();
+        await runner.stop();
         this.lastError = 'Service failed to become ready within timeout';
         return { success: false, error: this.lastError };
       }
@@ -129,7 +152,7 @@ export class WindowsMcpManager {
     } catch (error) {
       // 若 runner.start 之后、置 running 之前抛错，避免遗留子进程
       try {
-        await this.runner.stop();
+        await runner.stop();
       } catch {
         /* ignore */
       }

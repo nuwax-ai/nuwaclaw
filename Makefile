@@ -9,6 +9,9 @@
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 
+# 是否在 Windows 宿主上执行 make（Git Bash / MSYS / Cygwin，或 OS=Windows_NT）
+ELECTRON_ON_WINDOWS := $(strip $(filter Windows_NT,$(OS)) $(findstring MINGW,$(UNAME_S)) $(findstring MSYS,$(UNAME_S)) $(findstring CYGWIN,$(UNAME_S)))
+
 # Electron 客户端目录
 ELECTRON_CLIENT := agent-electron-client
 
@@ -40,6 +43,7 @@ help:
 	@echo "  electron-prepare-mcp-proxy - Prepare nuwax-mcp-stdio-proxy for Electron"
 	@echo "  electron-prepare-nuwaxcode  - Prepare bundled nuwaxcode for Electron"
 	@echo "  electron-prepare-gui-server - Prepare agent-gui-server for Electron"
+	@echo "  electron-prepare-sandbox-runtime - Sync Windows sandbox helper (skipped on non-Windows hosts)"
 	@echo "  electron-prepare            - Full prepare (install + rebuild + all binaries)"
 	@echo "  electron-bundle             - Build Electron app (unsigned, current platform)"
 	@echo "  electron-dev                - Run Electron dev mode"
@@ -140,8 +144,20 @@ electron-prepare-gui-server:
 	@echo ">>> Preparing agent-gui-server for Electron..."
 	cd crates/$(ELECTRON_CLIENT) && npm run prepare:gui-server
 
+# prepare:sandbox-runtime 仅同步 Windows helper（非 Windows 开发机跳过）
+ifneq ($(ELECTRON_ON_WINDOWS),)
+.PHONY: electron-prepare-sandbox-runtime
+electron-prepare-sandbox-runtime:
+	@echo ">>> Preparing sandbox runtime for Electron (Windows, prepare:sandbox-runtime)..."
+	cd crates/$(ELECTRON_CLIENT) && npm run prepare:sandbox-runtime
+else
+.PHONY: electron-prepare-sandbox-runtime
+electron-prepare-sandbox-runtime:
+	@echo ">>> Skipping electron-prepare-sandbox-runtime (Windows-only step, host=$(UNAME_S))"
+endif
+
 .PHONY: electron-prepare
-electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-nuwaxcode electron-prepare-gui-server
+electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-nuwaxcode electron-prepare-gui-server electron-prepare-sandbox-runtime
 	@echo ">>> Electron client prepared successfully"
 
 .PHONY: electron-bundle

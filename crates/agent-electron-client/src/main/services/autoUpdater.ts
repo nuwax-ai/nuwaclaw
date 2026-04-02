@@ -21,6 +21,7 @@ import type {
   UpdateProgress,
 } from "@shared/types/updateTypes";
 import { APP_DATA_DIR_NAME } from "@shared/constants";
+import { readSetting } from "../db";
 import {
   getWindowsDownloadUrl,
   getMacosDownloadUrl,
@@ -32,8 +33,11 @@ import {
 
 const OSS_BASE =
   "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron";
-const OSS_LATEST_JSON_URL = `${OSS_BASE}/latest/latest.json`;
+const OSS_STABLE_LATEST_JSON_URL = `${OSS_BASE}/latest/latest.json`;
+const OSS_BETA_LATEST_JSON_URL = `${OSS_BASE}/beta/latest.json`;
 const OFFICIAL_DOWNLOAD_PAGE_URL = "https://nuwax.com/nuwaclaw.html";
+type UpdateChannel = "stable" | "beta";
+const UPDATE_CHANNEL_SETTING_KEY = "update_channel";
 
 /** Squirrel.Mac 在只读卷（如从「下载」直接打开）上无法就地更新时的错误信息特征 */
 const READ_ONLY_VOLUME_ERROR_SUBSTR = "read-only volume";
@@ -50,6 +54,17 @@ interface LatestJson {
     string,
     { url: string; signature?: string; size?: number }
   >;
+}
+
+function getUpdateChannel(): UpdateChannel {
+  const raw = readSetting(UPDATE_CHANNEL_SETTING_KEY);
+  return raw === "beta" ? "beta" : "stable";
+}
+
+function getLatestJsonUrlByChannel(channel: UpdateChannel): string {
+  return channel === "beta"
+    ? OSS_BETA_LATEST_JSON_URL
+    : OSS_STABLE_LATEST_JSON_URL;
 }
 
 /**
@@ -261,6 +276,13 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+/**
+ * MVP 仅支持 x.y.z 纯数字版本，避免 compareVersions 对 prerelease 得到 NaN
+ */
+function isNumericSemver(version: string): boolean {
+  return /^\d+\.\d+\.\d+$/.test(version.trim());
+}
+
 let currentState: UpdateState = { status: "idle" };
 let getMainWindow: (() => BrowserWindow | null) | null = null;
 let cleanupBeforeInstall: (() => void) | null = null;
@@ -328,6 +350,11 @@ async function checkForUpdatesViaLatestJson(): Promise<UpdateInfo> {
 
 async function doCheckViaLatestJson(): Promise<UpdateInfo> {
   const { autoUpdater } = require("electron-updater");
+  const updateChannel = getUpdateChannel();
+  const latestJsonUrl = getLatestJsonUrlByChannel(updateChannel);
+  log.info(
+    `[AutoUpdater] Check updates via channel=${updateChannel}, url=${latestJsonUrl}`,
+  );
   setState({
     status: "checking",
     error: undefined,
@@ -338,17 +365,33 @@ async function doCheckViaLatestJson(): Promise<UpdateInfo> {
   let latestJson: LatestJson;
 
   try {
-    latestJson = await fetchLatestJson(OSS_LATEST_JSON_URL);
+    latestJson = await fetchLatestJson(latestJsonUrl);
   } catch (e: any) {
     log.error(
-      `[AutoUpdater] Failed to fetch latest.json from OSS: ${e.message}`,
+      `[AutoUpdater] Failed to fetch latest.json from OSS(channel=${updateChannel}): ${e.message}`,
     );
     setState({
       status: "error",
-      error: `无法获取更新信息: ${e.message}`,
+      error: `无法获取${updateChannel}通道更新信息: ${e.message}`,
       canAutoUpdate: canAutoUpdate(),
     });
-    return { hasUpdate: false, error: `无法获取更新信息: ${e.message}` };
+    return {
+      hasUpdate: false,
+      error: `无法获取${updateChannel}通道更新信息: ${e.message}`,
+    };
+  }
+
+  if (!isNumericSemver(latestJson.version)) {
+    const msg = `更新元数据版本号不合法（仅支持 x.y.z）: ${latestJson.version}`;
+    log.error(
+      `[AutoUpdater] Invalid latest.json version for channel=${updateChannel}: ${latestJson.version}`,
+    );
+    setState({
+      status: "error",
+      error: msg,
+      canAutoUpdate: canAutoUpdate(),
+    });
+    return { hasUpdate: false, error: msg };
   }
 
   const hasUpdate = compareVersions(latestJson.version, app.getVersion()) > 0;
@@ -357,7 +400,7 @@ async function doCheckViaLatestJson(): Promise<UpdateInfo> {
     // 指向版本化 OSS 路径，electron-updater 从该路径下载安装包
     const versionedUrl = `${OSS_BASE}/electron-v${latestJson.version}`;
     log.info(
-      `[AutoUpdater] New version ${latestJson.version} found via latest.json, setting feed URL: ${versionedUrl}`,
+      `[AutoUpdater] New version ${latestJson.version} found via channel=${updateChannel}, setting feed URL: ${versionedUrl}`,
     );
     autoUpdater.setFeedURL({ provider: "generic", url: versionedUrl });
     // 初始化 electron-updater 内部状态，为后续 downloadUpdate() 做准备
@@ -827,9 +870,14 @@ export async function openReleasesPage(): Promise<void> {
 
   let url: string;
   let platformName: string;
+  const updateChannel = getUpdateChannel();
+  const latestJsonUrl = getLatestJsonUrlByChannel(updateChannel);
 
   try {
-    const latest = await fetchLatestJson(OSS_LATEST_JSON_URL);
+    log.info(
+      `[AutoUpdater] Resolve download URL via channel=${updateChannel}, url=${latestJsonUrl}`,
+    );
+    const latest = await fetchLatestJson(latestJsonUrl);
     const platforms: Platforms | undefined = latest.platforms;
 
     if (process.platform === "darwin") {
@@ -845,12 +893,14 @@ export async function openReleasesPage(): Promise<void> {
     }
 
     log.info(
-      `[AutoUpdater] Opening ${platformName} download URL from OSS: ${url}`,
+      `[AutoUpdater] Opening ${platformName} download URL from OSS(channel=${updateChannel}): ${url}`,
     );
     await shell.openExternal(url);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    log.error(`[AutoUpdater] Failed to get download URL from OSS: ${msg}`);
+    log.error(
+      `[AutoUpdater] Failed to get download URL from OSS(channel=${updateChannel}): ${msg}`,
+    );
     // 弹窗提示用户，不 fallback 到 GitHub
     await showModal({
       type: "error",

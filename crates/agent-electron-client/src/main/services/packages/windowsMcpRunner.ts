@@ -11,7 +11,9 @@ import type {
   StartResult,
   StopResult,
 } from "agent-gui-server";
+import log from "electron-log";
 import { ManagedProcess } from "../../processManager";
+import { killProcessTreeGraceful } from "../utils/processTree";
 
 /**
  * Electron 进程运行器
@@ -49,8 +51,16 @@ export class ElectronProcessRunner implements ProcessRunner {
 
   /**
    * 停止进程
+   *
+   * Windows 上 uv 会拉起 python/windows-mcp 子进程，仅 kill 父进程常导致子进程残留并占用 GUI MCP 端口（10048）。
    */
   async stop(): Promise<StopResult> {
+    const st = this.process.status();
+    if (st.running && st.pid != null) {
+      await killProcessTreeGraceful(st.pid, 5000).catch((e) => {
+        log.warn("[windows-mcp] killProcessTreeGraceful:", e);
+      });
+    }
     const result = await this.process.stopAsync();
     return { success: result.success, error: result.message };
   }

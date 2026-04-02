@@ -51,4 +51,3 @@ crates/nuwax-mcp-stdio-proxy/coverage/
 # Vite build artifact (generated at Electron client root)
 crates/agent-electron-client/index.html
 
-crates/agent-electron-client/harness/

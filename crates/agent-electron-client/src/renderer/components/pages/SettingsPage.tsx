@@ -21,6 +21,7 @@ import {
   message,
   Modal,
   Spin,
+  Tooltip,
 } from "antd";
 import {
   FolderOutlined,
@@ -391,6 +392,16 @@ export default function SettingsPage() {
     }
   };
 
+  const winSandboxCap = sandboxCapabilities?.windowsSandbox;
+  const windowsHelperReady = winSandboxCap?.available === true;
+  const windowsSetupTooltip = windowsHelperReady
+    ? ""
+    : [
+        winSandboxCap?.reason || "helper 未就绪",
+        "请先接入 agent-sandbox-runtime 并在 agent-electron-client 下执行 npm run prepare:sandbox-runtime",
+        "将 codex-sandbox-helper.exe 置于 resources/sandbox-runtime/bin/",
+      ].join("；");
+
   if (loading) {
     return (
       <div style={{ textAlign: "center", padding: 40 }}>
@@ -684,17 +695,30 @@ export default function SettingsPage() {
                   <div>
                     <span className={styles.serviceLabel}>Windows Setup</span>
                     <div className={styles.serviceDescription}>
-                      校验 Codex helper 是否已随运行时接入
+                      校验 Sandbox helper 是否已随运行时接入
                     </div>
                   </div>
                 </div>
-                <Button
-                  size="small"
-                  onClick={handleWindowsSetup}
-                  loading={sandboxSaving}
+                <Tooltip
+                  title={
+                    windowsHelperReady
+                      ? undefined
+                      : windowsSetupTooltip || undefined
+                  }
                 >
-                  执行 setup
-                </Button>
+                  <span>
+                    <Button
+                      size="small"
+                      onClick={handleWindowsSetup}
+                      loading={sandboxSaving}
+                      disabled={
+                        sandboxSaving || sandboxLoading || !windowsHelperReady
+                      }
+                    >
+                      执行 setup
+                    </Button>
+                  </span>
+                </Tooltip>
               </div>
             </>
           )}
@@ -705,11 +729,19 @@ export default function SettingsPage() {
                 <span className={styles.serviceLabel}>状态</span>
                 <div className={styles.serviceDescription}>
                   {sandboxStatus
-                    ? `${sandboxStatus.type} / ${
-                        sandboxStatus.available ? "available" : "unavailable"
-                      }${sandboxStatus.degraded ? " / degraded" : ""}`
+                    ? (() => {
+                        const { type, available, degraded, reason } =
+                          sandboxStatus;
+                        const isolation = degraded
+                          ? "沙箱隔离未生效（已按策略降级）"
+                          : available
+                            ? "沙箱隔离可用"
+                            : "沙箱隔离不可用";
+                        return `后端 ${type} · ${isolation}${
+                          reason ? ` · ${reason}` : ""
+                        }`;
+                      })()
                     : "未加载"}
-                  {sandboxStatus?.reason ? ` (${sandboxStatus.reason})` : ""}
                 </div>
               </div>
             </div>

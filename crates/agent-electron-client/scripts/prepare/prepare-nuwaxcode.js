@@ -218,16 +218,17 @@ async function downloadFromRelease(key) {
     }
     fs.mkdirSync(extractDir, { recursive: true });
 
-    // 在 Windows + Git Bash/MSYS 环境下，tar 通常期望的是 /c/... 形式的路径，
-    // 而 Node 默认返回的是 C:\... 形式，这会导致 "-C <dir>" 找不到目录。
-    // 这里在 win32 平台上将盘符路径转换为 /c/... POSIX 风格，再传给 tar。
+    // Windows：PATH 里常见的是 System32 的 bsdtar，它不认 MSYS 的 /d/a/... 路径，
+    // 只认盘符路径（D:\... 或 D:/...）。Git for Windows 的 GNU tar 也接受 D:/...。
+    // 以前转成 /d/... 只在「明确用到 MSYS tar」时成立，在 GitHub Actions 上会直接导致
+    // “Failed to open …/nuwaxcode-windows-x64.tar.gz”（文件已下载但 tar 打不开）。
     const toTarPath = (p) => {
       if (process.platform !== 'win32') return p;
-      const match = /^[A-Za-z]:[\\/](.*)$/.exec(p);
+      const match = /^([A-Za-z]):[\\/](.*)$/.exec(p);
       if (!match) return p.replace(/\\/g, '/');
-      const drive = p[0].toLowerCase();
-      const rest = match[1].replace(/\\/g, '/');
-      return `/${drive}/${rest}`;
+      const drive = match[1];
+      const rest = match[2].replace(/\\/g, '/');
+      return `${drive}:/${rest}`;
     };
 
     const tarArchivePath = toTarPath(archivePath);

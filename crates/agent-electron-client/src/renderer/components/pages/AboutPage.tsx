@@ -9,7 +9,15 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Button, Progress, message, Space, Modal } from "antd";
+import {
+  Button,
+  Progress,
+  message,
+  Space,
+  Modal,
+  Select,
+  Typography,
+} from "antd";
 import {
   SyncOutlined,
   DownloadOutlined,
@@ -27,6 +35,8 @@ const SIMULATED_PROGRESS_CAP = 90;
 const SIMULATED_PROGRESS_INTERVAL_MS = 500;
 /** 预计下载时长（ms），用于计算每 tick 的增量，约 45s 内从 0 到 SIMULATED_PROGRESS_CAP */
 const SIMULATED_DURATION_MS = 45_000;
+type UpdateChannel = "stable" | "beta";
+const UPDATE_CHANNEL_SETTING_KEY = "update_channel";
 
 export default function AboutPage() {
   const [updateState, setUpdateState] = useState<UpdateState>({
@@ -42,6 +52,8 @@ export default function AboutPage() {
   /** 调试模式：显示升级检测详细信息 */
   const [showDebugInfo, setShowDebugInfo] = useState(false);
   const [debugInfo, setDebugInfo] = useState<any>(null);
+  const [updateChannel, setUpdateChannel] = useState<UpdateChannel>("stable");
+  const [channelLoading, setChannelLoading] = useState(false);
 
   // 监听主进程推送的更新状态
   // 注意：preload 的 on() 已剥离 IPC event，callback 直接收到 (...args)
@@ -58,10 +70,41 @@ export default function AboutPage() {
     window.electronAPI?.app?.getUpdateState?.()?.then((state) => {
       if (state) setUpdateState(state);
     });
+    // 读取更新通道；旧版本默认按 stable 处理，避免影响已安装用户行为
+    window.electronAPI?.settings
+      .get(UPDATE_CHANNEL_SETTING_KEY)
+      .then((saved) => {
+        setUpdateChannel(saved === "beta" ? "beta" : "stable");
+      })
+      .catch(() => {
+        setUpdateChannel("stable");
+      });
     return () => {
       window.electronAPI?.off("update:status", handler as any);
     };
   }, []);
+
+  const handleChangeUpdateChannel = useCallback(
+    async (nextChannel: UpdateChannel) => {
+      if (nextChannel === updateChannel) return;
+      setChannelLoading(true);
+      try {
+        await window.electronAPI?.settings.set(
+          UPDATE_CHANNEL_SETTING_KEY,
+          nextChannel,
+        );
+        setUpdateChannel(nextChannel);
+        message.success(
+          `已切换到${nextChannel === "beta" ? "预发测试版" : "稳定正式版"}通道`,
+        );
+      } catch {
+        message.error("更新通道切换失败，请稍后重试");
+      } finally {
+        setChannelLoading(false);
+      }
+    },
+    [updateChannel],
+  );
 
   // macOS/Linux：Squirrel 不发送 download-progress，用定时器模拟进度使进度条有变化
   useEffect(() => {
@@ -419,6 +462,44 @@ export default function AboutPage() {
           </span>
         </div>
         <div style={{ marginTop: 24 }}>{renderUpdateSection()}</div>
+        <div
+          style={{
+            marginTop: 16,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+            flexWrap: "wrap",
+          }}
+        >
+          <Typography.Text
+            style={{ fontSize: 12, color: "var(--color-text-secondary)" }}
+          >
+            更新通道
+          </Typography.Text>
+          <Select<UpdateChannel>
+            size="small"
+            value={updateChannel}
+            loading={channelLoading}
+            style={{ width: 180, textAlign: "left" }}
+            onChange={handleChangeUpdateChannel}
+            options={[
+              { value: "stable", label: "稳定正式版（默认）" },
+              { value: "beta", label: "预发测试版（内测）" },
+            ]}
+          />
+        </div>
+        <div
+          style={{
+            marginTop: 8,
+            fontSize: 12,
+            color: "var(--color-text-tertiary)",
+            lineHeight: 1.5,
+          }}
+        >
+          预发测试版可能包含未验证改动。未设置时默认
+          stable，不影响已安装旧版本客户端的默认更新行为。
+        </div>
       </div>
 
       {/* 调试面板 */}
