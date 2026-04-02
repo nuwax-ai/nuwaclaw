@@ -34,7 +34,7 @@ import type {
 import {
   DEFAULT_SANDBOX_POLICY,
   getBundledLinuxBwrapPath,
-  getBundledWindowsCodexHelperPath,
+  getBundledWindowsRestrictedHelperPath,
   getSandboxCapabilities,
   getSandboxPolicy,
   resolveSandboxType,
