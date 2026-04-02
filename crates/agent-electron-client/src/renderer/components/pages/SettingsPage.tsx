@@ -465,6 +465,16 @@ export default function SettingsPage() {
                   <InputNumber min={1} max={65535} style={{ width: "100%" }} />
                 </Form.Item>
               </Col>
+              <Col span={8}>
+                <Form.Item
+                  name="adminServerPort"
+                  label="管理服务端口"
+                  rules={[{ required: false, message: "请输入端口" }]}
+                  extra="默认 60007，用于重启服务等管理接口"
+                >
+                  <InputNumber min={1} max={65535} style={{ width: "100%" }} />
+                </Form.Item>
+              </Col>
             </Row>
 
             <Form.Item

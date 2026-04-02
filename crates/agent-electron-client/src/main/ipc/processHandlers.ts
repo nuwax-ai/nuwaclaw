@@ -3,10 +3,8 @@ import * as fs from "fs";
 import log from "electron-log";
 import { z } from "zod";
 import type { HandlerContext } from "@shared/types/ipc";
-import {
-  createServiceManager,
-  checkLanproxyHealth,
-} from "../window/serviceManager";
+import { createServiceManager } from "../window/serviceManager";
+import { checkLanproxyHealth } from "../services/packages/lanproxyHealth";
 
 export const lanproxyConfigSchema = z.object({
   serverIp: z.string().min(1),
@@ -270,6 +268,23 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   ipcMain.handle("computerServer:stop", async () => {
     const { stopComputerServer } = await import("../services/computerServer");
     await stopComputerServer();
+    return { success: true };
+  });
+
+  // Admin Server handlers (管理接口服务)
+  ipcMain.handle("adminServer:status", async () => {
+    const { getAdminServerStatus } = await import("../services/computerServer");
+    return getAdminServerStatus();
+  });
+
+  ipcMain.handle("adminServer:start", async (_, port?: number) => {
+    const { startAdminServer } = await import("../services/computerServer");
+    return startAdminServer(port);
+  });
+
+  ipcMain.handle("adminServer:stop", async () => {
+    const { stopAdminServer } = await import("../services/computerServer");
+    await stopAdminServer();
     return { success: true };
   });
 

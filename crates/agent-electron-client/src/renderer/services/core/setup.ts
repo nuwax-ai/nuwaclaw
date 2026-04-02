@@ -14,10 +14,12 @@ import {
   DEFAULT_AGENT_RUNNER_PORT,
   DEFAULT_FILE_SERVER_PORT,
   DEFAULT_GUI_MCP_PORT,
+  DEFAULT_ADMIN_SERVER_PORT,
   STORAGE_KEYS,
   AUTH_KEYS,
   DEFAULT_AI_ENGINE,
 } from "@shared/constants";
+import { logger } from "../utils/logService";
 
 // ==================== Types =============
 export interface Step1Config {
@@ -25,6 +27,7 @@ export interface Step1Config {
   agentPort: number;
   fileServerPort: number;
   guiMcpPort: number;
+  adminServerPort?: number;
   workspaceDir: string;
 }
 
@@ -63,6 +66,7 @@ export const DEFAULT_STEP1_CONFIG: Step1Config = {
   agentPort: DEFAULT_AGENT_RUNNER_PORT,
   fileServerPort: DEFAULT_FILE_SERVER_PORT,
   guiMcpPort: DEFAULT_GUI_MCP_PORT,
+  adminServerPort: DEFAULT_ADMIN_SERVER_PORT,
   workspaceDir: "",
 };
 

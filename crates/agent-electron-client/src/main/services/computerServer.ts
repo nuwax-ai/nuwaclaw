@@ -936,80 +936,6 @@ async function handleRequest(
       return;
     }
 
-    // GET /services/lanproxy-health — 检查代理服务通道健康状态
-    if (pathname === "/services/lanproxy-health" && method === "GET") {
-      const { readSetting } = await import("../db");
-      const savedKey = readSetting("auth.saved_key") as string | null;
-      if (!savedKey) {
-        sendJson(res, 200, { healthy: false, error: "未配置 savedKey" });
-        return;
-      }
-      const { checkLanproxyHealth } = await import("../window/serviceManager");
-      const health = await checkLanproxyHealth(savedKey);
-      sendJson(res, 200, health);
-      return;
-    }
-
-    // POST /services/restart — 重启除 Lanproxy 外的所有服务
-    if (pathname === "/services/restart" && method === "POST") {
-      log.info("[HTTP] /services/restart called");
-
-      // 先停止 Computer Server（它自己）
-      await stopComputerServer();
-
-      // 通过 getServiceManager 获取已创建的 serviceManager
-      const { getServiceManager } = await import("../ipc/processHandlers");
-      const serviceManager = getServiceManager();
-      if (!serviceManager) {
-        sendJson(res, 500, {
-          code: "1002",
-          message: "ServiceManager 未初始化",
-          data: null,
-        });
-        return;
-      }
-
-      const base = await serviceManager.restartAllServicesExceptLanproxy();
-
-      // 重新启动 Computer Server
-      const { getConfiguredPorts } = await import("./startupPorts");
-      const { agent: agentPort } = getConfiguredPorts();
-      const { startComputerServer } = await import("./computerServer");
-      let csResult: { success: boolean; error?: string };
-      try {
-        await startComputerServer(agentPort);
-        csResult = { success: true };
-      } catch (e) {
-        csResult = { success: false, error: String(e) };
-      }
-
-      const results: Record<string, { success: boolean; error?: string }> = {
-        ...base.results,
-        computerServer: csResult,
-      };
-
-      // 检查是否有失败的服务
-      const failedServices = Object.entries(results)
-        .filter(([, v]) => !v.success)
-        .map(([k, v]) => `${k}: ${v.error}`)
-        .join("; ");
-
-      if (failedServices) {
-        sendJson(res, 200, {
-          code: "1001",
-          message: `部分服务启动失败: ${failedServices}`,
-          data: results,
-        });
-      } else {
-        sendJson(res, 200, {
-          code: "0000",
-          message: "success",
-          data: results,
-        });
-      }
-      return;
-    }
-
     // 404
     sendJson(res, 404, httpError("NOT_FOUND", `Path not found: ${pathname}`));
   } catch (error: any) {
@@ -1254,6 +1180,215 @@ export function getComputerServerStatus(): {
     return { running: false, error: lastError || undefined };
   }
   const addr = server.address();
+  return {
+    running: true,
+    port: typeof addr === "object" && addr ? addr.port : undefined,
+  };
+}
+
+// ==================== Admin Server (管理接口) ====================
+
+import { BrowserWindow } from "electron";
+import { DEFAULT_ADMIN_SERVER_PORT } from "@shared/constants";
+import { checkLanproxyHealth } from "./packages/lanproxyHealth";
+
+let adminServer: http.Server | null = null;
+
+/** 获取主窗口 */
+const getMainWindow = () => BrowserWindow.getAllWindows()[0];
+
+/** 通知渲染进程服务正在重启 */
+const notifyServicesRestarting = () => {
+  getMainWindow()?.webContents.send("admin:servicesRestarting");
+};
+
+/** 通知渲染进程服务重启完成 */
+const notifyServicesRestarted = (
+  results: Record<string, { success: boolean; error?: string }>,
+) => {
+  const hasFailure = Object.values(results).some((r) => !r.success);
+  getMainWindow()?.webContents.send("admin:servicesRestarted", {
+    success: !hasFailure,
+    results,
+  });
+};
+
+/**
+ * Admin Server 请求处理
+ */
+async function handleAdminRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  const url = new URL(
+    req.url || "/",
+    `http://localhost:${DEFAULT_ADMIN_SERVER_PORT}`,
+  );
+  const pathname = url.pathname;
+  const method = req.method || "GET";
+
+  const sendJson = (status: number, data: unknown) => {
+    res.writeHead(status, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(JSON.stringify(data));
+  };
+
+  try {
+    // GET /admin/health — Admin Server 自身健康检查
+    if (pathname === "/admin/health" && method === "GET") {
+      sendJson(200, { status: "ok", timestamp: Date.now() });
+      return;
+    }
+
+    // GET /admin/health/lanproxy — 检查代理服务通道健康状态
+    if (pathname === "/admin/health/lanproxy" && method === "GET") {
+      const { readSetting } = await import("../db");
+      const savedKey = readSetting("auth.saved_key") as string | null;
+      if (!savedKey) {
+        sendJson(200, { healthy: false, error: "未配置 savedKey" });
+        return;
+      }
+      const health = await checkLanproxyHealth(savedKey);
+      sendJson(200, health);
+      return;
+    }
+
+    // POST /admin/services/restart — 重启除 Lanproxy 外的所有服务
+    if (pathname === "/admin/services/restart" && method === "POST") {
+      log.info("[AdminServer] /admin/services/restart called");
+
+      // 通知渲染进程服务正在重启
+      notifyServicesRestarting();
+
+      const { getServiceManager } = await import("../ipc/processHandlers");
+      const serviceManager = getServiceManager();
+      if (!serviceManager) {
+        sendJson(500, {
+          code: "1002",
+          message: "ServiceManager 未初始化",
+          data: null,
+        });
+        return;
+      }
+
+      // 1. 先重启其他服务
+      const base = await serviceManager.restartAllServicesExceptLanproxy();
+
+      // 2. 停止 Computer Server
+      await stopComputerServer();
+
+      // 3. 重新启动 Computer Server
+      const { getConfiguredPorts } = await import("./startupPorts");
+      const { agent: agentPort } = getConfiguredPorts();
+      let csResult: { success: boolean; error?: string };
+      try {
+        await startComputerServer(agentPort);
+        csResult = { success: true };
+      } catch (e) {
+        csResult = { success: false, error: String(e) };
+      }
+
+      const results: Record<string, { success: boolean; error?: string }> = {
+        ...base.results,
+        computerServer: csResult,
+      };
+
+      // 通知渲染进程服务重启完成
+      notifyServicesRestarted(results);
+
+      // 检查是否有失败的服务
+      const failedServices = Object.entries(results)
+        .filter(([, v]) => !v.success)
+        .map(([k, v]) => `${k}: ${v.error}`)
+        .join("; ");
+
+      if (failedServices) {
+        sendJson(200, {
+          code: "1001",
+          message: `部分服务启动失败: ${failedServices}`,
+          data: results,
+        });
+      } else {
+        sendJson(200, {
+          code: "0000",
+          message: "success",
+          data: results,
+        });
+      }
+      return;
+    }
+
+    // 404
+    sendJson(404, { code: "404", message: `Path not found: ${pathname}` });
+  } catch (error: any) {
+    log.error(`[AdminServer] 请求处理异常: ${pathname}`, error);
+    sendJson(500, {
+      code: "1003",
+      message: error.message || "Internal error",
+      data: null,
+    });
+  }
+}
+
+/**
+ * 启动 Admin Server
+ */
+export async function startAdminServer(
+  port?: number,
+): Promise<{ success: boolean; error?: string; port?: number }> {
+  const actualPort = port || DEFAULT_ADMIN_SERVER_PORT;
+  if (adminServer) {
+    return { success: true, port: actualPort };
+  }
+
+  return new Promise((resolve) => {
+    adminServer = http.createServer(handleAdminRequest);
+
+    adminServer.on("error", (err: NodeJS.ErrnoException) => {
+      log.error("[AdminServer] Server error:", err);
+      const errorMsg =
+        err.code === "EADDRINUSE"
+          ? `Port ${actualPort} already in use`
+          : err.message;
+      adminServer = null;
+      resolve({ success: false, error: errorMsg, port: actualPort });
+    });
+
+    adminServer.listen(actualPort, "127.0.0.1", () => {
+      log.info(`[AdminServer] Listening on 127.0.0.1:${actualPort}`);
+      resolve({ success: true, port: actualPort });
+    });
+  });
+}
+
+/**
+ * 停止 Admin Server
+ */
+export async function stopAdminServer(): Promise<void> {
+  if (!adminServer) return;
+
+  return new Promise((resolve) => {
+    adminServer!.close(() => {
+      log.info("[AdminServer] Stopped");
+      adminServer = null;
+      resolve();
+    });
+  });
+}
+
+/**
+ * 获取 Admin Server 状态
+ */
+export function getAdminServerStatus(): {
+  running: boolean;
+  port?: number;
+} {
+  if (!adminServer || !adminServer.listening) {
+    return { running: false };
+  }
+  const addr = adminServer.address();
   return {
     running: true,
     port: typeof addr === "object" && addr ? addr.port : undefined,

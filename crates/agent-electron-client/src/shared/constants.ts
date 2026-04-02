@@ -32,6 +32,9 @@ export const DEFAULT_LANPROXY_PORT = 60002;
 /** GUI Agent MCP 默认端口 */
 export const DEFAULT_GUI_MCP_PORT = 60008;
 
+/** Admin Server 默认端口（管理接口） */
+export const DEFAULT_ADMIN_SERVER_PORT = 60007;
+
 /** 开发服务器默认端口 */
 export const DEFAULT_DEV_SERVER_PORT = 60173;
 
