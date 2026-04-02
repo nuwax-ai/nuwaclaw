@@ -16,6 +16,8 @@ import {
   LOCAL_HOST_URL,
   DEFAULT_AGENT_RUNNER_PORT,
   DEFAULT_FILE_SERVER_PORT,
+  DEFAULT_GUI_MCP_PORT,
+  DEFAULT_ADMIN_SERVER_PORT,
 } from "@shared/constants";
 import { syncSessionCookie } from "../utils/sessionUrl";
 import { logger } from "../utils/logService";
@@ -180,6 +182,8 @@ async function getLocalSandboxValue(): Promise<SandboxValue> {
   )) as {
     agentPort?: number;
     fileServerPort?: number;
+    guiMcpPort?: number;
+    adminServerPort?: number;
   } | null;
 
   return {
@@ -187,6 +191,8 @@ async function getLocalSandboxValue(): Promise<SandboxValue> {
     agentPort: step1Config?.agentPort ?? DEFAULT_AGENT_RUNNER_PORT,
     vncPort: 0, // vncPort 未启用
     fileServerPort: step1Config?.fileServerPort ?? DEFAULT_FILE_SERVER_PORT,
+    guiMcpPort: step1Config?.guiMcpPort ?? DEFAULT_GUI_MCP_PORT,
+    adminServerPort: step1Config?.adminServerPort ?? DEFAULT_ADMIN_SERVER_PORT,
     apiKey: "",
     maxUsers: 1,
   };
@@ -447,7 +453,6 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
 
   try {
     logger.info("重新注册客户端（使用 savedKey）...", "Auth");
-
 
     const deviceId = await window.electronAPI?.app.getDeviceId();
     const params: ClientRegisterParams = {

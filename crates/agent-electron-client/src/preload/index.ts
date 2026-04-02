@@ -218,6 +218,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     status: () => ipcRenderer.invoke("guiServer:status"),
   },
 
+  // Admin Server lifecycle (管理接口服务)
+  adminServer: {
+    start: (port?: number) => ipcRenderer.invoke("adminServer:start", port),
+    stop: () => ipcRenderer.invoke("adminServer:stop"),
+    status: () => ipcRenderer.invoke("adminServer:status"),
+  },
+
   // Computer API (对齐 rcoder /computer/* API)
   computer: {
     chat: (request: any) => ipcRenderer.invoke("computer:chat", request),
@@ -511,6 +518,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "memory:sync",
       "memory:consolidation",
       "memory:cleanup",
+      "admin:servicesRestarting",
+      "admin:servicesRestarted",
     ];
     if (validChannels.includes(channel)) {
       const wrapper = (_: unknown, ...args: unknown[]) => callback(...args);

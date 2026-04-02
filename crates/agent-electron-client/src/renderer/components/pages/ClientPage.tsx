@@ -384,6 +384,13 @@ function ClientPage({
         result = await window.electronAPI?.mcp.start();
       } else if (key === "guiServer") {
         result = await window.electronAPI?.guiServer?.start();
+      } else if (key === "adminServer") {
+        const step1 = (await window.electronAPI?.settings.get(
+          "step1_config",
+        )) as { adminServerPort?: number } | null;
+        result = await window.electronAPI?.adminServer?.start(
+          step1?.adminServerPort,
+        );
       }
 
       await onRefreshServices();
@@ -429,6 +436,8 @@ function ClientPage({
       else if (key === "lanproxy") await window.electronAPI?.lanproxy.stop();
       else if (key === "mcpProxy") await window.electronAPI?.mcp.stop();
       else if (key === "guiServer") await window.electronAPI?.guiServer?.stop();
+      else if (key === "adminServer")
+        await window.electronAPI?.adminServer?.stop();
     } catch (error) {
       message.error(`停止失败: ${error}`);
     } finally {

@@ -7,7 +7,15 @@ import React, {
   createContext,
   useContext,
 } from "react";
-import { ConfigProvider, Menu, Badge, Spin, Button, notification } from "antd";
+import {
+  ConfigProvider,
+  Menu,
+  Badge,
+  Spin,
+  Button,
+  notification,
+  message,
+} from "antd";
 import type { PresetStatusColorType } from "antd/es/_util/colors";
 import {
   SettingOutlined,
@@ -20,7 +28,12 @@ import {
   ArrowLeftOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
-import { setupService, authService, Step1Config } from "./services/core/setup";
+import {
+  setupService,
+  authService,
+  Step1Config,
+  DEFAULT_STEP1_CONFIG,
+} from "./services/core/setup";
 import {
   syncConfigToServer,
   normalizeServerHost,
@@ -95,6 +108,7 @@ export interface ServiceItem {
   description: string;
   running: boolean;
   pid?: number;
+  port?: number;
   error?: string;
 }
 
@@ -105,6 +119,7 @@ export interface ServiceItem {
 async function applyQuickInitToDb(config: QuickInitConfig): Promise<void> {
   // 1. 更新 step1 配置
   const step1: Step1Config = {
+    ...DEFAULT_STEP1_CONFIG,
     serverHost: normalizeServerHost(config.serverHost),
     agentPort: config.agentPort,
     fileServerPort: config.fileServerPort,
@@ -257,9 +272,15 @@ function App() {
     }
 
     try {
+      message.loading({ content: "正在重启服务…", key: "restart-services" });
       await window.electronAPI?.services.restartAll();
+      message.success({ content: "服务已重启", key: "restart-services" });
     } catch (e) {
       console.error("[App] 重启服务失败:", e);
+      message.error({
+        content: "重启服务失败",
+        key: "restart-services",
+      });
     }
   }, []);
 
@@ -449,6 +470,7 @@ function App() {
         mcpStatus,
         csStatus,
         guiStatus,
+        adminStatus,
       ] = await Promise.all([
         window.electronAPI?.fileServer.status(),
         window.electronAPI?.lanproxy.status(),
@@ -456,6 +478,7 @@ function App() {
         window.electronAPI?.mcp.status(),
         window.electronAPI?.computerServer.status(),
         window.electronAPI?.guiServer?.status(),
+        window.electronAPI?.adminServer?.status(),
       ]);
       items.push({
         key: "mcpProxy",
@@ -506,6 +529,14 @@ function App() {
         pid: lpStatus?.pid,
         // 优先显示健康检查错误，其次显示进程错误
         error: lanproxyHealthErrorRef.current ?? lpStatus?.error,
+      });
+      items.push({
+        key: "adminServer",
+        label: "管理服务",
+        description: "管理接口服务（重启/健康检查）",
+        running: adminStatus?.running ?? false,
+        port: adminStatus?.port,
+        error: adminStatus?.error,
       });
       setServices(items);
     } catch (error) {
@@ -777,14 +808,14 @@ function App() {
           return;
         }
 
-        // 获取 agent port
+        // 获取 admin server port
         const step1 = (await window.electronAPI?.settings.get(
           "step1_config",
-        )) as { agentPort?: number } | null;
-        const agentPort = step1?.agentPort ?? 60006;
+        )) as { adminServerPort?: number } | null;
+        const adminPort = step1?.adminServerPort ?? 60007;
 
         const resp = await fetch(
-          `http://127.0.0.1:${agentPort}/services/lanproxy-health`,
+          `http://127.0.0.1:${adminPort}/admin/health/lanproxy`,
           { signal: AbortSignal.timeout(15000) },
         );
         const health = (await resp.json()) as {
@@ -875,6 +906,58 @@ function App() {
     window.electronAPI.on("menu:new-session", handleNewSession);
     cleanupHandlers.push(() =>
       window.electronAPI?.off("menu:new-session", handleNewSession),
+    );
+
+    // 监听 Admin Server 服务正在重启
+    const handleServicesRestarting = () => {
+      console.log("[App] 收到 admin:servicesRestarting 事件");
+      message.loading({
+        content: "服务正在重启…",
+        key: "admin-restart",
+        duration: 0,
+      });
+    };
+    window.electronAPI.on("admin:servicesRestarting", handleServicesRestarting);
+    cleanupHandlers.push(() =>
+      window.electronAPI?.off(
+        "admin:servicesRestarting",
+        handleServicesRestarting,
+      ),
+    );
+
+    // 监听 Admin Server 服务重启完成
+    const handleServicesRestarted = (data: {
+      success: boolean;
+      results: Record<string, { success: boolean; error?: string }>;
+    }) => {
+      console.log("[App] 收到 admin:servicesRestarted 事件", data);
+      if (data.success) {
+        message.success({
+          content: "服务重启成功",
+          key: "admin-restart",
+          duration: 3,
+        });
+      } else {
+        const failed = Object.entries(data.results)
+          .filter(([, v]) => !v.success)
+          .map(([k]) => k)
+          .join(", ");
+        message.error({
+          content: `服务重启失败: ${failed}`,
+          key: "admin-restart",
+          duration: 5,
+        });
+      }
+    };
+    window.electronAPI.on(
+      "admin:servicesRestarted",
+      handleServicesRestarted as any,
+    );
+    cleanupHandlers.push(() =>
+      window.electronAPI?.off(
+        "admin:servicesRestarted",
+        handleServicesRestarted as any,
+      ),
     );
 
     return () => {

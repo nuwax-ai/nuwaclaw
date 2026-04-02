@@ -162,6 +162,8 @@ export interface SandboxValue {
   agentPort: number;
   vncPort: number;
   fileServerPort: number;
+  guiMcpPort: number;
+  adminServerPort: number;
   apiKey?: string;
   maxUsers?: number;
 }
