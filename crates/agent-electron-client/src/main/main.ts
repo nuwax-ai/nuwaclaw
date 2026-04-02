@@ -18,6 +18,8 @@ import { runStartupTasks } from "./bootstrap/startup";
 import { agentService } from "./services/engines/unifiedAgent";
 import { stopComputerServer } from "./services/computerServer";
 import { mcpProxyManager } from "./services/packages/mcp";
+import { stopGuiAgentServer } from "./services/packages/guiAgentServer";
+import { stopWindowsMcp } from "./services/packages/windowsMcp";
 import type { HandlerContext } from "@shared/types/ipc";
 import { DEFAULT_DEV_SERVER_PORT } from "./services/constants";
 import { APP_DISPLAY_NAME, CLEANUP_TIMEOUT } from "@shared/constants";
@@ -163,6 +165,7 @@ function shouldInjectWebviewPerfBridge(url: string): boolean {
 const lanproxy = new ManagedProcess("lanproxy");
 const fileServer = new ManagedProcess("fileServer");
 const agentRunner = new ManagedProcess("agentRunner");
+const guiServer = new ManagedProcess("gui-agent-server");
 let agentRunnerPorts: { backendPort: number; proxyPort: number } | null = null;
 
 function createWindow() {
@@ -345,11 +348,26 @@ async function cleanupAllProcesses(): Promise<void> {
   agentRunner.kill();
   lanproxy.kill();
   fileServer.kill();
+  guiServer.kill();
 
   try {
     await mcpProxyManager.cleanup();
   } catch (e) {
     log.warn("[Cleanup] MCP proxy cleanup error:", e);
+  }
+
+  // Windows：windows-mcp（uv/python）由独立 ManagedProcess 管理，main 里的 guiServer.kill() 不会结束它
+  try {
+    await stopWindowsMcp();
+  } catch (e) {
+    log.warn("[Cleanup] Windows MCP stop error:", e);
+  }
+
+  // 非 Windows：agent-gui-server 进程
+  try {
+    await stopGuiAgentServer();
+  } catch (e) {
+    log.warn("[Cleanup] GUI Agent server stop error:", e);
   }
 
   try {
@@ -394,9 +412,14 @@ app.whenReady().then(async () => {
           // Keep only the specific origin (not '*')
           const specific = headers[acoKey].find((v) => v !== "*");
           headers[acoKey] = [specific || "*"];
+          // 仅在确实修改了 ACO 时才回传 responseHeaders，
+          // 避免无条件替换导致 Set-Cookie 被 Chromium 网络服务丢弃
+          callback({ responseHeaders: headers });
+          return;
         }
       }
-      callback({ responseHeaders: headers });
+      // 未修改任何 header → 不传 responseHeaders，Chromium 原样传递
+      callback({});
     });
     log.info("Dev CORS fix enabled");
   }
@@ -434,6 +457,7 @@ app.whenReady().then(async () => {
     lanproxy,
     fileServer,
     agentRunner,
+    guiServer,
     get agentRunnerPorts() {
       return agentRunnerPorts;
     },

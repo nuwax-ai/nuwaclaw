@@ -12,8 +12,14 @@ import * as path from "path";
 import * as fs from "fs";
 import log from "electron-log";
 import type { ChildProcess } from "child_process";
+import { FEATURES } from "@shared/featureFlags";
+import { getGuiAgentServerUrl } from "@main/services/packages/guiAgentServer";
+import { getWindowsMcpUrl } from "@main/services/packages/windowsMcp";
+import { isWindows } from "@main/services/system/shellEnv";
 import {
   createAcpConnection,
+  getMcpTransportSnapshot,
+  isMcpReconnectWindowActive,
   loadAcpSdk,
   resolveAcpBinary,
   type AcpClientSideConnection,
@@ -57,6 +63,7 @@ import { processRegistry } from "../../system/processRegistry";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ACP_ABORT_TIMEOUT } from "@shared/constants";
 import { perfEmitter } from "../perf/perfEmitter";
+import { firstTokenTrace } from "../perf/firstTokenTrace";
 
 /** Safe JSON.stringify that handles circular references */
 function safeStringify(obj: unknown): string {
@@ -66,6 +73,14 @@ function safeStringify(obj: unknown): string {
     return String(obj);
   }
 }
+
+const MCP_RETRY_DELAY_MS = 1200;
+const MCP_RECONNECT_WINDOW_MS = 4000;
+const MCP_RECONNECT_PROMPT_MESSAGE = "MCP 连接抖动，正在自动重连，请稍后重试";
+const NUWAX_MCP_INIT_POLICY_DEFAULT: NonNullable<
+  PromptOptions["mcpInitPolicy"]
+> = "non_blocking";
+const NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT = 500;
 
 interface AcpSession {
   id: string;
@@ -140,6 +155,78 @@ export class AcpEngine extends EventEmitter {
     return this.activePromptSessions.size;
   }
 
+  private toErrorMessage(error: unknown): string {
+    return error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null
+        ? safeStringify(error)
+        : String(error);
+  }
+
+  private isPromptCancellationError(errorMsg: string): boolean {
+    const lower = errorMsg.toLowerCase();
+    return (
+      lower.includes("session is terminating") ||
+      lower.includes("abort") ||
+      lower.includes("cancel") ||
+      errorMsg.includes("会话已取消")
+    );
+  }
+
+  private isMcpReconnectErrorMessage(errorMsg: string): boolean {
+    const lower = errorMsg.toLowerCase();
+    return (
+      (lower.includes("transport error") &&
+        (lower.includes("sse stream disconnected") ||
+          lower.includes("typeerror: terminated"))) ||
+      lower.includes("sse stream disconnected") ||
+      lower.includes("typeerror: terminated") ||
+      lower.includes("mcp session reconnected") ||
+      lower.includes("connection terminated") ||
+      lower.includes("stream disconnected")
+    );
+  }
+
+  private isMcpReconnectFailure(errorMsg: string): boolean {
+    if (this.engineName !== "nuwaxcode") return false;
+    return (
+      this.isMcpReconnectErrorMessage(errorMsg) ||
+      isMcpReconnectWindowActive(this.acpProcess, MCP_RECONNECT_WINDOW_MS)
+    );
+  }
+
+  private buildPromptMeta(
+    opts?: PromptOptions,
+  ): Record<string, unknown> | undefined {
+    const meta: Record<string, unknown> = {};
+    if (opts?.messageID) {
+      meta.requestId = opts.messageID;
+      meta.request_id = opts.messageID;
+    }
+    if (this.engineName === "nuwaxcode") {
+      const policy = opts?.mcpInitPolicy ?? NUWAX_MCP_INIT_POLICY_DEFAULT;
+      if (policy) {
+        meta.mcpInitPolicy = policy;
+      }
+      const timeoutMs =
+        opts?.mcpInitTimeoutMs ?? NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT;
+      if (
+        typeof timeoutMs === "number" &&
+        Number.isFinite(timeoutMs) &&
+        timeoutMs >= 0
+      ) {
+        meta.mcpInitTimeoutMs = Math.floor(timeoutMs);
+      }
+    }
+    return Object.keys(meta).length > 0 ? meta : undefined;
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
+  }
+
   /** Get the PID of the underlying ACP process (for process registry) */
   getProcessPid(): number | undefined {
     return this.acpProcess?.pid;
@@ -149,6 +236,7 @@ export class AcpEngine extends EventEmitter {
 
   async init(config: AgentConfig): Promise<boolean> {
     const timer = perfEmitter.start();
+    firstTokenTrace.trace("acp.init.start", { engine: this.engineName });
     this.config = config;
     const envModel = config.env?.OPENCODE_MODEL || config.env?.ANTHROPIC_MODEL;
     log.info(`${this.logTag} 🚀 初始化配置`, {
@@ -173,13 +261,15 @@ export class AcpEngine extends EventEmitter {
       const spawnEnv = { ...(config.env || {}) };
       if (this.engineName === "nuwaxcode") {
         const configObj: Record<string, unknown> = {};
+        const isWarmupProcess = spawnEnv.NUWAX_AGENT_WARMUP === "1";
 
-        // 1. MCP servers injection
+        // A/B test mode: inject MCP into OPENCODE_CONFIG_CONTENT again.
+        // This restores legacy dual-path injection (static config + ACP newSession).
+        // NOTE: warmup 进程也必须注入 MCP，否则复用 warmup 后会出现 MCP.tools() 为空。
         if (config.mcpServers && Object.keys(config.mcpServers).length > 0) {
           const mcpConfig: Record<string, unknown> = {};
           for (const [name, srv] of Object.entries(config.mcpServers)) {
             if ("url" in srv && srv.url) {
-              // URL 类型（来自 PersistentMcpBridge）
               const urlSrv = srv as { url: string; type?: string };
               mcpConfig[name] = {
                 type: urlSrv.type === "sse" ? "sse" : "streamable-http",
@@ -187,7 +277,6 @@ export class AcpEngine extends EventEmitter {
                 enabled: true,
               };
             } else if ("command" in srv) {
-              // stdio 类型（降级）
               const stdioSrv = srv as {
                 command: string;
                 args?: string[];
@@ -204,7 +293,7 @@ export class AcpEngine extends EventEmitter {
           configObj.mcp = mcpConfig;
         }
 
-        // 2. Permission bypass (question: deny to avoid interactive prompts)
+        // 1. Permission bypass (question: deny to avoid interactive prompts)
         configObj.permission = {
           edit: "allow",
           bash: "allow",
@@ -219,10 +308,20 @@ export class AcpEngine extends EventEmitter {
         log.info(
           `${this.logTag} 🔌 nuwaxcode config 注入 (OPENCODE_CONFIG_CONTENT)`,
           {
+            mcp_injection: isWarmupProcess
+              ? "enabled (legacy dual-path for A/B, warmup process)"
+              : "enabled (legacy dual-path for A/B)",
             mcp_servers: configObj.mcp
               ? Object.keys(configObj.mcp as Record<string, unknown>)
               : [],
-            permission: "all allow",
+            permission: {
+              edit: "allow",
+              bash: "allow",
+              webfetch: "allow",
+              doom_loop: "allow",
+              external_directory: "allow",
+              question: "deny",
+            },
             content: configContent,
           },
         );
@@ -246,6 +345,7 @@ export class AcpEngine extends EventEmitter {
           apiKey: config.apiKey,
           baseUrl: config.baseUrl,
           model: config.model,
+          apiProtocol: config.apiProtocol,
           env: spawnEnv,
           engineType: this.engineName,
           purpose: config.purpose ?? "engine",
@@ -308,9 +408,22 @@ export class AcpEngine extends EventEmitter {
       this._ready = true;
       this.emit("ready");
       timer.end("acp.init.total", { engine: this.engineName });
+      firstTokenTrace.trace("acp.init.ready", { engine: this.engineName });
       return true;
     } catch (error) {
       log.error(`${this.logTag} Init failed:`, error);
+      firstTokenTrace.trace(
+        "acp.init.failed",
+        { engine: this.engineName },
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : typeof error === "object"
+                ? safeStringify(error)
+                : String(error),
+        },
+      );
       // Ensure spawned process is cleaned up on init failure
       await this.destroy().catch(() => {});
       this.emit(
@@ -419,6 +532,7 @@ export class AcpEngine extends EventEmitter {
       }
     >;
     systemPrompt?: string;
+    requestId?: string;
   }): Promise<SdkSession> {
     if (!this.acpConnection || !this.config) {
       throw new Error("AcpEngine not initialized");
@@ -476,23 +590,67 @@ export class AcpEngine extends EventEmitter {
       }
     }
 
+    // [临时测试代码 - 正式发布前将 .env.production 中 INJECT_GUI_MCP 设为 false]
+    // 通过 FEATURES.INJECT_GUI_MCP 控制是否注入 GUI Agent MCP（由 .env.development/.env.production 在运行时决定）
+    // 用于本地开发/打包测试 GUI 桌面自动化功能，正式发布时由服务器下发 context_servers
+    // macOS/Linux：内嵌 agent-gui-server → getGuiAgentServerUrl()
+    // Windows：独立 windows-mcp 子进程（uv）→ getWindowsMcpUrl()；getGuiAgentServerUrl() 在 Win 上恒为 null
+    if (
+      FEATURES.INJECT_GUI_MCP &&
+      !mcpServers.some((m) => m.name === "gui-agent")
+    ) {
+      const guiMcpUrl = isWindows()
+        ? getWindowsMcpUrl()
+        : getGuiAgentServerUrl();
+      if (guiMcpUrl) {
+        mcpServers.push({
+          name: "gui-agent",
+          url: guiMcpUrl,
+          headers: [],
+          type: "http",
+        });
+        log.info(`${this.logTag} 🔧 注入 GUI Agent MCP: ${guiMcpUrl}`);
+      }
+    }
+
     const sessionCwd = opts?.cwd || this.config.workspaceDir;
 
     // Build _meta with systemPrompt if provided (skip if empty or whitespace only)
     const systemPromptTrimmed = opts?.systemPrompt?.trim();
-    const _meta = systemPromptTrimmed
-      ? {
-          systemPrompt: {
-            append: systemPromptTrimmed,
-          },
-        }
-      : undefined;
+    const requestId = opts?.requestId;
+    const _meta =
+      systemPromptTrimmed || requestId
+        ? {
+            ...(systemPromptTrimmed
+              ? {
+                  systemPrompt: {
+                    append: systemPromptTrimmed,
+                  },
+                }
+              : {}),
+            ...(requestId
+              ? {
+                  requestId,
+                  request_id: requestId,
+                }
+              : {}),
+          }
+        : undefined;
 
     const newSessionParams = {
       cwd: sessionCwd,
       mcpServers,
       _meta,
     };
+    firstTokenTrace.trace(
+      "acp.new_session.sent",
+      { projectId: opts?.title, engine: this.engineName, requestId },
+      {
+        cwd: sessionCwd,
+        mcpCount: mcpServers.length,
+        hasMetaRequestId: !!requestId,
+      },
+    );
     log.info(
       `${this.logTag} newSession: cwd=${sessionCwd}, mcpServers=${mcpServers.length}, hasSystemPrompt=${!!opts?.systemPrompt}`,
     );
@@ -515,6 +673,15 @@ export class AcpEngine extends EventEmitter {
 
     log.info(
       `${this.logTag} ✅ ACP newSession 完成 (${createMs}ms), acpSessionId=${acpResult.sessionId}`,
+    );
+    firstTokenTrace.trace(
+      "acp.new_session.done",
+      {
+        sessionId: acpResult.sessionId,
+        projectId: opts?.title,
+        engine: this.engineName,
+      },
+      { createMs, mcpCount: mcpServers.length },
     );
 
     const sessionId = acpResult.sessionId;
@@ -591,7 +758,7 @@ export class AcpEngine extends EventEmitter {
       // 1. Reject local prompt immediately for fast UX feedback.
       const reject = this.activePromptRejects.get(sessionId);
       if (reject) {
-        reject(new Error("Session cancelled"));
+        reject(new Error("会话已取消"));
         this.activePromptRejects.delete(sessionId);
       }
 
@@ -687,8 +854,46 @@ export class AcpEngine extends EventEmitter {
       acpSessionId: session.acpSessionId,
       requestId: _opts?.messageID,
     });
+    firstTokenTrace.trace(
+      "acp.prompt.start_event",
+      {
+        requestId: _opts?.messageID,
+        sessionId,
+        projectId: session.projectId,
+        engine: this.engineName,
+      },
+      { acpSessionId: session.acpSessionId },
+    );
 
     let resultText = "";
+    const promptSentAt = Date.now();
+    let firstUpdateAt: number | undefined;
+    const onProgress = (message: UnifiedSessionMessage) => {
+      if (message.sessionId !== sessionId) return;
+      if (message.subType !== "agent_message_chunk") return;
+      if (firstUpdateAt !== undefined) return;
+      firstUpdateAt = Date.now();
+      firstTokenTrace.trace(
+        "acp.prompt.first_update",
+        {
+          requestId: _opts?.messageID,
+          sessionId,
+          projectId: session.projectId,
+          engine: this.engineName,
+        },
+        { latencyMs: firstUpdateAt - promptSentAt },
+      );
+      perfEmitter.duration(
+        "acp.prompt.sendToFirstUpdate",
+        firstUpdateAt - promptSentAt,
+        {
+          sessionId,
+        },
+      );
+      perfEmitter.point("acp.prompt.firstUpdate", { sessionId });
+    };
+    this.on("computer:progress", onProgress);
+
     try {
       log.info(`${this.logTag} Starting prompt`, {
         sessionId,
@@ -700,38 +905,130 @@ export class AcpEngine extends EventEmitter {
       });
 
       const promptStartTime = Date.now();
+      perfEmitter.point("acp.prompt.sent", { sessionId });
       log.info(`${this.logTag} 📤 ACP prompt 发送中...`);
+      firstTokenTrace.trace("acp.prompt.sent", {
+        requestId: _opts?.messageID,
+        sessionId,
+        projectId: session.projectId,
+        engine: this.engineName,
+      });
 
       const result = await new Promise<{ stopReason: string }>(
         (resolve, reject) => {
           this.activePromptRejects.set(sessionId, reject);
 
-          this.acpConnection!.prompt({
+          const promptParams = {
             sessionId: session.acpSessionId!,
             prompt: promptContent,
-          }).then(
-            (res) => {
-              log.info(
-                `${this.logTag} 📥 ACP prompt resolved (${Date.now() - promptStartTime}ms):`,
-                safeStringify(res),
-              );
-              resolve(res);
-            },
-            (err) => {
-              log.error(
-                `${this.logTag} 📥 ACP prompt rejected (${Date.now() - promptStartTime}ms):`,
-                err,
-              );
-              reject(err);
-            },
-          );
+            _meta: this.buildPromptMeta(_opts),
+          };
+          if (this.engineName === "nuwaxcode") {
+            log.info(`${this.logTag} acp.prompt.meta`, {
+              sessionId,
+              requestId: _opts?.messageID,
+              mcpInitPolicy: promptParams._meta?.mcpInitPolicy,
+              mcpInitTimeoutMs: promptParams._meta?.mcpInitTimeoutMs,
+            });
+          }
+
+          const runPromptWithRetry = async () => {
+            const maxAttempts = this.engineName === "nuwaxcode" ? 2 : 1;
+            let attempt = 1;
+            while (true) {
+              try {
+                const res = await this.acpConnection!.prompt(promptParams);
+                log.info(
+                  `${this.logTag} 📥 ACP prompt resolved (${Date.now() - promptStartTime}ms, attempt=${attempt}):`,
+                  safeStringify(res),
+                );
+                return res;
+              } catch (err) {
+                const errMsg = this.toErrorMessage(err);
+                const canRetry =
+                  attempt < maxAttempts &&
+                  !this.isPromptCancellationError(errMsg) &&
+                  this.isMcpReconnectFailure(errMsg);
+
+                if (!canRetry) {
+                  log.error(
+                    `${this.logTag} 📥 ACP prompt rejected (${Date.now() - promptStartTime}ms, attempt=${attempt}):`,
+                    err,
+                  );
+                  throw err;
+                }
+
+                const telemetry = getMcpTransportSnapshot(this.acpProcess);
+                log.warn(
+                  `${this.logTag} ⚠️ 检测到 MCP 重连窗口，自动重试 prompt（attempt=${attempt + 1}/${maxAttempts}）`,
+                  {
+                    sessionId,
+                    error: errMsg,
+                    telemetry,
+                  },
+                );
+                firstTokenTrace.trace(
+                  "acp.prompt.retry.mcp_reconnect",
+                  {
+                    requestId: _opts?.messageID,
+                    sessionId,
+                    projectId: session.projectId,
+                    engine: this.engineName,
+                  },
+                  {
+                    attempt,
+                    nextAttempt: attempt + 1,
+                    delayMs: MCP_RETRY_DELAY_MS,
+                    error: errMsg,
+                    telemetry,
+                  },
+                );
+                await this.sleep(MCP_RETRY_DELAY_MS);
+                attempt += 1;
+              }
+            }
+          };
+
+          runPromptWithRetry().then(resolve).catch(reject);
         },
       );
 
+      const completedAt = Date.now();
       waitTimer.end("acp.prompt.wait", {
         sessionId,
         stopReason: result.stopReason,
       });
+      perfEmitter.point("acp.prompt.completed", {
+        sessionId,
+        stopReason: result.stopReason,
+      });
+      firstTokenTrace.trace(
+        "acp.prompt.completed",
+        {
+          requestId: _opts?.messageID,
+          sessionId,
+          projectId: session.projectId,
+          engine: this.engineName,
+        },
+        {
+          stopReason: result.stopReason,
+          totalMs: completedAt - promptSentAt,
+          firstUpdateToDoneMs:
+            firstUpdateAt !== undefined
+              ? completedAt - firstUpdateAt
+              : undefined,
+        },
+      );
+      if (firstUpdateAt !== undefined) {
+        perfEmitter.duration(
+          "acp.prompt.firstUpdateToDone",
+          completedAt - firstUpdateAt,
+          {
+            sessionId,
+            stopReason: result.stopReason,
+          },
+        );
+      }
 
       log.info(`${this.logTag} Prompt completed`, {
         sessionId,
@@ -754,18 +1051,31 @@ export class AcpEngine extends EventEmitter {
       });
     } catch (error) {
       log.error(`${this.logTag} Prompt failed:`, error);
+      const errMsg = this.toErrorMessage(error);
+      const isMcpReconnect = this.isMcpReconnectFailure(errMsg);
+      const promptEndReason = isMcpReconnect ? "mcp_reconnecting" : "error";
+      const promptEndDescription = isMcpReconnect
+        ? MCP_RECONNECT_PROMPT_MESSAGE
+        : errMsg;
+      firstTokenTrace.trace(
+        "acp.prompt.failed",
+        {
+          requestId: _opts?.messageID,
+          sessionId,
+          projectId: session.projectId,
+          engine: this.engineName,
+        },
+        {
+          error: errMsg,
+          reason: promptEndReason,
+        },
+      );
 
-      const errMsg =
-        error instanceof Error
-          ? error.message
-          : typeof error === "object" && error !== null
-            ? safeStringify(error)
-            : String(error);
       this.emit("computer:promptEnd", {
         sessionId,
         acpSessionId: session.acpSessionId,
-        reason: "error",
-        description: errMsg,
+        reason: promptEndReason,
+        description: promptEndDescription,
         openLongMemory: session.openLongMemory,
         memoryModel: session.memoryModel,
       });
@@ -773,8 +1083,10 @@ export class AcpEngine extends EventEmitter {
       this.emit("session.error", {
         sessionId,
         error: errMsg,
+        reason: promptEndReason,
       });
     } finally {
+      this.off("computer:progress", onProgress);
       this.activePromptSessions.delete(sessionId);
       this.activePromptRejects.delete(sessionId);
       // Always set idle: normal completion or after cancel (cancelOne may have set terminating).
@@ -897,6 +1209,12 @@ export class AcpEngine extends EventEmitter {
     request: ComputerChatRequest,
   ): Promise<HttpResult<ComputerChatResponse>> {
     const timer = perfEmitter.start();
+    firstTokenTrace.trace("acp.chat.enter", {
+      requestId: request.request_id,
+      sessionId: request.session_id,
+      projectId: request.project_id,
+      engine: this.engineName,
+    });
     if (!this.acpConnection || !this.config) {
       return {
         code: "5000",
@@ -968,6 +1286,7 @@ export class AcpEngine extends EventEmitter {
 
       // 1. Find existing session or create new
       let session: AcpSession | undefined;
+      let isNewSession = false;
 
       if (request.session_id) {
         session = this.sessions.get(request.session_id);
@@ -977,6 +1296,7 @@ export class AcpEngine extends EventEmitter {
       }
 
       if (!session) {
+        isNewSession = true;
         const projectId = request.project_id || `proj-${Date.now()}`;
         const projectDir = path.join(
           this.config.workspaceDir,
@@ -1006,18 +1326,46 @@ export class AcpEngine extends EventEmitter {
           cwd: projectDir,
           mcpServers: this.config.mcpServers,
           systemPrompt: request.system_prompt,
+          requestId: request.request_id,
         });
         session = this.sessions.get(newSession.id)!;
         session.projectId = request.project_id;
+        firstTokenTrace.trace(
+          "acp.chat.session_created",
+          {
+            requestId: request.request_id,
+            sessionId: session.id,
+            projectId: request.project_id,
+            engine: this.engineName,
+          },
+          { projectDir },
+        );
+      } else {
+        firstTokenTrace.trace("acp.chat.session_reused", {
+          requestId: request.request_id,
+          sessionId: session.id,
+          projectId: request.project_id,
+          engine: this.engineName,
+        });
       }
 
       timer.end("acp.chat.sessionSetup", {
         stage: "会话准备",
         sessionId: session.id,
-        isNewSession: !request.session_id,
+        isNewSession,
         engine: this.engineName,
         model: this.config.model || envModel || "(未设置)",
       });
+      firstTokenTrace.trace(
+        "acp.chat.session_ready",
+        {
+          requestId: request.request_id,
+          sessionId: session.id,
+          projectId: request.project_id,
+          engine: this.engineName,
+        },
+        { isNewSession },
+      );
 
       // 2. Record user message to MemoryService
       // 获取纯净用户输入（仅使用 original_user_prompt，不回退到 prompt）
@@ -1107,12 +1455,27 @@ ${memoryContext}
       });
 
       // 4. Async prompt
-      this.promptAsync(session.id, [{ type: "text", text: enhancedPrompt }]);
+      const promptOptions: PromptOptions = {
+        messageID: request.request_id,
+      };
+      if (this.engineName === "nuwaxcode") {
+        promptOptions.mcpInitPolicy = NUWAX_MCP_INIT_POLICY_DEFAULT;
+        promptOptions.mcpInitTimeoutMs = NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT;
+      }
+      this.promptAsync(session.id, [{ type: "text", text: enhancedPrompt }], {
+        ...promptOptions,
+      });
+      firstTokenTrace.trace("acp.prompt.dispatched", {
+        requestId: request.request_id,
+        sessionId: session.id,
+        projectId: request.project_id,
+        engine: this.engineName,
+      });
 
       timer.end("acp.chat.total", {
         stage: "总耗时",
         sessionId: session.id,
-        isNewSession: !request.session_id,
+        isNewSession,
         engine: this.engineName,
         model: this.config.model || "(未设置)",
       });
@@ -1123,9 +1486,20 @@ ${memoryContext}
         session_id: session.id,
         error: null,
         request_id: request.request_id,
+        is_new_session: isNewSession,
       };
 
       log.info(`${this.logTag} ✅ chat() 响应: session_id=${session.id}`);
+      firstTokenTrace.trace(
+        "acp.chat.return",
+        {
+          requestId: request.request_id,
+          sessionId: session.id,
+          projectId: request.project_id,
+          engine: this.engineName,
+        },
+        { success: true },
+      );
 
       return {
         code: "0000",
@@ -1135,13 +1509,21 @@ ${memoryContext}
         success: true,
       };
     } catch (error) {
-      const errorMsg =
-        error instanceof Error
-          ? error.message
-          : typeof error === "object" && error !== null
-            ? safeStringify(error)
-            : String(error);
-      log.error(`${this.logTag} ❌ chat() 失败: ${errorMsg}`);
+      const rawErrorMsg = this.toErrorMessage(error);
+      const errorMsg = this.isMcpReconnectFailure(rawErrorMsg)
+        ? MCP_RECONNECT_PROMPT_MESSAGE
+        : rawErrorMsg;
+      log.error(`${this.logTag} ❌ chat() 失败: ${rawErrorMsg}`);
+      firstTokenTrace.trace(
+        "acp.chat.failed",
+        {
+          requestId: request.request_id,
+          sessionId: request.session_id,
+          projectId: request.project_id,
+          engine: this.engineName,
+        },
+        { error: rawErrorMsg, userMessage: errorMsg },
+      );
       return {
         code: "5000",
         message: errorMsg,

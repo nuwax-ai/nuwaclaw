@@ -7,11 +7,11 @@
 
 // 对应 rcoder HttpResult<T> 响应包装
 export interface HttpResult<T = unknown> {
-  code: string;       // "0000" = 成功，其他为错误码
-  message: string;    // 状态描述
-  data: T | null;     // 实际数据
+  code: string; // "0000" = 成功，其他为错误码
+  message: string; // 状态描述
+  data: T | null; // 实际数据
   tid: string | null; // trace ID（Electron 端始终为 null）
-  success: boolean;   // code === "0000"
+  success: boolean; // code === "0000"
 }
 
 // 对应 rcoder ChatContextServerConfig（MCP 服务器配置）
@@ -68,8 +68,8 @@ export interface ComputerChatRequest {
   system_prompt?: string;
   agent_config?: ChatAgentConfig;
   // 记忆相关字段
-  original_user_prompt?: string;  // 原始用户提示词（纯净用户输入，不含系统提示）
-  open_long_memory?: boolean;     // 是否开启长期记忆（默认 false）
+  original_user_prompt?: string; // 原始用户提示词（纯净用户输入，不含系统提示）
+  open_long_memory?: boolean; // 是否开启长期记忆（默认 false）
 }
 
 // 对应 rcoder ChatResponse（HttpResult.data 的内容，不含 success）
@@ -78,6 +78,7 @@ export interface ComputerChatResponse {
   session_id: string;
   error?: string | null;
   request_id?: string;
+  is_new_session?: boolean;
   need_fallback?: boolean | null;
   fallback_reason?: string | null;
 }
@@ -86,8 +87,12 @@ export interface ComputerChatResponse {
 // 字段名使用 camelCase 对齐 rcoder #[serde(rename_all = "camelCase")]
 export interface UnifiedSessionMessage {
   sessionId: string;
-  acpSessionId?: string;  // ACP protocol session ID (UUID), used for SSE push
-  messageType: 'sessionPromptStart' | 'sessionPromptEnd' | 'agentSessionUpdate' | 'heartbeat';
+  acpSessionId?: string; // ACP protocol session ID (UUID), used for SSE push
+  messageType:
+    | "sessionPromptStart"
+    | "sessionPromptEnd"
+    | "agentSessionUpdate"
+    | "heartbeat";
   subType: string;
   data: unknown;
   timestamp: string;
@@ -116,4 +121,42 @@ export interface ComputerAgentStopResponse {
 export interface ComputerAgentCancelResponse {
   success: boolean;
   session_id: string;
+}
+
+// GUI Agent 视觉模型配置
+export interface GuiVisionModelConfig {
+  /** 视觉模型提供商 (anthropic, openai, google, zhipu, qwen, deepseek, minimax, 或自定义) */
+  provider: string;
+  /** API 协议类型: anthropic (x-api-key + /v1/messages) 或 openai (Bearer + /chat/completions) */
+  apiProtocol: "anthropic" | "openai";
+  /** 视觉模型名称 (预设模型或自定义模型 ID) */
+  model: string;
+  /** API Key (可选，未设置时使用全局 API Key) */
+  apiKey?: string;
+  /** API 基础 URL (可选，自定义提供商必填) */
+  baseUrl?: string;
+  /** 目标显示器索引 */
+  displayIndex: number;
+  /** 坐标模式 (auto=根据模型自动匹配, image-absolute, normalized-1000, normalized-999, normalized-0-1) */
+  coordinateMode: string;
+  /** 记忆模型提供商 (可选，默认同 provider) */
+  memoryProvider?: string;
+  /** 记忆模型名称 (可选，默认同 model) */
+  memoryModel?: string;
+  /** 每步延迟 (ms) */
+  stepDelayMs?: number;
+  /** 最大步数 */
+  maxSteps?: number;
+  /** JPEG 质量 */
+  jpegQuality?: number;
+}
+
+// GUI Agent 显示器信息
+export interface GuiDisplayInfo {
+  index: number;
+  label: string;
+  width: number;
+  height: number;
+  scaleFactor: number;
+  isPrimary: boolean;
 }

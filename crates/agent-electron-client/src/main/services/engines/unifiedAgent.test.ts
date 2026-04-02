@@ -13,6 +13,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 
 // ───── 必需 Mocks（防止导入链拉起 Electron / IPC 等重模块）──────────────────
@@ -535,5 +537,640 @@ describe("UnifiedAgentService.listAllSessionsDetailed — 仅返回 ready 引擎
 
     const result = svc.listAllSessionsDetailed();
     expect(result).toEqual(readySessions);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// warmupEngine：nuwaxcode 热启动预创建
+// ────────────────────────────────────────────────────────────────────────────
+describe("UnifiedAgentService — warmupEngine 热启动", () => {
+  const baseConfig = {
+    engine: "nuwaxcode" as const,
+    workspaceDir: "/tmp",
+    apiKey: "k",
+    baseUrl: "u",
+    model: "m",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("init() 后 engines 中存在 __warmup__ 占位", async () => {
+    const svc = new UnifiedAgentService() as any;
+    await svc.init(baseConfig);
+    // AcpEngine mock 的 init 是同步 resolve，所以 warmup 立即完成
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    expect(svc.engines.get("__warmup__").isReady).toBe(true);
+  });
+
+  it("engine 为 claude-code 时仍触发 nuwaxcode warmup", async () => {
+    const claudeConfig = { ...baseConfig, engine: "claude-code" as const };
+    const svc = new UnifiedAgentService() as any;
+    await svc.init(claudeConfig);
+    // warmup 始终预热 nuwaxcode，不管 init 时的 engineType
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    expect(svc.engines.get("__warmup__").isReady).toBe(true);
+  });
+
+  it("getOrCreateEngine 复用 warmup 引擎并 re-key", async () => {
+    const svc = new UnifiedAgentService();
+    await svc.init(baseConfig);
+
+    // warmup 引擎已就绪
+    expect((svc as any).engines.has("__warmup__")).toBe(true);
+
+    const engine = await svc.getOrCreateEngine("proj-test", baseConfig);
+    expect(engine).toBeDefined();
+    // warmup 被消费后会立即补仓
+    expect((svc as any).engines.has("__warmup__")).toBe(true);
+    expect((svc as any).engines.has("proj-test")).toBe(true);
+  });
+
+  it("warmup 运行时配置缺失时不复用，回退冷启动", async () => {
+    const svc = new UnifiedAgentService() as any;
+    await svc.init({
+      ...baseConfig,
+      apiKey: undefined,
+      baseUrl: undefined,
+      model: undefined,
+    });
+
+    const warmupEngine = svc.engines.get("__warmup__");
+    expect(warmupEngine).toBeDefined();
+
+    const engine = await svc.getOrCreateEngine("proj-runtime-mismatch", {
+      ...baseConfig,
+      apiKey: "runtime-key",
+      baseUrl: "https://runtime.example.com",
+      model: "runtime-model",
+      apiProtocol: "openai",
+    });
+
+    expect(engine).not.toBe(warmupEngine);
+    expect(warmupEngine.destroy).toHaveBeenCalled();
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    expect(svc.engines.get("proj-runtime-mismatch")).toBe(engine);
+  });
+
+  it("warmup runtime config 缓存：首次 miss 后 refill 命中后续请求", async () => {
+    const svc = new UnifiedAgentService() as any;
+    // init 时 baseConfig 没有 runtime 配置
+    await svc.init({
+      ...baseConfig,
+      apiKey: undefined,
+      baseUrl: undefined,
+      model: undefined,
+    });
+
+    const runtimeConfig = {
+      ...baseConfig,
+      apiKey: "cached-key",
+      baseUrl: "https://cached.example.com",
+      model: "cached-model",
+      apiProtocol: "openai",
+    };
+
+    // 第一次请求：runtime mismatch → 冷启动，缓存 runtime config
+    const engine1 = await svc.getOrCreateEngine("proj-cache-1", runtimeConfig);
+    expect(svc.engines.has("__warmup__")).toBe(true);
+
+    // refill warmup 应该带缓存的 runtime config，第二个请求可命中
+    const refillWarmup = svc.engines.get("__warmup__");
+    expect(refillWarmup).toBeDefined();
+
+    const engine2 = await svc.getOrCreateEngine("proj-cache-2", runtimeConfig);
+    // refill warmup 应该被复用
+    expect(engine2).toBe(refillWarmup);
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    expect(svc.engines.get("proj-cache-2")).toBe(refillWarmup);
+  });
+
+  it("warmup runtime config 缓存：配置变更时回退冷启动并更新缓存", async () => {
+    const svc = new UnifiedAgentService() as any;
+    await svc.init({
+      ...baseConfig,
+      apiKey: undefined,
+      baseUrl: undefined,
+      model: undefined,
+    });
+
+    const runtimeConfigA = {
+      ...baseConfig,
+      apiKey: "key-a",
+      baseUrl: "https://a.example.com",
+      model: "model-a",
+      apiProtocol: "openai",
+    };
+    const runtimeConfigB = {
+      ...baseConfig,
+      apiKey: "key-b",
+      baseUrl: "https://b.example.com",
+      model: "model-b",
+      apiProtocol: "anthropic",
+    };
+
+    // 第一次请求：缓存 configA
+    await svc.getOrCreateEngine("proj-change-1", runtimeConfigA);
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    const refillA = svc.engines.get("__warmup__");
+
+    // 第二次请求：configB 与缓存不匹配 → 回退冷启动，更新缓存
+    const engine2 = await svc.getOrCreateEngine(
+      "proj-change-2",
+      runtimeConfigB,
+    );
+    expect(engine2).not.toBe(refillA);
+    expect(refillA.destroy).toHaveBeenCalled();
+
+    // refill 应该用 configB 创建
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    const refillB = svc.engines.get("__warmup__");
+
+    // 第三次请求：configB 命中 refill
+    const engine3 = await svc.getOrCreateEngine(
+      "proj-change-3",
+      runtimeConfigB,
+    );
+    expect(engine3).toBe(refillB);
+  });
+
+  it("warmup 缺少 MCP ready 标记时不复用，回退冷启动", async () => {
+    const mcpConfig = {
+      bridge: {
+        command: "/mock/node",
+        args: ["/mock/proxy.js", "--config-file", "/tmp/mcp-ready.json"],
+        env: { MCP_PROXY_LOG_FILE: "/tmp/warmup.log" },
+      },
+    };
+    const svc = new UnifiedAgentService() as any;
+    await svc.init({ ...baseConfig, mcpServers: mcpConfig });
+
+    const warmupEngine = svc.engines.get("__warmup__");
+    expect(warmupEngine).toBeDefined();
+
+    const warmupCfg = svc.engineConfigs.get("__warmup__");
+    expect(warmupCfg).toBeDefined();
+    expect(warmupCfg.env?.NUWAX_AGENT_WARMUP_MCP_READY).toBe("1");
+
+    // 模拟老版本 warmup：没有 MCP ready 标记
+    delete warmupCfg.env.NUWAX_AGENT_WARMUP_MCP_READY;
+
+    const engine = await svc.getOrCreateEngine("proj-legacy-warmup", {
+      ...baseConfig,
+      mcpServers: mcpConfig,
+    });
+
+    expect(engine).not.toBe(warmupEngine);
+    expect(warmupEngine.destroy).toHaveBeenCalled();
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    expect(svc.engines.get("proj-legacy-warmup")).toBe(engine);
+  });
+
+  it("claude-code 请求保持原逻辑：不复用 nuwaxcode warmup", async () => {
+    const claudeConfig = { ...baseConfig, engine: "claude-code" as const };
+    const svc = new UnifiedAgentService() as any;
+    await svc.init(claudeConfig);
+
+    // init 阶段仍会创建 nuwaxcode warmup
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    const warmupEngine = svc.engines.get("__warmup__");
+
+    const engine = await svc.getOrCreateEngine("proj-claude", claudeConfig);
+    expect(engine).toBeDefined();
+    expect(engine).not.toBe(warmupEngine);
+    // warmup 继续保留，不影响后续 nuwaxcode 命中
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    expect(svc.engines.get("proj-claude")).toBe(engine);
+  });
+
+  it("nuwaxcode: 第一次命中 warmup 后会补仓，第二个新 project 也可继续命中", async () => {
+    const svc = new UnifiedAgentService() as any;
+    await svc.init(baseConfig);
+
+    const firstWarmup = svc.engines.get("__warmup__");
+    expect(firstWarmup).toBeDefined();
+
+    const firstEngine = await svc.getOrCreateEngine("proj-1", baseConfig);
+    expect(firstEngine).toBe(firstWarmup);
+
+    const secondWarmup = svc.engines.get("__warmup__");
+    expect(secondWarmup).toBeDefined();
+    expect(secondWarmup).not.toBe(firstWarmup);
+
+    const secondEngine = await svc.getOrCreateEngine("proj-2", baseConfig);
+    expect(secondEngine).toBe(secondWarmup);
+    expect(svc.engines.has("__warmup__")).toBe(true);
+  });
+
+  it("destroy() 清理 warmup 引擎", async () => {
+    const svc = new UnifiedAgentService();
+    await svc.init(baseConfig);
+    expect((svc as any).engines.has("__warmup__")).toBe(true);
+
+    await svc.destroy();
+    expect((svc as any).engines.size).toBe(0);
+  });
+
+  it("destroy() 会调用 warmup.dispose 清理 respawn 定时器", async () => {
+    const svc = new UnifiedAgentService() as any;
+    await svc.init(baseConfig);
+    const disposeSpy = vi.spyOn(svc.warmup, "dispose");
+
+    await svc.destroy();
+
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("warmup MCP 与请求 MCP 同名但 args 不同 → 不复用，回退冷启动", async () => {
+    const { AcpEngine } = await import("./acp/acpEngine");
+
+    const warmupMcp = {
+      bridge: {
+        command: "/mock/node",
+        args: ["/mock/proxy.js", "--config-file", "/tmp/mcp-a.json"],
+        env: { MCP_PROXY_LOG_FILE: "/tmp/warmup.log" },
+      },
+    };
+    const requestMcp = {
+      bridge: {
+        command: "/mock/node",
+        args: ["/mock/proxy.js", "--config-file", "/tmp/mcp-b.json"],
+        env: { MCP_PROXY_LOG_FILE: "/tmp/project.log" },
+      },
+    };
+
+    const mockWarmupEngine = {
+      currentConfig: { apiKey: "k", baseUrl: "u", model: "m" },
+      init: vi.fn().mockResolvedValue(true),
+      updateConfig: vi.fn(),
+      removeAllListeners: vi.fn(),
+      destroy: vi.fn().mockResolvedValue(undefined),
+      isReady: true,
+      getActivePromptCount: vi.fn(() => 0),
+      engineName: "nuwaxcode" as const,
+      on: vi.fn(),
+    };
+    const mockNewEngine = {
+      currentConfig: { apiKey: "k", baseUrl: "u", model: "m" },
+      init: vi.fn().mockResolvedValue(true),
+      updateConfig: vi.fn(),
+      removeAllListeners: vi.fn(),
+      destroy: vi.fn().mockResolvedValue(undefined),
+      isReady: true,
+      getActivePromptCount: vi.fn(() => 0),
+      engineName: "nuwaxcode" as const,
+      on: vi.fn(),
+    };
+
+    let callCount = 0;
+    (AcpEngine as any).mockImplementation(() => {
+      callCount++;
+      return callCount === 1 ? mockWarmupEngine : mockNewEngine;
+    });
+
+    const svc = new UnifiedAgentService() as any;
+    await svc.init({ ...baseConfig, mcpServers: warmupMcp });
+
+    const engine = await svc.getOrCreateEngine("proj-mcp-mismatch", {
+      ...baseConfig,
+      mcpServers: requestMcp,
+    });
+    expect(engine).toBe(mockNewEngine);
+    expect(mockWarmupEngine.destroy).toHaveBeenCalled();
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    expect(svc.engines.get("proj-mcp-mismatch")).toBe(mockNewEngine);
+  });
+
+  it("仅 MCP_PROXY_LOG_FILE 不同仍复用 warmup", async () => {
+    const warmupMcp = {
+      bridge: {
+        command: "/mock/node",
+        args: ["/mock/proxy.js", "--config-file", "/tmp/mcp-same.json"],
+        env: { MCP_PROXY_LOG_FILE: "/tmp/warmup.log", FOO: "bar" },
+      },
+    };
+    const requestMcp = {
+      bridge: {
+        command: "/mock/node",
+        args: ["/mock/proxy.js", "--config-file", "/tmp/mcp-same.json"],
+        env: { MCP_PROXY_LOG_FILE: "/tmp/project.log", FOO: "bar" },
+      },
+    };
+
+    const svc = new UnifiedAgentService() as any;
+    await svc.init({ ...baseConfig, mcpServers: warmupMcp });
+    const warmupEngine = svc.engines.get("__warmup__");
+
+    const engine = await svc.getOrCreateEngine("proj-mcp-logonly", {
+      ...baseConfig,
+      mcpServers: requestMcp,
+    });
+
+    expect(engine).toBe(warmupEngine);
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    expect(svc.engines.get("proj-mcp-logonly")).toBe(warmupEngine);
+  });
+
+  it("mcp-proxy --config-file 路径不同但配置内容相同仍复用 warmup", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "warmup-mcp-"));
+    try {
+      const configAPath = path.join(tmpDir, "mcp-config-a.json");
+      const configBPath = path.join(tmpDir, "mcp-config-b.json");
+      const sameConfig = {
+        mcpServers: {
+          "chrome-devtools": {
+            url: "http://127.0.0.1:3344/mcp/chrome-devtools",
+            transport: "streamable-http",
+          },
+        },
+      };
+      fs.writeFileSync(configAPath, JSON.stringify(sameConfig), "utf8");
+      fs.writeFileSync(configBPath, JSON.stringify(sameConfig), "utf8");
+
+      const warmupMcp = {
+        bridge: {
+          command: "/mock/node",
+          args: ["/mock/proxy.js", "--config-file", configAPath],
+          env: { MCP_PROXY_LOG_FILE: "/tmp/warmup.log", FOO: "bar" },
+        },
+      };
+      const requestMcp = {
+        bridge: {
+          command: "/mock/node",
+          args: ["/mock/proxy.js", "--config-file", configBPath],
+          env: { MCP_PROXY_LOG_FILE: "/tmp/project.log", FOO: "bar" },
+        },
+      };
+
+      const svc = new UnifiedAgentService() as any;
+      await svc.init({ ...baseConfig, mcpServers: warmupMcp });
+      const warmupEngine = svc.engines.get("__warmup__");
+
+      const engine = await svc.getOrCreateEngine("proj-mcp-config-semantic", {
+        ...baseConfig,
+        mcpServers: requestMcp,
+      });
+
+      expect(engine).toBe(warmupEngine);
+      expect(svc.engines.has("__warmup__")).toBe(true);
+      expect(svc.engines.get("proj-mcp-config-semantic")).toBe(warmupEngine);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("persistent MCP: warmup 为 proxy-stdio、请求为 bridge URL 时仍复用", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "warmup-mcp-"));
+    try {
+      const configPath = path.join(tmpDir, "mcp-config-chrome.json");
+      const persistentConfig = {
+        mcpServers: {
+          "chrome-devtools": {
+            command: "npx",
+            args: ["-y", "chrome-devtools-mcp@latest"],
+            persistent: true,
+          },
+        },
+      };
+      fs.writeFileSync(configPath, JSON.stringify(persistentConfig), "utf8");
+
+      const warmupMcp = {
+        "chrome-devtools": {
+          command: "/mock/node",
+          args: ["/mock/proxy.js", "--config-file", configPath],
+          env: { MCP_PROXY_LOG_FILE: "/tmp/warmup.log" },
+        },
+      };
+      const requestMcp = {
+        "chrome-devtools": {
+          url: "http://127.0.0.1:59504/mcp/chrome-devtools",
+        },
+      };
+
+      const svc = new UnifiedAgentService() as any;
+      await svc.init({ ...baseConfig, mcpServers: warmupMcp });
+      const warmupEngine = svc.engines.get("__warmup__");
+
+      const engine = await svc.getOrCreateEngine(
+        "proj-persistent-shape-switch",
+        {
+          ...baseConfig,
+          mcpServers: requestMcp,
+        },
+      );
+
+      expect(engine).toBe(warmupEngine);
+      expect(svc.engines.has("__warmup__")).toBe(true);
+      expect(svc.engines.get("proj-persistent-shape-switch")).toBe(
+        warmupEngine,
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("persistent MCP: warmup/request 均为 proxy-stdio（config-file: stdio vs bridge-url）仍复用", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "warmup-mcp-"));
+    try {
+      const warmupConfigPath = path.join(tmpDir, "mcp-warmup.json");
+      const requestConfigPath = path.join(tmpDir, "mcp-request.json");
+
+      const warmupConfigFile = {
+        mcpServers: {
+          "chrome-devtools": {
+            command: "npx",
+            args: ["-y", "chrome-devtools-mcp@latest"],
+            persistent: true,
+          },
+        },
+      };
+      const requestConfigFile = {
+        mcpServers: {
+          "chrome-devtools": {
+            url: "http://127.0.0.1:59504/mcp/chrome-devtools",
+          },
+        },
+      };
+      fs.writeFileSync(
+        warmupConfigPath,
+        JSON.stringify(warmupConfigFile),
+        "utf8",
+      );
+      fs.writeFileSync(
+        requestConfigPath,
+        JSON.stringify(requestConfigFile),
+        "utf8",
+      );
+
+      const warmupMcp = {
+        "chrome-devtools": {
+          command: "/mock/node",
+          args: ["/mock/proxy.js", "--config-file", warmupConfigPath],
+          env: { MCP_PROXY_LOG_FILE: "/tmp/warmup.log" },
+        },
+      };
+      const requestMcp = {
+        "chrome-devtools": {
+          command: "/mock/node",
+          args: ["/mock/proxy.js", "--config-file", requestConfigPath],
+          env: { MCP_PROXY_LOG_FILE: "/tmp/request.log" },
+        },
+      };
+
+      const svc = new UnifiedAgentService() as any;
+      await svc.init({ ...baseConfig, mcpServers: warmupMcp });
+      const warmupEngine = svc.engines.get("__warmup__");
+
+      const engine = await svc.getOrCreateEngine(
+        "proj-persistent-proxy-vs-urlfile",
+        {
+          ...baseConfig,
+          mcpServers: requestMcp,
+        },
+      );
+
+      expect(engine).toBe(warmupEngine);
+      expect(svc.engines.has("__warmup__")).toBe(true);
+      expect(svc.engines.get("proj-persistent-proxy-vs-urlfile")).toBe(
+        warmupEngine,
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("non-persistent MCP: proxy-stdio 与 bridge URL 不应被视为等价", async () => {
+    const { AcpEngine } = await import("./acp/acpEngine");
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "warmup-mcp-"));
+    try {
+      const configPath = path.join(tmpDir, "mcp-config-non-persistent.json");
+      const nonPersistentConfig = {
+        mcpServers: {
+          "chrome-devtools": {
+            command: "npx",
+            args: ["-y", "chrome-devtools-mcp@latest"],
+            persistent: false,
+          },
+        },
+      };
+      fs.writeFileSync(configPath, JSON.stringify(nonPersistentConfig), "utf8");
+
+      const warmupMcp = {
+        "chrome-devtools": {
+          command: "/mock/node",
+          args: ["/mock/proxy.js", "--config-file", configPath],
+          env: { MCP_PROXY_LOG_FILE: "/tmp/warmup.log" },
+        },
+      };
+      const requestMcp = {
+        "chrome-devtools": {
+          url: "http://127.0.0.1:59504/mcp/chrome-devtools",
+        },
+      };
+
+      const mockWarmupEngine = {
+        currentConfig: { apiKey: "k", baseUrl: "u", model: "m" },
+        init: vi.fn().mockResolvedValue(true),
+        updateConfig: vi.fn(),
+        removeAllListeners: vi.fn(),
+        destroy: vi.fn().mockResolvedValue(undefined),
+        isReady: true,
+        getActivePromptCount: vi.fn(() => 0),
+        engineName: "nuwaxcode" as const,
+        on: vi.fn(),
+      };
+      const mockNewEngine = {
+        currentConfig: { apiKey: "k", baseUrl: "u", model: "m" },
+        init: vi.fn().mockResolvedValue(true),
+        updateConfig: vi.fn(),
+        removeAllListeners: vi.fn(),
+        destroy: vi.fn().mockResolvedValue(undefined),
+        isReady: true,
+        getActivePromptCount: vi.fn(() => 0),
+        engineName: "nuwaxcode" as const,
+        on: vi.fn(),
+      };
+
+      let callCount = 0;
+      (AcpEngine as any).mockImplementation(() => {
+        callCount++;
+        return callCount === 1 ? mockWarmupEngine : mockNewEngine;
+      });
+
+      const svc = new UnifiedAgentService() as any;
+      await svc.init({ ...baseConfig, mcpServers: warmupMcp });
+
+      const engine = await svc.getOrCreateEngine("proj-non-persistent", {
+        ...baseConfig,
+        mcpServers: requestMcp,
+      });
+
+      expect(engine).toBe(mockNewEngine);
+      expect(mockWarmupEngine.destroy).toHaveBeenCalled();
+      expect(svc.engines.has("__warmup__")).toBe(true);
+      expect(svc.engines.get("proj-non-persistent")).toBe(mockNewEngine);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("warmup 未完成时请求到达 → tryReuse 发现未就绪 → 清理 → 创建新引擎", async () => {
+    const { AcpEngine } = await import("./acp/acpEngine");
+
+    // 创建一个 init 慢速 resolve 的 mock engine（模拟 warmup 进行中）
+    let resolveInit: (ok: boolean) => void;
+    const slowInit = new Promise<boolean>((r) => {
+      resolveInit = r;
+    });
+
+    const mockWarmupEngine = {
+      currentConfig: { apiKey: "k", baseUrl: "u", model: "m" },
+      init: vi.fn(() => slowInit),
+      updateConfig: vi.fn(),
+      removeAllListeners: vi.fn(),
+      destroy: vi.fn().mockResolvedValue(undefined),
+      isReady: false, // warmup 尚未完成
+      getActivePromptCount: vi.fn(() => 0),
+      engineName: "nuwaxcode" as const,
+      on: vi.fn(),
+    };
+
+    // 后续创建的 engine 用正常 mock（快速 resolve）
+    const mockNewEngine = {
+      currentConfig: { apiKey: "k", baseUrl: "u", model: "m" },
+      init: vi.fn().mockResolvedValue(true),
+      updateConfig: vi.fn(),
+      removeAllListeners: vi.fn(),
+      destroy: vi.fn().mockResolvedValue(undefined),
+      isReady: true,
+      getActivePromptCount: vi.fn(() => 0),
+      engineName: "nuwaxcode" as const,
+      on: vi.fn(),
+    };
+
+    // 第一次 AcpEngine 构造返回慢 warmup 引擎，第二次返回正常引擎
+    let callCount = 0;
+    (AcpEngine as any).mockImplementation(() => {
+      callCount++;
+      return callCount === 1 ? mockWarmupEngine : mockNewEngine;
+    });
+
+    const svc = new UnifiedAgentService() as any;
+    await svc.init(baseConfig);
+
+    // warmup 引擎已占位但未就绪
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    expect(svc.engines.get("__warmup__").isReady).toBe(false);
+
+    // 请求到达 → tryReuse 发现 warmup 未就绪 → 清理 → 创建新引擎
+    const engine = await svc.getOrCreateEngine("proj-late", baseConfig);
+    expect(engine).toBe(mockNewEngine);
+    // warmup 引擎被清理后会重新补仓
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    // 新引擎已注册
+    expect(svc.engines.has("proj-late")).toBe(true);
+    // warmup engine 的 destroy 被调用
+    expect(mockWarmupEngine.destroy).toHaveBeenCalled();
   });
 });

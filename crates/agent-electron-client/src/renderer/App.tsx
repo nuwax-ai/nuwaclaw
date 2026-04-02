@@ -71,7 +71,8 @@ type TabKey =
   | "dependencies"
   | "permissions"
   | "logs"
-  | "about";
+  | "about"
+  | "model";
 
 // 状态配置（对齐 Tauri 客户端）
 // 就绪、繁忙使用橙色（warning）、小点展示
@@ -433,14 +434,21 @@ function App() {
   const pollServicesStatus = useCallback(async () => {
     try {
       const items: ServiceItem[] = [];
-      const [fsStatus, lpStatus, agentSvcStatus, mcpStatus, csStatus] =
-        await Promise.all([
-          window.electronAPI?.fileServer.status(),
-          window.electronAPI?.lanproxy.status(),
-          window.electronAPI?.agent.serviceStatus(),
-          window.electronAPI?.mcp.status(),
-          window.electronAPI?.computerServer.status(),
-        ]);
+      const [
+        fsStatus,
+        lpStatus,
+        agentSvcStatus,
+        mcpStatus,
+        csStatus,
+        guiStatus,
+      ] = await Promise.all([
+        window.electronAPI?.fileServer.status(),
+        window.electronAPI?.lanproxy.status(),
+        window.electronAPI?.agent.serviceStatus(),
+        window.electronAPI?.mcp.status(),
+        window.electronAPI?.computerServer.status(),
+        window.electronAPI?.guiServer?.status(),
+      ]);
       items.push({
         key: "mcpProxy",
         label: "MCP 服务",
@@ -473,6 +481,14 @@ function App() {
         running: fsStatus?.running ?? false,
         pid: fsStatus?.pid,
         error: fsStatus?.error,
+      });
+      items.push({
+        key: "guiServer",
+        label: "GUI Agent 服务",
+        description: "桌面自动化视觉操作服务",
+        running: guiStatus?.running ?? false,
+        pid: guiStatus?.pid,
+        error: guiStatus?.error,
       });
       items.push({
         key: "lanproxy",
@@ -533,6 +549,8 @@ function App() {
               `fileServer: ${result?.success ? "ok" : "failed"}`,
               result?.error,
             );
+          } else if (key === "guiServer") {
+            result = await window.electronAPI?.guiServer?.start();
           } else if (key === "lanproxy") {
             const clientKey = (await window.electronAPI?.settings.get(
               "auth.saved_key",
@@ -613,6 +631,7 @@ function App() {
           "mcpProxy",
           "agent",
           "fileServer",
+          "guiServer",
           "lanproxy",
         ]);
         return;
@@ -645,6 +664,7 @@ function App() {
               "mcpProxy",
               "agent",
               "fileServer",
+              "guiServer",
               "lanproxy",
             ]);
           } else {
@@ -660,6 +680,7 @@ function App() {
               "mcpProxy",
               "agent",
               "fileServer",
+              "guiServer",
               "lanproxy",
             ]);
           }

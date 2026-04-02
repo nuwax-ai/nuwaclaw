@@ -32,3 +32,9 @@ nuwaclaw/.github/workflows/sync-electron-to-oss.yml
 
 - `GH_PAT` 或使用 repo 默认 token（下载 Release 资产）
 - `OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`（上传到阿里云 OSS）
+
+## 相关方案留存
+
+本地脚本 `sync-oss.sh` 如何锁定本次触发的 workflow run、`grep` 与版本校验等说明见：
+
+- [reviews/SOLUTION-RETENTION-ELECTRON-2026-03.md](reviews/SOLUTION-RETENTION-ELECTRON-2026-03.md)

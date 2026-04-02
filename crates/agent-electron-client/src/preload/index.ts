@@ -211,6 +211,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     status: () => ipcRenderer.invoke("computerServer:status"),
   },
 
+  // GUI Agent Server lifecycle (桌面自动化视觉操作服务)
+  guiServer: {
+    start: () => ipcRenderer.invoke("guiServer:start"),
+    stop: () => ipcRenderer.invoke("guiServer:stop"),
+    status: () => ipcRenderer.invoke("guiServer:status"),
+  },
+
   // Computer API (对齐 rcoder /computer/* API)
   computer: {
     chat: (request: any) => ipcRenderer.invoke("computer:chat", request),
@@ -251,6 +258,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     checkUv: () => ipcRenderer.invoke("dependencies:checkUv"),
     checkMcpProxyBundled: () =>
       ipcRenderer.invoke("dependencies:checkMcpProxyBundled"),
+    checkNuwaxcodeBundled: () =>
+      ipcRenderer.invoke("dependencies:checkNuwaxcodeBundled"),
     detectPackage: (packageName: string, binName?: string) =>
       ipcRenderer.invoke("dependencies:detectPackage", packageName, binName),
     installPackage: (
@@ -311,6 +320,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }) => ipcRenderer.invoke("session:setCookie", params),
     getCookie: (params: { url: string; name: string }) =>
       ipcRenderer.invoke("session:getCookie", params),
+    removeCookie: (params: { url: string; name: string }) =>
+      ipcRenderer.invoke("session:removeCookie", params),
+    flushStore: () => ipcRenderer.invoke("session:flushStore"),
   },
 
   // WebView Window - 独立窗口打开会话浏览器
@@ -465,6 +477,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     installUpdate: () => ipcRenderer.invoke("app:installUpdate"),
     getUpdateState: () => ipcRenderer.invoke("app:getUpdateState"),
     openReleasesPage: () => ipcRenderer.invoke("app:openReleasesPage"),
+    getUpdateDebugInfo: () => ipcRenderer.invoke("app:getUpdateDebugInfo"),
     getDeviceId: () => ipcRenderer.invoke("app:getDeviceId"),
   },
 

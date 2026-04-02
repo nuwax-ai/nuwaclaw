@@ -245,48 +245,59 @@ export function initLogging(): void {
   log.transports.file.maxSize = maxSize;
 
   // 大小轮转：当日文件超 maxSize 时，扫描目录找最大序号 N，重命名为 main.YYYY-MM-DD.(N+1).log
+  let isArchiving = false;
   log.transports.file.archiveLogFn = (oldLogFile: {
     path: string;
     crop?: (n: number) => void;
   }) => {
-    const oldPath = oldLogFile.path;
-    const parsed = path.parse(oldPath);
-    // 从当前文件名提取日期（main.YYYY-MM-DD.log → YYYY-MM-DD）
-    const baseMatch = parsed.name.match(/^main\.(\d{4}-\d{2}-\d{2})$/);
-    const dateStr = baseMatch ? baseMatch[1] : todayDateStr();
-
-    // 扫描目录找当日最大序号
-    let maxSeq = 0;
-    try {
-      const seqPattern = new RegExp(
-        `^main\\.${escapeRegExp(dateStr)}\\.(\\d+)\\.log$`,
-      );
-      const files = fs.readdirSync(parsed.dir);
-      for (const f of files) {
-        const m = f.match(seqPattern);
-        if (m) {
-          const seq = parseInt(m[1], 10);
-          if (seq > maxSeq) maxSeq = seq;
-        }
-      }
-    } catch {
-      // 目录读取失败，从 1 开始
+    // 防止重入：catch 中的日志写入会再次触发 archiveLogFn，导致无限递归
+    if (isArchiving) {
+      oldLogFile.crop?.(256 * 1024);
+      return;
     }
-
-    const newSeq = maxSeq + 1;
-    const archiveName = `main.${dateStr}.${newSeq}.log`;
-    const archivePath = path.join(parsed.dir, archiveName);
+    isArchiving = true;
     try {
-      fs.renameSync(oldPath, archivePath);
-      log.info("[LogConfig] 日志已轮转:", archiveName);
-      // Windows 硬链接指向 inode，轮转后需重新让 latest.log 指向新文件
-      if (process.platform === "win32") {
-        updateLatestLogWithRetry(parsed.dir);
+      const oldPath = oldLogFile.path;
+      const parsed = path.parse(oldPath);
+      // 从当前文件名提取日期（main.YYYY-MM-DD.log → YYYY-MM-DD）
+      const baseMatch = parsed.name.match(/^main\.(\d{4}-\d{2}-\d{2})$/);
+      const dateStr = baseMatch ? baseMatch[1] : todayDateStr();
+
+      // 扫描目录找当日最大序号
+      let maxSeq = 0;
+      try {
+        const seqPattern = new RegExp(
+          `^main\\.${escapeRegExp(dateStr)}\\.(\\d+)\\.log$`,
+        );
+        const files = fs.readdirSync(parsed.dir);
+        for (const f of files) {
+          const m = f.match(seqPattern);
+          if (m) {
+            const seq = parseInt(m[1], 10);
+            if (seq > maxSeq) maxSeq = seq;
+          }
+        }
+      } catch {
+        // 目录读取失败，从 1 开始
       }
-    } catch (e) {
-      log.warn("[LogConfig] 轮转失败，尝试截断:", e);
-      const quarter = Math.round(maxSize / 4);
-      oldLogFile.crop?.(Math.min(quarter, 256 * 1024));
+
+      const newSeq = maxSeq + 1;
+      const archiveName = `main.${dateStr}.${newSeq}.log`;
+      const archivePath = path.join(parsed.dir, archiveName);
+      try {
+        fs.renameSync(oldPath, archivePath);
+        log.info("[LogConfig] 日志已轮转:", archiveName);
+        // Windows 硬链接指向 inode，轮转后需重新让 latest.log 指向新文件
+        if (process.platform === "win32") {
+          updateLatestLogWithRetry(parsed.dir);
+        }
+      } catch (e) {
+        log.warn("[LogConfig] 轮转失败，尝试截断:", e);
+        const quarter = Math.round(maxSize / 4);
+        oldLogFile.crop?.(Math.min(quarter, 256 * 1024));
+      }
+    } finally {
+      isArchiving = false;
     }
   };
 

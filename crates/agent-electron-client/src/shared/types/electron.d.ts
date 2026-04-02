@@ -121,6 +121,12 @@ export interface ComputerServerAPI {
   status: () => Promise<{ running: boolean; port?: number; error?: string }>;
 }
 
+export interface GuiServerAPI {
+  start: () => Promise<{ success: boolean; error?: string }>;
+  stop: () => Promise<{ success: boolean; error?: string }>;
+  status: () => Promise<{ running: boolean; pid?: number; error?: string }>;
+}
+
 export type DependencyStatus =
   | "checking"
   | "installed"
@@ -177,6 +183,14 @@ export interface DependenciesAPI {
     success: boolean;
     available?: boolean;
     version?: string;
+    error?: string;
+  }>;
+  /** 应用包内集成的 nuwaxcode 引擎二进制 */
+  checkNuwaxcodeBundled: () => Promise<{
+    success: boolean;
+    available?: boolean;
+    version?: string;
+    binPath?: string;
     error?: string;
   }>;
   detectPackage: (
@@ -440,6 +454,21 @@ export interface AppAPI {
   installUpdate: () => Promise<{ success: boolean; error?: string }>;
   getUpdateState: () => Promise<UpdateState>;
   openReleasesPage: () => Promise<{ success: boolean }>;
+  getUpdateDebugInfo: () => Promise<{
+    success: boolean;
+    platform?: string;
+    arch?: string;
+    isPackaged?: boolean;
+    appVersion?: string;
+    appName?: string;
+    installerType?: string;
+    canAutoUpdate?: boolean;
+    appDir?: string | null;
+    exePath?: string;
+    uninstallerFiles?: string[];
+    totalAppFiles?: number;
+    error?: string;
+  }>;
   getDeviceId: () => Promise<string>;
 }
 
@@ -588,6 +617,11 @@ export interface ElectronAPI {
       httpOnly?: boolean;
       secure?: boolean;
     }) => Promise<{ success: boolean; error?: string }>;
+    removeCookie: (params: { url: string; name: string }) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+    flushStore: () => Promise<{ success: boolean; error?: string }>;
     getCookie: (params: { url: string; name: string }) => Promise<{
       success: boolean;
       found?: boolean;
@@ -599,6 +633,8 @@ export interface ElectronAPI {
         httpOnly: boolean;
         secure: boolean;
         sameSite: string;
+        session?: boolean;
+        expirationDate?: number;
       }>;
       cookie?: {
         name: string;
@@ -607,6 +643,8 @@ export interface ElectronAPI {
         httpOnly: boolean;
         secure: boolean;
         sameSite: string;
+        session?: boolean;
+        expirationDate?: number;
       };
       error?: string;
     }>;
@@ -634,6 +672,7 @@ export interface ElectronAPI {
   sandbox: SandboxAPI;
   fileServer: FileServerAPI;
   computerServer: ComputerServerAPI;
+  guiServer: GuiServerAPI;
   dependencies: DependenciesAPI;
   shell: ShellAPI;
   mirror: MirrorAPI;

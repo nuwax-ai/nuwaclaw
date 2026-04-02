@@ -103,6 +103,12 @@ interface McpProxyBundledResult {
   version?: string;
 }
 
+/** 应用包内集成的 nuwaxcode 引擎检测结果 */
+interface NuwaxcodeBundledResult {
+  available: boolean;
+  version?: string;
+}
+
 export default function DependenciesPage() {
   const [nodeResult, setNodeResult] = useState<NodeCheckResult | null>(
     MOCK_LOADING ? null : null,
@@ -110,6 +116,8 @@ export default function DependenciesPage() {
   const [uvResult, setUvResult] = useState<UvCheckResult | null>(null);
   const [mcpProxyBundled, setMcpProxyBundled] =
     useState<McpProxyBundledResult | null>(null);
+  const [nuwaxcodeBundled, setNuwaxcodeBundled] =
+    useState<NuwaxcodeBundledResult | null>(null);
   const [localDeps, setLocalDeps] = useState<LocalDependencyItem[]>(
     MOCK_LOADING ? [] : [],
   );
@@ -168,6 +176,15 @@ export default function DependenciesPage() {
           ? { available: true, version: mcpRes.version }
           : { available: false };
       setMcpProxyBundled(mcpData);
+
+      // 应用包内集成的 nuwaxcode 引擎
+      const nuwaxcodeRes =
+        await window.electronAPI?.dependencies.checkNuwaxcodeBundled();
+      const nuwaxcodeData: NuwaxcodeBundledResult =
+        nuwaxcodeRes?.success && nuwaxcodeRes.available
+          ? { available: true, version: nuwaxcodeRes.version }
+          : { available: false };
+      setNuwaxcodeBundled(nuwaxcodeData);
 
       // Check all local/installable dependencies
       const depsResult = await window.electronAPI?.dependencies.checkAll({
@@ -663,6 +680,40 @@ export default function DependenciesPage() {
               }}
             >
               {mcpProxyBundled?.available ? "应用集成" : "未集成"}
+            </span>
+          </div>
+
+          {/* nuwaxcode 引擎：应用包内集成 */}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              {nuwaxcodeBundled?.available ? (
+                <CheckCircleOutlined
+                  style={{ color: "var(--color-success)", fontSize: 12 }}
+                />
+              ) : (
+                <ExclamationCircleOutlined
+                  style={{ color: "var(--color-warning)", fontSize: 12 }}
+                />
+              )}
+              <div>
+                <span className={styles.serviceLabel}>nuwaxcode</span>
+                {nuwaxcodeBundled?.available && nuwaxcodeBundled.version && (
+                  <span className={styles.serviceDescription}>
+                    {" "}
+                    {nuwaxcodeBundled.version}
+                  </span>
+                )}
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: nuwaxcodeBundled?.available
+                  ? "var(--color-success)"
+                  : "var(--color-text-tertiary)",
+              }}
+            >
+              {nuwaxcodeBundled?.available ? "应用集成" : "未集成"}
             </span>
           </div>
         </div>

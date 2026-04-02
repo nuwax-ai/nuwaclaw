@@ -7,6 +7,7 @@
 
 import * as path from "path";
 import * as fs from "fs";
+import * as os from "os";
 import { spawn, execSync } from "child_process";
 import { app } from "electron";
 import log from "electron-log";
@@ -469,6 +470,38 @@ export function getLanproxyBinPath(): string {
 
   // 都不存在时返回预期路径（让调用者报错）
   return path.join(binDir, binName);
+}
+
+// 获取 bundled nuwaxcode 二进制路径
+// 打包时 extraResources 将 resources/nuwaxcode/ 复制到应用内
+// 运行时根据 platform-arch 选择正确二进制
+export function getNuwaxcodeBundledBinPath(): string | null {
+  const platformMap: Record<string, string> = {
+    darwin: "darwin",
+    linux: "linux",
+    win32: "windows",
+  };
+  const archMap: Record<string, string> = {
+    x64: "x64",
+    arm64: "arm64",
+    arm: "arm",
+  };
+  const platform = platformMap[os.platform()] || os.platform();
+  const arch = archMap[os.arch()] || os.arch();
+  const binary = platform === "windows" ? "nuwaxcode.exe" : "nuwaxcode";
+
+  const bundledPath = path.join(
+    getResourcesPath(),
+    "nuwaxcode",
+    `${platform}-${arch}`,
+    "bin",
+    binary,
+  );
+  if (fs.existsSync(bundledPath)) {
+    return bundledPath;
+  }
+
+  return null;
 }
 
 // 获取 bundled Node.js 24 路径（集成到 resources/node/）
@@ -1099,11 +1132,11 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
   {
     name: "nuwaxcode",
     displayName: "Agent 引擎",
-    type: "npm-local",
-    description: "Agent 执行引擎（应用内安装）",
+    type: "bundled",
+    description: "Agent 执行引擎（应用内集成）",
     required: true,
     binName: "nuwaxcode",
-    installVersion: "1.1.63",
+    installVersion: "1.1.68",
   },
   {
     name: "claude-code-acp-ts",
@@ -1315,6 +1348,34 @@ export async function checkMcpProxyBundled(): Promise<{
     log.warn("[checkMcpProxyBundled] 读取 package.json 失败:", e);
     return { available: true };
   }
+}
+
+/**
+ * 检测应用包内集成的 nuwaxcode 是否可用
+ * 打包后为 process.resourcesPath/nuwaxcode/，开发时为 resources/nuwaxcode/
+ */
+export async function checkNuwaxcodeBundled(): Promise<{
+  available: boolean;
+  version?: string;
+  binPath?: string;
+}> {
+  const bundledPath = getNuwaxcodeBundledBinPath();
+  if (!bundledPath) {
+    log.info("[checkNuwaxcodeBundled] 未找到包内集成二进制");
+    return { available: false };
+  }
+  // 读取版本标记文件
+  const versionFile = path.join(getResourcesPath(), "nuwaxcode", ".version");
+  let version: string | undefined;
+  try {
+    if (fs.existsSync(versionFile)) {
+      version = fs.readFileSync(versionFile, "utf-8").trim();
+    }
+  } catch {}
+  log.info(
+    `[checkNuwaxcodeBundled] 包内集成可用: ${bundledPath}, version=${version ?? "未知"}`,
+  );
+  return { available: true, version, binPath: bundledPath };
 }
 
 /** 检测指定路径的 uv 二进制 */
@@ -1694,8 +1755,24 @@ export async function checkAllDependencies(options?: {
           item.binPath = result.binPath;
           break;
         }
+        case "nuwaxcode": {
+          // 只使用应用内打包的二进制（不从 npm 安装）
+          const bundledPath = getNuwaxcodeBundledBinPath();
+          if (bundledPath) {
+            item.status = "installed";
+            item.binPath = bundledPath;
+            item.version = dep.installVersion;
+            log.info(
+              "[checkAllDependencies] nuwaxcode: 使用应用内打包二进制:",
+              bundledPath,
+            );
+          } else {
+            item.status = "missing";
+            log.warn("[checkAllDependencies] nuwaxcode: 未找到打包二进制");
+          }
+          break;
+        }
         case "pnpm":
-        case "nuwaxcode":
         case "nuwax-file-server":
         case "claude-code-acp-ts": {
           const result = await detectNpmPackage(dep.name, dep.binName);

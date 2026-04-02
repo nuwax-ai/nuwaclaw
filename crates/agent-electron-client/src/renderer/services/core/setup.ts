@@ -13,17 +13,18 @@ import {
   DEFAULT_SERVER_HOST,
   DEFAULT_AGENT_RUNNER_PORT,
   DEFAULT_FILE_SERVER_PORT,
+  DEFAULT_GUI_MCP_PORT,
   STORAGE_KEYS,
   AUTH_KEYS,
   DEFAULT_AI_ENGINE,
 } from "@shared/constants";
-
 
 // ==================== Types =============
 export interface Step1Config {
   serverHost: string;
   agentPort: number;
   fileServerPort: number;
+  guiMcpPort: number;
   workspaceDir: string;
 }
 
@@ -61,6 +62,7 @@ export const DEFAULT_STEP1_CONFIG: Step1Config = {
   serverHost: DEFAULT_SERVER_HOST,
   agentPort: DEFAULT_AGENT_RUNNER_PORT,
   fileServerPort: DEFAULT_FILE_SERVER_PORT,
+  guiMcpPort: DEFAULT_GUI_MCP_PORT,
   workspaceDir: "",
 };
 
@@ -149,11 +151,9 @@ class SetupService {
       await window.electronAPI?.settings.set(STORAGE_KEYS.SETUP_STATE, state);
 
       console.log("[Setup] Step 1 saved:", config);
-    } catch (error) {
-      console.error("[Setup] Save Step1 failed:", error);
-
       logger.info("Step 1 saved", "Setup", config);
     } catch (error) {
+      console.error("[Setup] Save Step1 failed:", error);
       logger.error("Save Step1 failed", "Setup", error);
 
       throw error;
@@ -169,11 +169,9 @@ class SetupService {
       state.step2Completed = true;
       state.currentStep = 3;
       await window.electronAPI?.settings.set(STORAGE_KEYS.SETUP_STATE, state);
-    } catch (error) {
-      console.error("[Setup] Complete Step2 failed:", error);
-
       logger.info("Step 2 completed", "Setup");
     } catch (error) {
+      console.error("[Setup] Complete Step2 failed:", error);
       logger.error("Complete Step2 failed", "Setup", error);
 
       throw error;
@@ -189,11 +187,9 @@ class SetupService {
       state.completed = true;
       state.currentStep = 0;
       await window.electronAPI?.settings.set(STORAGE_KEYS.SETUP_STATE, state);
-    } catch (error) {
-      console.error("[Setup] Complete failed:", error);
-
       logger.info("Setup completed", "Setup");
     } catch (error) {
+      console.error("[Setup] Complete failed:", error);
       logger.error("Complete failed", "Setup", error);
 
       throw error;
@@ -217,11 +213,9 @@ class SetupService {
         null,
       );
       await window.electronAPI?.settings.set(STORAGE_KEYS.MCP_CONFIG, null);
-    } catch (error) {
-      console.error("[Setup] Reset failed:", error);
-
       logger.info("Reset completed", "Setup");
     } catch (error) {
+      console.error("[Setup] Reset failed:", error);
       logger.error("Reset failed", "Setup", error);
 
       throw error;
@@ -257,11 +251,9 @@ class AuthService {
       await window.electronAPI?.settings.set("auth.config_key", null);
       await window.electronAPI?.settings.set("auth.user_info", null);
       await window.electronAPI?.settings.set("auth.online_status", null);
-    } catch (error) {
-      console.error("[Auth] Clear failed:", error);
-
       logger.info("Cleared", "Auth");
     } catch (error) {
+      console.error("[Auth] Clear failed:", error);
       logger.error("Clear failed", "Auth", error);
 
       throw error;
@@ -304,7 +296,6 @@ class ServiceManager {
       console.error("[Service] Get status failed:", error);
 
       logger.error("Get status failed", "Service", error);
-
     }
 
     return status;

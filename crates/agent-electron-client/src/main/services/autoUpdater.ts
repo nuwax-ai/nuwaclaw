@@ -8,7 +8,7 @@
  *
  * - autoDownload = false: 用户控制下载时机
  * - autoInstallOnAppQuit = true: 下载完成后退出时自动安装
- * - Windows: NSIS 安装支持自动更新，MSI 安装引导到 Releases 页面
+ * - Windows: NSIS 安装支持自动更新，MSI 安装引导到官网下载安装页
  */
 
 import { app, BrowserWindow, shell, dialog, net } from "electron";
@@ -33,6 +33,7 @@ import {
 const OSS_BASE =
   "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron";
 const OSS_LATEST_JSON_URL = `${OSS_BASE}/latest/latest.json`;
+const OFFICIAL_DOWNLOAD_PAGE_URL = "https://nuwax.com/nuwaclaw.html";
 
 /** Squirrel.Mac 在只读卷（如从「下载」直接打开）上无法就地更新时的错误信息特征 */
 const READ_ONLY_VOLUME_ERROR_SUBSTR = "read-only volume";
@@ -111,8 +112,12 @@ type InstallerType = "nsis" | "msi" | "mac" | "linux" | "dev";
 /**
  * 检测 Windows 安装类型（NSIS vs MSI）
  *
- * NSIS 安装会在应用目录下创建 `Uninstall {productName}.exe`，
- * MSI 安装由 Windows Installer 管理，不含此文件。
+ * NSIS 安装会在应用目录下创建卸载程序文件，按优先级检测：
+ * 1. 标准命名：Uninstall {productName}.exe
+ * 2. NSIS 通用命名：unins000.exe, unins001.exe 等
+ * 3. 匹配 Uninstall*.exe 或 unins*.exe（避免误判其他文件）
+ *
+ * MSI 安装由 Windows Installer 管理，通常不含卸载程序文件。
  */
 function detectInstallerType(): InstallerType {
   if (!app.isPackaged) return "dev";
@@ -121,27 +126,76 @@ function detectInstallerType(): InstallerType {
 
   if (process.platform === "win32") {
     const appDir = path.dirname(app.getPath("exe"));
-    // electron-builder NSIS 会生成 "Uninstall {productName}.exe"
+
+    // 方式1: 标准的 electron-builder NSIS 卸载程序
+    // 文件名格式: "Uninstall {productName}.exe"
     const productName = app.getName();
-    const nsisUninstaller = path.join(appDir, `Uninstall ${productName}.exe`);
-    if (fs.existsSync(nsisUninstaller)) {
+    const standardNsisUninstaller = path.join(
+      appDir,
+      `Uninstall ${productName}.exe`,
+    );
+    if (fs.existsSync(standardNsisUninstaller)) {
       log.info(
-        `[AutoUpdater] Windows installer type: NSIS (found ${nsisUninstaller})`,
+        `[AutoUpdater] Windows installer type: NSIS (found standard uninstaller: ${standardNsisUninstaller})`,
       );
       return "nsis";
     }
+
+    // 方式2和3: 读取目录一次，检查多种 NSIS 卸载程序模式
+    // 避免重复调用 readdirSync，提高性能
+    let appFiles: string[] | undefined;
+    try {
+      appFiles = fs.readdirSync(appDir);
+    } catch (e) {
+      log.warn("[AutoUpdater] Failed to read app directory:", e);
+    }
+
+    if (appFiles && appFiles.length > 0) {
+      // 方式2: NSIS 通用卸载程序模式 (unins000.exe, unins001.exe 等)
+      const genericNsisUninstaller = appFiles.find((f) =>
+        /^unins\d{3}\.exe$/i.test(f),
+      );
+      if (genericNsisUninstaller) {
+        log.info(
+          `[AutoUpdater] Windows installer type: NSIS (found generic NSIS uninstaller: ${genericNsisUninstaller})`,
+        );
+        return "nsis";
+      }
+
+      // 方式3: 匹配 Uninstall*.exe 或 unins*.exe 开头的文件
+      // 严格模式：避免误判如 "uninstaller_helper.exe" 等非卸载程序文件
+      const anyUninstaller = appFiles.find((f) => {
+        const lowerName = f.toLowerCase();
+        return (
+          // Uninstall 开头 + .exe 结尾（如 Uninstall.exe, Uninstall-1.0.0.exe）
+          (lowerName.startsWith("uninstall") && lowerName.endsWith(".exe")) ||
+          // unins 开头但不是 uninsNNN.exe 模式的（兼容其他 NSIS 变体）
+          (lowerName.startsWith("unins") &&
+            !/^unins\d{3}\.exe$/i.test(f) &&
+            lowerName.endsWith(".exe"))
+        );
+      });
+      if (anyUninstaller) {
+        log.info(
+          `[AutoUpdater] Windows installer type: NSIS (found uninstaller: ${anyUninstaller})`,
+        );
+        return "nsis";
+      }
+    }
+
+    // Fallback: 找不到任何卸载程序文件，判定为 MSI
     log.info(
-      "[AutoUpdater] Windows installer type: MSI (no NSIS uninstaller found)",
+      "[AutoUpdater] Windows installer type: MSI (no uninstaller found in app directory)",
     );
     return "msi";
   }
 
-  return "nsis"; // fallback
+  return "nsis"; // 非预期平台 fallback（实际 win32/mac/linux 已覆盖）
 }
 
 let cachedInstallerType: InstallerType | undefined;
 
-function getInstallerType(): InstallerType {
+export function getInstallerType(): InstallerType {
   if (!cachedInstallerType) {
     cachedInstallerType = detectInstallerType();
   }
@@ -151,9 +205,9 @@ function getInstallerType(): InstallerType {
 /**
  * 当前安装方式是否支持自动更新
  * - NSIS / mac / linux / dev: electron-updater 原生支持（dev 模式下载有单独 guard）
- * - MSI: 不支持，引导到 Releases 页面
+ * - MSI: 不支持，引导到官网下载安装页
  */
-function canAutoUpdate(): boolean {
+export function canAutoUpdate(): boolean {
   const type = getInstallerType();
   return type !== "msi";
 }
@@ -348,7 +402,7 @@ export function initAutoUpdater(
   // MSI 安装只支持检查更新，不支持自动下载/安装
   if (installerType === "msi") {
     log.info(
-      "[AutoUpdater] MSI installation detected: auto-download disabled, will redirect to releases page",
+      "[AutoUpdater] MSI installation detected: auto-download disabled, will redirect to official download page",
     );
   }
 
@@ -470,13 +524,12 @@ export function initAutoUpdater(
  */
 async function showStartupUpdateDialog(version: string): Promise<void> {
   if (!canAutoUpdate()) {
-    // MSI 用户引导到 Releases 页面
+    // MSI 用户引导到官网下载安装页
     const { response } = await showModal({
       type: "info",
       title: "发现新版本",
       message: `发现新版本 v${version}`,
-      detail:
-        "当前安装方式不支持自动更新，请前往 Releases 页面下载最新安装包。",
+      detail: "当前安装方式不支持自动更新，请前往官网下载页下载最新安装包。",
       buttons: ["前往下载页", "跳过此版本", "关闭"],
       defaultId: 0,
       cancelId: 2,
@@ -554,8 +607,7 @@ export async function showUpdateDialogFlow(): Promise<void> {
         type: "info",
         title: "发现新版本",
         message: `发现新版本 v${version}`,
-        detail:
-          "当前安装方式不支持自动更新，请前往 Releases 页面下载最新安装包。",
+        detail: "当前安装方式不支持自动更新，请前往官网下载页下载最新安装包。",
         buttons: ["前往下载页", "稍后再说"],
         defaultId: 0,
         cancelId: 1,
@@ -673,15 +725,15 @@ export async function downloadUpdate(): Promise<{
     };
   }
 
-  // MSI 安装不支持自动更新，引导到 Releases 页面
+  // MSI 安装不支持自动更新，引导到官网下载安装页
   if (getInstallerType() === "msi") {
     log.info(
-      "[AutoUpdater] MSI installation: redirecting to releases page for manual download",
+      "[AutoUpdater] MSI installation: redirecting to official download page for manual download",
     );
     openReleasesPage();
     return {
       success: false,
-      error: "MSI 安装请前往 Releases 页面下载最新 MSI 安装包",
+      error: "MSI 安装请前往官网下载页下载最新安装包",
     };
   }
 
@@ -719,7 +771,7 @@ export function installUpdate(): { success: boolean; error?: string } {
     openReleasesPage();
     return {
       success: false,
-      error: "MSI 安装请前往 Releases 页面下载最新 MSI 安装包",
+      error: "MSI 安装请前往官网下载页下载最新安装包",
     };
   }
 
@@ -757,13 +809,22 @@ export function getUpdateState(): UpdateState {
 }
 
 /**
- * 打开下载页：从 OSS latest.json 获取当前平台对应的下载链接
- * - Windows: 按安装类型（NSIS/MSI）选择 .exe 或 .msi
+ * 打开下载页：
+ * - Windows: 统一打开官网下载安装页（避免 MSI/EXE 安装路径不一致带来的升级问题）
+ * - macOS/Linux: 从 OSS latest.json 获取当前平台对应下载链接
  * - macOS: 根据架构选择 arm64/x64 .zip
  * - Linux: 根据架构选择 arm64/x64 AppImage
  * OSS 不可达时弹窗提示错误，不 fallback 到 GitHub
  */
 export async function openReleasesPage(): Promise<void> {
+  if (process.platform === "win32") {
+    log.info(
+      `[AutoUpdater] Opening official download page on Windows: ${OFFICIAL_DOWNLOAD_PAGE_URL}`,
+    );
+    await shell.openExternal(OFFICIAL_DOWNLOAD_PAGE_URL);
+    return;
+  }
+
   let url: string;
   let platformName: string;
 
@@ -771,11 +832,7 @@ export async function openReleasesPage(): Promise<void> {
     const latest = await fetchLatestJson(OSS_LATEST_JSON_URL);
     const platforms: Platforms | undefined = latest.platforms;
 
-    if (process.platform === "win32") {
-      const installerType = getInstallerType();
-      url = getWindowsDownloadUrl(platforms, installerType);
-      platformName = `Windows (${installerType})`;
-    } else if (process.platform === "darwin") {
+    if (process.platform === "darwin") {
       url = getMacosDownloadUrl(platforms);
       platformName = `macOS (${process.arch})`;
     } else {

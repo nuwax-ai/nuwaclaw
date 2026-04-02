@@ -65,11 +65,16 @@ function parseJwtExp(token: string): number | null {
   }
 }
 
+// JWT 无 exp 或 exp 即将到期时的兜底 cookie TTL（7 天）
+const TICKET_COOKIE_FALLBACK_TTL_SECONDS = 7 * 24 * 60 * 60;
+
 function resolveTicketExpirationDate(token: string): number | undefined {
   const exp = parseJwtExp(token);
-  if (!exp) return undefined;
-  // 过期时间太近（<60s）时不写持久过期，避免写入立即过期 cookie
-  if (exp <= Math.floor(Date.now() / 1000) + 60) return undefined;
+  const fallback =
+    Math.floor(Date.now() / 1000) + TICKET_COOKIE_FALLBACK_TTL_SECONDS;
+  if (!exp) return fallback;
+  // 过期时间太近（<60s）时使用兜底 TTL，避免创建 session cookie
+  if (exp <= Math.floor(Date.now() / 1000) + 60) return fallback;
   return exp;
 }
 
@@ -310,6 +315,55 @@ export function registerAppHandlers(ctx: HandlerContext): void {
     return { success: true };
   });
 
+  // 调试：获取升级检测详细信息
+  ipcMain.handle("app:getUpdateDebugInfo", async () => {
+    try {
+      const { getInstallerType, canAutoUpdate } =
+        await import("../services/autoUpdater");
+      const installerType = getInstallerType();
+      const canUpdate = canAutoUpdate();
+
+      // 获取应用目录和文件列表（仅用于调试）
+      let appFiles: string[] = [];
+      if (process.platform === "win32") {
+        try {
+          const appDir = path.dirname(app.getPath("exe"));
+          appFiles = require("fs").readdirSync(appDir);
+        } catch (e) {
+          log.error("[IPC] Failed to read app directory for debug:", e);
+        }
+      }
+
+      // 查找可能的卸载程序
+      const uninstallers = appFiles.filter((f) => {
+        const lower = f.toLowerCase();
+        return lower.startsWith("uninstall") || lower.startsWith("unins");
+      });
+
+      return {
+        success: true,
+        platform: process.platform,
+        arch: process.arch,
+        isPackaged: app.isPackaged,
+        appVersion: app.getVersion(),
+        appName: app.getName(),
+        appPath: app.getAppPath(),
+        exePath: app.getPath("exe"),
+        installerType,
+        canAutoUpdate: canUpdate,
+        appDir:
+          process.platform === "win32"
+            ? path.dirname(app.getPath("exe"))
+            : null,
+        uninstallerFiles: uninstallers,
+        totalAppFiles: appFiles.length,
+      };
+    } catch (error) {
+      log.error("[IPC] app:getUpdateDebugInfo failed:", error);
+      return { success: false, error: String(error) };
+    }
+  });
+
   // Permissions (macOS)
   ipcMain.handle("permissions:check", async () => {
     if (process.platform !== "darwin") {
@@ -448,7 +502,9 @@ export function registerAppHandlers(ctx: HandlerContext): void {
           value: params.value,
           path: "/",
           httpOnly: params.httpOnly ?? true,
-          secure: params.secure ?? true,
+          // secure 跟随 URL scheme：HTTPS → true，HTTP → false
+          // 渲染进程不传时根据 URL 自动判断
+          secure: params.secure ?? params.url.startsWith("https://"),
         };
         const expirationDate =
           typeof params.expirationDate === "number"
@@ -507,6 +563,8 @@ export function registerAppHandlers(ctx: HandlerContext): void {
             httpOnly: c.httpOnly,
             secure: c.secure,
             sameSite: c.sameSite,
+            session: c.session,
+            expirationDate: c.expirationDate,
           })),
           cookie: {
             name: hit.name,
@@ -515,6 +573,8 @@ export function registerAppHandlers(ctx: HandlerContext): void {
             httpOnly: hit.httpOnly,
             secure: hit.secure,
             sameSite: hit.sameSite,
+            session: hit.session,
+            expirationDate: hit.expirationDate,
           },
         };
       } catch (error) {
@@ -523,6 +583,37 @@ export function registerAppHandlers(ctx: HandlerContext): void {
       }
     },
   );
+
+  ipcMain.handle(
+    "session:removeCookie",
+    async (_, params: { url: string; name: string }) => {
+      try {
+        await removeSameNameCookies({
+          url: params.url,
+          name: params.name,
+        });
+        await electronSession.defaultSession.cookies.flushStore();
+        log.info("[IPC] session:removeCookie success", {
+          url: params.url,
+          name: params.name,
+        });
+        return { success: true };
+      } catch (error) {
+        log.error("[IPC] session:removeCookie failed:", error);
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  ipcMain.handle("session:flushStore", async () => {
+    try {
+      await electronSession.defaultSession.cookies.flushStore();
+      return { success: true };
+    } catch (error) {
+      log.error("[IPC] session:flushStore failed:", error);
+      return { success: false, error: String(error) };
+    }
+  });
 
   // ========== WebView Window ==========
 
@@ -575,17 +666,36 @@ export function registerAppHandlers(ctx: HandlerContext): void {
               url,
               name: "ticket",
             });
-            if (current.length > 0) {
-              // 域名缓存 token 仅做兜底；目标站点已有 ticket 时不覆盖
+            // 检查已有 cookie 是否有效（未过期）
+            const hasValidCookie =
+              current.length > 0 &&
+              current.some((c) => {
+                // session cookie（无 expirationDate）视为有效
+                if (!c.expirationDate) return true;
+                // 持久 cookie：仅在未过期时有效
+                return c.expirationDate * 1000 > Date.now();
+              });
+            if (hasValidCookie) {
+              // 域名缓存 token 仅做兜底；目标站点已有有效 ticket 时不覆盖
               writeSetting("auth.token", null);
               log.info(
-                "[IPC] webview:openWindow detected existing ticket, skip domain-token sync",
+                "[IPC] webview:openWindow detected valid ticket, skip domain-token sync",
                 {
                   url,
                   count: current.length,
                 },
               );
               return;
+            }
+            // cookie 已过期或不存在，继续走同步流程
+            if (current.length > 0) {
+              log.info(
+                "[IPC] webview:openWindow detected expired ticket, re-syncing",
+                {
+                  url,
+                  count: current.length,
+                },
+              );
             }
           }
 
@@ -641,7 +751,9 @@ export function registerAppHandlers(ctx: HandlerContext): void {
                 `[IPC] webview:openWindow ticket cookie sync attempt ${attempt}/${maxRetries} failed, retrying...`,
                 error,
               );
-              await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+              await new Promise((resolve) =>
+                setTimeout(resolve, 100 * attempt),
+              );
             }
           }
         };

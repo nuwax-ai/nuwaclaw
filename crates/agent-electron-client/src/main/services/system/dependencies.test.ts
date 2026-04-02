@@ -216,7 +216,7 @@ describe("dependencies", () => {
       expect(fileServerDep?.binName).toBe("nuwax-file-server");
     });
 
-    it("should have nuwaxcode as npm-local dependency", async () => {
+    it("should have nuwaxcode as bundled dependency", async () => {
       const { SETUP_REQUIRED_DEPENDENCIES } =
         await import("../system/dependencies");
       const agentDep = SETUP_REQUIRED_DEPENDENCIES.find(
@@ -224,7 +224,7 @@ describe("dependencies", () => {
       );
 
       expect(agentDep).toBeDefined();
-      expect(agentDep?.type).toBe("npm-local");
+      expect(agentDep?.type).toBe("bundled");
       expect(agentDep?.required).toBe(true);
     });
 

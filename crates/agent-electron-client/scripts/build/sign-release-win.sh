@@ -35,6 +35,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VERSION=""
 SKIP_DOWNLOAD=false
 SKIP_UPLOAD=false
+SKIP_CACHE_CHECK=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -45,6 +46,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-upload)
             SKIP_UPLOAD=true
+            shift
+            ;;
+        --skip-cache-check)
+            SKIP_CACHE_CHECK=true
             shift
             ;;
         -*)
@@ -59,12 +64,18 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$VERSION" ]]; then
-    echo "Usage: $0 <version> [--skip-download] [--skip-upload]"
+    echo "Usage: $0 <version> [--skip-download] [--skip-upload] [--skip-cache-check]"
+    echo ""
+    echo "Options:"
+    echo "  --skip-download     Skip downloading unsigned files, use existing ones"
+    echo "  --skip-upload       Skip uploading signed files to GitHub"
+    echo "  --skip-cache-check  Disable SHA256 cache check, always re-download"
     echo ""
     echo "Examples:"
-    echo "  $0 0.9.2"
-    echo "  $0 0.9.2 --skip-download"
-    echo "  $0 0.9.2 --skip-upload"
+    echo "  $0 0.9.2                      # Download with cache check"
+    echo "  $0 0.9.2 --skip-download      # Use existing unsigned files"
+    echo "  $0 0.9.2 --skip-upload        # Keep signed files locally only"
+    echo "  $0 0.9.2 --skip-cache-check   # Force re-download even if cache exists"
     exit 1
 fi
 
@@ -190,6 +201,125 @@ gh_release() {
     "$GH_BIN" "${@:2}"
 }
 
+# Calculate SHA256 hash of a local file
+calculate_local_sha256() {
+    local file_path="$1"
+    local hash=""
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        hash=$(sha256sum "$file_path" 2>/dev/null | awk '{print $1}')
+    elif command -v certutil >/dev/null 2>&1; then
+        # Windows certutil fallback
+        hash=$(certutil -hashfile "$file_path" SHA256 2>/dev/null | grep -E '^[a-fA-F0-9]{64}$' | tr -d '\r\n')
+    else
+        # PowerShell fallback
+        local ps_bin=""
+        ps_bin="$(resolve_powershell || true)"
+        if [[ -n "$ps_bin" ]]; then
+            local win_path=""
+            if command -v cygpath >/dev/null 2>&1; then
+                win_path="$(cygpath -w "$file_path")"
+            else
+                win_path="$file_path"
+            fi
+            hash=$("$ps_bin" -Command "(Get-FileHash -Path '$win_path' -Algorithm SHA256).Hash" 2>/dev/null)
+        fi
+    fi
+
+    echo "$hash"
+}
+
+# Get SHA256 hash of a release asset from GitHub
+get_remote_sha256() {
+    local tag="$1"
+    local asset_name="$2"
+    local hash=""
+
+    if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
+        local ps_bin="${GH_BIN#__POWERSHELL_GH__:}"
+        # Prefer GitHub's asset digest field (e.g. "sha256:abcd...")
+        hash=$("$ps_bin" -Command "gh api repos/$REPO/releases/tags/$tag --jq '.assets[] | select(.name == \"$asset_name\") | .digest' 2>\$null" 2>/dev/null | tr -d '\r\n')
+    else
+        # Prefer GitHub's asset digest field (e.g. "sha256:abcd...")
+        hash=$("$GH_BIN" api "repos/$REPO/releases/tags/$tag" --jq '.assets[] | select(.name == "'"$asset_name"'") | .digest' 2>/dev/null | tr -d '\r\n')
+    fi
+
+    # Normalize "sha256:<hex>" to "<hex>"
+    if [[ -n "$hash" ]]; then
+        hash="${hash#sha256:}"
+    fi
+
+    # If we couldn't get it from API, try to download checksums file
+    if [[ -z "$hash" ]]; then
+        local checksums_file="$WORK_DIR/checksums.txt"
+        if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
+            local ps_bin="${GH_BIN#__POWERSHELL_GH__:}"
+            local work_dir_win=""
+            if command -v cygpath >/dev/null 2>&1; then
+                work_dir_win="$(cygpath -w "$WORK_DIR")"
+            else
+                work_dir_win="$WORK_DIR"
+            fi
+            "$ps_bin" -Command "gh release download \"$tag\" --repo \"$REPO\" --dir \"$work_dir_win\" --pattern 'checksums*' --skip-existing 2>\$null" 2>/dev/null || true
+        else
+            "$GH_BIN" release download "$tag" --repo "$REPO" --dir "$WORK_DIR" --pattern "checksums*" --skip-existing 2>/dev/null || true
+        fi
+
+        # Parse checksums file for our asset
+        for checksum_file in "$WORK_DIR"/checksums*; do
+            if [[ -f "$checksum_file" ]]; then
+                hash=$(grep -E "\s${asset_name}$" "$checksum_file" 2>/dev/null | awk '{print $1}')
+                if [[ -n "$hash" ]]; then
+                    break
+                fi
+            fi
+        done
+    fi
+
+    echo "$hash"
+}
+
+# Check if local file matches remote by SHA256
+check_cache_valid() {
+    local local_file="$1"
+    local remote_tag="$2"
+    local asset_name="$3"
+
+    # If local file doesn't exist, cache is invalid
+    if [[ ! -f "$local_file" ]]; then
+        echo "missing"
+        return 1
+    fi
+
+    # Get remote hash
+    local remote_hash=""
+    remote_hash=$(get_remote_sha256 "$remote_tag" "$asset_name")
+
+    # If we couldn't get remote hash, assume cache is invalid
+    if [[ -z "$remote_hash" ]]; then
+        echo "no_remote_hash"
+        return 1
+    fi
+
+    # Calculate local hash
+    local local_hash=""
+    local_hash=$(calculate_local_sha256 "$local_file")
+
+    if [[ -z "$local_hash" ]]; then
+        echo "no_local_hash"
+        return 1
+    fi
+
+    # Compare hashes
+    if [[ "${local_hash,,}" == "${remote_hash,,}" ]]; then
+        echo "valid"
+        return 0
+    else
+        echo "mismatch"
+        return 1
+    fi
+}
+
 # File names
 # CI builds: NuwaClaw-Setup-{version}-unsigned.exe, NuwaClaw-{version}-unsigned.msi
 # Signed:    NuwaClaw.Setup.{version}.exe,         NuwaClaw.{version}.msi
@@ -205,34 +335,108 @@ echo "  Unsigned: $UNSIGNED_DIR"
 echo "  Signed:   $SIGNED_DIR"
 
 # Download unsigned files
+UNSIGNED_EXE_PATH="$UNSIGNED_DIR/$UNSIGNED_EXE"
+UNSIGNED_MSI_PATH="$UNSIGNED_DIR/$UNSIGNED_MSI"
+
 if [[ "$SKIP_DOWNLOAD" == "false" ]]; then
     echo ""
-    echo "==> Downloading unsigned files from release electron-v$VERSION"
+    echo "==> Checking unsigned files cache"
 
-    rm -f "$UNSIGNED_DIR/$UNSIGNED_EXE" "$UNSIGNED_DIR/$UNSIGNED_MSI"
+    NEED_DOWNLOAD_EXE=true
+    NEED_DOWNLOAD_MSI=true
+    CACHE_HIT=false
 
-    # Download only Windows installers with -unsigned suffix
-    if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
-        UNSIGNED_DIR_WIN="$(cygpath -w "$UNSIGNED_DIR")"
-        gh_release "gh release download \"electron-v$VERSION\" --repo \"$REPO\" --dir \"$UNSIGNED_DIR_WIN\" --pattern \"NuwaClaw-Setup-*-unsigned.exe\" --pattern \"NuwaClaw-*-unsigned.msi\""
-    else
-        gh_release "" release download "electron-v$VERSION" \
-            --repo "$REPO" \
-            --dir "$UNSIGNED_DIR" \
-            --pattern "NuwaClaw-Setup-*-unsigned.exe" \
-            --pattern "NuwaClaw-*-unsigned.msi"
+    # Check cache for EXE
+    if [[ "$SKIP_CACHE_CHECK" == "false" ]] && [[ -f "$UNSIGNED_EXE_PATH" ]]; then
+        CACHE_LOCAL_HASH=""
+        CACHE_REMOTE_HASH=""
+        CACHE_LOCAL_HASH=$(calculate_local_sha256 "$UNSIGNED_EXE_PATH")
+        echo "  Local EXE SHA256:  $CACHE_LOCAL_HASH"
+
+        # Try to get checksum from release
+        CACHE_REMOTE_HASH=$(get_remote_sha256 "electron-v$VERSION" "$UNSIGNED_EXE")
+
+        if [[ -n "$CACHE_REMOTE_HASH" ]]; then
+            echo "  Remote EXE SHA256: $CACHE_REMOTE_HASH"
+            if [[ "${CACHE_LOCAL_HASH,,}" == "${CACHE_REMOTE_HASH,,}" ]]; then
+                echo "  ✓ EXE cache hit - SHA256 matches, skipping download"
+                NEED_DOWNLOAD_EXE=false
+            else
+                echo "  ✗ EXE cache miss - SHA256 mismatch"
+            fi
+        else
+            echo "  ? Remote hash not available, will re-download"
+        fi
     fi
 
-    echo "  Downloaded: $UNSIGNED_EXE, $UNSIGNED_MSI"
+    # Check cache for MSI
+    if [[ "$SKIP_CACHE_CHECK" == "false" ]] && [[ -f "$UNSIGNED_MSI_PATH" ]]; then
+        CACHE_LOCAL_HASH=""
+        CACHE_REMOTE_HASH=""
+        CACHE_LOCAL_HASH=$(calculate_local_sha256 "$UNSIGNED_MSI_PATH")
+        echo "  Local MSI SHA256:  $CACHE_LOCAL_HASH"
+
+        # Try to get checksum from release
+        CACHE_REMOTE_HASH=$(get_remote_sha256 "electron-v$VERSION" "$UNSIGNED_MSI")
+
+        if [[ -n "$CACHE_REMOTE_HASH" ]]; then
+            echo "  Remote MSI SHA256: $CACHE_REMOTE_HASH"
+            if [[ "${CACHE_LOCAL_HASH,,}" == "${CACHE_REMOTE_HASH,,}" ]]; then
+                echo "  ✓ MSI cache hit - SHA256 matches, skipping download"
+                NEED_DOWNLOAD_MSI=false
+            else
+                echo "  ✗ MSI cache miss - SHA256 mismatch"
+            fi
+        else
+            echo "  ? Remote hash not available, will re-download"
+        fi
+    fi
+
+    # Download if needed
+    if [[ "$NEED_DOWNLOAD_EXE" == "true" ]] || [[ "$NEED_DOWNLOAD_MSI" == "true" ]]; then
+        echo ""
+        echo "==> Downloading unsigned files from release electron-v$VERSION"
+
+        # Remove only files that need to be re-downloaded
+        [[ "$NEED_DOWNLOAD_EXE" == "true" ]] && rm -f "$UNSIGNED_EXE_PATH"
+        [[ "$NEED_DOWNLOAD_MSI" == "true" ]] && rm -f "$UNSIGNED_MSI_PATH"
+
+        # Build download patterns based on what's needed
+        CACHE_PATTERNS=()
+        [[ "$NEED_DOWNLOAD_EXE" == "true" ]] && CACHE_PATTERNS+=("--pattern" "NuwaClaw-Setup-*-unsigned.exe")
+        [[ "$NEED_DOWNLOAD_MSI" == "true" ]] && CACHE_PATTERNS+=("--pattern" "NuwaClaw-*-unsigned.msi")
+
+        # Download only Windows installers with -unsigned suffix
+        if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
+            UNSIGNED_DIR_WIN="$(cygpath -w "$UNSIGNED_DIR")"
+            CACHE_PATTERN_ARGS=""
+            for p in "${CACHE_PATTERNS[@]}"; do
+                if [[ "$p" == "--pattern" ]]; then
+                    CACHE_PATTERN_ARGS+="--pattern "
+                else
+                    CACHE_PATTERN_ARGS+="\"$p\" "
+                fi
+            done
+            gh_release "gh release download \"electron-v$VERSION\" --repo \"$REPO\" --dir \"$UNSIGNED_DIR_WIN\" $CACHE_PATTERN_ARGS"
+        else
+            gh_release "" release download "electron-v$VERSION" \
+                --repo "$REPO" \
+                --dir "$UNSIGNED_DIR" \
+                "${CACHE_PATTERNS[@]}"
+        fi
+
+        echo "  Downloaded files"
+    else
+        echo ""
+        echo "==> All files cached - skipping download"
+        CACHE_HIT=true
+    fi
 else
     echo ""
     echo "==> Skipping download (using existing unsigned files)"
 fi
 
 # Verify files exist
-UNSIGNED_EXE_PATH="$UNSIGNED_DIR/$UNSIGNED_EXE"
-UNSIGNED_MSI_PATH="$UNSIGNED_DIR/$UNSIGNED_MSI"
-
 if [[ ! -f "$UNSIGNED_EXE_PATH" ]]; then
     echo "Error: Unsigned EXE file not found: $UNSIGNED_EXE_PATH"
     exit 1

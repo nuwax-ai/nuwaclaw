@@ -56,6 +56,18 @@ export function registerDependencyHandlers(): void {
     }
   });
 
+  /** 检测应用包内集成的 nuwaxcode 引擎二进制 */
+  ipcMain.handle("dependencies:checkNuwaxcodeBundled", async () => {
+    const { checkNuwaxcodeBundled } =
+      await import("../services/system/dependencies");
+    try {
+      const result = await checkNuwaxcodeBundled();
+      return { success: true, ...result };
+    } catch (error) {
+      return { success: false, available: false, error: String(error) };
+    }
+  });
+
   ipcMain.handle(
     "dependencies:detectPackage",
     async (_, packageName: string, binName?: string) => {

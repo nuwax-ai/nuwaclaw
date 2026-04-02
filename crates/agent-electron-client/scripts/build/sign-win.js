@@ -151,6 +151,32 @@ function formatSigntoolArgsForLog(args) {
     .join(' ');
 }
 
+function normalizeTimestampUrl(url) {
+  if (!url) return url;
+  const trimmed = String(url).trim();
+  if (!trimmed) return trimmed;
+
+  // Some Windows SDK signtool builds reject RFC3161 `/tr` with https URLs
+  // (e.g. "Invalid Timestamp URL: https://timestamp.sectigo.com").
+  // Sectigo provides an http endpoint that is broadly compatible.
+  try {
+    const u = new URL(trimmed);
+    if (u.hostname === 'timestamp.sectigo.com' && u.protocol === 'https:') {
+      u.protocol = 'http:';
+      return u.toString().replace(/\/$/, '');
+    }
+  } catch (_) {
+    // If it's not a valid URL, keep it as-is and let signtool error out.
+  }
+
+  return trimmed;
+}
+
+function execSigntool(signtoolPath, args) {
+  console.log(`[sign-win]   命令: "${signtoolPath}" ${formatSigntoolArgsForLog(args)}`);
+  execFileSync(signtoolPath, args, { stdio: 'inherit' });
+}
+
 /**
  * 使用 signtool 对文件进行签名
  * @param {string} filePath - 要签名的文件路径
@@ -167,7 +193,7 @@ function signWithSigntool(filePath, options = {}) {
   const certSha1 = options.certSha1 || config.certSha1;
   const certPath = options.certPath || config.certPath;
   const certPassword = options.certPassword || config.certPassword;
-  const timestampUrl = options.timestampUrl || config.timestampUrl;
+  const timestampUrl = normalizeTimestampUrl(options.timestampUrl || config.timestampUrl);
   const publisherName = options.publisherName || config.publisherName;
 
   if (!fs.existsSync(filePath)) {
@@ -181,39 +207,62 @@ function signWithSigntool(filePath, options = {}) {
 
   try {
     // 构建签名参数（使用参数数组避免 shell 转义问题）
-    const args = ['sign', '/v', '/fd', 'sha256'];
+    const baseArgs = ['sign', '/v', '/fd', 'sha256'];
 
     // 使用证书指纹（推荐）
     if (certSha1) {
-      args.push('/sha1', certSha1);
+      baseArgs.push('/sha1', certSha1);
     }
     // 使用 PFX 文件（CI 环境）
     else if (certPath) {
       if (!fs.existsSync(certPath)) {
         return { success: false, message: `证书文件不存在: ${certPath}` };
       }
-      args.push('/f', certPath);
+      baseArgs.push('/f', certPath);
       if (certPassword) {
-        args.push('/p', certPassword);
+        baseArgs.push('/p', certPassword);
       }
     } else {
       return { success: false, message: '未配置证书：需要 WINDOWS_CERTIFICATE_SHA1 或 WINDOWS_CERTIFICATE_PATH' };
     }
 
-    // 添加时间戳
-    if (timestampUrl) {
-      args.push('/tr', timestampUrl, '/td', 'sha256');
-    }
-
-    args.push(filePath);
-
     console.log(`[sign-win] 签名: ${path.basename(filePath)}`);
     if (publisherName) {
       console.log(`[sign-win]   发布者: ${publisherName}`);
     }
-    console.log(`[sign-win]   命令: "${signtoolPath}" ${formatSigntoolArgsForLog(args)}`);
 
-    execFileSync(signtoolPath, args, { stdio: 'inherit' });
+    const tryArgsList = [];
+    if (timestampUrl) {
+      // Preferred: RFC3161 timestamping (sha256)
+      tryArgsList.push([...baseArgs, '/tr', timestampUrl, '/td', 'sha256', filePath]);
+      // Fallback for older signtool / url parsing quirks: Authenticode timestamping
+      tryArgsList.push([...baseArgs, '/t', timestampUrl, filePath]);
+    } else {
+      tryArgsList.push([...baseArgs, filePath]);
+    }
+
+    let lastError = null;
+    for (const args of tryArgsList) {
+      try {
+        execSigntool(signtoolPath, args);
+        lastError = null;
+        break;
+      } catch (e) {
+        lastError = e;
+        const msg = String(e && e.message ? e.message : e);
+        const looksLikeInvalidTimestampUrl =
+          /Invalid Timestamp URL/i.test(msg) ||
+          /timestamp/i.test(msg) && /URL/i.test(msg);
+        if (!looksLikeInvalidTimestampUrl) {
+          break;
+        }
+        console.warn(`[sign-win]   时间戳失败，将尝试降级重试（上一条错误: ${msg}）`);
+      }
+    }
+
+    if (lastError) {
+      throw lastError;
+    }
 
     return { success: true, message: `签名成功: ${filePath}` };
   } catch (e) {

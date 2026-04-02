@@ -29,6 +29,9 @@ export const DEFAULT_FILE_SERVER_PORT = 60005;
 /** Lanproxy 默认端口 */
 export const DEFAULT_LANPROXY_PORT = 60002;
 
+/** GUI Agent MCP 默认端口 */
+export const DEFAULT_GUI_MCP_PORT = 60008;
+
 /** 开发服务器默认端口 */
 export const DEFAULT_DEV_SERVER_PORT = 60173;
 
@@ -271,6 +274,7 @@ export const SERVICE_NAMES = {
   NuwaxLanproxy: "代理服务",
   Rcoder: "Agent 服务",
   McpProxy: "MCP Proxy 服务",
+  GuiAgent: "GUI Agent 服务",
 } as const;
 
 /** 服务描述 */
@@ -279,6 +283,7 @@ export const SERVICE_DESCRIPTIONS = {
   NuwaxLanproxy: "网络通道",
   Rcoder: "Agent 核心服务",
   McpProxy: "MCP 协议转换工具",
+  GuiAgent: "桌面自动化视觉操作服务",
 } as const;
 
 /** Agent 状态配置 */
