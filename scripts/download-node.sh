@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# download-node.sh — 下载 Node.js 到 Tauri 资源目录
+# download-node.sh — 下载 Node.js 到 Electron 资源目录
 #
 # 用法:
 #   ./scripts/download-node.sh                    # 自动检测当前平台
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 NODE_VERSION="22.14.0"
-RESOURCE_DIR="crates/agent-tauri-client/src-tauri/resources/node"
+RESOURCE_DIR="crates/agent-electron-client/resources/node"
 
 # 项目根目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -146,7 +146,7 @@ rm -rf "${TARGET_DIR}"
 mkdir -p "${TARGET_DIR}"
 
 if [ "${PLATFORM}" = "win" ]; then
-  # Windows: Node.js 发行包没有 bin/ 子目录，需要手动创建以匹配 tauri.conf.json 的 resources 路径
+  # Windows: Node.js 发行包没有 bin/ 子目录，需要手动创建
   mkdir -p "${TARGET_DIR}/bin"
   # 复制可执行文件到 bin/ 目录
   cp "${INNER_DIR}/node.exe" "${TARGET_DIR}/bin/"

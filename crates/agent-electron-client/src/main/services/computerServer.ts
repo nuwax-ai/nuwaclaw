@@ -962,8 +962,9 @@ async function handleRequest(
       const serviceManager = getServiceManager();
       if (!serviceManager) {
         sendJson(res, 500, {
-          success: false,
-          error: "ServiceManager 未初始化",
+          code: "1002",
+          message: "ServiceManager 未初始化",
+          data: null,
         });
         return;
       }
@@ -986,7 +987,26 @@ async function handleRequest(
         ...base.results,
         computerServer: csResult,
       };
-      sendJson(res, 200, { success: true, results });
+
+      // 检查是否有失败的服务
+      const failedServices = Object.entries(results)
+        .filter(([, v]) => !v.success)
+        .map(([k, v]) => `${k}: ${v.error}`)
+        .join("; ");
+
+      if (failedServices) {
+        sendJson(res, 200, {
+          code: "1001",
+          message: `部分服务启动失败: ${failedServices}`,
+          data: results,
+        });
+      } else {
+        sendJson(res, 200, {
+          code: "0000",
+          message: "success",
+          data: results,
+        });
+      }
       return;
     }
 

@@ -5,7 +5,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/soddygo/nuwax-agent/ci.yml?branch=main)](https://github.com/soddygo/nuwax-agent/actions)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-跨平台 Agent 客户端，支持远程桌面控制和 AI Agent 任务执行。基于 [gpui](https://github.com/zed-industries/zed) 构建原生 UI，通过 [nuwax-rustdesk](https://github.com/rustdesk/rustdesk) 实现安全的 P2P/Relay 通信。
+跨平台 Agent 客户端，支持远程桌面控制和 AI Agent 任务执行。基于 Electron 构建桌面应用。
 
 ## 功能特性
 
@@ -38,68 +38,38 @@
 ```
 nuwax-agent/
 ├── crates/
-│   ├── agent-client/       # 客户端主程序
-│   ├── agent-protocol/     # 通信协议定义
-│   ├── agent-server-admin/ # 管理端 API 服务
-│   └── data-server/        # 信令/中继服务器封装
-├── vendors/
-│   ├── nuwax-rustdesk/     # RustDesk 通信库
-│   ├── gpui-component/     # UI 组件库
-│   └── ...
-└── tests/
-    ├── e2e/                # 端到端测试
-    └── integration/        # 集成测试
+│   ├── agent-electron-client/  # Electron 客户端
+│   ├── agent-gui-server/      # GUI Agent 服务 (Node.js)
+│   └── nuwax-mcp-stdio-proxy/ # MCP 协议代理 (Node.js)
+├── docs/                      # 文档
+├── scripts/                   # 构建脚本
+└── tests/                     # 测试
 ```
 
 ## 快速开始
 
 ### 环境要求
 
-- Rust 1.75+
-- Node.js 18+ (可选，客户端会自动安装)
-- vcpkg (用于 nuwax-rustdesk 依赖)
+- Node.js 18+
+- pnpm 9+
 
-### 安装 vcpkg 依赖
-
-推荐使用 Makefile 安装（默认安装到 `$HOME/vcpkg`）。安装完成后会自动在项目根创建软链接 `vcpkg`，之后 `make build` 与 `cargo build` 均可直接使用：
+### 安装依赖
 
 ```bash
-make setup-vcpkg
-```
-
-本仓库通过 `.cargo/config.toml` 将构建时的 VCPKG_ROOT 设为项目根下的 `vcpkg`；若你已自行设置环境变量 VCPKG_ROOT，则不会被覆盖。
-
-也可手动克隆并安装依赖（将路径替换为你的 vcpkg 目录，并在项目根创建软链接 `vcpkg` 指向该目录）：
-
-```bash
-git clone https://github.com/microsoft/vcpkg /path/to/vcpkg
-cd /path/to/vcpkg && ./bootstrap-vcpkg.sh
-# macOS: ./vcpkg install libvpx libyuv opus aom --triplet arm64-osx 或 x64-osx
+pnpm install
 ```
 
 ### 编译运行
 
 ```bash
-# 方式一：使用 make（自动设置 VCPKG_ROOT）
-make build
-make run
+# 准备依赖（Node.js、uv、lanproxy 等）
+make electron-prepare
 
-# 方式二：直接使用 cargo（需已执行 ln -s $HOME/vcpkg vcpkg 或已设置 export VCPKG_ROOT=...）
-cargo build -p nuwax-gpui-agent
-cargo run -p nuwax-gpui-agent
-cargo test -p nuwax-gpui-agent
-```
+# 开发模式运行
+make electron-dev
 
-### 打包发布
-
-```bash
-# 安装 cargo-packager
-cargo install cargo-packager
-
-# macOS 打包 (.dmg)
-cargo packager --release
-
-# 详见 .github/workflows/release.yml
+# 打包发布
+make electron-bundle
 ```
 
 ## 配置说明
@@ -129,98 +99,48 @@ language = "zh-CN"
 theme = "system"
 ```
 
-## Feature Flags
+## 功能特性
 
-| Feature | 说明 | 默认 |
-|---------|------|------|
-| `tray` | 系统托盘支持 | ✅ |
-| `auto-launch` | 开机自启动 | ✅ |
-| `dependency-management` | 依赖自动安装 | ✅ |
-| `remote-desktop` | 远程桌面功能 | ❌ |
-| `chat-ui` | 聊天界面 | ❌ |
-| `file-transfer` | 文件传输 | ❌ |
-| `dev-mode` | 开发者日志 | ❌ |
-
-```bash
-# 启用所有功能
-cargo build -p nuwax-agent --all-features
-
-# 仅启用特定功能
-cargo build -p nuwax-agent --features "remote-desktop,chat-ui"
-```
+| 功能 | 说明 |
+|------|------|
+| **系统托盘** | 后台运行，托盘图标快速操作 |
+| **AI Agent** | 支持 claude-code 和 nuwaxcode 引擎 |
+| **MCP 集成** | MCP 协议支持 |
+| **IM 集成** | 支持 Telegram、Discord、钉钉、飞书 |
+| **依赖管理** | 自动检测和安装运行时依赖 |
 
 ## 开发指南
 
 ### 目录结构
 
 ```
-crates/agent-client/src/
-├── main.rs              # 程序入口
-├── app.rs               # 应用状态管理
-├── lib.rs               # 库导出
-├── components/          # UI 组件
-│   ├── root.rs          # 根组件
-│   ├── status_bar.rs    # 状态栏
-│   ├── client_info.rs   # 客户端信息
-│   ├── settings.rs      # 设置界面
-│   ├── dependency_manager.rs  # 依赖管理
-│   ├── remote_desktop.rs      # 远程桌面
-│   ├── chat.rs          # 聊天界面
-│   └── about.rs         # 关于页面
-├── core/                # 核心逻辑
-│   ├── connection/      # 连接管理
-│   ├── dependency/      # 依赖检测/安装
-│   ├── platform/        # 平台适配
-│   ├── permissions/     # 权限管理
-│   ├── agent.rs         # Agent 任务管理
-│   ├── business_channel.rs  # 业务通道
-│   ├── crypto.rs        # 加密工具
-│   └── upgrade.rs       # 升级管理
-├── tray/                # 系统托盘
-├── i18n/                # 国际化
-├── message/             # 消息处理
-└── utils/               # 工具函数
-```
-
-### 运行测试
-
-```bash
-# 单元测试
-cargo test -p nuwax-agent
-
-# 集成测试 (需要 data-server 运行)
-cargo test --test communication_test -- --ignored
-
-# 代码检查
-cargo clippy -p nuwax-agent
+crates/agent-electron-client/
+├── src/
+│   ├── main/            # Electron 主进程
+│   │   ├── main.ts     # 入口
+│   │   └── services/   # 服务
+│   ├── preload/        # 预加载脚本
+│   ├── renderer/       # React 渲染进程
+│   └── shared/        # 共享类型
+└── resources/         # 资源文件（Node.js、uv 等）
 ```
 
 ### 调试模式
 
 ```bash
-# 启用详细日志
-RUST_LOG=debug cargo run -p nuwax-agent
-
-# 启用开发模式
-cargo run -p nuwax-agent --features dev-mode
+# 开发模式运行（详细日志）
+make electron-dev
 ```
 
 ## 通信协议
 
-客户端与管理端通过 data-server (基于 RustDesk 协议) 通信：
+客户端与管理端通过 WebSocket 连接进行通信：
 
 ```
-┌─────────────┐     P2P/Relay      ┌─────────────┐
-│   Client    │◄──────────────────►│    Admin    │
-│ (agent-cli) │                    │  (server)   │
-└──────┬──────┘                    └──────┬──────┘
-       │                                  │
-       │  Register/Heartbeat              │
-       ▼                                  ▼
-┌─────────────────────────────────────────────────┐
-│              data-server (hbbs/hbbr)            │
-│         信令服务 (21116) + 中继服务 (21117)      │
-└─────────────────────────────────────────────────┘
+┌─────────────┐      WebSocket       ┌─────────────┐
+│   Client    │◄───────────────────►│   Admin     │
+│  (Electron) │                      │   Server    │
+└─────────────┘                      └─────────────┘
 ```
 
 ### 消息类型
@@ -233,10 +153,9 @@ cargo run -p nuwax-agent --features dev-mode
 
 ## 安全机制
 
-- **密码加密** - 使用 AES-GCM 加密存储，密钥由机器 ID 派生
-- **通信加密** - 基于 RustDesk 的端到端加密
-- **SHA256 校验** - 升级包完整性验证
-- **权限文件** - 敏感文件设置 0600 权限 (Unix)
+- **密码加密** - 使用 AES-GCM 加密存储
+- **通信加密** - WebSocket TLS 加密
+- **权限控制** - 敏感操作需要确认
 
 ## 许可证
 
@@ -256,6 +175,6 @@ cargo run -p nuwax-agent --features dev-mode
 
 ## 相关项目
 
-- [gpui](https://github.com/zed-industries/zed) - GPU 加速 UI 框架
-- [RustDesk](https://github.com/rustdesk/rustdesk) - 开源远程桌面
-- [gpui-component](https://github.com/longbridge/gpui-component) - gpui 组件库
+- [Electron](https://electronjs.org/) - 跨平台桌面应用框架
+- [React](https://react.dev/) - UI 库
+- [MCP](https://modelcontextprotocol.io/) - 模型上下文协议

@@ -62,7 +62,9 @@ export async function checkLanproxyHealth(savedKey: string): Promise<{
   }
 
   try {
-    const url = `${serverHost}/api/sandbox/config/health/${savedKey}`;
+    // serverHost 可能是纯域名（如 testagent.xspaceagi.com）或带协议（如 https://testagent.xspaceagi.com）
+    const normalizedHost = serverHost.replace(/^https?:\/\//, "");
+    const url = `https://${normalizedHost}/api/sandbox/config/health/${savedKey}`;
     const response = await fetch(url, {
       method: "GET",
       signal: AbortSignal.timeout(10000),

@@ -10,10 +10,6 @@
     "prettier": "^3.8.1"
   },
   "lint-staged": {
-    "crates/agent-tauri-client/src/**/*.{ts,tsx}": [
-      "prettier --write",
-      "pnpm --filter agent-tauri-client lint"
-    ],
     "crates/agent-electron-client/src/**/*.{ts,tsx}": [
       "prettier --write"
     ]

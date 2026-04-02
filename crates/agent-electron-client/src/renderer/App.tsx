@@ -759,13 +759,24 @@ function App() {
   }, [isSetupComplete]);
 
   // ============================================
-  // 代理服务健康检查（每 30 秒）
+  // 代理服务健康检查（每 30 秒，仅在 lanproxy 运行时执行）
   // ============================================
   useEffect(() => {
     if (isSetupComplete !== true) return;
 
     const doHealthCheck = async () => {
       try {
+        // 先检查 lanproxy 是否在运行
+        const lpStatus = await window.electronAPI?.lanproxy.status();
+        if (!lpStatus?.running) {
+          // lanproxy 未运行，不显示通道检查错误
+          if (lanproxyHealthErrorRef.current !== undefined) {
+            lanproxyHealthErrorRef.current = undefined;
+            forceUpdate((n) => n + 1);
+          }
+          return;
+        }
+
         // 获取 agent port
         const step1 = (await window.electronAPI?.settings.get(
           "step1_config",
