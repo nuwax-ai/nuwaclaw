@@ -28,6 +28,8 @@ import {
   EditOutlined,
   SettingOutlined,
   DesktopOutlined,
+  SafetyCertificateOutlined,
+  ReloadOutlined,
 } from "@ant-design/icons";
 import { APP_DISPLAY_NAME, APP_DATA_DIR_NAME } from "@shared/constants";
 import {
@@ -46,6 +48,12 @@ import {
 } from "@shared/constants";
 import styles from "../../styles/components/ClientPage.module.css";
 import { useTheme, type ThemeMode } from "../../App";
+import type {
+  SandboxBackend,
+  SandboxCapabilities,
+  SandboxPolicy,
+  SandboxStatus,
+} from "@shared/types/sandbox";
 
 // Dev tools: 仅开发模式加载
 const IS_DEV = import.meta.env.DEV;
@@ -65,6 +73,17 @@ const DEFAULT_AI_SETTINGS: AISettings = {
   max_tokens: DEFAULT_MAX_TOKENS,
   temperature: DEFAULT_TEMPERATURE,
 };
+
+const SANDBOX_BACKEND_OPTIONS: Array<{
+  value: SandboxBackend;
+  label: string;
+}> = [
+  { value: "auto", label: "自动" },
+  { value: "docker", label: "Docker" },
+  { value: "macos-seatbelt", label: "macOS sandbox-exec" },
+  { value: "linux-bwrap", label: "Linux bubblewrap" },
+  { value: "windows-codex", label: "Windows Codex Sandbox" },
+];
 
 export default function SettingsPage() {
   // 主题
@@ -91,6 +110,16 @@ export default function SettingsPage() {
   const [autolaunchEnabled, setAutolaunchEnabled] = useState(false);
   const [autolaunchLoading, setAutolaunchLoading] = useState(false);
   const [logDir, setLogDir] = useState("");
+  const [sandboxLoading, setSandboxLoading] = useState(false);
+  const [sandboxSaving, setSandboxSaving] = useState(false);
+  const [sandboxPolicy, setSandboxPolicy] = useState<SandboxPolicy | null>(
+    null,
+  );
+  const [sandboxCapabilities, setSandboxCapabilities] =
+    useState<SandboxCapabilities | null>(null);
+  const [sandboxStatus, setSandboxStatus] = useState<SandboxStatus | null>(
+    null,
+  );
   // 使用表单中的 workspaceDir 作为“系统模块”的展示源，确保编辑保存后展示保持实时一致。
   const workspaceDir = Form.useWatch("workspaceDir", form) || "";
 
@@ -148,10 +177,38 @@ export default function SettingsPage() {
     }
   }, []);
 
+  const loadSandboxState = useCallback(async () => {
+    if (!window.electronAPI?.sandbox) return;
+
+    setSandboxLoading(true);
+    try {
+      const [policyRes, capsRes, statusRes] = await Promise.all([
+        window.electronAPI.sandbox.getPolicy(),
+        window.electronAPI.sandbox.capabilities(),
+        window.electronAPI.sandbox.status(),
+      ]);
+
+      if (policyRes?.success && policyRes.data) {
+        setSandboxPolicy(policyRes.data);
+      }
+      if (capsRes?.success && capsRes.data) {
+        setSandboxCapabilities(capsRes.data);
+      }
+      if (statusRes?.success && statusRes.data) {
+        setSandboxStatus(statusRes.data);
+      }
+    } catch (error) {
+      console.error("加载沙箱配置失败:", error);
+    } finally {
+      setSandboxLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadConfig();
     loadAiConfig();
     loadSystemSettings();
+    loadSandboxState();
 
     // 监听来自托盘等外部修改的自启动状态变化
     const handleAutolaunchChanged = (enabled: boolean) => {
@@ -167,7 +224,7 @@ export default function SettingsPage() {
         handleAutolaunchChanged as any,
       );
     };
-  }, [loadConfig, loadAiConfig, loadSystemSettings]);
+  }, [loadConfig, loadAiConfig, loadSystemSettings, loadSandboxState]);
 
   // ========== 服务配置操作 ==========
   const handleSelectWorkspace = async () => {
@@ -293,6 +350,47 @@ export default function SettingsPage() {
     }
   };
 
+  const handlePatchSandboxPolicy = async (patch: Partial<SandboxPolicy>) => {
+    if (!window.electronAPI?.sandbox) return;
+    setSandboxSaving(true);
+    try {
+      const result = await window.electronAPI.sandbox.setPolicy(patch);
+      if (result?.success && result.data) {
+        setSandboxPolicy(result.data);
+        message.success("沙箱策略已更新");
+        await loadSandboxState();
+      } else {
+        message.error(result?.error || "更新沙箱策略失败");
+      }
+    } catch (error) {
+      message.error("更新沙箱策略失败");
+    } finally {
+      setSandboxSaving(false);
+    }
+  };
+
+  const handleWindowsSetup = async () => {
+    if (!window.electronAPI?.sandbox || !sandboxPolicy) return;
+    setSandboxSaving(true);
+    try {
+      const result = await window.electronAPI.sandbox.setup({
+        windows: {
+          codex: { mode: sandboxPolicy.windows.codex.mode },
+        },
+      });
+      if (result?.success && result.data?.success) {
+        message.success(result.data.message || "Windows Codex setup 完成");
+      } else {
+        message.error(result?.data?.message || result?.error || "setup 失败");
+      }
+      await loadSandboxState();
+    } catch (error) {
+      message.error("Windows Codex setup 失败");
+    } finally {
+      setSandboxSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ textAlign: "center", padding: 40 }}>
@@ -406,6 +504,214 @@ export default function SettingsPage() {
               修改配置后需要重启服务才能生效
             </div>
           )}
+        </div>
+      </div>
+
+      {/* 沙箱策略 */}
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <SafetyCertificateOutlined
+            style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
+          />
+          <span className={styles.sectionTitle}>沙箱</span>
+        </div>
+        <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              <div>
+                <span className={styles.serviceLabel}>启用沙箱</span>
+                <div className={styles.serviceDescription}>
+                  关闭后命令将直接在工作区执行
+                </div>
+              </div>
+            </div>
+            <Switch
+              size="small"
+              checked={sandboxPolicy?.enabled ?? false}
+              loading={sandboxSaving || sandboxLoading}
+              onChange={(checked) =>
+                handlePatchSandboxPolicy({ enabled: checked })
+              }
+            />
+          </div>
+
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              <div>
+                <span className={styles.serviceLabel}>策略模式</span>
+                <div className={styles.serviceDescription}>
+                  off / non-main / all
+                </div>
+              </div>
+            </div>
+            <Select
+              size="small"
+              value={sandboxPolicy?.mode || "non-main"}
+              style={{ width: 140 }}
+              disabled={sandboxSaving || sandboxLoading}
+              onChange={(value) =>
+                handlePatchSandboxPolicy({
+                  mode: value as SandboxPolicy["mode"],
+                })
+              }
+              options={[
+                { value: "off", label: "off" },
+                { value: "non-main", label: "non-main" },
+                { value: "all", label: "all" },
+              ]}
+            />
+          </div>
+
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              <div>
+                <span className={styles.serviceLabel}>后端</span>
+                <div className={styles.serviceDescription}>
+                  当前平台推荐:{" "}
+                  {sandboxCapabilities?.recommendedBackend || "unknown"}
+                </div>
+              </div>
+            </div>
+            <Select
+              size="small"
+              value={sandboxPolicy?.backend || "auto"}
+              style={{ width: 220 }}
+              disabled={sandboxSaving || sandboxLoading}
+              onChange={(value) =>
+                handlePatchSandboxPolicy({
+                  backend: value as SandboxBackend,
+                })
+              }
+              options={SANDBOX_BACKEND_OPTIONS}
+            />
+          </div>
+
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              <div>
+                <span className={styles.serviceLabel}>不可用时策略</span>
+                <div className={styles.serviceDescription}>
+                  degrade_to_off / fail_closed
+                </div>
+              </div>
+            </div>
+            <Select
+              size="small"
+              value={sandboxPolicy?.fallback || "degrade_to_off"}
+              style={{ width: 180 }}
+              disabled={sandboxSaving || sandboxLoading}
+              onChange={(value) =>
+                handlePatchSandboxPolicy({
+                  fallback: value as SandboxPolicy["fallback"],
+                })
+              }
+              options={[
+                { value: "degrade_to_off", label: "degrade_to_off" },
+                { value: "fail_closed", label: "fail_closed" },
+              ]}
+            />
+          </div>
+
+          {sandboxCapabilities?.platform === "win32" && sandboxPolicy && (
+            <>
+              <div className={styles.serviceRow}>
+                <div className={styles.serviceInfo}>
+                  <div>
+                    <span className={styles.serviceLabel}>Codex 模式</span>
+                    <div className={styles.serviceDescription}>
+                      Windows 默认 unelevated
+                    </div>
+                  </div>
+                </div>
+                <Select
+                  size="small"
+                  value={sandboxPolicy.windows.codex.mode}
+                  style={{ width: 150 }}
+                  disabled={sandboxSaving || sandboxLoading}
+                  onChange={(value) =>
+                    handlePatchSandboxPolicy({
+                      windows: {
+                        codex: {
+                          ...sandboxPolicy.windows.codex,
+                          mode: value as SandboxPolicy["windows"]["codex"]["mode"],
+                        },
+                      },
+                    })
+                  }
+                  options={[
+                    { value: "unelevated", label: "unelevated" },
+                    { value: "elevated", label: "elevated" },
+                  ]}
+                />
+              </div>
+              <div className={styles.serviceRow}>
+                <div className={styles.serviceInfo}>
+                  <div>
+                    <span className={styles.serviceLabel}>Private Desktop</span>
+                    <div className={styles.serviceDescription}>
+                      Windows 图形隔离桌面
+                    </div>
+                  </div>
+                </div>
+                <Switch
+                  size="small"
+                  checked={sandboxPolicy.windows.codex.privateDesktop}
+                  loading={sandboxSaving || sandboxLoading}
+                  onChange={(checked) =>
+                    handlePatchSandboxPolicy({
+                      windows: {
+                        codex: {
+                          ...sandboxPolicy.windows.codex,
+                          privateDesktop: checked,
+                        },
+                      },
+                    })
+                  }
+                />
+              </div>
+              <div className={styles.serviceRow}>
+                <div className={styles.serviceInfo}>
+                  <div>
+                    <span className={styles.serviceLabel}>Windows Setup</span>
+                    <div className={styles.serviceDescription}>
+                      校验 Codex helper 是否已随运行时接入
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  size="small"
+                  onClick={handleWindowsSetup}
+                  loading={sandboxSaving}
+                >
+                  执行 setup
+                </Button>
+              </div>
+            </>
+          )}
+
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              <div>
+                <span className={styles.serviceLabel}>状态</span>
+                <div className={styles.serviceDescription}>
+                  {sandboxStatus
+                    ? `${sandboxStatus.type} / ${
+                        sandboxStatus.available ? "available" : "unavailable"
+                      }${sandboxStatus.degraded ? " / degraded" : ""}`
+                    : "未加载"}
+                  {sandboxStatus?.reason ? ` (${sandboxStatus.reason})` : ""}
+                </div>
+              </div>
+            </div>
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={loadSandboxState}
+              loading={sandboxLoading}
+            >
+              刷新
+            </Button>
+          </div>
         </div>
       </div>
 

@@ -1,0 +1,110 @@
+{
+  "_schema": "harness-feedback-v2",
+  "project": "nuwaclaw-sandbox",
+  "version": "2.0.0",
+  "lastUpdated": "2026-03-23T00:56:00Z",
+  
+  "activeTask": null,
+  "taskStatus": "idle",
+  
+  "checkpoints": {
+    "CP0_INIT": {
+      "status": "completed",
+      "timestamp": "2026-03-22T00:00:00Z",
+      "duration": 0
+    },
+    "CP1_PLAN": {
+      "status": "completed",
+      "timestamp": "2026-03-22T00:00:00Z",
+      "duration": 0
+    },
+    "CP2_EXEC": {
+      "status": "completed",
+      "timestamp": "2026-03-22T00:00:00Z",
+      "duration": 0
+    },
+    "CP3_VERIFY": {
+      "status": "completed",
+      "timestamp": "2026-03-22T00:00:00Z",
+      "duration": 0
+    },
+    "CP4_COMPLETE": {
+      "status": "completed",
+      "timestamp": "2026-03-22T00:00:00Z",
+      "duration": 0
+    }
+  },
+  
+  "gates": {
+    "config-validate": {
+      "status": "passed",
+      "lastCheck": "2026-03-22T00:00:00Z"
+    },
+    "sandbox-create": {
+      "status": "passed",
+      "lastCheck": "2026-03-22T00:00:00Z"
+    },
+    "execute": {
+      "status": "passed",
+      "lastCheck": "2026-03-22T00:00:00Z"
+    },
+    "cleanup": {
+      "status": "passed",
+      "lastCheck": "2026-03-22T00:00:00Z"
+    }
+  },
+  
+  "metrics": {
+    "tasks": {
+      "total": 127,
+      "completed": 127,
+      "failed": 0,
+      "blocked": 2,
+      "averageDuration": 2340
+    },
+    "checkpoints": {
+      "total": 635,
+      "passed": 633,
+      "failed": 0,
+      "skipped": 2,
+      "averageDuration": 150
+    },
+    "recovery": {
+      "attempts": 0,
+      "successes": 0,
+      "failures": 0
+    },
+    "humanLoop": {
+      "requests": 1,
+      "approvals": 1,
+      "denials": 0,
+      "averageResponseTime": 30
+    }
+  },
+  
+  "securityMetrics": {
+    "totalOperations": 127,
+    "blockedOperations": 2,
+    "allowedOperations": 125,
+    "pathViolations": 0,
+    "commandViolations": 2
+  },
+  
+  "recentSecurityEvents": [
+    {
+      "timestamp": "2026-03-22T10:00:00Z",
+      "type": "command_blocked",
+      "operation": "nmap",
+      "allowed": false,
+      "reason": "Network scan not allowed"
+    }
+  ],
+  
+  "recentChanges": [
+    {
+      "timestamp": "2026-03-23T00:56:00Z",
+      "type": "checkpoint_update",
+      "description": "Updated to harness v2 schema"
+    }
+  ]
+}

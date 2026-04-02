@@ -213,12 +213,24 @@ async function afterSignMac(context) {
     }
   }
 
-  // 5. 对主 .app 重新签名，恢复 seal（内部二进制被签过后包内容已变，必须整体再签一次）
+  // 5. 签名 resources/sandbox-runtime（三端沙箱运行时）
+  const sandboxRuntimePath = path.join(resourcesPath, 'sandbox-runtime');
+  if (fs.existsSync(sandboxRuntimePath)) {
+    const sandboxRuntimeFiles = findExecutables(sandboxRuntimePath);
+    console.log(`[after-sign] 找到 sandbox-runtime 可执行文件: ${sandboxRuntimeFiles.length} 个`);
+    for (const file of sandboxRuntimeFiles) {
+      const relative = path.relative(sandboxRuntimePath, file);
+      console.log(`[after-sign] 签名 sandbox-runtime/${relative}`);
+      codesign(file, identity);
+    }
+  }
+
+  // 6. 对主 .app 重新签名，恢复 seal（内部二进制被签过后包内容已变，必须整体再签一次）
   console.log('[after-sign] 对主 app 重新签名以恢复 seal...');
   const entitlementsPath = path.join(process.cwd(), 'build', 'entitlements.mac.plist');
   codesign(appPath, identity, entitlementsPath);
 
-  // 6. 验证整个 app 的签名
+  // 7. 验证整个 app 的签名
   console.log('[after-sign] 验证整个 app 签名...');
   try {
     execSync(`codesign --verify --deep --strict --verbose=2 "${appPath}"`, {
@@ -229,7 +241,7 @@ async function afterSignMac(context) {
     console.warn('[after-sign] 签名验证失败（可能需要忽略特定项）');
   }
 
-  // 7. Apple 公证（Notarization）
+  // 8. Apple 公证（Notarization）
   const appleApiKey = process.env.APPLE_API_KEY;
   const appleApiKeyId = process.env.APPLE_API_KEY_ID;
   const appleIssuerId = process.env.APPLE_ISSUER_ID;
@@ -263,7 +275,7 @@ async function afterSignMac(context) {
     console.log(`[after-sign]   APPLE_ISSUER_ID: ${appleIssuerId ? '✓' : '✗ 未设置'}`);
   }
 
-  // 8. 验证 Gatekeeper（公证后应该通过）
+  // 9. 验证 Gatekeeper（公证后应该通过）
   console.log('[after-sign] 验证 Gatekeeper 策略...');
   try {
     execSync(`spctl -a -vv "${appPath}"`, {
@@ -379,6 +391,15 @@ async function afterSignWindows(context) {
   if (fs.existsSync(gitPath)) {
     console.log('[after-sign] Windows: 签名 git...');
     const result = signWin.signDirectory(gitPath);
+    totalSigned += result.success;
+    totalFailed += result.failed;
+  }
+
+  // 7. 签名 sandbox-runtime（如果存在）
+  const sandboxRuntimePath = path.join(resourcesPath, 'sandbox-runtime');
+  if (fs.existsSync(sandboxRuntimePath)) {
+    console.log('[after-sign] Windows: 签名 sandbox-runtime...');
+    const result = signWin.signDirectory(sandboxRuntimePath);
     totalSigned += result.success;
     totalFailed += result.failed;
   }

@@ -8,6 +8,10 @@ import {
 } from "../services/packages/mcp";
 import { getConfiguredPorts } from "../services/startupPorts";
 import { DEPS_SYNC_TIMEOUT } from "@shared/constants";
+import {
+  startSandboxService,
+  stopSandboxService,
+} from "../services/sandbox/serviceBootstrap";
 
 /** 依赖同步是否正在进行 */
 let _depsSyncInProgress = false;
@@ -68,6 +72,17 @@ export async function runStartupTasks(): Promise<void> {
   } catch (e) {
     log.warn("[McpProxy] 初始化配置失败:", e);
   }
+
+  // 初始化沙箱服务（后台启动，不阻塞主流程）
+  setImmediate(async () => {
+    try {
+      await startSandboxService();
+      log.info("[Sandbox] 沙箱服务已启动");
+    } catch (e) {
+      log.warn("[Sandbox] 沙箱服务启动失败（非致命错误）:", e);
+      // 沙箱服务失败不阻塞应用，只是功能降级
+    }
+  });
 
   // 客户端升级后：若 appVersion 或 installVersion 变化，后台同步初始化依赖到写死版本
   // 同步检查是否需要 dep sync，提前设置标志，避免 renderer 在 setImmediate 之前

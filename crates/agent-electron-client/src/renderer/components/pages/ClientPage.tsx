@@ -52,8 +52,7 @@ import { buildRedirectUrl } from "../../services/utils/sessionUrl";
 import { SERVICE_NAMES } from "@shared/constants";
 import styles from "../../styles/components/ClientPage.module.css";
 
-// ======================== Types ========================
-
+// ======================== Types =================
 type TabKey =
   | "client"
   | "sessions"
@@ -85,8 +84,7 @@ interface AuthState {
   userId?: number;
 }
 
-// ======================== Component ========================
-
+// ======================== Component =================
 function ClientPage({
   onNavigate,
   services,
@@ -134,8 +132,7 @@ function ClientPage({
   // 注意：该值仅用于渲染显示，不参与 reg/lanproxy 的服务端配置逻辑。
   const [displayDomainFallback, setDisplayDomainFallback] = useState("");
 
-  // ======================== Auth ========================
-
+  // ======================== Auth =================
   const loadAuth = useCallback(async () => {
     setAuthLoading(true);
     try {
@@ -195,6 +192,14 @@ function ClientPage({
       // 通知父组件：服务由登录流程启动（内存变量，不持久化)
       onLoginStarted?.();
 
+      // 1. 先调用 reg 接口，获取最新配置（serverHost/serverPort）
+      try {
+        await syncConfigToServer({ suppressToast: true });
+      } catch (e) {
+        console.error("[ClientPage] 登录后 reg 同步失败:", e);
+      }
+
+      // 2. reg 返回后，step by step 启动服务
       // loginAndRegister 内部已调用 reg 接口并保存 serverHost/serverPort，无需再次调用
       // step by step 启动服务
       const allServices = [
@@ -307,8 +312,7 @@ function ClientPage({
   };
   const getServiceLabel = (key: string) => serviceNameMap[key] || key;
 
-  // ======================== Services ========================
-
+  // ======================== Services =================
   const handleStartService = async (
     key: string,
     silent = false,
@@ -519,8 +523,7 @@ function ClientPage({
     }
   };
 
-  // ======================== Dependencies ========================
-
+  // ======================== Dependencies =================
   const checkDependencies = useCallback(async () => {
     try {
       const result = await window.electronAPI?.dependencies.checkAll();
@@ -550,8 +553,7 @@ function ClientPage({
     }
   }, []);
 
-  // ======================== Lifecycle ========================
-
+  // ======================== Lifecycle =================
   useEffect(() => {
     loadAuth();
     onRefreshServices();
@@ -559,7 +561,6 @@ function ClientPage({
 
     // 监听依赖同步完成事件（客户端升级后自动安装新版本依赖），重新检测
     const handleDepsSyncCompleted = () => {
-      console.log("[ClientPage] deps:syncCompleted, re-checking dependencies");
       checkDependencies();
     };
     window.electronAPI?.on(
@@ -581,8 +582,7 @@ function ClientPage({
     }
   }, [authRefreshTrigger, loadAuth]);
 
-  // ======================== Render helpers ========================
-
+  // ======================== Render helpers =================
   const renderLoginSection = () => {
     if (authLoading) {
       return (
@@ -903,8 +903,7 @@ function ClientPage({
     );
   };
 
-  // ======================== Main render ========================
-
+  // ======================== Main render =================
   return (
     <div className={styles.page}>
       {/* Dependency alert */}

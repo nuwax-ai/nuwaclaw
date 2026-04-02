@@ -24,8 +24,7 @@ import {
   normalizeDomainForTokenKey,
 } from "@shared/utils/domain";
 
-// ========== 类型定义 ==========
-
+// ========== 类型定义 ===
 export interface AuthUserInfo {
   id?: number;
   username: string;
@@ -36,8 +35,7 @@ export interface AuthUserInfo {
   currentDomain?: string;
 }
 
-// ========== 存储辅助函数 ==========
-
+// ========== 存储辅助函数 ===
 async function settingsGet<T>(key: string): Promise<T | null> {
   try {
     const value = await window.electronAPI?.settings.get(key);
@@ -55,8 +53,7 @@ async function settingsSet(key: string, value: unknown): Promise<void> {
 // 保留别名以兼容现有调用
 const normalizeDomain = normalizeDomainForTokenKey;
 
-// ========== 存储操作 ==========
-
+// ========== 存储操作 ===
 async function getUsername(): Promise<string | null> {
   return settingsGet<string>(AUTH_KEYS.USERNAME);
 }
@@ -147,8 +144,7 @@ async function clearAuthInfo(): Promise<void> {
   // 不清除 savedKey，跨登录会话持久化
 }
 
-// ========== Token 缓存辅助函数 ==========
-
+// ========== Token 缓存辅助函数 ===
 /**
  * 缓存登录 token 到 one-shot 和域名级别存储
  * 尝试立即同步到 webview cookie，成功后清除 one-shot token
@@ -177,8 +173,7 @@ async function cacheAndSyncToken(
   }
 }
 
-// ========== 获取本地沙箱配置 ==========
-
+// ========== 获取本地沙箱配置 ===
 async function getLocalSandboxValue(): Promise<SandboxValue> {
   const step1Config = (await window.electronAPI?.settings.get(
     "step1_config",
@@ -197,8 +192,7 @@ async function getLocalSandboxValue(): Promise<SandboxValue> {
   };
 }
 
-// ========== 错误处理 ==========
-
+// ========== 错误处理 ===
 /**
  * 获取友好的错误信息
  */
@@ -233,8 +227,7 @@ export function getAuthErrorMessage(error: any): string {
   return "登录失败，请检查网络连接";
 }
 
-// ========== 域名标准化 ==========
-
+// ========== 域名标准化 ===
 export function normalizeServerHost(input: string): string {
   let value = input.trim();
   if (!value) return value;
@@ -243,8 +236,7 @@ export function normalizeServerHost(input: string): string {
   return `https://${value}`;
 }
 
-// ========== 核心认证函数 ==========
-
+// ========== 核心认证函数 ===
 /**
  * 登录并注册客户端
  */
@@ -456,6 +448,7 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
   try {
     logger.info("重新注册客户端（使用 savedKey）...", "Auth");
 
+
     const deviceId = await window.electronAPI?.app.getDeviceId();
     const params: ClientRegisterParams = {
       username: username || "",
@@ -501,6 +494,7 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
     }
 
     logger.info("重新注册成功", "Auth");
+
     return response;
   } catch (error) {
     logger.error("重新注册失败", "Auth", error);

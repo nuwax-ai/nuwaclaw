@@ -18,10 +18,8 @@ import {
   AUTH_KEYS,
   DEFAULT_AI_ENGINE,
 } from "@shared/constants";
-import { logger } from "../utils/logService";
 
-// ==================== Types ====================
-
+// ==================== Types =============
 export interface Step1Config {
   serverHost: string;
   agentPort: number;
@@ -59,8 +57,7 @@ export interface ServiceStatus {
   };
 }
 
-// ==================== Default Values ====================
-
+// ==================== Default Values =============
 export const DEFAULT_STEP1_CONFIG: Step1Config = {
   serverHost: DEFAULT_SERVER_HOST,
   agentPort: DEFAULT_AGENT_RUNNER_PORT,
@@ -76,16 +73,13 @@ export const DEFAULT_SETUP_STATE: SetupState = {
   step2Completed: false,
 };
 
-// ==================== Auth Keys (Re-export) ====================
-
+// ==================== Auth Keys (Re-export) =============
 export { AUTH_KEYS };
 
-// ==================== Storage Keys (Re-export) ====================
-
+// ==================== Storage Keys (Re-export) =============
 export { STORAGE_KEYS };
 
-// ==================== Setup Service ====================
-
+// ==================== Setup Service =============
 class SetupService {
   /**
    * Check if setup is completed
@@ -95,7 +89,10 @@ class SetupService {
       const state = await this.getSetupState();
       return state.completed;
     } catch (error) {
+      console.error("[Setup] Check failed:", error);
+
       logger.error("Check failed", "Setup", error);
+
       return false;
     }
   }
@@ -112,7 +109,10 @@ class SetupService {
         ? { ...DEFAULT_SETUP_STATE, ...(state as SetupState) }
         : DEFAULT_SETUP_STATE;
     } catch (error) {
+      console.error("[Setup] Get state failed:", error);
+
       logger.error("Get state failed", "Setup", error);
+
       return DEFAULT_SETUP_STATE;
     }
   }
@@ -129,7 +129,10 @@ class SetupService {
         ? { ...DEFAULT_STEP1_CONFIG, ...(config as Step1Config) }
         : DEFAULT_STEP1_CONFIG;
     } catch (error) {
+      console.error("[Setup] Get Step1 failed:", error);
+
       logger.error("Get Step1 failed", "Setup", error);
+
       return DEFAULT_STEP1_CONFIG;
     }
   }
@@ -147,9 +150,12 @@ class SetupService {
       state.currentStep = 2;
       await window.electronAPI?.settings.set(STORAGE_KEYS.SETUP_STATE, state);
 
+      console.log("[Setup] Step 1 saved:", config);
       logger.info("Step 1 saved", "Setup", config);
     } catch (error) {
+      console.error("[Setup] Save Step1 failed:", error);
       logger.error("Save Step1 failed", "Setup", error);
+
       throw error;
     }
   }
@@ -165,7 +171,9 @@ class SetupService {
       await window.electronAPI?.settings.set(STORAGE_KEYS.SETUP_STATE, state);
       logger.info("Step 2 completed", "Setup");
     } catch (error) {
+      console.error("[Setup] Complete Step2 failed:", error);
       logger.error("Complete Step2 failed", "Setup", error);
+
       throw error;
     }
   }
@@ -181,7 +189,9 @@ class SetupService {
       await window.electronAPI?.settings.set(STORAGE_KEYS.SETUP_STATE, state);
       logger.info("Setup completed", "Setup");
     } catch (error) {
+      console.error("[Setup] Complete failed:", error);
       logger.error("Complete failed", "Setup", error);
+
       throw error;
     }
   }
@@ -205,14 +215,15 @@ class SetupService {
       await window.electronAPI?.settings.set(STORAGE_KEYS.MCP_CONFIG, null);
       logger.info("Reset completed", "Setup");
     } catch (error) {
+      console.error("[Setup] Reset failed:", error);
       logger.error("Reset failed", "Setup", error);
+
       throw error;
     }
   }
 }
 
-// ==================== Auth Service ====================
-
+// ==================== Auth Service =============
 class AuthService {
   /**
    * Get saved user info (from auth.user_info, set by auth.ts)
@@ -222,7 +233,10 @@ class AuthService {
       const user = await window.electronAPI?.settings.get("auth.user_info");
       return user as AuthUserInfo | null;
     } catch (error) {
+      console.error("[Auth] Get user failed:", error);
+
       logger.error("Get user failed", "Auth", error);
+
       return null;
     }
   }
@@ -239,7 +253,9 @@ class AuthService {
       await window.electronAPI?.settings.set("auth.online_status", null);
       logger.info("Cleared", "Auth");
     } catch (error) {
+      console.error("[Auth] Clear failed:", error);
       logger.error("Clear failed", "Auth", error);
+
       throw error;
     }
   }
@@ -256,8 +272,7 @@ class AuthService {
   }
 }
 
-// ==================== Service Manager ====================
-
+// ==================== Service Manager =============
 class ServiceManager {
   /**
    * Get all services status
@@ -278,6 +293,8 @@ class ServiceManager {
       // Check File Server (if implemented)
       // const fsStatus = await window.electronAPI?.fileServer.status();
     } catch (error) {
+      console.error("[Service] Get status failed:", error);
+
       logger.error("Get status failed", "Service", error);
     }
 
@@ -361,8 +378,7 @@ class ServiceManager {
   }
 }
 
-// ==================== Exports ====================
-
+// ==================== Exports =============
 export const setupService = new SetupService();
 export const authService = new AuthService();
 export const serviceManager = new ServiceManager();
