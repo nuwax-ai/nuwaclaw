@@ -12,6 +12,7 @@ import { ElectronProcessRunner } from "./windowsMcpRunner.js";
 import { getUvBinPath, getAppEnv } from "../system/dependencies";
 import { isWindows } from "../system/shellEnv";
 import { getGuiMcpPort } from "./guiAgentServer";
+import { killProcessTreesListeningOnTcpPortWindows } from "../utils/processTree";
 
 /**
  * Windows-MCP 管理器实例
@@ -79,16 +80,39 @@ export async function startWindowsMcp(): Promise<{
     },
   });
 
-  log.info(`[WindowsMcp] Starting on port ${getGuiMcpPort()}...`);
+  const port = getGuiMcpPort();
+  // 启动前再扫一次端口：自动拉起、仅失败重试等路径未必先经过 stop；避免 10048
+  try {
+    log.info(`[WindowsMcp] Pre-start port sweep for ${port}...`);
+    await killProcessTreesListeningOnTcpPortWindows(port);
+    await new Promise((r) => setTimeout(r, 450));
+  } catch (e) {
+    log.warn("[WindowsMcp] Pre-start port sweep:", e);
+  }
 
-  const result = await windowsMcpManager.start(getGuiMcpPort(), buildConfig);
+  log.info(`[WindowsMcp] Starting on port ${port}...`);
+
+  const result = await windowsMcpManager.start(port, buildConfig);
 
   if (result.success) {
     log.info(`[WindowsMcp] Started successfully on port ${result.port}`);
-  } else {
-    log.error(`[WindowsMcp] Failed to start: ${result.error}`);
+    return result;
   }
 
+  log.error(`[WindowsMcp] Failed to start: ${result.error}`);
+  const err = result.error ?? "";
+  const likelyPortConflict =
+    err.includes("立即退出") ||
+    err.includes("10048") ||
+    err.includes("EADDRINUSE") ||
+    err.includes("Address already in use") ||
+    err.includes("ready within timeout");
+  if (likelyPortConflict) {
+    return {
+      success: false,
+      error: `${err} — 常见原因：${port} 端口已被占用。可稍后重试、在设置中更换 GUI MCP 端口，或在任务管理器中结束相关进程。`,
+    };
+  }
   return result;
 }
 
@@ -105,6 +129,13 @@ export async function stopWindowsMcp(): Promise<{
 
   log.info("[WindowsMcp] Stopping...");
   const result = await windowsMcpManager.stop();
+
+  // 兜底：uv 先退出时 ManagedProcess 可能已无 PID，子进程仍 LISTENING GUI MCP 端口
+  try {
+    await killProcessTreesListeningOnTcpPortWindows(getGuiMcpPort());
+  } catch (e) {
+    log.warn("[WindowsMcp] TCP port sweep after stop:", e);
+  }
 
   if (result.success) {
     log.info("[WindowsMcp] Stopped successfully");

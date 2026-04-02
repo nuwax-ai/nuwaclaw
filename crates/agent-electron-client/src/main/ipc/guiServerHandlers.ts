@@ -27,11 +27,21 @@ export function registerGuiServerHandlers(): void {
   // ===== guiServer:start =====
   ipcMain.handle("guiServer:start", async () => {
     try {
+      // 手动点击启动：先 stop 再 start，尽量清掉残留 uv/python 进程并释放 GUI MCP 端口
       if (isWindows()) {
+        try {
+          await stopWindowsMcp();
+        } catch (preStopErr) {
+          log.warn("[IPC] guiServer:start pre-stop Windows MCP:", preStopErr);
+        }
         return await startWindowsMcp();
-      } else {
-        return await startGuiAgentServer();
       }
+      try {
+        await stopGuiAgentServer();
+      } catch (preStopErr) {
+        log.warn("[IPC] guiServer:start pre-stop GUI Agent:", preStopErr);
+      }
+      return await startGuiAgentServer();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       log.error("[IPC] guiServer:start error:", msg);

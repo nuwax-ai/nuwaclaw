@@ -71,23 +71,122 @@ export async function killProcessTreeGraceful(
   }
 }
 
+/** 系统保留 / 非用户进程 PID 上限，按端口清进程时跳过 */
+const SYSTEM_PID_CEILING = 4;
+
+/**
+ * 从 Windows `netstat -ano` 标准输出中解析「本机在该 TCP 端口上 LISTENING」的 PID。
+ * 用于 uv 已退出但子进程仍占用端口、ManagedProcess 已无 PID 等场景的兜底排查。
+ */
+export function collectListeningPidsOnPortFromNetstatStdout(
+  stdout: string,
+  port: number,
+): number[] {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return [];
+  }
+  const portSuffix = `:${port}`;
+  const localMarkers = [
+    `127.0.0.1${portSuffix}`,
+    `0.0.0.0${portSuffix}`,
+    `[::1]${portSuffix}`,
+    `[::ffff:127.0.0.1]${portSuffix}`,
+    `[::]${portSuffix}`,
+    `*${portSuffix}`,
+  ];
+  const pids = new Set<number>();
+  for (const line of stdout.split(/\r?\n/)) {
+    const isListening = /\bLISTENING\b/i.test(line) || line.includes("监听");
+    if (!isListening) {
+      continue;
+    }
+    if (!localMarkers.some((m) => line.includes(m))) {
+      continue;
+    }
+    const m =
+      line.match(/\bLISTENING\s+(\d+)\s*$/i) || line.match(/监听\s+(\d+)\s*$/);
+    if (!m) {
+      continue;
+    }
+    const pid = parseInt(m[1], 10);
+    if (Number.isFinite(pid) && pid > SYSTEM_PID_CEILING) {
+      pids.add(pid);
+    }
+  }
+  return [...pids];
+}
+
+/**
+ * Windows：按 TCP 端口清理 LISTENING 进程（整树终止）。
+ * 在 stopWindowsMcp / 手动重启 GUI MCP 时，作为 taskkill 跟踪 PID 之外的第二道防线。
+ */
+export async function killProcessTreesListeningOnTcpPortWindows(
+  port: number,
+  timeoutMsPerTree = 3000,
+): Promise<void> {
+  if (process.platform !== "win32") {
+    return;
+  }
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return;
+  }
+
+  return new Promise((resolve) => {
+    execFile("netstat", ["-ano"], { windowsHide: true }, (err, stdout) => {
+      void (async () => {
+        if (err) {
+          log.warn("[processTree] netstat -ano failed:", err);
+          resolve();
+          return;
+        }
+        const raw = collectListeningPidsOnPortFromNetstatStdout(stdout, port);
+        const own = process.pid;
+        const pids = raw.filter(
+          (pid) => pid > SYSTEM_PID_CEILING && pid !== own,
+        );
+        if (pids.length > 0) {
+          log.info(
+            `[processTree] port ${port} TCP LISTENING -> taskkill tree for PIDs: ${pids.join(", ")}`,
+          );
+        }
+        for (const pid of pids) {
+          try {
+            await killProcessTreeGraceful(pid, timeoutMsPerTree);
+          } catch (e) {
+            log.warn(
+              `[processTree] killProcessTreeGraceful pid=${pid} port=${port}:`,
+              e,
+            );
+          }
+        }
+        resolve();
+      })();
+    });
+  });
+}
+
 // ==================== Internal ====================
 
 function killProcessTreeWindows(pid: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    execFile("taskkill", ["/T", "/F", "/PID", String(pid)], (err) => {
-      if (err) {
-        // taskkill returns exit code 128 if process not found — treat as success
-        const code = (err as any).code;
-        if (code === 128 || code === "ESRCH") {
-          resolve();
+    execFile(
+      "taskkill",
+      ["/T", "/F", "/PID", String(pid)],
+      { windowsHide: true },
+      (err) => {
+        if (err) {
+          // taskkill returns exit code 128 if process not found — treat as success
+          const code = (err as any).code;
+          if (code === 128 || code === "ESRCH") {
+            resolve();
+          } else {
+            reject(err);
+          }
         } else {
-          reject(err);
+          resolve();
         }
-      } else {
-        resolve();
-      }
-    });
+      },
+    );
   });
 }
 

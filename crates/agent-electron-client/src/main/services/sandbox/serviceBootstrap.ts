@@ -190,8 +190,12 @@ export async function startSandboxService(): Promise<void> {
       isAvailable: () => sandboxManager!.isAvailable(),
       getStatus: async () => {
         const status = await sandboxManager!.getStatus();
+        // type=none 时 CommandSandbox 仍回报 available=true（仅表示进程侧无报错），
+        // 与策略降级并存会令 UI 出现「none / available / degraded」矛盾表述。
+        const available = degraded ? false : status.available;
         return {
           ...status,
+          available,
           backend: lastPolicy.backend,
           degraded,
           reason: degradeReason,
