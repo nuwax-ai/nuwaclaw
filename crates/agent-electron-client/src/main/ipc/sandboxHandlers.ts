@@ -77,7 +77,7 @@ let sandboxControlService: {
   setPolicy(patch: Partial<SandboxPolicy>): Promise<SandboxPolicy>;
   getCapabilities(): Promise<SandboxCapabilities>;
   setup(params?: {
-    windows?: { codex?: { mode?: "unelevated" | "elevated" } };
+    windows?: { sandbox?: { mode?: "unelevated" | "elevated" } };
   }): Promise<{ success: boolean; message?: string }>;
 } | null = null;
 
@@ -537,7 +537,7 @@ export function registerSandboxHandlers(): void {
     async (
       _,
       params?: {
-        windows?: { codex?: { mode?: "unelevated" | "elevated" } };
+        windows?: { sandbox?: { mode?: "unelevated" | "elevated" } };
       },
     ) => {
       log.info("[IPC] sandbox:setup:", { params });

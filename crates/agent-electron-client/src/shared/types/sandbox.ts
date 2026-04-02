@@ -20,7 +20,7 @@ export type Platform = "darwin" | "win32" | "linux";
  * - docker: Docker 容器（全平台）
  * - macos-seatbelt: macOS seatbelt（sandbox-exec）
  * - linux-bwrap: Linux bubblewrap
- * - windows-codex: Windows Codex 沙箱 helper
+ * - windows-sandbox: Windows Sandbox helper
  * - wsl: Windows Subsystem for Linux（兼容保留）
  * - firejail: Firejail（兼容保留）
  * - none: 无沙箱（直接执行）
@@ -29,7 +29,7 @@ export type SandboxType =
   | "docker"
   | "macos-seatbelt"
   | "linux-bwrap"
-  | "windows-codex"
+  | "windows-sandbox"
   | "wsl"
   | "firejail"
   | "none";
@@ -51,7 +51,7 @@ export type SandboxBackend =
   | "docker"
   | "macos-seatbelt"
   | "linux-bwrap"
-  | "windows-codex";
+  | "windows-sandbox";
 
 /**
  * 降级策略
@@ -61,9 +61,9 @@ export type SandboxBackend =
 export type SandboxFallback = "degrade_to_off" | "fail_closed";
 
 /**
- * Windows Codex 模式
+ * Windows Restricted Token 沙箱模式
  */
-export type WindowsCodexMode = "unelevated" | "elevated";
+export type WindowsSandboxMode = "unelevated" | "elevated";
 
 /**
  * 统一沙箱策略
@@ -74,8 +74,8 @@ export interface SandboxPolicy {
   backend: SandboxBackend;
   fallback: SandboxFallback;
   windows: {
-    codex: {
-      mode: WindowsCodexMode;
+    sandbox: {
+      mode: WindowsSandboxMode;
       privateDesktop: boolean;
     };
   };
@@ -99,7 +99,7 @@ export interface SandboxCapabilities {
   docker: SandboxCapabilityItem;
   macosSeatbelt: SandboxCapabilityItem;
   linuxBwrap: SandboxCapabilityItem;
-  windowsCodex: SandboxCapabilityItem;
+  windowsSandbox: SandboxCapabilityItem;
 }
 
 /**
@@ -129,6 +129,35 @@ export type CheckpointStatus =
  * 质量门禁状态
  */
 export type GateStatus = "pending" | "passed" | "failed";
+
+// ============================================================================
+// 进程级沙箱（ACP 引擎）
+// ============================================================================
+
+/**
+ * ACP 引擎进程级沙箱配置
+ * 用于将整个引擎进程包裹在沙箱后端中
+ */
+export interface SandboxProcessConfig {
+  /** 是否启用沙箱包装 */
+  enabled: boolean;
+  /** 已解析的沙箱后端类型 */
+  type: SandboxType;
+  /** 用户工作区目录（可写） */
+  projectWorkspaceDir: string;
+  /** 是否允许网络访问（引擎需要 API 调用） */
+  networkEnabled: boolean;
+  /** 降级策略 */
+  fallback: SandboxFallback;
+  /** Linux bwrap 二进制路径（可选） */
+  linuxBwrapPath?: string;
+  /** Windows Restricted helper 路径（可选） */
+  windowsSandboxHelperPath?: string;
+  /** Windows Restricted 模式（可选） */
+  windowsSandboxMode?: WindowsSandboxMode;
+  /** Windows Restricted 私有桌面（可选） */
+  windowsSandboxPrivateDesktop?: boolean;
+}
 
 // ============================================================================
 // 沙箱配置

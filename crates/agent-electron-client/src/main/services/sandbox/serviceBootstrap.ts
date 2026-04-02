@@ -34,7 +34,7 @@ import type {
 import {
   DEFAULT_SANDBOX_POLICY,
   getBundledLinuxBwrapPath,
-  getBundledWindowsCodexHelperPath,
+  getBundledWindowsSandboxHelperPath,
   getSandboxCapabilities,
   getSandboxPolicy,
   resolveSandboxType,
@@ -98,9 +98,9 @@ function createSandboxManager(type: SandboxType): SandboxManager {
 
   return new CommandSandbox(config, {
     linuxBwrapPath: getBundledLinuxBwrapPath() ?? undefined,
-    windowsCodexHelperPath: getBundledWindowsCodexHelperPath() ?? undefined,
-    windowsCodexMode: lastPolicy.windows.codex.mode,
-    windowsCodexPrivateDesktop: lastPolicy.windows.codex.privateDesktop,
+    windowsSandboxHelperPath: getBundledWindowsSandboxHelperPath() ?? undefined,
+    windowsSandboxMode: lastPolicy.windows.sandbox.mode,
+    windowsSandboxPrivateDesktop: lastPolicy.windows.sandbox.privateDesktop,
   });
 }
 
@@ -119,18 +119,18 @@ function setupControlService(): void {
       return getSandboxCapabilities();
     },
     async setup(params) {
-      const mode = params?.windows?.codex?.mode ?? "unelevated";
-      const helperPath = getBundledWindowsCodexHelperPath();
+      const mode = params?.windows?.sandbox?.mode ?? "unelevated";
+      const helperPath = getBundledWindowsSandboxHelperPath();
       if (!helperPath) {
         return {
           success: false,
           message:
-            "Windows Codex helper 不存在，请先执行 prepare:sandbox-runtime",
+            "Windows Sandbox helper 不存在，请先执行 prepare:sandbox-runtime",
         };
       }
       return {
         success: true,
-        message: `Windows Codex helper 就绪（mode=${mode}，helper=${helperPath}）`,
+        message: `Windows Sandbox helper 就绪（mode=${mode}，helper=${helperPath}）`,
       };
     },
   });

@@ -82,7 +82,7 @@ const SANDBOX_BACKEND_OPTIONS: Array<{
   { value: "docker", label: "Docker" },
   { value: "macos-seatbelt", label: "macOS sandbox-exec" },
   { value: "linux-bwrap", label: "Linux bubblewrap" },
-  { value: "windows-codex", label: "Windows Codex Sandbox" },
+  { value: "windows-sandbox", label: "Windows Sandbox" },
 ];
 
 export default function SettingsPage() {
@@ -375,17 +375,17 @@ export default function SettingsPage() {
     try {
       const result = await window.electronAPI.sandbox.setup({
         windows: {
-          codex: { mode: sandboxPolicy.windows.codex.mode },
+          sandbox: { mode: sandboxPolicy.windows.sandbox.mode },
         },
       });
       if (result?.success && result.data?.success) {
-        message.success(result.data.message || "Windows Codex setup 完成");
+        message.success(result.data.message || "Windows Sandbox setup 完成");
       } else {
         message.error(result?.data?.message || result?.error || "setup 失败");
       }
       await loadSandboxState();
     } catch (error) {
-      message.error("Windows Codex setup 失败");
+      message.error("Windows Sandbox setup 失败");
     } finally {
       setSandboxSaving(false);
     }
@@ -627,7 +627,7 @@ export default function SettingsPage() {
               <div className={styles.serviceRow}>
                 <div className={styles.serviceInfo}>
                   <div>
-                    <span className={styles.serviceLabel}>Codex 模式</span>
+                    <span className={styles.serviceLabel}>Sandbox 模式</span>
                     <div className={styles.serviceDescription}>
                       Windows 默认 unelevated
                     </div>
@@ -635,15 +635,15 @@ export default function SettingsPage() {
                 </div>
                 <Select
                   size="small"
-                  value={sandboxPolicy.windows.codex.mode}
+                  value={sandboxPolicy.windows.sandbox.mode}
                   style={{ width: 150 }}
                   disabled={sandboxSaving || sandboxLoading}
                   onChange={(value) =>
                     handlePatchSandboxPolicy({
                       windows: {
-                        codex: {
-                          ...sandboxPolicy.windows.codex,
-                          mode: value as SandboxPolicy["windows"]["codex"]["mode"],
+                        sandbox: {
+                          ...sandboxPolicy.windows.sandbox,
+                          mode: value as SandboxPolicy["windows"]["sandbox"]["mode"],
                         },
                       },
                     })
@@ -665,13 +665,13 @@ export default function SettingsPage() {
                 </div>
                 <Switch
                   size="small"
-                  checked={sandboxPolicy.windows.codex.privateDesktop}
+                  checked={sandboxPolicy.windows.sandbox.privateDesktop}
                   loading={sandboxSaving || sandboxLoading}
                   onChange={(checked) =>
                     handlePatchSandboxPolicy({
                       windows: {
-                        codex: {
-                          ...sandboxPolicy.windows.codex,
+                        sandbox: {
+                          ...sandboxPolicy.windows.sandbox,
                           privateDesktop: checked,
                         },
                       },

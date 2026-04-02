@@ -100,7 +100,7 @@ export interface SandboxAPI {
     code?: string;
   }>;
   setup: (params?: {
-    windows?: { codex?: { mode?: "unelevated" | "elevated" } };
+    windows?: { sandbox?: { mode?: "unelevated" | "elevated" } };
   }) => Promise<{
     success: boolean;
     data?: { success: boolean; message?: string };

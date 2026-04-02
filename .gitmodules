@@ -1,4 +1,14 @@
-[submodule "vendors/rcoder"]
-	path = vendors/rcoder
-	url = https://github.com/nuwax-ai/rcoder.git
-	branch = nuwax-client
+[submodule "vendors/gpui-component"]
+	path = vendors/gpui-component
+	url = https://github.com/longbridge/gpui-component.git
+
+[submodule "vendors/auto-launch"]
+	path = vendors/auto-launch
+	url = https://github.com/zzzgydi/auto-launch.git
+
+[submodule "vendors/tray-icon"]
+	path = vendors/tray-icon
+	url = https://github.com/tauri-apps/tray-icon.git
+[submodule "vendors/zed"]
+	path = vendors/zed
+	url = https://github.com/zed-industries/zed.git

@@ -25,7 +25,7 @@ export {
   getSandboxCapabilities,
   resolveSandboxType,
   getBundledLinuxBwrapPath,
-  getBundledWindowsCodexHelperPath,
+  getBundledWindowsSandboxHelperPath,
 } from "./policy";
 export {
   startSandboxService,
