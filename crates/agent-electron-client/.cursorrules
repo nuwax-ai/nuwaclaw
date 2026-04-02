@@ -1,0 +1,42 @@
+# .cursorrules - Cursor 入口
+
+> Cursor 启动时自动读取
+
+---
+
+## 立即行动
+
+1. 读取 `harness/base/constraints.md`
+2. 读取项目约束文件
+3. 读取 `harness/feedback/state/state.json`
+
+---
+
+## 支持的项目
+
+| 项目 | 配置 |
+|------|------|
+| Nuwax | `harness/projects/nuwax/` |
+| Electron | `harness/projects/electron/` |
+| 通用 | `harness/projects/generic/` |
+
+---
+
+## 命令
+
+- `/state` - 显示状态
+- `/start <任务>` - 开始任务
+- `/verify` - 运行门禁
+- `/done` - 完成任务
+- `/blocked <原因>` - 报告阻塞
+
+---
+
+## 质量门禁
+
+```
+Gate 1: npm run lint       → 0 errors
+Gate 2: npm run typecheck → 0 errors
+Gate 3: npm test           → all pass
+Gate 4: npm run build    → 0 errors
+```

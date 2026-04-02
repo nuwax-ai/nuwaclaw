@@ -10,6 +10,7 @@ import { registerEngineHandlers } from "./engineHandlers";
 import { registerAppHandlers } from "./appHandlers";
 import { registerEventForwarders } from "./eventForwarders";
 import { registerMemoryHandlers } from "./memoryHandlers";
+import { registerSandboxHandlers } from "./sandboxHandlers";
 import { registerPerfHandlers } from "./perfHandlers";
 import { registerGuiServerHandlers } from "./guiServerHandlers";
 import log from "electron-log";
@@ -26,6 +27,7 @@ export function registerAllHandlers(ctx: HandlerContext): void {
   registerAppHandlers(ctx);
   registerEventForwarders(ctx);
   registerMemoryHandlers();
+  registerSandboxHandlers();
   registerPerfHandlers();
   registerGuiServerHandlers();
 

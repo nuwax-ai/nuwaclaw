@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { SandboxPolicy } from "@shared/types/sandbox";
 
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld("electronAPI", {
@@ -68,6 +69,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }) => ipcRenderer.invoke("agentRunner:start", config),
     stop: () => ipcRenderer.invoke("agentRunner:stop"),
     status: () => ipcRenderer.invoke("agentRunner:status"),
+  },
+
+  // Sandbox policy and diagnostics
+  sandbox: {
+    status: () => ipcRenderer.invoke("sandbox:status"),
+    getPolicy: () => ipcRenderer.invoke("sandbox:policy:get"),
+    setPolicy: (patch: Partial<SandboxPolicy>) =>
+      ipcRenderer.invoke("sandbox:policy:set", patch),
+    capabilities: () => ipcRenderer.invoke("sandbox:capabilities"),
+    setup: (params?: {
+      windows?: { codex?: { mode?: "unelevated" | "elevated" } };
+    }) => ipcRenderer.invoke("sandbox:setup", params),
   },
 
   // Agent - unified ACP service (claude-code/nuwaxcode)
