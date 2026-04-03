@@ -208,5 +208,24 @@
   "Claw.Permission.second": "秒",
   "Claw.Permission.deny": "拒絕",
   "Claw.Permission.allowOnce": "本次允許",
-  "Claw.Permission.allowAlways": "始終允許"
+  "Claw.Permission.allowAlways": "始終允許",
+
+  "Claw.AgentRunner.configSaved": "配置已儲存",
+  "Claw.AgentRunner.stopped": "Agent Runner 已停止",
+  "Claw.AgentRunner.started": "Agent Runner 已啟動",
+  "Claw.AgentRunner.error": "錯誤: {0}",
+  "Claw.AgentRunner.running": "● 執行中",
+  "Claw.AgentRunner.stopped_status": "○ 已停止",
+  "Claw.AgentRunner.backendAddress": "後端地址",
+  "Claw.AgentRunner.proxyAddress": "代理地址",
+  "Claw.AgentRunner.stop": "停止",
+  "Claw.AgentRunner.start": "啟動",
+  "Claw.AgentRunner.config": "配置",
+  "Claw.AgentRunner.executablePath": "可執行檔案路徑",
+  "Claw.AgentRunner.backendPort": "後端連接埠",
+  "Claw.AgentRunner.proxyPort": "代理連接埠",
+  "Claw.AgentRunner.apiKey": "API 密鑰",
+  "Claw.AgentRunner.apiBaseUrl": "API 基礎 URL",
+  "Claw.AgentRunner.defaultModel": "預設模型",
+  "Claw.AgentRunner.saveConfig": "儲存配置"
 }

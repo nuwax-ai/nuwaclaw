@@ -208,5 +208,24 @@
   "Claw.Permission.second": "秒",
   "Claw.Permission.deny": "拒绝",
   "Claw.Permission.allowOnce": "本次允许",
-  "Claw.Permission.allowAlways": "始终允许"
+  "Claw.Permission.allowAlways": "始终允许",
+
+  "Claw.AgentRunner.configSaved": "配置已保存",
+  "Claw.AgentRunner.stopped": "Agent Runner 已停止",
+  "Claw.AgentRunner.started": "Agent Runner 已启动",
+  "Claw.AgentRunner.error": "错误: {0}",
+  "Claw.AgentRunner.running": "● 运行中",
+  "Claw.AgentRunner.stopped_status": "○ 已停止",
+  "Claw.AgentRunner.backendAddress": "后端地址",
+  "Claw.AgentRunner.proxyAddress": "代理地址",
+  "Claw.AgentRunner.stop": "停止",
+  "Claw.AgentRunner.start": "启动",
+  "Claw.AgentRunner.config": "配置",
+  "Claw.AgentRunner.executablePath": "可执行文件路径",
+  "Claw.AgentRunner.backendPort": "后端端口",
+  "Claw.AgentRunner.proxyPort": "代理端口",
+  "Claw.AgentRunner.apiKey": "API 密钥",
+  "Claw.AgentRunner.apiBaseUrl": "API 基础 URL",
+  "Claw.AgentRunner.defaultModel": "默认模型",
+  "Claw.AgentRunner.saveConfig": "保存配置"
 }

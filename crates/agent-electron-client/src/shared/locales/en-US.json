@@ -208,5 +208,24 @@
   "Claw.Permission.second": "s",
   "Claw.Permission.deny": "Deny",
   "Claw.Permission.allowOnce": "Allow Once",
-  "Claw.Permission.allowAlways": "Allow Always"
+  "Claw.Permission.allowAlways": "Allow Always",
+
+  "Claw.AgentRunner.configSaved": "Configuration saved",
+  "Claw.AgentRunner.stopped": "Agent Runner stopped",
+  "Claw.AgentRunner.started": "Agent Runner started",
+  "Claw.AgentRunner.error": "Error: {0}",
+  "Claw.AgentRunner.running": "● Running",
+  "Claw.AgentRunner.stopped_status": "○ Stopped",
+  "Claw.AgentRunner.backendAddress": "Backend Address",
+  "Claw.AgentRunner.proxyAddress": "Proxy Address",
+  "Claw.AgentRunner.stop": "Stop",
+  "Claw.AgentRunner.start": "Start",
+  "Claw.AgentRunner.config": "Configuration",
+  "Claw.AgentRunner.executablePath": "Executable Path",
+  "Claw.AgentRunner.backendPort": "Backend Port",
+  "Claw.AgentRunner.proxyPort": "Proxy Port",
+  "Claw.AgentRunner.apiKey": "API Key",
+  "Claw.AgentRunner.apiBaseUrl": "API Base URL",
+  "Claw.AgentRunner.defaultModel": "Default Model",
+  "Claw.AgentRunner.saveConfig": "Save Configuration"
 }
