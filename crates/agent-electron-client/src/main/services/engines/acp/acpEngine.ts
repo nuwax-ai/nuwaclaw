@@ -509,6 +509,7 @@ export class AcpEngine extends EventEmitter {
 
       log.info(`${this.logTag} ACP initialized`, {
         protocolVersion: initResult.protocolVersion,
+        agentCapabilities: initResult.agentCapabilities,
       });
 
       this._ready = true;
