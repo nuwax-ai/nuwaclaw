@@ -197,5 +197,15 @@
 
   "Claw.EmbeddedWebview.loadFailed": "載入失敗: {0} ({1})",
   "Claw.EmbeddedWebview.back": "返回",
-  "Claw.EmbeddedWebview.refresh": "重新整理"
+  "Claw.EmbeddedWebview.refresh": "重新整理",
+
+  "Claw.Permission.command": "命令",
+  "Claw.Permission.envVars": "環境變量",
+  "Claw.Permission.file": "檔案",
+  "Claw.Permission.url": "URL",
+  "Claw.Permission.tool": "工具",
+  "Claw.Permission.second": "秒",
+  "Claw.Permission.deny": "拒絕",
+  "Claw.Permission.allowOnce": "本次允許",
+  "Claw.Permission.allowAlways": "始終允許"
 }

@@ -197,5 +197,15 @@
 
   "Claw.EmbeddedWebview.loadFailed": "Load failed: {0} ({1})",
   "Claw.EmbeddedWebview.back": "Back",
-  "Claw.EmbeddedWebview.refresh": "Refresh"
+  "Claw.EmbeddedWebview.refresh": "Refresh",
+
+  "Claw.Permission.command": "Command",
+  "Claw.Permission.envVars": "Environment Variables",
+  "Claw.Permission.file": "File",
+  "Claw.Permission.url": "URL",
+  "Claw.Permission.tool": "Tool",
+  "Claw.Permission.second": "s",
+  "Claw.Permission.deny": "Deny",
+  "Claw.Permission.allowOnce": "Allow Once",
+  "Claw.Permission.allowAlways": "Allow Always"
 }
