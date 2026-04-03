@@ -134,21 +134,24 @@ export function getBundledLinuxBwrapPath(): string | null {
 /** 仅 Windows：沙箱 helper 可执行文件名（非 win32 上不应探测 .exe 路径）。 */
 const WINDOWS_SANDBOX_HELPER_NAME = "nuwax-sandbox-helper.exe" as const;
 
-/**
- * 解析内置 Windows Sandbox helper 路径（场景仅限 Windows 客户端）。
- * 在非 Windows 上始终返回 null，避免无意义的文件探测。
- */
-export function getBundledWindowsSandboxHelperPath(): string | null {
-  if (process.platform !== "win32") {
-    return null;
-  }
+/** 跨平台 helper 二进制名 */
+const SANDBOX_HELPER_NAME =
+  process.platform === "win32"
+    ? WINDOWS_SANDBOX_HELPER_NAME
+    : "nuwax-sandbox-helper";
 
+/**
+ * 解析内置 Sandbox helper 路径（跨平台）。
+ * Windows: nuwax-sandbox-helper.exe
+ * macOS/Linux: nuwax-sandbox-helper
+ */
+export function getBundledSandboxHelperPath(): string | null {
   const runtimeDir = getSandboxRuntimeDir();
   const helperRoot = path.join(getResourcesPath(), "sandbox-helper");
   const candidates = [
-    path.join(runtimeDir, "bin", WINDOWS_SANDBOX_HELPER_NAME),
-    path.join(runtimeDir, "windows", WINDOWS_SANDBOX_HELPER_NAME),
-    path.join(helperRoot, WINDOWS_SANDBOX_HELPER_NAME),
+    path.join(runtimeDir, "bin", SANDBOX_HELPER_NAME),
+    path.join(runtimeDir, "windows", SANDBOX_HELPER_NAME),
+    path.join(helperRoot, SANDBOX_HELPER_NAME),
   ];
 
   for (const candidate of candidates) {
@@ -158,6 +161,18 @@ export function getBundledWindowsSandboxHelperPath(): string | null {
   }
 
   return null;
+}
+
+/**
+ * 解析内置 Windows Sandbox helper 路径。
+ * 仅在 Windows 上返回有效路径，其他平台返回 null。
+ * @deprecated 使用 getBundledSandboxHelperPath() 代替
+ */
+export function getBundledWindowsSandboxHelperPath(): string | null {
+  if (process.platform !== "win32") {
+    return null;
+  }
+  return getBundledSandboxHelperPath();
 }
 
 function unavailable(reason: string): SandboxCapabilityItem {
@@ -242,9 +257,8 @@ function isBackendAvailable(
       return caps.linuxBwrap.available;
     case "windows-sandbox":
       return caps.windowsSandbox.available;
-    case "wsl":
-    case "firejail":
-      return false;
+    case "none":
+      return true;
     default:
       return true;
   }

@@ -1,0 +1,344 @@
+/**
+ * 统一沙箱调用构建器
+ *
+ * 合并 CommandSandbox 中 buildInvocation() 和 buildProcessInvocation()
+ * 的重复平台分支逻辑，提供单一入口构建所有平台的沙箱包装调用。
+ *
+ * 支持平台：
+ * - none（直接执行）
+ * - macos-seatbelt（sandbox-exec）
+ * - linux-bwrap（bubblewrap）
+ * - windows-sandbox（nuwax-sandbox-helper）
+ *
+ * @version 1.0.0
+ * @updated 2026-04-03
+ */
+
+import * as fs from "fs";
+import * as fsp from "fs/promises";
+import * as os from "os";
+import * as path from "path";
+import log from "electron-log";
+import { checkCommand } from "../system/shellEnv";
+import type { SandboxType, WindowsSandboxMode } from "@shared/types/sandbox";
+import { SandboxError, SandboxErrorCode } from "@shared/errors/sandbox";
+
+// ============================================================================
+// 类型
+// ============================================================================
+
+/** 沙箱调用器配置 */
+export interface SandboxInvokerOptions {
+  /** Linux bwrap 二进制路径（可选，默认 PATH 查找） */
+  linuxBwrapPath?: string;
+  /** Windows sandbox helper 路径 */
+  windowsSandboxHelperPath?: string;
+  /** Windows sandbox 模式 */
+  windowsSandboxMode?: WindowsSandboxMode;
+  /** 是否允许网络访问 */
+  networkEnabled?: boolean;
+}
+
+/** 沙箱调用参数 */
+export interface SandboxInvocationParams {
+  /** 待包装的命令 */
+  command: string;
+  /** 命令参数 */
+  args: string[];
+  /** 工作目录 */
+  cwd: string;
+  /** 环境变量 */
+  env?: Record<string, string>;
+  /** 可写路径列表 */
+  writablePaths: string[];
+  /** 是否允许网络访问 */
+  networkEnabled: boolean;
+  /** 子命令模式：run=捕获输出返回 JSON，serve=双向 stdio 转发 */
+  subcommand?: "run" | "serve";
+}
+
+/** 沙箱包装后的调用描述 */
+export interface Invocation {
+  /** 包装后的命令（可能是 sandbox-exec / bwrap / nuwax-sandbox-helper） */
+  command: string;
+  /** 包装后的参数 */
+  args: string[];
+  /** 工作目录 */
+  cwd: string;
+  /** 环境变量 */
+  env?: Record<string, string>;
+  /** helper run 模式返回 JSON stdout，需要解析 */
+  parseJson?: boolean;
+  /** macOS seatbelt profile 文件路径（调用方负责清理） */
+  seatbeltProfilePath?: string;
+}
+
+// ============================================================================
+// SandboxInvoker
+// ============================================================================
+
+/**
+ * 统一沙箱调用构建器
+ *
+ * 所有平台分支逻辑集中在此类中，CommandSandbox 和 sandboxProcessWrapper
+ * 均委托给它来构建调用。
+ */
+export class SandboxInvoker {
+  private readonly type: SandboxType;
+  private readonly options: SandboxInvokerOptions;
+
+  constructor(type: SandboxType, options: SandboxInvokerOptions = {}) {
+    this.type = type;
+    this.options = options;
+  }
+
+  /**
+   * 统一构建沙箱包装调用
+   */
+  async buildInvocation(params: SandboxInvocationParams): Promise<Invocation> {
+    switch (this.type) {
+      case "none":
+        return this.buildNone(params);
+      case "macos-seatbelt":
+        return this.buildSeatbelt(params);
+      case "linux-bwrap":
+        return this.buildBwrap(params);
+      case "windows-sandbox":
+        return this.buildWindowsHelper(params);
+      case "docker":
+        log.warn("[SandboxInvoker] Docker 进程级沙箱暂不支持，返回未包装调用");
+        return {
+          command: params.command,
+          args: params.args,
+          cwd: params.cwd,
+          env: params.env,
+        };
+      default:
+        throw new SandboxError(
+          `不支持的沙箱类型: ${String(this.type)}`,
+          SandboxErrorCode.CONFIG_INVALID,
+        );
+    }
+  }
+
+  /**
+   * 检测当前后端是否可用
+   */
+  async checkAvailable(): Promise<boolean> {
+    switch (this.type) {
+      case "none":
+        return true;
+
+      case "macos-seatbelt":
+        return (
+          process.platform === "darwin" &&
+          fs.existsSync("/usr/bin/sandbox-exec")
+        );
+
+      case "linux-bwrap": {
+        if (process.platform !== "linux") return false;
+        if (
+          this.options.linuxBwrapPath &&
+          fs.existsSync(this.options.linuxBwrapPath)
+        ) {
+          return true;
+        }
+        return checkCommand("bwrap");
+      }
+
+      case "windows-sandbox": {
+        if (process.platform !== "win32") return false;
+        return (
+          !!this.options.windowsSandboxHelperPath &&
+          fs.existsSync(this.options.windowsSandboxHelperPath)
+        );
+      }
+
+      default:
+        return false;
+    }
+  }
+
+  // ============================================================================
+  // 平台实现
+  // ============================================================================
+
+  private buildNone(params: SandboxInvocationParams): Invocation {
+    return {
+      command: params.command,
+      args: params.args,
+      cwd: params.cwd,
+      env: params.env,
+    };
+  }
+
+  private async buildSeatbelt(
+    params: SandboxInvocationParams,
+  ): Promise<Invocation> {
+    const profilePath = path.join(
+      fs.realpathSync(os.tmpdir()),
+      `nuwaclaw-sandbox-${Date.now()}.sb`,
+    );
+    const profile = this.buildSeatbeltProfile(
+      params.writablePaths,
+      params.networkEnabled,
+    );
+    await fsp.writeFile(profilePath, profile, "utf-8");
+    log.info("[SandboxInvoker] seatbelt profile written:", profilePath);
+
+    return {
+      command: "/usr/bin/sandbox-exec",
+      args: ["-f", profilePath, params.command, ...params.args],
+      cwd: params.cwd,
+      env: params.env,
+      seatbeltProfilePath: profilePath,
+    };
+  }
+
+  private buildBwrap(params: SandboxInvocationParams): Invocation {
+    const bwrapPath = this.options.linuxBwrapPath || "bwrap";
+    const bwrapArgs: string[] = [
+      "--die-with-parent",
+      "--new-session",
+      "--unshare-user-try",
+      "--unshare-pid",
+      "--unshare-uts",
+      "--unshare-cgroup-try",
+      ...(params.networkEnabled ? [] : ["--unshare-net"]),
+      "--dev-bind",
+      "/dev",
+      "/dev",
+      "--proc",
+      "/proc",
+      "--tmpfs",
+      "/tmp",
+      "--ro-bind",
+      "/",
+      "/",
+    ];
+
+    // 可写路径使用读写 bind mount（覆盖上面的 ro-bind）
+    for (const wp of params.writablePaths) {
+      bwrapArgs.push("--bind", wp, wp);
+    }
+
+    bwrapArgs.push("--chdir", params.cwd, "--", params.command, ...params.args);
+
+    log.info("[SandboxInvoker] bwrap invocation:", {
+      bwrapPath,
+      writablePaths: params.writablePaths,
+      networkEnabled: params.networkEnabled,
+      cwd: params.cwd,
+    });
+
+    return {
+      command: bwrapPath,
+      args: bwrapArgs,
+      cwd: params.cwd,
+      env: params.env,
+    };
+  }
+
+  private buildWindowsHelper(params: SandboxInvocationParams): Invocation {
+    const helper = this.options.windowsSandboxHelperPath;
+    if (!helper || !fs.existsSync(helper)) {
+      throw new SandboxError(
+        "Sandbox helper 未找到",
+        SandboxErrorCode.SANDBOX_UNAVAILABLE,
+      );
+    }
+
+    const mode = this.options.windowsSandboxMode ?? "read-only";
+    const subcommand = params.subcommand ?? "run";
+    const sandboxPolicy = {
+      type: mode === "read-only" ? "read-only" : "workspace-write",
+      network_access: params.networkEnabled,
+    };
+    const helperArgs = [
+      subcommand,
+      "--mode",
+      mode,
+      "--cwd",
+      params.cwd,
+      "--policy-json",
+      JSON.stringify(sandboxPolicy),
+      "--",
+      params.command,
+      ...params.args,
+    ];
+
+    log.info("[SandboxInvoker] windows-sandbox invocation:", {
+      helper,
+      subcommand,
+      mode,
+      cwd: params.cwd,
+      policy: sandboxPolicy,
+    });
+
+    return {
+      command: helper,
+      args: helperArgs,
+      cwd: params.cwd,
+      env: params.env,
+      parseJson: subcommand === "run",
+    };
+  }
+
+  // ============================================================================
+  // macOS Seatbelt Profile 构建
+  // ============================================================================
+
+  /**
+   * 构建 macOS Seatbelt 沙箱 profile
+   *
+   * 注意：macOS 上 /var 是 /private/var 的符号链接，
+   * seatbelt 使用真实路径匹配，因此需要对可写路径做 realpath 解析。
+   */
+  private buildSeatbeltProfile(
+    writablePaths: string[],
+    networkEnabled: boolean,
+  ): string {
+    const lines: string[] = ["(version 1)", "(deny default)"];
+    if (networkEnabled) {
+      lines.push("(allow network*)");
+    }
+    lines.push(
+      "(allow file-read*)",
+      "(allow process-exec)",
+      "(allow process-fork)",
+      "(allow signal)",
+      "(allow sysctl-read)",
+      "(allow mach-lookup)",
+      "(allow ipc-posix*)",
+      "(allow file-lock)",
+    );
+    // 可写路径 — 同时添加原始路径和 realpath（处理 macOS 符号链接）
+    const seen = new Set<string>();
+    for (const wp of writablePaths) {
+      const pathsToAdd = [wp];
+      try {
+        const resolved = fs.realpathSync(wp);
+        if (resolved !== wp) {
+          pathsToAdd.push(resolved);
+        }
+      } catch {
+        // 路径尚不存在，跳过 realpath
+      }
+      for (const p of pathsToAdd) {
+        if (!seen.has(p)) {
+          seen.add(p);
+          lines.push(`(allow file-write* (subpath "${p}"))`);
+        }
+      }
+    }
+    // 必要的系统写入
+    lines.push(
+      '(allow file-write* (literal "/dev/null"))',
+      '(allow file-write* (literal "/dev/dtracehelper"))',
+      '(allow file-write* (literal "/dev/urandom"))',
+    );
+    return lines.join("\n") + "\n";
+  }
+}
+
+export default SandboxInvoker;
