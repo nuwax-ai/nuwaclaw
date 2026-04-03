@@ -18,8 +18,10 @@
  */
 
 import { spawn, ChildProcess } from "child_process";
+import { randomUUID } from "crypto";
 import log from "electron-log";
 import { SandboxInvoker } from "@main/services/sandbox/SandboxInvoker";
+import { killProcessTree } from "@main/services/utils/processTree";
 import type { WindowsSandboxMode } from "@shared/types/sandbox";
 
 // ============================================================================
@@ -116,7 +118,7 @@ export class AcpTerminalManager {
       );
     }
 
-    const terminalId = `term_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const terminalId = `term_${randomUUID()}`;
 
     let resolveExit: ((status: TerminalExitStatus) => void) | null = null;
     const exitPromise = new Promise<TerminalExitStatus>((r) => {
@@ -136,9 +138,40 @@ export class AcpTerminalManager {
       resolveExit: resolveExit!,
     };
 
-    const env: Record<string, string> = {
-      ...(process.env as Record<string, string>),
-    };
+    // Build a sanitized environment for sandboxed commands.
+    // Avoid leaking sensitive host env vars (API keys, tokens, etc.)
+    // into sandboxed child processes.
+    const env: Record<string, string> = {};
+    if (this.useSandbox) {
+      // Minimal safe env for sandboxed commands
+      const safeKeys = [
+        "PATH",
+        "Path",
+        "SYSTEMROOT",
+        "SystemRoot",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "HOME",
+        "LOCALAPPDATA",
+        "APPDATA",
+        "COMPUTERNAME",
+        "USERNAME",
+        "OS",
+        "PROCESSOR_ARCHITECTURE",
+        "LANG",
+        "TZ",
+      ];
+      for (const key of safeKeys) {
+        const val = process.env[key];
+        if (val !== undefined && val !== null) {
+          env[key] = String(val);
+        }
+      }
+    } else {
+      // Non-sandboxed: pass through full host environment
+      Object.assign(env, process.env as Record<string, string>);
+    }
     if (params.env) {
       for (const { name, value } of params.env) {
         env[name] = value;
@@ -282,9 +315,21 @@ export class AcpTerminalManager {
     }
     log.info("[AcpTerminalManager] Killing terminal:", terminalId);
     try {
-      t.process.kill("SIGKILL");
+      const pid = t.process.pid;
+      if (pid) {
+        await killProcessTree(pid, "SIGKILL");
+      } else {
+        t.process.kill("SIGKILL");
+      }
     } catch {
       // Process may have already exited
+    }
+    // Safety-net: resolve exitPromise in case the 'close' event is lost
+    // after killProcessTree (possible on Windows where process tree kill
+    // can race with the Node.js event loop).
+    if (!t.resolved) {
+      t.resolved = true;
+      t.resolveExit({ exitCode: null, signal: "SIGKILL" });
     }
   }
 
@@ -301,7 +346,12 @@ export class AcpTerminalManager {
     log.info("[AcpTerminalManager] Releasing terminal:", terminalId);
     if (t.process) {
       try {
-        t.process.kill("SIGKILL");
+        const pid = t.process.pid;
+        if (pid) {
+          await killProcessTree(pid, "SIGKILL");
+        } else {
+          t.process.kill("SIGKILL");
+        }
       } catch {
         // ignore
       }
@@ -413,6 +463,7 @@ export class AcpTerminalManager {
       // sandbox helper is an .exe, no shell needed; direct commands may need shell
       shell: !parseJson && process.platform === "win32",
       windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"], // stdin not wired — non-interactive commands only
     });
     session.process = proc;
 
@@ -429,8 +480,13 @@ export class AcpTerminalManager {
         jsonBuffer += data.toString();
       });
       proc.stderr?.on("data", (data: Buffer) => {
-        // stderr from helper itself is debug output, append to session output
-        this.appendOutput(session, data);
+        // stderr from helper itself is debug output — log but don't mix into
+        // the session output buffer. The real command stderr comes from the
+        // JSON envelope after the helper exits.
+        log.debug(
+          "[AcpTerminalManager] Sandbox helper stderr:",
+          data.toString().trim(),
+        );
       });
       proc.on("close", (code, signal) => {
         // Parse the JSON result from helper

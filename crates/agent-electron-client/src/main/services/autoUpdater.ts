@@ -410,15 +410,18 @@ async function doCheckViaLatestJson(): Promise<UpdateInfo> {
   if (hasUpdate) {
     // 优先从 latest.json 的 yml 字段读取完整 yml URL（CI 生成，支持任意 OSS 路径结构）
     // 降级老逻辑：客户端自己拼接 electron-v{version} 或 beta-build/prerelease-v{version} 路径
+    // 注意：ymlUrl 是文件 URL（.../latest.yml），但 setFeedURL 期望目录路径，它会自动拼接 {channel}.yml
     const platformKey = process.platform === "win32" ? "win" : process.platform;
     const ymlUrl = latestJson.yml?.[platformKey];
-    const versionedUrl = ymlUrl
-      ? ymlUrl
+    // 去掉文件名得到目录路径，供 electron-updater generic provider 自动拼接 {channel}.yml
+    const ymlDir = ymlUrl ? ymlUrl.replace(/\/[^/]+\.yml$/, "/") : null;
+    const versionedUrl = ymlDir
+      ? ymlDir
       : updateChannel === "beta"
         ? `${OSS_BASE}/beta-build/prerelease-v${latestJson.version}`
         : `${OSS_BASE}/electron-v${latestJson.version}`;
     log.info(
-      `[AutoUpdater] New version ${latestJson.version} found via channel=${updateChannel}, ymlUrl=${ymlUrl ?? "fallback"}, setting feed URL: ${versionedUrl}`,
+      `[AutoUpdater] New version ${latestJson.version} found via channel=${updateChannel}, ymlUrl=${ymlUrl ?? "none (using fallback)"}, feedUrl=${versionedUrl}`,
     );
     autoUpdater.setFeedURL({ provider: "generic", url: versionedUrl });
     // 初始化 electron-updater 内部状态，为后续 downloadUpdate() 做准备

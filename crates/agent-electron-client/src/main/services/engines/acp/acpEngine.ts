@@ -263,8 +263,6 @@ export class AcpEngine extends EventEmitter {
     });
     try {
       const configTimer = perfEmitter.start();
-      // Build ACP client handler (callbacks from agent → client)
-      const clientHandler = this.buildClientHandler();
 
       // Resolve binary path and args for the engine type
       const { binPath, binArgs, isNative } = resolveAcpBinary(this.engineName);
@@ -429,6 +427,10 @@ export class AcpEngine extends EventEmitter {
         );
       }
 
+      // Build ACP client handler AFTER terminalManager is initialized
+      // so that getClientHandlers() spread includes terminal methods.
+      const clientHandler = this.buildClientHandler();
+
       const spawnTimer = perfEmitter.start();
       const {
         connection,
@@ -507,6 +509,7 @@ export class AcpEngine extends EventEmitter {
 
       log.info(`${this.logTag} ACP initialized`, {
         protocolVersion: initResult.protocolVersion,
+        agentCapabilities: initResult.agentCapabilities,
       });
 
       this._ready = true;
@@ -1673,6 +1676,11 @@ ${memoryContext}
   // === Internal: Build ACP Client Handler ===
 
   private buildClientHandler(): AcpClientHandler {
+    if (!this.terminalManager) {
+      log.warn(
+        `${this.logTag} ⚠️ buildClientHandler called with no terminalManager — terminal methods will be missing`,
+      );
+    }
     return {
       sessionUpdate: async (params: {
         sessionId: string;
