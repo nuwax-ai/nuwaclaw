@@ -30,7 +30,7 @@
     "prepare:sandbox-runtime": "node scripts/prepare/prepare-sandbox-runtime.js",
     "build:sandbox-helper": "node scripts/prepare/build-sandbox-helper.js",
     "prepare:sandbox-helper-win": "node scripts/prepare/prepare-sandbox-helper-windows.js",
-    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy && npm run prepare:nuwaxcode && npm run prepare:sandbox-helper-win && npm run prepare:sandbox-runtime && npm run prepare:windows-mcp",
+    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy && npm run prepare:nuwaxcode && npm run prepare:sandbox-helper-win && npm run prepare:sandbox-runtime && npm run prepare:gui-server && npm run prepare:windows-mcp",
     "prepare:gui-server": "node scripts/prepare/prepare-gui-server.js",
     "prepare:windows-mcp": "node scripts/prepare/prepare-windows-mcp.js",
     "electron-rebuild": "electron-rebuild -f -w better-sqlite3",
