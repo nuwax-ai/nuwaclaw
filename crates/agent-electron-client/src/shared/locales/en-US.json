@@ -198,6 +198,7 @@
   "Claw.EmbeddedWebview.loadFailed": "Load failed: {0} ({1})",
   "Claw.EmbeddedWebview.back": "Back",
   "Claw.EmbeddedWebview.refresh": "Refresh",
+  "Claw.EmbeddedWebview.unknownError": "Unknown error",
 
   "Claw.Permission.command": "Command",
   "Claw.Permission.envVars": "Environment Variables",

@@ -43,7 +43,7 @@ function EmbeddedWebview({ url, onClose }: EmbeddedWebviewProps) {
         setError(
           t(
             "Claw.EmbeddedWebview.loadFailed",
-            e.errorDescription || "未知错误",
+            e.errorDescription || t("Claw.EmbeddedWebview.unknownError"),
             String(e.errorCode),
           ),
         );

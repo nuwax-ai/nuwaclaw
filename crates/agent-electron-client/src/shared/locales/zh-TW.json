@@ -198,6 +198,7 @@
   "Claw.EmbeddedWebview.loadFailed": "載入失敗: {0} ({1})",
   "Claw.EmbeddedWebview.back": "返回",
   "Claw.EmbeddedWebview.refresh": "重新整理",
+  "Claw.EmbeddedWebview.unknownError": "未知錯誤",
 
   "Claw.Permission.command": "命令",
   "Claw.Permission.envVars": "環境變量",
