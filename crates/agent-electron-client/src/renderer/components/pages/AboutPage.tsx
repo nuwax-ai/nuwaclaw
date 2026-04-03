@@ -166,7 +166,7 @@ export default function AboutPage() {
         return;
       }
 
-      // 切换回 stable：直接切换，无确认弹框
+      // 切换回 stable：直接切换，无确认弹框，重新检查 stable 通道
       setChannelLoading(true);
       try {
         await window.electronAPI?.settings.set(
@@ -174,7 +174,8 @@ export default function AboutPage() {
           "stable",
         );
         setUpdateChannel("stable");
-        message.success("已切换到稳定正式版通道");
+        message.success("已切换到稳定正式版通道，正在检查更新...");
+        await handleCheckUpdate();
       } catch {
         message.error("更新通道切换失败，请稍后重试");
       } finally {

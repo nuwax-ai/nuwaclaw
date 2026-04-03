@@ -64,6 +64,9 @@ jobs:
           VERSION="${TAG#electron-v}"
           CHANNEL="${RELEASE_CHANNEL}"
           OSS_URL_PREFIX="${OSS_CDN_BASE}/nuwaclaw-electron/${TAG}"
+          if [ "$CHANNEL" = "beta" ]; then
+            OSS_URL_PREFIX="${OSS_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}"
+          fi
           ASSETS_DIR="/tmp/release-assets"
 
           # semver MVP guard: only allow numeric x.y.z（用 grep -E，不依赖 ripgrep，与 ubuntu-latest 默认环境一致）
@@ -150,16 +153,6 @@ jobs:
             done
           fi
 
-          LATEST_JSON=$(jq -n \
-            --arg version "$VERSION" \
-            --arg notes "$NOTES" \
-            --arg pub_date "$PUB_DATE" \
-            --argjson platforms "$PLATFORMS" \
-            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms}')
-          echo "$LATEST_JSON" > /tmp/latest.json
-          echo "==> Generated latest.json"
-          echo "$LATEST_JSON" | jq .
-
           gen_yml() {
             local channel="$1"
             local keys="$2"
@@ -193,13 +186,38 @@ jobs:
           gen_yml "latest" "$WIN_KEYS"
           echo "==> Platform yml written to ${ASSETS_DIR}"
 
+          # 构建 yml 文件的完整 OSS URL（供客户端 electron-updater 直接使用）
+          # 注意：stable 通道 OSS_URL_PREFIX = nuwaclaw-electron/electron-v{x}.y.z
+          #       beta 通道 OSS_URL_PREFIX = nuwaclaw-electron/beta-build/prerelease-v{x}.y.z
+          YML_URLS=$(jq -n \
+            --arg darwin "${OSS_URL_PREFIX}/latest-mac.yml" \
+            --arg linux "${OSS_URL_PREFIX}/latest-linux.yml" \
+            --arg win "${OSS_URL_PREFIX}/latest.yml" \
+            '{darwin: $darwin, linux: $linux, win: $win}')
+
+          LATEST_JSON=$(jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --argjson platforms "$PLATFORMS" \
+            --argjson yml "$YML_URLS" \
+            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms, yml: $yml}')
+          echo "$LATEST_JSON" > /tmp/latest.json
+          echo "==> Generated latest.json"
+          echo "$LATEST_JSON" | jq .
+
       - name: Upload all assets to versioned path
         env:
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
         run: |
           TAG="${RELEASE_TAG}"
-          OSS_PREFIX="nuwaclaw-electron/${TAG}"
+          CHANNEL="${RELEASE_CHANNEL}"
+          if [ "$CHANNEL" = "beta" ]; then
+            OSS_PREFIX="nuwaclaw-electron/beta-build/${TAG}"
+          else
+            OSS_PREFIX="nuwaclaw-electron/${TAG}"
+          fi
           for file in /tmp/release-assets/*; do
             filename=$(basename "$file")
             echo "Uploading: ${filename}"
@@ -219,7 +237,12 @@ jobs:
           CHANNEL="${RELEASE_CHANNEL}"
 
           echo "==> Publishing latest.json for channel: ${CHANNEL}"
-          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/${TAG}/latest.json" \
+          if [ "$CHANNEL" = "beta" ]; then
+            VERSIONED_JSON_PATH="${OSS_BUCKET}/nuwaclaw-electron/beta-build/${TAG}/latest.json"
+          else
+            VERSIONED_JSON_PATH="${OSS_BUCKET}/nuwaclaw-electron/${TAG}/latest.json"
+          fi
+          ossutil cp --force /tmp/latest.json "${VERSIONED_JSON_PATH}" \
             --endpoint "$OSS_ENDPOINT" \
             --region "$OSS_REGION" \
             --access-key-id "$OSS_ACCESS_KEY_ID" \
