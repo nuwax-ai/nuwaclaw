@@ -312,6 +312,24 @@ export class AcpEngine extends EventEmitter {
           question: "deny",
         };
 
+        // 2. Per-command sandboxing config (Windows restricted token bypass)
+        // When NUWAX_SANDBOX_HELPER_PATH is set, nuwaxcode should route each
+        // bash/tool command through nuwax-sandbox-helper.exe run ...
+        const sandboxHelperPath = spawnEnv.NUWAX_SANDBOX_HELPER_PATH as
+          | string
+          | undefined;
+        if (sandboxHelperPath) {
+          configObj.sandbox = {
+            helper_path: sandboxHelperPath,
+            mode: (spawnEnv.NUWAX_SANDBOX_MODE as string) ?? "read-only",
+            network_enabled: spawnEnv.NUWAX_SANDBOX_NETWORK_ENABLED === "1",
+          };
+          log.info(
+            `${this.logTag} per-command sandbox config injected`,
+            configObj.sandbox,
+          );
+        }
+
         const configContent = JSON.stringify(configObj);
         spawnEnv.OPENCODE_CONFIG_CONTENT = configContent;
         log.info(

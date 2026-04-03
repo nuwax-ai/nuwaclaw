@@ -727,6 +727,16 @@ export async function createAcpConnection(
       spawnArgs = wrapped.args;
       sandboxCleanup = wrapped.cleanupSandbox;
       sandboxed = spawnCommand !== effectiveCommand;
+
+      // 注入逐命令沙箱配置（Windows EPERM 跳过时由 ACP 引擎自行沙箱化）
+      if (wrapped.sandboxEnv) {
+        Object.assign(env, wrapped.sandboxEnv);
+        log.info(
+          "[AcpClient] Injected per-command sandbox env:",
+          wrapped.sandboxEnv,
+        );
+      }
+
       log.info("[AcpClient] Sandbox wrapping applied:", {
         type: config.sandbox.type,
         originalCommand: binPath,
