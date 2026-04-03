@@ -250,10 +250,15 @@ export class SandboxInvoker {
 
     const mode = this.options.windowsSandboxMode ?? "read-only";
     const subcommand = params.subcommand ?? "run";
-    const sandboxPolicy = {
+    const sandboxPolicy: Record<string, unknown> = {
       type: mode === "read-only" ? "read-only" : "workspace-write",
       network_access: params.networkEnabled,
     };
+    // Include writable_roots for workspace-write mode so the helper
+    // grants write ACLs to the specified paths.
+    if (mode === "workspace-write" && params.writablePaths.length > 0) {
+      sandboxPolicy.writable_roots = params.writablePaths;
+    }
     const helperArgs = [
       subcommand,
       "--mode",

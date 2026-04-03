@@ -2,7 +2,7 @@
  * GUI Agent IPC handlers
  *
  * 处理渲染进程与 GUI Agent 服务之间的通信。
- * 自注册 engine hooks（env provider + prompt enhancer）和 cleanup，
+ * 自注册 engine hooks（socket path provider + prompt enhancer）和 cleanup，
  * 核心模块无需直接依赖 GUI Agent。
  */
 
@@ -20,7 +20,6 @@ import {
   requestScreenCapturePermission,
   requestAccessibilityPermission,
   openPermissionSettings,
-  getToken,
   generateGuiAgentSystemPrompt,
 } from "../services/gui";
 import type { GuiAgentConfig } from "@shared/types/guiAgentTypes";
@@ -33,27 +32,23 @@ import {
 export function registerGuiAgentHandlers(): void {
   // ==================== Self-register engine hooks ====================
 
-  // Inject GUI_AGENT_PORT + GUI_AGENT_TOKEN into engine env
+  // Inject GUI_AGENT_SOCKET into engine env (Unix socket path)
   registerEnvProvider(() => {
     const status = getGuiAgentStatus();
-    const token = getToken();
-    if (!status.running || !status.port || !token) return undefined;
+    if (!status.running || !status.socketPath) return undefined;
     return {
-      GUI_AGENT_PORT: String(status.port),
-      GUI_AGENT_TOKEN: token,
+      GUI_AGENT_SOCKET: status.socketPath,
     };
   });
 
   // Append GUI Agent system prompt when service is running
   registerPromptEnhancer((basePrompt) => {
     const status = getGuiAgentStatus();
-    const token = getToken();
-    if (!status.running || !status.port || !token) return basePrompt;
+    if (!status.running || !status.socketPath) return basePrompt;
 
     try {
       const guiPrompt = generateGuiAgentSystemPrompt({
-        port: status.port,
-        token,
+        socketPath: status.socketPath,
         platform: process.platform,
       });
       return basePrompt ? `${basePrompt}\n\n${guiPrompt}` : guiPrompt;

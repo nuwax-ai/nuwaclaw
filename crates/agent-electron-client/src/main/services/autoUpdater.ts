@@ -22,6 +22,7 @@ import type {
 } from "@shared/types/updateTypes";
 import { APP_DATA_DIR_NAME } from "@shared/constants";
 import { readSetting } from "../db";
+import { t } from "./i18n";
 import {
   getWindowsDownloadUrl,
   getMacosDownloadUrl,
@@ -374,20 +375,25 @@ async function doCheckViaLatestJson(): Promise<UpdateInfo> {
       `[AutoUpdater] Failed to fetch latest.json from OSS(channel=${updateChannel}): ${e.message}`,
     );
     const statusMatch = e.message.match(/^HTTP (\d+)/);
-    const userMsg = statusMatch ? `HTTP ${statusMatch[1]}` : "网络请求失败";
+    const userMsg = statusMatch
+      ? `HTTP ${statusMatch[1]}`
+      : t("Claw.AutoUpdater.networkFailed");
     setState({
       status: "error",
-      error: `无法获取${updateChannel}通道更新信息: ${userMsg}`,
+      error: `${t("Claw.AutoUpdater.getUpdateInfoFailed", updateChannel)}: ${userMsg}`,
       canAutoUpdate: canAutoUpdate(),
     });
     return {
       hasUpdate: false,
-      error: `无法获取${updateChannel}通道更新信息: ${userMsg}`,
+      error: `${t("Claw.AutoUpdater.getUpdateInfoFailed", updateChannel)}: ${userMsg}`,
     };
   }
 
   if (!isNumericSemver(latestJson.version)) {
-    const msg = `更新元数据版本号不合法（仅支持 x.y.z）: ${latestJson.version}`;
+    const msg = t(
+      "Claw.AutoUpdater.invalidMetadataVersion",
+      latestJson.version,
+    );
     log.error(
       `[AutoUpdater] Invalid latest.json version for channel=${updateChannel}: ${latestJson.version}`,
     );
@@ -585,10 +591,14 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
     // MSI 用户引导到官网下载安装页
     const { response } = await showModal({
       type: "info",
-      title: "发现新版本",
-      message: `发现新版本 v${version}`,
-      detail: "当前安装方式不支持自动更新，请前往官网下载页下载最新安装包。",
-      buttons: ["前往下载页", "跳过此版本", "关闭"],
+      title: t("Claw.AutoUpdater.newVersionFound"),
+      message: t("Claw.AutoUpdater.versionFound", version),
+      detail: t("Claw.AutoUpdater.unsupportedInstall"),
+      buttons: [
+        t("Claw.AutoUpdater.downloadPage"),
+        t("Claw.AutoUpdater.skipThisVersion"),
+        t("Claw.AutoUpdater.close"),
+      ],
       defaultId: 0,
       cancelId: 2,
     });
@@ -602,10 +612,14 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
 
   const { response } = await showModal({
     type: "info",
-    title: "发现新版本",
-    message: `发现新版本 v${version}`,
-    detail: "是否立即下载并安装更新？",
-    buttons: ["立即更新", "跳过此版本", "关闭"],
+    title: t("Claw.AutoUpdater.newVersionFound"),
+    message: t("Claw.AutoUpdater.versionFound", version),
+    detail: t("Claw.AutoUpdater.downloadInstallNow"),
+    buttons: [
+      t("Claw.AutoUpdater.downloadNow"),
+      t("Claw.AutoUpdater.skipThisVersion"),
+      t("Claw.AutoUpdater.close"),
+    ],
     defaultId: 0,
     cancelId: 2,
   });
@@ -616,10 +630,13 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
       if (dlResult.success) {
         const { response: installResponse } = await showModal({
           type: "info",
-          title: "更新已下载",
-          message: "更新已下载完成",
-          detail: "是否立即重启安装？",
-          buttons: ["立即重启", "退出时安装"],
+          title: t("Claw.AutoUpdater.updateDownloaded"),
+          message: t("Claw.AutoUpdater.updateReady"),
+          detail: t("Claw.AutoUpdater.installNow"),
+          buttons: [
+            t("Claw.AutoUpdater.installNow"),
+            t("Claw.AutoUpdater.installOnExit"),
+          ],
           defaultId: 0,
           cancelId: 1,
         });
@@ -629,7 +646,7 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
       } else if (dlResult.error) {
         showModal({
           type: "error",
-          title: "下载失败",
+          title: t("Claw.AutoUpdater.downloadFailed"),
           message: dlResult.error,
         });
       }
@@ -651,8 +668,8 @@ export async function showUpdateDialogFlow(): Promise<void> {
     if (!result.hasUpdate) {
       showModal({
         type: "info",
-        title: "检查更新",
-        message: "当前已是最新版本",
+        title: t("Claw.AutoUpdater.checking"),
+        message: t("Claw.AutoUpdater.alreadyLatest"),
       });
       return;
     }
@@ -663,10 +680,13 @@ export async function showUpdateDialogFlow(): Promise<void> {
     if (state.canAutoUpdate === false) {
       const { response } = await showModal({
         type: "info",
-        title: "发现新版本",
-        message: `发现新版本 v${version}`,
-        detail: "当前安装方式不支持自动更新，请前往官网下载页下载最新安装包。",
-        buttons: ["前往下载页", "稍后再说"],
+        title: t("Claw.AutoUpdater.newVersionFound"),
+        message: t("Claw.AutoUpdater.versionFound", version),
+        detail: t("Claw.AutoUpdater.unsupportedInstall"),
+        buttons: [
+          t("Claw.AutoUpdater.downloadPage"),
+          t("Claw.AutoUpdater.later"),
+        ],
         defaultId: 0,
         cancelId: 1,
       });
@@ -678,10 +698,10 @@ export async function showUpdateDialogFlow(): Promise<void> {
 
     const { response } = await showModal({
       type: "info",
-      title: "发现新版本",
-      message: `发现新版本 v${version}`,
-      detail: "是否立即下载更新？",
-      buttons: ["下载更新", "稍后再说"],
+      title: t("Claw.AutoUpdater.newVersionFound"),
+      message: t("Claw.AutoUpdater.versionFound", version),
+      detail: t("Claw.AutoUpdater.downloadInstallNow"),
+      buttons: [t("Claw.AutoUpdater.downloadNow"), t("Claw.AutoUpdater.later")],
       defaultId: 0,
       cancelId: 1,
     });
@@ -692,7 +712,7 @@ export async function showUpdateDialogFlow(): Promise<void> {
       if (dlResult.error)
         showModal({
           type: "error",
-          title: "下载失败",
+          title: t("Claw.AutoUpdater.downloadFailed"),
           message: dlResult.error,
         });
       return;
@@ -700,10 +720,13 @@ export async function showUpdateDialogFlow(): Promise<void> {
 
     const { response: installResponse } = await showModal({
       type: "info",
-      title: "更新已下载",
-      message: "更新已下载完成",
-      detail: "是否立即重启安装？",
-      buttons: ["立即重启", "退出时安装"],
+      title: t("Claw.AutoUpdater.updateDownloaded"),
+      message: t("Claw.AutoUpdater.updateReady"),
+      detail: t("Claw.AutoUpdater.installNow"),
+      buttons: [
+        t("Claw.AutoUpdater.installNow"),
+        t("Claw.AutoUpdater.installOnExit"),
+      ],
       defaultId: 0,
       cancelId: 1,
     });
@@ -714,8 +737,8 @@ export async function showUpdateDialogFlow(): Promise<void> {
     log.error("[AutoUpdater] Update dialog flow error:", e.message);
     showModal({
       type: "error",
-      title: "检查更新失败",
-      message: e.message || "请稍后重试",
+      title: t("Claw.AutoUpdater.checkFailed"),
+      message: e.message || t("Claw.AutoUpdater.later"),
     });
   }
 }
@@ -780,7 +803,7 @@ export async function downloadUpdate(): Promise<{
     );
     return {
       success: false,
-      error: "开发模式不支持下载更新，请使用打包版本测试",
+      error: t("Claw.AutoUpdater.devModeUnsupported"),
     };
   }
 
@@ -792,7 +815,7 @@ export async function downloadUpdate(): Promise<{
     openReleasesPage();
     return {
       success: false,
-      error: "MSI 安装请前往官网下载页下载最新安装包",
+      error: t("Claw.AutoUpdater.unsupportedInstall"),
     };
   }
 
@@ -823,14 +846,17 @@ export async function downloadUpdate(): Promise<{
  */
 export function installUpdate(): { success: boolean; error?: string } {
   if (!app.isPackaged) {
-    return { success: false, error: "开发模式不支持安装更新" };
+    return {
+      success: false,
+      error: t("Claw.AutoUpdater.installDevUnsupported"),
+    };
   }
 
   if (getInstallerType() === "msi") {
     openReleasesPage();
     return {
       success: false,
-      error: "MSI 安装请前往官网下载页下载最新安装包",
+      error: t("Claw.AutoUpdater.unsupportedInstall"),
     };
   }
 
@@ -920,9 +946,8 @@ export async function openReleasesPage(): Promise<void> {
     // 弹窗提示用户，不 fallback 到 GitHub
     await showModal({
       type: "error",
-      title: "获取下载链接失败",
-      message: "无法从服务器获取下载链接",
-      detail: `错误: ${msg}\n\n请检查网络连接后重试。`,
+      title: t("Claw.AutoUpdater.getDownloadLinkFailed"),
+      message: t("Claw.AutoUpdater.getDownloadLinkFailedDetail", msg),
     });
   }
 }

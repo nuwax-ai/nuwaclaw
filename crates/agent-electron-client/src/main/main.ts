@@ -24,6 +24,7 @@ import type { HandlerContext } from "@shared/types/ipc";
 import { DEFAULT_DEV_SERVER_PORT } from "./services/constants";
 import { APP_DISPLAY_NAME, CLEANUP_TIMEOUT } from "@shared/constants";
 import { initLogging } from "./bootstrap/logConfig";
+import { initI18n } from "./services/i18n";
 import { createTrayManager, TrayStatus } from "./window/trayManager";
 import { createServiceManager } from "./window/serviceManager";
 import { initAutoUpdater } from "./services/autoUpdater";
@@ -87,6 +88,7 @@ if (process.platform === "linux") {
 
 // 日志：轮转 + TTL 清理 + 开发/正式差异化（见 logConfig.ts）
 initLogging();
+initI18n();
 log.info("Application starting...");
 
 // Global references

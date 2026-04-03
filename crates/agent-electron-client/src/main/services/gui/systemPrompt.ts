@@ -6,8 +6,7 @@
  */
 
 export interface SystemPromptParams {
-  port: number;
-  token: string;
+  socketPath: string;
   platform: NodeJS.Platform;
 }
 
@@ -17,9 +16,7 @@ export interface SystemPromptParams {
 export function generateGuiAgentSystemPrompt(
   params: SystemPromptParams,
 ): string {
-  const { port, platform } = params;
-  const base = `http://127.0.0.1:${port}`;
-  const auth = "Authorization: Bearer $GUI_AGENT_TOKEN";
+  const { socketPath, platform } = params;
 
   const modKey = platform === "darwin" ? "Cmd" : "Ctrl";
 
@@ -27,16 +24,14 @@ export function generateGuiAgentSystemPrompt(
 <gui-agent>
 ## GUI Automation
 
-You have access to a local GUI automation HTTP service at ${base}.
-All requests require the header: \`${auth}\`
-The token is available in your environment variable \`GUI_AGENT_TOKEN\`.
+You have access to a local GUI automation HTTP service via Unix socket at \`${socketPath}\`.
+All requests are authenticated via socket permissions (no token needed).
 
 ### Available Endpoints
 
 #### Screenshot
 \`\`\`bash
-curl -s -X POST ${base}/gui/screenshot \\
-  -H "${auth}" \\
+curl -s --unix-socket ${socketPath} -X POST http://localhost/gui/screenshot \\
   -H "Content-Type: application/json" \\
   -d '{"scale": 0.5, "format": "jpeg", "quality": 80}'
 \`\`\`
@@ -45,78 +40,69 @@ Returns JSON with \`image\` (base64), \`width\`, \`height\`, \`scaledWidth\`, \`
 #### Mouse & Keyboard Input
 \`\`\`bash
 # Move mouse
-curl -s -X POST ${base}/gui/input \\
-  -H "${auth}" \\
+curl -s --unix-socket ${socketPath} -X POST http://localhost/gui/input \\
   -H "Content-Type: application/json" \\
   -d '{"action": {"type": "mouse_move", "x": 500, "y": 300}}'
 
 # Click
-curl -s -X POST ${base}/gui/input \\
-  -H "${auth}" \\
+curl -s --unix-socket ${socketPath} -X POST http://localhost/gui/input \\
   -H "Content-Type: application/json" \\
   -d '{"action": {"type": "mouse_click", "x": 500, "y": 300}}'
 
 # Double click
-curl -s -X POST ${base}/gui/input \\
-  -H "${auth}" \\
+curl -s --unix-socket ${socketPath} -X POST http://localhost/gui/input \\
   -H "Content-Type: application/json" \\
   -d '{"action": {"type": "mouse_double_click", "x": 500, "y": 300}}'
 
 # Right click
-curl -s -X POST ${base}/gui/input \\
-  -H "${auth}" \\
+curl -s --unix-socket ${socketPath} -X POST http://localhost/gui/input \\
   -H "Content-Type: application/json" \\
   -d '{"action": {"type": "mouse_click", "x": 500, "y": 300, "button": "right"}}'
 
 # Drag
-curl -s -X POST ${base}/gui/input \\
-  -H "${auth}" \\
+curl -s --unix-socket ${socketPath} -X POST http://localhost/gui/input \\
   -H "Content-Type: application/json" \\
   -d '{"action": {"type": "mouse_drag", "startX": 100, "startY": 100, "endX": 500, "endY": 500}}'
 
 # Scroll
-curl -s -X POST ${base}/gui/input \\
-  -H "${auth}" \\
+curl -s --unix-socket ${socketPath} -X POST http://localhost/gui/input \\
   -H "Content-Type: application/json" \\
   -d '{"action": {"type": "mouse_scroll", "x": 500, "y": 300, "deltaY": 3}}'
 
 # Type text
-curl -s -X POST ${base}/gui/input \\
-  -H "${auth}" \\
+curl -s --unix-socket ${socketPath} -X POST http://localhost/gui/input \\
   -H "Content-Type: application/json" \\
   -d '{"action": {"type": "keyboard_type", "text": "Hello World"}}'
 
 # Press single key
-curl -s -X POST ${base}/gui/input \\
-  -H "${auth}" \\
+curl -s --unix-socket ${socketPath} -X POST http://localhost/gui/input \\
   -H "Content-Type: application/json" \\
   -d '{"action": {"type": "keyboard_press", "key": "enter"}}'
 
 # Hotkey combination
-curl -s -X POST ${base}/gui/input \\
-  -H "${auth}" \\
+curl -s --unix-socket ${socketPath} -X POST http://localhost/gui/input \\
   -H "Content-Type: application/json" \\
   -d '{"action": {"type": "keyboard_hotkey", "keys": ["${modKey.toLowerCase()}", "c"]}}'
 \`\`\`
 
 #### Display Info
 \`\`\`bash
-curl -s ${base}/gui/displays -H "${auth}"
+curl -s --unix-socket ${socketPath} http://localhost/gui/displays
 \`\`\`
 
 #### Cursor Position
 \`\`\`bash
-curl -s ${base}/gui/cursor -H "${auth}"
+curl -s --unix-socket ${socketPath} http://localhost/gui/cursor
 \`\`\`
 
 #### Permission Status
 \`\`\`bash
-curl -s ${base}/gui/permissions -H "${auth}"
+curl -s --unix-socket ${socketPath} http://localhost/gui/permissions
 \`\`\`
 
 #### Health Check
 \`\`\`bash
-curl -s ${base}/gui/health -H "${auth}"
+curl -s --unix-socket ${socketPath} http://localhost/gui/health
 \`\`\`
 
 ### Coordinate System

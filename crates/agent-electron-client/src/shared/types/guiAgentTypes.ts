@@ -10,8 +10,8 @@
 export interface GuiAgentConfig {
   /** 是否启用 GUI Agent */
   enabled: boolean;
-  /** HTTP 服务端口 */
-  port: number;
+  /** Unix socket 路径 */
+  socketPath: string;
   /** 截图默认缩放比例 (0.1 - 1.0) */
   screenshotScale: number;
   /** 截图默认格式 */
@@ -24,7 +24,7 @@ export interface GuiAgentConfig {
 
 export const DEFAULT_GUI_AGENT_CONFIG: GuiAgentConfig = {
   enabled: false,
-  port: 60010,
+  socketPath: "", // 动态生成，见 guiAgentServer.ts
   screenshotScale: 0.5,
   screenshotFormat: "jpeg",
   screenshotQuality: 80,
@@ -138,10 +138,8 @@ export interface GuiPermissionInfo {
 export interface GuiAgentStatus {
   /** 服务是否运行中 */
   running: boolean;
-  /** 监听端口 */
-  port?: number;
-  /** 认证 Token */
-  token?: string;
+  /** Unix socket 路径 */
+  socketPath?: string;
   /** 错误信息 */
   error?: string;
 }

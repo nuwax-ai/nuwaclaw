@@ -50,6 +50,7 @@ import {
 import type { ServiceItem } from "../../App";
 import { buildRedirectUrl } from "../../services/utils/sessionUrl";
 import { SERVICE_NAMES } from "@shared/constants";
+import { t } from "../../services/core/i18n";
 import styles from "../../styles/components/ClientPage.module.css";
 
 // ======================== Types =================
@@ -167,15 +168,15 @@ function ClientPage({
 
   const handleLogin = async () => {
     if (!loginDomain) {
-      message.warning("请输入服务域名");
+      message.warning(t("Claw.Client.domainRequired"));
       return;
     }
     if (!loginUsername) {
-      message.warning("请输入账号");
+      message.warning(t("Claw.Client.accountRequired"));
       return;
     }
     if (!loginPassword) {
-      message.warning("请填写动态认证码");
+      message.warning(t("Claw.Client.codeRequired"));
       return;
     }
 
@@ -226,8 +227,8 @@ function ClientPage({
 
   const handleLogout = async () => {
     Modal.confirm({
-      title: "确认退出登录",
-      content: "退出后将停止所有运行中的服务，需要重新登录才能使用在线功能。",
+      title: t("Claw.Client.logoutConfirm"),
+      content: t("Claw.Client.logoutConfirmDetail"),
       okText: "退出",
       cancelText: "取消",
       okButtonProps: { danger: true },
@@ -277,7 +278,7 @@ function ClientPage({
           setAuthState({ isLoggedIn: false, username: null, domain: null });
           onAuthChange?.();
         } catch {
-          message.error("退出登录失败");
+          message.error(t("Claw.Client.logoutFailed"));
         }
       },
     });
@@ -296,7 +297,7 @@ function ClientPage({
   const handleShowQrCode = () => {
     const url = getRedirectUrl();
     if (!url) {
-      message.warning("无法获取会话地址");
+      message.warning(t("Claw.Client.getSessionUrlFailed"));
       return;
     }
     setQrModalVisible(true);
@@ -370,7 +371,7 @@ function ClientPage({
             | number
             | null);
         if (!serverIp || !clientKey || !serverPort) {
-          if (!silent) message.info("请先登录以获取代理服务配置");
+          if (!silent) message.info(t("Claw.Client.loginFirst"));
           await onRefreshServices();
           return false;
         }
@@ -397,7 +398,7 @@ function ClientPage({
 
       // 启动失败时直接展示错误信息
       if (result && !result.success) {
-        const errorMsg = result.error || "启动失败";
+        const errorMsg = result.error || t("Claw.Client.startFailed");
         message.error(`${getServiceLabel(key)} 启动失败: ${errorMsg}`);
       }
 
@@ -454,11 +455,11 @@ function ClientPage({
   const handleStartAll = async () => {
     // 未登录时禁止启动全部服务，避免 agent 无 apiKey / lanproxy 无 clientKey 的半启动状态
     if (!authState.isLoggedIn) {
-      message.warning("请先登录后再启动服务");
+      message.warning(t("Claw.Client.loginFirstToStart"));
       return;
     }
     if (missingDeps.length > 0) {
-      message.warning("存在缺失依赖，请先安装");
+      message.warning(t("Claw.Client.missingDeps"));
       return;
     }
 
@@ -502,7 +503,7 @@ function ClientPage({
       }
 
       if (startedCount === 0) {
-        message.info("所有可自动启动的服务已在运行");
+        message.info(t("Claw.Client.allServicesRunning"));
       }
     } finally {
       await onRefreshServices();
@@ -643,7 +644,11 @@ function ClientPage({
                 onClick={handleStartSession}
                 size="small"
                 disabled={isButtonDisabled}
-                title={!allServicesRunning ? "请先启动全部服务" : undefined}
+                title={
+                  !allServicesRunning
+                    ? t("Claw.Client.startAllServicesFirst")
+                    : undefined
+                }
               >
                 开始会话
               </Button>
@@ -652,7 +657,11 @@ function ClientPage({
                 onClick={handleShowQrCode}
                 size="small"
                 disabled={isButtonDisabled}
-                title={!allServicesRunning ? "请先启动全部服务" : undefined}
+                title={
+                  !allServicesRunning
+                    ? t("Claw.Client.startAllServicesFirst")
+                    : undefined
+                }
               >
                 扫码使用
               </Button>
@@ -680,7 +689,7 @@ function ClientPage({
               prefix={<GlobalOutlined />}
               value={loginDomain}
               onChange={(e) => setLoginDomain(e.target.value)}
-              placeholder="服务域名（例如：https://agent.nuwax.com）"
+              placeholder={t("Claw.Client.domainPlaceholder")}
               allowClear
               autoComplete="off"
               spellCheck={false}
@@ -692,7 +701,7 @@ function ClientPage({
               prefix={<UserOutlined />}
               value={loginUsername}
               onChange={(e) => setLoginUsername(e.target.value)}
-              placeholder="用户名 / 手机号 / 邮箱"
+              placeholder={t("Claw.Client.usernamePlaceholder")}
               autoComplete="username"
               allowClear
             />
@@ -703,7 +712,7 @@ function ClientPage({
               prefix={<LockOutlined />}
               value={loginPassword}
               onChange={(e) => setLoginPassword(e.target.value)}
-              placeholder="请输入密码或动态认证码（在浏览器打开你的域名登录，然后在用户资料中查看）"
+              placeholder={t("Claw.Client.passwordPlaceholder")}
               autoComplete="current-password"
             />
           </Form.Item>
@@ -859,7 +868,7 @@ function ClientPage({
 
     return (
       <Alert
-        message="缺少必需依赖，无法启动服务"
+        message={t("Claw.Client.missingDepsCannotStart")}
         description={
           <div>
             <div style={{ marginBottom: 8 }}>
@@ -1016,7 +1025,7 @@ function ClientPage({
 
       {/* QR code modal - always available */}
       <Modal
-        title="扫码使用"
+        title={t("Claw.Client.qrCode")}
         open={qrModalVisible}
         onCancel={() => setQrModalVisible(false)}
         footer={null}

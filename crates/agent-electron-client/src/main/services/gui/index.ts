@@ -19,11 +19,6 @@ export {
   openPermissionSettings,
 } from "./permissionService";
 export {
-  generateToken,
-  getToken,
-  validateToken,
-  rotateToken,
-  clearToken,
   initRateLimiter,
   consumeRateToken,
   resetRateLimiter,

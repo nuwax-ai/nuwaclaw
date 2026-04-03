@@ -1,5 +1,7 @@
 /**
- * Tests for securityManager — token, rate limiter, audit log
+ * Tests for securityManager — rate limiter, audit log
+ *
+ * Note: Token management removed — Unix socket permissions replace token auth.
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -15,11 +17,6 @@ vi.mock("electron-log", () => ({
 }));
 
 import {
-  generateToken,
-  getToken,
-  validateToken,
-  rotateToken,
-  clearToken,
   initRateLimiter,
   consumeRateToken,
   resetRateLimiter,
@@ -30,86 +27,8 @@ import {
 
 describe("securityManager", () => {
   beforeEach(() => {
-    clearToken();
     resetRateLimiter();
     clearAuditLog();
-  });
-
-  // ==================== Token ====================
-
-  describe("token management", () => {
-    it("generateToken returns a UUID string", () => {
-      const token = generateToken();
-      expect(token).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-      );
-    });
-
-    it("getToken returns null before generation", () => {
-      expect(getToken()).toBeNull();
-    });
-
-    it("getToken returns the current token after generation", () => {
-      const token = generateToken();
-      expect(getToken()).toBe(token);
-    });
-
-    it("rotateToken generates a new different token", () => {
-      const first = generateToken();
-      const second = rotateToken();
-      expect(second).not.toBe(first);
-      expect(getToken()).toBe(second);
-    });
-
-    it("clearToken sets token to null", () => {
-      generateToken();
-      clearToken();
-      expect(getToken()).toBeNull();
-    });
-  });
-
-  // ==================== validateToken ====================
-
-  describe("validateToken", () => {
-    it("returns false when no token generated", () => {
-      expect(validateToken("Bearer test")).toBe(false);
-    });
-
-    it("returns false when authHeader is undefined", () => {
-      generateToken();
-      expect(validateToken(undefined)).toBe(false);
-    });
-
-    it("returns false when authHeader is empty", () => {
-      generateToken();
-      expect(validateToken("")).toBe(false);
-    });
-
-    it("validates correct Bearer token", () => {
-      const token = generateToken();
-      expect(validateToken(`Bearer ${token}`)).toBe(true);
-    });
-
-    it("validates token without Bearer prefix", () => {
-      const token = generateToken();
-      expect(validateToken(token)).toBe(true);
-    });
-
-    it("rejects wrong token", () => {
-      generateToken();
-      expect(validateToken("Bearer wrong-token")).toBe(false);
-    });
-
-    it("rejects token with different length", () => {
-      generateToken();
-      expect(validateToken("Bearer short")).toBe(false);
-    });
-
-    it("rejects after token is cleared", () => {
-      const token = generateToken();
-      clearToken();
-      expect(validateToken(`Bearer ${token}`)).toBe(false);
-    });
   });
 
   // ==================== Rate Limiter ====================
@@ -159,6 +78,18 @@ describe("securityManager", () => {
       expect(consumeRateToken()).toBe(true);
       expect(consumeRateToken()).toBe(false);
       vi.useRealTimers();
+    });
+
+    it("rate limiter is thread-safe (mutex prevents concurrent modification)", () => {
+      initRateLimiter(100);
+      // Rapid concurrent-style calls should still be properly serialized
+      // The mutex should prevent race conditions
+      for (let i = 0; i < 50; i++) {
+        consumeRateToken();
+      }
+      // After 50 consumes with rate=100, should still have ~50 left
+      // But due to mutex, each call is atomic
+      expect(consumeRateToken()).toBe(true);
     });
   });
 

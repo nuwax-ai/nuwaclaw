@@ -136,6 +136,13 @@
     ],
     "extraResources": [
       {
+        "from": "src/shared/locales",
+        "to": "locales",
+        "filter": [
+          "**/*.json"
+        ]
+      },
+      {
         "from": "node_modules/better-sqlite3/build/Release",
         "to": "better-sqlite3",
         "filter": [

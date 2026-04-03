@@ -17,6 +17,7 @@ import {
   SettingOutlined,
 } from "@ant-design/icons";
 import styles from "../../styles/components/ClientPage.module.css";
+import { t } from "../../services/core/i18n";
 
 interface PermissionItem {
   key: string;
@@ -43,10 +44,10 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
   ),
 };
 
-const STATUS_TAG: Record<string, { color: string; text: string }> = {
-  granted: { color: "green", text: "已授权" },
-  denied: { color: "red", text: "未授权" },
-  unknown: { color: "default", text: "未知" },
+const STATUS_TAG: Record<string, { color: string; textKey: string }> = {
+  granted: { color: "green", textKey: "Claw.Permissions.granted" },
+  denied: { color: "red", textKey: "Claw.Permissions.denied" },
+  unknown: { color: "default", textKey: "Claw.Permissions.unknown" },
 };
 
 export default function PermissionsPage() {
@@ -99,7 +100,7 @@ export default function PermissionsPage() {
         }
       }, 30000);
     } catch {
-      message.error("无法打开系统设置");
+      message.error(t("Claw.Permissions.cannotOpenSettings"));
     }
   };
 
@@ -127,7 +128,9 @@ export default function PermissionsPage() {
       <div className={styles.section}>
         <div className={styles.servicesHeader}>
           <div className={styles.servicesHeaderLeft}>
-            <span className={styles.sectionTitle}>系统授权</span>
+            <span className={styles.sectionTitle}>
+              {t("Claw.Permissions.title")}
+            </span>
             {totalCount > 0 && (
               <Tag color={grantedCount === totalCount ? "green" : "orange"}>
                 {grantedCount}/{totalCount}
@@ -137,7 +140,7 @@ export default function PermissionsPage() {
               className={styles.sectionDescription}
               style={{ marginTop: 0, marginLeft: 12 }}
             >
-              以下权限可能影响应用的正常运行，请根据需要授权
+              {t("Claw.Permissions.description")}
             </span>
           </div>
           <Button
@@ -146,7 +149,7 @@ export default function PermissionsPage() {
             onClick={handleRefresh}
             loading={loading}
           >
-            刷新
+            {t("Claw.Permissions.refresh")}
           </Button>
         </div>
 
@@ -169,7 +172,10 @@ export default function PermissionsPage() {
                   color={STATUS_TAG[perm.status]?.color || "default"}
                   style={{ margin: 0, fontSize: 11 }}
                 >
-                  {STATUS_TAG[perm.status]?.text || "未知"}
+                  {t(
+                    STATUS_TAG[perm.status]?.textKey ||
+                      "Claw.Permissions.unknown",
+                  )}
                 </Tag>
                 {perm.status !== "granted" && (
                   <Button
@@ -177,7 +183,7 @@ export default function PermissionsPage() {
                     icon={<SettingOutlined />}
                     onClick={() => handleOpenSettings(perm.key)}
                   >
-                    前往设置
+                    {t("Claw.Permissions.openSettings")}
                   </Button>
                 )}
               </div>
@@ -201,7 +207,7 @@ export default function PermissionsPage() {
           }}
         >
           <CheckCircleOutlined />
-          所有权限已授权
+          {t("Claw.Permissions.allGranted")}
         </div>
       )}
     </div>

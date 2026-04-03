@@ -1,57 +1,16 @@
 /**
  * GUI Agent 安全控制
  *
- * - Token 生成 / 验证 / 轮换
  * - 令牌桶速率限制
  * - 环形缓冲审计日志
+ *
+ * 注意: 已移除 Token 认证，因为 Unix socket 权限已提供足够的安全性。
  */
 
-import { randomUUID, timingSafeEqual } from "crypto";
 import log from "electron-log";
 import type { AuditLogEntry } from "@shared/types/guiAgentTypes";
 
 const TAG = "[GuiSecurity]";
-
-// ==================== Token Management ====================
-
-let currentToken: string | null = null;
-
-/** 生成新的认证 Token */
-export function generateToken(): string {
-  currentToken = randomUUID();
-  log.info(`${TAG} New token generated`);
-  return currentToken;
-}
-
-/** 获取当前 Token */
-export function getToken(): string | null {
-  return currentToken;
-}
-
-/** 验证 Bearer Token (timing-safe) */
-export function validateToken(authHeader: string | undefined): boolean {
-  if (!currentToken) return false;
-  if (!authHeader) return false;
-  const token = authHeader.startsWith("Bearer ")
-    ? authHeader.slice(7)
-    : authHeader;
-  if (token.length !== currentToken.length) return false;
-  try {
-    return timingSafeEqual(Buffer.from(token), Buffer.from(currentToken));
-  } catch {
-    return false;
-  }
-}
-
-/** 轮换 Token（返回新 Token） */
-export function rotateToken(): string {
-  return generateToken();
-}
-
-/** 清除 Token（停止服务时调用） */
-export function clearToken(): void {
-  currentToken = null;
-}
 
 // ==================== Rate Limiter (Token Bucket) ====================
 
@@ -63,6 +22,7 @@ interface RateLimiterState {
 }
 
 let rateLimiter: RateLimiterState | null = null;
+let rateLimitMutex = false;
 
 /** 初始化速率限制器 */
 export function initRateLimiter(opsPerSecond: number): void {
@@ -72,25 +32,36 @@ export function initRateLimiter(opsPerSecond: number): void {
     refillRate: opsPerSecond,
     lastRefill: Date.now(),
   };
+  rateLimitMutex = false;
 }
 
-/** 尝试消费一个令牌，返回是否允许 */
+/** 尝试消费一个令牌，返回是否允许 (线程安全) */
 export function consumeRateToken(): boolean {
   if (!rateLimiter) return true;
 
-  const now = Date.now();
-  const elapsed = (now - rateLimiter.lastRefill) / 1000;
-  rateLimiter.tokens = Math.min(
-    rateLimiter.maxTokens,
-    rateLimiter.tokens + elapsed * rateLimiter.refillRate,
-  );
-  rateLimiter.lastRefill = now;
-
-  if (rateLimiter.tokens >= 1) {
-    rateLimiter.tokens -= 1;
-    return true;
+  // Mutex: prevent concurrent modification
+  if (rateLimitMutex) {
+    return false; // Reject while another request is mid-operation
   }
-  return false;
+  rateLimitMutex = true;
+
+  try {
+    const now = Date.now();
+    const elapsed = (now - rateLimiter.lastRefill) / 1000;
+    rateLimiter.tokens = Math.min(
+      rateLimiter.maxTokens,
+      rateLimiter.tokens + elapsed * rateLimiter.refillRate,
+    );
+    rateLimiter.lastRefill = now;
+
+    if (rateLimiter.tokens >= 1) {
+      rateLimiter.tokens -= 1;
+      return true;
+    }
+    return false;
+  } finally {
+    rateLimitMutex = false;
+  }
 }
 
 /** 重置速率限制器 */

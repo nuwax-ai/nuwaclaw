@@ -41,6 +41,7 @@ import {
 } from "./services/core/auth";
 import { APP_DISPLAY_NAME, AUTH_KEYS } from "@shared/constants";
 import type { QuickInitConfig } from "@shared/types/quickInit";
+import { t } from "./services/core/i18n";
 import SetupWizard from "./components/setup/SetupWizard";
 import SetupDependencies from "./components/setup/SetupDependencies";
 import ClientPage from "./components/pages/ClientPage";
@@ -91,14 +92,14 @@ type TabKey =
 // 就绪、繁忙使用橙色（warning）、小点展示
 const STATUS_CONFIG: Record<
   string,
-  { status: PresetStatusColorType; text: string }
+  { status: PresetStatusColorType; textKey: string }
 > = {
-  idle: { status: "warning", text: "就绪" },
-  starting: { status: "processing", text: "启动中" },
-  running: { status: "success", text: "运行中" },
-  busy: { status: "warning", text: "繁忙" },
-  stopped: { status: "default", text: "已停止" },
-  error: { status: "error", text: "错误" },
+  idle: { status: "warning", textKey: "Claw.Agent.Status.idle" },
+  starting: { status: "processing", textKey: "Claw.Agent.Status.starting" },
+  running: { status: "success", textKey: "Claw.Agent.Status.running" },
+  busy: { status: "warning", textKey: "Claw.Agent.Status.busy" },
+  stopped: { status: "default", textKey: "Claw.Agent.Status.stopped" },
+  error: { status: "error", textKey: "Claw.Agent.Status.error" },
 };
 
 // 服务状态接口（与 ClientPage 共享）
@@ -250,9 +251,8 @@ function App() {
       const notifKey = "restartRegFailed";
       notification.error({
         key: notifKey,
-        message: "配置同步失败",
-        description:
-          "无法连接到服务器获取最新配置，服务未重启。请检查网络后重试。",
+        message: t("Claw.App.ConfigSyncFailed"),
+        description: t("Claw.App.ConfigSyncFailedDetail"),
         duration: 0,
         placement: "bottomRight",
         btn: (
@@ -264,7 +264,7 @@ function App() {
               restartAllServices();
             }}
           >
-            重试
+            {t("Claw.App.Retry")}
           </Button>
         ),
       });
@@ -272,13 +272,19 @@ function App() {
     }
 
     try {
-      message.loading({ content: "正在重启服务…", key: "restart-services" });
+      message.loading({
+        content: t("Claw.App.RestartingServices"),
+        key: "restart-services",
+      });
       await window.electronAPI?.services.restartAll();
-      message.success({ content: "服务已重启", key: "restart-services" });
+      message.success({
+        content: t("Claw.App.RestartSuccess"),
+        key: "restart-services",
+      });
     } catch (e) {
       console.error("[App] 重启服务失败:", e);
       message.error({
-        content: "重启服务失败",
+        content: t("Claw.App.RestartFailed"),
         key: "restart-services",
       });
     }
@@ -482,8 +488,8 @@ function App() {
       ]);
       items.push({
         key: "mcpProxy",
-        label: "MCP 服务",
-        description: "MCP 协议聚合代理",
+        label: t("Claw.Service.mcp"),
+        description: t("Claw.Service.mcpDesc"),
         running: mcpStatus?.running ?? false,
         error: mcpStatus?.error,
       });
@@ -495,36 +501,36 @@ function App() {
       if (agentRunning && !csRunning) {
         agentError = csStatus?.error
           ? `Agent 接口服务启动失败: ${csStatus.error}`
-          : "Agent 接口服务未运行";
+          : "Agent 接口服务未运行"; // TODO: i18n
       }
       items.push({
         key: "agent",
-        label: "Agent 服务",
-        description: "Agent 核心服务",
+        label: t("Claw.Service.agent"),
+        description: t("Claw.Service.agentDesc"),
         running: agentRunning && csRunning,
         error: agentError,
       });
 
       items.push({
         key: "fileServer",
-        label: "文件服务",
-        description: "Agent 工作目录文件远程管理服务",
+        label: t("Claw.Service.file"),
+        description: t("Claw.Service.fileDesc"),
         running: fsStatus?.running ?? false,
         pid: fsStatus?.pid,
         error: fsStatus?.error,
       });
       items.push({
         key: "guiServer",
-        label: "GUI MCP 服务",
-        description: "桌面自动化视觉操作服务",
+        label: t("Claw.Service.guiMcp"),
+        description: t("Claw.Service.guiMcpDesc"),
         running: guiStatus?.running ?? false,
         pid: guiStatus?.pid,
         error: guiStatus?.error,
       });
       items.push({
         key: "lanproxy",
-        label: "代理服务",
-        description: "网络通道",
+        label: t("Claw.Service.proxy"),
+        description: t("Claw.Service.proxyDesc"),
         running: lpStatus?.running ?? false,
         pid: lpStatus?.pid,
         // 优先显示健康检查错误，其次显示进程错误
@@ -532,8 +538,8 @@ function App() {
       });
       items.push({
         key: "adminServer",
-        label: "管理服务",
-        description: "管理接口服务（重启/健康检查）",
+        label: t("Claw.Service.admin"),
+        description: t("Claw.Service.adminDesc"),
         running: adminStatus?.running ?? false,
         port: adminStatus?.port,
         error: adminStatus?.error,
@@ -710,9 +716,8 @@ function App() {
           } else {
             log.warn("reg failed, using local config");
             notification.info({
-              message: "自动重连失败",
-              description:
-                "无法连接到服务器。正在使用本地已保存的配置尝试启动服务；若需最新配置请检查网络后重新登录。",
+              message: t("Claw.App.AutoReconnectFailed"),
+              description: t("Claw.App.AutoReconnectFailedDetail"),
               duration: 8,
               placement: "bottomRight",
             });
@@ -912,7 +917,7 @@ function App() {
     const handleServicesRestarting = () => {
       console.log("[App] 收到 admin:servicesRestarting 事件");
       message.loading({
-        content: "服务正在重启…",
+        content: t("Claw.App.ServicesRestarting"),
         key: "admin-restart",
         duration: 0,
       });
@@ -933,7 +938,7 @@ function App() {
       console.log("[App] 收到 admin:servicesRestarted 事件", data);
       if (data.success) {
         message.success({
-          content: "服务重启成功",
+          content: t("Claw.App.ServicesRestartSuccess"),
           key: "admin-restart",
           duration: 3,
         });
@@ -988,21 +993,41 @@ function App() {
   // ============================================
   const menuItems = useMemo(() => {
     const items = [
-      { key: "client", icon: <DashboardOutlined />, label: "客户端" },
-      { key: "sessions", icon: <TeamOutlined />, label: "会话" },
-      { key: "settings", icon: <SettingOutlined />, label: "设置" },
-      { key: "dependencies", icon: <FolderOutlined />, label: "依赖" },
+      {
+        key: "client",
+        icon: <DashboardOutlined />,
+        label: t("Claw.Menu.client"),
+      },
+      {
+        key: "sessions",
+        icon: <TeamOutlined />,
+        label: t("Claw.Menu.session"),
+      },
+      {
+        key: "settings",
+        icon: <SettingOutlined />,
+        label: t("Claw.Menu.settings"),
+      },
+      {
+        key: "dependencies",
+        icon: <FolderOutlined />,
+        label: t("Claw.Menu.dependencies"),
+      },
     ];
     if (isMacOS) {
       items.push({
         key: "permissions",
         icon: <SafetyOutlined />,
-        label: "授权",
+        label: t("Claw.Menu.authorization"),
       });
     }
     items.push(
-      { key: "logs", icon: <FileTextOutlined />, label: "日志" },
-      { key: "about", icon: <InfoCircleOutlined />, label: "关于" },
+      { key: "logs", icon: <FileTextOutlined />, label: t("Claw.Menu.logs") },
+      {
+        key: "about",
+        icon: <InfoCircleOutlined />,
+        label: t("Claw.Menu.about"),
+      },
     );
     return items;
   }, [isMacOS]);
@@ -1018,7 +1043,7 @@ function App() {
       <ConfigProvider theme={currentTheme}>
         <div className="app-loading">
           <Spin size="large" />
-          <div className="app-loading-text">正在加载...</div>
+          <div className="app-loading-text">{t("Claw.App.Loading")}</div>
         </div>
       </ConfigProvider>
     );
@@ -1099,7 +1124,9 @@ function App() {
                     ? styles.badgeIdle
                     : undefined
                 }
-                text={<span className={styles.badgeText}>{badge.text}</span>}
+                text={
+                  <span className={styles.badgeText}>{t(badge.textKey)}</span>
+                }
               />
             </div>
           </div>
