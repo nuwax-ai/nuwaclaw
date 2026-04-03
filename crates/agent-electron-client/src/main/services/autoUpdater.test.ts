@@ -249,3 +249,151 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
     });
   });
 });
+
+// ── yml URL 处理逻辑测试 ──
+// 测试 electron-updater generic provider 的 URL 构造行为：
+// setFeedURL({ provider: "generic", url: "https://.../dir/" }) 会自动拼接 {channel}.yml
+// 因此传入的 URL 必须是目录路径（以 / 结尾），而不是文件 URL
+
+describe("autoUpdater - yml URL 处理", () => {
+  // 纯函数测试：模拟 doCheckViaLatestJson 中的 URL 推导逻辑
+  function deriveFeedUrl(params: {
+    ymlUrl: string | null;
+    updateChannel: "stable" | "beta";
+    version: string;
+  }): string {
+    const OSS_BASE =
+      "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron";
+    const { ymlUrl, updateChannel, version } = params;
+    // 从 yml 文件 URL 提取目录路径（electron-updater generic provider 期望目录 URL）
+    const ymlDir = ymlUrl ? ymlUrl.replace(/\/[^/]+\.yml$/, "/") : null;
+    return ymlDir
+      ? ymlDir
+      : updateChannel === "beta"
+        ? `${OSS_BASE}/beta-build/prerelease-v${version}`
+        : `${OSS_BASE}/electron-v${version}`;
+  }
+
+  describe("yml 文件 URL → 目录 URL 转换（供 electron-updater generic provider 使用）", () => {
+    it("Windows: yml 文件 URL 应提取为目录 URL", () => {
+      const ymlUrl =
+        "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron/beta-build/prerelease-v0.10.7/latest.yml";
+      const result = deriveFeedUrl({
+        ymlUrl,
+        updateChannel: "beta",
+        version: "0.10.7",
+      });
+      expect(result).toBe(
+        "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron/beta-build/prerelease-v0.10.7/",
+      );
+    });
+
+    it("macOS: yml 文件 URL 应提取为目录 URL", () => {
+      const ymlUrl =
+        "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron/beta-build/prerelease-v0.10.7/latest-mac.yml";
+      const result = deriveFeedUrl({
+        ymlUrl,
+        updateChannel: "beta",
+        version: "0.10.7",
+      });
+      expect(result).toBe(
+        "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron/beta-build/prerelease-v0.10.7/",
+      );
+    });
+
+    it("Linux: yml 文件 URL 应提取为目录 URL", () => {
+      const ymlUrl =
+        "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron/beta-build/prerelease-v0.10.7/latest-linux.yml";
+      const result = deriveFeedUrl({
+        ymlUrl,
+        updateChannel: "beta",
+        version: "0.10.7",
+      });
+      expect(result).toBe(
+        "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron/beta-build/prerelease-v0.10.7/",
+      );
+    });
+
+    it("stable 通道: yml 文件 URL 应提取为目录 URL", () => {
+      const ymlUrl =
+        "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron/electron-v0.10.7/latest.yml";
+      const result = deriveFeedUrl({
+        ymlUrl,
+        updateChannel: "stable",
+        version: "0.10.7",
+      });
+      expect(result).toBe(
+        "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron/electron-v0.10.7/",
+      );
+    });
+  });
+
+  describe("降级逻辑（yml 字段缺失时的 fallback）", () => {
+    it("yml 字段缺失时，beta 通道应使用 beta-build/prerelease-v{version} 路径", () => {
+      const result = deriveFeedUrl({
+        ymlUrl: null,
+        updateChannel: "beta",
+        version: "0.10.7",
+      });
+      expect(result).toBe(
+        "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron/beta-build/prerelease-v0.10.7",
+      );
+    });
+
+    it("yml 字段缺失时，stable 通道应使用 electron-v{version} 路径", () => {
+      const result = deriveFeedUrl({
+        ymlUrl: null,
+        updateChannel: "stable",
+        version: "0.10.7",
+      });
+      expect(result).toBe(
+        "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron/electron-v0.10.7",
+      );
+    });
+  });
+
+  describe("electron-updater generic provider URL 拼接验证", () => {
+    // 模拟 GenericProvider 的 URL 构造行为：
+    // new URL(channelFile, newBaseUrl(directoryUrl))
+    // newBaseUrl 会确保目录 URL 以 / 结尾
+    function simulateGenericProvider(
+      channelFile: string,
+      feedUrl: string,
+    ): string {
+      const url = new URL(feedUrl);
+      if (!url.pathname.endsWith("/")) {
+        url.pathname += "/";
+      }
+      return new URL(channelFile, url).toString();
+    }
+
+    it("目录 URL 传给 electron-updater 应拼接出正确的 yml 文件路径", () => {
+      const feedUrl =
+        "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron/beta-build/prerelease-v0.10.7/";
+      const windowsResult = simulateGenericProvider("latest.yml", feedUrl);
+      const macResult = simulateGenericProvider("latest-mac.yml", feedUrl);
+      const linuxResult = simulateGenericProvider("latest-linux.yml", feedUrl);
+
+      expect(windowsResult).toBe(
+        "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron/beta-build/prerelease-v0.10.7/latest.yml",
+      );
+      expect(macResult).toBe(
+        "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron/beta-build/prerelease-v0.10.7/latest-mac.yml",
+      );
+      expect(linuxResult).toBe(
+        "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron/beta-build/prerelease-v0.10.7/latest-linux.yml",
+      );
+    });
+
+    it("文件 URL 传给 electron-updater 会导致路径重复（Bug 演示）", () => {
+      // 这是之前错误的做法：直接传文件 URL
+      const fileUrl =
+        "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron/beta-build/prerelease-v0.10.7/latest.yml";
+      const result = simulateGenericProvider("latest.yml", fileUrl);
+
+      // URL 构造器会将 /latest.yml 当作文件名，拼接后变成 /beta-build/prerelease-v0.10.7//latest.yml/latest.yml
+      // 最终标准化为 .../beta-build/prerelease-v0.10.7/latest.yml/latest.yml（路径重复）
+      expect(result).toContain("latest.yml/latest.yml");
+    });
+  });
+});
