@@ -263,8 +263,6 @@ export class AcpEngine extends EventEmitter {
     });
     try {
       const configTimer = perfEmitter.start();
-      // Build ACP client handler (callbacks from agent → client)
-      const clientHandler = this.buildClientHandler();
 
       // Resolve binary path and args for the engine type
       const { binPath, binArgs, isNative } = resolveAcpBinary(this.engineName);
@@ -428,6 +426,10 @@ export class AcpEngine extends EventEmitter {
           `${this.logTag} Terminal manager initialized (direct execution)`,
         );
       }
+
+      // Build ACP client handler AFTER terminalManager is initialized
+      // so that getClientHandlers() spread includes terminal methods.
+      const clientHandler = this.buildClientHandler();
 
       const spawnTimer = perfEmitter.start();
       const {
