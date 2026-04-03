@@ -5,7 +5,11 @@ import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
 import App from "./App";
 import i18n from "./services/i18n"; // 初始化 i18next（自动检测浏览器语言）
+import { initI18n } from "./services/core/i18n"; // 初始化自定义 i18n 服务
 import "./index.css";
+
+// 初始化 i18n（API 驱动 + 本地缓存）
+initI18n();
 
 // antd locale 映射
 const antdLocales: Record<string, typeof zhCN> = {
