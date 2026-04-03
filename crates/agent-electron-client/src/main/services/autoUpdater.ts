@@ -367,17 +367,20 @@ async function doCheckViaLatestJson(): Promise<UpdateInfo> {
   try {
     latestJson = await fetchLatestJson(latestJsonUrl);
   } catch (e: any) {
+    // 日志保留完整错误信息（含 URL），用户提示仅显示 HTTP 状态码
     log.error(
       `[AutoUpdater] Failed to fetch latest.json from OSS(channel=${updateChannel}): ${e.message}`,
     );
+    const statusMatch = e.message.match(/^HTTP (\d+)/);
+    const userMsg = statusMatch ? `HTTP ${statusMatch[1]}` : "网络请求失败";
     setState({
       status: "error",
-      error: `无法获取${updateChannel}通道更新信息: ${e.message}`,
+      error: `无法获取${updateChannel}通道更新信息: ${userMsg}`,
       canAutoUpdate: canAutoUpdate(),
     });
     return {
       hasUpdate: false,
-      error: `无法获取${updateChannel}通道更新信息: ${e.message}`,
+      error: `无法获取${updateChannel}通道更新信息: ${userMsg}`,
     };
   }
 
