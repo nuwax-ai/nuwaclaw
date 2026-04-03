@@ -57,8 +57,10 @@ export interface AcpTerminalManagerOptions {
   windowsSandboxHelperPath?: string;
   /** Windows sandbox mode */
   windowsSandboxMode?: WindowsSandboxMode;
-  /** Whether network access is allowed */
+  /** Whether network access is allowed for sandboxed commands */
   networkEnabled?: boolean;
+  /** Paths that sandboxed commands can write to */
+  writablePaths?: string[];
 }
 
 // ============================================================================
@@ -66,14 +68,19 @@ export interface AcpTerminalManagerOptions {
 // ============================================================================
 
 export class AcpTerminalManager {
+  private static readonly MAX_CONCURRENT = 50;
   private terminals = new Map<string, TerminalSession>();
   private sandboxInvoker: SandboxInvoker | null;
   private readonly useSandbox: boolean;
+  private readonly networkEnabled: boolean;
+  private readonly writablePaths: string[];
 
   constructor(options?: AcpTerminalManagerOptions) {
     this.useSandbox = !!(
       options?.windowsSandboxHelperPath && process.platform === "win32"
     );
+    this.networkEnabled = options?.networkEnabled ?? true;
+    this.writablePaths = options?.writablePaths ?? [];
 
     if (this.useSandbox) {
       this.sandboxInvoker = new SandboxInvoker("windows-sandbox", {
@@ -103,9 +110,15 @@ export class AcpTerminalManager {
     cwd?: string | null;
     outputByteLimit?: number | null;
   }): Promise<string> {
+    if (this.terminals.size >= AcpTerminalManager.MAX_CONCURRENT) {
+      throw new Error(
+        `Terminal limit reached (${AcpTerminalManager.MAX_CONCURRENT}). Release existing terminals first.`,
+      );
+    }
+
     const terminalId = `term_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-    let resolveExit!: TerminalSession["resolveExit"];
+    let resolveExit: ((status: TerminalExitStatus) => void) | null = null;
     const exitPromise = new Promise<TerminalExitStatus>((r) => {
       resolveExit = r;
     });
@@ -120,7 +133,7 @@ export class AcpTerminalManager {
       exitStatus: null,
       resolved: false,
       exitPromise,
-      resolveExit,
+      resolveExit: resolveExit!,
     };
 
     const env: Record<string, string> = {
@@ -134,65 +147,106 @@ export class AcpTerminalManager {
 
     const cwd = params.cwd || process.cwd();
 
+    // Register BEFORE spawning so fast-exiting processes don't cause "not found" errors
+    // in terminalOutput()/waitForExit() calls from the agent.
+    this.terminals.set(terminalId, session);
+
     if (this.useSandbox && this.sandboxInvoker) {
       // Windows: route through nuwax-sandbox-helper.exe run
-      const invocation = await this.sandboxInvoker.buildInvocation({
-        command: params.command,
-        args: params.args || [],
-        cwd,
-        env,
-        writablePaths: [cwd],
-        networkEnabled: true,
-        subcommand: "run",
-      });
+      let invocation;
+      try {
+        invocation = await this.sandboxInvoker.buildInvocation({
+          command: params.command,
+          args: params.args || [],
+          cwd,
+          env,
+          writablePaths: [...this.writablePaths, cwd],
+          networkEnabled: this.networkEnabled,
+          subcommand: "run",
+        });
+      } catch (invErr) {
+        this.terminals.delete(terminalId);
+        throw invErr;
+      }
 
-      log.info("[AcpTerminalManager] Creating sandboxed terminal:", {
+      log.info("[AcpTerminalManager] ✅ SANDBOXED terminal created:", {
         terminalId,
         sessionId: params.sessionId,
-        command: params.command,
+        originalCommand: params.command,
+        originalArgs: params.args,
         wrappedCommand: invocation.command,
+        wrappedArgs: invocation.args,
+        sandboxed: true,
+        sandboxMode: "windows-sandbox-helper",
+        networkEnabled: this.networkEnabled,
+        writablePaths: [...this.writablePaths, cwd],
+        cwd,
         parseJson: invocation.parseJson,
       });
 
-      this.spawnProcess(
-        session,
-        invocation.command,
-        invocation.args,
-        invocation.env,
-        cwd,
-        true, // parseJson: helper run returns JSON
-      );
+      try {
+        this.spawnProcess(
+          session,
+          invocation.command,
+          invocation.args,
+          invocation.env,
+          cwd,
+          true, // parseJson: helper run returns JSON
+        );
+      } catch (spawnErr) {
+        this.cleanupFailedSpawn(session, terminalId);
+        throw spawnErr;
+      }
     } else {
       // macOS/Linux or no sandbox: execute directly
-      log.info("[AcpTerminalManager] Creating terminal (direct):", {
-        terminalId,
-        sessionId: params.sessionId,
-        command: params.command,
-      });
-
-      this.spawnProcess(
-        session,
-        params.command,
-        params.args || [],
-        env,
-        cwd,
-        false,
+      log.info(
+        "[AcpTerminalManager] ⚡ DIRECT terminal created (no sandbox):",
+        {
+          terminalId,
+          sessionId: params.sessionId,
+          command: params.command,
+          args: params.args,
+          sandboxed: false,
+          platform: process.platform,
+          cwd,
+        },
       );
+
+      try {
+        this.spawnProcess(
+          session,
+          params.command,
+          params.args || [],
+          env,
+          cwd,
+          false,
+        );
+      } catch (spawnErr) {
+        this.cleanupFailedSpawn(session, terminalId);
+        throw spawnErr;
+      }
     }
 
-    this.terminals.set(terminalId, session);
     return terminalId;
   }
 
   // --- terminal/output ---
 
-  async terminalOutput(terminalId: string): Promise<{
+  async terminalOutput(
+    terminalId: string,
+    sessionId?: string,
+  ): Promise<{
     output: string;
     truncated: boolean;
     exitStatus: TerminalExitStatus | null;
   }> {
     const t = this.terminals.get(terminalId);
     if (!t) throw new Error(`Terminal not found: ${terminalId}`);
+    if (sessionId && t.sessionId !== sessionId) {
+      throw new Error(
+        `Terminal ${terminalId} does not belong to session ${sessionId}`,
+      );
+    }
     return {
       output: t.output,
       truncated: t.truncated,
@@ -202,17 +256,30 @@ export class AcpTerminalManager {
 
   // --- terminal/wait_for_exit ---
 
-  async waitForExit(terminalId: string): Promise<TerminalExitStatus> {
+  async waitForExit(
+    terminalId: string,
+    sessionId?: string,
+  ): Promise<TerminalExitStatus> {
     const t = this.terminals.get(terminalId);
     if (!t) throw new Error(`Terminal not found: ${terminalId}`);
+    if (sessionId && t.sessionId !== sessionId) {
+      throw new Error(
+        `Terminal ${terminalId} does not belong to session ${sessionId}`,
+      );
+    }
     return t.exitPromise;
   }
 
   // --- terminal/kill ---
 
-  async kill(terminalId: string): Promise<void> {
+  async kill(terminalId: string, sessionId?: string): Promise<void> {
     const t = this.terminals.get(terminalId);
     if (!t || !t.process) return;
+    if (sessionId && t.sessionId !== sessionId) {
+      throw new Error(
+        `Terminal ${terminalId} does not belong to session ${sessionId}`,
+      );
+    }
     log.info("[AcpTerminalManager] Killing terminal:", terminalId);
     try {
       t.process.kill("SIGKILL");
@@ -223,9 +290,14 @@ export class AcpTerminalManager {
 
   // --- terminal/release ---
 
-  async release(terminalId: string): Promise<void> {
+  async release(terminalId: string, sessionId?: string): Promise<void> {
     const t = this.terminals.get(terminalId);
     if (!t) return;
+    if (sessionId && t.sessionId !== sessionId) {
+      throw new Error(
+        `Terminal ${terminalId} does not belong to session ${sessionId}`,
+      );
+    }
     log.info("[AcpTerminalManager] Releasing terminal:", terminalId);
     if (t.process) {
       try {
@@ -234,7 +306,30 @@ export class AcpTerminalManager {
         // ignore
       }
     }
+    // Resolve exitPromise if still pending so waitForExit() doesn't hang
+    if (!t.resolved) {
+      t.resolved = true;
+      t.resolveExit({ exitCode: null, signal: null });
+    }
     this.terminals.delete(terminalId);
+  }
+
+  /** Release all terminals belonging to a specific session */
+  async releaseForSession(sessionId: string): Promise<void> {
+    const ids: string[] = [];
+    for (const [id, t] of this.terminals) {
+      if (t.sessionId === sessionId) {
+        ids.push(id);
+      }
+    }
+    if (ids.length > 0) {
+      log.info(
+        `[AcpTerminalManager] Releasing ${ids.length} terminals for session ${sessionId}`,
+      );
+    }
+    for (const id of ids) {
+      await this.release(id);
+    }
   }
 
   /** Release all terminals (called during engine destroy) */
@@ -271,21 +366,21 @@ export class AcpTerminalManager {
       },
 
       terminalOutput: async (params) => {
-        return this.terminalOutput(params.terminalId);
+        return this.terminalOutput(params.terminalId, params.sessionId);
       },
 
       waitForTerminalExit: async (params) => {
-        return this.waitForExit(params.terminalId);
+        return this.waitForExit(params.terminalId, params.sessionId);
       },
 
       killTerminal: async (params) => {
-        await this.kill(params.terminalId);
-        return {} as Record<string, never>;
+        await this.kill(params.terminalId, params.sessionId);
+        return {};
       },
 
       releaseTerminal: async (params) => {
-        await this.release(params.terminalId);
-        return {} as Record<string, never>;
+        await this.release(params.terminalId, params.sessionId);
+        return {};
       },
     };
   }
@@ -302,6 +397,16 @@ export class AcpTerminalManager {
     cwd: string,
     parseJson: boolean,
   ): void {
+    const sandboxed = parseJson;
+    log.info("[AcpTerminalManager] 🚀 Spawning process:", {
+      terminalId: session.id,
+      command,
+      args: args.length > 0 ? args : undefined,
+      cwd,
+      sandboxed,
+      shell: !parseJson && process.platform === "win32",
+    });
+
     const proc = spawn(command, args, {
       cwd,
       env,
@@ -310,6 +415,12 @@ export class AcpTerminalManager {
       windowsHide: true,
     });
     session.process = proc;
+
+    log.info("[AcpTerminalManager] Process spawned:", {
+      terminalId: session.id,
+      pid: proc.pid,
+      sandboxed,
+    });
 
     if (parseJson) {
       // Windows sandbox helper run mode: stdout is JSON blob, stderr is log
@@ -323,6 +434,15 @@ export class AcpTerminalManager {
       });
       proc.on("close", (code, signal) => {
         // Parse the JSON result from helper
+        log.info(
+          "[AcpTerminalManager] 📦 Sandbox helper exited, parsing JSON result:",
+          {
+            terminalId: session.id,
+            exitCode: code,
+            signal,
+            jsonBufferLength: jsonBuffer.length,
+          },
+        );
         try {
           const result = JSON.parse(jsonBuffer) as {
             exit_code: number;
@@ -331,6 +451,13 @@ export class AcpTerminalManager {
             timed_out: boolean;
           };
           // The real command output is inside the JSON envelope
+          log.info("[AcpTerminalManager] ✅ Sandbox result parsed:", {
+            terminalId: session.id,
+            exit_code: result.exit_code,
+            stdoutLength: result.stdout.length,
+            stderrLength: result.stderr.length,
+            timed_out: result.timed_out,
+          });
           if (result.stdout) {
             this.appendOutput(session, Buffer.from(result.stdout));
           }
@@ -347,8 +474,18 @@ export class AcpTerminalManager {
             session.resolved = true;
             session.resolveExit(status);
           }
-        } catch {
+        } catch (parseErr) {
           // JSON parse failed, fall back to raw exit code
+          log.warn(
+            "[AcpTerminalManager] ⚠️ JSON parse failed, using raw exit code:",
+            {
+              terminalId: session.id,
+              exitCode: code,
+              jsonBufferPreview: jsonBuffer.slice(0, 200),
+              error:
+                parseErr instanceof Error ? parseErr.message : String(parseErr),
+            },
+          );
           const status: TerminalExitStatus = {
             exitCode: code ?? 1,
             signal: signal ?? null,
@@ -370,6 +507,12 @@ export class AcpTerminalManager {
         this.appendOutput(session, data),
       );
       proc.on("close", (code, signal) => {
+        log.info("[AcpTerminalManager] 🔚 Direct process exited:", {
+          terminalId: session.id,
+          exitCode: code,
+          signal,
+          outputLength: session.output.length,
+        });
         const status: TerminalExitStatus = {
           exitCode: code,
           signal: signal ?? null,
@@ -393,6 +536,29 @@ export class AcpTerminalManager {
         session.resolveExit(status);
       }
     });
+  }
+
+  /**
+   * Clean up a terminal session when spawn() throws synchronously.
+   * Resolves the exitPromise and removes the session from the map
+   * to prevent resource leaks.
+   */
+  private cleanupFailedSpawn(
+    session: TerminalSession,
+    terminalId: string,
+  ): void {
+    log.warn(
+      "[AcpTerminalManager] Spawn failed, cleaning up terminal:",
+      terminalId,
+    );
+    const status: TerminalExitStatus = { exitCode: 1, signal: null };
+    session.exitStatus = status;
+    session.process = null;
+    if (!session.resolved) {
+      session.resolved = true;
+      session.resolveExit(status);
+    }
+    this.terminals.delete(terminalId);
   }
 
   private appendOutput(session: TerminalSession, data: Buffer): void {

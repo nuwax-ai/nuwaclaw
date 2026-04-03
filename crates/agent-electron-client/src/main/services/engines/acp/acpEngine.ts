@@ -414,7 +414,10 @@ export class AcpEngine extends EventEmitter {
         this.terminalManager = new AcpTerminalManager({
           windowsSandboxHelperPath: sandboxConfig.windowsSandboxHelperPath,
           windowsSandboxMode: sandboxConfig.windowsSandboxMode,
-          networkEnabled: true,
+          networkEnabled: sandboxConfig.networkEnabled ?? true,
+          writablePaths: sandboxConfig.projectWorkspaceDir
+            ? [sandboxConfig.projectWorkspaceDir]
+            : [],
         });
         log.info(
           `${this.logTag} Terminal manager initialized (Windows sandbox)`,
@@ -875,6 +878,18 @@ export class AcpEngine extends EventEmitter {
       }
 
       session.status = "terminating";
+
+      // 0. Kill any terminals associated with this session
+      if (this.terminalManager) {
+        try {
+          await this.terminalManager.releaseForSession(sessionId);
+        } catch (e) {
+          log.warn(
+            `${this.logTag} Terminal cleanup for session ${sessionId} failed:`,
+            e,
+          );
+        }
+      }
 
       // 1. Reject local prompt immediately for fast UX feedback.
       const reject = this.activePromptRejects.get(sessionId);

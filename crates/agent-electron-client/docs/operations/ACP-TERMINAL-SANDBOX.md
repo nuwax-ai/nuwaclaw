@@ -1,6 +1,6 @@
 # ACP Terminal API 沙箱化方案
 
-> 版本: 1.0.0 | 日期: 2026-04-03 | 状态: 已实现
+> 版本: 1.1.0 | 日期: 2026-04-03 | 状态: 已实现
 
 ## 问题背景
 
@@ -158,6 +158,66 @@ Windows sandbox helper `run` 模式返回 JSON 封装的输出。
 遵循 ACP 规范：当输出超过 `outputByteLimit` 时，从开头截断保留最新输出。
 标记 `truncated: true` 以通知 Agent。
 
+> **注意**：当前实现使用 `string.length` 而非字节数。对于 ASCII 输出两者一致，
+> 对于 CJK 多字节字符，`string.length`（UTF-16 code units）可能小于实际字节数。
+> 实际影响有限，因为 claude-code 设置 `outputByteLimit: 32000`。
+
+### 4. 沙箱参数来源
+
+`writablePaths` 和 `networkEnabled` 从 sandbox 配置传入，而非硬编码：
+
+```typescript
+this.terminalManager = new AcpTerminalManager({
+  windowsSandboxHelperPath: sandboxConfig.windowsSandboxHelperPath,
+  windowsSandboxMode: sandboxConfig.windowsSandboxMode,
+  networkEnabled: sandboxConfig.networkEnabled ?? true,
+  writablePaths: sandboxConfig.projectWorkspaceDir
+    ? [sandboxConfig.projectWorkspaceDir]
+    : [],
+});
+```
+
+`createTerminal` 时还会自动追加 `cwd` 到可写路径。
+
+### 5. 竞态防护
+
+Terminal 在 spawn 之前注册到 Map，避免快速退出的进程导致 "Terminal not found" 错误：
+
+```typescript
+// 注册在前，spawn 在后
+this.terminals.set(terminalId, session);
+this.spawnProcess(session, ...);
+```
+
+### 6. 会话级终端清理
+
+当 `abortSession()` 取消会话时，自动终止该会话关联的所有终端进程：
+
+```typescript
+if (this.terminalManager) {
+  await this.terminalManager.releaseForSession(sessionId);
+}
+```
+
+`releaseForSession()` 遍历所有 terminal，按 sessionId 过滤后逐一 kill + release。
+
+### 7. 并发限制
+
+默认最多 50 个并发终端，防止失控的 Agent 耗尽系统资源：
+
+```typescript
+private static readonly MAX_CONCURRENT = 50;
+
+async createTerminal(...) {
+  if (this.terminals.size >= AcpTerminalManager.MAX_CONCURRENT) {
+    throw new Error(
+      `Terminal limit reached (${AcpTerminalManager.MAX_CONCURRENT}). Release existing terminals first.`
+    );
+  }
+  // ...
+}
+```
+
 ## 与现有系统的关系
 
 ### macOS/Linux 进程级沙箱
@@ -180,6 +240,21 @@ nuwaxcode 不使用 Terminal API，其 bash 执行通过 `OPENCODE_CONFIG_CONTEN
 6. 确认 `waitForExit` 返回正确退出码
 7. 确认 nuwaxcode 行为不受影响
 8. 确认 macOS/Linux 沙箱行为不受影响
+9. 验证 abort 后终端进程被正确清理
+10. 验证并发超过 50 时抛出限制错误
+
+## 安全注意事项
+
+### Windows 非 sandbox 路径的 shell 注入
+
+当 sandbox 未启用且平台为 Windows 时，`spawnProcess` 使用 `shell: true`。
+如果 Agent 发送的命令包含 shell 元字符，它们会被解释。
+安全边界在 sandbox helper 级别（受限 token），sandbox 未启用时命令以用户权限运行。
+
+### 无命令白名单/黑名单
+
+Terminal Manager 执行 Agent 发送的所有命令，安全边界在 sandbox helper 级别。
+如果 sandbox 不可用，命令以完整用户权限运行。
 
 ## 参考
 
