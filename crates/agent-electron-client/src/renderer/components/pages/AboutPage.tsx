@@ -15,7 +15,7 @@ import {
   message,
   Space,
   Modal,
-  Select,
+  Switch,
   Typography,
 } from "antd";
 import {
@@ -85,25 +85,61 @@ export default function AboutPage() {
   }, []);
 
   const handleChangeUpdateChannel = useCallback(
-    async (nextChannel: UpdateChannel) => {
+    async (checked: boolean) => {
+      const nextChannel: UpdateChannel = checked ? "beta" : "stable";
       if (nextChannel === updateChannel) return;
+
+      // 切换到 beta 时：弹出二次确认
+      if (nextChannel === "beta") {
+        Modal.confirm({
+          title: "切换到预发测试版通道",
+          content: (
+            <div>
+              <p>
+                预发测试版包含尚未全面验证的更新，可能存在不稳定或功能缺陷。
+              </p>
+              <p>是否确认切换？</p>
+            </div>
+          ),
+          okText: "确认切换",
+          cancelText: "取消",
+          onOk: async () => {
+            setChannelLoading(true);
+            try {
+              await window.electronAPI?.settings.set(
+                UPDATE_CHANNEL_SETTING_KEY,
+                "beta",
+              );
+              setUpdateChannel("beta");
+              message.success("已切换到预发测试版通道，正在检查更新...");
+              // 确认后自动触发一次 beta 通道的升级检查
+              await handleCheckUpdate();
+            } catch {
+              message.error("更新通道切换失败，请稍后重试");
+            } finally {
+              setChannelLoading(false);
+            }
+          },
+        });
+        return;
+      }
+
+      // 切换回 stable：直接切换，无确认弹框
       setChannelLoading(true);
       try {
         await window.electronAPI?.settings.set(
           UPDATE_CHANNEL_SETTING_KEY,
-          nextChannel,
+          "stable",
         );
-        setUpdateChannel(nextChannel);
-        message.success(
-          `已切换到${nextChannel === "beta" ? "预发测试版" : "稳定正式版"}通道`,
-        );
+        setUpdateChannel("stable");
+        message.success("已切换到稳定正式版通道");
       } catch {
         message.error("更新通道切换失败，请稍后重试");
       } finally {
         setChannelLoading(false);
       }
     },
-    [updateChannel],
+    [updateChannel, handleCheckUpdate],
   );
 
   // macOS/Linux：Squirrel 不发送 download-progress，用定时器模拟进度使进度条有变化
@@ -475,18 +511,15 @@ export default function AboutPage() {
           <Typography.Text
             style={{ fontSize: 12, color: "var(--color-text-secondary)" }}
           >
-            更新通道
+            Beta 升级通道
           </Typography.Text>
-          <Select<UpdateChannel>
+          <Switch
             size="small"
-            value={updateChannel}
+            checked={updateChannel === "beta"}
             loading={channelLoading}
-            style={{ width: 180, textAlign: "left" }}
             onChange={handleChangeUpdateChannel}
-            options={[
-              { value: "stable", label: "稳定正式版（默认）" },
-              { value: "beta", label: "预发测试版（内测）" },
-            ]}
+            checkedChildren="开"
+            unCheckedChildren="关"
           />
         </div>
         <div
@@ -497,8 +530,7 @@ export default function AboutPage() {
             lineHeight: 1.5,
           }}
         >
-          预发测试版可能包含未验证改动。未设置时默认
-          stable，不影响已安装旧版本客户端的默认更新行为。
+          开启后将切换到预发测试版通道，可能包含未验证改动。
         </div>
       </div>
 
