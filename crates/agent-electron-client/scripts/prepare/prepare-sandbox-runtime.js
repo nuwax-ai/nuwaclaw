@@ -7,8 +7,9 @@
  * - 清单文件：manifest.json
  * - 目标目录：resources/sandbox-runtime/bin
  *
- * Windows Sandbox helper (nuwax-sandbox-helper.exe) 由 Rust crate
- * crates/windows-sandbox-helper 构建，需先执行 build:sandbox-helper。
+ * （仅 Windows 客户端）Sandbox helper：manifest 的 win32 产物或另行构建的
+ * nuwax-sandbox-helper.exe；亦可由 Rust crate crates/windows-sandbox-helper
+ * 通过 npm run build:sandbox-helper 生成到 resources/sandbox-helper。
  */
 
 const fs = require("fs");

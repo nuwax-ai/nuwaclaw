@@ -131,12 +131,24 @@ export function getBundledLinuxBwrapPath(): string | null {
   return null;
 }
 
+/** 仅 Windows：沙箱 helper 可执行文件名（非 win32 上不应探测 .exe 路径）。 */
+const WINDOWS_SANDBOX_HELPER_NAME = "nuwax-sandbox-helper.exe" as const;
+
+/**
+ * 解析内置 Windows Sandbox helper 路径（场景仅限 Windows 客户端）。
+ * 在非 Windows 上始终返回 null，避免无意义的文件探测。
+ */
 export function getBundledWindowsSandboxHelperPath(): string | null {
+  if (process.platform !== "win32") {
+    return null;
+  }
+
   const runtimeDir = getSandboxRuntimeDir();
+  const helperRoot = path.join(getResourcesPath(), "sandbox-helper");
   const candidates = [
-    path.join(runtimeDir, "bin", "nuwax-sandbox-helper.exe"),
-    path.join(runtimeDir, "windows", "nuwax-sandbox-helper.exe"),
-    path.join(getResourcesPath(), "sandbox-helper", "nuwax-sandbox-helper.exe"),
+    path.join(runtimeDir, "bin", WINDOWS_SANDBOX_HELPER_NAME),
+    path.join(runtimeDir, "windows", WINDOWS_SANDBOX_HELPER_NAME),
+    path.join(helperRoot, WINDOWS_SANDBOX_HELPER_NAME),
   ];
 
   for (const candidate of candidates) {

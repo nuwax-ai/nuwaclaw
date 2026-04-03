@@ -123,13 +123,12 @@ function setupControlService(): void {
       if (!helperPath) {
         return {
           success: false,
-          message:
-            "Windows Sandbox helper 不存在，请先执行 prepare:sandbox-runtime",
+          message: "（仅 Windows）Sandbox helper 不存在",
         };
       }
       return {
         success: true,
-        message: `Windows Sandbox helper 就绪（mode=${mode}，helper=${helperPath}）`,
+        message: `Windows Sandbox helper 就绪`,
       };
     },
   });

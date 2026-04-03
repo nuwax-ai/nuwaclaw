@@ -1,5 +1,7 @@
 # Sandbox 子模块集成说明
 
+**范围**：文中的 `nuwax-sandbox-helper`、`resources/sandbox-helper` 以及 manifest 里 `win32-*` 产物**仅用于 Windows 客户端**沙箱；macOS / Linux 分别走 seatbelt / bwrap，不依赖上述 exe。
+
 ## 目标
 
 将三端沙箱运行时统一从 `crates/agent-sandbox-runtime` 同步到 Electron `resources`：
@@ -11,8 +13,9 @@
 
 1. 脚本: `scripts/prepare/prepare-sandbox-runtime.js`
 2. npm script: `prepare:sandbox-runtime`
-3. 构建链: `prepare:all` 已串联 `prepare:sandbox-runtime`
-4. 签名: `scripts/build/after-sign.js` 已覆盖 `resources/sandbox-runtime`
+3. Windows 内置 helper: `crates/windows-sandbox-helper` → `npm run build:sandbox-helper`（Windows 上 `prepare:all` 会通过 `prepare:sandbox-helper-win` 自动构建），产出 `resources/sandbox-helper/nuwax-sandbox-helper.exe`；Windows 安装包 `extraResources` 映射为 `sandbox-helper/*.exe`
+4. 构建链: `prepare:all` 已串联 `prepare:sandbox-helper-win` 与 `prepare:sandbox-runtime`
+5. 签名: `scripts/build/after-sign.js` 已覆盖 `resources/sandbox-runtime` 与 `resources/sandbox-helper`（Windows）
 
 ## 子模块清单约定
 
@@ -27,9 +30,9 @@
       "sha256": "..."
     },
     "win32-x64": {
-      "source": "artifacts/windows/x64/codex-sandbox-helper.exe",
+      "source": "artifacts/windows/x64/nuwax-sandbox-helper.exe",
       "sha256": "...",
-      "targetName": "codex-sandbox-helper.exe"
+      "targetName": "nuwax-sandbox-helper.exe"
     }
   }
 }
@@ -43,13 +46,13 @@
   - `mode=non-main`
   - `backend=auto`
   - `fallback=degrade_to_off`
-  - `windows.codex.mode=unelevated`
+  - `windows.sandbox.mode=read-only` 或 `workspace-write`
 
 `backend=auto` 映射：
 
 - macOS -> `macos-seatbelt`
 - Linux -> `linux-bwrap`
-- Windows -> `windows-codex`
+- Windows -> `windows-sandbox`（探测 `nuwax-sandbox-helper.exe`）
 
 ## 注意事项
 

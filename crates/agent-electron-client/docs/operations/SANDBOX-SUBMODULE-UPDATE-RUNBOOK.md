@@ -19,7 +19,7 @@ npm run prepare:sandbox-runtime
 4. 验证产物落地：
    - `resources/sandbox-runtime/bin`
    - `resources/sandbox-runtime/resolved-manifest.json`
-5. 运行构建并验证 `after-sign` 日志包含 `sandbox-runtime`。
+5. 运行构建并验证 `after-sign` 日志包含 `sandbox-runtime`（Windows 另含 `sandbox-helper`）。
 
 ## 快速校验
 
@@ -38,4 +38,4 @@ npm run build:main
 
 1. `manifest 不存在`：子模块未初始化或路径错误。
 2. `sha256 mismatch`：产物与清单不一致，拒绝继续。
-3. `helper not found`（Windows）：`prepare:sandbox-runtime` 未执行或产物缺失。
+3. `helper not found`（Windows）：未构建内置 helper（`npm run build:sandbox-helper`）且未通过子模块 `prepare:sandbox-runtime` 同步产物，或安装包未包含 `sandbox-helper` / `sandbox-runtime` 下的 exe。

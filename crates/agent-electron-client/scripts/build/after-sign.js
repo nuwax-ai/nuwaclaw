@@ -404,6 +404,15 @@ async function afterSignWindows(context) {
     totalFailed += result.failed;
   }
 
+  // 8. 签名 sandbox-helper（nuwax-sandbox-helper.exe 等）
+  const sandboxHelperPath = path.join(resourcesPath, 'sandbox-helper');
+  if (fs.existsSync(sandboxHelperPath)) {
+    console.log('[after-sign] Windows: 签名 sandbox-helper...');
+    const result = signWin.signDirectory(sandboxHelperPath);
+    totalSigned += result.success;
+    totalFailed += result.failed;
+  }
+
   console.log(`[after-sign] Windows: 额外签名完成 - 成功: ${totalSigned}, 失败: ${totalFailed}`);
 
   if (totalFailed > 0) {
