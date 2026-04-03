@@ -8,8 +8,23 @@ import i18n from "./services/i18n"; // 初始化 i18next（自动检测浏览器
 import { initI18n } from "./services/core/i18n"; // 初始化自定义 i18n 服务
 import "./index.css";
 
-// 初始化 i18n（API 驱动 + 本地缓存）
-initI18n();
+// i18n 就绪标志（模块级别，由 initI18n 设置）
+let i18nReady = false;
+const i18nReadyListeners: Array<(ready: boolean) => void> = [];
+
+function onI18nReady(callback: (ready: boolean) => void) {
+  i18nReadyListeners.push(callback);
+}
+
+function notifyI18nReady(ready: boolean) {
+  i18nReady = ready;
+  i18nReadyListeners.forEach((cb) => cb(ready));
+}
+
+// 初始化 i18n（API 驱动 + 本地缓存）- 尽快开始
+initI18n()
+  .then(() => notifyI18nReady(true))
+  .catch(console.error);
 
 // antd locale 映射
 const antdLocales: Record<string, typeof zhCN> = {
@@ -23,9 +38,10 @@ const antdLocales: Record<string, typeof zhCN> = {
 
 function Main() {
   const [antdLocale, setAntdLocale] = useState(zhCN);
+  const [ready, setReady] = useState(i18nReady);
 
+  // 动态更新 antd locale（所有渲染都会执行）
   useEffect(() => {
-    // 动态更新 antd locale
     const updateLocale = () => {
       const lang = i18n.language || "zh-CN";
       // 匹配最接近的语言
@@ -43,6 +59,35 @@ function Main() {
       i18n.off("languageChanged", updateLocale);
     };
   }, []);
+
+  // 订阅 i18n 就绪状态
+  useEffect(() => {
+    if (i18nReady) {
+      setReady(true);
+      return;
+    }
+    onI18nReady(setReady);
+  }, []);
+
+  // i18n 未就绪时显示加载状态（所有 hooks 已经在上面执行完毕）
+  if (!ready) {
+    return (
+      <ConfigProvider locale={zhCN}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: "100vh",
+            fontSize: 14,
+            color: "#71717a",
+          }}
+        >
+          Loading...
+        </div>
+      </ConfigProvider>
+    );
+  }
 
   return (
     <ConfigProvider
