@@ -244,14 +244,8 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          if [ "${{ runner.os }}" = "macOS" ] && [ -z "${{ secrets.APPLE_CERTIFICATE }}" ]; then
-            echo "No Apple certificate, building unsigned Mac package for ${{ matrix.arch }}"
-            npm run dist:mac:unsigned:${{ matrix.arch }} -- --publish never
-          elif [ "${{ runner.os }}" = "Windows" ]; then
-            npm run ${{ matrix.dist_cmd }} -- --publish never
-          else
-            npm run ${{ matrix.dist_cmd }} -- --publish never
-          fi
+          echo "Building Electron app for ${{ runner.os }} (${{ matrix.arch }})"
+          npm run ${{ matrix.dist_cmd }} -- --publish never
 
       - name: Upload artifacts to Release
         shell: bash
