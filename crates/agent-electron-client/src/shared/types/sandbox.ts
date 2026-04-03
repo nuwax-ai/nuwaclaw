@@ -20,9 +20,7 @@ export type Platform = "darwin" | "win32" | "linux";
  * - docker: Docker 容器（全平台）
  * - macos-seatbelt: macOS seatbelt（sandbox-exec）
  * - linux-bwrap: Linux bubblewrap
- * - windows-sandbox: Windows Sandbox helper
- * - wsl: Windows Subsystem for Linux（兼容保留）
- * - firejail: Firejail（兼容保留）
+ * - windows-sandbox: Windows Sandbox helper（Rust helper + Restricted Token）
  * - none: 无沙箱（直接执行）
  */
 export type SandboxType =
@@ -30,8 +28,6 @@ export type SandboxType =
   | "macos-seatbelt"
   | "linux-bwrap"
   | "windows-sandbox"
-  | "wsl"
-  | "firejail"
   | "none";
 
 /**
@@ -186,10 +182,6 @@ export interface SandboxConfig {
   dockerHost?: string;
   /** 只读模式（禁止写入操作） */
   readOnly?: boolean;
-  /** WSL 发行版名称（仅 WSL 沙箱） */
-  wslDistribution?: string;
-  /** Firejail 配置目录（仅 Firejail 沙箱） */
-  firejailProfileDir?: string;
 }
 
 // ============================================================================

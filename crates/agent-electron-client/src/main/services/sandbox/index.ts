@@ -1,13 +1,15 @@
 /**
  * 沙箱模块导出
  *
- * @version 1.0.0
- * @updated 2026-03-27
+ * @version 2.0.0
+ * @updated 2026-04-03
  */
 
 export { SandboxManager } from "./SandboxManager";
 export { DockerSandbox, type DockerSandboxConfig } from "./DockerSandbox";
 export { CommandSandbox } from "./CommandSandbox";
+export { SandboxInvoker } from "./SandboxInvoker";
+export { SandboxFileOperations } from "./SandboxFileOperations";
 export {
   PermissionManager,
   DEFAULT_PERMISSION_POLICY,

@@ -13,10 +13,8 @@ export enum SandboxErrorCode {
   SANDBOX_UNAVAILABLE = "SANDBOX_UNAVAILABLE",
   /** Docker 不可用 */
   DOCKER_UNAVAILABLE = "DOCKER_UNAVAILABLE",
-  /** WSL 不可用 */
-  WSL_UNAVAILABLE = "WSL_UNAVAILABLE",
-  /** Firejail 不可用 */
-  FIREJAIL_UNAVAILABLE = "FIREJAIL_UNAVAILABLE",
+  /** Helper 二进制不可用 */
+  HELPER_UNAVAILABLE = "HELPER_UNAVAILABLE",
 
   /** 工作区未找到 */
   WORKSPACE_NOT_FOUND = "WORKSPACE_NOT_FOUND",
@@ -157,10 +155,8 @@ export class SandboxError extends Error {
         return "沙箱环境不可用，请检查沙箱配置";
       case SandboxErrorCode.DOCKER_UNAVAILABLE:
         return "Docker 不可用，请确保 Docker Desktop 已安装并运行";
-      case SandboxErrorCode.WSL_UNAVAILABLE:
-        return "WSL 不可用，请确保 WSL2 已正确安装";
-      case SandboxErrorCode.FIREJAIL_UNAVAILABLE:
-        return "Firejail 不可用，请确保 Firejail 已安装";
+      case SandboxErrorCode.HELPER_UNAVAILABLE:
+        return "沙箱 Helper 不可用，请确认 nuwax-sandbox-helper 已正确安装";
 
       case SandboxErrorCode.WORKSPACE_NOT_FOUND:
         return `工作区未找到: ${this.workspaceId || this.sessionId || "未知"}`;
@@ -251,8 +247,7 @@ export class SandboxError extends Error {
       SandboxErrorCode.PERMISSION_POLICY_VIOLATION,
       SandboxErrorCode.EXECUTION_BLOCKED,
       SandboxErrorCode.DOCKER_UNAVAILABLE,
-      SandboxErrorCode.WSL_UNAVAILABLE,
-      SandboxErrorCode.FIREJAIL_UNAVAILABLE,
+      SandboxErrorCode.HELPER_UNAVAILABLE,
       SandboxErrorCode.OUT_OF_DISK_SPACE,
     ];
     return userInterventionCodes.includes(this.code);

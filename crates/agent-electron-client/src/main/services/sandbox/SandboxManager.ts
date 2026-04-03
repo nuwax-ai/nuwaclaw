@@ -2,15 +2,16 @@
  * 沙箱管理器抽象基类
  *
  * 定义所有沙箱实现必须遵循的接口规范。
- * 支持的沙箱类型：Docker、WSL、Firejail
+ * 支持的沙箱类型：Docker、macOS Seatbelt、Linux bwrap、Windows Sandbox
  *
- * @version 1.0.0
- * @updated 2026-03-22
+ * @version 1.1.0
+ * @updated 2026-04-03
  */
 
 import { EventEmitter } from "events";
 import type {
   SandboxConfig,
+  SandboxType,
   Workspace,
   ExecuteOptions,
   ExecuteResult,
@@ -294,18 +295,18 @@ export abstract class SandboxManager extends EventEmitter {
   }
 
   /**
-   * 获取推荐的沙箱类型
+   * 获取推荐的沙箱类型（按平台）
    */
-  static getRecommendedSandboxType(): "docker" | "wsl" | "firejail" | "none" {
+  static getRecommendedSandboxType(): SandboxType {
     const platform = process.platform;
 
     switch (platform) {
       case "darwin":
-        return "docker";
+        return "macos-seatbelt";
       case "win32":
-        return "wsl";
+        return "windows-sandbox";
       case "linux":
-        return "docker";
+        return "linux-bwrap";
       default:
         return "none";
     }

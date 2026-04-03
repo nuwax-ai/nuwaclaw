@@ -4,20 +4,19 @@
  * 提供 buildSandboxedSpawnArgs() 将 ACP 引擎的 spawn 参数
  * 包装为沙箱化的调用参数，供 acpClient.ts 使用。
  *
- * @version 1.0.0
+ * 内部直接使用 SandboxInvoker 构建调用，不再创建临时 CommandSandbox 实例。
+ *
+ * @version 2.0.0
+ * @updated 2026-04-03
  */
 
 import * as os from "os";
 import * as fs from "fs";
 import * as path from "path";
 import log from "electron-log";
-import { CommandSandbox } from "./CommandSandbox";
-import type { Invocation } from "./CommandSandbox";
-import type {
-  SandboxConfig,
-  SandboxProcessConfig,
-  Platform,
-} from "@shared/types/sandbox";
+import { SandboxInvoker } from "./SandboxInvoker";
+import type { Invocation } from "./SandboxInvoker";
+import type { SandboxProcessConfig } from "@shared/types/sandbox";
 
 const NOOP_CLEANUP = () => {};
 
@@ -60,9 +59,7 @@ export async function buildSandboxedSpawnArgs(
 
   // Docker 后端暂不支持进程级包装
   if (type === "docker") {
-    log.warn(
-      "[SandboxProcessWrapper] Docker 进程级沙箱暂不支持（Phase 2），跳过包装",
-    );
+    log.warn("[SandboxProcessWrapper] Docker 进程级沙箱暂不支持，跳过包装");
     return {
       command: originalCommand,
       args: originalArgs,
@@ -70,22 +67,13 @@ export async function buildSandboxedSpawnArgs(
     };
   }
 
-  // 创建临时 CommandSandbox 实例用于构建调用
-  const tempConfig: SandboxConfig = {
-    type,
-    platform: os.platform() as Platform,
-    enabled: true,
-    workspaceRoot: path.join(os.homedir(), ".nuwaclaw", "sandboxes"),
-    networkEnabled,
-  };
-
-  const options = {
+  // 直接使用 SandboxInvoker 构建调用
+  const invoker = new SandboxInvoker(type, {
     linuxBwrapPath: sandboxConfig.linuxBwrapPath,
     windowsSandboxHelperPath: sandboxConfig.windowsSandboxHelperPath,
     windowsSandboxMode: sandboxConfig.windowsSandboxMode,
-  };
-
-  const sandbox = new CommandSandbox(tempConfig, options);
+    networkEnabled,
+  });
 
   // 可写路径：工作区 + 额外路径（如 isolatedHome）
   const writablePaths = [projectWorkspaceDir, ...extraWritablePaths].filter(
@@ -100,15 +88,14 @@ export async function buildSandboxedSpawnArgs(
   }
 
   try {
-    const invocation: Invocation = await sandbox.buildProcessInvocation(
-      originalCommand,
-      originalArgs,
+    const invocation: Invocation = await invoker.buildInvocation({
+      command: originalCommand,
+      args: originalArgs,
       cwd,
-      {
-        writablePaths,
-        networkEnabled,
-      },
-    );
+      writablePaths,
+      networkEnabled,
+      subcommand: "serve",
+    });
 
     log.info("[SandboxProcessWrapper] 沙箱包装成功:", {
       type,
@@ -118,14 +105,7 @@ export async function buildSandboxedSpawnArgs(
     });
 
     // 为 macOS seatbelt profile 文件注册清理
-    let profilePath: string | null = null;
-    if (
-      type === "macos-seatbelt" &&
-      invocation.command === "/usr/bin/sandbox-exec" &&
-      invocation.args[0] === "-f"
-    ) {
-      profilePath = invocation.args[1];
-    }
+    const profilePath = invocation.seatbeltProfilePath ?? null;
 
     const cleanupSandbox = () => {
       if (profilePath) {
