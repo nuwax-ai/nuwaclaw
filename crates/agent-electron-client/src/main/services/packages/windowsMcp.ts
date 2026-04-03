@@ -6,30 +6,59 @@
  */
 
 import * as fs from "fs";
+import * as path from "path";
 import log from "electron-log";
-import { WindowsMcpManager, type ProcessConfig } from "agent-gui-server";
 import { ElectronProcessRunner } from "./windowsMcpRunner.js";
 import {
   getUvBinPath,
   getAppEnv,
   getWindowsMcpBinPath,
+  getResourcesPath,
 } from "../system/dependencies";
 import { isWindows } from "../system/shellEnv";
 import { getGuiMcpPort } from "./guiAgentServer";
 import { killProcessTreesListeningOnTcpPortWindows } from "../utils/processTree";
 
-/**
- * Windows-MCP 管理器实例
- */
-export const windowsMcpManager = new WindowsMcpManager({
-  healthCheckInterval: 30000,
-  startupTimeout: 30000,
-  healthCheckTimeout: 5000,
-  maxRestarts: 3,
-});
+type WindowsMcpManagerType = import("agent-gui-server").WindowsMcpManager;
+type ProcessConfig = import("agent-gui-server").ProcessConfig;
 
-// 初始化进程运行器
-windowsMcpManager.setProcessRunner(new ElectronProcessRunner());
+/**
+ * Windows-MCP 管理器实例（延迟初始化，仅 Windows 平台有效）
+ */
+let windowsMcpManager: WindowsMcpManagerType | null = null;
+let processRunner: ElectronProcessRunner | null = null;
+
+/**
+ * 延迟加载并初始化 WindowsMcpManager
+ * 仅在 Windows 平台调用，且只在首次使用时初始化
+ */
+function getWindowsMcpManager(): WindowsMcpManagerType {
+  if (!isWindows()) {
+    throw new Error("WindowsMcpManager 仅在 Windows 平台可用");
+  }
+  if (!windowsMcpManager) {
+    // 从打包的 extraResources 中动态加载 agent-gui-server
+    const resourcesPath = getResourcesPath();
+    const agentGuiServerPath = path.join(resourcesPath, "agent-gui-server");
+    const createRequire = require("module").createRequire;
+    const loaderRequire = createRequire(
+      path.join(agentGuiServerPath, "dist/index.js"),
+    );
+    const { WindowsMcpManager: WMM } = loaderRequire("agent-gui-server");
+    windowsMcpManager = new WMM({
+      healthCheckInterval: 30000,
+      startupTimeout: 30000,
+      healthCheckTimeout: 5000,
+      maxRestarts: 3,
+    });
+    processRunner = new ElectronProcessRunner();
+    windowsMcpManager!.setProcessRunner(processRunner!);
+    log.info(
+      "[WindowsMcp] WindowsMcpManager initialized from bundled agent-gui-server",
+    );
+  }
+  return windowsMcpManager!;
+}
 
 /**
  * 启动 Windows-MCP 服务
@@ -48,7 +77,7 @@ export async function startWindowsMcp(): Promise<{
   }
 
   // 检查是否已运行
-  const status = windowsMcpManager.getStatus();
+  const status = getWindowsMcpManager().getStatus();
   if (status.running) {
     return { success: true, port: status.port };
   }
@@ -87,7 +116,10 @@ export async function startWindowsMcp(): Promise<{
     log.info(
       `[WindowsMcp] Starting (uv tool run) on port ${getGuiMcpPort()}...`,
     );
-    const result = await windowsMcpManager.start(getGuiMcpPort(), buildConfig);
+    const result = await getWindowsMcpManager().start(
+      getGuiMcpPort(),
+      buildConfig,
+    );
     if (result.success) {
       log.info(`[WindowsMcp] Started successfully on port ${result.port}`);
     } else {
@@ -128,7 +160,7 @@ export async function startWindowsMcp(): Promise<{
 
   log.info(`[WindowsMcp] Starting (bundled) on port ${port}...`);
 
-  const result = await windowsMcpManager.start(port, buildConfig);
+  const result = await getWindowsMcpManager().start(port, buildConfig);
 
   if (result.success) {
     log.info(`[WindowsMcp] Started successfully on port ${result.port}`);
@@ -164,7 +196,7 @@ export async function stopWindowsMcp(): Promise<{
   }
 
   log.info("[WindowsMcp] Stopping...");
-  const result = await windowsMcpManager.stop();
+  const result = await getWindowsMcpManager().stop();
 
   // 兜底：uv 先退出时 ManagedProcess 可能已无 PID，子进程仍 LISTENING GUI MCP 端口
   try {
@@ -186,7 +218,10 @@ export async function stopWindowsMcp(): Promise<{
  * 获取 Windows-MCP 状态
  */
 export function getWindowsMcpStatus() {
-  return windowsMcpManager.getStatus();
+  if (!isWindows()) {
+    return { running: false };
+  }
+  return getWindowsMcpManager().getStatus();
 }
 
 /**
@@ -196,7 +231,7 @@ export function getWindowsMcpUrl(): string | null {
   if (!isWindows()) {
     return null;
   }
-  const status = windowsMcpManager.getStatus();
+  const status = getWindowsMcpManager().getStatus();
   if (!status.running || status.port === undefined) {
     return null;
   }
