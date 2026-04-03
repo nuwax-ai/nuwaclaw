@@ -10,7 +10,6 @@
  * @updated 2026-04-03
  */
 
-import * as os from "os";
 import * as fs from "fs";
 import * as path from "path";
 import log from "electron-log";

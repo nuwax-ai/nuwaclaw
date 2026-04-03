@@ -227,14 +227,8 @@ export class CommandSandbox extends SandboxManager {
       this.updateLastAccessed(sessionId);
       return content;
     } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") {
-        throw new FileOperationError(
-          `文件未找到: ${filePath}`,
-          SandboxErrorCode.FILE_NOT_FOUND,
-          { sessionId, cause: error as Error },
-        );
-      }
+      // SandboxFileOperations 已经抛出 FileOperationError，直接透传
+      if (error instanceof FileOperationError) throw error;
       throw new FileOperationError(
         `文件读取失败: ${filePath}`,
         SandboxErrorCode.FILE_READ_FAILED,

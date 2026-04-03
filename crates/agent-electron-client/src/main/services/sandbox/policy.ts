@@ -150,9 +150,17 @@ export function getBundledSandboxHelperPath(): string | null {
   const helperRoot = path.join(getResourcesPath(), "sandbox-helper");
   const candidates = [
     path.join(runtimeDir, "bin", SANDBOX_HELPER_NAME),
-    path.join(runtimeDir, "windows", SANDBOX_HELPER_NAME),
     path.join(helperRoot, SANDBOX_HELPER_NAME),
   ];
+
+  // Windows 特有候选路径（sandbox-runtime/windows/ 目录）
+  if (process.platform === "win32") {
+    candidates.splice(
+      1,
+      0,
+      path.join(runtimeDir, "windows", SANDBOX_HELPER_NAME),
+    );
+  }
 
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
