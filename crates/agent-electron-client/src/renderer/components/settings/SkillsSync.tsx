@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
-import { fileServerService } from '../../services/integrations/fileServer';
-import { LOCAL_HOST_URL, DEFAULT_FILE_SERVER_PORT } from '@shared/constants';
+import { useState, useEffect, useRef } from "react";
+import { t } from "../../services/core/i18n";
+import { fileServerService } from "../../services/integrations/fileServer";
+import { LOCAL_HOST_URL, DEFAULT_FILE_SERVER_PORT } from "@shared/constants";
 
 interface SkillsSyncProps {
   isOpen: boolean;
@@ -8,11 +9,13 @@ interface SkillsSyncProps {
 }
 
 function SkillsSync({ isOpen, onClose }: SkillsSyncProps) {
-  const [baseUrl, setBaseUrl] = useState(`${LOCAL_HOST_URL}:${DEFAULT_FILE_SERVER_PORT}`);
+  const [baseUrl, setBaseUrl] = useState(
+    `${LOCAL_HOST_URL}:${DEFAULT_FILE_SERVER_PORT}`,
+  );
   const [connected, setConnected] = useState(false);
   const [checking, setChecking] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -32,8 +35,8 @@ function SkillsSync({ isOpen, onClose }: SkillsSyncProps) {
   const saveConfig = async () => {
     fileServerService.setConfig({ baseUrl });
     await fileServerService.saveConfig();
-    setMessage('配置已保存');
-    setTimeout(() => setMessage(''), 2000);
+    setMessage(t("Claw.SkillsSync.configSaved"));
+    setTimeout(() => setMessage(""), 2000);
   };
 
   const checkConnection = async () => {
@@ -46,37 +49,37 @@ function SkillsSync({ isOpen, onClose }: SkillsSyncProps) {
   const handleUpload = async () => {
     const file = fileInputRef.current?.files?.[0];
     if (!file) {
-      setMessage('请选择一个 ZIP 文件');
+      setMessage(t("Claw.SkillsSync.selectZipFile"));
       return;
     }
 
-    if (!file.name.endsWith('.zip')) {
-      setMessage('仅支持 ZIP 文件');
+    if (!file.name.endsWith(".zip")) {
+      setMessage(t("Claw.SkillsSync.onlyZipSupported"));
       return;
     }
 
     setUploading(true);
-    setMessage('');
+    setMessage("");
     setLogs([]);
 
     try {
       // Generate unique IDs
-      const userId = 'local-user';
+      const userId = "local-user";
       const cId = crypto.randomUUID();
 
-      addLog(`正在创建工作区并同步技能...`);
-      addLog(`用户 ID: ${userId}`);
-      addLog(`会话 ID: ${cId}`);
-      addLog(`文件: ${file.name}`);
+      addLog(t("Claw.SkillsSync.creatingWorkspaceAndSyncing"));
+      addLog(`User ID: ${userId}`);
+      addLog(`Session ID: ${cId}`);
+      addLog(`File: ${file.name}`);
 
       const result = await fileServerService.createWorkspace(userId, cId, file);
 
-      addLog(`✓ 工作区创建成功`);
-      addLog(`消息: ${result.message}`);
-      setMessage('技能同步成功');
+      addLog(`✓ ${t("Claw.SkillsSync.workspaceCreatedSuccess")}`);
+      addLog(`Message: ${result.message}`);
+      setMessage(t("Claw.SkillsSync.syncSuccess"));
     } catch (error) {
-      addLog(`✗ 错误: ${error}`);
-      setMessage(`错误: ${error}`);
+      addLog(`✗ ${t("Claw.SkillsSync.errorPrefix", { 0: String(error) })}`);
+      setMessage(t("Claw.SkillsSync.errorPrefix", { 0: String(error) }));
     } finally {
       setUploading(false);
     }
@@ -84,13 +87,18 @@ function SkillsSync({ isOpen, onClose }: SkillsSyncProps) {
 
   const addLog = (text: string) => {
     const timestamp = new Date().toLocaleTimeString();
-    setLogs(prev => [...prev, `[${timestamp}] ${text}`]);
+    setLogs((prev) => [...prev, `[${timestamp}] ${text}`]);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setMessage(`已选择: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
+      setMessage(
+        t("Claw.SkillsSync.fileSelected", {
+          0: file.name,
+          1: (file.size / 1024).toFixed(1),
+        }),
+      );
     }
   };
 
@@ -98,17 +106,22 @@ function SkillsSync({ isOpen, onClose }: SkillsSyncProps) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content skills-sync-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal-content skills-sync-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
-          <h2>技能同步（文件服务）</h2>
-          <button className="close-btn" onClick={onClose}>×</button>
+          <h2>{t("Claw.SkillsSync.title")}</h2>
+          <button className="close-btn" onClick={onClose}>
+            ×
+          </button>
         </div>
 
         <div className="skills-sync-section">
-          <h3>文件服务连接</h3>
+          <h3>{t("Claw.SkillsSync.fileServiceConnection")}</h3>
 
           <div className="form-group">
-            <label>服务地址</label>
+            <label>{t("Claw.SkillsSync.serviceAddress")}</label>
             <div className="input-with-button">
               <input
                 type="text"
@@ -117,27 +130,33 @@ function SkillsSync({ isOpen, onClose }: SkillsSyncProps) {
                 placeholder={`${LOCAL_HOST_URL}:${DEFAULT_FILE_SERVER_PORT}`}
               />
               <button
-                className={`check-btn ${checking ? 'checking' : ''}`}
+                className={`check-btn ${checking ? "checking" : ""}`}
                 onClick={checkConnection}
                 disabled={checking}
               >
-                {checking ? '...' : connected ? '✓ 已连接' : '○ 测试连接'}
+                {checking
+                  ? "..."
+                  : connected
+                    ? `✓ ${t("Claw.SkillsSync.connected")}`
+                    : `○ ${t("Claw.SkillsSync.testConnection")}`}
               </button>
             </div>
           </div>
 
           <button className="save-btn small" onClick={saveConfig}>
-            保存
+            {t("Claw.Common.save")}
           </button>
         </div>
 
         <div className="skills-sync-section">
-          <h3>上传技能包（ZIP）</h3>
+          <h3>{t("Claw.SkillsSync.uploadSkillPackage")}</h3>
 
-          <p className="hint">
-            上传包含 <code>skills/</code> 和/或 <code>agents/</code> 目录的 ZIP 文件，
-            将被解压到工作区的 <code>.claude/</code> 目录中。
-          </p>
+          <p
+            className="hint"
+            dangerouslySetInnerHTML={{
+              __html: t("Claw.SkillsSync.uploadHint"),
+            }}
+          />
 
           <div className="upload-area">
             <input
@@ -153,24 +172,30 @@ function SkillsSync({ isOpen, onClose }: SkillsSyncProps) {
               onClick={handleUpload}
               disabled={uploading || !connected}
             >
-              {uploading ? '上传中...' : '同步技能'}
+              {uploading
+                ? t("Claw.SkillsSync.uploading")
+                : t("Claw.SkillsSync.syncSkills")}
             </button>
           </div>
         </div>
 
         {logs.length > 0 && (
           <div className="skills-sync-section">
-            <h3>日志</h3>
+            <h3>{t("Claw.SkillsSync.logs")}</h3>
             <div className="log-area">
               {logs.map((log, i) => (
-                <div key={i} className="log-line">{log}</div>
+                <div key={i} className="log-line">
+                  {log}
+                </div>
               ))}
             </div>
           </div>
         )}
 
         {message && (
-          <div className={`skills-sync-message ${message.includes('错误') ? 'error' : 'success'}`}>
+          <div
+            className={`skills-sync-message ${message.includes(t("Claw.SkillsSync.errorPrefix").split("{0}")[0]) ? "error" : "success"}`}
+          >
             {message}
           </div>
         )}
