@@ -56,12 +56,37 @@ export async function buildSandboxedSpawnArgs(
     };
   }
 
+  // 已在沙箱内运行（由 nuwax-sandbox-helper serve 注入 NUWAX_IN_SANDBOX=1）
+  // 不再嵌套包装，否则受限 token 下子进程会 EPERM
+  if (process.env.NUWAX_IN_SANDBOX === "1") {
+    log.info("[SandboxProcessWrapper] 已在沙箱内，跳过嵌套包装");
+    return {
+      command: originalCommand,
+      args: originalArgs,
+      cleanupSandbox: NOOP_CLEANUP,
+    };
+  }
+
   const { type, projectWorkspaceDir, networkEnabled } = sandboxConfig;
 
   // Docker 后端暂不支持进程级包装
   if (type === "docker") {
     log.warn(
       "[SandboxProcessWrapper] Docker 进程级沙箱暂不支持（Phase 2），跳过包装",
+    );
+    return {
+      command: originalCommand,
+      args: originalArgs,
+      cleanupSandbox: NOOP_CLEANUP,
+    };
+  }
+
+  // Windows restricted token 无法创建子进程（EPERM），
+  // ACP 引擎需要 spawn claude-code CLI，不能在受限 token 下运行。
+  // 工具命令仍可通过 CommandSandbox.execute() 使用 `run` 子命令单独沙箱化。
+  if (type === "windows-sandbox") {
+    log.info(
+      "[SandboxProcessWrapper] Windows restricted token 不支持进程级沙箱（子进程 spawn 会 EPERM），跳过 ACP 引擎包装",
     );
     return {
       command: originalCommand,

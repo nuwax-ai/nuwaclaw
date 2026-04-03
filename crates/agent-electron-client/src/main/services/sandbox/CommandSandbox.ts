@@ -633,7 +633,7 @@ export class CommandSandbox extends SandboxManager {
         network_access: options.networkEnabled,
       };
       const helperArgs = [
-        "run",
+        "serve",
         "--mode",
         this.options.windowsSandboxMode ?? "read-only",
         "--cwd",
@@ -655,7 +655,6 @@ export class CommandSandbox extends SandboxManager {
         args: helperArgs,
         cwd,
         env: options.env,
-        parseJson: true,
       };
     }
 
