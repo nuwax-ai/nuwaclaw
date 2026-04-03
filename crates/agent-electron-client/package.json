@@ -199,6 +199,13 @@
         ]
       },
       {
+        "from": "resources/sandboxed-bash-mcp",
+        "to": "sandboxed-bash-mcp",
+        "filter": [
+          "**/*.mjs"
+        ]
+      },
+      {
         "from": "resources/sandbox-runtime",
         "to": "sandbox-runtime",
         "filter": [
@@ -309,6 +316,13 @@
           "to": "sandbox-helper",
           "filter": [
             "**/*.exe"
+          ]
+        },
+        {
+          "from": "resources/sandboxed-bash-mcp",
+          "to": "sandboxed-bash-mcp",
+          "filter": [
+            "**/*.mjs"
           ]
         }
       ]
