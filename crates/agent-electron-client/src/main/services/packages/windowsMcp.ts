@@ -9,7 +9,11 @@ import * as fs from "fs";
 import log from "electron-log";
 import { WindowsMcpManager, type ProcessConfig } from "agent-gui-server";
 import { ElectronProcessRunner } from "./windowsMcpRunner.js";
-import { getUvBinPath, getAppEnv } from "../system/dependencies";
+import {
+  getUvBinPath,
+  getAppEnv,
+  getWindowsMcpBinPath,
+} from "../system/dependencies";
 import { isWindows } from "../system/shellEnv";
 import { getGuiMcpPort } from "./guiAgentServer";
 import { killProcessTreesListeningOnTcpPortWindows } from "../utils/processTree";
@@ -49,23 +53,55 @@ export async function startWindowsMcp(): Promise<{
     return { success: true, port: status.port };
   }
 
-  // 检查 uv 是否可用
-  const uvPath = getUvBinPath();
-  if (!uvPath || !fs.existsSync(uvPath)) {
-    const error = "uv not found. Windows-MCP requires uv to be installed.";
-    log.warn(`[WindowsMcp] ${error}`);
-    return { success: false, error };
+  // 检查 bundled windows-mcp 是否可用
+  const windowsMcpBinPath = getWindowsMcpBinPath();
+  if (!windowsMcpBinPath) {
+    // 回退到 uv tool run（首次安装或打包不完整时）
+    const uvPath = getUvBinPath();
+    if (!uvPath || !fs.existsSync(uvPath)) {
+      const error =
+        "uv not found and windows-mcp not bundled. Please install uv.";
+      log.warn(`[WindowsMcp] ${error}`);
+      return { success: false, error };
+    }
+    log.info("[WindowsMcp] Using uv tool run (bundled not found)");
+    const buildConfig = (_port: number): ProcessConfig => ({
+      command: uvPath,
+      args: [
+        "tool",
+        "run",
+        "windows-mcp",
+        "--transport",
+        "streamable-http",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        getGuiMcpPort().toString(),
+      ],
+      env: {
+        ...getAppEnv({ includeSystemPath: true }),
+        // 禁用遥测
+        ANONYMIZED_TELEMETRY: "false",
+      },
+    });
+    log.info(
+      `[WindowsMcp] Starting (uv tool run) on port ${getGuiMcpPort()}...`,
+    );
+    const result = await windowsMcpManager.start(getGuiMcpPort(), buildConfig);
+    if (result.success) {
+      log.info(`[WindowsMcp] Started successfully on port ${result.port}`);
+    } else {
+      log.error(`[WindowsMcp] Failed to start: ${result.error}`);
+    }
+    return result;
   }
 
-  // 构建进程配置
+  // 构建进程配置（使用打包的二进制）
   // 注意：_port 参数被忽略，端口从 DB 配置读取（通过 getGuiMcpPort()）
   // 这是因为 windows-mcp 的端口由启动参数决定，而不是由 McpProxyManager 分配
   const buildConfig = (_port: number): ProcessConfig => ({
-    command: uvPath,
+    command: windowsMcpBinPath,
     args: [
-      "tool",
-      "run",
-      "windows-mcp",
       "--transport",
       "streamable-http",
       "--host",
@@ -90,7 +126,7 @@ export async function startWindowsMcp(): Promise<{
     log.warn("[WindowsMcp] Pre-start port sweep:", e);
   }
 
-  log.info(`[WindowsMcp] Starting on port ${port}...`);
+  log.info(`[WindowsMcp] Starting (bundled) on port ${port}...`);
 
   const result = await windowsMcpManager.start(port, buildConfig);
 
@@ -168,13 +204,20 @@ export function getWindowsMcpUrl(): string | null {
 }
 
 /**
- * 检查 Windows-MCP 是否可用（Windows 平台且 uv 已安装）
+ * 检查 Windows-MCP 是否可用（Windows 平台且 bundled 或 uv 可用）
  */
 export function isWindowsMcpAvailable(): boolean {
   if (!isWindows()) {
     return false;
   }
 
+  // 优先检查打包的二进制
+  const bundledPath = getWindowsMcpBinPath();
+  if (bundledPath) {
+    return true;
+  }
+
+  // 回退到 uv
   const uvPath = getUvBinPath();
   return uvPath !== null && fs.existsSync(uvPath);
 }
