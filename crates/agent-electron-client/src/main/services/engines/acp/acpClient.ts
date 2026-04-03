@@ -248,6 +248,41 @@ export interface AcpClientHandler {
     uri: string;
     content: string;
   }): Promise<Record<string, never>>;
+
+  // --- ACP Terminal API (terminal/* methods) ---
+
+  createTerminal?(params: {
+    sessionId: string;
+    command: string;
+    args?: string[];
+    env?: Array<{ name: string; value: string }>;
+    cwd?: string | null;
+    outputByteLimit?: number | null;
+  }): Promise<{ terminalId: string }>;
+
+  terminalOutput?(params: { sessionId: string; terminalId: string }): Promise<{
+    output: string;
+    truncated: boolean;
+    exitStatus?: {
+      exitCode: number | null;
+      signal: string | null;
+    } | null;
+  }>;
+
+  waitForTerminalExit?(params: {
+    sessionId: string;
+    terminalId: string;
+  }): Promise<{ exitCode: number | null; signal: string | null }>;
+
+  killTerminal?(params: {
+    sessionId: string;
+    terminalId: string;
+  }): Promise<Record<string, never>>;
+
+  releaseTerminal?(params: {
+    sessionId: string;
+    terminalId: string;
+  }): Promise<Record<string, never>>;
 }
 
 /** ACP session update types */
