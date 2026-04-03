@@ -79,7 +79,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("sandbox:policy:set", patch),
     capabilities: () => ipcRenderer.invoke("sandbox:capabilities"),
     setup: (params?: {
-      windows?: { sandbox?: { mode?: "unelevated" | "elevated" } };
+      windows?: { sandbox?: { mode?: "read-only" | "workspace-write" } };
     }) => ipcRenderer.invoke("sandbox:setup", params),
   },
 

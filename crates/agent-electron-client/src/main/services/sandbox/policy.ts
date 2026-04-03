@@ -23,8 +23,7 @@ export const DEFAULT_SANDBOX_POLICY: SandboxPolicy = {
   fallback: "degrade_to_off",
   windows: {
     sandbox: {
-      mode: "unelevated",
-      privateDesktop: true,
+      mode: "read-only",
     },
   },
 };
@@ -62,13 +61,9 @@ function normalizeSandboxPolicy(input: unknown): SandboxPolicy {
       ? input.fallback
       : DEFAULT_SANDBOX_POLICY.fallback;
   const windowsMode =
-    sandbox.mode === "unelevated" || sandbox.mode === "elevated"
+    sandbox.mode === "read-only" || sandbox.mode === "workspace-write"
       ? sandbox.mode
       : DEFAULT_SANDBOX_POLICY.windows.sandbox.mode;
-  const privateDesktop =
-    typeof sandbox.privateDesktop === "boolean"
-      ? sandbox.privateDesktop
-      : DEFAULT_SANDBOX_POLICY.windows.sandbox.privateDesktop;
 
   return {
     enabled,
@@ -78,7 +73,6 @@ function normalizeSandboxPolicy(input: unknown): SandboxPolicy {
     windows: {
       sandbox: {
         mode: windowsMode,
-        privateDesktop,
       },
     },
   };
@@ -140,13 +134,9 @@ export function getBundledLinuxBwrapPath(): string | null {
 export function getBundledWindowsSandboxHelperPath(): string | null {
   const runtimeDir = getSandboxRuntimeDir();
   const candidates = [
-    path.join(runtimeDir, "bin", "codex-sandbox-helper.exe"),
-    path.join(runtimeDir, "windows", "codex-sandbox-helper.exe"),
-    path.join(
-      getResourcesPath(),
-      "windows-sandbox",
-      "codex-sandbox-helper.exe",
-    ),
+    path.join(runtimeDir, "bin", "nuwax-sandbox-helper.exe"),
+    path.join(runtimeDir, "windows", "nuwax-sandbox-helper.exe"),
+    path.join(getResourcesPath(), "sandbox-helper", "nuwax-sandbox-helper.exe"),
   ];
 
   for (const candidate of candidates) {
@@ -260,7 +250,7 @@ function getBackendUnavailableReason(
     case "linux-bwrap":
       return caps.linuxBwrap.reason ?? "linux bwrap unavailable";
     case "windows-sandbox":
-      return caps.windowsSandbox.reason ?? "windows restricted unavailable";
+      return caps.windowsSandbox.reason ?? "Windows Sandbox unavailable";
     default:
       return "backend unavailable";
   }

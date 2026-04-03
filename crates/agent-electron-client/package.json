@@ -27,6 +27,8 @@
     "check-ports:dev": "node scripts/tools/check-startup-ports.js --vite",
     "prepare:mcp-proxy": "node scripts/prepare/prepare-mcp-proxy.js",
     "prepare:nuwaxcode": "node scripts/prepare/prepare-nuwaxcode.js",
+    "prepare:sandbox-runtime": "node scripts/prepare/prepare-sandbox-runtime.js",
+    "build:sandbox-helper": "node scripts/prepare/build-sandbox-helper.js",
     "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy && npm run prepare:nuwaxcode && npm run prepare:sandbox-runtime",
     "prepare:gui-server": "node scripts/prepare/prepare-gui-server.js",
     "electron-rebuild": "electron-rebuild -f -w better-sqlite3",

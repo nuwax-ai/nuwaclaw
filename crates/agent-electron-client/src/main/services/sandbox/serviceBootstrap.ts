@@ -100,7 +100,6 @@ function createSandboxManager(type: SandboxType): SandboxManager {
     linuxBwrapPath: getBundledLinuxBwrapPath() ?? undefined,
     windowsSandboxHelperPath: getBundledWindowsSandboxHelperPath() ?? undefined,
     windowsSandboxMode: lastPolicy.windows.sandbox.mode,
-    windowsSandboxPrivateDesktop: lastPolicy.windows.sandbox.privateDesktop,
   });
 }
 
@@ -119,7 +118,7 @@ function setupControlService(): void {
       return getSandboxCapabilities();
     },
     async setup(params) {
-      const mode = params?.windows?.sandbox?.mode ?? "unelevated";
+      const mode = params?.windows?.sandbox?.mode ?? "read-only";
       const helperPath = getBundledWindowsSandboxHelperPath();
       if (!helperPath) {
         return {

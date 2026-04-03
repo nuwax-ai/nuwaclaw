@@ -22,7 +22,7 @@ import type {
 const NOOP_CLEANUP = () => {};
 
 export interface SandboxedSpawn {
-  /** 包装后的命令（可能是 sandbox-exec / bwrap / codex helper） */
+  /** 包装后的命令（可能是 sandbox-exec / bwrap / nuwax sandbox helper） */
   command: string;
   /** 包装后的参数 */
   args: string[];
@@ -37,7 +37,6 @@ export interface SandboxedSpawn {
  * @param originalArgs 原始参数
  * @param cwd 工作目录
  * @param sandboxConfig 沙箱配置（undefined 表示不启用）
- * @param isNative 是否为原生二进制（nuwaxcode vs claude-code-acp-ts）
  * @param extraWritablePaths 运行时创建的额外可写路径（如 isolatedHome）
  * @returns 沙箱化的 spawn 参数 + 清理函数
  */
@@ -46,7 +45,6 @@ export async function buildSandboxedSpawnArgs(
   originalArgs: string[],
   cwd: string,
   sandboxConfig: SandboxProcessConfig | undefined,
-  isNative: boolean,
   extraWritablePaths: string[] = [],
 ): Promise<SandboxedSpawn> {
   // 未配置沙箱或已禁用，直接返回原始参数
@@ -85,7 +83,6 @@ export async function buildSandboxedSpawnArgs(
     linuxBwrapPath: sandboxConfig.linuxBwrapPath,
     windowsSandboxHelperPath: sandboxConfig.windowsSandboxHelperPath,
     windowsSandboxMode: sandboxConfig.windowsSandboxMode,
-    windowsSandboxPrivateDesktop: sandboxConfig.windowsSandboxPrivateDesktop,
   };
 
   const sandbox = new CommandSandbox(tempConfig, options);

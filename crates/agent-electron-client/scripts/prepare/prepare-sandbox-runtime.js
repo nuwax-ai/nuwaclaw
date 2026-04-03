@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 /**
- * 准备三端沙箱运行时资源（来自 crates/agent-sandbox-runtime 子模块）
+ * 准备三端沙箱运行时资源
  *
  * 约定：
  * - 子模块目录：../agent-sandbox-runtime（相对 crates/agent-electron-client）
  * - 清单文件：manifest.json
  * - 目标目录：resources/sandbox-runtime/bin
+ *
+ * Windows Sandbox helper (nuwax-sandbox-helper.exe) 由 Rust crate
+ * crates/windows-sandbox-helper 构建，需先执行 build:sandbox-helper。
  */
 
 const fs = require("fs");

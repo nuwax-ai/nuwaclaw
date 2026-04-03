@@ -699,7 +699,7 @@ export async function createAcpConnection(
   let sandboxCleanup: (() => void) | undefined;
 
   // --- Sandbox wrapping ---
-  // 沙箱启用时，将引擎二进制包装在 sandbox-exec / bwrap / codex helper 中
+  // 沙箱启用时，将引擎二进制包装在 sandbox-exec / bwrap / nuwax sandbox helper 中
   let spawnCommand = binPath;
   let spawnArgs = effectiveBinArgs;
   let sandboxed = false;
@@ -721,7 +721,6 @@ export async function createAcpConnection(
         effectiveSpawnArgs,
         config.workspaceDir,
         config.sandbox,
-        !!config.isNative,
         [isolatedHome], // isolatedHome 作为额外可写路径
       );
       spawnCommand = wrapped.command;

@@ -61,9 +61,9 @@ export type SandboxBackend =
 export type SandboxFallback = "degrade_to_off" | "fail_closed";
 
 /**
- * Windows Restricted Token 沙箱模式
+ * Windows Sandbox 模式
  */
-export type WindowsSandboxMode = "unelevated" | "elevated";
+export type WindowsSandboxMode = "read-only" | "workspace-write";
 
 /**
  * 统一沙箱策略
@@ -76,7 +76,6 @@ export interface SandboxPolicy {
   windows: {
     sandbox: {
       mode: WindowsSandboxMode;
-      privateDesktop: boolean;
     };
   };
 }
@@ -151,12 +150,10 @@ export interface SandboxProcessConfig {
   fallback: SandboxFallback;
   /** Linux bwrap 二进制路径（可选） */
   linuxBwrapPath?: string;
-  /** Windows Restricted helper 路径（可选） */
+  /** Windows Sandbox helper 路径（可选） */
   windowsSandboxHelperPath?: string;
-  /** Windows Restricted 模式（可选） */
+  /** Windows Sandbox 模式（可选） */
   windowsSandboxMode?: WindowsSandboxMode;
-  /** Windows Restricted 私有桌面（可选） */
-  windowsSandboxPrivateDesktop?: boolean;
 }
 
 // ============================================================================
