@@ -213,7 +213,7 @@ const fetchAndApplyLangMap = async (lang?: string): Promise<boolean> => {
   try {
     const result = await apiRequest<SystemLangMap>("/api/i18n/query", {
       method: "GET",
-      params: { lang: targetLang },
+      params: { lang: targetLang, side: "Claw" },
       headers: {
         "Accept-Language": targetLang,
         "X-Lang": targetLang,
@@ -236,7 +236,7 @@ const fetchZhBaseMap = async (): Promise<void> => {
   try {
     const result = await apiRequest<SystemLangMap>("/api/i18n/query", {
       method: "GET",
-      params: { lang: "zh-cn" },
+      params: { lang: "zh-cn", side: "Claw" },
       headers: {
         "Accept-Language": "zh-cn",
         "X-Lang": "zh-cn",
