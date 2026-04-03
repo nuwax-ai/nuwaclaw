@@ -312,24 +312,6 @@ export class AcpEngine extends EventEmitter {
           question: "deny",
         };
 
-        // 2. Per-command sandboxing config (Windows restricted token bypass)
-        // When NUWAX_SANDBOX_HELPER_PATH is set, nuwaxcode should route each
-        // bash/tool command through nuwax-sandbox-helper.exe run ...
-        const sandboxHelperPath = spawnEnv.NUWAX_SANDBOX_HELPER_PATH as
-          | string
-          | undefined;
-        if (sandboxHelperPath) {
-          configObj.sandbox = {
-            helper_path: sandboxHelperPath,
-            mode: (spawnEnv.NUWAX_SANDBOX_MODE as string) ?? "read-only",
-            network_enabled: spawnEnv.NUWAX_SANDBOX_NETWORK_ENABLED === "1",
-          };
-          log.info(
-            `${this.logTag} per-command sandbox config injected`,
-            configObj.sandbox,
-          );
-        }
-
         const configContent = JSON.stringify(configObj);
         spawnEnv.OPENCODE_CONFIG_CONTENT = configContent;
         log.info(
@@ -383,6 +365,38 @@ export class AcpEngine extends EventEmitter {
         }
       } catch (e) {
         log.warn(`${this.logTag} 沙箱策略解析失败，将以无沙箱模式运行:`, e);
+      }
+
+      // Per-command sandboxing for nuwaxcode on Windows:
+      // Process-level wrapping is bypassed (EPERM), so inject sandbox helper config
+      // into OPENCODE_CONFIG_CONTENT so nuwaxcode can self-sandbox individual commands.
+      // Must happen AFTER sandboxConfig is resolved.
+      if (
+        sandboxConfig?.enabled &&
+        sandboxConfig.type === "windows-sandbox" &&
+        this.engineName === "nuwaxcode" &&
+        sandboxConfig.windowsSandboxHelperPath
+      ) {
+        try {
+          const existingConfig = JSON.parse(
+            spawnEnv.OPENCODE_CONFIG_CONTENT as string,
+          ) as Record<string, unknown>;
+          existingConfig.sandbox = {
+            helper_path: sandboxConfig.windowsSandboxHelperPath,
+            mode: sandboxConfig.windowsSandboxMode ?? "read-only",
+            network_enabled: true, // engine always needs network (API calls)
+          };
+          spawnEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify(existingConfig);
+          log.info(
+            `${this.logTag} per-command sandbox config injected`,
+            existingConfig.sandbox,
+          );
+        } catch (e) {
+          log.warn(
+            `${this.logTag} failed to inject sandbox config into OPENCODE_CONFIG_CONTENT:`,
+            e,
+          );
+        }
       }
 
       const spawnTimer = perfEmitter.start();

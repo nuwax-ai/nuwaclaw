@@ -86,6 +86,11 @@ enum Subcommand {
     Run(CommonArgs),
     /// Run a command in the sandbox as a persistent stdio proxy.
     /// Stdin/stdout/stderr are forwarded bidirectionally.
+    ///
+    /// **WARNING**: Experimental. The restricted token prevents child processes
+    /// from spawning their own children (EPERM), making this mode incompatible
+    /// with ACP engines that need to spawn sub-processes (e.g., claude-code CLI,
+    /// MCP servers). Use `run` mode for per-command sandboxing instead.
     Serve(CommonArgs),
 }
 
