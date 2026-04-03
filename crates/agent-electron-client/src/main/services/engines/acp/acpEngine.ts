@@ -16,6 +16,7 @@ import { FEATURES } from "@shared/featureFlags";
 import { getGuiAgentServerUrl } from "@main/services/packages/guiAgentServer";
 import { getWindowsMcpUrl } from "@main/services/packages/windowsMcp";
 import { isWindows } from "@main/services/system/shellEnv";
+import { getResourcesPath } from "@main/services/system/dependencies";
 import {
   getSandboxPolicy,
   resolveSandboxType,
@@ -116,6 +117,8 @@ export class AcpEngine extends EventEmitter {
   private sandboxCleanup: (() => void) | null = null;
   /** Terminal manager for ACP terminal/* methods (per-command sandboxing) */
   private terminalManager: AcpTerminalManager | null = null;
+  /** Stored sandbox config for use in createSession (MCP Bash injection) */
+  private storedSandboxConfig: SandboxProcessConfig | null = null;
   private sessions = new Map<string, AcpSession>();
   private pendingPermissions = new Map<
     string,
@@ -426,6 +429,9 @@ export class AcpEngine extends EventEmitter {
           `${this.logTag} Terminal manager initialized (direct execution)`,
         );
       }
+
+      // Store sandbox config for use in createSession (MCP Bash injection)
+      this.storedSandboxConfig = sandboxConfig ?? null;
 
       // Build ACP client handler AFTER terminalManager is initialized
       // so that getClientHandlers() spread includes terminal methods.
@@ -740,29 +746,91 @@ export class AcpEngine extends EventEmitter {
       }
     }
 
+    // 3. Sandboxed Bash MCP — replace built-in Bash with sandboxed version on Windows
+    // Disables Claude Code's internal Bash (which runs unsandboxed) and provides
+    // an MCP "Bash" tool that routes all commands through nuwax-sandbox-helper.exe run.
+    if (
+      this.engineName === "claude-code" &&
+      this.storedSandboxConfig?.enabled &&
+      this.storedSandboxConfig.type === "windows-sandbox" &&
+      this.storedSandboxConfig.windowsSandboxHelperPath
+    ) {
+      const nodePath = process.execPath; // Electron's Node
+      // Use getResourcesPath() for both dev and packaged resolution.
+      // Script is bundled at resources/sandboxed-bash-mcp/sandboxed-bash-mcp.mjs
+      const scriptPath = path.join(
+        getResourcesPath(),
+        "sandboxed-bash-mcp",
+        "sandboxed-bash-mcp.mjs",
+      );
+      const resolvedScriptPath = path.resolve(scriptPath);
+
+      mcpServers.push({
+        name: "sandboxed-bash",
+        command: nodePath,
+        args: [resolvedScriptPath],
+        env: [
+          { name: "ELECTRON_RUN_AS_NODE", value: "1" },
+          {
+            name: "NUWAX_SANDBOX_HELPER_PATH",
+            value: this.storedSandboxConfig.windowsSandboxHelperPath,
+          },
+          {
+            name: "NUWAX_SANDBOX_MODE",
+            value: this.storedSandboxConfig.windowsSandboxMode ?? "read-only",
+          },
+          {
+            name: "NUWAX_SANDBOX_NETWORK_ENABLED",
+            value:
+              (this.storedSandboxConfig.networkEnabled ?? true) ? "1" : "0",
+          },
+          {
+            name: "NUWAX_SANDBOX_WRITABLE_ROOTS",
+            value: JSON.stringify(
+              this.storedSandboxConfig.projectWorkspaceDir
+                ? [this.storedSandboxConfig.projectWorkspaceDir]
+                : [],
+            ),
+          },
+        ],
+      });
+      log.info(
+        `${this.logTag} 🔒 Sandboxed Bash MCP injected (Windows, mode=${this.storedSandboxConfig.windowsSandboxMode ?? "read-only"})`,
+      );
+    }
+
     const sessionCwd = opts?.cwd || this.config.workspaceDir;
 
     // Build _meta with systemPrompt if provided (skip if empty or whitespace only)
     const systemPromptTrimmed = opts?.systemPrompt?.trim();
     const requestId = opts?.requestId;
-    const _meta =
-      systemPromptTrimmed || requestId
-        ? {
-            ...(systemPromptTrimmed
-              ? {
-                  systemPrompt: {
-                    append: systemPromptTrimmed,
-                  },
-                }
-              : {}),
-            ...(requestId
-              ? {
-                  requestId,
-                  request_id: requestId,
-                }
-              : {}),
-          }
-        : undefined;
+    const isWindowsSandbox =
+      this.engineName === "claude-code" &&
+      this.storedSandboxConfig?.enabled === true &&
+      this.storedSandboxConfig.type === "windows-sandbox";
+
+    const _meta: Record<string, unknown> | undefined = (() => {
+      const meta: Record<string, unknown> = {};
+      if (systemPromptTrimmed) {
+        meta.systemPrompt = { append: systemPromptTrimmed };
+      }
+      if (requestId) {
+        meta.requestId = requestId;
+        meta.request_id = requestId;
+      }
+      // Disable built-in Bash on Windows sandbox — replaced by MCP sandboxed-bash tool.
+      // claude-code-acp-ts reads _meta.claudeCode.options.disallowedTools and merges
+      // with its default disallowedTools (["AskUserQuestion"]).
+      // Result: built-in "Bash" is blocked, mcp__sandboxed-bash__Bash takes over.
+      if (isWindowsSandbox) {
+        meta.claudeCode = {
+          options: {
+            disallowedTools: ["Bash"],
+          },
+        };
+      }
+      return Object.keys(meta).length > 0 ? meta : undefined;
+    })();
 
     const newSessionParams = {
       cwd: sessionCwd,
