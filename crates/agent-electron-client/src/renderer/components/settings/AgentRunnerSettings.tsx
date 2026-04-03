@@ -54,14 +54,14 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
         if (result.success) {
           setMessage(t("Claw.AgentRunner.stopped"));
         } else {
-          setMessage(t("Claw.AgentRunner.error", result.error));
+          setMessage(t("Claw.AgentRunner.error", result.error || ""));
         }
       } else {
         const result = await agentRunnerManager.start();
         if (result.success) {
           setMessage(t("Claw.AgentRunner.started"));
         } else {
-          setMessage(t("Claw.AgentRunner.error", result.error));
+          setMessage(t("Claw.AgentRunner.error", result.error || ""));
         }
       }
     } catch (error) {
