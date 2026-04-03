@@ -44,6 +44,9 @@ crates/agent-electron-client/resources/nuwaxcode/
 # Bundled windows-mcp: 构建时 prepare:windows-mcp 生成，不入库
 crates/agent-electron-client/resources/windows-mcp/
 
+# Windows 专用 sandbox helper：build:sandbox-helper 生成，不入库
+crates/agent-electron-client/resources/sandbox-helper/*.exe
+
 # Prepare 脚本的临时下载缓存（不入库）
 crates/agent-electron-client/scripts/resources/
 

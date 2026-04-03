@@ -150,9 +150,9 @@ export interface SandboxProcessConfig {
   fallback: SandboxFallback;
   /** Linux bwrap 二进制路径（可选） */
   linuxBwrapPath?: string;
-  /** Windows Sandbox helper 路径（可选） */
+  /** 仅 win32：Windows Sandbox helper（.exe）路径 */
   windowsSandboxHelperPath?: string;
-  /** Windows Sandbox 模式（可选） */
+  /** 仅 win32：Windows Sandbox 模式 */
   windowsSandboxMode?: WindowsSandboxMode;
 }
 

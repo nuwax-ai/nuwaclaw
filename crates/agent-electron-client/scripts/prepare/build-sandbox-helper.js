@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Build the Windows Sandbox helper binary (nuwax-sandbox-helper.exe)
- * from the Rust crate at crates/windows-sandbox-helper.
+ * 构建 Windows 专用 Sandbox helper（nuwax-sandbox-helper.exe）。
+ * 产物仅被 Windows 版 Electron 客户端加载；建议在 Windows 宿主上执行，或在 macOS/Linux 上使用 --win 交叉编译。
  *
  * Usage:
- *   npm run build:sandbox-helper          # current platform
- *   npm run build:sandbox-helper -- --win  # cross-compile for Windows (macOS/Linux)
+ *   npm run build:sandbox-helper          # Windows 宿主：本机构建
+ *   npm run build:sandbox-helper -- --win  # 非 Windows：交叉编译 Windows x64
  *
  * Output: resources/sandbox-helper/nuwax-sandbox-helper.exe
  */
@@ -13,12 +13,16 @@
 const { execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
-const { getProjectRoot } = require("../utils/project-root");
+const { getProjectRoot, resolveFromProject } = require("../utils/project-paths");
 
 const projectRoot = getProjectRoot();
-const crateDir = path.join(projectRoot, "crates", "windows-sandbox-helper");
-const outputDir = path.join(projectRoot, "resources", "sandbox-helper");
-const binaryName = process.platform === "win32" ? "nuwax-sandbox-helper.exe" : "nuwax-sandbox-helper.exe";
+/**
+ * crate 位于 monorepo crates/ 下，与 agent-electron-client 同级。
+ * getProjectRoot() 返回 crates/agent-electron-client，故 crate 路径为
+ * path.resolve(projectRoot, '..', 'windows-sandbox-helper')。
+ */
+const crateDir = path.resolve(projectRoot, "..", "windows-sandbox-helper");
+const outputDir = resolveFromProject("resources", "sandbox-helper");
 
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -44,9 +48,16 @@ function main() {
   const onWindows = process.platform === "win32";
   if (!onWindows && !isWinTarget) {
     console.warn(
-      "[build-sandbox-helper] 非 Windows 环境；如需交叉编译添加 --win 标志",
+      "[build-sandbox-helper] 非 Windows 环境；如需交叉编译请使用: npm run build:sandbox-helper -- --win",
     );
-    // Still build for the current platform (will fail at link time, but check syntax)
+    return;
+  }
+
+  if (!fs.existsSync(path.join(crateDir, "Cargo.toml"))) {
+    console.error(
+      `[build-sandbox-helper] 未找到 crate 目录: ${crateDir}（请确认 monorepo 中存在 crates/windows-sandbox-helper）`,
+    );
+    process.exit(1);
   }
 
   ensureDir(outputDir);
@@ -88,8 +99,17 @@ function main() {
     }
 
     if (!fs.existsSync(srcPath)) {
-      // Try debug build
-      srcPath = srcPath.replace("/release/", "/debug/");
+      if (isWinTarget && process.platform !== "win32") {
+        srcPath = path.join(
+          crateDir,
+          "target",
+          "x86_64-pc-windows-msvc",
+          "debug",
+          "nuwax-sandbox-helper.exe",
+        );
+      } else {
+        srcPath = path.join(crateDir, "target", "debug", "nuwax-sandbox-helper.exe");
+      }
     }
 
     if (!fs.existsSync(srcPath)) {

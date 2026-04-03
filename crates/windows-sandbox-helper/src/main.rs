@@ -36,7 +36,6 @@ use env::{apply_no_network_to_env, ensure_non_interactive_pager, normalize_null_
 use logging::{debug_log, log_failure, log_start, log_success};
 use policy::SandboxPolicy;
 use std::collections::HashMap;
-use std::env;
 use std::ffi::c_void;
 use std::fs;
 use std::io;

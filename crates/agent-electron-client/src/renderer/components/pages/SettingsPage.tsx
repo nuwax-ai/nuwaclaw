@@ -398,8 +398,8 @@ export default function SettingsPage() {
     ? ""
     : [
         winSandboxCap?.reason || "helper 未就绪",
-        "请先接入 agent-sandbox-runtime 并在 agent-electron-client 下执行 npm run prepare:sandbox-runtime",
-        "将 codex-sandbox-helper.exe 置于 resources/sandbox-runtime/bin/",
+        "【仅 Windows】在 Windows 宿主上执行 npm run build:sandbox-helper（产出 resources/sandbox-helper/nuwax-sandbox-helper.exe）",
+        "或接入 agent-sandbox-runtime 后执行 npm run prepare:sandbox-runtime（win32 产物：nuwax-sandbox-helper.exe → resources/sandbox-runtime/bin/）",
       ].join("；");
 
   if (loading) {
@@ -670,7 +670,8 @@ export default function SettingsPage() {
                   <div>
                     <span className={styles.serviceLabel}>Windows Setup</span>
                     <div className={styles.serviceDescription}>
-                      校验 Sandbox helper 是否已随运行时接入
+                      仅 Windows：校验 nuwax-sandbox-helper 是否已构建（或由
+                      sandbox-runtime 同步 win32 产物）
                     </div>
                   </div>
                 </div>
