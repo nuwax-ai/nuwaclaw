@@ -110,5 +110,7 @@
   "Claw.AutoUpdater.installDevUnsupported": "Dev mode does not support installing updates",
   "Claw.AutoUpdater.getDownloadLinkFailed": "Failed to get download link",
   "Claw.AutoUpdater.getDownloadLinkFailedDetail": "Unable to get download link from server.\n\nError: {0}\n\nPlease check your network connection and try again.",
-  "Claw.AutoUpdater.versionFound": "New version v{0} found"
+  "Claw.AutoUpdater.versionFound": "New version v{} found",
+  "Claw.AutoUpdater.getUpdateInfoFailed": "Failed to get {} channel update info",
+  "Claw.AutoUpdater.invalidMetadataVersion": "Update metadata version is invalid (only x.y.z supported): {}"
 }

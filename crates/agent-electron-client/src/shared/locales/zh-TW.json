@@ -110,5 +110,7 @@
   "Claw.AutoUpdater.installDevUnsupported": "開發模式不支援安裝更新",
   "Claw.AutoUpdater.getDownloadLinkFailed": "取得下載連結失敗",
   "Claw.AutoUpdater.getDownloadLinkFailedDetail": "無法從伺服器取得下載連結\n\n錯誤: {0}\n\n請檢查網路連線後再試。",
-  "Claw.AutoUpdater.versionFound": "發現新版本 v{0}"
+  "Claw.AutoUpdater.versionFound": "發現新版本 v{}",
+  "Claw.AutoUpdater.getUpdateInfoFailed": "無法取得{}通道更新資訊",
+  "Claw.AutoUpdater.invalidMetadataVersion": "更新元資料版本號不合法（僅支援 x.y.z）：{}"
 }
