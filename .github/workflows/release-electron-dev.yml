@@ -352,9 +352,9 @@ jobs:
           add_platform "darwin-aarch64-zip" "NuwaClaw-${VERSION}-arm64-mac.zip"
           add_platform "darwin-x86_64"      "NuwaClaw-${VERSION}.dmg"
           add_platform "darwin-x86_64-zip"  "NuwaClaw-${VERSION}-mac.zip"
-          add_platform "windows-x86_64"      "NuwaClaw.Setup.${VERSION}.exe"
-          add_platform "windows-x86_64-nsis" "NuwaClaw.Setup.${VERSION}.exe"
-          add_platform "windows-x86_64-msi"  "NuwaClaw.${VERSION}.msi"
+          add_platform "windows-x86_64"      "NuwaClaw-Setup-${VERSION}-unsigned.exe"
+          add_platform "windows-x86_64-nsis" "NuwaClaw-Setup-${VERSION}-unsigned.exe"
+          add_platform "windows-x86_64-msi"  "NuwaClaw-${VERSION}-unsigned.msi"
           add_platform "linux-x86_64"          "NuwaClaw-${VERSION}.AppImage"
           add_platform "linux-x86_64-appimage" "NuwaClaw-${VERSION}.AppImage"
           add_platform "linux-x86_64-deb"      "NuwaClaw-${VERSION}-amd64.deb"
@@ -389,16 +389,6 @@ jobs:
             done
           fi
 
-          LATEST_JSON=$(jq -n \
-            --arg version "$VERSION" \
-            --arg notes "$NOTES" \
-            --arg pub_date "$PUB_DATE" \
-            --argjson platforms "$PLATFORMS" \
-            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms}')
-          echo "$LATEST_JSON" > /tmp/latest.json
-          echo "==> Generated latest.json"
-          echo "$LATEST_JSON" | jq .
-
           gen_yml() {
             local channel="$1"
             local keys="$2"
@@ -431,6 +421,24 @@ jobs:
           gen_yml "latest-linux-x64" "$LINUX_X64_KEYS"
           gen_yml "latest" "$WIN_KEYS"
           echo "==> Platform yml written to ${ASSETS_DIR}"
+
+          # 构建 yml 文件的完整 OSS URL（供客户端 electron-updater 直接使用）
+          YML_URLS=$(jq -n \
+            --arg darwin "${OSS_URL_PREFIX}/latest-mac.yml" \
+            --arg linux "${OSS_URL_PREFIX}/latest-linux.yml" \
+            --arg win "${OSS_URL_PREFIX}/latest.yml" \
+            '{darwin: $darwin, linux: $linux, win: $win}')
+
+          LATEST_JSON=$(jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --argjson platforms "$PLATFORMS" \
+            --argjson yml "$YML_URLS" \
+            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms, yml: $yml}')
+          echo "$LATEST_JSON" > /tmp/latest.json
+          echo "==> Generated latest.json"
+          echo "$LATEST_JSON" | jq .
 
       - name: Upload all assets to versioned path
         env:
