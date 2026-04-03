@@ -152,6 +152,21 @@ const writeToSettings = async (key: string, value: string): Promise<void> => {
   }
 };
 
+/**
+ * 获取用户配置的服务器域名
+ * 优先使用 step1_config.serverHost（用户登录时配置的域名）
+ */
+const getUserDomain = async (): Promise<string | null> => {
+  try {
+    const step1 = (await window.electronAPI?.settings.get("step1_config")) as {
+      serverHost?: string;
+    } | null;
+    return step1?.serverHost || null;
+  } catch {
+    return null;
+  }
+};
+
 const readMapFromCache = async (
   lang: string,
 ): Promise<SystemLangMap | null> => {
@@ -215,6 +230,7 @@ const buildZhValueToKeyMap = (map: SystemLangMap): void => {
 
 const fetchAndApplyLangMap = async (lang?: string): Promise<boolean> => {
   const targetLang = normalizeLang(lang || currentLang);
+  const userDomain = await getUserDomain();
   try {
     const result = await apiRequest<SystemLangMap>("/api/i18n/query", {
       method: "GET",
@@ -224,6 +240,7 @@ const fetchAndApplyLangMap = async (lang?: string): Promise<boolean> => {
         "X-Lang": targetLang,
       },
       showError: false,
+      baseUrl: userDomain || undefined,
     });
     langMap = {
       ...getLocaleMap(targetLang),
@@ -238,6 +255,7 @@ const fetchAndApplyLangMap = async (lang?: string): Promise<boolean> => {
 
 const fetchZhBaseMap = async (): Promise<void> => {
   zhBaseMap = { ...getLocaleMap("zh-cn") };
+  const userDomain = await getUserDomain();
   try {
     const result = await apiRequest<SystemLangMap>("/api/i18n/query", {
       method: "GET",
@@ -247,6 +265,7 @@ const fetchZhBaseMap = async (): Promise<void> => {
         "X-Lang": "zh-cn",
       },
       showError: false,
+      baseUrl: userDomain || undefined,
     });
     if (result) {
       zhBaseMap = {
