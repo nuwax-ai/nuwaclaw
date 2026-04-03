@@ -20,6 +20,7 @@
 import { spawn, ChildProcess } from "child_process";
 import log from "electron-log";
 import { SandboxInvoker } from "@main/services/sandbox/SandboxInvoker";
+import { killProcessTree } from "@main/services/utils/processTree";
 import type { WindowsSandboxMode } from "@shared/types/sandbox";
 
 // ============================================================================
@@ -282,7 +283,12 @@ export class AcpTerminalManager {
     }
     log.info("[AcpTerminalManager] Killing terminal:", terminalId);
     try {
-      t.process.kill("SIGKILL");
+      const pid = t.process.pid;
+      if (pid) {
+        await killProcessTree(pid, "SIGKILL");
+      } else {
+        t.process.kill("SIGKILL");
+      }
     } catch {
       // Process may have already exited
     }
@@ -301,7 +307,12 @@ export class AcpTerminalManager {
     log.info("[AcpTerminalManager] Releasing terminal:", terminalId);
     if (t.process) {
       try {
-        t.process.kill("SIGKILL");
+        const pid = t.process.pid;
+        if (pid) {
+          await killProcessTree(pid, "SIGKILL");
+        } else {
+          t.process.kill("SIGKILL");
+        }
       } catch {
         // ignore
       }
@@ -429,8 +440,13 @@ export class AcpTerminalManager {
         jsonBuffer += data.toString();
       });
       proc.stderr?.on("data", (data: Buffer) => {
-        // stderr from helper itself is debug output, append to session output
-        this.appendOutput(session, data);
+        // stderr from helper itself is debug output — log but don't mix into
+        // the session output buffer. The real command stderr comes from the
+        // JSON envelope after the helper exits.
+        log.debug(
+          "[AcpTerminalManager] Sandbox helper stderr:",
+          data.toString().trim(),
+        );
       });
       proc.on("close", (code, signal) => {
         // Parse the JSON result from helper

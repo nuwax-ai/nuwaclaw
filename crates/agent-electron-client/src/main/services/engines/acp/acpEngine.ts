@@ -1675,6 +1675,11 @@ ${memoryContext}
   // === Internal: Build ACP Client Handler ===
 
   private buildClientHandler(): AcpClientHandler {
+    if (!this.terminalManager) {
+      log.warn(
+        `${this.logTag} ⚠️ buildClientHandler called with no terminalManager — terminal methods will be missing`,
+      );
+    }
     return {
       sessionUpdate: async (params: {
         sessionId: string;
