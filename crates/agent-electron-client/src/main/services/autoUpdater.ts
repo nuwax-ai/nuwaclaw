@@ -54,6 +54,8 @@ interface LatestJson {
     string,
     { url: string; signature?: string; size?: number }
   >;
+  /** yml 文件的完整 OSS URL（新增字段，CI 生成；旧版 CI 无此字段则降级到老逻辑） */
+  yml?: Record<string, string>;
 }
 
 function getUpdateChannel(): UpdateChannel {
@@ -400,10 +402,17 @@ async function doCheckViaLatestJson(): Promise<UpdateInfo> {
   const hasUpdate = compareVersions(latestJson.version, app.getVersion()) > 0;
 
   if (hasUpdate) {
-    // 指向版本化 OSS 路径，electron-updater 从该路径下载安装包
-    const versionedUrl = `${OSS_BASE}/electron-v${latestJson.version}`;
+    // 优先从 latest.json 的 yml 字段读取完整 yml URL（CI 生成，支持任意 OSS 路径结构）
+    // 降级老逻辑：客户端自己拼接 electron-v{version} 或 beta-build/prerelease-v{version} 路径
+    const platformKey = process.platform === "win32" ? "win" : process.platform;
+    const ymlUrl = latestJson.yml?.[platformKey];
+    const versionedUrl = ymlUrl
+      ? ymlUrl
+      : updateChannel === "beta"
+        ? `${OSS_BASE}/beta-build/prerelease-v${latestJson.version}`
+        : `${OSS_BASE}/electron-v${latestJson.version}`;
     log.info(
-      `[AutoUpdater] New version ${latestJson.version} found via channel=${updateChannel}, setting feed URL: ${versionedUrl}`,
+      `[AutoUpdater] New version ${latestJson.version} found via channel=${updateChannel}, ymlUrl=${ymlUrl ?? "fallback"}, setting feed URL: ${versionedUrl}`,
     );
     autoUpdater.setFeedURL({ provider: "generic", url: versionedUrl });
     // 初始化 electron-updater 内部状态，为后续 downloadUpdate() 做准备
@@ -714,8 +723,9 @@ export async function showUpdateDialogFlow(): Promise<void> {
  * 手动检查更新（通过 latest.json）
  */
 export async function checkForUpdates(): Promise<UpdateInfo> {
-  // 自定义更新源覆盖时，直接走 electron-updater（已在 init 中设置 feedURL）
-  if (process.env.NUWAX_UPDATE_SERVER) {
+  // 自定义更新源（本地测试用）直接走 electron-updater，适用于 stable 通道
+  // beta 通道始终走 doCheckViaLatestJson，确保 feedURL 指向 beta-build 路径
+  if (process.env.NUWAX_UPDATE_SERVER && getUpdateChannel() === "stable") {
     try {
       const { autoUpdater } = require("electron-updater");
       setState({
