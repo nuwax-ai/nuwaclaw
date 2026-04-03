@@ -21,11 +21,7 @@ import type {
   LocalDependencyItem,
   DependencyStatus,
 } from "@shared/types/electron";
-import {
-  DEPENDENCY_STATUS_LABELS,
-  ACTION_MESSAGES,
-  I18N_KEYS,
-} from "@shared/constants";
+import { I18N_KEYS } from "@shared/constants";
 import { t } from "../../services/core/i18n";
 import styles from "../../styles/components/ClientPage.module.css";
 
@@ -482,9 +478,16 @@ export default function DependenciesPage() {
   };
 
   const getStatusText = (status: DependencyStatus) => {
-    return (
-      DEPENDENCY_STATUS_LABELS[status] || DEPENDENCY_STATUS_LABELS.checking
-    );
+    const keyMap: Record<DependencyStatus, string> = {
+      checking: "Claw.Components.Dependency.checking",
+      installed: "Claw.Components.Dependency.installed",
+      missing: "Claw.Components.Dependency.missing",
+      outdated: "Claw.Components.Dependency.outdated",
+      installing: "Claw.Components.Dependency.installing",
+      bundled: "Claw.Components.Dependency.bundled",
+      error: "Claw.Components.Dependency.error",
+    };
+    return t(keyMap[status] || keyMap.checking);
   };
 
   // Node.js and uv must both be ready
