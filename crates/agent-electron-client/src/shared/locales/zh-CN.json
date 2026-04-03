@@ -12,7 +12,6 @@
   "Claw.Common.noData": "暂无数据",
   "Claw.Common.back": "返回",
   "Claw.Common.refresh": "刷新",
-
   "Claw.Pages.Dependencies.systemEnv": "系统环境",
   "Claw.Pages.Dependencies.dependencyPackages": "依赖包",
   "Claw.Pages.Dependencies.checking": "检测中...",
@@ -59,7 +58,6 @@
   "Claw.Pages.Dependencies.msgNoDependenciesToInstall": "没有需要安装或升级的依赖",
   "Claw.Pages.Dependencies.msgInstallFailed": "安装失败: {0}",
   "Claw.Pages.Dependencies.msgSystemEnvRequired": "请先满足系统环境要求，再安装依赖包",
-
   "Claw.Components.Dependency.checking": "检查中",
   "Claw.Components.Dependency.installed": "已安装",
   "Claw.Components.Dependency.missing": "缺失",
@@ -73,7 +71,6 @@
   "Claw.Components.Action.needConfig": "需配置",
   "Claw.Components.Action.allReady": "所有依赖已就绪",
   "Claw.Components.Action.allInstalled": "已就绪",
-
   "Claw.Tray.showWindow": "显示主窗口",
   "Claw.Tray.restartServices": "重启服务",
   "Claw.Tray.stopServices": "停止服务",
@@ -85,10 +82,8 @@
   "Claw.Tray.Status.stopped": "已停止",
   "Claw.Tray.Status.error": "错误",
   "Claw.Tray.Status.starting": "启动中",
-
   "Claw.Dialog.error": "错误",
   "Claw.Dialog.autoLaunchFailed": "设置开机自启动失败",
-
   "Claw.AutoUpdater.networkFailed": "网络请求失败",
   "Claw.AutoUpdater.newVersionFound": "发现新版本",
   "Claw.AutoUpdater.downloadFailed": "下载失败",
@@ -113,25 +108,12 @@
   "Claw.AutoUpdater.versionFound": "发现新版本 v{}",
   "Claw.AutoUpdater.getUpdateInfoFailed": "无法获取{}通道更新信息",
   "Claw.AutoUpdater.invalidMetadataVersion": "更新元数据版本号不合法（仅支持 x.y.z）：{}",
-
   "Claw.Agent.Status.idle": "就绪",
   "Claw.Agent.Status.starting": "启动中",
   "Claw.Agent.Status.running": "运行中",
   "Claw.Agent.Status.busy": "繁忙",
   "Claw.Agent.Status.stopped": "已停止",
   "Claw.Agent.Status.error": "错误",
-
-  "Claw.Common.loading": "加载中...",
-  "Claw.Common.confirm": "确认",
-  "Claw.Common.cancel": "取消",
-  "Claw.Common.save": "保存",
-  "Claw.Common.delete": "删除",
-  "Claw.Common.edit": "编辑",
-  "Claw.Common.back": "返回",
-  "Claw.Common.refresh": "刷新",
-  "Claw.Common.close": "关闭",
-  "Claw.Common.retry": "重试",
-
   "Claw.Menu.client": "客户端",
   "Claw.Menu.session": "会话",
   "Claw.Menu.settings": "设置",
@@ -139,7 +121,6 @@
   "Claw.Menu.authorization": "授权",
   "Claw.Menu.logs": "日志",
   "Claw.Menu.about": "关于",
-
   "Claw.App.ConfigSyncFailed": "配置同步失败",
   "Claw.App.ConfigSyncFailedDetail": "无法连接到服务器获取最新配置，服务未重启。请检查网络后重试。",
   "Claw.App.Retry": "重试",
@@ -152,7 +133,13 @@
   "Claw.App.ServicesRestartSuccess": "服务重启成功",
   "Claw.App.Loading": "加载中...",
   "Claw.App.User": "用户",
-
+  "Claw.App.defaultUsername": "用户",
+  "Claw.App.agentInterfaceFailed": "Agent 接口服务启动失败: {0}",
+  "Claw.App.agentInterfaceNotRunning": "Agent 接口服务未运行",
+  "Claw.App.channelCheckFailed": "通道检查失败: {0}",
+  "Claw.App.serviceRestartFailed": "服务重启失败: {0}",
+  "Claw.App.back": "返回",
+  "Claw.App.refresh": "刷新",
   "Claw.Service.file": "文件服务",
   "Claw.Service.fileDesc": "Agent 工作目录文件远程管理服务",
   "Claw.Service.agent": "Agent 服务",
@@ -165,7 +152,6 @@
   "Claw.Service.proxyDesc": "网络通道",
   "Claw.Service.admin": "管理服务",
   "Claw.Service.adminDesc": "管理接口服务（重启/健康检查）",
-
   "Claw.Permissions.granted": "已授权",
   "Claw.Permissions.denied": "未授权",
   "Claw.Permissions.unknown": "未知",
@@ -175,7 +161,6 @@
   "Claw.Permissions.openSettings": "前往设置",
   "Claw.Permissions.allGranted": "所有权限已授权",
   "Claw.Permissions.cannotOpenSettings": "无法打开系统设置",
-
   "Claw.Client.domainRequired": "请输入服务域名",
   "Claw.Client.accountRequired": "请输入账号",
   "Claw.Client.codeRequired": "请填写动态认证码",
@@ -194,12 +179,10 @@
   "Claw.Client.passwordPlaceholder": "请输入密码或动态认证码（在浏览器打开你的域名登录，然后在用户资料中查看）",
   "Claw.Client.missingDepsCannotStart": "缺少必需依赖，无法启动服务",
   "Claw.Client.qrCode": "扫码使用",
-
   "Claw.EmbeddedWebview.loadFailed": "加载失败: {0} ({1})",
   "Claw.EmbeddedWebview.back": "返回",
   "Claw.EmbeddedWebview.refresh": "刷新",
   "Claw.EmbeddedWebview.unknownError": "未知错误",
-
   "Claw.Permission.command": "命令",
   "Claw.Permission.envVars": "环境变量",
   "Claw.Permission.file": "文件",
@@ -209,7 +192,6 @@
   "Claw.Permission.deny": "拒绝",
   "Claw.Permission.allowOnce": "本次允许",
   "Claw.Permission.allowAlways": "始终允许",
-
   "Claw.AgentRunner.configSaved": "配置已保存",
   "Claw.AgentRunner.stopped": "Agent Runner 已停止",
   "Claw.AgentRunner.started": "Agent Runner 已启动",
@@ -228,7 +210,6 @@
   "Claw.AgentRunner.apiBaseUrl": "API 基础 URL",
   "Claw.AgentRunner.defaultModel": "默认模型",
   "Claw.AgentRunner.saveConfig": "保存配置",
-
   "Claw.IMSettings.title": "即时通讯集成",
   "Claw.IMSettings.platform.dingtalk": "钉钉",
   "Claw.IMSettings.platform.feishu": "飞书",
@@ -246,7 +227,6 @@
   "Claw.IMSettings.connecting": "连接中...",
   "Claw.IMSettings.connect": "连接",
   "Claw.IMSettings.saveConfig": "保存配置",
-
   "Claw.SkillsSync.title": "技能同步（文件服务）",
   "Claw.SkillsSync.fileServiceConnection": "文件服务连接",
   "Claw.SkillsSync.serviceAddress": "服务地址",
@@ -265,7 +245,6 @@
   "Claw.SkillsSync.syncSuccess": "技能同步成功",
   "Claw.SkillsSync.errorPrefix": "错误: {0}",
   "Claw.SkillsSync.fileSelected": "已选择: {0} ({1} KB)",
-
   "Claw.Lanproxy.title": "内网穿透 (Lanproxy)",
   "Claw.Lanproxy.notLoggedIn": "(未登录)",
   "Claw.Lanproxy.configSaved": "配置已保存",
@@ -285,7 +264,6 @@
   "Claw.Lanproxy.enable": "启用",
   "Claw.Lanproxy.disable": "禁用",
   "Claw.Lanproxy.saveConfig": "保存配置",
-
   "Claw.TaskSettings.title": "定时任务",
   "Claw.TaskSettings.taskCount": "{0} 个任务",
   "Claw.TaskSettings.addTask": "+ 添加任务",
@@ -328,7 +306,6 @@
   "Claw.TaskSettings.seconds": "{0} 秒",
   "Claw.TaskSettings.minutes": "{0} 分钟",
   "Claw.TaskSettings.hours": "{0} 小时",
-
   "Claw.Setup.basicConfig.title": "基础设置",
   "Claw.Setup.basicConfig.description": "完成配置后即可使用，进度自动保存",
   "Claw.Setup.basicConfig.fileServerPort": "文件服务端口",
@@ -342,7 +319,6 @@
   "Claw.Setup.basicConfig.workspaceDirRequired": "请选择工作区目录",
   "Claw.Setup.basicConfig.saved": "基础配置已保存",
   "Claw.Setup.basicConfig.saveFailed": "保存配置失败",
-
   "Claw.Setup.login.title": "账号登录",
   "Claw.Setup.login.alreadyLoggedIn": "已登录",
   "Claw.Setup.login.currentDomain": "当前域名：{domain}",
@@ -363,17 +339,13 @@
   "Claw.Setup.login.pleaseWait": "请稍后 ({seconds}s)",
   "Claw.Setup.login.loginButton": "登录",
   "Claw.Setup.login.supportMultipleAccountTypes": "支持用户名、邮箱、手机号登录",
-
   "Claw.Setup.completed.title": "初始化完成",
   "Claw.Setup.completed.subTitle": "正在进入主界面...",
-
   "Claw.Setup.dependencies.checking": "检查和安装必需依赖",
   "Claw.Setup.quickInit.configuring": "正在自动配置...",
-
   "Claw.Setup.wizardTitle": "初始化向导",
   "Claw.Setup.wizardSubtitle": "完成配置后即可使用",
   "Claw.Setup.footer.autoSaved": "进度自动保存",
-
   "Claw.GUIAgent.title": "GUI Agent 视觉模型",
   "Claw.GUIAgent.provider.zhipu": "智谱 AI",
   "Claw.GUIAgent.provider.qwen": "通义千问",
@@ -416,7 +388,6 @@
   "Claw.GUIAgent.form.stepDelay": "步骤延迟 (ms)",
   "Claw.GUIAgent.form.jpegQuality": "截图质量",
   "Claw.GUIAgent.description": "GUI Agent 通过截图分析 + 键鼠模拟自动执行桌面任务",
-
   "Claw.Dependencies.uvConfirmed": "uv 已确认（{context}，{version}）",
   "Claw.Dependencies.dependencyList": "依赖清单",
   "Claw.Dependencies.showOnlyProblems": "仅显示问题",
@@ -436,7 +407,6 @@
   "Claw.Dependencies.upgradeFailed": "升级失败",
   "Claw.Dependencies.pleaseInstallSystemDeps": "请安装所需系统依赖，然后点击「重新检测」",
   "Claw.Dependencies.recheck": "重新检测",
-
   "Claw.Sessions.loginFirst": "登录信息不完整，请先登录",
   "Claw.Sessions.getSessionUrlFailed": "获取会话地址失败",
   "Claw.Sessions.sessionStopped": "会话已停止",
@@ -454,7 +424,6 @@
   "Claw.Sessions.lastActivity": "最后活动",
   "Claw.Sessions.open": "打开",
   "Claw.Sessions.stop": "停止",
-
   "Claw.DevTools.resetInitSuccess": "初始化状态已重置，刷新页面后将重新显示设置向导",
   "Claw.DevTools.resetFailed": "重置失败",
   "Claw.DevTools.clearAuthSuccess": "登录状态已清除",
@@ -486,7 +455,6 @@
   "Claw.DevTools.fullInitFlowHint": "测试依赖安装 + 配置 + 登录完整流程",
   "Claw.DevTools.setupDepsUiTest": "SetupDependencies UI 测试",
   "Claw.DevTools.setupWizardFlowTest": "初始化向导完整流程测试",
-
   "Claw.Agent.loadConfigFailed": "加载配置失败",
   "Claw.Agent.checkStatusFailed": "检查状态失败",
   "Claw.Agent.configSaved": "配置已保存",
@@ -510,7 +478,6 @@
   "Claw.Agent.apiBaseUrl": "API 基础 URL",
   "Claw.Agent.model": "模型",
   "Claw.Agent.saveConfig": "保存配置",
-
   "Claw.About.checking": "检查中...",
   "Claw.About.alreadyLatest": "当前已是最新版本",
   "Claw.About.checkFailed": "检查更新失败",
@@ -561,10 +528,8 @@
   "Claw.About.totalAppFiles": "目录文件数",
   "Claw.About.switchOn": "开",
   "Claw.About.switchOff": "关",
-
   "Claw.Common.yes": "是",
   "Claw.Common.no": "否",
-
   "Claw.Settings.saveConfig.title": "服务配置",
   "Claw.Settings.saveConfig.edit": "编辑",
   "Claw.Settings.saveConfig.cancel": "取消",
@@ -576,12 +541,10 @@
   "Claw.Settings.saveConfig.adminServerPortExtra": "默认 60007，用于重启服务等管理接口",
   "Claw.Settings.saveConfig.enterPort": "请输入端口",
   "Claw.Settings.saveConfig.restartHint": "修改配置后需要重启服务才能生效",
-
   "Claw.Settings.workspace.title": "工作区目录",
   "Claw.Settings.workspace.selectDir": "请选择工作区目录",
   "Claw.Settings.workspace.clickToSelect": "点击选择目录",
   "Claw.Settings.workspace.select": "选择",
-
   "Claw.Settings.sandbox.title": "沙箱",
   "Claw.Settings.sandbox.enable": "启用沙箱",
   "Claw.Settings.sandbox.enableDesc": "关闭后命令将直接在工作区执行",
@@ -607,7 +570,6 @@
   "Claw.Settings.sandbox.backendMacosSeatbelt": "macOS sandbox-exec",
   "Claw.Settings.sandbox.backendLinuxBwrap": "Linux bubblewrap",
   "Claw.Settings.sandbox.backendWindowsSandbox": "Windows Sandbox",
-
   "Claw.Settings.system.title": "系统",
   "Claw.Settings.system.autoLaunch": "开机自启动",
   "Claw.Settings.system.autoLaunchDesc": "系统启动时自动运行 {appName}",
@@ -622,9 +584,7 @@
   "Claw.Settings.system.workspaceDir": "工作空间目录",
   "Claw.Settings.system.notSet": "未设置",
   "Claw.Settings.system.open": "打开",
-
   "Claw.Settings.dialog.selectWorkspace": "选择工作区目录",
-
   "Claw.Settings.messages.saveConfig": "保存配置",
   "Claw.Settings.messages.saveConfigConfirm": "保存后需要重启服务才能生效，确定保存吗？",
   "Claw.Settings.messages.autoLaunchEnabled": "已开启开机自启动",
@@ -639,7 +599,6 @@
   "Claw.Settings.messages.helperNotReady": "helper 未就绪",
   "Claw.Settings.messages.windowsSetupHelperHint": "【仅 Windows】在 Windows 宿主上执行 npm run build:sandbox-helper（产出 resources/sandbox-helper/nuwax-sandbox-helper.exe），或接入 agent-sandbox-runtime 后执行 npm run prepare:sandbox-runtime（win32 产物：nuwax-sandbox-helper.exe → resources/sandbox-runtime/bin/）",
   "Claw.Settings.messages.settingFailed": "设置失败",
-
   "Claw.MCP.title": "MCP Proxy 服务管理",
   "Claw.MCP.status.ready": "就绪",
   "Claw.MCP.status.notReady": "未就绪",
@@ -683,6 +642,29 @@
   "Claw.MCP.message.proxyReady": "MCP Proxy 就绪",
   "Claw.MCP.message.checkFailed": "检测失败: {0}",
   "Claw.MCP.message.error": "错误: {0}",
-
-  "Claw.Common.saveFailed": "保存失败"
+  "Claw.Common.saveFailed": "保存失败",
+  "Claw.Client.startSession": "开始会话",
+  "Claw.Client.login": "登录",
+  "Claw.Client.logout": "退出",
+  "Claw.Client.cancel": "取消",
+  "Claw.Client.defaultUser": "用户",
+  "Claw.Client.loginHint": "支持用户名、邮箱、手机号",
+  "Claw.Client.starting": "启动中",
+  "Claw.Client.stopping": "停止中",
+  "Claw.Client.running": "运行中",
+  "Claw.Client.stopped": "已停止",
+  "Claw.Client.stop": "停止",
+  "Claw.Client.start": "启动",
+  "Claw.Client.goInstall": "前往安装",
+  "Claw.Client.settings": "设置",
+  "Claw.Client.dependencies": "依赖",
+  "Claw.Client.about": "关于",
+  "Claw.Client.accountStatus": "账号状态",
+  "Claw.Client.services": "服务",
+  "Claw.Client.refresh": "刷新",
+  "Claw.Client.startAll": "启动全部",
+  "Claw.Client.stopAll": "停止全部",
+  "Claw.Client.quickActions": "快捷操作",
+  "Claw.Client.serviceStartFailed": "{0} 启动失败: {1}",
+  "Claw.Client.stopFailed": "停止失败: {0}"
 }

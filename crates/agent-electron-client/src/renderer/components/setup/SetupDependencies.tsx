@@ -647,7 +647,7 @@ export default function SetupDependencies({
               setInstallPhase("checking");
             }}
           >
-            重新检测
+            {t("Claw.Dependencies.recheck")}
           </Button>
           <Button
             type="primary"

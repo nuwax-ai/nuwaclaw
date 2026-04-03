@@ -12,7 +12,6 @@
   "Claw.Common.noData": "No Data",
   "Claw.Common.back": "Back",
   "Claw.Common.refresh": "Refresh",
-
   "Claw.Pages.Dependencies.systemEnv": "System Environment",
   "Claw.Pages.Dependencies.dependencyPackages": "Dependencies",
   "Claw.Pages.Dependencies.checking": "Checking...",
@@ -59,7 +58,6 @@
   "Claw.Pages.Dependencies.msgNoDependenciesToInstall": "No dependencies to install or upgrade",
   "Claw.Pages.Dependencies.msgInstallFailed": "Installation failed: {0}",
   "Claw.Pages.Dependencies.msgSystemEnvRequired": "Please meet the system environment requirements first, then install dependencies",
-
   "Claw.Components.Dependency.checking": "Checking",
   "Claw.Components.Dependency.installed": "Installed",
   "Claw.Components.Dependency.missing": "Missing",
@@ -73,7 +71,6 @@
   "Claw.Components.Action.needConfig": "Needs Config",
   "Claw.Components.Action.allReady": "All Ready",
   "Claw.Components.Action.allInstalled": "All Installed",
-
   "Claw.Tray.showWindow": "Show Window",
   "Claw.Tray.restartServices": "Restart Services",
   "Claw.Tray.stopServices": "Stop Services",
@@ -85,10 +82,8 @@
   "Claw.Tray.Status.stopped": "Stopped",
   "Claw.Tray.Status.error": "Error",
   "Claw.Tray.Status.starting": "Starting",
-
   "Claw.Dialog.error": "Error",
   "Claw.Dialog.autoLaunchFailed": "Failed to set auto launch",
-
   "Claw.AutoUpdater.networkFailed": "Network request failed",
   "Claw.AutoUpdater.newVersionFound": "New Version Found",
   "Claw.AutoUpdater.downloadFailed": "Download Failed",
@@ -113,25 +108,12 @@
   "Claw.AutoUpdater.versionFound": "New version v{} found",
   "Claw.AutoUpdater.getUpdateInfoFailed": "Failed to get {} channel update info",
   "Claw.AutoUpdater.invalidMetadataVersion": "Update metadata version is invalid (only x.y.z supported): {}",
-
   "Claw.Agent.Status.idle": "Ready",
   "Claw.Agent.Status.starting": "Starting",
   "Claw.Agent.Status.running": "Running",
   "Claw.Agent.Status.busy": "Busy",
   "Claw.Agent.Status.stopped": "Stopped",
   "Claw.Agent.Status.error": "Error",
-
-  "Claw.Common.loading": "Loading...",
-  "Claw.Common.confirm": "Confirm",
-  "Claw.Common.cancel": "Cancel",
-  "Claw.Common.save": "Save",
-  "Claw.Common.delete": "Delete",
-  "Claw.Common.edit": "Edit",
-  "Claw.Common.back": "Back",
-  "Claw.Common.refresh": "Refresh",
-  "Claw.Common.close": "Close",
-  "Claw.Common.retry": "Retry",
-
   "Claw.Menu.client": "Client",
   "Claw.Menu.session": "Session",
   "Claw.Menu.settings": "Settings",
@@ -139,7 +121,6 @@
   "Claw.Menu.authorization": "Authorization",
   "Claw.Menu.logs": "Logs",
   "Claw.Menu.about": "About",
-
   "Claw.App.ConfigSyncFailed": "Configuration Sync Failed",
   "Claw.App.ConfigSyncFailedDetail": "Unable to connect to server for latest config. Services not restarted. Please check network and retry.",
   "Claw.App.Retry": "Retry",
@@ -152,7 +133,13 @@
   "Claw.App.ServicesRestartSuccess": "Services restarted successfully",
   "Claw.App.Loading": "Loading...",
   "Claw.App.User": "User",
-
+  "Claw.App.defaultUsername": "User",
+  "Claw.App.agentInterfaceFailed": "Agent interface service failed to start: {0}",
+  "Claw.App.agentInterfaceNotRunning": "Agent interface service not running",
+  "Claw.App.channelCheckFailed": "Channel check failed: {0}",
+  "Claw.App.serviceRestartFailed": "Service restart failed: {0}",
+  "Claw.App.back": "Back",
+  "Claw.App.refresh": "Refresh",
   "Claw.Service.file": "File Service",
   "Claw.Service.fileDesc": "Agent workspace file remote management service",
   "Claw.Service.agent": "Agent Service",
@@ -165,7 +152,6 @@
   "Claw.Service.proxyDesc": "Network channel",
   "Claw.Service.admin": "Admin Service",
   "Claw.Service.adminDesc": "Admin interface service (restart/health check)",
-
   "Claw.Permissions.granted": "Granted",
   "Claw.Permissions.denied": "Denied",
   "Claw.Permissions.unknown": "Unknown",
@@ -175,7 +161,6 @@
   "Claw.Permissions.openSettings": "Open Settings",
   "Claw.Permissions.allGranted": "All permissions granted",
   "Claw.Permissions.cannotOpenSettings": "Cannot open system settings",
-
   "Claw.Client.domainRequired": "Please enter service domain",
   "Claw.Client.accountRequired": "Please enter account",
   "Claw.Client.codeRequired": "Please enter verification code",
@@ -194,12 +179,10 @@
   "Claw.Client.passwordPlaceholder": "Enter password or verification code (login at your domain in browser, then view in user profile)",
   "Claw.Client.missingDepsCannotStart": "Missing required dependencies, cannot start services",
   "Claw.Client.qrCode": "Scan to use",
-
   "Claw.EmbeddedWebview.loadFailed": "Load failed: {0} ({1})",
   "Claw.EmbeddedWebview.back": "Back",
   "Claw.EmbeddedWebview.refresh": "Refresh",
   "Claw.EmbeddedWebview.unknownError": "Unknown error",
-
   "Claw.Permission.command": "Command",
   "Claw.Permission.envVars": "Environment Variables",
   "Claw.Permission.file": "File",
@@ -209,7 +192,6 @@
   "Claw.Permission.deny": "Deny",
   "Claw.Permission.allowOnce": "Allow Once",
   "Claw.Permission.allowAlways": "Allow Always",
-
   "Claw.AgentRunner.configSaved": "Configuration saved",
   "Claw.AgentRunner.stopped": "Agent Runner stopped",
   "Claw.AgentRunner.started": "Agent Runner started",
@@ -228,7 +210,6 @@
   "Claw.AgentRunner.apiBaseUrl": "API Base URL",
   "Claw.AgentRunner.defaultModel": "Default Model",
   "Claw.AgentRunner.saveConfig": "Save Configuration",
-
   "Claw.IMSettings.title": "IM Integration",
   "Claw.IMSettings.platform.dingtalk": "DingTalk",
   "Claw.IMSettings.platform.feishu": "Feishu",
@@ -246,7 +227,6 @@
   "Claw.IMSettings.connecting": "Connecting...",
   "Claw.IMSettings.connect": "Connect",
   "Claw.IMSettings.saveConfig": "Save Configuration",
-
   "Claw.SkillsSync.title": "Skills Sync (File Service)",
   "Claw.SkillsSync.fileServiceConnection": "File Service Connection",
   "Claw.SkillsSync.serviceAddress": "Service Address",
@@ -265,7 +245,6 @@
   "Claw.SkillsSync.syncSuccess": "Skills synced successfully",
   "Claw.SkillsSync.errorPrefix": "Error: {0}",
   "Claw.SkillsSync.fileSelected": "Selected: {0} ({1} KB)",
-
   "Claw.Lanproxy.title": "Lanproxy",
   "Claw.Lanproxy.notLoggedIn": "(Not logged in)",
   "Claw.Lanproxy.configSaved": "Configuration saved",
@@ -285,7 +264,6 @@
   "Claw.Lanproxy.enable": "Enable",
   "Claw.Lanproxy.disable": "Disable",
   "Claw.Lanproxy.saveConfig": "Save Configuration",
-
   "Claw.TaskSettings.title": "Scheduled Tasks",
   "Claw.TaskSettings.taskCount": "{0} task(s)",
   "Claw.TaskSettings.addTask": "+ Add Task",
@@ -328,7 +306,6 @@
   "Claw.TaskSettings.seconds": "{0} second(s)",
   "Claw.TaskSettings.minutes": "{0} minute(s)",
   "Claw.TaskSettings.hours": "{0} hour(s)",
-
   "Claw.Setup.basicConfig.title": "Basic Settings",
   "Claw.Setup.basicConfig.description": "Configuration will be automatically saved after completion",
   "Claw.Setup.basicConfig.fileServerPort": "File Server Port",
@@ -342,7 +319,6 @@
   "Claw.Setup.basicConfig.workspaceDirRequired": "Please select workspace directory",
   "Claw.Setup.basicConfig.saved": "Basic configuration saved",
   "Claw.Setup.basicConfig.saveFailed": "Failed to save configuration",
-
   "Claw.Setup.login.title": "Account Login",
   "Claw.Setup.login.alreadyLoggedIn": "Logged In",
   "Claw.Setup.login.currentDomain": "Current domain: {domain}",
@@ -363,17 +339,13 @@
   "Claw.Setup.login.pleaseWait": "Please wait ({seconds}s)",
   "Claw.Setup.login.loginButton": "Login",
   "Claw.Setup.login.supportMultipleAccountTypes": "Supports username, email, and phone login",
-
   "Claw.Setup.completed.title": "Setup Complete",
   "Claw.Setup.completed.subTitle": "Entering main interface...",
-
   "Claw.Setup.dependencies.checking": "Checking and installing required dependencies",
   "Claw.Setup.quickInit.configuring": "Auto configuring...",
-
   "Claw.Setup.wizardTitle": "Setup Wizard",
   "Claw.Setup.wizardSubtitle": "Complete configuration to get started",
   "Claw.Setup.footer.autoSaved": "Progress automatically saved",
-
   "Claw.GUIAgent.title": "Vision Model",
   "Claw.GUIAgent.provider.zhipu": "Zhipu AI",
   "Claw.GUIAgent.provider.qwen": "Qwen",
@@ -416,7 +388,6 @@
   "Claw.GUIAgent.form.stepDelay": "Step Delay (ms)",
   "Claw.GUIAgent.form.jpegQuality": "Screenshot Quality",
   "Claw.GUIAgent.description": "GUI Agent automatically executes desktop tasks through screenshot analysis and keyboard/mouse simulation",
-
   "Claw.Dependencies.uvConfirmed": "uv confirmed ({context}{version})",
   "Claw.Dependencies.dependencyList": "Dependency List",
   "Claw.Dependencies.showOnlyProblems": "Show only issues",
@@ -436,7 +407,6 @@
   "Claw.Dependencies.upgradeFailed": "Upgrade failed",
   "Claw.Dependencies.pleaseInstallSystemDeps": "Please install required system dependencies, then click 'Recheck'",
   "Claw.Dependencies.recheck": "Recheck",
-
   "Claw.Sessions.loginFirst": "Login information incomplete, please login first",
   "Claw.Sessions.getSessionUrlFailed": "Failed to get session address",
   "Claw.Sessions.sessionStopped": "Session stopped",
@@ -454,7 +424,6 @@
   "Claw.Sessions.lastActivity": "Last activity",
   "Claw.Sessions.open": "Open",
   "Claw.Sessions.stop": "Stop",
-
   "Claw.DevTools.resetInitSuccess": "Initialization state reset. Setup wizard will show after refresh.",
   "Claw.DevTools.resetFailed": "Reset failed",
   "Claw.DevTools.clearAuthSuccess": "Login state cleared",
@@ -486,7 +455,6 @@
   "Claw.DevTools.fullInitFlowHint": "Test full flow: deps install + config + login",
   "Claw.DevTools.setupDepsUiTest": "SetupDependencies UI Test",
   "Claw.DevTools.setupWizardFlowTest": "Setup Wizard Full Flow Test",
-
   "Claw.Agent.loadConfigFailed": "Failed to load config",
   "Claw.Agent.checkStatusFailed": "Failed to check status",
   "Claw.Agent.configSaved": "Configuration saved",
@@ -510,7 +478,6 @@
   "Claw.Agent.apiBaseUrl": "API Base URL",
   "Claw.Agent.model": "Model",
   "Claw.Agent.saveConfig": "Save Configuration",
-
   "Claw.About.checking": "Checking...",
   "Claw.About.alreadyLatest": "Already the latest version",
   "Claw.About.checkFailed": "Update check failed",
@@ -561,10 +528,8 @@
   "Claw.About.totalAppFiles": "Total App Files",
   "Claw.About.switchOn": "On",
   "Claw.About.switchOff": "Off",
-
   "Claw.Common.yes": "Yes",
   "Claw.Common.no": "No",
-
   "Claw.Settings.saveConfig.title": "Service Configuration",
   "Claw.Settings.saveConfig.edit": "Edit",
   "Claw.Settings.saveConfig.cancel": "Cancel",
@@ -576,12 +541,10 @@
   "Claw.Settings.saveConfig.adminServerPortExtra": "Default 60007, for admin interface (restart/health check)",
   "Claw.Settings.saveConfig.enterPort": "Please enter port",
   "Claw.Settings.saveConfig.restartHint": "Restart services for changes to take effect",
-
   "Claw.Settings.workspace.title": "Workspace Directory",
   "Claw.Settings.workspace.selectDir": "Please select workspace directory",
   "Claw.Settings.workspace.clickToSelect": "Click to select directory",
   "Claw.Settings.workspace.select": "Select",
-
   "Claw.Settings.sandbox.title": "Sandbox",
   "Claw.Settings.sandbox.enable": "Enable Sandbox",
   "Claw.Settings.sandbox.enableDesc": "When disabled, commands execute directly in workspace",
@@ -607,7 +570,6 @@
   "Claw.Settings.sandbox.backendMacosSeatbelt": "macOS sandbox-exec",
   "Claw.Settings.sandbox.backendLinuxBwrap": "Linux bubblewrap",
   "Claw.Settings.sandbox.backendWindowsSandbox": "Windows Sandbox",
-
   "Claw.Settings.system.title": "System",
   "Claw.Settings.system.autoLaunch": "Auto Launch",
   "Claw.Settings.system.autoLaunchDesc": "Automatically run {appName} at system startup",
@@ -622,9 +584,7 @@
   "Claw.Settings.system.workspaceDir": "Workspace Directory",
   "Claw.Settings.system.notSet": "Not set",
   "Claw.Settings.system.open": "Open",
-
   "Claw.Settings.dialog.selectWorkspace": "Select Workspace Directory",
-
   "Claw.Settings.messages.saveConfig": "Save Configuration",
   "Claw.Settings.messages.saveConfigConfirm": "Restart services for changes to take effect. Save anyway?",
   "Claw.Settings.messages.autoLaunchEnabled": "Auto launch enabled",
@@ -639,7 +599,6 @@
   "Claw.Settings.messages.helperNotReady": "Helper not ready",
   "Claw.Settings.messages.windowsSetupHelperHint": "【Windows only】Run npm run build:sandbox-helper on Windows host (outputs resources/sandbox-helper/nuwax-sandbox-helper.exe), or integrate agent-sandbox-runtime then run npm run prepare:sandbox-runtime (win32 output: nuwax-sandbox-helper.exe → resources/sandbox-runtime/bin/)",
   "Claw.Settings.messages.settingFailed": "Setting failed",
-
   "Claw.MCP.title": "MCP Proxy Service Management",
   "Claw.MCP.status.ready": "Ready",
   "Claw.MCP.status.notReady": "Not Ready",
@@ -683,6 +642,29 @@
   "Claw.MCP.message.proxyReady": "MCP Proxy Ready",
   "Claw.MCP.message.checkFailed": "Check failed: {0}",
   "Claw.MCP.message.error": "Error: {0}",
-
-  "Claw.Common.saveFailed": "Save failed"
+  "Claw.Common.saveFailed": "Save failed",
+  "Claw.Client.startSession": "Start Session",
+  "Claw.Client.login": "Login",
+  "Claw.Client.logout": "Logout",
+  "Claw.Client.cancel": "Cancel",
+  "Claw.Client.defaultUser": "User",
+  "Claw.Client.loginHint": "Supports username, email, and phone login",
+  "Claw.Client.starting": "Starting",
+  "Claw.Client.stopping": "Stopping",
+  "Claw.Client.running": "Running",
+  "Claw.Client.stopped": "Stopped",
+  "Claw.Client.stop": "Stop",
+  "Claw.Client.start": "Start",
+  "Claw.Client.goInstall": "Go to Install",
+  "Claw.Client.settings": "Settings",
+  "Claw.Client.dependencies": "Dependencies",
+  "Claw.Client.about": "About",
+  "Claw.Client.accountStatus": "Account Status",
+  "Claw.Client.services": "Services",
+  "Claw.Client.refresh": "Refresh",
+  "Claw.Client.startAll": "Start All",
+  "Claw.Client.stopAll": "Stop All",
+  "Claw.Client.quickActions": "Quick Actions",
+  "Claw.Client.serviceStartFailed": "{0} start failed: {1}",
+  "Claw.Client.stopFailed": "Stop failed: {0}"
 }

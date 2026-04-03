@@ -359,7 +359,9 @@ function App() {
       // 加载用户信息
       const user = await authService.getAuthUser();
       if (user) {
-        setUsername(user.displayName || user.username || "用户");
+        setUsername(
+          user.displayName || user.username || t("Claw.App.defaultUsername"),
+        );
       }
 
       // 加载在线状态
@@ -377,7 +379,9 @@ function App() {
   const handleAuthChange = useCallback(async () => {
     const user = await authService.getAuthUser();
     if (user) {
-      setUsername(user.displayName || user.username || "用户");
+      setUsername(
+        user.displayName || user.username || t("Claw.App.defaultUsername"),
+      );
     } else {
       setUsername("");
     }
@@ -500,8 +504,8 @@ function App() {
       let agentError: string | undefined;
       if (agentRunning && !csRunning) {
         agentError = csStatus?.error
-          ? `Agent 接口服务启动失败: ${csStatus.error}`
-          : "Agent 接口服务未运行"; // TODO: i18n
+          ? t("Claw.App.agentInterfaceFailed", csStatus.error)
+          : t("Claw.App.agentInterfaceNotRunning");
       }
       items.push({
         key: "agent",
@@ -703,9 +707,13 @@ function App() {
             setOnlineStatus(result.online);
             const user = await authService.getAuthUser();
             if (user) {
-              setUsername(user.displayName || user.username || "用户");
+              setUsername(
+                user.displayName ||
+                  user.username ||
+                  t("Claw.App.defaultUsername"),
+              );
             }
-            setAuthRefreshTrigger((t) => t + 1);
+            setAuthRefreshTrigger((v) => v + 1);
             await startServicesSequentially([
               "mcpProxy",
               "agent",
@@ -828,7 +836,10 @@ function App() {
           error?: string;
         };
         if (!health.healthy) {
-          lanproxyHealthErrorRef.current = `通道检查失败: ${health.error}`;
+          lanproxyHealthErrorRef.current = t(
+            "Claw.App.channelCheckFailed",
+            health.error || "",
+          );
         } else {
           lanproxyHealthErrorRef.current = undefined;
         }
@@ -841,7 +852,10 @@ function App() {
         }
       } catch (e) {
         // 健康检查失败时设置错误，但不在这里频繁打印日志
-        const errorMsg = `通道检查失败: ${e instanceof Error ? e.message : String(e)}`;
+        const errorMsg = t(
+          "Claw.App.channelCheckFailed",
+          e instanceof Error ? e.message : String(e),
+        );
         lanproxyHealthErrorRef.current = errorMsg;
         // 仅在值变化时触发更新
         if (prevLanproxyHealthErrorRef.current !== errorMsg) {
@@ -948,7 +962,7 @@ function App() {
           .map(([k]) => k)
           .join(", ");
         message.error({
-          content: `服务重启失败: ${failed}`,
+          content: t("Claw.App.serviceRestartFailed", failed),
           key: "admin-restart",
           duration: 5,
         });
@@ -1095,14 +1109,14 @@ function App() {
                   icon={<ArrowLeftOutlined />}
                   onClick={webviewActions.onBack}
                 >
-                  返回
+                  {t("Claw.App.back")}
                 </Button>
                 <Button
                   size="small"
                   icon={<ReloadOutlined />}
                   onClick={webviewActions.onReload}
                 >
-                  刷新
+                  {t("Claw.App.refresh")}
                 </Button>
               </div>
             ) : (

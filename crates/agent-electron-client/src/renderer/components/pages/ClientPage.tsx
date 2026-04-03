@@ -228,8 +228,8 @@ function ClientPage({
     Modal.confirm({
       title: t("Claw.Client.logoutConfirm"),
       content: t("Claw.Client.logoutConfirmDetail"),
-      okText: "退出",
-      cancelText: "取消",
+      okText: t("Claw.Client.logout"),
+      cancelText: t("Claw.Client.cancel"),
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
@@ -398,13 +398,21 @@ function ClientPage({
       // 启动失败时直接展示错误信息
       if (result && !result.success) {
         const errorMsg = result.error || t("Claw.Client.startFailed");
-        message.error(`${getServiceLabel(key)} 启动失败: ${errorMsg}`);
+        message.error(
+          t("Claw.Client.serviceStartFailed", getServiceLabel(key), errorMsg),
+        );
       }
 
       return result?.success ?? false;
     } catch (error) {
       console.error(`[ClientPage] 启动 ${key} 失败:`, error);
-      message.error(`${getServiceLabel(key)} 启动失败: ${error}`);
+      message.error(
+        t(
+          "Claw.Client.serviceStartFailed",
+          getServiceLabel(key),
+          String(error),
+        ),
+      );
       await onRefreshServices();
       return false;
     } finally {
@@ -440,7 +448,7 @@ function ClientPage({
       else if (key === "adminServer")
         await window.electronAPI?.adminServer?.stop();
     } catch (error) {
-      message.error(`停止失败: ${error}`);
+      message.error(t("Claw.Client.stopFailed", String(error)));
     } finally {
       setStoppingServices((prev) => {
         const next = new Set(prev);
@@ -629,7 +637,7 @@ function ClientPage({
               />
               <div className={styles.userInfoText}>
                 <span className={styles.username}>
-                  {authState.username || "用户"}
+                  {authState.username || t("Claw.Client.defaultUser")}
                 </span>
                 <div className={styles.domain}>{displayDomain}</div>
               </div>
@@ -649,7 +657,7 @@ function ClientPage({
                     : undefined
                 }
               >
-                开始会话
+                {t("Claw.Client.startSession")}
               </Button>
               <Button
                 icon={<QrcodeOutlined />}
@@ -662,7 +670,7 @@ function ClientPage({
                     : undefined
                 }
               >
-                扫码使用
+                {t("Claw.Client.qrCode")}
               </Button>
               <Button
                 type="text"
@@ -671,7 +679,7 @@ function ClientPage({
                 size="small"
                 danger
               >
-                退出
+                {t("Claw.Client.logout")}
               </Button>
             </div>
           </div>
@@ -717,12 +725,14 @@ function ClientPage({
           </Form.Item>
 
           <Button type="primary" htmlType="submit" loading={loginLoading} block>
-            登录
+            {t("Claw.Client.login")}
           </Button>
         </Form>
 
         <div className={styles.loginHint}>
-          <span className={styles.loginHintText}>支持用户名、邮箱、手机号</span>
+          <span className={styles.loginHintText}>
+            {t("Claw.Client.loginHint")}
+          </span>
         </div>
       </div>
     );
@@ -778,25 +788,27 @@ function ClientPage({
                         color="processing"
                         style={{ margin: 0, fontSize: 11 }}
                       >
-                        启动中
+                        {t("Claw.Client.starting")}
                       </Tag>
                     ) : isStopping ? (
                       <Tag
                         color="processing"
                         style={{ margin: 0, fontSize: 11 }}
                       >
-                        停止中
+                        {t("Claw.Client.stopping")}
                       </Tag>
                     ) : svc.running ? (
                       <Tag color="green" style={{ margin: 0, fontSize: 11 }}>
-                        运行中
+                        {t("Claw.Client.running")}
                       </Tag>
                     ) : hasError ? (
                       <Tag color="error" style={{ margin: 0, fontSize: 11 }}>
-                        启动失败
+                        {t("Claw.Client.startFailed")}
                       </Tag>
                     ) : (
-                      <Tag style={{ margin: 0, fontSize: 11 }}>已停止</Tag>
+                      <Tag style={{ margin: 0, fontSize: 11 }}>
+                        {t("Claw.Client.stopped")}
+                      </Tag>
                     )}
                   </div>
                   <div className={styles.serviceDescription}>
@@ -824,11 +836,11 @@ function ClientPage({
               <div className={styles.serviceActions}>
                 {isStarting ? (
                   <Button size="small" disabled loading>
-                    启动中
+                    {t("Claw.Client.starting")}
                   </Button>
                 ) : isStopping ? (
                   <Button size="small" disabled loading>
-                    停止中
+                    {t("Claw.Client.stopping")}
                   </Button>
                 ) : svc.running ? (
                   <Button
@@ -839,7 +851,7 @@ function ClientPage({
                     onClick={() => handleStopService(svc.key)}
                     disabled={isAnyOperating}
                   >
-                    停止
+                    {t("Claw.Client.stop")}
                   </Button>
                 ) : (
                   <Button
@@ -849,7 +861,7 @@ function ClientPage({
                     onClick={() => handleStartServiceManual(svc.key)}
                     disabled={isAnyOperating}
                   >
-                    启动
+                    {t("Claw.Client.start")}
                   </Button>
                 )}
               </div>
@@ -882,7 +894,7 @@ function ClientPage({
               type="primary"
               onClick={() => onNavigate?.("dependencies")}
             >
-              前往安装
+              {t("Claw.Client.goInstall")}
             </Button>
           </div>
         }
@@ -903,21 +915,21 @@ function ClientPage({
             onClick={() => onNavigate?.("settings")}
             size="small"
           >
-            设置
+            {t("Claw.Client.settings")}
           </Button>
           <Button
             icon={<AppstoreOutlined />}
             onClick={() => onNavigate?.("dependencies")}
             size="small"
           >
-            依赖
+            {t("Claw.Client.dependencies")}
           </Button>
           <Button
             icon={<InfoCircleOutlined />}
             onClick={() => onNavigate?.("about")}
             size="small"
           >
-            关于
+            {t("Claw.Client.about")}
           </Button>
         </div>
       </div>
@@ -936,7 +948,9 @@ function ClientPage({
           <UserOutlined
             style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
           />
-          <span className={styles.sectionTitle}>账号状态</span>
+          <span className={styles.sectionTitle}>
+            {t("Claw.Client.accountStatus")}
+          </span>
         </div>
         {renderLoginSection()}
       </div>
@@ -948,7 +962,9 @@ function ClientPage({
             <PlayCircleOutlined
               style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
             />
-            <span className={styles.sectionTitle}>服务</span>
+            <span className={styles.sectionTitle}>
+              {t("Claw.Client.services")}
+            </span>
             {!servicesLoading &&
               (() => {
                 const runningCount = services.filter((s) => s.running).length;
@@ -975,7 +991,7 @@ function ClientPage({
                 icon={<ReloadOutlined />}
                 onClick={() => onRefreshServices()}
               >
-                刷新
+                {t("Claw.Client.refresh")}
               </Button>
               <Button
                 size="small"
@@ -990,7 +1006,7 @@ function ClientPage({
                   isAnyStopping
                 }
               >
-                启动全部
+                {t("Claw.Client.startAll")}
               </Button>
               <Button
                 size="small"
@@ -1003,7 +1019,7 @@ function ClientPage({
                   services.every((s) => !s.running && !s.error) || isAnyStarting
                 }
               >
-                停止全部
+                {t("Claw.Client.stopAll")}
               </Button>
             </div>
           )}
@@ -1017,7 +1033,9 @@ function ClientPage({
           <AppstoreOutlined
             style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
           />
-          <span className={styles.sectionTitle}>快捷操作</span>
+          <span className={styles.sectionTitle}>
+            {t("Claw.Client.quickActions")}
+          </span>
         </div>
         {renderQuickActions()}
       </div>
