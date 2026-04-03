@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { t } from "../../services/core/i18n";
 import {
   Steps,
   Form,
@@ -55,8 +56,12 @@ import { APP_DISPLAY_NAME } from "@shared/constants";
 const APP_NAME = APP_DISPLAY_NAME;
 
 const WIZARD_STEPS = [
-  { key: 1, title: "基础设置", icon: <SettingOutlined /> },
-  { key: 2, title: "账号登录", icon: <UserOutlined /> },
+  {
+    key: 1,
+    title: t("Claw.Setup.basicConfig.title"),
+    icon: <SettingOutlined />,
+  },
+  { key: 2, title: t("Claw.Setup.login.title"), icon: <UserOutlined /> },
 ];
 
 interface SetupWizardProps {
@@ -289,24 +294,24 @@ function SetupWizard({
 
   const handleStep1Submit = async () => {
     if (!step1Config.fileServerPort) {
-      message.warning("请输入文件服务端口");
+      message.warning(t("Claw.Setup.basicConfig.fileServerPortRequired"));
       return;
     }
     if (!step1Config.agentPort) {
-      message.warning("请输入 Agent 端口");
+      message.warning(t("Claw.Setup.basicConfig.agentPortRequired"));
       return;
     }
     if (!step1Config.workspaceDir) {
-      message.warning("请选择工作区目录");
+      message.warning(t("Claw.Setup.basicConfig.workspaceDirRequired"));
       return;
     }
     setLoading(true);
     try {
       await setupService.saveStep1Config(step1Config);
       setCurrentStep(2);
-      message.success("基础配置已保存");
+      message.success(t("Claw.Setup.basicConfig.saved"));
     } catch (error) {
-      message.error("保存配置失败");
+      message.error(t("Claw.Setup.basicConfig.saveFailed"));
     } finally {
       setLoading(false);
     }
@@ -314,13 +319,13 @@ function SetupWizard({
 
   const handleLogin = async () => {
     if (!username || !password) {
-      message.warning("请输入账号和动态认证码");
+      message.warning(t("Claw.Setup.login.accountAndCodeRequired"));
       return;
     }
 
     const loginDomain = domain || step1Config.serverHost;
     if (!loginDomain) {
-      message.warning("请输入服务域名");
+      message.warning(t("Claw.Setup.login.domainRequired"));
       return;
     }
 
@@ -335,7 +340,7 @@ function SetupWizard({
       await setupService.completeStep2();
       await setupService.completeSetup();
       setCompleted(true);
-      message.success("登录成功");
+      message.success(t("Claw.Setup.login.success"));
       setTimeout(() => onComplete(), 2000);
     } catch (error: any) {
       const errorMessage = getAuthErrorMessage(error);
@@ -365,7 +370,7 @@ function SetupWizard({
       setIsAlreadyLoggedIn(false);
       setDomain("");
     } catch {
-      message.error("退出登录失败");
+      message.error(t("Claw.Setup.login.logoutFailed"));
     }
   };
 
@@ -393,8 +398,8 @@ function SetupWizard({
           icon={
             <CheckCircleOutlined style={{ color: "var(--color-success)" }} />
           }
-          title="初始化完成"
-          subTitle="正在进入主界面..."
+          title={t("Claw.Setup.completed.title")}
+          subTitle={t("Claw.Setup.completed.subTitle")}
           extra={<Spin size="small" />}
         />
       );
@@ -405,14 +410,17 @@ function SetupWizard({
         return (
           <Form layout="vertical">
             <Alert
-              message="基础设置"
-              description="完成配置后即可使用，进度自动保存"
+              message={t("Claw.Setup.basicConfig.title")}
+              description={t("Claw.Setup.basicConfig.description")}
               type="info"
               showIcon
               style={{ marginBottom: 24 }}
             />
 
-            <Form.Item label="文件服务端口" required>
+            <Form.Item
+              label={t("Claw.Setup.basicConfig.fileServerPort")}
+              required
+            >
               <InputNumber
                 value={step1Config.fileServerPort}
                 onChange={(value) =>
@@ -427,7 +435,7 @@ function SetupWizard({
               />
             </Form.Item>
 
-            <Form.Item label="Agent 端口" required>
+            <Form.Item label={t("Claw.Setup.basicConfig.agentPort")} required>
               <InputNumber
                 value={step1Config.agentPort}
                 onChange={(value) =>
@@ -440,16 +448,22 @@ function SetupWizard({
             </Form.Item>
 
             <Form.Item
-              label="工作区目录"
+              label={t("Claw.Setup.basicConfig.workspaceDir")}
               required
               validateStatus={!step1Config.workspaceDir ? "error" : ""}
-              help={!step1Config.workspaceDir ? "请选择工作区目录" : ""}
+              help={
+                !step1Config.workspaceDir
+                  ? t("Claw.Setup.basicConfig.workspaceDirRequired")
+                  : ""
+              }
             >
               <Space.Compact style={{ width: "100%" }}>
                 <Input
                   value={step1Config.workspaceDir}
                   readOnly
-                  placeholder="点击右侧按钮选择目录"
+                  placeholder={t(
+                    "Claw.Setup.basicConfig.workspaceDirPlaceholder",
+                  )}
                   style={{ cursor: "pointer" }}
                   onClick={handleSelectWorkspaceDir}
                 />
@@ -457,7 +471,7 @@ function SetupWizard({
                   icon={<FolderOpenOutlined />}
                   onClick={handleSelectWorkspaceDir}
                 >
-                  选择
+                  {t("Claw.Setup.basicConfig.select")}
                 </Button>
               </Space.Compact>
             </Form.Item>
@@ -468,7 +482,7 @@ function SetupWizard({
               loading={loading}
               block
             >
-              下一步：账号登录
+              {t("Claw.Setup.basicConfig.nextStep")}
             </Button>
           </Form>
         );
@@ -497,17 +511,19 @@ function SetupWizard({
                   style={{ color: "var(--color-success)" }}
                 />
               }
-              title="已登录"
-              subTitle={`当前域名：${domain || "-"}`}
+              title={t("Claw.Setup.login.alreadyLoggedIn")}
+              subTitle={t("Claw.Setup.login.currentDomain", {
+                domain: domain || "-",
+              })}
               extra={
                 <div
                   style={{ display: "flex", gap: 8, justifyContent: "center" }}
                 >
                   <Button onClick={handleLogout} size="small">
-                    退出登录
+                    {t("Claw.Setup.login.logout")}
                   </Button>
                   <Button type="primary" onClick={handleContinueLoggedIn}>
-                    下一步
+                    {t("Claw.Setup.login.nextStep")}
                   </Button>
                 </div>
               }
@@ -520,7 +536,7 @@ function SetupWizard({
           <Form layout="vertical">
             {loginError && (
               <Alert
-                message="登录失败"
+                message={t("Claw.Setup.login.failed")}
                 description={
                   <Text
                     copyable={{ text: loginError }}
@@ -538,54 +554,60 @@ function SetupWizard({
               />
             )}
 
-            <Form.Item label="服务域名" required>
+            <Form.Item label={t("Claw.Setup.login.domain")} required>
               <Input
                 prefix={<GlobalOutlined />}
                 value={domain || step1Config.serverHost}
                 onChange={(e) => setDomain(e.target.value)}
-                placeholder="例如：https://agent.nuwax.com"
+                placeholder={t("Claw.Setup.login.domainPlaceholder")}
                 autoComplete="off"
                 spellCheck={false}
               />
             </Form.Item>
 
-            <Form.Item label="账号" required>
+            <Form.Item label={t("Claw.Setup.login.account")} required>
               <Input
                 prefix={<UserOutlined />}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="用户名 / 手机号 / 邮箱"
+                placeholder={t("Claw.Setup.login.accountPlaceholder")}
                 autoComplete="username"
               />
             </Form.Item>
 
-            <Form.Item label="动态认证码" required>
+            <Form.Item label={t("Claw.Setup.login.code")} required>
               <Input.Password
                 prefix={<LockOutlined />}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="请输入密码或动态认证码（在浏览器打开你的域名登录，然后在用户资料中查看）"
+                placeholder={t("Claw.Setup.login.codePlaceholder")}
                 autoComplete="current-password"
               />
             </Form.Item>
 
             <Space style={{ width: "100%" }} direction="vertical">
               <Space>
-                <Button onClick={() => setCurrentStep(1)}>上一步</Button>
+                <Button onClick={() => setCurrentStep(1)}>
+                  {t("Claw.Setup.login.prevStep")}
+                </Button>
                 <Button
                   type="primary"
                   onClick={handleLogin}
                   loading={loginLoading}
                   disabled={retryCooldown > 0}
                 >
-                  {retryCooldown > 0 ? `请稍后 (${retryCooldown}s)` : "登录"}
+                  {retryCooldown > 0
+                    ? t("Claw.Setup.login.pleaseWait", {
+                        seconds: retryCooldown,
+                      })
+                    : t("Claw.Setup.login.loginButton")}
                 </Button>
               </Space>
               <div style={{ textAlign: "center" }}>
                 <Text
                   style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}
                 >
-                  支持用户名、邮箱、手机号登录
+                  {t("Claw.Setup.login.supportMultipleAccountTypes")}
                 </Text>
               </div>
             </Space>
@@ -631,7 +653,7 @@ function SetupWizard({
               textAlign: "center",
             }}
           >
-            检查和安装必需依赖
+            {t("Claw.Setup.dependencies.checking")}
           </div>
         </div>
 
@@ -661,7 +683,7 @@ function SetupWizard({
             <Text
               style={{ fontSize: 13, color: "var(--color-text-secondary)" }}
             >
-              正在自动配置...
+              {t("Claw.Setup.quickInit.configuring")}
             </Text>
           </Space>
         </div>
@@ -682,10 +704,12 @@ function SetupWizard({
             marginBottom: 4,
           }}
         >
-          <span style={{ fontSize: 15, fontWeight: 600 }}>初始化向导</span>
+          <span style={{ fontSize: 15, fontWeight: 600 }}>
+            {t("Claw.Setup.wizardTitle")}
+          </span>
         </div>
         <div style={{ fontSize: 12, color: "#a1a1aa", textAlign: "center" }}>
-          完成配置后即可使用
+          {t("Claw.Setup.wizardSubtitle")}
         </div>
       </div>
 
@@ -708,7 +732,7 @@ function SetupWizard({
         {/* 版本号由 Vite 在构建时从 crates/agent-electron-client/package.json 的 version 注入；
             修改版本后需重启开发服务器或重新打包才能生效 */}
         <Text style={{ fontSize: 11, color: "#a1a1aa" }}>
-          {APP_NAME} v{__APP_VERSION__} · 进度自动保存
+          {APP_NAME} v{__APP_VERSION__} · {t("Claw.Setup.footer.autoSaved")}
         </Text>
       </div>
     </div>

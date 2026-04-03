@@ -34,6 +34,7 @@ import type {
   GuiVisionModelConfig,
   GuiDisplayInfo,
 } from "@shared/types/computerTypes";
+import { t } from "../../services/core/i18n";
 
 const DEFAULT_CONFIG: GuiVisionModelConfig = {
   provider: "anthropic",
@@ -65,13 +66,13 @@ const PRESET_PROVIDERS: PresetProvider[] = [
   { value: "google", label: "Google", protocol: "openai" },
   {
     value: "zhipu",
-    label: "智谱 AI",
+    label: t("Claw.GUIAgent.provider.zhipu"),
     protocol: "openai",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
   },
   {
     value: "qwen",
-    label: "通义千问",
+    label: t("Claw.GUIAgent.provider.qwen"),
     protocol: "openai",
     baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
   },
@@ -92,7 +93,7 @@ const PRESET_PROVIDERS: PresetProvider[] = [
 /** Select 下拉选项：预设 + 末尾"自定义" */
 const PROVIDER_SELECT_OPTIONS = [
   ...PRESET_PROVIDERS.map((p) => ({ value: p.value, label: p.label })),
-  { value: CUSTOM_PROVIDER_VALUE, label: "自定义..." },
+  { value: CUSTOM_PROVIDER_VALUE, label: t("Claw.GUIAgent.provider.custom") },
 ];
 
 // 预设模型列表（按提供商分组）
@@ -123,16 +124,28 @@ const PRESET_MODELS: Record<string, Array<{ value: string; label: string }>> = {
 };
 
 const COORDINATE_MODE_OPTIONS = [
-  { value: "auto", label: "自动（根据模型匹配）" },
-  { value: "image-absolute", label: "图像绝对坐标" },
-  { value: "normalized-1000", label: "归一化 0-1000" },
-  { value: "normalized-999", label: "归一化 0-999" },
-  { value: "normalized-0-1", label: "归一化 0-1" },
+  { value: "auto", label: t("Claw.GUIAgent.coordinateMode.auto") },
+  {
+    value: "image-absolute",
+    label: t("Claw.GUIAgent.coordinateMode.imageAbsolute"),
+  },
+  {
+    value: "normalized-1000",
+    label: t("Claw.GUIAgent.coordinateMode.normalized1000"),
+  },
+  {
+    value: "normalized-999",
+    label: t("Claw.GUIAgent.coordinateMode.normalized999"),
+  },
+  {
+    value: "normalized-0-1",
+    label: t("Claw.GUIAgent.coordinateMode.normalized0to1"),
+  },
 ];
 
 const API_PROTOCOL_OPTIONS = [
-  { value: "anthropic", label: "Anthropic 协议" },
-  { value: "openai", label: "OpenAI 协议" },
+  { value: "anthropic", label: t("Claw.GUIAgent.protocol.anthropic") },
+  { value: "openai", label: t("Claw.GUIAgent.protocol.openai") },
 ];
 
 /**
@@ -262,7 +275,7 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
       setDisplays([
         {
           index: 0,
-          label: "主显示器",
+          label: t("Claw.GUIAgent.display.primary"),
           width: window.screen.width,
           height: window.screen.height,
           scaleFactor: window.devicePixelRatio || 1,
@@ -297,7 +310,7 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
       // 自定义模式下，用实际输入的 provider 名称替换 __custom__ 占位值
       if (isCustomProvider) {
         if (!customProviderName.trim()) {
-          message.error("请输入自定义提供商名称");
+          message.error(t("Claw.GUIAgent.error.customProviderNameRequired"));
           return;
         }
         values.provider = customProviderName.trim();
@@ -310,9 +323,9 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
         );
         setOriginalConfig(values);
         setEditing(false);
-        message.success("GUI Agent 配置已保存");
+        message.success(t("Claw.GUIAgent.message.configSaved"));
       } catch (error) {
-        message.error("保存失败");
+        message.error(t("Claw.GUIAgent.message.saveFailed"));
       } finally {
         setSaving(false);
       }
@@ -389,12 +402,12 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
         }}
       >
         <span style={{ fontSize: 13, fontWeight: 500 }}>
-          GUI Agent 视觉模型
+          {t("Claw.GUIAgent.title")}
         </span>
         {editing ? (
           <div style={{ display: "flex", gap: 6 }}>
             <Button size="small" onClick={handleCancel} disabled={saving}>
-              取消
+              {t("Claw.Common.cancel")}
             </Button>
             <Button
               size="small"
@@ -403,7 +416,7 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
               onClick={handleSave}
               loading={saving}
             >
-              保存
+              {t("Claw.Common.save")}
             </Button>
           </div>
         ) : (
@@ -412,7 +425,7 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
             icon={<EditOutlined />}
             onClick={() => setEditing(true)}
           >
-            编辑
+            {t("Claw.Common.edit")}
           </Button>
         )}
       </div>
@@ -423,27 +436,39 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
           <Col span={12}>
             <Form.Item
               name="provider"
-              label="模型提供商"
-              rules={[{ required: true, message: "请选择提供商" }]}
+              label={t("Claw.GUIAgent.form.provider")}
+              rules={[
+                {
+                  required: true,
+                  message: t("Claw.GUIAgent.error.providerRequired"),
+                },
+              ]}
             >
               <Select
                 allowClear={false}
                 options={PROVIDER_SELECT_OPTIONS}
                 onChange={handleProviderChange}
-                placeholder="选择提供商"
+                placeholder={t("Claw.GUIAgent.placeholder.selectProvider")}
               />
             </Form.Item>
             {/* 自定义模式下显示名称输入框 */}
             {isCustomProvider && (
               <Form.Item
-                label="自定义提供商名称"
-                rules={[{ required: true, message: "请输入提供商名称" }]}
+                label={t("Claw.GUIAgent.form.customProviderName")}
+                rules={[
+                  {
+                    required: true,
+                    message: t("Claw.GUIAgent.error.providerNameRequired"),
+                  },
+                ]}
                 style={{ marginTop: -8 }}
               >
                 <Input
                   value={customProviderName}
                   onChange={(e) => setCustomProviderName(e.target.value)}
-                  placeholder="输入提供商名称，如 my-provider"
+                  placeholder={t(
+                    "Claw.GUIAgent.placeholder.customProviderName",
+                  )}
                 />
               </Form.Item>
             )}
@@ -453,8 +478,8 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
               name="apiProtocol"
               label={
                 <span>
-                  API 协议{" "}
-                  <Tooltip title="Anthropic 协议: x-api-key 认证 + /v1/messages 端点。OpenAI 协议: Bearer 认证 + /chat/completions 端点。国内模型（智谱、通义、DeepSeek 等）通常使用 OpenAI 兼容协议。">
+                  {t("Claw.GUIAgent.form.apiProtocol")}{" "}
+                  <Tooltip title={t("Claw.GUIAgent.tooltip.apiProtocol")}>
                     <QuestionCircleOutlined
                       style={{ color: "var(--color-text-tertiary)" }}
                     />
@@ -473,15 +498,20 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
           <Col span={12}>
             <Form.Item
               name="model"
-              label="视觉模型"
-              rules={[{ required: true, message: "请选择或输入模型名称" }]}
+              label={t("Claw.GUIAgent.form.visionModel")}
+              rules={[
+                {
+                  required: true,
+                  message: t("Claw.GUIAgent.error.modelRequired"),
+                },
+              ]}
             >
               {hasPresetModels ? (
                 <Select
                   showSearch
                   options={PRESET_MODELS[selectedProvider] || []}
                   onChange={handleModelChange}
-                  placeholder="选择或输入模型名称"
+                  placeholder={t("Claw.GUIAgent.placeholder.selectModel")}
                   filterOption={(input, option) =>
                     (option?.label ?? "")
                       .toLowerCase()
@@ -493,7 +523,7 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
                 />
               ) : (
                 <Input
-                  placeholder="输入模型 ID，如 glm-4v-plus"
+                  placeholder={t("Claw.GUIAgent.placeholder.modelId")}
                   onChange={(e) => handleModelChange(e.target.value)}
                 />
               )}
@@ -504,8 +534,8 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
               name="baseUrl"
               label={
                 <span>
-                  Base URL{" "}
-                  <Tooltip title="API 的基础地址。预设提供商已自动填充，也可手动覆盖。自定义提供商必须填写。">
+                  {t("Claw.GUIAgent.form.baseUrl")}{" "}
+                  <Tooltip title={t("Claw.GUIAgent.tooltip.baseUrl")}>
                     <QuestionCircleOutlined
                       style={{ color: "var(--color-text-tertiary)" }}
                     />
@@ -517,13 +547,13 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
                   ? [
                       {
                         required: true,
-                        message: "自定义提供商需要填写 Base URL",
+                        message: t("Claw.GUIAgent.error.baseUrlRequired"),
                       },
                     ]
                   : []
               }
             >
-              <Input placeholder="如 https://api.example.com/v1" />
+              <Input placeholder={t("Claw.GUIAgent.placeholder.baseUrl")} />
             </Form.Item>
           </Col>
         </Row>
@@ -531,9 +561,9 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
         {/* Row 3: API Key + 显示器 */}
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item name="apiKey" label="API Key (留空使用全局)">
+            <Form.Item name="apiKey" label={t("Claw.GUIAgent.form.apiKey")}>
               <Input.Password
-                placeholder="留空则使用全局 API Key"
+                placeholder={t("Claw.GUIAgent.placeholder.apiKey")}
                 visibilityToggle
               />
             </Form.Item>
@@ -541,7 +571,7 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
           <Col span={12}>
             <Form.Item
               name="displayIndex"
-              label="目标显示器"
+              label={t("Claw.GUIAgent.form.targetDisplay")}
               rules={[{ required: true }]}
             >
               <Select>
@@ -562,12 +592,16 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
               name="coordinateMode"
               label={
                 <span>
-                  坐标模式{" "}
+                  {t("Claw.GUIAgent.form.coordinateMode")}{" "}
                   <Tooltip
                     title={
                       selectedCoordinateMode === "auto"
-                        ? `自动模式将根据模型名匹配坐标系。当前模型「${selectedModel}」→ ${coordinateModeLabel(inferredMode)}`
-                        : "手动指定坐标模式会覆盖自动匹配，请确认模型支持所选坐标系"
+                        ? t(
+                            "Claw.GUIAgent.tooltip.coordinateModeAuto",
+                            selectedModel,
+                            coordinateModeLabel(inferredMode),
+                          )
+                        : t("Claw.GUIAgent.tooltip.coordinateModeManual")
                     }
                   >
                     <QuestionCircleOutlined
@@ -597,19 +631,23 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
               color: "var(--color-text-tertiary)",
             }}
           >
-            当前模型自动匹配: {coordinateModeLabel(inferredMode)}
+            {t("Claw.GUIAgent.display.autoMatch")}:{" "}
+            {coordinateModeLabel(inferredMode)}
           </div>
         )}
 
         {/* Row 5: 数值参数 */}
         <Row gutter={16}>
           <Col span={8}>
-            <Form.Item name="maxSteps" label="最大步数">
+            <Form.Item name="maxSteps" label={t("Claw.GUIAgent.form.maxSteps")}>
               <InputNumber min={1} max={200} style={{ width: "100%" }} />
             </Form.Item>
           </Col>
           <Col span={8}>
-            <Form.Item name="stepDelayMs" label="步骤延迟 (ms)">
+            <Form.Item
+              name="stepDelayMs"
+              label={t("Claw.GUIAgent.form.stepDelay")}
+            >
               <InputNumber
                 min={100}
                 max={30000}
@@ -619,7 +657,10 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
             </Form.Item>
           </Col>
           <Col span={8}>
-            <Form.Item name="jpegQuality" label="截图质量">
+            <Form.Item
+              name="jpegQuality"
+              label={t("Claw.GUIAgent.form.jpegQuality")}
+            >
               <InputNumber min={1} max={100} style={{ width: "100%" }} />
             </Form.Item>
           </Col>
@@ -634,7 +675,7 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
             color: "var(--color-text-tertiary)",
           }}
         >
-          GUI Agent 通过截图分析 + 键鼠模拟自动执行桌面任务
+          {t("Claw.GUIAgent.description")}
         </div>
       )}
     </div>

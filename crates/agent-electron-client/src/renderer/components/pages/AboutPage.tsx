@@ -24,6 +24,7 @@ import {
   LinkOutlined,
 } from "@ant-design/icons";
 import { APP_DISPLAY_NAME } from "@shared/constants";
+import { t } from "../../services/core/i18n";
 import type { UpdateState } from "@shared/types/updateTypes";
 
 /** 官网地址，用于关于页「官网」链接 */
@@ -106,9 +107,11 @@ export default function AboutPage() {
 
       // 根据检查结果显示 toast（仅负责消息提示，不在这里推算状态）
       if (result.error) {
-        message.error(`检查更新失败: ${result.error}`);
+        message.error(
+          t("Claw.About.checkFailedWithDetail", { error: result.error }),
+        );
       } else if (!result.hasUpdate) {
-        message.info("当前已是最新版本");
+        message.info(t("Claw.About.alreadyLatest"));
       }
 
       // 从主进程获取权威状态（含 canAutoUpdate），避免 IPC 事件与 invoke 响应
@@ -121,7 +124,7 @@ export default function AboutPage() {
         setUpdateState({ status: "idle" });
       }
     } catch {
-      message.error("检查更新失败");
+      message.error(t("Claw.About.checkFailed"));
       setUpdateState({ status: "idle" });
     }
   }, []);
@@ -134,17 +137,15 @@ export default function AboutPage() {
       // 切换到 beta 时：弹出二次确认
       if (nextChannel === "beta") {
         Modal.confirm({
-          title: "切换到预发测试版通道",
+          title: t("Claw.About.channelSwitching"),
           content: (
             <div>
-              <p>
-                预发测试版包含尚未全面验证的更新，可能存在不稳定或功能缺陷。
-              </p>
-              <p>是否确认切换？</p>
+              <p>{t("Claw.About.betaWarning")}</p>
+              <p>{t("Claw.About.confirmSwitch")}</p>
             </div>
           ),
-          okText: "确认切换",
-          cancelText: "取消",
+          okText: t("Claw.About.confirmSwitchBtn"),
+          cancelText: t("Claw.Common.cancel"),
           onOk: async () => {
             setChannelLoading(true);
             try {
@@ -153,11 +154,11 @@ export default function AboutPage() {
                 "beta",
               );
               setUpdateChannel("beta");
-              message.success("已切换到预发测试版通道，正在检查更新...");
+              message.success(t("Claw.About.switchedToBeta"));
               // 确认后自动触发一次 beta 通道的升级检查
               await handleCheckUpdate();
             } catch {
-              message.error("更新通道切换失败，请稍后重试");
+              message.error(t("Claw.About.channelSwitchFailed"));
             } finally {
               setChannelLoading(false);
             }
@@ -174,10 +175,10 @@ export default function AboutPage() {
           "stable",
         );
         setUpdateChannel("stable");
-        message.success("已切换到稳定正式版通道，正在检查更新...");
+        message.success(t("Claw.About.switchedToStable"));
         await handleCheckUpdate();
       } catch {
-        message.error("更新通道切换失败，请稍后重试");
+        message.error(t("Claw.About.channelSwitchFailed"));
       } finally {
         setChannelLoading(false);
       }
@@ -222,15 +223,17 @@ export default function AboutPage() {
     if (updateState.status === "downloaded" && !hasShownInstallModal.current) {
       hasShownInstallModal.current = true;
       Modal.confirm({
-        title: "更新已下载完成",
-        content: `v${updateState.version} 已下载完成，是否立即重启安装？`,
-        okText: "立即重启",
-        cancelText: "稍后安装",
+        title: t("Claw.About.updateDownloaded"),
+        content: t("Claw.About.updateDownloadedConfirm", {
+          version: updateState.version,
+        }),
+        okText: t("Claw.About.restartNow"),
+        cancelText: t("Claw.About.later"),
         onOk: async () => {
           try {
             await window.electronAPI?.app?.installUpdate?.();
           } catch {
-            message.error("安装更新失败");
+            message.error(t("Claw.About.installFailed"));
           }
         },
       });
@@ -251,11 +254,11 @@ export default function AboutPage() {
     try {
       const result = await window.electronAPI?.app?.downloadUpdate?.();
       if (result && !result.success) {
-        message.error(result.error || "下载失败");
+        message.error(result.error || t("Claw.About.downloadFailed"));
         setUpdateState((prev) => ({ ...prev, status: "available" }));
       }
     } catch {
-      message.error("下载更新失败");
+      message.error(t("Claw.About.downloadFailed"));
       setUpdateState((prev) => ({ ...prev, status: "available" }));
     }
   }, []);
@@ -264,7 +267,7 @@ export default function AboutPage() {
     try {
       await window.electronAPI?.app?.installUpdate?.();
     } catch {
-      message.error("安装更新失败");
+      message.error(t("Claw.About.installFailed"));
     }
   }, []);
 
@@ -289,11 +292,11 @@ export default function AboutPage() {
         setDebugInfo(info);
         setShowDebugInfo(true);
       } else {
-        message.error("获取调试信息失败");
+        message.error(t("Claw.About.getDebugInfoFailed"));
       }
     } catch (e) {
       console.error("[AboutPage] getUpdateDebugInfo failed:", e);
-      message.error("获取调试信息失败");
+      message.error(t("Claw.About.getDebugInfoFailed"));
     }
   }, []);
 
@@ -311,7 +314,7 @@ export default function AboutPage() {
       case "checking":
         return (
           <Button icon={<SyncOutlined spin />} disabled>
-            检查中...
+            {t("Claw.About.checking")}
           </Button>
         );
 
@@ -319,7 +322,7 @@ export default function AboutPage() {
         return (
           <Space direction="vertical" size={8} style={{ width: "100%" }}>
             <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-              发现新版本: v{version}
+              {t("Claw.About.versionFound", { version })}
             </div>
             {autoUpdate === false ? (
               <Button
@@ -327,7 +330,7 @@ export default function AboutPage() {
                 icon={<LinkOutlined />}
                 onClick={handleOpenReleases}
               >
-                前往下载页
+                {t("Claw.About.goToDownloadPage")}
               </Button>
             ) : (
               <Button
@@ -335,7 +338,7 @@ export default function AboutPage() {
                 icon={<DownloadOutlined />}
                 onClick={handleDownload}
               >
-                下载更新
+                {t("Claw.About.downloadUpdate")}
               </Button>
             )}
           </Space>
@@ -350,7 +353,10 @@ export default function AboutPage() {
         return (
           <Space direction="vertical" size={8} style={{ width: "100%" }}>
             <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-              正在下载 v{version}... {displayPercent}%
+              {t("Claw.About.downloading", {
+                version,
+                percent: displayPercent,
+              })}
             </div>
             <Progress
               percent={displayPercent}
@@ -366,10 +372,10 @@ export default function AboutPage() {
         return (
           <Space direction="vertical" size={8} style={{ width: "100%" }}>
             <div style={{ fontSize: 12, color: "var(--color-success)" }}>
-              v{version} 已下载完成
+              {t("Claw.About.versionDownloaded", { version })}
             </div>
             <Button type="primary" onClick={handleInstall}>
-              立即重启安装
+              {t("Claw.About.installUpdate")}
             </Button>
           </Space>
         );
@@ -386,7 +392,7 @@ export default function AboutPage() {
                   lineHeight: 1.5,
                 }}
               >
-                当前应用在只读位置运行（如从「下载」直接打开），无法就地更新。请将应用移到「应用程序」文件夹后重试，或通过下方按钮前往下载页手动下载新版本。
+                {t("Claw.About.readOnlyVolumeError")}
               </div>
               <Space>
                 <Button
@@ -394,10 +400,10 @@ export default function AboutPage() {
                   icon={<LinkOutlined />}
                   onClick={handleOpenReleases}
                 >
-                  前往下载页
+                  {t("Claw.About.goToDownloadPage")}
                 </Button>
                 <Button icon={<SyncOutlined />} onClick={handleCheckUpdate}>
-                  重试
+                  {t("Claw.Common.retry")}
                 </Button>
               </Space>
             </Space>
@@ -406,10 +412,10 @@ export default function AboutPage() {
         return (
           <Space direction="vertical" size={8} style={{ width: "100%" }}>
             <div style={{ fontSize: 12, color: "var(--color-error)" }}>
-              {error || "更新出错"}
+              {error || t("Claw.About.updateError")}
             </div>
             <Button icon={<SyncOutlined />} onClick={handleCheckUpdate}>
-              重试
+              {t("Claw.Common.retry")}
             </Button>
           </Space>
         );
@@ -417,7 +423,7 @@ export default function AboutPage() {
       default:
         return (
           <Button icon={<SyncOutlined />} onClick={handleCheckUpdate}>
-            检查更新
+            {t("Claw.About.checkUpdate")}
           </Button>
         );
     }
@@ -476,7 +482,7 @@ export default function AboutPage() {
             lineHeight: 1.6,
           }}
         >
-          跨平台 AI 智能体桌面客户端
+          {t("Claw.About.crossPlatformDescription")}
         </div>
         {/* 官网链接：点击在系统浏览器打开 nuwax.com */}
         <div style={{ marginTop: 12 }}>
@@ -495,7 +501,7 @@ export default function AboutPage() {
             }}
           >
             <LinkOutlined />
-            官网 {OFFICIAL_WEBSITE_URL}
+            {t("Claw.About.website")} {OFFICIAL_WEBSITE_URL}
           </span>
         </div>
         <div style={{ marginTop: 24 }}>{renderUpdateSection()}</div>
@@ -512,15 +518,15 @@ export default function AboutPage() {
           <Typography.Text
             style={{ fontSize: 12, color: "var(--color-text-secondary)" }}
           >
-            Beta 升级通道
+            {t("Claw.About.betaChannel")}
           </Typography.Text>
           <Switch
             size="small"
             checked={updateChannel === "beta"}
             loading={channelLoading}
             onChange={handleChangeUpdateChannel}
-            checkedChildren="开"
-            unCheckedChildren="关"
+            checkedChildren={t("Claw.About.switchOn")}
+            unCheckedChildren={t("Claw.About.switchOff")}
           />
         </div>
         <div
@@ -531,7 +537,7 @@ export default function AboutPage() {
             lineHeight: 1.5,
           }}
         >
-          开启后将切换到预发测试版通道，可能包含未验证改动。
+          {t("Claw.About.betaDisclaimer")}
         </div>
       </div>
 
@@ -545,7 +551,9 @@ export default function AboutPage() {
           }
           style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}
         >
-          {showDebugInfo ? "隐藏" : "显示"}调试信息
+          {showDebugInfo
+            ? t("Claw.About.hideDebugInfo")
+            : t("Claw.About.showDebugInfo")}
         </Button>
       </div>
 
@@ -563,7 +571,7 @@ export default function AboutPage() {
           }}
         >
           <div style={{ marginBottom: 8, fontWeight: 600 }}>
-            升级检测调试信息
+            {t("Claw.About.debugInfoTitle")}
           </div>
           <div
             style={{
@@ -572,29 +580,37 @@ export default function AboutPage() {
               gap: "8px 16px",
             }}
           >
-            <span style={{ color: "var(--color-text-secondary)" }}>平台:</span>
+            <span style={{ color: "var(--color-text-secondary)" }}>
+              {t("Claw.About.platform")}:
+            </span>
             <span>{debugInfo.platform}</span>
 
-            <span style={{ color: "var(--color-text-secondary)" }}>架构:</span>
+            <span style={{ color: "var(--color-text-secondary)" }}>
+              {t("Claw.About.arch")}:
+            </span>
             <span>{debugInfo.arch}</span>
 
             <span style={{ color: "var(--color-text-secondary)" }}>
-              打包状态:
+              {t("Claw.About.packaged")}:
             </span>
-            <span>{debugInfo.isPackaged ? "是" : "否 (开发模式)"}</span>
+            <span>
+              {debugInfo.isPackaged
+                ? t("Claw.Common.yes")
+                : t("Claw.About.devMode")}
+            </span>
 
             <span style={{ color: "var(--color-text-secondary)" }}>
-              应用版本:
+              {t("Claw.About.appVersion")}:
             </span>
             <span>{debugInfo.appVersion}</span>
 
             <span style={{ color: "var(--color-text-secondary)" }}>
-              应用名称:
+              {t("Claw.About.appName")}:
             </span>
             <span>{debugInfo.appName}</span>
 
             <span style={{ color: "var(--color-text-secondary)" }}>
-              安装类型:
+              {t("Claw.About.installerType")}:
             </span>
             <span
               style={{
@@ -608,12 +624,14 @@ export default function AboutPage() {
               }}
             >
               {debugInfo.installerType?.toUpperCase()}
-              {debugInfo.installerType === "nsis" && " ✅ 支持应用内升级"}
-              {debugInfo.installerType === "msi" && " ⚠️ 需手动下载"}
+              {debugInfo.installerType === "nsis" &&
+                " " + t("Claw.About.upgradeSupported")}
+              {debugInfo.installerType === "msi" &&
+                " " + t("Claw.About.manualDownload")}
             </span>
 
             <span style={{ color: "var(--color-text-secondary)" }}>
-              可自动更新:
+              {t("Claw.About.canAutoUpdate")}:
             </span>
             <span
               style={{
@@ -623,20 +641,22 @@ export default function AboutPage() {
                 fontWeight: 500,
               }}
             >
-              {debugInfo.canAutoUpdate ? "是" : "否"}
+              {debugInfo.canAutoUpdate
+                ? t("Claw.Common.yes")
+                : t("Claw.Common.no")}
             </span>
 
             {!debugInfo.isPackaged && (
               <>
                 <span style={{ color: "var(--color-text-secondary)" }}>
-                  应用目录:
+                  {t("Claw.About.appDir")}:
                 </span>
                 <span style={{ wordBreak: "break-all" }}>
                   {debugInfo.appDir}
                 </span>
 
                 <span style={{ color: "var(--color-text-secondary)" }}>
-                  可执行文件:
+                  {t("Claw.About.exePath")}:
                 </span>
                 <span style={{ wordBreak: "break-all" }}>
                   {debugInfo.exePath}
@@ -648,14 +668,14 @@ export default function AboutPage() {
               debugInfo.uninstallerFiles.length > 0 && (
                 <>
                   <span style={{ color: "var(--color-text-secondary)" }}>
-                    卸载程序:
+                    {t("Claw.About.uninstaller")}:
                   </span>
                   <span>{debugInfo.uninstallerFiles.join(", ")}</span>
                 </>
               )}
 
             <span style={{ color: "var(--color-text-secondary)" }}>
-              目录文件数:
+              {t("Claw.About.totalAppFiles")}:
             </span>
             <span>{debugInfo.totalAppFiles}</span>
           </div>

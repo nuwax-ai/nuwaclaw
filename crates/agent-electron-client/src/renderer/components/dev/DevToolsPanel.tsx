@@ -10,22 +10,25 @@
  * - SetupDependencies UI 测试
  */
 
-import { useState } from 'react';
-import { Button, Modal, Tag, message } from 'antd';
+import { useState } from "react";
+import { Button, Modal, Tag, message } from "antd";
 import {
   ReloadOutlined,
   DeleteOutlined,
   ClearOutlined,
   DatabaseOutlined,
   ExperimentOutlined,
-} from '@ant-design/icons';
-import { setupService } from '../../services/core/setup';
-import MCPSettings from '../settings/MCPSettings';
-import SetupDependenciesTest from './SetupDependenciesTest';
-import SetupWizardTest from './SetupWizardTest';
+} from "@ant-design/icons";
+import { setupService } from "../../services/core/setup";
+import { t } from "../../services/core/i18n";
+import MCPSettings from "../settings/MCPSettings";
+import SetupDependenciesTest from "./SetupDependenciesTest";
+import SetupWizardTest from "./SetupWizardTest";
 
 export default function DevToolsPanel() {
-  const [storeData, setStoreData] = useState<Record<string, unknown> | null>(null);
+  const [storeData, setStoreData] = useState<Record<string, unknown> | null>(
+    null,
+  );
   const [storeModalVisible, setStoreModalVisible] = useState(false);
   const [setupDepsTestVisible, setSetupDepsTestVisible] = useState(false);
   const [setupWizardTestVisible, setSetupWizardTestVisible] = useState(false);
@@ -34,46 +37,46 @@ export default function DevToolsPanel() {
   const handleResetSetup = async () => {
     try {
       await setupService.resetSetup();
-      message.success('初始化状态已重置，刷新页面后将重新显示设置向导');
+      message.success(t("Claw.DevTools.resetInitSuccess"));
     } catch {
-      message.error('重置失败');
+      message.error(t("Claw.DevTools.resetFailed"));
     }
   };
 
   // 清除登录
   const handleClearAuth = async () => {
     try {
-      await window.electronAPI?.settings.set('auth.username', null);
-      await window.electronAPI?.settings.set('auth.password', null);
-      await window.electronAPI?.settings.set('auth.config_key', null);
-      await window.electronAPI?.settings.set('auth.user_info', null);
-      await window.electronAPI?.settings.set('auth.online_status', null);
-      message.success('登录状态已清除');
+      await window.electronAPI?.settings.set("auth.username", null);
+      await window.electronAPI?.settings.set("auth.password", null);
+      await window.electronAPI?.settings.set("auth.config_key", null);
+      await window.electronAPI?.settings.set("auth.user_info", null);
+      await window.electronAPI?.settings.set("auth.online_status", null);
+      message.success(t("Claw.DevTools.clearAuthSuccess"));
     } catch {
-      message.error('清除失败');
+      message.error(t("Claw.DevTools.clearFailed"));
     }
   };
 
   // 清除全部并刷新
   const handleClearAll = () => {
     Modal.confirm({
-      title: '清除全部数据',
-      content: '将重置初始化状态和登录信息，页面将自动刷新。确定继续？',
-      okText: '清除并刷新',
-      okType: 'danger',
-      cancelText: '取消',
+      title: t("Claw.DevTools.clearAllData"),
+      content: t("Claw.DevTools.clearAllDataConfirm"),
+      okText: t("Claw.DevTools.clearAndReload"),
+      okType: "danger",
+      cancelText: t("Claw.Common.cancel"),
       onOk: async () => {
         try {
           await setupService.resetSetup();
-          await window.electronAPI?.settings.set('auth.username', null);
-          await window.electronAPI?.settings.set('auth.password', null);
-          await window.electronAPI?.settings.set('auth.config_key', null);
-          await window.electronAPI?.settings.set('auth.user_info', null);
-          await window.electronAPI?.settings.set('auth.online_status', null);
-          message.success('所有数据已清除，正在刷新...');
+          await window.electronAPI?.settings.set("auth.username", null);
+          await window.electronAPI?.settings.set("auth.password", null);
+          await window.electronAPI?.settings.set("auth.config_key", null);
+          await window.electronAPI?.settings.set("auth.user_info", null);
+          await window.electronAPI?.settings.set("auth.online_status", null);
+          message.success(t("Claw.DevTools.clearedReloading"));
           setTimeout(() => window.location.reload(), 500);
         } catch {
-          message.error('清除失败');
+          message.error(t("Claw.DevTools.clearFailed"));
         }
       },
     });
@@ -83,21 +86,21 @@ export default function DevToolsPanel() {
   const handleViewStore = async () => {
     try {
       const keys = [
-        'setup_state',
-        'step1_config',
-        'anthropic_api_key',
-        'app_settings',
-        'agent_config',
-        'mcp_config',
-        'lanproxy_config',
-        'auth.username',
-        'auth.password',
-        'auth.config_key',
-        'auth.saved_key',
-        'auth.user_info',
-        'auth.online_status',
-        'lanproxy.server_host',
-        'lanproxy.server_port',
+        "setup_state",
+        "step1_config",
+        "anthropic_api_key",
+        "app_settings",
+        "agent_config",
+        "mcp_config",
+        "lanproxy_config",
+        "auth.username",
+        "auth.password",
+        "auth.config_key",
+        "auth.saved_key",
+        "auth.user_info",
+        "auth.online_status",
+        "lanproxy.server_host",
+        "lanproxy.server_port",
       ];
 
       const data: Record<string, unknown> = {};
@@ -105,8 +108,8 @@ export default function DevToolsPanel() {
         const value = await window.electronAPI?.settings.get(key);
         if (value !== null && value !== undefined) {
           // 敏感字段脱敏
-          if (key === 'auth.password' || key === 'anthropic_api_key') {
-            data[key] = '******';
+          if (key === "auth.password" || key === "anthropic_api_key") {
+            data[key] = "******";
           } else {
             data[key] = value;
           }
@@ -115,7 +118,7 @@ export default function DevToolsPanel() {
       setStoreData(data);
       setStoreModalVisible(true);
     } catch {
-      message.error('读取存储数据失败');
+      message.error(t("Claw.DevTools.readStoreFailed"));
     }
   };
 
@@ -123,31 +126,35 @@ export default function DevToolsPanel() {
     <div>
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
+          display: "flex",
+          alignItems: "center",
           gap: 6,
           marginBottom: 10,
         }}
       >
-        <span style={{ fontSize: 13, fontWeight: 500, color: '#18181b' }}>
-          开发工具
+        <span style={{ fontSize: 13, fontWeight: 500, color: "#18181b" }}>
+          {t("Claw.DevTools.title")}
         </span>
-        <Tag color="orange" style={{ margin: 0, fontSize: 10 }}>DEV</Tag>
+        <Tag color="orange" style={{ margin: 0, fontSize: 10 }}>
+          DEV
+        </Tag>
       </div>
 
       <div
         style={{
-          border: '1px solid #e4e4e7',
+          border: "1px solid #e4e4e7",
           borderRadius: 8,
-          background: '#fff',
+          background: "#fff",
         }}
       >
         {/* 重置初始化 */}
         <div style={rowStyle}>
           <div>
-            <div style={{ fontSize: 13, color: '#18181b' }}>重置初始化</div>
-            <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 1 }}>
-              清除设置向导完成标记，刷新后重新显示向导
+            <div style={{ fontSize: 13, color: "#18181b" }}>
+              {t("Claw.DevTools.resetInit")}
+            </div>
+            <div style={{ fontSize: 11, color: "#a1a1aa", marginTop: 1 }}>
+              {t("Claw.DevTools.resetInitHint")}
             </div>
           </div>
           <Button
@@ -155,16 +162,18 @@ export default function DevToolsPanel() {
             icon={<ReloadOutlined />}
             onClick={handleResetSetup}
           >
-            重置
+            {t("Claw.DevTools.reset")}
           </Button>
         </div>
 
         {/* 清除登录 */}
         <div style={rowStyle}>
           <div>
-            <div style={{ fontSize: 13, color: '#18181b' }}>清除登录</div>
-            <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 1 }}>
-              清除用户名、密码、ConfigKey（保留 SavedKey）
+            <div style={{ fontSize: 13, color: "#18181b" }}>
+              {t("Claw.DevTools.clearLogin")}
+            </div>
+            <div style={{ fontSize: 11, color: "#a1a1aa", marginTop: 1 }}>
+              {t("Claw.DevTools.clearLoginHint")}
             </div>
           </div>
           <Button
@@ -172,16 +181,18 @@ export default function DevToolsPanel() {
             icon={<ClearOutlined />}
             onClick={handleClearAuth}
           >
-            清除
+            {t("Claw.DevTools.clear")}
           </Button>
         </div>
 
         {/* 清除全部并刷新 */}
         <div style={rowStyle}>
           <div>
-            <div style={{ fontSize: 13, color: '#18181b' }}>清除全部并刷新</div>
-            <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 1 }}>
-              重置初始化 + 清除登录，自动刷新页面
+            <div style={{ fontSize: 13, color: "#18181b" }}>
+              {t("Claw.DevTools.clearAll")}
+            </div>
+            <div style={{ fontSize: 11, color: "#a1a1aa", marginTop: 1 }}>
+              {t("Claw.DevTools.clearAllHint")}
             </div>
           </div>
           <Button
@@ -190,16 +201,18 @@ export default function DevToolsPanel() {
             icon={<DeleteOutlined />}
             onClick={handleClearAll}
           >
-            清除全部
+            {t("Claw.DevTools.clearAllBtn")}
           </Button>
         </div>
 
         {/* 查看存储数据 */}
-        <div style={{ ...rowStyle, borderBottom: 'none' }}>
+        <div style={{ ...rowStyle, borderBottom: "none" }}>
           <div>
-            <div style={{ fontSize: 13, color: '#18181b' }}>存储数据</div>
-            <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 1 }}>
-              查看 SQLite 中的键值数据（敏感字段已脱敏）
+            <div style={{ fontSize: 13, color: "#18181b" }}>
+              {t("Claw.DevTools.storeData")}
+            </div>
+            <div style={{ fontSize: 11, color: "#a1a1aa", marginTop: 1 }}>
+              {t("Claw.DevTools.storeDataHint")}
             </div>
           </div>
           <Button
@@ -207,7 +220,7 @@ export default function DevToolsPanel() {
             icon={<DatabaseOutlined />}
             onClick={handleViewStore}
           >
-            查看
+            {t("Claw.DevTools.view")}
           </Button>
         </div>
       </div>
@@ -216,23 +229,25 @@ export default function DevToolsPanel() {
       <div style={{ marginTop: 16 }}>
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
+            display: "flex",
+            alignItems: "center",
             gap: 6,
             marginBottom: 10,
           }}
         >
-          <span style={{ fontSize: 13, fontWeight: 500, color: '#18181b' }}>
-            MCP Proxy 服务管理
+          <span style={{ fontSize: 13, fontWeight: 500, color: "#18181b" }}>
+            {t("Claw.DevTools.mcpProxyService")}
           </span>
-          <Tag color="orange" style={{ margin: 0, fontSize: 10 }}>DEV</Tag>
+          <Tag color="orange" style={{ margin: 0, fontSize: 10 }}>
+            DEV
+          </Tag>
         </div>
         <div
           style={{
-            border: '1px solid #e4e4e7',
+            border: "1px solid #e4e4e7",
             borderRadius: 8,
-            background: '#fff',
-            overflow: 'hidden',
+            background: "#fff",
+            overflow: "hidden",
           }}
         >
           <MCPSettings />
@@ -241,7 +256,7 @@ export default function DevToolsPanel() {
 
       {/* 存储数据弹窗 */}
       <Modal
-        title="存储数据"
+        title={t("Claw.DevTools.storeData")}
         open={storeModalVisible}
         onCancel={() => setStoreModalVisible(false)}
         footer={null}
@@ -251,13 +266,13 @@ export default function DevToolsPanel() {
           <pre
             style={{
               fontSize: 11,
-              background: '#f5f5f5',
+              background: "#f5f5f5",
               padding: 12,
               borderRadius: 6,
               maxHeight: 400,
-              overflow: 'auto',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all',
+              overflow: "auto",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-all",
             }}
           >
             {JSON.stringify(storeData, null, 2)}
@@ -269,30 +284,34 @@ export default function DevToolsPanel() {
       <div style={{ marginTop: 16 }}>
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
+            display: "flex",
+            alignItems: "center",
             gap: 6,
             marginBottom: 10,
           }}
         >
-          <span style={{ fontSize: 13, fontWeight: 500, color: '#18181b' }}>
-            UI 测试
+          <span style={{ fontSize: 13, fontWeight: 500, color: "#18181b" }}>
+            {t("Claw.DevTools.uiTest")}
           </span>
-          <Tag color="purple" style={{ margin: 0, fontSize: 10 }}>TEST</Tag>
+          <Tag color="purple" style={{ margin: 0, fontSize: 10 }}>
+            TEST
+          </Tag>
         </div>
         <div
           style={{
-            border: '1px solid #e4e4e7',
+            border: "1px solid #e4e4e7",
             borderRadius: 8,
-            background: '#fff',
-            overflow: 'hidden',
+            background: "#fff",
+            overflow: "hidden",
           }}
         >
           <div style={{ ...rowStyle }}>
             <div>
-              <div style={{ fontSize: 13, color: '#18181b' }}>初始化安装向导</div>
-              <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 1 }}>
-                测试 SetupDependencies 各阶段 UI 效果
+              <div style={{ fontSize: 13, color: "#18181b" }}>
+                {t("Claw.DevTools.setupDepsWizard")}
+              </div>
+              <div style={{ fontSize: 11, color: "#a1a1aa", marginTop: 1 }}>
+                {t("Claw.DevTools.setupDepsWizardHint")}
               </div>
             </div>
             <Button
@@ -300,14 +319,16 @@ export default function DevToolsPanel() {
               icon={<ExperimentOutlined />}
               onClick={() => setSetupDepsTestVisible(true)}
             >
-              测试
+              {t("Claw.DevTools.test")}
             </Button>
           </div>
-          <div style={{ ...rowStyle, borderBottom: 'none' }}>
+          <div style={{ ...rowStyle, borderBottom: "none" }}>
             <div>
-              <div style={{ fontSize: 13, color: '#18181b' }}>完整初始化流程</div>
-              <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 1 }}>
-                测试依赖安装 + 配置 + 登录完整流程
+              <div style={{ fontSize: 13, color: "#18181b" }}>
+                {t("Claw.DevTools.fullInitFlow")}
+              </div>
+              <div style={{ fontSize: 11, color: "#a1a1aa", marginTop: 1 }}>
+                {t("Claw.DevTools.fullInitFlowHint")}
               </div>
             </div>
             <Button
@@ -316,7 +337,7 @@ export default function DevToolsPanel() {
               icon={<ExperimentOutlined />}
               onClick={() => setSetupWizardTestVisible(true)}
             >
-              测试
+              {t("Claw.DevTools.test")}
             </Button>
           </div>
         </div>
@@ -324,15 +345,15 @@ export default function DevToolsPanel() {
 
       {/* SetupDependencies 测试弹窗 */}
       <Modal
-        title="SetupDependencies UI 测试"
+        title={t("Claw.DevTools.setupDepsUiTest")}
         open={setupDepsTestVisible}
         onCancel={() => setSetupDepsTestVisible(false)}
         footer={null}
         width={680}
         styles={{
           body: {
-            maxHeight: '70vh',
-            overflow: 'auto',
+            maxHeight: "70vh",
+            overflow: "auto",
             padding: 0,
           },
         }}
@@ -342,15 +363,15 @@ export default function DevToolsPanel() {
 
       {/* SetupWizardTest 测试弹窗 */}
       <Modal
-        title="初始化向导完整流程测试"
+        title={t("Claw.DevTools.setupWizardFlowTest")}
         open={setupWizardTestVisible}
         onCancel={() => setSetupWizardTestVisible(false)}
         footer={null}
         width={800}
         styles={{
           body: {
-            maxHeight: '80vh',
-            overflow: 'auto',
+            maxHeight: "80vh",
+            overflow: "auto",
             padding: 0,
           },
         }}
@@ -362,9 +383,9 @@ export default function DevToolsPanel() {
 }
 
 const rowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  padding: '10px 14px',
-  borderBottom: '1px solid #f4f4f5',
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  padding: "10px 14px",
+  borderBottom: "1px solid #f4f4f5",
 };

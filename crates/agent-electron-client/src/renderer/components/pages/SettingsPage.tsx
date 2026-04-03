@@ -47,6 +47,7 @@ import {
   MSG_SUCCESS,
   MSG_ERROR,
 } from "@shared/constants";
+import { t } from "../../services/core/i18n";
 import styles from "../../styles/components/ClientPage.module.css";
 import { useTheme, type ThemeMode } from "../../App";
 import type {
@@ -79,11 +80,17 @@ const SANDBOX_BACKEND_OPTIONS: Array<{
   value: SandboxBackend;
   label: string;
 }> = [
-  { value: "auto", label: "自动" },
-  { value: "docker", label: "Docker" },
-  { value: "macos-seatbelt", label: "macOS sandbox-exec" },
-  { value: "linux-bwrap", label: "Linux bubblewrap" },
-  { value: "windows-sandbox", label: "Windows Sandbox" },
+  { value: "auto", label: t("Claw.Settings.sandbox.backendAuto") },
+  { value: "docker", label: t("Claw.Settings.sandbox.backendDocker") },
+  {
+    value: "macos-seatbelt",
+    label: t("Claw.Settings.sandbox.backendMacosSeatbelt"),
+  },
+  { value: "linux-bwrap", label: t("Claw.Settings.sandbox.backendLinuxBwrap") },
+  {
+    value: "windows-sandbox",
+    label: t("Claw.Settings.sandbox.backendWindowsSandbox"),
+  },
 ];
 
 export default function SettingsPage() {
@@ -229,8 +236,9 @@ export default function SettingsPage() {
 
   // ========== 服务配置操作 ==========
   const handleSelectWorkspace = async () => {
-    const result =
-      await window.electronAPI?.dialog.openDirectory("选择工作区目录");
+    const result = await window.electronAPI?.dialog.openDirectory(
+      t("Claw.Settings.dialog.selectWorkspace"),
+    );
     if (result?.success && result.path) {
       form.setFieldValue("workspaceDir", result.path);
     }
@@ -248,10 +256,10 @@ export default function SettingsPage() {
       const values = await form.validateFields();
 
       Modal.confirm({
-        title: "保存配置",
-        content: "保存后需要重启服务才能生效，确定保存吗？",
-        okText: "保存",
-        cancelText: "取消",
+        title: t("Claw.Settings.messages.saveConfig"),
+        content: t("Claw.Settings.messages.saveConfigConfirm"),
+        okText: t("Claw.Settings.saveConfig.save"),
+        cancelText: t("Claw.Settings.saveConfig.cancel"),
         onOk: async () => {
           setSaving(true);
           try {
@@ -316,9 +324,15 @@ export default function SettingsPage() {
       const result = await window.electronAPI?.autolaunch?.set(enabled);
       if (result?.success) {
         setAutolaunchEnabled(enabled);
-        message.success(enabled ? "已开启开机自启动" : "已关闭开机自启动");
+        message.success(
+          enabled
+            ? t("Claw.Settings.messages.autoLaunchEnabled")
+            : t("Claw.Settings.messages.autoLaunchDisabled"),
+        );
       } else {
-        message.error(result?.error || "设置失败");
+        message.error(
+          result?.error || t("Claw.Settings.messages.settingFailed"),
+        );
       }
     } catch (error) {
       message.error(MSG_ERROR.OPEN_SETTINGS_FAILED);
@@ -338,16 +352,18 @@ export default function SettingsPage() {
   const handleOpenWorkspaceDir = async () => {
     // 没有有效目录时直接提示，避免触发无意义 IPC 调用。
     if (!workspaceDir) {
-      message.warning("未配置工作空间目录");
+      message.warning(t("Claw.Settings.messages.workspaceNotConfigured"));
       return;
     }
     try {
       const result = await window.electronAPI?.shell?.openPath(workspaceDir);
       if (!result?.success) {
-        message.error(result?.error || "打开工作空间目录失败");
+        message.error(
+          result?.error || t("Claw.Settings.messages.openWorkspaceFailed"),
+        );
       }
     } catch {
-      message.error("打开工作空间目录失败");
+      message.error(t("Claw.Settings.messages.openWorkspaceFailed"));
     }
   };
 
@@ -358,13 +374,16 @@ export default function SettingsPage() {
       const result = await window.electronAPI.sandbox.setPolicy(patch);
       if (result?.success && result.data) {
         setSandboxPolicy(result.data);
-        message.success("沙箱策略已更新");
+        message.success(t("Claw.Settings.messages.sandboxPolicyUpdated"));
         await loadSandboxState();
       } else {
-        message.error(result?.error || "更新沙箱策略失败");
+        message.error(
+          result?.error ||
+            t("Claw.Settings.messages.updateSandboxPolicyFailed"),
+        );
       }
     } catch (error) {
-      message.error("更新沙箱策略失败");
+      message.error(t("Claw.Settings.messages.updateSandboxPolicyFailed"));
     } finally {
       setSandboxSaving(false);
     }
@@ -380,13 +399,20 @@ export default function SettingsPage() {
         },
       });
       if (result?.success && result.data?.success) {
-        message.success(result.data.message || "Windows Sandbox setup 完成");
+        message.success(
+          result.data.message ||
+            t("Claw.Settings.messages.windowsSetupComplete"),
+        );
       } else {
-        message.error(result?.data?.message || result?.error || "setup 失败");
+        message.error(
+          result?.data?.message ||
+            result?.error ||
+            t("Claw.Settings.messages.setupFailed"),
+        );
       }
       await loadSandboxState();
     } catch (error) {
-      message.error("Windows Sandbox setup 失败");
+      message.error(t("Claw.Settings.messages.windowsSetupFailed"));
     } finally {
       setSandboxSaving(false);
     }
@@ -397,9 +423,8 @@ export default function SettingsPage() {
   const windowsSetupTooltip = windowsHelperReady
     ? ""
     : [
-        winSandboxCap?.reason || "helper 未就绪",
-        "【仅 Windows】在 Windows 宿主上执行 npm run build:sandbox-helper（产出 resources/sandbox-helper/nuwax-sandbox-helper.exe）",
-        "或接入 agent-sandbox-runtime 后执行 npm run prepare:sandbox-runtime（win32 产物：nuwax-sandbox-helper.exe → resources/sandbox-runtime/bin/）",
+        winSandboxCap?.reason || t("Claw.Settings.messages.helperNotReady"),
+        t("Claw.Settings.messages.windowsSetupHelperHint"),
       ].join("；");
 
   if (loading) {
@@ -419,12 +444,14 @@ export default function SettingsPage() {
             <SettingOutlined
               style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
             />
-            <span className={styles.sectionTitle}>服务配置</span>
+            <span className={styles.sectionTitle}>
+              {t("Claw.Settings.saveConfig.title")}
+            </span>
           </div>
           {editing ? (
             <div className={styles.servicesHeaderActions}>
               <Button size="small" onClick={handleCancelEdit} disabled={saving}>
-                取消
+                {t("Claw.Settings.saveConfig.cancel")}
               </Button>
               <Button
                 size="small"
@@ -433,7 +460,7 @@ export default function SettingsPage() {
                 onClick={handleSave}
                 loading={saving}
               >
-                保存
+                {t("Claw.Settings.saveConfig.save")}
               </Button>
             </div>
           ) : (
@@ -442,7 +469,7 @@ export default function SettingsPage() {
               icon={<EditOutlined />}
               onClick={() => setEditing(true)}
             >
-              编辑
+              {t("Claw.Settings.saveConfig.edit")}
             </Button>
           )}
         </div>
@@ -452,8 +479,13 @@ export default function SettingsPage() {
               <Col span={8}>
                 <Form.Item
                   name="fileServerPort"
-                  label="文件服务端口"
-                  rules={[{ required: true, message: "请输入端口" }]}
+                  label={t("Claw.Settings.saveConfig.fileServerPort")}
+                  rules={[
+                    {
+                      required: true,
+                      message: t("Claw.Settings.saveConfig.enterPort"),
+                    },
+                  ]}
                 >
                   <InputNumber min={1} max={65535} style={{ width: "100%" }} />
                 </Form.Item>
@@ -461,8 +493,13 @@ export default function SettingsPage() {
               <Col span={8}>
                 <Form.Item
                   name="agentPort"
-                  label="Agent 端口"
-                  rules={[{ required: true, message: "请输入端口" }]}
+                  label={t("Claw.Settings.saveConfig.agentPort")}
+                  rules={[
+                    {
+                      required: true,
+                      message: t("Claw.Settings.saveConfig.enterPort"),
+                    },
+                  ]}
                 >
                   <InputNumber min={1} max={65535} style={{ width: "100%" }} />
                 </Form.Item>
@@ -470,8 +507,13 @@ export default function SettingsPage() {
               <Col span={8}>
                 <Form.Item
                   name="guiMcpPort"
-                  label="GUI MCP 端口"
-                  rules={[{ required: true, message: "请输入端口" }]}
+                  label={t("Claw.Settings.saveConfig.guiMcpPort")}
+                  rules={[
+                    {
+                      required: true,
+                      message: t("Claw.Settings.saveConfig.enterPort"),
+                    },
+                  ]}
                 >
                   <InputNumber min={1} max={65535} style={{ width: "100%" }} />
                 </Form.Item>
@@ -479,9 +521,14 @@ export default function SettingsPage() {
               <Col span={8}>
                 <Form.Item
                   name="adminServerPort"
-                  label="管理服务端口"
-                  rules={[{ required: false, message: "请输入端口" }]}
-                  extra="默认 60007，用于重启服务等管理接口"
+                  label={t("Claw.Settings.saveConfig.adminServerPort")}
+                  rules={[
+                    {
+                      required: false,
+                      message: t("Claw.Settings.saveConfig.enterPort"),
+                    },
+                  ]}
+                  extra={t("Claw.Settings.saveConfig.adminServerPortExtra")}
                 >
                   <InputNumber min={1} max={65535} style={{ width: "100%" }} />
                 </Form.Item>
@@ -490,12 +537,17 @@ export default function SettingsPage() {
 
             <Form.Item
               name="workspaceDir"
-              label="工作区目录"
-              rules={[{ required: true, message: "请选择工作区目录" }]}
+              label={t("Claw.Settings.workspace.title")}
+              rules={[
+                {
+                  required: true,
+                  message: t("Claw.Settings.workspace.selectDir"),
+                },
+              ]}
               style={{ marginBottom: 0 }}
             >
               <Input
-                placeholder="点击选择目录"
+                placeholder={t("Claw.Settings.workspace.clickToSelect")}
                 readOnly
                 addonAfter={
                   editing && (
@@ -506,7 +558,7 @@ export default function SettingsPage() {
                       onClick={handleSelectWorkspace}
                       style={{ padding: 0 }}
                     >
-                      选择
+                      {t("Claw.Settings.workspace.select")}
                     </Button>
                   )
                 }
@@ -522,7 +574,7 @@ export default function SettingsPage() {
                 color: "var(--color-text-tertiary)",
               }}
             >
-              修改配置后需要重启服务才能生效
+              {t("Claw.Settings.saveConfig.restartHint")}
             </div>
           )}
         </div>
@@ -534,15 +586,19 @@ export default function SettingsPage() {
           <SafetyCertificateOutlined
             style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
           />
-          <span className={styles.sectionTitle}>沙箱</span>
+          <span className={styles.sectionTitle}>
+            {t("Claw.Settings.sandbox.title")}
+          </span>
         </div>
         <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
               <div>
-                <span className={styles.serviceLabel}>启用沙箱</span>
+                <span className={styles.serviceLabel}>
+                  {t("Claw.Settings.sandbox.enable")}
+                </span>
                 <div className={styles.serviceDescription}>
-                  关闭后命令将直接在工作区执行
+                  {t("Claw.Settings.sandbox.enableDesc")}
                 </div>
               </div>
             </div>
@@ -559,9 +615,11 @@ export default function SettingsPage() {
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
               <div>
-                <span className={styles.serviceLabel}>策略模式</span>
+                <span className={styles.serviceLabel}>
+                  {t("Claw.Settings.sandbox.mode")}
+                </span>
                 <div className={styles.serviceDescription}>
-                  off / non-main / all
+                  {t("Claw.Settings.sandbox.modeDesc")}
                 </div>
               </div>
             </div>
@@ -586,9 +644,11 @@ export default function SettingsPage() {
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
               <div>
-                <span className={styles.serviceLabel}>后端</span>
+                <span className={styles.serviceLabel}>
+                  {t("Claw.Settings.sandbox.backend")}
+                </span>
                 <div className={styles.serviceDescription}>
-                  当前平台推荐:{" "}
+                  {t("Claw.Settings.sandbox.backendRecommended")}{" "}
                   {sandboxCapabilities?.recommendedBackend || "unknown"}
                 </div>
               </div>
@@ -610,9 +670,11 @@ export default function SettingsPage() {
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
               <div>
-                <span className={styles.serviceLabel}>不可用时策略</span>
+                <span className={styles.serviceLabel}>
+                  {t("Claw.Settings.sandbox.fallback")}
+                </span>
                 <div className={styles.serviceDescription}>
-                  degrade_to_off / fail_closed
+                  {t("Claw.Settings.sandbox.fallbackDesc")}
                 </div>
               </div>
             </div>
@@ -638,9 +700,11 @@ export default function SettingsPage() {
               <div className={styles.serviceRow}>
                 <div className={styles.serviceInfo}>
                   <div>
-                    <span className={styles.serviceLabel}>Sandbox 模式</span>
+                    <span className={styles.serviceLabel}>
+                      {t("Claw.Settings.sandbox.windowsMode")}
+                    </span>
                     <div className={styles.serviceDescription}>
-                      Windows 默认 read-only
+                      {t("Claw.Settings.sandbox.windowsModeDesc")}
                     </div>
                   </div>
                 </div>
@@ -668,10 +732,11 @@ export default function SettingsPage() {
               <div className={styles.serviceRow}>
                 <div className={styles.serviceInfo}>
                   <div>
-                    <span className={styles.serviceLabel}>Windows Setup</span>
+                    <span className={styles.serviceLabel}>
+                      {t("Claw.Settings.sandbox.windowsSetup")}
+                    </span>
                     <div className={styles.serviceDescription}>
-                      仅 Windows：校验 nuwax-sandbox-helper 是否已构建（或由
-                      sandbox-runtime 同步 win32 产物）
+                      {t("Claw.Settings.sandbox.windowsSetupHint")}
                     </div>
                   </div>
                 </div>
@@ -691,7 +756,7 @@ export default function SettingsPage() {
                         sandboxSaving || sandboxLoading || !windowsHelperReady
                       }
                     >
-                      执行 setup
+                      {t("Claw.Settings.sandbox.executeSetup")}
                     </Button>
                   </span>
                 </Tooltip>
@@ -702,22 +767,24 @@ export default function SettingsPage() {
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
               <div>
-                <span className={styles.serviceLabel}>状态</span>
+                <span className={styles.serviceLabel}>
+                  {t("Claw.Settings.sandbox.status")}
+                </span>
                 <div className={styles.serviceDescription}>
                   {sandboxStatus
                     ? (() => {
                         const { type, available, degraded, reason } =
                           sandboxStatus;
                         const isolation = degraded
-                          ? "沙箱隔离未生效（已按策略降级）"
+                          ? t("Claw.Settings.sandbox.statusDegraded")
                           : available
-                            ? "沙箱隔离可用"
-                            : "沙箱隔离不可用";
-                        return `后端 ${type} · ${isolation}${
+                            ? t("Claw.Settings.sandbox.statusAvailable")
+                            : t("Claw.Settings.sandbox.statusUnavailable");
+                        return `${t("Claw.Settings.sandbox.backend")} ${type} · ${isolation}${
                           reason ? ` · ${reason}` : ""
                         }`;
                       })()
-                    : "未加载"}
+                    : t("Claw.Settings.sandbox.statusNotLoaded")}
                 </div>
               </div>
             </div>
@@ -727,7 +794,7 @@ export default function SettingsPage() {
               onClick={loadSandboxState}
               loading={sandboxLoading}
             >
-              刷新
+              {t("Claw.Settings.sandbox.refresh")}
             </Button>
           </div>
         </div>
@@ -828,16 +895,22 @@ export default function SettingsPage() {
           <DesktopOutlined
             style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
           />
-          <span className={styles.sectionTitle}>系统</span>
+          <span className={styles.sectionTitle}>
+            {t("Claw.Settings.system.title")}
+          </span>
         </div>
         <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
           {/* 开机自启动 */}
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
               <div>
-                <span className={styles.serviceLabel}>开机自启动</span>
+                <span className={styles.serviceLabel}>
+                  {t("Claw.Settings.system.autoLaunch")}
+                </span>
                 <div className={styles.serviceDescription}>
-                  系统启动时自动运行 {APP_DISPLAY_NAME}
+                  {t("Claw.Settings.system.autoLaunchDesc", {
+                    appName: APP_DISPLAY_NAME,
+                  })}
                 </div>
               </div>
             </div>
@@ -853,9 +926,11 @@ export default function SettingsPage() {
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
               <div>
-                <span className={styles.serviceLabel}>主题</span>
+                <span className={styles.serviceLabel}>
+                  {t("Claw.Settings.system.theme")}
+                </span>
                 <div className={styles.serviceDescription}>
-                  选择界面配色方案
+                  {t("Claw.Settings.system.themeDesc")}
                 </div>
               </div>
             </div>
@@ -865,9 +940,12 @@ export default function SettingsPage() {
               onChange={(value) => setThemeMode(value)}
               style={{ width: 100 }}
               options={[
-                { value: "system", label: "跟随系统" },
-                { value: "light", label: "亮色" },
-                { value: "dark", label: "暗色" },
+                {
+                  value: "system",
+                  label: t("Claw.Settings.system.themeSystem"),
+                },
+                { value: "light", label: t("Claw.Settings.system.themeLight") },
+                { value: "dark", label: t("Claw.Settings.system.themeDark") },
               ]}
             />
           </div>
@@ -876,7 +954,9 @@ export default function SettingsPage() {
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
               <div>
-                <span className={styles.serviceLabel}>应用数据目录</span>
+                <span className={styles.serviceLabel}>
+                  {t("Claw.Settings.system.appDataDir")}
+                </span>
                 <div className={styles.serviceDescription}>
                   ~/{APP_DATA_DIR_NAME}
                 </div>
@@ -888,7 +968,9 @@ export default function SettingsPage() {
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
               <div>
-                <span className={styles.serviceLabel}>日志目录</span>
+                <span className={styles.serviceLabel}>
+                  {t("Claw.Settings.system.logDir")}
+                </span>
                 <div
                   className={styles.serviceDescription}
                   style={{
@@ -900,12 +982,12 @@ export default function SettingsPage() {
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {logDir || "加载中..."}
+                  {logDir || t("Claw.Settings.system.loading")}
                 </div>
               </div>
             </div>
             <Button size="small" onClick={handleOpenLogDir}>
-              打开
+              {t("Claw.Settings.system.open")}
             </Button>
           </div>
 
@@ -913,7 +995,9 @@ export default function SettingsPage() {
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
               <div>
-                <span className={styles.serviceLabel}>工作空间目录</span>
+                <span className={styles.serviceLabel}>
+                  {t("Claw.Settings.system.workspaceDir")}
+                </span>
                 <div
                   className={styles.serviceDescription}
                   style={{
@@ -925,7 +1009,7 @@ export default function SettingsPage() {
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {workspaceDir || "未设置"}
+                  {workspaceDir || t("Claw.Settings.system.notSet")}
                 </div>
               </div>
             </div>
@@ -934,7 +1018,7 @@ export default function SettingsPage() {
               onClick={handleOpenWorkspaceDir}
               disabled={!workspaceDir}
             >
-              打开
+              {t("Claw.Settings.system.open")}
             </Button>
           </div>
         </div>
