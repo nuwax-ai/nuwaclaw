@@ -43,6 +43,7 @@ import {
   type AcpMcpServer,
   type AcpEnvVariable,
 } from "./acpClient";
+import { AcpTerminalManager } from "./acpTerminalManager";
 import type {
   AgentConfig,
   AcpSessionStatus,
@@ -113,6 +114,8 @@ export class AcpEngine extends EventEmitter {
   private processCleanup: (() => void) | null = null;
   /** Sandbox resource cleanup (temp profiles, etc.) */
   private sandboxCleanup: (() => void) | null = null;
+  /** Terminal manager for ACP terminal/* methods (per-command sandboxing) */
+  private terminalManager: AcpTerminalManager | null = null;
   private sessions = new Map<string, AcpSession>();
   private pendingPermissions = new Map<
     string,
@@ -399,6 +402,30 @@ export class AcpEngine extends EventEmitter {
         }
       }
 
+      // Create Terminal Manager for per-command sandboxing via ACP Terminal API.
+      // claude-code-acp-ts uses terminal/create for bash execution.
+      // On Windows, this routes through nuwax-sandbox-helper.exe run.
+      // On macOS/Linux, commands are executed directly.
+      if (
+        sandboxConfig?.enabled &&
+        sandboxConfig.type === "windows-sandbox" &&
+        sandboxConfig.windowsSandboxHelperPath
+      ) {
+        this.terminalManager = new AcpTerminalManager({
+          windowsSandboxHelperPath: sandboxConfig.windowsSandboxHelperPath,
+          windowsSandboxMode: sandboxConfig.windowsSandboxMode,
+          networkEnabled: true,
+        });
+        log.info(
+          `${this.logTag} Terminal manager initialized (Windows sandbox)`,
+        );
+      } else {
+        this.terminalManager = new AcpTerminalManager();
+        log.info(
+          `${this.logTag} Terminal manager initialized (direct execution)`,
+        );
+      }
+
       const spawnTimer = perfEmitter.start();
       const {
         connection,
@@ -468,7 +495,9 @@ export class AcpEngine extends EventEmitter {
       const acp = await loadAcpSdk();
       const initResult = await connection.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
-        clientCapabilities: {},
+        clientCapabilities: {
+          terminal: true, // Enable ACP Terminal API (terminal/create, etc.)
+        },
       });
 
       handshakeTimer.end("acp.init.handshake", { engine: this.engineName });
@@ -586,6 +615,16 @@ export class AcpEngine extends EventEmitter {
         log.warn(`${this.logTag} 沙箱资源清理失败:`, e);
       }
       this.sandboxCleanup = null;
+    }
+
+    // Cleanup terminal manager (kill running processes, release resources)
+    if (this.terminalManager) {
+      try {
+        await this.terminalManager.releaseAll();
+      } catch (e) {
+        log.warn(`${this.logTag} Terminal manager cleanup failed:`, e);
+      }
+      this.terminalManager = null;
     }
 
     this.acpConnection = null;
@@ -1632,6 +1671,9 @@ ${memoryContext}
       ): Promise<AcpPermissionResponse> => {
         return this.handlePermissionRequest(params);
       },
+
+      // Terminal API handlers — delegated to AcpTerminalManager
+      ...(this.terminalManager?.getClientHandlers() ?? {}),
     };
   }
 
