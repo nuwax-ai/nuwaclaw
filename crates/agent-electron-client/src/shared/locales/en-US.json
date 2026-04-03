@@ -193,5 +193,9 @@
   "Claw.Client.usernamePlaceholder": "Username / Phone / Email",
   "Claw.Client.passwordPlaceholder": "Enter password or verification code (login at your domain in browser, then view in user profile)",
   "Claw.Client.missingDepsCannotStart": "Missing required dependencies, cannot start services",
-  "Claw.Client.qrCode": "Scan to use"
+  "Claw.Client.qrCode": "Scan to use",
+
+  "Claw.EmbeddedWebview.loadFailed": "Load failed: {0} ({1})",
+  "Claw.EmbeddedWebview.back": "Back",
+  "Claw.EmbeddedWebview.refresh": "Refresh"
 }

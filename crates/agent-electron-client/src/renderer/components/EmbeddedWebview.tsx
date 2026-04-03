@@ -9,6 +9,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Button, Alert } from "antd";
 import { ArrowLeftOutlined, ReloadOutlined } from "@ant-design/icons";
 import { APP_DISPLAY_NAME } from "@shared/constants";
+import { t } from "../../services/core/i18n";
 import styles from "../styles/components/EmbeddedWebview.module.css";
 
 interface EmbeddedWebviewProps {
@@ -40,7 +41,11 @@ function EmbeddedWebview({ url, onClose }: EmbeddedWebviewProps) {
       // errorCode -3 is "aborted" (navigation cancelled), not a real error
       if (e.errorCode && e.errorCode !== -3) {
         setError(
-          `加载失败: ${e.errorDescription || "未知错误"} (${e.errorCode})`,
+          t(
+            "Claw.EmbeddedWebview.loadFailed",
+            e.errorDescription || "未知错误",
+            String(e.errorCode),
+          ),
         );
       }
     };
@@ -62,11 +67,11 @@ function EmbeddedWebview({ url, onClose }: EmbeddedWebviewProps) {
     <div className={styles.container}>
       <div className={styles.toolbar}>
         <Button size="small" icon={<ArrowLeftOutlined />} onClick={onClose}>
-          返回
+          {t("Claw.EmbeddedWebview.back")}
         </Button>
         <span className={styles.url}>{url}</span>
         <Button size="small" icon={<ReloadOutlined />} onClick={handleReload}>
-          刷新
+          {t("Claw.EmbeddedWebview.refresh")}
         </Button>
       </div>
       {error && (

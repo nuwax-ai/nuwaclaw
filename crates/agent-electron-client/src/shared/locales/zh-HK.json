@@ -193,5 +193,9 @@
   "Claw.Client.usernamePlaceholder": "用戶名 / 手機號 / 郵箱",
   "Claw.Client.passwordPlaceholder": "請輸入密碼或動態認證碼（在瀏覽器打開你的域名登錄，然後在用戶資料中查看）",
   "Claw.Client.missingDepsCannotStart": "缺少必需依賴，無法啟動服務",
-  "Claw.Client.qrCode": "掃碼使用"
+  "Claw.Client.qrCode": "掃碼使用",
+
+  "Claw.EmbeddedWebview.loadFailed": "載入失敗: {0} ({1})",
+  "Claw.EmbeddedWebview.back": "返回",
+  "Claw.EmbeddedWebview.refresh": "重新整理"
 }
