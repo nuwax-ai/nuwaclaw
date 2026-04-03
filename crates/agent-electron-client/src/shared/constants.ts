@@ -307,3 +307,206 @@ export const SERVICE_STATE_NAMES = {
   Stopping: "停止中",
   Error: "错误",
 } as const;
+
+// ==================== i18n Key 常量 ====================
+
+/**
+ * i18n 翻译 key 常量
+ * 格式：{Client}.{Scope}.{Domain}.{key}
+ * Client: Claw (Electron 客户端)
+ *
+ * 用于在代码中引用翻译 key，避免拼写错误
+ * 后端 /api/i18n/query 返回的翻译 map 以这些 key 为键
+ */
+export const I18N_KEYS = {
+  // 通用 Common
+  Common: {
+    LOADING: "Claw.Common.loading",
+    SAVE: "Claw.Common.save",
+    CANCEL: "Claw.Common.cancel",
+    CONFIRM: "Claw.Common.confirm",
+    DELETE: "Claw.Common.delete",
+    EDIT: "Claw.Common.edit",
+    ADD: "Claw.Common.add",
+    OPEN: "Claw.Common.open",
+    CLOSE: "Claw.Common.close",
+    RETRY: "Claw.Common.retry",
+    NO_DATA: "Claw.Common.noData",
+    BACK: "Claw.Common.back",
+    REFRESH: "Claw.Common.refresh",
+  },
+
+  // 成功消息 Toast.Success
+  Toast: {
+    SUCCESS: {
+      CONFIG_SAVED: "Claw.Toast.Success.configSaved",
+      AI_CONFIG_SAVED: "Claw.Toast.Success.aiConfigSaved",
+      AGENT_STARTED: "Claw.Toast.Success.agentStarted",
+      AGENT_STOPPED: "Claw.Toast.Success.agentStopped",
+      MCP_STARTED: "Claw.Toast.Success.mcpStarted",
+      MCP_STOPPED: "Claw.Toast.Success.mcpStopped",
+      MCP_RESTARTED: "Claw.Toast.Success.mcpRestarted",
+      MCP_CONFIG_SAVED: "Claw.Toast.Success.mcpConfigSaved",
+      SERVICES_STARTED: "Claw.Toast.Success.servicesStarted",
+      SERVICES_STOPPED: "Claw.Toast.Success.servicesStopped",
+      LOGIN_SUCCESS: "Claw.Toast.Success.loginSuccess",
+      LOGOUT_SUCCESS: "Claw.Toast.Success.logoutSuccess",
+      SETUP_SAVED: "Claw.Toast.Success.setupSaved",
+      DEPENDENCIES_INSTALLED: "Claw.Toast.Success.dependenciesInstalled",
+    },
+    ERROR: {
+      CONFIG_SAVE_FAILED: "Claw.Toast.Error.configSaveFailed",
+      AI_CONFIG_SAVE_FAILED: "Claw.Toast.Error.aiConfigSaveFailed",
+      START_FAILED: "Claw.Toast.Error.startFailed",
+      STOP_FAILED: "Claw.Toast.Error.stopFailed",
+      RESTART_FAILED: "Claw.Toast.Error.restartFailed",
+      SAVE_FAILED: "Claw.Toast.Error.saveFailed",
+      LOGIN_FAILED: "Claw.Toast.Error.loginFailed",
+      LOGOUT_FAILED: "Claw.Toast.Error.logoutFailed",
+      LOAD_FAILED: "Claw.Toast.Error.loadFailed",
+      DEPENDENCIES_INSTALL_FAILED: "Claw.Toast.Error.dependenciesInstallFailed",
+      SETUP_LOAD_FAILED: "Claw.Toast.Error.setupLoadFailed",
+      OPEN_SETTINGS_FAILED: "Claw.Toast.Error.openSettingsFailed",
+      OPEN_LOGS_FAILED: "Claw.Toast.Error.openLogsFailed",
+      OPEN_BROWSER_FAILED: "Claw.Toast.Error.openBrowserFailed",
+      INVALID_SESSION_URL: "Claw.Toast.Error.invalidSessionUrl",
+    },
+    WARNING: {
+      INCOMPLETE_LOGIN_INFO: "Claw.Toast.Warning.incompleteLoginInfo",
+      MISSING_DEPENDENCIES: "Claw.Toast.Warning.missingDependencies",
+      SERVER_DOMAIN_REQUIRED: "Claw.Toast.Warning.serverDomainRequired",
+      AGENT_PORT_REQUIRED: "Claw.Toast.Warning.agentPortRequired",
+      FILE_SERVER_PORT_REQUIRED: "Claw.Toast.Warning.fileServerPortRequired",
+      PROXY_PORT_REQUIRED: "Claw.Toast.Warning.proxyPortRequired",
+      WORKSPACE_DIR_REQUIRED: "Claw.Toast.Warning.workspaceDirRequired",
+      USERNAME_AND_OTP_REQUIRED: "Claw.Toast.Warning.usernameAndOtpRequired",
+      SERVER_ID_REQUIRED: "Claw.Toast.Warning.serverIdRequired",
+      ARGS_REQUIRED: "Claw.Toast.Warning.argsRequired",
+      LOGIN_FIRST: "Claw.Toast.Warning.loginFirst",
+    },
+    INFO: {
+      ALL_SERVICES_RUNNING: "Claw.Toast.Info.allServicesRunning",
+      NO_RUNNING_SERVICES: "Claw.Toast.Info.noRunningServices",
+      NO_DEPENDENCIES_TO_INSTALL: "Claw.Toast.Info.noDependenciesToInstall",
+      SERVER_ADDED_REMEMBER_SAVE: "Claw.Toast.Info.serverAddedRememberSave",
+      SERVER_REMOVED_REMEMBER_SAVE: "Claw.Toast.Info.serverRemovedRememberSave",
+      LOGIN_FIRST_SILENT: "Claw.Toast.Info.loginFirstSilent",
+      ALREADY_LATEST_VERSION: "Claw.Toast.Info.alreadyLatestVersion",
+    },
+  },
+
+  // 依赖管理 Components.Dependency
+  Components: {
+    Dependency: {
+      CHECKING: "Claw.Components.Dependency.checking",
+      INSTALLED: "Claw.Components.Dependency.installed",
+      MISSING: "Claw.Components.Dependency.missing",
+      OUTDATED: "Claw.Components.Dependency.outdated",
+      INSTALLING: "Claw.Components.Dependency.installing",
+      BUNDLED: "Claw.Components.Dependency.bundled",
+      ERROR: "Claw.Components.Dependency.error",
+    },
+    Action: {
+      STARTING: "Claw.Components.Action.starting",
+      STOPPING: "Claw.Components.Action.stopping",
+      READY: "Claw.Components.Action.ready",
+      NEED_CONFIG: "Claw.Components.Action.needConfig",
+      ALL_READY: "Claw.Components.Action.allReady",
+      ALL_INSTALLED: "Claw.Components.Action.allInstalled",
+    },
+  },
+
+  // 服务 Pages.Service
+  Pages: {
+    Service: {
+      FILE_SERVER: "Claw.Pages.Service.fileServer",
+      PROXY: "Claw.Pages.Service.proxy",
+      AGENT: "Claw.Pages.Service.agent",
+      MCP_PROXY: "Claw.Pages.Service.mcpProxy",
+      GUI_MCP: "Claw.Pages.Service.guiMcp",
+    },
+    Agent: {
+      STATUS: {
+        IDLE: "Claw.Pages.Agent.status.idle",
+        STARTING: "Claw.Pages.Agent.status.starting",
+        RUNNING: "Claw.Pages.Agent.status.running",
+        BUSY: "Claw.Pages.Agent.status.busy",
+        STOPPED: "Claw.Pages.Agent.status.stopped",
+        ERROR: "Claw.Pages.Agent.status.error",
+      },
+    },
+    State: {
+      RUNNING: "Claw.Pages.State.running",
+      STOPPED: "Claw.Pages.State.stopped",
+      STARTING: "Claw.Pages.State.starting",
+      STOPPING: "Claw.Pages.State.stopping",
+      ERROR: "Claw.Pages.State.error",
+    },
+
+    // 依赖页面 Pages.Dependencies
+    Dependencies: {
+      // 标题
+      SYSTEM_ENV: "Claw.Pages.Dependencies.systemEnv",
+      DEPENDENCY_PACKAGES: "Claw.Pages.Dependencies.dependencyPackages",
+      LOADING: "Claw.Pages.Dependencies.loading",
+      CHECKING: "Claw.Pages.Dependencies.checking",
+      REFRESH: "Claw.Pages.Dependencies.refresh",
+      LOAD_DEPENDENCIES: "Claw.Pages.Dependencies.loadDependencies",
+
+      // 状态
+      NOT_INSTALLED: "Claw.Pages.Dependencies.notInstalled",
+      INTEGRATED: "Claw.Pages.Dependencies.integrated",
+      NOT_INTEGRATED: "Claw.Pages.Dependencies.notIntegrated",
+      REQUIRED: "Claw.Pages.Dependencies.required",
+      UPGRADING: "Claw.Pages.Dependencies.upgrading",
+      UPDATING: "Claw.Pages.Dependencies.updating",
+      INSTALLING: "Claw.Pages.Dependencies.installing",
+      INSTALLED_COUNT: "Claw.Pages.Dependencies.installedCount",
+
+      // 操作
+      INSTALL: "Claw.Pages.Dependencies.install",
+      UPGRADE: "Claw.Pages.Dependencies.upgrade",
+      INSTALL_ALL: "Claw.Pages.Dependencies.installAll",
+      UPGRADE_ALL: "Claw.Pages.Dependencies.upgradeAll",
+      UPDATE_TO: "Claw.Pages.Dependencies.updateTo",
+      NO_DEPENDENCIES: "Claw.Pages.Dependencies.noDependencies",
+
+      // 消息
+      MSG_INSTALL_SUCCESS: "Claw.Pages.Dependencies.msgInstallSuccess",
+      MSG_UPGRADE_SUCCESS: "Claw.Pages.Dependencies.msgUpgradeSuccess",
+      MSG_FAILED: "Claw.Pages.Dependencies.msgFailed",
+      MSG_INSTALL_ALL_COMPLETE: "Claw.Pages.Dependencies.msgInstallAllComplete",
+      MSG_UPGRADE_ALL_COMPLETE: "Claw.Pages.Dependencies.msgUpgradeAllComplete",
+      MSG_LOAD_FAILED: "Claw.Pages.Dependencies.msgLoadFailed",
+      MSG_RESTARTING_SERVICES: "Claw.Pages.Dependencies.msgRestartingServices",
+      MSG_RESTART_SUCCESS: "Claw.Pages.Dependencies.msgRestartSuccess",
+      MSG_RESTART_FAILED: "Claw.Pages.Dependencies.msgRestartFailed",
+      MSG_NO_DEPENDENCIES_TO_INSTALL:
+        "Claw.Pages.Dependencies.msgNoDependenciesToInstall",
+      MSG_INSTALL_FAILED: "Claw.Pages.Dependencies.msgInstallFailed",
+      MSG_SYSTEM_ENV_REQUIRED: "Claw.Pages.Dependencies.msgSystemEnvRequired",
+
+      // 依赖名称
+      DEP_UV: "Claw.Pages.Dependencies.dep.uv",
+      DEP_PNPM: "Claw.Pages.Dependencies.dep.pnpm",
+      DEP_ANTHROPIC_SDK: "Claw.Pages.Dependencies.dep.anthropicSdk",
+      DEP_CLAUDE_CODE_ACP: "Claw.Pages.Dependencies.dep.claudeCodeAcp",
+      DEP_FILE_SERVER: "Claw.Pages.Dependencies.dep.fileServer",
+      DEP_MCP_PROXY: "Claw.Pages.Dependencies.dep.mcpProxy",
+      DEP_NUWAXCODE: "Claw.Pages.Dependencies.dep.nuwaxcode",
+
+      // 依赖描述
+      DESC_UV: "Claw.Pages.Dependencies.desc.uv",
+      DESC_PNPM: "Claw.Pages.Dependencies.desc.pnpm",
+      DESC_ANTHROPIC_SDK: "Claw.Pages.Dependencies.desc.anthropicSdk",
+      DESC_CLAUDE_CODE_ACP: "Claw.Pages.Dependencies.desc.claudeCodeAcp",
+      DESC_FILE_SERVER: "Claw.Pages.Dependencies.desc.fileServer",
+      DESC_MCP_PROXY: "Claw.Pages.Dependencies.desc.mcpProxy",
+      DESC_NUWAXCODE: "Claw.Pages.Dependencies.desc.nuwaxcode",
+
+      // 版本要求
+      REQ_NODE_VERSION: "Claw.Pages.Dependencies.reqNodeVersion",
+      REQ_UV_VERSION: "Claw.Pages.Dependencies.reqUvVersion",
+    },
+  },
+} as const;

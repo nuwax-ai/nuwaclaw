@@ -1,9 +1,9 @@
 /**
  * GUI Agent HTTP Server
  *
- * 在 127.0.0.1:$GUI_AGENT_PORT 上启动 HTTP 服务器，
- * 提供截图、键鼠操作、权限检测等 API。
- * Agent 通过 bash curl 调用这些端点。
+ * 通过 Unix socket 提供 HTTP 服务，
+ * 取代 TCP + token 认证方案，避免敏感 token 注入到引擎进程环境变量。
+ * Agent 通过 bash curl --unix-socket 调用这些端点。
  *
  * 路由:
  * - POST /gui/screenshot    → 截图
@@ -15,20 +15,19 @@
  */
 
 import * as http from "http";
+import * as net from "net";
+import * as os from "os";
+import * as path from "path";
+import * as fs from "fs";
 import log from "electron-log";
-import { LOCALHOST_IP } from "@shared/constants";
 import { takeScreenshot, getDisplaysInfo } from "./screenshotService";
 import { executeInput, getCursorPosition } from "./inputService";
 import { checkGuiPermissions } from "./permissionService";
 import {
-  validateToken,
   consumeRateToken,
   logAudit,
-  generateToken,
-  clearToken,
   initRateLimiter,
   resetRateLimiter,
-  getToken,
   clearAuditLog,
 } from "./securityManager";
 import type {
@@ -48,6 +47,13 @@ let server: http.Server | null = null;
 let lastError: string | null = null;
 let currentConfig: GuiAgentConfig = { ...DEFAULT_GUI_AGENT_CONFIG };
 let starting = false; // mutex to prevent concurrent startGuiAgentServer calls
+let currentSocketPath: string = "";
+
+/** 生成 Unix socket 路径 */
+function getDefaultSocketPath(): string {
+  const dir = os.tmpdir();
+  return path.join(dir, `nuwaclaw-gui-agent-${process.pid}.sock`);
+}
 
 // ==================== Helpers ====================
 
@@ -264,25 +270,11 @@ async function handleRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ) {
-  const url = new URL(
-    req.url || "/",
-    `http://${req.headers.host || LOCALHOST_IP}`,
-  );
+  // Unix socket: socket permissions replace token auth (no auth header check needed)
+  const url = new URL(req.url || "/", "http://localhost");
   const pathname = url.pathname;
   const method = req.method?.toUpperCase() || "GET";
   const t0 = Date.now();
-
-  // Auth check (all endpoints require Bearer token)
-  if (!validateToken(req.headers.authorization)) {
-    logAudit({
-      path: pathname,
-      action: "auth_failed",
-      success: false,
-      error: "Invalid or missing token",
-    });
-    sendError(res, 401, "Unauthorized: Invalid or missing Bearer token");
-    return;
-  }
 
   // Rate limit check
   if (!consumeRateToken()) {
@@ -417,14 +409,14 @@ async function handleRequest(
 // ==================== Lifecycle ====================
 
 /**
- * 启动 GUI Agent HTTP Server
+ * 启动 GUI Agent HTTP Server (Unix socket)
  */
 export function startGuiAgentServer(
   config?: Partial<GuiAgentConfig>,
-): Promise<{ success: boolean; token?: string; error?: string }> {
+): Promise<{ success: boolean; socketPath?: string; error?: string }> {
   return new Promise((resolve) => {
     if (server) {
-      resolve({ success: true, token: getToken() || undefined });
+      resolve({ success: true, socketPath: currentSocketPath });
       return;
     }
     if (starting) {
@@ -438,10 +430,20 @@ export function startGuiAgentServer(
       currentConfig = { ...currentConfig, ...config };
     }
 
-    const port = currentConfig.port;
+    // 确定 socket 路径
+    const socketPath = currentConfig.socketPath || getDefaultSocketPath();
+    currentSocketPath = socketPath;
 
-    // Initialize security
-    const token = generateToken();
+    // 清理已存在的 socket 文件
+    if (fs.existsSync(socketPath)) {
+      try {
+        fs.unlinkSync(socketPath);
+      } catch {
+        // ignore cleanup errors
+      }
+    }
+
+    // 初始化安全模块
     initRateLimiter(currentConfig.rateLimit);
 
     server = http.createServer(handleRequest);
@@ -449,21 +451,29 @@ export function startGuiAgentServer(
     server.on("error", (err: NodeJS.ErrnoException) => {
       log.error(`${TAG} Server error:`, err);
       const errorMsg =
-        err.code === "EADDRINUSE" ? `Port ${port} already in use` : err.message;
+        err.code === "EADDRINUSE"
+          ? `Socket ${socketPath} already in use`
+          : err.message;
       lastError = errorMsg;
       server = null;
-      clearToken();
       resetRateLimiter();
       starting = false;
       resolve({ success: false, error: errorMsg });
     });
 
-    // Bind to 127.0.0.1 only (security: local access only)
-    server.listen(port, LOCALHOST_IP, () => {
-      log.info(`${TAG} Listening on ${LOCALHOST_IP}:${port}`);
+    // 监听 Unix socket (权限 0600 = 仅所有者读写)
+    server.listen(socketPath, () => {
+      try {
+        // 设置 socket 权限为 0600
+        fs.chmodSync(socketPath, 0o600);
+      } catch {
+        // chmod may fail on some platforms (e.g., Windows Subsystem for Linux)
+        // but socket is still functional
+      }
+      log.info(`${TAG} Listening on ${socketPath}`);
       lastError = null;
       starting = false;
-      resolve({ success: true, token });
+      resolve({ success: true, socketPath });
     });
   });
 }
@@ -480,9 +490,10 @@ export function stopGuiAgentServer(): Promise<void> {
     }
 
     const s = server;
+    const socketPath = currentSocketPath;
     server = null;
+    currentSocketPath = "";
     lastError = null;
-    clearToken();
     resetRateLimiter();
     clearAuditLog();
 
@@ -496,6 +507,14 @@ export function stopGuiAgentServer(): Promise<void> {
         log.error(`${TAG} Stop error:`, err);
         reject(err);
       } else {
+        // 清理 socket 文件
+        if (socketPath && fs.existsSync(socketPath)) {
+          try {
+            fs.unlinkSync(socketPath);
+          } catch {
+            // ignore cleanup errors
+          }
+        }
         log.info(`${TAG} Stopped`);
         resolve();
       }
@@ -510,11 +529,9 @@ export function getGuiAgentStatus(): GuiAgentStatus {
   if (!server || !server.listening) {
     return { running: false, error: lastError || undefined };
   }
-  const addr = server.address();
   return {
     running: true,
-    port: typeof addr === "object" && addr ? addr.port : undefined,
-    token: getToken() || undefined,
+    socketPath: currentSocketPath,
   };
 }
 

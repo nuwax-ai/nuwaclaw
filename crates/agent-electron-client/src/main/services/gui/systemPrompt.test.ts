@@ -7,8 +7,7 @@ import { generateGuiAgentSystemPrompt } from "./systemPrompt";
 
 describe("generateGuiAgentSystemPrompt", () => {
   const baseParams = {
-    port: 60010,
-    token: "test-token-uuid",
+    socketPath: "/tmp/test-gui-agent.sock",
     platform: "darwin" as NodeJS.Platform,
   };
 
@@ -18,17 +17,17 @@ describe("generateGuiAgentSystemPrompt", () => {
     expect(typeof result).toBe("string");
   });
 
-  it("contains the port in the base URL", () => {
+  it("contains the socket path", () => {
     const result = generateGuiAgentSystemPrompt(baseParams);
-    expect(result).toContain("http://127.0.0.1:60010");
+    expect(result).toContain("/tmp/test-gui-agent.sock");
   });
 
-  it("references the GUI_AGENT_TOKEN env var instead of literal token", () => {
+  it("uses --unix-socket instead of token auth", () => {
     const result = generateGuiAgentSystemPrompt(baseParams);
-    expect(result).toContain("$GUI_AGENT_TOKEN");
-    expect(result).toContain("GUI_AGENT_TOKEN");
-    // Should NOT contain the literal token value
-    expect(result).not.toContain("test-token-uuid");
+    expect(result).toContain("--unix-socket");
+    // Should NOT contain any token reference
+    expect(result).not.toContain("GUI_AGENT_TOKEN");
+    expect(result).not.toContain("Authorization");
   });
 
   it("wraps content in <gui-agent> tags", () => {
@@ -92,11 +91,14 @@ describe("generateGuiAgentSystemPrompt", () => {
     });
   });
 
-  it("uses the correct port in all curl examples", () => {
-    const result = generateGuiAgentSystemPrompt({ ...baseParams, port: 12345 });
-    // All URLs should use the custom port
-    expect(result).toContain("http://127.0.0.1:12345");
-    expect(result).not.toContain("http://127.0.0.1:60010");
+  it("uses the correct socket path in all curl examples", () => {
+    const result = generateGuiAgentSystemPrompt({
+      ...baseParams,
+      socketPath: "/tmp/custom-gui-agent.sock",
+    });
+    // All curl commands should use the custom socket path
+    expect(result).toContain("--unix-socket /tmp/custom-gui-agent.sock");
+    expect(result).not.toContain("/tmp/test-gui-agent.sock");
   });
 
   it("includes all input action types", () => {
