@@ -76,14 +76,14 @@ function LanproxySettings({ isOpen, onClose }: LanproxySettingsProps) {
         if (result.success) {
           setMessage(t("Claw.Lanproxy.tunnelStopped"));
         } else {
-          setMessage(t("Claw.Lanproxy.errorWithDetail", result.error));
+          setMessage(t("Claw.Lanproxy.errorWithDetail", result.error || ""));
         }
       } else {
         const result = await lanproxyManager.start();
         if (result.success) {
           setMessage(t("Claw.Lanproxy.tunnelStarted"));
         } else {
-          setMessage(t("Claw.Lanproxy.errorWithDetail", result.error));
+          setMessage(t("Claw.Lanproxy.errorWithDetail", result.error || ""));
         }
       }
     } catch (error) {
