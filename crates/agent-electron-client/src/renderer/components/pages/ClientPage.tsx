@@ -49,7 +49,6 @@ import {
 } from "../../services/core/auth";
 import type { ServiceItem } from "../../App";
 import { buildRedirectUrl } from "../../services/utils/sessionUrl";
-import { SERVICE_NAMES } from "@shared/constants";
 import { t } from "../../services/core/i18n";
 import styles from "../../styles/components/ClientPage.module.css";
 
@@ -303,15 +302,15 @@ function ClientPage({
     setQrModalVisible(true);
   };
 
-  // 服务名称映射（使用 constants.ts 中的 SERVICE_NAMES）
+  // 服务名称映射（i18n key）
   const serviceNameMap: Record<string, string> = {
-    agent: SERVICE_NAMES.Rcoder,
-    fileServer: SERVICE_NAMES.NuwaxFileServer,
-    guiServer: SERVICE_NAMES.GuiAgent,
-    lanproxy: SERVICE_NAMES.NuwaxLanproxy,
-    mcpProxy: SERVICE_NAMES.McpProxy,
+    agent: "Claw.Service.agent",
+    fileServer: "Claw.Service.file",
+    guiServer: "Claw.Service.guiMcp",
+    lanproxy: "Claw.Service.proxy",
+    mcpProxy: "Claw.Service.mcp",
   };
-  const getServiceLabel = (key: string) => serviceNameMap[key] || key;
+  const getServiceLabel = (key: string) => t(serviceNameMap[key] || key);
 
   // ======================== Services =================
   const handleStartService = async (
