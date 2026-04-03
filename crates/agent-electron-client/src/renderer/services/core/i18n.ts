@@ -95,13 +95,13 @@ const isZhLang = (lang?: string | null): boolean =>
 const isLegacySystemKey = (key: string): boolean => key.startsWith("System.");
 
 // Key 格式验证正则
-// 格式: {Client}.{Scope}.{Domain}.{key}
+// 格式: {Client}.{Scope}.{Domain}.{key} 或 {Client}.{Scope}.{key}
 // Client: Claw|PC|Mobile
 // Scope: 任意大写字母开头的标识符（如 Menu, Service, Agent, Client, App 等）
-// Domain: 可选的点分隔路径（如 Status.idle 或直接是 key）
-// key: 小写字母开头的标识符
+// Domain: 可选的点分隔路径（如 Status）
+// key: 任意字母开头的标识符（支持大小写）
 const I18N_KEY_REGEX =
-  /^(Claw|PC|Mobile)\.[A-Z][A-Za-z0-9]*\.([A-Za-z0-9]+\.)*[a-z][A-Za-z0-9]*$/;
+  /^(Claw|PC|Mobile)\.[A-Z][A-Za-z0-9]*\.([A-Za-z0-9]+\.)*[A-Za-z][A-Za-z0-9]*$/;
 
 const isValidI18nKey = (key: string): boolean => I18N_KEY_REGEX.test(key);
 
