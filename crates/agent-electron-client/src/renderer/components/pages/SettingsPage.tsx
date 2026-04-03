@@ -640,7 +640,7 @@ export default function SettingsPage() {
                   <div>
                     <span className={styles.serviceLabel}>Sandbox 模式</span>
                     <div className={styles.serviceDescription}>
-                      Windows 默认 unelevated
+                      Windows 默认 read-only
                     </div>
                   </div>
                 </div>
@@ -660,34 +660,9 @@ export default function SettingsPage() {
                     })
                   }
                   options={[
-                    { value: "unelevated", label: "unelevated" },
-                    { value: "elevated", label: "elevated" },
+                    { value: "read-only", label: "read-only" },
+                    { value: "workspace-write", label: "workspace-write" },
                   ]}
-                />
-              </div>
-              <div className={styles.serviceRow}>
-                <div className={styles.serviceInfo}>
-                  <div>
-                    <span className={styles.serviceLabel}>Private Desktop</span>
-                    <div className={styles.serviceDescription}>
-                      Windows 图形隔离桌面
-                    </div>
-                  </div>
-                </div>
-                <Switch
-                  size="small"
-                  checked={sandboxPolicy.windows.sandbox.privateDesktop}
-                  loading={sandboxSaving || sandboxLoading}
-                  onChange={(checked) =>
-                    handlePatchSandboxPolicy({
-                      windows: {
-                        sandbox: {
-                          ...sandboxPolicy.windows.sandbox,
-                          privateDesktop: checked,
-                        },
-                      },
-                    })
-                  }
                 />
               </div>
               <div className={styles.serviceRow}>

@@ -1,0 +1,10 @@
+# Cross-compilation targets for building nuwax-sandbox-helper.exe on non-Windows hosts.
+#
+# Usage (macOS/Linux → Windows x64):
+#   npm run build:sandbox-helper -- --win
+#
+# Requires: rustup target add x86_64-pc-windows-gnu
+# (Or install x86_64-w64-mingw32-gcc via Homebrew/brew/apt)
+
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"

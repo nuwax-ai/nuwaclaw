@@ -77,7 +77,7 @@ let sandboxControlService: {
   setPolicy(patch: Partial<SandboxPolicy>): Promise<SandboxPolicy>;
   getCapabilities(): Promise<SandboxCapabilities>;
   setup(params?: {
-    windows?: { sandbox?: { mode?: "unelevated" | "elevated" } };
+    windows?: { sandbox?: { mode?: "read-only" | "workspace-write" } };
   }): Promise<{ success: boolean; message?: string }>;
 } | null = null;
 
@@ -529,7 +529,7 @@ export function registerSandboxHandlers(): void {
   });
 
   /**
-   * 执行后端 setup（当前主要用于 Windows Codex）
+   * 执行后端 setup（当前主要用于 Windows Sandbox）
    * @channel sandbox:setup
    */
   ipcMain.handle(
@@ -537,7 +537,7 @@ export function registerSandboxHandlers(): void {
     async (
       _,
       params?: {
-        windows?: { sandbox?: { mode?: "unelevated" | "elevated" } };
+        windows?: { sandbox?: { mode?: "read-only" | "workspace-write" } };
       },
     ) => {
       log.info("[IPC] sandbox:setup:", { params });

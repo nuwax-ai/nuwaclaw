@@ -27,6 +27,8 @@
     "check-ports:dev": "node scripts/tools/check-startup-ports.js --vite",
     "prepare:mcp-proxy": "node scripts/prepare/prepare-mcp-proxy.js",
     "prepare:nuwaxcode": "node scripts/prepare/prepare-nuwaxcode.js",
+    "prepare:sandbox-runtime": "node scripts/prepare/prepare-sandbox-runtime.js",
+    "build:sandbox-helper": "node scripts/prepare/build-sandbox-helper.js",
     "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy && npm run prepare:nuwaxcode && npm run prepare:sandbox-runtime && npm run prepare:windows-mcp",
     "prepare:gui-server": "node scripts/prepare/prepare-gui-server.js",
     "prepare:windows-mcp": "node scripts/prepare/prepare-windows-mcp.js",
@@ -51,8 +53,7 @@
     "verify:sign": "node scripts/build/verify-sign.js",
     "verify:sign:win": "node scripts/build/verify-sign-win.js",
     "lint": "eslint src",
-    "lint:fix": "eslint src --fix",
-    "prepare:sandbox-runtime": "node scripts/prepare/prepare-sandbox-runtime.js"
+    "lint:fix": "eslint src --fix"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.14.1",

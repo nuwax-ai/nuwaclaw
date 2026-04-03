@@ -356,8 +356,6 @@ export class AcpEngine extends EventEmitter {
               windowsSandboxHelperPath:
                 getBundledWindowsSandboxHelperPath() ?? undefined,
               windowsSandboxMode: policy.windows.sandbox.mode,
-              windowsSandboxPrivateDesktop:
-                policy.windows.sandbox.privateDesktop,
             };
             log.info(`${this.logTag} 沙箱配置已解析:`, {
               type: resolved.type,

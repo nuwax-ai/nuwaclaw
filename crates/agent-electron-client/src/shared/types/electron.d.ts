@@ -100,7 +100,7 @@ export interface SandboxAPI {
     code?: string;
   }>;
   setup: (params?: {
-    windows?: { sandbox?: { mode?: "unelevated" | "elevated" } };
+    windows?: { sandbox?: { mode?: "read-only" | "workspace-write" } };
   }) => Promise<{
     success: boolean;
     data?: { success: boolean; message?: string };

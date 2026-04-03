@@ -5,7 +5,7 @@
  * - none（直接执行）
  * - macos-seatbelt（sandbox-exec）
  * - linux-bwrap（bubblewrap）
- * - windows-sandbox（Windows Restricted Token helper）
+ * - windows-sandbox（Windows Sandbox helper）
  */
 
 import { spawn } from "child_process";
@@ -37,7 +37,6 @@ interface CommandSandboxOptions {
   linuxBwrapPath?: string;
   windowsSandboxHelperPath?: string;
   windowsSandboxMode?: WindowsSandboxMode;
-  windowsSandboxPrivateDesktop?: boolean;
 }
 
 export interface Invocation {
@@ -45,6 +44,8 @@ export interface Invocation {
   args: string[];
   cwd: string;
   env?: Record<string, string>;
+  /** Windows Sandbox helper returns JSON to stdout; parse it. */
+  parseJson?: boolean;
 }
 
 /**
@@ -73,7 +74,6 @@ export class CommandSandbox extends SandboxManager {
         linuxBwrapPath: this.options.linuxBwrapPath,
         windowsSandboxHelperPath: this.options.windowsSandboxHelperPath,
         windowsSandboxMode: this.options.windowsSandboxMode,
-        windowsSandboxPrivateDesktop: this.options.windowsSandboxPrivateDesktop,
       },
     });
     this.backendAvailable = await this.checkBackendAvailable();
@@ -481,29 +481,32 @@ export class CommandSandbox extends SandboxManager {
       const helper = this.options.windowsSandboxHelperPath;
       if (!helper || !fs.existsSync(helper)) {
         throw new SandboxError(
-          "Windows Restricted helper 未找到",
+          "Windows Sandbox helper 未找到",
           SandboxErrorCode.SANDBOX_UNAVAILABLE,
         );
       }
-
+      const sandboxPolicy: { type: string; network_access?: boolean } = {
+        type:
+          this.options.windowsSandboxMode === "read-only"
+            ? "read-only"
+            : "workspace-write",
+        network_access: this.config.networkEnabled,
+      };
       const helperArgs = [
         "run",
         "--mode",
-        this.options.windowsSandboxMode ?? "unelevated",
+        this.options.windowsSandboxMode ?? "read-only",
         "--cwd",
         cwd,
-        ...(this.options.windowsSandboxPrivateDesktop
-          ? ["--private-desktop"]
-          : []),
+        "--policy-json",
+        JSON.stringify(sandboxPolicy),
         "--",
         command,
         ...args,
       ];
-
-      log.debug("[CommandSandbox] windows-sandbox invocation:", {
+      log.info("[CommandSandbox] windows-sandbox invocation:", {
         helper,
-        mode: this.options.windowsSandboxMode ?? "unelevated",
-        privateDesktop: this.options.windowsSandboxPrivateDesktop,
+        mode: this.options.windowsSandboxMode ?? "read-only",
         cwd,
       });
       return {
@@ -511,6 +514,7 @@ export class CommandSandbox extends SandboxManager {
         args: helperArgs,
         cwd,
         env: options.env,
+        parseJson: true,
       };
     }
 
@@ -616,33 +620,42 @@ export class CommandSandbox extends SandboxManager {
       const helper = this.options.windowsSandboxHelperPath;
       if (!helper || !fs.existsSync(helper)) {
         throw new SandboxError(
-          "Windows Restricted helper 未找到",
+          "Windows Sandbox helper 未找到",
           SandboxErrorCode.SANDBOX_UNAVAILABLE,
         );
       }
+      // Build policy JSON for the sandbox policy
+      const sandboxPolicy: { type: string; network_access?: boolean } = {
+        type:
+          this.options.windowsSandboxMode === "read-only"
+            ? "read-only"
+            : "workspace-write",
+        network_access: options.networkEnabled,
+      };
       const helperArgs = [
         "run",
         "--mode",
-        this.options.windowsSandboxMode ?? "unelevated",
+        this.options.windowsSandboxMode ?? "read-only",
         "--cwd",
         cwd,
-        ...(this.options.windowsSandboxPrivateDesktop
-          ? ["--private-desktop"]
-          : []),
+        "--policy-json",
+        JSON.stringify(sandboxPolicy),
         "--",
         command,
         ...args,
       ];
       log.info("[CommandSandbox] windows-sandbox invocation built:", {
         helper,
-        mode: this.options.windowsSandboxMode ?? "unelevated",
+        mode: this.options.windowsSandboxMode ?? "read-only",
         cwd,
+        policy: sandboxPolicy,
       });
       return {
         command: helper,
         args: helperArgs,
         cwd,
         env: options.env,
+        parseJson: true,
       };
     }
 
@@ -762,12 +775,46 @@ export class CommandSandbox extends SandboxManager {
           stderrLen: stderr.length,
           stderrPreview: stderr.slice(0, 200),
         });
-        resolve({
-          stdout,
-          stderr,
-          exitCode: code ?? (timedOut ? 137 : 1),
-          timedOut,
-        });
+
+        // Windows Sandbox helper returns JSON: { exit_code, stdout, stderr, timed_out }
+        if (invocation.parseJson) {
+          try {
+            const parsed = JSON.parse(stdout) as {
+              exit_code: number;
+              stdout: string;
+              stderr: string;
+              timed_out: boolean;
+            };
+            log.debug("[CommandSandbox] windows-sandbox parsed JSON result:", {
+              exit_code: parsed.exit_code,
+              timed_out: parsed.timed_out,
+            });
+            resolve({
+              stdout: parsed.stdout,
+              stderr: parsed.stderr,
+              exitCode: parsed.exit_code,
+              timedOut: parsed.timed_out,
+            });
+          } catch {
+            log.warn(
+              "[CommandSandbox] failed to parse helper JSON output, using raw:",
+              stdout.slice(0, 200),
+            );
+            resolve({
+              stdout,
+              stderr,
+              exitCode: code ?? (timedOut ? 137 : 1),
+              timedOut,
+            });
+          }
+        } else {
+          resolve({
+            stdout,
+            stderr,
+            exitCode: code ?? (timedOut ? 137 : 1),
+            timedOut,
+          });
+        }
       });
 
       proc.on("error", (error) => {
