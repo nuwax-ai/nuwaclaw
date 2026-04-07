@@ -350,6 +350,14 @@ export class TrayManager {
   getTray(): Tray | null {
     return this.tray;
   }
+
+  /**
+   * 刷新托盘菜单和图标（用于语言切换等场景）
+   */
+  refresh(): void {
+    this.updateIcon();
+    this.updateMenu();
+  }
 }
 
 // ==================== Singleton ====================

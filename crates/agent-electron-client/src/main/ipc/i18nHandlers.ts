@@ -10,6 +10,7 @@
 import { ipcMain } from "electron";
 import log from "electron-log";
 import { setMainLang, getMainLang } from "../services/i18n";
+import { getTrayManager } from "../window/trayManager";
 
 /**
  * 注册 i18n IPC 通道
@@ -31,6 +32,8 @@ export function registerI18nHandlers(): void {
   ipcMain.handle("i18n:setLang", async (_event, lang: string) => {
     try {
       setMainLang(lang);
+      // 通知托盘刷新菜单和 tooltip
+      getTrayManager()?.refresh();
       log.info(`[IPC i18n] Language changed to: ${lang}`);
       return { success: true };
     } catch (error) {

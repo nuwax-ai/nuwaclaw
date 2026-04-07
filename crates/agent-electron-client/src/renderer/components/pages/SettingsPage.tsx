@@ -48,6 +48,19 @@ import {
   MSG_ERROR,
 } from "@shared/constants";
 import { t, getCurrentLang, setCurrentLang } from "../../services/core/i18n";
+
+/**
+ * 将 i18n 内部语言代码（如 "zh-cn"、"en-us"）映射为 Select 选项值
+ */
+const resolveSelectLang = (lang: string): string => {
+  const lower = lang.toLowerCase();
+  if (lower.startsWith("zh")) {
+    if (lower === "zh-tw") return "zh-tw";
+    if (lower === "zh-hk") return "zh-hk";
+    return "zh"; // zh, zh-cn, zh-hans 等
+  }
+  return "en"; // en, en-us, en-gb 等
+};
 import styles from "../../styles/components/ClientPage.module.css";
 import { useTheme, type ThemeMode } from "../../App";
 import type {
@@ -118,7 +131,9 @@ export default function SettingsPage() {
   const [autolaunchEnabled, setAutolaunchEnabled] = useState(false);
   const [autolaunchLoading, setAutolaunchLoading] = useState(false);
   const [logDir, setLogDir] = useState("");
-  const [currentLang, setCurrentLangState] = useState(getCurrentLang());
+  const [currentLang, setCurrentLangState] = useState(
+    resolveSelectLang(getCurrentLang()),
+  );
   const [langChanging, setLangChanging] = useState(false);
   const [sandboxLoading, setSandboxLoading] = useState(false);
   const [sandboxSaving, setSandboxSaving] = useState(false);
@@ -424,18 +439,26 @@ export default function SettingsPage() {
   const handleLanguageChange = async (lang: string) => {
     setLangChanging(true);
     try {
+      // 0. 在语言切换前记录提示文案（切换后 t() 可能已指向新语言）
+      const successMsg = t("Claw.Settings.messages.languageChanged");
+
       // 1. 更新渲染进程语言
       await setCurrentLang(lang);
       setCurrentLangState(lang);
 
-      // 2. 同步到主进程
-      await window.electronAPI?.i18n?.setLang(lang);
+      // 2. 同步到主进程（检查返回值，失败则抛出）
+      const result = await window.electronAPI?.i18n?.setLang(lang);
+      if (result && !result.success) {
+        throw new Error(result.error || "Main process language change failed");
+      }
 
       // 3. 刷新页面使所有组件重新渲染
-      message.success(t("Claw.Settings.messages.languageChanged"));
+      message.success(successMsg);
       setTimeout(() => window.location.reload(), 500);
     } catch (error) {
       console.error("语言切换失败:", error);
+      // 回滚渲染进程状态
+      setCurrentLangState(getCurrentLang());
       message.error(t("Claw.Settings.messages.languageChangeFailed"));
     } finally {
       setLangChanging(false);

@@ -79,7 +79,7 @@ let currentLang = DEFAULT_I18N_LANG;
 let langMap: SystemLangMap = { ...(enUS as SystemLangMap) };
 let zhBaseMap: SystemLangMap = { ...(zhCN as SystemLangMap) };
 let zhValueToKeyMap: Record<string, string> = {};
-let initialized = false;
+let initPromise: Promise<void> | null = null;
 const warnedLegacyKeys = new Set<string>();
 const warnedInvalidKeys = new Set<string>();
 const warnedMissingKeys = new Set<string>();
@@ -292,9 +292,13 @@ export const setCurrentLang = async (lang?: string | null): Promise<void> => {
   await writeToSettings(I18N_STORAGE_KEYS.ACTIVE_LANG, resolvedLang);
 };
 
-export const initI18n = async (): Promise<void> => {
-  if (initialized) return;
+export const initI18n = (): Promise<void> => {
+  if (initPromise) return initPromise;
+  initPromise = _doInitI18n();
+  return initPromise;
+};
 
+const _doInitI18n = async (): Promise<void> => {
   const cachedLang = await readLangFromCache();
   const resolvedLang = normalizeLang(cachedLang || getBrowserLang());
   await setCurrentLang(resolvedLang);
@@ -324,7 +328,6 @@ export const initI18n = async (): Promise<void> => {
   if (!fetched && !cachedMap) {
     langMap = { ...getLocaleMap(resolvedLang) };
   }
-  initialized = true;
 };
 
 /**
