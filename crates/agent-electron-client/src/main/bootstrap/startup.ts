@@ -1,10 +1,7 @@
 import log from "electron-log";
 import { app, BrowserWindow } from "electron";
 import { getDb, readSetting } from "../db";
-import {
-  startComputerServer,
-  startAdminServer,
-} from "../services/computerServer";
+import { startComputerServer } from "../services/computerServer";
 import {
   mcpProxyManager,
   DEFAULT_MCP_PROXY_CONFIG,
@@ -46,21 +43,6 @@ export async function runStartupTasks(): Promise<void> {
       if (r.success)
         log.info(`[Init] Computer HTTP server listening on port ${agentPort}`);
       else log.warn(`[Init] Computer HTTP server failed: ${r.error}`);
-    });
-  }
-
-  // 启动 Admin Server（管理接口），端口支持配置
-  {
-    const step1Config = readSetting("step1_config") as {
-      adminServerPort?: number;
-    } | null;
-    const adminPort = step1Config?.adminServerPort;
-    startAdminServer(adminPort).then((r) => {
-      if (r.success)
-        log.info(
-          `[Init] Admin server listening on port ${r.port || "default"}`,
-        );
-      else log.warn(`[Init] Admin server failed: ${r.error}`);
     });
   }
 

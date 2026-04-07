@@ -192,7 +192,8 @@ async function getLocalSandboxValue(): Promise<SandboxValue> {
     vncPort: 0, // vncPort 未启用
     fileServerPort: step1Config?.fileServerPort ?? DEFAULT_FILE_SERVER_PORT,
     guiMcpPort: step1Config?.guiMcpPort ?? DEFAULT_GUI_MCP_PORT,
-    adminServerPort: step1Config?.adminServerPort ?? DEFAULT_ADMIN_SERVER_PORT,
+    // Admin Server 已合并到 Computer Server，端口与 agentPort 相同
+    adminServerPort: step1Config?.agentPort ?? DEFAULT_AGENT_RUNNER_PORT,
     apiKey: "",
     maxUsers: 1,
   };

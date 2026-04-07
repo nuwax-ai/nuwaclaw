@@ -272,20 +272,21 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   });
 
   // Admin Server handlers (管理接口服务)
-  ipcMain.handle("adminServer:status", async () => {
-    const { getAdminServerStatus } = await import("../services/computerServer");
-    return getAdminServerStatus();
-  });
-
-  ipcMain.handle("adminServer:start", async (_, port?: number) => {
-    const { startAdminServer } = await import("../services/computerServer");
-    return startAdminServer(port);
+  // Admin Server 已合并到 Computer Server (60006)，不再有独立的 60007 端口
+  // start/stop 为空操作（Computer Server 通过 services:restartAll 管理）
+  ipcMain.handle("adminServer:start", async () => {
+    return { success: true };
   });
 
   ipcMain.handle("adminServer:stop", async () => {
-    const { stopAdminServer } = await import("../services/computerServer");
-    await stopAdminServer();
     return { success: true };
+  });
+
+  // adminServer:status 现在返回 Computer Server 状态
+  ipcMain.handle("adminServer:status", async () => {
+    const { getComputerServerStatus } =
+      await import("../services/computerServer");
+    return getComputerServerStatus();
   });
 
   // ==================== services:restartAll ====================
