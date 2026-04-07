@@ -1,8 +1,0 @@
-{
-  "name": "agent-gui-server",
-  "version": "0.1.0",
-  "main": "./dist/lib.bundle.cjs",
-  "bin": {
-    "agent-gui-server": "./dist/index.js"
-  }
-}
