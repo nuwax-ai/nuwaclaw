@@ -34,8 +34,8 @@ fi
 echo "[prepare-source-claude-code-acp-ts] 安装依赖..."
 cd "$SOURCE_DIR" && npm install --ignore-scripts
 
-# 4. 构建 TypeScript
+# 4. 构建 TypeScript（使用 npx tsc 替代 npm run build，避免 Windows 上 ./node_modules/.bin/tsc 路径不兼容）
 echo "[prepare-source-claude-code-acp-ts] 构建项目..."
-cd "$SOURCE_DIR" && npm run build
+cd "$SOURCE_DIR" && npx tsc
 
 echo "[prepare-source-claude-code-acp-ts] ✓ 源码准备完成 (claude-code-acp-ts@$(node -p "require('./package.json').version"))"

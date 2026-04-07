@@ -8,9 +8,10 @@
  *
  * 产物：
  *   resources/agent-gui-server/
- *     ├── dist/index.js        — esbuild bundle（原生依赖标记为 external）
+ *     ├── dist/index.js        — esbuild CLI bundle（ESM，原生依赖标记为 external）
+ *     ├── dist/lib.bundle.cjs  — esbuild SDK bundle（CJS，供 Electron runtime require）
  *     ├── node_modules/        — external 原生依赖（sharp, @nut-tree-fork/*, clipboardy）
- *     └── package.json         — 精简版（name/version/type/bin）
+ *     └── package.json         — 精简版（name/version/main/bin）
  *
  * 打包时 electron-builder extraResources 会打包到
  *   .app/Contents/Resources/agent-gui-server/
@@ -49,7 +50,8 @@ function main() {
 
   // 3. 检查目标是否已是最新版本
   const destPkgPath = path.join(destDir, 'package.json');
-  if (fs.existsSync(destPkgPath)) {
+  const destLibBundle = path.join(destDir, 'dist', 'lib.bundle.cjs');
+  if (fs.existsSync(destPkgPath) && fs.existsSync(destLibBundle)) {
     try {
       const destPkg = JSON.parse(fs.readFileSync(destPkgPath, 'utf8'));
       if (destPkg.version === srcPkg.version) {
@@ -75,11 +77,20 @@ function main() {
   }
   fs.mkdirSync(path.join(destDir, 'dist'), { recursive: true });
 
-  // 5. 复制 dist/index.js (esbuild bundle)
+  // 5. 复制 dist/index.js (esbuild CLI bundle)
   const destIndexJs = path.join(destDir, 'dist', 'index.js');
   fs.copyFileSync(srcIndexJs, destIndexJs);
   fs.chmodSync(destIndexJs, 0o755);
   console.log(`  dist/index.js (${(fs.statSync(destIndexJs).size / 1024).toFixed(0)} KB)`);
+
+  // 5b. 复制 dist/lib.bundle.cjs (esbuild CJS SDK bundle, for Electron runtime require)
+  const srcLibBundle = path.join(srcDir, 'dist', 'lib.bundle.cjs');
+  if (fs.existsSync(srcLibBundle)) {
+    fs.copyFileSync(srcLibBundle, destLibBundle);
+    console.log(`  dist/lib.bundle.cjs (${(fs.statSync(destLibBundle).size / 1024).toFixed(0)} KB)`);
+  } else {
+    console.warn('[prepare-gui-server] dist/lib.bundle.cjs not found — CJS SDK bundle will be unavailable');
+  }
 
   // 6. 安装 external 原生依赖到 resources/agent-gui-server/node_modules/
   //    使用 npm install 确保原生模块为当前平台编译
@@ -121,7 +132,7 @@ function main() {
   const slimPkg = {
     name: srcPkg.name,
     version: srcPkg.version,
-    type: 'module',
+    main: './dist/lib.bundle.cjs',
     bin: { 'agent-gui-server': './dist/index.js' },
   };
   fs.writeFileSync(destPkgPath, JSON.stringify(slimPkg, null, 2) + '\n');
