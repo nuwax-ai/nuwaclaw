@@ -58,14 +58,28 @@ vi.mock("electron-updater", () => ({
   },
 }));
 
+vi.mock("@shared/constants", () => ({
+  APP_DATA_DIR_NAME: ".nuwaclaw",
+}));
+
+vi.mock("../db", () => ({
+  readSetting: vi.fn(),
+}));
+
+vi.mock("./i18n", () => ({
+  t: (key: string) => key,
+}));
+
+vi.mock("./updatePlatformUtils", () => ({
+  getWindowsDownloadUrl: vi.fn(),
+  getMacosDownloadUrl: vi.fn(),
+  getLinuxDownloadUrl: vi.fn(),
+}));
+
 // ── Helper ──
 
 /** 重置模块缓存并重新导入，确保 cachedInstallerType 被清除 */
 async function importFresh() {
-  // 清除已缓存的模块
-  const moduleId = require.resolve("./autoUpdater");
-  delete require.cache[moduleId];
-  // vi.resetModules 也清 vite 的模块缓存
   vi.resetModules();
   return import("./autoUpdater");
 }
