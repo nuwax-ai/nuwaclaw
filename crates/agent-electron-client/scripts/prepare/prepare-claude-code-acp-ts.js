@@ -61,8 +61,10 @@ function main() {
     exec(`cd "${SOURCE_DIR}" && npm install --ignore-scripts`);
 
     // 4. 构建
+    // 注意：不用 npm run build，因为其 build 脚本可能是 ./node_modules/.bin/tsc（Unix 风格），Windows 不认识
+    //改用 npx tsc 替代，可跨平台
     console.log('[prepare-claude-code-acp-ts] 构建项目...');
-    exec(`cd "${SOURCE_DIR}" && npm run build`);
+    exec(`cd "${SOURCE_DIR}" && npx tsc`);
   } else {
     console.log('[prepare-claude-code-acp-ts] 构建产物已就绪，跳过构建');
   }
