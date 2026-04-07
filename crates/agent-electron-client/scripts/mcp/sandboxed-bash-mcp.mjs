@@ -10,6 +10,8 @@
  *   NUWAX_SANDBOX_MODE            — "read-only" | "workspace-write"
  *   NUWAX_SANDBOX_NETWORK_ENABLED — "1" | "0"
  *   NUWAX_SANDBOX_WRITABLE_ROOTS  — JSON array of writable paths
+ *   NUWAX_SANDBOX_PATH            — Pre-built PATH with bundled node/git/uv
+ *   NUWAX_SANDBOX_GIT_BASH_PATH   — Path to bundled bash.exe (Git for Windows)
  *
  * The built-in Bash is disabled via _meta.claudeCode.options.disallowedTools,
  * so this MCP tool becomes the only way to execute commands.
@@ -33,6 +35,8 @@ const NETWORK_ENABLED = process.env.NUWAX_SANDBOX_NETWORK_ENABLED !== "0";
 const WRITABLE_ROOTS = JSON.parse(
   process.env.NUWAX_SANDBOX_WRITABLE_ROOTS || "[]",
 );
+const SANDBOX_PATH = process.env.NUWAX_SANDBOX_PATH || "";
+const GIT_BASH_PATH = process.env.NUWAX_SANDBOX_GIT_BASH_PATH || "";
 
 if (!HELPER_PATH) {
   process.stderr.write(
@@ -40,6 +44,22 @@ if (!HELPER_PATH) {
   );
   process.exit(1);
 }
+
+// Resolve shell executable:
+// 1. Git Bash (supports &&, ||, 2>/dev/null, pipes, etc.) — preferred
+// 2. Fallback: PowerShell (limited bash compat but always available)
+function resolveShell() {
+  if (GIT_BASH_PATH) {
+    return { cmd: GIT_BASH_PATH, args: ["-c"], type: "bash" };
+  }
+  return {
+    cmd: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    args: ["-NoProfile", "-NonInteractive", "-Command"],
+    type: "powershell",
+  };
+}
+
+const shell = resolveShell();
 
 // ---- Tool definition (matches built-in Bash schema) ----
 
@@ -114,10 +134,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   };
 
   // The sandbox helper's split_command() takes args.command[0] as the
-  // executable and command[1..] as its arguments.  Since we receive
-  // arbitrary shell commands (e.g. "cd … && node foo.js"), we must
-  // wrap them with a shell.  cmd.exe ignores /C under restricted tokens,
-  // so we use PowerShell instead, which works correctly.
+  // executable and command[1..] as its arguments.  We wrap the user's
+  // command with Git Bash (-c) for full bash syntax compatibility
+  // (&&, ||, 2>/dev/null, pipes, redirects).  Falls back to PowerShell.
   const helperArgs = [
     "run",
     "--mode",
@@ -127,10 +146,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     "--policy-json",
     JSON.stringify(policy),
     "--",
-    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-    "-NoProfile",
-    "-NonInteractive",
-    "-Command",
+    shell.cmd,
+    ...shell.args,
     command,
   ];
 
@@ -138,6 +155,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     mode: SANDBOX_MODE,
     cwd: process.cwd(),
     networkEnabled: NETWORK_ENABLED,
+    shell: shell.type,
     commandPreview: command.slice(0, 120),
   });
 
@@ -173,13 +191,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
  */
 function executeHelper(helperArgs, timeoutMs) {
   return new Promise((resolve, reject) => {
+    // Build environment: inject NUWAX_SANDBOX_PATH into PATH so the
+    // sandboxed process can find node, npm, git, uv, etc.
+    const env = { ...process.env };
+    if (SANDBOX_PATH) {
+      env.PATH = SANDBOX_PATH + ";" + (env.PATH || "");
+    }
+    // Strip ELECTRON_RUN_AS_NODE to avoid helper inheriting it
+    delete env.ELECTRON_RUN_AS_NODE;
+
     const child = spawn(HELPER_PATH, helperArgs, {
       cwd: process.cwd(),
-      env: {
-        ...process.env,
-        // Strip ELECTRON_RUN_AS_NODE to avoid helper inheriting it
-        ELECTRON_RUN_AS_NODE: undefined,
-      },
+      env,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -268,4 +291,7 @@ log("ready", {
   mode: SANDBOX_MODE,
   networkEnabled: NETWORK_ENABLED,
   writableRoots: WRITABLE_ROOTS,
+  shell: shell.type,
+  shellCmd: shell.cmd,
+  sandboxPath: SANDBOX_PATH ? SANDBOX_PATH.split(";").length + " dirs" : "(none)",
 });
