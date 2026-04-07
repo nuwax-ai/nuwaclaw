@@ -17,7 +17,11 @@ import {
   DEFAULT_STARTUP_DELAY,
 } from "../services/constants";
 import { getConfiguredPorts } from "../services/startupPorts";
-import { getAppEnv, getLanproxyBinPath } from "../services/system/dependencies";
+import {
+  getAppEnv,
+  getLanproxyBinPath,
+  getNuwaxFileServerBundledDir,
+} from "../services/system/dependencies";
 import { agentService } from "../services/engines/unifiedAgent";
 import type { AgentConfig } from "../services/engines/unifiedAgent";
 import { mcpProxyManager } from "../services/packages/mcp";
@@ -63,13 +67,17 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     }
 
     const appDataDir = path.join(app.getPath("home"), APP_DATA_DIR_NAME);
-    const serverJsPath = path.join(
-      appDataDir,
-      "node_modules",
-      "nuwax-file-server",
-      "dist",
-      "server.js",
-    );
+    // 优先使用应用内集成的 bundled 路径，回退到 node_modules
+    const bundledDir = getNuwaxFileServerBundledDir();
+    const serverJsPath = bundledDir
+      ? path.join(bundledDir, "dist", "server.js")
+      : path.join(
+          appDataDir,
+          "node_modules",
+          "nuwax-file-server",
+          "dist",
+          "server.js",
+        );
     const step1Parsed = readSetting("step1_config") as {
       workspaceDir?: string;
     } | null;

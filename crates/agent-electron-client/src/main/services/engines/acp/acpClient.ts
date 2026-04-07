@@ -25,6 +25,7 @@ import {
   getAppEnv,
   getNuwaxcodeBundledBinPath,
   getNodeBinPathWithFallback,
+  getClaudeCodeAcpBundledDir,
 } from "../../system/dependencies";
 import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../../constants";
 import { APP_NAME_IDENTIFIER } from "../../../../shared/constants";
@@ -437,8 +438,18 @@ export function loadAcpSdk(): Promise<AcpSdkModule> {
 
 /**
  * Get ACP package directory
+ * 优先使用应用内集成的 bundled 路径，回退到 node_modules
  */
 function getAcpPackageDir(packageName: string): string | null {
+  // claude-code-acp-ts: 优先检查 bundled 目录
+  if (packageName === "claude-code-acp-ts") {
+    const bundledDir = getClaudeCodeAcpBundledDir();
+    if (bundledDir) {
+      return bundledDir;
+    }
+  }
+
+  // 回退到 node_modules
   const nodeModules = path.join(
     app.getPath("home"),
     APP_DATA_DIR_NAME,

@@ -559,21 +559,6 @@ export default function SettingsPage() {
                   <InputNumber min={1} max={65535} style={{ width: "100%" }} />
                 </Form.Item>
               </Col>
-              <Col span={8}>
-                <Form.Item
-                  name="adminServerPort"
-                  label={t("Claw.Settings.saveConfig.adminServerPort")}
-                  rules={[
-                    {
-                      required: false,
-                      message: t("Claw.Settings.saveConfig.enterPort"),
-                    },
-                  ]}
-                  extra={t("Claw.Settings.saveConfig.adminServerPortExtra")}
-                >
-                  <InputNumber min={1} max={65535} style={{ width: "100%" }} />
-                </Form.Item>
-              </Col>
             </Row>
 
             <Form.Item

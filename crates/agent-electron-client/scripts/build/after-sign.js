@@ -304,6 +304,11 @@ async function afterSignMac(context) {
  * @param {Object} context - electron-builder 上下文
  */
 async function afterSignWindows(context) {
+  if (process.env.SKIP_WINDOWS_AFTER_SIGN === '1') {
+    console.log('[after-sign] Windows: SKIP_WINDOWS_AFTER_SIGN=1，跳过额外签名');
+    return;
+  }
+
   const signWin = require('./sign-win');
   const config = signWin.getSignConfig();
 

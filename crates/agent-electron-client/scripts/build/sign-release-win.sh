@@ -25,8 +25,8 @@
 set -e
 
 # Configuration
-REPO="nuwax-ai/nuwaclaw"
-WORK_DIR="/c/tmp/nuwaclaw-sign"
+REPO="${SIGN_RELEASE_REPO:-nuwax-ai/nuwaclaw}"
+WORK_DIR="${SIGN_WORK_DIR:-/c/tmp/nuwaclaw-sign}"
 UNSIGNED_DIR="$WORK_DIR/unsigned"
 SIGNED_DIR="$WORK_DIR/signed"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -163,27 +163,31 @@ resolve_powershell() {
     return 1
 }
 
-GH_BIN="$(resolve_gh || true)"
-if [[ -z "$GH_BIN" ]]; then
-    echo "Error: GitHub CLI (gh) not found in this shell."
-    echo "Diagnostics:"
-    echo "  - which gh:        $(command -v gh 2>/dev/null || echo 'N/A')"
-    echo "  - which where.exe: $(command -v where.exe 2>/dev/null || echo 'N/A')"
-    echo "  - which cygpath:   $(command -v cygpath 2>/dev/null || echo 'N/A')"
-    local ps_diag=""
-    ps_diag="$(resolve_powershell || true)"
-    echo "  - powershell:      ${ps_diag:-N/A}"
-    if [[ -n "$ps_diag" ]]; then
+GH_BIN=""
+# 仅在需要 download 或 upload 时才依赖 gh
+if [[ "$SKIP_DOWNLOAD" == "false" || "$SKIP_UPLOAD" == "false" ]]; then
+    GH_BIN="$(resolve_gh || true)"
+    if [[ -z "$GH_BIN" ]]; then
+        echo "Error: GitHub CLI (gh) not found in this shell."
+        echo "Diagnostics:"
+        echo "  - which gh:        $(command -v gh 2>/dev/null || echo 'N/A')"
+        echo "  - which where.exe: $(command -v where.exe 2>/dev/null || echo 'N/A')"
+        echo "  - which cygpath:   $(command -v cygpath 2>/dev/null || echo 'N/A')"
+        local ps_diag=""
+        ps_diag="$(resolve_powershell || true)"
+        echo "  - powershell:      ${ps_diag:-N/A}"
+        if [[ -n "$ps_diag" ]]; then
+            echo ""
+            echo "Diagnostics (PowerShell Get-Command gh):"
+            "$ps_diag" -Command "Get-Command gh -ErrorAction SilentlyContinue | Format-List CommandType,Source,Definition"
+        fi
         echo ""
-        echo "Diagnostics (PowerShell Get-Command gh):"
-        "$ps_diag" -Command "Get-Command gh -ErrorAction SilentlyContinue | Format-List CommandType,Source,Definition"
+        echo "Fix options:"
+        echo "  - Install GitHub CLI (gh.exe) and restart Git Bash"
+        echo "  - Or run with GH_BIN pointing to gh.exe, e.g.:"
+        echo "      GH_BIN=\"/c/Program Files/GitHub CLI/gh.exe\" $0 $VERSION"
+        exit 127
     fi
-    echo ""
-    echo "Fix options:"
-    echo "  - Install GitHub CLI (gh.exe) and restart Git Bash"
-    echo "  - Or run with GH_BIN pointing to gh.exe, e.g.:"
-    echo "      GH_BIN=\"/c/Program Files/GitHub CLI/gh.exe\" $0 $VERSION"
-    exit 127
 fi
 
 gh_release_ps() {

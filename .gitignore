@@ -44,6 +44,15 @@ crates/agent-electron-client/resources/nuwaxcode/
 # Bundled windows-mcp: 构建时 prepare:windows-mcp 生成，不入库
 crates/agent-electron-client/resources/windows-mcp/
 
+# Bundled nuwax-file-server: 构建时 prepare:nuwax-file-server 从 GitHub 克隆源码 build 并集成
+crates/agent-electron-client/resources/nuwax-file-server/
+
+# Bundled claude-code-acp-ts: 构建时 prepare:claude-code-acp-ts 从 GitHub 克隆源码 build 并集成
+crates/agent-electron-client/resources/claude-code-acp-ts/
+
+# 源码克隆目录（prepare:nuwax-file-server / prepare:claude-code-acp-ts 使用）
+crates/agent-electron-client/sources/
+
 # Windows 专用 sandbox helper：build:sandbox-helper 生成，不入库
 crates/agent-electron-client/resources/sandbox-helper/*.exe
 

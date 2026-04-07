@@ -86,6 +86,7 @@ function findSigntool() {
     // electron-builder 内置的 signtool
     path.join(process.cwd(), 'node_modules', 'app-builder-bin', 'win', 'signtool.exe'),
     // Windows SDK 安装路径（按版本从新到旧）
+    'C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64\\signtool.exe',
     'C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64\\signtool.exe',
     'C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.22621.0\\x64\\signtool.exe',
     'C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.22000.0\\x64\\signtool.exe',
