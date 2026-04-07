@@ -16,7 +16,11 @@ import { FEATURES } from "@shared/featureFlags";
 import { getGuiAgentServerUrl } from "@main/services/packages/guiAgentServer";
 import { getWindowsMcpUrl } from "@main/services/packages/windowsMcp";
 import { isWindows } from "@main/services/system/shellEnv";
-import { getResourcesPath } from "@main/services/system/dependencies";
+import {
+  getResourcesPath,
+  getAppEnv,
+  getBundledGitBashPath,
+} from "@main/services/system/dependencies";
 import {
   getSandboxPolicy,
   resolveSandboxType,
@@ -768,6 +772,11 @@ export class AcpEngine extends EventEmitter {
       );
       const resolvedScriptPath = path.resolve(scriptPath);
 
+      // Build PATH with bundled tools (node, git, etc.) so sandboxed shell
+      // can find them even under a restricted token with minimal PATH.
+      const appEnv = getAppEnv({ includeSystemPath: false });
+      const gitBashPath = getBundledGitBashPath();
+
       mcpServers.push({
         name: "sandboxed-bash",
         command: nodePath,
@@ -795,6 +804,14 @@ export class AcpEngine extends EventEmitter {
                 : [],
             ),
           },
+          // Pass bundled tools PATH for sandboxed shell execution
+          ...(appEnv.PATH
+            ? [{ name: "NUWAX_SANDBOX_PATH", value: appEnv.PATH }]
+            : []),
+          // Pass Git Bash path so MCP script can use bash instead of PowerShell
+          ...(gitBashPath
+            ? [{ name: "NUWAX_SANDBOX_GIT_BASH_PATH", value: gitBashPath }]
+            : []),
         ],
       });
       log.info(
