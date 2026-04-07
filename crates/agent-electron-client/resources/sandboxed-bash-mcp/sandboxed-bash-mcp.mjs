@@ -127,7 +127,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     "--policy-json",
     JSON.stringify(policy),
     "--",
-    "powershell.exe",
+    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
     "-NoProfile",
     "-NonInteractive",
     "-Command",
