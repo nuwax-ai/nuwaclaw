@@ -50,7 +50,8 @@ function main() {
 
   // 3. 检查目标是否已是最新版本
   const destPkgPath = path.join(destDir, 'package.json');
-  if (fs.existsSync(destPkgPath)) {
+  const destLibBundle = path.join(destDir, 'dist', 'lib.bundle.cjs');
+  if (fs.existsSync(destPkgPath) && fs.existsSync(destLibBundle)) {
     try {
       const destPkg = JSON.parse(fs.readFileSync(destPkgPath, 'utf8'));
       if (destPkg.version === srcPkg.version) {
@@ -85,7 +86,6 @@ function main() {
   // 5b. 复制 dist/lib.bundle.cjs (esbuild CJS SDK bundle, for Electron runtime require)
   const srcLibBundle = path.join(srcDir, 'dist', 'lib.bundle.cjs');
   if (fs.existsSync(srcLibBundle)) {
-    const destLibBundle = path.join(destDir, 'dist', 'lib.bundle.cjs');
     fs.copyFileSync(srcLibBundle, destLibBundle);
     console.log(`  dist/lib.bundle.cjs (${(fs.statSync(destLibBundle).size / 1024).toFixed(0)} KB)`);
   } else {
