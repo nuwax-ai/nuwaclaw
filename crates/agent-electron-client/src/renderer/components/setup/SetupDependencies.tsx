@@ -24,7 +24,7 @@ import {
   LinkOutlined,
 } from "@ant-design/icons";
 import type { LocalDependencyItem } from "@shared/types/electron";
-import { ACTION_MESSAGES } from "@shared/constants";
+import { I18N_KEYS } from "@shared/constants";
 import { t } from "../../services/core/i18n";
 
 export type InstallPhase =
@@ -72,7 +72,7 @@ export interface MockDependenciesApi {
     name: string,
     options?: { version?: string },
   ) => Promise<{ success: boolean; version?: string; error?: string }>;
-  openExternal: (url: string) => Promise<void>;
+  openExternal: (url: string) => Promise<unknown>;
 }
 
 interface SetupDependenciesProps {
@@ -128,7 +128,7 @@ export default function SetupDependencies({
             options,
           ) as Promise<{ success: boolean; version?: string; error?: string }>,
         openExternal: (url: string) =>
-          window.electronAPI?.shell.openExternal(url) as Promise<void>,
+          window.electronAPI?.shell.openExternal(url) as Promise<unknown>,
       },
     [mockApi],
   );
@@ -569,7 +569,7 @@ export default function SetupDependencies({
             verb: installVerb,
           })
         : t("Claw.Dependencies.installingAllDep", { verb: installVerb }),
-      completed: ACTION_MESSAGES.allReady,
+      completed: t(I18N_KEYS.Components.Action.ALL_READY),
     };
 
     return (
@@ -591,7 +591,7 @@ export default function SetupDependencies({
             <Spin size="large" />
           )}
           <div style={{ fontSize: 14, fontWeight: 500 }}>
-            {phaseText[installPhase] || ACTION_MESSAGES.starting}
+            {phaseText[installPhase] || t(I18N_KEYS.Components.Action.STARTING)}
           </div>
           {installPhase === "installing" && (
             <div style={{ width: "100%", maxWidth: 300 }}>

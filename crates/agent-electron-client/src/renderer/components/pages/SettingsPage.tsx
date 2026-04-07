@@ -44,8 +44,7 @@ import {
   DEFAULT_TEMPERATURE,
   MODEL_OPTIONS,
   STORAGE_KEYS,
-  MSG_SUCCESS,
-  MSG_ERROR,
+  I18N_KEYS,
 } from "@shared/constants";
 import { t, getCurrentLang, setCurrentLang } from "../../services/core/i18n";
 import i18next from "../../services/i18n";
@@ -157,7 +156,7 @@ export default function SettingsPage() {
       setOriginalConfig(config);
     } catch (error) {
       console.error("Failed to load config:", error);
-      message.error(MSG_ERROR.LOAD_FAILED);
+      message.error(t(I18N_KEYS.Toast.ERROR.LOAD_FAILED));
     } finally {
       setLoading(false);
     }
@@ -284,9 +283,9 @@ export default function SettingsPage() {
             await setupService.saveStep1Config({ ...existing, ...values });
             setOriginalConfig(values);
             setEditing(false);
-            message.success(MSG_SUCCESS.CONFIG_SAVED);
+            message.success(t(I18N_KEYS.Toast.SUCCESS.CONFIG_SAVED));
           } catch (error) {
-            message.error(MSG_ERROR.CONFIG_SAVE_FAILED);
+            message.error(t(I18N_KEYS.Toast.ERROR.CONFIG_SAVE_FAILED));
           } finally {
             setSaving(false);
           }
@@ -323,9 +322,9 @@ export default function SettingsPage() {
         });
         setOriginalAiConfig(values);
         setAiEditing(false);
-        message.success(MSG_SUCCESS.AI_CONFIG_SAVED);
+        message.success(t(I18N_KEYS.Toast.SUCCESS.AI_CONFIG_SAVED));
       } catch (error) {
-        message.error(MSG_ERROR.AI_CONFIG_SAVE_FAILED);
+        message.error(t(I18N_KEYS.Toast.ERROR.AI_CONFIG_SAVE_FAILED));
       } finally {
         setAiSaving(false);
       }
@@ -352,7 +351,7 @@ export default function SettingsPage() {
         );
       }
     } catch (error) {
-      message.error(MSG_ERROR.OPEN_SETTINGS_FAILED);
+      message.error(t(I18N_KEYS.Toast.ERROR.OPEN_SETTINGS_FAILED));
     } finally {
       setAutolaunchLoading(false);
     }
@@ -362,7 +361,7 @@ export default function SettingsPage() {
     try {
       await window.electronAPI?.log?.openDir();
     } catch {
-      message.error(MSG_ERROR.OPEN_LOGS_FAILED);
+      message.error(t(I18N_KEYS.Toast.ERROR.OPEN_LOGS_FAILED));
     }
   };
 
