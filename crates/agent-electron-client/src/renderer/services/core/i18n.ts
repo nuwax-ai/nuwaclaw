@@ -115,14 +115,36 @@ const warnOnce = (
   logger(key);
 };
 
-const formatText = (template: string, values: string[]): string => {
+type I18nValues = (
+  | string
+  | number
+  | undefined
+  | Record<string, string | number | undefined>
+)[];
+
+const formatText = (template: string, values: I18nValues): string => {
   if (!values.length) return template;
   let text = template;
-  values.forEach((value, index) => {
+
+  // 命名占位符：t(key, { error: "xxx" }) → 替换 {error}
+  const namedValues = values.find(
+    (v): v is Record<string, string | number | undefined> =>
+      typeof v === "object" && v !== null,
+  );
+  if (namedValues) {
+    Object.entries(namedValues).forEach(([k, v]) => {
+      text = text.replace(new RegExp(`\\{${k}\\}`, "g"), String(v ?? ""));
+    });
+    return text;
+  }
+
+  // 位置占位符：t(key, "a", "b") → 替换 {0} {1} 和 {}
+  const stringValues = values.map((v) => String(v ?? ""));
+  stringValues.forEach((value, index) => {
     text = text.replace(new RegExp(`\\{${index}\\}`, "g"), value);
   });
   let cursor = 0;
-  text = text.replace(/\{\}/g, () => values[cursor++] ?? "");
+  text = text.replace(/\{\}/g, () => stringValues[cursor++] ?? "");
   return text;
 };
 
@@ -333,9 +355,11 @@ const _doInitI18n = async (): Promise<void> => {
 /**
  * 多语言翻译函数
  * @param key 翻译 key，格式：{Client}.{Scope}.{Domain}.{key}
- * @param values 替换参数，如 '{0}' 会替换为 values[0]
+ * @param values 替换参数：
+ *   - 位置占位符：t(key, "a", "b") → 替换 {0}/{1} 或 {}
+ *   - 命名占位符：t(key, { error: "xxx" }) → 替换 {error}
  */
-export const dict = (key: string, ...values: string[]): string => {
+export const dict = (key: string, ...values: I18nValues): string => {
   const normalizedKey = String(key || "").trim();
   if (!normalizedKey) return "";
 
@@ -374,7 +398,7 @@ export const dict = (key: string, ...values: string[]): string => {
 /**
  * dict 的别名
  */
-export const t = (key: string, ...values: string[]): string =>
+export const t = (key: string, ...values: I18nValues): string =>
   dict(key, ...values);
 
 /**

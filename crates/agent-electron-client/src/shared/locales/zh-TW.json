@@ -674,5 +674,6 @@
   "Claw.MCP.message.proxyReady": "MCP Proxy 就緒",
   "Claw.MCP.message.checkFailed": "檢測失敗: {0}",
   "Claw.MCP.message.error": "錯誤: {0}",
-  "Claw.Common.saveFailed": "儲存失敗"
+  "Claw.Common.saveFailed": "儲存失敗",
+  "Claw.Process.exitImmediately": "進程啟動後立即退出"
 }

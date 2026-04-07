@@ -65,21 +65,21 @@ export async function runStartupTasks(): Promise<void> {
         };
         mcpProxyManager.setConfig(merged);
       } catch (e) {
-        log.warn("[McpProxy] 初始化配置解析失败:", e);
+        log.warn("[McpProxy] Init config parse failed:", e);
       }
     }
-    log.info("[McpProxy] 配置已加载");
+    log.info("[McpProxy] Config loaded");
   } catch (e) {
-    log.warn("[McpProxy] 初始化配置失败:", e);
+    log.warn("[McpProxy] Init config failed:", e);
   }
 
   // 初始化沙箱服务（后台启动，不阻塞主流程）
   setImmediate(async () => {
     try {
       await startSandboxService();
-      log.info("[Sandbox] 沙箱服务已启动");
+      log.info("[Sandbox] Sandbox service started");
     } catch (e) {
-      log.warn("[Sandbox] 沙箱服务启动失败（非致命错误）:", e);
+      log.warn("[Sandbox] Sandbox service start failed (non-fatal):", e);
       // 沙箱服务失败不阻塞应用，只是功能降级
     }
   });
@@ -126,7 +126,8 @@ export async function runStartupTasks(): Promise<void> {
             );
           }),
         ]).finally(() => clearTimeout(syncTimer!));
-        if (updated.length > 0) log.info("[Init] 初始化依赖已同步:", updated);
+        if (updated.length > 0)
+          log.info("[Init] Init dependencies synced:", updated);
       } finally {
         _depsSyncInProgress = false;
         // 通知所有渲染进程依赖同步完成，重新检测
@@ -144,7 +145,7 @@ export async function runStartupTasks(): Promise<void> {
           win.webContents.send("deps:syncCompleted");
         }
       }
-      log.warn("[Init] 初始化依赖同步失败:", e);
+      log.warn("[Init] Init dependencies sync failed:", e);
     }
   });
 }

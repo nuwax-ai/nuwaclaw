@@ -88,7 +88,7 @@ export class EngineWarmup {
     // 仅检查是否已有 warmup 引擎，不检查其他引擎
     // 确保 init() 时一定会初始化 warmup 一次
     if (this.engines.has(WARMUP_KEY)) {
-      log.debug("[EngineWarmup] warmup 引擎已存在，跳过预热");
+      log.debug("[EngineWarmup] Warmup engine already exists, skipping warmup");
       return;
     }
     const activeEngineCount = this.engines.size;
@@ -106,7 +106,9 @@ export class EngineWarmup {
     }
 
     const reason = options?.reason ? `, reason=${options.reason}` : "";
-    log.info(`[EngineWarmup] 🔥 后台预热 nuwaxcode 引擎...${reason}`);
+    log.info(
+      `[EngineWarmup] 🔥 Background warming nuwaxcode engine...${reason}`,
+    );
     const engine = new AcpEngine(WARMUP_ENGINE_TYPE);
     onEngineCreated(engine);
 
@@ -157,9 +159,11 @@ export class EngineWarmup {
       .init(warmupConfig)
       .then((ok) => {
         if (ok && this.engines.has(WARMUP_KEY)) {
-          log.info("[EngineWarmup] 🔥 nuwaxcode 热启动完成，引擎已就绪");
+          log.info(
+            "[EngineWarmup] 🔥 nuwaxcode warm start complete, engine ready",
+          );
         } else {
-          log.warn("[EngineWarmup] 🔥 热启动失败 (init returned false)");
+          log.warn("[EngineWarmup] 🔥 Warm start failed (init returned false)");
           cleanup();
         }
       })
@@ -446,12 +450,15 @@ export class EngineWarmup {
         baseUrl: config.baseUrl,
         apiProtocol: config.apiProtocol,
       };
-      log.debug("[EngineWarmup] 💾 缓存运行时配置供后续 warmup 使用", {
-        model: config.model || "(none)",
-        baseUrl: config.baseUrl || "(none)",
-        apiKeySet: !!config.apiKey,
-        apiProtocol: config.apiProtocol || "(none)",
-      });
+      log.debug(
+        "[EngineWarmup] 💾 Caching runtime config for subsequent warmup",
+        {
+          model: config.model || "(none)",
+          baseUrl: config.baseUrl || "(none)",
+          apiKeySet: !!config.apiKey,
+          apiProtocol: config.apiProtocol || "(none)",
+        },
+      );
     }
   }
 
@@ -609,7 +616,7 @@ export class EngineWarmup {
           `[EngineWarmup] ⚠️ MCP 配置不兼容，不复用 warmup（${reason}）`,
         );
         if (detail) {
-          log.debug("[EngineWarmup] MCP 兼容性对比详情:", detail);
+          log.debug("[EngineWarmup] MCP compatibility diff details:", detail);
         }
         firstTokenTrace.trace(
           "warmup.reuse.miss",
@@ -700,7 +707,9 @@ export class EngineWarmup {
       this.respawnTimer = null;
 
       if (this.engines.has(WARMUP_KEY)) {
-        log.debug("[EngineWarmup] warmup 引擎已存在，跳过重新预热");
+        log.debug(
+          "[EngineWarmup] Warmup engine already exists, skipping re-warmup",
+        );
         return;
       }
       if (this.engines.size > 0) {

@@ -48,6 +48,7 @@ import {
   MSG_ERROR,
 } from "@shared/constants";
 import { t, getCurrentLang, setCurrentLang } from "../../services/core/i18n";
+import i18next from "../../services/i18n";
 
 /**
  * 将 i18n 内部语言代码（如 "zh-cn"、"en-us"）映射为 Select 选项值
@@ -62,7 +63,7 @@ const resolveSelectLang = (lang: string): string => {
   return "en"; // en, en-us, en-gb 等
 };
 import styles from "../../styles/components/ClientPage.module.css";
-import { useTheme, type ThemeMode } from "../../App";
+import { useTheme, useI18nLang, type ThemeMode } from "../../App";
 import type {
   SandboxBackend,
   SandboxCapabilities,
@@ -131,9 +132,8 @@ export default function SettingsPage() {
   const [autolaunchEnabled, setAutolaunchEnabled] = useState(false);
   const [autolaunchLoading, setAutolaunchLoading] = useState(false);
   const [logDir, setLogDir] = useState("");
-  const [currentLang, setCurrentLangState] = useState(
-    resolveSelectLang(getCurrentLang()),
-  );
+  const { lang: i18nLang, updateLang } = useI18nLang();
+  const currentLang = resolveSelectLang(i18nLang);
   const [langChanging, setLangChanging] = useState(false);
   const [sandboxLoading, setSandboxLoading] = useState(false);
   const [sandboxSaving, setSandboxSaving] = useState(false);
@@ -156,7 +156,7 @@ export default function SettingsPage() {
       form.setFieldsValue(config);
       setOriginalConfig(config);
     } catch (error) {
-      console.error("加载配置失败:", error);
+      console.error("Failed to load config:", error);
       message.error(MSG_ERROR.LOAD_FAILED);
     } finally {
       setLoading(false);
@@ -182,7 +182,7 @@ export default function SettingsPage() {
       aiForm.setFieldsValue(aiConfig);
       setOriginalAiConfig(aiConfig);
     } catch (error) {
-      console.error("加载 AI 配置失败:", error);
+      console.error("Failed to load AI config:", error);
     }
   }, [aiForm]);
 
@@ -192,13 +192,13 @@ export default function SettingsPage() {
       const enabled = await window.electronAPI?.autolaunch?.get();
       setAutolaunchEnabled(enabled ?? false);
     } catch (error) {
-      console.error("加载自启动状态失败:", error);
+      console.error("Failed to load autolaunch status:", error);
     }
     try {
       const dir = await window.electronAPI?.log?.getDir();
       setLogDir(dir || "");
     } catch (error) {
-      console.error("加载日志目录失败:", error);
+      console.error("Failed to load log directory:", error);
     }
   }, []);
 
@@ -223,7 +223,7 @@ export default function SettingsPage() {
         setSandboxStatus(statusRes.data);
       }
     } catch (error) {
-      console.error("加载沙箱配置失败:", error);
+      console.error("Failed to load sandbox config:", error);
     } finally {
       setSandboxLoading(false);
     }
@@ -444,7 +444,7 @@ export default function SettingsPage() {
 
       // 1. 更新渲染进程语言
       await setCurrentLang(lang);
-      setCurrentLangState(lang);
+      i18next.changeLanguage(lang); // 同步 i18next，触发 antd locale 更新
 
       // 2. 同步到主进程（检查返回值，失败则抛出）
       const result = await window.electronAPI?.i18n?.setLang(lang);
@@ -452,13 +452,11 @@ export default function SettingsPage() {
         throw new Error(result.error || "Main process language change failed");
       }
 
-      // 3. 刷新页面使所有组件重新渲染
+      // 3. 更新 Context，触发所有使用 lang 作为 useMemo 依赖的组件重新渲染
+      updateLang(lang);
       message.success(successMsg);
-      setTimeout(() => window.location.reload(), 500);
     } catch (error) {
-      console.error("语言切换失败:", error);
-      // 回滚渲染进程状态
-      setCurrentLangState(getCurrentLang());
+      console.error("Language change failed:", error);
       message.error(t("Claw.Settings.messages.languageChangeFailed"));
     } finally {
       setLangChanging(false);

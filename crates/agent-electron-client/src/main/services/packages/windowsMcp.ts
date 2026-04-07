@@ -34,7 +34,7 @@ let processRunner: ElectronProcessRunner | null = null;
  */
 function getWindowsMcpManager(): WindowsMcpManagerType {
   if (!isWindows()) {
-    throw new Error("WindowsMcpManager 仅在 Windows 平台可用");
+    throw new Error("WindowsMcpManager is only available on Windows");
   }
   if (!windowsMcpManager) {
     // 从打包的 extraResources 中动态加载 agent-gui-server

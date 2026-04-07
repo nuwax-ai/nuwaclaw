@@ -278,7 +278,7 @@ function getElectronNodeBinDir(): string {
     }
   } catch (error) {
     // 测试环境中可能出错，返回空字符串
-    log.warn(`[getElectronNodeBinDir] 错误: ${error}`);
+    log.warn(`[getElectronNodeBinDir] error: ${error}`);
   }
 
   return ""; // 未找到
@@ -311,8 +311,10 @@ export function getNodeBinPath(): string | null {
   );
 
   if (!fs.existsSync(nodePath)) {
-    log.warn(`[Dependencies] 内置 Node.js 未找到: ${nodePath}`);
-    log.warn('[Dependencies] 请运行 "npm run prepare:node" 下载 Node.js 资源');
+    log.warn(`[Dependencies] Bundled Node.js not found: ${nodePath}`);
+    log.warn(
+      '[Dependencies] Run "npm run prepare:node" to download Node.js resources',
+    );
     return null;
   }
 
@@ -340,7 +342,7 @@ export function getNodeBinPathWithFallback(): string | null {
   if (!isWindows()) {
     const systemNode = findSystemNode();
     if (systemNode) {
-      log.info(`[Dependencies] 使用系统 Node.js fallback: ${systemNode}`);
+      log.info(`[Dependencies] Using system Node.js fallback: ${systemNode}`);
       return systemNode;
     }
   }
@@ -376,14 +378,14 @@ function ensureUvInAppBin(): void {
   try {
     const uvBinPath = getUvBinPath();
     if (fs.existsSync(uvBinPath)) {
-      log.info(`[ensureUvInAppBin] bundled uv 已存在: ${uvBinPath}`);
+      log.info(`[ensureUvInAppBin] Bundled uv already exists: ${uvBinPath}`);
       return;
     }
     const appBin = getAppBinDir();
     const uvName = isWindows() ? "uv.exe" : "uv";
     const appBinUv = path.join(appBin, uvName);
     if (fs.existsSync(appBinUv)) {
-      log.info(`[ensureUvInAppBin] 应用目录已有 uv: ${appBinUv}`);
+      log.info(`[ensureUvInAppBin] App directory already has uv: ${appBinUv}`);
       return;
     }
     const srcBin = path.join(getResourcesPath(), "uv", "bin");
@@ -400,12 +402,12 @@ function ensureUvInAppBin(): void {
       const src = path.join(srcBin, name);
       if (fs.statSync(src).isFile()) {
         fs.copyFileSync(src, path.join(appBin, name));
-        log.info(`[ensureUvInAppBin] 已复制应用内 uv: ${name} -> ${appBin}`);
+        log.info(`[ensureUvInAppBin] Copied bundled uv: ${name} -> ${appBin}`);
       }
     }
-    log.info(`[ensureUvInAppBin] 复制完成，appBin=${appBin}`);
+    log.info(`[ensureUvInAppBin] Copy complete, appBin=${appBin}`);
   } catch (e) {
-    log.warn("[ensureUvInAppBin] 应用内 uv 检查/复制失败:", e);
+    log.warn("[ensureUvInAppBin] Bundled uv check/copy failed:", e);
   }
 }
 
@@ -460,7 +462,7 @@ export function getLanproxyBinPath(): string {
         const preferred = exes.find((e) => e.name.includes(preferArch));
         const exe = preferred ?? exes[0];
         const found = path.join(binariesDir, exe.name);
-        log.info("[getLanproxyBinPath] 使用 binaries 内发现的 exe:", exe.name);
+        log.info("[getLanproxyBinPath] Using exe found in binaries:", exe.name);
         return found;
       }
     } catch {
@@ -534,7 +536,7 @@ function getBundledNodeBinDir(): string {
   const nodePlatformKey = `${process.platform}-${arch}`;
   const nodeBinPath = path.join(resourcesPath, "node", nodePlatformKey, "bin");
   if (fs.existsSync(nodeBinPath)) {
-    log.info(`[getBundledNodeBinDir] 使用内置 Node.js: ${nodeBinPath}`);
+    log.info(`[getBundledNodeBinDir] Using bundled Node.js: ${nodeBinPath}`);
     return nodeBinPath;
   }
   const devPath = path.join(
@@ -545,7 +547,9 @@ function getBundledNodeBinDir(): string {
     "bin",
   );
   if (fs.existsSync(devPath)) {
-    log.info(`[getBundledNodeBinDir] 开发模式使用内置 Node.js: ${devPath}`);
+    log.info(
+      `[getBundledNodeBinDir] Dev mode using bundled Node.js: ${devPath}`,
+    );
     return devPath;
   }
   return "";
@@ -563,14 +567,14 @@ function getBundledGitBinDir(): string {
   const gitBinPath = path.join(resourcesPath, "git", "bin");
 
   if (fs.existsSync(gitBinPath)) {
-    log.info(`[getBundledGitBinDir] 使用内置 Git: ${gitBinPath}`);
+    log.info(`[getBundledGitBinDir] Using bundled Git: ${gitBinPath}`);
     return gitBinPath;
   }
 
   // 开发模式回退
   const devPath = path.join(process.cwd(), "resources", "git", "bin");
   if (fs.existsSync(devPath)) {
-    log.info(`[getBundledGitBinDir] 开发模式使用内置 Git: ${devPath}`);
+    log.info(`[getBundledGitBinDir] Dev mode using bundled Git: ${devPath}`);
     return devPath;
   }
 
@@ -591,7 +595,7 @@ export function getBundledGitBashPath(): string {
 
   for (const p of bashPaths) {
     if (fs.existsSync(p)) {
-      log.info(`[getBundledGitBashPath] 使用内置 git-bash: ${p}`);
+      log.info(`[getBundledGitBashPath] Using bundled git-bash: ${p}`);
       return p;
     }
   }
@@ -604,7 +608,7 @@ export function getBundledGitBashPath(): string {
 
   for (const p of devPaths) {
     if (fs.existsSync(p)) {
-      log.info(`[getBundledGitBashPath] 开发模式使用内置 git-bash: ${p}`);
+      log.info(`[getBundledGitBashPath] Dev mode using bundled git-bash: ${p}`);
       return p;
     }
   }
@@ -714,7 +718,7 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     .join(pathSep);
 
   // 调试日志：输出 PATH 优先级（应用内 uv 优先）
-  log.info(`[getAppEnv] PATH 优先级 (${process.platform}):`);
+  log.info(`[getAppEnv] PATH priority (${process.platform}):`);
   log.info(
     `[getAppEnv]   1. 内置 Node.js 24: ${bundledNodeBinDir || "(未找到)"}`,
   );
@@ -841,7 +845,7 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     for (const [key, value] of Object.entries(windowsCriticalEnvVars)) {
       if (!cleanEnv[key]) {
         cleanEnv[key] = value;
-        log.info(`[getAppEnv] 添加 Windows 系统环境变量: ${key}=${value}`);
+        log.info(`[getAppEnv] Adding Windows system env var: ${key}=${value}`);
       }
     }
 
@@ -938,10 +942,12 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
           }
         }
       } catch (error) {
-        log.warn(`[getAppEnv] 读取注册表 PATH 失败: ${error}`);
+        log.warn(`[getAppEnv] Failed to read registry PATH: ${error}`);
       }
     } else {
-      log.info(`[getAppEnv] 跳过注册表 PATH 读取（includeSystemPath=false）`);
+      log.info(
+        `[getAppEnv] Skipping registry PATH read (includeSystemPath=false)`,
+      );
     }
   }
 
@@ -1187,14 +1193,16 @@ export async function checkNodeVersion(): Promise<{
 }> {
   // 优先检测内置 Node.js 24
   const bundledPath = getNodeBinPath();
-  log.info(`[checkNodeVersion] 检测内置 Node.js: ${bundledPath || "(未找到)"}`);
+  log.info(
+    `[checkNodeVersion] Checking bundled Node.js: ${bundledPath || "(not found)"}`,
+  );
 
   if (bundledPath && fs.existsSync(bundledPath)) {
     log.info(
       `[checkNodeVersion] 内置 Node.js 文件存在，尝试执行: ${bundledPath}`,
     );
     const result = await _checkNodeBin(bundledPath);
-    log.info(`[checkNodeVersion] 内置 Node.js 检测结果:`, result);
+    log.info(`[checkNodeVersion] Bundled Node.js check result:`, result);
     if (result.installed) {
       return { ...result, bundled: true, binPath: bundledPath };
     }
@@ -1204,7 +1212,7 @@ export async function checkNodeVersion(): Promise<{
   if (process.versions && process.versions.node) {
     const version = process.versions.node;
     const meets = compareVersions(version, "22.0.0") >= 0;
-    log.info(`[checkNodeVersion] 使用 Electron 内置 Node.js: ${version}`);
+    log.info(`[checkNodeVersion] Using Electron bundled Node.js: ${version}`);
     return {
       installed: true,
       version,
@@ -1214,7 +1222,7 @@ export async function checkNodeVersion(): Promise<{
   }
 
   // Fallback 2: 系统 Node.js
-  log.info(`[checkNodeVersion] 尝试系统 Node.js...`);
+  log.info(`[checkNodeVersion] Trying system Node.js...`);
   return new Promise((resolve) => {
     const nodeCmd = isWindows() ? "node.exe" : "node";
     const proc = spawn(nodeCmd, ["--version"], {
@@ -1294,21 +1302,23 @@ export async function checkUvVersion(): Promise<{
 }> {
   // 优先检测 bundled uv
   const bundledPath = getUvBinPath();
-  log.info(`[checkUvVersion] 检测 bundled uv: ${bundledPath}`);
+  log.info(`[checkUvVersion] Checking bundled uv: ${bundledPath}`);
 
   if (fs.existsSync(bundledPath)) {
-    log.info(`[checkUvVersion] bundled uv 文件存在，尝试执行: ${bundledPath}`);
+    log.info(
+      `[checkUvVersion] Bundled uv file exists, attempting to run: ${bundledPath}`,
+    );
     const result = await _checkUvBin(bundledPath);
-    log.info(`[checkUvVersion] bundled uv 检测结果:`, result);
+    log.info(`[checkUvVersion] Bundled uv check result:`, result);
     if (result.installed) {
       return { ...result, bundled: true, binPath: bundledPath };
     }
   } else {
-    log.warn(`[checkUvVersion] bundled uv 文件不存在: ${bundledPath}`);
+    log.warn(`[checkUvVersion] Bundled uv file not found: ${bundledPath}`);
   }
 
   // Fallback 到系统 uv
-  log.info(`[checkUvVersion] 尝试系统 uv...`);
+  log.info(`[checkUvVersion] Trying system uv...`);
   return new Promise((resolve) => {
     const proc = spawn("uv", ["--version"], {
       stdio: ["ignore", "pipe", "ignore"],
@@ -1354,7 +1364,9 @@ export async function checkMcpProxyBundled(): Promise<{
   const bundledDir = path.join(getResourcesPath(), "nuwax-mcp-stdio-proxy");
   const pkgPath = path.join(bundledDir, "package.json");
   if (!fs.existsSync(pkgPath)) {
-    log.info(`[checkMcpProxyBundled] 未找到包内集成: ${pkgPath}`);
+    log.info(
+      `[checkMcpProxyBundled] Bundled integration not found: ${pkgPath}`,
+    );
     return { available: false };
   }
   try {
@@ -1366,7 +1378,7 @@ export async function checkMcpProxyBundled(): Promise<{
     );
     return { available: true, version };
   } catch (e) {
-    log.warn("[checkMcpProxyBundled] 读取 package.json 失败:", e);
+    log.warn("[checkMcpProxyBundled] Failed to read package.json:", e);
     return { available: true };
   }
 }
@@ -1382,7 +1394,7 @@ export async function checkNuwaxcodeBundled(): Promise<{
 }> {
   const bundledPath = getNuwaxcodeBundledBinPath();
   if (!bundledPath) {
-    log.info("[checkNuwaxcodeBundled] 未找到包内集成二进制");
+    log.info("[checkNuwaxcodeBundled] Bundled integration binary not found");
     return { available: false };
   }
   // 读取版本标记文件
@@ -1768,7 +1780,9 @@ async function _installNpmPackageImpl(
 
   // ENOTEMPTY: 删除残留目录后重试一次
   if (result.error && result.error.includes("ENOTEMPTY")) {
-    log.warn(`[Dependencies] ${packageName} 遇到 ENOTEMPTY，清理后重试...`);
+    log.warn(
+      `[Dependencies] ${packageName} encountered ENOTEMPTY, cleaning up and retrying...`,
+    );
 
     // 从错误信息中提取冲突路径并删除（仅限 node_modules 内）
     const match = result.error.match(/ENOTEMPTY[^']*'([^']+)'/);
@@ -1777,9 +1791,14 @@ async function _installNpmPackageImpl(
       const conflictDir = match[1];
       try {
         fs.rmSync(conflictDir, { recursive: true, force: true });
-        log.info(`[Dependencies] 已清理冲突目录: ${conflictDir}`);
+        log.info(
+          `[Dependencies] Cleaned conflicting directory: ${conflictDir}`,
+        );
       } catch (e) {
-        log.warn(`[Dependencies] 清理冲突目录失败: ${conflictDir}`, e);
+        log.warn(
+          `[Dependencies] Failed to clean conflicting directory: ${conflictDir}`,
+          e,
+        );
       }
     }
 
@@ -1788,10 +1807,13 @@ async function _installNpmPackageImpl(
     try {
       if (fs.existsSync(pkgDir)) {
         fs.rmSync(pkgDir, { recursive: true, force: true });
-        log.info(`[Dependencies] 已清理包目录: ${pkgDir}`);
+        log.info(`[Dependencies] Cleaned package directory: ${pkgDir}`);
       }
     } catch (e) {
-      log.warn(`[Dependencies] 清理包目录失败: ${pkgDir}`, e);
+      log.warn(
+        `[Dependencies] Failed to clean package directory: ${pkgDir}`,
+        e,
+      );
     }
 
     return runNpmInstall(packageName, appDataDir, options);
@@ -1879,7 +1901,9 @@ export async function checkAllDependencies(options?: {
             );
           } else {
             item.status = "missing";
-            log.warn("[checkAllDependencies] nuwaxcode: 未找到打包二进制");
+            log.warn(
+              "[checkAllDependencies] nuwaxcode: bundled binary not found",
+            );
           }
           break;
         }
@@ -2078,7 +2102,7 @@ export async function syncInitDependencies(): Promise<{ updated: string[] }> {
     packages,
   });
   if (updated.length > 0)
-    log.info("[Dependencies] syncInitDependencies 已更新:", updated);
+    log.info("[Dependencies] syncInitDependencies updated:", updated);
   return { updated };
 }
 

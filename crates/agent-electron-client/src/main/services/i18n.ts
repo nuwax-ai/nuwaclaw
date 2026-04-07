@@ -58,12 +58,36 @@ let langMap: SystemLangMap;
 
 const normalizeLang = (lang: string): string => lang.toLowerCase();
 
-const formatText = (template: string, values: string[]): string => {
+type I18nValues = (
+  | string
+  | number
+  | undefined
+  | Record<string, string | number | undefined>
+)[];
+
+const formatText = (template: string, values: I18nValues): string => {
   if (!values.length) return template;
   let text = template;
-  values.forEach((value, index) => {
+
+  // 命名占位符：t(key, { error: "xxx" }) → 替换 {error}
+  const namedValues = values.find(
+    (v): v is Record<string, string | number | undefined> =>
+      typeof v === "object" && v !== null,
+  );
+  if (namedValues) {
+    Object.entries(namedValues).forEach(([k, v]) => {
+      text = text.replace(new RegExp(`\\{${k}\\}`, "g"), String(v ?? ""));
+    });
+    return text;
+  }
+
+  // 位置占位符 {0} {1} ... 和 {} 空占位符
+  const stringValues = values.map((v) => String(v ?? ""));
+  stringValues.forEach((value, index) => {
     text = text.replace(new RegExp(`\\{${index}\\}`, "g"), value);
   });
+  let cursor = 0;
+  text = text.replace(/\{\}/g, () => stringValues[cursor++] ?? "");
   return text;
 };
 
@@ -87,9 +111,9 @@ export function getCurrentLang(): string {
 /**
  * 翻译函数
  * @param key 翻译 key
- * @param values 替换参数
+ * @param values 替换参数：位置占位符 (string) 或命名占位符 (Record)
  */
-export function t(key: string, ...values: string[]): string {
+export function t(key: string, ...values: I18nValues): string {
   const normalizedKey = String(key || "").trim();
   if (!normalizedKey) return "";
 

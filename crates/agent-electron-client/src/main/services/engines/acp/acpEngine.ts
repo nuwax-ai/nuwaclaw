@@ -16,7 +16,11 @@ import { FEATURES } from "@shared/featureFlags";
 import { getGuiAgentServerUrl } from "@main/services/packages/guiAgentServer";
 import { getWindowsMcpUrl } from "@main/services/packages/windowsMcp";
 import { isWindows } from "@main/services/system/shellEnv";
-import { getResourcesPath } from "@main/services/system/dependencies";
+import {
+  getResourcesPath,
+  getAppEnv,
+  getBundledGitBashPath,
+} from "@main/services/system/dependencies";
 import {
   getSandboxPolicy,
   resolveSandboxType,
@@ -254,7 +258,7 @@ export class AcpEngine extends EventEmitter {
     firstTokenTrace.trace("acp.init.start", { engine: this.engineName });
     this.config = config;
     const envModel = config.env?.OPENCODE_MODEL || config.env?.ANTHROPIC_MODEL;
-    log.info(`${this.logTag} 🚀 初始化配置`, {
+    log.info(`${this.logTag} 🚀 Init config`, {
       engine: this.engineName,
       config_model: config.model || "未设置",
       env_model: envModel || "未设置",
@@ -361,14 +365,17 @@ export class AcpEngine extends EventEmitter {
                 getBundledWindowsSandboxHelperPath() ?? undefined,
               windowsSandboxMode: policy.windows.sandbox.mode,
             };
-            log.info(`${this.logTag} 沙箱配置已解析:`, {
+            log.info(`${this.logTag} Sandbox config resolved:`, {
               type: resolved.type,
               degraded: resolved.degraded,
             });
           }
         }
       } catch (e) {
-        log.warn(`${this.logTag} 沙箱策略解析失败，将以无沙箱模式运行:`, e);
+        log.warn(
+          `${this.logTag} Sandbox policy parse failed, running without sandbox:`,
+          e,
+        );
       }
 
       // Per-command sandboxing for nuwaxcode on Windows:
@@ -612,9 +619,11 @@ export class AcpEngine extends EventEmitter {
     if (this.isolatedHome) {
       try {
         fs.rmSync(this.isolatedHome, { recursive: true, force: true });
-        log.info(`${this.logTag} 🧹 已清理隔离目录: ${this.isolatedHome}`);
+        log.info(
+          `${this.logTag} 🧹 Cleaned isolated directory: ${this.isolatedHome}`,
+        );
       } catch (e) {
-        log.warn(`${this.logTag} 隔离目录清理失败:`, e);
+        log.warn(`${this.logTag} Isolated directory cleanup failed:`, e);
       }
       this.isolatedHome = null;
     }
@@ -624,7 +633,7 @@ export class AcpEngine extends EventEmitter {
       try {
         this.sandboxCleanup();
       } catch (e) {
-        log.warn(`${this.logTag} 沙箱资源清理失败:`, e);
+        log.warn(`${this.logTag} Sandbox resource cleanup failed:`, e);
       }
       this.sandboxCleanup = null;
     }
@@ -742,7 +751,7 @@ export class AcpEngine extends EventEmitter {
           headers: [],
           type: "http",
         });
-        log.info(`${this.logTag} 🔧 注入 GUI Agent MCP: ${guiMcpUrl}`);
+        log.info(`${this.logTag} 🔧 Injecting GUI Agent MCP: ${guiMcpUrl}`);
       }
     }
 
@@ -767,6 +776,11 @@ export class AcpEngine extends EventEmitter {
         "sandboxed-bash-mcp.mjs",
       );
       const resolvedScriptPath = path.resolve(scriptPath);
+
+      // Build PATH with bundled tools (node, git, etc.) so sandboxed shell
+      // can find them even under a restricted token with minimal PATH.
+      const appEnv = getAppEnv({ includeSystemPath: false });
+      const gitBashPath = getBundledGitBashPath();
 
       mcpServers.push({
         name: "sandboxed-bash",
@@ -795,6 +809,14 @@ export class AcpEngine extends EventEmitter {
                 : [],
             ),
           },
+          // Pass bundled tools PATH for sandboxed shell execution
+          ...(appEnv.PATH
+            ? [{ name: "NUWAX_SANDBOX_PATH", value: appEnv.PATH }]
+            : []),
+          // Pass Git Bash path so MCP script can use bash instead of PowerShell
+          ...(gitBashPath
+            ? [{ name: "NUWAX_SANDBOX_GIT_BASH_PATH", value: gitBashPath }]
+            : []),
         ],
       });
       log.info(
@@ -862,7 +884,7 @@ export class AcpEngine extends EventEmitter {
     try {
       acpResult = await this.acpConnection.newSession(newSessionParams);
     } catch (err) {
-      log.error(`${this.logTag} ❌ ACP newSession 失败:`, err);
+      log.error(`${this.logTag} ❌ ACP newSession failed:`, err);
       throw err;
     }
     const createMs = timer.end("acp.session.create", {
@@ -1116,7 +1138,7 @@ export class AcpEngine extends EventEmitter {
 
       const promptStartTime = Date.now();
       perfEmitter.point("acp.prompt.sent", { sessionId });
-      log.info(`${this.logTag} 📤 ACP prompt 发送中...`);
+      log.info(`${this.logTag} 📤 ACP prompt sending...`);
       firstTokenTrace.trace("acp.prompt.sent", {
         requestId: _opts?.messageID,
         sessionId,
@@ -1438,7 +1460,7 @@ export class AcpEngine extends EventEmitter {
     try {
       const envModel =
         this.config.env?.OPENCODE_MODEL || this.config.env?.ANTHROPIC_MODEL;
-      log.info(`${this.logTag} 📨 chat() 收到请求`, {
+      log.info(`${this.logTag} 📨 chat() request received`, {
         user_id: request.user_id,
         project_id: request.project_id,
         session_id: request.session_id,
@@ -1514,7 +1536,7 @@ export class AcpEngine extends EventEmitter {
           request.user_id,
           projectId,
         );
-        log.info(`${this.logTag} 📁 项目工作目录: ${projectDir}`);
+        log.info(`${this.logTag} 📁 Project workspace: ${projectDir}`);
 
         // PERF: 会话创建阶段
 
@@ -1699,7 +1721,7 @@ ${memoryContext}
         is_new_session: isNewSession,
       };
 
-      log.info(`${this.logTag} ✅ chat() 响应: session_id=${session.id}`);
+      log.info(`${this.logTag} ✅ chat() response: session_id=${session.id}`);
       firstTokenTrace.trace(
         "acp.chat.return",
         {
@@ -1723,7 +1745,7 @@ ${memoryContext}
       const errorMsg = this.isMcpReconnectFailure(rawErrorMsg)
         ? MCP_RECONNECT_PROMPT_MESSAGE
         : rawErrorMsg;
-      log.error(`${this.logTag} ❌ chat() 失败: ${rawErrorMsg}`);
+      log.error(`${this.logTag} ❌ chat() failed: ${rawErrorMsg}`);
       firstTokenTrace.trace(
         "acp.chat.failed",
         {

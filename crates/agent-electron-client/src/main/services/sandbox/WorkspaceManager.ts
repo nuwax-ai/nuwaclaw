@@ -67,13 +67,13 @@ export class WorkspaceManager extends EventEmitter {
    * 初始化工作区管理器
    */
   async init(): Promise<void> {
-    log.info("[WorkspaceManager] 初始化...");
+    log.info("[WorkspaceManager] Initializing...");
 
     try {
       await this.sandboxManager.init();
-      log.info("[WorkspaceManager] 初始化完成");
+      log.info("[WorkspaceManager] Initialization complete");
     } catch (error) {
-      log.error("[WorkspaceManager] 初始化失败:", error);
+      log.error("[WorkspaceManager] Initialization failed:", error);
       throw error;
     }
   }
@@ -82,15 +82,15 @@ export class WorkspaceManager extends EventEmitter {
    * 销毁工作区管理器
    */
   async destroy(): Promise<void> {
-    log.info("[WorkspaceManager] 销毁...");
+    log.info("[WorkspaceManager] Destroying...");
 
     try {
       await this.cleanupAll();
       await this.sandboxManager.destroy();
       this.removeAllListeners();
-      log.info("[WorkspaceManager] 销毁完成");
+      log.info("[WorkspaceManager] Destruction complete");
     } catch (error) {
-      log.error("[WorkspaceManager] 销毁失败:", error);
+      log.error("[WorkspaceManager] Destruction failed:", error);
     }
   }
 
@@ -107,7 +107,7 @@ export class WorkspaceManager extends EventEmitter {
     sessionId: string,
     options: CreateWorkspaceOptions = {},
   ): Promise<Workspace> {
-    log.info("[WorkspaceManager] 创建工作区:", sessionId);
+    log.info("[WorkspaceManager] Creating workspace:", sessionId);
 
     try {
       // 创建沙箱工作区
@@ -124,10 +124,10 @@ export class WorkspaceManager extends EventEmitter {
       // 发出事件
       this.emitEvent("workspace:created", { workspace });
 
-      log.info("[WorkspaceManager] 工作区创建成功:", sessionId);
+      log.info("[WorkspaceManager] Workspace created successfully:", sessionId);
       return workspace;
     } catch (error) {
-      log.error("[WorkspaceManager] 创建工作区失败:", error);
+      log.error("[WorkspaceManager] Failed to create workspace:", error);
       throw toSandboxError(
         error,
         "工作区创建失败",
@@ -158,7 +158,12 @@ export class WorkspaceManager extends EventEmitter {
     sessionId: string,
     force: boolean = false,
   ): Promise<void> {
-    log.info("[WorkspaceManager] 销毁工作区:", sessionId, "force:", force);
+    log.info(
+      "[WorkspaceManager] Destroying workspace:",
+      sessionId,
+      "force:",
+      force,
+    );
 
     try {
       // 清理会话权限缓存
@@ -173,13 +178,16 @@ export class WorkspaceManager extends EventEmitter {
         sessionId,
       });
 
-      log.info("[WorkspaceManager] 工作区销毁成功:", sessionId);
+      log.info(
+        "[WorkspaceManager] Workspace destroyed successfully:",
+        sessionId,
+      );
     } catch (error) {
-      log.error("[WorkspaceManager] 销毁工作区失败:", error);
+      log.error("[WorkspaceManager] Failed to destroy workspace:", error);
 
       if (force) {
         // 强制模式：忽略错误
-        log.warn("[WorkspaceManager] 强制销毁，忽略错误");
+        log.warn("[WorkspaceManager] Force destroying, ignoring errors");
       } else {
         throw toSandboxError(
           error,
@@ -409,7 +417,7 @@ export class WorkspaceManager extends EventEmitter {
    * 清理过期的工作区
    */
   async cleanupExpired(): Promise<CleanupResult> {
-    log.info("[WorkspaceManager] 清理过期工作区...");
+    log.info("[WorkspaceManager] Cleaning expired workspaces...");
 
     const workspaces = await this.list();
     const now = Date.now();
@@ -457,7 +465,7 @@ export class WorkspaceManager extends EventEmitter {
       }
     }
 
-    log.info("[WorkspaceManager] 清理完成:", result);
+    log.info("[WorkspaceManager] Cleanup complete:", result);
     this.emitEvent("cleanup:complete", { result });
 
     return result;
@@ -474,7 +482,7 @@ export class WorkspaceManager extends EventEmitter {
    * 清理所有工作区
    */
   async cleanupAll(): Promise<void> {
-    log.info("[WorkspaceManager] 清理所有工作区...");
+    log.info("[WorkspaceManager] Cleaning all workspaces...");
 
     const workspaces = await this.list();
 
@@ -490,7 +498,7 @@ export class WorkspaceManager extends EventEmitter {
       }
     }
 
-    log.info("[WorkspaceManager] 所有工作区已清理");
+    log.info("[WorkspaceManager] All workspaces cleaned");
   }
 
   // ============================================================================

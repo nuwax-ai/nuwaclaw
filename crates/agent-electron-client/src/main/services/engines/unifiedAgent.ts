@@ -460,9 +460,9 @@ export class UnifiedAgentService extends EventEmitter {
         const { syncMcpConfigToProxyAndReload } =
           await import("../packages/mcp");
         await syncMcpConfigToProxyAndReload({});
-        log.debug("[UnifiedAgent] MCP proxy bridge 预热完成");
+        log.debug("[UnifiedAgent] MCP proxy bridge warmup complete");
       } catch (err) {
-        log.warn("[UnifiedAgent] MCP proxy bridge 预热失败:", err);
+        log.warn("[UnifiedAgent] MCP proxy bridge warmup failed:", err);
       }
     })().catch(() => {});
   }
@@ -837,7 +837,7 @@ export class UnifiedAgentService extends EventEmitter {
         t2 = Date.now();
         perfEmitter.duration("engine.syncMcp", t2 - t1);
       } catch (e) {
-        log.warn("[UnifiedAgent] syncMcp 失败:", e);
+        log.warn("[UnifiedAgent] syncMcp failed:", e);
       }
     } else if (needCreateEngine && memoryService.isInitialized()) {
       // MCP 未变更但需要创建引擎，仍并行启动 memory ready

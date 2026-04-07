@@ -157,6 +157,11 @@ body {
   padding: 4px 0;
 }
 
+/* 英文菜单文案更长，单独加宽侧边栏，避免文本被截断 */
+.app-sider.app-sider-en {
+  width: 160px;
+}
+
 .app-sider .ant-menu {
   border-right: 0;
 }
@@ -208,7 +213,7 @@ body {
   height: 32px;
   line-height: 32px;
   margin: 1px 6px;
-  padding: 0 10px;
+  padding: 0 10px !important;
   font-size: 13px;
   font-weight: 400;
   transition: all 0.15s ease;

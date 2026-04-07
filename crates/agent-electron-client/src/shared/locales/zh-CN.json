@@ -674,5 +674,6 @@
   "Claw.Client.stopAll": "停止全部",
   "Claw.Client.quickActions": "快捷操作",
   "Claw.Client.serviceStartFailed": "{0} 启动失败: {1}",
-  "Claw.Client.stopFailed": "停止失败: {0}"
+  "Claw.Client.stopFailed": "停止失败: {0}",
+  "Claw.Process.exitImmediately": "进程启动后立即退出"
 }

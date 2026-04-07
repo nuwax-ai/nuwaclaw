@@ -56,7 +56,7 @@ function getGuiAgentServerEntryPath(): string | null {
   if (fs.existsSync(entryPath)) {
     return entryPath;
   }
-  log.warn(`[GuiAgentServer] 入口文件不存在: ${entryPath}`);
+  log.warn(`[GuiAgentServer] Entry file not found: ${entryPath}`);
   return null;
 }
 
@@ -85,7 +85,7 @@ function getApiKeyFromDb(): string | null {
 
     return apiKeyRow?.value ?? null;
   } catch (e) {
-    log.warn("[GuiAgentServer] 读取 API Key 失败:", e);
+    log.warn("[GuiAgentServer] Failed to read API Key:", e);
     return null;
   }
 }

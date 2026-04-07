@@ -931,7 +931,7 @@ export async function openReleasesPage(): Promise<void> {
     }
 
     if (!url) {
-      throw new Error(`未找到 ${platformName} 对应的下载包`);
+      throw new Error(`No download package found for ${platformName}`);
     }
 
     log.info(

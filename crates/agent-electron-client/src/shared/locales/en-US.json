@@ -674,5 +674,6 @@
   "Claw.Client.stopAll": "Stop All",
   "Claw.Client.quickActions": "Quick Actions",
   "Claw.Client.serviceStartFailed": "{0} start failed: {1}",
-  "Claw.Client.stopFailed": "Stop failed: {0}"
+  "Claw.Client.stopFailed": "Stop failed: {0}",
+  "Claw.Process.exitImmediately": "Process exited immediately after starting"
 }

@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import { ConfigProvider, theme } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
+import zhTW from "antd/locale/zh_TW";
+import zhHK from "antd/locale/zh_HK";
 import App from "./App";
 import i18n from "./services/i18n"; // 初始化 i18next（自动检测浏览器语言）
 import { initI18n } from "./services/core/i18n"; // 初始化自定义 i18n 服务
@@ -29,11 +31,13 @@ initI18n()
 // antd locale 映射
 const antdLocales: Record<string, typeof zhCN> = {
   en: enUS,
-  "en-US": enUS,
+  "en-us": enUS,
   "en-gb": enUS,
   zh: zhCN,
-  "zh-CN": zhCN,
-  "zh-Hans": zhCN,
+  "zh-cn": zhCN,
+  "zh-hans": zhCN,
+  "zh-tw": zhTW,
+  "zh-hk": zhHK,
 };
 
 function Main() {

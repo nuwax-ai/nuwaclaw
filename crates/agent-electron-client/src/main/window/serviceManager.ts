@@ -294,16 +294,16 @@ export function createServiceManager(ctx: ServiceManagerContext) {
           const health = await checkLanproxyHealth(clientKey);
           results.lanproxy.healthCheck = health;
           if (!health.healthy) {
-            log.warn("[Lanproxy] 健康检查失败:", health.error);
+            log.warn("[Lanproxy] Health check failed:", health.error);
           }
         } else {
-          log.error("[Lanproxy] 批量启动失败", {
+          log.error("[Lanproxy] Batch start failed", {
             error: results.lanproxy.error,
           });
         }
       } else {
         results.lanproxy = { success: false, error: "缺少 lanproxy 配置" };
-        log.warn("[Lanproxy] 已跳过: 缺少配置", {
+        log.warn("[Lanproxy] Skipped: missing config", {
           hasServerIp: !!serverIp,
           hasClientKey: !!clientKey,
           hasServerPort: !!serverPort,
@@ -312,7 +312,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       }
     } catch (e) {
       results.lanproxy = { success: false, error: String(e) };
-      log.error("[Lanproxy] 启动异常", {
+      log.error("[Lanproxy] Start error", {
         error: String(e),
         stack: e instanceof Error ? e.stack : undefined,
       });
@@ -477,10 +477,10 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     try {
       ctx.lanproxy.stop();
       results.lanproxy = { success: true };
-      log.info("[Lanproxy] 已停止");
+      log.info("[Lanproxy] Stopped");
     } catch (e) {
       results.lanproxy = { success: false, error: String(e) };
-      log.error("[Lanproxy] 停止异常", {
+      log.error("[Lanproxy] Stop error", {
         error: String(e),
         stack: e instanceof Error ? e.stack : undefined,
       });

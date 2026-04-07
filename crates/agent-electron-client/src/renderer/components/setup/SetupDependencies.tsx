@@ -212,7 +212,7 @@ export default function SetupDependencies({
         setInstallPhase("installing");
       }
     } catch (error) {
-      console.error("[SetupDeps] 检测失败:", error);
+      console.error("[SetupDeps] Check failed:", error);
       setInstallPhase("error");
       setInstallError(
         error instanceof Error

@@ -157,11 +157,15 @@ export class PermissionManager extends EventEmitter {
     type: PermissionType,
     target: string,
   ): Promise<PermissionResult> {
-    log.info("[PermissionManager] 检查权限:", { sessionId, type, target });
+    log.info("[PermissionManager] Checking permission:", {
+      sessionId,
+      type,
+      target,
+    });
 
     // 检查是否在禁止列表
     if (this.policy.denyList.includes(type)) {
-      log.warn("[PermissionManager] 权限被禁止:", type);
+      log.warn("[PermissionManager] Permission denied:", type);
       return {
         allowed: false,
         reason: `权限类型 ${type} 被安全策略禁止`,
@@ -171,7 +175,7 @@ export class PermissionManager extends EventEmitter {
     // 检查是否是危险操作
     const dangerCheck = this.checkDangerousOperation(type, target);
     if (dangerCheck.isDangerous) {
-      log.warn("[PermissionManager] 检测到危险操作:", target);
+      log.warn("[PermissionManager] Dangerous operation detected:", target);
       return {
         allowed: false,
         reason: dangerCheck.reason || "Unknown",
@@ -183,13 +187,13 @@ export class PermissionManager extends EventEmitter {
 
     // 检查是否已批准
     if (this.approvedCache.has(cacheKey)) {
-      log.info("[PermissionManager] 使用缓存的批准");
+      log.info("[PermissionManager] Using cached approval");
       return { allowed: true, reason: "已批准（缓存）" };
     }
 
     // 检查是否已拒绝
     if (this.deniedCache.has(cacheKey)) {
-      log.info("[PermissionManager] 使用缓存的拒绝");
+      log.info("[PermissionManager] Using cached rejection");
       return { allowed: false, reason: "已拒绝（缓存）" };
     }
 
@@ -209,7 +213,7 @@ export class PermissionManager extends EventEmitter {
       );
       this.approvedCache.set(cacheKey, permission);
 
-      log.info("[PermissionManager] 自动批准:", type);
+      log.info("[PermissionManager] Auto-approved:", type);
       return { allowed: true, reason: "自动批准" };
     }
 
@@ -227,7 +231,7 @@ export class PermissionManager extends EventEmitter {
           );
           this.approvedCache.set(cacheKey, permission);
 
-          log.info("[PermissionManager] 安全命令自动批准:", command);
+          log.info("[PermissionManager] Safe command auto-approved:", command);
           return { allowed: true, reason: "安全命令" };
         }
       }
@@ -235,7 +239,7 @@ export class PermissionManager extends EventEmitter {
       // 需要用户确认
       const request = await this.createRequest(sessionId, type, target);
 
-      log.info("[PermissionManager] 需要用户确认:", request.id);
+      log.info("[PermissionManager] User confirmation required:", request.id);
       return {
         allowed: false,
         reason: "需要用户确认",
@@ -264,7 +268,7 @@ export class PermissionManager extends EventEmitter {
     target: string,
     reason?: string,
   ): Promise<Permission> {
-    log.info("[PermissionManager] 请求权限:", {
+    log.info("[PermissionManager] Requesting permission:", {
       sessionId,
       type,
       target,
@@ -367,7 +371,7 @@ export class PermissionManager extends EventEmitter {
     this.emitEvent("permission:approved", { permission });
     this.emit(`permission:${requestId}`, permission);
 
-    log.info("[PermissionManager] 权限已批准:", requestId);
+    log.info("[PermissionManager] Permission approved:", requestId);
   }
 
   /**
@@ -414,7 +418,7 @@ export class PermissionManager extends EventEmitter {
     });
     this.emit(`permission:${requestId}`, permission);
 
-    log.info("[PermissionManager] 权限已拒绝:", requestId);
+    log.info("[PermissionManager] Permission rejected:", requestId);
   }
 
   /**
@@ -462,7 +466,7 @@ export class PermissionManager extends EventEmitter {
   clearCache(): void {
     this.approvedCache.clear();
     this.deniedCache.clear();
-    log.info("[PermissionManager] 缓存已清除");
+    log.info("[PermissionManager] Cache cleared");
   }
 
   /**
@@ -491,7 +495,7 @@ export class PermissionManager extends EventEmitter {
       }
     }
 
-    log.info("[PermissionManager] 会话缓存已清除:", sessionId);
+    log.info("[PermissionManager] Session cache cleared:", sessionId);
   }
 
   // ============================================================================
@@ -511,7 +515,7 @@ export class PermissionManager extends EventEmitter {
    */
   updatePolicy(policy: Partial<PermissionPolicy>): void {
     this.policy = { ...this.policy, ...policy };
-    log.info("[PermissionManager] 策略已更新");
+    log.info("[PermissionManager] Policy updated");
   }
 
   /**
@@ -521,7 +525,7 @@ export class PermissionManager extends EventEmitter {
   addSafeCommand(command: string): void {
     if (!this.policy.safeCommands.includes(command)) {
       this.policy.safeCommands.push(command);
-      log.info("[PermissionManager] 安全命令已添加:", command);
+      log.info("[PermissionManager] Safe command added:", command);
     }
   }
 
@@ -533,7 +537,7 @@ export class PermissionManager extends EventEmitter {
     const index = this.policy.safeCommands.indexOf(command);
     if (index !== -1) {
       this.policy.safeCommands.splice(index, 1);
-      log.info("[PermissionManager] 安全命令已移除:", command);
+      log.info("[PermissionManager] Safe command removed:", command);
     }
   }
 

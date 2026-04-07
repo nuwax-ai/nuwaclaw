@@ -64,7 +64,9 @@ export async function buildSandboxedSpawnArgs(
 
   // Docker 后端暂不支持进程级包装
   if (type === "docker") {
-    log.warn("[SandboxProcessWrapper] Docker 进程级沙箱暂不支持，跳过包装");
+    log.warn(
+      "[SandboxProcessWrapper] Docker process-level sandbox not supported yet, skipping wrapping",
+    );
     return {
       command: originalCommand,
       args: originalArgs,
@@ -121,7 +123,7 @@ export async function buildSandboxedSpawnArgs(
       subcommand: "serve",
     });
 
-    log.info("[SandboxProcessWrapper] 沙箱包装成功:", {
+    log.info("[SandboxProcessWrapper] Sandbox wrapping succeeded:", {
       type,
       originalCommand,
       wrappedCommand: invocation.command,
@@ -151,7 +153,7 @@ export async function buildSandboxedSpawnArgs(
       cleanupSandbox,
     };
   } catch (error) {
-    log.error("[SandboxProcessWrapper] 沙箱包装失败:", error);
+    log.error("[SandboxProcessWrapper] Sandbox wrapping failed:", error);
     throw error;
   }
 }

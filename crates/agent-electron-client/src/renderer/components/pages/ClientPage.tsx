@@ -196,7 +196,7 @@ function ClientPage({
       try {
         await syncConfigToServer({ suppressToast: true });
       } catch (e) {
-        console.error("[ClientPage] 登录后 reg 同步失败:", e);
+        console.error("[ClientPage] Reg sync failed after login:", e);
       }
 
       // 2. reg 返回后，step by step 启动服务
@@ -246,14 +246,14 @@ function ClientPage({
               else if (svc.key === "mcpProxy")
                 await window.electronAPI?.mcp.stop();
             } catch (e) {
-              console.error(`停止 ${svc.label} 失败:`, e);
+              console.error(`[ClientPage] Failed to stop ${svc.label}:`, e);
             }
           }
           // computerServer 不在 services 列表中，需单独停止，避免进程残留导致端口冲突
           await window.electronAPI?.computerServer
             .stop()
             .catch((e: unknown) => {
-              console.error("停止 computerServer 失败:", e);
+              console.error("[ClientPage] Failed to stop computerServer:", e);
             });
 
           await logout();
@@ -405,7 +405,7 @@ function ClientPage({
 
       return result?.success ?? false;
     } catch (error) {
-      console.error(`[ClientPage] 启动 ${key} 失败:`, error);
+      console.error(`[ClientPage] Failed to start ${key}:`, error);
       message.error(
         t(
           "Claw.Client.serviceStartFailed",
@@ -500,7 +500,7 @@ function ClientPage({
       try {
         await syncConfigToServer({ suppressToast: true });
       } catch (e) {
-        console.error("[ClientPage] reg 同步失败:", e);
+        console.error("[ClientPage] Reg sync failed:", e);
       }
 
       // 2. reg 返回后，step by step 启动服务
@@ -534,7 +534,7 @@ function ClientPage({
           else if (svc.key === "adminServer")
             await window.electronAPI?.adminServer?.stop();
         } catch (error) {
-          console.error(`停止 ${svc.label} 失败:`, error);
+          console.error(`[ClientPage] Failed to stop ${svc.label}:`, error);
         }
       }
       await window.electronAPI?.computerServer.stop().catch(() => {});

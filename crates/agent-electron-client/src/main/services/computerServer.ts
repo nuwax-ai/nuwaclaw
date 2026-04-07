@@ -174,7 +174,9 @@ async function ensureProjectWorkspace(
   // workspaceDir 未配置时跳过，避免在无法确认目录状态时误调用 file-server
   const agentConfig = agentService.getAgentConfig();
   if (!agentConfig?.workspaceDir) {
-    log.debug("[ensureProjectWorkspace] workspaceDir 未配置，跳过检测");
+    log.debug(
+      "[ensureProjectWorkspace] workspaceDir not configured, skipping check",
+    );
     return;
   }
 
@@ -186,12 +188,16 @@ async function ensureProjectWorkspace(
     projectId,
   );
   if (fs.existsSync(projectDir)) {
-    log.debug(`[ensureProjectWorkspace] 目录已存在，跳过: ${projectDir}`);
+    log.debug(
+      `[ensureProjectWorkspace] Directory already exists, skipping: ${projectDir}`,
+    );
     return;
   }
 
   // 目录不存在，通知 file-server 创建空目录结构（不传 zip，不写入 skills）
-  log.info(`[ensureProjectWorkspace] 目录不存在，创建: ${projectDir}`);
+  log.info(
+    `[ensureProjectWorkspace] Directory not found, creating: ${projectDir}`,
+  );
 
   // multer 要求 multipart/form-data，手动拼接 boundary
   const boundary = `----FormBoundary${Date.now()}`;
@@ -382,7 +388,7 @@ async function handleRequest(
       );
 
       // 业务级别 info 日志：重点字段摘要（脱敏 model_provider / agent_config，避免 api_key 泄露）
-      log.info("📨 [HTTP] 收到 Computer Chat 请求", {
+      log.info("📨 [HTTP] Computer Chat request received", {
         user_id: body.user_id,
         project_id: body.project_id,
         session_id: body.session_id,
@@ -544,7 +550,7 @@ async function handleRequest(
           });
         }
       } else {
-        log.error(`❌ [HTTP] Computer Chat 失败: ${result.message}`);
+        log.error(`❌ [HTTP] Computer Chat failed: ${result.message}`);
       }
 
       getPerfLogger().info(
@@ -704,7 +710,7 @@ async function handleRequest(
           `✅ [HTTP] Agent 状态: project_id=${body.project_id}, is_alive=true, session_id=${session.id}`,
         );
       } else {
-        log.warn(`⚠️ [HTTP] Agent 不存在: project_id=${body.project_id}`);
+        log.warn(`⚠️ [HTTP] Agent not found: project_id=${body.project_id}`);
       }
       getPerfLogger().info(
         `[PERF] /agent/status: ${Date.now() - t0Handler}ms  project=${body.project_id} alive=${!!projectEngine}`,
@@ -770,7 +776,7 @@ async function handleRequest(
           /* 忽略 listSessions 失败，继续执行 stop */
         }
         await agentService.stopEngine(body.project_id);
-        log.info(`✅ [HTTP] Agent 已停止: project_id=${body.project_id}`);
+        log.info(`✅ [HTTP] Agent stopped: project_id=${body.project_id}`);
       } else {
         log.info(
           `ℹ️ [HTTP] Agent 不存在,幂等返回成功: project_id=${body.project_id}`,
@@ -828,10 +834,10 @@ async function handleRequest(
         if (sessionId) {
           const ok = await acpEngine.abortSession(sessionId);
           if (ok) {
-            log.info(`✅ [HTTP] 取消成功: session_id=${sessionId}`);
+            log.info(`✅ [HTTP] Cancel succeeded: session_id=${sessionId}`);
           } else {
             log.warn(
-              `⚠️ [HTTP] 取消失败(session 不存在): session_id=${sessionId}`,
+              `⚠️ [HTTP] Cancel failed (session not found): session_id=${sessionId}`,
             );
           }
         } else {
@@ -839,7 +845,7 @@ async function handleRequest(
           if (session) {
             cancelledSessionId = session.id;
             await acpEngine.abortSession(session.id);
-            log.info(`✅ [HTTP] 取消成功: session_id=${session.id}`);
+            log.info(`✅ [HTTP] Cancel succeeded: session_id=${session.id}`);
           } else {
             log.info(
               `ℹ️ [HTTP] Agent 不存在,幂等返回成功: project_id=${projectId}`,
@@ -866,7 +872,7 @@ async function handleRequest(
     // POST /computer/gui-agent/vision-model — 保存 GUI Agent 视觉模型配置
     if (pathname === "/computer/gui-agent/vision-model" && method === "POST") {
       const body = await parseBody(req);
-      log.info("[HTTP] 保存 GUI Agent 视觉模型配置");
+      log.info("[HTTP] Saving GUI Agent vision model config");
       const { writeSetting } = await import("../db");
       writeSetting("gui_agent_vision_model", body);
       sendJson(res, 200, httpResult({ success: true }));
@@ -916,7 +922,7 @@ async function handleRequest(
         }));
         sendJson(res, 200, httpResult(result));
       } catch (err: any) {
-        log.error("[HTTP] 获取显示器列表失败:", err);
+        log.error("[HTTP] Failed to get display list:", err);
         sendJson(
           res,
           200,
@@ -930,7 +936,7 @@ async function handleRequest(
     if (pathname === "/computer/gui-agent/display" && method === "POST") {
       const body = await parseBody(req);
       const displayIndex = body.displayIndex as number;
-      log.info(`[HTTP] 设置 GUI Agent 目标显示器: ${displayIndex}`);
+      log.info(`[HTTP] Setting GUI Agent target display: ${displayIndex}`);
       const { readSetting, writeSetting } = await import("../db");
       const existing = (readSetting("gui_agent_vision_model") || {}) as Record<
         string,
@@ -944,7 +950,7 @@ async function handleRequest(
     // 404
     sendJson(res, 404, httpError("NOT_FOUND", `Path not found: ${pathname}`));
   } catch (error: any) {
-    log.error(`❌ [HTTP] 请求处理异常: ${pathname}`, error);
+    log.error(`❌ [HTTP] Request handling error: ${pathname}`, error);
     firstTokenTrace.trace(
       "chat.failed",
       {},
@@ -1204,7 +1210,7 @@ async function doRestartAllServicesIncludingComputerServer(): Promise<
   const { getServiceManager } = await import("../ipc/processHandlers");
   const serviceManager = getServiceManager();
   if (!serviceManager) {
-    throw new Error("ServiceManager 未初始化");
+    throw new Error("ServiceManager not initialized");
   }
 
   // 1. 重启除 Lanproxy 外的所有服务
@@ -1317,12 +1323,14 @@ async function handleAdminRequest(
             .map(([k, v]) => `${k}: ${v.error}`)
             .join("; ");
           if (failedServices) {
-            log.warn(`[AdminServer] 部分服务启动失败: ${failedServices}`);
+            log.warn(
+              `[AdminServer] Some services failed to start: ${failedServices}`,
+            );
           } else {
-            log.info("[AdminServer] 延迟重启完成");
+            log.info("[AdminServer] Delayed restart complete");
           }
         } catch (e) {
-          log.error("[AdminServer] 延迟重启异常:", e);
+          log.error("[AdminServer] Delayed restart error:", e);
         }
       }, 2000);
       return;
@@ -1331,7 +1339,7 @@ async function handleAdminRequest(
     // 404
     sendJson(404, { code: "404", message: `Path not found: ${pathname}` });
   } catch (error: any) {
-    log.error(`[AdminServer] 请求处理异常: ${pathname}`, error);
+    log.error(`[AdminServer] Request handling error: ${pathname}`, error);
     sendJson(500, {
       code: "1003",
       message: error.message || "Internal error",

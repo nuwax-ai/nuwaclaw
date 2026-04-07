@@ -35,6 +35,7 @@ import type {
   GuiDisplayInfo,
 } from "@shared/types/computerTypes";
 import { t } from "../../services/core/i18n";
+import { useI18nLang } from "../../App";
 
 const DEFAULT_CONFIG: GuiVisionModelConfig = {
   provider: "anthropic",
@@ -57,44 +58,6 @@ interface PresetProvider {
 
 /** 特殊值：用户选择"自定义"时的 Select value */
 const CUSTOM_PROVIDER_VALUE = "__custom__";
-
-const PRESET_PROVIDERS: PresetProvider[] = [
-  // Anthropic 协议
-  { value: "anthropic", label: "Anthropic", protocol: "anthropic" },
-  // OpenAI 协议
-  { value: "openai", label: "OpenAI", protocol: "openai" },
-  { value: "google", label: "Google", protocol: "openai" },
-  {
-    value: "zhipu",
-    label: t("Claw.GUIAgent.provider.zhipu"),
-    protocol: "openai",
-    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
-  },
-  {
-    value: "qwen",
-    label: t("Claw.GUIAgent.provider.qwen"),
-    protocol: "openai",
-    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-  },
-  {
-    value: "deepseek",
-    label: "DeepSeek",
-    protocol: "openai",
-    baseUrl: "https://api.deepseek.com/v1",
-  },
-  {
-    value: "minimax",
-    label: "MiniMax",
-    protocol: "openai",
-    baseUrl: "https://api.minimax.chat/v1",
-  },
-];
-
-/** Select 下拉选项：预设 + 末尾"自定义" */
-const PROVIDER_SELECT_OPTIONS = [
-  ...PRESET_PROVIDERS.map((p) => ({ value: p.value, label: p.label })),
-  { value: CUSTOM_PROVIDER_VALUE, label: t("Claw.GUIAgent.provider.custom") },
-];
 
 // 预设模型列表（按提供商分组）
 const PRESET_MODELS: Record<string, Array<{ value: string; label: string }>> = {
@@ -123,31 +86,6 @@ const PRESET_MODELS: Record<string, Array<{ value: string; label: string }>> = {
   minimax: [{ value: "MiniMax-VL-01", label: "MiniMax-VL-01" }],
 };
 
-const COORDINATE_MODE_OPTIONS = [
-  { value: "auto", label: t("Claw.GUIAgent.coordinateMode.auto") },
-  {
-    value: "image-absolute",
-    label: t("Claw.GUIAgent.coordinateMode.imageAbsolute"),
-  },
-  {
-    value: "normalized-1000",
-    label: t("Claw.GUIAgent.coordinateMode.normalized1000"),
-  },
-  {
-    value: "normalized-999",
-    label: t("Claw.GUIAgent.coordinateMode.normalized999"),
-  },
-  {
-    value: "normalized-0-1",
-    label: t("Claw.GUIAgent.coordinateMode.normalized0to1"),
-  },
-];
-
-const API_PROTOCOL_OPTIONS = [
-  { value: "anthropic", label: t("Claw.GUIAgent.protocol.anthropic") },
-  { value: "openai", label: t("Claw.GUIAgent.protocol.openai") },
-];
-
 /**
  * 根据模型名推断坐标模式（镜像 server 端 modelProfiles.ts 的逻辑）
  */
@@ -163,17 +101,6 @@ function inferCoordinateMode(modelName: string): string {
   return "image-absolute"; // fallback
 }
 
-/** 坐标模式的中文展示名 */
-function coordinateModeLabel(mode: string): string {
-  const found = COORDINATE_MODE_OPTIONS.find((o) => o.value === mode);
-  return found ? found.label : mode;
-}
-
-/** 查找预设提供商 */
-function findPresetProvider(value: string): PresetProvider | undefined {
-  return PRESET_PROVIDERS.find((p) => p.value === value);
-}
-
 interface GUIAgentSettingsProps {
   isOpen: boolean;
   onClose: () => void;
@@ -181,6 +108,7 @@ interface GUIAgentSettingsProps {
 
 function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
   const [form] = Form.useForm<GuiVisionModelConfig>();
+  const { lang } = useI18nLang();
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -193,6 +121,94 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
     "claude-sonnet-4-20250514",
   );
   const [selectedCoordinateMode, setSelectedCoordinateMode] = useState("auto");
+
+  // ========== i18n 翻译数组（组件内 useMemo，避免顶层 t() 时序问题） ==========
+
+  const PRESET_PROVIDERS = useMemo<PresetProvider[]>(
+    () => [
+      { value: "anthropic", label: "Anthropic", protocol: "anthropic" },
+      { value: "openai", label: "OpenAI", protocol: "openai" },
+      { value: "google", label: "Google", protocol: "openai" },
+      {
+        value: "zhipu",
+        label: t("Claw.GUIAgent.provider.zhipu"),
+        protocol: "openai",
+        baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      },
+      {
+        value: "qwen",
+        label: t("Claw.GUIAgent.provider.qwen"),
+        protocol: "openai",
+        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      },
+      {
+        value: "deepseek",
+        label: "DeepSeek",
+        protocol: "openai",
+        baseUrl: "https://api.deepseek.com/v1",
+      },
+      {
+        value: "minimax",
+        label: "MiniMax",
+        protocol: "openai",
+        baseUrl: "https://api.minimax.chat/v1",
+      },
+    ],
+    [lang],
+  );
+
+  const PROVIDER_SELECT_OPTIONS = useMemo(
+    () => [
+      ...PRESET_PROVIDERS.map((p) => ({ value: p.value, label: p.label })),
+      {
+        value: CUSTOM_PROVIDER_VALUE,
+        label: t("Claw.GUIAgent.provider.custom"),
+      },
+    ],
+    [PRESET_PROVIDERS],
+  );
+
+  const COORDINATE_MODE_OPTIONS = useMemo(
+    () => [
+      { value: "auto", label: t("Claw.GUIAgent.coordinateMode.auto") },
+      {
+        value: "image-absolute",
+        label: t("Claw.GUIAgent.coordinateMode.imageAbsolute"),
+      },
+      {
+        value: "normalized-1000",
+        label: t("Claw.GUIAgent.coordinateMode.normalized1000"),
+      },
+      {
+        value: "normalized-999",
+        label: t("Claw.GUIAgent.coordinateMode.normalized999"),
+      },
+      {
+        value: "normalized-0-1",
+        label: t("Claw.GUIAgent.coordinateMode.normalized0to1"),
+      },
+    ],
+    [lang],
+  );
+
+  const API_PROTOCOL_OPTIONS = useMemo(
+    () => [
+      { value: "anthropic", label: t("Claw.GUIAgent.protocol.anthropic") },
+      { value: "openai", label: t("Claw.GUIAgent.protocol.openai") },
+    ],
+    [lang],
+  );
+
+  const coordinateModeLabel = (mode: string): string => {
+    const found = COORDINATE_MODE_OPTIONS.find((o) => o.value === mode);
+    return found ? found.label : mode;
+  };
+
+  const findPresetProvider = (value: string): PresetProvider | undefined => {
+    return PRESET_PROVIDERS.find((p) => p.value === value);
+  };
+
+  // ========== 状态 ==========
 
   // 当前是否处于自定义提供商模式
   const isCustomProvider = useMemo(
@@ -250,7 +266,7 @@ function GUIAgentSettings({ isOpen, onClose }: GUIAgentSettingsProps) {
       setSelectedModel(config.model);
       setSelectedCoordinateMode(config.coordinateMode);
     } catch (error) {
-      console.error("加载 GUI Agent 配置失败:", error);
+      console.error("Failed to load GUI Agent config:", error);
     } finally {
       setLoading(false);
     }

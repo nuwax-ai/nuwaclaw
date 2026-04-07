@@ -41,7 +41,7 @@ import {
 } from "./services/core/auth";
 import { APP_DISPLAY_NAME, AUTH_KEYS } from "@shared/constants";
 import type { QuickInitConfig } from "@shared/types/quickInit";
-import { t } from "./services/core/i18n";
+import { t, getCurrentLang } from "./services/core/i18n";
 import SetupWizard from "./components/setup/SetupWizard";
 import SetupDependencies from "./components/setup/SetupDependencies";
 import ClientPage from "./components/pages/ClientPage";
@@ -73,6 +73,22 @@ export function useTheme(): ThemeContextValue {
   const context = useContext(ThemeContext);
   if (!context) {
     throw new Error("useTheme must be used within App component");
+  }
+  return context;
+}
+
+// i18n 语言 Context
+interface I18nContextValue {
+  lang: string;
+  updateLang: (lang: string) => void;
+}
+
+export const I18nContext = createContext<I18nContextValue | null>(null);
+
+export function useI18nLang(): I18nContextValue {
+  const context = useContext(I18nContext);
+  if (!context) {
+    throw new Error("useI18nLang must be used within App component");
   }
   return context;
 }
@@ -148,7 +164,7 @@ async function applyQuickInitToDb(config: QuickInitConfig): Promise<void> {
     });
   } catch (error) {
     // 注册失败不阻塞启动，已有的 auth 信息仍可用
-    console.warn("[App] Quick init 静默注册失败:", error);
+    console.warn("[App] Quick init silent registration failed:", error);
   }
 }
 
@@ -180,6 +196,14 @@ function App() {
     [isDarkMode],
   );
 
+  // ============================================
+  // i18n 语言状态（响应式，供 Context 下发）
+  // ============================================
+  const [i18nLang, setI18nLang] = useState(getCurrentLang());
+  const handleI18nLangChange = useCallback((lang: string) => {
+    setI18nLang(lang);
+  }, []);
+
   // 监听系统主题变化
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
@@ -201,7 +225,7 @@ function App() {
           setThemeMode(saved);
         }
       } catch (e) {
-        console.warn("[App] 加载主题设置失败:", e);
+        console.warn("[App] Failed to load theme settings:", e);
       }
     };
     loadThemeSetting();
@@ -213,7 +237,7 @@ function App() {
     try {
       await window.electronAPI?.settings.set("theme_mode", mode);
     } catch (e) {
-      console.warn("[App] 保存主题设置失败:", e);
+      console.warn("[App] Failed to save theme settings:", e);
     }
   }, []);
 
@@ -247,7 +271,7 @@ function App() {
       // reg 失败（网络不通/token 过期）时中止重启，并弹出通知让用户手动重试。
       await syncConfigToServer({ suppressToast: true });
     } catch (e) {
-      console.error("[App] reg 同步失败，中止重启服务:", e);
+      console.error("[App] Reg sync failed, aborting service restart:", e);
       const notifKey = "restartRegFailed";
       notification.error({
         key: notifKey,
@@ -282,7 +306,7 @@ function App() {
         key: "restart-services",
       });
     } catch (e) {
-      console.error("[App] 重启服务失败:", e);
+      console.error("[App] Failed to restart services:", e);
       message.error({
         content: t("Claw.App.RestartFailed"),
         key: "restart-services",
@@ -889,7 +913,7 @@ function App() {
 
     // 监听设置菜单
     const handleSettings = () => {
-      console.log("[App] 收到 menu:settings 事件");
+      console.log("[App] Received menu:settings event");
       setActiveTab("settings");
     };
     window.electronAPI.on("menu:settings", handleSettings);
@@ -899,7 +923,7 @@ function App() {
 
     // 监听依赖管理菜单
     const handleDependencies = () => {
-      console.log("[App] 收到 menu:dependencies 事件");
+      console.log("[App] Received menu:dependencies event");
       setActiveTab("dependencies");
     };
     window.electronAPI.on("menu:dependencies", handleDependencies);
@@ -909,7 +933,7 @@ function App() {
 
     // 监听 MCP 设置菜单
     const handleMcpSettings = () => {
-      console.log("[App] 收到 menu:mcp-settings 事件");
+      console.log("[App] Received menu:mcp-settings event");
       setActiveTab("settings");
     };
     window.electronAPI.on("menu:mcp-settings", handleMcpSettings);
@@ -919,7 +943,7 @@ function App() {
 
     // 监听新建会话菜单
     const handleNewSession = () => {
-      console.log("[App] 收到 menu:new-session 事件");
+      console.log("[App] Received menu:new-session event");
       setSessionsAutoOpen(true);
       setActiveTab("sessions");
     };
@@ -930,7 +954,7 @@ function App() {
 
     // 监听 Admin Server 服务正在重启
     const handleServicesRestarting = () => {
-      console.log("[App] 收到 admin:servicesRestarting 事件");
+      console.log("[App] Received admin:servicesRestarting event");
       message.loading({
         content: t("Claw.App.ServicesRestarting"),
         key: "admin-restart",
@@ -950,7 +974,7 @@ function App() {
       success: boolean;
       results: Record<string, { success: boolean; error?: string }>;
     }) => {
-      console.log("[App] 收到 admin:servicesRestarted 事件", data);
+      console.log("[App] Received admin:servicesRestarted event", data);
       if (data.success) {
         message.success({
           content: t("Claw.App.ServicesRestartSuccess"),
@@ -1045,7 +1069,15 @@ function App() {
       },
     );
     return items;
-  }, [isMacOS]);
+  }, [isMacOS, i18nLang]);
+
+  // ============================================
+  // i18n Context value
+  // ============================================
+  const i18nContextValue = useMemo(
+    () => ({ lang: i18nLang, updateLang: handleI18nLangChange }),
+    [i18nLang, handleI18nLangChange],
+  );
 
   // ============================================
   // 渲染：加载中（含等待依赖检查完成）
@@ -1055,12 +1087,14 @@ function App() {
     (isSetupComplete && needsRequiredDepsReinstall === null)
   ) {
     return (
-      <ConfigProvider theme={currentTheme}>
-        <div className="app-loading">
-          <Spin size="large" />
-          <div className="app-loading-text">{t("Claw.App.Loading")}</div>
-        </div>
-      </ConfigProvider>
+      <I18nContext.Provider value={i18nContextValue}>
+        <ConfigProvider theme={currentTheme}>
+          <div className="app-loading">
+            <Spin size="large" />
+            <div className="app-loading-text">{t("Claw.App.Loading")}</div>
+          </div>
+        </ConfigProvider>
+      </I18nContext.Provider>
     );
   }
 
@@ -1069,9 +1103,11 @@ function App() {
   // ============================================
   if (!isSetupComplete) {
     return (
-      <ConfigProvider theme={currentTheme}>
-        <SetupWizard onComplete={handleSetupComplete} />
-      </ConfigProvider>
+      <I18nContext.Provider value={i18nContextValue}>
+        <ConfigProvider theme={currentTheme}>
+          <SetupWizard onComplete={handleSetupComplete} />
+        </ConfigProvider>
+      </I18nContext.Provider>
     );
   }
 
@@ -1080,15 +1116,17 @@ function App() {
   // ============================================
   if (needsRequiredDepsReinstall === true) {
     return (
-      <ConfigProvider theme={currentTheme}>
-        <SetupDependencies
-          onComplete={async () => {
-            // 先回到主界面，再在后台重启服务（使新安装的依赖生效）
-            setNeedsRequiredDepsReinstall(false);
-            await restartAllServices();
-          }}
-        />
-      </ConfigProvider>
+      <I18nContext.Provider value={i18nContextValue}>
+        <ConfigProvider theme={currentTheme}>
+          <SetupDependencies
+            onComplete={async () => {
+              // 先回到主界面，再在后台重启服务（使新安装的依赖生效）
+              setNeedsRequiredDepsReinstall(false);
+              await restartAllServices();
+            }}
+          />
+        </ConfigProvider>
+      </I18nContext.Provider>
     );
   }
 
@@ -1097,123 +1135,135 @@ function App() {
   // ============================================
   return (
     <ConfigProvider theme={currentTheme}>
-      <ThemeContext.Provider
-        value={{ themeMode, isDarkMode, setThemeMode: handleSetThemeMode }}
-      >
-        <div className="app-container">
-          {/* 顶部栏 */}
-          <div className="app-header">
-            {webviewActions ? (
-              <div className={styles.headerWebviewActions}>
-                <Button
-                  size="small"
-                  icon={<ArrowLeftOutlined />}
-                  onClick={webviewActions.onBack}
-                >
-                  {t("Claw.App.back")}
-                </Button>
-                <Button
-                  size="small"
-                  icon={<ReloadOutlined />}
-                  onClick={webviewActions.onReload}
-                >
-                  {t("Claw.App.refresh")}
-                </Button>
-              </div>
-            ) : (
-              <div className="app-header-logo">
-                <img
-                  src="./32x32.png"
-                  alt=""
-                  style={{ width: 16, height: 16 }}
+      <I18nContext.Provider value={i18nContextValue}>
+        <ThemeContext.Provider
+          value={{ themeMode, isDarkMode, setThemeMode: handleSetThemeMode }}
+        >
+          <div className="app-container">
+            {/* 顶部栏 */}
+            <div className="app-header">
+              {webviewActions ? (
+                <div className={styles.headerWebviewActions}>
+                  <Button
+                    size="small"
+                    icon={<ArrowLeftOutlined />}
+                    onClick={webviewActions.onBack}
+                  >
+                    {t("Claw.App.back")}
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    onClick={webviewActions.onReload}
+                  >
+                    {t("Claw.App.refresh")}
+                  </Button>
+                </div>
+              ) : (
+                <div className="app-header-logo">
+                  <img
+                    src="./32x32.png"
+                    alt=""
+                    style={{ width: 16, height: 16 }}
+                  />
+                  <span className="app-header-title">{APP_DISPLAY_NAME}</span>
+                </div>
+              )}
+              <div className={styles.headerRight}>
+                {username && (
+                  <span className={styles.username}>{username}</span>
+                )}
+                <Badge
+                  status={badge.status}
+                  className={
+                    agentStatus === "idle" || agentStatus === "busy"
+                      ? styles.badgeIdle
+                      : undefined
+                  }
+                  text={
+                    <span className={styles.badgeText}>{t(badge.textKey)}</span>
+                  }
                 />
-                <span className="app-header-title">{APP_DISPLAY_NAME}</span>
               </div>
-            )}
-            <div className={styles.headerRight}>
-              {username && <span className={styles.username}>{username}</span>}
-              <Badge
-                status={badge.status}
-                className={
-                  agentStatus === "idle" || agentStatus === "busy"
-                    ? styles.badgeIdle
-                    : undefined
-                }
-                text={
-                  <span className={styles.badgeText}>{t(badge.textKey)}</span>
-                }
-              />
             </div>
-          </div>
 
-          {/* 主体部分 */}
-          <div className="app-body">
-            {/* 左侧边栏 (hidden when webview is active) */}
-            {!webviewActions && (
-              <div className="app-sider">
-                <Menu
-                  mode="inline"
-                  selectedKeys={[activeTab]}
-                  items={menuItems.map((item) => ({
-                    key: item.key,
-                    icon: item.icon,
-                    label: item.label,
-                    onClick: () => setActiveTab(item.key as TabKey),
-                  }))}
-                />
-              </div>
-            )}
+            {/* 主体部分 */}
+            <div className="app-body">
+              {/* 左侧边栏 (hidden when webview is active) */}
+              {!webviewActions && (
+                <div
+                  className={
+                    // 英文菜单文案通常更长，侧边栏适当加宽以减少截断；其他语言保持默认宽度
+                    i18nLang.toLowerCase().startsWith("en")
+                      ? "app-sider app-sider-en"
+                      : "app-sider"
+                  }
+                >
+                  <Menu
+                    mode="inline"
+                    inlineIndent={0}
+                    selectedKeys={[activeTab]}
+                    items={menuItems.map((item) => ({
+                      key: item.key,
+                      icon: item.icon,
+                      label: item.label,
+                      onClick: () => setActiveTab(item.key as TabKey),
+                    }))}
+                  />
+                </div>
+              )}
 
-            {/* 主内容区：flex 子撑满，便于日志等页占满高度 */}
-            <div
-              className={
-                webviewActions
-                  ? "app-content app-content-fullwidth"
-                  : "app-content"
-              }
-            >
+              {/* 主内容区：flex 子撑满，便于日志等页占满高度 */}
               <div
-                style={{
-                  flex: 1,
-                  minHeight: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  background: "var(--color-bg-layout)",
-                }}
+                className={
+                  webviewActions
+                    ? "app-content app-content-fullwidth"
+                    : "app-content"
+                }
               >
-                {activeTab === "client" && (
-                  <ClientPage
-                    onNavigate={(tab) => {
-                      if (tab === "sessions") setSessionsAutoOpen(true);
-                      setActiveTab(tab);
-                    }}
-                    services={services}
-                    servicesLoading={servicesLoading}
-                    startingServices={startingServices}
-                    setStartingServices={setStartingServices}
-                    onRefreshServices={pollServicesStatus}
-                    authRefreshTrigger={authRefreshTrigger}
-                    onAuthChange={handleAuthChange}
-                    onLoginStarted={handleLoginStarted}
-                  />
-                )}
-                {activeTab === "sessions" && (
-                  <SessionsPage
-                    autoOpen={sessionsAutoOpen}
-                    onAutoOpenConsumed={() => setSessionsAutoOpen(false)}
-                    onWebviewChange={setWebviewActions}
-                  />
-                )}
-                {activeTab === "settings" && <SettingsPage />}
-                {activeTab === "dependencies" && <DependenciesPage />}
-                {activeTab === "permissions" && <PermissionsPage />}
-                {activeTab === "logs" && <LogViewer />}
-                {activeTab === "about" && <AboutPage />}
+                <div
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    background: "var(--color-bg-layout)",
+                  }}
+                >
+                  {activeTab === "client" && (
+                    <ClientPage
+                      onNavigate={(tab) => {
+                        if (tab === "sessions") setSessionsAutoOpen(true);
+                        setActiveTab(tab);
+                      }}
+                      services={services}
+                      servicesLoading={servicesLoading}
+                      startingServices={startingServices}
+                      setStartingServices={setStartingServices}
+                      onRefreshServices={pollServicesStatus}
+                      authRefreshTrigger={authRefreshTrigger}
+                      onAuthChange={handleAuthChange}
+                      onLoginStarted={handleLoginStarted}
+                    />
+                  )}
+                  {activeTab === "sessions" && (
+                    <SessionsPage
+                      autoOpen={sessionsAutoOpen}
+                      onAutoOpenConsumed={() => setSessionsAutoOpen(false)}
+                      onWebviewChange={setWebviewActions}
+                    />
+                  )}
+                  {activeTab === "settings" && <SettingsPage />}
+                  {activeTab === "dependencies" && <DependenciesPage />}
+                  {activeTab === "permissions" && <PermissionsPage />}
+                  {activeTab === "logs" && <LogViewer />}
+                  {activeTab === "about" && <AboutPage />}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </ThemeContext.Provider>
+        </ThemeContext.Provider>
+      </I18nContext.Provider>
     </ConfigProvider>
   );
 }

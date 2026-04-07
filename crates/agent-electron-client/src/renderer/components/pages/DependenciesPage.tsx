@@ -267,7 +267,7 @@ export default function DependenciesPage() {
         key: "restart-services",
       });
     } catch (e) {
-      console.error("[DependenciesPage] 重启服务失败:", e);
+      console.error("[DependenciesPage] Failed to restart services:", e);
       message.error({
         content: t(I18N_KEYS.Pages.Dependencies.MSG_RESTART_FAILED),
         key: "restart-services",

@@ -665,7 +665,7 @@ class McpProxyManager {
       this.lastError = err;
       return { success: false, error: err };
     }
-    log.info("[McpProxy] nuwax-mcp-stdio-proxy 就绪:", this.cachedScriptPath);
+    log.info("[McpProxy] nuwax-mcp-stdio-proxy ready:", this.cachedScriptPath);
 
     // Start tailing proxy log file so its output appears in main.log
     const proxyLogFile = path.join(
@@ -679,10 +679,12 @@ class McpProxyManager {
     // 验证内置 Node.js 资源存在
     const nodeBinPath = getNodeBinPath();
     if (!nodeBinPath) {
-      log.warn("[McpProxy] ⚠️ 内置 Node.js 资源未找到");
-      log.warn("[McpProxy] 请运行以下命令下载 Node.js 资源:");
+      log.warn("[McpProxy] ⚠️ Bundled Node.js resources not found");
+      log.warn(
+        "[McpProxy] Run the following command to download Node.js resources:",
+      );
       log.warn("[McpProxy]   npm run prepare:node");
-      log.warn("[McpProxy] 或运行完整准备:");
+      log.warn("[McpProxy] Or run full preparation:");
       log.warn("[McpProxy]   npm run prepare:all");
     }
 
@@ -703,7 +705,7 @@ class McpProxyManager {
       // 重置 bridge 配置缓存，确保下次启动会重新加载
       lastBridgeConfig = null;
     } catch (e) {
-      log.warn("[McpProxy] PersistentMcpBridge 停止出错:", e);
+      log.warn("[McpProxy] PersistentMcpBridge stop error:", e);
     }
     return { success: true };
   }
@@ -754,7 +756,7 @@ class McpProxyManager {
           elapsedMs: Date.now() - startedAt,
         });
       } catch (e) {
-        log.error("[McpProxy] PersistentMcpBridge 启动失败:", e);
+        log.error("[McpProxy] PersistentMcpBridge start failed:", e);
         logMcpPerfSummary(
           "ensureBridge.summary",
           {
@@ -929,8 +931,10 @@ class McpProxyManager {
       // 开发环境下可回退到系统 node（仅 macOS/Linux）
       const nodeBinPath = getNodeBinPathWithFallback();
       if (!nodeBinPath) {
-        log.error("[McpProxy] Node.js 未找到，MCP proxy 无法启动");
-        log.error('[McpProxy] 请运行 "npm run prepare:node" 下载 Node.js 资源');
+        log.error("[McpProxy] Node.js not found, MCP proxy cannot start");
+        log.error(
+          '[McpProxy] Run "npm run prepare:node" to download Node.js resources',
+        );
         return null;
       }
 
@@ -1207,10 +1211,10 @@ export async function syncMcpConfigToProxyAndReload(
         db.prepare(
           "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
         ).run("mcp_proxy_config", JSON.stringify(mcpProxyManager.getConfig()));
-        log.info("[McpProxy] MCP 配置已持久化");
+        log.info("[McpProxy] MCP config persisted");
       }
     } catch (e) {
-      log.warn("[McpProxy] 持久化 MCP 配置失败:", e);
+      log.warn("[McpProxy] Failed to persist MCP config:", e);
     }
     const persistMs = Date.now() - persistStartedAt;
 
@@ -1225,7 +1229,7 @@ export async function syncMcpConfigToProxyAndReload(
       const bridgeRestartMs = Date.now() - bridgeRestartStartedAt;
       lastBridgeConfig = resolvedPersistent;
       mcpProxyManager.markBridgeStarted();
-      log.info("[McpProxy] PersistentMcpBridge 已使用更新配置重启");
+      log.info("[McpProxy] PersistentMcpBridge restarted with updated config");
       logMcpPerfSummary("sync.summary", {
         branch: "persistent_restarted",
         inputCount: Object.keys(mcpServers || {}).length,
@@ -1242,7 +1246,7 @@ export async function syncMcpConfigToProxyAndReload(
     } catch (e) {
       const bridgeRestartMs = Date.now() - bridgeRestartStartedAt;
       lastBridgeConfig = null;
-      log.warn("[McpProxy] PersistentMcpBridge 同步后重启失败:", e);
+      log.warn("[McpProxy] PersistentMcpBridge restart after sync failed:", e);
       logMcpPerfSummary(
         "sync.summary",
         {

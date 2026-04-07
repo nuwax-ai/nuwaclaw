@@ -18,23 +18,23 @@
  *   username       → ''
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
-import log from 'electron-log';
-import { APP_DATA_DIR_NAME } from '../services/constants';
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import log from "electron-log";
+import { APP_DATA_DIR_NAME } from "../services/constants";
 import {
   DEFAULT_AGENT_RUNNER_PORT,
   DEFAULT_FILE_SERVER_PORT,
-} from '@shared/constants';
-import { type QuickInitConfig } from '@shared/types/quickInit';
+} from "@shared/constants";
+import { type QuickInitConfig } from "@shared/types/quickInit";
 
 let cachedConfig: QuickInitConfig | null | undefined;
 
 /** 读取环境变量，返回各字段（未设置的为 undefined） */
 function readEnvVars() {
-  const port = parseInt(process.env.NUWAX_AGENT_PORT || '', 10);
-  const fsPort = parseInt(process.env.NUWAX_FILE_SERVER_PORT || '', 10);
+  const port = parseInt(process.env.NUWAX_AGENT_PORT || "", 10);
+  const fsPort = parseInt(process.env.NUWAX_FILE_SERVER_PORT || "", 10);
   return {
     serverHost: process.env.NUWAX_SERVER_HOST || undefined,
     savedKey: process.env.NUWAX_SAVED_KEY || undefined,
@@ -46,17 +46,17 @@ function readEnvVars() {
 }
 
 /** 取第一个有效的 string 值 */
-function pickStr(...values: (unknown)[]): string {
+function pickStr(...values: unknown[]): string {
   for (const v of values) {
-    if (typeof v === 'string' && v.length > 0) return v;
+    if (typeof v === "string" && v.length > 0) return v;
   }
-  return '';
+  return "";
 }
 
 /** 取第一个有效的正整数值 */
-function pickPort(...values: (unknown)[]): number {
+function pickPort(...values: unknown[]): number {
   for (const v of values) {
-    if (typeof v === 'number' && v > 0) return v;
+    if (typeof v === "number" && v > 0) return v;
   }
   return 0;
 }
@@ -71,20 +71,20 @@ export function readQuickInitConfig(): QuickInitConfig | null {
   if (cachedConfig !== undefined) return cachedConfig;
 
   const appDataDir = path.join(os.homedir(), APP_DATA_DIR_NAME);
-  const defaultWorkspace = path.join(appDataDir, 'workspace');
-  const filePath = path.join(appDataDir, 'nuwaclaw.json');
+  const defaultWorkspace = path.join(appDataDir, "workspace");
+  const filePath = path.join(appDataDir, "nuwaclaw.json");
 
   // --- 读取 nuwaclaw.json (quickInit scope) ---
   let json: Record<string, unknown> | null = null;
   try {
     if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, 'utf-8');
+      const raw = fs.readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(raw);
       const scope = parsed?.quickInit;
 
-      if (scope && typeof scope === 'object') {
+      if (scope && typeof scope === "object") {
         if (scope.enabled === false) {
-          log.info('[QuickInit] 配置已禁用 (enabled: false)');
+          log.info("[QuickInit] Config disabled (enabled: false)");
           cachedConfig = null;
           return null;
         }
@@ -92,7 +92,7 @@ export function readQuickInitConfig(): QuickInitConfig | null {
       }
     }
   } catch (error) {
-    log.warn('[QuickInit] 读取 JSON 配置失败:', error);
+    log.warn("[QuickInit] Failed to read JSON config:", error);
   }
 
   // --- 读取环境变量 ---
@@ -103,7 +103,9 @@ export function readQuickInitConfig(): QuickInitConfig | null {
   const savedKey = pickStr(json?.savedKey, env.savedKey);
 
   if (!serverHost || !savedKey) {
-    log.info('[QuickInit] 未检测到快捷配置 (缺少 serverHost 或 savedKey)');
+    log.info(
+      "[QuickInit] No quick config detected (missing serverHost or savedKey)",
+    );
     cachedConfig = null;
     return null;
   }
@@ -112,15 +114,23 @@ export function readQuickInitConfig(): QuickInitConfig | null {
     serverHost,
     savedKey,
     username: pickStr(json?.username, env.username),
-    agentPort: pickPort(json?.agentPort, env.agentPort) || DEFAULT_AGENT_RUNNER_PORT,
-    fileServerPort: pickPort(json?.fileServerPort, env.fileServerPort) || DEFAULT_FILE_SERVER_PORT,
-    workspaceDir: pickStr(json?.workspaceDir, env.workspaceDir) || defaultWorkspace,
+    agentPort:
+      pickPort(json?.agentPort, env.agentPort) || DEFAULT_AGENT_RUNNER_PORT,
+    fileServerPort:
+      pickPort(json?.fileServerPort, env.fileServerPort) ||
+      DEFAULT_FILE_SERVER_PORT,
+    workspaceDir:
+      pickStr(json?.workspaceDir, env.workspaceDir) || defaultWorkspace,
   };
 
-  const source = json ? (env.serverHost || env.savedKey ? 'JSON + env' : 'JSON') : 'env';
-  log.info(`[QuickInit] 配置已加载 (${source}):`, {
+  const source = json
+    ? env.serverHost || env.savedKey
+      ? "JSON + env"
+      : "JSON"
+    : "env";
+  log.info(`[QuickInit] Config loaded (${source}):`, {
     serverHost: cachedConfig.serverHost,
-    username: cachedConfig.username || '(empty)',
+    username: cachedConfig.username || "(empty)",
     agentPort: cachedConfig.agentPort,
     fileServerPort: cachedConfig.fileServerPort,
     workspaceDir: cachedConfig.workspaceDir,
