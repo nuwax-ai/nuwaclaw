@@ -657,35 +657,6 @@ export default function SettingsPage() {
             <div className={styles.serviceInfo}>
               <div>
                 <span className={styles.serviceLabel}>
-                  {t("Claw.Settings.sandbox.mode")}
-                </span>
-                <div className={styles.serviceDescription}>
-                  {t("Claw.Settings.sandbox.modeDesc")}
-                </div>
-              </div>
-            </div>
-            <Select
-              size="small"
-              value={sandboxPolicy?.mode || "non-main"}
-              style={{ width: 140 }}
-              disabled={sandboxSaving || sandboxLoading}
-              onChange={(value) =>
-                handlePatchSandboxPolicy({
-                  mode: value as SandboxPolicy["mode"],
-                })
-              }
-              options={[
-                { value: "off", label: "off" },
-                { value: "non-main", label: "non-main" },
-                { value: "all", label: "all" },
-              ]}
-            />
-          </div>
-
-          <div className={styles.serviceRow}>
-            <div className={styles.serviceInfo}>
-              <div>
-                <span className={styles.serviceLabel}>
                   {t("Claw.Settings.sandbox.backend")}
                 </span>
                 <div className={styles.serviceDescription}>
@@ -705,34 +676,6 @@ export default function SettingsPage() {
                 })
               }
               options={SANDBOX_BACKEND_OPTIONS}
-            />
-          </div>
-
-          <div className={styles.serviceRow}>
-            <div className={styles.serviceInfo}>
-              <div>
-                <span className={styles.serviceLabel}>
-                  {t("Claw.Settings.sandbox.fallback")}
-                </span>
-                <div className={styles.serviceDescription}>
-                  {t("Claw.Settings.sandbox.fallbackDesc")}
-                </div>
-              </div>
-            </div>
-            <Select
-              size="small"
-              value={sandboxPolicy?.fallback || "degrade_to_off"}
-              style={{ width: 180 }}
-              disabled={sandboxSaving || sandboxLoading}
-              onChange={(value) =>
-                handlePatchSandboxPolicy({
-                  fallback: value as SandboxPolicy["fallback"],
-                })
-              }
-              options={[
-                { value: "degrade_to_off", label: "degrade_to_off" },
-                { value: "fail_closed", label: "fail_closed" },
-              ]}
             />
           </div>
 
