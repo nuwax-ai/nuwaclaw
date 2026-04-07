@@ -113,6 +113,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     ...(WRITABLE_ROOTS.length > 0 ? { writable_roots: WRITABLE_ROOTS } : {}),
   };
 
+  // The sandbox helper's split_command() takes args.command[0] as the
+  // executable and command[1..] as its arguments.  Since we receive
+  // arbitrary shell commands (e.g. "cd … && node foo.js"), we must
+  // wrap them with a shell.  cmd.exe ignores /C under restricted tokens,
+  // so we use PowerShell instead, which works correctly.
   const helperArgs = [
     "run",
     "--mode",
@@ -122,8 +127,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     "--policy-json",
     JSON.stringify(policy),
     "--",
-    // Pass the full command as a single argument — the helper
-    // passes it through to CreateProcess via cmd /C
+    "powershell.exe",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
     command,
   ];
 
