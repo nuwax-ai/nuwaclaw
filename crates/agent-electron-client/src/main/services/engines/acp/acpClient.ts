@@ -735,7 +735,7 @@ export async function createAcpConnection(
           0,
           Math.min(8, Math.floor(env.OPENCODE_OPENAI_API_KEY.length / 2)),
         ) + "..."
-      : "未设置",
+      : "(not set)",
   });
 
   // 1. Spawn ACP binary

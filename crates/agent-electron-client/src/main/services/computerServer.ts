@@ -247,11 +247,11 @@ async function ensureProjectWorkspace(
   const result = JSON.parse(body);
   if (result.success || result.workspaceRoot) {
     log.info(
-      `[ensureProjectWorkspace] ✅ 目录创建成功: ${result.workspaceRoot || projectDir}`,
+      `[ensureProjectWorkspace] ✅ Workspace directory created: ${result.workspaceRoot || projectDir}`,
     );
   } else {
     log.warn(
-      `[ensureProjectWorkspace] file-server 返回失败:`,
+      `[ensureProjectWorkspace] file-server returned failure:`,
       result.message || result,
     );
   }
@@ -296,7 +296,7 @@ function parseQuery(url: URL): Record<string, string> {
  * 构建 rcoder HttpResult<T> 成功响应
  */
 function httpResult<T>(data: T): HttpResult<T> {
-  return { code: "0000", message: "成功", data, tid: null, success: true };
+  return { code: "0000", message: "success", data, tid: null, success: true };
 }
 
 /**
@@ -779,7 +779,7 @@ async function handleRequest(
         log.info(`✅ [HTTP] Agent stopped: project_id=${body.project_id}`);
       } else {
         log.info(
-          `ℹ️ [HTTP] Agent 不存在,幂等返回成功: project_id=${body.project_id}`,
+          `ℹ️ [HTTP] Agent not found, idempotent success: project_id=${body.project_id}`,
         );
       }
 
@@ -848,7 +848,7 @@ async function handleRequest(
             log.info(`✅ [HTTP] Cancel succeeded: session_id=${session.id}`);
           } else {
             log.info(
-              `ℹ️ [HTTP] Agent 不存在,幂等返回成功: project_id=${projectId}`,
+              `ℹ️ [HTTP] Agent not found, idempotent success: project_id=${projectId}`,
             );
           }
         }

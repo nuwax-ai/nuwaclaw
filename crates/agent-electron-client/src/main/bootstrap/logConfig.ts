@@ -137,7 +137,7 @@ function updateLatestLogWithRetry(
     );
   } else {
     log.warn(
-      `[LogConfig] latest.log 更新失败：main.${dateStr}.log 不存在，重试次数已用完`,
+      `[LogConfig] latest.log update failed: main.${dateStr}.log does not exist, retries exhausted`,
     );
   }
 }

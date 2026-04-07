@@ -675,7 +675,7 @@ describe("dependencies", () => {
         getNodeBinPath();
 
         expect(mockLog.warn).toHaveBeenCalledWith(
-          expect.stringContaining("内置 Node.js 未找到"),
+          expect.stringContaining("Bundled Node.js not found"),
         );
         expect(mockLog.warn).toHaveBeenCalledWith(
           expect.stringContaining("prepare:node"),

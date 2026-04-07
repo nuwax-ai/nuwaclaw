@@ -906,7 +906,7 @@ export class UnifiedAgentService extends EventEmitter {
 
     if (!model) {
       log.warn(
-        `[UnifiedAgent] ⚠️ 模型未设置！model_provider.model 和 agent_config env 均无模型信息`,
+        `[UnifiedAgent] ⚠️ Model not set! model_provider.model and agent_config env both have no model info`,
       );
     }
 
@@ -919,7 +919,7 @@ export class UnifiedAgentService extends EventEmitter {
     ) {
       const localLogDir = path.join(os.homedir(), APP_DATA_DIR_NAME, "logs");
       log.info(
-        `[UnifiedAgent] 📂 OPENCODE_LOG_DIR 本地化: ${mergedEnv.OPENCODE_LOG_DIR} → ${localLogDir}`,
+        `[UnifiedAgent] 📂 OPENCODE_LOG_DIR localized: ${mergedEnv.OPENCODE_LOG_DIR} → ${localLogDir}`,
       );
       mergedEnv.OPENCODE_LOG_DIR = localLogDir;
     }
@@ -1014,10 +1014,10 @@ export class UnifiedAgentService extends EventEmitter {
     log.info(
       `[UnifiedAgent] 📌 Engine config for project ${engineKey}:\n` +
         `├─ engine: ${effectiveConfig.engine}\n` +
-        `├─ config.model: ${effectiveConfig.model || "⚠️ 未设置"}\n` +
-        `├─ env OPENCODE_MODEL: ${effectiveConfig.env?.OPENCODE_MODEL || "(未设置)"}\n` +
-        `├─ env ANTHROPIC_MODEL: ${effectiveConfig.env?.ANTHROPIC_MODEL || "(未设置)"}\n` +
-        `├─ baseUrl: ${effectiveConfig.baseUrl || "(未设置)"}\n` +
+        `├─ config.model: ${effectiveConfig.model || "⚠️ not set"}\n` +
+        `├─ env OPENCODE_MODEL: ${effectiveConfig.env?.OPENCODE_MODEL || "(not set)"}\n` +
+        `├─ env ANTHROPIC_MODEL: ${effectiveConfig.env?.ANTHROPIC_MODEL || "(not set)"}\n` +
+        `├─ baseUrl: ${effectiveConfig.baseUrl || "(not set)"}\n` +
         `├─ apiKeySet: ${!!effectiveConfig.apiKey}\n` +
         `└─ mcpServers: ${effectiveConfig.mcpServers ? Object.keys(effectiveConfig.mcpServers).join(", ") : "(none)"}`,
     );

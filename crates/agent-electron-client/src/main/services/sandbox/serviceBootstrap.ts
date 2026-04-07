@@ -122,7 +122,7 @@ function setupControlService(): void {
       if (!helperPath) {
         return {
           success: false,
-          message: "（仅 Windows）Sandbox helper 不存在",
+          message: "(Windows only) Sandbox helper not found",
         };
       }
       return {
