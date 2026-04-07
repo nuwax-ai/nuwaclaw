@@ -123,14 +123,16 @@ function copyFromDist(key) {
 
 /**
  * 下载文件到缓存目录
+ * @param {{ force?: boolean }} [options] force=true 时忽略已有缓存（解压失败/缓存截断时用）
  */
-function download(url, preferredFilename) {
+function download(url, preferredFilename, options = {}) {
+  const force = !!options.force;
   return new Promise((resolve, reject) => {
     const filename = preferredFilename || path.basename(url.split('?')[0]) || 'download';
     const file = path.join(cacheDir, filename);
 
-    // 缓存检查
-    if (fs.existsSync(file)) {
+    // 缓存检查（仅看大小，不校验 gzip；损坏时需 force 重下）
+    if (!force && fs.existsSync(file)) {
       try {
         const stats = fs.statSync(file);
         if (stats.size > 100 * 1024) {
@@ -139,6 +141,10 @@ function download(url, preferredFilename) {
           return;
         }
       } catch (_) {}
+      try { fs.unlinkSync(file); } catch (_) {}
+    }
+
+    if (force && fs.existsSync(file)) {
       try { fs.unlinkSync(file); } catch (_) {}
     }
 
@@ -208,64 +214,80 @@ async function downloadFromRelease(key) {
 
   console.log(`[prepare-nuwaxcode] ${key}: 下载 ${assetName} ...`);
 
+  // Windows：PATH 里常见的是 System32 的 bsdtar，它不认 MSYS 的 /d/a/... 路径，
+  // 只认盘符路径（D:\... 或 D:/...）。Git for Windows 的 GNU tar 也接受 D:/...。
+  const toTarPath = (p) => {
+    if (process.platform !== 'win32') return p;
+    const match = /^([A-Za-z]):[\\/](.*)$/.exec(p);
+    if (!match) return p.replace(/\\/g, '/');
+    const drive = match[1];
+    const rest = match[2].replace(/\\/g, '/');
+    return `${drive}:/${rest}`;
+  };
+
   try {
-    const archivePath = await download(downloadUrl, assetName);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const force = attempt > 0;
+      if (force) {
+        console.warn(
+          `[prepare-nuwaxcode] ${key}: 归档解压失败（常见于缓存被截断），将删除缓存并重新下载 ${assetName}`,
+        );
+      }
 
-    // 解压到临时目录
-    const extractDir = path.join(cacheDir, `extract-${key}`);
-    if (fs.existsSync(extractDir)) {
-      try { fs.rmSync(extractDir, { recursive: true }); } catch (_) {}
-    }
-    fs.mkdirSync(extractDir, { recursive: true });
+      const archivePath = await download(downloadUrl, assetName, { force });
 
-    // Windows：PATH 里常见的是 System32 的 bsdtar，它不认 MSYS 的 /d/a/... 路径，
-    // 只认盘符路径（D:\... 或 D:/...）。Git for Windows 的 GNU tar 也接受 D:/...。
-    // 以前转成 /d/... 只在「明确用到 MSYS tar」时成立，在 GitHub Actions 上会直接导致
-    // “Failed to open …/nuwaxcode-windows-x64.tar.gz”（文件已下载但 tar 打不开）。
-    const toTarPath = (p) => {
-      if (process.platform !== 'win32') return p;
-      const match = /^([A-Za-z]):[\\/](.*)$/.exec(p);
-      if (!match) return p.replace(/\\/g, '/');
-      const drive = match[1];
-      const rest = match[2].replace(/\\/g, '/');
-      return `${drive}:/${rest}`;
-    };
+      // 解压到临时目录
+      const extractDir = path.join(cacheDir, `extract-${key}`);
+      if (fs.existsSync(extractDir)) {
+        try { fs.rmSync(extractDir, { recursive: true }); } catch (_) {}
+      }
+      fs.mkdirSync(extractDir, { recursive: true });
 
-    const tarArchivePath = toTarPath(archivePath);
-    const tarExtractDir = toTarPath(extractDir);
+      const tarArchivePath = toTarPath(archivePath);
+      const tarExtractDir = toTarPath(extractDir);
 
-    // 使用参数数组调用 tar，避免在 Windows/MSYS 下对 C:\ 路径的错误解析。
-    // --force-local 仅在 win32 且 tar 支持时使用（macOS BSD tar 不支持该选项）。
-    const tarArgs = ['-xzf', tarArchivePath, '-C', tarExtractDir];
-    if (process.platform === 'win32') {
+      // 使用参数数组调用 tar，避免在 Windows/MSYS 下对 C:\ 路径的错误解析。
+      // --force-local 仅在 win32 且 tar 支持时使用（macOS BSD tar 不支持该选项）。
+      const tarArgs = ['-xzf', tarArchivePath, '-C', tarExtractDir];
+      if (process.platform === 'win32') {
+        try {
+          const tarHelp = execFileSync('tar', ['--help'], { encoding: 'utf-8', stdio: 'pipe' });
+          if (typeof tarHelp === 'string' && tarHelp.includes('--force-local')) {
+            tarArgs.unshift('--force-local');
+          }
+        } catch (_) {}
+      }
+
       try {
-        const tarHelp = execFileSync('tar', ['--help'], { encoding: 'utf-8', stdio: 'pipe' });
-        if (typeof tarHelp === 'string' && tarHelp.includes('--force-local')) {
-          tarArgs.unshift('--force-local');
+        execFileSync('tar', tarArgs, { stdio: 'pipe' });
+      } catch (tarErr) {
+        if (attempt === 1) throw tarErr;
+        continue;
+      }
+
+      // 查找二进制文件：可能在 package/bin/ 或 bin/ 下
+      const binaryPath = findBinary(extractDir, binary);
+      if (!binaryPath) {
+        if (attempt === 1) {
+          console.error(`[prepare-nuwaxcode] ${key}: 解压后未找到 ${binary}`);
+          return false;
         }
-      } catch (_) {}
+        continue;
+      }
+
+      // 复制到目标
+      fs.mkdirSync(destDir, { recursive: true });
+      fs.copyFileSync(binaryPath, destPath);
+      fs.chmodSync(destPath, 0o755);
+
+      const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
+      console.log(`[prepare-nuwaxcode] ${key} ✓ 从 GitHub Release 下载 (${sizeMB} MB)`);
+
+      // macOS ad-hoc 签名
+      codesign(destPath, key);
+
+      return true;
     }
-    execFileSync('tar', tarArgs, { stdio: 'pipe' });
-
-    // 查找二进制文件：可能在 package/bin/ 或 bin/ 下
-    const binaryPath = findBinary(extractDir, binary);
-    if (!binaryPath) {
-      console.error(`[prepare-nuwaxcode] ${key}: 解压后未找到 ${binary}`);
-      return false;
-    }
-
-    // 复制到目标
-    fs.mkdirSync(destDir, { recursive: true });
-    fs.copyFileSync(binaryPath, destPath);
-    fs.chmodSync(destPath, 0o755);
-
-    const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
-    console.log(`[prepare-nuwaxcode] ${key} ✓ 从 GitHub Release 下载 (${sizeMB} MB)`);
-
-    // macOS ad-hoc 签名
-    codesign(destPath, key);
-
-    return true;
   } catch (err) {
     console.error(`[prepare-nuwaxcode] ${key}: 下载失败: ${err.message}`);
     console.error(`[prepare-nuwaxcode] 请确认 GitHub Release 存在: https://github.com/${NUWAXCODE_REPO}/releases/tag/v${NUWAXCODE_VERSION}`);
