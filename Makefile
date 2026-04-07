@@ -174,7 +174,7 @@ electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanpro
 	@echo ">>> Electron client prepared successfully"
 
 .PHONY: electron-bundle
-electron-bundle:
+electron-bundle: electron-prepare
 	@echo ">>> Building Electron app (unsigned, current platform, 使用 .env.production 配置)..."
 	cd crates/$(ELECTRON_CLIENT) && npm run dist:unsigned:local
 
