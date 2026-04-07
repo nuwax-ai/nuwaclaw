@@ -20,6 +20,7 @@ import {
 import { isWindows } from "../system/shellEnv";
 import { getDb, readSetting } from "../../db";
 import { DEFAULT_GUI_MCP_PORT } from "@shared/constants";
+import { killProcessTreesListeningOnTcpPort } from "../utils/processTree";
 
 /** GUI Agent Server 进程名称 */
 const PROCESS_NAME = "gui-agent-server";
@@ -166,6 +167,15 @@ export async function startGuiAgentServer(): Promise<{
   // 读取配置的端口
   const port = getGuiMcpPort();
 
+  // 启动前清理占用该端口的残留进程（跨平台实现）
+  try {
+    log.info(`[GuiAgentServer] Pre-start port sweep for ${port}...`);
+    await killProcessTreesListeningOnTcpPort(port);
+    await new Promise((r) => setTimeout(r, 450));
+  } catch (e) {
+    log.warn("[GuiAgentServer] Pre-start port sweep:", e);
+  }
+
   // 解析入口文件
   const entryPath = getGuiAgentServerEntryPath();
   if (!entryPath) {
@@ -269,6 +279,13 @@ export async function stopGuiAgentServer(): Promise<{
   }
 
   log.info("[GuiAgentServer] Stopping...");
+
+  // 兜底：ManagedProcess 进程可能已退出但端口仍被占用（如子进程残留）
+  try {
+    await killProcessTreesListeningOnTcpPort(getGuiMcpPort());
+  } catch (e) {
+    log.warn("[GuiAgentServer] TCP port sweep after stop:", e);
+  }
 
   try {
     const result = await processInstance.stopAsync();

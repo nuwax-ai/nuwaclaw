@@ -17,7 +17,7 @@ import {
 } from "../system/dependencies";
 import { isWindows } from "../system/shellEnv";
 import { getGuiMcpPort } from "./guiAgentServer";
-import { killProcessTreesListeningOnTcpPortWindows } from "../utils/processTree";
+import { killProcessTreesListeningOnTcpPort } from "../utils/processTree";
 
 type WindowsMcpManagerType = import("agent-gui-server").WindowsMcpManager;
 type ProcessConfig = import("agent-gui-server").ProcessConfig;
@@ -152,7 +152,7 @@ export async function startWindowsMcp(): Promise<{
   // 启动前再扫一次端口：自动拉起、仅失败重试等路径未必先经过 stop；避免 10048
   try {
     log.info(`[WindowsMcp] Pre-start port sweep for ${port}...`);
-    await killProcessTreesListeningOnTcpPortWindows(port);
+    await killProcessTreesListeningOnTcpPort(port);
     await new Promise((r) => setTimeout(r, 450));
   } catch (e) {
     log.warn("[WindowsMcp] Pre-start port sweep:", e);
@@ -200,7 +200,7 @@ export async function stopWindowsMcp(): Promise<{
 
   // 兜底：uv 先退出时 ManagedProcess 可能已无 PID，子进程仍 LISTENING GUI MCP 端口
   try {
-    await killProcessTreesListeningOnTcpPortWindows(getGuiMcpPort());
+    await killProcessTreesListeningOnTcpPort(getGuiMcpPort());
   } catch (e) {
     log.warn("[WindowsMcp] TCP port sweep after stop:", e);
   }
