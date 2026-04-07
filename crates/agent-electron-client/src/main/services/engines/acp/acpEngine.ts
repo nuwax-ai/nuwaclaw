@@ -749,6 +749,9 @@ export class AcpEngine extends EventEmitter {
     // 3. Sandboxed Bash MCP — replace built-in Bash with sandboxed version on Windows
     // Disables Claude Code's internal Bash (which runs unsandboxed) and provides
     // an MCP "Bash" tool that routes all commands through nuwax-sandbox-helper.exe run.
+    log.info(
+      `${this.logTag} 🔍 Sandbox check: engine=${this.engineName}, sandboxEnabled=${this.storedSandboxConfig?.enabled}, type=${this.storedSandboxConfig?.type}, helperPath=${this.storedSandboxConfig?.windowsSandboxHelperPath ?? "(none)"}`,
+    );
     if (
       this.engineName === "claude-code" &&
       this.storedSandboxConfig?.enabled &&
