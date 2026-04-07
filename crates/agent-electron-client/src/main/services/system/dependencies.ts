@@ -1144,8 +1144,8 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
   {
     name: "nuwax-file-server",
     displayName: "文件服务",
-    type: "npm-local",
-    description: "Agent 工作目录文件远程管理服务（应用内安装）",
+    type: "bundled",
+    description: "Agent 工作目录文件远程管理服务（已集成）",
     required: true,
     binName: "nuwax-file-server",
     installVersion: "1.2.4",
@@ -1162,8 +1162,8 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
   {
     name: "claude-code-acp-ts",
     displayName: "ACP 协议",
-    type: "npm-local",
-    description: "Agent 引擎统一适配服务（应用内安装）",
+    type: "bundled",
+    description: "Agent 引擎统一适配服务（已集成）",
     required: true,
     binName: "claude-code-acp-ts",
     installVersion: "0.24.3",
@@ -1397,6 +1397,96 @@ export async function checkNuwaxcodeBundled(): Promise<{
     `[checkNuwaxcodeBundled] 包内集成可用: ${bundledPath}, version=${version ?? "未知"}`,
   );
   return { available: true, version, binPath: bundledPath };
+}
+
+/**
+ * 检测应用包内集成的 nuwax-file-server 是否可用
+ */
+export async function checkNuwaxFileServerBundled(): Promise<{
+  available: boolean;
+  version?: string;
+}> {
+  const bundledDir = getNuwaxFileServerBundledDir();
+  if (!bundledDir) {
+    log.info("[checkNuwaxFileServerBundled] 未找到包内集成");
+    return { available: false };
+  }
+  const pkgPath = path.join(bundledDir, "package.json");
+  try {
+    const raw = fs.readFileSync(pkgPath, "utf-8");
+    const pkg = JSON.parse(raw) as { version?: string };
+    const version = pkg?.version;
+    log.info(
+      `[checkNuwaxFileServerBundled] 包内集成可用: ${bundledDir}, version=${version ?? "未知"}`,
+    );
+    return { available: true, version };
+  } catch (e) {
+    log.warn("[checkNuwaxFileServerBundled] 读取 package.json 失败:", e);
+    return { available: true };
+  }
+}
+
+/**
+ * 检测应用包内集成的 claude-code-acp-ts 是否可用
+ */
+export async function checkClaudeCodeAcpBundled(): Promise<{
+  available: boolean;
+  version?: string;
+}> {
+  const bundledDir = getClaudeCodeAcpBundledDir();
+  if (!bundledDir) {
+    log.info("[checkClaudeCodeAcpBundled] 未找到包内集成");
+    return { available: false };
+  }
+  const pkgPath = path.join(bundledDir, "package.json");
+  try {
+    const raw = fs.readFileSync(pkgPath, "utf-8");
+    const pkg = JSON.parse(raw) as { version?: string };
+    const version = pkg?.version;
+    log.info(
+      `[checkClaudeCodeAcpBundled] 包内集成可用: ${bundledDir}, version=${version ?? "未知"}`,
+    );
+    return { available: true, version };
+  } catch (e) {
+    log.warn("[checkClaudeCodeAcpBundled] 读取 package.json 失败:", e);
+    return { available: true };
+  }
+}
+
+// ==================== Bundled nuwax-file-server ====================
+
+/**
+ * 获取应用内集成的 nuwax-file-server 目录
+ *
+ * 打包后: process.resourcesPath/nuwax-file-server/
+ * 开发时: resources/nuwax-file-server/
+ *
+ * @returns 目录路径（含 package.json），或 null
+ */
+export function getNuwaxFileServerBundledDir(): string | null {
+  const bundledDir = path.join(getResourcesPath(), "nuwax-file-server");
+  if (fs.existsSync(path.join(bundledDir, "package.json"))) {
+    return bundledDir;
+  }
+  return null;
+}
+
+// ==================== Bundled claude-code-acp-ts ====================
+
+/**
+ * 获取应用内集成的 claude-code-acp-ts 目录
+ *
+ * 打包后: process.resourcesPath/claude-code-acp-ts/
+ * 开发时: resources/claude-code-acp-ts/
+ *
+ * @returns 目录路径（含 package.json），或 null
+ */
+export function getClaudeCodeAcpBundledDir(): string | null {
+  const bundledDir = path.join(getResourcesPath(), "claude-code-acp-ts");
+  if (fs.existsSync(path.join(bundledDir, "package.json"))) {
+    return bundledDir;
+  }
+  return null;
 }
 
 /** 检测指定路径的 uv 二进制 */
@@ -1793,16 +1883,13 @@ export async function checkAllDependencies(options?: {
           }
           break;
         }
-        case "pnpm":
-        case "nuwax-file-server":
-        case "claude-code-acp-ts": {
+        case "pnpm": {
           const result = await detectNpmPackage(dep.name, dep.binName);
           item.version = result.version;
           item.binPath = result.binPath;
           if (!result.installed) {
             item.status = "missing";
           } else if (dep.installVersion) {
-            // 用户可在依赖 Tab 下手动升级，故以当前已安装的实际版本为准：仅当已装版本低于配置版本时才视为需升级，不降级
             const installed = (result.version ?? "0").replace(/^v/, "");
             const target = dep.installVersion.replace(/^v/, "");
             if (installed === "0" || compareVersions(installed, target) < 0) {
@@ -1812,6 +1899,40 @@ export async function checkAllDependencies(options?: {
             }
           } else {
             item.status = "installed";
+          }
+          break;
+        }
+        case "nuwax-file-server": {
+          const bundledDir = getNuwaxFileServerBundledDir();
+          if (bundledDir) {
+            const pkgPath = path.join(bundledDir, "package.json");
+            try {
+              const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+              item.status = "bundled";
+              item.version = pkg.version;
+              item.binPath = bundledDir;
+            } catch {
+              item.status = "missing";
+            }
+          } else {
+            item.status = "missing";
+          }
+          break;
+        }
+        case "claude-code-acp-ts": {
+          const bundledDir = getClaudeCodeAcpBundledDir();
+          if (bundledDir) {
+            const pkgPath = path.join(bundledDir, "package.json");
+            try {
+              const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+              item.status = "bundled";
+              item.version = pkg.version;
+              item.binPath = bundledDir;
+            } catch {
+              item.status = "missing";
+            }
+          } else {
+            item.status = "missing";
           }
           break;
         }
@@ -2022,4 +2143,6 @@ export default {
   setMirrorConfig,
   getMirrorConfig,
   MIRROR_PRESETS,
+  getNuwaxFileServerBundledDir,
+  getClaudeCodeAcpBundledDir,
 };

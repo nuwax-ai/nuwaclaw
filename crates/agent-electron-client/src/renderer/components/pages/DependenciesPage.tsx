@@ -119,6 +119,14 @@ export default function DependenciesPage() {
     useState<McpProxyBundledResult | null>(null);
   const [nuwaxcodeBundled, setNuwaxcodeBundled] =
     useState<NuwaxcodeBundledResult | null>(null);
+  const [claudeCodeAcpBundled, setClaudeCodeAcpBundled] = useState<{
+    available: boolean;
+    version?: string;
+  } | null>(null);
+  const [fileServerBundled, setFileServerBundled] = useState<{
+    available: boolean;
+    version?: string;
+  } | null>(null);
   const [localDeps, setLocalDeps] = useState<LocalDependencyItem[]>(
     MOCK_LOADING ? [] : [],
   );
@@ -186,6 +194,24 @@ export default function DependenciesPage() {
           ? { available: true, version: nuwaxcodeRes.version }
           : { available: false };
       setNuwaxcodeBundled(nuwaxcodeData);
+
+      // 应用包内集成的 claude-code-acp-ts
+      const acpRes =
+        await window.electronAPI?.dependencies.checkClaudeCodeAcpBundled();
+      setClaudeCodeAcpBundled(
+        acpRes?.success && acpRes.available
+          ? { available: true, version: acpRes.version }
+          : { available: false },
+      );
+
+      // 应用包内集成的 nuwax-file-server
+      const fileServerRes =
+        await window.electronAPI?.dependencies.checkNuwaxFileServerBundled();
+      setFileServerBundled(
+        fileServerRes?.success && fileServerRes.available
+          ? { available: true, version: fileServerRes.version }
+          : { available: false },
+      );
 
       // Check all local/installable dependencies
       const depsResult = await window.electronAPI?.dependencies.checkAll({
@@ -762,6 +788,79 @@ export default function DependenciesPage() {
               }}
             >
               {nuwaxcodeBundled?.available
+                ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
+                : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
+            </span>
+          </div>
+
+          {/* claude-code-acp-ts：应用包内集成 */}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              {claudeCodeAcpBundled?.available ? (
+                <CheckCircleOutlined
+                  style={{ color: "var(--color-success)", fontSize: 12 }}
+                />
+              ) : (
+                <ExclamationCircleOutlined
+                  style={{ color: "var(--color-warning)", fontSize: 12 }}
+                />
+              )}
+              <div>
+                <span className={styles.serviceLabel}>ACP 协议</span>
+                {claudeCodeAcpBundled?.available &&
+                  claudeCodeAcpBundled.version && (
+                    <span className={styles.serviceDescription}>
+                      {" "}
+                      {claudeCodeAcpBundled.version}
+                    </span>
+                  )}
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: claudeCodeAcpBundled?.available
+                  ? "var(--color-success)"
+                  : "var(--color-text-tertiary)",
+              }}
+            >
+              {claudeCodeAcpBundled?.available
+                ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
+                : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
+            </span>
+          </div>
+
+          {/* nuwax-file-server：应用包内集成 */}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              {fileServerBundled?.available ? (
+                <CheckCircleOutlined
+                  style={{ color: "var(--color-success)", fontSize: 12 }}
+                />
+              ) : (
+                <ExclamationCircleOutlined
+                  style={{ color: "var(--color-warning)", fontSize: 12 }}
+                />
+              )}
+              <div>
+                <span className={styles.serviceLabel}>文件服务</span>
+                {fileServerBundled?.available && fileServerBundled.version && (
+                  <span className={styles.serviceDescription}>
+                    {" "}
+                    {fileServerBundled.version}
+                  </span>
+                )}
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: fileServerBundled?.available
+                  ? "var(--color-success)"
+                  : "var(--color-text-tertiary)",
+              }}
+            >
+              {fileServerBundled?.available
                 ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
                 : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
             </span>

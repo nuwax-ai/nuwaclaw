@@ -199,6 +199,20 @@ export interface DependenciesAPI {
     binPath?: string;
     error?: string;
   }>;
+  /** 应用包内集成的 claude-code-acp-ts */
+  checkClaudeCodeAcpBundled: () => Promise<{
+    success: boolean;
+    available?: boolean;
+    version?: string;
+    error?: string;
+  }>;
+  /** 应用包内集成的 nuwax-file-server */
+  checkNuwaxFileServerBundled: () => Promise<{
+    success: boolean;
+    available?: boolean;
+    version?: string;
+    error?: string;
+  }>;
   detectPackage: (
     packageName: string,
     binName?: string,

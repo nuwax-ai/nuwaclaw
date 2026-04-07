@@ -145,6 +145,24 @@ electron-prepare-gui-server:
 	@echo ">>> Preparing agent-gui-server for Electron..."
 	cd crates/$(ELECTRON_CLIENT) && npm run prepare:gui-server
 
+# ============================================================================
+# 源码构建准备（clone + install + build）
+# ============================================================================
+
+.PHONY: electron-prepare-source-nuwax-file-server
+electron-prepare-source-nuwax-file-server:
+	@echo ">>> Preparing nuwax-file-server source..."
+	cd crates/$(ELECTRON_CLIENT) && ./scripts/prepare-source-nuwax-file-server.sh
+
+.PHONY: electron-prepare-source-claude-code-acp-ts
+electron-prepare-source-claude-code-acp-ts:
+	@echo ">>> Preparing claude-code-acp-ts source..."
+	cd crates/$(ELECTRON_CLIENT) && ./scripts/prepare-source-claude-code-acp-ts.sh
+
+.PHONY: electron-prepare-sources
+electron-prepare-sources: electron-prepare-source-nuwax-file-server electron-prepare-source-claude-code-acp-ts
+	@echo ">>> All sources prepared"
+
 # prepare:sandbox-runtime 仅同步 Windows helper（非 Windows 开发机跳过）
 ifneq ($(ELECTRON_ON_WINDOWS),)
 .PHONY: electron-prepare-sandbox-runtime
@@ -170,7 +188,7 @@ electron-prepare-windows-mcp:
 endif
 
 .PHONY: electron-prepare
-electron-prepare: electron-install-deps electron-rebuild electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-nuwaxcode electron-prepare-gui-server electron-prepare-sandbox-runtime electron-prepare-windows-mcp
+electron-prepare: electron-install-deps electron-rebuild electron-prepare-sources electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-nuwaxcode electron-prepare-gui-server electron-prepare-sandbox-runtime electron-prepare-windows-mcp
 	@echo ">>> Electron client prepared successfully"
 
 .PHONY: electron-bundle
