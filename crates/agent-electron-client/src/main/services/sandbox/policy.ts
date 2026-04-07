@@ -47,16 +47,10 @@ function normalizeSandboxPolicy(input: unknown): SandboxPolicy {
       : DEFAULT_SANDBOX_POLICY.backend;
 
   // 兼容旧格式：windows.sandbox.mode → windowsMode
-  const legacyWindowsMode = isObject(input.windows)
-    ? isObject((input.windows as Record<string, unknown>).sandbox)
-      ? (
-          (input.windows as Record<string, unknown>).sandbox as Record<
-            string,
-            unknown
-          >
-        ).mode
-      : undefined
-    : undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const legacyWindowsMode = (input.windows as any)?.sandbox?.mode as
+    | string
+    | undefined;
   const rawWindowsMode = input.windowsMode ?? legacyWindowsMode;
   const windowsMode: WindowsSandboxMode =
     rawWindowsMode === "read-only" || rawWindowsMode === "workspace-write"

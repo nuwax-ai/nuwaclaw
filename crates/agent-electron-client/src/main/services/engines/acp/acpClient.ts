@@ -653,7 +653,7 @@ export async function createAcpConnection(
     env.ANTHROPIC_MODEL = config.model;
   } else {
     log.warn(
-      "[AcpClient] ⚠️ config.model 未设置，引擎将使用内置默认模型（不推荐）",
+      "[AcpClient] ⚠️ config.model not set, engine will use built-in default model (not recommended)",
     );
   }
   if (config.env) Object.assign(env, config.env);
@@ -712,24 +712,24 @@ export async function createAcpConnection(
     binArgs: effectiveBinArgs,
     cwd: config.workspaceDir,
     isolatedHome,
-    ANTHROPIC_MODEL: env.ANTHROPIC_MODEL || "未设置",
-    ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL || "未设置",
+    ANTHROPIC_MODEL: env.ANTHROPIC_MODEL || "(not set)",
+    ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL || "(not set)",
     ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY
       ? env.ANTHROPIC_API_KEY.slice(
           0,
           Math.min(8, Math.floor(env.ANTHROPIC_API_KEY.length / 2)),
         ) + "..."
-      : "未设置",
-    OPENCODE_MODEL: env.OPENCODE_MODEL || "未设置",
-    OPENCODE_LOG_DIR: env.OPENCODE_LOG_DIR || "未设置",
-    OPENAI_BASE_URL: env.OPENAI_BASE_URL || "未设置",
+      : "(not set)",
+    OPENCODE_MODEL: env.OPENCODE_MODEL || "(not set)",
+    OPENCODE_LOG_DIR: env.OPENCODE_LOG_DIR || "(not set)",
+    OPENAI_BASE_URL: env.OPENAI_BASE_URL || "(not set)",
     OPENAI_API_KEY: env.OPENAI_API_KEY
       ? env.OPENAI_API_KEY.slice(
           0,
           Math.min(8, Math.floor(env.OPENAI_API_KEY.length / 2)),
         ) + "..."
-      : "未设置",
-    OPENCODE_OPENAI_API_BASE: env.OPENCODE_OPENAI_API_BASE || "未设置",
+      : "(not set)",
+    OPENCODE_OPENAI_API_BASE: env.OPENCODE_OPENAI_API_BASE || "(not set)",
     OPENCODE_OPENAI_API_KEY: env.OPENCODE_OPENAI_API_KEY
       ? env.OPENCODE_OPENAI_API_KEY.slice(
           0,
@@ -784,6 +784,8 @@ export async function createAcpConnection(
       });
     } catch (sandboxError) {
       log.error("[AcpClient] Sandbox wrapping failed:", sandboxError);
+      // fallback 当前由 acpEngine.ts 固定为 "degrade_to_off"，
+      // "fail_closed" 分支目前不可达，保留以备将来恢复配置项。
       if (config.sandbox.fallback === "fail_closed") {
         throw new Error(
           `Sandbox setup failed: ${sandboxError instanceof Error ? sandboxError.message : String(sandboxError)}`,
