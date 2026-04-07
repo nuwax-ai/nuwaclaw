@@ -78,9 +78,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     setPolicy: (patch: Partial<SandboxPolicy>) =>
       ipcRenderer.invoke("sandbox:policy:set", patch),
     capabilities: () => ipcRenderer.invoke("sandbox:capabilities"),
-    setup: (params?: {
-      windows?: { sandbox?: { mode?: "read-only" | "workspace-write" } };
-    }) => ipcRenderer.invoke("sandbox:setup", params),
+    setup: () => ipcRenderer.invoke("sandbox:setup"),
   },
 
   // Agent - unified ACP service (claude-code/nuwaxcode)

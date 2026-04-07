@@ -26,12 +26,6 @@ export interface SandboxedSpawn {
   args: string[];
   /** 清理沙箱临时资源（如 .sb profile 文件） */
   cleanupSandbox: () => void;
-  /**
-   * 逐命令沙箱配置环境变量。
-   * 当进程级沙箱不可用时（如 Windows restricted token EPERM），
-   * 传递给 ACP 引擎进程，由其自行对每条工具命令调用 sandbox helper。
-   */
-  sandboxEnv?: Record<string, string>;
 }
 
 /**
@@ -74,26 +68,8 @@ export async function buildSandboxedSpawnArgs(
     };
   }
 
-  // Windows restricted token 无法创建子进程（EPERM），
-  // ACP 引擎需要 spawn claude-code CLI / MCP 服务器，不能在受限 token 下运行。
-  // 逐命令沙箱化由 ACP 引擎自行通过 NUWAX_SANDBOX_* 环境变量实现。
-  if (type === "windows-sandbox") {
-    log.info(
-      "[SandboxProcessWrapper] Windows restricted token 不支持进程级沙箱（子进程 spawn 会 EPERM），跳过 ACP 引擎包装，传递逐命令沙箱配置",
-    );
-    return {
-      command: originalCommand,
-      args: originalArgs,
-      cleanupSandbox: NOOP_CLEANUP,
-      sandboxEnv: {
-        NUWAX_SANDBOX_HELPER_PATH: sandboxConfig.windowsSandboxHelperPath ?? "",
-        NUWAX_SANDBOX_MODE: sandboxConfig.windowsSandboxMode ?? "read-only",
-        NUWAX_SANDBOX_NETWORK_ENABLED: networkEnabled ? "1" : "0",
-      },
-    };
-  }
-
   // 直接使用 SandboxInvoker 构建调用
+  // Windows: serve 子命令使用不含 WRITE_RESTRICTED 的令牌，ACP 引擎可正常 spawn 子进程
   const invoker = new SandboxInvoker(type, {
     linuxBwrapPath: sandboxConfig.linuxBwrapPath,
     windowsSandboxHelperPath: sandboxConfig.windowsSandboxHelperPath,

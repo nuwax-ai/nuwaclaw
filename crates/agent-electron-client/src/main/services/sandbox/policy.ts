@@ -11,6 +11,7 @@ import type {
   SandboxCapabilityItem,
   SandboxPolicy,
   SandboxType,
+  WindowsSandboxMode,
 } from "@shared/types/sandbox";
 import { SandboxError, SandboxErrorCode } from "@shared/errors/sandbox";
 
@@ -18,14 +19,8 @@ export const SANDBOX_POLICY_KEY = "sandbox_policy";
 
 export const DEFAULT_SANDBOX_POLICY: SandboxPolicy = {
   enabled: true,
-  mode: "non-main",
   backend: "auto",
-  fallback: "degrade_to_off",
-  windows: {
-    sandbox: {
-      mode: "read-only",
-    },
-  },
+  windowsMode: "workspace-write",
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -37,17 +32,11 @@ function normalizeSandboxPolicy(input: unknown): SandboxPolicy {
     return { ...DEFAULT_SANDBOX_POLICY };
   }
 
-  const windows = isObject(input.windows) ? input.windows : {};
-  const sandbox = isObject(windows.sandbox) ? windows.sandbox : {};
-
   const enabled =
     typeof input.enabled === "boolean"
       ? input.enabled
       : DEFAULT_SANDBOX_POLICY.enabled;
-  const mode =
-    input.mode === "off" || input.mode === "non-main" || input.mode === "all"
-      ? input.mode
-      : DEFAULT_SANDBOX_POLICY.mode;
+
   const backend: SandboxBackend =
     input.backend === "auto" ||
     input.backend === "docker" ||
@@ -56,43 +45,32 @@ function normalizeSandboxPolicy(input: unknown): SandboxPolicy {
     input.backend === "windows-sandbox"
       ? input.backend
       : DEFAULT_SANDBOX_POLICY.backend;
-  const fallback =
-    input.fallback === "degrade_to_off" || input.fallback === "fail_closed"
-      ? input.fallback
-      : DEFAULT_SANDBOX_POLICY.fallback;
-  const windowsMode =
-    sandbox.mode === "read-only" || sandbox.mode === "workspace-write"
-      ? sandbox.mode
-      : DEFAULT_SANDBOX_POLICY.windows.sandbox.mode;
 
-  return {
-    enabled,
-    mode,
-    backend,
-    fallback,
-    windows: {
-      sandbox: {
-        mode: windowsMode,
-      },
-    },
-  };
+  // 兼容旧格式：windows.sandbox.mode → windowsMode
+  const legacyWindowsMode = isObject(input.windows)
+    ? isObject((input.windows as Record<string, unknown>).sandbox)
+      ? (
+          (input.windows as Record<string, unknown>).sandbox as Record<
+            string,
+            unknown
+          >
+        ).mode
+      : undefined
+    : undefined;
+  const rawWindowsMode = input.windowsMode ?? legacyWindowsMode;
+  const windowsMode: WindowsSandboxMode =
+    rawWindowsMode === "read-only" || rawWindowsMode === "workspace-write"
+      ? rawWindowsMode
+      : DEFAULT_SANDBOX_POLICY.windowsMode;
+
+  return { enabled, backend, windowsMode };
 }
 
 function mergeSandboxPolicy(
   current: SandboxPolicy,
   patch: Partial<SandboxPolicy>,
 ): SandboxPolicy {
-  const merged: SandboxPolicy = {
-    ...current,
-    ...patch,
-    windows: {
-      sandbox: {
-        ...current.windows.sandbox,
-        ...(patch.windows?.sandbox ?? {}),
-      },
-    },
-  };
-  return normalizeSandboxPolicy(merged);
+  return normalizeSandboxPolicy({ ...current, ...patch });
 }
 
 export function getSandboxPolicy(): SandboxPolicy {
@@ -293,12 +271,8 @@ function getBackendUnavailableReason(
 export async function resolveSandboxType(
   policy: SandboxPolicy,
 ): Promise<{ type: SandboxType; degraded: boolean; reason?: string }> {
-  if (!policy.enabled || policy.mode === "off") {
-    log.debug(
-      "[SandboxPolicy] resolve: disabled (enabled=%s, mode=%s)",
-      policy.enabled,
-      policy.mode,
-    );
+  if (!policy.enabled) {
+    log.debug("[SandboxPolicy] resolve: disabled");
     return {
       type: "none",
       degraded: false,
@@ -309,7 +283,7 @@ export async function resolveSandboxType(
   const caps = await getSandboxCapabilities();
   const selectedType = backendToSandboxType(policy.backend, caps.platform);
   log.debug(
-    "[SandboxPolicy] resolve: backend=%s → type=%s, platform=%s",
+    "[SandboxPolicy] resolve: backend=%s → type=%s platform=%s",
     policy.backend,
     selectedType,
     caps.platform,
@@ -322,19 +296,11 @@ export async function resolveSandboxType(
 
   const reason = getBackendUnavailableReason(selectedType, caps);
   log.debug(
-    "[SandboxPolicy] resolve: backend %s unavailable, reason=%s, fallback=%s",
+    "[SandboxPolicy] resolve: backend %s unavailable, reason=%s, degrading to off",
     selectedType,
     reason,
-    policy.fallback,
   );
 
-  if (policy.fallback === "degrade_to_off") {
-    return { type: "none", degraded: true, reason };
-  }
-
-  throw new SandboxError(
-    `沙箱后端不可用: ${selectedType}`,
-    SandboxErrorCode.SANDBOX_UNAVAILABLE,
-    { details: { selectedType, reason } },
-  );
+  // 后端不可用时始终降级为 off（不阻断执行）
+  return { type: "none", degraded: true, reason };
 }

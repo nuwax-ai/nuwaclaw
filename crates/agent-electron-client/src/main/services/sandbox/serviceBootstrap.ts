@@ -99,7 +99,7 @@ function createSandboxManager(type: SandboxType): SandboxManager {
   return new CommandSandbox(config, {
     linuxBwrapPath: getBundledLinuxBwrapPath() ?? undefined,
     windowsSandboxHelperPath: getBundledWindowsSandboxHelperPath() ?? undefined,
-    windowsSandboxMode: lastPolicy.windows.sandbox.mode,
+    windowsSandboxMode: lastPolicy.windowsMode,
   });
 }
 
@@ -117,8 +117,7 @@ function setupControlService(): void {
     async getCapabilities() {
       return getSandboxCapabilities();
     },
-    async setup(params) {
-      const mode = params?.windows?.sandbox?.mode ?? "read-only";
+    async setup(_params) {
       const helperPath = getBundledWindowsSandboxHelperPath();
       if (!helperPath) {
         return {
@@ -155,10 +154,8 @@ export async function startSandboxService(): Promise<void> {
     });
     log.debug("[SandboxService] policy:", {
       enabled: lastPolicy.enabled,
-      mode: lastPolicy.mode,
       backend: lastPolicy.backend,
-      fallback: lastPolicy.fallback,
-      windows: lastPolicy.windows,
+      windowsMode: lastPolicy.windowsMode,
     });
     log.debug("[SandboxService] capabilities:", lastCapabilities);
     log.debug("[SandboxService] workspaceRoot:", getWorkspaceRoot());

@@ -169,6 +169,40 @@ unsafe fn enable_single_privilege(h_token: HANDLE, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// 为 serve 模式创建令牌：不含 WRITE_RESTRICTED，允许子进程继续 spawn 孙进程。
+/// 文件系统写保护降为 ACL 级单层（DACL ACE），不再有令牌级写限制。
+/// 用途：ACP 引擎进程级沙箱包装（需要 spawn claude-code / MCP 服务器等子进程）。
+pub unsafe fn create_servable_token_with_cap(
+    psid_capability: *mut c_void,
+) -> Result<(HANDLE, *mut c_void)> {
+    let base = get_current_token_for_restriction()?;
+    let mut logon_sid_bytes = get_logon_sid_bytes(base)?;
+    let psid_logon = logon_sid_bytes.as_mut_ptr() as *mut c_void;
+    let mut everyone = world_sid()?;
+    let psid_everyone = everyone.as_mut_ptr() as *mut c_void;
+
+    let mut entries: [SID_AND_ATTRIBUTES; 3] = unsafe { std::mem::zeroed() };
+    entries[0].Sid = psid_capability;
+    entries[0].Attributes = 0;
+    entries[1].Sid = psid_logon;
+    entries[1].Attributes = 0;
+    entries[2].Sid = psid_everyone;
+    entries[2].Attributes = 0;
+
+    let mut new_token: HANDLE = 0;
+    // 去掉 WRITE_RESTRICTED：子进程可以通过 CreateProcess 继续 spawn 孙进程
+    let flags = DISABLE_MAX_PRIVILEGE | LUA_TOKEN;
+    let ok = CreateRestrictedToken(
+        base, flags, 0, std::ptr::null(), 0, std::ptr::null(), 3,
+        entries.as_mut_ptr(), &mut new_token,
+    );
+    if ok == 0 {
+        return Err(anyhow::anyhow!("CreateRestrictedToken failed: {}", GetLastError()));
+    }
+    enable_single_privilege(new_token, "SeChangeNotifyPrivilege")?;
+    Ok((new_token, psid_capability))
+}
+
 pub unsafe fn create_workspace_write_token_with_cap(
     psid_capability: *mut c_void,
 ) -> Result<(HANDLE, *mut c_void)> {

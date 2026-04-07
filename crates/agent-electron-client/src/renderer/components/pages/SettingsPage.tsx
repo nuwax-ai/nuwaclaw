@@ -410,11 +410,7 @@ export default function SettingsPage() {
     if (!window.electronAPI?.sandbox || !sandboxPolicy) return;
     setSandboxSaving(true);
     try {
-      const result = await window.electronAPI.sandbox.setup({
-        windows: {
-          sandbox: { mode: sandboxPolicy.windows.sandbox.mode },
-        },
-      });
+      const result = await window.electronAPI.sandbox.setup();
       if (result?.success && result.data?.success) {
         message.success(
           result.data.message ||
@@ -755,17 +751,12 @@ export default function SettingsPage() {
                 </div>
                 <Select
                   size="small"
-                  value={sandboxPolicy.windows.sandbox.mode}
+                  value={sandboxPolicy.windowsMode}
                   style={{ width: 150 }}
                   disabled={sandboxSaving || sandboxLoading}
                   onChange={(value) =>
                     handlePatchSandboxPolicy({
-                      windows: {
-                        sandbox: {
-                          ...sandboxPolicy.windows.sandbox,
-                          mode: value as SandboxPolicy["windows"]["sandbox"]["mode"],
-                        },
-                      },
+                      windowsMode: value as SandboxPolicy["windowsMode"],
                     })
                   }
                   options={[

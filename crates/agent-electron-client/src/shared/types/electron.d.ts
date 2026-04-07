@@ -99,9 +99,7 @@ export interface SandboxAPI {
     error?: string;
     code?: string;
   }>;
-  setup: (params?: {
-    windows?: { sandbox?: { mode?: "read-only" | "workspace-write" } };
-  }) => Promise<{
+  setup: () => Promise<{
     success: boolean;
     data?: { success: boolean; message?: string };
     error?: string;

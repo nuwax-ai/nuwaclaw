@@ -250,7 +250,7 @@ export class SandboxInvoker {
       );
     }
 
-    const mode = this.options.windowsSandboxMode ?? "read-only";
+    const mode = this.options.windowsSandboxMode ?? "workspace-write";
     const subcommand = params.subcommand ?? "run";
     const sandboxPolicy: Record<string, unknown> = {
       type: mode === "read-only" ? "read-only" : "workspace-write",

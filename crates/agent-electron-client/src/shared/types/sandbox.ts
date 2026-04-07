@@ -31,14 +31,6 @@ export type SandboxType =
   | "none";
 
 /**
- * 沙箱策略模式
- * - off: 关闭沙箱
- * - non-main: 仅高风险命令走沙箱
- * - all: 所有命令走沙箱
- */
-export type SandboxMode = "off" | "non-main" | "all";
-
-/**
  * 沙箱后端
  * - auto: 按平台自动选择
  */
@@ -50,30 +42,29 @@ export type SandboxBackend =
   | "windows-sandbox";
 
 /**
- * 降级策略
- * - degrade_to_off: 后端不可用时降级为 off
+ * Windows Sandbox 模式
+ * - read-only: 只读（严格，不允许写入任何路径）
+ * - workspace-write: 工作区可写（推荐，ACP 引擎正常工作）
+ */
+export type WindowsSandboxMode = "read-only" | "workspace-write";
+
+/**
+ * 降级策略（内部使用，不暴露在 SandboxPolicy 中）
+ * - degrade_to_off: 后端不可用时降级为 off（默认）
  * - fail_closed: 后端不可用时阻断执行
  */
 export type SandboxFallback = "degrade_to_off" | "fail_closed";
 
 /**
- * Windows Sandbox 模式
- */
-export type WindowsSandboxMode = "read-only" | "workspace-write";
-
-/**
  * 统一沙箱策略
  */
 export interface SandboxPolicy {
+  /** 是否启用沙箱 */
   enabled: boolean;
-  mode: SandboxMode;
+  /** 后端选择（auto = 按平台自动） */
   backend: SandboxBackend;
-  fallback: SandboxFallback;
-  windows: {
-    sandbox: {
-      mode: WindowsSandboxMode;
-    };
-  };
+  /** Windows 专属：沙箱写权限模式 */
+  windowsMode: WindowsSandboxMode;
 }
 
 /**

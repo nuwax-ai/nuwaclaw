@@ -52,7 +52,7 @@ use std::ptr;
 use std::thread;
 use std::sync::mpsc;
 use std::time::Duration;
-use token::{convert_string_sid_to_sid, create_readonly_token_with_cap, create_workspace_write_token_with_cap};
+use token::{convert_string_sid_to_sid, create_readonly_token_with_cap, create_servable_token_with_cap, create_workspace_write_token_with_cap};
 use winutil::{format_last_error, to_wide};
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT};
 use windows_sys::Win32::System::Pipes::CreatePipe;
@@ -87,10 +87,8 @@ enum Subcommand {
     /// Run a command in the sandbox as a persistent stdio proxy.
     /// Stdin/stdout/stderr are forwarded bidirectionally.
     ///
-    /// **WARNING**: Experimental. The restricted token prevents child processes
-    /// from spawning their own children (EPERM), making this mode incompatible
-    /// with ACP engines that need to spawn sub-processes (e.g., claude-code CLI,
-    /// MCP servers). Use `run` mode for per-command sandboxing instead.
+    /// 使用不含 WRITE_RESTRICTED 的令牌，允许子进程（ACP 引擎）继续 spawn 孙进程
+    /// （如 claude-code CLI、MCP 服务器）。文件系统写保护由 DACL ACE 提供。
     Serve(CommonArgs),
 }
 
@@ -237,6 +235,9 @@ struct SandboxContext {
 
 impl SandboxContext {
     /// Set up sandbox policy, restricted token, ACLs, and environment.
+    ///
+    /// `is_serve`: 当为 true 时使用不含 WRITE_RESTRICTED 的令牌，允许子进程继续 spawn
+    /// 孙进程（ACP 引擎进程级沙箱所需）。文件系统写保护降为 ACL 级单层。
     fn setup(
         policy_json_or_preset: &str,
         sandbox_policy_cwd: &Path,
@@ -244,6 +245,7 @@ impl SandboxContext {
         command: Vec<String>,
         cwd: &Path,
         args: Vec<String>,
+        is_serve: bool,
     ) -> anyhow::Result<Self> {
         let mut env_map: HashMap<String, String> = std::env::vars().collect();
         let mut command = command;
@@ -281,7 +283,12 @@ impl SandboxContext {
                     ensure_dir(&cap_sid_path)?;
                     fs::write(&cap_sid_path, serde_json::to_string(&caps)?)?;
                     let psid = convert_string_sid_to_sid(&caps.workspace).unwrap();
-                    create_workspace_write_token_with_cap(psid)?
+                    if is_serve {
+                        // serve 模式：去掉 WRITE_RESTRICTED，允许引擎进程 spawn 子进程
+                        create_servable_token_with_cap(psid)?
+                    } else {
+                        create_workspace_write_token_with_cap(psid)?
+                    }
                 }
                 SandboxPolicy::DangerFullAccess => {
                     anyhow::bail!("DangerFullAccess is not supported for sandboxing")
@@ -474,7 +481,7 @@ pub fn run_sandbox_capture(
     args: Vec<String>,
     timeout_ms: Option<u64>,
 ) -> anyhow::Result<CaptureResult> {
-    let mut ctx = SandboxContext::setup(policy_json_or_preset, sandbox_policy_cwd, home, command, cwd, args)?;
+    let mut ctx = SandboxContext::setup(policy_json_or_preset, sandbox_policy_cwd, home, command, cwd, args, false)?;
 
     let (stdin_pair, stdout_pair, stderr_pair) = unsafe { setup_stdio_pipes()? };
     let ((in_r, in_w), (out_r, out_w), (err_r, err_w)) = (stdin_pair, stdout_pair, stderr_pair);
@@ -590,7 +597,7 @@ pub fn run_sandbox_proxy(
     cwd: &Path,
     args: Vec<String>,
 ) -> anyhow::Result<ProxyResult> {
-    let mut ctx = SandboxContext::setup(policy_json_or_preset, sandbox_policy_cwd, home, command, cwd, args)?;
+    let mut ctx = SandboxContext::setup(policy_json_or_preset, sandbox_policy_cwd, home, command, cwd, args, true)?;
 
     let (stdin_pair, stdout_pair, stderr_pair) = unsafe { setup_stdio_pipes()? };
     let ((child_stdin_r, child_stdin_w), (child_stdout_r, child_stdout_w), (child_stderr_r, child_stderr_w)) =

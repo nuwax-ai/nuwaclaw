@@ -351,7 +351,7 @@ export class AcpEngine extends EventEmitter {
       let sandboxConfig: SandboxProcessConfig | undefined;
       try {
         const policy = getSandboxPolicy();
-        if (policy.enabled && policy.mode !== "off") {
+        if (policy.enabled) {
           const resolved = await resolveSandboxType(policy);
           if (resolved.type !== "none") {
             sandboxConfig = {
@@ -359,11 +359,11 @@ export class AcpEngine extends EventEmitter {
               type: resolved.type,
               projectWorkspaceDir: config.workspaceDir,
               networkEnabled: true, // 引擎需要网络访问（API 调用）
-              fallback: policy.fallback,
+              fallback: "degrade_to_off",
               linuxBwrapPath: getBundledLinuxBwrapPath() ?? undefined,
               windowsSandboxHelperPath:
                 getBundledWindowsSandboxHelperPath() ?? undefined,
-              windowsSandboxMode: policy.windows.sandbox.mode,
+              windowsSandboxMode: policy.windowsMode,
             };
             log.info(`${this.logTag} Sandbox config resolved:`, {
               type: resolved.type,
@@ -394,7 +394,7 @@ export class AcpEngine extends EventEmitter {
           ) as Record<string, unknown>;
           existingConfig.sandbox = {
             helper_path: sandboxConfig.windowsSandboxHelperPath,
-            mode: sandboxConfig.windowsSandboxMode ?? "read-only",
+            mode: sandboxConfig.windowsSandboxMode ?? "workspace-write",
             network_enabled: true, // engine always needs network (API calls)
           };
           spawnEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify(existingConfig);
@@ -794,7 +794,8 @@ export class AcpEngine extends EventEmitter {
           },
           {
             name: "NUWAX_SANDBOX_MODE",
-            value: this.storedSandboxConfig.windowsSandboxMode ?? "read-only",
+            value:
+              this.storedSandboxConfig.windowsSandboxMode ?? "workspace-write",
           },
           {
             name: "NUWAX_SANDBOX_NETWORK_ENABLED",
@@ -820,7 +821,7 @@ export class AcpEngine extends EventEmitter {
         ],
       });
       log.info(
-        `${this.logTag} 🔒 Sandboxed Bash MCP injected (Windows, mode=${this.storedSandboxConfig.windowsSandboxMode ?? "read-only"})`,
+        `${this.logTag} 🔒 Sandboxed Bash MCP injected (Windows, mode=${this.storedSandboxConfig.windowsSandboxMode ?? "workspace-write"})`,
       );
     }
 
