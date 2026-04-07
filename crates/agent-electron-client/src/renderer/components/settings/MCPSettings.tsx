@@ -99,7 +99,7 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
       if (savedConfig) setConfig(savedConfig);
       if (currentStatus) setStatus(currentStatus);
     } catch (error) {
-      console.error("[MCPSettings] 加载失败:", error);
+      console.error("[MCPSettings] Failed to load:", error);
     } finally {
       setLoading(false);
     }

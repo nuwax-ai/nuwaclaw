@@ -7,8 +7,15 @@
  * 阶段 4: 完成（Result + 启动服务）
  */
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import { t } from "../../services/core/i18n";
+import { useI18nLang } from "../../App";
 import {
   Steps,
   Form,
@@ -55,15 +62,6 @@ const { Text } = Typography;
 import { APP_DISPLAY_NAME } from "@shared/constants";
 const APP_NAME = APP_DISPLAY_NAME;
 
-const WIZARD_STEPS = [
-  {
-    key: 1,
-    title: t("Claw.Setup.basicConfig.title"),
-    icon: <SettingOutlined />,
-  },
-  { key: 2, title: t("Claw.Setup.login.title"), icon: <UserOutlined /> },
-];
-
 interface SetupWizardProps {
   onComplete: () => void;
   /** 可选：注入 Mock API 用于测试 */
@@ -80,6 +78,19 @@ function SetupWizard({
   skipDependencyCheck,
   mockLoggedIn,
 }: SetupWizardProps) {
+  const { lang } = useI18nLang();
+  const wizardSteps = useMemo(
+    () => [
+      {
+        key: 1,
+        title: t("Claw.Setup.basicConfig.title"),
+        icon: <SettingOutlined />,
+      },
+      { key: 2, title: t("Claw.Setup.login.title"), icon: <UserOutlined /> },
+    ],
+    [lang],
+  );
+
   const [dependenciesReady, setDependenciesReady] = useState<boolean | null>(
     null,
   );
@@ -127,7 +138,7 @@ function SetupWizard({
           (d) => d.status === "installed" || d.status === "bundled",
         );
         console.log(
-          "[SetupWizard] 依赖检测:",
+          "[SetupWizard] Dependency check:",
           deps.map((d) => `${d.name}:${d.status}`).join(", "),
           mockApi ? "(mock)" : "(real)",
         );
@@ -156,7 +167,10 @@ function SetupWizard({
                   return; // performQuickInit 内部处理 loading 和 step
                 }
               } catch (error) {
-                console.warn("[SetupWizard] 启动时读取快捷配置失败:", error);
+                console.warn(
+                  "[SetupWizard] Failed to read quick init config on startup:",
+                  error,
+                );
               }
             }
             setCurrentStep(state.step1Completed ? 2 : 1);
@@ -170,7 +184,7 @@ function SetupWizard({
         const config = await setupService.getStep1Config();
         setStep1Config(config);
       } catch (error) {
-        console.error("[SetupWizard] 初始化失败:", error);
+        console.error("[SetupWizard] Initialization failed:", error);
         setDependenciesReady(false);
       } finally {
         setLoading(false);
@@ -228,7 +242,10 @@ function SetupWizard({
 
         setTimeout(() => onComplete(), 1000);
       } catch (error) {
-        console.error("[SetupWizard] Quick init 失败，回退到手动向导:", error);
+        console.error(
+          "[SetupWizard] Quick init failed, falling back to manual wizard:",
+          error,
+        );
         setQuickIniting(false);
         // step1 可能已保存，从 step1 或 step2 继续
         const state = await setupService.getSetupState();
@@ -251,7 +268,7 @@ function SetupWizard({
           return;
         }
       } catch (error) {
-        console.warn("[SetupWizard] 读取快捷配置失败:", error);
+        console.warn("[SetupWizard] Failed to read quick init config:", error);
       }
     }
 
@@ -271,7 +288,7 @@ function SetupWizard({
         setUsername(auth.username);
       }
     } catch (error) {
-      console.error("[SetupWizard] 检查登录状态失败:", error);
+      console.error("[SetupWizard] Failed to check login status:", error);
     } finally {
       setCheckingAuth(false);
     }
@@ -718,7 +735,7 @@ function SetupWizard({
           current={currentStep - 1}
           size="small"
           onChange={handleStepClick}
-          items={WIZARD_STEPS.map((step) => ({
+          items={wizardSteps.map((step) => ({
             title: step.title,
             icon: step.icon,
             disabled: step.key > currentStep,

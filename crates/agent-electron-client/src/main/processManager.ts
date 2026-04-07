@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from "child_process";
 import log from "electron-log";
 import { PROCESS_KILL_ESCALATION_TIMEOUT } from "@shared/constants";
+import { t } from "./services/i18n";
 
 export class ManagedProcess {
   private process: ChildProcess | null = null;
@@ -45,7 +46,7 @@ export class ManagedProcess {
         });
 
         proc.on("error", (error) => {
-          log.error(`[${this.name}] 进程错误:`, error.message, {
+          log.error(`[${this.name}] Process error:`, error.message, {
             stack: error.stack,
           });
           this.process = null;
@@ -56,11 +57,11 @@ export class ManagedProcess {
         proc.on("exit", (code, signal) => {
           if (code !== 0 && code !== null) {
             log.warn(
-              `[${this.name}] 进程退出 code=${code} signal=${signal ?? "none"}`,
+              `[${this.name}] Process exited code=${code} signal=${signal ?? "none"}`,
               { lastError: this.lastError },
             );
           } else {
-            log.info(`[${this.name}] 进程已退出`, {
+            log.info(`[${this.name}] Process exited`, {
               code,
               signal: signal ?? "none",
             });
@@ -76,9 +77,9 @@ export class ManagedProcess {
             this.lastError = null;
             resolve({ success: true });
           } else {
-            const msg = "进程启动后立即退出";
+            const msg = t("Claw.Process.exitImmediately");
             this.lastError = msg;
-            log.warn(`[${this.name}] 启动失败: ${msg}`, {
+            log.warn(`[${this.name}] Start failed: ${msg}`, {
               command: config.command,
               args: config.args,
             });
@@ -89,7 +90,7 @@ export class ManagedProcess {
         this.process = null;
         this.lastError = String(error);
         log.error(
-          `[${this.name}] 启动异常:`,
+          `[${this.name}] Start exception:`,
           error instanceof Error ? error.message : String(error),
           { stack: error instanceof Error ? error.stack : undefined },
         );
@@ -141,7 +142,7 @@ export class ManagedProcess {
           /* ignore */
         }
         log.warn(
-          `[${this.name}] stopAsync: 进程未在 ${timeoutMs}ms 内退出，已强制终止`,
+          `[${this.name}] stopAsync: process did not exit within ${timeoutMs}ms, force killed`,
         );
         resolve({ success: true, message: "Force killed after timeout" });
       }, timeoutMs);
