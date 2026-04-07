@@ -9,7 +9,8 @@
   "scripts": {
     "dev": "dotenv -e .env.development -- cross-env NODE_ENV=development concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
-    "dev:electron": "wait-on http://localhost:60173 && npm run build:main && electron .",
+    "dev:electron": "wait-on http://localhost:60173 && npm run build:main:dev && electron .",
+    "build:main:dev": "dotenv -e .env.development -- cross-env NODE_ENV=development tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
     "build:main": "dotenv -e .env.production -- cross-env NODE_ENV=production tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
     "build:renderer": "vite build",
     "build": "dotenv -e .env.production -- cross-env NODE_ENV=production npm run build:main && npm run build:renderer",

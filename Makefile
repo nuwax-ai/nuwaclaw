@@ -236,6 +236,8 @@ endif
 
 .PHONY: electron-dev
 electron-dev: electron-prepare
+	@echo ">>> Preparing all bundled dependencies for dev..."
+	cd crates/$(ELECTRON_CLIENT) && npm run prepare:all
 	@echo ">>> Starting Electron dev mode..."
 	@echo ">>> 日志通过 .env.development 配置 (NUWAX_AGENT_LOG_FULL_SECRETS=true)"
 	@echo ">>> INJECT_GUI_MCP=true（通过 .env.development 配置，向 ACP 注入 gui-agent MCP）"
