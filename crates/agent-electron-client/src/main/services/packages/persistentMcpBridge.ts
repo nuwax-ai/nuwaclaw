@@ -53,7 +53,9 @@ function getInstance(): NonNullable<typeof instance> {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const pkg = require(bundledDir);
       if (pkg.PersistentMcpBridge) {
-        log.info(`[PersistentMcpBridge] 使用应用内集成版本: ${bundledDir}`);
+        log.info(
+          `[PersistentMcpBridge] Using bundled integration: ${bundledDir}`,
+        );
         instance = new pkg.PersistentMcpBridge(
           createQuietLogger(),
         ) as NonNullable<typeof instance>;
@@ -85,8 +87,10 @@ function getInstance(): NonNullable<typeof instance> {
     return instance;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error(`[PersistentMcpBridge] 加载 ${PKG_NAME} 失败:`, msg);
-    throw new Error(`${PKG_NAME} 未安装或加载失败。${msg ? ` (${msg})` : ""}`);
+    log.error(`[PersistentMcpBridge] Failed to load ${PKG_NAME}:`, msg);
+    throw new Error(
+      `${PKG_NAME} not installed or failed to load.${msg ? ` (${msg})` : ""}`,
+    );
   }
 }
 

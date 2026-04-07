@@ -70,7 +70,9 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     if (ctx.lanproxy.running) {
       // 切换账号后 clientKey 会变化，必须用新配置重启，不能跳过。
       // 否则旧进程继续使用旧 clientKey 导致「本地显示已联通、会话显示离线」。
-      log.info("[Lanproxy] 已在运行，先停止再用新配置重启");
+      log.info(
+        "[Lanproxy] Already running, stopping first before restarting with new config",
+      );
       await ctx.lanproxy.stopAsync();
     }
     const useSsl = config.ssl !== false;
@@ -78,7 +80,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       config.clientKey.length > 8
         ? `${config.clientKey.slice(0, 4)}****${config.clientKey.slice(-4)}`
         : "****";
-    log.info("[Lanproxy] 正在启动", {
+    log.info("[Lanproxy] Starting", {
       server: config.serverIp,
       port: config.serverPort,
       keyMasked: maskedKey,
@@ -86,7 +88,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     });
     const result = await sm.startLanproxy(config);
     if (result.success) {
-      log.info("[Lanproxy] 已启动", {
+      log.info("[Lanproxy] Started", {
         server: config.serverIp,
         port: config.serverPort,
       });
@@ -94,10 +96,10 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       const health = await checkLanproxyHealth(config.clientKey);
       result.healthCheck = health;
       if (!health.healthy) {
-        log.warn("[Lanproxy] 健康检查失败:", health.error);
+        log.warn("[Lanproxy] Health check failed:", health.error);
       }
     } else {
-      log.error("[Lanproxy] 启动失败", {
+      log.error("[Lanproxy] Start failed", {
         error: result.error,
         server: config.serverIp,
         port: config.serverPort,

@@ -109,7 +109,7 @@ function updateLatestLog(logDir: string): void {
       fs.symlinkSync(mainName, latestPath, "file");
     }
   } catch (e) {
-    log.warn("[LogConfig] latest.log 创建/更新失败:", e);
+    log.warn("[LogConfig] latest.log create/update failed:", e);
   }
 }
 
@@ -157,10 +157,10 @@ function cleanupOldLogs(logDir: string, maxAgeMs: number): void {
       const stat = fs.statSync(fullPath);
       if (now - stat.mtimeMs > maxAgeMs) {
         fs.unlinkSync(fullPath);
-        log.info("[LogConfig] 已删除过期日志:", e.name);
+        log.info("[LogConfig] Deleted expired log:", e.name);
       }
     } catch (err) {
-      log.warn("[LogConfig] 清理日志失败:", e.name, err);
+      log.warn("[LogConfig] Failed to clean log:", e.name, err);
     }
   }
 }
@@ -178,9 +178,9 @@ function migrateOldMainLog(logDir: string): void {
     const legacyName = `main.${dateStr}.legacy.log`;
     const legacyPath = path.join(logDir, legacyName);
     fs.renameSync(oldMainPath, legacyPath);
-    log.info("[LogConfig] 旧 main.log 已迁移为:", legacyName);
+    log.info("[LogConfig] Old main.log migrated to:", legacyName);
   } catch (e) {
-    log.warn("[LogConfig] 旧 main.log 迁移失败:", e);
+    log.warn("[LogConfig] Old main.log migration failed:", e);
   }
 }
 
@@ -286,13 +286,13 @@ export function initLogging(): void {
       const archivePath = path.join(parsed.dir, archiveName);
       try {
         fs.renameSync(oldPath, archivePath);
-        log.info("[LogConfig] 日志已轮转:", archiveName);
+        log.info("[LogConfig] Log rotated:", archiveName);
         // Windows 硬链接指向 inode，轮转后需重新让 latest.log 指向新文件
         if (process.platform === "win32") {
           updateLatestLogWithRetry(parsed.dir);
         }
       } catch (e) {
-        log.warn("[LogConfig] 轮转失败，尝试截断:", e);
+        log.warn("[LogConfig] Rotation failed, attempting truncation:", e);
         const quarter = Math.round(maxSize / 4);
         oldLogFile.crop?.(Math.min(quarter, 256 * 1024));
       }

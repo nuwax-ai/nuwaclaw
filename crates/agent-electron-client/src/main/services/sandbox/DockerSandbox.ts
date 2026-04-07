@@ -72,7 +72,7 @@ export class DockerSandbox extends SandboxManager {
   // ============================================================================
 
   async init(): Promise<void> {
-    log.info("[DockerSandbox] 初始化 Docker 沙箱...");
+    log.info("[DockerSandbox] Initializing Docker sandbox...");
     log.debug("[DockerSandbox] config:", {
       type: this.config.type,
       platform: this.config.platform,
@@ -100,9 +100,9 @@ export class DockerSandbox extends SandboxManager {
       await this.ensureImageExists();
 
       this.initialized = true;
-      log.info("[DockerSandbox] 初始化完成");
+      log.info("[DockerSandbox] Initialization complete");
     } catch (error) {
-      log.error("[DockerSandbox] 初始化失败:", error);
+      log.error("[DockerSandbox] Initialization failed:", error);
       throw toSandboxError(
         error,
         "Docker 沙箱初始化失败",
@@ -141,10 +141,13 @@ export class DockerSandbox extends SandboxManager {
         infoOut.slice(0, 500),
       );
 
-      log.info("[DockerSandbox] Docker 可用，版本:", this.dockerVersion);
+      log.info(
+        "[DockerSandbox] Docker available, version:",
+        this.dockerVersion,
+      );
       return true;
     } catch (error) {
-      log.warn("[DockerSandbox] Docker 不可用:", error);
+      log.warn("[DockerSandbox] Docker unavailable:", error);
       return false;
     }
   }
@@ -185,12 +188,12 @@ export class DockerSandbox extends SandboxManager {
     try {
       // 检查镜像是否存在
       await execAsync(`docker image inspect ${image}`, { timeout: 10000 });
-      log.info("[DockerSandbox] 镜像已存在:", image);
+      log.info("[DockerSandbox] Image already exists:", image);
     } catch {
       // 镜像不存在，尝试拉取
-      log.info("[DockerSandbox] 拉取镜像:", image);
+      log.info("[DockerSandbox] Pulling image:", image);
       await execAsync(`docker pull ${image}`, { timeout: 300000 }); // 5 分钟超时
-      log.info("[DockerSandbox] 镜像拉取完成:", image);
+      log.info("[DockerSandbox] Image pull complete:", image);
     }
   }
 
@@ -199,7 +202,7 @@ export class DockerSandbox extends SandboxManager {
   // ============================================================================
 
   async createWorkspace(sessionId: string): Promise<Workspace> {
-    log.info("[DockerSandbox] 创建工作区:", sessionId);
+    log.info("[DockerSandbox] Creating workspace:", sessionId);
 
     // 检查是否已存在
     if (this.workspaces.has(sessionId)) {
@@ -266,7 +269,7 @@ export class DockerSandbox extends SandboxManager {
   }
 
   async destroyWorkspace(sessionId: string): Promise<void> {
-    log.info("[DockerSandbox] 销毁工作区:", sessionId);
+    log.info("[DockerSandbox] Destroying workspace:", sessionId);
 
     const workspace = this.validateWorkspaceExists(sessionId);
 
@@ -294,7 +297,7 @@ export class DockerSandbox extends SandboxManager {
         sessionId,
       });
 
-      log.info("[DockerSandbox] 工作区销毁完成:", sessionId);
+      log.info("[DockerSandbox] Workspace destruction complete:", sessionId);
     } catch (error) {
       workspace.status = "error";
       throw toSandboxError(
@@ -336,7 +339,12 @@ export class DockerSandbox extends SandboxManager {
     const startTime = Date.now();
     const timeout = options.timeout || 300000; // 默认 5 分钟
 
-    log.info("[DockerSandbox] 执行命令:", sessionId, command, args.join(" "));
+    log.info(
+      "[DockerSandbox] Executing command:",
+      sessionId,
+      command,
+      args.join(" "),
+    );
     log.debug("[DockerSandbox] execute detail:", {
       sessionId,
       command,
@@ -532,7 +540,7 @@ export class DockerSandbox extends SandboxManager {
   // ============================================================================
 
   async cleanup(): Promise<CleanupResult> {
-    log.info("[DockerSandbox] 开始清理...");
+    log.info("[DockerSandbox] Starting cleanup...");
 
     const result: CleanupResult = {
       deletedCount: 0,
@@ -567,7 +575,7 @@ export class DockerSandbox extends SandboxManager {
 
     this.workspaces.clear();
 
-    log.info("[DockerSandbox] 清理完成:", result);
+    log.info("[DockerSandbox] Cleanup complete:", result);
     this.emitEvent("cleanup:complete", { result });
 
     return result;
@@ -608,7 +616,7 @@ export class DockerSandbox extends SandboxManager {
 
       return containers;
     } catch (error) {
-      log.error("[DockerSandbox] 列出容器失败:", error);
+      log.error("[DockerSandbox] Failed to list containers:", error);
       return [];
     }
   }
@@ -636,7 +644,7 @@ export class DockerSandbox extends SandboxManager {
       });
       return stdout;
     } catch (error) {
-      log.error("[DockerSandbox] 获取容器日志失败:", error);
+      log.error("[DockerSandbox] Failed to get container logs:", error);
       return "";
     }
   }
@@ -749,9 +757,9 @@ export class DockerSandbox extends SandboxManager {
     try {
       await execAsync(`docker stop ${containerId}`, { timeout: 30000 });
       await execAsync(`docker rm ${containerId}`, { timeout: 30000 });
-      log.info("[DockerSandbox] 容器已停止并删除:", containerId);
+      log.info("[DockerSandbox] Container stopped and removed:", containerId);
     } catch (error) {
-      log.error("[DockerSandbox] 停止容器失败:", error);
+      log.error("[DockerSandbox] Failed to stop container:", error);
       throw error;
     }
   }
@@ -887,7 +895,7 @@ export class DockerSandbox extends SandboxManager {
     try {
       await fs.rm(dirPath, { recursive: true, force: true });
     } catch (error) {
-      log.error("[DockerSandbox] 删除目录失败:", dirPath, error);
+      log.error("[DockerSandbox] Failed to delete directory:", dirPath, error);
       throw error;
     }
   }
@@ -910,7 +918,7 @@ export class DockerSandbox extends SandboxManager {
       // 删除目录
       await this.deleteWorkspaceDirectory(workspaceRoot);
     } catch (error) {
-      log.error("[DockerSandbox] 清理失败的工作区时出错:", error);
+      log.error("[DockerSandbox] Error cleaning failed workspace:", error);
     }
   }
 }

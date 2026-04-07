@@ -288,7 +288,7 @@ export function createIsolatedEnvironment(config: EngineConfig): {
     const settingsPath = path.join(isolatedHome, ".claude", "settings.json");
     const settings = { mcpServers: mcpConfig };
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-    log.info(`[Engine] 已写入 MCP 配置到 ${settingsPath}`);
+    log.info(`[Engine] Wrote MCP config to ${settingsPath}`);
   }
 
   // 构建隔离环境变量

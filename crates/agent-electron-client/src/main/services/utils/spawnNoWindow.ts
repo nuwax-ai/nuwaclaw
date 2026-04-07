@@ -35,16 +35,16 @@
  * This approach is inspired by LobsterAI's coworkUtil.ts implementation.
  */
 
-import { spawn, ChildProcess, SpawnOptions, execSync } from 'child_process';
-import * as path from 'path';
-import * as fs from 'fs';
-import log from 'electron-log';
-import { getAppEnv, getNodeBinPath } from '../system/dependencies';
+import { spawn, ChildProcess, SpawnOptions, execSync } from "child_process";
+import * as path from "path";
+import * as fs from "fs";
+import log from "electron-log";
+import { getAppEnv, getNodeBinPath } from "../system/dependencies";
 
 /**
  * Options for spawnNoWindow functions
  */
-export interface SpawnNoWindowOptions extends Omit<SpawnOptions, 'shell'> {
+export interface SpawnNoWindowOptions extends Omit<SpawnOptions, "shell"> {
   /**
    * Custom Node.js executable path (defaults to process.execPath)
    */
@@ -62,24 +62,27 @@ export interface SpawnNoWindowOptions extends Omit<SpawnOptions, 'shell'> {
  * @param binName - The bin name to resolve (defaults to package name)
  * @returns The absolute path to the JS entry file, or null if not found
  */
-export function resolveNpmPackageEntry(packageDir: string, binName?: string): string | null {
-  const pkgJsonPath = path.join(packageDir, 'package.json');
+export function resolveNpmPackageEntry(
+  packageDir: string,
+  binName?: string,
+): string | null {
+  const pkgJsonPath = path.join(packageDir, "package.json");
 
   if (!fs.existsSync(pkgJsonPath)) {
     return null;
   }
 
   try {
-    const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
+    const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8"));
 
     // Get bin path from package.json
     let binPath: string | undefined;
-    if (typeof pkg.bin === 'string') {
+    if (typeof pkg.bin === "string") {
       binPath = pkg.bin;
-    } else if (pkg.bin && typeof pkg.bin === 'object') {
+    } else if (pkg.bin && typeof pkg.bin === "object") {
       const name = binName || pkg.name;
       const binValue = name ? pkg.bin[name] : Object.values(pkg.bin)[0];
-      if (typeof binValue === 'string') {
+      if (typeof binValue === "string") {
         binPath = binValue;
       }
     }
@@ -88,13 +91,13 @@ export function resolveNpmPackageEntry(packageDir: string, binName?: string): st
       // 处理相对路径（如 ./dist/bin.js）
       // path.join 不会自动规范化，需要手动处理
       let entryPath: string;
-      if (binPath.startsWith('./')) {
+      if (binPath.startsWith("./")) {
         // 相对路径：直接拼接并规范化
         entryPath = path.normalize(path.join(packageDir, binPath));
       } else {
         entryPath = path.join(packageDir, binPath);
       }
-      
+
       if (fs.existsSync(entryPath)) {
         return entryPath;
       }
@@ -102,15 +105,14 @@ export function resolveNpmPackageEntry(packageDir: string, binName?: string): st
 
     // Fallback: try common entry file locations
     const fallbacks = [
-      path.join(packageDir, 'index.js'),
-      path.join(packageDir, 'cli.js'),
-      path.join(packageDir, 'dist', 'index.js'),
+      path.join(packageDir, "index.js"),
+      path.join(packageDir, "cli.js"),
+      path.join(packageDir, "dist", "index.js"),
     ];
 
     for (const p of fallbacks) {
       if (fs.existsSync(p)) return p;
     }
-
   } catch {
     // Failed to parse package.json
   }
@@ -148,51 +150,76 @@ export function spawnJsFile(
 
   // 检测是否在 Electron 环境中运行
   // 测试环境中 app.getPath 不可用，需要使用回退方案
-  const isElectron = typeof process.versions?.electron === 'string';
+  const isElectron = typeof process.versions?.electron === "string";
 
   // 与 Tauri 一致：调用方已传入完整 env（如 mcp-proxy 的 getAppEnv）时直接使用，不再二次合并 getAppEnv()，避免 PATH/UV_* 被覆盖或时机不一致
-  const callerProvidedFullEnv = env && typeof env === 'object' && 'PATH' in env && Object.keys(env).length > 5;
+  const callerProvidedFullEnv =
+    env &&
+    typeof env === "object" &&
+    "PATH" in env &&
+    Object.keys(env).length > 5;
   if (env && !callerProvidedFullEnv && isElectron) {
-    log.info(`[spawnNoWindow] 追踪: 未使用完整 env（PATH=${!!env?.PATH}, 键数=${Object.keys(env || {}).length}），将合并 getAppEnv()`);
+    log.info(
+      `[spawnNoWindow] Trace: not using full env (PATH=${!!env?.PATH}, keys=${Object.keys(env || {}).length}), will merge getAppEnv()`,
+    );
   }
 
   if (isWindows()) {
     node = nodePath || process.execPath;
     if (callerProvidedFullEnv && isElectron) {
-      mergedEnv = { ...env, ELECTRON_RUN_AS_NODE: '1' } as Record<string, string | undefined>;
-      const pathStr = mergedEnv.PATH || '';
-      const pathWithUv = pathStr.split(';').filter((p) => p && (p.includes('uv') || p.includes('nuwaclaw')));
-      log.info(`[spawnNoWindow] Windows: 使用调用方传入的完整 env (${Object.keys(env).length} 项)`);
-      log.info(`[spawnNoWindow] 追踪: 子进程 PATH 中含 uv 的段数=${pathWithUv.length}, 前5段=${pathWithUv.slice(0, 5).join(';') || '(无)'}`);
+      mergedEnv = { ...env, ELECTRON_RUN_AS_NODE: "1" } as Record<
+        string,
+        string | undefined
+      >;
+      const pathStr = mergedEnv.PATH || "";
+      const pathWithUv = pathStr
+        .split(";")
+        .filter((p) => p && (p.includes("uv") || p.includes("nuwaclaw")));
+      log.info(
+        `[spawnNoWindow] Windows: using caller-provided full env (${Object.keys(env).length} entries)`,
+      );
+      log.info(
+        `[spawnNoWindow] Trace: uv segments in child PATH=${pathWithUv.length}, first 5=${pathWithUv.slice(0, 5).join(";") || "(none)"}`,
+      );
     } else {
       const appEnv = isElectron ? getAppEnv() : null;
       mergedEnv = appEnv
-        ? { ...appEnv, ...env, ELECTRON_RUN_AS_NODE: '1' }
+        ? { ...appEnv, ...env, ELECTRON_RUN_AS_NODE: "1" }
         : {
             ...process.env,
             ...env,
-            ELECTRON_RUN_AS_NODE: '1',
+            ELECTRON_RUN_AS_NODE: "1",
             PATH: getEnhancedPath(),
           };
     }
-    log.info(`[spawnNoWindow] Windows 调试信息 (Electron: ${isElectron}):`);
+    log.info(`[spawnNoWindow] Windows debug info (Electron: ${isElectron}):`);
     log.info(`[spawnNoWindow]   - process.execPath: ${process.execPath}`);
-    log.info(`[spawnNoWindow]   - 使用 node: ${node}`);
-    log.info(`[spawnNoWindow]   - PATH 前5个: ${(mergedEnv.PATH || '').split(';').slice(0, 5).join(';')}`);
+    log.info(`[spawnNoWindow]   - Using node: ${node}`);
+    log.info(
+      `[spawnNoWindow]   - PATH first 5: ${(mergedEnv.PATH || "").split(";").slice(0, 5).join(";")}`,
+    );
   } else {
     // Linux/macOS：必须走应用集成的 Node 24（resources/node/<platform-arch>/bin/node），避免容器内 /usr/bin/node 不存在导致 ENOENT
     // 调用方未传 nodePath 时，Electron 下优先 getNodeBinPath()（应用集成 Node 24），无集成 node 时才回退 findSystemNode()
     const integratedNode = isElectron ? getNodeBinPath() : null;
     node = nodePath || (integratedNode ?? findSystemNode());
     if (integratedNode && node === integratedNode) {
-      log.info(`[spawnNoWindow] ${process.platform}: 使用应用集成 Node 24: ${node}`);
+      log.info(
+        `[spawnNoWindow] ${process.platform}: using bundled Node 24: ${node}`,
+      );
     }
     if (callerProvidedFullEnv && isElectron) {
       mergedEnv = { ...env } as Record<string, string | undefined>;
-      const pathStr = mergedEnv.PATH || '';
-      const pathWithUv = pathStr.split(':').filter((p) => p && (p.includes('uv') || p.includes('nuwaclaw')));
-      log.info(`[spawnNoWindow] ${process.platform}: 使用调用方传入的完整 env (${Object.keys(env).length} 项)`);
-      log.info(`[spawnNoWindow] 追踪: 子进程 PATH 中含 uv 的段数=${pathWithUv.length}, 前5段=${pathWithUv.slice(0, 5).join(':') || '(无)'}`);
+      const pathStr = mergedEnv.PATH || "";
+      const pathWithUv = pathStr
+        .split(":")
+        .filter((p) => p && (p.includes("uv") || p.includes("nuwaclaw")));
+      log.info(
+        `[spawnNoWindow] ${process.platform}: using caller-provided full env (${Object.keys(env).length} entries)`,
+      );
+      log.info(
+        `[spawnNoWindow] Trace: uv segments in child PATH=${pathWithUv.length}, first 5=${pathWithUv.slice(0, 5).join(":") || "(none)"}`,
+      );
     } else {
       const appEnv = isElectron ? getAppEnv() : null;
       mergedEnv = appEnv
@@ -206,15 +233,23 @@ export function spawnJsFile(
     // 使用绝对路径的 node 时，将其所在目录插入 PATH 最前，确保子进程内再 spawn('node') 或 process.execPath 能解析到同一可执行文件（避免容器内 /usr/bin/node 不存在导致 ENOENT）
     if (node && path.isAbsolute(node)) {
       const nodeDir = path.dirname(node);
-      const currentPath = mergedEnv.PATH || '';
+      const currentPath = mergedEnv.PATH || "";
       if (!currentPath.startsWith(nodeDir + path.delimiter)) {
-        mergedEnv.PATH = currentPath ? `${nodeDir}${path.delimiter}${currentPath}` : nodeDir;
-        log.info(`[spawnNoWindow] ${process.platform}: 已将 node 目录置于 PATH 最前: ${nodeDir}`);
+        mergedEnv.PATH = currentPath
+          ? `${nodeDir}${path.delimiter}${currentPath}`
+          : nodeDir;
+        log.info(
+          `[spawnNoWindow] ${process.platform}: prepended node dir to PATH front: ${nodeDir}`,
+        );
       }
     }
-    log.info(`[spawnNoWindow] ${process.platform} 调试信息 (Electron: ${isElectron}):`);
-    log.info(`[spawnNoWindow]   - 使用 node: ${node}`);
-    log.info(`[spawnNoWindow]   - PATH 前5个: ${(mergedEnv.PATH || '').split(':').slice(0, 5).join(':')}`);
+    log.info(
+      `[spawnNoWindow] ${process.platform} debug info (Electron: ${isElectron}):`,
+    );
+    log.info(`[spawnNoWindow]   - Using node: ${node}`);
+    log.info(
+      `[spawnNoWindow]   - PATH first 5: ${(mergedEnv.PATH || "").split(":").slice(0, 5).join(":")}`,
+    );
   }
 
   return spawn(node, [jsFile, ...args], {
@@ -256,14 +291,14 @@ export function spawnNpmPackage(
  * Check if we're running on Windows
  */
 export function isWindows(): boolean {
-  return process.platform === 'win32';
+  return process.platform === "win32";
 }
 
 /**
  * Check if we're running on macOS
  */
 export function isMacOS(): boolean {
-  return process.platform === 'darwin';
+  return process.platform === "darwin";
 }
 
 /**
@@ -314,17 +349,17 @@ function resolveUserShellPath(): string | null {
   }
 
   try {
-    const shell = process.env.SHELL || '/bin/bash';
+    const shell = process.env.SHELL || "/bin/bash";
     // Use login shell (-il) to source user's profile files
     const result = execSync(`${shell} -ilc 'echo __PATH__=$PATH'`, {
-      encoding: 'utf-8',
+      encoding: "utf-8",
       timeout: 5000,
       env: { ...process.env },
     });
     const match = result.match(/__PATH__=(.+)/);
     cachedUserShellPath = match ? match[1].trim() : null;
   } catch (error) {
-    console.warn('[spawnNoWindow] Failed to resolve user shell PATH:', error);
+    console.warn("[spawnNoWindow] Failed to resolve user shell PATH:", error);
     cachedUserShellPath = null;
   }
 
@@ -360,7 +395,7 @@ export function findSystemNode(): string {
     // Search for node in user's PATH
     const pathDirs = userPath.split(path.delimiter);
     for (const dir of pathDirs) {
-      const nodePath = path.join(dir, 'node');
+      const nodePath = path.join(dir, "node");
       if (fs.existsSync(nodePath)) {
         cachedSystemNodePath = nodePath;
         return nodePath;
@@ -369,14 +404,14 @@ export function findSystemNode(): string {
   }
 
   // Fallback: try common node installation paths
-  const home = process.env.HOME || process.env.USERPROFILE || '';
+  const home = process.env.HOME || process.env.USERPROFILE || "";
   const commonPaths = [
-    '/usr/local/bin/node',
-    '/opt/homebrew/bin/node',
-    '/usr/bin/node',
-    path.join(home, '.nvm/versions/node/current/bin/node'),
-    path.join(home, '.volta/bin/node'),
-    path.join(home, '.fnm/current/bin/node'),
+    "/usr/local/bin/node",
+    "/opt/homebrew/bin/node",
+    "/usr/bin/node",
+    path.join(home, ".nvm/versions/node/current/bin/node"),
+    path.join(home, ".volta/bin/node"),
+    path.join(home, ".fnm/current/bin/node"),
   ];
 
   for (const p of commonPaths) {
@@ -388,12 +423,14 @@ export function findSystemNode(): string {
 
   // Final fallback: assume 'node' is in PATH
   // Log warning in development mode
-  if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
-    console.warn('[spawnNoWindow] Could not find system node, using "node" from PATH');
+  if (process.env.NODE_ENV === "development" || !process.env.NODE_ENV) {
+    console.warn(
+      '[spawnNoWindow] Could not find system node, using "node" from PATH',
+    );
   }
 
-  cachedSystemNodePath = 'node';
-  return 'node';
+  cachedSystemNodePath = "node";
+  return "node";
 }
 
 /**
@@ -401,7 +438,7 @@ export function findSystemNode(): string {
  * Used for macOS/Linux to ensure subprocesses can find node and other tools.
  */
 function getEnhancedPath(): string {
-  const currentPath = process.env.PATH || '';
+  const currentPath = process.env.PATH || "";
   const userPath = resolveUserShellPath();
 
   if (userPath) {

@@ -496,7 +496,7 @@ export function resolveAcpBinary(engine: "claude-code" | "nuwaxcode"): {
   // nuwaxcode: resolve platform-specific native binary directly
   const nativePath = resolveNuwaxcodeNativeBinary();
   if (nativePath) {
-    log.info(`[AcpClient] nuwaxcode: 使用原生二进制: ${nativePath}`);
+    log.info(`[AcpClient] nuwaxcode: using native binary: ${nativePath}`);
     return {
       binPath: nativePath,
       binArgs: ["acp"],
@@ -505,7 +505,9 @@ export function resolveAcpBinary(engine: "claude-code" | "nuwaxcode"): {
   }
 
   // Fallback: use JS wrapper (will have Windows popup issue)
-  log.warn("[AcpClient] nuwaxcode: 未找到原生二进制，回退到 JS wrapper");
+  log.warn(
+    "[AcpClient] nuwaxcode: native binary not found, falling back to JS wrapper",
+  );
   const packageDir = getAcpPackageDir("nuwaxcode");
   const entryPath = packageDir
     ? resolveNpmPackageEntry(packageDir, "nuwaxcode")
@@ -532,11 +534,11 @@ function resolveNuwaxcodeNativeBinary(): string | null {
   // 应用内打包的二进制（唯一来源）
   const bundledPath = getNuwaxcodeBundledBinPath();
   if (bundledPath) {
-    log.info("[AcpClient] nuwaxcode: 使用应用内打包二进制:", bundledPath);
+    log.info("[AcpClient] nuwaxcode: using bundled binary:", bundledPath);
     return bundledPath;
   }
 
-  log.error("[AcpClient] nuwaxcode: 未找到应用内打包二进制");
+  log.error("[AcpClient] nuwaxcode: bundled binary not found");
   return null;
 }
 

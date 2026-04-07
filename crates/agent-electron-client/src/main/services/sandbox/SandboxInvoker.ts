@@ -106,7 +106,9 @@ export class SandboxInvoker {
       case "windows-sandbox":
         return this.buildWindowsHelper(params);
       case "docker":
-        log.warn("[SandboxInvoker] Docker 进程级沙箱暂不支持，返回未包装调用");
+        log.warn(
+          "[SandboxInvoker] Docker process-level sandbox not supported yet, returning unwrapped call",
+        );
         return {
           command: params.command,
           args: params.args,

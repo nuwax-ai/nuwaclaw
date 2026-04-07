@@ -108,7 +108,7 @@ export class PersistentMcpBridge {
         ...serverPromises,
       ]);
     } catch (e) {
-      this.log.error(`${LOG_TAG} 启动失败，清理已 spawn 的子进程:`, e);
+      this.log.error(`${LOG_TAG} Start failed, cleaning spawned child processes:`, e);
       // 等待所有 spawnAndConnect 完成，确保 entry.client/transport 已赋值后再清理
       await Promise.allSettled(serverPromises);
       await Promise.all(Array.from(this.servers.keys()).map((id) => this.stopServer(id)));
