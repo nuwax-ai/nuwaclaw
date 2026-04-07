@@ -14,6 +14,8 @@ ELECTRON_ON_WINDOWS := $(strip $(filter Windows_NT,$(OS)) $(findstring MINGW,$(U
 
 # Electron 客户端目录
 ELECTRON_CLIENT := agent-electron-client
+ELECTRON_VERSION := $(shell node -p "require('./crates/$(ELECTRON_CLIENT)/package.json').version" 2>/dev/null)
+SIGN_WORK_DIR ?= /c/tmp/nuwaclaw-sign
 
 # ============================================================================
 # 帮助信息
@@ -46,7 +48,8 @@ help:
 	@echo "  electron-prepare-sandbox-runtime - Sync Windows sandbox helper (skipped on non-Windows hosts)"
 	@echo "  electron-prepare-windows-mcp - Bundle windows-mcp into resources (Windows only, skipped elsewhere)"
 	@echo "  electron-prepare            - Full prepare (install + rebuild + all binaries)"
-	@echo "  electron-bundle             - Build Electron app (unsigned, current platform)"
+	@echo "  electron-bundle-unsigned    - Build Electron app (unsigned, current platform)"
+	@echo "  electron-bundle             - Build Electron app then sign on Windows via sign-release-win.sh"
 	@echo "  electron-dev                - Run Electron dev mode"
 	@echo ""
 	@echo "=== Dependencies ==="
@@ -191,10 +194,45 @@ endif
 electron-prepare: electron-install-deps electron-rebuild electron-prepare-sources electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-nuwaxcode electron-prepare-gui-server electron-prepare-sandbox-runtime electron-prepare-windows-mcp
 	@echo ">>> Electron client prepared successfully"
 
+.PHONY: electron-bundle-unsigned
+electron-bundle-unsigned: electron-prepare
+	@echo ">>> Building Electron app (unsigned installers only, skip Windows afterSign)..."
+	cd crates/$(ELECTRON_CLIENT) && \
+		SKIP_WINDOWS_AFTER_SIGN=1 \
+		WINDOWS_CERTIFICATE_SHA1= \
+		WINDOWS_CERTIFICATE_PATH= \
+		WINDOWS_CERTIFICATE_PASSWORD= \
+		CS_CERT_SHA1= \
+		CS_CERT_PATH= \
+		CS_CERT_PASSWORD= \
+		npm run dist:unsigned:local
+
+ifneq ($(ELECTRON_ON_WINDOWS),)
 .PHONY: electron-bundle
-electron-bundle: electron-prepare
-	@echo ">>> Building Electron app (unsigned, current platform, 使用 .env.production 配置)..."
-	cd crates/$(ELECTRON_CLIENT) && npm run dist:unsigned:local
+electron-bundle: electron-bundle-unsigned
+	@echo ">>> Signing Windows installers via sign-release-win.sh (local mode)..."
+	@set -e; \
+	VERSION="$(ELECTRON_VERSION)"; \
+	RELEASE_DIR="$(CURDIR)/crates/$(ELECTRON_CLIENT)/release/$$VERSION"; \
+	WORK_DIR="$(SIGN_WORK_DIR)"; \
+	UNSIGNED_DIR="$$WORK_DIR/unsigned"; \
+	SIGNED_DIR="$$WORK_DIR/signed"; \
+	echo ">>> Version: $$VERSION"; \
+	echo ">>> Release dir: $$RELEASE_DIR"; \
+	echo ">>> Sign work dir: $$WORK_DIR"; \
+	mkdir -p "$$UNSIGNED_DIR" "$$SIGNED_DIR"; \
+	cp "$$RELEASE_DIR/NuwaClaw-Setup-$$VERSION-unsigned.exe" "$$UNSIGNED_DIR/"; \
+	cp "$$RELEASE_DIR/NuwaClaw-$$VERSION-unsigned.msi" "$$UNSIGNED_DIR/"; \
+	( cd crates/$(ELECTRON_CLIENT) && SIGN_WORK_DIR="$$WORK_DIR" bash ./scripts/build/sign-release-win.sh "$$VERSION" --skip-download --skip-upload ); \
+	mkdir -p "$$RELEASE_DIR"; \
+	cp "$$SIGNED_DIR/NuwaClaw.Setup.$$VERSION.exe" "$$RELEASE_DIR/"; \
+	cp "$$SIGNED_DIR/NuwaClaw.$$VERSION.msi" "$$RELEASE_DIR/"; \
+	echo ">>> Signed artifacts copied to $$RELEASE_DIR"
+else
+.PHONY: electron-bundle
+electron-bundle: electron-bundle-unsigned
+	@echo ">>> Skipping sign-release-win.sh (Windows-only signing chain, host=$(UNAME_S))"
+endif
 
 .PHONY: electron-dev
 electron-dev: electron-prepare

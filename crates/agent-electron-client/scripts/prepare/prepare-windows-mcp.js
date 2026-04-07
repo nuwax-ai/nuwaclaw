@@ -31,6 +31,44 @@ const targetDir = path.join(resDir, 'bin');
 /** 工具隔离环境目录（随 resources 一并打包时只需 bin + 依赖在 venv 内；见 UV_TOOL_DIR） */
 const toolDataDir = path.join(resDir, '.uv-tool');
 
+function pruneTypeStubFiles(rootDir) {
+  if (!fs.existsSync(rootDir)) return { scanned: 0, removed: 0 };
+
+  let scanned = 0;
+  let removed = 0;
+  const stack = [rootDir];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch (_) {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+
+      scanned += 1;
+      if (!entry.name.endsWith('.pyi')) continue;
+      try {
+        fs.rmSync(fullPath);
+        removed += 1;
+      } catch (_) {
+        // ignore single-file failure, continue pruning
+      }
+    }
+  }
+
+  return { scanned, removed };
+}
+
 function getUvBinPath() {
   const uvBinName = process.platform === 'win32' ? 'uv.exe' : 'uv';
   const uvPath = resolveFromProject('resources', 'uv', 'bin', uvBinName);
@@ -78,7 +116,14 @@ function main() {
     process.exit(1);
   }
 
-  // 5. 验证安装
+  // 6. 裁剪类型桩文件（*.pyi）：
+  // 这些文件仅用于类型提示，不参与运行时；删除后可避免 Windows MSI 打包出现超长路径问题（MAX_PATH）。
+  const pruneStats = pruneTypeStubFiles(toolDataDir);
+  console.log(
+    `[prepare-windows-mcp] Pruned type stubs: removed ${pruneStats.removed} files (scanned ${pruneStats.scanned})`,
+  );
+
+  // 7. 验证安装
   const windowsMcpExe = path.join(targetDir, 'windows-mcp.exe');
   if (fs.existsSync(windowsMcpExe)) {
     const sizeMB = (fs.statSync(windowsMcpExe).size / 1024 / 1024).toFixed(1);
