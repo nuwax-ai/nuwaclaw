@@ -1166,7 +1166,7 @@ export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
     description: "Agent 引擎统一适配服务（应用内安装）",
     required: true,
     binName: "claude-code-acp-ts",
-    installVersion: "0.24.2",
+    installVersion: "0.24.3",
   },
 ];
 
