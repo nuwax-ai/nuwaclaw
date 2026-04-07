@@ -12,6 +12,7 @@
   "Claw.Common.noData": "暂无数据",
   "Claw.Common.back": "返回",
   "Claw.Common.refresh": "刷新",
+  "Claw.Errors.mcpReconnectRetryLater": "MCP 连接波动，正在自动重连，请稍后重试",
   "Claw.Pages.Dependencies.systemEnv": "系统环境",
   "Claw.Pages.Dependencies.dependencyPackages": "依赖包",
   "Claw.Pages.Dependencies.checking": "检测中...",

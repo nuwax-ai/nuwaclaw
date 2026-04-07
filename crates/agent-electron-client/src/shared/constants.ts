@@ -476,6 +476,7 @@ export const I18N_KEYS = {
       MSG_UPGRADE_SUCCESS: "Claw.Pages.Dependencies.msgUpgradeSuccess",
       MSG_FAILED: "Claw.Pages.Dependencies.msgFailed",
       MSG_INSTALL_ALL_COMPLETE: "Claw.Pages.Dependencies.msgInstallAllComplete",
+      MSG_INSTALL_ALL_SUCCESS: "Claw.Pages.Dependencies.msgInstallAllSuccess",
       MSG_UPGRADE_ALL_COMPLETE: "Claw.Pages.Dependencies.msgUpgradeAllComplete",
       MSG_LOAD_FAILED: "Claw.Pages.Dependencies.msgLoadFailed",
       MSG_RESTARTING_SERVICES: "Claw.Pages.Dependencies.msgRestartingServices",

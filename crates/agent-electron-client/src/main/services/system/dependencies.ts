@@ -17,7 +17,7 @@ import {
   DEFAULT_MIRROR_CONFIG,
   APP_DATA_DIR_NAME,
 } from "../constants";
-import { APP_NAME_IDENTIFIER } from "@shared/constants";
+import { APP_NAME_IDENTIFIER, I18N_KEYS } from "@shared/constants";
 import { isWindows } from "./shellEnv";
 import {
   spawnCrossPlatform,
@@ -25,7 +25,7 @@ import {
   getNodeCommand,
   getCommandChecker,
 } from "../utils/spawn";
-
+import { t } from "../i18n";
 // ==================== Types ====================
 
 export type DependencyStatus =
@@ -742,7 +742,7 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     (p) => p && (p.includes("uv") || p.includes("nuwaclaw")),
   );
   log.info(
-    `[getAppEnv] 追踪 uv/uvx: PATH 中与 uv 相关段数=${uvRelated.length}, 前5段=${uvRelated.slice(0, 5).join(" | ") || "(无)"}`,
+    `[getAppEnv] uv/uvx trace: uv-related segments in PATH=${uvRelated.length}, top 5=${uvRelated.slice(0, 5).join(" | ") || "(none)"}`,
   );
 
   // 构建环境变量对象
@@ -1131,45 +1131,45 @@ function getSystemPaths(): string[] {
 export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
   {
     name: "uv",
-    displayName: "uv",
+    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_UV),
     type: "bundled",
-    description: "高性能 Python 包管理器，用于管理 Python 环境和依赖（已集成）",
+    description: t(I18N_KEYS.Pages.Dependencies.DESC_UV),
     required: true,
     minVersion: "0.5.0",
     installUrl: "https://docs.astral.sh/uv/getting-started/installation/",
   },
   {
     name: "pnpm",
-    displayName: "pnpm 包管理器",
+    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_PNPM),
     type: "npm-local",
-    description: "高性能 Node.js 包管理器（应用内安装）",
+    description: t(I18N_KEYS.Pages.Dependencies.DESC_PNPM),
     required: true,
     binName: "pnpm",
     installVersion: "10.30.3",
   },
   {
     name: "nuwax-file-server",
-    displayName: "文件服务",
+    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_FILE_SERVER),
     type: "bundled",
-    description: "Agent 工作目录文件远程管理服务（已集成）",
+    description: t(I18N_KEYS.Pages.Dependencies.DESC_FILE_SERVER),
     required: true,
     binName: "nuwax-file-server",
     installVersion: "1.2.4",
   },
   {
     name: "nuwaxcode",
-    displayName: "Agent 引擎",
+    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_NUWAXCODE),
     type: "bundled",
-    description: "Agent 执行引擎（应用内集成）",
+    description: t(I18N_KEYS.Pages.Dependencies.DESC_NUWAXCODE),
     required: true,
     binName: "nuwaxcode",
     installVersion: "1.1.68",
   },
   {
     name: "claude-code-acp-ts",
-    displayName: "ACP 协议",
+    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_CLAUDE_CODE_ACP),
     type: "bundled",
-    description: "Agent 引擎统一适配服务（已集成）",
+    description: t(I18N_KEYS.Pages.Dependencies.DESC_CLAUDE_CODE_ACP),
     required: true,
     binName: "claude-code-acp-ts",
     installVersion: "0.24.3",

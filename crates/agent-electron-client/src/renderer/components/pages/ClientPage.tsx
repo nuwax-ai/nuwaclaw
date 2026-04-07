@@ -50,6 +50,7 @@ import {
 import type { ServiceItem } from "../../App";
 import { buildRedirectUrl } from "../../services/utils/sessionUrl";
 import { t } from "../../services/core/i18n";
+import { resolveDepDisplayName } from "../../utils/dependencyI18n";
 import styles from "../../styles/components/ClientPage.module.css";
 
 // ======================== Types =================
@@ -563,7 +564,11 @@ function ClientPage({
         setMissingDeps(
           missing.map((d: any) => ({
             name: d.name,
-            displayName: d.displayName || d.name,
+            // 统一依赖名称的 i18n 兜底，避免后端返回 key/异常 key 直接显示到 UI
+            displayName: resolveDepDisplayName({
+              name: d.name,
+              displayName: d.displayName,
+            }),
           })),
         );
       }
@@ -884,7 +889,11 @@ function ClientPage({
           <div>
             <div style={{ marginBottom: 8 }}>
               {missingDeps.map((dep) => (
-                <Tag key={dep.name} color="error" style={{ marginBottom: 4 }}>
+                <Tag
+                  key={dep.name}
+                  color="error"
+                  style={{ marginBottom: 4, marginRight: 4 }}
+                >
                   {dep.displayName}
                 </Tag>
               ))}
@@ -900,8 +909,8 @@ function ClientPage({
         }
         type={allStopped ? "error" : "warning"}
         showIcon
+        className={styles.dependencyAlert}
         icon={<ExclamationCircleOutlined />}
-        style={{ marginBottom: 16 }}
       />
     );
   };

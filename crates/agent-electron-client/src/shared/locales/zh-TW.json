@@ -12,6 +12,7 @@
   "Claw.Common.noData": "暫無資料",
   "Claw.Common.back": "返回",
   "Claw.Common.refresh": "重新整理",
+  "Claw.Errors.mcpReconnectRetryLater": "MCP 連線波動，正在自動重連，請稍後重試",
   "Claw.Pages.Dependencies.systemEnv": "系統環境",
   "Claw.Pages.Dependencies.dependencyPackages": "依賴套件",
   "Claw.Pages.Dependencies.checking": "檢測中...",

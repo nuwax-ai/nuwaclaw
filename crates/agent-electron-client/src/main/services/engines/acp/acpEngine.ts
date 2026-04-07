@@ -73,6 +73,7 @@ import {
   killProcessTreeGraceful,
 } from "../../utils/processTree";
 import { processRegistry } from "../../system/processRegistry";
+import { t } from "../../i18n";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ACP_ABORT_TIMEOUT } from "@shared/constants";
 import { perfEmitter } from "../perf/perfEmitter";
@@ -89,7 +90,8 @@ function safeStringify(obj: unknown): string {
 
 const MCP_RETRY_DELAY_MS = 1200;
 const MCP_RECONNECT_WINDOW_MS = 4000;
-const MCP_RECONNECT_PROMPT_MESSAGE = "MCP 连接抖动，正在自动重连，请稍后重试";
+// 该文案会透传到上层调用方/界面，必须走 i18n，避免在非英文语言下出现硬编码英文提示。
+const MCP_RECONNECT_PROMPT_MESSAGE = t("Claw.Errors.mcpReconnectRetryLater");
 const NUWAX_MCP_INIT_POLICY_DEFAULT: NonNullable<
   PromptOptions["mcpInitPolicy"]
 > = "non_blocking";
@@ -188,7 +190,8 @@ export class AcpEngine extends EventEmitter {
       lower.includes("session is terminating") ||
       lower.includes("abort") ||
       lower.includes("cancel") ||
-      errorMsg.includes("会话已取消")
+      errorMsg.includes("会话已取消") ||
+      errorMsg.includes("Session cancelled")
     );
   }
 
@@ -260,8 +263,8 @@ export class AcpEngine extends EventEmitter {
     const envModel = config.env?.OPENCODE_MODEL || config.env?.ANTHROPIC_MODEL;
     log.info(`${this.logTag} 🚀 Init config`, {
       engine: this.engineName,
-      config_model: config.model || "未设置",
-      env_model: envModel || "未设置",
+      config_model: config.model || "(not set)",
+      env_model: envModel || "(not set)",
       baseUrl: config.baseUrl || "(default)",
       apiKey_set: !!config.apiKey,
       workspaceDir: config.workspaceDir,
@@ -991,7 +994,7 @@ export class AcpEngine extends EventEmitter {
       // 1. Reject local prompt immediately for fast UX feedback.
       const reject = this.activePromptRejects.get(sessionId);
       if (reject) {
-        reject(new Error("会话已取消"));
+        reject(new Error("Session cancelled"));
         this.activePromptRejects.delete(sessionId);
       }
 
@@ -1470,8 +1473,8 @@ export class AcpEngine extends EventEmitter {
           safeStringify(redactForLog(request.agent_config)),
         ),
         model_provider: redactForLog(request.model_provider),
-        config_model: this.config.model || "未设置",
-        env_model: envModel || "未设置",
+        config_model: this.config.model || "(not set)",
+        env_model: envModel || "(not set)",
         baseUrl_set: !!this.config.baseUrl,
         apiKey_set: !!this.config.apiKey,
         env_keys: this.config.env ? Object.keys(this.config.env) : [],
@@ -1550,7 +1553,7 @@ export class AcpEngine extends EventEmitter {
             (n) => servers[n]?.enabled !== false,
           );
           log.info(
-            `${this.logTag} 🔌 context_servers (已由 proxy 聚合): ${serverNames.join(", ") || "(无)"}`,
+            `${this.logTag} 🔌 context_servers (aggregated by proxy): ${serverNames.join(", ") || "(none)"}`,
           );
         }
 
@@ -1583,11 +1586,11 @@ export class AcpEngine extends EventEmitter {
       }
 
       timer.end("acp.chat.sessionSetup", {
-        stage: "会话准备",
+        stage: "session_setup",
         sessionId: session.id,
         isNewSession,
         engine: this.engineName,
-        model: this.config.model || envModel || "(未设置)",
+        model: this.config.model || envModel || "(not set)",
       });
       firstTokenTrace.trace(
         "acp.chat.session_ready",
@@ -1706,11 +1709,11 @@ ${memoryContext}
       });
 
       timer.end("acp.chat.total", {
-        stage: "总耗时",
+        stage: "total",
         sessionId: session.id,
         isNewSession,
         engine: this.engineName,
-        model: this.config.model || "(未设置)",
+        model: this.config.model || "(not set)",
       });
 
       // 5. Return HttpResult<ChatResponse>
@@ -1736,7 +1739,7 @@ ${memoryContext}
 
       return {
         code: "0000",
-        message: "成功",
+        message: "success",
         data: chatResponse,
         tid: null,
         success: true,

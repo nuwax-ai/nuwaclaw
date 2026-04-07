@@ -23,6 +23,7 @@ import type {
 } from "@shared/types/electron";
 import { I18N_KEYS } from "@shared/constants";
 import { t } from "../../services/core/i18n";
+import { resolveDepDisplayName } from "../../utils/dependencyI18n";
 import styles from "../../styles/components/ClientPage.module.css";
 
 // Dev mock 模式：设为 true 可预览骨架屏 loading 效果
@@ -46,8 +47,8 @@ const MOCK_UV_RESULT = {
 const MOCK_LOCAL_DEPS: LocalDependencyItem[] = [
   {
     name: "@anthropic-ai/sdk",
-    displayName: "Anthropic SDK",
-    description: "Claude API 客户端",
+    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_ANTHROPIC_SDK),
+    description: t(I18N_KEYS.Pages.Dependencies.DESC_ANTHROPIC_SDK),
     type: "npm-local",
     status: "installed",
     version: "0.30.0",
@@ -56,8 +57,8 @@ const MOCK_LOCAL_DEPS: LocalDependencyItem[] = [
   },
   {
     name: "claude-code-acp-ts",
-    displayName: "Claude Code ACP",
-    description: "ACP 协议实现",
+    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_CLAUDE_CODE_ACP),
+    description: t(I18N_KEYS.Pages.Dependencies.DESC_CLAUDE_CODE_ACP),
     type: "npm-local",
     status: "installed",
     version: "1.0.0",
@@ -65,8 +66,8 @@ const MOCK_LOCAL_DEPS: LocalDependencyItem[] = [
   },
   {
     name: "nuwax-file-server",
-    displayName: "文件服务",
-    description: "本地文件 HTTP 服务",
+    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_FILE_SERVER),
+    description: t(I18N_KEYS.Pages.Dependencies.DESC_FILE_SERVER),
     type: "npm-local",
     status: "outdated",
     version: "1.2.0",
@@ -75,8 +76,8 @@ const MOCK_LOCAL_DEPS: LocalDependencyItem[] = [
   },
   {
     name: "nuwax-mcp-stdio-proxy",
-    displayName: "MCP 代理",
-    description: "MCP 协议聚合代理",
+    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_MCP_PROXY),
+    description: t(I18N_KEYS.Pages.Dependencies.DESC_MCP_PROXY),
     type: "npm-local",
     status: "missing",
     required: true,
@@ -284,7 +285,8 @@ export default function DependenciesPage() {
       ? "upgrade"
       : "install",
   ) => {
-    const { name: packageName, displayName } = dep;
+    const { name: packageName } = dep;
+    const displayName = resolveDepDisplayName(dep);
     setDepInstalling(true);
     setCurrentInstallingDep(displayName);
     setCurrentInstallAction(mode);
@@ -393,7 +395,7 @@ export default function DependenciesPage() {
     let anySucceeded = false;
     try {
       for (const dep of depsToProcess) {
-        setCurrentInstallingDep(dep.displayName);
+        setCurrentInstallingDep(resolveDepDisplayName(dep));
         setCurrentInstallAction(
           dep.status === "outdated" ? "upgrade" : "install",
         );
@@ -592,7 +594,7 @@ export default function DependenciesPage() {
               </span>
             </div>
             <Button size="small" icon={<ReloadOutlined spin />} disabled>
-              {t(I18N_KEYS.Common.refresh)}
+              {t(I18N_KEYS.Common.REFRESH)}
             </Button>
           </div>
           <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
@@ -605,7 +607,7 @@ export default function DependenciesPage() {
                       className={styles.serviceLabel}
                       style={{ color: "var(--color-text-tertiary)" }}
                     >
-                      {t(I18N_KEYS.Common.loading)}
+                      {t(I18N_KEYS.Common.LOADING)}
                     </span>
                     <div className={styles.serviceDescription}>
                       {t(I18N_KEYS.Pages.Dependencies.CHECKING)}
@@ -843,7 +845,9 @@ export default function DependenciesPage() {
                 />
               )}
               <div>
-                <span className={styles.serviceLabel}>文件服务</span>
+                <span className={styles.serviceLabel}>
+                  {t(I18N_KEYS.Pages.Dependencies.DEP_FILE_SERVER)}
+                </span>
                 {fileServerBundled?.available && fileServerBundled.version && (
                   <span className={styles.serviceDescription}>
                     {" "}
@@ -890,7 +894,7 @@ export default function DependenciesPage() {
               onClick={loadDependencies}
               loading={depLoading}
             >
-              {t(I18N_KEYS.Common.refresh)}
+              {t(I18N_KEYS.Common.REFRESH)}
             </Button>
             {(depSummary.missing > 0 || depSummary.outdated > 0) && (
               <Button
@@ -921,11 +925,12 @@ export default function DependenciesPage() {
               }}
             >
               {depLoading
-                ? t(I18N_KEYS.Common.loading)
-                : t(I18N_KEYS.Pages.Dependencies.noDependencies)}
+                ? t(I18N_KEYS.Common.LOADING)
+                : t(I18N_KEYS.Pages.Dependencies.NO_DEPENDENCIES)}
             </div>
           ) : (
             localDeps.map((item, i) => {
+              const resolvedDisplayName = resolveDepDisplayName(item);
               const canInstall =
                 (item.status === "missing" ||
                   item.status === "error" ||
@@ -952,7 +957,7 @@ export default function DependenciesPage() {
                       style={{ display: "flex", alignItems: "center", gap: 8 }}
                     >
                       <span className={styles.serviceLabel}>
-                        {item.displayName}
+                        {resolvedDisplayName}
                       </span>
                       {item.required && (
                         <Tag
@@ -993,7 +998,7 @@ export default function DependenciesPage() {
                         </span>
                       )}
                       {item.status === "installing" &&
-                        currentInstallingDep === item.displayName && (
+                        currentInstallingDep === resolvedDisplayName && (
                           <span style={{ marginLeft: 8 }}>
                             <LoadingOutlined style={{ marginRight: 4 }} />
                             {currentInstallAction === "upgrade"

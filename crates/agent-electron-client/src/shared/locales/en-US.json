@@ -12,6 +12,7 @@
   "Claw.Common.noData": "No Data",
   "Claw.Common.back": "Back",
   "Claw.Common.refresh": "Refresh",
+  "Claw.Errors.mcpReconnectRetryLater": "MCP connection fluctuation, auto-reconnecting, please retry later",
   "Claw.Pages.Dependencies.systemEnv": "System Environment",
   "Claw.Pages.Dependencies.dependencyPackages": "Dependencies",
   "Claw.Pages.Dependencies.checking": "Checking...",
