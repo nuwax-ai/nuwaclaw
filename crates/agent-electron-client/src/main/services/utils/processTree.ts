@@ -15,6 +15,7 @@
  */
 
 import { execFile } from "child_process";
+import * as fs from "fs";
 import log from "electron-log";
 
 const isWindows = process.platform === "win32";
@@ -163,6 +164,173 @@ export async function killProcessTreesListeningOnTcpPortWindows(
       })();
     });
   });
+}
+
+/**
+ * macOS/Linux：按 TCP 端口清理 LISTENING 进程（整树终止）。
+ * macOS 使用 lsof；Linux 优先 lsof，lsof 不可用时回退到 /proc/net/tcp。
+ */
+export async function killProcessTreesListeningOnTcpPortUnix(
+  port: number,
+  timeoutMsPerTree = 3000,
+): Promise<void> {
+  if (process.platform === "win32") {
+    return;
+  }
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return;
+  }
+
+  // Linux: 优先尝试 lsof，若不可用则回退到 /proc/net/tcp
+  if (process.platform === "linux") {
+    const pids = await getListeningPidsFromProcNet(port);
+    if (pids.length > 0) {
+      log.info(
+        `[processTree] port ${port} TCP LISTENING (from /proc/net/tcp) -> killing PIDs: ${pids.join(", ")}`,
+      );
+      for (const pid of pids) {
+        try {
+          await killProcessTreeGraceful(pid, timeoutMsPerTree);
+        } catch (e) {
+          log.warn(
+            `[processTree] killProcessTreeGraceful pid=${pid} port=${port}:`,
+            e,
+          );
+        }
+      }
+    }
+    return;
+  }
+
+  // macOS: 使用 lsof
+  return new Promise((resolve) => {
+    execFile("lsof", ["-t", "-i", `:${port}`], (err, stdout) => {
+      void (async () => {
+        if (err || !stdout.trim()) {
+          // 无进程占用或 lsof 失败，静默忽略
+          resolve();
+          return;
+        }
+        const pids = stdout
+          .trim()
+          .split("\n")
+          .map((s) => parseInt(s, 10))
+          .filter((n) => Number.isFinite(n) && n > SYSTEM_PID_CEILING);
+
+        // 排除当前进程自己
+        const own = process.pid;
+        const filteredPids = pids.filter((pid) => pid !== own);
+
+        if (filteredPids.length > 0) {
+          log.info(
+            `[processTree] port ${port} TCP LISTENING (from lsof) -> killing PIDs: ${filteredPids.join(", ")}`,
+          );
+        }
+        for (const pid of filteredPids) {
+          try {
+            await killProcessTreeGraceful(pid, timeoutMsPerTree);
+          } catch (e) {
+            log.warn(
+              `[processTree] killProcessTreeGraceful pid=${pid} port=${port}:`,
+              e,
+            );
+          }
+        }
+        resolve();
+      })();
+    });
+  });
+}
+
+/**
+ * Linux 专用：从 /proc/net/tcp 解析占用指定端口的 PID 列表。
+ * /proc/net/tcp 的本地地址是十六进制表示，inode 可用于关联 /proc/{pid}/fd。
+ * 注意：仅匹配 IPv4 (0.0.0.0 和 127.0.0.1) 和 IPv6 (::1) 的 LISTEN 套接字。
+ *
+ * @param port 十进制端口号
+ * @returns PID 列表
+ */
+function getListeningPidsFromProcNet(port: number): Promise<number[]> {
+  return new Promise((resolve) => {
+    const pids = new Set<number>();
+    const portHex = port.toString(16).toUpperCase().padStart(4, "0");
+
+    // 读取 /proc/net/tcp
+    fs.readFile("/proc/net/tcp", "utf8", (err, data) => {
+      if (err) {
+        log.warn("[processTree] Failed to read /proc/net/tcp:", err);
+        resolve([]);
+        return;
+      }
+
+      const lines = data.split("\n").slice(1); // 跳过标题行
+      for (const line of lines) {
+        const fields = line.trim().split(/\s+/);
+        if (fields.length < 10) continue;
+
+        const localAddress = fields[1];
+        const inode = fields[9];
+
+        // 检查是否为 LISTEN 状态且端口匹配
+        const isListening = fields[3] === "0A"; // 0A = LISTEN in hex
+        const portMatch = localAddress.endsWith(`:${portHex}`);
+
+        if (!isListening || !portMatch || !inode) continue;
+
+        // 查找拥有此 inode 的进程
+        const inodeNum = parseInt(inode, 10);
+        if (!Number.isFinite(inodeNum)) continue;
+
+        // 遍历 /proc/*/fd，寻找 socket:[inode] 符号链接
+        try {
+          const procEntries = fs.readdirSync("/proc");
+          for (const entryName of procEntries) {
+            if (entryName === "." || entryName === "..") continue;
+            const pid = parseInt(entryName, 10);
+            if (!Number.isFinite(pid) || pid <= SYSTEM_PID_CEILING) continue;
+
+            const fdDir = `/proc/${pid}/fd`;
+            try {
+              const fdEntries = fs.readdirSync(fdDir);
+              for (const fdEntry of fdEntries) {
+                try {
+                  const linkTarget = fs.readlinkSync(`${fdDir}/${fdEntry}`);
+                  if (linkTarget === `socket:[${inodeNum}]`) {
+                    pids.add(pid);
+                  }
+                } catch {
+                  // 权限不足或 fd 已消失，跳过
+                }
+              }
+            } catch {
+              // 进程已退出或无权限
+            }
+          }
+        } catch {
+          // /proc 读取失败
+        }
+      }
+
+      // 排除当前进程
+      pids.delete(process.pid);
+      resolve([...pids]);
+    });
+  });
+}
+
+/**
+ * 跨平台：按 TCP 端口清理 LISTENING 进程（整树终止）。
+ * Windows 调用 killProcessTreesListeningOnTcpPortWindows，
+ * macOS/Linux 调用 killProcessTreesListeningOnTcpPortUnix。
+ */
+export async function killProcessTreesListeningOnTcpPort(
+  port: number,
+  timeoutMsPerTree = 3000,
+): Promise<void> {
+  if (process.platform === "win32") {
+    return killProcessTreesListeningOnTcpPortWindows(port, timeoutMsPerTree);
+  }
+  return killProcessTreesListeningOnTcpPortUnix(port, timeoutMsPerTree);
 }
 
 // ==================== Internal ====================

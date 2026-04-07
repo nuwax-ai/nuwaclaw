@@ -11,7 +11,4 @@ export {
   startComputerServer,
   stopComputerServer,
   getComputerServerStatus,
-  startAdminServer,
-  stopAdminServer,
-  getAdminServerStatus,
 } from "./computerServer";

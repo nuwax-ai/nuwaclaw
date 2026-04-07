@@ -822,10 +822,11 @@ function App() {
         }
 
         // 获取 admin server port
+        // Admin Server 已合并到 Computer Server (agentPort)，不再是独立端口
         const step1 = (await window.electronAPI?.settings.get(
           "step1_config",
-        )) as { adminServerPort?: number } | null;
-        const adminPort = step1?.adminServerPort ?? 60007;
+        )) as { agentPort?: number } | null;
+        const adminPort = step1?.agentPort ?? 60006;
 
         const resp = await fetch(
           `http://127.0.0.1:${adminPort}/admin/health/lanproxy`,

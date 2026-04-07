@@ -338,6 +338,11 @@ async function handleRequest(
     return;
   }
 
+  // Admin Server 接口（与 Computer Server 共用 60006 端口）
+  if (pathname.startsWith("/admin/")) {
+    return handleAdminRequest(req, res);
+  }
+
   try {
     // GET /health
     if (pathname === "/health" && method === "GET") {
@@ -1192,7 +1197,41 @@ import { BrowserWindow } from "electron";
 import { DEFAULT_ADMIN_SERVER_PORT } from "@shared/constants";
 import { checkLanproxyHealth } from "./packages/lanproxyHealth";
 
-let adminServer: http.Server | null = null;
+/** 执行完整重启流程（供延迟调用） */
+async function doRestartAllServicesIncludingComputerServer(): Promise<
+  Record<string, { success: boolean; error?: string }>
+> {
+  const { getServiceManager } = await import("../ipc/processHandlers");
+  const serviceManager = getServiceManager();
+  if (!serviceManager) {
+    throw new Error("ServiceManager 未初始化");
+  }
+
+  // 1. 重启除 Lanproxy 外的所有服务
+  const base = await serviceManager.restartAllServicesExceptLanproxy();
+
+  // 2. 停止 Computer Server
+  await stopComputerServer();
+
+  // 3. 重新启动 Computer Server
+  const { getConfiguredPorts } = await import("./startupPorts");
+  const { agent: agentPort } = getConfiguredPorts();
+  let csResult: { success: boolean; error?: string };
+  try {
+    await startComputerServer(agentPort);
+    csResult = { success: true };
+  } catch (e) {
+    csResult = { success: false, error: String(e) };
+  }
+
+  const results: Record<string, { success: boolean; error?: string }> = {
+    ...base.results,
+    computerServer: csResult,
+  };
+
+  notifyServicesRestarted(results);
+  return results;
+}
 
 /** 获取主窗口 */
 const getMainWindow = () => BrowserWindow.getAllWindows()[0];
@@ -1259,64 +1298,33 @@ async function handleAdminRequest(
     if (pathname === "/admin/services/restart" && method === "POST") {
       log.info("[AdminServer] /admin/services/restart called");
 
+      // 立即返回，避免 Computer Server 自己被重启导致响应无法写回
+      sendJson(200, {
+        code: "0000",
+        message: "重启请求已收到，将延迟2秒执行",
+        data: null,
+      });
+
       // 通知渲染进程服务正在重启
       notifyServicesRestarting();
 
-      const { getServiceManager } = await import("../ipc/processHandlers");
-      const serviceManager = getServiceManager();
-      if (!serviceManager) {
-        sendJson(500, {
-          code: "1002",
-          message: "ServiceManager 未初始化",
-          data: null,
-        });
-        return;
-      }
-
-      // 1. 先重启其他服务
-      const base = await serviceManager.restartAllServicesExceptLanproxy();
-
-      // 2. 停止 Computer Server
-      await stopComputerServer();
-
-      // 3. 重新启动 Computer Server
-      const { getConfiguredPorts } = await import("./startupPorts");
-      const { agent: agentPort } = getConfiguredPorts();
-      let csResult: { success: boolean; error?: string };
-      try {
-        await startComputerServer(agentPort);
-        csResult = { success: true };
-      } catch (e) {
-        csResult = { success: false, error: String(e) };
-      }
-
-      const results: Record<string, { success: boolean; error?: string }> = {
-        ...base.results,
-        computerServer: csResult,
-      };
-
-      // 通知渲染进程服务重启完成
-      notifyServicesRestarted(results);
-
-      // 检查是否有失败的服务
-      const failedServices = Object.entries(results)
-        .filter(([, v]) => !v.success)
-        .map(([k, v]) => `${k}: ${v.error}`)
-        .join("; ");
-
-      if (failedServices) {
-        sendJson(200, {
-          code: "1001",
-          message: `部分服务启动失败: ${failedServices}`,
-          data: results,
-        });
-      } else {
-        sendJson(200, {
-          code: "0000",
-          message: "success",
-          data: results,
-        });
-      }
+      // 延迟 2 秒后执行实际重启（不等完成，异步进行）
+      setTimeout(async () => {
+        try {
+          const results = await doRestartAllServicesIncludingComputerServer();
+          const failedServices = Object.entries(results)
+            .filter(([, v]) => !v.success)
+            .map(([k, v]) => `${k}: ${v.error}`)
+            .join("; ");
+          if (failedServices) {
+            log.warn(`[AdminServer] 部分服务启动失败: ${failedServices}`);
+          } else {
+            log.info("[AdminServer] 延迟重启完成");
+          }
+        } catch (e) {
+          log.error("[AdminServer] 延迟重启异常:", e);
+        }
+      }, 2000);
       return;
     }
 
@@ -1330,67 +1338,4 @@ async function handleAdminRequest(
       data: null,
     });
   }
-}
-
-/**
- * 启动 Admin Server
- */
-export async function startAdminServer(
-  port?: number,
-): Promise<{ success: boolean; error?: string; port?: number }> {
-  const actualPort = port || DEFAULT_ADMIN_SERVER_PORT;
-  if (adminServer) {
-    return { success: true, port: actualPort };
-  }
-
-  return new Promise((resolve) => {
-    adminServer = http.createServer(handleAdminRequest);
-
-    adminServer.on("error", (err: NodeJS.ErrnoException) => {
-      log.error("[AdminServer] Server error:", err);
-      const errorMsg =
-        err.code === "EADDRINUSE"
-          ? `Port ${actualPort} already in use`
-          : err.message;
-      adminServer = null;
-      resolve({ success: false, error: errorMsg, port: actualPort });
-    });
-
-    adminServer.listen(actualPort, "127.0.0.1", () => {
-      log.info(`[AdminServer] Listening on 127.0.0.1:${actualPort}`);
-      resolve({ success: true, port: actualPort });
-    });
-  });
-}
-
-/**
- * 停止 Admin Server
- */
-export async function stopAdminServer(): Promise<void> {
-  if (!adminServer) return;
-
-  return new Promise((resolve) => {
-    adminServer!.close(() => {
-      log.info("[AdminServer] Stopped");
-      adminServer = null;
-      resolve();
-    });
-  });
-}
-
-/**
- * 获取 Admin Server 状态
- */
-export function getAdminServerStatus(): {
-  running: boolean;
-  port?: number;
-} {
-  if (!adminServer || !adminServer.listening) {
-    return { running: false };
-  }
-  const addr = adminServer.address();
-  return {
-    running: true,
-    port: typeof addr === "object" && addr ? addr.port : undefined,
-  };
 }
