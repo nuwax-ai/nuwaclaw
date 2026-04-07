@@ -41,9 +41,9 @@ function getWindowsMcpManager(): WindowsMcpManagerType {
     const resourcesPath = getResourcesPath();
     const agentGuiServerPath = path.join(resourcesPath, "agent-gui-server");
     const createRequire = require("module").createRequire;
-    const loaderRequire = createRequire(
-      path.join(agentGuiServerPath, "dist/index.js"),
-    );
+    // 注意：createRequire 以传入路径的父目录为基准进行模块解析
+    // 传入 agentGuiServerPath（= resources/agent-gui-server/），而非 dist/index.js
+    const loaderRequire = createRequire(agentGuiServerPath);
     const { WindowsMcpManager: WMM } = loaderRequire("agent-gui-server");
     windowsMcpManager = new WMM({
       healthCheckInterval: 30000,
