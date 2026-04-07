@@ -356,6 +356,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("mirror:set", config),
   },
 
+  // i18n - 语言同步
+  i18n: {
+    getLang: () => ipcRenderer.invoke("i18n:getLang"),
+    setLang: (lang: string) => ipcRenderer.invoke("i18n:setLang", lang),
+  },
+
   // Dialog utilities
   dialog: {
     openDirectory: (title?: string) =>

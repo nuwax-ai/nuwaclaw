@@ -593,6 +593,11 @@ export interface PerfAPI {
   log: (msg: string) => void;
 }
 
+export interface I18nAPI {
+  getLang: () => Promise<string>;
+  setLang: (lang: string) => Promise<{ success: boolean; error?: string }>;
+}
+
 export interface DialogAPI {
   openDirectory: (title?: string) => Promise<{
     success: boolean;
@@ -683,6 +688,7 @@ export interface ElectronAPI {
   dependencies: DependenciesAPI;
   shell: ShellAPI;
   mirror: MirrorAPI;
+  i18n: I18nAPI;
   dialog: DialogAPI;
   engine: EngineAPI;
   agent: AgentAPI;

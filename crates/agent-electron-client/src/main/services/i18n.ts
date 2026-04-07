@@ -140,7 +140,11 @@ export function t(key: string, ...values: string[]): string {
   const normalizedKey = String(key || "").trim();
   if (!normalizedKey) return "";
 
-  const template = langMap[normalizedKey] || MIN_EN_I18N_MAP[normalizedKey];
+  const template =
+    langMap[normalizedKey] ||
+    (isZhLang(currentLang)
+      ? MIN_ZH_I18N_MAP[normalizedKey]
+      : MIN_EN_I18N_MAP[normalizedKey]);
   if (!template) {
     console.warn(`[i18n] Missing translation for key: ${normalizedKey}`);
     return normalizedKey;
@@ -154,6 +158,35 @@ export function t(key: string, ...values: string[]): string {
  */
 export function getLangMap(): SystemLangMap {
   return { ...langMap };
+}
+
+/**
+ * 获取当前语言（IPC 暴露用别名）
+ */
+export function getMainLang(): string {
+  return currentLang;
+}
+
+/**
+ * 运行时切换主进程语言
+ * @param lang 语言代码（如 "zh-CN"、"en"）
+ */
+export function setMainLang(lang: string): void {
+  const normalized = normalizeLang(lang);
+  if (!normalized) return;
+
+  // 尝试加载语言文件
+  let loaded = loadLocaleFile(normalized);
+
+  // 如果加载失败，使用最小字典兜底
+  if (Object.keys(loaded).length === 0) {
+    loaded = isZhLang(normalized)
+      ? { ...MIN_ZH_I18N_MAP }
+      : { ...MIN_EN_I18N_MAP };
+  }
+
+  currentLang = normalized;
+  langMap = loaded;
 }
 
 // 延迟初始化（等待 app ready）

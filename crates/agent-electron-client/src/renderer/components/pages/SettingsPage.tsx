@@ -47,7 +47,7 @@ import {
   MSG_SUCCESS,
   MSG_ERROR,
 } from "@shared/constants";
-import { t } from "../../services/core/i18n";
+import { t, getCurrentLang, setCurrentLang } from "../../services/core/i18n";
 import styles from "../../styles/components/ClientPage.module.css";
 import { useTheme, type ThemeMode } from "../../App";
 import type {
@@ -118,6 +118,8 @@ export default function SettingsPage() {
   const [autolaunchEnabled, setAutolaunchEnabled] = useState(false);
   const [autolaunchLoading, setAutolaunchLoading] = useState(false);
   const [logDir, setLogDir] = useState("");
+  const [currentLang, setCurrentLangState] = useState(getCurrentLang());
+  const [langChanging, setLangChanging] = useState(false);
   const [sandboxLoading, setSandboxLoading] = useState(false);
   const [sandboxSaving, setSandboxSaving] = useState(false);
   const [sandboxPolicy, setSandboxPolicy] = useState<SandboxPolicy | null>(
@@ -415,6 +417,28 @@ export default function SettingsPage() {
       message.error(t("Claw.Settings.messages.windowsSetupFailed"));
     } finally {
       setSandboxSaving(false);
+    }
+  };
+
+  // ========== 语言切换 ==========
+  const handleLanguageChange = async (lang: string) => {
+    setLangChanging(true);
+    try {
+      // 1. 更新渲染进程语言
+      await setCurrentLang(lang);
+      setCurrentLangState(lang);
+
+      // 2. 同步到主进程
+      await window.electronAPI?.i18n?.setLang(lang);
+
+      // 3. 刷新页面使所有组件重新渲染
+      message.success(t("Claw.Settings.messages.languageChanged"));
+      setTimeout(() => window.location.reload(), 500);
+    } catch (error) {
+      console.error("语言切换失败:", error);
+      message.error(t("Claw.Settings.messages.languageChangeFailed"));
+    } finally {
+      setLangChanging(false);
     }
   };
 
@@ -946,6 +970,39 @@ export default function SettingsPage() {
                 },
                 { value: "light", label: t("Claw.Settings.system.themeLight") },
                 { value: "dark", label: t("Claw.Settings.system.themeDark") },
+              ]}
+            />
+          </div>
+
+          {/* 语言设置 */}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              <div>
+                <span className={styles.serviceLabel}>
+                  {t("Claw.Settings.system.language")}
+                </span>
+                <div className={styles.serviceDescription}>
+                  {t("Claw.Settings.system.languageDesc")}
+                </div>
+              </div>
+            </div>
+            <Select
+              size="small"
+              value={currentLang}
+              onChange={handleLanguageChange}
+              loading={langChanging}
+              style={{ width: 140 }}
+              options={[
+                { value: "en", label: t("Claw.Settings.system.langEnglish") },
+                { value: "zh", label: t("Claw.Settings.system.langChinese") },
+                {
+                  value: "zh-tw",
+                  label: t("Claw.Settings.system.langChineseTW"),
+                },
+                {
+                  value: "zh-hk",
+                  label: t("Claw.Settings.system.langChineseHK"),
+                },
               ]}
             />
           </div>
