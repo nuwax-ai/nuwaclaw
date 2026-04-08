@@ -55,6 +55,7 @@ import type { WebviewHeaderActions } from "./components/pages/SessionsPage";
 import { createLogger } from "./services/utils/rendererLog";
 import styles from "./styles/components/App.module.css";
 import { lightTheme, darkTheme } from "./styles/theme";
+import { FEATURES } from "@shared/featureFlags";
 
 // 主题类型
 export type ThemeMode = "light" | "dark" | "system";
@@ -128,6 +129,10 @@ export interface ServiceItem {
   port?: number;
   error?: string;
 }
+
+const STARTUP_SERVICE_KEYS: string[] = FEATURES.ENABLE_GUI_AGENT_SERVER
+  ? ["mcpProxy", "agent", "fileServer", "guiServer", "lanproxy"]
+  : ["mcpProxy", "agent", "fileServer", "lanproxy"];
 
 /**
  * 将 quick init 配置静默写入 DB（覆盖旧值）
@@ -257,6 +262,14 @@ function App() {
   >(null);
   /** 主进程初始化依赖同步是否仍在进行（客户端升级后后台安装新版本依赖） */
   const [depsSyncInProgress, setDepsSyncInProgress] = useState<boolean>(false);
+
+  // 启动日志：便于快速确认渲染进程 feature flags 是否生效
+  useEffect(() => {
+    console.info("[FeatureFlags][renderer]", FEATURES);
+    window.electronAPI?.log
+      .write("info", "[FeatureFlags][renderer]", FEATURES)
+      .catch(() => {});
+  }, []);
 
   /**
    * 重启所有服务（使新安装的依赖/二进制生效）。
@@ -504,7 +517,6 @@ function App() {
         mcpStatus,
         csStatus,
         guiStatus,
-        adminStatus,
       ] = await Promise.all([
         window.electronAPI?.fileServer.status(),
         window.electronAPI?.lanproxy.status(),
@@ -512,7 +524,6 @@ function App() {
         window.electronAPI?.mcp.status(),
         window.electronAPI?.computerServer.status(),
         window.electronAPI?.guiServer?.status(),
-        window.electronAPI?.adminServer?.status(),
       ]);
       items.push({
         key: "mcpProxy",
@@ -547,14 +558,16 @@ function App() {
         pid: fsStatus?.pid,
         error: fsStatus?.error,
       });
-      items.push({
-        key: "guiServer",
-        label: t("Claw.Service.guiMcp"),
-        description: t("Claw.Service.guiMcpDesc"),
-        running: guiStatus?.running ?? false,
-        pid: guiStatus?.pid,
-        error: guiStatus?.error,
-      });
+      if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
+        items.push({
+          key: "guiServer",
+          label: t("Claw.Service.guiMcp"),
+          description: t("Claw.Service.guiMcpDesc"),
+          running: guiStatus?.running ?? false,
+          pid: guiStatus?.pid,
+          error: guiStatus?.error,
+        });
+      }
       items.push({
         key: "lanproxy",
         label: t("Claw.Service.proxy"),
@@ -563,14 +576,6 @@ function App() {
         pid: lpStatus?.pid,
         // 优先显示健康检查错误，其次显示进程错误
         error: lanproxyHealthErrorRef.current ?? lpStatus?.error,
-      });
-      items.push({
-        key: "adminServer",
-        label: t("Claw.Service.admin"),
-        description: t("Claw.Service.adminDesc"),
-        running: adminStatus?.running ?? false,
-        port: adminStatus?.port,
-        error: adminStatus?.error,
       });
       setServices(items);
     } catch (error) {
@@ -701,13 +706,7 @@ function App() {
       if (setupJustCompleted.current) {
         setupJustCompleted.current = false;
         log.info("setup completed, starting services");
-        await startServicesSequentially([
-          "mcpProxy",
-          "agent",
-          "fileServer",
-          "guiServer",
-          "lanproxy",
-        ]);
+        await startServicesSequentially(STARTUP_SERVICE_KEYS);
         return;
       }
 
@@ -738,13 +737,7 @@ function App() {
               );
             }
             setAuthRefreshTrigger((v) => v + 1);
-            await startServicesSequentially([
-              "mcpProxy",
-              "agent",
-              "fileServer",
-              "guiServer",
-              "lanproxy",
-            ]);
+            await startServicesSequentially(STARTUP_SERVICE_KEYS);
           } else {
             log.warn("reg failed, using local config");
             notification.info({
@@ -753,13 +746,7 @@ function App() {
               duration: 8,
               placement: "bottomRight",
             });
-            await startServicesSequentially([
-              "mcpProxy",
-              "agent",
-              "fileServer",
-              "guiServer",
-              "lanproxy",
-            ]);
+            await startServicesSequentially(STARTUP_SERVICE_KEYS);
           }
         } else {
           log.info("skipped (no savedKey)");

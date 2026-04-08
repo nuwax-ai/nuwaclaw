@@ -552,6 +552,7 @@
   "Claw.Settings.saveConfig.fileServerPort": "文件服务端口",
   "Claw.Settings.saveConfig.agentPort": "Agent 端口",
   "Claw.Settings.saveConfig.guiMcpPort": "GUI MCP 端口",
+  "Claw.Settings.saveConfig.guiMcpEnabled": "启用 GUI MCP",
   "Claw.Settings.saveConfig.adminServerPort": "管理服务端口",
   "Claw.Settings.saveConfig.adminServerPortExtra": "默认 60007，用于重启服务等管理接口",
   "Claw.Settings.saveConfig.enterPort": "请输入端口",

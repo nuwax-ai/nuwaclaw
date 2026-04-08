@@ -4,3 +4,6 @@
  */
 
 declare const __APP_VERSION__: string;
+declare const __INJECT_GUI_MCP__: string | boolean;
+declare const __LOG_FULL_SECRETS__: string | boolean;
+declare const __ENABLE_GUI_AGENT_SERVER__: string | boolean;

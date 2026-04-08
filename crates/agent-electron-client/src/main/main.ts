@@ -19,6 +19,7 @@ import { agentService } from "./services/engines/unifiedAgent";
 import { stopComputerServer } from "./services/computerServer";
 import { mcpProxyManager } from "./services/packages/mcp";
 import { stopGuiAgentServer } from "./services/packages/guiAgentServer";
+import { FEATURES } from "@shared/featureFlags";
 import { stopWindowsMcp } from "./services/packages/windowsMcp";
 import type { HandlerContext } from "@shared/types/ipc";
 import { DEFAULT_DEV_SERVER_PORT } from "./services/constants";
@@ -90,6 +91,7 @@ if (process.platform === "linux") {
 initLogging();
 initI18n();
 log.info("Application starting...");
+log.info("[FeatureFlags][main]", FEATURES);
 
 // Global references
 let mainWindow: BrowserWindow | null = null;
@@ -366,10 +368,12 @@ async function cleanupAllProcesses(): Promise<void> {
   }
 
   // 非 Windows：agent-gui-server 进程
-  try {
-    await stopGuiAgentServer();
-  } catch (e) {
-    log.warn("[Cleanup] GUI Agent server stop error:", e);
+  if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
+    try {
+      await stopGuiAgentServer();
+    } catch (e) {
+      log.warn("[Cleanup] GUI Agent server stop error:", e);
+    }
   }
 
   try {
