@@ -164,7 +164,7 @@ Windows sandbox helper `run` 模式返回 JSON 封装的输出。
 
 ### 4. 沙箱参数来源
 
-`writablePaths` 和 `networkEnabled` 从 sandbox 配置传入，而非硬编码：
+`writablePaths`、`networkEnabled` 和 `mode` 从 sandbox 配置传入，而非硬编码：
 
 ```typescript
 this.terminalManager = new AcpTerminalManager({
@@ -174,6 +174,7 @@ this.terminalManager = new AcpTerminalManager({
   writablePaths: sandboxConfig.projectWorkspaceDir
     ? [sandboxConfig.projectWorkspaceDir]
     : [],
+  mode: sandboxConfig.mode,
 });
 ```
 
@@ -244,6 +245,32 @@ nuwaxcode 不使用 Terminal API，其 bash 执行通过 `OPENCODE_CONFIG_CONTEN
 10. 验证并发超过 50 时抛出限制错误
 
 ## 安全注意事项
+
+### SandboxMode 对 Windows per-command 的影响
+
+`SandboxMode`（strict / compat / permissive）现在影响 Windows per-command 沙箱行为：
+
+| Mode | `writable_roots` | Token 限制 | 适用场景 |
+|------|-----------------|-----------|---------|
+| **strict** | 仅限项目 workspace（排除 cwd 等额外路径） | WRITE_RESTRICTED 保持启用 | 最小化写入面 |
+| **compat**（默认） | 全部传入路径（workspace + cwd） | WRITE_RESTRICTED 保持启用 | 兼容性优先 |
+| **permissive** | 全部传入路径 | `--no-write-restricted` 放松 token（仅 `run` 子命令） | 排障用途 |
+
+注意：`--no-write-restricted` 仅对 `run` 子命令有效。`serve` 子命令在 Rust helper 中
+已硬编码 `write_restricted=false`（子进程需要 spawn 孙进程）。
+
+### macOS/Linux 上的 per-command 沙箱
+
+当前 `AcpTerminalManager` 仅在 Windows 上启用 per-command 沙箱包装。
+macOS/Linux 上 terminal 命令直接执行（进程级沙箱由 seatbelt/bwrap 在引擎级别提供）。
+
+### 跨平台 SandboxMode 差异
+
+| 平台 | strict | compat | permissive |
+|------|--------|--------|-----------|
+| Linux (bwrap) | 最小 ro-bind（`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/etc`, `/opt`, `/usr/local`） | 全局 ro-bind `/` | 完整 rw bind，无 namespace 隔离 |
+| macOS (seatbelt) | 仅命令本身在 exec allowlist | 命令 + startup chain 在 exec allowlist | 全局 file-write + unrestricted process-exec |
+| Windows (helper) | `writable_roots` 仅首个路径 | 全部 `writable_roots` | 全部 `writable_roots` + `--no-write-restricted` |
 
 ### Windows 非 sandbox 路径的 shell 注入
 

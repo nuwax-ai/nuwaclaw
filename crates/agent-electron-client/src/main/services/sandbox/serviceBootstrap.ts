@@ -93,6 +93,8 @@ let degradeReason: string | undefined;
 
 function createSandboxManager(type: SandboxType): SandboxManager {
   const config = getDefaultSandboxConfig(type);
+  // Propagate policy mode into the config so SandboxInvoker can use it.
+  config.mode = lastPolicy.mode;
   if (type === "docker") {
     return new DockerSandbox(config);
   }

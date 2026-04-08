@@ -197,6 +197,8 @@ export interface SandboxConfig {
   dockerHost?: string;
   /** 只读模式（禁止写入操作） */
   readOnly?: boolean;
+  /** 沙箱运行模式：strict / compat / permissive */
+  mode?: SandboxMode;
 }
 
 // ============================================================================

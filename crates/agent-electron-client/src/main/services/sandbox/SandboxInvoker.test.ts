@@ -757,6 +757,109 @@ describe("SandboxInvoker - windows-sandbox", () => {
       });
     });
   });
+
+  describe("sandbox mode (strict / compat / permissive)", () => {
+    it("strict: should limit writable_roots to first path only", async () => {
+      await withPlatform("win32", async () => {
+        const invoker = new SandboxInvoker("windows-sandbox", {
+          windowsSandboxHelperPath: fakeHelperPath,
+          windowsSandboxMode: "workspace-write",
+          mode: "strict",
+        });
+        const params = makeParams({
+          writablePaths: ["C:\\workspace", "C:\\temp"],
+        });
+        const result = await invoker.buildInvocation(params);
+
+        const policyArgIdx = result.args.indexOf("--policy-json");
+        const policyStr = result.args[policyArgIdx + 1];
+        const policy = JSON.parse(policyStr);
+
+        expect(policy.type).toBe("workspace-write");
+        expect(policy.writable_roots).toEqual(["C:\\workspace"]);
+      });
+    });
+
+    it("strict: should NOT include --no-write-restricted", async () => {
+      await withPlatform("win32", async () => {
+        const invoker = new SandboxInvoker("windows-sandbox", {
+          windowsSandboxHelperPath: fakeHelperPath,
+          mode: "strict",
+        });
+        const result = await invoker.buildInvocation(makeParams());
+
+        expect(result.args).not.toContain("--no-write-restricted");
+      });
+    });
+
+    it("compat: should include all writable_roots", async () => {
+      await withPlatform("win32", async () => {
+        const invoker = new SandboxInvoker("windows-sandbox", {
+          windowsSandboxHelperPath: fakeHelperPath,
+          windowsSandboxMode: "workspace-write",
+          mode: "compat",
+        });
+        const params = makeParams({
+          writablePaths: ["C:\\workspace", "C:\\temp"],
+        });
+        const result = await invoker.buildInvocation(params);
+
+        const policyArgIdx = result.args.indexOf("--policy-json");
+        const policyStr = result.args[policyArgIdx + 1];
+        const policy = JSON.parse(policyStr);
+
+        expect(policy.writable_roots).toEqual(["C:\\workspace", "C:\\temp"]);
+      });
+    });
+
+    it("permissive: should include --no-write-restricted flag for run subcommand", async () => {
+      await withPlatform("win32", async () => {
+        const invoker = new SandboxInvoker("windows-sandbox", {
+          windowsSandboxHelperPath: fakeHelperPath,
+          mode: "permissive",
+        });
+        const result = await invoker.buildInvocation(
+          makeParams({ subcommand: "run" }),
+        );
+
+        expect(result.args).toContain("--no-write-restricted");
+      });
+    });
+
+    it("permissive: should NOT include --no-write-restricted for serve subcommand", async () => {
+      await withPlatform("win32", async () => {
+        const invoker = new SandboxInvoker("windows-sandbox", {
+          windowsSandboxHelperPath: fakeHelperPath,
+          mode: "permissive",
+        });
+        const result = await invoker.buildInvocation(
+          makeParams({ subcommand: "serve" }),
+        );
+
+        expect(result.args).not.toContain("--no-write-restricted");
+      });
+    });
+
+    it("permissive: should include all writable_roots", async () => {
+      await withPlatform("win32", async () => {
+        const invoker = new SandboxInvoker("windows-sandbox", {
+          windowsSandboxHelperPath: fakeHelperPath,
+          windowsSandboxMode: "workspace-write",
+          mode: "permissive",
+        });
+        const params = makeParams({
+          writablePaths: ["C:\\workspace", "C:\\temp"],
+        });
+        const result = await invoker.buildInvocation(params);
+
+        const policyArgIdx = result.args.indexOf("--policy-json");
+        const policyStr = result.args[policyArgIdx + 1];
+        const policy = JSON.parse(policyStr);
+
+        expect(policy.writable_roots).toEqual(["C:\\workspace", "C:\\temp"]);
+      });
+    });
+  });
 });
 
 // ============================================================================
@@ -801,6 +904,91 @@ describe("SandboxInvoker - error handling", () => {
     );
     await expect(invoker.buildInvocation(makeParams())).rejects.toMatchObject({
       code: SandboxErrorCode.CONFIG_INVALID,
+    });
+  });
+});
+
+// ============================================================================
+// Suite: effectiveMode 一致性
+// ============================================================================
+
+describe("SandboxInvoker - effectiveMode consistency", () => {
+  it("defaults to compat when no mode is provided", async () => {
+    const invoker = new SandboxInvoker("none");
+    // No mode → defaults to compat. Verify by checking log output via
+    // buildBwrap on Linux (would log mode=compat).
+    await withPlatform("linux", async () => {
+      const result = (invoker as any).buildBwrap(makeParams());
+      // compat mode uses --ro-bind / /
+      expect(result.args).toContain("--ro-bind");
+      const roBindIdx = result.args.indexOf("--ro-bind");
+      expect(result.args[roBindIdx + 1]).toBe("/");
+    });
+  });
+
+  it("respects explicit mode passed in options", async () => {
+    const invoker = new SandboxInvoker("none", { mode: "strict" });
+    await withPlatform("linux", async () => {
+      const result = (invoker as any).buildBwrap(makeParams());
+      // strict mode does NOT use --ro-bind / /
+      const fullRootBind = result.args.findIndex(
+        (arg: string, i: number) =>
+          arg === "--ro-bind" &&
+          result.args[i + 1] === "/" &&
+          result.args[i + 2] === "/",
+      );
+      expect(fullRootBind).toBe(-1);
+    });
+  });
+});
+
+// ============================================================================
+// Suite: Linux strict ro-bind 包含 /sbin 和 /usr/local
+// ============================================================================
+
+describe("SandboxInvoker - linux strict ro-bind paths", () => {
+  it("should include /sbin and /usr/local in strict mode", async () => {
+    await withPlatform("linux", async () => {
+      mockFsExistsSync.mockReturnValue(true);
+      const invoker = new SandboxInvoker("linux-bwrap", { mode: "strict" });
+      const result = (invoker as any).buildBwrap(makeParams());
+
+      // Check that /sbin and /usr/local are in the ro-bind targets
+      const roBindTargets: string[] = [];
+      for (let i = 0; i < result.args.length; i++) {
+        if (result.args[i] === "--ro-bind") {
+          roBindTargets.push(result.args[i + 1]);
+        }
+      }
+
+      expect(roBindTargets).toContain("/sbin");
+      expect(roBindTargets).toContain("/usr/local");
+      expect(roBindTargets).toContain("/usr");
+      expect(roBindTargets).toContain("/bin");
+      expect(roBindTargets).toContain("/etc");
+    });
+  });
+
+  it("should skip non-existent paths in strict mode", async () => {
+    await withPlatform("linux", async () => {
+      // Make /sbin appear non-existent
+      mockFsExistsSync.mockImplementation((p: string) => {
+        if (p === "/sbin") return false;
+        return true;
+      });
+
+      const invoker = new SandboxInvoker("linux-bwrap", { mode: "strict" });
+      const result = (invoker as any).buildBwrap(makeParams());
+
+      const roBindTargets: string[] = [];
+      for (let i = 0; i < result.args.length; i++) {
+        if (result.args[i] === "--ro-bind") {
+          roBindTargets.push(result.args[i + 1]);
+        }
+      }
+
+      expect(roBindTargets).not.toContain("/sbin");
+      expect(roBindTargets).toContain("/usr"); // still present
     });
   });
 });

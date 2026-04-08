@@ -443,6 +443,7 @@ export class AcpEngine extends EventEmitter {
           writablePaths: sandboxConfig.projectWorkspaceDir
             ? [sandboxConfig.projectWorkspaceDir]
             : [],
+          mode: sandboxConfig.mode,
         });
         log.info(
           `${this.logTag} Terminal manager initialized (Windows sandbox)`,

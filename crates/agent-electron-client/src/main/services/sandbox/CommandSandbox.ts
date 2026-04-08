@@ -60,6 +60,7 @@ export class CommandSandbox extends SandboxManager {
       windowsSandboxHelperPath: options.windowsSandboxHelperPath,
       windowsSandboxMode: options.windowsSandboxMode,
       networkEnabled: config.networkEnabled,
+      mode: config.mode,
     });
   }
 
@@ -188,6 +189,7 @@ export class CommandSandbox extends SandboxManager {
         writablePaths: [workspace.rootPath],
         networkEnabled: this.config.networkEnabled !== false,
         subcommand: "run",
+        startupExecAllowlist: [command],
       });
       const run = await this.runInvocation(invocation, timeout);
 
