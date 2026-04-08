@@ -6,8 +6,8 @@ import zhCN from "antd/locale/zh_CN";
 import zhTW from "antd/locale/zh_TW";
 import zhHK from "antd/locale/zh_HK";
 import App from "./App";
-import i18n from "./services/i18n"; // 初始化 i18next（自动检测浏览器语言）
-import { initI18n } from "./services/core/i18n"; // 初始化自定义 i18n 服务
+import i18n, { initSupportedLangs } from "./services/i18n"; // 初始化 i18next（自动检测浏览器语言）
+import { initI18n, getCurrentLang } from "./services/core/i18n"; // 初始化自定义 i18n 服务
 import "./index.css";
 
 // i18n 就绪标志（模块级别，由 initI18n 设置）
@@ -24,9 +24,20 @@ function notifyI18nReady(ready: boolean) {
 }
 
 // 初始化 i18n（API 驱动 + 本地缓存）- 尽快开始
-initI18n()
-  .then(() => notifyI18nReady(true))
-  .catch(console.error);
+Promise.all([initSupportedLangs(), initI18n()])
+  .then(async () => {
+    const lang = getCurrentLang();
+    try {
+      await i18n.changeLanguage(lang);
+    } catch {
+      // ignore i18next sync failure, keep app booting
+    }
+    notifyI18nReady(true);
+  })
+  .catch((error) => {
+    console.error(error);
+    notifyI18nReady(true);
+  });
 
 // antd locale 映射
 const antdLocales: Record<string, typeof zhCN> = {
@@ -40,6 +51,25 @@ const antdLocales: Record<string, typeof zhCN> = {
   "zh-hk": zhHK,
 };
 
+function resolveAntdLocale(lang: string) {
+  const normalized = String(lang || "").toLowerCase();
+  if (normalized.startsWith("zh-tw")) return zhTW;
+  if (normalized.startsWith("zh-hk")) return zhHK;
+  if (normalized.startsWith("zh")) return zhCN;
+  if (normalized.startsWith("en")) return enUS;
+
+  const exactMatch = antdLocales[normalized];
+  return exactMatch || zhCN;
+}
+
+function toHtmlLang(lang: string): string {
+  const normalized = String(lang || "").toLowerCase();
+  if (normalized.startsWith("zh-tw")) return "zh-TW";
+  if (normalized.startsWith("zh-hk")) return "zh-HK";
+  if (normalized.startsWith("zh")) return "zh-CN";
+  return "en-US";
+}
+
 function Main() {
   const [antdLocale, setAntdLocale] = useState(zhCN);
   const [ready, setReady] = useState(i18nReady);
@@ -48,11 +78,8 @@ function Main() {
   useEffect(() => {
     const updateLocale = () => {
       const lang = i18n.language || "zh-CN";
-      // 匹配最接近的语言
-      const matchedLocale = Object.keys(antdLocales).find((key) =>
-        lang.toLowerCase().startsWith(key.toLowerCase()),
-      );
-      setAntdLocale(antdLocales[matchedLocale || "zh-CN"] || zhCN);
+      document.documentElement.lang = toHtmlLang(lang);
+      setAntdLocale(resolveAntdLocale(lang));
     };
 
     updateLocale();

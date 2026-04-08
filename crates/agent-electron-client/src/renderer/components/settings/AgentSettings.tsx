@@ -146,7 +146,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
               text={
                 running
                   ? t("Claw.Agent.running")
-                  : t("Claw.Agent.stopped_status")
+                  : t("Claw.Agent.stoppedStatus")
               }
             />
             <Button

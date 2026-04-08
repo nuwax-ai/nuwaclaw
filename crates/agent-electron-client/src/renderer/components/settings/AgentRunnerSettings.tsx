@@ -94,7 +94,7 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
             >
               {status.running
                 ? t("Claw.AgentRunner.running")
-                : t("Claw.AgentRunner.stopped_status")}
+                : t("Claw.AgentRunner.stoppedStatus")}
             </div>
             {status.pid && <div className="pid">PID: {status.pid}</div>}
           </div>
