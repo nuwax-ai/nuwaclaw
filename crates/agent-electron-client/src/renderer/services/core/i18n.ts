@@ -259,7 +259,6 @@ const fetchAndApplyLangMap = async (lang?: string): Promise<boolean> => {
       params: { lang: targetLang, side: "Claw" },
       headers: {
         "Accept-Language": targetLang,
-        "X-Lang": targetLang,
       },
       showError: false,
       baseUrl: userDomain || undefined,
@@ -284,7 +283,6 @@ const fetchZhBaseMap = async (): Promise<void> => {
       params: { lang: "zh-cn", side: "Claw" },
       headers: {
         "Accept-Language": "zh-cn",
-        "X-Lang": "zh-cn",
       },
       showError: false,
       baseUrl: userDomain || undefined,
