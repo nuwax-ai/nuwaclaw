@@ -55,6 +55,7 @@ import type { WebviewHeaderActions } from "./components/pages/SessionsPage";
 import { createLogger } from "./services/utils/rendererLog";
 import styles from "./styles/components/App.module.css";
 import { lightTheme, darkTheme } from "./styles/theme";
+import { FEATURES } from "@shared/featureFlags";
 
 // 主题类型
 export type ThemeMode = "light" | "dark" | "system";
@@ -547,14 +548,16 @@ function App() {
         pid: fsStatus?.pid,
         error: fsStatus?.error,
       });
-      items.push({
-        key: "guiServer",
-        label: t("Claw.Service.guiMcp"),
-        description: t("Claw.Service.guiMcpDesc"),
-        running: guiStatus?.running ?? false,
-        pid: guiStatus?.pid,
-        error: guiStatus?.error,
-      });
+      if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
+        items.push({
+          key: "guiServer",
+          label: t("Claw.Service.guiMcp"),
+          description: t("Claw.Service.guiMcpDesc"),
+          running: guiStatus?.running ?? false,
+          pid: guiStatus?.pid,
+          error: guiStatus?.error,
+        });
+      }
       items.push({
         key: "lanproxy",
         label: t("Claw.Service.proxy"),

@@ -18,6 +18,7 @@ import {
   getWindowsMcpStatus,
 } from "../services/packages/windowsMcp";
 import { isWindows } from "../services/system/shellEnv";
+import { FEATURES } from "@shared/featureFlags";
 
 function invalidArgs(channel: string, error: unknown) {
   log.warn(`[IPC] ${channel} invalid args:`, error);
@@ -26,6 +27,9 @@ function invalidArgs(channel: string, error: unknown) {
 export function registerGuiServerHandlers(): void {
   // ===== guiServer:start =====
   ipcMain.handle("guiServer:start", async () => {
+    if (!FEATURES.ENABLE_GUI_AGENT_SERVER) {
+      return { success: false, error: "GUI Agent Server is disabled" };
+    }
     try {
       // 手动点击启动：先 stop 再 start，尽量清掉残留 uv/python 进程并释放 GUI MCP 端口
       if (isWindows()) {
@@ -51,6 +55,9 @@ export function registerGuiServerHandlers(): void {
 
   // ===== guiServer:stop =====
   ipcMain.handle("guiServer:stop", async () => {
+    if (!FEATURES.ENABLE_GUI_AGENT_SERVER) {
+      return { success: false, error: "GUI Agent Server is disabled" };
+    }
     try {
       if (isWindows()) {
         return await stopWindowsMcp();
@@ -66,6 +73,9 @@ export function registerGuiServerHandlers(): void {
 
   // ===== guiServer:status =====
   ipcMain.handle("guiServer:status", async () => {
+    if (!FEATURES.ENABLE_GUI_AGENT_SERVER) {
+      return { running: false, error: "GUI Agent Server is disabled" };
+    }
     try {
       if (isWindows()) {
         return getWindowsMcpStatus();

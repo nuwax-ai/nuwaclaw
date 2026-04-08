@@ -46,6 +46,7 @@ import {
   STORAGE_KEYS,
   I18N_KEYS,
 } from "@shared/constants";
+import { FEATURES } from "@shared/featureFlags";
 import { t, getCurrentLang, setCurrentLang } from "../../services/core/i18n";
 import i18next from "../../services/i18n";
 
@@ -544,20 +545,26 @@ export default function SettingsPage() {
                   <InputNumber min={1} max={65535} style={{ width: "100%" }} />
                 </Form.Item>
               </Col>
-              <Col span={8}>
-                <Form.Item
-                  name="guiMcpPort"
-                  label={t("Claw.Settings.saveConfig.guiMcpPort")}
-                  rules={[
-                    {
-                      required: true,
-                      message: t("Claw.Settings.saveConfig.enterPort"),
-                    },
-                  ]}
-                >
-                  <InputNumber min={1} max={65535} style={{ width: "100%" }} />
-                </Form.Item>
-              </Col>
+              {FEATURES.ENABLE_GUI_AGENT_SERVER && (
+                <Col span={8}>
+                  <Form.Item
+                    name="guiMcpPort"
+                    label={t("Claw.Settings.saveConfig.guiMcpPort")}
+                    rules={[
+                      {
+                        required: true,
+                        message: t("Claw.Settings.saveConfig.enterPort"),
+                      },
+                    ]}
+                  >
+                    <InputNumber
+                      min={1}
+                      max={65535}
+                      style={{ width: "100%" }}
+                    />
+                  </Form.Item>
+                </Col>
+              )}
             </Row>
 
             <Form.Item
