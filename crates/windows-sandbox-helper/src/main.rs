@@ -80,7 +80,7 @@ struct Args {
 #[derive(Parser, Debug)]
 enum Subcommand {
     /// Run a command in the sandbox, capture output, print JSON result.
-    Run(CommonArgs),
+    Run(RunArgs),
     /// Run a command in the sandbox as a persistent stdio proxy.
     /// Stdin/stdout/stderr are forwarded bidirectionally.
     ///
@@ -88,6 +88,17 @@ enum Subcommand {
     /// to spawn grandchildren (e.g. claude-code CLI, MCP servers).
     /// File-system write protection is provided by DACL ACEs only.
     Serve(CommonArgs),
+}
+
+#[derive(Parser, Debug)]
+struct RunArgs {
+    #[command(flatten)]
+    common: CommonArgs,
+    /// Skip WRITE_RESTRICTED on the sandbox token. Allows child processes
+    /// (e.g. Git Bash) to create pipes and modify their own token DACL.
+    /// Filesystem write protection is still enforced by DACL ACEs.
+    #[arg(long, default_value_t = false)]
+    no_write_restricted: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -240,7 +251,7 @@ impl SandboxContext {
         command: Vec<String>,
         cwd: &Path,
         args: Vec<String>,
-        is_serve: bool,
+        write_restricted: bool,
     ) -> anyhow::Result<Self> {
         let mut env_map: HashMap<String, String> = std::env::vars().collect();
         let mut command = command;
@@ -272,8 +283,7 @@ impl SandboxContext {
             let cap_sid_str = if is_workspace_write { &caps.workspace } else { &caps.readonly };
             let psid = convert_string_sid_to_sid(cap_sid_str).unwrap();
 
-            // write_restricted: true for run mode (all policies), false for serve mode
-            create_restricted_token(psid, !is_serve)?
+            create_restricted_token(psid, write_restricted)?
         };
 
         unsafe {
@@ -457,8 +467,9 @@ pub fn run_sandbox_capture(
     cwd: &Path,
     args: Vec<String>,
     timeout_ms: Option<u64>,
+    write_restricted: bool,
 ) -> anyhow::Result<CaptureResult> {
-    let mut ctx = SandboxContext::setup(policy_json_or_preset, sandbox_policy_cwd, home, command, cwd, args, false)?;
+    let mut ctx = SandboxContext::setup(policy_json_or_preset, sandbox_policy_cwd, home, command, cwd, args, write_restricted)?;
 
     let (stdin_pair, stdout_pair, stderr_pair) = unsafe { setup_stdio_pipes()? };
     let ((in_r, in_w), (out_r, out_w), (err_r, err_w)) = (stdin_pair, stdout_pair, stderr_pair);
@@ -568,7 +579,10 @@ pub fn run_sandbox_proxy(
     cwd: &Path,
     args: Vec<String>,
 ) -> anyhow::Result<ProxyResult> {
-    let mut ctx = SandboxContext::setup(policy_json_or_preset, sandbox_policy_cwd, home, command, cwd, args, true)?;
+    // Serve mode: never WRITE_RESTRICTED — child (ACP engine) must be able to
+    // spawn grandchildren (claude-code CLI, MCP servers). DACL ACEs alone
+    // provide filesystem write protection.
+    let mut ctx = SandboxContext::setup(policy_json_or_preset, sandbox_policy_cwd, home, command, cwd, args, false)?;
 
     let (stdin_pair, stdout_pair, stderr_pair) = unsafe { setup_stdio_pipes()? };
     let ((child_stdin_r, child_stdin_w), (child_stdout_r, child_stdout_w), (child_stderr_r, child_stderr_w)) =
@@ -712,19 +726,21 @@ fn main() -> anyhow::Result<()> {
 
     match args.subcommand {
         Subcommand::Run(run) => {
-            let home = resolve_home(&run);
-            let policy = resolve_policy(&run);
-            let (cmd, cmd_args) = split_command(&run)?;
+            let home = resolve_home(&run.common);
+            let policy = resolve_policy(&run.common);
+            let (cmd, cmd_args) = split_command(&run.common)?;
+            let write_restricted = !run.no_write_restricted;
 
             let timeout_ms: u64 = 300_000;
             let result = run_sandbox_capture(
                 &policy,
-                &run.cwd,
+                &run.common.cwd,
                 &home,
                 vec![cmd],
-                &run.cwd,
+                &run.common.cwd,
                 cmd_args,
                 Some(timeout_ms),
+                write_restricted,
             )?;
 
             println!(
