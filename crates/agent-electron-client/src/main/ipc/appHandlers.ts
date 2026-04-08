@@ -295,7 +295,11 @@ export function registerAppHandlers(ctx: HandlerContext): void {
 
   ipcMain.handle("app:downloadUpdate", async () => {
     try {
-      return await downloadUpdate();
+      const result = await downloadUpdate();
+      log.info(
+        `[IPC] app:downloadUpdate → success=${result.success}, error="${result.error}"`,
+      );
+      return result;
     } catch (error) {
       log.error("[IPC] app:downloadUpdate failed:", error);
       return { success: false, error: String(error) };

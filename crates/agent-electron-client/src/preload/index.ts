@@ -364,7 +364,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // i18n - 语言同步
   i18n: {
     getLang: () => ipcRenderer.invoke("i18n:getLang"),
-    setLang: (lang: string) => ipcRenderer.invoke("i18n:setLang", lang),
+    setLang: (lang: string) => {
+      console.debug(`[preload] i18n.setLang("${lang}")`);
+      return ipcRenderer.invoke("i18n:setLang", lang);
+    },
   },
 
   // Dialog utilities

@@ -7,6 +7,7 @@
 import { app } from "electron";
 import * as path from "path";
 import * as fs from "fs";
+import log from "electron-log";
 
 // ========== 类型 ==========
 
@@ -94,9 +95,13 @@ const formatText = (template: string, values: I18nValues): string => {
 // ========== 初始化 ==========
 
 const initLang = (): void => {
-  const systemLang = app.getLocale();
+  const systemLang = app.getLocale() || "en";
   currentLang = normalizeLang(systemLang);
+  const fileName = LOCALE_FILE_MAP[currentLang] || "en-US.json";
   langMap = loadLocaleFile(currentLang);
+  log.info(
+    `[i18n] initLang: systemLocale="${systemLang}" → normalized="${currentLang}" → file="${fileName}", loadedKeys=${Object.keys(langMap).length}`,
+  );
 };
 
 // ========== 导出函数 ==========
@@ -119,11 +124,17 @@ export function t(key: string, ...values: I18nValues): string {
 
   const template = langMap?.[normalizedKey];
   if (!template) {
-    console.warn(`[i18n] Missing translation for key: ${normalizedKey}`);
+    log.warn(
+      `[i18n] Missing translation for key: "${normalizedKey}", currentLang="${currentLang}"`,
+    );
     return normalizedKey;
   }
 
-  return formatText(template, values);
+  const result = formatText(template, values);
+  log.debug(
+    `[i18n] t("${normalizedKey}") → "${result}" (currentLang="${currentLang}")`,
+  );
+  return result;
 }
 
 /**
@@ -145,11 +156,13 @@ export function getMainLang(): string {
  * @param lang 语言代码（如 "zh-CN"、"en"）
  */
 export function setMainLang(lang: string): void {
-  const normalized = normalizeLang(lang);
-  if (!normalized) return;
-
+  const normalized = normalizeLang(lang) || "en";
   currentLang = normalized;
   langMap = loadLocaleFile(normalized);
+  const devModeVal = langMap["Claw.AutoUpdater.devModeUnsupported"];
+  log.info(
+    `[i18n] setMainLang("${lang}") → normalized="${normalized}", devModeUnsupported="${devModeVal}", loadedKeys=${Object.keys(langMap).length}`,
+  );
 }
 
 // 延迟初始化（等待 app ready）

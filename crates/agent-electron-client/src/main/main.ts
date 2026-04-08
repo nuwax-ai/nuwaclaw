@@ -10,7 +10,7 @@ import {
 } from "electron";
 import * as path from "path";
 import log from "electron-log";
-import { initDatabase, closeDb } from "./db";
+import { initDatabase, closeDb, readSetting } from "./db";
 import { ManagedProcess } from "./processManager";
 import { registerAllHandlers } from "./ipc/index";
 import { unregisterEventForwarders } from "./ipc/eventForwarders";
@@ -25,7 +25,7 @@ import type { HandlerContext } from "@shared/types/ipc";
 import { DEFAULT_DEV_SERVER_PORT } from "./services/constants";
 import { APP_DISPLAY_NAME, CLEANUP_TIMEOUT } from "@shared/constants";
 import { initLogging } from "./bootstrap/logConfig";
-import { initI18n } from "./services/i18n";
+import { initI18n, setMainLang } from "./services/i18n";
 import { createTrayManager, TrayStatus } from "./window/trayManager";
 import { createServiceManager } from "./window/serviceManager";
 import { initAutoUpdater } from "./services/autoUpdater";
@@ -457,6 +457,13 @@ app.whenReady().then(async () => {
   initDatabase();
   migrateSettingsPaths();
   getDeviceId();
+
+  // 数据库就绪后，同步用户保存的语言偏好到主进程 i18n
+  // 解决 app.getLocale() 在某些 macOS 配置下返回空字符串的问题
+  const savedLang = readSetting("i18n.active_lang") as string | undefined;
+  if (savedLang) {
+    setMainLang(savedLang);
+  }
 
   const ctx: HandlerContext = {
     getMainWindow: () => mainWindow,
