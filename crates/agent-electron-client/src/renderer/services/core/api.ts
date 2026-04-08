@@ -11,14 +11,26 @@ import { t } from "./i18n";
 // 错误码定义
 const SUCCESS_CODE = "0000";
 
-// 错误码对应的消息
-const ERROR_MESSAGES: Record<string, string> = {
-  "0000": t("Claw.Api.success"),
-  "4010": t("Claw.Api.notLoggedIn"),
-  "4011": t("Claw.Api.loginExpired"),
-  "1001": t("Claw.Api.clientNotFound"),
-  "9999": t("Claw.Api.systemError"),
+/**
+ * 错误码 → i18n key（不在模块加载时调用 t）
+ *
+ * 说明：i18n.ts 会 import apiRequest，若此处在顶层执行 t()，会与 i18n 形成循环依赖，
+ * 此时 t 尚未完成初始化，运行时报 “Cannot access 't' before initialization”。
+ * 仅在 apiRequest 执行时再 t(key)，此时模块图已就绪。
+ */
+const ERROR_MESSAGE_KEYS: Record<string, string> = {
+  "0000": "Claw.Api.success",
+  "4010": "Claw.Api.notLoggedIn",
+  "4011": "Claw.Api.loginExpired",
+  "1001": "Claw.Api.clientNotFound",
+  "9999": "Claw.Api.systemError",
 };
+
+/** 按错误码取已翻译的兜底文案（无映射时返回 undefined） */
+function translatedErrorForCode(code: string): string | undefined {
+  const key = ERROR_MESSAGE_KEYS[code];
+  return key ? t(key) : undefined;
+}
 
 // 响应类型定义（内部使用）
 interface ApiResponse<T = any> {
@@ -103,7 +115,7 @@ export async function apiRequest<T>(
     if (result.code !== SUCCESS_CODE) {
       const errorMsg =
         result.message ||
-        ERROR_MESSAGES[result.code] ||
+        translatedErrorForCode(result.code) ||
         `请求失败 (错误码: ${result.code})`;
 
       logger.error("API Error", "API", {
