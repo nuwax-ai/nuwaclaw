@@ -54,6 +54,11 @@ const LOCALE_MAPS: Record<string, SystemLangMap> = {
   "zh-hk": zhHK as SystemLangMap,
 };
 
+const isLocaleSupported = (lang: string): boolean => {
+  const normalized = lang.toLowerCase();
+  return normalized in LOCALE_MAPS;
+};
+
 const getLocaleMap = (lang: string): SystemLangMap => {
   const normalized = lang.toLowerCase();
   // 精确匹配
@@ -77,6 +82,7 @@ const getLocaleMap = (lang: string): SystemLangMap => {
 
 let currentLang = DEFAULT_I18N_LANG;
 let langMap: SystemLangMap = { ...(enUS as SystemLangMap) };
+let isCurrentLangSupported_ = true;
 let zhBaseMap: SystemLangMap = { ...(zhCN as SystemLangMap) };
 let zhValueToKeyMap: Record<string, string> = {};
 let initPromise: Promise<void> | null = null;
@@ -305,10 +311,19 @@ export const getCurrentLang = (): string => currentLang;
 
 export const getCurrentLangMap = (): SystemLangMap => ({ ...langMap });
 
+export const isCurrentLangSupported = (): boolean => isCurrentLangSupported_;
+
 export const setCurrentLang = async (lang?: string | null): Promise<void> => {
   const resolvedLang = normalizeLang(lang || getBrowserLang());
   currentLang = resolvedLang;
-  langMap = { ...getLocaleMap(resolvedLang) };
+  isCurrentLangSupported_ = isLocaleSupported(resolvedLang);
+
+  if (isCurrentLangSupported_) {
+    langMap = { ...getLocaleMap(resolvedLang) };
+  } else {
+    // 本地不支持的语言，langMap 置空，翻译时直接展示 key
+    langMap = {};
+  }
   await writeToSettings(I18N_STORAGE_KEYS.ACTIVE_LANG, resolvedLang);
 };
 
@@ -323,30 +338,32 @@ const _doInitI18n = async (): Promise<void> => {
   const resolvedLang = normalizeLang(cachedLang || getBrowserLang());
   await setCurrentLang(resolvedLang);
 
-  langMap = { ...getLocaleMap(resolvedLang) };
-
-  const cachedMap = await readMapFromCache(resolvedLang);
-  if (cachedMap) {
-    langMap = {
-      ...getLocaleMap(resolvedLang),
-      ...cachedMap,
-    };
-  }
-
-  const fetched = await fetchAndApplyLangMap();
-  if (isZhLang(getCurrentLang())) {
-    zhBaseMap = { ...langMap };
-    buildZhValueToKeyMap(zhBaseMap);
-  } else {
-    await fetchZhBaseMap();
-  }
-
-  if (!Object.keys(zhValueToKeyMap).length) {
-    buildZhValueToKeyMap(getLocaleMap("zh-cn"));
-  }
-
-  if (!fetched && !cachedMap) {
+  if (isCurrentLangSupported_) {
     langMap = { ...getLocaleMap(resolvedLang) };
+
+    const cachedMap = await readMapFromCache(resolvedLang);
+    if (cachedMap) {
+      langMap = {
+        ...getLocaleMap(resolvedLang),
+        ...cachedMap,
+      };
+    }
+
+    const fetched = await fetchAndApplyLangMap();
+    if (isZhLang(getCurrentLang())) {
+      zhBaseMap = { ...langMap };
+      buildZhValueToKeyMap(zhBaseMap);
+    } else {
+      await fetchZhBaseMap();
+    }
+
+    if (!Object.keys(zhValueToKeyMap).length) {
+      buildZhValueToKeyMap(getLocaleMap("zh-cn"));
+    }
+
+    if (!fetched && !cachedMap) {
+      langMap = { ...getLocaleMap(resolvedLang) };
+    }
   }
 };
 
@@ -379,6 +396,11 @@ export const dict = (key: string, ...values: I18nValues): string => {
     return normalizedKey;
   }
 
+  // 本地不支持的语言，不走任何 fallback，直接返回 key
+  if (!isCurrentLangSupported()) {
+    return normalizedKey;
+  }
+
   const template =
     langMap[normalizedKey] ||
     getLocaleMap("en")[normalizedKey] ||
@@ -403,9 +425,11 @@ export const t = (key: string, ...values: I18nValues): string =>
  * 获取语言列表
  */
 export async function fetchI18nLangList(): Promise<I18nLangDto[]> {
+  const userDomain = await getUserDomain();
   const result = await apiRequest<I18nLangDto[]>("/api/i18n/lang/list", {
     method: "GET",
     showError: false,
+    baseUrl: userDomain || undefined,
   });
   return result || [];
 }
