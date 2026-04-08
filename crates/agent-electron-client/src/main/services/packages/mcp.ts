@@ -21,6 +21,7 @@ import * as os from "os";
 import * as crypto from "crypto";
 import log from "electron-log";
 import { app } from "electron";
+import { t } from "../i18n";
 import { getPerfLogger } from "../../bootstrap/logConfig";
 import {
   getAppEnv,
@@ -656,12 +657,11 @@ class McpProxyManager {
     if (!this.cachedScriptPath) {
       this.cachedScriptPath = null;
       if (!isInstalledLocally("nuwax-mcp-stdio-proxy")) {
-        const err =
-          "nuwax-mcp-stdio-proxy 未安装，请先在依赖管理中安装或确保已 npm install";
+        const err = t("Claw.MCP.notInstalled");
         this.lastError = err;
         return { success: false, error: err };
       }
-      const err = "nuwax-mcp-stdio-proxy 入口文件未找到";
+      const err = t("Claw.MCP.entryNotFound");
       this.lastError = err;
       return { success: false, error: err };
     }

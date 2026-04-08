@@ -28,6 +28,7 @@ import {
   SandboxErrorCode,
   isSandboxError,
 } from "@shared/errors/sandbox";
+import { t } from "../services/i18n";
 
 // 服务单例（在服务实现完成后注入）
 let sandboxService: {
@@ -113,7 +114,7 @@ export function setSandboxControlService(
 function getSandboxService(): NonNullable<typeof sandboxService> {
   if (!sandboxService) {
     throw new SandboxError(
-      "沙箱服务未初始化",
+      "Sandbox service not initialized",
       SandboxErrorCode.SANDBOX_UNAVAILABLE,
     );
   }
@@ -125,7 +126,10 @@ function getSandboxService(): NonNullable<typeof sandboxService> {
  */
 function getPermissionService(): NonNullable<typeof permissionService> {
   if (!permissionService) {
-    throw new SandboxError("权限服务未初始化", SandboxErrorCode.INTERNAL_ERROR);
+    throw new SandboxError(
+      "Permission service not initialized",
+      SandboxErrorCode.INTERNAL_ERROR,
+    );
   }
   return permissionService;
 }
@@ -133,7 +137,7 @@ function getPermissionService(): NonNullable<typeof permissionService> {
 function getSandboxControlService(): NonNullable<typeof sandboxControlService> {
   if (!sandboxControlService) {
     throw new SandboxError(
-      "沙箱控制服务未初始化",
+      "Sandbox control service not initialized",
       SandboxErrorCode.SANDBOX_UNAVAILABLE,
     );
   }
@@ -236,7 +240,7 @@ export function registerSandboxHandlers(): void {
       if (!workspace) {
         return {
           success: false,
-          error: `工作区未找到: ${sessionId}`,
+          error: t("Claw.Sandbox.workspaceNotFound", sessionId),
           code: SandboxErrorCode.WORKSPACE_NOT_FOUND,
         };
       }

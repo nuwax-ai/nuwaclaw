@@ -392,8 +392,9 @@ function SetupWizard({
   };
 
   const handleSelectWorkspaceDir = async () => {
-    const result =
-      await window.electronAPI?.dialog.openDirectory("选择工作区目录");
+    const result = await window.electronAPI?.dialog.openDirectory(
+      t("Claw.Settings.workspace.selectDir"),
+    );
     if (result?.success && result.path) {
       setStep1Config({ ...step1Config, workspaceDir: result.path });
     }

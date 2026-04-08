@@ -65,7 +65,7 @@ const DEFAULT_CONFIG: PermissionConfig = {
     // 允许的工具
     {
       id: "1",
-      name: t("Claw.Permission.defaultToolRead"),
+      name: t("Claw.PermissionRules.defaultToolRead"),
       pattern: "tool:read",
       action: "allow",
       type: "tool",
@@ -73,7 +73,7 @@ const DEFAULT_CONFIG: PermissionConfig = {
     },
     {
       id: "2",
-      name: t("Claw.Permission.defaultToolEdit"),
+      name: t("Claw.PermissionRules.defaultToolEdit"),
       pattern: "tool:edit",
       action: "prompt",
       type: "tool",
@@ -81,7 +81,7 @@ const DEFAULT_CONFIG: PermissionConfig = {
     },
     {
       id: "3",
-      name: t("Claw.Permission.defaultBash"),
+      name: t("Claw.PermissionRules.defaultBash"),
       pattern: "command:bash",
       action: "prompt",
       type: "command",
@@ -89,7 +89,7 @@ const DEFAULT_CONFIG: PermissionConfig = {
     },
     {
       id: "4",
-      name: t("Claw.Permissions.defaultNetwork"),
+      name: t("Claw.PermissionRules.defaultNetwork"),
       pattern: "network:http",
       action: "prompt",
       type: "network",
@@ -97,7 +97,7 @@ const DEFAULT_CONFIG: PermissionConfig = {
     },
     {
       id: "5",
-      name: t("Claw.Permissions.defaultFileRead"),
+      name: t("Claw.PermissionRules.defaultFileRead"),
       pattern: "file:read",
       action: "allow",
       type: "file",
@@ -105,7 +105,7 @@ const DEFAULT_CONFIG: PermissionConfig = {
     },
     {
       id: "6",
-      name: t("Claw.Permissions.defaultFileWrite"),
+      name: t("Claw.PermissionRules.defaultFileWrite"),
       pattern: "file:write",
       action: "prompt",
       type: "file",

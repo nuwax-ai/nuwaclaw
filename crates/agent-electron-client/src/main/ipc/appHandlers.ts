@@ -26,6 +26,7 @@ import { getAutoLaunchManager } from "../window/autoLaunchManager";
 import { APP_DISPLAY_NAME } from "@shared/constants";
 import { readSetting, writeSetting } from "../db";
 import { getDomainTokenKey } from "@shared/utils/domain";
+import { t } from "../services/i18n";
 
 // WebView 窗口缓存
 let webviewWindow: BrowserWindow | null = null;
@@ -146,7 +147,11 @@ export function registerAppHandlers(ctx: HandlerContext): void {
         });
         success = true;
       }
-      if (!success) return { success: false, error: "设置失败" };
+      if (!success)
+        return {
+          success: false,
+          error: t("Claw.Settings.messages.settingFailed"),
+        };
       // 同步托盘缓存状态
       getTrayManager()?.refreshAutoLaunchState();
       // 通知所有渲染进程
@@ -373,16 +378,16 @@ export function registerAppHandlers(ctx: HandlerContext): void {
       const items = [
         {
           key: "accessibility",
-          name: "辅助功能",
-          description: "允许应用控制您的电脑",
+          name: t("Claw.PermissionsPage.macosAccessibility"),
+          description: t("Claw.PermissionsPage.macosAccessibilityDesc"),
           status: systemPreferences.isTrustedAccessibilityClient(false)
             ? "granted"
             : "denied",
         },
         {
           key: "screen_recording",
-          name: "屏幕录制",
-          description: "允许应用录制屏幕内容",
+          name: t("Claw.PermissionsPage.macosScreenRecording"),
+          description: t("Claw.PermissionsPage.macosScreenRecordingDesc"),
           status:
             systemPreferences.getMediaAccessStatus("screen") === "granted"
               ? "granted"
@@ -390,8 +395,8 @@ export function registerAppHandlers(ctx: HandlerContext): void {
         },
         {
           key: "file_access",
-          name: "全磁盘访问",
-          description: "允许应用访问所有文件",
+          name: t("Claw.PermissionsPage.macosFullDiskAccess"),
+          description: t("Claw.PermissionsPage.macosFullDiskAccessDesc"),
           status: "unknown" as const,
         },
       ];
@@ -464,7 +469,7 @@ export function registerAppHandlers(ctx: HandlerContext): void {
     const mainWindow = ctx.getMainWindow();
     if (!mainWindow) return { success: false, error: "No window" };
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: title || "选择目录",
+      title: title || t("Claw.Settings.workspace.selectDir"),
       properties: ["openDirectory", "createDirectory"],
     });
     if (result.canceled || result.filePaths.length === 0) {
@@ -823,7 +828,7 @@ export function registerAppHandlers(ctx: HandlerContext): void {
           y: savedBounds?.y,
           minWidth: 600,
           minHeight: 400,
-          title: title || `${APP_DISPLAY_NAME} - 会话浏览器`,
+          title: title || `${APP_DISPLAY_NAME} - ${t("Claw.Sessions.title")}`,
           icon: getIconPath(),
           webPreferences: {
             // 使用 defaultSession，与主窗口共享 Cookie

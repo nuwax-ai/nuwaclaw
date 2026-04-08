@@ -11,6 +11,7 @@ import log from "electron-log";
 import * as os from "os";
 import * as path from "path";
 import { app } from "electron";
+import { t } from "../i18n";
 import { DockerSandbox } from "./DockerSandbox";
 import { CommandSandbox } from "./CommandSandbox";
 import {
@@ -127,7 +128,7 @@ function setupControlService(): void {
       }
       return {
         success: true,
-        message: `Windows Sandbox helper 就绪`,
+        message: t("Claw.Sandbox.helperReady"),
       };
     },
   });

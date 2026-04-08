@@ -383,5 +383,18 @@ export const I18N_KEYS = {
       REQ_NODE_VERSION: "Claw.Pages.Dependencies.reqNodeVersion",
       REQ_UV_VERSION: "Claw.Pages.Dependencies.reqUvVersion",
     },
+
+    // 日志查看器 Pages.LogViewer
+    LogViewer: {
+      TITLE: "Claw.LogViewer.title",
+      AUTO_SCROLL: "Claw.LogViewer.autoScroll",
+      ALL: "Claw.LogViewer.all",
+      REFRESH: "Claw.LogViewer.refresh",
+      OPEN_DIR: "Claw.LogViewer.openDir",
+      NO_LOGS: "Claw.LogViewer.noLogs",
+      SCROLL_TO_LOAD_MORE: "Claw.LogViewer.scrollToLoadMore",
+      TOTAL_LOGS: "Claw.LogViewer.totalLogs",
+      AUTO_SCROLL_ENABLED: "Claw.LogViewer.autoScrollEnabled",
+    },
   },
 } as const;

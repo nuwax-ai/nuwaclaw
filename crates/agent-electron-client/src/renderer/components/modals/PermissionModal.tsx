@@ -60,14 +60,14 @@ function PermissionModal({
         return (
           <div className="permission-details">
             <div className="detail-row">
-              <span className="label">{t("Claw.Permission.command")}:</span>
+              <span className="label">{t("Claw.Permissions.command")}:</span>
               <code>
                 {details.command} {details.args?.join(" ")}
               </code>
             </div>
             {details.env && (
               <div className="detail-row">
-                <span className="label">{t("Claw.Permission.envVars")}:</span>
+                <span className="label">{t("Claw.Permissions.envVars")}:</span>
                 <span>{Object.keys(details.env).join(", ")}</span>
               </div>
             )}
@@ -77,7 +77,7 @@ function PermissionModal({
         return (
           <div className="permission-details">
             <div className="detail-row">
-              <span className="label">{t("Claw.Permission.file")}:</span>
+              <span className="label">{t("Claw.Permissions.file")}:</span>
               <code>{details.file}</code>
             </div>
           </div>
@@ -95,7 +95,7 @@ function PermissionModal({
         return (
           <div className="permission-details">
             <div className="detail-row">
-              <span className="label">{t("Claw.Permission.tool")}:</span>
+              <span className="label">{t("Claw.Permissions.tool")}:</span>
               <code>{details.tool}</code>
             </div>
           </div>
@@ -113,7 +113,7 @@ function PermissionModal({
           <div className="permission-title">
             <h3>{request.title}</h3>
             <span className="permission-timer">
-              {countdown} {t("Claw.Permission.second")}
+              {countdown} {t("Claw.Permissions.second")}
             </span>
           </div>
         </div>
@@ -125,16 +125,16 @@ function PermissionModal({
 
         <div className="permission-actions">
           <button className="deny-btn" onClick={onDeny}>
-            {t("Claw.Permission.deny")}
+            {t("Claw.Permissions.deny")}
           </button>
           <button className="approve-once-btn" onClick={() => onApprove(false)}>
-            {t("Claw.Permission.allowOnce")}
+            {t("Claw.Permissions.allowOnce")}
           </button>
           <button
             className="approve-always-btn"
             onClick={() => onApprove(true)}
           >
-            {t("Claw.Permission.allowAlways")}
+            {t("Claw.Permissions.allowAlways")}
           </button>
         </div>
       </div>

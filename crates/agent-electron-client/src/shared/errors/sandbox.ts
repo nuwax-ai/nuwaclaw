@@ -5,6 +5,20 @@
  * @updated 2026-03-22
  */
 
+/** Lazy-loaded i18n t() from main process context */
+let _i18nT: ((key: string, ...values: string[]) => string) | null = null;
+function i18nT(key: string, ...values: string[]): string {
+  if (!_i18nT) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      _i18nT = require("../../main/services/i18n").t;
+    } catch {
+      // Not in main process — fall through to English hardcoded below
+    }
+  }
+  return _i18nT ? _i18nT(key, ...values) : key;
+}
+
 /**
  * 沙箱错误码
  */
@@ -147,81 +161,82 @@ export class SandboxError extends Error {
   }
 
   /**
-   * 获取用户友好的错误消息
+   * 获取用户友好的错误消息（走 i18n）
    */
   getUserMessage(): string {
+    const id = this.workspaceId || this.sessionId || "";
     switch (this.code) {
       case SandboxErrorCode.SANDBOX_UNAVAILABLE:
-        return "沙箱环境不可用，请检查沙箱配置";
+        return i18nT("Claw.Sandbox.unavailable");
       case SandboxErrorCode.DOCKER_UNAVAILABLE:
-        return "Docker 不可用，请确保 Docker Desktop 已安装并运行";
+        return i18nT("Claw.Sandbox.dockerUnavailable");
       case SandboxErrorCode.HELPER_UNAVAILABLE:
-        return "沙箱 Helper 不可用，请确认 nuwax-sandbox-helper 已正确安装";
+        return i18nT("Claw.Sandbox.helperUnavailable");
 
       case SandboxErrorCode.WORKSPACE_NOT_FOUND:
-        return `工作区未找到: ${this.workspaceId || this.sessionId || "未知"}`;
+        return i18nT("Claw.Sandbox.workspaceNotFound", id);
       case SandboxErrorCode.WORKSPACE_EXISTS:
-        return `工作区已存在: ${this.sessionId || "未知"}`;
+        return i18nT("Claw.Sandbox.workspaceExists", this.sessionId || "");
       case SandboxErrorCode.WORKSPACE_CREATE_FAILED:
-        return "工作区创建失败，请检查磁盘空间和权限";
+        return i18nT("Claw.Sandbox.workspaceCreateFailed");
       case SandboxErrorCode.WORKSPACE_DESTROY_FAILED:
-        return "工作区销毁失败，请手动清理";
+        return i18nT("Claw.Sandbox.workspaceDestroyFailed");
       case SandboxErrorCode.WORKSPACE_INVALID_STATE:
-        return "工作区状态无效，请重试或重新创建工作区";
+        return i18nT("Claw.Sandbox.workspaceInvalidState");
 
       case SandboxErrorCode.PERMISSION_DENIED:
-        return "权限被拒绝";
+        return i18nT("Claw.Permissions.denied");
       case SandboxErrorCode.PERMISSION_TIMEOUT:
-        return "权限请求超时，请重试";
+        return i18nT("Claw.Permissions.timeout");
       case SandboxErrorCode.PERMISSION_POLICY_VIOLATION:
-        return "操作被安全策略禁止";
+        return i18nT("Claw.Permissions.policyViolation");
 
       case SandboxErrorCode.EXECUTION_FAILED:
-        return "命令执行失败";
+        return i18nT("Claw.Sandbox.executionFailed");
       case SandboxErrorCode.EXECUTION_TIMEOUT:
-        return "命令执行超时";
+        return i18nT("Claw.Sandbox.executionTimeout");
       case SandboxErrorCode.EXECUTION_BLOCKED:
-        return "命令被安全策略拦截";
+        return i18nT("Claw.Sandbox.executionBlocked");
       case SandboxErrorCode.COMMAND_NOT_FOUND:
-        return "命令未找到";
+        return i18nT("Claw.Sandbox.commandNotFound");
 
       case SandboxErrorCode.FILE_NOT_FOUND:
-        return "文件未找到";
+        return i18nT("Claw.Sandbox.fileNotFound");
       case SandboxErrorCode.FILE_WRITE_FAILED:
-        return "文件写入失败";
+        return i18nT("Claw.Sandbox.fileWriteFailed");
       case SandboxErrorCode.FILE_READ_FAILED:
-        return "文件读取失败";
+        return i18nT("Claw.Sandbox.fileReadFailed");
       case SandboxErrorCode.FILE_DELETE_FAILED:
-        return "文件删除失败";
+        return i18nT("Claw.Sandbox.fileDeleteFailed");
       case SandboxErrorCode.DIRECTORY_OPERATION_FAILED:
-        return "目录操作失败";
+        return i18nT("Claw.Sandbox.directoryOperationFailed");
 
       case SandboxErrorCode.CLEANUP_FAILED:
-        return "清理失败";
+        return i18nT("Claw.Sandbox.cleanupFailed");
       case SandboxErrorCode.CLEANUP_TIMEOUT:
-        return "清理超时";
+        return i18nT("Claw.Sandbox.cleanupTimeout");
 
       case SandboxErrorCode.CONFIG_INVALID:
-        return "配置无效";
+        return i18nT("Claw.Sandbox.configInvalid");
       case SandboxErrorCode.CONFIG_MISSING:
-        return "配置缺失";
+        return i18nT("Claw.Sandbox.configMissing");
 
       case SandboxErrorCode.CONTAINER_OPERATION_FAILED:
-        return "容器操作失败";
+        return i18nT("Claw.Sandbox.containerOperationFailed");
       case SandboxErrorCode.CONTAINER_START_FAILED:
-        return "容器启动失败";
+        return i18nT("Claw.Sandbox.containerStartFailed");
       case SandboxErrorCode.CONTAINER_STOP_FAILED:
-        return "容器停止失败";
+        return i18nT("Claw.Sandbox.containerStopFailed");
 
       case SandboxErrorCode.RESOURCE_INSUFFICIENT:
-        return "资源不足";
+        return i18nT("Claw.Sandbox.resourceInsufficient");
       case SandboxErrorCode.OUT_OF_MEMORY:
-        return "内存不足";
+        return i18nT("Claw.Sandbox.outOfMemory");
       case SandboxErrorCode.OUT_OF_DISK_SPACE:
-        return "磁盘空间不足";
+        return i18nT("Claw.Sandbox.outOfDiskSpace");
 
       default:
-        return this.message || "未知错误";
+        return this.message || i18nT("Claw.Sandbox.unknownError");
     }
   }
 
@@ -259,7 +274,7 @@ export class SandboxError extends Error {
 // ============================================================================
 
 /**
- * 沙箱不可用错误
+ * Sandbox unavailable error
  */
 export class SandboxUnavailableError extends SandboxError {
   constructor(
@@ -267,7 +282,7 @@ export class SandboxUnavailableError extends SandboxError {
     options?: { cause?: Error; details?: Record<string, unknown> },
   ) {
     super(
-      `沙箱不可用: ${sandboxType}`,
+      i18nT("Claw.Sandbox.unavailableWithType", sandboxType),
       SandboxErrorCode.SANDBOX_UNAVAILABLE,
       options,
     );
@@ -387,11 +402,11 @@ export function isSandboxError(error: unknown): error is SandboxError {
 }
 
 /**
- * 从未知错误创建沙箱错误
+ * Create SandboxError from unknown error
  */
 export function toSandboxError(
   error: unknown,
-  defaultMessage: string = "未知错误",
+  defaultMessage: string = i18nT("Claw.Sandbox.unknownError"),
   defaultCode: SandboxErrorCode = SandboxErrorCode.UNKNOWN_ERROR,
   options?: { sessionId?: string; workspaceId?: string },
 ): SandboxError {

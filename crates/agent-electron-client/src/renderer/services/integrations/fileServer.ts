@@ -171,7 +171,7 @@ class FileServerService {
     }
     // 回退到 HTTP（rcoder 返回 HttpResult<ChatResponse> 格式）
     perfLog(
-      `[PERF][Frontend][chat] HTTP 请求发起: project_id=${request.project_id}, t=${t0}`,
+      `[PERF][Frontend][chat] HTTP request sent: project_id=${request.project_id}, t=${t0}`,
     );
     const response = await fetch(`${this.config.baseUrl}/computer/chat`, {
       method: "POST",

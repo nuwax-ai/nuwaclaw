@@ -11,6 +11,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import log from "electron-log";
+import { t } from "../i18n";
 import { ManagedProcess } from "../../processManager";
 import {
   getResourcesPath,
@@ -179,7 +180,7 @@ export async function startGuiAgentServer(): Promise<{
   // 解析入口文件
   const entryPath = getGuiAgentServerEntryPath();
   if (!entryPath) {
-    const error = `agent-gui-server 入口文件未找到，请先运行 npm run prepare:gui-server`;
+    const error = t("Claw.GUIAgent.entryNotFound");
     log.error(`[GuiAgentServer] ${error}`);
     return { success: false, error };
   }
@@ -187,7 +188,7 @@ export async function startGuiAgentServer(): Promise<{
   // 检查 Node.js 可用性
   const nodeBinPath = getNodeBinPathWithFallback();
   if (!nodeBinPath) {
-    const error = "Node.js 未找到，GUI Agent Server 无法启动";
+    const error = t("Claw.GUIAgent.nodeNotFound");
     log.error(`[GuiAgentServer] ${error}`);
     return { success: false, error };
   }
@@ -195,9 +196,7 @@ export async function startGuiAgentServer(): Promise<{
   // 获取 API Key
   const apiKey = getApiKeyFromDb();
   if (!apiKey) {
-    log.warn(
-      "[GuiAgentServer] 未找到 API Key，GUI Agent Server 可能无法正常工作",
-    );
+    log.warn(`[GuiAgentServer] ${t("Claw.GUIAgent.missingApiKey")}`);
   }
 
   // 检查视觉模型是否配置

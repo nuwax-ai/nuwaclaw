@@ -210,6 +210,16 @@ npm run dist:linux  # Linux
 | CSV 导出表头 | `exportLogs()` | **跟随用户语言** | 是（`t()`） |
 | 权限默认名称 | `DEFAULT_CONFIG.rules` | **跟随用户语言** | 是（`t()`） |
 
+### 权限相关命名空间
+
+| Namespace | Keys | 用途 |
+|-----------|------|------|
+| `Claw.Permissions.*` | command/envVars/file/tool/url/second/deny/allowOnce/allowAlways | 权限弹窗内的按钮标签、描述文本 |
+| `Claw.PermissionRules.*` | defaultToolRead/Edit/Bash/defaultNetwork/FileRead/FileWrite | 默认权限规则名称（DEFAULT_CONFIG.rules） |
+| `Claw.PermissionsPage.*` | title/description/refresh/openSettings/allGranted/cannotOpenSettings + macosAccessibility/Desc等 | 权限设置页面 UI + macOS 系统权限项名称/描述 |
+
+**避免混用**：代码中引用时须与 locale key 命名空间严格对应，不可交叉使用。
+
 ### 核心原则
 
 1. **logger 输出只用英文，不进 locale 文件**。日志是开发者工具，应保持语言一致性。

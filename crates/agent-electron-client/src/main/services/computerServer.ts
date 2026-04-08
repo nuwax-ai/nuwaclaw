@@ -24,6 +24,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { EventEmitter } from "events";
 import log from "electron-log";
+import { t } from "./i18n";
 import { getPerfLogger } from "../bootstrap/logConfig";
 import { agentService } from "./engines/unifiedAgent";
 import { firstTokenTrace } from "./engines/perf/firstTokenTrace";
@@ -913,8 +914,8 @@ async function handleRequest(
           index: idx,
           label:
             idx === 0
-              ? `主显示器 (${d.size.width}x${d.size.height})`
-              : `显示器 ${idx + 1} (${d.size.width}x${d.size.height})`,
+              ? `${t("Claw.GUIAgent.display.primary")} (${d.size.width}x${d.size.height})`
+              : `${t("Claw.GUIAgent.display.secondary")} ${idx + 1} (${d.size.width}x${d.size.height})`,
           width: d.size.width,
           height: d.size.height,
           scaleFactor: d.scaleFactor,

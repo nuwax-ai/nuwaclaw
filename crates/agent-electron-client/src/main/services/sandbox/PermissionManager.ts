@@ -188,13 +188,13 @@ export class PermissionManager extends EventEmitter {
     // 检查是否已批准
     if (this.approvedCache.has(cacheKey)) {
       log.info("[PermissionManager] Using cached approval");
-      return { allowed: true, reason: "已批准（缓存）" };
+      return { allowed: true, reason: "Approved (cached)" };
     }
 
     // 检查是否已拒绝
     if (this.deniedCache.has(cacheKey)) {
       log.info("[PermissionManager] Using cached rejection");
-      return { allowed: false, reason: "已拒绝（缓存）" };
+      return { allowed: false, reason: "Denied (cached)" };
     }
 
     // 检查是否在自动批准列表
@@ -214,7 +214,7 @@ export class PermissionManager extends EventEmitter {
       this.approvedCache.set(cacheKey, permission);
 
       log.info("[PermissionManager] Auto-approved:", type);
-      return { allowed: true, reason: "自动批准" };
+      return { allowed: true, reason: "Auto-approved" };
     }
 
     // 检查是否需要确认
@@ -232,7 +232,7 @@ export class PermissionManager extends EventEmitter {
           this.approvedCache.set(cacheKey, permission);
 
           log.info("[PermissionManager] Safe command auto-approved:", command);
-          return { allowed: true, reason: "安全命令" };
+          return { allowed: true, reason: "Safe command" };
         }
       }
 

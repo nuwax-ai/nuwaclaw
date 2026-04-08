@@ -1,4 +1,5 @@
 import { readSetting } from "../../db";
+import { t } from "../i18n";
 
 /**
  * 检查 Lanproxy 通道健康状态
@@ -10,7 +11,7 @@ export async function checkLanproxyHealth(savedKey: string): Promise<{
   const serverHost = readSetting("lanproxy.server_host") as string | null;
 
   if (!serverHost) {
-    return { healthy: false, error: "缺少服务器配置" };
+    return { healthy: false, error: t("Claw.Lanproxy.missingServerConfig") };
   }
 
   try {

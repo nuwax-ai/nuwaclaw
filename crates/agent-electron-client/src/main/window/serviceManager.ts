@@ -11,6 +11,7 @@ import log from "electron-log";
 import { createFileServerPerfHandler } from "../ipc/perfHandlers";
 import type { ManagedProcess } from "../processManager";
 import { readSetting } from "../db";
+import { t } from "../services/i18n";
 import { checkLanproxyHealth } from "../services/packages/lanproxyHealth";
 import {
   APP_DATA_DIR_NAME,
@@ -140,7 +141,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
     const binPath = getLanproxyBinPath();
     if (!fs.existsSync(binPath)) {
-      return { success: false, error: "当前平台暂不支持内网穿透" };
+      return { success: false, error: t("Claw.Lanproxy.platformNotSupported") };
     }
 
     const useSsl = config.ssl !== false;

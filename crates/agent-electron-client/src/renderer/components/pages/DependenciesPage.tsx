@@ -814,7 +814,9 @@ export default function DependenciesPage() {
                 />
               )}
               <div>
-                <span className={styles.serviceLabel}>ACP 协议</span>
+                <span className={styles.serviceLabel}>
+                  {t(I18N_KEYS.Pages.Dependencies.DEP_CLAUDE_CODE_ACP)}
+                </span>
                 {claudeCodeAcpBundled?.available &&
                   claudeCodeAcpBundled.version && (
                     <span className={styles.serviceDescription}>

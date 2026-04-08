@@ -45,9 +45,9 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
 };
 
 const STATUS_TAG: Record<string, { color: string; textKey: string }> = {
-  granted: { color: "green", textKey: "Claw.Permissions.granted" },
-  denied: { color: "red", textKey: "Claw.Permissions.denied" },
-  unknown: { color: "default", textKey: "Claw.Permissions.unknown" },
+  granted: { color: "green", textKey: "Claw.PermissionsPage.granted" },
+  denied: { color: "red", textKey: "Claw.PermissionsPage.denied" },
+  unknown: { color: "default", textKey: "Claw.PermissionsPage.unknown" },
 };
 
 export default function PermissionsPage() {
@@ -100,7 +100,7 @@ export default function PermissionsPage() {
         }
       }, 30000);
     } catch {
-      message.error(t("Claw.Permissions.cannotOpenSettings"));
+      message.error(t("Claw.PermissionsPage.cannotOpenSettings"));
     }
   };
 
@@ -129,7 +129,7 @@ export default function PermissionsPage() {
         <div className={styles.servicesHeader}>
           <div className={styles.servicesHeaderLeft}>
             <span className={styles.sectionTitle}>
-              {t("Claw.Permissions.title")}
+              {t("Claw.PermissionsPage.title")}
             </span>
             {totalCount > 0 && (
               <Tag color={grantedCount === totalCount ? "green" : "orange"}>
@@ -140,7 +140,7 @@ export default function PermissionsPage() {
               className={styles.sectionDescription}
               style={{ marginTop: 0, marginLeft: 12 }}
             >
-              {t("Claw.Permissions.description")}
+              {t("Claw.PermissionsPage.description")}
             </span>
           </div>
           <Button
@@ -149,7 +149,7 @@ export default function PermissionsPage() {
             onClick={handleRefresh}
             loading={loading}
           >
-            {t("Claw.Permissions.refresh")}
+            {t("Claw.PermissionsPage.refresh")}
           </Button>
         </div>
 
@@ -174,7 +174,7 @@ export default function PermissionsPage() {
                 >
                   {t(
                     STATUS_TAG[perm.status]?.textKey ||
-                      "Claw.Permissions.unknown",
+                      "Claw.PermissionsPage.unknown",
                   )}
                 </Tag>
                 {perm.status !== "granted" && (
@@ -183,7 +183,7 @@ export default function PermissionsPage() {
                     icon={<SettingOutlined />}
                     onClick={() => handleOpenSettings(perm.key)}
                   >
-                    {t("Claw.Permissions.openSettings")}
+                    {t("Claw.PermissionsPage.openSettings")}
                   </Button>
                 )}
               </div>
@@ -207,7 +207,7 @@ export default function PermissionsPage() {
           }}
         >
           <CheckCircleOutlined />
-          {t("Claw.Permissions.allGranted")}
+          {t("Claw.PermissionsPage.allGranted")}
         </div>
       )}
     </div>
