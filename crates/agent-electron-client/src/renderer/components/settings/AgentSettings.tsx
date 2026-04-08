@@ -107,11 +107,19 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
         if (result?.success) {
           message.success(t("Claw.Agent.started"));
         } else {
-          message.error(`启动失败: ${result?.error}`);
+          message.error(
+            t("Claw.Agent.startFailedWithReason", {
+              reason: result?.error ?? "",
+            }),
+          );
         }
       }
     } catch (error) {
-      message.error(`错误: ${error}`);
+      message.error(
+        t("Claw.Agent.operationError", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
     }
     await checkStatus();
     setLoading(false);

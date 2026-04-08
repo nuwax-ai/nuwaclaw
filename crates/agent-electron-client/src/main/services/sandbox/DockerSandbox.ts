@@ -247,9 +247,9 @@ export class DockerSandbox extends SandboxManager {
       this.emitEvent("workspace:created", { workspace });
 
       log.info(
-        "[DockerSandbox] 工作区创建完成:",
+        "[DockerSandbox] Workspace created:",
         sessionId,
-        "容器:",
+        "container:",
         containerId,
       );
       return workspace;
@@ -740,9 +740,9 @@ export class DockerSandbox extends SandboxManager {
     const containerId = stdout.trim();
 
     log.info(
-      "[DockerSandbox] 容器已启动:",
+      "[DockerSandbox] Container started:",
       containerId,
-      "名称:",
+      "name:",
       containerName,
     );
     return containerId;

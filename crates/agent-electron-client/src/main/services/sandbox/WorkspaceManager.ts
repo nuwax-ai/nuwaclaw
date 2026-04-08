@@ -491,7 +491,7 @@ export class WorkspaceManager extends EventEmitter {
         await this.destroyWorkspace(workspace.sessionId, true);
       } catch (error) {
         log.error(
-          "[WorkspaceManager] 清理工作区失败:",
+          "[WorkspaceManager] Failed to clean workspace:",
           workspace.sessionId,
           error,
         );

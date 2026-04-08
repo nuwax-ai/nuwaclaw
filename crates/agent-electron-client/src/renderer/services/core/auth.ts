@@ -25,6 +25,7 @@ import {
   getDomainTokenKey,
   normalizeDomainForTokenKey,
 } from "@shared/utils/domain";
+import { t } from "./i18n";
 
 // ========== 类型定义 ===
 export interface AuthUserInfo {
@@ -133,7 +134,10 @@ async function saveServerConfig(
     enabled: true,
   });
 
-  logger.info("lanproxy 服务器配置已保存", "Auth", { serverHost, serverPort });
+  logger.info("Lanproxy server config saved", "Auth", {
+    serverHost,
+    serverPort,
+  });
 }
 
 async function clearAuthInfo(): Promise<void> {
@@ -163,15 +167,15 @@ async function cacheAndSyncToken(
   const domainTokenKey = getDomainTokenKey(domain);
   await settingsSet(domainTokenKey, token);
 
-  logger.info("已写入登录 token 缓存", logTag, { domain, domainTokenKey });
+  logger.info("Login token cache written", logTag, { domain, domainTokenKey });
 
   // 尝试立即同步到 webview cookie
   try {
     await syncSessionCookie(domain, token);
     await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
-    logger.info("token 已同步到 webview cookie", logTag);
+    logger.info("Token synced to webview cookie", logTag);
   } catch (e) {
-    logger.warn("token 同步失败，保留本地缓存", logTag, e);
+    logger.warn("Token sync failed, keeping local cache", logTag, e);
   }
 }
 
@@ -294,7 +298,11 @@ export async function loginAndRegister(
 
   const loadingKey = "loginLoading";
   if (!suppressToast) {
-    message.loading({ content: "正在登录...", key: loadingKey, duration: 0 });
+    message.loading({
+      content: t("Claw.Auth.loggingIn"),
+      key: loadingKey,
+      duration: 0,
+    });
   }
 
   try {
@@ -326,25 +334,29 @@ export async function loginAndRegister(
       if (domainTokenKey) {
         await settingsSet(domainTokenKey, response.token);
       }
-      logger.info("已写入登录 token 缓存", "Auth", {
+      logger.info("Login token cache written", "Auth", {
         domain,
         domainTokenKey,
       });
       try {
         await syncSessionCookie(domain, response.token);
         await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
-        logger.info("token 已同步到 webview cookie", "Auth");
+        logger.info("Token synced to webview cookie", "Auth");
       } catch (e) {
-        logger.warn("token 同步失败，保留本地缓存", "Auth", e);
+        logger.warn("Token sync failed, keeping local cache", "Auth", e);
       }
     } else {
-      logger.warn("reg 未返回 token，本次无法主动同步 webview 登录态", "Auth", {
-        domain,
-      });
+      logger.warn(
+        "reg did not return token, cannot sync webview login state",
+        "Auth",
+        {
+          domain,
+        },
+      );
     }
 
     // 保存 lanproxy 服务器配置
-    logger.info("API 返回的 lanproxy 配置", "Auth", {
+    logger.info("API returned lanproxy config", "Auth", {
       serverHost: response.serverHost,
       serverPort: response.serverPort,
     });
@@ -360,11 +372,14 @@ export async function loginAndRegister(
     // Electron 版：不自动重启服务，登录完成后由 onComplete 触发主界面初始化
 
     if (!suppressToast) {
-      message.success({ content: "登录成功！", key: loadingKey });
+      message.success({
+        content: t("Claw.Setup.login.success"),
+        key: loadingKey,
+      });
     }
 
     // 不记录 configKey 全文，避免敏感信息写入控制台/日志
-    logger.info("登录成功", "Auth", {
+    logger.info("Login successful", "Auth", {
       configKeySet: !!response.configKey,
       name: response.name,
       online: response.online,
@@ -377,7 +392,7 @@ export async function loginAndRegister(
   } catch (error: any) {
     const errorMessage = getAuthErrorMessage(error);
     // 仅记录安全信息，避免将含 password/request 的 error 对象写入控制台
-    logger.error("登录失败", "Auth", errorMessage);
+    logger.error("Login failed", "Auth", errorMessage);
 
     if (!suppressToast) {
       message.error({ content: errorMessage, key: loadingKey });
@@ -448,12 +463,12 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
 
   // 必须有 savedKey 才能重新注册（密码不持久化）
   if (!savedKey) {
-    logger.warn("未保存 savedKey，无法重新注册，请重新登录", "Auth");
+    logger.warn("No savedKey, cannot re-register, please login again", "Auth");
     return null;
   }
 
   try {
-    logger.info("重新注册客户端（使用 savedKey）...", "Auth");
+    logger.info("Re-registering client (using savedKey)...", "Auth");
 
     const deviceId = await window.electronAPI?.app.getDeviceId();
     const params: ClientRegisterParams = {
@@ -482,28 +497,32 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
       if (domainTokenKey) {
         await settingsSet(domainTokenKey, response.token);
       }
-      logger.info("已写入登录 token 缓存", "Auth", {
+      logger.info("Login token cache written", "Auth", {
         domain,
         domainTokenKey,
       });
       try {
         await syncSessionCookie(domain, response.token);
         await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
-        logger.info("token 已同步到 webview cookie", "Auth");
+        logger.info("Token synced to webview cookie", "Auth");
       } catch (e) {
-        logger.warn("token 同步失败，保留本地缓存", "Auth", e);
+        logger.warn("Token sync failed, keeping local cache", "Auth", e);
       }
     } else {
-      logger.warn("reg 未返回 token，本次无法主动同步 webview 登录态", "Auth", {
-        domain,
-      });
+      logger.warn(
+        "reg did not return token, cannot sync webview login state",
+        "Auth",
+        {
+          domain,
+        },
+      );
     }
 
-    logger.info("重新注册成功", "Auth");
+    logger.info("Re-registration successful", "Auth");
 
     return response;
   } catch (error) {
-    logger.error("重新注册失败", "Auth", error);
+    logger.error("Re-registration failed", "Auth", error);
     return null;
   }
 }
@@ -513,7 +532,7 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
  */
 export async function logout(): Promise<void> {
   await clearAuthInfo();
-  message.info("已退出登录");
+  message.info(t("Claw.Auth.loggedOut"));
 }
 
 /**
@@ -548,7 +567,10 @@ export async function syncConfigToServer(options?: {
 
   // 必须有 savedKey 才能同步（密码不持久化）
   if (!savedKey) {
-    logger.warn("未保存 savedKey，无法同步配置，请重新登录", "SyncConfig");
+    logger.warn(
+      "No savedKey, cannot sync config, please login again",
+      "SyncConfig",
+    );
     return null;
   }
 
@@ -564,7 +586,7 @@ export async function syncConfigToServer(options?: {
   const loadingKey = "syncConfigLoading";
   if (!suppressToast) {
     message.loading({
-      content: "正在同步配置...",
+      content: t("Claw.Auth.syncingConfig"),
       key: loadingKey,
       duration: 0,
     });
@@ -588,20 +610,20 @@ export async function syncConfigToServer(options?: {
       if (domain) {
         await settingsSet(domainTokenKey!, response.token);
       }
-      logger.info("已写入登录 token 缓存", "SyncConfig", {
+      logger.info("Login token cache written", "SyncConfig", {
         domain,
         domainTokenKey,
       });
       try {
         await syncSessionCookie(domain, response.token);
         await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
-        logger.info("token 已同步到 webview cookie", "SyncConfig");
+        logger.info("Token synced to webview cookie", "SyncConfig");
       } catch (e) {
-        logger.warn("token 同步失败，保留本地缓存", "SyncConfig", e);
+        logger.warn("Token sync failed, keeping local cache", "SyncConfig", e);
       }
     } else {
       logger.warn(
-        "reg 未返回 token，本次无法主动同步 webview 登录态",
+        "reg did not return token, cannot sync webview login state",
         "SyncConfig",
         {
           domain,
@@ -631,16 +653,19 @@ export async function syncConfigToServer(options?: {
     } as AuthUserInfo);
 
     if (!suppressToast) {
-      message.success({ content: "配置同步成功！", key: loadingKey });
+      message.success({
+        content: t("Claw.Auth.configSyncedSuccess"),
+        key: loadingKey,
+      });
     }
-    logger.info("配置同步成功", "SyncConfig", {
+    logger.info("Config sync successful", "SyncConfig", {
       configKey: response.configKey,
       online: response.online,
     });
     return response;
   } catch (error: any) {
     const errorMessage = getAuthErrorMessage(error);
-    logger.error("配置同步失败", "SyncConfig", error);
+    logger.error("Config sync failed", "SyncConfig", error);
     if (!suppressToast) {
       message.error({ content: errorMessage, key: loadingKey });
     }

@@ -461,7 +461,9 @@ export default function DependenciesPage() {
         await restartServicesAfterDepChange();
       }
     } catch (error) {
-      message.error(`安装失败: ${error}`);
+      message.error(
+        t(I18N_KEYS.Pages.Dependencies.MSG_INSTALL_FAILED, String(error)),
+      );
     } finally {
       setDepInstalling(false);
       setCurrentInstallingDep("");

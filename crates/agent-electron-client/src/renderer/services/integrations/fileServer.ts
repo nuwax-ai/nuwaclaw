@@ -153,12 +153,12 @@ class FileServerService {
     // 优先通过 IPC（AcpEngine 直接处理，返回 HttpResult<ComputerChatResponse>）
     if (window.electronAPI?.computer) {
       perfLog(
-        `[PERF][Frontend][chat] 请求发起: project_id=${request.project_id}, t=${t0}`,
+        `[PERF][Frontend][chat] request sent: project_id=${request.project_id}, t=${t0}`,
       );
       const result = await window.electronAPI.computer.chat(request);
       const t1 = Date.now();
       perfLog(
-        `[PERF][Frontend][chat] IPC 响应: session_id=${result.data?.session_id}, 耗时=${t1 - t0}ms`,
+        `[PERF][Frontend][chat] IPC response: session_id=${result.data?.session_id}, duration=${t1 - t0}ms`,
       );
       // 从 HttpResult 中提取 data，映射到 fileServer 本地 ChatResponse 格式
       return {
@@ -191,7 +191,7 @@ class FileServerService {
     const httpResult = await response.json();
     const t1 = Date.now();
     perfLog(
-      `[PERF][Frontend][chat] HTTP 响应: session_id=${httpResult.data?.session_id}, 耗时=${t1 - t0}ms`,
+      `[PERF][Frontend][chat] HTTP response: session_id=${httpResult.data?.session_id}, duration=${t1 - t0}ms`,
     );
     return {
       success: httpResult.success ?? false,
@@ -208,7 +208,7 @@ class FileServerService {
   async *streamChat(sessionId: string): AsyncGenerator<ChatMessage> {
     const t0 = Date.now();
     perfLog(
-      `[PERF][Frontend][streamChat] 连接发起: session_id=${sessionId}, t=${t0}`,
+      `[PERF][Frontend][streamChat] connection initiated: session_id=${sessionId}, t=${t0}`,
     );
     const response = await fetch(
       `${this.config.baseUrl}/computer/progress/${sessionId}`,
@@ -229,7 +229,7 @@ class FileServerService {
     }
 
     perfLog(
-      `[PERF][Frontend][streamChat] SSE 连接成功: session_id=${sessionId}, 耗时=${Date.now() - t0}ms`,
+      `[PERF][Frontend][streamChat] SSE connected: session_id=${sessionId}, duration=${Date.now() - t0}ms`,
     );
 
     const reader = response.body.getReader();
@@ -243,14 +243,14 @@ class FileServerService {
 
       if (done) {
         perfLog(
-          `[PERF][Frontend][streamChat] SSE 结束: session_id=${sessionId}, 总耗时=${Date.now() - t0}ms`,
+          `[PERF][Frontend][streamChat] SSE ended: session_id=${sessionId}, total_duration=${Date.now() - t0}ms`,
         );
         break;
       }
 
       if (firstChunk) {
         perfLog(
-          `[PERF][Frontend][streamChat] SSE 首数据块: session_id=${sessionId}, 耗时=${Date.now() - t0}ms`,
+          `[PERF][Frontend][streamChat] SSE first chunk: session_id=${sessionId}, duration=${Date.now() - t0}ms`,
         );
         firstChunk = false;
       }

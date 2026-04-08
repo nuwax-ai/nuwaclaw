@@ -18,6 +18,7 @@ import {
 import { isWindows } from "../system/shellEnv";
 import { getGuiMcpPort } from "./guiAgentServer";
 import { killProcessTreesListeningOnTcpPort } from "../utils/processTree";
+import { t } from "../i18n";
 
 type WindowsMcpManagerType = import("agent-gui-server").WindowsMcpManager;
 type ProcessConfig = import("agent-gui-server").ProcessConfig;
@@ -179,7 +180,7 @@ export async function startWindowsMcp(): Promise<{
   if (likelyPortConflict) {
     return {
       success: false,
-      error: `${err} — 常见原因：${port} 端口已被占用。可稍后重试、在设置中更换 GUI MCP 端口，或在任务管理器中结束相关进程。`,
+      error: `${err} — ${t("Claw.WindowsMcp.portInUseHint", { port: String(port) })}`,
     };
   }
   return result;

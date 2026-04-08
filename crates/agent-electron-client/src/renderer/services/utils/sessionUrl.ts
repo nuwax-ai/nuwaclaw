@@ -238,7 +238,7 @@ export async function persistTicketCookie(domain: string): Promise<void> {
       { domain },
     );
   } catch (error) {
-    logger.warn("[SessionUrl] persistTicketCookie 失败", "SessionUrl", {
+    logger.warn("[SessionUrl] persistTicketCookie failed", "SessionUrl", {
       domain,
       error: error instanceof Error ? error.message : String(error),
     });

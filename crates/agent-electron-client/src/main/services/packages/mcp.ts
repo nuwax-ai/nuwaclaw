@@ -747,7 +747,7 @@ class McpProxyManager {
         await persistentMcpBridge.start(resolvedServers);
         this.bridgeStarted = true;
         log.info(
-          "[McpProxy] PersistentMcpBridge 已启动（persistent servers）:",
+          "[McpProxy] PersistentMcpBridge started (persistent servers):",
           Object.keys(resolvedServers).join(", "),
         );
         logMcpPerfSummary("ensureBridge.summary", {
@@ -1181,7 +1181,7 @@ export async function syncMcpConfigToProxyAndReload(
     // Persistent servers 未变化 → 跳过 DB 写入和 bridge 重启（动态 MCP 变化不影响 bridge）
     if (configsEqual(resolvedPersistent, lastBridgeConfig)) {
       log.info(
-        "[McpProxy] ✅ Persistent bridge 配置未变化，跳过重启（动态 MCP 走 stdio）",
+        "[McpProxy] ✅ Persistent bridge config unchanged, skipping restart (dynamic MCP via stdio)",
       );
       mcpProxyManager.markBridgeStarted();
       logMcpPerfSummary("sync.summary", {
@@ -1200,7 +1200,7 @@ export async function syncMcpConfigToProxyAndReload(
 
     // Persistent servers 有变化（如 chrome-devtools 配置变更）→ 持久化并重启 bridge
     log.info(
-      "[McpProxy] 同步 MCP 配置 — 全量:",
+      "[McpProxy] Syncing MCP config — full:",
       Object.keys(mergedWithEnv).join(", "),
     );
     const persistStartedAt = Date.now();
@@ -1222,7 +1222,7 @@ export async function syncMcpConfigToProxyAndReload(
     const bridgeRestartStartedAt = Date.now();
     try {
       log.info(
-        "[McpProxy] 🔄 Persistent bridge 配置变化，重启:",
+        "[McpProxy] 🔄 Persistent bridge config changed, restarting:",
         Object.keys(resolvedPersistent).join(", "),
       );
       await persistentMcpBridge.start(resolvedPersistent);

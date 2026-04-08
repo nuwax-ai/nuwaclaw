@@ -166,7 +166,7 @@ export function setInitDepsState(state: InitDepsState): void {
   const filePath = path.join(dir, INIT_DEPS_STATE_FILENAME);
   fs.writeFileSync(filePath, JSON.stringify(state, null, 2), "utf-8");
   log.info(
-    "[Dependencies] init-deps-state 已更新:",
+    "[Dependencies] init-deps-state updated:",
     state.appVersion,
     Object.keys(state.packages).length,
     "packages",
@@ -720,16 +720,16 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
   // 调试日志：输出 PATH 优先级（应用内 uv 优先）
   log.info(`[getAppEnv] PATH priority (${process.platform}):`);
   log.info(
-    `[getAppEnv]   1. 内置 Node.js 24: ${bundledNodeBinDir || "(未找到)"}`,
+    `[getAppEnv]   1. Bundled Node.js 24: ${bundledNodeBinDir || "(not found)"}`,
   );
   log.info(
-    `[getAppEnv]   2. Electron Node: ${electronNodeBinDir || "(未找到)"}`,
+    `[getAppEnv]   2. Electron Node: ${electronNodeBinDir || "(not found)"}`,
   );
   log.info(
-    `[getAppEnv]   3. 内置 Git: ${bundledGitBinDir || (isWindows() ? "(未找到)" : "(macOS/Linux 使用系统)")}`,
+    `[getAppEnv]   3. Bundled Git: ${bundledGitBinDir || (isWindows() ? "(not found)" : "(macOS/Linux using system)")}`,
   );
   log.info(
-    `[getAppEnv]   4. uv/uvx(应用内优先): ${uvBin || "(未找到，将使用系统 PATH 回退)"}`,
+    `[getAppEnv]   4. uv/uvx (bundled preferred): ${uvBin || "(not found, falling back to system PATH)"}`,
   );
   log.info(`[getAppEnv]   5. node_modules: ${nodeModulesBin}`);
   log.info(`[getAppEnv]   6. app bin: ${appBin}`);
@@ -1374,7 +1374,7 @@ export async function checkMcpProxyBundled(): Promise<{
     const pkg = JSON.parse(raw) as { version?: string };
     const version = pkg?.version;
     log.info(
-      `[checkMcpProxyBundled] 包内集成可用: ${bundledDir}, version=${version ?? "未知"}`,
+      `[checkMcpProxyBundled] Bundled available: ${bundledDir}, version=${version ?? "unknown"}`,
     );
     return { available: true, version };
   } catch (e) {
@@ -1406,7 +1406,7 @@ export async function checkNuwaxcodeBundled(): Promise<{
     }
   } catch {}
   log.info(
-    `[checkNuwaxcodeBundled] 包内集成可用: ${bundledPath}, version=${version ?? "未知"}`,
+    `[checkNuwaxcodeBundled] Bundled available: ${bundledPath}, version=${version ?? "unknown"}`,
   );
   return { available: true, version, binPath: bundledPath };
 }
@@ -1420,7 +1420,7 @@ export async function checkNuwaxFileServerBundled(): Promise<{
 }> {
   const bundledDir = getNuwaxFileServerBundledDir();
   if (!bundledDir) {
-    log.info("[checkNuwaxFileServerBundled] 未找到包内集成");
+    log.info("[checkNuwaxFileServerBundled] Bundled not found");
     return { available: false };
   }
   const pkgPath = path.join(bundledDir, "package.json");
@@ -1429,11 +1429,11 @@ export async function checkNuwaxFileServerBundled(): Promise<{
     const pkg = JSON.parse(raw) as { version?: string };
     const version = pkg?.version;
     log.info(
-      `[checkNuwaxFileServerBundled] 包内集成可用: ${bundledDir}, version=${version ?? "未知"}`,
+      `[checkNuwaxFileServerBundled] Bundled available: ${bundledDir}, version=${version ?? "unknown"}`,
     );
     return { available: true, version };
   } catch (e) {
-    log.warn("[checkNuwaxFileServerBundled] 读取 package.json 失败:", e);
+    log.warn("[checkNuwaxFileServerBundled] Failed to read package.json:", e);
     return { available: true };
   }
 }
@@ -1447,7 +1447,7 @@ export async function checkClaudeCodeAcpBundled(): Promise<{
 }> {
   const bundledDir = getClaudeCodeAcpBundledDir();
   if (!bundledDir) {
-    log.info("[checkClaudeCodeAcpBundled] 未找到包内集成");
+    log.info("[checkClaudeCodeAcpBundled] Bundled not found");
     return { available: false };
   }
   const pkgPath = path.join(bundledDir, "package.json");
@@ -1456,11 +1456,11 @@ export async function checkClaudeCodeAcpBundled(): Promise<{
     const pkg = JSON.parse(raw) as { version?: string };
     const version = pkg?.version;
     log.info(
-      `[checkClaudeCodeAcpBundled] 包内集成可用: ${bundledDir}, version=${version ?? "未知"}`,
+      `[checkClaudeCodeAcpBundled] Bundled available: ${bundledDir}, version=${version ?? "unknown"}`,
     );
     return { available: true, version };
   } catch (e) {
-    log.warn("[checkClaudeCodeAcpBundled] 读取 package.json 失败:", e);
+    log.warn("[checkClaudeCodeAcpBundled] Failed to read package.json:", e);
     return { available: true };
   }
 }
@@ -1896,7 +1896,7 @@ export async function checkAllDependencies(options?: {
             item.binPath = bundledPath;
             item.version = dep.installVersion;
             log.info(
-              "[checkAllDependencies] nuwaxcode: 使用应用内打包二进制:",
+              "[checkAllDependencies] nuwaxcode: using bundled binary:",
               bundledPath,
             );
           } else {
