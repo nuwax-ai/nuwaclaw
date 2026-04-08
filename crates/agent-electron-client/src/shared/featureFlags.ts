@@ -2,8 +2,8 @@
  * Feature Flags - 统一管理功能开关
  *
  * 通过 .env.development / .env.production 文件配置环境变量:
- * - 开发模式 (npm run dev): INJECT_GUI_MCP=true, LOG_FULL_SECRETS=true, ENABLE_GUI_AGENT_SERVER=true
- * - 生产构建 (npm run build): INJECT_GUI_MCP=false, LOG_FULL_SECRETS=false, ENABLE_GUI_AGENT_SERVER=false
+ * - 开发模式 (npm run dev): 通常开启调试相关开关
+ * - 生产构建 (npm run build): 由 .env.production 控制各开关
  *
  * 渲染进程 (Vite 打包): 使用 vite.config.ts define 静态替换 __XXX__ 变量
  * 主进程 (tsc 编译): 直接使用 process.env 读取环境变量
@@ -41,11 +41,17 @@ function getViteFlagEnableGuiAgentServer(): boolean {
   );
 }
 
-function getProcessFlag(envKey: string): boolean {
+function hasViteFlagEnableGuiAgentServer(): boolean {
+  return typeof __ENABLE_GUI_AGENT_SERVER__ !== "undefined";
+}
+
+function getProcessFlag(envKey: string, defaultValue = false): boolean {
   try {
-    return process?.env?.[envKey] === "true";
+    const value = process?.env?.[envKey];
+    if (value == null || value === "") return defaultValue;
+    return value === "true";
   } catch {
-    return false;
+    return defaultValue;
   }
 }
 
@@ -54,9 +60,9 @@ export const FEATURES = {
   LOG_FULL_SECRETS:
     getViteFlagLogFullSecrets() ||
     getProcessFlag("NUWAX_AGENT_LOG_FULL_SECRETS"),
-  ENABLE_GUI_AGENT_SERVER:
-    getViteFlagEnableGuiAgentServer() ||
-    getProcessFlag("ENABLE_GUI_AGENT_SERVER"),
+  ENABLE_GUI_AGENT_SERVER: hasViteFlagEnableGuiAgentServer()
+    ? getViteFlagEnableGuiAgentServer()
+    : getProcessFlag("ENABLE_GUI_AGENT_SERVER", true),
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURES;
