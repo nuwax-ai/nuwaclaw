@@ -94,13 +94,13 @@ export interface Invocation {
 export class SandboxInvoker {
   private readonly type: SandboxType;
   private readonly options: SandboxInvokerOptions;
+  /** Resolved sandbox mode (strict / compat / permissive), used by all platform builders */
+  private readonly effectiveMode: SandboxMode;
 
   constructor(type: SandboxType, options: SandboxInvokerOptions = {}) {
     this.type = type;
-    this.options = {
-      mode: "compat",
-      ...options,
-    };
+    this.options = options;
+    this.effectiveMode = options.mode ?? "compat";
   }
 
   /**
@@ -188,7 +188,7 @@ export class SandboxInvoker {
   private async buildSeatbelt(
     params: SandboxInvocationParams,
   ): Promise<Invocation> {
-    const mode = this.options.mode ?? "compat";
+    const mode = this.effectiveMode;
     const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const profilePath = path.join(
       fs.realpathSync(os.tmpdir()),
@@ -220,7 +220,7 @@ export class SandboxInvoker {
 
   private buildBwrap(params: SandboxInvocationParams): Invocation {
     const bwrapPath = this.options.linuxBwrapPath || "bwrap";
-    const mode = this.options.mode ?? "compat";
+    const mode = this.effectiveMode;
     const permissive = mode === "permissive";
     const strict = mode === "strict";
     const bwrapArgs: string[] = ["--die-with-parent", "--new-session"];
@@ -275,7 +275,16 @@ export class SandboxInvoker {
         };
 
         // Minimal system runtime surface
-        for (const p of ["/usr", "/bin", "/lib", "/lib64", "/etc", "/opt"]) {
+        for (const p of [
+          "/usr",
+          "/bin",
+          "/sbin",
+          "/lib",
+          "/lib64",
+          "/etc",
+          "/opt",
+          "/usr/local",
+        ]) {
           addRoBind(p);
         }
         // Ensure launched binaries/scripts are visible inside strict bwrap
@@ -329,34 +338,52 @@ export class SandboxInvoker {
       );
     }
 
-    const mode = this.options.windowsSandboxMode ?? "workspace-write";
+    const sandboxMode = this.effectiveMode;
+    const winMode = this.options.windowsSandboxMode ?? "workspace-write";
     const subcommand = params.subcommand ?? "run";
+
     const sandboxPolicy: Record<string, unknown> = {
-      type: mode === "read-only" ? "read-only" : "workspace-write",
+      type: winMode === "read-only" ? "read-only" : "workspace-write",
       network_access: params.networkEnabled,
     };
-    // Include writable_roots for workspace-write mode so the helper
-    // grants write ACLs to the specified paths.
-    if (mode === "workspace-write" && params.writablePaths.length > 0) {
-      sandboxPolicy.writable_roots = params.writablePaths;
+
+    // Apply mode-dependent writable_roots for workspace-write mode.
+    if (winMode === "workspace-write" && params.writablePaths.length > 0) {
+      if (sandboxMode === "strict") {
+        // Strict: only the project workspace root is writable.
+        // Additional paths (e.g. cwd) are excluded to minimise write surface.
+        // Safe: guarded by `params.writablePaths.length > 0` above.
+        sandboxPolicy.writable_roots = [params.writablePaths[0]!];
+      } else {
+        sandboxPolicy.writable_roots = params.writablePaths;
+      }
     }
+
     const helperArgs = [
       subcommand,
       "--mode",
-      mode,
+      winMode,
       "--cwd",
       params.cwd,
       "--policy-json",
       JSON.stringify(sandboxPolicy),
-      "--",
-      params.command,
-      ...params.args,
     ];
+
+    // Permissive mode: relax token-level write restrictions so child
+    // processes (e.g. Git Bash) can create pipes and modify DACLs.
+    // Only valid for the "run" subcommand — "serve" hardcodes
+    // write_restricted=false in the Rust helper.
+    if (sandboxMode === "permissive" && subcommand === "run") {
+      helperArgs.push("--no-write-restricted");
+    }
+
+    helperArgs.push("--", params.command, ...params.args);
 
     log.info("[SandboxInvoker] windows-sandbox invocation:", {
       helper,
       subcommand,
-      mode,
+      sandboxMode,
+      winMode,
       cwd: params.cwd,
       policy: sandboxPolicy,
     });
@@ -386,7 +413,7 @@ export class SandboxInvoker {
     networkEnabled: boolean,
     startupExecAllowlist: string[] = [],
   ): string {
-    const mode = this.options.mode ?? "compat";
+    const mode = this.effectiveMode;
     const permissive = mode === "permissive";
     const compat = mode === "compat";
     const lines: string[] = ["(version 1)", "(deny default)"];

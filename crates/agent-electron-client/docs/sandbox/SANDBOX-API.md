@@ -32,6 +32,7 @@ export interface SandboxConfig {
   cpuLimit?: number;           // 如 2
   diskQuota?: string;          // 如 "10g"
   networkEnabled?: boolean;
+  mode?: SandboxMode;          // "strict" | "compat" | "permissive"
 }
 
 export interface Workspace {
@@ -490,15 +491,10 @@ export interface SandboxStatus {
 
 export interface SandboxPolicy {
   enabled: boolean;
-  mode: 'off' | 'non-main' | 'all';
-  backend: 'auto' | 'docker' | 'macos-seatbelt' | 'linux-bwrap' | 'windows-codex';
-  fallback: 'degrade_to_off' | 'fail_closed';
-  windows: {
-    codex: {
-      mode: 'unelevated' | 'elevated';
-      privateDesktop: boolean;
-    };
-  };
+  mode: SandboxMode;           // "strict" | "compat" | "permissive"
+  backend: SandboxBackend;     // "auto" | "docker" | "macos-seatbelt" | "linux-bwrap" | "windows-sandbox"
+  autoFallback: SandboxAutoFallback; // "startup-only" | "session" | "manual"
+  windowsMode: WindowsSandboxMode;  // "read-only" | "workspace-write"
 }
 ```
 

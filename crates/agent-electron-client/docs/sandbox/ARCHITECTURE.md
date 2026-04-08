@@ -206,6 +206,8 @@ bwrap \
 
 ### 4.1 沙箱模式
 
+#### 启用/禁用（SandboxPolicy）
+
 | 模式 | 主会话 | 其他会话 | 安全性 | 便利性 | 适用场景 |
 |------|--------|---------|--------|--------|---------|
 | **off** | 无沙箱 | 无沙箱 | ⭐ | ⭐⭐⭐⭐⭐ | 完全信任环境 |
@@ -213,48 +215,46 @@ bwrap \
 | **non-main** ⭐ | 无沙箱 | 有沙箱 | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | **推荐默认** |
 | **all** | 有沙箱 | 有沙箱 | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | 高安全需求 |
 
+#### 严格度模式（SandboxMode）
+
+> v0.10+ 新增，跨平台统一接口，各平台实现语义有差异。
+
+| Mode | 说明 | 默认 |
+|------|------|------|
+| **compat** | 兼容优先，平衡安全与可用性 | ✅ 默认 |
+| **strict** | 最小权限，最大限制 | |
+| **permissive** | 宽松模式，仅排障用途 | |
+
+**各平台实现差异**：
+
+| 平台 | strict | compat | permissive |
+|------|--------|--------|-----------|
+| Linux (bwrap) | 最小 ro-bind：仅 `/usr` `/bin` `/sbin` `/lib` `/lib64` `/etc` `/opt` `/usr/local` | 全局 ro-bind `--ro-bind / /` | 完整 rw bind，无 namespace 隔离 |
+| macOS (seatbelt) | exec allowlist 仅命令本身 | exec allowlist 含启动链 | 全局 file-write + unrestricted process-exec |
+| Windows (helper) | `writable_roots` 仅项目 workspace | 全部 `writable_roots` | 全部 `writable_roots` + `--no-write-restricted`（仅 run 子命令） |
+
 ### 4.2 配置结构
 
 ```typescript
 interface SandboxConfig {
-  // 沙箱模式
-  mode: "off" | "on-demand" | "non-main" | "all";
-  
-  // 平台配置
-  platform?: {
-    darwin?: { enabled: boolean; type: "seatbelt" | "none"; };
-    linux?: { enabled: boolean; type: "bubblewrap" | "none"; };
-    win32?: { enabled: boolean; type: "codex" | "none"; };
-  };
-  
+  // 沙箱类型
+  type: SandboxType;
+  // 运行平台
+  platform: Platform;
+  // 是否启用
+  enabled: boolean;
+  // 工作区根目录
+  workspaceRoot: string;
+  // 沙箱严格度模式（v0.10+）
+  mode?: "strict" | "compat" | "permissive";
+
   // 网络策略
-  network?: {
-    enabled: boolean;
-    allowedDomains?: string[];
-    deniedDomains?: string[];
-  };
-  
-  // 文件系统策略
-  filesystem?: {
-    allowRead: string[];
-    denyRead: string[];
-    allowWrite: string[];
-    denyWrite: string[];
-  };
-  
+  networkEnabled?: boolean;
+
   // 资源限制
-  resources?: {
-    memory?: string;    // e.g., "2g"
-    cpu?: number;       // e.g., 2
-    timeout?: number;   // e.g., 300 (seconds)
-  };
-  
-  // 用户偏好
-  preferences?: {
-    showNotifications: boolean;
-    askForDangerousOps: boolean;
-    auditLogging: boolean;
-  };
+  memoryLimit?: string;
+  cpuLimit?: number;
+  diskQuota?: string;
 }
 ```
 

@@ -22,7 +22,7 @@ import { randomUUID } from "crypto";
 import log from "electron-log";
 import { SandboxInvoker } from "@main/services/sandbox/SandboxInvoker";
 import { killProcessTree } from "@main/services/utils/processTree";
-import type { WindowsSandboxMode } from "@shared/types/sandbox";
+import type { SandboxMode, WindowsSandboxMode } from "@shared/types/sandbox";
 
 // ============================================================================
 // Types
@@ -63,6 +63,8 @@ export interface AcpTerminalManagerOptions {
   networkEnabled?: boolean;
   /** Paths that sandboxed commands can write to */
   writablePaths?: string[];
+  /** Sandbox strictness mode (strict / compat / permissive) */
+  mode?: SandboxMode;
 }
 
 // ============================================================================
@@ -89,6 +91,7 @@ export class AcpTerminalManager {
         windowsSandboxHelperPath: options!.windowsSandboxHelperPath,
         windowsSandboxMode: options!.windowsSandboxMode,
         networkEnabled: options!.networkEnabled ?? true,
+        mode: options!.mode,
       });
       log.info(
         "[AcpTerminalManager] Initialized with Windows sandbox helper:",
