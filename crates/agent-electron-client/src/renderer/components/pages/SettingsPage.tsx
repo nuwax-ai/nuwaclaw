@@ -64,7 +64,6 @@ const resolveSelectLang = (lang: string): string => {
 import styles from "../../styles/components/ClientPage.module.css";
 import { useTheme, useI18nLang, type ThemeMode } from "../../App";
 import type {
-  SandboxBackend,
   SandboxCapabilities,
   SandboxPolicy,
   SandboxStatus,
@@ -89,22 +88,7 @@ const DEFAULT_AI_SETTINGS: AISettings = {
   temperature: DEFAULT_TEMPERATURE,
 };
 
-const SANDBOX_BACKEND_OPTIONS: Array<{
-  value: SandboxBackend;
-  label: string;
-}> = [
-  { value: "auto", label: t("Claw.Settings.sandbox.backendAuto") },
-  { value: "docker", label: t("Claw.Settings.sandbox.backendDocker") },
-  {
-    value: "macos-seatbelt",
-    label: t("Claw.Settings.sandbox.backendMacosSeatbelt"),
-  },
-  { value: "linux-bwrap", label: t("Claw.Settings.sandbox.backendLinuxBwrap") },
-  {
-    value: "windows-sandbox",
-    label: t("Claw.Settings.sandbox.backendWindowsSandbox"),
-  },
-];
+// Backend options are not exposed in UI — "auto" is used by default.
 
 export default function SettingsPage() {
   // 主题
@@ -405,31 +389,6 @@ export default function SettingsPage() {
     }
   };
 
-  const handleWindowsSetup = async () => {
-    if (!window.electronAPI?.sandbox || !sandboxPolicy) return;
-    setSandboxSaving(true);
-    try {
-      const result = await window.electronAPI.sandbox.setup();
-      if (result?.success && result.data?.success) {
-        message.success(
-          result.data.message ||
-            t("Claw.Settings.messages.windowsSetupComplete"),
-        );
-      } else {
-        message.error(
-          result?.data?.message ||
-            result?.error ||
-            t("Claw.Settings.messages.setupFailed"),
-        );
-      }
-      await loadSandboxState();
-    } catch (error) {
-      message.error(t("Claw.Settings.messages.windowsSetupFailed"));
-    } finally {
-      setSandboxSaving(false);
-    }
-  };
-
   // ========== 语言切换 ==========
   const handleLanguageChange = async (lang: string) => {
     setLangChanging(true);
@@ -457,15 +416,6 @@ export default function SettingsPage() {
       setLangChanging(false);
     }
   };
-
-  const winSandboxCap = sandboxCapabilities?.windowsSandbox;
-  const windowsHelperReady = winSandboxCap?.available === true;
-  const windowsSetupTooltip = windowsHelperReady
-    ? ""
-    : [
-        winSandboxCap?.reason || t("Claw.Settings.messages.helperNotReady"),
-        t("Claw.Settings.messages.windowsSetupHelperHint"),
-      ].join("；");
 
   if (loading) {
     return (
@@ -623,7 +573,20 @@ export default function SettingsPage() {
                   {t("Claw.Settings.sandbox.enable")}
                 </span>
                 <div className={styles.serviceDescription}>
-                  {t("Claw.Settings.sandbox.enableDesc")}
+                  {sandboxStatus
+                    ? (() => {
+                        const { type, available, degraded, reason } =
+                          sandboxStatus;
+                        const isolation = degraded
+                          ? t("Claw.Settings.sandbox.statusDegraded")
+                          : available
+                            ? t("Claw.Settings.sandbox.statusAvailable")
+                            : t("Claw.Settings.sandbox.statusUnavailable");
+                        return `${type} · ${isolation}${
+                          reason ? ` · ${reason}` : ""
+                        }`;
+                      })()
+                    : t("Claw.Settings.sandbox.statusNotLoaded")}
                 </div>
               </div>
             </div>
@@ -635,130 +598,6 @@ export default function SettingsPage() {
                 handlePatchSandboxPolicy({ enabled: checked })
               }
             />
-          </div>
-
-          <div className={styles.serviceRow}>
-            <div className={styles.serviceInfo}>
-              <div>
-                <span className={styles.serviceLabel}>
-                  {t("Claw.Settings.sandbox.backend")}
-                </span>
-                <div className={styles.serviceDescription}>
-                  {t("Claw.Settings.sandbox.backendRecommended")}{" "}
-                  {sandboxCapabilities?.recommendedBackend || "unknown"}
-                </div>
-              </div>
-            </div>
-            <Select
-              size="small"
-              value={sandboxPolicy?.backend || "auto"}
-              style={{ width: 220 }}
-              disabled={sandboxSaving || sandboxLoading}
-              onChange={(value) =>
-                handlePatchSandboxPolicy({
-                  backend: value as SandboxBackend,
-                })
-              }
-              options={SANDBOX_BACKEND_OPTIONS}
-            />
-          </div>
-
-          {sandboxCapabilities?.platform === "win32" && sandboxPolicy && (
-            <>
-              <div className={styles.serviceRow}>
-                <div className={styles.serviceInfo}>
-                  <div>
-                    <span className={styles.serviceLabel}>
-                      {t("Claw.Settings.sandbox.windowsMode")}
-                    </span>
-                    <div className={styles.serviceDescription}>
-                      {t("Claw.Settings.sandbox.windowsModeDesc")}
-                    </div>
-                  </div>
-                </div>
-                <Select
-                  size="small"
-                  value={sandboxPolicy.windowsMode}
-                  style={{ width: 150 }}
-                  disabled={sandboxSaving || sandboxLoading}
-                  onChange={(value) =>
-                    handlePatchSandboxPolicy({
-                      windowsMode: value as SandboxPolicy["windowsMode"],
-                    })
-                  }
-                  options={[
-                    { value: "read-only", label: "read-only" },
-                    { value: "workspace-write", label: "workspace-write" },
-                  ]}
-                />
-              </div>
-              <div className={styles.serviceRow}>
-                <div className={styles.serviceInfo}>
-                  <div>
-                    <span className={styles.serviceLabel}>
-                      {t("Claw.Settings.sandbox.windowsSetup")}
-                    </span>
-                    <div className={styles.serviceDescription}>
-                      {t("Claw.Settings.sandbox.windowsSetupHint")}
-                    </div>
-                  </div>
-                </div>
-                <Tooltip
-                  title={
-                    windowsHelperReady
-                      ? undefined
-                      : windowsSetupTooltip || undefined
-                  }
-                >
-                  <span>
-                    <Button
-                      size="small"
-                      onClick={handleWindowsSetup}
-                      loading={sandboxSaving}
-                      disabled={
-                        sandboxSaving || sandboxLoading || !windowsHelperReady
-                      }
-                    >
-                      {t("Claw.Settings.sandbox.executeSetup")}
-                    </Button>
-                  </span>
-                </Tooltip>
-              </div>
-            </>
-          )}
-
-          <div className={styles.serviceRow}>
-            <div className={styles.serviceInfo}>
-              <div>
-                <span className={styles.serviceLabel}>
-                  {t("Claw.Settings.sandbox.status")}
-                </span>
-                <div className={styles.serviceDescription}>
-                  {sandboxStatus
-                    ? (() => {
-                        const { type, available, degraded, reason } =
-                          sandboxStatus;
-                        const isolation = degraded
-                          ? t("Claw.Settings.sandbox.statusDegraded")
-                          : available
-                            ? t("Claw.Settings.sandbox.statusAvailable")
-                            : t("Claw.Settings.sandbox.statusUnavailable");
-                        return `${t("Claw.Settings.sandbox.backend")} ${type} · ${isolation}${
-                          reason ? ` · ${reason}` : ""
-                        }`;
-                      })()
-                    : t("Claw.Settings.sandbox.statusNotLoaded")}
-                </div>
-              </div>
-            </div>
-            <Button
-              size="small"
-              icon={<ReloadOutlined />}
-              onClick={loadSandboxState}
-              loading={sandboxLoading}
-            >
-              {t("Claw.Settings.sandbox.refresh")}
-            </Button>
           </div>
         </div>
       </div>
