@@ -33,14 +33,6 @@ pub fn compute_allow_paths(
         }
     };
 
-    let include_tmp_env_vars = matches!(
-        policy,
-        SandboxPolicy::WorkspaceWrite {
-            exclude_tmpdir_env_var: false,
-            ..
-        }
-    );
-
     if matches!(policy, SandboxPolicy::WorkspaceWrite { .. }) {
         let add_writable_root =
             |root: PathBuf, policy_cwd: &Path,
@@ -78,15 +70,12 @@ pub fn compute_allow_paths(
         }
     }
 
-    if include_tmp_env_vars {
-        for key in ["TEMP", "TMP"] {
-            if let Some(v) = env_map.get(key) {
-                let abs = PathBuf::from(v);
-                add_allow_path(abs);
-            } else if let Ok(v) = std::env::var(key) {
-                let abs = PathBuf::from(v);
-                add_allow_path(abs);
-            }
+    // Always include TEMP/TMP as writable roots
+    for key in ["TEMP", "TMP"] {
+        if let Some(v) = env_map.get(key) {
+            add_allow_path(PathBuf::from(v));
+        } else if let Ok(v) = std::env::var(key) {
+            add_allow_path(PathBuf::from(v));
         }
     }
 

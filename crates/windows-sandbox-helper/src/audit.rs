@@ -1,7 +1,9 @@
-//! World-writable directory audit and capability deny injection.
+//! Simplified world-writable directory audit.
 //!
-//! Scans for directories writable by Everyone and applies capability-based
-//! deny ACEs to prevent sandbox escape through world-writable paths.
+//! Unlike the macOS/Linux sandbox backends (which are declarative and need no audit),
+//! Windows still benefits from a lightweight scan of CWD children to prevent sandbox
+//! escape through world-writable paths. The aggressive global scan (PATH, C:\, Windows)
+//! has been removed to match the simpler approach of macOS/Linux.
 
 use crate::acl::add_deny_write_ace;
 use crate::cap::{cap_sid_file, load_or_create_cap_sids};
@@ -21,89 +23,30 @@ use windows_sys::Win32::Foundation::{
 use windows_sys::Win32::Security::{
     EqualSid, GetAce, GetAclInformation, MapGenericMask,
     Authorization::{GetNamedSecurityInfoW, GetSecurityInfo},
-    DACL_SECURITY_INFORMATION,
-};
-use windows_sys::Win32::Security::{
-    ACL, GENERIC_MAPPING, ACCESS_ALLOWED_ACE, ACE_HEADER,
+    DACL_SECURITY_INFORMATION, ACL, GENERIC_MAPPING,
+    ACCESS_ALLOWED_ACE, ACE_HEADER,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ALL_ACCESS, FILE_APPEND_DATA, FILE_FLAG_BACKUP_SEMANTICS,
-    FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_DELETE,
-    FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA,
-    FILE_WRITE_EA, OPEN_EXISTING,
+    FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA, FILE_WRITE_EA, OPEN_EXISTING,
 };
 
-// Preflight scan limits
-const MAX_ITEMS_PER_DIR: i32 = 1000;
-const AUDIT_TIME_LIMIT_SECS: i64 = 2;
-const MAX_CHECKED_LIMIT: i32 = 50000;
-
-const SKIP_DIR_SUFFIXES: &[&str] = &[
-    "/windows/installer",
-    "/windows/registration",
-    "/programdata",
-];
+const MAX_CWD_CHILDREN: usize = 200;
+const AUDIT_TIME_LIMIT_SECS: u64 = 1;
 
 fn normalize_path_key(p: &Path) -> String {
     let n = dunce::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     n.to_string_lossy().replace('\\', "/").to_ascii_lowercase()
 }
 
-fn unique_push(set: &mut HashSet<PathBuf>, out: &mut Vec<PathBuf>, p: PathBuf) {
-    if let Ok(abs) = p.canonicalize() {
-        if set.insert(abs.clone()) {
-            out.push(abs);
-        }
-    }
-}
-
-fn gather_candidates(
-    cwd: &Path,
-    env: &std::collections::HashMap<String, String>,
-) -> Vec<PathBuf> {
-    let mut set: HashSet<PathBuf> = HashSet::new();
-    let mut out: Vec<PathBuf> = Vec::new();
-
-    unique_push(&mut set, &mut out, cwd.to_path_buf());
-
-    for k in ["TEMP", "TMP"] {
-        if let Some(v) = env.get(k).cloned().or_else(|| std::env::var(k).ok()) {
-            unique_push(&mut set, &mut out, PathBuf::from(v));
-        }
-    }
-
-    if let Some(up) = std::env::var_os("USERPROFILE") {
-        unique_push(&mut set, &mut out, PathBuf::from(up));
-    }
-    if let Some(pubp) = std::env::var_os("PUBLIC") {
-        unique_push(&mut set, &mut out, PathBuf::from(pubp));
-    }
-
-    if let Some(path) = env
-        .get("PATH")
-        .cloned()
-        .or_else(|| std::env::var("PATH").ok())
-    {
-        for part in path.split(std::path::MAIN_SEPARATOR) {
-            if !part.is_empty() {
-                unique_push(&mut set, &mut out, PathBuf::from(part));
-            }
-        }
-    }
-
-    for p in [PathBuf::from("C:/"), PathBuf::from("C:/Windows")] {
-        unique_push(&mut set, &mut out, p);
-    }
-
-    out
-}
-
+/// Check if a path has a world-writable ALLOW ACE in its DACL.
 unsafe fn path_has_world_write_allow(path: &Path) -> Result<bool> {
     let mut p_sd: *mut c_void = std::ptr::null_mut();
     let mut p_dacl: *mut ACL = std::ptr::null_mut();
-
-    let mut try_named = false;
     let wpath = to_wide(path);
+
     let h = CreateFileW(
         wpath.as_ptr(),
         0x00020000,
@@ -114,7 +57,20 @@ unsafe fn path_has_world_write_allow(path: &Path) -> Result<bool> {
         0,
     );
     if h == INVALID_HANDLE_VALUE {
-        try_named = true;
+        let code = GetNamedSecurityInfoW(
+            wpath.as_ptr(),
+            1,
+            DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut p_dacl,
+            std::ptr::null_mut(),
+            &mut p_sd,
+        );
+        if code != ERROR_SUCCESS as u32 {
+            if !p_sd.is_null() { LocalFree(p_sd as HLOCAL); }
+            return Ok(false);
+        }
     } else {
         let code = GetSecurityInfo(
             h,
@@ -128,32 +84,7 @@ unsafe fn path_has_world_write_allow(path: &Path) -> Result<bool> {
         );
         CloseHandle(h);
         if code != ERROR_SUCCESS as u32 {
-            try_named = true;
-            if !p_sd.is_null() {
-                LocalFree(p_sd as HLOCAL);
-                p_sd = std::ptr::null_mut();
-                p_dacl = std::ptr::null_mut();
-            }
-        }
-    }
-
-    if try_named {
-        let code = unsafe {
-            GetNamedSecurityInfoW(
-                wpath.as_ptr(),
-                1,
-                DACL_SECURITY_INFORMATION,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &mut p_dacl,
-                std::ptr::null_mut(),
-                &mut p_sd,
-            )
-        };
-        if code != ERROR_SUCCESS as u32 {
-            if !p_sd.is_null() {
-                unsafe { LocalFree(p_sd as HLOCAL) };
-            }
+            if !p_sd.is_null() { LocalFree(p_sd as HLOCAL); }
             return Ok(false);
         }
     }
@@ -161,88 +92,56 @@ unsafe fn path_has_world_write_allow(path: &Path) -> Result<bool> {
     let mut world = world_sid()?;
     let psid_world = world.as_mut_ptr() as *mut c_void;
 
-    if !dacl_quick_world_write_mask_allows(p_dacl, psid_world) {
-        if !p_sd.is_null() {
-            unsafe { LocalFree(p_sd as HLOCAL) };
-        }
+    if p_dacl.is_null() {
+        if !p_sd.is_null() { LocalFree(p_sd as HLOCAL); }
         return Ok(false);
     }
 
-    if !p_sd.is_null() {
-        unsafe { LocalFree(p_sd as HLOCAL) };
-    }
-    Ok(true)
-}
-
-unsafe fn dacl_quick_world_write_mask_allows(p_dacl: *mut ACL, psid_world: *mut c_void) -> bool {
-    if p_dacl.is_null() {
-        return false;
-    }
     let mut info: windows_sys::Win32::Security::ACL_SIZE_INFORMATION = std::mem::zeroed();
-    let ok = unsafe {
-        GetAclInformation(
-            p_dacl as *const ACL,
-            &mut info as *mut _ as *mut c_void,
-            std::mem::size_of::<windows_sys::Win32::Security::ACL_SIZE_INFORMATION>() as u32,
-            4, /* AclSizeInformation */
-        )
-    };
-    if ok == 0 {
-        return false;
-    }
-    let mapping = GENERIC_MAPPING {
-        GenericRead: FILE_GENERIC_READ,
-        GenericWrite: FILE_GENERIC_WRITE,
-        GenericExecute: FILE_GENERIC_EXECUTE,
-        GenericAll: FILE_ALL_ACCESS,
-    };
-    const INHERIT_ONLY_ACE: u8 = 0x08;
-    for i in 0..(info.AceCount as usize) {
-        let mut p_ace: *mut c_void = std::ptr::null_mut();
-        if unsafe { GetAce(p_dacl as *const ACL, i as u32, &mut p_ace) } == 0 {
-            continue;
+    let ok = GetAclInformation(
+        p_dacl as *const ACL,
+        &mut info as *mut _ as *mut c_void,
+        std::mem::size_of::<windows_sys::Win32::Security::ACL_SIZE_INFORMATION>() as u32,
+        4, // AclSizeInformation
+    );
+    let has_write = if ok != 0 {
+        let mapping = GENERIC_MAPPING {
+            GenericRead: FILE_GENERIC_READ,
+            GenericWrite: FILE_GENERIC_WRITE,
+            GenericExecute: FILE_GENERIC_EXECUTE,
+            GenericAll: FILE_ALL_ACCESS,
+        };
+        let write_mask = FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES;
+        let mut found = false;
+        for i in 0..(info.AceCount as usize) {
+            let mut p_ace: *mut c_void = std::ptr::null_mut();
+            if GetAce(p_dacl as *const ACL, i as u32, &mut p_ace) == 0 { continue; }
+            let hdr = &*(p_ace as *const ACE_HEADER);
+            if hdr.AceType != 0 || (hdr.AceFlags & 0x08) != 0 { continue; }
+            let base = p_ace as usize;
+            let sid_ptr = (base + std::mem::size_of::<ACE_HEADER>() + std::mem::size_of::<u32>()) as *mut c_void;
+            if EqualSid(sid_ptr, psid_world) == 0 { continue; }
+            let ace = &*(p_ace as *const ACCESS_ALLOWED_ACE);
+            let mut mask = ace.Mask;
+            MapGenericMask(&mut mask, &mapping);
+            if (mask & write_mask) != 0 { found = true; break; }
         }
-        let hdr = unsafe { &*(p_ace as *const ACE_HEADER) };
-        if hdr.AceType != 0 {
-            continue;
-        }
-        if (hdr.AceFlags & INHERIT_ONLY_ACE) != 0 {
-            continue;
-        }
-        let base = p_ace as usize;
-        let sid_ptr =
-            (base + std::mem::size_of::<ACE_HEADER>() + std::mem::size_of::<u32>()) as *mut c_void;
-        if unsafe { EqualSid(sid_ptr, psid_world) } == 0 {
-            continue;
-        }
-        let ace = unsafe { &*(p_ace as *const ACCESS_ALLOWED_ACE) };
-        let mut mask = ace.Mask;
-        MapGenericMask(&mut mask, &mapping);
-        let write_mask =
-            FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES;
-        if (mask & write_mask) != 0 {
-            return true;
-        }
-    }
-    false
+        found
+    } else { false };
+
+    if !p_sd.is_null() { LocalFree(p_sd as HLOCAL); }
+    Ok(has_write)
 }
 
-pub fn audit_everyone_writable(
-    cwd: &Path,
-    env: &std::collections::HashMap<String, String>,
-    logs_base_dir: Option<&Path>,
-) -> Result<Vec<PathBuf>> {
+/// Audit only CWD direct children for world-writable directories.
+fn audit_cwd_children(cwd: &Path, logs_base_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
     let start = Instant::now();
     let mut flagged: Vec<PathBuf> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
-    let mut checked = 0usize;
 
-    // Fast path: check CWD immediate children
     if let Ok(read) = std::fs::read_dir(cwd) {
-        for ent in read.flatten().take(MAX_ITEMS_PER_DIR as usize) {
-            if start.elapsed() > Duration::from_secs(AUDIT_TIME_LIMIT_SECS as u64)
-                || checked > MAX_CHECKED_LIMIT as usize
-            {
+        for ent in read.flatten().take(MAX_CWD_CHILDREN) {
+            if start.elapsed() > Duration::from_secs(AUDIT_TIME_LIMIT_SECS) {
                 break;
             }
             let ft = match ent.file_type() {
@@ -253,62 +152,10 @@ pub fn audit_everyone_writable(
                 continue;
             }
             let p = ent.path();
-            checked += 1;
-            let has = unsafe { path_has_world_write_allow(&p)? };
-            if has {
+            if unsafe { path_has_world_write_allow(&p)? } {
                 let key = normalize_path_key(&p);
                 if seen.insert(key) {
                     flagged.push(p);
-                }
-            }
-        }
-    }
-
-    let candidates = gather_candidates(cwd, env);
-    for root in candidates {
-        if start.elapsed() > Duration::from_secs(AUDIT_TIME_LIMIT_SECS as u64)
-            || checked > MAX_CHECKED_LIMIT as usize
-        {
-            break;
-        }
-        checked += 1;
-        let has_root = unsafe { path_has_world_write_allow(&root)? };
-        if has_root {
-            let key = normalize_path_key(&root);
-            if seen.insert(key) {
-                flagged.push(root.clone());
-            }
-        }
-
-        if let Ok(read) = std::fs::read_dir(&root) {
-            for ent in read.flatten().take(MAX_ITEMS_PER_DIR as usize) {
-                let p = ent.path();
-                if start.elapsed() > Duration::from_secs(AUDIT_TIME_LIMIT_SECS as u64)
-                    || checked > MAX_CHECKED_LIMIT as usize
-                {
-                    break;
-                }
-                let ft = match ent.file_type() {
-                    Ok(ft) => ft,
-                    Err(_) => continue,
-                };
-                if ft.is_symlink() {
-                    continue;
-                }
-                let pl = p.to_string_lossy().to_ascii_lowercase();
-                let norm = pl.replace('\\', "/");
-                if SKIP_DIR_SUFFIXES.iter().any(|s| norm.ends_with(s)) {
-                    continue;
-                }
-                if ft.is_dir() {
-                    checked += 1;
-                    let has_child = unsafe { path_has_world_write_allow(&p)? };
-                    if has_child {
-                        let key = normalize_path_key(&p);
-                        if seen.insert(key) {
-                            flagged.push(p);
-                        }
-                    }
                 }
             }
         }
@@ -321,17 +168,12 @@ pub fn audit_everyone_writable(
             list.push_str(&format!("\n - {}", p.display()));
         }
         log_note(
-            &format!(
-                "AUDIT: world-writable scan FAILED; cwd={cwd:?}; checked={checked}; duration_ms={elapsed_ms}; flagged:{}",
-                list
-            ),
+            &format!("AUDIT: world-writable scan found; cwd={cwd:?}; duration_ms={elapsed_ms}; flagged:{list}"),
             logs_base_dir,
         );
     } else {
         log_note(
-            &format!(
-                "AUDIT: world-writable scan OK; checked={checked}; duration_ms={elapsed_ms}"
-            ),
+            &format!("AUDIT: world-writable scan OK; duration_ms={elapsed_ms}"),
             logs_base_dir,
         );
     }
@@ -342,21 +184,17 @@ pub fn audit_everyone_writable(
 pub fn apply_world_writable_scan_and_denies(
     home: &Path,
     cwd: &Path,
-    env_map: &std::collections::HashMap<String, String>,
+    _env_map: &std::collections::HashMap<String, String>,
     sandbox_policy: &SandboxPolicy,
     logs_base_dir: Option<&Path>,
 ) -> Result<()> {
-    let flagged = audit_everyone_writable(cwd, env_map, logs_base_dir)?;
+    let flagged = audit_cwd_children(cwd, logs_base_dir)?;
     if flagged.is_empty() {
         return Ok(());
     }
 
     if let Err(err) = apply_capability_denies_for_world_writable(
-        home,
-        &flagged,
-        sandbox_policy,
-        cwd,
-        logs_base_dir,
+        home, &flagged, sandbox_policy, cwd, logs_base_dir,
     ) {
         log_note(
             &format!("AUDIT: failed to apply capability deny ACEs: {}", err),
@@ -403,9 +241,6 @@ fn apply_capability_denies_for_world_writable(
             })?,
             Vec::new(),
         ),
-        SandboxPolicy::DangerFullAccess => {
-            return Ok(());
-        }
     };
 
     for path in flagged {
@@ -420,11 +255,7 @@ fn apply_capability_denies_for_world_writable(
             ),
             Ok(false) => {}
             Err(err) => log_note(
-                &format!(
-                    "AUDIT: failed to apply capability deny ACE to {}: {}",
-                    path.display(),
-                    err
-                ),
+                &format!("AUDIT: failed to apply capability deny ACE to {}: {}", path.display(), err),
                 logs_base_dir,
             ),
         }

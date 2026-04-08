@@ -143,6 +143,7 @@ export async function startWindowsMcp(): Promise<{
       "--port",
       getGuiMcpPort().toString(),
     ],
+    cwd: path.dirname(windowsMcpBinPath),
     env: {
       ...getAppEnv({ includeSystemPath: true }),
       // 禁用遥测

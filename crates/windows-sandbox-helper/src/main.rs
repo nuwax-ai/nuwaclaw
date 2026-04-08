@@ -1,8 +1,5 @@
 //! Windows Restricted Token sandbox helper binary.
 //!
-//! Extracted and adapted from OpenAI Codex windows-sandbox-rs.
-//! https://github.com/openai/codex
-//!
 //! Usage:
 //! ```bash
 //! # Capture mode: run command, capture output, print JSON result
@@ -52,7 +49,7 @@ use std::ptr;
 use std::thread;
 use std::sync::mpsc;
 use std::time::Duration;
-use token::{convert_string_sid_to_sid, create_readonly_token_with_cap, create_servable_token_with_cap, create_workspace_write_token_with_cap};
+use token::{convert_string_sid_to_sid, create_restricted_token};
 use winutil::{format_last_error, to_wide};
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT};
 use windows_sys::Win32::System::Pipes::CreatePipe;
@@ -87,8 +84,9 @@ enum Subcommand {
     /// Run a command in the sandbox as a persistent stdio proxy.
     /// Stdin/stdout/stderr are forwarded bidirectionally.
     ///
-    /// 使用不含 WRITE_RESTRICTED 的令牌，允许子进程（ACP 引擎）继续 spawn 孙进程
-    /// （如 claude-code CLI、MCP 服务器）。文件系统写保护由 DACL ACE 提供。
+    /// Uses a token without WRITE_RESTRICTED, allowing the child process (ACP engine)
+    /// to spawn grandchildren (e.g. claude-code CLI, MCP servers).
+    /// File-system write protection is provided by DACL ACEs only.
     Serve(CommonArgs),
 }
 
@@ -235,9 +233,6 @@ struct SandboxContext {
 
 impl SandboxContext {
     /// Set up sandbox policy, restricted token, ACLs, and environment.
-    ///
-    /// `is_serve`: 当为 true 时使用不含 WRITE_RESTRICTED 的令牌，允许子进程继续 spawn
-    /// 孙进程（ACP 引擎进程级沙箱所需）。文件系统写保护降为 ACL 级单层。
     fn setup(
         policy_json_or_preset: &str,
         sandbox_policy_cwd: &Path,
@@ -270,30 +265,15 @@ impl SandboxContext {
         let is_workspace_write = matches!(&policy, SandboxPolicy::WorkspaceWrite { .. });
 
         let (h_token, psid): (HANDLE, *mut c_void) = unsafe {
-            match &policy {
-                SandboxPolicy::ReadOnly => {
-                    let caps = load_or_create_cap_sids(home);
-                    ensure_dir(&cap_sid_path)?;
-                    fs::write(&cap_sid_path, serde_json::to_string(&caps)?)?;
-                    let psid = convert_string_sid_to_sid(&caps.readonly).unwrap();
-                    create_readonly_token_with_cap(psid)?
-                }
-                SandboxPolicy::WorkspaceWrite { .. } => {
-                    let caps = load_or_create_cap_sids(home);
-                    ensure_dir(&cap_sid_path)?;
-                    fs::write(&cap_sid_path, serde_json::to_string(&caps)?)?;
-                    let psid = convert_string_sid_to_sid(&caps.workspace).unwrap();
-                    if is_serve {
-                        // serve 模式：去掉 WRITE_RESTRICTED，允许引擎进程 spawn 子进程
-                        create_servable_token_with_cap(psid)?
-                    } else {
-                        create_workspace_write_token_with_cap(psid)?
-                    }
-                }
-                SandboxPolicy::DangerFullAccess => {
-                    anyhow::bail!("DangerFullAccess is not supported for sandboxing")
-                }
-            }
+            let caps = load_or_create_cap_sids(home);
+            ensure_dir(&cap_sid_path)?;
+            fs::write(&cap_sid_path, serde_json::to_string(&caps)?)?;
+
+            let cap_sid_str = if is_workspace_write { &caps.workspace } else { &caps.readonly };
+            let psid = convert_string_sid_to_sid(cap_sid_str).unwrap();
+
+            // write_restricted: true for run mode (all policies), false for serve mode
+            create_restricted_token(psid, !is_serve)?
         };
 
         unsafe {
@@ -349,9 +329,6 @@ impl SandboxContext {
     }
 
     /// Spawn the child process with restricted token and the given stdio handles.
-    /// Returns `(PROCESS_INFORMATION, cmdline_string)` on success.
-    ///
-    /// On failure, closes all pipe handles and the token.
     unsafe fn spawn_child(
         &self,
         cwd: &Path,
@@ -583,12 +560,6 @@ pub struct ProxyResult {
 }
 
 /// Run a sandboxed process with bidirectional stdio forwarding.
-///
-/// Unlike `run_sandbox_capture` which buffers all output and returns it as a
-/// JSON blob, this function forwards data between the parent's
-/// stdin ↔ child's stdin and child's stdout/stderr ↔ parent's stdout/stderr
-/// in real time, keeping the helper alive as a persistent proxy until the
-/// child exits or the parent closes stdin.
 pub fn run_sandbox_proxy(
     policy_json_or_preset: &str,
     sandbox_policy_cwd: &Path,
@@ -717,14 +688,12 @@ pub fn run_sandbox_proxy(
         close_handles(&[pi.hThread, pi.hProcess, ctx.h_token]);
     }
 
-    // Wait for stdout/stderr threads to drain (they unblock when child pipe closes)
+    // Wait for stdout/stderr threads to drain
     let _ = stdout_thread.join();
     let _ = stderr_thread.join();
 
     // stdin thread may block on parent stdin — give it a short window then detach
     if stdin_done_rx.recv_timeout(Duration::from_secs(2)).is_err() {
-        // stdin_thread is still blocking on parent stdin read; drop the receiver
-        // and let it finish naturally when the process exits.
         drop(stdin_thread);
     }
 
@@ -780,7 +749,6 @@ fn main() -> anyhow::Result<()> {
                 cmd_args,
             )?;
 
-            // Propagate child exit code; cleanup already done inside run_sandbox_proxy.
             std::process::exit(result.exit_code);
         }
     }
