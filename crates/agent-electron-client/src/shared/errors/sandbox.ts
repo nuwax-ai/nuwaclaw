@@ -16,8 +16,52 @@ function i18nT(key: string, ...values: string[]): string {
       // Not in main process — fall through to English hardcoded below
     }
   }
-  return _i18nT ? _i18nT(key, ...values) : key;
+  if (_i18nT) return _i18nT(key, ...values);
+  // Fallback to hardcoded English when i18n is unavailable
+  return FALLBACK_MESSAGES[key] ?? key;
 }
+
+/** Hardcoded English fallbacks when i18n module is unavailable */
+const FALLBACK_MESSAGES: Record<string, string> = {
+  "Claw.Sandbox.unavailable":
+    "Sandbox unavailable, please check sandbox configuration",
+  "Claw.Sandbox.dockerUnavailable":
+    "Docker unavailable, please ensure Docker Desktop is installed and running",
+  "Claw.Sandbox.helperUnavailable":
+    "Sandbox helper unavailable, please confirm nuwax-sandbox-helper is installed",
+  "Claw.Sandbox.workspaceNotFound": "Workspace not found: {0}",
+  "Claw.Sandbox.workspaceExists": "Workspace already exists: {0}",
+  "Claw.Sandbox.workspaceCreateFailed":
+    "Failed to create workspace, please check disk space and permissions",
+  "Claw.Sandbox.workspaceDestroyFailed":
+    "Failed to destroy workspace, please clean up manually",
+  "Claw.Sandbox.workspaceInvalidState":
+    "Workspace state invalid, please retry or recreate",
+  "Claw.Permissions.denied": "Permission denied",
+  "Claw.Permissions.timeout": "Permission request timed out, please retry",
+  "Claw.Permissions.policyViolation": "Operation blocked by security policy",
+  "Claw.Sandbox.executionFailed": "Command execution failed",
+  "Claw.Sandbox.executionTimeout": "Command execution timed out",
+  "Claw.Sandbox.executionBlocked": "Command blocked by security policy",
+  "Claw.Sandbox.commandNotFound": "Command not found",
+  "Claw.Sandbox.fileNotFound": "File not found",
+  "Claw.Sandbox.fileWriteFailed": "File write failed",
+  "Claw.Sandbox.fileReadFailed": "File read failed",
+  "Claw.Sandbox.fileDeleteFailed": "File delete failed",
+  "Claw.Sandbox.directoryOperationFailed": "Directory operation failed",
+  "Claw.Sandbox.cleanupFailed": "Cleanup failed",
+  "Claw.Sandbox.cleanupTimeout": "Cleanup timed out",
+  "Claw.Sandbox.configInvalid": "Invalid configuration",
+  "Claw.Sandbox.configMissing": "Missing configuration",
+  "Claw.Sandbox.containerOperationFailed": "Container operation failed",
+  "Claw.Sandbox.containerStartFailed": "Container start failed",
+  "Claw.Sandbox.containerStopFailed": "Container stop failed",
+  "Claw.Sandbox.resourceInsufficient": "Insufficient resources",
+  "Claw.Sandbox.outOfMemory": "Out of memory",
+  "Claw.Sandbox.outOfDiskSpace": "Out of disk space",
+  "Claw.Sandbox.unknownError": "Unknown error",
+  "Claw.Sandbox.unavailableWithType": "Sandbox unavailable: {0}",
+};
 
 /**
  * 沙箱错误码
@@ -406,7 +450,7 @@ export function isSandboxError(error: unknown): error is SandboxError {
  */
 export function toSandboxError(
   error: unknown,
-  defaultMessage: string = i18nT("Claw.Sandbox.unknownError"),
+  defaultMessage?: string,
   defaultCode: SandboxErrorCode = SandboxErrorCode.UNKNOWN_ERROR,
   options?: { sessionId?: string; workspaceId?: string },
 ): SandboxError {
@@ -414,14 +458,15 @@ export function toSandboxError(
     return error;
   }
 
+  const msg = defaultMessage ?? i18nT("Claw.Sandbox.unknownError");
   if (error instanceof Error) {
-    return new SandboxError(error.message || defaultMessage, defaultCode, {
+    return new SandboxError(error.message || msg, defaultCode, {
       ...options,
       cause: error,
     });
   }
 
-  return new SandboxError(defaultMessage, defaultCode, {
+  return new SandboxError(msg, defaultCode, {
     ...options,
     details: { originalError: String(error) },
   });
