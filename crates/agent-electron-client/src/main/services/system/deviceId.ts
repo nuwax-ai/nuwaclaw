@@ -39,7 +39,7 @@ export function logSystemInfo(): void {
     nodeVersion: process.versions.node,
     electronVersion: process.versions.electron,
     chromeVersion: process.versions.chrome,
-    locale: os.locale(),
+    locale: app.getLocale(),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     cpuCount: os.cpus().length,
     totalMemoryGB: Math.round(os.totalmem() / 1024 / 1024 / 1024),
