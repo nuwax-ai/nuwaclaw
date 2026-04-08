@@ -1127,54 +1127,58 @@ function getSystemPaths(): string[] {
 /**
  * 初始化向导必需依赖配置
  * 对应 Tauri 版本的 SETUP_REQUIRED_DEPENDENCIES
+ *
+ * 使用 getter 函数延迟求值，避免模块加载时 t() 在 initI18n() 之前执行
  */
-export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
-  {
-    name: "uv",
-    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_UV),
-    type: "bundled",
-    description: t(I18N_KEYS.Pages.Dependencies.DESC_UV),
-    required: true,
-    minVersion: "0.5.0",
-    installUrl: "https://docs.astral.sh/uv/getting-started/installation/",
-  },
-  {
-    name: "pnpm",
-    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_PNPM),
-    type: "npm-local",
-    description: t(I18N_KEYS.Pages.Dependencies.DESC_PNPM),
-    required: true,
-    binName: "pnpm",
-    installVersion: "10.30.3",
-  },
-  {
-    name: "nuwax-file-server",
-    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_FILE_SERVER),
-    type: "bundled",
-    description: t(I18N_KEYS.Pages.Dependencies.DESC_FILE_SERVER),
-    required: true,
-    binName: "nuwax-file-server",
-    installVersion: "1.2.4",
-  },
-  {
-    name: "nuwaxcode",
-    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_NUWAXCODE),
-    type: "bundled",
-    description: t(I18N_KEYS.Pages.Dependencies.DESC_NUWAXCODE),
-    required: true,
-    binName: "nuwaxcode",
-    installVersion: "1.1.68",
-  },
-  {
-    name: "claude-code-acp-ts",
-    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_CLAUDE_CODE_ACP),
-    type: "bundled",
-    description: t(I18N_KEYS.Pages.Dependencies.DESC_CLAUDE_CODE_ACP),
-    required: true,
-    binName: "claude-code-acp-ts",
-    installVersion: "0.24.3",
-  },
-];
+export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
+  return [
+    {
+      name: "uv",
+      displayName: t(I18N_KEYS.Pages.Dependencies.DEP_UV),
+      type: "bundled",
+      description: t(I18N_KEYS.Pages.Dependencies.DESC_UV),
+      required: true,
+      minVersion: "0.5.0",
+      installUrl: "https://docs.astral.sh/uv/getting-started/installation/",
+    },
+    {
+      name: "pnpm",
+      displayName: t(I18N_KEYS.Pages.Dependencies.DEP_PNPM),
+      type: "npm-local",
+      description: t(I18N_KEYS.Pages.Dependencies.DESC_PNPM),
+      required: true,
+      binName: "pnpm",
+      installVersion: "10.30.3",
+    },
+    {
+      name: "nuwax-file-server",
+      displayName: t(I18N_KEYS.Pages.Dependencies.DEP_FILE_SERVER),
+      type: "bundled",
+      description: t(I18N_KEYS.Pages.Dependencies.DESC_FILE_SERVER),
+      required: true,
+      binName: "nuwax-file-server",
+      installVersion: "1.2.4",
+    },
+    {
+      name: "nuwaxcode",
+      displayName: t(I18N_KEYS.Pages.Dependencies.DEP_NUWAXCODE),
+      type: "bundled",
+      description: t(I18N_KEYS.Pages.Dependencies.DESC_NUWAXCODE),
+      required: true,
+      binName: "nuwaxcode",
+      installVersion: "1.1.68",
+    },
+    {
+      name: "claude-code-acp-ts",
+      displayName: t(I18N_KEYS.Pages.Dependencies.DEP_CLAUDE_CODE_ACP),
+      type: "bundled",
+      description: t(I18N_KEYS.Pages.Dependencies.DESC_CLAUDE_CODE_ACP),
+      required: true,
+      binName: "claude-code-acp-ts",
+      installVersion: "0.24.3",
+    },
+  ];
+}
 
 // ==================== Detection Functions ====================
 

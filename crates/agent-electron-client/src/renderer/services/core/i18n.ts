@@ -337,6 +337,12 @@ const _doInitI18n = async (): Promise<void> => {
   const cachedLang = await readLangFromCache();
   const resolvedLang = normalizeLang(cachedLang || getBrowserLang());
   await setCurrentLang(resolvedLang);
+  // 启动时同步主进程语言，避免主进程弹窗（如自动更新）与渲染进程语言不一致
+  try {
+    await window.electronAPI?.i18n?.setLang(resolvedLang);
+  } catch {
+    // ignore sync failures
+  }
 
   if (isCurrentLangSupported_) {
     langMap = { ...getLocaleMap(resolvedLang) };
