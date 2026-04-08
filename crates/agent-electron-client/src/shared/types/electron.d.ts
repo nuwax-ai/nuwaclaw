@@ -123,6 +123,10 @@ export interface GuiServerAPI {
   start: () => Promise<{ success: boolean; error?: string }>;
   stop: () => Promise<{ success: boolean; error?: string }>;
   status: () => Promise<{ running: boolean; pid?: number; error?: string }>;
+  isEnabled: () => Promise<{ enabled: boolean; reason?: string }>;
+  setEnabled: (
+    enabled: boolean,
+  ) => Promise<{ success: boolean; error?: string }>;
 }
 
 export interface AdminServerAPI {

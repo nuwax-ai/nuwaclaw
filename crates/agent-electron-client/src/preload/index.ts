@@ -214,6 +214,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     start: () => ipcRenderer.invoke("guiServer:start"),
     stop: () => ipcRenderer.invoke("guiServer:stop"),
     status: () => ipcRenderer.invoke("guiServer:status"),
+    isEnabled: () => ipcRenderer.invoke("guiServer:isEnabled"),
+    setEnabled: (enabled: boolean) =>
+      ipcRenderer.invoke("guiServer:setEnabled", enabled),
   },
 
   // Admin Server lifecycle (管理接口服务)

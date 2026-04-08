@@ -552,6 +552,7 @@
   "Claw.Settings.saveConfig.fileServerPort": "File Server Port",
   "Claw.Settings.saveConfig.agentPort": "Agent Port",
   "Claw.Settings.saveConfig.guiMcpPort": "GUI MCP Port",
+  "Claw.Settings.saveConfig.guiMcpEnabled": "Enable GUI MCP",
   "Claw.Settings.saveConfig.adminServerPort": "Admin Service Port",
   "Claw.Settings.saveConfig.adminServerPortExtra": "Default 60007, for admin interface (restart/health check)",
   "Claw.Settings.saveConfig.enterPort": "Please enter port",

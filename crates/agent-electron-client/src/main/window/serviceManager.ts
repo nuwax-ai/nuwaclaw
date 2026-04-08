@@ -26,6 +26,7 @@ import {
 import { agentService } from "../services/engines/unifiedAgent";
 import type { AgentConfig } from "../services/engines/unifiedAgent";
 import { mcpProxyManager } from "../services/packages/mcp";
+import { FEATURES } from "@shared/featureFlags";
 import {
   startGuiAgentServer,
   stopGuiAgentServer,
@@ -211,31 +212,35 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     }
 
     // 2.5. 启动 GUI Agent Server（非 Windows 平台，提供 GUI 自动化 MCP tools）
-    try {
-      const guiResult = await startGuiAgentServer();
-      results.guiAgentServer = guiResult;
-      if (!guiResult.success) {
-        log.warn(
-          `[ServiceManager] GUI Agent Server start failed: ${guiResult.error}`,
-        );
+    if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
+      try {
+        const guiResult = await startGuiAgentServer();
+        results.guiAgentServer = guiResult;
+        if (!guiResult.success) {
+          log.warn(
+            `[ServiceManager] GUI Agent Server start failed: ${guiResult.error}`,
+          );
+        }
+      } catch (e) {
+        results.guiAgentServer = { success: false, error: String(e) };
+        log.warn("[ServiceManager] GUI Agent Server start exception:", e);
       }
-    } catch (e) {
-      results.guiAgentServer = { success: false, error: String(e) };
-      log.warn("[ServiceManager] GUI Agent Server start exception:", e);
     }
 
     // 2.6. 启动 Windows MCP（Windows 平台，提供 GUI 自动化 MCP tools）
-    try {
-      const winResult = await startWindowsMcp();
-      results.windowsMcp = winResult;
-      if (!winResult.success) {
-        log.warn(
-          `[ServiceManager] Windows MCP start failed: ${winResult.error}`,
-        );
+    if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
+      try {
+        const winResult = await startWindowsMcp();
+        results.windowsMcp = winResult;
+        if (!winResult.success) {
+          log.warn(
+            `[ServiceManager] Windows MCP start failed: ${winResult.error}`,
+          );
+        }
+      } catch (e) {
+        results.windowsMcp = { success: false, error: String(e) };
+        log.warn("[ServiceManager] Windows MCP start exception:", e);
       }
-    } catch (e) {
-      results.windowsMcp = { success: false, error: String(e) };
-      log.warn("[ServiceManager] Windows MCP start exception:", e);
     }
 
     // 3. 启动 Agent（依赖 MCP Proxy 已就绪以便 getAgentMcpConfig 对应进程可连）
@@ -353,7 +358,9 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     // 不停止 lanproxy: ctx.lanproxy.stop();
     // 先停止 GUI agents（它们依赖 MCP Proxy，先停 MCP 再停 GUI）
     await mcpProxyManager.stop();
-    await stopGuiAgentServer();
+    if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
+      await stopGuiAgentServer();
+    }
     await stopWindowsMcp();
 
     // 2. 启动 MCP Proxy（必须先于 Agent：Agent 初始化时会连 MCP Proxy 注入 mcpServers）
@@ -376,17 +383,19 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     }
 
     // 2.5. 启动 GUI Agent Server（非 Windows 平台）
-    try {
-      const guiResult = await startGuiAgentServer();
-      results.guiAgentServer = guiResult;
-      if (!guiResult.success) {
-        log.warn(
-          `[ServiceManager] GUI Agent Server start failed: ${guiResult.error}`,
-        );
+    if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
+      try {
+        const guiResult = await startGuiAgentServer();
+        results.guiAgentServer = guiResult;
+        if (!guiResult.success) {
+          log.warn(
+            `[ServiceManager] GUI Agent Server start failed: ${guiResult.error}`,
+          );
+        }
+      } catch (e) {
+        results.guiAgentServer = { success: false, error: String(e) };
+        log.warn("[ServiceManager] GUI Agent Server start exception:", e);
       }
-    } catch (e) {
-      results.guiAgentServer = { success: false, error: String(e) };
-      log.warn("[ServiceManager] GUI Agent Server start exception:", e);
     }
 
     // 2.6. 启动 Windows MCP（Windows 平台）
@@ -505,12 +514,14 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       results.windowsMcp = { success: false, error: String(e) };
     }
 
-    try {
-      await stopGuiAgentServer();
-      results.guiAgentServer = { success: true };
-      log.info("[ServiceManager] GUI Agent Server stopped");
-    } catch (e) {
-      results.guiAgentServer = { success: false, error: String(e) };
+    if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
+      try {
+        await stopGuiAgentServer();
+        results.guiAgentServer = { success: true };
+        log.info("[ServiceManager] GUI Agent Server stopped");
+      } catch (e) {
+        results.guiAgentServer = { success: false, error: String(e) };
+      }
     }
 
     // 停止所有引擎
