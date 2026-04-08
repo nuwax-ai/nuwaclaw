@@ -331,67 +331,86 @@ ipcMain.handle("tray:updateServicesStatus", (_, running: boolean) => {
 async function cleanupAllProcesses(): Promise<void> {
   log.info("[Cleanup] Stopping all processes...");
 
-  try {
+  const stepTimeoutMs = Math.max(1500, Math.floor(CLEANUP_TIMEOUT / 6));
+  const runCleanupStep = async (
+    label: string,
+    fn: () => Promise<void> | void,
+  ): Promise<void> => {
+    let completed = false;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const task = (async () => {
+      try {
+        await fn();
+      } catch (e) {
+        log.error(`[Cleanup] ${label} error:`, e);
+      } finally {
+        completed = true;
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = null;
+        }
+      }
+    })();
+    await Promise.race([
+      task,
+      new Promise<void>((resolve) => {
+        timeoutHandle = setTimeout(() => {
+          if (!completed) {
+            log.warn(`[Cleanup] ${label} timed out after ${stepTimeoutMs}ms`);
+          }
+          timeoutHandle = null;
+          resolve();
+        }, stepTimeoutMs);
+      }),
+    ]);
+  };
+
+  await runCleanupStep("Computer server stop", async () => {
     await stopComputerServer();
-  } catch (e) {
-    log.error("[Cleanup] Computer server stop error:", e);
-  }
+  });
 
-  try {
+  await runCleanupStep("Event forwarders unregister", () => {
     unregisterEventForwarders();
-  } catch (e) {
-    log.error("[Cleanup] Event forwarders unregister error:", e);
-  }
+  });
 
-  try {
+  await runCleanupStep("Agent service destroy", async () => {
     await agentService.destroy();
-  } catch (e) {
-    log.error("[Cleanup] Agent service destroy error:", e);
+  });
+
+  await runCleanupStep("MCP proxy cleanup", async () => {
+    await mcpProxyManager.cleanup();
+  });
+
+  // Windows：windows-mcp（uv/python）由独立 ManagedProcess 管理
+  await runCleanupStep("Windows MCP stop", async () => {
+    await stopWindowsMcp();
+  });
+
+  // 非 Windows：agent-gui-server 进程
+  if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
+    await runCleanupStep("GUI Agent server stop", async () => {
+      await stopGuiAgentServer();
+    });
   }
 
+  await runCleanupStep("Engine processes stop", () => {
+    const { stopAllEngines } = require("./services/engines/engineManager");
+    stopAllEngines();
+    log.info("[Cleanup] Engine processes stopped");
+  });
+
+  await runCleanupStep("Process registry killAll", async () => {
+    const { processRegistry } = require("./services/system/processRegistry");
+    await processRegistry.killAll();
+    log.info("[Cleanup] Process registry cleared");
+  });
+
+  // Last-resort force kill for legacy managed processes.
+  // NOTE: guiServer is a legacy placeholder and typically not started directly.
   agentRunner.kill();
   lanproxy.kill();
   fileServer.kill();
   guiServer.kill();
-
-  try {
-    await mcpProxyManager.cleanup();
-  } catch (e) {
-    log.warn("[Cleanup] MCP proxy cleanup error:", e);
-  }
-
-  // Windows：windows-mcp（uv/python）由独立 ManagedProcess 管理，main 里的 guiServer.kill() 不会结束它
-  try {
-    await stopWindowsMcp();
-  } catch (e) {
-    log.warn("[Cleanup] Windows MCP stop error:", e);
-  }
-
-  // 非 Windows：agent-gui-server 进程
-  if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
-    try {
-      await stopGuiAgentServer();
-    } catch (e) {
-      log.warn("[Cleanup] GUI Agent server stop error:", e);
-    }
-  }
-
-  try {
-    const { stopAllEngines } = require("./services/engines/engineManager");
-    stopAllEngines();
-    log.info("[Cleanup] Engine processes stopped");
-  } catch (e) {
-    // Engine service might not be loaded
-  }
-
-  // Final safety net: kill all registered ACP processes
-  try {
-    const { processRegistry } = require("./services/system/processRegistry");
-    await processRegistry.killAll();
-    log.info("[Cleanup] Process registry cleared");
-  } catch (e) {
-    log.warn("[Cleanup] Process registry cleanup error:", e);
-  }
 
   log.info("[Cleanup] All processes stopped");
 }
@@ -552,14 +571,22 @@ app.on("before-quit", (e) => {
 
   log.info("[App] Before quit - starting cleanup");
 
-  Promise.race([
-    cleanupAllProcesses(),
-    new Promise<void>((resolve) => setTimeout(resolve, CLEANUP_TIMEOUT)),
-  ]).finally(() => {
-    closeDb();
-    log.info("[App] Cleanup complete, exiting");
-    app.exit(0);
-  });
+  void (async () => {
+    const start = Date.now();
+    try {
+      await cleanupAllProcesses();
+    } finally {
+      const elapsed = Date.now() - start;
+      if (elapsed > CLEANUP_TIMEOUT) {
+        log.warn(
+          `[App] Cleanup exceeded budget (${elapsed}ms > ${CLEANUP_TIMEOUT}ms), forcing exit`,
+        );
+      }
+      closeDb();
+      log.info("[App] Cleanup complete, exiting");
+      app.exit(0);
+    }
+  })();
 });
 
 app.on("will-quit", () => {

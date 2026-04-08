@@ -5,7 +5,7 @@
  * into agent engines without modifying core engine code.
  *
  * Usage:
- *   // In feature module (e.g., guiAgentHandlers.ts):
+ *   // In feature module:
  *   registerEnvProvider(() => ({ GUI_AGENT_PORT: '60010', GUI_AGENT_TOKEN: 'xxx' }));
  *   registerPromptEnhancer((base) => base ? `${base}\n\n${extra}` : extra);
  */
