@@ -207,9 +207,10 @@ npm run dev
 - [ ] 只保留一个 Nuwax Agent 进程（含托盘）
 - [ ] 开发模式：已执行 `npm install`，必要时执行 `npx @electron/rebuild`
 - [ ] 设置中已配置默认模型和 API Key（避免依赖内置默认）
+- [ ] 启动后语言初始化正常：`navigator.language`（如 `en-US` / `zh-TW`）能命中期望语言；`zh-TW` / `zh-HK` 的 antd 组件文案为繁体；主进程托盘文案与页面语言一致
 - [ ] 若需内网穿透：Lanproxy 服务端与网络正常，且本地 Lanproxy/Agent Runner 所用端口（如 60002）无冲突；否则可忽略 Lanproxy 相关告警
 - [ ] 出现 API 连接错误时，已按「七」检查网络与 Base URL
 
 ---
 
-*文档依据 `~/.nuwaclaw/logs/latest.log` 常见错误整理，最后更新：2026-02-27*
+*文档依据 `~/.nuwaclaw/logs/latest.log` 常见错误整理，最后更新：2026-04-08*

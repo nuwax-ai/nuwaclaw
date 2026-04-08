@@ -198,6 +198,14 @@ npm run dist:linux  # Linux
 - **占位符**：位置占位符 `t(key, arg1, arg2)` → `{0}` `{1}`；命名占位符 `t(key, {error: "xxx"})` → `{error}`。
 - **I18N_KEYS 常量**：`src/shared/constants.ts` 中集中定义，避免拼写错误。新增 locale key 时须同步更新此常量。
 
+### 启动初始化命中逻辑（新客户端）
+
+1. **并行初始化**：`src/renderer/main.tsx` 启动时并行执行 `initSupportedLangs()` 与 `initI18n()`。
+2. **动态语言列表**：`src/renderer/services/i18n.ts` 调 `/api/i18n/lang/list`，按当前接口格式读取 `data[].lang`，仅纳入 `status === 1` 的语言，合并到 `i18next.supportedLngs`。
+3. **当前语言来源**：`src/renderer/services/core/i18n.ts` 优先用缓存 `i18n.active_lang`，无缓存则用 `navigator.language`。`navigator.language` 为 BCP 47 格式（如 `en-US`、`zh-CN`、`zh-TW`、`zh-HK`），内部统一转小写比较（如 `zh-tw`）。
+4. **主进程同步**：`initI18n()` 完成后，渲染进程会通过 `window.electronAPI.i18n.setLang()` 同步主进程语言，保证托盘/对话框与页面语言一致。
+5. **antd locale 命中**：优先精确命中 `zh-tw` / `zh-hk`，再落到泛中文 `zh`，避免繁体用户被错误命中简体组件文案。
+
 ### 日志 vs UI 的语言规则
 
 | 场景 | 函数 | 语言要求 | 是否走 i18n |
