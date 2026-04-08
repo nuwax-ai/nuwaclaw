@@ -217,25 +217,25 @@ export function getAuthErrorMessage(error: any): string {
   }
 
   const errorCodeMessages: Record<string, string> = {
-    "1001": "用户不存在，请检查输入",
-    "1002": "密码错误，请重新输入",
-    "1003": "账户已被禁用，请联系管理员",
-    "2001": "客户端不存在或已下架",
-    "2002": "客户端已被禁用",
-    "2003": "配置不存在，请重新登录",
-    "4010": "登录已过期，请重新登录",
-    "4011": "登录已过期，请重新登录",
-    "9999": "系统错误，请稍后重试",
+    "1001": t("Claw.Auth.error.userNotFound"),
+    "1002": t("Claw.Auth.error.wrongPassword"),
+    "1003": t("Claw.Auth.error.accountDisabled"),
+    "2001": t("Claw.Auth.error.clientNotFound"),
+    "2002": t("Claw.Auth.error.clientDisabled"),
+    "2003": t("Claw.Auth.error.configNotFound"),
+    "4010": t("Claw.Auth.error.loginExpired"),
+    "4011": t("Claw.Auth.error.loginExpired"),
+    "9999": t("Claw.Auth.error.systemError"),
   };
   if (error?.data?.code && errorCodeMessages[error.data.code]) {
     return errorCodeMessages[error.data.code];
   }
 
-  if (error?.status === 403) return "没有权限执行此操作";
-  if (error?.status === 404) return "请求的资源不存在";
-  if (error?.status === 500) return "服务器错误，请稍后重试";
+  if (error?.status === 403) return t("Claw.Auth.error.forbidden");
+  if (error?.status === 404) return t("Claw.Auth.error.notFound");
+  if (error?.status === 500) return t("Claw.Auth.error.serverError");
 
-  return "登录失败，请检查网络连接";
+  return t("Claw.Auth.error.loginFailed");
 }
 
 // ========== 域名标准化 ===
@@ -364,7 +364,7 @@ export async function loginAndRegister(
       await saveServerConfig(response.serverHost, response.serverPort);
     } else {
       logger.warn(
-        "API 未返回 serverHost/serverPort，lanproxy 配置未更新",
+        "API did not return serverHost/serverPort, lanproxy config not updated",
         "Auth",
       );
     }

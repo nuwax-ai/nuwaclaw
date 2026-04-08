@@ -338,6 +338,7 @@ export const I18N_KEYS = {
 
       // 操作
       INSTALL: "Claw.Pages.Dependencies.install",
+      UPDATE: "Claw.Pages.Dependencies.update",
       UPGRADE: "Claw.Pages.Dependencies.upgrade",
       INSTALL_ALL: "Claw.Pages.Dependencies.installAll",
       UPGRADE_ALL: "Claw.Pages.Dependencies.upgradeAll",

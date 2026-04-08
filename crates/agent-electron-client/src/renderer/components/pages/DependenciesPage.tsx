@@ -308,7 +308,11 @@ export default function DependenciesPage() {
       mode === "update" ? ("installed" as const) : ("error" as const);
 
     const actionLabel =
-      mode === "update" ? "更新" : mode === "upgrade" ? "升级" : "安装";
+      mode === "update"
+        ? t(I18N_KEYS.Pages.Dependencies.UPDATE)
+        : mode === "upgrade"
+          ? t(I18N_KEYS.Pages.Dependencies.UPGRADE)
+          : t(I18N_KEYS.Pages.Dependencies.INSTALL);
 
     try {
       const result = await window.electronAPI?.dependencies.installPackage(

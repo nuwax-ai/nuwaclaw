@@ -6,17 +6,18 @@
 import { message } from "antd";
 import { DEFAULT_SERVER_HOST, DEFAULT_API_TIMEOUT } from "@shared/constants";
 import { logger } from "../utils/logService";
+import { t } from "./i18n";
 
 // 错误码定义
 const SUCCESS_CODE = "0000";
 
 // 错误码对应的消息
 const ERROR_MESSAGES: Record<string, string> = {
-  "0000": "操作成功",
-  "4010": "用户未登录，请重新登录",
-  "4011": "登录已过期，请重新登录",
-  "1001": "客户端不存在或已下架",
-  "9999": "系统错误，请稍后重试",
+  "0000": t("Claw.Api.success"),
+  "4010": t("Claw.Api.notLoggedIn"),
+  "4011": t("Claw.Api.loginExpired"),
+  "1001": t("Claw.Api.clientNotFound"),
+  "9999": t("Claw.Api.systemError"),
 };
 
 // 响应类型定义（内部使用）
@@ -122,7 +123,7 @@ export async function apiRequest<T>(
     // AbortSignal.timeout 超时后抛出 TimeoutError（name === 'TimeoutError'）
     // 或 AbortError（某些环境），统一转为可读错误
     if (error.name === "TimeoutError" || error.name === "AbortError") {
-      const timeoutMsg = `请求超时（>${timeoutMs}ms），请检查网络或服务器状态`;
+      const timeoutMsg = t("Claw.Api.timeout", timeoutMs);
       logger.error("Request Timeout", "API", { url: finalUrl });
       if (options.showError !== false) {
         message.error(timeoutMsg);
@@ -139,7 +140,7 @@ export async function apiRequest<T>(
     // 生成用户友好的错误信息
     let userMessage: string = "";
     if (isLoginRedirect) {
-      userMessage = "登录遇到问题，请检查配置域名信息或服务状态后重试";
+      userMessage = t("Claw.Errors.loginRedirect");
     } else if (options.showError !== false && error.message) {
       userMessage = error.message;
     }

@@ -93,13 +93,13 @@ export async function syncSessionCookie(
       url: domain,
       name: "ticket",
     });
-    logger.debug("[SessionUrl] ticket cookie 回读结果", "SessionUrl", {
+    logger.debug("[SessionUrl] ticket cookie read-back result", "SessionUrl", {
       domain,
       found: !!verify?.found,
       count: verify?.count ?? 0,
     });
   } catch (error) {
-    logger.debug("[SessionUrl] ticket cookie 回读异常", "SessionUrl", {
+    logger.debug("[SessionUrl] ticket cookie read-back error", "SessionUrl", {
       domain,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -136,7 +136,7 @@ async function syncCookieAndBuildUrl<T>(
       | null;
     if (token) tokenSource = "domain_cache";
   }
-  logger.debug("[SessionUrl] 会话前状态", "SessionUrl", {
+  logger.debug("[SessionUrl] Pre-session state", "SessionUrl", {
     domain,
     hasToken: !!token,
     tokenSource,
@@ -144,7 +144,7 @@ async function syncCookieAndBuildUrl<T>(
   if (!token) {
     // reg 未返回 token → 不做任何操作（不清空现有 cookie）
     logger.debug(
-      "[SessionUrl] 缺少可用 token，跳过 ticket 同步",
+      "[SessionUrl] No token available, skipping ticket sync",
       "SessionUrl",
       { domain },
     );
@@ -156,18 +156,22 @@ async function syncCookieAndBuildUrl<T>(
     await syncSessionCookie(domain, token);
     // one-shot token 成功后清除，避免反复覆盖 webview 内 ticket
     await window.electronAPI?.settings.set(AUTH_KEYS.AUTH_TOKEN, null);
-    logger.debug("[SessionUrl] ticket cookie 同步成功", "SessionUrl", {
-      domain,
-      tokenSource,
-    });
+    logger.debug(
+      "[SessionUrl] ticket cookie synced successfully",
+      "SessionUrl",
+      {
+        domain,
+        tokenSource,
+      },
+    );
   } catch (error) {
-    logger.debug("[SessionUrl] ticket cookie 同步失败", "SessionUrl", {
+    logger.debug("[SessionUrl] ticket cookie sync failed", "SessionUrl", {
       domain,
       error: error instanceof Error ? error.message : String(error),
     });
     // 失败时不要清空 token，保留重试机会
     logger.error(
-      "[SessionUrl] Cookie 同步失败，保留本地 token 以便重试",
+      "[SessionUrl] Cookie sync failed, keeping local token for retry",
       "SessionUrl",
       {
         domain,
@@ -223,7 +227,7 @@ export async function persistTicketCookie(domain: string): Promise<void> {
     });
     if (!result?.found) {
       logger.debug(
-        "[SessionUrl] persistTicketCookie: 无 ticket cookie，跳过",
+        "[SessionUrl] persistTicketCookie: no ticket cookie, skipping",
         "SessionUrl",
         { domain },
       );
@@ -233,7 +237,7 @@ export async function persistTicketCookie(domain: string): Promise<void> {
     // 主动刷盘，确保 Chromium 将 cookie 写入磁盘
     await window.electronAPI?.session.flushStore();
     logger.info(
-      "[SessionUrl] persistTicketCookie: cookie store 已刷盘",
+      "[SessionUrl] persistTicketCookie: cookie store flushed",
       "SessionUrl",
       { domain },
     );

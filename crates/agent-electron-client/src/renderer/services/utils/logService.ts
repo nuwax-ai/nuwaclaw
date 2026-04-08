@@ -8,6 +8,8 @@
  * - 通过 IPC 转发到主进程日志
  */
 
+import { t } from "../core/i18n";
+
 // ==================== Types ====================
 
 export type LogLevel = "error" | "warning" | "success" | "info";
@@ -251,7 +253,7 @@ export function exportLogs(format: ExportFormat = "json"): string {
       return JSON.stringify(logs, null, 2);
 
     case "csv": {
-      const headers = "时间,级别,来源,消息\n";
+      const headers = t("Claw.Log.csvHeader") + "\n";
       const rows = logs
         .map(
           (log) =>

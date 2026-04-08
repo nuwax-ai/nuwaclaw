@@ -186,4 +186,35 @@ npm run dist:linux  # Linux
 - **敏感配置存于 SQLite**（明文，未加密）：anthropic_api_key、default_model、server_host。
 - **兼容性**：多引擎 / 沙箱(Docker) / IM / 托盘 / 无命令行弹窗 — 全平台。WSL 仅 Windows。Firejail 仅 Linux。
 
-*最后更新：2026-04-01*
+---
+
+## 国际化（i18n）规则
+
+### 多语言机制
+
+- **Locale 文件**：`src/shared/locales/` 下 4 个文件（en-US、zh-CN、zh-HK、zh-TW），key 必须完全对齐。
+- **翻译函数**：renderer 用 `t(key, ...values)`（`src/renderer/services/core/i18n.ts`），主进程用 `t(key)`（`src/main/services/i18n.ts`）。
+- **Key 格式**：`{Client}.{Scope}.{Domain}.{key}`，如 `Claw.Auth.error.loginExpired`。
+- **占位符**：位置占位符 `t(key, arg1, arg2)` → `{0}` `{1}`；命名占位符 `t(key, {error: "xxx"})` → `{error}`。
+- **I18N_KEYS 常量**：`src/shared/constants.ts` 中集中定义，避免拼写错误。新增 locale key 时须同步更新此常量。
+
+### 日志 vs UI 的语言规则
+
+| 场景 | 函数 | 语言要求 | 是否走 i18n |
+|------|------|----------|------------|
+| 日志文件输出 | `log.*()` / `logger.*()` / `perfLog()` | **仅英文** | 否 |
+| UI 提示 | `message.*()` / `notification.*()` | **跟随用户语言** | 是（`t()`） |
+| 错误消息展示 | `getAuthErrorMessage()` 等 | **跟随用户语言** | 是（`t()`） |
+| 错误消息抛出 | `throw new Error()` / `reject()` | **英文**（可能被 catch 后记入日志） | 否 |
+| HTTP 响应 message | `{ code: "0000", message: "..." }` | **英文**（API 协议） | 否 |
+| CSV 导出表头 | `exportLogs()` | **跟随用户语言** | 是（`t()`） |
+| 权限默认名称 | `DEFAULT_CONFIG.rules` | **跟随用户语言** | 是（`t()`） |
+
+### 核心原则
+
+1. **logger 输出只用英文，不进 locale 文件**。日志是开发者工具，应保持语言一致性。
+2. **用户可见的 UI 文本必须走 `t()`**，包括 `message.success/error/info/loading`、按钮标签、表单提示等。
+3. **新增 locale key 时**：4 个 locale 文件 + `I18N_KEYS` 常量 + 代码中 `t()` 调用，三者同步。
+4. **主进程中的用户可见文案**（如 `MCP_RECONNECT_PROMPT_MESSAGE`）通过主进程 `t()` 走 i18n，避免硬编码英文。
+
+*最后更新：2026-04-08*

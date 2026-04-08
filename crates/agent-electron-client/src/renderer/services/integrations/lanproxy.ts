@@ -1,4 +1,5 @@
-import { LOCALHOST_IP, DEFAULT_LANPROXY_PORT } from '@shared/constants';
+import { LOCALHOST_IP, DEFAULT_LANPROXY_PORT } from "@shared/constants";
+import { t } from "../core/i18n";
 
 export interface LanproxyConfig {
   enabled: boolean;
@@ -39,20 +40,23 @@ class LanproxyManager {
 
   async loadConfig(): Promise<void> {
     try {
-      const saved = await window.electronAPI?.settings.get('lanproxy_config');
+      const saved = await window.electronAPI?.settings.get("lanproxy_config");
       if (saved) {
-        this.config = { ...defaultLanproxyConfig, ...(saved as LanproxyConfig) };
+        this.config = {
+          ...defaultLanproxyConfig,
+          ...(saved as LanproxyConfig),
+        };
       }
     } catch (error) {
-      console.error('Failed to load lanproxy config:', error);
+      console.error("Failed to load lanproxy config:", error);
     }
   }
 
   async saveConfig(): Promise<void> {
     try {
-      await window.electronAPI?.settings.set('lanproxy_config', this.config);
+      await window.electronAPI?.settings.set("lanproxy_config", this.config);
     } catch (error) {
-      console.error('Failed to save lanproxy config:', error);
+      console.error("Failed to save lanproxy config:", error);
     }
   }
 
@@ -64,9 +68,14 @@ class LanproxyManager {
 
     try {
       // clientKey 始终从 auth.saved_key 读取（参考 Tauri 客户端）
-      const clientKey = await window.electronAPI?.settings.get('auth.saved_key') as string | null;
+      const clientKey = (await window.electronAPI?.settings.get(
+        "auth.saved_key",
+      )) as string | null;
       if (!clientKey) {
-        return { success: false, error: '请先登录以获取客户端密钥' };
+        return {
+          success: false,
+          error: t("Claw.Errors.loginFirstForClientKey"),
+        };
       }
       const result = await window.electronAPI?.lanproxy.start({
         serverIp: this.config.serverIp,
@@ -78,7 +87,7 @@ class LanproxyManager {
       if (result?.success) {
         this.status.running = true;
       }
-      return result || { success: false, error: 'IPC failed' };
+      return result || { success: false, error: "IPC failed" };
     } catch (error) {
       return { success: false, error: String(error) };
     }
@@ -95,7 +104,7 @@ class LanproxyManager {
       if (result?.success) {
         this.status.running = false;
       }
-      return result || { success: false, error: 'IPC failed' };
+      return result || { success: false, error: "IPC failed" };
     } catch (error) {
       return { success: false, error: String(error) };
     }
