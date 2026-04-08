@@ -189,9 +189,10 @@ export class SandboxInvoker {
     params: SandboxInvocationParams,
   ): Promise<Invocation> {
     const mode = this.options.mode ?? "compat";
+    const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const profilePath = path.join(
       fs.realpathSync(os.tmpdir()),
-      `nuwaclaw-sandbox-${Date.now()}.sb`,
+      `nuwaclaw-sandbox-${uniqueSuffix}.sb`,
     );
     const profile = this.buildSeatbeltProfile(
       params.command,
@@ -221,6 +222,7 @@ export class SandboxInvoker {
     const bwrapPath = this.options.linuxBwrapPath || "bwrap";
     const mode = this.options.mode ?? "compat";
     const permissive = mode === "permissive";
+    const strict = mode === "strict";
     const bwrapArgs: string[] = ["--die-with-parent", "--new-session"];
 
     if (permissive) {
@@ -255,10 +257,44 @@ export class SandboxInvoker {
         "/proc",
         "--tmpfs",
         "/tmp",
-        "--ro-bind",
-        "/",
-        "/",
       );
+
+      if (strict) {
+        const roBindTargets = new Set<string>();
+        const addRoBind = (p: string) => {
+          if (!p || !path.isAbsolute(p) || !fs.existsSync(p)) return;
+          roBindTargets.add(p);
+          try {
+            const resolved = fs.realpathSync(p);
+            if (resolved !== p && fs.existsSync(resolved)) {
+              roBindTargets.add(resolved);
+            }
+          } catch {
+            // ignore realpath failures
+          }
+        };
+
+        // Minimal system runtime surface
+        for (const p of ["/usr", "/bin", "/lib", "/lib64", "/etc", "/opt"]) {
+          addRoBind(p);
+        }
+        // Ensure launched binaries/scripts are visible inside strict bwrap
+        addRoBind(path.dirname(params.command));
+        for (const arg of params.args) {
+          if (!path.isAbsolute(arg)) continue;
+          addRoBind(
+            fs.existsSync(arg) && fs.statSync(arg).isDirectory()
+              ? arg
+              : path.dirname(arg),
+          );
+        }
+
+        for (const p of roBindTargets) {
+          bwrapArgs.push("--ro-bind", p, p);
+        }
+      } else {
+        bwrapArgs.push("--ro-bind", "/", "/");
+      }
 
       for (const wp of params.writablePaths) {
         bwrapArgs.push("--bind", wp, wp);

@@ -76,14 +76,17 @@ function makeParams(
 // 平台 mock 辅助
 // ============================================================================
 
-function withPlatform(platform: NodeJS.Platform, fn: () => void): void {
+async function withPlatform(
+  platform: NodeJS.Platform,
+  fn: () => void | Promise<void>,
+): Promise<void> {
   const originalPlatform = process.platform;
   Object.defineProperty(process, "platform", {
     value: platform,
     configurable: true,
   });
   try {
-    fn();
+    await fn();
   } finally {
     Object.defineProperty(process, "platform", {
       value: originalPlatform,
@@ -173,11 +176,13 @@ describe("SandboxInvoker - macos-seatbelt", () => {
 
     expect(result.command).toBe("/usr/bin/sandbox-exec");
     expect(result.args[0]).toBe("-f");
-    expect(result.args[1]).toMatch(/nuwaclaw-sandbox-\d+\.sb$/);
+    expect(result.args[1]).toMatch(/nuwaclaw-sandbox-\d+-[a-z0-9]+\.sb$/);
     expect(result.args[2]).toBe("/usr/bin/node");
     expect(result.args[3]).toBe("--version");
     expect(result.seatbeltProfilePath).toBeDefined();
-    expect(result.seatbeltProfilePath).toMatch(/nuwaclaw-sandbox-\d+\.sb$/);
+    expect(result.seatbeltProfilePath).toMatch(
+      /nuwaclaw-sandbox-\d+-[a-z0-9]+\.sb$/,
+    );
   });
 
   describe("seatbelt profile content", () => {
@@ -347,7 +352,7 @@ describe("SandboxInvoker - macos-seatbelt", () => {
     const writeCall = mockFspWriteFile.mock.calls[0];
     const profilePath = writeCall[0] as string;
 
-    expect(profilePath).toMatch(/^\/tmp\/nuwaclaw-sandbox-\d+\.sb$/);
+    expect(profilePath).toMatch(/^\/tmp\/nuwaclaw-sandbox-\d+-[a-z0-9]+\.sb$/);
   });
 });
 
@@ -361,7 +366,7 @@ describe("SandboxInvoker - linux-bwrap", () => {
   });
 
   it("should build bwrap invocation", async () => {
-    withPlatform("linux", async () => {
+    await withPlatform("linux", async () => {
       const invoker = new SandboxInvoker("linux-bwrap");
       const result = await invoker.buildInvocation(makeParams());
 
@@ -372,7 +377,7 @@ describe("SandboxInvoker - linux-bwrap", () => {
 
   describe("bwrap args structure", () => {
     it("should include --ro-bind / / by default", async () => {
-      withPlatform("linux", async () => {
+      await withPlatform("linux", async () => {
         const invoker = new SandboxInvoker("linux-bwrap");
         const result = await invoker.buildInvocation(makeParams());
 
@@ -387,7 +392,7 @@ describe("SandboxInvoker - linux-bwrap", () => {
     });
 
     it("should include --tmpfs /tmp by default", async () => {
-      withPlatform("linux", async () => {
+      await withPlatform("linux", async () => {
         const invoker = new SandboxInvoker("linux-bwrap");
         const result = await invoker.buildInvocation(makeParams());
 
@@ -398,7 +403,7 @@ describe("SandboxInvoker - linux-bwrap", () => {
     });
 
     it("should include minimal /dev allowlist by default", async () => {
-      withPlatform("linux", async () => {
+      await withPlatform("linux", async () => {
         const invoker = new SandboxInvoker("linux-bwrap");
         const result = await invoker.buildInvocation(makeParams());
 
@@ -416,7 +421,7 @@ describe("SandboxInvoker - linux-bwrap", () => {
     });
 
     it("should include --unshare-net when networkEnabled is false", async () => {
-      withPlatform("linux", async () => {
+      await withPlatform("linux", async () => {
         const invoker = new SandboxInvoker("linux-bwrap");
         await invoker.buildInvocation(makeParams({ networkEnabled: false }));
 
@@ -428,7 +433,7 @@ describe("SandboxInvoker - linux-bwrap", () => {
     });
 
     it("should NOT include --unshare-net when networkEnabled is true", async () => {
-      withPlatform("linux", async () => {
+      await withPlatform("linux", async () => {
         const invoker = new SandboxInvoker("linux-bwrap");
         const result = (invoker as any).buildBwrap(
           makeParams({ networkEnabled: true }),
@@ -438,7 +443,7 @@ describe("SandboxInvoker - linux-bwrap", () => {
     });
 
     it("should bind each writablePath", async () => {
-      withPlatform("linux", async () => {
+      await withPlatform("linux", async () => {
         const invoker = new SandboxInvoker("linux-bwrap");
         const params = makeParams({
           writablePaths: ["/home/user/project", "/tmp/cache"],
@@ -453,7 +458,7 @@ describe("SandboxInvoker - linux-bwrap", () => {
     });
 
     it("should place --chdir before -- separator", async () => {
-      withPlatform("linux", async () => {
+      await withPlatform("linux", async () => {
         const invoker = new SandboxInvoker("linux-bwrap");
         const result = (invoker as any).buildBwrap(makeParams());
 
@@ -467,7 +472,7 @@ describe("SandboxInvoker - linux-bwrap", () => {
     });
 
     it("should place original command and args after -- separator at end", async () => {
-      withPlatform("linux", async () => {
+      await withPlatform("linux", async () => {
         const invoker = new SandboxInvoker("linux-bwrap");
         const params = makeParams({
           command: "/usr/bin/node",
@@ -486,7 +491,7 @@ describe("SandboxInvoker - linux-bwrap", () => {
     });
 
     it("should use custom bwrap path when provided", async () => {
-      withPlatform("linux", async () => {
+      await withPlatform("linux", async () => {
         const invoker = new SandboxInvoker("linux-bwrap", {
           linuxBwrapPath: "/usr/local/bin/bwrap",
         });
@@ -497,7 +502,7 @@ describe("SandboxInvoker - linux-bwrap", () => {
     });
 
     it("should include all required bwrap flags", async () => {
-      withPlatform("linux", async () => {
+      await withPlatform("linux", async () => {
         const invoker = new SandboxInvoker("linux-bwrap");
         const result = (invoker as any).buildBwrap(makeParams());
 
@@ -521,7 +526,7 @@ describe("SandboxInvoker - linux-bwrap", () => {
     });
 
     it("should use permissive mode when explicitly configured", async () => {
-      withPlatform("linux", async () => {
+      await withPlatform("linux", async () => {
         const invoker = new SandboxInvoker("linux-bwrap", {
           mode: "permissive",
         });
@@ -529,6 +534,20 @@ describe("SandboxInvoker - linux-bwrap", () => {
         expect(result.args).toContain("--bind");
         expect(result.args).toContain("/dev");
         expect(result.args).not.toContain("--unshare-pid");
+      });
+    });
+
+    it("should avoid full root ro-bind in strict mode", async () => {
+      await withPlatform("linux", async () => {
+        const invoker = new SandboxInvoker("linux-bwrap", { mode: "strict" });
+        const result = (invoker as any).buildBwrap(makeParams());
+        const rootRoBindIdx = result.args.findIndex(
+          (arg, i) =>
+            arg === "--ro-bind" &&
+            result.args[i + 1] === "/" &&
+            result.args[i + 2] === "/",
+        );
+        expect(rootRoBindIdx).toBe(-1);
       });
     });
   });
@@ -554,7 +573,7 @@ describe("SandboxInvoker - windows-sandbox", () => {
       return true;
     });
 
-    withPlatform("win32", async () => {
+    await withPlatform("win32", async () => {
       const invoker = new SandboxInvoker("windows-sandbox", {
         windowsSandboxHelperPath: fakeHelperPath,
       });
@@ -572,7 +591,7 @@ describe("SandboxInvoker - windows-sandbox", () => {
   });
 
   it("should throw when windowsSandboxHelperPath is not provided", async () => {
-    withPlatform("win32", async () => {
+    await withPlatform("win32", async () => {
       const invoker = new SandboxInvoker("windows-sandbox", {});
 
       await expect(invoker.buildInvocation(makeParams())).rejects.toThrow(
@@ -583,7 +602,7 @@ describe("SandboxInvoker - windows-sandbox", () => {
 
   describe("helper invocation args", () => {
     it("should build helper invocation with --policy-json", async () => {
-      withPlatform("win32", async () => {
+      await withPlatform("win32", async () => {
         const invoker = new SandboxInvoker("windows-sandbox", {
           windowsSandboxHelperPath: fakeHelperPath,
         });
@@ -594,7 +613,7 @@ describe("SandboxInvoker - windows-sandbox", () => {
     });
 
     it("should include network_access: false when networkEnabled is false", async () => {
-      withPlatform("win32", async () => {
+      await withPlatform("win32", async () => {
         const invoker = new SandboxInvoker("windows-sandbox", {
           windowsSandboxHelperPath: fakeHelperPath,
         });
@@ -612,7 +631,7 @@ describe("SandboxInvoker - windows-sandbox", () => {
     });
 
     it("should include network_access: true when networkEnabled is true", async () => {
-      withPlatform("win32", async () => {
+      await withPlatform("win32", async () => {
         const invoker = new SandboxInvoker("windows-sandbox", {
           windowsSandboxHelperPath: fakeHelperPath,
           networkEnabled: true,
@@ -630,7 +649,7 @@ describe("SandboxInvoker - windows-sandbox", () => {
     });
 
     it("should include writable_roots in workspace-write mode with writablePaths", async () => {
-      withPlatform("win32", async () => {
+      await withPlatform("win32", async () => {
         const invoker = new SandboxInvoker("windows-sandbox", {
           windowsSandboxHelperPath: fakeHelperPath,
           windowsSandboxMode: "workspace-write",
@@ -650,7 +669,7 @@ describe("SandboxInvoker - windows-sandbox", () => {
     });
 
     it("should use read-only mode when specified", async () => {
-      withPlatform("win32", async () => {
+      await withPlatform("win32", async () => {
         const invoker = new SandboxInvoker("windows-sandbox", {
           windowsSandboxHelperPath: fakeHelperPath,
           windowsSandboxMode: "read-only",
@@ -666,7 +685,7 @@ describe("SandboxInvoker - windows-sandbox", () => {
     });
 
     it("should set parseJson to true for run subcommand", async () => {
-      withPlatform("win32", async () => {
+      await withPlatform("win32", async () => {
         const invoker = new SandboxInvoker("windows-sandbox", {
           windowsSandboxHelperPath: fakeHelperPath,
         });
@@ -679,7 +698,7 @@ describe("SandboxInvoker - windows-sandbox", () => {
     });
 
     it("should set parseJson to undefined for serve subcommand", async () => {
-      withPlatform("win32", async () => {
+      await withPlatform("win32", async () => {
         const invoker = new SandboxInvoker("windows-sandbox", {
           windowsSandboxHelperPath: fakeHelperPath,
         });
@@ -693,7 +712,7 @@ describe("SandboxInvoker - windows-sandbox", () => {
     });
 
     it("should include --cwd with correct path", async () => {
-      withPlatform("win32", async () => {
+      await withPlatform("win32", async () => {
         const invoker = new SandboxInvoker("windows-sandbox", {
           windowsSandboxHelperPath: fakeHelperPath,
         });
@@ -708,7 +727,7 @@ describe("SandboxInvoker - windows-sandbox", () => {
     });
 
     it("should include --mode with correct mode", async () => {
-      withPlatform("win32", async () => {
+      await withPlatform("win32", async () => {
         const invoker = new SandboxInvoker("windows-sandbox", {
           windowsSandboxHelperPath: fakeHelperPath,
           windowsSandboxMode: "workspace-write",
@@ -722,7 +741,7 @@ describe("SandboxInvoker - windows-sandbox", () => {
     });
 
     it("should place original command and args after -- separator", async () => {
-      withPlatform("win32", async () => {
+      await withPlatform("win32", async () => {
         const invoker = new SandboxInvoker("windows-sandbox", {
           windowsSandboxHelperPath: fakeHelperPath,
         });

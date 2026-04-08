@@ -146,8 +146,8 @@ export function registerDependencyHandlers(): void {
   });
 
   ipcMain.handle("dependencies:getRequiredList", async () => {
-    const { SETUP_REQUIRED_DEPENDENCIES } =
+    const { getSetupRequiredDependencies } =
       await import("../services/system/dependencies");
-    return SETUP_REQUIRED_DEPENDENCIES;
+    return getSetupRequiredDependencies();
   });
 }

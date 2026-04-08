@@ -284,6 +284,7 @@ function getBackendUnavailableReason(
 export async function resolveSandboxType(
   policy: SandboxPolicy,
 ): Promise<{ type: SandboxType; degraded: boolean; reason?: string }> {
+  const autoFallback = policy.autoFallback ?? "startup-only";
   if (!policy.enabled) {
     log.debug("[SandboxPolicy] resolve: disabled");
     return {
@@ -309,13 +310,25 @@ export async function resolveSandboxType(
 
   const reason = getBackendUnavailableReason(selectedType, caps);
   log.warn(
-    "[SandboxPolicy] resolve: backend %s unavailable, reason=%s, degrading to off",
+    "[SandboxPolicy] resolve: backend %s unavailable, reason=%s, fallback=%s",
     selectedType,
     reason,
+    autoFallback,
   );
 
   // Emit sandbox:unavailable event so UI can notify the user
-  app.emit("sandbox:unavailable", { reason });
+  app.emit("sandbox:unavailable", {
+    reason,
+    backend: selectedType,
+    fallback: autoFallback,
+  });
+
+  if (autoFallback === "manual") {
+    throw new SandboxError(
+      `sandbox backend unavailable (manual fallback required): ${reason}`,
+      SandboxErrorCode.SANDBOX_UNAVAILABLE,
+    );
+  }
 
   // 后端不可用时始终降级为 off（不阻断执行）
   return { type: "none", degraded: true, reason };

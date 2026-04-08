@@ -191,11 +191,12 @@ describe("dependencies", () => {
     });
   });
 
-  describe("SETUP_REQUIRED_DEPENDENCIES", () => {
+  describe("getSetupRequiredDependencies", () => {
     it("should have uv as bundled dependency", async () => {
-      const { SETUP_REQUIRED_DEPENDENCIES } =
+      const { getSetupRequiredDependencies } =
         await import("../system/dependencies");
-      const uvDep = SETUP_REQUIRED_DEPENDENCIES.find((d) => d.name === "uv");
+      const deps = getSetupRequiredDependencies();
+      const uvDep = deps.find((d) => d.name === "uv");
 
       expect(uvDep).toBeDefined();
       expect(uvDep?.type).toBe("bundled");
@@ -204,11 +205,10 @@ describe("dependencies", () => {
     });
 
     it("should have nuwax-file-server as npm-local dependency", async () => {
-      const { SETUP_REQUIRED_DEPENDENCIES } =
+      const { getSetupRequiredDependencies } =
         await import("../system/dependencies");
-      const fileServerDep = SETUP_REQUIRED_DEPENDENCIES.find(
-        (d) => d.name === "nuwax-file-server",
-      );
+      const deps = getSetupRequiredDependencies();
+      const fileServerDep = deps.find((d) => d.name === "nuwax-file-server");
 
       expect(fileServerDep).toBeDefined();
       expect(fileServerDep?.type).toBe("npm-local");
@@ -217,11 +217,10 @@ describe("dependencies", () => {
     });
 
     it("should have nuwaxcode as bundled dependency", async () => {
-      const { SETUP_REQUIRED_DEPENDENCIES } =
+      const { getSetupRequiredDependencies } =
         await import("../system/dependencies");
-      const agentDep = SETUP_REQUIRED_DEPENDENCIES.find(
-        (d) => d.name === "nuwaxcode",
-      );
+      const deps = getSetupRequiredDependencies();
+      const agentDep = deps.find((d) => d.name === "nuwaxcode");
 
       expect(agentDep).toBeDefined();
       expect(agentDep?.type).toBe("bundled");
@@ -229,21 +228,19 @@ describe("dependencies", () => {
     });
 
     it("should not require nuwax-mcp-stdio-proxy as npm-local dependency", async () => {
-      const { SETUP_REQUIRED_DEPENDENCIES } =
+      const { getSetupRequiredDependencies } =
         await import("../system/dependencies");
-      const mcpDep = SETUP_REQUIRED_DEPENDENCIES.find(
-        (d) => d.name === "nuwax-mcp-stdio-proxy",
-      );
+      const deps = getSetupRequiredDependencies();
+      const mcpDep = deps.find((d) => d.name === "nuwax-mcp-stdio-proxy");
 
       expect(mcpDep).toBeUndefined();
     });
 
     it("should have all required dependencies", async () => {
-      const { SETUP_REQUIRED_DEPENDENCIES } =
+      const { getSetupRequiredDependencies } =
         await import("../system/dependencies");
-      const requiredDeps = SETUP_REQUIRED_DEPENDENCIES.filter(
-        (d) => d.required,
-      );
+      const deps = getSetupRequiredDependencies();
+      const requiredDeps = deps.filter((d) => d.required);
 
       expect(requiredDeps.length).toBeGreaterThan(0);
       requiredDeps.forEach((dep) => {

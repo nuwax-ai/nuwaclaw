@@ -1126,7 +1126,7 @@ function getSystemPaths(): string[] {
 
 /**
  * 初始化向导必需依赖配置
- * 对应 Tauri 版本的 SETUP_REQUIRED_DEPENDENCIES
+ * 对应 Tauri 版本的 getSetupRequiredDependencies()
  *
  * 使用 getter 函数延迟求值，避免模块加载时 t() 在 initI18n() 之前执行
  */
@@ -1872,7 +1872,7 @@ export async function checkAllDependencies(options?: {
 }): Promise<LocalDependencyItem[]> {
   const results: LocalDependencyItem[] = [];
 
-  for (const dep of SETUP_REQUIRED_DEPENDENCIES) {
+  for (const dep of getSetupRequiredDependencies()) {
     const item: LocalDependencyItem = {
       ...dep,
       status: "checking",
@@ -2054,7 +2054,7 @@ export async function installMissingDependencies(): Promise<{
   // 若有成功安装/升级，更新 .init-deps-state.json，与升级后同步共用同一份状态
   if (results.some((r) => r.success)) {
     const packages: Record<string, string> = {};
-    for (const d of SETUP_REQUIRED_DEPENDENCIES) {
+    for (const d of getSetupRequiredDependencies()) {
       if (d.installVersion) packages[d.name] = d.installVersion;
     }
     setInitDepsState({ appVersion: app.getVersion(), packages });
@@ -2072,7 +2072,7 @@ export async function syncInitDependencies(): Promise<{ updated: string[] }> {
   const updated: string[] = [];
   const packages: Record<string, string> = {};
 
-  for (const dep of SETUP_REQUIRED_DEPENDENCIES) {
+  for (const dep of getSetupRequiredDependencies()) {
     if (!dep.installVersion || dep.type !== "npm-local") continue;
 
     const detected = await detectNpmPackage(dep.name, dep.binName);
@@ -2121,7 +2121,7 @@ export function getDependenciesSummary(): {
 } {
   // 同步版本 - 需要先调用 checkAllDependencies
   return {
-    total: SETUP_REQUIRED_DEPENDENCIES.length,
+    total: getSetupRequiredDependencies().length,
     installed: 0,
     missing: 0,
     missingRequired: [],
@@ -2148,7 +2148,7 @@ function compareVersions(a: string, b: string): number {
 }
 
 export default {
-  SETUP_REQUIRED_DEPENDENCIES,
+  getSetupRequiredDependencies,
   checkNodeVersion,
   checkUvVersion,
   checkMcpProxyBundled,

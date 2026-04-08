@@ -27,6 +27,7 @@ import {
   getBundledLinuxBwrapPath,
   getBundledWindowsSandboxHelperPath,
 } from "@main/services/sandbox/policy";
+import { SandboxError, SandboxErrorCode } from "@shared/errors/sandbox";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
 import {
   createAcpConnection,
@@ -91,7 +92,10 @@ function safeStringify(obj: unknown): string {
 const MCP_RETRY_DELAY_MS = 1200;
 const MCP_RECONNECT_WINDOW_MS = 4000;
 // 该文案会透传到上层调用方/界面，必须走 i18n，避免在非英文语言下出现硬编码英文提示。
-const MCP_RECONNECT_PROMPT_MESSAGE = t("Claw.Errors.mcpReconnectRetryLater");
+// 使用函数延迟求值，避免模块加载时 t() 在 initI18n() 之前执行
+function getMcpReconnectPromptMessage(): string {
+  return t("Claw.Errors.mcpReconnectRetryLater");
+}
 const NUWAX_MCP_INIT_POLICY_DEFAULT: NonNullable<
   PromptOptions["mcpInitPolicy"]
 > = "non_blocking";
@@ -379,6 +383,12 @@ export class AcpEngine extends EventEmitter {
           }
         }
       } catch (e) {
+        if (
+          e instanceof SandboxError &&
+          e.code === SandboxErrorCode.SANDBOX_UNAVAILABLE
+        ) {
+          throw e;
+        }
         log.warn(
           `${this.logTag} Sandbox policy parse failed, running without sandbox:`,
           e,
@@ -1295,7 +1305,7 @@ export class AcpEngine extends EventEmitter {
       const isMcpReconnect = this.isMcpReconnectFailure(errMsg);
       const promptEndReason = isMcpReconnect ? "mcp_reconnecting" : "error";
       const promptEndDescription = isMcpReconnect
-        ? MCP_RECONNECT_PROMPT_MESSAGE
+        ? getMcpReconnectPromptMessage()
         : errMsg;
       firstTokenTrace.trace(
         "acp.prompt.failed",
@@ -1751,7 +1761,7 @@ ${memoryContext}
     } catch (error) {
       const rawErrorMsg = this.toErrorMessage(error);
       const errorMsg = this.isMcpReconnectFailure(rawErrorMsg)
-        ? MCP_RECONNECT_PROMPT_MESSAGE
+        ? getMcpReconnectPromptMessage()
         : rawErrorMsg;
       log.error(`${this.logTag} ❌ chat() failed: ${rawErrorMsg}`);
       firstTokenTrace.trace(

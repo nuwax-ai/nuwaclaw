@@ -25,7 +25,7 @@ export async function runStartupTasks(): Promise<void> {
     setMirrorConfig,
     getInitDepsState,
     syncInitDependencies,
-    SETUP_REQUIRED_DEPENDENCIES,
+    getSetupRequiredDependencies,
   } = await import("../services/system/dependencies");
   const mirrorConfig = readSetting("mirror_config");
   if (mirrorConfig) {
@@ -92,7 +92,7 @@ export async function runStartupTasks(): Promise<void> {
   const versionChanged = !state || state.appVersion !== currentVersion;
   let packagesChanged = false;
   if (state?.packages) {
-    for (const dep of SETUP_REQUIRED_DEPENDENCIES) {
+    for (const dep of getSetupRequiredDependencies()) {
       if (!dep.installVersion) continue;
       if (state.packages[dep.name] !== dep.installVersion) {
         packagesChanged = true;

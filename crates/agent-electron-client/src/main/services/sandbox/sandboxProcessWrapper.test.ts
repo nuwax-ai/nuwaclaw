@@ -72,7 +72,7 @@ const createBaseConfig = (): SandboxProcessConfig => ({
   type: "macos-seatbelt",
   projectWorkspaceDir: "/tmp/ws",
   networkEnabled: false,
-  fallback: { type: "none" },
+  fallback: "degrade_to_off",
 });
 
 // =============================================================================
@@ -99,7 +99,7 @@ describe("buildSandboxedSpawnArgs", () => {
         type: "macos-seatbelt",
         projectWorkspaceDir: "/tmp/ws",
         networkEnabled: false,
-        fallback: { type: "none" },
+        fallback: "degrade_to_off",
       };
 
       const result = await buildSandboxedSpawnArgs(
@@ -119,7 +119,7 @@ describe("buildSandboxedSpawnArgs", () => {
         type: "macos-seatbelt",
         projectWorkspaceDir: "/tmp/ws",
         networkEnabled: false,
-        fallback: { type: "none" },
+        fallback: "degrade_to_off",
       };
 
       const result = await buildSandboxedSpawnArgs(
@@ -140,7 +140,7 @@ describe("buildSandboxedSpawnArgs", () => {
         type: "macos-seatbelt",
         projectWorkspaceDir: "/tmp/ws",
         networkEnabled: false,
-        fallback: { type: "none" },
+        fallback: "degrade_to_off",
       };
 
       await buildSandboxedSpawnArgs("/bin/ls", ["-la"], "/tmp", config);

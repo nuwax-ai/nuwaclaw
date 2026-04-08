@@ -184,6 +184,28 @@ describe("sandbox/policy", () => {
         expect(result.degraded).toBe(true);
         expect(result.reason).toContain("windows sandbox helper not found");
       });
+
+      it("should throw SANDBOX_UNAVAILABLE when autoFallback=manual", async () => {
+        mockExistsSync.mockImplementation((p: string) => {
+          if (p === "/usr/bin/sandbox-exec") return false;
+          return true;
+        });
+        mockCheckCommand.mockResolvedValue(false);
+
+        const { resolveSandboxType } = await import("./policy");
+
+        await expect(
+          resolveSandboxType({
+            enabled: true,
+            backend: "auto",
+            mode: "strict",
+            autoFallback: "manual",
+            windowsMode: "workspace-write",
+          }),
+        ).rejects.toMatchObject({
+          code: "SANDBOX_UNAVAILABLE",
+        });
+      });
     });
 
     describe("enabled=true and backend available", () => {
