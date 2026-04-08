@@ -350,6 +350,21 @@ async function handleRequest(
     return handleAdminRequest(req, res);
   }
 
+  // 竞态条件防护：Computer HTTP Server 在 startup.ts 中异步启动，
+  // 但 agentService.init() 要等到 Setup Wizard 完成后才调用。
+  // 如果请求在 agent 未就绪时到达，返回 503 让客户端重试。
+  if (pathname.startsWith("/computer/") && !agentService.isReady) {
+    log.warn(
+      `[HTTP] Agent not ready, rejecting request: ${method} ${pathname}`,
+    );
+    sendJson(
+      res,
+      503,
+      httpError("SERVICE_NOT_READY", "Agent service is not initialized yet"),
+    );
+    return;
+  }
+
   try {
     // GET /health
     if (pathname === "/health" && method === "GET") {
