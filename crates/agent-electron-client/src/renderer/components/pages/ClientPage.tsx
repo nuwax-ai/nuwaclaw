@@ -52,6 +52,7 @@ import { buildRedirectUrl } from "../../services/utils/sessionUrl";
 import { t } from "../../services/core/i18n";
 import { resolveDepDisplayName } from "../../utils/dependencyI18n";
 import styles from "../../styles/components/ClientPage.module.css";
+import { FEATURES } from "@shared/featureFlags";
 
 // ======================== Types =================
 type TabKey =
@@ -97,6 +98,10 @@ function ClientPage({
   onAuthChange,
   onLoginStarted,
 }: ClientPageProps) {
+  const startupServiceKeys = FEATURES.ENABLE_GUI_AGENT_SERVER
+    ? ["mcpProxy", "agent", "fileServer", "guiServer", "lanproxy"]
+    : ["mcpProxy", "agent", "fileServer", "lanproxy"];
+
   // ---------- Auth state ----------
   const [authState, setAuthState] = useState<AuthState>({
     isLoggedIn: false,
@@ -203,14 +208,7 @@ function ClientPage({
       // 2. reg 返回后，step by step 启动服务
       // loginAndRegister 内部已调用 reg 接口并保存 serverHost/serverPort，无需再次调用
       // step by step 启动服务
-      const allServices = [
-        "mcpProxy",
-        "agent",
-        "fileServer",
-        "guiServer",
-        "lanproxy",
-      ];
-      for (const key of allServices) {
+      for (const key of startupServiceKeys) {
         await handleStartService(key, true);
       }
 
@@ -472,14 +470,7 @@ function ClientPage({
     }
 
     // 确定需要启动的服务，提前设置 starting 状态（覆盖 reg 调用期间）
-    const allServices = [
-      "mcpProxy",
-      "agent",
-      "fileServer",
-      "guiServer",
-      "lanproxy",
-      "adminServer",
-    ];
+    const allServices = [...startupServiceKeys, "adminServer"];
     const servicesToStart = allServices.filter((key) => {
       const svc = services.find((s) => s.key === key);
       return svc && !svc.running;

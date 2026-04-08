@@ -145,7 +145,7 @@ export default function SettingsPage() {
   const [sandboxStatus, setSandboxStatus] = useState<SandboxStatus | null>(
     null,
   );
-  // 使用表单中的 workspaceDir 作为“系统模块”的展示源，确保编辑保存后展示保持实时一致。
+  // 使用表单中的 workspaceDir 作为"系统模块"的展示源，确保编辑保存后展示保持实时一致。
   const workspaceDir = Form.useWatch("workspaceDir", form) || "";
 
   // ========== 加载服务配置 ==========

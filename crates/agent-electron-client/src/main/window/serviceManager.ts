@@ -227,17 +227,19 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     }
 
     // 2.6. 启动 Windows MCP（Windows 平台，提供 GUI 自动化 MCP tools）
-    try {
-      const winResult = await startWindowsMcp();
-      results.windowsMcp = winResult;
-      if (!winResult.success) {
-        log.warn(
-          `[ServiceManager] Windows MCP start failed: ${winResult.error}`,
-        );
+    if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
+      try {
+        const winResult = await startWindowsMcp();
+        results.windowsMcp = winResult;
+        if (!winResult.success) {
+          log.warn(
+            `[ServiceManager] Windows MCP start failed: ${winResult.error}`,
+          );
+        }
+      } catch (e) {
+        results.windowsMcp = { success: false, error: String(e) };
+        log.warn("[ServiceManager] Windows MCP start exception:", e);
       }
-    } catch (e) {
-      results.windowsMcp = { success: false, error: String(e) };
-      log.warn("[ServiceManager] Windows MCP start exception:", e);
     }
 
     // 3. 启动 Agent（依赖 MCP Proxy 已就绪以便 getAgentMcpConfig 对应进程可连）

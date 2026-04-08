@@ -91,6 +91,7 @@ if (process.platform === "linux") {
 initLogging();
 initI18n();
 log.info("Application starting...");
+log.info("[FeatureFlags][main]", FEATURES);
 
 // Global references
 let mainWindow: BrowserWindow | null = null;

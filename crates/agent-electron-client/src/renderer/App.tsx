@@ -130,6 +130,10 @@ export interface ServiceItem {
   error?: string;
 }
 
+const STARTUP_SERVICE_KEYS: string[] = FEATURES.ENABLE_GUI_AGENT_SERVER
+  ? ["mcpProxy", "agent", "fileServer", "guiServer", "lanproxy"]
+  : ["mcpProxy", "agent", "fileServer", "lanproxy"];
+
 /**
  * 将 quick init 配置静默写入 DB（覆盖旧值）
  * 用于 setup 已完成时，每次启动优先使用配置文件/环境变量中的值
@@ -258,6 +262,14 @@ function App() {
   >(null);
   /** 主进程初始化依赖同步是否仍在进行（客户端升级后后台安装新版本依赖） */
   const [depsSyncInProgress, setDepsSyncInProgress] = useState<boolean>(false);
+
+  // 启动日志：便于快速确认渲染进程 feature flags 是否生效
+  useEffect(() => {
+    console.info("[FeatureFlags][renderer]", FEATURES);
+    window.electronAPI?.log
+      .write("info", "[FeatureFlags][renderer]", FEATURES)
+      .catch(() => {});
+  }, []);
 
   /**
    * 重启所有服务（使新安装的依赖/二进制生效）。
@@ -704,13 +716,7 @@ function App() {
       if (setupJustCompleted.current) {
         setupJustCompleted.current = false;
         log.info("setup completed, starting services");
-        await startServicesSequentially([
-          "mcpProxy",
-          "agent",
-          "fileServer",
-          "guiServer",
-          "lanproxy",
-        ]);
+        await startServicesSequentially(STARTUP_SERVICE_KEYS);
         return;
       }
 
@@ -741,13 +747,7 @@ function App() {
               );
             }
             setAuthRefreshTrigger((v) => v + 1);
-            await startServicesSequentially([
-              "mcpProxy",
-              "agent",
-              "fileServer",
-              "guiServer",
-              "lanproxy",
-            ]);
+            await startServicesSequentially(STARTUP_SERVICE_KEYS);
           } else {
             log.warn("reg failed, using local config");
             notification.info({
@@ -756,13 +756,7 @@ function App() {
               duration: 8,
               placement: "bottomRight",
             });
-            await startServicesSequentially([
-              "mcpProxy",
-              "agent",
-              "fileServer",
-              "guiServer",
-              "lanproxy",
-            ]);
+            await startServicesSequentially(STARTUP_SERVICE_KEYS);
           }
         } else {
           log.info("skipped (no savedKey)");
