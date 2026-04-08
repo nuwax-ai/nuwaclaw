@@ -3,9 +3,18 @@ import log from "electron-log";
 import { PROCESS_KILL_ESCALATION_TIMEOUT } from "@shared/constants";
 import { t } from "./services/i18n";
 
+const STARTUP_STDERR_CAP = 8192;
+const STARTUP_STDERR_IN_ERROR = 1200;
+
 export class ManagedProcess {
   private process: ChildProcess | null = null;
   private lastError: string | null = null;
+  /** 当前这次 start() 收集的 stderr，用于「启动后立即退出」时的错误详情 */
+  private startupStderr = "";
+  private startupExit: {
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  } | null = null;
 
   constructor(private readonly name: string) {}
 
@@ -27,6 +36,9 @@ export class ManagedProcess {
 
     return new Promise((resolve) => {
       try {
+        this.startupStderr = "";
+        this.startupExit = null;
+
         const proc = spawn(config.command, config.args, {
           shell: config.shell ?? false,
           windowsHide: true,
@@ -42,7 +54,13 @@ export class ManagedProcess {
         });
 
         proc.stderr?.on("data", (data: Buffer) => {
-          log.warn(`[${this.name} stderr]`, data.toString().trim());
+          const raw = data.toString();
+          const combined = this.startupStderr + raw;
+          this.startupStderr =
+            combined.length > STARTUP_STDERR_CAP
+              ? combined.slice(-STARTUP_STDERR_CAP)
+              : combined;
+          log.warn(`[${this.name} stderr]`, raw.trim());
         });
 
         proc.on("error", (error) => {
@@ -55,6 +73,7 @@ export class ManagedProcess {
         });
 
         proc.on("exit", (code, signal) => {
+          this.startupExit = { code, signal: signal ?? null };
           if (code !== 0 && code !== null) {
             log.warn(
               `[${this.name}] Process exited code=${code} signal=${signal ?? "none"}`,
@@ -75,9 +94,25 @@ export class ManagedProcess {
         setTimeout(() => {
           if (this.process) {
             this.lastError = null;
+            this.startupStderr = "";
+            this.startupExit = null;
             resolve({ success: true });
           } else {
-            const msg = t("Claw.Process.exitImmediately");
+            const base = t("Claw.Process.exitImmediately");
+            const ex = this.startupExit;
+            const exitHint = ex
+              ? ` (exit ${ex.code}, signal ${ex.signal ?? "none"})`
+              : "";
+            const tail = this.startupStderr.trim();
+            const stderrHint =
+              tail.length > 0
+                ? `: ${
+                    tail.length > STARTUP_STDERR_IN_ERROR
+                      ? "…" + tail.slice(-STARTUP_STDERR_IN_ERROR)
+                      : tail
+                  }`
+                : "";
+            const msg = `${base}${exitHint}${stderrHint}`;
             this.lastError = msg;
             log.warn(`[${this.name}] Start failed: ${msg}`, {
               command: config.command,
