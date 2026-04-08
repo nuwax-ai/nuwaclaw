@@ -33,7 +33,7 @@
   "Claw.Pages.Dependencies.dep.uv": "uv",
   "Claw.Pages.Dependencies.dep.pnpm": "pnpm 包管理器",
   "Claw.Pages.Dependencies.dep.anthropicSdk": "Anthropic SDK",
-  "Claw.Pages.Dependencies.dep.claudeCodeAcp": "Claude Code ACP",
+  "Claw.Pages.Dependencies.dep.claudeCodeAcp": "ACP 协议",
   "Claw.Pages.Dependencies.dep.fileServer": "文件服务",
   "Claw.Pages.Dependencies.dep.mcpProxy": "MCP 代理",
   "Claw.Pages.Dependencies.dep.nuwaxcode": "nuwaxcode",

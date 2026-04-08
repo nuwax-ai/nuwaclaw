@@ -33,7 +33,7 @@
   "Claw.Pages.Dependencies.dep.uv": "uv",
   "Claw.Pages.Dependencies.dep.pnpm": "pnpm",
   "Claw.Pages.Dependencies.dep.anthropicSdk": "Anthropic SDK",
-  "Claw.Pages.Dependencies.dep.claudeCodeAcp": "Claude Code ACP",
+  "Claw.Pages.Dependencies.dep.claudeCodeAcp": "ACP Protocol",
   "Claw.Pages.Dependencies.dep.fileServer": "File Server",
   "Claw.Pages.Dependencies.dep.mcpProxy": "MCP Proxy",
   "Claw.Pages.Dependencies.dep.nuwaxcode": "nuwaxcode",
