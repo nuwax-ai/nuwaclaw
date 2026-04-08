@@ -383,13 +383,6 @@ function ClientPage({
         result = await window.electronAPI?.mcp.start();
       } else if (key === "guiServer") {
         result = await window.electronAPI?.guiServer?.start();
-      } else if (key === "adminServer") {
-        const step1 = (await window.electronAPI?.settings.get(
-          "step1_config",
-        )) as { adminServerPort?: number } | null;
-        result = await window.electronAPI?.adminServer?.start(
-          step1?.adminServerPort,
-        );
       }
 
       await onRefreshServices();
@@ -444,8 +437,6 @@ function ClientPage({
       else if (key === "lanproxy") await window.electronAPI?.lanproxy.stop();
       else if (key === "mcpProxy") await window.electronAPI?.mcp.stop();
       else if (key === "guiServer") await window.electronAPI?.guiServer?.stop();
-      else if (key === "adminServer")
-        await window.electronAPI?.adminServer?.stop();
     } catch (error) {
       message.error(t("Claw.Client.stopFailed", String(error)));
     } finally {
@@ -470,7 +461,7 @@ function ClientPage({
     }
 
     // 确定需要启动的服务，提前设置 starting 状态（覆盖 reg 调用期间）
-    const allServices = [...startupServiceKeys, "adminServer"];
+    const allServices = [...startupServiceKeys];
     const servicesToStart = allServices.filter((key) => {
       const svc = services.find((s) => s.key === key);
       return svc && !svc.running;
@@ -523,8 +514,6 @@ function ClientPage({
           else if (svc.key === "mcpProxy") await window.electronAPI?.mcp.stop();
           else if (svc.key === "guiServer")
             await window.electronAPI?.guiServer?.stop();
-          else if (svc.key === "adminServer")
-            await window.electronAPI?.adminServer?.stop();
         } catch (error) {
           console.error(`[ClientPage] Failed to stop ${svc.label}:`, error);
         }

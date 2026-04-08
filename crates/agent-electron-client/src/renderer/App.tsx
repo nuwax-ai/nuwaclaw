@@ -517,7 +517,6 @@ function App() {
         mcpStatus,
         csStatus,
         guiStatus,
-        adminStatus,
       ] = await Promise.all([
         window.electronAPI?.fileServer.status(),
         window.electronAPI?.lanproxy.status(),
@@ -525,7 +524,6 @@ function App() {
         window.electronAPI?.mcp.status(),
         window.electronAPI?.computerServer.status(),
         window.electronAPI?.guiServer?.status(),
-        window.electronAPI?.adminServer?.status(),
       ]);
       items.push({
         key: "mcpProxy",
@@ -578,14 +576,6 @@ function App() {
         pid: lpStatus?.pid,
         // 优先显示健康检查错误，其次显示进程错误
         error: lanproxyHealthErrorRef.current ?? lpStatus?.error,
-      });
-      items.push({
-        key: "adminServer",
-        label: t("Claw.Service.admin"),
-        description: t("Claw.Service.adminDesc"),
-        running: adminStatus?.running ?? false,
-        port: adminStatus?.port,
-        error: adminStatus?.error,
       });
       setServices(items);
     } catch (error) {
