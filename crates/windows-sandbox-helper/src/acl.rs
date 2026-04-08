@@ -24,51 +24,24 @@ use windows_sys::Win32::Storage::FileSystem::{
 const SE_KERNEL_OBJECT: u32 = 6;
 const INHERIT_ONLY_ACE: u8 = 0x08;
 const GENERIC_WRITE_MASK: u32 = 0x4000_0000;
-const DENY_ACCESS: i32 = 3;
 const CONTAINER_INHERIT_ACE: u32 = 0x2;
 const OBJECT_INHERIT_ACE: u32 = 0x1;
 
-fn dacl_has_write_allow_for_sid(p_dacl: *mut ACL, psid: *mut c_void) -> bool {
-    if p_dacl.is_null() {
-        return false;
-    }
-    let mut info: ACL_SIZE_INFORMATION = unsafe { std::mem::zeroed() };
-    let ok = unsafe {
-        GetAclInformation(
-            p_dacl as *const ACL,
-            &mut info as *mut _ as *mut c_void,
-            std::mem::size_of::<ACL_SIZE_INFORMATION>() as u32,
-            AclSizeInformation,
-        )
-    };
-    if ok == 0 {
-        return false;
-    }
-    let count = info.AceCount as usize;
-    for i in 0..count {
-        let mut p_ace: *mut c_void = std::ptr::null_mut();
-        if unsafe { GetAce(p_dacl as *const ACL, i as u32, &mut p_ace) } == 0 {
-            continue;
-        }
-        let hdr = unsafe { &*(p_ace as *const ACE_HEADER) };
-        if hdr.AceType != 0 {
-            continue;
-        }
-        if (hdr.AceFlags & INHERIT_ONLY_ACE) != 0 {
-            continue;
-        }
-        let ace = unsafe { &*(p_ace as *const ACCESS_ALLOWED_ACE) };
-        let mask = ace.Mask;
-        let base = p_ace as usize;
-        let sid_ptr = (base + std::mem::size_of::<ACE_HEADER>() + std::mem::size_of::<u32>()) as *mut c_void;
-        if unsafe { EqualSid(sid_ptr, psid) } != 0 && (mask & FILE_GENERIC_WRITE) != 0 {
-            return true;
-        }
-    }
-    false
-}
+// ACE access modes
+const GRANT_ACCESS: i32 = 2;
+const DENY_ACCESS: i32 = 3;
+const REVOKE_ACCESS: i32 = 4;
 
-fn dacl_has_write_deny_for_sid(p_dacl: *mut ACL, psid: *mut c_void) -> bool {
+const DENY_WRITE_MASK: u32 = FILE_GENERIC_WRITE | FILE_WRITE_DATA | FILE_APPEND_DATA
+    | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES | GENERIC_WRITE_MASK;
+
+/// Check if a DACL contains an ACE of the given type matching the SID with the specified mask.
+fn dacl_has_ace_for_sid(
+    p_dacl: *mut ACL,
+    psid: *mut c_void,
+    ace_type: u8, // 0 = ACCESS_ALLOWED, 1 = ACCESS_DENIED
+    mask_check: u32,
+) -> bool {
     if p_dacl.is_null() {
         return false;
     }
@@ -84,15 +57,13 @@ fn dacl_has_write_deny_for_sid(p_dacl: *mut ACL, psid: *mut c_void) -> bool {
     if ok == 0 {
         return false;
     }
-    let deny_write_mask =
-        FILE_GENERIC_WRITE | FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES | GENERIC_WRITE_MASK;
     for i in 0..info.AceCount {
         let mut p_ace: *mut c_void = std::ptr::null_mut();
         if unsafe { GetAce(p_dacl as *const ACL, i, &mut p_ace) } == 0 {
             continue;
         }
         let hdr = unsafe { &*(p_ace as *const ACE_HEADER) };
-        if hdr.AceType != 1 {
+        if hdr.AceType != ace_type {
             continue;
         }
         if (hdr.AceFlags & INHERIT_ONLY_ACE) != 0 {
@@ -101,7 +72,7 @@ fn dacl_has_write_deny_for_sid(p_dacl: *mut ACL, psid: *mut c_void) -> bool {
         let ace = unsafe { &*(p_ace as *const ACCESS_ALLOWED_ACE) };
         let base = p_ace as usize;
         let sid_ptr = (base + std::mem::size_of::<ACE_HEADER>() + std::mem::size_of::<u32>()) as *mut c_void;
-        if unsafe { EqualSid(sid_ptr, psid) } != 0 && (ace.Mask & deny_write_mask) != 0 {
+        if unsafe { EqualSid(sid_ptr, psid) } != 0 && (ace.Mask & mask_check) != 0 {
             return true;
         }
     }
@@ -118,7 +89,7 @@ fn trustee(psid: *mut c_void) -> TRUSTEE_W {
     }
 }
 
-fn get_dacl(path: &Path) -> Result<(*mut c_void, *mut ACL, *mut c_void)> {
+fn get_dacl(path: &Path) -> Result<(*mut c_void, *mut ACL)> {
     let mut p_sd: *mut c_void = std::ptr::null_mut();
     let mut p_dacl: *mut ACL = std::ptr::null_mut();
     let code = unsafe {
@@ -136,7 +107,7 @@ fn get_dacl(path: &Path) -> Result<(*mut c_void, *mut ACL, *mut c_void)> {
     if code != ERROR_SUCCESS as u32 {
         return Err(anyhow::anyhow!("GetNamedSecurityInfoW failed: {}", code));
     }
-    Ok((p_sd, p_dacl, std::ptr::null_mut()))
+    Ok((p_sd, p_dacl))
 }
 
 fn free_sd(p_sd: *mut c_void) {
@@ -145,94 +116,34 @@ fn free_sd(p_sd: *mut c_void) {
     }
 }
 
-pub unsafe fn add_allow_ace(path: &Path, psid: *mut c_void) -> Result<bool> {
-    let (p_sd, p_dacl, _p_sacl) = get_dacl(path)?;
+/// Internal: apply an EXPLICIT_ACCESS_W entry to a path's DACL.
+unsafe fn set_ace_on_path(
+    path: &Path,
+    psid: *mut c_void,
+    access_mode: i32,
+    permissions: u32,
+    skip_if_present: Option<(u8, u32)>, // (ace_type, mask) to check before adding
+) -> Result<bool> {
+    let (p_sd, p_dacl) = get_dacl(path)?;
 
-    let mut added = false;
-    if !dacl_has_write_allow_for_sid(p_dacl, psid) {
-        let mut explicit: EXPLICIT_ACCESS_W = unsafe { std::mem::zeroed() };
-        explicit.grfAccessPermissions =
-            FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE;
-        explicit.grfAccessMode = 2;
-        explicit.grfInheritance = CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE;
-        explicit.Trustee = trustee(psid);
-
-        let mut p_new_dacl: *mut ACL = std::ptr::null_mut();
-        let code2 = unsafe { SetEntriesInAclW(1, &explicit, p_dacl, &mut p_new_dacl) };
-        if code2 == ERROR_SUCCESS as u32 {
-            let code3 = unsafe {
-                SetNamedSecurityInfoW(
-                    to_wide(path).as_ptr() as *mut u16,
-                    1,
-                    DACL_SECURITY_INFORMATION,
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    p_new_dacl,
-                    std::ptr::null_mut(),
-                )
-            };
-            if code3 == ERROR_SUCCESS as u32 {
-                added = true;
-            }
-            if !p_new_dacl.is_null() {
-                unsafe { LocalFree(p_new_dacl as HLOCAL) };
-            }
+    if let Some((ace_type, mask)) = skip_if_present {
+        if dacl_has_ace_for_sid(p_dacl, psid, ace_type, mask) {
+            free_sd(p_sd);
+            return Ok(false);
         }
     }
-    Ok(added)
-}
 
-pub unsafe fn add_deny_write_ace(path: &Path, psid: *mut c_void) -> Result<bool> {
-    let (p_sd, p_dacl, _p_sacl) = get_dacl(path)?;
-
-    let mut added = false;
-    if !dacl_has_write_deny_for_sid(p_dacl, psid) {
-        let mut explicit: EXPLICIT_ACCESS_W = unsafe { std::mem::zeroed() };
-        explicit.grfAccessPermissions =
-            FILE_GENERIC_WRITE | FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA
-                | FILE_WRITE_ATTRIBUTES | GENERIC_WRITE_MASK;
-        explicit.grfAccessMode = DENY_ACCESS;
-        explicit.grfInheritance = CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE;
-        explicit.Trustee = trustee(psid);
-
-        let mut p_new_dacl: *mut ACL = std::ptr::null_mut();
-        let code2 = unsafe { SetEntriesInAclW(1, &explicit, p_dacl, &mut p_new_dacl) };
-        if code2 == ERROR_SUCCESS as u32 {
-            let code3 = unsafe {
-                SetNamedSecurityInfoW(
-                    to_wide(path).as_ptr() as *mut u16,
-                    1,
-                    DACL_SECURITY_INFORMATION,
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    p_new_dacl,
-                    std::ptr::null_mut(),
-                )
-            };
-            if code3 == ERROR_SUCCESS as u32 {
-                added = true;
-            }
-            if !p_new_dacl.is_null() {
-                unsafe { LocalFree(p_new_dacl as HLOCAL) };
-            }
-        }
-    }
-    Ok(added)
-}
-
-pub unsafe fn revoke_ace(path: &Path, psid: *mut c_void) {
-    let (p_sd, p_dacl, _p_sacl) = get_dacl(path).unwrap_or((std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()));
-
-    let mut explicit: EXPLICIT_ACCESS_W = unsafe { std::mem::zeroed() };
-    explicit.grfAccessPermissions = 0;
-    explicit.grfAccessMode = 4;
+    let mut explicit: EXPLICIT_ACCESS_W = std::mem::zeroed();
+    explicit.grfAccessPermissions = permissions;
+    explicit.grfAccessMode = access_mode;
     explicit.grfInheritance = CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE;
     explicit.Trustee = trustee(psid);
 
     let mut p_new_dacl: *mut ACL = std::ptr::null_mut();
     let code2 = unsafe { SetEntriesInAclW(1, &explicit, p_dacl, &mut p_new_dacl) };
+    let mut added = false;
     if code2 == ERROR_SUCCESS as u32 {
-        let _ = unsafe {
+        let code3 = unsafe {
             SetNamedSecurityInfoW(
                 to_wide(path).as_ptr() as *mut u16,
                 1,
@@ -243,10 +154,45 @@ pub unsafe fn revoke_ace(path: &Path, psid: *mut c_void) {
                 std::ptr::null_mut(),
             )
         };
+        if code3 == ERROR_SUCCESS as u32 {
+            added = true;
+        }
         if !p_new_dacl.is_null() {
             unsafe { LocalFree(p_new_dacl as HLOCAL) };
         }
     }
+    free_sd(p_sd);
+    Ok(added)
+}
+
+pub unsafe fn add_allow_ace(path: &Path, psid: *mut c_void) -> Result<bool> {
+    set_ace_on_path(
+        path,
+        psid,
+        GRANT_ACCESS,
+        FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE,
+        Some((0, FILE_GENERIC_WRITE)), // skip if ALLOW ACE with write exists
+    )
+}
+
+pub unsafe fn add_deny_write_ace(path: &Path, psid: *mut c_void) -> Result<bool> {
+    set_ace_on_path(
+        path,
+        psid,
+        DENY_ACCESS,
+        DENY_WRITE_MASK,
+        Some((1, DENY_WRITE_MASK)), // skip if DENY ACE with write mask exists
+    )
+}
+
+pub unsafe fn revoke_ace(path: &Path, psid: *mut c_void) {
+    let _ = set_ace_on_path(
+        path,
+        psid,
+        REVOKE_ACCESS,
+        0,
+        None, // always revoke
+    );
 }
 
 pub unsafe fn allow_null_device(psid: *mut c_void) {
@@ -283,7 +229,7 @@ pub unsafe fn allow_null_device(psid: *mut c_void) {
     if code == ERROR_SUCCESS as u32 {
         let mut explicit: EXPLICIT_ACCESS_W = unsafe { std::mem::zeroed() };
         explicit.grfAccessPermissions = FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE;
-        explicit.grfAccessMode = 2;
+        explicit.grfAccessMode = GRANT_ACCESS;
         explicit.grfInheritance = 0;
         explicit.Trustee = trustee(psid);
 

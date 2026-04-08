@@ -1,7 +1,4 @@
 //! Sandbox policy types and parsing.
-//!
-//! Extracted from OpenAI Codex windows-sandbox-rs (codex-protocol::protocol::SandboxPolicy).
-//! Reimplemented here to avoid codex-protocol workspace dependency.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -10,9 +7,6 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum SandboxPolicy {
-    /// No restrictions whatsoever. Use with caution.
-    DangerFullAccess,
-
     /// Read-only access to the entire file-system.
     ReadOnly,
 
@@ -25,14 +19,6 @@ pub enum SandboxPolicy {
         /// Allow outbound network access. Defaults to false.
         #[serde(default)]
         network_access: bool,
-
-        /// Exclude per-user TMPDIR from writable roots.
-        #[serde(default)]
-        exclude_tmpdir_env_var: bool,
-
-        /// Exclude /tmp from writable roots (UNIX-only, no-op on Windows).
-        #[serde(default)]
-        exclude_slash_tmp: bool,
     },
 }
 
@@ -51,26 +37,11 @@ impl SandboxPolicy {
         SandboxPolicy::WorkspaceWrite {
             writable_roots: Vec::new(),
             network_access: false,
-            exclude_tmpdir_env_var: false,
-            exclude_slash_tmp: false,
-        }
-    }
-
-    pub fn has_full_disk_read_access(&self) -> bool {
-        true
-    }
-
-    pub fn has_full_disk_write_access(&self) -> bool {
-        match self {
-            SandboxPolicy::DangerFullAccess => true,
-            SandboxPolicy::ReadOnly => false,
-            SandboxPolicy::WorkspaceWrite { .. } => false,
         }
     }
 
     pub fn has_full_network_access(&self) -> bool {
         match self {
-            SandboxPolicy::DangerFullAccess => true,
             SandboxPolicy::ReadOnly => false,
             SandboxPolicy::WorkspaceWrite { network_access, .. } => *network_access,
         }
@@ -80,17 +51,8 @@ impl SandboxPolicy {
 /// Parse a policy from a string (preset name or JSON).
 pub fn parse_policy(value: &str) -> anyhow::Result<SandboxPolicy> {
     match value {
-        "read-only" => Ok(SandboxPolicy::ReadOnly),
+        "read-only" => Ok(SandboxPolicy::new_read_only_policy()),
         "workspace-write" => Ok(SandboxPolicy::new_workspace_write_policy()),
-        "danger-full-access" => {
-            anyhow::bail!("DangerFullAccess is not supported for sandboxing")
-        }
-        other => {
-            let parsed: SandboxPolicy = serde_json::from_str(other)?;
-            if matches!(parsed, SandboxPolicy::DangerFullAccess) {
-                anyhow::bail!("DangerFullAccess is not supported for sandboxing");
-            }
-            Ok(parsed)
-        }
+        other => Ok(serde_json::from_str(other)?),
     }
 }

@@ -1,6 +1,5 @@
 //! Windows Restricted Token creation.
 
-use crate::policy::SandboxPolicy;
 use crate::winutil::to_wide;
 use anyhow::Result;
 use std::ffi::c_void;
@@ -169,90 +168,52 @@ unsafe fn enable_single_privilege(h_token: HANDLE, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// 为 serve 模式创建令牌：不含 WRITE_RESTRICTED，允许子进程继续 spawn 孙进程。
-/// 文件系统写保护降为 ACL 级单层（DACL ACE），不再有令牌级写限制。
-/// 用途：ACP 引擎进程级沙箱包装（需要 spawn claude-code / MCP 服务器等子进程）。
+/// Create a restricted token for the sandbox.
 ///
-/// 不传受限 SID 列表：serve 模式下不需要双重访问检查，特权裁剪由 DISABLE_MAX_PRIVILEGE
-/// + LUA_TOKEN 完成，文件系统限制由 DACL ACE 提供。
-pub unsafe fn create_servable_token_with_cap(
+/// When `write_restricted` is true, the token gets WRITE_RESTRICTED flag and
+/// restricting SIDs (logon SID, everyone SID, capability SID), which prevents
+/// write access except to paths explicitly allowed via DACL ACEs.
+///
+/// When `write_restricted` is false (serve mode), the token only gets
+/// DISABLE_MAX_PRIVILEGE | LUA_TOKEN, allowing child processes to spawn
+/// grandchildren. File-system write protection is handled by DACL ACEs alone.
+pub unsafe fn create_restricted_token(
     psid_capability: *mut c_void,
+    write_restricted: bool,
 ) -> Result<(HANDLE, *mut c_void)> {
     let base = get_current_token_for_restriction()?;
 
-    let mut new_token: HANDLE = 0;
-    // 去掉 WRITE_RESTRICTED：子进程可以通过 CreateProcess 继续 spawn 孙进程。
-    // 不传受限 SID 列表（第 7-9 参数均为 0/null），避免双重访问检查阻塞子进程 spawn。
-    let flags = DISABLE_MAX_PRIVILEGE | LUA_TOKEN;
-    let ok = CreateRestrictedToken(
-        base, flags, 0, std::ptr::null(), 0, std::ptr::null(), 0,
-        std::ptr::null_mut(), &mut new_token,
-    );
-    CloseHandle(base); // base 使命完成，无论成败都要关闭
-    if ok == 0 {
-        return Err(anyhow::anyhow!("CreateRestrictedToken failed: {}", GetLastError()));
-    }
-    enable_single_privilege(new_token, "SeChangeNotifyPrivilege")
-        .map_err(|e| { CloseHandle(new_token); e })?;
-    Ok((new_token, psid_capability))
-}
+    let (flags, restricting_count, restricting_sids) = if write_restricted {
+        let mut logon_sid_bytes = get_logon_sid_bytes(base)
+            .map_err(|e| { CloseHandle(base); e })?;
+        let psid_logon = logon_sid_bytes.as_mut_ptr() as *mut c_void;
+        let mut everyone = world_sid().map_err(|e| { CloseHandle(base); e })?;
+        let psid_everyone = everyone.as_mut_ptr() as *mut c_void;
 
-pub unsafe fn create_workspace_write_token_with_cap(
-    psid_capability: *mut c_void,
-) -> Result<(HANDLE, *mut c_void)> {
-    let base = get_current_token_for_restriction()?;
-    let mut logon_sid_bytes = get_logon_sid_bytes(base)
-        .map_err(|e| { CloseHandle(base); e })?;
-    let psid_logon = logon_sid_bytes.as_mut_ptr() as *mut c_void;
-    let mut everyone = world_sid()?;
-    let psid_everyone = everyone.as_mut_ptr() as *mut c_void;
+        let mut entries: [SID_AND_ATTRIBUTES; 3] = std::mem::zeroed();
+        entries[0].Sid = psid_capability;
+        entries[0].Attributes = 0;
+        entries[1].Sid = psid_logon;
+        entries[1].Attributes = 0;
+        entries[2].Sid = psid_everyone;
+        entries[2].Attributes = 0;
 
-    let mut entries: [SID_AND_ATTRIBUTES; 3] = unsafe { std::mem::zeroed() };
-    entries[0].Sid = psid_capability;
-    entries[0].Attributes = 0;
-    entries[1].Sid = psid_logon;
-    entries[1].Attributes = 0;
-    entries[2].Sid = psid_everyone;
-    entries[2].Attributes = 0;
+        (DISABLE_MAX_PRIVILEGE | LUA_TOKEN | WRITE_RESTRICTED, 3, entries)
+    } else {
+        (DISABLE_MAX_PRIVILEGE | LUA_TOKEN, 0, [std::mem::zeroed(); 3])
+    };
 
     let mut new_token: HANDLE = 0;
-    let flags = DISABLE_MAX_PRIVILEGE | LUA_TOKEN | WRITE_RESTRICTED;
     let ok = CreateRestrictedToken(
-        base, flags, 0, std::ptr::null(), 0, std::ptr::null(), 3,
-        entries.as_mut_ptr(), &mut new_token,
-    );
-    CloseHandle(base);
-    if ok == 0 {
-        return Err(anyhow::anyhow!("CreateRestrictedToken failed: {}", GetLastError()));
-    }
-    enable_single_privilege(new_token, "SeChangeNotifyPrivilege")
-        .map_err(|e| { CloseHandle(new_token); e })?;
-    Ok((new_token, psid_capability))
-}
-
-pub unsafe fn create_readonly_token_with_cap(
-    psid_capability: *mut c_void,
-) -> Result<(HANDLE, *mut c_void)> {
-    let base = get_current_token_for_restriction()?;
-    let mut logon_sid_bytes = get_logon_sid_bytes(base)
-        .map_err(|e| { CloseHandle(base); e })?;
-    let psid_logon = logon_sid_bytes.as_mut_ptr() as *mut c_void;
-    let mut everyone = world_sid()?;
-    let psid_everyone = everyone.as_mut_ptr() as *mut c_void;
-
-    let mut entries: [SID_AND_ATTRIBUTES; 3] = unsafe { std::mem::zeroed() };
-    entries[0].Sid = psid_capability;
-    entries[0].Attributes = 0;
-    entries[1].Sid = psid_logon;
-    entries[1].Attributes = 0;
-    entries[2].Sid = psid_everyone;
-    entries[2].Attributes = 0;
-
-    let mut new_token: HANDLE = 0;
-    let flags = DISABLE_MAX_PRIVILEGE | LUA_TOKEN | WRITE_RESTRICTED;
-    let ok = CreateRestrictedToken(
-        base, flags, 0, std::ptr::null(), 0, std::ptr::null(), 3,
-        entries.as_mut_ptr(), &mut new_token,
+        base,
+        flags,
+        0,
+        std::ptr::null(),
+        0,
+        std::ptr::null(),
+        restricting_count,
+        if restricting_count > 0 { restricting_sids.as_ptr() as *mut SID_AND_ATTRIBUTES } else { std::ptr::null() },
+        &mut new_token,
     );
     CloseHandle(base);
     if ok == 0 {
