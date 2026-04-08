@@ -75,6 +75,7 @@ export async function buildSandboxedSpawnArgs(
     windowsSandboxHelperPath: sandboxConfig.windowsSandboxHelperPath,
     windowsSandboxMode: sandboxConfig.windowsSandboxMode,
     networkEnabled,
+    mode: sandboxConfig.mode,
   });
 
   // 可写路径：工作区 + 额外路径（如 isolatedHome）
@@ -97,10 +98,13 @@ export async function buildSandboxedSpawnArgs(
       writablePaths,
       networkEnabled,
       subcommand: "serve",
+      startupExecAllowlist: [originalCommand],
     });
 
     log.info("[SandboxProcessWrapper] Sandbox wrapping succeeded:", {
       type,
+      mode: sandboxConfig.mode ?? "compat",
+      autoFallback: sandboxConfig.autoFallback ?? "startup-only",
       originalCommand,
       wrappedCommand: invocation.command,
       writablePaths,

@@ -20,7 +20,11 @@ import * as os from "os";
 import * as path from "path";
 import log from "electron-log";
 import { checkCommand } from "../system/shellEnv";
-import type { SandboxType, WindowsSandboxMode } from "@shared/types/sandbox";
+import type {
+  SandboxMode,
+  SandboxType,
+  WindowsSandboxMode,
+} from "@shared/types/sandbox";
 import { SandboxError, SandboxErrorCode } from "@shared/errors/sandbox";
 
 // ============================================================================
@@ -37,6 +41,8 @@ export interface SandboxInvokerOptions {
   windowsSandboxMode?: WindowsSandboxMode;
   /** 是否允许网络访问 */
   networkEnabled?: boolean;
+  /** 沙箱模式 */
+  mode?: SandboxMode;
 }
 
 /** 沙箱调用参数 */
@@ -55,6 +61,8 @@ export interface SandboxInvocationParams {
   networkEnabled: boolean;
   /** 子命令模式：run=捕获输出返回 JSON，serve=双向 stdio 转发 */
   subcommand?: "run" | "serve";
+  /** 额外可执行路径白名单（compat 启动链路） */
+  startupExecAllowlist?: string[];
 }
 
 /** 沙箱包装后的调用描述 */
@@ -89,7 +97,10 @@ export class SandboxInvoker {
 
   constructor(type: SandboxType, options: SandboxInvokerOptions = {}) {
     this.type = type;
-    this.options = options;
+    this.options = {
+      mode: "compat",
+      ...options,
+    };
   }
 
   /**
@@ -177,16 +188,25 @@ export class SandboxInvoker {
   private async buildSeatbelt(
     params: SandboxInvocationParams,
   ): Promise<Invocation> {
+    const mode = this.options.mode ?? "compat";
     const profilePath = path.join(
       fs.realpathSync(os.tmpdir()),
       `nuwaclaw-sandbox-${Date.now()}.sb`,
     );
     const profile = this.buildSeatbeltProfile(
+      params.command,
       params.writablePaths,
       params.networkEnabled,
+      params.startupExecAllowlist,
     );
     await fsp.writeFile(profilePath, profile, "utf-8");
-    log.info("[SandboxInvoker] seatbelt profile written:", profilePath);
+    log.info("[SandboxInvoker] seatbelt profile written:", {
+      profilePath,
+      mode,
+      command: params.command,
+      startupExecAllowlistCount: params.startupExecAllowlist?.length ?? 0,
+      networkEnabled: params.networkEnabled,
+    });
 
     return {
       command: "/usr/bin/sandbox-exec",
@@ -199,38 +219,61 @@ export class SandboxInvoker {
 
   private buildBwrap(params: SandboxInvocationParams): Invocation {
     const bwrapPath = this.options.linuxBwrapPath || "bwrap";
-    const bwrapArgs: string[] = [
-      "--die-with-parent",
-      "--new-session",
-      "--unshare-user-try",
-      "--unshare-pid",
-      "--unshare-uts",
-      "--unshare-cgroup-try",
-      ...(params.networkEnabled ? [] : ["--unshare-net"]),
-      "--dev-bind",
-      "/dev",
-      "/dev",
-      "--proc",
-      "/proc",
-      "--tmpfs",
-      "/tmp",
-      "--ro-bind",
-      "/",
-      "/",
-    ];
+    const mode = this.options.mode ?? "compat";
+    const permissive = mode === "permissive";
+    const bwrapArgs: string[] = ["--die-with-parent", "--new-session"];
 
-    // 可写路径使用读写 bind mount（覆盖上面的 ro-bind）
-    for (const wp of params.writablePaths) {
-      bwrapArgs.push("--bind", wp, wp);
+    if (permissive) {
+      // 宽松模式用于排障，不作为默认安全策略。
+      bwrapArgs.push(
+        "--bind",
+        "/",
+        "/",
+        "--dev-bind",
+        "/dev",
+        "/dev",
+        "--proc",
+        "/proc",
+      );
+    } else {
+      bwrapArgs.push(
+        "--unshare-user-try",
+        "--unshare-pid",
+        "--unshare-uts",
+        "--unshare-cgroup-try",
+        ...(params.networkEnabled ? [] : ["--unshare-net"]),
+        "--dev-bind",
+        "/dev/null",
+        "/dev/null",
+        "--dev-bind",
+        "/dev/urandom",
+        "/dev/urandom",
+        "--dev-bind",
+        "/dev/zero",
+        "/dev/zero",
+        "--proc",
+        "/proc",
+        "--tmpfs",
+        "/tmp",
+        "--ro-bind",
+        "/",
+        "/",
+      );
+
+      for (const wp of params.writablePaths) {
+        bwrapArgs.push("--bind", wp, wp);
+      }
     }
 
     bwrapArgs.push("--chdir", params.cwd, "--", params.command, ...params.args);
 
     log.info("[SandboxInvoker] bwrap invocation:", {
       bwrapPath,
-      writablePaths: params.writablePaths,
+      mode,
+      permissive,
       networkEnabled: params.networkEnabled,
       cwd: params.cwd,
+      writablePathCount: params.writablePaths.length,
     });
 
     return {
@@ -302,39 +345,87 @@ export class SandboxInvoker {
    * seatbelt 使用真实路径匹配，因此需要对可写路径做 realpath 解析。
    */
   private buildSeatbeltProfile(
+    command: string,
     writablePaths: string[],
     networkEnabled: boolean,
+    startupExecAllowlist: string[] = [],
   ): string {
+    const mode = this.options.mode ?? "compat";
+    const permissive = mode === "permissive";
+    const compat = mode === "compat";
     const lines: string[] = ["(version 1)", "(deny default)"];
     if (networkEnabled) {
       lines.push("(allow network*)");
     }
+    lines.push("(allow file-read*)");
+
+    if (permissive) {
+      lines.push(
+        "(allow file-write*)",
+        "(allow process-exec)",
+        "(allow signal)",
+      );
+      log.warn("[SandboxInvoker] seatbelt permissive mode enabled", {
+        command,
+        startupExecAllowlistCount: startupExecAllowlist.length,
+      });
+    } else {
+      lines.push(
+        '(allow process-exec (regex #"^/usr/bin/"))',
+        '(allow process-exec (regex #"^/bin/"))',
+        '(allow process-exec (regex #"^/usr/lib/"))',
+      );
+      const execAllow = new Set<string>([command]);
+      if (compat) {
+        for (const p of startupExecAllowlist) execAllow.add(p);
+      }
+      for (const p of execAllow) {
+        if (!p || !path.isAbsolute(p)) continue;
+        const addPath = (candidate: string) => {
+          lines.push(`(allow process-exec (literal "${candidate}"))`);
+        };
+        addPath(p);
+        try {
+          const resolved = fs.realpathSync(p);
+          if (resolved !== p) addPath(resolved);
+        } catch {
+          // ignore realpath failures for non-existing startup path
+        }
+      }
+      log.info("[SandboxInvoker] seatbelt exec allowlist resolved", {
+        mode,
+        command,
+        execAllowCount: execAllow.size,
+        includeStartupChain: compat,
+      });
+      lines.push("(allow signal (target self))");
+    }
+
     lines.push(
-      "(allow file-read*)",
-      "(allow process-exec)",
       "(allow process-fork)",
-      "(allow signal)",
       "(allow sysctl-read)",
       "(allow mach-lookup)",
       "(allow ipc-posix*)",
       "(allow file-lock)",
     );
     // 可写路径 — 同时添加原始路径和 realpath（处理 macOS 符号链接）
-    const seen = new Set<string>();
-    for (const wp of writablePaths) {
-      const pathsToAdd = [wp];
-      try {
-        const resolved = fs.realpathSync(wp);
-        if (resolved !== wp) {
-          pathsToAdd.push(resolved);
+    if (!permissive) {
+      const seen = new Set<string>();
+      for (const wp of writablePaths) {
+        const pathsToAdd = [wp];
+        try {
+          const resolved = fs.realpathSync(wp);
+          if (resolved !== wp) {
+            pathsToAdd.push(resolved);
+          }
+        } catch {
+          // 路径尚不存在，跳过 realpath
         }
-      } catch {
-        // 路径尚不存在，跳过 realpath
-      }
-      for (const p of pathsToAdd) {
-        if (!seen.has(p)) {
-          seen.add(p);
-          lines.push(`(allow file-write* (subpath "${p}"))`);
+        for (const p of pathsToAdd) {
+          if (!seen.has(p)) {
+            seen.add(p);
+            lines.push(`(allow file-write* (subpath "${p}"))`);
+          }
         }
       }
     }

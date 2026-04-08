@@ -1,14 +1,17 @@
 import * as fs from "fs";
 import * as path from "path";
 import log from "electron-log";
+import { app } from "electron";
 import { readSetting, writeSetting } from "../../db";
 import { checkCommand } from "../system/shellEnv";
 import { getResourcesPath } from "../system/dependencies";
 import type {
+  SandboxAutoFallback,
   Platform,
   SandboxBackend,
   SandboxCapabilities,
   SandboxCapabilityItem,
+  SandboxMode,
   SandboxPolicy,
   SandboxType,
   WindowsSandboxMode,
@@ -20,6 +23,8 @@ export const SANDBOX_POLICY_KEY = "sandbox_policy";
 export const DEFAULT_SANDBOX_POLICY: SandboxPolicy = {
   enabled: true,
   backend: "auto",
+  mode: "compat",
+  autoFallback: "startup-only",
   windowsMode: "workspace-write",
 };
 
@@ -46,6 +51,20 @@ function normalizeSandboxPolicy(input: unknown): SandboxPolicy {
       ? input.backend
       : DEFAULT_SANDBOX_POLICY.backend;
 
+  const mode: SandboxMode =
+    input.mode === "strict" ||
+    input.mode === "compat" ||
+    input.mode === "permissive"
+      ? input.mode
+      : DEFAULT_SANDBOX_POLICY.mode;
+
+  const autoFallback: SandboxAutoFallback =
+    input.autoFallback === "startup-only" ||
+    input.autoFallback === "session" ||
+    input.autoFallback === "manual"
+      ? input.autoFallback
+      : DEFAULT_SANDBOX_POLICY.autoFallback;
+
   // 兼容旧格式：windows.sandbox.mode → windowsMode
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const legacyWindowsMode = (input.windows as any)?.sandbox?.mode as
@@ -57,7 +76,7 @@ function normalizeSandboxPolicy(input: unknown): SandboxPolicy {
       ? rawWindowsMode
       : DEFAULT_SANDBOX_POLICY.windowsMode;
 
-  return { enabled, backend, windowsMode };
+  return { enabled, backend, mode, autoFallback, windowsMode };
 }
 
 function mergeSandboxPolicy(
@@ -289,11 +308,14 @@ export async function resolveSandboxType(
   }
 
   const reason = getBackendUnavailableReason(selectedType, caps);
-  log.debug(
+  log.warn(
     "[SandboxPolicy] resolve: backend %s unavailable, reason=%s, degrading to off",
     selectedType,
     reason,
   );
+
+  // Emit sandbox:unavailable event so UI can notify the user
+  app.emit("sandbox:unavailable", { reason });
 
   // 后端不可用时始终降级为 off（不阻断执行）
   return { type: "none", degraded: true, reason };

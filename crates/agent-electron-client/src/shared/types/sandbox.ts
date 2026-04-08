@@ -49,6 +49,22 @@ export type SandboxBackend =
 export type WindowsSandboxMode = "read-only" | "workspace-write";
 
 /**
+ * 沙箱运行模式
+ * - strict: 严格最小权限
+ * - compat: 兼容优先（默认）
+ * - permissive: 宽松（仅排障）
+ */
+export type SandboxMode = "strict" | "compat" | "permissive";
+
+/**
+ * 自动回退范围
+ * - startup-only: 仅启动链路（默认）
+ * - session: 会话级
+ * - manual: 手动确认
+ */
+export type SandboxAutoFallback = "startup-only" | "session" | "manual";
+
+/**
  * 降级策略（内部使用，不暴露在 SandboxPolicy 中）
  * - degrade_to_off: 后端不可用时降级为 off（默认）
  * - fail_closed: 后端不可用时阻断执行
@@ -63,6 +79,10 @@ export interface SandboxPolicy {
   enabled: boolean;
   /** 后端选择（auto = 按平台自动） */
   backend: SandboxBackend;
+  /** 沙箱模式 */
+  mode: SandboxMode;
+  /** 自动回退范围 */
+  autoFallback: SandboxAutoFallback;
   /** Windows 专属：沙箱写权限模式 */
   windowsMode: WindowsSandboxMode;
 }
@@ -129,6 +149,10 @@ export interface SandboxProcessConfig {
   enabled: boolean;
   /** 已解析的沙箱后端类型 */
   type: SandboxType;
+  /** 沙箱模式 */
+  mode?: SandboxMode;
+  /** 自动回退范围 */
+  autoFallback?: SandboxAutoFallback;
   /** 用户工作区目录（可写） */
   projectWorkspaceDir: string;
   /** 是否允许网络访问（引擎需要 API 调用） */

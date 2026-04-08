@@ -360,6 +360,8 @@ export class AcpEngine extends EventEmitter {
             sandboxConfig = {
               enabled: true,
               type: resolved.type,
+              mode: policy.mode,
+              autoFallback: policy.autoFallback,
               projectWorkspaceDir: config.workspaceDir,
               networkEnabled: true, // 引擎需要网络访问（API 调用）
               fallback: "degrade_to_off",
@@ -370,6 +372,8 @@ export class AcpEngine extends EventEmitter {
             };
             log.info(`${this.logTag} Sandbox config resolved:`, {
               type: resolved.type,
+              mode: policy.mode,
+              autoFallback: policy.autoFallback,
               degraded: resolved.degraded,
             });
           }
