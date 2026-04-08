@@ -566,6 +566,7 @@
   "Claw.Settings.sandbox.enableDesc": "When disabled, commands execute directly in workspace",
   "Claw.Settings.sandbox.mode": "Sandbox Mode",
   "Claw.Settings.sandbox.modeDesc": "strict: minimum privileges · compat: compatibility-first (default) · permissive: troubleshooting only",
+  "Claw.Settings.sandbox.modeRestartHint": "Takes effect after restarting the current Agent session or starting a new one",
   "Claw.Settings.sandbox.modeStrict": "strict (minimum privileges)",
   "Claw.Settings.sandbox.modeCompat": "compat (compatibility-first)",
   "Claw.Settings.sandbox.modePermissive": "permissive (troubleshooting)",

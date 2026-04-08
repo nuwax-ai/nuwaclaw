@@ -566,6 +566,7 @@
   "Claw.Settings.sandbox.enableDesc": "关闭后命令将直接在工作区执行",
   "Claw.Settings.sandbox.mode": "沙箱运行模式",
   "Claw.Settings.sandbox.modeDesc": "strict: 严格最小权限 · compat: 兼容优先（默认） · permissive: 宽松（仅排障）",
+  "Claw.Settings.sandbox.modeRestartHint": "切换后重启当前 Agent 会话或新开会话生效",
   "Claw.Settings.sandbox.modeStrict": "strict（严格最小权限）",
   "Claw.Settings.sandbox.modeCompat": "compat（兼容优先）",
   "Claw.Settings.sandbox.modePermissive": "permissive（宽松排障）",

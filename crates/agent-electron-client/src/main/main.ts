@@ -30,7 +30,7 @@ import { createTrayManager, TrayStatus } from "./window/trayManager";
 import { createServiceManager } from "./window/serviceManager";
 import { initAutoUpdater } from "./services/autoUpdater";
 import { migrateDataDir, migrateSettingsPaths } from "./bootstrap/migrate";
-import { getDeviceId } from "./services/system/deviceId";
+import { getDeviceId, logSystemInfo } from "./services/system/deviceId";
 import { initWebviewPolicy } from "./services/system/webviewPolicy";
 
 // macOS 26 Tahoe 兼容性：禁用 Fontations 字体后端
@@ -403,6 +403,7 @@ app.whenReady().then(async () => {
   }
 
   log.info("App ready");
+  logSystemInfo();
 
   // Dev mode: fix CORS duplicate header issue
   // Server returns both specific origin and '*', causing browser to reject.

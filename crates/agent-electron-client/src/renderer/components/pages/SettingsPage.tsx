@@ -648,6 +648,8 @@ export default function SettingsPage() {
                 </span>
                 <div className={styles.serviceDescription}>
                   {t("Claw.Settings.sandbox.modeDesc")}
+                  <br />
+                  {t("Claw.Settings.sandbox.modeRestartHint")}
                 </div>
               </div>
             </div>
