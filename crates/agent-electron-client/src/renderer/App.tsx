@@ -517,6 +517,7 @@ function App() {
         mcpStatus,
         csStatus,
         guiStatus,
+        guiEnabledRes,
       ] = await Promise.all([
         window.electronAPI?.fileServer.status(),
         window.electronAPI?.lanproxy.status(),
@@ -524,6 +525,7 @@ function App() {
         window.electronAPI?.mcp.status(),
         window.electronAPI?.computerServer.status(),
         window.electronAPI?.guiServer?.status(),
+        window.electronAPI?.guiServer?.isEnabled(),
       ]);
       items.push({
         key: "mcpProxy",
@@ -558,7 +560,10 @@ function App() {
         pid: fsStatus?.pid,
         error: fsStatus?.error,
       });
-      if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
+      if (
+        FEATURES.ENABLE_GUI_AGENT_SERVER &&
+        (guiEnabledRes?.enabled ?? false)
+      ) {
         items.push({
           key: "guiServer",
           label: t("Claw.Service.guiMcp"),

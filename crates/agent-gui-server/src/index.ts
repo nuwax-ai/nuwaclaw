@@ -9,6 +9,9 @@
  *   GUI_AGENT_* - See config.ts for all options
  */
 
+// Disable Node.js warnings (e.g., module type) to keep stderr clean for structured parsing
+process.env.NODE_NO_WARNINGS = '1';
+
 import { loadConfig } from './config.js';
 import { createGuiAgentServer } from './mcp/server.js';
 import { logInfo, logError } from './utils/logger.js';
@@ -72,7 +75,11 @@ async function main() {
       transport: args.transport,
     });
   } catch (err) {
-    logError(`Configuration error: ${err instanceof Error ? err.message : String(err)}`);
+    const errorObj = {
+      code: 'CONFIG_ERROR',
+      message: err instanceof Error ? err.message : String(err),
+    };
+    process.stderr.write(`GUI_AGENT_ERROR:${JSON.stringify(errorObj)}\n`);
     process.exit(1);
   }
 
@@ -95,14 +102,24 @@ async function main() {
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('unhandledRejection', (reason) => {
-    logError(`Unhandled rejection: ${reason}`);
+    const errorObj = {
+      code: 'UNHANDLED_REJECTION',
+      message: reason instanceof Error ? reason.message : String(reason),
+    };
+    process.stderr.write(`GUI_AGENT_ERROR:${JSON.stringify(errorObj)}\n`);
     process.exit(1);
   });
 
   try {
     await server.start();
   } catch (err) {
-    logError(`Failed to start: ${err instanceof Error ? err.message : String(err)}`);
+    // Output structured error to stderr for easy parsing by parent process
+    // Format: GUI_AGENT_ERROR:<json>
+    const errorObj = {
+      code: 'STARTUP_FAILED',
+      message: err instanceof Error ? err.message : String(err),
+    };
+    process.stderr.write(`GUI_AGENT_ERROR:${JSON.stringify(errorObj)}\n`);
     process.exit(1);
   }
 }

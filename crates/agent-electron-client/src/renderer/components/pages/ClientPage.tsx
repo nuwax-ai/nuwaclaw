@@ -607,8 +607,10 @@ function ClientPage({
       // 这样可避免在 reg 同步/状态切换瞬间，UI 被代理地址或空值“覆盖”导致的域名跳变。
       const displayDomain = authState.domain || displayDomainFallback || "";
       // 与 Tauri 一致：服务未全部启动时禁用「开始会话」「扫码使用」
+      // 注意：guiServer 是可选服务，其启动失败不阻塞 Start Session
       const allServicesRunning =
-        services.length > 0 && services.every((s) => s.running);
+        services.length > 0 &&
+        services.filter((s) => s.key !== "guiServer").every((s) => s.running);
       const isButtonDisabled = !redirectUrl || !allServicesRunning;
 
       return (

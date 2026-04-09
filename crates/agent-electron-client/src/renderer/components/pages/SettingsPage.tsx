@@ -135,6 +135,12 @@ export default function SettingsPage() {
   const [sandboxStatus, setSandboxStatus] = useState<SandboxStatus | null>(
     null,
   );
+
+  // GUI MCP 设置
+  const [guiMcpLoading, setGuiMcpLoading] = useState(false);
+  const [guiMcpSaving, setGuiMcpSaving] = useState(false);
+  const [guiMcpEnabled, setGuiMcpEnabled] = useState<boolean | null>(null);
+
   // 使用表单中的 workspaceDir 作为"系统模块"的展示源，确保编辑保存后展示保持实时一致。
   const workspaceDir = Form.useWatch("workspaceDir", form) || "";
 
@@ -219,11 +225,29 @@ export default function SettingsPage() {
     }
   }, []);
 
+  const loadGuiMcpState = useCallback(async () => {
+    if (!window.electronAPI?.guiServer) return;
+    if (!FEATURES.ENABLE_GUI_AGENT_SERVER) return;
+
+    setGuiMcpLoading(true);
+    try {
+      const result = await window.electronAPI.guiServer.isEnabled();
+      if (result.enabled !== undefined) {
+        setGuiMcpEnabled(result.enabled);
+      }
+    } catch (error) {
+      console.error("Failed to load GUI MCP state:", error);
+    } finally {
+      setGuiMcpLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadConfig();
     loadAiConfig();
     loadSystemSettings();
     loadSandboxState();
+    loadGuiMcpState();
 
     // 监听来自托盘等外部修改的自启动状态变化
     const handleAutolaunchChanged = (enabled: boolean) => {
@@ -408,6 +432,32 @@ export default function SettingsPage() {
       message.error(t("Claw.Settings.messages.updateSandboxPolicyFailed"));
     } finally {
       setSandboxSaving(false);
+    }
+  };
+
+  const handleSetGuiMcpEnabled = async (enabled: boolean) => {
+    if (!window.electronAPI?.guiServer) return;
+    setGuiMcpSaving(true);
+    try {
+      const result = await window.electronAPI.guiServer.setEnabled(enabled);
+      if (result.success) {
+        setGuiMcpEnabled(enabled);
+        message.success(
+          t(
+            enabled
+              ? "Claw.Settings.guiMcp.messages.enableSuccess"
+              : "Claw.Settings.guiMcp.messages.disableSuccess",
+          ),
+        );
+      } else {
+        message.error(
+          result.error || t("Claw.Settings.guiMcp.messages.updateFailed"),
+        );
+      }
+    } catch {
+      message.error(t("Claw.Settings.guiMcp.messages.updateFailed"));
+    } finally {
+      setGuiMcpSaving(false);
     }
   };
 
@@ -640,6 +690,32 @@ export default function SettingsPage() {
               }
             />
           </div>
+
+          {FEATURES.ENABLE_GUI_AGENT_SERVER && (
+            <div className={styles.serviceRow} style={{ marginTop: 10 }}>
+              <div className={styles.serviceInfo}>
+                <div>
+                  <span className={styles.serviceLabel}>
+                    {t("Claw.Settings.guiMcp.enable")}
+                  </span>
+                  <div className={styles.serviceDescription}>
+                    {guiMcpEnabled === null
+                      ? t("Claw.Settings.sandbox.statusNotLoaded")
+                      : guiMcpEnabled
+                        ? t("Claw.Settings.guiMcp.statusEnabled")
+                        : t("Claw.Settings.guiMcp.statusDisabled")}
+                  </div>
+                </div>
+              </div>
+              <Switch
+                size="small"
+                checked={guiMcpEnabled ?? false}
+                loading={guiMcpSaving || guiMcpLoading}
+                onChange={handleSetGuiMcpEnabled}
+              />
+            </div>
+          )}
+
           <div className={styles.serviceRow} style={{ marginTop: 10 }}>
             <div className={styles.serviceInfo}>
               <div>
