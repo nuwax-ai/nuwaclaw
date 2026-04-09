@@ -640,6 +640,16 @@ export async function createAcpConnection(
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
   };
 
+  // Set TMPDIR to isolatedHome/tmp so that sandboxed engines (e.g. claude-code
+  // under macOS seatbelt strict mode) create temp files inside a writable path.
+  // Without this, os.tmpdir() resolves to /private/tmp which is NOT in the
+  // seatbelt writablePaths, causing EPERM on mkdir for Bash/Glob tools.
+  const isolatedTmp = path.join(isolatedHome, "tmp");
+  fs.mkdirSync(isolatedTmp, { recursive: true });
+  env.TMPDIR = isolatedTmp;
+  env.TEMP = isolatedTmp;
+  env.TMP = isolatedTmp;
+
   const isNuwaxcodeEngine = config.engineType === "nuwaxcode";
 
   // Set model/api vars from ACP config only (never from user's global env)
