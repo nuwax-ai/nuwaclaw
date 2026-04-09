@@ -218,6 +218,7 @@ function ClientPage({
       // 2. reg 返回后，step by step 启动服务
       // loginAndRegister 内部已调用 reg 接口并保存 serverHost/serverPort，无需再次调用
       // step by step 启动服务
+      const startupServiceKeys = await getStartupServiceKeys();
       for (const key of startupServiceKeys) {
         await handleStartService(key, true);
       }
