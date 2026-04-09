@@ -1,6 +1,6 @@
 # ACP Terminal API 沙箱化方案
 
-> 版本: 1.1.0 | 日期: 2026-04-03 | 状态: 已实现
+> 版本: 1.3.0 | 日期: 2026-04-10 | 状态: 已实现
 
 ## 问题背景
 
@@ -54,6 +54,7 @@ nuwaxcode（基于 opencode）不使用 Terminal API，而是内部直接执行 
 │  buildClientHandler():                                   │
 │    ├─ sessionUpdate ──→ handleAcpSessionUpdate()         │
 │    ├─ requestPermission ──→ handlePermissionRequest()    │
+│    │                      └─ strictPermissionGuard.ts     │
 │    └─ ...terminalManager.getClientHandlers()             │
 │         ├─ createTerminal  → helper.exe run / direct     │
 │         ├─ terminalOutput  → output buffer               │
@@ -115,7 +116,11 @@ Agent 必须检查 `clientCapabilities.terminal === true` 才能使用。
 |------|----------|------|
 | `acpTerminalManager.ts` | **新建** | Terminal 生命周期管理，sandbox 路由 |
 | `acpClient.ts` | 修改 | 扩展 `AcpClientHandler` 接口，添加 5 个 Terminal 方法 |
-| `acpEngine.ts` | 修改 | Terminal Manager 初始化、capabilities 声明、handler 委托 |
+| `acpEngine.ts` | 修改 | Terminal Manager 初始化、capabilities 声明、handler 委托、strict 权限调试日志 |
+| `strictPermissionGuard.ts` | **新建** | nuwaxcode strict 模式下写入路径判定（workspace/temp/appData） |
+| `engineWarmup.ts` | 修改 | warmup 复用增加 sandbox policy 指纹兼容检查 |
+| `sandboxPolicyFingerprint.ts` | **新建** | sandbox policy 稳定指纹生成（warmup 兼容判定） |
+| `unifiedAgent.ts` | 修改 | 向 warmup 注入 sandbox policy 指纹提供器 |
 
 ### 不变的文件
 
@@ -231,6 +236,19 @@ Terminal API 执行的命令也在此沙箱内运行，无需额外包装。
 nuwaxcode 不使用 Terminal API，其 bash 执行通过 `OPENCODE_CONFIG_CONTENT.sandbox`
 配置路由到 sandbox helper。这是独立的代码路径，不受 Terminal API 实现影响。
 
+另外，在 `strict` 模式下，`nuwaxcode` 的 ACP `requestPermission` 路径会额外经过
+`strictPermissionGuard.ts`：
+- 仅识别写入类请求应用路径门控（非写入请求跳过）
+- 允许写入根目录：`workspace` + `temp(TMP/TEMP/TMPDIR)` + `appData(~/.nuwaclaw)` + `isolatedHome/tmp`
+- 路径缺失时 fail-closed（拒绝）
+- 写入类权限仅选择 `allow_once`（不走 `allow_always`）
+
+同时，`nuwaxcode` warmup 复用现在对 sandbox policy 变更敏感：
+- warmup 启动时记录 `NUWAX_AGENT_WARMUP_SANDBOX_POLICY_FP`
+- 复用前比对当前 policy 指纹
+- 旧 warmup 缺少该标记或指纹不一致时，立即放弃复用并冷启动
+- 确保 sandbox mode/policy 配置修改后对“下一次新会话”立即生效
+
 ## 验证步骤
 
 1. 启动 Electron 开发模式
@@ -243,6 +261,16 @@ nuwaxcode 不使用 Terminal API，其 bash 执行通过 `OPENCODE_CONFIG_CONTEN
 8. 确认 macOS/Linux 沙箱行为不受影响
 9. 验证 abort 后终端进程被正确清理
 10. 验证并发超过 50 时抛出限制错误
+11. （nuwaxcode + strict）验证 ACP 调试日志：
+    - `strict writable roots snapshot`（每个 session 一次）
+    - `strict permission evaluation`
+    - `strict permission skipped (non-write request)`
+    - `strict write permission blocked`
+    - `strict write permission allowed_once`
+12. （warmup）验证 sandbox policy 相关调试日志：
+    - `warmup sandbox policy snapshot`
+    - `warmup sandbox policy compatibility check`
+    - 发生策略变更时出现：`Sandbox policy changed, skipping warmup reuse`
 
 ## 安全注意事项
 
@@ -258,6 +286,9 @@ nuwaxcode 不使用 Terminal API，其 bash 执行通过 `OPENCODE_CONFIG_CONTEN
 
 注意：`--no-write-restricted` 仅对 `run` 子命令有效。`serve` 子命令在 Rust helper 中
 已硬编码 `write_restricted=false`（子进程需要 spawn 孙进程）。
+
+> 对 `nuwaxcode` 来说，strict 下除了 helper 的 `writable_roots` 外，ACP 权限层还会执行
+> `strictPermissionGuard` 二次门控（写入路径必须落在 workspace/temp/appData）。
 
 ### macOS/Linux 上的 per-command 沙箱
 

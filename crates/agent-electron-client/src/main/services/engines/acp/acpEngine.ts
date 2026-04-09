@@ -8,6 +8,7 @@
  */
 
 import { EventEmitter } from "events";
+import * as os from "os";
 import * as path from "path";
 import * as fs from "fs";
 import log from "electron-log";
@@ -50,6 +51,7 @@ import {
   type AcpEnvVariable,
 } from "./acpClient";
 import { AcpTerminalManager } from "./acpTerminalManager";
+import { evaluateStrictWritePermission } from "./strictPermissionGuard";
 import type {
   AgentConfig,
   AcpSessionStatus,
@@ -77,6 +79,7 @@ import { processRegistry } from "../../system/processRegistry";
 import { t } from "../../i18n";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ACP_ABORT_TIMEOUT } from "@shared/constants";
+import { APP_DATA_DIR_NAME } from "../../constants";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
 
@@ -144,6 +147,7 @@ export class AcpEngine extends EventEmitter {
   >();
   private activePromptSessions = new Set<string>();
   private activePromptRejects = new Map<string, (reason: Error) => void>();
+  private strictPermissionSnapshotLoggedSessions = new Set<string>();
   private logTag: string;
 
   private readonly _engineName: "claude-code" | "nuwaxcode";
@@ -256,6 +260,14 @@ export class AcpEngine extends EventEmitter {
     await new Promise<void>((resolve) => {
       setTimeout(resolve, ms);
     });
+  }
+
+  private isStrictSandboxActiveForNuwaxcode(): boolean {
+    return (
+      this.engineName === "nuwaxcode" &&
+      this.storedSandboxConfig?.enabled === true &&
+      this.storedSandboxConfig.mode === "strict"
+    );
   }
 
   /** Get the PID of the underlying ACP process (for process registry) */
@@ -713,6 +725,7 @@ export class AcpEngine extends EventEmitter {
     this.sessions.clear();
     this.activePromptSessions.clear();
     this.activePromptRejects.clear();
+    this.strictPermissionSnapshotLoggedSessions.clear();
     this.config = null;
     this._ready = false;
     log.info(`${this.logTag} Destroyed`);
@@ -2078,15 +2091,93 @@ ${memoryContext}
       return { outcome: { outcome: "cancelled" } };
     }
 
-    const selected =
-      params.options.find((o) => o.kind === "allow_always") ||
-      params.options.find((o) => o.kind === "allow_once") ||
-      params.options[0];
+    const strictEnabled = this.isStrictSandboxActiveForNuwaxcode();
+    const strictCheck = evaluateStrictWritePermission(params, {
+      strictEnabled,
+      workspaceDir: this.config?.workspaceDir,
+      projectWorkspaceDir: this.storedSandboxConfig?.projectWorkspaceDir,
+      isolatedHome: this.isolatedHome,
+      appDataDir: path.join(os.homedir(), APP_DATA_DIR_NAME),
+      tempDirs: [
+        os.tmpdir(),
+        process.env.TMPDIR,
+        process.env.TMP,
+        process.env.TEMP,
+      ],
+    });
+    if (strictEnabled) {
+      if (!this.strictPermissionSnapshotLoggedSessions.has(acpSessionId)) {
+        this.strictPermissionSnapshotLoggedSessions.add(acpSessionId);
+        log.debug(`${this.logTag} strict writable roots snapshot`, {
+          acpSessionId,
+          workspaceDir: this.config?.workspaceDir,
+          projectWorkspaceDir: this.storedSandboxConfig?.projectWorkspaceDir,
+          isolatedHome: this.isolatedHome,
+          writableRoots: strictCheck.writableRoots,
+        });
+      }
+      const strictTrace = {
+        reason: strictCheck.reason,
+        isWriteRequest: strictCheck.isWriteRequest,
+        toolKind: params.toolCall.kind,
+        toolTitle: params.toolCall.title,
+        candidatePaths: strictCheck.candidatePaths,
+        resolvedPaths: strictCheck.resolvedPaths,
+        writableRoots: strictCheck.writableRoots,
+      };
+      if (strictCheck.isWriteRequest) {
+        log.debug(`${this.logTag} strict permission evaluation`, strictTrace);
+      } else {
+        log.debug(
+          `${this.logTag} strict permission skipped (non-write request)`,
+          strictTrace,
+        );
+      }
+    }
+    if (strictCheck.blocked) {
+      log.debug(`${this.logTag} strict write permission blocked`, {
+        reason: strictCheck.reason,
+        toolKind: params.toolCall.kind,
+        toolTitle: params.toolCall.title,
+        candidatePaths: strictCheck.candidatePaths,
+        resolvedPaths: strictCheck.resolvedPaths,
+        writableRoots: strictCheck.writableRoots,
+      });
+      return { outcome: { outcome: "cancelled" } };
+    }
+
+    const strictWriteMode = strictEnabled && strictCheck.isWriteRequest;
+    const selected = strictWriteMode
+      ? params.options.find((o) => o.kind === "allow_once")
+      : params.options.find((o) => o.kind === "allow_always") ||
+        params.options.find((o) => o.kind === "allow_once") ||
+        params.options[0];
+
+    if (strictWriteMode && !selected) {
+      log.debug(
+        `${this.logTag} strict write permission blocked (allow_once option missing)`,
+        {
+          toolKind: params.toolCall.kind,
+          toolTitle: params.toolCall.title,
+        },
+      );
+      return { outcome: { outcome: "cancelled" } };
+    }
 
     if (selected) {
-      log.info(
-        `${this.logTag} 🔓 权限自动放行: tool=${params.toolCall.title}, kind=${selected.kind}, optionId=${selected.optionId}`,
-      );
+      if (strictWriteMode) {
+        log.debug(`${this.logTag} strict write permission allowed_once`, {
+          toolKind: params.toolCall.kind,
+          toolTitle: params.toolCall.title,
+          optionId: selected.optionId,
+          candidatePaths: strictCheck.candidatePaths,
+          resolvedPaths: strictCheck.resolvedPaths,
+        });
+      } else {
+        log.info(
+          `${this.logTag} 🔓 权限自动放行: tool=${params.toolCall.title}, kind=${selected.kind}, optionId=${selected.optionId}`,
+        );
+      }
       return {
         outcome: { outcome: "selected", optionId: selected.optionId },
       };

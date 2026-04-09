@@ -17,6 +17,16 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
+const sandboxPolicyState = {
+  current: {
+    enabled: true,
+    backend: "auto",
+    mode: "compat",
+    autoFallback: "startup-only",
+    windowsMode: "workspace-write",
+  },
+};
+
 // ───── 必需 Mocks（防止导入链拉起 Electron / IPC 等重模块）──────────────────
 
 vi.mock("electron-log", () => ({
@@ -61,6 +71,10 @@ vi.mock("../memory", () => ({
 
 vi.mock("./acp/acpClient", () => ({
   loadAcpSdk: vi.fn(() => Promise.resolve({})),
+}));
+
+vi.mock("../sandbox/policy", () => ({
+  getSandboxPolicy: vi.fn(() => sandboxPolicyState.current),
 }));
 
 vi.mock("./acp/acpEngine", () => {
@@ -554,6 +568,13 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    sandboxPolicyState.current = {
+      enabled: true,
+      backend: "auto",
+      mode: "compat",
+      autoFallback: "startup-only",
+      windowsMode: "workspace-write",
+    };
   });
 
   it("init() 后 engines 中存在 __warmup__ 占位", async () => {
@@ -693,6 +714,40 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
       runtimeConfigB,
     );
     expect(engine3).toBe(refillB);
+  });
+
+  it("sandbox policy 变更后，下一次会话立即放弃旧 warmup 复用", async () => {
+    const svc = new UnifiedAgentService() as any;
+    sandboxPolicyState.current = {
+      ...sandboxPolicyState.current,
+      mode: "compat",
+    };
+    await svc.init(baseConfig);
+
+    const warmupEngine = svc.engines.get("__warmup__");
+    expect(warmupEngine).toBeDefined();
+    const warmupCfg = svc.engineConfigs.get("__warmup__");
+    expect(warmupCfg.env?.NUWAX_AGENT_WARMUP_SANDBOX_POLICY_FP).toBeDefined();
+
+    sandboxPolicyState.current = {
+      ...sandboxPolicyState.current,
+      mode: "strict",
+    };
+
+    const engine = await svc.getOrCreateEngine("proj-sandbox-policy-change", {
+      ...baseConfig,
+    });
+
+    expect(engine).not.toBe(warmupEngine);
+    expect(warmupEngine.destroy).toHaveBeenCalled();
+    expect(svc.engines.has("__warmup__")).toBe(true);
+    expect(svc.engines.get("proj-sandbox-policy-change")).toBe(engine);
+
+    const refillCfg = svc.engineConfigs.get("__warmup__");
+    expect(refillCfg.env?.NUWAX_AGENT_WARMUP_SANDBOX_POLICY_FP).toBeDefined();
+    expect(refillCfg.env?.NUWAX_AGENT_WARMUP_SANDBOX_POLICY_FP).not.toBe(
+      warmupCfg.env?.NUWAX_AGENT_WARMUP_SANDBOX_POLICY_FP,
+    );
   });
 
   it("warmup 缺少 MCP ready 标记时不复用，回退冷启动", async () => {

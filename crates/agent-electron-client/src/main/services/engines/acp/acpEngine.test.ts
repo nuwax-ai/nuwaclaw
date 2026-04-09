@@ -355,6 +355,80 @@ describe("AcpEngine.createSession", () => {
   });
 });
 
+describe("AcpEngine.handlePermissionRequest(strict)", () => {
+  it("strict 下 workspace 内写入仅放行 allow_once", async () => {
+    const { engine, sessionId } = setupEngine("nuwaxcode");
+    (engine as any).config = { engine: "nuwaxcode", workspaceDir: "/tmp/ws" };
+    (engine as any).storedSandboxConfig = {
+      enabled: true,
+      mode: "strict",
+      projectWorkspaceDir: "/tmp/ws",
+    };
+    (engine as any).isolatedHome = "/tmp/iso-home";
+
+    const result = await (engine as any).handlePermissionRequest({
+      sessionId,
+      toolCall: {
+        toolCallId: "tc-strict-1",
+        kind: "edit",
+        title: "Edit",
+        rawInput: { file_path: "/tmp/ws/a.txt" },
+      },
+      options: [
+        {
+          optionId: "allow-always",
+          kind: "allow_always",
+          name: "allow always",
+        },
+        {
+          optionId: "allow-once",
+          kind: "allow_once",
+          name: "allow once",
+        },
+      ],
+    });
+
+    expect(result).toEqual({
+      outcome: { outcome: "selected", optionId: "allow-once" },
+    });
+  });
+
+  it("strict 下 workspace/temp/appData 外写入应拒绝", async () => {
+    const { engine, sessionId } = setupEngine("nuwaxcode");
+    (engine as any).config = { engine: "nuwaxcode", workspaceDir: "/tmp/ws" };
+    (engine as any).storedSandboxConfig = {
+      enabled: true,
+      mode: "strict",
+      projectWorkspaceDir: "/tmp/ws",
+    };
+    (engine as any).isolatedHome = "/tmp/iso-home";
+
+    const result = await (engine as any).handlePermissionRequest({
+      sessionId,
+      toolCall: {
+        toolCallId: "tc-strict-2",
+        kind: "write",
+        title: "Write",
+        rawInput: { file_path: "/etc/passwd" },
+      },
+      options: [
+        {
+          optionId: "allow-always",
+          kind: "allow_always",
+          name: "allow always",
+        },
+        {
+          optionId: "allow-once",
+          kind: "allow_once",
+          name: "allow once",
+        },
+      ],
+    });
+
+    expect(result).toEqual({ outcome: { outcome: "cancelled" } });
+  });
+});
+
 describe("AcpEngine.init", () => {
   afterEach(() => {
     vi.restoreAllMocks();

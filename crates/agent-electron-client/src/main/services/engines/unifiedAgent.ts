@@ -24,6 +24,7 @@ import { AcpEngine } from "./acp/acpEngine";
 import { loadAcpSdk } from "./acp/acpClient";
 import { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 import { EngineWarmup } from "./engineWarmup";
+import { buildSandboxPolicyFingerprint } from "./sandboxPolicyFingerprint";
 import dependencies from "../system/dependencies";
 import { processRegistry } from "../system/processRegistry";
 import type { DetailedSession } from "@shared/types/sessions";
@@ -50,6 +51,7 @@ import {
   filterBridgeEntries,
   rawMcpServersEqual,
 } from "../packages/mcpHelpers";
+import { getSandboxPolicy } from "../sandbox/policy";
 
 /** 环境变量记录类型 */
 type EnvRecord = Record<string, string | undefined>;
@@ -247,6 +249,9 @@ export class UnifiedAgentService extends EventEmitter {
     this.engines,
     this.engineConfigs,
     this.engineRawMcpServers,
+    {
+      getSandboxPolicyFingerprint: () => this.getSandboxPolicyFingerprint(),
+    },
   );
 
   /** Buffer assistant text chunks per session for memory tracking */
@@ -434,6 +439,18 @@ export class UnifiedAgentService extends EventEmitter {
 
   getEngineType(): AgentEngineType | null {
     return this.engineType;
+  }
+
+  private getSandboxPolicyFingerprint(): string | null {
+    try {
+      return buildSandboxPolicyFingerprint(getSandboxPolicy());
+    } catch (error) {
+      log.debug(
+        "[UnifiedAgent] failed to build sandbox policy fingerprint for warmup",
+        error,
+      );
+      return null;
+    }
   }
 
   getAgentConfig(): AgentConfig | null {

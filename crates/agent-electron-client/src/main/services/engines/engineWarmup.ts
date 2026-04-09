@@ -28,6 +28,10 @@ const RESPAWN_DELAY_MS = 500; // 防抖延迟
 const MCP_CONFIG_HASH_RE = /mcp-config-[^-]+-([0-9a-f]{16})\.json$/i;
 const WARMUP_ENV_FLAG = "NUWAX_AGENT_WARMUP";
 const WARMUP_MCP_READY_FLAG = "NUWAX_AGENT_WARMUP_MCP_READY";
+const WARMUP_SANDBOX_POLICY_FINGERPRINT_FLAG =
+  "NUWAX_AGENT_WARMUP_SANDBOX_POLICY_FP";
+
+type SandboxPolicyFingerprintProvider = () => string | null;
 
 type WarmupStartOptions = {
   /** 允许在已有活跃 project 引擎时补仓 warmup */
@@ -36,6 +40,11 @@ type WarmupStartOptions = {
   mcpServers?: AgentConfig["mcpServers"];
   /** 触发原因，仅用于日志 */
   reason?: string;
+};
+
+type EngineWarmupOptions = {
+  /** Return a stable fingerprint string for current sandbox policy. */
+  getSandboxPolicyFingerprint?: SandboxPolicyFingerprintProvider;
 };
 
 type StdioMcpEntry = Extract<McpServerEntry, { command: string }>;
@@ -57,6 +66,7 @@ export class EngineWarmup {
     private readonly engines: Map<string, AcpEngine>,
     private readonly configs: Map<string, AgentConfig>,
     private readonly rawMcpServers: Map<string, Record<string, McpServerEntry>>,
+    private readonly options?: EngineWarmupOptions,
   ) {}
 
   /** 清理 respawn 定时器，防止实例销毁后仍有 pending callback。 */
@@ -141,6 +151,17 @@ export class EngineWarmup {
         ...(warmupConfig.env || {}),
         [WARMUP_MCP_READY_FLAG]: "1",
       };
+    }
+    const sandboxPolicyFingerprint =
+      this.options?.getSandboxPolicyFingerprint?.() || null;
+    if (sandboxPolicyFingerprint) {
+      warmupConfig.env = {
+        ...(warmupConfig.env || {}),
+        [WARMUP_SANDBOX_POLICY_FINGERPRINT_FLAG]: sandboxPolicyFingerprint,
+      };
+      log.debug("[EngineWarmup] warmup sandbox policy snapshot", {
+        fingerprintDigest: this.digest(sandboxPolicyFingerprint),
+      });
     }
 
     // 立即占位，避免 warmup 进行中 getOrCreateEngine 创建重复引擎
@@ -504,6 +525,68 @@ export class EngineWarmup {
             warmupEngineType,
             requestEngineType,
           },
+        );
+        engine.removeAllListeners();
+        await engine.destroy().catch(() => {});
+        this.engines.delete(WARMUP_KEY);
+        this.configs.delete(WARMUP_KEY);
+        this.rawMcpServers.delete(WARMUP_KEY);
+        return null;
+      }
+
+      const warmupSandboxPolicyFingerprint =
+        (warmupConfig.env || {})[WARMUP_SANDBOX_POLICY_FINGERPRINT_FLAG] || "";
+      const currentSandboxPolicyFingerprint =
+        this.options?.getSandboxPolicyFingerprint?.() || "";
+      if (currentSandboxPolicyFingerprint) {
+        log.debug("[EngineWarmup] warmup sandbox policy compatibility check", {
+          hasWarmupMarker: !!warmupSandboxPolicyFingerprint,
+          warmupFingerprintDigest: warmupSandboxPolicyFingerprint
+            ? this.digest(warmupSandboxPolicyFingerprint)
+            : "(none)",
+          currentFingerprintDigest: this.digest(
+            currentSandboxPolicyFingerprint,
+          ),
+          compatible:
+            warmupSandboxPolicyFingerprint === currentSandboxPolicyFingerprint,
+        });
+      }
+      if (currentSandboxPolicyFingerprint && !warmupSandboxPolicyFingerprint) {
+        log.info(
+          "[EngineWarmup] ⚠️ Warmup sandbox policy marker missing, skipping reuse for safety",
+        );
+        firstTokenTrace.trace(
+          "warmup.reuse.miss",
+          { projectId, engine: requestEngineType || warmupEngineType },
+          { reason: "legacy_warmup_without_sandbox_policy_marker" },
+        );
+        engine.removeAllListeners();
+        await engine.destroy().catch(() => {});
+        this.engines.delete(WARMUP_KEY);
+        this.configs.delete(WARMUP_KEY);
+        this.rawMcpServers.delete(WARMUP_KEY);
+        return null;
+      }
+      if (
+        currentSandboxPolicyFingerprint &&
+        warmupSandboxPolicyFingerprint &&
+        warmupSandboxPolicyFingerprint !== currentSandboxPolicyFingerprint
+      ) {
+        log.info(
+          "[EngineWarmup] ⚠️ Sandbox policy changed, skipping warmup reuse",
+          {
+            warmupFingerprintDigest: this.digest(
+              warmupSandboxPolicyFingerprint,
+            ),
+            currentFingerprintDigest: this.digest(
+              currentSandboxPolicyFingerprint,
+            ),
+          },
+        );
+        firstTokenTrace.trace(
+          "warmup.reuse.miss",
+          { projectId, engine: requestEngineType || warmupEngineType },
+          { reason: "sandbox_policy_incompatible" },
         );
         engine.removeAllListeners();
         await engine.destroy().catch(() => {});

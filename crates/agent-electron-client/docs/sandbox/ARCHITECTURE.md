@@ -1,7 +1,7 @@
 # NuwaClaw Agent 沙箱架构设计
 
-> **版本**: 1.0.0
-> **更新日期**: 2026-03-27
+> **版本**: 1.0.1
+> **更新日期**: 2026-04-10
 > **状态**: 设计完成，待实施
 
 ---
@@ -232,6 +232,12 @@ bwrap \
 | Linux (bwrap) | 最小 ro-bind：仅 `/usr` `/bin` `/sbin` `/lib` `/lib64` `/etc` `/opt` `/usr/local` | 全局 ro-bind `--ro-bind / /` | 完整 rw bind，无 namespace 隔离 |
 | macOS (seatbelt) | exec allowlist 仅命令本身 | exec allowlist 含启动链 | 全局 file-write + unrestricted process-exec |
 | Windows (helper) | `writable_roots` 仅项目 workspace | 全部 `writable_roots` | 全部 `writable_roots` + `--no-write-restricted`（仅 run 子命令） |
+
+> `nuwaxcode` 在 strict 模式下还包含 ACP 权限层的二次写入门控（`strictPermissionGuard`）：
+> 写入路径必须位于 `workspace/temp/appData`，路径缺失时 fail-closed，写入权限仅 `allow_once`。
+>
+> `nuwaxcode` warmup 复用同样受 sandbox policy 约束：warmup 会记录 policy 指纹，
+> 当用户修改 sandbox mode/policy 后，若指纹不一致则立即放弃复用并冷启动新引擎。
 
 ### 4.2 配置结构
 
