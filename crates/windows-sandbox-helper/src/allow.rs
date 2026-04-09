@@ -79,5 +79,19 @@ pub fn compute_allow_paths(
         }
     }
 
+    // Include APPDATA/LOCALAPPDATA as writable roots in compat mode (and permissive).
+    // Strict mode intentionally excludes these — only workspace + TEMP/TMP are writable.
+    // This is the single authority for APPDATA allowance; the TypeScript side does NOT add them.
+    let mode = policy.sandbox_mode();
+    if mode != "strict" {
+        for key in ["APPDATA", "LOCALAPPDATA"] {
+            if let Some(v) = env_map.get(key) {
+                add_allow_path(PathBuf::from(v));
+            } else if let Ok(v) = std::env::var(key) {
+                add_allow_path(PathBuf::from(v));
+            }
+        }
+    }
+
     AllowDenyPaths { allow, deny }
 }

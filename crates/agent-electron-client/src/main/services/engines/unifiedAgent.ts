@@ -25,6 +25,7 @@ import { loadAcpSdk } from "./acp/acpClient";
 import { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 import { EngineWarmup } from "./engineWarmup";
 import dependencies from "../system/dependencies";
+import { getSandboxPolicy } from "../sandbox/policy";
 import { processRegistry } from "../system/processRegistry";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ENGINE_DESTROY_TIMEOUT } from "@shared/constants";
@@ -560,7 +561,18 @@ export class UnifiedAgentService extends EventEmitter {
 
     // 仅 nuwaxcode 请求走 warmup 复用，claude-code 保持原路径
     if (isNuwaxRequest) {
-      const reused = await this.warmup.tryReuse(projectId, effectiveConfig, t0);
+      // Inject current sandbox mode so tryReuse() can reject if modes don't match.
+      // The sandbox mode is baked into the process wrapper at spawn time and cannot
+      // be changed via updateConfig(). Mismatched modes must cold-start.
+      const currentSandboxMode = getSandboxPolicy().mode ?? "compat";
+      const configWithSandbox = Object.assign({}, effectiveConfig, {
+        __sandboxMode: currentSandboxMode,
+      });
+      const reused = await this.warmup.tryReuse(
+        projectId,
+        configWithSandbox,
+        t0,
+      );
       if (reused) {
         // 同步引擎内部 config 为 effectiveConfig，
         // 防止 chat() 中 shouldReinitForModelProvider 因 config 不一致而 kill + reinit
