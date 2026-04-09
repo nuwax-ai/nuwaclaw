@@ -104,15 +104,48 @@ export class ManagedProcess {
               ? ` (exit ${ex.code}, signal ${ex.signal ?? "none"})`
               : "";
             const tail = this.startupStderr.trim();
-            const stderrHint =
-              tail.length > 0
-                ? `: ${
-                    tail.length > STARTUP_STDERR_IN_ERROR
-                      ? "…" + tail.slice(-STARTUP_STDERR_IN_ERROR)
-                      : tail
-                  }`
-                : "";
-            const msg = `${base}${exitHint}${stderrHint}`;
+
+            // Try to parse structured error prefix (e.g., GUI_AGENT_ERROR:{...})
+            let errorMsg: string;
+            // Extract first line matching GUI_AGENT_ERROR: prefix, then parse JSON from it
+            const errorLineMatch = tail
+              .split("\n")
+              .find((line) => line.startsWith("GUI_AGENT_ERROR:"));
+            if (errorLineMatch) {
+              const jsonStr = errorLineMatch.substring(
+                "GUI_AGENT_ERROR:".length,
+              );
+              try {
+                const errObj = JSON.parse(jsonStr);
+                errorMsg = errObj.message || errObj.code || "Unknown error";
+              } catch {
+                errorMsg = base + exitHint;
+              }
+            } else {
+              // Fallback: parse structured logs, extract [error] lines only
+              // Format: [YYYY-MM-DD HH:mm:ss.SSS] [level] [service] message
+              const errorLines = tail
+                .split("\n")
+                .filter(
+                  (line) =>
+                    /\]\s*\[error\]/i.test(line) || /\[error\]\s*/i.test(line),
+                )
+                .map((line) => {
+                  // Strip timestamp and log level prefix for cleaner output
+                  const msgMatch = line.match(
+                    /(\[[\d:.\s]+\]\s*)?\[[^\]]+\]\s*\[error\]\s*(.*)/i,
+                  );
+                  return msgMatch ? msgMatch[2] : line;
+                })
+                .slice(-2); // Keep last 2 error lines
+              const filteredTail = errorLines.join("; ");
+              errorMsg =
+                filteredTail.length > 0
+                  ? `: ${filteredTail.length > STARTUP_STDERR_IN_ERROR ? "…" + filteredTail.slice(-STARTUP_STDERR_IN_ERROR) : filteredTail}`
+                  : "";
+            }
+
+            const msg = `${base}${exitHint}${errorMsg}`;
             this.lastError = msg;
             log.warn(`[${this.name}] Start failed: ${msg}`, {
               command: config.command,

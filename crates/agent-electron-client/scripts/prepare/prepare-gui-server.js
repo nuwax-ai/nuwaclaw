@@ -132,6 +132,7 @@ function main() {
   const slimPkg = {
     name: srcPkg.name,
     version: srcPkg.version,
+    type: 'module',
     main: './dist/lib.bundle.cjs',
     bin: { 'agent-gui-server': './dist/index.js' },
   };
