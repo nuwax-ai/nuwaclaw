@@ -5,12 +5,11 @@
  * 集成到 McpProxyManager 的工具聚合流程中。
  */
 
-import * as fs from "fs";
 import * as path from "path";
+import { createRequire } from "module";
 import log from "electron-log";
 import { ElectronProcessRunner } from "./windowsMcpRunner.js";
 import {
-  getUvBinPath,
   getAppEnv,
   getWindowsMcpBinPath,
   getResourcesPath,
@@ -28,6 +27,39 @@ type ProcessConfig = import("agent-gui-server").ProcessConfig;
  */
 let windowsMcpManager: WindowsMcpManagerType | null = null;
 let processRunner: ElectronProcessRunner | null = null;
+const runtimeRequire = createRequire(__filename);
+
+/**
+ * 为 bundled windows-mcp 构建运行环境
+ *
+ * 关键点：
+ * - 重写 getAppEnv() 注入的关键 UV_* 路径变量，避免 uv trampoline 指向全局工具目录。
+ * - bundled windows-mcp 应始终使用其自身安装目录（extraResources/windows-mcp）解析脚本路径。
+ * - 保持 UV_NO_INSTALL=1，确保缺失时快速失败，不触发联网安装兜底。
+ */
+function buildBundledWindowsMcpEnv(
+  windowsMcpBinPath: string,
+): Record<string, string> {
+  const env: Record<string, string> = {
+    ...getAppEnv({ includeSystemPath: true }),
+    ANONYMIZED_TELEMETRY: "false",
+  };
+
+  const windowsMcpRoot = path.dirname(path.dirname(windowsMcpBinPath));
+  const bundledToolDir = path.join(windowsMcpRoot, ".uv-tool");
+  const bundledToolBinDir = path.join(windowsMcpRoot, "bin");
+
+  // 仅修正会影响 uv trampoline 定位脚本路径的变量。
+  // 注意：不移除 PATH 中的 bundled uv，其他模块仍可正常使用应用内 uv。
+  env.UV_TOOL_DIR = bundledToolDir;
+  env.UV_TOOL_BIN_DIR = bundledToolBinDir;
+  env.UV_NO_INSTALL = "1";
+  log.info(
+    `[WindowsMcp] Using bundled UV tool dirs: UV_TOOL_DIR=${bundledToolDir}, UV_TOOL_BIN_DIR=${bundledToolBinDir}`,
+  );
+
+  return env;
+}
 
 /**
  * 延迟加载并初始化 WindowsMcpManager
@@ -46,7 +78,14 @@ function getWindowsMcpManager(): WindowsMcpManagerType {
       "dist",
       "lib.bundle.cjs",
     );
-    const { WindowsMcpManager: WMM } = require(libBundlePath);
+    const { WindowsMcpManager: WMM } = runtimeRequire(libBundlePath) as {
+      WindowsMcpManager: new (cfg: {
+        healthCheckInterval: number;
+        startupTimeout: number;
+        healthCheckTimeout: number;
+        maxRestarts: number;
+      }) => WindowsMcpManagerType;
+    };
     windowsMcpManager = new WMM({
       healthCheckInterval: 30000,
       startupTimeout: 30000,
@@ -87,47 +126,10 @@ export async function startWindowsMcp(): Promise<{
   // 检查 bundled windows-mcp 是否可用
   const windowsMcpBinPath = getWindowsMcpBinPath();
   if (!windowsMcpBinPath) {
-    // 回退到 uv tool run（首次安装或打包不完整时）
-    const uvPath = getUvBinPath();
-    if (!uvPath || !fs.existsSync(uvPath)) {
-      const error =
-        "uv not found and windows-mcp not bundled. Please install uv.";
-      log.warn(`[WindowsMcp] ${error}`);
-      return { success: false, error };
-    }
-    log.info("[WindowsMcp] Using uv tool run (bundled not found)");
-    const buildConfig = (_port: number): ProcessConfig => ({
-      command: uvPath,
-      args: [
-        "tool",
-        "run",
-        "windows-mcp",
-        "--transport",
-        "streamable-http",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        getGuiMcpPort().toString(),
-      ],
-      env: {
-        ...getAppEnv({ includeSystemPath: true }),
-        // 禁用遥测
-        ANONYMIZED_TELEMETRY: "false",
-      },
-    });
-    log.info(
-      `[WindowsMcp] Starting (uv tool run) on port ${getGuiMcpPort()}...`,
-    );
-    const result = await getWindowsMcpManager().start(
-      getGuiMcpPort(),
-      buildConfig,
-    );
-    if (result.success) {
-      log.info(`[WindowsMcp] Started successfully on port ${result.port}`);
-    } else {
-      log.error(`[WindowsMcp] Failed to start: ${result.error}`);
-    }
-    return result;
+    const error =
+      "Bundled windows-mcp not found. Packaging is incomplete; fallback is disabled.";
+    log.error(`[WindowsMcp] ${error}`);
+    return { success: false, error };
   }
 
   // 构建进程配置（使用打包的二进制）
@@ -144,11 +146,7 @@ export async function startWindowsMcp(): Promise<{
       getGuiMcpPort().toString(),
     ],
     cwd: path.dirname(windowsMcpBinPath),
-    env: {
-      ...getAppEnv({ includeSystemPath: true }),
-      // 禁用遥测
-      ANONYMIZED_TELEMETRY: "false",
-    },
+    env: buildBundledWindowsMcpEnv(windowsMcpBinPath),
   });
 
   const port = getGuiMcpPort();
@@ -248,14 +246,5 @@ export function isWindowsMcpAvailable(): boolean {
   if (!isWindows()) {
     return false;
   }
-
-  // 优先检查打包的二进制
-  const bundledPath = getWindowsMcpBinPath();
-  if (bundledPath) {
-    return true;
-  }
-
-  // 回退到 uv
-  const uvPath = getUvBinPath();
-  return uvPath !== null && fs.existsSync(uvPath);
+  return getWindowsMcpBinPath() !== null;
 }

@@ -335,7 +335,11 @@
           "from": "resources/windows-mcp",
           "to": "windows-mcp",
           "filter": [
-            "**/*"
+            "**/*",
+            ".uv-tool",
+            ".uv-tool/**",
+            ".uv-tool/**/*",
+            "**/.uv-tool/**"
           ]
         },
         {

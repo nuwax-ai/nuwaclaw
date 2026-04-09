@@ -8,6 +8,7 @@ logs/
 book
 .DS_Store
 .pi/
+.vscode
 
 # Node.js dependencies (root husky/lint-staged)
 node_modules/
