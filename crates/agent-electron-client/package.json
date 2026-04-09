@@ -17,6 +17,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "sandbox:matrix:check": "vitest run tests/scripts/sandbox-matrix-consistency.test.ts",
+    "sandbox:matrix:generate": "cross-env SANDBOX_MATRIX_WRITE=1 vitest run tests/scripts/sandbox-matrix-consistency.test.ts",
     "check:boundaries": "node scripts/tools/check-import-boundaries.js",
     "test:integrated-node": "node scripts/tools/test-integrated-node.js",
     "prepare:uv": "node scripts/prepare/prepare-uv.js",

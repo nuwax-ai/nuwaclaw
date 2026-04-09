@@ -26,6 +26,10 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import {
+  buildSandboxHelperEnv,
+  resolveSandboxWorkingDirectory,
+} from "./sandboxed-bash-security.mjs";
 
 // ---- Configuration from environment ----
 
@@ -60,6 +64,11 @@ function resolveShell() {
 }
 
 const shell = resolveShell();
+const SANDBOX_CWD = resolveSandboxWorkingDirectory(
+  process.cwd(),
+  SANDBOX_MODE,
+  WRITABLE_ROOTS,
+);
 
 // ---- Tool definition (matches built-in Bash schema) ----
 
@@ -143,7 +152,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     "--mode",
     SANDBOX_MODE,
     "--cwd",
-    process.cwd(),
+    SANDBOX_CWD,
     "--policy-json",
     JSON.stringify(policy),
     "--",
@@ -154,7 +163,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   log("spawning sandbox helper", {
     mode: SANDBOX_MODE,
-    cwd: process.cwd(),
+    cwd: SANDBOX_CWD,
     networkEnabled: NETWORK_ENABLED,
     shell: shell.type,
     commandPreview: command.slice(0, 120),
@@ -192,17 +201,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
  */
 function executeHelper(helperArgs, timeoutMs) {
   return new Promise((resolve, reject) => {
-    // Build environment: inject NUWAX_SANDBOX_PATH into PATH so the
-    // sandboxed process can find node, npm, git, uv, etc.
-    const env = { ...process.env };
-    if (SANDBOX_PATH) {
-      env.PATH = SANDBOX_PATH + ";" + (env.PATH || "");
-    }
-    // Strip ELECTRON_RUN_AS_NODE to avoid helper inheriting it
-    delete env.ELECTRON_RUN_AS_NODE;
+    // Build sanitized environment to avoid leaking host secrets to helper.
+    const env = buildSandboxHelperEnv(process.env, SANDBOX_PATH);
 
     const child = spawn(HELPER_PATH, helperArgs, {
-      cwd: process.cwd(),
+      cwd: SANDBOX_CWD,
       env,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],

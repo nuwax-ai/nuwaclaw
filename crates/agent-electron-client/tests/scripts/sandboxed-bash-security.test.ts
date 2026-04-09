@@ -37,6 +37,9 @@ describe("sandboxed-bash security helpers", () => {
         PATH: "C:\\Windows\\System32",
         TEMP: "C:\\Temp",
         HOME: "C:\\Users\\demo",
+        COMSPEC: "C:\\Windows\\System32\\cmd.exe",
+        PATHEXT: ".COM;.EXE;.BAT;.CMD",
+        SystemDrive: "C:",
         ANTHROPIC_API_KEY: "secret-anthropic",
         OPENAI_API_KEY: "secret-openai",
       },
@@ -46,6 +49,9 @@ describe("sandboxed-bash security helpers", () => {
     expect(env.PATH).toBe("C:\\Windows\\System32");
     expect(env.TEMP).toBe("C:\\Temp");
     expect(env.HOME).toBe("C:\\Users\\demo");
+    expect(env.COMSPEC).toBe("C:\\Windows\\System32\\cmd.exe");
+    expect(env.PATHEXT).toBe(".COM;.EXE;.BAT;.CMD");
+    expect(env.SystemDrive).toBe("C:");
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(env.OPENAI_API_KEY).toBeUndefined();
   });
@@ -83,4 +89,3 @@ describe("sandboxed-bash security helpers", () => {
     expect(cwd).toBe(inside);
   });
 });
-

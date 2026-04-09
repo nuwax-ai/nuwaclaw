@@ -91,10 +91,15 @@ function safeStringify(obj: unknown): string {
 
 const MCP_RETRY_DELAY_MS = 1200;
 const MCP_RECONNECT_WINDOW_MS = 4000;
+const GUI_MCP_NAME = "gui-agent";
 // 该文案会透传到上层调用方/界面，必须走 i18n，避免在非英文语言下出现硬编码英文提示。
 // 使用函数延迟求值，避免模块加载时 t() 在 initI18n() 之前执行
 function getMcpReconnectPromptMessage(): string {
   return t("Claw.Errors.mcpReconnectRetryLater");
+}
+
+function isGuiMcpName(name: string): boolean {
+  return name.trim().toLowerCase() === GUI_MCP_NAME;
 }
 const NUWAX_MCP_INIT_POLICY_DEFAULT: NonNullable<
   PromptOptions["mcpInitPolicy"]
@@ -427,6 +432,44 @@ export class AcpEngine extends EventEmitter {
         }
       }
 
+      // GUI MCP (gui-agent) and sandbox are mutually exclusive for now.
+      // Remove gui-agent from legacy OPENCODE_CONFIG_CONTENT injection path
+      // when sandbox is enabled, so nuwaxcode won't bootstrap GUI MCP.
+      if (
+        this.engineName === "nuwaxcode" &&
+        sandboxConfig?.enabled &&
+        spawnEnv.OPENCODE_CONFIG_CONTENT
+      ) {
+        try {
+          const injectedConfig = JSON.parse(
+            spawnEnv.OPENCODE_CONFIG_CONTENT,
+          ) as {
+            mcp?: Record<string, unknown>;
+          };
+          if (injectedConfig.mcp) {
+            let removed = 0;
+            for (const key of Object.keys(injectedConfig.mcp)) {
+              if (isGuiMcpName(key)) {
+                delete injectedConfig.mcp[key];
+                removed += 1;
+              }
+            }
+            if (removed > 0) {
+              spawnEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify(injectedConfig);
+              log.warn(
+                `${this.logTag} Removed gui-agent MCP from OPENCODE_CONFIG_CONTENT because sandbox is enabled`,
+                { removed },
+              );
+            }
+          }
+        } catch (e) {
+          log.warn(
+            `${this.logTag} Failed to enforce gui-agent/sandbox mutual exclusion in OPENCODE_CONFIG_CONTENT`,
+            e,
+          );
+        }
+      }
+
       // Create Terminal Manager for per-command sandboxing via ACP Terminal API.
       // claude-code-acp-ts uses terminal/create for bash execution.
       // On Windows, this routes through nuwax-sandbox-helper.exe run.
@@ -750,6 +793,26 @@ export class AcpEngine extends EventEmitter {
       }
     }
 
+    const sandboxEnabled = this.storedSandboxConfig?.enabled === true;
+
+    // GUI MCP (gui-agent) and sandbox are mutually exclusive for now.
+    // Drop gui-agent from both global and per-request MCP inputs when sandbox is on.
+    if (sandboxEnabled) {
+      const before = mcpServers.length;
+      const filtered = mcpServers.filter(
+        (server) => !isGuiMcpName(server.name),
+      );
+      const removed = before - filtered.length;
+      if (removed > 0) {
+        mcpServers.length = 0;
+        mcpServers.push(...filtered);
+        log.warn(
+          `${this.logTag} Removed gui-agent MCP from session request because sandbox is enabled`,
+          { removed },
+        );
+      }
+    }
+
     // [临时测试代码 - 正式发布前将 .env.production 中 INJECT_GUI_MCP 设为 false]
     // 通过 FEATURES.INJECT_GUI_MCP 控制是否注入 GUI Agent MCP（由 .env.development/.env.production 在运行时决定）
     // 用于本地开发/打包测试 GUI 桌面自动化功能，正式发布时由服务器下发 context_servers
@@ -757,20 +820,25 @@ export class AcpEngine extends EventEmitter {
     // Windows：独立 windows-mcp 子进程（uv）→ getWindowsMcpUrl()；getGuiAgentServerUrl() 在 Win 上恒为 null
     if (
       FEATURES.INJECT_GUI_MCP &&
-      !mcpServers.some((m) => m.name === "gui-agent")
+      !sandboxEnabled &&
+      !mcpServers.some((m) => isGuiMcpName(m.name))
     ) {
       const guiMcpUrl = isWindows()
         ? getWindowsMcpUrl()
         : getGuiAgentServerUrl();
       if (guiMcpUrl) {
         mcpServers.push({
-          name: "gui-agent",
+          name: GUI_MCP_NAME,
           url: guiMcpUrl,
           headers: [],
           type: "http",
         });
         log.info(`${this.logTag} 🔧 Injecting GUI Agent MCP: ${guiMcpUrl}`);
       }
+    } else if (FEATURES.INJECT_GUI_MCP && sandboxEnabled) {
+      log.info(
+        `${this.logTag} Skip GUI Agent MCP injection because sandbox is enabled`,
+      );
     }
 
     // 3. Sandboxed Bash MCP — replace built-in Bash with sandboxed version on Windows

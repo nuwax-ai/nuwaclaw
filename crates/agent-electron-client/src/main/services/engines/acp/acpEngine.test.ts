@@ -39,6 +39,30 @@ vi.mock("../../system/processRegistry", () => ({
   },
 }));
 
+vi.mock("@main/services/packages/guiAgentServer", () => ({
+  getGuiAgentServerUrl: vi.fn(() => null),
+}));
+
+vi.mock("@main/services/packages/windowsMcp", () => ({
+  getWindowsMcpUrl: vi.fn(() => null),
+}));
+
+vi.mock("@main/services/sandbox/policy", () => ({
+  getSandboxPolicy: vi.fn(() => ({
+    enabled: false,
+    backend: "auto",
+    mode: "compat",
+    autoFallback: "startup-only",
+    windowsMode: "workspace-write",
+  })),
+  resolveSandboxType: vi.fn(async () => ({
+    type: "none",
+    degraded: false,
+  })),
+  getBundledLinuxBwrapPath: vi.fn(() => null),
+  getBundledWindowsSandboxHelperPath: vi.fn(() => null),
+}));
+
 import { AcpEngine } from "./acpEngine";
 import * as acpClient from "./acpClient";
 
@@ -84,6 +108,35 @@ function setupEngine(engineType: "claude-code" | "nuwaxcode" = "nuwaxcode") {
       prompt: any;
     },
   };
+}
+
+function setupEngineForCreateSession(
+  engineType: "claude-code" | "nuwaxcode" = "nuwaxcode",
+) {
+  const engine = new AcpEngine(engineType);
+  const newSession = vi.fn().mockResolvedValue({ sessionId: "acp-session-1" });
+
+  (engine as any).config = {
+    engine: engineType,
+    workspaceDir: "/workspace/project",
+    mcpServers: {
+      "gui-agent": {
+        url: "http://127.0.0.1:9876/mcp",
+        type: "http",
+      },
+      "safe-tool": {
+        command: "node",
+        args: ["tool.js"],
+      },
+    },
+  } as any;
+  (engine as any).acpConnection = {
+    newSession,
+    prompt: vi.fn(),
+    cancel: vi.fn(),
+  } as any;
+
+  return { engine, newSession };
 }
 
 describe("AcpEngine.abortSession", () => {
@@ -254,6 +307,51 @@ describe("AcpEngine.handleAcpSessionUpdate", () => {
 
     expect(onMessage).not.toHaveBeenCalled();
     expect(onProgress).not.toHaveBeenCalled();
+  });
+});
+
+describe("AcpEngine.createSession", () => {
+  it("沙箱启用时应移除 gui-agent MCP（互斥）", async () => {
+    const { engine, newSession } = setupEngineForCreateSession("nuwaxcode");
+
+    (engine as any).storedSandboxConfig = {
+      enabled: true,
+      type: "windows-sandbox",
+      projectWorkspaceDir: "/workspace/project",
+    };
+
+    await engine.createSession({
+      mcpServers: {
+        "another-tool": {
+          command: "node",
+          args: ["another.js"],
+        },
+      },
+    });
+
+    expect(newSession).toHaveBeenCalledTimes(1);
+    const sent = newSession.mock.calls[0][0] as {
+      mcpServers: Array<{ name: string }>;
+    };
+
+    expect(sent.mcpServers.map((m) => m.name)).toEqual([
+      "safe-tool",
+      "another-tool",
+    ]);
+  });
+
+  it("沙箱关闭时应保留 gui-agent MCP", async () => {
+    const { engine, newSession } = setupEngineForCreateSession("nuwaxcode");
+    (engine as any).storedSandboxConfig = null;
+
+    await engine.createSession();
+
+    expect(newSession).toHaveBeenCalledTimes(1);
+    const sent = newSession.mock.calls[0][0] as {
+      mcpServers: Array<{ name: string }>;
+    };
+
+    expect(sent.mcpServers.map((m) => m.name)).toContain("gui-agent");
   });
 });
 

@@ -5,6 +5,14 @@ export const SANDBOX_SAFE_ENV_KEYS = [
   "Path",
   "SYSTEMROOT",
   "SystemRoot",
+  "WINDIR",
+  "windir",
+  "SYSTEMDRIVE",
+  "SystemDrive",
+  "COMSPEC",
+  "ComSpec",
+  "PATHEXT",
+  "PATHExt",
   "TEMP",
   "TMP",
   "USERPROFILE",
@@ -63,4 +71,3 @@ export function buildSandboxHelperEnv(baseEnv, sandboxPath) {
   delete env.ELECTRON_RUN_AS_NODE;
   return env;
 }
-

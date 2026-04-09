@@ -19,6 +19,7 @@
 
 import { spawn, ChildProcess } from "child_process";
 import { randomUUID } from "crypto";
+import path from "path";
 import log from "electron-log";
 import { SandboxInvoker } from "@main/services/sandbox/SandboxInvoker";
 import { killProcessTree } from "@main/services/utils/processTree";
@@ -52,6 +53,113 @@ interface TerminalSession {
   exitPromise: Promise<TerminalExitStatus>;
   /** Resolver for exitPromise */
   resolveExit: (status: TerminalExitStatus) => void;
+}
+
+export const TERMINAL_SANDBOX_SAFE_ENV_KEYS = [
+  "PATH",
+  "Path",
+  "SYSTEMROOT",
+  "SystemRoot",
+  "WINDIR",
+  "windir",
+  "SYSTEMDRIVE",
+  "SystemDrive",
+  "COMSPEC",
+  "ComSpec",
+  "PATHEXT",
+  "PATHExt",
+  "TEMP",
+  "TMP",
+  "USERPROFILE",
+  "HOME",
+  "LOCALAPPDATA",
+  "APPDATA",
+  "COMPUTERNAME",
+  "USERNAME",
+  "OS",
+  "PROCESSOR_ARCHITECTURE",
+  "LANG",
+  "TZ",
+] as const;
+
+function isPathWithinRoot(candidate: string, root: string): boolean {
+  const relative = path.relative(root, candidate);
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+}
+
+export function resolveSandboxCwdWithinRoots(
+  requestedCwd: string,
+  writableRoots: string[],
+): string {
+  const resolvedCwd = path.resolve(requestedCwd);
+  const resolvedRoots = writableRoots.map((root) => path.resolve(root));
+
+  if (resolvedRoots.length === 0) {
+    return resolvedCwd;
+  }
+
+  if (resolvedRoots.some((root) => isPathWithinRoot(resolvedCwd, root))) {
+    return resolvedCwd;
+  }
+
+  throw new Error(
+    `Sandbox terminal cwd is outside writable roots: ${resolvedCwd}`,
+  );
+}
+
+export function resolveSandboxCwdWithFallback(
+  requestedCwd: string | null | undefined,
+  writableRoots: string[],
+  fallbackCwd: string,
+): { cwd: string; usedFallback: boolean } {
+  const resolvedRoots = writableRoots.map((root) => path.resolve(root));
+
+  if (resolvedRoots.length === 0) {
+    return {
+      cwd: path.resolve(requestedCwd ?? fallbackCwd),
+      usedFallback: false,
+    };
+  }
+
+  const fallbackRoot = resolvedRoots[0];
+
+  if (!requestedCwd) {
+    return { cwd: fallbackRoot, usedFallback: true };
+  }
+
+  try {
+    return {
+      cwd: resolveSandboxCwdWithinRoots(requestedCwd, resolvedRoots),
+      usedFallback: false,
+    };
+  } catch {
+    return { cwd: fallbackRoot, usedFallback: true };
+  }
+}
+
+export function buildTerminalSandboxEnv(
+  hostEnv: NodeJS.ProcessEnv,
+  overrides?: Array<{ name: string; value: string }>,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+
+  for (const key of TERMINAL_SANDBOX_SAFE_ENV_KEYS) {
+    const val = hostEnv[key];
+    if (val !== undefined && val !== null) {
+      env[key] = String(val);
+    }
+  }
+
+  if (overrides) {
+    for (const { name, value } of overrides) {
+      env[name] = value;
+    }
+  }
+
+  return env;
 }
 
 export interface AcpTerminalManagerOptions {
@@ -144,44 +252,38 @@ export class AcpTerminalManager {
     // Build a sanitized environment for sandboxed commands.
     // Avoid leaking sensitive host env vars (API keys, tokens, etc.)
     // into sandboxed child processes.
-    const env: Record<string, string> = {};
-    if (this.useSandbox) {
-      // Minimal safe env for sandboxed commands
-      const safeKeys = [
-        "PATH",
-        "Path",
-        "SYSTEMROOT",
-        "SystemRoot",
-        "TEMP",
-        "TMP",
-        "USERPROFILE",
-        "HOME",
-        "LOCALAPPDATA",
-        "APPDATA",
-        "COMPUTERNAME",
-        "USERNAME",
-        "OS",
-        "PROCESSOR_ARCHITECTURE",
-        "LANG",
-        "TZ",
-      ];
-      for (const key of safeKeys) {
-        const val = process.env[key];
-        if (val !== undefined && val !== null) {
-          env[key] = String(val);
-        }
-      }
-    } else {
-      // Non-sandboxed: pass through full host environment
-      Object.assign(env, process.env as Record<string, string>);
-    }
-    if (params.env) {
-      for (const { name, value } of params.env) {
-        env[name] = value;
-      }
-    }
+    const env: Record<string, string> = this.useSandbox
+      ? buildTerminalSandboxEnv(process.env, params.env)
+      : {
+          ...(process.env as Record<string, string>),
+          ...(params.env
+            ? Object.fromEntries(
+                params.env.map(({ name, value }) => [name, value]),
+              )
+            : {}),
+        };
 
-    const cwd = params.cwd || process.cwd();
+    const requestedCwd = params.cwd ?? process.cwd();
+    let cwd = requestedCwd;
+    if (this.useSandbox && this.writablePaths.length > 0) {
+      const resolved = resolveSandboxCwdWithFallback(
+        params.cwd,
+        this.writablePaths,
+        process.cwd(),
+      );
+      cwd = resolved.cwd;
+      if (resolved.usedFallback) {
+        log.warn(
+          "[AcpTerminalManager] terminal/create cwd adjusted to writable root",
+          {
+            terminalId,
+            sessionId: params.sessionId,
+            requestedCwd: params.cwd ?? null,
+            resolvedCwd: cwd,
+          },
+        );
+      }
+    }
 
     // Register BEFORE spawning so fast-exiting processes don't cause "not found" errors
     // in terminalOutput()/waitForExit() calls from the agent.
@@ -196,7 +298,7 @@ export class AcpTerminalManager {
           args: params.args || [],
           cwd,
           env,
-          writablePaths: [...this.writablePaths, cwd],
+          writablePaths: this.writablePaths,
           networkEnabled: this.networkEnabled,
           subcommand: "run",
         });
@@ -215,7 +317,7 @@ export class AcpTerminalManager {
         sandboxed: true,
         sandboxMode: "windows-sandbox-helper",
         networkEnabled: this.networkEnabled,
-        writablePaths: [...this.writablePaths, cwd],
+        writablePaths: this.writablePaths,
         cwd,
         parseJson: invocation.parseJson,
       });

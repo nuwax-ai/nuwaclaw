@@ -104,7 +104,7 @@ export const DEFAULT_PERMISSION_POLICY: PermissionPolicy = {
  * 危险命令黑名单
  * 注意：在沙箱内 rm -rf 是允许的，因为沙箱是隔离的
  */
-const DANGEROUS_COMMANDS = [
+export const DANGEROUS_COMMANDS = [
   // 权限提升（沙箱内也不允许）
   "sudo",
   "su",
@@ -625,7 +625,7 @@ export class PermissionManager extends EventEmitter {
       // Check with word boundaries to avoid partial matches
       const escapedDangerous = dangerous.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const dangerousPattern = new RegExp(
-        `(^|\\\\s|\\\\/|\\\\b)${escapedDangerous}(\\\\s|\\\\/|$|\\\\b)`,
+        `(^|\\s|/|\\b)${escapedDangerous}(\\s|/|$|\\b)`,
         "i",
       );
       if (dangerousPattern.test(lowerTarget)) {

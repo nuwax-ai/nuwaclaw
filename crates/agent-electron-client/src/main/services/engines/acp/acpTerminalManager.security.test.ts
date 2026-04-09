@@ -14,6 +14,8 @@ describe("AcpTerminalManager security helpers", () => {
       ANTHROPIC_API_KEY: "secret-key",
       OPENAI_API_KEY: "secret-openai",
       HOME: "/Users/demo",
+      COMSPEC: "C:\\Windows\\System32\\cmd.exe",
+      PATHEXT: ".COM;.EXE;.BAT;.CMD",
     };
 
     const env = buildTerminalSandboxEnv(hostEnv, [
@@ -23,6 +25,8 @@ describe("AcpTerminalManager security helpers", () => {
     expect(env.PATH).toBe("/usr/bin");
     expect(env.TEMP).toBe("/tmp");
     expect(env.HOME).toBe("/Users/demo");
+    expect(env.COMSPEC).toBe("C:\\Windows\\System32\\cmd.exe");
+    expect(env.PATHEXT).toBe(".COM;.EXE;.BAT;.CMD");
     expect(env.CUSTOM).toBe("1");
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(env.OPENAI_API_KEY).toBeUndefined();
