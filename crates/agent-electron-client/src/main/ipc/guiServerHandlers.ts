@@ -29,9 +29,9 @@ function getGuiMcpEnabled(): boolean {
     } | null;
     // 兼容老配置：历史 step1_config 可能没有 guiMcpEnabled 字段。
     // 缺省按“启用”处理，避免升级后 GUI MCP 被意外关闭。
-    return config?.guiMcpEnabled ?? true;
+    return config?.guiMcpEnabled ?? false;
   } catch {
-    return true;
+    return false;
   }
 }
 
