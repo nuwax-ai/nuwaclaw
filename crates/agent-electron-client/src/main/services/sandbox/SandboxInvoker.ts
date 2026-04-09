@@ -347,16 +347,10 @@ export class SandboxInvoker {
       network_access: params.networkEnabled,
     };
 
-    // Apply mode-dependent writable_roots for workspace-write mode.
+    // Writable roots: all modes use the same writable paths
+    // (workspace, app data dir, isolatedHome, system temp dirs).
     if (winMode === "workspace-write" && params.writablePaths.length > 0) {
-      if (sandboxMode === "strict") {
-        // Strict: only the project workspace root is writable.
-        // Additional paths (e.g. cwd) are excluded to minimise write surface.
-        // Safe: guarded by `params.writablePaths.length > 0` above.
-        sandboxPolicy.writable_roots = [params.writablePaths[0]!];
-      } else {
-        sandboxPolicy.writable_roots = params.writablePaths;
-      }
+      sandboxPolicy.writable_roots = params.writablePaths;
     }
 
     const helperArgs = [

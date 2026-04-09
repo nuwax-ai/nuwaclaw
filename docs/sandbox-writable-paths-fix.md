@@ -9,7 +9,7 @@
 
 ## 1. 问题描述
 
-在 macOS 上，ACP 引擎被 seatbelt 沙箱以 `strict` 模式包裹后，所有需要 spawn 子进程的工具（Bash、Glob 等）因 `EPERM` 失败，无法正常执行。
+在 macOS 上，ACP 引擎被 seatbelt 沙箱以 `strict` 模式包裹后，所有需要 spawn 子进程的工具（Bash、Glob 等）因 `EPERM` 失败，无法正常执行。同时引擎无法写入应用数据目录（`~/.nuwaclaw`），导致日志、npm 包等不可用。
 
 ### 1.1 claude-code 引擎
 
@@ -27,7 +27,18 @@ EPERM: operation not permitted, posix_spawn '/var/folders/.../nuwaclaw-acp-xxx/.
 
 nuwaxcode 内部需要执行 `rg`（ripgrep）实现文件搜索工具，但 strict 模式下 `startupExecAllowlist` 未生效，`rg` 不在 exec allow 中。
 
-### 1.3 复现步骤
+### 1.3 应用数据目录不可写
+
+strict 模式下 writablePaths 不包含 `~/.nuwaclaw`，引擎无法：
+- 写日志到 `~/.nuwaclaw/logs/`
+- 访问 `~/.nuwaclaw/node_modules/` 中的 npm 包
+- 读写引擎配置缓存
+
+### 1.4 Windows strict 模式限制
+
+Windows sandbox helper 的 strict 模式只取 `writablePaths[0]`（工作区），忽略了应用数据目录、isolatedHome、临时目录等必要路径。
+
+### 1.5 复现步骤
 
 1. 启动 NuwaClaw 桌面客户端，创建 ACP 会话（sandbox mode = strict）
 2. 发送提示词："运行 pwd 显示当前工作目录" 或 "运行 node -e ..."
@@ -89,7 +100,7 @@ strict 模式下，`SandboxInvoker.buildSeatbeltProfile()` 中 `startupExecAllow
 
 ### 3.3 第三轮（最终方案）：统一跨平台修复
 
-**三个改动，统一适用于所有引擎：**
+**四个改动，统一适用于所有引擎和所有平台：**
 
 #### 改动 1：跨平台系统临时目录加入 writablePaths
 
@@ -112,6 +123,18 @@ if (process.platform === "darwin") {
 | **Windows** | `os.tmpdir()` (`C:\Users\...\AppData\Local\Temp`) + realpath |
 
 所有引擎统一使用同一套路径，无引擎特定逻辑。
+
+#### 改动 1b：应用数据目录加入 writablePaths
+
+**文件**: `acpClient.ts`
+
+```typescript
+// App data directory (e.g. ~/.nuwaclaw) — engine writes logs, npm packages, etc.
+const appDataDir = path.join(app.getPath("home"), APP_DATA_DIR_NAME);
+extraWritable.push(appDataDir);
+```
+
+所有沙箱模式（strict / compat / permissive）和所有平台均可写入应用数据目录，引擎可正常写日志、访问 npm 包和配置缓存。
 
 #### 改动 2：strict 模式也使用 startupExecAllowlist
 
@@ -142,6 +165,24 @@ lines.push(`(allow process-exec (subpath "${p}"))`);
 
 这解决了 nuwaxcode 的 `rg` 执行问题 — `rg` 位于 isolatedHome 内，isolatedHome 是 writablePath，现在也允许在其中执行二进制。
 
+#### 改动 3b：Windows strict 模式使用完整 writablePaths
+
+**文件**: `SandboxInvoker.ts`
+
+Windows sandbox helper 的 strict 模式原来只取 `writablePaths[0]`（工作区），忽略了应用数据目录、isolatedHome、临时目录等。现在所有模式统一使用完整 `writablePaths`，不再区分 strict/compat：
+
+```typescript
+// Before:
+if (sandboxMode === "strict") {
+  sandboxPolicy.writable_roots = [params.writablePaths[0]!];
+} else {
+  sandboxPolicy.writable_roots = params.writablePaths;
+}
+
+// After:
+sandboxPolicy.writable_roots = params.writablePaths;
+```
+
 ### 3.4 修复后的 seatbelt profile（示例）
 
 ```seatbelt
@@ -164,6 +205,8 @@ lines.push(`(allow process-exec (subpath "${p}"))`);
 (allow process-exec (subpath "/Users/apple/project"))
 (allow file-write* (subpath ".../nuwaclaw-acp-xxx"))
 (allow process-exec (subpath ".../nuwaclaw-acp-xxx"))  ; rg 等引擎内部二进制可执行
+(allow file-write* (subpath "/Users/apple/.nuwaclaw"))
+(allow process-exec (subpath "/Users/apple/.nuwaclaw"))  ; 应用数据目录（日志、npm 包等）
 (allow file-write* (subpath "/var/folders/.../T"))
 (allow file-write* (subpath "/private/tmp"))            ; claude-code Bash 工具
 (allow process-exec (subpath "/private/tmp"))
@@ -182,8 +225,10 @@ lines.push(`(allow process-exec (subpath "${p}"))`);
 2. 发送 `node -e "console.log('hello')"` → 应正常输出
 3. 发送 `sandbox-testing-prompts.md` 中 A1 安全命令 → 全部正常执行
 4. 确认 nuwaxcode 引擎也能正常执行 Glob/Grep 工具（`rg` 不再 EPERM）
-5. 确认日志中 seatbelt profile 包含 `/private/tmp` 和 `process-exec (subpath isolatedHome)`
-6. 确认 compat/permissive 模式也正常工作
+5. 确认日志中 seatbelt profile 包含 `/private/tmp`、`process-exec (subpath isolatedHome)` 和 `~/.nuwaclaw`
+6. 确认引擎可以写日志到 `~/.nuwaclaw/logs/`
+7. 确认 compat/permissive 模式也正常工作
+8. 确认 Windows strict 模式下引擎也能写日志和临时文件
 
 ---
 
@@ -191,8 +236,8 @@ lines.push(`(allow process-exec (subpath "${p}"))`);
 
 | 文件 | 改动类型 | 说明 |
 |------|----------|------|
-| `acpClient.ts` | 修改 | 跨平台系统临时目录加入 extraWritablePaths |
-| `SandboxInvoker.ts` | 修改 | strict 模式使用 startupExecAllowlist + writablePaths 添加 process-exec subpath |
+| `acpClient.ts` | 修改 | 跨平台系统临时目录 + 应用数据目录加入 extraWritablePaths |
+| `SandboxInvoker.ts` | 修改 | strict 模式使用 startupExecAllowlist + writablePaths 添加 process-exec subpath + Windows strict 模式使用完整 writablePaths |
 | `docs/sandbox-strict-tmpdir-fix.md` | 文档 | 本文档 |
 
 ---

@@ -776,10 +776,16 @@ export async function createAcpConnection(
 
       // Extra writable paths for seatbelt profile:
       // 1. isolatedHome — engine config/cache
-      // 2. System temp directories — engines may create temp files here for tool
+      // 2. App data directory (~/.nuwaclaw) — engine logs, npm packages, config
+      // 3. System temp directories — engines may create temp files here for tool
       //    execution. Cross-platform: os.tmpdir() + realpath, plus macOS-specific
       //    /tmp and /private/tmp (some engines hardcode these instead of os.tmpdir()).
       const extraWritable: string[] = [isolatedHome, os.tmpdir()];
+
+      // App data directory (e.g. ~/.nuwaclaw) — engine writes logs, npm packages, etc.
+      const appDataDir = path.join(app.getPath("home"), APP_DATA_DIR_NAME);
+      extraWritable.push(appDataDir);
+
       try {
         extraWritable.push(fs.realpathSync(os.tmpdir()));
       } catch {
