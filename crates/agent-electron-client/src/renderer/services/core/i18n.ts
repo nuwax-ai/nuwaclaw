@@ -267,7 +267,7 @@ const fetchAndApplyLangMap = async (lang?: string): Promise<boolean> => {
         "Accept-Language": targetLang,
       },
       showError: false,
-      baseUrl: userDomain || undefined,
+      ...(userDomain ? { baseUrl: userDomain } : {}),
     });
     langMap = {
       ...getLocaleMap(targetLang),
@@ -291,7 +291,7 @@ const fetchZhBaseMap = async (): Promise<void> => {
         "Accept-Language": "zh-cn",
       },
       showError: false,
-      baseUrl: userDomain || undefined,
+      ...(userDomain ? { baseUrl: userDomain } : {}),
     });
     if (result) {
       zhBaseMap = {
@@ -435,7 +435,7 @@ export async function fetchI18nLangList(): Promise<I18nLangDto[]> {
   const result = await apiRequest<I18nLangDto[]>("/api/i18n/lang/list", {
     method: "GET",
     showError: false,
-    baseUrl: userDomain || undefined,
+    ...(userDomain ? { baseUrl: userDomain } : {}),
   });
   return result || [];
 }
