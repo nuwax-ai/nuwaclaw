@@ -51,7 +51,7 @@ import {
   filterBridgeEntries,
   rawMcpServersEqual,
 } from "../packages/mcpHelpers";
-import { getSandboxPolicy } from "../sandbox/policy";
+import { getCachedSandboxPolicy } from "../sandbox/policyCache";
 
 /** 环境变量记录类型 */
 type EnvRecord = Record<string, string | undefined>;
@@ -443,7 +443,7 @@ export class UnifiedAgentService extends EventEmitter {
 
   private getSandboxPolicyFingerprint(): string | null {
     try {
-      return buildSandboxPolicyFingerprint(getSandboxPolicy());
+      return buildSandboxPolicyFingerprint(getCachedSandboxPolicy());
     } catch (error) {
       log.debug(
         "[UnifiedAgent] failed to build sandbox policy fingerprint for warmup",

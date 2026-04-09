@@ -17,6 +17,7 @@ import type {
   WindowsSandboxMode,
 } from "@shared/types/sandbox";
 import { SandboxError, SandboxErrorCode } from "@shared/errors/sandbox";
+import { setCachedSandboxPolicy } from "./policyCache";
 
 export const SANDBOX_POLICY_KEY = "sandbox_policy";
 
@@ -87,13 +88,16 @@ function mergeSandboxPolicy(
 }
 
 export function getSandboxPolicy(): SandboxPolicy {
-  return normalizeSandboxPolicy(readSetting(SANDBOX_POLICY_KEY));
+  const policy = normalizeSandboxPolicy(readSetting(SANDBOX_POLICY_KEY));
+  setCachedSandboxPolicy(policy);
+  return policy;
 }
 
 export function setSandboxPolicy(patch: Partial<SandboxPolicy>): SandboxPolicy {
   const current = getSandboxPolicy();
   const next = mergeSandboxPolicy(current, patch);
   writeSetting(SANDBOX_POLICY_KEY, next);
+  setCachedSandboxPolicy(next);
   log.info("[SandboxPolicy] updated:", next);
   return next;
 }

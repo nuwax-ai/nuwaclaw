@@ -73,8 +73,8 @@ vi.mock("./acp/acpClient", () => ({
   loadAcpSdk: vi.fn(() => Promise.resolve({})),
 }));
 
-vi.mock("../sandbox/policy", () => ({
-  getSandboxPolicy: vi.fn(() => sandboxPolicyState.current),
+vi.mock("../sandbox/policyCache", () => ({
+  getCachedSandboxPolicy: vi.fn(() => sandboxPolicyState.current),
 }));
 
 vi.mock("./acp/acpEngine", () => {

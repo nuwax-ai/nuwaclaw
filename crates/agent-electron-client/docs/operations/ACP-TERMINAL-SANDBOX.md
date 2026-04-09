@@ -120,6 +120,7 @@ Agent 必须检查 `clientCapabilities.terminal === true` 才能使用。
 | `strictPermissionGuard.ts` | **新建** | nuwaxcode strict 模式下写入路径判定（workspace/temp/appData） |
 | `engineWarmup.ts` | 修改 | warmup 复用增加 sandbox policy 指纹兼容检查 |
 | `sandboxPolicyFingerprint.ts` | **新建** | sandbox policy 稳定指纹生成（warmup 兼容判定） |
+| `policyCache.ts` | **新建** | 缓存当前 sandbox policy（供 warmup 复用判定读取） |
 | `unifiedAgent.ts` | 修改 | 向 warmup 注入 sandbox policy 指纹提供器 |
 
 ### 不变的文件
