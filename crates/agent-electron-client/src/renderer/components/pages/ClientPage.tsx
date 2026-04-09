@@ -98,9 +98,19 @@ function ClientPage({
   onAuthChange,
   onLoginStarted,
 }: ClientPageProps) {
-  const startupServiceKeys = FEATURES.ENABLE_GUI_AGENT_SERVER
-    ? ["mcpProxy", "agent", "fileServer", "guiServer", "lanproxy"]
-    : ["mcpProxy", "agent", "fileServer", "lanproxy"];
+  const getStartupServiceKeys = useCallback(async (): Promise<string[]> => {
+    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    if (!FEATURES.ENABLE_GUI_AGENT_SERVER) return keys;
+    try {
+      const guiEnabledRes = await window.electronAPI?.guiServer?.isEnabled();
+      if (guiEnabledRes?.enabled) {
+        keys.splice(3, 0, "guiServer");
+      }
+    } catch (e) {
+      console.warn("[ClientPage] Failed to read GUI MCP enabled status:", e);
+    }
+    return keys;
+  }, []);
 
   // ---------- Auth state ----------
   const [authState, setAuthState] = useState<AuthState>({
@@ -382,6 +392,11 @@ function ClientPage({
       } else if (key === "mcpProxy") {
         result = await window.electronAPI?.mcp.start();
       } else if (key === "guiServer") {
+        const guiEnabledRes = await window.electronAPI?.guiServer?.isEnabled();
+        if (!guiEnabledRes?.enabled) {
+          await onRefreshServices();
+          return false;
+        }
         result = await window.electronAPI?.guiServer?.start();
       }
 
@@ -461,7 +476,7 @@ function ClientPage({
     }
 
     // 确定需要启动的服务，提前设置 starting 状态（覆盖 reg 调用期间）
-    const allServices = [...startupServiceKeys];
+    const allServices = await getStartupServiceKeys();
     const servicesToStart = allServices.filter((key) => {
       const svc = services.find((s) => s.key === key);
       return svc && !svc.running;

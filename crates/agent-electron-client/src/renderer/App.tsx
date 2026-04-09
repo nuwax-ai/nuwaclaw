@@ -130,10 +130,6 @@ export interface ServiceItem {
   error?: string;
 }
 
-const STARTUP_SERVICE_KEYS: string[] = FEATURES.ENABLE_GUI_AGENT_SERVER
-  ? ["mcpProxy", "agent", "fileServer", "guiServer", "lanproxy"]
-  : ["mcpProxy", "agent", "fileServer", "lanproxy"];
-
 /**
  * 将 quick init 配置静默写入 DB（覆盖旧值）
  * 用于 setup 已完成时，每次启动优先使用配置文件/环境变量中的值
@@ -362,6 +358,19 @@ function App() {
     }
     return keys;
   }, [guiMcpEnabled]);
+  const getStartupServiceKeys = useCallback(async (): Promise<string[]> => {
+    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    if (!FEATURES.ENABLE_GUI_AGENT_SERVER) return keys;
+    try {
+      const guiEnabledRes = await window.electronAPI?.guiServer?.isEnabled();
+      if (guiEnabledRes?.enabled) {
+        keys.splice(3, 0, "guiServer");
+      }
+    } catch (e) {
+      console.warn("[App] Failed to read GUI MCP enabled status:", e);
+    }
+    return keys;
+  }, []);
 
   // ============================================
   // 检查初始化向导状态（每次启动优先读取 quick init 配置）
@@ -722,7 +731,7 @@ function App() {
       if (setupJustCompleted.current) {
         setupJustCompleted.current = false;
         log.info("setup completed, starting services");
-        await startServicesSequentially(STARTUP_SERVICE_KEYS);
+        await startServicesSequentially(await getStartupServiceKeys());
         return;
       }
 
@@ -753,7 +762,7 @@ function App() {
               );
             }
             setAuthRefreshTrigger((v) => v + 1);
-            await startServicesSequentially(STARTUP_SERVICE_KEYS);
+            await startServicesSequentially(await getStartupServiceKeys());
           } else {
             log.warn("reg failed, using local config");
             notification.info({
@@ -762,7 +771,7 @@ function App() {
               duration: 8,
               placement: "bottomRight",
             });
-            await startServicesSequentially(STARTUP_SERVICE_KEYS);
+            await startServicesSequentially(await getStartupServiceKeys());
           }
         } else {
           log.info("skipped (no savedKey)");
@@ -778,6 +787,7 @@ function App() {
     needsRequiredDepsReinstall,
     depsSyncInProgress,
     startServicesSequentially,
+    getStartupServiceKeys,
   ]);
 
   // ============================================
