@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import ReactDOM from "react-dom/client";
-import { ConfigProvider, theme } from "antd";
+import { ConfigProvider, theme, Spin } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
 import zhTW from "antd/locale/zh_TW";
@@ -70,6 +70,20 @@ function toHtmlLang(lang: string): string {
   return "en-US";
 }
 
+function resolveBootLoadingText(): string {
+  // 启动早期优先使用本地已知语言（缓存/current i18n/browser），未命中统一回退英文。
+  const candidates = [
+    getCurrentLang(),
+    i18n.language,
+    typeof navigator !== "undefined" ? navigator.language : "",
+  ];
+  const lang = String(candidates.find((v) => v) || "en-US").toLowerCase();
+
+  if (lang.startsWith("zh-tw") || lang.startsWith("zh-hk")) return "載入中...";
+  if (lang.startsWith("zh")) return "加载中...";
+  return "Loading...";
+}
+
 function Main() {
   const [antdLocale, setAntdLocale] = useState(zhCN);
   const [ready, setReady] = useState(i18nReady);
@@ -104,17 +118,9 @@ function Main() {
   if (!ready) {
     return (
       <ConfigProvider locale={zhCN}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            height: "100vh",
-            fontSize: 14,
-            color: "#71717a",
-          }}
-        >
-          Loading...
+        <div className="app-loading">
+          <Spin size="large" />
+          <div className="app-loading-text">{resolveBootLoadingText()}</div>
         </div>
       </ConfigProvider>
     );

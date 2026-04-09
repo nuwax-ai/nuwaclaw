@@ -339,6 +339,8 @@ function App() {
   const [agentStatus, setAgentStatus] = useState<string>("idle");
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [servicesLoading, setServicesLoading] = useState(true);
+  const [guiMcpEnabled, setGuiMcpEnabled] = useState(false);
+  const [pollFailCount, setPollFailCount] = useState(0);
   const [startingServices, setStartingServices] = useState<Set<string>>(
     new Set(),
   );
@@ -353,6 +355,13 @@ function App() {
   const [, forceUpdate] = useState(0);
   /** 递增后通知 ClientPage 刷新账号状态（用户名等），与 reg 返回保持一致 */
   const [authRefreshTrigger, setAuthRefreshTrigger] = useState(0);
+  const statusExpectedKeys = useMemo(() => {
+    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    if (FEATURES.ENABLE_GUI_AGENT_SERVER && guiMcpEnabled) {
+      keys.splice(3, 0, "guiServer");
+    }
+    return keys;
+  }, [guiMcpEnabled]);
 
   // ============================================
   // 检查初始化向导状态（每次启动优先读取 quick init 配置）
@@ -527,6 +536,9 @@ function App() {
         window.electronAPI?.guiServer?.status(),
         window.electronAPI?.guiServer?.isEnabled(),
       ]);
+      const isGuiEnabled =
+        FEATURES.ENABLE_GUI_AGENT_SERVER && (guiEnabledRes?.enabled ?? false);
+      setGuiMcpEnabled(isGuiEnabled);
       items.push({
         key: "mcpProxy",
         label: t("Claw.Service.mcp"),
@@ -560,10 +572,7 @@ function App() {
         pid: fsStatus?.pid,
         error: fsStatus?.error,
       });
-      if (
-        FEATURES.ENABLE_GUI_AGENT_SERVER &&
-        (guiEnabledRes?.enabled ?? false)
-      ) {
+      if (isGuiEnabled) {
         items.push({
           key: "guiServer",
           label: t("Claw.Service.guiMcp"),
@@ -583,8 +592,10 @@ function App() {
         error: lanproxyHealthErrorRef.current ?? lpStatus?.error,
       });
       setServices(items);
+      setPollFailCount(0);
     } catch (error) {
       console.error("[App] pollServicesStatus failed:", error);
+      setPollFailCount((count) => count + 1);
     } finally {
       setServicesLoading(false);
     }
@@ -779,17 +790,30 @@ function App() {
       return;
     }
 
-    if (services.length === 0) {
+    if (statusExpectedKeys.length === 0) {
       setAgentStatus("idle");
       return;
     }
 
-    const runningCount = services.filter((s) => s.running).length;
-    const totalCount = services.length;
-    const hasErrors = services.some((s) => !!s.error);
+    const serviceMap = new Map(services.map((s) => [s.key, s]));
+    const trackedServices = statusExpectedKeys.map((key) =>
+      serviceMap.get(key),
+    );
+    const runningCount = trackedServices.filter((s) => s?.running).length;
+    const totalCount = statusExpectedKeys.length;
+    const hasErrors = trackedServices.some((s) => !!s?.error);
+    const hasStartingServices = Array.from(startingServices).some((key) =>
+      statusExpectedKeys.includes(key),
+    );
+    const hasStaleServiceStatus = pollFailCount >= 2;
 
-    if (hasErrors) {
+    if (hasStaleServiceStatus) {
+      // 连续轮询失败时，避免继续展示可能过期的 running 状态。
+      setAgentStatus("busy");
+    } else if (hasErrors) {
       setAgentStatus("error");
+    } else if (hasStartingServices) {
+      setAgentStatus("starting");
     } else if (runningCount === totalCount && runningCount > 0) {
       setAgentStatus("running");
     } else if (runningCount > 0 && runningCount < totalCount) {
@@ -799,7 +823,13 @@ function App() {
     } else {
       setAgentStatus("idle");
     }
-  }, [services, servicesLoading]);
+  }, [
+    services,
+    servicesLoading,
+    startingServices,
+    statusExpectedKeys,
+    pollFailCount,
+  ]);
 
   // 启动服务状态轮询
   useEffect(() => {
