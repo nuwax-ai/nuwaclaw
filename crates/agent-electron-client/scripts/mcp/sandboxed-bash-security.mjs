@@ -27,7 +27,7 @@ export const SANDBOX_SAFE_ENV_KEYS = [
   "TZ",
 ];
 
-function isWithinRoot(candidate, root) {
+export function isWithinRoot(candidate, root) {
   const rel = path.relative(root, candidate);
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }

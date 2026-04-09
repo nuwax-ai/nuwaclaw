@@ -221,6 +221,13 @@
         ]
       },
       {
+        "from": "resources/sandboxed-fs-mcp",
+        "to": "sandboxed-fs-mcp",
+        "filter": [
+          "**/*.mjs"
+        ]
+      },
+      {
         "from": "resources/sandbox-runtime",
         "to": "sandbox-runtime",
         "filter": [
@@ -350,6 +357,13 @@
         {
           "from": "resources/sandboxed-bash-mcp",
           "to": "sandboxed-bash-mcp",
+          "filter": [
+            "**/*.mjs"
+          ]
+        },
+        {
+          "from": "resources/sandboxed-fs-mcp",
+          "to": "sandboxed-fs-mcp",
           "filter": [
             "**/*.mjs"
           ]

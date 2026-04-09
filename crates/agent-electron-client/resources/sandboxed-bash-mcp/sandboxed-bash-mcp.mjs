@@ -148,7 +148,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   // (&&, ||, 2>/dev/null, pipes, redirects).  Falls back to PowerShell.
   const helperArgs = [
     "run",
-    "--no-write-restricted",
     "--mode",
     SANDBOX_MODE,
     "--cwd",

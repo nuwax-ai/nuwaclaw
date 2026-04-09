@@ -911,6 +911,65 @@ export class AcpEngine extends EventEmitter {
       );
     }
 
+    // Sandbox mode — shared by sandboxed-fs MCP injection and disallowedTools below.
+    const sandboxMode = this.storedSandboxConfig?.mode ?? "compat";
+    const isStrictOrCompat = sandboxMode !== "permissive";
+
+    // 4. Sandboxed FS MCP — replace built-in Write/Edit with sandboxed versions on Windows
+    // Only injected in strict and compat modes. Permissive mode leaves built-in tools enabled.
+    // - strict:  only workspace + TEMP/TMP
+    // - compat:  workspace + TEMP/TMP + APPDATA/LOCALAPPDATA
+    if (
+      this.engineName === "claude-code" &&
+      this.storedSandboxConfig?.enabled &&
+      this.storedSandboxConfig.type === "windows-sandbox" &&
+      isStrictOrCompat
+    ) {
+      const nodePath = process.execPath;
+      const fsScriptPath = path.join(
+        getResourcesPath(),
+        "sandboxed-fs-mcp",
+        "sandboxed-fs-mcp.mjs",
+      );
+      const resolvedFsScriptPath = path.resolve(fsScriptPath);
+
+      mcpServers.push({
+        name: "sandboxed-fs",
+        command: nodePath,
+        args: [resolvedFsScriptPath],
+        env: [
+          { name: "ELECTRON_RUN_AS_NODE", value: "1" },
+          {
+            name: "NUWAX_SANDBOX_MODE",
+            value: sandboxMode,
+          },
+          {
+            name: "NUWAX_SANDBOX_WRITABLE_ROOTS",
+            value: JSON.stringify(
+              this.storedSandboxConfig.projectWorkspaceDir
+                ? [this.storedSandboxConfig.projectWorkspaceDir]
+                : [],
+            ),
+          },
+          // Pass TEMP/TMP explicitly for temp file validation
+          ...(process.env.TEMP
+            ? [{ name: "TEMP", value: process.env.TEMP }]
+            : []),
+          ...(process.env.TMP ? [{ name: "TMP", value: process.env.TMP }] : []),
+          // Pass APPDATA/LOCALAPPDATA for compat mode
+          ...(process.env.APPDATA
+            ? [{ name: "APPDATA", value: process.env.APPDATA }]
+            : []),
+          ...(process.env.LOCALAPPDATA
+            ? [{ name: "LOCALAPPDATA", value: process.env.LOCALAPPDATA }]
+            : []),
+        ],
+      });
+      log.info(
+        `${this.logTag} 🔒 Sandboxed FS MCP injected (Windows, mode=${sandboxMode})`,
+      );
+    }
+
     const sessionCwd = opts?.cwd || this.config.workspaceDir;
 
     // Build _meta with systemPrompt if provided (skip if empty or whitespace only)
@@ -930,14 +989,20 @@ export class AcpEngine extends EventEmitter {
         meta.requestId = requestId;
         meta.request_id = requestId;
       }
-      // Disable built-in Bash on Windows sandbox — replaced by MCP sandboxed-bash tool.
+      // Disable built-in tools on Windows sandbox — replaced by MCP sandboxed tools.
       // claude-code-acp-ts reads _meta.claudeCode.options.disallowedTools and merges
       // with its default disallowedTools (["AskUserQuestion"]).
-      // Result: built-in "Bash" is blocked, mcp__sandboxed-bash__Bash takes over.
+      // - Bash is always blocked (replaced by sandboxed-bash MCP)
+      // - Write/Edit/NotebookEdit are blocked in strict/compat (replaced by sandboxed-fs MCP)
+      // - In permissive mode, built-in Write/Edit/NotebookEdit remain available
       if (isWindowsSandbox) {
+        const disallowed = ["Bash"];
+        if (isStrictOrCompat) {
+          disallowed.push("Write", "Edit", "NotebookEdit");
+        }
         meta.claudeCode = {
           options: {
-            disallowedTools: ["Bash"],
+            disallowedTools: disallowed,
           },
         };
       }
