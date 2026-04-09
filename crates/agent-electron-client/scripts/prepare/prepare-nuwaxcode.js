@@ -28,7 +28,7 @@ const { URL } = require('url');
 const { execSync, execFileSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
-const NUWAXCODE_VERSION = '1.1.70';
+const NUWAXCODE_VERSION = '1.1.71';
 const NUWAXCODE_REPO = process.env.NUWAXCODE_REPO || 'nuwax-ai/nuwaxcode';
 
 const projectRoot = getProjectRoot();
