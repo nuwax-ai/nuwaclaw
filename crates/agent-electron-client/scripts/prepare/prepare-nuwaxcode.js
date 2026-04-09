@@ -28,7 +28,7 @@ const { URL } = require('url');
 const { execSync, execFileSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
-const NUWAXCODE_VERSION = '1.1.68';
+const NUWAXCODE_VERSION = '1.1.70';
 const NUWAXCODE_REPO = process.env.NUWAXCODE_REPO || 'nuwax-ai/nuwaxcode';
 
 const projectRoot = getProjectRoot();
@@ -92,15 +92,21 @@ function copyFromDist(key) {
     return false;
   }
 
-  // 检查是否已是最新（大小一致 + 版本匹配）
+  // 检查是否已是最新（SHA256 一致 + 版本匹配）
+  // 注意：codesign 会修改二进制，所以用保存的 .sha256 记录比对 dest（签名后），
+  // 而非比对 src（未签名）vs dest（已签名）
   if (fs.existsSync(destPath)) {
     const versionFile = path.join(resDir, '.version');
     if (fs.existsSync(versionFile) && fs.readFileSync(versionFile, 'utf-8').trim() === NUWAXCODE_VERSION) {
-      const srcSize = fs.statSync(srcPath).size;
-      const destSize = fs.statSync(destPath).size;
-      if (srcSize === destSize) {
-        console.log(`[prepare-nuwaxcode] ${key} ✓ (已是最新，跳过)`);
-        return true;
+      const shaFile = path.join(resDir, `.sha256-${resourceKey}`);
+      if (fs.existsSync(shaFile)) {
+        const expectedHash = fs.readFileSync(shaFile, 'utf-8').trim();
+        const currentHash = sha256File(destPath);
+        if (currentHash === expectedHash) {
+          console.log(`[prepare-nuwaxcode] ${key} ✓ (已是最新, SHA256=${currentHash.slice(0, 16)}...)`);
+          return true;
+        }
+        console.warn(`[prepare-nuwaxcode] ${key}: SHA256 不匹配，需重新复制 (saved=${expectedHash.slice(0, 16)}... current=${currentHash.slice(0, 16)}...)`);
       }
     }
   }
@@ -115,6 +121,15 @@ function copyFromDist(key) {
 
   // macOS ad-hoc 签名
   codesign(destPath, key);
+
+  // 计算 SHA256（签名后），用于打印 + 保存
+  const hash = sha256File(destPath);
+
+  // 验证二进制内部版本号 + 打印 SHA256
+  verifyBinaryVersion(destPath, NUWAXCODE_VERSION, key, hash);
+
+  // 保存 SHA256 记录，下次可精确跳过
+  fs.writeFileSync(path.join(resDir, `.sha256-${resourceKey}`), hash, 'utf-8');
 
   return true;
 }
@@ -198,13 +213,27 @@ async function downloadFromRelease(key) {
   const destDir = path.join(resDir, resourceKey, 'bin');
   const destPath = path.join(destDir, binary);
 
-  // 检查是否已是最新（版本匹配 + 文件存在）
+  // 检查是否已是最新（版本匹配 + SHA256 一致）
   const versionFile = path.join(resDir, '.version');
   if (fs.existsSync(destPath) && fs.existsSync(versionFile)) {
     if (fs.readFileSync(versionFile, 'utf-8').trim() === NUWAXCODE_VERSION) {
-      const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
-      console.log(`[prepare-nuwaxcode] ${key} ✓ (已是最新 ${sizeMB} MB，跳过下载)`);
-      return true;
+      // 额外校验：比对已缓存 tar.gz 与当前 dest 的 SHA256 是否记录一致
+      // 防止 release 被 force-push 后 .version 匹配但二进制已过期
+      const shaFile = path.join(resDir, `.sha256-${getResourcePlatformKey(key)}`);
+      if (fs.existsSync(shaFile)) {
+        const expectedHash = fs.readFileSync(shaFile, 'utf-8').trim();
+        const currentHash = sha256File(destPath);
+        if (currentHash === expectedHash) {
+          const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
+          console.log(`[prepare-nuwaxcode] ${key} ✓ (已是最新 ${sizeMB} MB, SHA256=${currentHash.slice(0, 16)}...)`);
+          return true;
+        }
+        console.warn(`[prepare-nuwaxcode] ${key}: SHA256 不匹配，需重新下载 (expected=${expectedHash.slice(0, 16)}... current=${currentHash.slice(0, 16)}...)`);
+      } else {
+        const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
+        console.log(`[prepare-nuwaxcode] ${key} ✓ (版本匹配 ${sizeMB} MB，无 SHA256 记录，跳过下载)`);
+        return true;
+      }
     }
   }
 
@@ -286,6 +315,15 @@ async function downloadFromRelease(key) {
       // macOS ad-hoc 签名
       codesign(destPath, key);
 
+      // 计算 SHA256（签名后），用于打印 + 保存
+      const hash = sha256File(destPath);
+
+      // 验证二进制内部版本号 + 打印 SHA256
+      verifyBinaryVersion(destPath, NUWAXCODE_VERSION, key, hash);
+
+      // 保存 SHA256 记录，下次可精确跳过
+      fs.writeFileSync(path.join(resDir, `.sha256-${resourceKey}`), hash, 'utf-8');
+
       return true;
     }
   } catch (err) {
@@ -327,6 +365,46 @@ function _findRecursive(dir, binaryName, maxDepth) {
 }
 
 // ==================== 通用 ====================
+
+/**
+ * 计算文件 SHA256
+ */
+function sha256File(filePath) {
+  try {
+    return execFileSync('shasum', ['-a', '256', filePath], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim().split(/\s+/)[0];
+  } catch {
+    // Windows 或无 shasum 时，用 Node.js crypto
+    const crypto = require('crypto');
+    const data = fs.readFileSync(filePath);
+    return crypto.createHash('sha256').update(data).digest('hex');
+  }
+}
+
+/**
+ * 验证二进制内部版本号是否与期望版本匹配
+ * nuwaxcode 的 release tag 可能与二进制内部版本不一致，
+ * 需要检测以避免 .version 标记与实际二进制不符。
+ */
+function verifyBinaryVersion(binaryPath, expectedVersion, key, hash) {
+  // 打印 SHA256（由调用方传入，避免重复计算）
+  if (hash) {
+    console.log(`[prepare-nuwaxcode] ${key}: SHA256=${hash}`);
+  }
+
+  try {
+    const output = execFileSync(binaryPath, ['-v'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    if (output !== expectedVersion) {
+      console.warn(
+        `[prepare-nuwaxcode] ${key}: ⚠️ 二进制内部版本 ${output} 与期望版本 ${expectedVersion} 不一致（release tag 版本与二进制版本不同步）`,
+      );
+    }
+    return output;
+  } catch (e) {
+    // 二进制可能不支持 -v 或无法在本平台执行（交叉编译场景），跳过校验
+    console.warn(`[prepare-nuwaxcode] ${key}: 无法验证二进制版本（${e.message}），跳过校验`);
+    return null;
+  }
+}
 
 function codesign(binaryPath, key) {
   if (process.platform === 'darwin') {
