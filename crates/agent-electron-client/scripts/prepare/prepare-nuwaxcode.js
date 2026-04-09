@@ -103,8 +103,16 @@ function copyFromDist(key) {
         const expectedHash = fs.readFileSync(shaFile, 'utf-8').trim();
         const currentHash = sha256File(destPath);
         if (currentHash === expectedHash) {
-          console.log(`[prepare-nuwaxcode] ${key} ✓ (已是最新, SHA256=${currentHash.slice(0, 16)}...)`);
-          return true;
+          // 额外校验：二进制内部版本号可能与 .version 不一致（曾发生过标记更新但二进制未更新）
+          const innerVersion = verifyBinaryVersion(destPath, NUWAXCODE_VERSION, key, currentHash);
+          if (innerVersion && innerVersion !== NUWAXCODE_VERSION) {
+            console.warn(
+              `[prepare-nuwaxcode] ${key}: 版本标记为 ${NUWAXCODE_VERSION} 但二进制为 ${innerVersion}，将重新复制覆盖`,
+            );
+          } else {
+            console.log(`[prepare-nuwaxcode] ${key} ✓ (已是最新, SHA256=${currentHash.slice(0, 16)}...)`);
+            return true;
+          }
         }
         console.warn(`[prepare-nuwaxcode] ${key}: SHA256 不匹配，需重新复制 (saved=${expectedHash.slice(0, 16)}... current=${currentHash.slice(0, 16)}...)`);
       }
@@ -224,15 +232,32 @@ async function downloadFromRelease(key) {
         const expectedHash = fs.readFileSync(shaFile, 'utf-8').trim();
         const currentHash = sha256File(destPath);
         if (currentHash === expectedHash) {
-          const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
-          console.log(`[prepare-nuwaxcode] ${key} ✓ (已是最新 ${sizeMB} MB, SHA256=${currentHash.slice(0, 16)}...)`);
-          return true;
+          // 关键：即使命中 SHA256 + .version，也必须校验二进制内部版本号，
+          // 否则一旦资源目录里的二进制未更新但标记文件被更新，会导致永远跳过下载。
+          const innerVersion = verifyBinaryVersion(destPath, NUWAXCODE_VERSION, key, currentHash);
+          if (innerVersion && innerVersion !== NUWAXCODE_VERSION) {
+            console.warn(
+              `[prepare-nuwaxcode] ${key}: 版本标记为 ${NUWAXCODE_VERSION} 但二进制为 ${innerVersion}，将强制重新下载覆盖`,
+            );
+          } else {
+            const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
+            console.log(`[prepare-nuwaxcode] ${key} ✓ (已是最新 ${sizeMB} MB, SHA256=${currentHash.slice(0, 16)}...)`);
+            return true;
+          }
         }
         console.warn(`[prepare-nuwaxcode] ${key}: SHA256 不匹配，需重新下载 (expected=${expectedHash.slice(0, 16)}... current=${currentHash.slice(0, 16)}...)`);
       } else {
-        const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
-        console.log(`[prepare-nuwaxcode] ${key} ✓ (版本匹配 ${sizeMB} MB，无 SHA256 记录，跳过下载)`);
-        return true;
+        // 无 SHA256 记录时也做一次内部版本校验：避免“标记已更新、二进制未更新”被掩盖
+        const innerVersion = verifyBinaryVersion(destPath, NUWAXCODE_VERSION, key, null);
+        if (innerVersion && innerVersion !== NUWAXCODE_VERSION) {
+          console.warn(
+            `[prepare-nuwaxcode] ${key}: 版本标记为 ${NUWAXCODE_VERSION} 但二进制为 ${innerVersion}，将重新下载覆盖`,
+          );
+        } else {
+          const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
+          console.log(`[prepare-nuwaxcode] ${key} ✓ (版本匹配 ${sizeMB} MB，无 SHA256 记录，跳过下载)`);
+          return true;
+        }
       }
     }
   }
@@ -319,7 +344,17 @@ async function downloadFromRelease(key) {
       const hash = sha256File(destPath);
 
       // 验证二进制内部版本号 + 打印 SHA256
-      verifyBinaryVersion(destPath, NUWAXCODE_VERSION, key, hash);
+      const innerVersion = verifyBinaryVersion(destPath, NUWAXCODE_VERSION, key, hash);
+      if (innerVersion && innerVersion !== NUWAXCODE_VERSION) {
+        // 常见于：本地缓存的 tar.gz 仍是旧内容（例如同名资产被替换、或缓存命中导致一直用旧包）
+        // 第一次发现不一致时，删除缓存并强制重新下载再试一次。
+        if (attempt === 0) {
+          console.warn(
+            `[prepare-nuwaxcode] ${key}: 检测到二进制版本不一致，将删除缓存并强制重新下载 ${assetName} 再验证一次`,
+          );
+          continue;
+        }
+      }
 
       // 保存 SHA256 记录，下次可精确跳过
       fs.writeFileSync(path.join(resDir, `.sha256-${resourceKey}`), hash, 'utf-8');
