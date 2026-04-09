@@ -66,6 +66,8 @@ interface CommandResult {
 }
 
 const WINDOWS_MCP_PACKAGE_NAME = "windows-mcp";
+/** 须与 `scripts/prepare/prepare-windows-mcp.js` 的 PIP_DOWNLOAD_PYTHON 一致，否则离线 wheel（如 cp313）可能与默认解释器不匹配 */
+const WINDOWS_MCP_UV_PYTHON = "3.13";
 const WINDOWS_MCP_MANIFEST_FILE = "manifest.json";
 const WINDOWS_MCP_RECEIPT_FILE = "receipt.json";
 const WINDOWS_MCP_LOCK_FILE = "install.lock";
@@ -455,6 +457,8 @@ async function installWindowsMcpRuntime(
     "tool",
     "install",
     "--force",
+    "--python",
+    WINDOWS_MCP_UV_PYTHON,
     "--no-index",
     "--find-links",
     wheelsDir,
@@ -488,7 +492,14 @@ async function installWindowsMcpRuntime(
     log.warn(`[WindowsMcp] offline_install_fail ${offlineError}`);
   }
 
-  const onlineArgs = ["tool", "install", "--force", request.resolvedSpec];
+  const onlineArgs = [
+    "tool",
+    "install",
+    "--force",
+    "--python",
+    WINDOWS_MCP_UV_PYTHON,
+    request.resolvedSpec,
+  ];
   log.info(
     `[WindowsMcp] online_fallback_start offline_failed_then_online=true command=${commandForLog(uvBinPath, onlineArgs)}`,
   );

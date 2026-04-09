@@ -506,9 +506,9 @@ export function getNuwaxcodeBundledBinPath(): string | null {
   return null;
 }
 
-// 获取 bundled windows-mcp 二进制路径
-// 打包时 extraResources 将 resources/windows-mcp/ 复制到应用内
-// 通过 uv tool install --target 安装，结构为 resources/windows-mcp/bin/windows-mcp.exe
+// 可选：若曾在 resources/windows-mcp/bin/ 预置 windows-mcp.exe（旧方案），则返回该路径。
+// 当前主线：prepare 仅打包 wheels/ + manifest.json，首次运行由 windowsMcp.ts 调用
+// `uv tool install --no-index --find-links <wheels>` 安装到用户目录 ~/.nuwaclaw/windows-mcp-runtime/。
 export function getWindowsMcpBinPath(): string | null {
   if (os.platform() !== "win32") {
     return null;
