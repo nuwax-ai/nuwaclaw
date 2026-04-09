@@ -561,7 +561,7 @@
   "Claw.Settings.workspace.selectDir": "Please select workspace directory",
   "Claw.Settings.workspace.clickToSelect": "Click to select directory",
   "Claw.Settings.workspace.select": "Select",
-  "Claw.Settings.experimental.title": "Experimental Features (Sandbox / GUI MCP)",
+  "Claw.Settings.experimental.title": "Experimental Features",
   "Claw.Settings.experimental.mutualExclusionHint": "Sandbox and GUI MCP are mutually exclusive experimental features. Enabling one automatically disables the other.",
   "Claw.Settings.sandbox.title": "Sandbox",
   "Claw.Settings.sandbox.enable": "Enable Sandbox",
