@@ -1,22 +1,9 @@
 #!/usr/bin/env node
 /**
- * windows-mcp 预安装到 resources/windows-mcp/
+ * Prepare offline wheels for windows-mcp under resources/windows-mcp/wheels.
  *
- * 使用 uv tool install + UV_TOOL_DIR / UV_TOOL_BIN_DIR 将 windows-mcp 安装到本地目录
- * （uv 0.10+ 已移除 tool install --target，需用环境变量指定目录）
- * 避免首次运行时从 PyPI 下载。
- *
- * 前提：
- *   1. uv 已安装 (resources/uv/bin/)
- *   2. Windows 平台 (process.platform === 'win32')
- *
- * 产物：
- *   resources/windows-mcp/bin/
- *     ├── windows-mcp.exe     — 主程序入口
- *     └── ...                 — Python 依赖
- *
- * 打包时 electron-builder extraResources 将 resources/windows-mcp 打包到应用内
- * 运行时 getWindowsMcpBinPath() 返回打包的二进制路径
+ * Runtime installation will happen on end-user machine to avoid non-relocatable
+ * uv tool launcher issues when app is installed in a different path.
  */
 
 const path = require('path');
@@ -26,113 +13,92 @@ const { getProjectRoot, resolveFromProject } = require('../utils/project-paths')
 
 const projectRoot = getProjectRoot();
 const resDir = path.join(projectRoot, 'resources', 'windows-mcp');
-/** 安装到 resources/windows-mcp/bin/（与 getWindowsMcpBinPath 一致） */
-const targetDir = path.join(resDir, 'bin');
-/** 工具隔离环境目录（随 resources 一并打包时只需 bin + 依赖在 venv 内；见 UV_TOOL_DIR） */
-const toolDataDir = path.join(resDir, '.uv-tool');
+const wheelsDir = path.join(resDir, 'wheels');
+const manifestPath = path.join(resDir, 'manifest.json');
 
-function pruneTypeStubFiles(rootDir) {
-  if (!fs.existsSync(rootDir)) return { scanned: 0, removed: 0 };
-
-  let scanned = 0;
-  let removed = 0;
-  const stack = [rootDir];
-
-  while (stack.length > 0) {
-    const current = stack.pop();
-    let entries = [];
-    try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
-    } catch (_) {
-      continue;
-    }
-
-    for (const entry of entries) {
-      const fullPath = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-        continue;
-      }
-      if (!entry.isFile()) continue;
-
-      scanned += 1;
-      if (!entry.name.endsWith('.pyi')) continue;
-      try {
-        fs.rmSync(fullPath);
-        removed += 1;
-      } catch (_) {
-        // ignore single-file failure, continue pruning
-      }
-    }
-  }
-
-  return { scanned, removed };
-}
+const PACKAGE_NAME = 'windows-mcp';
 
 function getUvBinPath() {
   const uvBinName = process.platform === 'win32' ? 'uv.exe' : 'uv';
-  const uvPath = resolveFromProject('resources', 'uv', 'bin', uvBinName);
-  return uvPath;
+  return resolveFromProject('resources', 'uv', 'bin', uvBinName);
+}
+
+function run(cmd, options = {}) {
+  execSync(cmd, { stdio: 'inherit', ...options });
+}
+
+function resolvePinnedVersion(files) {
+  const wheel = files.find((name) => /^windows_mcp-([^-]+)-.*\.whl$/i.test(name));
+  if (!wheel) {
+    return null;
+  }
+  const match = wheel.match(/^windows_mcp-([^-]+)-.*\.whl$/i);
+  return match ? match[1] : null;
 }
 
 function main() {
-  // 1. 仅 Windows 平台执行
   if (process.platform !== 'win32') {
     console.log('[prepare-windows-mcp] Skipped: not Windows platform');
     return;
   }
 
-  // 2. 检查 uv 是否可用
   const uvBin = getUvBinPath();
   if (!fs.existsSync(uvBin)) {
     console.error('[prepare-windows-mcp] uv not found at:', uvBin);
-    console.error('[prepare-windows-mcp] Skipping windows-mcp preparation');
-    return;
+    process.exit(1);
   }
 
   console.log('[prepare-windows-mcp] Using uv:', uvBin);
 
-  // 3. 清理旧版本（确保每次打包获取最新 windows-mcp latest 版本）
   if (fs.existsSync(resDir)) {
-    console.log('[prepare-windows-mcp] Removing old version...');
-    fs.rmSync(resDir, { recursive: true });
+    console.log('[prepare-windows-mcp] Removing old resources/windows-mcp ...');
+    fs.rmSync(resDir, { recursive: true, force: true });
   }
-  fs.mkdirSync(targetDir, { recursive: true });
+  fs.mkdirSync(wheelsDir, { recursive: true });
 
-  // 4. uv tool install：通过环境变量指定安装目录（替代已移除的 --target）
-  console.log('[prepare-windows-mcp] Installing windows-mcp to resources/...');
+  console.log('[prepare-windows-mcp] Downloading wheels for offline installation ...');
   try {
-    execSync(`"${uvBin}" tool install windows-mcp`, {
-      stdio: 'inherit',
+    run(`"${uvBin}" pip download --dest "${wheelsDir}" --only-binary :all: ${PACKAGE_NAME}`, {
       env: {
         ...process.env,
-        UV_TOOL_DIR: toolDataDir,
-        UV_TOOL_BIN_DIR: targetDir,
       },
     });
-    console.log('[prepare-windows-mcp] ✓ windows-mcp installed successfully');
-  } catch (err) {
-    console.error('[prepare-windows-mcp] Failed to install windows-mcp:', err.message);
+  } catch (error) {
+    console.error('[prepare-windows-mcp] Failed to download windows-mcp wheels:', error.message);
     process.exit(1);
   }
 
-  // 6. 裁剪类型桩文件（*.pyi）：
-  // 这些文件仅用于类型提示，不参与运行时；删除后可避免 Windows MSI 打包出现超长路径问题（MAX_PATH）。
-  const pruneStats = pruneTypeStubFiles(toolDataDir);
-  console.log(
-    `[prepare-windows-mcp] Pruned type stubs: removed ${pruneStats.removed} files (scanned ${pruneStats.scanned})`,
-  );
+  const files = fs
+    .readdirSync(wheelsDir)
+    .filter((name) => fs.statSync(path.join(wheelsDir, name)).isFile())
+    .sort();
 
-  // 7. 验证安装
-  const windowsMcpExe = path.join(targetDir, 'windows-mcp.exe');
-  if (fs.existsSync(windowsMcpExe)) {
-    const sizeMB = (fs.statSync(windowsMcpExe).size / 1024 / 1024).toFixed(1);
-    console.log(`[prepare-windows-mcp] ✓ windows-mcp.exe (${sizeMB} MB)`);
-  } else {
-    console.error('[prepare-windows-mcp] Warning: windows-mcp.exe not found after installation');
+  if (files.length === 0) {
+    console.error('[prepare-windows-mcp] No files downloaded into wheels directory');
+    process.exit(1);
   }
 
-  console.log(`[prepare-windows-mcp] ✓ resources/windows-mcp/`);
+  const version = resolvePinnedVersion(files);
+  if (!version) {
+    console.error('[prepare-windows-mcp] Could not resolve pinned windows-mcp version from downloaded wheels');
+    console.error('[prepare-windows-mcp] Downloaded files:', files.join(', '));
+    process.exit(1);
+  }
+
+  const manifest = {
+    packageName: PACKAGE_NAME,
+    version,
+    resolvedSpec: `${PACKAGE_NAME}==${version}`,
+    generatedAt: new Date().toISOString(),
+    files,
+  };
+
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+
+  console.log(`[prepare-windows-mcp] ✓ Downloaded ${files.length} files`);
+  console.log(`[prepare-windows-mcp] ✓ Pinned ${manifest.resolvedSpec}`);
+  console.log(`[prepare-windows-mcp] ✓ Wrote manifest: ${manifestPath}`);
+  console.log('[prepare-windows-mcp] ✓ resources/windows-mcp ready');
 }
 
 main();
