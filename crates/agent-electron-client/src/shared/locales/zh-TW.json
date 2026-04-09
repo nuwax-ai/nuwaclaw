@@ -561,6 +561,8 @@
   "Claw.Settings.workspace.selectDir": "請選擇工作區目錄",
   "Claw.Settings.workspace.clickToSelect": "點擊選擇目錄",
   "Claw.Settings.workspace.select": "選擇",
+  "Claw.Settings.experimental.title": "實驗功能（Sandbox / GUI MCP）",
+  "Claw.Settings.experimental.mutualExclusionHint": "Sandbox 與 GUI MCP 為互斥實驗能力：啟用其中一個會自動停用另一個。",
   "Claw.Settings.sandbox.title": "沙箱",
   "Claw.Settings.sandbox.enable": "啟用沙箱",
   "Claw.Settings.sandbox.enableDesc": "關閉後命令將直接在工作區執行",

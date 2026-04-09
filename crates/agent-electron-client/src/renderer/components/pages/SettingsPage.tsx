@@ -29,8 +29,8 @@ import {
   EditOutlined,
   SettingOutlined,
   DesktopOutlined,
-  SafetyCertificateOutlined,
   ReloadOutlined,
+  ExperimentOutlined,
 } from "@ant-design/icons";
 import { APP_DISPLAY_NAME, APP_DATA_DIR_NAME } from "@shared/constants";
 import {
@@ -413,8 +413,41 @@ export default function SettingsPage() {
     }
   };
 
-  const handlePatchSandboxPolicy = async (patch: Partial<SandboxPolicy>) => {
+  const handlePatchSandboxPolicy = async (
+    patch: Partial<SandboxPolicy>,
+    opts?: { skipMutualExclusion?: boolean },
+  ) => {
     if (!window.electronAPI?.sandbox) return;
+
+    // GUI MCP 与 Sandbox 互斥：开启 Sandbox 前先关闭 GUI MCP。
+    if (
+      !opts?.skipMutualExclusion &&
+      patch.enabled === true &&
+      FEATURES.ENABLE_GUI_AGENT_SERVER &&
+      guiMcpEnabled &&
+      window.electronAPI?.guiServer
+    ) {
+      setGuiMcpSaving(true);
+      try {
+        const disableGuiResult =
+          await window.electronAPI.guiServer.setEnabled(false);
+        if (!disableGuiResult.success) {
+          message.error(
+            disableGuiResult.error ||
+              t("Claw.Settings.guiMcp.messages.updateFailed"),
+          );
+          return;
+        }
+        setGuiMcpEnabled(false);
+        message.success(t("Claw.Settings.guiMcp.messages.disableSuccess"));
+      } catch {
+        message.error(t("Claw.Settings.guiMcp.messages.updateFailed"));
+        return;
+      } finally {
+        setGuiMcpSaving(false);
+      }
+    }
+
     setSandboxSaving(true);
     try {
       const result = await window.electronAPI.sandbox.setPolicy(patch);
@@ -435,8 +468,45 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSetGuiMcpEnabled = async (enabled: boolean) => {
+  const handleSetGuiMcpEnabled = async (
+    enabled: boolean,
+    opts?: { skipMutualExclusion?: boolean },
+  ) => {
     if (!window.electronAPI?.guiServer) return;
+
+    // GUI MCP 与 Sandbox 互斥：开启 GUI MCP 前先关闭 Sandbox。
+    if (
+      enabled &&
+      !opts?.skipMutualExclusion &&
+      sandboxPolicy?.enabled &&
+      window.electronAPI?.sandbox
+    ) {
+      setSandboxSaving(true);
+      try {
+        const disableSandboxResult = await window.electronAPI.sandbox.setPolicy(
+          {
+            enabled: false,
+          },
+        );
+        if (disableSandboxResult?.success && disableSandboxResult.data) {
+          setSandboxPolicy(disableSandboxResult.data);
+          message.success(t("Claw.Settings.messages.sandboxPolicyUpdated"));
+          await loadSandboxState();
+        } else {
+          message.error(
+            disableSandboxResult?.error ||
+              t("Claw.Settings.messages.updateSandboxPolicyFailed"),
+          );
+          return;
+        }
+      } catch {
+        message.error(t("Claw.Settings.messages.updateSandboxPolicyFailed"));
+        return;
+      } finally {
+        setSandboxSaving(false);
+      }
+    }
+
     setGuiMcpSaving(true);
     try {
       const result = await window.electronAPI.guiServer.setEnabled(enabled);
@@ -646,17 +716,27 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* 沙箱策略 */}
+      {/* 实验功能：Sandbox / GUI MCP */}
       <div className={styles.section}>
         <div className={styles.sectionHeader}>
-          <SafetyCertificateOutlined
+          <ExperimentOutlined
             style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
           />
           <span className={styles.sectionTitle}>
-            {t("Claw.Settings.sandbox.title")}
+            {t("Claw.Settings.experimental.title")}
           </span>
         </div>
         <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
+          <div
+            style={{
+              padding: "10px 0 0 0",
+              fontSize: 11,
+              color: "var(--color-text-tertiary)",
+            }}
+          >
+            {t("Claw.Settings.experimental.mutualExclusionHint")}
+          </div>
+
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
               <div>
@@ -691,6 +771,62 @@ export default function SettingsPage() {
             />
           </div>
 
+          <div
+            style={{
+              margin: "8px 0 6px 20px",
+              padding: "10px 12px",
+              border: "1px dashed var(--color-border)",
+              borderRadius: 8,
+              background: "var(--color-bg-section-header)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <span className={styles.serviceLabel}>
+                  {t("Claw.Settings.sandbox.mode")}
+                </span>
+                <div className={styles.serviceDescription}>
+                  {t("Claw.Settings.sandbox.modeDesc")}
+                  <br />
+                  {t("Claw.Settings.sandbox.modeRestartHint")}
+                </div>
+              </div>
+              <Select
+                size="small"
+                style={{ width: 220 }}
+                value={sandboxPolicy?.mode ?? "compat"}
+                loading={sandboxSaving || sandboxLoading}
+                disabled={!sandboxPolicy?.enabled}
+                onChange={(value) =>
+                  handlePatchSandboxPolicy({
+                    mode: value as SandboxPolicy["mode"],
+                  })
+                }
+                options={[
+                  {
+                    value: "strict",
+                    label: t("Claw.Settings.sandbox.modeStrict"),
+                  },
+                  {
+                    value: "compat",
+                    label: t("Claw.Settings.sandbox.modeCompat"),
+                  },
+                  {
+                    value: "permissive",
+                    label: t("Claw.Settings.sandbox.modePermissive"),
+                  },
+                ]}
+              />
+            </div>
+          </div>
+
           {FEATURES.ENABLE_GUI_AGENT_SERVER && (
             <div className={styles.serviceRow} style={{ marginTop: 10 }}>
               <div className={styles.serviceInfo}>
@@ -715,47 +851,6 @@ export default function SettingsPage() {
               />
             </div>
           )}
-
-          <div className={styles.serviceRow} style={{ marginTop: 10 }}>
-            <div className={styles.serviceInfo}>
-              <div>
-                <span className={styles.serviceLabel}>
-                  {t("Claw.Settings.sandbox.mode")}
-                </span>
-                <div className={styles.serviceDescription}>
-                  {t("Claw.Settings.sandbox.modeDesc")}
-                  <br />
-                  {t("Claw.Settings.sandbox.modeRestartHint")}
-                </div>
-              </div>
-            </div>
-            <Select
-              size="small"
-              style={{ width: 220 }}
-              value={sandboxPolicy?.mode ?? "compat"}
-              loading={sandboxSaving || sandboxLoading}
-              disabled={!sandboxPolicy?.enabled}
-              onChange={(value) =>
-                handlePatchSandboxPolicy({
-                  mode: value as SandboxPolicy["mode"],
-                })
-              }
-              options={[
-                {
-                  value: "strict",
-                  label: t("Claw.Settings.sandbox.modeStrict"),
-                },
-                {
-                  value: "compat",
-                  label: t("Claw.Settings.sandbox.modeCompat"),
-                },
-                {
-                  value: "permissive",
-                  label: t("Claw.Settings.sandbox.modePermissive"),
-                },
-              ]}
-            />
-          </div>
         </div>
       </div>
 
