@@ -319,6 +319,182 @@ async function runCommand(
   });
 }
 
+/** ~/.nuwaclaw/uv/python（与 getAppEnv 的 UV_PYTHON_INSTALL_DIR 一致） */
+function getUvPythonInstallRoot(): string {
+  return path.join(app.getPath("home"), APP_DATA_DIR_NAME, "uv", "python");
+}
+
+/**
+ * 与 uv tool 启动器硬编码路径一致：cpython-{major.minor}-windows-x86_64-none（无补丁段）。
+ * Windows ARM64 上 uv 通常仍安装 x86_64 解释器（仿真），目录名同为 windows-x86_64-none。
+ */
+function getUvToolPythonTriple(): string {
+  if (process.platform !== "win32") {
+    return "x86_64-unknown-linux-gnu";
+  }
+  return "windows-x86_64-none";
+}
+
+function getToolShimPythonExePath(version: string): string {
+  const root = getUvPythonInstallRoot();
+  const triple = getUvToolPythonTriple();
+  return path.join(root, `cpython-${version}-${triple}`, "python.exe");
+}
+
+function isToolShimPythonPresent(version: string): boolean {
+  return fs.existsSync(getToolShimPythonExePath(version));
+}
+
+/**
+ * uv python install 常解压为 cpython-3.13.12-windows-x86_64-none，而 tool.exe 只认
+ * cpython-3.13-windows-x86_64-none。此时建目录联接，使 shim 路径可用。
+ */
+function tryJunctionShimDirToPatchInstall(version: string): boolean {
+  const root = getUvPythonInstallRoot();
+  if (!fs.existsSync(root)) {
+    return false;
+  }
+  const triple = getUvToolPythonTriple();
+  const shimDir = path.join(root, `cpython-${version}-${triple}`);
+  const shimExe = path.join(shimDir, "python.exe");
+  if (fs.existsSync(shimExe)) {
+    return true;
+  }
+
+  const escapedTriple = triple.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patchDirRe = new RegExp(
+    `^cpython-${version.replace(/\./g, "\\.")}\\.\\d+-${escapedTriple}$`,
+    "i",
+  );
+
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch (error) {
+    log.warn(
+      "[WindowsMcp] tryJunctionShimDirToPatchInstall: readdir failed",
+      error,
+    );
+    return false;
+  }
+
+  const candidates = entries
+    .filter((e) => e.isDirectory() && patchDirRe.test(e.name))
+    .map((e) => e.name)
+    .sort()
+    .reverse();
+
+  const patchName = candidates[0];
+  if (!patchName) {
+    return false;
+  }
+
+  const patchDir = path.join(root, patchName);
+  const patchExe = path.join(patchDir, "python.exe");
+  if (!fs.existsSync(patchExe)) {
+    return false;
+  }
+
+  try {
+    if (fs.existsSync(shimDir)) {
+      const st = fs.lstatSync(shimDir);
+      if (st.isDirectory() && !st.isSymbolicLink()) {
+        log.warn(
+          `[WindowsMcp] shim_dir_exists_not_link skip_junction path=${shimDir}`,
+        );
+        return fs.existsSync(shimExe);
+      }
+      fs.rmSync(shimDir, { recursive: true, force: true });
+    }
+  } catch (error) {
+    log.warn(
+      "[WindowsMcp] tryJunctionShimDirToPatchInstall: cleanup failed",
+      error,
+    );
+    return false;
+  }
+
+  try {
+    fs.symlinkSync(patchDir, shimDir, "junction");
+    log.info(`[WindowsMcp] uv_python_shim_junction ${shimDir} -> ${patchDir}`);
+  } catch (error) {
+    log.warn(
+      "[WindowsMcp] tryJunctionShimDirToPatchInstall: junction failed",
+      error,
+    );
+    return false;
+  }
+
+  return fs.existsSync(shimExe);
+}
+
+/**
+ * uv 生成的 windows-mcp.exe 会查找 UV_PYTHON_INSTALL_DIR 下 **无补丁段** 的目录名；
+ * 仅存在 cpython-3.13.12-... 时也会 exit 103。此处对齐 shim 路径或建 junction。
+ */
+async function ensureUvManagedPythonForWindowsMcp(): Promise<void> {
+  if (isToolShimPythonPresent(WINDOWS_MCP_UV_PYTHON)) {
+    return;
+  }
+
+  if (tryJunctionShimDirToPatchInstall(WINDOWS_MCP_UV_PYTHON)) {
+    log.info(
+      "[WindowsMcp] uv_managed_python_ready (existing patch -> shim junction)",
+    );
+    return;
+  }
+
+  const uvBinPath = getUvBinPath();
+  if (!fs.existsSync(uvBinPath)) {
+    throw new Error(`Bundled uv not found: ${uvBinPath}`);
+  }
+
+  const env: Record<string, string> = {
+    ...getAppEnv({ includeSystemPath: true }),
+  };
+  delete env.UV_NO_INSTALL;
+  env.UV_PYTHON_DOWNLOADS =
+    process.env.UV_PYTHON_DOWNLOADS ?? env.UV_PYTHON_DOWNLOADS ?? "automatic";
+
+  log.info(
+    `[WindowsMcp] uv_managed_python_missing shim=${getToolShimPythonExePath(WINDOWS_MCP_UV_PYTHON)} running: uv python install ${WINDOWS_MCP_UV_PYTHON}`,
+  );
+
+  const result = await runCommand(
+    uvBinPath,
+    ["python", "install", WINDOWS_MCP_UV_PYTHON],
+    {
+      cwd: app.getPath("home"),
+      env,
+    },
+  );
+
+  if (result.code !== 0) {
+    throw new Error(
+      buildInstallError(
+        "uv python install failed (windows-mcp needs managed Python under ~/.nuwaclaw/uv/python)",
+        uvBinPath,
+        ["python", "install", WINDOWS_MCP_UV_PYTHON],
+        result,
+      ),
+    );
+  }
+
+  if (isToolShimPythonPresent(WINDOWS_MCP_UV_PYTHON)) {
+    log.info("[WindowsMcp] uv_managed_python_ready");
+    return;
+  }
+
+  if (tryJunctionShimDirToPatchInstall(WINDOWS_MCP_UV_PYTHON)) {
+    log.info("[WindowsMcp] uv_managed_python_ready (shim junction)");
+    return;
+  }
+
+  throw new Error(
+    `uv python install finished but tool shim path still missing: ${getToolShimPythonExePath(WINDOWS_MCP_UV_PYTHON)} (see ~/.nuwaclaw/uv/python)`,
+  );
+}
+
 function buildRuntimeWindowsMcpEnv(
   runtimeRoot: string,
   options?: { forInstall?: boolean },
@@ -653,6 +829,14 @@ async function startWindowsMcpInternal(allowSelfHeal: boolean): Promise<{
   error?: string;
 }> {
   const runtime = await ensureWindowsMcpRuntime();
+
+  try {
+    await ensureUvManagedPythonForWindowsMcp();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.error(`[WindowsMcp] ensureUvManagedPythonForWindowsMcp: ${message}`);
+    return { success: false, error: message };
+  }
 
   const buildConfig = (_port: number): ProcessConfig => ({
     command: runtime.binPath,
