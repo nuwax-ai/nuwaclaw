@@ -774,12 +774,27 @@ export async function createAcpConnection(
         ? effectiveBinArgs
         : [binPath, ...effectiveBinArgs];
 
+      // Extra writable paths for seatbelt profile:
+      // 1. isolatedHome — engine config/cache
+      // 2. System temp directories — engines may create temp files here for tool
+      //    execution. Cross-platform: os.tmpdir() + realpath, plus macOS-specific
+      //    /tmp and /private/tmp (some engines hardcode these instead of os.tmpdir()).
+      const extraWritable: string[] = [isolatedHome, os.tmpdir()];
+      try {
+        extraWritable.push(fs.realpathSync(os.tmpdir()));
+      } catch {
+        /* realpath resolution failed, skip */
+      }
+      if (process.platform === "darwin") {
+        extraWritable.push("/tmp", "/private/tmp");
+      }
+
       const wrapped = await buildSandboxedSpawnArgs(
         effectiveCommand,
         effectiveSpawnArgs,
         config.workspaceDir,
         config.sandbox,
-        [isolatedHome], // isolatedHome 作为额外可写路径
+        extraWritable,
       );
       spawnCommand = wrapped.command;
       spawnArgs = wrapped.args;

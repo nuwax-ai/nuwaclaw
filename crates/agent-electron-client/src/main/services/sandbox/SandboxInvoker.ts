@@ -439,9 +439,11 @@ export class SandboxInvoker {
         '(allow process-exec (regex #"^/usr/lib/"))',
       );
       const execAllow = new Set<string>([command]);
-      if (compat) {
-        for (const p of startupExecAllowlist) execAllow.add(p);
-      }
+      // startupExecAllowlist: both strict and compat modes include engine-internal
+      // binaries (e.g. rg, node) that are needed for tool execution.
+      // Previously only compat used this; strict now also includes it so that
+      // sandboxed ACP engines can spawn helper binaries like ripgrep.
+      for (const p of startupExecAllowlist) execAllow.add(p);
       for (const p of execAllow) {
         if (!p || !path.isAbsolute(p)) continue;
         const addPath = (candidate: string) => {
@@ -472,6 +474,7 @@ export class SandboxInvoker {
       "(allow file-lock)",
     );
     // 可写路径 — 同时添加原始路径和 realpath（处理 macOS 符号链接）
+    // 对每个可写路径，同时允许 process-exec（引擎内部二进制如 rg 需要执行）
     if (!permissive) {
       const seen = new Set<string>();
       for (const wp of writablePaths) {
@@ -488,6 +491,7 @@ export class SandboxInvoker {
           if (!seen.has(p)) {
             seen.add(p);
             lines.push(`(allow file-write* (subpath "${p}"))`);
+            lines.push(`(allow process-exec (subpath "${p}"))`);
           }
         }
       }
