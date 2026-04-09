@@ -1,6 +1,6 @@
 ---
-version: 1.2
-last-updated: 2026-04-01
+version: 1.3
+last-updated: 2026-04-09
 status: stable
 ---
 
@@ -94,14 +94,19 @@ syncCookieAndBuildUrl() — 打开 webview 前调用
     ├── 1. getCurrentAuth() → 获取 domain、configId
     │
     ├── 2. settingsGet('auth.token') → 读取 one-shot token
-    │   ├── 有值 → 使用 one-shot token
+    │   ├── 有值 → tokenSource = "one_shot"
     │   └── 无值 → settingsGet('domain_token:{domain}') → 读取域名缓存 token
+    │       └── 有值 → tokenSource = "domain_cache"
     │
     ├── 3. token 不存在？
     │   └── 是 → 跳过同步（不清空现有 cookie），直接返回 buildUrl()
     │
-    ├── 4. token 存在 → 无条件覆盖（不管现有 cookie 是否有效）
-    │   └── syncSessionCookie(domain, token)
+    ├── 4. parseJwtExpDate(token) → 检查 JWT exp 是否过期（30s 宽限容忍时钟偏移）
+    │   └── 已过期（exp + 30s ≤ now）？
+    │       └── 是 → 只清除对应来源缓存（one-shot 清 AUTH_TOKEN，domain_cache 清 domain key）
+    │                跳过 cookie 覆写，直接返回 buildUrl()
+    │
+    ├── 5. token 有效 → syncSessionCookie(domain, token)
     │       ├── electronAPI.session.setCookie({
     │       │     url: domain,         // e.g. "https://agent.nuwax.com"
     │       │     name: 'ticket',
@@ -120,7 +125,7 @@ syncCookieAndBuildUrl() — 打开 webview 前调用
     │       ├── 成功 → settingsSet('auth.token', null) ← 消费 one-shot token
     │       └── 失败 → 保留 token，抛出异常（下次重试）
     │
-    └── 5. return buildUrl(domain, configId)
+    └── 6. return buildUrl(domain, configId)
             │
             └── <webview src={redirectUrl}> 发起请求
                 ├── 请求自动携带 ticket cookie (host-only, httpOnly)
@@ -134,6 +139,25 @@ syncCookieAndBuildUrl() — 打开 webview 前调用
 | 退出登录 (`clearAuthInfo`) | `settingsSet('auth.token', null)` |
 | 退出登录 (`handleLogout`) | `setWebviewVisible(false)` — 关闭 webview |
 | reg 返回新 token | 覆盖旧值（login 和 sync 两个入口均会更新） |
+| cookie 同步成功 | `settingsSet('auth.token', null)` — 消费 one-shot token |
+| 缓存 token 已过期 | 只清除对应来源（one-shot → `AUTH_TOKEN`，domain cache → domain key） |
+| webview 内重新登录 (`persistTicketCookie`) | 清除 `AUTH_TOKEN` + domain key，刷盘 cookie |
+
+### Webview 重新登录处理
+
+```
+webview 内 token 过期 → 服务端跳转 /login
+    ↓
+用户在 webview 内重新登录 → 服务端 Set-Cookie: ticket=新token
+    ↓
+EmbeddedWebview 检测到从 /login 跳转到非 login 页面
+    ↓
+调用 persistTicketCookie(domain)
+    ├── flushStore() — 确保新 cookie 写入磁盘
+    └── 清除 AUTH_TOKEN + domain_token:{domain} — 防止旧缓存覆盖新 ticket
+```
+
+**防御性兜底**：即使 `persistTicketCookie` 未被调用（如 race condition），`syncCookieAndBuildUrl` 在下次打开 webview 时仍会检查 JWT exp，过期的缓存 token 不会覆盖现有 cookie。
 
 ---
 
@@ -200,15 +224,20 @@ Electron 侧和 webview 内的 ticket cookie 使用相同属性（host-only + ht
 
 **修复前问题**：Electron 显式设 `domain: "agent.nuwax.com"` → Chromium 存为 `.agent.nuwax.com`（domain cookie），而 webview 登录的 `Set-Cookie` 无 Domain 属性 → Chromium 存为 `agent.nuwax.com`（host-only cookie）。两个 cookie 条目同名不同属性，`count=2` 无法互相覆盖。
 
-### 5. Cookie 同步策略（v1.2 简化）
+### 5. Cookie 同步策略（v1.3）
 
-**核心规则**：有 token → 无条件覆盖；无 token → 不做任何操作。
+**核心规则**：有有效 token → 覆盖 cookie；有过期 token → 只清对应缓存并跳过；无 token → 不做任何操作。
 
 - reg 接口返回 token 时，不管现有 cookie 是否存在、是否在有效期，都直接调用 `syncSessionCookie` 覆盖
 - reg 接口未返回 token 时，跳过同步，不清空现有 cookie（避免误清除 webview 内登录产生的 ticket）
 - 同步成功后清除 one-shot token（`AUTH_TOKEN`），失败时保留以供重试
+- **JWT 过期检查**（v1.3）：同步前检查 token 的 `exp` 字段，若已过期（超过 30s 宽限期）则：
+  - 只清除对应来源的缓存（one-shot → `AUTH_TOKEN`，domain cache → domain key）
+  - 跳过 cookie 覆写，避免用过期 token 覆盖 webview 内重新登录获得的新 ticket
+  - 30s 宽限（`JWT_EXPIRY_BUFFER_MS`）容忍客户端与服务端时钟偏移
+- **webview 重新登录后清缓存**（v1.3）：`persistTicketCookie()` 在检测到 webview 登录成功后，清除 `AUTH_TOKEN` + domain key 双缓存，作为主修复；`syncCookieAndBuildUrl` 的 exp 检查作为防御性兜底
 
-**v1.2 之前的逻辑**（已移除）：检查现有 cookie 有效性 → 有效则跳过 → 过期则重新同步。这增加了复杂性且在 token 轮换场景下可能导致旧 token 残留。
+**v1.2 逻辑**（已更新）：有 token → 无条件覆盖。v1.3 增加了过期检查，防止 webview 重新登录后旧缓存覆盖新 ticket。
 
 ---
 

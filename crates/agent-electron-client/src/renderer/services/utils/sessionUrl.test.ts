@@ -7,6 +7,7 @@ import {
   syncCookieAndGetRedirectUrl,
   syncCookieAndGetNewSessionUrl,
   syncCookieAndGetChatUrl,
+  persistTicketCookie,
 } from "./sessionUrl";
 
 const { mockSettings, mockSession, mockLogger } = vi.hoisted(() => ({
@@ -303,7 +304,7 @@ describe("syncCookieAndGetRedirectUrl", () => {
       "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
     );
     expect(mockLogger.debug).toHaveBeenCalledWith(
-      "[SessionUrl] 会话前状态",
+      "[SessionUrl] Pre-session state",
       "SessionUrl",
       expect.objectContaining({
         domain: "https://example.com",
@@ -311,7 +312,7 @@ describe("syncCookieAndGetRedirectUrl", () => {
       }),
     );
     expect(mockLogger.debug).toHaveBeenCalledWith(
-      "[SessionUrl] ticket cookie 同步成功",
+      "[SessionUrl] ticket cookie synced successfully",
       "SessionUrl",
       expect.objectContaining({ domain: "https://example.com" }),
     );
@@ -405,5 +406,153 @@ describe("syncCookieAndGetChatUrl", () => {
       "https://example.com/api/sandbox/config/redirect/chat/sess-abc?hideMenu=true",
     );
     expect(mockSession.setCookie).not.toHaveBeenCalled();
+  });
+});
+
+// --- JWT expiry & token cache clearing ---
+
+/** Helper: build a minimal JWT-like string with a given exp (epoch seconds). */
+function makeJwt(exp: number): string {
+  const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const payload = btoa(JSON.stringify({ exp }));
+  return `${header}.${payload}.sig`;
+}
+
+function setupAuthWithDomain(domain = "https://example.com") {
+  mockGetCurrentAuth.mockResolvedValue({
+    isLoggedIn: true,
+    userInfo: { id: 7, currentDomain: domain, username: "u" },
+  });
+}
+
+describe("syncCookieAndBuildUrl — JWT expiry guard", () => {
+  it("skips cookie sync when one-shot token is expired, clears AUTH_TOKEN only", async () => {
+    setupAuthWithDomain();
+    const expiredJwt = makeJwt(Math.floor(Date.now() / 1000) - 60); // expired 60s ago
+    mockSettings.get.mockResolvedValue(expiredJwt);
+
+    const result = await syncCookieAndGetRedirectUrl();
+
+    expect(result).toBe(
+      "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
+    );
+    expect(mockSession.setCookie).not.toHaveBeenCalled();
+    // Only AUTH_TOKEN cleared, not domain cache
+    expect(mockSettings.set).toHaveBeenCalledWith("auth.token", null);
+    expect(mockSettings.set).not.toHaveBeenCalledWith(
+      "auth.tokens.example.com",
+      null,
+    );
+  });
+
+  it("skips cookie sync when domain cache token is expired, clears domain key only", async () => {
+    setupAuthWithDomain();
+    const expiredJwt = makeJwt(Math.floor(Date.now() / 1000) - 60);
+    mockSettings.get.mockImplementation((key: string) => {
+      if (key === "auth.token") return Promise.resolve(null);
+      if (key === "auth.tokens.example.com") return Promise.resolve(expiredJwt);
+      return Promise.resolve(null);
+    });
+
+    const result = await syncCookieAndGetRedirectUrl();
+
+    expect(result).toBe(
+      "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
+    );
+    expect(mockSession.setCookie).not.toHaveBeenCalled();
+    // Only domain key cleared, not global AUTH_TOKEN
+    expect(mockSettings.set).toHaveBeenCalledWith(
+      "auth.tokens.example.com",
+      null,
+    );
+    expect(mockSettings.set).not.toHaveBeenCalledWith("auth.token", null);
+  });
+
+  it("proceeds with cookie sync when token is not expired", async () => {
+    setupAuthWithDomain();
+    const validJwt = makeJwt(Math.floor(Date.now() / 1000) + 3600); // expires in 1h
+    mockSettings.get.mockResolvedValue(validJwt);
+
+    const result = await syncCookieAndGetRedirectUrl();
+
+    expect(result).toBe(
+      "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
+    );
+    expect(mockSession.setCookie).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "ticket", value: validJwt }),
+    );
+  });
+
+  it("proceeds with cookie sync for non-JWT token (no exp field)", async () => {
+    setupAuthWithDomain();
+    mockSettings.get.mockResolvedValue("opaque-token-not-jwt");
+
+    const result = await syncCookieAndGetRedirectUrl();
+
+    expect(result).toBe(
+      "https://example.com/api/sandbox/config/redirect/7?hideMenu=true",
+    );
+    expect(mockSession.setCookie).toHaveBeenCalledWith(
+      expect.objectContaining({ value: "opaque-token-not-jwt" }),
+    );
+  });
+
+  it("proceeds with cookie sync for malformed JWT", async () => {
+    setupAuthWithDomain();
+    mockSettings.get.mockResolvedValue("not-even..a..jwt");
+
+    const result = await syncCookieAndGetRedirectUrl();
+
+    expect(mockSession.setCookie).toHaveBeenCalled();
+  });
+
+  it("treats token as valid if expired within clock-skew buffer (30s)", async () => {
+    setupAuthWithDomain();
+    // Expired only 10 seconds ago — within the 30s grace period
+    const barelyExpiredJwt = makeJwt(Math.floor(Date.now() / 1000) - 10);
+    mockSettings.get.mockResolvedValue(barelyExpiredJwt);
+
+    const result = await syncCookieAndGetRedirectUrl();
+
+    // Should still sync — not treated as expired
+    expect(mockSession.setCookie).toHaveBeenCalledWith(
+      expect.objectContaining({ value: barelyExpiredJwt }),
+    );
+  });
+});
+
+describe("persistTicketCookie", () => {
+  it("clears both AUTH_TOKEN and domain token cache after webview login", async () => {
+    mockSession.getCookie.mockResolvedValue({ found: true });
+    mockSession.flushStore = vi.fn().mockResolvedValue(undefined);
+
+    await persistTicketCookie("https://example.com");
+
+    expect(mockSettings.set).toHaveBeenCalledWith("auth.token", null);
+    expect(mockSettings.set).toHaveBeenCalledWith(
+      "auth.tokens.example.com",
+      null,
+    );
+  });
+
+  it("skips clearing when no ticket cookie is present", async () => {
+    mockSession.getCookie.mockResolvedValue({ found: false });
+
+    await persistTicketCookie("https://example.com");
+
+    expect(mockSettings.set).not.toHaveBeenCalled();
+  });
+
+  it("does not throw on failure, logs warning instead", async () => {
+    mockSession.getCookie.mockRejectedValue(new Error("cookie read failed"));
+
+    await expect(
+      persistTicketCookie("https://example.com"),
+    ).resolves.toBeUndefined();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      "[SessionUrl] persistTicketCookie failed",
+      "SessionUrl",
+      expect.objectContaining({ domain: "https://example.com" }),
+    );
   });
 });

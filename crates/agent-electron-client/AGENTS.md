@@ -123,7 +123,8 @@ reg 接口返回 token
 ### 核心函数
 
 - **`syncSessionCookie(domain, token)`**：将 token 写入 webview cookie（name="ticket"），不设 domain（host-only），不设 secure（主进程根据 URL scheme 自动判断）
-- **`syncCookieAndBuildUrl()`**：打开 webview 前同步 token。有 token → 无条件覆盖 cookie；无 token → 跳过（不清空）
+- **`syncCookieAndBuildUrl()`**：打开 webview 前同步 token。有 token → 检查 JWT exp 是否过期（30s 宽限容忍时钟偏移）→ 未过期则覆盖 cookie；已过期则只清除对应来源缓存并跳过；无 token → 跳过（不清空）
+- **`persistTicketCookie(domain)`**：webview 内登录成功后，将 ticket cookie 刷盘并清除 settings 中所有旧 token 缓存（`AUTH_TOKEN` + domain key），防止下次打开 webview 时旧缓存覆盖新 ticket
 
 ### 安全考虑
 
@@ -131,6 +132,7 @@ reg 接口返回 token
 - 日志中不记录敏感 token 值
 - 失败时保留 token 以便重试，但不影响用户体验
 - Cookie 属性：host-only（不设 domain，避免 count=2）、httpOnly、secure 由主进程根据 URL scheme 自动判断
+- 过期 token 清除精确到来源（one-shot 清 `AUTH_TOKEN`，domain cache 清 domain key），避免误清另一个有效缓存
 
 ---
 

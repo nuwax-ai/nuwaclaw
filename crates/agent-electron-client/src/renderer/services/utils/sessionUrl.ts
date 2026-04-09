@@ -17,6 +17,9 @@ import { getDomainTokenKey } from "@shared/utils/domain";
  * 解析 JWT exp 字段，返回 ISO 时间字符串或 null。
  * 仅读取 exp，不验证签名。
  */
+/** JWT 过期后仍视为有效的宽限时间（毫秒），用于容忍时钟偏移。 */
+const JWT_EXPIRY_BUFFER_MS = 30_000;
+
 function parseJwtExpDate(token: string): string | null {
   try {
     const parts = token.split(".");
@@ -151,7 +154,29 @@ async function syncCookieAndBuildUrl<T>(
     return buildUrl(domain, configId);
   }
 
-  // 有 token → 无条件覆盖 cookie，不管现有 cookie 是否有效
+  // 检查缓存 token 是否已过期（JWT only）。若已过期，清空缓存并跳过覆写，
+  // 避免用旧 token 覆盖 webview 内重新登录后获得的有效 ticket（防御性兜底）。
+  const expDate = parseJwtExpDate(token);
+  if (
+    expDate &&
+    new Date(expDate).getTime() + JWT_EXPIRY_BUFFER_MS <= Date.now()
+  ) {
+    logger.info(
+      "[SessionUrl] Cached token expired, clearing cache to avoid overwriting fresh webview cookie",
+      "SessionUrl",
+      { domain, expDate },
+    );
+    // Only clear the token source that was actually checked and found expired.
+    // Avoids clearing a valid one-shot token when domain cache is expired, and vice versa.
+    if (tokenSource === "one_shot") {
+      await window.electronAPI?.settings.set(AUTH_KEYS.AUTH_TOKEN, null);
+    } else {
+      await window.electronAPI?.settings.set(domainTokenKey, null);
+    }
+    return buildUrl(domain, configId);
+  }
+
+  // 有有效 token → 同步到 webview cookie
   try {
     await syncSessionCookie(domain, token);
     // one-shot token 成功后清除，避免反复覆盖 webview 内 ticket
@@ -238,6 +263,18 @@ export async function persistTicketCookie(domain: string): Promise<void> {
     await window.electronAPI?.session.flushStore();
     logger.info(
       "[SessionUrl] persistTicketCookie: cookie store flushed",
+      "SessionUrl",
+      { domain },
+    );
+
+    // webview 内重新登录后，清除 settings 里的旧 token cache。
+    // 否则下次打开 webview 时，syncCookieAndBuildUrl 会用过期的缓存 token
+    // 覆盖刚登录得到的新 ticket，导致服务端再次拒绝并跳到登录页。
+    const domainTokenKey = getDomainTokenKey(domain);
+    await window.electronAPI?.settings.set(AUTH_KEYS.AUTH_TOKEN, null);
+    await window.electronAPI?.settings.set(domainTokenKey, null);
+    logger.info(
+      "[SessionUrl] persistTicketCookie: stale token cache cleared",
       "SessionUrl",
       { domain },
     );
