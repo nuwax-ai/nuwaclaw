@@ -583,9 +583,12 @@ export class EngineWarmup {
       // updateConfig() cannot change the process-level sandbox after spawn,
       // so mismatched modes must fallback to cold create.
       const warmupSandboxMode = engine.sandboxMode;
-      const requestSandboxMode =
-        ((effectiveConfig as unknown as Record<string, unknown>)
-          .__sandboxMode as string | undefined) ?? warmupSandboxMode; // fallback: assume compatible if caller doesn't specify
+      if (!effectiveConfig.__sandboxMode) {
+        log.debug(
+          "[EngineWarmup] __sandboxMode not set on effectiveConfig, assuming compat",
+        );
+      }
+      const requestSandboxMode = effectiveConfig.__sandboxMode ?? "compat";
       if (warmupSandboxMode !== requestSandboxMode) {
         log.info(
           `[EngineWarmup] ⚠️ 沙箱模式不兼容 (warmup=${warmupSandboxMode}, request=${requestSandboxMode})，不复用`,
