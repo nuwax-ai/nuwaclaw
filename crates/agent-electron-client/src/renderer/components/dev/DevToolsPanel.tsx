@@ -8,6 +8,8 @@
  * - 查看应用存储数据
  * - MCP Proxy 服务管理（仅开发可见，不对正式用户开放）
  * - SetupDependencies UI 测试
+ *
+ * 注意：本组件为纯调试工具，不接入 i18n，所有 UI 文案硬编码英文。
  */
 
 import { useState } from "react";
@@ -20,7 +22,6 @@ import {
   ExperimentOutlined,
 } from "@ant-design/icons";
 import { setupService } from "../../services/core/setup";
-import { t } from "../../services/core/i18n";
 import MCPSettings from "../settings/MCPSettings";
 import SetupDependenciesTest from "./SetupDependenciesTest";
 import SetupWizardTest from "./SetupWizardTest";
@@ -37,9 +38,11 @@ export default function DevToolsPanel() {
   const handleResetSetup = async () => {
     try {
       await setupService.resetSetup();
-      message.success(t("Claw.DevTools.resetInitSuccess"));
+      message.success(
+        "Initialization state reset. Setup wizard will show after refresh.",
+      );
     } catch {
-      message.error(t("Claw.DevTools.resetFailed"));
+      message.error("Reset failed");
     }
   };
 
@@ -51,20 +54,21 @@ export default function DevToolsPanel() {
       await window.electronAPI?.settings.set("auth.config_key", null);
       await window.electronAPI?.settings.set("auth.user_info", null);
       await window.electronAPI?.settings.set("auth.online_status", null);
-      message.success(t("Claw.DevTools.clearAuthSuccess"));
+      message.success("Login state cleared");
     } catch {
-      message.error(t("Claw.DevTools.clearFailed"));
+      message.error("Clear failed");
     }
   };
 
   // 清除全部并刷新
   const handleClearAll = () => {
     Modal.confirm({
-      title: t("Claw.DevTools.clearAllData"),
-      content: t("Claw.DevTools.clearAllDataConfirm"),
-      okText: t("Claw.DevTools.clearAndReload"),
+      title: "Clear All Data",
+      content:
+        "This will reset initialization state and login info. Page will auto refresh. Continue?",
+      okText: "Clear & Reload",
       okType: "danger",
-      cancelText: t("Claw.Common.cancel"),
+      cancelText: "Cancel",
       onOk: async () => {
         try {
           await setupService.resetSetup();
@@ -73,10 +77,10 @@ export default function DevToolsPanel() {
           await window.electronAPI?.settings.set("auth.config_key", null);
           await window.electronAPI?.settings.set("auth.user_info", null);
           await window.electronAPI?.settings.set("auth.online_status", null);
-          message.success(t("Claw.DevTools.clearedReloading"));
+          message.success("All data cleared, reloading...");
           setTimeout(() => window.location.reload(), 500);
         } catch {
-          message.error(t("Claw.DevTools.clearFailed"));
+          message.error("Clear failed");
         }
       },
     });
@@ -118,7 +122,7 @@ export default function DevToolsPanel() {
       setStoreData(data);
       setStoreModalVisible(true);
     } catch {
-      message.error(t("Claw.DevTools.readStoreFailed"));
+      message.error("Failed to read store data");
     }
   };
 
@@ -133,7 +137,7 @@ export default function DevToolsPanel() {
         }}
       >
         <span style={{ fontSize: 13, fontWeight: 500, color: "#18181b" }}>
-          {t("Claw.DevTools.title")}
+          {"Developer Tools"}
         </span>
         <Tag color="orange" style={{ margin: 0, fontSize: 10 }}>
           DEV
@@ -151,10 +155,12 @@ export default function DevToolsPanel() {
         <div style={rowStyle}>
           <div>
             <div style={{ fontSize: 13, color: "#18181b" }}>
-              {t("Claw.DevTools.resetInit")}
+              {"Reset Initialization"}
             </div>
             <div style={{ fontSize: 11, color: "#a1a1aa", marginTop: 1 }}>
-              {t("Claw.DevTools.resetInitHint")}
+              {
+                "Clear setup wizard completion flag, wizard will show after refresh"
+              }
             </div>
           </div>
           <Button
@@ -162,7 +168,7 @@ export default function DevToolsPanel() {
             icon={<ReloadOutlined />}
             onClick={handleResetSetup}
           >
-            {t("Claw.DevTools.reset")}
+            {"Reset"}
           </Button>
         </div>
 
@@ -170,10 +176,10 @@ export default function DevToolsPanel() {
         <div style={rowStyle}>
           <div>
             <div style={{ fontSize: 13, color: "#18181b" }}>
-              {t("Claw.DevTools.clearLogin")}
+              {"Clear Login"}
             </div>
             <div style={{ fontSize: 11, color: "#a1a1aa", marginTop: 1 }}>
-              {t("Claw.DevTools.clearLoginHint")}
+              {"Clear username, password, ConfigKey (keep SavedKey)"}
             </div>
           </div>
           <Button
@@ -181,7 +187,7 @@ export default function DevToolsPanel() {
             icon={<ClearOutlined />}
             onClick={handleClearAuth}
           >
-            {t("Claw.DevTools.clear")}
+            {"Clear"}
           </Button>
         </div>
 
@@ -189,10 +195,10 @@ export default function DevToolsPanel() {
         <div style={rowStyle}>
           <div>
             <div style={{ fontSize: 13, color: "#18181b" }}>
-              {t("Claw.DevTools.clearAll")}
+              {"Clear All & Reload"}
             </div>
             <div style={{ fontSize: 11, color: "#a1a1aa", marginTop: 1 }}>
-              {t("Claw.DevTools.clearAllHint")}
+              {"Reset init + clear login, auto refresh page"}
             </div>
           </div>
           <Button
@@ -201,18 +207,16 @@ export default function DevToolsPanel() {
             icon={<DeleteOutlined />}
             onClick={handleClearAll}
           >
-            {t("Claw.DevTools.clearAllBtn")}
+            {"Clear All"}
           </Button>
         </div>
 
         {/* 查看存储数据 */}
         <div style={{ ...rowStyle, borderBottom: "none" }}>
           <div>
-            <div style={{ fontSize: 13, color: "#18181b" }}>
-              {t("Claw.DevTools.storeData")}
-            </div>
+            <div style={{ fontSize: 13, color: "#18181b" }}>{"Store Data"}</div>
             <div style={{ fontSize: 11, color: "#a1a1aa", marginTop: 1 }}>
-              {t("Claw.DevTools.storeDataHint")}
+              {"View key-value data in SQLite (sensitive fields masked)"}
             </div>
           </div>
           <Button
@@ -220,7 +224,7 @@ export default function DevToolsPanel() {
             icon={<DatabaseOutlined />}
             onClick={handleViewStore}
           >
-            {t("Claw.DevTools.view")}
+            {"View"}
           </Button>
         </div>
       </div>
@@ -236,7 +240,7 @@ export default function DevToolsPanel() {
           }}
         >
           <span style={{ fontSize: 13, fontWeight: 500, color: "#18181b" }}>
-            {t("Claw.DevTools.mcpProxyService")}
+            {"MCP Proxy Service Management"}
           </span>
           <Tag color="orange" style={{ margin: 0, fontSize: 10 }}>
             DEV
@@ -256,7 +260,7 @@ export default function DevToolsPanel() {
 
       {/* 存储数据弹窗 */}
       <Modal
-        title={t("Claw.DevTools.storeData")}
+        title={"Store Data"}
         open={storeModalVisible}
         onCancel={() => setStoreModalVisible(false)}
         footer={null}
@@ -291,7 +295,7 @@ export default function DevToolsPanel() {
           }}
         >
           <span style={{ fontSize: 13, fontWeight: 500, color: "#18181b" }}>
-            {t("Claw.DevTools.uiTest")}
+            {"UI Test"}
           </span>
           <Tag color="purple" style={{ margin: 0, fontSize: 10 }}>
             TEST
@@ -308,10 +312,10 @@ export default function DevToolsPanel() {
           <div style={{ ...rowStyle }}>
             <div>
               <div style={{ fontSize: 13, color: "#18181b" }}>
-                {t("Claw.DevTools.setupDepsWizard")}
+                {"Setup Dependencies Wizard"}
               </div>
               <div style={{ fontSize: 11, color: "#a1a1aa", marginTop: 1 }}>
-                {t("Claw.DevTools.setupDepsWizardHint")}
+                {"Test SetupDependencies UI at various phases"}
               </div>
             </div>
             <Button
@@ -319,16 +323,16 @@ export default function DevToolsPanel() {
               icon={<ExperimentOutlined />}
               onClick={() => setSetupDepsTestVisible(true)}
             >
-              {t("Claw.DevTools.test")}
+              {"Test"}
             </Button>
           </div>
           <div style={{ ...rowStyle, borderBottom: "none" }}>
             <div>
               <div style={{ fontSize: 13, color: "#18181b" }}>
-                {t("Claw.DevTools.fullInitFlow")}
+                {"Full Initialization Flow"}
               </div>
               <div style={{ fontSize: 11, color: "#a1a1aa", marginTop: 1 }}>
-                {t("Claw.DevTools.fullInitFlowHint")}
+                {"Test full flow: deps install + config + login"}
               </div>
             </div>
             <Button
@@ -337,7 +341,7 @@ export default function DevToolsPanel() {
               icon={<ExperimentOutlined />}
               onClick={() => setSetupWizardTestVisible(true)}
             >
-              {t("Claw.DevTools.test")}
+              {"Test"}
             </Button>
           </div>
         </div>
@@ -345,7 +349,7 @@ export default function DevToolsPanel() {
 
       {/* SetupDependencies 测试弹窗 */}
       <Modal
-        title={t("Claw.DevTools.setupDepsUiTest")}
+        title={"SetupDependencies UI Test"}
         open={setupDepsTestVisible}
         onCancel={() => setSetupDepsTestVisible(false)}
         footer={null}
@@ -363,7 +367,7 @@ export default function DevToolsPanel() {
 
       {/* SetupWizardTest 测试弹窗 */}
       <Modal
-        title={t("Claw.DevTools.setupWizardFlowTest")}
+        title={"Setup Wizard Full Flow Test"}
         open={setupWizardTestVisible}
         onCancel={() => setSetupWizardTestVisible(false)}
         footer={null}

@@ -236,5 +236,6 @@ npm run dist:linux  # Linux
 2. **用户可见的 UI 文本必须走 `t()`**，包括 `message.success/error/info/loading`、按钮标签、表单提示等。
 3. **新增 locale key 时**：4 个 locale 文件 + `I18N_KEYS` 常量 + 代码中 `t()` 调用，三者同步。
 4. **主进程中的用户可见文案**（如 `MCP_RECONNECT_PROMPT_MESSAGE`）通过主进程 `t()` 走 i18n，避免硬编码英文。
+5. **调试工具组件不接入 i18n**：`src/renderer/components/dev/` 下的调试工具面板（如 `DevToolsPanel.tsx`）仅在开发模式加载，所有 UI 文案硬编码英文，不走 `t()`，不在 locale 文件中维护对应 key。
 
 *最后更新：2026-04-08*
