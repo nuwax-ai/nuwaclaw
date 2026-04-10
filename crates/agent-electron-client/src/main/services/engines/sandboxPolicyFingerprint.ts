@@ -1,7 +1,7 @@
 import type { SandboxPolicy } from "@shared/types/sandbox";
 
 const DEFAULT_SANDBOX_POLICY_FINGERPRINT_INPUT = {
-  enabled: true,
+  enabled: false,
   backend: "auto",
   mode: "compat",
   autoFallback: "startup-only",

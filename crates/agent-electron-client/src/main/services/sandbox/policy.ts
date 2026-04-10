@@ -25,7 +25,7 @@ import { setCachedSandboxPolicy } from "./policyCache";
 export const SANDBOX_POLICY_KEY = "sandbox_policy";
 
 export const DEFAULT_SANDBOX_POLICY: SandboxPolicy = {
-  enabled: true,
+  enabled: false,
   backend: "auto",
   mode: "compat",
   autoFallback: "startup-only",

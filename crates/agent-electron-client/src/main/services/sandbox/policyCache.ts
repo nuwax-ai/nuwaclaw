@@ -1,7 +1,7 @@
 import type { SandboxPolicy } from "@shared/types/sandbox";
 
 const DEFAULT_POLICY: SandboxPolicy = {
-  enabled: true,
+  enabled: false,
   backend: "auto",
   mode: "compat",
   autoFallback: "startup-only",

@@ -514,7 +514,7 @@ describe("sandbox/policy", () => {
       const { getSandboxPolicy } = await import("./policy");
       const policy = getSandboxPolicy();
 
-      expect(policy.enabled).toBe(true);
+      expect(policy.enabled).toBe(false);
       expect(policy.backend).toBe("auto");
       expect(policy.mode).toBe("compat");
       expect(policy.autoFallback).toBe("startup-only");

@@ -67,7 +67,7 @@ export const DEFAULT_STEP1_CONFIG: Step1Config = {
   agentPort: DEFAULT_AGENT_RUNNER_PORT,
   fileServerPort: DEFAULT_FILE_SERVER_PORT,
   guiMcpPort: DEFAULT_GUI_MCP_PORT,
-  guiMcpEnabled: true,
+  guiMcpEnabled: false,
   adminServerPort: DEFAULT_ADMIN_SERVER_PORT,
   workspaceDir: "",
 };
