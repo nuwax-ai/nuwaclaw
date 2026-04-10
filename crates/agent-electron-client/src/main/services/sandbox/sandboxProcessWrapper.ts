@@ -44,6 +44,7 @@ export async function buildSandboxedSpawnArgs(
   cwd: string,
   sandboxConfig: SandboxProcessConfig | undefined,
   extraWritablePaths: string[] = [],
+  options?: { engineType?: "claude-code" | "nuwaxcode" },
 ): Promise<SandboxedSpawn> {
   // 未配置沙箱或已禁用，直接返回原始参数
   if (!sandboxConfig?.enabled) {
@@ -100,6 +101,7 @@ export async function buildSandboxedSpawnArgs(
       networkEnabled,
       subcommand: "serve",
       startupExecAllowlist: [originalCommand],
+      engineType: options?.engineType,
     });
 
     log.info("[SandboxProcessWrapper] Sandbox wrapping succeeded:", {

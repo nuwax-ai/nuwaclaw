@@ -35,3 +35,10 @@ export {
   stopSandboxService,
   getSandboxServiceStatus,
 } from "./serviceBootstrap";
+export {
+  createSandboxEnforcementStrategy,
+  type SandboxEnforcementStrategy,
+  type SandboxStrategyParams,
+  type EngineConfigParams,
+  type StrictContextParams,
+} from "./SandboxEnforcementStrategy";

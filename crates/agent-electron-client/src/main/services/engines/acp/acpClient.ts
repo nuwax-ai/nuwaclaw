@@ -806,6 +806,7 @@ export async function createAcpConnection(
         config.workspaceDir,
         config.sandbox,
         extraWritable,
+        { engineType: config.engineType },
       );
       spawnCommand = wrapped.command;
       spawnArgs = wrapped.args;

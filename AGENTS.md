@@ -55,6 +55,7 @@ This is the **Nuwax Agent** desktop application - a multi-engine AI assistant th
 | **Workspace Manager** | `workspaceManager.ts` | Session workspaces |
 | **Dependencies** | `dependencies.ts` | Package management |
 | **MCP** | `mcp.ts` | MCP server management |
+| **Sandbox Enforcement** | `SandboxEnforcementStrategy.ts` | Platform × engine × mode sandbox abstraction |
 | **Setup** | `setup.ts` | Setup wizard & auth |
 | **File Server** | `fileServer.ts` | Local file service |
 | **Lanproxy** | `lanproxy.ts` | Intranet penetration |
@@ -106,6 +107,12 @@ Each engine runs in an isolated environment:
   ANTHROPIC_BASE_URL: 'xxx',
 }
 ```
+
+---
+
+## Sandbox
+
+Agent file-system writes are restricted by a defense-in-depth sandbox with 5 layers (config injection, OS-level token/seatbelt/bwrap, permission guard, proactive guard, MCP tool replacement). Modes: `strict` (workspace+TEMP), `compat` (+APPDATA), `permissive` (unrestricted). All `(platform × engine × mode)` variance is unified in `SandboxEnforcementStrategy.ts`. See `docs/sandbox/sandbox-enforcement-strategy.md` for details.
 
 ---
 
@@ -218,4 +225,4 @@ Store sensitive configuration in SQLite, not in code:
 
 ---
 
-*Last updated: 2026-02-23*
+*Last updated: 2026-04-10*

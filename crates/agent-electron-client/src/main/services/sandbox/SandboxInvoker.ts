@@ -63,6 +63,9 @@ export interface SandboxInvocationParams {
   subcommand?: "run" | "serve";
   /** 额外可执行路径白名单（compat 启动链路） */
   startupExecAllowlist?: string[];
+  /** Engine type — claude-code spawns MCP servers as child processes (needs
+   *  unrestricted spawn), nuwaxcode handles MCP internally (can be restricted). */
+  engineType?: "claude-code" | "nuwaxcode";
 }
 
 /** 沙箱包装后的调用描述 */
@@ -371,12 +374,14 @@ export class SandboxInvoker {
       helperArgs.push("--no-write-restricted");
     }
 
-    // Serve mode: enable WRITE_RESTRICTED for strict/compat modes.
-    // When set, the restricted token gets restricting SIDs (logon, everyone,
-    // capability) and only paths with explicit ALLOW ACEs are writable.
+    // Serve mode: enable WRITE_RESTRICTED for strict/compat modes, but only
+    // for nuwaxcode. claude-code spawns MCP servers as child processes via
+    // Node.js child_process.spawn() — WRITE_RESTRICTED blocks this, causing
+    // EPERM on session/new. nuwaxcode handles MCP internally (no child spawn).
     // Permissive mode keeps write_restricted=false (no filesystem protection).
+    const isNuwaxcode = params.engineType === "nuwaxcode";
     const serveWriteRestricted =
-      subcommand === "serve" && sandboxMode !== "permissive";
+      subcommand === "serve" && sandboxMode !== "permissive" && isNuwaxcode;
     if (serveWriteRestricted) {
       helperArgs.push("--write-restricted");
       log.info(
