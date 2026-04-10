@@ -2025,6 +2025,16 @@ ${memoryContext}
         break;
       }
 
+      case "available_commands_update": {
+        // claude-code sends available slash commands — no action needed.
+        log.debug(`${this.logTag} Available commands updated`, {
+          commands: (
+            update as { availableCommands?: Array<{ name: string }> }
+          ).availableCommands?.map((c) => c.name),
+        });
+        break;
+      }
+
       default: {
         log.info(
           `${this.logTag} ❓ Unhandled ACP update: ${update.sessionUpdate}`,
