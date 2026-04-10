@@ -26,4 +26,6 @@ export interface AgentConfig {
   permissionMode?: "default" | "acceptEdits" | "bypassPermissions";
   systemPrompt?: string;
   purpose?: "engine";
+  /** @internal Sandbox strictness mode injected by UnifiedAgentService for warmup compatibility check. */
+  __sandboxMode?: string;
 }

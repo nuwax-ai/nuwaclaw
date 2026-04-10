@@ -19,6 +19,18 @@
 
 ---
 
+## 最近同步（2026-04-10）
+
+- 已补充 `PlatformAdapter` 统一平台抽象层在 sandbox 主链路的接入说明
+- 已同步 strict 语义：
+  - macOS seatbelt strict 不包含 startup chain exec allowlist
+  - Windows helper `run` strict 的 `writable_roots` 仅保留首个路径（workspace-first）
+- 对应细节见：
+  - [ARCHITECTURE.md](./ARCHITECTURE.md)
+  - [../operations/ACP-TERMINAL-SANDBOX.md](../operations/ACP-TERMINAL-SANDBOX.md)
+
+---
+
 ## 三区隔离模型
 
 ```

@@ -1,6 +1,6 @@
 //! Compute allow/deny path sets from a sandbox policy.
 
-use crate::policy::SandboxPolicy;
+use crate::policy::{SandboxMode, SandboxPolicy};
 use dunce::canonicalize;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -76,6 +76,20 @@ pub fn compute_allow_paths(
             add_allow_path(PathBuf::from(v));
         } else if let Ok(v) = std::env::var(key) {
             add_allow_path(PathBuf::from(v));
+        }
+    }
+
+    // Include APPDATA/LOCALAPPDATA as writable roots in compat mode (and permissive).
+    // Strict mode intentionally excludes these — only workspace + TEMP/TMP are writable.
+    // This is the single authority for APPDATA allowance; the TypeScript side does NOT add them.
+    let mode = policy.sandbox_mode();
+    if mode != &SandboxMode::Strict {
+        for key in ["APPDATA", "LOCALAPPDATA"] {
+            if let Some(v) = env_map.get(key) {
+                add_allow_path(PathBuf::from(v));
+            } else if let Ok(v) = std::env::var(key) {
+                add_allow_path(PathBuf::from(v));
+            }
         }
     }
 

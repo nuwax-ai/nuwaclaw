@@ -17,8 +17,9 @@
 import { execFile } from "child_process";
 import * as fs from "fs";
 import log from "electron-log";
+import { createPlatformAdapter } from "../system/platformAdapter";
 
-const isWindows = process.platform === "win32";
+const isWindows = (): boolean => createPlatformAdapter().isWindows;
 
 /**
  * Kill a process tree (the process and all its descendants).
@@ -30,7 +31,7 @@ export async function killProcessTree(
   pid: number,
   signal: NodeJS.Signals = "SIGTERM",
 ): Promise<void> {
-  if (isWindows) {
+  if (isWindows()) {
     return killProcessTreeWindows(pid);
   }
   return killProcessTreeUnix(pid, signal);
@@ -125,7 +126,7 @@ export async function killProcessTreesListeningOnTcpPortWindows(
   port: number,
   timeoutMsPerTree = 3000,
 ): Promise<void> {
-  if (process.platform !== "win32") {
+  if (!isWindows()) {
     return;
   }
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -174,7 +175,8 @@ export async function killProcessTreesListeningOnTcpPortUnix(
   port: number,
   timeoutMsPerTree = 3000,
 ): Promise<void> {
-  if (process.platform === "win32") {
+  const platformAdapter = createPlatformAdapter();
+  if (platformAdapter.isWindows) {
     return;
   }
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -182,7 +184,7 @@ export async function killProcessTreesListeningOnTcpPortUnix(
   }
 
   // Linux: 优先尝试 lsof，若不可用则回退到 /proc/net/tcp
-  if (process.platform === "linux") {
+  if (platformAdapter.isLinux) {
     const pids = await getListeningPidsFromProcNet(port);
     if (pids.length > 0) {
       log.info(
@@ -327,7 +329,7 @@ export async function killProcessTreesListeningOnTcpPort(
   port: number,
   timeoutMsPerTree = 3000,
 ): Promise<void> {
-  if (process.platform === "win32") {
+  if (isWindows()) {
     return killProcessTreesListeningOnTcpPortWindows(port, timeoutMsPerTree);
   }
   return killProcessTreesListeningOnTcpPortUnix(port, timeoutMsPerTree);

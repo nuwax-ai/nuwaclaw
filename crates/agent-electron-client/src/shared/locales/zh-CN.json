@@ -13,6 +13,7 @@
   "Claw.Common.back": "返回",
   "Claw.Common.refresh": "刷新",
   "Claw.Errors.mcpReconnectRetryLater": "MCP 连接波动，正在自动重连，请稍后重试",
+  "Claw.Errors.sessionCancelled": "会话已取消",
   "Claw.WindowsMcp.portInUseHint": "常见原因：端口 {port} 已被占用。请稍后重试、在设置中修改 GUI MCP 端口，或在任务管理器中结束相关进程。",
   "Claw.Pages.Dependencies.systemEnv": "系统环境",
   "Claw.Pages.Dependencies.dependencyPackages": "依赖包",

@@ -24,7 +24,9 @@ import { AcpEngine } from "./acp/acpEngine";
 import { loadAcpSdk } from "./acp/acpClient";
 import { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 import { EngineWarmup } from "./engineWarmup";
+import { buildSandboxPolicyFingerprint } from "./sandboxPolicyFingerprint";
 import dependencies from "../system/dependencies";
+import { getSandboxPolicy } from "../sandbox/policy";
 import { processRegistry } from "../system/processRegistry";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ENGINE_DESTROY_TIMEOUT } from "@shared/constants";
@@ -50,6 +52,7 @@ import {
   filterBridgeEntries,
   rawMcpServersEqual,
 } from "../packages/mcpHelpers";
+import { getCachedSandboxPolicy } from "../sandbox/policyCache";
 
 /** 环境变量记录类型 */
 type EnvRecord = Record<string, string | undefined>;
@@ -247,6 +250,9 @@ export class UnifiedAgentService extends EventEmitter {
     this.engines,
     this.engineConfigs,
     this.engineRawMcpServers,
+    {
+      getSandboxPolicyFingerprint: () => this.getSandboxPolicyFingerprint(),
+    },
   );
 
   /** Buffer assistant text chunks per session for memory tracking */
@@ -436,6 +442,18 @@ export class UnifiedAgentService extends EventEmitter {
     return this.engineType;
   }
 
+  private getSandboxPolicyFingerprint(): string | null {
+    try {
+      return buildSandboxPolicyFingerprint(getCachedSandboxPolicy());
+    } catch (error) {
+      log.debug(
+        "[UnifiedAgent] failed to build sandbox policy fingerprint for warmup",
+        error,
+      );
+      return null;
+    }
+  }
+
   getAgentConfig(): AgentConfig | null {
     return this.baseConfig;
   }
@@ -560,7 +578,18 @@ export class UnifiedAgentService extends EventEmitter {
 
     // 仅 nuwaxcode 请求走 warmup 复用，claude-code 保持原路径
     if (isNuwaxRequest) {
-      const reused = await this.warmup.tryReuse(projectId, effectiveConfig, t0);
+      // Inject current sandbox mode so tryReuse() can reject if modes don't match.
+      // The sandbox mode is baked into the process wrapper at spawn time and cannot
+      // be changed via updateConfig(). Mismatched modes must cold-start.
+      const currentSandboxMode = getSandboxPolicy().mode ?? "compat";
+      const configWithSandbox = Object.assign({}, effectiveConfig, {
+        __sandboxMode: currentSandboxMode,
+      });
+      const reused = await this.warmup.tryReuse(
+        projectId,
+        configWithSandbox,
+        t0,
+      );
       if (reused) {
         // 同步引擎内部 config 为 effectiveConfig，
         // 防止 chat() 中 shouldReinitForModelProvider 因 config 不一致而 kill + reinit

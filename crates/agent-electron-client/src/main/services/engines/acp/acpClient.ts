@@ -30,6 +30,7 @@ import {
 import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../../constants";
 import { APP_NAME_IDENTIFIER } from "../../../../shared/constants";
 import { isWindows } from "../../system/shellEnv";
+import { createPlatformAdapter } from "../../system/platformAdapter";
 import { spawnJsFile, resolveNpmPackageEntry } from "../../utils/spawnNoWindow";
 import { processRegistry } from "../../system/processRegistry";
 import { killProcessTreeGraceful } from "../../utils/processTree";
@@ -321,7 +322,12 @@ export interface AcpToolCallUpdate {
   sessionUpdate: "tool_call_update";
   toolCallId: string;
   status: string;
+  /** nuwaxcode sends kind/title in update even though spec only requires them in tool_call */
+  kind?: string;
+  title?: string;
+  rawInput?: unknown;
   rawOutput?: unknown;
+  locations?: Array<{ path?: string; [key: string]: unknown }>;
   content?: Array<{ type: string; [key: string]: unknown }>;
 }
 
@@ -791,7 +797,7 @@ export async function createAcpConnection(
       } catch {
         /* realpath resolution failed, skip */
       }
-      if (process.platform === "darwin") {
+      if (createPlatformAdapter().isMacOS) {
         extraWritable.push("/tmp", "/private/tmp");
       }
 

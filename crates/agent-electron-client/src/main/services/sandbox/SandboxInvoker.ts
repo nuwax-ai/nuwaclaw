@@ -20,6 +20,7 @@ import * as os from "os";
 import * as path from "path";
 import log from "electron-log";
 import { checkCommand } from "../system/shellEnv";
+import { createPlatformAdapter } from "../system/platformAdapter";
 import type {
   SandboxMode,
   SandboxType,
@@ -138,18 +139,19 @@ export class SandboxInvoker {
    * 检测当前后端是否可用
    */
   async checkAvailable(): Promise<boolean> {
+    const platformAdapter = createPlatformAdapter();
+
     switch (this.type) {
       case "none":
         return true;
 
       case "macos-seatbelt":
         return (
-          process.platform === "darwin" &&
-          fs.existsSync("/usr/bin/sandbox-exec")
+          platformAdapter.isMacOS && fs.existsSync("/usr/bin/sandbox-exec")
         );
 
       case "linux-bwrap": {
-        if (process.platform !== "linux") return false;
+        if (!platformAdapter.isLinux) return false;
         if (
           this.options.linuxBwrapPath &&
           fs.existsSync(this.options.linuxBwrapPath)
@@ -160,7 +162,7 @@ export class SandboxInvoker {
       }
 
       case "windows-sandbox": {
-        if (process.platform !== "win32") return false;
+        if (!platformAdapter.isWindows) return false;
         return (
           !!this.options.windowsSandboxHelperPath &&
           fs.existsSync(this.options.windowsSandboxHelperPath)
@@ -345,12 +347,17 @@ export class SandboxInvoker {
     const sandboxPolicy: Record<string, unknown> = {
       type: winMode === "read-only" ? "read-only" : "workspace-write",
       network_access: params.networkEnabled,
+      sandbox_mode: sandboxMode, // strict/compat/permissive — Rust helper uses this for APPDATA allowance
     };
 
-    // Writable roots: all modes use the same writable paths
-    // (workspace, app data dir, isolatedHome, system temp dirs).
+    // Writable roots:
+    // - strict: only keep the first root (workspace-first contract)
+    // - compat/permissive: keep full writable roots list
     if (winMode === "workspace-write" && params.writablePaths.length > 0) {
-      sandboxPolicy.writable_roots = params.writablePaths;
+      sandboxPolicy.writable_roots =
+        sandboxMode === "strict"
+          ? [params.writablePaths[0]]
+          : params.writablePaths;
     }
 
     const helperArgs = [
@@ -365,10 +372,27 @@ export class SandboxInvoker {
 
     // Permissive mode: relax token-level write restrictions so child
     // processes (e.g. Git Bash) can create pipes and modify DACLs.
-    // Only valid for the "run" subcommand — "serve" hardcodes
-    // write_restricted=false in the Rust helper.
+    // Only valid for the "run" subcommand.
     if (sandboxMode === "permissive" && subcommand === "run") {
       helperArgs.push("--no-write-restricted");
+    }
+
+    // Serve mode: never enable WRITE_RESTRICTED.
+    // WRITE_RESTRICTED adds restricting SIDs (logon, everyone, capability) to the
+    // token, which blocks the restricted process from spawning child processes.
+    // In serve mode the ACP engine (claude-code-acp-ts / nuwaxcode) MUST spawn
+    // MCP server sub-processes during session/new — restricting SIDs causes
+    // EPERM on every child spawn, making the session unusable.
+    //
+    // Filesystem write protection in serve mode is enforced by:
+    // 1. DACL ACEs (ALLOW paths applied by the sandbox helper)
+    // 2. sandboxed-bash MCP + sandboxed-fs MCP (tool-level interception)
+    // 3. evaluateStrictWritePermission proactive guard (nuwaxcode)
+    const serveWriteRestricted = false;
+    if (subcommand === "serve") {
+      log.info(
+        "[SandboxInvoker] WRITE_RESTRICTED disabled for serve mode (spawn EPERM prevention)",
+      );
     }
 
     helperArgs.push("--", params.command, ...params.args);
@@ -378,6 +402,7 @@ export class SandboxInvoker {
       subcommand,
       sandboxMode,
       winMode,
+      serveWriteRestricted,
       cwd: params.cwd,
       policy: sandboxPolicy,
     });
@@ -433,11 +458,11 @@ export class SandboxInvoker {
         '(allow process-exec (regex #"^/usr/lib/"))',
       );
       const execAllow = new Set<string>([command]);
-      // startupExecAllowlist: both strict and compat modes include engine-internal
-      // binaries (e.g. rg, node) that are needed for tool execution.
-      // Previously only compat used this; strict now also includes it so that
-      // sandboxed ACP engines can spawn helper binaries like ripgrep.
-      for (const p of startupExecAllowlist) execAllow.add(p);
+      // strict mode keeps a minimal exec surface and does not include
+      // startup chain allowlist entries.
+      if (compat) {
+        for (const p of startupExecAllowlist) execAllow.add(p);
+      }
       for (const p of execAllow) {
         if (!p || !path.isAbsolute(p)) continue;
         const addPath = (candidate: string) => {

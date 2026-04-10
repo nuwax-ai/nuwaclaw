@@ -23,6 +23,7 @@ import path from "path";
 import log from "electron-log";
 import { SandboxInvoker } from "@main/services/sandbox/SandboxInvoker";
 import { killProcessTree } from "@main/services/utils/processTree";
+import { createPlatformAdapter } from "@main/services/system/platformAdapter";
 import type { SandboxMode, WindowsSandboxMode } from "@shared/types/sandbox";
 
 // ============================================================================
@@ -188,8 +189,9 @@ export class AcpTerminalManager {
   private readonly writablePaths: string[];
 
   constructor(options?: AcpTerminalManagerOptions) {
+    const platformAdapter = createPlatformAdapter();
     this.useSandbox = !!(
-      options?.windowsSandboxHelperPath && process.platform === "win32"
+      options?.windowsSandboxHelperPath && platformAdapter.isWindows
     );
     this.networkEnabled = options?.networkEnabled ?? true;
     this.writablePaths = options?.writablePaths ?? [];
@@ -345,7 +347,7 @@ export class AcpTerminalManager {
           command: params.command,
           args: params.args,
           sandboxed: false,
-          platform: process.platform,
+          platform: createPlatformAdapter().platform,
           cwd,
         },
       );
@@ -553,20 +555,22 @@ export class AcpTerminalManager {
     parseJson: boolean,
   ): void {
     const sandboxed = parseJson;
+    const platformAdapter = createPlatformAdapter();
+    const useWindowsShell = !parseJson && platformAdapter.isWindows;
     log.info("[AcpTerminalManager] 🚀 Spawning process:", {
       terminalId: session.id,
       command,
       args: args.length > 0 ? args : undefined,
       cwd,
       sandboxed,
-      shell: !parseJson && process.platform === "win32",
+      shell: useWindowsShell,
     });
 
     const proc = spawn(command, args, {
       cwd,
       env,
       // sandbox helper is an .exe, no shell needed; direct commands may need shell
-      shell: !parseJson && process.platform === "win32",
+      shell: useWindowsShell,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"], // stdin not wired — non-interactive commands only
     });
