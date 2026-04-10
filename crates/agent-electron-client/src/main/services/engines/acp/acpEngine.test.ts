@@ -9,6 +9,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import * as path from "path";
+import * as dependencies from "@main/services/system/dependencies";
 
 vi.mock("electron-log", () => ({
   default: {
@@ -45,6 +47,12 @@ vi.mock("@main/services/packages/guiAgentServer", () => ({
 
 vi.mock("@main/services/packages/windowsMcp", () => ({
   getWindowsMcpUrl: vi.fn(() => null),
+}));
+
+vi.mock("@main/services/system/dependencies", () => ({
+  getResourcesPath: vi.fn(() => "/mock/resources"),
+  getAppEnv: vi.fn(() => ({ PATH: "/mock/path" })),
+  getBundledGitBashPath: vi.fn(() => null),
 }));
 
 vi.mock("@main/services/sandbox/policy", () => ({
@@ -353,6 +361,85 @@ describe("AcpEngine.createSession", () => {
 
     expect(sent.mcpServers.map((m) => m.name)).toContain("gui-agent");
   });
+
+  it("compat 下若 sandboxed-fs 脚本缺失，不应阻断其他 MCP 加载", async () => {
+    const { engine, newSession } = setupEngineForCreateSession("claude-code");
+    const resourcesSpy = vi
+      .spyOn(dependencies, "getResourcesPath")
+      .mockReturnValue("/__missing_resources__");
+
+    (engine as any).storedSandboxConfig = {
+      enabled: true,
+      type: "windows-sandbox",
+      mode: "compat",
+      projectWorkspaceDir: "/workspace/project",
+      windowsSandboxHelperPath: "C:\\tools\\nuwax-sandbox-helper.exe",
+    };
+
+    try {
+      await engine.createSession();
+    } finally {
+      resourcesSpy.mockRestore();
+    }
+
+    expect(newSession).toHaveBeenCalledTimes(1);
+    const sent = newSession.mock.calls[0][0] as {
+      mcpServers: Array<{ name: string }>;
+      _meta?: {
+        claudeCode?: { options?: { disallowedTools?: string[] } };
+      };
+    };
+    const names = sent.mcpServers.map((m) => m.name);
+    expect(names).not.toContain("sandboxed-bash");
+    expect(names).not.toContain("sandboxed-fs");
+    const disallowed = sent._meta?.claudeCode?.options?.disallowedTools || [];
+    expect(disallowed).not.toContain("Bash");
+    expect(disallowed).not.toContain("Write");
+    expect(disallowed).not.toContain("Edit");
+    expect(disallowed).not.toContain("NotebookEdit");
+  });
+
+  it("compat 模式下 sandboxed-fs 注入与工具禁用应生效", async () => {
+    const { engine, newSession } = setupEngineForCreateSession("claude-code");
+    const resourcesSpy = vi
+      .spyOn(dependencies, "getResourcesPath")
+      .mockReturnValue(path.join(process.cwd(), "resources"));
+
+    (engine as any).storedSandboxConfig = {
+      enabled: true,
+      type: "windows-sandbox",
+      mode: "compat",
+      projectWorkspaceDir: "/workspace/project",
+      windowsSandboxHelperPath: "C:\\tools\\nuwax-sandbox-helper.exe",
+    };
+
+    try {
+      await engine.createSession();
+    } finally {
+      resourcesSpy.mockRestore();
+    }
+
+    expect(newSession).toHaveBeenCalledTimes(1);
+    const sent = newSession.mock.calls[0][0] as {
+      mcpServers: Array<{
+        name: string;
+        env?: Array<{ name: string; value: string }>;
+      }>;
+      _meta?: {
+        claudeCode?: { options?: { disallowedTools?: string[] } };
+      };
+    };
+    const fsServer = sent.mcpServers.find((m) => m.name === "sandboxed-fs");
+    expect(fsServer).toBeDefined();
+    const modeVar = fsServer?.env?.find(
+      (kv) => kv.name === "NUWAX_SANDBOX_MODE",
+    );
+    expect(modeVar?.value).toBe("compat");
+    const disallowed = sent._meta?.claudeCode?.options?.disallowedTools || [];
+    expect(disallowed).toContain("Write");
+    expect(disallowed).toContain("Edit");
+    expect(disallowed).toContain("NotebookEdit");
+  });
 });
 
 describe("AcpEngine.handlePermissionRequest(strict)", () => {
@@ -547,6 +634,69 @@ describe("AcpEngine.chat", () => {
       sessionId,
       [{ type: "text", text: "hello trace" }],
       { messageID: "rid-chat-claude-001" },
+    );
+  });
+
+  it("claude-code: compat + 新会话 + context_servers 时等待 MCP warmup 后再发首条 prompt", async () => {
+    const engine = new AcpEngine("claude-code");
+    (engine as any).config = {
+      engine: "claude-code",
+      workspaceDir: "/tmp/workspace",
+      mcpServers: {
+        whois: { command: "node", args: ["whois.js"] },
+        time: { command: "node", args: ["time.js"] },
+      },
+    };
+    (engine as any).acpConnection = {} as any;
+    (engine as any).storedSandboxConfig = {
+      enabled: true,
+      mode: "compat",
+      type: "macos-seatbelt",
+      projectWorkspaceDir: "/tmp/workspace",
+    };
+
+    vi.spyOn(engine, "createSession").mockImplementation(async () => {
+      (engine as any).sessions.set("new-session-compat", {
+        id: "new-session-compat",
+        acpSessionId: "new-session-compat",
+        createdAt: Date.now(),
+        status: "idle",
+        mcpServerCount: 2,
+      });
+      return {
+        id: "new-session-compat",
+        title: "project-compat",
+        time: { created: Date.now() },
+      } as any;
+    });
+
+    const promptAsyncSpy = vi
+      .spyOn(engine, "promptAsync")
+      .mockResolvedValue(undefined);
+
+    vi.useFakeTimers();
+    const chatPromise = engine.chat({
+      user_id: "user-1",
+      project_id: "project-compat",
+      request_id: "rid-chat-compat-001",
+      prompt: "hello compat",
+      agent_config: {
+        context_servers: {
+          whois: { enabled: true },
+          time: { enabled: true },
+        },
+      },
+    } as any);
+
+    await vi.advanceTimersByTimeAsync(1199);
+    expect(promptAsyncSpy).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(chatPromise).resolves.toMatchObject({ success: true });
+    expect(promptAsyncSpy).toHaveBeenCalledWith(
+      "new-session-compat",
+      [{ type: "text", text: "hello compat" }],
+      { messageID: "rid-chat-compat-001" },
     );
   });
 });
