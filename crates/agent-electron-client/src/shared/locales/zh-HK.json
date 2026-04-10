@@ -617,6 +617,7 @@
   "Claw.Settings.messages.openWorkspaceFailed": "開啟工作空間目錄失敗",
   "Claw.Settings.messages.sandboxPolicyUpdated": "沙箱策略已更新",
   "Claw.Settings.messages.updateSandboxPolicyFailed": "更新沙箱策略失敗",
+  "Claw.Settings.messages.sandboxLinuxNotAvailableYet": "Linux 平台 Sandbox 暫未開放",
   "Claw.Settings.guiMcp.messages.enableSuccess": "GUI MCP 已啟用",
   "Claw.Settings.guiMcp.messages.disableSuccess": "GUI MCP 已停用",
   "Claw.Settings.guiMcp.messages.updateFailed": "更新 GUI MCP 設置失敗",

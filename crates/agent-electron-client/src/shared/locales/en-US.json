@@ -617,6 +617,7 @@
   "Claw.Settings.messages.openWorkspaceFailed": "Failed to open workspace directory",
   "Claw.Settings.messages.sandboxPolicyUpdated": "Sandbox policy updated",
   "Claw.Settings.messages.updateSandboxPolicyFailed": "Failed to update sandbox policy",
+  "Claw.Settings.messages.sandboxLinuxNotAvailableYet": "Sandbox is not available on Linux yet",
   "Claw.Settings.guiMcp.messages.enableSuccess": "GUI MCP enabled",
   "Claw.Settings.guiMcp.messages.disableSuccess": "GUI MCP disabled",
   "Claw.Settings.guiMcp.messages.updateFailed": "Failed to update GUI MCP settings",

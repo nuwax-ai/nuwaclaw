@@ -418,6 +418,10 @@ export default function SettingsPage() {
     opts?: { skipMutualExclusion?: boolean },
   ) => {
     if (!window.electronAPI?.sandbox) return;
+    if (patch.enabled === true && sandboxCapabilities?.platform === "linux") {
+      message.warning(t("Claw.Settings.messages.sandboxLinuxNotAvailableYet"));
+      return;
+    }
 
     // GUI MCP 与 Sandbox 互斥：开启 Sandbox 前先关闭 GUI MCP。
     if (
