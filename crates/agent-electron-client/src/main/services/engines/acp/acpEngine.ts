@@ -2036,6 +2036,96 @@ ${memoryContext}
 
       case "tool_call_update": {
         const u = update as AcpToolCallUpdate;
+
+        // Windows-only proactive strict guard for nuwaxcode.
+        // On Windows, the OS-level sandbox only restricts terminal sub-processes,
+        // not nuwaxcode's own file operations. nuwaxcode may execute writes
+        // without sending permission_request. Intercept tool_call_update events
+        // to detect violations retroactively and cancel the session.
+        // macOS/Linux rely on handlePermissionRequest (permission_request from engine)
+        // or OS-level seatbelt/bwrap process sandboxing.
+        if (
+          isWindows &&
+          this.isStrictSandboxActiveForNuwaxcode() &&
+          u.rawInput != null &&
+          u.kind &&
+          u.status === "in_progress"
+        ) {
+          const violationCheck = evaluateStrictWritePermission(
+            {
+              sessionId: acpSessionId,
+              toolCall: {
+                toolCallId: u.toolCallId,
+                title: u.title ?? null,
+                kind: u.kind ?? null,
+                rawInput: u.rawInput,
+              },
+              options: [
+                {
+                  optionId: "_strict_proactive",
+                  kind: "allow_once",
+                  name: "auto",
+                },
+              ],
+            },
+            {
+              strictEnabled: true,
+              workspaceDir: this.config?.workspaceDir,
+              projectWorkspaceDir:
+                this.storedSandboxConfig?.projectWorkspaceDir,
+              isolatedHome: this.isolatedHome,
+              appDataDir: path.join(os.homedir(), APP_DATA_DIR_NAME),
+              tempDirs: [
+                os.tmpdir(),
+                process.env.TMPDIR,
+                process.env.TMP,
+                process.env.TEMP,
+              ],
+            },
+          );
+
+          if (violationCheck.blocked) {
+            log.warn(
+              `${this.logTag} 🚫 strict proactive guard (win32): write blocked outside writable roots`,
+              {
+                reason: violationCheck.reason,
+                toolCallId: u.toolCallId,
+                toolKind: u.kind,
+                toolTitle: u.title,
+                candidatePaths: violationCheck.candidatePaths,
+                resolvedPaths: violationCheck.resolvedPaths,
+                writableRoots: violationCheck.writableRoots,
+              },
+            );
+
+            this.emit("message.part.updated", {
+              sessionId: acpSessionId,
+              type: "tool",
+              toolCallId: u.toolCallId,
+              status: "error",
+              output: {
+                error: `Strict sandbox violation: ${violationCheck.reason}`,
+                candidatePaths: violationCheck.candidatePaths,
+                resolvedPaths: violationCheck.resolvedPaths,
+              },
+              content: [
+                {
+                  type: "text",
+                  text: `⛔ Strict sandbox blocked write outside workspace: ${violationCheck.candidatePaths.join(", ")}`,
+                },
+              ],
+            });
+
+            this.cancelSession(acpSessionId).catch((e) => {
+              log.warn(
+                `${this.logTag} Failed to cancel session after strict violation:`,
+                e,
+              );
+            });
+            break;
+          }
+        }
+
         this.emit("message.part.updated", {
           sessionId: acpSessionId,
           type: "tool",

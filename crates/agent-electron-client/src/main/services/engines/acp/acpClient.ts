@@ -321,7 +321,12 @@ export interface AcpToolCallUpdate {
   sessionUpdate: "tool_call_update";
   toolCallId: string;
   status: string;
+  /** nuwaxcode sends kind/title in update even though spec only requires them in tool_call */
+  kind?: string;
+  title?: string;
+  rawInput?: unknown;
   rawOutput?: unknown;
+  locations?: Array<{ path?: string; [key: string]: unknown }>;
   content?: Array<{ type: string; [key: string]: unknown }>;
 }
 
