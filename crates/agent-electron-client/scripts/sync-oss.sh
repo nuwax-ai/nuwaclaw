@@ -48,91 +48,38 @@ fi
 # workflow_dispatch 需要 ref：使用仓库默认分支，仅 tag 由用户指定
 REF=$(gh repo view "$REPO" --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo "main")
 
-echo "==> 触发 OSS 同步（仅按 tag，分支使用仓库默认）"
-echo "  仓库: $REPO"
-echo "  Tag: $TAG"
-echo "  Channel: $CHANNEL"
-echo ""
-
 # 获取 GitHub token
 TOKEN=$(gh auth token)
 
-# 触发前记录 epoch，用于在「并行多次 dispatch」时锁定本次 run，避免误跟别人的最新一条
-START_EPOCH=$(($(date -u +%s) - 10))
+# 触发 workflow_dispatch：ref 用默认分支；新版 workflow 支持 inputs.tag + inputs.channel
+dispatch_sync_workflow() {
+  local payload="$1"
+  curl -s -X POST \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Accept: application/vnd.github.v3+json" \
+    "https://api.github.com/repos/$REPO/actions/workflows/sync-electron-to-oss.yml/dispatches" \
+    -d "$payload"
+}
 
-# 触发 workflow_dispatch：ref 用默认分支，inputs 传 tag + channel
-RESPONSE=$(curl -s -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Accept: application/vnd.github.v3+json" \
-  "https://api.github.com/repos/$REPO/actions/workflows/sync-electron-to-oss.yml/dispatches" \
-  -d "{\"ref\":\"$REF\",\"inputs\":{\"tag\":\"$TAG\",\"channel\":\"$CHANNEL\"}}")
+RESPONSE=$(dispatch_sync_workflow "{\"ref\":\"$REF\",\"inputs\":{\"tag\":\"$TAG\",\"channel\":\"$CHANNEL\"}}")
+
+if [ -n "$RESPONSE" ]; then
+  # 远程 nuwaclaw 若仍为旧版 YAML（仅有 tag），GitHub 会 422：Unexpected inputs: ["channel"]
+  MSG=$(echo "$RESPONSE" | jq -r '.message // empty' 2>/dev/null || echo "")
+  if [[ "$MSG" == *"Unexpected inputs"* && "$MSG" == *"channel"* ]]; then
+    if [[ "$CHANNEL" == "beta" ]]; then
+      echo "错误: 远程 workflow 不支持 channel=beta"
+      exit 1
+    fi
+    # 兼容旧版 workflow（未声明 channel input）：stable 场景退回仅传 tag
+    RESPONSE=$(dispatch_sync_workflow "{\"ref\":\"$REF\",\"inputs\":{\"tag\":\"$TAG\"}}")
+  fi
+fi
 
 if [ -n "$RESPONSE" ]; then
   echo "错误: $RESPONSE"
-  echo ""
-  echo "若为 'Workflow does not have workflow_dispatch trigger'，请将本仓库的"
-  echo "  .github/workflows/sync-electron-to-oss.yml"
-  echo "复制到 nuwaclaw 仓库的 .github/workflows/ 并推送，然后重试。"
   exit 1
 fi
 
 echo "✓ 触发成功"
-echo ""
-
-# 解析本次 workflow run：必须带 --repo "$REPO"，否则在 nuwax-agent 仓库里跑脚本时会错列本仓库的 run
-echo "==> 获取 workflow run ID（匹配 workflow_dispatch 且创建时间不早于触发前窗口）..."
-RUN_ID=""
-for _ in $(seq 1 45); do
-  RUN_ID=$(gh run list --repo "$REPO" --workflow="sync-electron-to-oss.yml" \
-    --limit 25 \
-    --json databaseId,createdAt,event \
-    --jq --argjson start "$START_EPOCH" '
-      [.[] | select(.event == "workflow_dispatch") |
-        select(
-          (.createdAt
-            | if test("\\.[0-9]+Z$") then sub("\\.[0-9]+Z$"; "Z") else . end
-            | fromdateiso8601) >= $start
-        )
-      ] | sort_by(.createdAt) | reverse | .[0].databaseId // empty')
-  [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ] && break
-  sleep 1
-done
-
-if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
-  echo "错误: 无法在 ${REPO} 中解析本次触发的 workflow run（请用 gh run list --repo \"$REPO\" 手动查看）"
-  exit 1
-fi
-
-echo "✓ Run ID: $RUN_ID"
-echo ""
-
-# 监控进度
-echo "==> 监控进度..."
-echo ""
-
-while true; do
-  STATUS=$(gh run view "$RUN_ID" --repo "$REPO" --json status --jq '.status')
-  CONCLUSION=$(gh run view "$RUN_ID" --repo "$REPO" --json conclusion --jq '.conclusion')
-
-  case "$STATUS" in
-    completed)
-      if [ "$CONCLUSION" = "success" ]; then
-        echo "✓ OSS 同步成功!"
-        gh run view "$RUN_ID" --repo "$REPO" --url
-        exit 0
-      else
-        echo "✗ OSS 同步失败: $CONCLUSION"
-        gh run view "$RUN_ID" --repo "$REPO" --url
-        exit 1
-      fi
-      ;;
-    in_progress|queued)
-      echo "  状态: $STATUS ($(date +%H:%M:%S))"
-      ;;
-    *)
-      echo "  未知状态: $STATUS"
-      ;;
-  esac
-
-  sleep 5
-done
+exit 0
