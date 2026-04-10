@@ -274,7 +274,7 @@ const buildZhValueToKeyMap = (map: SystemLangMap): void => {
   zhValueToKeyMap = nextMap;
 };
 
-const fetchAndApplyLangMap = async (
+export const fetchAndApplyLangMap = async (
   lang?: string,
   options?: { forceRefresh?: boolean },
 ): Promise<boolean> => {
@@ -303,34 +303,6 @@ const fetchAndApplyLangMap = async (
   } catch {
     return false;
   }
-};
-
-const fetchZhBaseMap = async (options?: {
-  forceRefresh?: boolean;
-}): Promise<void> => {
-  zhBaseMap = { ...getLocaleMap("zh-cn") };
-  const userDomain = await getUserDomain();
-  try {
-    const result = await apiRequest<SystemLangMap>("/api/i18n/query", {
-      method: "GET",
-      params: { lang: "zh-cn", side: "Claw" },
-      headers: {
-        "Accept-Language": "zh-cn",
-      },
-      cache: options?.forceRefresh ? "no-store" : undefined,
-      showError: false,
-      ...(userDomain ? { baseUrl: userDomain } : {}),
-    });
-    if (result) {
-      zhBaseMap = {
-        ...getLocaleMap("zh-cn"),
-        ...result,
-      };
-    }
-  } catch {
-    // ignore zh fallback fetch errors
-  }
-  buildZhValueToKeyMap(zhBaseMap);
 };
 
 // ========== 导出函数 ==========
@@ -401,9 +373,8 @@ const _doInitI18n = async (): Promise<void> => {
         zhBaseMap = { ...langMap };
         buildZhValueToKeyMap(zhBaseMap);
       }
-    } else {
-      await fetchZhBaseMap({ forceRefresh: shouldForceRefresh });
     }
+    // 非中文语言：使用本地 zh-CN.json 构建反向映射即可，无需额外请求服务端
 
     if (!fetched && !cachedMap && normalizeLang(currentLang) === resolvedLang) {
       langMap = { ...baseMap };
@@ -444,9 +415,8 @@ export const refreshLangMap = async (
   if (isZhLang(targetLang)) {
     zhBaseMap = { ...langMap };
     buildZhValueToKeyMap(zhBaseMap);
-  } else {
-    await fetchZhBaseMap({ forceRefresh: true });
   }
+  // 非中文语言：本地 zh-CN.json 反向映射已由 _doInitI18n 构建，无需额外请求
 
   if (!Object.keys(zhValueToKeyMap).length) {
     buildZhValueToKeyMap(getLocaleMap("zh-cn"));
@@ -506,16 +476,21 @@ export const t = (key: string, ...values: I18nValues): string =>
   dict(key, ...values);
 
 /**
- * 获取语言列表
+ * 获取语言列表（Promise 缓存，避免 SettingsPage useEffect 多次触发重复请求）
  */
+let langListPromise: Promise<I18nLangDto[]> | null = null;
 export async function fetchI18nLangList(): Promise<I18nLangDto[]> {
-  const userDomain = await getUserDomain();
-  const result = await apiRequest<I18nLangDto[]>("/api/i18n/lang/list", {
-    method: "GET",
-    showError: false,
-    ...(userDomain ? { baseUrl: userDomain } : {}),
-  });
-  return result || [];
+  if (langListPromise) return langListPromise;
+  langListPromise = (async () => {
+    const userDomain = await getUserDomain();
+    const result = await apiRequest<I18nLangDto[]>("/api/i18n/lang/list", {
+      method: "GET",
+      showError: false,
+      ...(userDomain ? { baseUrl: userDomain } : {}),
+    });
+    return result || [];
+  })();
+  return langListPromise;
 }
 
 /**

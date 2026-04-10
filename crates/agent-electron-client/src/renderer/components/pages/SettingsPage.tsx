@@ -52,6 +52,7 @@ import {
   setCurrentLang,
   scheduleLangMapRefreshOnNextInit,
   fetchI18nLangList,
+  fetchAndApplyLangMap,
   type I18nLangDto,
 } from "../../services/core/i18n";
 import i18next from "../../services/i18n";
@@ -552,16 +553,19 @@ export default function SettingsPage() {
     try {
       // 1. 立即切换本地语言（不阻塞等待网络）
       await setCurrentLang(lang);
-      // 2. 标记下次初始化时强制 no-store 刷新翻译
+      // 2. 预拉取目标语言翻译并缓存到 DB，确保 reload 后立即可用
+      //    不等待失败——失败时 reload 后后台仍会重试
+      void fetchAndApplyLangMap(lang).catch(() => {});
+      // 3. 标记下次初始化时强制 no-store 刷新翻译
       await scheduleLangMapRefreshOnNextInit(lang);
 
-      // 3. 同步到主进程（检查返回值，失败则抛出）
+      // 4. 同步到主进程（检查返回值，失败则抛出）
       const result = await window.electronAPI?.i18n?.setLang(lang);
       if (result && !result.success) {
         throw new Error(result.error || "Main process language change failed");
       }
 
-      // 4. 刷新页面，初始化阶段后台重新拉取翻译
+      // 5. 刷新页面，初始化阶段后台重新拉取翻译
       await minLoadingDelay;
       window.location.reload();
     } catch (error) {
