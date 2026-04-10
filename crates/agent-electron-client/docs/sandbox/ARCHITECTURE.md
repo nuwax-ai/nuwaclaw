@@ -1,8 +1,8 @@
 # NuwaClaw Agent 沙箱架构设计
 
-> **版本**: 1.1.0
+> **版本**: 1.1.1
 > **更新日期**: 2026-04-10
-> **状态**: 设计完成，实施中
+> **状态**: 已实现（持续迭代）
 
 ---
 
@@ -16,7 +16,7 @@
 
 | 原则 | 说明 | 实现方式 |
 |------|------|---------|
-| **多平台支持** | macOS / Linux / Windows | 各平台独立实现 |
+| **多平台支持** | macOS / Linux / Windows | `PlatformAdapter` 统一抽象 + 各平台实现 |
 | **可配置** | 用户可控制是否启用 | 四种模式配置 |
 | **开箱即用** | 无需手动安装依赖 | 预编译 + 系统内置 |
 | **渐进增强** | 自动选择最优方案 | 平台检测 + 降级 |
@@ -38,10 +38,11 @@
 │  ├─ 存储: electron-store                                    │
 │  └─ UI: 设置界面 + 首次引导                                  │
 │                                                              │
-│  Layer 2: 平台检测 (PlatformDetector)                        │
-│  ├─ 检测操作系统                                             │
-│  ├─ 检测可用沙箱技术                                         │
-│  └─ 选择最优实现                                             │
+│  Layer 2: 平台抽象 (PlatformAdapter)                         │
+│  ├─ 统一平台能力（isWindows/isMacOS/isLinux）               │
+│  ├─ 统一命令探测与路径分隔符                                 │
+│  ├─ 统一 helper/bwrap 资源解析                               │
+│  └─ 统一推荐 backend/type                                    │
 │                                                              │
 │  Layer 3: 沙箱实现 (SandboxInterface)                        │
 │  ├─ macOS: sandbox-exec (系统内置)                          │
@@ -108,6 +109,28 @@ nuwax-agent/
 │               └── win32-x64/
 │                   └── nuwax-sandbox.exe
 ```
+
+### 2.3 统一平台抽象（v1.1.1）
+
+`src/main/services/system/platformAdapter.ts` 提供统一平台能力抽象：
+
+- `createPlatformAdapter()`：统一 `darwin/linux/win32` 分支入口
+- `getCommandProbe()`：统一 `which/where` 命令探测
+- `getRecommendedSandboxBackend()/Type()`：统一 backend/type 推荐
+- `resolveBundledLinuxBwrapPath()`：统一 Linux bwrap 内置路径解析
+- `resolveBundledSandboxHelperPath()`：统一 helper 内置路径解析
+
+当前已接入 sandbox 关键链路：
+
+- `system/shellEnv.ts`
+- `sandbox/policy.ts`
+- `sandbox/SandboxManager.ts`
+- `sandbox/serviceBootstrap.ts`
+- `sandbox/SandboxInvoker.ts`
+- `engines/acp/acpTerminalManager.ts`
+- `engines/acp/acpClient.ts`
+- `engines/acp/strictPermissionGuard.ts`
+- `utils/processTree.ts`
 
 ---
 
@@ -230,8 +253,8 @@ bwrap \
 | 平台 | strict | compat | permissive |
 |------|--------|--------|-----------|
 | Linux (bwrap) | 最小 ro-bind：仅 `/usr` `/bin` `/sbin` `/lib` `/lib64` `/etc` `/opt` `/usr/local` | 全局 ro-bind `--ro-bind / /` | 完整 rw bind，无 namespace 隔离 |
-| macOS (seatbelt) | exec allowlist 仅命令本身 | exec allowlist 含启动链 | 全局 file-write + unrestricted process-exec |
-| Windows (helper `run`) | `writable_roots` 全部 + WRITE_RESTRICTED，APPDATA 不在 ALLOW ACEs | `writable_roots` 全部 + WRITE_RESTRICTED，APPDATA 在 ALLOW ACEs | `writable_roots` 全部 + `--no-write-restricted` |
+| macOS (seatbelt) | exec allowlist 仅命令本身（不含 `startupExecAllowlist`） | exec allowlist 含启动链 | 全局 file-write + unrestricted process-exec |
+| Windows (helper `run`) | `writable_roots` 仅首个路径（workspace-first）+ WRITE_RESTRICTED，APPDATA 不在 ALLOW ACEs | `writable_roots` 全部 + WRITE_RESTRICTED，APPDATA 在 ALLOW ACEs | `writable_roots` 全部 + `--no-write-restricted` |
 | Windows (helper `serve`) | `--write-restricted`，仅 workspace + TEMP/TMP | `--write-restricted`，workspace + TEMP/TMP + APPDATA | 无 WRITE_RESTRICTED（进程级不限制写入） |
 
 > **v1.1.0 变更**: Windows `serve` 子命令新增 `--write-restricted` flag。
@@ -239,8 +262,14 @@ bwrap \
 > 决定是否将 APPDATA/LOCALAPPDATA 加入 ALLOW ACEs。
 > strict 模式下 APPDATA 不可写（进程级真正限制），compat 模式下可写。
 
+> **v1.1.1 同步**:
+> 1) macOS strict 的 seatbelt exec allowlist 不再纳入 startup chain（仅命令本身）；
+> 2) Windows helper `run` strict 下 `writable_roots` 仅保留首个路径（workspace-first）；
+> 3) 平台分支入口统一收敛到 `PlatformAdapter`。
+
 > `nuwaxcode` 在 strict 模式下还包含 ACP 权限层的二次写入门控（`strictPermissionGuard`）：
-> 写入路径必须位于 `workspace/temp/appData`，路径缺失时 fail-closed，写入权限仅 `allow_once`。
+> 写入路径必须位于 `workspace/temp/isolatedHome`（strict 下不含 `appData`），
+> 路径缺失时 fail-closed，写入权限仅 `allow_once`。
 >
 > `nuwaxcode` warmup 复用同样受 sandbox policy 约束：warmup 会记录 policy 指纹，
 > 当用户修改 sandbox mode/policy 后，若指纹不一致则立即放弃复用并冷启动新引擎。

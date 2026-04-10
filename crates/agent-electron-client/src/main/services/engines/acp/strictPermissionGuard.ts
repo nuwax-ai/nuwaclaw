@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { AcpPermissionRequest } from "./acpClient";
+import { getCurrentPlatform } from "@main/services/system/platformAdapter";
 
 const WRITE_KEYWORDS = [
   "write",
@@ -104,7 +105,7 @@ export function evaluateStrictWritePermission(
   }
 
   const resolvedPaths: string[] = [];
-  const platform = context.platform ?? process.platform;
+  const platform = context.platform ?? getCurrentPlatform();
   for (const candidate of candidates) {
     const resolved = resolvePathForSandbox(candidate, pathResolveContext);
     if (!resolved) {
@@ -146,7 +147,7 @@ function buildPathResolveContext(
   return {
     baseDir: context.projectWorkspaceDir || context.workspaceDir,
     homeDir: context.isolatedHome,
-    platform: context.platform ?? process.platform,
+    platform: context.platform ?? getCurrentPlatform(),
   };
 }
 
@@ -274,7 +275,7 @@ function resolvePathForSandbox(
   pathCandidate: string,
   context?: PathResolveContext,
 ): string | null {
-  const platform = context?.platform ?? process.platform;
+  const platform = context?.platform ?? getCurrentPlatform();
   const pathOps = getPathOps(platform);
   const expanded = expandHomePath(pathCandidate, context?.homeDir, pathOps);
   const baseDir = context?.baseDir;
@@ -286,7 +287,7 @@ function resolvePathForSandbox(
   // Cross-platform unit tests may evaluate Windows-style paths on non-Windows hosts.
   // Skip filesystem canonicalization in that case; runtime on target platform still
   // goes through realpath below.
-  if (platform !== process.platform) {
+  if (platform !== getCurrentPlatform()) {
     return resolved;
   }
 

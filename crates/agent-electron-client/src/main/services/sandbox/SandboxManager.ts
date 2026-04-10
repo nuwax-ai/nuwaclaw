@@ -26,6 +26,10 @@ import {
   WorkspaceError,
   isSandboxError,
 } from "@shared/errors/sandbox";
+import {
+  createPlatformAdapter,
+  isSupportedPlatform,
+} from "../system/platformAdapter";
 
 /**
  * 沙箱管理器抽象基类
@@ -291,6 +295,9 @@ export abstract class SandboxManager extends EventEmitter {
    * 检测当前平台
    */
   static detectPlatform(): NodeJS.Platform {
+    if (isSupportedPlatform(process.platform)) {
+      return createPlatformAdapter(process.platform).platform;
+    }
     return process.platform;
   }
 
@@ -298,18 +305,10 @@ export abstract class SandboxManager extends EventEmitter {
    * 获取推荐的沙箱类型（按平台）
    */
   static getRecommendedSandboxType(): SandboxType {
-    const platform = process.platform;
-
-    switch (platform) {
-      case "darwin":
-        return "macos-seatbelt";
-      case "win32":
-        return "windows-sandbox";
-      case "linux":
-        return "linux-bwrap";
-      default:
-        return "none";
+    if (!isSupportedPlatform(process.platform)) {
+      return "none";
     }
+    return createPlatformAdapter(process.platform).getRecommendedSandboxType();
   }
 
   /**

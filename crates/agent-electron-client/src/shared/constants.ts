@@ -107,6 +107,13 @@ export const PROCESS_KILL_ESCALATION_TIMEOUT = 5000;
 /** ACP 会话取消超时 (ms) */
 export const ACP_ABORT_TIMEOUT = 15_000;
 
+/**
+ * 用户主动取消会话时，挂在 `Error` 上的 `code`（与 `message` 语言无关）。
+ * `message` 经主进程 `t()` 本地化后，`isPromptCancellation` 仍靠此字段识别，避免误触发 MCP 重试。
+ */
+export const ACP_SESSION_CANCELLED_ERROR_CODE =
+  "ACP_SESSION_CANCELLED" as const;
+
 /** 引擎销毁超时 (ms) */
 export const ENGINE_DESTROY_TIMEOUT = 20_000;
 
@@ -192,6 +199,11 @@ export const DEFAULT_MCP_PROXY_HOST = LOCALHOST_IP;
  * 后端 /api/i18n/query 返回的翻译 map 以这些 key 为键
  */
 export const I18N_KEYS = {
+  // 通用错误文案 Errors（主进程 / 渲染进程均可引用 key）
+  Errors: {
+    SESSION_CANCELLED: "Claw.Errors.sessionCancelled",
+  },
+
   // 通用 Common
   Common: {
     LOADING: "Claw.Common.loading",

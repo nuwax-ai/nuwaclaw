@@ -8,10 +8,10 @@
  */
 
 import log from "electron-log";
-import * as os from "os";
 import * as path from "path";
 import { app } from "electron";
 import { t } from "../i18n";
+import { getCurrentPlatform } from "../system/platformAdapter";
 import { DockerSandbox } from "./DockerSandbox";
 import { CommandSandbox } from "./CommandSandbox";
 import {
@@ -46,7 +46,7 @@ import {
  * 获取当前平台
  */
 function getPlatform(): Platform {
-  return os.platform() as Platform;
+  return getCurrentPlatform();
 }
 
 /**

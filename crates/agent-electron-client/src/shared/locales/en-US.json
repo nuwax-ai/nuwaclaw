@@ -13,6 +13,7 @@
   "Claw.Common.back": "Back",
   "Claw.Common.refresh": "Refresh",
   "Claw.Errors.mcpReconnectRetryLater": "MCP connection fluctuation, auto-reconnecting, please retry later",
+  "Claw.Errors.sessionCancelled": "Session cancelled",
   "Claw.WindowsMcp.portInUseHint": "Common cause: port {port} already in use. Try later, change GUI MCP port in settings, or end the process in Task Manager.",
   "Claw.Pages.Dependencies.systemEnv": "System Environment",
   "Claw.Pages.Dependencies.dependencyPackages": "Dependencies",

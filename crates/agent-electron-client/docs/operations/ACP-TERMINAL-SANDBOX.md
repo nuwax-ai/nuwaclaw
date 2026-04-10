@@ -1,6 +1,6 @@
 # ACP Terminal API 沙箱化方案
 
-> 版本: 1.3.0 | 日期: 2026-04-10 | 状态: 已实现
+> 版本: 1.3.1 | 日期: 2026-04-10 | 状态: 已实现（含 sandbox 抽象层同步）
 
 ## 问题背景
 
@@ -56,7 +56,7 @@ nuwaxcode（基于 opencode）不使用 Terminal API，而是内部直接执行 
 │    ├─ requestPermission ──→ handlePermissionRequest()    │
 │    │                      └─ strictPermissionGuard.ts     │
 │    └─ ...terminalManager.getClientHandlers()             │
-│         ├─ createTerminal  → helper.exe run / direct     │
+│         ├─ createTerminal  → SandboxInvoker + helper/direct │
 │         ├─ terminalOutput  → output buffer               │
 │         ├─ waitForExit     → exit promise                │
 │         ├─ killTerminal    → process.kill()              │
@@ -114,23 +114,24 @@ Agent 必须检查 `clientCapabilities.terminal === true` 才能使用。
 
 | 文件 | 变更类型 | 说明 |
 |------|----------|------|
-| `acpTerminalManager.ts` | **新建** | Terminal 生命周期管理，sandbox 路由 |
-| `acpClient.ts` | 修改 | 扩展 `AcpClientHandler` 接口，添加 5 个 Terminal 方法 |
-| `acpEngine.ts` | 修改 | Terminal Manager 初始化、capabilities 声明、handler 委托、strict 权限调试日志 |
-| `strictPermissionGuard.ts` | **新建** | nuwaxcode strict 模式下写入路径判定（workspace/temp/appData） |
-| `engineWarmup.ts` | 修改 | warmup 复用增加 sandbox policy 指纹兼容检查 |
-| `sandboxPolicyFingerprint.ts` | **新建** | sandbox policy 稳定指纹生成（warmup 兼容判定） |
-| `policyCache.ts` | **新建** | 缓存当前 sandbox policy（供 warmup 复用判定读取） |
-| `unifiedAgent.ts` | 修改 | 向 warmup 注入 sandbox policy 指纹提供器 |
+| `acpTerminalManager.ts` | 修改 | Terminal 生命周期管理；Windows 走 `SandboxInvoker(run)`；平台判断改为 `PlatformAdapter` |
+| `acpClient.ts` | 修改 | ACP 侧 sandbox 启动链细节同步（含平台分支统一入口） |
+| `strictPermissionGuard.ts` | 修改 | strict 写入路径门控继续生效，平台来源统一 |
+| `SandboxInvoker.ts` | 修改 | strict 语义对齐：macOS strict 不含 startup chain；Windows run strict 仅首个 writable root |
+| `platformAdapter.ts` | **新建** | 跨平台统一抽象层（平台能力、命令探测、helper/bwrap 路径解析、推荐后端） |
+| `platformAdapter.test.ts` | **新建** | `PlatformAdapter` 单测覆盖 |
+| `shellEnv.ts` | 修改 | 命令探测与 PATH 分隔符统一走 `PlatformAdapter` |
+| `policy.ts` | 修改 | 平台/后端推荐与 helper 路径解析统一走 `PlatformAdapter` |
+| `SandboxManager.ts` | 修改 | 平台分支入口统一走 `PlatformAdapter` |
+| `serviceBootstrap.ts` | 修改 | 平台识别统一走 `PlatformAdapter` |
+| `processTree.ts` | 修改 | 进程树清理平台分支统一走 `PlatformAdapter` |
 
 ### 不变的文件
 
 | 文件 | 原因 |
 |------|------|
-| `SandboxInvoker.ts` | 已有 `buildInvocation()` 支持 `subcommand: "run"` |
 | `windows-sandbox-helper/main.rs` | `run` 模式已可用 |
 | `sandboxProcessWrapper.ts` | 仍用于 nuwaxcode env-var 注入 |
-| `policy.ts` | 沙箱策略解析不变 |
 
 ## 关键设计决策
 
@@ -184,7 +185,9 @@ this.terminalManager = new AcpTerminalManager({
 });
 ```
 
-`createTerminal` 时还会自动追加 `cwd` 到可写路径。
+`createTerminal` 不会把 `cwd` 追加到 `writablePaths`；而是执行以下策略：
+- `cwd` 在可写根内：直接使用
+- `cwd` 缺失或越界：回退到首个可写根（workspace-first）
 
 ### 5. 竞态防护
 
@@ -240,7 +243,7 @@ nuwaxcode 不使用 Terminal API，其 bash 执行通过 `OPENCODE_CONFIG_CONTEN
 另外，在 `strict` 模式下，`nuwaxcode` 的 ACP `requestPermission` 路径会额外经过
 `strictPermissionGuard.ts`：
 - 仅识别写入类请求应用路径门控（非写入请求跳过）
-- 允许写入根目录：`workspace` + `temp(TMP/TEMP/TMPDIR)` + `appData(~/.nuwaclaw)` + `isolatedHome/tmp`
+- 允许写入根目录：`workspace` + `temp(TMP/TEMP/TMPDIR)` + `isolatedHome` + `isolatedHome/tmp`（strict 下不含 `appData`）
 - 路径缺失时 fail-closed（拒绝）
 - 写入类权限仅选择 `allow_once`（不走 `allow_always`）
 
@@ -283,8 +286,8 @@ nuwaxcode 不使用 Terminal API，其 bash 执行通过 `OPENCODE_CONFIG_CONTEN
 
 | Mode | `writable_roots` | Token 限制 | APPDATA |
 |------|-----------------|-----------|---------|
-| **strict** | workspace + TEMP/TMP | WRITE_RESTRICTED 保持启用 | 不包含 |
-| **compat**（默认） | workspace + TEMP/TMP + APPDATA/LOCALAPPDATA | WRITE_RESTRICTED 保持启用 | 包含 |
+| **strict** | 仅首个传入路径（workspace-first） | WRITE_RESTRICTED 保持启用 | 不包含 |
+| **compat**（默认） | 全部传入路径 | WRITE_RESTRICTED 保持启用 | 包含 |
 | **permissive** | 全部传入路径 | `--no-write-restricted` 放松 token | 包含 |
 
 #### `serve` 子命令（进程级，nuwaxcode 整个进程）
@@ -302,7 +305,7 @@ nuwaxcode 不使用 Terminal API，其 bash 执行通过 `OPENCODE_CONFIG_CONTEN
 > 根据 policy JSON 中的 `sandbox_mode` 字段统一控制。
 
 > 对 `nuwaxcode` 来说，strict 下除了 helper 的 `writable_roots` 外，ACP 权限层还会执行
-> `strictPermissionGuard` 二次门控（写入路径必须落在 workspace/temp/appData）。
+> `strictPermissionGuard` 二次门控（写入路径必须落在 workspace/temp/isolatedHome）。
 
 ### macOS/Linux 上的 per-command 沙箱
 
@@ -314,8 +317,8 @@ macOS/Linux 上 terminal 命令直接执行（进程级沙箱由 seatbelt/bwrap 
 | 平台 | strict | compat | permissive |
 |------|--------|--------|-----------|
 | Linux (bwrap) | 最小 ro-bind（`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/etc`, `/opt`, `/usr/local`） | 全局 ro-bind `/` | 完整 rw bind，无 namespace 隔离 |
-| macOS (seatbelt) | 仅命令本身在 exec allowlist | 命令 + startup chain 在 exec allowlist | 全局 file-write + unrestricted process-exec |
-| Windows (helper `run`) | `writable_roots` 全部路径 + WRITE_RESTRICTED | `writable_roots` 全部路径 + WRITE_RESTRICTED | `writable_roots` 全部路径 + `--no-write-restricted` |
+| macOS (seatbelt) | 仅命令本身在 exec allowlist（不含 startup chain） | 命令 + startup chain 在 exec allowlist | 全局 file-write + unrestricted process-exec |
+| Windows (helper `run`) | `writable_roots` 仅首个路径 + WRITE_RESTRICTED | `writable_roots` 全部路径 + WRITE_RESTRICTED | `writable_roots` 全部路径 + `--no-write-restricted` |
 | Windows (helper `serve`) | `--write-restricted`，仅 workspace + TEMP/TMP | `--write-restricted`，workspace + TEMP/TMP + APPDATA | 无 WRITE_RESTRICTED（进程级不限制写入） |
 
 ### Windows 非 sandbox 路径的 shell 注入

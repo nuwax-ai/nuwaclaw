@@ -14,6 +14,7 @@ import * as fs from "fs";
 import log from "electron-log";
 import type { ChildProcess } from "child_process";
 import { FEATURES } from "@shared/featureFlags";
+import { ACP_SESSION_CANCELLED_ERROR_CODE, I18N_KEYS } from "@shared/constants";
 import { getGuiAgentServerUrl } from "@main/services/packages/guiAgentServer";
 import { getWindowsMcpUrl } from "@main/services/packages/windowsMcp";
 import { isWindows } from "@main/services/system/shellEnv";
@@ -205,6 +206,11 @@ export class AcpEngine extends EventEmitter {
         : String(error);
   }
 
+  /**
+   * 根据错误 message 判断是否为用户取消 / 中止类（启发式，兼容历史英文与其它来源文案）。
+   * 用户主动 abort 时优先使用 {@link createSessionCancelledError}，其 `code` 为
+   * {@link ACP_SESSION_CANCELLED_ERROR_CODE}，由 {@link isPromptCancellation} 优先识别。
+   */
   private isPromptCancellationError(errorMsg: string): boolean {
     const lower = errorMsg.toLowerCase();
     return (
@@ -212,8 +218,33 @@ export class AcpEngine extends EventEmitter {
       lower.includes("abort") ||
       lower.includes("cancel") ||
       errorMsg.includes("会话已取消") ||
-      errorMsg.includes("Session cancelled")
+      errorMsg.includes("Session cancelled") ||
+      errorMsg.includes("工作階段已取消")
     );
+  }
+
+  /**
+   * 判断 prompt 失败是否属于「取消」而非可重试的 MCP 波动。
+   * 先检查 {@link ACP_SESSION_CANCELLED_ERROR_CODE}，再回退到 message 启发式。
+   */
+  private isPromptCancellation(error: unknown): boolean {
+    if (
+      error !== null &&
+      typeof error === "object" &&
+      (error as { code?: unknown }).code === ACP_SESSION_CANCELLED_ERROR_CODE
+    ) {
+      return true;
+    }
+    return this.isPromptCancellationError(this.toErrorMessage(error));
+  }
+
+  /**
+   * 用户取消会话时 reject 用的 Error：`message` 随主进程当前语言，`code` 固定。
+   */
+  private createSessionCancelledError(): Error {
+    const err = new Error(t(I18N_KEYS.Errors.SESSION_CANCELLED));
+    Object.assign(err, { code: ACP_SESSION_CANCELLED_ERROR_CODE });
+    return err;
   }
 
   private isMcpReconnectErrorMessage(errorMsg: string): boolean {
@@ -1285,7 +1316,7 @@ export class AcpEngine extends EventEmitter {
       // 1. Reject local prompt immediately for fast UX feedback.
       const reject = this.activePromptRejects.get(sessionId);
       if (reject) {
-        reject(new Error("Session cancelled"));
+        reject(this.createSessionCancelledError());
         this.activePromptRejects.delete(sessionId);
       }
 
@@ -1474,7 +1505,7 @@ export class AcpEngine extends EventEmitter {
                 const errMsg = this.toErrorMessage(err);
                 const canRetry =
                   attempt < maxAttempts &&
-                  !this.isPromptCancellationError(errMsg) &&
+                  !this.isPromptCancellation(err) &&
                   this.isMcpReconnectFailure(errMsg);
 
                 if (!canRetry) {

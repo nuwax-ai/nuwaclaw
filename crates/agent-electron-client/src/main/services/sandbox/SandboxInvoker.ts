@@ -20,6 +20,7 @@ import * as os from "os";
 import * as path from "path";
 import log from "electron-log";
 import { checkCommand } from "../system/shellEnv";
+import { createPlatformAdapter } from "../system/platformAdapter";
 import type {
   SandboxMode,
   SandboxType,
@@ -138,18 +139,19 @@ export class SandboxInvoker {
    * 检测当前后端是否可用
    */
   async checkAvailable(): Promise<boolean> {
+    const platformAdapter = createPlatformAdapter();
+
     switch (this.type) {
       case "none":
         return true;
 
       case "macos-seatbelt":
         return (
-          process.platform === "darwin" &&
-          fs.existsSync("/usr/bin/sandbox-exec")
+          platformAdapter.isMacOS && fs.existsSync("/usr/bin/sandbox-exec")
         );
 
       case "linux-bwrap": {
-        if (process.platform !== "linux") return false;
+        if (!platformAdapter.isLinux) return false;
         if (
           this.options.linuxBwrapPath &&
           fs.existsSync(this.options.linuxBwrapPath)
@@ -160,7 +162,7 @@ export class SandboxInvoker {
       }
 
       case "windows-sandbox": {
-        if (process.platform !== "win32") return false;
+        if (!platformAdapter.isWindows) return false;
         return (
           !!this.options.windowsSandboxHelperPath &&
           fs.existsSync(this.options.windowsSandboxHelperPath)
@@ -348,10 +350,14 @@ export class SandboxInvoker {
       sandbox_mode: sandboxMode, // strict/compat/permissive — Rust helper uses this for APPDATA allowance
     };
 
-    // Writable roots: all modes use the same writable paths
-    // (workspace, app data dir, isolatedHome, system temp dirs).
+    // Writable roots:
+    // - strict: only keep the first root (workspace-first contract)
+    // - compat/permissive: keep full writable roots list
     if (winMode === "workspace-write" && params.writablePaths.length > 0) {
-      sandboxPolicy.writable_roots = params.writablePaths;
+      sandboxPolicy.writable_roots =
+        sandboxMode === "strict"
+          ? [params.writablePaths[0]]
+          : params.writablePaths;
     }
 
     const helperArgs = [
@@ -451,11 +457,11 @@ export class SandboxInvoker {
         '(allow process-exec (regex #"^/usr/lib/"))',
       );
       const execAllow = new Set<string>([command]);
-      // startupExecAllowlist: both strict and compat modes include engine-internal
-      // binaries (e.g. rg, node) that are needed for tool execution.
-      // Previously only compat used this; strict now also includes it so that
-      // sandboxed ACP engines can spawn helper binaries like ripgrep.
-      for (const p of startupExecAllowlist) execAllow.add(p);
+      // strict mode keeps a minimal exec surface and does not include
+      // startup chain allowlist entries.
+      if (compat) {
+        for (const p of startupExecAllowlist) execAllow.add(p);
+      }
       for (const p of execAllow) {
         if (!p || !path.isAbsolute(p)) continue;
         const addPath = (candidate: string) => {

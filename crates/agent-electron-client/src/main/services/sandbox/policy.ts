@@ -1,10 +1,13 @@
 import * as fs from "fs";
-import * as path from "path";
 import log from "electron-log";
 import { app } from "electron";
 import { readSetting, writeSetting } from "../../db";
 import { checkCommand } from "../system/shellEnv";
 import { getResourcesPath } from "../system/dependencies";
+import {
+  createPlatformAdapter,
+  getCurrentPlatform,
+} from "../system/platformAdapter";
 import type {
   SandboxAutoFallback,
   Platform,
@@ -103,37 +106,13 @@ export function setSandboxPolicy(patch: Partial<SandboxPolicy>): SandboxPolicy {
 }
 
 function getPlatform(): Platform {
-  return process.platform as Platform;
-}
-
-function getSandboxRuntimeDir(): string {
-  return path.join(getResourcesPath(), "sandbox-runtime");
+  return getCurrentPlatform();
 }
 
 export function getBundledLinuxBwrapPath(): string | null {
-  const runtimeDir = getSandboxRuntimeDir();
-  const candidates = [
-    path.join(runtimeDir, "bin", "bwrap"),
-    path.join(runtimeDir, "linux", "bwrap"),
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
+  const adapter = createPlatformAdapter();
+  return adapter.resolveBundledLinuxBwrapPath(getResourcesPath());
 }
-
-/** 仅 Windows：沙箱 helper 可执行文件名（非 win32 上不应探测 .exe 路径）。 */
-const WINDOWS_SANDBOX_HELPER_NAME = "nuwax-sandbox-helper.exe" as const;
-
-/** 跨平台 helper 二进制名 */
-const SANDBOX_HELPER_NAME =
-  process.platform === "win32"
-    ? WINDOWS_SANDBOX_HELPER_NAME
-    : "nuwax-sandbox-helper";
 
 /**
  * 解析内置 Sandbox helper 路径（跨平台）。
@@ -141,29 +120,8 @@ const SANDBOX_HELPER_NAME =
  * macOS/Linux: nuwax-sandbox-helper
  */
 export function getBundledSandboxHelperPath(): string | null {
-  const runtimeDir = getSandboxRuntimeDir();
-  const helperRoot = path.join(getResourcesPath(), "sandbox-helper");
-  const candidates = [
-    path.join(runtimeDir, "bin", SANDBOX_HELPER_NAME),
-    path.join(helperRoot, SANDBOX_HELPER_NAME),
-  ];
-
-  // Windows 特有候选路径（sandbox-runtime/windows/ 目录）
-  if (process.platform === "win32") {
-    candidates.splice(
-      1,
-      0,
-      path.join(runtimeDir, "windows", SANDBOX_HELPER_NAME),
-    );
-  }
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
+  const adapter = createPlatformAdapter();
+  return adapter.resolveBundledSandboxHelperPath(getResourcesPath());
 }
 
 /**
@@ -172,7 +130,8 @@ export function getBundledSandboxHelperPath(): string | null {
  * @deprecated 使用 getBundledSandboxHelperPath() 代替
  */
 export function getBundledWindowsSandboxHelperPath(): string | null {
-  if (process.platform !== "win32") {
+  const adapter = createPlatformAdapter();
+  if (!adapter.isWindows) {
     return null;
   }
   return getBundledSandboxHelperPath();
@@ -183,44 +142,41 @@ function unavailable(reason: string): SandboxCapabilityItem {
 }
 
 function getRecommendedBackend(platform: Platform): SandboxBackend {
-  if (platform === "win32") return "windows-sandbox";
-  if (platform === "darwin") return "macos-seatbelt";
-  return "linux-bwrap";
+  return createPlatformAdapter(platform).getRecommendedSandboxBackend();
 }
 
 export async function getSandboxCapabilities(): Promise<SandboxCapabilities> {
   const platform = getPlatform();
+  const adapter = createPlatformAdapter(platform);
   const recommendedBackend = getRecommendedBackend(platform);
   const dockerAvailable = await checkCommand("docker");
-  const bwrapCmdAvailable =
-    platform === "linux" ? await checkCommand("bwrap") : false;
+  const bwrapCmdAvailable = adapter.isLinux
+    ? await checkCommand("bwrap")
+    : false;
   const bundledBwrap = getBundledLinuxBwrapPath();
   const sandboxHelper = getBundledWindowsSandboxHelperPath();
-  const seatbeltPath = "/usr/bin/sandbox-exec";
+  const seatbeltPath = adapter.getSeatbeltPath();
 
   const docker: SandboxCapabilityItem = dockerAvailable
     ? { available: true }
     : unavailable("docker command not found");
-  const macosSeatbelt: SandboxCapabilityItem =
-    platform !== "darwin"
-      ? unavailable("not on macOS")
-      : fs.existsSync(seatbeltPath)
-        ? { available: true, binaryPath: seatbeltPath }
-        : unavailable("sandbox-exec not found");
-  const linuxBwrap: SandboxCapabilityItem =
-    platform !== "linux"
-      ? unavailable("not on Linux")
-      : bwrapCmdAvailable
-        ? { available: true, binaryPath: "bwrap" }
-        : bundledBwrap
-          ? { available: true, binaryPath: bundledBwrap }
-          : unavailable("bwrap not found (system or bundled)");
-  const windowsSandbox: SandboxCapabilityItem =
-    platform !== "win32"
-      ? unavailable("not on Windows")
-      : sandboxHelper
-        ? { available: true, binaryPath: sandboxHelper }
-        : unavailable("windows sandbox helper not found");
+  const macosSeatbelt: SandboxCapabilityItem = !adapter.isMacOS
+    ? unavailable("not on macOS")
+    : seatbeltPath && fs.existsSync(seatbeltPath)
+      ? { available: true, binaryPath: seatbeltPath }
+      : unavailable("sandbox-exec not found");
+  const linuxBwrap: SandboxCapabilityItem = !adapter.isLinux
+    ? unavailable("not on Linux")
+    : bwrapCmdAvailable
+      ? { available: true, binaryPath: "bwrap" }
+      : bundledBwrap
+        ? { available: true, binaryPath: bundledBwrap }
+        : unavailable("bwrap not found (system or bundled)");
+  const windowsSandbox: SandboxCapabilityItem = !adapter.isWindows
+    ? unavailable("not on Windows")
+    : sandboxHelper
+      ? { available: true, binaryPath: sandboxHelper }
+      : unavailable("windows sandbox helper not found");
 
   return {
     platform,
@@ -237,9 +193,7 @@ function backendToSandboxType(
   platform: Platform,
 ): SandboxType {
   if (backend === "auto") {
-    if (platform === "win32") return "windows-sandbox";
-    if (platform === "darwin") return "macos-seatbelt";
-    return "linux-bwrap";
+    return createPlatformAdapter(platform).getRecommendedSandboxType();
   }
   if (backend === "docker") return "docker";
   if (backend === "macos-seatbelt") return "macos-seatbelt";
