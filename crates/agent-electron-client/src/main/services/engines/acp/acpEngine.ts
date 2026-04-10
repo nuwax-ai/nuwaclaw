@@ -177,6 +177,11 @@ export class AcpEngine extends EventEmitter {
     return this.config;
   }
 
+  /** The sandbox strictness mode used when this engine was initialized */
+  get sandboxMode(): string {
+    return this.storedSandboxConfig?.mode ?? "compat";
+  }
+
   /**
    * 更新引擎配置（复用预热引擎时调用，确保 mcpServers 等与本请求的 effectiveConfig 一致，
    * 否则 createSession 会使用 init 时的旧 MCP 配置，导致动态 context_servers 不生效）。
@@ -412,25 +417,49 @@ export class AcpEngine extends EventEmitter {
         );
       }
 
-      // Per-command sandboxing for nuwaxcode on Windows:
-      // Process-level wrapping is bypassed (EPERM), so inject sandbox helper config
-      // into OPENCODE_CONFIG_CONTENT so nuwaxcode can self-sandbox individual commands.
-      // Must happen AFTER sandboxConfig is resolved.
+      // Per-command sandboxing for nuwaxcode:
+      // Inject sandbox config into OPENCODE_CONFIG_CONTENT so nuwaxcode (opencode) can
+      // self-sandbox individual commands. Covers all sandbox types (Windows, macOS seatbelt,
+      // Linux bwrap). Must happen AFTER sandboxConfig is resolved.
+      //
+      // NOTE: Actual enforcement depends on the nuwaxcode/opencode binary reading and
+      // honoring sandbox_mode, writable_roots, and permission.external_directory.
+      // If opencode does not support these fields, file write restrictions will not be
+      // enforced for nuwaxcode — this requires corresponding changes in the opencode binary.
       if (
         sandboxConfig?.enabled &&
-        sandboxConfig.type === "windows-sandbox" &&
-        this.engineName === "nuwaxcode" &&
-        sandboxConfig.windowsSandboxHelperPath
+        sandboxConfig.type !== "none" &&
+        this.engineName === "nuwaxcode"
       ) {
         try {
           const existingConfig = JSON.parse(
             spawnEnv.OPENCODE_CONFIG_CONTENT as string,
           ) as Record<string, unknown>;
-          existingConfig.sandbox = {
-            helper_path: sandboxConfig.windowsSandboxHelperPath,
+          const effectiveMode = sandboxConfig.mode ?? "compat";
+          const sandboxObj: Record<string, unknown> = {
             mode: sandboxConfig.windowsSandboxMode ?? "workspace-write",
             network_enabled: true, // engine always needs network (API calls)
+            sandbox_mode: effectiveMode, // strict/compat/permissive
+            writable_roots: sandboxConfig.projectWorkspaceDir
+              ? [sandboxConfig.projectWorkspaceDir]
+              : [config.workspaceDir],
           };
+          // Only set helper_path on Windows where the helper exe exists
+          if (sandboxConfig.windowsSandboxHelperPath) {
+            sandboxObj.helper_path = sandboxConfig.windowsSandboxHelperPath;
+          }
+          existingConfig.sandbox = sandboxObj;
+
+          // In strict mode, deny external_directory writes
+          if (effectiveMode === "strict") {
+            const perm = existingConfig.permission as
+              | Record<string, string>
+              | undefined;
+            if (perm) {
+              perm.external_directory = "deny";
+            }
+          }
+
           spawnEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify(existingConfig);
           log.info(
             `${this.logTag} per-command sandbox config injected`,
@@ -861,7 +890,6 @@ export class AcpEngine extends EventEmitter {
       `${this.logTag} 🔍 Sandbox check: engine=${this.engineName}, sandboxEnabled=${this.storedSandboxConfig?.enabled}, type=${this.storedSandboxConfig?.type}, helperPath=${this.storedSandboxConfig?.windowsSandboxHelperPath ?? "(none)"}`,
     );
     if (
-      this.engineName === "claude-code" &&
       this.storedSandboxConfig?.enabled &&
       this.storedSandboxConfig.type === "windows-sandbox" &&
       this.storedSandboxConfig.windowsSandboxHelperPath
@@ -928,14 +956,14 @@ export class AcpEngine extends EventEmitter {
     const sandboxMode = this.storedSandboxConfig?.mode ?? "compat";
     const isStrictOrCompat = sandboxMode !== "permissive";
 
-    // 4. Sandboxed FS MCP — replace built-in Write/Edit with sandboxed versions on Windows
+    // 4. Sandboxed FS MCP — replace built-in Write/Edit with sandboxed versions
+    // Cross-platform (Windows, macOS seatbelt, Linux bwrap). Pure Node.js — no helper needed.
     // Only injected in strict and compat modes. Permissive mode leaves built-in tools enabled.
     // - strict:  only workspace + TEMP/TMP
-    // - compat:  workspace + TEMP/TMP + APPDATA/LOCALAPPDATA
+    // - compat:  workspace + TEMP/TMP + APPDATA/LOCALAPPDATA (Windows) / XDG dirs (macOS/Linux)
     if (
-      this.engineName === "claude-code" &&
       this.storedSandboxConfig?.enabled &&
-      this.storedSandboxConfig.type === "windows-sandbox" &&
+      this.storedSandboxConfig.type !== "none" &&
       isStrictOrCompat
     ) {
       const nodePath = process.execPath;
@@ -988,10 +1016,9 @@ export class AcpEngine extends EventEmitter {
     // Build _meta with systemPrompt if provided (skip if empty or whitespace only)
     const systemPromptTrimmed = opts?.systemPrompt?.trim();
     const requestId = opts?.requestId;
-    const isWindowsSandbox =
-      this.engineName === "claude-code" &&
+    const isSandboxed =
       this.storedSandboxConfig?.enabled === true &&
-      this.storedSandboxConfig.type === "windows-sandbox";
+      this.storedSandboxConfig.type !== "none";
 
     const _meta: Record<string, unknown> | undefined = (() => {
       const meta: Record<string, unknown> = {};
@@ -1005,19 +1032,29 @@ export class AcpEngine extends EventEmitter {
       // Disable built-in tools on Windows sandbox — replaced by MCP sandboxed tools.
       // claude-code-acp-ts reads _meta.claudeCode.options.disallowedTools and merges
       // with its default disallowedTools (["AskUserQuestion"]).
-      // - Bash is always blocked (replaced by sandboxed-bash MCP)
+      // - Bash is always blocked on Windows sandbox (replaced by sandboxed-bash MCP)
       // - Write/Edit/NotebookEdit are blocked in strict/compat (replaced by sandboxed-fs MCP)
       // - In permissive mode, built-in Write/Edit/NotebookEdit remain available
-      if (isWindowsSandbox) {
-        const disallowed = ["Bash"];
+      if (isSandboxed) {
+        const disallowed: string[] = [];
+        // Bash is only blocked on Windows where sandboxed-bash MCP replaces it.
+        // On macOS/Linux, process-level seatbelt/bwrap already restricts shell commands.
+        if (
+          this.storedSandboxConfig?.type === "windows-sandbox" &&
+          this.storedSandboxConfig.windowsSandboxHelperPath
+        ) {
+          disallowed.push("Bash");
+        }
         if (isStrictOrCompat) {
           disallowed.push("Write", "Edit", "NotebookEdit");
         }
-        meta.claudeCode = {
-          options: {
-            disallowedTools: disallowed,
-          },
-        };
+        if (disallowed.length > 0) {
+          meta.claudeCode = {
+            options: {
+              disallowedTools: disallowed,
+            },
+          };
+        }
       }
       return Object.keys(meta).length > 0 ? meta : undefined;
     })();
@@ -2045,7 +2082,7 @@ ${memoryContext}
         // macOS/Linux rely on handlePermissionRequest (permission_request from engine)
         // or OS-level seatbelt/bwrap process sandboxing.
         if (
-          isWindows &&
+          isWindows() &&
           this.isStrictSandboxActiveForNuwaxcode() &&
           u.rawInput != null &&
           u.kind &&
@@ -2116,7 +2153,7 @@ ${memoryContext}
               ],
             });
 
-            this.cancelSession(acpSessionId).catch((e) => {
+            this.abortSession(acpSessionId).catch((e: unknown) => {
               log.warn(
                 `${this.logTag} Failed to cancel session after strict violation:`,
                 e,

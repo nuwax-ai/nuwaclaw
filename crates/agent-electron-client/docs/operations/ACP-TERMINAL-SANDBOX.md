@@ -277,16 +277,29 @@ nuwaxcode 不使用 Terminal API，其 bash 执行通过 `OPENCODE_CONFIG_CONTEN
 
 ### SandboxMode 对 Windows per-command 的影响
 
-`SandboxMode`（strict / compat / permissive）现在影响 Windows per-command 沙箱行为：
+`SandboxMode`（strict / compat / permissive）影响 Windows 沙箱行为，包括 `run` 和 `serve` 子命令：
 
-| Mode | `writable_roots` | Token 限制 | 适用场景 |
+#### `run` 子命令（per-command，claude-code bash）
+
+| Mode | `writable_roots` | Token 限制 | APPDATA |
 |------|-----------------|-----------|---------|
-| **strict** | 仅限项目 workspace（排除 cwd 等额外路径） | WRITE_RESTRICTED 保持启用 | 最小化写入面 |
-| **compat**（默认） | 全部传入路径（workspace + cwd） | WRITE_RESTRICTED 保持启用 | 兼容性优先 |
-| **permissive** | 全部传入路径 | `--no-write-restricted` 放松 token（仅 `run` 子命令） | 排障用途 |
+| **strict** | workspace + TEMP/TMP | WRITE_RESTRICTED 保持启用 | 不包含 |
+| **compat**（默认） | workspace + TEMP/TMP + APPDATA/LOCALAPPDATA | WRITE_RESTRICTED 保持启用 | 包含 |
+| **permissive** | 全部传入路径 | `--no-write-restricted` 放松 token | 包含 |
 
-注意：`--no-write-restricted` 仅对 `run` 子命令有效。`serve` 子命令在 Rust helper 中
-已硬编码 `write_restricted=false`（子进程需要 spawn 孙进程）。
+#### `serve` 子命令（进程级，nuwaxcode 整个进程）
+
+| Mode | WRITE_RESTRICTED | 可写路径 | 说明 |
+|------|-----------------|---------|------|
+| **strict** | `--write-restricted` 启用 | workspace + TEMP/TMP | 最小写入面，APPDATA 不可写 |
+| **compat** | `--write-restricted` 启用 | workspace + TEMP/TMP + APPDATA/LOCALAPPDATA | 引擎基础设施可写 |
+| **permissive** | 不传递 flag（默认 false） | 无限制 | 仅受限 token，无写入保护 |
+
+> **关键变更 (v1.2.0)**: `serve` 子命令新增 `--write-restricted` CLI flag。
+> strict/compat 模式下启用，permissive 模式下禁用。
+> 这修复了 nuwaxcode 内部 bash 工具可绕过沙箱写入 Desktop 的问题。
+> APPDATA/LOCALAPPDATA 的包含/排除由 Rust helper 的 `compute_allow_paths()`
+> 根据 policy JSON 中的 `sandbox_mode` 字段统一控制。
 
 > 对 `nuwaxcode` 来说，strict 下除了 helper 的 `writable_roots` 外，ACP 权限层还会执行
 > `strictPermissionGuard` 二次门控（写入路径必须落在 workspace/temp/appData）。
@@ -302,7 +315,8 @@ macOS/Linux 上 terminal 命令直接执行（进程级沙箱由 seatbelt/bwrap 
 |------|--------|--------|-----------|
 | Linux (bwrap) | 最小 ro-bind（`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/etc`, `/opt`, `/usr/local`） | 全局 ro-bind `/` | 完整 rw bind，无 namespace 隔离 |
 | macOS (seatbelt) | 仅命令本身在 exec allowlist | 命令 + startup chain 在 exec allowlist | 全局 file-write + unrestricted process-exec |
-| Windows (helper) | `writable_roots` 仅首个路径 | 全部 `writable_roots` | 全部 `writable_roots` + `--no-write-restricted` |
+| Windows (helper `run`) | `writable_roots` 全部路径 + WRITE_RESTRICTED | `writable_roots` 全部路径 + WRITE_RESTRICTED | `writable_roots` 全部路径 + `--no-write-restricted` |
+| Windows (helper `serve`) | `--write-restricted`，仅 workspace + TEMP/TMP | `--write-restricted`，workspace + TEMP/TMP + APPDATA | 无 WRITE_RESTRICTED（进程级不限制写入） |
 
 ### Windows 非 sandbox 路径的 shell 注入
 

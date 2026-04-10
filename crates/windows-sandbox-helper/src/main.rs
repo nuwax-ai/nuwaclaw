@@ -84,10 +84,24 @@ enum Subcommand {
     /// Run a command in the sandbox as a persistent stdio proxy.
     /// Stdin/stdout/stderr are forwarded bidirectionally.
     ///
-    /// Uses a token without WRITE_RESTRICTED, allowing the child process (ACP engine)
-    /// to spawn grandchildren (e.g. claude-code CLI, MCP servers).
-    /// File-system write protection is provided by DACL ACEs only.
-    Serve(CommonArgs),
+    /// By default uses a token without WRITE_RESTRICTED for maximum
+    /// compatibility. Pass --write-restricted to enable filesystem
+    /// write protection via restricting SIDs + DACL ACEs (needed for
+    /// strict/compat sandbox modes).
+    Serve(ServeArgs),
+}
+
+#[derive(Parser, Debug)]
+struct ServeArgs {
+    #[command(flatten)]
+    common: CommonArgs,
+    /// Enable WRITE_RESTRICTED on the sandbox token.
+    /// When set, write access is restricted to paths with ALLOW ACEs
+    /// for the restricting SIDs (capability, logon, everyone).
+    /// Required for strict/compat sandbox modes to enforce filesystem
+    /// write protection.
+    #[arg(long, default_value_t = false)]
+    write_restricted: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -578,11 +592,22 @@ pub fn run_sandbox_proxy(
     command: Vec<String>,
     cwd: &Path,
     args: Vec<String>,
+    write_restricted: bool,
 ) -> anyhow::Result<ProxyResult> {
-    // Serve mode: never WRITE_RESTRICTED — child (ACP engine) must be able to
-    // spawn grandchildren (claude-code CLI, MCP servers). DACL ACEs alone
-    // provide filesystem write protection.
-    let mut ctx = SandboxContext::setup(policy_json_or_preset, sandbox_policy_cwd, home, command, cwd, args, false)?;
+    // When write_restricted=true, the restricted token gets WRITE_RESTRICTED
+    // flag + restricting SIDs, so only paths with explicit ALLOW ACEs are
+    // writable. When false, only DACL-level token restrictions apply
+    // (permissive mode — no filesystem write protection).
+    debug_log(
+        &format!(
+            "serve mode: write_restricted={} ({}), policy={}",
+            write_restricted,
+            if write_restricted { "STRICT/COMPAT — filesystem writes restricted to ALLOW ACEs" } else { "PERMISSIVE — no filesystem write protection" },
+            policy_json_or_preset,
+        ),
+        None,
+    );
+    let mut ctx = SandboxContext::setup(policy_json_or_preset, sandbox_policy_cwd, home, command, cwd, args, write_restricted)?;
 
     let (stdin_pair, stdout_pair, stderr_pair) = unsafe { setup_stdio_pipes()? };
     let ((child_stdin_r, child_stdin_w), (child_stdout_r, child_stdout_w), (child_stderr_r, child_stderr_w)) =
@@ -752,17 +777,18 @@ fn main() -> anyhow::Result<()> {
             );
         }
         Subcommand::Serve(serve) => {
-            let home = resolve_home(&serve);
-            let policy = resolve_policy(&serve);
-            let (cmd, cmd_args) = split_command(&serve)?;
+            let home = resolve_home(&serve.common);
+            let policy = resolve_policy(&serve.common);
+            let (cmd, cmd_args) = split_command(&serve.common)?;
 
             let result = run_sandbox_proxy(
                 &policy,
-                &serve.cwd,
+                &serve.common.cwd,
                 &home,
                 vec![cmd],
-                &serve.cwd,
+                &serve.common.cwd,
                 cmd_args,
+                serve.write_restricted,
             )?;
 
             std::process::exit(result.exit_code);

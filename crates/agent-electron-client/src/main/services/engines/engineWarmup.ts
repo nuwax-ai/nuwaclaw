@@ -660,6 +660,43 @@ export class EngineWarmup {
         return null;
       }
 
+      // Sandbox mode compatibility check.
+      // The sandbox mode (strict/compat/permissive) is baked into the process wrapper
+      // at spawn time (nuwax-sandbox-helper.exe serve --write-restricted).
+      // updateConfig() cannot change the process-level sandbox after spawn,
+      // so mismatched modes must fallback to cold create.
+      const warmupSandboxMode = engine.sandboxMode;
+      if (!effectiveConfig.__sandboxMode) {
+        log.debug(
+          "[EngineWarmup] __sandboxMode not set on effectiveConfig, assuming compat",
+        );
+      }
+      const requestSandboxMode = effectiveConfig.__sandboxMode ?? "compat";
+      if (warmupSandboxMode !== requestSandboxMode) {
+        log.info(
+          `[EngineWarmup] ⚠️ 沙箱模式不兼容 (warmup=${warmupSandboxMode}, request=${requestSandboxMode})，不复用`,
+        );
+        firstTokenTrace.trace(
+          "warmup.reuse.miss",
+          { projectId, engine: requestEngineType || warmupEngineType },
+          {
+            reason: "sandbox_mode_incompatible",
+            warmupSandboxMode,
+            requestSandboxMode,
+          },
+        );
+        this.lastMcpServers =
+          Object.keys(effectiveConfig.mcpServers || {}).length > 0
+            ? effectiveConfig.mcpServers || null
+            : null;
+        engine.removeAllListeners();
+        await engine.destroy().catch(() => {});
+        this.engines.delete(WARMUP_KEY);
+        this.configs.delete(WARMUP_KEY);
+        this.rawMcpServers.delete(WARMUP_KEY);
+        return null;
+      }
+
       const warmupMcp = warmupConfig.mcpServers || {};
       const requestMcp = effectiveConfig.mcpServers || {};
       const warmupMcpKeys = Object.keys(warmupMcp).sort();

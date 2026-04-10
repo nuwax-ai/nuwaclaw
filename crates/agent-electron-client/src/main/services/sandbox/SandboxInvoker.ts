@@ -345,6 +345,7 @@ export class SandboxInvoker {
     const sandboxPolicy: Record<string, unknown> = {
       type: winMode === "read-only" ? "read-only" : "workspace-write",
       network_access: params.networkEnabled,
+      sandbox_mode: sandboxMode, // strict/compat/permissive — Rust helper uses this for APPDATA allowance
     };
 
     // Writable roots: all modes use the same writable paths
@@ -365,10 +366,26 @@ export class SandboxInvoker {
 
     // Permissive mode: relax token-level write restrictions so child
     // processes (e.g. Git Bash) can create pipes and modify DACLs.
-    // Only valid for the "run" subcommand — "serve" hardcodes
-    // write_restricted=false in the Rust helper.
+    // Only valid for the "run" subcommand.
     if (sandboxMode === "permissive" && subcommand === "run") {
       helperArgs.push("--no-write-restricted");
+    }
+
+    // Serve mode: enable WRITE_RESTRICTED for strict/compat modes.
+    // When set, the restricted token gets restricting SIDs (logon, everyone,
+    // capability) and only paths with explicit ALLOW ACEs are writable.
+    // Permissive mode keeps write_restricted=false (no filesystem protection).
+    const serveWriteRestricted =
+      subcommand === "serve" && sandboxMode !== "permissive";
+    if (serveWriteRestricted) {
+      helperArgs.push("--write-restricted");
+      log.info(
+        "[SandboxInvoker] 🔒 WRITE_RESTRICTED enabled for serve mode (strict/compat)",
+      );
+    } else if (subcommand === "serve") {
+      log.info(
+        "[SandboxInvoker] ⚠️ WRITE_RESTRICTED disabled for serve mode (permissive)",
+      );
     }
 
     helperArgs.push("--", params.command, ...params.args);
@@ -378,6 +395,7 @@ export class SandboxInvoker {
       subcommand,
       sandboxMode,
       winMode,
+      serveWriteRestricted,
       cwd: params.cwd,
       policy: sandboxPolicy,
     });

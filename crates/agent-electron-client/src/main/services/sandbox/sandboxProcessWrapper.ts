@@ -69,7 +69,8 @@ export async function buildSandboxedSpawnArgs(
   }
 
   // 直接使用 SandboxInvoker 构建调用
-  // Windows: serve 子命令使用不含 WRITE_RESTRICTED 的令牌，ACP 引擎可正常 spawn 子进程
+  // Windows: serve 子命令根据 sandbox mode 决定是否启用 WRITE_RESTRICTED
+  // APPDATA/LOCALAPPDATA 由 Rust helper 的 compute_allow_paths() 根据模式决定
   const invoker = new SandboxInvoker(type, {
     linuxBwrapPath: sandboxConfig.linuxBwrapPath,
     windowsSandboxHelperPath: sandboxConfig.windowsSandboxHelperPath,

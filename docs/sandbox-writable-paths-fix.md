@@ -253,3 +253,107 @@ sandboxPolicy.writable_roots = params.writablePaths;
 - 引擎（claude-code）硬编码使用 `/private/tmp/claude-{uid}/`，无法通过 TMPDIR 重定向
 - 未来其他引擎也可能使用系统临时目录
 - 统一跨平台处理，避免引擎特定逻辑
+
+---
+
+## 7. Windows serve 模式 WRITE_RESTRICTED 修复（第四轮）
+
+> 日期: 2026-04-09
+> 状态: 已修复
+> 影响范围: Windows strict/compat 模式下的 nuwaxcode 引擎
+
+### 7.1 问题描述
+
+前三轮修复后，nuwaxcode（opencode Go 二进制）的内部 `bash` 工具仍可写入 Desktop 等非工作区目录。Claude Code 引擎的 bash 通过 ACP Terminal API 已被正确沙箱化，但 nuwaxcode 的 bash 在内部执行，不经过 AcpTerminalManager。
+
+### 7.2 根因
+
+`nuwax-sandbox-helper.exe serve` 子命令硬编码 `write_restricted=false`（`main.rs:585`）。
+
+没有 `WRITE_RESTRICTED` flag 和 restricting SIDs 时，Windows 访问检查不考虑 capability SID 的 DACL ACEs。结果：进程级沙箱提供**零写入保护**。
+
+```
+write_restricted=false → token: DISABLE_MAX_PRIVILEGE | LUA_TOKEN（无 restricting SIDs）
+                       → add_allow_ace() / add_deny_write_ace() 对该 token 无效
+                       → nuwaxcode bash 可写任意路径
+```
+
+### 7.3 修复方案
+
+**原则**: 最小侵入，单一权威源。
+
+#### 改动 1: Rust helper `serve` 子命令新增 `--write-restricted` flag
+
+```rust
+struct ServeArgs {
+    common: CommonArgs,
+    #[arg(long, default_value_t = false)]
+    write_restricted: bool,
+}
+```
+
+`write_restricted=true` 时，`create_restricted_token()` 添加：
+- `WRITE_RESTRICTED` flag
+- 3 个 restricting SIDs: capability SID + logon SID + everyone SID
+- 只有带 ALLOW ACE 的路径可写
+
+#### 改动 2: Policy JSON 新增 `sandbox_mode` 字段
+
+```typescript
+const sandboxPolicy = {
+  type: "workspace-write",
+  network_access: true,
+  sandbox_mode: "strict",  // ← 新字段
+  writable_roots: [...],
+};
+```
+
+Rust `policy.rs` 的 `SandboxPolicy::WorkspaceWrite` 解析此字段，
+`compute_allow_paths()` 根据它决定是否将 APPDATA/LOCALAPPDATA 加入 ALLOW ACEs。
+
+#### 改动 3: SandboxInvoker 传递 `--write-restricted` 给 serve 模式
+
+```typescript
+if (subcommand === "serve" && sandboxMode !== "permissive") {
+  helperArgs.push("--write-restricted");
+}
+```
+
+#### 改动 4: acpEngine.ts 跨平台扩展
+
+- 移除 `this.engineName === "claude-code"` 限制（两个引擎均受保护）
+- 移除 `type === "windows-sandbox"` 限制（所有沙箱类型均受保护）
+- sandboxed-fs MCP 和 disallowedTools 扩展到所有平台
+
+### 7.4 修复后的行为
+
+| Mode | serve 进程可写路径 | sandboxed-fs MCP |
+|------|-------------------|-----------------|
+| **strict** | workspace + TEMP/TMP（APPDATA 不可写） | 仅 workspace + TEMP/TMP |
+| **compat** | workspace + TEMP/TMP + APPDATA/LOCALAPPDATA | workspace + TEMP/TMP + APPDATA |
+| **permissive** | 无限制（WRITE_RESTRICTED=false） | 不注入 MCP |
+
+### 7.5 涉及文件
+
+| 文件 | 改动类型 | 说明 |
+|------|----------|------|
+| `crates/windows-sandbox-helper/src/main.rs` | 修改 | serve 子命令新增 `--write-restricted` flag |
+| `crates/windows-sandbox-helper/src/policy.rs` | 修改 | `WorkspaceWrite` 新增 `sandbox_mode` 字段 |
+| `crates/windows-sandbox-helper/src/allow.rs` | 修改 | strict 模式排除 APPDATA；compat/permissive 包含 |
+| `SandboxInvoker.ts` | 修改 | 传递 `--write-restricted` + `sandbox_mode` 到 policy JSON |
+| `sandboxProcessWrapper.ts` | 修改 | 移除冗余 APPDATA 添加（Rust 是单一权威源） |
+| `acpEngine.ts` | 修改 | 跨平台/跨引擎扩展 sandboxed-fs MCP 和 disallowedTools |
+
+### 7.6 设计决策
+
+**为什么 Rust `compute_allow_paths()` 是 APPDATA 的单一权威源？**
+
+之前 APPDATA 在 TypeScript（`sandboxProcessWrapper.ts`）和 Rust（`allow.rs`）两处添加，
+导致 strict 模式下 TypeScript 总是添加 APPDATA，与 strict 语义矛盾。
+现在统一由 Rust 根据 `sandbox_mode` 字段决定，TypeScript 只负责传递 `sandbox_mode`。
+
+**为什么 strict 模式下 serve 进程的 APPDATA 不可写？**
+
+strict 模式的目标是"最小写入面"。引擎基础设施日志写入通过 `isolatedHome`（TEMP 目录下）解决，
+不依赖 APPDATA。sandboxed-fs MCP 对 AI agent 的文件写入做独立路径验证，
+进程级和 MCP 级保护互不干扰。

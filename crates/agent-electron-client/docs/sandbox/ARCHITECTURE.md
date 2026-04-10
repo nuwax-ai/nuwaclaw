@@ -1,8 +1,8 @@
 # NuwaClaw Agent 沙箱架构设计
 
-> **版本**: 1.0.1
+> **版本**: 1.1.0
 > **更新日期**: 2026-04-10
-> **状态**: 设计完成，待实施
+> **状态**: 设计完成，实施中
 
 ---
 
@@ -231,7 +231,13 @@ bwrap \
 |------|--------|--------|-----------|
 | Linux (bwrap) | 最小 ro-bind：仅 `/usr` `/bin` `/sbin` `/lib` `/lib64` `/etc` `/opt` `/usr/local` | 全局 ro-bind `--ro-bind / /` | 完整 rw bind，无 namespace 隔离 |
 | macOS (seatbelt) | exec allowlist 仅命令本身 | exec allowlist 含启动链 | 全局 file-write + unrestricted process-exec |
-| Windows (helper) | `writable_roots` 仅项目 workspace | 全部 `writable_roots` | 全部 `writable_roots` + `--no-write-restricted`（仅 run 子命令） |
+| Windows (helper `run`) | `writable_roots` 全部 + WRITE_RESTRICTED，APPDATA 不在 ALLOW ACEs | `writable_roots` 全部 + WRITE_RESTRICTED，APPDATA 在 ALLOW ACEs | `writable_roots` 全部 + `--no-write-restricted` |
+| Windows (helper `serve`) | `--write-restricted`，仅 workspace + TEMP/TMP | `--write-restricted`，workspace + TEMP/TMP + APPDATA | 无 WRITE_RESTRICTED（进程级不限制写入） |
+
+> **v1.1.0 变更**: Windows `serve` 子命令新增 `--write-restricted` flag。
+> Policy JSON 新增 `sandbox_mode` 字段，Rust helper 的 `compute_allow_paths()` 根据此字段
+> 决定是否将 APPDATA/LOCALAPPDATA 加入 ALLOW ACEs。
+> strict 模式下 APPDATA 不可写（进程级真正限制），compat 模式下可写。
 
 > `nuwaxcode` 在 strict 模式下还包含 ACP 权限层的二次写入门控（`strictPermissionGuard`）：
 > 写入路径必须位于 `workspace/temp/appData`，路径缺失时 fail-closed，写入权限仅 `allow_once`。
