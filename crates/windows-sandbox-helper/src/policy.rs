@@ -3,6 +3,20 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Sandbox strictness mode.
+///
+/// Using an enum instead of a raw string ensures that invalid values (e.g. typos
+/// like "strcit") cause a deserialization error rather than silently falling
+/// through to a less-strict mode (fail-closed).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SandboxMode {
+    Strict,
+    #[default]
+    Compat,
+    Permissive,
+}
+
 /// Windows Restricted Token sandbox policy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -25,13 +39,9 @@ pub enum SandboxPolicy {
         /// - "compat":     workspace + TEMP/TMP + APPDATA/LOCALAPPDATA
         /// - "permissive": all user-writable paths
         /// Defaults to "compat" when absent.
-        #[serde(default = "default_sandbox_mode")]
-        sandbox_mode: String,
+        #[serde(default)]
+        sandbox_mode: SandboxMode,
     },
-}
-
-fn default_sandbox_mode() -> String {
-    "compat".to_string()
 }
 
 impl Default for SandboxPolicy {
@@ -49,7 +59,7 @@ impl SandboxPolicy {
         SandboxPolicy::WorkspaceWrite {
             writable_roots: Vec::new(),
             network_access: false,
-            sandbox_mode: default_sandbox_mode(),
+            sandbox_mode: SandboxMode::Compat,
         }
     }
 
@@ -60,10 +70,10 @@ impl SandboxPolicy {
         }
     }
 
-    /// Returns the sandbox strictness mode, defaulting to "compat".
-    pub fn sandbox_mode(&self) -> &str {
+    /// Returns the sandbox strictness mode.
+    pub fn sandbox_mode(&self) -> &SandboxMode {
         match self {
-            SandboxPolicy::ReadOnly => "strict",
+            SandboxPolicy::ReadOnly => &SandboxMode::Strict,
             SandboxPolicy::WorkspaceWrite { sandbox_mode, .. } => sandbox_mode,
         }
     }

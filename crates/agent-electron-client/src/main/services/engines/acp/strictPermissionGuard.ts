@@ -11,7 +11,6 @@ const WRITE_KEYWORDS = [
   "delete",
   "create_file",
   "create file",
-  "external_directory",
 ] as const;
 
 const NON_WRITE_KEYWORDS = ["bash", "terminal", "shell", "webfetch", "http"];
@@ -39,6 +38,7 @@ const PATH_FIELDS = new Set([
 
 export interface StrictPermissionContext {
   strictEnabled: boolean;
+  sandboxMode?: string;
   workspaceDir?: string;
   projectWorkspaceDir?: string;
   isolatedHome?: string | null;
@@ -179,7 +179,11 @@ function buildStrictWritableRoots(
 
   add(context.workspaceDir);
   add(context.projectWorkspaceDir);
-  add(context.appDataDir);
+  // Only include appDataDir in compat/permissive — matches Rust allow.rs behavior.
+  // Strict mode intentionally excludes APPDATA for minimal write surface.
+  if (context.sandboxMode !== "strict") {
+    add(context.appDataDir);
+  }
   if (context.tempDirs) {
     for (const tempPath of context.tempDirs) {
       add(tempPath);

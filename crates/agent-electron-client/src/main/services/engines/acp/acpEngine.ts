@@ -148,6 +148,7 @@ export class AcpEngine extends EventEmitter {
   private activePromptSessions = new Set<string>();
   private activePromptRejects = new Map<string, (reason: Error) => void>();
   private strictPermissionSnapshotLoggedSessions = new Set<string>();
+  private static readonly MAX_SNAPSHOT_LOGGED_SESSIONS = 500;
   private logTag: string;
 
   private readonly _engineName: "claude-code" | "nuwaxcode";
@@ -2081,10 +2082,19 @@ ${memoryContext}
         // to detect violations retroactively and cancel the session.
         // macOS/Linux rely on handlePermissionRequest (permission_request from engine)
         // or OS-level seatbelt/bwrap process sandboxing.
+        const proactiveRawInput =
+          u.rawInput ??
+          (u.locations?.length
+            ? Object.fromEntries(
+                u.locations
+                  .filter((l) => l.path)
+                  .map((l, i) => [`location_${i}`, l.path!]),
+              )
+            : null);
         if (
           isWindows() &&
           this.isStrictSandboxActiveForNuwaxcode() &&
-          u.rawInput != null &&
+          proactiveRawInput != null &&
           u.kind &&
           u.status === "in_progress"
         ) {
@@ -2095,7 +2105,7 @@ ${memoryContext}
                 toolCallId: u.toolCallId,
                 title: u.title ?? null,
                 kind: u.kind ?? null,
-                rawInput: u.rawInput,
+                rawInput: proactiveRawInput,
               },
               options: [
                 {
@@ -2107,6 +2117,7 @@ ${memoryContext}
             },
             {
               strictEnabled: true,
+              sandboxMode: this.sandboxMode,
               workspaceDir: this.config?.workspaceDir,
               projectWorkspaceDir:
                 this.storedSandboxConfig?.projectWorkspaceDir,
@@ -2117,7 +2128,7 @@ ${memoryContext}
                 process.env.TMPDIR,
                 process.env.TMP,
                 process.env.TEMP,
-              ],
+              ].filter(Boolean) as string[],
             },
           );
 
@@ -2221,6 +2232,7 @@ ${memoryContext}
     const strictEnabled = this.isStrictSandboxActiveForNuwaxcode();
     const strictCheck = evaluateStrictWritePermission(params, {
       strictEnabled,
+      sandboxMode: this.sandboxMode,
       workspaceDir: this.config?.workspaceDir,
       projectWorkspaceDir: this.storedSandboxConfig?.projectWorkspaceDir,
       isolatedHome: this.isolatedHome,
@@ -2230,10 +2242,21 @@ ${memoryContext}
         process.env.TMPDIR,
         process.env.TMP,
         process.env.TEMP,
-      ],
+      ].filter(Boolean) as string[],
     });
     if (strictEnabled) {
       if (!this.strictPermissionSnapshotLoggedSessions.has(acpSessionId)) {
+        if (
+          this.strictPermissionSnapshotLoggedSessions.size >=
+          AcpEngine.MAX_SNAPSHOT_LOGGED_SESSIONS
+        ) {
+          // Evict oldest entry (Set iteration order is insertion order)
+          const oldest = this.strictPermissionSnapshotLoggedSessions
+            .values()
+            .next().value;
+          if (oldest)
+            this.strictPermissionSnapshotLoggedSessions.delete(oldest);
+        }
         this.strictPermissionSnapshotLoggedSessions.add(acpSessionId);
         log.debug(`${this.logTag} strict writable roots snapshot`, {
           acpSessionId,
@@ -2262,7 +2285,7 @@ ${memoryContext}
       }
     }
     if (strictCheck.blocked) {
-      log.debug(`${this.logTag} strict write permission blocked`, {
+      log.warn(`${this.logTag} strict write permission blocked`, {
         reason: strictCheck.reason,
         toolKind: params.toolCall.kind,
         toolTitle: params.toolCall.title,

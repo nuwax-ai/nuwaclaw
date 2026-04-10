@@ -484,6 +484,31 @@ export class EngineWarmup {
   }
 
   /**
+   * 统一的 warmup 引擎销毁 + 清理逻辑。
+   * 所有 tryReuse() 中的"不复用"分支都应调用此方法，避免重复代码。
+   */
+  private async teardownWarmup(
+    engine: AcpEngine,
+    reason: string,
+    traceData?: { projectId: string; engineType: string; reason: string },
+  ): Promise<null> {
+    if (traceData) {
+      firstTokenTrace.trace(
+        "warmup.reuse.miss",
+        { projectId: traceData.projectId, engine: traceData.engineType },
+        { reason: traceData.reason },
+      );
+    }
+    log.debug(`[EngineWarmup] teardown warmup: ${reason}`);
+    engine.removeAllListeners();
+    await engine.destroy().catch(() => {});
+    this.engines.delete(WARMUP_KEY);
+    this.configs.delete(WARMUP_KEY);
+    this.rawMcpServers.delete(WARMUP_KEY);
+    return null;
+  }
+
+  /**
    * 尝试复用 warmup 引擎。成功时 re-key 为 projectId 并返回引擎；
    * 未就绪或已死时清理并返回 null。
    *
@@ -517,21 +542,11 @@ export class EngineWarmup {
         log.info(
           `[EngineWarmup] ⚠️ 引擎类型不兼容 (warmup=${warmupEngineType}, request=${requestEngineType})，不复用`,
         );
-        firstTokenTrace.trace(
-          "warmup.reuse.miss",
-          { projectId, engine: requestEngineType },
-          {
-            reason: "engine_type_incompatible",
-            warmupEngineType,
-            requestEngineType,
-          },
-        );
-        engine.removeAllListeners();
-        await engine.destroy().catch(() => {});
-        this.engines.delete(WARMUP_KEY);
-        this.configs.delete(WARMUP_KEY);
-        this.rawMcpServers.delete(WARMUP_KEY);
-        return null;
+        return this.teardownWarmup(engine, "engine_type_incompatible", {
+          projectId,
+          engineType: requestEngineType,
+          reason: "engine_type_incompatible",
+        });
       }
 
       const warmupSandboxPolicyFingerprint =
@@ -555,17 +570,15 @@ export class EngineWarmup {
         log.info(
           "[EngineWarmup] ⚠️ Warmup sandbox policy marker missing, skipping reuse for safety",
         );
-        firstTokenTrace.trace(
-          "warmup.reuse.miss",
-          { projectId, engine: requestEngineType || warmupEngineType },
-          { reason: "legacy_warmup_without_sandbox_policy_marker" },
+        return this.teardownWarmup(
+          engine,
+          "legacy_warmup_without_sandbox_policy_marker",
+          {
+            projectId,
+            engineType: requestEngineType || warmupEngineType,
+            reason: "legacy_warmup_without_sandbox_policy_marker",
+          },
         );
-        engine.removeAllListeners();
-        await engine.destroy().catch(() => {});
-        this.engines.delete(WARMUP_KEY);
-        this.configs.delete(WARMUP_KEY);
-        this.rawMcpServers.delete(WARMUP_KEY);
-        return null;
       }
       if (
         currentSandboxPolicyFingerprint &&
@@ -583,17 +596,11 @@ export class EngineWarmup {
             ),
           },
         );
-        firstTokenTrace.trace(
-          "warmup.reuse.miss",
-          { projectId, engine: requestEngineType || warmupEngineType },
-          { reason: "sandbox_policy_incompatible" },
-        );
-        engine.removeAllListeners();
-        await engine.destroy().catch(() => {});
-        this.engines.delete(WARMUP_KEY);
-        this.configs.delete(WARMUP_KEY);
-        this.rawMcpServers.delete(WARMUP_KEY);
-        return null;
+        return this.teardownWarmup(engine, "sandbox_policy_incompatible", {
+          projectId,
+          engineType: requestEngineType || warmupEngineType,
+          reason: "sandbox_policy_incompatible",
+        });
       }
 
       // Runtime config compatibility check.
@@ -643,21 +650,12 @@ export class EngineWarmup {
             requestApiProtocol: effectiveConfig.apiProtocol || "(none)",
           },
         );
-        firstTokenTrace.trace(
-          "warmup.reuse.miss",
-          { projectId, engine: requestEngineType || warmupEngineType },
-          {
-            reason: "runtime_config_incompatible",
-            mismatch: runtimeMismatch,
-          },
-        );
         this.lastMcpServers = requestMcpKeys.length > 0 ? requestMcp : null;
-        engine.removeAllListeners();
-        await engine.destroy().catch(() => {});
-        this.engines.delete(WARMUP_KEY);
-        this.configs.delete(WARMUP_KEY);
-        this.rawMcpServers.delete(WARMUP_KEY);
-        return null;
+        return this.teardownWarmup(engine, "runtime_config_incompatible", {
+          projectId,
+          engineType: requestEngineType || warmupEngineType,
+          reason: "runtime_config_incompatible",
+        });
       }
 
       // Sandbox mode compatibility check.
@@ -676,25 +674,15 @@ export class EngineWarmup {
         log.info(
           `[EngineWarmup] ⚠️ 沙箱模式不兼容 (warmup=${warmupSandboxMode}, request=${requestSandboxMode})，不复用`,
         );
-        firstTokenTrace.trace(
-          "warmup.reuse.miss",
-          { projectId, engine: requestEngineType || warmupEngineType },
-          {
-            reason: "sandbox_mode_incompatible",
-            warmupSandboxMode,
-            requestSandboxMode,
-          },
-        );
         this.lastMcpServers =
           Object.keys(effectiveConfig.mcpServers || {}).length > 0
             ? effectiveConfig.mcpServers || null
             : null;
-        engine.removeAllListeners();
-        await engine.destroy().catch(() => {});
-        this.engines.delete(WARMUP_KEY);
-        this.configs.delete(WARMUP_KEY);
-        this.rawMcpServers.delete(WARMUP_KEY);
-        return null;
+        return this.teardownWarmup(engine, "sandbox_mode_incompatible", {
+          projectId,
+          engineType: requestEngineType || warmupEngineType,
+          reason: "sandbox_mode_incompatible",
+        });
       }
 
       const warmupMcp = warmupConfig.mcpServers || {};
@@ -712,18 +700,16 @@ export class EngineWarmup {
           "[EngineWarmup] ⚠️ 检测到旧 warmup 进程（缺少 MCP ready 标记），不复用",
           { requestMcpKeys, warmupMcpKeys },
         );
-        firstTokenTrace.trace(
-          "warmup.reuse.miss",
-          { projectId, engine: requestEngineType || warmupEngineType },
-          { reason: "legacy_warmup_without_mcp_ready_marker", requestMcpKeys },
-        );
         this.lastMcpServers = requestMcp;
-        engine.removeAllListeners();
-        await engine.destroy().catch(() => {});
-        this.engines.delete(WARMUP_KEY);
-        this.configs.delete(WARMUP_KEY);
-        this.rawMcpServers.delete(WARMUP_KEY);
-        return null;
+        return this.teardownWarmup(
+          engine,
+          "legacy_warmup_without_mcp_ready_marker",
+          {
+            projectId,
+            engineType: requestEngineType || warmupEngineType,
+            reason: "legacy_warmup_without_mcp_ready_marker",
+          },
+        );
       }
 
       const { compatible, reason, detail } = this.checkMcpCompatibility(
@@ -738,15 +724,6 @@ export class EngineWarmup {
         if (detail) {
           log.debug("[EngineWarmup] MCP compatibility diff details:", detail);
         }
-        firstTokenTrace.trace(
-          "warmup.reuse.miss",
-          { projectId, engine: requestEngineType || warmupEngineType },
-          {
-            reason,
-            warmupMcpKeys,
-            requestMcpKeys,
-          },
-        );
         // 缓存本次请求的 MCP 配置，供 respawn() 使用
         if (requestMcpKeys.length > 0) {
           this.lastMcpServers = requestMcp;
@@ -756,12 +733,11 @@ export class EngineWarmup {
         } else {
           this.lastMcpServers = null;
         }
-        engine.removeAllListeners();
-        await engine.destroy().catch(() => {});
-        this.engines.delete(WARMUP_KEY);
-        this.configs.delete(WARMUP_KEY);
-        this.rawMcpServers.delete(WARMUP_KEY);
-        return null;
+        return this.teardownWarmup(engine, `mcp_incompatible: ${reason}`, {
+          projectId,
+          engineType: requestEngineType || warmupEngineType,
+          reason: `mcp_incompatible: ${reason}`,
+        });
       }
 
       log.info(
@@ -788,19 +764,13 @@ export class EngineWarmup {
     }
 
     // 未就绪或已死，清理
-    firstTokenTrace.trace(
-      "warmup.reuse.miss",
-      { projectId, engine: effectiveConfig.engine },
-      { reason: "warmup_not_ready" },
-    );
     // 缓存运行时配置，确保后续 refill warmup 有正确的 model/apiKey/baseUrl/apiProtocol
     this.cacheRuntimeConfig(effectiveConfig);
-    engine.removeAllListeners();
-    await engine.destroy().catch(() => {});
-    this.engines.delete(WARMUP_KEY);
-    this.configs.delete(WARMUP_KEY);
-    this.rawMcpServers.delete(WARMUP_KEY);
-    return null;
+    return this.teardownWarmup(engine, "warmup_not_ready", {
+      projectId,
+      engineType: effectiveConfig.engine || WARMUP_ENGINE_TYPE,
+      reason: "warmup_not_ready",
+    });
   }
 
   /**
