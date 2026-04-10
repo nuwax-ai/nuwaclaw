@@ -1,5 +1,17 @@
 import { readSetting } from "../../db";
 import { t } from "../i18n";
+import type { HttpResult } from "@shared/types/computerTypes";
+import log from "electron-log";
+
+function isHttpResult(value: unknown): value is HttpResult<unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  return (
+    typeof body.code === "string" &&
+    typeof body.message === "string" &&
+    "data" in body
+  );
+}
 
 /**
  * 检查 Lanproxy 通道健康状态
@@ -23,10 +35,46 @@ export async function checkLanproxyHealth(savedKey: string): Promise<{
       method: "GET",
       signal: AbortSignal.timeout(10000),
     });
-    if (response.ok) {
+    if (!response.ok) {
+      return {
+        healthy: false,
+        error: `HTTP ${response.status}`,
+      };
+    }
+    let data: unknown;
+    try {
+      data = await response.json();
+      log.info("[LanproxyHealth] Health API response", {
+        status: response.status,
+        data,
+      });
+    } catch {
+      return {
+        healthy: false,
+        error: "Invalid JSON in health response",
+      };
+    }
+    if (!isHttpResult(data)) {
+      return {
+        healthy: false,
+        error: "Unexpected health response",
+      };
+    }
+    const body = data;
+    if (body.code === "0000") {
       return { healthy: true };
     }
-    return { healthy: false, error: `HTTP ${response.status}` };
+    const apiMessage =
+      typeof body.message === "string" && body.message.trim()
+        ? body.message
+        : undefined;
+    const codeWithBracket = `[${body.code}]`;
+    return {
+      healthy: false,
+      error: apiMessage
+        ? `${codeWithBracket} ${apiMessage}`
+        : `${codeWithBracket} Health check failed`,
+    };
   } catch (e) {
     return {
       healthy: false,
