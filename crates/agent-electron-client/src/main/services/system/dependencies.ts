@@ -734,7 +734,7 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
   log.info(`[getAppEnv]   5. node_modules: ${nodeModulesBin}`);
   log.info(`[getAppEnv]   6. app bin: ${appBin}`);
   log.info(
-    `[getAppEnv]   7. 系统回退: ${systemPathPaths.slice(0, 3).join(", ")}...`,
+    `[getAppEnv]   7. System PATH fallback: ${systemPathPaths.slice(0, 3).join(", ")}...`,
   );
   // 追踪：PATH 中是否包含可能含 uvx 的目录（便于排查 uvx 类 MCP 不生效）
   const pathSegments = priorityPath.split(pathSep);
