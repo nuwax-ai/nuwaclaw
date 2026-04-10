@@ -203,10 +203,18 @@ npm run dist:linux  # Linux
 ### 启动初始化命中逻辑（新客户端）
 
 1. **并行初始化**：`src/renderer/main.tsx` 启动时并行执行 `initSupportedLangs()` 与 `initI18n()`。
-2. **动态语言列表**：`src/renderer/services/i18n.ts` 调 `/api/i18n/lang/list`，按当前接口格式读取 `data[].lang`，仅纳入 `status === 1` 的语言，合并到 `i18next.supportedLngs`。
+2. **动态语言列表**：`src/renderer/services/i18n.ts` 调 `/api/i18n/lang/list`，按当前接口格式读取 `data[].lang`，仅纳入 `status === 1` 的语言，合并到 `i18next.supportedLngs`。`fetchI18nLangList()` 使用 Promise 缓存，避免多处调用重复请求。
 3. **当前语言来源**：`src/renderer/services/core/i18n.ts` 优先用缓存 `i18n.active_lang`，无缓存则用 `navigator.language`。`navigator.language` 为 BCP 47 格式（如 `en-US`、`zh-CN`、`zh-TW`、`zh-HK`），内部统一转小写比较（如 `zh-tw`）。
-4. **主进程同步**：`initI18n()` 完成后，渲染进程会通过 `window.electronAPI.i18n.setLang()` 同步主进程语言，保证托盘/对话框与页面语言一致。
-5. **antd locale 命中**：优先精确命中 `zh-tw` / `zh-hk`，再落到泛中文 `zh`，避免繁体用户被错误命中简体组件文案。
+4. **主进程语言优先级**：`src/main/main.ts` 在 `app.whenReady()` 后同步语言，优先级：本地保存（`i18n.active_lang`）> Electron 系统语言（`app.getLocale()`）> 英文兜底（`"en"`）。
+5. **主进程同步**：`initI18n()` 完成后，渲染进程会通过 `window.electronAPI.i18n.setLang()` 同步主进程语言，保证托盘/对话框与页面语言一致。
+6. **antd locale 命中**：优先精确命中 `zh-tw` / `zh-hk`，再落到泛中文 `zh`，避免繁体用户被错误命中简体组件文案。
+
+### 语言切换流程
+
+1. **预拉取**：`handleLangConfirm()` 调 `prefetchLangMap(lang)` 与 `minLoadingDelay` 并行，将目标语言翻译缓存到 DB（`Promise.allSettled`，失败不阻塞）。
+2. **reload**：页面刷新后 `_doInitI18n()` 从 DB 缓存读取翻译，无需等待网络。
+3. **非本地 locale 文件的语言**（如日语）：无本地 JSON 文件，`getLocaleMap()` 回退 `enUS`。依赖 DB 缓存提供翻译。首次切换时 `prefetchLangMap` 确保缓存已写入。
+4. **中文反向映射**：非中文语言使用本地 `zh-CN.json` 构建反向映射（`buildZhValueToKeyMap`），不再额外请求 `query?lang=zh-cn`。
 
 ### 日志 vs UI 的语言规则
 
@@ -238,4 +246,4 @@ npm run dist:linux  # Linux
 4. **主进程中的用户可见文案**（如 `MCP_RECONNECT_PROMPT_MESSAGE`）通过主进程 `t()` 走 i18n，避免硬编码英文。
 5. **调试工具组件不接入 i18n**：`src/renderer/components/dev/` 下的调试工具面板（如 `DevToolsPanel.tsx`）仅在开发模式加载，所有 UI 文案硬编码英文，不走 `t()`，不在 locale 文件中维护对应 key。
 
-*最后更新：2026-04-08*
+*最后更新：2026-04-10*

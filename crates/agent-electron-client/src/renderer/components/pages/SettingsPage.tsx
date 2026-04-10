@@ -52,7 +52,7 @@ import {
   setCurrentLang,
   scheduleLangMapRefreshOnNextInit,
   fetchI18nLangList,
-  fetchAndApplyLangMap,
+  prefetchLangMap,
   type I18nLangDto,
 } from "../../services/core/i18n";
 import i18next from "../../services/i18n";
@@ -551,11 +551,13 @@ export default function SettingsPage() {
     const minLoadingDelay = new Promise((resolve) => setTimeout(resolve, 500));
 
     try {
-      // 1. 立即切换本地语言（不阻塞等待网络）
+      // 1. 立即切换本地语言
       await setCurrentLang(lang);
-      // 2. 预拉取目标语言翻译并缓存到 DB，确保 reload 后立即可用
-      //    不等待失败——失败时 reload 后后台仍会重试
-      void fetchAndApplyLangMap(lang).catch(() => {});
+
+      // 2. 预拉取目标语言翻译并缓存到 DB（与 loading 并行，不阻塞超过 500ms）
+      //    失败时 reload 后后台仍会重试
+      await Promise.allSettled([prefetchLangMap(lang), minLoadingDelay]);
+
       // 3. 标记下次初始化时强制 no-store 刷新翻译
       await scheduleLangMapRefreshOnNextInit(lang);
 
@@ -565,8 +567,7 @@ export default function SettingsPage() {
         throw new Error(result.error || "Main process language change failed");
       }
 
-      // 5. 刷新页面，初始化阶段后台重新拉取翻译
-      await minLoadingDelay;
+      // 5. 刷新页面
       window.location.reload();
     } catch (error) {
       console.error("Language change failed:", error);

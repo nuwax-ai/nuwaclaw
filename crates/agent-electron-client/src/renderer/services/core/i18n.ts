@@ -274,7 +274,7 @@ const buildZhValueToKeyMap = (map: SystemLangMap): void => {
   zhValueToKeyMap = nextMap;
 };
 
-export const fetchAndApplyLangMap = async (
+const fetchAndApplyLangMap = async (
   lang?: string,
   options?: { forceRefresh?: boolean },
 ): Promise<boolean> => {
@@ -304,6 +304,13 @@ export const fetchAndApplyLangMap = async (
     return false;
   }
 };
+
+/**
+ * 预拉取目标语言翻译并缓存到 DB。
+ * 用于语言切换 reload 前，确保 reload 后 readMapFromCache 能命中。
+ */
+export const prefetchLangMap = (lang: string): Promise<boolean> =>
+  fetchAndApplyLangMap(lang);
 
 // ========== 导出函数 ==========
 
@@ -400,7 +407,8 @@ export const scheduleLangMapRefreshOnNextInit = async (
 };
 
 /**
- * 切换语言后强制刷新翻译映射（绕过浏览器缓存），并更新中文反向映射。
+ * 切换语言后强制刷新翻译映射（绕过浏览器缓存）。
+ * 中文语言同步更新反向映射；非中文语言的反向映射由本地 zh-CN.json 提供。
  * 返回值表示是否成功从服务端拉取到最新翻译。
  */
 export const refreshLangMap = async (
