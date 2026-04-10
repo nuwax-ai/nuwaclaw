@@ -49,8 +49,8 @@ import {
 import { FEATURES } from "@shared/featureFlags";
 import {
   t,
-  getCurrentLang,
   setCurrentLang,
+  scheduleLangMapRefreshOnNextInit,
   fetchI18nLangList,
   type I18nLangDto,
 } from "../../services/core/i18n";
@@ -546,16 +546,18 @@ export default function SettingsPage() {
     const minLoadingDelay = new Promise((resolve) => setTimeout(resolve, 500));
 
     try {
-      // 1. 更新渲染进程语言
+      // 1. 立即切换本地语言（不阻塞等待网络）
       await setCurrentLang(lang);
+      // 2. 标记下次初始化时强制 no-store 刷新翻译
+      await scheduleLangMapRefreshOnNextInit(lang);
 
-      // 2. 同步到主进程（检查返回值，失败则抛出）
+      // 3. 同步到主进程（检查返回值，失败则抛出）
       const result = await window.electronAPI?.i18n?.setLang(lang);
       if (result && !result.success) {
         throw new Error(result.error || "Main process language change failed");
       }
 
-      // 3. 刷新页面，触发完整的 i18n 初始化流程重新拉取翻译
+      // 4. 刷新页面，初始化阶段后台重新拉取翻译
       await minLoadingDelay;
       window.location.reload();
     } catch (error) {

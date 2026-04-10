@@ -34,6 +34,7 @@ const I18N_STORAGE_KEYS = {
   LANG_MAP_CACHE: "i18n.lang_map_cache",
   LANG_MAP_CACHE_AT: "i18n.lang_map_cache_at",
   LANG_MAP_CACHE_LANG: "i18n.lang_map_cache_lang",
+  LANG_FORCE_REFRESH_ON_INIT: "i18n.lang_force_refresh_on_init",
 } as const;
 
 const I18N_MAP_CACHE_TTL = 24 * 60 * 60 * 1000; // 24小时
@@ -78,6 +79,11 @@ const getLocaleMap = (lang: string): SystemLangMap => {
   return enUS as SystemLangMap;
 };
 
+const getLocalBaseMap = (lang: string): SystemLangMap => {
+  const normalized = normalizeLang(lang);
+  return getLocaleMap(normalized);
+};
+
 // ========== 状态 ==========
 
 let currentLang = DEFAULT_I18N_LANG;
@@ -92,8 +98,13 @@ const warnedMissingKeys = new Set<string>();
 
 // ========== 工具函数 ==========
 
+const normalizeLangStrict = (lang?: string | null): string =>
+  String(lang || "")
+    .trim()
+    .toLowerCase();
+
 const normalizeLang = (lang?: string | null): string =>
-  (lang || DEFAULT_I18N_LANG).toLowerCase();
+  normalizeLangStrict(lang) || DEFAULT_I18N_LANG;
 
 const isZhLang = (lang?: string | null): boolean =>
   normalizeLang(lang).startsWith("zh");
@@ -242,6 +253,13 @@ const readLangFromCache = async (): Promise<string | null> => {
   return readFromSettings(I18N_STORAGE_KEYS.ACTIVE_LANG);
 };
 
+const readForceRefreshLangOnInit = async (): Promise<string> => {
+  const lang = await readFromSettings(
+    I18N_STORAGE_KEYS.LANG_FORCE_REFRESH_ON_INIT,
+  );
+  return normalizeLangStrict(lang);
+};
+
 // ========== API ==========
 
 const buildZhValueToKeyMap = (map: SystemLangMap): void => {
@@ -256,7 +274,10 @@ const buildZhValueToKeyMap = (map: SystemLangMap): void => {
   zhValueToKeyMap = nextMap;
 };
 
-const fetchAndApplyLangMap = async (lang?: string): Promise<boolean> => {
+const fetchAndApplyLangMap = async (
+  lang?: string,
+  options?: { forceRefresh?: boolean },
+): Promise<boolean> => {
   const targetLang = normalizeLang(lang || currentLang);
   const userDomain = await getUserDomain();
   try {
@@ -266,21 +287,27 @@ const fetchAndApplyLangMap = async (lang?: string): Promise<boolean> => {
       headers: {
         "Accept-Language": targetLang,
       },
+      cache: options?.forceRefresh ? "no-store" : undefined,
       showError: false,
       ...(userDomain ? { baseUrl: userDomain } : {}),
     });
-    langMap = {
-      ...getLocaleMap(targetLang),
+    const mergedMap = {
+      ...getLocalBaseMap(targetLang),
       ...result,
     };
-    await persistMapCache(targetLang, langMap);
+    if (normalizeLang(currentLang) === targetLang) {
+      langMap = mergedMap;
+    }
+    await persistMapCache(targetLang, mergedMap);
     return true;
   } catch {
     return false;
   }
 };
 
-const fetchZhBaseMap = async (): Promise<void> => {
+const fetchZhBaseMap = async (options?: {
+  forceRefresh?: boolean;
+}): Promise<void> => {
   zhBaseMap = { ...getLocaleMap("zh-cn") };
   const userDomain = await getUserDomain();
   try {
@@ -290,6 +317,7 @@ const fetchZhBaseMap = async (): Promise<void> => {
       headers: {
         "Accept-Language": "zh-cn",
       },
+      cache: options?.forceRefresh ? "no-store" : undefined,
       showError: false,
       ...(userDomain ? { baseUrl: userDomain } : {}),
     });
@@ -318,12 +346,7 @@ export const setCurrentLang = async (lang?: string | null): Promise<void> => {
   currentLang = resolvedLang;
   isCurrentLangSupported_ = isLocaleSupported(resolvedLang);
 
-  if (isCurrentLangSupported_) {
-    langMap = { ...getLocaleMap(resolvedLang) };
-  } else {
-    // 本地不支持的语言，langMap 置空，翻译时直接展示 key
-    langMap = {};
-  }
+  langMap = { ...getLocalBaseMap(resolvedLang) };
   await writeToSettings(I18N_STORAGE_KEYS.ACTIVE_LANG, resolvedLang);
 };
 
@@ -336,6 +359,11 @@ export const initI18n = (): Promise<void> => {
 const _doInitI18n = async (): Promise<void> => {
   const cachedLang = await readLangFromCache();
   const resolvedLang = normalizeLang(cachedLang || getBrowserLang());
+  const forceRefreshLang = await readForceRefreshLangOnInit();
+  const shouldForceRefresh = forceRefreshLang === resolvedLang;
+  if (forceRefreshLang) {
+    await writeToSettings(I18N_STORAGE_KEYS.LANG_FORCE_REFRESH_ON_INIT, "");
+  }
   await setCurrentLang(resolvedLang);
   // 启动时同步主进程语言，避免主进程弹窗（如自动更新）与渲染进程语言不一致
   try {
@@ -344,33 +372,87 @@ const _doInitI18n = async (): Promise<void> => {
     // ignore sync failures
   }
 
-  if (isCurrentLangSupported_) {
-    langMap = { ...getLocaleMap(resolvedLang) };
+  const baseMap = getLocalBaseMap(resolvedLang);
+  langMap = { ...baseMap };
 
-    const cachedMap = await readMapFromCache(resolvedLang);
-    if (cachedMap) {
-      langMap = {
-        ...getLocaleMap(resolvedLang),
-        ...cachedMap,
-      };
-    }
-
-    const fetched = await fetchAndApplyLangMap();
-    if (isZhLang(getCurrentLang())) {
-      zhBaseMap = { ...langMap };
-      buildZhValueToKeyMap(zhBaseMap);
-    } else {
-      await fetchZhBaseMap();
-    }
-
-    if (!Object.keys(zhValueToKeyMap).length) {
-      buildZhValueToKeyMap(getLocaleMap("zh-cn"));
-    }
-
-    if (!fetched && !cachedMap) {
-      langMap = { ...getLocaleMap(resolvedLang) };
-    }
+  const cachedMap = await readMapFromCache(resolvedLang);
+  if (cachedMap) {
+    langMap = {
+      ...baseMap,
+      ...cachedMap,
+    };
   }
+
+  if (isZhLang(resolvedLang)) {
+    zhBaseMap = { ...langMap };
+    buildZhValueToKeyMap(zhBaseMap);
+  } else if (!Object.keys(zhValueToKeyMap).length) {
+    buildZhValueToKeyMap(getLocaleMap("zh-cn"));
+  }
+
+  // 远端翻译改为后台刷新，避免首屏/切换语言时阻塞。
+  void (async () => {
+    const fetched = await fetchAndApplyLangMap(resolvedLang, {
+      forceRefresh: shouldForceRefresh,
+    });
+
+    if (isZhLang(resolvedLang)) {
+      if (normalizeLang(currentLang) === resolvedLang) {
+        zhBaseMap = { ...langMap };
+        buildZhValueToKeyMap(zhBaseMap);
+      }
+    } else {
+      await fetchZhBaseMap({ forceRefresh: shouldForceRefresh });
+    }
+
+    if (!fetched && !cachedMap && normalizeLang(currentLang) === resolvedLang) {
+      langMap = { ...baseMap };
+    }
+  })().catch(() => {
+    // ignore background refresh failures
+  });
+};
+
+/**
+ * 标记下次初始化时强制 no-store 刷新当前语言翻译。
+ * 用于语言切换后刷新页面，避免切换流程被网络阻塞。
+ */
+export const scheduleLangMapRefreshOnNextInit = async (
+  lang?: string | null,
+): Promise<void> => {
+  const targetLang = normalizeLangStrict(lang || currentLang);
+  if (!targetLang) return;
+  await writeToSettings(
+    I18N_STORAGE_KEYS.LANG_FORCE_REFRESH_ON_INIT,
+    targetLang,
+  );
+};
+
+/**
+ * 切换语言后强制刷新翻译映射（绕过浏览器缓存），并更新中文反向映射。
+ * 返回值表示是否成功从服务端拉取到最新翻译。
+ */
+export const refreshLangMap = async (
+  lang?: string | null,
+): Promise<boolean> => {
+  const targetLang = normalizeLang(lang || currentLang);
+  await setCurrentLang(targetLang);
+
+  const fetched = await fetchAndApplyLangMap(targetLang, {
+    forceRefresh: true,
+  });
+  if (isZhLang(targetLang)) {
+    zhBaseMap = { ...langMap };
+    buildZhValueToKeyMap(zhBaseMap);
+  } else {
+    await fetchZhBaseMap({ forceRefresh: true });
+  }
+
+  if (!Object.keys(zhValueToKeyMap).length) {
+    buildZhValueToKeyMap(getLocaleMap("zh-cn"));
+  }
+
+  return fetched;
 };
 
 /**
@@ -402,15 +484,11 @@ export const dict = (key: string, ...values: I18nValues): string => {
     return normalizedKey;
   }
 
-  // 本地不支持的语言，不走任何 fallback，直接返回 key
-  if (!isCurrentLangSupported()) {
-    return normalizedKey;
+  let template = langMap[normalizedKey];
+  if (!template && isCurrentLangSupported()) {
+    template =
+      getLocaleMap("en")[normalizedKey] || getLocaleMap("zh-cn")[normalizedKey];
   }
-
-  const template =
-    langMap[normalizedKey] ||
-    getLocaleMap("en")[normalizedKey] ||
-    getLocaleMap("zh-cn")[normalizedKey];
   if (!template) {
     warnOnce(warnedMissingKeys, normalizedKey, (k) => {
       console.error(`[i18n] Missing translation entry for key: ${k}`);

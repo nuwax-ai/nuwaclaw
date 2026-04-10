@@ -47,6 +47,7 @@ interface RequestConfig {
   baseUrl?: string;
   timeout?: number;
   headers?: Record<string, string>;
+  cache?: RequestCache;
 }
 
 // 默认配置
@@ -67,6 +68,7 @@ export async function apiRequest<T>(
     headers?: Record<string, string>;
     showError?: boolean;
     baseUrl?: string;
+    cache?: RequestCache;
   } = {},
 ): Promise<T> {
   const config = { ...DEFAULT_CONFIG, ...options };
@@ -82,6 +84,7 @@ export async function apiRequest<T>(
       ...config.headers,
     },
     signal: AbortSignal.timeout(timeoutMs),
+    ...(config.cache ? { cache: config.cache } : {}),
   };
 
   if (options.data) {
