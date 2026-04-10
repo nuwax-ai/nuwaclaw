@@ -56,6 +56,12 @@ export interface StrictPermissionDecision {
   writableRoots: string[];
 }
 
+interface PathResolveContext {
+  baseDir?: string;
+  homeDir?: string | null;
+  platform: NodeJS.Platform;
+}
+
 export function evaluateStrictWritePermission(
   request: AcpPermissionRequest,
   context: StrictPermissionContext,
@@ -83,7 +89,8 @@ export function evaluateStrictWritePermission(
     };
   }
 
-  const writableRoots = buildStrictWritableRoots(context);
+  const pathResolveContext = buildPathResolveContext(context);
+  const writableRoots = buildStrictWritableRoots(context, pathResolveContext);
   const candidates = extractPathCandidates(request.toolCall.rawInput);
   if (candidates.length === 0) {
     return {
@@ -99,7 +106,7 @@ export function evaluateStrictWritePermission(
   const resolvedPaths: string[] = [];
   const platform = context.platform ?? process.platform;
   for (const candidate of candidates) {
-    const resolved = resolvePathForSandbox(candidate);
+    const resolved = resolvePathForSandbox(candidate, pathResolveContext);
     if (!resolved) {
       return {
         isWriteRequest: true,
@@ -133,6 +140,16 @@ export function evaluateStrictWritePermission(
   };
 }
 
+function buildPathResolveContext(
+  context: StrictPermissionContext,
+): PathResolveContext {
+  return {
+    baseDir: context.projectWorkspaceDir || context.workspaceDir,
+    homeDir: context.isolatedHome,
+    platform: context.platform ?? process.platform,
+  };
+}
+
 function isWriteLikePermissionRequest(params: AcpPermissionRequest): boolean {
   const kindAndTitle =
     `${params.toolCall.kind ?? ""} ${params.toolCall.title ?? ""}`
@@ -148,12 +165,15 @@ function isWriteLikePermissionRequest(params: AcpPermissionRequest): boolean {
   return extractPathCandidates(params.toolCall.rawInput).length > 0;
 }
 
-function buildStrictWritableRoots(context: StrictPermissionContext): string[] {
+function buildStrictWritableRoots(
+  context: StrictPermissionContext,
+  pathResolveContext: PathResolveContext,
+): string[] {
   const roots = new Set<string>();
 
   const add = (candidate: string | null | undefined) => {
     if (!candidate) return;
-    const resolved = resolvePathForSandbox(candidate);
+    const resolved = resolvePathForSandbox(candidate, pathResolveContext);
     if (resolved) roots.add(resolved);
   };
 
@@ -230,7 +250,9 @@ function isLikelyPathValue(value: string, keyHint: string): boolean {
 }
 
 function looksLikePath(value: string): boolean {
-  if (path.isAbsolute(value)) return true;
+  if (path.posix.isAbsolute(value) || path.win32.isAbsolute(value)) {
+    return true;
+  }
   if (value === "~" || value.startsWith("~/") || value.startsWith("~\\")) {
     return true;
   }
@@ -238,37 +260,65 @@ function looksLikePath(value: string): boolean {
   return false;
 }
 
-function resolvePathForSandbox(pathCandidate: string): string | null {
-  const expanded = expandHomePath(pathCandidate);
-  const resolved = path.resolve(expanded);
+function getPathOps(
+  platform: NodeJS.Platform,
+): typeof path.posix | typeof path.win32 {
+  return platform === "win32" ? path.win32 : path.posix;
+}
+
+function resolvePathForSandbox(
+  pathCandidate: string,
+  context?: PathResolveContext,
+): string | null {
+  const platform = context?.platform ?? process.platform;
+  const pathOps = getPathOps(platform);
+  const expanded = expandHomePath(pathCandidate, context?.homeDir, pathOps);
+  const baseDir = context?.baseDir;
+  const resolved =
+    baseDir && !pathOps.isAbsolute(expanded)
+      ? pathOps.resolve(baseDir, expanded)
+      : pathOps.resolve(expanded);
+
+  // Cross-platform unit tests may evaluate Windows-style paths on non-Windows hosts.
+  // Skip filesystem canonicalization in that case; runtime on target platform still
+  // goes through realpath below.
+  if (platform !== process.platform) {
+    return resolved;
+  }
+
   try {
     return fs.realpathSync(resolved);
   } catch {
-    let cursor = path.dirname(resolved);
-    let suffix = path.basename(resolved);
+    let cursor = pathOps.dirname(resolved);
+    let suffix = pathOps.basename(resolved);
     while (true) {
       try {
         const cursorReal = fs.realpathSync(cursor);
-        return path.join(cursorReal, suffix);
+        return pathOps.join(cursorReal, suffix);
       } catch {
-        const parent = path.dirname(cursor);
+        const parent = pathOps.dirname(cursor);
         if (parent === cursor) {
           return resolved;
         }
-        suffix = path.join(path.basename(cursor), suffix);
+        suffix = pathOps.join(pathOps.basename(cursor), suffix);
         cursor = parent;
       }
     }
   }
 }
 
-function expandHomePath(inputPath: string): string {
+function expandHomePath(
+  inputPath: string,
+  homeDir: string | null | undefined,
+  pathOps: typeof path.posix | typeof path.win32,
+): string {
+  const fallbackHome = process.env.HOME || process.env.USERPROFILE || "";
+  const home = homeDir || fallbackHome;
   if (inputPath === "~") {
-    return process.env.HOME || process.env.USERPROFILE || "~";
+    return home || "~";
   }
   if (inputPath.startsWith("~/") || inputPath.startsWith("~\\")) {
-    const home = process.env.HOME || process.env.USERPROFILE || "";
-    return home ? path.join(home, inputPath.slice(2)) : inputPath;
+    return home ? pathOps.join(home, inputPath.slice(2)) : inputPath;
   }
   return inputPath;
 }

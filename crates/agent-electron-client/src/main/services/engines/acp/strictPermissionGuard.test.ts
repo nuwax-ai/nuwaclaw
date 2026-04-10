@@ -59,6 +59,29 @@ describe("strictPermissionGuard", () => {
     expect(result.reason).toBe("strict_paths_allowed");
   });
 
+  it("相对路径按 workspace 解析，允许写入", () => {
+    const result = evaluateStrictWritePermission(
+      makeRequest({
+        toolCall: {
+          toolCallId: "tc-2b",
+          kind: "edit",
+          title: "Edit",
+          rawInput: { file_path: "src/a.ts" },
+        },
+      }),
+      {
+        strictEnabled: true,
+        workspaceDir: "/workspace",
+        appDataDir: "/home/me/.nuwaclaw",
+        tempDirs: ["/tmp"],
+      },
+    );
+
+    expect(result.blocked).toBe(false);
+    expect(result.reason).toBe("strict_paths_allowed");
+    expect(result.resolvedPaths[0]).toBe("/workspace/src/a.ts");
+  });
+
   it("允许 temp 目录写入", () => {
     const result = evaluateStrictWritePermission(
       makeRequest({
@@ -79,6 +102,77 @@ describe("strictPermissionGuard", () => {
 
     expect(result.blocked).toBe(false);
     expect(result.reason).toBe("strict_paths_allowed");
+  });
+
+  it("~ 路径按 isolatedHome 解析，允许写入", () => {
+    const result = evaluateStrictWritePermission(
+      makeRequest({
+        toolCall: {
+          toolCallId: "tc-3b",
+          kind: "write",
+          title: "Write",
+          rawInput: { file_path: "~/notes/a.txt" },
+        },
+      }),
+      {
+        strictEnabled: true,
+        workspaceDir: "/workspace",
+        isolatedHome: "/sandbox/home",
+        appDataDir: "/home/me/.nuwaclaw",
+        tempDirs: ["/tmp"],
+      },
+    );
+
+    expect(result.blocked).toBe(false);
+    expect(result.reason).toBe("strict_paths_allowed");
+    expect(result.resolvedPaths[0]).toBe("/sandbox/home/notes/a.txt");
+  });
+
+  it("Windows: 绝对路径按 win32 语义解析且大小写不敏感", () => {
+    const result = evaluateStrictWritePermission(
+      makeRequest({
+        toolCall: {
+          toolCallId: "tc-win-1",
+          kind: "write",
+          title: "Write",
+          rawInput: { file_path: "c:\\workspace\\src\\a.ts" },
+        },
+      }),
+      {
+        strictEnabled: true,
+        workspaceDir: "C:\\Workspace",
+        appDataDir: "C:\\Users\\me\\.nuwaclaw",
+        tempDirs: ["C:\\Temp"],
+        platform: "win32",
+      },
+    );
+
+    expect(result.blocked).toBe(false);
+    expect(result.reason).toBe("strict_paths_allowed");
+    expect(result.resolvedPaths[0]).toBe("c:\\workspace\\src\\a.ts");
+  });
+
+  it("Windows: 绝对路径超出 writable roots 时拒绝", () => {
+    const result = evaluateStrictWritePermission(
+      makeRequest({
+        toolCall: {
+          toolCallId: "tc-win-2",
+          kind: "write",
+          title: "Write",
+          rawInput: { file_path: "D:\\outside\\a.ts" },
+        },
+      }),
+      {
+        strictEnabled: true,
+        workspaceDir: "C:\\Workspace",
+        appDataDir: "C:\\Users\\me\\.nuwaclaw",
+        tempDirs: ["C:\\Temp"],
+        platform: "win32",
+      },
+    );
+
+    expect(result.blocked).toBe(true);
+    expect(result.reason).toBe("strict_path_outside_roots");
   });
 
   it("拒绝 workspace/temp/appData 外写入", () => {
