@@ -199,11 +199,6 @@ export const DEFAULT_MCP_PROXY_HOST = LOCALHOST_IP;
  * 后端 /api/i18n/query 返回的翻译 map 以这些 key 为键
  */
 export const I18N_KEYS = {
-  // 通用错误文案 Errors（主进程 / 渲染进程均可引用 key）
-  Errors: {
-    SESSION_CANCELLED: "Claw.Errors.sessionCancelled",
-  },
-
   // 通用 Common
   Common: {
     LOADING: "Claw.Common.loading",

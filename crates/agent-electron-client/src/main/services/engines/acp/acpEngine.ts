@@ -14,7 +14,7 @@ import * as fs from "fs";
 import log from "electron-log";
 import type { ChildProcess } from "child_process";
 import { FEATURES } from "@shared/featureFlags";
-import { ACP_SESSION_CANCELLED_ERROR_CODE, I18N_KEYS } from "@shared/constants";
+import { ACP_SESSION_CANCELLED_ERROR_CODE } from "@shared/constants";
 import { getGuiAgentServerUrl } from "@main/services/packages/guiAgentServer";
 import { getWindowsMcpUrl } from "@main/services/packages/windowsMcp";
 import { isWindows } from "@main/services/system/shellEnv";
@@ -217,9 +217,7 @@ export class AcpEngine extends EventEmitter {
       lower.includes("session is terminating") ||
       lower.includes("abort") ||
       lower.includes("cancel") ||
-      errorMsg.includes("会话已取消") ||
-      errorMsg.includes("Session cancelled") ||
-      errorMsg.includes("工作階段已取消")
+      errorMsg.includes("Session cancelled")
     );
   }
 
@@ -242,7 +240,7 @@ export class AcpEngine extends EventEmitter {
    * 用户取消会话时 reject 用的 Error：`message` 随主进程当前语言，`code` 固定。
    */
   private createSessionCancelledError(): Error {
-    const err = new Error(t(I18N_KEYS.Errors.SESSION_CANCELLED));
+    const err = new Error("Session cancelled"); // 这个不要走 i18n
     Object.assign(err, { code: ACP_SESSION_CANCELLED_ERROR_CODE });
     return err;
   }
