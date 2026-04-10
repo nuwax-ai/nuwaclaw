@@ -478,11 +478,14 @@ app.whenReady().then(async () => {
   migrateSettingsPaths();
   getDeviceId();
 
-  // 数据库就绪后，同步用户保存的语言偏好到主进程 i18n
-  // 解决 app.getLocale() 在某些 macOS 配置下返回空字符串的问题
+  // 数据库就绪后，同步语言到主进程 i18n
+  // 优先级：本地保存 > Electron 系统语言 > 英文兜底
   const savedLang = readSetting("i18n.active_lang") as string | undefined;
   if (savedLang) {
     setMainLang(savedLang);
+  } else {
+    // 无本地偏好：用 Electron 系统语言（app.ready 后可靠）
+    setMainLang(app.getLocale() || "en");
   }
 
   const ctx: HandlerContext = {
