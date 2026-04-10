@@ -377,20 +377,21 @@ export class SandboxInvoker {
       helperArgs.push("--no-write-restricted");
     }
 
-    // Serve mode: enable WRITE_RESTRICTED for strict/compat modes.
-    // When set, the restricted token gets restricting SIDs (logon, everyone,
-    // capability) and only paths with explicit ALLOW ACEs are writable.
-    // Permissive mode keeps write_restricted=false (no filesystem protection).
-    const serveWriteRestricted =
-      subcommand === "serve" && sandboxMode !== "permissive";
-    if (serveWriteRestricted) {
-      helperArgs.push("--write-restricted");
+    // Serve mode: never enable WRITE_RESTRICTED.
+    // WRITE_RESTRICTED adds restricting SIDs (logon, everyone, capability) to the
+    // token, which blocks the restricted process from spawning child processes.
+    // In serve mode the ACP engine (claude-code-acp-ts / nuwaxcode) MUST spawn
+    // MCP server sub-processes during session/new — restricting SIDs causes
+    // EPERM on every child spawn, making the session unusable.
+    //
+    // Filesystem write protection in serve mode is enforced by:
+    // 1. DACL ACEs (ALLOW paths applied by the sandbox helper)
+    // 2. sandboxed-bash MCP + sandboxed-fs MCP (tool-level interception)
+    // 3. evaluateStrictWritePermission proactive guard (nuwaxcode)
+    const serveWriteRestricted = false;
+    if (subcommand === "serve") {
       log.info(
-        "[SandboxInvoker] 🔒 WRITE_RESTRICTED enabled for serve mode (strict/compat)",
-      );
-    } else if (subcommand === "serve") {
-      log.info(
-        "[SandboxInvoker] ⚠️ WRITE_RESTRICTED disabled for serve mode (permissive)",
+        "[SandboxInvoker] WRITE_RESTRICTED disabled for serve mode (spawn EPERM prevention)",
       );
     }
 
