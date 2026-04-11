@@ -6,12 +6,13 @@
 # Handles file naming: unsigned files have "-unsigned" suffix, signed files use original names.
 #
 # Usage:
-#   ./sign-release-win.sh <version> [--skip-download] [--skip-upload]
+#   ./sign-release-win.sh <version> [--skip-download] [--skip-upload] [--upload-only]
 #
 # Examples:
 #   ./sign-release-win.sh 0.9.2
 #   ./sign-release-win.sh 0.9.2 --skip-download
 #   ./sign-release-win.sh 0.9.2 --skip-upload
+#   ./sign-release-win.sh 0.9.2 --upload-only   # 仅上传（$SIGNED_DIR 下已有 NuwaClaw.Setup.x.exe / NuwaClaw.x.msi）
 #
 # Required Environment Variables:
 #   WINDOWS_CERTIFICATE_SHA1  - Certificate thumbprint
@@ -36,6 +37,7 @@ VERSION=""
 SKIP_DOWNLOAD=false
 SKIP_UPLOAD=false
 SKIP_CACHE_CHECK=false
+UPLOAD_ONLY=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -52,6 +54,11 @@ while [[ $# -gt 0 ]]; do
             SKIP_CACHE_CHECK=true
             shift
             ;;
+        --upload-only)
+            UPLOAD_ONLY=true
+            SKIP_DOWNLOAD=true
+            shift
+            ;;
         -*)
             echo "Unknown option: $1"
             exit 1
@@ -64,18 +71,25 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$VERSION" ]]; then
-    echo "Usage: $0 <version> [--skip-download] [--skip-upload] [--skip-cache-check]"
+    echo "Usage: $0 <version> [--skip-download] [--skip-upload] [--skip-cache-check] [--upload-only]"
     echo ""
     echo "Options:"
     echo "  --skip-download     Skip downloading unsigned files, use existing ones"
     echo "  --skip-upload       Skip uploading signed files to GitHub"
     echo "  --skip-cache-check  Disable SHA256 cache check, always re-download"
+    echo "  --upload-only       Skip download/签名；仅将 \$SIGNED_DIR 下已签名的 EXE/MSI 上传到 Release"
     echo ""
     echo "Examples:"
     echo "  $0 0.9.2                      # Download with cache check"
     echo "  $0 0.9.2 --skip-download      # Use existing unsigned files"
     echo "  $0 0.9.2 --skip-upload        # Keep signed files locally only"
     echo "  $0 0.9.2 --skip-cache-check   # Force re-download even if cache exists"
+    echo "  $0 0.9.2 --upload-only        # 仅上传（需 NuwaClaw.Setup.0.9.2.exe 与 NuwaClaw.0.9.2.msi 已在 signed 目录）"
+    exit 1
+fi
+
+if [[ "$UPLOAD_ONLY" == "true" ]] && [[ "$SKIP_UPLOAD" == "true" ]]; then
+    echo "错误: --upload-only 与 --skip-upload 不能同时使用"
     exit 1
 fi
 
@@ -203,6 +217,23 @@ gh_release() {
         return $?
     fi
     "$GH_BIN" "${@:2}"
+}
+
+# 下载失败时对照：Release 上实际资源名 vs 脚本期望的 CI 产物名（package.json nsis/msi artifactName）
+print_release_download_hint() {
+    local tag="electron-v$VERSION"
+    echo ""
+    echo "诊断: Release $tag（$REPO）当前资源名如下；若列表为空或没有下面两个文件名，说明 tag 不存在、Windows 构建未跑完或未上传。"
+    if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
+        local ps_bin="${GH_BIN#__POWERSHELL_GH__:}"
+        "$ps_bin" -NoProfile -Command "gh release view \"$tag\" --repo \"$REPO\" --json assets --jq '.assets[].name'" 2>/dev/null || echo "  (无法列出，请检查 tag / gh 权限)"
+    else
+        "$GH_BIN" release view "$tag" --repo "$REPO" --json assets --jq '.assets[].name' 2>/dev/null || echo "  (无法列出，请检查 tag / gh 权限)"
+    fi
+    echo ""
+    echo "本脚本期望的未签名安装包文件名:"
+    echo "  $UNSIGNED_EXE"
+    echo "  $UNSIGNED_MSI"
 }
 
 # Calculate SHA256 hash of a local file
@@ -405,28 +436,43 @@ if [[ "$SKIP_DOWNLOAD" == "false" ]]; then
         [[ "$NEED_DOWNLOAD_EXE" == "true" ]] && rm -f "$UNSIGNED_EXE_PATH"
         [[ "$NEED_DOWNLOAD_MSI" == "true" ]] && rm -f "$UNSIGNED_MSI_PATH"
 
-        # Build download patterns based on what's needed
-        CACHE_PATTERNS=()
-        [[ "$NEED_DOWNLOAD_EXE" == "true" ]] && CACHE_PATTERNS+=("--pattern" "NuwaClaw-Setup-*-unsigned.exe")
-        [[ "$NEED_DOWNLOAD_MSI" == "true" ]] && CACHE_PATTERNS+=("--pattern" "NuwaClaw-*-unsigned.msi")
-
-        # Download only Windows installers with -unsigned suffix
+        # 使用精确文件名（与 package.json nsis/msi artifactName 一致），避免 glob 在部分环境下不匹配；
+        # 分两次 download，便于判断缺 EXE 还是缺 MSI。
+        TAG_R="electron-v$VERSION"
+        DOWNLOAD_OK=true
+        UNSIGNED_DIR_WIN=""
         if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
             UNSIGNED_DIR_WIN="$(cygpath -w "$UNSIGNED_DIR")"
-            CACHE_PATTERN_ARGS=""
-            for p in "${CACHE_PATTERNS[@]}"; do
-                if [[ "$p" == "--pattern" ]]; then
-                    CACHE_PATTERN_ARGS+="--pattern "
-                else
-                    CACHE_PATTERN_ARGS+="\"$p\" "
-                fi
-            done
-            gh_release "gh release download \"electron-v$VERSION\" --repo \"$REPO\" --dir \"$UNSIGNED_DIR_WIN\" $CACHE_PATTERN_ARGS"
-        else
-            gh_release "" release download "electron-v$VERSION" \
-                --repo "$REPO" \
-                --dir "$UNSIGNED_DIR" \
-                "${CACHE_PATTERNS[@]}"
+        fi
+
+        if [[ "$NEED_DOWNLOAD_EXE" == "true" ]]; then
+            echo "  Fetching: $UNSIGNED_EXE"
+            if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
+                gh_release "gh release download \"$TAG_R\" --repo \"$REPO\" --dir \"$UNSIGNED_DIR_WIN\" --pattern \"$UNSIGNED_EXE\"" || DOWNLOAD_OK=false
+            else
+                gh_release "" release download "$TAG_R" \
+                    --repo "$REPO" \
+                    --dir "$UNSIGNED_DIR" \
+                    --pattern "$UNSIGNED_EXE" || DOWNLOAD_OK=false
+            fi
+        fi
+        if [[ "$NEED_DOWNLOAD_MSI" == "true" ]]; then
+            echo "  Fetching: $UNSIGNED_MSI"
+            if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
+                gh_release "gh release download \"$TAG_R\" --repo \"$REPO\" --dir \"$UNSIGNED_DIR_WIN\" --pattern \"$UNSIGNED_MSI\"" || DOWNLOAD_OK=false
+            else
+                gh_release "" release download "$TAG_R" \
+                    --repo "$REPO" \
+                    --dir "$UNSIGNED_DIR" \
+                    --pattern "$UNSIGNED_MSI" || DOWNLOAD_OK=false
+            fi
+        fi
+
+        if [[ "$DOWNLOAD_OK" != "true" ]]; then
+            echo ""
+            echo "错误: gh release download 失败（no assets match / 未找到资源）。"
+            print_release_download_hint
+            exit 1
         fi
 
         echo "  Downloaded files"
@@ -437,80 +483,98 @@ if [[ "$SKIP_DOWNLOAD" == "false" ]]; then
     fi
 else
     echo ""
-    echo "==> Skipping download (using existing unsigned files)"
-fi
-
-# Verify files exist
-if [[ ! -f "$UNSIGNED_EXE_PATH" ]]; then
-    echo "Error: Unsigned EXE file not found: $UNSIGNED_EXE_PATH"
-    exit 1
-fi
-if [[ ! -f "$UNSIGNED_MSI_PATH" ]]; then
-    echo "Error: Unsigned MSI file not found: $UNSIGNED_MSI_PATH"
-    exit 1
-fi
-
-# Setup signtool
-echo ""
-echo "==> Setting up signtool"
-
-SIGNTOOL_PATH=""
-for path in \
-    "/c/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64" \
-    "/c/Program Files (x86)/Windows Kits/10/bin/x64"
-do
-    if [[ -f "$path/signtool.exe" ]]; then
-        SIGNTOOL_PATH="$path"
-        break
+    if [[ "$UPLOAD_ONLY" == "true" ]]; then
+        echo "==> Skipping download (--upload-only)"
+    else
+        echo "==> Skipping download (using existing unsigned files)"
     fi
-done
-
-if [[ -z "$SIGNTOOL_PATH" ]]; then
-    # Try to find any version
-    SIGNTOOL_PATH=$(find "/c/Program Files (x86)/Windows Kits/10/bin" -name "signtool.exe" 2>/dev/null | head -1 | xargs dirname)
 fi
 
-if [[ -z "$SIGNTOOL_PATH" ]]; then
-    echo "Error: signtool.exe not found. Please install Windows SDK."
-    exit 1
+if [[ "$UPLOAD_ONLY" == "true" ]]; then
+    echo ""
+    echo "==> Upload-only：跳过未签名包校验与签名，仅上传 Release"
+    if [[ ! -f "$SIGNED_DIR/$SIGNED_EXE" ]] || [[ ! -f "$SIGNED_DIR/$SIGNED_MSI" ]]; then
+        echo "错误: 请在 signed 目录放置已签名的两个文件（与完整流程输出命名一致）:"
+        echo "  $SIGNED_DIR/$SIGNED_EXE"
+        echo "  $SIGNED_DIR/$SIGNED_MSI"
+        echo "（可用环境变量 SIGN_WORK_DIR 覆盖工作目录，默认 $WORK_DIR）"
+        exit 1
+    fi
+    echo "  将上传: $SIGNED_DIR/$SIGNED_EXE"
+    echo "  将上传: $SIGNED_DIR/$SIGNED_MSI"
+else
+    # Verify files exist
+    if [[ ! -f "$UNSIGNED_EXE_PATH" ]]; then
+        echo "Error: Unsigned EXE file not found: $UNSIGNED_EXE_PATH"
+        exit 1
+    fi
+    if [[ ! -f "$UNSIGNED_MSI_PATH" ]]; then
+        echo "Error: Unsigned MSI file not found: $UNSIGNED_MSI_PATH"
+        exit 1
+    fi
+
+    # Setup signtool
+    echo ""
+    echo "==> Setting up signtool"
+
+    SIGNTOOL_PATH=""
+    for path in \
+        "/c/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64" \
+        "/c/Program Files (x86)/Windows Kits/10/bin/x64"
+    do
+        if [[ -f "$path/signtool.exe" ]]; then
+            SIGNTOOL_PATH="$path"
+            break
+        fi
+    done
+
+    if [[ -z "$SIGNTOOL_PATH" ]]; then
+        # Try to find any version
+        SIGNTOOL_PATH=$(find "/c/Program Files (x86)/Windows Kits/10/bin" -name "signtool.exe" 2>/dev/null | head -1 | xargs dirname)
+    fi
+
+    if [[ -z "$SIGNTOOL_PATH" ]]; then
+        echo "Error: signtool.exe not found. Please install Windows SDK."
+        exit 1
+    fi
+
+    export PATH="$SIGNTOOL_PATH:$PATH"
+    echo "  Using signtool from: $SIGNTOOL_PATH"
+
+    # Set default timestamp URL
+    export WINDOWS_TIMESTAMP_URL="${WINDOWS_TIMESTAMP_URL:-http://timestamp.sectigo.com}"
+
+    # Sign files
+    echo ""
+    echo "==> Signing files"
+
+    SIGN_SCRIPT="$SCRIPT_DIR/sign-win.js"
+
+    echo "  Signing: $UNSIGNED_EXE"
+    node "$SIGN_SCRIPT" "$UNSIGNED_EXE_PATH"
+
+    echo "  Signing: $UNSIGNED_MSI"
+    node "$SIGN_SCRIPT" "$UNSIGNED_MSI_PATH"
+
+    # Verify signatures
+    echo ""
+    echo "==> Verifying signatures"
+
+    signtool verify //pa //all "$UNSIGNED_EXE_PATH"
+    echo "  Verified: $UNSIGNED_EXE ✓"
+
+    signtool verify //pa //all "$UNSIGNED_MSI_PATH"
+    echo "  Verified: $UNSIGNED_MSI ✓"
+
+    # Rename to signed names and copy to signed directory
+    echo ""
+    echo "==> Renaming and copying signed files"
+    cp "$UNSIGNED_EXE_PATH" "$SIGNED_DIR/$SIGNED_EXE"
+    cp "$UNSIGNED_MSI_PATH" "$SIGNED_DIR/$SIGNED_MSI"
+    echo "  $UNSIGNED_EXE -> $SIGNED_EXE"
+    echo "  $UNSIGNED_MSI -> $SIGNED_MSI"
+    echo "  Copied to: $SIGNED_DIR"
 fi
-
-export PATH="$SIGNTOOL_PATH:$PATH"
-echo "  Using signtool from: $SIGNTOOL_PATH"
-
-# Set default timestamp URL
-export WINDOWS_TIMESTAMP_URL="${WINDOWS_TIMESTAMP_URL:-http://timestamp.sectigo.com}"
-
-# Sign files
-echo ""
-echo "==> Signing files"
-
-SIGN_SCRIPT="$SCRIPT_DIR/sign-win.js"
-
-echo "  Signing: $UNSIGNED_EXE"
-node "$SIGN_SCRIPT" "$UNSIGNED_EXE_PATH"
-
-echo "  Signing: $UNSIGNED_MSI"
-node "$SIGN_SCRIPT" "$UNSIGNED_MSI_PATH"
-
-# Verify signatures
-echo ""
-echo "==> Verifying signatures"
-
-signtool verify //pa //all "$UNSIGNED_EXE_PATH"
-echo "  Verified: $UNSIGNED_EXE ✓"
-
-signtool verify //pa //all "$UNSIGNED_MSI_PATH"
-echo "  Verified: $UNSIGNED_MSI ✓"
-
-# Rename to signed names and copy to signed directory
-echo ""
-echo "==> Renaming and copying signed files"
-cp "$UNSIGNED_EXE_PATH" "$SIGNED_DIR/$SIGNED_EXE"
-cp "$UNSIGNED_MSI_PATH" "$SIGNED_DIR/$SIGNED_MSI"
-echo "  $UNSIGNED_EXE -> $SIGNED_EXE"
-echo "  $UNSIGNED_MSI -> $SIGNED_MSI"
-echo "  Copied to: $SIGNED_DIR"
 
 # Upload to GitHub
 if [[ "$SKIP_UPLOAD" == "false" ]]; then
@@ -548,7 +612,11 @@ fi
 # Summary
 echo ""
 echo "========================================"
-echo " Signing Complete!"
+if [[ "$UPLOAD_ONLY" == "true" ]]; then
+    echo " Upload-only 完成!"
+else
+    echo " Signing Complete!"
+fi
 echo "========================================"
 echo ""
 echo "Version:     $VERSION"
