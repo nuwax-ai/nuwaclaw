@@ -416,6 +416,26 @@ export interface AgentAPI {
     response: "once" | "always" | "reject",
   ) => ApiResult;
 
+  // Model switch confirmation (T3.3)
+  respondModelSwitch: (requestId: string, approved: boolean) => ApiResult;
+
+  // Checkpoint confirmation (T3.5)
+  respondCheckpoint: (sessionId: string) => ApiResult;
+
+  // Permission rules CRUD (T3.6)
+  listPermissionRules: () => Promise<{
+    success: boolean;
+    data?: Array<{
+      ruleKey: string;
+      toolTitle?: string | null;
+      toolKind?: string | null;
+      createdAt?: number;
+    }>;
+    error?: string;
+  }>;
+  deletePermissionRule: (ruleKey: string) => ApiResult;
+  clearAllPermissionRules: () => ApiResult;
+
   // Session operations
   getSessionDiff: (
     sessionId: string,
@@ -588,6 +608,13 @@ export interface ComputerAPI {
   ): void;
 }
 
+export interface ServiceHealthSnapshot {
+  timestamp: number;
+  lanproxy: { running: boolean; pid?: number; error?: string };
+  fileServer: { running: boolean; pid?: number; error?: string };
+  mcpProxy: { running: boolean; serverCount?: number };
+}
+
 export interface ServicesAPI {
   restartAll: () => Promise<{
     success: boolean;
@@ -597,6 +624,7 @@ export interface ServicesAPI {
     success: boolean;
     results?: Record<string, { success: boolean; error?: string }>;
   }>;
+  healthSnapshot: () => Promise<ServiceHealthSnapshot>;
 }
 
 export type TrayStatus = "running" | "stopped" | "error" | "starting";

@@ -8,16 +8,146 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Button, Tag, Spin, message } from "antd";
+import { Button, Tag, Spin, message, Divider, Popconfirm } from "antd";
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   QuestionCircleOutlined,
   ReloadOutlined,
   SettingOutlined,
+  DeleteOutlined,
 } from "@ant-design/icons";
 import styles from "../../styles/components/ClientPage.module.css";
 import { t } from "../../services/core/i18n";
+
+interface AcpPermissionRule {
+  ruleKey: string;
+  toolTitle?: string | null;
+  toolKind?: string | null;
+  createdAt?: number;
+}
+
+function AcpPermissionRulesSection() {
+  const [rules, setRules] = useState<AcpPermissionRule[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const loadRules = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await window.electronAPI?.agent.listPermissionRules();
+      if (res?.success) setRules(res.data ?? []);
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void loadRules();
+  }, [loadRules]);
+
+  const handleDelete = async (ruleKey: string) => {
+    await window.electronAPI?.agent.deletePermissionRule(ruleKey);
+    setRules((prev) => prev.filter((r) => r.ruleKey !== ruleKey));
+    message.success(t("Claw.PermissionsPage.ruleDeleted"));
+  };
+
+  const handleClearAll = async () => {
+    await window.electronAPI?.agent.clearAllPermissionRules();
+    setRules([]);
+    message.success(t("Claw.PermissionsPage.allRulesCleared"));
+  };
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <Divider orientation="left" style={{ fontSize: 13, fontWeight: 600 }}>
+        {t("Claw.PermissionsPage.acpRulesTitle")}
+      </Divider>
+      <div
+        style={{
+          marginBottom: 8,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+          {t("Claw.PermissionsPage.acpRulesDesc")}
+        </span>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button size="small" icon={<ReloadOutlined />} onClick={loadRules} />
+          {rules.length > 0 && (
+            <Popconfirm
+              title={t("Claw.PermissionsPage.confirmClearAll")}
+              onConfirm={handleClearAll}
+            >
+              <Button size="small" danger>
+                {t("Claw.PermissionsPage.clearAll")}
+              </Button>
+            </Popconfirm>
+          )}
+        </div>
+      </div>
+      {loading ? (
+        <Spin size="small" />
+      ) : rules.length === 0 ? (
+        <div
+          style={{
+            fontSize: 12,
+            color: "var(--color-text-secondary)",
+            padding: "8px 0",
+          }}
+        >
+          {t("Claw.PermissionsPage.noRules")}
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {rules.map((rule) => (
+            <div
+              key={rule.ruleKey}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "6px 10px",
+                background: "var(--color-bg-section)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--border-radius-sm)",
+                fontSize: 13,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Tag color="green" style={{ margin: 0, fontSize: 11 }}>
+                  always allow
+                </Tag>
+                <span>{rule.toolTitle ?? rule.ruleKey}</span>
+                {rule.toolKind && rule.toolKind !== rule.ruleKey && (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: "var(--color-text-secondary)",
+                    }}
+                  >
+                    ({rule.toolKind})
+                  </span>
+                )}
+              </div>
+              <Popconfirm
+                title={t("Claw.PermissionsPage.confirmDelete")}
+                onConfirm={() => handleDelete(rule.ruleKey)}
+              >
+                <Button
+                  size="small"
+                  type="text"
+                  danger
+                  icon={<DeleteOutlined />}
+                />
+              </Popconfirm>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface PermissionItem {
   key: string;
@@ -210,6 +340,9 @@ export default function PermissionsPage() {
           {t("Claw.PermissionsPage.allGranted")}
         </div>
       )}
+
+      {/* T3.6 — ACP 工具权限规则管理 */}
+      <AcpPermissionRulesSection />
     </div>
   );
 }

@@ -683,16 +683,24 @@ export async function createAcpConnection(
 
     const effectiveModel = env.OPENCODE_MODEL || config.model || "";
     const apiProtocol = (config.apiProtocol || "").toLowerCase();
+    const isOllama = apiProtocol === "ollama";
     const isOpenAICompatible =
+      isOllama ||
       apiProtocol === "openai" ||
       effectiveModel.startsWith("openai-compatible/");
 
     if (isOpenAICompatible) {
-      if (config.apiKey && !env.OPENAI_API_KEY) {
-        env.OPENAI_API_KEY = config.apiKey;
+      // Ollama 使用 OpenAI 兼容接口；默认 baseUrl 指向本地 Ollama 服务
+      const ollamaDefaultBase = "http://localhost:11434/v1";
+      const effectiveBaseUrl =
+        isOllama && !config.baseUrl ? ollamaDefaultBase : config.baseUrl;
+
+      if (!env.OPENAI_API_KEY) {
+        // Ollama 不需要真实 API key，填占位符即可
+        env.OPENAI_API_KEY = isOllama ? "ollama" : config.apiKey || "";
       }
-      if (config.baseUrl && !env.OPENAI_BASE_URL) {
-        env.OPENAI_BASE_URL = config.baseUrl;
+      if (effectiveBaseUrl && !env.OPENAI_BASE_URL) {
+        env.OPENAI_BASE_URL = effectiveBaseUrl;
       }
 
       // Compatibility aliases used by some opencode paths.

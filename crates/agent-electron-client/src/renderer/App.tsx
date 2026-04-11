@@ -15,6 +15,7 @@ import {
   Button,
   notification,
   message,
+  Alert,
 } from "antd";
 import type { PresetStatusColorType } from "antd/es/_util/colors";
 import {
@@ -52,6 +53,8 @@ import LogViewer from "./components/pages/LogViewer";
 import PermissionsPage from "./components/pages/PermissionsPage";
 import SessionsPage from "./components/pages/SessionsPage";
 import type { WebviewHeaderActions } from "./components/pages/SessionsPage";
+import PermissionRequestCard from "./components/PermissionRequestCard";
+import type { PendingPermission } from "./components/PermissionRequestCard";
 import { createLogger } from "./services/utils/rendererLog";
 import styles from "./styles/components/App.module.css";
 import { lightTheme, darkTheme } from "./styles/theme";
@@ -351,6 +354,22 @@ function App() {
   const [, forceUpdate] = useState(0);
   /** 递增后通知 ClientPage 刷新账号状态（用户名等），与 reg 返回保持一致 */
   const [authRefreshTrigger, setAuthRefreshTrigger] = useState(0);
+  /** 待确认权限队列（来自 ACP permission.updated 事件） */
+  const [pendingPermissions, setPendingPermissions] = useState<
+    PendingPermission[]
+  >([]);
+  /** 待确认模型切换请求（来自 ACP confirm.modelSwitch 事件） */
+  const [pendingModelSwitch, setPendingModelSwitch] = useState<{
+    requestId: string;
+    currentModel: string;
+    newModel: string;
+  } | null>(null);
+  /** T3.5 — 待确认检查点（来自 ACP confirm.checkpoint 事件） */
+  const [pendingCheckpoint, setPendingCheckpoint] = useState<{
+    sessionId: string;
+    toolCallsSoFar: number;
+    reason: "tool_count" | "time";
+  } | null>(null);
   const statusExpectedKeys = useMemo(() => {
     const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
     if (FEATURES.ENABLE_GUI_AGENT_SERVER && guiMcpEnabled) {
@@ -936,6 +955,19 @@ function App() {
   }, [isSetupComplete]);
 
   // ============================================
+  // T2.6 — 监听主进程主动推送的服务健康事件
+  // ============================================
+  useEffect(() => {
+    if (!window.electronAPI || isSetupComplete !== true) return;
+    const handleServiceHealth = () => {
+      // 收到主进程推送时立即刷新服务状态
+      void pollServicesStatus();
+    };
+    window.electronAPI.on("service:health", handleServiceHealth);
+    return () => window.electronAPI?.off("service:health", handleServiceHealth);
+  }, [isSetupComplete, pollServicesStatus]);
+
+  // ============================================
   // 监听托盘/菜单事件
   // ============================================
   useEffect(() => {
@@ -1040,6 +1072,121 @@ function App() {
       cleanupHandlers.forEach((fn) => fn());
     };
   }, []);
+
+  // ============================================
+  // 监听 Agent 事件（permission.updated / permission.replied）
+  // ============================================
+  useEffect(() => {
+    if (!window.electronAPI) return;
+
+    const handleAgentEvent = (event: {
+      type: string;
+      data: Record<string, unknown>;
+    }) => {
+      if (event.type === "permission.updated") {
+        const d = event.data as {
+          sessionId: string;
+          permissionId: string;
+          toolCall: PendingPermission["toolCall"];
+          options: PendingPermission["options"];
+        };
+        setPendingPermissions((prev) => {
+          // 避免重复添加相同 permissionId
+          if (prev.some((p) => p.permissionId === d.permissionId)) return prev;
+          return [
+            ...prev,
+            {
+              sessionId: d.sessionId,
+              permissionId: d.permissionId,
+              toolCall: d.toolCall,
+              options: d.options,
+              arrivedAt: Date.now(),
+            },
+          ];
+        });
+      } else if (event.type === "permission.replied") {
+        const d = event.data as { permissionId?: string };
+        if (d.permissionId) {
+          setPendingPermissions((prev) =>
+            prev.filter((p) => p.permissionId !== d.permissionId),
+          );
+        }
+      } else if (event.type === "session.crashed") {
+        // 引擎崩溃时清除该引擎相关的待确认权限
+        const d = event.data as { sessionIds?: string[] };
+        if (d.sessionIds && d.sessionIds.length > 0) {
+          const crashedSet = new Set(d.sessionIds);
+          setPendingPermissions((prev) =>
+            prev.filter((p) => !crashedSet.has(p.sessionId)),
+          );
+        }
+        // 崩溃时也清除模型切换确认（自动允许已在主进程超时）
+        setPendingModelSwitch(null);
+      } else if (event.type === "confirm.modelSwitch") {
+        const d = event.data as {
+          requestId: string;
+          currentModel: string;
+          newModel: string;
+        };
+        setPendingModelSwitch({
+          requestId: d.requestId,
+          currentModel: d.currentModel,
+          newModel: d.newModel,
+        });
+      } else if (event.type === "confirm.checkpoint") {
+        const d = event.data as {
+          sessionId: string;
+          toolCallsSoFar: number;
+          reason: "tool_count" | "time";
+        };
+        setPendingCheckpoint({
+          sessionId: d.sessionId,
+          toolCallsSoFar: d.toolCallsSoFar,
+          reason: d.reason,
+        });
+      }
+    };
+
+    window.electronAPI.on("agent:event", handleAgentEvent as any);
+    return () => {
+      window.electronAPI?.off("agent:event", handleAgentEvent as any);
+    };
+  }, []);
+
+  const handlePermissionRespond = useCallback(
+    async (
+      sessionId: string,
+      permissionId: string,
+      response: "once" | "always" | "reject",
+    ) => {
+      // 乐观更新：立即从队列中移除
+      setPendingPermissions((prev) =>
+        prev.filter((p) => p.permissionId !== permissionId),
+      );
+      try {
+        await window.electronAPI?.agent.respondPermission(
+          sessionId,
+          permissionId,
+          response,
+        );
+      } catch (e) {
+        console.error("[App] respondPermission failed:", e);
+      }
+    },
+    [],
+  );
+
+  const handleModelSwitchRespond = useCallback(
+    async (requestId: string, approved: boolean) => {
+      setPendingModelSwitch(null);
+      try {
+        await window.electronAPI?.agent.respondModelSwitch(requestId, approved);
+      } catch (e) {
+        console.error("[App] respondModelSwitch failed:", e);
+      }
+    },
+    [],
+  );
 
   // ============================================
   // 向导完成回调
@@ -1253,6 +1400,76 @@ function App() {
                     : "app-content"
                 }
               >
+                {/* T3.3 模型切换确认横幅 */}
+                {pendingModelSwitch && !webviewActions && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message={t(
+                      "Claw.Agent.modelSwitchRequest",
+                      pendingModelSwitch.newModel,
+                    )}
+                    description={t(
+                      "Claw.Agent.modelSwitchDetail",
+                      pendingModelSwitch.currentModel,
+                      pendingModelSwitch.newModel,
+                    )}
+                    style={{ marginBottom: 12 }}
+                    action={
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <Button
+                          size="small"
+                          onClick={() =>
+                            handleModelSwitchRespond(
+                              pendingModelSwitch.requestId,
+                              false,
+                            )
+                          }
+                        >
+                          {t("Claw.Common.cancel")}
+                        </Button>
+                        <Button
+                          size="small"
+                          type="primary"
+                          onClick={() =>
+                            handleModelSwitchRespond(
+                              pendingModelSwitch.requestId,
+                              true,
+                            )
+                          }
+                        >
+                          {t("Claw.Common.confirm")}
+                        </Button>
+                      </div>
+                    }
+                  />
+                )}
+                {/* T3.5 — 长任务检查点确认横幅 */}
+                {pendingCheckpoint && !webviewActions && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    message={t("Claw.Agent.checkpointTitle")}
+                    description={t(
+                      "Claw.Agent.checkpointDesc",
+                      pendingCheckpoint.toolCallsSoFar,
+                    )}
+                    style={{ marginBottom: 12 }}
+                    action={
+                      <Button
+                        size="small"
+                        type="primary"
+                        onClick={() => {
+                          const sid = pendingCheckpoint.sessionId;
+                          setPendingCheckpoint(null);
+                          void window.electronAPI?.agent.respondCheckpoint(sid);
+                        }}
+                      >
+                        {t("Claw.Agent.checkpointContinue")}
+                      </Button>
+                    }
+                  />
+                )}
                 <div
                   style={{
                     flex: 1,
@@ -1291,6 +1508,13 @@ function App() {
                   {activeTab === "logs" && <LogViewer />}
                   {activeTab === "about" && <AboutPage />}
                 </div>
+                {/* 权限确认浮动卡片：覆盖在主内容区底部 */}
+                {pendingPermissions.length > 0 && (
+                  <PermissionRequestCard
+                    pending={pendingPermissions}
+                    onRespond={handlePermissionRespond}
+                  />
+                )}
               </div>
             </div>
           </div>

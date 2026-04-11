@@ -53,6 +53,8 @@ import {
 } from "./acpClient";
 import { AcpTerminalManager } from "./acpTerminalManager";
 import { evaluateStrictWritePermission } from "./strictPermissionGuard";
+import { classifyPermissionRequest } from "./sensitivityClassifier";
+import auditLogger from "../../sandbox/auditLoggerSingleton";
 import type {
   AgentConfig,
   AcpSessionStatus,
@@ -83,6 +85,44 @@ import { ACP_ABORT_TIMEOUT } from "@shared/constants";
 import { APP_DATA_DIR_NAME } from "../../constants";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
+import { readSetting, writeSetting } from "@main/db";
+import {
+  DEFAULT_COMPLIANCE_CONFIG,
+  COMPLIANCE_CONFIG_KEY,
+  type ComplianceConfig,
+} from "@shared/types/compliance";
+
+// T3.6 — ACP 层 allow_always 规则的 SQLite 存储 key 前缀
+const ACP_PERM_RULE_PREFIX = "acp_perm_rule:";
+
+/** 持久化 allow_always 规则（基于工具名/类型） */
+function persistAllowAlwaysRule(
+  toolTitle?: string | null,
+  toolKind?: string | null,
+): void {
+  const ruleKey = toolTitle || toolKind || "unknown";
+  writeSetting(`${ACP_PERM_RULE_PREFIX}${ruleKey}`, {
+    kind: "allow_always",
+    toolTitle: toolTitle ?? null,
+    toolKind: toolKind ?? null,
+    createdAt: Date.now(),
+  });
+}
+
+/** 查询工具是否有 allow_always 持久化规则 */
+function hasAllowAlwaysRule(
+  toolTitle?: string | null,
+  toolKind?: string | null,
+): boolean {
+  const ruleKey = toolTitle || toolKind;
+  if (!ruleKey) return false;
+  const rule = readSetting(`${ACP_PERM_RULE_PREFIX}${ruleKey}`);
+  return !!(
+    rule &&
+    typeof rule === "object" &&
+    (rule as any).kind === "allow_always"
+  );
+}
 
 /** Safe JSON.stringify that handles circular references */
 function safeStringify(obj: unknown): string {
@@ -153,6 +193,20 @@ export class AcpEngine extends EventEmitter {
   private activePromptSessions = new Set<string>();
   private activePromptRejects = new Map<string, (reason: Error) => void>();
   private strictPermissionSnapshotLoggedSessions = new Set<string>();
+  /** Pending model switch confirmations: requestId → resolve(approved) */
+  private pendingModelSwitchConfirms = new Map<
+    string,
+    { resolve: (approved: boolean) => void; newModel: string }
+  >();
+  /** T3.5 — 会话级工具调用计数（检查点用） */
+  private toolCallCounters = new Map<string, number>();
+  /** T3.5 — 检查点分钟计时器（会话级） */
+  private checkpointMinuteTimers = new Map<
+    string,
+    ReturnType<typeof setInterval>
+  >();
+  /** T3.5 — 等待检查点确认的 Promise resolver */
+  private pendingCheckpoints = new Map<string, () => void>();
   private static readonly MAX_SNAPSHOT_LOGGED_SESSIONS = 500;
   private logTag: string;
 
@@ -952,6 +1006,46 @@ export class AcpEngine extends EventEmitter {
       }
     }
 
+    // T1.6 — Air-gapped 模式：过滤带外部 URL 的 MCP 服务器
+    {
+      const complianceRawAG = readSetting(COMPLIANCE_CONFIG_KEY);
+      const complianceAG: ComplianceConfig =
+        complianceRawAG &&
+        typeof complianceRawAG === "object" &&
+        !Array.isArray(complianceRawAG)
+          ? {
+              ...DEFAULT_COMPLIANCE_CONFIG,
+              ...(complianceRawAG as Partial<ComplianceConfig>),
+            }
+          : DEFAULT_COMPLIANCE_CONFIG;
+
+      if (complianceAG.enabled && complianceAG.disableCloudFeatures) {
+        const before = mcpServers.length;
+        const isLocalUrl = (url: string) => {
+          try {
+            const u = new URL(url);
+            return (
+              u.hostname === "localhost" ||
+              u.hostname === "127.0.0.1" ||
+              u.hostname === "::1"
+            );
+          } catch {
+            return true; // stdio servers have no URL — keep them
+          }
+        };
+        const filtered = mcpServers.filter(
+          (srv) => !("url" in srv) || !srv.url || isLocalUrl(srv.url),
+        );
+        if (filtered.length < before) {
+          mcpServers.length = 0;
+          mcpServers.push(...filtered);
+          log.info(
+            `${this.logTag} Air-gapped mode: removed ${before - filtered.length} external MCP server(s)`,
+          );
+        }
+      }
+    }
+
     // [临时测试代码 - 正式发布前将 .env.production 中 INJECT_GUI_MCP 设为 false]
     // 通过 FEATURES.INJECT_GUI_MCP 控制是否注入 GUI Agent MCP（由 .env.development/.env.production 在运行时决定）
     // 用于本地开发/打包测试 GUI 桌面自动化功能，正式发布时由服务器下发 context_servers
@@ -1179,6 +1273,60 @@ export class AcpEngine extends EventEmitter {
           };
         }
       }
+
+      // Compliance mode — tool allowlist enforcement.
+      // If compliance is enabled and allowedTools is a specific list (not "*"),
+      // compute the complement and add to disallowedTools.
+      const complianceRaw = readSetting(COMPLIANCE_CONFIG_KEY);
+      const compliance: ComplianceConfig =
+        complianceRaw &&
+        typeof complianceRaw === "object" &&
+        !Array.isArray(complianceRaw)
+          ? {
+              ...DEFAULT_COMPLIANCE_CONFIG,
+              ...(complianceRaw as Partial<ComplianceConfig>),
+            }
+          : DEFAULT_COMPLIANCE_CONFIG;
+
+      if (compliance.enabled && Array.isArray(compliance.allowedTools)) {
+        const allowedSet = new Set(compliance.allowedTools as string[]);
+        // All built-in Claude Code tool names recognized by claude-code-acp-ts
+        const ALL_BUILTIN_TOOLS = [
+          "Bash",
+          "Edit",
+          "Glob",
+          "Grep",
+          "LS",
+          "MultiEdit",
+          "NotebookEdit",
+          "NotebookRead",
+          "Read",
+          "TodoRead",
+          "TodoWrite",
+          "WebFetch",
+          "WebSearch",
+          "Write",
+        ];
+        const complianceDisallowed = ALL_BUILTIN_TOOLS.filter(
+          (t) => !allowedSet.has(t),
+        );
+        if (complianceDisallowed.length > 0) {
+          const existingMeta = meta.claudeCode as
+            | { options?: { disallowedTools?: string[] } }
+            | undefined;
+          const existing = existingMeta?.options?.disallowedTools ?? [];
+          const merged = Array.from(
+            new Set([...existing, ...complianceDisallowed]),
+          );
+          meta.claudeCode = {
+            options: { disallowedTools: merged },
+          };
+          log.info(
+            `${this.logTag} Compliance allowlist applied — disallowed: ${merged.join(", ")}`,
+          );
+        }
+      }
+
       return Object.keys(meta).length > 0 ? meta : undefined;
     })();
 
@@ -1240,6 +1388,8 @@ export class AcpEngine extends EventEmitter {
       lastActivity: Date.now(),
     };
     this.sessions.set(sessionId, session);
+    // T3.5 — 启动检查点跟踪
+    this.startCheckpointTracking(sessionId);
 
     log.info(`${this.logTag} Session created`, {
       sessionId,
@@ -1282,6 +1432,8 @@ export class AcpEngine extends EventEmitter {
   }
 
   async deleteSession(id: string): Promise<boolean> {
+    // T3.5 — 停止检查点跟踪
+    this.stopCheckpointTracking(id);
     return this.sessions.delete(id);
   }
 
@@ -1696,11 +1848,128 @@ export class AcpEngine extends EventEmitter {
         );
         pending.resolve({ outcome: { outcome: "cancelled" } });
       } else {
+        // T3.6 — 始终允许时持久化规则
+        if (response === "always") {
+          const toolCall = (pending as any).toolCall as
+            | { title?: string | null; kind?: string | null }
+            | undefined;
+          persistAllowAlwaysRule(toolCall?.title, toolCall?.kind);
+          log.info(
+            `${this.logTag} 📝 allow_always 规则已持久化: tool=${toolCall?.title ?? toolCall?.kind ?? permissionId}`,
+          );
+        }
         pending.resolve({
           outcome: { outcome: "selected", optionId },
         });
       }
     }
+  }
+
+  // === Model Switch Response ===
+
+  respondModelSwitch(requestId: string, approved: boolean): void {
+    const pending = this.pendingModelSwitchConfirms.get(requestId);
+    if (!pending) {
+      log.warn(`${this.logTag} No pending model switch for:`, requestId);
+      return;
+    }
+    pending.resolve(approved);
+  }
+
+  // === T3.5 — Checkpoint Response ===
+
+  /** 用户确认检查点后调用，恢复 Agent 循环 */
+  respondCheckpoint(sessionId: string): void {
+    const resolve = this.pendingCheckpoints.get(sessionId);
+    if (!resolve) {
+      log.warn(`${this.logTag} No pending checkpoint for session:`, sessionId);
+      return;
+    }
+    this.pendingCheckpoints.delete(sessionId);
+    log.info(
+      `${this.logTag} ✅ Checkpoint confirmed by user: sessionId=${sessionId}`,
+    );
+    resolve();
+  }
+
+  /** T3.5 — 初始化会话级检查点跟踪 */
+  private startCheckpointTracking(acpSessionId: string): void {
+    const complianceRaw = readSetting(COMPLIANCE_CONFIG_KEY);
+    const compliance: ComplianceConfig =
+      complianceRaw &&
+      typeof complianceRaw === "object" &&
+      !Array.isArray(complianceRaw)
+        ? {
+            ...DEFAULT_COMPLIANCE_CONFIG,
+            ...(complianceRaw as Partial<ComplianceConfig>),
+          }
+        : DEFAULT_COMPLIANCE_CONFIG;
+
+    if (!compliance.enabled || !compliance.checkpointPolicy) return;
+
+    const { minutesPerCheckpoint } = compliance.checkpointPolicy;
+    this.toolCallCounters.set(acpSessionId, 0);
+
+    if (minutesPerCheckpoint > 0) {
+      const timer = setInterval(() => {
+        void this.triggerCheckpoint(acpSessionId, "time");
+      }, minutesPerCheckpoint * 60_000);
+      this.checkpointMinuteTimers.set(acpSessionId, timer);
+    }
+  }
+
+  /** T3.5 — 清除会话检查点跟踪（会话销毁时调用） */
+  private stopCheckpointTracking(acpSessionId: string): void {
+    this.toolCallCounters.delete(acpSessionId);
+    const timer = this.checkpointMinuteTimers.get(acpSessionId);
+    if (timer) {
+      clearInterval(timer);
+      this.checkpointMinuteTimers.delete(acpSessionId);
+    }
+    // 如果有挂起的检查点，自动放行（会话已结束）
+    const resolve = this.pendingCheckpoints.get(acpSessionId);
+    if (resolve) {
+      this.pendingCheckpoints.delete(acpSessionId);
+      resolve();
+    }
+  }
+
+  /** T3.5 — 触发检查点挂起：emit 事件 + 挂起直到用户确认或超时（5min） */
+  private async triggerCheckpoint(
+    acpSessionId: string,
+    reason: "tool_count" | "time",
+  ): Promise<void> {
+    if (this.pendingCheckpoints.has(acpSessionId)) return; // 已有挂起
+
+    const toolCallsSoFar = this.toolCallCounters.get(acpSessionId) ?? 0;
+    log.info(
+      `${this.logTag} ⏸ Checkpoint triggered (${reason}): sessionId=${acpSessionId}, toolCalls=${toolCallsSoFar}`,
+    );
+
+    await new Promise<void>((resolve) => {
+      const autoResolveTimer = setTimeout(() => {
+        if (this.pendingCheckpoints.delete(acpSessionId)) {
+          log.warn(
+            `${this.logTag} ⏰ Checkpoint auto-resumed after 5min timeout`,
+          );
+          resolve();
+        }
+      }, 5 * 60_000);
+
+      this.pendingCheckpoints.set(acpSessionId, () => {
+        clearTimeout(autoResolveTimer);
+        resolve();
+      });
+
+      this.emit("confirm.checkpoint", {
+        sessionId: acpSessionId,
+        toolCallsSoFar,
+        reason,
+      });
+    });
+
+    // 检查点确认后重置计数器
+    this.toolCallCounters.set(acpSessionId, 0);
   }
 
   // === Legacy compat ===
@@ -1817,27 +2086,67 @@ export class AcpEngine extends EventEmitter {
             `${this.logTag} ⚠️ model_provider 变更但有 ${this.activePromptSessions.size} 个活跃 prompt，跳过 reinit，使用当前配置`,
           );
         } else {
+          const newModel =
+            request.model_provider.model || this.config.model || "(unknown)";
           log.info(
-            `${this.logTag} 🔄 model_provider 变更，重新初始化 ACP 连接...`,
+            `${this.logTag} 🔄 model_provider 变更，询问用户确认: ${newModel}`,
           );
-          const newConfig: AgentConfig = {
-            ...this.config,
-            apiKey: request.model_provider.api_key || this.config.apiKey,
-            baseUrl: request.model_provider.base_url || this.config.baseUrl,
-            model: request.model_provider.model || this.config.model,
-            apiProtocol:
-              request.model_provider.api_protocol || this.config.apiProtocol,
-          };
-          await this.destroy();
-          const ok = await this.init(newConfig);
-          if (!ok) {
-            return {
-              code: "5000",
-              message: "Failed to reinit with new model_provider",
-              data: null,
-              tid: null,
-              success: false,
+
+          // T3.3 — 向用户请求确认模型切换
+          const switchRequestId = `model-switch-${Date.now()}`;
+          const approved = await new Promise<boolean>((resolve) => {
+            const timer = setTimeout(() => {
+              if (this.pendingModelSwitchConfirms.delete(switchRequestId)) {
+                log.warn(
+                  `${this.logTag} ⏰ 模型切换确认超时，自动允许: ${newModel}`,
+                );
+                resolve(true); // 超时后默认允许，不阻断现有工作流
+              }
+            }, 30_000);
+
+            this.pendingModelSwitchConfirms.set(switchRequestId, {
+              resolve: (v: boolean) => {
+                clearTimeout(timer);
+                this.pendingModelSwitchConfirms.delete(switchRequestId);
+                resolve(v);
+              },
+              newModel,
+            });
+
+            this.emit("confirm.modelSwitch", {
+              requestId: switchRequestId,
+              currentModel: this.config!.model || "(unknown)",
+              newModel,
+            });
+          });
+
+          if (!approved) {
+            log.info(
+              `${this.logTag} ❌ 用户拒绝模型切换，保持当前模型: ${this.config.model}`,
+            );
+          } else {
+            log.info(
+              `${this.logTag} ✅ 用户确认模型切换，重新初始化 ACP 连接...`,
+            );
+            const newConfig: AgentConfig = {
+              ...this.config,
+              apiKey: request.model_provider.api_key || this.config.apiKey,
+              baseUrl: request.model_provider.base_url || this.config.baseUrl,
+              model: request.model_provider.model || this.config.model,
+              apiProtocol:
+                request.model_provider.api_protocol || this.config.apiProtocol,
             };
+            await this.destroy();
+            const ok = await this.init(newConfig);
+            if (!ok) {
+              return {
+                code: "5000",
+                message: "Failed to reinit with new model_provider",
+                data: null,
+                tid: null,
+                success: false,
+              };
+            }
           }
         }
       }
@@ -2195,6 +2504,38 @@ ${memoryContext}
 
       case "tool_call": {
         const u = update as AcpToolCall;
+        // T1.3 — 审计日志：记录工具调用开始
+        auditLogger.logOperationExecuted(
+          acpSessionId,
+          u.title || u.kind || "tool_call",
+          u.toolCallId,
+        );
+
+        // T3.5 — 长任务检查点：递增工具调用计数
+        {
+          const prev = this.toolCallCounters.get(acpSessionId);
+          if (prev !== undefined) {
+            const next = prev + 1;
+            this.toolCallCounters.set(acpSessionId, next);
+            const complianceRaw3 = readSetting(COMPLIANCE_CONFIG_KEY);
+            const compliance3: ComplianceConfig =
+              complianceRaw3 &&
+              typeof complianceRaw3 === "object" &&
+              !Array.isArray(complianceRaw3)
+                ? {
+                    ...DEFAULT_COMPLIANCE_CONFIG,
+                    ...(complianceRaw3 as Partial<ComplianceConfig>),
+                  }
+                : DEFAULT_COMPLIANCE_CONFIG;
+            const tc =
+              compliance3.checkpointPolicy?.toolCallsPerCheckpoint ?? 0;
+            if (compliance3.enabled && tc > 0 && next >= tc) {
+              // 异步触发检查点（不阻塞当前 tool_call 事件处理）
+              void this.triggerCheckpoint(acpSessionId, "tool_count");
+            }
+          }
+        }
+
         this.emit("message.part.updated", {
           sessionId: acpSessionId,
           type: "tool",
@@ -2310,6 +2651,19 @@ ${memoryContext}
           }
         }
 
+        // T1.3 — 审计日志：工具执行完成（有 rawOutput 时）或失败
+        if (u.status === "error") {
+          const errMsg =
+            typeof u.rawOutput === "string"
+              ? u.rawOutput
+              : JSON.stringify(u.rawOutput ?? "unknown error").slice(0, 200);
+          auditLogger.logOperationFailed(
+            acpSessionId,
+            u.title || u.kind || "tool_call_update",
+            u.toolCallId,
+            errMsg,
+          );
+        }
         this.emit("message.part.updated", {
           sessionId: acpSessionId,
           type: "tool",
@@ -2364,6 +2718,11 @@ ${memoryContext}
       );
       return { outcome: { outcome: "cancelled" } };
     }
+
+    // T1.3 — 审计日志：记录权限请求
+    const _auditTarget = params.toolCall.toolCallId;
+    const _auditOp = params.toolCall.title || params.toolCall.kind || "unknown";
+    auditLogger.logPermissionRequested(acpSessionId, _auditOp, _auditTarget);
 
     const strictEnabled = this.isStrictSandboxActiveForNuwaxcode();
     const strictCheck = evaluateStrictWritePermission(params, {
@@ -2429,6 +2788,13 @@ ${memoryContext}
         resolvedPaths: strictCheck.resolvedPaths,
         writableRoots: strictCheck.writableRoots,
       });
+      // T1.3 — 审计日志
+      auditLogger.logPermissionDenied(
+        acpSessionId,
+        _auditOp,
+        _auditTarget,
+        strictCheck.reason,
+      );
       return { outcome: { outcome: "cancelled" } };
     }
 
@@ -2459,6 +2825,13 @@ ${memoryContext}
         candidatePaths: strictCheck.candidatePaths,
         resolvedPaths: strictCheck.resolvedPaths,
       });
+      // T1.3 — 审计日志
+      auditLogger.logPermissionApproved(
+        acpSessionId,
+        _auditOp,
+        _auditTarget,
+        "system",
+      );
       return { outcome: { outcome: "selected", optionId: selected.optionId } };
     }
 
@@ -2470,10 +2843,73 @@ ${memoryContext}
         log.info(
           `${this.logTag} 🔓 权限自动放行 (bypassPermissions): tool=${params.toolCall.title}, kind=${selected.kind}`,
         );
+        // T1.3 — 审计日志
+        auditLogger.logPermissionApproved(
+          acpSessionId,
+          _auditOp,
+          _auditTarget,
+          "system",
+        );
         return {
           outcome: { outcome: "selected", optionId: selected.optionId },
         };
       }
+
+      // T3.6 — 查询 allow_always 持久化规则：有规则则直接放行
+      if (hasAllowAlwaysRule(params.toolCall.title, params.toolCall.kind)) {
+        log.debug(
+          `${this.logTag} 🟢 持久化 allow_always 规则命中，自动放行: tool=${params.toolCall.title}`,
+        );
+        auditLogger.logPermissionApproved(
+          acpSessionId,
+          _auditOp,
+          _auditTarget,
+          "system",
+        );
+        return {
+          outcome: { outcome: "selected", optionId: selected.optionId },
+        };
+      }
+
+      // T3.4 — 敏感度分级：low 级别只读操作自动放行
+      const complianceRaw2 = readSetting(COMPLIANCE_CONFIG_KEY);
+      const compliance2: ComplianceConfig =
+        complianceRaw2 &&
+        typeof complianceRaw2 === "object" &&
+        !Array.isArray(complianceRaw2)
+          ? {
+              ...DEFAULT_COMPLIANCE_CONFIG,
+              ...(complianceRaw2 as Partial<ComplianceConfig>),
+            }
+          : DEFAULT_COMPLIANCE_CONFIG;
+
+      const sensitivity = classifyPermissionRequest({
+        toolKind: params.toolCall.kind,
+        toolTitle: params.toolCall.title,
+        rawInput: params.toolCall.rawInput,
+        workspaceDir: this.config?.workspaceDir,
+        complianceRequireConfirmAll:
+          compliance2.enabled && compliance2.requireUserConfirmForAllTools,
+      });
+
+      if (!sensitivity.requireConfirmation) {
+        log.debug(
+          `${this.logTag} 🟢 低敏感度自动放行 (${sensitivity.level}): tool=${params.toolCall.title} — ${sensitivity.reason}`,
+        );
+        auditLogger.logPermissionApproved(
+          acpSessionId,
+          _auditOp,
+          _auditTarget,
+          "system",
+        );
+        return {
+          outcome: { outcome: "selected", optionId: selected.optionId },
+        };
+      }
+
+      log.debug(
+        `${this.logTag} 🔶 敏感度 ${sensitivity.level}，需要用户确认: tool=${params.toolCall.title}`,
+      );
 
       // 默认/acceptEdits 模式：挂起等待用户确认
       const toolCallId = params.toolCall.toolCallId;
@@ -2487,6 +2923,13 @@ ${memoryContext}
             log.warn(
               `${this.logTag} ⏰ 权限确认超时，自动拒绝: tool=${params.toolCall.title}`,
             );
+            // T1.3 — 审计日志：超时自动拒绝
+            auditLogger.logPermissionDenied(
+              acpSessionId,
+              _auditOp,
+              _auditTarget,
+              "timeout",
+            );
             resolve({ outcome: { outcome: "cancelled" } });
           }
         }, PERMISSION_CONFIRM_TIMEOUT_MS);
@@ -2495,10 +2938,28 @@ ${memoryContext}
           resolve: (r: AcpPermissionResponse) => {
             clearTimeout(timer);
             this.pendingPermissions.delete(toolCallId);
+            // T1.3 — 审计日志：用户响应
+            if (r.outcome.outcome === "selected") {
+              auditLogger.logPermissionApproved(
+                acpSessionId,
+                _auditOp,
+                _auditTarget,
+                "user",
+              );
+            } else {
+              auditLogger.logPermissionDenied(
+                acpSessionId,
+                _auditOp,
+                _auditTarget,
+                "user_rejected",
+              );
+            }
             resolve(r);
           },
           options: params.options,
-        });
+          // T3.6 — 存储 toolCall 引用，供 respondPermission(always) 持久化规则
+          toolCall: params.toolCall,
+        } as any);
 
         this.emit("permission.updated", {
           sessionId: acpSessionId,

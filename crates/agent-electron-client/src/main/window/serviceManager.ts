@@ -12,6 +12,11 @@ import { createFileServerPerfHandler } from "../ipc/perfHandlers";
 import type { ManagedProcess } from "../processManager";
 import { readSetting } from "../db";
 import { t } from "../services/i18n";
+import {
+  DEFAULT_COMPLIANCE_CONFIG,
+  COMPLIANCE_CONFIG_KEY,
+  type ComplianceConfig,
+} from "@shared/types/compliance";
 import { checkLanproxyHealth } from "../services/packages/lanproxyHealth";
 import {
   APP_DATA_DIR_NAME,
@@ -136,6 +141,24 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     clientKey: string;
     ssl?: boolean;
   }): Promise<ServiceResult> => {
+    // T1.6 — Air-gapped 模式：禁用云功能时跳过 lanproxy 启动
+    const complianceRaw = readSetting(COMPLIANCE_CONFIG_KEY);
+    const compliance: ComplianceConfig =
+      complianceRaw &&
+      typeof complianceRaw === "object" &&
+      !Array.isArray(complianceRaw)
+        ? {
+            ...DEFAULT_COMPLIANCE_CONFIG,
+            ...(complianceRaw as Partial<ComplianceConfig>),
+          }
+        : DEFAULT_COMPLIANCE_CONFIG;
+    if (compliance.enabled && compliance.disableCloudFeatures) {
+      log.info(
+        "[ServiceManager] Air-gapped mode: skipping lanproxy startup (disableCloudFeatures=true)",
+      );
+      return { success: true, message: "Skipped (air-gapped mode)" };
+    }
+
     if (ctx.lanproxy.running) {
       return { success: true };
     }

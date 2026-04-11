@@ -9,20 +9,25 @@ import {
   Typography,
   Badge,
   Form,
-  Switch,
   message,
+  Spin,
 } from "antd";
 import {
   CloudServerOutlined,
   PlayCircleOutlined,
   StopOutlined,
   SaveOutlined,
+  SearchOutlined,
 } from "@ant-design/icons";
 import { DEFAULT_ANTHROPIC_API_URL, DEFAULT_AI_MODEL } from "@shared/constants";
-import { aiService } from "../../services/core/ai";
 import { t } from "../../services/core/i18n";
 
 const { Title, Text } = Typography;
+
+const OLLAMA_DEFAULT_BASE = "http://localhost:11434/v1";
+const OLLAMA_TAGS_URL = "http://localhost:11434/api/tags";
+
+type ProviderPreset = "anthropic" | "openai" | "ollama" | "custom";
 
 interface AgentSettingsProps {
   isOpen: boolean;
@@ -35,9 +40,14 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
   const [backendPort, setBackendPort] = useState(60001);
   const [apiKey, setApiKey] = useState("");
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_ANTHROPIC_API_URL);
+  const [apiProtocol, setApiProtocol] = useState<ProviderPreset>("anthropic");
   const [model, setModel] = useState(DEFAULT_AI_MODEL);
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Ollama — 自动发现的本地模型列表
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaDiscovering, setOllamaDiscovering] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -56,6 +66,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
         setBackendPort(config.backendPort || 60001);
         setApiKey(config.apiKey || "");
         setApiBaseUrl(config.apiBaseUrl || DEFAULT_ANTHROPIC_API_URL);
+        setApiProtocol(config.apiProtocol || "anthropic");
         setModel(config.model || DEFAULT_AI_MODEL);
       }
     } catch (error) {
@@ -79,6 +90,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
       backendPort,
       apiKey,
       apiBaseUrl,
+      apiProtocol,
       model,
     };
     await window.electronAPI?.settings.set("agent_config", config);
@@ -125,7 +137,61 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
     setLoading(false);
   };
 
+  /**
+   * T1.5 — Ollama 本地模型自动发现
+   * 调用 GET http://localhost:11434/api/tags 获取已安装的模型列表
+   */
+  const discoverOllamaModels = async () => {
+    setOllamaDiscovering(true);
+    try {
+      const resp = await fetch(OLLAMA_TAGS_URL, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = (await resp.json()) as { models?: { name: string }[] };
+      const names = (data.models ?? []).map((m) => m.name);
+      if (names.length === 0) {
+        message.warning(t("Claw.Agent.ollamaNoModels"));
+      } else {
+        setOllamaModels(names);
+        // 自动选中第一个
+        if (!names.includes(model)) setModel(names[0]);
+        message.success(t("Claw.Agent.ollamaModelsFound", names.length));
+      }
+    } catch (e) {
+      message.error(t("Claw.Agent.ollamaDiscoverFailed"));
+    }
+    setOllamaDiscovering(false);
+  };
+
+  /** 切换 provider preset 时自动填充 baseUrl / apiProtocol */
+  const handleProviderChange = (preset: ProviderPreset) => {
+    setApiProtocol(preset);
+    if (preset === "anthropic") {
+      setApiBaseUrl(DEFAULT_ANTHROPIC_API_URL);
+    } else if (preset === "ollama") {
+      setApiBaseUrl(OLLAMA_DEFAULT_BASE);
+      setApiKey("ollama");
+      // 自动发现本地模型
+      void discoverOllamaModels();
+    } else if (preset === "openai") {
+      setApiBaseUrl("https://api.openai.com/v1");
+    }
+    // custom: 不改 baseUrl，让用户自填
+  };
+
   if (!isOpen) return null;
+
+  const isOllama = apiProtocol === "ollama";
+  // 模型选项：Ollama 时用发现的列表，否则用默认列表
+  const modelOptions =
+    isOllama && ollamaModels.length > 0
+      ? ollamaModels
+      : [
+          "claude-opus-4-20250514",
+          "claude-sonnet-4-20250514",
+          "claude-haiku-3-20240307",
+        ];
 
   return (
     <Card
@@ -215,11 +281,25 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
             />
           </Form.Item>
 
+          {/* T1.5 — Provider preset 选择器 */}
+          <Form.Item label={t("Claw.Agent.provider")}>
+            <Select value={apiProtocol} onChange={handleProviderChange}>
+              <Select.Option value="anthropic">
+                Anthropic (Claude)
+              </Select.Option>
+              <Select.Option value="openai">OpenAI Compatible</Select.Option>
+              <Select.Option value="ollama">Ollama (Local LLM)</Select.Option>
+              <Select.Option value="custom">
+                {t("Claw.Agent.providerCustom")}
+              </Select.Option>
+            </Select>
+          </Form.Item>
+
           <Form.Item label={t("Claw.Agent.apiKey")}>
             <Input.Password
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-ant-..."
+              placeholder={isOllama ? "ollama" : "sk-ant-..."}
             />
           </Form.Item>
 
@@ -227,24 +307,43 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
             <Input
               value={apiBaseUrl}
               onChange={(e) => setApiBaseUrl(e.target.value)}
-              placeholder={DEFAULT_ANTHROPIC_API_URL}
+              placeholder={
+                isOllama ? OLLAMA_DEFAULT_BASE : DEFAULT_ANTHROPIC_API_URL
+              }
               autoComplete="off"
               spellCheck={false}
             />
           </Form.Item>
 
           <Form.Item label={t("Claw.Agent.model")}>
-            <Select value={model} onChange={setModel}>
-              <Select.Option value="claude-opus-4-20250514">
-                Claude Opus 4
-              </Select.Option>
-              <Select.Option value="claude-sonnet-4-20250514">
-                Claude Sonnet 4
-              </Select.Option>
-              <Select.Option value="claude-haiku-3-20240307">
-                Claude Haiku 3
-              </Select.Option>
-            </Select>
+            <Space.Compact style={{ width: "100%" }}>
+              <Select
+                value={model}
+                onChange={setModel}
+                style={{ flex: 1 }}
+                showSearch
+                options={modelOptions.map((m) => ({ value: m, label: m }))}
+              />
+              {isOllama && (
+                <Button
+                  icon={
+                    ollamaDiscovering ? (
+                      <Spin size="small" />
+                    ) : (
+                      <SearchOutlined />
+                    )
+                  }
+                  onClick={discoverOllamaModels}
+                  disabled={ollamaDiscovering}
+                  title={t("Claw.Agent.ollamaDiscover")}
+                />
+              )}
+            </Space.Compact>
+            {isOllama && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {t("Claw.Agent.ollamaHint")}
+              </Text>
+            )}
           </Form.Item>
 
           <Button type="primary" icon={<SaveOutlined />} onClick={handleSave}>

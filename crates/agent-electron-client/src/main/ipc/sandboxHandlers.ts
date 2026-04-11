@@ -9,6 +9,9 @@
 
 import { ipcMain } from "electron";
 import log from "electron-log";
+import { readSetting, writeSetting, getDb } from "@main/db";
+
+const ACP_PERM_RULE_PREFIX = "acp_perm_rule:";
 import type {
   Workspace,
   CreateWorkspaceOptions,
@@ -554,6 +557,74 @@ export function registerSandboxHandlers(): void {
       }
     },
   );
+
+  // ==================== T3.6 — ACP 权限规则 CRUD ====================
+
+  /**
+   * 列出所有持久化的 allow_always 规则
+   * @channel agent:listPermissionRules
+   */
+  ipcMain.handle("agent:listPermissionRules", async () => {
+    try {
+      const db = getDb();
+      if (!db) return { success: true, data: [] };
+      const rows = db
+        .prepare("SELECT key, value FROM settings WHERE key LIKE ?")
+        .all(`${ACP_PERM_RULE_PREFIX}%`) as Array<{
+        key: string;
+        value: string;
+      }>;
+      const rules = rows.map((row) => {
+        let parsed: Record<string, unknown> = {};
+        try {
+          parsed = JSON.parse(row.value);
+        } catch {}
+        return {
+          ruleKey: row.key.slice(ACP_PERM_RULE_PREFIX.length),
+          ...parsed,
+        };
+      });
+      return { success: true, data: rules };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  });
+
+  /**
+   * 删除指定的 allow_always 规则
+   * @channel agent:deletePermissionRule
+   */
+  ipcMain.handle("agent:deletePermissionRule", async (_, ruleKey: string) => {
+    try {
+      const db = getDb();
+      if (!db) return { success: false, error: "DB not initialized" };
+      db.prepare("DELETE FROM settings WHERE key = ?").run(
+        `${ACP_PERM_RULE_PREFIX}${ruleKey}`,
+      );
+      log.info("[IPC] Deleted permission rule:", ruleKey);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  });
+
+  /**
+   * 清空所有 allow_always 规则
+   * @channel agent:clearAllPermissionRules
+   */
+  ipcMain.handle("agent:clearAllPermissionRules", async () => {
+    try {
+      const db = getDb();
+      if (!db) return { success: false, error: "DB not initialized" };
+      db.prepare("DELETE FROM settings WHERE key LIKE ?").run(
+        `${ACP_PERM_RULE_PREFIX}%`,
+      );
+      log.info("[IPC] Cleared all ACP permission rules");
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  });
 
   log.info("[IPC] Sandbox handlers registered");
 }

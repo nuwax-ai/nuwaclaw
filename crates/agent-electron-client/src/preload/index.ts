@@ -135,6 +135,21 @@ contextBridge.exposeInMainWorld("electronAPI", {
         response,
       ),
 
+    // Model switch confirmation (T3.3)
+    respondModelSwitch: (requestId: string, approved: boolean) =>
+      ipcRenderer.invoke("agent:respondModelSwitch", requestId, approved),
+
+    // Checkpoint confirmation (T3.5)
+    respondCheckpoint: (sessionId: string) =>
+      ipcRenderer.invoke("agent:respondCheckpoint", sessionId),
+
+    // Permission rules CRUD (T3.6)
+    listPermissionRules: () => ipcRenderer.invoke("agent:listPermissionRules"),
+    deletePermissionRule: (ruleKey: string) =>
+      ipcRenderer.invoke("agent:deletePermissionRule", ruleKey),
+    clearAllPermissionRules: () =>
+      ipcRenderer.invoke("agent:clearAllPermissionRules"),
+
     // Session operations
     getSessionDiff: (sessionId: string, messageId?: string) =>
       ipcRenderer.invoke("agent:getSessionDiff", sessionId, messageId),
@@ -248,6 +263,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   services: {
     restartAll: () => ipcRenderer.invoke("services:restartAll"),
     stopAll: () => ipcRenderer.invoke("services:stopAll"),
+    healthSnapshot: () => ipcRenderer.invoke("services:healthSnapshot"),
   },
 
   // Tray status sync
@@ -547,6 +563,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "memory:cleanup",
       "admin:servicesRestarting",
       "admin:servicesRestarted",
+      "service:health",
     ];
     if (validChannels.includes(channel)) {
       const wrapper = (_: unknown, ...args: unknown[]) => callback(...args);

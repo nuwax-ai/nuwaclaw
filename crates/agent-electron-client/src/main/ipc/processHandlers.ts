@@ -5,6 +5,17 @@ import { z } from "zod";
 import type { HandlerContext } from "@shared/types/ipc";
 import { createServiceManager } from "../window/serviceManager";
 import { checkLanproxyHealth } from "../services/packages/lanproxyHealth";
+import { mcpProxyManager } from "../services/packages/mcp";
+
+// T2.6 — 服务健康定时推送（30s）
+let _healthTimer: ReturnType<typeof setInterval> | null = null;
+
+export function stopHealthMonitor(): void {
+  if (_healthTimer) {
+    clearInterval(_healthTimer);
+    _healthTimer = null;
+  }
+}
 
 export const lanproxyConfigSchema = z.object({
   serverIp: z.string().min(1),
@@ -374,5 +385,43 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       results,
     );
     return { success: true, results };
+  });
+
+  // ==================== T2.6 — 服务健康主动推送 ====================
+
+  /**
+   * 采集当前服务健康快照并推送给 renderer。
+   * 包含：lanproxy、fileServer、mcpProxy 三个服务的运行状态。
+   */
+  async function pushServiceHealth(): Promise<void> {
+    const win = ctx.getMainWindow();
+    if (!win || win.isDestroyed()) return;
+    try {
+      const snapshot = {
+        timestamp: Date.now(),
+        lanproxy: ctx.lanproxy.status(),
+        fileServer: ctx.fileServer.status(),
+        mcpProxy: mcpProxyManager.getStatus(),
+      };
+      win.webContents.send("service:health", snapshot);
+    } catch (e) {
+      log.debug("[ServiceHealth] Failed to push health snapshot:", e);
+    }
+  }
+
+  // 立即推送一次，然后每 30s 推送一次
+  void pushServiceHealth();
+  stopHealthMonitor(); // 防止重复注册
+  _healthTimer = setInterval(() => void pushServiceHealth(), 30_000);
+
+  // 同时暴露一个可手动触发的 IPC（ClientPage 刷新时调用）
+  ipcMain.handle("services:healthSnapshot", async () => {
+    const snapshot = {
+      timestamp: Date.now(),
+      lanproxy: ctx.lanproxy.status(),
+      fileServer: ctx.fileServer.status(),
+      mcpProxy: mcpProxyManager.getStatus(),
+    };
+    return snapshot;
   });
 }

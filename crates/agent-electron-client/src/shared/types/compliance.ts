@@ -4,6 +4,14 @@
  * 用于政企环境下的合规管控：审计日志、工具白名单、云功能禁用等。
  */
 
+/** 长任务检查点策略 */
+export interface CheckpointPolicy {
+  /** 每 N 次工具调用暂停一次（0 表示禁用） */
+  toolCallsPerCheckpoint: number;
+  /** 每 M 分钟暂停一次（0 表示禁用） */
+  minutesPerCheckpoint: number;
+}
+
 export interface ComplianceConfig {
   /** 是否启用合规模式 */
   enabled: boolean;
@@ -19,6 +27,8 @@ export interface ComplianceConfig {
   disableCloudFeatures: boolean;
   /** 是否对 API Key 启用 OS 级加密存储 */
   apiKeyEncryption: boolean;
+  /** 长任务检查点策略（仅合规模式下生效） */
+  checkpointPolicy?: CheckpointPolicy;
 }
 
 export const DEFAULT_COMPLIANCE_CONFIG: ComplianceConfig = {

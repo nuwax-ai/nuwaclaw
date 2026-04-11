@@ -1450,6 +1450,19 @@ export class UnifiedAgentService extends EventEmitter {
     }
   }
 
+  respondModelSwitch(requestId: string, approved: boolean): void {
+    for (const [, engine] of this.engines) {
+      engine.respondModelSwitch(requestId, approved);
+    }
+  }
+
+  // T3.5 — 检查点确认
+  respondCheckpoint(sessionId: string): void {
+    for (const [, engine] of this.engines) {
+      engine.respondCheckpoint(sessionId);
+    }
+  }
+
   // === ACP engine specific ===
 
   async claudePrompt(message: string): Promise<string> {
@@ -1502,6 +1515,7 @@ export class UnifiedAgentService extends EventEmitter {
       "message.part.removed",
       "permission.updated",
       "permission.replied",
+      "confirm.modelSwitch",
       "session.created",
       "session.updated",
       "session.deleted",

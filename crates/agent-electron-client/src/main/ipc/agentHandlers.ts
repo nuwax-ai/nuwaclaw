@@ -287,6 +287,41 @@ export function registerAgentHandlers(): void {
     },
   );
 
+  // Respond to model switch confirmation (T3.3)
+  ipcMain.handle(
+    "agent:respondModelSwitch",
+    async (_, requestId: string, approved: boolean) => {
+      const rid = z.string().min(1).safeParse(requestId);
+      if (!rid.success) {
+        return invalidArgs("agent:respondModelSwitch", {
+          requestId: rid.error.issues,
+        });
+      }
+      try {
+        agentService.respondModelSwitch(rid.data, !!approved);
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // Respond to checkpoint confirmation (T3.5)
+  ipcMain.handle("agent:respondCheckpoint", async (_, sessionId: string) => {
+    const sid = z.string().min(1).safeParse(sessionId);
+    if (!sid.success) {
+      return invalidArgs("agent:respondCheckpoint", {
+        sessionId: sid.error.issues,
+      });
+    }
+    try {
+      agentService.respondCheckpoint(sid.data);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  });
+
   // List tools (ACP doesn't support this, return empty for compatibility)
   ipcMain.handle("agent:listTools", async () => {
     try {
