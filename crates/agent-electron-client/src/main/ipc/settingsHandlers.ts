@@ -66,4 +66,58 @@ export function registerSettingsHandlers(): void {
   ipcMain.handle("quickInit:getConfig", () => {
     return readQuickInitConfig();
   });
+
+  // T2.5: 代理配置 — 读取/写入用户手动代理设置
+  ipcMain.handle("proxy:get", async () => {
+    const { getProxyConfig } = await import("../services/system/dependencies");
+    const db = getDb();
+    // 先从 DB 恢复持久化配置
+    if (db) {
+      const row = db
+        .prepare("SELECT value FROM settings WHERE key = 'proxy_config'")
+        .get() as { value: string } | undefined;
+      if (row?.value) {
+        try {
+          const { setProxyConfig } =
+            await import("../services/system/dependencies");
+          setProxyConfig(JSON.parse(row.value));
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    return { success: true, ...getProxyConfig() };
+  });
+
+  ipcMain.handle(
+    "proxy:set",
+    async (
+      _,
+      config: {
+        httpsProxy?: string;
+        httpProxy?: string;
+        noProxy?: string;
+      } | null,
+    ) => {
+      const { setProxyConfig } =
+        await import("../services/system/dependencies");
+      try {
+        setProxyConfig(config);
+        // 持久化到 SQLite
+        const db = getDb();
+        if (db) {
+          if (!config || Object.keys(config).length === 0) {
+            db.prepare("DELETE FROM settings WHERE key = 'proxy_config'").run();
+          } else {
+            db.prepare(
+              "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            ).run("proxy_config", JSON.stringify(config));
+          }
+        }
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    },
+  );
 }

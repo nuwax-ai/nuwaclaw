@@ -150,4 +150,17 @@ export function registerDependencyHandlers(): void {
       await import("../services/system/dependencies");
     return getSetupRequiredDependencies();
   });
+
+  // T2.3: Windows 首次运行预检
+  ipcMain.handle("setup:windowsPreFlight", async () => {
+    const { runWindowsPreFlight } =
+      await import("../services/system/dependencies");
+    try {
+      const result = await runWindowsPreFlight();
+      return { success: true, ...result };
+    } catch (error) {
+      log.error("[IPC] Windows preflight check failed:", error);
+      return { success: false, error: String(error) };
+    }
+  });
 }

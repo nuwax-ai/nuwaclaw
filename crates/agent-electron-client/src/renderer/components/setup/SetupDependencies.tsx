@@ -99,6 +99,10 @@ export default function SetupDependencies({
     bundled?: boolean;
     version?: string;
   } | null>(null);
+  /** T2.3: Windows 首次运行预检警告列表 */
+  const [windowsWarnings, setWindowsWarnings] = useState<string[]>([]);
+  /** T2.3: Git Bash 缺失时显示安装提示 */
+  const [showGitBashHint, setShowGitBashHint] = useState(false);
   const projectInstallTriggered = useRef(false);
 
   // 使用 ref 存储 onComplete，避免 useCallback 依赖
@@ -226,6 +230,32 @@ export default function SetupDependencies({
   useEffect(() => {
     checkAllDeps();
   }, [checkAllDeps]);
+
+  // T2.3: Windows 首次运行预检（仅 Windows 平台）
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      !window.electronAPI?.dependencies?.windowsPreFlight
+    )
+      return;
+    // 仅在 Windows 上执行预检
+    if (!window.navigator?.userAgent?.includes("Windows")) return;
+
+    window.electronAPI.dependencies
+      .windowsPreFlight()
+      .then((result) => {
+        if (!result?.success) return;
+        if (result.warnings && result.warnings.length > 0) {
+          setWindowsWarnings(result.warnings);
+        }
+        if (result.gitBash && !result.gitBash.available) {
+          setShowGitBashHint(true);
+        }
+      })
+      .catch(() => {
+        /* 预检失败不影响流程 */
+      });
+  }, []);
 
   // 安装逻辑（移入 useEffect 避免闭包问题）
   useEffect(() => {
@@ -676,6 +706,41 @@ export default function SetupDependencies({
         showIcon
         style={{ marginBottom: 12 }}
       />
+
+      {/* T2.3: Windows 预检警告 */}
+      {windowsWarnings.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={t("Claw.Dependencies.windows.preflightWarning")}
+          description={
+            <ul style={{ margin: 0, paddingLeft: 16 }}>
+              {windowsWarnings.map((w, i) => (
+                <li key={i} style={{ fontSize: 12 }}>
+                  {w}
+                </li>
+              ))}
+            </ul>
+          }
+        />
+      )}
+
+      {/* T2.3: Git Bash 安装提示 */}
+      {showGitBashHint && (
+        <Alert
+          type="info"
+          showIcon
+          icon={<LinkOutlined />}
+          style={{ marginBottom: 12 }}
+          message={t("Claw.Dependencies.windows.gitBashInstallHint")}
+          description={
+            <code style={{ fontSize: 11 }}>
+              {t("Claw.Dependencies.windows.gitBashInstallCommand")}
+            </code>
+          }
+        />
+      )}
 
       {renderDependencyList()}
 

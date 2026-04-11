@@ -799,6 +799,24 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     }
   }
 
+  // === T2.5: 注入代理配置 ===
+  // 优先用户手动配置，其次系统环境变量，最终确保子进程能感知企业网络代理
+  {
+    const proxy = getProxyConfig();
+    if (proxy.httpsProxy) {
+      cleanEnv.HTTPS_PROXY = proxy.httpsProxy;
+      cleanEnv.https_proxy = proxy.httpsProxy;
+    }
+    if (proxy.httpProxy) {
+      cleanEnv.HTTP_PROXY = proxy.httpProxy;
+      cleanEnv.http_proxy = proxy.httpProxy;
+    }
+    if (proxy.noProxy) {
+      cleanEnv.NO_PROXY = proxy.noProxy;
+      cleanEnv.no_proxy = proxy.noProxy;
+    }
+  }
+
   // === 为 Agent 引擎设置环境变量（仅 Windows 需要内置 Node.js/Git）===
   // 参考 LobsterAI 方案：https://github.com/netease-youdao/LobsterAI
   // nuwaxcode-acp (opencode 改造) 使用 NUWAXCODE_* 前缀
@@ -2128,6 +2146,168 @@ export function getDependenciesSummary(): {
   };
 }
 
+// ==================== T2.5 代理配置 ====================
+
+export interface ProxyConfig {
+  httpsProxy?: string;
+  httpProxy?: string;
+  noProxy?: string;
+}
+
+/** 运行时代理配置缓存（优先用户手动配置，回退系统环境变量） */
+let _proxyConfig: ProxyConfig | null = null;
+
+/**
+ * 获取当前代理配置。
+ * 优先级：用户手动配置 > 系统环境变量（HTTPS_PROXY / HTTP_PROXY / NO_PROXY）
+ */
+export function getProxyConfig(): ProxyConfig {
+  if (_proxyConfig) return _proxyConfig;
+
+  // 回退到系统环境变量
+  const system: ProxyConfig = {};
+  const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
+  const httpProxy = process.env.HTTP_PROXY || process.env.http_proxy;
+  const noProxy = process.env.NO_PROXY || process.env.no_proxy;
+  if (httpsProxy) system.httpsProxy = httpsProxy;
+  if (httpProxy) system.httpProxy = httpProxy;
+  if (noProxy) system.noProxy = noProxy;
+  return system;
+}
+
+/**
+ * 设置用户手动代理配置（覆盖系统 env var 回退）。
+ * 调用方负责持久化到 DB。
+ */
+export function setProxyConfig(config: Partial<ProxyConfig> | null): void {
+  if (config === null || Object.keys(config).length === 0) {
+    _proxyConfig = null;
+    log.info("[Dependencies] Proxy config cleared (using system env vars)");
+  } else {
+    _proxyConfig = { ...config };
+    log.info("[Dependencies] Proxy config updated:", _proxyConfig);
+  }
+}
+
+// ==================== T2.3 Windows 首次运行预检 ====================
+
+export interface WindowsPreFlightItem {
+  name: string;
+  available: boolean;
+  path?: string;
+  version?: string;
+  error?: string;
+}
+
+export interface WindowsPreFlightResult {
+  platform: string;
+  sandboxHelper: WindowsPreFlightItem;
+  gitBash: WindowsPreFlightItem;
+  warnings: string[];
+}
+
+/**
+ * Windows 首次运行依赖预检（T2.3）。
+ * 检查沙箱 helper 和 Git Bash 是否可用，返回诊断结果。
+ * 非 Windows 平台返回 platform = 当前平台名，其余字段均标记为 available。
+ */
+export async function runWindowsPreFlight(): Promise<WindowsPreFlightResult> {
+  const platform = os.platform();
+
+  if (platform !== "win32") {
+    return {
+      platform,
+      sandboxHelper: { name: "nuwax-sandbox-helper", available: true },
+      gitBash: { name: "git-bash", available: true },
+      warnings: [],
+    };
+  }
+
+  const warnings: string[] = [];
+
+  // 1. 检查 bundled sandbox helper
+  const { getBundledSandboxHelperPath } = await import("../sandbox/policy");
+  const sandboxHelperPath = getBundledSandboxHelperPath();
+  let sandboxHelper: WindowsPreFlightItem;
+
+  if (!sandboxHelperPath || !fs.existsSync(sandboxHelperPath)) {
+    sandboxHelper = {
+      name: "nuwax-sandbox-helper",
+      available: false,
+      error: "Bundled sandbox helper not found in resources",
+    };
+    warnings.push(
+      "Sandbox helper binary missing — sandboxed execution unavailable",
+    );
+  } else {
+    // 尝试运行 --version 验证可执行性
+    try {
+      const { execFile } = await import("child_process");
+      const version = await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("timeout")), 5000);
+        execFile(sandboxHelperPath, ["--version"], (err, stdout, stderr) => {
+          clearTimeout(timer);
+          if (err) reject(err);
+          else resolve((stdout || stderr).trim());
+        });
+      });
+      sandboxHelper = {
+        name: "nuwax-sandbox-helper",
+        available: true,
+        path: sandboxHelperPath,
+        version,
+      };
+    } catch (e) {
+      sandboxHelper = {
+        name: "nuwax-sandbox-helper",
+        available: false,
+        path: sandboxHelperPath,
+        error: `Not executable: ${e instanceof Error ? e.message : String(e)}`,
+      };
+      warnings.push(
+        "Sandbox helper found but not executable — check antivirus or file permissions",
+      );
+    }
+  }
+
+  // 2. 检查 Git Bash（优先 bundled，其次常见系统路径）
+  const bundledBash = getBundledGitBashPath();
+  const systemGitBashPaths = [
+    "C:\\Program Files\\Git\\bin\\bash.exe",
+    "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+    path.join(
+      os.homedir(),
+      "AppData",
+      "Local",
+      "Programs",
+      "Git",
+      "bin",
+      "bash.exe",
+    ),
+  ];
+
+  let gitBash: WindowsPreFlightItem;
+  if (bundledBash && fs.existsSync(bundledBash)) {
+    gitBash = { name: "git-bash", available: true, path: bundledBash };
+  } else {
+    const systemPath = systemGitBashPaths.find((p) => fs.existsSync(p));
+    if (systemPath) {
+      gitBash = { name: "git-bash", available: true, path: systemPath };
+    } else {
+      gitBash = {
+        name: "git-bash",
+        available: false,
+        error: "Git Bash not found (bundled or system)",
+      };
+      warnings.push(
+        "Git Bash not found — shell command execution may fail. Install Git for Windows or ensure the bundled Git is present.",
+      );
+    }
+  }
+
+  return { platform, sandboxHelper, gitBash, warnings };
+}
+
 // ==================== Utils ====================
 
 /**
@@ -2173,4 +2353,7 @@ export default {
   MIRROR_PRESETS,
   getNuwaxFileServerBundledDir,
   getClaudeCodeAcpBundledDir,
+  runWindowsPreFlight,
+  getProxyConfig,
+  setProxyConfig,
 };

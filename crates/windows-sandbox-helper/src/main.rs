@@ -89,6 +89,21 @@ enum Subcommand {
     /// write protection via restricting SIDs + DACL ACEs (needed for
     /// strict/compat sandbox modes).
     Serve(ServeArgs),
+    /// T2.4: Batch-revoke stale Nuwax Deny ACEs from the given home directory.
+    /// Reads the stored cap SIDs from <home>/cap_sid and removes any matching
+    /// Deny ACEs from the specified paths (or the entire home dir if --path is omitted).
+    Cleanup(CleanupArgs),
+}
+
+/// T2.4: Cleanup subcommand args
+#[derive(Parser, Debug)]
+struct CleanupArgs {
+    /// The sandbox home directory containing the cap_sid file.
+    #[arg(long)]
+    home: PathBuf,
+    /// Optional specific paths to clean up. If omitted, cleans the home dir itself.
+    #[arg(long, num_args = 0..)]
+    path: Vec<PathBuf>,
 }
 
 #[derive(Parser, Debug)]
@@ -254,6 +269,8 @@ struct SandboxContext {
     logs_base_dir: Option<PathBuf>,
     /// Full command line (for logging).
     command: Vec<String>,
+    /// T2.4: RAII guard — tracks whether cleanup() was already called.
+    cleaned_up: bool,
 }
 
 impl SandboxContext {
@@ -349,6 +366,7 @@ impl SandboxContext {
             guards,
             logs_base_dir,
             command,
+            cleaned_up: false,
         })
     }
 
@@ -415,6 +433,11 @@ impl SandboxContext {
 
     /// Log the result and revoke temporary ACEs.
     fn cleanup(&mut self, exit_code: i32) {
+        if self.cleaned_up {
+            return; // T2.4: guard against double-cleanup
+        }
+        self.cleaned_up = true;
+
         if exit_code == 0 {
             log_success(&self.command, self.logs_base_dir.as_deref());
         } else {
@@ -422,6 +445,20 @@ impl SandboxContext {
         }
 
         if !self.persist_aces {
+            unsafe {
+                for (p, sid) in &self.guards {
+                    revoke_ace(p, *sid);
+                }
+            }
+        }
+    }
+}
+
+/// T2.4: RAII Drop guard — ensures ACE cleanup even on panic or unexpected exit.
+impl Drop for SandboxContext {
+    fn drop(&mut self) {
+        if !self.cleaned_up && !self.persist_aces {
+            // Force-revoke temporary ACEs in case cleanup() was never called
             unsafe {
                 for (p, sid) in &self.guards {
                     revoke_ace(p, *sid);
@@ -746,6 +783,50 @@ pub fn run_sandbox_proxy(
 // main
 // ============================================================================
 
+/// T2.4: Batch-revoke stale Nuwax Deny ACEs from the given paths using stored cap SIDs.
+fn run_cleanup(args: CleanupArgs) -> anyhow::Result<()> {
+    let caps = load_or_create_cap_sids(&args.home);
+    let sid_strings = [caps.workspace.as_str(), caps.readonly.as_str()];
+
+    let paths: Vec<PathBuf> = if args.path.is_empty() {
+        vec![args.home.clone()]
+    } else {
+        args.path
+    };
+
+    let mut revoked = 0usize;
+    let mut errors = 0usize;
+
+    for sid_str in &sid_strings {
+        let psid = unsafe { convert_string_sid_to_sid(sid_str) };
+        match psid {
+            Some(psid) => {
+                for p in &paths {
+                    if !p.exists() {
+                        continue;
+                    }
+                    unsafe {
+                        revoke_ace(p, psid);
+                    }
+                    revoked += 1;
+                }
+            }
+            None => {
+                eprintln!("[cleanup] Failed to convert SID: {}", sid_str);
+                errors += 1;
+            }
+        }
+    }
+
+    println!(
+        "{{\"revoked\":{},\"errors\":{},\"paths\":{}}}",
+        revoked,
+        errors,
+        paths.len()
+    );
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -792,6 +873,10 @@ fn main() -> anyhow::Result<()> {
             )?;
 
             std::process::exit(result.exit_code);
+        }
+        // T2.4: Batch-revoke stale ACEs
+        Subcommand::Cleanup(cleanup) => {
+            run_cleanup(cleanup)?;
         }
     }
 

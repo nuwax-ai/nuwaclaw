@@ -23,6 +23,7 @@ export async function runStartupTasks(): Promise<void> {
   // 从 SQLite 恢复镜像配置
   const {
     setMirrorConfig,
+    setProxyConfig,
     getInitDepsState,
     syncInitDependencies,
     getSetupRequiredDependencies,
@@ -33,6 +34,15 @@ export async function runStartupTasks(): Promise<void> {
       setMirrorConfig(mirrorConfig);
     } catch (e) {
       log.warn("[Mirror] Failed to apply mirror config:", e);
+    }
+  }
+  // T2.5: 恢复代理配置
+  const proxyConfig = readSetting("proxy_config");
+  if (proxyConfig) {
+    try {
+      setProxyConfig(proxyConfig as any);
+    } catch (e) {
+      log.warn("[Proxy] Failed to apply proxy config:", e);
     }
   }
 

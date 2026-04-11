@@ -1537,6 +1537,26 @@ export class UnifiedAgentService extends EventEmitter {
       });
     }
 
+    // T2.2: Crash detection — emit session.crashed with affected session context
+    engine.on("error", (error: Error) => {
+      // Collect sessions from the crashed engine before they are cleared
+      const affectedSessions = engine.listSessionsDetailed();
+      if (affectedSessions.length > 0) {
+        log.warn(
+          `[UnifiedAgent] Engine crashed, ${affectedSessions.length} session(s) affected:`,
+          affectedSessions.map((s) => s.id).join(", "),
+        );
+        this.emit("session.crashed", {
+          sessionIds: affectedSessions.map((s) => s.id),
+          projectIds: affectedSessions
+            .map((s) => s.projectId)
+            .filter(Boolean) as string[],
+          engineName: engine.engineName,
+          error: error.message,
+        });
+      }
+    });
+
     // --- Memory: buffer assistant text chunks and flush on promptEnd ---
 
     // Clear buffer on promptStart to prevent stale data

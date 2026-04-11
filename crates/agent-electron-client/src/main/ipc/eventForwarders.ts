@@ -42,6 +42,7 @@ export function registerEventForwarders(ctx: HandlerContext): void {
     "session.status",
     "session.idle",
     "session.error",
+    "session.crashed",
     "session.diff",
     "file.edited",
     "server.connected",

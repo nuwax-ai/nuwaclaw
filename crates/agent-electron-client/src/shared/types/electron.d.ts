@@ -240,6 +240,26 @@ export interface DependenciesAPI {
   }>;
   getAppDataDir: () => Promise<string>;
   getRequiredList: () => Promise<LocalDependencyItem[]>;
+  /** T2.3: Windows 首次运行预检 */
+  windowsPreFlight: () => Promise<{
+    success: boolean;
+    platform?: string;
+    sandboxHelper?: {
+      name: string;
+      available: boolean;
+      path?: string;
+      version?: string;
+      error?: string;
+    };
+    gitBash?: {
+      name: string;
+      available: boolean;
+      path?: string;
+      error?: string;
+    };
+    warnings?: string[];
+    error?: string;
+  }>;
 }
 
 export type AgentEngine = "claude-code" | "nuwaxcode";
@@ -704,6 +724,23 @@ export interface ElectronAPI {
   dependencies: DependenciesAPI;
   shell: ShellAPI;
   mirror: MirrorAPI;
+  /** T2.5: 企业网络代理配置 */
+  proxy: {
+    get: () => Promise<{
+      success: boolean;
+      httpsProxy?: string;
+      httpProxy?: string;
+      noProxy?: string;
+      error?: string;
+    }>;
+    set: (
+      config: {
+        httpsProxy?: string;
+        httpProxy?: string;
+        noProxy?: string;
+      } | null,
+    ) => Promise<{ success: boolean; error?: string }>;
+  };
   i18n: I18nAPI;
   dialog: DialogAPI;
   engine: EngineAPI;

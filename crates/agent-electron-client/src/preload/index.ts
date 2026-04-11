@@ -282,6 +282,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     installMissing: () => ipcRenderer.invoke("dependencies:installMissing"),
     getAppDataDir: () => ipcRenderer.invoke("dependencies:getAppDataDir"),
     getRequiredList: () => ipcRenderer.invoke("dependencies:getRequiredList"),
+    windowsPreFlight: () => ipcRenderer.invoke("setup:windowsPreFlight"),
   },
 
   // Engine Manager (claude-code / nuwaxcode)
@@ -359,6 +360,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
     get: () => ipcRenderer.invoke("mirror:get"),
     set: (config: { npmRegistry?: string; uvIndexUrl?: string }) =>
       ipcRenderer.invoke("mirror:set", config),
+  },
+
+  // T2.5: 代理配置
+  proxy: {
+    get: () => ipcRenderer.invoke("proxy:get"),
+    set: (
+      config: {
+        httpsProxy?: string;
+        httpProxy?: string;
+        noProxy?: string;
+      } | null,
+    ) => ipcRenderer.invoke("proxy:set", config),
   },
 
   // i18n - 语言同步
