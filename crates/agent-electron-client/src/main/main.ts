@@ -29,7 +29,11 @@ import { initI18n, setMainLang } from "./services/i18n";
 import { createTrayManager, TrayStatus } from "./window/trayManager";
 import { createServiceManager } from "./window/serviceManager";
 import { initAutoUpdater } from "./services/autoUpdater";
-import { migrateDataDir, migrateSettingsPaths } from "./bootstrap/migrate";
+import {
+  migrateDataDir,
+  migrateSettingsPaths,
+  migrateApiKeysEncryption,
+} from "./bootstrap/migrate";
 import { getDeviceId, logSystemInfo } from "./services/system/deviceId";
 import { initWebviewPolicy } from "./services/system/webviewPolicy";
 
@@ -476,6 +480,7 @@ app.whenReady().then(async () => {
   migrateDataDir();
   initDatabase();
   migrateSettingsPaths();
+  migrateApiKeysEncryption(); // T1.2: 将明文 API key 迁移到 OS Keychain 加密存储
   getDeviceId();
 
   // 数据库就绪后，同步语言到主进程 i18n

@@ -10,13 +10,19 @@
  * 优先级：.nuwax-agent > .nuwaxbot（找到第一个存在的旧目录即迁移）
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import { app } from 'electron';
-import log from 'electron-log';
-import Database from 'better-sqlite3';
-import { APP_NAME_IDENTIFIER } from '@shared/constants';
-import { readSetting, writeSetting } from '../db';
+import * as fs from "fs";
+import * as path from "path";
+import { app } from "electron";
+import log from "electron-log";
+import Database from "better-sqlite3";
+import { APP_NAME_IDENTIFIER } from "@shared/constants";
+import {
+  readSetting,
+  writeSetting,
+  writeEncryptedSetting,
+  readEncryptedSetting,
+  isSensitiveKey,
+} from "../db";
 
 interface LegacySource {
   dirName: string;
@@ -25,8 +31,8 @@ interface LegacySource {
 }
 
 const LEGACY_SOURCES: LegacySource[] = [
-  { dirName: '.nuwax-agent', dbName: 'nuwax-agent.db', configName: null },
-  { dirName: '.nuwaxbot',    dbName: 'nuwaxbot.db',    configName: 'nuwaxbot.json' },
+  { dirName: ".nuwax-agent", dbName: "nuwax-agent.db", configName: null },
+  { dirName: ".nuwaxbot", dbName: "nuwaxbot.db", configName: "nuwaxbot.json" },
 ];
 
 /**
@@ -36,7 +42,9 @@ function isDbEmpty(dbPath: string): boolean {
   if (!fs.existsSync(dbPath)) return true;
   try {
     const db = new Database(dbPath, { readonly: true });
-    const row = db.prepare('SELECT COUNT(*) as count FROM settings').get() as { count: number };
+    const row = db.prepare("SELECT COUNT(*) as count FROM settings").get() as {
+      count: number;
+    };
     db.close();
     return row.count === 0;
   } catch {
@@ -49,7 +57,7 @@ function isDbEmpty(dbPath: string): boolean {
  */
 function copyDbFiles(oldDb: string, newDb: string): void {
   fs.copyFileSync(oldDb, newDb);
-  for (const suffix of ['-wal', '-shm']) {
+  for (const suffix of ["-wal", "-shm"]) {
     const oldAux = oldDb + suffix;
     const newAux = newDb + suffix;
     if (fs.existsSync(oldAux)) {
@@ -63,7 +71,7 @@ function copyDbFiles(oldDb: string, newDb: string): void {
  */
 function renameDbFiles(oldDb: string, newDb: string): void {
   fs.renameSync(oldDb, newDb);
-  for (const suffix of ['-wal', '-shm']) {
+  for (const suffix of ["-wal", "-shm"]) {
     const oldAux = oldDb + suffix;
     const newAux = newDb + suffix;
     if (fs.existsSync(oldAux)) {
@@ -73,7 +81,7 @@ function renameDbFiles(oldDb: string, newDb: string): void {
 }
 
 export function migrateDataDir(): void {
-  const home = app.getPath('home');
+  const home = app.getPath("home");
   const newDir = path.join(home, `.${APP_NAME_IDENTIFIER}`);
   const newDbName = `${APP_NAME_IDENTIFIER}.db`;
   const newDb = path.join(newDir, newDbName);
@@ -83,7 +91,9 @@ export function migrateDataDir(): void {
     if (!isDbEmpty(newDb)) {
       return; // DB 有数据，无需迁移
     }
-    log.info('[Migrate] New dir exists but DB is empty, importing from legacy DB...');
+    log.info(
+      "[Migrate] New dir exists but DB is empty, importing from legacy DB...",
+    );
     importLegacyDb(home, newDb);
     return;
   }
@@ -95,11 +105,13 @@ export function migrateDataDir(): void {
       continue;
     }
 
-    log.info(`[Migrate] Found legacy data dir: ${oldDir}, renaming → ${newDir}`);
+    log.info(
+      `[Migrate] Found legacy data dir: ${oldDir}, renaming → ${newDir}`,
+    );
     try {
       fs.renameSync(oldDir, newDir);
     } catch (e) {
-      log.error('[Migrate] Failed to rename data directory:', e);
+      log.error("[Migrate] Failed to rename data directory:", e);
       return;
     }
 
@@ -110,7 +122,7 @@ export function migrateDataDir(): void {
         renameDbFiles(oldDb, newDb);
         log.info(`[Migrate] Renamed DB: ${source.dbName} → ${newDbName}`);
       } catch (e) {
-        log.error('[Migrate] Failed to rename database file:', e);
+        log.error("[Migrate] Failed to rename database file:", e);
       }
     }
 
@@ -122,14 +134,16 @@ export function migrateDataDir(): void {
       if (fs.existsSync(oldConfig) && !fs.existsSync(newConfig)) {
         try {
           fs.renameSync(oldConfig, newConfig);
-          log.info(`[Migrate] Renamed config: ${source.configName} → ${newConfigName}`);
+          log.info(
+            `[Migrate] Renamed config: ${source.configName} → ${newConfigName}`,
+          );
         } catch (e) {
-          log.error('[Migrate] Failed to rename config file:', e);
+          log.error("[Migrate] Failed to rename config file:", e);
         }
       }
     }
 
-    log.info('[Migrate] Data directory migration completed');
+    log.info("[Migrate] Data directory migration completed");
     return; // 只迁移第一个找到的旧目录
   }
 }
@@ -149,9 +163,51 @@ function importLegacyDb(home: string, newDb: string): void {
       copyDbFiles(oldDb, newDb);
       log.info(`[Migrate] Imported legacy DB: ${oldDb} → ${newDb}`);
     } catch (e) {
-      log.error('[Migrate] Failed to import legacy DB:', e);
+      log.error("[Migrate] Failed to import legacy DB:", e);
     }
     return; // 只导入第一个有效的旧 DB
+  }
+}
+
+/**
+ * 将敏感 setting（API Key 等）从明文迁移到 OS Keychain 加密存储（T1.2）。
+ *
+ * 必须在 initDatabase() 之后调用。
+ * 使用 `settings_encryption_migrated` flag 防止重复迁移。
+ */
+export function migrateApiKeysEncryption(): void {
+  const alreadyMigrated = readSetting("settings_encryption_migrated");
+  if (alreadyMigrated) return;
+
+  const sensitiveKeys = ["anthropic_api_key", "agent_api_key"];
+  let migrated = 0;
+
+  for (const key of sensitiveKeys) {
+    // 只迁移 readSetting 能读到的明文值（readEncryptedSetting 会识别已加密的值）
+    const existing = readSetting(key);
+    if (existing && typeof existing === "string" && existing.length > 0) {
+      // 验证尚未加密（readEncryptedSetting 对明文值也能返回）
+      const alreadyEncrypted = readEncryptedSetting(key);
+      // 若返回值与明文相同，说明还未加密
+      if (alreadyEncrypted === existing) {
+        const ok = writeEncryptedSetting(key, existing);
+        if (ok) {
+          migrated++;
+          log.info(`[Migrate] Encrypted setting: ${key}`);
+        } else {
+          log.warn(
+            `[Migrate] Failed to encrypt setting: ${key}, keeping plaintext`,
+          );
+        }
+      }
+    }
+  }
+
+  writeSetting("settings_encryption_migrated", true);
+  if (migrated > 0) {
+    log.info(
+      `[Migrate] API key encryption migration: ${migrated} key(s) encrypted`,
+    );
   }
 }
 
@@ -162,19 +218,25 @@ function importLegacyDb(home: string, newDb: string): void {
  * 必须在 initDatabase() 之后调用。
  */
 export function migrateSettingsPaths(): void {
-  const home = app.getPath('home');
+  const home = app.getPath("home");
   const newPrefix = path.join(home, `.${APP_NAME_IDENTIFIER}`);
-  const LEGACY_DIR_NAMES = ['.nuwax-agent', '.nuwaxbot'];
+  const LEGACY_DIR_NAMES = [".nuwax-agent", ".nuwaxbot"];
 
-  const step1Config = readSetting('step1_config') as Record<string, unknown> | null;
-  if (!step1Config || typeof step1Config.workspaceDir !== 'string') return;
+  const step1Config = readSetting("step1_config") as Record<
+    string,
+    unknown
+  > | null;
+  if (!step1Config || typeof step1Config.workspaceDir !== "string") return;
 
   for (const legacyName of LEGACY_DIR_NAMES) {
     const oldPrefix = path.join(home, legacyName);
     if (step1Config.workspaceDir.startsWith(oldPrefix)) {
-      step1Config.workspaceDir = newPrefix + step1Config.workspaceDir.slice(oldPrefix.length);
-      writeSetting('step1_config', step1Config);
-      log.info(`[Migrate] Updated step1_config.workspaceDir → ${step1Config.workspaceDir}`);
+      step1Config.workspaceDir =
+        newPrefix + step1Config.workspaceDir.slice(oldPrefix.length);
+      writeSetting("step1_config", step1Config);
+      log.info(
+        `[Migrate] Updated step1_config.workspaceDir → ${step1Config.workspaceDir}`,
+      );
       return;
     }
   }

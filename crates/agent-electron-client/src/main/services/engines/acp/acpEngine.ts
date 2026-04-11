@@ -95,6 +95,8 @@ function safeStringify(obj: unknown): string {
 
 const MCP_RETRY_DELAY_MS = 1200;
 const MCP_RECONNECT_WINDOW_MS = 4000;
+/** 用户权限确认超时（ms）。超时后自动拒绝，防止 Agent 永久挂起 */
+const PERMISSION_CONFIRM_TIMEOUT_MS = 60_000;
 const COMPAT_MCP_WARMUP_DELAY_MS = 1200;
 const GUI_MCP_NAME = "gui-agent";
 // 该文案会透传到上层调用方/界面，必须走 i18n，避免在非英文语言下出现硬编码英文提示。
@@ -2448,23 +2450,63 @@ ${memoryContext}
       return { outcome: { outcome: "cancelled" } };
     }
 
+    // strict write mode：沙箱内部自动放行 allow_once（不需要用户确认）
+    if (strictWriteMode && selected) {
+      log.debug(`${this.logTag} strict write permission allowed_once`, {
+        toolKind: params.toolCall.kind,
+        toolTitle: params.toolCall.title,
+        optionId: selected.optionId,
+        candidatePaths: strictCheck.candidatePaths,
+        resolvedPaths: strictCheck.resolvedPaths,
+      });
+      return { outcome: { outcome: "selected", optionId: selected.optionId } };
+    }
+
     if (selected) {
-      if (strictWriteMode) {
-        log.debug(`${this.logTag} strict write permission allowed_once`, {
-          toolKind: params.toolCall.kind,
-          toolTitle: params.toolCall.title,
-          optionId: selected.optionId,
-          candidatePaths: strictCheck.candidatePaths,
-          resolvedPaths: strictCheck.resolvedPaths,
-        });
-      } else {
+      // bypassPermissions 模式：跳过用户确认，直接放行
+      const bypassPermissions =
+        this.config?.permissionMode === "bypassPermissions";
+      if (bypassPermissions) {
         log.info(
-          `${this.logTag} 🔓 权限自动放行: tool=${params.toolCall.title}, kind=${selected.kind}, optionId=${selected.optionId}`,
+          `${this.logTag} 🔓 权限自动放行 (bypassPermissions): tool=${params.toolCall.title}, kind=${selected.kind}`,
         );
+        return {
+          outcome: { outcome: "selected", optionId: selected.optionId },
+        };
       }
-      return {
-        outcome: { outcome: "selected", optionId: selected.optionId },
-      };
+
+      // 默认/acceptEdits 模式：挂起等待用户确认
+      const toolCallId = params.toolCall.toolCallId;
+      log.info(
+        `${this.logTag} ⏳ 等待用户权限确认: tool=${params.toolCall.title}, toolCallId=${toolCallId}`,
+      );
+
+      return new Promise<AcpPermissionResponse>((resolve) => {
+        const timer = setTimeout(() => {
+          if (this.pendingPermissions.delete(toolCallId)) {
+            log.warn(
+              `${this.logTag} ⏰ 权限确认超时，自动拒绝: tool=${params.toolCall.title}`,
+            );
+            resolve({ outcome: { outcome: "cancelled" } });
+          }
+        }, PERMISSION_CONFIRM_TIMEOUT_MS);
+
+        this.pendingPermissions.set(toolCallId, {
+          resolve: (r: AcpPermissionResponse) => {
+            clearTimeout(timer);
+            this.pendingPermissions.delete(toolCallId);
+            resolve(r);
+          },
+          options: params.options,
+        });
+
+        this.emit("permission.updated", {
+          sessionId: acpSessionId,
+          permissionId: toolCallId,
+          toolCall: params.toolCall,
+          options: params.options,
+        });
+      });
     }
 
     log.warn(

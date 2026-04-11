@@ -1,3 +1,4 @@
+import { EventEmitter } from "events";
 import { spawn, ChildProcess } from "child_process";
 import log from "electron-log";
 import { PROCESS_KILL_ESCALATION_TIMEOUT } from "@shared/constants";
@@ -6,7 +7,28 @@ import { t } from "./services/i18n";
 const STARTUP_STDERR_CAP = 8192;
 const STARTUP_STDERR_IN_ERROR = 1200;
 
-export class ManagedProcess {
+export interface RestartPolicy {
+  /** 是否启用自动重启（默认 false） */
+  enabled: boolean;
+  /** 最大重启次数（默认 5） */
+  maxRestarts: number;
+  /** 初始退避延迟 ms（默认 1000） */
+  backoffBase: number;
+  /** 最大退避延迟 ms（默认 30000） */
+  backoffMax: number;
+  /** 稳定运行多长时间后重置重启计数 ms（默认 60000） */
+  resetAfterMs: number;
+}
+
+const DEFAULT_RESTART_POLICY: RestartPolicy = {
+  enabled: false,
+  maxRestarts: 5,
+  backoffBase: 1000,
+  backoffMax: 30000,
+  resetAfterMs: 60000,
+};
+
+export class ManagedProcess extends EventEmitter {
   private process: ChildProcess | null = null;
   private lastError: string | null = null;
   /** 当前这次 start() 收集的 stderr，用于「启动后立即退出」时的错误详情 */
@@ -16,7 +38,55 @@ export class ManagedProcess {
     signal: NodeJS.Signals | null;
   } | null = null;
 
-  constructor(private readonly name: string) {}
+  private readonly restartPolicy: RestartPolicy;
+  private restartCount = 0;
+  private lastRestartAt = 0;
+  private lastStartConfig: Parameters<ManagedProcess["start"]>[0] | null = null;
+
+  constructor(
+    private readonly name: string,
+    policy?: Partial<RestartPolicy>,
+  ) {
+    super();
+    this.restartPolicy = { ...DEFAULT_RESTART_POLICY, ...policy };
+  }
+
+  private scheduleRestart(): void {
+    const now = Date.now();
+    // 若进程已稳定运行 resetAfterMs 以上，重置重启计数
+    if (
+      this.lastRestartAt > 0 &&
+      now - this.lastRestartAt > this.restartPolicy.resetAfterMs
+    ) {
+      this.restartCount = 0;
+    }
+
+    if (this.restartCount >= this.restartPolicy.maxRestarts) {
+      log.error(
+        `[${this.name}] Max restarts (${this.restartPolicy.maxRestarts}) reached, giving up`,
+      );
+      this.emit("restart:failed", { attempts: this.restartCount });
+      return;
+    }
+
+    const delay = Math.min(
+      this.restartPolicy.backoffBase * Math.pow(2, this.restartCount),
+      this.restartPolicy.backoffMax,
+    );
+    this.restartCount++;
+    this.lastRestartAt = now;
+
+    log.info(
+      `[${this.name}] Unexpected exit — scheduling restart in ${delay}ms (attempt ${this.restartCount}/${this.restartPolicy.maxRestarts})`,
+    );
+    this.emit("restart", { attempt: this.restartCount, delayMs: delay });
+
+    setTimeout(async () => {
+      if (!this.lastStartConfig) return;
+      log.info(`[${this.name}] Restarting now (attempt ${this.restartCount})`);
+      await this.start(this.lastStartConfig);
+    }, delay);
+  }
 
   start(config: {
     command: string;
@@ -33,6 +103,9 @@ export class ManagedProcess {
       this.lastError = null;
       return Promise.resolve({ success: true, message: "Already running" });
     }
+
+    // 保存配置供自动重启使用
+    this.lastStartConfig = config;
 
     return new Promise((resolve) => {
       try {
@@ -74,6 +147,8 @@ export class ManagedProcess {
 
         proc.on("exit", (code, signal) => {
           this.startupExit = { code, signal: signal ?? null };
+          // this.process 为非 null 说明是意外退出（stop/kill 会先置 null）
+          const wasUnexpected = this.process !== null;
           if (code !== 0 && code !== null) {
             log.warn(
               `[${this.name}] Process exited code=${code} signal=${signal ?? "none"}`,
@@ -86,6 +161,10 @@ export class ManagedProcess {
             });
           }
           this.process = null;
+          // 意外退出时，若启用了重启策略则调度重启
+          if (wasUnexpected && this.restartPolicy.enabled) {
+            this.scheduleRestart();
+          }
         });
 
         this.process = proc;
@@ -96,6 +175,9 @@ export class ManagedProcess {
             this.lastError = null;
             this.startupStderr = "";
             this.startupExit = null;
+            // 启动成功，若是自动重启路径则记录稳定时间（resetAfterMs 后会重置计数）
+            this.lastRestartAt =
+              this.restartCount > 0 ? Date.now() : this.lastRestartAt;
             resolve({ success: true });
           } else {
             const base = t("Claw.Process.exitImmediately");

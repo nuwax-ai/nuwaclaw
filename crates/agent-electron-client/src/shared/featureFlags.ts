@@ -63,6 +63,8 @@ export const FEATURES = {
   ENABLE_GUI_AGENT_SERVER: hasViteFlagEnableGuiAgentServer()
     ? getViteFlagEnableGuiAgentServer()
     : getProcessFlag("ENABLE_GUI_AGENT_SERVER", true),
+  /** 合规模式：启用审计日志、工具白名单、强制用户确认等政企安全特性 */
+  COMPLIANCE_MODE: getProcessFlag("NUWAX_COMPLIANCE_MODE"),
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURES;
