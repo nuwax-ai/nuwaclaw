@@ -28,6 +28,7 @@ import {
   TeamOutlined,
   ArrowLeftOutlined,
   ReloadOutlined,
+  OrderedListOutlined,
 } from "@ant-design/icons";
 import {
   setupService,
@@ -52,6 +53,7 @@ import AboutPage from "./components/pages/AboutPage";
 import LogViewer from "./components/pages/LogViewer";
 import PermissionsPage from "./components/pages/PermissionsPage";
 import SessionsPage from "./components/pages/SessionsPage";
+import { TasksPage } from "./components/pages/TasksPage";
 import type { WebviewHeaderActions } from "./components/pages/SessionsPage";
 import PermissionRequestCard from "./components/PermissionRequestCard";
 import type { PendingPermission } from "./components/PermissionRequestCard";
@@ -101,6 +103,7 @@ export function useI18nLang(): I18nContextValue {
 type TabKey =
   | "client"
   | "sessions"
+  | "tasks"
   | "settings"
   | "dependencies"
   | "permissions"
@@ -1265,6 +1268,11 @@ function App() {
         label: t("Claw.Menu.session"),
       },
       {
+        key: "tasks",
+        icon: <OrderedListOutlined />,
+        label: t("Claw.Menu.tasks"),
+      },
+      {
         key: "settings",
         icon: <SettingOutlined />,
         label: t("Claw.Menu.settings"),
@@ -1592,6 +1600,7 @@ function App() {
                       onWebviewChange={setWebviewActions}
                     />
                   )}
+                  {activeTab === "tasks" && <TasksPage />}
                   {activeTab === "settings" && <SettingsPage />}
                   {activeTab === "dependencies" && <DependenciesPage />}
                   {activeTab === "permissions" && <PermissionsPage />}

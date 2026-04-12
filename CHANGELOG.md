@@ -16,6 +16,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.0] - 2026-04-12
+
+### Agent Electron Client
+
+#### Added
+
+**Harness 工作流引擎（v1.0 基础层）**
+- **SQLite schema versioning** — `PRAGMA user_version` 驱动的版本化迁移，v2 新增 5 张 harness 表：`tasks`、`task_checkpoints`、`approval_requests`、`harness_metrics`、`audit_logs`，带 8 个索引（`src/main/db.ts`）
+- **CheckpointManager** — 五阶段检查点生命周期（CP0_INIT→CP1_PLAN→CP2_EXEC→CP3_VERIFY→CP4_COMPLETE），Promise-based 挂起/恢复机制（`src/main/services/harness/CheckpointManager.ts`）
+- **TaskExecutor** — 任务创建、状态流转、启发式分解（正则断句 + 步骤类型/风险等级推断）、断点续跑（`src/main/services/harness/TaskExecutor.ts`）
+- **ApprovalGate** — 基于规则的审批门控（4 条默认规则），Promise 挂起 + 超时自动拒绝，BrowserWindow 广播审批请求（`src/main/services/harness/ApprovalGate.ts`）
+- **RecoveryManager** — 错误分类（7 种策略：retry/wait/escalate/abort/pause/ignore/manual）、指数退避重试（`src/main/services/harness/RecoveryManager.ts`）
+- **Harness IPC 层** — 10 个 Zod 校验的 IPC channel：`harness:createTask`、`getTask`、`listTasks`、`cancelTask`、`resumeTask`、`getCheckpoints`、`respondApproval`、`getApproval`、`listPendingApprovals`、`decompose`（`src/main/ipc/harnessHandlers.ts`）
+- **HarnessAPI 类型** — `src/shared/types/harness.ts` 定义全部 harness 类型；`electron.d.ts` 扩展 `ElectronAPI.harness`；`preload/index.ts` 桥接
+
+**可观测性**
+- **结构化日志** — `structuredLog(level, service, message, extra)` 写入 `[structured] {JSON}` 格式行，支持 jq 解析（`src/main/bootstrap/logConfig.ts`）
+- **HarnessMetrics** — 14 个内置指标名，记录/汇总/查询/清理，`record`/`increment`/`summarize` API（`src/main/services/harness/HarnessMetrics.ts`）
+- **AuditLogger** — 任务/审批/权限/引擎崩溃/工具拦截审计事件，Zod 过滤查询，90 天自动清理（`src/main/services/harness/AuditLogger.ts`）
+
+**UI**
+- **TasksPage** — Harness 任务管理页：任务列表（状态/引擎/时长/CheckpointProgress 5段进度条）、创建/取消/续跑、任务详情 Modal、10s 自动轮询（`src/renderer/components/pages/TasksPage.tsx`）
+- **侧边栏 Tasks 导航** — `TabKey` 新增 `"tasks"`，`OrderedListOutlined` 图标，i18n key `Claw.Menu.tasks`（`src/renderer/App.tsx`）
+- **服务行健康信息** — `ClientPage.tsx` 服务行显示 PID/端口/内存(MB)/重启次数
+- **Harness 审批横幅** — `App.tsx` 监听 `harness:approvalRequested` 事件，顶部内联 Alert 横幅（审批优先级驱动样式）
+
+**事件驱动服务刷新**
+- `service:health` 事件触发立即刷新（替代纯轮询），`session.crashed` 同步触发状态更新；轮询兜底间隔从 5s 延长至 30s
+
+**i18n**
+- 新增 `Claw.Menu.tasks`（4 语言）
+- 新增 27 个 `Claw.Tasks.*` key：title/create/detail/filter*/status/engine/checkpoints/cancel/resume 等（4 语言）
+- 新增 `Claw.Client.restartCount`（4 语言）
+
+---
+
 ## [0.2.0] - 2026-02-23
 
 ### Agent Electron Client
