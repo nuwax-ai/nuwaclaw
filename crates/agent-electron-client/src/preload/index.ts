@@ -543,6 +543,40 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getConfig: () => ipcRenderer.invoke("quickInit:getConfig"),
   },
 
+  // Harness 工作流
+  harness: {
+    createTask: (
+      title: string,
+      engineType: string,
+      sessionId?: string,
+      metadata?: Record<string, unknown>,
+    ) =>
+      ipcRenderer.invoke(
+        "harness:createTask",
+        title,
+        engineType,
+        sessionId,
+        metadata,
+      ),
+    getTask: (taskId: string) => ipcRenderer.invoke("harness:getTask", taskId),
+    listTasks: (filter?: { status?: string; limit?: number }) =>
+      ipcRenderer.invoke("harness:listTasks", filter),
+    cancelTask: (taskId: string) =>
+      ipcRenderer.invoke("harness:cancelTask", taskId),
+    resumeTask: (taskId: string, fromCheckpoint?: string) =>
+      ipcRenderer.invoke("harness:resumeTask", taskId, fromCheckpoint),
+    getCheckpoints: (taskId: string) =>
+      ipcRenderer.invoke("harness:getCheckpoints", taskId),
+    respondApproval: (approvalId: string, decision: "approve" | "reject") =>
+      ipcRenderer.invoke("harness:respondApproval", approvalId, decision),
+    getApproval: (approvalId: string) =>
+      ipcRenderer.invoke("harness:getApproval", approvalId),
+    listPendingApprovals: () =>
+      ipcRenderer.invoke("harness:listPendingApprovals"),
+    decompose: (taskDescription: string) =>
+      ipcRenderer.invoke("harness:decompose", taskDescription),
+  },
+
   // Event listeners
   // 保存 callback → wrapper 映射，使 off() 能正确移除 on() 注册的 listener
   on: (channel: string, callback: (...args: unknown[]) => void) => {
@@ -564,6 +598,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "admin:servicesRestarting",
       "admin:servicesRestarted",
       "service:health",
+      "harness:approvalRequested",
     ];
     if (validChannels.includes(channel)) {
       const wrapper = (_: unknown, ...args: unknown[]) => callback(...args);

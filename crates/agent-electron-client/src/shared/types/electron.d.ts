@@ -677,6 +677,55 @@ export interface QuickInitAPI {
   getConfig: () => Promise<QuickInitConfig | null>;
 }
 
+import type {
+  HarnessTask,
+  TaskCheckpoint,
+  ApprovalRequest,
+  ApprovalDecision,
+  TaskStatus,
+} from "./harness";
+import type { CheckpointType } from "./harness";
+
+type ApiResult<T = void> = T extends void
+  ? Promise<{ success: boolean; error?: string }>
+  : Promise<{ success: boolean; data?: T; error?: string }>;
+
+export interface HarnessAPI {
+  createTask: (
+    title: string,
+    engineType: string,
+    sessionId?: string,
+    metadata?: Record<string, unknown>,
+  ) => ApiResult<HarnessTask>;
+  getTask: (taskId: string) => ApiResult<HarnessTask>;
+  listTasks: (filter?: {
+    status?: TaskStatus;
+    limit?: number;
+  }) => ApiResult<HarnessTask[]>;
+  cancelTask: (taskId: string) => ApiResult;
+  resumeTask: (
+    taskId: string,
+    fromCheckpoint?: CheckpointType,
+  ) => ApiResult<{ resumeFrom: CheckpointType }>;
+  getCheckpoints: (taskId: string) => ApiResult<TaskCheckpoint[]>;
+  respondApproval: (
+    approvalId: string,
+    decision: ApprovalDecision,
+  ) => ApiResult;
+  getApproval: (approvalId: string) => ApiResult<ApprovalRequest>;
+  listPendingApprovals: () => ApiResult<ApprovalRequest[]>;
+  decompose: (taskDescription: string) => ApiResult<{
+    steps: Array<{
+      id: string;
+      description: string;
+      type: string;
+      dependsOn: string[];
+      checkpoint: CheckpointType;
+      riskLevel: "low" | "medium" | "high";
+    }>;
+  }>;
+}
+
 export interface ElectronAPI {
   versions: {
     node: string;
@@ -782,6 +831,7 @@ export interface ElectronAPI {
   permissions: PermissionsAPI;
   quickInit: QuickInitAPI;
   perf: PerfAPI;
+  harness: HarnessAPI;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   off: (channel: string, callback: (...args: unknown[]) => void) => void;
 }

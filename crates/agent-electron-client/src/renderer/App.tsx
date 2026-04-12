@@ -370,6 +370,13 @@ function App() {
     toolCallsSoFar: number;
     reason: "tool_count" | "time";
   } | null>(null);
+  /** Harness 审批请求（来自 harness:approvalRequested 事件） */
+  const [pendingApproval, setPendingApproval] = useState<{
+    approvalId: string;
+    title: string;
+    description?: string | null;
+    priority: "low" | "medium" | "high" | "critical";
+  } | null>(null);
   const statusExpectedKeys = useMemo(() => {
     const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
     if (FEATURES.ENABLE_GUI_AGENT_SERVER && guiMcpEnabled) {
@@ -967,6 +974,33 @@ function App() {
     return () => window.electronAPI?.off("service:health", handleServiceHealth);
   }, [isSetupComplete, pollServicesStatus]);
 
+  // Harness 审批请求事件
+  useEffect(() => {
+    if (!window.electronAPI) return;
+    const handleApprovalRequested = (event: unknown) => {
+      const e = event as {
+        request: {
+          id: string;
+          title: string;
+          description?: string | null;
+          priority: "low" | "medium" | "high" | "critical";
+        };
+      };
+      setPendingApproval({
+        approvalId: e.request.id,
+        title: e.request.title,
+        description: e.request.description,
+        priority: e.request.priority,
+      });
+    };
+    window.electronAPI.on("harness:approvalRequested", handleApprovalRequested);
+    return () =>
+      window.electronAPI?.off(
+        "harness:approvalRequested",
+        handleApprovalRequested,
+      );
+  }, []);
+
   // ============================================
   // 监听托盘/菜单事件
   // ============================================
@@ -1437,6 +1471,53 @@ function App() {
                               true,
                             )
                           }
+                        >
+                          {t("Claw.Common.confirm")}
+                        </Button>
+                      </div>
+                    }
+                  />
+                )}
+                {/* Harness 审批请求横幅 */}
+                {pendingApproval && !webviewActions && (
+                  <Alert
+                    type={
+                      pendingApproval.priority === "high" ||
+                      pendingApproval.priority === "critical"
+                        ? "warning"
+                        : "info"
+                    }
+                    showIcon
+                    message={pendingApproval.title}
+                    description={pendingApproval.description ?? undefined}
+                    style={{ marginBottom: 12 }}
+                    action={
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <Button
+                          size="small"
+                          danger
+                          onClick={() => {
+                            const id = pendingApproval.approvalId;
+                            setPendingApproval(null);
+                            void window.electronAPI?.harness.respondApproval(
+                              id,
+                              "reject",
+                            );
+                          }}
+                        >
+                          {t("Claw.Common.cancel")}
+                        </Button>
+                        <Button
+                          size="small"
+                          type="primary"
+                          onClick={() => {
+                            const id = pendingApproval.approvalId;
+                            setPendingApproval(null);
+                            void window.electronAPI?.harness.respondApproval(
+                              id,
+                              "approve",
+                            );
+                          }}
                         >
                           {t("Claw.Common.confirm")}
                         </Button>
