@@ -7,20 +7,26 @@
  * Based on specs/long-memory/long-memory.md
  */
 
-import { EventEmitter } from 'events';
-import log from 'electron-log';
-import type { ExtractionTask, ExtractedMemory, ModelConfig, DeduplicationConfig } from './types';
-import { MemoryExtractor } from './MemoryExtractor';
-import { MemoryFileSync } from './MemoryFileSync';
-import { MemoryDatabase } from './MemoryDatabase';
-import { deduplicateMemories } from './utils/deduplicator';
-import { callLlmApi } from './utils/llmClient';
+import { EventEmitter } from "events";
+import log from "electron-log";
+import type {
+  ExtractionTask,
+  ExtractedMemory,
+  ModelConfig,
+  DeduplicationConfig,
+} from "./types";
+import { MemoryExtractor } from "./MemoryExtractor";
+import { MemoryFileSync } from "./MemoryFileSync";
+import { MemoryDatabase } from "./MemoryDatabase";
+import { deduplicateMemories } from "./utils/deduplicator";
+import { callLlmApi } from "./utils/llmClient";
+import { extractionWorkerPool } from "./worker/ExtractionWorkerPool";
 
 // ==================== Types ====================
 
 interface QueueOptions {
   maxRetries: number;
-  processingInterval: number;  // ms
+  processingInterval: number; // ms
   maxQueueSize: number;
 }
 
@@ -63,7 +69,7 @@ export class ExtractionQueue extends EventEmitter {
     fileSync: MemoryFileSync,
     options?: Partial<QueueOptions>,
     database?: MemoryDatabase,
-    deduplicationConfig?: DeduplicationConfig
+    deduplicationConfig?: DeduplicationConfig,
   ): void {
     this.fileSync = fileSync;
     this.database = database ?? null;
@@ -71,7 +77,7 @@ export class ExtractionQueue extends EventEmitter {
     if (deduplicationConfig) {
       this.deduplicationConfig = deduplicationConfig;
     }
-    log.info('[ExtractionQueue] Initialized');
+    log.info("[ExtractionQueue] Initialized");
   }
 
   /**
@@ -80,7 +86,7 @@ export class ExtractionQueue extends EventEmitter {
   destroy(): void {
     this.stop();
     this.queue = [];
-    log.info('[ExtractionQueue] Destroyed');
+    log.info("[ExtractionQueue] Destroyed");
   }
 
   /**
@@ -94,7 +100,7 @@ export class ExtractionQueue extends EventEmitter {
       this.processNext();
     }, this.options.processingInterval);
 
-    log.info('[ExtractionQueue] Started');
+    log.info("[ExtractionQueue] Started");
   }
 
   /**
@@ -106,7 +112,7 @@ export class ExtractionQueue extends EventEmitter {
       this.processTimer = null;
     }
     this.paused = true;
-    log.info('[ExtractionQueue] Stopped');
+    log.info("[ExtractionQueue] Stopped");
   }
 
   /**
@@ -135,22 +141,22 @@ export class ExtractionQueue extends EventEmitter {
   enqueue(
     sessionId: string,
     messageId: string,
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+    messages: Array<{ role: "user" | "assistant"; content: string }>,
     modelConfig: ModelConfig,
     segmentIndex?: number,
     startMsgIndex?: number,
-    endMsgIndex?: number
+    endMsgIndex?: number,
   ): string {
     // Validate model config - API key is required!
     if (!modelConfig.apiKey) {
-      const error = 'API Key is required in modelConfig for extraction queue';
-      log.error('[ExtractionQueue]', error);
+      const error = "API Key is required in modelConfig for extraction queue";
+      log.error("[ExtractionQueue]", error);
       throw new Error(error);
     }
 
     // Check queue size
     if (this.queue.length >= this.options.maxQueueSize) {
-      log.warn('[ExtractionQueue] Queue is full, dropping oldest task');
+      log.warn("[ExtractionQueue] Queue is full, dropping oldest task");
       this.queue.shift();
     }
 
@@ -158,7 +164,7 @@ export class ExtractionQueue extends EventEmitter {
       sessionId,
       messageId,
       messages,
-      modelConfig,  // Store full config including API key!
+      modelConfig, // Store full config including API key!
       timestamp: Date.now(),
       retryCount: 0,
       segmentIndex,
@@ -168,9 +174,9 @@ export class ExtractionQueue extends EventEmitter {
 
     const taskId = this.generateTaskId(task);
     this.queue.push(task);
-    log.info('[ExtractionQueue] Task enqueued:', taskId);
+    log.info("[ExtractionQueue] Task enqueued:", taskId);
 
-    this.emit('task:enqueued', task);
+    this.emit("task:enqueued", task);
 
     // Try to process immediately if not busy
     if (!this.processing && !this.paused) {
@@ -199,7 +205,7 @@ export class ExtractionQueue extends EventEmitter {
    */
   clear(): void {
     this.queue = [];
-    log.info('[ExtractionQueue] Queue cleared');
+    log.info("[ExtractionQueue] Queue cleared");
   }
 
   /**
@@ -212,7 +218,7 @@ export class ExtractionQueue extends EventEmitter {
     timestamp: number;
     retryCount: number;
   }> {
-    return this.queue.map(task => ({
+    return this.queue.map((task) => ({
       taskId: this.generateTaskId(task),
       sessionId: task.sessionId,
       messageId: task.messageId,
@@ -237,10 +243,10 @@ export class ExtractionQueue extends EventEmitter {
 
     try {
       const result = await this.processTask(task);
-      this.emit('task:completed', result);
+      this.emit("task:completed", result);
     } catch (error) {
-      log.error('[ExtractionQueue] Task processing failed:', error);
-      this.emit('task:error', { taskId, error });
+      log.error("[ExtractionQueue] Task processing failed:", error);
+      this.emit("task:error", { taskId, error });
     } finally {
       this.processing = false;
     }
@@ -251,13 +257,17 @@ export class ExtractionQueue extends EventEmitter {
    */
   private async processTask(task: ExtractionTask): Promise<ExtractionResult> {
     const taskId = this.generateTaskId(task);
-    log.info('[ExtractionQueue] Processing task:', taskId);
+    log.info("[ExtractionQueue] Processing task:", taskId);
 
     // Update progress to 'processing' if tracking segment
     if (task.segmentIndex !== undefined && this.database) {
-      this.database.updateExtractionProgress(task.sessionId, task.segmentIndex, {
-        status: 'processing',
-      });
+      this.database.updateExtractionProgress(
+        task.sessionId,
+        task.segmentIndex,
+        {
+          status: "processing",
+        },
+      );
     }
 
     try {
@@ -267,23 +277,36 @@ export class ExtractionQueue extends EventEmitter {
       // Apply cross-segment deduplication
       if (memories.length > 0 && this.database) {
         const existingTexts = this.database.getRecentMemoryTexts(50);
-        memories = deduplicateMemories(memories, existingTexts, this.deduplicationConfig);
+        memories = deduplicateMemories(
+          memories,
+          existingTexts,
+          this.deduplicationConfig,
+        );
       }
 
       if (memories.length > 0) {
         // Write to daily memory file
         await this.writeToDailyMemory(memories, task.sessionId);
 
-        log.info('[ExtractionQueue] Extracted', memories.length, 'memories from task:', taskId);
+        log.info(
+          "[ExtractionQueue] Extracted",
+          memories.length,
+          "memories from task:",
+          taskId,
+        );
       }
 
       // Update progress to 'completed' if tracking segment
       if (task.segmentIndex !== undefined && this.database) {
-        this.database.updateExtractionProgress(task.sessionId, task.segmentIndex, {
-          status: 'completed',
-          memoriesExtracted: memories.length,
-          completedAt: Date.now(),
-        });
+        this.database.updateExtractionProgress(
+          task.sessionId,
+          task.segmentIndex,
+          {
+            status: "completed",
+            memoriesExtracted: memories.length,
+            completedAt: Date.now(),
+          },
+        );
       }
 
       return {
@@ -295,8 +318,11 @@ export class ExtractionQueue extends EventEmitter {
       // Retry logic
       if (task.retryCount < this.options.maxRetries) {
         task.retryCount++;
-        this.queue.unshift(task);  // Put back at front
-        log.warn(`[ExtractionQueue] Retrying task (${task.retryCount}/${this.options.maxRetries}):`, taskId);
+        this.queue.unshift(task); // Put back at front
+        log.warn(
+          `[ExtractionQueue] Retrying task (${task.retryCount}/${this.options.maxRetries}):`,
+          taskId,
+        );
 
         return {
           taskId,
@@ -307,13 +333,17 @@ export class ExtractionQueue extends EventEmitter {
 
       // Update progress to 'failed' if tracking segment
       if (task.segmentIndex !== undefined && this.database) {
-        this.database.updateExtractionProgress(task.sessionId, task.segmentIndex, {
-          status: 'failed',
-          errorMessage: String(error),
-        });
+        this.database.updateExtractionProgress(
+          task.sessionId,
+          task.segmentIndex,
+          {
+            status: "failed",
+            errorMessage: String(error),
+          },
+        );
       }
 
-      log.error('[ExtractionQueue] Task failed after max retries:', taskId);
+      log.error("[ExtractionQueue] Task failed after max retries:", taskId);
       return {
         taskId,
         success: false,
@@ -331,58 +361,111 @@ export class ExtractionQueue extends EventEmitter {
    * 3. Merge + deduplicate results
    * 4. LLM validation for uncertain candidates (existing)
    */
-  private async extractMemories(task: ExtractionTask): Promise<ExtractedMemory[]> {
-    log.info('[ExtractionQueue] extractMemories: starting extraction for task');
+  private async extractMemories(
+    task: ExtractionTask,
+  ): Promise<ExtractedMemory[]> {
+    log.info("[ExtractionQueue] extractMemories: starting extraction for task");
 
-    // Step 1: Regex + rules extraction (no API call needed)
-    const regexMemories = await this.extractor.extract(task.messages);
-    log.info('[ExtractionQueue] Step 1 - Regex extraction: ' + regexMemories.length + ' memories');
+    // Step 1: Regex + rules extraction (offloaded to Worker Thread，避免主线程卡顿)
+    let regexMemories: ExtractedMemory[];
+    try {
+      regexMemories = await extractionWorkerPool.extract(task.messages);
+    } catch (workerErr) {
+      log.warn(
+        "[ExtractionQueue] Worker extraction failed, falling back to main thread:",
+        workerErr,
+      );
+      regexMemories = await this.extractor.extract(task.messages);
+    }
+    log.info(
+      "[ExtractionQueue] Step 1 - Regex extraction: " +
+        regexMemories.length +
+        " memories",
+    );
 
     // Step 2: LLM segmented extraction (requires API key)
     let llmMemories: ExtractedMemory[] = [];
     if (task.modelConfig.apiKey) {
-      log.info('[ExtractionQueue] Step 2 - Calling LLM for extraction (apiKey present)');
+      log.info(
+        "[ExtractionQueue] Step 2 - Calling LLM for extraction (apiKey present)",
+      );
       try {
         llmMemories = await this.callLlmForExtraction(task);
-        log.info('[ExtractionQueue] Step 2 - LLM extraction returned: ' + llmMemories.length + ' memories');
+        log.info(
+          "[ExtractionQueue] Step 2 - LLM extraction returned: " +
+            llmMemories.length +
+            " memories",
+        );
         if (llmMemories.length > 0) {
-          log.info('[ExtractionQueue] LLM memories: ' + llmMemories.map(m => m.text.slice(0, 30)).join(', '));
+          log.info(
+            "[ExtractionQueue] LLM memories: " +
+              llmMemories.map((m) => m.text.slice(0, 30)).join(", "),
+          );
         }
       } catch (error) {
-        log.warn('[ExtractionQueue] LLM extraction failed, using regex results only:', error);
+        log.warn(
+          "[ExtractionQueue] LLM extraction failed, using regex results only:",
+          error,
+        );
       }
     } else {
-      log.info('[ExtractionQueue] Step 2 - Skipping LLM extraction (no apiKey)');
+      log.info(
+        "[ExtractionQueue] Step 2 - Skipping LLM extraction (no apiKey)",
+      );
     }
 
     // Step 3: Merge and deduplicate regex + LLM results
     let memories = this.mergeExtractionResults(regexMemories, llmMemories);
-    log.info('[ExtractionQueue] Step 3 - After merge: ' + memories.length + ' memories');
+    log.info(
+      "[ExtractionQueue] Step 3 - After merge: " +
+        memories.length +
+        " memories",
+    );
 
     // Step 4: LLM validation for medium-confidence candidates
     if (task.modelConfig.apiKey) {
-      const needsValidation = memories.filter(m =>
-        this.extractor.needsLlmValidation?.(m.confidence) ?? this.defaultNeedsLlmValidation(m.confidence)
+      const needsValidation = memories.filter(
+        (m) =>
+          this.extractor.needsLlmValidation?.(m.confidence) ??
+          this.defaultNeedsLlmValidation(m.confidence),
       );
 
       if (needsValidation.length > 0) {
-        log.info('[ExtractionQueue] Step 4 - ' + needsValidation.length + ' memories need LLM validation');
+        log.info(
+          "[ExtractionQueue] Step 4 - " +
+            needsValidation.length +
+            " memories need LLM validation",
+        );
         try {
-          const validatedMemories = await this.callLlmForValidation(task, needsValidation);
+          const validatedMemories = await this.callLlmForValidation(
+            task,
+            needsValidation,
+          );
 
           // Merge validated results - keep high confidence, update validated ones
-          memories = memories.map(m => {
-            const validated = validatedMemories.find(v => v.text === m.text);
-            return validated ?? m;
-          }).filter(m => m.confidence >= 0.5);  // Filter out rejected ones
+          memories = memories
+            .map((m) => {
+              const validated = validatedMemories.find(
+                (v) => v.text === m.text,
+              );
+              return validated ?? m;
+            })
+            .filter((m) => m.confidence >= 0.5); // Filter out rejected ones
         } catch (error) {
-          log.warn('[ExtractionQueue] LLM validation failed, using original results:', error);
+          log.warn(
+            "[ExtractionQueue] LLM validation failed, using original results:",
+            error,
+          );
           // Continue with original extraction results
         }
       }
     }
 
-    log.info('[ExtractionQueue] extractMemories: final result = ' + memories.length + ' memories');
+    log.info(
+      "[ExtractionQueue] extractMemories: final result = " +
+        memories.length +
+        " memories",
+    );
     return memories;
   }
 
@@ -390,44 +473,79 @@ export class ExtractionQueue extends EventEmitter {
    * Call LLM for segmented extraction
    * Uses MemoryExtractor's buildExtractionPrompt/parseExtractionResponse
    */
-  private async callLlmForExtraction(task: ExtractionTask): Promise<ExtractedMemory[]> {
+  private async callLlmForExtraction(
+    task: ExtractionTask,
+  ): Promise<ExtractedMemory[]> {
     const { provider, model, apiKey, baseUrl, apiProtocol } = task.modelConfig;
 
     if (!apiKey) {
-      log.info('[ExtractionQueue] callLlmForExtraction: no API key, returning empty');
+      log.info(
+        "[ExtractionQueue] callLlmForExtraction: no API key, returning empty",
+      );
       return [];
     }
 
-    log.info('[ExtractionQueue] callLlmForExtraction: provider=' + provider + ', model=' + model + ', apiProtocol=' + (apiProtocol ?? 'auto'));
+    log.info(
+      "[ExtractionQueue] callLlmForExtraction: provider=" +
+        provider +
+        ", model=" +
+        model +
+        ", apiProtocol=" +
+        (apiProtocol ?? "auto"),
+    );
 
     // Get existing memories for deduplication context
     const existingMemories = this.database
       ? this.database.getRecentMemoryTexts(30)
-      : (this.fileSync?.readCoreMemory() ?? '').split('\n').filter(l => l.startsWith('- ')).map(l => l.slice(2));
+      : (this.fileSync?.readCoreMemory() ?? "")
+          .split("\n")
+          .filter((l) => l.startsWith("- "))
+          .map((l) => l.slice(2));
 
-    log.info('[ExtractionQueue] callLlmForExtraction: ' + existingMemories.length + ' existing memories for context');
+    log.info(
+      "[ExtractionQueue] callLlmForExtraction: " +
+        existingMemories.length +
+        " existing memories for context",
+    );
 
     // Build segment metadata if available
-    const segmentMeta = task.segmentIndex !== undefined
-      ? { index: task.segmentIndex, total: task.segmentIndex + 1 }
-      : undefined;
+    const segmentMeta =
+      task.segmentIndex !== undefined
+        ? { index: task.segmentIndex, total: task.segmentIndex + 1 }
+        : undefined;
 
     // Build extraction prompt
     const prompt = this.extractor.buildExtractionPrompt(
       task.messages,
       segmentMeta,
-      existingMemories
+      existingMemories,
     );
 
-    log.info('[ExtractionQueue] callLlmForExtraction: prompt length=' + prompt.length);
+    log.info(
+      "[ExtractionQueue] callLlmForExtraction: prompt length=" + prompt.length,
+    );
 
     // Call LLM API
-    const response = await this.callLlmApiInternal(provider, model, apiKey, baseUrl, apiProtocol, prompt);
-    log.info('[ExtractionQueue] callLlmForExtraction: response length=' + response.length);
+    const response = await this.callLlmApiInternal(
+      provider,
+      model,
+      apiKey,
+      baseUrl,
+      apiProtocol,
+      prompt,
+    );
+    log.info(
+      "[ExtractionQueue] callLlmForExtraction: response length=" +
+        response.length,
+    );
 
     // Parse response
     const memories = this.extractor.parseExtractionResponse(response);
-    log.info('[ExtractionQueue] callLlmForExtraction: parsed ' + memories.length + ' memories');
+    log.info(
+      "[ExtractionQueue] callLlmForExtraction: parsed " +
+        memories.length +
+        " memories",
+    );
 
     return memories;
   }
@@ -438,7 +556,7 @@ export class ExtractionQueue extends EventEmitter {
    */
   private mergeExtractionResults(
     regexResults: ExtractedMemory[],
-    llmResults: ExtractedMemory[]
+    llmResults: ExtractedMemory[],
   ): ExtractedMemory[] {
     if (llmResults.length === 0) return regexResults;
     if (regexResults.length === 0) return llmResults;
@@ -447,13 +565,13 @@ export class ExtractionQueue extends EventEmitter {
 
     // Index regex results by normalized text
     for (const mem of regexResults) {
-      const key = mem.text.toLowerCase().replace(/\s+/g, ' ').trim();
+      const key = mem.text.toLowerCase().replace(/\s+/g, " ").trim();
       merged.set(key, mem);
     }
 
     // Merge LLM results, preferring higher confidence
     for (const mem of llmResults) {
-      const key = mem.text.toLowerCase().replace(/\s+/g, ' ').trim();
+      const key = mem.text.toLowerCase().replace(/\s+/g, " ").trim();
       const existing = merged.get(key);
       if (!existing || mem.confidence > existing.confidence) {
         merged.set(key, mem);
@@ -477,39 +595,49 @@ export class ExtractionQueue extends EventEmitter {
    */
   private async callLlmForValidation(
     task: ExtractionTask,
-    candidates: ExtractedMemory[]
+    candidates: ExtractedMemory[],
   ): Promise<ExtractedMemory[]> {
     const { provider, model, apiKey, baseUrl, apiProtocol } = task.modelConfig;
 
     if (!apiKey) {
-      log.warn('[ExtractionQueue] No API key available for LLM validation');
+      log.warn("[ExtractionQueue] No API key available for LLM validation");
       return candidates;
     }
 
     // Build validation prompt
-    const existingMemories = this.fileSync?.readCoreMemory() ?? '';
-    const prompt = this.extractor.buildValidationPrompt?.(
-      candidates.map(c => c.text).join('\n'),
-      existingMemories.split('\n').filter(l => l.startsWith('- '))
-    ) ?? this.buildDefaultValidationPrompt(candidates, existingMemories);
+    const existingMemories = this.fileSync?.readCoreMemory() ?? "";
+    const prompt =
+      this.extractor.buildValidationPrompt?.(
+        candidates.map((c) => c.text).join("\n"),
+        existingMemories.split("\n").filter((l) => l.startsWith("- ")),
+      ) ?? this.buildDefaultValidationPrompt(candidates, existingMemories);
 
     try {
       // Call LLM API based on provider
-      const response = await this.callLlmApiInternal(provider, model, apiKey, baseUrl, apiProtocol, prompt);
+      const response = await this.callLlmApiInternal(
+        provider,
+        model,
+        apiKey,
+        baseUrl,
+        apiProtocol,
+        prompt,
+      );
       const validation = this.parseValidationResponse(response);
 
       if (!validation.accept) {
         return [];
       }
 
-      return [{
-        text: validation.mergedText ?? candidates[0].text,
-        category: candidates[0].category,
-        confidence: validation.confidence,
-        isExplicit: false,
-      }];
+      return [
+        {
+          text: validation.mergedText ?? candidates[0].text,
+          category: candidates[0].category,
+          confidence: validation.confidence,
+          isExplicit: false,
+        },
+      ];
     } catch (error) {
-      log.error('[ExtractionQueue] LLM validation call failed:', error);
+      log.error("[ExtractionQueue] LLM validation call failed:", error);
       return candidates; // Fallback to original candidates
     }
   }
@@ -519,15 +647,15 @@ export class ExtractionQueue extends EventEmitter {
    */
   private buildDefaultValidationPrompt(
     candidates: ExtractedMemory[],
-    existingMemories: string
+    existingMemories: string,
   ): string {
     return `你是一个记忆验证助手。请判断以下候选记忆是否值得保存。
 
 ## 候选记忆
-${candidates.map(c => c.text).join('\n')}
+${candidates.map((c) => c.text).join("\n")}
 
 ## 现有记忆
-${existingMemories || '(无)'}
+${existingMemories || "(无)"}
 
 ## 判断规则
 1. 是否与现有记忆冲突或重复?
@@ -560,19 +688,19 @@ ${existingMemories || '(无)'}
         const parsed = JSON.parse(jsonMatch[0]);
         return {
           accept: parsed.accept ?? false,
-          reason: parsed.reason ?? '',
+          reason: parsed.reason ?? "",
           mergedText: parsed.merged_text,
           confidence: parsed.confidence ?? 0.5,
         };
       }
     } catch (error) {
-      log.warn('[ExtractionQueue] Failed to parse validation response:', error);
+      log.warn("[ExtractionQueue] Failed to parse validation response:", error);
     }
 
     // Default to accepting with lower confidence
     return {
       accept: true,
-      reason: 'Failed to parse LLM response',
+      reason: "Failed to parse LLM response",
       confidence: 0.5,
     };
   }
@@ -586,9 +714,16 @@ ${existingMemories || '(无)'}
     apiKey: string,
     baseUrl: string | undefined,
     apiProtocol: string | undefined,
-    prompt: string
+    prompt: string,
   ): Promise<string> {
-    return callLlmApi(prompt, { provider, model, apiKey, baseUrl, apiProtocol, maxTokens: 500 });
+    return callLlmApi(prompt, {
+      provider,
+      model,
+      apiKey,
+      baseUrl,
+      apiProtocol,
+      maxTokens: 500,
+    });
   }
 
   /**
@@ -596,10 +731,10 @@ ${existingMemories || '(无)'}
    */
   private async writeToDailyMemory(
     memories: ExtractedMemory[],
-    sessionId: string
+    sessionId: string,
   ): Promise<void> {
     if (!this.fileSync) {
-      log.warn('[ExtractionQueue] FileSync not initialized');
+      log.warn("[ExtractionQueue] FileSync not initialized");
       return;
     }
 
@@ -609,7 +744,7 @@ ${existingMemories || '(无)'}
     // Append to daily memory file
     this.fileSync.appendToDailyMemory(
       content,
-      `会话 (${sessionId.slice(0, 8)})`
+      `会话 (${sessionId.slice(0, 8)})`,
     );
   }
 
@@ -619,11 +754,18 @@ ${existingMemories || '(无)'}
    * Resume pending tasks from extraction_progress table
    * Called during initialization to recover from interruptions
    */
-  resumePendingTasks(transcriptReader: {
-    readTranscriptRange: (sessionId: string, start: number, end: number) => Array<{ role: 'user' | 'assistant'; content: string }>;
-  }, modelConfig: ModelConfig): void {
+  resumePendingTasks(
+    transcriptReader: {
+      readTranscriptRange: (
+        sessionId: string,
+        start: number,
+        end: number,
+      ) => Array<{ role: "user" | "assistant"; content: string }>;
+    },
+    modelConfig: ModelConfig,
+  ): void {
     if (!this.database) {
-      log.warn('[ExtractionQueue] Cannot resume: database not available');
+      log.warn("[ExtractionQueue] Cannot resume: database not available");
       return;
     }
 
@@ -632,22 +774,28 @@ ${existingMemories || '(无)'}
       return;
     }
 
-    log.info(`[ExtractionQueue] Resuming ${pendingRecords.length} pending extraction tasks`);
+    log.info(
+      `[ExtractionQueue] Resuming ${pendingRecords.length} pending extraction tasks`,
+    );
 
     for (const record of pendingRecords) {
       try {
         const messages = transcriptReader.readTranscriptRange(
           record.sessionId,
           record.startMsgIndex,
-          record.endMsgIndex
+          record.endMsgIndex,
         );
 
         if (messages.length === 0) {
           // Transcript no longer available
-          this.database.updateExtractionProgress(record.sessionId, record.segmentIndex, {
-            status: 'failed',
-            errorMessage: 'transcript_expired',
-          });
+          this.database.updateExtractionProgress(
+            record.sessionId,
+            record.segmentIndex,
+            {
+              status: "failed",
+              errorMessage: "transcript_expired",
+            },
+          );
           continue;
         }
 
@@ -658,10 +806,13 @@ ${existingMemories || '(无)'}
           modelConfig,
           record.segmentIndex,
           record.startMsgIndex,
-          record.endMsgIndex
+          record.endMsgIndex,
         );
       } catch (error) {
-        log.error(`[ExtractionQueue] Failed to resume task for session ${record.sessionId}:`, error);
+        log.error(
+          `[ExtractionQueue] Failed to resume task for session ${record.sessionId}:`,
+          error,
+        );
       }
     }
   }
@@ -683,11 +834,11 @@ ${existingMemories || '(无)'}
   static createTask(
     sessionId: string,
     messageId: string,
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>,
-    modelConfig: ModelConfig
+    messages: Array<{ role: "user" | "assistant"; content: string }>,
+    modelConfig: ModelConfig,
   ): ExtractionTask {
     if (!modelConfig.apiKey) {
-      throw new Error('API Key is required for extraction task');
+      throw new Error("API Key is required for extraction task");
     }
 
     return {
