@@ -1888,111 +1888,107 @@ async function fetchNpmLatestVersion(
 export async function checkAllDependencies(options?: {
   checkLatest?: boolean;
 }): Promise<LocalDependencyItem[]> {
-  const results: LocalDependencyItem[] = [];
-
-  for (const dep of getSetupRequiredDependencies()) {
-    const item: LocalDependencyItem = {
-      ...dep,
-      status: "checking",
-    };
-
-    try {
-      switch (dep.name) {
-        case "uv": {
-          const result = await checkUvVersion();
-          item.status = result.installed
-            ? result.bundled
-              ? "bundled"
-              : "installed"
-            : "missing";
-          item.version = result.version;
-          item.meetsRequirement = result.meetsRequirement;
-          item.binPath = result.binPath;
-          break;
-        }
-        case "nuwaxcode": {
-          // 只使用应用内打包的二进制（不从 npm 安装）
-          const bundledPath = getNuwaxcodeBundledBinPath();
-          if (bundledPath) {
-            item.status = "installed";
-            item.binPath = bundledPath;
-            item.version = dep.installVersion;
-            log.info(
-              "[checkAllDependencies] nuwaxcode: using bundled binary:",
-              bundledPath,
-            );
-          } else {
-            item.status = "missing";
-            log.warn(
-              "[checkAllDependencies] nuwaxcode: bundled binary not found",
-            );
+  // 并行检测所有依赖（每项独立 spawn/fs，无顺序依赖）
+  const results = await Promise.all(
+    getSetupRequiredDependencies().map(async (dep) => {
+      const item: LocalDependencyItem = { ...dep, status: "checking" };
+      try {
+        switch (dep.name) {
+          case "uv": {
+            const result = await checkUvVersion();
+            item.status = result.installed
+              ? result.bundled
+                ? "bundled"
+                : "installed"
+              : "missing";
+            item.version = result.version;
+            item.meetsRequirement = result.meetsRequirement;
+            item.binPath = result.binPath;
+            break;
           }
-          break;
-        }
-        case "pnpm": {
-          const result = await detectNpmPackage(dep.name, dep.binName);
-          item.version = result.version;
-          item.binPath = result.binPath;
-          if (!result.installed) {
-            item.status = "missing";
-          } else if (dep.installVersion) {
-            const installed = (result.version ?? "0").replace(/^v/, "");
-            const target = dep.installVersion.replace(/^v/, "");
-            if (installed === "0" || compareVersions(installed, target) < 0) {
-              item.status = "outdated";
+          case "nuwaxcode": {
+            // 只使用应用内打包的二进制（不从 npm 安装）
+            const bundledPath = getNuwaxcodeBundledBinPath();
+            if (bundledPath) {
+              item.status = "installed";
+              item.binPath = bundledPath;
+              item.version = dep.installVersion;
+              log.info(
+                "[checkAllDependencies] nuwaxcode: using bundled binary:",
+                bundledPath,
+              );
+            } else {
+              item.status = "missing";
+              log.warn(
+                "[checkAllDependencies] nuwaxcode: bundled binary not found",
+              );
+            }
+            break;
+          }
+          case "pnpm": {
+            const result = await detectNpmPackage(dep.name, dep.binName);
+            item.version = result.version;
+            item.binPath = result.binPath;
+            if (!result.installed) {
+              item.status = "missing";
+            } else if (dep.installVersion) {
+              const installed = (result.version ?? "0").replace(/^v/, "");
+              const target = dep.installVersion.replace(/^v/, "");
+              if (installed === "0" || compareVersions(installed, target) < 0) {
+                item.status = "outdated";
+              } else {
+                item.status = "installed";
+              }
             } else {
               item.status = "installed";
             }
-          } else {
-            item.status = "installed";
+            break;
           }
-          break;
-        }
-        case "nuwax-file-server": {
-          const bundledDir = getNuwaxFileServerBundledDir();
-          if (bundledDir) {
-            const pkgPath = path.join(bundledDir, "package.json");
-            try {
-              const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-              item.status = "bundled";
-              item.version = pkg.version;
-              item.binPath = bundledDir;
-            } catch {
+          case "nuwax-file-server": {
+            const bundledDir = getNuwaxFileServerBundledDir();
+            if (bundledDir) {
+              const pkgPath = path.join(bundledDir, "package.json");
+              try {
+                const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+                item.status = "bundled";
+                item.version = pkg.version;
+                item.binPath = bundledDir;
+              } catch {
+                item.status = "missing";
+              }
+            } else {
               item.status = "missing";
             }
-          } else {
-            item.status = "missing";
+            break;
           }
-          break;
-        }
-        case "claude-code-acp-ts": {
-          const bundledDir = getClaudeCodeAcpBundledDir();
-          if (bundledDir) {
-            const pkgPath = path.join(bundledDir, "package.json");
-            try {
-              const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-              item.status = "bundled";
-              item.version = pkg.version;
-              item.binPath = bundledDir;
-            } catch {
+          case "claude-code-acp-ts": {
+            const bundledDir = getClaudeCodeAcpBundledDir();
+            if (bundledDir) {
+              const pkgPath = path.join(bundledDir, "package.json");
+              try {
+                const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+                item.status = "bundled";
+                item.version = pkg.version;
+                item.binPath = bundledDir;
+              } catch {
+                item.status = "missing";
+              }
+            } else {
               item.status = "missing";
             }
-          } else {
+            break;
+          }
+          default: {
             item.status = "missing";
           }
-          break;
         }
-        default: {
-          item.status = "missing";
-        }
+      } catch (error) {
+        item.status = "error";
+        item.errorMessage = String(error);
       }
-    } catch (error) {
-      item.status = "error";
-      item.errorMessage = String(error);
-    }
-
-    results.push(item);
-  }
+      return item;
+    }),
+  );
 
   // 并行查询已安装的 npm 包的 latest 版本（仅在 checkLatest 时执行）
   // 仅当 registry 返回的 latest 严格大于当前已装版本时才设置 latestVersion，避免展示「更新到更旧版本」

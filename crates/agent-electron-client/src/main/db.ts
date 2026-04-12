@@ -135,6 +135,13 @@ function runSchemaMigrations(database: Database.Database): void {
 export function initDatabase(): void {
   try {
     db = new Database(dbPath);
+    // WAL 模式：提升并发读性能，减少写锁争用；NORMAL 同步级别在 WAL 下安全且更快
+    db.pragma("journal_mode = WAL");
+    db.pragma("synchronous = NORMAL");
+    // 64MB 页缓存（负值 = KiB），减少重复读盘
+    db.pragma("cache_size = -65536");
+    // 临时表/排序使用内存而非磁盘
+    db.pragma("temp_store = MEMORY");
     log.info("Database initialized at:", dbPath);
     runSchemaMigrations(db);
   } catch (error) {
