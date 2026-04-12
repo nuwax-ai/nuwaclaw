@@ -528,11 +528,35 @@ export class AcpEngine extends EventEmitter {
       configTimer.end("acp.init.config", { engine: this.engineName });
 
       // Resolve sandbox policy for process-level wrapping
+      //
+      // autoFallback 语义差异（§3.3）：
+      //   startup-only — 仅在应用启动时检测一次；若启动时后端不可用（degraded），
+      //                  则每次新建会话时直接拒绝（throw SANDBOX_UNAVAILABLE），
+      //                  不允许在无沙箱状态下继续执行。
+      //   session      — 每次会话启动前重新检测；若后端不可用，警告用户但允许
+      //                  降级（type=none）继续，不阻断会话。
+      //   manual       — 后端不可用时直接抛出错误（由 resolveSandboxType 处理）。
       let sandboxConfig: SandboxProcessConfig | undefined;
       try {
         const policy = getSandboxPolicy();
         if (policy.enabled) {
           const resolved = await resolveSandboxType(policy);
+
+          // startup-only：若启动时检测已降级，则拒绝本次会话
+          if (resolved.degraded && policy.autoFallback === "startup-only") {
+            throw new SandboxError(
+              `sandbox unavailable (startup-only policy requires sandbox): ${resolved.reason ?? "backend unavailable"}`,
+              SandboxErrorCode.SANDBOX_UNAVAILABLE,
+            );
+          }
+
+          // session：降级时仅打印警告，允许无沙箱继续
+          if (resolved.degraded && policy.autoFallback === "session") {
+            log.warn(
+              `${this.logTag} Sandbox degraded to none (session policy), continuing without sandbox. Reason: ${resolved.reason}`,
+            );
+          }
+
           if (resolved.type !== "none") {
             sandboxConfig = {
               enabled: true,

@@ -288,6 +288,9 @@ export async function resolveSandboxType(
     );
   }
 
-  // 后端不可用时始终降级为 off（不阻断执行）
+  // 后端不可用时降级为 off，返回 degraded=true。
+  // 调用方根据 autoFallback 决定后续行为：
+  //   startup-only → 会话启动时 acpEngine 检测到 degraded 后抛出 SANDBOX_UNAVAILABLE
+  //   session      → 会话启动时 acpEngine 打印警告后允许无沙箱继续
   return { type: "none", degraded: true, reason };
 }
