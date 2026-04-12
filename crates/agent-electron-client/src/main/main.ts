@@ -36,6 +36,7 @@ import {
 } from "./bootstrap/migrate";
 import { getDeviceId, logSystemInfo } from "./services/system/deviceId";
 import { initWebviewPolicy } from "./services/system/webviewPolicy";
+import { processLifecycleManager } from "./services/utils/processLifecycle";
 
 // macOS 26 Tahoe 兼容性：禁用 Fontations 字体后端
 // 参考: https://github.com/electron/electron/issues/49522
@@ -175,6 +176,28 @@ const fileServer = new ManagedProcess("fileServer");
 const agentRunner = new ManagedProcess("agentRunner");
 const guiServer = new ManagedProcess("gui-agent-server");
 let agentRunnerPorts: { backendPort: number; proxyPort: number } | null = null;
+
+// 注册到 ProcessLifecycleManager（监控 restart/crash 事件，汇聚服务运行状态）
+processLifecycleManager.register({
+  key: "lanproxy",
+  label: "Lanproxy",
+  process: lanproxy,
+});
+processLifecycleManager.register({
+  key: "fileServer",
+  label: "File Server",
+  process: fileServer,
+});
+processLifecycleManager.register({
+  key: "agentRunner",
+  label: "Agent Runner",
+  process: agentRunner,
+});
+processLifecycleManager.register({
+  key: "guiServer",
+  label: "GUI Agent Server",
+  process: guiServer,
+});
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -415,6 +438,9 @@ async function cleanupAllProcesses(): Promise<void> {
   lanproxy.kill();
   fileServer.kill();
   guiServer.kill();
+
+  // 清理 ProcessLifecycleManager 事件监听器（防内存泄漏）
+  processLifecycleManager.destroy();
 
   log.info("[Cleanup] All processes stopped");
 }

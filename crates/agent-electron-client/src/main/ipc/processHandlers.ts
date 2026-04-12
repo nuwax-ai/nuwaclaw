@@ -424,4 +424,17 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     };
     return snapshot;
   });
+
+  // ==================== services:lifecycleStats ====================
+  // 返回所有托管服务的生命周期诊断数据（重启次数、崩溃时间、运行时长等）
+
+  ipcMain.handle("services:lifecycleStats", () => {
+    const {
+      processLifecycleManager,
+    } = require("../services/utils/processLifecycle");
+    return {
+      success: true as const,
+      stats: processLifecycleManager.getStats(),
+    };
+  });
 }

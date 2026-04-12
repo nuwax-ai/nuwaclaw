@@ -335,6 +335,69 @@ export async function killProcessTreesListeningOnTcpPort(
   return killProcessTreesListeningOnTcpPortUnix(port, timeoutMsPerTree);
 }
 
+// ==================== Process Monitor ====================
+// 轻量级进程监控，用于泄漏检测
+// 在 spawn 后调用 registerProcess，在 exit/stop 后调用 unregisterProcess
+
+interface MonitoredProcess {
+  label: string;
+  registeredAt: number;
+}
+
+const _processMonitor = new Map<number, MonitoredProcess>();
+
+/**
+ * 注册进程以便泄漏监控。
+ * 应在 spawn() 之后调用，进程退出后调用 unregisterProcess()。
+ */
+export function registerProcess(pid: number, label: string): void {
+  _processMonitor.set(pid, { label, registeredAt: Date.now() });
+  log.debug(`[processMonitor] Registered pid=${pid} label=${label}`);
+}
+
+/**
+ * 注销进程（在 exit 或 stop 回调中调用）。
+ */
+export function unregisterProcess(pid: number): void {
+  const existed = _processMonitor.delete(pid);
+  if (existed) {
+    log.debug(`[processMonitor] Unregistered pid=${pid}`);
+  }
+}
+
+/**
+ * 返回仍处于注册状态且存活的进程列表——潜在的进程泄漏。
+ * 已退出的进程会被自动从监控列表中清除。
+ *
+ * @returns pid, label, age(ms) 三元组数组
+ */
+export function getLeakedProcesses(): {
+  pid: number;
+  label: string;
+  age: number;
+}[] {
+  const now = Date.now();
+  const leaked: { pid: number; label: string; age: number }[] = [];
+  const dead: number[] = [];
+
+  for (const [pid, info] of _processMonitor) {
+    try {
+      // signal 0 只检查进程是否存在，不发送实际信号
+      process.kill(pid, 0);
+      leaked.push({ pid, label: info.label, age: now - info.registeredAt });
+    } catch {
+      // 进程已不存在，自动清理
+      dead.push(pid);
+    }
+  }
+
+  for (const pid of dead) {
+    _processMonitor.delete(pid);
+  }
+
+  return leaked;
+}
+
 // ==================== Internal ====================
 
 function killProcessTreeWindows(pid: number): Promise<void> {
