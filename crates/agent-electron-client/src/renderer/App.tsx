@@ -131,6 +131,12 @@ export interface ServiceItem {
   pid?: number;
   port?: number;
   error?: string;
+  /** 重启次数（可选，由服务提供） */
+  restartCount?: number;
+  /** 内存占用字节（可选） */
+  memoryBytes?: number;
+  /** 上次错误时间戳（可选） */
+  lastErrorAt?: number;
 }
 
 /**
@@ -868,14 +874,15 @@ function App() {
   ]);
 
   // 启动服务状态轮询
+  // 主要通过 service:health 事件驱动（每 30s 主进程推送），此处保留 30s 兜底轮询
   useEffect(() => {
     if (isSetupComplete !== true) return;
 
     // 立即执行一次
     pollServicesStatus();
 
-    // 每 5 秒轮询一次
-    servicesPollTimer.current = setInterval(pollServicesStatus, 5000);
+    // 30s 兜底轮询（主更新由 service:health 事件驱动，见下方 useEffect）
+    servicesPollTimer.current = setInterval(pollServicesStatus, 30_000);
 
     return () => {
       if (servicesPollTimer.current) {
@@ -1156,6 +1163,8 @@ function App() {
         }
         // 崩溃时也清除模型切换确认（自动允许已在主进程超时）
         setPendingModelSwitch(null);
+        // 引擎崩溃时立即刷新服务状态（事件驱动，替代等待下次轮询）
+        void pollServicesStatus();
       } else if (event.type === "confirm.modelSwitch") {
         const d = event.data as {
           requestId: string;

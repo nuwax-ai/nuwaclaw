@@ -626,6 +626,7 @@
   "Claw.Client.accountStatus": "帳號狀態",
   "Claw.Client.services": "服務",
   "Claw.Client.refresh": "重新整理",
+  "Claw.Client.restartCount": "已重啟 {0} 次",
   "Claw.Client.startAll": "啟動全部",
   "Claw.Client.stopAll": "停止全部",
   "Claw.Client.quickActions": "快捷操作",

@@ -670,6 +670,7 @@
   "Claw.Client.accountStatus": "Account Status",
   "Claw.Client.services": "Services",
   "Claw.Client.refresh": "Refresh",
+  "Claw.Client.restartCount": "Restarted {0} times",
   "Claw.Client.startAll": "Start All",
   "Claw.Client.stopAll": "Stop All",
   "Claw.Client.quickActions": "Quick Actions",

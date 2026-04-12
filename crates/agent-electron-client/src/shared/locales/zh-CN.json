@@ -670,6 +670,7 @@
   "Claw.Client.accountStatus": "账号状态",
   "Claw.Client.services": "服务",
   "Claw.Client.refresh": "刷新",
+  "Claw.Client.restartCount": "已重启 {0} 次",
   "Claw.Client.startAll": "启动全部",
   "Claw.Client.stopAll": "停止全部",
   "Claw.Client.quickActions": "快捷操作",

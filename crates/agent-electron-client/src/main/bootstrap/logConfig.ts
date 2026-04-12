@@ -327,3 +327,72 @@ export function initLogging(): void {
 
 /** 供 IPC/客户端解析：优先读取的日志入口文件名（始终为当前主进程日志） */
 export const LATEST_LOG_BASENAME = LATEST_LOG_FILENAME;
+
+// ==================== 结构化日志 ====================
+
+export type LogLevel = "debug" | "info" | "warn" | "error";
+export type LogService =
+  | "engine"
+  | "sandbox"
+  | "mcp"
+  | "harness"
+  | "ipc"
+  | "db"
+  | "system"
+  | "app";
+
+export interface StructuredLogEntry {
+  timestamp: string;
+  level: LogLevel;
+  service: LogService;
+  message: string;
+  sessionId?: string;
+  taskId?: string;
+  traceId?: string;
+  data?: Record<string, unknown>;
+}
+
+/**
+ * 写出结构化 JSON 日志行（同时也通过 electron-log 写入普通日志文件）。
+ * 格式：一行 JSON，便于 grep / jq 分析。
+ *
+ * 使用示例：
+ *   structuredLog("info", "harness", "Task created", { taskId: id });
+ *   structuredLog("error", "engine", "ACP crash", { sessionId, error: e.message });
+ */
+export function structuredLog(
+  level: LogLevel,
+  service: LogService,
+  message: string,
+  extra?: {
+    sessionId?: string;
+    taskId?: string;
+    traceId?: string;
+    data?: Record<string, unknown>;
+  },
+): void {
+  const entry: StructuredLogEntry = {
+    timestamp: new Date().toISOString(),
+    level,
+    service,
+    message,
+    ...extra,
+  };
+
+  // 写入普通日志（同步，保证顺序一致）
+  const logLine = `[structured] ${JSON.stringify(entry)}`;
+  switch (level) {
+    case "debug":
+      log.debug(logLine);
+      break;
+    case "info":
+      log.info(logLine);
+      break;
+    case "warn":
+      log.warn(logLine);
+      break;
+    case "error":
+      log.error(logLine);
+      break;
+  }
+}

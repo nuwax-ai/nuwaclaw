@@ -833,6 +833,65 @@ function ClientPage({
                       svc.description
                     )}
                   </div>
+                  {/* 服务详情：PID / Port / 内存 */}
+                  {svc.running && (svc.pid || svc.port || svc.memoryBytes) && (
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        marginTop: 2,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      {svc.pid && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            color: "var(--color-text-tertiary)",
+                          }}
+                        >
+                          PID {svc.pid}
+                        </span>
+                      )}
+                      {svc.port && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            color: "var(--color-text-tertiary)",
+                          }}
+                        >
+                          :{svc.port}
+                        </span>
+                      )}
+                      {svc.memoryBytes && svc.memoryBytes > 0 && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            color: "var(--color-text-tertiary)",
+                          }}
+                        >
+                          {(svc.memoryBytes / 1024 / 1024).toFixed(1)} MB
+                        </span>
+                      )}
+                      {(svc.restartCount ?? 0) > 0 && (
+                        <Tooltip
+                          title={t(
+                            "Claw.Client.restartCount",
+                            svc.restartCount,
+                          )}
+                        >
+                          <span
+                            style={{
+                              fontSize: 10,
+                              color: "var(--color-warning)",
+                            }}
+                          >
+                            ↺{svc.restartCount}
+                          </span>
+                        </Tooltip>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
