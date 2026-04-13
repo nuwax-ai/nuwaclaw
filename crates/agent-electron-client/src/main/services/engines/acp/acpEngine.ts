@@ -8,12 +8,33 @@
  */
 
 import { EventEmitter } from "events";
+import * as os from "os";
 import * as path from "path";
 import * as fs from "fs";
 import log from "electron-log";
 import type { ChildProcess } from "child_process";
+import { FEATURES } from "@shared/featureFlags";
+import { ACP_SESSION_CANCELLED_ERROR_CODE } from "@shared/constants";
+import { getGuiAgentServerUrl } from "@main/services/packages/guiAgentServer";
+import { getWindowsMcpUrl } from "@main/services/packages/windowsMcp";
+import { isWindows } from "@main/services/system/shellEnv";
+import {
+  getResourcesPath,
+  getAppEnv,
+  getBundledGitBashPath,
+} from "@main/services/system/dependencies";
+import {
+  getSandboxPolicy,
+  resolveSandboxType,
+  getBundledLinuxBwrapPath,
+  getBundledWindowsSandboxHelperPath,
+} from "@main/services/sandbox/policy";
+import { SandboxError, SandboxErrorCode } from "@shared/errors/sandbox";
+import type { SandboxProcessConfig } from "@shared/types/sandbox";
 import {
   createAcpConnection,
+  getMcpTransportSnapshot,
+  isMcpReconnectWindowActive,
   loadAcpSdk,
   resolveAcpBinary,
   type AcpClientSideConnection,
@@ -30,6 +51,8 @@ import {
   type AcpMcpServer,
   type AcpEnvVariable,
 } from "./acpClient";
+import { AcpTerminalManager } from "./acpTerminalManager";
+import { evaluateStrictWritePermission } from "./strictPermissionGuard";
 import type {
   AgentConfig,
   AcpSessionStatus,
@@ -54,8 +77,12 @@ import {
   killProcessTreeGraceful,
 } from "../../utils/processTree";
 import { processRegistry } from "../../system/processRegistry";
+import { t } from "../../i18n";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ACP_ABORT_TIMEOUT } from "@shared/constants";
+import { APP_DATA_DIR_NAME } from "../../constants";
+import { perfEmitter } from "../perf/perfEmitter";
+import { firstTokenTrace } from "../perf/firstTokenTrace";
 
 /** Safe JSON.stringify that handles circular references */
 function safeStringify(obj: unknown): string {
@@ -66,12 +93,31 @@ function safeStringify(obj: unknown): string {
   }
 }
 
+const MCP_RETRY_DELAY_MS = 1200;
+const MCP_RECONNECT_WINDOW_MS = 4000;
+const COMPAT_MCP_WARMUP_DELAY_MS = 1200;
+const GUI_MCP_NAME = "gui-agent";
+// 该文案会透传到上层调用方/界面，必须走 i18n，避免在非英文语言下出现硬编码英文提示。
+// 使用函数延迟求值，避免模块加载时 t() 在 initI18n() 之前执行
+function getMcpReconnectPromptMessage(): string {
+  return t("Claw.Errors.mcpReconnectRetryLater");
+}
+
+function isGuiMcpName(name: string): boolean {
+  return name.trim().toLowerCase() === GUI_MCP_NAME;
+}
+const NUWAX_MCP_INIT_POLICY_DEFAULT: NonNullable<
+  PromptOptions["mcpInitPolicy"]
+> = "non_blocking";
+const NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT = 500;
+
 interface AcpSession {
   id: string;
   title?: string;
   acpSessionId?: string;
   createdAt: number;
   status: AcpSessionStatus;
+  mcpServerCount?: number;
   projectId?: string;
   lastActivity?: number;
   openLongMemory?: boolean; // 记忆开关，用于事件处理器判断
@@ -88,6 +134,12 @@ export class AcpEngine extends EventEmitter {
   private isolatedHome: string | null = null;
   /** 🔧 FIX: Store cleanup function to properly dispose of event listeners */
   private processCleanup: (() => void) | null = null;
+  /** Sandbox resource cleanup (temp profiles, etc.) */
+  private sandboxCleanup: (() => void) | null = null;
+  /** Terminal manager for ACP terminal/* methods (per-command sandboxing) */
+  private terminalManager: AcpTerminalManager | null = null;
+  /** Stored sandbox config for use in createSession (MCP Bash injection) */
+  private storedSandboxConfig: SandboxProcessConfig | null = null;
   private sessions = new Map<string, AcpSession>();
   private pendingPermissions = new Map<
     string,
@@ -98,6 +150,8 @@ export class AcpEngine extends EventEmitter {
   >();
   private activePromptSessions = new Set<string>();
   private activePromptRejects = new Map<string, (reason: Error) => void>();
+  private strictPermissionSnapshotLoggedSessions = new Set<string>();
+  private static readonly MAX_SNAPSHOT_LOGGED_SESSIONS = 500;
   private logTag: string;
 
   private readonly _engineName: "claude-code" | "nuwaxcode";
@@ -127,6 +181,11 @@ export class AcpEngine extends EventEmitter {
     return this.config;
   }
 
+  /** The sandbox strictness mode used when this engine was initialized */
+  get sandboxMode(): string {
+    return this.storedSandboxConfig?.mode ?? "compat";
+  }
+
   /**
    * 更新引擎配置（复用预热引擎时调用，确保 mcpServers 等与本请求的 effectiveConfig 一致，
    * 否则 createSession 会使用 init 时的旧 MCP 配置，导致动态 context_servers 不生效）。
@@ -139,6 +198,178 @@ export class AcpEngine extends EventEmitter {
     return this.activePromptSessions.size;
   }
 
+  private toErrorMessage(error: unknown): string {
+    return error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null
+        ? safeStringify(error)
+        : String(error);
+  }
+
+  /**
+   * 根据错误 message 判断是否为用户取消 / 中止类（启发式，兼容历史英文与其它来源文案）。
+   * 用户主动 abort 时优先使用 {@link createSessionCancelledError}，其 `code` 为
+   * {@link ACP_SESSION_CANCELLED_ERROR_CODE}，由 {@link isPromptCancellation} 优先识别。
+   */
+  private isPromptCancellationError(errorMsg: string): boolean {
+    const lower = errorMsg.toLowerCase();
+    return (
+      lower.includes("session is terminating") ||
+      lower.includes("abort") ||
+      lower.includes("cancel") ||
+      errorMsg.includes("Session cancelled")
+    );
+  }
+
+  /**
+   * 判断 prompt 失败是否属于「取消」而非可重试的 MCP 波动。
+   * 先检查 {@link ACP_SESSION_CANCELLED_ERROR_CODE}，再回退到 message 启发式。
+   */
+  private isPromptCancellation(error: unknown): boolean {
+    if (
+      error !== null &&
+      typeof error === "object" &&
+      (error as { code?: unknown }).code === ACP_SESSION_CANCELLED_ERROR_CODE
+    ) {
+      return true;
+    }
+    return this.isPromptCancellationError(this.toErrorMessage(error));
+  }
+
+  /**
+   * 用户取消会话时 reject 用的 Error：`message` 随主进程当前语言，`code` 固定。
+   */
+  private createSessionCancelledError(): Error {
+    const err = new Error("Session cancelled"); // 这个不要走 i18n
+    Object.assign(err, { code: ACP_SESSION_CANCELLED_ERROR_CODE });
+    return err;
+  }
+
+  private isMcpReconnectErrorMessage(errorMsg: string): boolean {
+    const lower = errorMsg.toLowerCase();
+    return (
+      (lower.includes("transport error") &&
+        (lower.includes("sse stream disconnected") ||
+          lower.includes("typeerror: terminated"))) ||
+      lower.includes("sse stream disconnected") ||
+      lower.includes("typeerror: terminated") ||
+      lower.includes("mcp session reconnected") ||
+      lower.includes("connection terminated") ||
+      lower.includes("stream disconnected")
+    );
+  }
+
+  private isMcpReconnectFailure(errorMsg: string): boolean {
+    if (this.engineName !== "nuwaxcode") return false;
+    return (
+      this.isMcpReconnectErrorMessage(errorMsg) ||
+      isMcpReconnectWindowActive(this.acpProcess, MCP_RECONNECT_WINDOW_MS)
+    );
+  }
+
+  private buildPromptMeta(
+    opts?: PromptOptions,
+  ): Record<string, unknown> | undefined {
+    const meta: Record<string, unknown> = {};
+    if (opts?.messageID) {
+      meta.requestId = opts.messageID;
+      meta.request_id = opts.messageID;
+    }
+    if (this.engineName === "nuwaxcode") {
+      const policy = opts?.mcpInitPolicy ?? NUWAX_MCP_INIT_POLICY_DEFAULT;
+      if (policy) {
+        meta.mcpInitPolicy = policy;
+      }
+      const timeoutMs =
+        opts?.mcpInitTimeoutMs ?? NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT;
+      if (
+        typeof timeoutMs === "number" &&
+        Number.isFinite(timeoutMs) &&
+        timeoutMs >= 0
+      ) {
+        meta.mcpInitTimeoutMs = Math.floor(timeoutMs);
+      }
+    }
+    return Object.keys(meta).length > 0 ? meta : undefined;
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
+  }
+
+  private getEnabledContextServerNames(
+    contextServers?: Record<string, { enabled?: boolean } | undefined>,
+  ): string[] {
+    if (!contextServers) return [];
+    return Object.keys(contextServers).filter(
+      (name) => contextServers[name]?.enabled !== false,
+    );
+  }
+
+  private shouldDelayCompatMcpWarmup(params: {
+    isNewSession: boolean;
+    mcpServerCount: number;
+    contextServerCount: number;
+  }): boolean {
+    if (!params.isNewSession) return false;
+    if (this.engineName !== "claude-code") return false;
+    if (this.storedSandboxConfig?.enabled !== true) return false;
+    if (this.storedSandboxConfig.mode !== "compat") return false;
+    if (params.mcpServerCount <= 0) return false;
+    if (params.contextServerCount <= 0) return false;
+    return true;
+  }
+
+  private async waitForCompatMcpWarmupIfNeeded(params: {
+    sessionId: string;
+    requestId?: string;
+    isNewSession: boolean;
+    mcpServerCount: number;
+    contextServerNames: string[];
+  }): Promise<void> {
+    const shouldWait = this.shouldDelayCompatMcpWarmup({
+      isNewSession: params.isNewSession,
+      mcpServerCount: params.mcpServerCount,
+      contextServerCount: params.contextServerNames.length,
+    });
+
+    log.debug(`${this.logTag} [DEBUG] Compat MCP warmup decision`, {
+      sessionId: params.sessionId,
+      requestId: params.requestId,
+      shouldWait,
+      sandboxEnabled: this.storedSandboxConfig?.enabled === true,
+      sandboxMode: this.storedSandboxConfig?.mode ?? "(none)",
+      mcpServerCount: params.mcpServerCount,
+      contextServerNames: params.contextServerNames,
+      waitMs: shouldWait ? COMPAT_MCP_WARMUP_DELAY_MS : 0,
+    });
+
+    if (!shouldWait) return;
+
+    const startedAt = Date.now();
+    log.debug(`${this.logTag} [DEBUG] Compat MCP warmup wait start`, {
+      sessionId: params.sessionId,
+      requestId: params.requestId,
+      waitMs: COMPAT_MCP_WARMUP_DELAY_MS,
+    });
+    await this.sleep(COMPAT_MCP_WARMUP_DELAY_MS);
+    log.debug(`${this.logTag} [DEBUG] Compat MCP warmup wait done`, {
+      sessionId: params.sessionId,
+      requestId: params.requestId,
+      waitMs: Date.now() - startedAt,
+    });
+  }
+
+  private isStrictSandboxActiveForNuwaxcode(): boolean {
+    return (
+      this.engineName === "nuwaxcode" &&
+      this.storedSandboxConfig?.enabled === true &&
+      this.storedSandboxConfig.mode === "strict"
+    );
+  }
+
   /** Get the PID of the underlying ACP process (for process registry) */
   getProcessPid(): number | undefined {
     return this.acpProcess?.pid;
@@ -147,12 +378,14 @@ export class AcpEngine extends EventEmitter {
   // === Lifecycle ===
 
   async init(config: AgentConfig): Promise<boolean> {
+    const timer = perfEmitter.start();
+    firstTokenTrace.trace("acp.init.start", { engine: this.engineName });
     this.config = config;
     const envModel = config.env?.OPENCODE_MODEL || config.env?.ANTHROPIC_MODEL;
-    log.info(`${this.logTag} 🚀 初始化配置`, {
+    log.info(`${this.logTag} 🚀 Init config`, {
       engine: this.engineName,
-      config_model: config.model || "未设置",
-      env_model: envModel || "未设置",
+      config_model: config.model || "(not set)",
+      env_model: envModel || "(not set)",
       baseUrl: config.baseUrl || "(default)",
       apiKey_set: !!config.apiKey,
       workspaceDir: config.workspaceDir,
@@ -160,8 +393,7 @@ export class AcpEngine extends EventEmitter {
       mcpServers: config.mcpServers ? Object.keys(config.mcpServers) : [],
     });
     try {
-      // Build ACP client handler (callbacks from agent → client)
-      const clientHandler = this.buildClientHandler();
+      const configTimer = perfEmitter.start();
 
       // Resolve binary path and args for the engine type
       const { binPath, binArgs, isNative } = resolveAcpBinary(this.engineName);
@@ -170,13 +402,15 @@ export class AcpEngine extends EventEmitter {
       const spawnEnv = { ...(config.env || {}) };
       if (this.engineName === "nuwaxcode") {
         const configObj: Record<string, unknown> = {};
+        const isWarmupProcess = spawnEnv.NUWAX_AGENT_WARMUP === "1";
 
-        // 1. MCP servers injection
+        // A/B test mode: inject MCP into OPENCODE_CONFIG_CONTENT again.
+        // This restores legacy dual-path injection (static config + ACP newSession).
+        // NOTE: warmup 进程也必须注入 MCP，否则复用 warmup 后会出现 MCP.tools() 为空。
         if (config.mcpServers && Object.keys(config.mcpServers).length > 0) {
           const mcpConfig: Record<string, unknown> = {};
           for (const [name, srv] of Object.entries(config.mcpServers)) {
             if ("url" in srv && srv.url) {
-              // URL 类型（来自 PersistentMcpBridge）
               const urlSrv = srv as { url: string; type?: string };
               mcpConfig[name] = {
                 type: urlSrv.type === "sse" ? "sse" : "streamable-http",
@@ -184,7 +418,6 @@ export class AcpEngine extends EventEmitter {
                 enabled: true,
               };
             } else if ("command" in srv) {
-              // stdio 类型（降级）
               const stdioSrv = srv as {
                 command: string;
                 args?: string[];
@@ -201,7 +434,7 @@ export class AcpEngine extends EventEmitter {
           configObj.mcp = mcpConfig;
         }
 
-        // 2. Permission bypass (question: deny to avoid interactive prompts)
+        // 1. Permission bypass (question: deny to avoid interactive prompts)
         configObj.permission = {
           edit: "allow",
           bash: "allow",
@@ -216,21 +449,205 @@ export class AcpEngine extends EventEmitter {
         log.info(
           `${this.logTag} 🔌 nuwaxcode config 注入 (OPENCODE_CONFIG_CONTENT)`,
           {
+            mcp_injection: isWarmupProcess
+              ? "enabled (legacy dual-path for A/B, warmup process)"
+              : "enabled (legacy dual-path for A/B)",
             mcp_servers: configObj.mcp
               ? Object.keys(configObj.mcp as Record<string, unknown>)
               : [],
-            permission: "all allow",
+            permission: {
+              edit: "allow",
+              bash: "allow",
+              webfetch: "allow",
+              doom_loop: "allow",
+              external_directory: "allow",
+              question: "deny",
+            },
             content: configContent,
           },
         );
       }
 
       // Spawn ACP binary and create ClientSideConnection
+      configTimer.end("acp.init.config", { engine: this.engineName });
+
+      // Resolve sandbox policy for process-level wrapping
+      let sandboxConfig: SandboxProcessConfig | undefined;
+      try {
+        const policy = getSandboxPolicy();
+        if (policy.enabled) {
+          const resolved = await resolveSandboxType(policy);
+          if (resolved.type !== "none") {
+            sandboxConfig = {
+              enabled: true,
+              type: resolved.type,
+              mode: policy.mode,
+              autoFallback: policy.autoFallback,
+              projectWorkspaceDir: config.workspaceDir,
+              networkEnabled: true, // 引擎需要网络访问（API 调用）
+              fallback: "degrade_to_off",
+              linuxBwrapPath: getBundledLinuxBwrapPath() ?? undefined,
+              windowsSandboxHelperPath:
+                getBundledWindowsSandboxHelperPath() ?? undefined,
+              windowsSandboxMode: policy.windowsMode,
+            };
+            log.info(`${this.logTag} Sandbox config resolved:`, {
+              type: resolved.type,
+              mode: policy.mode,
+              autoFallback: policy.autoFallback,
+              degraded: resolved.degraded,
+            });
+          }
+        }
+      } catch (e) {
+        if (
+          e instanceof SandboxError &&
+          e.code === SandboxErrorCode.SANDBOX_UNAVAILABLE
+        ) {
+          throw e;
+        }
+        log.warn(
+          `${this.logTag} Sandbox policy parse failed, running without sandbox:`,
+          e,
+        );
+      }
+
+      // Per-command sandboxing for nuwaxcode:
+      // Inject sandbox config into OPENCODE_CONFIG_CONTENT so nuwaxcode (opencode) can
+      // self-sandbox individual commands. Covers all sandbox types (Windows, macOS seatbelt,
+      // Linux bwrap). Must happen AFTER sandboxConfig is resolved.
+      //
+      // NOTE: Actual enforcement depends on the nuwaxcode/opencode binary reading and
+      // honoring sandbox_mode, writable_roots, and permission.external_directory.
+      // If opencode does not support these fields, file write restrictions will not be
+      // enforced for nuwaxcode — this requires corresponding changes in the opencode binary.
+      if (
+        sandboxConfig?.enabled &&
+        sandboxConfig.type !== "none" &&
+        this.engineName === "nuwaxcode"
+      ) {
+        try {
+          const existingConfig = JSON.parse(
+            spawnEnv.OPENCODE_CONFIG_CONTENT as string,
+          ) as Record<string, unknown>;
+          const effectiveMode = sandboxConfig.mode ?? "compat";
+          const sandboxObj: Record<string, unknown> = {
+            mode: sandboxConfig.windowsSandboxMode ?? "workspace-write",
+            network_enabled: true, // engine always needs network (API calls)
+            sandbox_mode: effectiveMode, // strict/compat/permissive
+            writable_roots: sandboxConfig.projectWorkspaceDir
+              ? [sandboxConfig.projectWorkspaceDir]
+              : [config.workspaceDir],
+          };
+          // Only set helper_path on Windows where the helper exe exists
+          if (sandboxConfig.windowsSandboxHelperPath) {
+            sandboxObj.helper_path = sandboxConfig.windowsSandboxHelperPath;
+          }
+          existingConfig.sandbox = sandboxObj;
+
+          // In strict mode, deny external_directory writes
+          if (effectiveMode === "strict") {
+            const perm = existingConfig.permission as
+              | Record<string, string>
+              | undefined;
+            if (perm) {
+              perm.external_directory = "deny";
+            }
+          }
+
+          spawnEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify(existingConfig);
+          log.info(
+            `${this.logTag} per-command sandbox config injected`,
+            existingConfig.sandbox,
+          );
+        } catch (e) {
+          log.warn(
+            `${this.logTag} failed to inject sandbox config into OPENCODE_CONFIG_CONTENT:`,
+            e,
+          );
+        }
+      }
+
+      // GUI MCP (gui-agent) and sandbox are mutually exclusive for now.
+      // Remove gui-agent from legacy OPENCODE_CONFIG_CONTENT injection path
+      // when sandbox is enabled, so nuwaxcode won't bootstrap GUI MCP.
+      if (
+        this.engineName === "nuwaxcode" &&
+        sandboxConfig?.enabled &&
+        spawnEnv.OPENCODE_CONFIG_CONTENT
+      ) {
+        try {
+          const injectedConfig = JSON.parse(
+            spawnEnv.OPENCODE_CONFIG_CONTENT,
+          ) as {
+            mcp?: Record<string, unknown>;
+          };
+          if (injectedConfig.mcp) {
+            let removed = 0;
+            for (const key of Object.keys(injectedConfig.mcp)) {
+              if (isGuiMcpName(key)) {
+                delete injectedConfig.mcp[key];
+                removed += 1;
+              }
+            }
+            if (removed > 0) {
+              spawnEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify(injectedConfig);
+              log.warn(
+                `${this.logTag} Removed gui-agent MCP from OPENCODE_CONFIG_CONTENT because sandbox is enabled`,
+                { removed },
+              );
+            }
+          }
+        } catch (e) {
+          log.warn(
+            `${this.logTag} Failed to enforce gui-agent/sandbox mutual exclusion in OPENCODE_CONFIG_CONTENT`,
+            e,
+          );
+        }
+      }
+
+      // Create Terminal Manager for per-command sandboxing via ACP Terminal API.
+      // claude-code-acp-ts uses terminal/create for bash execution.
+      // On Windows, this routes through nuwax-sandbox-helper.exe run.
+      // On macOS/Linux, commands are executed directly.
+      if (
+        sandboxConfig?.enabled &&
+        sandboxConfig.type === "windows-sandbox" &&
+        sandboxConfig.windowsSandboxHelperPath
+      ) {
+        this.terminalManager = new AcpTerminalManager({
+          windowsSandboxHelperPath: sandboxConfig.windowsSandboxHelperPath,
+          windowsSandboxMode: sandboxConfig.windowsSandboxMode,
+          networkEnabled: sandboxConfig.networkEnabled ?? true,
+          writablePaths: sandboxConfig.projectWorkspaceDir
+            ? [sandboxConfig.projectWorkspaceDir]
+            : [],
+          mode: sandboxConfig.mode,
+        });
+        log.info(
+          `${this.logTag} Terminal manager initialized (Windows sandbox)`,
+        );
+      } else {
+        this.terminalManager = new AcpTerminalManager();
+        log.info(
+          `${this.logTag} Terminal manager initialized (direct execution)`,
+        );
+      }
+
+      // Store sandbox config for use in createSession (MCP Bash injection)
+      this.storedSandboxConfig = sandboxConfig ?? null;
+
+      // Build ACP client handler AFTER terminalManager is initialized
+      // so that getClientHandlers() spread includes terminal methods.
+      const clientHandler = this.buildClientHandler();
+
+      const spawnTimer = perfEmitter.start();
       const {
         connection,
         process: proc,
         isolatedHome,
         cleanup,
+        sandboxCleanup: acpSandboxCleanup,
       } = await createAcpConnection(
         {
           binPath,
@@ -240,17 +657,22 @@ export class AcpEngine extends EventEmitter {
           apiKey: config.apiKey,
           baseUrl: config.baseUrl,
           model: config.model,
+          apiProtocol: config.apiProtocol,
           env: spawnEnv,
           engineType: this.engineName,
           purpose: config.purpose ?? "engine",
+          sandbox: sandboxConfig,
         },
         clientHandler,
       );
+
+      spawnTimer.end("acp.init.spawn", { engine: this.engineName });
 
       this.acpConnection = connection;
       this.acpProcess = proc;
       this.isolatedHome = isolatedHome;
       this.processCleanup = cleanup; // 🔧 FIX: Store cleanup function
+      this.sandboxCleanup = acpSandboxCleanup ?? null;
 
       // Handle process exit
       proc.on("exit", (code, signal) => {
@@ -284,21 +706,41 @@ export class AcpEngine extends EventEmitter {
       });
 
       // Initialize ACP protocol handshake
+      const handshakeTimer = perfEmitter.start();
       const acp = await loadAcpSdk();
       const initResult = await connection.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
-        clientCapabilities: {},
+        clientCapabilities: {
+          terminal: true, // Enable ACP Terminal API (terminal/create, etc.)
+        },
       });
+
+      handshakeTimer.end("acp.init.handshake", { engine: this.engineName });
 
       log.info(`${this.logTag} ACP initialized`, {
         protocolVersion: initResult.protocolVersion,
+        agentCapabilities: initResult.agentCapabilities,
       });
 
       this._ready = true;
       this.emit("ready");
+      timer.end("acp.init.total", { engine: this.engineName });
+      firstTokenTrace.trace("acp.init.ready", { engine: this.engineName });
       return true;
     } catch (error) {
       log.error(`${this.logTag} Init failed:`, error);
+      firstTokenTrace.trace(
+        "acp.init.failed",
+        { engine: this.engineName },
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : typeof error === "object"
+                ? safeStringify(error)
+                : String(error),
+        },
+      );
       // Ensure spawned process is cleaned up on init failure
       await this.destroy().catch(() => {});
       this.emit(
@@ -374,17 +816,40 @@ export class AcpEngine extends EventEmitter {
     if (this.isolatedHome) {
       try {
         fs.rmSync(this.isolatedHome, { recursive: true, force: true });
-        log.info(`${this.logTag} 🧹 已清理隔离目录: ${this.isolatedHome}`);
+        log.info(
+          `${this.logTag} 🧹 Cleaned isolated directory: ${this.isolatedHome}`,
+        );
       } catch (e) {
-        log.warn(`${this.logTag} 隔离目录清理失败:`, e);
+        log.warn(`${this.logTag} Isolated directory cleanup failed:`, e);
       }
       this.isolatedHome = null;
+    }
+
+    // Cleanup sandbox resources (temp seatbelt profiles, etc.)
+    if (this.sandboxCleanup) {
+      try {
+        this.sandboxCleanup();
+      } catch (e) {
+        log.warn(`${this.logTag} Sandbox resource cleanup failed:`, e);
+      }
+      this.sandboxCleanup = null;
+    }
+
+    // Cleanup terminal manager (kill running processes, release resources)
+    if (this.terminalManager) {
+      try {
+        await this.terminalManager.releaseAll();
+      } catch (e) {
+        log.warn(`${this.logTag} Terminal manager cleanup failed:`, e);
+      }
+      this.terminalManager = null;
     }
 
     this.acpConnection = null;
     this.sessions.clear();
     this.activePromptSessions.clear();
     this.activePromptRejects.clear();
+    this.strictPermissionSnapshotLoggedSessions.clear();
     this.config = null;
     this._ready = false;
     log.info(`${this.logTag} Destroyed`);
@@ -407,6 +872,7 @@ export class AcpEngine extends EventEmitter {
       }
     >;
     systemPrompt?: string;
+    requestId?: string;
   }): Promise<SdkSession> {
     if (!this.acpConnection || !this.config) {
       throw new Error("AcpEngine not initialized");
@@ -464,23 +930,270 @@ export class AcpEngine extends EventEmitter {
       }
     }
 
+    const sandboxEnabled = this.storedSandboxConfig?.enabled === true;
+
+    // GUI MCP (gui-agent) and sandbox are mutually exclusive for now.
+    // Drop gui-agent from both global and per-request MCP inputs when sandbox is on.
+    if (sandboxEnabled) {
+      const before = mcpServers.length;
+      const filtered = mcpServers.filter(
+        (server) => !isGuiMcpName(server.name),
+      );
+      const removed = before - filtered.length;
+      if (removed > 0) {
+        mcpServers.length = 0;
+        mcpServers.push(...filtered);
+        log.warn(
+          `${this.logTag} Removed gui-agent MCP from session request because sandbox is enabled`,
+          { removed },
+        );
+      }
+    }
+
+    // [临时测试代码 - 正式发布前将 .env.production 中 INJECT_GUI_MCP 设为 false]
+    // 通过 FEATURES.INJECT_GUI_MCP 控制是否注入 GUI Agent MCP（由 .env.development/.env.production 在运行时决定）
+    // 用于本地开发/打包测试 GUI 桌面自动化功能，正式发布时由服务器下发 context_servers
+    // macOS/Linux：内嵌 agent-gui-server → getGuiAgentServerUrl()
+    // Windows：独立 windows-mcp 子进程（uv）→ getWindowsMcpUrl()；getGuiAgentServerUrl() 在 Win 上恒为 null
+    if (
+      FEATURES.INJECT_GUI_MCP &&
+      !sandboxEnabled &&
+      !mcpServers.some((m) => isGuiMcpName(m.name))
+    ) {
+      const guiMcpUrl = isWindows()
+        ? getWindowsMcpUrl()
+        : getGuiAgentServerUrl();
+      if (guiMcpUrl) {
+        mcpServers.push({
+          name: GUI_MCP_NAME,
+          url: guiMcpUrl,
+          headers: [],
+          type: "http",
+        });
+        log.info(`${this.logTag} 🔧 Injecting GUI Agent MCP: ${guiMcpUrl}`);
+      }
+    } else if (FEATURES.INJECT_GUI_MCP && sandboxEnabled) {
+      log.info(
+        `${this.logTag} Skip GUI Agent MCP injection because sandbox is enabled`,
+      );
+    }
+
+    // 3. Sandboxed Bash MCP — replace built-in Bash with sandboxed version on Windows
+    // Disables Claude Code's internal Bash (which runs unsandboxed) and provides
+    // an MCP "Bash" tool that routes all commands through nuwax-sandbox-helper.exe run.
+    let sandboxedBashInjected = false;
+    log.info(
+      `${this.logTag} 🔍 Sandbox check: engine=${this.engineName}, sandboxEnabled=${this.storedSandboxConfig?.enabled}, type=${this.storedSandboxConfig?.type}, helperPath=${this.storedSandboxConfig?.windowsSandboxHelperPath ?? "(none)"}`,
+    );
+    if (
+      this.storedSandboxConfig?.enabled &&
+      this.storedSandboxConfig.type === "windows-sandbox" &&
+      this.storedSandboxConfig.windowsSandboxHelperPath
+    ) {
+      const nodePath = process.execPath; // Electron's Node
+      // Use getResourcesPath() for both dev and packaged resolution.
+      // Script is bundled at resources/sandboxed-bash-mcp/sandboxed-bash-mcp.mjs
+      const scriptPath = path.join(
+        getResourcesPath(),
+        "sandboxed-bash-mcp",
+        "sandboxed-bash-mcp.mjs",
+      );
+      const resolvedScriptPath = path.resolve(scriptPath);
+      if (!fs.existsSync(resolvedScriptPath)) {
+        log.warn(
+          `${this.logTag} Sandboxed Bash MCP script missing, skip injection`,
+          { scriptPath: resolvedScriptPath },
+        );
+      } else {
+        // Build PATH with bundled tools (node, git, etc.) so sandboxed shell
+        // can find them even under a restricted token with minimal PATH.
+        const appEnv = getAppEnv({ includeSystemPath: false });
+        const gitBashPath = getBundledGitBashPath();
+
+        mcpServers.push({
+          name: "sandboxed-bash",
+          command: nodePath,
+          args: [resolvedScriptPath],
+          env: [
+            { name: "ELECTRON_RUN_AS_NODE", value: "1" },
+            {
+              name: "NUWAX_SANDBOX_HELPER_PATH",
+              value: this.storedSandboxConfig.windowsSandboxHelperPath,
+            },
+            {
+              name: "NUWAX_SANDBOX_MODE",
+              value:
+                this.storedSandboxConfig.windowsSandboxMode ??
+                "workspace-write",
+            },
+            {
+              name: "NUWAX_SANDBOX_NETWORK_ENABLED",
+              value:
+                (this.storedSandboxConfig.networkEnabled ?? true) ? "1" : "0",
+            },
+            {
+              name: "NUWAX_SANDBOX_WRITABLE_ROOTS",
+              value: JSON.stringify(
+                this.storedSandboxConfig.projectWorkspaceDir
+                  ? [this.storedSandboxConfig.projectWorkspaceDir]
+                  : [],
+              ),
+            },
+            // Pass bundled tools PATH for sandboxed shell execution
+            ...(appEnv.PATH
+              ? [{ name: "NUWAX_SANDBOX_PATH", value: appEnv.PATH }]
+              : []),
+            // Pass Git Bash path so MCP script can use bash instead of PowerShell
+            ...(gitBashPath
+              ? [{ name: "NUWAX_SANDBOX_GIT_BASH_PATH", value: gitBashPath }]
+              : []),
+          ],
+        });
+        sandboxedBashInjected = true;
+        log.info(
+          `${this.logTag} 🔒 Sandboxed Bash MCP injected (Windows, mode=${this.storedSandboxConfig.windowsSandboxMode ?? "workspace-write"})`,
+        );
+      }
+    }
+
+    // Sandbox mode — shared by sandboxed-fs MCP injection and disallowedTools below.
+    const sandboxMode = this.storedSandboxConfig?.mode ?? "compat";
+    const isStrictOrCompat = sandboxMode !== "permissive";
+
+    // 4. Sandboxed FS MCP — replace built-in Write/Edit with sandboxed versions
+    // Cross-platform (Windows, macOS seatbelt, Linux bwrap). Pure Node.js — no helper needed.
+    // Only injected in strict and compat modes. Permissive mode leaves built-in tools enabled.
+    // - strict:  only workspace + TEMP/TMP
+    // - compat:  workspace + TEMP/TMP + APPDATA/LOCALAPPDATA (Windows) / XDG dirs (macOS/Linux)
+    /** True only after sandboxed-fs MCP is successfully pushed into `mcpServers`. */
+    let sandboxedFsInjected = false;
+    if (
+      this.storedSandboxConfig?.enabled &&
+      this.storedSandboxConfig.type !== "none" &&
+      isStrictOrCompat
+    ) {
+      const nodePath = process.execPath;
+      const fsScriptPath = path.join(
+        getResourcesPath(),
+        "sandboxed-fs-mcp",
+        "sandboxed-fs-mcp.mjs",
+      );
+      const resolvedFsScriptPath = path.resolve(fsScriptPath);
+      if (!fs.existsSync(resolvedFsScriptPath)) {
+        log.warn(
+          `${this.logTag} Sandboxed FS MCP script missing, skip injection`,
+          { scriptPath: resolvedFsScriptPath, sandboxMode },
+        );
+      } else {
+        mcpServers.push({
+          name: "sandboxed-fs",
+          command: nodePath,
+          args: [resolvedFsScriptPath],
+          env: [
+            { name: "ELECTRON_RUN_AS_NODE", value: "1" },
+            {
+              name: "NUWAX_SANDBOX_MODE",
+              value: sandboxMode,
+            },
+            {
+              name: "NUWAX_SANDBOX_WRITABLE_ROOTS",
+              value: JSON.stringify(
+                this.storedSandboxConfig.projectWorkspaceDir
+                  ? [this.storedSandboxConfig.projectWorkspaceDir]
+                  : [],
+              ),
+            },
+            // Pass TEMP/TMP explicitly for temp file validation
+            ...(process.env.TEMP
+              ? [{ name: "TEMP", value: process.env.TEMP }]
+              : []),
+            ...(process.env.TMP
+              ? [{ name: "TMP", value: process.env.TMP }]
+              : []),
+            // Pass APPDATA/LOCALAPPDATA for compat mode
+            ...(process.env.APPDATA
+              ? [{ name: "APPDATA", value: process.env.APPDATA }]
+              : []),
+            ...(process.env.LOCALAPPDATA
+              ? [{ name: "LOCALAPPDATA", value: process.env.LOCALAPPDATA }]
+              : []),
+          ],
+        });
+        sandboxedFsInjected = true;
+        log.info(
+          `${this.logTag} 🔒 Sandboxed FS MCP injected (cross-platform, mode=${sandboxMode})`,
+        );
+      }
+    }
+
     const sessionCwd = opts?.cwd || this.config.workspaceDir;
 
     // Build _meta with systemPrompt if provided (skip if empty or whitespace only)
     const systemPromptTrimmed = opts?.systemPrompt?.trim();
-    const _meta = systemPromptTrimmed
-      ? {
-          systemPrompt: {
-            append: systemPromptTrimmed,
-          },
+    const requestId = opts?.requestId;
+    const isSandboxed =
+      this.storedSandboxConfig?.enabled === true &&
+      this.storedSandboxConfig.type !== "none";
+
+    const _meta: Record<string, unknown> | undefined = (() => {
+      const meta: Record<string, unknown> = {};
+      if (systemPromptTrimmed) {
+        meta.systemPrompt = { append: systemPromptTrimmed };
+      }
+      if (requestId) {
+        meta.requestId = requestId;
+        meta.request_id = requestId;
+      }
+      // Optionally disable built-in Claude Code tools when sandbox MCP replacements exist.
+      // claude-code-acp-ts reads _meta.claudeCode.options.disallowedTools and merges
+      // with its default disallowedTools (["AskUserQuestion"]).
+      // - Bash: disallowed only if sandboxed-bash MCP was injected (Windows + helper + script).
+      // - Write/Edit/NotebookEdit: in strict/compat, disallowed only if sandboxed-fs MCP
+      //   was injected; if the FS script is missing we keep built-ins so the session can still write.
+      // - Permissive mode: built-in Write/Edit/NotebookEdit stay available (no FS MCP injection).
+      if (isSandboxed) {
+        const disallowed: string[] = [];
+        // Bash: only list as disallowed when sandboxed-bash MCP was actually injected
+        // (Windows helper path). macOS/Linux rely on seatbelt/bwrap for shell, not this MCP.
+        if (sandboxedBashInjected) {
+          disallowed.push("Bash");
         }
-      : undefined;
+        // Write/Edit: only disable built-ins when sandboxed-fs MCP is present; otherwise
+        // the model would have no file-write path in strict/compat.
+        if (isStrictOrCompat) {
+          if (sandboxedFsInjected) {
+            disallowed.push("Write", "Edit", "NotebookEdit");
+          } else {
+            log.warn(
+              `${this.logTag} Sandboxed FS MCP unavailable, keep built-in Write/Edit tools`,
+            );
+          }
+        }
+        if (disallowed.length > 0) {
+          meta.claudeCode = {
+            options: {
+              disallowedTools: disallowed,
+            },
+          };
+        }
+      }
+      return Object.keys(meta).length > 0 ? meta : undefined;
+    })();
 
     const newSessionParams = {
       cwd: sessionCwd,
       mcpServers,
       _meta,
     };
+    firstTokenTrace.trace(
+      "acp.new_session.sent",
+      { projectId: opts?.title, engine: this.engineName, requestId },
+      {
+        cwd: sessionCwd,
+        mcpCount: mcpServers.length,
+        hasMetaRequestId: !!requestId,
+      },
+    );
     log.info(
       `${this.logTag} newSession: cwd=${sessionCwd}, mcpServers=${mcpServers.length}, hasSystemPrompt=${!!opts?.systemPrompt}`,
     );
@@ -489,19 +1202,29 @@ export class AcpEngine extends EventEmitter {
       systemPromptLength: systemPromptTrimmed?.length ?? 0,
       mcpServersJson: JSON.stringify(mcpServers, null, 2),
     });
-    const t0 = Date.now();
+    const timer = perfEmitter.start();
     let acpResult: { sessionId: string };
     try {
       acpResult = await this.acpConnection.newSession(newSessionParams);
     } catch (err) {
-      log.error(
-        `${this.logTag} ❌ ACP newSession 失败 (${Date.now() - t0}ms):`,
-        err,
-      );
+      log.error(`${this.logTag} ❌ ACP newSession failed:`, err);
       throw err;
     }
+    const createMs = timer.end("acp.session.create", {
+      mcpCount: mcpServers.length,
+    });
+
     log.info(
-      `${this.logTag} ✅ ACP newSession 完成 (${Date.now() - t0}ms), acpSessionId=${acpResult.sessionId}`,
+      `${this.logTag} ✅ ACP newSession 完成 (${createMs}ms), acpSessionId=${acpResult.sessionId}`,
+    );
+    firstTokenTrace.trace(
+      "acp.new_session.done",
+      {
+        sessionId: acpResult.sessionId,
+        projectId: opts?.title,
+        engine: this.engineName,
+      },
+      { createMs, mcpCount: mcpServers.length },
     );
 
     const sessionId = acpResult.sessionId;
@@ -511,6 +1234,7 @@ export class AcpEngine extends EventEmitter {
       acpSessionId: sessionId,
       createdAt: Date.now(),
       status: "idle",
+      mcpServerCount: mcpServers.length,
       lastActivity: Date.now(),
     };
     this.sessions.set(sessionId, session);
@@ -575,10 +1299,22 @@ export class AcpEngine extends EventEmitter {
 
       session.status = "terminating";
 
+      // 0. Kill any terminals associated with this session
+      if (this.terminalManager) {
+        try {
+          await this.terminalManager.releaseForSession(sessionId);
+        } catch (e) {
+          log.warn(
+            `${this.logTag} Terminal cleanup for session ${sessionId} failed:`,
+            e,
+          );
+        }
+      }
+
       // 1. Reject local prompt immediately for fast UX feedback.
       const reject = this.activePromptRejects.get(sessionId);
       if (reject) {
-        reject(new Error("Session cancelled"));
+        reject(this.createSessionCancelledError());
         this.activePromptRejects.delete(sessionId);
       }
 
@@ -635,6 +1371,7 @@ export class AcpEngine extends EventEmitter {
     parts: Array<{ type: string; text?: string; [key: string]: unknown }>,
     _opts?: PromptOptions,
   ): Promise<MessageWithParts> {
+    const timer = perfEmitter.start();
     if (!this.acpConnection || !this.config) {
       throw new Error("AcpEngine not initialized");
     }
@@ -665,13 +1402,54 @@ export class AcpEngine extends EventEmitter {
     session.status = "active";
     session.lastActivity = Date.now();
 
+    const waitTimer = perfEmitter.start();
+    timer.end("acp.prompt.prepare", { sessionId });
+
     this.emit("computer:promptStart", {
       sessionId,
       acpSessionId: session.acpSessionId,
       requestId: _opts?.messageID,
     });
+    firstTokenTrace.trace(
+      "acp.prompt.start_event",
+      {
+        requestId: _opts?.messageID,
+        sessionId,
+        projectId: session.projectId,
+        engine: this.engineName,
+      },
+      { acpSessionId: session.acpSessionId },
+    );
 
     let resultText = "";
+    const promptSentAt = Date.now();
+    let firstUpdateAt: number | undefined;
+    const onProgress = (message: UnifiedSessionMessage) => {
+      if (message.sessionId !== sessionId) return;
+      if (message.subType !== "agent_message_chunk") return;
+      if (firstUpdateAt !== undefined) return;
+      firstUpdateAt = Date.now();
+      firstTokenTrace.trace(
+        "acp.prompt.first_update",
+        {
+          requestId: _opts?.messageID,
+          sessionId,
+          projectId: session.projectId,
+          engine: this.engineName,
+        },
+        { latencyMs: firstUpdateAt - promptSentAt },
+      );
+      perfEmitter.duration(
+        "acp.prompt.sendToFirstUpdate",
+        firstUpdateAt - promptSentAt,
+        {
+          sessionId,
+        },
+      );
+      perfEmitter.point("acp.prompt.firstUpdate", { sessionId });
+    };
+    this.on("computer:progress", onProgress);
+
     try {
       log.info(`${this.logTag} Starting prompt`, {
         sessionId,
@@ -683,33 +1461,130 @@ export class AcpEngine extends EventEmitter {
       });
 
       const promptStartTime = Date.now();
-      log.info(`${this.logTag} 📤 ACP prompt 发送中...`);
+      perfEmitter.point("acp.prompt.sent", { sessionId });
+      log.info(`${this.logTag} 📤 ACP prompt sending...`);
+      firstTokenTrace.trace("acp.prompt.sent", {
+        requestId: _opts?.messageID,
+        sessionId,
+        projectId: session.projectId,
+        engine: this.engineName,
+      });
 
       const result = await new Promise<{ stopReason: string }>(
         (resolve, reject) => {
           this.activePromptRejects.set(sessionId, reject);
 
-          this.acpConnection!.prompt({
+          const promptParams = {
             sessionId: session.acpSessionId!,
             prompt: promptContent,
-          }).then(
-            (res) => {
-              log.info(
-                `${this.logTag} 📥 ACP prompt resolved (${Date.now() - promptStartTime}ms):`,
-                safeStringify(res),
-              );
-              resolve(res);
-            },
-            (err) => {
-              log.error(
-                `${this.logTag} 📥 ACP prompt rejected (${Date.now() - promptStartTime}ms):`,
-                err,
-              );
-              reject(err);
-            },
-          );
+            _meta: this.buildPromptMeta(_opts),
+          };
+          if (this.engineName === "nuwaxcode") {
+            log.info(`${this.logTag} acp.prompt.meta`, {
+              sessionId,
+              requestId: _opts?.messageID,
+              mcpInitPolicy: promptParams._meta?.mcpInitPolicy,
+              mcpInitTimeoutMs: promptParams._meta?.mcpInitTimeoutMs,
+            });
+          }
+
+          const runPromptWithRetry = async () => {
+            const maxAttempts = this.engineName === "nuwaxcode" ? 2 : 1;
+            let attempt = 1;
+            while (true) {
+              try {
+                const res = await this.acpConnection!.prompt(promptParams);
+                log.info(
+                  `${this.logTag} 📥 ACP prompt resolved (${Date.now() - promptStartTime}ms, attempt=${attempt}):`,
+                  safeStringify(res),
+                );
+                return res;
+              } catch (err) {
+                const errMsg = this.toErrorMessage(err);
+                const canRetry =
+                  attempt < maxAttempts &&
+                  !this.isPromptCancellation(err) &&
+                  this.isMcpReconnectFailure(errMsg);
+
+                if (!canRetry) {
+                  log.error(
+                    `${this.logTag} 📥 ACP prompt rejected (${Date.now() - promptStartTime}ms, attempt=${attempt}):`,
+                    err,
+                  );
+                  throw err;
+                }
+
+                const telemetry = getMcpTransportSnapshot(this.acpProcess);
+                log.warn(
+                  `${this.logTag} ⚠️ 检测到 MCP 重连窗口，自动重试 prompt（attempt=${attempt + 1}/${maxAttempts}）`,
+                  {
+                    sessionId,
+                    error: errMsg,
+                    telemetry,
+                  },
+                );
+                firstTokenTrace.trace(
+                  "acp.prompt.retry.mcp_reconnect",
+                  {
+                    requestId: _opts?.messageID,
+                    sessionId,
+                    projectId: session.projectId,
+                    engine: this.engineName,
+                  },
+                  {
+                    attempt,
+                    nextAttempt: attempt + 1,
+                    delayMs: MCP_RETRY_DELAY_MS,
+                    error: errMsg,
+                    telemetry,
+                  },
+                );
+                await this.sleep(MCP_RETRY_DELAY_MS);
+                attempt += 1;
+              }
+            }
+          };
+
+          runPromptWithRetry().then(resolve).catch(reject);
         },
       );
+
+      const completedAt = Date.now();
+      waitTimer.end("acp.prompt.wait", {
+        sessionId,
+        stopReason: result.stopReason,
+      });
+      perfEmitter.point("acp.prompt.completed", {
+        sessionId,
+        stopReason: result.stopReason,
+      });
+      firstTokenTrace.trace(
+        "acp.prompt.completed",
+        {
+          requestId: _opts?.messageID,
+          sessionId,
+          projectId: session.projectId,
+          engine: this.engineName,
+        },
+        {
+          stopReason: result.stopReason,
+          totalMs: completedAt - promptSentAt,
+          firstUpdateToDoneMs:
+            firstUpdateAt !== undefined
+              ? completedAt - firstUpdateAt
+              : undefined,
+        },
+      );
+      if (firstUpdateAt !== undefined) {
+        perfEmitter.duration(
+          "acp.prompt.firstUpdateToDone",
+          completedAt - firstUpdateAt,
+          {
+            sessionId,
+            stopReason: result.stopReason,
+          },
+        );
+      }
 
       log.info(`${this.logTag} Prompt completed`, {
         sessionId,
@@ -732,18 +1607,31 @@ export class AcpEngine extends EventEmitter {
       });
     } catch (error) {
       log.error(`${this.logTag} Prompt failed:`, error);
+      const errMsg = this.toErrorMessage(error);
+      const isMcpReconnect = this.isMcpReconnectFailure(errMsg);
+      const promptEndReason = isMcpReconnect ? "mcp_reconnecting" : "error";
+      const promptEndDescription = isMcpReconnect
+        ? getMcpReconnectPromptMessage()
+        : errMsg;
+      firstTokenTrace.trace(
+        "acp.prompt.failed",
+        {
+          requestId: _opts?.messageID,
+          sessionId,
+          projectId: session.projectId,
+          engine: this.engineName,
+        },
+        {
+          error: errMsg,
+          reason: promptEndReason,
+        },
+      );
 
-      const errMsg =
-        error instanceof Error
-          ? error.message
-          : typeof error === "object" && error !== null
-            ? safeStringify(error)
-            : String(error);
       this.emit("computer:promptEnd", {
         sessionId,
         acpSessionId: session.acpSessionId,
-        reason: "error",
-        description: errMsg,
+        reason: promptEndReason,
+        description: promptEndDescription,
         openLongMemory: session.openLongMemory,
         memoryModel: session.memoryModel,
       });
@@ -751,8 +1639,10 @@ export class AcpEngine extends EventEmitter {
       this.emit("session.error", {
         sessionId,
         error: errMsg,
+        reason: promptEndReason,
       });
     } finally {
+      this.off("computer:progress", onProgress);
       this.activePromptSessions.delete(sessionId);
       this.activePromptRejects.delete(sessionId);
       // Always set idle: normal completion or after cancel (cancelOne may have set terminating).
@@ -874,6 +1764,13 @@ export class AcpEngine extends EventEmitter {
   async chat(
     request: ComputerChatRequest,
   ): Promise<HttpResult<ComputerChatResponse>> {
+    const timer = perfEmitter.start();
+    firstTokenTrace.trace("acp.chat.enter", {
+      requestId: request.request_id,
+      sessionId: request.session_id,
+      projectId: request.project_id,
+      engine: this.engineName,
+    });
     if (!this.acpConnection || !this.config) {
       return {
         code: "5000",
@@ -887,7 +1784,7 @@ export class AcpEngine extends EventEmitter {
     try {
       const envModel =
         this.config.env?.OPENCODE_MODEL || this.config.env?.ANTHROPIC_MODEL;
-      log.info(`${this.logTag} 📨 chat() 收到请求`, {
+      log.info(`${this.logTag} 📨 chat() request received`, {
         user_id: request.user_id,
         project_id: request.project_id,
         session_id: request.session_id,
@@ -896,8 +1793,8 @@ export class AcpEngine extends EventEmitter {
           safeStringify(redactForLog(request.agent_config)),
         ),
         model_provider: redactForLog(request.model_provider),
-        config_model: this.config.model || "未设置",
-        env_model: envModel || "未设置",
+        config_model: this.config.model || "(not set)",
+        env_model: envModel || "(not set)",
         baseUrl_set: !!this.config.baseUrl,
         apiKey_set: !!this.config.apiKey,
         env_keys: this.config.env ? Object.keys(this.config.env) : [],
@@ -945,6 +1842,7 @@ export class AcpEngine extends EventEmitter {
 
       // 1. Find existing session or create new
       let session: AcpSession | undefined;
+      let isNewSession = false;
 
       if (request.session_id) {
         session = this.sessions.get(request.session_id);
@@ -954,6 +1852,7 @@ export class AcpEngine extends EventEmitter {
       }
 
       if (!session) {
+        isNewSession = true;
         const projectId = request.project_id || `proj-${Date.now()}`;
         const projectDir = path.join(
           this.config.workspaceDir,
@@ -961,7 +1860,9 @@ export class AcpEngine extends EventEmitter {
           request.user_id,
           projectId,
         );
-        log.info(`${this.logTag} 📁 项目工作目录: ${projectDir}`);
+        log.info(`${this.logTag} 📁 Project workspace: ${projectDir}`);
+
+        // PERF: 会话创建阶段
 
         // context_servers 已由 ensureEngineForRequest() 同步到 proxy 聚合代理
         // (nuwax-mcp-stdio-proxy)，不再单独传给 createSession()，
@@ -972,7 +1873,7 @@ export class AcpEngine extends EventEmitter {
             (n) => servers[n]?.enabled !== false,
           );
           log.info(
-            `${this.logTag} 🔌 context_servers (已由 proxy 聚合): ${serverNames.join(", ") || "(无)"}`,
+            `${this.logTag} 🔌 context_servers (aggregated by proxy): ${serverNames.join(", ") || "(none)"}`,
           );
         }
 
@@ -981,10 +1882,46 @@ export class AcpEngine extends EventEmitter {
           cwd: projectDir,
           mcpServers: this.config.mcpServers,
           systemPrompt: request.system_prompt,
+          requestId: request.request_id,
         });
         session = this.sessions.get(newSession.id)!;
         session.projectId = request.project_id;
+        firstTokenTrace.trace(
+          "acp.chat.session_created",
+          {
+            requestId: request.request_id,
+            sessionId: session.id,
+            projectId: request.project_id,
+            engine: this.engineName,
+          },
+          { projectDir },
+        );
+      } else {
+        firstTokenTrace.trace("acp.chat.session_reused", {
+          requestId: request.request_id,
+          sessionId: session.id,
+          projectId: request.project_id,
+          engine: this.engineName,
+        });
       }
+
+      timer.end("acp.chat.sessionSetup", {
+        stage: "session_setup",
+        sessionId: session.id,
+        isNewSession,
+        engine: this.engineName,
+        model: this.config.model || envModel || "(not set)",
+      });
+      firstTokenTrace.trace(
+        "acp.chat.session_ready",
+        {
+          requestId: request.request_id,
+          sessionId: session.id,
+          projectId: request.project_id,
+          engine: this.engineName,
+        },
+        { isNewSession },
+      );
 
       // 2. Record user message to MemoryService
       // 获取纯净用户输入（仅使用 original_user_prompt，不回退到 prompt）
@@ -1042,6 +1979,7 @@ export class AcpEngine extends EventEmitter {
 
       // 3. Inject memory context into prompt
       let enhancedPrompt = request.prompt;
+      const memoryTimer = perfEmitter.start();
       if (memoryService.isInitialized() && enableMemory && pureUserPrompt) {
         try {
           // 使用纯净用户输入进行记忆搜索
@@ -1067,9 +2005,49 @@ ${memoryContext}
           log.warn(`${this.logTag} Failed to inject memory context:`, error);
         }
       }
+      memoryTimer.end("acp.chat.memoryInject", {
+        stage: "记忆注入",
+        enabled: enableMemory,
+      });
+
+      const contextServerNames = this.getEnabledContextServerNames(
+        request.agent_config?.context_servers as
+          | Record<string, { enabled?: boolean } | undefined>
+          | undefined,
+      );
+      await this.waitForCompatMcpWarmupIfNeeded({
+        sessionId: session.id,
+        requestId: request.request_id,
+        isNewSession,
+        mcpServerCount: session.mcpServerCount ?? 0,
+        contextServerNames,
+      });
 
       // 4. Async prompt
-      this.promptAsync(session.id, [{ type: "text", text: enhancedPrompt }]);
+      const promptOptions: PromptOptions = {
+        messageID: request.request_id,
+      };
+      if (this.engineName === "nuwaxcode") {
+        promptOptions.mcpInitPolicy = NUWAX_MCP_INIT_POLICY_DEFAULT;
+        promptOptions.mcpInitTimeoutMs = NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT;
+      }
+      this.promptAsync(session.id, [{ type: "text", text: enhancedPrompt }], {
+        ...promptOptions,
+      });
+      firstTokenTrace.trace("acp.prompt.dispatched", {
+        requestId: request.request_id,
+        sessionId: session.id,
+        projectId: request.project_id,
+        engine: this.engineName,
+      });
+
+      timer.end("acp.chat.total", {
+        stage: "total",
+        sessionId: session.id,
+        isNewSession,
+        engine: this.engineName,
+        model: this.config.model || "(not set)",
+      });
 
       // 5. Return HttpResult<ChatResponse>
       const chatResponse: ComputerChatResponse = {
@@ -1077,25 +2055,44 @@ ${memoryContext}
         session_id: session.id,
         error: null,
         request_id: request.request_id,
+        is_new_session: isNewSession,
       };
 
-      log.info(`${this.logTag} ✅ chat() 响应: session_id=${session.id}`);
+      log.info(`${this.logTag} ✅ chat() response: session_id=${session.id}`);
+      firstTokenTrace.trace(
+        "acp.chat.return",
+        {
+          requestId: request.request_id,
+          sessionId: session.id,
+          projectId: request.project_id,
+          engine: this.engineName,
+        },
+        { success: true },
+      );
 
       return {
         code: "0000",
-        message: "成功",
+        message: "success",
         data: chatResponse,
         tid: null,
         success: true,
       };
     } catch (error) {
-      const errorMsg =
-        error instanceof Error
-          ? error.message
-          : typeof error === "object" && error !== null
-            ? safeStringify(error)
-            : String(error);
-      log.error(`${this.logTag} ❌ chat() 失败: ${errorMsg}`);
+      const rawErrorMsg = this.toErrorMessage(error);
+      const errorMsg = this.isMcpReconnectFailure(rawErrorMsg)
+        ? getMcpReconnectPromptMessage()
+        : rawErrorMsg;
+      log.error(`${this.logTag} ❌ chat() failed: ${rawErrorMsg}`);
+      firstTokenTrace.trace(
+        "acp.chat.failed",
+        {
+          requestId: request.request_id,
+          sessionId: request.session_id,
+          projectId: request.project_id,
+          engine: this.engineName,
+        },
+        { error: rawErrorMsg, userMessage: errorMsg },
+      );
       return {
         code: "5000",
         message: errorMsg,
@@ -1109,6 +2106,11 @@ ${memoryContext}
   // === Internal: Build ACP Client Handler ===
 
   private buildClientHandler(): AcpClientHandler {
+    if (!this.terminalManager) {
+      log.warn(
+        `${this.logTag} ⚠️ buildClientHandler called with no terminalManager — terminal methods will be missing`,
+      );
+    }
     return {
       sessionUpdate: async (params: {
         sessionId: string;
@@ -1122,6 +2124,9 @@ ${memoryContext}
       ): Promise<AcpPermissionResponse> => {
         return this.handlePermissionRequest(params);
       },
+
+      // Terminal API handlers — delegated to AcpTerminalManager
+      ...(this.terminalManager?.getClientHandlers() ?? {}),
     };
   }
 
@@ -1203,6 +2208,106 @@ ${memoryContext}
 
       case "tool_call_update": {
         const u = update as AcpToolCallUpdate;
+
+        // Windows-only proactive strict guard for nuwaxcode.
+        // On Windows, the OS-level sandbox only restricts terminal sub-processes,
+        // not nuwaxcode's own file operations. nuwaxcode may execute writes
+        // without sending permission_request. Intercept tool_call_update events
+        // to detect violations retroactively and cancel the session.
+        // macOS/Linux rely on handlePermissionRequest (permission_request from engine)
+        // or OS-level seatbelt/bwrap process sandboxing.
+        const proactiveRawInput =
+          u.rawInput ??
+          (u.locations?.length
+            ? Object.fromEntries(
+                u.locations
+                  .filter((l) => l.path)
+                  .map((l, i) => [`location_${i}`, l.path!]),
+              )
+            : null);
+        if (
+          isWindows() &&
+          this.isStrictSandboxActiveForNuwaxcode() &&
+          proactiveRawInput != null &&
+          u.kind &&
+          u.status === "in_progress"
+        ) {
+          const violationCheck = evaluateStrictWritePermission(
+            {
+              sessionId: acpSessionId,
+              toolCall: {
+                toolCallId: u.toolCallId,
+                title: u.title ?? null,
+                kind: u.kind ?? null,
+                rawInput: proactiveRawInput,
+              },
+              options: [
+                {
+                  optionId: "_strict_proactive",
+                  kind: "allow_once",
+                  name: "auto",
+                },
+              ],
+            },
+            {
+              strictEnabled: true,
+              sandboxMode: this.sandboxMode,
+              workspaceDir: this.config?.workspaceDir,
+              projectWorkspaceDir:
+                this.storedSandboxConfig?.projectWorkspaceDir,
+              isolatedHome: this.isolatedHome,
+              appDataDir: path.join(os.homedir(), APP_DATA_DIR_NAME),
+              tempDirs: [
+                os.tmpdir(),
+                process.env.TMPDIR,
+                process.env.TMP,
+                process.env.TEMP,
+              ].filter(Boolean) as string[],
+            },
+          );
+
+          if (violationCheck.blocked) {
+            log.warn(
+              `${this.logTag} 🚫 strict proactive guard (win32): write blocked outside writable roots`,
+              {
+                reason: violationCheck.reason,
+                toolCallId: u.toolCallId,
+                toolKind: u.kind,
+                toolTitle: u.title,
+                candidatePaths: violationCheck.candidatePaths,
+                resolvedPaths: violationCheck.resolvedPaths,
+                writableRoots: violationCheck.writableRoots,
+              },
+            );
+
+            this.emit("message.part.updated", {
+              sessionId: acpSessionId,
+              type: "tool",
+              toolCallId: u.toolCallId,
+              status: "error",
+              output: {
+                error: `Strict sandbox violation: ${violationCheck.reason}`,
+                candidatePaths: violationCheck.candidatePaths,
+                resolvedPaths: violationCheck.resolvedPaths,
+              },
+              content: [
+                {
+                  type: "text",
+                  text: `⛔ Strict sandbox blocked write outside workspace: ${violationCheck.candidatePaths.join(", ")}`,
+                },
+              ],
+            });
+
+            this.abortSession(acpSessionId).catch((e: unknown) => {
+              log.warn(
+                `${this.logTag} Failed to cancel session after strict violation:`,
+                e,
+              );
+            });
+            break;
+          }
+        }
+
         this.emit("message.part.updated", {
           sessionId: acpSessionId,
           type: "tool",
@@ -1258,15 +2363,105 @@ ${memoryContext}
       return { outcome: { outcome: "cancelled" } };
     }
 
-    const selected =
-      params.options.find((o) => o.kind === "allow_always") ||
-      params.options.find((o) => o.kind === "allow_once") ||
-      params.options[0];
+    const strictEnabled = this.isStrictSandboxActiveForNuwaxcode();
+    const strictCheck = evaluateStrictWritePermission(params, {
+      strictEnabled,
+      sandboxMode: this.sandboxMode,
+      workspaceDir: this.config?.workspaceDir,
+      projectWorkspaceDir: this.storedSandboxConfig?.projectWorkspaceDir,
+      isolatedHome: this.isolatedHome,
+      appDataDir: path.join(os.homedir(), APP_DATA_DIR_NAME),
+      tempDirs: [
+        os.tmpdir(),
+        process.env.TMPDIR,
+        process.env.TMP,
+        process.env.TEMP,
+      ].filter(Boolean) as string[],
+    });
+    if (strictEnabled) {
+      if (!this.strictPermissionSnapshotLoggedSessions.has(acpSessionId)) {
+        if (
+          this.strictPermissionSnapshotLoggedSessions.size >=
+          AcpEngine.MAX_SNAPSHOT_LOGGED_SESSIONS
+        ) {
+          // Evict oldest entry (Set iteration order is insertion order)
+          const oldest = this.strictPermissionSnapshotLoggedSessions
+            .values()
+            .next().value;
+          if (oldest)
+            this.strictPermissionSnapshotLoggedSessions.delete(oldest);
+        }
+        this.strictPermissionSnapshotLoggedSessions.add(acpSessionId);
+        log.debug(`${this.logTag} strict writable roots snapshot`, {
+          acpSessionId,
+          workspaceDir: this.config?.workspaceDir,
+          projectWorkspaceDir: this.storedSandboxConfig?.projectWorkspaceDir,
+          isolatedHome: this.isolatedHome,
+          writableRoots: strictCheck.writableRoots,
+        });
+      }
+      const strictTrace = {
+        reason: strictCheck.reason,
+        isWriteRequest: strictCheck.isWriteRequest,
+        toolKind: params.toolCall.kind,
+        toolTitle: params.toolCall.title,
+        candidatePaths: strictCheck.candidatePaths,
+        resolvedPaths: strictCheck.resolvedPaths,
+        writableRoots: strictCheck.writableRoots,
+      };
+      if (strictCheck.isWriteRequest) {
+        log.debug(`${this.logTag} strict permission evaluation`, strictTrace);
+      } else {
+        log.debug(
+          `${this.logTag} strict permission skipped (non-write request)`,
+          strictTrace,
+        );
+      }
+    }
+    if (strictCheck.blocked) {
+      log.warn(`${this.logTag} strict write permission blocked`, {
+        reason: strictCheck.reason,
+        toolKind: params.toolCall.kind,
+        toolTitle: params.toolCall.title,
+        candidatePaths: strictCheck.candidatePaths,
+        resolvedPaths: strictCheck.resolvedPaths,
+        writableRoots: strictCheck.writableRoots,
+      });
+      return { outcome: { outcome: "cancelled" } };
+    }
+
+    const strictWriteMode = strictEnabled && strictCheck.isWriteRequest;
+    const selected = strictWriteMode
+      ? params.options.find((o) => o.kind === "allow_once")
+      : params.options.find((o) => o.kind === "allow_always") ||
+        params.options.find((o) => o.kind === "allow_once") ||
+        params.options[0];
+
+    if (strictWriteMode && !selected) {
+      log.debug(
+        `${this.logTag} strict write permission blocked (allow_once option missing)`,
+        {
+          toolKind: params.toolCall.kind,
+          toolTitle: params.toolCall.title,
+        },
+      );
+      return { outcome: { outcome: "cancelled" } };
+    }
 
     if (selected) {
-      log.info(
-        `${this.logTag} 🔓 权限自动放行: tool=${params.toolCall.title}, kind=${selected.kind}, optionId=${selected.optionId}`,
-      );
+      if (strictWriteMode) {
+        log.debug(`${this.logTag} strict write permission allowed_once`, {
+          toolKind: params.toolCall.kind,
+          toolTitle: params.toolCall.title,
+          optionId: selected.optionId,
+          candidatePaths: strictCheck.candidatePaths,
+          resolvedPaths: strictCheck.resolvedPaths,
+        });
+      } else {
+        log.info(
+          `${this.logTag} 🔓 权限自动放行: tool=${params.toolCall.title}, kind=${selected.kind}, optionId=${selected.optionId}`,
+        );
+      }
       return {
         outcome: { outcome: "selected", optionId: selected.optionId },
       };

@@ -7,26 +7,35 @@
  * - getSseEventBufferSize 查询
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   pushSseEvent,
   getSseEventBufferSize,
   clearSseEventBuffer,
   clearAllSseEventBuffers,
-} from './computerServer';
+  setSessionFirstTokenContextForTest,
+  hasSessionFirstTokenContext,
+} from "./computerServer";
+
+const mockPerfLogger = vi.hoisted(() => ({
+  info: vi.fn(),
+}));
+const mockFirstTokenTrace = vi.hoisted(() => ({
+  trace: vi.fn(),
+}));
 
 // 避免拉起 unifiedAgent 与 Electron 等重模块
-vi.mock('./engines/unifiedAgent', () => ({
+vi.mock("./engines/unifiedAgent", () => ({
   agentService: {
     isReady: true,
-    getEngineType: () => 'nuwaxcode',
-    getAgentConfig: () => ({ workspaceDir: '/tmp' }),
+    getEngineType: () => "nuwaxcode",
+    getAgentConfig: () => ({ workspaceDir: "/tmp" }),
     getAcpEngine: () => null,
     hasRunningEngines: false,
     getEngineForProject: () => null,
   },
 }));
-vi.mock('electron-log', () => ({
+vi.mock("electron-log", () => ({
   default: {
     info: vi.fn(),
     warn: vi.fn(),
@@ -34,60 +43,76 @@ vi.mock('electron-log', () => ({
     debug: vi.fn(),
   },
 }));
-vi.mock('./constants', () => ({ LOCALHOST_HOSTNAME: '127.0.0.1' }));
-vi.mock('./startupPorts', () => ({ getConfiguredPorts: () => ({ fileServer: 0 }) }));
-vi.mock('./utils/logRedact', () => ({
+vi.mock("./constants", () => ({
+  LOCALHOST_HOSTNAME: "127.0.0.1",
+  APP_DATA_DIR_NAME: ".nuwaclaw",
+  LOGS_DIR_NAME: "logs",
+}));
+vi.mock("./startupPorts", () => ({
+  getConfiguredPorts: () => ({ fileServer: 0 }),
+}));
+vi.mock("./utils/logRedact", () => ({
   redactForLog: (x: unknown) => x,
   redactStringForLog: (s: string) => s,
 }));
+vi.mock("../bootstrap/logConfig", () => ({
+  getPerfLogger: () => mockPerfLogger,
+}));
+vi.mock("./engines/perf/firstTokenTrace", () => ({
+  firstTokenTrace: mockFirstTokenTrace,
+}));
 
-describe('ComputerServer — SSE 事件缓冲', () => {
-  const sessionId = 'ses-test-buffer-001';
+describe("ComputerServer — SSE 事件缓冲", () => {
+  const sessionId = "ses-test-buffer-001";
 
   beforeEach(() => {
     vi.clearAllMocks();
+    clearAllSseEventBuffers();
     // 清空该 session 的缓冲（通过多次 push 触发内部逻辑会累积，这里依赖模块状态）
     // 注意：pushSseEvent 依赖 computerServer 模块内的 sseClients/sseEventBuffers
     // 无客户端时会写入 buffer；测试间若复用 sessionId 会累积，故用唯一 sessionId 或单测内只测一次
   });
 
-  it('getSseEventBufferSize 在无缓冲时返回 0', () => {
-    expect(getSseEventBufferSize('nonexistent-session')).toBe(0);
+  it("getSseEventBufferSize 在无缓冲时返回 0", () => {
+    expect(getSseEventBufferSize("nonexistent-session")).toBe(0);
   });
 
-  it('无客户端时 pushSseEvent 将事件写入缓冲', () => {
-    pushSseEvent(sessionId, 'prompt_start', { sessionId, messageType: 'promptStart' });
+  it("无客户端时 pushSseEvent 将事件写入缓冲", () => {
+    pushSseEvent(sessionId, "prompt_start", {
+      sessionId,
+      messageType: "promptStart",
+    });
     expect(getSseEventBufferSize(sessionId)).toBe(1);
-    pushSseEvent(sessionId, 'message_part', { type: 'text', text: 'hi' });
+    pushSseEvent(sessionId, "message_part", { type: "text", text: "hi" });
     expect(getSseEventBufferSize(sessionId)).toBe(2);
   });
 
-  it('缓冲最多保留 SSE_EVENT_BUFFER_MAX 条', () => {
+  it("缓冲最多保留 SSE_EVENT_BUFFER_MAX 条", () => {
     const SSE_EVENT_BUFFER_MAX = 50;
     for (let i = 0; i < SSE_EVENT_BUFFER_MAX + 10; i++) {
-      pushSseEvent(sessionId, 'ev', { i });
+      pushSseEvent(sessionId, "ev", { i });
     }
     expect(getSseEventBufferSize(sessionId)).toBe(SSE_EVENT_BUFFER_MAX);
   });
 
-  it('TTL 过期后同 session 再次 push 会 prune 掉旧 buffer 并新建', () => {
-    const ttlSessionId = 'ses-ttl-only';
+  it("TTL 过期后同 session 再次 push 会 prune 掉旧 buffer 并新建", () => {
+    const ttlSessionId = "ses-ttl-only";
     vi.useFakeTimers({ now: 0 });
-    pushSseEvent(ttlSessionId, 'ev1', {});
+    pushSseEvent(ttlSessionId, "ev1", {});
     expect(getSseEventBufferSize(ttlSessionId)).toBe(1);
     vi.advanceTimersByTime(31000); // 超过 30s TTL
-    pushSseEvent(ttlSessionId, 'ev2', {});
+    pushSseEvent(ttlSessionId, "ev2", {});
     // 旧 buffer 被 prune，当前 push 写入新 buffer，应只有 1 条
     expect(getSseEventBufferSize(ttlSessionId)).toBe(1);
     vi.useRealTimers();
   });
 
-  it('clearSseEventBuffer 清除指定 session 的缓冲', () => {
-    const ses1 = 'ses-clear-001';
-    const ses2 = 'ses-clear-002';
-    pushSseEvent(ses1, 'ev', { data: 1 });
-    pushSseEvent(ses1, 'ev', { data: 2 });
-    pushSseEvent(ses2, 'ev', { data: 3 });
+  it("clearSseEventBuffer 清除指定 session 的缓冲", () => {
+    const ses1 = "ses-clear-001";
+    const ses2 = "ses-clear-002";
+    pushSseEvent(ses1, "ev", { data: 1 });
+    pushSseEvent(ses1, "ev", { data: 2 });
+    pushSseEvent(ses2, "ev", { data: 3 });
     expect(getSseEventBufferSize(ses1)).toBe(2);
     expect(getSseEventBufferSize(ses2)).toBe(1);
 
@@ -96,24 +121,24 @@ describe('ComputerServer — SSE 事件缓冲', () => {
     expect(getSseEventBufferSize(ses2)).toBe(1); // ses2 不受影响
   });
 
-  it('clearSseEventBuffer 对不存在的 session 是幂等的', () => {
-    expect(() => clearSseEventBuffer('nonexistent')).not.toThrow();
-    expect(getSseEventBufferSize('nonexistent')).toBe(0);
+  it("clearSseEventBuffer 对不存在的 session 是幂等的", () => {
+    expect(() => clearSseEventBuffer("nonexistent")).not.toThrow();
+    expect(getSseEventBufferSize("nonexistent")).toBe(0);
   });
 
-  it('clearSseEventBuffer 传入空字符串/null/undefined 不报错', () => {
-    expect(() => clearSseEventBuffer('')).not.toThrow();
+  it("clearSseEventBuffer 传入空字符串/null/undefined 不报错", () => {
+    expect(() => clearSseEventBuffer("")).not.toThrow();
     expect(() => clearSseEventBuffer(null as any)).not.toThrow();
     expect(() => clearSseEventBuffer(undefined as any)).not.toThrow();
   });
 
-  it('clearAllSseEventBuffers 清除所有 session 的缓冲', () => {
-    const ses1 = 'ses-clearall-001';
-    const ses2 = 'ses-clearall-002';
-    const ses3 = 'ses-clearall-003';
-    pushSseEvent(ses1, 'ev', {});
-    pushSseEvent(ses2, 'ev', {});
-    pushSseEvent(ses3, 'ev', {});
+  it("clearAllSseEventBuffers 清除所有 session 的缓冲", () => {
+    const ses1 = "ses-clearall-001";
+    const ses2 = "ses-clearall-002";
+    const ses3 = "ses-clearall-003";
+    pushSseEvent(ses1, "ev", {});
+    pushSseEvent(ses2, "ev", {});
+    pushSseEvent(ses3, "ev", {});
     expect(getSseEventBufferSize(ses1)).toBe(1);
     expect(getSseEventBufferSize(ses2)).toBe(1);
     expect(getSseEventBufferSize(ses3)).toBe(1);
@@ -124,8 +149,98 @@ describe('ComputerServer — SSE 事件缓冲', () => {
     expect(getSseEventBufferSize(ses3)).toBe(0);
   });
 
-  it('clearAllSseEventBuffers 对空缓冲也是幂等的', () => {
+  it("clearAllSseEventBuffers 对空缓冲也是幂等的", () => {
     clearAllSseEventBuffers(); // 清空
     expect(() => clearAllSseEventBuffers()).not.toThrow(); // 再次清空
+  });
+
+  it("首个真实 token 输出 /chat.firstToken 与 /chat.newSession.firstToken", () => {
+    vi.useFakeTimers({ now: 10_000 });
+    const session = "ses-ttft-new-001";
+    setSessionFirstTokenContextForTest(session, {
+      requestId: "rid-ttft-new-001",
+      projectId: "project-ttft",
+      engine: "nuwaxcode",
+      chatReceivedAt: 8_500,
+      isNewSession: true,
+    });
+
+    pushSseEvent(session, "agent_message_chunk", {
+      data: { content: { text: "hello" } },
+    });
+
+    const perfLogs = mockPerfLogger.info.mock.calls.map((call) => call[0]);
+    expect(
+      perfLogs.some((msg: string) =>
+        msg.includes("[PERF] /chat.firstToken: 1500ms"),
+      ),
+    ).toBe(true);
+    expect(
+      perfLogs.some((msg: string) =>
+        msg.includes("[PERF] /chat.newSession.firstToken: 1500ms"),
+      ),
+    ).toBe(true);
+    expect(mockFirstTokenTrace.trace).toHaveBeenCalledWith(
+      "chat.first_token.returned",
+      expect.objectContaining({
+        requestId: "rid-ttft-new-001",
+        sessionId: session,
+        projectId: "project-ttft",
+        engine: "nuwaxcode",
+      }),
+      expect.objectContaining({
+        ttftMs: 1500,
+        isNewSession: true,
+      }),
+    );
+
+    // 在 end_turn 前上下文仍保留，便于统计后续阶段
+    expect(hasSessionFirstTokenContext(session)).toBe(true);
+    pushSseEvent(session, "end_turn", {});
+    expect(hasSessionFirstTokenContext(session)).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("复用会话只输出 /chat.firstToken，不输出 newSession 专属日志", () => {
+    vi.useFakeTimers({ now: 30_000 });
+    const session = "ses-ttft-reuse-001";
+    setSessionFirstTokenContextForTest(session, {
+      requestId: "rid-ttft-reuse-001",
+      projectId: "project-reuse",
+      engine: "nuwaxcode",
+      chatReceivedAt: 29_200,
+      isNewSession: false,
+    });
+
+    pushSseEvent(session, "agent_message_chunk", {
+      data: { content: { text: "reuse" } },
+    });
+
+    const perfLogs = mockPerfLogger.info.mock.calls.map((call) => call[0]);
+    expect(
+      perfLogs.some((msg: string) =>
+        msg.includes("[PERF] /chat.firstToken: 800ms"),
+      ),
+    ).toBe(true);
+    expect(
+      perfLogs.some((msg: string) =>
+        msg.includes("/chat.newSession.firstToken"),
+      ),
+    ).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("clearSseEventBuffer 会清理对应 session 的首字上下文", () => {
+    const session = "ses-clear-context-001";
+    setSessionFirstTokenContextForTest(session, {
+      requestId: "rid-clear-ctx-001",
+      projectId: "project-clear",
+      engine: "nuwaxcode",
+      chatReceivedAt: Date.now(),
+      isNewSession: true,
+    });
+    expect(hasSessionFirstTokenContext(session)).toBe(true);
+    clearSseEventBuffer(session);
+    expect(hasSessionFirstTokenContext(session)).toBe(false);
   });
 });

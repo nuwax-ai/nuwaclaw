@@ -1,83 +1,59 @@
 import { ipcMain } from "electron";
-import * as path from "path";
 import * as fs from "fs";
-import { app } from "electron";
 import log from "electron-log";
+import { z } from "zod";
 import type { HandlerContext } from "@shared/types/ipc";
-import { readSetting } from "../db";
-import {
-  APP_DATA_DIR_NAME,
-  DEFAULT_STARTUP_DELAY,
-} from "../services/constants";
+import { createServiceManager } from "../window/serviceManager";
+import { checkLanproxyHealth } from "../services/packages/lanproxyHealth";
+
+export const lanproxyConfigSchema = z.object({
+  serverIp: z.string().min(1),
+  serverPort: z.number().int().positive(),
+  clientKey: z.string().min(1),
+  ssl: z.boolean().optional(),
+});
+
+export const agentRunnerConfigSchema = z.object({
+  binPath: z.string().min(1),
+  backendPort: z.number().int().positive(),
+  proxyPort: z.number().int().positive(),
+  apiKey: z.string().min(1),
+  apiBaseUrl: z.string().min(1),
+  defaultModel: z.string().min(1),
+});
+
+export const portSchema = z.number().int().positive();
+
+function invalidArgs(channel: string, issues: unknown) {
+  log.warn(`[IPC] ${channel} invalid args:`, issues);
+  return { success: false, error: `Invalid arguments for ${channel}` };
+}
+
+/** 模块级 _serviceManager，供其他模块（如 computerServer）访问 */
+let _serviceManager: ReturnType<typeof createServiceManager> | null = null;
+
+/** 获取 _serviceManager 实例（需先调用 registerProcessHandlers） */
+export function getServiceManager(): ReturnType<
+  typeof createServiceManager
+> | null {
+  return _serviceManager;
+}
 
 export function registerProcessHandlers(ctx: HandlerContext): void {
+  _serviceManager = createServiceManager({
+    lanproxy: ctx.lanproxy,
+    fileServer: ctx.fileServer,
+    agentRunner: ctx.agentRunner,
+  });
+
+  // 本地别名，确保 TypeScript 知道它已被赋值
+  const sm = _serviceManager;
+
   // ==================== Helper: Start File Server ====================
   const startFileServerProcess = async (
     port: number,
   ): Promise<{ success: boolean; error?: string }> => {
-    const { getAppEnv } = await import("../services/system/dependencies");
-
-    if (ctx.fileServer.running) {
-      return Promise.resolve({
-        success: true,
-        message: "Already running",
-      } as any);
-    }
-    const appDataDir = path.join(app.getPath("home"), APP_DATA_DIR_NAME);
-    const serverJsPath = path.join(
-      appDataDir,
-      "node_modules",
-      "nuwax-file-server",
-      "dist",
-      "server.js",
-    );
-    const step1Parsed = readSetting("step1_config") as {
-      workspaceDir?: string;
-    } | null;
-    const baseWorkspace =
-      step1Parsed?.workspaceDir || path.join(appDataDir, "workspace");
-    const logsDir = path.join(appDataDir, "logs");
-    const dirConfig: Record<string, string> = {
-      INIT_PROJECT_NAME: "nuwax-template",
-      INIT_PROJECT_DIR: path.join(baseWorkspace, "project_init"),
-      UPLOAD_PROJECT_DIR: path.join(baseWorkspace, "project_zips"),
-      PROJECT_SOURCE_DIR: path.join(baseWorkspace, "project_workspace"),
-      DIST_TARGET_DIR: path.join(baseWorkspace, "project_nginx"),
-      COMPUTER_WORKSPACE_DIR: path.join(
-        baseWorkspace,
-        "computer-project-workspace",
-      ),
-      LOG_BASE_DIR: path.join(logsDir, "project_logs"),
-      COMPUTER_LOG_DIR: path.join(logsDir, "computer_logs"),
-    };
-    for (const dir of Object.values(dirConfig)) {
-      if (dir && dir.includes(path.sep)) {
-        try {
-          fs.mkdirSync(dir, { recursive: true });
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    log.info(
-      "Starting file server:",
-      "node",
-      serverJsPath,
-      `PORT=${port}`,
-      dirConfig,
-    );
-    return ctx.fileServer.start({
-      command: process.execPath,
-      args: [serverJsPath],
-      env: {
-        ...getAppEnv(),
-        ...dirConfig,
-        PORT: String(port),
-        NODE_ENV: "production",
-        ELECTRON_RUN_AS_NODE: "1",
-      },
-      startupDelayMs: DEFAULT_STARTUP_DELAY,
-    });
+    return sm.startFileServer(port);
   };
 
   // ==================== Helper: Start Lanproxy ====================
@@ -86,56 +62,44 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     serverPort: number;
     clientKey: string;
     ssl?: boolean;
-  }): Promise<{ success: boolean; error?: string }> => {
-    const { getAppEnv, getLanproxyBinPath } =
-      await import("../services/system/dependencies");
-
+  }): Promise<{
+    success: boolean;
+    error?: string;
+    healthCheck?: { healthy: boolean; error?: string };
+  }> => {
     if (ctx.lanproxy.running) {
       // 切换账号后 clientKey 会变化，必须用新配置重启，不能跳过。
       // 否则旧进程继续使用旧 clientKey 导致「本地显示已联通、会话显示离线」。
-      log.info("[Lanproxy] 已在运行，先停止再用新配置重启");
+      log.info(
+        "[Lanproxy] Already running, stopping first before restarting with new config",
+      );
       await ctx.lanproxy.stopAsync();
     }
-    const binPath = getLanproxyBinPath();
-    if (!fs.existsSync(binPath)) {
-      const msg =
-        "当前平台暂不支持内网穿透（未找到 lanproxy 二进制，请使用带 lanproxy 的安装包或从 Tauri 构建获取）";
-      log.warn("[Lanproxy] 启动失败: 二进制不存在", { binPath, reason: msg });
-      return Promise.resolve({ success: false, error: msg });
-    }
     const useSsl = config.ssl !== false;
-    const args = [
-      "-s",
-      config.serverIp,
-      "-p",
-      String(config.serverPort),
-      "-k",
-      config.clientKey,
-      `--ssl=${useSsl}`,
-    ];
     const maskedKey =
       config.clientKey.length > 8
         ? `${config.clientKey.slice(0, 4)}****${config.clientKey.slice(-4)}`
         : "****";
-    log.info("[Lanproxy] 正在启动", {
+    log.info("[Lanproxy] Starting", {
       server: config.serverIp,
       port: config.serverPort,
       keyMasked: maskedKey,
       ssl: useSsl,
     });
-    const result = await ctx.lanproxy.start({
-      command: binPath,
-      args,
-      env: getAppEnv(),
-      startupDelayMs: 1000,
-    });
+    const result = await sm.startLanproxy(config);
     if (result.success) {
-      log.info("[Lanproxy] 已启动", {
+      log.info("[Lanproxy] Started", {
         server: config.serverIp,
         port: config.serverPort,
       });
+      // 健康检查
+      const health = await checkLanproxyHealth(config.clientKey);
+      result.healthCheck = health;
+      if (!health.healthy) {
+        log.warn("[Lanproxy] Health check failed:", health.error);
+      }
     } else {
-      log.error("[Lanproxy] 启动失败", {
+      log.error("[Lanproxy] Start failed", {
         error: result.error,
         server: config.serverIp,
         port: config.serverPort,
@@ -156,7 +120,11 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
         ssl?: boolean;
       },
     ) => {
-      return startLanproxyProcess(config);
+      const parsed = lanproxyConfigSchema.safeParse(config);
+      if (!parsed.success) {
+        return invalidArgs("lanproxy:start", parsed.error.issues);
+      }
+      return startLanproxyProcess(parsed.data);
     },
   );
 
@@ -190,6 +158,11 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
         defaultModel: string;
       },
     ) => {
+      const parsed = agentRunnerConfigSchema.safeParse(config);
+      if (!parsed.success) {
+        return invalidArgs("agentRunner:start", parsed.error.issues);
+      }
+      const cfg = parsed.data;
       const { getAppEnv } = await import("../services/system/dependencies");
 
       if (ctx.agentRunner.running) {
@@ -198,31 +171,31 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
 
       const args = [
         "--backend-port",
-        String(config.backendPort),
+        String(cfg.backendPort),
         "--proxy-port",
-        String(config.proxyPort),
+        String(cfg.proxyPort),
         "--api-key",
-        config.apiKey,
+        cfg.apiKey,
         "--api-base-url",
-        config.apiBaseUrl,
+        cfg.apiBaseUrl,
         "--default-model",
-        config.defaultModel,
+        cfg.defaultModel,
       ];
 
       // 仅记录端口与 URL，不记录 apiKey，避免敏感信息写入日志
       log.info(
         "Starting agent runner:",
-        config.binPath,
+        cfg.binPath,
         "--backend-port",
-        config.backendPort,
+        cfg.backendPort,
         "--proxy-port",
-        config.proxyPort,
+        cfg.proxyPort,
         "--api-base-url",
-        config.apiBaseUrl,
+        cfg.apiBaseUrl,
       );
 
       const result = await ctx.agentRunner.start({
-        command: config.binPath,
+        command: cfg.binPath,
         args,
         shell: true,
         env: getAppEnv(),
@@ -231,8 +204,8 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
 
       if (result.success) {
         ctx.setAgentRunnerPorts({
-          backendPort: config.backendPort,
-          proxyPort: config.proxyPort,
+          backendPort: cfg.backendPort,
+          proxyPort: cfg.proxyPort,
         });
       }
       return result;
@@ -260,7 +233,11 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
 
   // File Server handlers
   ipcMain.handle("fileServer:start", async (_, port: number = 60000) => {
-    return startFileServerProcess(port);
+    const parsed = portSchema.safeParse(port);
+    if (!parsed.success) {
+      return invalidArgs("fileServer:start", parsed.error.issues);
+    }
+    return startFileServerProcess(parsed.data);
   });
 
   ipcMain.handle("fileServer:stop", async () => {
@@ -281,7 +258,12 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   ipcMain.handle("computerServer:start", async (_, port?: number) => {
     const { startComputerServer } = await import("../services/computerServer");
     const { getConfiguredPorts } = await import("../services/startupPorts");
-    const resolvedPort = port ?? getConfiguredPorts().agent;
+    const resolvedPortRaw = port ?? getConfiguredPorts().agent;
+    const parsed = portSchema.safeParse(resolvedPortRaw);
+    if (!parsed.success) {
+      return invalidArgs("computerServer:start", parsed.error.issues);
+    }
+    const resolvedPort = parsed.data;
     return startComputerServer(resolvedPort);
   });
 
@@ -291,82 +273,40 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     return { success: true };
   });
 
+  // Admin Server handlers (管理接口服务)
+  // Admin Server 已合并到 Computer Server (60006)，不再有独立的 60007 端口
+  // start/stop 为空操作（Computer Server 通过 services:restartAll 管理）
+  ipcMain.handle("adminServer:start", async () => {
+    return { success: true };
+  });
+
+  ipcMain.handle("adminServer:stop", async () => {
+    return { success: true };
+  });
+
+  // adminServer:status 现在返回 Computer Server 状态
+  ipcMain.handle("adminServer:status", async () => {
+    const { getComputerServerStatus } =
+      await import("../services/computerServer");
+    return getComputerServerStatus();
+  });
+
   // ==================== services:restartAll ====================
 
   ipcMain.handle("services:restartAll", async () => {
-    const [{ agentService }, { mcpProxyManager }] = await Promise.all([
-      import("../services/engines/unifiedAgent"),
-      import("../services/packages/mcp"),
-    ]);
-    type AgentConfigType =
-      import("../services/engines/unifiedAgent").AgentConfig;
-
     log.info("[Services] Restarting all services...");
-    const results: Record<string, { success: boolean; error?: string }> = {};
-
-    // 预读共用配置
-    const agentConfig = (readSetting("agent_config") as any) || {};
-    const step1Config = (readSetting("step1_config") as any) || {};
-
-    // 1. Stop existing services first
-    try {
-      await agentService.destroy();
-    } catch (e) {
-      log.warn("[Services] Agent destroy error (ignored):", e);
-    }
     try {
       const { stopComputerServer } = await import("../services/computerServer");
       await stopComputerServer();
     } catch (e) {
       log.warn("[Services] ComputerServer stop error (ignored):", e);
     }
-    ctx.fileServer.stop();
-    ctx.lanproxy.stop();
+    const base = await sm.restartAllServices();
+    const results: Record<string, { success: boolean; error?: string }> = {
+      ...base.results,
+    };
 
-    // 2. Verify MCP Proxy binary + 启动 PersistentMcpBridge（持久化 servers）
-    try {
-      await mcpProxyManager.start();
-      results.mcpProxy = { success: true };
-      log.info("[Services] MCP Proxy verified");
-
-      // 非阻塞预热：app 启动时提前启动 PersistentMcpBridge（chrome-devtools-mcp 等持久化 MCP）。
-      // 使用 fire-and-forget 模式——若失败只记录警告，不阻断其他服务启动。
-      // 这样第一次发起会话时 bridge 已就绪，消除会话侧的 30 秒启动延迟。
-      mcpProxyManager
-        .ensureBridgeStarted()
-        .catch((e) =>
-          log.warn(
-            "[Services] PersistentMcpBridge 预热失败（将在首次会话时重试）:",
-            e,
-          ),
-        );
-    } catch (e) {
-      results.mcpProxy = { success: false, error: String(e) };
-      log.error("[Services] MCP Proxy verify failed:", e);
-    }
-
-    // 3. Start Agent（MCP 配置通过 getAgentMcpConfig 注入，无需等 proxy 进程）
-    try {
-      let finalConfig: AgentConfigType = {
-        engine: agentConfig.type || "claude-code",
-        apiKey: agentConfig.apiKey,
-        baseUrl: agentConfig.apiBaseUrl,
-        model: agentConfig.model,
-        workspaceDir: step1Config.workspaceDir || "",
-        port: agentConfig.backendPort || undefined,
-        engineBinaryPath: agentConfig.binPath || undefined,
-      };
-      const mcpConfig = mcpProxyManager.getAgentMcpConfig();
-      if (mcpConfig) finalConfig = { ...finalConfig, mcpServers: mcpConfig };
-      const ok = await agentService.init(finalConfig);
-      results.agent = { success: ok };
-      log.info("[Services] Agent started");
-    } catch (e) {
-      results.agent = { success: false, error: String(e) };
-      log.error("[Services] Agent start failed:", e);
-    }
-
-    // 4. Start Computer Server（Agent HTTP 接口服务）
+    // 补充 processHandlers 特有步骤：Computer Server
     try {
       const { startComputerServer } =
         await import("../services/computerServer");
@@ -379,58 +319,6 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       log.error("[Services] ComputerServer start failed:", e);
     }
 
-    // 5. Start File Server（端口来自聚合配置）
-    try {
-      const { getConfiguredPorts } = await import("../services/startupPorts");
-      const { fileServer: fileServerPort } = getConfiguredPorts();
-      results.fileServer = await startFileServerProcess(fileServerPort);
-      log.info("[Services] FileServer started:", results.fileServer);
-    } catch (e) {
-      results.fileServer = { success: false, error: String(e) };
-      log.error("[Services] FileServer start failed:", e);
-    }
-
-    // 6. Start Lanproxy
-    try {
-      const clientKey = readSetting("auth.saved_key") as string | null;
-      const lpConfig = (readSetting("lanproxy_config") as any) || {};
-      const serverHost = readSetting("lanproxy.server_host") as string | null;
-      const serverPortStored = readSetting("lanproxy.server_port") as
-        | number
-        | null;
-      const serverIp =
-        lpConfig.serverIp || serverHost?.replace(/^https?:\/\//, "");
-      const serverPort = lpConfig.serverPort || serverPortStored;
-
-      if (serverIp && clientKey && serverPort) {
-        results.lanproxy = await startLanproxyProcess({
-          serverIp,
-          serverPort,
-          clientKey,
-          ssl: lpConfig.ssl,
-        });
-        if (!results.lanproxy.success) {
-          log.error("[Lanproxy] 批量启动失败", {
-            error: results.lanproxy.error,
-          });
-        }
-      } else {
-        results.lanproxy = { success: false, error: "缺少 lanproxy 配置" };
-        log.warn("[Lanproxy] 已跳过: 缺少配置", {
-          hasServerIp: !!serverIp,
-          hasClientKey: !!clientKey,
-          hasServerPort: !!serverPort,
-          hint: "请配置 server_host / server_port 与 saved_key（或 lanproxy_config）",
-        });
-      }
-    } catch (e) {
-      results.lanproxy = { success: false, error: String(e) };
-      log.error("[Lanproxy] 启动异常", {
-        error: String(e),
-        stack: e instanceof Error ? e.stack : undefined,
-      });
-    }
-
     log.info("[Services] All services restart complete:", results);
     return { success: true, results };
   });
@@ -438,25 +326,13 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   // ==================== services:stopAll ====================
 
   ipcMain.handle("services:stopAll", async () => {
-    const [{ agentService }, { stopAllEngines }] = await Promise.all([
-      import("../services/engines/unifiedAgent"),
-      import("../services/engines/engineManager"),
-    ]);
-
     log.info("[Services] Stopping all services...");
-    const results: Record<string, { success: boolean; error?: string }> = {};
+    const base = await sm.stopAllServices();
+    const results: Record<string, { success: boolean; error?: string }> = {
+      ...base.results,
+    };
 
-    // Stop Agent
-    try {
-      await agentService.destroy();
-      results.agent = { success: true };
-      log.info("[Services] Agent stopped");
-    } catch (e) {
-      results.agent = { success: false, error: String(e) };
-      log.error("[Services] Agent stop failed:", e);
-    }
-
-    // Stop Computer Server
+    // 补充 processHandlers 特有步骤：Computer Server
     try {
       const { stopComputerServer } = await import("../services/computerServer");
       await stopComputerServer();
@@ -464,49 +340,39 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       log.info("[Services] ComputerServer stopped");
     } catch (e) {
       results.computerServer = { success: false, error: String(e) };
-    }
-
-    // Stop File Server
-    try {
-      ctx.fileServer.stop();
-      results.fileServer = { success: true };
-      log.info("[Services] FileServer stopped");
-    } catch (e) {
-      results.fileServer = { success: false, error: String(e) };
-    }
-
-    // Stop Lanproxy
-    try {
-      ctx.lanproxy.stop();
-      results.lanproxy = { success: true };
-      log.info("[Lanproxy] 已停止");
-    } catch (e) {
-      results.lanproxy = { success: false, error: String(e) };
-      log.error("[Lanproxy] 停止异常", {
-        error: String(e),
-        stack: e instanceof Error ? e.stack : undefined,
-      });
-    }
-
-    // Stop MCP Proxy（清除 running 状态标记 + 停止 PersistentMcpBridge）
-    try {
-      const { mcpProxyManager } = await import("../services/packages/mcp");
-      results.mcpProxy = await mcpProxyManager.stop();
-      log.info("[Services] MCP Proxy stopped");
-    } catch (e) {
-      results.mcpProxy = { success: false, error: String(e) };
-    }
-
-    // Stop all engines
-    try {
-      stopAllEngines();
-      results.engines = { success: true };
-      log.info("[Services] Engines stopped");
-    } catch (e) {
-      results.engines = { success: false, error: String(e) };
+      log.error("[Services] ComputerServer stop failed:", e);
     }
 
     log.info("[Services] All services stopped:", results);
+    return { success: true, results };
+  });
+
+  // ==================== services:restartAllExceptLanproxy ====================
+
+  ipcMain.handle("services:restartAllExceptLanproxy", async () => {
+    log.info("[Services] Restarting all services except lanproxy...");
+    const base = await sm.restartAllServicesExceptLanproxy();
+    const results: Record<string, { success: boolean; error?: string }> = {
+      ...base.results,
+    };
+
+    // 补充 processHandlers 特有步骤：Computer Server
+    try {
+      const { startComputerServer } =
+        await import("../services/computerServer");
+      const { getConfiguredPorts } = await import("../services/startupPorts");
+      const { agent: agentPort } = getConfiguredPorts();
+      results.computerServer = await startComputerServer(agentPort);
+      log.info("[Services] ComputerServer started:", results.computerServer);
+    } catch (e) {
+      results.computerServer = { success: false, error: String(e) };
+      log.error("[Services] ComputerServer start failed:", e);
+    }
+
+    log.info(
+      "[Services] All services (except lanproxy) restart complete:",
+      results,
+    );
     return { success: true, results };
   });
 }

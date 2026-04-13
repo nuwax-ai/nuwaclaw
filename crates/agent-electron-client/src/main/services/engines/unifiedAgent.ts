@@ -13,6 +13,8 @@ import * as path from "path";
 import log from "electron-log";
 import { memoryService } from "../memory";
 import type { ModelConfig } from "../memory/types";
+import { perfEmitter } from "./perf/perfEmitter";
+import { firstTokenTrace } from "./perf/firstTokenTrace";
 
 // Re-export engine classes
 export { AcpEngine } from "./acp/acpEngine";
@@ -21,7 +23,10 @@ export { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 import { AcpEngine } from "./acp/acpEngine";
 import { loadAcpSdk } from "./acp/acpClient";
 import { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
+import { EngineWarmup } from "./engineWarmup";
+import { buildSandboxPolicyFingerprint } from "./sandboxPolicyFingerprint";
 import dependencies from "../system/dependencies";
+import { getSandboxPolicy } from "../sandbox/policy";
 import { processRegistry } from "../system/processRegistry";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ENGINE_DESTROY_TIMEOUT } from "@shared/constants";
@@ -47,33 +52,15 @@ import {
   filterBridgeEntries,
   rawMcpServersEqual,
 } from "../packages/mcpHelpers";
+import { getCachedSandboxPolicy } from "../sandbox/policyCache";
+
+/** 环境变量记录类型 */
+type EnvRecord = Record<string, string | undefined>;
 
 // ==================== Types ====================
 
-export type AgentEngineType = "nuwaxcode" | "claude-code";
-
-export interface AgentConfig {
-  engine: AgentEngineType;
-  apiKey?: string;
-  baseUrl?: string;
-  model?: string;
-  apiProtocol?: string; // 'anthropic' or 'openai' - API protocol to use
-  workspaceDir: string;
-  hostname?: string;
-  port?: number;
-  timeout?: number;
-  engineBinaryPath?: string;
-  env?: Record<string, string>;
-  mcpServers?: Record<
-    string,
-    | { command: string; args: string[]; env?: Record<string, string> }
-    | { url: string; type?: "http" | "sse" }
-  >;
-  permissionMode?: "default" | "acceptEdits" | "bypassPermissions";
-  systemPrompt?: string;
-  /** Process purpose for registry tracking (set internally by warm pool) */
-  purpose?: "engine" | "warm-pool";
-}
+import type { AgentConfig, AgentEngineType } from "./types";
+export type { AgentConfig, AgentEngineType };
 
 export type AcpSessionStatus = "idle" | "pending" | "active" | "terminating";
 
@@ -201,6 +188,8 @@ export interface PromptOptions {
   system?: string;
   tools?: Record<string, boolean>;
   messageID?: string;
+  mcpInitPolicy?: "blocking" | "non_blocking";
+  mcpInitTimeoutMs?: number;
 }
 
 export interface CommandOptions {
@@ -257,19 +246,17 @@ export class UnifiedAgentService extends EventEmitter {
   >();
   private engineType: AgentEngineType | null = null;
   private baseConfig: AgentConfig | null = null;
+  private warmup: EngineWarmup = new EngineWarmup(
+    this.engines,
+    this.engineConfigs,
+    this.engineRawMcpServers,
+    {
+      getSandboxPolicyFingerprint: () => this.getSandboxPolicyFingerprint(),
+    },
+  );
 
   /** Buffer assistant text chunks per session for memory tracking */
   private assistantTextBuffers = new Map<string, string>();
-
-  /**
-   * 预热引擎池：按引擎类型各保留 1 个已初始化的 AcpEngine，请求到来时按 requestedEngine 复用，省掉冷启动（~4s）。
-   * init 时同时预热 claude-code 与 nuwaxcode，避免「init 用 claude-code、请求用 nuwaxcode」导致永远无法复用。
-   */
-  private warmEnginePool = new Map<AgentEngineType, AcpEngine>();
-  /** 当前正在执行的预热任务，按引擎类型去重，避免同一类型重复启动 */
-  private warmEngineTasks = new Map<AgentEngineType, Promise<void>>();
-  /** In-flight warming engines (not yet in warmEnginePool), tracked for process registry */
-  private warmingEngines = new Set<AcpEngine>();
 
   /**
    * Initialize the service with a base config.
@@ -281,6 +268,7 @@ export class UnifiedAgentService extends EventEmitter {
       await this.destroy();
     }
 
+    this.warmup.reactivate();
     this.baseConfig = config;
     this.engineType = config.engine;
 
@@ -336,9 +324,11 @@ export class UnifiedAgentService extends EventEmitter {
     if (memoryService.isInitialized()) {
       memoryService.ensureMemoryReadyForSession().catch(() => {});
     }
-    // 后台同时预热两种引擎，避免 init 为 claude-code 而请求为 nuwaxcode 时永远无法复用
-    this.startWarmingEngine("claude-code");
-    this.startWarmingEngine("nuwaxcode");
+    // 后台预热 MCP proxy bridge
+    this.warmupMcpBridge();
+    // 后台预热 nuwaxcode 引擎（非阻塞，省掉首次会话 ~2s 冷启动）
+    // 始终预热 nuwaxcode，与 init engineType 无关
+    this.warmup.start(this.baseConfig, (e) => this.forwardEvents(e));
     // Start process registry sweep to detect orphan ACP processes
     processRegistry.bindActivePidsFn(() => this.getActivePids());
     processRegistry.startPeriodicSweep(300_000);
@@ -350,6 +340,9 @@ export class UnifiedAgentService extends EventEmitter {
    * Destroy all engines and reset the service.
    */
   async destroy(): Promise<void> {
+    // Stop warmup timers first so no respawn callback runs during/after destroy.
+    this.warmup.dispose();
+
     // Stop process registry sweep
     processRegistry.stopPeriodicSweep();
 
@@ -396,18 +389,6 @@ export class UnifiedAgentService extends EventEmitter {
       ]);
       destroyPromises.push(destroyWithTimeout);
     }
-    // 先等待所有预热任务结束（任务可能正在向 warmEnginePool 推送新引擎）
-    const warmTasks = [...this.warmEngineTasks.values()];
-    this.warmEngineTasks.clear();
-    if (warmTasks.length > 0) {
-      await Promise.all(warmTasks.map((p) => p.catch(() => {})));
-    }
-    // 再销毁预热池中所有引擎（含任务刚放入的）
-    for (const engine of this.warmEnginePool.values()) {
-      engine.removeAllListeners();
-      destroyPromises.push(engine.destroy().catch(() => {}));
-    }
-    this.warmEnginePool.clear();
     await Promise.all(destroyPromises);
     // Final sweep to kill any orphaned processes missed by normal destroy
     await processRegistry.killOrphans().catch(() => {});
@@ -461,6 +442,18 @@ export class UnifiedAgentService extends EventEmitter {
     return this.engineType;
   }
 
+  private getSandboxPolicyFingerprint(): string | null {
+    try {
+      return buildSandboxPolicyFingerprint(getCachedSandboxPolicy());
+    } catch (error) {
+      log.debug(
+        "[UnifiedAgent] failed to build sandbox policy fingerprint for warmup",
+        error,
+      );
+      return null;
+    }
+  }
+
   getAgentConfig(): AgentConfig | null {
     return this.baseConfig;
   }
@@ -475,56 +468,59 @@ export class UnifiedAgentService extends EventEmitter {
       const pid = engine.getProcessPid();
       if (pid) pids.add(pid);
     }
-    for (const engine of this.warmEnginePool.values()) {
-      const pid = engine.getProcessPid();
-      if (pid) pids.add(pid);
-    }
-    for (const engine of this.warmingEngines) {
-      const pid = engine.getProcessPid();
-      if (pid) pids.add(pid);
-    }
     return pids;
   }
 
-  /**
-   * 后台预热指定类型的 AcpEngine，放入 warmEnginePool。
-   * 不阻塞调用方；复用后由 getOrCreateEngine 再次调用 startWarmingEngine(同一类型) 以补充池子。
-   * @param engineType 要预热的引擎类型；init 时会对 claude-code 与 nuwaxcode 各调一次。
-   */
-  private startWarmingEngine(engineType: AgentEngineType): void {
-    if (
-      this.warmEnginePool.has(engineType) ||
-      this.warmEngineTasks.has(engineType) ||
-      !this.baseConfig
-    ) {
-      return;
-    }
-    const config: AgentConfig = {
-      ...this.baseConfig,
-      engine: engineType,
-      purpose: "warm-pool",
-    };
-    const task = (async () => {
-      const engine = new AcpEngine(engineType);
-      this.warmingEngines.add(engine);
+  /** 后台预热 MCP proxy bridge */
+  private warmupMcpBridge(): void {
+    (async () => {
       try {
-        log.info("[UnifiedAgent] 🔥 后台预热 Engine:", engineType);
-        const ok = await engine.init(config);
-        if (ok) {
-          this.warmEnginePool.set(engineType, engine);
-          log.info("[UnifiedAgent] ✅ 预热 Engine 就绪，等待复用:", engineType);
-        } else {
-          engine.removeAllListeners();
-          await engine.destroy().catch(() => {});
-        }
+        const { syncMcpConfigToProxyAndReload } =
+          await import("../packages/mcp");
+        await syncMcpConfigToProxyAndReload({});
+        log.debug("[UnifiedAgent] MCP proxy bridge warmup complete");
       } catch (err) {
-        log.warn("[UnifiedAgent] 预热 Engine 失败:", engineType, err);
-      } finally {
-        this.warmingEngines.delete(engine);
-        this.warmEngineTasks.delete(engineType);
+        log.warn("[UnifiedAgent] MCP proxy bridge warmup failed:", err);
       }
-    })();
-    this.warmEngineTasks.set(engineType, task);
+    })().catch(() => {});
+  }
+
+  /**
+   * 维护一个常驻 nuwaxcode warmup 池（与当前请求引擎解耦）。
+   * - 不影响 claude-code 的原有请求路径
+   * - 仅用于确保后续 nuwaxcode 新会话可命中预热
+   */
+  private ensureNuwaxWarmup(options?: {
+    mcpServers?: AgentConfig["mcpServers"];
+    reason?: string;
+    allowWhenActiveEngines?: boolean;
+    seedConfig?: Pick<
+      AgentConfig,
+      "apiKey" | "baseUrl" | "model" | "apiProtocol" | "env"
+    >;
+  }): void {
+    if (!this.baseConfig) return;
+    const warmupBaseConfig: AgentConfig = {
+      ...this.baseConfig,
+      ...(options?.seedConfig
+        ? {
+            apiKey: options.seedConfig.apiKey ?? this.baseConfig.apiKey,
+            baseUrl: options.seedConfig.baseUrl ?? this.baseConfig.baseUrl,
+            model: options.seedConfig.model ?? this.baseConfig.model,
+            apiProtocol:
+              options.seedConfig.apiProtocol ?? this.baseConfig.apiProtocol,
+            env: {
+              ...(this.baseConfig.env || {}),
+              ...(options.seedConfig.env || {}),
+            },
+          }
+        : {}),
+    };
+    this.warmup.start(warmupBaseConfig, (e) => this.forwardEvents(e), {
+      allowWhenActiveEngines: options?.allowWhenActiveEngines ?? true,
+      mcpServers: options?.mcpServers,
+      reason: options?.reason,
+    });
   }
 
   /**
@@ -536,18 +532,37 @@ export class UnifiedAgentService extends EventEmitter {
   async getOrCreateEngine(
     projectId: string,
     effectiveConfig: AgentConfig,
+    memoryReadyPromise?: Promise<void> | null,
   ): Promise<AcpEngine> {
+    firstTokenTrace.trace(
+      "engine.get_or_create.start",
+      { projectId, engine: effectiveConfig.engine },
+      { hasMemoryReadyPromise: !!memoryReadyPromise },
+    );
     const t0 = Date.now();
     let t1 = t0,
       t2 = t0,
       t3 = t0;
+    const requestEngineType =
+      effectiveConfig.engine || this.engineType || "claude-code";
+    const isNuwaxRequest = requestEngineType === "nuwaxcode";
+
+    // 不管当前请求引擎类型，尽量维持一个 nuwaxcode warmup 在池中。
+    if (!this.warmup.getWarmupStatus().hasWarmup) {
+      this.ensureNuwaxWarmup({
+        reason: "get_or_create_guard",
+        allowWhenActiveEngines: true,
+      });
+    }
 
     const existing = this.engines.get(projectId);
     if (existing) {
       if (existing.isReady) {
-        log.debug(
-          `⏱️ [getOrCreateEngine][PERF] 复用已有引擎，耗时: ${Date.now() - t0}ms`,
-        );
+        perfEmitter.duration("engine.getOrCreate (reuse)", Date.now() - t0);
+        firstTokenTrace.trace("engine.get_or_create.reuse", {
+          projectId,
+          engine: existing.engineName,
+        });
         return existing;
       }
       // Dead engine — cleanup and rebuild
@@ -561,65 +576,67 @@ export class UnifiedAgentService extends EventEmitter {
       this.engineRawMcpServers.delete(projectId);
     }
 
+    // 仅 nuwaxcode 请求走 warmup 复用，claude-code 保持原路径
+    if (isNuwaxRequest) {
+      // Inject current sandbox mode so tryReuse() can reject if modes don't match.
+      // The sandbox mode is baked into the process wrapper at spawn time and cannot
+      // be changed via updateConfig(). Mismatched modes must cold-start.
+      const currentSandboxMode = getSandboxPolicy().mode ?? "compat";
+      const configWithSandbox = Object.assign({}, effectiveConfig, {
+        __sandboxMode: currentSandboxMode,
+      });
+      const reused = await this.warmup.tryReuse(
+        projectId,
+        configWithSandbox,
+        t0,
+      );
+      if (reused) {
+        // 同步引擎内部 config 为 effectiveConfig，
+        // 防止 chat() 中 shouldReinitForModelProvider 因 config 不一致而 kill + reinit
+        reused.updateConfig(effectiveConfig);
+        // warmup 被消费后立即补仓，保证后续新会话仍有预热可命中
+        this.ensureNuwaxWarmup({
+          mcpServers: effectiveConfig.mcpServers,
+          seedConfig: {
+            apiKey: effectiveConfig.apiKey,
+            baseUrl: effectiveConfig.baseUrl,
+            model: effectiveConfig.model,
+            apiProtocol: effectiveConfig.apiProtocol,
+            env: effectiveConfig.env,
+          },
+          reason: "reuse_refill",
+          allowWhenActiveEngines: true,
+        });
+        perfEmitter.duration(
+          "engine.getOrCreate (warmup reuse)",
+          Date.now() - t0,
+        );
+        firstTokenTrace.trace("engine.get_or_create.warmup_reuse", {
+          projectId,
+          engine: reused.engineName,
+        });
+        return reused;
+      }
+    }
+
     if (!this.baseConfig) {
       throw new Error("UnifiedAgentService not initialized (no baseConfig)");
     }
 
-    // 检查预热池：按请求的引擎类型取用，且必须 apiKey/baseUrl 一致才复用。
-    // 否则复用的进程仍是 init 时的认证，claude-code-acp-ts 会返回 "Authentication required"、内容为空。
-    const requestedEngine =
-      effectiveConfig.engine || this.engineType || "claude-code";
-    const warm = this.warmEnginePool.get(requestedEngine);
-    if (warm) {
-      const wc = warm.currentConfig;
-      const authOk =
-        wc &&
-        (wc.apiKey ?? "") === (effectiveConfig.apiKey ?? "") &&
-        (wc.baseUrl ?? "") === (effectiveConfig.baseUrl ?? "");
-      if (authOk) {
-        this.warmEnginePool.delete(requestedEngine);
-        this.forwardEvents(warm);
-        warm.updateConfig(effectiveConfig); // 使 model/mcpServers 等与本请求一致
-        this.engines.set(projectId, warm);
-        this.engineConfigs.set(projectId, effectiveConfig);
-        log.info(
-          `[UnifiedAgent] 🚀 复用预热引擎 for project: ${projectId}, engine: ${requestedEngine}, 耗时: ${Date.now() - t0}ms`,
-        );
-        this.startWarmingEngine(requestedEngine);
-        return warm;
-      }
-      // 认证信息不一致，不能复用（否则 claude-code 会报 Authentication required、内容为空）
-      warm.removeAllListeners();
-      await warm.destroy().catch(() => {});
-      this.warmEnginePool.delete(requestedEngine);
-    }
-    const poolKeys = [...this.warmEnginePool.keys()].join(",") || "(空)";
-    log.info(
-      `[UnifiedAgent] 池中无对应预热引擎，走冷启动 requestedEngine=${requestedEngine} poolKeys=${poolKeys}`,
-    );
-
     // Ensure memory is ready before starting session
-    if (memoryService.isInitialized()) {
-      try {
-        await memoryService.ensureMemoryReadyForSession();
-        t1 = Date.now();
-        log.debug(
-          `⏱️ [getOrCreateEngine][PERF] ensureMemoryReady 耗时: ${t1 - t0}ms`,
-        );
-      } catch (error) {
-        log.warn("[UnifiedAgent] Memory sync check failed:", error);
-      }
+    if (memoryReadyPromise) {
+      await memoryReadyPromise;
+    } else if (memoryService.isInitialized()) {
+      await memoryService.ensureMemoryReadyForSession().catch(() => {});
     }
-    t1 = t1 || t0;
+    t1 = Date.now();
 
     // Evict oldest idle engine if at capacity
     if (this.engines.size >= MAX_ENGINES) {
       await this.evictIdleEngine();
     }
     t2 = Date.now();
-    log.debug(
-      `⏱️ [getOrCreateEngine][PERF] evictIdleEngine 检查耗时: ${t2 - t1}ms`,
-    );
+    perfEmitter.duration("engine.evictCheck", t2 - t1);
 
     const engineType =
       effectiveConfig.engine || this.engineType || "claude-code";
@@ -631,7 +648,6 @@ export class UnifiedAgentService extends EventEmitter {
     );
     const ok = await engine.init(effectiveConfig);
     t3 = Date.now();
-    log.debug(`⏱️ [getOrCreateEngine][PERF] engine.init 耗时: ${t3 - t2}ms`);
 
     if (!ok) {
       engine.removeAllListeners();
@@ -641,11 +657,26 @@ export class UnifiedAgentService extends EventEmitter {
 
     this.engines.set(projectId, engine);
     this.engineConfigs.set(projectId, effectiveConfig);
-    log.info(
-      `[UnifiedAgent] ✅ Engine ready for project: ${projectId} (total engines: ${this.engines.size})`,
-    );
-    log.debug(
-      `⏱️ [getOrCreateEngine][PERF] 总耗时: ${t3 - t0}ms (memory=${t1 - t0}ms, evict=${t2 - t1}ms, init=${t3 - t2}ms)`,
+    if (isNuwaxRequest) {
+      // 冷启动后也立即补仓，保证连续新 project 有机会持续命中 warmup
+      this.ensureNuwaxWarmup({
+        mcpServers: effectiveConfig.mcpServers,
+        seedConfig: {
+          apiKey: effectiveConfig.apiKey,
+          baseUrl: effectiveConfig.baseUrl,
+          model: effectiveConfig.model,
+          apiProtocol: effectiveConfig.apiProtocol,
+          env: effectiveConfig.env,
+        },
+        reason: "create_refill",
+        allowWhenActiveEngines: true,
+      });
+    }
+    perfEmitter.duration("engine.getOrCreate", t3 - t0, { project: projectId });
+    firstTokenTrace.trace(
+      "engine.get_or_create.created",
+      { projectId, engine: engine.engineName },
+      { latencyMs: t3 - t0 },
     );
     return engine;
   }
@@ -666,6 +697,8 @@ export class UnifiedAgentService extends EventEmitter {
         this.engines.delete(pid);
         this.engineConfigs.delete(pid);
         this.engineRawMcpServers.delete(pid);
+        // 引擎被驱逐后，重新预热 warmup
+        this.warmup.respawn(this.baseConfig, (e) => this.forwardEvents(e));
         return;
       }
     }
@@ -679,6 +712,8 @@ export class UnifiedAgentService extends EventEmitter {
     this.engines.delete(oldestPid);
     this.engineConfigs.delete(oldestPid);
     this.engineRawMcpServers.delete(oldestPid);
+    // 引擎被驱逐后，重新预热 warmup
+    this.warmup.respawn(this.baseConfig, (e) => this.forwardEvents(e));
   }
 
   /**
@@ -688,6 +723,15 @@ export class UnifiedAgentService extends EventEmitter {
   async ensureEngineForRequest(
     request: ComputerChatRequest,
   ): Promise<AcpEngine> {
+    firstTokenTrace.trace("engine.ensure.start", {
+      requestId: request.request_id,
+      sessionId: request.session_id,
+      projectId: request.project_id,
+      engine: request.agent_config?.agent_server?.command
+        ? (mapAgentCommand(request.agent_config.agent_server.command) ??
+          undefined)
+        : (this.engineType ?? undefined),
+    });
     const t0 = Date.now();
     let t1 = t0,
       t2 = t0,
@@ -700,11 +744,9 @@ export class UnifiedAgentService extends EventEmitter {
     const engineKey = request.session_id || request.project_id || "default";
     const registryKey = this.resolveEngineKey(engineKey) || engineKey; // 引擎在 Map 中实际使用的 key
 
-    // 按会话动态加载：本请求携带的 context_servers 同步到 MCP Proxy（从桥接项 --config 解析真实服务），一次会话就会更新 proxy 配置
+    // 性能优化：先解析 context_servers（仅解析，不同步），用于后续的快速路径判断
     const requestMcpServersEarly: Record<string, McpServerEntry> = {};
     if (request.agent_config?.context_servers) {
-      // Resolve uvx/uv commands to app-internal binaries for dynamic MCP servers
-      // For bridge entries (mcp-proxy convert --config ...), extract inner real MCP servers
       let mcpModule: {
         resolveUvCommand: (
           cmd: string,
@@ -734,20 +776,17 @@ export class UnifiedAgentService extends EventEmitter {
             command === "mcp-proxy" ||
             path.basename(command) === "mcp-proxy"
           ) {
-            // Bridge entry: extract real MCP servers from --config JSON
             const extracted = mcpModule.extractRealMcpServers(
               command,
               args,
               srv.env,
             );
             if (extracted) {
-              // Merge extracted servers into requestMcpServersEarly
               for (const [innerName, innerSrv] of Object.entries(extracted)) {
                 requestMcpServersEarly[innerName] = innerSrv;
               }
             }
           } else {
-            // Direct entry: resolve top-level uvx/uv command
             const resolved = mcpModule.resolveUvCommand(command, args);
             requestMcpServersEarly[name] = {
               command: resolved.command,
@@ -760,63 +799,83 @@ export class UnifiedAgentService extends EventEmitter {
         }
       }
       t1 = Date.now();
-      log.debug(
-        `⏱️ [ensureEngine][PERF] 解析 context_servers 耗时: ${t1 - t0}ms`,
-      );
-
-      // 始终同步 MCP 配置，即使 requestMcpServersEarly 为空（表示用户删除了所有动态 MCP）。
-      // syncMcpConfigToProxyAndReload 内部保证 chrome-devtools 等默认服务始终存在，
-      // 动态 MCP server 根据传入配置动态启停：空列表 → bridge 重置为仅 chrome-devtools。
-      try {
-        const { syncMcpConfigToProxyAndReload } =
-          await import("../packages/mcp");
-        await syncMcpConfigToProxyAndReload(requestMcpServersEarly);
-        t2 = Date.now();
-        log.debug(
-          `⏱️ [ensureEngine][PERF] syncMcpConfigToProxyAndReload 耗时: ${t2 - t1}ms`,
-        );
-      } catch (e) {
-        log.warn(
-          "[UnifiedAgent] 动态同步 MCP 配置到 proxy 失败（不影响会话）:",
-          e,
-        );
-      }
     } else {
       t1 = Date.now();
-      log.debug(`⏱️ [ensureEngine][PERF] 无 context_servers，跳过解析`);
     }
-    t2 = t2 || t1;
 
     const agentServer = request.agent_config?.agent_server;
     const mp = request.model_provider;
 
-    // Early return: 已有引擎且无影响配置的字段时直接复用（按 session_id 或 project_id 查找，可命中「key=project_id 但含该 session」的引擎）
+    // 性能优化：快速路径检测
     const existingEngine = this.getEngineForProject(engineKey);
-    if (
-      existingEngine &&
-      existingEngine.isReady &&
-      !agentServer?.command &&
-      !mp &&
-      Object.keys(requestMcpServersEarly).length === 0
-    ) {
-      return existingEngine;
-    }
-
-    // Determine the target engine type
+    const currentEngineType =
+      this.engineConfigs.get(registryKey)?.engine || this.engineType;
+    const storedRawMcp = this.engineRawMcpServers.get(registryKey);
+    const requestMcpFiltered = filterBridgeEntries(requestMcpServersEarly);
+    const mcpChanged = !rawMcpServersEqual(requestMcpFiltered, storedRawMcp);
     const requiredEngine = agentServer?.command
       ? mapAgentCommand(agentServer.command)
       : this.engineType;
+    const requestMcpServersRuntime = requestMcpServersEarly;
 
-    // 同一 project/session：已找到引擎且未切换引擎类型时直接复用，不做 MCP/env/model 等细粒度检测，避免 detectConfigChange 误判导致每次请求都重建
-    const currentEngineType =
-      this.engineConfigs.get(registryKey)?.engine || this.engineType;
+    // 快速路径：已有就绪引擎 + 无配置变更
     if (
-      existingEngine &&
-      existingEngine.isReady &&
-      (!requiredEngine || requiredEngine === currentEngineType)
+      existingEngine?.isReady &&
+      !agentServer?.command &&
+      !mp &&
+      (Object.keys(requestMcpServersEarly).length === 0 || !mcpChanged)
     ) {
+      perfEmitter.duration("engine.fastPath", Date.now() - t0, { engineKey });
+      firstTokenTrace.trace(
+        "engine.ensure.fast_path",
+        {
+          requestId: request.request_id,
+          sessionId: request.session_id,
+          projectId: request.project_id,
+          engine: existingEngine.engineName,
+        },
+        { engineKey },
+      );
       return existingEngine;
     }
+
+    perfEmitter.point("engine.fullPath", { engineKey });
+
+    // 性能优化：只有在 MCP 配置变更时才调用 syncMcpConfigToProxyAndReload
+    // 并行执行 syncMcp 和 ensureMemoryReady
+    const needCreateEngine = !existingEngine || !existingEngine.isReady;
+    let memoryReadyPromise: Promise<void> | null = null;
+
+    if (mcpChanged) {
+      try {
+        const { syncMcpConfigToProxyAndReload } =
+          await import("../packages/mcp");
+        const syncPromise = syncMcpConfigToProxyAndReload(
+          requestMcpServersRuntime,
+        );
+
+        // 并行执行 memory ready
+        if (needCreateEngine && memoryService.isInitialized()) {
+          memoryReadyPromise = memoryService
+            .ensureMemoryReadyForSession()
+            .then(() => {})
+            .catch(() => {});
+        }
+
+        await syncPromise;
+        t2 = Date.now();
+        perfEmitter.duration("engine.syncMcp", t2 - t1);
+      } catch (e) {
+        log.warn("[UnifiedAgent] syncMcp failed:", e);
+      }
+    } else if (needCreateEngine && memoryService.isInitialized()) {
+      // MCP 未变更但需要创建引擎，仍并行启动 memory ready
+      memoryReadyPromise = memoryService
+        .ensureMemoryReadyForSession()
+        .then(() => {})
+        .catch(() => {});
+    }
+    t2 = t2 || t1;
 
     // Resolve env template variables
     const resolvedEnv = agentServer?.env
@@ -841,6 +900,12 @@ export class UnifiedAgentService extends EventEmitter {
       });
 
       if (!hasConfigChange) {
+        firstTokenTrace.trace("engine.ensure.config_unchanged", {
+          requestId: request.request_id,
+          sessionId: request.session_id,
+          projectId: request.project_id,
+          engine: existingEngine.engineName,
+        });
         return existingEngine;
       }
 
@@ -870,7 +935,7 @@ export class UnifiedAgentService extends EventEmitter {
 
     if (!model) {
       log.warn(
-        `[UnifiedAgent] ⚠️ 模型未设置！model_provider.model 和 agent_config env 均无模型信息`,
+        `[UnifiedAgent] ⚠️ Model not set! model_provider.model and agent_config env both have no model info`,
       );
     }
 
@@ -883,7 +948,7 @@ export class UnifiedAgentService extends EventEmitter {
     ) {
       const localLogDir = path.join(os.homedir(), APP_DATA_DIR_NAME, "logs");
       log.info(
-        `[UnifiedAgent] 📂 OPENCODE_LOG_DIR 本地化: ${mergedEnv.OPENCODE_LOG_DIR} → ${localLogDir}`,
+        `[UnifiedAgent] 📂 OPENCODE_LOG_DIR localized: ${mergedEnv.OPENCODE_LOG_DIR} → ${localLogDir}`,
       );
       mergedEnv.OPENCODE_LOG_DIR = localLogDir;
     }
@@ -892,7 +957,7 @@ export class UnifiedAgentService extends EventEmitter {
     // 使用 getAgentMcpConfig() 获取最新的 proxy 配置
     // 使用 ACP 请求中的 MCP 配置（requestMcpServersEarly）
     let freshMcpServers: AgentConfig["mcpServers"] | undefined;
-    if (Object.keys(requestMcpServersEarly).length > 0) {
+    if (Object.keys(requestMcpServersRuntime).length > 0) {
       // 处理 bridge 入口（mcp-proxy）：提取内部真实 MCP 服务器配置
       // 并转换为 bridge URL 格式（用于传递给 agent）
       const { extractRealMcpServers } = await import("../packages/mcp");
@@ -900,7 +965,7 @@ export class UnifiedAgentService extends EventEmitter {
         string,
         import("../packages/mcp").McpServerEntry
       > = {};
-      for (const [name, entry] of Object.entries(requestMcpServersEarly)) {
+      for (const [name, entry] of Object.entries(requestMcpServersRuntime)) {
         if (!("command" in entry)) {
           // URL 类型（RemoteMcpServerEntry），直接保留
           realMcpServers[name] = entry;
@@ -929,9 +994,7 @@ export class UnifiedAgentService extends EventEmitter {
         }
       }
       t3 = Date.now();
-      log.debug(
-        `⏱️ [ensureEngine][PERF] 提取 real MCP servers 耗时: ${t3 - t2}ms`,
-      );
+      perfEmitter.duration("engine.extractMcp", t3 - t2);
 
       if (Object.keys(realMcpServers).length > 0) {
         freshMcpServers = realMcpServers;
@@ -947,9 +1010,7 @@ export class UnifiedAgentService extends EventEmitter {
         });
         await mcpProxyManager.ensureBridgeStarted();
         t4 = Date.now();
-        log.debug(
-          `⏱️ [ensureEngine][PERF] ensureBridgeStarted(有MCP) 耗时: ${t4 - t3}ms`,
-        );
+        perfEmitter.duration("engine.ensureBridge(mcp)", t4 - t3);
         // 获取代理格式的配置（包含 bridge URL 和 allowTools）
         freshMcpServers =
           mcpProxyManager.getAgentMcpConfig(engineKey) || undefined;
@@ -962,9 +1023,7 @@ export class UnifiedAgentService extends EventEmitter {
       t3 = Date.now();
       await mcpProxyManager.ensureBridgeStarted();
       t4 = Date.now();
-      log.debug(
-        `⏱️ [ensureEngine][PERF] ensureBridgeStarted(无MCP) 耗时: ${t4 - t3}ms`,
-      );
+      perfEmitter.duration("engine.ensureBridge(no-mcp)", t4 - t3);
       freshMcpServers =
         mcpProxyManager.getAgentMcpConfig(engineKey) || undefined;
     }
@@ -984,19 +1043,31 @@ export class UnifiedAgentService extends EventEmitter {
     log.info(
       `[UnifiedAgent] 📌 Engine config for project ${engineKey}:\n` +
         `├─ engine: ${effectiveConfig.engine}\n` +
-        `├─ config.model: ${effectiveConfig.model || "⚠️ 未设置"}\n` +
-        `├─ env OPENCODE_MODEL: ${effectiveConfig.env?.OPENCODE_MODEL || "(未设置)"}\n` +
-        `├─ env ANTHROPIC_MODEL: ${effectiveConfig.env?.ANTHROPIC_MODEL || "(未设置)"}\n` +
-        `├─ baseUrl: ${effectiveConfig.baseUrl || "(未设置)"}\n` +
+        `├─ config.model: ${effectiveConfig.model || "⚠️ not set"}\n` +
+        `├─ env OPENCODE_MODEL: ${effectiveConfig.env?.OPENCODE_MODEL || "(not set)"}\n` +
+        `├─ env ANTHROPIC_MODEL: ${effectiveConfig.env?.ANTHROPIC_MODEL || "(not set)"}\n` +
+        `├─ baseUrl: ${effectiveConfig.baseUrl || "(not set)"}\n` +
         `├─ apiKeySet: ${!!effectiveConfig.apiKey}\n` +
         `└─ mcpServers: ${effectiveConfig.mcpServers ? Object.keys(effectiveConfig.mcpServers).join(", ") : "(none)"}`,
     );
 
-    const engine = await this.getOrCreateEngine(engineKey, effectiveConfig);
+    // 传递 memoryReadyPromise，避免 getOrCreateEngine 重复等待 memory
+    const engine = await this.getOrCreateEngine(
+      engineKey,
+      effectiveConfig,
+      memoryReadyPromise,
+    );
     t5 = Date.now();
-    log.debug(`⏱️ [ensureEngine][PERF] getOrCreateEngine 耗时: ${t5 - t4}ms`);
-    log.debug(
-      `⏱️ [ensureEngine][PERF] 总耗时: ${t5 - t0}ms (parseCtxServers=${t1 - t0}ms, syncMcp=${(t2 || t1) - t1}ms, extractReal=${t3 - (t2 || t1)}ms, ensureBridge=${t4 - t3}ms, getOrCreate=${t5 - t4}ms)`,
+    perfEmitter.duration("engine.ensure", t5 - t0, { engineKey });
+    firstTokenTrace.trace(
+      "engine.ensure.done",
+      {
+        requestId: request.request_id,
+        sessionId: request.session_id,
+        projectId: request.project_id,
+        engine: engine.engineName,
+      },
+      { latencyMs: t5 - t0, engineKey },
     );
 
     // 仅在引擎实际被创建/重建时到达此处（detectConfigChange 返回 false 时已 early-return）。
@@ -1030,13 +1101,29 @@ export class UnifiedAgentService extends EventEmitter {
     const needsSwitch =
       !!requiredEngine && requiredEngine !== currentConfig?.engine;
 
+    // 先对 resolvedEnv 进行本地化处理（与 ensureEngineForRequest 中的逻辑一致）
+    // 避免因为路径本地化导致的误判
+    let normalizedResolvedEnv = resolvedEnv;
+    if (
+      resolvedEnv?.OPENCODE_LOG_DIR &&
+      !fs.existsSync(resolvedEnv.OPENCODE_LOG_DIR)
+    ) {
+      normalizedResolvedEnv = {
+        ...resolvedEnv,
+        OPENCODE_LOG_DIR: path.join(os.homedir(), APP_DATA_DIR_NAME, "logs"),
+      };
+    }
+
     const currentEnvStr = currentConfig?.env
       ? JSON.stringify(currentConfig.env, Object.keys(currentConfig.env).sort())
       : "";
-    const newEnvStr = resolvedEnv
-      ? JSON.stringify(resolvedEnv, Object.keys(resolvedEnv).sort())
+    const newEnvStr = normalizedResolvedEnv
+      ? JSON.stringify(
+          normalizedResolvedEnv,
+          Object.keys(normalizedResolvedEnv).sort(),
+        )
       : "";
-    const envChanged = !!resolvedEnv && newEnvStr !== currentEnvStr;
+    const envChanged = !!normalizedResolvedEnv && newEnvStr !== currentEnvStr;
 
     const modelChanged = !!model && model !== (currentConfig?.model || "");
     const apiKeyChanged =
@@ -1052,14 +1139,83 @@ export class UnifiedAgentService extends EventEmitter {
     const storedRawMcp = this.engineRawMcpServers.get(projectId);
     const mcpChanged = !rawMcpServersEqual(requestMcpServers, storedRawMcp);
 
-    return (
+    const result =
       needsSwitch ||
       envChanged ||
       modelChanged ||
       apiKeyChanged ||
       baseUrlChanged ||
-      mcpChanged
-    );
+      mcpChanged;
+
+    // 调试日志：输出触发配置变更的具体原因
+    if (result) {
+      // 计算环境变量差异（敏感字段仅记录掩码，避免日志泄露 secret/token/apiKey）。
+      const envDiffDetails: Record<string, unknown> = {};
+      if (envChanged && resolvedEnv && currentConfig?.env) {
+        const currentEnv = currentConfig.env as EnvRecord;
+        const allKeys = new Set([
+          ...Object.keys(currentEnv),
+          ...Object.keys(resolvedEnv),
+        ]);
+        const isSensitiveEnvKey = (key: string) =>
+          /(key|token|secret|password|authorization|credential)/i.test(key);
+        const normalizeEnvValue = (key: string, value: string | undefined) => {
+          if (isSensitiveEnvKey(key)) return "***";
+          if (typeof value !== "string") return value;
+          return value.length > 50 ? value.slice(0, 50) + "..." : value;
+        };
+        for (const key of allKeys) {
+          const oldVal = currentEnv[key];
+          const newVal = resolvedEnv[key];
+          if (oldVal !== newVal) {
+            envDiffDetails[key] = {
+              old: normalizeEnvValue(key, oldVal),
+              new: normalizeEnvValue(key, newVal),
+            };
+          }
+        }
+      } else if (envChanged && resolvedEnv && !currentConfig?.env) {
+        envDiffDetails["reason"] =
+          "currentConfig.env is empty but resolvedEnv has values";
+        // 过滤敏感 key 名，避免泄露业务特征
+        const isSensitiveEnvKey = (key: string) =>
+          /(key|token|secret|password|authorization|credential)/i.test(key);
+        envDiffDetails["resolvedEnvKeys"] = Object.keys(resolvedEnv).filter(
+          (k) => !isSensitiveEnvKey(k),
+        );
+      }
+      log.info(
+        `[UnifiedAgent] 🔍 detectConfigChange(${projectId}): ${result ? "CHANGED" : "unchanged"}`,
+        {
+          needsSwitch,
+          envChanged,
+          modelChanged,
+          apiKeyChanged,
+          baseUrlChanged,
+          mcpChanged,
+          details: {
+            currentModel: currentConfig?.model,
+            newModel: model,
+            currentApiKeyLen: currentConfig?.apiKey?.length,
+            newApiKeyLen: mp?.api_key?.length,
+            currentBaseUrl: currentConfig?.baseUrl,
+            newBaseUrl: mp?.base_url,
+            storedMcpKeys: storedRawMcp ? Object.keys(storedRawMcp) : "(none)",
+            requestMcpKeys: Object.keys(requestMcpServers),
+            currentEnvKeys: currentConfig?.env
+              ? Object.keys(currentConfig.env)
+              : "(none)",
+            resolvedEnvKeys: resolvedEnv ? Object.keys(resolvedEnv) : "(none)",
+            envDiff:
+              Object.keys(envDiffDetails).length > 0
+                ? envDiffDetails
+                : "(no diff)",
+          },
+        },
+      );
+    }
+
+    return result;
   }
 
   /**
@@ -1206,6 +1362,8 @@ export class UnifiedAgentService extends EventEmitter {
           log.info(
             `[UnifiedAgent] Engine ${projectId} destroyed, remaining engines: ${this.engines.size}`,
           );
+          // 引擎销毁后，重新预热 warmup（如果当前没有其他引擎）
+          this.warmup.respawn(this.baseConfig, (e) => this.forwardEvents(e));
         } else {
           log.info(
             `[UnifiedAgent] Engine ${projectId} still has ${engine.sessionCount} session(s), NOT destroying`,

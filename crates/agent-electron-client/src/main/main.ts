@@ -10,7 +10,7 @@ import {
 } from "electron";
 import * as path from "path";
 import log from "electron-log";
-import { initDatabase, closeDb } from "./db";
+import { initDatabase, closeDb, readSetting } from "./db";
 import { ManagedProcess } from "./processManager";
 import { registerAllHandlers } from "./ipc/index";
 import { unregisterEventForwarders } from "./ipc/eventForwarders";
@@ -18,15 +18,19 @@ import { runStartupTasks } from "./bootstrap/startup";
 import { agentService } from "./services/engines/unifiedAgent";
 import { stopComputerServer } from "./services/computerServer";
 import { mcpProxyManager } from "./services/packages/mcp";
+import { stopGuiAgentServer } from "./services/packages/guiAgentServer";
+import { FEATURES } from "@shared/featureFlags";
+import { stopWindowsMcp } from "./services/packages/windowsMcp";
 import type { HandlerContext } from "@shared/types/ipc";
 import { DEFAULT_DEV_SERVER_PORT } from "./services/constants";
 import { APP_DISPLAY_NAME, CLEANUP_TIMEOUT } from "@shared/constants";
 import { initLogging } from "./bootstrap/logConfig";
+import { initI18n, setMainLang } from "./services/i18n";
 import { createTrayManager, TrayStatus } from "./window/trayManager";
 import { createServiceManager } from "./window/serviceManager";
 import { initAutoUpdater } from "./services/autoUpdater";
 import { migrateDataDir, migrateSettingsPaths } from "./bootstrap/migrate";
-import { getDeviceId } from "./services/system/deviceId";
+import { getDeviceId, logSystemInfo } from "./services/system/deviceId";
 import { initWebviewPolicy } from "./services/system/webviewPolicy";
 
 // macOS 26 Tahoe 兼容性：禁用 Fontations 字体后端
@@ -85,13 +89,41 @@ if (process.platform === "linux") {
 
 // 日志：轮转 + TTL 清理 + 开发/正式差异化（见 logConfig.ts）
 initLogging();
+initI18n();
 log.info("Application starting...");
+log.info("[FeatureFlags][main]", FEATURES);
 
 // Global references
 let mainWindow: BrowserWindow | null = null;
 let trayManager: ReturnType<typeof createTrayManager> | null = null;
 let isQuitting = false; // 标志：是否正在真正退出应用
 let isInstallingUpdate = false; // 标志：是否正在执行 quitAndInstall 安装更新
+let pendingSecondInstanceFocus = false; // 标志：窗口未创建前收到 second-instance 事件
+
+// 单实例保护：Windows 托盘常驻场景下再次启动时，复用当前实例而不是创建新实例
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  log.warn("[App] Another instance is already running, quitting current one");
+  app.quit();
+}
+
+app.on("second-instance", () => {
+  log.info("[App] second-instance event received");
+  if (!mainWindow) {
+    pendingSecondInstanceFocus = true;
+    if (app.isReady()) {
+      createWindow();
+    }
+    return;
+  }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+  mainWindow.focus();
+});
 
 // Get icon path (works in both dev and production)
 function getIconPath() {
@@ -118,11 +150,26 @@ function getDockIconPath() {
 }
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+const WEBVIEW_PERF_BRIDGE_PRELOAD = path.join(
+  __dirname,
+  "..",
+  "preload",
+  "webviewPerfBridge.js",
+);
+function shouldInjectWebviewPerfBridge(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return /^https?:$/.test(parsed.protocol);
+  } catch {
+    return false;
+  }
+}
 
 // Managed child processes
 const lanproxy = new ManagedProcess("lanproxy");
 const fileServer = new ManagedProcess("fileServer");
 const agentRunner = new ManagedProcess("agentRunner");
+const guiServer = new ManagedProcess("gui-agent-server");
 let agentRunnerPorts: { backendPort: number; proxyPort: number } | null = null;
 
 function createWindow() {
@@ -143,6 +190,20 @@ function createWindow() {
     },
     show: false,
   });
+
+  // 为 webview guest 注入轻量 Bridge（NuwaClawBridge）。
+  // 当前策略：对所有 http/https 页面注入；真正是否生效由 guest 侧路由+容器二次判断。
+  mainWindow.webContents.on(
+    "will-attach-webview",
+    (_event, webPreferences, params) => {
+      const targetUrl = String(params.src || "");
+      if (!shouldInjectWebviewPerfBridge(targetUrl)) {
+        return;
+      }
+      webPreferences.preload = WEBVIEW_PERF_BRIDGE_PRELOAD;
+      log.info("[WebviewBridge] Injected guest preload for:", targetUrl);
+    },
+  );
 
   // Load the app
   if (isDev) {
@@ -270,57 +331,98 @@ ipcMain.handle("tray:updateServicesStatus", (_, running: boolean) => {
 async function cleanupAllProcesses(): Promise<void> {
   log.info("[Cleanup] Stopping all processes...");
 
-  try {
+  const stepTimeoutMs = Math.max(1500, Math.floor(CLEANUP_TIMEOUT / 6));
+  const runCleanupStep = async (
+    label: string,
+    fn: () => Promise<void> | void,
+  ): Promise<void> => {
+    let completed = false;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const task = (async () => {
+      try {
+        await fn();
+      } catch (e) {
+        log.error(`[Cleanup] ${label} error:`, e);
+      } finally {
+        completed = true;
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = null;
+        }
+      }
+    })();
+    await Promise.race([
+      task,
+      new Promise<void>((resolve) => {
+        timeoutHandle = setTimeout(() => {
+          if (!completed) {
+            log.warn(`[Cleanup] ${label} timed out after ${stepTimeoutMs}ms`);
+          }
+          timeoutHandle = null;
+          resolve();
+        }, stepTimeoutMs);
+      }),
+    ]);
+  };
+
+  await runCleanupStep("Computer server stop", async () => {
     await stopComputerServer();
-  } catch (e) {
-    log.error("[Cleanup] Computer server stop error:", e);
-  }
+  });
 
-  try {
+  await runCleanupStep("Event forwarders unregister", () => {
     unregisterEventForwarders();
-  } catch (e) {
-    log.error("[Cleanup] Event forwarders unregister error:", e);
-  }
+  });
 
-  try {
+  await runCleanupStep("Agent service destroy", async () => {
     await agentService.destroy();
-  } catch (e) {
-    log.error("[Cleanup] Agent service destroy error:", e);
-  }
+  });
 
-  agentRunner.kill();
-  lanproxy.kill();
-  fileServer.kill();
-
-  try {
+  await runCleanupStep("MCP proxy cleanup", async () => {
     await mcpProxyManager.cleanup();
-  } catch (e) {
-    log.warn("[Cleanup] MCP proxy cleanup error:", e);
+  });
+
+  // Windows：windows-mcp（uv/python）由独立 ManagedProcess 管理
+  await runCleanupStep("Windows MCP stop", async () => {
+    await stopWindowsMcp();
+  });
+
+  // 非 Windows：agent-gui-server 进程
+  if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
+    await runCleanupStep("GUI Agent server stop", async () => {
+      await stopGuiAgentServer();
+    });
   }
 
-  try {
+  await runCleanupStep("Engine processes stop", () => {
     const { stopAllEngines } = require("./services/engines/engineManager");
     stopAllEngines();
     log.info("[Cleanup] Engine processes stopped");
-  } catch (e) {
-    // Engine service might not be loaded
-  }
+  });
 
-  // Final safety net: kill all registered ACP processes
-  try {
+  await runCleanupStep("Process registry killAll", async () => {
     const { processRegistry } = require("./services/system/processRegistry");
     await processRegistry.killAll();
     log.info("[Cleanup] Process registry cleared");
-  } catch (e) {
-    log.warn("[Cleanup] Process registry cleanup error:", e);
-  }
+  });
+
+  // Last-resort force kill for legacy managed processes.
+  // NOTE: guiServer is a legacy placeholder and typically not started directly.
+  agentRunner.kill();
+  lanproxy.kill();
+  fileServer.kill();
+  guiServer.kill();
 
   log.info("[Cleanup] All processes stopped");
 }
 
 // App lifecycle
 app.whenReady().then(async () => {
+  if (!hasSingleInstanceLock) {
+    return;
+  }
+
   log.info("App ready");
+  logSystemInfo();
 
   // Dev mode: fix CORS duplicate header issue
   // Server returns both specific origin and '*', causing browser to reject.
@@ -336,9 +438,14 @@ app.whenReady().then(async () => {
           // Keep only the specific origin (not '*')
           const specific = headers[acoKey].find((v) => v !== "*");
           headers[acoKey] = [specific || "*"];
+          // 仅在确实修改了 ACO 时才回传 responseHeaders，
+          // 避免无条件替换导致 Set-Cookie 被 Chromium 网络服务丢弃
+          callback({ responseHeaders: headers });
+          return;
         }
       }
-      callback({ responseHeaders: headers });
+      // 未修改任何 header → 不传 responseHeaders，Chromium 原样传递
+      callback({});
     });
     log.info("Dev CORS fix enabled");
   }
@@ -371,11 +478,22 @@ app.whenReady().then(async () => {
   migrateSettingsPaths();
   getDeviceId();
 
+  // 数据库就绪后，同步语言到主进程 i18n
+  // 优先级：本地保存 > Electron 系统语言 > 英文兜底
+  const savedLang = readSetting("i18n.active_lang") as string | undefined;
+  if (savedLang) {
+    setMainLang(savedLang);
+  } else {
+    // 无本地偏好：用 Electron 系统语言（app.ready 后可靠）
+    setMainLang(app.getLocale() || "en");
+  }
+
   const ctx: HandlerContext = {
     getMainWindow: () => mainWindow,
     lanproxy,
     fileServer,
     agentRunner,
+    guiServer,
     get agentRunnerPorts() {
       return agentRunnerPorts;
     },
@@ -388,6 +506,11 @@ app.whenReady().then(async () => {
   await runStartupTasks();
 
   createWindow();
+  if (pendingSecondInstanceFocus && mainWindow) {
+    pendingSecondInstanceFocus = false;
+    mainWindow.show();
+    mainWindow.focus();
+  }
   initWebviewPolicy(() => mainWindow);
 
   // 非 macOS 或已打包：立即创建托盘。macOS 开发模式改为在 ready-to-show 后创建
@@ -452,14 +575,22 @@ app.on("before-quit", (e) => {
 
   log.info("[App] Before quit - starting cleanup");
 
-  Promise.race([
-    cleanupAllProcesses(),
-    new Promise<void>((resolve) => setTimeout(resolve, CLEANUP_TIMEOUT)),
-  ]).finally(() => {
-    closeDb();
-    log.info("[App] Cleanup complete, exiting");
-    app.exit(0);
-  });
+  void (async () => {
+    const start = Date.now();
+    try {
+      await cleanupAllProcesses();
+    } finally {
+      const elapsed = Date.now() - start;
+      if (elapsed > CLEANUP_TIMEOUT) {
+        log.warn(
+          `[App] Cleanup exceeded budget (${elapsed}ms > ${CLEANUP_TIMEOUT}ms), forcing exit`,
+        );
+      }
+      closeDb();
+      log.info("[App] Cleanup complete, exiting");
+      app.exit(0);
+    }
+  })();
 });
 
 app.on("will-quit", () => {

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 清理本地下载的 sidecar（二进制缓存），保留仓库内置的 nuwax-lanproxy
+# 清理本地下载的 sidecar（二进制缓存）
 #
 # 用法:
 #   ./scripts/clean-downloaded-sidecars.sh
@@ -9,7 +9,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-BIN_DIR="$ROOT_DIR/crates/agent-tauri-client/src-tauri/binaries"
 CACHE_DIR="$ROOT_DIR/.cache/sidecars"
 
 DRY_RUN=0
@@ -31,13 +30,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 targets=()
-if [[ -d "$BIN_DIR" ]]; then
-  targets+=(
-    "$BIN_DIR"/mcp-proxy-*
-    "$BIN_DIR"/node-runtime-*
-    "$BIN_DIR"/sidecar-download-manifest.txt
-  )
-fi
 if [[ -d "$CACHE_DIR" ]]; then
   targets+=(
     "$CACHE_DIR"/mcp-proxy-*
@@ -46,7 +38,6 @@ if [[ -d "$CACHE_DIR" ]]; then
   )
 fi
 
-echo "清理目录: $BIN_DIR"
 echo "清理目录: $CACHE_DIR"
 removed=0
 for f in "${targets[@]}"; do

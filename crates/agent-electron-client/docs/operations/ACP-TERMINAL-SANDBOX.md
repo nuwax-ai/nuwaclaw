@@ -1,0 +1,340 @@
+# ACP Terminal API 沙箱化方案
+
+> 版本: 1.3.1 | 日期: 2026-04-10 | 状态: 已实现（含 sandbox 抽象层同步）
+
+## 问题背景
+
+Windows 受限 token (Restricted Token) 沙箱无法在受限进程内创建子进程（EPERM），
+而 ACP 引擎（claude-code-acp-ts、nuwaxcode）需要 spawn 子进程来执行 bash 命令和 MCP 服务器。
+进程级沙箱化（`serve` 模式）在 Windows 上不可行。
+
+## Deep Research 关键发现
+
+### claude-code-acp-ts 使用 ACP Terminal API
+
+**claude-code-acp-ts 的 bash 工具通过 ACP `terminal/create` 协议方法执行命令**，
+而非直接使用 Node.js `child_process`。
+
+源码证据（`~/.nuwaclaw/node_modules/claude-code-acp-ts/dist/mcp-server.js:424-432`）：
+
+```javascript
+if (!agent.clientCapabilities?.terminal || !agent.client.createTerminal) {
+    throw new Error("unreachable");
+}
+const handle = await agent.client.createTerminal({
+    command: input.command,
+    env: [{ name: "CLAUDECODE", value: "1" }],
+    sessionId,
+    outputByteLimit: 32000,
+});
+```
+
+### nuwaxcode 使用内部 bash 执行
+
+nuwaxcode（基于 opencode）不使用 Terminal API，而是内部直接执行 bash 命令。
+通过 `OPENCODE_CONFIG_CONTENT.sandbox` 配置实现逐命令沙箱化（已在之前 PR 中实现）。
+
+### 结论
+
+| 引擎 | Bash 执行方式 | 沙箱化方案 |
+|------|-------------|-----------|
+| claude-code | ACP `terminal/create` | Client 端 Terminal Manager + helper.exe |
+| nuwaxcode | 内部 child_process | `OPENCODE_CONFIG_CONTENT.sandbox` |
+
+## 方案设计
+
+### 架构
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Electron Client (AcpEngine)                              │
+│                                                          │
+│  clientCapabilities: { terminal: true }                  │
+│                                                          │
+│  buildClientHandler():                                   │
+│    ├─ sessionUpdate ──→ handleAcpSessionUpdate()         │
+│    ├─ requestPermission ──→ handlePermissionRequest()    │
+│    │                      └─ strictPermissionGuard.ts     │
+│    └─ ...terminalManager.getClientHandlers()             │
+│         ├─ createTerminal  → SandboxInvoker + helper/direct │
+│         ├─ terminalOutput  → output buffer               │
+│         ├─ waitForExit     → exit promise                │
+│         ├─ killTerminal    → process.kill()              │
+│         └─ releaseTerminal → cleanup                     │
+│                                                          │
+│  nuwaxcode: OPENCODE_CONFIG_CONTENT.sandbox (独立路径)    │
+└─────────────────────────────────────────────────────────┘
+         │                              │
+         ▼                              ▼
+  claude-code-acp-ts               nuwaxcode acp
+  (terminal/create)                (internal bash)
+```
+
+### ACP Terminal API 协议
+
+| 方法 | 方向 | 说明 |
+|------|------|------|
+| `terminal/create` | Agent → Client | 创建终端，执行命令 |
+| `terminal/output` | Agent → Client | 获取当前输出 |
+| `terminal/wait_for_exit` | Agent → Client | 等待命令完成 |
+| `terminal/kill` | Agent → Client | 终止命令 |
+| `terminal/release` | Agent → Client | 释放资源 |
+
+Agent 必须检查 `clientCapabilities.terminal === true` 才能使用。
+
+### 执行流程 (claude-code on Windows)
+
+1. Agent 调用 `terminal/create` 发送命令（如 `npm test`）
+2. `AcpTerminalManager.createTerminal()` 接收请求
+3. Windows 下：通过 `SandboxInvoker.buildInvocation()` 构建包装命令
+   ```
+   nuwax-sandbox-helper.exe run --mode read-only --cwd <cwd> --policy-json {...} -- npm test
+   ```
+4. macOS/Linux 下：直接 `spawn(command, args)`
+5. 返回 `terminalId` 给 Agent
+6. Agent 调用 `terminal/output` 获取输出（从 buffer 读取）
+7. Agent 调用 `terminal/wait_for_exit` 等待完成
+8. Agent 调用 `terminal/release` 释放资源
+
+### Sandbox Helper JSON 输出
+
+`nuwax-sandbox-helper.exe run` 返回 JSON：
+```json
+{
+  "exit_code": 0,
+  "stdout": "test output...",
+  "stderr": "",
+  "timed_out": false
+}
+```
+
+`AcpTerminalManager` 解析此 JSON，提取 `stdout` + `stderr` 放入 output buffer。
+
+## 变更文件
+
+| 文件 | 变更类型 | 说明 |
+|------|----------|------|
+| `acpTerminalManager.ts` | 修改 | Terminal 生命周期管理；Windows 走 `SandboxInvoker(run)`；平台判断改为 `PlatformAdapter` |
+| `acpClient.ts` | 修改 | ACP 侧 sandbox 启动链细节同步（含平台分支统一入口） |
+| `strictPermissionGuard.ts` | 修改 | strict 写入路径门控继续生效，平台来源统一 |
+| `SandboxInvoker.ts` | 修改 | strict 语义对齐：macOS strict 不含 startup chain；Windows run strict 仅首个 writable root |
+| `platformAdapter.ts` | **新建** | 跨平台统一抽象层（平台能力、命令探测、helper/bwrap 路径解析、推荐后端） |
+| `platformAdapter.test.ts` | **新建** | `PlatformAdapter` 单测覆盖 |
+| `shellEnv.ts` | 修改 | 命令探测与 PATH 分隔符统一走 `PlatformAdapter` |
+| `policy.ts` | 修改 | 平台/后端推荐与 helper 路径解析统一走 `PlatformAdapter` |
+| `SandboxManager.ts` | 修改 | 平台分支入口统一走 `PlatformAdapter` |
+| `serviceBootstrap.ts` | 修改 | 平台识别统一走 `PlatformAdapter` |
+| `processTree.ts` | 修改 | 进程树清理平台分支统一走 `PlatformAdapter` |
+
+### 不变的文件
+
+| 文件 | 原因 |
+|------|------|
+| `windows-sandbox-helper/main.rs` | `run` 模式已可用 |
+| `sandboxProcessWrapper.ts` | 仍用于 nuwaxcode env-var 注入 |
+
+## 关键设计决策
+
+### 1. getClientHandlers() 模式
+
+`AcpTerminalManager` 提供 `getClientHandlers()` 方法返回 handler 对象，
+`acpEngine.ts` 通过 spread 操作符注入：
+
+```typescript
+private buildClientHandler(): AcpClientHandler {
+  return {
+    sessionUpdate: ...,
+    requestPermission: ...,
+    // 一行注入所有 terminal handlers
+    ...(this.terminalManager?.getClientHandlers() ?? {}),
+  };
+}
+```
+
+**优点**：减少代码侵入，terminal 逻辑完全封装在 manager 中。
+
+### 2. JSON 解析 vs 直接输出
+
+Windows sandbox helper `run` 模式返回 JSON 封装的输出。
+`AcpTerminalManager` 在 `spawnProcess()` 中区分两种模式：
+- `parseJson=true`（Windows sandbox）：收集完整 JSON，解析后提取 stdout/stderr
+- `parseJson=false`（直接执行）：实时流式收集 stdout/stderr
+
+### 3. outputByteLimit
+
+遵循 ACP 规范：当输出超过 `outputByteLimit` 时，从开头截断保留最新输出。
+标记 `truncated: true` 以通知 Agent。
+
+> **注意**：当前实现使用 `string.length` 而非字节数。对于 ASCII 输出两者一致，
+> 对于 CJK 多字节字符，`string.length`（UTF-16 code units）可能小于实际字节数。
+> 实际影响有限，因为 claude-code 设置 `outputByteLimit: 32000`。
+
+### 4. 沙箱参数来源
+
+`writablePaths`、`networkEnabled` 和 `mode` 从 sandbox 配置传入，而非硬编码：
+
+```typescript
+this.terminalManager = new AcpTerminalManager({
+  windowsSandboxHelperPath: sandboxConfig.windowsSandboxHelperPath,
+  windowsSandboxMode: sandboxConfig.windowsSandboxMode,
+  networkEnabled: sandboxConfig.networkEnabled ?? true,
+  writablePaths: sandboxConfig.projectWorkspaceDir
+    ? [sandboxConfig.projectWorkspaceDir]
+    : [],
+  mode: sandboxConfig.mode,
+});
+```
+
+`createTerminal` 不会把 `cwd` 追加到 `writablePaths`；而是执行以下策略：
+- `cwd` 在可写根内：直接使用
+- `cwd` 缺失或越界：回退到首个可写根（workspace-first）
+
+### 5. 竞态防护
+
+Terminal 在 spawn 之前注册到 Map，避免快速退出的进程导致 "Terminal not found" 错误：
+
+```typescript
+// 注册在前，spawn 在后
+this.terminals.set(terminalId, session);
+this.spawnProcess(session, ...);
+```
+
+### 6. 会话级终端清理
+
+当 `abortSession()` 取消会话时，自动终止该会话关联的所有终端进程：
+
+```typescript
+if (this.terminalManager) {
+  await this.terminalManager.releaseForSession(sessionId);
+}
+```
+
+`releaseForSession()` 遍历所有 terminal，按 sessionId 过滤后逐一 kill + release。
+
+### 7. 并发限制
+
+默认最多 50 个并发终端，防止失控的 Agent 耗尽系统资源：
+
+```typescript
+private static readonly MAX_CONCURRENT = 50;
+
+async createTerminal(...) {
+  if (this.terminals.size >= AcpTerminalManager.MAX_CONCURRENT) {
+    throw new Error(
+      `Terminal limit reached (${AcpTerminalManager.MAX_CONCURRENT}). Release existing terminals first.`
+    );
+  }
+  // ...
+}
+```
+
+## 与现有系统的关系
+
+### macOS/Linux 进程级沙箱
+
+在 macOS/Linux 上，ACP 引擎进程仍通过 seatbelt/bwrap 进行进程级沙箱化。
+Terminal API 执行的命令也在此沙箱内运行，无需额外包装。
+
+### nuwaxcode env-var 沙箱
+
+nuwaxcode 不使用 Terminal API，其 bash 执行通过 `OPENCODE_CONFIG_CONTENT.sandbox`
+配置路由到 sandbox helper。这是独立的代码路径，不受 Terminal API 实现影响。
+
+另外，在 `strict` 模式下，`nuwaxcode` 的 ACP `requestPermission` 路径会额外经过
+`strictPermissionGuard.ts`：
+- 仅识别写入类请求应用路径门控（非写入请求跳过）
+- 允许写入根目录：`workspace` + `temp(TMP/TEMP/TMPDIR)` + `isolatedHome` + `isolatedHome/tmp`（strict 下不含 `appData`）
+- 路径缺失时 fail-closed（拒绝）
+- 写入类权限仅选择 `allow_once`（不走 `allow_always`）
+
+同时，`nuwaxcode` warmup 复用现在对 sandbox policy 变更敏感：
+- warmup 启动时记录 `NUWAX_AGENT_WARMUP_SANDBOX_POLICY_FP`
+- 复用前比对当前 policy 指纹
+- 旧 warmup 缺少该标记或指纹不一致时，立即放弃复用并冷启动
+- 确保 sandbox mode/policy 配置修改后对“下一次新会话”立即生效
+
+## 验证步骤
+
+1. 启动 Electron 开发模式
+2. 使用 claude-code 引擎发送包含 bash 命令的 prompt
+3. 检查日志中 `createTerminal` 调用（而非 EPERM 错误）
+4. 确认 Windows 下命令通过 `nuwax-sandbox-helper.exe run` 执行
+5. 确认 `terminalOutput` 返回正确输出
+6. 确认 `waitForExit` 返回正确退出码
+7. 确认 nuwaxcode 行为不受影响
+8. 确认 macOS/Linux 沙箱行为不受影响
+9. 验证 abort 后终端进程被正确清理
+10. 验证并发超过 50 时抛出限制错误
+11. （nuwaxcode + strict）验证 ACP 调试日志：
+    - `strict writable roots snapshot`（每个 session 一次）
+    - `strict permission evaluation`
+    - `strict permission skipped (non-write request)`
+    - `strict write permission blocked`
+    - `strict write permission allowed_once`
+12. （warmup）验证 sandbox policy 相关调试日志：
+    - `warmup sandbox policy snapshot`
+    - `warmup sandbox policy compatibility check`
+    - 发生策略变更时出现：`Sandbox policy changed, skipping warmup reuse`
+
+## 安全注意事项
+
+### SandboxMode 对 Windows per-command 的影响
+
+`SandboxMode`（strict / compat / permissive）影响 Windows 沙箱行为，包括 `run` 和 `serve` 子命令：
+
+#### `run` 子命令（per-command，claude-code bash）
+
+| Mode | `writable_roots` | Token 限制 | APPDATA |
+|------|-----------------|-----------|---------|
+| **strict** | 仅首个传入路径（workspace-first） | WRITE_RESTRICTED 保持启用 | 不包含 |
+| **compat**（默认） | 全部传入路径 | WRITE_RESTRICTED 保持启用 | 包含 |
+| **permissive** | 全部传入路径 | `--no-write-restricted` 放松 token | 包含 |
+
+#### `serve` 子命令（进程级，nuwaxcode 整个进程）
+
+| Mode | WRITE_RESTRICTED | 可写路径 | 说明 |
+|------|-----------------|---------|------|
+| **strict** | `--write-restricted` 启用 | workspace + TEMP/TMP | 最小写入面，APPDATA 不可写 |
+| **compat** | `--write-restricted` 启用 | workspace + TEMP/TMP + APPDATA/LOCALAPPDATA | 引擎基础设施可写 |
+| **permissive** | 不传递 flag（默认 false） | 无限制 | 仅受限 token，无写入保护 |
+
+> **关键变更 (v1.2.0)**: `serve` 子命令新增 `--write-restricted` CLI flag。
+> strict/compat 模式下启用，permissive 模式下禁用。
+> 这修复了 nuwaxcode 内部 bash 工具可绕过沙箱写入 Desktop 的问题。
+> APPDATA/LOCALAPPDATA 的包含/排除由 Rust helper 的 `compute_allow_paths()`
+> 根据 policy JSON 中的 `sandbox_mode` 字段统一控制。
+
+> 对 `nuwaxcode` 来说，strict 下除了 helper 的 `writable_roots` 外，ACP 权限层还会执行
+> `strictPermissionGuard` 二次门控（写入路径必须落在 workspace/temp/isolatedHome）。
+
+### macOS/Linux 上的 per-command 沙箱
+
+当前 `AcpTerminalManager` 仅在 Windows 上启用 per-command 沙箱包装。
+macOS/Linux 上 terminal 命令直接执行（进程级沙箱由 seatbelt/bwrap 在引擎级别提供）。
+
+### 跨平台 SandboxMode 差异
+
+| 平台 | strict | compat | permissive |
+|------|--------|--------|-----------|
+| Linux (bwrap) | 最小 ro-bind（`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/etc`, `/opt`, `/usr/local`） | 全局 ro-bind `/` | 完整 rw bind，无 namespace 隔离 |
+| macOS (seatbelt) | 仅命令本身在 exec allowlist（不含 startup chain） | 命令 + startup chain 在 exec allowlist | 全局 file-write + unrestricted process-exec |
+| Windows (helper `run`) | `writable_roots` 仅首个路径 + WRITE_RESTRICTED | `writable_roots` 全部路径 + WRITE_RESTRICTED | `writable_roots` 全部路径 + `--no-write-restricted` |
+| Windows (helper `serve`) | `--write-restricted`，仅 workspace + TEMP/TMP | `--write-restricted`，workspace + TEMP/TMP + APPDATA | 无 WRITE_RESTRICTED（进程级不限制写入） |
+
+### Windows 非 sandbox 路径的 shell 注入
+
+当 sandbox 未启用且平台为 Windows 时，`spawnProcess` 使用 `shell: true`。
+如果 Agent 发送的命令包含 shell 元字符，它们会被解释。
+安全边界在 sandbox helper 级别（受限 token），sandbox 未启用时命令以用户权限运行。
+
+### 无命令白名单/黑名单
+
+Terminal Manager 执行 Agent 发送的所有命令，安全边界在 sandbox helper 级别。
+如果 sandbox 不可用，命令以完整用户权限运行。
+
+## 参考
+
+- [ACP Terminal API 规范](https://agentclientprotocol.com/protocol/terminals)
+- [ACP SDK 源码](node_modules/@agentclientprotocol/sdk/dist/acp.js)
+- [Codex Windows Sandbox](https://github.com/openai/codex) — 参考架构
+- [windows-sandbox-helper](../../crates/windows-sandbox-helper/src/main.rs) — Rust helper 源码

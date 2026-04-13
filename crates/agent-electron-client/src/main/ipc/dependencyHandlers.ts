@@ -56,6 +56,42 @@ export function registerDependencyHandlers(): void {
     }
   });
 
+  /** 检测应用包内集成的 nuwaxcode 引擎二进制 */
+  ipcMain.handle("dependencies:checkNuwaxcodeBundled", async () => {
+    const { checkNuwaxcodeBundled } =
+      await import("../services/system/dependencies");
+    try {
+      const result = await checkNuwaxcodeBundled();
+      return { success: true, ...result };
+    } catch (error) {
+      return { success: false, available: false, error: String(error) };
+    }
+  });
+
+  /** 检测应用包内集成的 claude-code-acp-ts */
+  ipcMain.handle("dependencies:checkClaudeCodeAcpBundled", async () => {
+    const { checkClaudeCodeAcpBundled } =
+      await import("../services/system/dependencies");
+    try {
+      const result = await checkClaudeCodeAcpBundled();
+      return { success: true, ...result };
+    } catch (error) {
+      return { success: false, available: false, error: String(error) };
+    }
+  });
+
+  /** 检测应用包内集成的 nuwax-file-server */
+  ipcMain.handle("dependencies:checkNuwaxFileServerBundled", async () => {
+    const { checkNuwaxFileServerBundled } =
+      await import("../services/system/dependencies");
+    try {
+      const result = await checkNuwaxFileServerBundled();
+      return { success: true, ...result };
+    } catch (error) {
+      return { success: false, available: false, error: String(error) };
+    }
+  });
+
   ipcMain.handle(
     "dependencies:detectPackage",
     async (_, packageName: string, binName?: string) => {
@@ -110,8 +146,8 @@ export function registerDependencyHandlers(): void {
   });
 
   ipcMain.handle("dependencies:getRequiredList", async () => {
-    const { SETUP_REQUIRED_DEPENDENCIES } =
+    const { getSetupRequiredDependencies } =
       await import("../services/system/dependencies");
-    return SETUP_REQUIRED_DEPENDENCIES;
+    return getSetupRequiredDependencies();
   });
 }

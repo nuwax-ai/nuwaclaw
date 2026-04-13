@@ -5,15 +5,15 @@
  * Windows 下使用 prepare-git 集成的 Git Bash，无 bash 时回退到 cmd+netstat。
  */
 
-import { execSync, spawnSync } from 'child_process';
-import { readSetting } from '../db';
+import { execSync, spawnSync } from "child_process";
+import { readSetting } from "../db";
 import {
   resolvePortsFromSettings,
   getPortsToCheck,
   type StartupPorts,
-} from '@shared/startupPorts';
-import { isWindows } from './system/shellEnv';
-import { getBundledGitBashPath } from './system/dependencies';
+} from "@shared/startupPorts";
+import { isWindows } from "./system/shellEnv";
+import { getBundledGitBashPath } from "./system/dependencies";
 
 /** 与 scripts/tools/check-port.sh 保持一致的内嵌脚本（打包后无脚本文件时使用），脚本内端口通过 $1 传入 */
 const CHECK_PORT_SCRIPT = `
@@ -41,7 +41,9 @@ export function getConfiguredPorts(): StartupPorts {
  * 返回需要做占用检查的端口列表（名称 + 端口）
  * @param includeVite 是否包含 Vite 端口（开发模式为 true）
  */
-export function getPortList(includeVite: boolean): Array<{ name: string; label: string; port: number }> {
+export function getPortList(
+  includeVite: boolean,
+): Array<{ name: string; label: string; port: number }> {
   const ports = getConfiguredPorts();
   return getPortsToCheck(ports, includeVite);
 }
@@ -61,7 +63,7 @@ export type PortCheckItem = {
  * @param portList 由 getPortList() 得到
  */
 export function checkPortsInUse(
-  portList: Array<{ name: string; label: string; port: number }>
+  portList: Array<{ name: string; label: string; port: number }>,
 ): PortCheckItem[] {
   return portList.map((item) => {
     const { inUse, pid } = isPortInUse(item.port);
@@ -74,19 +76,27 @@ export function checkPortsInUse(
  * 优先统一走 bash（与 scripts/tools/check-port.sh 一致）：Windows 用 prepare-git 集成的 Git Bash，Unix 用系统 bash。
  * Windows 无集成 bash 时回退到 cmd+netstat。
  */
-function isPortInUse(port: number): { inUse: boolean; pid?: number } {
+export function isPortInUse(port: number): { inUse: boolean; pid?: number } {
   const portStr = String(port);
 
   // 1) Windows：若有集成 Git Bash 则统一用 bash 执行脚本
   if (isWindows()) {
     const bashPath = getBundledGitBashPath();
     if (bashPath) {
-      const result = spawnSync(bashPath, ['-c', CHECK_PORT_SCRIPT, '_', portStr], {
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+      const result = spawnSync(
+        bashPath,
+        ["-c", CHECK_PORT_SCRIPT, "_", portStr],
+        {
+          encoding: "utf8",
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
       if (result.status === 0 && result.stdout) {
-        const text = (result.stdout && typeof result.stdout === 'string' ? result.stdout : String(result.stdout)).trim();
+        const text = (
+          result.stdout && typeof result.stdout === "string"
+            ? result.stdout
+            : String(result.stdout)
+        ).trim();
         const pid = text && /^\d+$/.test(text) ? parseInt(text, 10) : undefined;
         return { inUse: true, pid };
       }
@@ -95,15 +105,15 @@ function isPortInUse(port: number): { inUse: boolean; pid?: number } {
     // 回退：无 bash 时用 cmd+netstat
     try {
       const out = execSync(`netstat -ano 2>nul | findstr ":${portStr} "`, {
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        shell: process.env.ComSpec || 'cmd.exe',
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+        shell: process.env.ComSpec || "cmd.exe",
       });
-      const text = (out && typeof out === 'string' ? out : String(out)).trim();
+      const text = (out && typeof out === "string" ? out : String(out)).trim();
       const inUse = text.length > 0;
       let pid: number | undefined;
       if (inUse) {
-        const firstLine = text.split(/\r?\n/)[0] || '';
+        const firstLine = text.split(/\r?\n/)[0] || "";
         const lastCol = firstLine.split(/\s+/).filter(Boolean).pop();
         if (lastCol && /^\d+$/.test(lastCol)) pid = parseInt(lastCol, 10);
       }
@@ -114,12 +124,16 @@ function isPortInUse(port: number): { inUse: boolean; pid?: number } {
   }
 
   // 2) macOS / Linux：统一用 bash 执行脚本（与 Windows 一致）
-  const result = spawnSync('bash', ['-c', CHECK_PORT_SCRIPT, '_', portStr], {
-    encoding: 'utf8',
-    stdio: ['pipe', 'pipe', 'pipe'],
+  const result = spawnSync("bash", ["-c", CHECK_PORT_SCRIPT, "_", portStr], {
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
   });
   if (result.status === 0 && result.stdout) {
-    const text = (result.stdout && typeof result.stdout === 'string' ? result.stdout : String(result.stdout)).trim();
+    const text = (
+      result.stdout && typeof result.stdout === "string"
+        ? result.stdout
+        : String(result.stdout)
+    ).trim();
     const pid = text && /^\d+$/.test(text) ? parseInt(text, 10) : undefined;
     return { inUse: true, pid };
   }
@@ -130,7 +144,9 @@ function isPortInUse(port: number): { inUse: boolean; pid?: number } {
  * 一站式：解析配置端口并检查占用，返回带 inUse/pid 的列表（供 UI 或日志）
  * @param includeVite 是否包含 Vite
  */
-export function getConfiguredPortsWithStatus(includeVite: boolean): PortCheckItem[] {
+export function getConfiguredPortsWithStatus(
+  includeVite: boolean,
+): PortCheckItem[] {
   const list = getPortList(includeVite);
   return checkPortsInUse(list);
 }

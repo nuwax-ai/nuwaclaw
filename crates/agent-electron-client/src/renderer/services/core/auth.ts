@@ -16,10 +16,18 @@ import {
   LOCAL_HOST_URL,
   DEFAULT_AGENT_RUNNER_PORT,
   DEFAULT_FILE_SERVER_PORT,
+  DEFAULT_GUI_MCP_PORT,
+  DEFAULT_ADMIN_SERVER_PORT,
 } from "@shared/constants";
+import { syncSessionCookie } from "../utils/sessionUrl";
+import { logger } from "../utils/logService";
+import {
+  getDomainTokenKey,
+  normalizeDomainForTokenKey,
+} from "@shared/utils/domain";
+import { t } from "./i18n";
 
-// ========== 类型定义 ==========
-
+// ========== 类型定义 ===
 export interface AuthUserInfo {
   id?: number;
   username: string;
@@ -30,8 +38,7 @@ export interface AuthUserInfo {
   currentDomain?: string;
 }
 
-// ========== 存储辅助函数 ==========
-
+// ========== 存储辅助函数 ===
 async function settingsGet<T>(key: string): Promise<T | null> {
   try {
     const value = await window.electronAPI?.settings.get(key);
@@ -45,20 +52,11 @@ async function settingsSet(key: string, value: unknown): Promise<void> {
   await window.electronAPI?.settings.set(key, value);
 }
 
-/**
- * 将域名标准化为存储键的一部分
- */
-function normalizeDomain(domain: string): string {
-  try {
-    const url = new URL(domain);
-    return url.hostname;
-  } catch {
-    return domain.replace(/^https?:\/\//, "").replace(/[:/]/g, "_");
-  }
-}
+// 域名标准化使用共享函数 normalizeDomainForTokenKey
+// 保留别名以兼容现有调用
+const normalizeDomain = normalizeDomainForTokenKey;
 
-// ========== 存储操作 ==========
-
+// ========== 存储操作 ===
 async function getUsername(): Promise<string | null> {
   return settingsGet<string>(AUTH_KEYS.USERNAME);
 }
@@ -136,7 +134,10 @@ async function saveServerConfig(
     enabled: true,
   });
 
-  console.log("[Auth] lanproxy 服务器配置已保存:", { serverHost, serverPort });
+  logger.info("Lanproxy server config saved", "Auth", {
+    serverHost,
+    serverPort,
+  });
 }
 
 async function clearAuthInfo(): Promise<void> {
@@ -149,14 +150,44 @@ async function clearAuthInfo(): Promise<void> {
   // 不清除 savedKey，跨登录会话持久化
 }
 
-// ========== 获取本地沙箱配置 ==========
+// ========== Token 缓存辅助函数 ===
+/**
+ * 缓存登录 token 到 one-shot 和域名级别存储
+ * 尝试立即同步到 webview cookie，成功后清除 one-shot token
+ */
+async function cacheAndSyncToken(
+  domain: string,
+  token: string,
+  logTag: string = "Auth",
+): Promise<void> {
+  // 写入 one-shot token（给后续打开 webview 用）
+  await settingsSet(AUTH_KEYS.AUTH_TOKEN, token);
 
+  // 写入域名级别缓存（兜底）
+  const domainTokenKey = getDomainTokenKey(domain);
+  await settingsSet(domainTokenKey, token);
+
+  logger.info("Login token cache written", logTag, { domain, domainTokenKey });
+
+  // 尝试立即同步到 webview cookie
+  try {
+    await syncSessionCookie(domain, token);
+    await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
+    logger.info("Token synced to webview cookie", logTag);
+  } catch (e) {
+    logger.warn("Token sync failed, keeping local cache", logTag, e);
+  }
+}
+
+// ========== 获取本地沙箱配置 ===
 async function getLocalSandboxValue(): Promise<SandboxValue> {
   const step1Config = (await window.electronAPI?.settings.get(
     "step1_config",
   )) as {
     agentPort?: number;
     fileServerPort?: number;
+    guiMcpPort?: number;
+    adminServerPort?: number;
   } | null;
 
   return {
@@ -164,13 +195,15 @@ async function getLocalSandboxValue(): Promise<SandboxValue> {
     agentPort: step1Config?.agentPort ?? DEFAULT_AGENT_RUNNER_PORT,
     vncPort: 0, // vncPort 未启用
     fileServerPort: step1Config?.fileServerPort ?? DEFAULT_FILE_SERVER_PORT,
+    guiMcpPort: step1Config?.guiMcpPort ?? DEFAULT_GUI_MCP_PORT,
+    // Admin Server 已合并到 Computer Server，端口与 agentPort 相同
+    adminServerPort: step1Config?.agentPort ?? DEFAULT_AGENT_RUNNER_PORT,
     apiKey: "",
     maxUsers: 1,
   };
 }
 
-// ========== 错误处理 ==========
-
+// ========== 错误处理 ===
 /**
  * 获取友好的错误信息
  */
@@ -184,29 +217,28 @@ export function getAuthErrorMessage(error: any): string {
   }
 
   const errorCodeMessages: Record<string, string> = {
-    "1001": "用户不存在，请检查输入",
-    "1002": "密码错误，请重新输入",
-    "1003": "账户已被禁用，请联系管理员",
-    "2001": "客户端不存在或已下架",
-    "2002": "客户端已被禁用",
-    "2003": "配置不存在，请重新登录",
-    "4010": "登录已过期，请重新登录",
-    "4011": "登录已过期，请重新登录",
-    "9999": "系统错误，请稍后重试",
+    "1001": t("Claw.Auth.error.userNotFound"),
+    "1002": t("Claw.Auth.error.wrongPassword"),
+    "1003": t("Claw.Auth.error.accountDisabled"),
+    "2001": t("Claw.Auth.error.clientNotFound"),
+    "2002": t("Claw.Auth.error.clientDisabled"),
+    "2003": t("Claw.Auth.error.configNotFound"),
+    "4010": t("Claw.Auth.error.loginExpired"),
+    "4011": t("Claw.Auth.error.loginExpired"),
+    "9999": t("Claw.Auth.error.systemError"),
   };
   if (error?.data?.code && errorCodeMessages[error.data.code]) {
     return errorCodeMessages[error.data.code];
   }
 
-  if (error?.status === 403) return "没有权限执行此操作";
-  if (error?.status === 404) return "请求的资源不存在";
-  if (error?.status === 500) return "服务器错误，请稍后重试";
+  if (error?.status === 403) return t("Claw.Auth.error.forbidden");
+  if (error?.status === 404) return t("Claw.Auth.error.notFound");
+  if (error?.status === 500) return t("Claw.Auth.error.serverError");
 
-  return "登录失败，请检查网络连接";
+  return t("Claw.Auth.error.loginFailed");
 }
 
-// ========== 域名标准化 ==========
-
+// ========== 域名标准化 ===
 export function normalizeServerHost(input: string): string {
   let value = input.trim();
   if (!value) return value;
@@ -215,8 +247,7 @@ export function normalizeServerHost(input: string): string {
   return `https://${value}`;
 }
 
-// ========== 核心认证函数 ==========
-
+// ========== 核心认证函数 ===
 /**
  * 登录并注册客户端
  */
@@ -267,7 +298,11 @@ export async function loginAndRegister(
 
   const loadingKey = "loginLoading";
   if (!suppressToast) {
-    message.loading({ content: "正在登录...", key: loadingKey, duration: 0 });
+    message.loading({
+      content: t("Claw.Auth.loggingIn"),
+      key: loadingKey,
+      duration: 0,
+    });
   }
 
   try {
@@ -292,31 +327,59 @@ export async function loginAndRegister(
     await setOnlineStatus(response.online);
 
     // 持久化 token（用于 webview cookie 同步）
+    // 尝试立即同步，成功后清除；失败时保留给后续页面打开时重试
     if (response.token) {
       await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
+      const domainTokenKey = domain ? getDomainTokenKey(domain) : null;
+      if (domainTokenKey) {
+        await settingsSet(domainTokenKey, response.token);
+      }
+      logger.info("Login token cache written", "Auth", {
+        domain,
+        domainTokenKey,
+      });
+      try {
+        await syncSessionCookie(domain, response.token);
+        await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
+        logger.info("Token synced to webview cookie", "Auth");
+      } catch (e) {
+        logger.warn("Token sync failed, keeping local cache", "Auth", e);
+      }
+    } else {
+      logger.warn(
+        "reg did not return token, cannot sync webview login state",
+        "Auth",
+        {
+          domain,
+        },
+      );
     }
 
     // 保存 lanproxy 服务器配置
-    console.log("[Auth] API 返回的 lanproxy 配置:", {
+    logger.info("API returned lanproxy config", "Auth", {
       serverHost: response.serverHost,
       serverPort: response.serverPort,
     });
     if (response.serverHost && response.serverPort) {
       await saveServerConfig(response.serverHost, response.serverPort);
     } else {
-      console.warn(
-        "[Auth] API 未返回 serverHost/serverPort，lanproxy 配置未更新",
+      logger.warn(
+        "API did not return serverHost/serverPort, lanproxy config not updated",
+        "Auth",
       );
     }
 
     // Electron 版：不自动重启服务，登录完成后由 onComplete 触发主界面初始化
 
     if (!suppressToast) {
-      message.success({ content: "登录成功！", key: loadingKey });
+      message.success({
+        content: t("Claw.Setup.login.success"),
+        key: loadingKey,
+      });
     }
 
     // 不记录 configKey 全文，避免敏感信息写入控制台/日志
-    console.log("[Auth] 登录成功:", {
+    logger.info("Login successful", "Auth", {
       configKeySet: !!response.configKey,
       name: response.name,
       online: response.online,
@@ -329,7 +392,7 @@ export async function loginAndRegister(
   } catch (error: any) {
     const errorMessage = getAuthErrorMessage(error);
     // 仅记录安全信息，避免将含 password/request 的 error 对象写入控制台
-    console.error("[Auth] 登录失败:", errorMessage);
+    logger.error("Login failed", "Auth", errorMessage);
 
     if (!suppressToast) {
       message.error({ content: errorMessage, key: loadingKey });
@@ -400,12 +463,12 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
 
   // 必须有 savedKey 才能重新注册（密码不持久化）
   if (!savedKey) {
-    console.warn("[Auth] 未保存 savedKey，无法重新注册，请重新登录");
+    logger.warn("No savedKey, cannot re-register, please login again", "Auth");
     return null;
   }
 
   try {
-    console.log("[Auth] 重新注册客户端（使用 savedKey）...");
+    logger.info("Re-registering client (using savedKey)...", "Auth");
 
     const deviceId = await window.electronAPI?.app.getDeviceId();
     const params: ClientRegisterParams = {
@@ -426,14 +489,40 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
     await setSavedKey(response.configKey, domain, username || undefined);
     await setOnlineStatus(response.online);
 
+    // 持久化 token（用于 webview cookie 同步）
+    // 尝试立即同步，成功后清除；失败时保留给后续页面打开时重试
     if (response.token) {
       await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
+      const domainTokenKey = domain ? getDomainTokenKey(domain) : null;
+      if (domainTokenKey) {
+        await settingsSet(domainTokenKey, response.token);
+      }
+      logger.info("Login token cache written", "Auth", {
+        domain,
+        domainTokenKey,
+      });
+      try {
+        await syncSessionCookie(domain, response.token);
+        await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
+        logger.info("Token synced to webview cookie", "Auth");
+      } catch (e) {
+        logger.warn("Token sync failed, keeping local cache", "Auth", e);
+      }
+    } else {
+      logger.warn(
+        "reg did not return token, cannot sync webview login state",
+        "Auth",
+        {
+          domain,
+        },
+      );
     }
 
-    console.log("[Auth] 重新注册成功");
+    logger.info("Re-registration successful", "Auth");
+
     return response;
   } catch (error) {
-    console.error("[Auth] 重新注册失败:", error);
+    logger.error("Re-registration failed", "Auth", error);
     return null;
   }
 }
@@ -443,7 +532,7 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
  */
 export async function logout(): Promise<void> {
   await clearAuthInfo();
-  message.info("已退出登录");
+  message.info(t("Claw.Auth.loggedOut"));
 }
 
 /**
@@ -457,8 +546,11 @@ export async function syncConfigToServer(options?: {
   const suppressToast = options?.suppressToast === true;
   const username = await getUsername();
 
-  // 读取 domain，优先级：step1_config.serverHost > lanproxy.server_host
-  // 因为 savedKey 是用 step1_config.serverHost 保存的
+  // 读取 domain，优先级：step1_config.serverHost > lanproxy.server_host。
+  // 说明：
+  // 1) step1_config.serverHost 表示"用户访问业务系统的域名"（登录页输入的域名）；
+  // 2) lanproxy.server_host 表示"代理链路连接地址"（reg 返回的 serverHost）；
+  // 3) 这里仍保留旧优先级用于请求 reg 与读取 savedKey，避免影响既有登录/同步流程。
   const step1Config = (await window.electronAPI?.settings.get(
     "step1_config",
   )) as {
@@ -475,7 +567,10 @@ export async function syncConfigToServer(options?: {
 
   // 必须有 savedKey 才能同步（密码不持久化）
   if (!savedKey) {
-    console.warn("[SyncConfig] 未保存 savedKey，无法同步配置，请重新登录");
+    logger.warn(
+      "No savedKey, cannot sync config, please login again",
+      "SyncConfig",
+    );
     return null;
   }
 
@@ -491,7 +586,7 @@ export async function syncConfigToServer(options?: {
   const loadingKey = "syncConfigLoading";
   if (!suppressToast) {
     message.loading({
-      content: "正在同步配置...",
+      content: t("Claw.Auth.syncingConfig"),
       key: loadingKey,
       duration: 0,
     });
@@ -507,35 +602,70 @@ export async function syncConfigToServer(options?: {
     await setSavedKey(response.configKey, domain, username || undefined);
     await setOnlineStatus(response.online);
 
+    // 持久化 token（用于 webview cookie 同步）
+    // 尝试立即同步，成功后清除；失败时保留给后续页面打开时重试
     if (response.token) {
       await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
+      const domainTokenKey = domain ? getDomainTokenKey(domain) : null;
+      if (domain) {
+        await settingsSet(domainTokenKey!, response.token);
+      }
+      logger.info("Login token cache written", "SyncConfig", {
+        domain,
+        domainTokenKey,
+      });
+      try {
+        await syncSessionCookie(domain, response.token);
+        await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
+        logger.info("Token synced to webview cookie", "SyncConfig");
+      } catch (e) {
+        logger.warn("Token sync failed, keeping local cache", "SyncConfig", e);
+      }
+    } else {
+      logger.warn(
+        "reg did not return token, cannot sync webview login state",
+        "SyncConfig",
+        {
+          domain,
+        },
+      );
     }
 
-    // 使用本次 reg 返回的最新 serverHost/serverPort 覆盖本地配置（reg 返回可能随服务端策略变化）
+    // 使用本次 reg 返回的最新 serverHost/serverPort 覆盖本地"代理配置"。
+    // 注意：serverHost 是 lanproxy 链路地址，不应回写为 UI 展示/跳转使用的业务域名。
     if (response.serverHost && response.serverPort) {
       await saveServerConfig(response.serverHost, response.serverPort);
     }
 
     const currentUserInfo = await getUserInfo();
+    // 关键修复：
+    // - currentDomain 只代表"业务域名"（用于 UI 展示、会话跳转、后续登录目标）；
+    // - reg 返回的 serverHost 仅用于代理配置，不参与 currentDomain 的决定；
+    // - 当本次同步拿不到明确业务域名（domain 为空）时，保留已有 currentDomain，避免被代理地址"间接覆盖"。
+    const preservedCurrentDomain =
+      domain || currentUserInfo?.currentDomain || undefined;
     await setUserInfo({
       ...currentUserInfo,
       id: response.id,
       username: username || "",
       displayName: response.name,
-      currentDomain: domain,
+      currentDomain: preservedCurrentDomain,
     } as AuthUserInfo);
 
     if (!suppressToast) {
-      message.success({ content: "配置同步成功！", key: loadingKey });
+      message.success({
+        content: t("Claw.Auth.configSyncedSuccess"),
+        key: loadingKey,
+      });
     }
-    console.log("[SyncConfig] 配置同步成功:", {
+    logger.info("Config sync successful", "SyncConfig", {
       configKey: response.configKey,
       online: response.online,
     });
     return response;
   } catch (error: any) {
     const errorMessage = getAuthErrorMessage(error);
-    console.error("[SyncConfig] 配置同步失败:", error);
+    logger.error("Config sync failed", "SyncConfig", error);
     if (!suppressToast) {
       message.error({ content: errorMessage, key: loadingKey });
     }

@@ -8,6 +8,10 @@ import {
 } from "../services/packages/mcp";
 import { getConfiguredPorts } from "../services/startupPorts";
 import { DEPS_SYNC_TIMEOUT } from "@shared/constants";
+import {
+  startSandboxService,
+  stopSandboxService,
+} from "../services/sandbox/serviceBootstrap";
 
 /** 依赖同步是否正在进行 */
 let _depsSyncInProgress = false;
@@ -21,7 +25,7 @@ export async function runStartupTasks(): Promise<void> {
     setMirrorConfig,
     getInitDepsState,
     syncInitDependencies,
-    SETUP_REQUIRED_DEPENDENCIES,
+    getSetupRequiredDependencies,
   } = await import("../services/system/dependencies");
   const mirrorConfig = readSetting("mirror_config");
   if (mirrorConfig) {
@@ -61,13 +65,24 @@ export async function runStartupTasks(): Promise<void> {
         };
         mcpProxyManager.setConfig(merged);
       } catch (e) {
-        log.warn("[McpProxy] 初始化配置解析失败:", e);
+        log.warn("[McpProxy] Init config parse failed:", e);
       }
     }
-    log.info("[McpProxy] 配置已加载");
+    log.info("[McpProxy] Config loaded");
   } catch (e) {
-    log.warn("[McpProxy] 初始化配置失败:", e);
+    log.warn("[McpProxy] Init config failed:", e);
   }
+
+  // 初始化沙箱服务（后台启动，不阻塞主流程）
+  setImmediate(async () => {
+    try {
+      await startSandboxService();
+      log.info("[Sandbox] Sandbox service started");
+    } catch (e) {
+      log.warn("[Sandbox] Sandbox service start failed (non-fatal):", e);
+      // 沙箱服务失败不阻塞应用，只是功能降级
+    }
+  });
 
   // 客户端升级后：若 appVersion 或 installVersion 变化，后台同步初始化依赖到写死版本
   // 同步检查是否需要 dep sync，提前设置标志，避免 renderer 在 setImmediate 之前
@@ -77,7 +92,7 @@ export async function runStartupTasks(): Promise<void> {
   const versionChanged = !state || state.appVersion !== currentVersion;
   let packagesChanged = false;
   if (state?.packages) {
-    for (const dep of SETUP_REQUIRED_DEPENDENCIES) {
+    for (const dep of getSetupRequiredDependencies()) {
       if (!dep.installVersion) continue;
       if (state.packages[dep.name] !== dep.installVersion) {
         packagesChanged = true;
@@ -111,7 +126,8 @@ export async function runStartupTasks(): Promise<void> {
             );
           }),
         ]).finally(() => clearTimeout(syncTimer!));
-        if (updated.length > 0) log.info("[Init] 初始化依赖已同步:", updated);
+        if (updated.length > 0)
+          log.info("[Init] Init dependencies synced:", updated);
       } finally {
         _depsSyncInProgress = false;
         // 通知所有渲染进程依赖同步完成，重新检测
@@ -129,7 +145,7 @@ export async function runStartupTasks(): Promise<void> {
           win.webContents.send("deps:syncCompleted");
         }
       }
-      log.warn("[Init] 初始化依赖同步失败:", e);
+      log.warn("[Init] Init dependencies sync failed:", e);
     }
   });
 }

@@ -21,9 +21,10 @@ if (platform === 'darwin') target = '--mac';
 else if (platform === 'win32') target = '--win';
 else target = '--linux';
 
+// 本地打包：跳过 publish（不发布），加快构建速度
 const child = spawn(
   'npm',
-  ['run', 'build:electron', '--', target],
+  ['run', 'build:electron', '--', target, '-p', 'never'],
   {
     stdio: 'inherit',
     shell: true,

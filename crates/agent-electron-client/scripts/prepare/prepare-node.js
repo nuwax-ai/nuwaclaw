@@ -298,6 +298,20 @@ async function prepareNode(key, suffix) {
       }
     }
 
+    // macOS: 对 Node.js 二进制进行 ad-hoc 签名，使其能继承主应用的辅助功能权限
+    // 避免用户需要单独授权 node 子进程
+    if (key.startsWith('darwin-')) {
+      const nodeBin = path.join(platformDir, 'bin', 'node');
+      if (fs.existsSync(nodeBin)) {
+        try {
+          execSync(`codesign --force --sign - "${nodeBin}"`, { stdio: 'inherit' });
+          console.log(`[prepare-node] 已对 Node.js 二进制进行 ad-hoc 签名`);
+        } catch (signErr) {
+          console.warn(`[prepare-node] ⚠️ 签名失败（不影响功能）:`, signErr.message);
+        }
+      }
+    }
+
     console.log(`[prepare-node] Node.js ${NODE_VERSION} (${key}) 准备完成!`);
 
     // Write .platform-key marker

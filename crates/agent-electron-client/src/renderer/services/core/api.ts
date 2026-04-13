@@ -5,18 +5,32 @@
 
 import { message } from "antd";
 import { DEFAULT_SERVER_HOST, DEFAULT_API_TIMEOUT } from "@shared/constants";
+import { logger } from "../utils/logService";
+import { t } from "./i18n";
 
 // 错误码定义
 const SUCCESS_CODE = "0000";
 
-// 错误码对应的消息
-const ERROR_MESSAGES: Record<string, string> = {
-  "0000": "操作成功",
-  "4010": "用户未登录，请重新登录",
-  "4011": "登录已过期，请重新登录",
-  "1001": "客户端不存在或已下架",
-  "9999": "系统错误，请稍后重试",
+/**
+ * 错误码 → i18n key（不在模块加载时调用 t）
+ *
+ * 说明：i18n.ts 会 import apiRequest，若此处在顶层执行 t()，会与 i18n 形成循环依赖，
+ * 此时 t 尚未完成初始化，运行时报 “Cannot access 't' before initialization”。
+ * 仅在 apiRequest 执行时再 t(key)，此时模块图已就绪。
+ */
+const ERROR_MESSAGE_KEYS: Record<string, string> = {
+  "0000": "Claw.Api.success",
+  "4010": "Claw.Api.notLoggedIn",
+  "4011": "Claw.Api.loginExpired",
+  "1001": "Claw.Api.clientNotFound",
+  "9999": "Claw.Api.systemError",
 };
+
+/** 按错误码取已翻译的兜底文案（无映射时返回 undefined） */
+function translatedErrorForCode(code: string): string | undefined {
+  const key = ERROR_MESSAGE_KEYS[code];
+  return key ? t(key) : undefined;
+}
 
 // 响应类型定义（内部使用）
 interface ApiResponse<T = any> {
@@ -33,6 +47,7 @@ interface RequestConfig {
   baseUrl?: string;
   timeout?: number;
   headers?: Record<string, string>;
+  cache?: RequestCache;
 }
 
 // 默认配置
@@ -53,6 +68,7 @@ export async function apiRequest<T>(
     headers?: Record<string, string>;
     showError?: boolean;
     baseUrl?: string;
+    cache?: RequestCache;
   } = {},
 ): Promise<T> {
   const config = { ...DEFAULT_CONFIG, ...options };
@@ -68,6 +84,7 @@ export async function apiRequest<T>(
       ...config.headers,
     },
     signal: AbortSignal.timeout(timeoutMs),
+    ...(config.cache ? { cache: config.cache } : {}),
   };
 
   if (options.data) {
@@ -101,10 +118,13 @@ export async function apiRequest<T>(
     if (result.code !== SUCCESS_CODE) {
       const errorMsg =
         result.message ||
-        ERROR_MESSAGES[result.code] ||
+        translatedErrorForCode(result.code) ||
         `请求失败 (错误码: ${result.code})`;
 
-      console.error("API Error:", result);
+      logger.error("API Error", "API", {
+        code: result.code,
+        message: result.message,
+      });
 
       if (options.showError !== false) {
         message.error(errorMsg);
@@ -118,15 +138,15 @@ export async function apiRequest<T>(
     // AbortSignal.timeout 超时后抛出 TimeoutError（name === 'TimeoutError'）
     // 或 AbortError（某些环境），统一转为可读错误
     if (error.name === "TimeoutError" || error.name === "AbortError") {
-      const timeoutMsg = `请求超时（>${timeoutMs}ms），请检查网络或服务器状态`;
-      console.error("API Request Timeout:", finalUrl, error);
+      const timeoutMsg = t("Claw.Api.timeout", timeoutMs);
+      logger.error("Request Timeout", "API", { url: finalUrl });
       if (options.showError !== false) {
         message.error(timeoutMsg);
       }
       throw new Error(timeoutMsg);
     }
 
-    console.error("API Request Error:", error);
+    logger.error("Request Error", "API", error);
 
     // 检测是否是重定向到登录页面的情况（后端返回 HTML）
     const isLoginRedirect =
@@ -135,7 +155,7 @@ export async function apiRequest<T>(
     // 生成用户友好的错误信息
     let userMessage: string = "";
     if (isLoginRedirect) {
-      userMessage = "登录遇到问题，请检查配置域名信息或服务状态后重试";
+      userMessage = t("Claw.Errors.loginRedirect");
     } else if (options.showError !== false && error.message) {
       userMessage = error.message;
     }
@@ -158,6 +178,8 @@ export interface SandboxValue {
   agentPort: number;
   vncPort: number;
   fileServerPort: number;
+  guiMcpPort: number;
+  adminServerPort: number;
   apiKey?: string;
   maxUsers?: number;
 }

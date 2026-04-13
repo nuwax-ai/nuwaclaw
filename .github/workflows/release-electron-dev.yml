@@ -1,8 +1,9 @@
 # Electron 桌面客户端 — 预发布版本构建
-# 通过 prerelease-v* tag 触发，构建全平台安装包并创建 GitHub Draft Release。
+# 通过 prerelease-v* tag 触发，构建全平台安装包并创建 GitHub Draft Release，
+# 自动同步到阿里云 OSS 并更新 beta/latest.json，供开发测试使用。
 #
 # 触发方式：
-#   - 推送 tag 匹配 prerelease-v*（例如 prerelease-v0.8.0）→ 构建全平台安装包并创建 Draft Release
+#   - 推送 tag 匹配 prerelease-v*（例如 prerelease-v0.8.0）→ 构建 → 自动上传 OSS → 更新 beta/latest.json
 #
 # 支持平台：
 #   - macOS arm64（macos-latest）
@@ -16,6 +17,8 @@
 #   - macOS 签名/公证（未配置时 Mac 构建为无签名包，用户打开会提示「已损坏」）：
 #     - APPLE_TEAM_ID / APPLE_SIGNING_IDENTITY / APPLE_CERTIFICATE（.p12 Base64）/ APPLE_CERTIFICATE_PASSWORD
 #     - 公证：APPLE_API_KEY（.p8 Base64）/ APPLE_API_KEY_ID / APPLE_ISSUER_ID
+#   - Windows：本 workflow 仅构建产物，不在 CI 内签名；签名在本地 Windows（SimplySign）手动完成
+#   - OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET：上传到阿里云 OSS
 #
 # 产物目录：crates/agent-electron-client/release/${version}/（由 package.json directories.output 决定）
 
@@ -146,7 +149,7 @@ jobs:
         working-directory: crates/agent-electron-client
         run: npm run electron-rebuild
 
-      # 缓存内置 Node.js（所有平台）、Git（仅 Windows）和 uv（所有平台）
+      # 缓存内置 Node.js（所有平台）、Git（仅 Windows）、uv（所有平台）和 nuwaxcode（所有平台）
       - name: Cache bundled Node.js
         uses: actions/cache@v4
         with:
@@ -166,7 +169,13 @@ jobs:
           path: crates/agent-electron-client/resources/uv
           key: bundled-uv-v2-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-uv.js') }}
 
-      - name: Prepare bundled resources (uv, node, git)
+      - name: Cache nuwaxcode
+        uses: actions/cache@v4
+        with:
+          path: crates/agent-electron-client/resources/nuwaxcode
+          key: bundled-nuwaxcode-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
+
+      - name: Prepare bundled resources (uv, node, git, nuwaxcode)
         working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
@@ -216,8 +225,10 @@ jobs:
           echo "APPLE_API_KEY=$RUNNER_TEMP/apple-api-key/AuthKey.p8" >> "$GITHUB_ENV"
           echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID" >> "$GITHUB_ENV"
           echo "APPLE_API_ISSUER=$APPLE_ISSUER_ID" >> "$GITHUB_ENV"
+          echo "APPLE_ISSUER_ID=$APPLE_ISSUER_ID" >> "$GITHUB_ENV"
 
       # 若用户看到「已损坏」：请确认已配置 APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY 及公证用 APPLE_API_KEY 等，且构建日志中有签名与公证成功
+      # Windows 签名已废弃，改为本地手签方案
       - name: Clean previous build artifacts
         shell: bash
         working-directory: crates/agent-electron-client
@@ -233,12 +244,8 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          if [ "${{ runner.os }}" = "macOS" ] && [ -z "${{ secrets.APPLE_CERTIFICATE }}" ]; then
-            echo "No Apple certificate, building unsigned Mac package for ${{ matrix.arch }}"
-            npm run dist:mac:unsigned:${{ matrix.arch }} -- --publish never
-          else
-            npm run ${{ matrix.dist_cmd }} -- --publish never
-          fi
+          echo "Building Electron app for ${{ runner.os }} (${{ matrix.arch }})"
+          npm run ${{ matrix.dist_cmd }} -- --publish never
 
       - name: Upload artifacts to Release
         shell: bash
@@ -258,3 +265,228 @@ jobs:
             echo "Uploading $(basename "$f") ..."
             gh release upload "$TAG" "$f" --clobber --repo "$GITHUB_REPOSITORY"
           done
+
+  # ==================== 同步到阿里云 OSS ====================
+  # prerelease-v* tag 推送触发后，构建完成即自动同步到 OSS 并更新 beta/latest.json
+  sync-to-oss:
+    name: Sync prerelease to Alibaba Cloud OSS (beta)
+    needs: build-electron
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      OSS_ENDPOINT: "https://oss-rg-china-mainland.aliyuncs.com"
+      OSS_REGION: "rg-china-mainland"
+      OSS_BUCKET: "oss://nuwa-packages"
+      OSS_CDN_BASE: "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com"
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - name: Install ossutil v2
+        run: |
+          curl -fSL -o /tmp/ossutil.zip \
+            "https://gosspublic.alicdn.com/ossutil/v2/2.2.0/ossutil-2.2.0-linux-amd64.zip"
+          unzip -q /tmp/ossutil.zip -d /tmp
+          sudo mv /tmp/ossutil-2.2.0-linux-amd64/ossutil /usr/local/bin/
+          ossutil version
+
+      - name: Download all release assets
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: |
+          TAG="${RELEASE_TAG}"
+          mkdir -p /tmp/release-assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir /tmp/release-assets
+          echo "==> Downloaded assets:"
+          ls -lh /tmp/release-assets/
+
+      - name: Generate latest.json and platform yml from assets
+        env:
+          OSS_CDN_BASE: "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com"
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: |
+          TAG="${RELEASE_TAG}"
+          VERSION="${TAG#prerelease-v}"
+          OSS_URL_PREFIX="${OSS_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}"
+          ASSETS_DIR="/tmp/release-assets"
+
+          # semver MVP guard: only allow numeric x.y.z
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Invalid version '${VERSION}'. MVP only supports numeric x.y.z"
+            exit 1
+          fi
+
+          # 删除 GitHub 自带的 yml，仅保留由 latest.json 派生的 yml
+          rm -f "${ASSETS_DIR}"/*.yml
+
+          # 获取 release notes 与 pub_date
+          RELEASE_JSON=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body,createdAt 2>/dev/null || echo '{}')
+          NOTES=$(echo "$RELEASE_JSON" | jq -r '.body // "NuwaClaw 功能优化和问题修复。建议更新到最新版本以获得更好的体验。"' | head -c 500)
+          PUB_DATE=$(echo "$RELEASE_JSON" | jq -r '.createdAt // empty')
+          if [ -z "$PUB_DATE" ]; then
+            PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+          fi
+
+          add_platform() {
+            local key="$1" file="$2"
+            local filepath="${ASSETS_DIR}/${file}"
+            if [ -f "$filepath" ]; then
+              local sig size
+              sig=$(sha512sum "$filepath" | awk '{print $1}' | xxd -r -p | base64 -w0)
+              if [ -z "$sig" ]; then
+                echo "  Skipped: ${key} -> ${file} (signature generation failed)"
+                return 0
+              fi
+              size=$(stat -c%s "$filepath" 2>/dev/null || stat -f%z "$filepath")
+              PLATFORMS=$(echo "$PLATFORMS" | jq \
+                --arg k "$key" \
+                --arg u "${OSS_URL_PREFIX}/${file}" \
+                --arg s "$sig" \
+                --argjson sz "$size" \
+                '. + {($k): {"url": $u, "signature": $s, "size": $sz}}')
+              echo "  Added: ${key} -> ${file} (${size} bytes)"
+            fi
+          }
+
+          PLATFORMS="{}"
+          echo "==> Scanning release assets for platforms..."
+          add_platform "darwin-aarch64"     "NuwaClaw-${VERSION}-arm64.dmg"
+          add_platform "darwin-aarch64-zip" "NuwaClaw-${VERSION}-arm64-mac.zip"
+          add_platform "darwin-x86_64"      "NuwaClaw-${VERSION}.dmg"
+          add_platform "darwin-x86_64-zip"  "NuwaClaw-${VERSION}-mac.zip"
+          add_platform "windows-x86_64"      "NuwaClaw-Setup-${VERSION}-unsigned.exe"
+          add_platform "windows-x86_64-nsis" "NuwaClaw-Setup-${VERSION}-unsigned.exe"
+          add_platform "windows-x86_64-msi"  "NuwaClaw-${VERSION}-unsigned.msi"
+          add_platform "linux-x86_64"          "NuwaClaw-${VERSION}.AppImage"
+          add_platform "linux-x86_64-appimage" "NuwaClaw-${VERSION}.AppImage"
+          add_platform "linux-x86_64-deb"      "NuwaClaw-${VERSION}-amd64.deb"
+          add_platform "linux-x86_64-rpm"      "NuwaClaw-${VERSION}-x86_64.rpm"
+          add_platform "linux-aarch64"          "NuwaClaw-${VERSION}-arm64.AppImage"
+          add_platform "linux-aarch64-appimage" "NuwaClaw-${VERSION}-arm64.AppImage"
+          add_platform "linux-aarch64-deb"      "NuwaClaw-${VERSION}-arm64.deb"
+          add_platform "linux-aarch64-rpm"      "NuwaClaw-${VERSION}-aarch64.rpm"
+
+          if [ "$(echo "$PLATFORMS" | jq 'length')" = "0" ]; then
+            echo "::warning::No exact filename matches, falling back to fuzzy scan"
+            for file in "${ASSETS_DIR}"/*; do
+              filename=$(basename "$file")
+              case "$filename" in
+                *.dmg|*.zip|*.exe|*.msi|*.AppImage|*.deb|*.rpm)
+                  key=""
+                  case "$filename" in
+                    *arm64*mac*|*arm64*.dmg)  key="darwin-aarch64" ;;
+                    *x64*mac*|*x64*.dmg)      key="darwin-x86_64" ;;
+                    *Setup*.exe|*setup*.exe)   key="windows-x86_64" ;;
+                    *.msi)                     key="windows-x86_64-msi" ;;
+                    *arm64*.AppImage)          key="linux-aarch64" ;;
+                    *amd64*.AppImage|*x64*.AppImage|*.AppImage) key="linux-x86_64" ;;
+                    *arm64*.deb)               key="linux-aarch64-deb" ;;
+                    *amd64*.deb|*x64*.deb)     key="linux-x86_64-deb" ;;
+                    *aarch64*.rpm)             key="linux-aarch64-rpm" ;;
+                    *x86_64*.rpm|*x64*.rpm)   key="linux-x86_64-rpm" ;;
+                  esac
+                  [ -n "$key" ] && add_platform "$key" "$filename"
+                  ;;
+              esac
+            done
+          fi
+
+          gen_yml() {
+            local channel="$1"
+            local keys="$2"
+            local first_key first_file
+            first_key=$(echo "$PLATFORMS" | jq -r --argjson keys "$keys" 'limit(1; $keys[] as $k | select(.[$k] != null) | $k)')
+            [ -z "$first_key" ] || [ "$first_key" = "null" ] && return 0
+            first_file=$(echo "$PLATFORMS" | jq -r --arg k "$first_key" '.[$k].url' | sed 's|.*/||')
+            {
+              echo "version: $VERSION"
+              echo "path: $first_file"
+              echo "sha512: $(echo "$PLATFORMS" | jq -r --arg k "$first_key" '.[$k].signature')"
+              echo "releaseDate: $PUB_DATE"
+              echo "files:"
+              echo "$PLATFORMS" | jq -r --argjson keys "$keys" '
+                [ $keys[] as $k | select(.[$k] != null) | .[$k] |
+                  "  - url: " + (.url | split("/") | last) + "\n    sha512: " + .signature + "\n    size: " + (.size | tostring)
+                ] | join("\n")
+              '
+            } > "${ASSETS_DIR}/${channel}.yml"
+            echo "  Generated ${channel}.yml (primary: $first_file)"
+          }
+          DARWIN_KEYS='["darwin-aarch64-zip","darwin-x86_64-zip","darwin-aarch64","darwin-x86_64"]'
+          LINUX_KEYS='["linux-x86_64-appimage","linux-aarch64-appimage","linux-x86_64","linux-aarch64","linux-x86_64-deb","linux-aarch64-deb","linux-x86_64-rpm","linux-aarch64-rpm"]'
+          LINUX_ARM64_KEYS='["linux-aarch64-appimage","linux-aarch64","linux-aarch64-deb","linux-aarch64-rpm"]'
+          LINUX_X64_KEYS='["linux-x86_64-appimage","linux-x86_64","linux-x86_64-deb","linux-x86_64-rpm"]'
+          WIN_KEYS='["windows-x86_64","windows-x86_64-nsis","windows-x86_64-msi"]'
+          gen_yml "latest-mac" "$DARWIN_KEYS"
+          gen_yml "latest-linux" "$LINUX_KEYS"
+          gen_yml "latest-linux-arm64" "$LINUX_ARM64_KEYS"
+          gen_yml "latest-linux-x64" "$LINUX_X64_KEYS"
+          gen_yml "latest" "$WIN_KEYS"
+          echo "==> Platform yml written to ${ASSETS_DIR}"
+
+          # 构建 yml 文件的完整 OSS URL（供客户端 electron-updater 直接使用）
+          YML_URLS=$(jq -n \
+            --arg darwin "${OSS_URL_PREFIX}/latest-mac.yml" \
+            --arg linux "${OSS_URL_PREFIX}/latest-linux.yml" \
+            --arg win "${OSS_URL_PREFIX}/latest.yml" \
+            '{darwin: $darwin, linux: $linux, win: $win}')
+
+          LATEST_JSON=$(jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --argjson platforms "$PLATFORMS" \
+            --argjson yml "$YML_URLS" \
+            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms, yml: $yml}')
+          echo "$LATEST_JSON" > /tmp/latest.json
+          echo "==> Generated latest.json"
+          echo "$LATEST_JSON" | jq .
+
+      - name: Upload all assets to versioned path
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+        run: |
+          TAG="${RELEASE_TAG}"
+          OSS_PREFIX="nuwaclaw-electron/beta-build/${TAG}"
+
+          for file in /tmp/release-assets/*; do
+            filename=$(basename "$file")
+            echo "Uploading: ${filename}"
+            ossutil cp --force "$file" "${OSS_BUCKET}/${OSS_PREFIX}/${filename}" \
+              --endpoint "$OSS_ENDPOINT" \
+              --region "$OSS_REGION" \
+              --access-key-id "$OSS_ACCESS_KEY_ID" \
+              --access-key-secret "$OSS_ACCESS_KEY_SECRET"
+          done
+
+      - name: Upload latest.json to OSS (beta channel)
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+        run: |
+          TAG="${RELEASE_TAG}"
+          echo "==> Publishing latest.json to beta channel"
+          # 写入版本化路径
+          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/beta-build/${TAG}/latest.json" \
+            --endpoint "$OSS_ENDPOINT" \
+            --region "$OSS_REGION" \
+            --access-key-id "$OSS_ACCESS_KEY_ID" \
+            --access-key-secret "$OSS_ACCESS_KEY_SECRET"
+          # 写入 beta/latest.json（供 beta 通道用户检查更新）
+          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/beta/latest.json" \
+            --endpoint "$OSS_ENDPOINT" \
+            --region "$OSS_REGION" \
+            --access-key-id "$OSS_ACCESS_KEY_ID" \
+            --access-key-secret "$OSS_ACCESS_KEY_SECRET"
+          echo "==> Uploaded latest.json to beta/latest.json (stable pointer untouched)"
+
+      - name: Verify OSS upload
+        run: |
+          VERIFY_URL="${OSS_CDN_BASE}/nuwaclaw-electron/beta/latest.json"
+          HTTP_STATUS=$(curl -sS -o /tmp/oss-latest.json -w "%{http_code}" "$VERIFY_URL")
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "==> beta/latest.json: OK (HTTP ${HTTP_STATUS})"
+            cat /tmp/oss-latest.json | jq .
+          else
+            echo "::error::beta/latest.json not found on OSS (HTTP ${HTTP_STATUS})"
+            exit 1
+          fi

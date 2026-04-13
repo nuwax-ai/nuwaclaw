@@ -1,5 +1,5 @@
 /**
- * 依赖管理服务 - Electron Client 版本
+ * 依赖管理服务 - NuwaClaw 版本
  *
  * 对应 Tauri 版本的 dependencies.ts
  * 管理本地依赖的检测、安装、版本检查
@@ -7,6 +7,7 @@
 
 import * as path from "path";
 import * as fs from "fs";
+import * as os from "os";
 import { spawn, execSync } from "child_process";
 import { app } from "electron";
 import log from "electron-log";
@@ -16,7 +17,7 @@ import {
   DEFAULT_MIRROR_CONFIG,
   APP_DATA_DIR_NAME,
 } from "../constants";
-import { APP_NAME_IDENTIFIER } from "@shared/constants";
+import { APP_NAME_IDENTIFIER, I18N_KEYS } from "@shared/constants";
 import { isWindows } from "./shellEnv";
 import {
   spawnCrossPlatform,
@@ -24,7 +25,7 @@ import {
   getNodeCommand,
   getCommandChecker,
 } from "../utils/spawn";
-
+import { t } from "../i18n";
 // ==================== Types ====================
 
 export type DependencyStatus =
@@ -165,7 +166,7 @@ export function setInitDepsState(state: InitDepsState): void {
   const filePath = path.join(dir, INIT_DEPS_STATE_FILENAME);
   fs.writeFileSync(filePath, JSON.stringify(state, null, 2), "utf-8");
   log.info(
-    "[Dependencies] init-deps-state 已更新:",
+    "[Dependencies] init-deps-state updated:",
     state.appVersion,
     Object.keys(state.packages).length,
     "packages",
@@ -277,7 +278,7 @@ function getElectronNodeBinDir(): string {
     }
   } catch (error) {
     // 测试环境中可能出错，返回空字符串
-    log.warn(`[getElectronNodeBinDir] 错误: ${error}`);
+    log.warn(`[getElectronNodeBinDir] error: ${error}`);
   }
 
   return ""; // 未找到
@@ -310,8 +311,10 @@ export function getNodeBinPath(): string | null {
   );
 
   if (!fs.existsSync(nodePath)) {
-    log.warn(`[Dependencies] 内置 Node.js 未找到: ${nodePath}`);
-    log.warn('[Dependencies] 请运行 "npm run prepare:node" 下载 Node.js 资源');
+    log.warn(`[Dependencies] Bundled Node.js not found: ${nodePath}`);
+    log.warn(
+      '[Dependencies] Run "npm run prepare:node" to download Node.js resources',
+    );
     return null;
   }
 
@@ -339,7 +342,7 @@ export function getNodeBinPathWithFallback(): string | null {
   if (!isWindows()) {
     const systemNode = findSystemNode();
     if (systemNode) {
-      log.info(`[Dependencies] 使用系统 Node.js fallback: ${systemNode}`);
+      log.info(`[Dependencies] Using system Node.js fallback: ${systemNode}`);
       return systemNode;
     }
   }
@@ -375,14 +378,14 @@ function ensureUvInAppBin(): void {
   try {
     const uvBinPath = getUvBinPath();
     if (fs.existsSync(uvBinPath)) {
-      log.info(`[ensureUvInAppBin] bundled uv 已存在: ${uvBinPath}`);
+      log.info(`[ensureUvInAppBin] Bundled uv already exists: ${uvBinPath}`);
       return;
     }
     const appBin = getAppBinDir();
     const uvName = isWindows() ? "uv.exe" : "uv";
     const appBinUv = path.join(appBin, uvName);
     if (fs.existsSync(appBinUv)) {
-      log.info(`[ensureUvInAppBin] 应用目录已有 uv: ${appBinUv}`);
+      log.info(`[ensureUvInAppBin] App directory already has uv: ${appBinUv}`);
       return;
     }
     const srcBin = path.join(getResourcesPath(), "uv", "bin");
@@ -399,12 +402,12 @@ function ensureUvInAppBin(): void {
       const src = path.join(srcBin, name);
       if (fs.statSync(src).isFile()) {
         fs.copyFileSync(src, path.join(appBin, name));
-        log.info(`[ensureUvInAppBin] 已复制应用内 uv: ${name} -> ${appBin}`);
+        log.info(`[ensureUvInAppBin] Copied bundled uv: ${name} -> ${appBin}`);
       }
     }
-    log.info(`[ensureUvInAppBin] 复制完成，appBin=${appBin}`);
+    log.info(`[ensureUvInAppBin] Copy complete, appBin=${appBin}`);
   } catch (e) {
-    log.warn("[ensureUvInAppBin] 应用内 uv 检查/复制失败:", e);
+    log.warn("[ensureUvInAppBin] Bundled uv check/copy failed:", e);
   }
 }
 
@@ -459,7 +462,7 @@ export function getLanproxyBinPath(): string {
         const preferred = exes.find((e) => e.name.includes(preferArch));
         const exe = preferred ?? exes[0];
         const found = path.join(binariesDir, exe.name);
-        log.info("[getLanproxyBinPath] 使用 binaries 内发现的 exe:", exe.name);
+        log.info("[getLanproxyBinPath] Using exe found in binaries:", exe.name);
         return found;
       }
     } catch {
@@ -471,6 +474,59 @@ export function getLanproxyBinPath(): string {
   return path.join(binDir, binName);
 }
 
+// 获取 bundled nuwaxcode 二进制路径
+// 打包时 extraResources 将 resources/nuwaxcode/ 复制到应用内
+// 运行时根据 platform-arch 选择正确二进制
+export function getNuwaxcodeBundledBinPath(): string | null {
+  const platformMap: Record<string, string> = {
+    darwin: "darwin",
+    linux: "linux",
+    win32: "windows",
+  };
+  const archMap: Record<string, string> = {
+    x64: "x64",
+    arm64: "arm64",
+    arm: "arm",
+  };
+  const platform = platformMap[os.platform()] || os.platform();
+  const arch = archMap[os.arch()] || os.arch();
+  const binary = platform === "windows" ? "nuwaxcode.exe" : "nuwaxcode";
+
+  const bundledPath = path.join(
+    getResourcesPath(),
+    "nuwaxcode",
+    `${platform}-${arch}`,
+    "bin",
+    binary,
+  );
+  if (fs.existsSync(bundledPath)) {
+    return bundledPath;
+  }
+
+  return null;
+}
+
+// 可选：若曾在 resources/windows-mcp/bin/ 预置 windows-mcp.exe（旧方案），则返回该路径。
+// 当前主线：prepare 仅打包 wheels/ + manifest.json，首次运行由 windowsMcp.ts 调用
+// `uv tool install --no-index --find-links <wheels>` 安装到用户目录 ~/.nuwaclaw/windows-mcp-runtime/。
+export function getWindowsMcpBinPath(): string | null {
+  if (os.platform() !== "win32") {
+    return null;
+  }
+
+  const bundledPath = path.join(
+    getResourcesPath(),
+    "windows-mcp",
+    "bin",
+    "windows-mcp.exe",
+  );
+  if (fs.existsSync(bundledPath)) {
+    return bundledPath;
+  }
+
+  return null;
+}
+
 // 获取 bundled Node.js 24 路径（集成到 resources/node/）
 // prepare-node 输出到 resources/node/<platform>-<arch>/，bin 目录包含 node/npm/npx
 function getBundledNodeBinDir(): string {
@@ -480,7 +536,7 @@ function getBundledNodeBinDir(): string {
   const nodePlatformKey = `${process.platform}-${arch}`;
   const nodeBinPath = path.join(resourcesPath, "node", nodePlatformKey, "bin");
   if (fs.existsSync(nodeBinPath)) {
-    log.info(`[getBundledNodeBinDir] 使用内置 Node.js: ${nodeBinPath}`);
+    log.info(`[getBundledNodeBinDir] Using bundled Node.js: ${nodeBinPath}`);
     return nodeBinPath;
   }
   const devPath = path.join(
@@ -491,7 +547,9 @@ function getBundledNodeBinDir(): string {
     "bin",
   );
   if (fs.existsSync(devPath)) {
-    log.info(`[getBundledNodeBinDir] 开发模式使用内置 Node.js: ${devPath}`);
+    log.info(
+      `[getBundledNodeBinDir] Dev mode using bundled Node.js: ${devPath}`,
+    );
     return devPath;
   }
   return "";
@@ -509,14 +567,14 @@ function getBundledGitBinDir(): string {
   const gitBinPath = path.join(resourcesPath, "git", "bin");
 
   if (fs.existsSync(gitBinPath)) {
-    log.info(`[getBundledGitBinDir] 使用内置 Git: ${gitBinPath}`);
+    log.info(`[getBundledGitBinDir] Using bundled Git: ${gitBinPath}`);
     return gitBinPath;
   }
 
   // 开发模式回退
   const devPath = path.join(process.cwd(), "resources", "git", "bin");
   if (fs.existsSync(devPath)) {
-    log.info(`[getBundledGitBinDir] 开发模式使用内置 Git: ${devPath}`);
+    log.info(`[getBundledGitBinDir] Dev mode using bundled Git: ${devPath}`);
     return devPath;
   }
 
@@ -537,7 +595,7 @@ export function getBundledGitBashPath(): string {
 
   for (const p of bashPaths) {
     if (fs.existsSync(p)) {
-      log.info(`[getBundledGitBashPath] 使用内置 git-bash: ${p}`);
+      log.info(`[getBundledGitBashPath] Using bundled git-bash: ${p}`);
       return p;
     }
   }
@@ -550,7 +608,7 @@ export function getBundledGitBashPath(): string {
 
   for (const p of devPaths) {
     if (fs.existsSync(p)) {
-      log.info(`[getBundledGitBashPath] 开发模式使用内置 git-bash: ${p}`);
+      log.info(`[getBundledGitBashPath] Dev mode using bundled git-bash: ${p}`);
       return p;
     }
   }
@@ -660,23 +718,23 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     .join(pathSep);
 
   // 调试日志：输出 PATH 优先级（应用内 uv 优先）
-  log.info(`[getAppEnv] PATH 优先级 (${process.platform}):`);
+  log.info(`[getAppEnv] PATH priority (${process.platform}):`);
   log.info(
-    `[getAppEnv]   1. 内置 Node.js 24: ${bundledNodeBinDir || "(未找到)"}`,
+    `[getAppEnv]   1. Bundled Node.js 24: ${bundledNodeBinDir || "(not found)"}`,
   );
   log.info(
-    `[getAppEnv]   2. Electron Node: ${electronNodeBinDir || "(未找到)"}`,
+    `[getAppEnv]   2. Electron Node: ${electronNodeBinDir || "(not found)"}`,
   );
   log.info(
-    `[getAppEnv]   3. 内置 Git: ${bundledGitBinDir || (isWindows() ? "(未找到)" : "(macOS/Linux 使用系统)")}`,
+    `[getAppEnv]   3. Bundled Git: ${bundledGitBinDir || (isWindows() ? "(not found)" : "(macOS/Linux using system)")}`,
   );
   log.info(
-    `[getAppEnv]   4. uv/uvx(应用内优先): ${uvBin || "(未找到，将使用系统 PATH 回退)"}`,
+    `[getAppEnv]   4. uv/uvx (bundled preferred): ${uvBin || "(not found, falling back to system PATH)"}`,
   );
   log.info(`[getAppEnv]   5. node_modules: ${nodeModulesBin}`);
   log.info(`[getAppEnv]   6. app bin: ${appBin}`);
   log.info(
-    `[getAppEnv]   7. 系统回退: ${systemPathPaths.slice(0, 3).join(", ")}...`,
+    `[getAppEnv]   7. System PATH fallback: ${systemPathPaths.slice(0, 3).join(", ")}...`,
   );
   // 追踪：PATH 中是否包含可能含 uvx 的目录（便于排查 uvx 类 MCP 不生效）
   const pathSegments = priorityPath.split(pathSep);
@@ -684,7 +742,7 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     (p) => p && (p.includes("uv") || p.includes("nuwaclaw")),
   );
   log.info(
-    `[getAppEnv] 追踪 uv/uvx: PATH 中与 uv 相关段数=${uvRelated.length}, 前5段=${uvRelated.slice(0, 5).join(" | ") || "(无)"}`,
+    `[getAppEnv] uv/uvx trace: uv-related segments in PATH=${uvRelated.length}, top 5=${uvRelated.slice(0, 5).join(" | ") || "(none)"}`,
   );
 
   // 构建环境变量对象
@@ -787,7 +845,7 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     for (const [key, value] of Object.entries(windowsCriticalEnvVars)) {
       if (!cleanEnv[key]) {
         cleanEnv[key] = value;
-        log.info(`[getAppEnv] 添加 Windows 系统环境变量: ${key}=${value}`);
+        log.info(`[getAppEnv] Adding Windows system env var: ${key}=${value}`);
       }
     }
 
@@ -884,10 +942,12 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
           }
         }
       } catch (error) {
-        log.warn(`[getAppEnv] 读取注册表 PATH 失败: ${error}`);
+        log.warn(`[getAppEnv] Failed to read registry PATH: ${error}`);
       }
     } else {
-      log.info(`[getAppEnv] 跳过注册表 PATH 读取（includeSystemPath=false）`);
+      log.info(
+        `[getAppEnv] Skipping registry PATH read (includeSystemPath=false)`,
+      );
     }
   }
 
@@ -1066,55 +1126,59 @@ function getSystemPaths(): string[] {
 
 /**
  * 初始化向导必需依赖配置
- * 对应 Tauri 版本的 SETUP_REQUIRED_DEPENDENCIES
+ * 对应 Tauri 版本的 getSetupRequiredDependencies()
+ *
+ * 使用 getter 函数延迟求值，避免模块加载时 t() 在 initI18n() 之前执行
  */
-export const SETUP_REQUIRED_DEPENDENCIES: LocalDependencyConfig[] = [
-  {
-    name: "uv",
-    displayName: "uv",
-    type: "bundled",
-    description: "高性能 Python 包管理器，用于管理 Python 环境和依赖（已集成）",
-    required: true,
-    minVersion: "0.5.0",
-    installUrl: "https://docs.astral.sh/uv/getting-started/installation/",
-  },
-  {
-    name: "pnpm",
-    displayName: "pnpm 包管理器",
-    type: "npm-local",
-    description: "高性能 Node.js 包管理器（应用内安装）",
-    required: true,
-    binName: "pnpm",
-    installVersion: "10.30.3",
-  },
-  {
-    name: "nuwax-file-server",
-    displayName: "文件服务",
-    type: "npm-local",
-    description: "Agent 工作目录文件远程管理服务（应用内安装）",
-    required: true,
-    binName: "nuwax-file-server",
-    installVersion: "1.2.3",
-  },
-  {
-    name: "nuwaxcode",
-    displayName: "Agent 引擎",
-    type: "npm-local",
-    description: "Agent 执行引擎（应用内安装）",
-    required: true,
-    binName: "nuwaxcode",
-    installVersion: "1.1.63",
-  },
-  {
-    name: "claude-code-acp-ts",
-    displayName: "ACP 协议",
-    type: "npm-local",
-    description: "Agent 引擎统一适配服务（应用内安装）",
-    required: true,
-    binName: "claude-code-acp-ts",
-    installVersion: "0.16.1",
-  },
-];
+export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
+  return [
+    {
+      name: "uv",
+      displayName: t(I18N_KEYS.Pages.Dependencies.DEP_UV),
+      type: "bundled",
+      description: t(I18N_KEYS.Pages.Dependencies.DESC_UV),
+      required: true,
+      minVersion: "0.5.0",
+      installUrl: "https://docs.astral.sh/uv/getting-started/installation/",
+    },
+    {
+      name: "pnpm",
+      displayName: t(I18N_KEYS.Pages.Dependencies.DEP_PNPM),
+      type: "npm-local",
+      description: t(I18N_KEYS.Pages.Dependencies.DESC_PNPM),
+      required: true,
+      binName: "pnpm",
+      installVersion: "10.30.3",
+    },
+    {
+      name: "nuwax-file-server",
+      displayName: t(I18N_KEYS.Pages.Dependencies.DEP_FILE_SERVER),
+      type: "bundled",
+      description: t(I18N_KEYS.Pages.Dependencies.DESC_FILE_SERVER),
+      required: true,
+      binName: "nuwax-file-server",
+      installVersion: "1.2.4",
+    },
+    {
+      name: "nuwaxcode",
+      displayName: t(I18N_KEYS.Pages.Dependencies.DEP_NUWAXCODE),
+      type: "bundled",
+      description: t(I18N_KEYS.Pages.Dependencies.DESC_NUWAXCODE),
+      required: true,
+      binName: "nuwaxcode",
+      installVersion: "1.1.72",
+    },
+    {
+      name: "claude-code-acp-ts",
+      displayName: t(I18N_KEYS.Pages.Dependencies.DEP_CLAUDE_CODE_ACP),
+      type: "bundled",
+      description: t(I18N_KEYS.Pages.Dependencies.DESC_CLAUDE_CODE_ACP),
+      required: true,
+      binName: "claude-code-acp-ts",
+      installVersion: "0.24.3",
+    },
+  ];
+}
 
 // ==================== Detection Functions ====================
 
@@ -1133,14 +1197,16 @@ export async function checkNodeVersion(): Promise<{
 }> {
   // 优先检测内置 Node.js 24
   const bundledPath = getNodeBinPath();
-  log.info(`[checkNodeVersion] 检测内置 Node.js: ${bundledPath || "(未找到)"}`);
+  log.info(
+    `[checkNodeVersion] Checking bundled Node.js: ${bundledPath || "(not found)"}`,
+  );
 
   if (bundledPath && fs.existsSync(bundledPath)) {
     log.info(
       `[checkNodeVersion] 内置 Node.js 文件存在，尝试执行: ${bundledPath}`,
     );
     const result = await _checkNodeBin(bundledPath);
-    log.info(`[checkNodeVersion] 内置 Node.js 检测结果:`, result);
+    log.info(`[checkNodeVersion] Bundled Node.js check result:`, result);
     if (result.installed) {
       return { ...result, bundled: true, binPath: bundledPath };
     }
@@ -1150,7 +1216,7 @@ export async function checkNodeVersion(): Promise<{
   if (process.versions && process.versions.node) {
     const version = process.versions.node;
     const meets = compareVersions(version, "22.0.0") >= 0;
-    log.info(`[checkNodeVersion] 使用 Electron 内置 Node.js: ${version}`);
+    log.info(`[checkNodeVersion] Using Electron bundled Node.js: ${version}`);
     return {
       installed: true,
       version,
@@ -1160,7 +1226,7 @@ export async function checkNodeVersion(): Promise<{
   }
 
   // Fallback 2: 系统 Node.js
-  log.info(`[checkNodeVersion] 尝试系统 Node.js...`);
+  log.info(`[checkNodeVersion] Trying system Node.js...`);
   return new Promise((resolve) => {
     const nodeCmd = isWindows() ? "node.exe" : "node";
     const proc = spawn(nodeCmd, ["--version"], {
@@ -1240,21 +1306,23 @@ export async function checkUvVersion(): Promise<{
 }> {
   // 优先检测 bundled uv
   const bundledPath = getUvBinPath();
-  log.info(`[checkUvVersion] 检测 bundled uv: ${bundledPath}`);
+  log.info(`[checkUvVersion] Checking bundled uv: ${bundledPath}`);
 
   if (fs.existsSync(bundledPath)) {
-    log.info(`[checkUvVersion] bundled uv 文件存在，尝试执行: ${bundledPath}`);
+    log.info(
+      `[checkUvVersion] Bundled uv file exists, attempting to run: ${bundledPath}`,
+    );
     const result = await _checkUvBin(bundledPath);
-    log.info(`[checkUvVersion] bundled uv 检测结果:`, result);
+    log.info(`[checkUvVersion] Bundled uv check result:`, result);
     if (result.installed) {
       return { ...result, bundled: true, binPath: bundledPath };
     }
   } else {
-    log.warn(`[checkUvVersion] bundled uv 文件不存在: ${bundledPath}`);
+    log.warn(`[checkUvVersion] Bundled uv file not found: ${bundledPath}`);
   }
 
   // Fallback 到系统 uv
-  log.info(`[checkUvVersion] 尝试系统 uv...`);
+  log.info(`[checkUvVersion] Trying system uv...`);
   return new Promise((resolve) => {
     const proc = spawn("uv", ["--version"], {
       stdio: ["ignore", "pipe", "ignore"],
@@ -1300,7 +1368,9 @@ export async function checkMcpProxyBundled(): Promise<{
   const bundledDir = path.join(getResourcesPath(), "nuwax-mcp-stdio-proxy");
   const pkgPath = path.join(bundledDir, "package.json");
   if (!fs.existsSync(pkgPath)) {
-    log.info(`[checkMcpProxyBundled] 未找到包内集成: ${pkgPath}`);
+    log.info(
+      `[checkMcpProxyBundled] Bundled integration not found: ${pkgPath}`,
+    );
     return { available: false };
   }
   try {
@@ -1308,13 +1378,131 @@ export async function checkMcpProxyBundled(): Promise<{
     const pkg = JSON.parse(raw) as { version?: string };
     const version = pkg?.version;
     log.info(
-      `[checkMcpProxyBundled] 包内集成可用: ${bundledDir}, version=${version ?? "未知"}`,
+      `[checkMcpProxyBundled] Bundled available: ${bundledDir}, version=${version ?? "unknown"}`,
     );
     return { available: true, version };
   } catch (e) {
-    log.warn("[checkMcpProxyBundled] 读取 package.json 失败:", e);
+    log.warn("[checkMcpProxyBundled] Failed to read package.json:", e);
     return { available: true };
   }
+}
+
+/**
+ * 检测应用包内集成的 nuwaxcode 是否可用
+ * 打包后为 process.resourcesPath/nuwaxcode/，开发时为 resources/nuwaxcode/
+ */
+export async function checkNuwaxcodeBundled(): Promise<{
+  available: boolean;
+  version?: string;
+  binPath?: string;
+}> {
+  const bundledPath = getNuwaxcodeBundledBinPath();
+  if (!bundledPath) {
+    log.info("[checkNuwaxcodeBundled] Bundled integration binary not found");
+    return { available: false };
+  }
+  // 读取版本标记文件
+  const versionFile = path.join(getResourcesPath(), "nuwaxcode", ".version");
+  let version: string | undefined;
+  try {
+    if (fs.existsSync(versionFile)) {
+      version = fs.readFileSync(versionFile, "utf-8").trim();
+    }
+  } catch {}
+  log.info(
+    `[checkNuwaxcodeBundled] Bundled available: ${bundledPath}, version=${version ?? "unknown"}`,
+  );
+  return { available: true, version, binPath: bundledPath };
+}
+
+/**
+ * 检测应用包内集成的 nuwax-file-server 是否可用
+ */
+export async function checkNuwaxFileServerBundled(): Promise<{
+  available: boolean;
+  version?: string;
+}> {
+  const bundledDir = getNuwaxFileServerBundledDir();
+  if (!bundledDir) {
+    log.info("[checkNuwaxFileServerBundled] Bundled not found");
+    return { available: false };
+  }
+  const pkgPath = path.join(bundledDir, "package.json");
+  try {
+    const raw = fs.readFileSync(pkgPath, "utf-8");
+    const pkg = JSON.parse(raw) as { version?: string };
+    const version = pkg?.version;
+    log.info(
+      `[checkNuwaxFileServerBundled] Bundled available: ${bundledDir}, version=${version ?? "unknown"}`,
+    );
+    return { available: true, version };
+  } catch (e) {
+    log.warn("[checkNuwaxFileServerBundled] Failed to read package.json:", e);
+    return { available: true };
+  }
+}
+
+/**
+ * 检测应用包内集成的 claude-code-acp-ts 是否可用
+ */
+export async function checkClaudeCodeAcpBundled(): Promise<{
+  available: boolean;
+  version?: string;
+}> {
+  const bundledDir = getClaudeCodeAcpBundledDir();
+  if (!bundledDir) {
+    log.info("[checkClaudeCodeAcpBundled] Bundled not found");
+    return { available: false };
+  }
+  const pkgPath = path.join(bundledDir, "package.json");
+  try {
+    const raw = fs.readFileSync(pkgPath, "utf-8");
+    const pkg = JSON.parse(raw) as { version?: string };
+    const version = pkg?.version;
+    log.info(
+      `[checkClaudeCodeAcpBundled] Bundled available: ${bundledDir}, version=${version ?? "unknown"}`,
+    );
+    return { available: true, version };
+  } catch (e) {
+    log.warn("[checkClaudeCodeAcpBundled] Failed to read package.json:", e);
+    return { available: true };
+  }
+}
+
+// ==================== Bundled nuwax-file-server ====================
+
+/**
+ * 获取应用内集成的 nuwax-file-server 目录
+ *
+ * 打包后: process.resourcesPath/nuwax-file-server/
+ * 开发时: resources/nuwax-file-server/
+ *
+ * @returns 目录路径（含 package.json），或 null
+ */
+export function getNuwaxFileServerBundledDir(): string | null {
+  const bundledDir = path.join(getResourcesPath(), "nuwax-file-server");
+  if (fs.existsSync(path.join(bundledDir, "package.json"))) {
+    return bundledDir;
+  }
+  return null;
+}
+
+// ==================== Bundled claude-code-acp-ts ====================
+
+/**
+ * 获取应用内集成的 claude-code-acp-ts 目录
+ *
+ * 打包后: process.resourcesPath/claude-code-acp-ts/
+ * 开发时: resources/claude-code-acp-ts/
+ *
+ * @returns 目录路径（含 package.json），或 null
+ */
+export function getClaudeCodeAcpBundledDir(): string | null {
+  const bundledDir = path.join(getResourcesPath(), "claude-code-acp-ts");
+  if (fs.existsSync(path.join(bundledDir, "package.json"))) {
+    return bundledDir;
+  }
+  return null;
 }
 
 /** 检测指定路径的 uv 二进制 */
@@ -1596,7 +1784,9 @@ async function _installNpmPackageImpl(
 
   // ENOTEMPTY: 删除残留目录后重试一次
   if (result.error && result.error.includes("ENOTEMPTY")) {
-    log.warn(`[Dependencies] ${packageName} 遇到 ENOTEMPTY，清理后重试...`);
+    log.warn(
+      `[Dependencies] ${packageName} encountered ENOTEMPTY, cleaning up and retrying...`,
+    );
 
     // 从错误信息中提取冲突路径并删除（仅限 node_modules 内）
     const match = result.error.match(/ENOTEMPTY[^']*'([^']+)'/);
@@ -1605,9 +1795,14 @@ async function _installNpmPackageImpl(
       const conflictDir = match[1];
       try {
         fs.rmSync(conflictDir, { recursive: true, force: true });
-        log.info(`[Dependencies] 已清理冲突目录: ${conflictDir}`);
+        log.info(
+          `[Dependencies] Cleaned conflicting directory: ${conflictDir}`,
+        );
       } catch (e) {
-        log.warn(`[Dependencies] 清理冲突目录失败: ${conflictDir}`, e);
+        log.warn(
+          `[Dependencies] Failed to clean conflicting directory: ${conflictDir}`,
+          e,
+        );
       }
     }
 
@@ -1616,10 +1811,13 @@ async function _installNpmPackageImpl(
     try {
       if (fs.existsSync(pkgDir)) {
         fs.rmSync(pkgDir, { recursive: true, force: true });
-        log.info(`[Dependencies] 已清理包目录: ${pkgDir}`);
+        log.info(`[Dependencies] Cleaned package directory: ${pkgDir}`);
       }
     } catch (e) {
-      log.warn(`[Dependencies] 清理包目录失败: ${pkgDir}`, e);
+      log.warn(
+        `[Dependencies] Failed to clean package directory: ${pkgDir}`,
+        e,
+      );
     }
 
     return runNpmInstall(packageName, appDataDir, options);
@@ -1674,7 +1872,7 @@ export async function checkAllDependencies(options?: {
 }): Promise<LocalDependencyItem[]> {
   const results: LocalDependencyItem[] = [];
 
-  for (const dep of SETUP_REQUIRED_DEPENDENCIES) {
+  for (const dep of getSetupRequiredDependencies()) {
     const item: LocalDependencyItem = {
       ...dep,
       status: "checking",
@@ -1694,17 +1892,32 @@ export async function checkAllDependencies(options?: {
           item.binPath = result.binPath;
           break;
         }
-        case "pnpm":
-        case "nuwaxcode":
-        case "nuwax-file-server":
-        case "claude-code-acp-ts": {
+        case "nuwaxcode": {
+          // 只使用应用内打包的二进制（不从 npm 安装）
+          const bundledPath = getNuwaxcodeBundledBinPath();
+          if (bundledPath) {
+            item.status = "installed";
+            item.binPath = bundledPath;
+            item.version = dep.installVersion;
+            log.info(
+              "[checkAllDependencies] nuwaxcode: using bundled binary:",
+              bundledPath,
+            );
+          } else {
+            item.status = "missing";
+            log.warn(
+              "[checkAllDependencies] nuwaxcode: bundled binary not found",
+            );
+          }
+          break;
+        }
+        case "pnpm": {
           const result = await detectNpmPackage(dep.name, dep.binName);
           item.version = result.version;
           item.binPath = result.binPath;
           if (!result.installed) {
             item.status = "missing";
           } else if (dep.installVersion) {
-            // 用户可在依赖 Tab 下手动升级，故以当前已安装的实际版本为准：仅当已装版本低于配置版本时才视为需升级，不降级
             const installed = (result.version ?? "0").replace(/^v/, "");
             const target = dep.installVersion.replace(/^v/, "");
             if (installed === "0" || compareVersions(installed, target) < 0) {
@@ -1714,6 +1927,40 @@ export async function checkAllDependencies(options?: {
             }
           } else {
             item.status = "installed";
+          }
+          break;
+        }
+        case "nuwax-file-server": {
+          const bundledDir = getNuwaxFileServerBundledDir();
+          if (bundledDir) {
+            const pkgPath = path.join(bundledDir, "package.json");
+            try {
+              const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+              item.status = "bundled";
+              item.version = pkg.version;
+              item.binPath = bundledDir;
+            } catch {
+              item.status = "missing";
+            }
+          } else {
+            item.status = "missing";
+          }
+          break;
+        }
+        case "claude-code-acp-ts": {
+          const bundledDir = getClaudeCodeAcpBundledDir();
+          if (bundledDir) {
+            const pkgPath = path.join(bundledDir, "package.json");
+            try {
+              const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+              item.status = "bundled";
+              item.version = pkg.version;
+              item.binPath = bundledDir;
+            } catch {
+              item.status = "missing";
+            }
+          } else {
+            item.status = "missing";
           }
           break;
         }
@@ -1807,7 +2054,7 @@ export async function installMissingDependencies(): Promise<{
   // 若有成功安装/升级，更新 .init-deps-state.json，与升级后同步共用同一份状态
   if (results.some((r) => r.success)) {
     const packages: Record<string, string> = {};
-    for (const d of SETUP_REQUIRED_DEPENDENCIES) {
+    for (const d of getSetupRequiredDependencies()) {
       if (d.installVersion) packages[d.name] = d.installVersion;
     }
     setInitDepsState({ appVersion: app.getVersion(), packages });
@@ -1825,7 +2072,7 @@ export async function syncInitDependencies(): Promise<{ updated: string[] }> {
   const updated: string[] = [];
   const packages: Record<string, string> = {};
 
-  for (const dep of SETUP_REQUIRED_DEPENDENCIES) {
+  for (const dep of getSetupRequiredDependencies()) {
     if (!dep.installVersion || dep.type !== "npm-local") continue;
 
     const detected = await detectNpmPackage(dep.name, dep.binName);
@@ -1859,7 +2106,7 @@ export async function syncInitDependencies(): Promise<{ updated: string[] }> {
     packages,
   });
   if (updated.length > 0)
-    log.info("[Dependencies] syncInitDependencies 已更新:", updated);
+    log.info("[Dependencies] syncInitDependencies updated:", updated);
   return { updated };
 }
 
@@ -1874,7 +2121,7 @@ export function getDependenciesSummary(): {
 } {
   // 同步版本 - 需要先调用 checkAllDependencies
   return {
-    total: SETUP_REQUIRED_DEPENDENCIES.length,
+    total: getSetupRequiredDependencies().length,
     installed: 0,
     missing: 0,
     missingRequired: [],
@@ -1901,7 +2148,7 @@ function compareVersions(a: string, b: string): number {
 }
 
 export default {
-  SETUP_REQUIRED_DEPENDENCIES,
+  getSetupRequiredDependencies,
   checkNodeVersion,
   checkUvVersion,
   checkMcpProxyBundled,
@@ -1924,4 +2171,6 @@ export default {
   setMirrorConfig,
   getMirrorConfig,
   MIRROR_PRESETS,
+  getNuwaxFileServerBundledDir,
+  getClaudeCodeAcpBundledDir,
 };

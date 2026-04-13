@@ -1,5 +1,10 @@
-import { useState, useEffect } from 'react';
-import { imService, IMPlatform, IMConfig } from '../../services/integrations/im';
+import { useState, useEffect } from "react";
+import {
+  imService,
+  IMPlatform,
+  IMConfig,
+} from "../../services/integrations/im";
+import { t } from "../../services/core/i18n";
 
 interface IMSettingsProps {
   isOpen: boolean;
@@ -7,22 +12,40 @@ interface IMSettingsProps {
 }
 
 const defaultConfigs: Record<IMPlatform, IMConfig> = {
-  discord: { platform: 'discord', enabled: false, token: '', allowedUsers: [] },
-  telegram: { platform: 'telegram', enabled: false, botToken: '', allowedUsers: [] },
-  dingtalk: { platform: 'dingtalk', enabled: false, appKey: '', appSecret: '', allowedUsers: [] },
-  feishu: { platform: 'feishu', enabled: false, appId: '', appSecret: '', allowedUsers: [] },
+  discord: { platform: "discord", enabled: false, token: "", allowedUsers: [] },
+  telegram: {
+    platform: "telegram",
+    enabled: false,
+    botToken: "",
+    allowedUsers: [],
+  },
+  dingtalk: {
+    platform: "dingtalk",
+    enabled: false,
+    appKey: "",
+    appSecret: "",
+    allowedUsers: [],
+  },
+  feishu: {
+    platform: "feishu",
+    enabled: false,
+    appId: "",
+    appSecret: "",
+    allowedUsers: [],
+  },
 };
 
 const PLATFORM_LABELS: Record<IMPlatform, string> = {
-  discord: 'Discord',
-  telegram: 'Telegram',
-  dingtalk: '钉钉',
-  feishu: '飞书',
+  discord: "Discord",
+  telegram: "Telegram",
+  dingtalk: t("Claw.IMSettings.platform.dingtalk"),
+  feishu: t("Claw.IMSettings.platform.feishu"),
 };
 
 function IMSettings({ isOpen, onClose }: IMSettingsProps) {
-  const [activeTab, setActiveTab] = useState<IMPlatform>('discord');
-  const [configs, setConfigs] = useState<Record<IMPlatform, IMConfig>>(defaultConfigs);
+  const [activeTab, setActiveTab] = useState<IMPlatform>("discord");
+  const [configs, setConfigs] =
+    useState<Record<IMPlatform, IMConfig>>(defaultConfigs);
   const [connecting, setConnecting] = useState(false);
   const [status, setStatus] = useState<Record<IMPlatform, boolean>>({
     discord: false,
@@ -30,7 +53,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
     dingtalk: false,
     feishu: false,
   });
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     if (isOpen) {
@@ -40,7 +63,12 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
 
   const loadConfigs = async () => {
     await imService.loadConfigs();
-    const platforms: IMPlatform[] = ['discord', 'telegram', 'dingtalk', 'feishu'];
+    const platforms: IMPlatform[] = [
+      "discord",
+      "telegram",
+      "dingtalk",
+      "feishu",
+    ];
     const newConfigs = { ...defaultConfigs };
     const newStatus = { ...status };
 
@@ -61,21 +89,21 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
       imService.setConfig(config.platform, config);
     }
     await imService.saveConfigs();
-    setMessage('配置已保存');
-    setTimeout(() => setMessage(''), 2000);
+    setMessage(t("Claw.IMSettings.configSaved"));
+    setTimeout(() => setMessage(""), 2000);
   };
 
   const handleConnect = async () => {
     setConnecting(true);
-    setMessage('');
+    setMessage("");
 
     const result = await imService.connect(activeTab);
 
     if (result.success) {
       setStatus({ ...status, [activeTab]: true });
-      setMessage(`${PLATFORM_LABELS[activeTab]} 已连接`);
+      setMessage(t("Claw.IMSettings.connected", PLATFORM_LABELS[activeTab]));
     } else {
-      setMessage(`错误: ${result.error}`);
+      setMessage(t("Claw.IMSettings.error", result.error));
     }
 
     setConnecting(false);
@@ -84,7 +112,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
   const handleDisconnect = async () => {
     await imService.disconnect(activeTab);
     setStatus({ ...status, [activeTab]: false });
-    setMessage('已断开连接');
+    setMessage(t("Claw.IMSettings.disconnected"));
   };
 
   const updateConfig = (key: keyof IMConfig, value: unknown) => {
@@ -100,100 +128,125 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content im-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal-content im-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
-          <h2>即时通讯集成</h2>
-          <button className="close-btn" onClick={onClose}>×</button>
+          <h2>{t("Claw.IMSettings.title")}</h2>
+          <button className="close-btn" onClick={onClose}>
+            ×
+          </button>
         </div>
 
         <div className="im-tabs">
-          {(['discord', 'telegram', 'dingtalk', 'feishu'] as IMPlatform[]).map((platform) => (
-            <button
-              key={platform}
-              className={`im-tab ${activeTab === platform ? 'active' : ''} ${status[platform] ? 'connected' : ''}`}
-              onClick={() => setActiveTab(platform)}
-            >
-              <span className="tab-icon">
-                {platform === 'discord' && '💬'}
-                {platform === 'telegram' && '✈️'}
-                {platform === 'dingtalk' && '📎'}
-                {platform === 'feishu' && '📝'}
-              </span>
-              <span className="tab-name">{PLATFORM_LABELS[platform]}</span>
-              {status[platform] && <span className="tab-status">●</span>}
-            </button>
-          ))}
+          {(["discord", "telegram", "dingtalk", "feishu"] as IMPlatform[]).map(
+            (platform) => (
+              <button
+                key={platform}
+                className={`im-tab ${activeTab === platform ? "active" : ""} ${status[platform] ? "connected" : ""}`}
+                onClick={() => setActiveTab(platform)}
+              >
+                <span className="tab-icon">
+                  {platform === "discord" && "💬"}
+                  {platform === "telegram" && "✈️"}
+                  {platform === "dingtalk" && "📎"}
+                  {platform === "feishu" && "📝"}
+                </span>
+                <span className="tab-name">{PLATFORM_LABELS[platform]}</span>
+                {status[platform] && <span className="tab-status">●</span>}
+              </button>
+            ),
+          )}
         </div>
 
         <div className="im-content">
           <div className="im-section">
             <label className="toggle-label">
-              <span>启用 {PLATFORM_LABELS[activeTab]}</span>
+              <span>
+                {t("Claw.IMSettings.enable", PLATFORM_LABELS[activeTab])}
+              </span>
               <input
                 type="checkbox"
                 checked={currentConfig.enabled}
-                onChange={(e) => updateConfig('enabled', e.target.checked)}
+                onChange={(e) => updateConfig("enabled", e.target.checked)}
               />
             </label>
           </div>
 
-          {activeTab === 'discord' && (
+          {activeTab === "discord" && (
             <div className="im-section">
-              <h3>机器人配置</h3>
+              <h3>{t("Claw.IMSettings.botConfig")}</h3>
               <div className="form-group">
                 <label>Bot Token</label>
                 <input
                   type="password"
-                  value={currentConfig.botToken || ''}
-                  onChange={(e) => updateConfig('botToken', e.target.value)}
+                  value={currentConfig.botToken || ""}
+                  onChange={(e) => updateConfig("botToken", e.target.value)}
                   placeholder="MTEw..."
                 />
               </div>
               <div className="form-group">
-                <label>允许的用户 ID（逗号分隔）</label>
+                <label>{t("Claw.IMSettings.allowedUsers")}</label>
                 <input
                   type="text"
-                  value={currentConfig.allowedUsers?.join(', ') || ''}
-                  onChange={(e) => updateConfig('allowedUsers', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                  value={currentConfig.allowedUsers?.join(", ") || ""}
+                  onChange={(e) =>
+                    updateConfig(
+                      "allowedUsers",
+                      e.target.value
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    )
+                  }
                   placeholder="123456789, 987654321"
                 />
               </div>
             </div>
           )}
 
-          {activeTab === 'telegram' && (
+          {activeTab === "telegram" && (
             <div className="im-section">
-              <h3>机器人配置</h3>
+              <h3>{t("Claw.IMSettings.botConfig")}</h3>
               <div className="form-group">
                 <label>Bot Token</label>
                 <input
                   type="password"
-                  value={currentConfig.botToken || ''}
-                  onChange={(e) => updateConfig('botToken', e.target.value)}
+                  value={currentConfig.botToken || ""}
+                  onChange={(e) => updateConfig("botToken", e.target.value)}
                   placeholder="123456789:ABC..."
                 />
               </div>
               <div className="form-group">
-                <label>允许的用户 ID（逗号分隔）</label>
+                <label>{t("Claw.IMSettings.allowedUsers")}</label>
                 <input
                   type="text"
-                  value={currentConfig.allowedUsers?.join(', ') || ''}
-                  onChange={(e) => updateConfig('allowedUsers', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                  value={currentConfig.allowedUsers?.join(", ") || ""}
+                  onChange={(e) =>
+                    updateConfig(
+                      "allowedUsers",
+                      e.target.value
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    )
+                  }
                   placeholder="123456789"
                 />
               </div>
             </div>
           )}
 
-          {activeTab === 'dingtalk' && (
+          {activeTab === "dingtalk" && (
             <div className="im-section">
-              <h3>应用配置</h3>
+              <h3>{t("Claw.IMSettings.appConfig")}</h3>
               <div className="form-group">
                 <label>App Key</label>
                 <input
                   type="text"
-                  value={currentConfig.appKey || ''}
-                  onChange={(e) => updateConfig('appKey', e.target.value)}
+                  value={currentConfig.appKey || ""}
+                  onChange={(e) => updateConfig("appKey", e.target.value)}
                   placeholder="ding..."
                 />
               </div>
@@ -201,22 +254,22 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
                 <label>App Secret</label>
                 <input
                   type="password"
-                  value={currentConfig.appSecret || ''}
-                  onChange={(e) => updateConfig('appSecret', e.target.value)}
+                  value={currentConfig.appSecret || ""}
+                  onChange={(e) => updateConfig("appSecret", e.target.value)}
                 />
               </div>
             </div>
           )}
 
-          {activeTab === 'feishu' && (
+          {activeTab === "feishu" && (
             <div className="im-section">
-              <h3>应用配置</h3>
+              <h3>{t("Claw.IMSettings.appConfig")}</h3>
               <div className="form-group">
                 <label>App ID</label>
                 <input
                   type="text"
-                  value={currentConfig.appId || ''}
-                  onChange={(e) => updateConfig('appId', e.target.value)}
+                  value={currentConfig.appId || ""}
+                  onChange={(e) => updateConfig("appId", e.target.value)}
                   placeholder="cli_..."
                 />
               </div>
@@ -224,21 +277,21 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
                 <label>App Secret</label>
                 <input
                   type="password"
-                  value={currentConfig.appSecret || ''}
-                  onChange={(e) => updateConfig('appSecret', e.target.value)}
+                  value={currentConfig.appSecret || ""}
+                  onChange={(e) => updateConfig("appSecret", e.target.value)}
                 />
               </div>
             </div>
           )}
 
           <div className="im-section">
-            <h3>选项</h3>
+            <h3>{t("Claw.IMSettings.options")}</h3>
             <label className="toggle-label">
-              <span>自动回复</span>
+              <span>{t("Claw.IMSettings.autoReply")}</span>
               <input
                 type="checkbox"
                 checked={currentConfig.autoReply || false}
-                onChange={(e) => updateConfig('autoReply', e.target.checked)}
+                onChange={(e) => updateConfig("autoReply", e.target.checked)}
               />
             </label>
           </div>
@@ -249,7 +302,7 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
         <div className="im-actions">
           {status[activeTab] ? (
             <button className="disconnect-btn" onClick={handleDisconnect}>
-              断开连接
+              {t("Claw.IMSettings.disconnect")}
             </button>
           ) : (
             <button
@@ -257,11 +310,13 @@ function IMSettings({ isOpen, onClose }: IMSettingsProps) {
               onClick={handleConnect}
               disabled={connecting || !currentConfig.enabled}
             >
-              {connecting ? '连接中...' : '连接'}
+              {connecting
+                ? t("Claw.IMSettings.connecting")
+                : t("Claw.IMSettings.connect")}
             </button>
           )}
           <button className="save-btn" onClick={handleSave}>
-            保存配置
+            {t("Claw.IMSettings.saveConfig")}
           </button>
         </div>
       </div>

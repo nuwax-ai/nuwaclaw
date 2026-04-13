@@ -21,13 +21,150 @@ import * as os from "os";
 import * as fs from "fs";
 import { app } from "electron";
 import log from "electron-log";
-import { getAppEnv } from "../../system/dependencies";
-import { APP_DATA_DIR_NAME } from "../../constants";
+import {
+  getAppEnv,
+  getNuwaxcodeBundledBinPath,
+  getNodeBinPathWithFallback,
+  getClaudeCodeAcpBundledDir,
+} from "../../system/dependencies";
+import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../../constants";
 import { APP_NAME_IDENTIFIER } from "../../../../shared/constants";
 import { isWindows } from "../../system/shellEnv";
+import { createPlatformAdapter } from "../../system/platformAdapter";
 import { spawnJsFile, resolveNpmPackageEntry } from "../../utils/spawnNoWindow";
 import { processRegistry } from "../../system/processRegistry";
 import { killProcessTreeGraceful } from "../../utils/processTree";
+import { perfEmitter } from "../perf/perfEmitter";
+import { firstTokenTrace } from "../perf/firstTokenTrace";
+import { buildSandboxedSpawnArgs } from "../../sandbox/sandboxProcessWrapper";
+import type { SandboxProcessConfig } from "@shared/types/sandbox";
+
+function extractSessionIdFromLine(line: string): string | undefined {
+  try {
+    const obj = JSON.parse(line) as {
+      sessionId?: unknown;
+      params?: { sessionId?: unknown };
+      result?: { sessionId?: unknown };
+      data?: { sessionId?: unknown };
+      update?: { sessionId?: unknown };
+    };
+    const candidates = [
+      obj.sessionId,
+      obj.params?.sessionId,
+      obj.result?.sessionId,
+      obj.data?.sessionId,
+      obj.update?.sessionId,
+    ];
+    for (const c of candidates) {
+      if (typeof c === "string" && c) return c;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+type McpTransportStatus = "stable" | "reconnecting";
+
+interface McpTransportTelemetry {
+  status: McpTransportStatus;
+  lastDisconnectAt?: number;
+  lastReconnectAttemptAt?: number;
+  lastReconnectAt?: number;
+  lastSignal?: string;
+}
+
+const mcpTransportTelemetry = new WeakMap<
+  ChildProcess,
+  McpTransportTelemetry
+>();
+
+export interface McpTransportSnapshot {
+  status: McpTransportStatus;
+  lastDisconnectAt?: number;
+  lastReconnectAttemptAt?: number;
+  lastReconnectAt?: number;
+  lastSignal?: string;
+}
+
+function ensureTelemetry(proc: ChildProcess): McpTransportTelemetry {
+  const existing = mcpTransportTelemetry.get(proc);
+  if (existing) return existing;
+  const initial: McpTransportTelemetry = { status: "stable" };
+  mcpTransportTelemetry.set(proc, initial);
+  return initial;
+}
+
+function updateMcpTransportTelemetry(proc: ChildProcess, line: string): void {
+  const telemetry = ensureTelemetry(proc);
+  const lower = line.toLowerCase();
+  const now = Date.now();
+  const preview = line.length > 240 ? line.slice(0, 240) + "..." : line;
+
+  const isDisconnect =
+    (lower.includes("transport error") &&
+      (lower.includes("sse stream disconnected") ||
+        lower.includes("typeerror: terminated"))) ||
+    lower.includes("sse stream disconnected");
+  if (isDisconnect) {
+    telemetry.status = "reconnecting";
+    telemetry.lastDisconnectAt = now;
+    telemetry.lastSignal = preview;
+    return;
+  }
+
+  if (lower.includes("reconnecting in")) {
+    telemetry.status = "reconnecting";
+    telemetry.lastReconnectAttemptAt = now;
+    telemetry.lastSignal = preview;
+    return;
+  }
+
+  const isReconnected =
+    lower.includes("mcp session reconnected") ||
+    lower.includes("connected via streamablehttpclienttransport");
+  if (isReconnected) {
+    telemetry.status = "stable";
+    telemetry.lastReconnectAt = now;
+    telemetry.lastSignal = preview;
+  }
+}
+
+export function getMcpTransportSnapshot(
+  proc?: ChildProcess | null,
+): McpTransportSnapshot | null {
+  if (!proc) return null;
+  const telemetry = mcpTransportTelemetry.get(proc);
+  if (!telemetry) return null;
+  return {
+    status: telemetry.status,
+    lastDisconnectAt: telemetry.lastDisconnectAt,
+    lastReconnectAttemptAt: telemetry.lastReconnectAttemptAt,
+    lastReconnectAt: telemetry.lastReconnectAt,
+    lastSignal: telemetry.lastSignal,
+  };
+}
+
+export function isMcpReconnectWindowActive(
+  proc?: ChildProcess | null,
+  windowMs = 4000,
+): boolean {
+  if (!proc) return false;
+  const telemetry = mcpTransportTelemetry.get(proc);
+  if (!telemetry) return false;
+  const now = Date.now();
+  const hasRecentDisconnect =
+    telemetry.lastDisconnectAt !== undefined &&
+    now - telemetry.lastDisconnectAt <= windowMs;
+  const hasRecentReconnect =
+    telemetry.lastReconnectAt !== undefined &&
+    now - telemetry.lastReconnectAt <= Math.min(windowMs, 1500);
+  return (
+    telemetry.status === "reconnecting" ||
+    hasRecentDisconnect ||
+    hasRecentReconnect
+  );
+}
 
 // ==================== Types ====================
 
@@ -84,6 +221,7 @@ export interface AcpClientSideConnection {
       uri?: string;
       mimeType?: string;
     }>;
+    _meta?: { [key: string]: unknown } | null;
   }): Promise<{ stopReason: string }>;
 
   cancel(params: { sessionId: string }): Promise<void>;
@@ -111,6 +249,41 @@ export interface AcpClientHandler {
     sessionId: string;
     uri: string;
     content: string;
+  }): Promise<Record<string, never>>;
+
+  // --- ACP Terminal API (terminal/* methods) ---
+
+  createTerminal?(params: {
+    sessionId: string;
+    command: string;
+    args?: string[];
+    env?: Array<{ name: string; value: string }>;
+    cwd?: string | null;
+    outputByteLimit?: number | null;
+  }): Promise<{ terminalId: string }>;
+
+  terminalOutput?(params: { sessionId: string; terminalId: string }): Promise<{
+    output: string;
+    truncated: boolean;
+    exitStatus?: {
+      exitCode: number | null;
+      signal: string | null;
+    } | null;
+  }>;
+
+  waitForTerminalExit?(params: {
+    sessionId: string;
+    terminalId: string;
+  }): Promise<{ exitCode: number | null; signal: string | null }>;
+
+  killTerminal?(params: {
+    sessionId: string;
+    terminalId: string;
+  }): Promise<Record<string, never>>;
+
+  releaseTerminal?(params: {
+    sessionId: string;
+    terminalId: string;
   }): Promise<Record<string, never>>;
 }
 
@@ -149,7 +322,12 @@ export interface AcpToolCallUpdate {
   sessionUpdate: "tool_call_update";
   toolCallId: string;
   status: string;
+  /** nuwaxcode sends kind/title in update even though spec only requires them in tool_call */
+  kind?: string;
+  title?: string;
+  rawInput?: unknown;
   rawOutput?: unknown;
+  locations?: Array<{ path?: string; [key: string]: unknown }>;
   content?: Array<{ type: string; [key: string]: unknown }>;
 }
 
@@ -206,11 +384,14 @@ export interface AcpConnectionConfig {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  apiProtocol?: string;
   env?: Record<string, string>;
   /** Engine type for process registry tracking */
   engineType?: "claude-code" | "nuwaxcode";
   /** Purpose of this process (for process registry) */
-  purpose?: "engine" | "warm-pool";
+  purpose?: "engine";
+  /** Sandbox wrapping configuration (omit to disable) */
+  sandbox?: SandboxProcessConfig;
 }
 
 /** Result of creating an ACP connection */
@@ -226,6 +407,8 @@ export interface AcpConnectionResult {
    * IMPORTANT: Call this before destroying the process to release Windows handles!
    */
   cleanup: () => void;
+  /** Cleanup sandbox resources (temp profiles, etc.) */
+  sandboxCleanup?: () => void;
 }
 
 // ==================== SDK Loader ====================
@@ -259,15 +442,20 @@ export function loadAcpSdk(): Promise<AcpSdkModule> {
 
 // ==================== Binary Path ====================
 
-/** Get ~/.nuwaclaw/ base directory */
-function getAppDataDir(): string {
-  return path.join(app.getPath("home"), APP_DATA_DIR_NAME);
-}
-
 /**
  * Get ACP package directory
+ * 优先使用应用内集成的 bundled 路径，回退到 node_modules
  */
 function getAcpPackageDir(packageName: string): string | null {
+  // claude-code-acp-ts: 优先检查 bundled 目录
+  if (packageName === "claude-code-acp-ts") {
+    const bundledDir = getClaudeCodeAcpBundledDir();
+    if (bundledDir) {
+      return bundledDir;
+    }
+  }
+
+  // 回退到 node_modules
   const nodeModules = path.join(
     app.getPath("home"),
     APP_DATA_DIR_NAME,
@@ -275,6 +463,15 @@ function getAcpPackageDir(packageName: string): string | null {
   );
   const packageDir = path.join(nodeModules, packageName);
   return fs.existsSync(packageDir) ? packageDir : null;
+}
+
+function getNuwaxcodePersistentLogDir(): string {
+  return path.join(
+    app.getPath("home"),
+    APP_DATA_DIR_NAME,
+    LOGS_DIR_NAME,
+    "nuwaxcode",
+  );
 }
 
 /**
@@ -316,7 +513,7 @@ export function resolveAcpBinary(engine: "claude-code" | "nuwaxcode"): {
   // nuwaxcode: resolve platform-specific native binary directly
   const nativePath = resolveNuwaxcodeNativeBinary();
   if (nativePath) {
-    log.info(`[AcpClient] nuwaxcode: 使用原生二进制: ${nativePath}`);
+    log.info(`[AcpClient] nuwaxcode: using native binary: ${nativePath}`);
     return {
       binPath: nativePath,
       binArgs: ["acp"],
@@ -325,7 +522,9 @@ export function resolveAcpBinary(engine: "claude-code" | "nuwaxcode"): {
   }
 
   // Fallback: use JS wrapper (will have Windows popup issue)
-  log.warn("[AcpClient] nuwaxcode: 未找到原生二进制，回退到 JS wrapper");
+  log.warn(
+    "[AcpClient] nuwaxcode: native binary not found, falling back to JS wrapper",
+  );
   const packageDir = getAcpPackageDir("nuwaxcode");
   const entryPath = packageDir
     ? resolveNpmPackageEntry(packageDir, "nuwaxcode")
@@ -349,42 +548,14 @@ export function resolveAcpBinary(engine: "claude-code" | "nuwaxcode"): {
  * Logic mirrors nuwaxcode/bin/nuwaxcode JS wrapper.
  */
 function resolveNuwaxcodeNativeBinary(): string | null {
-  const platformMap: Record<string, string> = {
-    darwin: "darwin",
-    linux: "linux",
-    win32: "windows",
-  };
-  const archMap: Record<string, string> = {
-    x64: "x64",
-    arm64: "arm64",
-    arm: "arm",
-  };
-
-  const platform = platformMap[os.platform()] || os.platform();
-  const arch = archMap[os.arch()] || os.arch();
-  const binary = platform === "windows" ? "nuwaxcode.exe" : "nuwaxcode";
-  const base = `nuwaxcode-${platform}-${arch}`;
-
-  // Search from nuwaxcode package dir upwards for the platform package
-  const nuwaxcodeDir = getAcpPackageDir("nuwaxcode");
-  if (!nuwaxcodeDir) return null;
-
-  let current = path.dirname(nuwaxcodeDir); // node_modules/
-  while (true) {
-    const candidate = path.join(current, base, "bin", binary);
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-    // Also check inside node_modules/ if current is not already
-    const nmCandidate = path.join(current, "node_modules", base, "bin", binary);
-    if (fs.existsSync(nmCandidate)) {
-      return nmCandidate;
-    }
-    const parent = path.dirname(current);
-    if (parent === current) break;
-    current = parent;
+  // 应用内打包的二进制（唯一来源）
+  const bundledPath = getNuwaxcodeBundledBinPath();
+  if (bundledPath) {
+    log.info("[AcpClient] nuwaxcode: using bundled binary:", bundledPath);
+    return bundledPath;
   }
 
+  log.error("[AcpClient] nuwaxcode: bundled binary not found");
   return null;
 }
 
@@ -403,12 +574,39 @@ export async function createAcpConnection(
   clientHandler: AcpClientHandler,
 ): Promise<AcpConnectionResult> {
   const { binPath, binArgs } = config;
+  let effectiveBinArgs = [...binArgs];
 
   if (!fs.existsSync(binPath)) {
     throw new Error(
       `ACP binary not found at: ${binPath}. Please install it first.`,
     );
   }
+
+  if (config.engineType === "nuwaxcode" && firstTokenTrace.isDeepMode()) {
+    if (!effectiveBinArgs.includes("--print-logs")) {
+      effectiveBinArgs.push("--print-logs");
+    }
+    if (!effectiveBinArgs.includes("--log-level")) {
+      effectiveBinArgs.push(
+        "--log-level",
+        process.env.NUWAX_TRACE_NUWAXCODE_LOG_LEVEL || "DEBUG",
+      );
+    }
+    if (!effectiveBinArgs.includes("--log-dir")) {
+      const traceLogDir = firstTokenTrace.getNuwaxcodeLogDir();
+      if (traceLogDir) {
+        fs.mkdirSync(traceLogDir, { recursive: true });
+        effectiveBinArgs.push("--log-dir", traceLogDir);
+      }
+    }
+    firstTokenTrace.trace(
+      "acp.conn.nuwaxcode.trace_flags",
+      { engine: config.engineType },
+      { binPath, args: effectiveBinArgs },
+    );
+  }
+
+  const setupTimer = perfEmitter.start();
 
   // Build isolated environment (aligned with rcoder + engineManager pattern)
   // 1. Start with getAppEnv() for complete isolation (node/npm/uv paths, no system PATH)
@@ -448,6 +646,18 @@ export async function createAcpConnection(
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
   };
 
+  // Set TMPDIR to isolatedHome/tmp so that sandboxed engines (e.g. claude-code
+  // under macOS seatbelt strict mode) create temp files inside a writable path.
+  // Without this, os.tmpdir() resolves to /private/tmp which is NOT in the
+  // seatbelt writablePaths, causing EPERM on mkdir for Bash/Glob tools.
+  const isolatedTmp = path.join(isolatedHome, "tmp");
+  fs.mkdirSync(isolatedTmp, { recursive: true });
+  env.TMPDIR = isolatedTmp;
+  env.TEMP = isolatedTmp;
+  env.TMP = isolatedTmp;
+
+  const isNuwaxcodeEngine = config.engineType === "nuwaxcode";
+
   // Set model/api vars from ACP config only (never from user's global env)
   if (config.apiKey) {
     env.ANTHROPIC_API_KEY = config.apiKey;
@@ -459,49 +669,186 @@ export async function createAcpConnection(
     env.ANTHROPIC_MODEL = config.model;
   } else {
     log.warn(
-      "[AcpClient] ⚠️ config.model 未设置，引擎将使用内置默认模型（不推荐）",
+      "[AcpClient] ⚠️ config.model not set, engine will use built-in default model (not recommended)",
     );
   }
   if (config.env) Object.assign(env, config.env);
+
+  // nuwaxcode runs on opencode and prefers OPENCODE_MODEL.
+  // For openai-compatible models, OPENAI_* creds are required for provider autoload.
+  if (isNuwaxcodeEngine) {
+    if (config.model && !env.OPENCODE_MODEL) {
+      env.OPENCODE_MODEL = config.model;
+    }
+
+    const effectiveModel = env.OPENCODE_MODEL || config.model || "";
+    const apiProtocol = (config.apiProtocol || "").toLowerCase();
+    const isOpenAICompatible =
+      apiProtocol === "openai" ||
+      effectiveModel.startsWith("openai-compatible/");
+
+    if (isOpenAICompatible) {
+      if (config.apiKey && !env.OPENAI_API_KEY) {
+        env.OPENAI_API_KEY = config.apiKey;
+      }
+      if (config.baseUrl && !env.OPENAI_BASE_URL) {
+        env.OPENAI_BASE_URL = config.baseUrl;
+      }
+
+      // Compatibility aliases used by some opencode paths.
+      if (env.OPENAI_API_KEY && !env.OPENCODE_OPENAI_API_KEY) {
+        env.OPENCODE_OPENAI_API_KEY = env.OPENAI_API_KEY;
+      }
+      if (env.OPENAI_BASE_URL && !env.OPENCODE_OPENAI_API_BASE) {
+        env.OPENCODE_OPENAI_API_BASE = env.OPENAI_BASE_URL;
+      }
+    }
+  }
+
+  // Ensure nuwaxcode writes detailed logs to persistent app logs directory.
+  // Without this, logs default to isolated XDG paths under /tmp and are removed on destroy.
+  if (config.engineType === "nuwaxcode" && !env.OPENCODE_LOG_DIR) {
+    const persistentLogDir = getNuwaxcodePersistentLogDir();
+    fs.mkdirSync(persistentLogDir, { recursive: true });
+    env.OPENCODE_LOG_DIR = persistentLogDir;
+  }
 
   // Set CLAUDE_CODE_ACP_PATH for claude-code-acp-ts (matching Tauri's rcoder pattern)
   if (binPath.includes("claude-code-acp-ts")) {
     env.CLAUDE_CODE_ACP_PATH = binPath;
   }
 
+  const envMs = setupTimer.end("acp.conn.env", {
+    engine: config.engineType ?? "unknown",
+  });
+
   // 打印最终生效的模型配置（关键调试信息）
   log.info("[AcpClient] 🚀 Spawning ACP binary", {
     binPath,
-    binArgs,
+    binArgs: effectiveBinArgs,
     cwd: config.workspaceDir,
     isolatedHome,
-    ANTHROPIC_MODEL: env.ANTHROPIC_MODEL || "未设置",
-    ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL || "未设置",
+    ANTHROPIC_MODEL: env.ANTHROPIC_MODEL || "(not set)",
+    ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL || "(not set)",
     ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY
       ? env.ANTHROPIC_API_KEY.slice(
           0,
           Math.min(8, Math.floor(env.ANTHROPIC_API_KEY.length / 2)),
         ) + "..."
-      : "未设置",
-    OPENCODE_MODEL: env.OPENCODE_MODEL || "未设置",
-    OPENAI_BASE_URL: env.OPENAI_BASE_URL || "未设置",
+      : "(not set)",
+    OPENCODE_MODEL: env.OPENCODE_MODEL || "(not set)",
+    OPENCODE_LOG_DIR: env.OPENCODE_LOG_DIR || "(not set)",
+    OPENAI_BASE_URL: env.OPENAI_BASE_URL || "(not set)",
     OPENAI_API_KEY: env.OPENAI_API_KEY
       ? env.OPENAI_API_KEY.slice(
           0,
           Math.min(8, Math.floor(env.OPENAI_API_KEY.length / 2)),
         ) + "..."
-      : "未设置",
+      : "(not set)",
+    OPENCODE_OPENAI_API_BASE: env.OPENCODE_OPENAI_API_BASE || "(not set)",
+    OPENCODE_OPENAI_API_KEY: env.OPENCODE_OPENAI_API_KEY
+      ? env.OPENCODE_OPENAI_API_KEY.slice(
+          0,
+          Math.min(8, Math.floor(env.OPENCODE_OPENAI_API_KEY.length / 2)),
+        ) + "..."
+      : "(not set)",
   });
 
   // 1. Spawn ACP binary
   // On Unix, use detached: true so the child gets its own process group,
   // enabling process.kill(-pid) to kill the entire tree on cleanup.
+  const spawnTimer = perfEmitter.start();
   const useDetached = !isWindows;
   let proc: ChildProcess;
-  if (config.isNative) {
+  let sandboxCleanup: (() => void) | undefined;
+
+  // --- Sandbox wrapping ---
+  // 沙箱启用时，将引擎二进制包装在 sandbox-exec / bwrap / nuwax sandbox helper 中
+  let spawnCommand = binPath;
+  let spawnArgs = effectiveBinArgs;
+  let sandboxed = false;
+
+  if (config.sandbox?.enabled) {
+    try {
+      // 对于 JS 引擎（非 native），使用 node 二进制作为底层 command。
+      // 避免沙箱内运行 Electron 主程序导致 IOKit/PNG 操作崩溃（SIGSEGV）。
+      // 对于原生引擎（nuwaxcode Go 二进制），直接使用 binPath。
+      const effectiveCommand = config.isNative
+        ? binPath
+        : (getNodeBinPathWithFallback() ?? "node");
+      const effectiveSpawnArgs = config.isNative
+        ? effectiveBinArgs
+        : [binPath, ...effectiveBinArgs];
+
+      // Extra writable paths for seatbelt profile:
+      // 1. isolatedHome — engine config/cache
+      // 2. App data directory (~/.nuwaclaw) — engine logs, npm packages, config
+      // 3. System temp directories — engines may create temp files here for tool
+      //    execution. Cross-platform: os.tmpdir() + realpath, plus macOS-specific
+      //    /tmp and /private/tmp (some engines hardcode these instead of os.tmpdir()).
+      const extraWritable: string[] = [isolatedHome, os.tmpdir()];
+
+      // App data directory (e.g. ~/.nuwaclaw) — engine writes logs, npm packages, etc.
+      const appDataDir = path.join(app.getPath("home"), APP_DATA_DIR_NAME);
+      extraWritable.push(appDataDir);
+
+      try {
+        extraWritable.push(fs.realpathSync(os.tmpdir()));
+      } catch {
+        /* realpath resolution failed, skip */
+      }
+      if (createPlatformAdapter().isMacOS) {
+        extraWritable.push("/tmp", "/private/tmp");
+      }
+
+      const wrapped = await buildSandboxedSpawnArgs(
+        effectiveCommand,
+        effectiveSpawnArgs,
+        config.workspaceDir,
+        config.sandbox,
+        extraWritable,
+      );
+      spawnCommand = wrapped.command;
+      spawnArgs = wrapped.args;
+      sandboxCleanup = wrapped.cleanupSandbox;
+      sandboxed = spawnCommand !== effectiveCommand;
+
+      log.info("[AcpClient] Sandbox wrapping applied:", {
+        type: config.sandbox.type,
+        originalCommand: binPath,
+        wrappedCommand: spawnCommand,
+        sandboxed,
+      });
+    } catch (sandboxError) {
+      log.error("[AcpClient] Sandbox wrapping failed:", sandboxError);
+      // fallback 当前由 acpEngine.ts 固定为 "degrade_to_off"，
+      // "fail_closed" 分支目前不可达，保留以备将来恢复配置项。
+      if (config.sandbox.fallback === "fail_closed") {
+        throw new Error(
+          `Sandbox setup failed: ${sandboxError instanceof Error ? sandboxError.message : String(sandboxError)}`,
+        );
+      }
+      // degrade_to_off: 继续无沙箱启动
+      log.warn("[AcpClient] Degrading to non-sandboxed execution");
+    }
+  }
+
+  if (sandboxed) {
+    // 沙箱已包装：直接 spawn（沙箱 wrapper 本身就是 command）
+    proc = spawn(spawnCommand, spawnArgs, {
+      cwd: config.workspaceDir,
+      env,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      detached: useDetached,
+    });
+    log.info(
+      `[AcpClient] Spawned sandboxed process: ${spawnCommand} (detached=${useDetached})`,
+    );
+  } else if (config.isNative) {
     // Native binary (e.g. nuwaxcode Go binary): spawn directly, no node wrapper
     // This avoids Windows console popup and eliminates the intermediate process
-    proc = spawn(binPath, binArgs, {
+    proc = spawn(binPath, effectiveBinArgs, {
       cwd: config.workspaceDir,
       env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -513,7 +860,7 @@ export async function createAcpConnection(
     );
   } else {
     // JS file (e.g. claude-code-acp-ts): spawn via node using spawnJsFile
-    proc = spawnJsFile(binPath, binArgs, {
+    proc = spawnJsFile(binPath, effectiveBinArgs, {
       cwd: config.workspaceDir,
       env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -526,6 +873,11 @@ export async function createAcpConnection(
     proc.unref();
   }
 
+  const spawnMs = spawnTimer.end("acp.conn.spawn", {
+    engine: config.engineType ?? "unknown",
+    native: !!config.isNative,
+  });
+
   // Register process in the process registry for orphan detection
   if (proc.pid) {
     processRegistry.register(proc.pid, {
@@ -534,6 +886,7 @@ export async function createAcpConnection(
       purpose: config.purpose ?? "engine",
     });
   }
+  ensureTelemetry(proc);
 
   // Log stderr — 详细输出所有内容
   proc.stderr?.on("data", (data: Buffer) => {
@@ -555,6 +908,27 @@ export async function createAcpConnection(
       log.error("[AcpClient stderr] 🔴", text);
     } else {
       log.warn("[AcpClient stderr]", text);
+    }
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      updateMcpTransportTelemetry(proc, trimmed);
+    }
+    if (firstTokenTrace.isDeepMode()) {
+      for (const line of text.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const preview =
+          trimmed.length > 1000 ? trimmed.substring(0, 1000) + "..." : trimmed;
+        firstTokenTrace.trace(
+          "acp.stderr.line",
+          {
+            engine: config.engineType,
+            sessionId: extractSessionIdFromLine(trimmed),
+          },
+          { pid: proc.pid, line: preview },
+        );
+      }
     }
   });
 
@@ -582,6 +956,16 @@ export async function createAcpConnection(
         const preview =
           trimmed.length > 500 ? trimmed.substring(0, 500) + "..." : trimmed;
         log.info("[AcpClient stdout] 📥", preview);
+        if (firstTokenTrace.isDeepMode()) {
+          firstTokenTrace.trace(
+            "acp.stdout.line",
+            {
+              engine: config.engineType,
+              sessionId: extractSessionIdFromLine(trimmed),
+            },
+            { pid: proc.pid, line: preview },
+          );
+        }
       }
       this.push(chunk);
       callback();
@@ -600,6 +984,16 @@ export async function createAcpConnection(
       const preview =
         trimmed.length > 500 ? trimmed.substring(0, 500) + "..." : trimmed;
       log.info("[AcpClient stdin] 📤", preview);
+      if (firstTokenTrace.isDeepMode()) {
+        firstTokenTrace.trace(
+          "acp.stdin.line",
+          {
+            engine: config.engineType,
+            sessionId: extractSessionIdFromLine(trimmed),
+          },
+          { pid: proc.pid, line: preview },
+        );
+      }
     }
     return originalStdinWrite(chunk, ...args);
   } as any;
@@ -607,6 +1001,7 @@ export async function createAcpConnection(
   // 2. Convert Node streams → Web streams（仅从 stdoutLogTransform 读，保证唯一消费者）
   // Wrap post-spawn setup in try/catch: if anything fails after spawn,
   // we must kill the process and unregister it to prevent orphans.
+  const bridgeTimer = perfEmitter.start();
   let readable: ReadableStream<Uint8Array>;
   let writable: WritableStream;
   let acp: any;
@@ -614,18 +1009,35 @@ export async function createAcpConnection(
   let connection: AcpClientSideConnection;
 
   try {
+    const ioBridgeTimer = perfEmitter.start();
     readable = Readable.toWeb(stdoutLogTransform) as ReadableStream<Uint8Array>;
     writable = Writable.toWeb(proc.stdin!) as WritableStream;
+    ioBridgeTimer.end("acp.conn.ioBridge", {
+      engine: config.engineType ?? "unknown",
+    });
 
     // 3. Load ACP SDK and create NDJSON stream
+    const sdkTimer = perfEmitter.start();
     acp = await loadAcpSdk();
+    sdkTimer.end("acp.conn.sdkLoad", {
+      engine: config.engineType ?? "unknown",
+    });
+
+    const streamTimer = perfEmitter.start();
     stream = acp.ndJsonStream(writable, readable);
+    streamTimer.end("acp.conn.ndjson", {
+      engine: config.engineType ?? "unknown",
+    });
 
     // 4. Create ClientSideConnection with client handler
+    const connTimer = perfEmitter.start();
     connection = new acp.ClientSideConnection(
       (_agent: unknown) => clientHandler,
       stream,
     ) as AcpClientSideConnection;
+    connTimer.end("acp.conn.connection", {
+      engine: config.engineType ?? "unknown",
+    });
   } catch (e) {
     // Post-spawn setup failed — kill the spawned process to prevent orphan
     log.error("[AcpClient] Post-spawn setup failed, killing process:", e);
@@ -637,6 +1049,14 @@ export async function createAcpConnection(
     }
     throw e;
   }
+
+  const bridgeMs = bridgeTimer.end("acp.conn.bridgeTotal", {
+    engine: config.engineType ?? "unknown",
+  });
+
+  perfEmitter.duration("acp.conn.create.total", envMs + spawnMs + bridgeMs, {
+    engine: config.engineType ?? "unknown",
+  });
 
   // 🔧 FIX: Create cleanup function to properly dispose of event listeners
   // This prevents handle leaks by removing all event listeners before process termination
@@ -650,6 +1070,7 @@ export async function createAcpConnection(
       proc.stdin?.removeAllListeners();
       // Remove process-level listeners (error, exit)
       proc.removeAllListeners();
+      mcpTransportTelemetry.delete(proc);
       log.info(
         "[AcpClient] 🧹 Cleaned up event listeners to prevent handle leaks",
       );
@@ -658,5 +1079,11 @@ export async function createAcpConnection(
     }
   };
 
-  return { connection, process: proc, isolatedHome, cleanup };
+  return {
+    connection,
+    process: proc,
+    isolatedHome,
+    cleanup,
+    sandboxCleanup,
+  };
 }

@@ -15,6 +15,8 @@
 #   - macOS 签名/公证（未配置时 Mac 构建为无签名包，用户打开会提示「已损坏」）：
 #     - APPLE_TEAM_ID / APPLE_SIGNING_IDENTITY / APPLE_CERTIFICATE（.p12 Base64）/ APPLE_CERTIFICATE_PASSWORD
 #     - 公证：APPLE_API_KEY（.p8 Base64）/ APPLE_API_KEY_ID / APPLE_ISSUER_ID
+#   - Windows：本 workflow 仅构建产物，不在 CI 内签名；签名在本地 Windows（SimplySign）手动完成
+#     详见 crates/agent-electron-client/docs/windows-signing.md
 #
 # 产物目录：crates/agent-electron-client/release/${version}/（由 package.json directories.output 决定）
 
@@ -24,6 +26,20 @@ on:
   push:
     tags:
       - "electron-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to sync (e.g. electron-v0.9.0)"
+        required: true
+        type: string
+      channel:
+        description: "Update channel pointer to publish (stable|beta). beta will NOT overwrite latest/latest.json"
+        required: false
+        default: stable
+        type: choice
+        options:
+          - stable
+          - beta
 
 permissions:
   contents: write
@@ -145,7 +161,7 @@ jobs:
         working-directory: crates/agent-electron-client
         run: npm run electron-rebuild
 
-      # 缓存内置 Node.js（所有平台）、Git（仅 Windows）和 uv（所有平台）
+      # 缓存内置 Node.js（所有平台）、Git（仅 Windows）、uv（所有平台）和 nuwaxcode（所有平台）
       - name: Cache bundled Node.js
         uses: actions/cache@v4
         with:
@@ -165,7 +181,13 @@ jobs:
           path: crates/agent-electron-client/resources/uv
           key: bundled-uv-v2-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-uv.js') }}
 
-      - name: Prepare bundled resources (uv, node, git)
+      - name: Cache nuwaxcode
+        uses: actions/cache@v4
+        with:
+          path: crates/agent-electron-client/resources/nuwaxcode
+          key: bundled-nuwaxcode-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
+
+      - name: Prepare bundled resources (uv, node, git, nuwaxcode)
         working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
@@ -218,6 +240,7 @@ jobs:
           echo "APPLE_ISSUER_ID=$APPLE_ISSUER_ID" >> "$GITHUB_ENV"
 
       # 若用户看到「已损坏」：请确认已配置 APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY 及公证用 APPLE_API_KEY 等，且构建日志中有签名与公证成功
+      # Windows 签名已废弃，改为本地手签方案
       - name: Clean previous build artifacts
         shell: bash
         working-directory: crates/agent-electron-client
@@ -236,6 +259,8 @@ jobs:
           if [ "${{ runner.os }}" = "macOS" ] && [ -z "${{ secrets.APPLE_CERTIFICATE }}" ]; then
             echo "No Apple certificate, building unsigned Mac package for ${{ matrix.arch }}"
             npm run dist:mac:unsigned:${{ matrix.arch }} -- --publish never
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            npm run ${{ matrix.dist_cmd }} -- --publish never
           else
             npm run ${{ matrix.dist_cmd }} -- --publish never
           fi
@@ -272,6 +297,7 @@ jobs:
       OSS_BUCKET: "oss://nuwa-packages"
       OSS_CDN_BASE: "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com"
       RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_CHANNEL: ${{ inputs.channel || 'stable' }}
     steps:
       - name: Install ossutil v2
         run: |
@@ -300,8 +326,20 @@ jobs:
         run: |
           TAG="${RELEASE_TAG}"
           VERSION="${TAG#electron-v}"
+          CHANNEL="${RELEASE_CHANNEL}"
           OSS_URL_PREFIX="${OSS_CDN_BASE}/nuwaclaw-electron/${TAG}"
           ASSETS_DIR="/tmp/release-assets"
+
+          # semver MVP guard: only allow numeric x.y.z（用 grep -E，不依赖 ripgrep，与 ubuntu-latest 默认环境一致）
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Invalid version '${VERSION}'. MVP only supports numeric x.y.z"
+            exit 1
+          fi
+
+          if [ "$CHANNEL" != "stable" ] && [ "$CHANNEL" != "beta" ]; then
+            echo "::error::Invalid channel '${CHANNEL}', expected stable or beta"
+            exit 1
+          fi
 
           # 删除 GitHub 自带的 yml，仅保留由 latest.json 派生的 yml
           rm -f "${ASSETS_DIR}"/*.yml
@@ -450,27 +488,43 @@ jobs:
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
         run: |
           TAG="${RELEASE_TAG}"
+          CHANNEL="${RELEASE_CHANNEL}"
+          echo "==> Publishing latest.json for channel: ${CHANNEL}"
           ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/${TAG}/latest.json" \
             --endpoint "$OSS_ENDPOINT" \
             --region "$OSS_REGION" \
             --access-key-id "$OSS_ACCESS_KEY_ID" \
             --access-key-secret "$OSS_ACCESS_KEY_SECRET"
-          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/latest/latest.json" \
-            --endpoint "$OSS_ENDPOINT" \
-            --region "$OSS_REGION" \
-            --access-key-id "$OSS_ACCESS_KEY_ID" \
-            --access-key-secret "$OSS_ACCESS_KEY_SECRET"
-          echo "==> Uploaded latest.json to versioned and latest/ paths"
+
+          if [ "$CHANNEL" = "stable" ]; then
+            ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/latest/latest.json" \
+              --endpoint "$OSS_ENDPOINT" \
+              --region "$OSS_REGION" \
+              --access-key-id "$OSS_ACCESS_KEY_ID" \
+              --access-key-secret "$OSS_ACCESS_KEY_SECRET"
+            echo "==> Uploaded latest.json to stable pointer: latest/latest.json"
+          else
+            ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/beta/latest.json" \
+              --endpoint "$OSS_ENDPOINT" \
+              --region "$OSS_REGION" \
+              --access-key-id "$OSS_ACCESS_KEY_ID" \
+              --access-key-secret "$OSS_ACCESS_KEY_SECRET"
+            echo "==> Uploaded latest.json to beta pointer: beta/latest.json (stable pointer untouched)"
+          fi
 
       - name: Verify OSS upload
         run: |
-          # Verify latest.json in stable path
-          VERIFY_URL="${OSS_CDN_BASE}/nuwaclaw-electron/latest/latest.json"
+          CHANNEL="${RELEASE_CHANNEL}"
+          if [ "$CHANNEL" = "stable" ]; then
+            VERIFY_URL="${OSS_CDN_BASE}/nuwaclaw-electron/latest/latest.json"
+          else
+            VERIFY_URL="${OSS_CDN_BASE}/nuwaclaw-electron/beta/latest.json"
+          fi
           HTTP_STATUS=$(curl -sS -o /tmp/oss-latest.json -w "%{http_code}" "$VERIFY_URL")
           if [ "$HTTP_STATUS" = "200" ]; then
-            echo "==> latest.json: OK (HTTP ${HTTP_STATUS})"
+            echo "==> latest.json (${CHANNEL}): OK (HTTP ${HTTP_STATUS})"
             cat /tmp/oss-latest.json | jq .
           else
-            echo "::error::latest.json not found on OSS (HTTP ${HTTP_STATUS})"
+            echo "::error::latest.json for channel '${CHANNEL}' not found on OSS (HTTP ${HTTP_STATUS})"
             exit 1
           fi

@@ -68,6 +68,45 @@ export interface AgentRunnerAPI {
   }>;
 }
 
+import type {
+  SandboxStatus,
+  SandboxPolicy,
+  SandboxCapabilities,
+} from "./sandbox";
+
+export interface SandboxAPI {
+  status: () => Promise<{
+    success: boolean;
+    data?: SandboxStatus;
+    error?: string;
+    code?: string;
+  }>;
+  getPolicy: () => Promise<{
+    success: boolean;
+    data?: SandboxPolicy;
+    error?: string;
+    code?: string;
+  }>;
+  setPolicy: (patch: Partial<SandboxPolicy>) => Promise<{
+    success: boolean;
+    data?: SandboxPolicy;
+    error?: string;
+    code?: string;
+  }>;
+  capabilities: () => Promise<{
+    success: boolean;
+    data?: SandboxCapabilities;
+    error?: string;
+    code?: string;
+  }>;
+  setup: () => Promise<{
+    success: boolean;
+    data?: { success: boolean; message?: string };
+    error?: string;
+    code?: string;
+  }>;
+}
+
 export interface FileServerAPI {
   start: (port?: number) => Promise<{ success: boolean; error?: string }>;
   stop: () => Promise<{ success: boolean; error?: string }>;
@@ -75,6 +114,22 @@ export interface FileServerAPI {
 }
 
 export interface ComputerServerAPI {
+  start: (port?: number) => Promise<{ success: boolean; error?: string }>;
+  stop: () => Promise<{ success: boolean; error?: string }>;
+  status: () => Promise<{ running: boolean; port?: number; error?: string }>;
+}
+
+export interface GuiServerAPI {
+  start: () => Promise<{ success: boolean; error?: string }>;
+  stop: () => Promise<{ success: boolean; error?: string }>;
+  status: () => Promise<{ running: boolean; pid?: number; error?: string }>;
+  isEnabled: () => Promise<{ enabled: boolean; reason?: string }>;
+  setEnabled: (
+    enabled: boolean,
+  ) => Promise<{ success: boolean; error?: string }>;
+}
+
+export interface AdminServerAPI {
   start: (port?: number) => Promise<{ success: boolean; error?: string }>;
   stop: () => Promise<{ success: boolean; error?: string }>;
   status: () => Promise<{ running: boolean; port?: number; error?: string }>;
@@ -133,6 +188,28 @@ export interface DependenciesAPI {
   }>;
   /** 应用包内集成的 nuwax-mcp-stdio-proxy，与 Node/uv 一起在系统环境中展示 */
   checkMcpProxyBundled: () => Promise<{
+    success: boolean;
+    available?: boolean;
+    version?: string;
+    error?: string;
+  }>;
+  /** 应用包内集成的 nuwaxcode 引擎二进制 */
+  checkNuwaxcodeBundled: () => Promise<{
+    success: boolean;
+    available?: boolean;
+    version?: string;
+    binPath?: string;
+    error?: string;
+  }>;
+  /** 应用包内集成的 claude-code-acp-ts */
+  checkClaudeCodeAcpBundled: () => Promise<{
+    success: boolean;
+    available?: boolean;
+    version?: string;
+    error?: string;
+  }>;
+  /** 应用包内集成的 nuwax-file-server */
+  checkNuwaxFileServerBundled: () => Promise<{
     success: boolean;
     available?: boolean;
     version?: string;
@@ -399,6 +476,21 @@ export interface AppAPI {
   installUpdate: () => Promise<{ success: boolean; error?: string }>;
   getUpdateState: () => Promise<UpdateState>;
   openReleasesPage: () => Promise<{ success: boolean }>;
+  getUpdateDebugInfo: () => Promise<{
+    success: boolean;
+    platform?: string;
+    arch?: string;
+    isPackaged?: boolean;
+    appVersion?: string;
+    appName?: string;
+    installerType?: string;
+    canAutoUpdate?: boolean;
+    appDir?: string | null;
+    exePath?: string;
+    uninstallerFiles?: string[];
+    totalAppFiles?: number;
+    error?: string;
+  }>;
   getDeviceId: () => Promise<string>;
 }
 
@@ -420,6 +512,9 @@ export interface PermissionsAPI {
 
 export interface ShellAPI {
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+  openPath: (
+    targetPath: string,
+  ) => Promise<{ success: boolean; error?: string }>;
 }
 
 // ==================== Computer API (rcoder /computer/* compat) ====================
@@ -509,6 +604,16 @@ export interface MirrorAPI {
   }) => Promise<{ success: boolean; error?: string }>;
 }
 
+export interface PerfAPI {
+  /** Fire-and-forget：将 PERF 日志发送到主进程写入 perf.YYYY-MM-DD.log */
+  log: (msg: string) => void;
+}
+
+export interface I18nAPI {
+  getLang: () => Promise<string>;
+  setLang: (lang: string) => Promise<{ success: boolean; error?: string }>;
+}
+
 export interface DialogAPI {
   openDirectory: (title?: string) => Promise<{
     success: boolean;
@@ -535,10 +640,41 @@ export interface ElectronAPI {
       url: string;
       name: string;
       value: string;
-      domain: string;
+      domain?: string;
       httpOnly?: boolean;
       secure?: boolean;
     }) => Promise<{ success: boolean; error?: string }>;
+    removeCookie: (params: { url: string; name: string }) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+    flushStore: () => Promise<{ success: boolean; error?: string }>;
+    getCookie: (params: { url: string; name: string }) => Promise<{
+      success: boolean;
+      found?: boolean;
+      count?: number;
+      cookies?: Array<{
+        name: string;
+        domain: string;
+        path: string;
+        httpOnly: boolean;
+        secure: boolean;
+        sameSite: string;
+        session?: boolean;
+        expirationDate?: number;
+      }>;
+      cookie?: {
+        name: string;
+        domain: string;
+        path: string;
+        httpOnly: boolean;
+        secure: boolean;
+        sameSite: string;
+        session?: boolean;
+        expirationDate?: number;
+      };
+      error?: string;
+    }>;
   };
   webview: {
     openWindow: (params: {
@@ -560,11 +696,15 @@ export interface ElectronAPI {
   mcp: MCPAPI;
   lanproxy: LanproxyAPI;
   agentRunner: AgentRunnerAPI;
+  sandbox: SandboxAPI;
   fileServer: FileServerAPI;
   computerServer: ComputerServerAPI;
+  guiServer: GuiServerAPI;
+  adminServer: AdminServerAPI;
   dependencies: DependenciesAPI;
   shell: ShellAPI;
   mirror: MirrorAPI;
+  i18n: I18nAPI;
   dialog: DialogAPI;
   engine: EngineAPI;
   agent: AgentAPI;
@@ -576,6 +716,7 @@ export interface ElectronAPI {
   app: AppAPI;
   permissions: PermissionsAPI;
   quickInit: QuickInitAPI;
+  perf: PerfAPI;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   off: (channel: string, callback: (...args: unknown[]) => void) => void;
 }

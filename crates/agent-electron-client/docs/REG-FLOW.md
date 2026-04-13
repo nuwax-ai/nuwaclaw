@@ -110,7 +110,6 @@ interface ClientRegisterResponse {
 
 ## 相关文档
 
-- [TESTING-0.9.1-2026-03-19.md](./TESTING-0.9.1-2026-03-19.md) - 测试分层与 Harness-Engineering
 - [review-reg-and-autoreconnect.md](./review-reg-and-autoreconnect.md) - 历史代码审查记录
 
 ---

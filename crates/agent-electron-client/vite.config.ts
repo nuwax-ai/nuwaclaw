@@ -1,11 +1,26 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import * as path from 'path';
 import { readFileSync } from 'fs';
 
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
 
-export default defineConfig(({ command }) => ({
+// 使用 Vite 的 mode 参数决定加载哪个 env 文件
+// 注意：loadEnv 相对于 root 查找 env 文件，所以 root 必须是包含 .env.development 的目录
+function getFeatureFlags(mode: string) {
+  // __dirname 是 vite.config.ts 所在目录（crates/agent-electron-client/），包含 .env.development
+  const env = loadEnv(mode, __dirname, '');
+  // loadEnv 返回布尔值或 undefined，需要转换为字符串 'true'/'false'
+  const toViteFlag = (value: unknown): string =>
+    value === true || value === 'true' ? 'true' : 'false';
+  return {
+    __INJECT_GUI_MCP__: toViteFlag(env.INJECT_GUI_MCP),
+    __LOG_FULL_SECRETS__: toViteFlag(env.NUWAX_AGENT_LOG_FULL_SECRETS),
+    __ENABLE_GUI_AGENT_SERVER__: toViteFlag(env.ENABLE_GUI_AGENT_SERVER),
+  };
+}
+
+export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     {
@@ -33,9 +48,11 @@ export default defineConfig(({ command }) => ({
   root: './src/renderer',
   publicDir: '../../public',
   // 开发模式使用绝对路径，生产构建使用相对路径
-  base: command === 'build' ? './' : '/',
+  base: mode === 'production' ? './' : '/',
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+    // Feature flags - 构建时静态替换（仅影响渲染进程）
+    ...getFeatureFlags(mode),
   },
   resolve: {
     alias: {

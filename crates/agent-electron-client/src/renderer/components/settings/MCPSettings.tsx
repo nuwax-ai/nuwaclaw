@@ -6,7 +6,7 @@
  * 所有操作通过 window.electronAPI.mcp.* IPC 通道。
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect } from "react";
 import {
   Card,
   Button,
@@ -20,7 +20,7 @@ import {
   Tag,
   message,
   Popconfirm,
-} from 'antd';
+} from "antd";
 import {
   PlayCircleOutlined,
   ReloadOutlined,
@@ -31,14 +31,21 @@ import {
   GlobalOutlined,
   CodeOutlined,
   FilterOutlined,
-} from '@ant-design/icons';
-import type { McpServersConfig, McpProxyStatus, McpServerEntry } from '@shared/types/electron';
+} from "@ant-design/icons";
+import type {
+  McpServersConfig,
+  McpProxyStatus,
+  McpServerEntry,
+} from "@shared/types/electron";
+import { t } from "../../services/core/i18n";
 
 const { Text } = Typography;
 
 /** 判断是否为远程类型 entry */
-function isRemote(entry: McpServerEntry): entry is Extract<McpServerEntry, { url: string }> {
-  return 'url' in entry;
+function isRemote(
+  entry: McpServerEntry,
+): entry is Extract<McpServerEntry, { url: string }> {
+  return "url" in entry;
 }
 
 interface MCPSettingsProps {
@@ -54,20 +61,27 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
 
   // 新增 server 表单
   const [showAddForm, setShowAddForm] = useState(false);
-  const [newServerId, setNewServerId] = useState('');
-  const [newServerType, setNewServerType] = useState<'stdio' | 'remote'>('stdio');
+  const [newServerId, setNewServerId] = useState("");
+  const [newServerType, setNewServerType] = useState<"stdio" | "remote">(
+    "stdio",
+  );
   // stdio fields
-  const [newServerCommand, setNewServerCommand] = useState('npx');
-  const [newServerArgs, setNewServerArgs] = useState('');
+  const [newServerCommand, setNewServerCommand] = useState("npx");
+  const [newServerArgs, setNewServerArgs] = useState("");
   // remote fields
-  const [newServerUrl, setNewServerUrl] = useState('');
-  const [newServerTransport, setNewServerTransport] = useState<'auto' | 'streamable-http' | 'sse'>('auto');
-  const [newServerAuthToken, setNewServerAuthToken] = useState('');
+  const [newServerUrl, setNewServerUrl] = useState("");
+  const [newServerTransport, setNewServerTransport] = useState<
+    "auto" | "streamable-http" | "sse"
+  >("auto");
+  const [newServerAuthToken, setNewServerAuthToken] = useState("");
 
   // 工具过滤模式
-  const filterMode: 'none' | 'allow' | 'deny' =
-    config.allowTools && config.allowTools.length > 0 ? 'allow' :
-    config.denyTools && config.denyTools.length > 0 ? 'deny' : 'none';
+  const filterMode: "none" | "allow" | "deny" =
+    config.allowTools && config.allowTools.length > 0
+      ? "allow"
+      : config.denyTools && config.denyTools.length > 0
+        ? "deny"
+        : "none";
 
   useEffect(() => {
     if (isOpen) {
@@ -85,7 +99,7 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
       if (savedConfig) setConfig(savedConfig);
       if (currentStatus) setStatus(currentStatus);
     } catch (error) {
-      console.error('[MCPSettings] 加载失败:', error);
+      console.error("[MCPSettings] Failed to load:", error);
     } finally {
       setLoading(false);
     }
@@ -101,9 +115,9 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
   const handleSaveConfig = async () => {
     try {
       await window.electronAPI?.mcp.setConfig(config);
-      message.success('MCP 配置已保存');
+      message.success(t("Claw.MCP.message.configSaved"));
     } catch (error) {
-      message.error('保存失败');
+      message.error(t("Claw.Common.saveFailed"));
     }
   };
 
@@ -115,12 +129,12 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
 
       const result = await window.electronAPI?.mcp.start();
       if (result?.success) {
-        message.success('MCP Proxy 就绪');
+        message.success(t("Claw.MCP.message.proxyReady"));
       } else {
-        message.error(`检测失败: ${result?.error}`);
+        message.error(t("Claw.MCP.message.checkFailed", { 0: result?.error }));
       }
     } catch (error) {
-      message.error(`错误: ${error}`);
+      message.error(t("Claw.MCP.message.error", { 0: error }));
     } finally {
       await refreshStatus();
       setActionLoading(false);
@@ -134,12 +148,12 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
 
       const result = await window.electronAPI?.mcp.restart();
       if (result?.success) {
-        message.success('MCP Proxy 就绪');
+        message.success(t("Claw.MCP.message.proxyReady"));
       } else {
-        message.error(`检测失败: ${result?.error}`);
+        message.error(t("Claw.MCP.message.checkFailed", { 0: result?.error }));
       }
     } catch (error) {
-      message.error(`错误: ${error}`);
+      message.error(t("Claw.MCP.message.error", { 0: error }));
     } finally {
       await refreshStatus();
       setActionLoading(false);
@@ -147,33 +161,37 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
   };
 
   const resetAddForm = () => {
-    setNewServerId('');
-    setNewServerType('stdio');
-    setNewServerCommand('npx');
-    setNewServerArgs('');
-    setNewServerUrl('');
-    setNewServerTransport('auto');
-    setNewServerAuthToken('');
+    setNewServerId("");
+    setNewServerType("stdio");
+    setNewServerCommand("npx");
+    setNewServerArgs("");
+    setNewServerUrl("");
+    setNewServerTransport("auto");
+    setNewServerAuthToken("");
     setShowAddForm(false);
   };
 
   const handleAddServer = () => {
     if (!newServerId.trim()) {
-      message.warning('请输入 Server ID');
+      message.warning(t("Claw.MCP.addServer.idRequired"));
       return;
     }
 
-    const id = newServerId.trim().toLowerCase().replace(/\s+/g, '-');
+    const id = newServerId.trim().toLowerCase().replace(/\s+/g, "-");
 
-    if (newServerType === 'remote') {
+    if (newServerType === "remote") {
       if (!newServerUrl.trim()) {
-        message.warning('请输入 URL');
+        message.warning(t("Claw.MCP.addServer.urlRequired"));
         return;
       }
       const entry: McpServerEntry = {
         url: newServerUrl.trim(),
-        ...(newServerTransport !== 'auto' ? { transport: newServerTransport } : {}),
-        ...(newServerAuthToken.trim() ? { authToken: newServerAuthToken.trim() } : {}),
+        ...(newServerTransport !== "auto"
+          ? { transport: newServerTransport }
+          : {}),
+        ...(newServerAuthToken.trim()
+          ? { authToken: newServerAuthToken.trim() }
+          : {}),
       };
       setConfig({
         ...config,
@@ -181,10 +199,10 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
       });
     } else {
       if (!newServerArgs.trim()) {
-        message.warning('请输入参数');
+        message.warning(t("Claw.MCP.addServer.argsRequired"));
         return;
       }
-      const args = newServerArgs.split(' ').filter(Boolean);
+      const args = newServerArgs.split(" ").filter(Boolean);
       setConfig({
         ...config,
         mcpServers: {
@@ -195,19 +213,19 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
     }
 
     resetAddForm();
-    message.info('已添加，记得保存配置');
+    message.info(t("Claw.MCP.message.serverAdded"));
   };
 
   const handleRemoveServer = (id: string) => {
     const { [id]: _, ...rest } = config.mcpServers;
     setConfig({ ...config, mcpServers: rest });
-    message.info('已移除，记得保存配置');
+    message.info(t("Claw.MCP.message.serverRemoved"));
   };
 
   const handleUpdateServerArgs = (id: string, argsStr: string) => {
     const entry = config.mcpServers[id];
     if (isRemote(entry)) return;
-    const args = argsStr.split(' ').filter(Boolean);
+    const args = argsStr.split(" ").filter(Boolean);
     setConfig({
       ...config,
       mcpServers: {
@@ -229,21 +247,32 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
     });
   };
 
-  const handleFilterModeChange = (mode: 'none' | 'allow' | 'deny') => {
-    if (mode === 'none') {
+  const handleFilterModeChange = (mode: "none" | "allow" | "deny") => {
+    if (mode === "none") {
       setConfig({ ...config, allowTools: undefined, denyTools: undefined });
-    } else if (mode === 'allow') {
-      setConfig({ ...config, allowTools: config.allowTools || [], denyTools: undefined });
+    } else if (mode === "allow") {
+      setConfig({
+        ...config,
+        allowTools: config.allowTools || [],
+        denyTools: undefined,
+      });
     } else {
-      setConfig({ ...config, allowTools: undefined, denyTools: config.denyTools || [] });
+      setConfig({
+        ...config,
+        allowTools: undefined,
+        denyTools: config.denyTools || [],
+      });
     }
   };
 
   const handleFilterToolsChange = (value: string) => {
-    const tools = value.split(',').map((s) => s.trim()).filter(Boolean);
-    if (filterMode === 'allow') {
+    const tools = value
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (filterMode === "allow") {
       setConfig({ ...config, allowTools: tools });
-    } else if (filterMode === 'deny') {
+    } else if (filterMode === "deny") {
       setConfig({ ...config, denyTools: tools });
     }
   };
@@ -257,23 +286,33 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
       title={
         <Space>
           <ApiOutlined />
-          MCP Proxy 服务管理
+          {t("Claw.MCP.title")}
         </Space>
       }
-      extra={onClose ? <Button size="small" onClick={onClose}>关闭</Button> : undefined}
+      extra={
+        onClose ? (
+          <Button size="small" onClick={onClose}>
+            {t("Claw.Common.close")}
+          </Button>
+        ) : undefined
+      }
       style={onClose ? { margin: 16 } : undefined}
       loading={loading}
     >
-      <Space direction="vertical" style={{ width: '100%' }} size="middle">
+      <Space direction="vertical" style={{ width: "100%" }} size="middle">
         {/* Status & Controls */}
-        <Card size="small" style={{ background: '#f5f5f5' }}>
+        <Card size="small" style={{ background: "#f5f5f5" }}>
           <Space wrap>
             <Badge
-              status={status.running ? 'success' : 'default'}
-              text={status.running ? '就绪' : '未就绪'}
+              status={status.running ? "success" : "default"}
+              text={
+                status.running
+                  ? t("Claw.MCP.status.ready")
+                  : t("Claw.MCP.status.notReady")
+              }
             />
             <Text type="secondary">
-              {status.serverCount ?? 0} 个 Server
+              {status.serverCount ?? 0} {t("Claw.MCP.status.serverCount")}
             </Text>
             <Button
               type="primary"
@@ -282,7 +321,7 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
               loading={actionLoading}
               size="small"
             >
-              检测可用性
+              {t("Claw.MCP.checkAvailability")}
             </Button>
             <Button
               icon={<ReloadOutlined />}
@@ -290,58 +329,68 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
               loading={actionLoading}
               size="small"
             >
-              刷新
+              {t("Claw.Common.refresh")}
             </Button>
           </Space>
         </Card>
 
-        <Divider orientation="left" style={{ margin: '8px 0' }}>
-          MCP Servers 配置
+        <Divider orientation="left" style={{ margin: "8px 0" }}>
+          {t("Claw.MCP.serverManagement.title")}
         </Divider>
 
         {/* Server List */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {serverEntries.length === 0 && (
-            <Text type="secondary" style={{ textAlign: 'center', padding: 16 }}>
-              暂无 MCP Server 配置
+            <Text type="secondary" style={{ textAlign: "center", padding: 16 }}>
+              {t("Claw.MCP.serverManagement.noServers")}
             </Text>
           )}
 
           {serverEntries.map(([id, entry]) => (
-            <Card
-              key={id}
-              size="small"
-              style={{ border: '1px solid #e4e4e7' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+            <Card key={id} size="small" style={{ border: "1px solid #e4e4e7" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  gap: 8,
+                }}
+              >
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <Space size={4}>
                     <Text strong>{id}</Text>
                     {isRemote(entry) ? (
                       <Tag color="blue" style={{ fontSize: 11 }}>
                         <GlobalOutlined style={{ marginRight: 2 }} />
-                        {entry.transport === 'sse' ? 'SSE' : 'HTTP'}
+                        {entry.transport === "sse"
+                          ? t("Claw.MCP.transport.sse")
+                          : t("Claw.MCP.transport.http")}
                       </Tag>
                     ) : (
                       <Tag style={{ fontSize: 11 }}>
                         <CodeOutlined style={{ marginRight: 2 }} />
-                        stdio
+                        {t("Claw.MCP.transport.stdio")}
                       </Tag>
                     )}
                   </Space>
                   {isRemote(entry) ? (
                     <>
                       <div style={{ marginTop: 4 }}>
-                        <Text type="secondary" style={{ fontSize: 12, wordBreak: 'break-all' }}>
+                        <Text
+                          type="secondary"
+                          style={{ fontSize: 12, wordBreak: "break-all" }}
+                        >
                           {entry.url}
                         </Text>
                       </div>
                       <div style={{ marginTop: 4 }}>
                         <Input
                           size="small"
-                          addonBefore="URL"
+                          addonBefore={t("Claw.MCP.addServer.url")}
                           value={entry.url}
-                          onChange={(e) => handleUpdateServerUrl(id, e.target.value)}
+                          onChange={(e) =>
+                            handleUpdateServerUrl(id, e.target.value)
+                          }
                           placeholder="https://example.com/mcp"
                         />
                       </div>
@@ -349,33 +398,34 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
                   ) : (
                     <>
                       <div style={{ marginTop: 4 }}>
-                        <Text type="secondary" style={{ fontSize: 12, wordBreak: 'break-all' }}>
-                          {entry.command} {entry.args.join(' ')}
+                        <Text
+                          type="secondary"
+                          style={{ fontSize: 12, wordBreak: "break-all" }}
+                        >
+                          {entry.command} {entry.args.join(" ")}
                         </Text>
                       </div>
                       <div style={{ marginTop: 4 }}>
                         <Input
                           size="small"
                           addonBefore={entry.command}
-                          value={entry.args.join(' ')}
-                          onChange={(e) => handleUpdateServerArgs(id, e.target.value)}
-                          placeholder="参数"
+                          value={entry.args.join(" ")}
+                          onChange={(e) =>
+                            handleUpdateServerArgs(id, e.target.value)
+                          }
+                          placeholder={t("Claw.MCP.addServer.argsPlaceholder")}
                         />
                       </div>
                     </>
                   )}
                 </div>
                 <Popconfirm
-                  title="确定移除？"
+                  title={t("Claw.MCP.serverManagement.confirmRemove")}
                   onConfirm={() => handleRemoveServer(id)}
-                  okText="确定"
-                  cancelText="取消"
+                  okText={t("Claw.Common.confirm")}
+                  cancelText={t("Claw.Common.cancel")}
                 >
-                  <Button
-                    size="small"
-                    danger
-                    icon={<DeleteOutlined />}
-                  />
+                  <Button size="small" danger icon={<DeleteOutlined />} />
                 </Popconfirm>
               </div>
             </Card>
@@ -384,11 +434,11 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
 
         {/* Add Server Form */}
         {showAddForm ? (
-          <Card size="small" style={{ border: '1px dashed #d4d4d8' }}>
-            <Space direction="vertical" style={{ width: '100%' }} size="small">
+          <Card size="small" style={{ border: "1px dashed #d4d4d8" }}>
+            <Space direction="vertical" style={{ width: "100%" }} size="small">
               <Input
                 size="small"
-                placeholder="Server ID（如 my-mcp-server）"
+                placeholder={t("Claw.MCP.addServer.idPlaceholder")}
                 value={newServerId}
                 onChange={(e) => setNewServerId(e.target.value)}
               />
@@ -400,27 +450,27 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
                 buttonStyle="solid"
               >
                 <Radio.Button value="stdio">
-                  <CodeOutlined /> 命令行 (stdio)
+                  <CodeOutlined /> {t("Claw.MCP.addServer.stdio")}
                 </Radio.Button>
                 <Radio.Button value="remote">
-                  <GlobalOutlined /> 远程 URL (HTTP/SSE)
+                  <GlobalOutlined /> {t("Claw.MCP.addServer.remote")}
                 </Radio.Button>
               </Radio.Group>
 
-              {newServerType === 'stdio' ? (
-                <Space.Compact style={{ width: '100%' }}>
+              {newServerType === "stdio" ? (
+                <Space.Compact style={{ width: "100%" }}>
                   <Input
                     size="small"
                     style={{ width: 80 }}
                     value={newServerCommand}
                     onChange={(e) => setNewServerCommand(e.target.value)}
-                    placeholder="命令"
+                    placeholder={t("Claw.MCP.addServer.commandPlaceholder")}
                   />
                   <Input
                     size="small"
                     value={newServerArgs}
                     onChange={(e) => setNewServerArgs(e.target.value)}
-                    placeholder="参数（如 -y chrome-devtools-mcp@latest）"
+                    placeholder={t("Claw.MCP.addServer.argsPlaceholderFull")}
                   />
                 </Space.Compact>
               ) : (
@@ -429,26 +479,29 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
                     size="small"
                     value={newServerUrl}
                     onChange={(e) => setNewServerUrl(e.target.value)}
-                    placeholder="URL（如 https://example.com/mcp）"
-                    addonBefore="URL"
+                    placeholder={t("Claw.MCP.addServer.urlPlaceholder")}
+                    addonBefore={t("Claw.MCP.addServer.url")}
                   />
-                  <Space.Compact style={{ width: '100%' }}>
+                  <Space.Compact style={{ width: "100%" }}>
                     <Select
                       size="small"
                       style={{ width: 160 }}
                       value={newServerTransport}
                       onChange={setNewServerTransport}
                       options={[
-                        { value: 'auto', label: '自动检测' },
-                        { value: 'streamable-http', label: 'Streamable HTTP' },
-                        { value: 'sse', label: 'SSE' },
+                        { value: "auto", label: t("Claw.MCP.transport.auto") },
+                        {
+                          value: "streamable-http",
+                          label: t("Claw.MCP.transport.streamableHttp"),
+                        },
+                        { value: "sse", label: t("Claw.MCP.transport.sse") },
                       ]}
                     />
                     <Input
                       size="small"
                       value={newServerAuthToken}
                       onChange={(e) => setNewServerAuthToken(e.target.value)}
-                      placeholder="AuthToken（可选）"
+                      placeholder={t("Claw.MCP.addServer.authTokenPlaceholder")}
                     />
                   </Space.Compact>
                 </>
@@ -456,10 +509,10 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
 
               <Space>
                 <Button size="small" type="primary" onClick={handleAddServer}>
-                  添加
+                  {t("Claw.Common.add")}
                 </Button>
                 <Button size="small" onClick={resetAddForm}>
-                  取消
+                  {t("Claw.Common.cancel")}
                 </Button>
               </Space>
             </Space>
@@ -472,17 +525,17 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
             block
             size="small"
           >
-            添加 MCP Server
+            {t("Claw.MCP.addServer.button")}
           </Button>
         )}
 
         {/* Tool Filter */}
-        <Divider orientation="left" style={{ margin: '8px 0' }}>
-          <FilterOutlined /> 工具过滤
+        <Divider orientation="left" style={{ margin: "8px 0" }}>
+          <FilterOutlined /> {t("Claw.MCP.toolFilter.title")}
         </Divider>
 
-        <Card size="small" style={{ border: '1px solid #e4e4e7' }}>
-          <Space direction="vertical" style={{ width: '100%' }} size="small">
+        <Card size="small" style={{ border: "1px solid #e4e4e7" }}>
+          <Space direction="vertical" style={{ width: "100%" }} size="small">
             <Radio.Group
               size="small"
               value={filterMode}
@@ -490,30 +543,42 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
               optionType="button"
               buttonStyle="solid"
             >
-              <Radio.Button value="none">不过滤</Radio.Button>
-              <Radio.Button value="allow">白名单</Radio.Button>
-              <Radio.Button value="deny">黑名单</Radio.Button>
+              <Radio.Button value="none">
+                {t("Claw.MCP.toolFilter.none")}
+              </Radio.Button>
+              <Radio.Button value="allow">
+                {t("Claw.MCP.toolFilter.allowList")}
+              </Radio.Button>
+              <Radio.Button value="deny">
+                {t("Claw.MCP.toolFilter.denyList")}
+              </Radio.Button>
             </Radio.Group>
 
-            {filterMode !== 'none' && (
+            {filterMode !== "none" && (
               <Input.TextArea
                 size="small"
                 rows={2}
-                value={(filterMode === 'allow' ? config.allowTools : config.denyTools)?.join(', ') || ''}
+                value={
+                  (filterMode === "allow"
+                    ? config.allowTools
+                    : config.denyTools
+                  )?.join(", ") || ""
+                }
                 onChange={(e) => handleFilterToolsChange(e.target.value)}
-                placeholder={filterMode === 'allow'
-                  ? '输入允许的工具名，逗号分隔（如 generate_bar_chart, generate_column_chart）'
-                  : '输入排除的工具名，逗号分隔（如 screenshot, navigate）'
+                placeholder={
+                  filterMode === "allow"
+                    ? t("Claw.MCP.toolFilter.allowPlaceholder")
+                    : t("Claw.MCP.toolFilter.denyPlaceholder")
                 }
               />
             )}
 
             <Text type="secondary" style={{ fontSize: 11 }}>
-              {filterMode === 'none'
-                ? '加载所有 MCP Server 提供的工具'
-                : filterMode === 'allow'
-                ? '仅加载白名单中的工具，其他全部排除'
-                : '排除黑名单中的工具，其他全部加载'}
+              {filterMode === "none"
+                ? t("Claw.MCP.toolFilter.hintNone")
+                : filterMode === "allow"
+                  ? t("Claw.MCP.toolFilter.hintAllow")
+                  : t("Claw.MCP.toolFilter.hintDeny")}
             </Text>
           </Space>
         </Card>
@@ -525,11 +590,14 @@ function MCPSettings({ isOpen = true, onClose }: MCPSettingsProps) {
           onClick={handleSaveConfig}
           block
         >
-          保存配置
+          {t("Claw.MCP.saveConfig")}
         </Button>
 
-        <Text type="secondary" style={{ fontSize: 11, textAlign: 'center', display: 'block' }}>
-          配置修改后需保存，Agent 下次初始化时自动生效
+        <Text
+          type="secondary"
+          style={{ fontSize: 11, textAlign: "center", display: "block" }}
+        >
+          {t("Claw.MCP.saveConfigHint")}
         </Text>
       </Space>
     </Card>

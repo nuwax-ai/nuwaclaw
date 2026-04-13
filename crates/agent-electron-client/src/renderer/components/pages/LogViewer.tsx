@@ -5,10 +5,18 @@
  * - 向上滚动到顶部时自动加载更早的日志（分页，保持滚动位置）
  */
 
-import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
-import { Button, Select, Switch, Empty, Spin, Tag } from 'antd';
-import { ReloadOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons';
-import styles from '../../styles/components/ClientPage.module.css';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useLayoutEffect,
+} from "react";
+import { Button, Select, Switch, Empty, Spin, Tag } from "antd";
+import { ReloadOutlined, VerticalAlignBottomOutlined } from "@ant-design/icons";
+import { t } from "@renderer/services/core/i18n";
+import { I18N_KEYS } from "@shared/constants";
+import styles from "../../styles/components/ClientPage.module.css";
 
 interface LogEntry {
   timestamp: string;
@@ -17,10 +25,10 @@ interface LogEntry {
 }
 
 const LEVEL_TAG_COLORS: Record<string, string> = {
-  error: 'red',
-  warn: 'orange',
-  info: 'blue',
-  debug: 'default',
+  error: "red",
+  warn: "orange",
+  info: "blue",
+  debug: "default",
 };
 
 /** 每页条数，与主进程默认一致 */
@@ -33,7 +41,7 @@ export default function LogViewer() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [levelFilter, setLevelFilter] = useState<string>('all');
+  const [levelFilter, setLevelFilter] = useState<string>("all");
   const [autoScroll, setAutoScroll] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
   /** prepend 后用于恢复滚动位置 */
@@ -50,7 +58,7 @@ export default function LogViewer() {
         setHasMore(result.length >= PAGE_SIZE);
       }
     } catch (error) {
-      console.error('[LogViewer] Failed to fetch logs:', error);
+      console.error("[LogViewer] Failed to fetch logs:", error);
     } finally {
       setLoading(false);
     }
@@ -67,14 +75,17 @@ export default function LogViewer() {
       const offset = logs.length;
       const older = await window.electronAPI?.log?.list(PAGE_SIZE, offset);
       if (older && older.length > 0) {
-        scrollRestoreRef.current = { height: el.scrollHeight, top: el.scrollTop };
+        scrollRestoreRef.current = {
+          height: el.scrollHeight,
+          top: el.scrollTop,
+        };
         setLogs((prev) => [...older, ...prev]);
         setHasMore(older.length >= PAGE_SIZE);
       } else {
         setHasMore(false);
       }
     } catch (error) {
-      console.error('[LogViewer] Load more failed:', error);
+      console.error("[LogViewer] Load more failed:", error);
     } finally {
       setLoadingMore(false);
       // 延迟重置标记，让 useLayoutEffect 先完成滚动恢复
@@ -130,18 +141,39 @@ export default function LogViewer() {
   };
 
   const filteredLogs =
-    levelFilter === 'all'
-      ? logs
-      : logs.filter((l) => l.level === levelFilter);
+    levelFilter === "all" ? logs : logs.filter((l) => l.level === levelFilter);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        minHeight: 0,
+        overflow: "hidden",
+      }}
+    >
       {/* Header */}
-      <div className={styles.section} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, marginBottom: 0 }}>
+      <div
+        className={styles.section}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          flex: 1,
+          minHeight: 0,
+          marginBottom: 0,
+        }}
+      >
         <div className={styles.servicesHeader}>
           <div className={styles.servicesHeaderLeft}>
-            <span className={styles.sectionTitle}>应用日志</span>
-            <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>自动滚动</span>
+            <span className={styles.sectionTitle}>
+              {t(I18N_KEYS.Pages.LogViewer.TITLE)}
+            </span>
+            <span
+              style={{ fontSize: 12, color: "var(--color-text-secondary)" }}
+            >
+              {t(I18N_KEYS.Pages.LogViewer.AUTO_SCROLL)}
+            </span>
             <Switch
               size="small"
               checked={autoScroll}
@@ -153,11 +185,11 @@ export default function LogViewer() {
               onChange={setLevelFilter}
               style={{ width: 90 }}
               options={[
-                { label: '全部', value: 'all' },
-                { label: 'Error', value: 'error' },
-                { label: 'Warn', value: 'warn' },
-                { label: 'Info', value: 'info' },
-                { label: 'Debug', value: 'debug' },
+                { label: t(I18N_KEYS.Pages.LogViewer.ALL), value: "all" },
+                { label: "Error", value: "error" },
+                { label: "Warn", value: "warn" },
+                { label: "Info", value: "info" },
+                { label: "Debug", value: "debug" },
               ]}
             />
           </div>
@@ -168,10 +200,10 @@ export default function LogViewer() {
               onClick={handleRefresh}
               loading={loading}
             >
-              刷新
+              {t(I18N_KEYS.Pages.LogViewer.REFRESH)}
             </Button>
             <Button size="small" onClick={handleOpenDir}>
-              打开目录
+              {t(I18N_KEYS.Pages.LogViewer.OPEN_DIR)}
             </Button>
           </div>
         </div>
@@ -181,18 +213,18 @@ export default function LogViewer() {
           style={{
             flex: 1,
             minHeight: 0,
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
           }}
         >
           {loading && logs.length === 0 ? (
             <div
               style={{
                 flex: 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
               <Spin size="small" />
@@ -201,13 +233,13 @@ export default function LogViewer() {
             <div
               style={{
                 flex: 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
               <Empty
-                description="暂无日志"
+                description={t(I18N_KEYS.Pages.LogViewer.NO_LOGS)}
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
               />
             </div>
@@ -218,27 +250,27 @@ export default function LogViewer() {
               style={{
                 flex: 1,
                 minHeight: 0,
-                overflowY: 'auto',
-                padding: '8px 0',
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                overflowY: "auto",
+                padding: "8px 0",
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
                 fontSize: 12,
                 lineHeight: 1.7,
-                background: 'var(--color-bg-container)',
+                background: "var(--color-bg-container)",
               }}
             >
               {hasMore && (
                 <div
                   style={{
-                    padding: '8px 12px',
-                    color: 'var(--color-text-tertiary)',
+                    padding: "8px 12px",
+                    color: "var(--color-text-tertiary)",
                     fontSize: 11,
-                    textAlign: 'center',
+                    textAlign: "center",
                   }}
                 >
                   {loadingMore ? (
                     <Spin size="small" />
                   ) : (
-                    '向上滚动加载更早日志'
+                    t(I18N_KEYS.Pages.LogViewer.SCROLL_TO_LOAD_MORE)
                   )}
                 </div>
               )}
@@ -246,21 +278,26 @@ export default function LogViewer() {
                 <div
                   key={`${idx}-${entry.timestamp}-${entry.message?.slice(0, 100)}`}
                   style={{
-                    padding: '1px 12px',
-                    display: 'flex',
+                    padding: "1px 12px",
+                    display: "flex",
                     gap: 8,
-                    alignItems: 'flex-start',
+                    alignItems: "flex-start",
                   }}
                 >
-                  <span style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }}>
+                  <span
+                    style={{
+                      color: "var(--color-text-tertiary)",
+                      flexShrink: 0,
+                    }}
+                  >
                     {entry.timestamp}
                   </span>
                   <Tag
-                    color={LEVEL_TAG_COLORS[entry.level] || 'default'}
+                    color={LEVEL_TAG_COLORS[entry.level] || "default"}
                     style={{
                       margin: 0,
                       fontSize: 10,
-                      lineHeight: '18px',
+                      lineHeight: "18px",
                       flexShrink: 0,
                     }}
                   >
@@ -268,11 +305,15 @@ export default function LogViewer() {
                   </Tag>
                   <span
                     style={{
-                      color: entry.level === 'error' ? 'var(--color-error)' :
-                             entry.level === 'warn' ? 'var(--color-warning)' :
-                             entry.level === 'info' ? 'var(--color-info)' :
-                             'var(--color-text)',
-                      wordBreak: 'break-all',
+                      color:
+                        entry.level === "error"
+                          ? "var(--color-error)"
+                          : entry.level === "warn"
+                            ? "var(--color-warning)"
+                            : entry.level === "info"
+                              ? "var(--color-info)"
+                              : "var(--color-text)",
+                      wordBreak: "break-all",
                     }}
                   >
                     {entry.message}
@@ -286,18 +327,20 @@ export default function LogViewer() {
       {/* Footer */}
       <div
         style={{
-          padding: '8px 16px',
-          display: 'flex',
-          justifyContent: 'space-between',
+          padding: "8px 16px",
+          display: "flex",
+          justifyContent: "space-between",
           fontSize: 11,
-          color: 'var(--color-text-tertiary)',
+          color: "var(--color-text-tertiary)",
         }}
       >
-        <span>共 {filteredLogs.length} 条日志</span>
+        <span>
+          {t(I18N_KEYS.Pages.LogViewer.TOTAL_LOGS, filteredLogs.length)}
+        </span>
         {autoScroll && (
           <span>
             <VerticalAlignBottomOutlined style={{ marginRight: 4 }} />
-            自动滚动已开启
+            {t(I18N_KEYS.Pages.LogViewer.AUTO_SCROLL_ENABLED)}
           </span>
         )}
       </div>

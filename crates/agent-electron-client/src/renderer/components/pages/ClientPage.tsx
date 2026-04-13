@@ -49,11 +49,12 @@ import {
 } from "../../services/core/auth";
 import type { ServiceItem } from "../../App";
 import { buildRedirectUrl } from "../../services/utils/sessionUrl";
-import { SERVICE_NAMES } from "@shared/constants";
+import { t } from "../../services/core/i18n";
+import { resolveDepDisplayName } from "../../utils/dependencyI18n";
 import styles from "../../styles/components/ClientPage.module.css";
+import { FEATURES } from "@shared/featureFlags";
 
-// ======================== Types ========================
-
+// ======================== Types =================
 type TabKey =
   | "client"
   | "sessions"
@@ -85,8 +86,7 @@ interface AuthState {
   userId?: number;
 }
 
-// ======================== Component ========================
-
+// ======================== Component =================
 function ClientPage({
   onNavigate,
   services,
@@ -98,6 +98,20 @@ function ClientPage({
   onAuthChange,
   onLoginStarted,
 }: ClientPageProps) {
+  const getStartupServiceKeys = useCallback(async (): Promise<string[]> => {
+    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    if (!FEATURES.ENABLE_GUI_AGENT_SERVER) return keys;
+    try {
+      const guiEnabledRes = await window.electronAPI?.guiServer?.isEnabled();
+      if (guiEnabledRes?.enabled) {
+        keys.splice(3, 0, "guiServer");
+      }
+    } catch (e) {
+      console.warn("[ClientPage] Failed to read GUI MCP enabled status:", e);
+    }
+    return keys;
+  }, []);
+
   // ---------- Auth state ----------
   const [authState, setAuthState] = useState<AuthState>({
     isLoggedIn: false,
@@ -129,8 +143,12 @@ function ClientPage({
   // ---------- QR Code ----------
   const [qrModalVisible, setQrModalVisible] = useState(false);
 
-  // ======================== Auth ========================
+  // 登录页“用户输入业务域名”的本地兜底缓存。
+  // 用途：当 authState.domain 在短时间内尚未刷新，或被历史配置影响时，UI 仍优先展示用户最近一次明确输入/确认的业务域名。
+  // 注意：该值仅用于渲染显示，不参与 reg/lanproxy 的服务端配置逻辑。
+  const [displayDomainFallback, setDisplayDomainFallback] = useState("");
 
+  // ======================== Auth =================
   const loadAuth = useCallback(async () => {
     setAuthLoading(true);
     try {
@@ -148,7 +166,13 @@ function ClientPage({
         )) as { serverHost?: string } | null;
         if (step1?.serverHost) {
           setLoginDomain(step1.serverHost);
+          // 未登录时，同步更新展示兜底，确保输入框默认域名可用于后续显示兜底。
+          setDisplayDomainFallback(step1.serverHost);
         }
+      } else {
+        // 已登录时，优先使用认证状态中的业务域名作为展示兜底。
+        // 这样在服务状态刷新或局部重载期间，域名显示更稳定，不会闪回到代理配置地址。
+        setDisplayDomainFallback(auth.userInfo?.currentDomain || "");
       }
     } catch (error) {
       console.error("[ClientPage] loadAuth failed:", error);
@@ -159,20 +183,23 @@ function ClientPage({
 
   const handleLogin = async () => {
     if (!loginDomain) {
-      message.warning("请输入服务域名");
+      message.warning(t("Claw.Client.domainRequired"));
       return;
     }
     if (!loginUsername) {
-      message.warning("请输入账号");
+      message.warning(t("Claw.Client.accountRequired"));
       return;
     }
     if (!loginPassword) {
-      message.warning("请填写动态认证码");
+      message.warning(t("Claw.Client.codeRequired"));
       return;
     }
 
     setLoginLoading(true);
     try {
+      // 记录用户本次明确输入的业务域名，作为登录成功后的展示兜底来源之一。
+      // 说明：这里的域名语义是“业务访问域名”，与 reg 返回的 lanproxy serverHost 不是同一概念。
+      setDisplayDomainFallback(loginDomain);
       await loginAndRegister(loginUsername, loginPassword, {
         domain: loginDomain,
       });
@@ -184,14 +211,15 @@ function ClientPage({
       // 1. 先调用 reg 接口，获取最新配置（serverHost/serverPort）
       try {
         await syncConfigToServer({ suppressToast: true });
-        console.log("[ClientPage] 登录后 reg 同步成功");
       } catch (e) {
-        console.error("[ClientPage] 登录后 reg 同步失败:", e);
+        console.error("[ClientPage] Reg sync failed after login:", e);
       }
 
       // 2. reg 返回后，step by step 启动服务
-      const allServices = ["mcpProxy", "agent", "fileServer", "lanproxy"];
-      for (const key of allServices) {
+      // loginAndRegister 内部已调用 reg 接口并保存 serverHost/serverPort，无需再次调用
+      // step by step 启动服务
+      const startupServiceKeys = await getStartupServiceKeys();
+      for (const key of startupServiceKeys) {
         await handleStartService(key, true);
       }
 
@@ -208,10 +236,10 @@ function ClientPage({
 
   const handleLogout = async () => {
     Modal.confirm({
-      title: "确认退出登录",
-      content: "退出后将停止所有运行中的服务，需要重新登录才能使用在线功能。",
-      okText: "退出",
-      cancelText: "取消",
+      title: t("Claw.Client.logoutConfirm"),
+      content: t("Claw.Client.logoutConfirmDetail"),
+      okText: t("Claw.Client.logout"),
+      cancelText: t("Claw.Client.cancel"),
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
@@ -228,21 +256,38 @@ function ClientPage({
               else if (svc.key === "mcpProxy")
                 await window.electronAPI?.mcp.stop();
             } catch (e) {
-              console.error(`停止 ${svc.label} 失败:`, e);
+              console.error(`[ClientPage] Failed to stop ${svc.label}:`, e);
             }
           }
           // computerServer 不在 services 列表中，需单独停止，避免进程残留导致端口冲突
           await window.electronAPI?.computerServer
             .stop()
             .catch((e: unknown) => {
-              console.error("停止 computerServer 失败:", e);
+              console.error("[ClientPage] Failed to stop computerServer:", e);
             });
 
           await logout();
+          // 退出登录后，默认回填上一次“服务域名”到登录输入框，减少用户重复输入。
+          // 回填优先级说明（从高到低）：
+          // 1) displayDomainFallback：本页面内最近一次明确业务域名（用户输入/认证状态同步得到）；
+          // 2) authState.domain：当前登录态里记录的业务域名；
+          // 3) step1_config.serverHost：持久化配置兜底（首次进入或刷新后也可恢复）。
+          // 说明：这里回填的是“业务域名”，仅用于登录输入体验，不改变 reg/lanproxy 的代理地址逻辑。
+          const step1 = (await window.electronAPI?.settings.get(
+            "step1_config",
+          )) as { serverHost?: string } | null;
+          const lastDomain =
+            displayDomainFallback ||
+            authState.domain ||
+            step1?.serverHost ||
+            "";
+          setLoginDomain(lastDomain);
+          setDisplayDomainFallback(lastDomain);
+
           setAuthState({ isLoggedIn: false, username: null, domain: null });
           onAuthChange?.();
         } catch {
-          message.error("退出登录失败");
+          message.error(t("Claw.Client.logoutFailed"));
         }
       },
     });
@@ -261,23 +306,23 @@ function ClientPage({
   const handleShowQrCode = () => {
     const url = getRedirectUrl();
     if (!url) {
-      message.warning("无法获取会话地址");
+      message.warning(t("Claw.Client.getSessionUrlFailed"));
       return;
     }
     setQrModalVisible(true);
   };
 
-  // 服务名称映射（使用 constants.ts 中的 SERVICE_NAMES）
+  // 服务名称映射（i18n key）
   const serviceNameMap: Record<string, string> = {
-    agent: SERVICE_NAMES.Rcoder,
-    fileServer: SERVICE_NAMES.NuwaxFileServer,
-    lanproxy: SERVICE_NAMES.NuwaxLanproxy,
-    mcpProxy: SERVICE_NAMES.McpProxy,
+    agent: "Claw.Service.agent",
+    fileServer: "Claw.Service.file",
+    guiServer: "Claw.Service.guiMcp",
+    lanproxy: "Claw.Service.proxy",
+    mcpProxy: "Claw.Service.mcp",
   };
-  const getServiceLabel = (key: string) => serviceNameMap[key] || key;
+  const getServiceLabel = (key: string) => t(serviceNameMap[key] || key);
 
-  // ======================== Services ========================
-
+  // ======================== Services =================
   const handleStartService = async (
     key: string,
     silent = false,
@@ -335,7 +380,7 @@ function ClientPage({
             | number
             | null);
         if (!serverIp || !clientKey || !serverPort) {
-          if (!silent) message.info("请先登录以获取代理服务配置");
+          if (!silent) message.info(t("Claw.Client.loginFirst"));
           await onRefreshServices();
           return false;
         }
@@ -347,20 +392,35 @@ function ClientPage({
         });
       } else if (key === "mcpProxy") {
         result = await window.electronAPI?.mcp.start();
+      } else if (key === "guiServer") {
+        const guiEnabledRes = await window.electronAPI?.guiServer?.isEnabled();
+        if (!guiEnabledRes?.enabled) {
+          await onRefreshServices();
+          return false;
+        }
+        result = await window.electronAPI?.guiServer?.start();
       }
 
       await onRefreshServices();
 
       // 启动失败时直接展示错误信息
       if (result && !result.success) {
-        const errorMsg = result.error || "启动失败";
-        message.error(`${getServiceLabel(key)} 启动失败: ${errorMsg}`);
+        const errorMsg = result.error || t("Claw.Client.startFailed");
+        message.error(
+          t("Claw.Client.serviceStartFailed", getServiceLabel(key), errorMsg),
+        );
       }
 
       return result?.success ?? false;
     } catch (error) {
-      console.error(`[ClientPage] 启动 ${key} 失败:`, error);
-      message.error(`${getServiceLabel(key)} 启动失败: ${error}`);
+      console.error(`[ClientPage] Failed to start ${key}:`, error);
+      message.error(
+        t(
+          "Claw.Client.serviceStartFailed",
+          getServiceLabel(key),
+          String(error),
+        ),
+      );
       await onRefreshServices();
       return false;
     } finally {
@@ -382,6 +442,7 @@ function ClientPage({
   };
 
   const handleStopService = async (key: string) => {
+    console.log("[ClientPage] handleStopService called with key:", key);
     setStoppingServices((prev) => new Set(prev).add(key));
     try {
       if (key === "agent") {
@@ -391,8 +452,9 @@ function ClientPage({
         await window.electronAPI?.fileServer.stop();
       else if (key === "lanproxy") await window.electronAPI?.lanproxy.stop();
       else if (key === "mcpProxy") await window.electronAPI?.mcp.stop();
+      else if (key === "guiServer") await window.electronAPI?.guiServer?.stop();
     } catch (error) {
-      message.error(`停止失败: ${error}`);
+      message.error(t("Claw.Client.stopFailed", String(error)));
     } finally {
       setStoppingServices((prev) => {
         const next = new Set(prev);
@@ -406,16 +468,16 @@ function ClientPage({
   const handleStartAll = async () => {
     // 未登录时禁止启动全部服务，避免 agent 无 apiKey / lanproxy 无 clientKey 的半启动状态
     if (!authState.isLoggedIn) {
-      message.warning("请先登录后再启动服务");
+      message.warning(t("Claw.Client.loginFirstToStart"));
       return;
     }
     if (missingDeps.length > 0) {
-      message.warning("存在缺失依赖，请先安装");
+      message.warning(t("Claw.Client.missingDeps"));
       return;
     }
 
     // 确定需要启动的服务，提前设置 starting 状态（覆盖 reg 调用期间）
-    const allServices = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    const allServices = await getStartupServiceKeys();
     const servicesToStart = allServices.filter((key) => {
       const svc = services.find((s) => s.key === key);
       return svc && !svc.running;
@@ -437,7 +499,7 @@ function ClientPage({
       try {
         await syncConfigToServer({ suppressToast: true });
       } catch (e) {
-        console.error("[ClientPage] reg 同步失败:", e);
+        console.error("[ClientPage] Reg sync failed:", e);
       }
 
       // 2. reg 返回后，step by step 启动服务
@@ -447,7 +509,7 @@ function ClientPage({
       }
 
       if (startedCount === 0) {
-        message.info("所有可自动启动的服务已在运行");
+        message.info(t("Claw.Client.allServicesRunning"));
       }
     } finally {
       await onRefreshServices();
@@ -466,8 +528,10 @@ function ClientPage({
           else if (svc.key === "lanproxy")
             await window.electronAPI?.lanproxy.stop();
           else if (svc.key === "mcpProxy") await window.electronAPI?.mcp.stop();
+          else if (svc.key === "guiServer")
+            await window.electronAPI?.guiServer?.stop();
         } catch (error) {
-          console.error(`停止 ${svc.label} 失败:`, error);
+          console.error(`[ClientPage] Failed to stop ${svc.label}:`, error);
         }
       }
       await window.electronAPI?.computerServer.stop().catch(() => {});
@@ -477,8 +541,7 @@ function ClientPage({
     }
   };
 
-  // ======================== Dependencies ========================
-
+  // ======================== Dependencies =================
   const checkDependencies = useCallback(async () => {
     try {
       const result = await window.electronAPI?.dependencies.checkAll();
@@ -497,7 +560,11 @@ function ClientPage({
         setMissingDeps(
           missing.map((d: any) => ({
             name: d.name,
-            displayName: d.displayName || d.name,
+            // 统一依赖名称的 i18n 兜底，避免后端返回 key/异常 key 直接显示到 UI
+            displayName: resolveDepDisplayName({
+              name: d.name,
+              displayName: d.displayName,
+            }),
           })),
         );
       }
@@ -508,8 +575,7 @@ function ClientPage({
     }
   }, []);
 
-  // ======================== Lifecycle ========================
-
+  // ======================== Lifecycle =================
   useEffect(() => {
     loadAuth();
     onRefreshServices();
@@ -517,7 +583,6 @@ function ClientPage({
 
     // 监听依赖同步完成事件（客户端升级后自动安装新版本依赖），重新检测
     const handleDepsSyncCompleted = () => {
-      console.log("[ClientPage] deps:syncCompleted, re-checking dependencies");
       checkDependencies();
     };
     window.electronAPI?.on(
@@ -539,8 +604,7 @@ function ClientPage({
     }
   }, [authRefreshTrigger, loadAuth]);
 
-  // ======================== Render helpers ========================
-
+  // ======================== Render helpers =================
   const renderLoginSection = () => {
     if (authLoading) {
       return (
@@ -552,9 +616,17 @@ function ClientPage({
 
     if (authState.isLoggedIn) {
       const redirectUrl = getRedirectUrl();
+      // 域名展示优先级：
+      // 1) authState.domain：当前登录态中明确的业务域名（首选）；
+      // 2) displayDomainFallback：用户最近输入或最近一次已知业务域名（兜底）；
+      // 3) 空字符串：无可用信息时不展示。
+      // 这样可避免在 reg 同步/状态切换瞬间，UI 被代理地址或空值“覆盖”导致的域名跳变。
+      const displayDomain = authState.domain || displayDomainFallback || "";
       // 与 Tauri 一致：服务未全部启动时禁用「开始会话」「扫码使用」
+      // 注意：guiServer 是可选服务，其启动失败不阻塞 Start Session
       const allServicesRunning =
-        services.length > 0 && services.every((s) => s.running);
+        services.length > 0 &&
+        services.filter((s) => s.key !== "guiServer").every((s) => s.running);
       const isButtonDisabled = !redirectUrl || !allServicesRunning;
 
       return (
@@ -568,9 +640,9 @@ function ClientPage({
               />
               <div className={styles.userInfoText}>
                 <span className={styles.username}>
-                  {authState.username || "用户"}
+                  {authState.username || t("Claw.Client.defaultUser")}
                 </span>
-                <div className={styles.domain}>{authState.domain || ""}</div>
+                <div className={styles.domain}>{displayDomain}</div>
               </div>
             </div>
 
@@ -582,18 +654,26 @@ function ClientPage({
                 onClick={handleStartSession}
                 size="small"
                 disabled={isButtonDisabled}
-                title={!allServicesRunning ? "请先启动全部服务" : undefined}
+                title={
+                  !allServicesRunning
+                    ? t("Claw.Client.startAllServicesFirst")
+                    : undefined
+                }
               >
-                开始会话
+                {t("Claw.Client.startSession")}
               </Button>
               <Button
                 icon={<QrcodeOutlined />}
                 onClick={handleShowQrCode}
                 size="small"
                 disabled={isButtonDisabled}
-                title={!allServicesRunning ? "请先启动全部服务" : undefined}
+                title={
+                  !allServicesRunning
+                    ? t("Claw.Client.startAllServicesFirst")
+                    : undefined
+                }
               >
-                扫码使用
+                {t("Claw.Client.qrCode")}
               </Button>
               <Button
                 type="text"
@@ -602,7 +682,7 @@ function ClientPage({
                 size="small"
                 danger
               >
-                退出
+                {t("Claw.Client.logout")}
               </Button>
             </div>
           </div>
@@ -619,7 +699,7 @@ function ClientPage({
               prefix={<GlobalOutlined />}
               value={loginDomain}
               onChange={(e) => setLoginDomain(e.target.value)}
-              placeholder="服务域名（例如：https://agent.nuwax.com）"
+              placeholder={t("Claw.Client.domainPlaceholder")}
               allowClear
               autoComplete="off"
               spellCheck={false}
@@ -631,7 +711,7 @@ function ClientPage({
               prefix={<UserOutlined />}
               value={loginUsername}
               onChange={(e) => setLoginUsername(e.target.value)}
-              placeholder="用户名 / 手机号 / 邮箱"
+              placeholder={t("Claw.Client.usernamePlaceholder")}
               autoComplete="username"
               allowClear
             />
@@ -642,18 +722,20 @@ function ClientPage({
               prefix={<LockOutlined />}
               value={loginPassword}
               onChange={(e) => setLoginPassword(e.target.value)}
-              placeholder="请输入密码或动态认证码（在浏览器打开你的域名登录，然后在用户资料中查看）"
+              placeholder={t("Claw.Client.passwordPlaceholder")}
               autoComplete="current-password"
             />
           </Form.Item>
 
           <Button type="primary" htmlType="submit" loading={loginLoading} block>
-            登录
+            {t("Claw.Client.login")}
           </Button>
         </Form>
 
         <div className={styles.loginHint}>
-          <span className={styles.loginHintText}>支持用户名、邮箱、手机号</span>
+          <span className={styles.loginHintText}>
+            {t("Claw.Client.loginHint")}
+          </span>
         </div>
       </div>
     );
@@ -709,25 +791,27 @@ function ClientPage({
                         color="processing"
                         style={{ margin: 0, fontSize: 11 }}
                       >
-                        启动中
+                        {t("Claw.Client.starting")}
                       </Tag>
                     ) : isStopping ? (
                       <Tag
                         color="processing"
                         style={{ margin: 0, fontSize: 11 }}
                       >
-                        停止中
+                        {t("Claw.Client.stopping")}
                       </Tag>
                     ) : svc.running ? (
                       <Tag color="green" style={{ margin: 0, fontSize: 11 }}>
-                        运行中
+                        {t("Claw.Client.running")}
                       </Tag>
                     ) : hasError ? (
                       <Tag color="error" style={{ margin: 0, fontSize: 11 }}>
-                        启动失败
+                        {t("Claw.Client.startFailed")}
                       </Tag>
                     ) : (
-                      <Tag style={{ margin: 0, fontSize: 11 }}>已停止</Tag>
+                      <Tag style={{ margin: 0, fontSize: 11 }}>
+                        {t("Claw.Client.stopped")}
+                      </Tag>
                     )}
                   </div>
                   <div className={styles.serviceDescription}>
@@ -755,11 +839,11 @@ function ClientPage({
               <div className={styles.serviceActions}>
                 {isStarting ? (
                   <Button size="small" disabled loading>
-                    启动中
+                    {t("Claw.Client.starting")}
                   </Button>
                 ) : isStopping ? (
                   <Button size="small" disabled loading>
-                    停止中
+                    {t("Claw.Client.stopping")}
                   </Button>
                 ) : svc.running ? (
                   <Button
@@ -770,7 +854,7 @@ function ClientPage({
                     onClick={() => handleStopService(svc.key)}
                     disabled={isAnyOperating}
                   >
-                    停止
+                    {t("Claw.Client.stop")}
                   </Button>
                 ) : (
                   <Button
@@ -780,7 +864,7 @@ function ClientPage({
                     onClick={() => handleStartServiceManual(svc.key)}
                     disabled={isAnyOperating}
                   >
-                    启动
+                    {t("Claw.Client.start")}
                   </Button>
                 )}
               </div>
@@ -798,12 +882,16 @@ function ClientPage({
 
     return (
       <Alert
-        message="缺少必需依赖，无法启动服务"
+        message={t("Claw.Client.missingDepsCannotStart")}
         description={
           <div>
             <div style={{ marginBottom: 8 }}>
               {missingDeps.map((dep) => (
-                <Tag key={dep.name} color="error" style={{ marginBottom: 4 }}>
+                <Tag
+                  key={dep.name}
+                  color="error"
+                  style={{ marginBottom: 4, marginRight: 4 }}
+                >
                   {dep.displayName}
                 </Tag>
               ))}
@@ -813,14 +901,14 @@ function ClientPage({
               type="primary"
               onClick={() => onNavigate?.("dependencies")}
             >
-              前往安装
+              {t("Claw.Client.goInstall")}
             </Button>
           </div>
         }
         type={allStopped ? "error" : "warning"}
         showIcon
+        className={styles.dependencyAlert}
         icon={<ExclamationCircleOutlined />}
-        style={{ marginBottom: 16 }}
       />
     );
   };
@@ -834,29 +922,28 @@ function ClientPage({
             onClick={() => onNavigate?.("settings")}
             size="small"
           >
-            设置
+            {t("Claw.Client.settings")}
           </Button>
           <Button
             icon={<AppstoreOutlined />}
             onClick={() => onNavigate?.("dependencies")}
             size="small"
           >
-            依赖
+            {t("Claw.Client.dependencies")}
           </Button>
           <Button
             icon={<InfoCircleOutlined />}
             onClick={() => onNavigate?.("about")}
             size="small"
           >
-            关于
+            {t("Claw.Client.about")}
           </Button>
         </div>
       </div>
     );
   };
 
-  // ======================== Main render ========================
-
+  // ======================== Main render =================
   return (
     <div className={styles.page}>
       {/* Dependency alert */}
@@ -868,7 +955,9 @@ function ClientPage({
           <UserOutlined
             style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
           />
-          <span className={styles.sectionTitle}>账号状态</span>
+          <span className={styles.sectionTitle}>
+            {t("Claw.Client.accountStatus")}
+          </span>
         </div>
         {renderLoginSection()}
       </div>
@@ -880,7 +969,9 @@ function ClientPage({
             <PlayCircleOutlined
               style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
             />
-            <span className={styles.sectionTitle}>服务</span>
+            <span className={styles.sectionTitle}>
+              {t("Claw.Client.services")}
+            </span>
             {!servicesLoading &&
               (() => {
                 const runningCount = services.filter((s) => s.running).length;
@@ -907,7 +998,7 @@ function ClientPage({
                 icon={<ReloadOutlined />}
                 onClick={() => onRefreshServices()}
               >
-                刷新
+                {t("Claw.Client.refresh")}
               </Button>
               <Button
                 size="small"
@@ -922,7 +1013,7 @@ function ClientPage({
                   isAnyStopping
                 }
               >
-                启动全部
+                {t("Claw.Client.startAll")}
               </Button>
               <Button
                 size="small"
@@ -935,7 +1026,7 @@ function ClientPage({
                   services.every((s) => !s.running && !s.error) || isAnyStarting
                 }
               >
-                停止全部
+                {t("Claw.Client.stopAll")}
               </Button>
             </div>
           )}
@@ -949,14 +1040,16 @@ function ClientPage({
           <AppstoreOutlined
             style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
           />
-          <span className={styles.sectionTitle}>快捷操作</span>
+          <span className={styles.sectionTitle}>
+            {t("Claw.Client.quickActions")}
+          </span>
         </div>
         {renderQuickActions()}
       </div>
 
       {/* QR code modal - always available */}
       <Modal
-        title="扫码使用"
+        title={t("Claw.Client.qrCode")}
         open={qrModalVisible}
         onCancel={() => setQrModalVisible(false)}
         footer={null}

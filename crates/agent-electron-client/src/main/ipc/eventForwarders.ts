@@ -1,6 +1,7 @@
 import { agentService } from "../services/engines/unifiedAgent";
 import type { UnifiedSessionMessage } from "../services/engines/unifiedAgent";
 import { pushSseEvent } from "../services/computerServer";
+import { firstTokenTrace } from "../services/engines/perf/firstTokenTrace";
 import type { HandlerContext } from "@shared/types/ipc";
 import log from "electron-log";
 
@@ -124,6 +125,10 @@ export function registerEventForwarders(ctx: HandlerContext): void {
     acpSessionId?: string;
     requestId?: string;
   }) => {
+    firstTokenTrace.trace("event.prompt_start.forward", {
+      requestId: data.requestId,
+      sessionId: data.sessionId,
+    });
     // sessionId is now the ACP protocol UUID
     const event: UnifiedSessionMessage = {
       sessionId: data.sessionId,
@@ -148,6 +153,9 @@ export function registerEventForwarders(ctx: HandlerContext): void {
     reason?: string;
     description?: string;
   }) => {
+    firstTokenTrace.trace("event.prompt_end.forward", {
+      sessionId: data.sessionId,
+    });
     // sessionId is now the ACP protocol UUID
     const event: UnifiedSessionMessage = {
       sessionId: data.sessionId,
