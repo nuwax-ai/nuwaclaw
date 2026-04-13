@@ -1801,6 +1801,85 @@ describe("markBridgeStarted — bridge 状态同步", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
+// PERF summary 日志：主日志 + perf 日志双写，且为单行 key=value
+// ────────────────────────────────────────────────────────────────────────────
+describe("McpProxy perf summary logging", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.doMock("./persistentMcpBridge", () => ({
+      persistentMcpBridge: {
+        start: vi.fn().mockResolvedValue(undefined),
+        stop: vi.fn().mockResolvedValue(undefined),
+        isRunning: vi.fn(() => false),
+        getBridgeUrl: vi.fn(() => null),
+        isServerHealthy: vi.fn(() => false),
+      },
+    }));
+    vi.resetModules();
+    mockExistsSync.mockReturnValue(true);
+  });
+
+  it("ensureBridgeStarted 输出单行 summary（no_persistent）", async () => {
+    const { mcpProxyManager } = await import("./mcp");
+    const mockedLog = (await import("electron-log")).default as unknown as {
+      info: ReturnType<typeof vi.fn>;
+    };
+
+    await mcpProxyManager.start();
+    mcpProxyManager.setConfig({ mcpServers: {} });
+    await mcpProxyManager.ensureBridgeStarted();
+
+    const infoLines = mockedLog.info.mock.calls.map((call) => String(call[0]));
+    expect(
+      infoLines.some(
+        (line) =>
+          line.includes("[McpProxy][perf] ensureBridge.summary") &&
+          line.includes("branch=no_persistent") &&
+          line.includes("elapsedMs="),
+      ),
+    ).toBe(true);
+    expect(
+      infoLines.some(
+        (line) =>
+          line.includes("[PERF] mcp.ensureBridge.summary") &&
+          line.includes("branch=no_persistent"),
+      ),
+    ).toBe(true);
+  });
+
+  it("syncMcpConfigToProxyAndReload 输出 sync.lock/sync summary 到 PERF 通道", async () => {
+    const { syncMcpConfigToProxyAndReload } = await import("./mcp");
+    const mockedLog = (await import("electron-log")).default as unknown as {
+      info: ReturnType<typeof vi.fn>;
+    };
+
+    await syncMcpConfigToProxyAndReload({});
+
+    const infoLines = mockedLog.info.mock.calls.map((call) => String(call[0]));
+    expect(
+      infoLines.some(
+        (line) =>
+          line.includes("[PERF] mcp.sync.lock.summary") &&
+          line.includes("lockWaitMs=") &&
+          line.includes("runMs=") &&
+          line.includes("totalMs="),
+      ),
+    ).toBe(true);
+    expect(
+      infoLines.some(
+        (line) =>
+          line.includes("[PERF] mcp.sync.summary") &&
+          line.includes("branch=") &&
+          line.includes("extractMs=") &&
+          line.includes("prepareMs=") &&
+          line.includes("setConfigMs=") &&
+          line.includes("totalMs="),
+      ),
+    ).toBe(true);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
 // getAgentMcpConfig — 修复：内容哈希替代 UUID，相同配置复用文件
 // ────────────────────────────────────────────────────────────────────────────
 describe("getAgentMcpConfig — 内容哈希临时文件", () => {

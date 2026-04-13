@@ -7,7 +7,15 @@ import React, {
   createContext,
   useContext,
 } from "react";
-import { ConfigProvider, Menu, Badge, Spin, Button, notification } from "antd";
+import {
+  ConfigProvider,
+  Menu,
+  Badge,
+  Spin,
+  Button,
+  notification,
+  message,
+} from "antd";
 import type { PresetStatusColorType } from "antd/es/_util/colors";
 import {
   SettingOutlined,
@@ -20,7 +28,12 @@ import {
   ArrowLeftOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
-import { setupService, authService, Step1Config } from "./services/core/setup";
+import {
+  setupService,
+  authService,
+  Step1Config,
+  DEFAULT_STEP1_CONFIG,
+} from "./services/core/setup";
 import {
   syncConfigToServer,
   normalizeServerHost,
@@ -28,6 +41,7 @@ import {
 } from "./services/core/auth";
 import { APP_DISPLAY_NAME, AUTH_KEYS } from "@shared/constants";
 import type { QuickInitConfig } from "@shared/types/quickInit";
+import { t, getCurrentLang } from "./services/core/i18n";
 import SetupWizard from "./components/setup/SetupWizard";
 import SetupDependencies from "./components/setup/SetupDependencies";
 import ClientPage from "./components/pages/ClientPage";
@@ -41,6 +55,7 @@ import type { WebviewHeaderActions } from "./components/pages/SessionsPage";
 import { createLogger } from "./services/utils/rendererLog";
 import styles from "./styles/components/App.module.css";
 import { lightTheme, darkTheme } from "./styles/theme";
+import { FEATURES } from "@shared/featureFlags";
 
 // 主题类型
 export type ThemeMode = "light" | "dark" | "system";
@@ -63,6 +78,22 @@ export function useTheme(): ThemeContextValue {
   return context;
 }
 
+// i18n 语言 Context
+interface I18nContextValue {
+  lang: string;
+  updateLang: (lang: string) => void;
+}
+
+export const I18nContext = createContext<I18nContextValue | null>(null);
+
+export function useI18nLang(): I18nContextValue {
+  const context = useContext(I18nContext);
+  if (!context) {
+    throw new Error("useI18nLang must be used within App component");
+  }
+  return context;
+}
+
 // Tab 类型定义（对齐 Tauri 客户端）
 type TabKey =
   | "client"
@@ -71,20 +102,21 @@ type TabKey =
   | "dependencies"
   | "permissions"
   | "logs"
-  | "about";
+  | "about"
+  | "model";
 
 // 状态配置（对齐 Tauri 客户端）
 // 就绪、繁忙使用橙色（warning）、小点展示
 const STATUS_CONFIG: Record<
   string,
-  { status: PresetStatusColorType; text: string }
+  { status: PresetStatusColorType; textKey: string }
 > = {
-  idle: { status: "warning", text: "就绪" },
-  starting: { status: "processing", text: "启动中" },
-  running: { status: "success", text: "运行中" },
-  busy: { status: "warning", text: "繁忙" },
-  stopped: { status: "default", text: "已停止" },
-  error: { status: "error", text: "错误" },
+  idle: { status: "warning", textKey: "Claw.Agent.Status.idle" },
+  starting: { status: "processing", textKey: "Claw.Agent.Status.starting" },
+  running: { status: "success", textKey: "Claw.Agent.Status.running" },
+  busy: { status: "warning", textKey: "Claw.Agent.Status.busy" },
+  stopped: { status: "default", textKey: "Claw.Agent.Status.stopped" },
+  error: { status: "error", textKey: "Claw.Agent.Status.error" },
 };
 
 // 服务状态接口（与 ClientPage 共享）
@@ -94,6 +126,7 @@ export interface ServiceItem {
   description: string;
   running: boolean;
   pid?: number;
+  port?: number;
   error?: string;
 }
 
@@ -104,6 +137,7 @@ export interface ServiceItem {
 async function applyQuickInitToDb(config: QuickInitConfig): Promise<void> {
   // 1. 更新 step1 配置
   const step1: Step1Config = {
+    ...DEFAULT_STEP1_CONFIG,
     serverHost: normalizeServerHost(config.serverHost),
     agentPort: config.agentPort,
     fileServerPort: config.fileServerPort,
@@ -131,7 +165,7 @@ async function applyQuickInitToDb(config: QuickInitConfig): Promise<void> {
     });
   } catch (error) {
     // 注册失败不阻塞启动，已有的 auth 信息仍可用
-    console.warn("[App] Quick init 静默注册失败:", error);
+    console.warn("[App] Quick init silent registration failed:", error);
   }
 }
 
@@ -163,6 +197,14 @@ function App() {
     [isDarkMode],
   );
 
+  // ============================================
+  // i18n 语言状态（响应式，供 Context 下发）
+  // ============================================
+  const [i18nLang, setI18nLang] = useState(getCurrentLang());
+  const handleI18nLangChange = useCallback((lang: string) => {
+    setI18nLang(lang);
+  }, []);
+
   // 监听系统主题变化
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
@@ -184,7 +226,7 @@ function App() {
           setThemeMode(saved);
         }
       } catch (e) {
-        console.warn("[App] 加载主题设置失败:", e);
+        console.warn("[App] Failed to load theme settings:", e);
       }
     };
     loadThemeSetting();
@@ -196,7 +238,7 @@ function App() {
     try {
       await window.electronAPI?.settings.set("theme_mode", mode);
     } catch (e) {
-      console.warn("[App] 保存主题设置失败:", e);
+      console.warn("[App] Failed to save theme settings:", e);
     }
   }, []);
 
@@ -217,6 +259,14 @@ function App() {
   /** 主进程初始化依赖同步是否仍在进行（客户端升级后后台安装新版本依赖） */
   const [depsSyncInProgress, setDepsSyncInProgress] = useState<boolean>(false);
 
+  // 启动日志：便于快速确认渲染进程 feature flags 是否生效
+  useEffect(() => {
+    console.info("[FeatureFlags][renderer]", FEATURES);
+    window.electronAPI?.log
+      .write("info", "[FeatureFlags][renderer]", FEATURES)
+      .catch(() => {});
+  }, []);
+
   /**
    * 重启所有服务（使新安装的依赖/二进制生效）。
    * restartAll 内部已包含停止逻辑，无需额外调用 stopAll。
@@ -230,13 +280,12 @@ function App() {
       // reg 失败（网络不通/token 过期）时中止重启，并弹出通知让用户手动重试。
       await syncConfigToServer({ suppressToast: true });
     } catch (e) {
-      console.error("[App] reg 同步失败，中止重启服务:", e);
+      console.error("[App] Reg sync failed, aborting service restart:", e);
       const notifKey = "restartRegFailed";
       notification.error({
         key: notifKey,
-        message: "配置同步失败",
-        description:
-          "无法连接到服务器获取最新配置，服务未重启。请检查网络后重试。",
+        message: t("Claw.App.ConfigSyncFailed"),
+        description: t("Claw.App.ConfigSyncFailedDetail"),
         duration: 0,
         placement: "bottomRight",
         btn: (
@@ -248,7 +297,7 @@ function App() {
               restartAllServices();
             }}
           >
-            重试
+            {t("Claw.App.Retry")}
           </Button>
         ),
       });
@@ -256,9 +305,21 @@ function App() {
     }
 
     try {
+      message.loading({
+        content: t("Claw.App.RestartingServices"),
+        key: "restart-services",
+      });
       await window.electronAPI?.services.restartAll();
+      message.success({
+        content: t("Claw.App.RestartSuccess"),
+        key: "restart-services",
+      });
     } catch (e) {
-      console.error("[App] 重启服务失败:", e);
+      console.error("[App] Failed to restart services:", e);
+      message.error({
+        content: t("Claw.App.RestartFailed"),
+        key: "restart-services",
+      });
     }
   }, []);
 
@@ -274,12 +335,42 @@ function App() {
   const [agentStatus, setAgentStatus] = useState<string>("idle");
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [servicesLoading, setServicesLoading] = useState(true);
+  const [guiMcpEnabled, setGuiMcpEnabled] = useState(false);
+  const [pollFailCount, setPollFailCount] = useState(0);
   const [startingServices, setStartingServices] = useState<Set<string>>(
     new Set(),
   );
   const servicesPollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** 代理服务健康检查定时器（每 30 秒） */
+  const healthCheckTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** 代理服务通道健康检查错误（用 ref 存储，避免闭包问题） */
+  const lanproxyHealthErrorRef = useRef<string | undefined>(undefined);
+  /** 上一次的健康检查错误，用于比较是否变化 */
+  const prevLanproxyHealthErrorRef = useRef<string | undefined>(undefined);
+  /** 用于触发健康检查结果更新 */
+  const [, forceUpdate] = useState(0);
   /** 递增后通知 ClientPage 刷新账号状态（用户名等），与 reg 返回保持一致 */
   const [authRefreshTrigger, setAuthRefreshTrigger] = useState(0);
+  const statusExpectedKeys = useMemo(() => {
+    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    if (FEATURES.ENABLE_GUI_AGENT_SERVER && guiMcpEnabled) {
+      keys.splice(3, 0, "guiServer");
+    }
+    return keys;
+  }, [guiMcpEnabled]);
+  const getStartupServiceKeys = useCallback(async (): Promise<string[]> => {
+    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    if (!FEATURES.ENABLE_GUI_AGENT_SERVER) return keys;
+    try {
+      const guiEnabledRes = await window.electronAPI?.guiServer?.isEnabled();
+      if (guiEnabledRes?.enabled) {
+        keys.splice(3, 0, "guiServer");
+      }
+    } catch (e) {
+      console.warn("[App] Failed to read GUI MCP enabled status:", e);
+    }
+    return keys;
+  }, []);
 
   // ============================================
   // 检查初始化向导状态（每次启动优先读取 quick init 配置）
@@ -323,7 +414,9 @@ function App() {
       // 加载用户信息
       const user = await authService.getAuthUser();
       if (user) {
-        setUsername(user.displayName || user.username || "用户");
+        setUsername(
+          user.displayName || user.username || t("Claw.App.defaultUsername"),
+        );
       }
 
       // 加载在线状态
@@ -341,7 +434,9 @@ function App() {
   const handleAuthChange = useCallback(async () => {
     const user = await authService.getAuthUser();
     if (user) {
-      setUsername(user.displayName || user.username || "用户");
+      setUsername(
+        user.displayName || user.username || t("Claw.App.defaultUsername"),
+      );
     } else {
       setUsername("");
     }
@@ -433,18 +528,30 @@ function App() {
   const pollServicesStatus = useCallback(async () => {
     try {
       const items: ServiceItem[] = [];
-      const [fsStatus, lpStatus, agentSvcStatus, mcpStatus, csStatus] =
-        await Promise.all([
-          window.electronAPI?.fileServer.status(),
-          window.electronAPI?.lanproxy.status(),
-          window.electronAPI?.agent.serviceStatus(),
-          window.electronAPI?.mcp.status(),
-          window.electronAPI?.computerServer.status(),
-        ]);
+      const [
+        fsStatus,
+        lpStatus,
+        agentSvcStatus,
+        mcpStatus,
+        csStatus,
+        guiStatus,
+        guiEnabledRes,
+      ] = await Promise.all([
+        window.electronAPI?.fileServer.status(),
+        window.electronAPI?.lanproxy.status(),
+        window.electronAPI?.agent.serviceStatus(),
+        window.electronAPI?.mcp.status(),
+        window.electronAPI?.computerServer.status(),
+        window.electronAPI?.guiServer?.status(),
+        window.electronAPI?.guiServer?.isEnabled(),
+      ]);
+      const isGuiEnabled =
+        FEATURES.ENABLE_GUI_AGENT_SERVER && (guiEnabledRes?.enabled ?? false);
+      setGuiMcpEnabled(isGuiEnabled);
       items.push({
         key: "mcpProxy",
-        label: "MCP 服务",
-        description: "MCP 协议聚合代理",
+        label: t("Claw.Service.mcp"),
+        description: t("Claw.Service.mcpDesc"),
         running: mcpStatus?.running ?? false,
         error: mcpStatus?.error,
       });
@@ -455,36 +562,49 @@ function App() {
       let agentError: string | undefined;
       if (agentRunning && !csRunning) {
         agentError = csStatus?.error
-          ? `Agent 接口服务启动失败: ${csStatus.error}`
-          : "Agent 接口服务未运行";
+          ? t("Claw.App.agentInterfaceFailed", csStatus.error)
+          : t("Claw.App.agentInterfaceNotRunning");
       }
       items.push({
         key: "agent",
-        label: "Agent 服务",
-        description: "Agent 核心服务",
+        label: t("Claw.Service.agent"),
+        description: t("Claw.Service.agentDesc"),
         running: agentRunning && csRunning,
         error: agentError,
       });
 
       items.push({
         key: "fileServer",
-        label: "文件服务",
-        description: "Agent 工作目录文件远程管理服务",
+        label: t("Claw.Service.file"),
+        description: t("Claw.Service.fileDesc"),
         running: fsStatus?.running ?? false,
         pid: fsStatus?.pid,
         error: fsStatus?.error,
       });
+      if (isGuiEnabled) {
+        items.push({
+          key: "guiServer",
+          label: t("Claw.Service.guiMcp"),
+          description: t("Claw.Service.guiMcpDesc"),
+          running: guiStatus?.running ?? false,
+          pid: guiStatus?.pid,
+          error: guiStatus?.error,
+        });
+      }
       items.push({
         key: "lanproxy",
-        label: "代理服务",
-        description: "网络通道",
+        label: t("Claw.Service.proxy"),
+        description: t("Claw.Service.proxyDesc"),
         running: lpStatus?.running ?? false,
         pid: lpStatus?.pid,
-        error: lpStatus?.error,
+        // 优先显示健康检查错误，其次显示进程错误
+        error: lanproxyHealthErrorRef.current ?? lpStatus?.error,
       });
       setServices(items);
+      setPollFailCount(0);
     } catch (error) {
       console.error("[App] pollServicesStatus failed:", error);
+      setPollFailCount((count) => count + 1);
     } finally {
       setServicesLoading(false);
     }
@@ -533,6 +653,8 @@ function App() {
               `fileServer: ${result?.success ? "ok" : "failed"}`,
               result?.error,
             );
+          } else if (key === "guiServer") {
+            result = await window.electronAPI?.guiServer?.start();
           } else if (key === "lanproxy") {
             const clientKey = (await window.electronAPI?.settings.get(
               "auth.saved_key",
@@ -609,12 +731,7 @@ function App() {
       if (setupJustCompleted.current) {
         setupJustCompleted.current = false;
         log.info("setup completed, starting services");
-        await startServicesSequentially([
-          "mcpProxy",
-          "agent",
-          "fileServer",
-          "lanproxy",
-        ]);
+        await startServicesSequentially(await getStartupServiceKeys());
         return;
       }
 
@@ -638,30 +755,23 @@ function App() {
             setOnlineStatus(result.online);
             const user = await authService.getAuthUser();
             if (user) {
-              setUsername(user.displayName || user.username || "用户");
+              setUsername(
+                user.displayName ||
+                  user.username ||
+                  t("Claw.App.defaultUsername"),
+              );
             }
-            setAuthRefreshTrigger((t) => t + 1);
-            await startServicesSequentially([
-              "mcpProxy",
-              "agent",
-              "fileServer",
-              "lanproxy",
-            ]);
+            setAuthRefreshTrigger((v) => v + 1);
+            await startServicesSequentially(await getStartupServiceKeys());
           } else {
             log.warn("reg failed, using local config");
             notification.info({
-              message: "自动重连失败",
-              description:
-                "无法连接到服务器。正在使用本地已保存的配置尝试启动服务；若需最新配置请检查网络后重新登录。",
+              message: t("Claw.App.AutoReconnectFailed"),
+              description: t("Claw.App.AutoReconnectFailedDetail"),
               duration: 8,
               placement: "bottomRight",
             });
-            await startServicesSequentially([
-              "mcpProxy",
-              "agent",
-              "fileServer",
-              "lanproxy",
-            ]);
+            await startServicesSequentially(await getStartupServiceKeys());
           }
         } else {
           log.info("skipped (no savedKey)");
@@ -677,6 +787,7 @@ function App() {
     needsRequiredDepsReinstall,
     depsSyncInProgress,
     startServicesSequentially,
+    getStartupServiceKeys,
   ]);
 
   // ============================================
@@ -689,17 +800,30 @@ function App() {
       return;
     }
 
-    if (services.length === 0) {
+    if (statusExpectedKeys.length === 0) {
       setAgentStatus("idle");
       return;
     }
 
-    const runningCount = services.filter((s) => s.running).length;
-    const totalCount = services.length;
-    const hasErrors = services.some((s) => !!s.error);
+    const serviceMap = new Map(services.map((s) => [s.key, s]));
+    const trackedServices = statusExpectedKeys.map((key) =>
+      serviceMap.get(key),
+    );
+    const runningCount = trackedServices.filter((s) => s?.running).length;
+    const totalCount = statusExpectedKeys.length;
+    const hasErrors = trackedServices.some((s) => !!s?.error);
+    const hasStartingServices = Array.from(startingServices).some((key) =>
+      statusExpectedKeys.includes(key),
+    );
+    const hasStaleServiceStatus = pollFailCount >= 2;
 
-    if (hasErrors) {
+    if (hasStaleServiceStatus) {
+      // 连续轮询失败时，避免继续展示可能过期的 running 状态。
+      setAgentStatus("busy");
+    } else if (hasErrors) {
       setAgentStatus("error");
+    } else if (hasStartingServices) {
+      setAgentStatus("starting");
     } else if (runningCount === totalCount && runningCount > 0) {
       setAgentStatus("running");
     } else if (runningCount > 0 && runningCount < totalCount) {
@@ -709,7 +833,13 @@ function App() {
     } else {
       setAgentStatus("idle");
     }
-  }, [services, servicesLoading]);
+  }, [
+    services,
+    servicesLoading,
+    startingServices,
+    statusExpectedKeys,
+    pollFailCount,
+  ]);
 
   // 启动服务状态轮询
   useEffect(() => {
@@ -729,6 +859,83 @@ function App() {
   }, [isSetupComplete]);
 
   // ============================================
+  // 代理服务健康检查（每 30 秒，仅在 lanproxy 运行时执行）
+  // ============================================
+  useEffect(() => {
+    if (isSetupComplete !== true) return;
+
+    const doHealthCheck = async () => {
+      try {
+        // 先检查 lanproxy 是否在运行
+        const lpStatus = await window.electronAPI?.lanproxy.status();
+        if (!lpStatus?.running) {
+          // lanproxy 未运行，不显示通道检查错误
+          if (lanproxyHealthErrorRef.current !== undefined) {
+            lanproxyHealthErrorRef.current = undefined;
+            forceUpdate((n) => n + 1);
+          }
+          return;
+        }
+
+        // 获取 admin server port
+        // Admin Server 已合并到 Computer Server (agentPort)，不再是独立端口
+        const step1 = (await window.electronAPI?.settings.get(
+          "step1_config",
+        )) as { agentPort?: number } | null;
+        const adminPort = step1?.agentPort ?? 60006;
+
+        const resp = await fetch(
+          `http://127.0.0.1:${adminPort}/admin/health/lanproxy`,
+          { signal: AbortSignal.timeout(15000) },
+        );
+        const health = (await resp.json()) as {
+          healthy: boolean;
+          error?: string;
+        };
+        if (!health.healthy) {
+          lanproxyHealthErrorRef.current = t(
+            "Claw.App.channelCheckFailed",
+            health.error || "",
+          );
+        } else {
+          lanproxyHealthErrorRef.current = undefined;
+        }
+        // 仅在值变化时触发更新，避免不必要的渲染
+        if (
+          prevLanproxyHealthErrorRef.current !== lanproxyHealthErrorRef.current
+        ) {
+          prevLanproxyHealthErrorRef.current = lanproxyHealthErrorRef.current;
+          forceUpdate((n) => n + 1);
+        }
+      } catch (e) {
+        // 健康检查失败时设置错误，但不在这里频繁打印日志
+        const errorMsg = t(
+          "Claw.App.channelCheckFailed",
+          e instanceof Error ? e.message : String(e),
+        );
+        lanproxyHealthErrorRef.current = errorMsg;
+        // 仅在值变化时触发更新
+        if (prevLanproxyHealthErrorRef.current !== errorMsg) {
+          prevLanproxyHealthErrorRef.current = errorMsg;
+          forceUpdate((n) => n + 1);
+        }
+      }
+    };
+
+    // 立即执行一次
+    doHealthCheck();
+
+    // 每 30 秒检查一次
+    healthCheckTimer.current = setInterval(doHealthCheck, 30000);
+
+    return () => {
+      if (healthCheckTimer.current) {
+        clearInterval(healthCheckTimer.current);
+      }
+    };
+  }, [isSetupComplete]);
+
+  // ============================================
   // 监听托盘/菜单事件
   // ============================================
   useEffect(() => {
@@ -738,7 +945,7 @@ function App() {
 
     // 监听设置菜单
     const handleSettings = () => {
-      console.log("[App] 收到 menu:settings 事件");
+      console.log("[App] Received menu:settings event");
       setActiveTab("settings");
     };
     window.electronAPI.on("menu:settings", handleSettings);
@@ -748,7 +955,7 @@ function App() {
 
     // 监听依赖管理菜单
     const handleDependencies = () => {
-      console.log("[App] 收到 menu:dependencies 事件");
+      console.log("[App] Received menu:dependencies event");
       setActiveTab("dependencies");
     };
     window.electronAPI.on("menu:dependencies", handleDependencies);
@@ -758,7 +965,7 @@ function App() {
 
     // 监听 MCP 设置菜单
     const handleMcpSettings = () => {
-      console.log("[App] 收到 menu:mcp-settings 事件");
+      console.log("[App] Received menu:mcp-settings event");
       setActiveTab("settings");
     };
     window.electronAPI.on("menu:mcp-settings", handleMcpSettings);
@@ -768,13 +975,65 @@ function App() {
 
     // 监听新建会话菜单
     const handleNewSession = () => {
-      console.log("[App] 收到 menu:new-session 事件");
+      console.log("[App] Received menu:new-session event");
       setSessionsAutoOpen(true);
       setActiveTab("sessions");
     };
     window.electronAPI.on("menu:new-session", handleNewSession);
     cleanupHandlers.push(() =>
       window.electronAPI?.off("menu:new-session", handleNewSession),
+    );
+
+    // 监听 Admin Server 服务正在重启
+    const handleServicesRestarting = () => {
+      console.log("[App] Received admin:servicesRestarting event");
+      message.loading({
+        content: t("Claw.App.ServicesRestarting"),
+        key: "admin-restart",
+        duration: 0,
+      });
+    };
+    window.electronAPI.on("admin:servicesRestarting", handleServicesRestarting);
+    cleanupHandlers.push(() =>
+      window.electronAPI?.off(
+        "admin:servicesRestarting",
+        handleServicesRestarting,
+      ),
+    );
+
+    // 监听 Admin Server 服务重启完成
+    const handleServicesRestarted = (data: {
+      success: boolean;
+      results: Record<string, { success: boolean; error?: string }>;
+    }) => {
+      console.log("[App] Received admin:servicesRestarted event", data);
+      if (data.success) {
+        message.success({
+          content: t("Claw.App.ServicesRestartSuccess"),
+          key: "admin-restart",
+          duration: 3,
+        });
+      } else {
+        const failed = Object.entries(data.results)
+          .filter(([, v]) => !v.success)
+          .map(([k]) => k)
+          .join(", ");
+        message.error({
+          content: t("Claw.App.serviceRestartFailed", failed),
+          key: "admin-restart",
+          duration: 5,
+        });
+      }
+    };
+    window.electronAPI.on(
+      "admin:servicesRestarted",
+      handleServicesRestarted as any,
+    );
+    cleanupHandlers.push(() =>
+      window.electronAPI?.off(
+        "admin:servicesRestarted",
+        handleServicesRestarted as any,
+      ),
     );
 
     return () => {
@@ -805,24 +1064,52 @@ function App() {
   // ============================================
   const menuItems = useMemo(() => {
     const items = [
-      { key: "client", icon: <DashboardOutlined />, label: "客户端" },
-      { key: "sessions", icon: <TeamOutlined />, label: "会话" },
-      { key: "settings", icon: <SettingOutlined />, label: "设置" },
-      { key: "dependencies", icon: <FolderOutlined />, label: "依赖" },
+      {
+        key: "client",
+        icon: <DashboardOutlined />,
+        label: t("Claw.Menu.client"),
+      },
+      {
+        key: "sessions",
+        icon: <TeamOutlined />,
+        label: t("Claw.Menu.session"),
+      },
+      {
+        key: "settings",
+        icon: <SettingOutlined />,
+        label: t("Claw.Menu.settings"),
+      },
+      {
+        key: "dependencies",
+        icon: <FolderOutlined />,
+        label: t("Claw.Menu.dependencies"),
+      },
     ];
     if (isMacOS) {
       items.push({
         key: "permissions",
         icon: <SafetyOutlined />,
-        label: "授权",
+        label: t("Claw.Menu.authorization"),
       });
     }
     items.push(
-      { key: "logs", icon: <FileTextOutlined />, label: "日志" },
-      { key: "about", icon: <InfoCircleOutlined />, label: "关于" },
+      { key: "logs", icon: <FileTextOutlined />, label: t("Claw.Menu.logs") },
+      {
+        key: "about",
+        icon: <InfoCircleOutlined />,
+        label: t("Claw.Menu.about"),
+      },
     );
     return items;
-  }, [isMacOS]);
+  }, [isMacOS, i18nLang]);
+
+  // ============================================
+  // i18n Context value
+  // ============================================
+  const i18nContextValue = useMemo(
+    () => ({ lang: i18nLang, updateLang: handleI18nLangChange }),
+    [i18nLang, handleI18nLangChange],
+  );
 
   // ============================================
   // 渲染：加载中（含等待依赖检查完成）
@@ -832,12 +1119,14 @@ function App() {
     (isSetupComplete && needsRequiredDepsReinstall === null)
   ) {
     return (
-      <ConfigProvider theme={currentTheme}>
-        <div className="app-loading">
-          <Spin size="large" />
-          <div className="app-loading-text">正在加载...</div>
-        </div>
-      </ConfigProvider>
+      <I18nContext.Provider value={i18nContextValue}>
+        <ConfigProvider theme={currentTheme}>
+          <div className="app-loading">
+            <Spin size="large" />
+            <div className="app-loading-text">{t("Claw.App.Loading")}</div>
+          </div>
+        </ConfigProvider>
+      </I18nContext.Provider>
     );
   }
 
@@ -846,9 +1135,11 @@ function App() {
   // ============================================
   if (!isSetupComplete) {
     return (
-      <ConfigProvider theme={currentTheme}>
-        <SetupWizard onComplete={handleSetupComplete} />
-      </ConfigProvider>
+      <I18nContext.Provider value={i18nContextValue}>
+        <ConfigProvider theme={currentTheme}>
+          <SetupWizard onComplete={handleSetupComplete} />
+        </ConfigProvider>
+      </I18nContext.Provider>
     );
   }
 
@@ -857,15 +1148,17 @@ function App() {
   // ============================================
   if (needsRequiredDepsReinstall === true) {
     return (
-      <ConfigProvider theme={currentTheme}>
-        <SetupDependencies
-          onComplete={async () => {
-            // 先回到主界面，再在后台重启服务（使新安装的依赖生效）
-            setNeedsRequiredDepsReinstall(false);
-            await restartAllServices();
-          }}
-        />
-      </ConfigProvider>
+      <I18nContext.Provider value={i18nContextValue}>
+        <ConfigProvider theme={currentTheme}>
+          <SetupDependencies
+            onComplete={async () => {
+              // 先回到主界面，再在后台重启服务（使新安装的依赖生效）
+              setNeedsRequiredDepsReinstall(false);
+              await restartAllServices();
+            }}
+          />
+        </ConfigProvider>
+      </I18nContext.Provider>
     );
   }
 
@@ -874,121 +1167,135 @@ function App() {
   // ============================================
   return (
     <ConfigProvider theme={currentTheme}>
-      <ThemeContext.Provider
-        value={{ themeMode, isDarkMode, setThemeMode: handleSetThemeMode }}
-      >
-        <div className="app-container">
-          {/* 顶部栏 */}
-          <div className="app-header">
-            {webviewActions ? (
-              <div className={styles.headerWebviewActions}>
-                <Button
-                  size="small"
-                  icon={<ArrowLeftOutlined />}
-                  onClick={webviewActions.onBack}
-                >
-                  返回
-                </Button>
-                <Button
-                  size="small"
-                  icon={<ReloadOutlined />}
-                  onClick={webviewActions.onReload}
-                >
-                  刷新
-                </Button>
-              </div>
-            ) : (
-              <div className="app-header-logo">
-                <img
-                  src="./32x32.png"
-                  alt=""
-                  style={{ width: 16, height: 16 }}
+      <I18nContext.Provider value={i18nContextValue}>
+        <ThemeContext.Provider
+          value={{ themeMode, isDarkMode, setThemeMode: handleSetThemeMode }}
+        >
+          <div className="app-container">
+            {/* 顶部栏 */}
+            <div className="app-header">
+              {webviewActions ? (
+                <div className={styles.headerWebviewActions}>
+                  <Button
+                    size="small"
+                    icon={<ArrowLeftOutlined />}
+                    onClick={webviewActions.onBack}
+                  >
+                    {t("Claw.App.back")}
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    onClick={webviewActions.onReload}
+                  >
+                    {t("Claw.App.refresh")}
+                  </Button>
+                </div>
+              ) : (
+                <div className="app-header-logo">
+                  <img
+                    src="./32x32.png"
+                    alt=""
+                    style={{ width: 16, height: 16 }}
+                  />
+                  <span className="app-header-title">{APP_DISPLAY_NAME}</span>
+                </div>
+              )}
+              <div className={styles.headerRight}>
+                {username && (
+                  <span className={styles.username}>{username}</span>
+                )}
+                <Badge
+                  status={badge.status}
+                  className={
+                    agentStatus === "idle" || agentStatus === "busy"
+                      ? styles.badgeIdle
+                      : undefined
+                  }
+                  text={
+                    <span className={styles.badgeText}>{t(badge.textKey)}</span>
+                  }
                 />
-                <span className="app-header-title">{APP_DISPLAY_NAME}</span>
               </div>
-            )}
-            <div className={styles.headerRight}>
-              {username && <span className={styles.username}>{username}</span>}
-              <Badge
-                status={badge.status}
-                className={
-                  agentStatus === "idle" || agentStatus === "busy"
-                    ? styles.badgeIdle
-                    : undefined
-                }
-                text={<span className={styles.badgeText}>{badge.text}</span>}
-              />
             </div>
-          </div>
 
-          {/* 主体部分 */}
-          <div className="app-body">
-            {/* 左侧边栏 (hidden when webview is active) */}
-            {!webviewActions && (
-              <div className="app-sider">
-                <Menu
-                  mode="inline"
-                  selectedKeys={[activeTab]}
-                  items={menuItems.map((item) => ({
-                    key: item.key,
-                    icon: item.icon,
-                    label: item.label,
-                    onClick: () => setActiveTab(item.key as TabKey),
-                  }))}
-                />
-              </div>
-            )}
+            {/* 主体部分 */}
+            <div className="app-body">
+              {/* 左侧边栏 (hidden when webview is active) */}
+              {!webviewActions && (
+                <div
+                  className={
+                    // 英文菜单文案通常更长，侧边栏适当加宽以减少截断；其他语言保持默认宽度
+                    i18nLang.toLowerCase().startsWith("en")
+                      ? "app-sider app-sider-en"
+                      : "app-sider"
+                  }
+                >
+                  <Menu
+                    mode="inline"
+                    inlineIndent={0}
+                    selectedKeys={[activeTab]}
+                    items={menuItems.map((item) => ({
+                      key: item.key,
+                      icon: item.icon,
+                      label: item.label,
+                      onClick: () => setActiveTab(item.key as TabKey),
+                    }))}
+                  />
+                </div>
+              )}
 
-            {/* 主内容区：flex 子撑满，便于日志等页占满高度 */}
-            <div
-              className={
-                webviewActions
-                  ? "app-content app-content-fullwidth"
-                  : "app-content"
-              }
-            >
+              {/* 主内容区：flex 子撑满，便于日志等页占满高度 */}
               <div
-                style={{
-                  flex: 1,
-                  minHeight: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  background: "var(--color-bg-layout)",
-                }}
+                className={
+                  webviewActions
+                    ? "app-content app-content-fullwidth"
+                    : "app-content"
+                }
               >
-                {activeTab === "client" && (
-                  <ClientPage
-                    onNavigate={(tab) => {
-                      if (tab === "sessions") setSessionsAutoOpen(true);
-                      setActiveTab(tab);
-                    }}
-                    services={services}
-                    servicesLoading={servicesLoading}
-                    startingServices={startingServices}
-                    setStartingServices={setStartingServices}
-                    onRefreshServices={pollServicesStatus}
-                    authRefreshTrigger={authRefreshTrigger}
-                    onAuthChange={handleAuthChange}
-                    onLoginStarted={handleLoginStarted}
-                  />
-                )}
-                {activeTab === "sessions" && (
-                  <SessionsPage
-                    autoOpen={sessionsAutoOpen}
-                    onAutoOpenConsumed={() => setSessionsAutoOpen(false)}
-                    onWebviewChange={setWebviewActions}
-                  />
-                )}
-                {activeTab === "settings" && <SettingsPage />}
-                {activeTab === "dependencies" && <DependenciesPage />}
-                {activeTab === "permissions" && <PermissionsPage />}
-                {activeTab === "logs" && <LogViewer />}
-                {activeTab === "about" && <AboutPage />}
+                <div
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    background: "var(--color-bg-layout)",
+                  }}
+                >
+                  {activeTab === "client" && (
+                    <ClientPage
+                      onNavigate={(tab) => {
+                        if (tab === "sessions") setSessionsAutoOpen(true);
+                        setActiveTab(tab);
+                      }}
+                      services={services}
+                      servicesLoading={servicesLoading}
+                      startingServices={startingServices}
+                      setStartingServices={setStartingServices}
+                      onRefreshServices={pollServicesStatus}
+                      authRefreshTrigger={authRefreshTrigger}
+                      onAuthChange={handleAuthChange}
+                      onLoginStarted={handleLoginStarted}
+                    />
+                  )}
+                  {activeTab === "sessions" && (
+                    <SessionsPage
+                      autoOpen={sessionsAutoOpen}
+                      onAutoOpenConsumed={() => setSessionsAutoOpen(false)}
+                      onWebviewChange={setWebviewActions}
+                    />
+                  )}
+                  {activeTab === "settings" && <SettingsPage />}
+                  {activeTab === "dependencies" && <DependenciesPage />}
+                  {activeTab === "permissions" && <PermissionsPage />}
+                  {activeTab === "logs" && <LogViewer />}
+                  {activeTab === "about" && <AboutPage />}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </ThemeContext.Provider>
+        </ThemeContext.Provider>
+      </I18nContext.Provider>
     </ConfigProvider>
   );
 }

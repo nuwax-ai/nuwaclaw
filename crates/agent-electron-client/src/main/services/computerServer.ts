@@ -24,7 +24,10 @@ import * as fs from "fs";
 import * as path from "path";
 import { EventEmitter } from "events";
 import log from "electron-log";
+import { t } from "./i18n";
+import { getPerfLogger } from "../bootstrap/logConfig";
 import { agentService } from "./engines/unifiedAgent";
+import { firstTokenTrace } from "./engines/perf/firstTokenTrace";
 import { LOCALHOST_HOSTNAME } from "./constants";
 import { getConfiguredPorts } from "./startupPorts";
 import type {
@@ -32,6 +35,10 @@ import type {
   HttpResult,
   UnifiedSessionMessage,
 } from "./engines/unifiedAgent";
+import type {
+  GuiVisionModelConfig,
+  GuiDisplayInfo,
+} from "@shared/types/computerTypes";
 import { redactForLog, redactStringForLog } from "./utils/logRedact";
 import { DEFAULT_SSE_HEARTBEAT_INTERVAL } from "@shared/constants";
 
@@ -49,6 +56,17 @@ const sseEventBuffers = new Map<
   { events: string[]; createdAt: number }
 >();
 
+interface SessionFirstTokenContext {
+  requestId?: string;
+  projectId?: string;
+  engine?: string;
+  chatReceivedAt: number;
+  createdAt: number;
+  isNewSession: boolean;
+}
+
+const sessionFirstTokenContexts = new Map<string, SessionFirstTokenContext>();
+
 /**
  * 删除已过 TTL 且仍无客户端连接的 buffer 条目（在 pushSseEvent 无客户端路径中调用）。
  */
@@ -60,8 +78,35 @@ function pruneExpiredSseEventBuffers(): void {
       !sseClients.has(sessionId)
     ) {
       sseEventBuffers.delete(sessionId);
+      sessionFirstTokenContexts.delete(sessionId);
     }
   }
+}
+
+function pruneExpiredSessionFirstTokenContexts(): void {
+  const now = Date.now();
+  for (const [sessionId, ctx] of sessionFirstTokenContexts.entries()) {
+    if (
+      now - ctx.createdAt >= SSE_EVENT_BUFFER_TTL_MS &&
+      !sseClients.has(sessionId)
+    ) {
+      sessionFirstTokenContexts.delete(sessionId);
+    }
+  }
+}
+
+function bindSessionFirstTokenContext(
+  sessionId: string,
+  context: Omit<SessionFirstTokenContext, "createdAt">,
+): void {
+  sessionFirstTokenContexts.set(sessionId, {
+    ...context,
+    createdAt: Date.now(),
+  });
+}
+
+function clearSessionFirstTokenContext(sessionId: string): void {
+  sessionFirstTokenContexts.delete(sessionId);
 }
 
 /**
@@ -72,10 +117,29 @@ export function getSseEventBufferSize(sessionId: string): number {
 }
 
 /**
+ * 返回某 session 的首字追踪上下文是否存在（仅用于单测，勿在生产逻辑中依赖）。
+ */
+export function hasSessionFirstTokenContext(sessionId: string): boolean {
+  return sessionFirstTokenContexts.has(sessionId);
+}
+
+/**
+ * 设置首字追踪上下文（仅用于单测）。
+ */
+export function setSessionFirstTokenContextForTest(
+  sessionId: string,
+  context: Omit<SessionFirstTokenContext, "createdAt">,
+): void {
+  bindSessionFirstTokenContext(sessionId, context);
+}
+
+/**
  * 清除指定 session 的 SSE 事件缓冲（cancel/stop 接口调用，避免取消后重连仍回放旧事件）。
  */
 export function clearSseEventBuffer(sessionId: string): void {
-  if (sessionId) sseEventBuffers.delete(sessionId);
+  if (!sessionId) return;
+  sseEventBuffers.delete(sessionId);
+  clearSessionFirstTokenContext(sessionId);
 }
 
 /**
@@ -83,6 +147,7 @@ export function clearSseEventBuffer(sessionId: string): void {
  */
 export function clearAllSseEventBuffers(): void {
   sseEventBuffers.clear();
+  sessionFirstTokenContexts.clear();
 }
 
 // ==================== Helpers ====================
@@ -110,7 +175,9 @@ async function ensureProjectWorkspace(
   // workspaceDir 未配置时跳过，避免在无法确认目录状态时误调用 file-server
   const agentConfig = agentService.getAgentConfig();
   if (!agentConfig?.workspaceDir) {
-    log.debug("[ensureProjectWorkspace] workspaceDir 未配置，跳过检测");
+    log.debug(
+      "[ensureProjectWorkspace] workspaceDir not configured, skipping check",
+    );
     return;
   }
 
@@ -122,12 +189,16 @@ async function ensureProjectWorkspace(
     projectId,
   );
   if (fs.existsSync(projectDir)) {
-    log.debug(`[ensureProjectWorkspace] 目录已存在，跳过: ${projectDir}`);
+    log.debug(
+      `[ensureProjectWorkspace] Directory already exists, skipping: ${projectDir}`,
+    );
     return;
   }
 
   // 目录不存在，通知 file-server 创建空目录结构（不传 zip，不写入 skills）
-  log.info(`[ensureProjectWorkspace] 目录不存在，创建: ${projectDir}`);
+  log.info(
+    `[ensureProjectWorkspace] Directory not found, creating: ${projectDir}`,
+  );
 
   // multer 要求 multipart/form-data，手动拼接 boundary
   const boundary = `----FormBoundary${Date.now()}`;
@@ -177,11 +248,11 @@ async function ensureProjectWorkspace(
   const result = JSON.parse(body);
   if (result.success || result.workspaceRoot) {
     log.info(
-      `[ensureProjectWorkspace] ✅ 目录创建成功: ${result.workspaceRoot || projectDir}`,
+      `[ensureProjectWorkspace] ✅ Workspace directory created: ${result.workspaceRoot || projectDir}`,
     );
   } else {
     log.warn(
-      `[ensureProjectWorkspace] file-server 返回失败:`,
+      `[ensureProjectWorkspace] file-server returned failure:`,
       result.message || result,
     );
   }
@@ -226,7 +297,7 @@ function parseQuery(url: URL): Record<string, string> {
  * 构建 rcoder HttpResult<T> 成功响应
  */
 function httpResult<T>(data: T): HttpResult<T> {
-  return { code: "0000", message: "成功", data, tid: null, success: true };
+  return { code: "0000", message: "success", data, tid: null, success: true };
 }
 
 /**
@@ -274,6 +345,26 @@ async function handleRequest(
     return;
   }
 
+  // Admin Server 接口（与 Computer Server 共用 60006 端口）
+  if (pathname.startsWith("/admin/")) {
+    return handleAdminRequest(req, res);
+  }
+
+  // 竞态条件防护：Computer HTTP Server 在 startup.ts 中异步启动，
+  // 但 agentService.init() 要等到 Setup Wizard 完成后才调用。
+  // 如果请求在 agent 未就绪时到达，返回 503 让客户端重试。
+  if (pathname.startsWith("/computer/") && !agentService.isReady) {
+    log.warn(
+      `[HTTP] Agent not ready, rejecting request: ${method} ${pathname}`,
+    );
+    sendJson(
+      res,
+      503,
+      httpError("SERVICE_NOT_READY", "Agent service is not initialized yet"),
+    );
+    return;
+  }
+
   try {
     // GET /health
     if (pathname === "/health" && method === "GET") {
@@ -292,7 +383,19 @@ async function handleRequest(
 
       const body = (await parseBody(req)) as ComputerChatRequest;
       t1 = Date.now();
-      log.debug(`⏱️ [HTTP][PERF] parseBody 耗时: ${t1 - t0}ms`);
+      firstTokenTrace.trace(
+        "chat.received",
+        {
+          requestId: body.request_id,
+          projectId: body.project_id,
+          sessionId: body.session_id,
+        },
+        { parseBodyMs: t1 - t0, userId: body.user_id },
+      );
+      // 记录 Electron 侧收到请求的时间（Java 后端经 lanproxy 转发过来），含 parseBody
+      getPerfLogger().info(
+        `[PERF] /chat received: parseBody=${t1 - t0}ms  rid=${body.request_id?.slice(0, 8)}  project=${body.project_id}`,
+      );
 
       // 开发调试：完整打印入参（脱敏后，避免 api_key / agent_config.env / URL 中 ak= 写入日志）
       log.debug(
@@ -301,7 +404,7 @@ async function handleRequest(
       );
 
       // 业务级别 info 日志：重点字段摘要（脱敏 model_provider / agent_config，避免 api_key 泄露）
-      log.info("📨 [HTTP] 收到 Computer Chat 请求", {
+      log.info("📨 [HTTP] Computer Chat request received", {
         user_id: body.user_id,
         project_id: body.project_id,
         session_id: body.session_id,
@@ -323,6 +426,15 @@ async function handleRequest(
       // 验证必填字段
       if (!body.user_id) {
         log.error("❌ [HTTP] user_id is required for ComputerAgentRunner");
+        firstTokenTrace.trace(
+          "chat.failed",
+          {
+            requestId: body.request_id,
+            projectId: body.project_id,
+            sessionId: body.session_id,
+          },
+          { reason: "missing_user_id" },
+        );
         sendJson(
           res,
           400,
@@ -334,7 +446,16 @@ async function handleRequest(
         return;
       }
       t2 = Date.now();
-      log.debug(`⏱️ [HTTP][PERF] 验证字段 耗时: ${t2 - t1}ms`);
+      firstTokenTrace.trace(
+        "chat.validated",
+        {
+          requestId: body.request_id,
+          projectId: body.project_id,
+          sessionId: body.session_id,
+        },
+        { validateMs: t2 - t1 },
+      );
+      getPerfLogger().info(`[PERF] /chat.validate: ${t2 - t1}ms`);
 
       // 确保项目工作空间存在（客户端快速重新登录后工作空间可能被清空）
       if (body.project_id) {
@@ -354,7 +475,16 @@ async function handleRequest(
         }
       }
       const t2_5 = Date.now();
-      log.debug(`⏱️ [HTTP][PERF] ensureProjectWorkspace 耗时: ${t2_5 - t2}ms`);
+      firstTokenTrace.trace(
+        "chat.workspace.ready",
+        {
+          requestId: body.request_id,
+          projectId: body.project_id,
+          sessionId: body.session_id,
+        },
+        { workspaceMs: t2_5 - t2 },
+      );
+      getPerfLogger().info(`[PERF] /chat.ensureWorkspace: ${t2_5 - t2}ms`);
 
       // 确保正确的引擎已启动（按 project_id 路由到对应 AcpEngine）
       let acpEngine;
@@ -362,6 +492,18 @@ async function handleRequest(
         acpEngine = await agentService.ensureEngineForRequest(body);
       } catch (err: any) {
         log.error("❌ [HTTP] Engine switch failed:", err);
+        firstTokenTrace.trace(
+          "chat.failed",
+          {
+            requestId: body.request_id,
+            projectId: body.project_id,
+            sessionId: body.session_id,
+          },
+          {
+            reason: "ensure_engine_failed",
+            error: err?.message || String(err),
+          },
+        );
         sendJson(
           res,
           200,
@@ -370,7 +512,17 @@ async function handleRequest(
         return;
       }
       t3 = Date.now();
-      log.debug(`⏱️ [HTTP][PERF] ensureEngineForRequest 耗时: ${t3 - t2_5}ms`);
+      firstTokenTrace.trace(
+        "chat.engine.ready",
+        {
+          requestId: body.request_id,
+          projectId: body.project_id,
+          sessionId: body.session_id,
+          engine: acpEngine?.engineName,
+        },
+        { ensureEngineMs: t3 - t2_5 },
+      );
+      getPerfLogger().info(`[PERF] /chat.ensureEngine: ${t3 - t2_5}ms`);
 
       if (!acpEngine) {
         log.error("❌ [HTTP] Agent not initialized");
@@ -381,18 +533,44 @@ async function handleRequest(
       // chat() 已返回 HttpResult<ComputerChatResponse> 格式
       const result = await acpEngine.chat(body);
       t4 = Date.now();
-      log.debug(`⏱️ [HTTP][PERF] acpEngine.chat 耗时: ${t4 - t3}ms`);
+      firstTokenTrace.trace(
+        result.success ? "chat.response.sent" : "chat.failed",
+        {
+          requestId: body.request_id,
+          projectId: body.project_id,
+          sessionId: result.data?.session_id || body.session_id,
+          engine: acpEngine.engineName,
+        },
+        {
+          acpChatMs: t4 - t3,
+          totalMs: t4 - t0,
+          success: result.success,
+          code: result.code,
+          message: result.success ? "ok" : result.message,
+        },
+      );
+      getPerfLogger().info(`[PERF] /chat.acpChat: ${t4 - t3}ms`);
 
       if (result.success) {
         log.info(
           `✅ [HTTP] Computer Chat 响应: session_id=${result.data?.session_id}`,
         );
+        if (result.data?.session_id) {
+          bindSessionFirstTokenContext(result.data.session_id, {
+            requestId: body.request_id || result.data.request_id,
+            projectId: body.project_id || result.data.project_id,
+            engine: acpEngine.engineName,
+            // TTFT 口径：/computer/chat 收到请求（handler 入口）到首个真实 token。
+            chatReceivedAt: t0,
+            isNewSession: result.data.is_new_session === true,
+          });
+        }
       } else {
-        log.error(`❌ [HTTP] Computer Chat 失败: ${result.message}`);
+        log.error(`❌ [HTTP] Computer Chat failed: ${result.message}`);
       }
 
-      log.info(
-        `⏱️ [HTTP][PERF] /computer/chat 总耗时: ${t4 - t0}ms (parseBody=${t1 - t0}ms, validate=${t2 - t1}ms, ensureWorkspace=${t2_5 - t2}ms, ensureEngine=${t3 - t2_5}ms, chat=${t4 - t3}ms)`,
+      getPerfLogger().info(
+        `[PERF] /chat: ${t4 - t0}ms  rid=${body.request_id?.slice(0, 8)}  (parseBody=${t1 - t0}ms validate=${t2 - t1}ms workspace=${t2_5 - t2}ms engine=${t3 - t2_5}ms chat=${t4 - t3}ms)`,
       );
       sendJson(res, 200, result);
       return;
@@ -402,6 +580,8 @@ async function handleRequest(
     if (pathname.startsWith("/computer/progress/") && method === "GET") {
       const sseStartTime = Date.now();
       const sessionId = pathname.replace("/computer/progress/", "");
+      firstTokenTrace.trace("sse.connect", { sessionId });
+      getPerfLogger().info(`[PERF] sse.connect  session=${sessionId}`);
       log.info(
         `📡 [HTTP] SSE 连接请求: session_id=${sessionId}, time=${new Date().toISOString()}`,
       );
@@ -428,6 +608,7 @@ async function handleRequest(
           timestamp: new Date().toISOString(),
         };
         res.write(`event: end_turn\ndata: ${JSON.stringify(endEvent)}\n\n`);
+        clearSessionFirstTokenContext(sessionId);
         res.end();
         return;
       }
@@ -437,8 +618,8 @@ async function handleRequest(
         sseClients.set(sessionId, []);
       }
       sseClients.get(sessionId)!.push(res);
-      log.debug(
-        `⏱️ [SSE][PERF] SSE 客户端注册完成: session_id=${sessionId}, 耗时=${Date.now() - sseStartTime}ms`,
+      getPerfLogger().info(
+        `[PERF] sse.register: ${Date.now() - sseStartTime}ms  session=${sessionId}`,
       );
 
       // 回放缓冲的早期事件（chat 响应先于 SSE 连接时 pushSseEvent 已写入缓冲）
@@ -493,6 +674,10 @@ async function handleRequest(
           if (idx >= 0) clients.splice(idx, 1);
           if (clients.length === 0) sseClients.delete(sessionId);
         }
+        // 清理 perf 首事件状态，防止连接中断（无 end_turn）时 Map 泄漏
+        sseFirstEventSent.delete(sessionId);
+        sseFirstTokenSent.delete(sessionId);
+        clearSessionFirstTokenContext(sessionId);
       });
 
       res.on("error", () => {
@@ -507,6 +692,8 @@ async function handleRequest(
 
     // POST /computer/agent/status
     if (pathname === "/computer/agent/status" && method === "POST") {
+      // t0Handler 计时从请求到达开始，包含 parseBody 在内的全程 handler 耗时
+      const t0Handler = Date.now();
       const body = await parseBody(req);
       log.info(
         `🔍 [HTTP] Computer Agent 状态查询: user_id=${body.user_id}, project_id=${body.project_id}`,
@@ -539,8 +726,11 @@ async function handleRequest(
           `✅ [HTTP] Agent 状态: project_id=${body.project_id}, is_alive=true, session_id=${session.id}`,
         );
       } else {
-        log.warn(`⚠️ [HTTP] Agent 不存在: project_id=${body.project_id}`);
+        log.warn(`⚠️ [HTTP] Agent not found: project_id=${body.project_id}`);
       }
+      getPerfLogger().info(
+        `[PERF] /agent/status: ${Date.now() - t0Handler}ms  project=${body.project_id} alive=${!!projectEngine}`,
+      );
 
       sendJson(
         res,
@@ -602,10 +792,10 @@ async function handleRequest(
           /* 忽略 listSessions 失败，继续执行 stop */
         }
         await agentService.stopEngine(body.project_id);
-        log.info(`✅ [HTTP] Agent 已停止: project_id=${body.project_id}`);
+        log.info(`✅ [HTTP] Agent stopped: project_id=${body.project_id}`);
       } else {
         log.info(
-          `ℹ️ [HTTP] Agent 不存在,幂等返回成功: project_id=${body.project_id}`,
+          `ℹ️ [HTTP] Agent not found, idempotent success: project_id=${body.project_id}`,
         );
       }
 
@@ -660,10 +850,10 @@ async function handleRequest(
         if (sessionId) {
           const ok = await acpEngine.abortSession(sessionId);
           if (ok) {
-            log.info(`✅ [HTTP] 取消成功: session_id=${sessionId}`);
+            log.info(`✅ [HTTP] Cancel succeeded: session_id=${sessionId}`);
           } else {
             log.warn(
-              `⚠️ [HTTP] 取消失败(session 不存在): session_id=${sessionId}`,
+              `⚠️ [HTTP] Cancel failed (session not found): session_id=${sessionId}`,
             );
           }
         } else {
@@ -671,10 +861,10 @@ async function handleRequest(
           if (session) {
             cancelledSessionId = session.id;
             await acpEngine.abortSession(session.id);
-            log.info(`✅ [HTTP] 取消成功: session_id=${session.id}`);
+            log.info(`✅ [HTTP] Cancel succeeded: session_id=${session.id}`);
           } else {
             log.info(
-              `ℹ️ [HTTP] Agent 不存在,幂等返回成功: project_id=${projectId}`,
+              `ℹ️ [HTTP] Agent not found, idempotent success: project_id=${projectId}`,
             );
           }
         }
@@ -695,10 +885,97 @@ async function handleRequest(
       return;
     }
 
+    // POST /computer/gui-agent/vision-model — 保存 GUI Agent 视觉模型配置
+    if (pathname === "/computer/gui-agent/vision-model" && method === "POST") {
+      const body = await parseBody(req);
+      log.info("[HTTP] Saving GUI Agent vision model config");
+      const { writeSetting } = await import("../db");
+      writeSetting("gui_agent_vision_model", body);
+      sendJson(res, 200, httpResult({ success: true }));
+      return;
+    }
+
+    // GET /computer/gui-agent/vision-model — 获取 GUI Agent 视觉模型配置
+    if (pathname === "/computer/gui-agent/vision-model" && method === "GET") {
+      const { readSetting } = await import("../db");
+      const config = readSetting(
+        "gui_agent_vision_model",
+      ) as GuiVisionModelConfig | null;
+      sendJson(
+        res,
+        200,
+        httpResult(
+          config || {
+            provider: "anthropic",
+            apiProtocol: "anthropic",
+            model: "claude-sonnet-4-20250514",
+            displayIndex: 0,
+            coordinateMode: "auto",
+            maxSteps: 50,
+            stepDelayMs: 1500,
+            jpegQuality: 75,
+          },
+        ),
+      );
+      return;
+    }
+
+    // GET /computer/gui-agent/displays — 获取可用显示器列表
+    if (pathname === "/computer/gui-agent/displays" && method === "GET") {
+      try {
+        const { screen } = await import("electron");
+        const displays = screen.getAllDisplays();
+        const result: GuiDisplayInfo[] = displays.map((d, idx) => ({
+          index: idx,
+          label:
+            idx === 0
+              ? `${t("Claw.GUIAgent.display.primary")} (${d.size.width}x${d.size.height})`
+              : `${t("Claw.GUIAgent.display.secondary")} ${idx + 1} (${d.size.width}x${d.size.height})`,
+          width: d.size.width,
+          height: d.size.height,
+          scaleFactor: d.scaleFactor,
+          isPrimary: d.bounds.x === 0 && d.bounds.y === 0,
+        }));
+        sendJson(res, 200, httpResult(result));
+      } catch (err: any) {
+        log.error("[HTTP] Failed to get display list:", err);
+        sendJson(
+          res,
+          200,
+          httpError("5000", err.message || "Failed to get displays"),
+        );
+      }
+      return;
+    }
+
+    // POST /computer/gui-agent/display — 设置目标显示器
+    if (pathname === "/computer/gui-agent/display" && method === "POST") {
+      const body = await parseBody(req);
+      const displayIndex = body.displayIndex as number;
+      log.info(`[HTTP] Setting GUI Agent target display: ${displayIndex}`);
+      const { readSetting, writeSetting } = await import("../db");
+      const existing = (readSetting("gui_agent_vision_model") || {}) as Record<
+        string,
+        unknown
+      >;
+      writeSetting("gui_agent_vision_model", { ...existing, displayIndex });
+      sendJson(res, 200, httpResult({ success: true, displayIndex }));
+      return;
+    }
+
     // 404
     sendJson(res, 404, httpError("NOT_FOUND", `Path not found: ${pathname}`));
   } catch (error: any) {
-    log.error(`❌ [HTTP] 请求处理异常: ${pathname}`, error);
+    log.error(`❌ [HTTP] Request handling error: ${pathname}`, error);
+    firstTokenTrace.trace(
+      "chat.failed",
+      {},
+      {
+        reason: "request_handler_exception",
+        path: pathname,
+        error: error?.message || String(error),
+      },
+    );
     sendJson(
       res,
       500,
@@ -719,6 +996,25 @@ async function handleRequest(
  * 若当前无客户端连接（chat 响应先于 SSE 连接建立），则先写入缓冲，
  * 等 GET /computer/progress/{session_id} 连接时回放，避免丢失 prompt_start 等早期事件。
  */
+// 跟踪每个 session 的首事件时间戳（用于计算流式总耗时）
+const sseFirstEventSent = new Map<string, number>();
+// 跟踪每个 session 的首个真实文本 token 时间戳（排除 heartbeat 等非文本事件）
+const sseFirstTokenSent = new Map<string, number>();
+
+let _chunkStructureLogged = false;
+
+function extractAgentChunkText(data: unknown): string {
+  const text = (data as { data?: { content?: { text?: unknown } } })?.data
+    ?.content?.text;
+  if (!_chunkStructureLogged) {
+    _chunkStructureLogged = true;
+    log.debug(
+      `[PERF] sse.firstChunk 结构采样: ${JSON.stringify(data).slice(0, 200)}`,
+    );
+  }
+  return typeof text === "string" ? text : "";
+}
+
 export function pushSseEvent(
   sessionId: string,
   eventName: string,
@@ -726,12 +1022,83 @@ export function pushSseEvent(
 ) {
   const clients = sseClients.get(sessionId);
   const payload = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
+  const now = Date.now();
+
+  // 记录首事件和结束事件
+  const isAgentChunk = eventName === "agent_message_chunk";
+  const isFirstMessage = isAgentChunk && !sseFirstEventSent.has(sessionId);
+  const chunkText = isAgentChunk ? extractAgentChunkText(data) : "";
+  const isFirstToken =
+    isAgentChunk && !!chunkText.trim() && !sseFirstTokenSent.has(sessionId);
+  const isEndTurn = eventName === "end_turn";
+
+  if (isFirstMessage) {
+    sseFirstEventSent.set(sessionId, now);
+    firstTokenTrace.trace("sse.first_chunk", { sessionId });
+    getPerfLogger().info(`[PERF] sse.firstChunk  session=${sessionId}`);
+  }
+  if (isFirstToken) {
+    sseFirstTokenSent.set(sessionId, now);
+    firstTokenTrace.trace("sse.first_token", { sessionId });
+    getPerfLogger().info(`[PERF] sse.firstToken  session=${sessionId}`);
+    const firstTokenCtx = sessionFirstTokenContexts.get(sessionId);
+    if (firstTokenCtx) {
+      const ttftMs = Math.max(0, now - firstTokenCtx.chatReceivedAt);
+      const rid = firstTokenCtx.requestId?.slice(0, 8) || "(none)";
+      const project = firstTokenCtx.projectId || "(none)";
+      getPerfLogger().info(
+        `[PERF] /chat.firstToken: ${ttftMs}ms  rid=${rid}  session=${sessionId}  project=${project}  isNewSession=${firstTokenCtx.isNewSession}`,
+      );
+      if (firstTokenCtx.isNewSession) {
+        getPerfLogger().info(
+          `[PERF] /chat.newSession.firstToken: ${ttftMs}ms  rid=${rid}  session=${sessionId}  project=${project}`,
+        );
+      }
+      firstTokenTrace.trace(
+        "chat.first_token.returned",
+        {
+          requestId: firstTokenCtx.requestId,
+          sessionId,
+          projectId: firstTokenCtx.projectId,
+          engine: firstTokenCtx.engine,
+        },
+        {
+          ttftMs,
+          isNewSession: firstTokenCtx.isNewSession,
+        },
+      );
+    }
+  }
+  if (isEndTurn) {
+    firstTokenTrace.trace("sse.end_turn", { sessionId });
+    const firstChunkTime = sseFirstEventSent.get(sessionId);
+    const firstTokenTime = sseFirstTokenSent.get(sessionId);
+    sseFirstEventSent.delete(sessionId);
+    sseFirstTokenSent.delete(sessionId);
+    clearSessionFirstTokenContext(sessionId);
+
+    const streamingMs =
+      firstChunkTime !== undefined ? now - firstChunkTime : -1;
+    const firstTokenMs =
+      firstTokenTime !== undefined ? now - firstTokenTime : -1;
+
+    getPerfLogger().info(
+      `[PERF] sse.end${streamingMs >= 0 ? `: ${streamingMs}ms streaming` : ""}  session=${sessionId}`,
+    );
+    if (firstTokenMs >= 0) {
+      getPerfLogger().info(
+        `[PERF] sse.end.fromFirstToken: ${firstTokenMs}ms  session=${sessionId}`,
+      );
+    }
+  }
+
   log.debug(
-    `[SSE] pushSseEvent: sessionId=${sessionId}, eventName=${eventName}, time=${Date.now()}, clients=${clients?.length || 0}`,
+    `[SSE] pushSseEvent: sessionId=${sessionId}, eventName=${eventName}, time=${now}, clients=${clients?.length || 0}`,
   );
 
   if (!clients || clients.length === 0) {
     pruneExpiredSseEventBuffers();
+    pruneExpiredSessionFirstTokenContexts();
     if (!sseEventBuffers.has(sessionId)) {
       sseEventBuffers.set(sessionId, { events: [], createdAt: Date.now() });
     }
@@ -815,6 +1182,9 @@ export function stopComputerServer(): Promise<void> {
     }
     sseClients.clear();
     sseEventBuffers.clear();
+    sseFirstEventSent.clear();
+    sseFirstTokenSent.clear();
+    sessionFirstTokenContexts.clear();
 
     server.close(() => {
       log.info("[ComputerServer] Stopped");
@@ -841,4 +1211,155 @@ export function getComputerServerStatus(): {
     running: true,
     port: typeof addr === "object" && addr ? addr.port : undefined,
   };
+}
+
+// ==================== Admin Server (管理接口) ====================
+
+import { BrowserWindow } from "electron";
+import { DEFAULT_ADMIN_SERVER_PORT } from "@shared/constants";
+import { checkLanproxyHealth } from "./packages/lanproxyHealth";
+
+/** 执行完整重启流程（供延迟调用） */
+async function doRestartAllServicesIncludingComputerServer(): Promise<
+  Record<string, { success: boolean; error?: string }>
+> {
+  const { getServiceManager } = await import("../ipc/processHandlers");
+  const serviceManager = getServiceManager();
+  if (!serviceManager) {
+    throw new Error("ServiceManager not initialized");
+  }
+
+  // 1. 重启除 Lanproxy 外的所有服务
+  const base = await serviceManager.restartAllServicesExceptLanproxy();
+
+  // 2. 停止 Computer Server
+  await stopComputerServer();
+
+  // 3. 重新启动 Computer Server
+  const { getConfiguredPorts } = await import("./startupPorts");
+  const { agent: agentPort } = getConfiguredPorts();
+  let csResult: { success: boolean; error?: string };
+  try {
+    await startComputerServer(agentPort);
+    csResult = { success: true };
+  } catch (e) {
+    csResult = { success: false, error: String(e) };
+  }
+
+  const results: Record<string, { success: boolean; error?: string }> = {
+    ...base.results,
+    computerServer: csResult,
+  };
+
+  notifyServicesRestarted(results);
+  return results;
+}
+
+/** 获取主窗口 */
+const getMainWindow = () => BrowserWindow.getAllWindows()[0];
+
+/** 通知渲染进程服务正在重启 */
+const notifyServicesRestarting = () => {
+  getMainWindow()?.webContents.send("admin:servicesRestarting");
+};
+
+/** 通知渲染进程服务重启完成 */
+const notifyServicesRestarted = (
+  results: Record<string, { success: boolean; error?: string }>,
+) => {
+  const hasFailure = Object.values(results).some((r) => !r.success);
+  getMainWindow()?.webContents.send("admin:servicesRestarted", {
+    success: !hasFailure,
+    results,
+  });
+};
+
+/**
+ * Admin Server 请求处理
+ */
+async function handleAdminRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  const url = new URL(
+    req.url || "/",
+    `http://localhost:${DEFAULT_ADMIN_SERVER_PORT}`,
+  );
+  const pathname = url.pathname;
+  const method = req.method || "GET";
+
+  const sendJson = (status: number, data: unknown) => {
+    res.writeHead(status, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(JSON.stringify(data));
+  };
+
+  try {
+    // GET /admin/health — Admin Server 自身健康检查
+    if (pathname === "/admin/health" && method === "GET") {
+      sendJson(200, { status: "ok", timestamp: Date.now() });
+      return;
+    }
+
+    // GET /admin/health/lanproxy — 检查代理服务通道健康状态
+    if (pathname === "/admin/health/lanproxy" && method === "GET") {
+      const { readSetting } = await import("../db");
+      const savedKey = readSetting("auth.saved_key") as string | null;
+      if (!savedKey) {
+        sendJson(200, { healthy: false, error: "未配置 savedKey" });
+        return;
+      }
+      const health = await checkLanproxyHealth(savedKey);
+      sendJson(200, health);
+      return;
+    }
+
+    // POST /admin/services/restart — 重启除 Lanproxy 外的所有服务
+    if (pathname === "/admin/services/restart" && method === "POST") {
+      log.info("[AdminServer] /admin/services/restart called");
+
+      // 立即返回，避免 Computer Server 自己被重启导致响应无法写回
+      sendJson(200, {
+        code: "0000",
+        message: "重启请求已收到，将延迟2秒执行",
+        data: null,
+      });
+
+      // 通知渲染进程服务正在重启
+      notifyServicesRestarting();
+
+      // 延迟 2 秒后执行实际重启（不等完成，异步进行）
+      setTimeout(async () => {
+        try {
+          const results = await doRestartAllServicesIncludingComputerServer();
+          const failedServices = Object.entries(results)
+            .filter(([, v]) => !v.success)
+            .map(([k, v]) => `${k}: ${v.error}`)
+            .join("; ");
+          if (failedServices) {
+            log.warn(
+              `[AdminServer] Some services failed to start: ${failedServices}`,
+            );
+          } else {
+            log.info("[AdminServer] Delayed restart complete");
+          }
+        } catch (e) {
+          log.error("[AdminServer] Delayed restart error:", e);
+        }
+      }, 2000);
+      return;
+    }
+
+    // 404
+    sendJson(404, { code: "404", message: `Path not found: ${pathname}` });
+  } catch (error: any) {
+    log.error(`[AdminServer] Request handling error: ${pathname}`, error);
+    sendJson(500, {
+      code: "1003",
+      message: error.message || "Internal error",
+      data: null,
+    });
+  }
 }

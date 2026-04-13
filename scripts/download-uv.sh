@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# download-uv.sh — 下载 uv 到 Tauri 资源目录
+# download-uv.sh — 下载 uv 到 Electron 资源目录
 #
 # 用法:
 #   ./scripts/download-uv.sh                    # 自动检测当前平台
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 UV_VERSION="0.10.0"
-RESOURCE_DIR="crates/agent-tauri-client/src-tauri/resources/uv"
+RESOURCE_DIR="crates/agent-electron-client/resources/uv"
 
 # 项目根目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

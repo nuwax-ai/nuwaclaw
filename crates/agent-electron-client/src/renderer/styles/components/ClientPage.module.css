@@ -216,3 +216,13 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+
+.dependencyAlert {
+  margin-bottom: 16px;
+}
+
+[data-theme="dark"] .dependencyAlert :global(.ant-alert-content){
+  :global(.ant-alert-message){
+    color: #18181b;
+  }
+}

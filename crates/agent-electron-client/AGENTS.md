@@ -75,6 +75,7 @@
 - **日志目录**：`~/.nuwaclaw/logs/main.YYYY-MM-DD.log`，并有 `latest.log` 符号链接。
 - **级别**：文件 → debug/info，控制台 → debug。
 - **保留**：生产 7 天，开发 30 天。
+- **PERF 性能日志**：独立文件 `perf.YYYY-MM-DD.log`，详见 [docs/PERF-LOG-REFACTOR-2026-03-24.md](docs/PERF-LOG-REFACTOR-2026-03-24.md)
 
 ---
 
@@ -87,8 +88,51 @@
   - 启动全部 → **reg** → 启动所有服务
   - 手动启动单个 → 直接启动（不调用 reg）
   - 自动重连 → **reg** → 启动所有服务
-- **注册参数**：username、password、savedKey?、sandboxConfigValue。响应：configKey、serverHost/serverPort、online、name。
+- **注册参数**：username、password、savedKey?、sandboxConfigValue。响应：configKey、serverHost/serverPort、online、name、**token**。
 - **详细文档**：见 `docs/REG-FLOW.md`。
+
+---
+
+## 登录状态同步（Token → Webview Cookie）
+
+reg 接口返回的 `token` 用于同步登录状态到 webview，实现桌面端与 web 端的登录打通。
+
+### 流程
+
+```
+reg 接口返回 token
+  ↓
+1. 保存到 AUTH_TOKEN（持久化）      ← 给后续打开 webview 用
+  ↓
+2. 尝试立即同步到 webview cookie（name="ticket"）
+  ↓
+  ├─ 成功 → 清除 AUTH_TOKEN        ← 已消费，清空
+  │
+  └─ 失败 → 保留 AUTH_TOKEN        ← 等 webview 打开时再同步
+```
+
+### 触发点
+
+| 函数 | 场景 | 文件 |
+|------|------|------|
+| `loginAndRegister` | 用户登录 | `core/auth.ts` |
+| `reRegisterClient` | 自动重注册 | `core/auth.ts` |
+| `syncConfigToServer` | 配置同步 | `core/auth.ts` |
+| `syncCookieAndBuildUrl` | 打开 webview（兜底） | `utils/sessionUrl.ts` |
+
+### 核心函数
+
+- **`syncSessionCookie(domain, token)`**：将 token 写入 webview cookie（name="ticket"），不设 domain（host-only），不设 secure（主进程根据 URL scheme 自动判断）
+- **`syncCookieAndBuildUrl()`**：打开 webview 前同步 token。有 token → 检查 JWT exp 是否过期（30s 宽限容忍时钟偏移）→ 未过期则覆盖 cookie；已过期则只清除对应来源缓存并跳过；无 token → 跳过（不清空）
+- **`persistTicketCookie(domain)`**：webview 内登录成功后，将 ticket cookie 刷盘并清除 settings 中所有旧 token 缓存（`AUTH_TOKEN` + domain key），防止下次打开 webview 时旧缓存覆盖新 ticket
+
+### 安全考虑
+
+- token 不长期驻留内存，同步成功后立即清除
+- 日志中不记录敏感 token 值
+- 失败时保留 token 以便重试，但不影响用户体验
+- Cookie 属性：host-only（不设 domain，避免 count=2）、httpOnly、secure 由主进程根据 URL scheme 自动判断
+- 过期 token 清除精确到来源（one-shot 清 `AUTH_TOKEN`，domain cache 清 domain key），避免误清另一个有效缓存
 
 ---
 
@@ -135,7 +179,7 @@ npm run dist:linux  # Linux
 - **跨平台打包（Mac → Win）**：支持。若出现 `zip: not a valid zip file`，清理缓存（`~/Library/Caches/electron`、`electron-builder` 或 `node_modules/app-builder-bin`）后重试。Win x64 须在 Windows/CI 上构建（原生模块跨平台编译限制）。
 - **CI**：标签 `electron-v*` → `release-electron.yml`（独立 Release）。push/PR 导致路径变更 → `ci-electron.yml`（测试构建）。Tauri 仍使用 `v*` → release-tauri。本地 OSS 同步：`./scripts/sync-oss.sh <tag>`（需 gh、jq）。
 
-**目录结构**：`src/main/`（main.ts、preload、ipc、services/engines|packages|system|utils），`src/renderer/`（main.tsx、App、components、services、styles），`src/shared/`，`src/test/harness/`（日志驱动测试工具），`resources/uv/`，`scripts/`，`docs/`（项目文档如 TESTING-0.9.1-2026-03-19.md）。别名：`@main/*` → main，`@renderer/*` → renderer，`@shared/*` → shared。
+**目录结构**：`src/main/`（main.ts、preload、ipc、services/engines|packages|system|utils），`src/renderer/`（main.tsx、App、components、services、styles），`src/shared/`，`resources/uv/`，`scripts/`，`docs/`（项目文档如 TESTING-0.9.1-2026-03-19.md）。别名：`@main/*` → main，`@renderer/*` → renderer，`@shared/*` → shared。
 
 ---
 
@@ -144,4 +188,62 @@ npm run dist:linux  # Linux
 - **敏感配置存于 SQLite**（明文，未加密）：anthropic_api_key、default_model、server_host。
 - **兼容性**：多引擎 / 沙箱(Docker) / IM / 托盘 / 无命令行弹窗 — 全平台。WSL 仅 Windows。Firejail 仅 Linux。
 
-*最后更新：2026-03-19*
+---
+
+## 国际化（i18n）规则
+
+### 多语言机制
+
+- **Locale 文件**：`src/shared/locales/` 下 4 个文件（en-US、zh-CN、zh-HK、zh-TW），key 必须完全对齐。
+- **翻译函数**：renderer 用 `t(key, ...values)`（`src/renderer/services/core/i18n.ts`），主进程用 `t(key)`（`src/main/services/i18n.ts`）。
+- **Key 格式**：`{Client}.{Scope}.{Domain}.{key}`，如 `Claw.Auth.error.loginExpired`。
+- **占位符**：位置占位符 `t(key, arg1, arg2)` → `{0}` `{1}`；命名占位符 `t(key, {error: "xxx"})` → `{error}`。
+- **I18N_KEYS 常量**：`src/shared/constants.ts` 中集中定义，避免拼写错误。新增 locale key 时须同步更新此常量。
+
+### 启动初始化命中逻辑（新客户端）
+
+1. **并行初始化**：`src/renderer/main.tsx` 启动时并行执行 `initSupportedLangs()` 与 `initI18n()`。
+2. **动态语言列表**：`src/renderer/services/i18n.ts` 调 `/api/i18n/lang/list`，按当前接口格式读取 `data[].lang`，仅纳入 `status === 1` 的语言，合并到 `i18next.supportedLngs`。`fetchI18nLangList()` 使用 Promise 缓存，避免多处调用重复请求。
+3. **当前语言来源**：`src/renderer/services/core/i18n.ts` 优先用缓存 `i18n.active_lang`，无缓存则用 `navigator.language`。`navigator.language` 为 BCP 47 格式（如 `en-US`、`zh-CN`、`zh-TW`、`zh-HK`），内部统一转小写比较（如 `zh-tw`）。
+4. **主进程语言优先级**：`src/main/main.ts` 在 `app.whenReady()` 后同步语言，优先级：本地保存（`i18n.active_lang`）> Electron 系统语言（`app.getLocale()`）> 英文兜底（`"en"`）。
+5. **主进程同步**：`initI18n()` 完成后，渲染进程会通过 `window.electronAPI.i18n.setLang()` 同步主进程语言，保证托盘/对话框与页面语言一致。
+6. **antd locale 命中**：优先精确命中 `zh-tw` / `zh-hk`，再落到泛中文 `zh`，避免繁体用户被错误命中简体组件文案。
+
+### 语言切换流程
+
+1. **预拉取**：`handleLangConfirm()` 调 `prefetchLangMap(lang)` 与 `minLoadingDelay` 并行，将目标语言翻译缓存到 DB（`Promise.allSettled`，失败不阻塞）。
+2. **reload**：页面刷新后 `_doInitI18n()` 从 DB 缓存读取翻译，无需等待网络。
+3. **非本地 locale 文件的语言**（如日语）：无本地 JSON 文件，`getLocaleMap()` 回退 `enUS`。依赖 DB 缓存提供翻译。首次切换时 `prefetchLangMap` 确保缓存已写入。
+4. **中文反向映射**：非中文语言使用本地 `zh-CN.json` 构建反向映射（`buildZhValueToKeyMap`），不再额外请求 `query?lang=zh-cn`。
+
+### 日志 vs UI 的语言规则
+
+| 场景 | 函数 | 语言要求 | 是否走 i18n |
+|------|------|----------|------------|
+| 日志文件输出 | `log.*()` / `logger.*()` / `perfLog()` | **仅英文** | 否 |
+| UI 提示 | `message.*()` / `notification.*()` | **跟随用户语言** | 是（`t()`） |
+| 错误消息展示 | `getAuthErrorMessage()` 等 | **跟随用户语言** | 是（`t()`） |
+| 错误消息抛出 | `throw new Error()` / `reject()` | **英文**（可能被 catch 后记入日志） | 否 |
+| HTTP 响应 message | `{ code: "0000", message: "..." }` | **英文**（API 协议） | 否 |
+| CSV 导出表头 | `exportLogs()` | **跟随用户语言** | 是（`t()`） |
+| 权限默认名称 | `DEFAULT_CONFIG.rules` | **跟随用户语言** | 是（`t()`） |
+
+### 权限相关命名空间
+
+| Namespace | Keys | 用途 |
+|-----------|------|------|
+| `Claw.Permissions.*` | command/envVars/file/tool/url/second/deny/allowOnce/allowAlways | 权限弹窗内的按钮标签、描述文本 |
+| `Claw.PermissionRules.*` | defaultToolRead/Edit/Bash/defaultNetwork/FileRead/FileWrite | 默认权限规则名称（DEFAULT_CONFIG.rules） |
+| `Claw.PermissionsPage.*` | title/description/refresh/openSettings/allGranted/cannotOpenSettings + macosAccessibility/Desc等 | 权限设置页面 UI + macOS 系统权限项名称/描述 |
+
+**避免混用**：代码中引用时须与 locale key 命名空间严格对应，不可交叉使用。
+
+### 核心原则
+
+1. **logger 输出只用英文，不进 locale 文件**。日志是开发者工具，应保持语言一致性。
+2. **用户可见的 UI 文本必须走 `t()`**，包括 `message.success/error/info/loading`、按钮标签、表单提示等。
+3. **新增 locale key 时**：4 个 locale 文件 + `I18N_KEYS` 常量 + 代码中 `t()` 调用，三者同步。
+4. **主进程中的用户可见文案**（如 `MCP_RECONNECT_PROMPT_MESSAGE`）通过主进程 `t()` 走 i18n，避免硬编码英文。
+5. **调试工具组件不接入 i18n**：`src/renderer/components/dev/` 下的调试工具面板（如 `DevToolsPanel.tsx`）仅在开发模式加载，所有 UI 文案硬编码英文，不走 `t()`，不在 locale 文件中维护对应 key。
+
+*最后更新：2026-04-10*

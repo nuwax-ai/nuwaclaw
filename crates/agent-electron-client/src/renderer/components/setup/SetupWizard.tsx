@@ -7,7 +7,15 @@
  * 阶段 4: 完成（Result + 启动服务）
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
+import { t } from "../../services/core/i18n";
+import { useI18nLang } from "../../App";
 import {
   Steps,
   Form,
@@ -20,7 +28,7 @@ import {
   message,
   Alert,
   Typography,
-} from 'antd';
+} from "antd";
 import {
   SettingOutlined,
   UserOutlined,
@@ -29,8 +37,12 @@ import {
   FolderOpenOutlined,
   LockOutlined,
   GlobalOutlined,
-} from '@ant-design/icons';
-import { setupService, Step1Config, DEFAULT_STEP1_CONFIG } from '../../services/core/setup';
+} from "@ant-design/icons";
+import {
+  setupService,
+  Step1Config,
+  DEFAULT_STEP1_CONFIG,
+} from "../../services/core/setup";
 import {
   loginAndRegister,
   normalizeServerHost,
@@ -38,20 +50,17 @@ import {
   getCurrentAuth,
   getAuthErrorMessage,
   logout,
-} from '../../services/core/auth';
-import { AUTH_KEYS } from '@shared/constants';
-import type { QuickInitConfig } from '@shared/types/quickInit';
-import SetupDependencies, { type MockDependenciesApi } from './SetupDependencies';
+} from "../../services/core/auth";
+import { AUTH_KEYS } from "@shared/constants";
+import type { QuickInitConfig } from "@shared/types/quickInit";
+import SetupDependencies, {
+  type MockDependenciesApi,
+} from "./SetupDependencies";
 
 const { Text } = Typography;
 
-import { APP_DISPLAY_NAME } from '@shared/constants';
+import { APP_DISPLAY_NAME } from "@shared/constants";
 const APP_NAME = APP_DISPLAY_NAME;
-
-const WIZARD_STEPS = [
-  { key: 1, title: '基础设置', icon: <SettingOutlined /> },
-  { key: 2, title: '账号登录', icon: <UserOutlined /> },
-];
 
 interface SetupWizardProps {
   onComplete: () => void;
@@ -63,17 +72,38 @@ interface SetupWizardProps {
   mockLoggedIn?: boolean;
 }
 
-function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }: SetupWizardProps) {
-  const [dependenciesReady, setDependenciesReady] = useState<boolean | null>(null);
+function SetupWizard({
+  onComplete,
+  mockApi,
+  skipDependencyCheck,
+  mockLoggedIn,
+}: SetupWizardProps) {
+  const { lang } = useI18nLang();
+  const wizardSteps = useMemo(
+    () => [
+      {
+        key: 1,
+        title: t("Claw.Setup.basicConfig.title"),
+        icon: <SettingOutlined />,
+      },
+      { key: 2, title: t("Claw.Setup.login.title"), icon: <UserOutlined /> },
+    ],
+    [lang],
+  );
+
+  const [dependenciesReady, setDependenciesReady] = useState<boolean | null>(
+    null,
+  );
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [step1Config, setStep1Config] = useState<Step1Config>(DEFAULT_STEP1_CONFIG);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [step1Config, setStep1Config] =
+    useState<Step1Config>(DEFAULT_STEP1_CONFIG);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [completed, setCompleted] = useState(false);
-  const [domain, setDomain] = useState('');
+  const [domain, setDomain] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
-  const [loginError, setLoginError] = useState('');
+  const [loginError, setLoginError] = useState("");
   const [retryCooldown, setRetryCooldown] = useState(0);
   const [isAlreadyLoggedIn, setIsAlreadyLoggedIn] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(false);
@@ -85,7 +115,6 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
       try {
         // 如果指定跳过依赖检查，直接进入配置步骤
         if (skipDependencyCheck) {
-          console.log('[SetupWizard] 跳过依赖检查 (skipDependencyCheck=true)');
           setDependenciesReady(true);
           const state = await setupService.getSetupState();
           if (state.completed) {
@@ -101,16 +130,17 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
         }
 
         // 检测所有依赖状态（支持 mock API）
-        const checkAllApi = mockApi?.checkAll || window.electronAPI?.dependencies.checkAll;
+        const checkAllApi =
+          mockApi?.checkAll || window.electronAPI?.dependencies.checkAll;
         const result = await checkAllApi?.();
         const deps = result?.results || [];
         const allInstalled = deps.every(
-          (d) => d.status === 'installed' || d.status === 'bundled',
+          (d) => d.status === "installed" || d.status === "bundled",
         );
         console.log(
-          '[SetupWizard] 依赖检测:',
-          deps.map((d) => `${d.name}:${d.status}`).join(', '),
-          mockApi ? '(mock)' : '(real)',
+          "[SetupWizard] Dependency check:",
+          deps.map((d) => `${d.name}:${d.status}`).join(", "),
+          mockApi ? "(mock)" : "(real)",
         );
 
         if (allInstalled) {
@@ -126,9 +156,9 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
             if (!quickInitAttempted.current) {
               quickInitAttempted.current = true;
               try {
-                const qiConfig = await window.electronAPI?.quickInit.getConfig();
+                const qiConfig =
+                  await window.electronAPI?.quickInit.getConfig();
                 if (qiConfig) {
-                  console.log('[SetupWizard] 启动时检测到快捷初始化配置，开始自动配置');
                   // 先加载已保存的配置（用于回退时显示）
                   const savedConfig = await setupService.getStep1Config();
                   setStep1Config(savedConfig);
@@ -137,7 +167,10 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
                   return; // performQuickInit 内部处理 loading 和 step
                 }
               } catch (error) {
-                console.warn('[SetupWizard] 启动时读取快捷配置失败:', error);
+                console.warn(
+                  "[SetupWizard] Failed to read quick init config on startup:",
+                  error,
+                );
               }
             }
             setCurrentStep(state.step1Completed ? 2 : 1);
@@ -151,7 +184,7 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
         const config = await setupService.getStep1Config();
         setStep1Config(config);
       } catch (error) {
-        console.error('[SetupWizard] 初始化失败:', error);
+        console.error("[SetupWizard] Initialization failed:", error);
         setDependenciesReady(false);
       } finally {
         setLoading(false);
@@ -164,54 +197,63 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
    * Quick Init: 使用预置配置自动完成初始化
    * 失败时回退到正常向导流程
    */
-  const performQuickInit = useCallback(async (config: QuickInitConfig) => {
-    setQuickIniting(true);
-    try {
-      // 1. 保存 step1 配置
-      const step1: Step1Config = {
-        serverHost: normalizeServerHost(config.serverHost),
-        agentPort: config.agentPort,
-        fileServerPort: config.fileServerPort,
-        workspaceDir: config.workspaceDir,
-      };
-      await setupService.saveStep1Config(step1);
-      setStep1Config(step1);
+  const performQuickInit = useCallback(
+    async (config: QuickInitConfig) => {
+      setQuickIniting(true);
+      try {
+        // 1. 保存 step1 配置
+        const step1: Step1Config = {
+          serverHost: normalizeServerHost(config.serverHost),
+          agentPort: config.agentPort,
+          fileServerPort: config.fileServerPort,
+          workspaceDir: config.workspaceDir,
+        };
+        await setupService.saveStep1Config(step1);
+        setStep1Config(step1);
 
-      // 2. 预存 savedKey 到 DB
-      const domain = normalizeServerHost(config.serverHost);
-      await window.electronAPI?.settings.set(AUTH_KEYS.SAVED_KEY, config.savedKey);
-      if (config.username) {
-        try {
-          const domainKey = `${AUTH_KEYS.SAVED_KEYS_PREFIX}${new URL(domain).hostname}_${config.username}`;
-          await window.electronAPI?.settings.set(domainKey, config.savedKey);
-        } catch {
-          // domain 解析失败时跳过域名级 savedKey 存储
+        // 2. 预存 savedKey 到 DB
+        const domain = normalizeServerHost(config.serverHost);
+        await window.electronAPI?.settings.set(
+          AUTH_KEYS.SAVED_KEY,
+          config.savedKey,
+        );
+        if (config.username) {
+          try {
+            const domainKey = `${AUTH_KEYS.SAVED_KEYS_PREFIX}${new URL(domain).hostname}_${config.username}`;
+            await window.electronAPI?.settings.set(domainKey, config.savedKey);
+          } catch {
+            // domain 解析失败时跳过域名级 savedKey 存储
+          }
         }
+
+        // 3. 调用 loginAndRegister（password 传空字符串，函数内部从 DB 取 savedKey）
+        await loginAndRegister(config.username, "", {
+          suppressToast: true,
+          domain,
+        });
+
+        // 4. 完成 step2 + setup
+        await setupService.completeStep2();
+        await setupService.completeSetup();
+
+        // 5. 触发完成
+        setQuickIniting(false);
+        setCompleted(true);
+
+        setTimeout(() => onComplete(), 1000);
+      } catch (error) {
+        console.error(
+          "[SetupWizard] Quick init failed, falling back to manual wizard:",
+          error,
+        );
+        setQuickIniting(false);
+        // step1 可能已保存，从 step1 或 step2 继续
+        const state = await setupService.getSetupState();
+        setCurrentStep(state.step1Completed ? 2 : 1);
       }
-
-      // 3. 调用 loginAndRegister（password 传空字符串，函数内部从 DB 取 savedKey）
-      await loginAndRegister(config.username, '', {
-        suppressToast: true,
-        domain,
-      });
-
-      // 4. 完成 step2 + setup
-      await setupService.completeStep2();
-      await setupService.completeSetup();
-
-      // 5. 触发完成
-      setQuickIniting(false);
-      setCompleted(true);
-      console.log('[SetupWizard] Quick init 完成');
-      setTimeout(() => onComplete(), 1000);
-    } catch (error) {
-      console.error('[SetupWizard] Quick init 失败，回退到手动向导:', error);
-      setQuickIniting(false);
-      // step1 可能已保存，从 step1 或 step2 继续
-      const state = await setupService.getSetupState();
-      setCurrentStep(state.step1Completed ? 2 : 1);
-    }
-  }, [onComplete]);
+    },
+    [onComplete],
+  );
 
   const handleDepsComplete = useCallback(async () => {
     setDependenciesReady(true);
@@ -222,12 +264,11 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
       try {
         const config = await window.electronAPI?.quickInit.getConfig();
         if (config) {
-          console.log('[SetupWizard] 检测到快捷初始化配置，开始自动配置');
           performQuickInit(config);
           return;
         }
       } catch (error) {
-        console.warn('[SetupWizard] 读取快捷配置失败:', error);
+        console.warn("[SetupWizard] Failed to read quick init config:", error);
       }
     }
 
@@ -241,13 +282,13 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
       const auth = await getCurrentAuth();
       if (auth.isLoggedIn && auth.userInfo) {
         setIsAlreadyLoggedIn(true);
-        setDomain(auth.userInfo.currentDomain || '');
+        setDomain(auth.userInfo.currentDomain || "");
       }
       if (auth.username) {
         setUsername(auth.username);
       }
     } catch (error) {
-      console.error('[SetupWizard] 检查登录状态失败:', error);
+      console.error("[SetupWizard] Failed to check login status:", error);
     } finally {
       setCheckingAuth(false);
     }
@@ -270,24 +311,24 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
 
   const handleStep1Submit = async () => {
     if (!step1Config.fileServerPort) {
-      message.warning('请输入文件服务端口');
+      message.warning(t("Claw.Setup.basicConfig.fileServerPortRequired"));
       return;
     }
     if (!step1Config.agentPort) {
-      message.warning('请输入 Agent 端口');
+      message.warning(t("Claw.Setup.basicConfig.agentPortRequired"));
       return;
     }
     if (!step1Config.workspaceDir) {
-      message.warning('请选择工作区目录');
+      message.warning(t("Claw.Setup.basicConfig.workspaceDirRequired"));
       return;
     }
     setLoading(true);
     try {
       await setupService.saveStep1Config(step1Config);
       setCurrentStep(2);
-      message.success('基础配置已保存');
+      message.success(t("Claw.Setup.basicConfig.saved"));
     } catch (error) {
-      message.error('保存配置失败');
+      message.error(t("Claw.Setup.basicConfig.saveFailed"));
     } finally {
       setLoading(false);
     }
@@ -295,34 +336,34 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
 
   const handleLogin = async () => {
     if (!username || !password) {
-      message.warning('请输入账号和动态认证码');
+      message.warning(t("Claw.Setup.login.accountAndCodeRequired"));
       return;
     }
 
     const loginDomain = domain || step1Config.serverHost;
     if (!loginDomain) {
-      message.warning('请输入服务域名');
+      message.warning(t("Claw.Setup.login.domainRequired"));
       return;
     }
 
     setLoginLoading(true);
-    setLoginError('');
+    setLoginError("");
     try {
       await loginAndRegister(username, password, {
         suppressToast: true,
         domain: loginDomain,
       });
-      setLoginError('');
+      setLoginError("");
       await setupService.completeStep2();
       await setupService.completeSetup();
       setCompleted(true);
-      message.success('登录成功');
+      message.success(t("Claw.Setup.login.success"));
       setTimeout(() => onComplete(), 2000);
     } catch (error: any) {
       const errorMessage = getAuthErrorMessage(error);
       message.error(errorMessage);
       setLoginError(errorMessage);
-      setPassword('');
+      setPassword("");
       setRetryCooldown(3);
     } finally {
       setLoginLoading(false);
@@ -344,14 +385,16 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
     try {
       await logout();
       setIsAlreadyLoggedIn(false);
-      setDomain('');
+      setDomain("");
     } catch {
-      message.error('退出登录失败');
+      message.error(t("Claw.Setup.login.logoutFailed"));
     }
   };
 
   const handleSelectWorkspaceDir = async () => {
-    const result = await window.electronAPI?.dialog.openDirectory('选择工作区目录');
+    const result = await window.electronAPI?.dialog.openDirectory(
+      t("Claw.Settings.workspace.selectDir"),
+    );
     if (result?.success && result.path) {
       setStep1Config({ ...step1Config, workspaceDir: result.path });
     }
@@ -370,9 +413,11 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
     if (completed) {
       return (
         <Result
-          icon={<CheckCircleOutlined style={{ color: 'var(--color-success)' }} />}
-          title="初始化完成"
-          subTitle="正在进入主界面..."
+          icon={
+            <CheckCircleOutlined style={{ color: "var(--color-success)" }} />
+          }
+          title={t("Claw.Setup.completed.title")}
+          subTitle={t("Claw.Setup.completed.subTitle")}
           extra={<Spin size="small" />}
         />
       );
@@ -383,14 +428,17 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
         return (
           <Form layout="vertical">
             <Alert
-              message="基础设置"
-              description="完成配置后即可使用，进度自动保存"
+              message={t("Claw.Setup.basicConfig.title")}
+              description={t("Claw.Setup.basicConfig.description")}
               type="info"
               showIcon
               style={{ marginBottom: 24 }}
             />
 
-            <Form.Item label="文件服务端口" required>
+            <Form.Item
+              label={t("Claw.Setup.basicConfig.fileServerPort")}
+              required
+            >
               <InputNumber
                 value={step1Config.fileServerPort}
                 onChange={(value) =>
@@ -399,43 +447,49 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
                     fileServerPort: value as number,
                   })
                 }
-                style={{ width: '100%' }}
+                style={{ width: "100%" }}
                 min={1024}
                 max={65535}
               />
             </Form.Item>
 
-            <Form.Item label="Agent 端口" required>
+            <Form.Item label={t("Claw.Setup.basicConfig.agentPort")} required>
               <InputNumber
                 value={step1Config.agentPort}
                 onChange={(value) =>
                   setStep1Config({ ...step1Config, agentPort: value as number })
                 }
-                style={{ width: '100%' }}
+                style={{ width: "100%" }}
                 min={1024}
                 max={65535}
               />
             </Form.Item>
 
             <Form.Item
-              label="工作区目录"
+              label={t("Claw.Setup.basicConfig.workspaceDir")}
               required
-              validateStatus={!step1Config.workspaceDir ? 'error' : ''}
-              help={!step1Config.workspaceDir ? '请选择工作区目录' : ''}
+              validateStatus={!step1Config.workspaceDir ? "error" : ""}
+              help={
+                !step1Config.workspaceDir
+                  ? t("Claw.Setup.basicConfig.workspaceDirRequired")
+                  : ""
+              }
             >
-              <Space.Compact style={{ width: '100%' }}>
+              <Space.Compact style={{ width: "100%" }}>
                 <Input
                   value={step1Config.workspaceDir}
                   readOnly
-                  placeholder="点击右侧按钮选择目录"
-                  style={{ cursor: 'pointer' }}
+                  placeholder={t(
+                    "Claw.Setup.basicConfig.workspaceDirPlaceholder",
+                  )}
+                  style={{ cursor: "pointer" }}
                   onClick={handleSelectWorkspaceDir}
                 />
                 <Button
                   icon={<FolderOpenOutlined />}
                   onClick={handleSelectWorkspaceDir}
                 >
-                  选择
+                  {t("Claw.Setup.basicConfig.select")}
                 </Button>
               </Space.Compact>
             </Form.Item>
@@ -446,7 +500,7 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
               loading={loading}
               block
             >
-              下一步：账号登录
+              {t("Claw.Setup.basicConfig.nextStep")}
             </Button>
           </Form>
         );
@@ -454,7 +508,14 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
       case 2:
         if (checkingAuth) {
           return (
-            <div style={{ minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div
+              style={{
+                minHeight: 200,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
               <Spin size="small" />
             </div>
           );
@@ -463,20 +524,28 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
         if (isAlreadyLoggedIn) {
           return (
             <Result
-              icon={<CheckCircleOutlined style={{ color: 'var(--color-success)' }} />}
-              title="已登录"
-              subTitle={`当前域名：${domain || '-'}`}
+              icon={
+                <CheckCircleOutlined
+                  style={{ color: "var(--color-success)" }}
+                />
+              }
+              title={t("Claw.Setup.login.alreadyLoggedIn")}
+              subTitle={t("Claw.Setup.login.currentDomain", {
+                domain: domain || "-",
+              })}
               extra={
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                <div
+                  style={{ display: "flex", gap: 8, justifyContent: "center" }}
+                >
                   <Button onClick={handleLogout} size="small">
-                    退出登录
+                    {t("Claw.Setup.login.logout")}
                   </Button>
                   <Button type="primary" onClick={handleContinueLoggedIn}>
-                    下一步
+                    {t("Claw.Setup.login.nextStep")}
                   </Button>
                 </div>
               }
-              style={{ padding: '16px 0' }}
+              style={{ padding: "16px 0" }}
             />
           );
         }
@@ -485,11 +554,14 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
           <Form layout="vertical">
             {loginError && (
               <Alert
-                message="登录失败"
+                message={t("Claw.Setup.login.failed")}
                 description={
                   <Text
                     copyable={{ text: loginError }}
-                    style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}
+                    style={{
+                      fontSize: 12,
+                      color: "var(--color-text-secondary)",
+                    }}
                   >
                     {loginError}
                   </Text>
@@ -500,52 +572,60 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
               />
             )}
 
-            <Form.Item label="服务域名" required>
+            <Form.Item label={t("Claw.Setup.login.domain")} required>
               <Input
                 prefix={<GlobalOutlined />}
                 value={domain || step1Config.serverHost}
                 onChange={(e) => setDomain(e.target.value)}
-                placeholder="例如：https://agent.nuwax.com"
+                placeholder={t("Claw.Setup.login.domainPlaceholder")}
                 autoComplete="off"
                 spellCheck={false}
               />
             </Form.Item>
 
-            <Form.Item label="账号" required>
+            <Form.Item label={t("Claw.Setup.login.account")} required>
               <Input
                 prefix={<UserOutlined />}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="用户名 / 手机号 / 邮箱"
+                placeholder={t("Claw.Setup.login.accountPlaceholder")}
                 autoComplete="username"
               />
             </Form.Item>
 
-            <Form.Item label="动态认证码" required>
+            <Form.Item label={t("Claw.Setup.login.code")} required>
               <Input.Password
                 prefix={<LockOutlined />}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="请输入密码或动态认证码（在浏览器打开你的域名登录，然后在用户资料中查看）"
+                placeholder={t("Claw.Setup.login.codePlaceholder")}
                 autoComplete="current-password"
               />
             </Form.Item>
 
-            <Space style={{ width: '100%' }} direction="vertical">
+            <Space style={{ width: "100%" }} direction="vertical">
               <Space>
-                <Button onClick={() => setCurrentStep(1)}>上一步</Button>
+                <Button onClick={() => setCurrentStep(1)}>
+                  {t("Claw.Setup.login.prevStep")}
+                </Button>
                 <Button
                   type="primary"
                   onClick={handleLogin}
                   loading={loginLoading}
                   disabled={retryCooldown > 0}
                 >
-                  {retryCooldown > 0 ? `请稍后 (${retryCooldown}s)` : '登录'}
+                  {retryCooldown > 0
+                    ? t("Claw.Setup.login.pleaseWait", {
+                        seconds: retryCooldown,
+                      })
+                    : t("Claw.Setup.login.loginButton")}
                 </Button>
               </Space>
-              <div style={{ textAlign: 'center' }}>
-                <Text style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
-                  支持用户名、邮箱、手机号登录
+              <div style={{ textAlign: "center" }}>
+                <Text
+                  style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}
+                >
+                  {t("Claw.Setup.login.supportMultipleAccountTypes")}
                 </Text>
               </div>
             </Space>
@@ -575,26 +655,37 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
         <div style={styles.header}>
           <div
             style={{
-              display: 'flex',
-              alignItems: 'center',
+              display: "flex",
+              alignItems: "center",
               gap: 8,
-              justifyContent: 'center',
+              justifyContent: "center",
               marginBottom: 4,
             }}
           >
             <span style={{ fontSize: 15, fontWeight: 600 }}>{APP_NAME}</span>
           </div>
-          <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', textAlign: 'center' }}>
-            检查和安装必需依赖
+          <div
+            style={{
+              fontSize: 12,
+              color: "var(--color-text-tertiary)",
+              textAlign: "center",
+            }}
+          >
+            {t("Claw.Setup.dependencies.checking")}
           </div>
         </div>
 
         <div style={styles.content}>
-          <SetupDependencies onComplete={handleDepsComplete} mockApi={mockApi} />
+          <SetupDependencies
+            onComplete={handleDepsComplete}
+            mockApi={mockApi}
+          />
         </div>
 
         <div style={styles.footer}>
-          <Text style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{APP_NAME}</Text>
+          <Text style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+            {APP_NAME}
+          </Text>
         </div>
       </div>
     );
@@ -607,7 +698,11 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
         <div style={styles.center}>
           <Space direction="vertical" align="center">
             <Spin size="default" />
-            <Text style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>正在自动配置...</Text>
+            <Text
+              style={{ fontSize: 13, color: "var(--color-text-secondary)" }}
+            >
+              {t("Claw.Setup.quickInit.configuring")}
+            </Text>
           </Space>
         </div>
       </div>
@@ -620,26 +715,28 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
       <div style={styles.header}>
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
+            display: "flex",
+            alignItems: "center",
             gap: 8,
-            justifyContent: 'center',
+            justifyContent: "center",
             marginBottom: 4,
           }}
         >
-          <span style={{ fontSize: 15, fontWeight: 600 }}>初始化向导</span>
+          <span style={{ fontSize: 15, fontWeight: 600 }}>
+            {t("Claw.Setup.wizardTitle")}
+          </span>
         </div>
-        <div style={{ fontSize: 12, color: '#a1a1aa', textAlign: 'center' }}>
-          完成配置后即可使用
+        <div style={{ fontSize: 12, color: "#a1a1aa", textAlign: "center" }}>
+          {t("Claw.Setup.wizardSubtitle")}
         </div>
       </div>
 
-      <div style={{ maxWidth: 480, margin: '0 auto 12px', padding: '0 8px' }}>
+      <div style={{ maxWidth: 480, margin: "0 auto 12px", padding: "0 8px" }}>
         <Steps
           current={currentStep - 1}
           size="small"
           onChange={handleStepClick}
-          items={WIZARD_STEPS.map((step) => ({
+          items={wizardSteps.map((step) => ({
             title: step.title,
             icon: step.icon,
             disabled: step.key > currentStep,
@@ -652,8 +749,8 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
       <div style={styles.footer}>
         {/* 版本号由 Vite 在构建时从 crates/agent-electron-client/package.json 的 version 注入；
             修改版本后需重启开发服务器或重新打包才能生效 */}
-        <Text style={{ fontSize: 11, color: '#a1a1aa' }}>
-          {APP_NAME} v{__APP_VERSION__} · 进度自动保存
+        <Text style={{ fontSize: 11, color: "#a1a1aa" }}>
+          {APP_NAME} v{__APP_VERSION__} · {t("Claw.Setup.footer.autoSaved")}
         </Text>
       </div>
     </div>
@@ -662,17 +759,17 @@ function SetupWizard({ onComplete, mockApi, skipDependencyCheck, mockLoggedIn }:
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100vh',
-    background: 'var(--color-bg-layout)',
+    display: "flex",
+    flexDirection: "column",
+    height: "100vh",
+    background: "var(--color-bg-layout)",
     padding: 16,
   },
   center: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100%',
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    height: "100%",
   },
   header: {
     marginBottom: 12,
@@ -680,16 +777,16 @@ const styles: Record<string, React.CSSProperties> = {
   content: {
     flex: 1,
     maxWidth: 640,
-    width: '100%',
-    margin: '0 auto',
-    overflowY: 'auto',
-    background: 'var(--color-bg-container)',
-    border: '1px solid var(--color-border)',
+    width: "100%",
+    margin: "0 auto",
+    overflowY: "auto",
+    background: "var(--color-bg-container)",
+    border: "1px solid var(--color-border)",
     borderRadius: 8,
     padding: 20,
   },
   footer: {
-    textAlign: 'center',
+    textAlign: "center",
     marginTop: 8,
   },
 };

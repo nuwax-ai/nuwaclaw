@@ -10,13 +10,15 @@
     "prettier": "^3.8.1"
   },
   "lint-staged": {
-    "crates/agent-tauri-client/src/**/*.{ts,tsx}": [
-      "prettier --write",
-      "pnpm --filter agent-tauri-client lint"
-    ],
     "crates/agent-electron-client/src/**/*.{ts,tsx}": [
       "prettier --write"
     ]
   },
-  "packageManager": "pnpm@9.15.5+sha512.845196026aab1cc3f098a0474b64dfbab2afe7a1b4e91dd86895d8e4aa32a7a6d03049e2d0ad770bbe4de023a7122fb68c1a1d6e0d033c7076085f9d5d4800d4"
+  "packageManager": "pnpm@9.15.5+sha512.845196026aab1cc3f098a0474b64dfbab2afe7a1b4e91dd86895d8e4aa32a7a6d03049e2d0ad770bbe4de023a7122fb68c1a1d6e0d033c7076085f9d5d4800d4",
+  "dependencies": {
+    "i18next": "^26.0.3",
+    "i18next-browser-languagedetector": "^8.2.1",
+    "i18next-http-backend": "^3.0.4",
+    "react-i18next": "^17.0.2"
+  }
 }

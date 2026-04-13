@@ -1,5 +1,9 @@
-import { useState, useEffect } from 'react';
-import { permissionManager, PermissionRequest } from '../../services/agents/permissions';
+import { useState, useEffect } from "react";
+import {
+  permissionManager,
+  PermissionRequest,
+} from "../../services/agents/permissions";
+import { t } from "../../services/core/i18n";
 
 interface PermissionModalProps {
   isOpen: boolean;
@@ -8,7 +12,12 @@ interface PermissionModalProps {
   onDeny: () => void;
 }
 
-function PermissionModal({ isOpen, request, onApprove, onDeny }: PermissionModalProps) {
+function PermissionModal({
+  isOpen,
+  request,
+  onApprove,
+  onDeny,
+}: PermissionModalProps) {
   const [countdown, setCountdown] = useState(30);
 
   useEffect(() => {
@@ -31,42 +40,49 @@ function PermissionModal({ isOpen, request, onApprove, onDeny }: PermissionModal
 
   const getIcon = () => {
     switch (request.type) {
-      case 'command': return '🖥️';
-      case 'file': return '📁';
-      case 'network': return '🌐';
-      case 'tool': return '🔧';
-      default: return '⚠️';
+      case "command":
+        return "🖥️";
+      case "file":
+        return "📁";
+      case "network":
+        return "🌐";
+      case "tool":
+        return "🔧";
+      default:
+        return "⚠️";
     }
   };
 
   const getDetails = () => {
     const details = request.details;
     switch (request.type) {
-      case 'command':
+      case "command":
         return (
           <div className="permission-details">
             <div className="detail-row">
-              <span className="label">命令:</span>
-              <code>{details.command} {details.args?.join(' ')}</code>
+              <span className="label">{t("Claw.Permissions.command")}:</span>
+              <code>
+                {details.command} {details.args?.join(" ")}
+              </code>
             </div>
             {details.env && (
               <div className="detail-row">
-                <span className="label">环境变量:</span>
-                <span>{Object.keys(details.env).join(', ')}</span>
+                <span className="label">{t("Claw.Permissions.envVars")}:</span>
+                <span>{Object.keys(details.env).join(", ")}</span>
               </div>
             )}
           </div>
         );
-      case 'file':
+      case "file":
         return (
           <div className="permission-details">
             <div className="detail-row">
-              <span className="label">文件:</span>
+              <span className="label">{t("Claw.Permissions.file")}:</span>
               <code>{details.file}</code>
             </div>
           </div>
         );
-      case 'network':
+      case "network":
         return (
           <div className="permission-details">
             <div className="detail-row">
@@ -75,11 +91,11 @@ function PermissionModal({ isOpen, request, onApprove, onDeny }: PermissionModal
             </div>
           </div>
         );
-      case 'tool':
+      case "tool":
         return (
           <div className="permission-details">
             <div className="detail-row">
-              <span className="label">工具:</span>
+              <span className="label">{t("Claw.Permissions.tool")}:</span>
               <code>{details.tool}</code>
             </div>
           </div>
@@ -96,7 +112,9 @@ function PermissionModal({ isOpen, request, onApprove, onDeny }: PermissionModal
           <span className="permission-icon">{getIcon()}</span>
           <div className="permission-title">
             <h3>{request.title}</h3>
-            <span className="permission-timer">{countdown} 秒</span>
+            <span className="permission-timer">
+              {countdown} {t("Claw.Permissions.second")}
+            </span>
           </div>
         </div>
 
@@ -107,13 +125,16 @@ function PermissionModal({ isOpen, request, onApprove, onDeny }: PermissionModal
 
         <div className="permission-actions">
           <button className="deny-btn" onClick={onDeny}>
-            拒绝
+            {t("Claw.Permissions.deny")}
           </button>
           <button className="approve-once-btn" onClick={() => onApprove(false)}>
-            本次允许
+            {t("Claw.Permissions.allowOnce")}
           </button>
-          <button className="approve-always-btn" onClick={() => onApprove(true)}>
-            始终允许
+          <button
+            className="approve-always-btn"
+            onClick={() => onApprove(true)}
+          >
+            {t("Claw.Permissions.allowAlways")}
           </button>
         </div>
       </div>

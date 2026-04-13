@@ -24,7 +24,8 @@ import {
   LinkOutlined,
 } from "@ant-design/icons";
 import type { LocalDependencyItem } from "@shared/types/electron";
-import { ACTION_MESSAGES } from "@shared/constants";
+import { I18N_KEYS } from "@shared/constants";
+import { t } from "../../services/core/i18n";
 
 export type InstallPhase =
   | "checking"
@@ -56,10 +57,22 @@ export interface DisplayDependencyItem {
 
 /** Mock API 接口（用于测试） */
 export interface MockDependenciesApi {
-  checkAll: () => Promise<{ success: boolean; results?: LocalDependencyItem[]; error?: string }>;
-  checkUv: () => Promise<{ success: boolean; installed: boolean; bundled?: boolean; version?: string }>;
-  installPackage: (name: string, options?: { version?: string }) => Promise<{ success: boolean; version?: string; error?: string }>;
-  openExternal: (url: string) => Promise<void>;
+  checkAll: () => Promise<{
+    success: boolean;
+    results?: LocalDependencyItem[];
+    error?: string;
+  }>;
+  checkUv: () => Promise<{
+    success: boolean;
+    installed: boolean;
+    bundled?: boolean;
+    version?: string;
+  }>;
+  installPackage: (
+    name: string,
+    options?: { version?: string },
+  ) => Promise<{ success: boolean; version?: string; error?: string }>;
+  openExternal: (url: string) => Promise<unknown>;
 }
 
 interface SetupDependenciesProps {
@@ -93,34 +106,54 @@ export default function SetupDependencies({
   onCompleteRef.current = onComplete;
 
   // API 访问器（支持 mock 注入，使用 useMemo 避免每次渲染重建）
-  const api = useMemo(() => mockApi || {
-    checkAll: () => window.electronAPI?.dependencies.checkAll() as Promise<{ success: boolean; results?: LocalDependencyItem[]; error?: string }>,
-    checkUv: () => window.electronAPI?.dependencies.checkUv() as Promise<{ success: boolean; installed: boolean; bundled?: boolean; version?: string }>,
-    installPackage: (name: string, options?: { version?: string }) =>
-      window.electronAPI?.dependencies.installPackage(name, options) as Promise<{ success: boolean; version?: string; error?: string }>,
-    openExternal: (url: string) => window.electronAPI?.shell.openExternal(url) as Promise<void>,
-  }, [mockApi]);
+  const api = useMemo(
+    () =>
+      mockApi || {
+        checkAll: () =>
+          window.electronAPI?.dependencies.checkAll() as Promise<{
+            success: boolean;
+            results?: LocalDependencyItem[];
+            error?: string;
+          }>,
+        checkUv: () =>
+          window.electronAPI?.dependencies.checkUv() as Promise<{
+            success: boolean;
+            installed: boolean;
+            bundled?: boolean;
+            version?: string;
+          }>,
+        installPackage: (name: string, options?: { version?: string }) =>
+          window.electronAPI?.dependencies.installPackage(
+            name,
+            options,
+          ) as Promise<{ success: boolean; version?: string; error?: string }>,
+        openExternal: (url: string) =>
+          window.electronAPI?.shell.openExternal(url) as Promise<unknown>,
+      },
+    [mockApi],
+  );
 
-  const openUrl = useCallback(async (url: string) => {
-    try {
-      await api.openExternal(url);
-    } catch (e) {
-      console.error("[SetupDeps] openExternal failed:", e);
-    }
-  }, [api]);
+  const openUrl = useCallback(
+    async (url: string) => {
+      try {
+        await api.openExternal(url);
+      } catch (e) {
+        console.error("[SetupDeps] openExternal failed:", e);
+      }
+    },
+    [api],
+  );
 
   const checkAllDeps = useCallback(async () => {
-    console.log("[SetupDeps] checkAllDeps 开始");
     setInstallPhase("checking");
 
     try {
       const result = await api.checkAll();
       if (!result?.success || !result.results) {
-        throw new Error(result?.error || "检测依赖失败");
+        throw new Error(result?.error || t("Claw.Dependencies.checkFailed"));
       }
 
       const deps: LocalDependencyItem[] = result.results;
-      console.log("[SetupDeps] 依赖检测完成:", deps.length, "项");
 
       const unified: DisplayDependencyItem[] = deps.map((d) => ({
         name: d.name,
@@ -172,7 +205,6 @@ export default function SetupDependencies({
       if (
         unified.every((d) => d.status === "installed" || d.status === "bundled")
       ) {
-        console.log("[SetupDeps] 所有依赖已就绪");
         setInstallPhase("completed");
         setTimeout(() => onCompleteRef.current(), 1500);
       } else {
@@ -180,10 +212,12 @@ export default function SetupDependencies({
         setInstallPhase("installing");
       }
     } catch (error) {
-      console.error("[SetupDeps] 检测失败:", error);
+      console.error("[SetupDeps] Check failed:", error);
       setInstallPhase("error");
       setInstallError(
-        error instanceof Error ? error.message : "检测依赖失败",
+        error instanceof Error
+          ? error.message
+          : t("Claw.Dependencies.checkFailed"),
       );
     }
   }, [api]);
@@ -195,7 +229,8 @@ export default function SetupDependencies({
 
   // 安装逻辑（移入 useEffect 避免闭包问题）
   useEffect(() => {
-    if (installPhase !== "installing" || projectInstallTriggered.current) return;
+    if (installPhase !== "installing" || projectInstallTriggered.current)
+      return;
 
     projectInstallTriggered.current = true;
     setInstallProgress(0);
@@ -268,7 +303,12 @@ export default function SetupDependencies({
               ),
             );
             setInstallPhase("error");
-            setInstallError(result?.error || `安装 ${pkg.displayName} 失败`);
+            setInstallError(
+              result?.error ||
+                t("Claw.Dependencies.installPkgFailed", {
+                  pkg: pkg.displayName,
+                }),
+            );
             return;
           }
         } catch (error) {
@@ -278,13 +318,20 @@ export default function SetupDependencies({
                 ? {
                     ...d,
                     status: "error" as const,
-                    errorMessage: error instanceof Error ? error.message : "安装失败",
+                    errorMessage:
+                      error instanceof Error
+                        ? error.message
+                        : t("Claw.Dependencies.installFailed"),
                   }
                 : d,
             ),
           );
           setInstallPhase("error");
-          setInstallError(error instanceof Error ? error.message : "安装失败");
+          setInstallError(
+            error instanceof Error
+              ? error.message
+              : t("Claw.Dependencies.installFailed"),
+          );
           return;
         }
       }
@@ -302,7 +349,9 @@ export default function SetupDependencies({
       case "installed":
       case "bundled":
         return (
-          <CheckCircleOutlined style={{ color: "var(--color-success)", fontSize: 12 }} />
+          <CheckCircleOutlined
+            style={{ color: "var(--color-success)", fontSize: 12 }}
+          />
         );
       case "missing":
       case "outdated":
@@ -312,10 +361,16 @@ export default function SetupDependencies({
           />
         );
       case "installing":
-        return <LoadingOutlined style={{ color: "var(--color-text-tertiary)", fontSize: 12 }} />;
+        return (
+          <LoadingOutlined
+            style={{ color: "var(--color-text-tertiary)", fontSize: 12 }}
+          />
+        );
       case "error":
         return (
-          <CloseCircleOutlined style={{ color: "var(--color-error)", fontSize: 12 }} />
+          <CloseCircleOutlined
+            style={{ color: "var(--color-error)", fontSize: 12 }}
+          />
         );
       default:
         return <LoadingOutlined style={{ fontSize: 12 }} />;
@@ -344,8 +399,10 @@ export default function SetupDependencies({
           showIcon
           message={
             <span>
-              uv 已确认（{uvConfirm.bundled ? "应用内" : "系统"}
-              {uvConfirm.version ? `，v${uvConfirm.version}` : ""}）
+              {t("Claw.Dependencies.uvConfirmed", {
+                context: uvConfirm.bundled ? "bundled" : "system",
+                version: uvConfirm.version || "",
+              })}
             </span>
           }
           style={{ marginBottom: 12 }}
@@ -360,7 +417,9 @@ export default function SetupDependencies({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 12, fontWeight: 500 }}>依赖清单</span>
+          <span style={{ fontSize: 12, fontWeight: 500 }}>
+            {t("Claw.Dependencies.dependencyList")}
+          </span>
           <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
             {stats.ready}/{stats.total}
           </span>
@@ -371,7 +430,9 @@ export default function SetupDependencies({
           onClick={() => setShowAll((p) => !p)}
           style={{ padding: 0, height: "auto", fontSize: 11 }}
         >
-          {showAll ? "仅显示问题" : "展开全部"}
+          {showAll
+            ? t("Claw.Dependencies.showOnlyProblems")
+            : t("Claw.Dependencies.showAll")}
         </Button>
       </div>
 
@@ -392,7 +453,7 @@ export default function SetupDependencies({
               color: "var(--color-text-tertiary)",
             }}
           >
-            暂无问题项
+            {t("Claw.Dependencies.noProblemItems")}
           </div>
         ) : (
           displayDeps.map((item, i) => {
@@ -422,7 +483,9 @@ export default function SetupDependencies({
                   justifyContent: "space-between",
                   padding: "8px 12px",
                   borderBottom:
-                    i < displayDeps.length - 1 ? "1px solid var(--color-border-secondary)" : "none",
+                    i < displayDeps.length - 1
+                      ? "1px solid var(--color-border-secondary)"
+                      : "none",
                   background: getBgColor(),
                 }}
               >
@@ -435,7 +498,12 @@ export default function SetupDependencies({
                       {item.displayName}
                     </span>
                     {item.version && (
-                      <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: "var(--color-text-tertiary)",
+                        }}
+                      >
                         v{item.version}
                       </span>
                     )}
@@ -454,7 +522,9 @@ export default function SetupDependencies({
                         <span> ({item.requiredVersion})</span>
                       )}
                       {item.errorMessage && (
-                        <span style={{ color: "var(--color-error)", marginLeft: 4 }}>
+                        <span
+                          style={{ color: "var(--color-error)", marginLeft: 4 }}
+                        >
                           {item.errorMessage}
                         </span>
                       )}
@@ -469,7 +539,7 @@ export default function SetupDependencies({
                     onClick={() => openUrl(item.installUrl!)}
                     style={{ padding: 0, fontSize: 12 }}
                   >
-                    安装
+                    {t("Claw.Dependencies.install")}
                   </Button>
                 )}
               </div>
@@ -488,13 +558,18 @@ export default function SetupDependencies({
   // 正常自动流程：只显示 loading + 状态文字
   if (!isErrorPhase) {
     const hasOutdated = allDependencies.some((d) => d.status === "outdated");
-    const installVerb = hasOutdated ? "安装并升级" : "安装";
+    const installVerb = hasOutdated
+      ? t("Claw.Dependencies.installAndUpgrade")
+      : t("Claw.Dependencies.install");
     const phaseText: Record<string, string> = {
-      checking: "正在检测依赖环境...",
+      checking: t("Claw.Dependencies.checkingEnv"),
       installing: currentInstalling
-        ? `正在${installVerb} ${currentInstalling}...`
-        : `正在${installVerb}依赖...`,
-      completed: ACTION_MESSAGES.allReady,
+        ? t("Claw.Dependencies.installingDep", {
+            pkg: currentInstalling,
+            verb: installVerb,
+          })
+        : t("Claw.Dependencies.installingAllDep", { verb: installVerb }),
+      completed: t(I18N_KEYS.Components.Action.ALL_READY),
     };
 
     return (
@@ -509,12 +584,14 @@ export default function SetupDependencies({
           }}
         >
           {installPhase === "completed" ? (
-            <CheckCircleOutlined style={{ fontSize: 40, color: "var(--color-success)" }} />
+            <CheckCircleOutlined
+              style={{ fontSize: 40, color: "var(--color-success)" }}
+            />
           ) : (
             <Spin size="large" />
           )}
           <div style={{ fontSize: 14, fontWeight: 500 }}>
-            {phaseText[installPhase] || ACTION_MESSAGES.starting}
+            {phaseText[installPhase] || t(I18N_KEYS.Components.Action.STARTING)}
           </div>
           {installPhase === "installing" && (
             <div style={{ width: "100%", maxWidth: 300 }}>
@@ -527,7 +604,7 @@ export default function SetupDependencies({
           )}
           {installPhase === "completed" && (
             <div style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>
-              正在进入下一步...
+              {t("Claw.Dependencies.enteringNextStep")}
             </div>
           )}
         </div>
@@ -540,8 +617,12 @@ export default function SetupDependencies({
   // 通用错误（npm 安装失败等）
   if (installPhase === "error") {
     const hasOutdated = allDependencies.some((d) => d.status === "outdated");
-    const installLabel = hasOutdated ? "依赖安装与升级" : "依赖安装";
-    const retryLabel = hasOutdated ? "重试安装并升级" : "重试安装";
+    const installLabel = hasOutdated
+      ? t("Claw.Dependencies.installAndUpgrade")
+      : t("Claw.Dependencies.install");
+    const retryLabel = hasOutdated
+      ? t("Claw.Dependencies.retryInstallAndUpgrade")
+      : t("Claw.Dependencies.retryInstall");
     return (
       <div>
         <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
@@ -549,7 +630,11 @@ export default function SetupDependencies({
         </div>
         {renderDependencyList()}
         <Alert
-          message={hasOutdated ? "安装/升级失败" : "安装失败"}
+          message={
+            hasOutdated
+              ? t("Claw.Dependencies.upgradeFailed")
+              : t("Claw.Dependencies.installFailed")
+          }
           description={installError}
           type="error"
           showIcon
@@ -562,7 +647,7 @@ export default function SetupDependencies({
               setInstallPhase("checking");
             }}
           >
-            重新检测
+            {t("Claw.Dependencies.recheck")}
           </Button>
           <Button
             type="primary"
@@ -582,11 +667,11 @@ export default function SetupDependencies({
   return (
     <div>
       <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>
-        依赖安装
+        {t("Claw.Dependencies.install")}
       </div>
 
       <Alert
-        message="请安装所需系统依赖，然后点击「重新检测」"
+        message={t("Claw.Dependencies.pleaseInstallSystemDeps")}
         type="warning"
         showIcon
         style={{ marginBottom: 12 }}
@@ -611,7 +696,7 @@ export default function SetupDependencies({
             setInstallPhase("checking");
           }}
         >
-          重新检测
+          {t("Claw.Dependencies.recheck")}
         </Button>
       </div>
     </div>

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 检查 Tauri sidecar 二进制是否齐全
+# 检查 sidecar 二进制是否齐全
 #
 # 用法:
 #   ./scripts/check-sidecars.sh
@@ -13,8 +13,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-BIN_DIR="$ROOT_DIR/crates/agent-tauri-client/src-tauri/binaries"
-CHECK_DIR="$BIN_DIR"
+CHECK_DIR="${CHECK_DIR:-.cache/sidecars}"
 
 TARGET=""
 TARGETS=()
@@ -69,7 +68,25 @@ if [[ $ALL_COMMON -eq 1 ]]; then
 fi
 
 if [[ ${#TARGETS[@]} -eq 0 ]]; then
-  TARGETS=("$(rustc -vV | awk '/^host:/ {print $2}')")
+  # Default to current platform
+  case "$(uname -s)" in
+    Darwin)
+      case "$(uname -m)" in
+        arm64) TARGETS=("aarch64-apple-darwin") ;;
+        *) TARGETS=("x86_64-apple-darwin") ;;
+      esac
+      ;;
+    Linux)
+      case "$(uname -m)" in
+        aarch64) TARGETS=("aarch64-unknown-linux-gnu") ;;
+        armv7l) TARGETS=("aarch64-unknown-linux-gnu") ;;
+        *) TARGETS=("x86_64-unknown-linux-gnu") ;;
+      esac
+      ;;
+    MINGW*|MSYS*|CYGWIN*)
+      TARGETS=("x86_64-pc-windows-msvc")
+      ;;
+  esac
 fi
 
 if [[ ${#COMPONENTS[@]} -eq 0 && $DOWNLOADED_ONLY -eq 1 ]]; then

@@ -187,11 +187,10 @@ describe("processTree", () => {
     it("should call taskkill with correct args", async () => {
       setPlatform("win32");
 
-      mockExecFile.mockImplementation(
-        (_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
-          cb(null);
-        },
-      );
+      mockExecFile.mockImplementation(((...args: unknown[]) => {
+        const cb = args[args.length - 1] as (err: Error | null) => void;
+        cb(null);
+      }) as typeof mockExecFile);
 
       const { killProcessTree } = await import("./processTree");
       await killProcessTree(4567);
@@ -199,6 +198,7 @@ describe("processTree", () => {
       expect(mockExecFile).toHaveBeenCalledWith(
         "taskkill",
         ["/T", "/F", "/PID", "4567"],
+        { windowsHide: true },
         expect.any(Function),
       );
     });
@@ -206,14 +206,13 @@ describe("processTree", () => {
     it("should resolve when process not found (exit code 128)", async () => {
       setPlatform("win32");
 
-      mockExecFile.mockImplementation(
-        (_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
-          const err = Object.assign(new Error("process not found"), {
-            code: 128,
-          });
-          cb(err);
-        },
-      );
+      mockExecFile.mockImplementation(((...args: unknown[]) => {
+        const cb = args[args.length - 1] as (err: Error | null) => void;
+        const err = Object.assign(new Error("process not found"), {
+          code: 128,
+        });
+        cb(err);
+      }) as typeof mockExecFile);
 
       const { killProcessTree } = await import("./processTree");
       await expect(killProcessTree(4567)).resolves.toBeUndefined();
@@ -222,14 +221,13 @@ describe("processTree", () => {
     it("should resolve when process not found (ESRCH code)", async () => {
       setPlatform("win32");
 
-      mockExecFile.mockImplementation(
-        (_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
-          const err = Object.assign(new Error("no such process"), {
-            code: "ESRCH",
-          });
-          cb(err);
-        },
-      );
+      mockExecFile.mockImplementation(((...args: unknown[]) => {
+        const cb = args[args.length - 1] as (err: Error | null) => void;
+        const err = Object.assign(new Error("no such process"), {
+          code: "ESRCH",
+        });
+        cb(err);
+      }) as typeof mockExecFile);
 
       const { killProcessTree } = await import("./processTree");
       await expect(killProcessTree(4567)).resolves.toBeUndefined();
@@ -238,14 +236,13 @@ describe("processTree", () => {
     it("should reject on other errors", async () => {
       setPlatform("win32");
 
-      mockExecFile.mockImplementation(
-        (_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
-          const err = Object.assign(new Error("access denied"), {
-            code: 5,
-          });
-          cb(err);
-        },
-      );
+      mockExecFile.mockImplementation(((...args: unknown[]) => {
+        const cb = args[args.length - 1] as (err: Error | null) => void;
+        const err = Object.assign(new Error("access denied"), {
+          code: 5,
+        });
+        cb(err);
+      }) as typeof mockExecFile);
 
       const { killProcessTree } = await import("./processTree");
       await expect(killProcessTree(4567)).rejects.toThrow("access denied");
@@ -340,6 +337,50 @@ describe("processTree", () => {
       expect(mockLog.warn).toHaveBeenCalledWith(
         expect.stringContaining("sending SIGKILL"),
       );
+    });
+  });
+
+  describe("collectListeningPidsOnPortFromNetstatStdout", () => {
+    it("returns PIDs for 127.0.0.1 LISTENING", async () => {
+      const { collectListeningPidsOnPortFromNetstatStdout } =
+        await import("./processTree");
+      const sample = `
+  TCP    127.0.0.1:60008         0.0.0.0:0              LISTENING       12345
+  TCP    0.0.0.0:135             0.0.0.0:0              LISTENING       4
+`;
+      expect(
+        collectListeningPidsOnPortFromNetstatStdout(sample, 60008),
+      ).toEqual([12345]);
+    });
+
+    it("ignores ESTABLISHED when port only appears on remote side", async () => {
+      const { collectListeningPidsOnPortFromNetstatStdout } =
+        await import("./processTree");
+      const sample =
+        "  TCP    127.0.0.1:80         192.168.1.1:60008      ESTABLISHED     99999";
+      expect(
+        collectListeningPidsOnPortFromNetstatStdout(sample, 60008),
+      ).toEqual([]);
+    });
+
+    it("parses Chinese 监听 line", async () => {
+      const { collectListeningPidsOnPortFromNetstatStdout } =
+        await import("./processTree");
+      const sample =
+        "  TCP    127.0.0.1:60008         0.0.0.0:0              监听       23456";
+      expect(
+        collectListeningPidsOnPortFromNetstatStdout(sample, 60008),
+      ).toEqual([23456]);
+    });
+
+    it("parses [::ffff:127.0.0.1]:port (IPv4-mapped)", async () => {
+      const { collectListeningPidsOnPortFromNetstatStdout } =
+        await import("./processTree");
+      const sample =
+        "  TCP    [::ffff:127.0.0.1]:60008  [::]:0                 LISTENING       77777";
+      expect(
+        collectListeningPidsOnPortFromNetstatStdout(sample, 60008),
+      ).toEqual([77777]);
     });
   });
 });

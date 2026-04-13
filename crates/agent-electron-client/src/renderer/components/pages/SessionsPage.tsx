@@ -19,8 +19,11 @@ import {
   syncCookieAndGetRedirectUrl,
   syncCookieAndGetNewSessionUrl,
   syncCookieAndGetChatUrl,
+  persistTicketCookie,
 } from "../../services/utils/sessionUrl";
+import { logger } from "../../services/utils/logService";
 import { APP_DISPLAY_NAME } from "@shared/constants";
+import { t } from "../../services/core/i18n";
 import type { DetailedSession } from "@shared/types/sessions";
 import styles from "../../styles/components/SessionsPage.module.css";
 
@@ -59,6 +62,48 @@ function SessionsPage({
       })
       .catch(() => {});
   }, []);
+
+  // Debug: log webview navigation events to track login redirects
+  useEffect(() => {
+    const el = webviewRef.current as any;
+    if (!el || view !== "webview") return;
+
+    const onDidNavigate = (e: any) => {
+      const url: string = e.url || "(unknown)";
+      const isLogin = url.includes("/login");
+      const level = isLogin ? "warn" : "info";
+      logger[level](
+        `[SessionsPage][WebviewNav] did-navigate${isLogin ? " ⚠️ LOGIN DETECTED" : ""}`,
+        "SessionsPage",
+        { url, httpCode: e.httpResponseCode, isLogin },
+      );
+
+      // webview 登录成功后（从 /login 跳到非 login 页面），持久化 ticket cookie
+      if (!isLogin && url.startsWith("http")) {
+        try {
+          const origin = new URL(url).origin;
+          persistTicketCookie(origin).catch(() => {});
+        } catch {
+          // URL 解析失败，忽略
+        }
+      }
+    };
+    const onWillRedirect = (e: any) => {
+      logger.info("[SessionsPage][WebviewNav] will-redirect", "SessionsPage", {
+        from: e.oldURL,
+        to: e.newURL,
+      });
+    };
+
+    el.addEventListener("did-navigate", onDidNavigate);
+    el.addEventListener("did-navigate-in-page", onDidNavigate);
+    el.addEventListener("will-redirect", onWillRedirect);
+    return () => {
+      el.removeEventListener("did-navigate", onDidNavigate);
+      el.removeEventListener("did-navigate-in-page", onDidNavigate);
+      el.removeEventListener("will-redirect", onWillRedirect);
+    };
+  }, [view, webviewUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Notify parent when entering/leaving webview
   useEffect(() => {
@@ -122,14 +167,14 @@ function SessionsPage({
     try {
       const url = await syncCookieAndGetRedirectUrl();
       if (!url) {
-        message.warning("登录信息不完整，请先登录");
+        message.warning(t("Claw.Sessions.loginFirst"));
         return;
       }
       setWebviewUrl(url);
       setView("webview");
     } catch (error) {
       console.error("[SessionsPage] syncCookieAndGetUrl failed:", error);
-      message.error("获取会话地址失败");
+      message.error(t("Claw.Sessions.getSessionUrlFailed"));
     }
   }, []);
 
@@ -137,7 +182,7 @@ function SessionsPage({
     try {
       const url = await syncCookieAndGetNewSessionUrl();
       if (!url) {
-        message.warning("登录信息不完整，请先登录");
+        message.warning(t("Claw.Sessions.loginFirst"));
         return;
       }
       setWebviewUrl(url);
@@ -147,7 +192,7 @@ function SessionsPage({
         "[SessionsPage] syncCookieAndGetNewSessionUrl failed:",
         error,
       );
-      message.error("获取会话地址失败");
+      message.error(t("Claw.Sessions.getSessionUrlFailed"));
     }
   }, []);
 
@@ -155,14 +200,14 @@ function SessionsPage({
     try {
       const url = await syncCookieAndGetChatUrl(sessionId);
       if (!url) {
-        message.warning("登录信息不完整，请先登录");
+        message.warning(t("Claw.Sessions.loginFirst"));
         return;
       }
       setWebviewUrl(url);
       setView("webview");
     } catch (error) {
       console.error("[SessionsPage] syncCookieAndGetChatUrl failed:", error);
-      message.error("获取会话地址失败");
+      message.error(t("Claw.Sessions.getSessionUrlFailed"));
     }
   }, []);
 
@@ -180,14 +225,14 @@ function SessionsPage({
       try {
         const result = await window.electronAPI?.agent.stopSession(sessionId);
         if (result?.success) {
-          message.success("会话已停止");
+          message.success(t("Claw.Sessions.sessionStopped"));
           await fetchSessions();
         } else {
-          message.error("停止会话失败");
+          message.error(t("Claw.Sessions.stopSessionFailed"));
         }
       } catch (error) {
         console.error("[SessionsPage] stopSession failed:", error);
-        message.error("停止会话失败");
+        message.error(t("Claw.Sessions.stopSessionFailed"));
       } finally {
         setStoppingSessions((prev) => {
           const next = new Set(prev);
@@ -204,22 +249,22 @@ function SessionsPage({
   const getStatusTag = (status: DetailedSession["status"]) => {
     switch (status) {
       case "active":
-        return <Tag color="processing">活跃</Tag>;
+        return <Tag color="processing">{t("Claw.Sessions.statusActive")}</Tag>;
       case "pending":
-        return <Tag color="warning">等待中</Tag>;
+        return <Tag color="warning">{t("Claw.Sessions.statusPending")}</Tag>;
       case "terminating":
-        return <Tag color="error">终止中</Tag>;
+        return <Tag color="error">{t("Claw.Sessions.statusTerminating")}</Tag>;
       case "idle":
       default:
-        return <Tag>空闲</Tag>;
+        return <Tag>{t("Claw.Sessions.statusIdle")}</Tag>;
     }
   };
 
   const getEngineTag = (engineType: DetailedSession["engineType"]) => {
     return engineType === "claude-code" ? (
-      <Tag color="blue">Agent 引擎01</Tag>
+      <Tag color="blue">{t("Claw.Sessions.engine01")}</Tag>
     ) : (
-      <Tag color="purple">Agent 引擎02</Tag>
+      <Tag color="purple">{t("Claw.Sessions.engine02")}</Tag>
     );
   };
 
@@ -256,7 +301,9 @@ function SessionsPage({
             <TeamOutlined
               style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
             />
-            <span className={styles.toolbarTitle}>会话</span>
+            <span className={styles.toolbarTitle}>
+              {t("Claw.Sessions.title")}
+            </span>
             {sessions.length > 0 && (
               <Tag style={{ margin: 0, fontSize: 11 }}>{sessions.length}</Tag>
             )}
@@ -267,7 +314,7 @@ function SessionsPage({
               icon={<ReloadOutlined />}
               onClick={fetchSessions}
             >
-              刷新
+              {t("Claw.Sessions.refresh")}
             </Button>
             <Button
               size="small"
@@ -275,7 +322,7 @@ function SessionsPage({
               icon={<PlusOutlined />}
               onClick={handleNewSession}
             >
-              新建会话
+              {t("Claw.Sessions.newSession")}
             </Button>
           </div>
         </div>
@@ -288,13 +335,13 @@ function SessionsPage({
         ) : sessions.length === 0 ? (
           <div className={styles.emptyState}>
             <TeamOutlined className={styles.emptyIcon} />
-            <span>暂无活跃会话</span>
+            <span>{t("Claw.Sessions.noActiveSessions")}</span>
             <Button
               type="primary"
               icon={<PlusOutlined />}
               onClick={handleNewSession}
             >
-              新建会话
+              {t("Claw.Sessions.newSession")}
             </Button>
           </div>
         ) : (
@@ -313,7 +360,8 @@ function SessionsPage({
                       <span>{formatTime(session.createdAt)}</span>
                       {session.lastActivity && (
                         <span>
-                          最后活动: {formatTime(session.lastActivity)}
+                          {t("Claw.Sessions.lastActivity")}:{" "}
+                          {formatTime(session.lastActivity)}
                         </span>
                       )}
                     </div>
@@ -324,7 +372,7 @@ function SessionsPage({
                       icon={<PlayCircleOutlined />}
                       onClick={() => handleOpenSession(session.projectId || "")}
                     >
-                      打开
+                      {t("Claw.Sessions.open")}
                     </Button>
                     <Button
                       size="small"
@@ -333,7 +381,7 @@ function SessionsPage({
                       loading={isStopping}
                       onClick={() => handleStopSession(session.id)}
                     >
-                      停止
+                      {t("Claw.Sessions.stop")}
                     </Button>
                   </div>
                 </div>

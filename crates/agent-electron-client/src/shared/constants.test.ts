@@ -39,16 +39,6 @@ import {
   DEFAULT_MIRROR_CONFIG,
   STORAGE_KEYS,
   AUTH_KEYS,
-  MSG_SUCCESS,
-  MSG_ERROR,
-  MSG_WARNING,
-  MSG_INFO,
-  DEPENDENCY_STATUS_LABELS,
-  ACTION_MESSAGES,
-  SERVICE_NAMES,
-  SERVICE_DESCRIPTIONS,
-  AGENT_STATUS_CONFIG,
-  SERVICE_STATE_NAMES,
 } from "./constants";
 
 describe("Constants", () => {
@@ -194,84 +184,6 @@ describe("Constants", () => {
       expect(AUTH_KEYS.USERNAME).toBe("auth.username");
       expect(AUTH_KEYS.PASSWORD).toBe("auth.password");
       expect(AUTH_KEYS.SAVED_KEY).toBe("auth.saved_key");
-    });
-  });
-
-  describe("Message Constants", () => {
-    it("should have success messages", () => {
-      expect(Object.keys(MSG_SUCCESS)).toContain("CONFIG_SAVED");
-      expect(Object.keys(MSG_SUCCESS)).toContain("AGENT_STARTED");
-      expect(Object.keys(MSG_SUCCESS)).toContain("LOGIN_SUCCESS");
-    });
-
-    it("should have error messages", () => {
-      expect(Object.keys(MSG_ERROR)).toContain("CONFIG_SAVE_FAILED");
-      expect(Object.keys(MSG_ERROR)).toContain("START_FAILED");
-      expect(Object.keys(MSG_ERROR)).toContain("LOGIN_FAILED");
-    });
-
-    it("should have warning messages", () => {
-      expect(Object.keys(MSG_WARNING)).toContain("INCOMPLETE_LOGIN_INFO");
-      expect(Object.keys(MSG_WARNING)).toContain("MISSING_DEPENDENCIES");
-    });
-
-    it("should have info messages", () => {
-      expect(Object.keys(MSG_INFO)).toContain("ALL_SERVICES_RUNNING");
-      expect(Object.keys(MSG_INFO)).toContain("NO_RUNNING_SERVICES");
-    });
-  });
-
-  describe("Dependency Status Labels", () => {
-    it("should have all status labels", () => {
-      expect(DEPENDENCY_STATUS_LABELS).toHaveProperty("checking");
-      expect(DEPENDENCY_STATUS_LABELS).toHaveProperty("installed");
-      expect(DEPENDENCY_STATUS_LABELS).toHaveProperty("missing");
-      expect(DEPENDENCY_STATUS_LABELS).toHaveProperty("outdated");
-      expect(DEPENDENCY_STATUS_LABELS).toHaveProperty("installing");
-      expect(DEPENDENCY_STATUS_LABELS).toHaveProperty("bundled");
-      expect(DEPENDENCY_STATUS_LABELS).toHaveProperty("error");
-    });
-  });
-
-  describe("Service Names", () => {
-    it("should have all service display names", () => {
-      expect(SERVICE_NAMES).toHaveProperty("NuwaxFileServer");
-      expect(SERVICE_NAMES).toHaveProperty("NuwaxLanproxy");
-      expect(SERVICE_NAMES).toHaveProperty("Rcoder");
-      expect(SERVICE_NAMES).toHaveProperty("McpProxy");
-    });
-
-    it("should have matching descriptions", () => {
-      Object.keys(SERVICE_NAMES).forEach((key) => {
-        expect(SERVICE_DESCRIPTIONS).toHaveProperty(key);
-      });
-    });
-  });
-
-  describe("Agent Status Config", () => {
-    it("should have all agent statuses", () => {
-      expect(AGENT_STATUS_CONFIG).toHaveProperty("idle");
-      expect(AGENT_STATUS_CONFIG).toHaveProperty("starting");
-      expect(AGENT_STATUS_CONFIG).toHaveProperty("running");
-      expect(AGENT_STATUS_CONFIG).toHaveProperty("busy");
-      expect(AGENT_STATUS_CONFIG).toHaveProperty("stopped");
-      expect(AGENT_STATUS_CONFIG).toHaveProperty("error");
-    });
-
-    it("should have valid status types", () => {
-      Object.values(AGENT_STATUS_CONFIG).forEach((config) => {
-        expect(["default", "warning", "success"]).toContain(config.status);
-      });
-    });
-  });
-
-  describe("Service State Names", () => {
-    it("should have all service state names", () => {
-      expect(SERVICE_STATE_NAMES).toHaveProperty("Running");
-      expect(SERVICE_STATE_NAMES).toHaveProperty("Stopped");
-      expect(SERVICE_STATE_NAMES).toHaveProperty("Starting");
-      expect(SERVICE_STATE_NAMES).toHaveProperty("Stopping");
-      expect(SERVICE_STATE_NAMES).toHaveProperty("Error");
     });
   });
 });

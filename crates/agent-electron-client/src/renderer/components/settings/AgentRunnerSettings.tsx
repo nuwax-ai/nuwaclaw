@@ -1,6 +1,11 @@
-import { useState, useEffect } from 'react';
-import { agentRunnerManager, AgentRunnerConfig, AgentRunnerStatus } from '../../services/agents/agentRunner';
-import { DEFAULT_ANTHROPIC_API_URL } from '@shared/constants';
+import { useState, useEffect } from "react";
+import {
+  agentRunnerManager,
+  AgentRunnerConfig,
+  AgentRunnerStatus,
+} from "../../services/agents/agentRunner";
+import { DEFAULT_ANTHROPIC_API_URL } from "@shared/constants";
+import { t } from "../../services/core/i18n";
 
 interface AgentRunnerSettingsProps {
   isOpen: boolean;
@@ -8,10 +13,12 @@ interface AgentRunnerSettingsProps {
 }
 
 function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
-  const [config, setConfig] = useState<AgentRunnerConfig>(agentRunnerManager.getConfig());
+  const [config, setConfig] = useState<AgentRunnerConfig>(
+    agentRunnerManager.getConfig(),
+  );
   const [status, setStatus] = useState<AgentRunnerStatus>({ running: false });
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     if (isOpen) {
@@ -33,32 +40,32 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
   const handleSave = async () => {
     agentRunnerManager.setConfig(config);
     await agentRunnerManager.saveConfig();
-    setMessage('配置已保存');
-    setTimeout(() => setMessage(''), 2000);
+    setMessage(t("Claw.AgentRunner.configSaved"));
+    setTimeout(() => setMessage(""), 2000);
   };
 
   const handleStartStop = async () => {
     setLoading(true);
-    setMessage('');
+    setMessage("");
 
     try {
       if (status.running) {
         const result = await agentRunnerManager.stop();
         if (result.success) {
-          setMessage('Agent Runner 已停止');
+          setMessage(t("Claw.AgentRunner.stopped"));
         } else {
-          setMessage(`错误: ${result.error}`);
+          setMessage(t("Claw.AgentRunner.error", result.error || ""));
         }
       } else {
         const result = await agentRunnerManager.start();
         if (result.success) {
-          setMessage('Agent Runner 已启动');
+          setMessage(t("Claw.AgentRunner.started"));
         } else {
-          setMessage(`错误: ${result.error}`);
+          setMessage(t("Claw.AgentRunner.error", result.error || ""));
         }
       }
     } catch (error) {
-      setMessage(`错误: ${error}`);
+      setMessage(t("Claw.AgentRunner.error", String(error)));
     }
 
     await checkStatus();
@@ -69,16 +76,25 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content agent-runner-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal-content agent-runner-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
           <h2>Agent Runner</h2>
-          <button className="close-btn" onClick={onClose}>×</button>
+          <button className="close-btn" onClick={onClose}>
+            ×
+          </button>
         </div>
 
         <div className="agent-runner-section">
           <div className="status-panel">
-            <div className={`status-indicator ${status.running ? 'running' : 'stopped'}`}>
-              {status.running ? '● 运行中' : '○ 已停止'}
+            <div
+              className={`status-indicator ${status.running ? "running" : "stopped"}`}
+            >
+              {status.running
+                ? t("Claw.AgentRunner.running")
+                : t("Claw.AgentRunner.stoppedStatus")}
             </div>
             {status.pid && <div className="pid">PID: {status.pid}</div>}
           </div>
@@ -86,61 +102,78 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
           {status.running && (
             <div className="url-info">
               <div className="url-item">
-                <span className="label">后端地址:</span>
+                <span className="label">
+                  {t("Claw.AgentRunner.backendAddress")}:
+                </span>
                 <code>{status.backendUrl}</code>
               </div>
               <div className="url-item">
-                <span className="label">代理地址:</span>
+                <span className="label">
+                  {t("Claw.AgentRunner.proxyAddress")}:
+                </span>
                 <code>{status.proxyUrl}</code>
               </div>
             </div>
           )}
 
           <button
-            className={`toggle-agent-btn ${status.running ? 'stop' : 'start'}`}
+            className={`toggle-agent-btn ${status.running ? "stop" : "start"}`}
             onClick={handleStartStop}
             disabled={loading}
           >
-            {loading ? '...' : status.running ? '停止' : '启动'}
+            {loading
+              ? "..."
+              : status.running
+                ? t("Claw.AgentRunner.stop")
+                : t("Claw.AgentRunner.start")}
           </button>
         </div>
 
         <div className="agent-runner-section">
-          <h3>配置</h3>
+          <h3>{t("Claw.AgentRunner.config")}</h3>
 
           <div className="form-group">
-            <label>可执行文件路径</label>
+            <label>{t("Claw.AgentRunner.executablePath")}</label>
             <input
               type="text"
               value={config.binPath}
-              onChange={(e) => setConfig({ ...config, binPath: e.target.value })}
+              onChange={(e) =>
+                setConfig({ ...config, binPath: e.target.value })
+              }
               placeholder="nuwax-agent-core"
             />
           </div>
 
           <div className="form-row">
             <div className="form-group">
-              <label>后端端口</label>
+              <label>{t("Claw.AgentRunner.backendPort")}</label>
               <input
                 type="number"
                 value={config.backendPort}
-                onChange={(e) => setConfig({ ...config, backendPort: parseInt(e.target.value) })}
+                onChange={(e) =>
+                  setConfig({
+                    ...config,
+                    backendPort: parseInt(e.target.value),
+                  })
+                }
                 placeholder="60001"
               />
             </div>
             <div className="form-group">
-              <label>代理端口</label>
+              <label>{t("Claw.AgentRunner.proxyPort")}</label>
               <input
                 type="number"
                 value={config.proxyPort}
-                onChange={(e) => setConfig({ ...config, proxyPort: parseInt(e.target.value) })}
+                onChange={(e) =>
+                  setConfig({ ...config, proxyPort: parseInt(e.target.value) })
+                }
                 placeholder="60002"
               />
             </div>
           </div>
 
           <div className="form-group">
-            <label>API 密钥</label>
+            <label>{t("Claw.AgentRunner.apiKey")}</label>
             <input
               type="password"
               value={config.apiKey}
@@ -150,11 +183,13 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
           </div>
 
           <div className="form-group">
-            <label>API 基础 URL</label>
+            <label>{t("Claw.AgentRunner.apiBaseUrl")}</label>
             <input
               type="text"
               value={config.apiBaseUrl}
-              onChange={(e) => setConfig({ ...config, apiBaseUrl: e.target.value })}
+              onChange={(e) =>
+                setConfig({ ...config, apiBaseUrl: e.target.value })
+              }
               placeholder={DEFAULT_ANTHROPIC_API_URL}
               autoComplete="off"
               spellCheck={false}
@@ -162,10 +197,12 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
           </div>
 
           <div className="form-group">
-            <label>默认模型</label>
+            <label>{t("Claw.AgentRunner.defaultModel")}</label>
             <select
               value={config.defaultModel}
-              onChange={(e) => setConfig({ ...config, defaultModel: e.target.value })}
+              onChange={(e) =>
+                setConfig({ ...config, defaultModel: e.target.value })
+              }
             >
               <option value="claude-opus-4-20250514">Claude Opus 4</option>
               <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
@@ -178,7 +215,7 @@ function AgentRunnerSettings({ isOpen, onClose }: AgentRunnerSettingsProps) {
 
         <div className="modal-footer">
           <button className="save-btn" onClick={handleSave}>
-            保存配置
+            {t("Claw.AgentRunner.saveConfig")}
           </button>
         </div>
       </div>

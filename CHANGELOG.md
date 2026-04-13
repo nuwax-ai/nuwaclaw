@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Agent Electron Client
+
+#### Fixed
+- **Removed legacy `guiAgent:*` Unix-socket service path** — desktop GUI automation now uses the standard local MCP HTTP service path (`guiServer:*`) only.
+
 ---
 
 ## [0.2.0] - 2026-02-23

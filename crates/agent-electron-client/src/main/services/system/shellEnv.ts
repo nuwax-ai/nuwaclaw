@@ -1,6 +1,6 @@
 /**
  * Shell Environment Manager - 跨平台 Shell 环境管理
- * 
+ *
  * 功能:
  * - 检测可用 shell
  * - 工具路径管理
@@ -8,14 +8,18 @@
  * - Windows/macOS/Linux 兼容
  */
 
-import * as path from 'path';
-import * as fs from 'fs';
-import { spawn } from 'child_process';
-import log from 'electron-log';
+import * as path from "path";
+import * as fs from "fs";
+import { spawn } from "child_process";
+import log from "electron-log";
+import {
+  createPlatformAdapter,
+  getCurrentPlatform,
+  type Platform,
+} from "./platformAdapter";
 
 // ==================== Types ====================
-
-export type Platform = 'darwin' | 'win32' | 'linux';
+export type { Platform } from "./platformAdapter";
 
 export interface ShellInfo {
   name: string;
@@ -45,28 +49,28 @@ export interface ShellEnvironment {
  * 获取当前平台
  */
 export function getPlatform(): Platform {
-  return process.platform as Platform;
+  return getCurrentPlatform();
 }
 
 /**
  * 检测是否为 Windows
  */
 export function isWindows(): boolean {
-  return process.platform === 'win32';
+  return createPlatformAdapter().isWindows;
 }
 
 /**
  * 检测是否为 macOS
  */
 export function isMacOS(): boolean {
-  return process.platform === 'darwin';
+  return createPlatformAdapter().isMacOS;
 }
 
 /**
  * 检测是否为 Linux
  */
 export function isLinux(): boolean {
-  return process.platform === 'linux';
+  return createPlatformAdapter().isLinux;
 }
 
 // ==================== Shell Detection ====================
@@ -76,43 +80,56 @@ export function isLinux(): boolean {
  */
 export async function detectShell(): Promise<ShellInfo> {
   const platform = getPlatform();
-  
-  const shellCandidates: Array<{ name: string; path: string; args?: string[] }> = [];
-  
-  if (platform === 'darwin') {
+  const adapter = createPlatformAdapter(platform);
+
+  const shellCandidates: Array<{
+    name: string;
+    path: string;
+    args?: string[];
+  }> = [];
+
+  if (adapter.isMacOS) {
     // macOS: zsh (默认), bash
     shellCandidates.push(
-      { name: 'zsh', path: '/bin/zsh', args: ['--version'] },
-      { name: 'bash', path: '/bin/bash', args: ['--version'] },
+      { name: "zsh", path: "/bin/zsh", args: ["--version"] },
+      { name: "bash", path: "/bin/bash", args: ["--version"] },
     );
-  } else if (platform === 'linux') {
+  } else if (adapter.isLinux) {
     // Linux: bash
     shellCandidates.push(
-      { name: 'bash', path: '/bin/bash', args: ['--version'] },
-      { name: 'sh', path: '/bin/sh' },
+      { name: "bash", path: "/bin/bash", args: ["--version"] },
+      { name: "sh", path: "/bin/sh" },
     );
-  } else if (platform === 'win32') {
+  } else if (adapter.isWindows) {
     // Windows: PowerShell, cmd, Git Bash
     shellCandidates.push(
-      { name: 'powershell', path: 'powershell.exe', args: ['-Command', '$PSVersionTable.PSVersion.ToString()'] },
-      { name: 'cmd', path: 'cmd.exe', args: ['/c', 'ver'] },
+      {
+        name: "powershell",
+        path: "powershell.exe",
+        args: ["-Command", "$PSVersionTable.PSVersion.ToString()"],
+      },
+      { name: "cmd", path: "cmd.exe", args: ["/c", "ver"] },
     );
-    
+
     // 检查 Git Bash
-    const gitBashPath = 'C:\\Program Files\\Git\\bin\\bash.exe';
+    const gitBashPath = "C:\\Program Files\\Git\\bin\\bash.exe";
     if (fs.existsSync(gitBashPath)) {
-      shellCandidates.push({ name: 'bash', path: gitBashPath, args: ['--version'] });
+      shellCandidates.push({
+        name: "bash",
+        path: gitBashPath,
+        args: ["--version"],
+      });
     }
-    
+
     // 检查 WSL
     try {
-      const wslResult = await checkCommand('wsl.exe');
+      const wslResult = await checkCommand("wsl.exe");
       if (wslResult) {
-        shellCandidates.push({ name: 'wsl', path: 'wsl.exe' });
+        shellCandidates.push({ name: "wsl", path: "wsl.exe" });
       }
     } catch {}
   }
-  
+
   // 尝试找到可用的 shell
   for (const shell of shellCandidates) {
     try {
@@ -127,11 +144,11 @@ export async function detectShell(): Promise<ShellInfo> {
       continue;
     }
   }
-  
+
   // 返回默认
   return {
-    name: platform === 'win32' ? 'powershell' : 'bash',
-    path: '',
+    name: adapter.isWindows ? "powershell" : "bash",
+    path: "",
     isAvailable: false,
   };
 }
@@ -141,52 +158,47 @@ export async function detectShell(): Promise<ShellInfo> {
  */
 export async function checkCommand(cmd: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const platform = getPlatform();
-    
-    let checkCmd: string;
-    let args: string[];
-    
-    if (platform === 'win32') {
-      checkCmd = 'where';
-      args = [cmd];
-    } else {
-      checkCmd = 'which';
-      args = [cmd];
-    }
-    
+    const adapter = createPlatformAdapter();
+    const { command: checkCmd, args } = adapter.getCommandProbe(cmd);
+
     const proc = spawn(checkCmd, args, {
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ["ignore", "pipe", "ignore"],
       shell: true,
     });
-    
-    proc.on('close', (code) => {
+
+    proc.on("close", (code) => {
       resolve(code === 0);
     });
-    
-    proc.on('error', () => resolve(false));
+
+    proc.on("error", () => resolve(false));
   });
 }
 
 /**
  * 获取命令版本
  */
-export async function getCommandVersion(cmd: string, args?: string[]): Promise<string | null> {
+export async function getCommandVersion(
+  cmd: string,
+  args?: string[],
+): Promise<string | null> {
   return new Promise((resolve) => {
-    const proc = spawn(cmd, args || ['--version'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+    const proc = spawn(cmd, args || ["--version"], {
+      stdio: ["ignore", "pipe", "pipe"],
       shell: true,
     });
 
-    let stdout = '';
+    let stdout = "";
 
-    proc.stdout?.on('data', (data: Buffer) => { stdout += data.toString(); });
-
-    proc.on('close', () => {
-      const match = stdout.match(/(\d+\.\d+\.\d+[\d.]*)/);
-      resolve(match ? match[1] : (stdout.trim() || null));
+    proc.stdout?.on("data", (data: Buffer) => {
+      stdout += data.toString();
     });
-    
-    proc.on('error', () => resolve(null));
+
+    proc.on("close", () => {
+      const match = stdout.match(/(\d+\.\d+\.\d+[\d.]*)/);
+      resolve(match ? match[1] : stdout.trim() || null);
+    });
+
+    proc.on("error", () => resolve(null));
   });
 }
 
@@ -197,46 +209,77 @@ export async function getCommandVersion(cmd: string, args?: string[]): Promise<s
  */
 export const ESSENTIAL_TOOLS = [
   // 文件操作
-  'ls', 'cd', 'pwd', 'mkdir', 'rm', 'cp', 'mv', 'cat', 'echo',
+  "ls",
+  "cd",
+  "pwd",
+  "mkdir",
+  "rm",
+  "cp",
+  "mv",
+  "cat",
+  "echo",
   // 文本处理
-  'grep', 'sed', 'awk', 'sort', 'uniq', 'head', 'tail', 'wc',
+  "grep",
+  "sed",
+  "awk",
+  "sort",
+  "uniq",
+  "head",
+  "tail",
+  "wc",
   // 进程/网络
-  'ps', 'kill', 'find', 'xargs', 'curl', 'wget',
+  "ps",
+  "kill",
+  "find",
+  "xargs",
+  "curl",
+  "wget",
   // Git (可选)
-  'git',
+  "git",
   // Node.js
-  'node', 'npm', 'npx',
+  "node",
+  "npm",
+  "npx",
 ];
 
 const ESSENTIAL_TOOLS_WINDOWS = [
-  'dir', 'cd', 'type', 'echo', 'mkdir', 'del', 'copy', 'move',
-  'findstr',  // Windows grep
-  'where',
+  "dir",
+  "cd",
+  "type",
+  "echo",
+  "mkdir",
+  "del",
+  "copy",
+  "move",
+  "findstr", // Windows grep
+  "where",
 ];
 
 /**
  * 检测必需工具
  */
 export async function detectTools(): Promise<Map<string, ToolInfo>> {
-  const platform = getPlatform();
+  const adapter = createPlatformAdapter();
   const tools = new Map<string, ToolInfo>();
-  const toolsToCheck = platform === 'win32' ? ESSENTIAL_TOOLS_WINDOWS : ESSENTIAL_TOOLS;
-  
+  const toolsToCheck = adapter.isWindows
+    ? ESSENTIAL_TOOLS_WINDOWS
+    : ESSENTIAL_TOOLS;
+
   for (const tool of toolsToCheck) {
     const isAvailable = await checkCommand(tool);
-    
+
     let version: string | undefined;
     if (isAvailable) {
-      version = await getCommandVersion(tool) || undefined;
+      version = (await getCommandVersion(tool)) || undefined;
     }
-    
+
     tools.set(tool, {
       name: tool,
       isAvailable,
       version,
     });
   }
-  
+
   return tools;
 }
 
@@ -246,21 +289,16 @@ export async function detectTools(): Promise<Map<string, ToolInfo>> {
  * 获取系统 PATH
  */
 export function getSystemPath(): string[] {
-  const platform = getPlatform();
-  const pathEnv = process.env.PATH || '';
-  
-  if (platform === 'win32') {
-    return pathEnv.split(';').filter(Boolean);
-  }
-  
-  return pathEnv.split(':').filter(Boolean);
+  const adapter = createPlatformAdapter();
+  const pathEnv = process.env.PATH || "";
+  return pathEnv.split(adapter.pathDelimiter).filter(Boolean);
 }
 
 /**
  * 获取用户 Home 目录
  */
 export function getHomeDir(): string {
-  return process.env.HOME || process.env.USERPROFILE || '';
+  return process.env.HOME || process.env.USERPROFILE || "";
 }
 
 /**
@@ -268,7 +306,7 @@ export function getHomeDir(): string {
  */
 export function getDefaultWorkspace(): string {
   const home = getHomeDir();
-  return path.join(home, 'NuwaxAgent', 'workspace');
+  return path.join(home, "NuwaxAgent", "workspace");
 }
 
 // ==================== Environment Builder ====================
@@ -276,65 +314,64 @@ export function getDefaultWorkspace(): string {
 /**
  * 构建 Agent 运行环境
  */
-export async function buildAgentEnvironment(
-  options?: {
-    workspaceDir?: string;
-    includeTools?: boolean;
-  }
-): Promise<{
+export async function buildAgentEnvironment(options?: {
+  workspaceDir?: string;
+  includeTools?: boolean;
+}): Promise<{
   env: Record<string, string>;
   shell: ShellInfo;
   workspace: string;
 }> {
   const platform = getPlatform();
+  const adapter = createPlatformAdapter(platform);
   const home = getHomeDir();
   const workspace = options?.workspaceDir || getDefaultWorkspace();
-  
+
   // 确保工作目录存在
   if (!fs.existsSync(workspace)) {
     fs.mkdirSync(workspace, { recursive: true });
   }
-  
+
   // 检测 shell
   const shell = await detectShell();
-  
+
   // 构建环境变量
   const env: Record<string, string> = {
     ...process.env,
-    
+
     // Home 目录
     HOME: home,
-    
+
     // 工作目录
     WORKSPACE: workspace,
     PWD: workspace,
-    
+
     // 语言环境
-    LANG: 'en_US.UTF-8',
-    LC_ALL: 'en_US.UTF-8',
+    LANG: "en_US.UTF-8",
+    LC_ALL: "en_US.UTF-8",
   };
-  
+
   // 平台特定配置
-  if (platform === 'darwin') {
+  if (adapter.isMacOS) {
     // macOS
-    env.SHELL = '/bin/zsh';
-    env.EDITOR = 'vim';
-    env.VISUAL = 'vim';
-  } else if (platform === 'linux') {
+    env.SHELL = "/bin/zsh";
+    env.EDITOR = "vim";
+    env.VISUAL = "vim";
+  } else if (adapter.isLinux) {
     // Linux
-    env.SHELL = '/bin/bash';
-    env.EDITOR = 'vim';
-    env.VISUAL = 'vim';
-  } else if (platform === 'win32') {
+    env.SHELL = "/bin/bash";
+    env.EDITOR = "vim";
+    env.VISUAL = "vim";
+  } else if (adapter.isWindows) {
     // Windows
-    env.SHELL = 'powershell.exe';
-    env.EDITOR = 'notepad';
+    env.SHELL = "powershell.exe";
+    env.EDITOR = "notepad";
   }
-  
+
   // 可选: 检测并添加工具路径
   if (options?.includeTools) {
     const tools = await detectTools();
-    
+
     // 添加找到的工具路径
     const toolPaths: string[] = [];
     for (const [name, info] of tools) {
@@ -345,17 +382,21 @@ export async function buildAgentEnvironment(
         }
       }
     }
-    
+
     // 添加到 PATH 前面
     if (toolPaths.length > 0) {
-      const currentPath = env.PATH || '';
-      env.PATH = toolPaths.join(platform === 'win32' ? ';' : ':') + 
-        (platform === 'win32' ? ';' : ':') + currentPath;
+      const currentPath = env.PATH || "";
+      env.PATH =
+        toolPaths.join(adapter.pathDelimiter) +
+        adapter.pathDelimiter +
+        currentPath;
     }
   }
-  
-  log.info(`[Shell] Agent environment: platform=${platform}, shell=${shell.name}, workspace=${workspace}`);
-  
+
+  log.info(
+    `[Shell] Agent environment: platform=${platform}, shell=${shell.name}, workspace=${workspace}`,
+  );
+
   return { env, shell, workspace };
 }
 
@@ -367,26 +408,26 @@ export async function checkEnvironmentReady(): Promise<{
   issues: string[];
 }> {
   const issues: string[] = [];
-  
+  const adapter = createPlatformAdapter();
+
   // 检查 shell
   const shell = await detectShell();
   if (!shell.isAvailable) {
     issues.push(`Shell not found`);
   }
-  
+
   // 检查核心工具
-  const platform = getPlatform();
-  const criticalTools = platform === 'win32' 
-    ? ['where', 'dir', 'type']
-    : ['ls', 'cat', 'grep'];
-  
+  const criticalTools = adapter.isWindows
+    ? ["where", "dir", "type"]
+    : ["ls", "cat", "grep"];
+
   for (const tool of criticalTools) {
     const isAvailable = await checkCommand(tool);
     if (!isAvailable) {
       issues.push(`Missing tool: ${tool}`);
     }
   }
-  
+
   // 检查工作目录
   const workspace = getDefaultWorkspace();
   if (!fs.existsSync(workspace)) {
@@ -396,7 +437,7 @@ export async function checkEnvironmentReady(): Promise<{
       issues.push(`Cannot create workspace: ${error}`);
     }
   }
-  
+
   return {
     ready: issues.length === 0,
     issues,
@@ -409,21 +450,21 @@ export default {
   isWindows,
   isMacOS,
   isLinux,
-  
+
   // Shell
   detectShell,
   checkCommand,
   getCommandVersion,
-  
+
   // Tools
   detectTools,
   ESSENTIAL_TOOLS,
-  
+
   // PATH
   getSystemPath,
   getHomeDir,
   getDefaultWorkspace,
-  
+
   // Environment
   buildAgentEnvironment,
   checkEnvironmentReady,

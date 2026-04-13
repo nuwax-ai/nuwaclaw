@@ -21,7 +21,9 @@ import type {
   LocalDependencyItem,
   DependencyStatus,
 } from "@shared/types/electron";
-import { DEPENDENCY_STATUS_LABELS, ACTION_MESSAGES } from "@shared/constants";
+import { I18N_KEYS } from "@shared/constants";
+import { t } from "../../services/core/i18n";
+import { resolveDepDisplayName } from "../../utils/dependencyI18n";
 import styles from "../../styles/components/ClientPage.module.css";
 
 // Dev mock 模式：设为 true 可预览骨架屏 loading 效果
@@ -45,8 +47,8 @@ const MOCK_UV_RESULT = {
 const MOCK_LOCAL_DEPS: LocalDependencyItem[] = [
   {
     name: "@anthropic-ai/sdk",
-    displayName: "Anthropic SDK",
-    description: "Claude API 客户端",
+    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_ANTHROPIC_SDK),
+    description: t(I18N_KEYS.Pages.Dependencies.DESC_ANTHROPIC_SDK),
     type: "npm-local",
     status: "installed",
     version: "0.30.0",
@@ -55,8 +57,8 @@ const MOCK_LOCAL_DEPS: LocalDependencyItem[] = [
   },
   {
     name: "claude-code-acp-ts",
-    displayName: "Claude Code ACP",
-    description: "ACP 协议实现",
+    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_CLAUDE_CODE_ACP),
+    description: t(I18N_KEYS.Pages.Dependencies.DESC_CLAUDE_CODE_ACP),
     type: "npm-local",
     status: "installed",
     version: "1.0.0",
@@ -64,8 +66,8 @@ const MOCK_LOCAL_DEPS: LocalDependencyItem[] = [
   },
   {
     name: "nuwax-file-server",
-    displayName: "文件服务",
-    description: "本地文件 HTTP 服务",
+    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_FILE_SERVER),
+    description: t(I18N_KEYS.Pages.Dependencies.DESC_FILE_SERVER),
     type: "npm-local",
     status: "outdated",
     version: "1.2.0",
@@ -74,8 +76,8 @@ const MOCK_LOCAL_DEPS: LocalDependencyItem[] = [
   },
   {
     name: "nuwax-mcp-stdio-proxy",
-    displayName: "MCP 代理",
-    description: "MCP 协议聚合代理",
+    displayName: t(I18N_KEYS.Pages.Dependencies.DEP_MCP_PROXY),
+    description: t(I18N_KEYS.Pages.Dependencies.DESC_MCP_PROXY),
     type: "npm-local",
     status: "missing",
     required: true,
@@ -103,6 +105,12 @@ interface McpProxyBundledResult {
   version?: string;
 }
 
+/** 应用包内集成的 nuwaxcode 引擎检测结果 */
+interface NuwaxcodeBundledResult {
+  available: boolean;
+  version?: string;
+}
+
 export default function DependenciesPage() {
   const [nodeResult, setNodeResult] = useState<NodeCheckResult | null>(
     MOCK_LOADING ? null : null,
@@ -110,6 +118,16 @@ export default function DependenciesPage() {
   const [uvResult, setUvResult] = useState<UvCheckResult | null>(null);
   const [mcpProxyBundled, setMcpProxyBundled] =
     useState<McpProxyBundledResult | null>(null);
+  const [nuwaxcodeBundled, setNuwaxcodeBundled] =
+    useState<NuwaxcodeBundledResult | null>(null);
+  const [claudeCodeAcpBundled, setClaudeCodeAcpBundled] = useState<{
+    available: boolean;
+    version?: string;
+  } | null>(null);
+  const [fileServerBundled, setFileServerBundled] = useState<{
+    available: boolean;
+    version?: string;
+  } | null>(null);
   const [localDeps, setLocalDeps] = useState<LocalDependencyItem[]>(
     MOCK_LOADING ? [] : [],
   );
@@ -169,6 +187,33 @@ export default function DependenciesPage() {
           : { available: false };
       setMcpProxyBundled(mcpData);
 
+      // 应用包内集成的 nuwaxcode 引擎
+      const nuwaxcodeRes =
+        await window.electronAPI?.dependencies.checkNuwaxcodeBundled();
+      const nuwaxcodeData: NuwaxcodeBundledResult =
+        nuwaxcodeRes?.success && nuwaxcodeRes.available
+          ? { available: true, version: nuwaxcodeRes.version }
+          : { available: false };
+      setNuwaxcodeBundled(nuwaxcodeData);
+
+      // 应用包内集成的 claude-code-acp-ts
+      const acpRes =
+        await window.electronAPI?.dependencies.checkClaudeCodeAcpBundled();
+      setClaudeCodeAcpBundled(
+        acpRes?.success && acpRes.available
+          ? { available: true, version: acpRes.version }
+          : { available: false },
+      );
+
+      // 应用包内集成的 nuwax-file-server
+      const fileServerRes =
+        await window.electronAPI?.dependencies.checkNuwaxFileServerBundled();
+      setFileServerBundled(
+        fileServerRes?.success && fileServerRes.available
+          ? { available: true, version: fileServerRes.version }
+          : { available: false },
+      );
+
       // Check all local/installable dependencies
       const depsResult = await window.electronAPI?.dependencies.checkAll({
         checkLatest: true,
@@ -185,7 +230,7 @@ export default function DependenciesPage() {
         setLocalDeps([]);
       }
     } catch (error) {
-      message.error("加载依赖数据失败");
+      message.error(t(I18N_KEYS.Pages.Dependencies.MSG_LOAD_FAILED));
       console.error("[DependenciesPage] loadDependencies error:", error);
     } finally {
       setDepLoading(false);
@@ -213,13 +258,19 @@ export default function DependenciesPage() {
    */
   const restartServicesAfterDepChange = useCallback(async () => {
     try {
-      message.loading({ content: "正在重启服务…", key: "restart-services" });
+      message.loading({
+        content: t(I18N_KEYS.Pages.Dependencies.MSG_RESTARTING_SERVICES),
+        key: "restart-services",
+      });
       await window.electronAPI?.services.restartAll();
-      message.success({ content: "服务已重启", key: "restart-services" });
+      message.success({
+        content: t(I18N_KEYS.Pages.Dependencies.MSG_RESTART_SUCCESS),
+        key: "restart-services",
+      });
     } catch (e) {
-      console.error("[DependenciesPage] 重启服务失败:", e);
+      console.error("[DependenciesPage] Failed to restart services:", e);
       message.error({
-        content: "重启服务失败",
+        content: t(I18N_KEYS.Pages.Dependencies.MSG_RESTART_FAILED),
         key: "restart-services",
       });
     }
@@ -234,7 +285,8 @@ export default function DependenciesPage() {
       ? "upgrade"
       : "install",
   ) => {
-    const { name: packageName, displayName } = dep;
+    const { name: packageName } = dep;
+    const displayName = resolveDepDisplayName(dep);
     setDepInstalling(true);
     setCurrentInstallingDep(displayName);
     setCurrentInstallAction(mode);
@@ -256,7 +308,11 @@ export default function DependenciesPage() {
       mode === "update" ? ("installed" as const) : ("error" as const);
 
     const actionLabel =
-      mode === "update" ? "更新" : mode === "upgrade" ? "升级" : "安装";
+      mode === "update"
+        ? t(I18N_KEYS.Pages.Dependencies.UPDATE)
+        : mode === "upgrade"
+          ? t(I18N_KEYS.Pages.Dependencies.UPGRADE)
+          : t(I18N_KEYS.Pages.Dependencies.INSTALL);
 
     try {
       const result = await window.electronAPI?.dependencies.installPackage(
@@ -279,7 +335,13 @@ export default function DependenciesPage() {
         );
         const versionHint =
           mode === "update" && result.version ? ` ${result.version}` : "";
-        message.success(`${displayName} ${actionLabel}成功${versionHint}`);
+        message.success(
+          t(
+            I18N_KEYS.Pages.Dependencies.MSG_INSTALL_SUCCESS,
+            displayName,
+            actionLabel,
+          ) + versionHint,
+        );
         await restartServicesAfterDepChange();
       } else {
         setLocalDeps((prev) =>
@@ -289,7 +351,9 @@ export default function DependenciesPage() {
               : d,
           ),
         );
-        message.error(`${displayName} ${actionLabel}失败`);
+        message.error(
+          t(I18N_KEYS.Pages.Dependencies.MSG_FAILED, displayName, actionLabel),
+        );
       }
     } catch (error) {
       setLocalDeps((prev) =>
@@ -299,7 +363,9 @@ export default function DependenciesPage() {
             : d,
         ),
       );
-      message.error(`${actionLabel}失败: ${error}`);
+      message.error(
+        t(I18N_KEYS.Pages.Dependencies.MSG_INSTALL_FAILED, String(error)),
+      );
     } finally {
       setDepInstalling(false);
       setCurrentInstallingDep("");
@@ -318,7 +384,9 @@ export default function DependenciesPage() {
         d.status === "outdated",
     );
     if (depsToProcess.length === 0) {
-      message.info("没有需要安装或升级的依赖");
+      message.info(
+        t(I18N_KEYS.Pages.Dependencies.MSG_NO_DEPENDENCIES_TO_INSTALL),
+      );
       return;
     }
 
@@ -331,7 +399,7 @@ export default function DependenciesPage() {
     let anySucceeded = false;
     try {
       for (const dep of depsToProcess) {
-        setCurrentInstallingDep(dep.displayName);
+        setCurrentInstallingDep(resolveDepDisplayName(dep));
         setCurrentInstallAction(
           dep.status === "outdated" ? "upgrade" : "install",
         );
@@ -375,24 +443,31 @@ export default function DependenciesPage() {
                 : d,
             ),
           );
-          const action = dep.status === "outdated" ? "升级" : "安装";
-          message.error(`${dep.displayName} ${action}失败`);
+          const action =
+            dep.status === "outdated"
+              ? t(I18N_KEYS.Pages.Dependencies.UPGRADE)
+              : t(I18N_KEYS.Pages.Dependencies.INSTALL);
+          message.error(
+            t(I18N_KEYS.Pages.Dependencies.MSG_FAILED, dep.displayName, action),
+          );
         }
       }
 
       const doneMsg =
         hadMissing && hadOutdated
-          ? "依赖安装并升级完成"
+          ? t(I18N_KEYS.Pages.Dependencies.MSG_INSTALL_ALL_COMPLETE)
           : hadOutdated
-            ? "依赖升级完成"
-            : "依赖安装完成";
+            ? t(I18N_KEYS.Pages.Dependencies.MSG_UPGRADE_ALL_COMPLETE)
+            : t(I18N_KEYS.Pages.Dependencies.MSG_INSTALL_ALL_SUCCESS);
       message.success(doneMsg);
       // 若有任意一项安装/升级成功，关闭并重启服务使新依赖生效
       if (anySucceeded) {
         await restartServicesAfterDepChange();
       }
     } catch (error) {
-      message.error(`安装失败: ${error}`);
+      message.error(
+        t(I18N_KEYS.Pages.Dependencies.MSG_INSTALL_FAILED, String(error)),
+      );
     } finally {
       setDepInstalling(false);
       setCurrentInstallingDep("");
@@ -437,9 +512,16 @@ export default function DependenciesPage() {
   };
 
   const getStatusText = (status: DependencyStatus) => {
-    return (
-      DEPENDENCY_STATUS_LABELS[status] || DEPENDENCY_STATUS_LABELS.checking
-    );
+    const keyMap: Record<DependencyStatus, string> = {
+      checking: "Claw.Components.Dependency.checking",
+      installed: "Claw.Components.Dependency.installed",
+      missing: "Claw.Components.Dependency.missing",
+      outdated: "Claw.Components.Dependency.outdated",
+      installing: "Claw.Components.Dependency.installing",
+      bundled: "Claw.Components.Dependency.bundled",
+      error: "Claw.Components.Dependency.error",
+    };
+    return t(keyMap[status] || keyMap.checking);
   };
 
   // Node.js and uv must both be ready
@@ -457,8 +539,12 @@ export default function DependenciesPage() {
         <div className={styles.section}>
           <div className={styles.servicesHeader}>
             <div className={styles.servicesHeaderLeft}>
-              <span className={styles.sectionTitle}>系统环境</span>
-              <Tag color="default">检测中...</Tag>
+              <span className={styles.sectionTitle}>
+                {t(I18N_KEYS.Pages.Dependencies.SYSTEM_ENV)}
+              </span>
+              <Tag color="default">
+                {t(I18N_KEYS.Pages.Dependencies.CHECKING)}
+              </Tag>
             </div>
           </div>
           <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
@@ -473,7 +559,9 @@ export default function DependenciesPage() {
                     >
                       {i === 1 ? "Node.js" : "uv"}
                     </span>
-                    <span className={styles.serviceDescription}>检测中...</span>
+                    <span className={styles.serviceDescription}>
+                      {t(I18N_KEYS.Pages.Dependencies.CHECKING)}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -489,7 +577,9 @@ export default function DependenciesPage() {
                   >
                     MCP Proxy
                   </span>
-                  <span className={styles.serviceDescription}>检测中...</span>
+                  <span className={styles.serviceDescription}>
+                    {t(I18N_KEYS.Pages.Dependencies.CHECKING)}
+                  </span>
                 </div>
               </div>
             </div>
@@ -500,15 +590,17 @@ export default function DependenciesPage() {
         <div className={styles.section}>
           <div className={styles.servicesHeader}>
             <div className={styles.servicesHeaderLeft}>
-              <span className={styles.sectionTitle}>依赖包</span>
+              <span className={styles.sectionTitle}>
+                {t(I18N_KEYS.Pages.Dependencies.DEPENDENCY_PACKAGES)}
+              </span>
               <span
                 style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}
               >
-                检测中...
+                {t(I18N_KEYS.Pages.Dependencies.CHECKING)}
               </span>
             </div>
             <Button size="small" icon={<ReloadOutlined spin />} disabled>
-              刷新
+              {t(I18N_KEYS.Common.REFRESH)}
             </Button>
           </div>
           <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
@@ -521,10 +613,10 @@ export default function DependenciesPage() {
                       className={styles.serviceLabel}
                       style={{ color: "var(--color-text-tertiary)" }}
                     >
-                      加载中...
+                      {t(I18N_KEYS.Common.LOADING)}
                     </span>
                     <div className={styles.serviceDescription}>
-                      正在检测依赖状态
+                      {t(I18N_KEYS.Pages.Dependencies.CHECKING)}
                     </div>
                   </div>
                 </div>
@@ -545,11 +637,13 @@ export default function DependenciesPage() {
       <div className={styles.section}>
         <div className={styles.servicesHeader}>
           <div className={styles.servicesHeaderLeft}>
-            <span className={styles.sectionTitle}>系统环境</span>
+            <span className={styles.sectionTitle}>
+              {t(I18N_KEYS.Pages.Dependencies.SYSTEM_ENV)}
+            </span>
             <Tag color={systemDepsReady ? "success" : "warning"}>
               {systemDepsReady
-                ? ACTION_MESSAGES.ready
-                : ACTION_MESSAGES.needConfig}
+                ? t(I18N_KEYS.Components.Action.READY)
+                : t(I18N_KEYS.Components.Action.NEED_CONFIG)}
             </Tag>
           </div>
         </div>
@@ -584,12 +678,15 @@ export default function DependenciesPage() {
               }}
             >
               {!nodeResult?.installed
-                ? "未安装"
+                ? t(I18N_KEYS.Pages.Dependencies.NOT_INSTALLED)
                 : nodeResult.bundled
-                  ? DEPENDENCY_STATUS_LABELS.bundled
+                  ? t(I18N_KEYS.Components.Dependency.BUNDLED)
                   : nodeResult.meetsRequirement
-                    ? ACTION_MESSAGES.allInstalled
-                    : "需 >= 22.0.0"}
+                    ? t(I18N_KEYS.Components.Action.ALL_INSTALLED)
+                    : t(
+                        I18N_KEYS.Pages.Dependencies.REQ_NODE_VERSION,
+                        "22.0.0",
+                      )}
             </span>
           </div>
 
@@ -623,12 +720,12 @@ export default function DependenciesPage() {
               }}
             >
               {!uvResult?.installed
-                ? "未安装"
+                ? t(I18N_KEYS.Pages.Dependencies.NOT_INSTALLED)
                 : uvResult.bundled
-                  ? DEPENDENCY_STATUS_LABELS.bundled
+                  ? t(I18N_KEYS.Components.Dependency.BUNDLED)
                   : uvResult.meetsRequirement
-                    ? ACTION_MESSAGES.allInstalled
-                    : "需 >= 0.5.0"}
+                    ? t(I18N_KEYS.Components.Action.ALL_INSTALLED)
+                    : t(I18N_KEYS.Pages.Dependencies.REQ_UV_VERSION, "0.5.0")}
             </span>
           </div>
 
@@ -662,7 +759,122 @@ export default function DependenciesPage() {
                   : "var(--color-text-tertiary)",
               }}
             >
-              {mcpProxyBundled?.available ? "应用集成" : "未集成"}
+              {mcpProxyBundled?.available
+                ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
+                : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
+            </span>
+          </div>
+
+          {/* nuwaxcode 引擎：应用包内集成 */}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              {nuwaxcodeBundled?.available ? (
+                <CheckCircleOutlined
+                  style={{ color: "var(--color-success)", fontSize: 12 }}
+                />
+              ) : (
+                <ExclamationCircleOutlined
+                  style={{ color: "var(--color-warning)", fontSize: 12 }}
+                />
+              )}
+              <div>
+                <span className={styles.serviceLabel}>nuwaxcode</span>
+                {nuwaxcodeBundled?.available && nuwaxcodeBundled.version && (
+                  <span className={styles.serviceDescription}>
+                    {" "}
+                    {nuwaxcodeBundled.version}
+                  </span>
+                )}
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: nuwaxcodeBundled?.available
+                  ? "var(--color-success)"
+                  : "var(--color-text-tertiary)",
+              }}
+            >
+              {nuwaxcodeBundled?.available
+                ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
+                : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
+            </span>
+          </div>
+
+          {/* claude-code-acp-ts：应用包内集成 */}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              {claudeCodeAcpBundled?.available ? (
+                <CheckCircleOutlined
+                  style={{ color: "var(--color-success)", fontSize: 12 }}
+                />
+              ) : (
+                <ExclamationCircleOutlined
+                  style={{ color: "var(--color-warning)", fontSize: 12 }}
+                />
+              )}
+              <div>
+                <span className={styles.serviceLabel}>
+                  {t(I18N_KEYS.Pages.Dependencies.DEP_CLAUDE_CODE_ACP)}
+                </span>
+                {claudeCodeAcpBundled?.available &&
+                  claudeCodeAcpBundled.version && (
+                    <span className={styles.serviceDescription}>
+                      {" "}
+                      {claudeCodeAcpBundled.version}
+                    </span>
+                  )}
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: claudeCodeAcpBundled?.available
+                  ? "var(--color-success)"
+                  : "var(--color-text-tertiary)",
+              }}
+            >
+              {claudeCodeAcpBundled?.available
+                ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
+                : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
+            </span>
+          </div>
+
+          {/* nuwax-file-server：应用包内集成 */}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              {fileServerBundled?.available ? (
+                <CheckCircleOutlined
+                  style={{ color: "var(--color-success)", fontSize: 12 }}
+                />
+              ) : (
+                <ExclamationCircleOutlined
+                  style={{ color: "var(--color-warning)", fontSize: 12 }}
+                />
+              )}
+              <div>
+                <span className={styles.serviceLabel}>
+                  {t(I18N_KEYS.Pages.Dependencies.DEP_FILE_SERVER)}
+                </span>
+                {fileServerBundled?.available && fileServerBundled.version && (
+                  <span className={styles.serviceDescription}>
+                    {" "}
+                    {fileServerBundled.version}
+                  </span>
+                )}
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: fileServerBundled?.available
+                  ? "var(--color-success)"
+                  : "var(--color-text-tertiary)",
+              }}
+            >
+              {fileServerBundled?.available
+                ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
+                : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
             </span>
           </div>
         </div>
@@ -672,9 +884,15 @@ export default function DependenciesPage() {
       <div className={styles.section}>
         <div className={styles.servicesHeader}>
           <div className={styles.servicesHeaderLeft}>
-            <span className={styles.sectionTitle}>依赖包</span>
+            <span className={styles.sectionTitle}>
+              {t(I18N_KEYS.Pages.Dependencies.DEPENDENCY_PACKAGES)}
+            </span>
             <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>
-              {depSummary.installed}/{depSummary.total} 已安装
+              {t(
+                I18N_KEYS.Pages.Dependencies.INSTALLED_COUNT,
+                String(depSummary.installed),
+                String(depSummary.total),
+              )}
             </span>
           </div>
           <div className={styles.servicesHeaderActions}>
@@ -684,7 +902,7 @@ export default function DependenciesPage() {
               onClick={loadDependencies}
               loading={depLoading}
             >
-              刷新
+              {t(I18N_KEYS.Common.REFRESH)}
             </Button>
             {(depSummary.missing > 0 || depSummary.outdated > 0) && (
               <Button
@@ -696,10 +914,10 @@ export default function DependenciesPage() {
                 disabled={!systemDepsReady}
               >
                 {depSummary.missing > 0 && depSummary.outdated > 0
-                  ? "安装并升级"
+                  ? t(I18N_KEYS.Pages.Dependencies.INSTALL_ALL)
                   : depSummary.outdated > 0
-                    ? "全部升级"
-                    : "全部安装"}
+                    ? t(I18N_KEYS.Pages.Dependencies.UPGRADE_ALL)
+                    : t(I18N_KEYS.Pages.Dependencies.INSTALL_ALL)}
               </Button>
             )}
           </div>
@@ -714,10 +932,13 @@ export default function DependenciesPage() {
                 color: "var(--color-text-tertiary)",
               }}
             >
-              {depLoading ? "正在加载..." : "暂无依赖包"}
+              {depLoading
+                ? t(I18N_KEYS.Common.LOADING)
+                : t(I18N_KEYS.Pages.Dependencies.NO_DEPENDENCIES)}
             </div>
           ) : (
             localDeps.map((item, i) => {
+              const resolvedDisplayName = resolveDepDisplayName(item);
               const canInstall =
                 (item.status === "missing" ||
                   item.status === "error" ||
@@ -744,7 +965,7 @@ export default function DependenciesPage() {
                       style={{ display: "flex", alignItems: "center", gap: 8 }}
                     >
                       <span className={styles.serviceLabel}>
-                        {item.displayName}
+                        {resolvedDisplayName}
                       </span>
                       {item.required && (
                         <Tag
@@ -755,7 +976,7 @@ export default function DependenciesPage() {
                             padding: "0 4px",
                           }}
                         >
-                          必需
+                          {t(I18N_KEYS.Pages.Dependencies.REQUIRED)}
                         </Tag>
                       )}
                       {item.version && (
@@ -785,14 +1006,14 @@ export default function DependenciesPage() {
                         </span>
                       )}
                       {item.status === "installing" &&
-                        currentInstallingDep === item.displayName && (
+                        currentInstallingDep === resolvedDisplayName && (
                           <span style={{ marginLeft: 8 }}>
                             <LoadingOutlined style={{ marginRight: 4 }} />
                             {currentInstallAction === "upgrade"
-                              ? "升级中..."
+                              ? t(I18N_KEYS.Pages.Dependencies.UPGRADING)
                               : currentInstallAction === "update"
-                                ? "更新中..."
-                                : "安装中..."}
+                                ? t(I18N_KEYS.Pages.Dependencies.UPDATING)
+                                : t(I18N_KEYS.Pages.Dependencies.INSTALLING)}
                           </span>
                         )}
                     </div>
@@ -805,7 +1026,9 @@ export default function DependenciesPage() {
                         type="primary"
                         onClick={() => handleInstallSingleDep(item)}
                       >
-                        {item.status === "outdated" ? "升级" : "安装"}
+                        {item.status === "outdated"
+                          ? t(I18N_KEYS.Pages.Dependencies.UPGRADE)
+                          : t(I18N_KEYS.Pages.Dependencies.INSTALL)}
                       </Button>
                     )}
                     {item.status === "bundled" && (
@@ -842,7 +1065,10 @@ export default function DependenciesPage() {
                                 handleInstallSingleDep(item, "update")
                               }
                             >
-                              更新到 {item.latestVersion}
+                              {t(
+                                I18N_KEYS.Pages.Dependencies.UPDATE_TO,
+                                item.latestVersion || "",
+                              )}
                             </Button>
                           )}
                       </div>
@@ -857,7 +1083,7 @@ export default function DependenciesPage() {
 
       {!systemDepsReady && (
         <Alert
-          message="请先满足系统环境要求，再安装依赖包"
+          message={t(I18N_KEYS.Pages.Dependencies.MSG_SYSTEM_ENV_REQUIRED)}
           type="warning"
           style={{ marginTop: 16 }}
         />

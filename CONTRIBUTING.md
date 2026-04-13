@@ -52,42 +52,30 @@ A specification for adding human and machine readable meaning to commit messages
 
 ### Set up
 
-This is no different than other Rust projects.
-
 ```shell
 git clone https://github.com/soddygo/nuwax-agent
 cd nuwax-agent
-cargo test
+pnpm install
+make electron-prepare
+make electron-dev
 ```
 
 ### Useful Commands
 
-- Build and run release version:
+- Prepare dependencies and binaries:
 
   ```shell
-  cargo build --release && cargo run --release
+  make electron-prepare
   ```
 
-- Run Clippy:
+- Run in development mode:
 
   ```shell
-  cargo clippy --all-targets --all-features --workspace
+  make electron-dev
   ```
 
-- Run all tests:
+- Build for distribution:
 
   ```shell
-  cargo test --all-features --workspace
-  ```
-
-- Check to see if there are code formatting issues
-
-  ```shell
-  cargo fmt --all -- --check
-  ```
-
-- Format the code in the project
-
-  ```shell
-  cargo fmt --all
+  make electron-bundle
   ```

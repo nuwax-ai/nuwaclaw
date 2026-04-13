@@ -1,4 +1,16 @@
-import { LOCALHOST_HOSTNAME, DEFAULT_FILE_SERVER_PORT } from '@shared/constants';
+import {
+  LOCALHOST_HOSTNAME,
+  DEFAULT_FILE_SERVER_PORT,
+} from "@shared/constants";
+
+/** 发送 PERF 日志到主进程写入专属日志文件，不可用时降级到 console.log */
+function perfLog(msg: string): void {
+  if (window.electronAPI?.perf) {
+    window.electronAPI.perf.log(msg);
+  } else {
+    console.log(msg);
+  }
+}
 
 export interface FileServerConfig {
   baseUrl: string;
@@ -49,7 +61,7 @@ export interface ChatRequest {
 }
 
 export interface ModelProviderConfig {
-  provider: 'anthropic' | 'openai' | 'google' | 'azure';
+  provider: "anthropic" | "openai" | "google" | "azure";
   api_key?: string;
   base_url?: string;
   model?: string;
@@ -73,7 +85,7 @@ export interface AgentStatusRequest {
 
 export interface AgentStatusResponse {
   success: boolean;
-  status: 'Idle' | 'Busy';
+  status: "Idle" | "Busy";
   session_id?: string;
   project_id?: string;
 }
@@ -106,50 +118,66 @@ class FileServerService {
 
   private getHeaders(): HeadersInit {
     return this.config.apiKey
-      ? { 'Authorization': `Bearer ${this.config.apiKey}` }
+      ? { Authorization: `Bearer ${this.config.apiKey}` }
       : {};
   }
 
   async loadConfig(): Promise<void> {
     try {
-      const saved = await window.electronAPI?.settings.get('file_server_config');
+      const saved =
+        await window.electronAPI?.settings.get("file_server_config");
       if (saved) {
         this.config = { ...this.config, ...(saved as FileServerConfig) };
       }
     } catch (error) {
-      console.error('Failed to load file server config:', error);
+      console.error("Failed to load file server config:", error);
     }
   }
 
   async saveConfig(): Promise<void> {
     try {
-      await window.electronAPI?.settings.set('file_server_config', this.config);
+      await window.electronAPI?.settings.set("file_server_config", this.config);
     } catch (error) {
-      console.error('Failed to save file server config:', error);
+      console.error("Failed to save file server config:", error);
     }
   }
 
   // ==================== Chat/SSE API (Agent Runner) ====================
 
   // POST /computer/chat - 发送聊天消息
+  // 注：当前 UI 为 embedded webview（Java 前端 → Java 后端 → Electron），
+  //     chat() / streamChat() 不经过此路径，[PERF][Frontend] 日志在实际链路中不触发。
+  //     代码保留供 Electron renderer 直连场景使用（如未来去除 webview 的方案）。
   async chat(request: ChatRequest): Promise<ChatResponse> {
+    const t0 = Date.now();
     // 优先通过 IPC（AcpEngine 直接处理，返回 HttpResult<ComputerChatResponse>）
     if (window.electronAPI?.computer) {
+      perfLog(
+        `[PERF][Frontend][chat] request sent: project_id=${request.project_id}, t=${t0}`,
+      );
       const result = await window.electronAPI.computer.chat(request);
+      const t1 = Date.now();
+      perfLog(
+        `[PERF][Frontend][chat] IPC response: session_id=${result.data?.session_id}, duration=${t1 - t0}ms`,
+      );
       // 从 HttpResult 中提取 data，映射到 fileServer 本地 ChatResponse 格式
       return {
         success: result.success,
-        project_id: result.data?.project_id || '',
-        session_id: result.data?.session_id || '',
-        error: result.data?.error || (result.success ? undefined : result.message),
+        project_id: result.data?.project_id || "",
+        session_id: result.data?.session_id || "",
+        error:
+          result.data?.error || (result.success ? undefined : result.message),
       };
     }
     // 回退到 HTTP（rcoder 返回 HttpResult<ChatResponse> 格式）
+    perfLog(
+      `[PERF][Frontend][chat] HTTP request sent: project_id=${request.project_id}, t=${t0}`,
+    );
     const response = await fetch(`${this.config.baseUrl}/computer/chat`, {
-      method: 'POST',
+      method: "POST",
       headers: {
         ...this.getHeaders(),
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(request),
     });
@@ -161,64 +189,102 @@ class FileServerService {
 
     // rcoder 返回 HttpResult 格式，提取 data
     const httpResult = await response.json();
+    const t1 = Date.now();
+    perfLog(
+      `[PERF][Frontend][chat] HTTP response: session_id=${httpResult.data?.session_id}, duration=${t1 - t0}ms`,
+    );
     return {
       success: httpResult.success ?? false,
-      project_id: httpResult.data?.project_id || '',
-      session_id: httpResult.data?.session_id || '',
-      error: httpResult.data?.error || (httpResult.success ? undefined : httpResult.message),
+      project_id: httpResult.data?.project_id || "",
+      session_id: httpResult.data?.session_id || "",
+      error:
+        httpResult.data?.error ||
+        (httpResult.success ? undefined : httpResult.message),
     };
   }
 
   // GET /computer/progress/{session_id} - SSE 流式进度
+  // 注：同 chat()，当前链路不经过此路径，[PERF][Frontend][streamChat] 日志在实际链路中不触发。
   async *streamChat(sessionId: string): AsyncGenerator<ChatMessage> {
-    const response = await fetch(`${this.config.baseUrl}/computer/progress/${sessionId}`, {
-      method: 'GET',
-      headers: this.getHeaders(),
-    });
+    const t0 = Date.now();
+    perfLog(
+      `[PERF][Frontend][streamChat] connection initiated: session_id=${sessionId}, t=${t0}`,
+    );
+    const response = await fetch(
+      `${this.config.baseUrl}/computer/progress/${sessionId}`,
+      {
+        method: "GET",
+        headers: this.getHeaders(),
+      },
+    );
 
     if (!response.ok) {
-      throw new Error(`Failed to connect to progress stream: ${response.statusText}`);
+      throw new Error(
+        `Failed to connect to progress stream: ${response.statusText}`,
+      );
     }
 
     if (!response.body) {
-      throw new Error('No response body');
+      throw new Error("No response body");
     }
+
+    perfLog(
+      `[PERF][Frontend][streamChat] SSE connected: session_id=${sessionId}, duration=${Date.now() - t0}ms`,
+    );
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
 
-    let buffer = '';
+    let buffer = "";
+    let firstChunk = true;
 
     while (true) {
       const { done, value } = await reader.read();
-      
-      if (done) break;
-      
+
+      if (done) {
+        perfLog(
+          `[PERF][Frontend][streamChat] SSE ended: session_id=${sessionId}, total_duration=${Date.now() - t0}ms`,
+        );
+        break;
+      }
+
+      if (firstChunk) {
+        perfLog(
+          `[PERF][Frontend][streamChat] SSE first chunk: session_id=${sessionId}, duration=${Date.now() - t0}ms`,
+        );
+        firstChunk = false;
+      }
+
       buffer += decoder.decode(value, { stream: true });
-      
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
 
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
+        if (line.startsWith("data: ")) {
           const data = line.slice(6);
-          
+
           // Skip heartbeat events
-          if (data.includes('"ping"') || data.includes('heartbeat')) {
+          if (data.includes('"ping"') || data.includes("heartbeat")) {
             continue;
           }
-          
+
           try {
             const message = JSON.parse(data);
             yield message;
           } catch {
             // Not JSON, might be plain text
-            yield { data, messageType: 'text', subType: 'message', timestamp: new Date().toISOString() };
+            yield {
+              data,
+              messageType: "text",
+              subType: "message",
+              timestamp: new Date().toISOString(),
+            };
           }
         }
-        
+
         // Handle event types
-        if (line.startsWith('event: ')) {
+        if (line.startsWith("event: ")) {
           const eventType = line.slice(7);
           // Event type in 'event:' header
         }
@@ -227,26 +293,33 @@ class FileServerService {
   }
 
   // POST /computer/agent/status - 获取 Agent 状态
-  async getAgentStatus(request: AgentStatusRequest): Promise<AgentStatusResponse> {
+  async getAgentStatus(
+    request: AgentStatusRequest,
+  ): Promise<AgentStatusResponse> {
     // 优先通过 IPC（返回 HttpResult<ComputerAgentStatusResponse>）
     if (window.electronAPI?.computer) {
       const result = await window.electronAPI.computer.agentStatus(request);
       return {
         success: result.success,
-        status: (result.data?.status === 'Busy' ? 'Busy' : 'Idle') as 'Idle' | 'Busy',
+        status: (result.data?.status === "Busy" ? "Busy" : "Idle") as
+          | "Idle"
+          | "Busy",
         session_id: result.data?.session_id ?? undefined,
         project_id: result.data?.project_id ?? request.project_id,
       };
     }
     // 回退到 HTTP（rcoder 返回 HttpResult 格式）
-    const response = await fetch(`${this.config.baseUrl}/computer/agent/status`, {
-      method: 'POST',
-      headers: {
-        ...this.getHeaders(),
-        'Content-Type': 'application/json',
+    const response = await fetch(
+      `${this.config.baseUrl}/computer/agent/status`,
+      {
+        method: "POST",
+        headers: {
+          ...this.getHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(request),
       },
-      body: JSON.stringify(request),
-    });
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to get status: ${response.statusText}`);
@@ -255,7 +328,9 @@ class FileServerService {
     const httpResult = await response.json();
     return {
       success: httpResult.success ?? false,
-      status: (httpResult.data?.status === 'Busy' ? 'Busy' : 'Idle') as 'Idle' | 'Busy',
+      status: (httpResult.data?.status === "Busy" ? "Busy" : "Idle") as
+        | "Idle"
+        | "Busy",
       session_id: httpResult.data?.session_id,
       project_id: httpResult.data?.project_id,
     };
@@ -273,10 +348,10 @@ class FileServerService {
     }
     // 回退到 HTTP（rcoder 返回 HttpResult 格式）
     const response = await fetch(`${this.config.baseUrl}/computer/agent/stop`, {
-      method: 'POST',
+      method: "POST",
       headers: {
         ...this.getHeaders(),
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(request),
     });
@@ -288,26 +363,35 @@ class FileServerService {
     const httpResult = await response.json();
     return {
       success: httpResult.data?.success ?? httpResult.success,
-      message: httpResult.data?.message ?? httpResult.message ?? 'Stopped',
+      message: httpResult.data?.message ?? httpResult.message ?? "Stopped",
     };
   }
 
   // POST /computer/agent/session/cancel - 取消会话
-  async cancelSession(request: { user_id: string; session_id: string }): Promise<{ success: boolean; message: string }> {
+  async cancelSession(request: {
+    user_id: string;
+    session_id: string;
+  }): Promise<{ success: boolean; message: string }> {
     // 优先通过 IPC（返回 HttpResult<ComputerAgentCancelResponse>）
     if (window.electronAPI?.computer) {
       const result = await window.electronAPI.computer.cancelSession(request);
-      return { success: result.data?.success ?? result.success, message: result.success ? 'Cancelled' : result.message };
+      return {
+        success: result.data?.success ?? result.success,
+        message: result.success ? "Cancelled" : result.message,
+      };
     }
     // 回退到 HTTP（rcoder 返回 HttpResult 格式）
-    const response = await fetch(`${this.config.baseUrl}/computer/agent/session/cancel`, {
-      method: 'POST',
-      headers: {
-        ...this.getHeaders(),
-        'Content-Type': 'application/json',
+    const response = await fetch(
+      `${this.config.baseUrl}/computer/agent/session/cancel`,
+      {
+        method: "POST",
+        headers: {
+          ...this.getHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(request),
       },
-      body: JSON.stringify(request),
-    });
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to cancel session: ${response.statusText}`);
@@ -316,26 +400,35 @@ class FileServerService {
     const httpResult = await response.json();
     return {
       success: httpResult.data?.success ?? httpResult.success,
-      message: httpResult.success ? 'Cancelled' : (httpResult.message ?? 'Failed'),
+      message: httpResult.success
+        ? "Cancelled"
+        : (httpResult.message ?? "Failed"),
     };
   }
 
   // ==================== Computer Routes ====================
 
   // POST /computer/create-workspace - 创建工作空间（支持skills同步）
-  async createWorkspace(userId: string, cId: string, zipFile?: File): Promise<WorkspaceResult> {
+  async createWorkspace(
+    userId: string,
+    cId: string,
+    zipFile?: File,
+  ): Promise<WorkspaceResult> {
     const formData = new FormData();
-    formData.append('userId', userId);
-    formData.append('cId', cId);
+    formData.append("userId", userId);
+    formData.append("cId", cId);
     if (zipFile) {
-      formData.append('file', zipFile);
+      formData.append("file", zipFile);
     }
 
-    const response = await fetch(`${this.config.baseUrl}/computer/create-workspace`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: formData,
-    });
+    const response = await fetch(
+      `${this.config.baseUrl}/computer/create-workspace`,
+      {
+        method: "POST",
+        headers: this.getHeaders(),
+        body: formData,
+      },
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to create workspace: ${response.statusText}`);
@@ -345,16 +438,23 @@ class FileServerService {
   }
 
   // GET /computer/get-file-list - 获取文件列表
-  async getFileList(userId: string, cId: string, proxyPath?: string): Promise<FileListResult> {
+  async getFileList(
+    userId: string,
+    cId: string,
+    proxyPath?: string,
+  ): Promise<FileListResult> {
     const params = new URLSearchParams({ userId, cId });
     if (proxyPath) {
-      params.append('proxyPath', proxyPath);
+      params.append("proxyPath", proxyPath);
     }
 
-    const response = await fetch(`${this.config.baseUrl}/computer/get-file-list?${params}`, {
-      method: 'GET',
-      headers: this.getHeaders(),
-    });
+    const response = await fetch(
+      `${this.config.baseUrl}/computer/get-file-list?${params}`,
+      {
+        method: "GET",
+        headers: this.getHeaders(),
+      },
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to get file list: ${response.statusText}`);
@@ -364,15 +464,22 @@ class FileServerService {
   }
 
   // POST /computer/files-update - 批量更新文件
-  async updateFiles(userId: string, cId: string, files: { name: string; contents: string }[]): Promise<{ success: boolean }> {
-    const response = await fetch(`${this.config.baseUrl}/computer/files-update`, {
-      method: 'POST',
-      headers: {
-        ...this.getHeaders(),
-        'Content-Type': 'application/json',
+  async updateFiles(
+    userId: string,
+    cId: string,
+    files: { name: string; contents: string }[],
+  ): Promise<{ success: boolean }> {
+    const response = await fetch(
+      `${this.config.baseUrl}/computer/files-update`,
+      {
+        method: "POST",
+        headers: {
+          ...this.getHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ userId, cId, files }),
       },
-      body: JSON.stringify({ userId, cId, files }),
-    });
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to update files: ${response.statusText}`);
@@ -382,18 +489,26 @@ class FileServerService {
   }
 
   // POST /computer/upload-file - 上传单个文件
-  async uploadFile(userId: string, cId: string, file: File, filePath: string): Promise<any> {
+  async uploadFile(
+    userId: string,
+    cId: string,
+    file: File,
+    filePath: string,
+  ): Promise<any> {
     const formData = new FormData();
-    formData.append('userId', userId);
-    formData.append('cId', cId);
-    formData.append('filePath', filePath);
-    formData.append('file', file);
+    formData.append("userId", userId);
+    formData.append("cId", cId);
+    formData.append("filePath", filePath);
+    formData.append("file", file);
 
-    const response = await fetch(`${this.config.baseUrl}/computer/upload-file`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: formData,
-    });
+    const response = await fetch(
+      `${this.config.baseUrl}/computer/upload-file`,
+      {
+        method: "POST",
+        headers: this.getHeaders(),
+        body: formData,
+      },
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to upload file: ${response.statusText}`);
@@ -403,21 +518,29 @@ class FileServerService {
   }
 
   // POST /computer/upload-files - 批量上传文件
-  async uploadFiles(userId: string, cId: string, files: File[], filePaths: string[]): Promise<any> {
+  async uploadFiles(
+    userId: string,
+    cId: string,
+    files: File[],
+    filePaths: string[],
+  ): Promise<any> {
     const formData = new FormData();
-    formData.append('userId', userId);
-    formData.append('cId', cId);
-    formData.append('filePaths', JSON.stringify(filePaths));
-    
+    formData.append("userId", userId);
+    formData.append("cId", cId);
+    formData.append("filePaths", JSON.stringify(filePaths));
+
     files.forEach((file, i) => {
-      formData.append('files', file);
+      formData.append("files", file);
     });
 
-    const response = await fetch(`${this.config.baseUrl}/computer/upload-files`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: formData,
-    });
+    const response = await fetch(
+      `${this.config.baseUrl}/computer/upload-files`,
+      {
+        method: "POST",
+        headers: this.getHeaders(),
+        body: formData,
+      },
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to upload files: ${response.statusText}`);
@@ -430,10 +553,13 @@ class FileServerService {
   async downloadAllFiles(userId: string, cId: string): Promise<Blob> {
     const params = new URLSearchParams({ userId, cId });
 
-    const response = await fetch(`${this.config.baseUrl}/computer/download-all-files?${params}`, {
-      method: 'GET',
-      headers: this.getHeaders(),
-    });
+    const response = await fetch(
+      `${this.config.baseUrl}/computer/download-all-files?${params}`,
+      {
+        method: "GET",
+        headers: this.getHeaders(),
+      },
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to download files: ${response.statusText}`);
@@ -446,170 +572,255 @@ class FileServerService {
 
   async startDev(projectId: string): Promise<any> {
     const params = new URLSearchParams({ projectId });
-    const response = await fetch(`${this.config.baseUrl}/build/start-dev?${params}`, {
-      method: 'GET',
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) throw new Error(`Failed to start dev: ${response.statusText}`);
+    const response = await fetch(
+      `${this.config.baseUrl}/build/start-dev?${params}`,
+      {
+        method: "GET",
+        headers: this.getHeaders(),
+      },
+    );
+    if (!response.ok)
+      throw new Error(`Failed to start dev: ${response.statusText}`);
     return response.json();
   }
 
   async stopDev(projectId: string, pid: string): Promise<any> {
     const params = new URLSearchParams({ projectId, pid });
-    const response = await fetch(`${this.config.baseUrl}/build/stop-dev?${params}`, {
-      method: 'GET',
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) throw new Error(`Failed to stop dev: ${response.statusText}`);
+    const response = await fetch(
+      `${this.config.baseUrl}/build/stop-dev?${params}`,
+      {
+        method: "GET",
+        headers: this.getHeaders(),
+      },
+    );
+    if (!response.ok)
+      throw new Error(`Failed to stop dev: ${response.statusText}`);
     return response.json();
   }
 
   async build(projectId: string): Promise<any> {
     const params = new URLSearchParams({ projectId });
-    const response = await fetch(`${this.config.baseUrl}/build/build?${params}`, {
-      method: 'GET',
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) throw new Error(`Failed to build: ${response.statusText}`);
+    const response = await fetch(
+      `${this.config.baseUrl}/build/build?${params}`,
+      {
+        method: "GET",
+        headers: this.getHeaders(),
+      },
+    );
+    if (!response.ok)
+      throw new Error(`Failed to build: ${response.statusText}`);
     return response.json();
   }
 
   async restartDev(projectId: string): Promise<any> {
     const params = new URLSearchParams({ projectId });
-    const response = await fetch(`${this.config.baseUrl}/build/restart-dev?${params}`, {
-      method: 'GET',
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) throw new Error(`Failed to restart dev: ${response.statusText}`);
+    const response = await fetch(
+      `${this.config.baseUrl}/build/restart-dev?${params}`,
+      {
+        method: "GET",
+        headers: this.getHeaders(),
+      },
+    );
+    if (!response.ok)
+      throw new Error(`Failed to restart dev: ${response.statusText}`);
     return response.json();
   }
 
   async listDev(): Promise<{ success: boolean; list: any[] }> {
     const response = await fetch(`${this.config.baseUrl}/build/list-dev`, {
-      method: 'GET',
+      method: "GET",
       headers: this.getHeaders(),
     });
-    if (!response.ok) throw new Error(`Failed to list dev: ${response.statusText}`);
+    if (!response.ok)
+      throw new Error(`Failed to list dev: ${response.statusText}`);
     return response.json();
   }
 
-  async getDevLog(projectId: string, startIndex: number = 1, logType: string = 'temp'): Promise<any> {
-    const params = new URLSearchParams({ projectId, startIndex: String(startIndex), logType });
-    const response = await fetch(`${this.config.baseUrl}/build/get-dev-log?${params}`, {
-      method: 'GET',
-      headers: this.getHeaders(),
+  async getDevLog(
+    projectId: string,
+    startIndex: number = 1,
+    logType: string = "temp",
+  ): Promise<any> {
+    const params = new URLSearchParams({
+      projectId,
+      startIndex: String(startIndex),
+      logType,
     });
-    if (!response.ok) throw new Error(`Failed to get dev log: ${response.statusText}`);
+    const response = await fetch(
+      `${this.config.baseUrl}/build/get-dev-log?${params}`,
+      {
+        method: "GET",
+        headers: this.getHeaders(),
+      },
+    );
+    if (!response.ok)
+      throw new Error(`Failed to get dev log: ${response.statusText}`);
     return response.json();
   }
 
   // ==================== Code Routes ====================
 
-  async updateAllFiles(projectId: string, codeVersion: string, files: any[], basePath?: string, pid?: string): Promise<any> {
-    const response = await fetch(`${this.config.baseUrl}/code/all-files-update`, {
-      method: 'POST',
-      headers: {
-        ...this.getHeaders(),
-        'Content-Type': 'application/json',
+  async updateAllFiles(
+    projectId: string,
+    codeVersion: string,
+    files: any[],
+    basePath?: string,
+    pid?: string,
+  ): Promise<any> {
+    const response = await fetch(
+      `${this.config.baseUrl}/code/all-files-update`,
+      {
+        method: "POST",
+        headers: {
+          ...this.getHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ projectId, codeVersion, files, basePath, pid }),
       },
-      body: JSON.stringify({ projectId, codeVersion, files, basePath, pid }),
-    });
-    if (!response.ok) throw new Error(`Failed to update files: ${response.statusText}`);
+    );
+    if (!response.ok)
+      throw new Error(`Failed to update files: ${response.statusText}`);
     return response.json();
   }
 
-  async uploadSingleCodeFile(projectId: string, codeVersion: string, file: File, filePath: string): Promise<any> {
+  async uploadSingleCodeFile(
+    projectId: string,
+    codeVersion: string,
+    file: File,
+    filePath: string,
+  ): Promise<any> {
     const formData = new FormData();
-    formData.append('projectId', projectId);
-    formData.append('codeVersion', codeVersion);
-    formData.append('filePath', filePath);
-    formData.append('file', file);
+    formData.append("projectId", projectId);
+    formData.append("codeVersion", codeVersion);
+    formData.append("filePath", filePath);
+    formData.append("file", file);
 
-    const response = await fetch(`${this.config.baseUrl}/code/upload-single-file`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: formData,
-    });
-    if (!response.ok) throw new Error(`Failed to upload code file: ${response.statusText}`);
+    const response = await fetch(
+      `${this.config.baseUrl}/code/upload-single-file`,
+      {
+        method: "POST",
+        headers: this.getHeaders(),
+        body: formData,
+      },
+    );
+    if (!response.ok)
+      throw new Error(`Failed to upload code file: ${response.statusText}`);
     return response.json();
   }
 
-  async rollbackVersion(projectId: string, codeVersion: string, rollbackTo: string): Promise<any> {
-    const response = await fetch(`${this.config.baseUrl}/code/rollback-version`, {
-      method: 'POST',
-      headers: {
-        ...this.getHeaders(),
-        'Content-Type': 'application/json',
+  async rollbackVersion(
+    projectId: string,
+    codeVersion: string,
+    rollbackTo: string,
+  ): Promise<any> {
+    const response = await fetch(
+      `${this.config.baseUrl}/code/rollback-version`,
+      {
+        method: "POST",
+        headers: {
+          ...this.getHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ projectId, codeVersion, rollbackTo }),
       },
-      body: JSON.stringify({ projectId, codeVersion, rollbackTo }),
-    });
-    if (!response.ok) throw new Error(`Failed to rollback: ${response.statusText}`);
+    );
+    if (!response.ok)
+      throw new Error(`Failed to rollback: ${response.statusText}`);
     return response.json();
   }
 
   // ==================== Project Routes ====================
 
   async createProject(projectId: string): Promise<any> {
-    const response = await fetch(`${this.config.baseUrl}/project/create-project`, {
-      method: 'POST',
-      headers: {
-        ...this.getHeaders(),
-        'Content-Type': 'application/json',
+    const response = await fetch(
+      `${this.config.baseUrl}/project/create-project`,
+      {
+        method: "POST",
+        headers: {
+          ...this.getHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ projectId }),
       },
-      body: JSON.stringify({ projectId }),
-    });
-    if (!response.ok) throw new Error(`Failed to create project: ${response.statusText}`);
+    );
+    if (!response.ok)
+      throw new Error(`Failed to create project: ${response.statusText}`);
     return response.json();
   }
 
-  async getProjectContent(projectId: string, command?: string, proxyPath?: string): Promise<any> {
+  async getProjectContent(
+    projectId: string,
+    command?: string,
+    proxyPath?: string,
+  ): Promise<any> {
     const params = new URLSearchParams({ projectId });
-    if (command) params.append('command', command);
-    if (proxyPath) params.append('proxyPath', proxyPath);
+    if (command) params.append("command", command);
+    if (proxyPath) params.append("proxyPath", proxyPath);
 
-    const response = await fetch(`${this.config.baseUrl}/project/get-project-content?${params}`, {
-      method: 'GET',
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) throw new Error(`Failed to get project content: ${response.statusText}`);
+    const response = await fetch(
+      `${this.config.baseUrl}/project/get-project-content?${params}`,
+      {
+        method: "GET",
+        headers: this.getHeaders(),
+      },
+    );
+    if (!response.ok)
+      throw new Error(`Failed to get project content: ${response.statusText}`);
     return response.json();
   }
 
   async backupVersion(projectId: string, codeVersion: string): Promise<any> {
-    const response = await fetch(`${this.config.baseUrl}/project/backup-current-version`, {
-      method: 'POST',
-      headers: {
-        ...this.getHeaders(),
-        'Content-Type': 'application/json',
+    const response = await fetch(
+      `${this.config.baseUrl}/project/backup-current-version`,
+      {
+        method: "POST",
+        headers: {
+          ...this.getHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ projectId, codeVersion }),
       },
-      body: JSON.stringify({ projectId, codeVersion }),
-    });
-    if (!response.ok) throw new Error(`Failed to backup version: ${response.statusText}`);
+    );
+    if (!response.ok)
+      throw new Error(`Failed to backup version: ${response.statusText}`);
     return response.json();
   }
 
-  async exportProject(projectId: string, codeVersion: string, exportType: string = 'zip', config?: any): Promise<Blob> {
-    const response = await fetch(`${this.config.baseUrl}/project/export-project`, {
-      method: 'POST',
-      headers: {
-        ...this.getHeaders(),
-        'Content-Type': 'application/json',
+  async exportProject(
+    projectId: string,
+    codeVersion: string,
+    exportType: string = "zip",
+    config?: any,
+  ): Promise<Blob> {
+    const response = await fetch(
+      `${this.config.baseUrl}/project/export-project`,
+      {
+        method: "POST",
+        headers: {
+          ...this.getHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ projectId, codeVersion, exportType, config }),
       },
-      body: JSON.stringify({ projectId, codeVersion, exportType, config }),
-    });
-    if (!response.ok) throw new Error(`Failed to export project: ${response.statusText}`);
+    );
+    if (!response.ok)
+      throw new Error(`Failed to export project: ${response.statusText}`);
     return response.blob();
   }
 
   async deleteProject(projectId: string, pid?: string): Promise<any> {
     const params = new URLSearchParams({ projectId });
-    if (pid) params.append('pid', pid);
+    if (pid) params.append("pid", pid);
 
-    const response = await fetch(`${this.config.baseUrl}/project/delete-project?${params}`, {
-      method: 'GET',
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) throw new Error(`Failed to delete project: ${response.statusText}`);
+    const response = await fetch(
+      `${this.config.baseUrl}/project/delete-project?${params}`,
+      {
+        method: "GET",
+        headers: this.getHeaders(),
+      },
+    );
+    if (!response.ok)
+      throw new Error(`Failed to delete project: ${response.statusText}`);
     return response.json();
   }
 
@@ -619,11 +830,11 @@ class FileServerService {
       // 优先通过 IPC
       if (window.electronAPI?.computer) {
         const result = await window.electronAPI.computer.health();
-        return result.status === 'healthy';
+        return result.status === "healthy";
       }
       // 回退到 HTTP
       const response = await fetch(`${this.config.baseUrl}/health`, {
-        method: 'GET',
+        method: "GET",
       });
       return response.ok;
     } catch {

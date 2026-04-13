@@ -1,5 +1,6 @@
 import { ipcMain } from "electron";
 import log from "electron-log";
+import { z } from "zod";
 import { agentService } from "../services/engines/unifiedAgent";
 import type { AgentConfig } from "../services/engines/unifiedAgent";
 import {
@@ -7,17 +8,55 @@ import {
   syncMcpConfigToProxyAndReload,
 } from "../services/packages/mcp";
 
+const agentConfigSchema = z
+  .object({
+    engine: z.enum(["nuwaxcode", "claude-code"]),
+    workspaceDir: z.string(),
+    apiKey: z.string().optional(),
+    baseUrl: z.string().optional(),
+    model: z.string().optional(),
+    apiProtocol: z.string().optional(),
+    hostname: z.string().optional(),
+    port: z.number().int().positive().optional(),
+    timeout: z.number().int().positive().optional(),
+    engineBinaryPath: z.string().optional(),
+    env: z.record(z.string()).optional(),
+    mcpServers: z.record(z.unknown()).optional(),
+    permissionMode: z
+      .enum(["default", "acceptEdits", "bypassPermissions"])
+      .optional(),
+    systemPrompt: z.string().optional(),
+    purpose: z.enum(["engine"]).optional(),
+  })
+  .passthrough();
+
+const sessionIdSchema = z.string().min(1);
+const partsSchema = z.array(z.any());
+const promptOptionsSchema = z.any().optional();
+const permissionResponseSchema = z.enum(["once", "always", "reject"]);
+
+function invalidArgs(channel: string, issues: unknown) {
+  log.warn(`[IPC] ${channel} invalid args:`, issues);
+  return { success: false, error: `Invalid arguments for ${channel}` };
+}
+
 export function registerAgentHandlers(): void {
   // Initialize unified agent service
   ipcMain.handle("agent:init", async (_, config: AgentConfig) => {
+    const parsedConfig = agentConfigSchema.safeParse(config);
+    if (!parsedConfig.success) {
+      return invalidArgs("agent:init", parsedConfig.error.issues);
+    }
+    const typedConfig = parsedConfig.data as AgentConfig;
+
     log.info("[IPC] Initializing unified agent:", config.engine);
     try {
       // Auto-inject MCP config if MCP proxy is running and no mcpServers provided
-      let finalConfig = config;
-      if (!config.mcpServers) {
+      let finalConfig: AgentConfig = typedConfig;
+      if (!typedConfig.mcpServers) {
         const mcpConfig = mcpProxyManager.getAgentMcpConfig();
         if (mcpConfig) {
-          finalConfig = { ...config, mcpServers: mcpConfig };
+          finalConfig = { ...typedConfig, mcpServers: mcpConfig };
           log.info(
             "[IPC] Auto-injected MCP config into agent:",
             Object.keys(mcpConfig),
@@ -28,8 +67,11 @@ export function registerAgentHandlers(): void {
 
       // 仅当调用方显式传入 mcpServers（原始服务器列表）时，同步到 MCP Proxy 并动态加载
       // auto-inject 时 finalConfig.mcpServers 是桥接配置，不能写回 proxy
-      if (config.mcpServers && Object.keys(config.mcpServers).length > 0) {
-        await syncMcpConfigToProxyAndReload(config.mcpServers);
+      if (
+        typedConfig.mcpServers &&
+        Object.keys(typedConfig.mcpServers).length > 0
+      ) {
+        await syncMcpConfigToProxyAndReload(typedConfig.mcpServers);
       }
 
       return {
@@ -161,8 +203,18 @@ export function registerAgentHandlers(): void {
   ipcMain.handle(
     "agent:prompt",
     async (_, sessionId: string, parts: any[], opts?: any) => {
+      const sid = sessionIdSchema.safeParse(sessionId);
+      const ps = partsSchema.safeParse(parts);
+      const op = promptOptionsSchema.safeParse(opts);
+      if (!sid.success || !ps.success || !op.success) {
+        return invalidArgs("agent:prompt", {
+          sessionId: sid.success ? null : sid.error.issues,
+          parts: ps.success ? null : ps.error.issues,
+          opts: op.success ? null : op.error.issues,
+        });
+      }
       try {
-        const result = await agentService.prompt(sessionId, parts, opts);
+        const result = await agentService.prompt(sid.data, ps.data, op.data);
         return { success: true, data: result };
       } catch (error) {
         return { success: false, error: String(error) };
@@ -174,8 +226,18 @@ export function registerAgentHandlers(): void {
   ipcMain.handle(
     "agent:promptAsync",
     async (_, sessionId: string, parts: any[], opts?: any) => {
+      const sid = sessionIdSchema.safeParse(sessionId);
+      const ps = partsSchema.safeParse(parts);
+      const op = promptOptionsSchema.safeParse(opts);
+      if (!sid.success || !ps.success || !op.success) {
+        return invalidArgs("agent:promptAsync", {
+          sessionId: sid.success ? null : sid.error.issues,
+          parts: ps.success ? null : ps.error.issues,
+          opts: op.success ? null : op.error.issues,
+        });
+      }
       try {
-        await agentService.promptAsync(sessionId, parts, opts);
+        await agentService.promptAsync(sid.data, ps.data, op.data);
         return { success: true };
       } catch (error) {
         return { success: false, error: String(error) };
@@ -185,6 +247,12 @@ export function registerAgentHandlers(): void {
 
   // Abort session
   ipcMain.handle("agent:abort", async (_, sessionId?: string) => {
+    if (sessionId !== undefined) {
+      const sid = sessionIdSchema.safeParse(sessionId);
+      if (!sid.success) {
+        return invalidArgs("agent:abort", sid.error.issues);
+      }
+    }
     try {
       await agentService.abortSession(sessionId || "");
       return { success: true };
@@ -196,9 +264,22 @@ export function registerAgentHandlers(): void {
   // Respond to permission request
   ipcMain.handle(
     "agent:respondPermission",
-    async (_, permissionId: string, response: "once" | "always" | "reject") => {
+    async (
+      _,
+      _sessionId: string,
+      permissionId: string,
+      response: "once" | "always" | "reject",
+    ) => {
+      const pid = z.string().min(1).safeParse(permissionId);
+      const rsp = permissionResponseSchema.safeParse(response);
+      if (!pid.success || !rsp.success) {
+        return invalidArgs("agent:respondPermission", {
+          permissionId: pid.success ? null : pid.error.issues,
+          response: rsp.success ? null : rsp.error.issues,
+        });
+      }
       try {
-        agentService.respondPermission(permissionId, response);
+        agentService.respondPermission(pid.data, rsp.data);
         return { success: true };
       } catch (error) {
         return { success: false, error: String(error) };

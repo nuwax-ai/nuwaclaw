@@ -10,18 +10,40 @@
  */
 
 import { useState, useMemo } from "react";
-import { Button, Select, Space, Card, Divider, Radio, Switch, message } from "antd";
+import {
+  Button,
+  Select,
+  Space,
+  Card,
+  Divider,
+  Radio,
+  Switch,
+  message,
+} from "antd";
 import SetupWizard from "../setup/SetupWizard";
 import type { MockDependenciesApi } from "../setup/SetupDependencies";
+import { t } from "../../services/core/i18n";
 
 // ==================== 测试场景预设 ====================
-type TestScenario = "full-install" | "deps-ready" | "already-logged-in" | "error-flow";
+type TestScenario =
+  | "full-install"
+  | "deps-ready"
+  | "already-logged-in"
+  | "error-flow";
 
-const SCENARIO_CONFIG: Record<TestScenario, {
-  label: string;
-  description: string;
-  depsPhase: "checking" | "installing" | "completed" | "error" | "system-deps-missing";
-}> = {
+const SCENARIO_CONFIG: Record<
+  TestScenario,
+  {
+    label: string;
+    description: string;
+    depsPhase:
+      | "checking"
+      | "installing"
+      | "completed"
+      | "error"
+      | "system-deps-missing";
+  }
+> = {
   "full-install": {
     label: "完整安装流程",
     description: "从依赖检测到安装完成的全流程",
@@ -46,27 +68,126 @@ const SCENARIO_CONFIG: Record<TestScenario, {
 
 // ==================== Mock 数据 ====================
 const MOCK_DEPS_INSTALLING = [
-  { name: "uv", displayName: "uv", type: "system" as const, description: "Python 包管理器", status: "installed" as const, version: "0.5.0" },
-  { name: "claude-code-acp-ts", displayName: "Claude Code ACP", type: "npm-local" as const, description: "ACP 协议实现", status: "installing" as const },
-  { name: "nuwaxcode", displayName: "Nuwaxcode", type: "npm-local" as const, description: "Nuwaxcode 引擎", status: "missing" as const },
-  { name: "nuwax-file-server", displayName: "File Server", type: "npm-local" as const, description: "本地文件服务", status: "missing" as const },
-  { name: "nuwax-mcp-stdio-proxy", displayName: "MCP Proxy", type: "npm-local" as const, description: "MCP 聚合代理", status: "missing" as const },
+  {
+    name: "uv",
+    displayName: "uv",
+    type: "system" as const,
+    description: "Python 包管理器",
+    status: "installed" as const,
+    version: "0.5.0",
+  },
+  {
+    name: "claude-code-acp-ts",
+    displayName: "Claude Code ACP",
+    type: "npm-local" as const,
+    description: "ACP 协议实现",
+    status: "installing" as const,
+  },
+  {
+    name: "nuwaxcode",
+    displayName: "Nuwaxcode",
+    type: "npm-local" as const,
+    description: "Nuwaxcode 引擎",
+    status: "missing" as const,
+  },
+  {
+    name: "nuwax-file-server",
+    displayName: "File Server",
+    type: "npm-local" as const,
+    description: "本地文件服务",
+    status: "missing" as const,
+  },
+  {
+    name: "nuwax-mcp-stdio-proxy",
+    displayName: "MCP Proxy",
+    type: "npm-local" as const,
+    description: "MCP 聚合代理",
+    status: "missing" as const,
+  },
 ];
 
 const MOCK_DEPS_COMPLETED = [
-  { name: "uv", displayName: "uv", type: "system" as const, description: "Python 包管理器", status: "installed" as const, version: "0.5.0" },
-  { name: "claude-code-acp-ts", displayName: "Claude Code ACP", type: "npm-local" as const, description: "ACP 协议实现", status: "installed" as const, version: "1.0.0" },
-  { name: "nuwaxcode", displayName: "Nuwaxcode", type: "npm-local" as const, description: "Nuwaxcode 引擎", status: "installed" as const, version: "1.0.0" },
-  { name: "nuwax-file-server", displayName: "File Server", type: "npm-local" as const, description: "本地文件服务", status: "installed" as const, version: "1.0.0" },
-  { name: "nuwax-mcp-stdio-proxy", displayName: "MCP Proxy", type: "npm-local" as const, description: "MCP 聚合代理", status: "installed" as const, version: "1.0.0" },
+  {
+    name: "uv",
+    displayName: "uv",
+    type: "system" as const,
+    description: "Python 包管理器",
+    status: "installed" as const,
+    version: "0.5.0",
+  },
+  {
+    name: "claude-code-acp-ts",
+    displayName: "Claude Code ACP",
+    type: "npm-local" as const,
+    description: "ACP 协议实现",
+    status: "installed" as const,
+    version: "1.0.0",
+  },
+  {
+    name: "nuwaxcode",
+    displayName: "Nuwaxcode",
+    type: "npm-local" as const,
+    description: "Nuwaxcode 引擎",
+    status: "installed" as const,
+    version: "1.0.0",
+  },
+  {
+    name: "nuwax-file-server",
+    displayName: "File Server",
+    type: "npm-local" as const,
+    description: "本地文件服务",
+    status: "installed" as const,
+    version: "1.0.0",
+  },
+  {
+    name: "nuwax-mcp-stdio-proxy",
+    displayName: "MCP Proxy",
+    type: "npm-local" as const,
+    description: "MCP 聚合代理",
+    status: "installed" as const,
+    version: "1.0.0",
+  },
 ];
 
 const MOCK_DEPS_ERROR = [
-  { name: "uv", displayName: "uv", type: "system" as const, description: "Python 包管理器", status: "installed" as const, version: "0.5.0" },
-  { name: "claude-code-acp-ts", displayName: "Claude Code ACP", type: "npm-local" as const, description: "ACP 协议实现", status: "installed" as const, version: "1.0.0" },
-  { name: "nuwaxcode", displayName: "Nuwaxcode", type: "npm-local" as const, description: "Nuwaxcode 引擎", status: "error" as const, errorMessage: "网络超时，安装失败" },
-  { name: "nuwax-file-server", displayName: "File Server", type: "npm-local" as const, description: "本地文件服务", status: "missing" as const },
-  { name: "nuwax-mcp-stdio-proxy", displayName: "MCP Proxy", type: "npm-local" as const, description: "MCP 聚合代理", status: "missing" as const },
+  {
+    name: "uv",
+    displayName: "uv",
+    type: "system" as const,
+    description: "Python 包管理器",
+    status: "installed" as const,
+    version: "0.5.0",
+  },
+  {
+    name: "claude-code-acp-ts",
+    displayName: "Claude Code ACP",
+    type: "npm-local" as const,
+    description: "ACP 协议实现",
+    status: "installed" as const,
+    version: "1.0.0",
+  },
+  {
+    name: "nuwaxcode",
+    displayName: "Nuwaxcode",
+    type: "npm-local" as const,
+    description: "Nuwaxcode 引擎",
+    status: "error" as const,
+    errorMessage: "网络超时，安装失败",
+  },
+  {
+    name: "nuwax-file-server",
+    displayName: "File Server",
+    type: "npm-local" as const,
+    description: "本地文件服务",
+    status: "missing" as const,
+  },
+  {
+    name: "nuwax-mcp-stdio-proxy",
+    displayName: "MCP Proxy",
+    type: "npm-local" as const,
+    description: "MCP 聚合代理",
+    status: "missing" as const,
+  },
 ];
 
 export default function SetupWizardTest() {
@@ -83,10 +204,14 @@ export default function SetupWizardTest() {
 
     const getDepsForPhase = () => {
       switch (SCENARIO_CONFIG[scenario].depsPhase) {
-        case "installing": return MOCK_DEPS_INSTALLING;
-        case "error": return MOCK_DEPS_ERROR;
-        case "completed": return MOCK_DEPS_COMPLETED;
-        default: return [];
+        case "installing":
+          return MOCK_DEPS_INSTALLING;
+        case "error":
+          return MOCK_DEPS_ERROR;
+        case "completed":
+          return MOCK_DEPS_COMPLETED;
+        default:
+          return [];
       }
     };
 
@@ -104,7 +229,12 @@ export default function SetupWizardTest() {
       },
       checkUv: async () => {
         await new Promise((r) => setTimeout(r, 100));
-        return { success: true, installed: true, bundled: true, version: "0.5.0" };
+        return {
+          success: true,
+          installed: true,
+          bundled: true,
+          version: "0.5.0",
+        };
       },
       installPackage: async (name: string) => {
         await new Promise((r) => setTimeout(r, simulateSlow ? 2000 : 500));
@@ -124,7 +254,7 @@ export default function SetupWizardTest() {
   };
 
   const handleComplete = () => {
-    message.success("向导完成！");
+    message.success(t("Claw.Setup.wizardComplete"));
   };
 
   return (
@@ -133,7 +263,9 @@ export default function SetupWizardTest() {
         <Space direction="vertical" style={{ width: "100%" }} gap="middle">
           {/* 场景选择 */}
           <div>
-            <div style={{ fontSize: 12, marginBottom: 8, fontWeight: 500 }}>测试场景：</div>
+            <div style={{ fontSize: 12, marginBottom: 8, fontWeight: 500 }}>
+              测试场景：
+            </div>
             <Radio.Group
               value={scenario}
               onChange={(e) => handleScenarioChange(e.target.value)}
@@ -147,7 +279,13 @@ export default function SetupWizardTest() {
                 </Radio.Button>
               ))}
             </Radio.Group>
-            <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginTop: 4 }}>
+            <div
+              style={{
+                fontSize: 11,
+                color: "var(--color-text-tertiary)",
+                marginTop: 4,
+              }}
+            >
               {SCENARIO_CONFIG[scenario].description}
             </div>
           </div>
@@ -182,15 +320,12 @@ export default function SetupWizardTest() {
               onClick={() => {
                 // 重置 setup 状态
                 window.electronAPI?.settings.set("setup_state", null);
-                message.info("已重置，刷新页面可重新进入向导");
+                message.info(t("Claw.Setup.resetComplete"));
               }}
             >
               重置向导状态
             </Button>
-            <Button
-              size="small"
-              onClick={() => setKey((k) => k + 1)}
-            >
+            <Button size="small" onClick={() => setKey((k) => k + 1)}>
               重新挂载
             </Button>
           </div>
@@ -213,12 +348,21 @@ export default function SetupWizardTest() {
           key={key}
           onComplete={handleComplete}
           mockApi={showReal ? undefined : mockApi}
-          skipDependencyCheck={scenario === "deps-ready" || scenario === "already-logged-in"}
+          skipDependencyCheck={
+            scenario === "deps-ready" || scenario === "already-logged-in"
+          }
           mockLoggedIn={scenario === "already-logged-in"}
         />
       </div>
 
-      <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginTop: 8, textAlign: "center" }}>
+      <div
+        style={{
+          fontSize: 11,
+          color: "var(--color-text-tertiary)",
+          marginTop: 8,
+          textAlign: "center",
+        }}
+      >
         提示：选择「依赖已就绪」场景可跳过依赖安装，直接测试配置和登录步骤
       </div>
     </div>

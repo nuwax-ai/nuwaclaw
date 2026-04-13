@@ -1,6 +1,6 @@
 ---
 version: 1.0
-last-updated: 2026-02-24
+last-updated: 2026-03-27
 status: design
 ---
 
@@ -48,6 +48,7 @@ status: design
 | [安全审查](../reviews/SECURITY-REVIEW.md) | 安全性审查清单 |
 | [日志规范](../operations/LOGGING.md) | 日志记录标准 |
 | [审查记录](../reviews/REVIEW-2026-02.md) | 2026年2月架构审查记录 |
+| [Sandbox 子模块 ADR](./ADR-SANDBOX-SUBMODULE.md) | 三端沙箱运行时子模块化决策 |
 
 ---
 

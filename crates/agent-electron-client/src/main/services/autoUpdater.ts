@@ -8,7 +8,7 @@
  *
  * - autoDownload = false: 用户控制下载时机
  * - autoInstallOnAppQuit = true: 下载完成后退出时自动安装
- * - Windows: NSIS 安装支持自动更新，MSI 安装引导到 Releases 页面
+ * - Windows: NSIS 安装支持自动更新，MSI 安装引导到官网下载安装页
  */
 
 import { app, BrowserWindow, shell, dialog, net } from "electron";
@@ -21,6 +21,8 @@ import type {
   UpdateProgress,
 } from "@shared/types/updateTypes";
 import { APP_DATA_DIR_NAME } from "@shared/constants";
+import { readSetting } from "../db";
+import { t } from "./i18n";
 import {
   getWindowsDownloadUrl,
   getMacosDownloadUrl,
@@ -32,7 +34,11 @@ import {
 
 const OSS_BASE =
   "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/nuwaclaw-electron";
-const OSS_LATEST_JSON_URL = `${OSS_BASE}/latest/latest.json`;
+const OSS_STABLE_LATEST_JSON_URL = `${OSS_BASE}/latest/latest.json`;
+const OSS_BETA_LATEST_JSON_URL = `${OSS_BASE}/beta/latest.json`;
+const OFFICIAL_DOWNLOAD_PAGE_URL = "https://nuwax.com/nuwaclaw.html";
+type UpdateChannel = "stable" | "beta";
+const UPDATE_CHANNEL_SETTING_KEY = "update_channel";
 
 /** Squirrel.Mac 在只读卷（如从「下载」直接打开）上无法就地更新时的错误信息特征 */
 const READ_ONLY_VOLUME_ERROR_SUBSTR = "read-only volume";
@@ -49,6 +55,19 @@ interface LatestJson {
     string,
     { url: string; signature?: string; size?: number }
   >;
+  /** yml 文件的完整 OSS URL（新增字段，CI 生成；旧版 CI 无此字段则降级到老逻辑） */
+  yml?: Record<string, string>;
+}
+
+function getUpdateChannel(): UpdateChannel {
+  const raw = readSetting(UPDATE_CHANNEL_SETTING_KEY);
+  return raw === "beta" ? "beta" : "stable";
+}
+
+function getLatestJsonUrlByChannel(channel: UpdateChannel): string {
+  return channel === "beta"
+    ? OSS_BETA_LATEST_JSON_URL
+    : OSS_STABLE_LATEST_JSON_URL;
 }
 
 /**
@@ -111,8 +130,12 @@ type InstallerType = "nsis" | "msi" | "mac" | "linux" | "dev";
 /**
  * 检测 Windows 安装类型（NSIS vs MSI）
  *
- * NSIS 安装会在应用目录下创建 `Uninstall {productName}.exe`，
- * MSI 安装由 Windows Installer 管理，不含此文件。
+ * NSIS 安装会在应用目录下创建卸载程序文件，按优先级检测：
+ * 1. 标准命名：Uninstall {productName}.exe
+ * 2. NSIS 通用命名：unins000.exe, unins001.exe 等
+ * 3. 匹配 Uninstall*.exe 或 unins*.exe（避免误判其他文件）
+ *
+ * MSI 安装由 Windows Installer 管理，通常不含卸载程序文件。
  */
 function detectInstallerType(): InstallerType {
   if (!app.isPackaged) return "dev";
@@ -121,27 +144,76 @@ function detectInstallerType(): InstallerType {
 
   if (process.platform === "win32") {
     const appDir = path.dirname(app.getPath("exe"));
-    // electron-builder NSIS 会生成 "Uninstall {productName}.exe"
+
+    // 方式1: 标准的 electron-builder NSIS 卸载程序
+    // 文件名格式: "Uninstall {productName}.exe"
     const productName = app.getName();
-    const nsisUninstaller = path.join(appDir, `Uninstall ${productName}.exe`);
-    if (fs.existsSync(nsisUninstaller)) {
+    const standardNsisUninstaller = path.join(
+      appDir,
+      `Uninstall ${productName}.exe`,
+    );
+    if (fs.existsSync(standardNsisUninstaller)) {
       log.info(
-        `[AutoUpdater] Windows installer type: NSIS (found ${nsisUninstaller})`,
+        `[AutoUpdater] Windows installer type: NSIS (found standard uninstaller: ${standardNsisUninstaller})`,
       );
       return "nsis";
     }
+
+    // 方式2和3: 读取目录一次，检查多种 NSIS 卸载程序模式
+    // 避免重复调用 readdirSync，提高性能
+    let appFiles: string[] | undefined;
+    try {
+      appFiles = fs.readdirSync(appDir);
+    } catch (e) {
+      log.warn("[AutoUpdater] Failed to read app directory:", e);
+    }
+
+    if (appFiles && appFiles.length > 0) {
+      // 方式2: NSIS 通用卸载程序模式 (unins000.exe, unins001.exe 等)
+      const genericNsisUninstaller = appFiles.find((f) =>
+        /^unins\d{3}\.exe$/i.test(f),
+      );
+      if (genericNsisUninstaller) {
+        log.info(
+          `[AutoUpdater] Windows installer type: NSIS (found generic NSIS uninstaller: ${genericNsisUninstaller})`,
+        );
+        return "nsis";
+      }
+
+      // 方式3: 匹配 Uninstall*.exe 或 unins*.exe 开头的文件
+      // 严格模式：避免误判如 "uninstaller_helper.exe" 等非卸载程序文件
+      const anyUninstaller = appFiles.find((f) => {
+        const lowerName = f.toLowerCase();
+        return (
+          // Uninstall 开头 + .exe 结尾（如 Uninstall.exe, Uninstall-1.0.0.exe）
+          (lowerName.startsWith("uninstall") && lowerName.endsWith(".exe")) ||
+          // unins 开头但不是 uninsNNN.exe 模式的（兼容其他 NSIS 变体）
+          (lowerName.startsWith("unins") &&
+            !/^unins\d{3}\.exe$/i.test(f) &&
+            lowerName.endsWith(".exe"))
+        );
+      });
+      if (anyUninstaller) {
+        log.info(
+          `[AutoUpdater] Windows installer type: NSIS (found uninstaller: ${anyUninstaller})`,
+        );
+        return "nsis";
+      }
+    }
+
+    // Fallback: 找不到任何卸载程序文件，判定为 MSI
     log.info(
-      "[AutoUpdater] Windows installer type: MSI (no NSIS uninstaller found)",
+      "[AutoUpdater] Windows installer type: MSI (no uninstaller found in app directory)",
     );
     return "msi";
   }
 
-  return "nsis"; // fallback
+  return "nsis"; // 非预期平台 fallback（实际 win32/mac/linux 已覆盖）
 }
 
 let cachedInstallerType: InstallerType | undefined;
 
-function getInstallerType(): InstallerType {
+export function getInstallerType(): InstallerType {
   if (!cachedInstallerType) {
     cachedInstallerType = detectInstallerType();
   }
@@ -151,9 +223,9 @@ function getInstallerType(): InstallerType {
 /**
  * 当前安装方式是否支持自动更新
  * - NSIS / mac / linux / dev: electron-updater 原生支持（dev 模式下载有单独 guard）
- * - MSI: 不支持，引导到 Releases 页面
+ * - MSI: 不支持，引导到官网下载安装页
  */
-function canAutoUpdate(): boolean {
+export function canAutoUpdate(): boolean {
   const type = getInstallerType();
   return type !== "msi";
 }
@@ -205,6 +277,13 @@ function compareVersions(a: string, b: string): number {
     if (na < nb) return -1;
   }
   return 0;
+}
+
+/**
+ * MVP 仅支持 x.y.z 纯数字版本，避免 compareVersions 对 prerelease 得到 NaN
+ */
+function isNumericSemver(version: string): boolean {
+  return /^\d+\.\d+\.\d+$/.test(version.trim());
 }
 
 let currentState: UpdateState = { status: "idle" };
@@ -274,6 +353,11 @@ async function checkForUpdatesViaLatestJson(): Promise<UpdateInfo> {
 
 async function doCheckViaLatestJson(): Promise<UpdateInfo> {
   const { autoUpdater } = require("electron-updater");
+  const updateChannel = getUpdateChannel();
+  const latestJsonUrl = getLatestJsonUrlByChannel(updateChannel);
+  log.info(
+    `[AutoUpdater] Check updates via channel=${updateChannel}, url=${latestJsonUrl}`,
+  );
   setState({
     status: "checking",
     error: undefined,
@@ -284,26 +368,60 @@ async function doCheckViaLatestJson(): Promise<UpdateInfo> {
   let latestJson: LatestJson;
 
   try {
-    latestJson = await fetchLatestJson(OSS_LATEST_JSON_URL);
+    latestJson = await fetchLatestJson(latestJsonUrl);
   } catch (e: any) {
+    // 日志保留完整错误信息（含 URL），用户提示仅显示 HTTP 状态码
     log.error(
-      `[AutoUpdater] Failed to fetch latest.json from OSS: ${e.message}`,
+      `[AutoUpdater] Failed to fetch latest.json from OSS(channel=${updateChannel}): ${e.message}`,
+    );
+    const statusMatch = e.message.match(/^HTTP (\d+)/);
+    const userMsg = statusMatch
+      ? `HTTP ${statusMatch[1]}`
+      : t("Claw.AutoUpdater.networkFailed");
+    setState({
+      status: "error",
+      error: `${t("Claw.AutoUpdater.getUpdateInfoFailed", updateChannel)}: ${userMsg}`,
+      canAutoUpdate: canAutoUpdate(),
+    });
+    return {
+      hasUpdate: false,
+      error: `${t("Claw.AutoUpdater.getUpdateInfoFailed", updateChannel)}: ${userMsg}`,
+    };
+  }
+
+  if (!isNumericSemver(latestJson.version)) {
+    const msg = t(
+      "Claw.AutoUpdater.invalidMetadataVersion",
+      latestJson.version,
+    );
+    log.error(
+      `[AutoUpdater] Invalid latest.json version for channel=${updateChannel}: ${latestJson.version}`,
     );
     setState({
       status: "error",
-      error: `无法获取更新信息: ${e.message}`,
+      error: msg,
       canAutoUpdate: canAutoUpdate(),
     });
-    return { hasUpdate: false, error: `无法获取更新信息: ${e.message}` };
+    return { hasUpdate: false, error: msg };
   }
 
   const hasUpdate = compareVersions(latestJson.version, app.getVersion()) > 0;
 
   if (hasUpdate) {
-    // 指向版本化 OSS 路径，electron-updater 从该路径下载安装包
-    const versionedUrl = `${OSS_BASE}/electron-v${latestJson.version}`;
+    // 优先从 latest.json 的 yml 字段读取完整 yml URL（CI 生成，支持任意 OSS 路径结构）
+    // 降级老逻辑：客户端自己拼接 electron-v{version} 或 beta-build/prerelease-v{version} 路径
+    // 注意：ymlUrl 是文件 URL（.../latest.yml），但 setFeedURL 期望目录路径，它会自动拼接 {channel}.yml
+    const platformKey = process.platform === "win32" ? "win" : process.platform;
+    const ymlUrl = latestJson.yml?.[platformKey];
+    // 去掉文件名得到目录路径，供 electron-updater generic provider 自动拼接 {channel}.yml
+    const ymlDir = ymlUrl ? ymlUrl.replace(/\/[^/]+\.yml$/, "/") : null;
+    const versionedUrl = ymlDir
+      ? ymlDir
+      : updateChannel === "beta"
+        ? `${OSS_BASE}/beta-build/prerelease-v${latestJson.version}`
+        : `${OSS_BASE}/electron-v${latestJson.version}`;
     log.info(
-      `[AutoUpdater] New version ${latestJson.version} found via latest.json, setting feed URL: ${versionedUrl}`,
+      `[AutoUpdater] New version ${latestJson.version} found via channel=${updateChannel}, ymlUrl=${ymlUrl ?? "none (using fallback)"}, feedUrl=${versionedUrl}`,
     );
     autoUpdater.setFeedURL({ provider: "generic", url: versionedUrl });
     // 初始化 electron-updater 内部状态，为后续 downloadUpdate() 做准备
@@ -348,7 +466,7 @@ export function initAutoUpdater(
   // MSI 安装只支持检查更新，不支持自动下载/安装
   if (installerType === "msi") {
     log.info(
-      "[AutoUpdater] MSI installation detected: auto-download disabled, will redirect to releases page",
+      "[AutoUpdater] MSI installation detected: auto-download disabled, will redirect to official download page",
     );
   }
 
@@ -470,14 +588,17 @@ export function initAutoUpdater(
  */
 async function showStartupUpdateDialog(version: string): Promise<void> {
   if (!canAutoUpdate()) {
-    // MSI 用户引导到 Releases 页面
+    // MSI 用户引导到官网下载安装页
     const { response } = await showModal({
       type: "info",
-      title: "发现新版本",
-      message: `发现新版本 v${version}`,
-      detail:
-        "当前安装方式不支持自动更新，请前往 Releases 页面下载最新安装包。",
-      buttons: ["前往下载页", "跳过此版本", "关闭"],
+      title: t("Claw.AutoUpdater.newVersionFound"),
+      message: t("Claw.AutoUpdater.versionFound", version),
+      detail: t("Claw.AutoUpdater.unsupportedInstall"),
+      buttons: [
+        t("Claw.AutoUpdater.downloadPage"),
+        t("Claw.AutoUpdater.skipThisVersion"),
+        t("Claw.AutoUpdater.close"),
+      ],
       defaultId: 0,
       cancelId: 2,
     });
@@ -491,10 +612,14 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
 
   const { response } = await showModal({
     type: "info",
-    title: "发现新版本",
-    message: `发现新版本 v${version}`,
-    detail: "是否立即下载并安装更新？",
-    buttons: ["立即更新", "跳过此版本", "关闭"],
+    title: t("Claw.AutoUpdater.newVersionFound"),
+    message: t("Claw.AutoUpdater.versionFound", version),
+    detail: t("Claw.AutoUpdater.downloadInstallNow"),
+    buttons: [
+      t("Claw.AutoUpdater.downloadNow"),
+      t("Claw.AutoUpdater.skipThisVersion"),
+      t("Claw.AutoUpdater.close"),
+    ],
     defaultId: 0,
     cancelId: 2,
   });
@@ -505,10 +630,13 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
       if (dlResult.success) {
         const { response: installResponse } = await showModal({
           type: "info",
-          title: "更新已下载",
-          message: "更新已下载完成",
-          detail: "是否立即重启安装？",
-          buttons: ["立即重启", "退出时安装"],
+          title: t("Claw.AutoUpdater.updateDownloaded"),
+          message: t("Claw.AutoUpdater.updateReady"),
+          detail: t("Claw.AutoUpdater.installNow"),
+          buttons: [
+            t("Claw.AutoUpdater.installNow"),
+            t("Claw.AutoUpdater.installOnExit"),
+          ],
           defaultId: 0,
           cancelId: 1,
         });
@@ -518,7 +646,7 @@ async function showStartupUpdateDialog(version: string): Promise<void> {
       } else if (dlResult.error) {
         showModal({
           type: "error",
-          title: "下载失败",
+          title: t("Claw.AutoUpdater.downloadFailed"),
           message: dlResult.error,
         });
       }
@@ -540,8 +668,8 @@ export async function showUpdateDialogFlow(): Promise<void> {
     if (!result.hasUpdate) {
       showModal({
         type: "info",
-        title: "检查更新",
-        message: "当前已是最新版本",
+        title: t("Claw.AutoUpdater.checking"),
+        message: t("Claw.AutoUpdater.alreadyLatest"),
       });
       return;
     }
@@ -552,11 +680,13 @@ export async function showUpdateDialogFlow(): Promise<void> {
     if (state.canAutoUpdate === false) {
       const { response } = await showModal({
         type: "info",
-        title: "发现新版本",
-        message: `发现新版本 v${version}`,
-        detail:
-          "当前安装方式不支持自动更新，请前往 Releases 页面下载最新安装包。",
-        buttons: ["前往下载页", "稍后再说"],
+        title: t("Claw.AutoUpdater.newVersionFound"),
+        message: t("Claw.AutoUpdater.versionFound", version),
+        detail: t("Claw.AutoUpdater.unsupportedInstall"),
+        buttons: [
+          t("Claw.AutoUpdater.downloadPage"),
+          t("Claw.AutoUpdater.later"),
+        ],
         defaultId: 0,
         cancelId: 1,
       });
@@ -568,10 +698,10 @@ export async function showUpdateDialogFlow(): Promise<void> {
 
     const { response } = await showModal({
       type: "info",
-      title: "发现新版本",
-      message: `发现新版本 v${version}`,
-      detail: "是否立即下载更新？",
-      buttons: ["下载更新", "稍后再说"],
+      title: t("Claw.AutoUpdater.newVersionFound"),
+      message: t("Claw.AutoUpdater.versionFound", version),
+      detail: t("Claw.AutoUpdater.downloadInstallNow"),
+      buttons: [t("Claw.AutoUpdater.downloadNow"), t("Claw.AutoUpdater.later")],
       defaultId: 0,
       cancelId: 1,
     });
@@ -582,7 +712,7 @@ export async function showUpdateDialogFlow(): Promise<void> {
       if (dlResult.error)
         showModal({
           type: "error",
-          title: "下载失败",
+          title: t("Claw.AutoUpdater.downloadFailed"),
           message: dlResult.error,
         });
       return;
@@ -590,10 +720,13 @@ export async function showUpdateDialogFlow(): Promise<void> {
 
     const { response: installResponse } = await showModal({
       type: "info",
-      title: "更新已下载",
-      message: "更新已下载完成",
-      detail: "是否立即重启安装？",
-      buttons: ["立即重启", "退出时安装"],
+      title: t("Claw.AutoUpdater.updateDownloaded"),
+      message: t("Claw.AutoUpdater.updateReady"),
+      detail: t("Claw.AutoUpdater.installNow"),
+      buttons: [
+        t("Claw.AutoUpdater.installNow"),
+        t("Claw.AutoUpdater.installOnExit"),
+      ],
       defaultId: 0,
       cancelId: 1,
     });
@@ -604,8 +737,8 @@ export async function showUpdateDialogFlow(): Promise<void> {
     log.error("[AutoUpdater] Update dialog flow error:", e.message);
     showModal({
       type: "error",
-      title: "检查更新失败",
-      message: e.message || "请稍后重试",
+      title: t("Claw.AutoUpdater.checkFailed"),
+      message: e.message || t("Claw.AutoUpdater.later"),
     });
   }
 }
@@ -616,8 +749,9 @@ export async function showUpdateDialogFlow(): Promise<void> {
  * 手动检查更新（通过 latest.json）
  */
 export async function checkForUpdates(): Promise<UpdateInfo> {
-  // 自定义更新源覆盖时，直接走 electron-updater（已在 init 中设置 feedURL）
-  if (process.env.NUWAX_UPDATE_SERVER) {
+  // 自定义更新源（本地测试用）直接走 electron-updater，适用于 stable 通道
+  // beta 通道始终走 doCheckViaLatestJson，确保 feedURL 指向 beta-build 路径
+  if (process.env.NUWAX_UPDATE_SERVER && getUpdateChannel() === "stable") {
     try {
       const { autoUpdater } = require("electron-updater");
       setState({
@@ -664,24 +798,23 @@ export async function downloadUpdate(): Promise<{
 }> {
   // Dev 模式下 Squirrel.Mac 无法处理更新包（bundle ID 不匹配），只允许检查更新
   if (!app.isPackaged) {
-    log.warn(
-      "[AutoUpdater] Download skipped in dev mode (Squirrel.Mac requires packaged app)",
-    );
+    const errMsg = t("Claw.AutoUpdater.devModeUnsupported");
+    log.info(`[AutoUpdater] devModeUnsupported error: "${errMsg}"`);
     return {
       success: false,
-      error: "开发模式不支持下载更新，请使用打包版本测试",
+      error: errMsg,
     };
   }
 
-  // MSI 安装不支持自动更新，引导到 Releases 页面
+  // MSI 安装不支持自动更新，引导到官网下载安装页
   if (getInstallerType() === "msi") {
     log.info(
-      "[AutoUpdater] MSI installation: redirecting to releases page for manual download",
+      "[AutoUpdater] MSI installation: redirecting to official download page for manual download",
     );
     openReleasesPage();
     return {
       success: false,
-      error: "MSI 安装请前往 Releases 页面下载最新 MSI 安装包",
+      error: t("Claw.AutoUpdater.unsupportedInstall"),
     };
   }
 
@@ -712,14 +845,19 @@ export async function downloadUpdate(): Promise<{
  */
 export function installUpdate(): { success: boolean; error?: string } {
   if (!app.isPackaged) {
-    return { success: false, error: "开发模式不支持安装更新" };
+    const errMsg = t("Claw.AutoUpdater.installDevUnsupported");
+    log.info(`[AutoUpdater] installDevUnsupported error: "${errMsg}"`);
+    return {
+      success: false,
+      error: errMsg,
+    };
   }
 
   if (getInstallerType() === "msi") {
     openReleasesPage();
     return {
       success: false,
-      error: "MSI 安装请前往 Releases 页面下载最新 MSI 安装包",
+      error: t("Claw.AutoUpdater.unsupportedInstall"),
     };
   }
 
@@ -757,25 +895,35 @@ export function getUpdateState(): UpdateState {
 }
 
 /**
- * 打开下载页：从 OSS latest.json 获取当前平台对应的下载链接
- * - Windows: 按安装类型（NSIS/MSI）选择 .exe 或 .msi
+ * 打开下载页：
+ * - Windows: 统一打开官网下载安装页（避免 MSI/EXE 安装路径不一致带来的升级问题）
+ * - macOS/Linux: 从 OSS latest.json 获取当前平台对应下载链接
  * - macOS: 根据架构选择 arm64/x64 .zip
  * - Linux: 根据架构选择 arm64/x64 AppImage
  * OSS 不可达时弹窗提示错误，不 fallback 到 GitHub
  */
 export async function openReleasesPage(): Promise<void> {
+  if (process.platform === "win32") {
+    log.info(
+      `[AutoUpdater] Opening official download page on Windows: ${OFFICIAL_DOWNLOAD_PAGE_URL}`,
+    );
+    await shell.openExternal(OFFICIAL_DOWNLOAD_PAGE_URL);
+    return;
+  }
+
   let url: string;
   let platformName: string;
+  const updateChannel = getUpdateChannel();
+  const latestJsonUrl = getLatestJsonUrlByChannel(updateChannel);
 
   try {
-    const latest = await fetchLatestJson(OSS_LATEST_JSON_URL);
+    log.info(
+      `[AutoUpdater] Resolve download URL via channel=${updateChannel}, url=${latestJsonUrl}`,
+    );
+    const latest = await fetchLatestJson(latestJsonUrl);
     const platforms: Platforms | undefined = latest.platforms;
 
-    if (process.platform === "win32") {
-      const installerType = getInstallerType();
-      url = getWindowsDownloadUrl(platforms, installerType);
-      platformName = `Windows (${installerType})`;
-    } else if (process.platform === "darwin") {
+    if (process.platform === "darwin") {
       url = getMacosDownloadUrl(platforms);
       platformName = `macOS (${process.arch})`;
     } else {
@@ -784,22 +932,23 @@ export async function openReleasesPage(): Promise<void> {
     }
 
     if (!url) {
-      throw new Error(`未找到 ${platformName} 对应的下载包`);
+      throw new Error(`No download package found for ${platformName}`);
     }
 
     log.info(
-      `[AutoUpdater] Opening ${platformName} download URL from OSS: ${url}`,
+      `[AutoUpdater] Opening ${platformName} download URL from OSS(channel=${updateChannel}): ${url}`,
     );
     await shell.openExternal(url);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    log.error(`[AutoUpdater] Failed to get download URL from OSS: ${msg}`);
+    log.error(
+      `[AutoUpdater] Failed to get download URL from OSS(channel=${updateChannel}): ${msg}`,
+    );
     // 弹窗提示用户，不 fallback 到 GitHub
     await showModal({
       type: "error",
-      title: "获取下载链接失败",
-      message: "无法从服务器获取下载链接",
-      detail: `错误: ${msg}\n\n请检查网络连接后重试。`,
+      title: t("Claw.AutoUpdater.getDownloadLinkFailed"),
+      message: t("Claw.AutoUpdater.getDownloadLinkFailedDetail", msg),
     });
   }
 }

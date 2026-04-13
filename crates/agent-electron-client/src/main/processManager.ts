@@ -1,10 +1,20 @@
 import { spawn, ChildProcess } from "child_process";
 import log from "electron-log";
 import { PROCESS_KILL_ESCALATION_TIMEOUT } from "@shared/constants";
+import { t } from "./services/i18n";
+
+const STARTUP_STDERR_CAP = 8192;
+const STARTUP_STDERR_IN_ERROR = 1200;
 
 export class ManagedProcess {
   private process: ChildProcess | null = null;
   private lastError: string | null = null;
+  /** 当前这次 start() 收集的 stderr，用于「启动后立即退出」时的错误详情 */
+  private startupStderr = "";
+  private startupExit: {
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  } | null = null;
 
   constructor(private readonly name: string) {}
 
@@ -16,6 +26,8 @@ export class ManagedProcess {
     shell?: boolean;
     stdio?: ("ignore" | "pipe")[];
     startupDelayMs?: number;
+    /** 每行 stdout 的额外回调，在 log.info 之后调用 */
+    onStdoutLine?: (line: string) => void;
   }): Promise<{ success: boolean; error?: string; message?: string }> {
     if (this.process) {
       this.lastError = null;
@@ -24,6 +36,9 @@ export class ManagedProcess {
 
     return new Promise((resolve) => {
       try {
+        this.startupStderr = "";
+        this.startupExit = null;
+
         const proc = spawn(config.command, config.args, {
           shell: config.shell ?? false,
           windowsHide: true,
@@ -33,15 +48,23 @@ export class ManagedProcess {
         });
 
         proc.stdout?.on("data", (data: Buffer) => {
-          log.info(`[${this.name}]`, data.toString().trim());
+          const line = data.toString().trim();
+          log.info(`[${this.name}]`, line);
+          config.onStdoutLine?.(line);
         });
 
         proc.stderr?.on("data", (data: Buffer) => {
-          log.warn(`[${this.name} stderr]`, data.toString().trim());
+          const raw = data.toString();
+          const combined = this.startupStderr + raw;
+          this.startupStderr =
+            combined.length > STARTUP_STDERR_CAP
+              ? combined.slice(-STARTUP_STDERR_CAP)
+              : combined;
+          log.warn(`[${this.name} stderr]`, raw.trim());
         });
 
         proc.on("error", (error) => {
-          log.error(`[${this.name}] 进程错误:`, error.message, {
+          log.error(`[${this.name}] Process error:`, error.message, {
             stack: error.stack,
           });
           this.process = null;
@@ -50,13 +73,14 @@ export class ManagedProcess {
         });
 
         proc.on("exit", (code, signal) => {
+          this.startupExit = { code, signal: signal ?? null };
           if (code !== 0 && code !== null) {
             log.warn(
-              `[${this.name}] 进程退出 code=${code} signal=${signal ?? "none"}`,
+              `[${this.name}] Process exited code=${code} signal=${signal ?? "none"}`,
               { lastError: this.lastError },
             );
           } else {
-            log.info(`[${this.name}] 进程已退出`, {
+            log.info(`[${this.name}] Process exited`, {
               code,
               signal: signal ?? "none",
             });
@@ -70,11 +94,60 @@ export class ManagedProcess {
         setTimeout(() => {
           if (this.process) {
             this.lastError = null;
+            this.startupStderr = "";
+            this.startupExit = null;
             resolve({ success: true });
           } else {
-            const msg = "进程启动后立即退出";
+            const base = t("Claw.Process.exitImmediately");
+            const ex = this.startupExit;
+            const exitHint = ex
+              ? ` (exit ${ex.code}, signal ${ex.signal ?? "none"})`
+              : "";
+            const tail = this.startupStderr.trim();
+
+            // Try to parse structured error prefix (e.g., GUI_AGENT_ERROR:{...})
+            let errorMsg: string;
+            // Extract first line matching GUI_AGENT_ERROR: prefix, then parse JSON from it
+            const errorLineMatch = tail
+              .split("\n")
+              .find((line) => line.startsWith("GUI_AGENT_ERROR:"));
+            if (errorLineMatch) {
+              const jsonStr = errorLineMatch.substring(
+                "GUI_AGENT_ERROR:".length,
+              );
+              try {
+                const errObj = JSON.parse(jsonStr);
+                errorMsg = errObj.message || errObj.code || "Unknown error";
+              } catch {
+                errorMsg = base + exitHint;
+              }
+            } else {
+              // Fallback: parse structured logs, extract [error] lines only
+              // Format: [YYYY-MM-DD HH:mm:ss.SSS] [level] [service] message
+              const errorLines = tail
+                .split("\n")
+                .filter(
+                  (line) =>
+                    /\]\s*\[error\]/i.test(line) || /\[error\]\s*/i.test(line),
+                )
+                .map((line) => {
+                  // Strip timestamp and log level prefix for cleaner output
+                  const msgMatch = line.match(
+                    /(\[[\d:.\s]+\]\s*)?\[[^\]]+\]\s*\[error\]\s*(.*)/i,
+                  );
+                  return msgMatch ? msgMatch[2] : line;
+                })
+                .slice(-2); // Keep last 2 error lines
+              const filteredTail = errorLines.join("; ");
+              errorMsg =
+                filteredTail.length > 0
+                  ? `: ${filteredTail.length > STARTUP_STDERR_IN_ERROR ? "…" + filteredTail.slice(-STARTUP_STDERR_IN_ERROR) : filteredTail}`
+                  : "";
+            }
+
+            const msg = `${base}${exitHint}${errorMsg}`;
             this.lastError = msg;
-            log.warn(`[${this.name}] 启动失败: ${msg}`, {
+            log.warn(`[${this.name}] Start failed: ${msg}`, {
               command: config.command,
               args: config.args,
             });
@@ -85,7 +158,7 @@ export class ManagedProcess {
         this.process = null;
         this.lastError = String(error);
         log.error(
-          `[${this.name}] 启动异常:`,
+          `[${this.name}] Start exception:`,
           error instanceof Error ? error.message : String(error),
           { stack: error instanceof Error ? error.stack : undefined },
         );
@@ -137,7 +210,7 @@ export class ManagedProcess {
           /* ignore */
         }
         log.warn(
-          `[${this.name}] stopAsync: 进程未在 ${timeoutMs}ms 内退出，已强制终止`,
+          `[${this.name}] stopAsync: process did not exit within ${timeoutMs}ms, force killed`,
         );
         resolve({ success: true, message: "Force killed after timeout" });
       }, timeoutMs);

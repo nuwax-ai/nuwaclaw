@@ -12,7 +12,11 @@ import log from "electron-log";
 import * as path from "path";
 import * as fs from "fs";
 import { app } from "electron";
-import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../services/constants";
+import {
+  APP_DATA_DIR_NAME,
+  LOGS_DIR_NAME,
+  PERF_LOG_FILENAME_PREFIX,
+} from "../services/constants";
 
 /** 开发环境：未打包或 NODE_ENV=development */
 function isDev(): boolean {
@@ -69,8 +73,13 @@ function isArchiveLogName(name: string): boolean {
   // 当日活跃日志不归档
   const today = todayDateStr();
   if (n === `main.${today}.log`) return false;
-  // main.* 开头的其他日志都视为归档
-  return n.startsWith("main.") || n.startsWith("renderer.");
+  if (n === `${PERF_LOG_FILENAME_PREFIX}.${today}.log`) return false;
+  // main.* / perf.* 开头的其他日志都视为归档
+  return (
+    n.startsWith("main.") ||
+    n.startsWith("renderer.") ||
+    n.startsWith(`${PERF_LOG_FILENAME_PREFIX}.`)
+  );
 }
 
 const LATEST_LOG_FILENAME = "latest.log";
@@ -100,7 +109,7 @@ function updateLatestLog(logDir: string): void {
       fs.symlinkSync(mainName, latestPath, "file");
     }
   } catch (e) {
-    log.warn("[LogConfig] latest.log 创建/更新失败:", e);
+    log.warn("[LogConfig] latest.log create/update failed:", e);
   }
 }
 
@@ -128,7 +137,7 @@ function updateLatestLogWithRetry(
     );
   } else {
     log.warn(
-      `[LogConfig] latest.log 更新失败：main.${dateStr}.log 不存在，重试次数已用完`,
+      `[LogConfig] latest.log update failed: main.${dateStr}.log does not exist, retries exhausted`,
     );
   }
 }
@@ -148,10 +157,10 @@ function cleanupOldLogs(logDir: string, maxAgeMs: number): void {
       const stat = fs.statSync(fullPath);
       if (now - stat.mtimeMs > maxAgeMs) {
         fs.unlinkSync(fullPath);
-        log.info("[LogConfig] 已删除过期日志:", e.name);
+        log.info("[LogConfig] Deleted expired log:", e.name);
       }
     } catch (err) {
-      log.warn("[LogConfig] 清理日志失败:", e.name, err);
+      log.warn("[LogConfig] Failed to clean log:", e.name, err);
     }
   }
 }
@@ -169,10 +178,39 @@ function migrateOldMainLog(logDir: string): void {
     const legacyName = `main.${dateStr}.legacy.log`;
     const legacyPath = path.join(logDir, legacyName);
     fs.renameSync(oldMainPath, legacyPath);
-    log.info("[LogConfig] 旧 main.log 已迁移为:", legacyName);
+    log.info("[LogConfig] Old main.log migrated to:", legacyName);
   } catch (e) {
-    log.warn("[LogConfig] 旧 main.log 迁移失败:", e);
+    log.warn("[LogConfig] Old main.log migration failed:", e);
   }
+}
+
+// ==================== PERF 专用日志 ====================
+
+let _perfLogger: ReturnType<typeof log.create> | null = null;
+
+/**
+ * 初始化 PERF 专用 logger，写入 perf.YYYY-MM-DD.log
+ * 由 initLogging() 内部调用，logDir 已保证存在
+ */
+function initPerfLogging(logDir: string): void {
+  _perfLogger = log.create({ logId: "perf" });
+  _perfLogger.transports.file.resolvePathFn = () => {
+    const dateStr = todayDateStr();
+    return path.join(logDir, `${PERF_LOG_FILENAME_PREFIX}.${dateStr}.log`);
+  };
+  // perf 日志无论开发/正式均写 info 级别（性能数据本身有价值）
+  _perfLogger.transports.file.level = "info";
+  // 不重复打到控制台（main logger 已输出）；electron-log v5 level=false 禁用该 transport
+  (_perfLogger.transports.console as any).level = false;
+  _perfLogger.transports.file.maxSize = 50 * 1024 * 1024;
+}
+
+/**
+ * 获取 PERF 专用 logger（main 进程使用）
+ * 若 initLogging() 未调用（如测试环境），返回默认 log 作为降级
+ */
+export function getPerfLogger(): ReturnType<typeof log.create> {
+  return _perfLogger ?? log;
 }
 
 /**
@@ -207,48 +245,59 @@ export function initLogging(): void {
   log.transports.file.maxSize = maxSize;
 
   // 大小轮转：当日文件超 maxSize 时，扫描目录找最大序号 N，重命名为 main.YYYY-MM-DD.(N+1).log
+  let isArchiving = false;
   log.transports.file.archiveLogFn = (oldLogFile: {
     path: string;
     crop?: (n: number) => void;
   }) => {
-    const oldPath = oldLogFile.path;
-    const parsed = path.parse(oldPath);
-    // 从当前文件名提取日期（main.YYYY-MM-DD.log → YYYY-MM-DD）
-    const baseMatch = parsed.name.match(/^main\.(\d{4}-\d{2}-\d{2})$/);
-    const dateStr = baseMatch ? baseMatch[1] : todayDateStr();
-
-    // 扫描目录找当日最大序号
-    let maxSeq = 0;
-    try {
-      const seqPattern = new RegExp(
-        `^main\\.${escapeRegExp(dateStr)}\\.(\\d+)\\.log$`,
-      );
-      const files = fs.readdirSync(parsed.dir);
-      for (const f of files) {
-        const m = f.match(seqPattern);
-        if (m) {
-          const seq = parseInt(m[1], 10);
-          if (seq > maxSeq) maxSeq = seq;
-        }
-      }
-    } catch {
-      // 目录读取失败，从 1 开始
+    // 防止重入：catch 中的日志写入会再次触发 archiveLogFn，导致无限递归
+    if (isArchiving) {
+      oldLogFile.crop?.(256 * 1024);
+      return;
     }
-
-    const newSeq = maxSeq + 1;
-    const archiveName = `main.${dateStr}.${newSeq}.log`;
-    const archivePath = path.join(parsed.dir, archiveName);
+    isArchiving = true;
     try {
-      fs.renameSync(oldPath, archivePath);
-      log.info("[LogConfig] 日志已轮转:", archiveName);
-      // Windows 硬链接指向 inode，轮转后需重新让 latest.log 指向新文件
-      if (process.platform === "win32") {
-        updateLatestLogWithRetry(parsed.dir);
+      const oldPath = oldLogFile.path;
+      const parsed = path.parse(oldPath);
+      // 从当前文件名提取日期（main.YYYY-MM-DD.log → YYYY-MM-DD）
+      const baseMatch = parsed.name.match(/^main\.(\d{4}-\d{2}-\d{2})$/);
+      const dateStr = baseMatch ? baseMatch[1] : todayDateStr();
+
+      // 扫描目录找当日最大序号
+      let maxSeq = 0;
+      try {
+        const seqPattern = new RegExp(
+          `^main\\.${escapeRegExp(dateStr)}\\.(\\d+)\\.log$`,
+        );
+        const files = fs.readdirSync(parsed.dir);
+        for (const f of files) {
+          const m = f.match(seqPattern);
+          if (m) {
+            const seq = parseInt(m[1], 10);
+            if (seq > maxSeq) maxSeq = seq;
+          }
+        }
+      } catch {
+        // 目录读取失败，从 1 开始
       }
-    } catch (e) {
-      log.warn("[LogConfig] 轮转失败，尝试截断:", e);
-      const quarter = Math.round(maxSize / 4);
-      oldLogFile.crop?.(Math.min(quarter, 256 * 1024));
+
+      const newSeq = maxSeq + 1;
+      const archiveName = `main.${dateStr}.${newSeq}.log`;
+      const archivePath = path.join(parsed.dir, archiveName);
+      try {
+        fs.renameSync(oldPath, archivePath);
+        log.info("[LogConfig] Log rotated:", archiveName);
+        // Windows 硬链接指向 inode，轮转后需重新让 latest.log 指向新文件
+        if (process.platform === "win32") {
+          updateLatestLogWithRetry(parsed.dir);
+        }
+      } catch (e) {
+        log.warn("[LogConfig] Rotation failed, attempting truncation:", e);
+        const quarter = Math.round(maxSize / 4);
+        oldLogFile.crop?.(Math.min(quarter, 256 * 1024));
+      }
+    } finally {
+      isArchiving = false;
     }
   };
 
@@ -271,6 +320,9 @@ export function initLogging(): void {
 
   // 首次写入后让 latest.log 指向当日日志
   updateLatestLogWithRetry(logDir);
+
+  // 初始化 perf 专用日志
+  initPerfLogging(logDir);
 }
 
 /** 供 IPC/客户端解析：优先读取的日志入口文件名（始终为当前主进程日志） */

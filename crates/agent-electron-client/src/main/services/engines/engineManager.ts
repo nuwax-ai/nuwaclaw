@@ -1,27 +1,27 @@
 /**
  * Agent Engine Manager - 引擎安装与配置隔离
- * 
+ *
  * 支持 claude-code 和 nuwaxcode 的:
  * - 本地安装 (应用目录)
  * - 环境变量隔离
  * - 配置隔离
  */
 
-import * as path from 'path';
-import * as os from 'os';
-import * as fs from 'fs';
-import { spawn } from 'child_process';
-import log from 'electron-log';
-import { getAppEnv } from '../system/dependencies';
-import { mcpProxyManager } from '../packages/mcp';
-import { spawnJsFile, resolveNpmPackageEntry } from '../utils/spawnNoWindow';
-import { APP_DATA_DIR_NAME } from '../constants';
-import { APP_NAME_IDENTIFIER } from '@shared/constants';
-import { isWindows } from '../system/shellEnv';
+import * as path from "path";
+import * as os from "os";
+import * as fs from "fs";
+import { spawn } from "child_process";
+import log from "electron-log";
+import { getAppEnv, getNuwaxcodeBundledBinPath } from "../system/dependencies";
+import { mcpProxyManager } from "../packages/mcp";
+import { spawnJsFile, resolveNpmPackageEntry } from "../utils/spawnNoWindow";
+import { APP_DATA_DIR_NAME } from "../constants";
+import { APP_NAME_IDENTIFIER } from "@shared/constants";
+import { isWindows } from "../system/shellEnv";
 
 // ==================== Types ====================
 
-export type AgentEngine = 'claude-code' | 'nuwaxcode';
+export type AgentEngine = "claude-code" | "nuwaxcode";
 
 export interface EngineConfig {
   engine: AgentEngine;
@@ -49,12 +49,12 @@ export interface EngineStatus {
 // ==================== Paths ====================
 
 function getAppDataDir(): string {
-  const home = process.env.HOME || process.env.USERPROFILE || '';
+  const home = process.env.HOME || process.env.USERPROFILE || "";
   return path.join(home, APP_DATA_DIR_NAME);
 }
 
 function getEnginesDir(): string {
-  return path.join(getAppDataDir(), 'engines');
+  return path.join(getAppDataDir(), "engines");
 }
 
 function getEngineDir(engine: AgentEngine): string {
@@ -72,85 +72,96 @@ function getIsolatedHomeDir(runId: string): string {
  */
 export function isEngineInstalledLocally(engine: AgentEngine): boolean {
   const engineDir = getEngineDir(engine);
-  
-  if (engine === 'claude-code') {
+
+  if (engine === "claude-code") {
     // 检查 claude-code 可执行文件
     const binPaths = [
-      path.join(engineDir, 'bin', 'claude-code'),
-      path.join(engineDir, 'claude-code'),
-      path.join(getAppDataDir(), 'node_modules', '.bin', 'claude-code'),
+      path.join(engineDir, "bin", "claude-code"),
+      path.join(engineDir, "claude-code"),
+      path.join(getAppDataDir(), "node_modules", ".bin", "claude-code"),
     ];
-    
+
     for (const p of binPaths) {
       if (fs.existsSync(p)) return true;
-      if (fs.existsSync(p + '.exe')) return true;
-      if (fs.existsSync(p + '.cmd')) return true;
+      if (fs.existsSync(p + ".exe")) return true;
+      if (fs.existsSync(p + ".cmd")) return true;
     }
   }
-  
-  if (engine === 'nuwaxcode') {
+
+  if (engine === "nuwaxcode") {
+    // 优先检查打包的二进制
+    const bundledPath = getNuwaxcodeBundledBinPath();
+    if (bundledPath) return true;
+
     const binPaths = [
-      path.join(engineDir, 'bin', 'nuwaxcode'),
-      path.join(engineDir, 'nuwaxcode'),
-      path.join(getAppDataDir(), 'node_modules', '.bin', 'nuwaxcode'),
+      path.join(engineDir, "bin", "nuwaxcode"),
+      path.join(engineDir, "nuwaxcode"),
+      path.join(getAppDataDir(), "node_modules", ".bin", "nuwaxcode"),
     ];
-    
+
     for (const p of binPaths) {
       if (fs.existsSync(p)) return true;
-      if (fs.existsSync(p + '.exe')) return true;
-      if (fs.existsSync(p + '.cmd')) return true;
+      if (fs.existsSync(p + ".exe")) return true;
+      if (fs.existsSync(p + ".cmd")) return true;
     }
   }
-  
+
   return false;
 }
 
 /**
  * 检测系统全局安装
  */
-export async function isEngineInstalledGlobally(engine: AgentEngine): Promise<boolean> {
-  const cmd = engine === 'claude-code' ? 'claude-code' : 'nuwaxcode';
+export async function isEngineInstalledGlobally(
+  engine: AgentEngine,
+): Promise<boolean> {
+  const cmd = engine === "claude-code" ? "claude-code" : "nuwaxcode";
 
   return new Promise((resolve) => {
-    const checkCmd = isWindows() ? 'where' : 'which';
+    const checkCmd = isWindows() ? "where" : "which";
     const proc = spawn(checkCmd, [cmd], {
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ["ignore", "pipe", "ignore"],
       shell: isWindows(),
     });
 
-    proc.on('close', (code) => {
+    proc.on("close", (code) => {
       resolve(code === 0);
     });
 
-    proc.on('error', () => resolve(false));
+    proc.on("error", () => resolve(false));
   });
 }
 
 /**
  * 获取引擎版本
  */
-export async function getEngineVersion(engine: AgentEngine): Promise<string | null> {
+export async function getEngineVersion(
+  engine: AgentEngine,
+): Promise<string | null> {
   // 先尝试本地
   const localEngine = findEngineBinary(engine);
 
   return new Promise((resolve) => {
-    const cmd = localEngine || (engine === 'claude-code' ? 'claude-code' : 'nuwaxcode');
-    const args = ['--version'];
+    const cmd =
+      localEngine || (engine === "claude-code" ? "claude-code" : "nuwaxcode");
+    const args = ["--version"];
 
     const proc = spawn(cmd, args, {
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ["ignore", "pipe", "ignore"],
       shell: isWindows(),
     });
 
-    let stdout = '';
-    proc.stdout?.on('data', (data) => { stdout += data.toString(); });
+    let stdout = "";
+    proc.stdout?.on("data", (data) => {
+      stdout += data.toString();
+    });
 
-    proc.on('close', () => {
+    proc.on("close", () => {
       const match = stdout.match(/(\d+\.\d+\.\d+)/);
       resolve(match ? match[1] : null);
     });
 
-    proc.on('error', () => resolve(null));
+    proc.on("error", () => resolve(null));
   });
 }
 
@@ -158,8 +169,8 @@ export async function getEngineVersion(engine: AgentEngine): Promise<string | nu
  * 获取引擎包目录
  */
 function getEnginePackageDir(engine: AgentEngine): string | null {
-  const nodeModules = path.join(getAppDataDir(), 'node_modules');
-  const packageName = engine === 'claude-code' ? 'claude-code' : 'nuwaxcode';
+  const nodeModules = path.join(getAppDataDir(), "node_modules");
+  const packageName = engine === "claude-code" ? "claude-code" : "nuwaxcode";
   const packageDir = path.join(nodeModules, packageName);
   return fs.existsSync(packageDir) ? packageDir : null;
 }
@@ -170,10 +181,19 @@ function getEnginePackageDir(engine: AgentEngine): string | null {
  * 使用通用工具 resolveNpmPackageEntry 解析入口文件
  */
 export function findEngineBinary(engine: AgentEngine): string | null {
+  // nuwaxcode：优先使用应用内打包的二进制
+  if (engine === "nuwaxcode") {
+    const bundledPath = getNuwaxcodeBundledBinPath();
+    if (bundledPath) {
+      log.info(`[Engine] nuwaxcode: using bundled binary: ${bundledPath}`);
+      return bundledPath;
+    }
+  }
+
   const packageDir = getEnginePackageDir(engine);
   if (!packageDir) return null;
 
-  const packageName = engine === 'claude-code' ? 'claude-code' : 'nuwaxcode';
+  const packageName = engine === "claude-code" ? "claude-code" : "nuwaxcode";
   return resolveNpmPackageEntry(packageDir, packageName);
 }
 
@@ -184,25 +204,25 @@ export function findEngineBinary(engine: AgentEngine): string | null {
  */
 export async function installEngine(
   engine: AgentEngine,
-  options?: { registry?: string }
+  options?: { registry?: string },
 ): Promise<{ success: boolean; error?: string }> {
   const engineDir = getEngineDir(engine);
-  
+
   // 确保目录存在
   if (!fs.existsSync(engineDir)) {
     fs.mkdirSync(engineDir, { recursive: true });
   }
-  
-  const packageName = engine === 'claude-code' ? 'claude-code' : 'nuwaxcode';
-  
+
+  const packageName = engine === "claude-code" ? "claude-code" : "nuwaxcode";
+
   return new Promise((resolve) => {
-    const npmCmd = isWindows() ? 'npm.cmd' : 'npm';
-    const args = ['install', '--save', packageName];
-    
+    const npmCmd = isWindows() ? "npm.cmd" : "npm";
+    const args = ["install", "--save", packageName];
+
     if (options?.registry) {
       args.push(`--registry=${options.registry}`);
     }
-    
+
     log.info(`[Engine] Installing ${packageName} to ${engineDir}`);
 
     const proc = spawn(npmCmd, args, {
@@ -211,25 +231,27 @@ export async function installEngine(
         ...process.env,
         ...getAppEnv(),
       },
-      stdio: 'pipe',
+      stdio: "pipe",
       shell: isWindows(),
     });
-    
-    let stderr = '';
-    proc.stderr?.on('data', (data) => { stderr += data.toString(); });
-    
-    proc.on('error', (error) => {
+
+    let stderr = "";
+    proc.stderr?.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on("error", (error) => {
       log.error(`[Engine] Install error:`, error);
       resolve({ success: false, error: error.message });
     });
-    
-    proc.on('close', (code) => {
+
+    proc.on("close", (code) => {
       if (code === 0) {
         log.info(`[Engine] ${packageName} installed successfully`);
         resolve({ success: true });
       } else {
         log.error(`[Engine] Install failed:`, stderr);
-        resolve({ success: false, error: stderr || 'Install failed' });
+        resolve({ success: false, error: stderr || "Install failed" });
       }
     });
   });
@@ -254,21 +276,21 @@ export function createIsolatedEnvironment(config: EngineConfig): {
 } {
   const runId = generateRunId();
   const isolatedHome = getIsolatedHomeDir(runId);
-  
+
   // 创建隔离目录（recursive: true 保证幂等）
-  fs.mkdirSync(path.join(isolatedHome, '.claude'), { recursive: true });
-  fs.mkdirSync(path.join(isolatedHome, '.nuwaxcode'), { recursive: true });
+  fs.mkdirSync(path.join(isolatedHome, ".claude"), { recursive: true });
+  fs.mkdirSync(path.join(isolatedHome, ".nuwaxcode"), { recursive: true });
 
   // 注入 MCP 配置到 .claude/settings.json
   // 如果 MCP Proxy 运行中，使用 mcp-proxy convert 桥接；否则直接配置 stdio 服务器
   const mcpConfig = mcpProxyManager.getAgentMcpConfig();
   if (mcpConfig) {
-    const settingsPath = path.join(isolatedHome, '.claude', 'settings.json');
+    const settingsPath = path.join(isolatedHome, ".claude", "settings.json");
     const settings = { mcpServers: mcpConfig };
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-    log.info(`[Engine] 已写入 MCP 配置到 ${settingsPath}`);
+    log.info(`[Engine] Wrote MCP config to ${settingsPath}`);
   }
-  
+
   // 构建隔离环境变量
   // 使用 getAppEnv() 注入应用内依赖路径（PATH / NODE_PATH）
   const appEnv = getAppEnv();
@@ -279,7 +301,7 @@ export function createIsolatedEnvironment(config: EngineConfig): {
   for (const [key, value] of Object.entries(process.env)) {
     if (value === undefined) continue;
     // 清除所有 CLAUDE_* 和 ANTHROPIC_* 变量，后续由我们显式注入
-    if (key.startsWith('CLAUDE_') || key.startsWith('ANTHROPIC_')) continue;
+    if (key.startsWith("CLAUDE_") || key.startsWith("ANTHROPIC_")) continue;
     sanitizedEnv[key] = value;
   }
 
@@ -292,29 +314,29 @@ export function createIsolatedEnvironment(config: EngineConfig): {
     USERPROFILE: isolatedHome, // Windows 兼容
 
     // 隔离 XDG 配置
-    XDG_CONFIG_HOME: path.join(isolatedHome, '.config'),
-    XDG_DATA_HOME: path.join(isolatedHome, '.local', 'share'),
-    XDG_CACHE_HOME: path.join(isolatedHome, '.cache'),
+    XDG_CONFIG_HOME: path.join(isolatedHome, ".config"),
+    XDG_DATA_HOME: path.join(isolatedHome, ".local", "share"),
+    XDG_CACHE_HOME: path.join(isolatedHome, ".cache"),
 
     // 显式配置路径 — 引擎只会读取隔离目录内的配置
-    CLAUDE_CONFIG_DIR: path.join(isolatedHome, '.claude'),
-    NUWAXCODE_CONFIG_DIR: path.join(isolatedHome, '.nuwaxcode'),
+    CLAUDE_CONFIG_DIR: path.join(isolatedHome, ".claude"),
+    NUWAXCODE_CONFIG_DIR: path.join(isolatedHome, ".nuwaxcode"),
   };
-  
+
   // API 配置 (优先使用注入的值)
   if (config.apiKey) {
     env.ANTHROPIC_API_KEY = config.apiKey;
   }
-  
+
   if (config.baseUrl) {
     env.ANTHROPIC_BASE_URL = config.baseUrl;
     env.ANTHROPIC_API_BASE_URL = config.baseUrl;
   }
-  
+
   if (config.model) {
     env.ANTHROPIC_MODEL = config.model;
   }
-  
+
   // 清理函数
   const cleanup = () => {
     try {
@@ -325,9 +347,9 @@ export function createIsolatedEnvironment(config: EngineConfig): {
       log.error(`[Engine] Cleanup error:`, error);
     }
   };
-  
+
   log.info(`[Engine] Created isolated environment: ${isolatedHome}`);
-  
+
   return { env, runId, cleanup };
 }
 
@@ -346,52 +368,54 @@ const runningEngines: Map<string, RunningEngine> = new Map();
  * 启动引擎
  */
 export async function startEngine(
-  config: EngineConfig
+  config: EngineConfig,
 ): Promise<{ success: boolean; error?: string; engineId?: string }> {
   // 查找引擎可执行文件
   const engineBinary = findEngineBinary(config.engine);
-  
+
   if (!engineBinary) {
     return { success: false, error: `${config.engine} not installed` };
   }
-  
+
   // 创建隔离环境
   const { env, runId, cleanup } = createIsolatedEnvironment(config);
-  
+
   // 构建启动参数
   let args: string[] = [];
-  
+
   switch (config.engine) {
-    case 'claude-code':
-      args = ['--sACP'];
+    case "claude-code":
+      args = ["--sACP"];
       break;
-    case 'nuwaxcode':
-      args = ['serve', '--stdio'];
+    case "nuwaxcode":
+      args = ["serve", "--stdio"];
       break;
   }
 
-  log.info(`[Engine] Starting ${config.engine}: node ${engineBinary} ${args.join(' ')}`);
+  log.info(
+    `[Engine] Starting ${config.engine}: node ${engineBinary} ${args.join(" ")}`,
+  );
 
   return new Promise((resolve) => {
     // 使用通用 spawnJsFile 启动，自动处理 Windows 无弹窗
     const proc = spawnJsFile(engineBinary, args, {
       env,
       cwd: config.workspaceDir || getAppDataDir(),
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ["pipe", "pipe", "pipe"],
     });
-    
-    proc.on('error', (error) => {
+
+    proc.on("error", (error) => {
       log.error(`[Engine] Start error:`, error);
       cleanup();
       resolve({ success: false, error: error.message });
     });
-    
-    proc.on('exit', (code) => {
+
+    proc.on("exit", (code) => {
       log.info(`[Engine] ${config.engine} exited with code ${code}`);
       cleanup();
       runningEngines.delete(runId);
     });
-    
+
     // 等待进程启动
     setTimeout(() => {
       if (proc.pid) {
@@ -402,12 +426,12 @@ export async function startEngine(
           runId,
           cleanup,
         });
-        
+
         log.info(`[Engine] ${config.engine} started with PID ${proc.pid}`);
         resolve({ success: true, engineId });
       } else {
         cleanup();
-        resolve({ success: false, error: 'Failed to start process' });
+        resolve({ success: false, error: "Failed to start process" });
       }
     }, 1000);
   });
@@ -416,18 +440,20 @@ export async function startEngine(
 /**
  * 停止引擎
  */
-export async function stopEngine(engineId: string): Promise<{ success: boolean; error?: string }> {
+export async function stopEngine(
+  engineId: string,
+): Promise<{ success: boolean; error?: string }> {
   const engine = runningEngines.get(engineId);
-  
+
   if (!engine) {
-    return { success: false, error: 'Engine not running' };
+    return { success: false, error: "Engine not running" };
   }
-  
+
   try {
     engine.process.kill();
     engine.cleanup();
     runningEngines.delete(engineId);
-    
+
     return { success: true };
   } catch (error) {
     return { success: false, error: String(error) };
@@ -437,7 +463,9 @@ export async function stopEngine(engineId: string): Promise<{ success: boolean; 
 /**
  * 获取引擎状态
  */
-export function getEngineStatus(engineId?: string): EngineStatus | Record<string, EngineStatus> {
+export function getEngineStatus(
+  engineId?: string,
+): EngineStatus | Record<string, EngineStatus> {
   if (engineId) {
     const engine = runningEngines.get(engineId);
     if (engine) {
@@ -449,7 +477,7 @@ export function getEngineStatus(engineId?: string): EngineStatus | Record<string
     }
     return { installed: false, running: false };
   }
-  
+
   // 返回所有运行中的引擎
   const statuses: Record<string, EngineStatus> = {};
   for (const [id, engine] of runningEngines) {
@@ -465,15 +493,18 @@ export function getEngineStatus(engineId?: string): EngineStatus | Record<string
 /**
  * 发送消息到引擎 (通过 stdin)
  */
-export async function sendToEngine(engineId: string, message: string): Promise<{ success: boolean; error?: string }> {
+export async function sendToEngine(
+  engineId: string,
+  message: string,
+): Promise<{ success: boolean; error?: string }> {
   const engine = runningEngines.get(engineId);
-  
+
   if (!engine || !engine.process.stdin) {
-    return { success: false, error: 'Engine not running' };
+    return { success: false, error: "Engine not running" };
   }
-  
+
   return new Promise((resolve) => {
-    engine.process.stdin!.write(message + '\n', (error) => {
+    engine.process.stdin!.write(message + "\n", (error) => {
       if (error) {
         resolve({ success: false, error: error.message });
       } else {
@@ -504,13 +535,13 @@ export default {
   isEngineInstalledGlobally,
   getEngineVersion,
   findEngineBinary,
-  
+
   // Installation
   installEngine,
-  
+
   // Isolation
   createIsolatedEnvironment,
-  
+
   // Runtime
   startEngine,
   stopEngine,

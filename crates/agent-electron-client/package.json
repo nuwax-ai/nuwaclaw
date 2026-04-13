@@ -1,21 +1,24 @@
 {
   "name": "@nuwax-ai/nuwaclaw",
-  "version": "0.9.1",
-  "description": "NuwaClaw Desktop Client (Electron)",
+  "version": "0.9.7",
+  "description": "NuwaClaw",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
   "license": "MIT",
   "homepage": "https://github.com/nuwax-ai/nuwaclaw",
   "scripts": {
-    "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
+    "dev": "dotenv -e .env.development -- cross-env NODE_ENV=development concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
-    "dev:electron": "wait-on http://localhost:60173 && npm run build:main && electron .",
-    "build:main": "tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
+    "dev:electron": "wait-on http://localhost:60173 && npm run build:main:dev && electron .",
+    "build:main:dev": "dotenv -e .env.development -- cross-env NODE_ENV=development tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
+    "build:main": "dotenv -e .env.production -- cross-env NODE_ENV=production tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
     "build:renderer": "vite build",
-    "build": "npm run build:main && npm run build:renderer",
+    "build": "dotenv -e .env.production -- cross-env NODE_ENV=production npm run build:main && npm run build:renderer",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "sandbox:matrix:check": "vitest run tests/scripts/sandbox-matrix-consistency.test.ts",
+    "sandbox:matrix:generate": "cross-env SANDBOX_MATRIX_WRITE=1 vitest run tests/scripts/sandbox-matrix-consistency.test.ts",
     "check:boundaries": "node scripts/tools/check-import-boundaries.js",
     "test:integrated-node": "node scripts/tools/test-integrated-node.js",
     "prepare:uv": "node scripts/prepare/prepare-uv.js",
@@ -26,7 +29,15 @@
     "check-ports": "node scripts/tools/check-startup-ports.js",
     "check-ports:dev": "node scripts/tools/check-startup-ports.js --vite",
     "prepare:mcp-proxy": "node scripts/prepare/prepare-mcp-proxy.js",
-    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy",
+    "prepare:nuwaxcode": "node scripts/prepare/prepare-nuwaxcode.js",
+    "prepare:sandbox-runtime": "node scripts/prepare/prepare-sandbox-runtime.js",
+    "build:sandbox-helper": "node scripts/prepare/build-sandbox-helper.js",
+    "prepare:sandbox-helper-win": "node scripts/prepare/prepare-sandbox-helper-windows.js",
+    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy && npm run prepare:nuwaxcode && npm run prepare:sandbox-helper-win && npm run prepare:sandbox-runtime && npm run prepare:gui-server && npm run prepare:windows-mcp && npm run prepare:nuwax-file-server && npm run prepare:claude-code-acp-ts",
+    "prepare:nuwax-file-server": "node scripts/prepare/prepare-nuwax-file-server.js",
+    "prepare:claude-code-acp-ts": "node scripts/prepare/prepare-claude-code-acp-ts.js",
+    "prepare:gui-server": "node scripts/prepare/prepare-gui-server.js",
+    "prepare:windows-mcp": "node scripts/prepare/prepare-windows-mcp.js",
     "electron-rebuild": "electron-rebuild -f -w better-sqlite3",
     "build:electron": "npm run build && npm run prepare:all && electron-builder --config.compression=maximum",
     "dist": "npm run build:electron -- --mac",
@@ -46,6 +57,7 @@
     "clean:electron-cache": "node scripts/tools/clean-electron-cache.js",
     "clean:release": "rm -rf release",
     "verify:sign": "node scripts/build/verify-sign.js",
+    "verify:sign:win": "node scripts/build/verify-sign-win.js",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix"
   },
@@ -59,6 +71,7 @@
     "better-sqlite3": "^12.6.2",
     "chokidar": "^5.0.0",
     "dayjs": "^1.11.19",
+    "dotenv": "^17.3.1",
     "electron-log": "^5.2.4",
     "electron-updater": "^6.8.3",
     "node-cron": "^4.2.1",
@@ -70,16 +83,19 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.2",
+    "7zip-bin": "^5.2.0",
     "@electron/rebuild": "^4.0.3",
+    "@eslint/js": "^9.39.2",
     "@types/better-sqlite3": "^7.6.12",
-    "@types/node": "^22.10.7",
+    "@types/node": "^22.19.15",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^2.1.8",
-    "7zip-bin": "^5.2.0",
+    "agent-gui-server": "workspace:*",
     "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "dotenv-cli": "^11.0.0",
     "electron": "^40.0.0",
     "electron-builder": "^25.1.8",
     "eslint": "^9.39.2",
@@ -89,11 +105,21 @@
     "nuwax-mcp-stdio-proxy": "workspace:*",
     "sharp": "^0.34.5",
     "tsc-alias": "^1.8.16",
-    "typescript-eslint": "^8.55.0",
     "typescript": "^5.7.3",
+    "typescript-eslint": "^8.55.0",
     "vite": "^6.0.7",
     "vitest": "^2.1.8",
     "wait-on": "^8.0.2"
+  },
+  "bundledSources": {
+    "nuwax-file-server": {
+      "url": "https://github.com/nuwax-ai/nuwax-file-server.git",
+      "branch": "main"
+    },
+    "claude-code-acp-ts": {
+      "url": "https://github.com/nuwax-ai/claude-code-acp-ts.git",
+      "branch": "feat/claude-code-acp-ts"
+    }
   },
   "build": {
     "appId": "com.nuwax-ai.nuwaclaw",
@@ -124,6 +150,13 @@
       "public/**/*"
     ],
     "extraResources": [
+      {
+        "from": "src/shared/locales",
+        "to": "locales",
+        "filter": [
+          "**/*.json"
+        ]
+      },
       {
         "from": "node_modules/better-sqlite3/build/Release",
         "to": "better-sqlite3",
@@ -179,6 +212,57 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "resources/sandboxed-bash-mcp",
+        "to": "sandboxed-bash-mcp",
+        "filter": [
+          "**/*.mjs"
+        ]
+      },
+      {
+        "from": "resources/sandboxed-fs-mcp",
+        "to": "sandboxed-fs-mcp",
+        "filter": [
+          "**/*.mjs"
+        ]
+      },
+      {
+        "from": "resources/sandbox-runtime",
+        "to": "sandbox-runtime",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/agent-gui-server",
+        "to": "agent-gui-server",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/nuwaxcode",
+        "to": "nuwaxcode",
+        "filter": [
+          "**/*",
+          "!*.cache",
+          "!.cache/**"
+        ]
+      },
+      {
+        "from": "resources/nuwax-file-server",
+        "to": "nuwax-file-server",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/claude-code-acp-ts",
+        "to": "claude-code-acp-ts",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "publish": [
@@ -201,6 +285,8 @@
       "hardenedRuntime": true,
       "extendInfo": {
         "CFBundleIdentifier": "com.nuwax.agent",
+        "CFBundleName": "NuwaClaw",
+        "CFBundleDisplayName": "NuwaClaw",
         "NSDesktopFolderUsageDescription": "需要访问桌面文件夹以支持文件操作",
         "NSDocumentsFolderUsageDescription": "需要访问文档文件夹以支持文件操作",
         "NSDownloadsFolderUsageDescription": "需要访问下载文件夹以支持文件操作"
@@ -253,17 +339,47 @@
           "filter": [
             "**/*"
           ]
+        },
+        {
+          "from": "resources/windows-mcp",
+          "to": "windows-mcp",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "resources/sandbox-helper",
+          "to": "sandbox-helper",
+          "filter": [
+            "**/*.exe"
+          ]
+        },
+        {
+          "from": "resources/sandboxed-bash-mcp",
+          "to": "sandboxed-bash-mcp",
+          "filter": [
+            "**/*.mjs"
+          ]
+        },
+        {
+          "from": "resources/sandboxed-fs-mcp",
+          "to": "sandboxed-fs-mcp",
+          "filter": [
+            "**/*.mjs"
+          ]
         }
       ]
     },
     "msi": {
-      "perMachine": false
+      "perMachine": false,
+      "artifactName": "${productName}-${version}-unsigned.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "${productName}-Setup-${version}-unsigned.${ext}"
     },
     "linux": {
       "target": [

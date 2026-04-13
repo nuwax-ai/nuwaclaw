@@ -86,10 +86,23 @@ function codesign(filePath, identity, entitlementsPath = null) {
  * 主函数 (导出给 electron-builder)
  */
 exports.default = async function (context) {
-  // 仅在 macOS 上执行
-  if (process.platform !== 'darwin') {
+  // macOS 签名流程
+  if (process.platform === 'darwin') {
+    await afterSignMac(context);
     return;
   }
+
+  // Windows 签名流程
+  if (process.platform === 'win32') {
+    await afterSignWindows(context);
+    return;
+  }
+};
+
+/**
+ * macOS 签名流程
+ */
+async function afterSignMac(context) {
 
   const identity = process.env.APPLE_SIGNING_IDENTITY;
   if (!identity) {
@@ -200,12 +213,24 @@ exports.default = async function (context) {
     }
   }
 
-  // 5. 对主 .app 重新签名，恢复 seal（内部二进制被签过后包内容已变，必须整体再签一次）
+  // 5. 签名 resources/sandbox-runtime（三端沙箱运行时）
+  const sandboxRuntimePath = path.join(resourcesPath, 'sandbox-runtime');
+  if (fs.existsSync(sandboxRuntimePath)) {
+    const sandboxRuntimeFiles = findExecutables(sandboxRuntimePath);
+    console.log(`[after-sign] 找到 sandbox-runtime 可执行文件: ${sandboxRuntimeFiles.length} 个`);
+    for (const file of sandboxRuntimeFiles) {
+      const relative = path.relative(sandboxRuntimePath, file);
+      console.log(`[after-sign] 签名 sandbox-runtime/${relative}`);
+      codesign(file, identity);
+    }
+  }
+
+  // 6. 对主 .app 重新签名，恢复 seal（内部二进制被签过后包内容已变，必须整体再签一次）
   console.log('[after-sign] 对主 app 重新签名以恢复 seal...');
   const entitlementsPath = path.join(process.cwd(), 'build', 'entitlements.mac.plist');
   codesign(appPath, identity, entitlementsPath);
 
-  // 6. 验证整个 app 的签名
+  // 7. 验证整个 app 的签名
   console.log('[after-sign] 验证整个 app 签名...');
   try {
     execSync(`codesign --verify --deep --strict --verbose=2 "${appPath}"`, {
@@ -216,7 +241,7 @@ exports.default = async function (context) {
     console.warn('[after-sign] 签名验证失败（可能需要忽略特定项）');
   }
 
-  // 7. Apple 公证（Notarization）
+  // 8. Apple 公证（Notarization）
   const appleApiKey = process.env.APPLE_API_KEY;
   const appleApiKeyId = process.env.APPLE_API_KEY_ID;
   const appleIssuerId = process.env.APPLE_ISSUER_ID;
@@ -250,7 +275,7 @@ exports.default = async function (context) {
     console.log(`[after-sign]   APPLE_ISSUER_ID: ${appleIssuerId ? '✓' : '✗ 未设置'}`);
   }
 
-  // 8. 验证 Gatekeeper（公证后应该通过）
+  // 9. 验证 Gatekeeper（公证后应该通过）
   console.log('[after-sign] 验证 Gatekeeper 策略...');
   try {
     execSync(`spctl -a -vv "${appPath}"`, {
@@ -262,4 +287,140 @@ exports.default = async function (context) {
   }
 
   console.log('[after-sign] 完成');
-};
+}
+
+/**
+ * Windows 签名流程
+ *
+ * 在 electron-builder 完成主应用签名后，对 extraResources 中的原生二进制文件进行额外签名。
+ *
+ * 环境变量：
+ * - WINDOWS_CERTIFICATE_SHA1: 证书指纹（推荐，用于本地开发）
+ * - WINDOWS_CERTIFICATE_PATH: PFX 文件路径（用于 CI）
+ * - WINDOWS_CERTIFICATE_PASSWORD: PFX 文件密码
+ * - WINDOWS_TIMESTAMP_URL: 时间戳服务器 URL
+ * - WINDOWS_PUBLISHER_NAME: 发布者名称
+ *
+ * @param {Object} context - electron-builder 上下文
+ */
+async function afterSignWindows(context) {
+  if (process.env.SKIP_WINDOWS_AFTER_SIGN === '1') {
+    console.log('[after-sign] Windows: SKIP_WINDOWS_AFTER_SIGN=1，跳过额外签名');
+    return;
+  }
+
+  const signWin = require('./sign-win');
+  const config = signWin.getSignConfig();
+
+  if (!config.certSha1 && !config.certPath) {
+    console.log('[after-sign] Windows: 跳过额外签名（未配置证书）');
+    console.log('[after-sign] Windows:   需要设置 WINDOWS_CERTIFICATE_SHA1 或 WINDOWS_CERTIFICATE_PATH');
+    return;
+  }
+
+  console.log('[after-sign] Windows: 开始额外签名...');
+  console.log(`[after-sign] Windows:   证书指纹: ${config.certSha1 || '未配置（使用 PFX）'}`);
+  console.log(`[after-sign] Windows:   发布者: ${config.publisherName || '未配置'}`);
+  console.log(`[after-sign] Windows:   时间戳: ${config.timestampUrl}`);
+
+  // 获取打包输出目录
+  const appOutDir = context.appOutDir;
+  if (!appOutDir || !fs.existsSync(appOutDir)) {
+    console.warn('[after-sign] Windows: 未找到打包输出目录');
+    return;
+  }
+
+  console.log(`[after-sign] Windows:   输出目录: ${appOutDir}`);
+
+  // extraResources 路径（在 Windows 上通常是 appOutDir 的父目录下的 resources）
+  // electron-builder Windows 打包结构：appOutDir 包含 unpacked 文件
+  // 主程序已被 electron-builder 签名，这里签名 extraResources 中的二进制文件
+
+  const resourcesPath = path.join(appOutDir, 'resources');
+  if (!fs.existsSync(resourcesPath)) {
+    console.log('[after-sign] Windows: 未找到 resources 目录，跳过额外签名');
+    return;
+  }
+
+  // 统计信息
+  let totalSigned = 0;
+  let totalFailed = 0;
+
+  // 1. 签名 uv
+  const uvPath = path.join(resourcesPath, 'uv', 'bin');
+  if (fs.existsSync(uvPath)) {
+    console.log('[after-sign] Windows: 签名 uv/bin...');
+    const result = signWin.signDirectory(uvPath);
+    totalSigned += result.success;
+    totalFailed += result.failed;
+  }
+
+  // 2. 签名 node
+  const nodePath = path.join(resourcesPath, 'node');
+  if (fs.existsSync(nodePath)) {
+    console.log('[after-sign] Windows: 签名 node...');
+    const result = signWin.signDirectory(nodePath);
+    totalSigned += result.success;
+    totalFailed += result.failed;
+  }
+
+  // 3. 签名 lanproxy
+  const lanproxyPath = path.join(resourcesPath, 'lanproxy');
+  if (fs.existsSync(lanproxyPath)) {
+    console.log('[after-sign] Windows: 签名 lanproxy...');
+    const result = signWin.signDirectory(lanproxyPath);
+    totalSigned += result.success;
+    totalFailed += result.failed;
+  }
+
+  // 4. 签名 better-sqlite3（.node 文件）
+  const sqlitePath = path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', 'better-sqlite3', 'build', 'Release');
+  if (fs.existsSync(sqlitePath)) {
+    console.log('[after-sign] Windows: 签名 better-sqlite3...');
+    const result = signWin.signDirectory(sqlitePath);
+    totalSigned += result.success;
+    totalFailed += result.failed;
+  }
+
+  // 5. 签名 nuwax-mcp-stdio-proxy
+  const mcpProxyPath = path.join(resourcesPath, 'nuwax-mcp-stdio-proxy');
+  if (fs.existsSync(mcpProxyPath)) {
+    console.log('[after-sign] Windows: 签名 nuwax-mcp-stdio-proxy...');
+    const result = signWin.signDirectory(mcpProxyPath);
+    totalSigned += result.success;
+    totalFailed += result.failed;
+  }
+
+  // 6. 签名 git（如果存在）
+  const gitPath = path.join(resourcesPath, 'git');
+  if (fs.existsSync(gitPath)) {
+    console.log('[after-sign] Windows: 签名 git...');
+    const result = signWin.signDirectory(gitPath);
+    totalSigned += result.success;
+    totalFailed += result.failed;
+  }
+
+  // 7. 签名 sandbox-runtime（如果存在）
+  const sandboxRuntimePath = path.join(resourcesPath, 'sandbox-runtime');
+  if (fs.existsSync(sandboxRuntimePath)) {
+    console.log('[after-sign] Windows: 签名 sandbox-runtime...');
+    const result = signWin.signDirectory(sandboxRuntimePath);
+    totalSigned += result.success;
+    totalFailed += result.failed;
+  }
+
+  // 8. 签名 sandbox-helper（nuwax-sandbox-helper.exe 等）
+  const sandboxHelperPath = path.join(resourcesPath, 'sandbox-helper');
+  if (fs.existsSync(sandboxHelperPath)) {
+    console.log('[after-sign] Windows: 签名 sandbox-helper...');
+    const result = signWin.signDirectory(sandboxHelperPath);
+    totalSigned += result.success;
+    totalFailed += result.failed;
+  }
+
+  console.log(`[after-sign] Windows: 额外签名完成 - 成功: ${totalSigned}, 失败: ${totalFailed}`);
+
+  if (totalFailed > 0) {
+    throw new Error(`[after-sign] Windows: 额外签名失败，失败文件数: ${totalFailed}`);
+  }
+}
