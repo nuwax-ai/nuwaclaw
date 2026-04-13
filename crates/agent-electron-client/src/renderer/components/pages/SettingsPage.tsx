@@ -88,12 +88,15 @@ const DEFAULT_AI_SETTINGS: AISettings = {
 
 // 本地支持的语言选项（兜底用）
 // 使用与后端一致的完整语言码格式（如 zh-cn），与 i18nLang 格式对齐
-const LOCAL_LANG_OPTIONS = [
-  { value: "en-us", label: t("Claw.Settings.system.langEnglish") },
-  { value: "zh-cn", label: t("Claw.Settings.system.langChinese") },
-  { value: "zh-tw", label: t("Claw.Settings.system.langChineseTW") },
-  { value: "zh-hk", label: t("Claw.Settings.system.langChineseHK") },
-];
+// 必须用函数而非常量，因为模块加载时 i18n 可能尚未初始化，t() 无法正确翻译
+function getLocalLangOptions() {
+  return [
+    { value: "en-us", label: t("Claw.Settings.system.langEnglish") },
+    { value: "zh-cn", label: t("Claw.Settings.system.langChinese") },
+    { value: "zh-tw", label: t("Claw.Settings.system.langChineseTW") },
+    { value: "zh-hk", label: t("Claw.Settings.system.langChineseHK") },
+  ];
+}
 
 export default function SettingsPage() {
   // 主题
@@ -1039,7 +1042,7 @@ export default function SettingsPage() {
                       value: item.lang.toLowerCase(),
                       label: item.name,
                     }))
-                  : LOCAL_LANG_OPTIONS
+                  : getLocalLangOptions()
               }
             />
           </div>

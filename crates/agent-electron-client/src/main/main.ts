@@ -635,6 +635,12 @@ app.on("before-quit", (e) => {
   isCleaningUp = true;
   isQuitting = true; // 通知窗口 close 事件允许关闭
 
+  // 确保 splash 窗口在任何退出路径都被销毁
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.destroy();
+    splashWindow = null;
+  }
+
   if (isInstallingUpdate) {
     // quitAndInstall 场景（macOS Squirrel.Mac / Windows NSIS / Linux AppImage 均走此路径）：
     // - cleanup 已在 installUpdate() 中先行触发，无需重复执行

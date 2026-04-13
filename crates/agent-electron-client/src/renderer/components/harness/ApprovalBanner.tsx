@@ -73,7 +73,11 @@ function ApprovalItem({
 
   const handleRespond = async (decision: "approve" | "reject") => {
     setResponding(true);
-    onRespond(request.id, decision);
+    try {
+      await onRespond(request.id, decision);
+    } finally {
+      setResponding(false);
+    }
   };
 
   return (
