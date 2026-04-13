@@ -431,5 +431,10 @@ export const I18N_KEYS = {
     MEMORY: "Claw.Client.health.memory",
     PORT: "Claw.Client.health.port",
     LAST_ERROR: "Claw.Client.health.lastError",
+    PID: "Claw.Client.health.pid",
+    UPTIME: "Claw.Client.health.uptime",
+    RESTARTS: "Claw.Client.health.restarts",
+    LAST_CRASH: "Claw.Client.health.lastCrash",
+    NO_ERRORS: "Claw.Client.health.noErrors",
   },
 } as const;
