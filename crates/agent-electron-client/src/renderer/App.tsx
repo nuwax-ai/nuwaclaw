@@ -142,6 +142,10 @@ export interface ServiceItem {
   lastErrorAt?: number;
   /** 健康状态（仅运行中服务有意义） */
   health?: "healthy" | "degraded" | "unhealthy";
+  /** 运行时长 ms（来自 ProcessLifecycleManager） */
+  uptimeMs?: number;
+  /** 最近崩溃时间戳（来自 ProcessLifecycleManager） */
+  lastCrashAt?: number;
 }
 
 export interface SystemResources {
@@ -681,6 +685,39 @@ function App() {
           health: computeServiceHealth(running, error),
         });
       }
+      // 合并 ProcessLifecycleManager 的 uptime / lastCrashAt / restartCount
+      try {
+        const lcRes = await window.electronAPI?.services.lifecycleStats();
+        if (lcRes?.success && Array.isArray(lcRes.stats)) {
+          const statsMap = new Map(
+            (
+              lcRes.stats as Array<{
+                key: string;
+                uptimeMs?: number;
+                lastCrashAt?: number;
+                restartCount: number;
+              }>
+            ).map((s) => [s.key, s]),
+          );
+          for (const item of items) {
+            const lc = statsMap.get(item.key);
+            if (!lc) continue;
+            item.uptimeMs = lc.uptimeMs;
+            item.lastCrashAt = lc.lastCrashAt;
+            if (lc.restartCount > 0) {
+              item.restartCount = lc.restartCount;
+              item.health = computeServiceHealth(
+                item.running,
+                item.error,
+                lc.restartCount,
+              );
+            }
+          }
+        }
+      } catch {
+        // lifecycle stats 获取失败不影响主流程
+      }
+
       setServices(items);
       setPollFailCount(0);
     } catch (error) {

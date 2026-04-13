@@ -264,6 +264,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     restartAll: () => ipcRenderer.invoke("services:restartAll"),
     stopAll: () => ipcRenderer.invoke("services:stopAll"),
     healthSnapshot: () => ipcRenderer.invoke("services:healthSnapshot"),
+    lifecycleStats: () => ipcRenderer.invoke("services:lifecycleStats"),
   },
 
   // Tray status sync

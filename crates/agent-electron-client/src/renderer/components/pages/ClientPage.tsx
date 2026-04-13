@@ -84,6 +84,19 @@ interface ClientPageProps {
   systemResources?: SystemResources;
 }
 
+// ======================== Uptime 格式化 ====================
+
+function formatUptime(ms: number): string {
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ${sec % 60}s`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ${min % 60}m`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ${hr % 24}h`;
+}
+
 // ======================== 健康徽章 ====================
 
 const HEALTH_DOT: Record<NonNullable<ServiceItem["health"]>, string> = {
@@ -864,7 +877,11 @@ function ClientPage({
 
     const hasDetailRow = (svc: ServiceItem) =>
       svc.running &&
-      (svc.pid || svc.port || svc.memoryBytes || (svc.restartCount ?? 0) > 0);
+      (svc.pid ||
+        svc.port ||
+        svc.memoryBytes ||
+        svc.uptimeMs ||
+        (svc.restartCount ?? 0) > 0);
 
     return (
       <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
@@ -1035,12 +1052,18 @@ function ClientPage({
                 >
                   {svc.pid && (
                     <span>
-                      PID <strong>{svc.pid}</strong>
+                      {t("Claw.Client.health.pid")} <strong>{svc.pid}</strong>
                     </span>
                   )}
                   {svc.port && (
                     <span>
                       {t("Claw.Client.health.port")} <strong>{svc.port}</strong>
+                    </span>
+                  )}
+                  {svc.uptimeMs != null && svc.uptimeMs > 0 && (
+                    <span>
+                      {t("Claw.Client.health.uptime")}{" "}
+                      <strong>{formatUptime(svc.uptimeMs)}</strong>
                     </span>
                   )}
                   {svc.memoryBytes && svc.memoryBytes > 0 && (
@@ -1053,7 +1076,14 @@ function ClientPage({
                   )}
                   {(svc.restartCount ?? 0) > 0 && (
                     <span style={{ color: "var(--color-warning)" }}>
-                      {t("Claw.Client.restartCount", svc.restartCount)}
+                      {t("Claw.Client.health.restarts")}{" "}
+                      <strong>{svc.restartCount}</strong>
+                    </span>
+                  )}
+                  {svc.lastCrashAt && (
+                    <span style={{ color: "var(--color-warning)" }}>
+                      {t("Claw.Client.health.lastCrash")}{" "}
+                      {new Date(svc.lastCrashAt).toLocaleTimeString()}
                     </span>
                   )}
                   {svc.lastErrorAt && (
