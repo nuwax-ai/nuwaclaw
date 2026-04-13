@@ -92,12 +92,22 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
         server: config.serverIp,
         port: config.serverPort,
       });
-      // 健康检查
-      const health = await checkLanproxyHealth(config.clientKey);
-      result.healthCheck = health;
-      if (!health.healthy) {
-        log.warn("[Lanproxy] Health check failed:", health.error);
-      }
+      // 远端 health 接口可选（私有化部署可能未提供）；异步探测仅打日志，不阻塞 IPC、不影响启动结果
+      void checkLanproxyHealth(config.clientKey)
+        .then((health) => {
+          result.healthCheck = health;
+          if (!health.healthy) {
+            log.warn(
+              "[Lanproxy] Post-start health probe failed (non-fatal; private backends may omit /api/sandbox/config/health):",
+              health.error,
+            );
+          } else {
+            log.info("[Lanproxy] Post-start health probe OK");
+          }
+        })
+        .catch((e) => {
+          log.warn("[Lanproxy] Post-start health probe error (non-fatal):", e);
+        });
     } else {
       log.error("[Lanproxy] Start failed", {
         error: result.error,
