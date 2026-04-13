@@ -9,8 +9,8 @@
  */
 
 import { randomUUID } from "crypto";
-import log from "electron-log";
 import { getDb } from "../../db";
+import { structuredLog } from "../../bootstrap/logConfig";
 import {
   CheckpointType,
   type TaskCheckpoint,
@@ -51,15 +51,17 @@ function rowToCheckpoint(row: CheckpointRow): TaskCheckpoint {
 }
 
 export class CheckpointManager {
-  private readonly logTag = "[CheckpointManager]";
-
   /**
    * 为任务创建初始检查点序列（全部 pending）
    */
   createInitialCheckpoints(taskId: string): TaskCheckpoint[] {
     const db = getDb();
     if (!db) {
-      log.error(`${this.logTag} DB not initialized`);
+      structuredLog(
+        "error",
+        "harness",
+        "CheckpointManager: DB not initialized",
+      );
       return [];
     }
 
@@ -94,8 +96,13 @@ export class CheckpointManager {
     });
 
     insertAll();
-    log.info(
-      `${this.logTag} Created ${checkpoints.length} checkpoints for task ${taskId}`,
+    structuredLog(
+      "info",
+      "harness",
+      `Created ${checkpoints.length} checkpoints`,
+      {
+        taskId,
+      },
     );
     return checkpoints;
   }
@@ -116,7 +123,7 @@ export class CheckpointManager {
     `,
     ).run(now, taskId, type);
 
-    log.info(`${this.logTag} Entered checkpoint ${type} for task ${taskId}`);
+    structuredLog("info", "harness", `Entered checkpoint ${type}`, { taskId });
     return this.getCheckpoint(taskId, type);
   }
 
@@ -140,7 +147,7 @@ export class CheckpointManager {
     `,
     ).run(now, result ? JSON.stringify(result) : null, taskId, type);
 
-    log.info(`${this.logTag} Passed checkpoint ${type} for task ${taskId}`);
+    structuredLog("info", "harness", `Passed checkpoint ${type}`, { taskId });
     return this.getCheckpoint(taskId, type);
   }
 
@@ -163,7 +170,7 @@ export class CheckpointManager {
     `,
     ).run(reason ? JSON.stringify(reason) : null, taskId, type);
 
-    log.warn(`${this.logTag} Failed checkpoint ${type} for task ${taskId}`);
+    structuredLog("warn", "harness", `Failed checkpoint ${type}`, { taskId });
     return this.getCheckpoint(taskId, type);
   }
 
@@ -246,9 +253,9 @@ export class CheckpointManager {
     `,
     ).run(taskId, ...typesToReset);
 
-    log.info(
-      `${this.logTag} Reset checkpoints from ${fromType} for task ${taskId}`,
-    );
+    structuredLog("info", "harness", `Reset checkpoints from ${fromType}`, {
+      taskId,
+    });
   }
 }
 

@@ -13,7 +13,7 @@
  *   const result = await recoveryManager.execute(action, { taskId, retryFn });
  */
 
-import log from "electron-log";
+import { structuredLog } from "../../bootstrap/logConfig";
 import type { RecoveryStrategy, RecoveryAction } from "@shared/types/harness";
 
 export interface RecoveryContext {
@@ -109,7 +109,6 @@ const ERROR_CLASSIFIERS: Array<{ patterns: RegExp[]; errorType: string }> = [
 ];
 
 export class RecoveryManager {
-  private readonly logTag = "[RecoveryManager]";
   private strategies: RecoveryStrategy[] = [...DEFAULT_STRATEGIES];
   /** 每个任务的重试计数，key = `${taskId}:${errorType}` */
   private retryCounts = new Map<string, number>();
@@ -155,8 +154,14 @@ export class RecoveryManager {
     const strategy = this.findStrategy(errorType);
     const errorMsg = typeof error === "string" ? error : error.message;
 
-    log.info(
-      `${this.logTag} Task ${ctx.taskId}: error type="${errorType}", strategy action="${strategy.action}"`,
+    structuredLog(
+      "info",
+      "harness",
+      `Recovery: type=${errorType}, action=${strategy.action}`,
+      {
+        taskId: ctx.taskId,
+        data: { errorType, action: strategy.action },
+      },
     );
 
     switch (strategy.action) {
@@ -196,8 +201,14 @@ export class RecoveryManager {
     const maxRetries = strategy.maxRetries ?? 3;
 
     if (currentCount >= maxRetries) {
-      log.warn(
-        `${this.logTag} Task ${ctx.taskId}: max retries (${maxRetries}) reached for ${errorType}, escalating to pause`,
+      structuredLog(
+        "warn",
+        "harness",
+        `Max retries reached for ${errorType}, escalating to pause`,
+        {
+          taskId: ctx.taskId,
+          data: { errorType, maxRetries },
+        },
       );
       this.retryCounts.delete(countKey);
       return { action: "pause", success: false, error: errorMsg };
@@ -208,8 +219,14 @@ export class RecoveryManager {
     // 指数退避
     const backoffMs = delayMs * Math.pow(2, currentCount);
 
-    log.info(
-      `${this.logTag} Task ${ctx.taskId}: retry ${currentCount + 1}/${maxRetries} for ${errorType} in ${backoffMs}ms`,
+    structuredLog(
+      "info",
+      "harness",
+      `Retry ${currentCount + 1}/${maxRetries} for ${errorType} in ${backoffMs}ms`,
+      {
+        taskId: ctx.taskId,
+        data: { errorType, attempt: currentCount + 1, maxRetries, backoffMs },
+      },
     );
 
     await this.sleep(backoffMs);
@@ -225,15 +242,17 @@ export class RecoveryManager {
     try {
       const output = await ctx.retryFn();
       this.retryCounts.delete(countKey);
-      log.info(
-        `${this.logTag} Task ${ctx.taskId}: retry succeeded for ${errorType}`,
-      );
+      structuredLog("info", "harness", `Retry succeeded for ${errorType}`, {
+        taskId: ctx.taskId,
+        data: { errorType },
+      });
       return { action: "retry", success: true, output };
     } catch (e) {
       const retryError = e instanceof Error ? e.message : String(e);
-      log.warn(
-        `${this.logTag} Task ${ctx.taskId}: retry failed: ${retryError}`,
-      );
+      structuredLog("warn", "harness", `Retry failed: ${retryError}`, {
+        taskId: ctx.taskId,
+        data: { error: retryError },
+      });
       return { action: "retry", success: false, error: retryError };
     }
   }
@@ -245,8 +264,14 @@ export class RecoveryManager {
     errorMsg: string,
   ): Promise<RecoveryResult> {
     const delayMs = (strategy.delaySeconds ?? 30) * 1000;
-    log.info(
-      `${this.logTag} Task ${ctx.taskId}: waiting ${delayMs}ms before retry for ${errorType}`,
+    structuredLog(
+      "info",
+      "harness",
+      `Waiting ${delayMs}ms before retry for ${errorType}`,
+      {
+        taskId: ctx.taskId,
+        data: { errorType, delayMs },
+      },
     );
     await this.sleep(delayMs);
 
@@ -270,8 +295,13 @@ export class RecoveryManager {
     ctx: RecoveryContext,
     errorMsg: string,
   ): Promise<RecoveryResult> {
-    log.warn(
-      `${this.logTag} Task ${ctx.taskId}: escalating permission error to human review`,
+    structuredLog(
+      "warn",
+      "harness",
+      "Escalating permission error to human review",
+      {
+        taskId: ctx.taskId,
+      },
     );
     if (ctx.escalateFn) {
       try {
@@ -289,16 +319,18 @@ export class RecoveryManager {
   }
 
   private handleAbort(ctx: RecoveryContext, errorMsg: string): RecoveryResult {
-    log.error(
-      `${this.logTag} Task ${ctx.taskId}: aborting due to security violation: ${errorMsg}`,
-    );
+    structuredLog("error", "harness", "Aborting due to security violation", {
+      taskId: ctx.taskId,
+      data: { error: errorMsg },
+    });
     return { action: "abort", success: false, error: errorMsg };
   }
 
   private handlePause(ctx: RecoveryContext, errorMsg: string): RecoveryResult {
-    log.warn(
-      `${this.logTag} Task ${ctx.taskId}: pausing for manual intervention: ${errorMsg}`,
-    );
+    structuredLog("warn", "harness", "Pausing for manual intervention", {
+      taskId: ctx.taskId,
+      data: { error: errorMsg },
+    });
     return { action: "pause", success: false, error: errorMsg };
   }
 

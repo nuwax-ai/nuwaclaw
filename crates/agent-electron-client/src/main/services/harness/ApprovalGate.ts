@@ -15,8 +15,8 @@
 
 import { randomUUID } from "crypto";
 import { BrowserWindow } from "electron";
-import log from "electron-log";
 import { getDb } from "../../db";
+import { structuredLog } from "../../bootstrap/logConfig";
 import {
   type ApprovalRequest,
   type ApprovalDecision,
@@ -92,7 +92,6 @@ function rowToApproval(row: ApprovalRow): ApprovalRequest {
 }
 
 export class ApprovalGate {
-  private readonly logTag = "[ApprovalGate]";
   private pending = new Map<string, PendingApproval>();
   private rules: ApprovalRule[] = [...DEFAULT_APPROVAL_RULES];
 
@@ -188,9 +187,10 @@ export class ApprovalGate {
       expiresAt: request.expiresAt ?? null,
     });
 
-    log.info(
-      `${this.logTag} Created approval ${request.id} for task ${taskId}: "${title}" (priority=${rule.priority})`,
-    );
+    structuredLog("info", "harness", `Approval created: ${request.id}`, {
+      taskId,
+      data: { approvalId: request.id, title, priority: rule.priority },
+    });
 
     // 推送事件到所有渲染进程
     this.broadcastApprovalEvent(request);
@@ -212,8 +212,14 @@ export class ApprovalGate {
 
       const timer = setTimeout(() => {
         if (this.pending.has(request.id)) {
-          log.warn(
-            `${this.logTag} Approval ${request.id} timed out, auto-rejecting`,
+          structuredLog(
+            "warn",
+            "harness",
+            `Approval timed out, auto-rejecting`,
+            {
+              taskId: request.taskId,
+              data: { approvalId: request.id },
+            },
           );
           this.pending.delete(request.id);
           this.persistDecision(request.id, "reject", "expired");
@@ -253,7 +259,9 @@ export class ApprovalGate {
   respondApproval(approvalId: string, decision: ApprovalDecision): boolean {
     const entry = this.pending.get(approvalId);
     if (!entry) {
-      log.warn(`${this.logTag} No pending approval found for id=${approvalId}`);
+      structuredLog("warn", "harness", `No pending approval found`, {
+        data: { approvalId },
+      });
       return false;
     }
 
@@ -263,7 +271,9 @@ export class ApprovalGate {
     this.persistDecision(approvalId, decision, "pending");
     entry.resolve(decision);
 
-    log.info(`${this.logTag} Approval ${approvalId} responded: ${decision}`);
+    structuredLog("info", "harness", `Approval responded: ${decision}`, {
+      data: { approvalId, decision },
+    });
     return true;
   }
 

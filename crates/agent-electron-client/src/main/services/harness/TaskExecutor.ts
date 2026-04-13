@@ -9,8 +9,8 @@
  */
 
 import { randomUUID } from "crypto";
-import log from "electron-log";
 import { getDb } from "../../db";
+import { structuredLog } from "../../bootstrap/logConfig";
 import { checkpointManager } from "./CheckpointManager";
 import {
   CheckpointType,
@@ -91,8 +91,6 @@ const HIGH_RISK_PATTERNS = [
 ];
 
 export class TaskExecutor {
-  private readonly logTag = "[TaskExecutor]";
-
   // ==================== 任务 CRUD ====================
 
   createTask(
@@ -137,7 +135,10 @@ export class TaskExecutor {
     // 创建初始检查点序列
     checkpointManager.createInitialCheckpoints(task.id);
 
-    log.info(`${this.logTag} Created task ${task.id}: "${title}"`);
+    structuredLog("info", "harness", `Task created: ${task.id}`, {
+      taskId: task.id,
+      data: { title },
+    });
     return task;
   }
 
@@ -189,7 +190,10 @@ export class TaskExecutor {
     `,
     ).run(status, now, completedAt, taskId);
 
-    log.info(`${this.logTag} Task ${taskId} status → ${status}`);
+    structuredLog("info", "harness", `Task status updated: ${status}`, {
+      taskId,
+      data: { status },
+    });
   }
 
   cancelTask(taskId: string): void {
@@ -232,7 +236,14 @@ export class TaskExecutor {
       };
     });
 
-    log.info(`${this.logTag} Decomposed task into ${steps.length} step(s)`);
+    structuredLog(
+      "info",
+      "harness",
+      `Task decomposed into ${steps.length} step(s)`,
+      {
+        data: { stepCount: steps.length },
+      },
+    );
     return { steps };
   }
 
@@ -274,15 +285,18 @@ export class TaskExecutor {
   resumeFrom(taskId: string, fromCheckpoint: CheckpointType): void {
     const task = this.getTask(taskId);
     if (!task) {
-      log.warn(`${this.logTag} resumeFrom: task ${taskId} not found`);
+      structuredLog("warn", "harness", `resumeFrom: task not found`, {
+        taskId,
+      });
       return;
     }
 
     checkpointManager.resetFailedCheckpoints(taskId, fromCheckpoint);
     this.updateTaskStatus(taskId, "running");
-    log.info(
-      `${this.logTag} Task ${taskId} resuming from checkpoint ${fromCheckpoint}`,
-    );
+    structuredLog("info", "harness", `Task resuming from ${fromCheckpoint}`, {
+      taskId,
+      data: { fromCheckpoint },
+    });
   }
 
   // ==================== 步骤执行（框架） ====================
@@ -295,9 +309,11 @@ export class TaskExecutor {
     step: TaskStep,
     ctx: ExecutionContext,
   ): Promise<StepResult> {
-    log.info(
-      `${this.logTag} Executing step ${step.id} (${step.type}, risk=${step.riskLevel}) for task ${ctx.taskId}`,
-    );
+    structuredLog("info", "harness", `Executing step ${step.id}`, {
+      taskId: ctx.taskId,
+      sessionId: ctx.sessionId,
+      data: { stepId: step.id, type: step.type, riskLevel: step.riskLevel },
+    });
 
     // 进入对应检查点
     checkpointManager.enterCheckpoint(ctx.taskId, step.checkpoint);
@@ -328,7 +344,10 @@ export class TaskExecutor {
       stepId: step.id,
       output: result,
     });
-    log.info(`${this.logTag} Step ${step.id} completed for task ${taskId}`);
+    structuredLog("info", "harness", `Step ${step.id} completed`, {
+      taskId,
+      data: { stepId: step.id },
+    });
   }
 
   /**
@@ -340,9 +359,10 @@ export class TaskExecutor {
       error,
     });
     this.updateTaskStatus(taskId, "failed");
-    log.warn(
-      `${this.logTag} Step ${step.id} failed for task ${taskId}: ${error}`,
-    );
+    structuredLog("warn", "harness", `Step ${step.id} failed`, {
+      taskId,
+      data: { stepId: step.id, error },
+    });
   }
 }
 

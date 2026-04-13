@@ -404,4 +404,21 @@ export const I18N_KEYS = {
       AUTO_SCROLL_ENABLED: "Claw.LogViewer.autoScrollEnabled",
     },
   },
+
+  // 审批 Approval
+  Approval: {
+    PENDING: "Claw.Approval.pending",
+    APPROVE: "Claw.Approval.approve",
+    REJECT: "Claw.Approval.reject",
+    DETAIL: "Claw.Approval.detail",
+    EXPIRES_IN: "Claw.Approval.expiresIn",
+    APPROVED: "Claw.Approval.approved",
+    REJECTED: "Claw.Approval.rejected",
+    EXPIRED: "Claw.Approval.expired",
+    NO_PENDING: "Claw.Approval.noPending",
+    PRIORITY_HIGH: "Claw.Approval.priorityHigh",
+    PRIORITY_MEDIUM: "Claw.Approval.priorityMedium",
+    PRIORITY_LOW: "Claw.Approval.priorityLow",
+    PRIORITY_CRITICAL: "Claw.Approval.priorityCritical",
+  },
 } as const;

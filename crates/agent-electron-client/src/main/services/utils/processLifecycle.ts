@@ -15,7 +15,6 @@
 
 import { EventEmitter } from "events";
 import { BrowserWindow } from "electron";
-import log from "electron-log";
 import type { ManagedProcess } from "../../processManager";
 import { structuredLog } from "../../bootstrap/logConfig";
 
@@ -65,7 +64,9 @@ class ProcessLifecycleManager extends EventEmitter {
     const { key, process: proc } = entry;
 
     if (this.services.has(key)) {
-      log.warn(`[ProcessLifecycle] Service already registered: ${key}`);
+      structuredLog("warn", "system", `Service already registered: ${key}`, {
+        data: { key },
+      });
       return;
     }
 
@@ -82,9 +83,9 @@ class ProcessLifecycleManager extends EventEmitter {
         data: { key, attempt: count, delayMs: data.delayMs },
       });
 
-      log.info(
-        `[ProcessLifecycle] ${key} restarting (attempt ${count}, delay ${data.delayMs}ms)`,
-      );
+      structuredLog("info", "system", `${key} restarting`, {
+        data: { key, attempt: count, delayMs: data.delayMs },
+      });
 
       // 通知渲染进程：服务正在重启
       this._broadcast("service:lifecycle", {
@@ -104,9 +105,9 @@ class ProcessLifecycleManager extends EventEmitter {
         { data: { key, attempts: data.attempts } },
       );
 
-      log.error(
-        `[ProcessLifecycle] ${key} max restarts reached (${data.attempts})`,
-      );
+      structuredLog("error", "system", `${key} max restarts reached`, {
+        data: { key, attempts: data.attempts },
+      });
 
       // 通知渲染进程：重启失败
       this._broadcast("service:lifecycle", {
@@ -131,7 +132,9 @@ class ProcessLifecycleManager extends EventEmitter {
       );
     });
 
-    log.info(`[ProcessLifecycle] Registered service: ${key} (${entry.label})`);
+    structuredLog("info", "system", `Registered service: ${key}`, {
+      data: { key, label: entry.label },
+    });
   }
 
   /**
@@ -145,7 +148,9 @@ class ProcessLifecycleManager extends EventEmitter {
       this.cleanupFns.delete(key);
     }
     this.services.delete(key);
-    log.debug(`[ProcessLifecycle] Unregistered service: ${key}`);
+    structuredLog("debug", "system", `Unregistered service: ${key}`, {
+      data: { key },
+    });
   }
 
   // ==================== 状态追踪 ====================
@@ -217,7 +222,11 @@ class ProcessLifecycleManager extends EventEmitter {
     this.restartCounts.clear();
     this.lastCrashAt.clear();
     this.startedAt.clear();
-    log.info("[ProcessLifecycle] Destroyed, all listeners removed");
+    structuredLog(
+      "info",
+      "system",
+      "ProcessLifecycle destroyed, all listeners removed",
+    );
   }
 
   // ==================== 内部工具 ====================
@@ -233,7 +242,9 @@ class ProcessLifecycleManager extends EventEmitter {
         }
       });
     } catch (e) {
-      log.warn(`[ProcessLifecycle] Broadcast failed (${channel}):`, e);
+      structuredLog("warn", "system", `Broadcast failed: ${channel}`, {
+        data: { channel, error: e instanceof Error ? e.message : String(e) },
+      });
     }
   }
 }

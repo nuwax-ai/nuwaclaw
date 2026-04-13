@@ -152,14 +152,34 @@ function SessionsPage({
     }
   }, []);
 
-  // Poll sessions every 3s when in list view
+  // Fetch once on mount / view switch, then react to session events (no polling)
   useEffect(() => {
     if (view !== "list") return;
-
     fetchSessions();
-    const timer = setInterval(fetchSessions, 3000);
-    return () => clearInterval(timer);
   }, [fetchSessions, view]);
+
+  // Event-driven: listen for session state changes pushed from main process
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const handler = (payload: { type: string; data: unknown }) => {
+      if (
+        typeof payload?.type === "string" &&
+        payload.type.startsWith("session.")
+      ) {
+        // Debounce: coalesce rapid events into a single re-fetch (200ms)
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => {
+          fetchSessions();
+          debounceRef.current = null;
+        }, 200);
+      }
+    };
+    window.electronAPI?.on("agent:event", handler);
+    return () => {
+      window.electronAPI?.off("agent:event", handler);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [fetchSessions]);
 
   // ======================== Actions ========================
 

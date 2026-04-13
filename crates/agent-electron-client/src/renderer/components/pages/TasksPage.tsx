@@ -40,6 +40,7 @@ import type {
   TaskStatus,
 } from "@shared/types/harness";
 import { CheckpointType } from "@shared/types/harness";
+import { ApprovalBanner } from "../harness/ApprovalBanner";
 
 // ==================== 状态颜色 ====================
 
@@ -609,6 +610,9 @@ export function TasksPage({
         overflow: "hidden",
       }}
     >
+      {/* 审批横幅 */}
+      <ApprovalBanner />
+
       {/* 页头 */}
       <div
         style={{

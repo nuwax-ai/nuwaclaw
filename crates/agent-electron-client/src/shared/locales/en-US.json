@@ -788,5 +788,19 @@
   "Claw.Tasks.cancelFailed": "Failed to cancel",
   "Claw.Tasks.cancelled": "Task cancelled",
   "Claw.Tasks.resumeFailed": "Failed to resume",
-  "Claw.Tasks.resumed": "Task resumed"
+  "Claw.Tasks.resumed": "Task resumed",
+
+  "Claw.Approval.pending": "Pending Approval",
+  "Claw.Approval.approve": "Approve",
+  "Claw.Approval.reject": "Reject",
+  "Claw.Approval.detail": "Details",
+  "Claw.Approval.expiresIn": "Expires in {0}s",
+  "Claw.Approval.approved": "Approval approved",
+  "Claw.Approval.rejected": "Approval rejected",
+  "Claw.Approval.expired": "Approval expired",
+  "Claw.Approval.noPending": "No pending approvals",
+  "Claw.Approval.priorityHigh": "High",
+  "Claw.Approval.priorityMedium": "Medium",
+  "Claw.Approval.priorityLow": "Low",
+  "Claw.Approval.priorityCritical": "Critical"
 }

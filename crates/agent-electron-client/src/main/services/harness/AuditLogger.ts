@@ -14,7 +14,6 @@
  */
 
 import { randomUUID } from "crypto";
-import log from "electron-log";
 import { getDb } from "../../db";
 import type {
   AuditLogEntry,
@@ -66,8 +65,6 @@ export interface AuditEventParams {
 }
 
 export class AuditLogger {
-  private readonly logTag = "[AuditLogger]";
-
   // ==================== 写入 ====================
 
   /**
@@ -128,7 +125,12 @@ export class AuditLogger {
         );
       }
     } catch (e) {
-      log.warn(`${this.logTag} Failed to write audit log:`, e);
+      structuredLog("warn", "harness", "Failed to write audit log", {
+        data: {
+          error: e instanceof Error ? e.message : String(e),
+          eventType: params.eventType,
+        },
+      });
     }
   }
 
@@ -296,8 +298,13 @@ export class AuditLogger {
       .run(cutoff);
 
     if (result.changes > 0) {
-      log.info(
-        `${this.logTag} Cleaned up ${result.changes} audit log entries older than ${olderThanDays} days`,
+      structuredLog(
+        "info",
+        "harness",
+        `Cleaned up ${result.changes} audit log entries`,
+        {
+          data: { deletedCount: result.changes, olderThanDays },
+        },
       );
     }
     return result.changes;

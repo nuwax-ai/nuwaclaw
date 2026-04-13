@@ -788,5 +788,19 @@
   "Claw.Tasks.cancelFailed": "取消失败",
   "Claw.Tasks.cancelled": "任务已取消",
   "Claw.Tasks.resumeFailed": "续跑失败",
-  "Claw.Tasks.resumed": "任务已续跑"
+  "Claw.Tasks.resumed": "任务已续跑",
+
+  "Claw.Approval.pending": "待审批",
+  "Claw.Approval.approve": "批准",
+  "Claw.Approval.reject": "拒绝",
+  "Claw.Approval.detail": "详情",
+  "Claw.Approval.expiresIn": "将在 {0}s 后过期",
+  "Claw.Approval.approved": "审批已通过",
+  "Claw.Approval.rejected": "审批已拒绝",
+  "Claw.Approval.expired": "审批已过期",
+  "Claw.Approval.noPending": "无待处理审批",
+  "Claw.Approval.priorityHigh": "高",
+  "Claw.Approval.priorityMedium": "中",
+  "Claw.Approval.priorityLow": "低",
+  "Claw.Approval.priorityCritical": "严重"
 }

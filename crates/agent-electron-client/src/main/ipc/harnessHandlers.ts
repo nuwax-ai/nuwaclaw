@@ -15,8 +15,8 @@
  */
 
 import { ipcMain } from "electron";
-import log from "electron-log";
 import { z } from "zod";
+import { structuredLog } from "../bootstrap/logConfig";
 import { taskExecutor } from "../services/harness/TaskExecutor";
 import { approvalGate } from "../services/harness/ApprovalGate";
 import { checkpointManager } from "../services/harness/CheckpointManager";
@@ -24,7 +24,9 @@ import type { TaskStatus } from "@shared/types/harness";
 import { CheckpointType } from "@shared/types/harness";
 
 function invalidArgs(channel: string, issues: unknown) {
-  log.warn(`[IPC] ${channel} invalid args:`, issues);
+  structuredLog("warn", "ipc", `${channel} invalid args`, {
+    data: { channel, issues: String(issues) },
+  });
   return { success: false as const, error: `Invalid arguments for ${channel}` };
 }
 
@@ -74,7 +76,9 @@ export function registerHarnessHandlers(): void {
         return { success: true as const, data: task };
       } catch (e) {
         const err = e instanceof Error ? e.message : String(e);
-        log.error("[IPC] harness:createTask error:", e);
+        structuredLog("error", "ipc", "harness:createTask error", {
+          data: { error: err },
+        });
         return { success: false as const, error: err };
       }
     },
@@ -119,7 +123,9 @@ export function registerHarnessHandlers(): void {
       return invalidArgs("harness:cancelTask", parsed.error.issues);
 
     taskExecutor.cancelTask(parsed.data);
-    log.info(`[IPC] harness:cancelTask ${parsed.data}`);
+    structuredLog("info", "ipc", "harness:cancelTask", {
+      taskId: parsed.data,
+    });
     return { success: true as const };
   });
 
@@ -145,9 +151,10 @@ export function registerHarnessHandlers(): void {
       }
 
       taskExecutor.resumeFrom(parsed.data.taskId, resumeFrom);
-      log.info(
-        `[IPC] harness:resumeTask ${parsed.data.taskId} from ${resumeFrom}`,
-      );
+      structuredLog("info", "ipc", "harness:resumeTask", {
+        taskId: parsed.data.taskId,
+        data: { resumeFrom },
+      });
       return { success: true as const, data: { resumeFrom } };
     },
   );
@@ -190,8 +197,16 @@ export function registerHarnessHandlers(): void {
         };
       }
 
-      log.info(
-        `[IPC] harness:respondApproval ${parsed.data.approvalId} → ${parsed.data.decision}`,
+      structuredLog(
+        "info",
+        "ipc",
+        `harness:respondApproval → ${parsed.data.decision}`,
+        {
+          data: {
+            approvalId: parsed.data.approvalId,
+            decision: parsed.data.decision,
+          },
+        },
       );
       return { success: true as const };
     },
@@ -224,5 +239,5 @@ export function registerHarnessHandlers(): void {
     return { success: true as const, data: decomposition };
   });
 
-  log.info("[IPC] Harness handlers registered");
+  structuredLog("info", "ipc", "Harness handlers registered");
 }

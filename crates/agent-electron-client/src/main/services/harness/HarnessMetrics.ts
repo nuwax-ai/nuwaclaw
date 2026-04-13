@@ -10,7 +10,6 @@
  */
 
 import { randomUUID } from "crypto";
-import log from "electron-log";
 import { getDb } from "../../db";
 import type { HarnessMetric } from "@shared/types/harness";
 import { structuredLog } from "../../bootstrap/logConfig";
@@ -56,8 +55,6 @@ export const METRIC = {
 export type MetricName = (typeof METRIC)[keyof typeof METRIC];
 
 export class HarnessMetrics {
-  private readonly logTag = "[HarnessMetrics]";
-
   // ==================== 记录指标 ====================
 
   /**
@@ -95,7 +92,17 @@ export class HarnessMetrics {
         },
       );
     } catch (e) {
-      log.warn(`${this.logTag} Failed to record metric ${metricName}:`, e);
+      structuredLog(
+        "warn",
+        "harness",
+        `Failed to record metric: ${metricName}`,
+        {
+          data: {
+            metricName,
+            error: e instanceof Error ? e.message : String(e),
+          },
+        },
+      );
     }
   }
 
@@ -279,8 +286,13 @@ export class HarnessMetrics {
       .run(cutoff);
 
     if (result.changes > 0) {
-      log.info(
-        `${this.logTag} Cleaned up ${result.changes} metric records older than ${olderThanDays} days`,
+      structuredLog(
+        "info",
+        "harness",
+        `Cleaned up ${result.changes} metric records`,
+        {
+          data: { deletedCount: result.changes, olderThanDays },
+        },
       );
     }
     return result.changes;
