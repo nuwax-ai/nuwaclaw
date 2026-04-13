@@ -5,15 +5,15 @@
  * Based on specs/long-memory/long-memory.md
  */
 
-import log from 'electron-log';
-import type { InjectionOptions, MemorySearchResult } from './types';
-import { MemoryRetriever } from './MemoryRetriever';
+import log from "electron-log";
+import type { InjectionOptions, MemorySearchResult } from "./types";
+import { MemoryRetriever } from "./MemoryRetriever";
 
 // ==================== Constants ====================
 
 const DEFAULT_MAX_TOKENS = 2000;
-const MEMORY_START_MARKER = '<!-- MEMORY_CONTEXT_START -->';
-const MEMORY_END_MARKER = '<!-- MEMORY_CONTEXT_END -->';
+const MEMORY_START_MARKER = "<!-- MEMORY_CONTEXT_START -->";
+const MEMORY_END_MARKER = "<!-- MEMORY_CONTEXT_END -->";
 
 // ==================== MemoryInjector Class ====================
 
@@ -26,7 +26,7 @@ export class MemoryInjector {
    */
   init(retriever: MemoryRetriever): void {
     this.retriever = retriever;
-    log.info('[MemoryInjector] Initialized');
+    log.info("[MemoryInjector] Initialized");
   }
 
   /**
@@ -45,31 +45,38 @@ export class MemoryInjector {
    */
   async buildContext(
     query: string,
-    options?: InjectionOptions
+    options?: InjectionOptions,
   ): Promise<string> {
     if (!this.retriever) {
-      log.debug('[MemoryInjector] buildContext: no retriever');
-      return '';
+      log.debug("[MemoryInjector] buildContext: no retriever");
+      return "";
     }
 
     const maxTokens = options?.maxTokens ?? this.defaultMaxTokens;
-    const format = options?.format ?? 'xml';
+    const format = options?.format ?? "xml";
     const includeScores = options?.includeScores ?? false;
 
     // Retrieve relevant memories
-    log.debug('[MemoryInjector] buildContext: searching for query=', query.slice(0, 100));
+    log.debug(
+      "[MemoryInjector] buildContext: searching for query=",
+      query.slice(0, 100),
+    );
     const results = await this.retriever.search(query);
-    log.debug('[MemoryInjector] buildContext: found', results.length, 'results');
+    log.debug(
+      "[MemoryInjector] buildContext: found",
+      results.length,
+      "results",
+    );
 
     if (results.length === 0) {
-      return '';
+      return "";
     }
 
     // Truncate to max tokens
     const truncated = this.truncateToTokenLimit(results, maxTokens);
 
     // Format based on requested format
-    if (format === 'xml') {
+    if (format === "xml") {
       return this.formatAsXml(truncated, includeScores);
     } else {
       return this.formatAsMarkdown(truncated, includeScores);
@@ -79,27 +86,25 @@ export class MemoryInjector {
   /**
    * Build injection context without query (get all recent)
    */
-  async buildRecentContext(
-    options?: InjectionOptions
-  ): Promise<string> {
+  async buildRecentContext(options?: InjectionOptions): Promise<string> {
     if (!this.retriever) {
-      return '';
+      return "";
     }
 
     // Use a broad query to get recent memories
-    const results = await this.retriever.search('', { limit: 10 });
+    const results = await this.retriever.search("", { limit: 10 });
 
     if (results.length === 0) {
-      return '';
+      return "";
     }
 
     const maxTokens = options?.maxTokens ?? this.defaultMaxTokens;
-    const format = options?.format ?? 'xml';
+    const format = options?.format ?? "xml";
     const includeScores = options?.includeScores ?? false;
 
     const truncated = this.truncateToTokenLimit(results, maxTokens);
 
-    if (format === 'xml') {
+    if (format === "xml") {
       return this.formatAsXml(truncated, includeScores);
     } else {
       return this.formatAsMarkdown(truncated, includeScores);
@@ -114,7 +119,7 @@ export class MemoryInjector {
   async injectIntoPrompt(
     systemPrompt: string,
     query: string,
-    options?: InjectionOptions
+    options?: InjectionOptions,
   ): Promise<string> {
     const memoryContext = await this.buildContext(query, options);
 
@@ -128,15 +133,18 @@ export class MemoryInjector {
 
     if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
       // Replace existing memory section
-      const before = systemPrompt.slice(0, startIndex + MEMORY_START_MARKER.length);
+      const before = systemPrompt.slice(
+        0,
+        startIndex + MEMORY_START_MARKER.length,
+      );
       const after = systemPrompt.slice(endIndex);
 
       return `${before}\n${memoryContext}\n${after}`;
     }
 
     // Check for placeholder
-    if (systemPrompt.includes('{{MEMORY_CONTEXT}}')) {
-      return systemPrompt.replace('{{MEMORY_CONTEXT}}', memoryContext);
+    if (systemPrompt.includes("{{MEMORY_CONTEXT}}")) {
+      return systemPrompt.replace("{{MEMORY_CONTEXT}}", memoryContext);
     }
 
     // Append to end of system prompt
@@ -154,8 +162,10 @@ export class MemoryInjector {
       return systemPrompt;
     }
 
-    return systemPrompt.slice(0, startIndex) +
-           systemPrompt.slice(endIndex + MEMORY_END_MARKER.length);
+    return (
+      systemPrompt.slice(0, startIndex) +
+      systemPrompt.slice(endIndex + MEMORY_END_MARKER.length)
+    );
   }
 
   // ==================== Formatting ====================
@@ -165,25 +175,26 @@ export class MemoryInjector {
    */
   private formatAsXml(
     results: MemorySearchResult[],
-    includeScores: boolean
+    includeScores: boolean,
   ): string {
     const header = `<memory_context>
 <!--
-长期记忆上下文
-以下是与当前对话相关的历史记忆，帮助 AI 更好地理解用户。
+Long-term memory context: historical memories relevant to this conversation.
 -->
 <memories>`;
 
-    const memories = results.map(r => {
-      if (includeScores) {
-        return `  <memory score="${r.score.toFixed(2)}" category="${r.entry.category}" source="${r.entry.source}">
+    const memories = results
+      .map((r) => {
+        if (includeScores) {
+          return `  <memory score="${r.score.toFixed(2)}" category="${r.entry.category}" source="${r.entry.source}">
     ${this.escapeXml(r.entry.text)}
   </memory>`;
-      }
-      return `  <memory category="${r.entry.category}">
+        }
+        return `  <memory category="${r.entry.category}">
     ${this.escapeXml(r.entry.text)}
   </memory>`;
-    }).join('\n');
+      })
+      .join("\n");
 
     return `${header}
 ${memories}
@@ -196,25 +207,27 @@ ${memories}
    */
   private formatAsMarkdown(
     results: MemorySearchResult[],
-    includeScores: boolean
+    includeScores: boolean,
   ): string {
     const lines: string[] = [
-      '## 相关记忆',
-      '',
-      '> 以下是与当前对话相关的历史记忆',
-      '',
+      "## Related memories",
+      "",
+      "> Memories relevant to this conversation.",
+      "",
     ];
 
     for (const r of results) {
       const prefix = `- **[${r.entry.category}]**`;
       if (includeScores) {
-        lines.push(`${prefix} ${r.entry.text} *(相关度: ${(r.score * 100).toFixed(0)}%)*`);
+        lines.push(
+          `${prefix} ${r.entry.text} *(relevance: ${(r.score * 100).toFixed(0)}%)*`,
+        );
       } else {
         lines.push(`${prefix} ${r.entry.text}`);
       }
     }
 
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   /**
@@ -222,11 +235,11 @@ ${memories}
    */
   private escapeXml(text: string): string {
     return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&apos;');
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
   }
 
   // ==================== Token Management ====================
@@ -237,7 +250,7 @@ ${memories}
    */
   private truncateToTokenLimit(
     results: MemorySearchResult[],
-    maxTokens: number
+    maxTokens: number,
   ): MemorySearchResult[] {
     const maxChars = maxTokens * 4;
     let totalChars = 0;

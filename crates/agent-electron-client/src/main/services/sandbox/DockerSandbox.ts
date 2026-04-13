@@ -61,7 +61,7 @@ export class DockerSandbox extends SandboxManager {
     // 验证配置
     if (config.type !== "docker") {
       throw new SandboxError(
-        'DockerSandbox 需要 type 为 "docker"',
+        'DockerSandbox requires type to be "docker"',
         SandboxErrorCode.CONFIG_INVALID,
       );
     }
@@ -91,7 +91,7 @@ export class DockerSandbox extends SandboxManager {
 
       if (!this.dockerAvailable) {
         throw new SandboxError(
-          "Docker 不可用，请确保 Docker Desktop 已安装并运行",
+          "Docker is not available; ensure Docker Desktop is installed and running",
           SandboxErrorCode.DOCKER_UNAVAILABLE,
         );
       }
@@ -105,7 +105,7 @@ export class DockerSandbox extends SandboxManager {
       log.error("[DockerSandbox] Initialization failed:", error);
       throw toSandboxError(
         error,
-        "Docker 沙箱初始化失败",
+        "Docker sandbox initialization failed",
         SandboxErrorCode.SANDBOX_UNAVAILABLE,
       );
     }
@@ -207,7 +207,7 @@ export class DockerSandbox extends SandboxManager {
     // 检查是否已存在
     if (this.workspaces.has(sessionId)) {
       throw new WorkspaceError(
-        `工作区已存在: ${sessionId}`,
+        `Workspace already exists: ${sessionId}`,
         SandboxErrorCode.WORKSPACE_EXISTS,
         { sessionId },
       );
@@ -259,7 +259,7 @@ export class DockerSandbox extends SandboxManager {
 
       throw toSandboxError(
         error,
-        "工作区创建失败",
+        "Failed to create workspace",
         SandboxErrorCode.WORKSPACE_CREATE_FAILED,
         {
           sessionId,
@@ -302,7 +302,7 @@ export class DockerSandbox extends SandboxManager {
       workspace.status = "error";
       throw toSandboxError(
         error,
-        "工作区销毁失败",
+        "Failed to destroy workspace",
         SandboxErrorCode.WORKSPACE_DESTROY_FAILED,
         {
           sessionId,
@@ -328,7 +328,7 @@ export class DockerSandbox extends SandboxManager {
     const containerId = this.containerIds.get(sessionId);
     if (!containerId) {
       throw new ExecutionError(
-        "容器未运行",
+        "Container is not running",
         SandboxErrorCode.CONTAINER_OPERATION_FAILED,
         {
           sessionId,
@@ -401,7 +401,7 @@ export class DockerSandbox extends SandboxManager {
 
       throw toSandboxError(
         error,
-        "命令执行失败",
+        "Command execution failed",
         SandboxErrorCode.EXECUTION_FAILED,
         {
           sessionId,
@@ -426,7 +426,7 @@ export class DockerSandbox extends SandboxManager {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         throw new FileOperationError(
-          `文件未找到: ${filePath}`,
+          `File not found: ${filePath}`,
           SandboxErrorCode.FILE_NOT_FOUND,
           {
             sessionId,
@@ -435,7 +435,7 @@ export class DockerSandbox extends SandboxManager {
         );
       }
       throw new FileOperationError(
-        `文件读取失败: ${filePath}`,
+        `File read failed: ${filePath}`,
         SandboxErrorCode.FILE_READ_FAILED,
         {
           sessionId,
@@ -463,7 +463,7 @@ export class DockerSandbox extends SandboxManager {
       this.updateLastAccessed(sessionId);
     } catch (error) {
       throw new FileOperationError(
-        `文件写入失败: ${filePath}`,
+        `File write failed: ${filePath}`,
         SandboxErrorCode.FILE_WRITE_FAILED,
         { sessionId, cause: error as Error },
       );
@@ -496,13 +496,13 @@ export class DockerSandbox extends SandboxManager {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         throw new FileOperationError(
-          `目录未找到: ${dirPath}`,
+          `Directory not found: ${dirPath}`,
           SandboxErrorCode.FILE_NOT_FOUND,
           { sessionId, cause: error as Error },
         );
       }
       throw new FileOperationError(
-        `目录读取失败: ${dirPath}`,
+        `Directory read failed: ${dirPath}`,
         SandboxErrorCode.DIRECTORY_OPERATION_FAILED,
         { sessionId, cause: error as Error },
       );
@@ -519,7 +519,7 @@ export class DockerSandbox extends SandboxManager {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         throw new FileOperationError(
-          `文件未找到: ${filePath}`,
+          `File not found: ${filePath}`,
           SandboxErrorCode.FILE_NOT_FOUND,
           {
             sessionId,
@@ -528,7 +528,7 @@ export class DockerSandbox extends SandboxManager {
         );
       }
       throw new FileOperationError(
-        `文件删除失败: ${filePath}`,
+        `File delete failed: ${filePath}`,
         SandboxErrorCode.FILE_DELETE_FAILED,
         { sessionId, cause: error as Error },
       );
@@ -554,7 +554,7 @@ export class DockerSandbox extends SandboxManager {
         await this.stopContainer(containerId);
         result.deletedCount++;
       } catch (error) {
-        result.errors.push(`停止容器失败 ${sessionId}: ${error}`);
+        result.errors.push(`Failed to stop container ${sessionId}: ${error}`);
       }
     }
 
@@ -569,7 +569,7 @@ export class DockerSandbox extends SandboxManager {
           result.freedSpace += size;
         }
       } catch (error) {
-        result.errors.push(`清理工作区失败 ${sessionId}: ${error}`);
+        result.errors.push(`Failed to clean workspace ${sessionId}: ${error}`);
       }
     }
 
@@ -628,7 +628,7 @@ export class DockerSandbox extends SandboxManager {
     const containerId = this.containerIds.get(sessionId);
     if (!containerId) {
       throw new SandboxError(
-        "容器未找到",
+        "Container not found",
         SandboxErrorCode.CONTAINER_OPERATION_FAILED,
         {
           sessionId,

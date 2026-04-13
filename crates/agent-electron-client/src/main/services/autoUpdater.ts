@@ -799,7 +799,9 @@ export async function downloadUpdate(): Promise<{
   // Dev 模式下 Squirrel.Mac 无法处理更新包（bundle ID 不匹配），只允许检查更新
   if (!app.isPackaged) {
     const errMsg = t("Claw.AutoUpdater.devModeUnsupported");
-    log.info(`[AutoUpdater] devModeUnsupported error: "${errMsg}"`);
+    log.info(
+      "[AutoUpdater] downloadUpdate skipped: dev/unpackaged build cannot apply auto-update",
+    );
     return {
       success: false,
       error: errMsg,
@@ -846,7 +848,9 @@ export async function downloadUpdate(): Promise<{
 export function installUpdate(): { success: boolean; error?: string } {
   if (!app.isPackaged) {
     const errMsg = t("Claw.AutoUpdater.installDevUnsupported");
-    log.info(`[AutoUpdater] installDevUnsupported error: "${errMsg}"`);
+    log.info(
+      "[AutoUpdater] installUpdate skipped: dev/unpackaged build cannot install update",
+    );
     return {
       success: false,
       error: errMsg,

@@ -127,13 +127,13 @@ export class SandboxFileOperations {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "ENOENT") {
         throw new FileOperationError(
-          `文件未找到: ${filePath}`,
+          `File not found: ${filePath}`,
           SandboxErrorCode.FILE_NOT_FOUND,
           { cause: error as Error },
         );
       }
       throw new FileOperationError(
-        `文件读取失败: ${filePath}`,
+        `File read failed: ${filePath}`,
         SandboxErrorCode.FILE_READ_FAILED,
         { cause: error as Error },
       );
@@ -157,7 +157,7 @@ export class SandboxFileOperations {
       log.debug(TAG, "writeFileContent:", filePath);
     } catch (error) {
       throw new FileOperationError(
-        `文件写入失败: ${filePath}`,
+        `File write failed: ${filePath}`,
         SandboxErrorCode.FILE_WRITE_FAILED,
         { cause: error as Error },
       );
@@ -198,13 +198,13 @@ export class SandboxFileOperations {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "ENOENT") {
         throw new FileOperationError(
-          `目录未找到: ${dirPath}`,
+          `Directory not found: ${dirPath}`,
           SandboxErrorCode.FILE_NOT_FOUND,
           { cause: error as Error },
         );
       }
       throw new FileOperationError(
-        `目录读取失败: ${dirPath}`,
+        `Directory read failed: ${dirPath}`,
         SandboxErrorCode.DIRECTORY_OPERATION_FAILED,
         { cause: error as Error },
       );
@@ -229,7 +229,7 @@ export class SandboxFileOperations {
       log.debug(TAG, "deletePath:", filePath);
     } catch (error) {
       throw new FileOperationError(
-        `文件删除失败: ${filePath}`,
+        `File delete failed: ${filePath}`,
         SandboxErrorCode.FILE_DELETE_FAILED,
         { cause: error as Error },
       );

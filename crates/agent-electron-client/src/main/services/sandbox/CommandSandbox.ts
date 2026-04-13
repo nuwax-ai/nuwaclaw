@@ -75,7 +75,7 @@ export class CommandSandbox extends SandboxManager {
     this.backendAvailable = await this.invoker.checkAvailable();
     if (!this.backendAvailable) {
       throw new SandboxError(
-        `沙箱后端不可用: ${this.config.type}`,
+        `Sandbox backend unavailable: ${this.config.type}`,
         SandboxErrorCode.SANDBOX_UNAVAILABLE,
       );
     }
@@ -91,7 +91,7 @@ export class CommandSandbox extends SandboxManager {
   async createWorkspace(sessionId: string): Promise<Workspace> {
     if (this.workspaces.has(sessionId)) {
       throw new WorkspaceError(
-        `工作区已存在: ${sessionId}`,
+        `Workspace already exists: ${sessionId}`,
         SandboxErrorCode.WORKSPACE_EXISTS,
         { sessionId },
       );
@@ -126,7 +126,7 @@ export class CommandSandbox extends SandboxManager {
       await SandboxFileOperations.cleanupWorkspaceDirectory(workspaceRoot);
       throw toSandboxError(
         error,
-        "工作区创建失败",
+        "Failed to create workspace",
         SandboxErrorCode.WORKSPACE_CREATE_FAILED,
         { sessionId },
       );
@@ -153,7 +153,7 @@ export class CommandSandbox extends SandboxManager {
       workspace.status = "error";
       throw toSandboxError(
         error,
-        "工作区销毁失败",
+        "Failed to destroy workspace",
         SandboxErrorCode.WORKSPACE_DESTROY_FAILED,
         { sessionId, workspaceId: workspace.id },
       );
@@ -214,7 +214,7 @@ export class CommandSandbox extends SandboxManager {
       });
       throw toSandboxError(
         error,
-        "命令执行失败",
+        "Command execution failed",
         SandboxErrorCode.EXECUTION_FAILED,
         { sessionId },
       );
@@ -232,7 +232,7 @@ export class CommandSandbox extends SandboxManager {
       // SandboxFileOperations 已经抛出 FileOperationError，直接透传
       if (error instanceof FileOperationError) throw error;
       throw new FileOperationError(
-        `文件读取失败: ${filePath}`,
+        `File read failed: ${filePath}`,
         SandboxErrorCode.FILE_READ_FAILED,
         { sessionId, cause: error as Error },
       );
@@ -251,7 +251,7 @@ export class CommandSandbox extends SandboxManager {
       this.updateLastAccessed(sessionId);
     } catch (error) {
       throw new FileOperationError(
-        `文件写入失败: ${filePath}`,
+        `File write failed: ${filePath}`,
         SandboxErrorCode.FILE_WRITE_FAILED,
         { sessionId, cause: error as Error },
       );
@@ -267,7 +267,7 @@ export class CommandSandbox extends SandboxManager {
       return infos;
     } catch (error) {
       throw new FileOperationError(
-        `目录读取失败: ${dirPath}`,
+        `Directory read failed: ${dirPath}`,
         SandboxErrorCode.DIRECTORY_OPERATION_FAILED,
         { sessionId, cause: error as Error },
       );
@@ -282,7 +282,7 @@ export class CommandSandbox extends SandboxManager {
       this.updateLastAccessed(sessionId);
     } catch (error) {
       throw new FileOperationError(
-        `文件删除失败: ${filePath}`,
+        `File delete failed: ${filePath}`,
         SandboxErrorCode.FILE_DELETE_FAILED,
         { sessionId, cause: error as Error },
       );

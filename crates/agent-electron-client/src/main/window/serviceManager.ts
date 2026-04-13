@@ -322,12 +322,12 @@ export function createServiceManager(ctx: ServiceManagerContext) {
           });
         }
       } else {
-        results.lanproxy = { success: false, error: "缺少 lanproxy 配置" };
+        results.lanproxy = { success: false, error: "Lanproxy config missing" };
         log.warn("[Lanproxy] Skipped: missing config", {
           hasServerIp: !!serverIp,
           hasClientKey: !!clientKey,
           hasServerPort: !!serverPort,
-          hint: "请配置 server_host / server_port 与 saved_key（或 lanproxy_config）",
+          hint: "Set server_host, server_port, and saved_key (or lanproxy_config)",
         });
       }
     } catch (e) {

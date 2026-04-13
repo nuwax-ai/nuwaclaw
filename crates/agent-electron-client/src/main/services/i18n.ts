@@ -132,7 +132,7 @@ export function t(key: string, ...values: I18nValues): string {
 
   const result = formatText(template, values);
   log.debug(
-    `[i18n] t("${normalizedKey}") → "${result}" (currentLang="${currentLang}")`,
+    `[i18n] t("${normalizedKey}") resolved (currentLang="${currentLang}", len=${result.length})`,
   );
   return result;
 }
@@ -159,9 +159,10 @@ export function setMainLang(lang: string): void {
   const normalized = normalizeLang(lang) || "en";
   currentLang = normalized;
   langMap = loadLocaleFile(normalized);
-  const devModeVal = langMap["Claw.AutoUpdater.devModeUnsupported"];
+  const devModeKey = "Claw.AutoUpdater.devModeUnsupported";
+  const hasDevModeUnsupported = Boolean(langMap[devModeKey]);
   log.info(
-    `[i18n] setMainLang("${lang}") → normalized="${normalized}", devModeUnsupported="${devModeVal}", loadedKeys=${Object.keys(langMap).length}`,
+    `[i18n] setMainLang("${lang}") → normalized="${normalized}", ${devModeKey}=${hasDevModeUnsupported ? "present" : "missing"}, loadedKeys=${Object.keys(langMap).length}`,
   );
 }
 

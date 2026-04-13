@@ -119,7 +119,7 @@ export async function buildSandboxedSpawnArgs(
         try {
           fs.unlinkSync(profilePath);
           log.debug(
-            "[SandboxProcessWrapper] 已清理 seatbelt profile:",
+            "[SandboxProcessWrapper] Removed seatbelt profile:",
             profilePath,
           );
         } catch {

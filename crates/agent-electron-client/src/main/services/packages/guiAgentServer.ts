@@ -181,7 +181,7 @@ export async function startGuiAgentServer(): Promise<{
   const entryPath = getGuiAgentServerEntryPath();
   if (!entryPath) {
     const error = t("Claw.GUIAgent.entryNotFound");
-    log.error(`[GuiAgentServer] ${error}`);
+    log.error("[GuiAgentServer] GUI Agent entry file not found");
     return { success: false, error };
   }
 
@@ -189,14 +189,14 @@ export async function startGuiAgentServer(): Promise<{
   const nodeBinPath = getNodeBinPathWithFallback();
   if (!nodeBinPath) {
     const error = t("Claw.GUIAgent.nodeNotFound");
-    log.error(`[GuiAgentServer] ${error}`);
+    log.error("[GuiAgentServer] Node.js binary not found");
     return { success: false, error };
   }
 
   // 获取 API Key
   const apiKey = getApiKeyFromDb();
   if (!apiKey) {
-    log.warn(`[GuiAgentServer] ${t("Claw.GUIAgent.missingApiKey")}`);
+    log.warn("[GuiAgentServer] API key missing (GUI Agent may be limited)");
   }
 
   // 检查视觉模型是否配置

@@ -352,7 +352,7 @@ describe("logConfig", () => {
 
       expect(cropFn).toHaveBeenCalled();
       expect(mockLog.warn).toHaveBeenCalledWith(
-        expect.stringContaining("轮转失败"),
+        expect.stringContaining("Rotation failed"),
         expect.anything(),
       );
     });
@@ -699,8 +699,8 @@ describe("logConfig", () => {
       initLogging();
 
       expect(mockLog.info).toHaveBeenCalledWith(
-        "[LogConfig] 日志已初始化",
-        "(开发)",
+        "[LogConfig] Logging initialized",
+        "(development)",
         "fileLevel=",
         "debug",
         "maxSize=",

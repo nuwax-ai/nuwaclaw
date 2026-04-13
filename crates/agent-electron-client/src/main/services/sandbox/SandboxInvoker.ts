@@ -129,7 +129,7 @@ export class SandboxInvoker {
         };
       default:
         throw new SandboxError(
-          `不支持的沙箱类型: ${String(this.type)}`,
+          `Unsupported sandbox type: ${String(this.type)}`,
           SandboxErrorCode.CONFIG_INVALID,
         );
     }
@@ -335,7 +335,7 @@ export class SandboxInvoker {
     const helper = this.options.windowsSandboxHelperPath;
     if (!helper || !fs.existsSync(helper)) {
       throw new SandboxError(
-        "Sandbox helper 未找到",
+        "Sandbox helper not found",
         SandboxErrorCode.SANDBOX_UNAVAILABLE,
       );
     }

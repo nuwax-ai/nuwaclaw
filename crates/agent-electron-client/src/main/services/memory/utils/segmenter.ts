@@ -7,7 +7,7 @@
  * Based on specs/long-memory/long-memory.md Section 5.3
  */
 
-import type { TranscriptEntry, Segment, SegmentationConfig } from '../types';
+import type { TranscriptEntry, Segment, SegmentationConfig } from "../types";
 
 // ==================== Token Estimation ====================
 
@@ -25,19 +25,23 @@ export function estimateTokens(text: string): number {
   if (!text) return 0;
 
   // Count Chinese characters (CJK range)
-  const chineseChars = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
+  const chineseChars = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || [])
+    .length;
 
   // Count English words (approximate)
   const englishWords = (text.match(/[a-zA-Z]+/g) || []).length;
 
   // Count other characters
-  const otherChars = text.length - chineseChars - (text.match(/[a-zA-Z]+/g) || []).join('').length;
+  const otherChars =
+    text.length -
+    chineseChars -
+    (text.match(/[a-zA-Z]+/g) || []).join("").length;
 
   // Estimate tokens
   const tokens = Math.ceil(
-    chineseChars * 1.5 +      // Chinese chars
-    englishWords * 1.3 +       // English words
-    otherChars * 0.25          // Other chars (punctuation, spaces, etc.)
+    chineseChars * 1.5 + // Chinese chars
+      englishWords * 1.3 + // English words
+      otherChars * 0.25, // Other chars (punctuation, spaces, etc.)
   );
 
   return Math.max(1, tokens);
@@ -47,7 +51,7 @@ export function estimateTokens(text: string): number {
  * Estimate tokens for an array of messages
  */
 export function estimateMessagesTokens(
-  messages: Array<{ role: string; content: string }>
+  messages: Array<{ role: string; content: string }>,
 ): number {
   let total = 0;
   for (const msg of messages) {
@@ -80,7 +84,7 @@ const JSON_DATA_PATTERN = /(?:^|\n)\s*[{\[][\s\S]{300,}[}\]]\s*(?:\n|$)/g;
  */
 export function preprocessMessageContent(
   content: string,
-  maxChars: number
+  maxChars: number,
 ): string {
   if (content.length <= maxChars) {
     return content;
@@ -90,16 +94,16 @@ export function preprocessMessageContent(
 
   // Replace code blocks with summaries
   processed = processed.replace(CODE_BLOCK_PATTERN, (_match, lang, code) => {
-    const lineCount = code.split('\n').length;
-    const language = lang || '未知';
-    return `[代码: ${language}, ${lineCount}行]`;
+    const lineCount = code.split("\n").length;
+    const language = lang || "unknown";
+    return `[code: ${language}, ${lineCount} lines]`;
   });
 
   // Replace large JSON data (but NOT XML - XML may contain user content)
   processed = processed.replace(JSON_DATA_PATTERN, (match) => {
     const trimmed = match.trim();
-    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-      return '\n[结构化数据: JSON]\n';
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      return "\n[structured data: JSON]\n";
     }
     return match;
   });
@@ -112,7 +116,7 @@ export function preprocessMessageContent(
 
     processed =
       processed.slice(0, headSize) +
-      `\n[...省略 ${omitted} 字符...]\n` +
+      `\n[... ${omitted} characters omitted ...]\n` +
       processed.slice(-tailSize);
   }
 
@@ -125,7 +129,7 @@ export function preprocessMessageContent(
  */
 export function truncateToTokenLimit(
   content: string,
-  maxTokens: number
+  maxTokens: number,
 ): { content: string; truncated: boolean } {
   const currentTokens = estimateTokens(content);
   if (currentTokens <= maxTokens) {
@@ -146,7 +150,7 @@ export function truncateToTokenLimit(
 
   const truncated =
     content.slice(0, headSize) +
-    `\n[...省略 ${omitted} 字符...]\n` +
+    `\n[... ${omitted} characters omitted ...]\n` +
     content.slice(-tailSize);
 
   return { content: truncated, truncated: true };
@@ -168,9 +172,14 @@ export function truncateToTokenLimit(
  */
 export function buildSegments(
   entries: TranscriptEntry[],
-  config: SegmentationConfig
+  config: SegmentationConfig,
 ): Segment[] {
-  const { segmentSize, segmentOverlap, maxContentPerMessage, maxSegmentTokens } = config;
+  const {
+    segmentSize,
+    segmentOverlap,
+    maxContentPerMessage,
+    maxSegmentTokens,
+  } = config;
 
   if (entries.length === 0) {
     return [];
@@ -179,7 +188,7 @@ export function buildSegments(
   const step = segmentSize - segmentOverlap;
   if (step <= 0) {
     throw new Error(
-      `Invalid segmentation config: segmentSize (${segmentSize}) must be > segmentOverlap (${segmentOverlap})`
+      `Invalid segmentation config: segmentSize (${segmentSize}) must be > segmentOverlap (${segmentOverlap})`,
     );
   }
 
@@ -191,7 +200,7 @@ export function buildSegments(
     const segmentEntries = entries.slice(start, end);
 
     // Preprocess messages
-    let messages = segmentEntries.map(entry => ({
+    let messages = segmentEntries.map((entry) => ({
       role: entry.role,
       content: preprocessMessageContent(entry.content, maxContentPerMessage),
     }));
@@ -217,7 +226,7 @@ export function buildSegments(
         // Reserve tokens for role prefix (~2 tokens)
         const { content: truncated } = truncateToTokenLimit(
           singleMsg.content,
-          maxSegmentTokens - 2
+          maxSegmentTokens - 2,
         );
         messages[0] = { ...singleMsg, content: truncated };
       }
@@ -248,7 +257,7 @@ export function buildSegments(
 export function buildSegmentsFromIndex(
   entries: TranscriptEntry[],
   startFromIndex: number,
-  config: SegmentationConfig
+  config: SegmentationConfig,
 ): Segment[] {
   if (startFromIndex >= entries.length) {
     return [];
@@ -258,7 +267,7 @@ export function buildSegmentsFromIndex(
   const segments = buildSegments(remaining, config);
 
   // Adjust indices to be relative to the original transcript
-  return segments.map(segment => ({
+  return segments.map((segment) => ({
     ...segment,
     startMsgIndex: segment.startMsgIndex + startFromIndex,
     endMsgIndex: segment.endMsgIndex + startFromIndex,

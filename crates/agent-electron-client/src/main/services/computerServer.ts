@@ -399,7 +399,7 @@ async function handleRequest(
 
       // 开发调试：完整打印入参（脱敏后，避免 api_key / agent_config.env / URL 中 ak= 写入日志）
       log.debug(
-        "📨 [HTTP][DEBUG] Computer Chat 请求 body =",
+        "📨 [HTTP][DEBUG] Computer Chat request body =",
         redactStringForLog(JSON.stringify(redactForLog(body), null, 2)),
       );
 
@@ -553,7 +553,7 @@ async function handleRequest(
 
       if (result.success) {
         log.info(
-          `✅ [HTTP] Computer Chat 响应: session_id=${result.data?.session_id}`,
+          `✅ [HTTP] Computer Chat response: session_id=${result.data?.session_id}`,
         );
         if (result.data?.session_id) {
           bindSessionFirstTokenContext(result.data.session_id, {
@@ -583,7 +583,7 @@ async function handleRequest(
       firstTokenTrace.trace("sse.connect", { sessionId });
       getPerfLogger().info(`[PERF] sse.connect  session=${sessionId}`);
       log.info(
-        `📡 [HTTP] SSE 连接请求: session_id=${sessionId}, time=${new Date().toISOString()}`,
+        `📡 [HTTP] SSE connect request: session_id=${sessionId}, time=${new Date().toISOString()}`,
       );
 
       res.writeHead(200, {
@@ -598,13 +598,16 @@ async function handleRequest(
       const acpEngine = agentService.getAcpEngine();
       if (!acpEngine || !agentService.hasRunningEngines) {
         log.info(
-          `💤 [HTTP] Agent 处于 idle 状态，发送 SessionPromptEnd: session_id=${sessionId}`,
+          `💤 [HTTP] Agent idle, sending SessionPromptEnd: session_id=${sessionId}`,
         );
         const endEvent: UnifiedSessionMessage = {
           sessionId,
           messageType: "sessionPromptEnd",
           subType: "end_turn",
-          data: { reason: "EndTurn", description: "Agent 当前无在执行任务" },
+          data: {
+            reason: "EndTurn",
+            description: "Agent has no task in progress",
+          },
           timestamp: new Date().toISOString(),
         };
         res.write(`event: end_turn\ndata: ${JSON.stringify(endEvent)}\n\n`);
@@ -638,7 +641,7 @@ async function handleRequest(
         }
         if (replayed > 0) {
           log.info(
-            `[SSE] 回放缓冲事件 ${replayed} 条: session_id=${sessionId}`,
+            `[SSE] Replayed ${replayed} buffered events: session_id=${sessionId}`,
           );
         }
       }
@@ -666,7 +669,7 @@ async function handleRequest(
       req.on("close", () => {
         clearInterval(heartbeat);
         log.debug(
-          `[HTTP] 客户端已断开连接: session_id=${sessionId}, 存活时间=${Date.now() - sseStartTime}ms`,
+          `[HTTP] Client disconnected: session_id=${sessionId}, durationMs=${Date.now() - sseStartTime}`,
         );
         const clients = sseClients.get(sessionId);
         if (clients) {
@@ -685,7 +688,7 @@ async function handleRequest(
       });
 
       log.info(
-        `✅ [HTTP] SSE 流已建立: session_id=${sessionId}, 建立耗时=${Date.now() - sseStartTime}ms`,
+        `✅ [HTTP] SSE stream established: session_id=${sessionId}, setupMs=${Date.now() - sseStartTime}`,
       );
       return;
     }
@@ -696,7 +699,7 @@ async function handleRequest(
       const t0Handler = Date.now();
       const body = await parseBody(req);
       log.info(
-        `🔍 [HTTP] Computer Agent 状态查询: user_id=${body.user_id}, project_id=${body.project_id}`,
+        `🔍 [HTTP] Computer Agent status query: user_id=${body.user_id}, project_id=${body.project_id}`,
       );
 
       if (!body.user_id) {
@@ -723,7 +726,7 @@ async function handleRequest(
 
       if (session) {
         log.info(
-          `✅ [HTTP] Agent 状态: project_id=${body.project_id}, is_alive=true, session_id=${session.id}`,
+          `✅ [HTTP] Agent status: project_id=${body.project_id}, is_alive=true, session_id=${session.id}`,
         );
       } else {
         log.warn(`⚠️ [HTTP] Agent not found: project_id=${body.project_id}`);
@@ -760,7 +763,7 @@ async function handleRequest(
     if (pathname === "/computer/agent/stop" && method === "POST") {
       const body = await parseBody(req);
       log.info(
-        `🛑 [HTTP] Computer Agent 停止请求: user_id=${body.user_id}, project_id=${body.project_id}`,
+        `🛑 [HTTP] Computer Agent stop request: user_id=${body.user_id}, project_id=${body.project_id}`,
       );
 
       if (!body.user_id) {
@@ -822,7 +825,7 @@ async function handleRequest(
       const sessionId = query.session_id || body.session_id || "";
 
       log.info(
-        `🚫 [HTTP] Computer Agent 取消请求: user_id=${userId}, project_id=${projectId}, session_id=${sessionId}`,
+        `🚫 [HTTP] Computer Agent cancel request: user_id=${userId}, project_id=${projectId}, session_id=${sessionId}`,
       );
 
       if (!userId) {
@@ -1009,7 +1012,7 @@ function extractAgentChunkText(data: unknown): string {
   if (!_chunkStructureLogged) {
     _chunkStructureLogged = true;
     log.debug(
-      `[PERF] sse.firstChunk 结构采样: ${JSON.stringify(data).slice(0, 200)}`,
+      `[PERF] sse.firstChunk structure sample: ${JSON.stringify(data).slice(0, 200)}`,
     );
   }
   return typeof text === "string" ? text : "";
@@ -1152,7 +1155,7 @@ export function startComputerServer(
     // 监听 0.0.0.0：与 Tauri rcoder 行为一致，lanproxy 隧道需要从外部访问此端口
     server.listen(port, "0.0.0.0", () => {
       log.info(
-        `✅ [ComputerServer] Listening on 0.0.0.0:${port} (对齐 rcoder /computer/* API)`,
+        `✅ [ComputerServer] Listening on 0.0.0.0:${port} (aligned with rcoder /computer/* API)`,
       );
       lastError = null;
       resolve({ success: true });
@@ -1308,7 +1311,7 @@ async function handleAdminRequest(
       const { readSetting } = await import("../db");
       const savedKey = readSetting("auth.saved_key") as string | null;
       if (!savedKey) {
-        sendJson(200, { healthy: false, error: "未配置 savedKey" });
+        sendJson(200, { healthy: false, error: "savedKey not configured" });
         return;
       }
       const health = await checkLanproxyHealth(savedKey);
@@ -1323,7 +1326,7 @@ async function handleAdminRequest(
       // 立即返回，避免 Computer Server 自己被重启导致响应无法写回
       sendJson(200, {
         code: "0000",
-        message: "重启请求已收到，将延迟2秒执行",
+        message: "Restart scheduled; will run in 2 seconds",
         data: null,
       });
 

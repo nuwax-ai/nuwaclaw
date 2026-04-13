@@ -30,7 +30,7 @@ describe("PermissionManager matrix behavior", () => {
     );
 
     expect(result.allowed).toBe(false);
-    expect(result.reason).toContain("危险操作");
+    expect(result.reason).toContain("Dangerous operation");
   });
 
   it("should block sensitive ssh paths", async () => {
@@ -54,6 +54,6 @@ describe("PermissionManager matrix behavior", () => {
     );
 
     expect(result.allowed).toBe(false);
-    expect(result.reason).toContain("被安全策略禁止");
+    expect(result.reason).toContain("blocked by security policy");
   });
 });

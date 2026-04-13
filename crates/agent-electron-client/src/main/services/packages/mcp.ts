@@ -591,12 +591,12 @@ class McpProxyManager {
       const entry = resolveNpmPackageEntry(localDevPath, pkgName);
       if (entry) {
         log.info(
-          `[McpProxy] 🔍 resolveProxyScriptPath: 使用本地开发版本: ${entry}`,
+          `[McpProxy] 🔍 resolveProxyScriptPath: using local dev build: ${entry}`,
         );
         return entry;
       }
       log.warn(
-        `[McpProxy] 🔍 NUWAX_MCP_PROXY_LOCAL_PATH=${localDevPath} 未找到有效入口，继续尝试其他路径`,
+        `[McpProxy] 🔍 NUWAX_MCP_PROXY_LOCAL_PATH=${localDevPath}: no valid entry, trying other paths`,
       );
     }
 
@@ -606,14 +606,14 @@ class McpProxyManager {
       const entry = resolveNpmPackageEntry(bundledDir, pkgName);
       if (entry) {
         log.info(
-          `[McpProxy] 🔍 resolveProxyScriptPath: 使用应用内集成版本: ${entry}`,
+          `[McpProxy] 🔍 resolveProxyScriptPath: using bundled app resources: ${entry}`,
         );
         return entry;
       }
     }
 
     log.warn(
-      `[McpProxy] 🔍 resolveProxyScriptPath: 未找到 ${pkgName}，请运行 npm run prepare:mcp-proxy`,
+      `[McpProxy] 🔍 resolveProxyScriptPath: ${pkgName} not found; run npm run prepare:mcp-proxy`,
     );
     return null;
   }
@@ -1002,7 +1002,7 @@ class McpProxyManager {
       }
 
       log.info(
-        `[McpProxy] 生成 ${Object.keys(result).length} 个独立 MCP 服务配置`,
+        `[McpProxy] Built ${Object.keys(result).length} per-server MCP proxy config(s)`,
       );
       return result;
     }
