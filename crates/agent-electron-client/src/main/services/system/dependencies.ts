@@ -1166,7 +1166,7 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       description: t(I18N_KEYS.Pages.Dependencies.DESC_NUWAXCODE),
       required: true,
       binName: "nuwaxcode",
-      installVersion: "1.1.74",
+      installVersion: "1.1.75",
     },
     {
       name: "claude-code-acp-ts",

@@ -28,7 +28,7 @@ const { URL } = require('url');
 const { execSync, execFileSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
-const NUWAXCODE_VERSION = '1.1.74';
+const NUWAXCODE_VERSION = '1.1.75';
 const NUWAXCODE_REPO = process.env.NUWAXCODE_REPO || 'nuwax-ai/nuwaxcode';
 
 const projectRoot = getProjectRoot();
@@ -119,9 +119,10 @@ function copyFromDist(key) {
     }
   }
 
-  // 复制
+  // 复制整个 bin 目录（包含二进制 + assets 等）
+  const srcBinDir = path.join(nuwaxcodeDist, distName, 'bin');
   fs.mkdirSync(destDir, { recursive: true });
-  fs.copyFileSync(srcPath, destPath);
+  fs.cpSync(srcBinDir, destDir, { recursive: true });
   fs.chmodSync(destPath, 0o755);
 
   const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
@@ -329,9 +330,10 @@ async function downloadFromRelease(key) {
         continue;
       }
 
-      // 复制到目标
+      // 复制到目标（整个 bin 目录，包含 assets 等）
+      const extractedBinDir = path.dirname(binaryPath);
       fs.mkdirSync(destDir, { recursive: true });
-      fs.copyFileSync(binaryPath, destPath);
+      fs.cpSync(extractedBinDir, destDir, { recursive: true });
       fs.chmodSync(destPath, 0o755);
 
       const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
