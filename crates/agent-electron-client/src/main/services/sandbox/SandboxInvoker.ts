@@ -32,6 +32,25 @@ import { SandboxError, SandboxErrorCode } from "@shared/errors/sandbox";
 // 类型
 // ============================================================================
 
+/**
+ * Windows 网络隔离策略
+ *
+ * 定义 Windows 沙箱中网络访问控制的实现方式：
+ *
+ * - `env-stub`: 当前实现。通过清空环境变量（HTTP_PROXY 等）阻止依赖
+ *   环境变量的 HTTP 客户端发起请求。属于 best-effort，原生 socket
+ *   客户端可以绕过此限制。
+ *
+ * - `wfp-block`: 计划于 v1.1 实现。通过 Windows Filtering Platform (WFP)
+ *   在内核级别阻断沙箱进程的出站/入站网络连接。由
+ *   `nuwax-sandbox-helper.exe` 调用 WFP API，在创建受限进程前插入
+ *   过滤规则，进程退出后自动移除。此方式可实现与 macOS seatbelt
+ *   `(deny network*)` / Linux bwrap `--unshare-net` 同等的隔离强度。
+ *
+ * @see https://learn.microsoft.com/en-us/windows/win32/fwp/windows-filtering-platform-start-page
+ */
+export type WindowsNetworkPolicy = "env-stub" | "wfp-block";
+
 /** 沙箱调用器配置 */
 export interface SandboxInvokerOptions {
   /** Linux bwrap 二进制路径（可选，默认 PATH 查找） */
@@ -40,6 +59,11 @@ export interface SandboxInvokerOptions {
   windowsSandboxHelperPath?: string;
   /** Windows sandbox 模式 */
   windowsSandboxMode?: WindowsSandboxMode;
+  /**
+   * Windows 网络隔离策略（可选，默认 `env-stub`）。
+   * 当前仅 `env-stub` 已实现；`wfp-block` 为 v1.1 预留，传入时暂回退到 `env-stub`。
+   */
+  windowsNetworkPolicy?: WindowsNetworkPolicy;
   /** 是否允许网络访问 */
   networkEnabled?: boolean;
   /** 沙箱模式 */
@@ -331,6 +355,30 @@ export class SandboxInvoker {
     };
   }
 
+  /**
+   * 构建 Windows Sandbox helper 调用
+   *
+   * **网络隔离限制 (Network Isolation Limitation)**:
+   *
+   * 当前 Windows 沙箱的网络隔离仅通过环境变量置空（env-stub）实现，
+   * 即移除 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` 等环境变量来
+   * 阻止依赖环境变量的 HTTP 客户端发起网络请求。
+   *
+   * 此方式属于 best-effort（尽力而为），存在以下局限：
+   * - 原生 socket 客户端（如直接调用 Winsock API 的程序）可以绕过
+   * - 不依赖环境变量的 HTTP 库（如硬编码代理的客户端）不受影响
+   * - 无法阻止 DNS 解析和 ICMP 流量
+   *
+   * 与 macOS seatbelt (`(deny network*)`) 和 Linux bwrap (`--unshare-net`)
+   * 的内核级网络隔离不同，Windows 端目前无法在进程级别实现完全的网络隔离。
+   *
+   * **未来计划**：v1.1 版本将集成 WFP (Windows Filtering Platform) 实现
+   * 内核级网络过滤，通过 `nuwax-sandbox-helper.exe` 调用 WFP API 来
+   * 阻断沙箱进程的出站/入站连接。届时 `WindowsNetworkPolicy` 类型
+   * 将新增 `wfp-block` 选项。
+   *
+   * @see https://learn.microsoft.com/en-us/windows/win32/fwp/windows-filtering-platform-start-page
+   */
   private buildWindowsHelper(params: SandboxInvocationParams): Invocation {
     const helper = this.options.windowsSandboxHelperPath;
     if (!helper || !fs.existsSync(helper)) {
@@ -346,6 +394,8 @@ export class SandboxInvoker {
 
     const sandboxPolicy: Record<string, unknown> = {
       type: winMode === "read-only" ? "read-only" : "workspace-write",
+      // 网络隔离：当前仅为 env-stub 级别（best-effort），非内核级隔离
+      // 见本方法的 JSDoc 了解限制详情；v1.1 将通过 WFP 实现真正的网络隔离
       network_access: params.networkEnabled,
       sandbox_mode: sandboxMode, // strict/compat/permissive — Rust helper uses this for APPDATA allowance
     };

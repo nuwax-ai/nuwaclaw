@@ -20,6 +20,9 @@ export function isDepsSyncInProgress(): boolean {
 }
 
 export async function runStartupTasks(): Promise<void> {
+  // Lazy import to avoid circular dependencies
+  const { updateSplashProgress } = await import("../main");
+
   // 从 SQLite 恢复镜像配置
   const {
     setMirrorConfig,
@@ -46,6 +49,8 @@ export async function runStartupTasks(): Promise<void> {
     }
   }
 
+  updateSplashProgress("Loading configuration...");
+
   // 尽早启动 Computer HTTP Server（对齐 rcoder /computer/* API），端口来自聚合配置
   {
     const { agent: agentPort } = getConfiguredPorts();
@@ -55,6 +60,8 @@ export async function runStartupTasks(): Promise<void> {
       else log.warn(`[Init] Computer HTTP server failed: ${r.error}`);
     });
   }
+
+  updateSplashProgress("Starting services...");
 
   // 初始化 MCP Proxy 配置（从数据库加载）
   try {
@@ -93,6 +100,8 @@ export async function runStartupTasks(): Promise<void> {
       // 沙箱服务失败不阻塞应用，只是功能降级
     }
   });
+
+  updateSplashProgress("Checking dependencies...");
 
   // 客户端升级后：若 appVersion 或 installVersion 变化，后台同步初始化依赖到写死版本
   // 同步检查是否需要 dep sync，提前设置标志，避免 renderer 在 setImmediate 之前

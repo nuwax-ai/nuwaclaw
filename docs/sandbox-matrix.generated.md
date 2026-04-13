@@ -118,48 +118,48 @@
 | sandbox | win32 | windows-sandbox | strict | read-only | fs.write.workspace | block | read-only mode blocks workspace write |
 | sandbox | win32 | windows-sandbox | strict | read-only | fs.write.outside_workspace | block | read-only mode blocks writes |
 | sandbox | win32 | windows-sandbox | strict | read-only | fs.delete.system_path | conditional | depends on helper ACL application and writable root boundary |
-| sandbox | win32 | windows-sandbox | strict | read-only | network.external | conditional | read-only policy enforces no full network but relies on helper best-effort controls |
-| sandbox | win32 | windows-sandbox | strict | read-only | network.loopback | conditional | read-only policy enforces no full network but relies on helper best-effort controls |
+| sandbox | win32 | windows-sandbox | strict | read-only | network.external | conditional | read-only policy enforces no full network but relies on env-stub best-effort (no WFP yet); native socket clients can bypass |
+| sandbox | win32 | windows-sandbox | strict | read-only | network.loopback | conditional | read-only policy enforces no full network but relies on env-stub best-effort (no WFP yet); native socket clients can bypass |
 | sandbox | win32 | windows-sandbox | strict | read-only | exec.startup_chain_extra | allow | helper executes command chain; restriction is policy/ACL not exec allowlist |
 | sandbox | win32 | windows-sandbox | strict | read-only | command.dangerous.system | conditional | blocked mainly by PermissionManager and ACL boundaries |
 | sandbox | win32 | windows-sandbox | strict | read-only | fallback.backend_unavailable | conditional | manual fails closed; startup-only/session degrade to none |
 | sandbox | win32 | windows-sandbox | strict | workspace-write | fs.write.workspace | allow | workspace-write allows workspace root writes |
 | sandbox | win32 | windows-sandbox | strict | workspace-write | fs.write.outside_workspace | conditional | strict limits writable_roots but helper still allows cwd/temp paths |
 | sandbox | win32 | windows-sandbox | strict | workspace-write | fs.delete.system_path | conditional | depends on helper ACL application and writable root boundary |
-| sandbox | win32 | windows-sandbox | strict | workspace-write | network.external | conditional | network_access is helper best-effort, not kernel-level isolation |
-| sandbox | win32 | windows-sandbox | strict | workspace-write | network.loopback | conditional | network_access is helper best-effort, not kernel-level isolation |
+| sandbox | win32 | windows-sandbox | strict | workspace-write | network.external | conditional | network_access is env-stub only (best-effort), not kernel-level isolation; native socket clients can bypass; WFP integration planned for v1.1 |
+| sandbox | win32 | windows-sandbox | strict | workspace-write | network.loopback | conditional | network_access is env-stub only (best-effort), not kernel-level isolation; native socket clients can bypass; WFP integration planned for v1.1 |
 | sandbox | win32 | windows-sandbox | strict | workspace-write | exec.startup_chain_extra | allow | helper executes command chain; restriction is policy/ACL not exec allowlist |
 | sandbox | win32 | windows-sandbox | strict | workspace-write | command.dangerous.system | conditional | blocked mainly by PermissionManager and ACL boundaries |
 | sandbox | win32 | windows-sandbox | strict | workspace-write | fallback.backend_unavailable | conditional | manual fails closed; startup-only/session degrade to none |
 | sandbox | win32 | windows-sandbox | compat | read-only | fs.write.workspace | block | read-only mode blocks workspace write |
 | sandbox | win32 | windows-sandbox | compat | read-only | fs.write.outside_workspace | block | read-only mode blocks writes |
 | sandbox | win32 | windows-sandbox | compat | read-only | fs.delete.system_path | conditional | depends on helper ACL application and writable root boundary |
-| sandbox | win32 | windows-sandbox | compat | read-only | network.external | conditional | read-only policy enforces no full network but relies on helper best-effort controls |
-| sandbox | win32 | windows-sandbox | compat | read-only | network.loopback | conditional | read-only policy enforces no full network but relies on helper best-effort controls |
+| sandbox | win32 | windows-sandbox | compat | read-only | network.external | conditional | read-only policy enforces no full network but relies on env-stub best-effort (no WFP yet); native socket clients can bypass |
+| sandbox | win32 | windows-sandbox | compat | read-only | network.loopback | conditional | read-only policy enforces no full network but relies on env-stub best-effort (no WFP yet); native socket clients can bypass |
 | sandbox | win32 | windows-sandbox | compat | read-only | exec.startup_chain_extra | allow | helper executes command chain; restriction is policy/ACL not exec allowlist |
 | sandbox | win32 | windows-sandbox | compat | read-only | command.dangerous.system | conditional | blocked mainly by PermissionManager and ACL boundaries |
 | sandbox | win32 | windows-sandbox | compat | read-only | fallback.backend_unavailable | conditional | manual fails closed; startup-only/session degrade to none |
 | sandbox | win32 | windows-sandbox | compat | workspace-write | fs.write.workspace | allow | workspace-write allows workspace root writes |
 | sandbox | win32 | windows-sandbox | compat | workspace-write | fs.write.outside_workspace | conditional | compat/permissive include wider writable roots and cwd-dependent allowances |
 | sandbox | win32 | windows-sandbox | compat | workspace-write | fs.delete.system_path | conditional | depends on helper ACL application and writable root boundary |
-| sandbox | win32 | windows-sandbox | compat | workspace-write | network.external | conditional | network_access is helper best-effort, not kernel-level isolation |
-| sandbox | win32 | windows-sandbox | compat | workspace-write | network.loopback | conditional | network_access is helper best-effort, not kernel-level isolation |
+| sandbox | win32 | windows-sandbox | compat | workspace-write | network.external | conditional | network_access is env-stub only (best-effort), not kernel-level isolation; native socket clients can bypass; WFP integration planned for v1.1 |
+| sandbox | win32 | windows-sandbox | compat | workspace-write | network.loopback | conditional | network_access is env-stub only (best-effort), not kernel-level isolation; native socket clients can bypass; WFP integration planned for v1.1 |
 | sandbox | win32 | windows-sandbox | compat | workspace-write | exec.startup_chain_extra | allow | helper executes command chain; restriction is policy/ACL not exec allowlist |
 | sandbox | win32 | windows-sandbox | compat | workspace-write | command.dangerous.system | conditional | blocked mainly by PermissionManager and ACL boundaries |
 | sandbox | win32 | windows-sandbox | compat | workspace-write | fallback.backend_unavailable | conditional | manual fails closed; startup-only/session degrade to none |
 | sandbox | win32 | windows-sandbox | permissive | read-only | fs.write.workspace | block | read-only mode blocks workspace write |
 | sandbox | win32 | windows-sandbox | permissive | read-only | fs.write.outside_workspace | block | read-only mode blocks writes |
 | sandbox | win32 | windows-sandbox | permissive | read-only | fs.delete.system_path | conditional | depends on helper ACL application and writable root boundary |
-| sandbox | win32 | windows-sandbox | permissive | read-only | network.external | conditional | read-only policy enforces no full network but relies on helper best-effort controls |
-| sandbox | win32 | windows-sandbox | permissive | read-only | network.loopback | conditional | read-only policy enforces no full network but relies on helper best-effort controls |
+| sandbox | win32 | windows-sandbox | permissive | read-only | network.external | conditional | read-only policy enforces no full network but relies on env-stub best-effort (no WFP yet); native socket clients can bypass |
+| sandbox | win32 | windows-sandbox | permissive | read-only | network.loopback | conditional | read-only policy enforces no full network but relies on env-stub best-effort (no WFP yet); native socket clients can bypass |
 | sandbox | win32 | windows-sandbox | permissive | read-only | exec.startup_chain_extra | allow | helper executes command chain; restriction is policy/ACL not exec allowlist |
 | sandbox | win32 | windows-sandbox | permissive | read-only | command.dangerous.system | conditional | blocked mainly by PermissionManager and ACL boundaries |
 | sandbox | win32 | windows-sandbox | permissive | read-only | fallback.backend_unavailable | conditional | manual fails closed; startup-only/session degrade to none |
 | sandbox | win32 | windows-sandbox | permissive | workspace-write | fs.write.workspace | allow | workspace-write allows workspace root writes |
 | sandbox | win32 | windows-sandbox | permissive | workspace-write | fs.write.outside_workspace | conditional | compat/permissive include wider writable roots and cwd-dependent allowances |
 | sandbox | win32 | windows-sandbox | permissive | workspace-write | fs.delete.system_path | conditional | depends on helper ACL application and writable root boundary |
-| sandbox | win32 | windows-sandbox | permissive | workspace-write | network.external | conditional | network_access is helper best-effort, not kernel-level isolation |
-| sandbox | win32 | windows-sandbox | permissive | workspace-write | network.loopback | conditional | network_access is helper best-effort, not kernel-level isolation |
+| sandbox | win32 | windows-sandbox | permissive | workspace-write | network.external | conditional | network_access is env-stub only (best-effort), not kernel-level isolation; native socket clients can bypass; WFP integration planned for v1.1 |
+| sandbox | win32 | windows-sandbox | permissive | workspace-write | network.loopback | conditional | network_access is env-stub only (best-effort), not kernel-level isolation; native socket clients can bypass; WFP integration planned for v1.1 |
 | sandbox | win32 | windows-sandbox | permissive | workspace-write | exec.startup_chain_extra | allow | helper executes command chain; restriction is policy/ACL not exec allowlist |
 | sandbox | win32 | windows-sandbox | permissive | workspace-write | command.dangerous.system | conditional | blocked mainly by PermissionManager and ACL boundaries |
 | sandbox | win32 | windows-sandbox | permissive | workspace-write | fallback.backend_unavailable | conditional | manual fails closed; startup-only/session degrade to none |

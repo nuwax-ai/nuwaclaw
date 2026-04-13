@@ -100,6 +100,7 @@ log.info("[FeatureFlags][main]", FEATURES);
 
 // Global references
 let mainWindow: BrowserWindow | null = null;
+let splashWindow: BrowserWindow | null = null;
 let trayManager: ReturnType<typeof createTrayManager> | null = null;
 let isQuitting = false; // 标志：是否正在真正退出应用
 let isInstallingUpdate = false; // 标志：是否正在执行 quitAndInstall 安装更新
@@ -199,6 +200,43 @@ processLifecycleManager.register({
   process: guiServer,
 });
 
+/** 创建启动 splash 窗口（无框架、轻量 HTML、瞬时加载） */
+function createSplashWindow(): void {
+  const iconPath = getIconPath().replace(/\.icns$/, ".png");
+  splashWindow = new BrowserWindow({
+    width: 360,
+    height: 260,
+    frame: false,
+    resizable: false,
+    center: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    transparent: false,
+    icon: getIconPath(),
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+  const splashPath = path.join(__dirname, "splash.html");
+  splashWindow.loadFile(splashPath, {
+    query: { icon: iconPath },
+  });
+  splashWindow.on("closed", () => {
+    splashWindow = null;
+  });
+}
+
+/** 更新 splash 进度文字 */
+export function updateSplashProgress(text: string): void {
+  if (!splashWindow || splashWindow.isDestroyed()) return;
+  splashWindow.webContents
+    .executeJavaScript(
+      `document.getElementById("progress").textContent = ${JSON.stringify(text)}`,
+    )
+    .catch(() => {});
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -257,6 +295,10 @@ function createWindow() {
   );
 
   mainWindow.once("ready-to-show", () => {
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.destroy();
+      splashWindow = null;
+    }
     mainWindow?.show();
     log.info("Main window shown");
     // macOS 开发模式：窗口显示后再创建托盘，提高菜单栏图标出现概率
@@ -534,8 +576,13 @@ app.whenReady().then(async () => {
   };
 
   registerAllHandlers(ctx);
+
+  createSplashWindow();
+  updateSplashProgress("Initializing...");
+
   await runStartupTasks();
 
+  updateSplashProgress("Loading interface...");
   createWindow();
   if (pendingSecondInstanceFocus && mainWindow) {
     pendingSecondInstanceFocus = false;

@@ -12,10 +12,15 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import log from "electron-log";
+import { structuredLog } from "../../bootstrap/logConfig";
 import { SandboxInvoker } from "./SandboxInvoker";
 import type { Invocation } from "./SandboxInvoker";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
+
+const execFileAsync = promisify(execFile);
 
 const NOOP_CLEANUP = () => {};
 
@@ -114,7 +119,12 @@ export async function buildSandboxedSpawnArgs(
     // 为 macOS seatbelt profile 文件注册清理
     const profilePath = invocation.seatbeltProfilePath ?? null;
 
+    // Windows ACL 清理所需参数
+    const helperPath = sandboxConfig.windowsSandboxHelperPath ?? null;
+    const workspaceDir = projectWorkspaceDir;
+
     const cleanupSandbox = () => {
+      // macOS: 清理临时 seatbelt profile 文件
       if (profilePath) {
         try {
           fs.unlinkSync(profilePath);
@@ -125,6 +135,24 @@ export async function buildSandboxedSpawnArgs(
         } catch {
           // 忽略清理错误
         }
+      }
+
+      // Windows: 调用 sandbox helper 清理 ACL 权限（best-effort，不阻塞）
+      if (process.platform === "win32" && helperPath && workspaceDir) {
+        execFileAsync(helperPath, ["cleanup", "--workspace", workspaceDir])
+          .then(() => {
+            structuredLog("info", "sandbox", "Windows ACL cleanup completed", {
+              data: { workspaceDir },
+            });
+          })
+          .catch((e) => {
+            structuredLog(
+              "warn",
+              "sandbox",
+              "Windows ACL cleanup failed (non-fatal)",
+              { data: { workspaceDir, error: String(e) } },
+            );
+          });
       }
     };
 

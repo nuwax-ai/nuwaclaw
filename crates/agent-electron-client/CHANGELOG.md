@@ -31,6 +31,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.0] - 2026-04-13
+
+### Added
+
+#### Stability (P0)
+- **ProcessMonitor** — 进程监控与生命周期管理器，覆盖所有托管服务：SIGTERM→SIGKILL 升级、崩溃检测、重启追踪
+- **ProcessLifecycleManager** — 单例模式，支持服务注册、stats API、渲染进程事件广播
+
+#### Sandbox (P1)
+- **autoFallback=session** — 实现 `autoFallback=session` 语义，与 `startup-only` 模式区分行为
+
+#### Harness — Task Execution Engine (P1)
+- **CheckpointManager** — 5 阶段检查点系统（CP0_INIT → CP4_COMPLETE），SQLite 持久化
+- **TaskExecutor** — 启发式任务分解、步骤执行框架、断点续跑（resume-from-checkpoint）
+- **ApprovalGate** — Human-in-the-Loop 审批门控，4 条内置规则，超时自动拒绝，渲染进程推送
+- **RecoveryManager** — 8 种错误恢复策略，自动分类 + 指数退避
+- **HarnessMetrics** — 14 种指标类型，SQLite 持久化 + 清理
+- **AuditLogger** — 结构化审计日志，14 个便捷方法，90 天保留策略
+- **IPC handlers** — 10 个 harness 通道，Zod 校验
+- **TasksPage UI** — 任务列表、检查点进度可视化、创建/取消/恢复操作
+- **ApprovalBanner UI** — 实时审批通知，倒计时、优先级标签、详情弹窗
+
+#### Observability (P1)
+- **structuredLog()** — 结构化 JSON 日志，覆盖所有 harness 服务、IPC handlers、进程生命周期管理器
+- **Health Dashboard** — 服务详情面板：PID、运行时间、重启次数、最近崩溃时间
+- **ProcessLifecycleManager stats** — 集成到服务状态轮询
+
+#### UX (P1)
+- **Session list** — 事件驱动更新（`agent:event` 推送），替代 3 秒轮询
+- **Splash screen** — 原生 Electron 启动画面，显示启动阶段进度
+- **Debounce** — 会话状态变更事件 200ms 防抖
+
+#### Database
+- 5 张新表：tasks、task_checkpoints、approval_requests、harness_metrics、audit_logs
+- 8 个索引覆盖高频查询列
+- WAL 模式 + NORMAL synchronous + 64MB page cache
+
+#### i18n
+- 新增 `Claw.Approval.*` 系列 key（13 个），覆盖 4 个 locale 文件
+- 新增 `Claw.Client.health.*` 详情 key（5 个），覆盖 4 个 locale 文件
+
+### Changed
+
+#### Performance (P1)
+- **SQLite WAL mode** — 启用 WAL 模式 + 并行依赖检测，加速冷启动
+- **Memory Worker Thread** — 内存服务正则提取卸载至 Worker Thread 线程池
+
+---
+
 ### Added (Previous)
 
 #### 内置 Node.js 24 和 Git 集成
@@ -328,4 +377,6 @@ Renderer Process (React)
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 0.10.0 | 2026-04-13 | Stability, harness engine, observability, sandbox, performance |
+| 0.2.0 | 2026-02-23 | Multi-platform packaging, SDK migration, unified agent rewrite |
 | 0.1.0 | 2026-02-22 | Initial Electron client with multi-engine support |

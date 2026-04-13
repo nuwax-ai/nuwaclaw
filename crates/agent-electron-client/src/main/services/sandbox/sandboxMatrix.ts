@@ -261,19 +261,21 @@ function windowsRuleVerdict(
         verdict: "conditional",
         reason: "depends on helper ACL application and writable root boundary",
       };
+    // Windows 网络隔离限制：当前仅 env-stub 级别（清空 HTTP_PROXY 等环境变量），
+    // 原生 socket 客户端可绕过。v1.1 计划通过 WFP 实现内核级网络过滤。
     case "network.external":
     case "network.loopback":
       if (!workspaceWrite) {
         return {
           verdict: "conditional",
           reason:
-            "read-only policy enforces no full network but relies on helper best-effort controls",
+            "read-only policy enforces no full network but relies on env-stub best-effort (no WFP yet); native socket clients can bypass",
         };
       }
       return {
         verdict: "conditional",
         reason:
-          "network_access is helper best-effort, not kernel-level isolation",
+          "network_access is env-stub only (best-effort), not kernel-level isolation; native socket clients can bypass; WFP integration planned for v1.1",
       };
     case "exec.startup_chain_extra":
       return {

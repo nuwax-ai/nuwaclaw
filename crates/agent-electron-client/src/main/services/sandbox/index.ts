@@ -8,7 +8,7 @@
 export { SandboxManager } from "./SandboxManager";
 export { DockerSandbox, type DockerSandboxConfig } from "./DockerSandbox";
 export { CommandSandbox } from "./CommandSandbox";
-export { SandboxInvoker } from "./SandboxInvoker";
+export { SandboxInvoker, type WindowsNetworkPolicy } from "./SandboxInvoker";
 export { SandboxFileOperations } from "./SandboxFileOperations";
 export {
   PermissionManager,
