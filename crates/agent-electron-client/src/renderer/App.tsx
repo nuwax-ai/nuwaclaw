@@ -140,6 +140,28 @@ export interface ServiceItem {
   memoryBytes?: number;
   /** 上次错误时间戳（可选） */
   lastErrorAt?: number;
+  /** 健康状态（仅运行中服务有意义） */
+  health?: "healthy" | "degraded" | "unhealthy";
+}
+
+export interface SystemResources {
+  /** CPU 使用率（0–100） */
+  cpuPct: number;
+  /** 已用内存（MB） */
+  memUsedMB: number;
+  /** 总内存（MB） */
+  memTotalMB: number;
+}
+
+/** 根据服务运行状态 + 错误 + 重启次数计算健康级别 */
+function computeServiceHealth(
+  running: boolean,
+  error?: string,
+  restartCount?: number,
+): ServiceItem["health"] {
+  if (!running) return error ? "unhealthy" : undefined;
+  if (error || (restartCount ?? 0) > 0) return "degraded";
+  return "healthy";
 }
 
 /**
@@ -347,6 +369,8 @@ function App() {
   const [agentStatus, setAgentStatus] = useState<string>("idle");
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [servicesLoading, setServicesLoading] = useState(true);
+  const [systemResources, setSystemResources] =
+    useState<SystemResources | null>(null);
   const [guiMcpEnabled, setGuiMcpEnabled] = useState(false);
   const [pollFailCount, setPollFailCount] = useState(0);
   const [startingServices, setStartingServices] = useState<Set<string>>(
@@ -583,13 +607,18 @@ function App() {
       const isGuiEnabled =
         FEATURES.ENABLE_GUI_AGENT_SERVER && (guiEnabledRes?.enabled ?? false);
       setGuiMcpEnabled(isGuiEnabled);
-      items.push({
-        key: "mcpProxy",
-        label: t("Claw.Service.mcp"),
-        description: t("Claw.Service.mcpDesc"),
-        running: mcpStatus?.running ?? false,
-        error: mcpStatus?.error,
-      });
+      {
+        const running = mcpStatus?.running ?? false;
+        const error = mcpStatus?.error;
+        items.push({
+          key: "mcpProxy",
+          label: t("Claw.Service.mcp"),
+          description: t("Claw.Service.mcpDesc"),
+          running,
+          error,
+          health: computeServiceHealth(running, error),
+        });
+      }
 
       // ComputerServer 是 Agent 的 HTTP 接口，仅当 Agent 本身在运行时才检查其状态
       const agentRunning = agentSvcStatus?.running ?? false;
@@ -600,41 +629,58 @@ function App() {
           ? t("Claw.App.agentInterfaceFailed", csStatus.error)
           : t("Claw.App.agentInterfaceNotRunning");
       }
-      items.push({
-        key: "agent",
-        label: t("Claw.Service.agent"),
-        description: t("Claw.Service.agentDesc"),
-        running: agentRunning && csRunning,
-        error: agentError,
-      });
+      {
+        const running = agentRunning && csRunning;
+        items.push({
+          key: "agent",
+          label: t("Claw.Service.agent"),
+          description: t("Claw.Service.agentDesc"),
+          running,
+          error: agentError,
+          health: computeServiceHealth(running, agentError),
+        });
+      }
 
-      items.push({
-        key: "fileServer",
-        label: t("Claw.Service.file"),
-        description: t("Claw.Service.fileDesc"),
-        running: fsStatus?.running ?? false,
-        pid: fsStatus?.pid,
-        error: fsStatus?.error,
-      });
+      {
+        const running = fsStatus?.running ?? false;
+        const error = fsStatus?.error;
+        items.push({
+          key: "fileServer",
+          label: t("Claw.Service.file"),
+          description: t("Claw.Service.fileDesc"),
+          running,
+          pid: fsStatus?.pid,
+          error,
+          health: computeServiceHealth(running, error),
+        });
+      }
       if (isGuiEnabled) {
+        const running = guiStatus?.running ?? false;
+        const error = guiStatus?.error;
         items.push({
           key: "guiServer",
           label: t("Claw.Service.guiMcp"),
           description: t("Claw.Service.guiMcpDesc"),
-          running: guiStatus?.running ?? false,
+          running,
           pid: guiStatus?.pid,
-          error: guiStatus?.error,
+          error,
+          health: computeServiceHealth(running, error),
         });
       }
-      items.push({
-        key: "lanproxy",
-        label: t("Claw.Service.proxy"),
-        description: t("Claw.Service.proxyDesc"),
-        running: lpStatus?.running ?? false,
-        pid: lpStatus?.pid,
-        // 优先显示健康检查错误，其次显示进程错误
-        error: lanproxyHealthErrorRef.current ?? lpStatus?.error,
-      });
+      {
+        const running = lpStatus?.running ?? false;
+        const error = lanproxyHealthErrorRef.current ?? lpStatus?.error;
+        items.push({
+          key: "lanproxy",
+          label: t("Claw.Service.proxy"),
+          description: t("Claw.Service.proxyDesc"),
+          running,
+          pid: lpStatus?.pid,
+          // 优先显示健康检查错误，其次显示进程错误
+          error,
+          health: computeServiceHealth(running, error),
+        });
+      }
       setServices(items);
       setPollFailCount(0);
     } catch (error) {
@@ -976,7 +1022,12 @@ function App() {
   // ============================================
   useEffect(() => {
     if (!window.electronAPI || isSetupComplete !== true) return;
-    const handleServiceHealth = () => {
+    const handleServiceHealth = (payload: unknown) => {
+      // 解析系统资源（若主进程已包含）
+      const snap = payload as { systemResources?: SystemResources } | null;
+      if (snap?.systemResources) {
+        setSystemResources(snap.systemResources);
+      }
       // 收到主进程推送时立即刷新服务状态
       void pollServicesStatus();
     };
@@ -1591,6 +1642,7 @@ function App() {
                       authRefreshTrigger={authRefreshTrigger}
                       onAuthChange={handleAuthChange}
                       onLoginStarted={handleLoginStarted}
+                      systemResources={systemResources ?? undefined}
                     />
                   )}
                   {activeTab === "sessions" && (

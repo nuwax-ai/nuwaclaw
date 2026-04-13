@@ -1,5 +1,6 @@
 import { ipcMain } from "electron";
 import * as fs from "fs";
+import * as os from "os";
 import log from "electron-log";
 import { z } from "zod";
 import type { HandlerContext } from "@shared/types/ipc";
@@ -9,6 +10,49 @@ import { mcpProxyManager } from "../services/packages/mcp";
 
 // T2.6 — 服务健康定时推送（30s）
 let _healthTimer: ReturnType<typeof setInterval> | null = null;
+
+// ==================== CPU 采样 ====================
+
+interface CpuSample {
+  idle: number;
+  total: number;
+}
+
+function getCpuSample(): CpuSample {
+  let idle = 0;
+  let total = 0;
+  for (const cpu of os.cpus()) {
+    const times = cpu.times;
+    idle += times.idle;
+    total += times.idle + times.user + times.nice + times.sys + times.irq;
+  }
+  return { idle, total };
+}
+
+let _prevCpuSample: CpuSample = getCpuSample();
+
+/**
+ * 返回自上次调用以来的 CPU 使用率（0–100）。
+ * 首次调用返回 0（没有前一个采样点）。
+ */
+function sampleCpuPct(): number {
+  const next = getCpuSample();
+  const idleDelta = next.idle - _prevCpuSample.idle;
+  const totalDelta = next.total - _prevCpuSample.total;
+  _prevCpuSample = next;
+  if (totalDelta === 0) return 0;
+  return Math.round(((totalDelta - idleDelta) / totalDelta) * 100);
+}
+
+/** 返回当前系统内存快照（MB） */
+function getMemSnapshot(): { memUsedMB: number; memTotalMB: number } {
+  const total = os.totalmem();
+  const free = os.freemem();
+  return {
+    memUsedMB: Math.round((total - free) / 1024 / 1024),
+    memTotalMB: Math.round(total / 1024 / 1024),
+  };
+}
 
 export function stopHealthMonitor(): void {
   if (_healthTimer) {
@@ -402,6 +446,10 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
         lanproxy: ctx.lanproxy.status(),
         fileServer: ctx.fileServer.status(),
         mcpProxy: mcpProxyManager.getStatus(),
+        systemResources: {
+          cpuPct: sampleCpuPct(),
+          ...getMemSnapshot(),
+        },
       };
       win.webContents.send("service:health", snapshot);
     } catch (e) {
@@ -421,6 +469,10 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       lanproxy: ctx.lanproxy.status(),
       fileServer: ctx.fileServer.status(),
       mcpProxy: mcpProxyManager.getStatus(),
+      systemResources: {
+        cpuPct: sampleCpuPct(),
+        ...getMemSnapshot(),
+      },
     };
     return snapshot;
   });

@@ -421,4 +421,15 @@ export const I18N_KEYS = {
     PRIORITY_LOW: "Claw.Approval.priorityLow",
     PRIORITY_CRITICAL: "Claw.Approval.priorityCritical",
   },
+
+  // 健康仪表板 Health Dashboard
+  Health: {
+    HEALTHY: "Claw.Client.health.healthy",
+    DEGRADED: "Claw.Client.health.degraded",
+    UNHEALTHY: "Claw.Client.health.unhealthy",
+    CPU: "Claw.Client.health.cpu",
+    MEMORY: "Claw.Client.health.memory",
+    PORT: "Claw.Client.health.port",
+    LAST_ERROR: "Claw.Client.health.lastError",
+  },
 } as const;

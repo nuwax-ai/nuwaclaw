@@ -22,6 +22,7 @@ import {
   Input,
   Modal,
   Tooltip,
+  Progress,
 } from "antd";
 import {
   UserOutlined,
@@ -39,6 +40,8 @@ import {
   QrcodeOutlined,
   ReloadOutlined,
   LoadingOutlined,
+  DownOutlined,
+  RightOutlined,
 } from "@ant-design/icons";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -47,7 +50,7 @@ import {
   getCurrentAuth,
   syncConfigToServer,
 } from "../../services/core/auth";
-import type { ServiceItem } from "../../App";
+import type { ServiceItem, SystemResources } from "../../App";
 import { buildRedirectUrl } from "../../services/utils/sessionUrl";
 import { t } from "../../services/core/i18n";
 import { resolveDepDisplayName } from "../../utils/dependencyI18n";
@@ -77,6 +80,111 @@ interface ClientPageProps {
   onAuthChange?: () => void;
   /** 登录流程启动服务前通知父组件标记（内存变量，不持久化） */
   onLoginStarted?: () => void;
+  /** 系统资源快照（CPU / 内存），由主进程推送 */
+  systemResources?: SystemResources;
+}
+
+// ======================== 健康徽章 ====================
+
+const HEALTH_DOT: Record<NonNullable<ServiceItem["health"]>, string> = {
+  healthy: "#52c41a",
+  degraded: "#fa8c16",
+  unhealthy: "#ff4d4f",
+};
+
+function HealthBadge({ health }: { health: ServiceItem["health"] }) {
+  if (!health) return null;
+  return (
+    <Tooltip title={t(`Claw.Client.health.${health}`)}>
+      <span
+        style={{
+          display: "inline-block",
+          width: 7,
+          height: 7,
+          borderRadius: "50%",
+          background: HEALTH_DOT[health],
+          marginRight: 5,
+          flexShrink: 0,
+          boxShadow:
+            health === "healthy"
+              ? `0 0 4px ${HEALTH_DOT[health]}80`
+              : undefined,
+        }}
+      />
+    </Tooltip>
+  );
+}
+
+// ======================== 系统资源条 ====================
+
+function SystemResourceBar({ res }: { res: SystemResources }) {
+  const memPct = Math.round((res.memUsedMB / res.memTotalMB) * 100);
+  const memUsedGB = (res.memUsedMB / 1024).toFixed(1);
+  const memTotalGB = (res.memTotalMB / 1024).toFixed(1);
+
+  const cpuColor =
+    res.cpuPct >= 80 ? "#ff4d4f" : res.cpuPct >= 50 ? "#fa8c16" : "#52c41a";
+  const memColor =
+    memPct >= 85 ? "#ff4d4f" : memPct >= 65 ? "#fa8c16" : "#1677ff";
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: "4px 12px",
+        padding: "6px 10px",
+        background: "var(--color-fill-secondary)",
+        borderRadius: 6,
+        marginBottom: 8,
+        fontSize: 11,
+        color: "var(--color-text-secondary)",
+      }}
+    >
+      <div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginBottom: 2,
+          }}
+        >
+          <span>{t("Claw.Client.health.cpu")}</span>
+          <span style={{ color: cpuColor, fontWeight: 500 }}>
+            {res.cpuPct}%
+          </span>
+        </div>
+        <Progress
+          percent={res.cpuPct}
+          size="small"
+          showInfo={false}
+          strokeColor={cpuColor}
+          style={{ margin: 0 }}
+        />
+      </div>
+      <div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginBottom: 2,
+          }}
+        >
+          <span>{t("Claw.Client.health.memory")}</span>
+          <span style={{ color: memColor, fontWeight: 500 }}>
+            {memUsedGB}/{memTotalGB} GB
+          </span>
+        </div>
+        <Progress
+          percent={memPct}
+          size="small"
+          showInfo={false}
+          strokeColor={memColor}
+          style={{ margin: 0 }}
+        />
+      </div>
+    </div>
+  );
 }
 
 interface AuthState {
@@ -97,6 +205,7 @@ function ClientPage({
   authRefreshTrigger,
   onAuthChange,
   onLoginStarted,
+  systemResources,
 }: ClientPageProps) {
   const getStartupServiceKeys = useCallback(async (): Promise<string[]> => {
     const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
@@ -142,6 +251,8 @@ function ClientPage({
 
   // ---------- QR Code ----------
   const [qrModalVisible, setQrModalVisible] = useState(false);
+  /** 当前展开详情的服务 key（null = 全收起） */
+  const [expandedService, setExpandedService] = useState<string | null>(null);
 
   // 登录页“用户输入业务域名”的本地兜底缓存。
   // 用途：当 authState.domain 在短时间内尚未刷新，或被历史配置影响时，UI 仍优先展示用户最近一次明确输入/确认的业务域名。
@@ -751,182 +862,208 @@ function ClientPage({
       );
     }
 
+    const hasDetailRow = (svc: ServiceItem) =>
+      svc.running &&
+      (svc.pid || svc.port || svc.memoryBytes || (svc.restartCount ?? 0) > 0);
+
     return (
       <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
+        {/* 系统资源条 */}
+        {systemResources && <SystemResourceBar res={systemResources} />}
+
         {/* 服务列表 */}
         {services.map((svc) => {
           const isStarting = startingServices?.has(svc.key);
           const isStopping = stoppingServices.has(svc.key);
           const hasError = !svc.running && !!svc.error;
+          const isExpanded = expandedService === svc.key;
+          const canExpand = hasDetailRow(svc) || !!svc.lastErrorAt;
+
           return (
-            <div key={svc.key} className={styles.serviceRow}>
-              <div className={styles.serviceInfo}>
-                {isStarting || isStopping ? (
-                  <LoadingOutlined
-                    style={{ color: "var(--color-info)", fontSize: 14 }}
-                  />
-                ) : svc.running ? (
-                  <CheckCircleOutlined
-                    style={{ color: "var(--color-success)", fontSize: 14 }}
-                  />
-                ) : hasError ? (
-                  <ExclamationCircleOutlined
-                    style={{ color: "var(--color-error)", fontSize: 14 }}
-                  />
-                ) : (
-                  <CloseCircleOutlined
-                    style={{
-                      color: "var(--color-text-tertiary)",
-                      fontSize: 14,
-                    }}
-                  />
-                )}
-                <div>
-                  <div
-                    style={{ display: "flex", alignItems: "center", gap: 6 }}
-                  >
-                    <span className={styles.serviceLabel}>{svc.label}</span>
-                    {isStarting ? (
-                      <Tag
-                        color="processing"
-                        style={{ margin: 0, fontSize: 11 }}
-                      >
-                        {t("Claw.Client.starting")}
-                      </Tag>
-                    ) : isStopping ? (
-                      <Tag
-                        color="processing"
-                        style={{ margin: 0, fontSize: 11 }}
-                      >
-                        {t("Claw.Client.stopping")}
-                      </Tag>
-                    ) : svc.running ? (
-                      <Tag color="green" style={{ margin: 0, fontSize: 11 }}>
-                        {t("Claw.Client.running")}
-                      </Tag>
-                    ) : hasError ? (
-                      <Tag color="error" style={{ margin: 0, fontSize: 11 }}>
-                        {t("Claw.Client.startFailed")}
-                      </Tag>
-                    ) : (
-                      <Tag style={{ margin: 0, fontSize: 11 }}>
-                        {t("Claw.Client.stopped")}
-                      </Tag>
-                    )}
-                  </div>
-                  <div className={styles.serviceDescription}>
-                    {hasError ? (
-                      <Tooltip title={svc.error}>
-                        <span
-                          style={{
-                            color: "var(--color-error)",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            display: "block",
-                          }}
-                        >
-                          {svc.error}
-                        </span>
-                      </Tooltip>
-                    ) : (
-                      svc.description
-                    )}
-                  </div>
-                  {/* 服务详情：PID / Port / 内存 */}
-                  {svc.running && (svc.pid || svc.port || svc.memoryBytes) && (
-                    <div
+            <div key={svc.key}>
+              <div
+                className={styles.serviceRow}
+                style={{ cursor: canExpand ? "pointer" : undefined }}
+                onClick={
+                  canExpand
+                    ? () => setExpandedService(isExpanded ? null : svc.key)
+                    : undefined
+                }
+              >
+                <div className={styles.serviceInfo}>
+                  {isStarting || isStopping ? (
+                    <LoadingOutlined
+                      style={{ color: "var(--color-info)", fontSize: 14 }}
+                    />
+                  ) : svc.running ? (
+                    <CheckCircleOutlined
+                      style={{ color: "var(--color-success)", fontSize: 14 }}
+                    />
+                  ) : hasError ? (
+                    <ExclamationCircleOutlined
+                      style={{ color: "var(--color-error)", fontSize: 14 }}
+                    />
+                  ) : (
+                    <CloseCircleOutlined
                       style={{
-                        display: "flex",
-                        gap: 8,
-                        marginTop: 2,
-                        flexWrap: "wrap",
+                        color: "var(--color-text-tertiary)",
+                        fontSize: 14,
                       }}
+                    />
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 6 }}
                     >
-                      {svc.pid && (
+                      {/* 健康徽章 */}
+                      <HealthBadge health={svc.health} />
+                      <span className={styles.serviceLabel}>{svc.label}</span>
+                      {isStarting ? (
+                        <Tag
+                          color="processing"
+                          style={{ margin: 0, fontSize: 11 }}
+                        >
+                          {t("Claw.Client.starting")}
+                        </Tag>
+                      ) : isStopping ? (
+                        <Tag
+                          color="processing"
+                          style={{ margin: 0, fontSize: 11 }}
+                        >
+                          {t("Claw.Client.stopping")}
+                        </Tag>
+                      ) : svc.running ? (
+                        <Tag color="green" style={{ margin: 0, fontSize: 11 }}>
+                          {t("Claw.Client.running")}
+                        </Tag>
+                      ) : hasError ? (
+                        <Tag color="error" style={{ margin: 0, fontSize: 11 }}>
+                          {t("Claw.Client.startFailed")}
+                        </Tag>
+                      ) : (
+                        <Tag style={{ margin: 0, fontSize: 11 }}>
+                          {t("Claw.Client.stopped")}
+                        </Tag>
+                      )}
+                      {/* 展开图标 */}
+                      {canExpand && (
                         <span
                           style={{
+                            marginLeft: "auto",
                             fontSize: 10,
                             color: "var(--color-text-tertiary)",
                           }}
                         >
-                          PID {svc.pid}
+                          {isExpanded ? <DownOutlined /> : <RightOutlined />}
                         </span>
-                      )}
-                      {svc.port && (
-                        <span
-                          style={{
-                            fontSize: 10,
-                            color: "var(--color-text-tertiary)",
-                          }}
-                        >
-                          :{svc.port}
-                        </span>
-                      )}
-                      {svc.memoryBytes && svc.memoryBytes > 0 && (
-                        <span
-                          style={{
-                            fontSize: 10,
-                            color: "var(--color-text-tertiary)",
-                          }}
-                        >
-                          {(svc.memoryBytes / 1024 / 1024).toFixed(1)} MB
-                        </span>
-                      )}
-                      {(svc.restartCount ?? 0) > 0 && (
-                        <Tooltip
-                          title={t(
-                            "Claw.Client.restartCount",
-                            svc.restartCount,
-                          )}
-                        >
-                          <span
-                            style={{
-                              fontSize: 10,
-                              color: "var(--color-warning)",
-                            }}
-                          >
-                            ↺{svc.restartCount}
-                          </span>
-                        </Tooltip>
                       )}
                     </div>
+                    <div className={styles.serviceDescription}>
+                      {hasError ? (
+                        <Tooltip title={svc.error}>
+                          <span
+                            style={{
+                              color: "var(--color-error)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              display: "block",
+                            }}
+                          >
+                            {svc.error}
+                          </span>
+                        </Tooltip>
+                      ) : (
+                        svc.description
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  className={styles.serviceActions}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {isStarting ? (
+                    <Button size="small" disabled loading>
+                      {t("Claw.Client.starting")}
+                    </Button>
+                  ) : isStopping ? (
+                    <Button size="small" disabled loading>
+                      {t("Claw.Client.stopping")}
+                    </Button>
+                  ) : svc.running ? (
+                    <Button
+                      size="small"
+                      danger
+                      className={styles.dangerButton}
+                      icon={<PoweroffOutlined />}
+                      onClick={() => handleStopService(svc.key)}
+                      disabled={isAnyOperating}
+                    >
+                      {t("Claw.Client.stop")}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<PlayCircleOutlined />}
+                      onClick={() => handleStartServiceManual(svc.key)}
+                      disabled={isAnyOperating}
+                    >
+                      {t("Claw.Client.start")}
+                    </Button>
                   )}
                 </div>
               </div>
 
-              <div className={styles.serviceActions}>
-                {isStarting ? (
-                  <Button size="small" disabled loading>
-                    {t("Claw.Client.starting")}
-                  </Button>
-                ) : isStopping ? (
-                  <Button size="small" disabled loading>
-                    {t("Claw.Client.stopping")}
-                  </Button>
-                ) : svc.running ? (
-                  <Button
-                    size="small"
-                    danger
-                    className={styles.dangerButton}
-                    icon={<PoweroffOutlined />}
-                    onClick={() => handleStopService(svc.key)}
-                    disabled={isAnyOperating}
-                  >
-                    {t("Claw.Client.stop")}
-                  </Button>
-                ) : (
-                  <Button
-                    size="small"
-                    type="primary"
-                    icon={<PlayCircleOutlined />}
-                    onClick={() => handleStartServiceManual(svc.key)}
-                    disabled={isAnyOperating}
-                  >
-                    {t("Claw.Client.start")}
-                  </Button>
-                )}
-              </div>
+              {/* 展开详情 */}
+              {isExpanded && (
+                <div
+                  style={{
+                    padding: "4px 16px 6px 36px",
+                    display: "flex",
+                    gap: 12,
+                    flexWrap: "wrap",
+                    background: "var(--color-fill-secondary)",
+                    borderRadius: "0 0 6px 6px",
+                    marginTop: -4,
+                    marginBottom: 4,
+                    fontSize: 11,
+                    color: "var(--color-text-secondary)",
+                  }}
+                >
+                  {svc.pid && (
+                    <span>
+                      PID <strong>{svc.pid}</strong>
+                    </span>
+                  )}
+                  {svc.port && (
+                    <span>
+                      {t("Claw.Client.health.port")} <strong>{svc.port}</strong>
+                    </span>
+                  )}
+                  {svc.memoryBytes && svc.memoryBytes > 0 && (
+                    <span>
+                      {t("Claw.Client.health.memory")}{" "}
+                      <strong>
+                        {(svc.memoryBytes / 1024 / 1024).toFixed(1)} MB
+                      </strong>
+                    </span>
+                  )}
+                  {(svc.restartCount ?? 0) > 0 && (
+                    <span style={{ color: "var(--color-warning)" }}>
+                      {t("Claw.Client.restartCount", svc.restartCount)}
+                    </span>
+                  )}
+                  {svc.lastErrorAt && (
+                    <span style={{ color: "var(--color-error)" }}>
+                      {t("Claw.Client.health.lastError")}{" "}
+                      {new Date(svc.lastErrorAt).toLocaleTimeString()}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
