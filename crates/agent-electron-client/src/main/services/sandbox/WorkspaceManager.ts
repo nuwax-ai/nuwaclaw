@@ -130,7 +130,7 @@ export class WorkspaceManager extends EventEmitter {
       log.error("[WorkspaceManager] Failed to create workspace:", error);
       throw toSandboxError(
         error,
-        "工作区创建失败",
+        "Failed to create workspace",
         SandboxErrorCode.WORKSPACE_CREATE_FAILED,
         {
           sessionId,
@@ -191,7 +191,7 @@ export class WorkspaceManager extends EventEmitter {
       } else {
         throw toSandboxError(
           error,
-          "工作区销毁失败",
+          "Failed to destroy workspace",
           SandboxErrorCode.WORKSPACE_DESTROY_FAILED,
           {
             sessionId,
@@ -339,7 +339,7 @@ export class WorkspaceManager extends EventEmitter {
     const workspace = this.sandboxManager.getWorkspace(sessionId);
     if (!workspace) {
       throw new WorkspaceError(
-        `工作区未找到: ${sessionId}`,
+        `Workspace not found: ${sessionId}`,
         SandboxErrorCode.WORKSPACE_NOT_FOUND,
         { sessionId },
       );
@@ -370,7 +370,7 @@ export class WorkspaceManager extends EventEmitter {
     const workspace = this.sandboxManager.getWorkspace(sessionId);
     if (!workspace) {
       throw new WorkspaceError(
-        `工作区未找到: ${sessionId}`,
+        `Workspace not found: ${sessionId}`,
         SandboxErrorCode.WORKSPACE_NOT_FOUND,
         { sessionId },
       );
@@ -460,7 +460,9 @@ export class WorkspaceManager extends EventEmitter {
           await this.destroyWorkspace(workspace.sessionId);
           result.deletedCount++;
         } catch (error) {
-          result.errors.push(`清理工作区失败 ${workspace.sessionId}: ${error}`);
+          result.errors.push(
+            `Failed to clean workspace ${workspace.sessionId}: ${error}`,
+          );
         }
       }
     }
@@ -517,7 +519,7 @@ export class WorkspaceManager extends EventEmitter {
     const workspace = this.sandboxManager.getWorkspace(sessionId);
     if (!workspace) {
       throw new WorkspaceError(
-        `工作区未找到: ${sessionId}`,
+        `Workspace not found: ${sessionId}`,
         SandboxErrorCode.WORKSPACE_NOT_FOUND,
         { sessionId },
       );
@@ -537,7 +539,7 @@ export class WorkspaceManager extends EventEmitter {
     const workspace = this.sandboxManager.getWorkspace(sessionId);
     if (!workspace) {
       throw new WorkspaceError(
-        `工作区未找到: ${sessionId}`,
+        `Workspace not found: ${sessionId}`,
         SandboxErrorCode.WORKSPACE_NOT_FOUND,
         { sessionId },
       );
@@ -591,7 +593,7 @@ export class WorkspaceManager extends EventEmitter {
 
     if (!normalizedPath.startsWith(normalizedRoot)) {
       throw new SandboxError(
-        `路径不在工作区内: ${path}`,
+        `Path outside workspace: ${path}`,
         SandboxErrorCode.PERMISSION_DENIED,
         {
           sessionId: workspace.sessionId,

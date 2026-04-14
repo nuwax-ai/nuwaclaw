@@ -5,9 +5,13 @@
  * Based on specs/long-memory/long-memory.md
  */
 
-import log from 'electron-log';
-import type { MemorySearchResult, HybridSearchOptions, MemorySource } from './types';
-import { MemoryDatabase } from './MemoryDatabase';
+import log from "electron-log";
+import type {
+  MemorySearchResult,
+  HybridSearchOptions,
+  MemorySource,
+} from "./types";
+import { MemoryDatabase } from "./MemoryDatabase";
 
 // ==================== Types ====================
 
@@ -31,7 +35,7 @@ export class MemoryRetriever {
    */
   init(database: MemoryDatabase): void {
     this.database = database;
-    log.info('[MemoryRetriever] Initialized');
+    log.info("[MemoryRetriever] Initialized");
   }
 
   /**
@@ -51,11 +55,13 @@ export class MemoryRetriever {
     minScore?: number;
     dailyMemoryDays?: number;
   }): void {
-    if (options.vectorWeight !== undefined) this.vectorWeight = options.vectorWeight;
+    if (options.vectorWeight !== undefined)
+      this.vectorWeight = options.vectorWeight;
     if (options.ftsWeight !== undefined) this.ftsWeight = options.ftsWeight;
     if (options.limit !== undefined) this.defaultLimit = options.limit;
     if (options.minScore !== undefined) this.defaultMinScore = options.minScore;
-    if (options.dailyMemoryDays !== undefined) this.dailyMemoryDays = options.dailyMemoryDays;
+    if (options.dailyMemoryDays !== undefined)
+      this.dailyMemoryDays = options.dailyMemoryDays;
   }
 
   // ==================== Search Methods ====================
@@ -63,9 +69,12 @@ export class MemoryRetriever {
   /**
    * Search memories using hybrid retrieval
    */
-  async search(query: string, options?: HybridSearchOptions): Promise<MemorySearchResult[]> {
+  async search(
+    query: string,
+    options?: HybridSearchOptions,
+  ): Promise<MemorySearchResult[]> {
     if (!this.database) {
-      log.debug('[MemoryRetriever] search: no database');
+      log.debug("[MemoryRetriever] search: no database");
       return [];
     }
 
@@ -74,8 +83,10 @@ export class MemoryRetriever {
     if (options?.checkDirty !== false) {
       const { dirty } = this.database.getSyncState();
       if (dirty) {
-        log.debug('[MemoryRetriever] Index is dirty, search results may be stale. ' +
-          'Call memory.ensureReady() before session start for proper sync.');
+        log.debug(
+          "[MemoryRetriever] Index is dirty, search results may be stale. " +
+            "Call memory.ensureReady() before session start for proper sync.",
+        );
       }
     }
 
@@ -85,19 +96,22 @@ export class MemoryRetriever {
     const ftsWeight = options?.ftsWeight ?? this.ftsWeight;
 
     // Layer 1: Always do FTS5 search
-    log.debug('[MemoryRetriever] search: FTS query=', query.slice(0, 100));
+    log.debug("[MemoryRetriever] search: FTS query=", query.slice(0, 100));
     const ftsResults = this.database.searchFTS(query, limit * 2);
-    log.debug('[MemoryRetriever] search: FTS returned', ftsResults.length, 'results');
+    log.debug(
+      "[MemoryRetriever] search: FTS returned",
+      ftsResults.length,
+      "results",
+    );
 
     // Check if embedding is available
     const embeddingEnabled = this.embeddingProvider !== null;
-    const vectorAvailable = this.database.isVectorAvailable() || embeddingEnabled;
+    const vectorAvailable =
+      this.database.isVectorAvailable() || embeddingEnabled;
 
     if (!vectorAvailable || !embeddingEnabled) {
       // Return FTS results only
-      return ftsResults
-        .filter(r => r.score >= minScore)
-        .slice(0, limit);
+      return ftsResults.filter((r) => r.score >= minScore).slice(0, limit);
     }
 
     // Get query embedding
@@ -105,12 +119,12 @@ export class MemoryRetriever {
     try {
       queryEmbedding = await this.embeddingProvider!.getEmbedding(query);
     } catch (error) {
-      log.warn('[MemoryRetriever] Failed to get query embedding:', error);
-      return ftsResults.filter(r => r.score >= minScore).slice(0, limit);
+      log.warn("[MemoryRetriever] Failed to get query embedding:", error);
+      return ftsResults.filter((r) => r.score >= minScore).slice(0, limit);
     }
 
     if (!queryEmbedding) {
-      return ftsResults.filter(r => r.score >= minScore).slice(0, limit);
+      return ftsResults.filter((r) => r.score >= minScore).slice(0, limit);
     }
 
     // Layer 2: Vector search
@@ -139,7 +153,11 @@ export class MemoryRetriever {
   /**
    * Search using vector similarity
    */
-  async searchVector(query: string, limit?: number, minScore?: number): Promise<MemorySearchResult[]> {
+  async searchVector(
+    query: string,
+    limit?: number,
+    minScore?: number,
+  ): Promise<MemorySearchResult[]> {
     if (!this.database || !this.embeddingProvider) {
       return [];
     }
@@ -153,10 +171,10 @@ export class MemoryRetriever {
       return this.database.searchVector(
         embedding,
         limit ?? this.defaultLimit,
-        minScore ?? this.defaultMinScore
+        minScore ?? this.defaultMinScore,
       );
     } catch (error) {
-      log.error('[MemoryRetriever] Vector search failed:', error);
+      log.error("[MemoryRetriever] Vector search failed:", error);
       return [];
     }
   }
@@ -174,7 +192,7 @@ export class MemoryRetriever {
       ftsWeight: number;
       limit: number;
       minScore: number;
-    }
+    },
   ): MemorySearchResult[] {
     const { vectorWeight, ftsWeight, limit, minScore } = options;
 
@@ -183,11 +201,14 @@ export class MemoryRetriever {
     const normalizedVec = this.normalizeScores(vecResults);
 
     // Create map for combining scores
-    const scoreMap = new Map<string, {
-      entry: MemorySearchResult['entry'];
-      ftsScore: number;
-      vecScore: number;
-    }>();
+    const scoreMap = new Map<
+      string,
+      {
+        entry: MemorySearchResult["entry"];
+        ftsScore: number;
+        vecScore: number;
+      }
+    >();
 
     // Add FTS results
     for (const result of normalizedFts) {
@@ -218,15 +239,18 @@ export class MemoryRetriever {
     for (const [id, data] of scoreMap) {
       // Weighted combination
       const finalScore =
-        vectorWeight * data.vecScore +
-        ftsWeight * data.ftsScore;
+        vectorWeight * data.vecScore + ftsWeight * data.ftsScore;
 
       if (finalScore >= minScore) {
         merged.push({
           entry: data.entry,
           score: finalScore,
-          source: data.ftsScore > 0 && data.vecScore > 0 ? 'hybrid' :
-                  data.vecScore > 0 ? 'vector' : 'fts',
+          source:
+            data.ftsScore > 0 && data.vecScore > 0
+              ? "hybrid"
+              : data.vecScore > 0
+                ? "vector"
+                : "fts",
         });
       }
     }
@@ -245,17 +269,17 @@ export class MemoryRetriever {
       return results;
     }
 
-    const scores = results.map(r => r.score);
+    const scores = results.map((r) => r.score);
     const min = Math.min(...scores);
     const max = Math.max(...scores);
     const range = max - min;
 
     if (range === 0) {
       // All scores are the same
-      return results.map(r => ({ ...r, score: 1 }));
+      return results.map((r) => ({ ...r, score: 1 }));
     }
 
-    return results.map(r => ({
+    return results.map((r) => ({
       ...r,
       score: (r.score - min) / range,
     }));
@@ -268,20 +292,23 @@ export class MemoryRetriever {
    */
   async getContext(
     query: string,
-    options?: HybridSearchOptions
+    options?: HybridSearchOptions,
   ): Promise<string> {
     const results = await this.search(query, options);
 
     if (results.length === 0) {
-      return '';
+      return "";
     }
 
     // Format as XML
-    const memories = results.map((r, i) =>
-      `  <memory score="${r.score.toFixed(2)}" source="${r.source}">
+    const memories = results
+      .map(
+        (r, i) =>
+          `  <memory score="${r.score.toFixed(2)}" source="${r.source}">
     ${r.entry.text}
-  </memory>`
-    ).join('\n');
+  </memory>`,
+      )
+      .join("\n");
 
     return `<memories>
 ${memories}
@@ -293,17 +320,17 @@ ${memories}
    */
   async getContextMarkdown(
     query: string,
-    options?: HybridSearchOptions
+    options?: HybridSearchOptions,
   ): Promise<string> {
     const results = await this.search(query, options);
 
     if (results.length === 0) {
-      return '';
+      return "";
     }
 
-    return results.map(r =>
-      `- ${r.entry.text} (相关度: ${r.score.toFixed(2)})`
-    ).join('\n');
+    return results
+      .map((r) => `- ${r.entry.text} (relevance: ${r.score.toFixed(2)})`)
+      .join("\n");
   }
 
   // ==================== Filtering ====================
@@ -318,7 +345,7 @@ ${memories}
     for (let i = 0; i < this.dailyMemoryDays; i++) {
       const date = new Date(today);
       date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = date.toISOString().split("T")[0];
       sources.push(`memory/${dateStr}.md`);
     }
 
@@ -330,10 +357,10 @@ ${memories}
    */
   filterBySource(
     results: MemorySearchResult[],
-    sources: MemorySource[]
+    sources: MemorySource[],
   ): MemorySearchResult[] {
     const sourceSet = new Set(sources);
-    return results.filter(r => sourceSet.has(r.entry.source));
+    return results.filter((r) => sourceSet.has(r.entry.source));
   }
 }
 

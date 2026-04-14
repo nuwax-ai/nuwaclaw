@@ -1,113 +1,219 @@
-# nuwax-agent
+# NuwaClaw
 
 [English](README_EN.md) | 简体中文
 
 [![CI](https://img.shields.io/github/actions/workflow/status/soddygo/nuwax-agent/ci.yml?branch=main)](https://github.com/soddygo/nuwax-agent/actions)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-跨平台 Agent 客户端，支持远程桌面控制和 AI Agent 任务执行。基于 Electron 构建桌面应用。
+多引擎 AI 助手桌面客户端，基于 ACP (Agent Client Protocol) 协议，支持任何兼容 ACP 的 Agent 引擎，提供跨平台的本地 AI Agent 执行能力。
 
-## 功能特性
+## 核心特性
 
-### 核心功能
+### 多引擎支持
 
-- **远程连接管理** - 通过 P2P 或中继服务器与管理端建立安全连接
-- **AI Agent 任务执行** - 接收并执行来自管理端的 AI Agent 任务
-- **依赖管理** - 自动检测和安装 Node.js、npm 等运行时依赖
-- **安全通信** - 基于 RustDesk 协议的端到端加密通信
+NuwaClaw 采用 [ACP (Agent Client Protocol)](https://agentclientprotocol.com/) 协议与 Agent 引擎通信，支持任何实现了 ACP 协议的 Agent：
 
-### UI 功能
+| 引擎 | 说明 |
+|------|------|
+| **Claude Code** | Anthropic 官方 CLI Agent，推荐使用 ⭐ |
+| **Codex CLI** | OpenAI 的代码 Agent |
+| **Gemini CLI** | Google 的 AI Agent |
+| **GitHub Copilot** | GitHub 的 AI 编程助手 |
+| **Cline** | 开源自主编程 Agent |
+| **Cursor** | Cursor IDE 的 Agent 能力 |
+| **Goose** | Block 开源的 AI Agent |
+| **Qwen Code** | 阿里通义千问代码 Agent |
+| **Junie** | JetBrains 的 AI Agent |
+| **OpenCode** | 开源代码 Agent |
+| **Nuwaxcode** | 基于 OpenCode 修改的 Agent 引擎 |
+| **更多...** | [查看完整列表](https://agentclientprotocol.com/get-started/agents) |
 
-- **系统托盘** - 后台运行，托盘图标快速操作
-- **客户端信息** - 显示客户端 ID 和连接密码
-- **设置管理** - 服务器配置、安全设置、外观设置
-- **依赖状态** - 可视化依赖检测和安装进度
-- **远程桌面** - 远程桌面查看和控制（开发中）
-- **聊天通信** - 与管理端的即时消息（开发中）
+> **ACP 协议**: Agent Client Protocol，标准化编辑器/IDE 与 AI Agent 之间的通信协议，基于 NDJSON 格式。类似 LSP 之于语言服务，ACP 让你可以将任何 ACP 兼容的 Agent 接入到任何支持的客户端。
 
-### 平台支持
+- 引擎隔离运行，独立环境配置
+- 动态切换引擎，无需重启应用
+- 避免厂商锁定，自由选择 Agent
 
-| 平台 | 架构 | 状态 |
-|------|------|------|
-| macOS | arm64, x86_64 | ✅ 支持 |
-| Windows | x86_64 | ✅ 支持 |
-| Linux | x86_64, arm64 | ✅ 支持 |
+### 跨平台客户端
+- **Electron 客户端** - 基于 Electron + React 的桌面客户端
+
+### MCP 协议支持
+- 动态 MCP 服务器管理
+- 多协议支持 (stdio, SSE, Streamable HTTP)
+- 弹性连接与自动重连
+
+### 其他特性
+- **持久化存储** - SQLite 本地存储
+- **系统托盘** - 后台运行，快速操作
 
 ## 项目架构
 
 ```
-nuwax-agent/
+nuwax-agent-client/
 ├── crates/
-│   ├── agent-electron-client/  # Electron 客户端
-│   ├── agent-gui-server/      # GUI Agent 服务 (Node.js)
-│   └── nuwax-mcp-stdio-proxy/ # MCP 协议代理 (Node.js)
-├── docs/                      # 文档
-├── scripts/                   # 构建脚本
-└── tests/                     # 测试
+│   ├── agent-electron-client/   # Electron 客户端 (主要开发)
+│   ├── nuwax-mcp-stdio-proxy/   # MCP 协议聚合代理
+│   ├── agent-gpui-client/       # GPUI 客户端 (实验性)
+│   ├── agent-server-admin/      # 管理端 API 服务
+│   ├── agent-protocol/          # 通信协议定义
+│   ├── system-permissions/      # 系统权限管理
+│   └── nuwax-agent-core/        # 核心逻辑 (Rust)
+└── vendors/                     # 第三方依赖
 ```
 
 ## 快速开始
 
-### 环境要求
-
-- Node.js 18+
-- pnpm 9+
-
-### 安装依赖
+### Electron 客户端
 
 ```bash
-pnpm install
+# 方式一：使用 Makefile（推荐，项目根目录执行）
+make electron-dev     # 开发模式
+make electron-build   # 构建
+make electron-dist    # 打包
+
+# 方式二：进入目录执行 npm 命令
+cd crates/agent-electron-client
+
+# 安装依赖
+npm install
+
+# 开发模式
+npm run dev
+
+# 构建
+npm run build
+
+# 打包
+npm run dist:mac      # macOS
+npm run dist:win      # Windows
+npm run dist:linux    # Linux
 ```
 
-### 编译运行
+### MCP 代理服务
 
 ```bash
-# 准备依赖（Node.js、uv、lanproxy 等）
-make electron-prepare
+cd crates/nuwax-mcp-stdio-proxy
 
-# 开发模式运行
-make electron-dev
+# 安装依赖
+npm install
 
-# 打包发布
-make electron-bundle
+# 构建
+npm run build
+
+# 运行 (stdio 聚合模式)
+nuwax-mcp-stdio-proxy --config '{"mcpServers":{...}}'
+
+# 运行 (协议转换模式)
+nuwax-mcp-stdio-proxy convert http://remote-mcp-server/sse
+
+# 运行 (持久化桥接模式)
+nuwax-mcp-stdio-proxy proxy --port 18099 --config '{"mcpServers":{...}}'
 ```
+
+## 平台支持
+
+| 平台 | 架构 | 状态 |
+|------|------|:----:|
+| macOS | arm64, x86_64 | ✅ |
+| Windows | x86_64, arm64 | ✅ |
+| Linux | x86_64, arm64 | ✅ |
+
+## Electron 客户端详解
+
+### 技术栈
+- **主进程**: Electron + TypeScript
+- **渲染进程**: React 18 + Ant Design
+- **存储**: SQLite (better-sqlite3)
+- **构建**: Vite + electron-builder
+
+### 核心服务
+
+| 服务 | 说明 |
+|------|------|
+| Unified Agent | 统一的 ACP 引擎管理 |
+| Engine Manager | 引擎生命周期管理 |
+| MCP | MCP 服务器管理 |
+| Dependencies | 依赖包管理 |
+| Permissions | 权限控制 |
+
+### 数据存储
+
+```
+~/.nuwaclaw/
+├── engines/           # Agent 引擎
+├── workspaces/        # 会话工作空间
+├── node_modules/      # 本地 npm 包
+│   ├── .bin/         # 可执行文件
+│   └── mcp-servers/  # MCP 服务器
+├── bin/               # 应用二进制
+├── logs/              # 日志文件
+│   ├── main.log      # 主进程日志
+│   └── mcp-proxy.log # MCP 代理日志
+└── nuwaclaw.db        # SQLite 数据库
+```
+
+### IPC 通道
+
+| 分类 | 通道 |
+|------|------|
+| Session | `session:list`, `session:create`, `session:delete` |
+| Message | `message:list`, `message:add` |
+| Settings | `settings:get`, `settings:set` |
+| Agent | `agent:init`, `agent:destroy`, `agent:prompt` |
+| MCP | `mcp:install`, `mcp:uninstall`, `mcp:start`, `mcp:stop` |
+
+## MCP 代理服务详解
+
+`nuwax-mcp-stdio-proxy` 是一个 MCP 协议聚合代理，解决多 MCP 服务器集成时的生命周期管理问题。
+
+### 运行模式
+
+| 模式 | 用途 | 命令 |
+|------|------|------|
+| **stdio** | 聚合多个 MCP 服务器为单个 stdio 接口 | `nuwax-mcp-stdio-proxy --config '...'` |
+| **convert** | 将远程 MCP 服务转换为本地 stdio | `nuwax-mcp-stdio-proxy convert <url>` |
+| **proxy** | 持久化桥接，预先启动并暴露 HTTP 接口 | `nuwax-mcp-stdio-proxy proxy --port 18099` |
+
+### 核心特性
+- **就绪状态检测**: 阻塞等待 MCP 服务器就绪
+- **弹性传输**: 心跳检测、指数退避重连、请求队列
+- **集中清理**: 优雅终止所有子进程
+
+### 弹性传输参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `pingIntervalMs` | 20000 | 心跳间隔 |
+| `maxConsecutiveFailures` | 3 | 连续失败阈值 |
+| `maxReconnectDelayMs` | 60000 | 重连延迟上限 |
+| `maxQueueSize` | 100 | 请求队列容量 |
 
 ## 配置说明
 
-配置文件位于：
-- macOS: `~/Library/Application Support/nuwax-agent/config.toml`
-- Windows: `%APPDATA%\nuwax-agent\config.toml`
-- Linux: `~/.config/nuwax-agent/config.toml`
+### Electron 客户端配置
 
-```toml
-[server]
-# 信令服务器地址
-hbbs = "your-server:21116"
-# 中继服务器地址
-hbbr = "your-server:21117"
+首次运行时通过设置向导配置：
+1. 输入 Anthropic API Key
+2. 选择默认模型
+3. 配置 MCP 服务器
 
-[security]
-# 连接密码（加密存储）
-password_hash = "..."
+敏感配置存储在 SQLite 数据库中，不在代码中硬编码。
 
-[general]
-# 开机自启动
-auto_launch = true
-# 语言设置
-language = "zh-CN"
-# 主题模式: light, dark, system
-theme = "system"
+### MCP 服务器配置示例
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+    },
+    "github": {
+      "url": "https://api.github.com/mcp"
+    }
+  }
+}
 ```
-
-## 功能特性
-
-| 功能 | 说明 |
-|------|------|
-| **系统托盘** | 后台运行，托盘图标快速操作 |
-| **AI Agent** | 支持 claude-code 和 nuwaxcode 引擎 |
-| **MCP 集成** | MCP 协议支持 |
-| **IM 集成** | 支持 Telegram、Discord、钉钉、飞书 |
-| **依赖管理** | 自动检测和安装运行时依赖 |
 
 ## 开发指南
 
@@ -116,46 +222,58 @@ theme = "system"
 ```
 crates/agent-electron-client/
 ├── src/
-│   ├── main/            # Electron 主进程
-│   │   ├── main.ts     # 入口
-│   │   └── services/   # 服务
-│   ├── preload/        # 预加载脚本
-│   ├── renderer/       # React 渲染进程
-│   └── shared/        # 共享类型
-└── resources/         # 资源文件（Node.js、uv 等）
+│   ├── main/              # 主进程
+│   │   ├── main.ts        # 入口
+│   │   ├── preload.ts     # 预加载脚本
+│   │   ├── ipc/           # IPC 处理器
+│   │   └── services/      # 主进程服务
+│   ├── renderer/          # 渲染进程
+│   │   ├── main.tsx       # React 入口
+│   │   ├── App.tsx        # 主组件
+│   │   ├── components/    # React 组件
+│   │   └── services/      # 渲染进程服务
+│   └── shared/            # 共享代码
+├── resources/             # 打包资源
+├── scripts/               # 构建脚本
+└── package.json
+```
+
+### 运行测试
+
+```bash
+# Electron 客户端
+cd crates/agent-electron-client
+npm run test
+
+# MCP 代理
+cd crates/nuwax-mcp-stdio-proxy
+npm run test:run
+npm run test:coverage
 ```
 
 ### 调试模式
 
 ```bash
-# 开发模式运行（详细日志）
-make electron-dev
+# 启用详细日志
+RUST_LOG=debug npm run dev
 ```
 
-## 通信协议
+## GitHub Actions
 
-客户端与管理端通过 WebSocket 连接进行通信：
+### CI/CD 工作流
 
+| 工作流 | 触发条件 | 说明 |
+|--------|----------|------|
+| `ci-electron.yml` | `crates/agent-electron-client/**` 变更 | Electron 测试构建 |
+| `release-electron.yml` | 推送 `electron-v*` tag | Electron 发布构建 |
+
+### 发布流程
+
+```bash
+# Electron 发布
+git tag electron-v0.9.0
+git push origin electron-v0.9.0
 ```
-┌─────────────┐      WebSocket       ┌─────────────┐
-│   Client    │◄───────────────────►│   Admin     │
-│  (Electron) │                      │   Server    │
-└─────────────┘                      └─────────────┘
-```
-
-### 消息类型
-
-- `Handshake` - 握手协议，协商版本和能力
-- `AgentTask` - Agent 任务请求/响应
-- `FileTransfer` - 文件传输
-- `Chat` - 聊天消息
-- `Heartbeat` - 心跳保活
-
-## 安全机制
-
-- **密码加密** - 使用 AES-GCM 加密存储
-- **通信加密** - WebSocket TLS 加密
-- **权限控制** - 敏感操作需要确认
 
 ## 许可证
 
@@ -175,6 +293,6 @@ make electron-dev
 
 ## 相关项目
 
-- [Electron](https://electronjs.org/) - 跨平台桌面应用框架
-- [React](https://react.dev/) - UI 库
-- [MCP](https://modelcontextprotocol.io/) - 模型上下文协议
+- [Electron](https://www.electronjs.org/) - 跨平台桌面应用框架
+- [MCP](https://modelcontextprotocol.io/) - Model Context Protocol
+- [Ant Design](https://ant.design/) - React UI 组件库

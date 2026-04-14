@@ -394,7 +394,7 @@ function ensureUvInAppBin(): void {
     const srcBinIsDir =
       fs.existsSync(srcBin) && fs.statSync(srcBin).isDirectory();
     log.info(
-      `[ensureUvInAppBin] resources/uv/bin: ${srcBin}, uv 存在=${srcExists}, 是目录=${srcBinIsDir}`,
+      `[ensureUvInAppBin] resources/uv/bin: ${srcBin}, uvExists=${srcExists}, isDir=${srcBinIsDir}`,
     );
     if (!srcExists || !srcBinIsDir) return;
     if (!fs.existsSync(appBin)) fs.mkdirSync(appBin, { recursive: true });
@@ -898,7 +898,7 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
         .join(":");
       cleanEnv.ORIGINAL_PATH = posixPath;
       log.info(
-        `[getAppEnv] 设置 ORIGINAL_PATH (${limitedEntries.length}/${pathEntries.length} entries)`,
+        `[getAppEnv] Set ORIGINAL_PATH (${limitedEntries.length}/${pathEntries.length} entries)`,
       );
     }
 
@@ -942,7 +942,7 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
           for (const entry of registryEntries) {
             if (missingEntries.length >= MAX_REGISTRY_PATH_ENTRIES) {
               log.info(
-                `[getAppEnv] 已达到最大注册表 PATH 条目限制 (${MAX_REGISTRY_PATH_ENTRIES})，跳过剩余条目`,
+                `[getAppEnv] Registry PATH entry limit reached (${MAX_REGISTRY_PATH_ENTRIES}), skipping remaining entries`,
               );
               break;
             }
@@ -955,7 +955,7 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
           if (missingEntries.length > 0) {
             cleanEnv.PATH = currentPath + ";" + missingEntries.join(";");
             log.info(
-              `[getAppEnv] 从注册表追加 ${missingEntries.length} 个 PATH 条目`,
+              `[getAppEnv] Appended ${missingEntries.length} PATH entries from registry`,
             );
           }
         }
@@ -1184,7 +1184,7 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       description: t(I18N_KEYS.Pages.Dependencies.DESC_NUWAXCODE),
       required: true,
       binName: "nuwaxcode",
-      installVersion: "1.1.72",
+      installVersion: "1.1.75",
     },
     {
       name: "claude-code-acp-ts",
@@ -1221,7 +1221,7 @@ export async function checkNodeVersion(): Promise<{
 
   if (bundledPath && fs.existsSync(bundledPath)) {
     log.info(
-      `[checkNodeVersion] 内置 Node.js 文件存在，尝试执行: ${bundledPath}`,
+      `[checkNodeVersion] Bundled Node.js binary exists, attempting to run: ${bundledPath}`,
     );
     const result = await _checkNodeBin(bundledPath);
     log.info(`[checkNodeVersion] Bundled Node.js check result:`, result);
@@ -2040,7 +2040,7 @@ export async function installMissingDependencies(): Promise<{
 
     if (dep.status === "outdated") {
       log.info(
-        `[Dependencies] 按配置版本升级: ${dep.name}@${dep.installVersion}`,
+        `[Dependencies] Upgrading to configured version: ${dep.name}@${dep.installVersion}`,
       );
     } else {
       log.info(`[Dependencies] Installing missing: ${dep.name}`);
@@ -2100,7 +2100,7 @@ export async function syncInitDependencies(): Promise<{ updated: string[] }> {
 
     if (needInstall) {
       log.info(
-        `[Dependencies] syncInitDependencies: 安装/升级 ${dep.name}@${dep.installVersion}`,
+        `[Dependencies] syncInitDependencies: installing/upgrading ${dep.name}@${dep.installVersion}`,
       );
       const result = await installNpmPackage(dep.name, {
         version: dep.installVersion,
@@ -2108,7 +2108,7 @@ export async function syncInitDependencies(): Promise<{ updated: string[] }> {
       if (result.success) updated.push(dep.name);
       else
         log.warn(
-          `[Dependencies] syncInitDependencies: ${dep.name} 安装失败`,
+          `[Dependencies] syncInitDependencies: ${dep.name} install failed`,
           result.error,
         );
     }

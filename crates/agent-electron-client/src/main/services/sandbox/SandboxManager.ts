@@ -206,7 +206,7 @@ export abstract class SandboxManager extends EventEmitter {
     const workspace = this.workspaces.get(sessionId);
     if (!workspace) {
       throw new WorkspaceError(
-        `工作区未找到: ${sessionId}`,
+        `Workspace not found: ${sessionId}`,
         SandboxErrorCode.WORKSPACE_NOT_FOUND,
         { sessionId },
       );
@@ -226,7 +226,7 @@ export abstract class SandboxManager extends EventEmitter {
 
     if (!normalizedPath.startsWith(normalizedRoot)) {
       throw new SandboxError(
-        `路径不在工作区内: ${path}`,
+        `Path outside workspace: ${path}`,
         SandboxErrorCode.PERMISSION_DENIED,
         {
           sessionId: workspace.sessionId,

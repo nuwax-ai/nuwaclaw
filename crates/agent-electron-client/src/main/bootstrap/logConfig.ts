@@ -308,8 +308,8 @@ export function initLogging(): void {
   cleanupOldLogs(logDir, ttlMs);
 
   log.info(
-    "[LogConfig] 日志已初始化",
-    dev ? "(开发)" : "(正式)",
+    "[LogConfig] Logging initialized",
+    dev ? "(development)" : "(production)",
     "fileLevel=",
     log.transports.file.level,
     "maxSize=",

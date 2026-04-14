@@ -649,7 +649,7 @@ export class ExtractionQueue extends EventEmitter {
     candidates: ExtractedMemory[],
     existingMemories: string,
   ): string {
-    return `你是一个记忆验证助手。请判断以下候选记忆是否值得保存。
+    return `You are a memory validation assistant. Decide whether the candidate memory below is worth saving.
 
 ## 候选记忆
 ${candidates.map((c) => c.text).join("\n")}
@@ -657,17 +657,17 @@ ${candidates.map((c) => c.text).join("\n")}
 ## 现有记忆
 ${existingMemories || "(无)"}
 
-## 判断规则
-1. 是否与现有记忆冲突或重复?
-2. 是否具有长期价值?
-3. 是否是用户个人信息而非通用知识?
+## Rules
+1. Does it conflict with or duplicate existing memories?
+2. Does it have long-term value?
+3. Is it personal information about the user rather than general knowledge?
 
-## 输出
-返回 JSON:
+## Output
+Return JSON:
 {
   "accept": true/false,
-  "reason": "拒绝或接受的原因",
-  "merged_text": "如果需要合并，提供合并后的文本",
+  "reason": "why accepted or rejected",
+  "merged_text": "if merging is needed, the merged text",
   "confidence": 0.0-1.0
 }`;
   }

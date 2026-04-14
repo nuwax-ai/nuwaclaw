@@ -104,7 +104,7 @@ export class EngineWarmup {
     const activeEngineCount = this.engines.size;
     if (activeEngineCount > 0 && !options?.allowWhenActiveEngines) {
       log.debug(
-        `[EngineWarmup] 当前有 ${activeEngineCount} 个活跃引擎，跳过预热`,
+        `[EngineWarmup] ${activeEngineCount} active engine(s) present, skipping warmup`,
       );
       return;
     }
@@ -190,7 +190,7 @@ export class EngineWarmup {
       })
       .catch((err) => {
         log.warn(
-          "[EngineWarmup] 🔥 热启动失败:",
+          "[EngineWarmup] 🔥 Warm start failed:",
           err instanceof Error ? err.message : String(err),
         );
         cleanup();
@@ -437,7 +437,7 @@ export class EngineWarmup {
     if (warmupKeys.join("\0") !== requestKeys.join("\0")) {
       return {
         compatible: false,
-        reason: `MCP key 集合不一致 (warmup=${warmupKeys.join(",") || "(none)"}, request=${requestKeys.join(",") || "(none)"})`,
+        reason: `MCP key set mismatch (warmup=${warmupKeys.join(",") || "(none)"}, request=${requestKeys.join(",") || "(none)"})`,
       };
     }
 
@@ -447,7 +447,7 @@ export class EngineWarmup {
       if (aSer !== bSer) {
         return {
           compatible: false,
-          reason: `MCP[${key}] 配置不一致`,
+          reason: `MCP[${key}] config mismatch`,
           detail: {
             warmupDigest: this.digest(aSer),
             requestDigest: this.digest(bSer),
@@ -540,7 +540,7 @@ export class EngineWarmup {
         requestEngineType !== "nuwaxcode" // nuwaxcode 是 warmup 的默认类型
       ) {
         log.info(
-          `[EngineWarmup] ⚠️ 引擎类型不兼容 (warmup=${warmupEngineType}, request=${requestEngineType})，不复用`,
+          `[EngineWarmup] ⚠️ Engine type incompatible (warmup=${warmupEngineType}, request=${requestEngineType}), not reusing`,
         );
         return this.teardownWarmup(engine, "engine_type_incompatible", {
           projectId,
@@ -638,7 +638,7 @@ export class EngineWarmup {
         // 缓存本次请求的运行时配置，供后续 warmup refill 使用
         this.cacheRuntimeConfig(effectiveConfig);
         log.info(
-          `[EngineWarmup] ⚠️ 运行时配置不兼容，不复用 warmup（${runtimeMismatch.join(",")}）`,
+          `[EngineWarmup] ⚠️ Runtime config incompatible, not reusing warmup (${runtimeMismatch.join(",")})`,
           {
             warmupModel: warmupConfig.model || "(none)",
             requestModel: effectiveConfig.model || "(none)",
@@ -672,7 +672,7 @@ export class EngineWarmup {
       const requestSandboxMode = effectiveConfig.__sandboxMode ?? "compat";
       if (warmupSandboxMode !== requestSandboxMode) {
         log.info(
-          `[EngineWarmup] ⚠️ 沙箱模式不兼容 (warmup=${warmupSandboxMode}, request=${requestSandboxMode})，不复用`,
+          `[EngineWarmup] ⚠️ Sandbox mode incompatible (warmup=${warmupSandboxMode}, request=${requestSandboxMode}), not reusing`,
         );
         this.lastMcpServers =
           Object.keys(effectiveConfig.mcpServers || {}).length > 0
@@ -697,7 +697,7 @@ export class EngineWarmup {
         (warmupConfig.env || {})[WARMUP_MCP_READY_FLAG] === "1";
       if (requestMcpKeys.length > 0 && !warmupMcpReady) {
         log.info(
-          "[EngineWarmup] ⚠️ 检测到旧 warmup 进程（缺少 MCP ready 标记），不复用",
+          "[EngineWarmup] ⚠️ Legacy warmup process detected (missing MCP ready marker), not reusing",
           { requestMcpKeys, warmupMcpKeys },
         );
         this.lastMcpServers = requestMcp;
@@ -719,7 +719,7 @@ export class EngineWarmup {
 
       if (!compatible) {
         log.info(
-          `[EngineWarmup] ⚠️ MCP 配置不兼容，不复用 warmup（${reason}）`,
+          `[EngineWarmup] ⚠️ MCP config incompatible, not reusing warmup (${reason})`,
         );
         if (detail) {
           log.debug("[EngineWarmup] MCP compatibility diff details:", detail);
@@ -728,7 +728,7 @@ export class EngineWarmup {
         if (requestMcpKeys.length > 0) {
           this.lastMcpServers = requestMcp;
           log.debug(
-            `[EngineWarmup] 💾 缓存 MCP 配置供 respawn 使用: ${requestMcpKeys.join(",")}`,
+            `[EngineWarmup] 💾 Cached MCP config for respawn: ${requestMcpKeys.join(",")}`,
           );
         } else {
           this.lastMcpServers = null;
@@ -741,7 +741,7 @@ export class EngineWarmup {
       }
 
       log.info(
-        `[EngineWarmup] ♻️ 复用 warmup 引擎，分配给 project: ${projectId} (节省 ~${savedTime}ms, MCP: ${requestMcpKeys.join(",") || "(none)"})`,
+        `[EngineWarmup] ♻️ Reusing warmup engine for project: ${projectId} (saved ~${savedTime}ms, MCP: ${requestMcpKeys.join(",") || "(none)"})`,
       );
       // 复用成功时也缓存运行时配置，确保 refill warmup 有一致的配置
       this.cacheRuntimeConfig(effectiveConfig);
@@ -804,7 +804,7 @@ export class EngineWarmup {
       }
       if (this.engines.size > 0) {
         log.debug(
-          `[EngineWarmup] 当前有 ${this.engines.size} 个活跃引擎，暂不重新预热`,
+          `[EngineWarmup] ${this.engines.size} active engine(s) present, skipping re-warmup`,
         );
         return;
       }
@@ -813,7 +813,7 @@ export class EngineWarmup {
       // 注意：lastMcpServers 来自上一次请求，如果全局配置已变更可能过期
       if (this.lastMcpServers) {
         log.debug(
-          "[EngineWarmup] 使用缓存的 MCP 配置预热（可能已过期，首次请求时会校验）",
+          "[EngineWarmup] Warming up with cached MCP config (may be stale; first request will validate)",
         );
       }
       const respawnConfig = this.lastMcpServers
@@ -824,7 +824,7 @@ export class EngineWarmup {
         ? `MCP: ${Object.keys(respawnConfig.mcpServers).join(",")}`
         : "MCP: (none)";
       log.info(
-        `[EngineWarmup] 🔁 会话结束，重新预热 nuwaxcode 引擎 (${mcpInfo})...`,
+        `[EngineWarmup] 🔁 Session ended, re-warming nuwaxcode engine (${mcpInfo})...`,
       );
 
       this.start(respawnConfig, onEngineCreated);

@@ -168,7 +168,7 @@ export class PermissionManager extends EventEmitter {
       log.warn("[PermissionManager] Permission denied:", type);
       return {
         allowed: false,
-        reason: `权限类型 ${type} 被安全策略禁止`,
+        reason: `Permission type ${type} is blocked by security policy`,
       };
     }
 
@@ -242,7 +242,7 @@ export class PermissionManager extends EventEmitter {
       log.info("[PermissionManager] User confirmation required:", request.id);
       return {
         allowed: false,
-        reason: "需要用户确认",
+        reason: "User confirmation required",
         requestId: request.id,
       };
     }
@@ -250,7 +250,7 @@ export class PermissionManager extends EventEmitter {
     // 默认拒绝
     return {
       allowed: false,
-      reason: "权限类型未定义",
+      reason: "Permission type undefined",
     };
   }
 
@@ -298,7 +298,7 @@ export class PermissionManager extends EventEmitter {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(request.id);
         reject(
-          new PermissionError("权限请求超时", {
+          new PermissionError("Permission request timed out", {
             sessionId,
             details: { requestId: request.id },
           }),
@@ -310,7 +310,7 @@ export class PermissionManager extends EventEmitter {
 
         if (permission.approvedBy === "denied") {
           reject(
-            new PermissionError("权限被拒绝", {
+            new PermissionError("Permission denied", {
               sessionId,
               details: { requestId: request.id, reason: permission.reason },
             }),
@@ -339,9 +339,13 @@ export class PermissionManager extends EventEmitter {
   ): Promise<void> {
     const request = this.pendingRequests.get(requestId);
     if (!request) {
-      throw new SandboxError("请求未找到", SandboxErrorCode.PERMISSION_DENIED, {
-        details: { requestId },
-      });
+      throw new SandboxError(
+        "Request not found",
+        SandboxErrorCode.PERMISSION_DENIED,
+        {
+          details: { requestId },
+        },
+      );
     }
 
     // 创建权限对象
@@ -382,9 +386,13 @@ export class PermissionManager extends EventEmitter {
   async deny(requestId: string, reason?: string): Promise<void> {
     const request = this.pendingRequests.get(requestId);
     if (!request) {
-      throw new SandboxError("请求未找到", SandboxErrorCode.PERMISSION_DENIED, {
-        details: { requestId },
-      });
+      throw new SandboxError(
+        "Request not found",
+        SandboxErrorCode.PERMISSION_DENIED,
+        {
+          details: { requestId },
+        },
+      );
     }
 
     // 缓存拒绝
@@ -631,7 +639,7 @@ export class PermissionManager extends EventEmitter {
       if (dangerousPattern.test(lowerTarget)) {
         return {
           isDangerous: true,
-          reason: `检测到危险操作: ${dangerous}`,
+          reason: `Dangerous operation detected: ${dangerous}`,
         };
       }
     }
@@ -642,7 +650,7 @@ export class PermissionManager extends EventEmitter {
       if (lowerTarget.includes(".ssh") || lowerTarget.includes("/.ssh")) {
         return {
           isDangerous: true,
-          reason: "禁止访问 SSH 目录",
+          reason: "SSH directory access is blocked",
         };
       }
 
@@ -657,7 +665,7 @@ export class PermissionManager extends EventEmitter {
       if (sensitiveEtcPaths.some((path) => lowerTarget === path)) {
         return {
           isDangerous: true,
-          reason: "禁止访问系统配置目录",
+          reason: "System config path access is blocked",
         };
       }
     }

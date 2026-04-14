@@ -319,24 +319,38 @@ export function createServiceManager(ctx: ServiceManagerContext) {
           ssl: lpConfig.ssl as boolean,
         });
         if (results.lanproxy.success) {
-          // 健康检查
-          const health = await checkLanproxyHealth(clientKey);
-          results.lanproxy.healthCheck = health;
-          if (!health.healthy) {
-            log.warn("[Lanproxy] Health check failed:", health.error);
-          }
+          // 远端 health 接口可选；异步探测仅打日志，不阻塞批量重启
+          const lanproxyResult = results.lanproxy;
+          void checkLanproxyHealth(clientKey)
+            .then((health) => {
+              lanproxyResult.healthCheck = health;
+              if (!health.healthy) {
+                log.warn(
+                  "[Lanproxy] Post-start health probe failed (non-fatal; private backends may omit /api/sandbox/config/health):",
+                  health.error,
+                );
+              } else {
+                log.info("[Lanproxy] Post-start health probe OK");
+              }
+            })
+            .catch((e) => {
+              log.warn(
+                "[Lanproxy] Post-start health probe error (non-fatal):",
+                e,
+              );
+            });
         } else {
           log.error("[Lanproxy] Batch start failed", {
             error: results.lanproxy.error,
           });
         }
       } else {
-        results.lanproxy = { success: false, error: "缺少 lanproxy 配置" };
+        results.lanproxy = { success: false, error: "Lanproxy config missing" };
         log.warn("[Lanproxy] Skipped: missing config", {
           hasServerIp: !!serverIp,
           hasClientKey: !!clientKey,
           hasServerPort: !!serverPort,
-          hint: "请配置 server_host / server_port 与 saved_key（或 lanproxy_config）",
+          hint: "Set server_host, server_port, and saved_key (or lanproxy_config)",
         });
       }
     } catch (e) {

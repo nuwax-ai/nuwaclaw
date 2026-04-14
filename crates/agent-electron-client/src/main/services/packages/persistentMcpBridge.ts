@@ -63,7 +63,7 @@ function getInstance(): NonNullable<typeof instance> {
       }
     } catch (err) {
       log.warn(
-        `[PersistentMcpBridge] 应用内集成版本加载失败，回退到 node_modules:`,
+        `[PersistentMcpBridge] Bundled integration load failed, falling back to node_modules:`,
         err instanceof Error ? err.message : String(err),
       );
     }
@@ -79,7 +79,7 @@ function getInstance(): NonNullable<typeof instance> {
       throw new Error(`${PKG_NAME}: PersistentMcpBridge export not found`);
     }
     log.info(
-      `[PersistentMcpBridge] 使用 ~/.nuwaxbot 路径（回退兼容）: ${pkgPath}`,
+      `[PersistentMcpBridge] Using ~/.nuwaxbot path (legacy fallback): ${pkgPath}`,
     );
     instance = new pkg.PersistentMcpBridge(createQuietLogger()) as NonNullable<
       typeof instance

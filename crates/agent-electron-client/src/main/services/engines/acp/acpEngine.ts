@@ -503,7 +503,7 @@ export class AcpEngine extends EventEmitter {
         const configContent = JSON.stringify(configObj);
         spawnEnv.OPENCODE_CONFIG_CONTENT = configContent;
         log.info(
-          `${this.logTag} 🔌 nuwaxcode config 注入 (OPENCODE_CONFIG_CONTENT)`,
+          `${this.logTag} 🔌 nuwaxcode config injected (OPENCODE_CONFIG_CONTENT)`,
           {
             mcp_injection: isWarmupProcess
               ? "enabled (legacy dual-path for A/B, warmup process)"
@@ -1389,7 +1389,7 @@ export class AcpEngine extends EventEmitter {
     });
 
     log.info(
-      `${this.logTag} ✅ ACP newSession 完成 (${createMs}ms), acpSessionId=${acpResult.sessionId}`,
+      `${this.logTag} ✅ ACP newSession completed (${createMs}ms), acpSessionId=${acpResult.sessionId}`,
     );
     firstTokenTrace.trace(
       "acp.new_session.done",
@@ -1694,7 +1694,7 @@ export class AcpEngine extends EventEmitter {
 
                 const telemetry = getMcpTransportSnapshot(this.acpProcess);
                 log.warn(
-                  `${this.logTag} ⚠️ 检测到 MCP 重连窗口，自动重试 prompt（attempt=${attempt + 1}/${maxAttempts}）`,
+                  `${this.logTag} ⚠️ MCP reconnect window detected, auto-retrying prompt (attempt=${attempt + 1}/${maxAttempts})`,
                   {
                     sessionId,
                     error: errMsg,
@@ -2107,7 +2107,7 @@ export class AcpEngine extends EventEmitter {
       ) {
         if (this.activePromptSessions.size > 0) {
           log.warn(
-            `${this.logTag} ⚠️ model_provider 变更但有 ${this.activePromptSessions.size} 个活跃 prompt，跳过 reinit，使用当前配置`,
+            `${this.logTag} ⚠️ model_provider changed with ${this.activePromptSessions.size} active prompt(s); skipping reinit, keeping current config`,
           );
         } else {
           const newModel =
@@ -2273,7 +2273,7 @@ export class AcpEngine extends EventEmitter {
       // 如果 original_user_prompt 为空，打印错误日志
       if (!pureUserPrompt) {
         log.error(
-          `${this.logTag} original_user_prompt 为空，无法进行记忆处理`,
+          `${this.logTag} original_user_prompt is empty; skipping memory handling`,
           {
             session_id: session.id,
             request_id: request.request_id,
@@ -2327,11 +2327,11 @@ export class AcpEngine extends EventEmitter {
             await memoryService.getInjectionContext(promptForMemory);
           if (memoryContext && memoryContext.trim()) {
             enhancedPrompt = `<memory-context>
-以下是关于用户的已知信息，请在回答时参考：
+Known information about the user (use as reference when answering):
 ${memoryContext}
 </memory-context>
 
-用户问题：${request.prompt}`;
+User question: ${request.prompt}`;
             log.info(
               `${this.logTag} Injected memory context (${memoryContext.length} chars)`,
             );
@@ -2341,7 +2341,7 @@ ${memoryContext}
         }
       }
       memoryTimer.end("acp.chat.memoryInject", {
-        stage: "记忆注入",
+        stage: "memory_injection",
         enabled: enableMemory,
       });
 
@@ -2738,7 +2738,7 @@ ${memoryContext}
     // Deny question-type requests (interactive prompts that would block the agent)
     if (params.toolCall.kind === "question") {
       log.info(
-        `${this.logTag} 🚫 拒绝 question 类型请求: tool=${params.toolCall.title}`,
+        `${this.logTag} 🚫 Denying question-type request: tool=${params.toolCall.title}`,
       );
       return { outcome: { outcome: "cancelled" } };
     }
@@ -2995,7 +2995,7 @@ ${memoryContext}
     }
 
     log.warn(
-      `${this.logTag} ⚠️ 权限请求无可选项,取消: tool=${params.toolCall.title}`,
+      `${this.logTag} ⚠️ Permission request has no selectable options; cancelling: tool=${params.toolCall.title}`,
     );
     return { outcome: { outcome: "cancelled" } };
   }
