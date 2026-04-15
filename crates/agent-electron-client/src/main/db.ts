@@ -275,3 +275,102 @@ export function writeComplianceConfig(
   const current = readComplianceConfig();
   return writeSetting(COMPLIANCE_CONFIG_KEY, { ...current, ...config });
 }
+
+// ==================== 权限规则持久化（T3.6）====================
+
+/** 权限规则 key */
+export const PERMISSION_RULES_KEY = "permission_rules";
+
+/** ACP 权限规则 key 前缀 */
+export const ACP_PERM_RULE_PREFIX = "acp_perm_rule:";
+
+/** 权限规则类型 */
+export interface PermissionRule {
+  id: string;
+  toolKind: string;
+  toolTitle?: string;
+  action: "allow" | "reject";
+  createdAt: number;
+}
+
+/** 读取权限规则列表（新格式） */
+export function readPermissionRules(): PermissionRule[] {
+  const stored = readSetting(PERMISSION_RULES_KEY);
+  if (!stored || !Array.isArray(stored)) return [];
+  return stored as PermissionRule[];
+}
+
+/** 查询 ACP 权限规则（兼容旧格式） */
+export function hasAcpPermissionRule(
+  toolTitle?: string | null,
+  toolKind?: string | null,
+): boolean {
+  const ruleKey = toolTitle || toolKind;
+  if (!ruleKey) return false;
+  const rule = readSetting(`${ACP_PERM_RULE_PREFIX}${ruleKey}`);
+  return !!(
+    rule &&
+    typeof rule === "object" &&
+    (rule as any).kind === "allow_always"
+  );
+}
+
+/** 持久化 ACP 权限规则（兼容旧格式） */
+export function persistAcpPermissionRule(
+  toolTitle?: string | null,
+  toolKind?: string | null,
+): void {
+  const ruleKey = toolTitle || toolKind || "unknown";
+  writeSetting(`${ACP_PERM_RULE_PREFIX}${ruleKey}`, {
+    kind: "allow_always",
+    toolTitle: toolTitle ?? null,
+    toolKind: toolKind ?? null,
+    createdAt: Date.now(),
+  });
+}
+
+/** 添加权限规则（新格式） */
+export function addPermissionRule(
+  rule: Omit<PermissionRule, "id" | "createdAt">,
+): PermissionRule {
+  const rules = readPermissionRules();
+  const newRule: PermissionRule = {
+    ...rule,
+    id: `${rule.toolKind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt: Date.now(),
+  };
+  rules.push(newRule);
+  writeSetting(PERMISSION_RULES_KEY, rules);
+  return newRule;
+}
+
+/** 删除权限规则 */
+export function removePermissionRule(ruleId: string): boolean {
+  const rules = readPermissionRules();
+  const filtered = rules.filter((r) => r.id !== ruleId);
+  if (filtered.length === rules.length) return false;
+  writeSetting(PERMISSION_RULES_KEY, filtered);
+  return true;
+}
+
+/** 清空所有权限规则 */
+export function clearPermissionRules(): void {
+  writeSetting(PERMISSION_RULES_KEY, []);
+}
+
+/** 检查权限规则是否匹配（新格式） */
+export function matchPermissionRule(
+  toolKind: string,
+  toolTitle?: string,
+): PermissionRule | null {
+  const rules = readPermissionRules();
+  // 优先匹配 toolKind + toolTitle 组合
+  const exactMatch = rules.find(
+    (r) => r.toolKind === toolKind && r.toolTitle === toolTitle,
+  );
+  if (exactMatch) return exactMatch;
+  // 其次匹配 toolKind
+  const kindMatch = rules.find((r) => r.toolKind === toolKind && !r.toolTitle);
+  if (kindMatch) return kindMatch;
+  return null;
+}

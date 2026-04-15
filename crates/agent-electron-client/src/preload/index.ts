@@ -144,11 +144,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("agent:respondCheckpoint", sessionId),
 
     // Permission rules CRUD (T3.6)
-    listPermissionRules: () => ipcRenderer.invoke("agent:listPermissionRules"),
-    deletePermissionRule: (ruleKey: string) =>
-      ipcRenderer.invoke("agent:deletePermissionRule", ruleKey),
-    clearAllPermissionRules: () =>
-      ipcRenderer.invoke("agent:clearAllPermissionRules"),
+    listPermissionRules: () => ipcRenderer.invoke("permission:getRules"),
+    deletePermissionRule: (ruleId: string) =>
+      ipcRenderer.invoke("permission:removeRule", { ruleId }),
+    clearAllPermissionRules: () => ipcRenderer.invoke("permission:clearRules"),
 
     // Session operations
     getSessionDiff: (sessionId: string, messageId?: string) =>

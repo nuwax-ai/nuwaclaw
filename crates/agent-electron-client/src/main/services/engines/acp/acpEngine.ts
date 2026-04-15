@@ -85,53 +85,18 @@ import { ACP_ABORT_TIMEOUT } from "@shared/constants";
 import { APP_DATA_DIR_NAME } from "../../constants";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
-import { readSetting, writeSetting } from "@main/db";
+import {
+  readSetting,
+  writeSetting,
+  readComplianceConfig,
+  hasAcpPermissionRule,
+  persistAcpPermissionRule,
+} from "@main/db";
 import {
   DEFAULT_COMPLIANCE_CONFIG,
   COMPLIANCE_CONFIG_KEY,
   type ComplianceConfig,
 } from "@shared/types/compliance";
-
-// T3.6 — ACP 层 allow_always 规则的 SQLite 存储 key 前缀
-const ACP_PERM_RULE_PREFIX = "acp_perm_rule:";
-
-/** 持久化 allow_always 规则（基于工具名/类型） */
-function persistAllowAlwaysRule(
-  toolTitle?: string | null,
-  toolKind?: string | null,
-): void {
-  const ruleKey = toolTitle || toolKind || "unknown";
-  writeSetting(`${ACP_PERM_RULE_PREFIX}${ruleKey}`, {
-    kind: "allow_always",
-    toolTitle: toolTitle ?? null,
-    toolKind: toolKind ?? null,
-    createdAt: Date.now(),
-  });
-}
-
-/** 查询工具是否有 allow_always 持久化规则 */
-function hasAllowAlwaysRule(
-  toolTitle?: string | null,
-  toolKind?: string | null,
-): boolean {
-  const ruleKey = toolTitle || toolKind;
-  if (!ruleKey) return false;
-  const rule = readSetting(`${ACP_PERM_RULE_PREFIX}${ruleKey}`);
-  return !!(
-    rule &&
-    typeof rule === "object" &&
-    (rule as any).kind === "allow_always"
-  );
-}
-
-/** Safe JSON.stringify that handles circular references */
-function safeStringify(obj: unknown): string {
-  try {
-    return JSON.stringify(obj);
-  } catch {
-    return String(obj);
-  }
-}
 
 const MCP_RETRY_DELAY_MS = 1200;
 const MCP_RECONNECT_WINDOW_MS = 4000;
@@ -1877,7 +1842,7 @@ export class AcpEngine extends EventEmitter {
           const toolCall = (pending as any).toolCall as
             | { title?: string | null; kind?: string | null }
             | undefined;
-          persistAllowAlwaysRule(toolCall?.title, toolCall?.kind);
+          persistAcpPermissionRule(toolCall?.title, toolCall?.kind);
           log.info(
             `${this.logTag} 📝 allow_always 规则已持久化: tool=${toolCall?.title ?? toolCall?.kind ?? permissionId}`,
           );
@@ -2882,7 +2847,7 @@ User question: ${request.prompt}`;
       }
 
       // T3.6 — 查询 allow_always 持久化规则：有规则则直接放行
-      if (hasAllowAlwaysRule(params.toolCall.title, params.toolCall.kind)) {
+      if (hasAcpPermissionRule(params.toolCall.title, params.toolCall.kind)) {
         log.debug(
           `${this.logTag} 🟢 持久化 allow_always 规则命中，自动放行: tool=${params.toolCall.title}`,
         );

@@ -852,5 +852,11 @@
   "Claw.Audit.eventType.sandboxDestroyed": "沙箱已销挡",
   "Claw.Question.defaultTitle": "需要确认",
   "Claw.Question.selectOption": "请选择",
-  "Claw.Question.timeout": "问题已超时"
+  "Claw.Question.timeout": "问题已超时",
+  "Claw.Permission.rulesTitle": "权限规则",
+  "Claw.Permission.noRules": "暂无保存的权限规则",
+  "Claw.Permission.clearAll": "清空所有",
+  "Claw.Permission.delete": "删除",
+  "Claw.Permission.ruleAllow": "允许",
+  "Claw.Permission.ruleReject": "拒绝"
 }

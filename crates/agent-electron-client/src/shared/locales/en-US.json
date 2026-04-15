@@ -853,5 +853,11 @@
   "Claw.Audit.eventType.sandboxDestroyed": "Sandbox destroyed",
   "Claw.Question.defaultTitle": "Confirmation Required",
   "Claw.Question.selectOption": "Please select",
-  "Claw.Question.timeout": "Question timed out"
+  "Claw.Question.timeout": "Question timed out",
+  "Claw.Permission.rulesTitle": "Permission Rules",
+  "Claw.Permission.noRules": "No saved permission rules",
+  "Claw.Permission.clearAll": "Clear All",
+  "Claw.Permission.delete": "Delete",
+  "Claw.Permission.ruleAllow": "Allow",
+  "Claw.Permission.ruleReject": "Reject"
 }

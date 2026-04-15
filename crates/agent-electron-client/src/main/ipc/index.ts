@@ -16,6 +16,7 @@ import { registerGuiServerHandlers } from "./guiServerHandlers";
 import { registerI18nHandlers } from "./i18nHandlers";
 import { registerHarnessHandlers } from "./harnessHandlers";
 import { registerAuditHandlers } from "./auditHandlers";
+import { registerPermissionHandlers } from "./permissionHandlers";
 import log from "electron-log";
 
 export function registerAllHandlers(ctx: HandlerContext): void {
@@ -36,6 +37,7 @@ export function registerAllHandlers(ctx: HandlerContext): void {
   registerI18nHandlers();
   registerHarnessHandlers();
   registerAuditHandlers();
+  registerPermissionHandlers();
 
   log.info("IPC handlers registered");
 }
