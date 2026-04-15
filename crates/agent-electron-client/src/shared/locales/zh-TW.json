@@ -435,6 +435,7 @@
   "Claw.Sessions.getSessionUrlFailed": "獲取會話位址失敗",
   "Claw.Sessions.sessionStopped": "會話已停止",
   "Claw.Sessions.stopSessionFailed": "停止會話失敗",
+  "Claw.Sessions.crashedRecovery": "會話引擎已崩潰，正在恢復...（影響 {0} 個會話）",
   "Claw.Sessions.statusActive": "活躍",
   "Claw.Sessions.statusPending": "等待中",
   "Claw.Sessions.statusTerminating": "終止中",

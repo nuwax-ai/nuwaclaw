@@ -204,14 +204,14 @@ describe("dependencies", () => {
       expect(uvDep?.minVersion).toBe("0.5.0");
     });
 
-    it("should have nuwax-file-server as npm-local dependency", async () => {
+    it("should have nuwax-file-server as bundled dependency", async () => {
       const { getSetupRequiredDependencies } =
         await import("../system/dependencies");
       const deps = getSetupRequiredDependencies();
       const fileServerDep = deps.find((d) => d.name === "nuwax-file-server");
 
       expect(fileServerDep).toBeDefined();
-      expect(fileServerDep?.type).toBe("npm-local");
+      expect(fileServerDep?.type).toBe("bundled");
       expect(fileServerDep?.required).toBe(true);
       expect(fileServerDep?.binName).toBe("nuwax-file-server");
     });

@@ -531,7 +531,8 @@ describe("McpProxyManager", () => {
       const result = await mcpProxyManager.start();
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("未安装");
+      // i18n key: Claw.MCP.notInstalled
+      expect(result.error).toMatch(/notInstalled|未安装/i);
     });
   });
 

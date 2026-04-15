@@ -1121,6 +1121,10 @@ function App() {
           setPendingPermissions((prev) =>
             prev.filter((p) => !crashedSet.has(p.sessionId)),
           );
+          // 显示崩溃恢复提示
+          message.warning(
+            t("Claw.Session.crashedRecovery", d.sessionIds.length.toString()),
+          );
         }
         // 崩溃时也清除模型切换确认（自动允许已在主进程超时）
         setPendingModelSwitch(null);

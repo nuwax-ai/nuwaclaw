@@ -75,6 +75,7 @@ vi.mock("./acp/acpClient", () => ({
 
 vi.mock("../sandbox/policyCache", () => ({
   getCachedSandboxPolicy: vi.fn(() => sandboxPolicyState.current),
+  setCachedSandboxPolicy: vi.fn(),
 }));
 
 vi.mock("./acp/acpEngine", () => {
