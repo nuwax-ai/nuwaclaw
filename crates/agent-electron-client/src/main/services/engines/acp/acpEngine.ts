@@ -118,6 +118,15 @@ const NUWAX_MCP_INIT_POLICY_DEFAULT: NonNullable<
 > = "non_blocking";
 const NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT = 500;
 
+/** Safe JSON.stringify that handles circular references */
+function safeStringify(obj: unknown): string {
+  try {
+    return JSON.stringify(obj);
+  } catch {
+    return String(obj);
+  }
+}
+
 interface AcpSession {
   id: string;
   title?: string;

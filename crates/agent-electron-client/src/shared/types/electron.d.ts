@@ -625,6 +625,12 @@ export interface ServicesAPI {
     results?: Record<string, { success: boolean; error?: string }>;
   }>;
   healthSnapshot: () => Promise<ServiceHealthSnapshot>;
+  lifecycleStats: () => Promise<
+    Record<
+      string,
+      { uptime?: number; lastCrashAt?: number; restartCount?: number }
+    >
+  >;
 }
 
 export type TrayStatus = "running" | "stopped" | "error" | "starting";
@@ -655,6 +661,23 @@ export interface MirrorAPI {
 export interface PerfAPI {
   /** Fire-and-forget：将 PERF 日志发送到主进程写入 perf.YYYY-MM-DD.log */
   log: (msg: string) => void;
+}
+
+export interface AuditAPI {
+  getRecentEvents: (params?: {
+    limit?: number;
+    sessionId?: string;
+  }) => Promise<unknown[]>;
+  getSessionEvents: (sessionId: string) => Promise<unknown[]>;
+  getMetrics: () => Promise<{
+    totalOperations: number;
+    blockedOperations: number;
+    allowedOperations: number;
+  } | null>;
+  exportLogs: (params?: {
+    startDate?: string;
+    endDate?: string;
+  }) => Promise<{ success: boolean; path?: string; error?: string }>;
 }
 
 export interface I18nAPI {
@@ -832,6 +855,7 @@ export interface ElectronAPI {
   quickInit: QuickInitAPI;
   perf: PerfAPI;
   harness: HarnessAPI;
+  audit: AuditAPI;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   off: (channel: string, callback: (...args: unknown[]) => void) => void;
 }

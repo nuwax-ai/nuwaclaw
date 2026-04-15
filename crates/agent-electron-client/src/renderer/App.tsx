@@ -112,6 +112,7 @@ type TabKey =
   | "dependencies"
   | "permissions"
   | "logs"
+  | "audit"
   | "about"
   | "model";
 
@@ -385,6 +386,8 @@ function App() {
     new Set(),
   );
   const servicesPollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** 代理服务通道健康检查错误 */
+  const lanproxyHealthErrorRef = useRef<string | undefined>(undefined);
   /** 递增后通知 ClientPage 刷新账号状态（用户名等），与 reg 返回保持一致 */
   const [authRefreshTrigger, setAuthRefreshTrigger] = useState(0);
   /** 待确认权限队列（来自 ACP permission.updated 事件） */

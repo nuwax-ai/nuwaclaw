@@ -266,6 +266,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
     lifecycleStats: () => ipcRenderer.invoke("services:lifecycleStats"),
   },
 
+  // Audit log (T1.3)
+  audit: {
+    getRecentEvents: (params?: { limit?: number; sessionId?: string }) =>
+      ipcRenderer.invoke("audit:getRecentEvents", params),
+    getSessionEvents: (sessionId: string) =>
+      ipcRenderer.invoke("audit:getSessionEvents", sessionId),
+    getMetrics: () => ipcRenderer.invoke("audit:getMetrics"),
+    exportLogs: (params?: { startDate?: string; endDate?: string }) =>
+      ipcRenderer.invoke("audit:exportLogs", params),
+  },
+
   // Tray status sync
   tray: {
     updateStatus: (status: "running" | "stopped" | "error" | "starting") =>
