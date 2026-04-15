@@ -129,6 +129,7 @@
   "Claw.Menu.authorization": "Authorization",
   "Claw.Menu.tasks": "Tasks",
   "Claw.Menu.logs": "Logs",
+  "Claw.Menu.audit": "Compliance Audit",
   "Claw.Menu.about": "About",
   "Claw.App.ConfigSyncFailed": "Config Sync Failed",
   "Claw.App.ConfigSyncFailedDetail": "Unable to connect to server for latest config. Services not restarted. Please check your network and try again.",
@@ -859,5 +860,10 @@
   "Claw.Permission.clearAll": "Clear All",
   "Claw.Permission.delete": "Delete",
   "Claw.Permission.ruleAllow": "Allow",
-  "Claw.Permission.ruleReject": "Reject"
+  "Claw.Permission.ruleReject": "Reject",
+  "Claw.Settings.permissionRules.title": "Permission Rules Management",
+  "Claw.Settings.permissionRules.deleted": "Rule deleted",
+  "Claw.Settings.permissionRules.deleteFailed": "Delete failed",
+  "Claw.Settings.permissionRules.cleared": "Rules cleared",
+  "Claw.Settings.permissionRules.clearFailed": "Clear failed"
 }

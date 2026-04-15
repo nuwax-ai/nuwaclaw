@@ -226,3 +226,31 @@
     color: #18181b;
   }
 }
+/* ========== 权限规则管理 ========== */
+.rulesList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ruleItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--color-bg-secondary);
+}
+
+.ruleInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.emptyState {
+  padding: 24px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}

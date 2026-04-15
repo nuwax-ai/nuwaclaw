@@ -29,6 +29,7 @@ import {
   ArrowLeftOutlined,
   ReloadOutlined,
   OrderedListOutlined,
+  AuditOutlined,
 } from "@ant-design/icons";
 import {
   setupService,
@@ -50,6 +51,7 @@ import ClientPage from "./components/pages/ClientPage";
 import SettingsPage from "./components/pages/SettingsPage";
 import DependenciesPage from "./components/pages/DependenciesPage";
 import AboutPage from "./components/pages/AboutPage";
+import ComplianceAuditPage from "./components/pages/ComplianceAuditPage";
 import LogViewer from "./components/pages/LogViewer";
 import PermissionsPage from "./components/pages/PermissionsPage";
 import SessionsPage from "./components/pages/SessionsPage";
@@ -1312,6 +1314,11 @@ function App() {
     items.push(
       { key: "logs", icon: <FileTextOutlined />, label: t("Claw.Menu.logs") },
       {
+        key: "audit",
+        icon: <AuditOutlined />,
+        label: t("Claw.Menu.audit"),
+      },
+      {
         key: "about",
         icon: <InfoCircleOutlined />,
         label: t("Claw.Menu.about"),
@@ -1626,6 +1633,7 @@ function App() {
                   {activeTab === "permissions" && <PermissionsPage />}
                   {activeTab === "logs" && <LogViewer />}
                   {activeTab === "about" && <AboutPage />}
+                  {activeTab === "audit" && <ComplianceAuditPage />}
                 </div>
                 {/* 权限确认浮动卡片：覆盖在主内容区底部 */}
                 {pendingPermissions.length > 0 && (

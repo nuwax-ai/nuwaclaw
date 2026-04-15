@@ -129,6 +129,7 @@
   "Claw.Menu.authorization": "授权",
   "Claw.Menu.tasks": "任务",
   "Claw.Menu.logs": "日志",
+  "Claw.Menu.audit": "合规审计",
   "Claw.Menu.about": "关于",
   "Claw.App.ConfigSyncFailed": "配置同步失败",
   "Claw.App.ConfigSyncFailedDetail": "无法连接到服务器获取最新配置，服务未重启。请检查网络后重试。",
@@ -858,5 +859,10 @@
   "Claw.Permission.clearAll": "清空所有",
   "Claw.Permission.delete": "删除",
   "Claw.Permission.ruleAllow": "允许",
-  "Claw.Permission.ruleReject": "拒绝"
+  "Claw.Permission.ruleReject": "拒绝",
+  "Claw.Settings.permissionRules.title": "权限规则管理",
+  "Claw.Settings.permissionRules.deleted": "规则已删除",
+  "Claw.Settings.permissionRules.deleteFailed": "删除失败",
+  "Claw.Settings.permissionRules.cleared": "规则已清空",
+  "Claw.Settings.permissionRules.clearFailed": "清空失败"
 }

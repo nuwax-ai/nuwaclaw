@@ -129,6 +129,14 @@ export default function SettingsPage() {
   const [langConfirmModalVisible, setLangConfirmModalVisible] = useState(false);
   const [langConfirmLoading, setLangConfirmLoading] = useState(false);
   const [pendingLang, setPendingLang] = useState("");
+  const [permissionRules, setPermissionRules] = useState<
+    Array<{
+      id: string;
+      toolKind: string;
+      toolTitle?: string;
+      action: "allow" | "reject";
+    }>
+  >([]);
   const [sandboxLoading, setSandboxLoading] = useState(false);
   const [sandboxSaving, setSandboxSaving] = useState(false);
   const [sandboxPolicy, setSandboxPolicy] = useState<SandboxPolicy | null>(
@@ -282,6 +290,21 @@ export default function SettingsPage() {
       }
     };
     loadLangList();
+  }, []);
+
+  // 加载权限规则
+  useEffect(() => {
+    const loadPermissionRules = async () => {
+      try {
+        const rules = await window.electronAPI?.agent?.listPermissionRules?.();
+        if (rules) {
+          setPermissionRules(rules);
+        }
+      } catch {
+        // 失败时保持空
+      }
+    };
+    loadPermissionRules();
   }, []);
 
   // ========== 服务配置操作 ==========
@@ -584,6 +607,29 @@ export default function SettingsPage() {
   const handleLangCancel = () => {
     setLangConfirmModalVisible(false);
     setPendingLang("");
+  };
+
+  // ========== 权限规则操作 ==========
+  const handleDeletePermissionRule = async (ruleId: string) => {
+    try {
+      await window.electronAPI?.agent?.deletePermissionRule?.(ruleId);
+      setPermissionRules((prev) => prev.filter((r) => r.id !== ruleId));
+      message.success(t("Claw.Settings.permissionRules.deleted"));
+    } catch (e) {
+      console.error("Failed to delete permission rule:", e);
+      message.error(t("Claw.Settings.permissionRules.deleteFailed"));
+    }
+  };
+
+  const handleClearPermissionRules = async () => {
+    try {
+      await window.electronAPI?.agent?.clearAllPermissionRules?.();
+      setPermissionRules([]);
+      message.success(t("Claw.Settings.permissionRules.cleared"));
+    } catch (e) {
+      console.error("Failed to clear permission rules:", e);
+      message.error(t("Claw.Settings.permissionRules.clearFailed"));
+    }
   };
 
   if (loading) {
@@ -1151,6 +1197,46 @@ export default function SettingsPage() {
       >
         <p>{t("Claw.Settings.languageConfirm.content")}</p>
       </Modal>
+
+      {/* 权限规则管理 */}
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <h3>{t("Claw.Settings.permissionRules.title")}</h3>
+          <Button size="small" danger onClick={handleClearPermissionRules}>
+            {t("Claw.Permission.clearAll")}
+          </Button>
+        </div>
+        <div className={styles.sectionContent}>
+          {permissionRules.length === 0 ? (
+            <div className={styles.emptyState}>
+              {t("Claw.Permission.noRules")}
+            </div>
+          ) : (
+            <div className={styles.rulesList}>
+              {permissionRules.map((rule) => (
+                <div key={rule.id} className={styles.ruleItem}>
+                  <div className={styles.ruleInfo}>
+                    <Tag color={rule.action === "allow" ? "green" : "red"}>
+                      {rule.action === "allow"
+                        ? t("Claw.Permission.ruleAllow")
+                        : t("Claw.Permission.ruleReject")}
+                    </Tag>
+                    <Text>{rule.toolTitle || rule.toolKind}</Text>
+                  </div>
+                  <Button
+                    size="small"
+                    type="text"
+                    danger
+                    onClick={() => handleDeletePermissionRule(rule.id)}
+                  >
+                    {t("Claw.Permission.delete")}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
