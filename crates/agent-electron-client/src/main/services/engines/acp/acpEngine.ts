@@ -2735,12 +2735,14 @@ User question: ${request.prompt}`;
       return { outcome: { outcome: "cancelled" } };
     }
 
-    // Deny question-type requests (interactive prompts that would block the agent)
+    // Question-type requests: use same permission flow but emit question.requested event
+    // for interactive UI rendering
     if (params.toolCall.kind === "question") {
       log.info(
-        `${this.logTag} 🚫 Denying question-type request: tool=${params.toolCall.title}`,
+        `${this.logTag} 📋 Processing question-type request: tool=${params.toolCall.title}`,
       );
-      return { outcome: { outcome: "cancelled" } };
+      // Fall through to normal permission handling below
+      // The UI will render InteractiveQuestionCard instead of PermissionRequestCard
     }
 
     // T1.3 — 审计日志：记录权限请求
@@ -2991,6 +2993,17 @@ User question: ${request.prompt}`;
           toolCall: params.toolCall,
           options: params.options,
         });
+
+        // 如果是 question 类型，额外发送 question.requested 事件
+        if (params.toolCall.kind === "question") {
+          this.emit("question.requested", {
+            sessionId: acpSessionId,
+            questionId: toolCallId,
+            title: params.toolCall.title,
+            options: params.options,
+            rawInput: params.toolCall.rawInput,
+          });
+        }
       });
     }
 

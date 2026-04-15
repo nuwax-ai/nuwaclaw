@@ -36,6 +36,7 @@ export function registerEventForwarders(ctx: HandlerContext): void {
     "message.part.removed",
     "permission.updated",
     "permission.replied",
+    "question.requested",
     "confirm.modelSwitch",
     "confirm.checkpoint",
     "session.created",

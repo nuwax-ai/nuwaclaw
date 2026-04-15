@@ -57,6 +57,8 @@ import { TasksPage } from "./components/pages/TasksPage";
 import type { WebviewHeaderActions } from "./components/pages/SessionsPage";
 import PermissionRequestCard from "./components/PermissionRequestCard";
 import type { PendingPermission } from "./components/PermissionRequestCard";
+import InteractiveQuestionCard from "./components/InteractiveQuestionCard";
+import type { PendingQuestion } from "./components/InteractiveQuestionCard";
 import { createLogger } from "./services/utils/rendererLog";
 import styles from "./styles/components/App.module.css";
 import { lightTheme, darkTheme } from "./styles/theme";
@@ -387,6 +389,10 @@ function App() {
   const [pendingPermissions, setPendingPermissions] = useState<
     PendingPermission[]
   >([]);
+  /** 待确认问题队列（来自 ACP question.requested 事件） */
+  const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>(
+    [],
+  );
   /** 待确认模型切换请求（来自 ACP confirm.modelSwitch 事件） */
   const [pendingModelSwitch, setPendingModelSwitch] = useState<{
     requestId: string;
@@ -1130,6 +1136,29 @@ function App() {
         setPendingModelSwitch(null);
         // 引擎崩溃时立即刷新服务状态（事件驱动，替代等待下次轮询）
         void pollServicesStatus();
+      } else if (event.type === "question.requested") {
+        const d = event.data as {
+          sessionId: string;
+          questionId: string;
+          title?: string;
+          options: PendingQuestion["options"];
+          rawInput?: unknown;
+        };
+        setPendingQuestions((prev) => {
+          // 避免重复添加相同 questionId
+          if (prev.some((q) => q.questionId === d.questionId)) return prev;
+          return [
+            ...prev,
+            {
+              sessionId: d.sessionId,
+              questionId: d.questionId,
+              title: d.title,
+              options: d.options,
+              rawInput: d.rawInput,
+              arrivedAt: Date.now(),
+            },
+          ];
+        });
       } else if (event.type === "confirm.modelSwitch") {
         const d = event.data as {
           requestId: string;
@@ -1171,6 +1200,10 @@ function App() {
       setPendingPermissions((prev) =>
         prev.filter((p) => p.permissionId !== permissionId),
       );
+      // 同时移除对应的 question（如果有）
+      setPendingQuestions((prev) =>
+        prev.filter((q) => q.questionId !== permissionId),
+      );
       try {
         await window.electronAPI?.agent.respondPermission(
           sessionId,
@@ -1179,6 +1212,30 @@ function App() {
         );
       } catch (e) {
         console.error("[App] respondPermission failed:", e);
+      }
+    },
+    [],
+  );
+
+  const handleQuestionRespond = useCallback(
+    async (sessionId: string, questionId: string, optionId: string) => {
+      // 乐观更新：立即从队列中移除
+      setPendingQuestions((prev) =>
+        prev.filter((q) => q.questionId !== questionId),
+      );
+      // 同时移除对应的 permission（如果有）
+      setPendingPermissions((prev) =>
+        prev.filter((p) => p.permissionId !== questionId),
+      );
+      try {
+        // question 响应也通过 respondPermission 处理
+        await window.electronAPI?.agent.respondPermission(
+          sessionId,
+          questionId,
+          optionId.includes("always") ? "always" : "once",
+        );
+      } catch (e) {
+        console.error("[App] respondQuestion failed:", e);
       }
     },
     [],
@@ -1575,6 +1632,13 @@ function App() {
                   <PermissionRequestCard
                     pending={pendingPermissions}
                     onRespond={handlePermissionRespond}
+                  />
+                )}
+                {/* 交互式问题卡片 */}
+                {pendingQuestions.length > 0 && (
+                  <InteractiveQuestionCard
+                    questions={pendingQuestions}
+                    onRespond={handleQuestionRespond}
                   />
                 )}
               </div>

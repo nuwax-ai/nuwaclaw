@@ -814,5 +814,8 @@
   "Claw.Approval.priorityHigh": "高",
   "Claw.Approval.priorityMedium": "中",
   "Claw.Approval.priorityLow": "低",
-  "Claw.Approval.priorityCritical": "嚴重"
+  "Claw.Approval.priorityCritical": "嚴重",
+  "Claw.Question.defaultTitle": "需要確認",
+  "Claw.Question.selectOption": "請選擇",
+  "Claw.Question.timeout": "問題已超時"
 }

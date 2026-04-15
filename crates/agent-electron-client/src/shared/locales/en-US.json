@@ -850,5 +850,8 @@
   "Claw.Audit.eventType.operationExecuted": "Operation executed",
   "Claw.Audit.eventType.operationFailed": "Operation failed",
   "Claw.Audit.eventType.sandboxCreated": "Sandbox created",
-  "Claw.Audit.eventType.sandboxDestroyed": "Sandbox destroyed"
+  "Claw.Audit.eventType.sandboxDestroyed": "Sandbox destroyed",
+  "Claw.Question.defaultTitle": "Confirmation Required",
+  "Claw.Question.selectOption": "Please select",
+  "Claw.Question.timeout": "Question timed out"
 }
