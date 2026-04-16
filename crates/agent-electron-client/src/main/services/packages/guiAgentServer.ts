@@ -19,7 +19,7 @@ import {
   getAppEnv,
 } from "../system/dependencies";
 import { isWindows } from "../system/shellEnv";
-import { getDb, readSetting } from "../../db";
+import { getDb, readSetting, readEncryptedSetting } from "../../db";
 import { DEFAULT_GUI_MCP_PORT } from "@shared/constants";
 import { killProcessTreesListeningOnTcpPort } from "../utils/processTree";
 
@@ -79,12 +79,8 @@ function getApiKeyFromDb(): string | null {
       if (config?.apiKey) return config.apiKey;
     }
 
-    // 回退到全局 anthropic_api_key
-    const apiKeyRow = db
-      .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("anthropic_api_key") as { value: string } | undefined;
-
-    return apiKeyRow?.value ?? null;
+    // 回退到全局 anthropic_api_key（敏感 key，可能为加密存储）
+    return readEncryptedSetting("anthropic_api_key");
   } catch (e) {
     log.warn("[GuiAgentServer] Failed to read API Key:", e);
     return null;

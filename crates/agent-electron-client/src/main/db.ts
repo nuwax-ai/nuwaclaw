@@ -1,3 +1,5 @@
+import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { app, safeStorage } from "electron";
 import Database from "better-sqlite3";
@@ -16,8 +18,33 @@ const SENSITIVE_SETTING_KEYS = ["anthropic_api_key", "agent_api_key"] as const;
 /** 加密值前缀，用于区分加密和明文存储 */
 const ENCRYPTED_PREFIX = "ENC:";
 
-const nuwaxHome = path.join(app.getPath("home"), APP_DATA_DIR_NAME);
-const dbPath = path.join(nuwaxHome, `${APP_NAME_IDENTIFIER}.db`);
+function resolveNuwaxHomePath(): string {
+  try {
+    if (app && typeof app.getPath === "function") {
+      return path.join(app.getPath("home"), APP_DATA_DIR_NAME);
+    }
+  } catch (error) {
+    log.debug(
+      "[DB] app.getPath('home') unavailable, fallback to os.homedir()",
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+  return path.join(os.homedir(), APP_DATA_DIR_NAME);
+}
+
+function resolveDbPath(): string {
+  return path.join(resolveNuwaxHomePath(), `${APP_NAME_IDENTIFIER}.db`);
+}
+
+function isSafeStorageAvailable(): boolean {
+  return (
+    !!safeStorage &&
+    typeof safeStorage.isEncryptionAvailable === "function" &&
+    safeStorage.isEncryptionAvailable()
+  );
+}
 
 let db: Database.Database | null = null;
 
@@ -134,6 +161,8 @@ function runSchemaMigrations(database: Database.Database): void {
 
 export function initDatabase(): void {
   try {
+    const dbPath = resolveDbPath();
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     db = new Database(dbPath);
     // WAL 模式：提升并发读性能，减少写锁争用；NORMAL 同步级别在 WAL 下安全且更快
     db.pragma("journal_mode = WAL");
@@ -195,7 +224,7 @@ export function writeSetting(key: string, value: unknown): boolean {
 export function writeEncryptedSetting(key: string, value: string): boolean {
   if (!db) return false;
   let stored: string;
-  if (safeStorage.isEncryptionAvailable()) {
+  if (isSafeStorageAvailable()) {
     try {
       const encrypted = safeStorage.encryptString(value);
       stored = ENCRYPTED_PREFIX + encrypted.toString("hex");
@@ -229,7 +258,7 @@ export function readEncryptedSetting(key: string): string | null {
     .get(key) as { value: string } | undefined;
   if (!row?.value) return null;
   if (row.value.startsWith(ENCRYPTED_PREFIX)) {
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!isSafeStorageAvailable()) {
       log.error(`[DB] safeStorage not available, cannot decrypt key=${key}`);
       return null;
     }
