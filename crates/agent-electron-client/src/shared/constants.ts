@@ -133,7 +133,11 @@ export const STORAGE_KEYS = {
   MCP_PROXY_PORT: "mcp_proxy_port",
   LANPROXY_CONFIG: "lanproxy_config",
   AGENT_CONFIG: "agent_config",
+  CLIENT_MODE: "client_mode",
 } as const;
+
+/** 客户端模式 */
+export type ClientMode = "chat" | "general" | "code";
 
 /** Auth 相关存储键 */
 export const AUTH_KEYS = {
@@ -407,6 +411,38 @@ export const I18N_KEYS = {
     },
   },
 
+  // 审计日志 Audit
+  Audit: {
+    EXPORT: "Claw.Audit.export",
+    FILTER_EVENT_TYPE: "Claw.Audit.filterEventType",
+    ONLY_BLOCKED: "Claw.Audit.onlyBlocked",
+    NO_DATA: "Claw.Audit.noData",
+    STATUS_ALLOWED: "Claw.Audit.status.allowed",
+    STATUS_BLOCKED: "Claw.Audit.status.blocked",
+    EXPORT_SUCCESS: "Claw.Audit.exportSuccess",
+    EXPORT_FAILED: "Claw.Audit.exportFailed",
+    TABLE_TIMESTAMP: "Claw.Audit.table.timestamp",
+    TABLE_EVENT_TYPE: "Claw.Audit.table.eventType",
+    TABLE_OPERATION: "Claw.Audit.table.operation",
+    TABLE_TARGET: "Claw.Audit.table.target",
+    TABLE_STATUS: "Claw.Audit.table.status",
+    TABLE_REASON: "Claw.Audit.table.reason",
+    EVENT_TYPE: {
+      PATH_BLOCKED: "Claw.Audit.eventType.pathBlocked",
+      PATH_ALLOWED: "Claw.Audit.eventType.pathAllowed",
+      COMMAND_BLOCKED: "Claw.Audit.eventType.commandBlocked",
+      COMMAND_ALLOWED: "Claw.Audit.eventType.commandAllowed",
+      PERMISSION_REQUESTED: "Claw.Audit.eventType.permissionRequested",
+      PERMISSION_APPROVED: "Claw.Audit.eventType.permissionApproved",
+      PERMISSION_DENIED: "Claw.Audit.eventType.permissionDenied",
+      PERMISSION_AUTO_APPROVED: "Claw.Audit.eventType.permissionAutoApproved",
+      OPERATION_EXECUTED: "Claw.Audit.eventType.operationExecuted",
+      OPERATION_FAILED: "Claw.Audit.eventType.operationFailed",
+      SANDBOX_CREATED: "Claw.Audit.eventType.sandboxCreated",
+      SANDBOX_DESTROYED: "Claw.Audit.eventType.sandboxDestroyed",
+    },
+  },
+
   // 审批 Approval
   Approval: {
     PENDING: "Claw.Approval.pending",
@@ -438,5 +474,17 @@ export const I18N_KEYS = {
     RESTARTS: "Claw.Client.health.restarts",
     LAST_CRASH: "Claw.Client.health.lastCrash",
     NO_ERRORS: "Claw.Client.health.noErrors",
+  },
+
+  // 客户端模式 Mode
+  Mode: {
+    CHAT: "Claw.Mode.chat",
+    GENERAL: "Claw.Mode.general",
+    CODE: "Claw.Mode.code",
+  },
+
+  // 菜单 Menu（新增项）
+  Menu: {
+    MORE: "Claw.Menu.more",
   },
 } as const;

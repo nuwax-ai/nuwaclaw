@@ -663,21 +663,56 @@ export interface PerfAPI {
   log: (msg: string) => void;
 }
 
+export interface AuditEventEntry {
+  id: string;
+  timestamp: string;
+  sessionId: string;
+  eventType: string;
+  operation?: string;
+  target?: string;
+  allowed: boolean;
+  reason?: string;
+  approvedBy?: "system" | "user";
+  duration?: number;
+  error?: string;
+}
+
 export interface AuditAPI {
   getRecentEvents: (params?: {
     limit?: number;
     sessionId?: string;
-  }) => Promise<unknown[]>;
-  getSessionEvents: (sessionId: string) => Promise<unknown[]>;
+  }) => Promise<{
+    success: boolean;
+    events: AuditEventEntry[];
+    error?: string;
+  }>;
+  getSessionEvents: (sessionId: string) => Promise<{
+    success: boolean;
+    events: AuditEventEntry[];
+    error?: string;
+  }>;
   getMetrics: () => Promise<{
-    totalOperations: number;
-    blockedOperations: number;
-    allowedOperations: number;
-  } | null>;
+    success: boolean;
+    metrics?: {
+      totalOperations: number;
+      blockedOperations: number;
+      allowedOperations: number;
+      userConfirmations: number;
+      autoApprovals: number;
+      pathViolations: number;
+      commandViolations: number;
+    };
+    error?: string;
+  }>;
   exportLogs: (params?: {
     startDate?: string;
     endDate?: string;
-  }) => Promise<{ success: boolean; path?: string; error?: string }>;
+  }) => Promise<{
+    success: boolean;
+    count?: number;
+    path?: string;
+    error?: string;
+  }>;
 }
 
 export interface I18nAPI {
