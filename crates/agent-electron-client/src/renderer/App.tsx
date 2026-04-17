@@ -35,6 +35,7 @@ import {
   RetweetOutlined,
   CodeOutlined,
   EllipsisOutlined,
+  AppstoreOutlined,
 } from "@ant-design/icons";
 import {
   setupService,
@@ -65,6 +66,7 @@ import AboutPage from "./components/pages/AboutPage";
 import LogViewer from "./components/pages/LogViewer";
 import PermissionsPage from "./components/pages/PermissionsPage";
 import SessionsPage from "./components/pages/SessionsPage";
+import AppDevPage from "./components/pages/AppDevPage";
 import { TasksPage } from "./components/pages/TasksPage";
 import type { WebviewHeaderActions } from "./components/pages/SessionsPage";
 import PermissionRequestCard from "./components/PermissionRequestCard";
@@ -123,7 +125,8 @@ type TabKey =
   | "permissions"
   | "logs"
   | "about"
-  | "model";
+  | "model"
+  | "appdev";
 
 // 状态配置（对齐 Tauri 客户端）
 // 就绪、繁忙使用橙色（warning）、小点展示
@@ -1332,6 +1335,15 @@ function App() {
             },
           ]
         : []),
+      ...(clientMode === "code"
+        ? [
+            {
+              key: "appdev",
+              icon: <AppstoreOutlined />,
+              label: t("Claw.Menu.appdev"),
+            },
+          ]
+        : []),
     ];
 
     const moreChildren = [
@@ -1715,6 +1727,9 @@ function App() {
                       onAutoOpenConsumed={() => setSessionsAutoOpen(false)}
                       onWebviewChange={setWebviewActions}
                     />
+                  )}
+                  {activeTab === "appdev" && (
+                    <AppDevPage onWebviewChange={setWebviewActions} />
                   )}
                   {activeTab === "tasks" && <TasksPage />}
                   {activeTab === "settings" && <SettingsPage />}
