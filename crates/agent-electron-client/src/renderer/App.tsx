@@ -16,6 +16,8 @@ import {
   notification,
   message,
   Alert,
+  Tag,
+  Tooltip,
 } from "antd";
 import type { PresetStatusColorType } from "antd/es/_util/colors";
 import {
@@ -29,6 +31,10 @@ import {
   ArrowLeftOutlined,
   ReloadOutlined,
   OrderedListOutlined,
+  CommentOutlined,
+  RetweetOutlined,
+  CodeOutlined,
+  EllipsisOutlined,
 } from "@ant-design/icons";
 import {
   setupService,
@@ -41,7 +47,13 @@ import {
   normalizeServerHost,
   loginAndRegister,
 } from "./services/core/auth";
-import { APP_DISPLAY_NAME, AUTH_KEYS } from "@shared/constants";
+import {
+  APP_DISPLAY_NAME,
+  AUTH_KEYS,
+  STORAGE_KEYS,
+  I18N_KEYS,
+} from "@shared/constants";
+import type { ClientMode } from "@shared/constants";
 import type { QuickInitConfig } from "@shared/types/quickInit";
 import { t, getCurrentLang } from "./services/core/i18n";
 import SetupWizard from "./components/setup/SetupWizard";
@@ -280,6 +292,29 @@ function App() {
     } catch (e) {
       console.warn("[App] Failed to save theme settings:", e);
     }
+  }, []);
+
+  // ============================================
+  // 客户端模式状态（chat / general / code）
+  // ============================================
+  const [clientMode, setClientMode] = useState<ClientMode>("general");
+
+  useEffect(() => {
+    window.electronAPI?.settings
+      .get(STORAGE_KEYS.CLIENT_MODE)
+      .then((v) => {
+        if (v && ["chat", "general", "code"].includes(v as string)) {
+          setClientMode(v as ClientMode);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleModeChange = useCallback((mode: ClientMode) => {
+    setClientMode(mode);
+    window.electronAPI?.settings
+      .set(STORAGE_KEYS.CLIENT_MODE, mode)
+      .catch(() => {});
   }, []);
 
   // 应用主题到 body
@@ -1274,10 +1309,10 @@ function App() {
   const isMacOS = navigator.platform.toUpperCase().includes("MAC");
 
   // ============================================
-  // 菜单配置（对齐 Tauri 客户端）
+  // 菜单配置（模式感知 + 「更多」SubMenu）
   // ============================================
   const menuItems = useMemo(() => {
-    const items = [
+    const core = [
       {
         key: "client",
         icon: <DashboardOutlined />,
@@ -1288,39 +1323,60 @@ function App() {
         icon: <TeamOutlined />,
         label: t("Claw.Menu.session"),
       },
-      {
-        key: "tasks",
-        icon: <OrderedListOutlined />,
-        label: t("Claw.Menu.tasks"),
-      },
+      ...(clientMode !== "chat"
+        ? [
+            {
+              key: "tasks",
+              icon: <OrderedListOutlined />,
+              label: t("Claw.Menu.tasks"),
+            },
+          ]
+        : []),
+    ];
+
+    const moreChildren = [
       {
         key: "settings",
         icon: <SettingOutlined />,
         label: t("Claw.Menu.settings"),
       },
-      {
-        key: "dependencies",
-        icon: <FolderOutlined />,
-        label: t("Claw.Menu.dependencies"),
-      },
-    ];
-    if (isMacOS) {
-      items.push({
-        key: "permissions",
-        icon: <SafetyOutlined />,
-        label: t("Claw.Menu.authorization"),
-      });
-    }
-    items.push(
+      ...(clientMode !== "chat"
+        ? [
+            {
+              key: "dependencies",
+              icon: <FolderOutlined />,
+              label: t("Claw.Menu.dependencies"),
+            },
+          ]
+        : []),
+      ...(isMacOS && clientMode !== "chat"
+        ? [
+            {
+              key: "permissions",
+              icon: <SafetyOutlined />,
+              label: t("Claw.Menu.authorization"),
+            },
+          ]
+        : []),
       { key: "logs", icon: <FileTextOutlined />, label: t("Claw.Menu.logs") },
       {
         key: "about",
         icon: <InfoCircleOutlined />,
         label: t("Claw.Menu.about"),
       },
-    );
-    return items;
-  }, [isMacOS, i18nLang]);
+    ];
+
+    return [
+      ...core,
+      { type: "divider" as const },
+      {
+        key: "more-group",
+        icon: <EllipsisOutlined />,
+        label: t(I18N_KEYS.Menu.MORE),
+        children: moreChildren,
+      },
+    ];
+  }, [clientMode, isMacOS, i18nLang]);
 
   // ============================================
   // i18n Context value
@@ -1424,6 +1480,13 @@ function App() {
                 {username && (
                   <span className={styles.username}>{username}</span>
                 )}
+                <Tag style={{ fontSize: 11, margin: 0, cursor: "default" }}>
+                  {t(
+                    I18N_KEYS.Mode[
+                      clientMode.toUpperCase() as keyof typeof I18N_KEYS.Mode
+                    ],
+                  )}
+                </Tag>
                 <Badge
                   status={badge.status}
                   className={
@@ -1444,22 +1507,53 @@ function App() {
               {!webviewActions && (
                 <div
                   className={
-                    // 英文菜单文案通常更长，侧边栏适当加宽以减少截断；其他语言保持默认宽度
                     i18nLang.toLowerCase().startsWith("en")
                       ? "app-sider app-sider-en"
                       : "app-sider"
                   }
                 >
+                  {/* 模式切换 icon tabs */}
+                  <div className="mode-tabs">
+                    <Tooltip title={t(I18N_KEYS.Mode.CHAT)} placement="right">
+                      <button
+                        className={`mode-tab${clientMode === "chat" ? " mode-tab-active" : ""}`}
+                        onClick={() => handleModeChange("chat")}
+                      >
+                        <CommentOutlined />
+                      </button>
+                    </Tooltip>
+                    <Tooltip
+                      title={t(I18N_KEYS.Mode.GENERAL)}
+                      placement="right"
+                    >
+                      <button
+                        className={`mode-tab${clientMode === "general" ? " mode-tab-active" : ""}`}
+                        onClick={() => handleModeChange("general")}
+                      >
+                        <RetweetOutlined />
+                      </button>
+                    </Tooltip>
+                    <Tooltip title={t(I18N_KEYS.Mode.CODE)} placement="right">
+                      <button
+                        className={`mode-tab${clientMode === "code" ? " mode-tab-active" : ""}`}
+                        onClick={() => handleModeChange("code")}
+                      >
+                        <CodeOutlined />
+                      </button>
+                    </Tooltip>
+                  </div>
                   <Menu
                     mode="inline"
                     inlineIndent={0}
                     selectedKeys={[activeTab]}
-                    items={menuItems.map((item) => ({
-                      key: item.key,
-                      icon: item.icon,
-                      label: item.label,
-                      onClick: () => setActiveTab(item.key as TabKey),
-                    }))}
+                    defaultOpenKeys={["more-group"]}
+                    onSelect={({ key }) => {
+                      if (key !== "more-group") {
+                        setActiveTab(key as TabKey);
+                      }
+                    }}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    items={menuItems as any}
                   />
                 </div>
               )}

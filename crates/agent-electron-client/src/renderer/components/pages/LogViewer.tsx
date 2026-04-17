@@ -37,6 +37,7 @@ import {
   CloseCircleOutlined,
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
+import type { AuditEventEntry } from "@shared/types/electron";
 import dayjs from "dayjs";
 import { t } from "@renderer/services/core/i18n";
 import { I18N_KEYS } from "@shared/constants";
@@ -56,65 +57,56 @@ const LEVEL_TAG_COLORS: Record<string, string> = {
 
 // ─── 审计日志类型 ────────────────────────────────────────────
 
-interface AuditLogEntry {
-  id: string;
-  timestamp: string;
-  sessionId: string;
-  eventType: string;
-  operation?: string;
-  target?: string;
-  allowed: boolean;
-  reason?: string;
-  approvedBy?: "system" | "user";
-  duration?: number;
-  error?: string;
-}
+type AuditLogEntry = AuditEventEntry;
 
 const EVENT_TYPE_MAP: Record<string, { color: string; labelKey: string }> = {
-  path_blocked: { color: "red", labelKey: "Claw.Audit.eventType.pathBlocked" },
+  path_blocked: {
+    color: "red",
+    labelKey: I18N_KEYS.Audit.EVENT_TYPE.PATH_BLOCKED,
+  },
   path_allowed: {
     color: "green",
-    labelKey: "Claw.Audit.eventType.pathAllowed",
+    labelKey: I18N_KEYS.Audit.EVENT_TYPE.PATH_ALLOWED,
   },
   command_blocked: {
     color: "red",
-    labelKey: "Claw.Audit.eventType.commandBlocked",
+    labelKey: I18N_KEYS.Audit.EVENT_TYPE.COMMAND_BLOCKED,
   },
   command_allowed: {
     color: "green",
-    labelKey: "Claw.Audit.eventType.commandAllowed",
+    labelKey: I18N_KEYS.Audit.EVENT_TYPE.COMMAND_ALLOWED,
   },
   permission_requested: {
     color: "blue",
-    labelKey: "Claw.Audit.eventType.permissionRequested",
+    labelKey: I18N_KEYS.Audit.EVENT_TYPE.PERMISSION_REQUESTED,
   },
   permission_approved: {
     color: "green",
-    labelKey: "Claw.Audit.eventType.permissionApproved",
+    labelKey: I18N_KEYS.Audit.EVENT_TYPE.PERMISSION_APPROVED,
   },
   permission_denied: {
     color: "red",
-    labelKey: "Claw.Audit.eventType.permissionDenied",
+    labelKey: I18N_KEYS.Audit.EVENT_TYPE.PERMISSION_DENIED,
   },
   permission_auto_approved: {
     color: "cyan",
-    labelKey: "Claw.Audit.eventType.permissionAutoApproved",
+    labelKey: I18N_KEYS.Audit.EVENT_TYPE.PERMISSION_AUTO_APPROVED,
   },
   operation_executed: {
     color: "green",
-    labelKey: "Claw.Audit.eventType.operationExecuted",
+    labelKey: I18N_KEYS.Audit.EVENT_TYPE.OPERATION_EXECUTED,
   },
   operation_failed: {
     color: "orange",
-    labelKey: "Claw.Audit.eventType.operationFailed",
+    labelKey: I18N_KEYS.Audit.EVENT_TYPE.OPERATION_FAILED,
   },
   sandbox_created: {
     color: "blue",
-    labelKey: "Claw.Audit.eventType.sandboxCreated",
+    labelKey: I18N_KEYS.Audit.EVENT_TYPE.SANDBOX_CREATED,
   },
   sandbox_destroyed: {
     color: "default",
-    labelKey: "Claw.Audit.eventType.sandboxDestroyed",
+    labelKey: I18N_KEYS.Audit.EVENT_TYPE.SANDBOX_DESTROYED,
   },
 };
 
@@ -137,9 +129,9 @@ function AuditLogsTab() {
   const loadAuditData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = (await window.electronAPI?.audit?.getRecentEvents({
+      const res = await window.electronAPI?.audit?.getRecentEvents({
         limit: 200,
-      })) as any;
+      });
       if (res?.success) {
         setEvents(res.events || []);
       }
@@ -156,18 +148,15 @@ function AuditLogsTab() {
 
   const handleExport = async () => {
     try {
-      const result = (await window.electronAPI?.audit?.exportLogs({
-        startDate: undefined,
-        endDate: undefined,
-      } as any)) as any;
+      const result = await window.electronAPI?.audit?.exportLogs({});
       if (result?.success) {
-        message.success(t("Claw.Audit.exportSuccess", { count: result.count }));
+        message.success(t(I18N_KEYS.Audit.EXPORT_SUCCESS, result.count ?? 0));
       } else {
-        message.error(t("Claw.Audit.exportFailed"));
+        message.error(t(I18N_KEYS.Audit.EXPORT_FAILED));
       }
     } catch (error) {
       console.error("[AuditLogsTab] Export failed:", error);
-      message.error(t("Claw.Audit.exportFailed"));
+      message.error(t(I18N_KEYS.Audit.EXPORT_FAILED));
     }
   };
 
@@ -184,7 +173,7 @@ function AuditLogsTab() {
 
   const columns: ColumnsType<AuditLogEntry> = [
     {
-      title: t("Claw.Audit.table.timestamp"),
+      title: t(I18N_KEYS.Audit.TABLE_TIMESTAMP),
       dataIndex: "timestamp",
       key: "timestamp",
       width: 160,
@@ -195,7 +184,7 @@ function AuditLogsTab() {
       ),
     },
     {
-      title: t("Claw.Audit.table.eventType"),
+      title: t(I18N_KEYS.Audit.TABLE_EVENT_TYPE),
       dataIndex: "eventType",
       key: "eventType",
       width: 130,
@@ -208,14 +197,14 @@ function AuditLogsTab() {
       },
     },
     {
-      title: t("Claw.Audit.table.operation"),
+      title: t(I18N_KEYS.Audit.TABLE_OPERATION),
       dataIndex: "operation",
       key: "operation",
       ellipsis: true,
       render: (operation?: string) => operation || "-",
     },
     {
-      title: t("Claw.Audit.table.target"),
+      title: t(I18N_KEYS.Audit.TABLE_TARGET),
       dataIndex: "target",
       key: "target",
       width: 200,
@@ -229,7 +218,7 @@ function AuditLogsTab() {
       ),
     },
     {
-      title: t("Claw.Audit.table.status"),
+      title: t(I18N_KEYS.Audit.TABLE_STATUS),
       dataIndex: "allowed",
       key: "allowed",
       width: 80,
@@ -239,13 +228,13 @@ function AuditLogsTab() {
           icon={allowed ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
         >
           {allowed
-            ? t("Claw.Audit.status.allowed")
-            : t("Claw.Audit.status.blocked")}
+            ? t(I18N_KEYS.Audit.STATUS_ALLOWED)
+            : t(I18N_KEYS.Audit.STATUS_BLOCKED)}
         </Tag>
       ),
     },
     {
-      title: t("Claw.Audit.table.reason"),
+      title: t(I18N_KEYS.Audit.TABLE_REASON),
       dataIndex: "reason",
       key: "reason",
       ellipsis: true,
@@ -281,7 +270,7 @@ function AuditLogsTab() {
         <div className={styles.servicesHeaderLeft}>
           <Select
             size="small"
-            placeholder={t("Claw.Audit.filterEventType")}
+            placeholder={t(I18N_KEYS.Audit.FILTER_EVENT_TYPE)}
             value={eventTypeFilter || undefined}
             onChange={setEventTypeFilter}
             options={eventTypeOptions}
@@ -289,7 +278,7 @@ function AuditLogsTab() {
             allowClear
           />
           <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-            {t("Claw.Audit.onlyBlocked")}
+            {t(I18N_KEYS.Audit.ONLY_BLOCKED)}
           </span>
           <Switch
             size="small"
@@ -311,7 +300,7 @@ function AuditLogsTab() {
             icon={<DownloadOutlined />}
             onClick={handleExport}
           >
-            {t("Claw.Audit.export")}
+            {t(I18N_KEYS.Audit.EXPORT)}
           </Button>
         </div>
       </div>
@@ -330,7 +319,7 @@ function AuditLogsTab() {
               }}
             >
               <Empty
-                description={t("Claw.Audit.noData")}
+                description={t(I18N_KEYS.Audit.NO_DATA)}
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
               />
             </div>
