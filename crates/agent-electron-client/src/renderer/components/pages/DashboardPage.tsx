@@ -51,6 +51,11 @@ export type DashboardPanelKey =
 interface DashboardPageProps {
   /** Which panel to expand by default / on navigation */
   activePanel?: DashboardPanelKey;
+  /**
+   * "management" — only show management panels (settings/dependencies/permissions/logs/about).
+   * "full" (default) — show all panels.
+   */
+  mode?: "full" | "management";
   /** Notify parent when entering/leaving webview mode */
   onWebviewChange?: (
     actions: import("./SessionsPage").WebviewHeaderActions | null,
@@ -72,6 +77,7 @@ interface DashboardPageProps {
 
 export default function DashboardPage({
   activePanel = "client",
+  mode = "full",
   onWebviewChange,
   services,
   servicesLoading,
@@ -241,12 +247,24 @@ export default function DashboardPage({
     },
   ];
 
+  const managementKeys: string[] = [
+    "settings",
+    "dependencies",
+    "permissions",
+    "logs",
+    "about",
+  ];
+  const filteredItems =
+    mode === "management"
+      ? items.filter((item) => managementKeys.includes(item.key as string))
+      : items;
+
   return (
     <div style={{ height: "100%", overflow: "auto", padding: "0" }}>
       <Collapse
         activeKey={activeKeys}
         onChange={handleChange}
-        items={items}
+        items={filteredItems}
         bordered={false}
         style={{ background: "transparent" }}
       />

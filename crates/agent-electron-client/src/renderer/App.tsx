@@ -16,25 +16,19 @@ import {
   notification,
   message,
   Alert,
-  Tag,
   Tooltip,
+  Segmented,
 } from "antd";
 import type { PresetStatusColorType } from "antd/es/_util/colors";
 import {
-  SettingOutlined,
   DashboardOutlined,
-  FolderOutlined,
-  InfoCircleOutlined,
-  SafetyOutlined,
-  FileTextOutlined,
   TeamOutlined,
   ArrowLeftOutlined,
   ReloadOutlined,
   OrderedListOutlined,
-  CommentOutlined,
-  RetweetOutlined,
   CodeOutlined,
   AppstoreOutlined,
+  ControlOutlined,
 } from "@ant-design/icons";
 import {
   setupService,
@@ -60,6 +54,10 @@ import SetupWizard from "./components/setup/SetupWizard";
 import SetupDependencies from "./components/setup/SetupDependencies";
 import DashboardPage from "./components/pages/DashboardPage";
 import type { DashboardPanelKey } from "./components/pages/DashboardPage";
+import ClientPage from "./components/pages/ClientPage";
+import SessionsPage from "./components/pages/SessionsPage";
+import { TasksPage } from "./components/pages/TasksPage";
+import AppDevPage from "./components/pages/AppDevPage";
 import type { WebviewHeaderActions } from "./components/pages/SessionsPage";
 import PermissionRequestCard from "./components/PermissionRequestCard";
 import type { PendingPermission } from "./components/PermissionRequestCard";
@@ -108,16 +106,7 @@ export function useI18nLang(): I18nContextValue {
 }
 
 // Tab 类型定义（对齐 Tauri 客户端）
-type TabKey =
-  | "client"
-  | "sessions"
-  | "tasks"
-  | "settings"
-  | "dependencies"
-  | "permissions"
-  | "logs"
-  | "about"
-  | "appdev";
+type TabKey = "client" | "sessions" | "tasks" | "appdev" | "dashboard";
 
 // 状态配置（对齐 Tauri 客户端）
 // 就绪、繁忙使用橙色（warning）、小点展示
@@ -304,13 +293,6 @@ function App() {
       .catch(() => {});
   }, []);
 
-  const handleModeChange = useCallback((mode: ClientMode) => {
-    setClientMode(mode);
-    window.electronAPI?.settings
-      .set(STORAGE_KEYS.CLIENT_MODE, mode)
-      .catch(() => {});
-  }, []);
-
   // 应用主题到 body
   useEffect(() => {
     document.body.setAttribute("data-theme", isDarkMode ? "dark" : "light");
@@ -398,6 +380,24 @@ function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("client");
   const [dashboardActivePanel, setDashboardActivePanel] =
     useState<DashboardPanelKey>("client");
+
+  const handleModeChange = useCallback(
+    (mode: ClientMode) => {
+      setClientMode(mode);
+      // 切换模式后，如果当前 activeTab 在新模式下不可用，重置为 client
+      const availableTabs: TabKey[] = ["client", "sessions"];
+      if (mode !== "chat") availableTabs.push("tasks");
+      if (mode === "code") availableTabs.push("appdev");
+      if (!availableTabs.includes(activeTab) && activeTab !== "dashboard") {
+        setActiveTab("client");
+      }
+      window.electronAPI?.settings
+        .set(STORAGE_KEYS.CLIENT_MODE, mode)
+        .catch(() => {});
+    },
+    [activeTab],
+  );
+
   const [sessionsAutoOpen, setSessionsAutoOpen] = useState(false);
   const [webviewActions, setWebviewActions] =
     useState<WebviewHeaderActions | null>(null);
@@ -1019,7 +1019,7 @@ function App() {
     // 监听设置菜单
     const handleSettings = () => {
       console.log("[App] Received menu:settings event");
-      setActiveTab("settings");
+      setActiveTab("dashboard");
       setDashboardActivePanel("settings");
     };
     window.electronAPI.on("menu:settings", handleSettings);
@@ -1030,7 +1030,7 @@ function App() {
     // 监听依赖管理菜单
     const handleDependencies = () => {
       console.log("[App] Received menu:dependencies event");
-      setActiveTab("dependencies");
+      setActiveTab("dashboard");
       setDashboardActivePanel("dependencies");
     };
     window.electronAPI.on("menu:dependencies", handleDependencies);
@@ -1041,7 +1041,7 @@ function App() {
     // 监听 MCP 设置菜单
     const handleMcpSettings = () => {
       console.log("[App] Received menu:mcp-settings event");
-      setActiveTab("settings");
+      setActiveTab("dashboard");
       setDashboardActivePanel("settings");
     };
     window.electronAPI.on("menu:mcp-settings", handleMcpSettings);
@@ -1304,12 +1304,7 @@ function App() {
   const badge = STATUS_CONFIG[agentStatus] || STATUS_CONFIG.idle;
 
   // ============================================
-  // 平台检测
-  // ============================================
-  const isMacOS = navigator.platform.toUpperCase().includes("MAC");
-
-  // ============================================
-  // 菜单配置（新结构：全部路由到 Dashboard）
+  // 菜单配置（模式菜单 + 管理入口）
   // ============================================
   const menuItems = useMemo(() => {
     return [
@@ -1341,37 +1336,50 @@ function App() {
             },
           ]
         : []),
+      { type: "divider" as const, key: "divider-dashboard" },
       {
-        key: "settings",
-        icon: <SettingOutlined />,
-        label: t("Claw.Menu.settings"),
-      },
-      ...(clientMode !== "chat"
-        ? [
-            {
-              key: "dependencies",
-              icon: <FolderOutlined />,
-              label: t("Claw.Menu.dependencies"),
-            },
-          ]
-        : []),
-      ...(isMacOS && clientMode !== "chat"
-        ? [
-            {
-              key: "permissions",
-              icon: <SafetyOutlined />,
-              label: t("Claw.Menu.authorization"),
-            },
-          ]
-        : []),
-      { key: "logs", icon: <FileTextOutlined />, label: t("Claw.Menu.logs") },
-      {
-        key: "about",
-        icon: <InfoCircleOutlined />,
-        label: t("Claw.Menu.about"),
+        key: "dashboard",
+        icon: <ControlOutlined />,
+        label: t(I18N_KEYS.Menu.DASHBOARD),
       },
     ];
-  }, [clientMode, isMacOS, i18nLang]);
+  }, [clientMode, i18nLang]);
+
+  // ============================================
+  // 渲染模式页面（非 Dashboard 的直接渲染）
+  // ============================================
+  const renderModePage = (tab: TabKey) => {
+    switch (tab) {
+      case "sessions":
+        return (
+          <SessionsPage
+            autoOpen={sessionsAutoOpen}
+            onAutoOpenConsumed={() => setSessionsAutoOpen(false)}
+            onWebviewChange={setWebviewActions}
+          />
+        );
+      case "tasks":
+        return <TasksPage />;
+      case "appdev":
+        return <AppDevPage onWebviewChange={setWebviewActions} />;
+      case "client":
+      default:
+        return (
+          <ClientPage
+            onNavigate={() => {}}
+            services={services ?? []}
+            servicesLoading={servicesLoading ?? false}
+            startingServices={startingServices ?? new Set()}
+            setStartingServices={setStartingServices ?? (() => {})}
+            onRefreshServices={pollServicesStatus}
+            authRefreshTrigger={authRefreshTrigger}
+            onAuthChange={handleAuthChange}
+            onLoginStarted={handleLoginStarted}
+            systemResources={systemResources ?? undefined}
+          />
+        );
+    }
+  };
 
   // ============================================
   // i18n Context value
@@ -1469,19 +1477,25 @@ function App() {
                     style={{ width: 16, height: 16 }}
                   />
                   <span className="app-header-title">{APP_DISPLAY_NAME}</span>
+                  <Segmented
+                    size="small"
+                    value={clientMode}
+                    options={[
+                      { value: "chat", label: t(I18N_KEYS.Mode.CHAT_SHORT) },
+                      {
+                        value: "general",
+                        label: t(I18N_KEYS.Mode.GENERAL_SHORT),
+                      },
+                      { value: "code", label: t(I18N_KEYS.Mode.CODE_SHORT) },
+                    ]}
+                    onChange={(v) => handleModeChange(v as ClientMode)}
+                  />
                 </div>
               )}
               <div className={styles.headerRight}>
                 {username && (
                   <span className={styles.username}>{username}</span>
                 )}
-                <Tag style={{ fontSize: 11, margin: 0, cursor: "default" }}>
-                  {t(
-                    I18N_KEYS.Mode[
-                      clientMode.toUpperCase() as keyof typeof I18N_KEYS.Mode
-                    ],
-                  )}
-                </Tag>
                 <Badge
                   status={badge.status}
                   className={
@@ -1507,45 +1521,16 @@ function App() {
                       : "app-sider"
                   }
                 >
-                  {/* 模式切换 icon tabs */}
-                  <div className="mode-tabs">
-                    <Tooltip title={t(I18N_KEYS.Mode.CHAT)} placement="right">
-                      <button
-                        className={`mode-tab${clientMode === "chat" ? " mode-tab-active" : ""}`}
-                        onClick={() => handleModeChange("chat")}
-                      >
-                        <CommentOutlined />
-                      </button>
-                    </Tooltip>
-                    <Tooltip
-                      title={t(I18N_KEYS.Mode.GENERAL)}
-                      placement="right"
-                    >
-                      <button
-                        className={`mode-tab${clientMode === "general" ? " mode-tab-active" : ""}`}
-                        onClick={() => handleModeChange("general")}
-                      >
-                        <RetweetOutlined />
-                      </button>
-                    </Tooltip>
-                    <Tooltip title={t(I18N_KEYS.Mode.CODE)} placement="right">
-                      <button
-                        className={`mode-tab${clientMode === "code" ? " mode-tab-active" : ""}`}
-                        onClick={() => handleModeChange("code")}
-                      >
-                        <CodeOutlined />
-                      </button>
-                    </Tooltip>
-                  </div>
                   <Menu
                     mode="inline"
                     inlineIndent={0}
                     selectedKeys={[activeTab]}
-                    defaultOpenKeys={["more-group"]}
                     onSelect={({ key }) => {
-                      if (key !== "more-group") {
+                      if (key !== "divider-dashboard") {
                         setActiveTab(key as TabKey);
-                        setDashboardActivePanel(key as DashboardPanelKey);
+                        if (key === "dashboard") {
+                          setDashboardActivePanel("settings");
+                        }
                       }
                     }}
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1688,23 +1673,28 @@ function App() {
                     background: "var(--color-bg-layout)",
                   }}
                 >
-                  <DashboardPage
-                    activePanel={dashboardActivePanel}
-                    onWebviewChange={setWebviewActions}
-                    services={services}
-                    servicesLoading={servicesLoading}
-                    startingServices={startingServices}
-                    setStartingServices={setStartingServices}
-                    onRefreshServices={pollServicesStatus}
-                    authRefreshTrigger={authRefreshTrigger}
-                    onAuthChange={handleAuthChange}
-                    onLoginStarted={handleLoginStarted}
-                    systemResources={systemResources ?? undefined}
-                    sessionsAutoOpen={sessionsAutoOpen}
-                    onSessionsAutoOpenConsumed={() =>
-                      setSessionsAutoOpen(false)
-                    }
-                  />
+                  {activeTab === "dashboard" ? (
+                    <DashboardPage
+                      mode="management"
+                      activePanel={dashboardActivePanel}
+                      onWebviewChange={setWebviewActions}
+                      services={services}
+                      servicesLoading={servicesLoading}
+                      startingServices={startingServices}
+                      setStartingServices={setStartingServices}
+                      onRefreshServices={pollServicesStatus}
+                      authRefreshTrigger={authRefreshTrigger}
+                      onAuthChange={handleAuthChange}
+                      onLoginStarted={handleLoginStarted}
+                      systemResources={systemResources ?? undefined}
+                      sessionsAutoOpen={sessionsAutoOpen}
+                      onSessionsAutoOpenConsumed={() =>
+                        setSessionsAutoOpen(false)
+                      }
+                    />
+                  ) : (
+                    renderModePage(activeTab)
+                  )}
                 </div>
                 {/* 权限确认浮动卡片：覆盖在主内容区底部 */}
                 {pendingPermissions.length > 0 && (

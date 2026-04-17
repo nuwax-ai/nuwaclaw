@@ -481,10 +481,14 @@ export const I18N_KEYS = {
     CHAT: "Claw.Mode.chat",
     GENERAL: "Claw.Mode.general",
     CODE: "Claw.Mode.code",
+    CHAT_SHORT: "Claw.Mode.chatShort",
+    GENERAL_SHORT: "Claw.Mode.generalShort",
+    CODE_SHORT: "Claw.Mode.codeShort",
   },
 
   // 菜单 Menu（新增项）
   Menu: {
     MORE: "Claw.Menu.more",
+    DASHBOARD: "Claw.Menu.dashboard",
   },
 } as const;
