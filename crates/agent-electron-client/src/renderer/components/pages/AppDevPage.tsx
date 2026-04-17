@@ -14,12 +14,7 @@ import {
   CodeOutlined,
   PlayCircleOutlined,
 } from "@ant-design/icons";
-import {
-  syncCookieAndGetRedirectUrl,
-  syncCookieAndGetNewSessionUrl,
-  syncCookieAndGetChatUrl,
-  persistTicketCookie,
-} from "../../services/utils/sessionUrl";
+import { persistTicketCookie } from "../../services/utils/sessionUrl";
 import { logger } from "../../services/utils/logService";
 import { APP_DISPLAY_NAME, DEFAULT_SERVER_HOST } from "@shared/constants";
 import { t } from "../../services/core/i18n";
