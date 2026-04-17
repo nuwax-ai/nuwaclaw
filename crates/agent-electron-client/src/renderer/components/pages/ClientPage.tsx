@@ -966,7 +966,6 @@ function ClientPage({
                       {canExpand && (
                         <span
                           style={{
-                            marginLeft: "auto",
                             fontSize: 10,
                             color: "var(--color-text-tertiary)",
                           }}

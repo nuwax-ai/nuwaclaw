@@ -93,11 +93,11 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 0;
-  border-bottom: 1px solid var(--color-border);
 }
 
-.serviceRow:last-child {
-  border-bottom: none;
+/* wrapper div 相邻时有分隔线 */
+.sectionBody > div + div > .serviceRow {
+  border-top: 1px solid var(--color-border);
 }
 
 .serviceInfo {
@@ -116,7 +116,6 @@
   font-size: 11px;
   color: var(--color-text-tertiary);
   margin-top: 2px;
-  margin-left: 4px;
 }
 
 .servicePid {
