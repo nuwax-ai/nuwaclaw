@@ -58,15 +58,8 @@ import type { QuickInitConfig } from "@shared/types/quickInit";
 import { t, getCurrentLang } from "./services/core/i18n";
 import SetupWizard from "./components/setup/SetupWizard";
 import SetupDependencies from "./components/setup/SetupDependencies";
-import ClientPage from "./components/pages/ClientPage";
-import SettingsPage from "./components/pages/SettingsPage";
-import DependenciesPage from "./components/pages/DependenciesPage";
-import AboutPage from "./components/pages/AboutPage";
-import LogViewer from "./components/pages/LogViewer";
-import PermissionsPage from "./components/pages/PermissionsPage";
-import SessionsPage from "./components/pages/SessionsPage";
-import AppDevPage from "./components/pages/AppDevPage";
-import { TasksPage } from "./components/pages/TasksPage";
+import DashboardPage from "./components/pages/DashboardPage";
+import type { DashboardPanelKey } from "./components/pages/DashboardPage";
 import type { WebviewHeaderActions } from "./components/pages/SessionsPage";
 import PermissionRequestCard from "./components/PermissionRequestCard";
 import type { PendingPermission } from "./components/PermissionRequestCard";
@@ -403,6 +396,8 @@ function App() {
   // 核心状态
   // ============================================
   const [activeTab, setActiveTab] = useState<TabKey>("client");
+  const [dashboardActivePanel, setDashboardActivePanel] =
+    useState<DashboardPanelKey>("client");
   const [sessionsAutoOpen, setSessionsAutoOpen] = useState(false);
   const [webviewActions, setWebviewActions] =
     useState<WebviewHeaderActions | null>(null);
@@ -1025,6 +1020,7 @@ function App() {
     const handleSettings = () => {
       console.log("[App] Received menu:settings event");
       setActiveTab("settings");
+      setDashboardActivePanel("settings");
     };
     window.electronAPI.on("menu:settings", handleSettings);
     cleanupHandlers.push(() =>
@@ -1035,6 +1031,7 @@ function App() {
     const handleDependencies = () => {
       console.log("[App] Received menu:dependencies event");
       setActiveTab("dependencies");
+      setDashboardActivePanel("dependencies");
     };
     window.electronAPI.on("menu:dependencies", handleDependencies);
     cleanupHandlers.push(() =>
@@ -1045,6 +1042,7 @@ function App() {
     const handleMcpSettings = () => {
       console.log("[App] Received menu:mcp-settings event");
       setActiveTab("settings");
+      setDashboardActivePanel("settings");
     };
     window.electronAPI.on("menu:mcp-settings", handleMcpSettings);
     cleanupHandlers.push(() =>
@@ -1056,6 +1054,7 @@ function App() {
       console.log("[App] Received menu:new-session event");
       setSessionsAutoOpen(true);
       setActiveTab("sessions");
+      setDashboardActivePanel("sessions");
     };
     window.electronAPI.on("menu:new-session", handleNewSession);
     cleanupHandlers.push(() =>
@@ -1310,7 +1309,7 @@ function App() {
   const isMacOS = navigator.platform.toUpperCase().includes("MAC");
 
   // ============================================
-  // 菜单配置（模式感知 + 「更多」SubMenu）
+  // 菜单配置（新结构：全部路由到 Dashboard）
   // ============================================
   const menuItems = useMemo(() => {
     return [
@@ -1546,6 +1545,7 @@ function App() {
                     onSelect={({ key }) => {
                       if (key !== "more-group") {
                         setActiveTab(key as TabKey);
+                        setDashboardActivePanel(key as DashboardPanelKey);
                       }
                     }}
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1688,39 +1688,23 @@ function App() {
                     background: "var(--color-bg-layout)",
                   }}
                 >
-                  {activeTab === "client" && (
-                    <ClientPage
-                      onNavigate={(tab) => {
-                        if (tab === "sessions") setSessionsAutoOpen(true);
-                        setActiveTab(tab);
-                      }}
-                      services={services}
-                      servicesLoading={servicesLoading}
-                      startingServices={startingServices}
-                      setStartingServices={setStartingServices}
-                      onRefreshServices={pollServicesStatus}
-                      authRefreshTrigger={authRefreshTrigger}
-                      onAuthChange={handleAuthChange}
-                      onLoginStarted={handleLoginStarted}
-                      systemResources={systemResources ?? undefined}
-                    />
-                  )}
-                  {activeTab === "sessions" && (
-                    <SessionsPage
-                      autoOpen={sessionsAutoOpen}
-                      onAutoOpenConsumed={() => setSessionsAutoOpen(false)}
-                      onWebviewChange={setWebviewActions}
-                    />
-                  )}
-                  {activeTab === "appdev" && (
-                    <AppDevPage onWebviewChange={setWebviewActions} />
-                  )}
-                  {activeTab === "tasks" && <TasksPage />}
-                  {activeTab === "settings" && <SettingsPage />}
-                  {activeTab === "dependencies" && <DependenciesPage />}
-                  {activeTab === "permissions" && <PermissionsPage />}
-                  {activeTab === "logs" && <LogViewer />}
-                  {activeTab === "about" && <AboutPage />}
+                  <DashboardPage
+                    activePanel={dashboardActivePanel}
+                    onWebviewChange={setWebviewActions}
+                    services={services}
+                    servicesLoading={servicesLoading}
+                    startingServices={startingServices}
+                    setStartingServices={setStartingServices}
+                    onRefreshServices={pollServicesStatus}
+                    authRefreshTrigger={authRefreshTrigger}
+                    onAuthChange={handleAuthChange}
+                    onLoginStarted={handleLoginStarted}
+                    systemResources={systemResources ?? undefined}
+                    sessionsAutoOpen={sessionsAutoOpen}
+                    onSessionsAutoOpenConsumed={() =>
+                      setSessionsAutoOpen(false)
+                    }
+                  />
                 </div>
                 {/* 权限确认浮动卡片：覆盖在主内容区底部 */}
                 {pendingPermissions.length > 0 && (
