@@ -34,7 +34,6 @@ import {
   CommentOutlined,
   RetweetOutlined,
   CodeOutlined,
-  EllipsisOutlined,
   AppstoreOutlined,
 } from "@ant-design/icons";
 import {
@@ -1314,7 +1313,7 @@ function App() {
   // 菜单配置（模式感知 + 「更多」SubMenu）
   // ============================================
   const menuItems = useMemo(() => {
-    const core = [
+    return [
       {
         key: "client",
         icon: <DashboardOutlined />,
@@ -1343,9 +1342,6 @@ function App() {
             },
           ]
         : []),
-    ];
-
-    const moreChildren = [
       {
         key: "settings",
         icon: <SettingOutlined />,
@@ -1374,17 +1370,6 @@ function App() {
         key: "about",
         icon: <InfoCircleOutlined />,
         label: t("Claw.Menu.about"),
-      },
-    ];
-
-    return [
-      ...core,
-      { type: "divider" as const },
-      {
-        key: "more-group",
-        icon: <EllipsisOutlined />,
-        label: t(I18N_KEYS.Menu.MORE),
-        children: moreChildren,
       },
     ];
   }, [clientMode, isMacOS, i18nLang]);
