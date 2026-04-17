@@ -1,8 +1,9 @@
 /**
  * LogViewer - 日志查看器 (Electron 版)
  *
- * - 日志列表（时间戳 + 级别 + 消息）、级别筛选、自动滚动、刷新
- * - 向上滚动到顶部时自动加载更早的日志（分页，保持滚动位置）
+ * - 两个子 Tab：应用日志（原有）+ 审计日志（从 ComplianceAuditPage 整合）
+ * - 应用日志：级别筛选、自动滚动、分页加载
+ * - 审计日志：事件类型筛选、仅显示被拦截、刷新、导出
  */
 
 import React, {
@@ -11,18 +12,40 @@ import React, {
   useRef,
   useCallback,
   useLayoutEffect,
+  useMemo,
 } from "react";
-import { Button, Select, Switch, Empty, Spin, Tag } from "antd";
-import { ReloadOutlined, VerticalAlignBottomOutlined } from "@ant-design/icons";
+import {
+  Button,
+  Select,
+  Switch,
+  Empty,
+  Spin,
+  Tag,
+  Tabs,
+  Table,
+  Space,
+  Input,
+  Tooltip,
+  message,
+} from "antd";
+import {
+  ReloadOutlined,
+  VerticalAlignBottomOutlined,
+  DownloadOutlined,
+  SearchOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+} from "@ant-design/icons";
+import type { ColumnsType } from "antd/es/table";
+import dayjs from "dayjs";
 import { t } from "@renderer/services/core/i18n";
 import { I18N_KEYS } from "@shared/constants";
 import styles from "../../styles/components/ClientPage.module.css";
 
-interface LogEntry {
-  timestamp: string;
-  level: string;
-  message: string;
-}
+// ─── 通用常量 ───────────────────────────────────────────────
+
+const PAGE_SIZE = 2000;
+const LOAD_MORE_THRESHOLD = 80;
 
 const LEVEL_TAG_COLORS: Record<string, string> = {
   error: "red",
@@ -31,12 +54,305 @@ const LEVEL_TAG_COLORS: Record<string, string> = {
   debug: "default",
 };
 
-/** 每页条数，与主进程默认一致 */
-const PAGE_SIZE = 2000;
-/** 距顶部多少 px 时触发加载更多 */
-const LOAD_MORE_THRESHOLD = 80;
+// ─── 审计日志类型 ────────────────────────────────────────────
 
-export default function LogViewer() {
+interface AuditLogEntry {
+  id: string;
+  timestamp: string;
+  sessionId: string;
+  eventType: string;
+  operation?: string;
+  target?: string;
+  allowed: boolean;
+  reason?: string;
+  approvedBy?: "system" | "user";
+  duration?: number;
+  error?: string;
+}
+
+const EVENT_TYPE_MAP: Record<string, { color: string; labelKey: string }> = {
+  path_blocked: { color: "red", labelKey: "Claw.Audit.eventType.pathBlocked" },
+  path_allowed: {
+    color: "green",
+    labelKey: "Claw.Audit.eventType.pathAllowed",
+  },
+  command_blocked: {
+    color: "red",
+    labelKey: "Claw.Audit.eventType.commandBlocked",
+  },
+  command_allowed: {
+    color: "green",
+    labelKey: "Claw.Audit.eventType.commandAllowed",
+  },
+  permission_requested: {
+    color: "blue",
+    labelKey: "Claw.Audit.eventType.permissionRequested",
+  },
+  permission_approved: {
+    color: "green",
+    labelKey: "Claw.Audit.eventType.permissionApproved",
+  },
+  permission_denied: {
+    color: "red",
+    labelKey: "Claw.Audit.eventType.permissionDenied",
+  },
+  permission_auto_approved: {
+    color: "cyan",
+    labelKey: "Claw.Audit.eventType.permissionAutoApproved",
+  },
+  operation_executed: {
+    color: "green",
+    labelKey: "Claw.Audit.eventType.operationExecuted",
+  },
+  operation_failed: {
+    color: "orange",
+    labelKey: "Claw.Audit.eventType.operationFailed",
+  },
+  sandbox_created: {
+    color: "blue",
+    labelKey: "Claw.Audit.eventType.sandboxCreated",
+  },
+  sandbox_destroyed: {
+    color: "default",
+    labelKey: "Claw.Audit.eventType.sandboxDestroyed",
+  },
+};
+
+// ─── 应用日志类型 ────────────────────────────────────────────
+
+interface LogEntry {
+  timestamp: string;
+  level: string;
+  message: string;
+}
+
+// ─── 审计日志子 Tab ──────────────────────────────────────────
+
+function AuditLogsTab() {
+  const [events, setEvents] = useState<AuditLogEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [eventTypeFilter, setEventTypeFilter] = useState<string>("");
+  const [showOnlyBlocked, setShowOnlyBlocked] = useState(false);
+
+  const loadAuditData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = (await window.electronAPI?.audit?.getRecentEvents({
+        limit: 200,
+      })) as any;
+      if (res?.success) {
+        setEvents(res.events || []);
+      }
+    } catch (error) {
+      console.error("[AuditLogsTab] Failed to load audit data:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAuditData();
+  }, [loadAuditData]);
+
+  const handleExport = async () => {
+    try {
+      const result = (await window.electronAPI?.audit?.exportLogs({
+        startDate: undefined,
+        endDate: undefined,
+      } as any)) as any;
+      if (result?.success) {
+        message.success(t("Claw.Audit.exportSuccess", { count: result.count }));
+      } else {
+        message.error(t("Claw.Audit.exportFailed"));
+      }
+    } catch (error) {
+      console.error("[AuditLogsTab] Export failed:", error);
+      message.error(t("Claw.Audit.exportFailed"));
+    }
+  };
+
+  const filteredEvents = useMemo(
+    () =>
+      events.filter((event) => {
+        if (eventTypeFilter && event.eventType !== eventTypeFilter)
+          return false;
+        if (showOnlyBlocked && event.allowed) return false;
+        return true;
+      }),
+    [events, eventTypeFilter, showOnlyBlocked],
+  );
+
+  const columns: ColumnsType<AuditLogEntry> = [
+    {
+      title: t("Claw.Audit.table.timestamp"),
+      dataIndex: "timestamp",
+      key: "timestamp",
+      width: 160,
+      render: (timestamp: string) => (
+        <Tooltip title={timestamp}>
+          {dayjs(timestamp).format("MM-DD HH:mm:ss")}
+        </Tooltip>
+      ),
+    },
+    {
+      title: t("Claw.Audit.table.eventType"),
+      dataIndex: "eventType",
+      key: "eventType",
+      width: 130,
+      render: (eventType: string) => {
+        const config = EVENT_TYPE_MAP[eventType] || {
+          color: "default",
+          labelKey: eventType,
+        };
+        return <Tag color={config.color}>{t(config.labelKey)}</Tag>;
+      },
+    },
+    {
+      title: t("Claw.Audit.table.operation"),
+      dataIndex: "operation",
+      key: "operation",
+      ellipsis: true,
+      render: (operation?: string) => operation || "-",
+    },
+    {
+      title: t("Claw.Audit.table.target"),
+      dataIndex: "target",
+      key: "target",
+      width: 200,
+      ellipsis: true,
+      render: (target?: string) => (
+        <Tooltip title={target}>
+          <span style={{ fontFamily: "monospace", fontSize: 11 }}>
+            {target || "-"}
+          </span>
+        </Tooltip>
+      ),
+    },
+    {
+      title: t("Claw.Audit.table.status"),
+      dataIndex: "allowed",
+      key: "allowed",
+      width: 80,
+      render: (allowed: boolean) => (
+        <Tag
+          color={allowed ? "success" : "error"}
+          icon={allowed ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
+        >
+          {allowed
+            ? t("Claw.Audit.status.allowed")
+            : t("Claw.Audit.status.blocked")}
+        </Tag>
+      ),
+    },
+    {
+      title: t("Claw.Audit.table.reason"),
+      dataIndex: "reason",
+      key: "reason",
+      ellipsis: true,
+      render: (reason: string | undefined, record: AuditLogEntry) => (
+        <Tooltip title={reason || record.error}>
+          <span style={{ color: record.allowed ? undefined : "#ff4d4f" }}>
+            {reason || record.error || "-"}
+          </span>
+        </Tooltip>
+      ),
+    },
+  ];
+
+  const eventTypeOptions = Object.entries(EVENT_TYPE_MAP).map(
+    ([value, config]) => ({
+      value,
+      label: t(config.labelKey),
+    }),
+  );
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        minHeight: 0,
+        overflow: "hidden",
+      }}
+    >
+      {/* Toolbar */}
+      <div className={styles.servicesHeader}>
+        <div className={styles.servicesHeaderLeft}>
+          <Select
+            size="small"
+            placeholder={t("Claw.Audit.filterEventType")}
+            value={eventTypeFilter || undefined}
+            onChange={setEventTypeFilter}
+            options={eventTypeOptions}
+            style={{ width: 160 }}
+            allowClear
+          />
+          <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+            {t("Claw.Audit.onlyBlocked")}
+          </span>
+          <Switch
+            size="small"
+            checked={showOnlyBlocked}
+            onChange={setShowOnlyBlocked}
+          />
+        </div>
+        <div className={styles.servicesHeaderActions}>
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={loadAuditData}
+            loading={loading}
+          >
+            {t(I18N_KEYS.Pages.LogViewer.REFRESH)}
+          </Button>
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            onClick={handleExport}
+          >
+            {t("Claw.Audit.export")}
+          </Button>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+        <Spin spinning={loading}>
+          {filteredEvents.length === 0 && !loading ? (
+            <div
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: 200,
+              }}
+            >
+              <Empty
+                description={t("Claw.Audit.noData")}
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+              />
+            </div>
+          ) : (
+            <Table
+              columns={columns}
+              dataSource={filteredEvents}
+              rowKey="id"
+              pagination={{ pageSize: 50, size: "small" }}
+              size="small"
+              scroll={{ x: 800 }}
+            />
+          )}
+        </Spin>
+      </div>
+    </div>
+  );
+}
+
+// ─── 应用日志子 Tab ──────────────────────────────────────────
+
+function AppLogsTab() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -44,12 +360,9 @@ export default function LogViewer() {
   const [levelFilter, setLevelFilter] = useState<string>("all");
   const [autoScroll, setAutoScroll] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
-  /** prepend 后用于恢复滚动位置 */
   const scrollRestoreRef = useRef<{ height: number; top: number } | null>(null);
-  /** 标记是否正在加载更早日志（prepend 模式，不触发自动滚动） */
   const isLoadingOlderRef = useRef(false);
 
-  /** 首次加载或刷新：取最新一页 */
   const fetchLogs = useCallback(async () => {
     try {
       const result = await window.electronAPI?.log?.list(PAGE_SIZE, 0);
@@ -64,13 +377,12 @@ export default function LogViewer() {
     }
   }, []);
 
-  /** 向上加载更早的一页，prepend 并保持滚动位置 */
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     const el = listRef.current;
     if (!el) return;
     setLoadingMore(true);
-    isLoadingOlderRef.current = true; // 标记正在加载更早日志
+    isLoadingOlderRef.current = true;
     try {
       const offset = logs.length;
       const older = await window.electronAPI?.log?.list(PAGE_SIZE, offset);
@@ -88,7 +400,6 @@ export default function LogViewer() {
       console.error("[LogViewer] Load more failed:", error);
     } finally {
       setLoadingMore(false);
-      // 延迟重置标记，让 useLayoutEffect 先完成滚动恢复
       setTimeout(() => {
         isLoadingOlderRef.current = false;
       }, 0);
@@ -101,7 +412,6 @@ export default function LogViewer() {
     return () => clearInterval(timer);
   }, [fetchLogs]);
 
-  /** prepend 后恢复滚动位置，避免列表跳动 */
   useLayoutEffect(() => {
     const ref = scrollRestoreRef.current;
     const el = listRef.current;
@@ -113,15 +423,12 @@ export default function LogViewer() {
     scrollRestoreRef.current = null;
   }, [logs]);
 
-  /** 仅当新日志追加到底部时自动滚动（非 prepend 场景） */
   useEffect(() => {
     if (!autoScroll || !listRef.current) return;
-    // 如果正在加载更早日志，跳过自动滚动
     if (isLoadingOlderRef.current) return;
     listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [logs, autoScroll]);
 
-  /** 滚动到顶时加载更多 */
   const handleScroll = useCallback(() => {
     const el = listRef.current;
     if (!el || autoScroll || loadingMore || !hasMore) return;
@@ -153,7 +460,6 @@ export default function LogViewer() {
         overflow: "hidden",
       }}
     >
-      {/* Header */}
       <div
         className={styles.section}
         style={{
@@ -166,9 +472,6 @@ export default function LogViewer() {
       >
         <div className={styles.servicesHeader}>
           <div className={styles.servicesHeaderLeft}>
-            <span className={styles.sectionTitle}>
-              {t(I18N_KEYS.Pages.LogViewer.TITLE)}
-            </span>
             <span
               style={{ fontSize: 12, color: "var(--color-text-secondary)" }}
             >
@@ -208,7 +511,6 @@ export default function LogViewer() {
           </div>
         </div>
 
-        {/* Log list：占满剩余高度，无日志时空状态也撑满 */}
         <div
           style={{
             flex: 1,
@@ -324,7 +626,6 @@ export default function LogViewer() {
           )}
         </div>
       </div>
-      {/* Footer */}
       <div
         style={{
           padding: "8px 16px",
@@ -344,6 +645,47 @@ export default function LogViewer() {
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── 主组件：日志查看器 ──────────────────────────────────────
+
+export default function LogViewer() {
+  const [activeSubTab, setActiveSubTab] = useState("app");
+
+  return (
+    <div
+      className={styles.section}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        minHeight: 0,
+        overflow: "hidden",
+      }}
+    >
+      <Tabs
+        activeKey={activeSubTab}
+        onChange={setActiveSubTab}
+        size="small"
+        className="log-viewer-tabs"
+        style={{ padding: "0 16px" }}
+        tabBarStyle={{ marginBottom: 0, flexShrink: 0 }}
+        items={[
+          {
+            key: "app",
+            label: t("Claw.LogViewer.tabAppLogs"),
+            children: <AppLogsTab />,
+            forceRender: true,
+          },
+          {
+            key: "audit",
+            label: t("Claw.LogViewer.tabAuditLogs"),
+            children: <AuditLogsTab />,
+          },
+        ]}
+      />
     </div>
   );
 }

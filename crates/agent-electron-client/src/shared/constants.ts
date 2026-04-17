@@ -402,6 +402,8 @@ export const I18N_KEYS = {
       SCROLL_TO_LOAD_MORE: "Claw.LogViewer.scrollToLoadMore",
       TOTAL_LOGS: "Claw.LogViewer.totalLogs",
       AUTO_SCROLL_ENABLED: "Claw.LogViewer.autoScrollEnabled",
+      TAB_APP_LOGS: "Claw.LogViewer.tabAppLogs",
+      TAB_AUDIT_LOGS: "Claw.LogViewer.tabAuditLogs",
     },
   },
 
