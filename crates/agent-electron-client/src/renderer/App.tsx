@@ -125,7 +125,6 @@ type TabKey =
   | "permissions"
   | "logs"
   | "about"
-  | "model"
   | "appdev";
 
 // 状态配置（对齐 Tauri 客户端）

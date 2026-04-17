@@ -145,7 +145,7 @@ function AppDevPage({ onWebviewChange }: AppDevPageProps) {
         onBack: () => {
           setView("list");
           setWebviewUrl("");
-          fetchProjects();
+          loadProjects();
         },
         onReload: () => {
           (webviewRef.current as any)?.reload?.();
@@ -161,13 +161,13 @@ function AppDevPage({ onWebviewChange }: AppDevPageProps) {
 
   // ============ Data fetching ============
 
-  const fetchProjects = useCallback(async () => {
+  const loadProjects = useCallback(async () => {
     setLoading(true);
     try {
       const list = await fetchAppDevProjects();
       setProjects(list);
     } catch (error) {
-      console.error("[AppDevPage] fetchProjects failed:", error);
+      console.error("[AppDevPage] loadProjects failed:", error);
       message.error(t("Claw.AppDev.loadFailed"));
     } finally {
       setLoading(false);
@@ -176,8 +176,8 @@ function AppDevPage({ onWebviewChange }: AppDevPageProps) {
 
   useEffect(() => {
     if (view !== "list") return;
-    fetchProjects();
-  }, [fetchProjects, view]);
+    loadProjects();
+  }, [loadProjects, view]);
 
   // ============ Actions ============
 
@@ -251,7 +251,7 @@ function AppDevPage({ onWebviewChange }: AppDevPageProps) {
             <Button
               size="small"
               icon={<ReloadOutlined />}
-              onClick={fetchProjects}
+              onClick={loadProjects}
             >
               {t("Claw.Common.refresh")}
             </Button>
