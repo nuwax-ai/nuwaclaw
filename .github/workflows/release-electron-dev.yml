@@ -151,26 +151,26 @@ jobs:
 
       # 缓存内置 Node.js（所有平台）、Git（仅 Windows）、uv（所有平台）和 nuwaxcode（所有平台）
       - name: Cache bundled Node.js
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: crates/agent-electron-client/resources/node
           key: bundled-node-24-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
 
       - name: Cache bundled Git (Windows only)
         if: matrix.platform == 'windows-latest'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: crates/agent-electron-client/resources/git
           key: bundled-git-2.47.1-windows-${{ hashFiles('crates/agent-electron-client/package.json') }}
 
       - name: Cache uv
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: crates/agent-electron-client/resources/uv
           key: bundled-uv-v2-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-uv.js') }}
 
       - name: Cache nuwaxcode
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: crates/agent-electron-client/resources/nuwaxcode
           key: bundled-nuwaxcode-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
