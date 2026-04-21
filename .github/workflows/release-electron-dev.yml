@@ -266,27 +266,51 @@ jobs:
             gh release upload "$TAG" "$f" --clobber --repo "$GITHUB_REPOSITORY"
           done
 
-  # ==================== 同步到阿里云 OSS ====================
-  # prerelease-v* tag 推送触发后，构建完成即自动同步到 OSS 并更新 beta/latest.json
-  sync-to-oss:
-    name: Sync prerelease to Alibaba Cloud OSS (beta)
+  # ==================== 同步到 MinIO S3（构建产物）和阿里云 OSS（latest.json） ====================
+  # prerelease-v* tag 推送触发后，构建完成即自动同步到 MinIO S3 并更新 beta/latest.json
+  sync-to-minio:
+    name: Sync prerelease to MinIO S3 (beta)
     needs: build-electron
     runs-on: ubuntu-latest
     continue-on-error: true
     env:
+      # MinIO S3 配置（存放构建产物和 yml 文件）
+      S3_ENDPOINT: "https://s3.nuwax.com:9443"
+      S3_REGION: "us-east-1"
+      S3_BUCKET: "nuwaclaw"
+      S3_CDN_BASE: "https://s3.nuwax.com:9443/nuwaclaw"
+      # 阿里云 OSS 配置（仅存放 latest.json）
       OSS_ENDPOINT: "https://oss-rg-china-mainland.aliyuncs.com"
       OSS_REGION: "rg-china-mainland"
       OSS_BUCKET: "oss://nuwa-packages"
       OSS_CDN_BASE: "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com"
       RELEASE_TAG: ${{ github.ref_name }}
     steps:
-      - name: Install ossutil v2
+      - name: Install awscli v2 (for S3)
+        run: |
+          curl -fSL -o /tmp/awscliv2.zip \
+            "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+          unzip -q /tmp/awscliv2.zip -d /tmp
+          sudo /tmp/aws/install --bin-dir /usr/local/bin
+          aws --version
+
+      - name: Install ossutil v2 (for latest.json)
         run: |
           curl -fSL -o /tmp/ossutil.zip \
             "https://gosspublic.alicdn.com/ossutil/v2/2.2.0/ossutil-2.2.0-linux-amd64.zip"
           unzip -q /tmp/ossutil.zip -d /tmp
           sudo mv /tmp/ossutil-2.2.0-linux-amd64/ossutil /usr/local/bin/
           ossutil version
+
+      - name: Configure AWS credentials for S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.MINIO_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MINIO_SECRET_ACCESS_KEY }}
+        run: |
+          aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
+          aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
+          aws configure set default.region "$S3_REGION"
+          aws configure set endpoint_url "$S3_ENDPOINT"
 
       - name: Download all release assets
         env:
@@ -300,12 +324,12 @@ jobs:
 
       - name: Generate latest.json and platform yml from assets
         env:
-          OSS_CDN_BASE: "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com"
+          S3_CDN_BASE: "https://s3.nuwax.com:9443/nuwaclaw"
           GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           TAG="${RELEASE_TAG}"
           VERSION="${TAG#prerelease-v}"
-          OSS_URL_PREFIX="${OSS_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}"
+          S3_URL_PREFIX="${S3_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}"
           ASSETS_DIR="/tmp/release-assets"
 
           # semver MVP guard: only allow numeric x.y.z
@@ -338,7 +362,7 @@ jobs:
               size=$(stat -c%s "$filepath" 2>/dev/null || stat -f%z "$filepath")
               PLATFORMS=$(echo "$PLATFORMS" | jq \
                 --arg k "$key" \
-                --arg u "${OSS_URL_PREFIX}/${file}" \
+                --arg u "${S3_URL_PREFIX}/${file}" \
                 --arg s "$sig" \
                 --argjson sz "$size" \
                 '. + {($k): {"url": $u, "signature": $s, "size": $sz}}')
@@ -422,11 +446,11 @@ jobs:
           gen_yml "latest" "$WIN_KEYS"
           echo "==> Platform yml written to ${ASSETS_DIR}"
 
-          # 构建 yml 文件的完整 OSS URL（供客户端 electron-updater 直接使用）
+          # 构建 yml 文件的完整 S3 URL（供客户端 electron-updater 直接使用）
           YML_URLS=$(jq -n \
-            --arg darwin "${OSS_URL_PREFIX}/latest-mac.yml" \
-            --arg linux "${OSS_URL_PREFIX}/latest-linux.yml" \
-            --arg win "${OSS_URL_PREFIX}/latest.yml" \
+            --arg darwin "${S3_URL_PREFIX}/latest-mac.yml" \
+            --arg linux "${S3_URL_PREFIX}/latest-linux.yml" \
+            --arg win "${S3_URL_PREFIX}/latest.yml" \
             '{darwin: $darwin, linux: $linux, win: $win}')
 
           LATEST_JSON=$(jq -n \
@@ -440,31 +464,29 @@ jobs:
           echo "==> Generated latest.json"
           echo "$LATEST_JSON" | jq .
 
-      - name: Upload all assets to versioned path
+      - name: Upload all assets to MinIO S3
         env:
-          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
-          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.MINIO_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MINIO_SECRET_ACCESS_KEY }}
         run: |
           TAG="${RELEASE_TAG}"
-          OSS_PREFIX="nuwaclaw-electron/beta-build/${TAG}"
+          S3_PREFIX="nuwaclaw-electron/beta-build/${TAG}"
 
           for file in /tmp/release-assets/*; do
             filename=$(basename "$file")
-            echo "Uploading: ${filename}"
-            ossutil cp --force "$file" "${OSS_BUCKET}/${OSS_PREFIX}/${filename}" \
-              --endpoint "$OSS_ENDPOINT" \
-              --region "$OSS_REGION" \
-              --access-key-id "$OSS_ACCESS_KEY_ID" \
-              --access-key-secret "$OSS_ACCESS_KEY_SECRET"
+            echo "Uploading to S3: ${filename}"
+            aws s3 cp "$file" "s3://${S3_BUCKET}/${S3_PREFIX}/${filename}" \
+              --endpoint-url "$S3_ENDPOINT" \
+              --acl public-read
           done
 
-      - name: Upload latest.json to OSS (beta channel)
+      - name: Upload latest.json to Alibaba OSS (beta channel)
         env:
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
         run: |
           TAG="${RELEASE_TAG}"
-          echo "==> Publishing latest.json to beta channel"
+          echo "==> Publishing latest.json to beta channel on OSS"
           # 写入版本化路径
           ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/beta-build/${TAG}/latest.json" \
             --endpoint "$OSS_ENDPOINT" \
@@ -477,7 +499,7 @@ jobs:
             --region "$OSS_REGION" \
             --access-key-id "$OSS_ACCESS_KEY_ID" \
             --access-key-secret "$OSS_ACCESS_KEY_SECRET"
-          echo "==> Uploaded latest.json to beta/latest.json (stable pointer untouched)"
+          echo "==> Uploaded latest.json to OSS beta/latest.json (stable pointer untouched)"
 
       - name: Verify OSS upload
         run: |
