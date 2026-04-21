@@ -286,12 +286,16 @@ jobs:
       OSS_CDN_BASE: "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com"
       RELEASE_TAG: ${{ github.ref_name }}
     steps:
-      - name: Install awscli v2 (for S3)
+      - name: Ensure awscli v2 (for S3)
         run: |
-          curl -fSL -o /tmp/awscliv2.zip \
-            "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
-          unzip -q /tmp/awscliv2.zip -d /tmp
-          sudo /tmp/aws/install --bin-dir /usr/local/bin
+          if aws --version 2>/dev/null; then
+            echo "AWS CLI already installed"
+          else
+            curl -fSL -o /tmp/awscliv2.zip \
+              "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+            unzip -q /tmp/awscliv2.zip -d /tmp
+            sudo /tmp/aws/install --bin-dir /usr/local/bin
+          fi
           aws --version
 
       - name: Install ossutil v2 (for latest.json)
@@ -310,6 +314,7 @@ jobs:
           aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
           aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
           aws configure set default.region "$S3_REGION"
+          aws configure set default.s3.addressing_style path
           aws configure set endpoint_url "$S3_ENDPOINT"
 
       - name: Download all release assets
@@ -324,7 +329,6 @@ jobs:
 
       - name: Generate latest.json and platform yml from assets
         env:
-          S3_CDN_BASE: "https://s3.nuwax.com:9443/nuwaclaw"
           GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           TAG="${RELEASE_TAG}"
@@ -476,9 +480,20 @@ jobs:
             filename=$(basename "$file")
             echo "Uploading to S3: ${filename}"
             aws s3 cp "$file" "s3://${S3_BUCKET}/${S3_PREFIX}/${filename}" \
-              --endpoint-url "$S3_ENDPOINT" \
-              --acl public-read
+              --endpoint-url "$S3_ENDPOINT"
           done
+
+      - name: Verify S3 upload
+        run: |
+          TAG="${RELEASE_TAG}"
+          VERIFY_URL="${S3_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}/latest-mac.yml"
+          HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" "$VERIFY_URL")
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "==> S3 upload verified: latest-mac.yml (HTTP ${HTTP_STATUS})"
+          else
+            echo "::error::S3 upload verification failed: latest-mac.yml (HTTP ${HTTP_STATUS})"
+            exit 1
+          fi
 
       - name: Upload latest.json to Alibaba OSS (beta channel)
         env:
