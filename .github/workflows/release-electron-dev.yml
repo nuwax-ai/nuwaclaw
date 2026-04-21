@@ -483,6 +483,13 @@ jobs:
               --endpoint-url "$S3_ENDPOINT"
           done
 
+          # 同步 latest.json 到 S3（版本化路径 + beta 滚动指针）
+          echo "Uploading latest.json to S3..."
+          aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/${S3_PREFIX}/latest.json" \
+            --endpoint-url "$S3_ENDPOINT"
+          aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/nuwaclaw-electron/beta/latest.json" \
+            --endpoint-url "$S3_ENDPOINT"
+
       - name: Verify S3 upload
         run: |
           TAG="${RELEASE_TAG}"
