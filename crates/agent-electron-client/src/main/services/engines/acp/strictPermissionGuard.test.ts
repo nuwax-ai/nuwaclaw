@@ -219,6 +219,52 @@ describe("strictPermissionGuard", () => {
     expect(result.reason).toBe("strict_missing_path");
   });
 
+  it("识别 EditNotebook 的 target_notebook 路径并允许 workspace 内写入", () => {
+    const result = evaluateStrictWritePermission(
+      makeRequest({
+        toolCall: {
+          toolCallId: "tc-5b",
+          kind: "edit",
+          title: "Edit Notebook",
+          rawInput: { target_notebook: "/workspace/docs/demo.ipynb" },
+        },
+      }),
+      {
+        strictEnabled: true,
+        workspaceDir: "/workspace",
+        appDataDir: "/home/me/.nuwaclaw",
+        tempDirs: ["/tmp"],
+      },
+    );
+
+    expect(result.blocked).toBe(false);
+    expect(result.reason).toBe("strict_paths_allowed");
+    expect(result.candidatePaths).toContain("/workspace/docs/demo.ipynb");
+  });
+
+  it("未知键名但值为相对路径时按路径处理", () => {
+    const result = evaluateStrictWritePermission(
+      makeRequest({
+        toolCall: {
+          toolCallId: "tc-5c",
+          kind: "edit",
+          title: "Edit",
+          rawInput: { destination: "./notes/todo.md" },
+        },
+      }),
+      {
+        strictEnabled: true,
+        workspaceDir: "/workspace",
+        appDataDir: "/home/me/.nuwaclaw",
+        tempDirs: ["/tmp"],
+      },
+    );
+
+    expect(result.blocked).toBe(false);
+    expect(result.reason).toBe("strict_paths_allowed");
+    expect(result.resolvedPaths[0]).toBe("/workspace/notes/todo.md");
+  });
+
   it("非写入请求不触发 strict 路径拦截", () => {
     const result = evaluateStrictWritePermission(
       makeRequest({
