@@ -1,12 +1,25 @@
 // Type definitions for Electron API exposed via preload
 
 export type McpServerEntry =
-  | { command: string; args: string[]; env?: Record<string, string> }
+  | {
+      command: string;
+      args: string[];
+      env?: Record<string, string>;
+      enabled?: boolean;
+      discoveredTools?: string[];
+      persistent?: boolean;
+      allowTools?: string[];
+      denyTools?: string[];
+    }
   | {
       url: string;
       transport?: "streamable-http" | "sse";
       headers?: Record<string, string>;
       authToken?: string;
+      enabled?: boolean;
+      discoveredTools?: string[];
+      allowTools?: string[];
+      denyTools?: string[];
     };
 
 export interface McpServersConfig {
@@ -31,6 +44,16 @@ export interface MCPAPI {
   setConfig: (
     config: McpServersConfig,
   ) => Promise<{ success: boolean; error?: string }>;
+  discoverTools: (serverId: string) => Promise<{
+    success: boolean;
+    tools?: string[];
+    error?: string;
+  }>;
+  exportConfig: () => Promise<{
+    success: boolean;
+    filePath?: string;
+    error?: string;
+  }>;
   /** @deprecated no-op, port is no longer used */
   getPort: () => Promise<number>;
   /** @deprecated no-op, port is no longer used */

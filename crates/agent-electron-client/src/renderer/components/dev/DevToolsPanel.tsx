@@ -6,7 +6,6 @@
  * - 清除登录状态
  * - 清除全部数据并刷新
  * - 查看应用存储数据
- * - MCP Proxy 服务管理（仅开发可见，不对正式用户开放）
  * - SetupDependencies UI 测试
  *
  * 注意：本组件为纯调试工具，不接入 i18n，所有 UI 文案硬编码英文。
@@ -22,7 +21,6 @@ import {
   ExperimentOutlined,
 } from "@ant-design/icons";
 import { setupService } from "../../services/core/setup";
-import MCPSettings from "../settings/MCPSettings";
 import SetupDependenciesTest from "./SetupDependenciesTest";
 import SetupWizardTest from "./SetupWizardTest";
 
@@ -226,35 +224,6 @@ export default function DevToolsPanel() {
           >
             {"View"}
           </Button>
-        </div>
-      </div>
-
-      {/* MCP Proxy 服务管理：仅开发模式展示，不对正式用户开放 */}
-      <div style={{ marginTop: 16 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            marginBottom: 10,
-          }}
-        >
-          <span style={{ fontSize: 13, fontWeight: 500, color: "#18181b" }}>
-            {"MCP Proxy Service Management"}
-          </span>
-          <Tag color="orange" style={{ margin: 0, fontSize: 10 }}>
-            DEV
-          </Tag>
-        </div>
-        <div
-          style={{
-            border: "1px solid #e4e4e7",
-            borderRadius: 8,
-            background: "#fff",
-            overflow: "hidden",
-          }}
-        >
-          <MCPSettings />
         </div>
       </div>
 

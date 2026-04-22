@@ -22,6 +22,10 @@ const PATH_FIELDS = new Set([
   "file_path",
   "filepath",
   "filePath",
+  "target_notebook",
+  "targetNotebook",
+  "notebook_path",
+  "notebookPath",
   "new_path",
   "newPath",
   "old_path",
@@ -251,7 +255,9 @@ function isLikelyPathValue(value: string, keyHint: string): boolean {
   ) {
     return true;
   }
-  return false;
+  // 兼容未知字段名（例如部分 MCP 工具参数会用 target_notebook 之外的自定义键），
+  // 只要值本身明显是路径，就按路径处理，避免 strict 模式误判为 missing_path。
+  return looksLikePath(value);
 }
 
 function looksLikePath(value: string): boolean {
