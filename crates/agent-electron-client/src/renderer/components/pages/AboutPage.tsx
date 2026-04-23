@@ -534,8 +534,6 @@ export default function AboutPage() {
             checked={updateChannel === "beta"}
             loading={channelLoading}
             onChange={handleChangeUpdateChannel}
-            checkedChildren={t("Claw.About.switchOn")}
-            unCheckedChildren={t("Claw.About.switchOff")}
           />
         </div>
         <div

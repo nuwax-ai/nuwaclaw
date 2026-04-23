@@ -720,6 +720,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                   fontFamily: "Monaco, Menlo, 'Courier New', monospace",
                   fontSize: 12,
                   whiteSpace: "pre-wrap",
+                  color: "var(--color-text)",
                 }}
               >
                 {`{

@@ -438,24 +438,24 @@ body {
 
 .ant-alert-message {
   font-weight: 500;
-  color: #18181b;
+  color: var(--color-text);
   font-size: 12px;
 }
 
 .ant-alert-description {
   font-size: 12px;
-  color: #6B7280;
+  color: var(--color-text-secondary);
 }
 
 /* ========== 描述列表 ========== */
 .ant-descriptions-item-label {
-  color: #6B7280;
+  color: var(--color-text-secondary);
   font-size: 12px;
 }
 
 .ant-descriptions-item-content {
   font-size: 13px;
-  color: #18181b;
+  color: var(--color-text);
 }
 
 /* ========== 开关 ========== */
@@ -761,7 +761,10 @@ body {
   }
 
   /* 警告框 */
-  .ant-alert-info {
+  .ant-alert-info,
+  .ant-alert-success,
+  .ant-alert-warning,
+  .ant-alert-error {
     background: var(--color-bg-elevated);
     border-color: var(--color-border);
   }
@@ -816,13 +819,7 @@ body {
     color: var(--color-text-secondary);
   }
 
-  /* 开关 */
-  .ant-switch:not(.ant-switch-checked) {
-    background: rgba(255, 255, 255, 0.15);
-  }
-  .ant-switch:not(.ant-switch-checked):hover {
-    background: rgba(255, 255, 255, 0.25);
-  }
+  /* 开关 — darkAlgorithm + ConfigProvider token 已处理，无需额外覆盖 */
 
   /* Modal */
   .ant-modal-body {

@@ -248,8 +248,8 @@ export const darkTheme: ThemeConfig = {
       itemColor: "#a1a1aa",
     },
     Switch: {
-      colorPrimary: "#fafafa",
-      colorPrimaryHover: "#e4e4e7",
+      colorPrimary: "#3f3f46",
+      colorPrimaryHover: "#52525b",
     },
     Steps: {
       navArrowColor: "#fafafa",

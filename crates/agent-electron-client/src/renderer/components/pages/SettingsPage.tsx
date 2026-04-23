@@ -749,147 +749,6 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* 实验功能：Sandbox / GUI MCP */}
-          <div className={styles.section}>
-            <div className={styles.sectionHeader}>
-              <ExperimentOutlined
-                style={{
-                  fontSize: 14,
-                  color: "var(--color-text-secondary)",
-                }}
-              />
-              <span className={styles.sectionTitle}>
-                {t("Claw.Settings.experimental.title")}
-              </span>
-            </div>
-            <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
-              <div
-                style={{
-                  padding: "10px 0 0 0",
-                  fontSize: 11,
-                  color: "var(--color-text-tertiary)",
-                }}
-              >
-                {t("Claw.Settings.experimental.mutualExclusionHint")}
-              </div>
-
-              <div className={styles.serviceRow}>
-                <div className={styles.serviceInfo}>
-                  <div>
-                    <span className={styles.serviceLabel}>
-                      {t("Claw.Settings.sandbox.enable")}
-                    </span>
-                    <div className={styles.serviceDescription}>
-                      {sandboxStatus
-                        ? (() => {
-                            const { type, available, degraded, reason } =
-                              sandboxStatus;
-                            const isolation = degraded
-                              ? t("Claw.Settings.sandbox.statusDegraded")
-                              : available
-                                ? t("Claw.Settings.sandbox.statusAvailable")
-                                : t("Claw.Settings.sandbox.statusUnavailable");
-                            return `${type} · ${isolation}${
-                              reason ? ` · ${reason}` : ""
-                            }`;
-                          })()
-                        : t("Claw.Settings.sandbox.statusNotLoaded")}
-                    </div>
-                  </div>
-                </div>
-                <Switch
-                  size="small"
-                  checked={sandboxPolicy?.enabled ?? false}
-                  loading={sandboxSaving || sandboxLoading}
-                  onChange={(checked) =>
-                    handlePatchSandboxPolicy({ enabled: checked })
-                  }
-                />
-              </div>
-
-              <div
-                style={{
-                  margin: "8px 0 6px 20px",
-                  padding: "10px 12px",
-                  border: "1px dashed var(--color-border)",
-                  borderRadius: 8,
-                  background: "var(--color-bg-section-header)",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 10,
-                  }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <span className={styles.serviceLabel}>
-                      {t("Claw.Settings.sandbox.mode")}
-                    </span>
-                    <div className={styles.serviceDescription}>
-                      {t("Claw.Settings.sandbox.modeDesc")}
-                      <br />
-                      {t("Claw.Settings.sandbox.modeRestartHint")}
-                    </div>
-                  </div>
-                  <Select
-                    size="small"
-                    style={{ width: 220 }}
-                    value={sandboxPolicy?.mode ?? "compat"}
-                    loading={sandboxSaving || sandboxLoading}
-                    disabled={!sandboxPolicy?.enabled}
-                    onChange={(value) =>
-                      handlePatchSandboxPolicy({
-                        mode: value as SandboxPolicy["mode"],
-                      })
-                    }
-                    options={[
-                      {
-                        value: "strict",
-                        label: t("Claw.Settings.sandbox.modeStrict"),
-                      },
-                      {
-                        value: "compat",
-                        label: t("Claw.Settings.sandbox.modeCompat"),
-                      },
-                      {
-                        value: "permissive",
-                        label: t("Claw.Settings.sandbox.modePermissive"),
-                      },
-                    ]}
-                  />
-                </div>
-              </div>
-
-              {FEATURES.ENABLE_GUI_AGENT_SERVER && (
-                <div className={styles.serviceRow} style={{ marginTop: 10 }}>
-                  <div className={styles.serviceInfo}>
-                    <div>
-                      <span className={styles.serviceLabel}>
-                        {t("Claw.Settings.guiMcp.enable")}
-                      </span>
-                      <div className={styles.serviceDescription}>
-                        {guiMcpEnabled === null
-                          ? t("Claw.Settings.sandbox.statusNotLoaded")
-                          : guiMcpEnabled
-                            ? t("Claw.Settings.guiMcp.statusEnabled")
-                            : t("Claw.Settings.guiMcp.statusDisabled")}
-                      </div>
-                    </div>
-                  </div>
-                  <Switch
-                    size="small"
-                    checked={guiMcpEnabled ?? false}
-                    loading={guiMcpSaving || guiMcpLoading}
-                    onChange={(checked) => handleSetGuiMcpEnabled(checked)}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-
           {/* 系统设置 */}
           <div className={styles.section}>
             <div className={styles.sectionHeader}>
@@ -1060,6 +919,147 @@ export default function SettingsPage() {
                   {t("Claw.Settings.system.open")}
                 </Button>
               </div>
+            </div>
+          </div>
+
+          {/* 实验功能：Sandbox / GUI MCP */}
+          <div className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <ExperimentOutlined
+                style={{
+                  fontSize: 14,
+                  color: "var(--color-text-secondary)",
+                }}
+              />
+              <span className={styles.sectionTitle}>
+                {t("Claw.Settings.experimental.title")}
+              </span>
+            </div>
+            <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
+              <div
+                style={{
+                  padding: "10px 0 0 0",
+                  fontSize: 11,
+                  color: "var(--color-text-tertiary)",
+                }}
+              >
+                {t("Claw.Settings.experimental.mutualExclusionHint")}
+              </div>
+
+              <div className={styles.serviceRow}>
+                <div className={styles.serviceInfo}>
+                  <div>
+                    <span className={styles.serviceLabel}>
+                      {t("Claw.Settings.sandbox.enable")}
+                    </span>
+                    <div className={styles.serviceDescription}>
+                      {sandboxStatus
+                        ? (() => {
+                            const { type, available, degraded, reason } =
+                              sandboxStatus;
+                            const isolation = degraded
+                              ? t("Claw.Settings.sandbox.statusDegraded")
+                              : available
+                                ? t("Claw.Settings.sandbox.statusAvailable")
+                                : t("Claw.Settings.sandbox.statusUnavailable");
+                            return `${type} · ${isolation}${
+                              reason ? ` · ${reason}` : ""
+                            }`;
+                          })()
+                        : t("Claw.Settings.sandbox.statusNotLoaded")}
+                    </div>
+                  </div>
+                </div>
+                <Switch
+                  size="small"
+                  checked={sandboxPolicy?.enabled ?? false}
+                  loading={sandboxSaving || sandboxLoading}
+                  onChange={(checked) =>
+                    handlePatchSandboxPolicy({ enabled: checked })
+                  }
+                />
+              </div>
+
+              <div
+                style={{
+                  margin: "8px 0 6px 20px",
+                  padding: "10px 12px",
+                  border: "1px dashed var(--color-border)",
+                  borderRadius: 8,
+                  background: "var(--color-bg-section-header)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <span className={styles.serviceLabel}>
+                      {t("Claw.Settings.sandbox.mode")}
+                    </span>
+                    <div className={styles.serviceDescription}>
+                      {t("Claw.Settings.sandbox.modeDesc")}
+                      <br />
+                      {t("Claw.Settings.sandbox.modeRestartHint")}
+                    </div>
+                  </div>
+                  <Select
+                    size="small"
+                    style={{ width: 220 }}
+                    value={sandboxPolicy?.mode ?? "compat"}
+                    loading={sandboxSaving || sandboxLoading}
+                    disabled={!sandboxPolicy?.enabled}
+                    onChange={(value) =>
+                      handlePatchSandboxPolicy({
+                        mode: value as SandboxPolicy["mode"],
+                      })
+                    }
+                    options={[
+                      {
+                        value: "strict",
+                        label: t("Claw.Settings.sandbox.modeStrict"),
+                      },
+                      {
+                        value: "compat",
+                        label: t("Claw.Settings.sandbox.modeCompat"),
+                      },
+                      {
+                        value: "permissive",
+                        label: t("Claw.Settings.sandbox.modePermissive"),
+                      },
+                    ]}
+                  />
+                </div>
+              </div>
+
+              {FEATURES.ENABLE_GUI_AGENT_SERVER && (
+                <div className={styles.serviceRow} style={{ marginTop: 10 }}>
+                  <div className={styles.serviceInfo}>
+                    <div>
+                      <span className={styles.serviceLabel}>
+                        {t("Claw.Settings.guiMcp.enable")}
+                      </span>
+                      <div className={styles.serviceDescription}>
+                        {guiMcpEnabled === null
+                          ? t("Claw.Settings.sandbox.statusNotLoaded")
+                          : guiMcpEnabled
+                            ? t("Claw.Settings.guiMcp.statusEnabled")
+                            : t("Claw.Settings.guiMcp.statusDisabled")}
+                      </div>
+                    </div>
+                  </div>
+                  <Switch
+                    size="small"
+                    checked={guiMcpEnabled ?? false}
+                    loading={guiMcpSaving || guiMcpLoading}
+                    onChange={(checked) => handleSetGuiMcpEnabled(checked)}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
