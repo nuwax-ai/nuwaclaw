@@ -28,6 +28,7 @@ import { t } from "./i18n";
 import { getPerfLogger } from "../bootstrap/logConfig";
 import { agentService } from "./engines/unifiedAgent";
 import { firstTokenTrace } from "./engines/perf/firstTokenTrace";
+import { checkFileServerHealth } from "./packages/fileServerHealth";
 import { LOCALHOST_HOSTNAME } from "./constants";
 import { getConfiguredPorts } from "./startupPorts";
 import type {
@@ -193,6 +194,29 @@ async function ensureProjectWorkspace(
       `[ensureProjectWorkspace] Directory already exists, skipping: ${projectDir}`,
     );
     return;
+  }
+
+  // 目录不存在，先检查 file-server 健康状态（带重试，file-server 可能还在启动中）
+  const maxRetries = 3;
+  let lastHealthError: string | undefined;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const health = await checkFileServerHealth(fileServerPort);
+    if (health.healthy) {
+      lastHealthError = undefined;
+      break;
+    }
+    lastHealthError = health.error;
+    log.warn(
+      `[ensureProjectWorkspace] File-server not ready (attempt ${attempt}/${maxRetries}): ${health.error}`,
+    );
+    if (attempt < maxRetries) {
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+    }
+  }
+  if (lastHealthError) {
+    throw new Error(
+      `File server is not healthy after ${maxRetries} attempts, cannot create workspace: ${lastHealthError}`,
+    );
   }
 
   // 目录不存在，通知 file-server 创建空目录结构（不传 zip，不写入 skills）

@@ -13,6 +13,7 @@ import type { ManagedProcess } from "../processManager";
 import { readSetting } from "../db";
 import { t } from "../services/i18n";
 import { checkLanproxyHealth } from "../services/packages/lanproxyHealth";
+import { checkFileServerHealth } from "../services/packages/fileServerHealth";
 import {
   APP_DATA_DIR_NAME,
   DEFAULT_STARTUP_DELAY,
@@ -112,7 +113,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     }
 
     log.info("[ServiceManager] Starting file server on port", port);
-    return ctx.fileServer.start({
+    const startResult = await ctx.fileServer.start({
       command: process.execPath,
       args: [serverJsPath],
       env: {
@@ -125,6 +126,24 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       startupDelayMs: DEFAULT_STARTUP_DELAY,
       onStdoutLine: createFileServerPerfHandler(),
     });
+
+    // 启动后进行健康检查验证
+    if (startResult.success) {
+      const health = await checkFileServerHealth(port);
+      if (!health.healthy) {
+        log.error(
+          "[ServiceManager] FileServer health check failed:",
+          health.error,
+        );
+        return {
+          success: false,
+          error: `FileServer started but health check failed: ${health.error}`,
+        };
+      }
+      log.info("[ServiceManager] FileServer health check passed");
+    }
+
+    return startResult;
   };
 
   /**

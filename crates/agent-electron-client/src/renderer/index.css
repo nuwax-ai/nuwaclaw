@@ -237,19 +237,19 @@ body {
 }
 
 .ant-btn-default {
-  border-color: #E5E7EB;
-  color: #3f3f46;
-  background: #ffffff;
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-container);
 }
 
 .ant-btn-default:not(:disabled):hover {
-  border-color: #D1D5DB;
-  color: #18181b;
-  background: #F9FAFB;
+  border-color: var(--color-border-secondary);
+  color: var(--color-text);
+  background: var(--color-bg-elevated);
 }
 
 .ant-btn-text:not(:disabled):hover {
-  background: #F3F4F6;
+  background: var(--color-bg-elevated);
 }
 
 /* 小号按钮更紧凑 */
