@@ -31,11 +31,7 @@ import {
   ImportOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import {
-  oneDark,
-  oneLight,
-} from "react-syntax-highlighter/dist/esm/styles/prism";
+import Editor from "@monaco-editor/react";
 import type {
   McpServersConfig,
   McpProxyStatus,
@@ -44,7 +40,6 @@ import type {
 import { t } from "../../services/core/i18n";
 
 const { Text } = Typography;
-const { TextArea } = Input;
 
 interface MCPSettingsProps {
   isOpen?: boolean;
@@ -52,7 +47,9 @@ interface MCPSettingsProps {
 }
 
 function MCPSettings({ isOpen = true }: MCPSettingsProps) {
-  const isDarkMode = document.body.getAttribute("data-theme") === "dark";
+  const [isDarkMode, setIsDarkMode] = useState(
+    document.body.getAttribute("data-theme") === "dark",
+  );
   const [viewMode, setViewMode] = useState<"list" | "json">("list");
   const [configText, setConfigText] = useState("{}");
   const [configTextError, setConfigTextError] = useState<string>("");
@@ -68,6 +65,20 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   const [newServerCommand, setNewServerCommand] = useState("");
   const [newServerArgsText, setNewServerArgsText] = useState("");
   const [newServerUrl, setNewServerUrl] = useState("");
+
+  // 监听主题变化
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDarkMode(document.body.getAttribute("data-theme") === "dark");
+    });
+
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+
+    return () => observer.disconnect();
+  }, []);
 
   const formatConfigForEditor = useCallback(
     (value: McpServersConfig): string => {
@@ -653,73 +664,52 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                 style={{
                   border: "1px solid #d9d9d9",
                   borderRadius: 4,
-                  padding: 12,
-                  backgroundColor: "var(--color-bg-container, #fff)",
+                  overflow: "hidden",
                 }}
               >
-                <TextArea
+                <Editor
+                  height="400px"
+                  language="json"
+                  theme={isDarkMode ? "vs-dark" : "vs"}
                   value={configText}
-                  onChange={(e) => {
-                    setConfigText(e.target.value);
+                  onChange={(value) => {
+                    setConfigText(value || "");
                     if (configTextError) {
                       setConfigTextError("");
                     }
                   }}
-                  autoSize={{ minRows: 12, maxRows: 28 }}
-                  spellCheck={false}
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 13,
+                    lineNumbers: "on",
+                    scrollBeyondLastLine: false,
+                    automaticLayout: true,
+                    tabSize: 2,
+                    formatOnPaste: true,
+                    formatOnType: true,
+                  }}
                 />
-                {configTextError ? (
-                  <Text
-                    type="danger"
-                    style={{ marginTop: 8, display: "block" }}
-                  >
-                    {configTextError}
-                  </Text>
-                ) : null}
-                <div style={{ marginTop: 8 }}>
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      const parsed = syncConfigFromText(true, false);
-                      if (!parsed) {
-                        message.error(t("Claw.MCP.message.invalidJson"));
-                      }
-                    }}
-                  >
-                    {t("Claw.MCP.editor.format")}
-                  </Button>
-                </div>
+              </div>
+              {configTextError ? (
+                <Text type="danger" style={{ marginTop: 8, display: "block" }}>
+                  {configTextError}
+                </Text>
+              ) : null}
+              <div style={{ marginTop: 8 }}>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    const parsed = syncConfigFromText(true, false);
+                    if (!parsed) {
+                      message.error(t("Claw.MCP.message.invalidJson"));
+                    }
+                  }}
+                >
+                  {t("Claw.MCP.editor.format")}
+                </Button>
               </div>
             </div>
           )}
-
-          <div>
-            <Text strong style={{ marginBottom: 8, display: "block" }}>
-              {t("Claw.MCP.editor.previewTitle")}
-            </Text>
-            <div
-              style={{
-                border: "1px solid #d9d9d9",
-                borderRadius: 4,
-                overflow: "hidden",
-              }}
-            >
-              {/* 轻量高亮预览：保持编辑区稳定可输入，同时提供 JSON 语法着色。 */}
-              <SyntaxHighlighter
-                language="json"
-                style={isDarkMode ? oneDark : oneLight}
-                customStyle={{
-                  margin: 0,
-                  maxHeight: 280,
-                  overflow: "auto",
-                  fontSize: 12,
-                }}
-                wrapLongLines
-              >
-                {configText}
-              </SyntaxHighlighter>
-            </div>
-          </div>
 
           <Alert
             message={t("Claw.MCP.editor.exampleTitle")}

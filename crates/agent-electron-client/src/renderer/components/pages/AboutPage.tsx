@@ -358,12 +358,21 @@ export default function AboutPage() {
                 percent: displayPercent,
               })}
             </div>
-            <Progress
-              percent={displayPercent}
-              size="small"
-              status="active"
-              showInfo={progress == null}
-            />
+            <div
+              style={{
+                padding: "8px 0",
+                borderTop: "1px solid var(--color-border)",
+                borderBottom: "1px solid var(--color-border)",
+              }}
+            >
+              <Progress
+                percent={displayPercent}
+                size="small"
+                status="active"
+                showInfo={progress == null}
+                strokeColor="var(--color-primary)"
+              />
+            </div>
           </Space>
         );
       }

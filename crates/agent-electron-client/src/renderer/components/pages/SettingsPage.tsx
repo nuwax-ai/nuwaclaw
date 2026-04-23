@@ -22,7 +22,6 @@ import {
   Modal,
   Spin,
   Tooltip,
-  Tabs,
 } from "antd";
 import {
   FolderOutlined,
@@ -594,709 +593,508 @@ export default function SettingsPage() {
 
   return (
     <div className={styles.page}>
-      <Tabs
-        defaultActiveKey="basic"
-        size="small"
-        style={{ padding: "0 16px" }}
-        items={[
-          {
-            key: "basic",
-            label: t("Claw.Settings.tabs.basic"),
-            children: (
-              <>
-                {/* 服务配置 */}
-                <div className={styles.section}>
-                  <div className={styles.servicesHeader}>
-                    <div className={styles.servicesHeaderLeft}>
-                      <SettingOutlined
-                        style={{
-                          fontSize: 14,
-                          color: "var(--color-text-secondary)",
-                        }}
-                      />
-                      <span className={styles.sectionTitle}>
-                        {t("Claw.Settings.saveConfig.title")}
-                      </span>
-                    </div>
-                    {editing ? (
-                      <div className={styles.servicesHeaderActions}>
-                        <Button
-                          size="small"
-                          onClick={handleCancelEdit}
-                          disabled={saving}
-                        >
-                          {t("Claw.Settings.saveConfig.cancel")}
-                        </Button>
-                        <Button
-                          size="small"
-                          type="primary"
-                          icon={<SaveOutlined />}
-                          onClick={handleSave}
-                          loading={saving}
-                        >
-                          {t("Claw.Settings.saveConfig.save")}
-                        </Button>
-                      </div>
-                    ) : (
-                      <Button
-                        size="small"
-                        icon={<EditOutlined />}
-                        onClick={() => setEditing(true)}
-                      >
-                        {t("Claw.Settings.saveConfig.edit")}
-                      </Button>
-                    )}
-                  </div>
-                  <div className={styles.sectionBody}>
-                    <Form
-                      form={form}
-                      layout="vertical"
-                      disabled={!editing}
-                      size="small"
+      <div className={styles.pageContent}>
+        <div style={{ padding: "0 16px" }}>
+          {/* 服务配置 */}
+          <div className={styles.section}>
+            <div className={styles.servicesHeader}>
+              <div className={styles.servicesHeaderLeft}>
+                <SettingOutlined
+                  style={{
+                    fontSize: 14,
+                    color: "var(--color-text-secondary)",
+                  }}
+                />
+                <span className={styles.sectionTitle}>
+                  {t("Claw.Settings.saveConfig.title")}
+                </span>
+              </div>
+              {editing ? (
+                <div className={styles.servicesHeaderActions}>
+                  <Button
+                    size="small"
+                    onClick={handleCancelEdit}
+                    disabled={saving}
+                  >
+                    {t("Claw.Settings.saveConfig.cancel")}
+                  </Button>
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<SaveOutlined />}
+                    onClick={handleSave}
+                    loading={saving}
+                  >
+                    {t("Claw.Settings.saveConfig.save")}
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => setEditing(true)}
+                >
+                  {t("Claw.Settings.saveConfig.edit")}
+                </Button>
+              )}
+            </div>
+            <div className={styles.sectionBody}>
+              <Form
+                form={form}
+                layout="vertical"
+                disabled={!editing}
+                size="small"
+              >
+                <Row gutter={16}>
+                  <Col span={8}>
+                    <Form.Item
+                      name="fileServerPort"
+                      label={t("Claw.Settings.saveConfig.fileServerPort")}
+                      rules={[
+                        {
+                          required: true,
+                          message: t("Claw.Settings.saveConfig.enterPort"),
+                        },
+                      ]}
                     >
-                      <Row gutter={16}>
-                        <Col span={8}>
-                          <Form.Item
-                            name="fileServerPort"
-                            label={t("Claw.Settings.saveConfig.fileServerPort")}
-                            rules={[
-                              {
-                                required: true,
-                                message: t(
-                                  "Claw.Settings.saveConfig.enterPort",
-                                ),
-                              },
-                            ]}
-                          >
-                            <InputNumber
-                              min={1}
-                              max={65535}
-                              style={{ width: "100%" }}
-                            />
-                          </Form.Item>
-                        </Col>
-                        <Col span={8}>
-                          <Form.Item
-                            name="agentPort"
-                            label={t("Claw.Settings.saveConfig.agentPort")}
-                            rules={[
-                              {
-                                required: true,
-                                message: t(
-                                  "Claw.Settings.saveConfig.enterPort",
-                                ),
-                              },
-                            ]}
-                          >
-                            <InputNumber
-                              min={1}
-                              max={65535}
-                              style={{ width: "100%" }}
-                            />
-                          </Form.Item>
-                        </Col>
-                        {FEATURES.ENABLE_GUI_AGENT_SERVER && (
-                          <Col span={8}>
-                            <Form.Item
-                              name="guiMcpPort"
-                              label={t("Claw.Settings.saveConfig.guiMcpPort")}
-                              rules={[
-                                {
-                                  required: true,
-                                  message: t(
-                                    "Claw.Settings.saveConfig.enterPort",
-                                  ),
-                                },
-                              ]}
-                            >
-                              <InputNumber
-                                min={1}
-                                max={65535}
-                                style={{ width: "100%" }}
-                              />
-                            </Form.Item>
-                          </Col>
-                        )}
-                      </Row>
-
+                      <InputNumber
+                        min={1}
+                        max={65535}
+                        style={{ width: "100%" }}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={8}>
+                    <Form.Item
+                      name="agentPort"
+                      label={t("Claw.Settings.saveConfig.agentPort")}
+                      rules={[
+                        {
+                          required: true,
+                          message: t("Claw.Settings.saveConfig.enterPort"),
+                        },
+                      ]}
+                    >
+                      <InputNumber
+                        min={1}
+                        max={65535}
+                        style={{ width: "100%" }}
+                      />
+                    </Form.Item>
+                  </Col>
+                  {FEATURES.ENABLE_GUI_AGENT_SERVER && (
+                    <Col span={8}>
                       <Form.Item
-                        name="workspaceDir"
-                        label={t("Claw.Settings.workspace.title")}
+                        name="guiMcpPort"
+                        label={t("Claw.Settings.saveConfig.guiMcpPort")}
                         rules={[
                           {
                             required: true,
-                            message: t("Claw.Settings.workspace.selectDir"),
+                            message: t("Claw.Settings.saveConfig.enterPort"),
                           },
                         ]}
-                        style={{ marginBottom: 0 }}
                       >
-                        <Input
-                          placeholder={t(
-                            "Claw.Settings.workspace.clickToSelect",
-                          )}
-                          readOnly
-                          addonAfter={
-                            editing && (
-                              <Button
-                                type="text"
-                                size="small"
-                                icon={<FolderOutlined />}
-                                onClick={handleSelectWorkspace}
-                                style={{ padding: 0 }}
-                              >
-                                {t("Claw.Settings.workspace.select")}
-                              </Button>
-                            )
-                          }
+                        <InputNumber
+                          min={1}
+                          max={65535}
+                          style={{ width: "100%" }}
                         />
                       </Form.Item>
-                    </Form>
+                    </Col>
+                  )}
+                </Row>
 
-                    {!editing && (
-                      <div
-                        style={{
-                          marginTop: 12,
-                          fontSize: 12,
-                          color: "var(--color-text-tertiary)",
-                        }}
-                      >
-                        {t("Claw.Settings.saveConfig.restartHint")}
-                      </div>
-                    )}
-                  </div>
+                <Form.Item
+                  name="workspaceDir"
+                  label={t("Claw.Settings.workspace.title")}
+                  rules={[
+                    {
+                      required: true,
+                      message: t("Claw.Settings.workspace.selectDir"),
+                    },
+                  ]}
+                  style={{ marginBottom: 0 }}
+                >
+                  <Input
+                    placeholder={t("Claw.Settings.workspace.clickToSelect")}
+                    readOnly
+                    addonAfter={
+                      editing && (
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<FolderOutlined />}
+                          onClick={handleSelectWorkspace}
+                          style={{ padding: 0 }}
+                        >
+                          {t("Claw.Settings.workspace.select")}
+                        </Button>
+                      )
+                    }
+                  />
+                </Form.Item>
+              </Form>
+
+              {!editing && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    fontSize: 12,
+                    color: "var(--color-text-tertiary)",
+                  }}
+                >
+                  {t("Claw.Settings.saveConfig.restartHint")}
                 </div>
+              )}
+            </div>
+          </div>
 
-                {/* 实验功能：Sandbox / GUI MCP */}
-                <div className={styles.section}>
-                  <div className={styles.sectionHeader}>
-                    <ExperimentOutlined
-                      style={{
-                        fontSize: 14,
-                        color: "var(--color-text-secondary)",
-                      }}
-                    />
-                    <span className={styles.sectionTitle}>
-                      {t("Claw.Settings.experimental.title")}
+          {/* 实验功能：Sandbox / GUI MCP */}
+          <div className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <ExperimentOutlined
+                style={{
+                  fontSize: 14,
+                  color: "var(--color-text-secondary)",
+                }}
+              />
+              <span className={styles.sectionTitle}>
+                {t("Claw.Settings.experimental.title")}
+              </span>
+            </div>
+            <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
+              <div
+                style={{
+                  padding: "10px 0 0 0",
+                  fontSize: 11,
+                  color: "var(--color-text-tertiary)",
+                }}
+              >
+                {t("Claw.Settings.experimental.mutualExclusionHint")}
+              </div>
+
+              <div className={styles.serviceRow}>
+                <div className={styles.serviceInfo}>
+                  <div>
+                    <span className={styles.serviceLabel}>
+                      {t("Claw.Settings.sandbox.enable")}
                     </span>
-                  </div>
-                  <div
-                    className={styles.sectionBody}
-                    style={{ padding: "0 16px" }}
-                  >
-                    <div
-                      style={{
-                        padding: "10px 0 0 0",
-                        fontSize: 11,
-                        color: "var(--color-text-tertiary)",
-                      }}
-                    >
-                      {t("Claw.Settings.experimental.mutualExclusionHint")}
+                    <div className={styles.serviceDescription}>
+                      {sandboxStatus
+                        ? (() => {
+                            const { type, available, degraded, reason } =
+                              sandboxStatus;
+                            const isolation = degraded
+                              ? t("Claw.Settings.sandbox.statusDegraded")
+                              : available
+                                ? t("Claw.Settings.sandbox.statusAvailable")
+                                : t("Claw.Settings.sandbox.statusUnavailable");
+                            return `${type} · ${isolation}${
+                              reason ? ` · ${reason}` : ""
+                            }`;
+                          })()
+                        : t("Claw.Settings.sandbox.statusNotLoaded")}
                     </div>
-
-                    <div className={styles.serviceRow}>
-                      <div className={styles.serviceInfo}>
-                        <div>
-                          <span className={styles.serviceLabel}>
-                            {t("Claw.Settings.sandbox.enable")}
-                          </span>
-                          <div className={styles.serviceDescription}>
-                            {sandboxStatus
-                              ? (() => {
-                                  const { type, available, degraded, reason } =
-                                    sandboxStatus;
-                                  const isolation = degraded
-                                    ? t("Claw.Settings.sandbox.statusDegraded")
-                                    : available
-                                      ? t(
-                                          "Claw.Settings.sandbox.statusAvailable",
-                                        )
-                                      : t(
-                                          "Claw.Settings.sandbox.statusUnavailable",
-                                        );
-                                  return `${type} · ${isolation}${
-                                    reason ? ` · ${reason}` : ""
-                                  }`;
-                                })()
-                              : t("Claw.Settings.sandbox.statusNotLoaded")}
-                          </div>
-                        </div>
-                      </div>
-                      <Switch
-                        size="small"
-                        checked={sandboxPolicy?.enabled ?? false}
-                        loading={sandboxSaving || sandboxLoading}
-                        onChange={(checked) =>
-                          handlePatchSandboxPolicy({ enabled: checked })
-                        }
-                      />
-                    </div>
-
-                    <div
-                      style={{
-                        margin: "8px 0 6px 20px",
-                        padding: "10px 12px",
-                        border: "1px dashed var(--color-border)",
-                        borderRadius: 8,
-                        background: "var(--color-bg-section-header)",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 10,
-                        }}
-                      >
-                        <div style={{ minWidth: 0 }}>
-                          <span className={styles.serviceLabel}>
-                            {t("Claw.Settings.sandbox.mode")}
-                          </span>
-                          <div className={styles.serviceDescription}>
-                            {t("Claw.Settings.sandbox.modeDesc")}
-                            <br />
-                            {t("Claw.Settings.sandbox.modeRestartHint")}
-                          </div>
-                        </div>
-                        <Select
-                          size="small"
-                          style={{ width: 220 }}
-                          value={sandboxPolicy?.mode ?? "compat"}
-                          loading={sandboxSaving || sandboxLoading}
-                          disabled={!sandboxPolicy?.enabled}
-                          onChange={(value) =>
-                            handlePatchSandboxPolicy({
-                              mode: value as SandboxPolicy["mode"],
-                            })
-                          }
-                          options={[
-                            {
-                              value: "strict",
-                              label: t("Claw.Settings.sandbox.modeStrict"),
-                            },
-                            {
-                              value: "compat",
-                              label: t("Claw.Settings.sandbox.modeCompat"),
-                            },
-                            {
-                              value: "permissive",
-                              label: t("Claw.Settings.sandbox.modePermissive"),
-                            },
-                          ]}
-                        />
-                      </div>
-                    </div>
-
-                    {FEATURES.ENABLE_GUI_AGENT_SERVER && (
-                      <div
-                        className={styles.serviceRow}
-                        style={{ marginTop: 10 }}
-                      >
-                        <div className={styles.serviceInfo}>
-                          <div>
-                            <span className={styles.serviceLabel}>
-                              {t("Claw.Settings.guiMcp.enable")}
-                            </span>
-                            <div className={styles.serviceDescription}>
-                              {guiMcpEnabled === null
-                                ? t("Claw.Settings.sandbox.statusNotLoaded")
-                                : guiMcpEnabled
-                                  ? t("Claw.Settings.guiMcp.statusEnabled")
-                                  : t("Claw.Settings.guiMcp.statusDisabled")}
-                            </div>
-                          </div>
-                        </div>
-                        <Switch
-                          size="small"
-                          checked={guiMcpEnabled ?? false}
-                          loading={guiMcpSaving || guiMcpLoading}
-                          onChange={handleSetGuiMcpEnabled}
-                        />
-                      </div>
-                    )}
                   </div>
                 </div>
-              </>
-            ),
-          },
-          {
-            key: "experimental",
-            label: t("Claw.Settings.tabs.experimental"),
-            children: (
-              <>
-                {/* 实验功能：Sandbox / GUI MCP */}
-                <div className={styles.section}>
-                  <div className={styles.sectionHeader}>
-                    <ExperimentOutlined
-                      style={{
-                        fontSize: 14,
-                        color: "var(--color-text-secondary)",
-                      }}
-                    />
-                    <span className={styles.sectionTitle}>
-                      {t("Claw.Settings.experimental.title")}
+                <Switch
+                  size="small"
+                  checked={sandboxPolicy?.enabled ?? false}
+                  loading={sandboxSaving || sandboxLoading}
+                  onChange={(checked) =>
+                    handlePatchSandboxPolicy({ enabled: checked })
+                  }
+                />
+              </div>
+
+              <div
+                style={{
+                  margin: "8px 0 6px 20px",
+                  padding: "10px 12px",
+                  border: "1px dashed var(--color-border)",
+                  borderRadius: 8,
+                  background: "var(--color-bg-section-header)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <span className={styles.serviceLabel}>
+                      {t("Claw.Settings.sandbox.mode")}
                     </span>
+                    <div className={styles.serviceDescription}>
+                      {t("Claw.Settings.sandbox.modeDesc")}
+                      <br />
+                      {t("Claw.Settings.sandbox.modeRestartHint")}
+                    </div>
                   </div>
-                  <div
-                    className={styles.sectionBody}
-                    style={{ padding: "0 16px" }}
-                  >
-                    <div
-                      style={{
-                        padding: "10px 0 0 0",
-                        fontSize: 11,
-                        color: "var(--color-text-tertiary)",
-                      }}
-                    >
-                      {t("Claw.Settings.experimental.mutualExclusionHint")}
-                    </div>
-
-                    <div className={styles.serviceRow}>
-                      <div className={styles.serviceInfo}>
-                        <div>
-                          <span className={styles.serviceLabel}>
-                            {t("Claw.Settings.sandbox.enable")}
-                          </span>
-                          <div className={styles.serviceDescription}>
-                            {sandboxStatus
-                              ? (() => {
-                                  const { type, available, degraded, reason } =
-                                    sandboxStatus;
-                                  const isolation = degraded
-                                    ? t("Claw.Settings.sandbox.statusDegraded")
-                                    : available
-                                      ? t(
-                                          "Claw.Settings.sandbox.statusAvailable",
-                                        )
-                                      : t(
-                                          "Claw.Settings.sandbox.statusUnavailable",
-                                        );
-                                  return `${type} · ${isolation}${
-                                    reason ? ` · ${reason}` : ""
-                                  }`;
-                                })()
-                              : t("Claw.Settings.sandbox.statusNotLoaded")}
-                          </div>
-                        </div>
-                      </div>
-                      <Switch
-                        size="small"
-                        checked={sandboxPolicy?.enabled ?? false}
-                        loading={sandboxSaving || sandboxLoading}
-                        onChange={(checked) =>
-                          handlePatchSandboxPolicy({ enabled: checked })
-                        }
-                      />
-                    </div>
-
-                    <div
-                      style={{
-                        margin: "8px 0 6px 20px",
-                        padding: "10px 12px",
-                        border: "1px dashed var(--color-border)",
-                        borderRadius: 8,
-                        background: "var(--color-bg-section-header)",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 10,
-                        }}
-                      >
-                        <div style={{ minWidth: 0 }}>
-                          <span className={styles.serviceLabel}>
-                            {t("Claw.Settings.sandbox.mode")}
-                          </span>
-                          <div className={styles.serviceDescription}>
-                            {t("Claw.Settings.sandbox.modeDesc")}
-                            <br />
-                            {t("Claw.Settings.sandbox.modeRestartHint")}
-                          </div>
-                        </div>
-                        <Select
-                          size="small"
-                          style={{ width: 220 }}
-                          value={sandboxPolicy?.mode ?? "compat"}
-                          loading={sandboxSaving || sandboxLoading}
-                          disabled={!sandboxPolicy?.enabled}
-                          onChange={(value) =>
-                            handlePatchSandboxPolicy({
-                              mode: value as SandboxPolicy["mode"],
-                            })
-                          }
-                          options={[
-                            {
-                              value: "strict",
-                              label: t("Claw.Settings.sandbox.modeStrict"),
-                            },
-                            {
-                              value: "compat",
-                              label: t("Claw.Settings.sandbox.modeCompat"),
-                            },
-                            {
-                              value: "permissive",
-                              label: t("Claw.Settings.sandbox.modePermissive"),
-                            },
-                          ]}
-                        />
-                      </div>
-                    </div>
-
-                    {FEATURES.ENABLE_GUI_AGENT_SERVER && (
-                      <div
-                        className={styles.serviceRow}
-                        style={{ marginTop: 10 }}
-                      >
-                        <div className={styles.serviceInfo}>
-                          <div>
-                            <span className={styles.serviceLabel}>
-                              {t("Claw.Settings.guiMcp.enable")}
-                            </span>
-                            <div className={styles.serviceDescription}>
-                              {guiMcpEnabled === null
-                                ? t("Claw.Settings.sandbox.statusNotLoaded")
-                                : guiMcpEnabled
-                                  ? t("Claw.Settings.guiMcp.statusEnabled")
-                                  : t("Claw.Settings.guiMcp.statusDisabled")}
-                            </div>
-                          </div>
-                        </div>
-                        <Switch
-                          size="small"
-                          checked={guiMcpEnabled ?? false}
-                          loading={guiMcpSaving || guiMcpLoading}
-                          onChange={handleSetGuiMcpEnabled}
-                        />
-                      </div>
-                    )}
-                  </div>
+                  <Select
+                    size="small"
+                    style={{ width: 220 }}
+                    value={sandboxPolicy?.mode ?? "compat"}
+                    loading={sandboxSaving || sandboxLoading}
+                    disabled={!sandboxPolicy?.enabled}
+                    onChange={(value) =>
+                      handlePatchSandboxPolicy({
+                        mode: value as SandboxPolicy["mode"],
+                      })
+                    }
+                    options={[
+                      {
+                        value: "strict",
+                        label: t("Claw.Settings.sandbox.modeStrict"),
+                      },
+                      {
+                        value: "compat",
+                        label: t("Claw.Settings.sandbox.modeCompat"),
+                      },
+                      {
+                        value: "permissive",
+                        label: t("Claw.Settings.sandbox.modePermissive"),
+                      },
+                    ]}
+                  />
                 </div>
-              </>
-            ),
-          },
-          {
-            key: "system",
-            label: t("Claw.Settings.tabs.system"),
-            children: (
-              <>
-                {/* 系统设置 */}
-                <div className={styles.section}>
-                  <div className={styles.sectionHeader}>
-                    <DesktopOutlined
-                      style={{
-                        fontSize: 14,
-                        color: "var(--color-text-secondary)",
-                      }}
-                    />
-                    <span className={styles.sectionTitle}>
-                      {t("Claw.Settings.system.title")}
+              </div>
+
+              {FEATURES.ENABLE_GUI_AGENT_SERVER && (
+                <div className={styles.serviceRow} style={{ marginTop: 10 }}>
+                  <div className={styles.serviceInfo}>
+                    <div>
+                      <span className={styles.serviceLabel}>
+                        {t("Claw.Settings.guiMcp.enable")}
+                      </span>
+                      <div className={styles.serviceDescription}>
+                        {guiMcpEnabled === null
+                          ? t("Claw.Settings.sandbox.statusNotLoaded")
+                          : guiMcpEnabled
+                            ? t("Claw.Settings.guiMcp.statusEnabled")
+                            : t("Claw.Settings.guiMcp.statusDisabled")}
+                      </div>
+                    </div>
+                  </div>
+                  <Switch
+                    size="small"
+                    checked={guiMcpEnabled ?? false}
+                    loading={guiMcpSaving || guiMcpLoading}
+                    onChange={(checked) => handleSetGuiMcpEnabled(checked)}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 系统设置 */}
+          <div className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <DesktopOutlined
+                style={{
+                  fontSize: 14,
+                  color: "var(--color-text-secondary)",
+                }}
+              />
+              <span className={styles.sectionTitle}>
+                {t("Claw.Settings.system.title")}
+              </span>
+            </div>
+            <div className={styles.sectionBody} style={{ padding: "0 16px" }}>
+              {/* 开机自启动 */}
+              <div className={styles.serviceRow}>
+                <div className={styles.serviceInfo}>
+                  <div>
+                    <span className={styles.serviceLabel}>
+                      {t("Claw.Settings.system.autoLaunch")}
                     </span>
-                  </div>
-                  <div
-                    className={styles.sectionBody}
-                    style={{ padding: "0 16px" }}
-                  >
-                    {/* 开机自启动 */}
-                    <div className={styles.serviceRow}>
-                      <div className={styles.serviceInfo}>
-                        <div>
-                          <span className={styles.serviceLabel}>
-                            {t("Claw.Settings.system.autoLaunch")}
-                          </span>
-                          <div className={styles.serviceDescription}>
-                            {t("Claw.Settings.system.autoLaunchDesc", {
-                              appName: APP_DISPLAY_NAME,
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                      <Switch
-                        size="small"
-                        checked={autolaunchEnabled}
-                        onChange={handleAutolaunchChange}
-                        loading={autolaunchLoading}
-                      />
-                    </div>
-
-                    {/* 主题设置 */}
-                    <div className={styles.serviceRow}>
-                      <div className={styles.serviceInfo}>
-                        <div>
-                          <span className={styles.serviceLabel}>
-                            {t("Claw.Settings.system.theme")}
-                          </span>
-                          <div className={styles.serviceDescription}>
-                            {t("Claw.Settings.system.themeDesc")}
-                          </div>
-                        </div>
-                      </div>
-                      <Select
-                        size="small"
-                        value={themeMode}
-                        onChange={(value) => setThemeMode(value)}
-                        style={{ width: 100 }}
-                        options={[
-                          {
-                            value: "system",
-                            label: t("Claw.Settings.system.themeSystem"),
-                          },
-                          {
-                            value: "light",
-                            label: t("Claw.Settings.system.themeLight"),
-                          },
-                          {
-                            value: "dark",
-                            label: t("Claw.Settings.system.themeDark"),
-                          },
-                        ]}
-                      />
-                    </div>
-
-                    {/* 语言设置 */}
-                    <div className={styles.serviceRow}>
-                      <div className={styles.serviceInfo}>
-                        <div>
-                          <span className={styles.serviceLabel}>
-                            {t("Claw.Settings.system.language")}
-                          </span>
-                          <div className={styles.serviceDescription}>
-                            {t("Claw.Settings.system.languageDesc")}
-                          </div>
-                        </div>
-                      </div>
-                      <Select
-                        size="small"
-                        value={i18nLang}
-                        onChange={handleLanguageChange}
-                        loading={langChanging}
-                        style={{ width: 140 }}
-                        options={
-                          langList.length > 0
-                            ? langList.map((item) => ({
-                                value: item.lang.toLowerCase(),
-                                label: item.name,
-                              }))
-                            : LOCAL_LANG_OPTIONS
-                        }
-                      />
-                    </div>
-
-                    {/* 应用数据目录 */}
-                    <div className={styles.serviceRow}>
-                      <div className={styles.serviceInfo}>
-                        <div>
-                          <span className={styles.serviceLabel}>
-                            {t("Claw.Settings.system.appDataDir")}
-                          </span>
-                          <div className={styles.serviceDescription}>
-                            ~/{APP_DATA_DIR_NAME}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 日志目录 */}
-                    <div className={styles.serviceRow}>
-                      <div className={styles.serviceInfo}>
-                        <div>
-                          <span className={styles.serviceLabel}>
-                            {t("Claw.Settings.system.logDir")}
-                          </span>
-                          <div
-                            className={styles.serviceDescription}
-                            style={{
-                              fontFamily:
-                                "ui-monospace, SFMono-Regular, Menlo, monospace",
-                              maxWidth: 280,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {logDir || t("Claw.Settings.system.loading")}
-                          </div>
-                        </div>
-                      </div>
-                      <Button size="small" onClick={handleOpenLogDir}>
-                        {t("Claw.Settings.system.open")}
-                      </Button>
-                    </div>
-
-                    {/* 工作空间目录 */}
-                    <div className={styles.serviceRow}>
-                      <div className={styles.serviceInfo}>
-                        <div>
-                          <span className={styles.serviceLabel}>
-                            {t("Claw.Settings.system.workspaceDir")}
-                          </span>
-                          <div
-                            className={styles.serviceDescription}
-                            style={{
-                              fontFamily:
-                                "ui-monospace, SFMono-Regular, Menlo, monospace",
-                              maxWidth: 280,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {workspaceDir || t("Claw.Settings.system.notSet")}
-                          </div>
-                        </div>
-                      </div>
-                      <Button
-                        size="small"
-                        onClick={handleOpenWorkspaceDir}
-                        disabled={!workspaceDir}
-                      >
-                        {t("Claw.Settings.system.open")}
-                      </Button>
+                    <div className={styles.serviceDescription}>
+                      {t("Claw.Settings.system.autoLaunchDesc", {
+                        appName: APP_DISPLAY_NAME,
+                      })}
                     </div>
                   </div>
                 </div>
-              </>
-            ),
-          },
-          ...(IS_DEV && DevToolsPanel
-            ? [
-                {
-                  key: "devtools",
-                  label: t("Claw.Settings.tabs.devtools"),
-                  children: (
-                    <Suspense fallback={<Spin size="small" />}>
-                      <DevToolsPanel />
-                    </Suspense>
-                  ),
-                },
-              ]
-            : []),
-        ]}
-      />
+                <Switch
+                  size="small"
+                  checked={autolaunchEnabled}
+                  onChange={handleAutolaunchChange}
+                  loading={autolaunchLoading}
+                />
+              </div>
 
-      {/* 语言切换确认弹窗 */}
-      <Modal
-        open={langConfirmModalVisible}
-        title={t("Claw.Settings.languageConfirm.title")}
-        onCancel={handleLangCancel}
-        footer={[
-          <Button key="cancel" onClick={handleLangCancel}>
-            {t("Claw.Settings.languageConfirm.cancel")}
-          </Button>,
-          <Button
-            key="confirm"
-            type="primary"
-            loading={langConfirmLoading}
-            onClick={handleLangConfirm}
-          >
-            {t("Claw.Settings.languageConfirm.ok")}
-          </Button>,
-        ]}
-      >
-        <p>{t("Claw.Settings.languageConfirm.content")}</p>
-      </Modal>
+              {/* 主题设置 */}
+              <div className={styles.serviceRow}>
+                <div className={styles.serviceInfo}>
+                  <div>
+                    <span className={styles.serviceLabel}>
+                      {t("Claw.Settings.system.theme")}
+                    </span>
+                    <div className={styles.serviceDescription}>
+                      {t("Claw.Settings.system.themeDesc")}
+                    </div>
+                  </div>
+                </div>
+                <Select
+                  size="small"
+                  value={themeMode}
+                  onChange={(value) => setThemeMode(value)}
+                  style={{ width: 100 }}
+                  options={[
+                    {
+                      value: "system",
+                      label: t("Claw.Settings.system.themeSystem"),
+                    },
+                    {
+                      value: "light",
+                      label: t("Claw.Settings.system.themeLight"),
+                    },
+                    {
+                      value: "dark",
+                      label: t("Claw.Settings.system.themeDark"),
+                    },
+                  ]}
+                />
+              </div>
+
+              {/* 语言设置 */}
+              <div className={styles.serviceRow}>
+                <div className={styles.serviceInfo}>
+                  <div>
+                    <span className={styles.serviceLabel}>
+                      {t("Claw.Settings.system.language")}
+                    </span>
+                    <div className={styles.serviceDescription}>
+                      {t("Claw.Settings.system.languageDesc")}
+                    </div>
+                  </div>
+                </div>
+                <Select
+                  size="small"
+                  value={i18nLang}
+                  onChange={handleLanguageChange}
+                  loading={langChanging}
+                  style={{ width: 140 }}
+                  options={
+                    langList.length > 0
+                      ? langList.map((item) => ({
+                          value: item.lang.toLowerCase(),
+                          label: item.name,
+                        }))
+                      : LOCAL_LANG_OPTIONS
+                  }
+                />
+              </div>
+
+              {/* 应用数据目录 */}
+              <div className={styles.serviceRow}>
+                <div className={styles.serviceInfo}>
+                  <div>
+                    <span className={styles.serviceLabel}>
+                      {t("Claw.Settings.system.appDataDir")}
+                    </span>
+                    <div className={styles.serviceDescription}>
+                      ~/{APP_DATA_DIR_NAME}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 日志目录 */}
+              <div className={styles.serviceRow}>
+                <div className={styles.serviceInfo}>
+                  <div>
+                    <span className={styles.serviceLabel}>
+                      {t("Claw.Settings.system.logDir")}
+                    </span>
+                    <div
+                      className={styles.serviceDescription}
+                      style={{
+                        fontFamily:
+                          "ui-monospace, SFMono-Regular, Menlo, monospace",
+                        maxWidth: 280,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {logDir || t("Claw.Settings.system.loading")}
+                    </div>
+                  </div>
+                </div>
+                <Button size="small" onClick={handleOpenLogDir}>
+                  {t("Claw.Settings.system.open")}
+                </Button>
+              </div>
+
+              {/* 工作空间目录 */}
+              <div className={styles.serviceRow}>
+                <div className={styles.serviceInfo}>
+                  <div>
+                    <span className={styles.serviceLabel}>
+                      {t("Claw.Settings.system.workspaceDir")}
+                    </span>
+                    <div
+                      className={styles.serviceDescription}
+                      style={{
+                        fontFamily:
+                          "ui-monospace, SFMono-Regular, Menlo, monospace",
+                        maxWidth: 280,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {workspaceDir || t("Claw.Settings.system.notSet")}
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  size="small"
+                  onClick={handleOpenWorkspaceDir}
+                  disabled={!workspaceDir}
+                >
+                  {t("Claw.Settings.system.open")}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* 开发工具 - 仅开发模式 */}
+          {IS_DEV && DevToolsPanel && (
+            <div className={styles.section}>
+              <Suspense fallback={<Spin size="small" />}>
+                <DevToolsPanel />
+              </Suspense>
+            </div>
+          )}
+        </div>
+
+        {/* 语言切换确认弹窗 */}
+        <Modal
+          open={langConfirmModalVisible}
+          title={t("Claw.Settings.languageConfirm.title")}
+          onCancel={handleLangCancel}
+          footer={[
+            <Button key="cancel" onClick={handleLangCancel}>
+              {t("Claw.Settings.languageConfirm.cancel")}
+            </Button>,
+            <Button
+              key="confirm"
+              type="primary"
+              loading={langConfirmLoading}
+              onClick={handleLangConfirm}
+            >
+              {t("Claw.Settings.languageConfirm.ok")}
+            </Button>,
+          ]}
+        >
+          <p>{t("Claw.Settings.languageConfirm.content")}</p>
+        </Modal>
+      </div>
     </div>
   );
 }
