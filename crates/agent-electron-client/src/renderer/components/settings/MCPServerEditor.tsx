@@ -456,6 +456,7 @@ function MCPServerEditor({
                   tabSize: 2,
                   formatOnPaste: true,
                   formatOnType: true,
+                  stickyScroll: { enabled: false },
                 }}
               />
             </div>

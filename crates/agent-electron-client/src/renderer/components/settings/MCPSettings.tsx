@@ -704,6 +704,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                     tabSize: 2,
                     formatOnPaste: true,
                     formatOnType: true,
+                    stickyScroll: { enabled: false },
                   }}
                 />
               </div>
