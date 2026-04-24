@@ -1029,7 +1029,22 @@ class McpProxyManager {
    * 临时启动 MCP 服务器，调用 tools/list，然后关闭
    */
   async discoverTools(serverId: string): Promise<string[]> {
-    const entry = this.config.mcpServers[serverId];
+    // 直接从 SQLite 读取最新配置，不依赖 this.config 内存快照
+    const { getDb } = await import("../../db");
+    const db = getDb();
+    const saved = db
+      ?.prepare("SELECT value FROM settings WHERE key = ?")
+      .get("mcp_local_config") as { value: string } | undefined;
+    let servers: Record<string, McpServerEntry> = {};
+    if (saved) {
+      try {
+        const config = JSON.parse(saved.value);
+        servers = config?.mcpServers ?? {};
+      } catch {
+        // 解析失败时 servers 保持为空
+      }
+    }
+    const entry = servers[serverId];
     if (!entry) {
       throw new Error(`MCP server not found: ${serverId}`);
     }

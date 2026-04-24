@@ -37,6 +37,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
         { command: string; args: string[]; env?: Record<string, string> }
       >;
     }) => ipcRenderer.invoke("mcp:setConfig", config),
+    discoverTools: (serverId: string) =>
+      ipcRenderer.invoke("mcp:discoverTools", serverId),
+    exportConfig: () => ipcRenderer.invoke("mcp:exportConfig"),
     getPort: () => Promise.resolve(0),
     setPort: (_port: number) => Promise.resolve({ success: true }),
   },

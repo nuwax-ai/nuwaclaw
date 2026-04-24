@@ -11,7 +11,6 @@ import {
   Space,
   Badge,
   Typography,
-  Input,
   Segmented,
   List,
   Switch,
@@ -30,6 +29,8 @@ import {
   ExportOutlined,
   ImportOutlined,
   WarningOutlined,
+  CheckCircleOutlined,
+  EditOutlined,
 } from "@ant-design/icons";
 import Editor from "@monaco-editor/react";
 import type {
@@ -38,6 +39,7 @@ import type {
   McpServerEntry,
 } from "@shared/types/electron";
 import { t } from "../../services/core/i18n";
+import MCPServerEditor from "./MCPServerEditor";
 
 const { Text } = Typography;
 
@@ -57,14 +59,9 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [showExportWarning, setShowExportWarning] = useState(false);
-  const [showCreateServerModal, setShowCreateServerModal] = useState(false);
-  const [newServerType, setNewServerType] = useState<"stdio" | "remote">(
-    "stdio",
-  );
-  const [newServerId, setNewServerId] = useState("");
-  const [newServerCommand, setNewServerCommand] = useState("");
-  const [newServerArgsText, setNewServerArgsText] = useState("");
-  const [newServerUrl, setNewServerUrl] = useState("");
+  const [pageMode, setPageMode] = useState<"list" | "editor">("list");
+  const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
+  const [editingServerId, setEditingServerId] = useState("");
 
   // 监听主题变化
   useEffect(() => {
@@ -366,111 +363,88 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     message.success(t("Claw.MCP.list.disableAllSuccess"));
   };
 
-  const resetCreateServerForm = () => {
-    setNewServerType("stdio");
-    setNewServerId("");
-    setNewServerCommand("");
-    setNewServerArgsText("");
-    setNewServerUrl("");
-  };
-
-  const parseArgsText = (
-    input: string,
-  ): { ok: true; args: string[] } | { ok: false; error: string } => {
-    const raw = input.trim();
-    if (!raw) return { ok: true, args: [] };
-
-    // 优先支持 JSON 数组，避免空格/逗号参数被错误拆分。
-    if (raw.startsWith("[")) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (
-          Array.isArray(parsed) &&
-          parsed.every((item) => typeof item === "string")
-        ) {
-          return { ok: true, args: parsed };
-        }
-        return { ok: false, error: t("Claw.MCP.addServer.argsInvalid") };
-      } catch {
-        return { ok: false, error: t("Claw.MCP.addServer.argsInvalid") };
+  const handleTestServer = async (serverId: string) => {
+    try {
+      // 先确保内存中的最新配置已持久化到 DB，再调用 discoverTools
+      const latest = getCurrentConfigForUi();
+      if (latest) {
+        await window.electronAPI?.mcp.setConfig(latest);
       }
+      const result = await window.electronAPI?.mcp.discoverTools(serverId);
+      if (result?.success) {
+        const toolCount = result.tools?.length ?? 0;
+        message.success(t("Claw.MCP.list.testSuccess", { 0: toolCount }));
+      } else {
+        message.error(
+          t("Claw.MCP.list.testFailed", {
+            0: result?.error || "Unknown error",
+          }),
+        );
+      }
+    } catch (e) {
+      message.error(t("Claw.MCP.list.testFailed", { 0: String(e) }));
     }
-
-    // 回退到类 shell 分词：支持单/双引号包裹，减少参数被错误拆分。
-    const tokens: string[] = [];
-    const tokenPattern =
-      /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|(\S+)/g;
-    let matchedAny = false;
-    let match: RegExpExecArray | null;
-    while ((match = tokenPattern.exec(raw)) !== null) {
-      matchedAny = true;
-      const value = match[1] ?? match[2] ?? match[3] ?? "";
-      tokens.push(value.replace(/\\(["'])/g, "$1"));
-    }
-    if (!matchedAny) {
-      return { ok: false, error: t("Claw.MCP.addServer.argsInvalid") };
-    }
-    return { ok: true, args: tokens };
   };
 
-  const handleCreateServer = () => {
+  const handleOpenEditorCreate = () => {
+    setEditorMode("create");
+    setEditingServerId("");
+    setPageMode("editor");
+  };
+
+  const handleOpenEditorEdit = (serverId: string) => {
+    setEditorMode("edit");
+    setEditingServerId(serverId);
+    setPageMode("editor");
+  };
+
+  const handleEditorSave = (serverId: string, entry: McpServerEntry) => {
     const latest = getCurrentConfigForUi();
     if (!latest) {
       message.error(t("Claw.MCP.message.invalidJson"));
       return;
     }
-    const serverId = newServerId.trim();
-    if (!serverId) {
-      message.error(t("Claw.MCP.addServer.idRequired"));
-      return;
-    }
-    if (latest.mcpServers[serverId]) {
-      message.error(t("Claw.MCP.addServer.idDuplicate"));
-      return;
-    }
-
-    let newEntry: McpServerEntry;
-    if (newServerType === "stdio") {
-      const command = newServerCommand.trim();
-      if (!command) {
-        message.error(t("Claw.MCP.addServer.commandRequired"));
-        return;
-      }
-      const argsParsed = parseArgsText(newServerArgsText);
-      if (!argsParsed.ok) {
-        message.error(argsParsed.error);
-        return;
-      }
-      newEntry = {
-        command,
-        args: argsParsed.args,
-        enabled: false,
-      };
-    } else {
-      const url = newServerUrl.trim();
-      if (!url) {
-        message.error(t("Claw.MCP.addServer.urlRequired"));
-        return;
-      }
-      newEntry = {
-        url,
-        transport: "streamable-http",
-        enabled: false,
-      };
-    }
-
     const nextConfig: McpServersConfig = {
       ...latest,
       mcpServers: {
         ...latest.mcpServers,
-        [serverId]: newEntry,
+        [serverId]: entry,
       },
     };
     updateConfigFromUi(nextConfig);
-    setShowCreateServerModal(false);
-    resetCreateServerForm();
-    message.success(t("Claw.MCP.addServer.addSuccess"));
+    setPageMode("list");
+    message.success(
+      editorMode === "create"
+        ? t("Claw.MCP.addServer.addSuccess")
+        : t("Claw.MCP.message.configSaved"),
+    );
   };
+
+  const handleEditorBack = () => {
+    setPageMode("list");
+  };
+
+  if (pageMode === "editor") {
+    const editingEntry =
+      editorMode === "edit" && editingServerId
+        ? currentServers[editingServerId]
+        : undefined;
+    return (
+      <div style={{ padding: 24 }}>
+        <MCPServerEditor
+          key={editorMode === "edit" ? editingServerId : "__create__"}
+          mode={editorMode}
+          editingServerId={editorMode === "edit" ? editingServerId : undefined}
+          initialEntry={editingEntry}
+          existingServerIds={Object.keys(currentServers)}
+          isDarkMode={isDarkMode}
+          fullConfig={currentConfig ?? undefined}
+          onSave={handleEditorSave}
+          onBack={handleEditorBack}
+        />
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: 24 }}>
@@ -585,7 +559,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                   <Button
                     size="small"
                     type="primary"
-                    onClick={() => setShowCreateServerModal(true)}
+                    onClick={handleOpenEditorCreate}
                   >
                     {t("Claw.MCP.list.addServer")}
                   </Button>
@@ -624,6 +598,22 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                                 handleToggleServerEnabled(serverId, checked)
                               }
                             />,
+                            <Button
+                              key="test"
+                              size="small"
+                              icon={<CheckCircleOutlined />}
+                              onClick={() => handleTestServer(serverId)}
+                            >
+                              {t("Claw.MCP.list.test")}
+                            </Button>,
+                            <Button
+                              key="edit"
+                              size="small"
+                              icon={<EditOutlined />}
+                              onClick={() => handleOpenEditorEdit(serverId)}
+                            >
+                              {t("Claw.MCP.list.edit")}
+                            </Button>,
                           ]}
                         >
                           <List.Item.Meta
@@ -771,78 +761,6 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
           type="warning"
           showIcon
         />
-      </Modal>
-
-      <Modal
-        title={t("Claw.MCP.addServer.modalTitle")}
-        open={showCreateServerModal}
-        onOk={handleCreateServer}
-        onCancel={() => {
-          setShowCreateServerModal(false);
-          resetCreateServerForm();
-        }}
-        okText={t("Claw.MCP.addServer.add")}
-        cancelText={t("Claw.Common.cancel")}
-      >
-        <Space direction="vertical" style={{ width: "100%" }} size="middle">
-          <div>
-            <Text style={{ display: "block", marginBottom: 6 }}>
-              {t("Claw.MCP.addServer.type")}
-            </Text>
-            <Segmented
-              value={newServerType}
-              options={[
-                { label: "stdio", value: "stdio" },
-                { label: "remote", value: "remote" },
-              ]}
-              onChange={(val) => setNewServerType(val as "stdio" | "remote")}
-            />
-          </div>
-
-          <div>
-            <Text style={{ display: "block", marginBottom: 6 }}>
-              {t("Claw.MCP.addServer.serverId")}
-            </Text>
-            <Input
-              value={newServerId}
-              onChange={(e) => setNewServerId(e.target.value)}
-              placeholder={t("Claw.MCP.addServer.idPlaceholder")}
-            />
-          </div>
-
-          {newServerType === "stdio" ? (
-            <>
-              <div>
-                <Text style={{ display: "block", marginBottom: 6 }}>
-                  Command
-                </Text>
-                <Input
-                  value={newServerCommand}
-                  onChange={(e) => setNewServerCommand(e.target.value)}
-                  placeholder={t("Claw.MCP.addServer.commandPlaceholder")}
-                />
-              </div>
-              <div>
-                <Text style={{ display: "block", marginBottom: 6 }}>Args</Text>
-                <Input.TextArea
-                  value={newServerArgsText}
-                  onChange={(e) => setNewServerArgsText(e.target.value)}
-                  autoSize={{ minRows: 2, maxRows: 6 }}
-                  placeholder={t("Claw.MCP.addServer.argsPlaceholderAdvanced")}
-                />
-              </div>
-            </>
-          ) : (
-            <div>
-              <Text style={{ display: "block", marginBottom: 6 }}>URL</Text>
-              <Input
-                value={newServerUrl}
-                onChange={(e) => setNewServerUrl(e.target.value)}
-                placeholder={t("Claw.MCP.addServer.urlPlaceholder")}
-              />
-            </div>
-          )}
-        </Space>
       </Modal>
     </div>
   );
