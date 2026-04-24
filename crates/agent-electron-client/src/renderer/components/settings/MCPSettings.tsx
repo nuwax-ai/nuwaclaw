@@ -586,6 +586,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                   border: "1px solid #d9d9d9",
                   borderRadius: 4,
                   backgroundColor: "var(--color-bg-container, #fff)",
+                  padding: 12,
                 }}
               >
                 {serverEntries.length === 0 ? (
