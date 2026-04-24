@@ -240,7 +240,11 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
         message.error(t("Claw.MCP.message.checkFailed", { 0: result?.error }));
       }
     } catch (error) {
-      message.error(t("Claw.MCP.message.error", { 0: error }));
+      message.error(
+        t("Claw.MCP.message.error", {
+          0: error instanceof Error ? error.message : String(error),
+        }),
+      );
     } finally {
       await refreshStatus();
       setActionLoading(false);
@@ -263,7 +267,11 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
         message.error(t("Claw.MCP.message.checkFailed", { 0: result?.error }));
       }
     } catch (error) {
-      message.error(t("Claw.MCP.message.error", { 0: error }));
+      message.error(
+        t("Claw.MCP.message.error", {
+          0: error instanceof Error ? error.message : String(error),
+        }),
+      );
     } finally {
       await refreshStatus();
       setActionLoading(false);
@@ -679,7 +687,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
               <div
                 style={{
                   border: "1px solid #d9d9d9",
-                  borderRadius: 4,
+                  borderRadius: 8,
                   overflow: "hidden",
                   position: "relative",
                 }}
