@@ -614,30 +614,31 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                                 handleToggleServerEnabled(serverId, checked)
                               }
                             />,
-                            <Button
-                              key="test"
-                              size="small"
-                              icon={<CheckCircleOutlined />}
-                              onClick={() => handleTestServer(serverId)}
-                            >
-                              {t("Claw.MCP.list.test")}
-                            </Button>,
-                            <Button
-                              key="edit"
-                              size="small"
-                              icon={<EditOutlined />}
-                              onClick={() => handleOpenEditorEdit(serverId)}
-                            >
-                              {t("Claw.MCP.list.edit")}
-                            </Button>,
-                            <Button
-                              key="delete"
-                              size="small"
-                              danger
-                              loading={deletingServerId === serverId}
-                              icon={<DeleteOutlined />}
-                              onClick={() => handleDeleteServer(serverId)}
-                            />,
+                            <>
+                              <Button
+                                key="test"
+                                size="small"
+                                type="text"
+                                icon={<CheckCircleOutlined />}
+                                onClick={() => handleTestServer(serverId)}
+                              />
+                              <Button
+                                key="edit"
+                                size="small"
+                                type="text"
+                                icon={<EditOutlined />}
+                                onClick={() => handleOpenEditorEdit(serverId)}
+                              />
+                              <Button
+                                key="delete"
+                                size="small"
+                                danger
+                                type="text"
+                                loading={deletingServerId === serverId}
+                                icon={<DeleteOutlined />}
+                                onClick={() => handleDeleteServer(serverId)}
+                              />
+                            </>,
                           ]}
                         >
                           <List.Item.Meta
