@@ -31,6 +31,7 @@ import {
   WarningOutlined,
   CheckCircleOutlined,
   EditOutlined,
+  DeleteOutlined,
 } from "@ant-design/icons";
 import Editor from "@monaco-editor/react";
 import type {
@@ -363,6 +364,18 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     message.success(t("Claw.MCP.list.disableAllSuccess"));
   };
 
+  const handleDeleteServer = (serverId: string) => {
+    const latest = getCurrentConfigForUi();
+    if (!latest) {
+      message.error(t("Claw.MCP.message.invalidJson"));
+      return;
+    }
+    const nextServers = { ...latest.mcpServers };
+    delete nextServers[serverId];
+    updateConfigFromUi({ ...latest, mcpServers: nextServers });
+    message.success(t("Claw.MCP.message.serverRemoved"));
+  };
+
   const handleTestServer = async (serverId: string) => {
     try {
       // 先确保内存中的最新配置已持久化到 DB，再调用 discoverTools
@@ -614,6 +627,13 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                             >
                               {t("Claw.MCP.list.edit")}
                             </Button>,
+                            <Button
+                              key="delete"
+                              size="small"
+                              danger
+                              icon={<DeleteOutlined />}
+                              onClick={() => handleDeleteServer(serverId)}
+                            />,
                           ]}
                         >
                           <List.Item.Meta
