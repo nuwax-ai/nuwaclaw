@@ -63,6 +63,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   const [pageMode, setPageMode] = useState<"list" | "editor">("list");
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [editingServerId, setEditingServerId] = useState("");
+  const [deletingServerId, setDeletingServerId] = useState<string | null>(null);
 
   // 监听主题变化
   useEffect(() => {
@@ -370,10 +371,12 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
       message.error(t("Claw.MCP.message.invalidJson"));
       return;
     }
+    setDeletingServerId(serverId);
     const nextServers = { ...latest.mcpServers };
     delete nextServers[serverId];
     updateConfigFromUi({ ...latest, mcpServers: nextServers });
     message.success(t("Claw.MCP.message.serverRemoved"));
+    setDeletingServerId(null);
   };
 
   const handleTestServer = async (serverId: string) => {
@@ -631,6 +634,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                               key="delete"
                               size="small"
                               danger
+                              loading={deletingServerId === serverId}
                               icon={<DeleteOutlined />}
                               onClick={() => handleDeleteServer(serverId)}
                             />,
