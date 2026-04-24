@@ -681,6 +681,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                   border: "1px solid #d9d9d9",
                   borderRadius: 4,
                   overflow: "hidden",
+                  position: "relative",
                 }}
               >
                 <Editor
