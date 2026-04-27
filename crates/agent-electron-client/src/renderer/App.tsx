@@ -27,6 +27,7 @@ import {
   TeamOutlined,
   ArrowLeftOutlined,
   ReloadOutlined,
+  ApiOutlined,
 } from "@ant-design/icons";
 import {
   setupService,
@@ -51,6 +52,7 @@ import AboutPage from "./components/pages/AboutPage";
 import LogViewer from "./components/pages/LogViewer";
 import PermissionsPage from "./components/pages/PermissionsPage";
 import SessionsPage from "./components/pages/SessionsPage";
+import MCPSettings from "./components/settings/MCPSettings";
 import type { WebviewHeaderActions } from "./components/pages/SessionsPage";
 import { createLogger } from "./services/utils/rendererLog";
 import styles from "./styles/components/App.module.css";
@@ -98,6 +100,7 @@ export function useI18nLang(): I18nContextValue {
 type TabKey =
   | "client"
   | "sessions"
+  | "mcp"
   | "settings"
   | "dependencies"
   | "permissions"
@@ -989,6 +992,11 @@ function App() {
         label: t("Claw.Menu.session"),
       },
       {
+        key: "mcp",
+        icon: <ApiOutlined />,
+        label: t("Claw.Menu.mcp"),
+      },
+      {
         key: "settings",
         icon: <SettingOutlined />,
         label: t("Claw.Menu.settings"),
@@ -1199,6 +1207,7 @@ function App() {
                       onWebviewChange={setWebviewActions}
                     />
                   )}
+                  {activeTab === "mcp" && <MCPSettings />}
                   {activeTab === "settings" && <SettingsPage />}
                   {activeTab === "dependencies" && <DependenciesPage />}
                   {activeTab === "permissions" && <PermissionsPage />}

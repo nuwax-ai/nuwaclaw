@@ -1025,6 +1025,162 @@ class McpProxyManager {
   }
 
   /**
+   * 发现指定 MCP 服务器的工具列表
+   * 临时启动 MCP 服务器，调用 tools/list，然后关闭
+   */
+  async discoverTools(serverId: string): Promise<string[]> {
+    // 直接从 SQLite 读取最新配置，不依赖 this.config 内存快照
+    const { getDb } = await import("../../db");
+    const db = getDb();
+    const saved = db
+      ?.prepare("SELECT value FROM settings WHERE key = ?")
+      .get("mcp_local_config") as { value: string } | undefined;
+    let servers: Record<string, McpServerEntry> = {};
+    if (saved) {
+      try {
+        const config = JSON.parse(saved.value);
+        servers = config?.mcpServers ?? {};
+      } catch {
+        // 解析失败时 servers 保持为空
+      }
+    }
+    const entry = servers[serverId];
+    if (!entry) {
+      throw new Error(`MCP server not found: ${serverId}`);
+    }
+
+    // 远程类型暂不支持工具发现（需要 MCP SDK 支持）
+    if (isRemoteEntry(entry)) {
+      throw new Error(
+        "Tool discovery not supported for remote MCP servers yet",
+      );
+    }
+
+    // 解析命令和环境变量
+    const resolved = resolveServersConfig({ [serverId]: entry });
+    const resolvedEntry = resolved[serverId];
+    if (!resolvedEntry || isRemoteEntry(resolvedEntry)) {
+      throw new Error("Failed to resolve MCP server config");
+    }
+
+    // 临时启动 MCP 服务器进程
+    const { spawn } = await import("child_process");
+    let proc: any = null;
+
+    try {
+      proc = spawn(resolvedEntry.command, resolvedEntry.args, {
+        env: { ...process.env, ...resolvedEntry.env },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+
+      // 发送 MCP 初始化请求
+      const initRequest = {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "nuwax-agent", version: "1.0.0" },
+        },
+      };
+      proc.stdin.write(JSON.stringify(initRequest) + "\n");
+
+      // 等待初始化响应
+      await this.waitForMcpResponse(proc, 1, 5000);
+
+      // 发送 tools/list 请求
+      const toolsRequest = {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/list",
+        params: {},
+      };
+      proc.stdin.write(JSON.stringify(toolsRequest) + "\n");
+
+      // 等待 tools/list 响应
+      const response = await this.waitForMcpResponse(proc, 2, 5000);
+
+      // 验证响应格式
+      if (!response?.result?.tools || !Array.isArray(response.result.tools)) {
+        log.warn("[McpProxy] Invalid tools response:", response);
+        return [];
+      }
+
+      // 解析工具列表，过滤无效项
+      return response.result.tools
+        .filter((t: any) => t && typeof t.name === "string")
+        .map((t: { name: string }) => t.name);
+    } finally {
+      // 确保进程被正确清理
+      if (proc && !proc.killed) {
+        try {
+          proc.kill("SIGTERM");
+          // 如果 SIGTERM 失败，5 秒后强制 SIGKILL
+          const killTimer = setTimeout(() => {
+            if (proc && !proc.killed) {
+              proc.kill("SIGKILL");
+            }
+          }, 5000);
+
+          // 进程退出时清理定时器
+          proc.once("exit", () => {
+            clearTimeout(killTimer);
+          });
+        } catch (e) {
+          log.warn("[McpProxy] Failed to kill MCP discovery process:", e);
+        }
+      }
+    }
+  }
+
+  /**
+   * 等待 MCP 响应（辅助方法）
+   */
+  private async waitForMcpResponse(
+    proc: any,
+    requestId: number,
+    timeoutMs: number,
+  ): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error("MCP response timeout"));
+      }, timeoutMs);
+
+      let buffer = "";
+      const onData = (chunk: Buffer) => {
+        buffer += chunk.toString();
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const msg = JSON.parse(line);
+            if (msg.id === requestId) {
+              clearTimeout(timeout);
+              proc.stdout.off("data", onData);
+              if (msg.error) {
+                reject(new Error(msg.error.message || "MCP error"));
+              } else {
+                resolve(msg);
+              }
+            }
+          } catch {
+            // 忽略非 JSON 行
+          }
+        }
+      };
+
+      proc.stdout.on("data", onData);
+      proc.on("error", (err: Error) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+  }
+
+  /**
    * 清理（退出时调用）— 停止 PersistentMcpBridge + kill 子进程
    */
   async cleanup(): Promise<void> {
@@ -1267,4 +1423,11 @@ export async function syncMcpConfigToProxyAndReload(
       );
     }
   });
+}
+
+/**
+ * 发现指定 MCP 服务器的工具列表
+ */
+export async function discoverMcpTools(serverId: string): Promise<string[]> {
+  return mcpProxyManager.discoverTools(serverId);
 }

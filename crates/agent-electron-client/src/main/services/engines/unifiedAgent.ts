@@ -48,6 +48,10 @@ import type {
 } from "@shared/types/computerTypes";
 import { APP_DATA_DIR_NAME } from "../constants";
 import type { McpServerEntry } from "../packages/mcp";
+
+interface McpServersConfig {
+  mcpServers: Record<string, McpServerEntry>;
+}
 import {
   filterBridgeEntries,
   rawMcpServersEqual,
@@ -717,6 +721,28 @@ export class UnifiedAgentService extends EventEmitter {
   }
 
   /**
+   * 从数据库加载本地 MCP 配置
+   * 返回用户在设置界面配置的 MCP 服务器（不包括 ACP 下发的动态 MCP）
+   */
+  private async loadLocalMcpConfig(): Promise<Record<string, McpServerEntry>> {
+    try {
+      const { getDb } = await import("../../db");
+      const db = getDb();
+      const saved = db
+        ?.prepare("SELECT value FROM settings WHERE key = ?")
+        .get("mcp_local_config") as { value: string } | undefined;
+
+      if (saved) {
+        const config = JSON.parse(saved.value) as McpServersConfig;
+        return config.mcpServers || {};
+      }
+    } catch (e) {
+      log.warn("[UnifiedAgent] Failed to load local MCP config:", e);
+    }
+    return {};
+  }
+
+  /**
    * Ensure the correct engine is running for the given chat request.
    * Returns the AcpEngine to use for this request.
    */
@@ -846,12 +872,31 @@ export class UnifiedAgentService extends EventEmitter {
     const needCreateEngine = !existingEngine || !existingEngine.isReady;
     let memoryReadyPromise: Promise<void> | null = null;
 
+    // 加载本地 MCP 配置并合并到请求配置中
+    // 优先级：ACP context_servers > 本地配置
+    const localMcpConfig = await this.loadLocalMcpConfig();
+    const mergedMcpServers: Record<string, McpServerEntry> = {
+      ...localMcpConfig, // 本地配置作为基础
+      ...requestMcpServersRuntime, // ACP 配置覆盖本地配置
+    };
+
+    // 过滤掉 enabled === false 的服务器
+    const enabledMcpServers: Record<string, McpServerEntry> = {};
+    for (const [name, entry] of Object.entries(mergedMcpServers)) {
+      // 检查 enabled 字段，默认为 true
+      // 使用 'in' 操作符进行类型安全检查
+      const isEnabled = !("enabled" in entry) || entry.enabled !== false;
+      if (isEnabled) {
+        enabledMcpServers[name] = entry;
+      }
+    }
+
     if (mcpChanged) {
       try {
         const { syncMcpConfigToProxyAndReload } =
           await import("../packages/mcp");
         const syncPromise = syncMcpConfigToProxyAndReload(
-          requestMcpServersRuntime,
+          enabledMcpServers, // 使用合并后的配置
         );
 
         // 并行执行 memory ready

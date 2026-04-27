@@ -404,4 +404,19 @@ export const I18N_KEYS = {
       AUTO_SCROLL_ENABLED: "Claw.LogViewer.autoScrollEnabled",
     },
   },
+
+  // MCP 设置 MCP
+  MCP: {
+    LIST_EDIT: "Claw.MCP.list.edit",
+    LIST_TEST: "Claw.MCP.list.test",
+    LIST_TEST_SUCCESS: "Claw.MCP.list.testSuccess",
+    LIST_TEST_FAILED: "Claw.MCP.list.testFailed",
+    LIST_TESTING: "Claw.MCP.list.testing",
+    EDITOR_CREATE_TITLE: "Claw.MCP.editor.createTitle",
+    EDITOR_EDIT_TITLE: "Claw.MCP.editor.editTitle",
+    EDITOR_BACK: "Claw.MCP.editor.back",
+    EDITOR_TAB_FORM: "Claw.MCP.editor.tabForm",
+    EDITOR_TAB_JSON: "Claw.MCP.editor.tabJson",
+    EDITOR_JSON_HINT: "Claw.MCP.editor.jsonHint",
+  },
 } as const;
