@@ -6,6 +6,11 @@ export function mapAgentCommand(command: string): AgentEngineType | null {
   if (command === "nuwaxcode") return "nuwaxcode";
   if (command === "claude-code" || command === "claude-code-acp-ts")
     return "claude-code";
+  if (command === "codex-cli" || command === "codex-acp") return "codex-cli";
+  if (command === "pi-agent" || command === "pi-acp") return "pi-agent";
+  if (command === "hermes-agent" || command === "hermes") return "hermes-agent";
+  if (command === "kilo-cli" || command === "kilo") return "kilo-cli";
+  if (command === "openclaw") return "openclaw";
   return null;
 }
 

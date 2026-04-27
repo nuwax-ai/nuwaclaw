@@ -21,7 +21,14 @@ import { isWindows } from "../system/shellEnv";
 
 // ==================== Types ====================
 
-export type AgentEngine = "claude-code" | "nuwaxcode";
+export type AgentEngine =
+  | "claude-code"
+  | "nuwaxcode"
+  | "codex-cli"
+  | "pi-agent"
+  | "hermes-agent"
+  | "kilo-cli"
+  | "openclaw";
 
 export interface EngineConfig {
   engine: AgentEngine;
@@ -106,6 +113,45 @@ export function isEngineInstalledLocally(engine: AgentEngine): boolean {
     }
   }
 
+  // New ACP engines: check node_modules/.bin
+  if (
+    engine === "codex-cli" ||
+    engine === "pi-agent" ||
+    engine === "hermes-agent" ||
+    engine === "kilo-cli" ||
+    engine === "openclaw"
+  ) {
+    const binName =
+      engine === "codex-cli"
+        ? "codex-acp"
+        : engine === "pi-agent"
+          ? "pi-acp"
+          : engine === "hermes-agent"
+            ? "hermes"
+            : engine === "kilo-cli"
+              ? "kilo"
+              : "openclaw";
+    const binPaths = [
+      path.join(getAppDataDir(), "node_modules", ".bin", binName),
+    ];
+    if (engine === "pi-agent") {
+      binPaths.push(
+        path.join(
+          getAppDataDir(),
+          "node_modules",
+          "pi-acp",
+          "dist",
+          "index.js",
+        ),
+      );
+    }
+    for (const p of binPaths) {
+      if (fs.existsSync(p)) return true;
+      if (fs.existsSync(p + ".exe")) return true;
+      if (fs.existsSync(p + ".cmd")) return true;
+    }
+  }
+
   return false;
 }
 
@@ -115,7 +161,20 @@ export function isEngineInstalledLocally(engine: AgentEngine): boolean {
 export async function isEngineInstalledGlobally(
   engine: AgentEngine,
 ): Promise<boolean> {
-  const cmd = engine === "claude-code" ? "claude-code" : "nuwaxcode";
+  const cmd =
+    engine === "claude-code"
+      ? "claude-code"
+      : engine === "nuwaxcode"
+        ? "nuwaxcode"
+        : engine === "codex-cli"
+          ? "codex-acp"
+          : engine === "pi-agent"
+            ? "pi-acp"
+            : engine === "hermes-agent"
+              ? "hermes"
+              : engine === "kilo-cli"
+                ? "kilo"
+                : "openclaw";
 
   return new Promise((resolve) => {
     const checkCmd = isWindows() ? "where" : "which";
@@ -143,7 +202,20 @@ export async function getEngineVersion(
 
   return new Promise((resolve) => {
     const cmd =
-      localEngine || (engine === "claude-code" ? "claude-code" : "nuwaxcode");
+      localEngine ||
+      (engine === "claude-code"
+        ? "claude-code"
+        : engine === "nuwaxcode"
+          ? "nuwaxcode"
+          : engine === "codex-cli"
+            ? "codex-acp"
+            : engine === "pi-agent"
+              ? "pi-acp"
+              : engine === "hermes-agent"
+                ? "hermes"
+                : engine === "kilo-cli"
+                  ? "kilo"
+                  : "openclaw");
     const args = ["--version"];
 
     const proc = spawn(cmd, args, {
@@ -170,7 +242,20 @@ export async function getEngineVersion(
  */
 function getEnginePackageDir(engine: AgentEngine): string | null {
   const nodeModules = path.join(getAppDataDir(), "node_modules");
-  const packageName = engine === "claude-code" ? "claude-code" : "nuwaxcode";
+  const packageName =
+    engine === "claude-code"
+      ? "claude-code"
+      : engine === "nuwaxcode"
+        ? "nuwaxcode"
+        : engine === "codex-cli"
+          ? "codex-acp"
+          : engine === "pi-agent"
+            ? "pi-acp"
+            : engine === "kilo-cli"
+              ? "@kilocode/cli"
+              : engine === "hermes-agent"
+                ? "hermes-agent"
+                : "openclaw";
   const packageDir = path.join(nodeModules, packageName);
   return fs.existsSync(packageDir) ? packageDir : null;
 }
@@ -193,7 +278,20 @@ export function findEngineBinary(engine: AgentEngine): string | null {
   const packageDir = getEnginePackageDir(engine);
   if (!packageDir) return null;
 
-  const packageName = engine === "claude-code" ? "claude-code" : "nuwaxcode";
+  const packageName =
+    engine === "claude-code"
+      ? "claude-code"
+      : engine === "nuwaxcode"
+        ? "nuwaxcode"
+        : engine === "codex-cli"
+          ? "codex-acp"
+          : engine === "pi-agent"
+            ? "pi-acp"
+            : engine === "kilo-cli"
+              ? "@kilocode/cli"
+              : engine === "hermes-agent"
+                ? "hermes-agent"
+                : "openclaw";
   return resolveNpmPackageEntry(packageDir, packageName);
 }
 
@@ -213,7 +311,20 @@ export async function installEngine(
     fs.mkdirSync(engineDir, { recursive: true });
   }
 
-  const packageName = engine === "claude-code" ? "claude-code" : "nuwaxcode";
+  const packageName =
+    engine === "claude-code"
+      ? "claude-code"
+      : engine === "nuwaxcode"
+        ? "nuwaxcode"
+        : engine === "codex-cli"
+          ? "codex-acp"
+          : engine === "pi-agent"
+            ? "pi-acp"
+            : engine === "kilo-cli"
+              ? "@kilocode/cli"
+              : engine === "hermes-agent"
+                ? "hermes-agent"
+                : "openclaw";
 
   return new Promise((resolve) => {
     const npmCmd = isWindows() ? "npm.cmd" : "npm";

@@ -265,7 +265,14 @@ export interface DependenciesAPI {
   getRequiredList: () => Promise<LocalDependencyItem[]>;
 }
 
-export type AgentEngine = "claude-code" | "nuwaxcode";
+export type AgentEngine =
+  | "claude-code"
+  | "nuwaxcode"
+  | "codex-cli"
+  | "pi-agent"
+  | "hermes-agent"
+  | "kilo-cli"
+  | "openclaw";
 
 export interface EngineStartConfig {
   engine: AgentEngine;
@@ -307,7 +314,14 @@ export interface EngineAPI {
 }
 
 // SDK types (simplified for renderer use)
-export type AgentEngineType = "nuwaxcode" | "claude-code";
+export type AgentEngineType =
+  | "nuwaxcode"
+  | "claude-code"
+  | "codex-cli"
+  | "pi-agent"
+  | "hermes-agent"
+  | "kilo-cli"
+  | "openclaw";
 
 export interface AgentInitConfig {
   engine: AgentEngineType;

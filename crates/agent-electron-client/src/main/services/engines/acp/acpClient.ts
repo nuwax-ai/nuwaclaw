@@ -387,7 +387,14 @@ export interface AcpConnectionConfig {
   apiProtocol?: string;
   env?: Record<string, string>;
   /** Engine type for process registry tracking */
-  engineType?: "claude-code" | "nuwaxcode";
+  engineType?:
+    | "claude-code"
+    | "nuwaxcode"
+    | "codex-cli"
+    | "pi-agent"
+    | "hermes-agent"
+    | "kilo-cli"
+    | "openclaw";
   /** Purpose of this process (for process registry) */
   purpose?: "engine";
   /** Sandbox wrapping configuration (omit to disable) */
@@ -493,7 +500,16 @@ function getNuwaxcodePersistentLogDir(): string {
  * Returns `isNative: true` when the binary should be spawned directly
  * (not via `node`).
  */
-export function resolveAcpBinary(engine: "claude-code" | "nuwaxcode"): {
+export function resolveAcpBinary(
+  engine:
+    | "claude-code"
+    | "nuwaxcode"
+    | "codex-cli"
+    | "pi-agent"
+    | "hermes-agent"
+    | "kilo-cli"
+    | "openclaw",
+): {
   binPath: string;
   binArgs: string[];
   isNative: boolean;
@@ -510,30 +526,107 @@ export function resolveAcpBinary(engine: "claude-code" | "nuwaxcode"): {
     };
   }
 
-  // nuwaxcode: resolve platform-specific native binary directly
-  const nativePath = resolveNuwaxcodeNativeBinary();
-  if (nativePath) {
-    log.info(`[AcpClient] nuwaxcode: using native binary: ${nativePath}`);
+  if (engine === "nuwaxcode") {
+    // nuwaxcode: resolve platform-specific native binary directly
+    const nativePath = resolveNuwaxcodeNativeBinary();
+    if (nativePath) {
+      log.info(`[AcpClient] nuwaxcode: using native binary: ${nativePath}`);
+      return {
+        binPath: nativePath,
+        binArgs: ["acp"],
+        isNative: true,
+      };
+    }
+
+    // Fallback: use JS wrapper (will have Windows popup issue)
+    log.warn(
+      "[AcpClient] nuwaxcode: native binary not found, falling back to JS wrapper",
+    );
+    const packageDir = getAcpPackageDir("nuwaxcode");
+    const entryPath = packageDir
+      ? resolveNpmPackageEntry(packageDir, "nuwaxcode")
+      : null;
     return {
-      binPath: nativePath,
+      binPath: entryPath || "",
       binArgs: ["acp"],
-      isNative: true,
+      isNative: false,
     };
   }
 
-  // Fallback: use JS wrapper (will have Windows popup issue)
-  log.warn(
-    "[AcpClient] nuwaxcode: native binary not found, falling back to JS wrapper",
-  );
-  const packageDir = getAcpPackageDir("nuwaxcode");
-  const entryPath = packageDir
-    ? resolveNpmPackageEntry(packageDir, "nuwaxcode")
-    : null;
-  return {
-    binPath: entryPath || "",
-    binArgs: ["acp"],
-    isNative: false,
-  };
+  // -- New ACP engines --
+
+  if (engine === "kilo-cli") {
+    // opencode fork, same ACP mechanism as nuwaxcode
+    const binName = isWindows() ? "kilo.cmd" : "kilo";
+    const localPath = path.join(
+      app.getPath("home"),
+      APP_DATA_DIR_NAME,
+      "node_modules",
+      ".bin",
+      binName,
+    );
+    if (fs.existsSync(localPath)) {
+      log.info(`[AcpClient] kilo-cli: using npm binary: ${localPath}`);
+      return { binPath: localPath, binArgs: ["acp"], isNative: true };
+    }
+    return { binPath: "kilo", binArgs: ["acp"], isNative: true };
+  }
+
+  if (engine === "hermes-agent") {
+    return { binPath: "hermes", binArgs: ["acp"], isNative: true };
+  }
+
+  if (engine === "codex-cli") {
+    const binName = isWindows() ? "codex-acp.cmd" : "codex-acp";
+    const localPath = path.join(
+      app.getPath("home"),
+      APP_DATA_DIR_NAME,
+      "node_modules",
+      ".bin",
+      binName,
+    );
+    if (fs.existsSync(localPath)) {
+      log.info(`[AcpClient] codex-cli: using npm binary: ${localPath}`);
+      return { binPath: localPath, binArgs: [], isNative: true };
+    }
+    return { binPath: "codex-acp", binArgs: [], isNative: true };
+  }
+
+  if (engine === "pi-agent") {
+    const packageDir = path.join(
+      app.getPath("home"),
+      APP_DATA_DIR_NAME,
+      "node_modules",
+      "pi-acp",
+    );
+    if (fs.existsSync(packageDir)) {
+      const entryPath = resolveNpmPackageEntry(packageDir, "pi-acp");
+      if (entryPath) {
+        log.info(`[AcpClient] pi-agent: using npm package: ${entryPath}`);
+        return { binPath: entryPath, binArgs: [], isNative: false };
+      }
+    }
+    return { binPath: "pi-acp", binArgs: [], isNative: false };
+  }
+
+  if (engine === "openclaw") {
+    const binName = isWindows() ? "openclaw.cmd" : "openclaw";
+    const localPath = path.join(
+      app.getPath("home"),
+      APP_DATA_DIR_NAME,
+      "node_modules",
+      ".bin",
+      binName,
+    );
+    if (fs.existsSync(localPath)) {
+      log.info(`[AcpClient] openclaw: using npm binary: ${localPath}`);
+      return { binPath: localPath, binArgs: ["acp"], isNative: true };
+    }
+    return { binPath: "openclaw", binArgs: ["acp"], isNative: true };
+  }
+
+  // Should not reach here — all engine types handled above
+  throw new Error(`Unknown engine type: ${engine}`);
 }
 
 /**
