@@ -61,6 +61,16 @@ import { getCachedSandboxPolicy } from "../sandbox/policyCache";
 /** 环境变量记录类型 */
 type EnvRecord = Record<string, string | undefined>;
 
+function maskUrlForLog(raw: string | undefined): string {
+  if (!raw) return "(not set)";
+  try {
+    const parsed = new URL(raw);
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+  } catch {
+    return "(invalid-url)";
+  }
+}
+
 // ==================== Types ====================
 
 import type { AgentConfig, AgentEngineType } from "./types";
@@ -985,6 +995,11 @@ export class UnifiedAgentService extends EventEmitter {
     }
 
     const mergedEnv = { ...(base.env || {}), ...(resolvedEnv || {}) };
+    const chat2responseProxyUrl =
+      mergedEnv.NUWAX_CHAT2RESPONSE_PROXY_URL ||
+      mergedEnv.CHAT2RESPONSE_PROXY_URL;
+    const chat2responseEnabledRaw =
+      mergedEnv.NUWAX_CHAT2RESPONSE_ENABLED || mergedEnv.CHAT2RESPONSE_ENABLED;
 
     // OPENCODE_LOG_DIR 容器路径本地化
     if (
@@ -1093,6 +1108,8 @@ export class UnifiedAgentService extends EventEmitter {
         `├─ env ANTHROPIC_MODEL: ${effectiveConfig.env?.ANTHROPIC_MODEL || "(not set)"}\n` +
         `├─ baseUrl: ${effectiveConfig.baseUrl || "(not set)"}\n` +
         `├─ apiKeySet: ${!!effectiveConfig.apiKey}\n` +
+        `├─ chat2response.enabled(raw): ${chat2responseEnabledRaw || "(default)"}\n` +
+        `├─ chat2response.proxyUrl(masked): ${maskUrlForLog(chat2responseProxyUrl)}\n` +
         `└─ mcpServers: ${effectiveConfig.mcpServers ? Object.keys(effectiveConfig.mcpServers).join(", ") : "(none)"}`,
     );
 

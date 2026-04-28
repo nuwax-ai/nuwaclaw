@@ -87,7 +87,32 @@ CODEX_LOG_STDERR=0                     # 禁用 stderr 日志
 - `binArgs`: `[]`
 - `isNative`: `true` (Rust 原生二进制)
 - 认证：通过 `codex login` 或环境变量 `OPENAI_API_KEY`
-- chat2response: 可选，当用户配置国内模型时设置 `OPENAI_BASE_URL` 指向代理
+- chat2response: 可选，当用户配置国内模型时可自动走第三方代理（chat -> responses）
+
+#### codex-cli + chat2response 运行时配置示例
+
+背景说明：
+- `codex-cli` 侧主要面向较新的 Responses 协议，而国内很多模型网关仍以 Chat Completions 兼容层为主。
+- 因此在国内模型场景下，需要 `chat2response` 代理做协议桥接（chat -> responses），以保证 codex-cli 可用性。
+
+```bash
+# 必填：国内模型上游（例如 DeepSeek / Qwen / 智谱 的 OpenAI 兼容入口）
+OPENAI_BASE_URL=https://api.deepseek.com/v1
+OPENAI_API_KEY=sk-xxx
+
+# 必填：chat2response 代理地址（由代理负责 chat -> responses 转换）
+NUWAX_CHAT2RESPONSE_PROXY_URL=https://chat2response.example.com/proxy
+
+# 可选：是否启用自动路由（默认 true）
+# 1/true/yes/on -> 启用
+# 0/false/no/off -> 禁用
+NUWAX_CHAT2RESPONSE_ENABLED=true
+```
+
+行为说明：
+- 当引擎为 `codex-cli` 且为 OpenAI 兼容协议时，若 `OPENAI_BASE_URL` 不是官方 `api.openai.com`，会优先尝试改写到 `NUWAX_CHAT2RESPONSE_PROXY_URL`。
+- 改写成功后，原上游地址会保存在 `NUWAX_CHAT2RESPONSE_UPSTREAM_BASE_URL`，供代理继续转发。
+- 若未配置代理地址，则回退为原始 `OPENAI_BASE_URL` 并记录告警日志，不会中断会话。
 
 ---
 

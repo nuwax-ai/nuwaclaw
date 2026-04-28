@@ -38,6 +38,7 @@ import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
 import { buildSandboxedSpawnArgs } from "../../sandbox/sandboxProcessWrapper";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
+import { applyOpenAICompatibleEnv } from "./openAICompatRouting";
 
 function extractSessionIdFromLine(line: string): string | undefined {
   try {
@@ -385,6 +386,18 @@ export interface AcpConnectionConfig {
   baseUrl?: string;
   model?: string;
   apiProtocol?: string;
+  /**
+   * Optional third-party chat2response proxy endpoint for codex-cli.
+   * When set, codex-cli OpenAI Chat traffic can be routed through this proxy,
+   * which converts chat/completions-style requests to responses API upstream.
+   */
+  chat2responseProxyBaseUrl?: string;
+  /**
+   * Optional switch for codex-cli chat2response routing.
+   * - true/undefined: allow auto-routing for non-official OpenAI baseUrl
+   * - false: always keep original OPENAI_BASE_URL
+   */
+  chat2responseEnabled?: boolean;
   env?: Record<string, string>;
   /** Engine type for process registry tracking */
   engineType?:
@@ -768,33 +781,44 @@ export async function createAcpConnection(
   if (config.env) Object.assign(env, config.env);
 
   // nuwaxcode runs on opencode and prefers OPENCODE_MODEL.
-  // For openai-compatible models, OPENAI_* creds are required for provider autoload.
+  // Keep this assignment before OpenAI compatibility injection so model-based
+  // detection can use OPENCODE_MODEL when present.
   if (isNuwaxcodeEngine) {
     if (config.model && !env.OPENCODE_MODEL) {
       env.OPENCODE_MODEL = config.model;
     }
+  }
 
-    const effectiveModel = env.OPENCODE_MODEL || config.model || "";
-    const apiProtocol = (config.apiProtocol || "").toLowerCase();
-    const isOpenAICompatible =
-      apiProtocol === "openai" ||
-      effectiveModel.startsWith("openai-compatible/");
+  const openAICompatRouting = applyOpenAICompatibleEnv(config, env);
 
-    if (isOpenAICompatible) {
-      if (config.apiKey && !env.OPENAI_API_KEY) {
-        env.OPENAI_API_KEY = config.apiKey;
-      }
-      if (config.baseUrl && !env.OPENAI_BASE_URL) {
-        env.OPENAI_BASE_URL = config.baseUrl;
-      }
+  if (
+    config.engineType === "codex-cli" &&
+    openAICompatRouting.isOpenAICompatible &&
+    openAICompatRouting.chat2responseReason === "missing-proxy-url"
+  ) {
+    log.warn(
+      "[AcpClient] codex-cli chat2response not enabled: proxy URL is missing; keeping original OPENAI_BASE_URL",
+    );
+  }
 
-      // Compatibility aliases used by some opencode paths.
-      if (env.OPENAI_API_KEY && !env.OPENCODE_OPENAI_API_KEY) {
-        env.OPENCODE_OPENAI_API_KEY = env.OPENAI_API_KEY;
-      }
-      if (env.OPENAI_BASE_URL && !env.OPENCODE_OPENAI_API_BASE) {
-        env.OPENCODE_OPENAI_API_BASE = env.OPENAI_BASE_URL;
-      }
+  if (
+    config.engineType === "codex-cli" &&
+    openAICompatRouting.isOpenAICompatible
+  ) {
+    log.info("[AcpClient] codex-cli openai compatibility routing", {
+      chat2responseEnabled: openAICompatRouting.chat2responseEnabled,
+      reason: openAICompatRouting.chat2responseReason,
+      openAIBaseUrlSource: openAICompatRouting.openAIBaseUrlSource,
+    });
+  }
+
+  if (isNuwaxcodeEngine) {
+    // Compatibility aliases used by opencode paths (nuwaxcode only).
+    if (env.OPENAI_API_KEY && !env.OPENCODE_OPENAI_API_KEY) {
+      env.OPENCODE_OPENAI_API_KEY = env.OPENAI_API_KEY;
+    }
+    if (env.OPENAI_BASE_URL && !env.OPENCODE_OPENAI_API_BASE) {
+      env.OPENCODE_OPENAI_API_BASE = env.OPENAI_BASE_URL;
     }
   }
 
