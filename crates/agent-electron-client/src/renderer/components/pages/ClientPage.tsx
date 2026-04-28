@@ -255,6 +255,8 @@ function ClientPage({
                 await window.electronAPI?.lanproxy.stop();
               else if (svc.key === "mcpProxy")
                 await window.electronAPI?.mcp.stop();
+              else if (svc.key === "chat2response")
+                await window.electronAPI?.chat2response?.stop();
             } catch (e) {
               console.error(`[ClientPage] Failed to stop ${svc.label}:`, e);
             }
@@ -319,6 +321,7 @@ function ClientPage({
     guiServer: "Claw.Service.guiMcp",
     lanproxy: "Claw.Service.proxy",
     mcpProxy: "Claw.Service.mcp",
+    chat2response: "Chat2Response",
   };
   const getServiceLabel = (key: string) => t(serviceNameMap[key] || key);
 
@@ -347,6 +350,15 @@ function ClientPage({
           port: agentConfig?.backendPort || undefined,
           engineBinaryPath: agentConfig?.binPath || undefined,
         });
+        if (agentConfig?.type === "codex-cli") {
+          await window.electronAPI?.chat2response
+            ?.start()
+            .catch(() => undefined);
+        } else {
+          await window.electronAPI?.chat2response
+            ?.stop()
+            .catch(() => undefined);
+        }
         // ComputerServer 是 Agent 的 HTTP 接口，随 Agent 一起启动
         await window.electronAPI?.computerServer.start().catch(() => undefined);
       } else if (key === "fileServer") {
@@ -399,6 +411,8 @@ function ClientPage({
           return false;
         }
         result = await window.electronAPI?.guiServer?.start();
+      } else if (key === "chat2response") {
+        result = await window.electronAPI?.chat2response?.start();
       }
 
       await onRefreshServices();
@@ -453,6 +467,8 @@ function ClientPage({
       else if (key === "lanproxy") await window.electronAPI?.lanproxy.stop();
       else if (key === "mcpProxy") await window.electronAPI?.mcp.stop();
       else if (key === "guiServer") await window.electronAPI?.guiServer?.stop();
+      else if (key === "chat2response")
+        await window.electronAPI?.chat2response?.stop();
     } catch (error) {
       message.error(t("Claw.Client.stopFailed", String(error)));
     } finally {
@@ -530,6 +546,8 @@ function ClientPage({
           else if (svc.key === "mcpProxy") await window.electronAPI?.mcp.stop();
           else if (svc.key === "guiServer")
             await window.electronAPI?.guiServer?.stop();
+          else if (svc.key === "chat2response")
+            await window.electronAPI?.chat2response?.stop();
         } catch (error) {
           console.error(`[ClientPage] Failed to stop ${svc.label}:`, error);
         }

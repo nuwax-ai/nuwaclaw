@@ -222,6 +222,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("guiServer:setEnabled", enabled),
   },
 
+  // Chat2Response lifecycle (codex-cli 协议转换服务)
+  chat2response: {
+    start: (port?: number) => ipcRenderer.invoke("chat2response:start", port),
+    stop: () => ipcRenderer.invoke("chat2response:stop"),
+    status: () => ipcRenderer.invoke("chat2response:status"),
+  },
+
   // Admin Server lifecycle (管理接口服务)
   adminServer: {
     start: (port?: number) => ipcRenderer.invoke("adminServer:start", port),

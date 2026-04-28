@@ -39,6 +39,7 @@ import { firstTokenTrace } from "../perf/firstTokenTrace";
 import { buildSandboxedSpawnArgs } from "../../sandbox/sandboxProcessWrapper";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
 import { applyOpenAICompatibleEnv } from "./openAICompatRouting";
+import { getChat2responseStatus } from "../../packages/chat2responseServer";
 
 function extractSessionIdFromLine(line: string): string | undefined {
   try {
@@ -789,7 +790,17 @@ export async function createAcpConnection(
     }
   }
 
-  const openAICompatRouting = applyOpenAICompatibleEnv(config, env);
+  const chat2responseStatus =
+    config.engineType === "codex-cli" ? getChat2responseStatus() : null;
+  const openAICompatRouting = applyOpenAICompatibleEnv(
+    {
+      ...config,
+      chat2responseLocalBaseUrl: chat2responseStatus?.running
+        ? chat2responseStatus.baseUrl
+        : undefined,
+    },
+    env,
+  );
 
   if (
     config.engineType === "codex-cli" &&
@@ -809,6 +820,8 @@ export async function createAcpConnection(
       chat2responseEnabled: openAICompatRouting.chat2responseEnabled,
       reason: openAICompatRouting.chat2responseReason,
       openAIBaseUrlSource: openAICompatRouting.openAIBaseUrlSource,
+      localChat2responseRunning: chat2responseStatus?.running ?? false,
+      localChat2responsePort: chat2responseStatus?.port,
     });
   }
 

@@ -5,6 +5,12 @@ import { z } from "zod";
 import type { HandlerContext } from "@shared/types/ipc";
 import { createServiceManager } from "../window/serviceManager";
 import { checkLanproxyHealth } from "../services/packages/lanproxyHealth";
+import {
+  getChat2responseStatus,
+  startChat2response,
+  stopChat2response,
+} from "../services/packages/chat2responseServer";
+import { DEFAULT_CHAT2RESPONSE_PORT } from "@shared/constants";
 
 export const lanproxyConfigSchema = z.object({
   serverIp: z.string().min(1),
@@ -281,6 +287,24 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     const { stopComputerServer } = await import("../services/computerServer");
     await stopComputerServer();
     return { success: true };
+  });
+
+  // Chat2Response handlers (codex-cli 协议转换服务)
+  ipcMain.handle("chat2response:start", async (_, port?: number) => {
+    const resolvedPort = port ?? DEFAULT_CHAT2RESPONSE_PORT;
+    const parsed = portSchema.safeParse(resolvedPort);
+    if (!parsed.success) {
+      return invalidArgs("chat2response:start", parsed.error.issues);
+    }
+    return startChat2response(parsed.data);
+  });
+
+  ipcMain.handle("chat2response:stop", async () => {
+    return stopChat2response();
+  });
+
+  ipcMain.handle("chat2response:status", async () => {
+    return getChat2responseStatus();
   });
 
   // Admin Server handlers (管理接口服务)

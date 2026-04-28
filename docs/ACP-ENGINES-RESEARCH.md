@@ -110,6 +110,9 @@ NUWAX_CHAT2RESPONSE_ENABLED=true
 ```
 
 行为说明：
+- NuwaClaw 在 `codex-cli` 引擎场景下可托管本地 `chat2response` 服务（默认 `http://127.0.0.1:60009/v1`），优先使用本地服务做协议转换。
+- `chat2response` 现已收口为本仓独立维护项目（`crates/chat2response-server`），客户端打包阶段通过 `prepare:chat2response` 复制到 `resources/chat2response`，不依赖用户运行时动态安装。
+- `prepare:chat2response` 使用 Node 原生 `fs.cpSync`（跨平台），并且仅当 `resources/chat2response/node_modules/chat2response/package.json` 存在时才允许“版本一致即跳过”，避免产物残缺导致假成功。
 - 当引擎为 `codex-cli` 且为 OpenAI 兼容协议时，若 `OPENAI_BASE_URL` 不是官方 `api.openai.com`，会优先尝试改写到 `NUWAX_CHAT2RESPONSE_PROXY_URL`。
 - 改写成功后，原上游地址会保存在 `NUWAX_CHAT2RESPONSE_UPSTREAM_BASE_URL`，供代理继续转发。
 - 若未配置代理地址，则回退为原始 `OPENAI_BASE_URL` 并记录告警日志，不会中断会话。

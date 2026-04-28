@@ -2,7 +2,8 @@
   "private": true,
   "scripts": {
     "prepare": "husky",
-    "test:electron": "cd crates/agent-electron-client && npm run test:run"
+    "test:electron": "cd crates/agent-electron-client && npm run test:run",
+    "test:electron:scripts": "cd crates/agent-electron-client && npm run test:scripts"
   },
   "devDependencies": {
     "husky": "^9",

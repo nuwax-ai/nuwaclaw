@@ -1469,6 +1469,33 @@ export async function checkClaudeCodeAcpBundled(): Promise<{
   }
 }
 
+/**
+ * 检测应用包内集成的 chat2response 是否可用
+ */
+export async function checkChat2responseBundled(): Promise<{
+  available: boolean;
+  version?: string;
+}> {
+  const bundledDir = getChat2responseBundledDir();
+  if (!bundledDir) {
+    log.info("[checkChat2responseBundled] Bundled not found");
+    return { available: false };
+  }
+  const pkgPath = path.join(bundledDir, "package.json");
+  try {
+    const raw = fs.readFileSync(pkgPath, "utf-8");
+    const pkg = JSON.parse(raw) as { version?: string };
+    const version = pkg?.version;
+    log.info(
+      `[checkChat2responseBundled] Bundled available: ${bundledDir}, version=${version ?? "unknown"}`,
+    );
+    return { available: true, version };
+  } catch (e) {
+    log.warn("[checkChat2responseBundled] Failed to read package.json:", e);
+    return { available: true };
+  }
+}
+
 // ==================== Bundled nuwax-file-server ====================
 
 /**
@@ -1499,6 +1526,24 @@ export function getNuwaxFileServerBundledDir(): string | null {
  */
 export function getClaudeCodeAcpBundledDir(): string | null {
   const bundledDir = path.join(getResourcesPath(), "claude-code-acp-ts");
+  if (fs.existsSync(path.join(bundledDir, "package.json"))) {
+    return bundledDir;
+  }
+  return null;
+}
+
+// ==================== Bundled chat2response ====================
+
+/**
+ * 获取应用内集成的 chat2response 目录
+ *
+ * 打包后: process.resourcesPath/chat2response/
+ * 开发时: resources/chat2response/
+ *
+ * @returns 目录路径（含 package.json），或 null
+ */
+export function getChat2responseBundledDir(): string | null {
+  const bundledDir = path.join(getResourcesPath(), "chat2response");
   if (fs.existsSync(path.join(bundledDir, "package.json"))) {
     return bundledDir;
   }
@@ -2173,4 +2218,5 @@ export default {
   MIRROR_PRESETS,
   getNuwaxFileServerBundledDir,
   getClaudeCodeAcpBundledDir,
+  getChat2responseBundledDir,
 };

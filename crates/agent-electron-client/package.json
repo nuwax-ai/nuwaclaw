@@ -16,11 +16,12 @@
     "build": "dotenv -e .env.production -- cross-env NODE_ENV=production npm run build:main && npm run build:renderer",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:scripts": "vitest run tests/scripts",
     "test:coverage": "vitest run --coverage",
     "sandbox:matrix:check": "vitest run tests/scripts/sandbox-matrix-consistency.test.ts",
     "sandbox:matrix:generate": "cross-env SANDBOX_MATRIX_WRITE=1 vitest run tests/scripts/sandbox-matrix-consistency.test.ts",
     "check:boundaries": "node scripts/tools/check-import-boundaries.js",
-    "test:integrated-node": "node scripts/tools/test-integrated-node.js",
+    "test:integrated-node": "node scripts/tools/test-integrated-node.js && npm run test:scripts",
     "prepare:uv": "node scripts/prepare/prepare-uv.js",
     "prepare:sign-uv": "node scripts/build/sign-uv-mac.js",
     "prepare:lanproxy": "node scripts/prepare/prepare-lanproxy.js",
@@ -33,9 +34,10 @@
     "prepare:sandbox-runtime": "node scripts/prepare/prepare-sandbox-runtime.js",
     "build:sandbox-helper": "node scripts/prepare/build-sandbox-helper.js",
     "prepare:sandbox-helper-win": "node scripts/prepare/prepare-sandbox-helper-windows.js",
-    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy && npm run prepare:nuwaxcode && npm run prepare:sandbox-helper-win && npm run prepare:sandbox-runtime && npm run prepare:gui-server && npm run prepare:windows-mcp && npm run prepare:nuwax-file-server && npm run prepare:claude-code-acp-ts",
+    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy && npm run prepare:nuwaxcode && npm run prepare:sandbox-helper-win && npm run prepare:sandbox-runtime && npm run prepare:gui-server && npm run prepare:windows-mcp && npm run prepare:nuwax-file-server && npm run prepare:claude-code-acp-ts && npm run prepare:chat2response",
     "prepare:nuwax-file-server": "node scripts/prepare/prepare-nuwax-file-server.js",
     "prepare:claude-code-acp-ts": "node scripts/prepare/prepare-claude-code-acp-ts.js",
+    "prepare:chat2response": "node scripts/prepare/prepare-chat2response.js",
     "prepare:gui-server": "node scripts/prepare/prepare-gui-server.js",
     "prepare:windows-mcp": "node scripts/prepare/prepare-windows-mcp.js",
     "electron-rebuild": "electron-rebuild -f -w better-sqlite3",
@@ -96,6 +98,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^2.1.8",
     "agent-gui-server": "workspace:*",
+    "chat2response-server": "workspace:*",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
     "dotenv-cli": "^11.0.0",
@@ -263,6 +266,13 @@
       {
         "from": "resources/claude-code-acp-ts",
         "to": "claude-code-acp-ts",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/chat2response",
+        "to": "chat2response",
         "filter": [
           "**/*"
         ]

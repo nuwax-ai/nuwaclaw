@@ -92,6 +92,18 @@ export function registerDependencyHandlers(): void {
     }
   });
 
+  /** 检测应用包内集成的 chat2response */
+  ipcMain.handle("dependencies:checkChat2responseBundled", async () => {
+    const { checkChat2responseBundled } =
+      await import("../services/system/dependencies");
+    try {
+      const result = await checkChat2responseBundled();
+      return { success: true, ...result };
+    } catch (error) {
+      return { success: false, available: false, error: String(error) };
+    }
+  });
+
   ipcMain.handle(
     "dependencies:detectPackage",
     async (_, packageName: string, binName?: string) => {

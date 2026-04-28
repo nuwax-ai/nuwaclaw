@@ -1,0 +1,25 @@
+{
+  "name": "chat2response-server",
+  "version": "0.1.0",
+  "description": "Local maintained chat2response wrapper for NuwaClaw",
+  "type": "module",
+  "bin": {
+    "chat2response-server": "bin/chat2response-server.js"
+  },
+  "main": "./bin/chat2response-server.js",
+  "files": [
+    "bin"
+  ],
+  "scripts": {
+    "lint:check": "node --check ./bin/chat2response-server.js",
+    "test:smoke": "node ./bin/chat2response-server.js --help || true",
+    "test": "npm run lint:check && npm run test:smoke"
+  },
+  "dependencies": {
+    "chat2response": "git+https://github.com/wang-h/chat2response.git"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "license": "MIT"
+}

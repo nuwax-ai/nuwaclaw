@@ -38,6 +38,10 @@ import {
 } from "../services/packages/windowsMcp";
 import { stopAllEngines } from "../services/engines/engineManager";
 import { clearAllSseEventBuffers } from "../services/computerServer";
+import {
+  startChat2response,
+  stopChat2response,
+} from "../services/packages/chat2responseServer";
 
 export interface ServiceManagerContext {
   lanproxy: ManagedProcess;
@@ -208,6 +212,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     }
     ctx.fileServer.stop();
     ctx.lanproxy.stop();
+    await stopChat2response();
     await mcpProxyManager.stop();
 
     // 2. 启动 MCP Proxy（必须先于 Agent：Agent 初始化时会连 MCP Proxy 注入 mcpServers）
@@ -278,6 +283,11 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       const ok = await agentService.init(finalConfig);
       results.agent = { success: ok };
       log.info("[ServiceManager] Agent started");
+      if (ok && (agentConfig.type as string) === "codex-cli") {
+        results.chat2response = await startChat2response();
+      } else {
+        await stopChat2response();
+      }
     } catch (e) {
       results.agent = { success: false, error: String(e) };
       log.error("[ServiceManager] Agent start failed:", e);
@@ -388,6 +398,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       log.warn("[ServiceManager] Agent destroy error (ignored):", e);
     }
     ctx.fileServer.stop();
+    await stopChat2response();
     // 不停止 lanproxy: ctx.lanproxy.stop();
     // 先停止 GUI agents（它们依赖 MCP Proxy，先停 MCP 再停 GUI）
     await mcpProxyManager.stop();
@@ -461,6 +472,11 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       const ok = await agentService.init(finalConfig);
       results.agent = { success: ok };
       log.info("[ServiceManager] Agent started");
+      if (ok && (agentConfig.type as string) === "codex-cli") {
+        results.chat2response = await startChat2response();
+      } else {
+        await stopChat2response();
+      }
     } catch (e) {
       results.agent = { success: false, error: String(e) };
       log.error("[ServiceManager] Agent start failed:", e);
@@ -514,6 +530,15 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       log.info("[ServiceManager] FileServer stopped");
     } catch (e) {
       results.fileServer = { success: false, error: String(e) };
+    }
+
+    // 停止 Chat2Response
+    try {
+      const c2r = await stopChat2response();
+      results.chat2response = { success: c2r.success, error: c2r.error };
+      log.info("[ServiceManager] Chat2Response stopped");
+    } catch (e) {
+      results.chat2response = { success: false, error: String(e) };
     }
 
     // 停止 Lanproxy

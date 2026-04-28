@@ -28,6 +28,7 @@ import { buildSandboxPolicyFingerprint } from "./sandboxPolicyFingerprint";
 import dependencies from "../system/dependencies";
 import { getSandboxPolicy } from "../sandbox/policy";
 import { processRegistry } from "../system/processRegistry";
+import { ensureChat2responseForEngine } from "../packages/chat2responseServer";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ENGINE_DESTROY_TIMEOUT } from "@shared/constants";
 
@@ -852,6 +853,9 @@ export class UnifiedAgentService extends EventEmitter {
     const requiredEngine = agentServer?.command
       ? mapAgentCommand(agentServer.command)
       : this.engineType;
+    // codex-cli 场景下自动维持 chat2response 协议转换服务；
+    // 非 codex 场景下主动停用，避免无谓驻留进程。
+    await ensureChat2responseForEngine(requiredEngine);
     const requestMcpServersRuntime = requestMcpServersEarly;
 
     // 快速路径：已有就绪引擎 + 无配置变更

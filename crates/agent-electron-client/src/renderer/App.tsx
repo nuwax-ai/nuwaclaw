@@ -531,6 +531,7 @@ function App() {
         csStatus,
         guiStatus,
         guiEnabledRes,
+        c2rStatus,
       ] = await Promise.all([
         window.electronAPI?.fileServer.status(),
         window.electronAPI?.lanproxy.status(),
@@ -539,6 +540,7 @@ function App() {
         window.electronAPI?.computerServer.status(),
         window.electronAPI?.guiServer?.status(),
         window.electronAPI?.guiServer?.isEnabled(),
+        window.electronAPI?.chat2response?.status(),
       ]);
       const isGuiEnabled =
         FEATURES.ENABLE_GUI_AGENT_SERVER && (guiEnabledRes?.enabled ?? false);
@@ -584,6 +586,21 @@ function App() {
           running: guiStatus?.running ?? false,
           pid: guiStatus?.pid,
           error: guiStatus?.error,
+        });
+      }
+      const showChat2response =
+        agentSvcStatus?.engineType === "codex-cli" ||
+        !!c2rStatus?.running ||
+        !!c2rStatus?.error;
+      if (showChat2response) {
+        items.push({
+          key: "chat2response",
+          label: "Chat2Response",
+          description: "Codex protocol bridge",
+          running: c2rStatus?.running ?? false,
+          pid: c2rStatus?.pid,
+          port: c2rStatus?.port,
+          error: c2rStatus?.error,
         });
       }
       items.push({
@@ -633,6 +650,15 @@ function App() {
               `agent: ${result?.success ? "ok" : "failed"}`,
               result?.error,
             );
+            if (agentConfig?.type === "codex-cli") {
+              await window.electronAPI?.chat2response
+                ?.start()
+                .catch(() => undefined);
+            } else {
+              await window.electronAPI?.chat2response
+                ?.stop()
+                .catch(() => undefined);
+            }
             // ComputerServer 是 Agent 的 HTTP 接口，随 Agent 一起启动
             await window.electronAPI?.computerServer
               .start()

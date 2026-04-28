@@ -15,6 +15,7 @@ export interface OpenAICompatInput {
   baseUrl?: string;
   chat2responseProxyBaseUrl?: string;
   chat2responseEnabled?: boolean;
+  chat2responseLocalBaseUrl?: string;
 }
 
 export type OpenAICompatRoutingResult = {
@@ -127,7 +128,8 @@ export function applyOpenAICompatibleEnv(
       chat2responseReason = "official-openai-baseurl";
     } else {
       const proxyUrl = trimTrailingSlash(
-        config.chat2responseProxyBaseUrl ||
+        config.chat2responseLocalBaseUrl ||
+          config.chat2responseProxyBaseUrl ||
           env.NUWAX_CHAT2RESPONSE_PROXY_URL ||
           env.CHAT2RESPONSE_PROXY_URL ||
           "",

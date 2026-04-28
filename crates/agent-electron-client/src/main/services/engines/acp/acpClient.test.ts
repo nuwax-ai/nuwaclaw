@@ -36,6 +36,25 @@ describe("applyOpenAICompatibleEnv", () => {
     expect(env.OPENAI_API_KEY).toBe("sk-domestic");
   });
 
+  it("codex-cli prefers local managed chat2response service when provided", () => {
+    const env: Record<string, string> = {
+      CHAT2RESPONSE_PROXY_URL: "https://chat2response.remote.example.com/proxy",
+    };
+    const config = createBaseConfig({
+      engineType: "codex-cli",
+      apiProtocol: "openai",
+      baseUrl: "https://api.deepseek.com/v1",
+      apiKey: "sk-domestic",
+      chat2responseLocalBaseUrl: "http://127.0.0.1:60009/v1",
+    });
+
+    const result = applyOpenAICompatibleEnv(config, env);
+
+    expect(result.chat2responseReason).toBe("routed-via-proxy");
+    expect(result.openAIBaseUrlSource).toBe("chat2response-proxy");
+    expect(env.OPENAI_BASE_URL).toBe("http://127.0.0.1:60009/v1");
+  });
+
   it("codex-cli + official OpenAI baseUrl does not route via proxy", () => {
     const env: Record<string, string> = {
       CHAT2RESPONSE_PROXY_URL: "https://chat2response.example.com/proxy",
