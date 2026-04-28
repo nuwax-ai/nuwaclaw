@@ -845,12 +845,18 @@ export class UnifiedAgentService extends EventEmitter {
       process.env.NUWACLAW_FORCE_ENGINE &&
       process.env.NODE_ENV === "development"
     ) {
-      if (!request.agent_config)
-        (request.agent_config as Record<string, unknown>) = {};
-      if (!request.agent_config!.agent_server)
-        request.agent_config!.agent_server = {};
-      request.agent_config!.agent_server!.command =
-        process.env.NUWACLAW_FORCE_ENGINE;
+      if (!request.agent_config) {
+        request.agent_config = {
+          agent_server: { command: process.env.NUWACLAW_FORCE_ENGINE },
+        };
+      } else if (!request.agent_config.agent_server) {
+        request.agent_config.agent_server = {
+          command: process.env.NUWACLAW_FORCE_ENGINE,
+        };
+      } else {
+        request.agent_config.agent_server.command =
+          process.env.NUWACLAW_FORCE_ENGINE;
+      }
       log.info(
         `[UnifiedAgent] Dev mode: forcing engine to "${process.env.NUWACLAW_FORCE_ENGINE}"`,
       );
