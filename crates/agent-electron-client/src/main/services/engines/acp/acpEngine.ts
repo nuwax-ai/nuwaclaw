@@ -78,6 +78,7 @@ import {
 } from "../../utils/processTree";
 import { processRegistry } from "../../system/processRegistry";
 import { t } from "../../i18n";
+import type { AgentEngineType } from "../types";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ACP_ABORT_TIMEOUT } from "@shared/constants";
 import { APP_DATA_DIR_NAME } from "../../constants";
@@ -154,9 +155,9 @@ export class AcpEngine extends EventEmitter {
   private static readonly MAX_SNAPSHOT_LOGGED_SESSIONS = 500;
   private logTag: string;
 
-  private readonly _engineName: "claude-code" | "nuwaxcode";
+  private readonly _engineName: AgentEngineType;
 
-  constructor(engineName: "claude-code" | "nuwaxcode" = "claude-code") {
+  constructor(engineName: AgentEngineType = "claude-code") {
     super();
     this._engineName = engineName;
     this.logTag = `[AcpEngine:${engineName}]`;
@@ -167,7 +168,7 @@ export class AcpEngine extends EventEmitter {
   }
 
   /** Engine type (claude-code | nuwaxcode), used by UnifiedAgent for provider detection */
-  get engineName(): "claude-code" | "nuwaxcode" {
+  get engineName(): AgentEngineType {
     return this._engineName;
   }
 
