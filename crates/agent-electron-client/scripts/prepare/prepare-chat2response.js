@@ -44,6 +44,28 @@ function resolveSourceDir() {
   return null;
 }
 
+function tsCompileChat2response(dir) {
+  if (!fs.existsSync(path.join(dir, "tsconfig.json"))) return;
+  const pkgPath = path.join(dir, "package.json");
+  if (!fs.existsSync(pkgPath)) return;
+
+  console.log("[prepare-chat2response] 编译 chat2response TypeScript...");
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+
+  // 安装 devDependencies
+  const devDeps = Object.entries(pkg.devDependencies || {}).map(
+    ([name, version]) => `${name}@${String(version)}`,
+  );
+  if (devDeps.length > 0) {
+    const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
+    exec(`${npmCmd} install --no-save ${devDeps.join(" ")}`, { cwd: dir });
+  }
+
+  // 编译 TypeScript
+  exec("npx tsc", { cwd: dir });
+  console.log("[prepare-chat2response] ✓ chat2response TypeScript 已编译");
+}
+
 function main() {
   const resolved = resolveSourceDir();
   if (!resolved) {
@@ -69,10 +91,19 @@ function main() {
     "chat2response",
     "package.json",
   );
+  const destDistEntry = path.join(
+    destDir,
+    "node_modules",
+    "chat2response",
+    "dist",
+    "app.js",
+  );
+
   if (
     fs.existsSync(destPkgPath) &&
     fs.existsSync(destBinPath) &&
-    fs.existsSync(destRuntimePkgPath)
+    fs.existsSync(destRuntimePkgPath) &&
+    fs.existsSync(destDistEntry)
   ) {
     try {
       const destPkg = JSON.parse(fs.readFileSync(destPkgPath, "utf8"));
@@ -121,6 +152,11 @@ function main() {
     }
   }
 
+  // 编译 chat2response TypeScript → dist/
+  tsCompileChat2response(
+    path.join(destDir, "node_modules", "chat2response"),
+  );
+
   const licenseSrc = path.join(srcDir, "LICENSE");
   if (fs.existsSync(licenseSrc)) {
     fs.copyFileSync(licenseSrc, path.join(destDir, "LICENSE"));
@@ -132,4 +168,3 @@ function main() {
 }
 
 main();
-
