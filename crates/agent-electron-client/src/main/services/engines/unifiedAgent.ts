@@ -840,6 +840,22 @@ export class UnifiedAgentService extends EventEmitter {
       t1 = Date.now();
     }
 
+    // Dev mode: force engine type for testing, bypasses agent_server.command
+    if (
+      process.env.NUWACLAW_FORCE_ENGINE &&
+      process.env.NODE_ENV === "development"
+    ) {
+      if (!request.agent_config)
+        (request.agent_config as Record<string, unknown>) = {};
+      if (!request.agent_config!.agent_server)
+        request.agent_config!.agent_server = {};
+      request.agent_config!.agent_server!.command =
+        process.env.NUWACLAW_FORCE_ENGINE;
+      log.info(
+        `[UnifiedAgent] Dev mode: forcing engine to "${process.env.NUWACLAW_FORCE_ENGINE}"`,
+      );
+    }
+
     const agentServer = request.agent_config?.agent_server;
     const mp = request.model_provider;
 
