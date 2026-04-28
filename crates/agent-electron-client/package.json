@@ -26,6 +26,7 @@
     "prepare:lanproxy": "node scripts/prepare/prepare-lanproxy.js",
     "prepare:node": "node scripts/prepare/prepare-node.js",
     "prepare:git": "node scripts/prepare/prepare-git.js",
+    "prepare:monaco": "node scripts/prepare/prepare-monaco.js",
     "check-ports": "node scripts/tools/check-startup-ports.js",
     "check-ports:dev": "node scripts/tools/check-startup-ports.js --vite",
     "prepare:mcp-proxy": "node scripts/prepare/prepare-mcp-proxy.js",
@@ -33,13 +34,13 @@
     "prepare:sandbox-runtime": "node scripts/prepare/prepare-sandbox-runtime.js",
     "build:sandbox-helper": "node scripts/prepare/build-sandbox-helper.js",
     "prepare:sandbox-helper-win": "node scripts/prepare/prepare-sandbox-helper-windows.js",
-    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy && npm run prepare:nuwaxcode && npm run prepare:sandbox-helper-win && npm run prepare:sandbox-runtime && npm run prepare:gui-server && npm run prepare:windows-mcp && npm run prepare:nuwax-file-server && npm run prepare:claude-code-acp-ts",
+    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:monaco && npm run prepare:mcp-proxy && npm run prepare:nuwaxcode && npm run prepare:sandbox-helper-win && npm run prepare:sandbox-runtime && npm run prepare:gui-server && npm run prepare:windows-mcp && npm run prepare:nuwax-file-server && npm run prepare:claude-code-acp-ts",
     "prepare:nuwax-file-server": "node scripts/prepare/prepare-nuwax-file-server.js",
     "prepare:claude-code-acp-ts": "node scripts/prepare/prepare-claude-code-acp-ts.js",
     "prepare:gui-server": "node scripts/prepare/prepare-gui-server.js",
     "prepare:windows-mcp": "node scripts/prepare/prepare-windows-mcp.js",
     "electron-rebuild": "electron-rebuild -f -w better-sqlite3",
-    "build:electron": "npm run build && npm run prepare:all && electron-builder --config.compression=maximum",
+    "build:electron": "npm run prepare:monaco && npm run build && npm run prepare:all && electron-builder --config.compression=maximum",
     "dist": "npm run build:electron -- --mac",
     "dist:mac": "npm run build:electron -- --mac",
     "dist:mac:arm64": "npm run build:electron -- --mac --arm64",
@@ -76,6 +77,7 @@
     "dotenv": "^17.3.1",
     "electron-log": "^5.2.4",
     "electron-updater": "^6.8.3",
+    "monaco-editor": "^0.53.0",
     "node-cron": "^4.2.1",
     "node-machine-id": "^1.1.12",
     "qrcode.react": "^4.2.0",
@@ -150,7 +152,14 @@
         ]
       },
       "package.json",
-      "public/**/*"
+      {
+        "from": "public",
+        "to": "public",
+        "filter": [
+          "**/*",
+          "!monaco/**"
+        ]
+      }
     ],
     "extraResources": [
       {
