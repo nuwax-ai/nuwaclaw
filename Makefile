@@ -143,6 +143,11 @@ electron-prepare-nuwaxcode:
 	@echo ">>> Preparing bundled nuwaxcode for Electron..."
 	cd crates/$(ELECTRON_CLIENT) && npm run prepare:nuwaxcode
 
+.PHONY: electron-prepare-codex-acp
+electron-prepare-codex-acp:
+	@echo ">>> Preparing bundled codex-acp for Electron..."
+	cd crates/$(ELECTRON_CLIENT) && npm run prepare:codex-acp
+
 .PHONY: electron-prepare-gui-server
 electron-prepare-gui-server:
 	@echo ">>> Preparing agent-gui-server for Electron..."
@@ -191,7 +196,7 @@ electron-prepare-windows-mcp:
 endif
 
 .PHONY: electron-prepare
-electron-prepare: electron-install-deps electron-rebuild electron-prepare-sources electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-nuwaxcode electron-prepare-gui-server electron-prepare-sandbox-runtime electron-prepare-windows-mcp
+electron-prepare: electron-install-deps electron-rebuild electron-prepare-sources electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-nuwaxcode electron-prepare-codex-acp electron-prepare-gui-server electron-prepare-sandbox-runtime electron-prepare-windows-mcp
 	@echo ">>> Electron client prepared successfully"
 
 .PHONY: electron-bundle-unsigned

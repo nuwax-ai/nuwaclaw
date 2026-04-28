@@ -24,6 +24,7 @@ import log from "electron-log";
 import {
   getAppEnv,
   getNuwaxcodeBundledBinPath,
+  getCodexAcpBundledBinPath,
   getNodeBinPathWithFallback,
   getClaudeCodeAcpBundledDir,
 } from "../../system/dependencies";
@@ -591,6 +592,13 @@ export function resolveAcpBinary(
   }
 
   if (engine === "codex-cli") {
+    // 优先使用应用内打包的二进制
+    const bundledPath = getCodexAcpBundledBinPath();
+    if (bundledPath) {
+      log.info(`[AcpClient] codex-cli: using bundled binary: ${bundledPath}`);
+      return { binPath: bundledPath, binArgs: [], isNative: true };
+    }
+    // 回退：npm 全局安装
     const binName = isWindows() ? "codex-acp.cmd" : "codex-acp";
     const localPath = path.join(
       app.getPath("home"),

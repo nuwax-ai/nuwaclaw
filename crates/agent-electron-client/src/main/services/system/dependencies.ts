@@ -506,6 +506,39 @@ export function getNuwaxcodeBundledBinPath(): string | null {
   return null;
 }
 
+/**
+ * 获取 codex-acp bundled binary 路径
+ */
+export function getCodexAcpBundledBinPath(): string | null {
+  const platformMap: Record<string, string> = {
+    darwin: "darwin",
+    linux: "linux",
+    win32: "windows",
+  };
+  const archMap: Record<string, string> = {
+    x64: "x64",
+    arm64: "arm64",
+    arm: "arm",
+  };
+  const platform = platformMap[os.platform()] || os.platform();
+  const arch = archMap[os.arch()] || os.arch();
+  // Only darwin-arm64, linux-x64, win32-x64 are supported
+  if (platform === "darwin" && arch !== "arm64") return null;
+
+  const binary = platform === "windows" ? "codex-acp.exe" : "codex-acp";
+  const bundledPath = path.join(
+    getResourcesPath(),
+    "codex-acp",
+    `${platform}-${arch}`,
+    "bin",
+    binary,
+  );
+  if (fs.existsSync(bundledPath)) {
+    return bundledPath;
+  }
+  return null;
+}
+
 // 可选：若曾在 resources/windows-mcp/bin/ 预置 windows-mcp.exe（旧方案），则返回该路径。
 // 当前主线：prepare 仅打包 wheels/ + manifest.json，首次运行由 windowsMcp.ts 调用
 // `uv tool install --no-index --find-links <wheels>` 安装到用户目录 ~/.nuwaclaw/windows-mcp-runtime/。

@@ -31,10 +31,11 @@
     "check-ports:dev": "node scripts/tools/check-startup-ports.js --vite",
     "prepare:mcp-proxy": "node scripts/prepare/prepare-mcp-proxy.js",
     "prepare:nuwaxcode": "node scripts/prepare/prepare-nuwaxcode.js",
+    "prepare:codex-acp": "node scripts/prepare/prepare-codex-acp.js",
     "prepare:sandbox-runtime": "node scripts/prepare/prepare-sandbox-runtime.js",
     "build:sandbox-helper": "node scripts/prepare/build-sandbox-helper.js",
     "prepare:sandbox-helper-win": "node scripts/prepare/prepare-sandbox-helper-windows.js",
-    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy && npm run prepare:nuwaxcode && npm run prepare:sandbox-helper-win && npm run prepare:sandbox-runtime && npm run prepare:gui-server && npm run prepare:windows-mcp && npm run prepare:nuwax-file-server && npm run prepare:claude-code-acp-ts && npm run prepare:chat2response",
+    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy && npm run prepare:nuwaxcode && npm run prepare:codex-acp && npm run prepare:sandbox-helper-win && npm run prepare:sandbox-runtime && npm run prepare:gui-server && npm run prepare:windows-mcp && npm run prepare:nuwax-file-server && npm run prepare:claude-code-acp-ts && npm run prepare:chat2response",
     "prepare:nuwax-file-server": "node scripts/prepare/prepare-nuwax-file-server.js",
     "prepare:claude-code-acp-ts": "node scripts/prepare/prepare-claude-code-acp-ts.js",
     "prepare:chat2response": "node scripts/prepare/prepare-chat2response.js",
@@ -275,6 +276,15 @@
         "to": "chat2response",
         "filter": [
           "**/*"
+        ]
+      },
+      {
+        "from": "resources/codex-acp",
+        "to": "codex-acp",
+        "filter": [
+          "**/*",
+          "!*.cache",
+          "!.cache/**"
         ]
       }
     ],
