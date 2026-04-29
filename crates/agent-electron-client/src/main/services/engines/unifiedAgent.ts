@@ -877,7 +877,10 @@ export class UnifiedAgentService extends EventEmitter {
       : this.engineType;
     // codex-cli 场景下自动维持 chat2response 协议转换服务；
     // 非 codex 场景下主动停用，避免无谓驻留进程。
-    await ensureChat2responseForEngine(requiredEngine);
+    await ensureChat2responseForEngine(requiredEngine, {
+      apiKey: mp?.api_key || (this.baseConfig?.apiKey ?? undefined),
+      baseUrl: mp?.base_url || (this.baseConfig?.baseUrl ?? undefined),
+    });
     const requestMcpServersRuntime = requestMcpServersEarly;
 
     // 快速路径：已有就绪引擎 + 无配置变更

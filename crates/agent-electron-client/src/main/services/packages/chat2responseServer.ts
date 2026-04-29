@@ -121,6 +121,7 @@ export function getChat2responseBaseUrl(port = currentPort): string {
 
 export async function startChat2response(
   port?: number,
+  credentials?: { apiKey?: string; baseUrl?: string },
 ): Promise<{ success: boolean; error?: string }> {
   const startup = resolveStartCommand();
   if (!startup) {
@@ -149,6 +150,13 @@ export async function startChat2response(
       CHAT2RESPONSE_PORT: String(resolvedPort),
       NODE_ENV: "production",
       ELECTRON_RUN_AS_NODE: "1",
+      ...(credentials?.apiKey
+        ? {
+            DEEPSEEK_API_KEY: credentials.apiKey,
+            OPENAI_API_KEY: credentials.apiKey,
+          }
+        : {}),
+      ...(credentials?.baseUrl ? { OPENAI_BASE_URL: credentials.baseUrl } : {}),
     },
     startupDelayMs: 1500,
   });
@@ -204,9 +212,10 @@ export function getChat2responseStatus(): {
 
 export async function ensureChat2responseForEngine(
   engineType: string | null | undefined,
+  credentials?: { apiKey?: string; baseUrl?: string },
 ): Promise<void> {
   if (engineType === "codex-cli") {
-    const result = await startChat2response();
+    const result = await startChat2response(undefined, credentials);
     if (!result.success) {
       log.warn("[Chat2Response] auto-start failed for codex-cli", {
         error: result.error,
