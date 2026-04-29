@@ -1129,6 +1129,25 @@ export class UnifiedAgentService extends EventEmitter {
       mcpServers: freshMcpServers,
     };
 
+    // codex-acp ignores ACP session cwd, so we must spawn the process
+    // directly in the project workspace to ensure correct working directory
+    if (
+      requiredEngine === "codex-cli" &&
+      request.project_id &&
+      request.user_id
+    ) {
+      effectiveConfig.workspaceDir = path.join(
+        effectiveConfig.workspaceDir,
+        "computer-project-workspace",
+        request.user_id,
+        request.project_id,
+      );
+      fs.mkdirSync(effectiveConfig.workspaceDir, { recursive: true });
+      log.info(
+        `[UnifiedAgent] 🎯 codex-cli workspaceDir overridden to: ${effectiveConfig.workspaceDir}`,
+      );
+    }
+
     log.info(
       `[UnifiedAgent] 📌 Engine config for project ${engineKey}:\n` +
         `├─ engine: ${effectiveConfig.engine}\n` +
