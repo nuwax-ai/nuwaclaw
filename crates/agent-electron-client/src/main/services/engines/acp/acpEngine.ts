@@ -444,6 +444,34 @@ export class AcpEngine extends EventEmitter {
           question: "deny",
         };
 
+        // Register model provider from config.model into the config content.
+        // nuwaxcode v1.1.82+ requires providers to exist in the models database.
+        // Generic providers (openai-compatible, anthropic-compatible) are not
+        // in the bundled models.json, so we register them via config provider section.
+        if (config.model) {
+          const slashIdx = config.model.indexOf("/");
+          if (slashIdx > 0) {
+            const providerID = config.model.substring(0, slashIdx);
+            const modelID = config.model.substring(slashIdx + 1);
+            configObj.provider = {
+              [providerID]: {
+                name: providerID,
+                env:
+                  providerID === "openai-compatible"
+                    ? ["OPENAI_API_KEY"]
+                    : providerID === "anthropic-compatible"
+                      ? ["ANTHROPIC_API_KEY"]
+                      : [],
+                models: {
+                  [modelID]: {
+                    name: modelID,
+                  },
+                },
+              },
+            };
+          }
+        }
+
         const configContent = JSON.stringify(configObj);
         spawnEnv.OPENCODE_CONFIG_CONTENT = configContent;
         log.info(

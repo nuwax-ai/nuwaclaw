@@ -28,7 +28,7 @@ const { URL } = require('url');
 const { execSync, execFileSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
-const NUWAXCODE_VERSION = '1.1.80';
+const NUWAXCODE_VERSION = '1.1.83';
 const NUWAXCODE_REPO = process.env.NUWAXCODE_REPO || 'nuwax-ai/nuwaxcode';
 
 const projectRoot = getProjectRoot();
@@ -97,6 +97,31 @@ function getBinaryCandidates(key) {
 function resetDestBinDir(destDir) {
   fs.rmSync(destDir, { recursive: true, force: true });
   fs.mkdirSync(destDir, { recursive: true });
+}
+
+/**
+ * 确保目标目录存在 assets/model.json。
+ *
+ * 背景：
+ * - 新版 release 有时只包含单二进制，不再附带 assets/model.json。
+ * - 业务侧仍有路径会读取该文件，因此这里统一兜底创建最小占位文件。
+ *
+ * 约束：
+ * - 若上游已提供 model.json，则保持原样，不覆盖。
+ * - 仅在缺失时创建，内容保持最小且可 JSON.parse。
+ */
+function ensureModelJson(destDir, version) {
+  const assetsDir = path.join(destDir, 'assets');
+  const modelJsonPath = path.join(assetsDir, 'model.json');
+  if (fs.existsSync(modelJsonPath)) return;
+
+  fs.mkdirSync(assetsDir, { recursive: true });
+  const fallback = {
+    models: [],
+    source: 'generated-fallback',
+    version,
+  };
+  fs.writeFileSync(modelJsonPath, `${JSON.stringify(fallback, null, 2)}\n`, 'utf-8');
 }
 
 /**
@@ -172,6 +197,7 @@ function copyFromDist(key) {
   // 复制整个 bin 目录（包含二进制 + assets 等）
   const srcBinDir = path.join(nuwaxcodeDist, distName, 'bin');
   fs.cpSync(srcBinDir, destDir, { recursive: true });
+  ensureModelJson(destDir, NUWAXCODE_VERSION);
   fs.chmodSync(destPath, 0o755);
 
   const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
@@ -403,7 +429,15 @@ async function downloadFromRelease(key) {
         fs.cpSync(extractedBinDir, destDir, { recursive: true });
       } else {
         fs.copyFileSync(binaryPath, destPath);
+        // 复制同目录 assets（如 models.json）
+        const assetsDir = path.join(extractedBinDir, 'assets');
+        if (fs.existsSync(assetsDir)) {
+          const destAssetsDir = path.join(destDir, 'assets');
+          fs.mkdirSync(destAssetsDir, { recursive: true });
+          fs.cpSync(assetsDir, destAssetsDir, { recursive: true });
+        }
       }
+      ensureModelJson(destDir, NUWAXCODE_VERSION);
       fs.chmodSync(destPath, 0o755);
 
       const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
