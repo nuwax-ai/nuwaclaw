@@ -136,8 +136,14 @@ export async function startChat2response(
   const resolvedPort = resolveStartupPort(port);
   currentPort = resolvedPort;
   const status = chat2responseProcess.status();
+  const hasCredentials = !!credentials?.apiKey;
   if (status.running) {
-    return { success: true };
+    if (!hasCredentials) {
+      return { success: true };
+    }
+    // 有新 credentials 时强制重启，确保 DEEPSEEK_API_KEY 等最新密钥生效
+    log.info("[Chat2Response] restarting to apply new credentials");
+    await chat2responseProcess.stopAsync(3000);
   }
 
   const result = await chat2responseProcess.start({
