@@ -1218,6 +1218,26 @@ export class AcpEngine extends EventEmitter {
     log.info(
       `${this.logTag} ✅ ACP newSession completed (${createMs}ms), acpSessionId=${acpResult.sessionId}`,
     );
+
+    // Set full-access mode for engines that support session/setMode
+    // (codex-cli defaults to "auto" which prompts for permissions)
+    if (this.acpConnection.setSessionMode) {
+      try {
+        await this.acpConnection.setSessionMode({
+          sessionId: acpResult.sessionId,
+          modeId: "full-access",
+        });
+        log.info(
+          `${this.logTag} 🔓 Session mode set to full-access for ${acpResult.sessionId}`,
+        );
+      } catch (err) {
+        log.warn(
+          `${this.logTag} ⚠️ setSessionMode failed (engine may not support it):`,
+          (err as Error).message,
+        );
+      }
+    }
+
     firstTokenTrace.trace(
       "acp.new_session.done",
       {

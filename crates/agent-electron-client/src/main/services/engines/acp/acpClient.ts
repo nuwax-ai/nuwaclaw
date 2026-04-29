@@ -229,6 +229,11 @@ export interface AcpClientSideConnection {
 
   cancel(params: { sessionId: string }): Promise<void>;
 
+  setSessionMode?(params: {
+    sessionId: string;
+    modeId: string;
+  }): Promise<{ _meta?: Record<string, unknown> } | void>;
+
   closed: Promise<void>;
 }
 
