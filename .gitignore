@@ -48,6 +48,9 @@ crates/agent-electron-client/resources/nuwaxcode/
 # Bundled windows-mcp: 构建时 prepare:windows-mcp 生成，不入库
 crates/agent-electron-client/resources/windows-mcp/
 
+# Bundled gateway: 构建时从源码 build 并集成（替代 chat2response）
+crates/agent-electron-client/resources/gateway/
+
 # Bundled nuwax-file-server: 构建时 prepare:nuwax-file-server 从 GitHub 克隆源码 build 并集成
 crates/agent-electron-client/resources/nuwax-file-server/
 
