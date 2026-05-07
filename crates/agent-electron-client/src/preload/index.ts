@@ -222,11 +222,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("guiServer:setEnabled", enabled),
   },
 
-  // Chat2Response lifecycle (codex-cli 协议转换服务)
+  // Gateway lifecycle (统一网关服务，含 chat2response 等)
+  gateway: {
+    start: (port?: number) => ipcRenderer.invoke("gateway:start", port),
+    stop: () => ipcRenderer.invoke("gateway:stop"),
+    status: () => ipcRenderer.invoke("gateway:status"),
+  },
+
+  // Chat2Response lifecycle (向后兼容，委托给 gateway)
   chat2response: {
-    start: (port?: number) => ipcRenderer.invoke("chat2response:start", port),
-    stop: () => ipcRenderer.invoke("chat2response:stop"),
-    status: () => ipcRenderer.invoke("chat2response:status"),
+    start: (port?: number) => ipcRenderer.invoke("gateway:start", port),
+    stop: () => ipcRenderer.invoke("gateway:stop"),
+    status: () => ipcRenderer.invoke("gateway:status"),
   },
 
   // Admin Server lifecycle (管理接口服务)

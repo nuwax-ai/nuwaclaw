@@ -1583,6 +1583,25 @@ export function getChat2responseBundledDir(): string | null {
   return null;
 }
 
+// ==================== Bundled gateway ====================
+
+/**
+ * 获取应用内集成的 gateway 目录
+ *
+ * 打包后: process.resourcesPath/gateway/
+ * 开发时: resources/gateway/
+ *
+ * @returns 目录路径（含 package.json），或 null
+ */
+export function getGatewayBundledDir(): string | null {
+  const bundledDir = path.join(getResourcesPath(), "gateway");
+  if (fs.existsSync(path.join(bundledDir, "package.json"))) {
+    return bundledDir;
+  }
+  // fallback: 尝试旧的 chat2response 目录（兼容迁移期）
+  return getChat2responseBundledDir();
+}
+
 /** 检测指定路径的 uv 二进制 */
 function _checkUvBin(binPath: string): Promise<{
   installed: boolean;
@@ -2252,4 +2271,5 @@ export default {
   getNuwaxFileServerBundledDir,
   getClaudeCodeAcpBundledDir,
   getChat2responseBundledDir,
+  getGatewayBundledDir,
 };

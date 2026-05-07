@@ -38,10 +38,7 @@ import {
 } from "../services/packages/windowsMcp";
 import { stopAllEngines } from "../services/engines/engineManager";
 import { clearAllSseEventBuffers } from "../services/computerServer";
-import {
-  startChat2response,
-  stopChat2response,
-} from "../services/packages/chat2responseServer";
+import { startGateway, stopGateway } from "../services/packages/gatewayServer";
 
 export interface ServiceManagerContext {
   lanproxy: ManagedProcess;
@@ -212,7 +209,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     }
     ctx.fileServer.stop();
     ctx.lanproxy.stop();
-    await stopChat2response();
+    await stopGateway();
     await mcpProxyManager.stop();
 
     // 2. 启动 MCP Proxy（必须先于 Agent：Agent 初始化时会连 MCP Proxy 注入 mcpServers）
@@ -284,9 +281,10 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       results.agent = { success: ok };
       log.info("[ServiceManager] Agent started");
       if (ok && (agentConfig.type as string) === "codex-cli") {
-        results.chat2response = await startChat2response();
+        results.gateway = await startGateway();
+        results.chat2response = results.gateway;
       } else {
-        await stopChat2response();
+        await stopGateway();
       }
     } catch (e) {
       results.agent = { success: false, error: String(e) };
@@ -398,7 +396,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       log.warn("[ServiceManager] Agent destroy error (ignored):", e);
     }
     ctx.fileServer.stop();
-    await stopChat2response();
+    await stopGateway();
     // 不停止 lanproxy: ctx.lanproxy.stop();
     // 先停止 GUI agents（它们依赖 MCP Proxy，先停 MCP 再停 GUI）
     await mcpProxyManager.stop();
@@ -473,9 +471,10 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       results.agent = { success: ok };
       log.info("[ServiceManager] Agent started");
       if (ok && (agentConfig.type as string) === "codex-cli") {
-        results.chat2response = await startChat2response();
+        results.gateway = await startGateway();
+        results.chat2response = results.gateway;
       } else {
-        await stopChat2response();
+        await stopGateway();
       }
     } catch (e) {
       results.agent = { success: false, error: String(e) };
@@ -532,13 +531,15 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       results.fileServer = { success: false, error: String(e) };
     }
 
-    // 停止 Chat2Response
+    // 停止 Gateway
     try {
-      const c2r = await stopChat2response();
-      results.chat2response = { success: c2r.success, error: c2r.error };
-      log.info("[ServiceManager] Chat2Response stopped");
+      const gw = await stopGateway();
+      results.gateway = { success: gw.success, error: gw.error };
+      results.chat2response = results.gateway;
+      log.info("[ServiceManager] Gateway stopped");
     } catch (e) {
-      results.chat2response = { success: false, error: String(e) };
+      results.gateway = { success: false, error: String(e) };
+      results.chat2response = results.gateway;
     }
 
     // 停止 Lanproxy

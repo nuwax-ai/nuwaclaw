@@ -1,0 +1,26 @@
+{
+  "name": "gateway-server",
+  "version": "0.1.0",
+  "description": "Unified gateway server for NuwaClaw - routes multiple services through a single HTTP port",
+  "type": "module",
+  "bin": {
+    "gateway-server": "bin/gateway-server.js"
+  },
+  "main": "./lib/server.js",
+  "files": [
+    "bin",
+    "lib"
+  ],
+  "scripts": {
+    "lint:check": "node --check ./bin/gateway-server.js && node --check ./lib/server.js && node --check ./lib/plugin.js && node --check ./lib/health.js && node --check ./lib/plugins/chat2response.js && node --check ./lib/plugins/index.js",
+    "test:smoke": "node ./bin/gateway-server.js --help || true",
+    "test": "npm run lint:check && npm run test:smoke"
+  },
+  "dependencies": {
+    "chat2response": "git+https://github.com/wang-h/chat2response.git"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "license": "MIT"
+}

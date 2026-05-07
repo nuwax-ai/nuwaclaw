@@ -6,11 +6,11 @@ import type { HandlerContext } from "@shared/types/ipc";
 import { createServiceManager } from "../window/serviceManager";
 import { checkLanproxyHealth } from "../services/packages/lanproxyHealth";
 import {
-  getChat2responseStatus,
-  startChat2response,
-  stopChat2response,
-} from "../services/packages/chat2responseServer";
-import { DEFAULT_CHAT2RESPONSE_PORT } from "@shared/constants";
+  getGatewayStatus,
+  startGateway,
+  stopGateway,
+} from "../services/packages/gatewayServer";
+import { DEFAULT_GATEWAY_PORT } from "@shared/constants";
 
 export const lanproxyConfigSchema = z.object({
   serverIp: z.string().min(1),
@@ -289,22 +289,40 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     return { success: true };
   });
 
-  // Chat2Response handlers (codex-cli 协议转换服务)
+  // Gateway handlers (统一网关服务)
+  ipcMain.handle("gateway:start", async (_, port?: number) => {
+    const resolvedPort = port ?? DEFAULT_GATEWAY_PORT;
+    const parsed = portSchema.safeParse(resolvedPort);
+    if (!parsed.success) {
+      return invalidArgs("gateway:start", parsed.error.issues);
+    }
+    return startGateway(parsed.data);
+  });
+
+  ipcMain.handle("gateway:stop", async () => {
+    return stopGateway();
+  });
+
+  ipcMain.handle("gateway:status", async () => {
+    return getGatewayStatus();
+  });
+
+  // Chat2Response handlers (向后兼容，委托给 gateway)
   ipcMain.handle("chat2response:start", async (_, port?: number) => {
-    const resolvedPort = port ?? DEFAULT_CHAT2RESPONSE_PORT;
+    const resolvedPort = port ?? DEFAULT_GATEWAY_PORT;
     const parsed = portSchema.safeParse(resolvedPort);
     if (!parsed.success) {
       return invalidArgs("chat2response:start", parsed.error.issues);
     }
-    return startChat2response(parsed.data);
+    return startGateway(parsed.data);
   });
 
   ipcMain.handle("chat2response:stop", async () => {
-    return stopChat2response();
+    return stopGateway();
   });
 
   ipcMain.handle("chat2response:status", async () => {
-    return getChat2responseStatus();
+    return getGatewayStatus();
   });
 
   // Admin Server handlers (管理接口服务)

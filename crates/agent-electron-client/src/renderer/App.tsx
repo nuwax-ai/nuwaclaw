@@ -531,7 +531,7 @@ function App() {
         csStatus,
         guiStatus,
         guiEnabledRes,
-        c2rStatus,
+        gatewayStatus,
       ] = await Promise.all([
         window.electronAPI?.fileServer.status(),
         window.electronAPI?.lanproxy.status(),
@@ -540,7 +540,7 @@ function App() {
         window.electronAPI?.computerServer.status(),
         window.electronAPI?.guiServer?.status(),
         window.electronAPI?.guiServer?.isEnabled(),
-        window.electronAPI?.chat2response?.status(),
+        window.electronAPI?.gateway?.status(),
       ]);
       const isGuiEnabled =
         FEATURES.ENABLE_GUI_AGENT_SERVER && (guiEnabledRes?.enabled ?? false);
@@ -588,19 +588,19 @@ function App() {
           error: guiStatus?.error,
         });
       }
-      const showChat2response =
+      const showGateway =
         agentSvcStatus?.engineType === "codex-cli" ||
-        !!c2rStatus?.running ||
-        !!c2rStatus?.error;
-      if (showChat2response) {
+        !!gatewayStatus?.running ||
+        !!gatewayStatus?.error;
+      if (showGateway) {
         items.push({
-          key: "chat2response",
-          label: "Chat2Response",
-          description: "Codex protocol bridge",
-          running: c2rStatus?.running ?? false,
-          pid: c2rStatus?.pid,
-          port: c2rStatus?.port,
-          error: c2rStatus?.error,
+          key: "gateway",
+          label: "Gateway",
+          description: "Unified service gateway",
+          running: gatewayStatus?.running ?? false,
+          pid: gatewayStatus?.pid,
+          port: gatewayStatus?.port,
+          error: gatewayStatus?.error,
         });
       }
       items.push({
@@ -651,13 +651,9 @@ function App() {
               result?.error,
             );
             if (agentConfig?.type === "codex-cli") {
-              await window.electronAPI?.chat2response
-                ?.start()
-                .catch(() => undefined);
+              await window.electronAPI?.gateway?.start().catch(() => undefined);
             } else {
-              await window.electronAPI?.chat2response
-                ?.stop()
-                .catch(() => undefined);
+              await window.electronAPI?.gateway?.stop().catch(() => undefined);
             }
             // ComputerServer 是 Agent 的 HTTP 接口，随 Agent 一起启动
             await window.electronAPI?.computerServer

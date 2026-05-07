@@ -17,7 +17,7 @@ import { unregisterEventForwarders } from "./ipc/eventForwarders";
 import { runStartupTasks } from "./bootstrap/startup";
 import { agentService } from "./services/engines/unifiedAgent";
 import { stopComputerServer } from "./services/computerServer";
-import { stopChat2response } from "./services/packages/chat2responseServer";
+import { stopGateway } from "./services/packages/gatewayServer";
 import { mcpProxyManager } from "./services/packages/mcp";
 import { stopGuiAgentServer } from "./services/packages/guiAgentServer";
 import { FEATURES } from "@shared/featureFlags";
@@ -378,7 +378,7 @@ async function cleanupAllProcesses(): Promise<void> {
   });
 
   await runCleanupStep("Chat2Response stop", async () => {
-    await stopChat2response();
+    await stopGateway();
   });
 
   await runCleanupStep("Event forwarders unregister", () => {

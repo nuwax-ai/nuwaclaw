@@ -40,7 +40,7 @@ import { firstTokenTrace } from "../perf/firstTokenTrace";
 import { buildSandboxedSpawnArgs } from "../../sandbox/sandboxProcessWrapper";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
 import { applyOpenAICompatibleEnv } from "./openAICompatRouting";
-import { getChat2responseStatus } from "../../packages/chat2responseServer";
+import { getGatewayStatus } from "../../packages/gatewayServer";
 
 function extractSessionIdFromLine(line: string): string | undefined {
   try {
@@ -803,13 +803,13 @@ export async function createAcpConnection(
     }
   }
 
-  const chat2responseStatus =
-    config.engineType === "codex-cli" ? getChat2responseStatus() : null;
+  const gatewayStatus =
+    config.engineType === "codex-cli" ? getGatewayStatus() : null;
   const openAICompatRouting = applyOpenAICompatibleEnv(
     {
       ...config,
-      chat2responseLocalBaseUrl: chat2responseStatus?.running
-        ? chat2responseStatus.baseUrl
+      chat2responseLocalBaseUrl: gatewayStatus?.running
+        ? gatewayStatus.baseUrl
         : undefined,
     },
     env,
@@ -833,8 +833,8 @@ export async function createAcpConnection(
       chat2responseEnabled: openAICompatRouting.chat2responseEnabled,
       reason: openAICompatRouting.chat2responseReason,
       openAIBaseUrlSource: openAICompatRouting.openAIBaseUrlSource,
-      localChat2responseRunning: chat2responseStatus?.running ?? false,
-      localChat2responsePort: chat2responseStatus?.port,
+      localChat2responseRunning: gatewayStatus?.running ?? false,
+      localChat2responsePort: gatewayStatus?.port,
     });
   }
 
