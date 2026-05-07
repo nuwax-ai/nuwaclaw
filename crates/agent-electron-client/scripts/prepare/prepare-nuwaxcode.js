@@ -28,7 +28,7 @@ const { URL } = require('url');
 const { execSync, execFileSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
-const NUWAXCODE_VERSION = '1.1.95';
+const NUWAXCODE_VERSION = '1.1.96';
 const NUWAXCODE_REPO = process.env.NUWAXCODE_REPO || 'nuwax-ai/nuwaxcode';
 
 const projectRoot = getProjectRoot();
@@ -345,7 +345,7 @@ async function downloadFromRelease(key) {
   }
 
   // Release 资产命名兼容策略：
-  // 1) 新命名（带版本后缀）：nuwaxcode-xxx-v1.1.95.tar.gz
+  // 1) 新命名（带版本后缀）：nuwaxcode-xxx-v1.1.96.tar.gz
   // 2) 旧命名（不带版本后缀）：nuwaxcode-xxx.tar.gz
   // 先尝试新命名，404 再回退旧命名，兼容历史 release 与新 CI 命名规则。
   const assetCandidates = [`${distName}-v${NUWAXCODE_VERSION}.tar.gz`, `${distName}.tar.gz`];
