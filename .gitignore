@@ -18,6 +18,9 @@ node_modules/
 # Electron/前端构建产物
 dist/
 
+# Monaco 静态资源：构建时 prepare:monaco 生成，不入库
+crates/agent-electron-client/public/monaco/
+
 # Electron 打包输出（dmg/zip/exe/AppImage 等）
 release/
 

@@ -15,6 +15,18 @@ export const APP_DISPLAY_NAME = "NuwaClaw";
 /** 应用技术标识（进程名、目录名等，小写字母），与 appId 等保持一致 */
 export const APP_NAME_IDENTIFIER = "nuwaclaw";
 
+/** 主窗口默认宽度（首次创建窗口时使用） */
+export const DEFAULT_WINDOW_WIDTH = 1240;
+
+/** 主窗口默认高度（首次创建窗口时使用） */
+export const DEFAULT_WINDOW_HEIGHT = 800;
+
+/** 主窗口最小宽度（窗口可调整尺寸下限） */
+export const DEFAULT_WINDOW_MIN_WIDTH = 800;
+
+/** 主窗口最小高度（窗口可调整尺寸下限） */
+export const DEFAULT_WINDOW_MIN_HEIGHT = 600;
+
 // ==================== 端口配置 ====================
 
 /** MCP Proxy 默认端口 */

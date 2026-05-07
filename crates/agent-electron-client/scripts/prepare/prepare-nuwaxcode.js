@@ -28,7 +28,7 @@ const { URL } = require('url');
 const { execSync, execFileSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
-const NUWAXCODE_VERSION = '1.1.78';
+const NUWAXCODE_VERSION = '1.1.95';
 const NUWAXCODE_REPO = process.env.NUWAXCODE_REPO || 'nuwax-ai/nuwaxcode';
 
 const projectRoot = getProjectRoot();
@@ -67,6 +67,75 @@ function isWindows(key) {
 function getBinaryName(key) {
   return isWindows(key) ? 'nuwaxcode.exe' : 'nuwaxcode';
 }
+
+/**
+ * 兼容 release 二进制命名差异：
+ * - 历史格式: nuwaxcode / nuwaxcode.exe
+ * - 新格式:   opencode  / opencode.exe
+ *
+ * 说明：
+ * 1) 运行时入口仍统一为 resources/.../bin/nuwaxcode(.exe)
+ * 2) 这里仅放宽“解压后查找源二进制”的候选名，不改变运行时对外约定
+ */
+function getBinaryCandidates(key) {
+  const preferred = getBinaryName(key);
+  const fallback = isWindows(key) ? 'opencode.exe' : 'opencode';
+  return [preferred, fallback];
+}
+
+/**
+ * 清理目标 bin 目录，避免旧版本资源文件残留。
+ *
+ * 背景：
+ * - 历史上这里是“增量覆盖复制”，当新包删除了某些文件（例如 assets/models.json）
+ *   而旧包中仍存在时，旧文件会继续留在目标目录，造成“看似升级成功但实际混入旧资源”。
+ *
+ * 规则：
+ * - 每次准备二进制前先删后建，保证目标目录仅包含当前包内容。
+ * - 使用 force:true，确保目录不存在时也不会抛错。
+ */
+function resetDestBinDir(destDir) {
+  fs.rmSync(destDir, { recursive: true, force: true });
+  fs.mkdirSync(destDir, { recursive: true });
+}
+
+/**
+ * 确保目标目录存在 assets/model.json。
+ *
+ * 背景：
+ * - 新版 release 有时只包含单二进制，不再附带 assets/model.json。
+ * - 业务侧仍有路径会读取该文件，因此这里统一兜底创建最小占位文件。
+ *
+ * 约束：
+ * - 若上游已提供 model.json，则保持原样，不覆盖。
+ * - 仅在缺失时创建，内容保持最小且可 JSON.parse。
+ */
+function ensureModelJson(destDir, version) {
+  const assetsDir = path.join(destDir, 'assets');
+  const modelJsonPath = path.join(assetsDir, 'model.json');
+  if (fs.existsSync(modelJsonPath)) return;
+
+  fs.mkdirSync(assetsDir, { recursive: true });
+  const fallback = {
+    models: [],
+    source: 'generated-fallback',
+    version,
+  };
+  fs.writeFileSync(modelJsonPath, `${JSON.stringify(fallback, null, 2)}\n`, 'utf-8');
+}
+
+/**
+ * 即便命中版本与 SHA，也执行一次“目录重铺”。
+ *
+ * 原因：
+ * - 过去采用增量覆盖复制，可能在目标目录留下旧版本 assets 残留。
+ * - 仅靠二进制 SHA 命中无法发现“额外残留文件”。
+ *
+ * 处理：
+ * - 命中后不提前 return，而是继续走解压/复制流程（优先使用本地缓存包），
+ *   通过 resetDestBinDir() 达到“先清理后落盘”的确定性结果。
+ */
+const FORCE_REFRESH_ON_MATCH = true;
 
 // ==================== 模式 1: 本地 dist 复制 ====================
 
@@ -110,8 +179,11 @@ function copyFromDist(key) {
               `[prepare-nuwaxcode] ${key}: 版本标记为 ${NUWAXCODE_VERSION} 但二进制为 ${innerVersion}，将重新复制覆盖`,
             );
           } else {
-            console.log(`[prepare-nuwaxcode] ${key} ✓ (已是最新, SHA256=${currentHash.slice(0, 16)}...)`);
-            return true;
+            console.log(
+              `[prepare-nuwaxcode] ${key} ✓ (已是最新, SHA256=${currentHash.slice(0, 16)}...)`
+              + (FORCE_REFRESH_ON_MATCH ? '，将执行目录重铺以清理残留文件' : ''),
+            );
+            if (!FORCE_REFRESH_ON_MATCH) return true;
           }
         }
         console.warn(`[prepare-nuwaxcode] ${key}: SHA256 不匹配，需重新复制 (saved=${expectedHash.slice(0, 16)}... current=${currentHash.slice(0, 16)}...)`);
@@ -119,10 +191,13 @@ function copyFromDist(key) {
     }
   }
 
+  // 复制前先清理目标目录，确保不会夹带旧版本 assets 残留文件。
+  resetDestBinDir(destDir);
+
   // 复制整个 bin 目录（包含二进制 + assets 等）
   const srcBinDir = path.join(nuwaxcodeDist, distName, 'bin');
-  fs.mkdirSync(destDir, { recursive: true });
   fs.cpSync(srcBinDir, destDir, { recursive: true });
+  ensureModelJson(destDir, NUWAXCODE_VERSION);
   fs.chmodSync(destPath, 0o755);
 
   const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
@@ -242,8 +317,11 @@ async function downloadFromRelease(key) {
             );
           } else {
             const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
-            console.log(`[prepare-nuwaxcode] ${key} ✓ (已是最新 ${sizeMB} MB, SHA256=${currentHash.slice(0, 16)}...)`);
-            return true;
+            console.log(
+              `[prepare-nuwaxcode] ${key} ✓ (已是最新 ${sizeMB} MB, SHA256=${currentHash.slice(0, 16)}...)`
+              + (FORCE_REFRESH_ON_MATCH ? '，将执行目录重铺以清理残留文件' : ''),
+            );
+            if (!FORCE_REFRESH_ON_MATCH) return true;
           }
         }
         console.warn(`[prepare-nuwaxcode] ${key}: SHA256 不匹配，需重新下载 (expected=${expectedHash.slice(0, 16)}... current=${currentHash.slice(0, 16)}...)`);
@@ -256,18 +334,21 @@ async function downloadFromRelease(key) {
           );
         } else {
           const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
-          console.log(`[prepare-nuwaxcode] ${key} ✓ (版本匹配 ${sizeMB} MB，无 SHA256 记录，跳过下载)`);
-          return true;
+          console.log(
+            `[prepare-nuwaxcode] ${key} ✓ (版本匹配 ${sizeMB} MB，无 SHA256 记录)`
+            + (FORCE_REFRESH_ON_MATCH ? '，将执行目录重铺以清理残留文件' : '，跳过下载'),
+          );
+          if (!FORCE_REFRESH_ON_MATCH) return true;
         }
       }
     }
   }
 
-  // Release asset: nuwaxcode-{platform}-{arch}.tar.gz
-  const assetName = `${distName}.tar.gz`;
-  const downloadUrl = `https://github.com/${NUWAXCODE_REPO}/releases/download/v${NUWAXCODE_VERSION}/${assetName}`;
-
-  console.log(`[prepare-nuwaxcode] ${key}: 下载 ${assetName} ...`);
+  // Release 资产命名兼容策略：
+  // 1) 新命名（带版本后缀）：nuwaxcode-xxx-v1.1.95.tar.gz
+  // 2) 旧命名（不带版本后缀）：nuwaxcode-xxx.tar.gz
+  // 先尝试新命名，404 再回退旧命名，兼容历史 release 与新 CI 命名规则。
+  const assetCandidates = [`${distName}-v${NUWAXCODE_VERSION}.tar.gz`, `${distName}.tar.gz`];
 
   // Windows：PATH 里常见的是 System32 的 bsdtar，它不认 MSYS 的 /d/a/... 路径，
   // 只认盘符路径（D:\... 或 D:/...）。Git for Windows 的 GNU tar 也接受 D:/...。
@@ -280,110 +361,151 @@ async function downloadFromRelease(key) {
     return `${drive}:/${rest}`;
   };
 
-  try {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const force = attempt > 0;
-      if (force) {
-        console.warn(
-          `[prepare-nuwaxcode] ${key}: 归档解压失败（常见于缓存被截断），将删除缓存并重新下载 ${assetName}`,
-        );
-      }
-
-      const archivePath = await download(downloadUrl, assetName, { force });
-
-      // 解压到临时目录
-      const extractDir = path.join(cacheDir, `extract-${key}`);
-      if (fs.existsSync(extractDir)) {
-        try { fs.rmSync(extractDir, { recursive: true }); } catch (_) {}
-      }
-      fs.mkdirSync(extractDir, { recursive: true });
-
-      const tarArchivePath = toTarPath(archivePath);
-      const tarExtractDir = toTarPath(extractDir);
-
-      // 使用参数数组调用 tar，避免在 Windows/MSYS 下对 C:\ 路径的错误解析。
-      // --force-local 仅在 win32 且 tar 支持时使用（macOS BSD tar 不支持该选项）。
-      const tarArgs = ['-xzf', tarArchivePath, '-C', tarExtractDir];
-      if (process.platform === 'win32') {
-        try {
-          const tarHelp = execFileSync('tar', ['--help'], { encoding: 'utf-8', stdio: 'pipe' });
-          if (typeof tarHelp === 'string' && tarHelp.includes('--force-local')) {
-            tarArgs.unshift('--force-local');
-          }
-        } catch (_) {}
-      }
-
-      try {
-        execFileSync('tar', tarArgs, { stdio: 'pipe' });
-      } catch (tarErr) {
-        if (attempt === 1) throw tarErr;
-        continue;
-      }
-
-      // 查找二进制文件：可能在 package/bin/ 或 bin/ 下
-      const binaryPath = findBinary(extractDir, binary);
-      if (!binaryPath) {
-        if (attempt === 1) {
-          console.error(`[prepare-nuwaxcode] ${key}: 解压后未找到 ${binary}`);
-          return false;
-        }
-        continue;
-      }
-
-      // 复制到目标（整个 bin 目录，包含 assets 等）
-      const extractedBinDir = path.dirname(binaryPath);
-      fs.mkdirSync(destDir, { recursive: true });
-      fs.cpSync(extractedBinDir, destDir, { recursive: true });
-      fs.chmodSync(destPath, 0o755);
-
-      const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
-      console.log(`[prepare-nuwaxcode] ${key} ✓ 从 GitHub Release 下载 (${sizeMB} MB)`);
-
-      // macOS ad-hoc 签名
-      codesign(destPath, key);
-
-      // 计算 SHA256（签名后），用于打印 + 保存
-      const hash = sha256File(destPath);
-
-      // 验证二进制内部版本号 + 打印 SHA256
-      const innerVersion = verifyBinaryVersion(destPath, NUWAXCODE_VERSION, key, hash);
-      if (innerVersion && innerVersion !== NUWAXCODE_VERSION) {
-        // 常见于：本地缓存的 tar.gz 仍是旧内容（例如同名资产被替换、或缓存命中导致一直用旧包）
-        // 第一次发现不一致时，删除缓存并强制重新下载再试一次。
-        if (attempt === 0) {
+  let lastErr = null;
+  for (const assetName of assetCandidates) {
+    const downloadUrl = `https://github.com/${NUWAXCODE_REPO}/releases/download/v${NUWAXCODE_VERSION}/${assetName}`;
+    console.log(`[prepare-nuwaxcode] ${key}: 尝试下载 ${assetName} ...`);
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const force = attempt > 0;
+        if (force) {
           console.warn(
-            `[prepare-nuwaxcode] ${key}: 检测到二进制版本不一致，将删除缓存并强制重新下载 ${assetName} 再验证一次`,
+            `[prepare-nuwaxcode] ${key}: 归档解压失败（常见于缓存被截断），将删除缓存并重新下载 ${assetName}`,
           );
+        }
+
+        const archivePath = await download(downloadUrl, assetName, { force });
+
+        // 解压到临时目录
+        const extractDir = path.join(cacheDir, `extract-${key}`);
+        if (fs.existsSync(extractDir)) {
+          try { fs.rmSync(extractDir, { recursive: true }); } catch (_) {}
+        }
+        fs.mkdirSync(extractDir, { recursive: true });
+
+        const tarArchivePath = toTarPath(archivePath);
+        const tarExtractDir = toTarPath(extractDir);
+
+        // 使用参数数组调用 tar，避免在 Windows/MSYS 下对 C:\ 路径的错误解析。
+        // --force-local 仅在 win32 且 tar 支持时使用（macOS BSD tar 不支持该选项）。
+        const tarArgs = ['-xzf', tarArchivePath, '-C', tarExtractDir];
+        if (process.platform === 'win32') {
+          try {
+            const tarHelp = execFileSync('tar', ['--help'], { encoding: 'utf-8', stdio: 'pipe' });
+            if (typeof tarHelp === 'string' && tarHelp.includes('--force-local')) {
+              tarArgs.unshift('--force-local');
+            }
+          } catch (_) {}
+        }
+
+        try {
+          execFileSync('tar', tarArgs, { stdio: 'pipe' });
+        } catch (tarErr) {
+          if (attempt === 1) throw tarErr;
           continue;
         }
+
+        // 查找二进制文件：优先新名称 nuwaxcode，其次兼容旧名称 opencode。
+        // 背景：部分历史 release 资产仍产出 opencode 可执行文件。
+        const binaryCandidates = getBinaryCandidates(key);
+        const binaryPath = findBinary(extractDir, binaryCandidates);
+        if (!binaryPath) {
+          if (attempt === 1) {
+            throw new Error(`解压后未找到可执行文件（候选: ${binaryCandidates.join(', ')}）`);
+          }
+          continue;
+        }
+
+        // 复制前先清理目标目录，避免旧版本 assets 文件被“增量复制”保留下来。
+        resetDestBinDir(destDir);
+
+        const extractedBinDir = path.dirname(binaryPath);
+        const extractedBaseName = path.basename(binaryPath);
+
+        // 复制策略：
+        // A. 命中标准名（nuwaxcode）时，复制整个 bin 目录，尽量保留同目录 assets
+        // B. 命中别名（opencode）时，按目标标准名落盘，保证后续路径稳定
+        if (extractedBaseName === binary) {
+          fs.cpSync(extractedBinDir, destDir, { recursive: true });
+        } else {
+          fs.copyFileSync(binaryPath, destPath);
+          // 复制同目录 assets（如 models.json）
+          const assetsDir = path.join(extractedBinDir, 'assets');
+          if (fs.existsSync(assetsDir)) {
+            const destAssetsDir = path.join(destDir, 'assets');
+            fs.mkdirSync(destAssetsDir, { recursive: true });
+            fs.cpSync(assetsDir, destAssetsDir, { recursive: true });
+          }
+        }
+        ensureModelJson(destDir, NUWAXCODE_VERSION);
+        fs.chmodSync(destPath, 0o755);
+
+        const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
+        console.log(`[prepare-nuwaxcode] ${key} ✓ 从 GitHub Release 下载 (${sizeMB} MB)`);
+
+        // macOS ad-hoc 签名
+        codesign(destPath, key);
+
+        // 计算 SHA256（签名后），用于打印 + 保存
+        const hash = sha256File(destPath);
+
+        // 验证二进制内部版本号 + 打印 SHA256
+        const innerVersion = verifyBinaryVersion(destPath, NUWAXCODE_VERSION, key, hash);
+        if (innerVersion && innerVersion !== NUWAXCODE_VERSION) {
+          // 常见于：本地缓存的 tar.gz 仍是旧内容（例如同名资产被替换、或缓存命中导致一直用旧包）
+          // 第一次发现不一致时，删除缓存并强制重新下载再试一次。
+          if (attempt === 0) {
+            console.warn(
+              `[prepare-nuwaxcode] ${key}: 检测到二进制版本不一致，将删除缓存并强制重新下载 ${assetName} 再验证一次`,
+            );
+            continue;
+          }
+        }
+
+        // 保存 SHA256 记录，下次可精确跳过
+        fs.writeFileSync(path.join(resDir, `.sha256-${resourceKey}`), hash, 'utf-8');
+
+        return true;
       }
-
-      // 保存 SHA256 记录，下次可精确跳过
-      fs.writeFileSync(path.join(resDir, `.sha256-${resourceKey}`), hash, 'utf-8');
-
-      return true;
+    } catch (err) {
+      lastErr = err;
+      // 如果新命名不存在（404），自动回退旧命名继续尝试；其他错误也继续尝试下一候选。
+      console.warn(`[prepare-nuwaxcode] ${key}: 资产 ${assetName} 失败 (${err.message})，尝试下一个命名...`);
     }
-  } catch (err) {
-    console.error(`[prepare-nuwaxcode] ${key}: 下载失败: ${err.message}`);
-    console.error(`[prepare-nuwaxcode] 请确认 GitHub Release 存在: https://github.com/${NUWAXCODE_REPO}/releases/tag/v${NUWAXCODE_VERSION}`);
-    return false;
   }
+
+  console.error(`[prepare-nuwaxcode] ${key}: 下载失败: ${lastErr ? lastErr.message : 'unknown error'}`);
+  console.error(`[prepare-nuwaxcode] 请确认 GitHub Release 存在: https://github.com/${NUWAXCODE_REPO}/releases/tag/v${NUWAXCODE_VERSION}`);
+  return false;
 }
 
 /**
  * 在解压目录中递归查找二进制文件
  */
-function findBinary(dir, binaryName) {
-  // 直接在 dir/bin/ 下
-  const direct = path.join(dir, 'bin', binaryName);
-  if (fs.existsSync(direct)) return direct;
+function findBinary(dir, binaryNames) {
+  const names = Array.isArray(binaryNames) ? binaryNames : [binaryNames];
 
-  // 在 dir/package/bin/ 下（npm tarball 结构）
-  const pkgBin = path.join(dir, 'package', 'bin', binaryName);
-  if (fs.existsSync(pkgBin)) return pkgBin;
+  // 先走最常见目录：bin/ 与 package/bin/
+  for (const name of names) {
+    const direct = path.join(dir, 'bin', name);
+    if (fs.existsSync(direct)) return direct;
 
-  // 递归搜索（最多 3 层）
-  return _findRecursive(dir, binaryName, 3);
+    const pkgBin = path.join(dir, 'package', 'bin', name);
+    if (fs.existsSync(pkgBin)) return pkgBin;
+  }
+
+  // 新 release 可能是“根目录单文件”
+  for (const name of names) {
+    const rootFile = path.join(dir, name);
+    if (fs.existsSync(rootFile)) return rootFile;
+  }
+
+  // 最后兜底递归搜索（最多 3 层）
+  for (const name of names) {
+    const found = _findRecursive(dir, name, 3);
+    if (found) return found;
+  }
+  return null;
 }
 
 function _findRecursive(dir, binaryName, maxDepth) {

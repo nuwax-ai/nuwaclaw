@@ -27,6 +27,7 @@
     "prepare:lanproxy": "node scripts/prepare/prepare-lanproxy.js",
     "prepare:node": "node scripts/prepare/prepare-node.js",
     "prepare:git": "node scripts/prepare/prepare-git.js",
+    "prepare:monaco": "node scripts/prepare/prepare-monaco.js",
     "check-ports": "node scripts/tools/check-startup-ports.js",
     "check-ports:dev": "node scripts/tools/check-startup-ports.js --vite",
     "prepare:mcp-proxy": "node scripts/prepare/prepare-mcp-proxy.js",
@@ -42,7 +43,7 @@
     "prepare:gui-server": "node scripts/prepare/prepare-gui-server.js",
     "prepare:windows-mcp": "node scripts/prepare/prepare-windows-mcp.js",
     "electron-rebuild": "electron-rebuild -f -w better-sqlite3",
-    "build:electron": "npm run build && npm run prepare:all && electron-builder --config.compression=maximum",
+    "build:electron": "npm run prepare:monaco && npm run build && npm run prepare:all && electron-builder --config.compression=maximum",
     "dist": "npm run build:electron -- --mac",
     "dist:mac": "npm run build:electron -- --mac",
     "dist:mac:arm64": "npm run build:electron -- --mac --arm64",
@@ -79,6 +80,7 @@
     "dotenv": "^17.3.1",
     "electron-log": "^5.2.4",
     "electron-updater": "^6.8.3",
+    "monaco-editor": "^0.53.0",
     "node-cron": "^4.2.1",
     "node-machine-id": "^1.1.12",
     "qrcode.react": "^4.2.0",
@@ -154,7 +156,14 @@
         ]
       },
       "package.json",
-      "public/**/*"
+      {
+        "from": "public",
+        "to": "public",
+        "filter": [
+          "**/*",
+          "!monaco/**"
+        ]
+      }
     ],
     "extraResources": [
       {

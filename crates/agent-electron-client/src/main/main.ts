@@ -24,7 +24,14 @@ import { FEATURES } from "@shared/featureFlags";
 import { stopWindowsMcp } from "./services/packages/windowsMcp";
 import type { HandlerContext } from "@shared/types/ipc";
 import { DEFAULT_DEV_SERVER_PORT } from "./services/constants";
-import { APP_DISPLAY_NAME, CLEANUP_TIMEOUT } from "@shared/constants";
+import {
+  APP_DISPLAY_NAME,
+  CLEANUP_TIMEOUT,
+  DEFAULT_WINDOW_HEIGHT,
+  DEFAULT_WINDOW_MIN_HEIGHT,
+  DEFAULT_WINDOW_MIN_WIDTH,
+  DEFAULT_WINDOW_WIDTH,
+} from "@shared/constants";
 import { initLogging } from "./bootstrap/logConfig";
 import { initI18n, setMainLang } from "./services/i18n";
 import { createTrayManager, TrayStatus } from "./window/trayManager";
@@ -175,10 +182,10 @@ let agentRunnerPorts: { backendPort: number; proxyPort: number } | null = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
+    width: DEFAULT_WINDOW_WIDTH,
+    height: DEFAULT_WINDOW_HEIGHT,
+    minWidth: DEFAULT_WINDOW_MIN_WIDTH,
+    minHeight: DEFAULT_WINDOW_MIN_HEIGHT,
     title: APP_DISPLAY_NAME,
     icon: getIconPath(),
     webPreferences: {
