@@ -58,6 +58,16 @@ function resolveStartupPort(requestedPort?: number): number {
   ) {
     return settingsPort;
   }
+  const step1 = readSetting("step1_config") as {
+    gatewayPort?: number;
+  } | null;
+  if (
+    step1?.gatewayPort &&
+    Number.isInteger(step1.gatewayPort) &&
+    step1.gatewayPort > 0
+  ) {
+    return step1.gatewayPort;
+  }
   const envPort = Number(process.env.NUWAX_GATEWAY_PORT || "");
   if (Number.isInteger(envPort) && envPort > 0) return envPort;
   return DEFAULT_GATEWAY_PORT;

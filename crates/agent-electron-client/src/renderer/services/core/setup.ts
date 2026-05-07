@@ -15,6 +15,7 @@ import {
   DEFAULT_FILE_SERVER_PORT,
   DEFAULT_GUI_MCP_PORT,
   DEFAULT_ADMIN_SERVER_PORT,
+  DEFAULT_GATEWAY_PORT,
   STORAGE_KEYS,
   AUTH_KEYS,
   DEFAULT_AI_ENGINE,
@@ -26,6 +27,7 @@ export interface Step1Config {
   serverHost: string;
   agentPort: number;
   fileServerPort: number;
+  gatewayPort: number;
   guiMcpPort: number;
   guiMcpEnabled: boolean;
   adminServerPort?: number;
@@ -66,6 +68,7 @@ export const DEFAULT_STEP1_CONFIG: Step1Config = {
   serverHost: DEFAULT_SERVER_HOST,
   agentPort: DEFAULT_AGENT_RUNNER_PORT,
   fileServerPort: DEFAULT_FILE_SERVER_PORT,
+  gatewayPort: DEFAULT_GATEWAY_PORT,
   guiMcpPort: DEFAULT_GUI_MCP_PORT,
   guiMcpEnabled: false,
   adminServerPort: DEFAULT_ADMIN_SERVER_PORT,

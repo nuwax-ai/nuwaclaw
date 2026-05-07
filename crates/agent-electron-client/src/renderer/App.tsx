@@ -354,7 +354,7 @@ function App() {
     return keys;
   }, [guiMcpEnabled]);
   const getStartupServiceKeys = useCallback(async (): Promise<string[]> => {
-    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    const keys = ["mcpProxy", "agent", "fileServer", "gateway", "lanproxy"];
     if (!FEATURES.ENABLE_GUI_AGENT_SERVER) return keys;
     try {
       const guiEnabledRes = await window.electronAPI?.guiServer?.isEnabled();
@@ -588,21 +588,15 @@ function App() {
           error: guiStatus?.error,
         });
       }
-      const showGateway =
-        agentSvcStatus?.engineType === "codex-cli" ||
-        !!gatewayStatus?.running ||
-        !!gatewayStatus?.error;
-      if (showGateway) {
-        items.push({
-          key: "gateway",
-          label: "Gateway",
-          description: "Unified service gateway",
-          running: gatewayStatus?.running ?? false,
-          pid: gatewayStatus?.pid,
-          port: gatewayStatus?.port,
-          error: gatewayStatus?.error,
-        });
-      }
+      items.push({
+        key: "gateway",
+        label: t("Claw.Service.gateway"),
+        description: t("Claw.Service.gatewayDesc"),
+        running: gatewayStatus?.running ?? false,
+        pid: gatewayStatus?.pid,
+        port: gatewayStatus?.port,
+        error: gatewayStatus?.error,
+      });
       items.push({
         key: "lanproxy",
         label: t("Claw.Service.proxy"),
@@ -650,11 +644,6 @@ function App() {
               `agent: ${result?.success ? "ok" : "failed"}`,
               result?.error,
             );
-            if (agentConfig?.type === "codex-cli") {
-              await window.electronAPI?.gateway?.start().catch(() => undefined);
-            } else {
-              await window.electronAPI?.gateway?.stop().catch(() => undefined);
-            }
             // ComputerServer 是 Agent 的 HTTP 接口，随 Agent 一起启动
             await window.electronAPI?.computerServer
               .start()
@@ -671,6 +660,12 @@ function App() {
             );
           } else if (key === "guiServer") {
             result = await window.electronAPI?.guiServer?.start();
+          } else if (key === "gateway") {
+            result = await window.electronAPI?.gateway?.start();
+            log.info(
+              `gateway: ${result?.success ? "ok" : "failed"}`,
+              result?.error,
+            );
           } else if (key === "lanproxy") {
             const clientKey = (await window.electronAPI?.settings.get(
               "auth.saved_key",

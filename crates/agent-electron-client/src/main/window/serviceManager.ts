@@ -280,11 +280,9 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       const ok = await agentService.init(finalConfig);
       results.agent = { success: ok };
       log.info("[ServiceManager] Agent started");
-      if (ok && (agentConfig.type as string) === "codex-cli") {
+      if (ok) {
         results.gateway = await startGateway();
         results.chat2response = results.gateway;
-      } else {
-        await stopGateway();
       }
     } catch (e) {
       results.agent = { success: false, error: String(e) };
@@ -470,11 +468,9 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       const ok = await agentService.init(finalConfig);
       results.agent = { success: ok };
       log.info("[ServiceManager] Agent started");
-      if (ok && (agentConfig.type as string) === "codex-cli") {
+      if (ok) {
         results.gateway = await startGateway();
         results.chat2response = results.gateway;
-      } else {
-        await stopGateway();
       }
     } catch (e) {
       results.agent = { success: false, error: String(e) };

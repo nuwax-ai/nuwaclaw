@@ -646,7 +646,7 @@ export default function SettingsPage() {
                 size="small"
               >
                 <Row gutter={16}>
-                  <Col span={8}>
+                  <Col span={12}>
                     <Form.Item
                       name="fileServerPort"
                       label={t("Claw.Settings.saveConfig.fileServerPort")}
@@ -664,7 +664,7 @@ export default function SettingsPage() {
                       />
                     </Form.Item>
                   </Col>
-                  <Col span={8}>
+                  <Col span={12}>
                     <Form.Item
                       name="agentPort"
                       label={t("Claw.Settings.saveConfig.agentPort")}
@@ -682,8 +682,28 @@ export default function SettingsPage() {
                       />
                     </Form.Item>
                   </Col>
+                </Row>
+                <Row gutter={16}>
+                  <Col span={12}>
+                    <Form.Item
+                      name="gatewayPort"
+                      label={t("Claw.Settings.saveConfig.gatewayPort")}
+                      rules={[
+                        {
+                          required: true,
+                          message: t("Claw.Settings.saveConfig.enterPort"),
+                        },
+                      ]}
+                    >
+                      <InputNumber
+                        min={1}
+                        max={65535}
+                        style={{ width: "100%" }}
+                      />
+                    </Form.Item>
+                  </Col>
                   {FEATURES.ENABLE_GUI_AGENT_SERVER && (
-                    <Col span={8}>
+                    <Col span={12}>
                       <Form.Item
                         name="guiMcpPort"
                         label={t("Claw.Settings.saveConfig.guiMcpPort")}
