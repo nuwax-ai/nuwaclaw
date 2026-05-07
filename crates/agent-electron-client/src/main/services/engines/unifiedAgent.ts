@@ -862,6 +862,21 @@ export class UnifiedAgentService extends EventEmitter {
       );
     }
 
+    // Dev mode: when agent_config.type differs from request's agent_server.command,
+    // override the remote command to respect local dev settings
+    if (
+      process.env.NODE_ENV === "development" &&
+      this.engineType &&
+      request.agent_config?.agent_server?.command &&
+      mapAgentCommand(request.agent_config.agent_server.command) !==
+        this.engineType
+    ) {
+      log.info(
+        `[UnifiedAgent] Dev mode: overriding remote engine "${request.agent_config.agent_server.command}" → "${this.engineType}"`,
+      );
+      request.agent_config.agent_server.command = this.engineType;
+    }
+
     const agentServer = request.agent_config?.agent_server;
     const mp = request.model_provider;
 
