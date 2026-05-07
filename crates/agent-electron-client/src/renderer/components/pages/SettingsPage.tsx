@@ -17,6 +17,7 @@ import {
   InputNumber,
   Select,
   Slider,
+  Space,
   Switch,
   message,
   Modal,
@@ -45,7 +46,9 @@ import {
   MODEL_OPTIONS,
   STORAGE_KEYS,
   I18N_KEYS,
+  DEFAULT_AI_ENGINE,
 } from "@shared/constants";
+import type { AgentEngineType } from "@shared/types/electron";
 import { FEATURES } from "@shared/featureFlags";
 import {
   t,
@@ -142,6 +145,9 @@ export default function SettingsPage() {
   const [guiMcpSaving, setGuiMcpSaving] = useState(false);
   const [guiMcpEnabled, setGuiMcpEnabled] = useState<boolean | null>(null);
 
+  // Dev: agent engine type
+  const [devEngineType, setDevEngineType] = useState<string>(DEFAULT_AI_ENGINE);
+
   // 使用表单中的 workspaceDir 作为"系统模块"的展示源，确保编辑保存后展示保持实时一致。
   const workspaceDir = Form.useWatch("workspaceDir", form) || "";
 
@@ -152,6 +158,12 @@ export default function SettingsPage() {
       const config = await setupService.getStep1Config();
       form.setFieldsValue(config);
       setOriginalConfig(config);
+      if (IS_DEV) {
+        const agentConfig = (await window.electronAPI?.settings.get(
+          "agent_config",
+        )) as { type?: string } | null;
+        setDevEngineType(agentConfig?.type || DEFAULT_AI_ENGINE);
+      }
     } catch (error) {
       console.error("Failed to load config:", error);
       message.error(t(I18N_KEYS.Toast.ERROR.LOAD_FAILED));
@@ -645,6 +657,49 @@ export default function SettingsPage() {
                 disabled={!editing}
                 size="small"
               >
+                {IS_DEV && (
+                  <Form.Item
+                    label={
+                      <Space>
+                        <ExperimentOutlined />
+                        <span>Agent Engine (Dev)</span>
+                      </Space>
+                    }
+                  >
+                    <Select
+                      value={devEngineType}
+                      disabled={!editing}
+                      onChange={async (v) => {
+                        setDevEngineType(v);
+                        const agentConfig =
+                          (await window.electronAPI?.settings.get(
+                            "agent_config",
+                          )) as Record<string, unknown> | null;
+                        await window.electronAPI?.settings.set("agent_config", {
+                          ...(agentConfig || {}),
+                          type: v,
+                        });
+                        try {
+                          await window.electronAPI?.services.restartAll();
+                          message.success(
+                            "Engine switched & services restarted",
+                          );
+                        } catch (e) {
+                          message.error("Restart failed: " + String(e));
+                        }
+                      }}
+                      options={[
+                        { value: "claude-code", label: "Claude Code (ACP)" },
+                        { value: "nuwaxcode", label: "nuwaxcode (ACP)" },
+                        { value: "codex-cli", label: "Codex CLI (ACP)" },
+                        { value: "pi-agent", label: "Pi Agent (ACP)" },
+                        { value: "hermes-agent", label: "Hermes Agent (ACP)" },
+                        { value: "kilo-cli", label: "Kilo CLI (ACP)" },
+                        { value: "openclaw", label: "OpenClaw (ACP)" },
+                      ]}
+                    />
+                  </Form.Item>
+                )}
                 <Row gutter={16}>
                   <Col span={12}>
                     <Form.Item
