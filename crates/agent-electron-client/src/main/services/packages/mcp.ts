@@ -1150,7 +1150,11 @@ class McpProxyManager {
           quoteCmdArg(resolvedEntry.command),
           ...resolvedEntry.args.map(quoteCmdArg),
         ].join(" ");
-        proc = spawn(cmdExe, ["/d", "/s", "/c", cmdLine], spawnOptions);
+        // Important: when the first token is quoted (paths with spaces),
+        // cmd.exe requires an extra wrapping pair of quotes, otherwise it may
+        // misparse the command and exit immediately.
+        // Pattern: cmd.exe /d /s /c ""C:\path with spaces\tool.cmd" arg1 arg2"
+        proc = spawn(cmdExe, ["/d", "/s", "/c", `"${cmdLine}"`], spawnOptions);
       } else {
         proc = spawn(resolvedEntry.command, resolvedEntry.args, spawnOptions);
       }
