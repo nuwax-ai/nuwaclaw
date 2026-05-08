@@ -129,6 +129,49 @@ export function resolveUvCommand(
 }
 
 /**
+ * Resolves `npx`/`npm` on Windows to a concrete executable path.
+ *
+ * Rationale:
+ * - Many Node distributions ship `npx.cmd`/`npm.cmd` (not a bare `npx.exe`)
+ * - Some spawn call-sites pass a sanitized env that may not include PATHEXT
+ * - Using an absolute path avoids PATH/PATHEXT resolution quirks and ENOENT
+ */
+function resolveNpmCliCommand(
+  command: string,
+  args: string[],
+): { command: string; args: string[] } {
+  if (!isWindows()) return { command, args };
+  if (typeof command !== "string" || command.length === 0)
+    return { command, args };
+
+  const base = path.basename(command).replace(/\.(exe|cmd|bat)$/i, "");
+  if (base !== "npx" && base !== "npm") return { command, args };
+
+  // If caller already provided a concrete path, keep it.
+  if (path.isAbsolute(command) && fs.existsSync(command)) {
+    return { command, args };
+  }
+
+  // Prefer the bundled Node 24 distribution under resources/node/.../bin
+  const bundledNode = getNodeBinPath();
+  if (bundledNode) {
+    const binDir = path.dirname(bundledNode);
+    const candidate = path.join(binDir, `${base}.cmd`);
+    if (fs.existsSync(candidate)) {
+      return { command: candidate, args };
+    }
+    // Fallback: some builds may ship without .cmd (rare)
+    const exeCandidate = path.join(binDir, `${base}.exe`);
+    if (fs.existsSync(exeCandidate)) {
+      return { command: exeCandidate, args };
+    }
+  }
+
+  // Last resort: prefer .cmd name to leverage normal Windows resolution.
+  return { command: `${base}.cmd`, args };
+}
+
+/**
  * Resolve uvx/uv commands inside a `mcp-proxy convert --config '{...}'` bridge entry.
  * Only rewrites inner command paths (uvx → uv tool run); does NOT inject env.
  * Kept for backward compatibility with context_servers that may still use bridge entries.
@@ -353,7 +396,8 @@ export function resolveServersConfig(
     }
     if (entry.command === "mcp-proxy") continue;
     if (typeof entry.command !== "string") continue;
-    const resolved = resolveUvCommand(entry.command, entry.args || [], dir);
+    const resolvedUv = resolveUvCommand(entry.command, entry.args || [], dir);
+    const resolved = resolveNpmCliCommand(resolvedUv.command, resolvedUv.args);
     result[name] = {
       command: resolved.command,
       args: resolved.args,
