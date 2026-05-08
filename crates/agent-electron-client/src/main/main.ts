@@ -157,6 +157,9 @@ function getDockIconPath() {
 }
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+if (isDev) {
+  app.commandLine.appendSwitch("disable-http-cache");
+}
 const WEBVIEW_PERF_BRIDGE_PRELOAD = path.join(
   __dirname,
   "..",
@@ -214,7 +217,14 @@ function createWindow() {
 
   // Load the app
   if (isDev) {
-    mainWindow.loadURL(`http://localhost:${DEFAULT_DEV_SERVER_PORT}`);
+    const devCacheBust = Date.now();
+    const devUrl = `http://localhost:${DEFAULT_DEV_SERVER_PORT}/?_ncd=${devCacheBust}`;
+    void mainWindow.webContents.session
+      .clearCache()
+      .catch((err) => log.warn("[DevCache] clearCache failed:", err))
+      .finally(() => {
+        void mainWindow?.loadURL(devUrl);
+      });
     mainWindow.webContents.openDevTools();
   } else {
     // 生产环境：dist 目录被打包到 app.asar 中

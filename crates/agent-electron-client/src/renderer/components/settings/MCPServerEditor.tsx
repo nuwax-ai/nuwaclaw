@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Button,
   Space,
@@ -17,8 +17,13 @@ import {
 import Editor from "@monaco-editor/react";
 import type { McpServerEntry, McpServersConfig } from "@shared/types/electron";
 import { t } from "../../services/core/i18n";
+import {
+  getMonacoBootstrapState,
+  subscribeMonacoBootstrapState,
+} from "../../monaco/setupMonaco";
 
 const { Text } = Typography;
+const MONACO_WATCHDOG_TIMEOUT_MS = 5000;
 
 interface MCPServerEditorProps {
   mode: "create" | "edit";
@@ -111,6 +116,12 @@ function MCPServerEditor({
   const [jsonText, setJsonText] = useState("");
   const [jsonError, setJsonError] = useState("");
   const [testLoading, setTestLoading] = useState(false);
+  const [jsonEditorMounted, setJsonEditorMounted] = useState(false);
+  const [jsonEditorFallback, setJsonEditorFallback] = useState(false);
+  const [monacoBootstrapFailed, setMonacoBootstrapFailed] = useState(
+    getMonacoBootstrapState().status === "failed",
+  );
+  const editorWatchdogRef = useRef<number | null>(null);
 
   const isEdit = mode === "edit";
 
@@ -131,6 +142,65 @@ function MCPServerEditor({
       setJsonText("");
     }
   }, [isEdit, initialEntry, editingServerId]);
+
+  useEffect(() => {
+    const currentState = getMonacoBootstrapState();
+    if (currentState.status === "failed") {
+      setMonacoBootstrapFailed(true);
+      setJsonEditorFallback(true);
+      console.error("[MCPJsonEditor] Monaco bootstrap failed", currentState);
+    }
+
+    return subscribeMonacoBootstrapState((nextState) => {
+      const failed = nextState.status === "failed";
+      setMonacoBootstrapFailed(failed);
+      if (failed) {
+        setJsonEditorFallback(true);
+        console.error("[MCPJsonEditor] Monaco bootstrap failed", nextState);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (editorTab !== "json") {
+      if (editorWatchdogRef.current !== null) {
+        window.clearTimeout(editorWatchdogRef.current);
+        editorWatchdogRef.current = null;
+      }
+      return;
+    }
+
+    if (monacoBootstrapFailed) {
+      setJsonEditorFallback(true);
+      return;
+    }
+
+    setJsonEditorFallback(false);
+    setJsonEditorMounted(false);
+    editorWatchdogRef.current = window.setTimeout(() => {
+      setJsonEditorFallback((prev) => {
+        if (!prev) {
+          console.error(
+            "[MCPJsonEditor] Monaco mount timeout, fallback enabled",
+          );
+        }
+        return true;
+      });
+    }, MONACO_WATCHDOG_TIMEOUT_MS);
+
+    return () => {
+      if (editorWatchdogRef.current !== null) {
+        window.clearTimeout(editorWatchdogRef.current);
+        editorWatchdogRef.current = null;
+      }
+    };
+  }, [editorTab, monacoBootstrapFailed]);
+
+  useEffect(() => {
+    if (!jsonEditorMounted || editorWatchdogRef.current === null) return;
+    window.clearTimeout(editorWatchdogRef.current);
+    editorWatchdogRef.current = null;
+  }, [jsonEditorMounted]);
 
   const parseArgsText = (
     input: string,
@@ -438,28 +508,53 @@ function MCPServerEditor({
                 overflow: "hidden",
               }}
             >
-              <Editor
-                height="400px"
-                language="json"
-                theme={isDarkMode ? "vs-dark" : "vs"}
-                value={jsonText}
-                onChange={(value) => {
-                  setJsonText(value || "");
-                  if (jsonError) setJsonError("");
-                }}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 13,
-                  lineNumbers: "on",
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                  tabSize: 2,
-                  formatOnPaste: true,
-                  formatOnType: true,
-                  stickyScroll: { enabled: false },
-                }}
-              />
+              {jsonEditorFallback ? (
+                <Input.TextArea
+                  value={jsonText}
+                  onChange={(e) => {
+                    setJsonText(e.target.value);
+                    if (jsonError) setJsonError("");
+                  }}
+                  autoSize={false}
+                  style={{
+                    height: 400,
+                    border: "none",
+                    borderRadius: 0,
+                    fontFamily: "Monaco, Menlo, 'Courier New', monospace",
+                    fontSize: 13,
+                    resize: "none",
+                  }}
+                />
+              ) : (
+                <Editor
+                  height="400px"
+                  language="json"
+                  theme={isDarkMode ? "vs-dark" : "vs"}
+                  value={jsonText}
+                  onMount={() => setJsonEditorMounted(true)}
+                  onChange={(value) => {
+                    setJsonText(value || "");
+                    if (jsonError) setJsonError("");
+                  }}
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 13,
+                    lineNumbers: "on",
+                    scrollBeyondLastLine: false,
+                    automaticLayout: true,
+                    tabSize: 2,
+                    formatOnPaste: true,
+                    formatOnType: true,
+                    stickyScroll: { enabled: false },
+                  }}
+                />
+              )}
             </div>
+            {jsonEditorFallback ? (
+              <Text type="warning" style={{ marginTop: 8, display: "block" }}>
+                Monaco unavailable, switched to text mode.
+              </Text>
+            ) : null}
             {jsonError ? (
               <Text type="danger" style={{ marginTop: 8, display: "block" }}>
                 {jsonError}

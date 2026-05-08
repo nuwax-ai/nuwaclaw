@@ -51,14 +51,21 @@ function main() {
   console.log('[prepare-monaco] 复制 monaco 静态资源...');
   copyDirRecursive(srcVsDir, destVsDir);
 
-  // 基本校验：loader 需要 loader.js
-  const loaderJs = path.join(destVsDir, 'loader.js');
-  if (!fs.existsSync(loaderJs)) {
-    console.warn('[prepare-monaco] ⚠️ 缺少 vs/loader.js，monaco 可能无法加载');
+  const requiredFiles = [
+    path.join(destVsDir, 'loader.js'),
+    path.join(destVsDir, 'editor', 'editor.main.js'),
+  ];
+
+  const missingFiles = requiredFiles.filter((filePath) => !fs.existsSync(filePath));
+  if (missingFiles.length > 0) {
+    console.error('[prepare-monaco] 缺少必要静态资源，Monaco 将无法加载:');
+    for (const missing of missingFiles) {
+      console.error(`  - ${missing}`);
+    }
+    process.exit(1);
   }
 
   console.log('[prepare-monaco] ✓ public/monaco/vs 已准备完成');
 }
 
 main();
-

@@ -4,7 +4,7 @@
  * 使用稳定的文本编辑 + 解析校验，避免第三方可视化编辑器导致的不可编辑问题。
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Card,
   Button,
@@ -20,6 +20,7 @@ import {
   Alert,
   Spin,
   Modal,
+  Input,
 } from "antd";
 import {
   PlayCircleOutlined,
@@ -41,6 +42,10 @@ import type {
 } from "@shared/types/electron";
 import { t } from "../../services/core/i18n";
 import MCPServerEditor from "./MCPServerEditor";
+import {
+  getMonacoBootstrapState,
+  subscribeMonacoBootstrapState,
+} from "../../monaco/setupMonaco";
 
 const { Text } = Typography;
 
@@ -48,6 +53,8 @@ interface MCPSettingsProps {
   isOpen?: boolean;
   onClose?: () => void;
 }
+
+const MONACO_WATCHDOG_TIMEOUT_MS = 5000;
 
 function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   const [isDarkMode, setIsDarkMode] = useState(
@@ -64,6 +71,12 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [editingServerId, setEditingServerId] = useState("");
   const [deletingServerId, setDeletingServerId] = useState<string | null>(null);
+  const [jsonEditorMounted, setJsonEditorMounted] = useState(false);
+  const [jsonEditorFallback, setJsonEditorFallback] = useState(false);
+  const [monacoBootstrapFailed, setMonacoBootstrapFailed] = useState(
+    getMonacoBootstrapState().status === "failed",
+  );
+  const editorWatchdogRef = useRef<number | null>(null);
 
   // 监听主题变化
   useEffect(() => {
@@ -78,6 +91,65 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
 
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    const currentState = getMonacoBootstrapState();
+    if (currentState.status === "failed") {
+      setMonacoBootstrapFailed(true);
+      setJsonEditorFallback(true);
+      console.error("[MCPJsonEditor] Monaco bootstrap failed", currentState);
+    }
+
+    return subscribeMonacoBootstrapState((nextState) => {
+      const failed = nextState.status === "failed";
+      setMonacoBootstrapFailed(failed);
+      if (failed) {
+        setJsonEditorFallback(true);
+        console.error("[MCPJsonEditor] Monaco bootstrap failed", nextState);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (viewMode !== "json") {
+      if (editorWatchdogRef.current !== null) {
+        window.clearTimeout(editorWatchdogRef.current);
+        editorWatchdogRef.current = null;
+      }
+      return;
+    }
+
+    if (monacoBootstrapFailed) {
+      setJsonEditorFallback(true);
+      return;
+    }
+
+    setJsonEditorFallback(false);
+    setJsonEditorMounted(false);
+    editorWatchdogRef.current = window.setTimeout(() => {
+      setJsonEditorFallback((prev) => {
+        if (!prev) {
+          console.error(
+            "[MCPJsonEditor] Monaco mount timeout, fallback enabled",
+          );
+        }
+        return true;
+      });
+    }, MONACO_WATCHDOG_TIMEOUT_MS);
+
+    return () => {
+      if (editorWatchdogRef.current !== null) {
+        window.clearTimeout(editorWatchdogRef.current);
+        editorWatchdogRef.current = null;
+      }
+    };
+  }, [viewMode, monacoBootstrapFailed]);
+
+  useEffect(() => {
+    if (!jsonEditorMounted || editorWatchdogRef.current === null) return;
+    window.clearTimeout(editorWatchdogRef.current);
+    editorWatchdogRef.current = null;
+  }, [jsonEditorMounted]);
 
   const formatConfigForEditor = useCallback(
     (value: McpServersConfig): string => {
@@ -692,30 +764,57 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                   position: "relative",
                 }}
               >
-                <Editor
-                  height="400px"
-                  language="json"
-                  theme={isDarkMode ? "vs-dark" : "vs"}
-                  value={configText}
-                  onChange={(value) => {
-                    setConfigText(value || "");
-                    if (configTextError) {
-                      setConfigTextError("");
-                    }
-                  }}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 13,
-                    lineNumbers: "on",
-                    scrollBeyondLastLine: false,
-                    automaticLayout: true,
-                    tabSize: 2,
-                    formatOnPaste: true,
-                    formatOnType: true,
-                    stickyScroll: { enabled: false },
-                  }}
-                />
+                {jsonEditorFallback ? (
+                  <Input.TextArea
+                    value={configText}
+                    onChange={(e) => {
+                      setConfigText(e.target.value);
+                      if (configTextError) {
+                        setConfigTextError("");
+                      }
+                    }}
+                    autoSize={false}
+                    style={{
+                      height: 400,
+                      border: "none",
+                      borderRadius: 0,
+                      fontFamily: "Monaco, Menlo, 'Courier New', monospace",
+                      fontSize: 13,
+                      resize: "none",
+                    }}
+                  />
+                ) : (
+                  <Editor
+                    height="400px"
+                    language="json"
+                    theme={isDarkMode ? "vs-dark" : "vs"}
+                    value={configText}
+                    onMount={() => setJsonEditorMounted(true)}
+                    onChange={(value) => {
+                      setConfigText(value || "");
+                      if (configTextError) {
+                        setConfigTextError("");
+                      }
+                    }}
+                    options={{
+                      minimap: { enabled: false },
+                      fontSize: 13,
+                      lineNumbers: "on",
+                      scrollBeyondLastLine: false,
+                      automaticLayout: true,
+                      tabSize: 2,
+                      formatOnPaste: true,
+                      formatOnType: true,
+                      stickyScroll: { enabled: false },
+                    }}
+                  />
+                )}
               </div>
+              {jsonEditorFallback ? (
+                <Text type="warning" style={{ marginTop: 8, display: "block" }}>
+                  Monaco unavailable, switched to text mode.
+                </Text>
+              ) : null}
               {configTextError ? (
                 <Text type="danger" style={{ marginTop: 8, display: "block" }}>
                   {configTextError}
