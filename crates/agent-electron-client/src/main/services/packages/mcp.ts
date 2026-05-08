@@ -192,6 +192,18 @@ function guessMcpDiscoverTimeoutMs(command: string, args: string[]): number {
   return 15_000;
 }
 
+function writeMcpStdioMessage(
+  stdin: { write: (chunk: string | Buffer) => void },
+  payload: unknown,
+): void {
+  // MCP stdio uses Content-Length framing (like LSP):
+  //   Content-Length: <bytes>\r\n\r\n<json>
+  const json = JSON.stringify(payload);
+  const body = Buffer.from(json, "utf8");
+  const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "utf8");
+  stdin.write(Buffer.concat([header, body]));
+}
+
 /**
  * Resolve uvx/uv commands inside a `mcp-proxy convert --config '{...}'` bridge entry.
  * Only rewrites inner command paths (uvx → uv tool run); does NOT inject env.
@@ -1170,7 +1182,7 @@ class McpProxyManager {
           clientInfo: { name: "nuwax-agent", version: "1.0.0" },
         },
       };
-      proc.stdin.write(JSON.stringify(initRequest) + "\n");
+      writeMcpStdioMessage(proc.stdin, initRequest);
 
       // 等待初始化响应
       const timeoutMs = guessMcpDiscoverTimeoutMs(
@@ -1179,6 +1191,12 @@ class McpProxyManager {
       );
       await this.waitForMcpResponse(proc, 1, timeoutMs);
 
+      // Send initialized notification (required by MCP spec before any further requests)
+      writeMcpStdioMessage(proc.stdin, {
+        jsonrpc: "2.0",
+        method: "notifications/initialized",
+      });
+
       // 发送 tools/list 请求
       const toolsRequest = {
         jsonrpc: "2.0",
@@ -1186,7 +1204,7 @@ class McpProxyManager {
         method: "tools/list",
         params: {},
       };
-      proc.stdin.write(JSON.stringify(toolsRequest) + "\n");
+      writeMcpStdioMessage(proc.stdin, toolsRequest);
 
       // 等待 tools/list 响应
       const response = await this.waitForMcpResponse(proc, 2, timeoutMs);
@@ -1237,17 +1255,40 @@ class McpProxyManager {
         reject(new Error("MCP response timeout"));
       }, timeoutMs);
 
-      let buffer = "";
+      let buffer = Buffer.alloc(0);
       const onData = (chunk: Buffer) => {
-        buffer += chunk.toString();
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+        buffer = Buffer.concat([buffer, chunk]);
 
-        for (const line of lines) {
-          if (!line.trim()) continue;
+        // 1) Prefer Content-Length framed messages
+        for (;;) {
+          const headerEnd = buffer.indexOf("\r\n\r\n");
+          if (headerEnd === -1) break;
+
+          const headerStr = buffer.slice(0, headerEnd).toString("utf8");
+          const m = headerStr.match(/Content-Length:\s*(\d+)/i);
+          if (!m) {
+            // Not a framed header; fall back to newline parsing below.
+            break;
+          }
+          const contentLength = Number(m[1]);
+          if (
+            !Number.isFinite(contentLength) ||
+            contentLength < 0 ||
+            contentLength > 10_000_000
+          ) {
+            buffer = buffer.slice(headerEnd + 4);
+            continue;
+          }
+          const bodyStart = headerEnd + 4;
+          const bodyEnd = bodyStart + contentLength;
+          if (buffer.length < bodyEnd) break;
+
+          const body = buffer.slice(bodyStart, bodyEnd).toString("utf8");
+          buffer = buffer.slice(bodyEnd);
+
           try {
-            const msg = JSON.parse(line);
-            if (msg.id === requestId) {
+            const msg = JSON.parse(body);
+            if (msg?.id === requestId) {
               clearTimeout(timeout);
               proc.stdout.off("data", onData);
               if (msg.error) {
@@ -1255,9 +1296,38 @@ class McpProxyManager {
               } else {
                 resolve(msg);
               }
+              return;
             }
           } catch {
-            // 忽略非 JSON 行
+            // Ignore parse errors and continue consuming
+          }
+        }
+
+        // 2) Backward compatible: newline-delimited JSON
+        const text = buffer.toString("utf8");
+        const lastNl = text.lastIndexOf("\n");
+        if (lastNl === -1) return;
+        const complete = text.slice(0, lastNl);
+        const rest = text.slice(lastNl + 1);
+        buffer = Buffer.from(rest, "utf8");
+
+        for (const line of complete.split("\n")) {
+          const trimmed = line.replace(/\r$/, "").trim();
+          if (!trimmed) continue;
+          try {
+            const msg = JSON.parse(trimmed);
+            if (msg?.id === requestId) {
+              clearTimeout(timeout);
+              proc.stdout.off("data", onData);
+              if (msg.error) {
+                reject(new Error(msg.error.message || "MCP error"));
+              } else {
+                resolve(msg);
+              }
+              return;
+            }
+          } catch {
+            // ignore
           }
         }
       };
