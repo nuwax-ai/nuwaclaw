@@ -171,6 +171,27 @@ function resolveNpmCliCommand(
   return { command: `${base}.cmd`, args };
 }
 
+function quoteCmdArg(arg: string): string {
+  if (arg.length === 0) return '""';
+  if (!/[\s"]/g.test(arg)) return arg;
+  return `"${arg.replace(/"/g, '\\"')}"`;
+}
+
+function guessMcpDiscoverTimeoutMs(command: string, args: string[]): number {
+  // Tool discovery is often backed by `npx -y <pkg>` (first run may download),
+  // which can easily exceed 5s on Windows/slow networks. Use a larger timeout.
+  const base = path.basename(command).toLowerCase();
+  const cmd = base.replace(/\.(cmd|exe|bat)$/i, "");
+  const looksLikeNpx =
+    cmd === "npx" ||
+    (cmd === "cmd" &&
+      args.some((a) => typeof a === "string" && /npx/i.test(a)));
+  if (looksLikeNpx) return 90_000;
+  // uv tool run may also install on first run, but generally faster than npx
+  if (cmd === "uv" || cmd === "uvx") return 45_000;
+  return 15_000;
+}
+
 /**
  * Resolve uvx/uv commands inside a `mcp-proxy convert --config '{...}'` bridge entry.
  * Only rewrites inner command paths (uvx → uv tool run); does NOT inject env.
@@ -1112,10 +1133,27 @@ class McpProxyManager {
     let proc: any = null;
 
     try {
-      proc = spawn(resolvedEntry.command, resolvedEntry.args, {
-        env: { ...process.env, ...resolvedEntry.env },
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+      const env = { ...process.env, ...resolvedEntry.env };
+      const spawnOptions = {
+        env,
+        // child_process.SpawnOptions expects a mutable array
+        stdio: ["pipe", "pipe", "pipe"] as any,
+        windowsHide: true,
+        shell: false,
+      };
+
+      // Windows: spawning `.cmd/.bat` directly may throw spawn EINVAL.
+      // Route through cmd.exe to ensure consistent execution.
+      if (isWindows() && /\.(cmd|bat)$/i.test(resolvedEntry.command)) {
+        const cmdExe = process.env.COMSPEC || "C:\\Windows\\System32\\cmd.exe";
+        const cmdLine = [
+          quoteCmdArg(resolvedEntry.command),
+          ...resolvedEntry.args.map(quoteCmdArg),
+        ].join(" ");
+        proc = spawn(cmdExe, ["/d", "/s", "/c", cmdLine], spawnOptions);
+      } else {
+        proc = spawn(resolvedEntry.command, resolvedEntry.args, spawnOptions);
+      }
 
       // 发送 MCP 初始化请求
       const initRequest = {
@@ -1131,7 +1169,11 @@ class McpProxyManager {
       proc.stdin.write(JSON.stringify(initRequest) + "\n");
 
       // 等待初始化响应
-      await this.waitForMcpResponse(proc, 1, 5000);
+      const timeoutMs = guessMcpDiscoverTimeoutMs(
+        resolvedEntry.command,
+        resolvedEntry.args,
+      );
+      await this.waitForMcpResponse(proc, 1, timeoutMs);
 
       // 发送 tools/list 请求
       const toolsRequest = {
@@ -1143,7 +1185,7 @@ class McpProxyManager {
       proc.stdin.write(JSON.stringify(toolsRequest) + "\n");
 
       // 等待 tools/list 响应
-      const response = await this.waitForMcpResponse(proc, 2, 5000);
+      const response = await this.waitForMcpResponse(proc, 2, timeoutMs);
 
       // 验证响应格式
       if (!response?.result?.tools || !Array.isArray(response.result.tools)) {

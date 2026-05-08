@@ -64,6 +64,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [editingServerId, setEditingServerId] = useState("");
   const [deletingServerId, setDeletingServerId] = useState<string | null>(null);
+  const [testingServerId, setTestingServerId] = useState<string | null>(null);
 
   // 监听主题变化
   useEffect(() => {
@@ -388,6 +389,8 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   };
 
   const handleTestServer = async (serverId: string) => {
+    if (testingServerId) return;
+    setTestingServerId(serverId);
     try {
       // 先确保内存中的最新配置已持久化到 DB，再调用 discoverTools
       const latest = getCurrentConfigForUi();
@@ -407,6 +410,8 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
       }
     } catch (e) {
       message.error(t("Claw.MCP.list.testFailed", { 0: String(e) }));
+    } finally {
+      setTestingServerId(null);
     }
   };
 
@@ -629,6 +634,11 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                                 size="small"
                                 type="text"
                                 icon={<CheckCircleOutlined />}
+                                loading={testingServerId === serverId}
+                                disabled={
+                                  !!testingServerId &&
+                                  testingServerId !== serverId
+                                }
                                 onClick={() => handleTestServer(serverId)}
                               />
                               <Button
