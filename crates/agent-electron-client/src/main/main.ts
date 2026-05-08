@@ -228,10 +228,16 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   } else {
     // 生产环境：dist 目录被打包到 app.asar 中
-    // 使用 file:// 协议直接加载 asar 内的文件
-    const indexUrl = `file://${process.resourcesPath}/app.asar/dist/index.html`;
-    log.info("Loading app from:", indexUrl);
-    mainWindow.loadURL(indexUrl);
+    // 用 loadFile 让 Electron 内部走 pathToFileURL，避免 Windows 上路径含空格 / 中文 / 反斜杠时
+    // 拼出畸形 file:// URL，进而影响 Monaco 等通过 window.location.href 解析相对路径的资源加载
+    const indexPath = path.join(
+      process.resourcesPath,
+      "app.asar",
+      "dist",
+      "index.html",
+    );
+    log.info("Loading app from:", indexPath);
+    mainWindow.loadFile(indexPath);
   }
 
   // Handle load failures
