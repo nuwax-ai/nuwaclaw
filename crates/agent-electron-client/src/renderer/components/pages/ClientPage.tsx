@@ -878,6 +878,25 @@ function ClientPage({
                   >
                     {t("Claw.Client.stop")}
                   </Button>
+                ) : hasError ? (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <Button
+                      size="small"
+                      onClick={() => handleStopService(svc.key)}
+                      disabled={isAnyOperating}
+                    >
+                      {t("Claw.Client.stop")}
+                    </Button>
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<PlayCircleOutlined />}
+                      onClick={() => handleStartServiceManual(svc.key)}
+                      disabled={isAnyOperating}
+                    >
+                      {t("Claw.Client.start")}
+                    </Button>
+                  </div>
                 ) : (
                   <Button
                     size="small"

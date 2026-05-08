@@ -2225,6 +2225,131 @@ export function getDependenciesSummary(): {
   };
 }
 
+// ==================== Hermes Agent (Optional) ====================
+
+/**
+ * 检测 Hermes Agent 是否已安装
+ *
+ * 优先级：
+ * 1. ~/.nuwaclaw/bin/hermes（通过 uv tool install 安装到 app bin 目录）
+ * 2. 系统 PATH（hermes）
+ */
+export async function checkHermesAgent(): Promise<{
+  installed: boolean;
+  version?: string;
+  binPath?: string;
+}> {
+  const binName = isWindows() ? "hermes.exe" : "hermes";
+  const localBinPath = path.join(getAppBinDir(), binName);
+
+  if (fs.existsSync(localBinPath)) {
+    const version = await getHermesVersion(localBinPath);
+    log.info(
+      `[checkHermesAgent] Found in app bin: ${localBinPath}, version=${version ?? "unknown"}`,
+    );
+    return { installed: true, version, binPath: localBinPath };
+  }
+
+  const result = await detectShellCommand("hermes");
+  if (result.installed) {
+    log.info(
+      `[checkHermesAgent] Found in PATH, version=${result.version ?? "unknown"}`,
+    );
+    return {
+      installed: true,
+      version: result.version,
+      binPath: result.binPath,
+    };
+  }
+
+  log.info("[checkHermesAgent] Not installed");
+  return { installed: false };
+}
+
+async function getHermesVersion(binPath: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const proc = spawn(binPath, ["--version"], {
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    let stdout = "";
+    proc.stdout?.on("data", (data) => {
+      stdout += data.toString();
+    });
+    proc.on("close", () => {
+      const match = stdout.match(/(\d+\.\d+\.\d+)/);
+      resolve(match ? match[1] : undefined);
+    });
+    proc.on("error", () => resolve(undefined));
+  });
+}
+
+/**
+ * 通过 uv tool install 安装 Hermes Agent（含 ACP 扩展）
+ *
+ * 安装到 ~/.nuwaclaw/bin/，与 bundled uv 配合使用。
+ */
+export async function installHermesAgent(): Promise<{
+  success: boolean;
+  version?: string;
+  binPath?: string;
+  error?: string;
+}> {
+  const uvBin = getUvBinPath();
+  if (!fs.existsSync(uvBin)) {
+    return { success: false, error: "uv not found" };
+  }
+
+  const appBinDir = getAppBinDir();
+  if (!fs.existsSync(appBinDir)) {
+    fs.mkdirSync(appBinDir, { recursive: true });
+  }
+
+  log.info("[installHermesAgent] Installing hermes-agent[acp] via uv...");
+
+  return new Promise((resolve) => {
+    const proc = spawn(
+      uvBin,
+      [
+        "tool",
+        "install",
+        "hermes-agent[acp]",
+        "--install-dir",
+        appBinDir,
+        "--force",
+      ],
+      {
+        env: { ...process.env, ...getAppEnv() },
+        stdio: "pipe",
+      },
+    );
+
+    let stderr = "";
+    proc.stderr?.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on("error", (error) => {
+      log.error("[installHermesAgent] Install error:", error);
+      resolve({ success: false, error: error.message });
+    });
+
+    proc.on("close", async (code) => {
+      if (code === 0) {
+        const result = await checkHermesAgent();
+        log.info("[installHermesAgent] Installed:", result);
+        resolve({
+          success: true,
+          version: result.version,
+          binPath: result.binPath,
+        });
+      } else {
+        log.error("[installHermesAgent] Install failed:", stderr);
+        resolve({ success: false, error: stderr || "Install failed" });
+      }
+    });
+  });
+}
+
 // ==================== Utils ====================
 
 /**
@@ -2272,4 +2397,6 @@ export default {
   getClaudeCodeAcpBundledDir,
   getChat2responseBundledDir,
   getGatewayBundledDir,
+  checkHermesAgent,
+  installHermesAgent,
 };

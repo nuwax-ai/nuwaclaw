@@ -299,6 +299,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     installMissing: () => ipcRenderer.invoke("dependencies:installMissing"),
     getAppDataDir: () => ipcRenderer.invoke("dependencies:getAppDataDir"),
     getRequiredList: () => ipcRenderer.invoke("dependencies:getRequiredList"),
+    checkHermesAgent: () => ipcRenderer.invoke("dependencies:checkHermesAgent"),
+    installHermesAgent: () =>
+      ipcRenderer.invoke("dependencies:installHermesAgent"),
   },
 
   // Engine Manager (claude-code / nuwaxcode)

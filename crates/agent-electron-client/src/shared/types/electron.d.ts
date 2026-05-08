@@ -279,6 +279,19 @@ export interface DependenciesAPI {
   }>;
   getAppDataDir: () => Promise<string>;
   getRequiredList: () => Promise<LocalDependencyItem[]>;
+  checkHermesAgent: () => Promise<{
+    success: boolean;
+    installed?: boolean;
+    version?: string;
+    binPath?: string;
+    error?: string;
+  }>;
+  installHermesAgent: () => Promise<{
+    success: boolean;
+    version?: string;
+    binPath?: string;
+    error?: string;
+  }>;
 }
 
 export type AgentEngine =

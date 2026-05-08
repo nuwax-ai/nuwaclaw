@@ -593,6 +593,17 @@ export function resolveAcpBinary(
   }
 
   if (engine === "hermes-agent") {
+    const binName = isWindows() ? "hermes.exe" : "hermes";
+    const localPath = path.join(
+      app.getPath("home"),
+      APP_DATA_DIR_NAME,
+      "bin",
+      binName,
+    );
+    if (fs.existsSync(localPath)) {
+      log.info(`[AcpClient] hermes-agent: using local binary: ${localPath}`);
+      return { binPath: localPath, binArgs: ["acp"], isNative: true };
+    }
     return { binPath: "hermes", binArgs: ["acp"], isNative: true };
   }
 

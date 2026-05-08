@@ -692,6 +692,7 @@ export default function SettingsPage() {
                         { value: "claude-code", label: "Claude Code (ACP)" },
                         { value: "nuwaxcode", label: "nuwaxcode (ACP)" },
                         { value: "codex-cli", label: "Codex CLI (ACP)" },
+                        { value: "hermes-agent", label: "Hermes Agent (ACP)" },
                       ]}
                     />
                   </Form.Item>

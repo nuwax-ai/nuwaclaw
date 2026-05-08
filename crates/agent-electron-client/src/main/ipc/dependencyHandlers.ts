@@ -162,4 +162,28 @@ export function registerDependencyHandlers(): void {
       await import("../services/system/dependencies");
     return getSetupRequiredDependencies();
   });
+
+  ipcMain.handle("dependencies:checkHermesAgent", async () => {
+    const { checkHermesAgent } =
+      await import("../services/system/dependencies");
+    try {
+      const result = await checkHermesAgent();
+      return { success: true, ...result };
+    } catch (error) {
+      return { success: false, installed: false, error: String(error) };
+    }
+  });
+
+  ipcMain.handle("dependencies:installHermesAgent", async () => {
+    const { installHermesAgent } =
+      await import("../services/system/dependencies");
+    log.info("[IPC] Installing Hermes Agent...");
+    try {
+      const result = await installHermesAgent();
+      return result;
+    } catch (error) {
+      log.error("[IPC] Hermes Agent install failed:", error);
+      return { success: false, error: String(error) };
+    }
+  });
 }
