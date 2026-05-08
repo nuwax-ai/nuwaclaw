@@ -140,8 +140,12 @@ if [[ -z "$GH_BIN" ]]; then
   exit 127
 fi
 
-# workflow_dispatch 需要 ref：使用仓库默认分支，仅 tag 由用户指定
-REF=$(run_gh repo view "$REPO" --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo "main")
+# workflow_dispatch 需要 ref：优先使用当前分支（workflow 定义需在该分支上存在），
+# 当前分支无远程追踪时回退到仓库默认分支。
+REF=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null | sed 's|^.*/||')
+if [ -z "$REF" ]; then
+  REF=$(run_gh repo view "$REPO" --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo "main")
+fi
 
 # 获取 GitHub token
 TOKEN=$(run_gh auth token)
