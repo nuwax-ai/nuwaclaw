@@ -407,7 +407,7 @@ export interface AcpConnectionConfig {
   chat2responseEnabled?: boolean;
   env?: Record<string, string>;
   /** Engine type for process registry tracking */
-  engineType?: "claude-code" | "nuwaxcode" | "codex-cli";
+  engineType?: "claude-code" | "nuwaxcode" | "codex" | "codex-cli";
   /** Purpose of this process (for process registry) */
   purpose?: "engine";
   /** Sandbox wrapping configuration (omit to disable) */
@@ -514,7 +514,7 @@ function getNuwaxcodePersistentLogDir(): string {
  * (not via `node`).
  */
 export function resolveAcpBinary(
-  engine: "claude-code" | "nuwaxcode" | "codex-cli",
+  engine: "claude-code" | "nuwaxcode" | "codex" | "codex-cli",
 ): {
   binPath: string;
   binArgs: string[];
@@ -559,13 +559,13 @@ export function resolveAcpBinary(
     };
   }
 
-  // -- codex-cli --
+  // -- codex / codex-cli (backward compat) --
 
-  if (engine === "codex-cli") {
+  if (engine === "codex" || engine === "codex-cli") {
     // 优先使用应用内打包的二进制
     const bundledPath = getCodexAcpBundledBinPath();
     if (bundledPath) {
-      log.info(`[AcpClient] codex-cli: using bundled binary: ${bundledPath}`);
+      log.info(`[AcpClient] codex: using bundled binary: ${bundledPath}`);
       return { binPath: bundledPath, binArgs: [], isNative: true };
     }
     // 回退：npm 全局安装
@@ -578,7 +578,7 @@ export function resolveAcpBinary(
       binName,
     );
     if (fs.existsSync(localPath)) {
-      log.info(`[AcpClient] codex-cli: using npm binary: ${localPath}`);
+      log.info(`[AcpClient] codex: using npm binary: ${localPath}`);
       return { binPath: localPath, binArgs: [], isNative: true };
     }
     return { binPath: "codex-acp", binArgs: [], isNative: true };
@@ -736,7 +736,9 @@ export async function createAcpConnection(
   }
 
   const gatewayStatus =
-    config.engineType === "codex-cli" ? getGatewayStatus() : null;
+    config.engineType === "codex" || config.engineType === "codex-cli"
+      ? getGatewayStatus()
+      : null;
   const openAICompatRouting = applyOpenAICompatibleEnv(
     {
       ...config,
@@ -748,20 +750,20 @@ export async function createAcpConnection(
   );
 
   if (
-    config.engineType === "codex-cli" &&
+    (config.engineType === "codex" || config.engineType === "codex-cli") &&
     openAICompatRouting.isOpenAICompatible &&
     openAICompatRouting.chat2responseReason === "missing-proxy-url"
   ) {
     log.warn(
-      "[AcpClient] codex-cli chat2response not enabled: proxy URL is missing; keeping original OPENAI_BASE_URL",
+      "[AcpClient] codex chat2response not enabled: proxy URL is missing; keeping original OPENAI_BASE_URL",
     );
   }
 
   if (
-    config.engineType === "codex-cli" &&
+    (config.engineType === "codex" || config.engineType === "codex-cli") &&
     openAICompatRouting.isOpenAICompatible
   ) {
-    log.info("[AcpClient] codex-cli openai compatibility routing", {
+    log.info("[AcpClient] codex openai compatibility routing", {
       chat2responseEnabled: openAICompatRouting.chat2responseEnabled,
       reason: openAICompatRouting.chat2responseReason,
       openAIBaseUrlSource: openAICompatRouting.openAIBaseUrlSource,

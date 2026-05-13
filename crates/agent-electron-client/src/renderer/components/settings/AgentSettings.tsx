@@ -177,7 +177,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
                 const defaultBinPaths: Record<string, string> = {
                   "claude-code": "claude-code",
                   nuwaxcode: "nuwaxcode",
-                  "codex-cli": "codex-acp",
+                  codex: "codex-acp",
                 };
                 setBinPath(defaultBinPaths[v] || v);
               }}
@@ -210,7 +210,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
                   </Text>
                 </Space>
               </Select.Option>
-              <Select.Option value="codex-cli">
+              <Select.Option value="codex">
                 <Space>
                   <span>Codex CLI (ACP)</span>
                   <Tag

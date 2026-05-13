@@ -533,6 +533,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getConfig: () => ipcRenderer.invoke("quickInit:getConfig"),
   },
 
+  // Intervention (ACP permission via intervention system)
+  intervention: {
+    respond: (payload: any) =>
+      ipcRenderer.invoke("intervention:respond", payload),
+    cancel: (interventionId: string) =>
+      ipcRenderer.invoke("intervention:respond", {
+        interventionId,
+        action: "cancel",
+        source: "acp_permission",
+        protocol: "acp",
+        acpResponse: { outcome: { outcome: "cancelled" } },
+      }),
+  },
+
   // Event listeners
   // 保存 callback → wrapper 映射，使 off() 能正确移除 on() 注册的 listener
   on: (channel: string, callback: (...args: unknown[]) => void) => {
@@ -553,6 +567,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "memory:cleanup",
       "admin:servicesRestarting",
       "admin:servicesRestarted",
+      "intervention:request",
+      "intervention:updated",
     ];
     if (validChannels.includes(channel)) {
       const wrapper = (_: unknown, ...args: unknown[]) => callback(...args);

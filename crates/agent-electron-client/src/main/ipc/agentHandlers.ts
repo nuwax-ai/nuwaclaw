@@ -10,7 +10,7 @@ import {
 
 const agentConfigSchema = z
   .object({
-    engine: z.enum(["nuwaxcode", "claude-code", "codex-cli"]),
+    engine: z.enum(["nuwaxcode", "claude-code", "codex"]),
     workspaceDir: z.string(),
     apiKey: z.string().optional(),
     baseUrl: z.string().optional(),
@@ -453,6 +453,36 @@ export function registerAgentHandlers(): void {
       return { success: false, error: String(error), data: [] };
     }
   });
+
+  // === Intervention IPC handlers ===
+
+  ipcMain.handle(
+    "intervention:respond",
+    async (
+      _,
+      payload: import("@shared/types/intervention").InterventionResponse,
+    ) => {
+      const acpEngine = agentService.getAcpEngine();
+      if (!acpEngine) {
+        return { success: false, error: "no active engine" };
+      }
+      const result = acpEngine.resolvePermissionIntervention({
+        interventionId: payload.interventionId,
+        revision: payload.revision,
+        source: payload.source,
+        protocol: payload.protocol,
+        action: payload.action,
+        acpResponse: payload.acpResponse,
+        resolvedBy: { kind: "web" as const, clientId: "electron-ipc" },
+        resolvedAt: Date.now(),
+      });
+      return {
+        success: result.ok,
+        hostStatus: result.hostStatus,
+        error: result.error,
+      };
+    },
+  );
 
   // Stop a specific session (abort + delete from engine)
   ipcMain.handle("agent:stopSession", async (_, sessionId: string) => {

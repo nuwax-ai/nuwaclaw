@@ -84,6 +84,13 @@ import { ACP_ABORT_TIMEOUT } from "@shared/constants";
 import { APP_DATA_DIR_NAME } from "../../constants";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
+import { resolveEffectiveMode, type AcpMode } from "@shared/types/acpMode";
+import { approvalInterventionService } from "../../intervention";
+import type {
+  PendingAcpPermission,
+  NotifyResolvedRequest,
+  NotifyResolvedResponse,
+} from "@shared/types/intervention";
 
 /** Safe JSON.stringify that handles circular references */
 function safeStringify(obj: unknown): string {
@@ -149,6 +156,16 @@ export class AcpEngine extends EventEmitter {
       options: AcpPermissionOption[];
     }
   >();
+  private effectiveModes = new Map<string, AcpMode>();
+
+  setEffectiveMode(acpSessionId: string, mode: AcpMode): void {
+    this.effectiveModes.set(acpSessionId, mode);
+  }
+
+  private getEffectiveMode(acpSessionId: string): AcpMode {
+    return this.effectiveModes.get(acpSessionId) ?? "yolo";
+  }
+
   private activePromptSessions = new Set<string>();
   private activePromptRejects = new Map<string, (reason: Error) => void>();
   private strictPermissionSnapshotLoggedSessions = new Set<string>();
@@ -879,6 +896,8 @@ export class AcpEngine extends EventEmitter {
     this.activePromptSessions.clear();
     this.activePromptRejects.clear();
     this.strictPermissionSnapshotLoggedSessions.clear();
+    this.effectiveModes.clear();
+    approvalInterventionService.destroy();
     this.config = null;
     this._ready = false;
     log.info(`${this.logTag} Destroyed`);
@@ -1247,25 +1266,6 @@ export class AcpEngine extends EventEmitter {
       `${this.logTag} ✅ ACP newSession completed (${createMs}ms), acpSessionId=${acpResult.sessionId}`,
     );
 
-    // Set full-access mode for engines that support session/setMode
-    // (codex-cli defaults to "auto" which prompts for permissions)
-    if (this.acpConnection.setSessionMode) {
-      try {
-        await this.acpConnection.setSessionMode({
-          sessionId: acpResult.sessionId,
-          modeId: "full-access",
-        });
-        log.info(
-          `${this.logTag} 🔓 Session mode set to full-access for ${acpResult.sessionId}`,
-        );
-      } catch (err) {
-        log.warn(
-          `${this.logTag} ⚠️ setSessionMode failed (engine may not support it):`,
-          (err as Error).message,
-        );
-      }
-    }
-
     firstTokenTrace.trace(
       "acp.new_session.done",
       {
@@ -1368,6 +1368,9 @@ export class AcpEngine extends EventEmitter {
       }
 
       this.activePromptSessions.delete(sessionId);
+
+      approvalInterventionService.cancelByAcpSession(sessionId);
+      this.effectiveModes.delete(sessionId);
 
       // 2. Send cancel to ACP binary
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1831,6 +1834,14 @@ export class AcpEngine extends EventEmitter {
     }
 
     try {
+      const { mode: effectiveMode, isFallback } = resolveEffectiveMode(
+        request.agent_config?.agent_server?.agent_mode,
+      );
+      if (isFallback) {
+        log.warn(
+          `${this.logTag} Unknown agent_mode "${request.agent_config?.agent_server?.agent_mode}", fail-safe to "ask"`,
+        );
+      }
       const envModel =
         this.config.env?.OPENCODE_MODEL || this.config.env?.ANTHROPIC_MODEL;
       log.info(`${this.logTag} 📨 chat() request received`, {
@@ -1952,6 +1963,10 @@ export class AcpEngine extends EventEmitter {
           projectId: request.project_id,
           engine: this.engineName,
         });
+      }
+
+      if (session.acpSessionId) {
+        this.setEffectiveMode(session.acpSessionId, effectiveMode);
       }
 
       timer.end("acp.chat.sessionSetup", {
@@ -2404,7 +2419,6 @@ User question: ${request.prompt}`;
       return { outcome: { outcome: "cancelled" } };
     }
 
-    // Deny question-type requests (interactive prompts that would block the agent)
     if (params.toolCall.kind === "question") {
       log.info(
         `${this.logTag} 🚫 Denying question-type request: tool=${params.toolCall.title}`,
@@ -2433,7 +2447,6 @@ User question: ${request.prompt}`;
           this.strictPermissionSnapshotLoggedSessions.size >=
           AcpEngine.MAX_SNAPSHOT_LOGGED_SESSIONS
         ) {
-          // Evict oldest entry (Set iteration order is insertion order)
           const oldest = this.strictPermissionSnapshotLoggedSessions
             .values()
             .next().value;
@@ -2479,46 +2492,92 @@ User question: ${request.prompt}`;
       return { outcome: { outcome: "cancelled" } };
     }
 
-    const strictWriteMode = strictEnabled && strictCheck.isWriteRequest;
-    const selected = strictWriteMode
-      ? params.options.find((o) => o.kind === "allow_once")
-      : params.options.find((o) => o.kind === "allow_always") ||
-        params.options.find((o) => o.kind === "allow_once") ||
-        params.options[0];
+    const effectiveMode = this.getEffectiveMode(acpSessionId);
 
-    if (strictWriteMode && !selected) {
-      log.debug(
-        `${this.logTag} strict write permission blocked (allow_once option missing)`,
-        {
-          toolKind: params.toolCall.kind,
-          toolTitle: params.toolCall.title,
-        },
+    if (effectiveMode === "yolo") {
+      const strictWriteMode = strictEnabled && strictCheck.isWriteRequest;
+      const selected = strictWriteMode
+        ? params.options.find((o) => o.kind === "allow_once")
+        : params.options.find((o) => o.kind === "allow_always") ||
+          params.options.find((o) => o.kind === "allow_once") ||
+          params.options[0];
+
+      if (strictWriteMode && !selected) {
+        log.debug(
+          `${this.logTag} strict write permission blocked (allow_once option missing)`,
+          {
+            toolKind: params.toolCall.kind,
+            toolTitle: params.toolCall.title,
+          },
+        );
+        return { outcome: { outcome: "cancelled" } };
+      }
+
+      if (selected) {
+        if (
+          selected.kind !== "allow_always" &&
+          selected.kind !== "allow_once"
+        ) {
+          log.warn(`${this.logTag} yolo fallback selected non-allow option`, {
+            kind: selected.kind,
+            optionId: selected.optionId,
+            toolTitle: params.toolCall.title,
+          });
+        }
+        if (strictWriteMode) {
+          log.debug(`${this.logTag} strict write permission allowed_once`, {
+            toolKind: params.toolCall.kind,
+            toolTitle: params.toolCall.title,
+            optionId: selected.optionId,
+            candidatePaths: strictCheck.candidatePaths,
+            resolvedPaths: strictCheck.resolvedPaths,
+          });
+        } else {
+          log.info(
+            `${this.logTag} 🔓 Permission auto-approved (yolo): tool=${params.toolCall.title}, kind=${selected.kind}, optionId=${selected.optionId}`,
+          );
+        }
+        return {
+          outcome: { outcome: "selected", optionId: selected.optionId },
+        };
+      }
+
+      log.warn(
+        `${this.logTag} ⚠️ No selectable options; cancelling: tool=${params.toolCall.title}`,
       );
       return { outcome: { outcome: "cancelled" } };
     }
 
-    if (selected) {
-      if (strictWriteMode) {
-        log.debug(`${this.logTag} strict write permission allowed_once`, {
-          toolKind: params.toolCall.kind,
-          toolTitle: params.toolCall.title,
-          optionId: selected.optionId,
-          candidatePaths: strictCheck.candidatePaths,
-          resolvedPaths: strictCheck.resolvedPaths,
-        });
-      } else {
-        log.info(
-          `${this.logTag} 🔓 Permission auto-approved: tool=${params.toolCall.title}, kind=${selected.kind}, optionId=${selected.optionId}`,
-        );
-      }
-      return {
-        outcome: { outcome: "selected", optionId: selected.optionId },
-      };
-    }
+    const appSessionId = acpSessionId;
 
-    log.warn(
-      `${this.logTag} ⚠️ Permission request has no selectable options; cancelling: tool=${params.toolCall.title}`,
+    const { interventionRequest, acpResponsePromise } =
+      approvalInterventionService.createPending({
+        engine: this.engineName,
+        appSessionId,
+        acpSessionId,
+        acpRequest: params,
+        timeoutMs: 120_000,
+      });
+
+    log.info(
+      `${this.logTag} 📋 Permission pending (ask mode): id=${interventionRequest.id} tool=${params.toolCall.title}`,
     );
-    return { outcome: { outcome: "cancelled" } };
+
+    this.emit("computer:progress", {
+      sessionId: appSessionId,
+      acpSessionId,
+      messageType: "acpRequestPermission",
+      subType: "session/request_permission",
+      data: interventionRequest,
+      timestamp: new Date().toISOString(),
+    });
+
+    return acpResponsePromise;
+  }
+
+  resolvePermissionIntervention(
+    payload: NotifyResolvedRequest,
+  ): NotifyResolvedResponse {
+    return approvalInterventionService.resolveFromCallback(payload);
   }
 }

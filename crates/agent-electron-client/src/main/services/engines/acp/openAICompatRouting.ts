@@ -1,4 +1,8 @@
-export type OpenAICompatEngineType = "claude-code" | "nuwaxcode" | "codex-cli";
+export type OpenAICompatEngineType =
+  | "claude-code"
+  | "nuwaxcode"
+  | "codex"
+  | "codex-cli";
 
 export interface OpenAICompatInput {
   engineType?: OpenAICompatEngineType;
@@ -102,7 +106,7 @@ export function applyOpenAICompatibleEnv(
   let chat2responseReason: OpenAICompatRoutingResult["chat2responseReason"] =
     "not-applicable";
 
-  if (config.engineType === "codex-cli") {
+  if (config.engineType === "codex" || config.engineType === "codex-cli") {
     const envFlag = parseBooleanFlag(
       env.NUWAX_CHAT2RESPONSE_ENABLED ?? env.CHAT2RESPONSE_ENABLED,
     );

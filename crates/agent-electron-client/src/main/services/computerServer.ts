@@ -42,10 +42,21 @@ import type {
 } from "@shared/types/computerTypes";
 import { redactForLog, redactStringForLog } from "./utils/logRedact";
 import { DEFAULT_SSE_HEARTBEAT_INTERVAL } from "@shared/constants";
+import type {
+  NotifyResolvedRequest,
+  NotifyResolvedResponse,
+} from "@shared/types/intervention";
+import {
+  verifyInternalCallback,
+  validateNotifyResolvedRequest,
+  statusFromNotifyResolvedResult,
+  getOrCreateInternalSecret,
+} from "./intervention";
 
 let server: http.Server | null = null;
 let sseClients: Map<string, http.ServerResponse[]> = new Map();
 let lastError: string | null = null;
+let interventionSecret: string | null = null;
 
 /** 每个 sessionId 最多缓冲的早期 SSE 事件条数，防止内存泄漏 */
 const SSE_EVENT_BUFFER_MAX = 50;
@@ -912,6 +923,57 @@ async function handleRequest(
       return;
     }
 
+    // POST /computer/notify-resolved — Backend → Host callback for approval intervention
+    if (pathname === "/computer/notify-resolved" && method === "POST") {
+      if (!interventionSecret) {
+        sendJson(res, 500, {
+          ok: false,
+          error: {
+            code: "internal_error",
+            message: "intervention secret not initialized",
+          },
+        });
+        return;
+      }
+
+      const auth = verifyInternalCallback(req, interventionSecret);
+      if (!auth.ok) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "unauthorized", message: "invalid internal secret" },
+        });
+        return;
+      }
+
+      const body = (await parseBody(req)) as NotifyResolvedRequest;
+      const validation = validateNotifyResolvedRequest(body);
+      if (!validation.ok) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "invalid_acp_response", message: validation.message },
+        });
+        return;
+      }
+
+      const acpEngine = agentService.getAcpEngine();
+      if (!acpEngine) {
+        sendJson(res, 404, {
+          ok: false,
+          hostStatus: "gone",
+          error: { code: "not_found", message: "ACP engine not running" },
+        });
+        return;
+      }
+
+      // TODO: 需要在 acpEngine 中添加 resolvePermissionIntervention 方法
+      const result: NotifyResolvedResponse = (
+        acpEngine as any
+      ).resolvePermissionIntervention(body);
+      const status = statusFromNotifyResolvedResult(result);
+      sendJson(res, status, result);
+      return;
+    }
+
     // POST /computer/gui-agent/vision-model — 保存 GUI Agent 视觉模型配置
     if (pathname === "/computer/gui-agent/vision-model" && method === "POST") {
       const body = await parseBody(req);
@@ -1166,6 +1228,23 @@ export function startComputerServer(
     }
 
     server = http.createServer(handleRequest);
+
+    // 初始化 intervention internal secret
+    (async () => {
+      try {
+        const { readSetting, writeSetting } = await import("../db");
+        interventionSecret = await getOrCreateInternalSecret(
+          (key) => Promise.resolve(readSetting(key) as string | null),
+          (key, value) =>
+            Promise.resolve(writeSetting(key, value)).then(() => {}),
+        );
+      } catch (err) {
+        log.warn(
+          "[HTTP] Failed to initialize intervention secret:",
+          (err as Error).message,
+        );
+      }
+    })();
 
     server.on("error", (err: NodeJS.ErrnoException) => {
       log.error("❌ [ComputerServer] Server error:", err);

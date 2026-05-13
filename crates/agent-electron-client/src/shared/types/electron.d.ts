@@ -288,7 +288,7 @@ export interface DependenciesAPI {
   getRequiredList: () => Promise<LocalDependencyItem[]>;
 }
 
-export type AgentEngine = "claude-code" | "nuwaxcode" | "codex-cli";
+export type AgentEngine = "claude-code" | "nuwaxcode" | "codex";
 
 export interface EngineStartConfig {
   engine: AgentEngine;

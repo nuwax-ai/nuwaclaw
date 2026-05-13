@@ -698,7 +698,7 @@ export default function SettingsPage() {
                           label: "nuwaxcode (ACP) — OpenAI",
                         },
                         {
-                          value: "codex-cli",
+                          value: "codex",
                           label: "Codex CLI (ACP) — OpenAI",
                         },
                       ]}

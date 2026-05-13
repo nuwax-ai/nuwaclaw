@@ -20,6 +20,7 @@ import {
   AUTH_KEYS,
   DEFAULT_AI_ENGINE,
 } from "@shared/constants";
+import type { AgentEngineType } from "@shared/types/electron";
 import { logger } from "../utils/logService";
 
 // ==================== Types =============

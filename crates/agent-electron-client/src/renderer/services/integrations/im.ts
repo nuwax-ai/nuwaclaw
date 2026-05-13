@@ -1,4 +1,4 @@
-export type IMPlatform = 'discord' | 'telegram' | 'dingtalk' | 'feishu';
+export type IMPlatform = "discord" | "telegram" | "dingtalk" | "feishu";
 
 export interface IMConfig {
   platform: IMPlatform;
@@ -7,6 +7,8 @@ export interface IMConfig {
   botToken?: string;
   apiKey?: string;
   apiSecret?: string;
+  appKey?: string;
+  appId?: string;
   webhookUrl?: string;
   allowedUsers?: string[];
   autoReply?: boolean;
@@ -47,10 +49,10 @@ class IMService {
 
   constructor() {
     // Initialize with empty configs
-    this.configs.set('discord', { platform: 'discord', enabled: false });
-    this.configs.set('telegram', { platform: 'telegram', enabled: false });
-    this.configs.set('dingtalk', { platform: 'dingtalk', enabled: false });
-    this.configs.set('feishu', { platform: 'feishu', enabled: false });
+    this.configs.set("discord", { platform: "discord", enabled: false });
+    this.configs.set("telegram", { platform: "telegram", enabled: false });
+    this.configs.set("dingtalk", { platform: "dingtalk", enabled: false });
+    this.configs.set("feishu", { platform: "feishu", enabled: false });
   }
 
   getConfig(platform: IMPlatform): IMConfig | undefined {
@@ -76,25 +78,27 @@ class IMService {
     this.handlers.set(platform, handler);
   }
 
-  async connect(platform: IMPlatform): Promise<{ success: boolean; error?: string }> {
+  async connect(
+    platform: IMPlatform,
+  ): Promise<{ success: boolean; error?: string }> {
     const config = this.configs.get(platform);
     if (!config || !config.enabled) {
-      return { success: false, error: 'Platform not enabled' };
+      return { success: false, error: "Platform not enabled" };
     }
 
     try {
       // Platform-specific connection logic
       switch (platform) {
-        case 'discord':
+        case "discord":
           return await this.connectDiscord(config);
-        case 'telegram':
+        case "telegram":
           return await this.connectTelegram(config);
-        case 'dingtalk':
+        case "dingtalk":
           return await this.connectDingtalk(config);
-        case 'feishu':
+        case "feishu":
           return await this.connectFeishu(config);
         default:
-          return { success: false, error: 'Unknown platform' };
+          return { success: false, error: "Unknown platform" };
       }
     } catch (error) {
       return { success: false, error: String(error) };
@@ -105,23 +109,26 @@ class IMService {
     this.connections.set(platform, false);
   }
 
-  async sendMessage(platform: IMPlatform, options: IMSendOptions): Promise<{ success: boolean; error?: string }> {
+  async sendMessage(
+    platform: IMPlatform,
+    options: IMSendOptions,
+  ): Promise<{ success: boolean; error?: string }> {
     if (!this.connections.get(platform)) {
-      return { success: false, error: 'Not connected' };
+      return { success: false, error: "Not connected" };
     }
 
     try {
       switch (platform) {
-        case 'discord':
+        case "discord":
           return await this.sendDiscordMessage(options);
-        case 'telegram':
+        case "telegram":
           return await this.sendTelegramMessage(options);
-        case 'dingtalk':
+        case "dingtalk":
           return await this.sendDingtalkMessage(options);
-        case 'feishu':
+        case "feishu":
           return await this.sendFeishuMessage(options);
         default:
-          return { success: false, error: 'Unknown platform' };
+          return { success: false, error: "Unknown platform" };
       }
     } catch (error) {
       return { success: false, error: String(error) };
@@ -129,42 +136,49 @@ class IMService {
   }
 
   // Discord implementation
-  private async connectDiscord(config: IMConfig): Promise<{ success: boolean; error?: string }> {
+  private async connectDiscord(
+    config: IMConfig,
+  ): Promise<{ success: boolean; error?: string }> {
     if (!config.botToken) {
-      return { success: false, error: 'Bot token required' };
+      return { success: false, error: "Bot token required" };
     }
-    
+
     // Test API connection
     try {
-      const response = await fetch('https://discord.com/api/v10/users/@me', {
-        headers: { 'Authorization': `Bot ${config.botToken}` }
+      const response = await fetch("https://discord.com/api/v10/users/@me", {
+        headers: { Authorization: `Bot ${config.botToken}` },
       });
-      
+
       if (response.ok) {
-        this.connections.set('discord', true);
+        this.connections.set("discord", true);
         return { success: true };
       }
-      return { success: false, error: 'Invalid bot token' };
+      return { success: false, error: "Invalid bot token" };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   }
 
-  private async sendDiscordMessage(options: IMSendOptions): Promise<{ success: boolean; error?: string }> {
-    const config = this.configs.get('discord');
+  private async sendDiscordMessage(
+    options: IMSendOptions,
+  ): Promise<{ success: boolean; error?: string }> {
+    const config = this.configs.get("discord");
     if (!config?.botToken || !options.channelId) {
-      return { success: false, error: 'Missing configuration' };
+      return { success: false, error: "Missing configuration" };
     }
 
     try {
-      const response = await fetch(`https://discord.com/api/v10/channels/${options.channelId}/messages`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bot ${config.botToken}`,
-          'Content-Type': 'application/json',
+      const response = await fetch(
+        `https://discord.com/api/v10/channels/${options.channelId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bot ${config.botToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ content: options.content }),
         },
-        body: JSON.stringify({ content: options.content })
-      });
+      );
 
       return { success: response.ok };
     } catch (error) {
@@ -173,40 +187,49 @@ class IMService {
   }
 
   // Telegram implementation
-  private async connectTelegram(config: IMConfig): Promise<{ success: boolean; error?: string }> {
+  private async connectTelegram(
+    config: IMConfig,
+  ): Promise<{ success: boolean; error?: string }> {
     if (!config.botToken) {
-      return { success: false, error: 'Bot token required' };
+      return { success: false, error: "Bot token required" };
     }
 
     try {
-      const response = await fetch(`https://api.telegram.org/bot${config.botToken}/getMe`);
+      const response = await fetch(
+        `https://api.telegram.org/bot${config.botToken}/getMe`,
+      );
       const data = await response.json();
-      
+
       if (data.ok) {
-        this.connections.set('telegram', true);
+        this.connections.set("telegram", true);
         return { success: true };
       }
-      return { success: false, error: 'Invalid bot token' };
+      return { success: false, error: "Invalid bot token" };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   }
 
-  private async sendTelegramMessage(options: IMSendOptions): Promise<{ success: boolean; error?: string }> {
-    const config = this.configs.get('telegram');
+  private async sendTelegramMessage(
+    options: IMSendOptions,
+  ): Promise<{ success: boolean; error?: string }> {
+    const config = this.configs.get("telegram");
     if (!config?.botToken || !options.userId) {
-      return { success: false, error: 'Missing configuration' };
+      return { success: false, error: "Missing configuration" };
     }
 
     try {
-      const response = await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: options.userId,
-          text: options.content,
-        })
-      });
+      const response = await fetch(
+        `https://api.telegram.org/bot${config.botToken}/sendMessage`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: options.userId,
+            text: options.content,
+          }),
+        },
+      );
 
       return { success: response.ok };
     } catch (error) {
@@ -215,74 +238,88 @@ class IMService {
   }
 
   // DingTalk implementation
-  private async connectDingtalk(config: IMConfig): Promise<{ success: boolean; error?: string }> {
+  private async connectDingtalk(
+    config: IMConfig,
+  ): Promise<{ success: boolean; error?: string }> {
     if (!config.appKey || !config.appSecret) {
-      return { success: false, error: 'AppKey and AppSecret required' };
+      return { success: false, error: "AppKey and AppSecret required" };
     }
 
     try {
       // Get access token
-      const tokenResponse = await fetch('https://api.dingtalk.com/v1.0/oauth2/accessToken', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          appKey: config.appKey,
-          appSecret: config.appSecret,
-        })
-      });
+      const tokenResponse = await fetch(
+        "https://api.dingtalk.com/v1.0/oauth2/accessToken",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            appKey: config.appKey,
+            appSecret: config.appSecret,
+          }),
+        },
+      );
 
       const data = await tokenResponse.json();
-      
+
       if (data.accessToken) {
-        this.connections.set('dingtalk', true);
+        this.connections.set("dingtalk", true);
         return { success: true };
       }
-      return { success: false, error: 'Failed to get access token' };
+      return { success: false, error: "Failed to get access token" };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   }
 
-  private async sendDingtalkMessage(options: IMSendOptions): Promise<{ success: boolean; error?: string }> {
+  private async sendDingtalkMessage(
+    options: IMSendOptions,
+  ): Promise<{ success: boolean; error?: string }> {
     // DingTalk webhook implementation
     if (!options.userId) {
-      return { success: false, error: 'User ID required' };
+      return { success: false, error: "User ID required" };
     }
 
     return { success: true }; // Placeholder
   }
 
   // Feishu ( Lark ) implementation
-  private async connectFeishu(config: IMConfig): Promise<{ success: boolean; error?: string }> {
+  private async connectFeishu(
+    config: IMConfig,
+  ): Promise<{ success: boolean; error?: string }> {
     if (!config.appId || !config.appSecret) {
-      return { success: false, error: 'AppId and AppSecret required' };
+      return { success: false, error: "AppId and AppSecret required" };
     }
 
     try {
-      const response = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          app_id: config.appId,
-          app_secret: config.appSecret,
-        })
-      });
+      const response = await fetch(
+        "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            app_id: config.appId,
+            app_secret: config.appSecret,
+          }),
+        },
+      );
 
       const data = await response.json();
-      
+
       if (data.tenant_access_token) {
-        this.connections.set('feishu', true);
+        this.connections.set("feishu", true);
         return { success: true };
       }
-      return { success: false, error: 'Failed to get tenant token' };
+      return { success: false, error: "Failed to get tenant token" };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   }
 
-  private async sendFeishuMessage(options: IMSendOptions): Promise<{ success: boolean; error?: string }> {
+  private async sendFeishuMessage(
+    options: IMSendOptions,
+  ): Promise<{ success: boolean; error?: string }> {
     if (!options.userId) {
-      return { success: false, error: 'User ID required' };
+      return { success: false, error: "User ID required" };
     }
 
     return { success: true }; // Placeholder
@@ -291,7 +328,7 @@ class IMService {
   // Load/save config
   async loadConfigs(): Promise<void> {
     try {
-      const saved = await window.electronAPI?.settings.get('im_configs');
+      const saved = await window.electronAPI?.settings.get("im_configs");
       if (saved) {
         const configs = saved as IMConfig[];
         for (const config of configs) {
@@ -299,16 +336,16 @@ class IMService {
         }
       }
     } catch (error) {
-      console.error('Failed to load IM configs:', error);
+      console.error("Failed to load IM configs:", error);
     }
   }
 
   async saveConfigs(): Promise<void> {
     try {
       const configs = Array.from(this.configs.values());
-      await window.electronAPI?.settings.set('im_configs', configs);
+      await window.electronAPI?.settings.set("im_configs", configs);
     } catch (error) {
-      console.error('Failed to save IM configs:', error);
+      console.error("Failed to save IM configs:", error);
     }
   }
 }
