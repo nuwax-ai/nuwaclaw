@@ -125,17 +125,14 @@ function ensureModelJson(destDir, version) {
 }
 
 /**
- * 即便命中版本与 SHA，也执行一次“目录重铺”。
+ * 命中版本与 SHA 时是否仍执行”目录重铺”。
  *
- * 原因：
- * - 过去采用增量覆盖复制，可能在目标目录留下旧版本 assets 残留。
- * - 仅靠二进制 SHA 命中无法发现“额外残留文件”。
+ * 设为 false：版本 + SHA256 + 二进制内部版本号三重校验已足够保证正确性，
+ * 无需每次强制解压/复制，显著提升开发调试时的二次构建速度。
  *
- * 处理：
- * - 命中后不提前 return，而是继续走解压/复制流程（优先使用本地缓存包），
- *   通过 resetDestBinDir() 达到“先清理后落盘”的确定性结果。
+ * 若需强制刷新（如清理残留文件），手动删除 resources/nuwaxcode/ 后重新运行。
  */
-const FORCE_REFRESH_ON_MATCH = true;
+const FORCE_REFRESH_ON_MATCH = false;
 
 // ==================== 模式 1: 本地 dist 复制 ====================
 

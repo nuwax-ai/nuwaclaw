@@ -36,6 +36,22 @@ function exec(cmd, opts = {}) {
 }
 
 function main() {
+  // 0. 版本检查：若源码已存在且目标版本匹配，跳过全部工作
+  const srcPkgPath = path.join(SOURCE_DIR, 'package.json');
+  const destPkgPath = path.join(destDir, 'package.json');
+  if (fs.existsSync(srcPkgPath) && fs.existsSync(destPkgPath)) {
+    try {
+      const srcPkg = JSON.parse(fs.readFileSync(srcPkgPath, 'utf8'));
+      const destPkg = JSON.parse(fs.readFileSync(destPkgPath, 'utf8'));
+      if (destPkg.version === srcPkg.version
+        && fs.existsSync(path.join(destDir, 'dist'))
+        && fs.existsSync(path.join(destDir, 'node_modules'))) {
+        console.log(`[prepare-claude-code-acp-ts] ${destPkg.version} 已是最新，跳过`);
+        return;
+      }
+    } catch { /* 版本文件损坏，继续执行 */ }
+  }
+
   // 1. 克隆或更新源码
   if (!fs.existsSync(path.join(SOURCE_DIR, '.git'))) {
     console.log('[prepare-claude-code-acp-ts] 克隆源码...');
