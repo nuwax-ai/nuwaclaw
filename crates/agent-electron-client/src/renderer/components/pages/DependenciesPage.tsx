@@ -128,12 +128,6 @@ export default function DependenciesPage() {
     available: boolean;
     version?: string;
   } | null>(null);
-  const [hermesResult, setHermesResult] = useState<{
-    installed: boolean;
-    version?: string;
-    binPath?: string;
-  } | null>(null);
-  const [hermesInstalling, setHermesInstalling] = useState(false);
   const [localDeps, setLocalDeps] = useState<LocalDependencyItem[]>(
     MOCK_LOADING ? [] : [],
   );
@@ -220,19 +214,6 @@ export default function DependenciesPage() {
           : { available: false },
       );
 
-      // Check Hermes Agent (optional ACP engine)
-      const hermesRes =
-        await window.electronAPI?.dependencies.checkHermesAgent();
-      setHermesResult(
-        hermesRes?.success
-          ? {
-              installed: hermesRes.installed ?? false,
-              version: hermesRes.version,
-              binPath: hermesRes.binPath,
-            }
-          : { installed: false },
-      );
-
       // Check all local/installable dependencies
       const depsResult = await window.electronAPI?.dependencies.checkAll({
         checkLatest: true,
@@ -294,36 +275,6 @@ export default function DependenciesPage() {
       });
     }
   }, []);
-
-  const handleInstallHermes = async () => {
-    setHermesInstalling(true);
-    try {
-      const result =
-        await window.electronAPI?.dependencies.installHermesAgent();
-      if (result?.success) {
-        message.success("Hermes Agent installed");
-        const checkRes =
-          await window.electronAPI?.dependencies.checkHermesAgent();
-        setHermesResult(
-          checkRes?.success
-            ? {
-                installed: checkRes.installed ?? false,
-                version: checkRes.version,
-                binPath: checkRes.binPath,
-              }
-            : { installed: true },
-        );
-      } else {
-        message.error(
-          "Hermes Agent install failed: " + (result?.error || "Unknown error"),
-        );
-      }
-    } catch (error) {
-      message.error("Hermes Agent install failed: " + String(error));
-    } finally {
-      setHermesInstalling(false);
-    }
-  };
 
   // ==========================================
   // Install / upgrade / update-to-latest a single dependency
@@ -925,63 +876,6 @@ export default function DependenciesPage() {
                 ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
                 : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
             </span>
-          </div>
-
-          {/* Hermes Agent：可选 ACP 引擎（Python/uv tool install） */}
-          <div className={styles.serviceRow}>
-            <div className={styles.serviceInfo}>
-              {hermesResult?.installed ? (
-                <CheckCircleOutlined
-                  style={{ color: "var(--color-success)", fontSize: 12 }}
-                />
-              ) : (
-                <ExclamationCircleOutlined
-                  style={{ color: "var(--color-text-tertiary)", fontSize: 12 }}
-                />
-              )}
-              <div>
-                <span className={styles.serviceLabel}>
-                  Hermes Agent
-                  <Tag
-                    color="default"
-                    style={{
-                      fontSize: 10,
-                      lineHeight: "16px",
-                      padding: "0 4px",
-                      marginLeft: 6,
-                    }}
-                  >
-                    Optional
-                  </Tag>
-                </span>
-                {hermesResult?.installed && hermesResult.version && (
-                  <span className={styles.serviceDescription}>
-                    {" "}
-                    {hermesResult.version}
-                  </span>
-                )}
-              </div>
-            </div>
-            {hermesResult?.installed ? (
-              <span
-                style={{
-                  fontSize: 12,
-                  color: "var(--color-success)",
-                }}
-              >
-                {t(I18N_KEYS.Components.Dependency.INSTALLED)}
-              </span>
-            ) : (
-              <Button
-                size="small"
-                type="primary"
-                loading={hermesInstalling}
-                disabled={!systemDepsReady}
-                onClick={handleInstallHermes}
-              >
-                {t(I18N_KEYS.Pages.Dependencies.INSTALL)}
-              </Button>
-            )}
           </div>
         </div>
       </div>

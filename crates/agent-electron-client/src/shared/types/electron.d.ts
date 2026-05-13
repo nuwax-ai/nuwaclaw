@@ -279,29 +279,9 @@ export interface DependenciesAPI {
   }>;
   getAppDataDir: () => Promise<string>;
   getRequiredList: () => Promise<LocalDependencyItem[]>;
-  checkHermesAgent: () => Promise<{
-    success: boolean;
-    installed?: boolean;
-    version?: string;
-    binPath?: string;
-    error?: string;
-  }>;
-  installHermesAgent: () => Promise<{
-    success: boolean;
-    version?: string;
-    binPath?: string;
-    error?: string;
-  }>;
 }
 
-export type AgentEngine =
-  | "claude-code"
-  | "nuwaxcode"
-  | "codex-cli"
-  | "pi-agent"
-  | "hermes-agent"
-  | "kilo-cli"
-  | "openclaw";
+export type AgentEngine = "claude-code" | "nuwaxcode" | "codex-cli";
 
 export interface EngineStartConfig {
   engine: AgentEngine;
@@ -343,14 +323,7 @@ export interface EngineAPI {
 }
 
 // SDK types (simplified for renderer use)
-export type AgentEngineType =
-  | "nuwaxcode"
-  | "claude-code"
-  | "codex-cli"
-  | "pi-agent"
-  | "hermes-agent"
-  | "kilo-cli"
-  | "openclaw";
+export type AgentEngineType = "nuwaxcode" | "claude-code" | "codex-cli";
 
 export interface AgentInitConfig {
   engine: AgentEngineType;

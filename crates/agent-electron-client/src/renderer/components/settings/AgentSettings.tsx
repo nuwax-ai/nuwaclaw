@@ -24,7 +24,6 @@ import {
   normalizeOptionalPort,
 } from "@shared/constants";
 import type { AgentEngineType } from "@shared/types/electron";
-import { aiService } from "../../services/core/ai";
 import { t } from "../../services/core/i18n";
 
 const { Title, Text } = Typography;
@@ -178,10 +177,6 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
                   "claude-code": "claude-code",
                   nuwaxcode: "nuwaxcode",
                   "codex-cli": "codex-acp",
-                  "pi-agent": "pi-acp",
-                  "hermes-agent": "hermes",
-                  "kilo-cli": "kilo",
-                  openclaw: "openclaw",
                 };
                 setBinPath(defaultBinPaths[v] || v);
               }}
@@ -207,38 +202,6 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
                   <span>Codex CLI (ACP)</span>
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     OpenAI Codex
-                  </Text>
-                </Space>
-              </Select.Option>
-              <Select.Option value="pi-agent">
-                <Space>
-                  <span>Pi Agent (ACP)</span>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    Pi Coding Agent
-                  </Text>
-                </Space>
-              </Select.Option>
-              <Select.Option value="hermes-agent">
-                <Space>
-                  <span>Hermes Agent (ACP)</span>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    Nous Research
-                  </Text>
-                </Space>
-              </Select.Option>
-              <Select.Option value="kilo-cli">
-                <Space>
-                  <span>Kilo CLI (ACP)</span>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    Kilo Code
-                  </Text>
-                </Space>
-              </Select.Option>
-              <Select.Option value="openclaw">
-                <Space>
-                  <span>OpenClaw (ACP)</span>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    Gateway Agent
                   </Text>
                 </Space>
               </Select.Option>

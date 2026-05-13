@@ -407,14 +407,7 @@ export interface AcpConnectionConfig {
   chat2responseEnabled?: boolean;
   env?: Record<string, string>;
   /** Engine type for process registry tracking */
-  engineType?:
-    | "claude-code"
-    | "nuwaxcode"
-    | "codex-cli"
-    | "pi-agent"
-    | "hermes-agent"
-    | "kilo-cli"
-    | "openclaw";
+  engineType?: "claude-code" | "nuwaxcode" | "codex-cli";
   /** Purpose of this process (for process registry) */
   purpose?: "engine";
   /** Sandbox wrapping configuration (omit to disable) */
@@ -521,14 +514,7 @@ function getNuwaxcodePersistentLogDir(): string {
  * (not via `node`).
  */
 export function resolveAcpBinary(
-  engine:
-    | "claude-code"
-    | "nuwaxcode"
-    | "codex-cli"
-    | "pi-agent"
-    | "hermes-agent"
-    | "kilo-cli"
-    | "openclaw",
+  engine: "claude-code" | "nuwaxcode" | "codex-cli",
 ): {
   binPath: string;
   binArgs: string[];
@@ -573,39 +559,7 @@ export function resolveAcpBinary(
     };
   }
 
-  // -- New ACP engines --
-
-  if (engine === "kilo-cli") {
-    // opencode fork, same ACP mechanism as nuwaxcode
-    const binName = isWindows() ? "kilo.cmd" : "kilo";
-    const localPath = path.join(
-      app.getPath("home"),
-      APP_DATA_DIR_NAME,
-      "node_modules",
-      ".bin",
-      binName,
-    );
-    if (fs.existsSync(localPath)) {
-      log.info(`[AcpClient] kilo-cli: using npm binary: ${localPath}`);
-      return { binPath: localPath, binArgs: ["acp"], isNative: true };
-    }
-    return { binPath: "kilo", binArgs: ["acp"], isNative: true };
-  }
-
-  if (engine === "hermes-agent") {
-    const binName = isWindows() ? "hermes.exe" : "hermes";
-    const localPath = path.join(
-      app.getPath("home"),
-      APP_DATA_DIR_NAME,
-      "bin",
-      binName,
-    );
-    if (fs.existsSync(localPath)) {
-      log.info(`[AcpClient] hermes-agent: using local binary: ${localPath}`);
-      return { binPath: localPath, binArgs: ["acp"], isNative: true };
-    }
-    return { binPath: "hermes", binArgs: ["acp"], isNative: true };
-  }
+  // -- codex-cli --
 
   if (engine === "codex-cli") {
     // 优先使用应用内打包的二进制
@@ -628,39 +582,6 @@ export function resolveAcpBinary(
       return { binPath: localPath, binArgs: [], isNative: true };
     }
     return { binPath: "codex-acp", binArgs: [], isNative: true };
-  }
-
-  if (engine === "pi-agent") {
-    const packageDir = path.join(
-      app.getPath("home"),
-      APP_DATA_DIR_NAME,
-      "node_modules",
-      "pi-acp",
-    );
-    if (fs.existsSync(packageDir)) {
-      const entryPath = resolveNpmPackageEntry(packageDir, "pi-acp");
-      if (entryPath) {
-        log.info(`[AcpClient] pi-agent: using npm package: ${entryPath}`);
-        return { binPath: entryPath, binArgs: [], isNative: false };
-      }
-    }
-    return { binPath: "pi-acp", binArgs: [], isNative: false };
-  }
-
-  if (engine === "openclaw") {
-    const binName = isWindows() ? "openclaw.cmd" : "openclaw";
-    const localPath = path.join(
-      app.getPath("home"),
-      APP_DATA_DIR_NAME,
-      "node_modules",
-      ".bin",
-      binName,
-    );
-    if (fs.existsSync(localPath)) {
-      log.info(`[AcpClient] openclaw: using npm binary: ${localPath}`);
-      return { binPath: localPath, binArgs: ["acp"], isNative: true };
-    }
-    return { binPath: "openclaw", binArgs: ["acp"], isNative: true };
   }
 
   // Should not reach here — all engine types handled above

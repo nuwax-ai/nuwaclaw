@@ -86,6 +86,7 @@ export const DEFAULT_AI_ENGINE: AgentEngineType = "claude-code";
 export const SUPPORTED_AGENT_ENGINES = [
   "claude-code",
   "nuwaxcode",
+  "codex-cli",
 ] as const satisfies readonly AgentEngineType[];
 
 export function isAgentEngineType(value: unknown): value is AgentEngineType {

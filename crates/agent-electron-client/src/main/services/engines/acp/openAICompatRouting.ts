@@ -1,11 +1,4 @@
-export type OpenAICompatEngineType =
-  | "claude-code"
-  | "nuwaxcode"
-  | "codex-cli"
-  | "pi-agent"
-  | "hermes-agent"
-  | "kilo-cli"
-  | "openclaw";
+export type OpenAICompatEngineType = "claude-code" | "nuwaxcode" | "codex-cli";
 
 export interface OpenAICompatInput {
   engineType?: OpenAICompatEngineType;

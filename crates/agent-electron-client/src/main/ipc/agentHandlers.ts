@@ -10,15 +10,7 @@ import {
 
 const agentConfigSchema = z
   .object({
-    engine: z.enum([
-      "nuwaxcode",
-      "claude-code",
-      "codex-cli",
-      "pi-agent",
-      "hermes-agent",
-      "kilo-cli",
-      "openclaw",
-    ]),
+    engine: z.enum(["nuwaxcode", "claude-code", "codex-cli"]),
     workspaceDir: z.string(),
     apiKey: z.string().optional(),
     baseUrl: z.string().optional(),

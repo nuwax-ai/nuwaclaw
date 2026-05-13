@@ -4,14 +4,7 @@
  * 从 unifiedAgent.ts 提取，避免 engineWarmup.ts ↔ unifiedAgent.ts 的循环 import。
  */
 
-export type AgentEngineType =
-  | "nuwaxcode"
-  | "claude-code"
-  | "codex-cli"
-  | "pi-agent"
-  | "hermes-agent"
-  | "kilo-cli"
-  | "openclaw";
+export type AgentEngineType = "nuwaxcode" | "claude-code" | "codex-cli";
 
 export interface AgentConfig {
   engine: AgentEngineType;
