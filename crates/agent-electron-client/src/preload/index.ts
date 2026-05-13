@@ -287,6 +287,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("dependencies:checkNuwaxcodeBundled"),
     checkClaudeCodeAcpBundled: () =>
       ipcRenderer.invoke("dependencies:checkClaudeCodeAcpBundled"),
+    checkCodexAcpBundled: () =>
+      ipcRenderer.invoke("dependencies:checkCodexAcpBundled"),
     checkNuwaxFileServerBundled: () =>
       ipcRenderer.invoke("dependencies:checkNuwaxFileServerBundled"),
     detectPackage: (packageName: string, binName?: string) =>

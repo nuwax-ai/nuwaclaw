@@ -247,6 +247,13 @@ export interface DependenciesAPI {
     version?: string;
     error?: string;
   }>;
+  /** 应用包内集成的 codex-acp */
+  checkCodexAcpBundled: () => Promise<{
+    success: boolean;
+    available?: boolean;
+    version?: string;
+    error?: string;
+  }>;
   /** 应用包内集成的 nuwax-file-server */
   checkNuwaxFileServerBundled: () => Promise<{
     success: boolean;

@@ -80,6 +80,18 @@ export function registerDependencyHandlers(): void {
     }
   });
 
+  /** 检测应用包内集成的 codex-acp */
+  ipcMain.handle("dependencies:checkCodexAcpBundled", async () => {
+    const { checkCodexAcpBundled } =
+      await import("../services/system/dependencies");
+    try {
+      const result = await checkCodexAcpBundled();
+      return { success: true, ...result };
+    } catch (error) {
+      return { success: false, available: false, error: String(error) };
+    }
+  });
+
   /** 检测应用包内集成的 nuwax-file-server */
   ipcMain.handle("dependencies:checkNuwaxFileServerBundled", async () => {
     const { checkNuwaxFileServerBundled } =

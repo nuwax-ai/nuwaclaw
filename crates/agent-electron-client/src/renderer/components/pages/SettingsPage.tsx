@@ -689,9 +689,18 @@ export default function SettingsPage() {
                         }
                       }}
                       options={[
-                        { value: "claude-code", label: "Claude Code (ACP)" },
-                        { value: "nuwaxcode", label: "nuwaxcode (ACP)" },
-                        { value: "codex-cli", label: "Codex CLI (ACP)" },
+                        {
+                          value: "claude-code",
+                          label: "Claude Code (ACP) — Anthropic",
+                        },
+                        {
+                          value: "nuwaxcode",
+                          label: "nuwaxcode (ACP) — OpenAI",
+                        },
+                        {
+                          value: "codex-cli",
+                          label: "Codex CLI (ACP) — OpenAI",
+                        },
                       ]}
                     />
                   </Form.Item>

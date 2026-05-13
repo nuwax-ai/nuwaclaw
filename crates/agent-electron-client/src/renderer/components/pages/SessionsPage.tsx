@@ -261,11 +261,13 @@ function SessionsPage({
   };
 
   const getEngineTag = (engineType: DetailedSession["engineType"]) => {
-    return engineType === "claude-code" ? (
-      <Tag color="blue">{t("Claw.Sessions.engine01")}</Tag>
-    ) : (
-      <Tag color="purple">{t("Claw.Sessions.engine02")}</Tag>
-    );
+    if (engineType === "claude-code") {
+      return <Tag color="blue">{t("Claw.Sessions.engine01")}</Tag>;
+    }
+    if (engineType === "codex-cli") {
+      return <Tag color="orange">{t("Claw.Sessions.engine03")}</Tag>;
+    }
+    return <Tag color="purple">{t("Claw.Sessions.engine02")}</Tag>;
   };
 
   const formatTime = (ts: number) => {

@@ -8,6 +8,7 @@ import {
   Divider,
   Typography,
   Badge,
+  Tag,
   Form,
   Switch,
   message,
@@ -184,6 +185,12 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
               <Select.Option value="claude-code">
                 <Space>
                   <span>Claude Code (ACP)</span>
+                  <Tag
+                    color="blue"
+                    style={{ fontSize: 11, lineHeight: "18px" }}
+                  >
+                    Anthropic
+                  </Tag>
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     {t("Claw.Agent.claudeCodeAcpDesc")}
                   </Text>
@@ -192,6 +199,12 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
               <Select.Option value="nuwaxcode">
                 <Space>
                   <span>nuwaxcode (ACP)</span>
+                  <Tag
+                    color="orange"
+                    style={{ fontSize: 11, lineHeight: "18px" }}
+                  >
+                    OpenAI
+                  </Tag>
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     {t("Claw.Agent.nuwaxcodeDesc")}
                   </Text>
@@ -200,6 +213,12 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
               <Select.Option value="codex-cli">
                 <Space>
                   <span>Codex CLI (ACP)</span>
+                  <Tag
+                    color="orange"
+                    style={{ fontSize: 11, lineHeight: "18px" }}
+                  >
+                    OpenAI
+                  </Tag>
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     OpenAI Codex
                   </Text>

@@ -533,6 +533,22 @@ export function getCodexAcpBundledBinPath(): string | null {
   return null;
 }
 
+/**
+ * 获取应用内集成的 codex-acp 目录
+ *
+ * 打包后: process.resourcesPath/codex-acp/
+ * 开发时: resources/codex-acp/
+ *
+ * @returns 目录路径（含 .version 文件），或 null
+ */
+export function getCodexAcpBundledDir(): string | null {
+  const bundledDir = path.join(getResourcesPath(), "codex-acp");
+  if (fs.existsSync(path.join(bundledDir, ".version"))) {
+    return bundledDir;
+  }
+  return null;
+}
+
 // 可选：若曾在 resources/windows-mcp/bin/ 预置 windows-mcp.exe（旧方案），则返回该路径。
 // 当前主线：prepare 仅打包 wheels/ + manifest.json，首次运行由 windowsMcp.ts 调用
 // `uv tool install --no-index --find-links <wheels>` 安装到用户目录 ~/.nuwaclaw/windows-mcp-runtime/。
@@ -1204,6 +1220,15 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       binName: "claude-code-acp-ts",
       installVersion: "0.24.3",
     },
+    {
+      name: "codex-acp",
+      displayName: t(I18N_KEYS.Pages.Dependencies.DEP_CODEX_ACP),
+      type: "bundled",
+      description: t(I18N_KEYS.Pages.Dependencies.DESC_CODEX_ACP),
+      required: true,
+      binName: "codex-acp",
+      installVersion: "0.4.2",
+    },
   ];
 }
 
@@ -1492,6 +1517,31 @@ export async function checkClaudeCodeAcpBundled(): Promise<{
     return { available: true, version };
   } catch (e) {
     log.warn("[checkClaudeCodeAcpBundled] Failed to read package.json:", e);
+    return { available: true };
+  }
+}
+
+/**
+ * 检测应用包内集成的 codex-acp 是否可用
+ */
+export async function checkCodexAcpBundled(): Promise<{
+  available: boolean;
+  version?: string;
+}> {
+  const bundledDir = getCodexAcpBundledDir();
+  if (!bundledDir) {
+    log.info("[checkCodexAcpBundled] Bundled not found");
+    return { available: false };
+  }
+  const versionFile = path.join(bundledDir, ".version");
+  try {
+    const version = fs.readFileSync(versionFile, "utf-8").trim();
+    log.info(
+      `[checkCodexAcpBundled] Bundled available: ${bundledDir}, version=${version ?? "unknown"}`,
+    );
+    return { available: true, version };
+  } catch (e) {
+    log.warn("[checkCodexAcpBundled] Failed to read .version:", e);
     return { available: true };
   }
 }
@@ -2055,6 +2105,23 @@ export async function checkAllDependencies(options?: {
           }
           break;
         }
+        case "codex-acp": {
+          const bundledDir = getCodexAcpBundledDir();
+          if (bundledDir) {
+            const versionFile = path.join(bundledDir, ".version");
+            try {
+              const version = fs.readFileSync(versionFile, "utf-8").trim();
+              item.status = "bundled";
+              item.version = version;
+              item.binPath = bundledDir;
+            } catch {
+              item.status = "bundled";
+            }
+          } else {
+            item.status = "missing";
+          }
+          break;
+        }
         default: {
           item.status = "missing";
         }
@@ -2264,6 +2331,7 @@ export default {
   MIRROR_PRESETS,
   getNuwaxFileServerBundledDir,
   getClaudeCodeAcpBundledDir,
+  getCodexAcpBundledDir,
   getChat2responseBundledDir,
   getGatewayBundledDir,
 };
