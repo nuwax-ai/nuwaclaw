@@ -33,7 +33,7 @@ import {
   EditOutlined,
   DeleteOutlined,
 } from "@ant-design/icons";
-import Editor from "@monaco-editor/react";
+import CodeEditor from "@uiw/react-textarea-code-editor";
 import type {
   McpServersConfig,
   McpProxyStatus,
@@ -64,6 +64,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [editingServerId, setEditingServerId] = useState("");
   const [deletingServerId, setDeletingServerId] = useState<string | null>(null);
+  const [testingServerId, setTestingServerId] = useState<string | null>(null);
 
   // 监听主题变化
   useEffect(() => {
@@ -388,6 +389,8 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   };
 
   const handleTestServer = async (serverId: string) => {
+    if (testingServerId) return;
+    setTestingServerId(serverId);
     try {
       // 先确保内存中的最新配置已持久化到 DB，再调用 discoverTools
       const latest = getCurrentConfigForUi();
@@ -407,6 +410,8 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
       }
     } catch (e) {
       message.error(t("Claw.MCP.list.testFailed", { 0: String(e) }));
+    } finally {
+      setTestingServerId(null);
     }
   };
 
@@ -629,6 +634,11 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                                 size="small"
                                 type="text"
                                 icon={<CheckCircleOutlined />}
+                                loading={testingServerId === serverId}
+                                disabled={
+                                  !!testingServerId &&
+                                  testingServerId !== serverId
+                                }
                                 onClick={() => handleTestServer(serverId)}
                               />
                               <Button
@@ -685,34 +695,30 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                 {t("Claw.MCP.editor.config")}
               </Text>
               <div
+                data-color-mode={isDarkMode ? "dark" : "light"}
                 style={{
                   border: "1px solid #d9d9d9",
                   borderRadius: 8,
-                  overflow: "hidden",
+                  overflow: "auto",
                   position: "relative",
+                  height: 400,
                 }}
               >
-                <Editor
-                  height="400px"
-                  language="json"
-                  theme={isDarkMode ? "vs-dark" : "vs"}
+                <CodeEditor
                   value={configText}
-                  onChange={(value) => {
-                    setConfigText(value || "");
+                  language="json"
+                  onChange={(e) => {
+                    setConfigText(e.target.value);
                     if (configTextError) {
                       setConfigTextError("");
                     }
                   }}
-                  options={{
-                    minimap: { enabled: false },
+                  padding={12}
+                  style={{
                     fontSize: 13,
-                    lineNumbers: "on",
-                    scrollBeyondLastLine: false,
-                    automaticLayout: true,
-                    tabSize: 2,
-                    formatOnPaste: true,
-                    formatOnType: true,
-                    stickyScroll: { enabled: false },
+                    backgroundColor: isDarkMode ? "#1e1e1e" : "#fff",
+                    fontFamily: "Monaco, Menlo, 'Courier New', monospace",
+                    minHeight: "100%",
                   }}
                 />
               </div>

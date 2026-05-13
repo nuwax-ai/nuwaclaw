@@ -40,8 +40,13 @@ import {
   normalizeServerHost,
   loginAndRegister,
 } from "./services/core/auth";
-import { APP_DISPLAY_NAME, AUTH_KEYS } from "@shared/constants";
+import {
+  APP_DISPLAY_NAME,
+  AUTH_KEYS,
+  normalizeAgentEngine,
+} from "@shared/constants";
 import type { QuickInitConfig } from "@shared/types/quickInit";
+import type { UpdateState } from "@shared/types/updateTypes";
 import { t, getCurrentLang } from "./services/core/i18n";
 import SetupWizard from "./components/setup/SetupWizard";
 import SetupDependencies from "./components/setup/SetupDependencies";
@@ -121,6 +126,11 @@ const STATUS_CONFIG: Record<
   stopped: { status: "default", textKey: "Claw.Agent.Status.stopped" },
   error: { status: "error", textKey: "Claw.Agent.Status.error" },
 };
+
+/** macOS/Linux 无 download-progress 时，header tag 用本地模拟进度避免长期显示 0%。 */
+const HEADER_SIMULATED_PROGRESS_CAP = 90;
+const HEADER_SIMULATED_PROGRESS_INTERVAL_MS = 500;
+const HEADER_SIMULATED_DURATION_MS = 45_000;
 
 // 服务状态接口（与 ClientPage 共享）
 export interface ServiceItem {
@@ -346,6 +356,13 @@ function App() {
   const servicesPollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   /** 递增后通知 ClientPage 刷新账号状态（用户名等），与 reg 返回保持一致 */
   const [authRefreshTrigger, setAuthRefreshTrigger] = useState(0);
+  const [updateState, setUpdateState] = useState<UpdateState>({
+    status: "idle",
+  });
+  const [headerSimulatedPercent, setHeaderSimulatedPercent] = useState(0);
+  const headerSimulatedIntervalRef = useRef<ReturnType<
+    typeof setInterval
+  > | null>(null);
   const statusExpectedKeys = useMemo(() => {
     const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
     if (FEATURES.ENABLE_GUI_AGENT_SERVER && guiMcpEnabled) {
@@ -634,7 +651,7 @@ function App() {
               "step1_config",
             )) as { workspaceDir?: string } | null;
             result = await window.electronAPI?.agent.init({
-              engine: agentConfig?.type || "claude-code",
+              engine: normalizeAgentEngine(agentConfig?.type),
               apiKey: agentConfig?.apiKey,
               baseUrl: agentConfig?.apiBaseUrl,
               model: agentConfig?.model,
@@ -868,6 +885,55 @@ function App() {
       }
     };
   }, [isSetupComplete]);
+
+  // ============================================
+  // 监听更新状态（header tag 展示）
+  // ============================================
+  useEffect(() => {
+    const handler = (state: UpdateState) => {
+      if (state) setUpdateState(state);
+    };
+    window.electronAPI?.on("update:status", handler as any);
+    window.electronAPI?.app?.getUpdateState?.()?.then((state) => {
+      if (state) setUpdateState(state);
+    });
+    return () => {
+      window.electronAPI?.off("update:status", handler as any);
+    };
+  }, []);
+
+  useEffect(() => {
+    const isDownloading = updateState.status === "downloading";
+    const hasRealProgress = updateState.progress != null;
+
+    if (isDownloading && !hasRealProgress) {
+      setHeaderSimulatedPercent(0);
+      const increment =
+        (HEADER_SIMULATED_PROGRESS_CAP / HEADER_SIMULATED_DURATION_MS) *
+        HEADER_SIMULATED_PROGRESS_INTERVAL_MS;
+      const id = setInterval(() => {
+        setHeaderSimulatedPercent((prev) => {
+          const next = prev + increment;
+          return next >= HEADER_SIMULATED_PROGRESS_CAP
+            ? HEADER_SIMULATED_PROGRESS_CAP
+            : next;
+        });
+      }, HEADER_SIMULATED_PROGRESS_INTERVAL_MS);
+      headerSimulatedIntervalRef.current = id;
+      return () => {
+        clearInterval(id);
+        headerSimulatedIntervalRef.current = null;
+      };
+    }
+
+    if (!isDownloading || hasRealProgress) {
+      if (headerSimulatedIntervalRef.current) {
+        clearInterval(headerSimulatedIntervalRef.current);
+        headerSimulatedIntervalRef.current = null;
+      }
+      setHeaderSimulatedPercent(0);
+    }
+  }, [updateState.status, updateState.progress]);
 
   // ============================================
   // 监听托盘/菜单事件
@@ -1138,6 +1204,91 @@ function App() {
                     style={{ width: 16, height: 16 }}
                   />
                   <span className="app-header-title">{APP_DISPLAY_NAME}</span>
+                  {updateState.status === "available" && (
+                    <span
+                      className="app-header-update-tag app-header-update-tag--available"
+                      role="button"
+                      tabIndex={0}
+                      onClick={async () => {
+                        if (updateState.canAutoUpdate === false) {
+                          await window.electronAPI?.app?.openReleasesPage?.();
+                          return;
+                        }
+                        try {
+                          setUpdateState((prev) => ({
+                            ...prev,
+                            status: "downloading",
+                            progress: undefined,
+                          }));
+                          const res =
+                            await window.electronAPI?.app?.downloadUpdate?.();
+                          if (!res || !res.success) {
+                            message.error(
+                              res?.error || t("Claw.About.downloadFailed"),
+                            );
+                            setUpdateState((prev) => ({
+                              ...prev,
+                              status: "available",
+                            }));
+                          }
+                        } catch {
+                          message.error(t("Claw.About.downloadFailed"));
+                          setUpdateState((prev) => ({
+                            ...prev,
+                            status: "available",
+                          }));
+                        }
+                      }}
+                      onKeyDown={(e) =>
+                        (e.key === "Enter" || e.key === " ") &&
+                        (e.target as HTMLElement).click()
+                      }
+                    >
+                      {updateState.canAutoUpdate === false
+                        ? t("Claw.App.UpdateTag.newVersion", {
+                            version: updateState.version,
+                          })
+                        : t("Claw.App.UpdateTag.download", {
+                            version: updateState.version,
+                          })}
+                    </span>
+                  )}
+                  {updateState.status === "downloading" && (
+                    <span className="app-header-update-tag app-header-update-tag--downloading">
+                      {t("Claw.App.UpdateTag.downloading", {
+                        percent: Math.round(
+                          updateState.progress?.percent ??
+                            headerSimulatedPercent,
+                        ),
+                      })}
+                    </span>
+                  )}
+                  {updateState.status === "downloaded" && (
+                    <span
+                      className="app-header-update-tag app-header-update-tag--install"
+                      role="button"
+                      tabIndex={0}
+                      onClick={async () => {
+                        try {
+                          const res =
+                            await window.electronAPI?.app?.installUpdate?.();
+                          if (res && !res.success) {
+                            message.error(
+                              res.error || t("Claw.About.installFailed"),
+                            );
+                          }
+                        } catch {
+                          message.error(t("Claw.About.installFailed"));
+                        }
+                      }}
+                      onKeyDown={(e) =>
+                        (e.key === "Enter" || e.key === " ") &&
+                        (e.target as HTMLElement).click()
+                      }
+                    >
+                      {t("Claw.About.installUpdate")}
+                    </span>
+                  )}
                 </div>
               )}
               <div className={styles.headerRight}>

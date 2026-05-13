@@ -44,8 +44,19 @@ const promptOptionsSchema = z.any().optional();
 const permissionResponseSchema = z.enum(["once", "always", "reject"]);
 
 function invalidArgs(channel: string, issues: unknown) {
+  const details =
+    Array.isArray(issues) && issues.length > 0
+      ? issues
+          .map((i: any) =>
+            i.path ? `${i.path.join(".")}: ${i.message}` : i.message,
+          )
+          .join("; ")
+      : String(issues);
   log.warn(`[IPC] ${channel} invalid args:`, issues);
-  return { success: false, error: `Invalid arguments for ${channel}` };
+  return {
+    success: false,
+    error: `Invalid arguments for ${channel}: ${details}`,
+  };
 }
 
 export function registerAgentHandlers(): void {

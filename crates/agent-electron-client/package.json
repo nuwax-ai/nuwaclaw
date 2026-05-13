@@ -8,7 +8,7 @@
   "homepage": "https://github.com/nuwax-ai/nuwaclaw",
   "scripts": {
     "dev": "dotenv -e .env.development -- cross-env NODE_ENV=development concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
-    "dev:vite": "vite",
+    "dev:vite": "vite --force",
     "dev:electron": "wait-on http://localhost:60173 && npm run build:main:dev && dotenv -e .env.development -- cross-env NODE_ENV=development electron .",
     "build:main:dev": "dotenv -e .env.development -- cross-env NODE_ENV=development tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
     "build:main": "dotenv -e .env.production -- cross-env NODE_ENV=production tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
@@ -27,7 +27,6 @@
     "prepare:lanproxy": "node scripts/prepare/prepare-lanproxy.js",
     "prepare:node": "node scripts/prepare/prepare-node.js",
     "prepare:git": "node scripts/prepare/prepare-git.js",
-    "prepare:monaco": "node scripts/prepare/prepare-monaco.js",
     "check-ports": "node scripts/tools/check-startup-ports.js",
     "check-ports:dev": "node scripts/tools/check-startup-ports.js --vite",
     "prepare:mcp-proxy": "node scripts/prepare/prepare-mcp-proxy.js",
@@ -43,7 +42,7 @@
     "prepare:gui-server": "node scripts/prepare/prepare-gui-server.js",
     "prepare:windows-mcp": "node scripts/prepare/prepare-windows-mcp.js",
     "electron-rebuild": "electron-rebuild -f -w better-sqlite3",
-    "build:electron": "npm run prepare:monaco && npm run build && npm run prepare:all && electron-builder --config.compression=maximum",
+    "build:electron": "npm run build && npm run prepare:all && electron-builder --config.compression=maximum",
     "dist": "npm run build:electron -- --mac",
     "dist:mac": "npm run build:electron -- --mac",
     "dist:mac:arm64": "npm run build:electron -- --mac --arm64",
@@ -70,8 +69,8 @@
     "@ant-design/icons": "^5.6.1",
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "@monaco-editor/react": "^4.7.0",
     "@uiw/react-json-view": "2.0.0-alpha.42",
+    "@uiw/react-textarea-code-editor": "^3.1.1",
     "antd": "^5.29.3",
     "auto-launch": "^5.0.6",
     "better-sqlite3": "^12.6.2",
@@ -80,7 +79,6 @@
     "dotenv": "^17.3.1",
     "electron-log": "^5.2.4",
     "electron-updater": "^6.8.3",
-    "monaco-editor": "^0.53.0",
     "node-cron": "^4.2.1",
     "node-machine-id": "^1.1.12",
     "qrcode.react": "^4.2.0",
@@ -160,8 +158,7 @@
         "from": "public",
         "to": "public",
         "filter": [
-          "**/*",
-          "!monaco/**"
+          "**/*"
         ]
       }
     ],

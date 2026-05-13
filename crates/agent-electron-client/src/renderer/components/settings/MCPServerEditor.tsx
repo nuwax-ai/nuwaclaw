@@ -14,7 +14,7 @@ import {
   SaveOutlined,
   CheckCircleOutlined,
 } from "@ant-design/icons";
-import Editor from "@monaco-editor/react";
+import CodeEditor from "@uiw/react-textarea-code-editor";
 import type { McpServerEntry, McpServersConfig } from "@shared/types/electron";
 import { t } from "../../services/core/i18n";
 
@@ -432,31 +432,27 @@ function MCPServerEditor({
               {t("Claw.MCP.editor.jsonHint")}
             </Text>
             <div
+              data-color-mode={isDarkMode ? "dark" : "light"}
               style={{
                 border: "1px solid #d9d9d9",
                 borderRadius: 4,
-                overflow: "hidden",
+                overflow: "auto",
+                height: 400,
               }}
             >
-              <Editor
-                height="400px"
-                language="json"
-                theme={isDarkMode ? "vs-dark" : "vs"}
+              <CodeEditor
                 value={jsonText}
-                onChange={(value) => {
-                  setJsonText(value || "");
+                language="json"
+                onChange={(e) => {
+                  setJsonText(e.target.value);
                   if (jsonError) setJsonError("");
                 }}
-                options={{
-                  minimap: { enabled: false },
+                padding={12}
+                style={{
                   fontSize: 13,
-                  lineNumbers: "on",
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                  tabSize: 2,
-                  formatOnPaste: true,
-                  formatOnType: true,
-                  stickyScroll: { enabled: false },
+                  backgroundColor: isDarkMode ? "#1e1e1e" : "#fff",
+                  fontFamily: "Monaco, Menlo, 'Courier New', monospace",
+                  minHeight: "100%",
                 }}
               />
             </div>

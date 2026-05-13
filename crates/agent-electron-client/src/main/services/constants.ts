@@ -4,8 +4,11 @@
  * 部分从 @shared/constants 复用，主进程与渲染进程共用同一数据源
  */
 
-import { APP_DATA_DIR_NAME } from "@shared/constants";
-export { APP_DATA_DIR_NAME };
+export {
+  APP_DATA_DIR_NAME,
+  normalizeAgentEngine,
+  normalizeOptionalPort,
+} from "@shared/constants";
 
 // ==================== 应用目录 ====================
 

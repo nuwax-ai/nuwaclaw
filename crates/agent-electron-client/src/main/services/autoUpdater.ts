@@ -20,7 +20,6 @@ import type {
   UpdateInfo,
   UpdateProgress,
 } from "@shared/types/updateTypes";
-import { APP_DATA_DIR_NAME } from "@shared/constants";
 import { readSetting } from "../db";
 import { t } from "./i18n";
 import {
@@ -228,38 +227,6 @@ export function getInstallerType(): InstallerType {
 export function canAutoUpdate(): boolean {
   const type = getInstallerType();
   return type !== "msi";
-}
-
-// ==================== 跳过版本管理 ====================
-
-function getSkippedVersionFile(): string {
-  return path.join(
-    app.getPath("home"),
-    APP_DATA_DIR_NAME,
-    ".skipped-update-version",
-  );
-}
-
-function getSkippedVersion(): string | null {
-  try {
-    const file = getSkippedVersionFile();
-    if (fs.existsSync(file)) {
-      return fs.readFileSync(file, "utf-8").trim();
-    }
-  } catch {
-    /* ignore */
-  }
-  return null;
-}
-
-function setSkippedVersion(version: string): void {
-  try {
-    const file = getSkippedVersionFile();
-    fs.writeFileSync(file, version, "utf-8");
-    log.info(`[AutoUpdater] Skipped version set: ${version}`);
-  } catch (e) {
-    log.warn("[AutoUpdater] Failed to save skipped version:", e);
-  }
 }
 
 // ==================== 更新状态管理 ====================
@@ -556,20 +523,29 @@ export function initAutoUpdater(
     });
   });
 
+  function isUpdateInProgress(): boolean {
+    return (
+      currentState.status === "checking" ||
+      currentState.status === "available" ||
+      currentState.status === "downloading" ||
+      currentState.status === "downloaded"
+    );
+  }
+
   // 延迟 10s 启动时检查一次，发现新版本弹窗提示；退出时清除避免在已退出状态下弹窗
   const STARTUP_CHECK_DELAY_MS = 10_000;
   const startupCheckTimerId = setTimeout(async () => {
     log.info("[AutoUpdater] Initial startup check");
     try {
+      if (isUpdateInProgress()) {
+        log.info(
+          "[AutoUpdater] Startup: update already in progress (status=%s), skipping",
+          currentState.status,
+        );
+        return;
+      }
       const result = await checkForUpdatesViaLatestJson();
       if (result.hasUpdate && result.version) {
-        const skipped = getSkippedVersion();
-        if (skipped === result.version) {
-          log.info(
-            `[AutoUpdater] Startup: v${result.version} was skipped by user, not prompting`,
-          );
-          return;
-        }
         log.info(`[AutoUpdater] Startup: found new version v${result.version}`);
         showStartupUpdateDialog(result.version);
       }
@@ -584,78 +560,16 @@ export function initAutoUpdater(
 }
 
 /**
- * 启动时发现新版本的弹窗提示
+ * 启动时发现新版本，仅推送状态到渲染进程，由 header tag 展示更新入口
  */
 async function showStartupUpdateDialog(version: string): Promise<void> {
-  if (!canAutoUpdate()) {
-    // MSI 用户引导到官网下载安装页
-    const { response } = await showModal({
-      type: "info",
-      title: t("Claw.AutoUpdater.newVersionFound"),
-      message: t("Claw.AutoUpdater.versionFound", version),
-      detail: t("Claw.AutoUpdater.unsupportedInstall"),
-      buttons: [
-        t("Claw.AutoUpdater.downloadPage"),
-        t("Claw.AutoUpdater.skipThisVersion"),
-        t("Claw.AutoUpdater.close"),
-      ],
-      defaultId: 0,
-      cancelId: 2,
-    });
-    if (response === 0) {
-      openReleasesPage();
-    } else if (response === 1) {
-      setSkippedVersion(version);
-    }
-    return;
-  }
-
-  const { response } = await showModal({
-    type: "info",
-    title: t("Claw.AutoUpdater.newVersionFound"),
-    message: t("Claw.AutoUpdater.versionFound", version),
-    detail: t("Claw.AutoUpdater.downloadInstallNow"),
-    buttons: [
-      t("Claw.AutoUpdater.downloadNow"),
-      t("Claw.AutoUpdater.skipThisVersion"),
-      t("Claw.AutoUpdater.close"),
-    ],
-    defaultId: 0,
-    cancelId: 2,
+  log.info(`[AutoUpdater] Startup: v${version} available, notifying renderer`);
+  setState({
+    status: "available",
+    version,
+    isReadOnlyVolumeError: undefined,
+    canAutoUpdate: canAutoUpdate(),
   });
-
-  if (response === 0) {
-    try {
-      const dlResult = await downloadUpdate();
-      if (dlResult.success) {
-        const { response: installResponse } = await showModal({
-          type: "info",
-          title: t("Claw.AutoUpdater.updateDownloaded"),
-          message: t("Claw.AutoUpdater.updateReady"),
-          detail: t("Claw.AutoUpdater.installNow"),
-          buttons: [
-            t("Claw.AutoUpdater.installNow"),
-            t("Claw.AutoUpdater.installOnExit"),
-          ],
-          defaultId: 0,
-          cancelId: 1,
-        });
-        if (installResponse === 0) {
-          installUpdate();
-        }
-      } else if (dlResult.error) {
-        showModal({
-          type: "error",
-          title: t("Claw.AutoUpdater.downloadFailed"),
-          message: dlResult.error,
-        });
-      }
-    } catch (e: any) {
-      log.error("[AutoUpdater] Startup download failed:", e.message);
-    }
-  } else {
-    setSkippedVersion(version);
-  }
 }
 
 /**

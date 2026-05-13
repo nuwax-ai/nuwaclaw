@@ -17,6 +17,8 @@ import { checkFileServerHealth } from "../services/packages/fileServerHealth";
 import {
   APP_DATA_DIR_NAME,
   DEFAULT_STARTUP_DELAY,
+  normalizeAgentEngine,
+  normalizeOptionalPort,
 } from "../services/constants";
 import { getConfiguredPorts } from "../services/startupPorts";
 import {
@@ -267,12 +269,12 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     // 3. 启动 Agent（依赖 MCP Proxy 已就绪以便 getAgentMcpConfig 对应进程可连）
     try {
       const finalConfig: AgentConfig = {
-        engine: (agentConfig.type as AgentConfig["engine"]) || "claude-code",
+        engine: normalizeAgentEngine(agentConfig.type),
         apiKey: agentConfig.apiKey as string | undefined,
         baseUrl: agentConfig.apiBaseUrl as string | undefined,
         model: agentConfig.model as string | undefined,
         workspaceDir: (step1Config.workspaceDir as string) || "",
-        port: agentConfig.backendPort as number | undefined,
+        port: normalizeOptionalPort(agentConfig.backendPort),
         engineBinaryPath: agentConfig.binPath as string | undefined,
       };
       const mcpConfig = mcpProxyManager.getAgentMcpConfig();
@@ -455,12 +457,12 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     // 3. 启动 Agent（依赖 MCP Proxy 已就绪）
     try {
       const finalConfig: AgentConfig = {
-        engine: (agentConfig.type as AgentConfig["engine"]) || "claude-code",
+        engine: normalizeAgentEngine(agentConfig.type),
         apiKey: agentConfig.apiKey as string | undefined,
         baseUrl: agentConfig.apiBaseUrl as string | undefined,
         model: agentConfig.model as string | undefined,
         workspaceDir: (step1Config.workspaceDir as string) || "",
-        port: agentConfig.backendPort as number | undefined,
+        port: normalizeOptionalPort(agentConfig.backendPort),
         engineBinaryPath: agentConfig.binPath as string | undefined,
       };
       const mcpConfig = mcpProxyManager.getAgentMcpConfig();

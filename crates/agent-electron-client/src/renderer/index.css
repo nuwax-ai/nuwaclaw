@@ -142,6 +142,49 @@ body {
   letter-spacing: -0.01em;
 }
 
+.app-header-update-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: 10px;
+  line-height: 18px;
+  white-space: nowrap;
+  transition: opacity 0.2s, transform 0.15s;
+}
+
+.app-header-update-tag[role="button"] {
+  cursor: pointer;
+}
+
+.app-header-update-tag[role="button"]:hover {
+  opacity: 0.85;
+  transform: scale(1.03);
+}
+
+.app-header-update-tag[role="button"]:active {
+  transform: scale(0.97);
+}
+
+.app-header-update-tag--available {
+  background: rgba(82, 196, 26, 0.12);
+  color: #52c41a;
+  border: 1px solid rgba(82, 196, 26, 0.25);
+}
+
+.app-header-update-tag--downloading {
+  background: rgba(22, 119, 255, 0.1);
+  color: #1677ff;
+  border: 1px solid rgba(22, 119, 255, 0.2);
+}
+
+.app-header-update-tag--install {
+  background: rgba(250, 173, 20, 0.12);
+  color: #faad14;
+  border: 1px solid rgba(250, 173, 20, 0.25);
+}
+
 .app-body {
   flex: 1;
   display: flex;

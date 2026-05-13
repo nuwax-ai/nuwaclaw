@@ -82,6 +82,38 @@ export const DEFAULT_SERVER_HOST = "https://agent.nuwax.com";
 /** 默认 Agent 引擎类型 */
 export const DEFAULT_AI_ENGINE: AgentEngineType = "claude-code";
 
+/** 当前支持的 Agent 引擎类型。历史配置中的其他值会按默认引擎处理。 */
+export const SUPPORTED_AGENT_ENGINES = [
+  "claude-code",
+  "nuwaxcode",
+] as const satisfies readonly AgentEngineType[];
+
+export function isAgentEngineType(value: unknown): value is AgentEngineType {
+  return (
+    typeof value === "string" &&
+    (SUPPORTED_AGENT_ENGINES as readonly string[]).includes(value)
+  );
+}
+
+export function normalizeAgentEngine(value: unknown): AgentEngineType {
+  return isAgentEngineType(value) ? value : DEFAULT_AI_ENGINE;
+}
+
+export function normalizeOptionalPort(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+
+  const port =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value.trim())
+        : NaN;
+
+  return Number.isInteger(port) && port > 0 && port <= 65_535
+    ? port
+    : undefined;
+}
+
 /** 默认 AI 模型 */
 export const DEFAULT_AI_MODEL = "claude-sonnet-4-20250514";
 

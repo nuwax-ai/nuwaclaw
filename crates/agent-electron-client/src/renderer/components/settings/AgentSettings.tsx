@@ -18,7 +18,11 @@ import {
   StopOutlined,
   SaveOutlined,
 } from "@ant-design/icons";
-import { DEFAULT_ANTHROPIC_API_URL, DEFAULT_AI_MODEL } from "@shared/constants";
+import {
+  DEFAULT_ANTHROPIC_API_URL,
+  DEFAULT_AI_MODEL,
+  normalizeOptionalPort,
+} from "@shared/constants";
 import type { AgentEngineType } from "@shared/types/electron";
 import { aiService } from "../../services/core/ai";
 import { t } from "../../services/core/i18n";
@@ -102,7 +106,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
           baseUrl: apiBaseUrl,
           model,
           workspaceDir: step1?.workspaceDir || "",
-          port: backendPort,
+          port: normalizeOptionalPort(backendPort),
           engineBinaryPath: binPath || undefined,
         });
         if (result?.success) {

@@ -129,6 +129,82 @@ export function resolveUvCommand(
 }
 
 /**
+ * Resolves `npx`/`npm` on Windows to a concrete executable path.
+ *
+ * Rationale:
+ * - Many Node distributions ship `npx.cmd`/`npm.cmd` (not a bare `npx.exe`)
+ * - Some spawn call-sites pass a sanitized env that may not include PATHEXT
+ * - Using an absolute path avoids PATH/PATHEXT resolution quirks and ENOENT
+ */
+function resolveNpmCliCommand(
+  command: string,
+  args: string[],
+): { command: string; args: string[] } {
+  if (!isWindows()) return { command, args };
+  if (typeof command !== "string" || command.length === 0)
+    return { command, args };
+
+  const base = path.basename(command).replace(/\.(exe|cmd|bat)$/i, "");
+  if (base !== "npx" && base !== "npm") return { command, args };
+
+  // If caller already provided a concrete path, keep it.
+  if (path.isAbsolute(command) && fs.existsSync(command)) {
+    return { command, args };
+  }
+
+  // Prefer the bundled Node 24 distribution under resources/node/.../bin
+  const bundledNode = getNodeBinPath();
+  if (bundledNode) {
+    const binDir = path.dirname(bundledNode);
+    const candidate = path.join(binDir, `${base}.cmd`);
+    if (fs.existsSync(candidate)) {
+      return { command: candidate, args };
+    }
+    // Fallback: some builds may ship without .cmd (rare)
+    const exeCandidate = path.join(binDir, `${base}.exe`);
+    if (fs.existsSync(exeCandidate)) {
+      return { command: exeCandidate, args };
+    }
+  }
+
+  // Last resort: prefer .cmd name to leverage normal Windows resolution.
+  return { command: `${base}.cmd`, args };
+}
+
+function quoteCmdArg(arg: string): string {
+  if (arg.length === 0) return '""';
+  if (!/[\s"]/g.test(arg)) return arg;
+  return `"${arg.replace(/"/g, '\\"')}"`;
+}
+
+function guessMcpDiscoverTimeoutMs(command: string, args: string[]): number {
+  // Tool discovery is often backed by `npx -y <pkg>` (first run may download),
+  // which can easily exceed 5s on Windows/slow networks. Use a larger timeout.
+  const base = path.basename(command).toLowerCase();
+  const cmd = base.replace(/\.(cmd|exe|bat)$/i, "");
+  const looksLikeNpx =
+    cmd === "npx" ||
+    (cmd === "cmd" &&
+      args.some((a) => typeof a === "string" && /npx/i.test(a)));
+  if (looksLikeNpx) return 90_000;
+  // uv tool run may also install on first run, but generally faster than npx
+  if (cmd === "uv" || cmd === "uvx") return 45_000;
+  return 15_000;
+}
+
+function writeMcpStdioMessage(
+  stdin: { write: (chunk: string | Buffer) => void },
+  payload: unknown,
+): void {
+  // MCP stdio uses Content-Length framing (like LSP):
+  //   Content-Length: <bytes>\r\n\r\n<json>
+  const json = JSON.stringify(payload);
+  const body = Buffer.from(json, "utf8");
+  const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "utf8");
+  stdin.write(Buffer.concat([header, body]));
+}
+
+/**
  * Resolve uvx/uv commands inside a `mcp-proxy convert --config '{...}'` bridge entry.
  * Only rewrites inner command paths (uvx → uv tool run); does NOT inject env.
  * Kept for backward compatibility with context_servers that may still use bridge entries.
@@ -353,7 +429,8 @@ export function resolveServersConfig(
     }
     if (entry.command === "mcp-proxy") continue;
     if (typeof entry.command !== "string") continue;
-    const resolved = resolveUvCommand(entry.command, entry.args || [], dir);
+    const resolvedUv = resolveUvCommand(entry.command, entry.args || [], dir);
+    const resolved = resolveNpmCliCommand(resolvedUv.command, resolvedUv.args);
     result[name] = {
       command: resolved.command,
       args: resolved.args,
@@ -1068,10 +1145,31 @@ class McpProxyManager {
     let proc: any = null;
 
     try {
-      proc = spawn(resolvedEntry.command, resolvedEntry.args, {
-        env: { ...process.env, ...resolvedEntry.env },
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+      const env = { ...process.env, ...resolvedEntry.env };
+      const spawnOptions = {
+        env,
+        // child_process.SpawnOptions expects a mutable array
+        stdio: ["pipe", "pipe", "pipe"] as any,
+        windowsHide: true,
+        shell: false,
+      };
+
+      // Windows: spawning `.cmd/.bat` directly may throw spawn EINVAL.
+      // Route through cmd.exe to ensure consistent execution.
+      if (isWindows() && /\.(cmd|bat)$/i.test(resolvedEntry.command)) {
+        const cmdExe = process.env.COMSPEC || "C:\\Windows\\System32\\cmd.exe";
+        const cmdLine = [
+          quoteCmdArg(resolvedEntry.command),
+          ...resolvedEntry.args.map(quoteCmdArg),
+        ].join(" ");
+        // Important: when the first token is quoted (paths with spaces),
+        // cmd.exe requires an extra wrapping pair of quotes, otherwise it may
+        // misparse the command and exit immediately.
+        // Pattern: cmd.exe /d /s /c ""C:\path with spaces\tool.cmd" arg1 arg2"
+        proc = spawn(cmdExe, ["/d", "/s", "/c", `"${cmdLine}"`], spawnOptions);
+      } else {
+        proc = spawn(resolvedEntry.command, resolvedEntry.args, spawnOptions);
+      }
 
       // 发送 MCP 初始化请求
       const initRequest = {
@@ -1084,10 +1182,20 @@ class McpProxyManager {
           clientInfo: { name: "nuwax-agent", version: "1.0.0" },
         },
       };
-      proc.stdin.write(JSON.stringify(initRequest) + "\n");
+      writeMcpStdioMessage(proc.stdin, initRequest);
 
       // 等待初始化响应
-      await this.waitForMcpResponse(proc, 1, 5000);
+      const timeoutMs = guessMcpDiscoverTimeoutMs(
+        resolvedEntry.command,
+        resolvedEntry.args,
+      );
+      await this.waitForMcpResponse(proc, 1, timeoutMs);
+
+      // Send initialized notification (required by MCP spec before any further requests)
+      writeMcpStdioMessage(proc.stdin, {
+        jsonrpc: "2.0",
+        method: "notifications/initialized",
+      });
 
       // 发送 tools/list 请求
       const toolsRequest = {
@@ -1096,10 +1204,10 @@ class McpProxyManager {
         method: "tools/list",
         params: {},
       };
-      proc.stdin.write(JSON.stringify(toolsRequest) + "\n");
+      writeMcpStdioMessage(proc.stdin, toolsRequest);
 
       // 等待 tools/list 响应
-      const response = await this.waitForMcpResponse(proc, 2, 5000);
+      const response = await this.waitForMcpResponse(proc, 2, timeoutMs);
 
       // 验证响应格式
       if (!response?.result?.tools || !Array.isArray(response.result.tools)) {
@@ -1147,17 +1255,40 @@ class McpProxyManager {
         reject(new Error("MCP response timeout"));
       }, timeoutMs);
 
-      let buffer = "";
+      let buffer = Buffer.alloc(0);
       const onData = (chunk: Buffer) => {
-        buffer += chunk.toString();
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+        buffer = Buffer.concat([buffer, chunk]);
 
-        for (const line of lines) {
-          if (!line.trim()) continue;
+        // 1) Prefer Content-Length framed messages
+        for (;;) {
+          const headerEnd = buffer.indexOf("\r\n\r\n");
+          if (headerEnd === -1) break;
+
+          const headerStr = buffer.slice(0, headerEnd).toString("utf8");
+          const m = headerStr.match(/Content-Length:\s*(\d+)/i);
+          if (!m) {
+            // Not a framed header; fall back to newline parsing below.
+            break;
+          }
+          const contentLength = Number(m[1]);
+          if (
+            !Number.isFinite(contentLength) ||
+            contentLength < 0 ||
+            contentLength > 10_000_000
+          ) {
+            buffer = buffer.slice(headerEnd + 4);
+            continue;
+          }
+          const bodyStart = headerEnd + 4;
+          const bodyEnd = bodyStart + contentLength;
+          if (buffer.length < bodyEnd) break;
+
+          const body = buffer.slice(bodyStart, bodyEnd).toString("utf8");
+          buffer = buffer.slice(bodyEnd);
+
           try {
-            const msg = JSON.parse(line);
-            if (msg.id === requestId) {
+            const msg = JSON.parse(body);
+            if (msg?.id === requestId) {
               clearTimeout(timeout);
               proc.stdout.off("data", onData);
               if (msg.error) {
@@ -1165,9 +1296,38 @@ class McpProxyManager {
               } else {
                 resolve(msg);
               }
+              return;
             }
           } catch {
-            // 忽略非 JSON 行
+            // Ignore parse errors and continue consuming
+          }
+        }
+
+        // 2) Backward compatible: newline-delimited JSON
+        const text = buffer.toString("utf8");
+        const lastNl = text.lastIndexOf("\n");
+        if (lastNl === -1) return;
+        const complete = text.slice(0, lastNl);
+        const rest = text.slice(lastNl + 1);
+        buffer = Buffer.from(rest, "utf8");
+
+        for (const line of complete.split("\n")) {
+          const trimmed = line.replace(/\r$/, "").trim();
+          if (!trimmed) continue;
+          try {
+            const msg = JSON.parse(trimmed);
+            if (msg?.id === requestId) {
+              clearTimeout(timeout);
+              proc.stdout.off("data", onData);
+              if (msg.error) {
+                reject(new Error(msg.error.message || "MCP error"));
+              } else {
+                resolve(msg);
+              }
+              return;
+            }
+          } catch {
+            // ignore
           }
         }
       };

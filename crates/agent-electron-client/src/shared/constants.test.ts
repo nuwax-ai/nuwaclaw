@@ -20,6 +20,10 @@ import {
   DEFAULT_ANTHROPIC_API_URL,
   DEFAULT_SERVER_HOST,
   DEFAULT_AI_ENGINE,
+  isAgentEngineType,
+  normalizeAgentEngine,
+  normalizeOptionalPort,
+  SUPPORTED_AGENT_ENGINES,
   DEFAULT_AI_MODEL,
   DEFAULT_MAX_TOKENS,
   DEFAULT_TEMPERATURE,
@@ -94,6 +98,25 @@ describe("Constants", () => {
   describe("AI Configuration", () => {
     it("should have valid AI engine type", () => {
       expect(["claude-code", "nuwaxcode"]).toContain(DEFAULT_AI_ENGINE);
+      expect(SUPPORTED_AGENT_ENGINES).toEqual(["claude-code", "nuwaxcode"]);
+    });
+
+    it("should normalize legacy or invalid AI engine values", () => {
+      expect(isAgentEngineType("claude-code")).toBe(true);
+      expect(isAgentEngineType("nuwaxcode")).toBe(true);
+      expect(isAgentEngineType("hermes-agent")).toBe(false);
+      expect(normalizeAgentEngine("nuwaxcode")).toBe("nuwaxcode");
+      expect(normalizeAgentEngine("hermes-agent")).toBe(DEFAULT_AI_ENGINE);
+      expect(normalizeAgentEngine(undefined)).toBe(DEFAULT_AI_ENGINE);
+    });
+
+    it("should normalize optional port values", () => {
+      expect(normalizeOptionalPort(60001)).toBe(60001);
+      expect(normalizeOptionalPort("60001")).toBe(60001);
+      expect(normalizeOptionalPort("")).toBeUndefined();
+      expect(normalizeOptionalPort("abc")).toBeUndefined();
+      expect(normalizeOptionalPort(0)).toBeUndefined();
+      expect(normalizeOptionalPort(65536)).toBeUndefined();
     });
 
     it("should have non-empty model name", () => {

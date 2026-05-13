@@ -45,6 +45,7 @@ export default function AboutPage() {
   });
   const [appVersion, setAppVersion] = useState<string>("");
   const hasShownInstallModal = useRef(false);
+  const [installing, setInstalling] = useState(false);
   /** macOS/Linux 无真实进度时的模拟进度（0..SIMULATED_PROGRESS_CAP），有 progress 时不用 */
   const [simulatedPercent, setSimulatedPercent] = useState(0);
   const simulatedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
@@ -222,18 +223,29 @@ export default function AboutPage() {
   useEffect(() => {
     if (updateState.status === "downloaded" && !hasShownInstallModal.current) {
       hasShownInstallModal.current = true;
-      Modal.confirm({
+      const modal = Modal.confirm({
         title: t("Claw.About.updateDownloaded"),
         content: t("Claw.About.updateDownloadedConfirm", {
           version: updateState.version,
         }),
         okText: t("Claw.About.restartNow"),
         cancelText: t("Claw.About.later"),
+        okButtonProps: { loading: false },
         onOk: async () => {
+          modal.update({ okButtonProps: { loading: true } });
           try {
-            await window.electronAPI?.app?.installUpdate?.();
+            const result = await window.electronAPI?.app?.installUpdate?.();
+            if (!result || !result.success) {
+              const errorMessage =
+                result?.error || t("Claw.About.installFailed");
+              message.error(errorMessage);
+              modal.update({ okButtonProps: { loading: false } });
+              return Promise.reject(new Error(errorMessage));
+            }
           } catch {
             message.error(t("Claw.About.installFailed"));
+            modal.update({ okButtonProps: { loading: false } });
+            return Promise.reject(new Error(t("Claw.About.installFailed")));
           }
         },
       });
@@ -253,8 +265,8 @@ export default function AboutPage() {
     }));
     try {
       const result = await window.electronAPI?.app?.downloadUpdate?.();
-      if (result && !result.success) {
-        message.error(result.error || t("Claw.About.downloadFailed"));
+      if (!result || !result.success) {
+        message.error(result?.error || t("Claw.About.downloadFailed"));
         setUpdateState((prev) => ({ ...prev, status: "available" }));
       }
     } catch {
@@ -264,10 +276,16 @@ export default function AboutPage() {
   }, []);
 
   const handleInstall = useCallback(async () => {
+    setInstalling(true);
     try {
-      await window.electronAPI?.app?.installUpdate?.();
+      const result = await window.electronAPI?.app?.installUpdate?.();
+      if (!result || !result.success) {
+        message.error(result?.error || t("Claw.About.installFailed"));
+        setInstalling(false);
+      }
     } catch {
       message.error(t("Claw.About.installFailed"));
+      setInstalling(false);
     }
   }, []);
 
@@ -383,7 +401,7 @@ export default function AboutPage() {
             <div style={{ fontSize: 12, color: "var(--color-success)" }}>
               {t("Claw.About.versionDownloaded", { version })}
             </div>
-            <Button type="primary" onClick={handleInstall}>
+            <Button type="primary" onClick={handleInstall} loading={installing}>
               {t("Claw.About.installUpdate")}
             </Button>
           </Space>

@@ -53,6 +53,7 @@ import { t } from "../../services/core/i18n";
 import { resolveDepDisplayName } from "../../utils/dependencyI18n";
 import styles from "../../styles/components/ClientPage.module.css";
 import { FEATURES } from "@shared/featureFlags";
+import { normalizeAgentEngine, normalizeOptionalPort } from "@shared/constants";
 
 // ======================== Types =================
 type TabKey =
@@ -345,12 +346,12 @@ function ClientPage({
           "step1_config",
         )) as { workspaceDir?: string } | null;
         result = await window.electronAPI?.agent.init({
-          engine: agentConfig?.type || "claude-code",
+          engine: normalizeAgentEngine(agentConfig?.type),
           apiKey: agentConfig?.apiKey,
           baseUrl: agentConfig?.apiBaseUrl,
           model: agentConfig?.model,
           workspaceDir: step1?.workspaceDir || "",
-          port: agentConfig?.backendPort || undefined,
+          port: normalizeOptionalPort(agentConfig?.backendPort),
           engineBinaryPath: agentConfig?.binPath || undefined,
         });
         if (agentConfig?.type === "codex-cli") {
