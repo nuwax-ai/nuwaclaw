@@ -735,6 +735,20 @@ export async function createAcpConnection(
     }
   }
 
+  // codex-cli: inject CODEX_* env vars for codex-acp binary
+  // codex-acp reads these to override config.toml (CODEX_BASE_URL, CODEX_API_KEY, CODEX_MODEL)
+  if (config.engineType === "codex" || config.engineType === "codex-cli") {
+    if (config.apiKey) {
+      env.CODEX_API_KEY = config.apiKey;
+    }
+    if (config.baseUrl) {
+      env.CODEX_BASE_URL = config.baseUrl;
+    }
+    if (config.model) {
+      env.CODEX_MODEL = config.model;
+    }
+  }
+
   const gatewayStatus =
     config.engineType === "codex" || config.engineType === "codex-cli"
       ? getGatewayStatus()
@@ -827,6 +841,14 @@ export async function createAcpConnection(
       ? env.OPENCODE_OPENAI_API_KEY.slice(
           0,
           Math.min(8, Math.floor(env.OPENCODE_OPENAI_API_KEY.length / 2)),
+        ) + "..."
+      : "(not set)",
+    CODEX_MODEL: env.CODEX_MODEL || "(not set)",
+    CODEX_BASE_URL: env.CODEX_BASE_URL || "(not set)",
+    CODEX_API_KEY: env.CODEX_API_KEY
+      ? env.CODEX_API_KEY.slice(
+          0,
+          Math.min(8, Math.floor(env.CODEX_API_KEY.length / 2)),
         ) + "..."
       : "(not set)",
   });
